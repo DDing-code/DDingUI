@@ -940,35 +940,71 @@ function Widgets:CreateScrollFrame(parent)
 		content:SetHeight(height)
 	end
 
+	-- [DF-FIX] LoadPage에서 스크롤 프레임 높이 재계산 시 사용
+	-- 위젯 렌더링이 늦게 되는 경우를 대비하여 여러 번 호출
+	function scrollFrame:UpdateContentHeightDelayed(contentFrame)
+		if contentFrame.scrollFrame then
+			contentFrame.scrollFrame:ResetScroll()
+			-- 다중 타이밍 업데이트: 위젯 렌더링 완료 보장
+			for _, delay in ipairs({ 0.05, 0.2, 0.5 }) do
+				C_Timer.After(delay, function()
+					if contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
+						contentFrame.scrollFrame:UpdateContentHeight()
+					end
+				end)
+			end
+		end
+	end
+
 	function scrollFrame:ResetScroll()
 		scrollFrame:SetVerticalScroll(0)
 	end
 
-	-- 자식 위젯의 content 높이를 자동 계산
+	-- 자식 위젯의 content 높이를 자동 계산 (재귀적으로 최하단 탐색)
 	function scrollFrame:UpdateContentHeight()
-		local maxBottom = 0
-		for _, child in ipairs({ content:GetChildren() }) do
-			if child:IsShown() then
-				local _, _, _, _, offsetY = child:GetPoint()
-				local bottom = -(offsetY or 0) + (child:GetHeight() or 0)
-				if bottom > maxBottom then
-					maxBottom = bottom
-				end
-			end
-		end
-		-- Region(FontString 등)도 포함
-		for _, region in ipairs({ content:GetRegions() }) do
-			if region:IsShown() and region.GetPoint then
-				local ok, _, _, _, _, offsetY = pcall(region.GetPoint, region)
-				if ok then
-					local bottom = -(offsetY or 0) + (region:GetHeight() or 0)
-					if bottom > maxBottom then
-						maxBottom = bottom
+		local function GetDeepBottom(frame, parentOffsetY)
+			local maxBottom = 0
+			-- 자식 프레임 탐색
+			local ok1, children = pcall(frame.GetChildren, frame)
+			if ok1 and children then
+				for _, child in ipairs({ children }) do
+					if child and child:IsShown() then
+						local nPoints = child:GetNumPoints()
+						if nPoints > 0 then
+							local ok2, _, _, _, _, offsetY = pcall(child.GetPoint, child)
+							if ok2 then
+								local absY = parentOffsetY + (-(offsetY or 0))
+								local h = child:GetHeight() or 0
+								local bottom = absY + h
+								if bottom > maxBottom then maxBottom = bottom end
+								-- 재귀: 자식의 자식도 탐색
+								local deepBottom = GetDeepBottom(child, absY)
+								if deepBottom > maxBottom then maxBottom = deepBottom end
+							end
+						end
 					end
 				end
 			end
+			-- Region (FontString 등)
+			local ok3, regions = pcall(frame.GetRegions, frame)
+			if ok3 and regions then
+				for _, region in ipairs({ regions }) do
+					if region and region:IsShown() and region.GetPoint then
+						local ok4, _, _, _, _, offsetY = pcall(region.GetPoint, region)
+						if ok4 then
+							local bottom = parentOffsetY + (-(offsetY or 0)) + (region:GetHeight() or 0)
+							if bottom > maxBottom then maxBottom = bottom end
+						end
+					end
+				end
+			end
+			return maxBottom
 		end
-		content:SetHeight(maxBottom + 30)  -- 하단 여백
+
+		local maxBottom = GetDeepBottom(content, 0)
+		-- 최소 높이: 스크롤 영역보다 작으면 스크롤 불필요
+		local minHeight = scrollFrame:GetHeight() or 100
+		content:SetHeight(math.max(maxBottom + 30, minHeight))
 	end
 
 	-- 자식 위젯에 마우스휠 이벤트 전파 (HookScript)

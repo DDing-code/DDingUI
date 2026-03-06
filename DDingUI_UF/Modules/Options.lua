@@ -6026,16 +6026,13 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 
 		featureFn(featureContainer, selectedUnit)
 
-		-- [FIX] 하위 기능 컴포넌트(featureFn)가 설정에 맞춰 높이를 결정하면, 이를 부모 프레임(contentFrame.content)에 반영
-		local childHeight = featureContainer:GetHeight() or 0
-		if childHeight > 0 then
-			parent:SetHeight(childHeight + 50) -- 50은 탭 메뉴 및 헤더 영역
-		end
-
-		-- 스크롤 프레임 범위 업데이트
-		if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
-			contentFrame.scrollFrame:UpdateContentHeight()
-		end
+		-- [FIX] 하위 기능 컴포넌트(featureFn) 완료 후 → 지연 높이 전파
+		-- featureContainer가 bottomright 앵커라 GetHeight가 즉시 0일 수 있으므로 지연 계산
+		C_Timer.After(0.1, function()
+			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
+				contentFrame.scrollFrame:UpdateContentHeight()
+			end
+		end)
 	end
 	
 	dropdown:SetOnSelect(function(value)
@@ -6919,11 +6916,14 @@ LoadPage = function(categoryId)
 	-- 스크롤 초기화 및 컨텐츠 높이 자동 계산
 	if contentFrame.scrollFrame then
 		contentFrame.scrollFrame:ResetScroll()
-		C_Timer.After(0.05, function()
-			if contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
-				contentFrame.scrollFrame:UpdateContentHeight()
-			end
-		end)
+		-- 다중 타이밍 업데이트: 위젯들이 비동기 렌더링될 수 있으므로 여러 시점에 높이 재계산
+		for _, delay in ipairs({ 0.05, 0.2, 0.5 }) do
+			C_Timer.After(delay, function()
+				if contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
+					contentFrame.scrollFrame:UpdateContentHeight()
+				end
+			end)
+		end
 	end
 end
 
