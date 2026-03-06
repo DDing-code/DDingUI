@@ -5947,9 +5947,7 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 	
 	local featureContainer = CreateFrame("Frame", nil, parent)
 	featureContainer:SetPoint("TOPLEFT", headerContainer, "BOTTOMLEFT", 0, -10)
-	featureContainer:SetWidth(CONTENT_WIDTH - 20)
-	-- [FIX] BOTTOMRIGHT 앵커 제거 — 양쪽 앵커가 SetHeight()를 덮어쓰는 문제 근본 해결
-	-- featureFn 내부에서 parent:SetHeight(yOffset + N) 호출이 정상 동작하도록 함
+	featureContainer:SetPoint("TOPRIGHT", headerContainer, "BOTTOMRIGHT", 0, -10)
 	
 	local function RenderFeature()
 		local selectedUnit = TabSelections[groupType]
@@ -6028,23 +6026,40 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 
 		featureFn(featureContainer, selectedUnit)
 
-		-- [FIX] featureFn이 featureContainer:SetHeight()를 호출한 직후,
-		-- 그 높이를 부모(contentFrame.content)에 전파하여 스크롤 범위 설정
-		local fcHeight = featureContainer:GetHeight() or 0
-		if fcHeight > 0 then
-			-- headerContainer(40) + gap(10) + featureContainer 높이 + 여유(20)
-			parent:SetHeight(60 + fcHeight + 20)
-		end
-		-- 지연 업데이트 (비동기 위젯 대비)
-		C_Timer.After(0.1, function()
-			local h2 = featureContainer:GetHeight() or 0
-			if h2 > 0 then
-				parent:SetHeight(60 + h2 + 20)
+		-- [FIX] featureFn이 featureContainer에 위젯을 배치한 후,
+		-- featureContainer 내부 자식들의 최하단 위치를 계산하여 parent(contentFrame.content)에 전파
+		local function PropagateHeight()
+			local maxBottom = 0
+			for _, child in ipairs({ featureContainer:GetChildren() }) do
+				if child:IsShown() then
+					local ok, _, _, _, _, oY = pcall(child.GetPoint, child)
+					if ok then
+						local bottom = math.abs(oY or 0) + (child:GetHeight() or 0)
+						if bottom > maxBottom then maxBottom = bottom end
+					end
+				end
+			end
+			for _, region in ipairs({ featureContainer:GetRegions() }) do
+				if region:IsShown() and region.GetPoint then
+					local ok, _, _, _, _, oY = pcall(region.GetPoint, region)
+					if ok then
+						local bottom = math.abs(oY or 0) + (region:GetHeight() or 0)
+						if bottom > maxBottom then maxBottom = bottom end
+					end
+				end
+			end
+			if maxBottom > 0 then
+				-- headerContainer(40) + gap(10) + content height + 하단여유(30)
+				parent:SetHeight(80 + maxBottom)
 			end
 			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
 				contentFrame.scrollFrame:UpdateContentHeight()
 			end
-		end)
+		end
+		-- 즉시 + 지연 업데이트
+		PropagateHeight()
+		C_Timer.After(0.1, PropagateHeight)
+		C_Timer.After(0.3, PropagateHeight)
 	end
 	
 	dropdown:SetOnSelect(function(value)
