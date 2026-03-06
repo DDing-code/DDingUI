@@ -6114,6 +6114,54 @@ local HOT_AURA_DISPLAY = {
 	["Essence Font"] = "정수의 샘",
 }
 
+-- ===== HoT Tracker 유틸 함수 (Aura Designer에서 사용) =====
+-- DB 경로: ns.db.party.widgets.hotTracker.auraSettings["SpecKey.AuraName"]
+
+local function GetAuraCfg(specKey, auraName)
+	local db = ns.db and ns.db.party
+	local hotDB = db and db.widgets and db.widgets.hotTracker
+	local auraSettings = hotDB and hotDB.auraSettings
+	if auraSettings then
+		local key = specKey .. "." .. auraName
+		return auraSettings[key] or ns.AURA_DISPLAY_DEFAULTS or {}
+	end
+	return ns.AURA_DISPLAY_DEFAULTS or {}
+end
+
+local function EnsureAuraCfg(specKey, auraName)
+	local db = ns.db and ns.db.party
+	if not db then return {} end
+	if not db.widgets then db.widgets = {} end
+	if not db.widgets.hotTracker then db.widgets.hotTracker = {} end
+	if not db.widgets.hotTracker.auraSettings then db.widgets.hotTracker.auraSettings = {} end
+	local key = specKey .. "." .. auraName
+	if not db.widgets.hotTracker.auraSettings[key] then
+		local defaults = ns.AURA_DISPLAY_DEFAULTS or {}
+		db.widgets.hotTracker.auraSettings[key] = {
+			enabled = true,
+			bar = defaults.bar and { enabled = defaults.bar.enabled, thickness = defaults.bar.thickness, color = { unpack(defaults.bar.color) } } or { enabled = false, thickness = 3, color = { 0.3, 0.85, 0.45, 0.8 } },
+			gradient = defaults.gradient and { enabled = defaults.gradient.enabled, color = { unpack(defaults.gradient.color) }, alpha = defaults.gradient.alpha } or { enabled = false, color = { 0.3, 0.85, 0.45 }, alpha = 0.4 },
+			healthColor = defaults.healthColor and { enabled = defaults.healthColor.enabled, color = { unpack(defaults.healthColor.color) } } or { enabled = false, color = { 0.3, 0.85, 0.45, 1 } },
+			outline = defaults.outline and { enabled = defaults.outline.enabled, size = defaults.outline.size, color = { unpack(defaults.outline.color) } } or { enabled = false, size = 2, color = { 0.3, 0.85, 0.45, 1 } },
+		}
+	end
+	return db.widgets.hotTracker.auraSettings[key]
+end
+
+local function SetAuraCfg(specKey, auraName, cfg)
+	local db = ns.db and ns.db.party
+	if not db or not db.widgets or not db.widgets.hotTracker or not db.widgets.hotTracker.auraSettings then return end
+	local key = specKey .. "." .. auraName
+	db.widgets.hotTracker.auraSettings[key] = cfg
+end
+
+local function HotRefreshAll()
+	local GF = ns.GroupFrames
+	if GF and GF.RefreshAllHotIndicators then
+		GF:RefreshAllHotIndicators()
+	end
+end
+
 pageBuilders["hottracker"] = function(parent)
 	local header = CreatePageHeader(parent, "HoT 추적 (Aura Designer)", "힐러 HoT 버프를 아우라 디자이너 형태로 관리합니다")
 	local yOffset = -60
