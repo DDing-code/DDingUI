@@ -6115,7 +6115,7 @@ local HOT_AURA_DISPLAY = {
 }
 
 pageBuilders["hottracker"] = function(parent)
-	local header = CreatePageHeader(parent, "HoT 추적", "힐러 HoT 버프를 그룹 프레임에 표시합니다")
+	local header = CreatePageHeader(parent, "HoT 추적 (Aura Designer)", "힐러 HoT 버프를 아우라 디자이너 형태로 관리합니다")
 	local yOffset = -60
 
 	local GF = ns.GroupFrames
@@ -6128,8 +6128,7 @@ pageBuilders["hottracker"] = function(parent)
 	local curSpecKey = (GF and GF.GetPlayerSpecKey) and GF:GetPlayerSpecKey() or nil
 	local specDisplay = curSpecKey and HOT_SPEC_DISPLAY[curSpecKey] or "감지 안 됨"
 	specLabel:SetText("현재 전문화: |cff00ff00" .. specDisplay .. "|r")
-	yOffset = yOffset - 30
-
+	
 	-- 전문화 선택 드롭다운
 	local specList = {}
 	if HotSpecData then
@@ -6140,20 +6139,45 @@ pageBuilders["hottracker"] = function(parent)
 		table.sort(specList, function(a, b) return a.text < b.text end)
 	end
 
-	-- 버프 토글 + 세부 설정 컨테이너
-	local container = CreateFrame("Frame", nil, parent)
-	container:SetSize(CONTENT_WIDTH - 30, 600)
-	container:SetPoint("TOPLEFT", 15, yOffset - 55)
-
-	local auraWidgets = {} -- 재활용 위한 위젯 관리
 	local selectedSpec = curSpecKey
 	local selectedAura = nil
 
-	-- === 세부 설정 패널 빌드 ===
-	local detailContainer = CreateFrame("Frame", nil, container)
-	detailContainer:SetSize(CONTENT_WIDTH - 40, 400)
-	detailContainer:Hide()
+	local specDropdown
+	if #specList > 0 then
+		specDropdown = Widgets:CreateDropdown(parent, 200)
+		specDropdown:SetPoint("LEFT", specLabel, "RIGHT", 30, 0)
+		specDropdown:SetItems(specList)
+		if selectedSpec and HotSpecData[selectedSpec] then
+			specDropdown:SetSelected(selectedSpec)
+		end
+	end
+
+	yOffset = yOffset - 40
+
+	-- 메인 컨테이너
+	local container = CreateFrame("Frame", nil, parent)
+	container:SetSize(CONTENT_WIDTH - 30, 480)
+	container:SetPoint("TOPLEFT", 15, yOffset)
+
+	-- ===== 좌우 분할 패널 (DandersFrames Aura Designer 레이아웃) =====
+	local leftPanel = CreateFrame("Frame", nil, container)
+	leftPanel:SetSize(220, 480)
+	leftPanel:SetPoint("TOPLEFT", 0, 0)
+
+	local vSep = container:CreateTexture(nil, "BACKGROUND")
+	vSep:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 5, 0)
+	vSep:SetPoint("BOTTOMLEFT", leftPanel, "BOTTOMRIGHT", 5, 0)
+	vSep:SetWidth(1)
+	vSep:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+
+	local rightPanel = CreateFrame("Frame", nil, container)
+	rightPanel:SetPoint("TOPLEFT", vSep, "TOPRIGHT", 15, 0)
+	rightPanel:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+
+	local auraWidgets = {}
 	local detailWidgets = {}
+	
+	local BuildAuraList, BuildDetailPanel
 
 	local function ClearDetailWidgets()
 		for _, w in ipairs(detailWidgets) do
@@ -6163,190 +6187,188 @@ pageBuilders["hottracker"] = function(parent)
 		wipe(detailWidgets)
 	end
 
-	local function BuildDetailPanel(specKey, auraName, anchorY)
+	-- ===== 우측: 개별 오라 상세 설정 패널 =====
+	BuildDetailPanel = function(specKey, auraName)
 		ClearDetailWidgets()
-		detailContainer:ClearAllPoints()
-		detailContainer:SetPoint("TOPLEFT", 0, anchorY)
-		detailContainer:Show()
+		if not auraName then return end
 
 		local ac = EnsureAuraCfg(specKey, auraName)
 		local displayName = HOT_AURA_DISPLAY[auraName] or auraName
-		local dy = 0
+		local dy = -10
 
-		-- 구분선 + 제목
-		local titleSep = Widgets:CreateSeparator(detailContainer, displayName .. " 표시 설정", CONTENT_WIDTH - 60)
-		titleSep:SetPoint("TOPLEFT", 0, dy)
+		-- 제목 (우측 패널)
+		local title = rightPanel:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_NORMAL")
+		title:SetPoint("TOPLEFT", 10, dy)
+		title:SetText("|cff00ff00" .. displayName .. "|r 상세 설정")
+		table.insert(detailWidgets, title)
+
+		local titleSep = Widgets:CreateSeparator(rightPanel, "", CONTENT_WIDTH - 280)
+		titleSep:SetPoint("TOPLEFT", 10, dy - 20)
 		table.insert(detailWidgets, titleSep)
-		dy = dy - 30
+		dy = dy - 40
 
-		-- 1. 바 (남은 시간 막대)
-		local barCheck = Widgets:CreateCheckButton(detailContainer, "바 (남은 시간 막대)", function(checked)
+		-- 1. 활성화 토글
+		local enableCheck = Widgets:CreateCheckButton(rightPanel, "추적 활성화", function(checked)
+			local ac2 = EnsureAuraCfg(specKey, auraName)
+			ac2.enabled = checked
+			SetAuraCfg(specKey, auraName, ac2)
+			HotRefreshAll()
+			BuildAuraList(specKey)
+		end)
+		enableCheck:SetPoint("TOPLEFT", 10, dy)
+		enableCheck:SetChecked(ac.enabled ~= false)
+		table.insert(detailWidgets, enableCheck)
+		dy = dy - 45
+
+		-- 2. 바 (남은 시간 막대)
+		local barCheck = Widgets:CreateCheckButton(rightPanel, "바 (남은 시간 막대)", function(checked)
 			if not ac.bar then ac.bar = { enabled = false, thickness = 3, color = { unpack(defaults.bar.color) } } end
 			ac.bar.enabled = checked
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		barCheck:SetPoint("TOPLEFT", 0, dy)
+		barCheck:SetPoint("TOPLEFT", 10, dy)
 		barCheck:SetChecked(ac.bar and ac.bar.enabled or false)
 		table.insert(detailWidgets, barCheck)
-		dy = dy - 25
+		dy = dy - 30
 
-		local barThickSlider = Widgets:CreateSlider("  두께", detailContainer, 1, 8, 130, 1, nil, function(value)
+		local barThickSlider = Widgets:CreateSlider("두께", rightPanel, 1, 8, 120, 1, nil, function(value)
 			if not ac.bar then ac.bar = {} end
 			ac.bar.thickness = value
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		barThickSlider:SetPoint("TOPLEFT", 20, dy)
+		barThickSlider:SetPoint("TOPLEFT", 30, dy)
 		barThickSlider:SetValue(ac.bar and ac.bar.thickness or 3)
 		table.insert(detailWidgets, barThickSlider)
-		dy = dy - 40
-
-		local barColorCP = Widgets:CreateColorPicker(detailContainer, "  바 색상", true, function(r, g, b, a)
+		
+		local barColorCP = Widgets:CreateColorPicker(rightPanel, "바 색상", true, function(r, g, b, a)
 			if not ac.bar then ac.bar = {} end
 			ac.bar.color = { r, g, b, a }
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		barColorCP:SetPoint("TOPLEFT", 20, dy)
+		barColorCP:SetPoint("LEFT", barThickSlider, "RIGHT", 40, -10)
 		local bc = ac.bar and ac.bar.color or defaults.bar.color
 		barColorCP:SetColor(bc[1], bc[2], bc[3], bc[4] or 0.8)
 		table.insert(detailWidgets, barColorCP)
-		dy = dy - 30
+		dy = dy - 55
 
-		-- 2. 그라데이션 (프레임 오버레이: 지정색→투명)
-		local gradCheck = Widgets:CreateCheckButton(detailContainer, "그라데이션 (프레임 오버레이)", function(checked)
+		-- 3. 그라데이션 (프레임 오버레이)
+		local gradCheck = Widgets:CreateCheckButton(rightPanel, "그라데이션 (프레임 오버레이)", function(checked)
 			if not ac.gradient then ac.gradient = { enabled = false, color = { unpack(defaults.gradient.color) }, alpha = defaults.gradient.alpha } end
 			ac.gradient.enabled = checked
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		gradCheck:SetPoint("TOPLEFT", 0, dy)
+		gradCheck:SetPoint("TOPLEFT", 10, dy)
 		gradCheck:SetChecked(ac.gradient and ac.gradient.enabled or false)
 		table.insert(detailWidgets, gradCheck)
-		dy = dy - 25
+		dy = dy - 30
 
-		local gradAlphaSlider = Widgets:CreateSlider("  투명도", detailContainer, 0.1, 1.0, 130, 0.05, nil, function(value)
+		local gradAlphaSlider = Widgets:CreateSlider("투명도", rightPanel, 0.1, 1.0, 120, 0.05, nil, function(value)
 			if not ac.gradient then ac.gradient = {} end
 			ac.gradient.alpha = value
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		gradAlphaSlider:SetPoint("TOPLEFT", 20, dy)
+		gradAlphaSlider:SetPoint("TOPLEFT", 30, dy)
 		gradAlphaSlider:SetValue(ac.gradient and ac.gradient.alpha or defaults.gradient.alpha or 0.4)
 		table.insert(detailWidgets, gradAlphaSlider)
-		dy = dy - 40
 
-		local gradCP = Widgets:CreateColorPicker(detailContainer, "  그라데이션 색상", false, function(r, g, b)
+		local gradCP = Widgets:CreateColorPicker(rightPanel, "그라데이션 색상", false, function(r, g, b)
 			if not ac.gradient then ac.gradient = {} end
 			ac.gradient.color = { r, g, b }
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		gradCP:SetPoint("TOPLEFT", 20, dy)
+		gradCP:SetPoint("LEFT", gradAlphaSlider, "RIGHT", 40, -10)
 		local gc = ac.gradient and ac.gradient.color or defaults.gradient.color or { 0.3, 0.85, 0.45 }
 		gradCP:SetColor(gc[1], gc[2], gc[3], 1)
 		table.insert(detailWidgets, gradCP)
-		dy = dy - 30
+		dy = dy - 55
 
-		-- 3. 체력바 색상
-		local hcCheck = Widgets:CreateCheckButton(detailContainer, "체력바 색상 변경", function(checked)
+		-- 4. 체력바 색상
+		local hcCheck = Widgets:CreateCheckButton(rightPanel, "체력바 전체 색상 오버라이드", function(checked)
 			if not ac.healthColor then ac.healthColor = { enabled = false, color = { unpack(defaults.healthColor.color) } } end
 			ac.healthColor.enabled = checked
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		hcCheck:SetPoint("TOPLEFT", 0, dy)
+		hcCheck:SetPoint("TOPLEFT", 10, dy)
 		hcCheck:SetChecked(ac.healthColor and ac.healthColor.enabled or false)
 		table.insert(detailWidgets, hcCheck)
-		dy = dy - 25
+		dy = dy - 30
 
-		local hcCP = Widgets:CreateColorPicker(detailContainer, "  체력바 색상", true, function(r, g, b, a)
+		local hcCP = Widgets:CreateColorPicker(rightPanel, "적용될 체력바 색상", true, function(r, g, b, a)
 			if not ac.healthColor then ac.healthColor = {} end
 			ac.healthColor.color = { r, g, b, a }
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		hcCP:SetPoint("TOPLEFT", 20, dy)
+		hcCP:SetPoint("TOPLEFT", 30, dy)
 		local hcC = ac.healthColor and ac.healthColor.color or defaults.healthColor.color
 		hcCP:SetColor(hcC[1], hcC[2], hcC[3], hcC[4] or 1)
 		table.insert(detailWidgets, hcCP)
-		dy = dy - 30
+		dy = dy - 45
 
-		-- 4. 외곽선
-		local outCheck = Widgets:CreateCheckButton(detailContainer, "외곽선 (프레임 테두리)", function(checked)
+		-- 5. 외곽선
+		local outCheck = Widgets:CreateCheckButton(rightPanel, "외곽선 (프레임 테두리 하이라이트)", function(checked)
 			if not ac.outline then ac.outline = { enabled = false, size = 2, color = { unpack(defaults.outline.color) } } end
 			ac.outline.enabled = checked
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		outCheck:SetPoint("TOPLEFT", 0, dy)
+		outCheck:SetPoint("TOPLEFT", 10, dy)
 		outCheck:SetChecked(ac.outline and ac.outline.enabled or false)
 		table.insert(detailWidgets, outCheck)
-		dy = dy - 25
+		dy = dy - 30
 
-		local outSizeSlider = Widgets:CreateSlider("  두께", detailContainer, 1, 5, 130, 1, nil, function(value)
+		local outSizeSlider = Widgets:CreateSlider("두께", rightPanel, 1, 5, 120, 1, nil, function(value)
 			if not ac.outline then ac.outline = {} end
 			ac.outline.size = value
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		outSizeSlider:SetPoint("TOPLEFT", 20, dy)
+		outSizeSlider:SetPoint("TOPLEFT", 30, dy)
 		outSizeSlider:SetValue(ac.outline and ac.outline.size or 2)
 		table.insert(detailWidgets, outSizeSlider)
-		dy = dy - 40
 
-		local outCP = Widgets:CreateColorPicker(detailContainer, "  외곽선 색상", true, function(r, g, b, a)
+		local outCP = Widgets:CreateColorPicker(rightPanel, "외곽선 색상", true, function(r, g, b, a)
 			if not ac.outline then ac.outline = {} end
 			ac.outline.color = { r, g, b, a }
 			SetAuraCfg(specKey, auraName, ac)
 			HotRefreshAll()
 		end)
-		outCP:SetPoint("TOPLEFT", 20, dy)
+		outCP:SetPoint("LEFT", outSizeSlider, "RIGHT", 40, -10)
 		local oc = ac.outline and ac.outline.color or defaults.outline.color
 		outCP:SetColor(oc[1], oc[2], oc[3], oc[4] or 1)
 		table.insert(detailWidgets, outCP)
-		dy = dy - 30
-
-		-- [FIX] detail 패널 높이 + container 높이 갱신 → 스크롤 범위 업데이트
-		detailContainer:SetHeight(math.abs(dy) + 20)
-		container:SetHeight(math.abs(anchorY) + math.abs(dy) + 40)
-		if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
-			contentFrame.scrollFrame:UpdateContentHeight()
-		end
 	end
-
-	-- === 버프 목록 빌드 ===
+	
+	-- ===== 좌측: 오라 목록 =====
 	local function ClearAuraWidgets()
 		for _, w in ipairs(auraWidgets) do
 			w:Hide()
 			w:SetParent(nil)
 		end
 		wipe(auraWidgets)
-		ClearDetailWidgets()
-		detailContainer:Hide()
-		selectedAura = nil
-		-- [FIX] container 높이 복원 + 스크롤 범위 업데이트
-		container:SetHeight(600)
-		if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
-			contentFrame.scrollFrame:UpdateContentHeight()
-		end
 	end
 
-	local function BuildAuraList(specKey)
+	BuildAuraList = function(specKey)
 		ClearAuraWidgets()
 		if not HotSpecData or not HotSpecData[specKey] then return end
 
 		local specData = HotSpecData[specKey]
-		local ay = 0
+		local ay = -10
 
-		-- 버프 목록 구분선
-		local buffSep = Widgets:CreateSeparator(container, "추적 버프", CONTENT_WIDTH - 60)
-		buffSep:SetPoint("TOPLEFT", 0, ay)
-		table.insert(auraWidgets, buffSep)
-		ay = ay - 25
+		local listTitle = leftPanel:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_NORMAL")
+		listTitle:SetPoint("TOPLEFT", 5, ay)
+		listTitle:SetText("디자이너 목록")
+		listTitle:SetTextColor(1, 0.82, 0)
+		table.insert(auraWidgets, listTitle)
+		ay = ay - 30
 
-		-- 정렬된 버프 목록
 		local sortedBuffs = {}
 		for buffName in pairs(specData.auras) do
 			table.insert(sortedBuffs, buffName)
@@ -6359,86 +6381,115 @@ pageBuilders["hottracker"] = function(parent)
 			local displayName = HOT_AURA_DISPLAY[buffName] or buffName
 			local isEnabled = (auraCfg.enabled ~= false)
 
-			-- 체크박스 + 클릭 시 세부 설정 패널 표시
-			local check = Widgets:CreateCheckButton(container, displayName, function(checked)
-				local ac = EnsureAuraCfg(specKey, buffName)
-				ac.enabled = checked
-				SetAuraCfg(specKey, buffName, ac)
-				HotRefreshAll()
-			end)
-			check:SetPoint("TOPLEFT", 0, ay)
-			check:SetChecked(isEnabled)
-			table.insert(auraWidgets, check)
-			table.insert(buffButtons, { name = buffName, check = check, y = ay })
-
-			-- 클릭 가능한 라벨 영역 (체크박스 오른쪽 텍스트 클릭 → 세부 설정)
-			local selectBtn = Widgets:CreateButton(container, "설정", nil, { 40, 18 })
-			selectBtn:SetPoint("LEFT", check, "RIGHT", 100, 0)
-			selectBtn:SetScript("OnClick", function()
-				selectedAura = buffName
-				-- 이전 선택 해제 (버튼 색상 복원)
-				for _, bb in ipairs(buffButtons) do
-					if bb.name ~= buffName and bb.selectBtn then
-						bb.selectBtn:SetText("설정")
-					end
+			local btn = Widgets:CreateButton(leftPanel, displayName, "transparent", { 200, 24 })
+			btn:SetPoint("TOPLEFT", 5, ay)
+			
+			-- 현재 선택 중인 상태 시각적 피드백
+			if selectedAura == buffName then
+				btn:SetBackdropColor(0.2, 0.6, 0.2, 0.6)
+				btn.label:SetTextColor(0, 1, 0, 1)
+			else
+				if isEnabled then
+					btn.label:SetTextColor(1, 1, 1, 1)
+				else
+					btn.label:SetTextColor(0.5, 0.5, 0.5, 1)
 				end
-				selectBtn:SetText("|cff00ff00>설정<|r")
-				-- ay는 루프 최종값 (버프 목록 아래), +50은 모두 활성화/비활성화 버튼 영역
-				BuildDetailPanel(specKey, buffName, ay - 50)
-			end)
-			buffButtons[#buffButtons].selectBtn = selectBtn
-			table.insert(auraWidgets, selectBtn)
+			end
 
-			ay = ay - 25
+			btn:SetScript("OnClick", function()
+				selectedAura = buffName
+				BuildAuraList(specKey)
+				BuildDetailPanel(specKey, buffName)
+			end)
+			
+			-- ON/OFF 배지
+			local statusFS = btn:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+			statusFS:SetPoint("RIGHT", btn, "RIGHT", -10, 0)
+			if isEnabled then
+				statusFS:SetText("|cff00ff00ON|r")
+			else
+				statusFS:SetText("|cff888888OFF|r")
+			end
+			
+			table.insert(auraWidgets, btn)
+			table.insert(buffButtons, btn)
+			ay = ay - 26
 		end
 
-		-- 모두 활성화 / 비활성화 버튼
-		local allOnBtn = Widgets:CreateButton(container, "모두 활성화", "accent", { 100, 22 })
-		allOnBtn:SetPoint("TOPLEFT", 0, ay - 10)
+		ay = ay - 10
+		local allOnBtn = Widgets:CreateButton(leftPanel, "모조리 켜기", "accent", { 95, 22 })
+		allOnBtn:SetPoint("TOPLEFT", 5, ay)
 		allOnBtn:SetScript("OnClick", function()
-			for _, bb in ipairs(buffButtons) do
-				local ac = EnsureAuraCfg(specKey, bb.name)
+			for _, buffName in ipairs(sortedBuffs) do
+				local ac = EnsureAuraCfg(specKey, buffName)
 				ac.enabled = true
-				SetAuraCfg(specKey, bb.name, ac)
-				if bb.check and bb.check.SetChecked then bb.check:SetChecked(true) end
+				SetAuraCfg(specKey, buffName, ac)
 			end
 			HotRefreshAll()
+			BuildAuraList(specKey)
+			if selectedAura then BuildDetailPanel(specKey, selectedAura) end
 		end)
 		table.insert(auraWidgets, allOnBtn)
 
-		local allOffBtn = Widgets:CreateButton(container, "모두 비활성화", "red", { 100, 22 })
+		local allOffBtn = Widgets:CreateButton(leftPanel, "모조리 끄기", "red", { 95, 22 })
 		allOffBtn:SetPoint("LEFT", allOnBtn, "RIGHT", 10, 0)
 		allOffBtn:SetScript("OnClick", function()
-			for _, bb in ipairs(buffButtons) do
-				local ac = EnsureAuraCfg(specKey, bb.name)
+			for _, buffName in ipairs(sortedBuffs) do
+				local ac = EnsureAuraCfg(specKey, buffName)
 				ac.enabled = false
-				SetAuraCfg(specKey, bb.name, ac)
-				if bb.check and bb.check.SetChecked then bb.check:SetChecked(false) end
+				SetAuraCfg(specKey, buffName, ac)
 			end
 			HotRefreshAll()
+			BuildAuraList(specKey)
+			if selectedAura then BuildDetailPanel(specKey, selectedAura) end
 		end)
 		table.insert(auraWidgets, allOffBtn)
 	end
-
-	-- 드롭다운
-	if #specList > 0 then
-		local specDropdown = Widgets:CreateDropdown(parent, 200)
-		specDropdown:SetPoint("TOPLEFT", 15, yOffset)
-		specDropdown:SetItems(specList)
+	
+	if specDropdown then
 		specDropdown:SetOnSelect(function(value)
 			selectedSpec = value
+			selectedAura = nil
+			ClearDetailWidgets()
 			BuildAuraList(value)
+			
+			-- 첫 번째 오라 자동 선택 (전문화 변경 시)
+			if HotSpecData and HotSpecData[selectedSpec] then
+				local sortedBuffs = {}
+				for buffName in pairs(HotSpecData[selectedSpec].auras) do
+					table.insert(sortedBuffs, buffName)
+				end
+				table.sort(sortedBuffs)
+				if #sortedBuffs > 0 then
+					selectedAura = sortedBuffs[1]
+					BuildAuraList(selectedSpec)
+					BuildDetailPanel(selectedSpec, selectedAura)
+				end
+			end
 		end)
-
-		if selectedSpec and HotSpecData[selectedSpec] then
-			specDropdown:SetSelected(selectedSpec)
-		end
 	end
 
 	-- 초기 빌드
 	if selectedSpec then
+		-- 첫 번째 오라 자동 선택
+		local sortedBuffs = {}
+		if HotSpecData and HotSpecData[selectedSpec] then
+			for buffName in pairs(HotSpecData[selectedSpec].auras) do
+				table.insert(sortedBuffs, buffName)
+			end
+			table.sort(sortedBuffs)
+			if #sortedBuffs > 0 and not selectedAura then
+				selectedAura = sortedBuffs[1]
+			end
+		end
+		
 		BuildAuraList(selectedSpec)
+		if selectedAura then
+			BuildDetailPanel(selectedSpec, selectedAura)
+		end
 	end
+	
+	parent:SetHeight(math.abs(yOffset) + 550)
 end
 
 -----------------------------------------------
