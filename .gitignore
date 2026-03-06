@@ -1,0 +1,40 @@
+# Logs
+Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS-generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.sublime-project
+*.sublime-workspace
+.claude/
+
+# Temporary and backups
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+*.temp
+
+# World of Warcraft specific (if running directly in AddOns folder)
+*.lua.bak
+*.txt.bak
+nul
