@@ -6024,40 +6024,29 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 			copyBtn:Hide()
 		end
 
-		-- [FIX] featureFn 실행 전에 parent를 충분히 크게 설정
-		-- → featureContainer(BOTTOMRIGHT 앵커)도 따라서 커짐
-		-- → ScrollFrame이 자식 위젯을 클리핑하지 않음
-		parent:SetHeight(2000)
+		-- [CDM-FIX] featureContainer의 SetHeight를 후킹하여 contentFrame.content에 높이 전파
+		-- BOTTOMRIGHT 앵커 때문에 SetHeight가 실제 크기를 바꾸진 않지만,
+		-- featureFn이 "이만큼의 높이가 필요해"라고 알려주는 신호로 활용
+		local origSetHeight = featureContainer.SetHeight
+		featureContainer.SetHeight = function(self, h)
+			origSetHeight(self, h)  -- 원래 호출 (앵커 때문에 무시되지만)
+			if h and h > 0 then
+				-- headerContainer(40) + gap(10) + 요청 높이 + 하단여유(30)
+				parent:SetHeight(80 + h)
+			end
+		end
+
+		-- pre-expand: featureFn이 위젯을 배치하는 동안 클리핑 방지
+		parent:SetHeight(5000)
 
 		featureFn(featureContainer, selectedUnit)
 
-		-- [FIX] featureFn 완료 후, featureContainer 내부의 실제 콘텐츠 높이를 계산하여 정확히 재설정
-		local function PropagateHeight()
-			local maxBottom = 0
-			for _, child in ipairs({ featureContainer:GetChildren() }) do
-				if child:IsShown() then
-					local ok, _, _, _, _, oY = pcall(child.GetPoint, child)
-					if ok then
-						local bottom = math.abs(oY or 0) + (child:GetHeight() or 0)
-						if bottom > maxBottom then maxBottom = bottom end
-					end
-				end
+		-- featureFn이 SetHeight를 호출하지 않는 경우 대비 (fallback)
+		C_Timer.After(0.1, function()
+			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
+				contentFrame.scrollFrame:UpdateContentHeight()
 			end
-			for _, region in ipairs({ featureContainer:GetRegions() }) do
-				if region:IsShown() and region.GetPoint then
-					local ok, _, _, _, _, oY = pcall(region.GetPoint, region)
-					if ok then
-						local bottom = math.abs(oY or 0) + (region:GetHeight() or 0)
-						if bottom > maxBottom then maxBottom = bottom end
-					end
-				end
-			end
-			if maxBottom > 0 then
-				parent:SetHeight(80 + maxBottom)
-			end
-		end
-		PropagateHeight()
-		C_Timer.After(0.1, PropagateHeight)
+		end)
 	end
 	
 	dropdown:SetOnSelect(function(value)
