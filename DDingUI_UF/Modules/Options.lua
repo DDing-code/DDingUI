@@ -5947,7 +5947,9 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 	
 	local featureContainer = CreateFrame("Frame", nil, parent)
 	featureContainer:SetPoint("TOPLEFT", headerContainer, "BOTTOMLEFT", 0, -10)
-	featureContainer:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+	featureContainer:SetWidth(CONTENT_WIDTH - 20)
+	-- [FIX] BOTTOMRIGHT 앵커 제거 — 양쪽 앵커가 SetHeight()를 덮어쓰는 문제 근본 해결
+	-- featureFn 내부에서 parent:SetHeight(yOffset + N) 호출이 정상 동작하도록 함
 	
 	local function RenderFeature()
 		local selectedUnit = TabSelections[groupType]
@@ -6026,9 +6028,19 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 
 		featureFn(featureContainer, selectedUnit)
 
-		-- [FIX] 하위 기능 컴포넌트(featureFn) 완료 후 → 지연 높이 전파
-		-- featureContainer가 bottomright 앵커라 GetHeight가 즉시 0일 수 있으므로 지연 계산
+		-- [FIX] featureFn이 featureContainer:SetHeight()를 호출한 직후,
+		-- 그 높이를 부모(contentFrame.content)에 전파하여 스크롤 범위 설정
+		local fcHeight = featureContainer:GetHeight() or 0
+		if fcHeight > 0 then
+			-- headerContainer(40) + gap(10) + featureContainer 높이 + 여유(20)
+			parent:SetHeight(60 + fcHeight + 20)
+		end
+		-- 지연 업데이트 (비동기 위젯 대비)
 		C_Timer.After(0.1, function()
+			local h2 = featureContainer:GetHeight() or 0
+			if h2 > 0 then
+				parent:SetHeight(60 + h2 + 20)
+			end
 			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
 				contentFrame.scrollFrame:UpdateContentHeight()
 			end
