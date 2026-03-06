@@ -6058,7 +6058,6 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 		end
 		PropagateHeight()
 		C_Timer.After(0.1, PropagateHeight)
-		C_Timer.After(0.3, PropagateHeight)
 	end
 	
 	dropdown:SetOnSelect(function(value)
@@ -6942,17 +6941,14 @@ LoadPage = function(categoryId)
 	builder(contentFrame.content)
 	currentPage = categoryId
 
-	-- 스크롤 초기화 및 컨텐츠 높이 자동 계산
+	-- 스크롤 초기화 및 컨텐츠 높이 자동 계산 (CDM 패턴: 1회 지연 계산)
 	if contentFrame.scrollFrame then
 		contentFrame.scrollFrame:ResetScroll()
-		-- 다중 타이밍 업데이트: 위젯들이 비동기 렌더링될 수 있으므로 여러 시점에 높이 재계산
-		for _, delay in ipairs({ 0.05, 0.2, 0.5 }) do
-			C_Timer.After(delay, function()
-				if contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
-					contentFrame.scrollFrame:UpdateContentHeight()
-				end
-			end)
-		end
+		C_Timer.After(0.1, function()
+			if contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
+				contentFrame.scrollFrame:UpdateContentHeight()
+			end
+		end)
 	end
 end
 

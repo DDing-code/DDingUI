@@ -922,12 +922,16 @@ function Widgets:CreateScrollFrame(parent)
 	content:SetHeight(1)
 	scrollFrame:SetScrollChild(content)
 
-	-- Mouse wheel scrolling
+	-- Mouse wheel scrolling (CDM style: safe scroll range)
 	local function OnMouseWheel(self, delta)
-		local current = scrollFrame:GetVerticalScroll()
-		local maxScroll = math.max(0, content:GetHeight() - scrollFrame:GetHeight())
-		local newScroll = math.max(0, math.min(maxScroll, current - (delta * 40)))
-		scrollFrame:SetVerticalScroll(newScroll)
+		local ok = pcall(function()
+			local current = scrollFrame:GetVerticalScroll()
+			local childH = content:GetHeight() or 0
+			local frameH = scrollFrame:GetHeight() or 0
+			local maxScroll = math.max(0, childH - frameH)
+			local newScroll = math.max(0, math.min(maxScroll, current - (delta * 40)))
+			scrollFrame:SetVerticalScroll(newScroll)
+		end)
 	end
 	scrollFrame:SetScript("OnMouseWheel", OnMouseWheel)
 
@@ -961,6 +965,7 @@ function Widgets:CreateScrollFrame(parent)
 	end
 
 	-- 자식 위젯의 content 높이를 자동 계산 (재귀적으로 최하단 탐색)
+	-- CDM 패턴: 높이 설정 후 현재 스크롤 위치도 안전 범위로 clamp
 	function scrollFrame:UpdateContentHeight()
 		local function GetDeepBottom(frame, parentOffsetY)
 			local maxBottom = 0
@@ -1004,7 +1009,15 @@ function Widgets:CreateScrollFrame(parent)
 		local maxBottom = GetDeepBottom(content, 0)
 		-- 최소 높이: 스크롤 영역보다 작으면 스크롤 불필요
 		local minHeight = scrollFrame:GetHeight() or 100
-		content:SetHeight(math.max(maxBottom + 30, minHeight))
+		local newHeight = math.max(maxBottom + 30, minHeight)
+		content:SetHeight(newHeight)
+		
+		-- CDM 패턴: 높이 변경 후 현재 스크롤 위치를 안전 범위로 clamp
+		local currentScroll = scrollFrame:GetVerticalScroll()
+		local maxScroll = math.max(0, newHeight - (scrollFrame:GetHeight() or 0))
+		if currentScroll > maxScroll then
+			scrollFrame:SetVerticalScroll(maxScroll)
+		end
 	end
 
 	-- 자식 위젯에 마우스휠 이벤트 전파 (HookScript)
