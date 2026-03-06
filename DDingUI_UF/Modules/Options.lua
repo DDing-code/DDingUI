@@ -5968,13 +5968,12 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 			local destUnit = (selectedUnit == "party") and "raid" or "party"
 			local destName = UnitNames[destUnit] or destUnit
 			
-			copyBtn.text:SetText(destName .. " 설정으로 덮어쓰기")
+			copyBtn:SetText(destName .. " 설정으로 덮어쓰기")
 			
 			copyBtn:SetScript("OnEnter", function(self)
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetText(destName .. " 설정 복사")
-				GameTooltip:AddLine("현재 탭의 설정을 " .. destName .. " 프레임으로 동일하게 복사합니다.
-(DandersFrames 스타일 실시간 동기화)", 1, 1, 1, true)
+				GameTooltip:AddLine("현재 탭의 설정을 " .. destName .. " 프레임으로 동일하게 복사합니다.\\n(DandersFrames 스타일 실시간 동기화)", 1, 1, 1, true)
 				GameTooltip:Show()
 			end)
 			copyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
