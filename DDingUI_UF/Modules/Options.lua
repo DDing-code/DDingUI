@@ -6457,14 +6457,17 @@ pageBuilders["hottracker"] = function(parent)
 			btn:SetPoint("TOPLEFT", 5, ay)
 			
 			-- 현재 선택 중인 상태 시각적 피드백
+			local fs = btn:GetFontString()
 			if selectedAura == buffName then
 				btn:SetBackdropColor(0.2, 0.6, 0.2, 0.6)
-				btn.label:SetTextColor(0, 1, 0, 1)
+				if fs then fs:SetTextColor(0, 1, 0, 1) end
 			else
-				if isEnabled then
-					btn.label:SetTextColor(1, 1, 1, 1)
-				else
-					btn.label:SetTextColor(0.5, 0.5, 0.5, 1)
+				if fs then
+					if isEnabled then
+						fs:SetTextColor(1, 1, 1, 1)
+					else
+						fs:SetTextColor(0.5, 0.5, 0.5, 1)
+					end
 				end
 			end
 
