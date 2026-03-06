@@ -6025,6 +6025,17 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 		end
 
 		featureFn(featureContainer, selectedUnit)
+
+		-- [FIX] 하위 기능 컴포넌트(featureFn)가 설정에 맞춰 높이를 결정하면, 이를 부모 프레임(contentFrame.content)에 반영
+		local childHeight = featureContainer:GetHeight() or 0
+		if childHeight > 0 then
+			parent:SetHeight(childHeight + 50) -- 50은 탭 메뉴 및 헤더 영역
+		end
+
+		-- 스크롤 프레임 범위 업데이트
+		if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
+			contentFrame.scrollFrame:UpdateContentHeight()
+		end
 	end
 	
 	dropdown:SetOnSelect(function(value)
