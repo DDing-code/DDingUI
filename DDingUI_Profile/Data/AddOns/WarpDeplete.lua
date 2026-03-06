@@ -1,0 +1,51 @@
+local DUI = unpack(DDingUI_Profile)
+local D = DUI:GetModule("Data")
+
+------------------------------------------------------------------------
+-- WarpDeplete 프로필 데이터
+-- SavedVariables (WarpDepleteDB.profiles.DDingUI) 테이블 직접 복사
+------------------------------------------------------------------------
+D.warpdeplete = {
+    ["customForcesFormat"] = "Need :remainingcountafterpull: || :percentafterpull: || :count:/:totalcount:",
+    ["barHeight"] = 8,
+    ["timerSuccessColor"] = "ff00a3ff",
+    ["bar2FontSize"] = 14,
+    ["timerFontSize"] = 32,
+    ["tooltipCountFormat"] = ":custom:",
+    ["forcesFormat"] = ":custom:",
+    ["customTooltipCountFormat"] = "+:count: || :percent:",
+    ["frameX"] = -2.868158102035523,
+    ["completedObjectivesColor"] = "fffb9900",
+    ["currentPullFormat"] = ":custom:",
+    ["keyDetailsFontSize"] = 14,
+    ["timerFont"] = "Gotham Narrow Ultra Asia",
+    ["bar3FontSize"] = 14,
+    ["bar1Texture"] = "Melli",
+    ["showPrideGlow"] = false,
+    ["bar3TextureColor"] = "fffb9900",
+    ["objectivesFont"] = "DDing Asia",
+    ["keyDetailsColor"] = "ff00a3ff",
+    ["bar2Texture"] = "Melli",
+    ["keyDetailsFont"] = "DDing Asia",
+    ["bar3Font"] = "DDing Asia",
+    ["deathsFont"] = "DDing Asia",
+    ["bar3Texture"] = "Melli",
+    ["timerExpiredColor"] = "ffff2a2e",
+    ["forcesOverlayTexture"] = "Melli",
+    ["bar1FontSize"] = 14,
+    ["objectivesFontSize"] = 12,
+    ["completedForcesColor"] = "fffb9900",
+    ["bar2Font"] = "DDing Asia",
+    ["bar1Font"] = "DDing Asia",
+    ["bar2TextureColor"] = "fffb9900",
+    ["deathsFontSize"] = 14,
+    ["bar1TextureColor"] = "fffb9900",
+    ["forcesTextureColor"] = "ff00a3ff",
+    ["forcesTexture"] = "Melli",
+    ["frameY"] = 72.26226043701172,
+    ["forcesFontSize"] = 14,
+    ["customCurrentPullFormat"] = "",
+    ["forcesFont"] = "DDing Asia",
+    ["forcesOverlayTextureColor"] = "ffffffff",
+    ["barWidth"] = 290,
+}

@@ -1,0 +1,305 @@
+-- DDingUI_Essential Core -- [ESSENTIAL]
+-- 블리자드 기본 UI 스킨 애드온 (미니맵, 채팅, 버프, 퀘스트추적기, 데미지미터, 행동단축바)
+
+local addonName, ns = ...
+
+------------------------------------------------------------------------
+-- StyleLib 로드 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local SL = _G.DDingUI_StyleLib
+local FLAT  = SL and SL.Textures and SL.Textures.flat or "Interface\\Buttons\\WHITE8x8"
+local FONT  = SL and SL.Font and SL.Font.path or "Fonts\\2002.TTF"
+local FONT_DEFAULT = SL and SL.Font and SL.Font.default or "Fonts\\FRIZQT__.TTF"
+
+ns.SL   = SL
+ns.FLAT = FLAT
+ns.FONT = FONT
+ns.FONT_DEFAULT = FONT_DEFAULT
+
+------------------------------------------------------------------------
+-- 색상 헬퍼 -- [ESSENTIAL]
+------------------------------------------------------------------------
+ns.GetColor = function(path)
+    -- path: "bg.main", "border.default", "text.normal" 등
+    if not SL or not SL.Colors then return 0.1, 0.1, 0.1, 0.9 end
+    local parts = {strsplit(".", path)}
+    local t = SL.Colors
+    for _, key in ipairs(parts) do
+        t = t[key]
+        if not t then return 0.1, 0.1, 0.1, 0.9 end
+    end
+    if type(t) == "table" then
+        return t[1] or 0.1, t[2] or 0.1, t[3] or 0.1, t[4] or 1
+    end
+    return 0.1, 0.1, 0.1, 0.9
+end
+
+ns.GetColorTable = function(path)
+    local r, g, b, a = ns.GetColor(path)
+    return {r, g, b, a}
+end
+
+------------------------------------------------------------------------
+-- 유틸리티 -- [ESSENTIAL]
+------------------------------------------------------------------------
+function ns.CreateBackdrop(frame, bgColor, borderColor)
+    if not frame then return end
+    local bg = bgColor or {ns.GetColor("bg.main")}
+    local bd = borderColor or {ns.GetColor("border.default")}
+
+    if frame.SetBackdrop then
+        frame:SetBackdrop({
+            bgFile   = FLAT,
+            edgeFile = FLAT,
+            edgeSize = 1,
+        })
+        frame:SetBackdropColor(bg[1], bg[2], bg[3], bg[4] or 0.9)
+        frame:SetBackdropBorderColor(bd[1], bd[2], bd[3], bd[4] or 1)
+    end
+end
+
+function ns.StripTextures(frame)
+    if not frame then return end
+    for _, region in next, { frame:GetRegions() } do
+        if region and region.IsObjectType and region:IsObjectType("Texture") then
+            region:SetTexture(nil)
+            if region.SetAtlas then region:SetAtlas("") end
+            region:Hide()
+        end
+    end
+end
+
+function ns.SetFont(fontString, size, flags)
+    if not fontString or not fontString.SetFont then return end
+    fontString:SetFont(FONT, size or 12, flags or "")
+end
+
+--- 프레임에 1px StyleLib 테두리를 생성 (백드롭과 별개)
+function ns.CreateBorder(frame, color)
+    if not frame or frame._deBorder then return frame._deBorder end
+    local bd = CreateFrame("Frame", nil, frame, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    bd:SetAllPoints()
+    bd:SetFrameLevel(math.max(0, frame:GetFrameLevel()))
+    bd:SetBackdrop({ edgeFile = FLAT, edgeSize = 1 })
+    local r, g, b, a
+    if color then
+        r, g, b, a = color[1], color[2], color[3], color[4]
+    else
+        r, g, b, a = ns.GetColor("border.default")
+    end
+    bd:SetBackdropBorderColor(r, g, b, a or 1)
+    frame._deBorder = bd
+    return bd
+end
+
+--- StatusBar 진행바 색상 그라데이션 (빨강→노랑→초록)
+function ns.ColorGradient(perc, ...)
+    if perc >= 1 then
+        return select(select('#', ...) - 2, ...)
+    elseif perc <= 0 then
+        return ...
+    end
+    local num = select('#', ...) / 3
+    local segment, relperc = math.modf(perc * (num - 1))
+    local r1, g1, b1, r2, g2, b2
+    r1, g1, b1 = select((segment * 3) + 1, ...)
+    r2, g2, b2 = select((segment * 3) + 4, ...)
+    return r1 + (r2 - r1) * relperc, g1 + (g2 - g1) * relperc, b1 + (b2 - b1) * relperc
+end
+
+------------------------------------------------------------------------
+-- 모듈 시스템 -- [ESSENTIAL]
+------------------------------------------------------------------------
+ns.modules = {}
+
+function ns:RegisterModule(name, module)
+    self.modules[name] = module
+end
+
+function ns:EnableModule(name)
+    local mod = self.modules[name]
+    if mod and mod.Enable then
+        local ok, err = pcall(mod.Enable, mod)
+        if not ok then
+            print("|cffff0000DDingUI Essential:|r " .. name .. " 모듈 에러: " .. tostring(err))
+        end
+    end
+end
+
+function ns:DisableModule(name)
+    local mod = self.modules[name]
+    if mod and mod.Disable then
+        mod:Disable()
+    end
+end
+
+------------------------------------------------------------------------
+-- StyleLib 악센트 등록 -- [ESSENTIAL]
+------------------------------------------------------------------------
+if SL and SL.RegisterAddon then
+    SL.RegisterAddon("Essential", {
+        from  = { 0.25, 0.78, 0.75, 1.0 },  -- 틸 (teal)
+        to    = { 0.10, 0.50, 0.50, 1.0 },  -- 다크 틸
+        light = { 0.40, 0.88, 0.85, 1.0 },  -- 호버
+        dark  = { 0.08, 0.40, 0.40, 1.0 },  -- 프레스
+    })
+end
+
+------------------------------------------------------------------------
+-- 기본 DB -- [ESSENTIAL]
+------------------------------------------------------------------------
+local defaults = {
+    general = {
+        scale = 1.0,
+    },
+    minimap = {
+        enabled = true,
+        size = 180,
+        zoneText = true,
+        clock = true,
+        mouseWheel = true,
+    },
+    chat = {
+        enabled = true,
+        backdrop = true,
+        backdropAlpha = 0.75,
+        tabFontSize = 12,
+        editboxFontSize = 13,
+        copyButton = true,
+        urlDetect = true,
+        classColors = true,       -- 직업 색상 [CHATTYNATOR]
+        shortenChannels = false,   -- 채널명 축약 [CHATTYNATOR]
+    },
+    buffs = {
+        enabled = true,
+        iconTrim = true,
+        durationFontSize = 11,
+        countFontSize = 12,
+    },
+    quest = {
+        enabled = true,
+        progressBar = true,
+        timerBar = true,
+        headerSkin = true,
+    },
+    meter = {
+        enabled = true,
+        barFontSize = 11,
+        titleFontSize = 12,
+    },
+    actionbars = {
+        enabled = true,
+        -- 아이콘 스타일 -- [ESSENTIAL]
+        iconTrim = true,
+        cleanIcons = true,
+        slotBackgroundAlpha = 0.3,
+        -- 쿨다운 시각 효과 -- [ESSENTIAL]
+        cooldownDesaturate = true,
+        cooldownDimAlpha = 0.8,
+        -- 키바인드 -- [ESSENTIAL]
+        shortenKeybinds = true,
+        hotkeyFontSize = 11,
+        -- 매크로 이름 -- [ESSENTIAL]
+        macroName = true,
+        macroNameFontSize = 10,
+        macroNameMaxChars = 5,
+        -- 스택 카운트 -- [ESSENTIAL]
+        countFontSize = 14,
+        -- 블리자드 장식 -- [ESSENTIAL]
+        hideBlizzardArt = true,
+        -- 바 페이드 -- [ESSENTIAL]
+        fadeBars = {
+            MainActionBar = false,
+            MultiBarBottomLeft = false,
+            MultiBarBottomRight = false,
+            MultiBarRight = false,
+            MultiBarLeft = false,
+            MultiBar5 = false,
+            MultiBar6 = false,
+            MultiBar7 = false,
+        },
+        fadeStanceBar = false,
+        fadePetBar = false,
+        fadeAlpha = 0,
+        fadeDuration = 0.3,
+        -- UI 숨기기 -- [ESSENTIAL]
+        hideMenuBar = false,
+        hideBagBar = false,
+    },
+}
+
+------------------------------------------------------------------------
+-- 이벤트 처리 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("PLAYER_LOGIN")
+
+frame:SetScript("OnEvent", function(self, event, arg1)
+    if event == "ADDON_LOADED" and arg1 == addonName then
+        -- SavedVariables 초기화 (이전 DDing_EssentialDB → DDingUI_EssentialDB 마이그레이션)
+        if not DDingUI_EssentialDB then
+            DDingUI_EssentialDB = DDing_EssentialDB or {}
+            DDing_EssentialDB = nil -- 구버전 정리
+        end
+        local db = DDingUI_EssentialDB
+        -- 딥 머지: 기존 DB에 새 키 추가 (기존 값 유지, 3단계 깊이) -- [ESSENTIAL]
+        for k, v in pairs(defaults) do
+            if db[k] == nil then
+                db[k] = CopyTable(v)
+            elseif type(v) == "table" then
+                for subK, subV in pairs(v) do
+                    if db[k][subK] == nil then
+                        if type(subV) == "table" then
+                            db[k][subK] = CopyTable(subV)
+                        else
+                            db[k][subK] = subV
+                        end
+                    elseif type(subV) == "table" and type(db[k][subK]) == "table" then
+                        -- 3단계: fadeBars 등 중첩 테이블 머지 -- [ESSENTIAL]
+                        for subSubK, subSubV in pairs(subV) do
+                            if db[k][subK][subSubK] == nil then
+                                db[k][subK][subSubK] = subSubV
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        ns.db = db
+
+    elseif event == "PLAYER_LOGIN" then
+        -- StyleLib 재확인 (다른 애드온이 나중에 로드될 수 있음)
+        if not SL then
+            SL = _G.DDingUI_StyleLib
+            ns.SL = SL
+            if SL then
+                FLAT = SL.Textures and SL.Textures.flat or FLAT
+                FONT = SL.Font and SL.Font.path or FONT
+                ns.FLAT = FLAT
+                ns.FONT = FONT
+                -- 악센트 재등록 -- [ESSENTIAL]
+                if SL.RegisterAddon then
+                    SL.RegisterAddon("Essential", {
+                        from  = { 0.25, 0.78, 0.75, 1.0 },
+                        to    = { 0.10, 0.50, 0.50, 1.0 },
+                        light = { 0.40, 0.88, 0.85, 1.0 },
+                        dark  = { 0.08, 0.40, 0.40, 1.0 },
+                    })
+                end
+            end
+        end
+
+        -- 모듈 활성화
+        for name, mod in pairs(ns.modules) do
+            local dbEntry = ns.db[name]
+            if dbEntry and dbEntry.enabled ~= false then
+                ns:EnableModule(name)
+            end
+        end
+
+        self:UnregisterAllEvents()
+    end
+end)
+
+ns.frame = frame

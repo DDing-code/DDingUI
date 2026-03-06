@@ -1,0 +1,290 @@
+-- DDingUI_Essential: ActionBars Module -- [ESSENTIAL]
+-- ElvUI 수준 행동 단축바 스킨: StyleLib 테두리/폰트, 악센트 checked, 동적 재스킨
+-- 참조: ElvUI/Game/Shared/Modules/ActionBars/ActionBars.lua
+
+local _, ns = ...
+
+local ActionBars = {}
+
+------------------------------------------------------------------------
+-- StyleLib 참조 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local SL      = _G.DDingUI_StyleLib
+local C       = SL and SL.Colors
+local F       = SL and SL.Font
+local FLAT    = SL and SL.Textures and SL.Textures.flat or "Interface\\Buttons\\WHITE8x8"
+
+local function GetC(category, key)
+    return (C and C[category] and C[category][key]) or nil
+end
+
+local function Unpack(tbl, fr, fg, fb, fa)
+    if tbl then return tbl[1], tbl[2], tbl[3], tbl[4] or 1 end
+    return fr or 0.1, fg or 0.1, fb or 0.1, fa or 0.9
+end
+
+-- 악센트 캐시 -- [ESSENTIAL]
+local accentFrom
+
+------------------------------------------------------------------------
+-- 버튼 목록 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local BUTTON_BARS = {
+    { prefix = "ActionButton",             count = 12 },
+    { prefix = "MultiBarBottomLeftButton", count = 12 },
+    { prefix = "MultiBarBottomRightButton",count = 12 },
+    { prefix = "MultiBarRightButton",      count = 12 },
+    { prefix = "MultiBarLeftButton",       count = 12 },
+    { prefix = "MultiBar5Button",          count = 12 },
+    { prefix = "MultiBar6Button",          count = 12 },
+    { prefix = "MultiBar7Button",          count = 12 },
+}
+
+local STANCE_BAR  = { prefix = "StanceButton",    count = 10 }
+local PET_BAR     = { prefix = "PetActionButton",  count = 10 }
+
+------------------------------------------------------------------------
+-- 개별 액션 버튼 스킨 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function SkinActionButton(button)
+    if not button or button._deSkinned then return end
+    button._deSkinned = true
+
+    local db = ns.db and ns.db.actionbars or {}
+
+    -- 아이콘 TexCoord -- [ESSENTIAL]
+    local icon = button.icon or button.Icon
+    if icon then
+        if db.iconTrim ~= false then
+            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
+        icon:SetDrawLayer("ARTWORK", -1)
+    end
+
+    -- NormalTexture 숨기기 -- [ESSENTIAL]
+    local normal = button:GetNormalTexture()
+    if normal then
+        normal:SetTexture(nil)
+        normal:Hide()
+    end
+
+    -- StyleLib 1px 테두리 -- [ESSENTIAL]
+    ns.CreateBorder(button)
+
+    -- HotKey 폰트 -- [ESSENTIAL]
+    local hotkey = button.HotKey
+    if hotkey then
+        ns.SetFont(hotkey, db.hotkeyFontSize or (F and F.small or 11), "OUTLINE")
+    end
+
+    -- 매크로 이름 폰트 -- [ESSENTIAL]
+    local name = button.Name
+    if name then
+        if db.macroName ~= false then
+            ns.SetFont(name, db.macroNameFontSize or 10, "OUTLINE")
+        else
+            name:SetAlpha(0)
+        end
+    end
+
+    -- 스택 카운트 폰트 -- [ESSENTIAL]
+    local count = button.Count
+    if count then
+        ns.SetFont(count, db.countFontSize or 14, "OUTLINE")
+    end
+
+    -- Flash 텍스처: StyleLib status.error 반투명 -- [ESSENTIAL]
+    local flash = button.Flash
+    if flash then
+        local r, g, b = Unpack(GetC("status", "error"), 1.0, 0.2, 0.2)
+        flash:SetColorTexture(r, g, b, 0.45)
+    end
+end
+
+------------------------------------------------------------------------
+-- 스탠스 버튼 스킨 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function SkinStanceButton(button)
+    if not button or button._deSkinned then return end
+    button._deSkinned = true
+
+    local icon = button.icon or button.Icon
+    if icon then
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        icon:SetDrawLayer("ARTWORK", -1)
+    end
+
+    local normal = button:GetNormalTexture()
+    if normal then
+        normal:SetTexture(nil)
+        normal:Hide()
+    end
+
+    -- Checked 텍스처: 악센트 반투명 -- [ESSENTIAL]
+    local checked = button:GetCheckedTexture()
+    if checked then
+        local r, g, b
+        if accentFrom then
+            r, g, b = accentFrom[1], accentFrom[2], accentFrom[3]
+        else
+            r, g, b = Unpack(GetC("border", "active"), 0.25, 0.78, 0.75)
+        end
+        checked:SetColorTexture(r, g, b, 0.3)
+    end
+
+    ns.CreateBorder(button)
+
+    local hotkey = button.HotKey
+    if hotkey then
+        ns.SetFont(hotkey, F and F.small or 11, "OUTLINE")
+    end
+end
+
+------------------------------------------------------------------------
+-- 펫바 버튼 스킨 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function SkinPetButton(button)
+    if not button or button._deSkinned then return end
+    button._deSkinned = true
+
+    local icon = button.icon or button.Icon
+    if icon then
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        icon:SetDrawLayer("ARTWORK", -1)
+    end
+
+    local normal = button:GetNormalTexture()
+    if normal then
+        normal:SetTexture(nil)
+        normal:Hide()
+    end
+
+    ns.CreateBorder(button)
+
+    local hotkey = button.HotKey
+    if hotkey then
+        ns.SetFont(hotkey, F and F.small or 11, "OUTLINE")
+    end
+
+    local name = button.Name
+    if name then
+        ns.SetFont(name, 10, "OUTLINE")
+    end
+
+    -- Flash 색상 -- [ESSENTIAL]
+    local flash = button.Flash
+    if flash then
+        local r, g, b = Unpack(GetC("status", "error"), 1.0, 0.2, 0.2)
+        flash:SetColorTexture(r, g, b, 0.45)
+    end
+end
+
+------------------------------------------------------------------------
+-- Blizzard 장식 요소 숨기기 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function HideBlizzardArt()
+    if MainMenuBarArtFrame then
+        ns.StripTextures(MainMenuBarArtFrame)
+    end
+    if MainMenuBarArtFrameBackground then
+        MainMenuBarArtFrameBackground:Hide()
+    end
+
+    if StatusTrackingBarManager then
+        ns.StripTextures(StatusTrackingBarManager)
+    end
+
+    local artButtons = {
+        ActionBarDownButton,
+        ActionBarUpButton,
+    }
+    for _, btn in ipairs(artButtons) do
+        if btn and btn.Hide then
+            btn:Hide()
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- 동적 스킨 훅 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function HookDynamicSkinning()
+    -- ActionBarButtonEventsFrame 동적 갱신 -- [ESSENTIAL]
+    if ActionBarButtonEventsFrame then
+        hooksecurefunc(ActionBarButtonEventsFrame, "RegisterFrame", function(_, button)
+            if button then
+                button._deSkinned = nil
+                SkinActionButton(button)
+            end
+        end)
+    end
+
+    -- NormalTexture 재설정 방어 훅 -- [ESSENTIAL]
+    for _, barInfo in ipairs(BUTTON_BARS) do
+        for i = 1, barInfo.count do
+            local button = _G[barInfo.prefix .. i]
+            if button and not button._deNormalHooked then
+                button._deNormalHooked = true
+                hooksecurefunc(button, "SetNormalTexture", function(btn)
+                    local n = btn:GetNormalTexture()
+                    if n then
+                        n:SetTexture(nil)
+                        n:Hide()
+                    end
+                end)
+            end
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- Enable -- [ESSENTIAL]
+------------------------------------------------------------------------
+function ActionBars:Enable()
+    -- StyleLib 재확인 -- [ESSENTIAL]
+    if not SL then
+        SL = _G.DDingUI_StyleLib
+        C = SL and SL.Colors
+        F = SL and SL.Font
+        FLAT = SL and SL.Textures and SL.Textures.flat or FLAT
+    end
+
+    -- 악센트 캐시 -- [ESSENTIAL]
+    if SL and SL.GetAccent then
+        local from = SL.GetAccent("Essential")
+        accentFrom = from
+    end
+
+    local db = ns.db and ns.db.actionbars or {}
+
+    -- 1. 메인 액션바 버튼 스킨 -- [ESSENTIAL]
+    for _, barInfo in ipairs(BUTTON_BARS) do
+        for i = 1, barInfo.count do
+            SkinActionButton(_G[barInfo.prefix .. i])
+        end
+    end
+
+    -- 2. 스탠스바 -- [ESSENTIAL]
+    for i = 1, STANCE_BAR.count do
+        SkinStanceButton(_G[STANCE_BAR.prefix .. i])
+    end
+
+    -- 3. 펫바 -- [ESSENTIAL]
+    for i = 1, PET_BAR.count do
+        SkinPetButton(_G[PET_BAR.prefix .. i])
+    end
+
+    -- 4. Blizzard 장식 숨기기 -- [ESSENTIAL]
+    if db.hideBlizzardArt ~= false then
+        HideBlizzardArt()
+    end
+
+    -- 5. 동적 스킨 훅 -- [ESSENTIAL]
+    HookDynamicSkinning()
+end
+
+function ActionBars:Disable()
+    -- ReloadUI 필요 -- [ESSENTIAL]
+end
+
+ns:RegisterModule("actionbars", ActionBars)

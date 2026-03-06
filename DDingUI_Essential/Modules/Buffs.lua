@@ -1,0 +1,286 @@
+-- DDingUI_Essential: Buffs Module -- [ESSENTIAL]
+-- SakuriaUI 스타일 버프/디버프 아이콘 스킨: 플랫 다크 배경, 1px 블랙 테두리, 클린 아이콘
+-- 참조: SakuriaUI/modules/clean_icons.lua, ElvUI/Game/Shared/Modules/Auras/Auras.lua
+
+local _, ns = ...
+
+local Buffs = {}
+
+------------------------------------------------------------------------
+-- StyleLib 참조 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local SL      = _G.DDingUI_StyleLib
+local C       = SL and SL.Colors
+local F       = SL and SL.Font
+local FLAT    = SL and SL.Textures and SL.Textures.flat or "Interface\\Buttons\\WHITE8x8"
+
+local function GetC(category, key)
+    return (C and C[category] and C[category][key]) or nil
+end
+
+local function Unpack(tbl, fr, fg, fb, fa)
+    if tbl then return tbl[1], tbl[2], tbl[3], tbl[4] or 1 end
+    return fr or 0.1, fg or 0.1, fb or 0.1, fa or 0.9
+end
+
+------------------------------------------------------------------------
+-- DebuffType 색상 테이블 (ElvUI 패턴) -- [ESSENTIAL]
+------------------------------------------------------------------------
+local DEBUFF_TYPE_COLORS = {
+    Magic   = { 0.20, 0.60, 1.00 },
+    Curse   = { 0.60, 0.00, 1.00 },
+    Disease = { 0.60, 0.40, 0.00 },
+    Poison  = { 0.00, 0.60, 0.00 },
+    none    = nil,
+}
+
+------------------------------------------------------------------------
+-- 아이콘 마스크 제거 (SakuriaUI 패턴) -- [ESSENTIAL]
+------------------------------------------------------------------------
+local MASK_CANDIDATES = { "IconMask", "CircleMask", "Mask" }
+
+local function StripIconMasks(icon, button)
+    if not icon or not icon.GetNumMaskTextures then return end
+    for i = icon:GetNumMaskTextures(), 1, -1 do
+        local mask = icon:GetMaskTexture(i)
+        if mask then
+            icon:RemoveMaskTexture(mask)
+            if mask.Hide then mask:Hide() end
+            if mask.SetTexture then mask:SetTexture(nil) end
+        end
+    end
+    if button then
+        for _, name in ipairs(MASK_CANDIDATES) do
+            local mask = button[name]
+            if mask and icon.RemoveMaskTexture then
+                icon:RemoveMaskTexture(mask)
+                if mask.Hide then mask:Hide() end
+                if mask.SetTexture then mask:SetTexture(nil) end
+            end
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- 개별 아이콘 스킨 (SakuriaUI 클린 스타일) -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function SkinAuraButton(button, isDebuff)
+    if not button or button._deSkinned then return end
+    button._deSkinned = true
+
+    local db = ns.db and ns.db.buffs or {}
+
+    -- 아이콘 참조 -- [ESSENTIAL]
+    local icon = button.Icon or button.icon
+    if not icon then return end
+
+    -- 1. 마스크 제거 -- [ESSENTIAL]
+    StripIconMasks(icon, button)
+
+    -- 2. 아이콘 TexCoord 트리밍 -- [ESSENTIAL]
+    if db.iconTrim ~= false and icon.SetTexCoord then
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+
+    -- 3. 아이콘 레이어/정렬 -- [ESSENTIAL]
+    icon:SetDrawLayer("BACKGROUND", 0)
+    if icon.SetSnapToPixelGrid then
+        icon:SetSnapToPixelGrid(true)
+        icon:SetTexelSnappingBias(0)
+    end
+
+    -- 4. 기존 Blizzard 테두리 숨기기 -- [ESSENTIAL]
+    local border = button.Border or button.border
+    if border then
+        border:Hide()
+        if not button._borderHooked then
+            button._borderHooked = true
+            hooksecurefunc(border, "Show", function(self) self:Hide() end)
+        end
+    end
+
+    -- 5. NormalTexture 숨기기 -- [ESSENTIAL]
+    local normal = button.GetNormalTexture and button:GetNormalTexture()
+    if normal then normal:SetAlpha(0) end
+
+    -- 6. HighlightTexture 숨기기 -- [ESSENTIAL]
+    local highlight = button.GetHighlightTexture and button:GetHighlightTexture()
+    if highlight then highlight:SetAlpha(0) end
+
+    -- 7. 플랫 다크 배경 (SakuriaUI SlotBackground 패턴) -- [ESSENTIAL]
+    if not button._slBg then
+        local bg = button:CreateTexture(nil, "BACKGROUND", nil, -1)
+        bg:SetTexture(FLAT)
+        bg:SetVertexColor(0, 0, 0, 1)
+        bg:SetAllPoints()
+        bg:SetAlpha(0.35)
+        if bg.SetSnapToPixelGrid then
+            bg:SetSnapToPixelGrid(true)
+            bg:SetTexelSnappingBias(0)
+        end
+        button._slBg = bg
+    end
+
+    -- 8. StyleLib 1px 블랙 테두리 (SakuriaUI 패턴: 항상 검은색) -- [ESSENTIAL]
+    if not button._slBorder then
+        local bd = CreateFrame("Frame", nil, button, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        bd:SetAllPoints()
+        bd:SetFrameLevel(button:GetFrameLevel() + 2)
+        bd:SetBackdrop({ edgeFile = FLAT, edgeSize = 1 })
+        if bd.SetSnapToPixelGrid then
+            bd:SetSnapToPixelGrid(true)
+            bd:SetTexelSnappingBias(0)
+        end
+        button._slBorder = bd
+    end
+
+    -- 9. 테두리 색상 결정 -- [ESSENTIAL]
+    if isDebuff then
+        local debuffType = button.debuffType or (button.aura and button.aura.dispelName)
+        local typeColor = debuffType and DEBUFF_TYPE_COLORS[debuffType]
+        if typeColor then
+            button._slBorder:SetBackdropBorderColor(typeColor[1], typeColor[2], typeColor[3], 1)
+        else
+            local r, g, b = Unpack(GetC("status", "error"), 0.90, 0.25, 0.25) -- [STYLE]
+            button._slBorder:SetBackdropBorderColor(r, g, b, 1)
+        end
+    else
+        -- 버프: 검은색 1px 테두리 (SakuriaUI 패턴) -- [ESSENTIAL]
+        button._slBorder:SetBackdropBorderColor(0, 0, 0, 1)
+    end
+
+    -- 10. 쿨다운 스와이프 스타일 -- [ESSENTIAL]
+    local cd = button.cooldown or button.Cooldown
+    if cd then
+        cd:SetSwipeColor(0, 0, 0, 0.75)
+        cd:SetDrawEdge(false)
+        if cd.SetSnapToPixelGrid then
+            cd:SetSnapToPixelGrid(true)
+            cd:SetTexelSnappingBias(0)
+        end
+    end
+
+    -- 11. 지속시간 텍스트 폰트 + 그림자 -- [ESSENTIAL]
+    local duration = button.Duration or button.duration
+    if duration and duration.SetFont then
+        ns.SetFont(duration, db.durationFontSize or 11, "OUTLINE")
+        duration:SetShadowColor(0, 0, 0, 0.8)
+        duration:SetShadowOffset(1, -1)
+        duration:SetDrawLayer("OVERLAY", 7)
+    end
+
+    -- 12. 스택 텍스트 폰트 + 그림자 -- [ESSENTIAL]
+    local count = button.Count or button.count
+    if count and count.SetFont then
+        ns.SetFont(count, db.countFontSize or 12, "OUTLINE")
+        count:SetShadowColor(0, 0, 0, 0.8)
+        count:SetShadowOffset(1, -1)
+        count:SetDrawLayer("OVERLAY", 7)
+    end
+end
+
+------------------------------------------------------------------------
+-- 디버프 타입 변경 시 테두리 색상 갱신 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function UpdateDebuffBorderColor(button)
+    if not button or not button._slBorder then return end
+    local debuffType = button.debuffType or (button.aura and button.aura.dispelName)
+    local typeColor = debuffType and DEBUFF_TYPE_COLORS[debuffType]
+    if typeColor then
+        button._slBorder:SetBackdropBorderColor(typeColor[1], typeColor[2], typeColor[3], 1)
+    else
+        local r, g, b = Unpack(GetC("status", "error"), 0.90, 0.25, 0.25) -- [STYLE]
+        button._slBorder:SetBackdropBorderColor(r, g, b, 1)
+    end
+end
+
+------------------------------------------------------------------------
+-- 프레임 전체 스킨 (BuffFrame / DebuffFrame) -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function SkinAuraFrame(auraFrame, isDebuff)
+    if not auraFrame or not auraFrame.auraFrames then return end
+    for _, aura in pairs(auraFrame.auraFrames) do
+        if not aura._deSkinned then
+            SkinAuraButton(aura, isDebuff)
+        elseif isDebuff then
+            UpdateDebuffBorderColor(aura)
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- 아이콘 크기 + 레이아웃 적용 -- [ESSENTIAL]
+------------------------------------------------------------------------
+local function ApplyAuraLayout(auraFrame, isDebuff)
+    if not auraFrame or not auraFrame.auraFrames then return end
+    local db = ns.db and ns.db.buffs or {}
+    local iconSize = db.iconSize or 32
+    local wrapAfter = db.wrapAfter or 12
+    local growDir = db.growDirection or "LEFT"
+    local spacing = 2
+
+    local visibleButtons = {}
+    for _, aura in pairs(auraFrame.auraFrames) do
+        if aura:IsShown() then
+            visibleButtons[#visibleButtons + 1] = aura
+        end
+    end
+
+    -- 아이콘 크기 적용 + 위치 재배치 -- [ESSENTIAL]
+    for i, btn in ipairs(visibleButtons) do
+        btn:SetSize(iconSize, iconSize)
+
+        local col = (i - 1) % wrapAfter
+        local row = math.floor((i - 1) / wrapAfter)
+
+        btn:ClearAllPoints()
+        if growDir == "LEFT" then
+            btn:SetPoint("TOPRIGHT", auraFrame, "TOPRIGHT",
+                -(col * (iconSize + spacing)),
+                -(row * (iconSize + spacing)))
+        else -- RIGHT
+            btn:SetPoint("TOPLEFT", auraFrame, "TOPLEFT",
+                col * (iconSize + spacing),
+                -(row * (iconSize + spacing)))
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- Enable -- [ESSENTIAL]
+------------------------------------------------------------------------
+function Buffs:Enable()
+    -- StyleLib 재확인 -- [ESSENTIAL]
+    if not SL then
+        SL = _G.DDingUI_StyleLib
+        C = SL and SL.Colors
+        F = SL and SL.Font
+        FLAT = SL and SL.Textures and SL.Textures.flat or FLAT
+    end
+
+    -- Retail BuffFrame 스킨 -- [ESSENTIAL]
+    if BuffFrame then
+        SkinAuraFrame(BuffFrame, false)
+        ApplyAuraLayout(BuffFrame, false)
+        hooksecurefunc(BuffFrame, "UpdateAuraButtons", function()
+            SkinAuraFrame(BuffFrame, false)
+            ApplyAuraLayout(BuffFrame, false)
+        end)
+    end
+
+    -- DebuffFrame 스킨 -- [ESSENTIAL]
+    if DebuffFrame then
+        SkinAuraFrame(DebuffFrame, true)
+        ApplyAuraLayout(DebuffFrame, true)
+        hooksecurefunc(DebuffFrame, "UpdateAuraButtons", function()
+            SkinAuraFrame(DebuffFrame, true)
+            ApplyAuraLayout(DebuffFrame, true)
+        end)
+    end
+end
+
+function Buffs:Disable()
+    -- ReloadUI 필요 -- [ESSENTIAL]
+end
+
+ns:RegisterModule("buffs", Buffs)

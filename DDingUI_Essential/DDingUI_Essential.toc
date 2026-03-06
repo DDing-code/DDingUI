@@ -1,0 +1,50 @@
+## Interface: 120001
+## Title: |cffffffffDDing|r|cffffa300UI|r |cffffd133Essential|r
+## Notes: Blizzard UI skin addon for DDingUI suite
+## Notes-koKR: 블리자드 기본 UI 스킨 애드온 (미니맵, 채팅, 버프, 퀘스트추적기, 데미지미터, 행동단축바)
+## Author: DDing
+## Version: 0.3.0
+## SavedVariables: DDingUI_EssentialDB
+## OptionalDeps: DDingUI_StyleLib, Details, Recount, LibDBIcon-1.0, DDingUI_Controller
+
+# Libraries
+Libs\LibStub\LibStub.lua
+Libs\AceLocale-3.0\AceLocale-3.0.xml
+
+# DDingUI StyleLib (내장) -- [ESSENTIAL]
+Libs\DDingUI_StyleLib\Core.lua
+Libs\DDingUI_StyleLib\Colors.lua
+Libs\DDingUI_StyleLib\Gradient.lua
+# StyleLib v2 Foundation
+Libs\DDingUI_StyleLib\TableUtils.lua
+Libs\DDingUI_StyleLib\Delay.lua
+Libs\DDingUI_StyleLib\ColorNames.lua
+Libs\DDingUI_StyleLib\PixelUtil.lua
+Libs\DDingUI_StyleLib\ObjectPool.lua
+Libs\DDingUI_StyleLib\Animation.lua
+# StyleLib v2 Widgets
+Libs\DDingUI_StyleLib\GlowEffects.lua
+Libs\DDingUI_StyleLib\CascadingMenu.lua
+Libs\DDingUI_StyleLib\DragSorter.lua
+# StyleLib Widgets
+Libs\DDingUI_StyleLib\Widgets.lua
+
+# Localization
+Locales\enUS.lua
+Locales\koKR.lua
+Locales\Locale.lua
+
+# Core
+Core.lua
+
+# Modules
+Modules\Minimap.lua
+Modules\MinimapButtonBar.lua
+Modules\Chat.lua
+Modules\Buffs.lua
+Modules\QuestTracker.lua
+Modules\DamageMeter.lua
+Modules\ActionBars.lua
+
+# Config
+Config.lua

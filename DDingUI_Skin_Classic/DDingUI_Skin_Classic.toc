@@ -1,0 +1,14 @@
+## Interface: 120001
+## Title: |cffffffffDDing|r|cffffa300UI|r |cff8B8000Classic Skin|r
+## Notes: Transforms DDingUI CDM icons and bars to Blizzard default UI style
+## Notes-koKR: DDingUI CDM 아이콘과 바를 블리자드 기본 UI 스타일로 변환
+## Author: DDing
+## Version: 1.0.0
+## RequiredDeps: DDingUI
+## SavedVariables: DDingUI_Skin_ClassicDB
+## IconTexture: Interface\Icons\INV_Misc_Rune_01
+
+Core.lua
+Media.lua
+Skins\Icons.lua
+Skins\Bars.lua

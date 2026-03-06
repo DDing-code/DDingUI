@@ -1,0 +1,105 @@
+## Interface: 120001
+## Title: |cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r
+## Notes: Modular utility addon (Talent Background, LFG Alert, etc.)
+## Notes-koKR: 모듈형 유틸리티 애드온 (특성창 배경, 파티 신청 알림 등)
+## Author: DDing
+## Version: 1.2.3
+## IconTexture: Interface\AddOns\DDingUI_Toolkit\logo
+## SavedVariables: DDingUIToolkitDB
+## OptionalDeps: DDingUI_Controller
+
+# Libraries
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
+Libs\AceLocale-3.0\AceLocale-3.0.xml
+
+# DDingUI StyleLib (내장)
+Libs\DDingUI_StyleLib\Core.lua
+Libs\DDingUI_StyleLib\Colors.lua
+Libs\DDingUI_StyleLib\Gradient.lua
+# StyleLib v2 Foundation
+Libs\DDingUI_StyleLib\TableUtils.lua
+Libs\DDingUI_StyleLib\Delay.lua
+Libs\DDingUI_StyleLib\ColorNames.lua
+Libs\DDingUI_StyleLib\PixelUtil.lua
+Libs\DDingUI_StyleLib\ObjectPool.lua
+Libs\DDingUI_StyleLib\Animation.lua
+# StyleLib v2 Widgets
+Libs\DDingUI_StyleLib\GlowEffects.lua
+Libs\DDingUI_StyleLib\CascadingMenu.lua
+Libs\DDingUI_StyleLib\DragSorter.lua
+# StyleLib Widgets
+Libs\DDingUI_StyleLib\Widgets.lua
+
+# Localization
+Locales\enUS.lua
+Locales\koKR.lua
+Locales\Locale.lua
+
+# Media
+Media\SharedMedia.lua
+
+# Core
+Core\Database.lua
+Core\Core.lua
+Core\SlashCommands.lua
+Core\MinimapButton.lua
+
+# Config (DDingUI_StyleLib based)
+Config_Data.lua
+Config_UI.lua
+
+# UI
+UI\Themes.lua
+UI\Templates.lua
+
+# Modules - TalentBG
+Modules\TalentBG\Presets.lua
+Modules\TalentBG\TalentBG.lua
+Modules\TalentBG\Config.lua
+
+# Modules - LFGAlert
+Modules\LFGAlert\LFGAlert.lua
+Modules\LFGAlert\AlertFrame.lua
+
+# Modules - MailAlert
+Modules\MailAlert\MailAlert.lua
+Modules\MailAlert\AlertFrame.lua
+
+# Modules - CursorTrail
+Modules\CursorTrail\Presets.lua
+Modules\CursorTrail\CursorTrail.lua
+
+# Modules - ItemLevel
+Modules\ItemLevel\ItemLevel.lua
+
+# Modules - Notepad
+Modules\Notepad\Notepad.lua
+
+
+# Modules - PartyTracker
+Modules\PartyTracker\PartyTracker.lua
+
+# Modules - MythicPlusHelper
+Modules\MythicPlusHelper\MythicPlusHelper.lua
+
+# Modules - GoldSplit
+Modules\GoldSplit\GoldSplit.lua
+
+# Modules - DurabilityCheck
+Modules\DurabilityCheck\DurabilityCheck.lua
+
+# Modules - KeystoneTracker
+Modules\KeystoneTracker\KeystoneTracker.lua
+
+
+
+# Modules - AutoRepair
+Modules\AutoRepair\AutoRepair.lua
+
+# Modules - SkyridingTracker
+Modules\SkyridingTracker\SkyridingTracker.lua
+

@@ -1,0 +1,60 @@
+## Title: |cffffffffDDing|r|cffffa300UI|r |cffff4444Profile|r
+## Notes: DDingUI 프로필 자동 설치 애드온
+## Author: DDing
+## Version: 1.4
+## SavedVariables: DDingUIProfileDB
+## OptionalDeps:
+## Interface: 120001
+## AddonCompartmentFunc: DDingUIProfile_OnAddonCompartmentClick
+## IconTexture: Interface\AddOns\DDingUI_Profile\Media\Textures\logo_s.tga
+
+# Ace Libraries (embedded, LibStub prevents double-load) -- [12.0.1]
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\AceAddon-3.0\AceAddon-3.0.lua
+Libs\AceDB-3.0\AceDB-3.0.lua
+Libs\AceConsole-3.0\AceConsole-3.0.lua
+Libs\AceHook-3.0\AceHook-3.0.lua
+Libs\AceLocale-3.0\AceLocale-3.0.xml
+
+# DDingUI StyleLib (embedded) -- [12.0.1]
+Libs\DDingUI_StyleLib\Core.lua
+Libs\DDingUI_StyleLib\Colors.lua
+Libs\DDingUI_StyleLib\Gradient.lua
+Libs\DDingUI_StyleLib\Widgets.lua
+
+# Localization
+Locales\enUS.lua
+Locales\koKR.lua
+Locales\Locale.lua
+
+Core\Init.lua
+Core\Functions.lua
+
+Media\Media.lua
+
+Data\AddOns\ElvUI.lua
+Data\AddOns\Details.lua
+Data\AddOns\Plater.lua
+Data\AddOns\BigWigs.lua
+Data\AddOns\WarpDeplete.lua
+Data\AddOns\DandersFrames.lua
+Data\AddOns\DDingUI.lua
+Data\AddOns\Falcon.lua
+Data\AddOns\Blizzard_EditMode.lua
+Data\AddOns\SpecProfiles.lua
+
+Setup\Setup.lua
+Setup\AddOns\ElvUI.lua
+Setup\AddOns\Details.lua
+Setup\AddOns\Plater.lua
+Setup\AddOns\BigWigs.lua
+Setup\AddOns\WarpDeplete.lua
+Setup\AddOns\DandersFrames.lua
+Setup\AddOns\DDingUI.lua
+Setup\AddOns\Falcon.lua
+Setup\AddOns\Blizzard_EditMode.lua
+Setup\AddOns\CooldownManager.lua
+
+Core\InstallerUI.lua
+Core\Installer.lua

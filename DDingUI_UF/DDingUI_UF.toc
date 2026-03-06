@@ -1,0 +1,100 @@
+## Interface: 120001
+## Title: |cffffffffDDing|r|cffffa300UI|r |cff4dd973UnitFrames|r
+## Notes: Standalone unit frames - minimal modern design
+## Notes-koKR: 독자 유닛프레임 - 미니멀 모던 디자인
+## Author: DDing
+## Version: 1.3.0
+## SavedVariables: ddingUI_UFDB
+## OptionalDeps: DDingUI_Controller
+## IconTexture: Interface\AddOns\DDingUI_UF\logo
+
+# Libraries
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
+Libs\AceLocale-3.0\AceLocale-3.0.xml
+Libs\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\lib.xml
+
+# Locales
+Locales\enUS.lua
+Locales\koKR.lua
+Locales\Locale.lua
+
+# DDingUI StyleLib (embedded)
+Libs\DDingUI_StyleLib\Core.lua
+Libs\DDingUI_StyleLib\Colors.lua
+Libs\DDingUI_StyleLib\Gradient.lua
+# StyleLib v2 Foundation
+Libs\DDingUI_StyleLib\TableUtils.lua
+Libs\DDingUI_StyleLib\Delay.lua
+Libs\DDingUI_StyleLib\ColorNames.lua
+Libs\DDingUI_StyleLib\PixelUtil.lua
+Libs\DDingUI_StyleLib\ObjectPool.lua
+Libs\DDingUI_StyleLib\Animation.lua
+# StyleLib v2 Widgets
+Libs\DDingUI_StyleLib\GlowEffects.lua
+Libs\DDingUI_StyleLib\CascadingMenu.lua
+Libs\DDingUI_StyleLib\DragSorter.lua
+# StyleLib Widgets
+Libs\DDingUI_StyleLib\Widgets.lua
+
+# oUF (REMOVED — standalone mode)
+# Libs\oUF\oUF.xml
+
+# Widgets (Cell-style)
+Widgets\Widgets.lua
+Widgets\Glow.lua
+
+# Core
+Core\Init.lua
+Core\Constants.lua
+Core\Functions.lua
+Core\Config.lua
+Core\ProfilePresets.lua
+Core\Profiles.lua
+Core\Update.lua
+
+# Tags
+Tags\Tags.lua
+
+# TextFormats (tag function implementations)
+Units\TextFormats.lua
+
+# Aura Cache (before elements that consume it)
+Modules\AuraCache.lua
+
+# GroupFrames (SecureGroupHeaderTemplate 직접 — 이미 독자)
+GroupFrames\Core.lua
+GroupFrames\Create.lua
+GroupFrames\Headers.lua
+GroupFrames\Update.lua
+GroupFrames\TestMode.lua
+GroupFrames\Auras.lua
+GroupFrames\Range.lua
+
+# Elements (DispelHighlight/Highlight — standalone 호환)
+Elements\DispelHighlight.lua
+Elements\Highlight.lua
+
+# Standalone UF Engine (oUF 대체)
+Units\Standalone\TagEngine.lua
+Units\Standalone\ElementDrivers.lua
+Units\Standalone\Core.lua
+
+# Units (Layout.lua는 StyleUnit 위젯 생성 — standalone에서 재사용)
+Units\Layout.lua
+Units\Spawn.lua
+
+# Standalone Spawn (PLAYER_LOGIN에서 프레임 생성)
+Units\Standalone\Spawn.lua
+
+# Modules
+Modules\HideBlizzard.lua
+Modules\Mover.lua
+Modules\ClickCasting.lua
+Modules\TargetedSpells.lua
+Modules\MyBuffIndicators.lua
+# Modules\Preview.lua  -- [12.0.1] TestMode로 대체 (편집모드 자동 활성)
+Modules\Options.lua
+

@@ -1,0 +1,110 @@
+## Interface: 120001, 110207
+## Title: DDingUI CooldownManager
+## Notes: Lightweight Resource Bar & Cooldown Manager
+## Author: DDing
+## Version: 1.2.3
+## SavedVariables: DDingUIDB
+## OptionalDeps: Ace3, LibSharedMedia-3.0
+## IconTexture: Interface\AddOns\DDingUI\Media\logo.tga
+
+# Core library bootstrap
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
+
+# DDingUI StyleLib (내장)
+Libs\DDingUI_StyleLib\Core.lua
+Libs\DDingUI_StyleLib\Colors.lua
+Libs\DDingUI_StyleLib\Gradient.lua
+Libs\DDingUI_StyleLib\Widgets.lua
+
+# Media & utility libraries
+Libs\LibSharedMedia-3.0\lib.xml
+Libs\LibDeflate\LibDeflate.lua
+Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
+# Libs\LibDataBroker-1.1.lua
+# Libs\LibDBIcon-1.0\lib.xml
+# Libs\LibSerialize\lib.xml
+Libs\TaintLess\TaintLess.xml
+# Libs\LibDualSpec-1.0\LibDualSpec-1.0.lua
+# Libs\LibButtonGlow-1.0\LibButtonGlow-1.0.lua
+
+# Ace3 libraries
+Libs\AceAddon-3.0\AceAddon-3.0.xml
+Libs\AceDB-3.0\AceDB-3.0.xml
+Libs\AceDBOptions-3.0\AceDBOptions-3.0.xml
+Libs\AceEvent-3.0\AceEvent-3.0.xml
+Libs\AceConsole-3.0\AceConsole-3.0.xml
+Libs\AceHook-3.0\AceHook-3.0.xml
+Libs\AceLocale-3.0\AceLocale-3.0.xml
+Libs\AceSerializer-3.0\AceSerializer-3.0.xml
+
+# Localization files (order matters: language files first, then Locale.lua)
+Locales\enUS.lua
+Locales\koKR.lua
+Locales\Locale.lua
+
+# Core addon files
+Core\Main.lua
+Core\Defaults.lua
+Core\Media.lua
+Core\GUI.lua
+Core\CDMScanner.lua
+Core\Movers.lua
+Core\CircularProgress.lua
+
+# Utility files
+Utils\Toolkit.lua
+Utils\PixelPerfect.lua
+Utils\Nudge.lua
+
+# Core addon files (continued)
+Core\SpecProfiles.lua
+
+# Config files
+Config\ConfigHelpers.lua
+Config\ViewerOptions.lua
+Config\ResourceBarOptions.lua
+Config\CustomIconOptions.lua
+Config\IconCustomizationOptions.lua
+Config\CastBarOptions.lua
+Config\BuffDebuffFramesOptions.lua
+Config\BuffBarOptions.lua
+Config\BuffTrackerOptions.lua
+Config\ProfileOptions.lua
+Config.lua
+
+# AutoUIScale
+Modules\AutoUIScale\AutoUIScale.lua
+
+# CastBars (Player only)
+Modules\CastBars\CastBars.lua
+Modules\CastBars\PlayerCastBar.lua
+Modules\CastBars\EmpoweredCasts.lua
+
+# IconViewers (Cooldown Manager)
+Modules\IconViewers\IconViewers.lua
+Modules\IconViewers\IconSkinning.lua
+Modules\IconViewers\ViewerLayout.lua
+Modules\IconViewers\BuffBarCooldownViewer.lua
+Modules\IconViewers\ProcGlow.lua
+Modules\IconViewers\AssistHighlight.lua
+Modules\IconViewers\Keybinds.lua
+
+# CustomIcons (Dynamic Icons)
+Modules\CustomIcons\CustomIcons.lua
+
+# IconCustomization
+Modules\IconCustomization\IconCustomization.lua
+
+# ResourceBars
+Modules\ResourceBars\ResourceDetection.lua
+Modules\ResourceBars\PrimaryPowerBar.lua
+Modules\ResourceBars\SecondaryPowerBar.lua
+Modules\ResourceBars\BuffTrackerBar.lua
+Modules\ResourceBars\ResourceBars.lua
+
+# BuffDebuffFrames
+Modules\BuffDebuffFrames\BuffDebuffFrames.lua
+
+# Alerts (Pet Missing, Buff Missing)
+Modules\Alerts\MissingAlerts.lua

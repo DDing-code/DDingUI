@@ -1,0 +1,838 @@
+-- DDingUI_Essential: Config Panel (StyleLib Widget-based) -- [ESSENTIAL-DESIGN]
+-- /des 또는 /ddessential 로 설정 패널 열기
+-- CDM/UF 동일 규격 (920x620, menuWidth=200)
+-- StyleLib 위젯만 사용, 하드코딩 색상 없음
+
+local _, ns = ...
+
+------------------------------------------------------------------------
+-- 상수 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local ADDON_NAME = "Essential"          -- StyleLib accent key
+local WIDGET_WIDTH = 300                -- 슬라이더/드롭다운 기본 너비 (CDM 통일)
+
+------------------------------------------------------------------------
+-- 패널 상태 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local panel        -- CreateSettingsPanel 결과 테이블
+local treeMenu     -- CreateTreeMenu 결과
+local pageFrames = {} -- key → page frame 캐시
+local pageBuilders = {} -- key → builder function
+local moduleWidgets = {} -- key → { enableCb, widgets[] } 비활성 회색 처리용
+
+------------------------------------------------------------------------
+-- 트리 메뉴 데이터 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local MENU_DATA = {
+    { text = "미니맵",         key = "minimap" },
+    { text = "채팅창",         key = "chat" },
+    { text = "버프/디버프",    key = "buffs" },
+    { text = "퀘스트 추적기",  key = "quest" },
+    { text = "데미지 미터",    key = "meter" },
+    { text = "행동 단축바",    key = "actionbars", children = { -- [ESSENTIAL-DESIGN] CDM/UF 동일 계층 트리
+        { text = "아이콘 스킨",  key = "actionbars.skin" },
+        { text = "텍스트",       key = "actionbars.text" },
+        { text = "바 배경",      key = "actionbars.bg" },
+        { text = "부가 요소",    key = "actionbars.extras" },
+    }},
+}
+
+------------------------------------------------------------------------
+-- 위젯 레이아웃 헬퍼 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local WIDGET_GAP = 6   -- 위젯 간 수직 간격 (CDM 통일)
+
+local function LayoutY(page, widgets)
+    local yOff = 0
+    for _, w in ipairs(widgets) do
+        w:ClearAllPoints()
+        w:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -yOff)
+        w:SetPoint("RIGHT", page, "RIGHT", 0, 0)
+        yOff = yOff + (w:GetHeight() or 24) + WIDGET_GAP
+    end
+    local totalH = math.max(yOff + 30, 400)
+    page:SetHeight(totalH)
+    -- 스크롤 영역 높이 동기화 (contentChild) -- [ESSENTIAL-DESIGN]
+    local parent = page:GetParent()
+    if parent and parent.SetHeight then
+        parent:SetHeight(totalH + 24)
+    end
+end
+
+------------------------------------------------------------------------
+-- 모듈 비활성 시 위젯 회색 처리 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local function SetWidgetsEnabled(key, enabled)
+    local mw = moduleWidgets[key]
+    if not mw then return end
+    for _, w in ipairs(mw.widgets) do
+        w:SetAlpha(enabled and 1.0 or 0.5)
+        w:EnableMouse(enabled)
+        -- 자식 프레임도 비활성 처리 -- [ESSENTIAL-DESIGN]
+        local children = { w:GetChildren() }
+        for _, child in ipairs(children) do
+            if child.SetEnabled then
+                child:SetEnabled(enabled)
+            end
+            child:EnableMouse(enabled)
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- 모듈 토글 헬퍼 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local function ModuleToggle(dbKey, val, label)
+    if ns.db and ns.db[dbKey] then
+        ns.db[dbKey].enabled = val
+        if val then
+            ns:EnableModule(dbKey)
+        else
+            ns:DisableModule(dbKey)
+        end
+        SetWidgetsEnabled(dbKey, val)
+        -- 하위 페이지 위젯도 전파 (CDM/UF 패턴) -- [ESSENTIAL-DESIGN]
+        for childKey, _ in pairs(moduleWidgets) do
+            if childKey:find(dbKey .. ".", 1, true) then
+                SetWidgetsEnabled(childKey, val)
+            end
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- 카테고리 초기화 버튼 헬퍼 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local function CreateResetButton(page, SL, dbKey, defaultsTable, rebuildFunc)
+    return SL.CreateButton(page, ADDON_NAME, "초기화", function()
+        if ns.db and defaultsTable then
+            for k, v in pairs(defaultsTable) do
+                if type(v) == "table" then
+                    ns.db[dbKey][k] = CopyTable(v)
+                else
+                    ns.db[dbKey][k] = v
+                end
+            end
+            -- 페이지 재빌드 -- [ESSENTIAL-DESIGN]
+            if pageFrames[dbKey] then
+                pageFrames[dbKey]:Hide()
+                pageFrames[dbKey] = nil
+                moduleWidgets[dbKey] = nil
+            end
+            if rebuildFunc then
+                local newPage = CreateFrame("Frame", nil, panel.contentChild)
+                newPage:SetPoint("TOPLEFT", 16, -12)
+                newPage:SetPoint("TOPRIGHT", -16, -12)
+                newPage:SetHeight(600)
+                pageFrames[dbKey] = newPage
+                rebuildFunc(newPage)
+                newPage:Show()
+            end
+            print("|cffffd133DDingUI Essential:|r " .. dbKey .. " 설정이 초기화되었습니다. /reload 권장") -- [ESSENTIAL-DESIGN]
+        end
+    end, { width = 80, height = 24 })
+end
+
+------------------------------------------------------------------------
+-- 페이지 전환 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local function ShowPage(key)
+    for _, p in pairs(pageFrames) do p:Hide() end
+
+    -- StyleLib 재확인 (지연 로드 대응) -- [ESSENTIAL-DESIGN]
+    if not ns.SL then
+        local sl = _G.DDingUI_StyleLib
+        if sl then
+            ns.SL = sl
+            ns.FLAT = sl.Textures and sl.Textures.flat or ns.FLAT
+            ns.FONT = sl.Font and sl.Font.path or ns.FONT
+        end
+    end
+
+    local page = pageFrames[key]
+    if not page or (page._deEmpty and ns.SL) then
+        if page then page:Hide() end
+        page = CreateFrame("Frame", nil, panel.contentChild)
+        page:SetPoint("TOPLEFT", 16, -12)
+        page:SetPoint("TOPRIGHT", -16, -12)
+        page:SetHeight(600)
+        pageFrames[key] = page
+
+        if pageBuilders[key] then
+            pageBuilders[key](page)
+            if not ns.SL then
+                page._deEmpty = true
+            end
+        end
+    end
+    page:Show()
+end
+
+------------------------------------------------------------------------
+-- 기본값 테이블 참조 (Core.lua와 동일) -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local DEFAULTS = {
+    minimap = {
+        enabled = true, shape = "square", size = 180,
+        hideButtons = false, mouseoverButtons = true, clock = true,
+    },
+    chat = {
+        enabled = true, backdropAlpha = 0.75, tabFontSize = 12,
+        fadeTime = 30, editboxSkin = true, scrollButtonSkin = true,
+    },
+    quest = {
+        enabled = true, backdropAlpha = 0.8, headerFontSize = 14,
+        itemFontSize = 11, progressBarHeight = 4,
+    },
+    meter = {
+        enabled = true, detailsSkin = true, barHeight = 16,
+        barFontSize = 11, titlebarSkin = true,
+    },
+    buffs = {
+        enabled = true, iconTrim = true, durationFontSize = 11, countFontSize = 12,
+    },
+    actionbars = {
+        enabled = true, buttonSkin = true, cooldownFontSize = 14,
+        hotkeyFontSize = 11, barBackground = false, barBackgroundAlpha = 0.3,
+        microMenuSkin = true, bagButtonSkin = true,
+    },
+}
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 미니맵 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["minimap"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.minimap or {}
+    local widgets = {}
+    moduleWidgets["minimap"] = { widgets = {} }
+    local mw = moduleWidgets["minimap"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "미니맵 설정", { isFirst = true })
+
+    -- 모듈 활성화 -- [ESSENTIAL-DESIGN]
+    local enableCb = SL.CreateCheckbox(page, ADDON_NAME, "모듈 활성화", db.enabled ~= false, {
+        onChange = function(val)
+            ModuleToggle("minimap", val, "미니맵")
+        end,
+    })
+    widgets[#widgets + 1] = enableCb
+
+    -- 모양 드롭다운 -- [ESSENTIAL-DESIGN]
+    local shapeDd = SL.CreateDropdown(page, ADDON_NAME, "모양", {
+        { text = "사각형", value = "square" },
+        { text = "원형", value = "circle" },
+    }, db.shape or "square", {
+        width = 140,
+        onChange = function(val)
+            if ns.db and ns.db.minimap then ns.db.minimap.shape = val end
+        end,
+    })
+    widgets[#widgets + 1] = shapeDd
+    mw[#mw + 1] = shapeDd
+
+    -- 크기 슬라이더 -- [ESSENTIAL-DESIGN]
+    local sizeSl = SL.CreateSlider(page, ADDON_NAME, "크기", 100, 300, 10, db.size or 180, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.minimap then ns.db.minimap.size = val end
+        end,
+    })
+    widgets[#widgets + 1] = sizeSl
+    mw[#mw + 1] = sizeSl
+
+    -- 버튼 숨기기 -- [ESSENTIAL-DESIGN]
+    local hideBtnCb = SL.CreateCheckbox(page, ADDON_NAME, "버튼 숨기기", db.hideButtons == true, {
+        onChange = function(val)
+            if ns.db and ns.db.minimap then ns.db.minimap.hideButtons = val end
+        end,
+    })
+    widgets[#widgets + 1] = hideBtnCb
+    mw[#mw + 1] = hideBtnCb
+
+    -- 마우스오버 버튼 표시 -- [ESSENTIAL-DESIGN]
+    local mouseoverCb = SL.CreateCheckbox(page, ADDON_NAME, "마우스오버 버튼 표시", db.mouseoverButtons ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.minimap then ns.db.minimap.mouseoverButtons = val end
+        end,
+    })
+    widgets[#widgets + 1] = mouseoverCb
+    mw[#mw + 1] = mouseoverCb
+
+    -- 시계 표시 -- [ESSENTIAL-DESIGN]
+    local clockCb = SL.CreateCheckbox(page, ADDON_NAME, "시계 표시", db.clock ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.minimap then ns.db.minimap.clock = val end
+        end,
+    })
+    widgets[#widgets + 1] = clockCb
+    mw[#mw + 1] = clockCb
+
+    -- 초기화 버튼 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = CreateResetButton(page, SL, "minimap", DEFAULTS.minimap, pageBuilders["minimap"])
+
+    LayoutY(page, widgets)
+
+    -- 비활성 모듈 회색 처리 -- [ESSENTIAL-DESIGN]
+    if db.enabled == false then
+        SetWidgetsEnabled("minimap", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 채팅창 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["chat"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.chat or {}
+    local widgets = {}
+    moduleWidgets["chat"] = { widgets = {} }
+    local mw = moduleWidgets["chat"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "채팅창 설정", { isFirst = true })
+
+    -- 모듈 활성화 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = SL.CreateCheckbox(page, ADDON_NAME, "모듈 활성화", db.enabled ~= false, {
+        onChange = function(val)
+            ModuleToggle("chat", val, "채팅창")
+        end,
+    })
+
+    -- 배경 투명도 -- [ESSENTIAL-DESIGN]
+    local alphaSl = SL.CreateSlider(page, ADDON_NAME, "배경 투명도", 0, 1, 0.05, db.backdropAlpha or 0.75, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.chat then ns.db.chat.backdropAlpha = val end
+        end,
+    })
+    widgets[#widgets + 1] = alphaSl
+    mw[#mw + 1] = alphaSl
+
+    -- 탭 폰트 크기 -- [ESSENTIAL-DESIGN]
+    local tabSl = SL.CreateSlider(page, ADDON_NAME, "탭 폰트 크기", 8, 16, 1, db.tabFontSize or 12, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.chat then ns.db.chat.tabFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = tabSl
+    mw[#mw + 1] = tabSl
+
+    -- 페이드 시간 -- [ESSENTIAL-DESIGN]
+    local fadeSl = SL.CreateSlider(page, ADDON_NAME, "페이드 시간 (초)", 0, 60, 5, db.fadeTime or 30, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.chat then ns.db.chat.fadeTime = val end
+        end,
+    })
+    widgets[#widgets + 1] = fadeSl
+    mw[#mw + 1] = fadeSl
+
+    -- 입력창 스킨 -- [ESSENTIAL-DESIGN]
+    local editboxCb = SL.CreateCheckbox(page, ADDON_NAME, "입력창 스킨", db.editboxSkin ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.chat then ns.db.chat.editboxSkin = val end
+        end,
+    })
+    widgets[#widgets + 1] = editboxCb
+    mw[#mw + 1] = editboxCb
+
+    -- 스크롤 버튼 스킨 -- [ESSENTIAL-DESIGN]
+    local scrollCb = SL.CreateCheckbox(page, ADDON_NAME, "스크롤 버튼 스킨", db.scrollButtonSkin ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.chat then ns.db.chat.scrollButtonSkin = val end
+        end,
+    })
+    widgets[#widgets + 1] = scrollCb
+    mw[#mw + 1] = scrollCb
+
+    -- 초기화 버튼 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = CreateResetButton(page, SL, "chat", DEFAULTS.chat, pageBuilders["chat"])
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("chat", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 버프/디버프 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["buffs"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.buffs or {}
+    local widgets = {}
+    moduleWidgets["buffs"] = { widgets = {} }
+    local mw = moduleWidgets["buffs"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "버프/디버프 설정", { isFirst = true })
+
+    -- 모듈 활성화 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = SL.CreateCheckbox(page, ADDON_NAME, "모듈 활성화", db.enabled ~= false, {
+        onChange = function(val)
+            ModuleToggle("buffs", val, "버프/디버프")
+        end,
+    })
+
+    -- 아이콘 트리밍 -- [ESSENTIAL-DESIGN]
+    local trimCb = SL.CreateCheckbox(page, ADDON_NAME, "아이콘 트리밍", db.iconTrim ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.buffs then ns.db.buffs.iconTrim = val end
+        end,
+    })
+    widgets[#widgets + 1] = trimCb
+    mw[#mw + 1] = trimCb
+
+    -- 지속시간 폰트 크기 -- [ESSENTIAL-DESIGN]
+    local durSl = SL.CreateSlider(page, ADDON_NAME, "지속시간 폰트 크기", 8, 16, 1, db.durationFontSize or 11, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.buffs then ns.db.buffs.durationFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = durSl
+    mw[#mw + 1] = durSl
+
+    -- 스택 폰트 크기 -- [ESSENTIAL-DESIGN]
+    local cntSl = SL.CreateSlider(page, ADDON_NAME, "스택 폰트 크기", 8, 16, 1, db.countFontSize or 12, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.buffs then ns.db.buffs.countFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = cntSl
+    mw[#mw + 1] = cntSl
+
+    -- 초기화 버튼 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = CreateResetButton(page, SL, "buffs", DEFAULTS.buffs, pageBuilders["buffs"])
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("buffs", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 퀘스트 추적기 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["quest"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.quest or {}
+    local widgets = {}
+    moduleWidgets["quest"] = { widgets = {} }
+    local mw = moduleWidgets["quest"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "퀘스트 추적기 설정", { isFirst = true })
+
+    -- 모듈 활성화 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = SL.CreateCheckbox(page, ADDON_NAME, "모듈 활성화", db.enabled ~= false, {
+        onChange = function(val)
+            ModuleToggle("quest", val, "퀘스트 추적기")
+        end,
+    })
+
+    -- 배경 투명도 -- [ESSENTIAL-DESIGN]
+    local alphaSl = SL.CreateSlider(page, ADDON_NAME, "배경 투명도", 0, 1, 0.05, db.backdropAlpha or 0.8, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.quest then ns.db.quest.backdropAlpha = val end
+        end,
+    })
+    widgets[#widgets + 1] = alphaSl
+    mw[#mw + 1] = alphaSl
+
+    -- 헤더 폰트 크기 -- [ESSENTIAL-DESIGN]
+    local headerSl = SL.CreateSlider(page, ADDON_NAME, "헤더 폰트 크기", 10, 18, 1, db.headerFontSize or 14, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.quest then ns.db.quest.headerFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = headerSl
+    mw[#mw + 1] = headerSl
+
+    -- 항목 폰트 크기 -- [ESSENTIAL-DESIGN]
+    local itemSl = SL.CreateSlider(page, ADDON_NAME, "항목 폰트 크기", 8, 14, 1, db.itemFontSize or 11, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.quest then ns.db.quest.itemFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = itemSl
+    mw[#mw + 1] = itemSl
+
+    -- 진행바 높이 -- [ESSENTIAL-DESIGN]
+    local barSl = SL.CreateSlider(page, ADDON_NAME, "진행바 높이", 2, 12, 1, db.progressBarHeight or 4, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.quest then ns.db.quest.progressBarHeight = val end
+        end,
+    })
+    widgets[#widgets + 1] = barSl
+    mw[#mw + 1] = barSl
+
+    -- 초기화 버튼 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = CreateResetButton(page, SL, "quest", DEFAULTS.quest, pageBuilders["quest"])
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("quest", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 데미지 미터 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["meter"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.meter or {}
+    local widgets = {}
+    moduleWidgets["meter"] = { widgets = {} }
+    local mw = moduleWidgets["meter"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "데미지 미터 설정", { isFirst = true })
+
+    -- 모듈 활성화 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = SL.CreateCheckbox(page, ADDON_NAME, "모듈 활성화", db.enabled ~= false, {
+        onChange = function(val)
+            ModuleToggle("meter", val, "데미지 미터")
+        end,
+    })
+
+    -- Details 스킨 -- [ESSENTIAL-DESIGN]
+    local detailsCb = SL.CreateCheckbox(page, ADDON_NAME, "Details 스킨", db.detailsSkin ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.meter then ns.db.meter.detailsSkin = val end
+        end,
+    })
+    widgets[#widgets + 1] = detailsCb
+    mw[#mw + 1] = detailsCb
+
+    -- 바 높이 -- [ESSENTIAL-DESIGN]
+    local barHSl = SL.CreateSlider(page, ADDON_NAME, "바 높이", 12, 24, 1, db.barHeight or 16, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.meter then ns.db.meter.barHeight = val end
+        end,
+    })
+    widgets[#widgets + 1] = barHSl
+    mw[#mw + 1] = barHSl
+
+    -- 폰트 크기 -- [ESSENTIAL-DESIGN]
+    local fontSl = SL.CreateSlider(page, ADDON_NAME, "폰트 크기", 8, 14, 1, db.barFontSize or 11, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.meter then ns.db.meter.barFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = fontSl
+    mw[#mw + 1] = fontSl
+
+    -- 타이틀바 스킨 -- [ESSENTIAL-DESIGN]
+    local titleCb = SL.CreateCheckbox(page, ADDON_NAME, "타이틀바 스킨", db.titlebarSkin ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.meter then ns.db.meter.titlebarSkin = val end
+        end,
+    })
+    widgets[#widgets + 1] = titleCb
+    mw[#mw + 1] = titleCb
+
+    -- 초기화 버튼 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = CreateResetButton(page, SL, "meter", DEFAULTS.meter, pageBuilders["meter"])
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("meter", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 행동 단축바 (부모 = 모듈 활성화) -- [ESSENTIAL-DESIGN]
+-- CDM/UF 동일 패턴: 부모 노드 클릭 → 개요, 자식 노드 → 세부 설정
+------------------------------------------------------------------------
+pageBuilders["actionbars"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.actionbars or {}
+    local widgets = {}
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "행동 단축바", { isFirst = true })
+
+    -- 모듈 활성화 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = SL.CreateCheckbox(page, ADDON_NAME, "모듈 활성화", db.enabled ~= false, {
+        onChange = function(val)
+            ModuleToggle("actionbars", val, "행동 단축바")
+        end,
+    })
+
+    -- 하위 메뉴 안내 -- [ESSENTIAL-DESIGN]
+    local noteFrame = CreateFrame("Frame", nil, page)
+    noteFrame:SetHeight(24)
+    local noteFS = noteFrame:CreateFontString(nil, "OVERLAY")
+    noteFS:SetFont(SL.Font.path, SL.Font.small, "")
+    noteFS:SetShadowOffset(1, -1)
+    noteFS:SetShadowColor(0, 0, 0, 1)
+    noteFS:SetTextColor(SL.Colors.text.dim[1], SL.Colors.text.dim[2], SL.Colors.text.dim[3], 0.7)
+    noteFS:SetPoint("LEFT", 0, 0)
+    noteFS:SetText("좌측 하위 메뉴에서 세부 설정을 조정할 수 있습니다.")
+    noteFS:SetJustifyH("LEFT")
+    widgets[#widgets + 1] = noteFrame
+
+    -- 초기화 버튼 -- [ESSENTIAL-DESIGN]
+    widgets[#widgets + 1] = CreateResetButton(page, SL, "actionbars", DEFAULTS.actionbars, pageBuilders["actionbars"])
+
+    LayoutY(page, widgets)
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 행동 단축바 > 아이콘 스킨 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["actionbars.skin"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.actionbars or {}
+    local widgets = {}
+    moduleWidgets["actionbars.skin"] = { widgets = {} }
+    local mw = moduleWidgets["actionbars.skin"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "아이콘 스킨", { isFirst = true })
+
+    local btnSkinCb = SL.CreateCheckbox(page, ADDON_NAME, "버튼 스킨 적용", db.buttonSkin ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.actionbars then ns.db.actionbars.buttonSkin = val end
+        end,
+    })
+    widgets[#widgets + 1] = btnSkinCb
+    mw[#mw + 1] = btnSkinCb
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("actionbars.skin", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 행동 단축바 > 텍스트 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["actionbars.text"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.actionbars or {}
+    local widgets = {}
+    moduleWidgets["actionbars.text"] = { widgets = {} }
+    local mw = moduleWidgets["actionbars.text"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "텍스트", { isFirst = true })
+
+    local cdSl = SL.CreateSlider(page, ADDON_NAME, "쿨다운 폰트 크기", 8, 18, 1, db.cooldownFontSize or 14, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.actionbars then ns.db.actionbars.cooldownFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = cdSl
+    mw[#mw + 1] = cdSl
+
+    local kbSl = SL.CreateSlider(page, ADDON_NAME, "키바인드 폰트 크기", 6, 14, 1, db.hotkeyFontSize or 11, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.actionbars then ns.db.actionbars.hotkeyFontSize = val end
+        end,
+    })
+    widgets[#widgets + 1] = kbSl
+    mw[#mw + 1] = kbSl
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("actionbars.text", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 행동 단축바 > 바 배경 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["actionbars.bg"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.actionbars or {}
+    local widgets = {}
+    moduleWidgets["actionbars.bg"] = { widgets = {} }
+    local mw = moduleWidgets["actionbars.bg"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "바 배경", { isFirst = true })
+
+    local barBgCb = SL.CreateCheckbox(page, ADDON_NAME, "배경 표시", db.barBackground == true, {
+        onChange = function(val)
+            if ns.db and ns.db.actionbars then ns.db.actionbars.barBackground = val end
+        end,
+    })
+    widgets[#widgets + 1] = barBgCb
+    mw[#mw + 1] = barBgCb
+
+    local barAlphaSl = SL.CreateSlider(page, ADDON_NAME, "배경 투명도", 0, 1, 0.05, db.barBackgroundAlpha or 0.3, {
+        width = WIDGET_WIDTH,
+        onChange = function(val)
+            if ns.db and ns.db.actionbars then ns.db.actionbars.barBackgroundAlpha = val end
+        end,
+    })
+    widgets[#widgets + 1] = barAlphaSl
+    mw[#mw + 1] = barAlphaSl
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("actionbars.bg", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 행동 단축바 > 부가 요소 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["actionbars.extras"] = function(page)
+    local SL = ns.SL
+    if not SL then return end
+    local db = ns.db and ns.db.actionbars or {}
+    local widgets = {}
+    moduleWidgets["actionbars.extras"] = { widgets = {} }
+    local mw = moduleWidgets["actionbars.extras"].widgets
+
+    widgets[#widgets + 1] = SL.CreateSectionHeader(page, ADDON_NAME, "부가 요소", { isFirst = true })
+
+    local microCb = SL.CreateCheckbox(page, ADDON_NAME, "마이크로메뉴 스킨", db.microMenuSkin ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.actionbars then ns.db.actionbars.microMenuSkin = val end
+        end,
+    })
+    widgets[#widgets + 1] = microCb
+    mw[#mw + 1] = microCb
+
+    local bagCb = SL.CreateCheckbox(page, ADDON_NAME, "가방 버튼 스킨", db.bagButtonSkin ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.actionbars then ns.db.actionbars.bagButtonSkin = val end
+        end,
+    })
+    widgets[#widgets + 1] = bagCb
+    mw[#mw + 1] = bagCb
+
+    LayoutY(page, widgets)
+
+    if db.enabled == false then
+        SetWidgetsEnabled("actionbars.extras", false)
+    end
+end
+
+------------------------------------------------------------------------
+-- 패널 생성 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+local function CreateConfigPanel()
+    if panel then return panel end
+
+    -- StyleLib 재확인 -- [ESSENTIAL-DESIGN]
+    if not ns.SL then
+        local sl = _G.DDingUI_StyleLib
+        if sl then
+            ns.SL = sl
+            ns.FLAT = sl.Textures and sl.Textures.flat or ns.FLAT
+            ns.FONT = sl.Font and sl.Font.path or ns.FONT
+        end
+    end
+
+    local SL = ns.SL
+    if not SL then
+        -- StyleLib 없을 때 폴백 메시지 -- [ESSENTIAL-DESIGN]
+        local f = CreateFrame("Frame", "DDingUIEssentialConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        f:SetSize(300, 100)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("DIALOG")
+        f:Hide()
+
+        if f.SetBackdrop then
+            f:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Buttons\\WHITE8x8",
+                edgeSize = 1,
+            })
+            f:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
+            f:SetBackdropBorderColor(0, 0, 0, 1)
+        end
+
+        local msg = f:CreateFontString(nil, "OVERLAY")
+        msg:SetFont("Fonts\\2002.TTF", 13, "")
+        msg:SetPoint("CENTER")
+        msg:SetText("|cffff5555DDingUI_StyleLib\236\157\180 \237\149\132\236\154\148\237\149\169\235\139\136\235\139\164.|r")
+
+        local closeBtn = CreateFrame("Button", nil, f)
+        closeBtn:SetSize(20, 20)
+        closeBtn:SetPoint("TOPRIGHT", -4, -4)
+        local closeText = closeBtn:CreateFontString(nil, "OVERLAY")
+        closeText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+        closeText:SetPoint("CENTER")
+        closeText:SetText("X")
+        closeText:SetTextColor(0.8, 0.8, 0.8)
+        closeBtn:SetScript("OnClick", function() f:Hide() end)
+
+        tinsert(UISpecialFrames, "DDingUIEssentialConfig")
+        panel = { frame = f }
+        return panel
+    end
+
+    -- CDM/UF 동일 규격 패널 -- [ESSENTIAL-DESIGN]
+    local version = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("DDingUI_Essential", "Version") or "0.3.0"
+    panel = SL.CreateSettingsPanel("Essential", "DDing Essential", version, {
+        width = 920,              -- CDM/UF 동일 -- [ESSENTIAL-DESIGN]
+        height = 620,             -- CDM/UF 동일 -- [ESSENTIAL-DESIGN]
+        minWidth = 600,
+        minHeight = 400,
+        menuWidth = 200,          -- CDM/UF 동일 -- [ESSENTIAL-DESIGN]
+    })
+
+    -- 프레임 테두리 솔리드 블랙 (CDM 통일) -- [ESSENTIAL-DESIGN]
+    panel.frame:SetBackdropBorderColor(0, 0, 0, 1)
+
+    -- 트리 메뉴 생성 -- [ESSENTIAL-DESIGN]
+    treeMenu = SL.CreateTreeMenu(panel.treeFrame, ADDON_NAME, MENU_DATA, {
+        defaultKey = "minimap",
+        onSelect = function(key)
+            ShowPage(key)
+        end,
+    })
+
+    -- 패널 보일 때마다 트리 메뉴 강제 리프레시 -- [ESSENTIAL-DESIGN]
+    panel.frame:HookScript("OnShow", function()
+        if treeMenu then
+            treeMenu:SetMenuData(MENU_DATA)
+            treeMenu:SetSelected(treeMenu:GetSelected() or "minimap")
+        end
+        ShowPage(treeMenu and treeMenu:GetSelected() or "minimap")
+    end)
+
+    return panel
+end
+
+------------------------------------------------------------------------
+-- 슬래시 커맨드 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+SLASH_DDINGUIESSENTIAL1 = "/des"
+SLASH_DDINGUIESSENTIAL2 = "/ddessential"
+
+SlashCmdList["DDINGUIESSENTIAL"] = function()
+    local p = CreateConfigPanel()
+    if p and p.frame then
+        if p.frame:IsShown() then
+            p.frame:Hide()
+        else
+            p.frame:Show()
+        end
+    end
+end

@@ -1,0 +1,22 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <!-- v1 Core (기존 유지) -->
+    <Script file="Core.lua"/>
+    <Script file="Colors.lua"/>
+    <Script file="Gradient.lua"/>
+
+    <!-- v2 Foundation (AF 패턴 차용) -->
+    <Script file="TableUtils.lua"/>
+    <Script file="Delay.lua"/>
+    <Script file="ColorNames.lua"/>
+    <Script file="PixelUtil.lua"/>
+    <Script file="ObjectPool.lua"/>
+    <Script file="Animation.lua"/>
+
+    <!-- v2 Widgets -->
+    <Script file="GlowEffects.lua"/>
+    <Script file="CascadingMenu.lua"/>
+    <Script file="DragSorter.lua"/>
+
+    <!-- v1 Widgets (기존 유지) -->
+    <Script file="Widgets.lua"/>
+</Ui>

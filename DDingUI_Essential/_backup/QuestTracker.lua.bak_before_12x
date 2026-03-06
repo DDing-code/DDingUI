@@ -1,0 +1,101 @@
+-- DDing_Essential: QuestTracker Module -- [ESSENTIAL]
+-- 퀘스트 추적기 StyleLib 스킨
+
+local _, ns = ...
+
+local QuestTracker = {}
+
+function QuestTracker:Enable()
+    local SL = ns.SL -- [ESSENTIAL]
+    local tracker = ObjectiveTrackerFrame
+    if not tracker then return end
+
+    -- 배경 백드롭 생성 -- [ESSENTIAL]
+    if not tracker._deBg then
+        local bg = CreateFrame("Frame", nil, tracker, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        bg:SetPoint("TOPLEFT", tracker, "TOPLEFT", -8, 8)
+        bg:SetPoint("BOTTOMRIGHT", tracker, "BOTTOMRIGHT", 4, -4)
+        bg:SetFrameStrata("BACKGROUND")
+        ns.CreateBackdrop(bg, nil, nil)
+        tracker._deBg = bg
+    end
+
+    -- 헤더 텍스트 폰트 변경 -- [ESSENTIAL]
+    if tracker.Header then
+        local headerText = tracker.Header.Text
+        if headerText then
+            ns.SetFont(headerText, 14, "OUTLINE")
+            local r, g, b = ns.GetColor("text.normal")
+            headerText:SetTextColor(r, g, b)
+        end
+    end
+
+    -- 모듈 헤더/라인 폰트 변경 -- [ESSENTIAL]
+    self:SkinTrackerModules()
+
+    -- 업데이트 시 재스킨 -- [ESSENTIAL]
+    hooksecurefunc("ObjectiveTracker_Update", function()
+        self:SkinTrackerModules()
+    end)
+end
+
+function QuestTracker:SkinTrackerModules()
+    local tracker = ObjectiveTrackerFrame
+    if not tracker then return end
+
+    -- Retail 12.x에서의 모듈 순회 -- [ESSENTIAL]
+    local modules = {
+        QUEST_TRACKER_MODULE,
+        BONUS_OBJECTIVE_TRACKER_MODULE,
+        WORLD_QUEST_TRACKER_MODULE,
+        SCENARIO_TRACKER_MODULE,
+        ACHIEVEMENT_TRACKER_MODULE,
+        PROFESSION_RECIPE_TRACKER_MODULE,
+        MONTHLY_ACTIVITIES_TRACKER_MODULE,
+        ADVENTURE_TRACKER_MODULE,
+    }
+
+    for _, mod in ipairs(modules) do
+        if mod then
+            self:SkinModule(mod)
+        end
+    end
+end
+
+function QuestTracker:SkinModule(mod)
+    -- 모듈 헤더 텍스트 -- [ESSENTIAL]
+    if mod.Header and mod.Header.Text then
+        ns.SetFont(mod.Header.Text, 13, "OUTLINE")
+    end
+
+    -- 각 블록의 라인 폰트 변경 -- [ESSENTIAL]
+    local block = mod.firstBlock
+    while block do
+        -- 헤더 라인 -- [ESSENTIAL]
+        if block.HeaderText then
+            ns.SetFont(block.HeaderText, 13)
+            local r, g, b = ns.GetColor("text.normal")
+            block.HeaderText:SetTextColor(r, g, b)
+        end
+
+        -- 퀘스트 목표 라인 -- [ESSENTIAL]
+        if block.usedLines then
+            for _, line in pairs(block.usedLines) do
+                if line.Text then
+                    ns.SetFont(line.Text, 12)
+                end
+                if line.Dash then
+                    ns.SetFont(line.Dash, 12)
+                end
+            end
+        end
+
+        block = block.nextBlock
+    end
+end
+
+function QuestTracker:Disable()
+    -- ReloadUI 필요 -- [ESSENTIAL]
+end
+
+ns:RegisterModule("quest", QuestTracker)
