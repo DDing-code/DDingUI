@@ -6072,6 +6072,37 @@ pageBuilders["group.healprediction"] = function(p) BuildSharedFeaturePage(p, "gr
 pageBuilders["group.effects"] = function(p) BuildSharedFeaturePage(p, "group", BuildThreatHighlightPage) end
 pageBuilders["group.customtext"] = function(p) BuildSharedFeaturePage(p, "group", BuildCustomTextPage) end
 
+local HOT_SPEC_DISPLAY = {
+	["RestorationDruid"] = "회복 드루이드",
+	["PreservationEvoker"] = "보존 기원사",
+	["HolyPaladin"] = "신성 성기사",
+	["HolyPriest"] = "신성 사제",
+	["DisciplinePriest"] = "수양 사제",
+	["RestorationShaman"] = "복원 주술사",
+	["MistweaverMonk"] = "운무 수도사",
+}
+
+local HOT_AURA_DISPLAY = {
+	["Rejuvenation"] = "회복",
+	["Lifebloom"] = "피어나는 생명",
+	["Wild Growth"] = "급속 성장",
+	["Regrowth"] = "재생",
+	["Cenarion Ward"] = "세나리온 수호물",
+	["Spring Blossoms"] = "봄꽃",
+	["Dream Breath"] = "꿈의 숨결",
+	["Reversion"] = "되감기",
+	["Echo"] = "메아리",
+	["Glimmer of Light"] = "빛의 자취",
+	["Beacon of Light"] = "빛의 봉화",
+	["Renew"] = "소생",
+	["Atonement"] = "속죄",
+	["Riptide"] = "성난 해일",
+	["Earth Shield"] = "대지의 방패",
+	["Enveloping Mist"] = "포용의 안개",
+	["Renewing Mist"] = "소생의 안개",
+	["Essence Font"] = "정수의 샘",
+}
+
 pageBuilders["hottracker"] = function(parent)
 	local header = CreatePageHeader(parent, "HoT 추적", "힐러 HoT 버프를 그룹 프레임에 표시합니다")
 	local yOffset = -60
