@@ -5947,7 +5947,7 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 	
 	local featureContainer = CreateFrame("Frame", nil, parent)
 	featureContainer:SetPoint("TOPLEFT", headerContainer, "BOTTOMLEFT", 0, -10)
-	featureContainer:SetPoint("TOPRIGHT", headerContainer, "BOTTOMRIGHT", 0, -10)
+	featureContainer:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
 	
 	local function RenderFeature()
 		local selectedUnit = TabSelections[groupType]
@@ -6024,10 +6024,14 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 			copyBtn:Hide()
 		end
 
+		-- [FIX] featureFn 실행 전에 parent를 충분히 크게 설정
+		-- → featureContainer(BOTTOMRIGHT 앵커)도 따라서 커짐
+		-- → ScrollFrame이 자식 위젯을 클리핑하지 않음
+		parent:SetHeight(2000)
+
 		featureFn(featureContainer, selectedUnit)
 
-		-- [FIX] featureFn이 featureContainer에 위젯을 배치한 후,
-		-- featureContainer 내부 자식들의 최하단 위치를 계산하여 parent(contentFrame.content)에 전파
+		-- [FIX] featureFn 완료 후, featureContainer 내부의 실제 콘텐츠 높이를 계산하여 정확히 재설정
 		local function PropagateHeight()
 			local maxBottom = 0
 			for _, child in ipairs({ featureContainer:GetChildren() }) do
@@ -6049,14 +6053,9 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 				end
 			end
 			if maxBottom > 0 then
-				-- headerContainer(40) + gap(10) + content height + 하단여유(30)
 				parent:SetHeight(80 + maxBottom)
 			end
-			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
-				contentFrame.scrollFrame:UpdateContentHeight()
-			end
 		end
-		-- 즉시 + 지연 업데이트
 		PropagateHeight()
 		C_Timer.After(0.1, PropagateHeight)
 		C_Timer.After(0.3, PropagateHeight)
