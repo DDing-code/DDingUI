@@ -967,52 +967,59 @@ function Widgets:CreateScrollFrame(parent)
 	-- 자식 위젯의 content 높이를 자동 계산 (재귀적으로 최하단 탐색)
 	-- CDM 패턴: 높이 설정 후 현재 스크롤 위치도 안전 범위로 clamp
 	function scrollFrame:UpdateContentHeight()
-		if content._skipAutoHeight then return end -- [FIX] 지연 높이 재계산으로 인해 정확하게 설정된 높이가 축소되는 것 방지
+		local newHeight = content:GetHeight() or 100
 		
-		local function GetDeepBottom(frame, parentOffsetY)
-			local maxBottom = 0
-			-- 자식 프레임 탐색
-			local ok1, children = pcall(frame.GetChildren, frame)
-			if ok1 and children then
-				for _, child in ipairs({ children }) do
-					if child and child:IsShown() then
-						local nPoints = child:GetNumPoints()
-						if nPoints > 0 then
-							local ok2, _, _, _, _, offsetY = pcall(child.GetPoint, child)
-							if ok2 then
-								local absY = parentOffsetY + (-(offsetY or 0))
-								local h = child:GetHeight() or 0
-								local bottom = absY + h
-								if bottom > maxBottom then maxBottom = bottom end
+		if not content._skipAutoHeight then
+			local contentTop = content:GetTop()
+			if contentTop then
+				local function GetDeepBottom(frame)
+					local maxDist = 0
+					-- 자식 프레임 탐색
+					local ok1, children = pcall(frame.GetChildren, frame)
+					if ok1 and children then
+						for _, child in ipairs({ children }) do
+							if child and child:IsShown() then
+								local cb = child:GetBottom()
+								if cb then
+									local dist = contentTop - cb
+									if dist > maxDist then maxDist = dist end
+								end
 								-- 재귀: 자식의 자식도 탐색
-								local deepBottom = GetDeepBottom(child, absY)
-								if deepBottom > maxBottom then maxBottom = deepBottom end
+								local childMax = GetDeepBottom(child)
+								if childMax > maxDist then maxDist = childMax end
 							end
 						end
 					end
-				end
-			end
-			-- Region (FontString 등)
-			local ok3, regions = pcall(frame.GetRegions, frame)
-			if ok3 and regions then
-				for _, region in ipairs({ regions }) do
-					if region and region:IsShown() and region.GetPoint then
-						local ok4, _, _, _, _, offsetY = pcall(region.GetPoint, region)
-						if ok4 then
-							local bottom = parentOffsetY + (-(offsetY or 0)) + (region:GetHeight() or 0)
-							if bottom > maxBottom then maxBottom = bottom end
+					-- Region (FontString 등)
+					local ok3, regions = pcall(frame.GetRegions, frame)
+					if ok3 and regions then
+						for _, region in ipairs({ regions }) do
+							if region and region:IsShown() then
+								local rb = region:GetBottom()
+								if rb then
+									local dist = contentTop - rb
+									if dist > maxDist then maxDist = dist end
+								end
+							end
 						end
 					end
+					return maxDist
 				end
-			end
-			return maxBottom
-		end
 
-		local maxBottom = GetDeepBottom(content, 0)
-		-- 최소 높이: 스크롤 영역보다 작으면 스크롤 불필요
-		local minHeight = scrollFrame:GetHeight() or 100
-		local newHeight = math.max(maxBottom + 30, minHeight)
-		content:SetHeight(newHeight)
+				local maxBottom = GetDeepBottom(content)
+
+				-- 스케일 보정: GetTop/GetBottom은 스크린(EffectiveScale) 기준이므로
+				-- content 프레임의 크기(SetHeight)에 맞게 로컬 좌표로 변환해야 함
+				local scale = content:GetEffectiveScale()
+				if scale and scale > 0 then
+					maxBottom = maxBottom / scale
+				end
+
+				local minHeight = scrollFrame:GetHeight() or 100
+				newHeight = math.max(maxBottom + 30, minHeight)
+				content:SetHeight(newHeight)
+			end
+		end
 		
 		-- CDM 패턴: 높이 변경 후 현재 스크롤 위치를 안전 범위로 clamp
 		local currentScroll = scrollFrame:GetVerticalScroll()

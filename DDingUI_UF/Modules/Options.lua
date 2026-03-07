@@ -5950,17 +5950,6 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 	local featureContainer = CreateFrame("Frame", nil, parent)
 	featureContainer:SetPoint("TOPLEFT", headerContainer, "BOTTOMLEFT", 0, -10)
 	featureContainer:SetPoint("TOPRIGHT", headerContainer, "BOTTOMRIGHT", 0, -10)
-
-	-- [CDM-STYLE] SetHeight 후킹 (한 번만 설정 — RenderFeature 밖!)
-	-- featureFn이 parent:SetHeight(N)을 호출하면 → contentFrame.content에도 전파
-	local origSetHeight = featureContainer.SetHeight
-	featureContainer.SetHeight = function(self, h)
-		origSetHeight(self, h)
-		if h and h > 0 then
-			parent:SetHeight(80 + h)
-			parent._skipAutoHeight = true -- [FIX] 지연 높이 재계산 시 형제 앵커링 오계산(버그) 방지용 플래그
-		end
-	end
 	
 	local function RenderFeature()
 		local selectedUnit = TabSelections[groupType]
@@ -6040,15 +6029,13 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 		-- [CDM-STYLE] pre-expand → 위젯 배치 중 클리핑 방지
 		parent:SetHeight(5000)
 
-		-- featureFn 실행 — 내부에서 parent:SetHeight(yOffset+50) 호출됨 → 후킹으로 전파
+		-- featureFn 실행
 		featureFn(featureContainer, selectedUnit)
 
-		-- fallback — featureFn이 SetHeight를 안 부른 경우 대비
-		C_Timer.After(0.1, function()
-			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
-				contentFrame.scrollFrame:UpdateContentHeight()
-			end
-		end)
+		-- 네이티브 WoW 좌표 기반 다중 패스 높이 탐색 실행
+		if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeightDelayed then
+			contentFrame.scrollFrame:UpdateContentHeightDelayed(contentFrame)
+		end
 	end
 	
 	dropdown:SetOnSelect(function(value)
