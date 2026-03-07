@@ -921,7 +921,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
     local inGracePeriod = ResourceBars.IsInGracePeriod and ResourceBars.IsInGracePeriod()
 
     local anchorFallback = false
-    if not anchor or not anchor:IsShown() then
+    if not anchor then
         if inGracePeriod then
             -- 특성 변경 중: 위치 틀어짐 방지를 위해 바를 잠시 숨기고
             -- 앵커가 복구되면 정확한 위치에 다시 표시

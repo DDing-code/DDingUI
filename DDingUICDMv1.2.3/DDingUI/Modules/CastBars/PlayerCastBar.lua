@@ -230,7 +230,7 @@ function CastBars:UpdateCastBarLayout()
     local bar    = DDingUI.castBar
     local anchor = _G[cfg.attachTo] or UIParent
     local anchorFallback = false
-    if anchor ~= UIParent and not anchor:IsShown() then
+    if anchor == nil then
         anchor = UIParent
         anchorFallback = true
     end

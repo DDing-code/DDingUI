@@ -1409,7 +1409,7 @@ function ResourceBars:GetBuffTrackerBar()
     local cfg, _ = GetFullSpecConfig()
     if not cfg then cfg = DDingUI.db.profile.buffTrackerBar end
     local anchor = _G[cfg.attachTo]
-    if not anchor or not anchor:IsShown() then
+    if not anchor then
         anchor = UIParent
     end
     local anchorPoint = cfg.anchorPoint or "CENTER"
@@ -3068,8 +3068,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
     -- Get anchor (개별 버프 설정 사용)
     local anchor = _G[attachTo]
-    -- 앵커가 없거나 숨겨져 있으면 UIParent로 폴백
-    if not anchor or not anchor:IsShown() then
+    -- 앵커가 없으면 UIParent로 폴백
+    if not anchor then
         anchor = UIParent
     end
 
@@ -3561,7 +3561,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     -- Position and size (same pattern as bar mode)
     local anchor = _G[attachTo]
     -- 앵커가 없거나 숨겨져 있으면 UIParent로 폴백
-    if not anchor or not anchor:IsShown() then
+    if not anchor then
         anchor = UIParent
     end
 
@@ -4018,7 +4018,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
 
     -- Set position (개별 아이콘 설정 사용, DDingUI:Scale - v1.1.5.5와 일관성)
     local anchor = _G[iconAttachTo]
-    if not anchor or not anchor:IsShown() then
+    if not anchor then
         anchor = UIParent
     end
     icon:ClearAllPoints()
@@ -4410,7 +4410,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
 
     -- Set position (DDingUI:Scale - v1.1.5.5와 일관성)
     local anchor = _G[textAnchorTo]
-    if not anchor or not anchor:IsShown() then
+    if not anchor then
         anchor = UIParent
     end
     textFrame:ClearAllPoints()
