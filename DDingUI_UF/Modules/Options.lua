@@ -5944,10 +5944,11 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 
 	local copyBtn = Widgets:CreateButton(btnContainer, "다른 그룹으로 오버라이드", "accent", {180, 24})
 	copyBtn:SetPoint("RIGHT", btnContainer, "RIGHT", 0, 0)
-	
+	-- [CDM-STYLE] featureContainer: TOPLEFT+TOPRIGHT만 사용 (세로 앵커 충돌 없음)
+	-- → featureFn 내부의 parent:SetHeight(N) 호출이 정상 작동
 	local featureContainer = CreateFrame("Frame", nil, parent)
 	featureContainer:SetPoint("TOPLEFT", headerContainer, "BOTTOMLEFT", 0, -10)
-	featureContainer:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+	featureContainer:SetPoint("TOPRIGHT", headerContainer, "BOTTOMRIGHT", 0, -10)
 	
 	local function RenderFeature()
 		local selectedUnit = TabSelections[groupType]
@@ -6024,24 +6025,24 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 			copyBtn:Hide()
 		end
 
-		-- [CDM-FIX] featureContainer의 SetHeight를 후킹하여 contentFrame.content에 높이 전파
-		-- BOTTOMRIGHT 앵커 때문에 SetHeight가 실제 크기를 바꾸진 않지만,
-		-- featureFn이 "이만큼의 높이가 필요해"라고 알려주는 신호로 활용
+		-- [CDM-STYLE] Step 1: pre-expand parent(scrollChild) → 위젯 배치 중 클리핑 방지
+		parent:SetHeight(5000)
+
+		-- [CDM-STYLE] Step 2: SetHeight 후킹 — featureFn이 호출하는 parent:SetHeight(N)을 가로채서
+		-- parent(contentFrame.content = scrollChild)에도 정확한 높이 전파
 		local origSetHeight = featureContainer.SetHeight
 		featureContainer.SetHeight = function(self, h)
-			origSetHeight(self, h)  -- 원래 호출 (앵커 때문에 무시되지만)
+			origSetHeight(self, h)  -- featureContainer 자체에도 높이 설정 (TOPLEFT+TOPRIGHT이므로 작동)
 			if h and h > 0 then
-				-- headerContainer(40) + gap(10) + 요청 높이 + 하단여유(30)
+				-- CDM 패턴: headerContainer(40+10) + featureContainer 요청 높이 + 여유(30)
 				parent:SetHeight(80 + h)
 			end
 		end
 
-		-- pre-expand: featureFn이 위젯을 배치하는 동안 클리핑 방지
-		parent:SetHeight(5000)
-
+		-- [CDM-STYLE] Step 3: featureFn 실행 — 내부에서 parent:SetHeight(yOffset+50) 호출됨
 		featureFn(featureContainer, selectedUnit)
 
-		-- featureFn이 SetHeight를 호출하지 않는 경우 대비 (fallback)
+		-- [CDM-STYLE] Step 4: fallback — featureFn이 SetHeight를 안 부른 경우 대비
 		C_Timer.After(0.1, function()
 			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
 				contentFrame.scrollFrame:UpdateContentHeight()
