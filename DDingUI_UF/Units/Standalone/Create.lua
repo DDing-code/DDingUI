@@ -1360,7 +1360,14 @@ ns._RefreshAuraFonts = RefreshAuraFonts -- [FIX] Update.lua / Options.lua에서 
 -- 2차: non-secret 필드 fallback (unit 없을 때)
 -- 3차: oUF processData의 isPlayerAura
 local function GetIsMine(auraData, unit)
-	-- [FIX] 1차: 직접 API 호출 (ElvUI InstanceFiltered 방식)
+	-- 1차: non-secret 필드 (가장 정확함, Pet/차량 오라 포함)
+	local val = SafeVal(auraData.isFromPlayerOrPlayerPet)
+	if val ~= nil then return val end
+
+	-- 2차: oUF processData
+	if auraData.isPlayerAura ~= nil then return auraData.isPlayerAura end
+
+	-- 3차: 직접 API 호출 (전투 중 secret 값으로 판별 불가할 때 fallback)
 	-- HELPFUL|PLAYER, HARMFUL|PLAYER 양쪽 모두 체크 → isHarmfulAura 의존 없음
 	if unit and auraData.auraInstanceID then
 		local notFilteredH = not C_UnitAuras.IsAuraFilteredOutByInstanceID(
@@ -1371,11 +1378,7 @@ local function GetIsMine(auraData, unit)
 		)
 		return notFilteredH or notFilteredD
 	end
-	-- 2차: non-secret 필드 (unit 없을 때만)
-	local val = SafeVal(auraData.isFromPlayerOrPlayerPet)
-	if val ~= nil then return val end
-	-- 3차: oUF processData
-	if auraData.isPlayerAura ~= nil then return auraData.isPlayerAura end
+
 	return nil -- 판단 불가
 end
 
