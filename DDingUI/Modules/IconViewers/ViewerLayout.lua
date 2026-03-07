@@ -111,7 +111,13 @@ local function SyncProxyAnchors()
             -- 여기서 중복 호출하면 mover hookscript와 경쟁하여 깜빡임 유발
             -- __cdmIconWidth만 미러링
             proxy.__cdmIconWidth = groupFrame.__cdmIconWidth
-            proxy:Show()
+            local gsEnabled = DDingUI.db and DDingUI.db.profile.groupSystem and DDingUI.db.profile.groupSystem.enabled
+            local gSettings = DDingUI.db and DDingUI.db.profile.groupSystem and DDingUI.db.profile.groupSystem.groups and DDingUI.db.profile.groupSystem.groups[groupName]
+            if gsEnabled and gSettings and gSettings.enabled ~= false then
+                proxy:Show()
+            else
+                proxy:Hide()
+            end
         else
             -- [GroupSystem 비활성] CDM 뷰어/컨테이너 → 프록시 정방향 동기화
             local sourceFrame = cdmContainer or viewer
@@ -155,7 +161,12 @@ local function SyncProxyAnchors()
                     proxy:SetSize(proxy._lastValidW, proxy._lastValidH)
                     proxy.__cdmIconWidth = proxy._lastValidW
                 end
-                proxy:Show()
+                local vSettings = DDingUI.db and DDingUI.db.profile.viewers and DDingUI.db.profile.viewers[viewerName]
+                if not vSettings or vSettings.enabled ~= false then
+                    proxy:Show()
+                else
+                    proxy:Hide()
+                end
             else
                 -- [FIX] 소스 프레임 미생성 시 DB 설정 기반 기본 크기 적용
                 -- 리로드 후 강화효과 미활성 → 뷰어 프레임 없음 → 프록시 1x1 → 편집모드에서 안 보임
@@ -166,7 +177,12 @@ local function SyncProxyAnchors()
                     proxy:SetSize(iconSize, iconSize)
                     proxy.__cdmIconWidth = iconSize
                 end
-                proxy:Show()
+                local vSettings = DDingUI.db and DDingUI.db.profile.viewers and DDingUI.db.profile.viewers[viewerName]
+                if not vSettings or vSettings.enabled ~= false then
+                    proxy:Show()
+                else
+                    proxy:Hide()
+                end
             end
         end
     end
