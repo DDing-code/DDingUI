@@ -1667,8 +1667,14 @@ local function ConfigBasedAuraFilter(element, unit, auraData)
 		end
 	end
 
-	local isDebuff = SafeVal(auraData.isHarmfulAura)
-	local auraType = isDebuff and "debuffs" or "buffs"
+	local elementAuraType = element._auraType
+	local isDebuff
+	if elementAuraType then
+		isDebuff = (elementAuraType == "debuffs")
+	else
+		isDebuff = SafeVal(auraData.isHarmfulAura)
+	end
+	local auraType = elementAuraType or (isDebuff and "debuffs" or "buffs")
 	local baseUnit = filterBaseUnit or unit:gsub("%d", "")
 	local settings = ns.db[baseUnit]
 	local filter = settings and settings.widgets and settings.widgets[auraType] and settings.widgets[auraType].filter
@@ -2000,6 +2006,7 @@ local function CreateAuras(self, unit, settings)
 			end
 		end
 		-- oUF Auras 콜백
+		buffs._auraType = "buffs" -- [FIX] secret value 방어용
 		buffs.PostCreateButton = PostCreateAuraIcon
 		buffs.PostUpdateButton = PostUpdateAuraIcon
 		buffs.FilterAura = ConfigBasedAuraFilter
@@ -2063,6 +2070,7 @@ local function CreateAuras(self, unit, settings)
 		debuffs._fontDB = debuffDB.font -- [FIX] PostCreateAuraIcon에서 사용
 		debuffs._durationColors = debuffDB.durationColors -- [12.0.1] gradient 색상
 		-- oUF Auras 콜백
+		debuffs._auraType = "debuffs" -- [FIX] secret value 방어용
 		debuffs.PostCreateButton = PostCreateAuraIcon
 		debuffs.PostUpdateButton = PostUpdateAuraIcon
 		debuffs.FilterAura = ConfigBasedAuraFilter
