@@ -525,6 +525,8 @@ pageBuilders["general.global"] = function(parent)
 	end)
 	hideOutsideInstance:SetPoint("LEFT", hideVehicle, "RIGHT", 160, 0)
 	hideOutsideInstance:SetChecked(ns.db.hideOutsideInstanceOnly or false)
+	parent:SetHeight(math.abs(yOffset) + 50)
+	parent._skipAutoHeight = true
 end
 
 pageBuilders["general.media"] = function(parent)
@@ -646,6 +648,8 @@ pageBuilders["general.media"] = function(parent)
 		shadow = false,
 		justify = "CENTER",
 	})
+	parent:SetHeight(math.abs(yOffset) + 50)
+	parent._skipAutoHeight = true
 end
 
 pageBuilders["general.colors"] = function(parent)
@@ -1088,6 +1092,8 @@ pageBuilders["general.colors"] = function(parent)
 	essCP:SetPoint("TOPLEFT", 15, yOffset)
 	local esc = ns.Colors.essence[1] or { 0.2, 0.57, 0.5, 1 }
 	essCP:SetColor(esc[1], esc[2], esc[3], esc[4])
+	parent:SetHeight(math.abs(yOffset) + 50)
+	parent._skipAutoHeight = true
 end
 
 -----------------------------------------------
@@ -1788,6 +1794,8 @@ pageBuilders["general.modules"] = function(parent)
 	end)
 	hgHighCP:SetPoint("LEFT", hgMidCP, "RIGHT", 110, 0)
 	hgHighCP:SetColor(hgColors[7], hgColors[8], hgColors[9])
+	parent:SetHeight(math.abs(yOffset) + 50)
+	parent._skipAutoHeight = true
 end
 
 pageBuilders["general.profiles"] = function(parent)
@@ -2149,6 +2157,8 @@ pageBuilders["general.profiles"] = function(parent)
 		hideOnEscape = true,
 	}
 
+	parent:SetHeight(math.abs(yOffset) + 50)
+	parent._skipAutoHeight = true
 end
 
 -----------------------------------------------
@@ -2584,6 +2594,7 @@ local function BuildUnitGeneralPage(parent, unit)
 		}
 		StaticPopup_Show("DDINGUI_UF_RESET_UNIT")
 	end)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -2732,6 +2743,7 @@ local function BuildUnitHealthPage(parent, unit)
 		RefreshCurrentPreview()
 	end)
 	hBgTexDropdown:SetSelected(settings.healthBgTexture or [[Interface\Buttons\WHITE8x8]])
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -2968,6 +2980,7 @@ local function BuildUnitPowerPage(parent, unit)
 		powerChildren[#powerChildren + 1] = c
 	end
 	SetChildrenEnabled(powerChildren, powerWidget and powerWidget.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -3294,6 +3307,7 @@ local function BuildUnitCastBarPage(parent, unit)
 		castBarChildren[#castBarChildren + 1] = c
 	end
 	SetChildrenEnabled(castBarChildren, castBar and castBar.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -3868,6 +3882,7 @@ local function BuildUnitAurasPage(parent, unit, auraType)
 	yOffset = BuildIconGrowthSection(parent, unit, auraType, yOffset)
 	yOffset = BuildIconPositionSection(parent, unit, auraType, yOffset)
 
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -3947,6 +3962,7 @@ local function BuildDefensivesPage(parent, unit)
 	listDesc:SetText("CenterDefensiveBuff API 기반 — Blizzard가 결정한 생존기만 표시")
 	listDesc:SetTextColor(0.6, 0.6, 0.6)
 	listDesc:SetPoint("TOPLEFT", 15, yOffset)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -3985,6 +4001,7 @@ local function BuildPrivateAurasPage(parent, unit)
 	yOffset = BuildIconPositionSection(parent, unit, "privateAuras", yOffset)
 
 	-- 글꼴/표시옵션/필터 섹션 없음 (블리자드 API 제약 — 렌더링 직접 관리)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -4242,6 +4259,7 @@ local function BuildUnitTextsPage(parent, unit)
 	yOffset = yOffset - 120
 
 	-- [OPTION-CLEANUP] levelText 카테고리 전체 제거 - Retail(만렙)에서 무의미
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -4549,6 +4567,7 @@ local function BuildGroupLayoutPage(parent, unit)
 		showInRaidCheck:SetPoint("TOPLEFT", 15, yOffset)
 		showInRaidCheck:SetChecked(settings.showInRaid)
 	end
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -4716,6 +4735,7 @@ local function BuildHealPredictionPage(parent, unit)
 	for _, c in ipairs({ overShieldCheck, reverseFillCheck, sbTexDropdown }) do sbChildren[#sbChildren + 1] = c end
 	SetChildrenEnabled(haChildren, haWidget and haWidget.enabled)
 	SetChildrenEnabled(sbChildren, sbWidget and sbWidget.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -4861,6 +4881,7 @@ local function BuildDispelsPage(parent, unit)
 	end
 	for _, c in ipairs(debuffChecks) do dispelChildren[#dispelChildren + 1] = c end
 	SetChildrenEnabled(dispelChildren, dispels and dispels.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -5023,6 +5044,7 @@ local function BuildThreatHighlightPage(parent, unit)
 	end
 	SetChildrenEnabled(threatChildren, threatWidget and threatWidget.enabled)
 	SetChildrenEnabled(hlChildren, hlWidget and hlWidget.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -5147,6 +5169,7 @@ local function BuildDebuffHighlightPage(parent, unit)
 		children[#children + 1] = c
 	end
 	SetChildrenEnabled(children, dhWidget and dhWidget.enabled ~= false)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -5256,6 +5279,7 @@ local function BuildFaderPage(parent, unit)
 		faderChildren[#faderChildren + 1] = c
 	end
 	SetChildrenEnabled(faderChildren, fader and fader.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -5429,6 +5453,7 @@ local function BuildCustomTextPage(parent, unit)
 	end
 
 	SetChildrenEnabled(ctChildren, ctWidget and ctWidget.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -5546,6 +5571,7 @@ local function BuildAltPowerBarPage(parent, unit)
 		apChildren[#apChildren + 1] = c
 	end
 	SetChildrenEnabled(apChildren, apWidget and apWidget.enabled)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -----------------------------------------------
@@ -5723,6 +5749,7 @@ local function BuildUnitIndicatorsPage(parent, unit)
 		yOffset = BuildRoleFilterChecks(parent, unit, yOffset)
 		yOffset = BuildIndicatorBlock(parent, unit, "leaderIcon", "파티장 아이콘", 14, yOffset)
 	end
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
 -- (Legacy BuildIconsPage / BuildRaidIndicatorsPage 제거됨 - BuildUnitIndicatorsPage로 통합)
@@ -5910,6 +5937,7 @@ local function BuildUnitClassBarPage(parent, unit)
 	end)
 	local cpBgTex = classBar and classBar.background and classBar.background.texture or [[Interface\\Buttons\\WHITE8x8]]
 	cpBgTexDropdown:SetSelected(cpBgTex)
+	parent:SetHeight(math.abs(yOffset) + 50)
 end
 -----------------------------------------------
 -- Feature Routing System (DandersFrames Style)
@@ -5950,6 +5978,20 @@ local function BuildSharedFeaturePage(parent, groupType, featureFn)
 	local featureContainer = CreateFrame("Frame", nil, parent)
 	featureContainer:SetPoint("TOPLEFT", headerContainer, "BOTTOMLEFT", 0, -10)
 	featureContainer:SetPoint("TOPRIGHT", headerContainer, "BOTTOMRIGHT", 0, -10)
+	
+	-- [CDM-STYLE] SetHeight 후킹: 각 페이지(featureFn)의 정확한 높이 계산값을
+	-- parent(contentFrame.content)에 안전하게 적용하고 GetBottom 자동 탐색을 스킵함.
+	local origSetHeight = featureContainer.SetHeight
+	featureContainer.SetHeight = function(self, h)
+		origSetHeight(self, h)
+		if h and h > 0 then
+			parent:SetHeight(80 + h)
+			parent._skipAutoHeight = true -- 자동 높이 탐색(버그 원인) 스킵 프래그
+			if contentFrame and contentFrame.scrollFrame and contentFrame.scrollFrame.UpdateContentHeight then
+				contentFrame.scrollFrame:UpdateContentHeight()
+			end
+		end
+	end
 	
 	local function RenderFeature()
 		local selectedUnit = TabSelections[groupType]

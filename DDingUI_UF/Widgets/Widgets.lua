@@ -1008,13 +1008,6 @@ function Widgets:CreateScrollFrame(parent)
 
 				local maxBottom = GetDeepBottom(content)
 
-				-- 스케일 보정: GetTop/GetBottom은 스크린(EffectiveScale) 기준이므로
-				-- content 프레임의 크기(SetHeight)에 맞게 로컬 좌표로 변환해야 함
-				local scale = content:GetEffectiveScale()
-				if scale and scale > 0 then
-					maxBottom = maxBottom / scale
-				end
-
 				local minHeight = scrollFrame:GetHeight() or 100
 				newHeight = math.max(maxBottom + 30, minHeight)
 				content:SetHeight(newHeight)
