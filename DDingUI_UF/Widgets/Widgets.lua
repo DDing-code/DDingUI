@@ -975,9 +975,9 @@ function Widgets:CreateScrollFrame(parent)
 				local function GetDeepBottom(frame)
 					local maxDist = 0
 					-- 자식 프레임 탐색
-					local ok1, children = pcall(frame.GetChildren, frame)
-					if ok1 and children then
-						for _, child in ipairs({ children }) do
+					if frame.GetChildren then
+						local children = { frame:GetChildren() }
+						for _, child in ipairs(children) do
 							if child and child:IsShown() then
 								local cb = child:GetBottom()
 								if cb then
@@ -991,9 +991,9 @@ function Widgets:CreateScrollFrame(parent)
 						end
 					end
 					-- Region (FontString 등)
-					local ok3, regions = pcall(frame.GetRegions, frame)
-					if ok3 and regions then
-						for _, region in ipairs({ regions }) do
+					if frame.GetRegions then
+						local regions = { frame:GetRegions() }
+						for _, region in ipairs(regions) do
 							if region and region:IsShown() then
 								local rb = region:GetBottom()
 								if rb then
