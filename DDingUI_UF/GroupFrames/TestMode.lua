@@ -724,7 +724,14 @@ function TM:ApplyFakeData(f, data)
 					f.overShieldBar:SetStatusBarColor(osColor[1], osColor[2], osColor[3], osColor[4] or 0.4)
 					f.overShieldBar:Show()
 				end
-				if f.overShieldGlow then
+				if f.overShieldGlow and f.overShieldBar then
+					local osTex = f.overShieldBar:GetStatusBarTexture()
+					if osTex then
+						f.overShieldGlow:ClearAllPoints()
+						f.overShieldGlow:SetPoint("TOP", osTex, "TOPLEFT", 0, 0)
+						f.overShieldGlow:SetPoint("BOTTOM", osTex, "BOTTOMLEFT", 0, 0)
+						f.overShieldGlow:SetWidth(3)
+					end
 					f.overShieldGlow:SetVertexColor(osColor[1], osColor[2], osColor[3], 0.8)
 					f.overShieldGlow:Show()
 				end
@@ -747,7 +754,14 @@ function TM:ApplyFakeData(f, data)
 				elseif f.overShieldBar then
 					f.overShieldBar:Hide()
 				end
-				if hasOverShield and f.overShieldGlow then
+				if hasOverShield and f.overShieldGlow and f.overShieldBar then
+					local osTex = f.overShieldBar:GetStatusBarTexture()
+					if osTex then
+						f.overShieldGlow:ClearAllPoints()
+						f.overShieldGlow:SetPoint("TOP", osTex, "TOPLEFT", 0, 0)
+						f.overShieldGlow:SetPoint("BOTTOM", osTex, "BOTTOMLEFT", 0, 0)
+						f.overShieldGlow:SetWidth(3)
+					end
 					f.overShieldGlow:SetVertexColor(osColor[1], osColor[2], osColor[3], 0.8)
 					f.overShieldGlow:Show()
 				elseif f.overShieldGlow then
@@ -1102,7 +1116,16 @@ local function UpdateFrameVisual(frame, dt)
 			frame.overShieldBar:SetValue(shieldSim)
 			frame.overShieldBar:Show()
 		end
-		if frame.overShieldGlow then frame.overShieldGlow:Show() end
+		if frame.overShieldGlow and frame.overShieldBar then
+			local osTex = frame.overShieldBar:GetStatusBarTexture()
+			if osTex then
+				frame.overShieldGlow:ClearAllPoints()
+				frame.overShieldGlow:SetPoint("TOP", osTex, "TOPLEFT", 0, 0)
+				frame.overShieldGlow:SetPoint("BOTTOM", osTex, "BOTTOMLEFT", 0, 0)
+				frame.overShieldGlow:SetWidth(3)
+			end
+			frame.overShieldGlow:Show()
+		end
 	else
 		-- 비풀피: absorbBar 정상 + 초과분 overShieldBar
 		if frame.absorbBar then frame.absorbBar:Show() end
@@ -1116,7 +1139,14 @@ local function UpdateFrameVisual(frame, dt)
 			end
 		end
 		if frame.overShieldGlow then
-			if hasOver then
+			if hasOver and frame.overShieldBar then
+				local osTex = frame.overShieldBar:GetStatusBarTexture()
+				if osTex then
+					frame.overShieldGlow:ClearAllPoints()
+					frame.overShieldGlow:SetPoint("TOP", osTex, "TOPLEFT", 0, 0)
+					frame.overShieldGlow:SetPoint("BOTTOM", osTex, "BOTTOMLEFT", 0, 0)
+					frame.overShieldGlow:SetWidth(3)
+				end
 				frame.overShieldGlow:Show()
 			else
 				frame.overShieldGlow:Hide()

@@ -972,8 +972,15 @@ function GF:UpdateHealPrediction(frame)
 					end
 				end
 
-				-- OverShield Glow
-				if overGlow then
+				-- OverShield Glow — 개별 프레임과 동일: 보호막 끝(ReverseFill LEFT)에 위치
+				if overGlow and overBar then
+					local overBarTex = overBar:GetStatusBarTexture()
+					if overBarTex then
+						overGlow:ClearAllPoints()
+						overGlow:SetPoint("TOP", overBarTex, "TOPLEFT", 0, 0)
+						overGlow:SetPoint("BOTTOM", overBarTex, "BOTTOMLEFT", 0, 0)
+						overGlow:SetWidth(3)
+					end
 					overGlow:SetVertexColor(osColor[1], osColor[2], osColor[3], 0.8)
 					overGlow:Show()
 
