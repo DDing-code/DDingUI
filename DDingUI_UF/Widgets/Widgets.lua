@@ -967,6 +967,8 @@ function Widgets:CreateScrollFrame(parent)
 	-- 자식 위젯의 content 높이를 자동 계산 (재귀적으로 최하단 탐색)
 	-- CDM 패턴: 높이 설정 후 현재 스크롤 위치도 안전 범위로 clamp
 	function scrollFrame:UpdateContentHeight()
+		if content._skipAutoHeight then return end -- [FIX] 지연 높이 재계산으로 인해 정확하게 설정된 높이가 축소되는 것 방지
+		
 		local function GetDeepBottom(frame, parentOffsetY)
 			local maxBottom = 0
 			-- 자식 프레임 탐색
