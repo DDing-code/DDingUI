@@ -1252,6 +1252,9 @@ function Update:UpdateAuras(frameOrUnit, unitKey)
 			-- [12.0.1] 폰트 DB + gradient 색상 런타임 갱신
 			frame.Buffs._fontDB = bDB.font
 			frame.Buffs._durationColors = bDB.durationColors
+			frame.Buffs.showDuration = bDB.showDuration
+			frame.Buffs.showStack = bDB.showStack
+			frame.Buffs._borderDB = bDB.border
 
 			if frame.unit and UnitExists(frame.unit) then
 				SafeForceUpdate(frame.Buffs, function() StandaloneRefresh(frame, "Buffs") end)
@@ -1316,6 +1319,9 @@ function Update:UpdateAuras(frameOrUnit, unitKey)
 			-- [12.0.1] 폰트 DB + gradient 색상 런타임 갱신
 			frame.Debuffs._fontDB = dDB.font
 			frame.Debuffs._durationColors = dDB.durationColors
+			frame.Debuffs.showDuration = dDB.showDuration
+			frame.Debuffs.showStack = dDB.showStack
+			frame.Debuffs._borderDB = dDB.border
 
 			if frame.unit and UnitExists(frame.unit) then
 				SafeForceUpdate(frame.Debuffs, function() StandaloneRefresh(frame, "Debuffs") end)

@@ -1773,18 +1773,33 @@ local function PostUpdateAuraIcon(element, button, unit, data, position)
 	-- [FIX] oUF Overlay 강제 숨김 (showDebuffType=true일 때 oUF가 매번 다시 Show함 → 이중 테두리)
 	if button.Overlay then button.Overlay:Hide() end
 
-	-- [FIX] 디버프 외곽선: 디버프만 dispel 타입 색상, 버프는 테두리 없음(투명)
+	-- [FIX] 외곽선 설정 적용: 버프/디버프 테두리 옵션 연동
 	if button._border then
-		if SafeVal(data.isHarmfulAura) then
-			local dtype = SafeVal(data.dispelName)
-			local color = dtype and C.DISPEL_COLORS[dtype] or C.DISPEL_COLORS.none
-			if color then
-				button._border:SetBackdropBorderColor(color[1], color[2], color[3], 1)
-			else
-				button._border:SetBackdropBorderColor(0.8, 0, 0, 1) -- fallback: 빨강
+		local bDB = element._borderDB
+		if bDB and bDB.enabled ~= false then
+			local bSize = bDB.size or 1
+			button._border:SetPoint("TOPLEFT", -bSize, bSize)
+			button._border:SetPoint("BOTTOMRIGHT", bSize, -bSize)
+			if button._border.SetBackdrop then
+				button._border:SetBackdrop({ edgeFile = C.FLAT_TEXTURE, edgeSize = bSize })
 			end
+			local isHarmful = SafeVal(data.isHarmfulAura)
+			
+			if isHarmful and bDB.colorByType ~= false then
+				local dtype = SafeVal(data.dispelName)
+				local color = dtype and C.DISPEL_COLORS[dtype] or C.DISPEL_COLORS.none
+				if color then
+					button._border:SetBackdropBorderColor(color[1], color[2], color[3], 1)
+				else
+					button._border:SetBackdropBorderColor(0.8, 0, 0, 1) -- fallback: 빨강
+				end
+			else
+				local c = bDB.color or {0, 0, 0, 1}
+				button._border:SetBackdropBorderColor(c[1] or 0, c[2] or 0, c[3] or 0, c[4] or 1)
+			end
+			button._border:Show()
 		else
-			button._border:SetBackdropBorderColor(0, 0, 0, 0) -- 버프: 투명
+			button._border:Hide()
 		end
 	end
 
@@ -1808,10 +1823,29 @@ local function PostUpdateAuraIcon(element, button, unit, data, position)
 		end
 	end
 
+	-- [FIX] 중첩 표시 토글
+	if button.Count then
+		if element.showStack == false then
+			button.Count:Hide()
+			button.Count:SetText("")
+		else
+			button.Count:Show()
+		end
+	end
+
 	-- [REFACTOR] 지속시간 텍스트: 공유 타이머에 등록/해제
 	if button.Duration then
-		local dur = SafeNum(data.duration, 0)
-		local expTime = SafeNum(data.expirationTime, 0)
+		if element.showDuration == false then
+			button._expirationTime = 0
+			button._totalDuration = 0
+			activeAuraButtons[button] = nil
+			button.Duration:Hide()
+			if button.Cooldown then
+				button.Cooldown:SetHideCountdownNumbers(true)
+			end
+		else
+			local dur = SafeNum(data.duration, 0)
+			local expTime = SafeNum(data.expirationTime, 0)
 
 		-- [FIX] secret duration 판별: SafeNum이 0이지만 원본이 secret인 경우
 		local isSecretDuration = dur == 0 and issecretvalue and issecretvalue(data.duration)
@@ -1859,6 +1893,7 @@ local function PostUpdateAuraIcon(element, button, unit, data, position)
 			button._totalDuration = 0
 			activeAuraButtons[button] = nil
 			button.Duration:Hide()
+		end
 		end
 	end
 
@@ -1980,6 +2015,9 @@ local function CreateAuras(self, unit, settings)
 
 		buffs._fontDB = buffDB.font -- [FIX] PostCreateAuraIcon에서 사용
 		buffs._durationColors = buffDB.durationColors -- [12.0.1] gradient 색상
+		buffs._borderDB = buffDB.border
+		buffs.showDuration = buffDB.showDuration
+		buffs.showStack = buffDB.showStack
 		-- [FIX] 파티/레이드 API 레벨 필터
 		-- useBlizzardFilter: 모든 버프를 받아서 BlizzardBuffFilter가 결정 (DandersFrames 동일)
 		-- 아닐 경우: HELPFUL|PLAYER (내가 건 버프만)
@@ -2057,6 +2095,9 @@ local function CreateAuras(self, unit, settings)
 		debuffs.showDebuffType = true
 		debuffs._fontDB = debuffDB.font -- [FIX] PostCreateAuraIcon에서 사용
 		debuffs._durationColors = debuffDB.durationColors -- [12.0.1] gradient 색상
+		debuffs._borderDB = debuffDB.border
+		debuffs.showDuration = debuffDB.showDuration
+		debuffs.showStack = debuffDB.showStack
 		-- oUF Auras 콜백
 		debuffs.PostCreateButton = PostCreateAuraIcon
 		debuffs.PostUpdateButton = PostUpdateAuraIcon

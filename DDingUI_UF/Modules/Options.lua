@@ -3721,6 +3721,59 @@ local function BuildIconFontSection(parent, unit, widgetKey, fontSubKey, section
 	return yOffset
 end
 
+-- 7. 테두리 상세 섹션
+local function BuildIconBorderSection(parent, unit, widgetKey, yOffset)
+	local db = GetWidgetConfig(unit, widgetKey) or {}
+	local borderDB = db.border or {}
+
+	local sep = Widgets:CreateSeparator(parent, "테두리 상세", CONTENT_WIDTH - 40)
+	sep:SetPoint("TOPLEFT", 15, yOffset)
+	yOffset = yOffset - 35
+
+	-- 활성화
+	local enableCheck = Widgets:CreateCheckButton(parent, "테두리 표시", function(checked)
+		SetWidgetValue(unit, widgetKey, "border.enabled", checked)
+		IconRefresh(unit, widgetKey)
+	end)
+	enableCheck:SetPoint("TOPLEFT", 15, yOffset)
+	enableCheck:SetChecked(borderDB.enabled ~= false)
+
+	-- 타입 지정 여부
+	local typeCheck
+	if widgetKey == "debuffs" then
+		typeCheck = Widgets:CreateCheckButton(parent, "해제 타입 색상 (디버프)", function(checked)
+			SetWidgetValue(unit, widgetKey, "border.colorByType", checked)
+			IconRefresh(unit, widgetKey)
+		end)
+		typeCheck:SetPoint("LEFT", enableCheck, "RIGHT", 130, 0)
+		typeCheck:SetChecked(borderDB.colorByType ~= false)
+	end
+	yOffset = yOffset - 35
+
+	-- 두께
+	local sizeSlider = Widgets:CreateSlider("테두리 두께", parent, 1, 5, 100, 1, nil, function(value)
+		SetWidgetValue(unit, widgetKey, "border.size", value)
+		IconRefresh(unit, widgetKey)
+	end)
+	sizeSlider:SetPoint("TOPLEFT", 15, yOffset)
+	sizeSlider:SetValue(borderDB.size or 1)
+
+	-- 색상
+	local label = parent:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+	label:SetText("기본 색상")
+	label:SetPoint("LEFT", sizeSlider, "RIGHT", 30, 0)
+	local colorPicker = Widgets:CreateColorPicker(parent, "", false, function(r, g, b)
+		SetWidgetValue(unit, widgetKey, "border.color", { r, g, b, 1 })
+		IconRefresh(unit, widgetKey)
+	end)
+	colorPicker:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -5)
+	local c = borderDB.color or {0, 0, 0, 1}
+	colorPicker:SetColor(c[1] or 0, c[2] or 0, c[3] or 0)
+	yOffset = yOffset - 50
+
+	return yOffset
+end
+
 -----------------------------------------------
 -- Auras Page Builder (Buffs/Debuffs)
 -- [12.0.1] 공통 헬퍼 사용으로 리팩터링
@@ -3751,6 +3804,7 @@ local function BuildUnitAurasPage(parent, unit, auraType)
 	yOffset = BuildIconDisplaySection(parent, unit, auraType, yOffset)
 	yOffset = BuildIconFontSection(parent, unit, auraType, "duration", "지속시간 텍스트 상세", yOffset)
 	yOffset = BuildIconFontSection(parent, unit, auraType, "stacks", "중첩 텍스트 상세", yOffset)
+	yOffset = BuildIconBorderSection(parent, unit, auraType, yOffset)
 
 	-- [AURA-FILTER] Filter section — secret-safe 필터 (non-secret 필드만 사용, buffs/debuffs 고유)
 	local filterSep = Widgets:CreateSeparator(parent, "필터", CONTENT_WIDTH - 40)
