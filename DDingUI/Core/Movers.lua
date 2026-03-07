@@ -1542,8 +1542,10 @@ function Movers:UpdateParentPosition(name)
         if self.ConfigMode then
             local point, anchor, relPoint, x, y = holder.mover:GetPoint(1)
             if point then
-                holder.parent:ClearAllPoints()
-                holder.parent:SetPoint(point, anchor or UIParent, relPoint or point, x or 0, y or 0)
+                if not (InCombatLockdown() and holder.parent.IsProtected and holder.parent:IsProtected()) then
+                    holder.parent:ClearAllPoints()
+                    holder.parent:SetPoint(point, anchor or UIParent, relPoint or point, x or 0, y or 0)
+                end
             end
         end
         return
@@ -1605,8 +1607,10 @@ function Movers:UpdateParentPosition(name)
         end
     end
 
-    holder.parent:ClearAllPoints()
-    holder.parent:SetPoint(point, anchor or UIParent, relPoint or point, x or 0, y or 0)
+    if not (InCombatLockdown() and holder.parent.IsProtected and holder.parent:IsProtected()) then
+        holder.parent:ClearAllPoints()
+        holder.parent:SetPoint(point, anchor or UIParent, relPoint or point, x or 0, y or 0)
+    end
 end
 
 function Movers:ResetMoverPosition(name)
