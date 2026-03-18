@@ -50,6 +50,7 @@ L["TAB_BUFFCHECKER"] = "Buff Check"
 L["TAB_KEYSTONETRACKER"] = "Key Tracker"
 L["TAB_CASTINGALERT"] = "Cast Alert"
 L["TAB_FOCUSINTERRUPT"] = "Focus Interrupt"
+L["TAB_MISSINGBUFF"] = "Missing Buff"
 
 -- ==========================================
 -- General Panel
@@ -81,6 +82,45 @@ L["MODULE_BUFFCHECKER"] = "BuffChecker - Buff Check (Food/Flask/Rune)"
 L["MODULE_KEYSTONETRACKER"] = "KeystoneTracker - Party Keystone Tracker"
 L["MODULE_CASTINGALERT"] = "CastingAlert - Enemy Casting Alert"
 L["MODULE_FOCUSINTERRUPT"] = "FocusInterrupt - Focus Cast Bar + Interrupt"
+L["MODULE_MISSINGBUFF"] = "MissingBuff - Missing Class Buff/Consumable/Pet Detection"
+
+-- ==========================================
+-- MissingBuff Module
+-- ==========================================
+L["MISSINGBUFF_TITLE"] = "Missing Buff Detection"
+L["MISSINGBUFF_DESC"] = "Alerts with icons when class buffs, consumables, pets, or stances are missing."
+L["MISSINGBUFF_CHECK_ITEMS"] = "Check Items"
+L["MISSINGBUFF_CHECK_CLASSBUFF"] = "Class Buff"
+L["MISSINGBUFF_CHECK_FLASK"] = "Flask"
+L["MISSINGBUFF_CHECK_FOOD"] = "Food"
+L["MISSINGBUFF_CHECK_WEAPON"] = "Oil/Whetstone"
+L["MISSINGBUFF_CHECK_PET"] = "Pet Summon"
+L["MISSINGBUFF_CHECK_STANCE"] = "Stance/Aura"
+L["MISSINGBUFF_CHECK_POISONS"] = "Rogue Poisons"
+L["MISSINGBUFF_CONDITIONS"] = "Conditions"
+L["MISSINGBUFF_ZONE_CHECK"] = "Activation Condition"
+L["MISSINGBUFF_ZONE_ALWAYS"] = "Always"
+L["MISSINGBUFF_ZONE_INSTANCE"] = "Dungeon/Raid Only"
+L["MISSINGBUFF_ZONE_GROUP"] = "In Party/Raid"
+L["MISSINGBUFF_ZONE_BOTH"] = "Instance or Group"
+L["MISSINGBUFF_IGNORE_MOUNTED"] = "Hide While Mounted"
+L["MISSINGBUFF_IGNORE_RESTING"] = "Hide While Resting"
+L["MISSINGBUFF_HIDE_COMBAT"] = "Hide In Combat"
+L["MISSINGBUFF_DISPLAY"] = "Display Settings"
+L["MISSINGBUFF_PULSE"] = "Pulse Animation"
+L["MISSINGBUFF_ICON_BORDER"] = "Icon Border Size"
+L["MISSINGBUFF_TEXT_SETTINGS"] = "Text Settings"
+-- Glow
+L["MISSINGBUFF_GLOW_SETTINGS"] = "Glow Settings"
+L["MISSINGBUFF_GLOW_TYPE"] = "Glow Type"
+L["MISSINGBUFF_GLOW_PIXEL"] = "Pixel Glow"
+L["MISSINGBUFF_GLOW_AUTOCAST"] = "Autocast Glow"
+L["MISSINGBUFF_GLOW_BUTTON"] = "Button Glow"
+L["MISSINGBUFF_GLOW_NONE"] = "None"
+L["MISSINGBUFF_GLOW_COLOR"] = "Glow Color"
+L["MISSINGBUFF_GLOW_LINES"] = "Lines (Pixel)"
+L["MISSINGBUFF_GLOW_SPEED"] = "Speed"
+L["MISSINGBUFF_GLOW_THICKNESS"] = "Thickness (Pixel)"
 
 -- ==========================================
 -- CastingAlert Module
@@ -148,6 +188,32 @@ L["BUFFCHECKER_FLASK"] = "Flask"
 L["BUFFCHECKER_MAINHAND"] = "Main Hand"
 L["BUFFCHECKER_OFFHAND"] = "Off Hand"
 L["BUFFCHECKER_RUNE"] = "Rune"
+
+-- ==========================================
+-- MissingBuff Module
+-- ==========================================
+L["MISSINGBUFF_TITLE"] = "Missing Buff Detection"
+L["MISSINGBUFF_DESC"] = "Shows an icon alert when class buffs/consumables/pet/stance are missing.\nCheck for missing buffs before entering dungeons or raids."
+L["MISSINGBUFF_CHECK_ITEMS"] = "Check Items"
+L["MISSINGBUFF_CHECK_CLASSBUFF"] = "Class Buffs (Intellect/Fortitude/MotW etc.)"
+L["MISSINGBUFF_CHECK_FLASK"] = "Flask Buff"
+L["MISSINGBUFF_CHECK_FOOD"] = "Food Buff (Well Fed)"
+L["MISSINGBUFF_CHECK_WEAPON"] = "Weapon Buff (Oil/Sharpening Stone)"
+L["MISSINGBUFF_CHECK_PET"] = "Pet Summon (Hunter/Warlock/DK/Frost Mage)"
+L["MISSINGBUFF_CHECK_STANCE"] = "Stance/Aura (Warrior/Paladin)"
+L["MISSINGBUFF_CHECK_POISONS"] = "Rogue Poisons (Lethal/Non-lethal)"
+L["MISSINGBUFF_CONDITIONS"] = "Display Conditions"
+L["MISSINGBUFF_ZONE_CHECK"] = "Activation Condition"
+L["MISSINGBUFF_ZONE_ALWAYS"] = "Always"
+L["MISSINGBUFF_ZONE_INSTANCE"] = "Dungeon/Raid Only"
+L["MISSINGBUFF_ZONE_GROUP"] = "When in Group"
+L["MISSINGBUFF_ZONE_BOTH"] = "Instance or Group"
+L["MISSINGBUFF_IGNORE_MOUNTED"] = "Hide While Mounted"
+L["MISSINGBUFF_IGNORE_RESTING"] = "Hide While Resting"
+L["MISSINGBUFF_HIDE_COMBAT"] = "Hide in Combat"
+L["MISSINGBUFF_DISPLAY"] = "Display Settings"
+L["MISSINGBUFF_PULSE"] = "Pulse Animation"
+L["MISSINGBUFF_TEXT_SETTINGS"] = "Text Settings"
 
 -- ==========================================
 -- TalentBG Module

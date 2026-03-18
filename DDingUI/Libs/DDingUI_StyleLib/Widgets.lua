@@ -9,7 +9,9 @@ if not Lib then return end
 local C    = Lib.Colors
 local S    = Lib.Spacing
 local F    = Lib.Font
-local SOLID = "Interface\\Buttons\\WHITE8x8"
+local T    = Lib.Tokens
+local PP   = Lib.PP
+local SOLID = Lib.Textures and Lib.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 
 ------------------------------------------------------
 -- Internal helpers
@@ -186,16 +188,18 @@ function Lib.CreateCheckbox(parent, addonName, label, default, opts)
     local container = CreateFrame("Frame", nil, parent)
     container:SetSize(200, 20)
 
+    local CB = T and T.CB or { BOX_R=0.075, BOX_G=0.113, BOX_B=0.141, BRD_A=0.25, ACT_BRD_A=0.70, SIZE=14, CHECK_INSET=2 }
     local box = CreateFrame("Button", nil, container, "BackdropTemplate")
-    box:SetSize(14, 14)
+    box:SetSize(CB.SIZE, CB.SIZE)
     box:SetPoint("LEFT", 0, 0)
-    ApplyBackdrop(box, C.bg.input, C.border.default)
+    ApplyBackdrop(box, { CB.BOX_R, CB.BOX_G, CB.BOX_B, 1 }, { 1, 1, 1, CB.BRD_A })
 
     -- check fill (accent color only, no glyph) -- [STYLE]
     local fill = box:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", 1, -1)
-    fill:SetPoint("BOTTOMRIGHT", -1, 1)
+    fill:SetPoint("TOPLEFT", CB.CHECK_INSET, -CB.CHECK_INSET)
+    fill:SetPoint("BOTTOMRIGHT", -CB.CHECK_INSET, CB.CHECK_INSET)
     fill:SetColorTexture(from[1], from[2], from[3], 1)
+    if PP then PP.DisablePixelSnap(fill) end
     fill:Hide()
 
     -- label
@@ -804,6 +808,10 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
             result[#result + 1] = {
                 text = item.text, key = item.key,
                 level = level, hasChildren = hasKids,
+                icon = item.icon,               -- [REFACTOR] 스펠 아이콘 텍스처 ID
+                iconCoords = item.iconCoords,   -- [REFACTOR] 아이콘 TexCoord
+                disabled = item.disabled,       -- [REFACTOR] 비활성 dim 처리
+                desc = item.desc,               -- [REFACTOR] 툴팁 설명
             }
             if hasKids and expanded[item.key] then
                 Flatten(item.children, result, level + 1)
@@ -826,6 +834,11 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
                 btn._icon = MakeFont(btn, F.normal, nil, C.text.dim)
                 btn._icon:SetPoint("LEFT", 4, 0)
                 btn._text = MakeFont(btn, F.normal, nil, C.text.normal)
+                -- [REFACTOR] 스펠 아이콘 텍스처 (WeakAuras style)
+                btn._spellIcon = btn:CreateTexture(nil, "ARTWORK")
+                btn._spellIcon:SetSize(16, 16)
+                btn._spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                btn._spellIcon:Hide()
                 -- accent stripe on left edge (selected indicator) -- [STYLE]
                 btn._stripe = btn:CreateTexture(nil, "OVERLAY")
                 btn._stripe:SetWidth(2)
@@ -844,15 +857,49 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
             local indent = item.level * INDENT + 4
             btn._icon:ClearAllPoints()
             btn._icon:SetPoint("LEFT", indent, 0)
+
+            -- [REFACTOR] 스펠 아이콘 렌더링
+            if item.icon then
+                btn._spellIcon:SetTexture(item.icon)
+                btn._spellIcon:ClearAllPoints()
+                if item.iconCoords then
+                    btn._spellIcon:SetTexCoord(unpack(item.iconCoords))
+                else
+                    btn._spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                end
+                btn._spellIcon:Show()
+            else
+                btn._spellIcon:Hide()
+            end
+
+            local hasSpellIcon = item.icon and true or false
+
             if item.hasChildren then
                 btn._icon:SetText(expanded[item.key] and "\226\150\188" or "\226\150\182") -- ▼ or ▶
                 btn._icon:Show()
-                btn._text:ClearAllPoints()
-                btn._text:SetPoint("LEFT", indent + 14, 0)
+                if hasSpellIcon then
+                    btn._spellIcon:SetPoint("LEFT", indent + 14, 0)
+                    btn._text:ClearAllPoints()
+                    btn._text:SetPoint("LEFT", indent + 14 + 20, 0)
+                    btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+                else
+                    btn._text:ClearAllPoints()
+                    btn._text:SetPoint("LEFT", indent + 14, 0)
+                    btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+                end
             else
                 btn._icon:Hide()
-                btn._text:ClearAllPoints()
-                btn._text:SetPoint("LEFT", indent + (item.level > 0 and 14 or 0), 0)
+                local baseIndent = indent + (item.level > 0 and 14 or 0)
+                if hasSpellIcon then
+                    btn._spellIcon:SetPoint("LEFT", baseIndent, 0)
+                    btn._text:ClearAllPoints()
+                    btn._text:SetPoint("LEFT", baseIndent + 20, 0)
+                    btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+                else
+                    btn._text:ClearAllPoints()
+                    btn._text:SetPoint("LEFT", baseIndent, 0)
+                    btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+                end
             end
 
             btn._text:SetText(item.text)
@@ -868,18 +915,36 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
                 if btn._stripe then btn._stripe:Hide() end -- [STYLE]
             end
 
-            -- hover
+            -- [REFACTOR] 비활성 트래커 dim 처리
+            if item.disabled then
+                btn._text:SetTextColor(0.4, 0.4, 0.4, 1)
+                if btn._spellIcon then btn._spellIcon:SetAlpha(0.4) end
+            else
+                if btn._spellIcon then btn._spellIcon:SetAlpha(1.0) end
+            end
+
+            -- hover + tooltip
             local key = item.key
             local hasKids = item.hasChildren
+            local itemDesc = item.desc
+            local itemText = item.text
             btn:SetScript("OnEnter", function(self)
                 if key ~= selectedKey then
                     self._bg:SetColorTexture(u(C.bg.hover))
+                end
+                -- [REFACTOR] 툴팁
+                if itemDesc and itemDesc ~= "" then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(itemText or "", 1, 1, 1)
+                    GameTooltip:AddLine(itemDesc, 0.8, 0.8, 0.8, true)
+                    GameTooltip:Show()
                 end
             end)
             btn:SetScript("OnLeave", function(self)
                 if key ~= selectedKey then
                     self._bg:SetColorTexture(0, 0, 0, 0)
                 end
+                GameTooltip:Hide()
             end)
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp") -- [12.0.1] 우클릭 지원
             btn:SetScript("OnClick", function(self, button)

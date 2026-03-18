@@ -488,14 +488,24 @@ function ns:InitConfigTree()
             { type = "header", label = L["PARTYTRACKER_DISPLAY_SETTINGS"] },
             { type = "toggle", key = "profile.PartyTracker.showInParty", label = L["PARTYTRACKER_SHOW_PARTY"] },
             { type = "toggle", key = "profile.PartyTracker.showInRaid",  label = L["PARTYTRACKER_SHOW_RAID"] },
+            { type = "toggle", key = "profile.PartyTracker.showLust",    label = L["PARTYTRACKER_SHOW_LUST"], onChange = function()
+                local mod = ns.modules and ns.modules["PartyTracker"]
+                if mod and mod.UpdateVisibility then mod:UpdateVisibility() end
+            end },
             { type = "toggle", key = "profile.PartyTracker.showManaBar", label = L["PARTYTRACKER_SHOW_MANA_BAR"] },
             { type = "toggle", key = "profile.PartyTracker.showManaText",label = L["PARTYTRACKER_SHOW_MANA_TEXT"] },
-            { type = "toggle", key = "profile.PartyTracker.locked",      label = L["POSITION_LOCKED"] },
+            { type = "toggle", key = "profile.PartyTracker.locked",      label = L["POSITION_LOCKED"], onChange = function()
+                local mod = ns.modules and ns.modules["PartyTracker"]
+                if mod and mod.UpdateLockState then mod:UpdateLockState() end
+            end },
 
             -- 마나 프레임 분리
             { type = "header", label = L["PARTYTRACKER_SEPARATE_MANA"] },
             { type = "toggle", key = "profile.PartyTracker.separateManaFrame", label = L["PARTYTRACKER_SEPARATE_MANA_DESC"] },
-            { type = "toggle", key = "profile.PartyTracker.manaLocked",        label = L["PARTYTRACKER_MANA_LOCKED"] },
+            { type = "toggle", key = "profile.PartyTracker.manaLocked",        label = L["PARTYTRACKER_MANA_LOCKED"], onChange = function()
+                local mod = ns.modules and ns.modules["PartyTracker"]
+                if mod and mod.UpdateLockState then mod:UpdateLockState() end
+            end },
             { type = "slider", key = "profile.PartyTracker.manaScale",         label = L["PARTYTRACKER_MANA_SCALE"], min = 0.5, max = 2.0, step = 0.1, onChange = function()
                 local mod = ns.modules and ns.modules["PartyTracker"]
                 if mod and mod.UpdateManaScale then mod:UpdateManaScale() end
@@ -883,6 +893,7 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.modules.SkyridingTracker", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
 
             { type = "header", label = L["DISPLAY_SETTINGS"] },
+            { type = "toggle", key = "profile.SkyridingTracker.hideWhenFull", label = L["SKYRIDINGTRACKER_HIDE_WHEN_FULL"] },
             { type = "slider", key = "profile.SkyridingTracker.scale", label = L["SCALE"], min = 0.5, max = 2.0, step = 0.05,
               onChange = function()
                 local mod = ns.modules and ns.modules["SkyridingTracker"]

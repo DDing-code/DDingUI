@@ -459,10 +459,17 @@ local function GetSecondaryResourceValue(resource, cfg)
         end
     end
 
+    -- Arcane Charges: WoW API returns 5 but actual max is 4 (12.0+)
+    if resource == Enum.PowerType.ArcaneCharges then
+        local current = UnitPower("player", resource)
+        local max = 4
+        return max, max, current, current, "number"
+    end
+
     -- Default case for all other power types (ComboPoints, Chi, HolyPower, Mana, etc.)
     local current = UnitPower("player", resource)
     local max = UnitPowerMax("player", resource)
-        if max <= 0 then return nil, nil, nil, nil, nil end
+    if max <= 0 then return nil, nil, nil, nil, nil end
 
     if cfg.showManaAsPercent and resource == Enum.PowerType.Mana then
         local percent = SafeUnitPowerPercent("player", resource, false)

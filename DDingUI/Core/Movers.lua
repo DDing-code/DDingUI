@@ -153,10 +153,21 @@ end
 
 local function SetPoint(obj, pointString)
     if not pointString then return end
-    local point, anchorName, relativePoint, x, y = strsplit(",", pointString)
+    local point, anchorName, relativePoint, x, y
+    if type(pointString) == "table" then
+        -- 테이블 형식: {point, anchor, relPoint, x, y}
+        point = pointString[1]
+        local anchorObj = pointString[2]
+        anchorName = anchorObj and type(anchorObj) == "table" and anchorObj.GetName and anchorObj:GetName() or "UIParent"
+        relativePoint = pointString[3]
+        x = tonumber(pointString[4]) or 0
+        y = tonumber(pointString[5]) or 0
+    else
+        point, anchorName, relativePoint, x, y = strsplit(",", pointString)
+        x = tonumber(x) or 0
+        y = tonumber(y) or 0
+    end
     local anchor = _G[anchorName] or UIParent
-    x = tonumber(x) or 0
-    y = tonumber(y) or 0
     -- [FIX] UIParent 앵커는 무조건 CENTER/CENTER 강제
     if anchor == UIParent then
         point = "CENTER"
@@ -829,6 +840,7 @@ local function CreateMoverFrame(parent, name, displayText)
     mover:SetFrameLevel(100)
     mover:SetClampedToScreen(true)
     mover:EnableMouse(true)
+    mover:RegisterForClicks("AnyUp")
     mover:RegisterForDrag("LeftButton")
     mover:Hide()
 
@@ -897,37 +909,51 @@ local function CreateMoverFrame(parent, name, displayText)
     mover:SetScript("OnDragStart", OnDragStart)
     mover:SetScript("OnDragStop", OnDragStop)
 
-    -- OnMouseUp to stop dragging
+    -- OnMouseUp to stop dragging + handle right-click
     mover:SetScript("OnMouseUp", function(self, button)
-        if button == "LeftButton" and isDragging then
-            OnDragStop(self)
-        end
-    end)
-
-    -- Click handlers
-    mover:SetScript("OnClick", function(self, button)
-        -- [FIX] 프레임 피커 활성 중에는 mover 선택 방지 (앵커 선택 시 SelectedMover 바뀌는 버그)
-        if DDingUI._framePickerActive then return end
         if button == "LeftButton" then
+            if isDragging then
+                OnDragStop(self)
+            end
             -- Select this mover and show nudge frame
+            if DDingUI._framePickerActive then return end
             Movers.SelectedMover = self
             if Movers.NudgeFrame then
                 Movers.NudgeFrame:Show()
                 Movers.NudgeFrame:UpdateSelection()
-                -- NudgeFrame은 고정 위치 유지 (따라다니지 않음)
             end
         elseif button == "RightButton" then
+            if DDingUI._framePickerActive then return end
             if IsShiftKeyDown() then
                 Movers:ResetMoverPosition(self.name)
             else
-                -- [FIX] 우클릭 → 해당 프레임의 설정 메뉴 열기
+                -- 우클릭 → 해당 프레임의 설정 메뉴 열기
                 local guiKey = Movers:GetGUIKeyFromMoverName(self.name)
-                if guiKey then
-                    Movers:ExitEditMode()
-                    C_Timer.After(0.1, function()
-                        DDingUI:OpenConfigGUI(nil, guiKey)
-                    end)
+                -- BuffTracker 개별 바: 인덱스 추출 → 설정 창에서 자동 선택
+                local btIndex = tonumber(self.name:match("^DDingUI_BuffTracker%w+_(%d+)"))
+                if btIndex then
+                    DDingUI._pendingBTSelect = btIndex
                 end
+                Movers:ExitEditMode()
+                C_Timer.After(0.1, function()
+                    if guiKey then
+                        DDingUI:OpenConfigGUI(nil, guiKey)
+                    else
+                        DDingUI:OpenConfigGUI()
+                    end
+                    -- BuffTracker 선택 지연 실행 (패널 렌더링 후)
+                    if DDingUI._pendingBTSelect then
+                        local idx = DDingUI._pendingBTSelect
+                        DDingUI._pendingBTSelect = nil
+                        C_Timer.After(0.15, function()
+                            local configFrame = _G["DDingUI_ConfigFrame"]
+                            local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
+                            if btPanel and btPanel.SelectTracker then
+                                btPanel:SelectTracker(idx)
+                            end
+                        end)
+                    end
+                end)
             end
         end
     end)
@@ -1740,6 +1766,12 @@ function Movers:GetGUIKeyFromMoverName(moverName)
         return "groupSystem.group_" .. dynGroupName
     end
 
+    -- CDM 프록시 앵커: DDingUI_Anchor_Cooldowns → groupSystem.group_Cooldowns
+    local anchorGroupName = moverName:match("^DDingUI_Anchor_(.+)$")
+    if anchorGroupName then
+        return "groupSystem.group_" .. anchorGroupName
+    end
+
     -- BuffTracker 개별 바: DDingUI_BuffTracker_N → buffTracker
     if moverName:match("^DDingUI_BuffTracker_") then
         return "buffTracker"
@@ -1777,11 +1809,14 @@ end
 
 function Movers:ShowMovers()
     self.ConfigMode = true
+    local silent = self._silentToggle
 
     -- DDingUI 메인 설정 창 닫기
-    local configFrame = _G["DDingUI_ConfigFrame"]
-    if configFrame and configFrame:IsShown() then
-        configFrame:Hide()
+    if not silent then
+        local configFrame = _G["DDingUI_ConfigFrame"]
+        if configFrame and configFrame:IsShown() then
+            configFrame:Hide()
+        end
     end
 
     -- 버프 트래커 바들의 레이아웃을 먼저 초기화 (mover 등록 전에)
@@ -1797,7 +1832,7 @@ function Movers:ShowMovers()
         self:RegisterBuffTrackerFrames()
     end)
 
-    -- [FIX] 편집모드 진입 시 숨김/알파0 그룹 프레임 강제 표시
+    -- [FIX] 편집모드 진입 시 숨김/알파0/크기<10 그룹 프레임 강제 표시
     -- stale mover 정리 전에 실행해야 Mover가 삭제되지 않음
     self._editModeGroupRestore = self._editModeGroupRestore or {}
     wipe(self._editModeGroupRestore)
@@ -1806,17 +1841,26 @@ function Movers:ShowMovers()
         for groupName, frame in pairs(GR.groupFrames) do
             local wasHidden = not frame:IsShown()
             local wasAlphaZero = frame:GetAlpha() < 0.01
-            if wasHidden or wasAlphaZero then
+            local fw, fh = frame:GetSize()
+            local wasTooSmall = (fw < 10 or fh < 10)
+            if wasHidden or wasAlphaZero or wasTooSmall then
                 self._editModeGroupRestore[groupName] = {
                     hidden = wasHidden,
                     alpha = frame:GetAlpha(),
+                    width = fw,
+                    height = fh,
+                    tooSmall = wasTooSmall,
                 }
-                frame:Show()
-                frame:SetAlpha(1)
-                -- 빈 그룹은 크기가 너무 작아 Mover가 안 보임 → 최소 크기 보장
-                local fw, fh = frame:GetSize()
-                if fw < 10 or fh < 10 then
-                    frame:SetSize(math.max(fw, 50), math.max(fh, 20))
+                if wasHidden then frame:Show() end
+                if wasAlphaZero then frame:SetAlpha(1) end
+                -- 크기<10 그룹: 레이아웃 설정 기반 팬텀 크기 계산
+                if wasTooSmall and GR.ComputeEditModeSize then
+                    local calcW, calcH = GR:ComputeEditModeSize(groupName)
+                    if calcW and calcH then
+                        frame:SetSize(calcW, calcH)
+                    else
+                        frame:SetSize(math.max(fw, 50), math.max(fh, 20))
+                    end
                 end
             end
         end
@@ -1862,44 +1906,43 @@ function Movers:ShowMovers()
             -- 시작 위치 저장 (종료 시 비교용)
             holder.mover._startPoint = GetPoint(holder.mover)
 
-            holder.mover:Show()
+            if not silent then holder.mover:Show() end
         end
     end
 
-    -- 그리드 설정에 따라 표시
-    if self.Settings.gridEnabled then
-        self:ShowGrid()
-    end
+    if not silent then
+        -- 그리드 설정에 따라 표시
+        if self.Settings.gridEnabled then
+            self:ShowGrid()
+        end
 
-    -- Nudge Frame 표시
-    if self.NudgeFrame then
-        self.NudgeFrame:Show()
-    end
+        -- Nudge Frame 표시
+        if self.NudgeFrame then
+            self.NudgeFrame:Show()
+        end
 
-    -- [FIX] 알파 0으로 숨겨진 CDM 뷰어의 마우스 이벤트 비활성화 + Mover 숨기기
-    -- 보이지 않는 뷰어가 Mover 드래그/앵커 선택을 가로채는 것 방지
-    self._editModeViewerMouse = {}
-    self._editModeHiddenMovers = {}
-    local cdmViewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
-    for _, vname in ipairs(cdmViewers) do
-        local viewer = _G[vname]
-        if viewer and viewer:GetAlpha() < 0.01 then
-            self._editModeViewerMouse[vname] = true
-            viewer:EnableMouse(false)
-            -- viewerFrame(내부 컨테이너)도 비활성화
-            if viewer.viewerFrame then
-                viewer.viewerFrame:EnableMouse(false)
-            end
-            -- 해당 뷰어의 Mover도 숨기기
-            local holder = self.CreatedMovers[vname]
-            if holder and holder.mover and holder.mover:IsShown() then
-                holder.mover:Hide()
-                self._editModeHiddenMovers[vname] = true
+        -- [FIX] 알파 0으로 숨겨진 CDM 뷰어의 마우스 이벤트 비활성화 + Mover 숨기기
+        self._editModeViewerMouse = {}
+        self._editModeHiddenMovers = {}
+        local cdmViewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
+        for _, vname in ipairs(cdmViewers) do
+            local viewer = _G[vname]
+            if viewer and viewer:GetAlpha() < 0.01 then
+                self._editModeViewerMouse[vname] = true
+                viewer:EnableMouse(false)
+                if viewer.viewerFrame then
+                    viewer.viewerFrame:EnableMouse(false)
+                end
+                local holder = self.CreatedMovers[vname]
+                if holder and holder.mover and holder.mover:IsShown() then
+                    holder.mover:Hide()
+                    self._editModeHiddenMovers[vname] = true
+                end
             end
         end
-    end
 
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. (L["Mover mode enabled"] or "Mover mode enabled. Click a frame to adjust.") .. "|r") -- [STYLE]
+        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. (L["Mover mode enabled"] or "Mover mode enabled. Click a frame to adjust.") .. "|r") -- [STYLE]
+    end
 end
 
 -- (ResolvePath는 LoadMoverPosition 앞에 정의됨)
@@ -2045,7 +2088,9 @@ function Movers:HideMovers()
     -- 설정 저장
     self:SaveSettings()
 
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. (L["Mover mode disabled"] or "Mover mode disabled. Positions saved.") .. "|r") -- [STYLE]
+    if not self._silentToggle then
+        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. (L["Mover mode disabled"] or "Mover mode disabled. Positions saved.") .. "|r") -- [STYLE]
+    end
 
     -- [FIX] 편집모드 중 강제 표시한 그룹 프레임 복원
     if self._editModeGroupRestore then
@@ -2057,6 +2102,9 @@ function Movers:HideMovers()
                     frame:SetAlpha(saved.alpha)
                     if saved.hidden then
                         frame:Hide()
+                    end
+                    if saved.tooSmall and saved.width and saved.height then
+                        frame:SetSize(saved.width, saved.height)
                     end
                 end
             end
@@ -2266,7 +2314,7 @@ function Movers:CreateNudgeFrame()
     local panelBorder = SL and SL.Colors.border.default or {0.25, 0.25, 0.25, 0.50}
 
     local nudge = CreateFrame("Frame", "DDingUI_NudgeFrame", UIParent, "BackdropTemplate")
-    nudge:SetSize(280, 600)
+    nudge:SetSize(280, 670)
     nudge:SetPoint("TOP", UIParent, "TOP", 0, -50)
     nudge:SetFrameStrata("FULLSCREEN_DIALOG")
     nudge:SetFrameLevel(200)
@@ -2422,6 +2470,7 @@ function Movers:CreateNudgeFrame()
         -- dropdown list
         local list = CreateFrame("Frame", nil, btn, "BackdropTemplate")
         list:SetFrameStrata("FULLSCREEN_DIALOG")
+        list:SetFrameLevel(999) -- 강제 최상단
         list:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
         list:SetWidth(width)
         list:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
@@ -2432,7 +2481,7 @@ function Movers:CreateNudgeFrame()
         -- click-away catcher
         local catcher = CreateFrame("Button", nil, list)
         catcher:SetFrameStrata("FULLSCREEN_DIALOG")
-        catcher:SetFrameLevel(math.max(0, list:GetFrameLevel() - 1))
+        catcher:SetFrameLevel(998)
         catcher:SetAllPoints(UIParent)
         catcher:SetScript("OnClick", function() list:Hide(); catcher:Hide() end)
         catcher:EnableMouseWheel(true)
@@ -2444,17 +2493,15 @@ function Movers:CreateNudgeFrame()
             for _, rb in ipairs(rowButtons) do rb:Hide() end
             wipe(rowButtons)
             container._items = newItems or container._items
-            local totalH = #container._items * 20 + 2
-            list:SetHeight(math.min(totalH, 10 * 20 + 2))
-
-            -- scroll support
-            local needsScroll = #container._items > 10
-            local rowParent = list
+            local totalH = math.max(22, (#container._items * 20) + 2)
+            list:SetHeight(math.min(totalH, 15 * 20 + 2))
 
             for i, item in ipairs(container._items) do
-                local row = CreateFrame("Button", nil, rowParent)
-                row:SetSize(width - 2, 20)
-                row:SetPoint("TOPLEFT", rowParent, "TOPLEFT", 1, -(1 + (i - 1) * 20))
+                local row = CreateFrame("Button", nil, list, "BackdropTemplate")
+                row:SetSize(width - 4, 20)
+                row:SetPoint("TOPLEFT", list, "TOPLEFT", 2, -(1 + (i - 1) * 20))
+                row:SetFrameLevel(list:GetFrameLevel() + 1)
+                row:Show()
 
                 local rowBG = row:CreateTexture(nil, "BACKGROUND")
                 rowBG:SetAllPoints()
@@ -2504,82 +2551,248 @@ function Movers:CreateNudgeFrame()
         return container
     end
 
-    -- Anchor Point Dropdown
-    local anchorPointItems = {}
-    for _, pt in ipairs(ANCHOR_POINTS) do anchorPointItems[#anchorPointItems+1] = {text=pt, value=pt} end
+    -- ==========================================
+    -- [ANCHOR-GRID] 9-point 앵커 선택기 (UF 동일)
+    -- ==========================================
+    local GRID_H_ANCHOR = 150
+    local anchorGridContainer = CreateFrame("Frame", nil, nudge)
+    anchorGridContainer:SetSize(260, GRID_H_ANCHOR)
+    anchorGridContainer:SetPoint("TOPLEFT", nudge, "TOPLEFT", 10, anchorY)
 
-    local anchorPointDropdown = CreateFlatDropdown(nudge,
-        L["Anchor Point"] or "앵커 대상", 110,
-        "TOPLEFT", nudge, "TOPLEFT", 15, anchorY,
-        anchorPointItems,
-        function(val)
+    local CDM_GRID_W = 180
+    local CDM_GRID_H = 105
+    local CDM_DOT_SZ = 12
+    local CDM_DOT_SEL_SZ = 18
+
+    local previewFrame = CreateFrame("Frame", nil, anchorGridContainer, "BackdropTemplate")
+    previewFrame:SetSize(CDM_GRID_W, CDM_GRID_H)
+    previewFrame:SetPoint("TOP", anchorGridContainer, "TOP", 0, -2)
+    previewFrame:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+    previewFrame:SetBackdropColor(0.10, 0.10, 0.10, 0.90)
+    previewFrame:SetBackdropBorderColor(0.70, 0.70, 0.70, 0.90)
+
+    -- 크기 텍스트
+    local sizeText = anchorGridContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sizeText:SetPoint("TOP", previewFrame, "BOTTOM", 0, -4)
+    sizeText:SetTextColor(0.9, 0.75, 0.2, 0.9)
+    sizeText:SetText("")
+    nudge._anchorSizeText = sizeText
+
+    nudge._anchorDots = {}
+    nudge._selfPointCurrent = "CENTER"
+    nudge._anchorPointCurrent = "CENTER"
+
+    local SELF_PT_COLOR = { 0.25, 0.78, 0.88 }
+    local ANC_PT_COLOR  = { accentFrom[1], accentFrom[2], accentFrom[3] }
+    local BOTH_PT_COLOR = { 1, 0.85, 0.3 }
+
+    local DOT_POSITIONS = {
+        TOPLEFT = {x=0, y=0}, TOP = {x=0.5, y=0}, TOPRIGHT = {x=1, y=0},
+        LEFT = {x=0, y=0.5}, CENTER = {x=0.5, y=0.5}, RIGHT = {x=1, y=0.5},
+        BOTTOMLEFT = {x=0, y=1}, BOTTOM = {x=0.5, y=1}, BOTTOMRIGHT = {x=1, y=1},
+    }
+
+    local function UpdateAnchorDots()
+        local selfPt = nudge._selfPointCurrent or "CENTER"
+        local ancPt  = nudge._anchorPointCurrent or "CENTER"
+        for _, apName in ipairs(ANCHOR_POINTS) do
+            local dot = nudge._anchorDots[apName]
+            if dot then
+                local isSelf = (apName == selfPt)
+                local isAnc  = (apName == ancPt)
+                if isSelf and isAnc then
+                    dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
+                    dot._bg:SetColorTexture(BOTH_PT_COLOR[1], BOTH_PT_COLOR[2], BOTH_PT_COLOR[3], 1)
+                    dot._border:SetColorTexture(1, 1, 1, 0.9)
+                    if dot._glow then dot._glow:SetColorTexture(BOTH_PT_COLOR[1], BOTH_PT_COLOR[2], BOTH_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
+                elseif isSelf then
+                    dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
+                    dot._bg:SetColorTexture(SELF_PT_COLOR[1], SELF_PT_COLOR[2], SELF_PT_COLOR[3], 1)
+                    dot._border:SetColorTexture(1, 1, 1, 0.9)
+                    if dot._glow then dot._glow:SetColorTexture(SELF_PT_COLOR[1], SELF_PT_COLOR[2], SELF_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
+                elseif isAnc then
+                    dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
+                    dot._bg:SetColorTexture(ANC_PT_COLOR[1], ANC_PT_COLOR[2], ANC_PT_COLOR[3], 1)
+                    dot._border:SetColorTexture(1, 1, 1, 0.9)
+                    if dot._glow then dot._glow:SetColorTexture(ANC_PT_COLOR[1], ANC_PT_COLOR[2], ANC_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
+                else
+                    dot:SetSize(CDM_DOT_SZ, CDM_DOT_SZ)
+                    dot._bg:SetColorTexture(0.40, 0.40, 0.40, 0.9)
+                    dot._border:SetColorTexture(0.60, 0.60, 0.60, 0.7)
+                    if dot._glow then dot._glow:Hide() end
+                end
+            end
+        end
+    end
+    nudge._refreshAnchorGrid = UpdateAnchorDots
+
+    for _, apName in ipairs(ANCHOR_POINTS) do
+        local posInfo = DOT_POSITIONS[apName]
+        local dot = CreateFrame("Button", nil, previewFrame)
+        dot:SetSize(CDM_DOT_SZ, CDM_DOT_SZ)
+        dot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        dot:SetPoint("CENTER", previewFrame, "TOPLEFT", posInfo.x * CDM_GRID_W, -posInfo.y * CDM_GRID_H)
+        dot:SetFrameLevel(previewFrame:GetFrameLevel() + 3)
+
+        local border = dot:CreateTexture(nil, "BACKGROUND")
+        border:SetAllPoints()
+        border:SetColorTexture(0.60, 0.60, 0.60, 0.7)
+        dot._border = border
+
+        local bg = dot:CreateTexture(nil, "ARTWORK")
+        bg:SetPoint("TOPLEFT", 1, -1)
+        bg:SetPoint("BOTTOMRIGHT", -1, 1)
+        bg:SetColorTexture(0.40, 0.40, 0.40, 0.9)
+        dot._bg = bg
+
+        local glow = dot:CreateTexture(nil, "OVERLAY")
+        glow:SetPoint("CENTER")
+        glow:SetSize(CDM_DOT_SEL_SZ + 12, CDM_DOT_SEL_SZ + 12)
+        glow:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.18)
+        glow:Hide()
+        dot._glow = glow
+
+        dot:SetScript("OnEnter", function(self)
+            local isSelf = (apName == nudge._selfPointCurrent)
+            local isAnc  = (apName == nudge._anchorPointCurrent)
+            if not isSelf and not isAnc then
+                self._bg:SetColorTexture(0.55, 0.55, 0.55, 1)
+                self._border:SetColorTexture(0.8, 0.8, 0.8, 0.8)
+            end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 4, 0)
+            if isSelf and isAnc then
+                GameTooltip:AddLine("|cffffd633" .. apName .. "|r  (Self + Anchor)", 1, 1, 1)
+            elseif isSelf then
+                GameTooltip:AddLine("|cff40c8e0" .. apName .. "|r  (Self Point)", 1, 1, 1)
+            elseif isAnc then
+                GameTooltip:AddLine(apName .. "  (Anchor Point)", accentFrom[1], accentFrom[2], accentFrom[3])
+            else
+                GameTooltip:AddLine(apName, 1, 1, 1)
+            end
+            GameTooltip:AddLine((L["Left-click: Change Anchor Point"] or "좌클릭: Anchor Point 변경"), 0.5, 0.5, 0.5)
+            GameTooltip:AddLine((L["Right-click: Change Self Point"] or "우클릭: Self Point 변경"), 0.5, 0.5, 0.5)
+            GameTooltip:Show()
+        end)
+        dot:SetScript("OnLeave", function(self)
+            local isSelf = (apName == nudge._selfPointCurrent)
+            local isAnc  = (apName == nudge._anchorPointCurrent)
+            if not isSelf and not isAnc then
+                self._bg:SetColorTexture(0.35, 0.35, 0.35, 0.9)
+                self._border:SetColorTexture(0.55, 0.55, 0.55, 0.6)
+            end
+            GameTooltip:Hide()
+        end)
+
+        dot:SetScript("OnClick", function(_, button)
             local mover = Movers.SelectedMover
-            if mover then
-                local oldPoint = GetPoint(mover)
-                local selfPt, af, _, x, y = mover:GetPoint(1)
+            if not mover then return end
+
+            local oldPoint = GetPoint(mover)
+            local selfPt, af, relPt, x, y = mover:GetPoint(1)
+
+            if button == "LeftButton" then
+                -- Change Anchor Point
+                nudge._anchorPointCurrent = apName
                 mover:ClearAllPoints()
-                mover:SetPoint(selfPt or "CENTER", af or UIParent, val, x or 0, y or 0)
-                Movers:PushUndo(mover.name, oldPoint)
-                Movers:SaveMoverPosition(mover.name)
-                Movers:UpdateParentPosition(mover.name)
-                nudge:UpdateInfo()
+                mover:SetPoint(selfPt or "CENTER", af or UIParent, apName, x or 0, y or 0)
+            elseif button == "RightButton" then
+                -- Change Self Point
+                nudge._selfPointCurrent = apName
+                mover:ClearAllPoints()
+                mover:SetPoint(apName, af or UIParent, relPt or "CENTER", x or 0, y or 0)
+            end
+
+            Movers:PushUndo(mover.name, oldPoint)
+            Movers:SaveMoverPosition(mover.name)
+            Movers:UpdateParentPosition(mover.name)
+            UpdateAnchorDots()
+            nudge:UpdateInfo()
+        end)
+
+        nudge._anchorDots[apName] = dot
+    end
+
+    UpdateAnchorDots()
+
+    -- 호환용 anchorPointDropdown/selfPointDropdown API (UpdateInfo에서 사용)
+    nudge.anchorPointDropdown = {
+        SetValue = function(_, val)
+            nudge._anchorPointCurrent = val or "CENTER"
+            UpdateAnchorDots()
+        end,
+    }
+    nudge.selfPointDropdown = {
+        SetValue = function(_, val)
+            nudge._selfPointCurrent = val or "CENTER"
+            UpdateAnchorDots()
+        end,
+    }
+
+    --------------------------------------------------------------------------------
+    -- Frame Selection Dropdowns & Anchor Selection
+    --------------------------------------------------------------------------------
+    local cursorY = -230
+
+    -- [1] Mover Frame Selection Dropdown
+    local frameSelectDropdown = CreateFlatDropdown(nudge,
+        L["Select Frame"] or "프레임 선택", 230,
+        "TOP", nudge, "TOP", -10, cursorY,
+        { {text="선택 없음", value=""} },
+        function(val)
+            if not val or val == "" then return end
+            local holder = Movers.CreatedMovers[val]
+            if holder and holder.mover then
+                Movers.SelectedMover = holder.mover
+                if Movers.NudgeFrame then
+                    Movers.NudgeFrame:UpdateSelection()
+                end
             end
         end)
-    nudge.anchorPointDropdown = anchorPointDropdown
+    nudge.frameSelectDropdown = frameSelectDropdown
+    cursorY = cursorY - 45
 
-    -- Anchor Frame Dropdown
+    -- [2] Anchor Frame Selection Dropdown
     local anchorFrameDropdown = CreateFlatDropdown(nudge,
-        L["Anchor To"] or "연결 대상", 110,
-        "TOPLEFT", nudge, "TOPLEFT", 148, anchorY,
+        L["Anchor Frame"] or "연결 대상", 230,
+        "TOP", nudge, "TOP", -10, cursorY,
         { {text="UIParent", value="UIParent"} },
         function(val)
-            local mover = Movers.SelectedMover
-            if mover then
-                local targetFrame = _G[val] or UIParent
-                local oldPoint = GetPoint(mover)
-                local selfPt, _, relPoint, x, y = mover:GetPoint(1)
-                mover:ClearAllPoints()
-                if val == "UIParent" then
-                    mover:SetPoint(selfPt or "CENTER", UIParent, relPoint or "CENTER", x or 0, y or 0)
-                else
-                    mover:SetPoint(selfPt or "CENTER", targetFrame, relPoint or "CENTER", 0, 0)
-                end
-                Movers:PushUndo(mover.name, oldPoint)
-                Movers:SaveMoverPosition(mover.name)
-                Movers:UpdateParentPosition(mover.name)
-                nudge:UpdateInfo()
+            if not Movers.SelectedMover then return end
+            local mv = Movers.SelectedMover
+            local targetFrame = _G[val] or UIParent
+            local holder = Movers.CreatedMovers[mv.name]
+            local parentName = holder and holder.parent and holder.parent:GetName()
+            
+            if targetFrame == mv or (holder and targetFrame == holder.parent) or val == parentName or val == mv.name then
+                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
+                return 
             end
+            
+            local oldPointStr = GetPoint(mv)
+            local selfPt, _, relPoint, px, py = mv:GetPoint(1)
+            
+            mv:ClearAllPoints()
+            mv:SetPoint(selfPt or "CENTER", targetFrame, relPoint or "CENTER", 0, 0)
+            
+            Movers:PushUndo(mv.name, oldPointStr)
+            Movers:SaveMoverPosition(mv.name)
+            Movers:UpdateParentPosition(mv.name)
+            
+            local mapping = MoverToModuleMapping[mv.name]
+            if mapping and DDingUI.db then
+                local anchorCfg = ResolvePath(DDingUI.db.profile, mapping.path)
+                if anchorCfg and mapping.attachKey then anchorCfg[mapping.attachKey] = val end
+            end
+            
+            nudge:UpdateInfo()
         end)
     nudge.anchorFrameDropdown = anchorFrameDropdown
+    cursorY = cursorY - 45
 
-    -- Self Point Dropdown
-    local selfPointDropdown = CreateFlatDropdown(nudge,
-        L["Self Point"] or "기준점", 110,
-        "TOPLEFT", nudge, "TOPLEFT", 15, anchorY - 48,
-        anchorPointItems,
-        function(val)
-            local mover = Movers.SelectedMover
-            if mover then
-                local oldPoint = GetPoint(mover)
-                local _, af, relPoint, x, y = mover:GetPoint(1)
-                mover:ClearAllPoints()
-                mover:SetPoint(val, af or UIParent, relPoint or "CENTER", x or 0, y or 0)
-                Movers:PushUndo(mover.name, oldPoint)
-                Movers:SaveMoverPosition(mover.name)
-                Movers:UpdateParentPosition(mover.name)
-                nudge:UpdateInfo()
-            end
-        end)
-    nudge.selfPointDropdown = selfPointDropdown
-
-    --------------------------------------------------------------------------------
-    -- Anchor Selection Button (앵커 선택 버튼) - StartFramePicker 사용
-    --------------------------------------------------------------------------------
-    local anchorSelectY = -160
-
+    -- [3] Anchor Selection Button (StartFramePicker)
     local anchorSelectBtn = CreateFrame("Button", nil, nudge, "BackdropTemplate")
     anchorSelectBtn:SetSize(250, 24)
-    anchorSelectBtn:SetPoint("TOP", nudge, "TOP", 0, anchorSelectY)
+    anchorSelectBtn:SetPoint("TOP", nudge, "TOP", 0, cursorY)
     
     local dR = (accentFrom and accentFrom[1] or 0.3) * 0.3
     local dG = (accentFrom and accentFrom[2] or 0.8) * 0.3
@@ -2604,26 +2817,20 @@ function Movers:CreateNudgeFrame()
             return
         end
 
-        -- DDingUI:StartFramePicker 사용
         DDingUI:StartFramePicker(function(frameName)
             if not frameName or not Movers.SelectedMover then return end
 
             local mv = Movers.SelectedMover
             local targetFrame = _G[frameName] or UIParent
             local holder = Movers.CreatedMovers[mv.name]
-
             local parentName = holder and holder.parent and holder.parent:GetName()
             local moverBaseName = mv.name
 
-            if targetFrame == mv
-               or (holder and targetFrame == holder.parent)
-               or frameName == parentName
-               or frameName == moverBaseName then
+            if targetFrame == mv or (holder and targetFrame == holder.parent) or frameName == parentName or frameName == moverBaseName then
                 print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
                 return
             end
 
-            -- Undo용 현재 위치 저장
             local oldPointStr = GetPoint(mv)
             local selfPt, _, relPoint, px, py = mv:GetPoint(1)
             selfPt = selfPt or "CENTER"
@@ -2649,12 +2856,17 @@ function Movers:CreateNudgeFrame()
                     break
                 end
             end
-            nudge.anchorFrameDropdown:SetValue(frameName, pickerDisplayName)
+            if nudge.anchorFrameDropdown and nudge.anchorFrameDropdown.SetValue then
+                nudge.anchorFrameDropdown:SetValue(frameName, pickerDisplayName)
+            end
         end)
     end)
-
+    
+    cursorY = cursorY - 35
+    
     -- Coordinate container
-    local coordY = -190
+    local coordY = cursorY
+    cursorY = cursorY - 40
 
     -- X coordinate
     local inputBg = SL and SL.Colors.bg.input or {0.06, 0.06, 0.06, 0.80}
@@ -2728,7 +2940,9 @@ function Movers:CreateNudgeFrame()
     nudge.yEditBox = yEditBox
 
     -- Arrow buttons (Flat UI)
-    local arrowCenterY = -240
+    local arrowCenterY = cursorY - 10
+    cursorY = cursorY - 60
+    
     local arrowSize = 28
     local nudgeBtnBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
 
@@ -2767,7 +2981,7 @@ function Movers:CreateNudgeFrame()
     --------------------------------------------------------------------------------
     -- Settings Section
     --------------------------------------------------------------------------------
-    local settingsY = -330
+    local settingsY = cursorY - 10
 
     -- Separator
     local separator = nudge:CreateTexture(nil, "ARTWORK")
@@ -3041,9 +3255,25 @@ function Movers:CreateNudgeFrame()
 
     -- Update functions
     function nudge:UpdateSelection()
+        local moverItems = { {text=L["No selection"] or "선택 없음", value=""} }
+        for mName, mHolder in pairs(Movers.CreatedMovers or {}) do
+            moverItems[#moverItems+1] = {text = (mHolder.mover and mHolder.mover.displayText) or mName, value = mName}
+        end
+        table.sort(moverItems, function(a, b) return a.text < b.text end)
+
+        if self.frameSelectDropdown then
+            if self.frameSelectDropdown.SetItems then
+                self.frameSelectDropdown:SetItems(moverItems)
+            end
+        end
+
         local mover = Movers.SelectedMover
         if mover then
             self.selectedText:SetText(mover.displayText or mover.name)
+            if self.frameSelectDropdown and self.frameSelectDropdown.SetValue then
+                self.frameSelectDropdown:SetValue(mover.name, mover.displayText or mover.name)
+            end
+
             if mover.UpdateBorderColor then
                 mover.UpdateBorderColor(0, 1, 0, 1)
             end
@@ -3058,12 +3288,16 @@ function Movers:CreateNudgeFrame()
             self:UpdateInfo()
         else
             self.selectedText:SetText(L["No frame selected"] or "No frame selected")
+            if self.frameSelectDropdown and self.frameSelectDropdown.SetValue then
+                self.frameSelectDropdown:SetValue("", L["No selection"] or "선택 없음")
+            end
+            
             self.anchorLabel:SetText("Anchor: --")
-            self.xEditBox:SetText("")
-            self.yEditBox:SetText("")
-            self.anchorPointDropdown:SetValue(nil, "--")
-            self.anchorFrameDropdown:SetValue(nil, "--")
-            self.selfPointDropdown:SetValue(nil, "--")
+            if self.xEditBox then self.xEditBox:SetText("") end
+            if self.yEditBox then self.yEditBox:SetText("") end
+            if self.anchorPointDropdown and self.anchorPointDropdown.SetValue then self.anchorPointDropdown:SetValue(nil, "--") end
+            if self.anchorFrameDropdown and self.anchorFrameDropdown.SetValue then self.anchorFrameDropdown:SetValue(nil, "--") end
+            if self.selfPointDropdown and self.selfPointDropdown.SetValue then self.selfPointDropdown:SetValue(nil, "--") end
         end
     end
 
@@ -3370,7 +3604,7 @@ function Movers:Initialize()
         self:ReloadMappedModulePositions()
     end)
 
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00Movers initialized. Use /ddmove to toggle.|r") -- [STYLE]
+    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00로드 완료. |cffffa300/dcm|r|cff00ff00 으로 설정을 열 수 있습니다.|r") -- [STYLE]
 end
 
 function Movers:RegisterStandardFrames()

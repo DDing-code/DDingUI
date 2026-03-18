@@ -487,15 +487,24 @@ local function ParseImportString(str)
 	end
 
 	-- Try to parse the data
+	-- [AUDIT-FIX] C-PROF-1: loadstring 보안 — 샌드박스 환경으로 임의 코드 실행 방지
 	local func, err = loadstring("return " .. data)
 	if not func then
 		return nil, "Failed to parse import data: " .. (err or "unknown error")
 	end
 
+	-- 샌드박스: 전역 함수 접근 차단
+	setfenv(func, {})
+
 	-- Execute in protected mode
 	local success, result = pcall(func)
 	if not success then
 		return nil, "Failed to load import data: " .. (result or "unknown error")
+	end
+
+	-- 결과 검증: table만 허용
+	if type(result) ~= "table" then
+		return nil, "Import data is not a valid table"
 	end
 
 	return result
@@ -694,30 +703,32 @@ local function OnCombatEndSpecSwitch()
 	pendingSpecSwitch = nil
 end
 
+-- [AUDIT-FIX] W-PROF-1: 익명 핸들러 → 명명된 함수로 교체 (해제 가능)
+local function OnSpecChangedHandler()
+	Profiles:OnSpecChanged()
+end
+
+local function OnRegenForSpecSwitch()
+	if pendingSpecSwitch then
+		OnCombatEndSpecSwitch()
+	end
+end
+
+local initialSpecChecked = false
+local function OnPEWForInitialSpec()
+	if not initialSpecChecked then
+		initialSpecChecked = true
+		C_Timer.After(0.5, function()
+			Profiles:OnSpecChanged()
+		end)
+	end
+end
+
 -- 이벤트 등록 (Initialize()에서 호출)
 function Profiles:InitSpecSwitch()
-	-- PLAYER_SPECIALIZATION_CHANGED 등록
-	ns.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
-		Profiles:OnSpecChanged()
-	end)
-
-	-- PLAYER_REGEN_ENABLED (전투 종료 시 지연 전환)
-	ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
-		if pendingSpecSwitch then
-			OnCombatEndSpecSwitch()
-		end
-	end)
-
-	-- 로그인 시 첫 1회 체크 (PLAYER_ENTERING_WORLD)
-	local initialSpecChecked = false
-	ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
-		if not initialSpecChecked then
-			initialSpecChecked = true
-			C_Timer.After(0.5, function()
-				Profiles:OnSpecChanged()
-			end)
-		end
-	end)
+	ns.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", OnSpecChangedHandler)
+	ns.RegisterEvent("PLAYER_REGEN_ENABLED", OnRegenForSpecSwitch)
+	ns.RegisterEvent("PLAYER_ENTERING_WORLD", OnPEWForInitialSpec)
 
 	specSwitchReady = true
 	ns.Debug("Spec-switch initialized")

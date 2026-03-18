@@ -755,6 +755,29 @@ local function CreateViewerOptions(viewerKey, displayName, order)
                 name = L["Cooldown Text"],
                 order = 40,
             },
+            hideDurationText = {
+                type = "toggle",
+                name = L["Hide Duration Text"] or "Hide Duration Text",
+                desc = L["Hide the duration text on cooldown icons"] or "Hide the duration text on cooldown icons",
+                order = 40.1,
+                width = "full",
+                get = function()
+                    local viewers = DDingUI.db.profile.viewers
+                    return viewers and viewers[viewerKey] and viewers[viewerKey].hideDurationText
+                end,
+                set = function(_, val)
+                    SetViewerSetting(viewerKey, "hideDurationText", val)
+                    local viewer = _G[viewerKey]
+                    if viewer and DDingUI.IconViewers then
+                        if DDingUI.IconViewers.SkinAllIconsInViewer then
+                            DDingUI.IconViewers:SkinAllIconsInViewer(viewer)
+                        end
+                    end
+                    if DDingUI.RefreshViewers then
+                        DDingUI:RefreshViewers()
+                    end
+                end,
+            },
             cooldownFont = {
                 type = "select",
                 name = L["Font"],

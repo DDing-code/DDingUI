@@ -484,7 +484,7 @@ end
 
 function ResourceBars:CreateFragmentedPowerBars(bar, resource)
     local cfg = DDingUI.db.profile.secondaryPowerBar
-    local maxPower = (resource == "MAELSTROM_WEAPON" and 5) or UnitPowerMax("player", resource) or 0
+    local maxPower = (resource == "MAELSTROM_WEAPON" and 5) or (resource == Enum.PowerType.ArcaneCharges and 4) or UnitPowerMax("player", resource) or 0
     
     for i = 1, maxPower do
         if not bar.FragmentedPowerBars[i] then
@@ -508,7 +508,7 @@ end
 
 function ResourceBars:UpdateFragmentedPowerDisplay(bar, resource)
     local cfg = DDingUI.db.profile.secondaryPowerBar
-    local maxPower = (resource == "MAELSTROM_WEAPON" and 5) or UnitPowerMax("player", resource)
+    local maxPower = (resource == "MAELSTROM_WEAPON" and 5) or (resource == Enum.PowerType.ArcaneCharges and 4) or UnitPowerMax("player", resource)
     if maxPower <= 0 then return end
 
     local barWidth = bar:GetWidth()
@@ -795,6 +795,11 @@ function ResourceBars:UpdateSecondaryPowerBar()
     if not cfg.enabled then
         if DDingUI.secondaryPowerBar then
             DDingUI.secondaryPowerBar:Hide()
+            -- [FIX] Explicitly hide sub-elements to prevent background leak
+            if DDingUI.secondaryPowerBar.Background then DDingUI.secondaryPowerBar.Background:Hide() end
+            if DDingUI.secondaryPowerBar.Border then DDingUI.secondaryPowerBar.Border:Hide() end
+            if DDingUI.secondaryPowerBar.TextFrame then DDingUI.secondaryPowerBar.TextFrame:Hide() end
+            if DDingUI.secondaryPowerBar.RuneTimerTextFrame then DDingUI.secondaryPowerBar.RuneTimerTextFrame:Hide() end
         end
         -- Stop ticker when disabled
         if secondaryPowerTicker then
@@ -848,21 +853,24 @@ function ResourceBars:UpdateSecondaryPowerBar()
     local anchorFallback = false
     if not anchor then
         if inGracePeriod then
-            -- 특성 변경 중: 위치 틀어짐 방지를 위해 바를 잠시 숨기고
-            -- 앵커가 복구되면 정확한 위치에 다시 표시
+            -- [FIX] Ayije CDM 패턴: grace period 중 bar:Hide() 금지
+            -- 이전 위치/너비를 유지한 채 앵커 복구를 기다림 (바 사라짐 방지)
             if bar:GetParent() ~= UIParent then
                 bar:SetParent(UIParent)
             end
-            bar:Hide()
+            -- 바를 숨기지 않음 — 이전 위치에서 계속 표시
             if not bar._anchorRetryScheduled then
                 bar._anchorRetryScheduled = true
                 C_Timer.After(0.2, function() ResourceBars:UpdateSecondaryPowerBar() end)
                 C_Timer.After(0.5, function() ResourceBars:UpdateSecondaryPowerBar() end)
                 C_Timer.After(1.0, function()
-                    bar._anchorRetryScheduled = nil
                     ResourceBars:UpdateSecondaryPowerBar()
                 end)
                 C_Timer.After(2.0, function() ResourceBars:UpdateSecondaryPowerBar() end)
+                C_Timer.After(4.0, function()
+                    bar._anchorRetryScheduled = nil
+                    ResourceBars:UpdateSecondaryPowerBar()
+                end)
             end
             return
         end
@@ -1049,6 +1057,16 @@ function ResourceBars:UpdateSecondaryPowerBar()
         bar._lastHeight = desiredHeight
     end
 
+    -- [FIX] Apply frame strata immediately (was only set during creation)
+    local strata = cfg.frameStrata or "MEDIUM"
+    bar:SetFrameStrata(strata)
+    if bar.TextFrame then
+        bar.TextFrame:SetFrameStrata(strata)
+    end
+    if bar.RuneTimerTextFrame then
+        bar.RuneTimerTextFrame:SetFrameStrata(strata)
+    end
+
     -- Update background color
     local bgColor = cfg.bgColor or { 0.15, 0.15, 0.15, 1 }
     if bar.Background then
@@ -1169,6 +1187,16 @@ function ResourceBars:UpdateSecondaryPowerBar()
         end
     end
 
+    -- [FIX] 비전 마법사(specID 62): 비전 충전물은 최대 4스택 고정
+    -- UnitPowerMax/overflowThreshold가 5를 반환해도 specID로 강제 4 고정
+    do
+        local spec = GetSpecialization and GetSpecialization()
+        local specID = spec and GetSpecializationInfo and GetSpecializationInfo(spec)
+        if specID == 62 then -- Arcane Mage
+            visualMax = 4
+        end
+    end
+
     -- Handle fragmented power types (Runes, Essence)
     if fragmentedPowerTypes[resource] then
         -- Set StatusBar color first so UpdateFragmentedPowerDisplay can read it
@@ -1262,7 +1290,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
         bar.StatusBar:SetAlpha(1)
         local interpolation = cfg.smoothProgress and buildVersion >= 120000 and Enum.StatusBarInterpolation.ExponentialEaseOut or nil
         bar.StatusBar:SetMinMaxValues(0, visualMax, interpolation)
-        bar.StatusBar:SetValue(math_min(current, visualMax), interpolation)
+        bar.StatusBar:SetValue(current, interpolation)
 
         -- Set bar color
         local powerTypeColors = DDingUI.db.profile.powerTypeColors
@@ -1313,6 +1341,12 @@ function ResourceBars:UpdateSecondaryPowerBar()
         -- Base color (threshold takes precedence if applied; maxColor handled by overlay)
         if not thresholdApplied then
             bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+        end
+
+        -- [ConditionalActions] 조건부 동작 색상 오버라이드
+        if bar._ddingColorOverride then
+            local oc = bar._ddingColorOverride
+            bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
         end
 
         -- Marker + max color overlays for normal bar resources (secret value safe)

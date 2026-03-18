@@ -565,6 +565,20 @@ function IconViewers:SkinIcon(icon, settings)
         end
 
         -- Position duration text (countdown timer)
+        -- Hide Duration Text initial state
+        local pid = GetIconData(icon)
+        if settings.hideDurationText and pid.isAuraSwipe then
+            if icon.Cooldown.SetHideCountdownNumbers then
+                icon.Cooldown:SetHideCountdownNumbers(true)
+            end
+            icon.Cooldown.noCooldownCount = true
+        else
+            if icon.Cooldown.SetHideCountdownNumbers then
+                icon.Cooldown:SetHideCountdownNumbers(false)
+            end
+            icon.Cooldown.noCooldownCount = nil
+        end
+
         if settings.durationTextAnchor then
             local durationAnchor = settings.durationTextAnchor or "TOP"
             if durationAnchor == "MIDDLE" then durationAnchor = "CENTER" end
@@ -573,8 +587,23 @@ function IconViewers:SkinIcon(icon, settings)
 
             for _, region in ipairs({ icon.Cooldown:GetRegions() }) do
                 if region:GetObjectType() == "FontString" then
-                    region:ClearAllPoints()
-                    region:SetPoint(durationAnchor, icon.Cooldown, durationAnchor, durationOffsetX, durationOffsetY)
+                    if settings.hideDurationText and pid.isAuraSwipe then
+                        region:Hide()
+                        -- Prevent region from showing
+                        if not region.hookedHideText then
+                            region.hookedHideText = true
+                            hooksecurefunc(region, "Show", function(self)
+                                local cd = self:GetParent()
+                                if cd and cd.noCooldownCount then
+                                    self:Hide()
+                                end
+                            end)
+                        end
+                    else
+                        region:Show()
+                        region:ClearAllPoints()
+                        region:SetPoint(durationAnchor, icon.Cooldown, durationAnchor, durationOffsetX, durationOffsetY)
+                    end
                     break
                 end
             end

@@ -9,6 +9,36 @@ end
 -- COMMON UTILITY FUNCTIONS (shared across all modules)
 -- ============================================================
 
+-- [FIX] WoW 12.0: EasyMenu / UIDropDownMenuTemplate 제거됨 → MenuUtil 기반 polyfill
+if not EasyMenu and MenuUtil and MenuUtil.CreateContextMenu then
+    EasyMenu = function(menuList, _, anchorFrame, x, y, displayMode)
+        MenuUtil.CreateContextMenu(anchorFrame, function(ownerRegion, rootDescription)
+            for _, item in ipairs(menuList) do
+                if item.isTitle then
+                    rootDescription:CreateTitle(item.text or "")
+                elseif item.isSeparator then
+                    rootDescription:CreateDivider()
+                elseif item.hasArrow and item.menuList then
+                    local sub = rootDescription:CreateButton(item.text or "")
+                    for _, subItem in ipairs(item.menuList) do
+                        if subItem.isTitle then
+                            sub:CreateTitle(subItem.text or "")
+                        else
+                            sub:CreateButton(subItem.text or "", function()
+                                if subItem.func then subItem.func() end
+                            end)
+                        end
+                    end
+                else
+                    rootDescription:CreateButton(item.text or "", function()
+                        if item.func then item.func() end
+                    end)
+                end
+            end
+        end)
+    end
+end
+
 -- PixelSnap: Round value to nearest pixel
 function DDingUI:PixelSnap(value)
     return math.max(0, math.floor((value or 0) + 0.5))
@@ -84,7 +114,13 @@ function DDingUI:GetEffectiveAnchorWidth(frame)
     end
 
     -- 폴백: 프레임 자체 너비 (보더 차감 불필요)
-    return frame:GetWidth(), false
+    local fallbackWidth = frame:GetWidth()
+    -- [FIX] 0 또는 nil 반환 방지 — CDM 뷰어 재생성 중 GetWidth()=0 대응
+    -- 0을 반환하면 자원바가 너비=0이 되어 사라짐
+    if not fallbackWidth or fallbackWidth <= 0 then
+        return nil, false
+    end
+    return fallbackWidth, false
 end
 
 -- ============================================================
@@ -116,11 +152,30 @@ function DDingUI:ResolveAnchorFrame(name)
         if proxy then return proxy end
     end
 
-    -- 2. 직접 _G에서 찾기 (DDingUI_UF 프레임 포함: ddingUI_Player, ddingUI_Target 등)
+    -- 2. bt:<uid> 패턴: 오라 uid → 현재 인덱스 → 프레임 해석
+    local uid = name:match("^bt:(.+)$")
+    if uid and DDingUI.FindTrackedBuffByUID then
+        local idx, buff = DDingUI.FindTrackedBuffByUID(uid)
+        if idx and buff then
+            local displayType = buff.displayType or "bar"
+            local frameName
+            if displayType == "icon" then
+                frameName = "DDingUIBuffTrackerIcon" .. idx
+            elseif displayType == "text" then
+                frameName = "DDingUIBuffTrackerText" .. idx
+            else
+                frameName = "DDingUIBuffTrackerBar" .. idx
+            end
+            local frame = _G[frameName]
+            if frame then return frame end
+        end
+    end
+
+    -- 3. 직접 _G에서 찾기 (DDingUI_UF 프레임 포함: ddingUI_Player, ddingUI_Target 등)
     local frame = _G[name]
     if frame then return frame end
 
-    -- 3. UIParent 폴백
+    -- 4. UIParent 폴백
     return UIParent
 end
 

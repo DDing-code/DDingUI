@@ -56,6 +56,69 @@ local function Comma(num)
     return n
 end
 
+-- 아이템 링크에서 enchantID 추출 (위치 2)
+local function GetEnchantIDFromLink(link)
+    if not link then return nil end
+    local _, linkOptions = LinkUtil.ExtractLink(link)
+    if not linkOptions then return nil end
+    local parts = {strsplit(":", linkOptions)}
+    local enchantID = tonumber(parts[2])
+    if enchantID and enchantID > 0 then
+        return enchantID
+    end
+    return nil
+end
+
+-- 아이템 링크에서 gemID 추출 (위치 3~6)
+local function GetGemsFromLink(link)
+    if not link then return {} end
+    local _, linkOptions = LinkUtil.ExtractLink(link)
+    if not linkOptions then return {} end
+    local parts = {strsplit(":", linkOptions)}
+    local gems = {}
+    for i = 3, 6 do
+        local gid = tonumber(parts[i])
+        if gid and gid > 0 then
+            gems[#gems + 1] = gid
+        end
+    end
+    return gems
+end
+
+-- C_TooltipInfo로 마법부여 이름 가져오기
+local function GetEnchantNameFromTooltip(link)
+    if not link then return "" end
+    local tooltipData = C_TooltipInfo and C_TooltipInfo.GetHyperlink(link)
+    if not tooltipData or not tooltipData.lines then
+        -- 폴백: 스캔 툴팁
+        scanTip:ClearLines()
+        scanTip:SetHyperlink(link)
+        for i = 1, scanTip:NumLines() do
+            local ln = _G["DDT_ItemLevelScanTipTextLeft" .. i]
+            if ln then
+                local text = ln:GetText() or ""
+                local r, g, b = ln:GetTextColor()
+                -- 초록색 텍스트 = 마법부여 (r<0.1, g>0.9, b<0.1)
+                if r < 0.2 and g > 0.8 and b < 0.2 then
+                    return text:gsub(" [+%-]%d+", "")
+                end
+            end
+        end
+        return ""
+    end
+
+    for _, line in ipairs(tooltipData.lines) do
+        if line.leftColor then
+            local c = line.leftColor
+            -- 초록색 (마법부여 라인)
+            if c.r < 0.2 and c.g > 0.8 and c.b < 0.2 and line.leftText then
+                return line.leftText:gsub(" [+%-]%d+", "")
+            end
+        end
+    end
+    return ""
+end
+
 -- 스탯 라벨
 local function StatLabel(stat)
     local locale = GetLocale()
@@ -143,25 +206,13 @@ local function UpdateSelfSlot(button)
         d.ilvlFS:Show()
     end
 
-    -- 인챈트 표시
-    if db.showEnchant and ENCHANTED_TOOLTIP_LINE then
-        scanTip:ClearLines()
-        scanTip:SetHyperlink(link)
-        local ench = ""
-        for i = 1, scanTip:NumLines() do
-            local ln = _G["DDT_ItemLevelScanTipTextLeft" .. i]
-            if ln then
-                local text = ln:GetText() or ""
-                local pattern = ENCHANTED_TOOLTIP_LINE:gsub("%%s", "(.+)")
-                local m = text:match(pattern)
-                if m then
-                    ench = m:gsub(" [+%-]%d+", "")
-                    break
-                end
-            end
-        end
+    -- 인챈트 표시 (아이템 링크 파싱 + C_TooltipInfo)
+    if db.showEnchant then
+        local enchantID = GetEnchantIDFromLink(link)
+        if enchantID then
+            local ench = GetEnchantNameFromTooltip(link)
+            if ench == "" then ench = "Enchant #" .. enchantID end
 
-        if ench ~= "" then
             d.enchFS:SetText(ench)
             d.enchFS:SetTextColor(0, 1, 0)
             d.enchFS:ClearAllPoints()
@@ -183,9 +234,10 @@ local function UpdateSelfSlot(button)
         end
     end
 
-    -- 보석 아이콘
+    -- 보석 아이콘 (아이템 링크에서 gemID 파싱)
     if db.showGems then
-        local cnt = C_Item.GetItemNumSockets and C_Item.GetItemNumSockets(link) or 0
+        local gems = GetGemsFromLink(link)
+        local cnt = #gems
         for i = 1, cnt do
             local tex = d.gems[i]
             if not tex then
@@ -196,7 +248,7 @@ local function UpdateSelfSlot(button)
             tex:SetSize(db.selfGemSize, db.selfGemSize)
             tex:ClearAllPoints()
 
-            local gid = C_Item.GetItemGemID and C_Item.GetItemGemID(link, i)
+            local gid = gems[i]
             local icon = gid and C_Item.GetItemIconByID(gid) or "Interface\\ItemSocketingFrame\\UI-EmptySocket"
             tex:SetTexture(icon)
 
@@ -332,25 +384,13 @@ local function UpdateInspectSlot(button, unit)
         d.ilvlFS:Show()
     end
 
-    -- 인챈트 표시
-    if db.showEnchant and ENCHANTED_TOOLTIP_LINE then
-        scanTip:ClearLines()
-        scanTip:SetHyperlink(link)
-        local ench = ""
-        for i = 1, scanTip:NumLines() do
-            local ln = _G["DDT_ItemLevelScanTipTextLeft" .. i]
-            if ln then
-                local text = ln:GetText() or ""
-                local pattern = ENCHANTED_TOOLTIP_LINE:gsub("%%s", "(.+)")
-                local m = text:match(pattern)
-                if m then
-                    ench = m:gsub(" [+%-]%d+", "")
-                    break
-                end
-            end
-        end
+    -- 인챈트 표시 (아이템 링크 파싱 + C_TooltipInfo)
+    if db.showEnchant then
+        local enchantID = GetEnchantIDFromLink(link)
+        if enchantID then
+            local ench = GetEnchantNameFromTooltip(link)
+            if ench == "" then ench = "Enchant #" .. enchantID end
 
-        if ench ~= "" then
             d.enchFS:SetText(ench)
             d.enchFS:SetTextColor(0, 1, 0)
             d.enchFS:ClearAllPoints()
@@ -372,9 +412,10 @@ local function UpdateInspectSlot(button, unit)
         end
     end
 
-    -- 보석 아이콘
+    -- 보석 아이콘 (아이템 링크에서 gemID 파싱)
     if db.showGems then
-        local cnt = C_Item.GetItemNumSockets and C_Item.GetItemNumSockets(link) or 0
+        local gems = GetGemsFromLink(link)
+        local cnt = #gems
         for i = 1, cnt do
             local tex = d.gems[i]
             if not tex then
@@ -385,7 +426,7 @@ local function UpdateInspectSlot(button, unit)
             tex:SetSize(db.inspGemSize, db.inspGemSize)
             tex:ClearAllPoints()
 
-            local gid = C_Item.GetItemGemID and C_Item.GetItemGemID(link, i)
+            local gid = gems[i]
             local icon = gid and C_Item.GetItemIconByID(gid) or "Interface\\ItemSocketingFrame\\UI-EmptySocket"
             tex:SetTexture(icon)
 

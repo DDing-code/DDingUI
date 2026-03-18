@@ -53,6 +53,7 @@ local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
 
 -- Get preview values for a bar
 local function GetPreviewValues(barIndex, maxStacks, maxDuration, barFillMode)
+    if not maxStacks or maxStacks < 1 then maxStacks = 1 end
     if not previewState[barIndex] then
         previewState[barIndex] = {
             stacks = math.random(1, maxStacks),
@@ -362,29 +363,20 @@ local function GetCurrentSpecID()
     return specID
 end
 
--- Format duration with decimal places -- Secret value는 직접 반환, 숫자는 포맷팅
+-- Format duration with decimal places
+-- [FIX] pcall 과다 제거: issecretvalue 직접 체크
 local function FormatDuration(value, decimals)
-    -- Secret value는 비교 연산 불가 - pcall로 안전하게 처리
-    local isNil = false
-    pcall(function()
-        if value == nil then isNil = true end
-    end)
-    if isNil then return "" end
-
-    decimals = decimals or 1
-
-    local ok, formatted = pcall(function()
-        local num = tonumber(value)
-        if num then
-            return string.format("%." .. decimals .. "f", num)
-        end
+    if value == nil then return "" end
+    -- Secret value는 그대로 반환 (SetText에서 처리)
+    if issecretvalue and issecretvalue(value) then
         return value
-    end)
-
-    if ok and formatted then
-        return formatted
     end
-    return value  -- Secret value는 그대로 반환 (SetText에서 처리)
+    decimals = decimals or 1
+    local num = tonumber(value)
+    if num then
+        return string.format("%." .. decimals .. "f", num)
+    end
+    return tostring(value)
 end
 
 -- ============================================================
@@ -584,11 +576,16 @@ function ResourceBars.AutoDetectAuraValues(cooldownID, fallbackSpellID)
     end
 
     -- 4-2. 실시간 auraInstanceID 가져오기
+    -- [FIX] secret value 방어: 존재 여부만 확인 후 pcall로 안전 접근
     local auraInstanceID
     if frame then
-        pcall(function()
-            auraInstanceID = frame.auraInstanceID
-        end)
+        local rawAuraID = frame.auraInstanceID
+        if rawAuraID ~= nil and not IsSecretValue(rawAuraID) then
+            auraInstanceID = rawAuraID
+        elseif rawAuraID ~= nil then
+            -- secret value이지만 존재함 → pcall로 안전하게 전달
+            auraInstanceID = rawAuraID
+        end
     end
 
     -- 5. C_CooldownViewer API에서 추가 정보 가져오기
@@ -882,6 +879,31 @@ local barFrames = {}      -- forward-declared; 실제 사용은 line 1921+
 local iconFrames = {}     -- forward-declared; 실제 사용은 line 2064+
 local GetTrackedBuffs  -- Used in expiration check before definition
 
+-- ============================================================
+-- STABILITY: Grace Period + Loading Screen + Cache Invalidation
+-- ============================================================
+local specChangeGraceUntil = 0
+local SPEC_CHANGE_GRACE_DURATION = 2.0  -- 초: CDM 데이터 로딩 대기
+local buffTrackerInitialized = false
+local loadingScreenActive = false
+
+-- 모든 bar 프레임의 위치/스타일 캐시를 초기화
+-- 전문화 변경 시 이전 전문화의 앵커 정보가 남아있으면 위치가 틀어짐
+local function InvalidateAllFrameCaches()
+    for _, bar in pairs(barFrames) do
+        if bar then
+            bar._lastAnchor = nil
+            bar._lastAnchorPoint = nil
+            bar._lastOffsetX = nil
+            bar._lastOffsetY = nil
+            bar._lastSelfPoint = nil
+            bar._lastHeight = nil
+            bar._lastWidth = nil
+            bar._lastBarStyle = nil
+        end
+    end
+end
+
 -- GetDecimalFmt: 소수점 자릿수에 맞는 포맷 문자열 반환
 local function GetDecimalFmt(decimals)
     return "%." .. (decimals or 1) .. "f"
@@ -891,16 +913,18 @@ end
 -- CDM STACKS TRACKING
 -- ============================================================
 
--- GetBuffStacks 함수 (원래 코드 복원) -- secret number는 그대로 전달 (표시용)
+-- GetBuffStacks 함수 -- [FIX] secret value 방어 강화
 local function GetBuffStacks(frame, unit)
     if not frame then return 0 end
+    -- [FIX] auraInstanceID 존재 여부를 secret value 안전하게 확인
+    local rawAuraID = frame.auraInstanceID
+    if rawAuraID == nil then return 0 end
+
+    unit = unit or "player"
     local ok, result = pcall(function()
-        if not frame.auraInstanceID then return 0 end
-        unit = unit or "player"
-        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, frame.auraInstanceID)
+        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, rawAuraID)
         if not auraData then return 0 end
-        -- [v1.2.3 복원] secret value든 숫자든 그대로 반환!
-        -- SetText/SetValue가 알아서 처리함
+        -- secret value든 숫자든 그대로 반환 (SetText/SetValue가 처리)
         return auraData.applications or 1
     end)
     if ok then return result or 0 end
@@ -1017,6 +1041,19 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
         end
     end
 
+    -- [FIX] spellID/cooldownID로 못 찾으면 spellName 기반 전역 aura 검색
+    -- (리로드 직후 CDMScanner 미초기화 + spellID=0 대응)
+    if not auraInstanceID and spellName and spellName ~= "" then
+        pcall(function()
+            local aura, foundUnit = FindAuraGloballyByName(spellName)
+            if aura then
+                trackedStacks = aura.applications or 1
+                auraInstanceID = aura.auraInstanceID
+                unit = foundUnit or "player"
+            end
+        end)
+    end
+
     -- [DEBUG]
     if BUFF_TRACKER_DEBUG and (cooldownID > 0 or (resolvedSpellID and resolvedSpellID > 0)) then
         pcall(function()
@@ -1103,10 +1140,34 @@ buffTrackerEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 buffTrackerEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 buffTrackerEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 buffTrackerEventFrame:RegisterUnitEvent("UNIT_AURA", "player")  -- 플레이어 오라만 (레이드 성능 최적화)
+buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
+buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
 
 local playerInCombat = false
 
 buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
+    -- LOADING_SCREEN 이벤트: 설정 체크 전에 처리 (enabled 여부 무관)
+    if event == "LOADING_SCREEN_ENABLED" then
+        loadingScreenActive = true
+        return
+    end
+    if event == "LOADING_SCREEN_DISABLED" then
+        loadingScreenActive = false
+        -- 로딩 완료 후 안정적 업데이트 (프록시 앵커 위치 복원 + CDM 뷰어 안정화 대기)
+        C_Timer.After(0.5, function()
+            local CDMScanner = DDingUI.CDMScanner
+            if CDMScanner then
+                pcall(CDMScanner.ScanAll)
+            end
+            ResourceBars:UpdateBuffTrackerBar()
+        end)
+        -- [FIX] 1.5초 후 최종 업데이트 (CDMScanner 완전 안정화)
+        C_Timer.After(1.5, function()
+            ResourceBars:UpdateBuffTrackerBar()
+        end)
+        return
+    end
+
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not rootCfg or not rootCfg.enabled then return end
 
@@ -1158,16 +1219,37 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         manualStacks = 0
         manualExpiresAt = nil
 
-        -- 전문화 변경 시 프레임 초기화
+        -- Grace Period 설정 (CDM 데이터 로딩 대기)
+        specChangeGraceUntil = GetTime() + SPEC_CHANGE_GRACE_DURATION
+
+        -- 전문화 변경 시 프레임 초기화 + 위치 캐시 무효화
         HideAllTrackedBuffBars()
         HideAllTrackedBuffIcons()
         HideAllTrackedBuffTexts()
         ResetAllSoundTrackers()
         wipe(soundTrackers)
         ResetManualStacks()  -- 전문화별 수동 스택 정리
+        InvalidateAllFrameCaches()  -- 위치/스타일 캐시 초기화
 
-        -- 새 전문화의 trackedBuffs를 로드할 시간 확보
-        C_Timer.After(0.3, function()
+        -- 런타임 상태 초기화 (이전 전문화의 오래된 이벤트 데이터 정리)
+        ResourceBars._pendingAuraUpdates = nil
+        ResourceBars._spellCastRefresh = nil
+
+        -- 3단계 재시도 (Ayije CDM 패턴)
+        -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
+        C_Timer.After(0.5, function()
+            ResourceBars:UpdateBuffTrackerBar()
+        end)
+        -- Phase 2 (1.5초): CDM 데이터 안정화 후 ScanAll + 업데이트
+        C_Timer.After(1.5, function()
+            local CDMScanner = DDingUI.CDMScanner
+            if CDMScanner then
+                pcall(CDMScanner.ScanAll)
+            end
+            ResourceBars:UpdateBuffTrackerBar()
+        end)
+        -- Phase 3 (Grace Period 종료 후): 최종 정리 업데이트
+        C_Timer.After(SPEC_CHANGE_GRACE_DURATION + 0.5, function()
             ResourceBars:UpdateBuffTrackerBar()
         end)
         return
@@ -2390,9 +2472,35 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
         end
 
         if action.type == "color" then
-            -- Color override: apply while condition is true (last color wins)
+            -- Color override: apply based on colorTarget
+            local colorTarget = action.colorTarget or "self"
             if shouldFire and action.color then
-                frame._alertColorOverride = action.color
+                if colorTarget == "bar" then
+                    -- PrimaryPowerBar 색상 변경
+                    if DDingUI.powerBar then
+                        DDingUI.powerBar._ddingColorOverride = action.color
+                    end
+                elseif colorTarget == "secondary_bar" then
+                    -- SecondaryPowerBar 색상 변경
+                    if DDingUI.secondaryPowerBar then
+                        DDingUI.secondaryPowerBar._ddingColorOverride = action.color
+                    end
+                else
+                    -- self/group: 트래커 자체 색상 변경
+                    frame._alertColorOverride = action.color
+                end
+            else
+                -- 조건 미충족 시 색상 초기화
+                if colorTarget == "bar" then
+                    if DDingUI.powerBar then
+                        DDingUI.powerBar._ddingColorOverride = nil
+                    end
+                elseif colorTarget == "secondary_bar" then
+                    if DDingUI.secondaryPowerBar then
+                        DDingUI.secondaryPowerBar._ddingColorOverride = nil
+                    end
+                end
+                -- self는 함수 상단에서 이미 frame._alertColorOverride = nil
             end
 
         elseif action.type == "sound" then
@@ -2506,6 +2614,13 @@ HideAllTrackedBuffBars = function()
     for _, bar in pairs(barFrames) do
         if bar then
             bar:Hide()
+            -- [FIX] Explicitly hide sub-elements to prevent background leak
+            if bar.Background then bar.Background:Hide() end
+            if bar.Border then bar.Border:Hide() end
+            if bar.TextFrame then bar.TextFrame:Hide() end
+            if bar.RingBackground then bar.RingBackground:Hide() end
+            if bar.RingProgress then bar.RingProgress:Hide() end
+            if bar.RingBorder then bar.RingBorder:Hide() end
             -- Ring DurationText OnUpdate 정리 (TextFrame 사용) -- [12.0.1]
             if bar.TextFrame and bar.TextFrame._hasDurationUpdate then
                 bar.TextFrame:SetScript("OnUpdate", nil)
@@ -2526,6 +2641,50 @@ end
 local function GetFirstTrackedBuff()
     local trackedBuffs = GetTrackedBuffs()
     return trackedBuffs[1]
+end
+
+-- ============================================================
+-- ACTIVATION CONDITION CHECK
+-- 활성조건: 스킬 습득 / 특성 습득 여부 확인
+-- ============================================================
+local function CheckActivationCondition(trackedBuff)
+    local settings = trackedBuff and trackedBuff.settings
+    if not settings then return true end
+
+    local activationType = settings.activationType
+    if not activationType or activationType == "none" then
+        return true  -- 항상 활성
+    end
+
+    if activationType == "spell" then
+        -- 스킬 습득 여부 확인
+        local spellID = settings.activationSpellID
+        if not spellID or spellID <= 0 then
+            spellID = trackedBuff.cooldownID or 0
+        end
+        if spellID and spellID > 0 then
+            return IsPlayerSpell(spellID)
+        end
+        return true  -- spellID 없으면 항상 활성
+
+    elseif activationType == "talent" then
+        -- 특성 습득 여부 확인
+        local nodeID = settings.activationTalentID
+        if nodeID and nodeID > 0 then
+            local learned = false
+            pcall(function()
+                local configID = C_ClassTalents.GetActiveConfigID()
+                if configID then
+                    local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
+                    learned = nodeInfo and nodeInfo.activeRank and nodeInfo.activeRank > 0
+                end
+            end)
+            return learned
+        end
+        return true  -- nodeID 없으면 항상 활성
+    end
+
+    return true
 end
 
 function ResourceBars:UpdateBuffTrackerBar()
@@ -2568,10 +2727,22 @@ function ResourceBars:UpdateBuffTrackerBar()
 
     -- Use new multi-bar system if we have tracked buffs
     if useTrackedBuffSystem then
+        -- 그룹 자식 인덱스 세트 구축 (트리거 전용 → 독립 렌더링 안 함)
+        local groupChildSet = {}
+        for _, buff in ipairs(trackedBuffs) do
+            if buff.isGroup and buff.controlledChildren then
+                for _, childIdx in ipairs(buff.controlledChildren) do
+                    groupChildSet[childIdx] = true
+                end
+            end
+        end
+
         -- Update each tracked buff based on its display type
         for barIndex, trackedBuff in ipairs(trackedBuffs) do
-            -- Skip disabled buffs
-            if trackedBuff.enabled == false then
+            -- Skip disabled buffs, group headers, and group children (trigger-only)
+            if trackedBuff.enabled == false or not CheckActivationCondition(trackedBuff)
+               or trackedBuff.isGroup
+               or groupChildSet[barIndex] then
                 local bar = barFrames[barIndex]
                 DDingUI:SafeHide(bar)
                 local icon = iconFrames[barIndex]
@@ -2626,6 +2797,34 @@ function ResourceBars:UpdateBuffTrackerBar()
                     -- Text mode: update text, hide others
                     self:UpdateSingleTrackedBuffText(barIndex, trackedBuff, cfg)
                     HideOtherDisplays("text")
+                elseif displayType == "trigger" then
+                    -- Trigger mode: no visual, only alert evaluation
+                    HideOtherDisplays("trigger")  -- Hide ALL visuals
+                    -- 알림 평가를 위한 아우라 상태 확인
+                    local cooldownID = tonumber(trackedBuff.cooldownID) or 0
+                    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, nil, false, nil, trackedBuff.spellID, trackedBuff.name)
+                    local hasData = auraInstanceID ~= nil
+                    -- 알림 평가: colorTarget에 따라 외부 바에도 색상 적용됨
+                    local dummyFrame = barFrames[barIndex] or {}
+                    local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
+                    if alertResult then
+                        ApplyAlertActions(alertResult, trackedBuff, dummyFrame)
+                    else
+                        -- 조건 미충족 시: 외부 바 색상 초기화
+                        local alerts = trackedBuff.settings and trackedBuff.settings.alerts
+                        if alerts and alerts.actions then
+                            for _, action in ipairs(alerts.actions) do
+                                if action.type == "color" then
+                                    local ct = action.colorTarget or "self"
+                                    if ct == "bar" and DDingUI.powerBar then
+                                        DDingUI.powerBar._ddingColorOverride = nil
+                                    elseif ct == "secondary_bar" and DDingUI.secondaryPowerBar then
+                                        DDingUI.secondaryPowerBar._ddingColorOverride = nil
+                                    end
+                                end
+                            end
+                        end
+                    end
                 else
                     -- Fallback to bar mode
                     self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
@@ -2993,7 +3192,13 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- ============================================================
     -- DURATION MODE     -- ============================================================
     if barFillMode == "duration" then
-        max = stackDuration
+        -- settings.maxDuration 우선 사용 (수동 계산용), 없으면 stackDuration
+        local effectiveMaxDuration = (settings.maxDuration and settings.maxDuration > 0) and settings.maxDuration or stackDuration
+        max = effectiveMaxDuration
+
+        -- 수동 지속시간 계산: settings.maxDuration이 설정되어 있으면
+        -- API duration 대신 버프 활성화 시점부터 경과 시간으로 계산
+        local useManualDuration = settings.maxDuration and settings.maxDuration > 0
 
         if hasData then
             -- Duration 모드: C_UnitAuras.GetAuraDuration 사용
@@ -3001,7 +3206,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             bar._durationData = {
                 unit = unit,
                 auraID = auraInstanceID,
-                maxDuration = stackDuration,
+                maxDuration = effectiveMaxDuration,
                 showDurationText = showDurationText,
                 stacksMode = false,  -- Duration 모드: 바 값 업데이트 함
                 durationDecimals = durationDecimals,  -- 소수점 자릿수
@@ -3015,7 +3220,17 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 isManualMode = isManualMode,
                 manualExpiresAt = manualExpiresAt,
                 barIndex = barIndex,
+                -- 수동 지속시간 계산
+                useManualDuration = useManualDuration,
             }
+
+            -- 수동 지속시간: 버프 활성화 시점 기록
+            if useManualDuration then
+                if not bar._auraActivatedTime then
+                    bar._auraActivatedTime = GetTime()
+                end
+                bar._durationData.auraActivatedTime = bar._auraActivatedTime
+            end
 
             -- Circular/Square/Donut/Ring 스타일: Cooldown 프레임 초기화
             if barStyle == "circular" or barStyle == "square" or barStyle == "donut" or barStyle == "ring" then
@@ -3063,6 +3278,27 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                             end
                         else
                             self:SetValue(0)
+                        end
+                        return
+                    end
+                    -- 수동 지속시간 모드: maxDuration에서 경과 시간을 빼서 남은 시간 계산
+                    if data.useManualDuration and data.auraActivatedTime and data.maxDuration then
+                        local elapsed = GetTime() - data.auraActivatedTime
+                        local remaining = math_max(0, data.maxDuration - elapsed)
+                        if not data.stacksMode then
+                            self:SetValue(remaining)
+                        end
+                        if bar.DurationText and data.showDurationText then
+                            bar.DurationText:SetText(FormatDuration(remaining, data.durationDecimals))
+                            if data.warningEnabled then
+                                if remaining <= data.warningThreshold then
+                                    local wc = data.warningColor
+                                    bar.DurationText:SetTextColor(wc[1] or 1, wc[2] or 0.2, wc[3] or 0.2, wc[4] or 1)
+                                else
+                                    local nc = data.normalColor
+                                    bar.DurationText:SetTextColor(nc[1] or 1, nc[2] or 1, nc[3] or 1, nc[4] or 1)
+                                end
+                            end
                         end
                         return
                     end
@@ -3124,6 +3360,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar._hasDurationUpdate = false
             end
             bar._durationData = nil
+            bar._auraActivatedTime = nil  -- 수동 지속시간 계산: 활성화 시점 초기화
             bar.StatusBar:SetMinMaxValues(0, max)
             bar.StatusBar:SetValue(0)
             -- Cooldown 클리어 (원형/사각형 스타일)
@@ -3496,6 +3733,15 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- Set bar color
     bar.StatusBar:SetStatusBarColor(barColor[1], barColor[2], barColor[3], barColor[4] or 1)
 
+    -- [ConditionalActions] 조건부 동작 색상 오버라이드
+    if bar._ddingColorOverride then
+        local oc = bar._ddingColorOverride
+        bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+        if bar.RingProgress then
+            bar.RingProgress:SetVertexColor(oc[1], oc[2], oc[3], oc[4] or 1)
+        end
+    end
+
     -- Text display (개별 버프 설정 사용)
     -- 중첩 텍스트 설정 (barFillMode와 무관하게 표시 가능)
     bar.TextValue:SetText(displayStacks)  -- Use display value (sample in preview mode)
@@ -3594,7 +3840,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
     -- Ring-specific settings
     local ringSize = settings.ringSize or 32
-    local ringFillMode = settings.ringFillMode or "stacks"
+    local ringFillMode = "duration"  -- Ring은 항상 duration 모드 (강제)
     local ringReverse = settings.ringReverse or false
     local ringColor = settings.ringColor or { 1, 0.8, 0, 1 }
     local ringBgColor = settings.ringBgColor or { 0.15, 0.15, 0.15, 1 }
@@ -3653,7 +3899,8 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         hasData = stackOK and stackPositive or (trackedStacks ~= nil and not stackOK)
     else
         current = trackedStacks or 0
-        hasData = auraInstanceID ~= nil
+        local stackOK, stackPositive = pcall(function() return trackedStacks ~= nil and trackedStacks ~= 0 and trackedStacks > 0 end)
+        hasData = stackOK and stackPositive or (trackedStacks ~= nil and not stackOK) or (auraInstanceID ~= nil)
     end
     -- Duration 데이터 가져오기
         if hasData and auraInstanceID then
@@ -3841,121 +4088,73 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     -- CDM의 SetCooldown을 훅해서 우리 링과 동기화
     -- ============================================================
 
-    if ringFillMode == "duration" and frame and frame.Cooldown then
-        -- Duration 모드: CDM Cooldown 훅으로 동기화
+    -- Duration 모드 (Ring은 항상 duration)
 
-        -- 1. 배경 링 텍스쳐 (맨 뒤 - BACKGROUND) - 항상 보임
-        if not bar._ringColorBg then
-            bar._ringColorBg = bar:CreateTexture(nil, "BACKGROUND", nil, -1)
-            bar._ringColorBg:SetAllPoints(bar)
-        end
-        bar._ringColorBg:SetTexture(ringTexture)
-        bar._ringColorBg:SetVertexColor(ringBgColor[1], ringBgColor[2], ringBgColor[3], ringBgColor[4] or 1)
-        bar._ringColorBg:Show()
+    -- 1. 배경 링 텍스쳐
+    if not bar._ringColorBg then
+        bar._ringColorBg = bar:CreateTexture(nil, "BACKGROUND", nil, -1)
+        bar._ringColorBg:SetAllPoints(bar)
+    end
+    bar._ringColorBg:SetTexture(ringTexture)
+    bar._ringColorBg:SetVertexColor(ringBgColor[1], ringBgColor[2], ringBgColor[3], ringBgColor[4] or 1)
+    bar._ringColorBg:Show()
 
-        -- 2. 스와이프를 색깔 링으로 설정 (시간 지나면서 사라짐 = 색깔이 줄어듦)
-        bar.Cooldown:SetSwipeTexture(ringTexture)
-        bar.Cooldown:SetSwipeColor(ringColor[1], ringColor[2], ringColor[3], ringColor[4] or 1)
-        bar.Cooldown:SetDrawSwipe(true)
-        bar.Cooldown:SetDrawEdge(false)
-        bar.Cooldown:SetDrawBling(false)
-        bar.Cooldown:SetHideCountdownNumbers(true)
-        bar.Cooldown:SetReverse(not ringReverse)  -- ringReverse: true = 반시계 방향, false = 시계 방향
-        bar.Cooldown:SetAllPoints(bar)
-        bar.Cooldown:Show()
+    -- 2. 스와이프를 색깔 링으로 설정
+    bar.Cooldown:SetSwipeTexture(ringTexture)
+    bar.Cooldown:SetSwipeColor(ringColor[1], ringColor[2], ringColor[3], ringColor[4] or 1)
+    bar.Cooldown:SetDrawSwipe(true)
+    bar.Cooldown:SetDrawEdge(false)
+    bar.Cooldown:SetDrawBling(false)
+    bar.Cooldown:SetHideCountdownNumbers(true)
+    bar.Cooldown:SetReverse(not ringReverse)
+    bar.Cooldown:SetAllPoints(bar)
+    bar.Cooldown:Show()
 
-        -- 3. CDM의 SetCooldown 훅 (한 번만)
+    if frame and frame.Cooldown then
+        -- 3a. CDM 프레임 있음: SetCooldown 훅
         if not frame._ddingCooldownHooked then
             local ourCooldown = bar.Cooldown
             hooksecurefunc(frame.Cooldown, "SetCooldown", function(self, start, duration)
                 if ourCooldown and ourCooldown:IsShown() then
-                    ourCooldown:SetCooldown(start, duration)
+                    pcall(function()
+                        if (duration or 0) > 0 then
+                            ourCooldown:SetCooldown(start, duration)
+                        else
+                            ourCooldown:Clear()
+                        end
+                    end)
                 end
             end)
             frame._ddingCooldownHooked = true
         end
 
-        -- 4. 초기 동기화
+        -- 4a. 초기 동기화 (CDM)
         pcall(function()
             local cdmStart, cdmDuration = frame.Cooldown:GetCooldownTimes()
-            if cdmStart and cdmDuration then
+            if cdmStart and cdmDuration and cdmDuration > 0 then
                 bar.Cooldown:SetCooldown(cdmStart / 1000, cdmDuration / 1000)
+            else
+                bar.Cooldown:Clear()
             end
         end)
-
-        -- 옛날 CircularProgress 숨기기
-        if bar._ringBg then bar._ringBg:Hide() end
-        if bar._ringFg then bar._ringFg:Hide() end
-        if bar.CircularProgressFrame then bar.CircularProgressFrame:Hide() end
-
-    else
-        -- Stacks 모드: 기존 CircularProgress 사용
-        local cropValue = settings.ringCrop or 1.41
-
-        if bar.CircularProgressFrame and not bar._circularProgressInitialized then
-            local CircularProgress = DDingUI.CircularProgress
-            if CircularProgress then
-                bar._ringBg = CircularProgress:Create(bar.CircularProgressFrame, "BACKGROUND", 1)
-                CircularProgress:Modify(bar._ringBg, {
-                    texture = ringTexture,
-                    width = ringSize,
-                    height = ringSize,
-                    crop_x = cropValue,
-                    crop_y = cropValue,
-                    blendMode = "BLEND",
-                })
-
-                bar._ringFg = CircularProgress:Create(bar.CircularProgressFrame, "ARTWORK", 2)
-                CircularProgress:Modify(bar._ringFg, {
-                    texture = ringTexture,
-                    width = ringSize,
-                    height = ringSize,
-                    crop_x = cropValue,
-                    crop_y = cropValue,
-                    blendMode = "BLEND",
-                })
-
-                bar._circularProgressInitialized = true
-            end
-        end
-
-        if bar.CircularProgressFrame then
-            bar.CircularProgressFrame:ClearAllPoints()
-            bar.CircularProgressFrame:SetPoint("CENTER", bar, "CENTER", 0, 0)
-            bar.CircularProgressFrame:SetSize(ringSize, ringSize)
-            bar.CircularProgressFrame:Show()
-        end
-
-        if bar._ringBg then
-            bar._ringBg.width = ringSize
-            bar._ringBg.height = ringSize
-            bar._ringBg:SetColor(ringBgColor[1], ringBgColor[2], ringBgColor[3], ringBgColor[4] or 0.8)
-            bar._ringBg:SetProgress(0, 360)
-            bar._ringBg:Show()
-        end
-
-        if bar._ringFg then
-            bar._ringFg.width = ringSize
-            bar._ringFg.height = ringSize
-            bar._ringFg:SetColor(ringColor[1], ringColor[2], ringColor[3], ringColor[4] or 1)
-            bar._ringFg:Show()
-
-            local progress = 0
-            if total > 0 then
-                progress = current / total
-            end
-
-            if ringReverse then
-                bar._ringFg:SetValue(progress, 0, 360)
+    elseif auraInstanceID and unit then
+        -- 3b. CDM 없음: C_UnitAuras API fallback
+        pcall(function()
+            local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
+            if aData and aData.duration and aData.expirationTime and aData.duration > 0 then
+                bar.Cooldown:SetCooldown(aData.expirationTime - aData.duration, aData.duration)
             else
-                bar._ringFg:SetValueReverse(progress, 0, 360)
+                bar.Cooldown:Clear()
             end
-        end
-
-        -- CDM 훅 방식 링 숨기기
-        if bar._ringColorBg then bar._ringColorBg:Hide() end
-        bar.Cooldown:Hide()
+        end)
+    else
+        bar.Cooldown:Clear()
     end
+
+    -- CircularProgress 숨기기 (stacks 모드 잔재)
+    if bar._ringBg then bar._ringBg:Hide() end
+    if bar._ringFg then bar._ringFg:Hide() end
+    if bar.CircularProgressFrame then bar.CircularProgressFrame:Hide() end
 
     -- ============================================================
     -- DURATION MODE: 텍스트 표시용 데이터 설정
@@ -4015,11 +4214,15 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             bar.TextValue:SetFont(DDingUI:GetFont(globalCfg.textFont), ringTextSize, "OUTLINE")
             if ringFillMode == "duration" then
                 -- Duration 모드: 초기값 설정 (OnUpdate에서 실시간 업데이트)
-                local decimals = settings.ringDurationDecimals or 1
-                if decimals == 0 then
-                    bar.TextValue:SetText(string.format("%.0f", remainingDuration))
-                else
-                    bar.TextValue:SetText(string.format("%." .. decimals .. "f", remainingDuration))
+                -- remainingDuration이 secret이면 건너뛰고 OnUpdate에 위임
+                local remOk, remPos = pcall(function() return remainingDuration > 0 end)
+                if remOk and remPos then
+                    local decimals = settings.ringDurationDecimals or 1
+                    if decimals == 0 then
+                        bar.TextValue:SetText(string.format("%.0f", remainingDuration))
+                    else
+                        bar.TextValue:SetText(string.format("%." .. decimals .. "f", remainingDuration))
+                    end
                 end
             else
                 bar.TextValue:SetText(tostring(current))
@@ -5254,11 +5457,14 @@ function ResourceBars:InitializeBuffTracker()
         StartBuffTrackerTicker()
     end
 
-    -- Initial update (여러 번)
+    -- Initial update (여러 번) + 마지막에 초기화 완료 플래그 설정
     local initDelays = { 0.1, 0.5, 1.0, 2.0 }
-    for _, delay in ipairs(initDelays) do
+    for i, delay in ipairs(initDelays) do
         C_Timer.After(delay, function()
             ResourceBars:UpdateBuffTrackerBar()
+            if i == #initDelays then
+                buffTrackerInitialized = true
+            end
         end)
     end
 
@@ -5275,15 +5481,23 @@ function ResourceBars:InitializeBuffTracker()
             pendingInitTimer = nil
         end
 
-        -- [12.0.1] 1.5초 대기 후 ScanAll + 갱신
+        -- [FIX] 0.5초 후 업데이트 (프록시 앵커 위치 복원 대기 + aura API 안정화 대기)
+        C_Timer.After(0.5, function()
+            local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+            if cfg and cfg.enabled then
+                ResourceBars:UpdateBuffTrackerBar()
+            end
+        end)
+
+        -- [12.0.1] 1.5초 대기 후 ScanAll + 갱신 (CDMScanner 안정화)
         pendingInitTimer = C_Timer.NewTimer(1.5, function()
             pendingInitTimer = nil
             local CDMScanner = DDingUI.CDMScanner
             if CDMScanner then
                 CDMScanner.ScanAll()
             end
-            local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
-            if cfg and cfg.enabled then
+            local cfg3 = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+            if cfg3 and cfg3.enabled then
                 if not buffTrackerTicker then
                     StartBuffTrackerTicker()
                 end
@@ -5351,6 +5565,7 @@ end
 DDingUI.GetBuffTrackerBar = function(self) return ResourceBars:GetBuffTrackerBar() end
 DDingUI.UpdateBuffTrackerBar = function(self) return ResourceBars:UpdateBuffTrackerBar() end
 DDingUI.GetTrackedBuffBars = function(self) return barFrames end  -- Multi-bar access for debugging
+DDingUI._buffTrackerBars = barFrames  -- ConditionalActions ResolveBarFrame 연동
 DDingUI.GetTrackedBuffIcons = function(self) return iconFrames end  -- Multi-icon access for debugging
 DDingUI.GetTrackedBuffTexts = function(self) return textFrames end  -- Multi-text access for debugging
 DDingUI.GetSoundTrackers = function(self) return soundTrackers end  -- Sound tracker access for debugging

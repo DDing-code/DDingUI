@@ -30,6 +30,9 @@ Libs\DDingUI_StyleLib\CascadingMenu.lua
 Libs\DDingUI_StyleLib\DragSorter.lua
 # StyleLib Widgets (기존)
 Libs\DDingUI_StyleLib\Widgets.lua
+Libs\DDingUI_StyleLib\DesignTokens.lua
+Libs\DDingUI_StyleLib\WidgetRefresh.lua
+Libs\DDingUI_StyleLib\ProceduralGlow.lua
 
 # Media & utility libraries
 Libs\LibSharedMedia-3.0\lib.xml
@@ -62,10 +65,13 @@ Core\Defaults.lua
 Core\Media.lua
 Core\GUI.lua
 Core\CDMScanner.lua
+Core\ConditionalActions.lua
 Core\Movers.lua
 Core\CircularProgress.lua
 
 # Utility files
+Utils\MoverUtils.lua
+Utils\AnchorManager.lua
 Utils\Toolkit.lua
 Utils\PixelPerfect.lua
 # Utils\Nudge.lua
@@ -125,8 +131,7 @@ Modules\GroupSystem\FrameController.lua
 Modules\GroupSystem\ContainerSync.lua
 Modules\GroupSystem\GroupManager.lua
 Modules\GroupSystem\GroupRenderer.lua
-Modules\GroupSystem\DynamicIconBridge.lua
+
 Modules\GroupSystem\GroupInit.lua
 
-# Alerts (Pet Missing, Buff Missing)
-Modules\Alerts\MissingAlerts.lua
+# Alerts (module removed)

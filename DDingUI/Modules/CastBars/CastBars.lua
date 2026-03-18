@@ -686,6 +686,16 @@ local function CastBar_OnUpdate(frame, elapsed)
         end
     end
 
+    -- Update Spark Position
+    if frame.spark and frame.spark:IsShown() then
+        frame.spark:ClearAllPoints()
+        -- StatusBarTexture의 RIGHT 포인트를 지정하여 정확히 진행의 끝(오른쪽 단) 중심에 오도록 처리
+        local sbTex = status:GetStatusBarTexture()
+        if sbTex then
+            frame.spark:SetPoint("CENTER", sbTex, "RIGHT", 0, 0)
+        end
+    end
+
     if frame.timeText then
         local cfg = DDingUI.db.profile.castBar
         -- Show/hide time text based on setting

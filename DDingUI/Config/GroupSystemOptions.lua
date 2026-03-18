@@ -245,8 +245,22 @@ local function GetCDMIconEntries()
             end
         end
 
+        -- [FIX] 실제 spellID 조회 — cooldownID와 spellID가 다를 수 있음
+        local realSpellID = 0
+        pcall(function()
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
+                if info then
+                    -- linkedSpellIDs > overrideSpellID > spellID 우선순위
+                    local linked = info.linkedSpellIDs and info.linkedSpellIDs[1]
+                    realSpellID = linked or info.overrideSpellID or info.spellID or 0
+                end
+            end
+        end)
+
         result[#result + 1] = {
             cooldownID = cooldownID,
+            spellID = (realSpellID and realSpellID > 0) and realSpellID or cooldownID,
             name = spellName or "Unknown",
             icon = tex,
             viewerName = CDMHookEngine:GetIconSource(cooldownID) or "",
@@ -455,27 +469,61 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                     local isDynamic = grpSettings and grpSettings.groupType == "dynamic"
 
                     if isDynamic then
-                        -- [FIX] 다이나믹 그룹: CustomIcons 경로로 추가 (✕/드래그 지원)
-                        local ci = DDingUI.CustomIcons
-                        if ci and ci.AddDynamicIcon then
-                            -- buff_ 접두사 → aura 타입, 그 외 → spell 타입
-                            local rawName = self.spellName:gsub("^buff_", "")
-                            local iconType = self.spellName:sub(1, 5) == "buff_" and "aura" or "spell"
-                            -- 스펠 이름 → ID 변환
-                            local spellID = nil
-                            if C_Spell and C_Spell.GetSpellInfo then
-                                local info = C_Spell.GetSpellInfo(rawName)
-                                spellID = info and info.spellID
-                            end
-                            if spellID then
-                                local sourceKey = EnsureSourceGroup(groupName)
-                                local iconKey = ci:AddDynamicIcon({type = iconType, id = spellID})
-                                if iconKey and sourceKey then
-                                    ci:MoveIconToGroup(iconKey, sourceKey)
+                        -- [FIX] 다이나믹 그룹: buff는 CDM이 추적 → AssignSpell만
+                        -- spell(쿨다운)만 CustomIcons 아이콘 생성
+                        local isBuff = self.spellName and self.spellName:match("^buff_")
+                        if isBuff then
+                            -- [FIX] 강화효과: CustomIcons aura 타입으로 독립 프레임 생성
+                            -- CDM reparent가 아닌 C_UnitAuras 기반 자체 추적
+                            local ci = DDingUI.CustomIcons
+                            if ci and ci.AddDynamicIcon then
+                                local spellID = self.entry and self.entry.spellID
+                                if (not spellID or spellID == 0) and C_Spell and C_Spell.GetSpellInfo then
+                                    local rawName = self.spellName:gsub("^buff_", "")
+                                    local info = C_Spell.GetSpellInfo(rawName)
+                                    spellID = info and info.spellID
                                 end
-                                SoftRefreshDynamicIcons()
-                            else
-                                print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. rawName .. "|r")
+                                if spellID and spellID > 0 then
+                                    local sourceKey = EnsureSourceGroup(groupName)
+                                    local iconKey = ci:AddDynamicIcon({type = "aura", id = spellID})
+                                    if iconKey and sourceKey then
+                                        ci:MoveIconToGroup(iconKey, sourceKey)
+                                    end
+                                    -- CDM 기본 뷰어에서 해당 buff 제거 (중복 방지)
+                                    local GroupMgr = DDingUI.GroupManager
+                                    if GroupMgr and self.spellName then
+                                        GroupMgr:AssignSpell(self.spellName, groupName)
+                                    end
+                                    SoftRefreshDynamicIcons()
+                                else
+                                    print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
+                                end
+                            end
+                        else
+                            -- 주문(쿨다운): CustomIcons 아이콘 생성 + AssignSpell
+                            local ci = DDingUI.CustomIcons
+                            if ci and ci.AddDynamicIcon then
+                                local iconType = "spell"
+                                local spellID = self.entry and self.entry.spellID
+                                if (not spellID or spellID == 0) and C_Spell and C_Spell.GetSpellInfo then
+                                    local rawName = self.spellName:gsub("^buff_", "")
+                                    local info = C_Spell.GetSpellInfo(rawName)
+                                    spellID = info and info.spellID
+                                end
+                                if spellID and spellID > 0 then
+                                    local sourceKey = EnsureSourceGroup(groupName)
+                                    local iconKey = ci:AddDynamicIcon({type = iconType, id = spellID})
+                                    if iconKey and sourceKey then
+                                        ci:MoveIconToGroup(iconKey, sourceKey)
+                                    end
+                                    local GroupMgr = DDingUI.GroupManager
+                                    if GroupMgr and self.spellName then
+                                        GroupMgr:AssignSpell(self.spellName, groupName)
+                                    end
+                                    SoftRefreshDynamicIcons()
+                                else
+                                    print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
+                                end
                             end
                         end
                     else
@@ -547,13 +595,33 @@ local function BuildAssignedSpellsArgs(groupName)
     local count = 0
 
     -- 1. CDM 스펠 할당 (gs.spellAssignments)
+    -- [FIX] aura 동적 아이콘이 있으면 같은 buff의 CDM 항목 UI 스킵
+    local auraSpellNames = {}
+    local grpCfg = gs and gs.groups and gs.groups[groupName]
+    local sourceKey = grpCfg and grpCfg.sourceGroupKey
+    if sourceKey then
+        local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+        local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+        if dynGroup and dynGroup.icons then
+            local iconDataDB = dynDB.iconData
+            for _, iconKey in ipairs(dynGroup.icons) do
+                local iconData = iconDataDB and iconDataDB[iconKey]
+                if iconData and iconData.type == "aura" and iconData.id then
+                    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconData.id)
+                    if info and info.name then
+                        auraSpellNames["buff_" .. info.name] = true
+                    end
+                end
+            end
+        end
+    end
     if gs and gs.spellAssignments then
         local cdmHook = DDingUI.CDMHookEngine
         
         -- 알파벳 순서대로 정렬
         local sortedList = {}
         for spellName, grp in pairs(gs.spellAssignments) do
-            if grp == groupName then
+            if grp == groupName and not auraSpellNames[spellName] then
                 table.insert(sortedList, spellName)
             end
         end
@@ -568,7 +636,7 @@ local function BuildAssignedSpellsArgs(groupName)
                                 for cdId, iconFrame in pairs(iconMap) do
                                     if cdmHook:GetSpellNameForID(cdId) == spellName then
                                         local ok, tex = pcall(function() return iconFrame.Icon and iconFrame.Icon:GetTexture() end)
-                                        if ok and tex and tex ~= 0 and tex ~= "" and type(tex) == "number" then iconTex = tex end
+                                        if ok and tex and not (issecretvalue and issecretvalue(tex)) and tex ~= 0 and tex ~= "" and type(tex) == "number" then iconTex = tex end
                                         break
                                     end
                                 end
@@ -578,7 +646,7 @@ local function BuildAssignedSpellsArgs(groupName)
                             if iconTex == 134400 then
                                 -- displayName을 통해 ID를 찾거나, 더 직관적으로 GetSpellTexture 시도
                                 local ok, tex = pcall(function() return C_Spell.GetSpellTexture(spellName:gsub("^buff_", "")) end)
-                                if ok and tex and tex ~= 0 and tex ~= "" and type(tex) == "number" then
+                                if ok and tex and not (issecretvalue and issecretvalue(tex)) and tex ~= 0 and tex ~= "" and type(tex) == "number" then
                                     iconTex = tex
                                 end
                             end
@@ -648,17 +716,16 @@ local function BuildAssignedSpellsArgs(groupName)
                             local spellID = iconData.id or 0
                             if type(spellID) == "string" then spellID = tonumber(spellID) or 0 end
                             
-                            local spellInfo = C_Spell and C_Spell.GetSpellInfo(spellID)
+                            local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
                             if spellInfo then
                                 displayName = spellInfo.name or displayName
                                 iconTex = spellInfo.iconID or iconTex
-                            else
-                                -- fallback for older APIs if C_Spell fails
-                                local name, _, icon = GetSpellInfo(spellID)
-                                if name then
-                                    displayName = name
-                                    iconTex = icon or iconTex
-                                end
+                            elseif C_Spell then
+                                -- fallback: 개별 API
+                                local name = C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+                                local icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+                                if name then displayName = name end
+                                if icon then iconTex = icon end
                             end
                         end
                         
@@ -1707,6 +1774,7 @@ local function CreateGroupOptions(groupName, order)
 
         -- [4-2] 쿨다운 텍스트
         textArgs.sec02_cdHeader = { type = "header", name = L["Cooldown Text"] or "쿨다운 텍스트", order = 10 }
+        textArgs.hideDurationText    = CopyVO(vo, "hideDurationText", 10.5)
         textArgs.cooldownFont        = CopyVO(vo, "cooldownFont", 11)
         textArgs.cooldownFontSize    = CopyVO(vo, "cooldownFontSize", 12)
         textArgs.cooldownTextColor   = CopyVO(vo, "cooldownTextColor", 13)

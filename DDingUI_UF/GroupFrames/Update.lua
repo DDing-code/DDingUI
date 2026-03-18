@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 	ddingUI UnitFrames
 	GroupFrames/Update.lua — 프레임 업데이트 함수
 
@@ -123,11 +123,10 @@ function GF:ApplyHealthColor(frame)
 	local r, g, b = 0.2, 0.8, 0.2 -- 기본 녹색
 
 	-- [12.0.1] 색상 우선순위 (깜빡임 방지):
-	-- 죽음/오프라인 > 디버프 하이라이트 (일반색 유지) > HoT healthColor > 일반 class/reaction
-	-- 디버프 활성 시 → 일반 색상 유지 (디버프 border/overlay가 시각적 우선)
-	-- HoT healthColor 활성 + 디버프 비활성 → HoT 색상 사용
-	if frame.hotHealthColorActive and frame.hotHealthColorData
-	   and not frame.debuffHighlightActive then
+	-- 죽음/오프라인 > HoT healthColor > 일반 class/reaction
+	-- [FIX] 디버프 하이라이트는 overlay/gradient/border로 표현되므로
+	-- 체력바 색상(healthColor)과는 독립적 — 동시 표시 가능
+	if frame.hotHealthColorActive and frame.hotHealthColorData then
 		local hc = frame.hotHealthColorData
 		r, g, b = hc[1], hc[2], hc[3]
 	elseif colorType == "class" then
@@ -179,15 +178,8 @@ function GF:ApplyHealthColor(frame)
 	-- UnitIsDeadOrGhost는 단일 API로 Dead+Ghost 모두 감지, secret boolean도 안전하게 처리
 	local ufColors = ns.Colors and ns.Colors.unitFrames
 
-	-- [FIX] UnitIsDeadOrGhost는 일반 boolean 반환 (secret 아님)
-	-- 단순화: pcall로 안전하게 호출
-	local isDeadOrGhost = false
-	if UnitIsDeadOrGhost then
-		local ok, val = pcall(UnitIsDeadOrGhost, unit)
-		if ok and val then
-			isDeadOrGhost = true
-		end
-	end
+	-- [AUDIT-FIX] S2: pcall 제거 → SafeBool 사용 (API 자체는 에러 미발생)
+	local isDeadOrGhost = ns.SafeBool(UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit))
 
 	local isConn = UnitIsConnected(unit)
 	local isOffline = false
@@ -387,9 +379,9 @@ function GF:UpdateHealthText(frame)
 			frame.healthText:SetTextColor(1, 1, 1, 1)
 		end
 	elseif colorType == "reaction_color" then
-		-- [FIX] 진영 색상: 적대(빨강), 중립(노랑), 우호(초록)
+		-- [AUDIT-FIX] C2: secret number로 테이블 인덱싱 방지
 		local reaction = UnitReaction(unit, "player")
-		if reaction then
+		if reaction and not (issecretvalue and issecretvalue(reaction)) then
 			local rc = FACTION_BAR_COLORS[reaction]
 			if rc then
 				frame.healthText:SetTextColor(rc.r, rc.g, rc.b, 1)
@@ -400,11 +392,15 @@ function GF:UpdateHealthText(frame)
 			frame.healthText:SetTextColor(1, 1, 1, 1)
 		end
 	elseif colorType == "power_color" then
-		-- [FIX] 기력 색상: 유닛의 자원 타입에 따른 색상
-		local powerType = UnitPowerType(unit)
-		local pc = PowerBarColor[powerType]
-		if pc then
-			frame.healthText:SetTextColor(pc.r or 0.5, pc.g or 0.5, pc.b or 0.5, 1)
+		-- [AUDIT-FIX] 기력 색상: pToken(string)으로 조회 (secret 방지)
+		local _, pToken = UnitPowerType(unit)
+		if pToken and not (issecretvalue and issecretvalue(pToken)) then
+			local pc = PowerBarColor[pToken]
+			if pc then
+				frame.healthText:SetTextColor(pc.r or 0.5, pc.g or 0.5, pc.b or 0.5, 1)
+			else
+				frame.healthText:SetTextColor(1, 1, 1, 1)
+			end
 		else
 			frame.healthText:SetTextColor(1, 1, 1, 1)
 		end
@@ -445,16 +441,20 @@ function GF:UpdatePower(frame)
 	local powerBar = frame.powerBar
 	if not powerBar or not powerBar:IsShown() then return end
 
-	local powerType = UnitPowerType(unit)
-	local maxPower = UnitPowerMax(unit, powerType)
+	-- [AUDIT-FIX] C1: powerType을 인자로 전달하지 않음 (secret number taint 방지)
+	-- UnitPower(unit), UnitPowerMax(unit)는 기본 자원 타입을 C++에서 자동 결정
+	powerBar:SetMinMaxValues(0, UnitPowerMax(unit))
+	powerBar:SetValue(UnitPower(unit))
 
-	powerBar:SetMinMaxValues(0, maxPower)
-	powerBar:SetValue(UnitPower(unit, powerType))
-
-	-- 자원 색상
-	local pColor = PowerBarColor[powerType]
-	if pColor then
-		powerBar:SetStatusBarColor(pColor.r or 0.5, pColor.g or 0.5, pColor.b or 0.5, 1)
+	-- [AUDIT-FIX] 색상: pToken(string)으로만 조회 (number powerType 미사용)
+	local _, pToken = UnitPowerType(unit)
+	if pToken and not (issecretvalue and issecretvalue(pToken)) then
+		local pColor = PowerBarColor[pToken]
+		if pColor then
+			powerBar:SetStatusBarColor(pColor.r or 0.5, pColor.g or 0.5, pColor.b or 0.5, 1)
+		end
+	else
+		powerBar:SetStatusBarColor(0.24, 0.49, 1.0, 1) -- 기본 마나 색상 fallback
 	end
 end
 
@@ -501,9 +501,9 @@ function GF:UpdateName(frame)
 			frame.nameText:SetTextColor(1, 1, 1, 1)
 		end
 	elseif colorType == "reaction_color" then
-		-- [FIX] 진영 색상
+		-- [AUDIT-FIX] C2: secret number로 테이블 인덱싱 방지
 		local reaction = UnitReaction(unit, "player")
-		if reaction then
+		if reaction and not (issecretvalue and issecretvalue(reaction)) then
 			local rc = FACTION_BAR_COLORS[reaction]
 			if rc then
 				frame.nameText:SetTextColor(rc.r, rc.g, rc.b, 1)
@@ -514,11 +514,15 @@ function GF:UpdateName(frame)
 			frame.nameText:SetTextColor(1, 1, 1, 1)
 		end
 	elseif colorType == "power_color" then
-		-- [FIX] 기력 색상
-		local powerType = UnitPowerType(unit)
-		local pc = PowerBarColor[powerType]
-		if pc then
-			frame.nameText:SetTextColor(pc.r or 0.5, pc.g or 0.5, pc.b or 0.5, 1)
+		-- [AUDIT-FIX] 기력 색상: pToken(string)으로 조회 (secret 방지)
+		local _, pToken = UnitPowerType(unit)
+		if pToken and not (issecretvalue and issecretvalue(pToken)) then
+			local pc = PowerBarColor[pToken]
+			if pc then
+				frame.nameText:SetTextColor(pc.r or 0.5, pc.g or 0.5, pc.b or 0.5, 1)
+			else
+				frame.nameText:SetTextColor(1, 1, 1, 1)
+			end
 		else
 			frame.nameText:SetTextColor(1, 1, 1, 1)
 		end
@@ -700,7 +704,7 @@ function GF:UpdateStatusIcons(frame)
 		end
 	end
 
-	-- 상태 텍스트 (AFK/Offline/Dead/Ghost) -- [FIX] secret boolean 3중 방어
+	-- 상태 텍스트 (AFK+시간/Offline/Dead/Ghost/소환) -- [FIX] AFK 시간 + 소환 상태 추가
 	if frame.statusText then
 		-- AFK 체크
 		local isAFK = SafeVal(UnitIsAFK(unit))
@@ -725,21 +729,73 @@ function GF:UpdateStatusIcons(frame)
 		-- 유령 여부 (Dead vs Ghost 텍스트 구분용)
 		local isGhostSI = isDeadOrGhostSI and SafeVal(UnitIsGhost(unit))
 
-		if isAFK then
-			frame.statusText:SetText("AFK")
-			frame.statusText:Show()
-		elseif isDisconnected then
-			frame.statusText:SetText("Offline")
-			frame.statusText:Show()
-		elseif isDeadOrGhostSI then
+		-- 소환 상태 체크
+		local summonStatus = 0
+		if C_IncomingSummon and C_IncomingSummon.IncomingSummonStatus then
+			local ok, status = pcall(C_IncomingSummon.IncomingSummonStatus, unit)
+			if ok and status then summonStatus = status end
+		end
+
+		-- 우선순위: Dead/Ghost > Offline > 소환 > AFK
+		if isDeadOrGhostSI then
 			if isGhostSI then
-				frame.statusText:SetText("Ghost")
+				frame.statusText:SetText("|cff999999|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:12|t Ghost|r")
 			else
-				frame.statusText:SetText("Dead")
+				frame.statusText:SetText("|cffcc3333|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:12|t Dead|r")
 			end
 			frame.statusText:Show()
+			frame._afkStartTime = nil
+			frame._offlineStartTime = nil
+		elseif isDisconnected then
+			-- Offline 경과 시간 추적
+			if not frame._offlineStartTime then
+				frame._offlineStartTime = GetTime()
+			end
+			local elapsed = GetTime() - frame._offlineStartTime
+			local offText
+			if elapsed >= 3600 then
+				offText = string.format("|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:12|t Offline %dh%dm|r", elapsed / 3600, (elapsed % 3600) / 60)
+			elseif elapsed >= 60 then
+				offText = string.format("|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:12|t Offline %dm%ds|r", elapsed / 60, elapsed % 60)
+			else
+				offText = "|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:12|t Offline|r"
+			end
+			frame.statusText:SetText(offText)
+			frame.statusText:Show()
+			frame._afkStartTime = nil
+		elseif summonStatus == 1 then -- Pending
+			frame.statusText:SetText("|cff00ccff|TInterface\\Icons\\Spell_Magic_SummonFast:12|t \xEC\x86\x8C\xED\x99\x98 \xEB\x8C\x80\xEA\xB8\xB0\xEC\xA4\x91|r")
+			frame.statusText:Show()
+			frame._offlineStartTime = nil
+		elseif summonStatus == 2 then -- Accepted
+			frame.statusText:SetText("|cff00ff00|TInterface\\RaidFrame\\ReadyCheck-Ready:12|t \xEC\x86\x8C\xED\x99\x98 \xEC\x88\x98\xEB\x9D\xBD|r")
+			frame.statusText:Show()
+			frame._offlineStartTime = nil
+		elseif summonStatus == 3 then -- Declined
+			frame.statusText:SetText("|cffff3333|TInterface\\RaidFrame\\ReadyCheck-NotReady:12|t \xEC\x86\x8C\xED\x99\x98 \xEA\xB1\xB0\xEC\xA0\x88|r")
+			frame.statusText:Show()
+			frame._offlineStartTime = nil
+		elseif isAFK then
+			-- AFK 경과 시간 추적
+			if not frame._afkStartTime then
+				frame._afkStartTime = GetTime()
+			end
+			local elapsed = GetTime() - frame._afkStartTime
+			local afkText
+			if elapsed >= 3600 then
+				afkText = string.format("|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:12|t AFK %dh%dm|r", elapsed / 3600, (elapsed % 3600) / 60)
+			elseif elapsed >= 60 then
+				afkText = string.format("|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:12|t AFK %dm%ds|r", elapsed / 60, elapsed % 60)
+			else
+				afkText = "|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:12|t AFK|r"
+			end
+			frame.statusText:SetText(afkText)
+			frame.statusText:Show()
+			frame._offlineStartTime = nil
 		else
 			frame.statusText:Hide()
+			frame._afkStartTime = nil
+			frame._offlineStartTime = nil
 		end
 	end
 end

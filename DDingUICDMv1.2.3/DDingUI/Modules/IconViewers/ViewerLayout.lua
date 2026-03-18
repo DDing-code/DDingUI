@@ -557,6 +557,14 @@ local function ApplyCustomAnchor(viewer, settings)
     local pt = settings.anchorPoint or "CENTER"
     local ox = settings.anchorOffsetX or 0
     local oy = settings.anchorOffsetY or 0
+
+    local point, relativeTo, relativePoint, currX, currY = viewer:GetPoint(1)
+    if point == pt and relativeTo == target and relativePoint == pt then
+        if math.abs((currX or 0) - ox) < 0.5 and math.abs((currY or 0) - oy) < 0.5 then
+            return
+        end
+    end
+
     viewer:ClearAllPoints()
     viewer:SetPoint(pt, target, pt, ox, oy)
 end
@@ -984,6 +992,11 @@ local function CenterBuffIcons()
         else
             iconFrame:SetPoint("CENTER", BuffIconCooldownViewer, "CENTER", 0, startY - (index - 1) * (iconHeight + iconSpacing))
         end
+    end
+
+    -- [FIX] 주기적으로 앵커 이탈 여부 검사 후 복구 (리로드 직후 블리자드가 위치를 덮어쓰는 문제 방지)
+    if not InCombatLockdown() then
+        ApplyCustomAnchor(BuffIconCooldownViewer, settings)
     end
 
     return visibleCount

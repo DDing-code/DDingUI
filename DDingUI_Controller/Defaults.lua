@@ -12,4 +12,16 @@ DDingUI_ControllerDefaults = {
         statusBar = [[Interface\Buttons\WHITE8x8]],  -- 상태바 텍스처
         flat      = [[Interface\Buttons\WHITE8x8]],   -- 배경/단색 텍스처
     },
+    editMode = {
+        settings = {
+            gridEnabled   = false,
+            gridMode      = "dimmed",
+            snapEnabled   = true,
+            snapToGrid    = true,
+            snapToFrames  = true,
+            snapToCenter  = true,
+            snapThreshold = 8,
+            gridSize      = 32,
+        },
+    },
 }

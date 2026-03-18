@@ -351,6 +351,27 @@ function IconViewers:SkinIcon(icon, settings)
                 local isAuraSwipe = r and g and b and r > 0.9 and g > 0.9 and b > 0.4
                 GetIconData(parentIcon).isAuraSwipe = isAuraSwipe
 
+                -- [12.0.1] Hide Duration Text logic (dynamically toggle text display based on swipe type)
+                if s.hideDurationText then
+                    if isAuraSwipe then
+                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(true) end
+                        self.noCooldownCount = true
+                        for _, region in ipairs({ self:GetRegions() }) do
+                            if region:GetObjectType() == "FontString" and not region.hookedHideText then
+                                region:Hide()
+                            end
+                        end
+                    else
+                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(false) end
+                        self.noCooldownCount = nil
+                        for _, region in ipairs({ self:GetRegions() }) do
+                            if region:GetObjectType() == "FontString" and not region.hookedHideText then
+                                region:Show()
+                            end
+                        end
+                    end
+                end
+
                 if isAuraSwipe and s then
                     -- Option 1: Replace aura swipe with glow
                     if s.auraGlow then
@@ -421,7 +442,14 @@ function IconViewers:SkinIcon(icon, settings)
                         local auraStillActive = false
                         pcall(function()
                             local auraID = parentIcon.auraInstanceID
-                            auraStillActive = auraID and type(auraID) == "number" and auraID > 0
+                            if auraID ~= nil then
+                                -- [FIX] secret value = 오라 활성 상태 (secret은 활성 오라에만 존재)
+                                if issecretvalue and issecretvalue(auraID) then
+                                    auraStillActive = true
+                                elseif type(auraID) == "number" and auraID > 0 then
+                                    auraStillActive = true
+                                end
+                            end
                         end)
 
                         if auraStillActive and s and s.auraGlow then
@@ -584,6 +612,21 @@ function IconViewers:SkinIcon(icon, settings)
 
         -- Position cooldown text (countdown timer) -- [12.0.1] cooldownTextAnchor/Offset 추가
         local cdAnchor = settings.durationTextAnchor or settings.cooldownTextAnchor
+
+        -- Hide Duration Text initial state
+        local pid = GetIconData(icon)
+        if settings.hideDurationText and pid.isAuraSwipe then
+            if icon.Cooldown.SetHideCountdownNumbers then
+                icon.Cooldown:SetHideCountdownNumbers(true)
+            end
+            icon.Cooldown.noCooldownCount = true
+        else
+            if icon.Cooldown.SetHideCountdownNumbers then
+                icon.Cooldown:SetHideCountdownNumbers(false)
+            end
+            icon.Cooldown.noCooldownCount = nil
+        end
+
         if cdAnchor then
             if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
             local cdOffsetX = settings.durationTextOffsetX or settings.cooldownTextOffsetX or 0
@@ -591,16 +634,31 @@ function IconViewers:SkinIcon(icon, settings)
 
             for _, region in ipairs({ icon.Cooldown:GetRegions() }) do
                 if region:GetObjectType() == "FontString" then
-                    region:ClearAllPoints()
-                    region:SetPoint(cdAnchor, icon.Cooldown, cdAnchor, cdOffsetX, cdOffsetY)
-                    -- [12.0.1] Duration text font/size/color for BuffIconCooldownViewer
-                    if settings.durationTextFont or settings.durationTextSize or settings.durationTextColor then
-                        local dtSize = settings.durationTextSize or 14
-                        local dtFont = DDingUI:GetFont(settings.durationTextFont)
-                        region:SetFont(dtFont, dtSize, "OUTLINE")
-                        local dtColor = settings.durationTextColor
-                        if dtColor then
-                            region:SetTextColor(dtColor[1], dtColor[2], dtColor[3], dtColor[4] or 1)
+                    if settings.hideDurationText and pid.isAuraSwipe then
+                        region:Hide()
+                        -- Prevent region from showing
+                        if not region.hookedHideText then
+                            region.hookedHideText = true
+                            hooksecurefunc(region, "Show", function(self)
+                                local cd = self:GetParent()
+                                if cd and cd.noCooldownCount then
+                                    self:Hide()
+                                end
+                            end)
+                        end
+                    else
+                        region:Show()
+                        region:ClearAllPoints()
+                        region:SetPoint(cdAnchor, icon.Cooldown, cdAnchor, cdOffsetX, cdOffsetY)
+                        -- [12.0.1] Duration text font/size/color for BuffIconCooldownViewer
+                        if settings.durationTextFont or settings.durationTextSize or settings.durationTextColor then
+                            local dtSize = settings.durationTextSize or 14
+                            local dtFont = DDingUI:GetFont(settings.durationTextFont)
+                            region:SetFont(dtFont, dtSize, "OUTLINE")
+                            local dtColor = settings.durationTextColor
+                            if dtColor then
+                                region:SetTextColor(dtColor[1], dtColor[2], dtColor[3], dtColor[4] or 1)
+                            end
                         end
                     end
                     break

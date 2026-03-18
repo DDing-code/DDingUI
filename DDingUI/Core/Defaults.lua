@@ -484,6 +484,16 @@ local defaults = {
             --         ...
             --     }
             -- }
+            -- trackerGroups structure:
+            -- ["Group1"] = {
+            --     name = "기본 그룹",
+            --     point = "CENTER", x = 0, y = -100,
+            --     sortMethod = "TIME_LEFT", -- "TIME_LEFT", "PRIORITY"
+            --     sortDirection = "ASC", -- "ASC", "DESC"
+            --     growthDir = "RIGHT", -- "UP", "DOWN", "LEFT", "RIGHT"
+            --     spacing = 5,
+            -- }
+            trackerGroups = {},
         },
         powerTypeColors = {
             useClassColor = true,

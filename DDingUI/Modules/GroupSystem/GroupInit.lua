@@ -90,7 +90,7 @@ local function RegisterGroupMovers()
                     end
 
                     if not DDingUI.Movers.CreatedMovers[moverName] then
-                        DDingUI.Movers:RegisterMover(proxyFrame, moverName, proxyInfo.display)
+                        DDingUI.Movers:RegisterMover(proxyFrame, moverName, proxyInfo.display, nil, nil, true)
                     else
                         -- [FIX] 이미 등록된 Mover → 위치만 재로드 (새 스펙 데이터 반영)
                         -- RegisterMover는 CreatedMovers에 이미 있으면 early return (L909)
@@ -479,6 +479,23 @@ end
 local function OnHookEngineUpdate(updateType)
     DoFullUpdate()
 end
+
+-- [INTEGRATION] UNIT_AURA 이벤트 → 디바운스 DoFullUpdate
+-- aura 타입 아이콘 상태 변경 시 GroupRenderer가 즉시 위치 배정
+local auraUpdatePending = false
+local auraEventFrame = CreateFrame("Frame")
+auraEventFrame:RegisterEvent("UNIT_AURA")
+auraEventFrame:SetScript("OnEvent", function(self, event, unit)
+    if unit ~= "player" then return end
+    if auraUpdatePending then return end
+    auraUpdatePending = true
+    C_Timer.After(0.15, function()
+        auraUpdatePending = false
+        if initialized then
+            DoFullUpdate()
+        end
+    end)
+end)
 
 -- ============================================================
 -- CDM 뷰어 Layout 트리거 (비활성화 시 원래 위치 복원)
@@ -1188,6 +1205,14 @@ function GroupSystem:Enable()
         return
     end
 
+    -- ★ CastBar 강제 생성 (lazy-created → 다른 시스템보다 먼저 존재해야 함)
+    -- RegisterGroupMovers/LoadMoverPosition/Refresh가 CastBar를 앵커로 사용
+    if not _G["DDingUICastBar"] and not DDingUI.castBar then
+        if DDingUI.GetCastBar then
+            pcall(function() DDingUI:GetCastBar() end)
+        end
+    end
+
     -- CDMHookEngine 초기화 (뷰어 존재 확인 포함)
     local ok = CDMHookEngine:Initialize()
     if not ok then
@@ -1300,19 +1325,59 @@ function GroupSystem:Enable()
         end
     end
 
-    -- Mover 등록 (CDM 아이콘 로드 완료 후 크기 보정)
+    -- Mover 등록 + 아이콘 렌더링 (CDM 아이콘 로드 완료 후)
     C_Timer.After(1.5, function()
         if GroupSystem.enabled then
             RegisterGroupMovers()
+            -- [FIX] CDM 뷰어 참조 갱신 (리로드 후 뷰어가 재생성되었을 수 있음)
+            if CDMHookEngine and CDMHookEngine.RefreshViewerRefs then
+                CDMHookEngine:RefreshViewerRefs()
+            end
+            -- [FIX] CDM 뷰어에 Layout() 강제 호출 → 활성 버프 아이콘을 Show하도록 유도
+            -- CDM은 리로드 직후 BuffIconCooldownViewer의 모든 아이콘을 Hide 상태로 시작
+            -- Layout() 호출 시 CDM이 활성 버프를 재평가하여 Show() → OnShow 훅 → Reconcile
+            for _, vName in pairs({"BuffIconCooldownViewer", "EssentialCooldownViewer", "UtilityCooldownViewer"}) do
+                local v = _G[vName]
+                if v then
+                    if v.Layout then pcall(v.Layout, v) end
+                end
+            end
+            -- CDM Layout 후 약간의 대기 (아이콘 Show 이벤트 처리 시간)
+            C_Timer.After(0.2, function()
+                if not GroupSystem.enabled then return end
+                DoFullUpdate()
+            end)
+            -- [FIX] 폴링 활성화 — CDM 아이콘이 아직 Show 안 됐으면 OnShow 훅으로 감지
+            if CDMHookEngine and CDMHookEngine.EnablePolling then
+                CDMHookEngine:EnablePolling()
+            end
             -- [FIX] Enable 완료 콜백: ResourceBars/CastBars가 프록시 위치 확정 후 Refresh
-            -- RegisterGroupMovers 후 1프레임 대기: 컨테이너 크기가 레이아웃 엔진에 확정된 후 호출
             if GroupSystem._onReadyCallback then
                 local cb = GroupSystem._onReadyCallback
                 GroupSystem._onReadyCallback = nil
                 C_Timer.After(0, cb)
             end
+
+            -- ★ T+3초: 최종 렌더링 보장 (CDM 뷰어 완전 안정화 후)
+            C_Timer.After(1.5, function()
+                if not GroupSystem.enabled then return end
+                -- 뷰어 참조 다시 갱신 + CDM Layout 강제 + 최종 렌더링
+                if CDMHookEngine and CDMHookEngine.RefreshViewerRefs then
+                    CDMHookEngine:RefreshViewerRefs()
+                end
+                -- CDM Layout 다시 한번 강제 (완전 안정화 보장)
+                local buffViewer = _G["BuffIconCooldownViewer"]
+                if buffViewer and buffViewer.Layout then
+                    pcall(buffViewer.Layout, buffViewer)
+                end
+                C_Timer.After(0.2, function()
+                    if not GroupSystem.enabled then return end
+                    DoFullUpdate()
+                end)
+            end)
         end
     end)
+
 
     -- [REPARENT] SkinAllIconsInViewer 훅 — 설정 패널에서 뷰어 옵션 변경 시
     -- 관리 아이콘(reparent)도 새 설정으로 재스키닝 + 레이아웃 갱신
@@ -1365,6 +1430,29 @@ function GroupSystem:Enable()
             hooksecurefunc(DDingUI.Movers, "ShowMovers", function()
                 if CDMHookEngine and GroupSystem.enabled then
                     CDMHookEngine:EnableEditModeClicks()
+                    DoFullUpdate()
+                    -- [FIX] 편집모드 후처리: ComputeEditModeSize로 정확한 크기 적용
+                    if GroupRenderer and GroupRenderer.groupFrames and GroupRenderer.ComputeEditModeSize then
+                        for gn, gFrame in pairs(GroupRenderer.groupFrames) do
+                            local fw, fh = gFrame:GetSize()
+                            if fw < 10 or fh < 10 then
+                                local calcW, calcH = GroupRenderer:ComputeEditModeSize(gn)
+                                if calcW and calcH then
+                                    gFrame:SetSize(calcW, calcH)
+                                    gFrame:Show()
+                                end
+                            end
+                        end
+                    end
+                    -- [FIX] mover 크기 재동기화 (frame 크기 변경 반영)
+                    for name, holder in pairs(DDingUI.Movers.CreatedMovers) do
+                        if holder.parent and holder.mover and holder.mover:IsShown() then
+                            local pw, ph = holder.parent:GetSize()
+                            if pw and pw > 1 and ph and ph > 1 then
+                                holder.mover:SetSize(pw, ph)
+                            end
+                        end
+                    end
                 end
             end)
         end

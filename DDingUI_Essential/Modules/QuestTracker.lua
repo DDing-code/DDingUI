@@ -384,6 +384,48 @@ local function SkinObjectiveTracker()
         otf._deBg:Hide()
         otf._deBg = nil
     end
+
+    -- 배경 패널 (옵션) -- [ESSENTIAL]
+    local db = ns.db and ns.db.quest or {}
+    if db.backdrop ~= false and otf and not otf._ddeBackdrop then
+        local backdrop = CreateFrame("Frame", nil, otf, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        backdrop:SetPoint("TOPLEFT", otf, "TOPLEFT", -8, 8)
+        backdrop:SetPoint("BOTTOMRIGHT", otf, "BOTTOMRIGHT", 8, -8)
+        backdrop:SetFrameLevel(math.max(0, otf:GetFrameLevel() - 1))
+        ns.CreateBackdrop(backdrop, {0.05, 0.05, 0.05, db.backdropAlpha or 0.4}, {0, 0, 0, 0.6})
+        otf._ddeBackdrop = backdrop
+    end
+
+    -- 접기 버튼 스킨 -- [ESSENTIAL]
+    if otf and otf.Header and otf.Header.MinimizeButton then
+        local minBtn = otf.Header.MinimizeButton
+        if not minBtn._ddeSkinned then
+            minBtn._ddeSkinned = true
+            ns.StripTextures(minBtn)
+
+            local label = minBtn:CreateFontString(nil, "OVERLAY")
+            label:SetFont(SL_FONT or ns.FONT, 12, "OUTLINE")
+            label:SetPoint("CENTER", 0, 0)
+            label:SetText("▾")
+            if accentFrom then
+                label:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3], 0.8)
+            else
+                label:SetTextColor(1, 0.82, 0, 0.8)
+            end
+            minBtn._ddeLabel = label
+
+            -- 상태 변경 시 아이콘 전환 -- [ESSENTIAL]
+            minBtn:HookScript("OnClick", function(self)
+                if self._ddeLabel then
+                    if otf.isCollapsed then
+                        self._ddeLabel:SetText("▸")
+                    else
+                        self._ddeLabel:SetText("▾")
+                    end
+                end
+            end)
+        end
+    end
 end
 
 ------------------------------------------------------------------------

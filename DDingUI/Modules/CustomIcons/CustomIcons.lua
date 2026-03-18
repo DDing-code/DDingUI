@@ -915,12 +915,112 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
 end
 
 -- ------------------------
+-- Aura (buff/debuff) icon update — trinketProc 패턴 기반
+-- CDM reparent가 아닌 독립 프레임으로 buff 추적
+-- ------------------------
+
+
+local function UpdateAuraIcon(iconFrame, iconData)
+    local spellID = iconData.id
+    if not spellID or not iconFrame then return end
+
+    local settings = iconData.settings or {}
+    local allowDesat = not (settings.desaturateOnCooldown == false)
+
+    -- 1. buff 활성 여부 확인
+    local auraData = nil
+    pcall(function()
+        auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+    end)
+
+    -- spellName 기반 폴백 (buff spellID ≠ spell spellID인 경우)
+    if not auraData and not iconFrame._cachedAuraSpellID then
+        local now = GetTime()
+        if not iconFrame._lastAuraScan or (now - iconFrame._lastAuraScan) > 1.0 then
+            iconFrame._lastAuraScan = now
+            pcall(function()
+                local spellInfo = C_Spell.GetSpellInfo(spellID)
+                if spellInfo and spellInfo.name then
+                    AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
+                        if a and a.name == spellInfo.name then
+                            auraData = a
+                            if a.spellId and a.spellId ~= spellID then
+                                iconFrame._cachedAuraSpellID = a.spellId
+                            end
+                            return true
+                        end
+                    end)
+                end
+            end)
+        end
+    end
+
+    -- 캐시된 buff spellID로 재시도
+    if not auraData and iconFrame._cachedAuraSpellID then
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedAuraSpellID)
+        end)
+    end
+
+    local isActive = (auraData ~= nil)
+    local wasActive = iconFrame._auraWasActive
+
+    if isActive ~= wasActive then
+        iconFrame._auraWasActive = isActive
+    end
+
+    if auraData then
+        -- 활성: duration 쿨다운 + 스택 표시
+        pcall(function()
+            if auraData.duration and auraData.duration > 0 and auraData.expirationTime then
+                local startTime = auraData.expirationTime - auraData.duration
+                iconFrame.cooldown:SetCooldown(startTime, auraData.duration)
+            else
+                iconFrame.cooldown:Clear()
+            end
+        end)
+        if settings.showCooldown ~= false then
+            iconFrame.cooldown:Show()
+        else
+            iconFrame.cooldown:Hide()
+        end
+
+        local stacks = auraData.applications or 0
+        if stacks > 1 and settings.showCharges ~= false then
+            iconFrame.count:SetText(stacks)
+            iconFrame.count:Show()
+        else
+            iconFrame.count:Hide()
+        end
+
+        iconFrame.icon:SetDesaturated(false)
+        iconFrame.icon:SetAlpha(1.0)
+        iconFrame:Show()
+    else
+        -- 비활성: 쿨다운 클리어 + 숨김
+        iconFrame.cooldown:Clear()
+        iconFrame.cooldown:Hide()
+        iconFrame.count:Hide()
+
+        if allowDesat then
+            iconFrame.icon:SetDesaturated(true)
+        else
+            iconFrame.icon:SetDesaturated(false)
+        end
+        iconFrame.icon:SetAlpha(1.0)
+        iconFrame:Hide()
+    end
+end
+
+-- ------------------------
 -- Event-based update system
 -- ------------------------
 local function UpdateAllIcons()
     -- Update all active icon frames
     for iconKey, frame in pairs(runtime.iconFrames) do
-        if frame and frame:IsVisible() then
+        -- [INTEGRATION] GroupRenderer 관리 프레임은 스킵 (GroupRenderer 자체 업데이트 루프에서 처리)
+        -- [FIX] aura 타입은 숨겨져 있어도 업데이트 (buff 재활성화 → Show() 호출 필요)
+        if frame and not frame._ddIsManaged and (frame:IsVisible() or frame._type == "aura") then
             local db = GetDynamicDB()
             local iconData = db.iconData[iconKey]
             if iconData then
@@ -934,6 +1034,8 @@ local function UpdateAllIcons()
                     UpdateSlotIcon(frame, iconData)
                 elseif iconData.type == "trinketProc" then
                     UpdateTrinketProcIcon(frame, iconData)
+                elseif iconData.type == "aura" then
+                    UpdateAuraIcon(frame, iconData)
                 end
             end
         end
@@ -954,8 +1056,23 @@ local function ScheduleSpecReload()
     if runtime.pendingSpecReload then return end
     runtime.pendingSpecReload = true
 
-    C_Timer.After(0.05, function()
+    -- [FIX] 다단계 재시도: CDM 뷰어 재생성 대기
+    -- Phase 1 (0.3s): 빠른 초기 갱신
+    C_Timer.After(0.3, function()
         runtime.pendingSpecReload = false
+        -- trinket proc 캐시 무효화
+        for _, frame in pairs(runtime.iconFrames or {}) do
+            if frame then frame._cachedBuffSpellID = nil end
+        end
+        if CustomIcons and CustomIcons.LoadDynamicIcons then
+            CustomIcons:LoadDynamicIcons()
+        else
+            if RefreshAllLayouts then RefreshAllLayouts() end
+            UpdateAllIcons()
+        end
+    end)
+    -- Phase 2 (1.5s): CDM 안정화 후 최종 갱신
+    C_Timer.After(1.5, function()
         if CustomIcons and CustomIcons.LoadDynamicIcons then
             CustomIcons:LoadDynamicIcons()
         else
@@ -1458,6 +1575,25 @@ local function CreateSlotIcon(iconKey, iconData, parent)
     return frame
 end
 
+local function CreateAuraIcon(iconKey, iconData, parent)
+    local spellID = iconData.id
+    if not spellID then return nil end
+
+    local frame = CreateBaseIcon("DDingUI_DynAura_" .. iconKey, parent)
+    frame._type = "aura"
+    frame._spellID = spellID
+    frame._iconKey = iconKey
+
+    -- 텍스처: C_Spell.GetSpellTexture → GetSpellInfo.iconID 폴백
+    local tex = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+    if not tex then
+        local info = C_Spell.GetSpellInfo(spellID)
+        tex = info and info.iconID
+    end
+    frame.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+    return frame
+end
+
 local function CreateDynamicIcon(iconKey, iconData, parent)
     if iconData.type == "item" then
         return CreateItemIcon(iconKey, iconData, parent)
@@ -1467,6 +1603,8 @@ local function CreateDynamicIcon(iconKey, iconData, parent)
         return CreateSlotIcon(iconKey, iconData, parent)
     elseif iconData.type == "trinketProc" then
         return CreateSlotIcon(iconKey, iconData, parent)  -- Reuse slot icon frame
+    elseif iconData.type == "aura" then
+        return CreateAuraIcon(iconKey, iconData, parent)
     end
     return nil
 end
@@ -1487,6 +1625,8 @@ local function UpdateDynamicIcon(iconKey)
         UpdateSlotIcon(frame, iconData)
     elseif iconData.type == "trinketProc" then
         UpdateTrinketProcIcon(frame, iconData)
+    elseif iconData.type == "aura" then
+        UpdateAuraIcon(frame, iconData)
     end
 end
 
@@ -4240,3 +4380,8 @@ end
 function CustomIcons:GetAllIconFrames()
     return runtime.iconFrames
 end
+
+-- [INTEGRATION] GroupRenderer가 직접 호출할 수 있도록 export
+CustomIcons.CreateDynamicIcon = CreateDynamicIcon
+CustomIcons.UpdateDynamicIcon = UpdateDynamicIcon
+CustomIcons.GetDynamicDB = GetDynamicDB

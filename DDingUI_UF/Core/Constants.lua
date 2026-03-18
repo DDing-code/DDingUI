@@ -228,36 +228,66 @@ C.DISPEL_ICONS = {
 -----------------------------------------------
 C.ICON_SETS = {
 	["default"] = {
-		label = "기본 (WoW)",
-		role = {
-			texture = [[Interface\LFGFrame\UI-LFG-ICON-PORTRAITROLES]],
-			coords = {
-				TANK    = { 0, 19/64, 22/64, 41/64 },
-				HEALER  = { 20/64, 39/64, 1/64, 20/64 },
-				DAMAGER = { 20/64, 39/64, 22/64, 41/64 },
-			},
-		},
-		leader   = [[Interface\GroupFrame\UI-Group-LeaderIcon]],
-		assist   = [[Interface\GroupFrame\UI-Group-AssistantIcon]],
-		combat   = [[Interface\CharacterFrame\UI-StateIcon]],
-		combatCoords = { 0.5, 1, 0, 0.5 },
-		resting  = [[Interface\CharacterFrame\UI-StateIcon]],
-		restingCoords = { 0, 0.5, 0, 0.421875 },
-	},
-	["ddingui"] = {
 		label = "DDingUI",
 		role = {
-			-- 개별 텍스처 모드: textures[ROLE] 사용 (아틀라스 대신)
 			textures = {
-				TANK    = [[Interface\AddOns\DDingUI_UF\Media\Icons\tank]],
-				HEALER  = [[Interface\AddOns\DDingUI_UF\Media\Icons\healer]],
-				DAMAGER = [[Interface\AddOns\DDingUI_UF\Media\Icons\dps]],
+				TANK    = [[Interface\AddOns\DDingUI_UF\Media\Icons\tank_sololv]],
+				HEALER  = [[Interface\AddOns\DDingUI_UF\Media\Icons\healer_sololv]],
+				DAMAGER = [[Interface\AddOns\DDingUI_UF\Media\Icons\dps_sololv]],
 			},
 		},
-		leader   = [[Interface\AddOns\DDingUI_UF\Media\Icons\leader]],
-		assist   = [[Interface\AddOns\DDingUI_UF\Media\Icons\leader]], -- 리더와 동일
-		combat   = [[Interface\AddOns\DDingUI_UF\Media\Icons\combat]],
-		resting  = [[Interface\AddOns\DDingUI_UF\Media\Icons\rest]],
+		leader   = [[Interface\AddOns\DDingUI_UF\Media\Icons\leader_sololv]],
+		assist   = [[Interface\AddOns\DDingUI_UF\Media\Icons\leader_sololv]],
+		combat   = [[Interface\AddOns\DDingUI_UF\Media\Icons\combat_sololv]],
+		resting  = [[Interface\AddOns\DDingUI_UF\Media\Icons\rest_sololv]],
 	},
-	-- 추가 세트: Media/Icons/ 폴더에 TGA 파일 추가 후 여기 등록
 }
+
+-----------------------------------------------
+-- Layout Defaults (매직넘버 중앙 관리)
+-- Layout.lua, Preview.lua 등에서 `or` fallback으로 사용되던 값들
+-----------------------------------------------
+
+C.SHADOW_OFFSET = { 1, -1 }
+C.SHADOW_COLOR = { 0, 0, 0, 1 }
+C.AURA_TEXCOORD = { 0.08, 0.92, 0.08, 0.92 }
+C.AURA_BORDER_SIZE = 1
+
+-- 글로우/보더
+C.OVERHEAL_GLOW_WIDTH = 4
+C.OVERSHIELD_GLOW_WIDTH = 8
+C.OVERSHIELD_GLOW_OFFSET = { -4, 3, -4, -3 } -- topX, topY, bottomX, bottomY
+C.HIGHLIGHT_BORDER_SIZE = 2
+C.MOUSEOVER_ALPHA = 0.08
+
+-- 캐스트바
+C.CASTBAR_ATTACHED_GAP = 2
+C.CASTBAR_SPELL_PADDING = 4
+C.CASTBAR_TIMER_PADDING = -4
+C.CASTBAR_TEXT_RIGHT_CLIP = -40
+C.CASTBAR_ICON_GAP = 3
+
+-- 인디케이터 기본 크기
+C.INDICATOR_SIZE = {
+	raidIcon = 14,
+	roleIcon = 14,
+	readyCheckIcon = 16,
+	resurrectIcon = 20,
+	leaderIcon = 14,
+	combatIcon = 20,
+	restingIcon = 18,
+}
+
+-- 텍스트 기본 오프셋
+C.TEXT_OFFSET = {
+	nameLeftPad = 4,
+	healthRightPad = -4,
+}
+
+-- Additional Power
+C.ADDITIONAL_POWER_HEIGHT = 4
+
+-- ClassPower
+C.CLASSPOWER_DEFAULT_HEIGHT = 4
+C.CLASSPOWER_DEFAULT_GAP = 1
+C.CLASSPOWER_MARGIN = 2

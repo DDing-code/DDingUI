@@ -63,7 +63,9 @@ local function CreateProxyAnchors()
     for viewerName, proxyName in pairs(PROXY_MAP) do
         if not proxyFrames[viewerName] then
             local proxy = CreateFrame("Frame", proxyName, UIParent)
-            proxy:SetSize(1, 1)
+            -- [FIX] 리로드 시 CDM 뷰어 준비 전까지 합리적인 기본 크기 사용
+            -- 아이콘 36px × 5칸 + 간격 2px × 4 = 188, 세로 36px
+            proxy:SetSize(188, 36)
             proxy:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
             proxy:Show()
             proxy._isProxyAnchor = true
@@ -111,6 +113,22 @@ local function SyncProxyAnchors()
             -- 여기서 중복 호출하면 mover hookscript와 경쟁하여 깜빡임 유발
             -- __cdmIconWidth만 미러링
             proxy.__cdmIconWidth = groupFrame.__cdmIconWidth
+            -- [FIX] GroupRenderer가 아직 LayoutGroup을 실행하지 않아 proxy가 1x1이면
+            -- groupFrame 크기 또는 DB iconSize fallback 적용 (프록시 "없음" 방지)
+            if proxy:GetWidth() <= 1 or proxy:GetHeight() <= 1 then
+                local gw, gh = groupFrame:GetWidth(), groupFrame:GetHeight()
+                if gw and gw > 1 and gh and gh > 1 then
+                    proxy:SetSize(gw, gh)
+                    proxy.__cdmIconWidth = gw
+                else
+                    -- groupFrame도 아직 크기 없으면 DB 기반 fallback
+                    local viewerSettings = DDingUI.db and DDingUI.db.profile
+                        and DDingUI.db.profile.viewers and DDingUI.db.profile.viewers[viewerName]
+                    local iconSize = viewerSettings and viewerSettings.iconSize or 32
+                    proxy:SetSize(iconSize, iconSize)
+                    proxy.__cdmIconWidth = iconSize
+                end
+            end
             local gsEnabled = DDingUI.db and DDingUI.db.profile.groupSystem and DDingUI.db.profile.groupSystem.enabled
             local gSettings = DDingUI.db and DDingUI.db.profile.groupSystem and DDingUI.db.profile.groupSystem.groups and DDingUI.db.profile.groupSystem.groups[groupName]
             if gsEnabled and gSettings and gSettings.enabled ~= false then
@@ -1306,6 +1324,61 @@ do
     end
 end
 
+-- ============================================
+-- [Ayije_CDM 패턴] 로딩 화면 플래그 + 스펙 변경 가드 + OnHide 재표시 훅
+-- 스펙/특성 변경 중에는 블리자드가 뷰어를 재구축하므로 재표시 억제
+-- 재구축 완료 후(3초 뒤)에만 Hide 방지 작동
+-- ============================================
+local _loadingScreenActive = false
+local _pendingSpecChange = false  -- 스펙/특성 변경 중 재표시 억제
+local _pendingSpecChangeToken = 0
+local _viewerOnHideHooked = setmetatable({}, { __mode = "k" })  -- 뷰어 객체 → true
+
+do
+    local lsFrame = CreateFrame("Frame")
+    lsFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
+    lsFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+    lsFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
+    lsFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    lsFrame:SetScript("OnEvent", function(_, event)
+        if event == "LOADING_SCREEN_ENABLED" then
+            _loadingScreenActive = true
+        elseif event == "LOADING_SCREEN_DISABLED" then
+            _loadingScreenActive = false
+        else
+            -- 스펙/특성 변경 시 3초간 OnHide 재표시 억제
+            -- 블리자드가 뷰어를 재구축하는 동안 Show() 호출 방지
+            _pendingSpecChange = true
+            _pendingSpecChangeToken = _pendingSpecChangeToken + 1
+            local myToken = _pendingSpecChangeToken
+            C_Timer.After(3, function()
+                if myToken == _pendingSpecChangeToken then
+                    _pendingSpecChange = false
+                end
+            end)
+        end
+    end)
+end
+
+local function HookViewerOnHideReshow(viewerName)
+    local viewer = _G[viewerName]
+    if not viewer or _viewerOnHideHooked[viewer] then return end
+    _viewerOnHideHooked[viewer] = true
+    viewer:HookScript("OnHide", function()
+        if InCombatLockdown() then return end
+        if _loadingScreenActive then return end
+        if _pendingSpecChange then return end  -- 스펙/특성 변경 중 재표시 억제
+        C_Timer.After(0, function()
+            if InCombatLockdown() then return end
+            if _loadingScreenActive then return end
+            if _pendingSpecChange then return end
+            if not viewer:IsShown() then
+                viewer:Show()
+            end
+        end)
+    end)
+end
+
 -- [FIX] 모든 뷰어에 RefreshLayout 훅 (BCDM/CMC 패턴)
 -- RefreshLayout은 CDM이 내부 레이아웃을 완전히 완료한 후 호출되므로
 -- settle 없이 안전하게 스킨/리레이아웃 가능
@@ -1347,6 +1420,7 @@ do
     local function HookAllViewerRefreshLayouts()
         for _, name in ipairs(viewerNames) do
             HookViewerRefreshLayout(name)
+            HookViewerOnHideReshow(name)  -- [Ayije_CDM 패턴] OnHide 재표시 훅
         end
     end
 
@@ -1382,15 +1456,58 @@ do
         end
     end
 
+    -- [Ayije_CDM 패턴] CountPopulatedFrames: 빈 프레임 감지 → 재시도
+    local function CheckAndRecoverUnpopulatedFrames()
+        local anyUnpopulated = false
+        for _, vName in ipairs(viewerNames) do
+            local v = _G[vName]
+            if v and v.itemFramePool then
+                local total, populated = 0, 0
+                for frame in v.itemFramePool:EnumerateActive() do
+                    total = total + 1
+                    local hasData = false
+                    pcall(function()
+                        hasData = frame.layoutIndex ~= nil or frame.cooldownID ~= nil
+                    end)
+                    if hasData then populated = populated + 1 end
+                end
+                if total > 0 and populated < total then
+                    anyUnpopulated = true
+                    break
+                end
+            end
+        end
+        if anyUnpopulated then
+            OnMajorStateChange()
+        end
+    end
+
     local viewerRefreshFrame = CreateFrame("Frame")
     viewerRefreshFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
     viewerRefreshFrame:RegisterEvent("PLAYER_LEVEL_UP")
     viewerRefreshFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+    viewerRefreshFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     viewerRefreshFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_ENTERING_WORLD" then
+            -- [FIX] 리로드 직후 강화효과 위치 즉시 보정 (Ayije_CDM RunVisualSetup 패턴)
+            -- IsViewerReady 가드를 우회하여 빠르게 CenterBuffIcons 실행
+            C_Timer.After(0.1, function()
+                nextCenterBuffsUpdate = 0
+                CenterBuffIcons()
+            end)
+            C_Timer.After(0.5, function()
+                nextCenterBuffsUpdate = 0
+                CenterBuffIcons()
+            end)
+            C_Timer.After(1.0, OnMajorStateChange)
+            return
+        end
         -- 뷰어 재생성 대기 후 재설치 시도 (여러 시점에서)
         C_Timer.After(0.3, OnMajorStateChange)
         C_Timer.After(1.0, OnMajorStateChange)
         C_Timer.After(2.5, OnMajorStateChange)
+        -- [Ayije_CDM 패턴] 4초 후 빈 프레임 체크 → 미복구 아이콘 강제 재시도
+        C_Timer.After(4.0, CheckAndRecoverUnpopulatedFrames)
     end)
 end
 

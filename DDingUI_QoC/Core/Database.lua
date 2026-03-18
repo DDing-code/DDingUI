@@ -21,6 +21,7 @@ ns.defaults = {
             CastingAlert = true,
             FocusInterrupt = true,
             BuffChecker = true,
+            MissingBuff = true,
         },
 
         -- 전역 설정
@@ -205,6 +206,41 @@ ns.defaults = {
             textColor = { r = 1, g = 0.3, b = 0.3 },
             alignment = "CENTER",
             position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -200 },
+        },
+
+        -- MissingBuff (클래스 버프/소모품/펫 누락 감지) 설정
+        MissingBuff = {
+            -- 체크 항목
+            checkClassBuff = true,
+            checkFlask = true,
+            checkFood = true,
+            checkWeaponOil = true,
+            checkPet = true,
+            checkStance = true,
+            checkRoguePoisons = true,
+            -- 조건
+            zoneCheck = "instanceOrGroup",  -- always, instance, group, instanceOrGroup
+            ignoreWhileMounted = true,
+            ignoreWhileResting = true,
+            hideInCombat = false,
+            -- 표시
+            iconSize = 40,
+            iconBorder = 1,
+            scale = 1.0,
+            bgAlpha = 0.6,
+            locked = false,
+            showText = true,
+            fontSize = 10,
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            textColor = { r = 1, g = 0.3, b = 0.3 },
+            pulseAnimation = true,
+            -- 글로우
+            glowType = "pixel",  -- pixel, autocast, button, none
+            glowColor = { r = 0.95, g = 0.2, b = 0.2 },
+            glowLines = 8,
+            glowSpeed = 0.25,
+            glowThickness = 2,
+            position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -150 },
         },
     },
 

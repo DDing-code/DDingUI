@@ -414,6 +414,28 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
 end)
 
 -----------------------------------------------
+-- [FIX] AFK & Offline OnUpdate Ticker
+-- AFK 및 오프라인 시간 실시간 갱신을 위해 1초마다 활성 그룹 프레임 상태 갱신
+-----------------------------------------------
+local updateTicker = C_Timer.NewTicker(1, function()
+	if not GF.allFrames then return end
+	if InCombatLockdown() then return end -- 전투 중 타이머 무시 (성능 최적화)
+	
+	for _, frame in pairs(GF.allFrames) do
+		if frame and frame:IsVisible() and frame.gfEventsEnabled then
+			local unit = frame.unit
+			if unit then
+				local isAFK = UnitIsAFK(unit)
+				local isOff = not UnitIsConnected(unit)
+				if (isAFK or isOff) and GF.UpdateStatusIcons then
+					GF:UpdateStatusIcons(frame)
+				end
+			end
+		end
+	end
+end)
+
+-----------------------------------------------
 -- 초기화
 -----------------------------------------------
 

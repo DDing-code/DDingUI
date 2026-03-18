@@ -295,21 +295,39 @@ function FrameController:ScanCDMViewers()
             skipReason = "disabled"
         end
 
-        -- [FIX] Ayije 패턴: cooldownID + IsShown 체크
-        -- CDM이 Hide()한 비활성 버프는 스캔에서 제외
-        -- CDM의 Show/Hide는 OnShow 훅으로 감지하여 Reconcile 트리거
+        -- [FIX] cooldownID + IsShown 체크: CDM이 Hide한 비활성 버프는 분류/렌더링 제외
+        -- 단, 숨겨진 아이콘에도 OnShow 훅을 설치하여 CDM이 Show 시 Reconcile 트리거
         if shouldScan and viewer.itemFramePool then
             for icon in viewer.itemFramePool:EnumerateActive() do
                 -- [FIX] isEditing 프레임 무시 (EditMode 종료 시 블리자드 코드 Taint 에러 방지)
-                if icon.cooldownID and icon:IsShown() and not icon.isEditing then
-                    idIconMap[icon.cooldownID] = icon
-                    iconSourceMap[icon.cooldownID] = globalName
+                if icon.cooldownID and not icon.isEditing then
+                    if icon:IsShown() then
+                        -- 표시된 아이콘 → 분류 + 렌더링 대상
+                        idIconMap[icon.cooldownID] = icon
+                        iconSourceMap[icon.cooldownID] = globalName
 
-                    if not iconSpellNameMap[icon.cooldownID] then
-                        local name = self:GetSpellName(icon)
-                        if name then
-                            iconSpellNameMap[icon.cooldownID] = name
+                        if not iconSpellNameMap[icon.cooldownID] then
+                            local name = self:GetSpellName(icon)
+                            if name then
+                                iconSpellNameMap[icon.cooldownID] = name
+                            end
                         end
+                    else
+                        -- [FIX] 숨겨진 아이콘에도 OnShow 훅 설치
+                        -- CDM이 나중에 Show()하면 OnShow 훅 → Reconcile → 재스캔
+                        if not icon._fcShowHideHooked then
+                            icon:HookScript("OnShow", function(self)
+                                if not FrameController.initialized then return end
+                                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+                            end)
+                            icon:HookScript("OnHide", function(self)
+                                if not FrameController.initialized then return end
+                                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+                            end)
+                            icon._fcShowHideHooked = true
+                        end
+                        -- iconSourceMap은 저장 (나중에 ClassifyIcon에서 참조)
+                        iconSourceMap[icon.cooldownID] = globalName
                     end
                 end
             end
@@ -955,7 +973,7 @@ end
 -- 그룹 선택 팝업 (EasyMenu)
 -- ============================================================
 
-local menuFrame = CreateFrame("Frame", "DDingUI_GroupAssignMenu", UIParent, "UIDropDownMenuTemplate")
+local menuFrame = CreateFrame("Frame", "DDingUI_GroupAssignMenu", UIParent)
 
 function FrameController:ShowGroupAssignPopup(icon)
     if not icon or not icon.cooldownID then return end

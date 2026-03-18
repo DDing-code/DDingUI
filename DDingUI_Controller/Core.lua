@@ -54,6 +54,13 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         -- StyleLib에 초기 설정 적용
         Controller:ApplyToStyleLib()
 
+        -- EditMode 설정 DB에서 복원
+        if Controller.EditMode and Controller.db.editMode and Controller.db.editMode.settings then
+            for k, v in pairs(Controller.db.editMode.settings) do
+                Controller.EditMode.Settings[k] = v
+            end
+        end
+
         self:UnregisterEvent("ADDON_LOADED")
 
     elseif event == "PLAYER_LOGIN" then
@@ -61,15 +68,30 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         SLASH_DDINGUI_CONTROLLER1 = "/ddingui"
         SLASH_DDINGUI_CONTROLLER2 = "/controller"
         SLASH_DDINGUI_CONTROLLER3 = "/ddc"
+        SLASH_DDINGUI_CONTROLLER4 = "/dui"
         SlashCmdList["DDINGUI_CONTROLLER"] = function(msg)
-            if Controller.ToggleSettings then
-                Controller:ToggleSettings()
-            else
-                local SL0 = _G.DDingUI_StyleLib -- [STYLE]
-                if SL0 and SL0.GetChatPrefix then
-                    print(SL0.GetChatPrefix("Controller", "Controller") .. "설정 패널 로드 중...")
+            msg = strtrim(msg or ""):lower()
+            if msg == "edit" or msg == "unlock" or msg == "move" then
+                -- 통합 편집모드 토글
+                if Controller.EditMode then
+                    Controller.EditMode:Toggle()
                 else
-                    print("|cffffffffDDing|r|cffffa300UI|r |cff999999Controller:|r 설정 패널 로드 중...")
+                    print("|cffffffffDDing|r|cffffa300UI|r |cff999999Controller|r: EditMode 모듈이 로드되지 않았습니다")
+                end
+            elseif msg == "reset" then
+                -- 기본값 복원
+                Controller:ResetToDefaults()
+            else
+                -- 설정 패널 토글
+                if Controller.ToggleSettings then
+                    Controller:ToggleSettings()
+                else
+                    local SL0 = _G.DDingUI_StyleLib
+                    if SL0 and SL0.GetChatPrefix then
+                        print(SL0.GetChatPrefix("Controller", "Controller") .. "설정 패널 로드 중...")
+                    else
+                        print("|cffffffffDDing|r|cffffa300UI|r |cff999999Controller:|r 설정 패널 로드 중...")
+                    end
                 end
             end
         end
@@ -78,9 +100,11 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         local SL = _G.DDingUI_StyleLib
         local version = C_AddOns and C_AddOns.GetAddOnMetadata("DDingUI_Controller", "Version") or "1.0.0"
         if SL and SL.CreateAddonTitle then
-            print(SL.CreateAddonTitle("Controller", "Controller") .. " v" .. version .. " |cff888888로드 완료. /ddingui 로 설정|r")
+            print(SL.CreateAddonTitle("Controller", "Controller") .. " v" .. version .. " |cff888888로드 완료.|r")
+            print("  |cffcccccc/dui|r — 설정  |cffcccccc/dui edit|r — 편집모드")
         else
-            print("|cffffffffDDing|r|cffffa300UI|r |cff999999Controller|r v" .. version .. " 로드 완료. /ddingui 로 설정")
+            print("|cffffffffDDing|r|cffffa300UI|r |cff999999Controller|r v" .. version .. " 로드 완료.")
+            print("  /dui — 설정  /dui edit — 편집모드")
         end
 
         self:UnregisterEvent("PLAYER_LOGIN")

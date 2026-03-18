@@ -109,6 +109,7 @@ ns.ConfigModuleMap = {
     buffchecker     = "BuffChecker",
     castingalert    = "CastingAlert",
     focusinterrupt  = "FocusInterrupt",
+    missingbuff     = "MissingBuff",
 }
 
 ------------------------------------------------------
@@ -126,6 +127,7 @@ function ns:InitConfigTree()
         { text = L["TAB_GENERAL"],          key = "general" },
         { text = L["TAB_COMBATTIMER"],      key = "combattimer" },
         { text = L["TAB_BUFFCHECKER"],      key = "buffchecker" },
+        { text = L["TAB_MISSINGBUFF"] or "클래스 버프 감지",  key = "missingbuff" },
         { text = L["TAB_CASTINGALERT"],     key = "castingalert" },
         { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
     }
@@ -443,6 +445,94 @@ function ns:InitConfigTree()
             { type = "button", label = L["RESET_POSITION"], onClick = function()
                 local mod = ns.modules and ns.modules["CombatTimer"]
                 if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- MissingBuff
+    -----------------------------------------------
+    -- 공통 콜백 헬퍼
+    local function mbRecheck()
+        local mod = ns.modules and ns.modules["MissingBuff"]
+        if mod then
+            if mod.DoCheck then mod:DoCheck() end
+        end
+    end
+    local function mbUpdateVisuals()
+        local mod = ns.modules and ns.modules["MissingBuff"]
+        if mod and mod.UpdateVisuals then mod:UpdateVisuals() end
+    end
+
+    tree.panels["missingbuff"] = {
+        title = L["MISSINGBUFF_TITLE"] or "클래스 버프 감지",
+        desc  = L["MISSINGBUFF_DESC"] or "클래스 버프/소모품/펫/자세 누락 시 아이콘으로 알림",
+        moduleEnableKey = "profile.modules.MissingBuff",
+        settings = {
+            -- 모듈 활성화
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.MissingBuff", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+
+            -- 체크 항목
+            { type = "header", label = L["MISSINGBUFF_CHECK_ITEMS"] or "체크 항목" },
+            { type = "toggle", key = "profile.MissingBuff.checkClassBuff",    label = L["MISSINGBUFF_CHECK_CLASSBUFF"] or "클래스 버프",  onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.checkFlask",        label = L["MISSINGBUFF_CHECK_FLASK"] or "영약",             onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.checkFood",         label = L["MISSINGBUFF_CHECK_FOOD"] or "음식",              onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.checkWeaponOil",    label = L["MISSINGBUFF_CHECK_WEAPON"] or "무기 버프",       onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.checkPet",          label = L["MISSINGBUFF_CHECK_PET"] or "펫 소환",            onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.checkStance",       label = L["MISSINGBUFF_CHECK_STANCE"] or "자세/오라",       onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.checkRoguePoisons", label = L["MISSINGBUFF_CHECK_POISONS"] or "로그 독",        onChange = mbRecheck },
+
+            -- 조건
+            { type = "header", label = L["MISSINGBUFF_CONDITIONS"] or "표시 조건" },
+            { type = "dropdown", key = "profile.MissingBuff.zoneCheck", label = L["MISSINGBUFF_ZONE_CHECK"] or "활성화 조건", onChange = mbRecheck, options = {
+                { text = L["MISSINGBUFF_ZONE_ALWAYS"] or "항상",                      value = "always" },
+                { text = L["MISSINGBUFF_ZONE_INSTANCE"] or "던전/레이드만",          value = "instance" },
+                { text = L["MISSINGBUFF_ZONE_GROUP"] or "파티/레이드 구성 시",       value = "group" },
+                { text = L["MISSINGBUFF_ZONE_BOTH"] or "인스턴스 또는 구성 시", value = "instanceOrGroup" },
+            }},
+            { type = "toggle", key = "profile.MissingBuff.ignoreWhileMounted", label = L["MISSINGBUFF_IGNORE_MOUNTED"] or "탈것 중 숨김", onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.ignoreWhileResting", label = L["MISSINGBUFF_IGNORE_RESTING"] or "휴식 중 숨김", onChange = mbRecheck },
+            { type = "toggle", key = "profile.MissingBuff.hideInCombat",       label = L["MISSINGBUFF_HIDE_COMBAT"] or "전투 중 숨김",    onChange = mbRecheck },
+
+            -- 표시 설정
+            { type = "header", label = L["MISSINGBUFF_DISPLAY"] or "표시 설정" },
+            { type = "slider",   key = "profile.MissingBuff.iconSize",    label = L["ICON_SIZE"],       min = 20, max = 80, step = 5,      onChange = mbUpdateVisuals },
+            { type = "slider",   key = "profile.MissingBuff.iconBorder",  label = L["MISSINGBUFF_ICON_BORDER"],  min = 0, max = 4, step = 1,  onChange = mbUpdateVisuals },
+            { type = "slider",   key = "profile.MissingBuff.scale",       label = L["SCALE"],           min = 0.5, max = 2.0, step = 0.1,  onChange = mbUpdateVisuals },
+            { type = "slider",   key = "profile.MissingBuff.bgAlpha",   label = L["BACKGROUND_ALPHA"], min = 0, max = 1, step = 0.05,    onChange = mbUpdateVisuals },
+            { type = "toggle",   key = "profile.MissingBuff.locked",    label = L["POSITION_LOCKED"] },
+            { type = "toggle",   key = "profile.MissingBuff.pulseAnimation", label = L["MISSINGBUFF_PULSE"],        onChange = mbUpdateVisuals },
+
+            -- 글로우 설정
+            { type = "header", label = L["MISSINGBUFF_GLOW_SETTINGS"] },
+            { type = "dropdown", key = "profile.MissingBuff.glowType", label = L["MISSINGBUFF_GLOW_TYPE"], onChange = mbUpdateVisuals, options = {
+                { text = L["MISSINGBUFF_GLOW_PIXEL"],    value = "pixel" },
+                { text = L["MISSINGBUFF_GLOW_AUTOCAST"], value = "autocast" },
+                { text = L["MISSINGBUFF_GLOW_BUTTON"],   value = "button" },
+                { text = L["MISSINGBUFF_GLOW_NONE"],     value = "none" },
+            }},
+            { type = "color",  key = "profile.MissingBuff.glowColor",     label = L["MISSINGBUFF_GLOW_COLOR"],     hasAlpha = false, colorFormat = "rgb_object", onChange = mbUpdateVisuals },
+            { type = "slider", key = "profile.MissingBuff.glowLines",     label = L["MISSINGBUFF_GLOW_LINES"],     min = 1, max = 16, step = 1, onChange = mbUpdateVisuals },
+            { type = "slider", key = "profile.MissingBuff.glowSpeed",     label = L["MISSINGBUFF_GLOW_SPEED"],     min = 0.05, max = 1.0, step = 0.05, onChange = mbUpdateVisuals },
+            { type = "slider", key = "profile.MissingBuff.glowThickness", label = L["MISSINGBUFF_GLOW_THICKNESS"], min = 1, max = 5, step = 1, onChange = mbUpdateVisuals },
+
+            -- 텍스트 설정
+            { type = "header", label = L["MISSINGBUFF_TEXT_SETTINGS"] or "텍스트 설정" },
+            { type = "toggle", key = "profile.MissingBuff.showText",  label = L["SHOW_TEXT"],   onChange = mbUpdateVisuals },
+            { type = "slider", key = "profile.MissingBuff.fontSize",  label = L["FONT_SIZE"], min = 8, max = 20, step = 1, onChange = mbUpdateVisuals },
+            { type = "font",   key = "profile.MissingBuff.font",      label = L["FONT"],      onChange = mbUpdateVisuals },
+            { type = "color",  key = "profile.MissingBuff.textColor", label = L["TEXT_COLOR"], hasAlpha = false, colorFormat = "rgb_object", onChange = mbUpdateVisuals },
+
+            -- 버튼
+            { type = "separator" },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["MissingBuff"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
+                local mod = ns.modules and ns.modules["MissingBuff"]
+                if mod and mod.TestMode then mod:TestMode() end
             end },
         },
     }

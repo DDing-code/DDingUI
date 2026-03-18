@@ -160,13 +160,25 @@ local function ApplyUnitPosition(frame, cfg, fallbackPoint, fallbackRelative, fa
 		local anchor = ResolveAnchorFrame(attachTo)
 		local sp = selfPoint or "CENTER"
 		local ap = anchorPoint or "CENTER"
-		local oX = (pos and type(pos[1]) == "number") and pos[1] or 0
-		local oY = (pos and type(pos[2]) == "number") and pos[2] or 0
-		-- object format position도 지원
-		if pos and pos.offsetX then
-			oX = pos.offsetX or 0
-			oY = pos.offsetY or 0
+		local oX, oY = 0, 0
+
+		if pos then
+			if pos.offsetX then
+				-- object format: { point = ..., offsetX = ..., offsetY = ... }
+				oX = pos.offsetX or 0
+				oY = pos.offsetY or 0
+			elseif type(pos[1]) == "string" then
+				-- legacy array format: { "BOTTOM", "ddingUI_Player", "CENTER", -323, 485 }
+				-- selfPoint/anchorPoint는 cfg에서 이미 가져왔으므로 오프셋만 추출
+				oX = pos[4] or 0
+				oY = pos[5] or 0
+			elseif type(pos[1]) == "number" then
+				-- simple offset format: { x, y }
+				oX = pos[1] or 0
+				oY = pos[2] or 0
+			end
 		end
+
 		frame:SetPoint(sp, anchor, ap, oX, oY)
 		return
 	end

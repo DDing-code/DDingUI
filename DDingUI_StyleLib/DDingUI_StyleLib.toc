@@ -10,3 +10,6 @@ Core.lua
 Colors.lua
 Gradient.lua
 Widgets.lua
+DesignTokens.lua
+WidgetRefresh.lua
+ProceduralGlow.lua

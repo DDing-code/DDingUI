@@ -1,9 +1,9 @@
 ## Interface: 120001
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cff999999Controller|r
-## Notes: Global font/texture controller for DDingUI suite
-## Notes-koKR: DDingUI 전체 폰트/텍스처 중앙 관리
+## Notes: Global font/texture controller & unified edit mode for DDingUI suite
+## Notes-koKR: DDingUI 전체 폰트/텍스처 중앙 관리 + 통합 편집모드
 ## Author: DDing
-## Version: 1.0.0
+## Version: 1.1.0
 ## SavedVariables: DDingUI_ControllerDB
 ## OptionalDeps: DDingUI_StyleLib
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
@@ -24,3 +24,4 @@ Defaults.lua
 Registry.lua
 Core.lua
 Settings.lua
+EditMode.lua

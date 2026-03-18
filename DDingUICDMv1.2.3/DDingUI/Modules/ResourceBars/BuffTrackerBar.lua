@@ -1940,6 +1940,37 @@ GetTrackedBuffs = function()
         rootCfg.trackedBuffs = {}
     end
 
+    -- [NEW] Phase 1 Tracker Groups (v2) Migration
+    if not rootCfg._v2GroupMigrationComplete then
+        if not rootCfg.trackerGroups then
+            rootCfg.trackerGroups = {}
+        end
+        -- Ensure "Group1" exists as a fallback default
+        if not rootCfg.trackerGroups["Group1"] then
+            rootCfg.trackerGroups["Group1"] = {
+                name = "기본 추적 그룹",
+                point = "CENTER", x = 0, y = -100,
+                sortMethod = "TIME_LEFT",
+                sortDirection = "ASC",
+                growthDir = "RIGHT",
+                spacing = 5,
+            }
+        end
+
+        -- Migrate all known specs
+        if profileStore then
+            for oldSpecID, buffs in pairs(profileStore) do
+                for _, buff in ipairs(buffs) do
+                    if not buff.group then
+                        buff.group = "Group1"
+                    end
+                end
+            end
+        end
+
+        rootCfg._v2GroupMigrationComplete = true
+    end
+
     -- 현재 specID 슬롯이 없으면 빈 테이블 생성
     if not profileStore[specID] then
         profileStore[specID] = {}

@@ -39,18 +39,12 @@ local function GetWhirlingSurgeInfo()
     return d.startTime or 0, d.duration or 0, onCD
 end
 
--- 비행 감지
+-- 비행 감지 (CDM hideWhileFlying 동일 조건)
 local function IsActivelyFlying()
     if not GetBonusBarIndex or GetBonusBarIndex() ~= 11 then
         return false
     end
-    if IsFlying() then return true end
-    if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
-        local isGliding = C_PlayerInfo.GetGlidingInfo()
-        if isGliding then return true end
-    end
-    if IsFalling() then return true end
-    return false
+    return IsFlying()
 end
 
 ------------------------------------------------------
@@ -211,10 +205,20 @@ function SkyridingTracker:CreateHUD()
 
         local flying = IsActivelyFlying()
 
-        if flying and not self._wasFlying then
+        local isFull = false
+        if self.db.hideWhenFull then
+            local _, ch, mx = GetVigorInfo()
+            local _, wCh, wM = GetSecondWindInfo()
+            local _, _, onCD = GetWhirlingSurgeInfo()
+            isFull = (ch == mx) and (wCh == wM) and not onCD
+        end
+
+        local shouldShow = flying and not isFull
+
+        if shouldShow and not self._wasFlying then
             self._wasFlying = true
             self._targetAlpha = 1
-        elseif not flying and self._wasFlying then
+        elseif not shouldShow and self._wasFlying then
             self._wasFlying = false
             self._targetAlpha = 0
         end
@@ -346,11 +350,12 @@ function SkyridingTracker:UpdateData()
     self._lastSurgeOnCD = onCD
 
     if onCD then
+        local cSd = self._cSurgeDim or { 0.20, 0.12, 0.03 }
         -- 충전 중: dim→흰색 Lerp
         if now < sS + sD then
             local p = (now - sS) / sD
             self.surgeFg:SetAlpha(p)
-            self.surgeFg:SetVertexColor(1, 1, 1, 1)
+            self.surgeFg:SetVertexColor(LerpC(cSd, WHITE, p))
         else
             self.surgeFg:SetAlpha(1)
             self.surgeFg:SetVertexColor(1, 1, 1, 1)

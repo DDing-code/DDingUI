@@ -535,15 +535,37 @@ function GF:CreateRaidHeaders()
 					gGrow = "DOWN"
 				end
 			end
-			if gGrow == "RIGHT" then
-				header:SetPoint("TOPLEFT", prev, "TOPRIGHT", gSpacing, 0)
-			elseif gGrow == "LEFT" then
-				header:SetPoint("TOPRIGHT", prev, "TOPLEFT", -gSpacing, 0)
-			elseif gGrow == "DOWN" then
-				header:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -gSpacing)
-			elseif gGrow == "UP" then
-				header:SetPoint("BOTTOMLEFT", prev, "TOPLEFT", 0, gSpacing)
+			-- [FIX] 그룹 간 앵커: growDirection에 따라 정렬 기준선 결정
+			-- 유닛 DOWN → 그룹 TOP 정렬, 유닛 UP → 그룹 BOTTOM 정렬
+			local priIsVert = (growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER")
+			if gGrow == "RIGHT" or gGrow == "LEFT" then
+				-- 가로 배치: Y축 정렬은 growDirection 기반
+				local yEdge = "TOP" -- 기본: DOWN (위 정렬)
+				if not priIsVert then
+					yEdge = "TOP" -- 가로 유닛일 때 기본값
+				elseif growDir == "UP" then
+					yEdge = "BOTTOM"
+				end
+				if gGrow == "RIGHT" then
+					header:SetPoint(yEdge .. "LEFT", prev, yEdge .. "RIGHT", gSpacing, 0)
+				else -- LEFT
+					header:SetPoint(yEdge .. "RIGHT", prev, yEdge .. "LEFT", -gSpacing, 0)
+				end
+			elseif gGrow == "DOWN" or gGrow == "UP" then
+				-- 세로 배치: X축 정렬은 growDirection 기반
+				local xEdge = "LEFT" -- 기본: RIGHT (왼쪽 정렬)
+				if priIsVert then
+					xEdge = "LEFT" -- 세로 유닛일 때 기본값
+				elseif growDir == "LEFT" then
+					xEdge = "RIGHT"
+				end
+				if gGrow == "DOWN" then
+					header:SetPoint("TOP" .. xEdge, prev, "BOTTOM" .. xEdge, 0, -gSpacing)
+				else -- UP
+					header:SetPoint("BOTTOM" .. xEdge, prev, "TOP" .. xEdge, 0, gSpacing)
+				end
 			else
+				-- fallback
 				header:SetPoint("TOPLEFT", prev, "TOPRIGHT", gSpacing, 0)
 			end
 		end
@@ -708,15 +730,29 @@ function GF:ApplyRaidLayoutFromDB(db)
 						gGrow = "DOWN"
 					end
 				end
+				-- [FIX] 그룹 간 앵커: growDirection에 따라 정렬 기준선 결정
 				header:ClearAllPoints()
-				if gGrow == "RIGHT" then
-					header:SetPoint("TOPLEFT", prev, "TOPRIGHT", gSpacing, 0)
-				elseif gGrow == "LEFT" then
-					header:SetPoint("TOPRIGHT", prev, "TOPLEFT", -gSpacing, 0)
-				elseif gGrow == "DOWN" then
-					header:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -gSpacing)
-				elseif gGrow == "UP" then
-					header:SetPoint("BOTTOMLEFT", prev, "TOPLEFT", 0, gSpacing)
+				local priIsVert = (growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER")
+				if gGrow == "RIGHT" or gGrow == "LEFT" then
+					local yEdge = "TOP"
+					if priIsVert and growDir == "UP" then
+						yEdge = "BOTTOM"
+					end
+					if gGrow == "RIGHT" then
+						header:SetPoint(yEdge .. "LEFT", prev, yEdge .. "RIGHT", gSpacing, 0)
+					else
+						header:SetPoint(yEdge .. "RIGHT", prev, yEdge .. "LEFT", -gSpacing, 0)
+					end
+				elseif gGrow == "DOWN" or gGrow == "UP" then
+					local xEdge = "LEFT"
+					if not priIsVert and growDir == "LEFT" then
+						xEdge = "RIGHT"
+					end
+					if gGrow == "DOWN" then
+						header:SetPoint("TOP" .. xEdge, prev, "BOTTOM" .. xEdge, 0, -gSpacing)
+					else
+						header:SetPoint("BOTTOM" .. xEdge, prev, "TOP" .. xEdge, 0, gSpacing)
+					end
 				else
 					header:SetPoint("TOPLEFT", prev, "TOPRIGHT", gSpacing, 0)
 				end

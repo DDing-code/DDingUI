@@ -163,9 +163,10 @@ end
 function Update:FormatHealthText(unit, fmt, sep) -- [SECRET-V4]
 	if not unit or not UnitExists(unit) then return "" end
 
-	-- 상태 체크 (Dead/Offline/AFK)
-	if not UnitIsConnected(unit) then return "|cff999999Offline|r" end
-	if UnitIsDeadOrGhost(unit) then return "|cffcc3333Dead|r" end
+	-- [AUDIT-FIX] UnitIsConnected/UnitIsDeadOrGhost secret value 방어
+	local SafeBool = ns.SafeBool
+	if SafeBool and not SafeBool(UnitIsConnected(unit)) then return "|cff999999Offline|r" end
+	if SafeBool and SafeBool(UnitIsDeadOrGhost(unit)) then return "|cffcc3333Dead|r" end
 
 	local max = UnitHealthMax(unit)
 	if not max or max == 0 then return "" end
@@ -1737,11 +1738,17 @@ function Update:UpdateText(frame, unitKey)
 		local defPT = ns.WidgetDefaults and ns.WidgetDefaults.powerText
 		if defPT then
 			if not db.widgets then db.widgets = {} end
-			local function SimpleCopy(t)
-				if type(t) ~= "table" then return t end
-				local c = {}; for k,v in pairs(t) do c[k] = type(v) == "table" and SimpleCopy(v) or v end; return c
+			-- [AUDIT-FIX] W-UPD-2: SimpleCopy → 인라인 얕은 복사 (매 호출 클로저 생성 방지)
+			local copy = {}
+			for k, v in pairs(defPT) do
+				if type(v) == "table" then
+					local sub = {}; for k2, v2 in pairs(v) do sub[k2] = v2 end
+					copy[k] = sub
+				else
+					copy[k] = v
+				end
 			end
-			db.widgets.powerText = SimpleCopy(defPT)
+			db.widgets.powerText = copy
 			-- 유닛별 override 적용
 			local baseUnit = unitKey:gsub("%d", "")
 			if baseUnit == "player" or baseUnit == "target" or baseUnit == "focus" then
@@ -3038,7 +3045,12 @@ function Update:UpdateAppearance(frame, unit)
 	if health._threatOverride then return end
 
 	-- Priority 1: Dead
-	if UnitExists(unit) and UnitIsDeadOrGhost(unit) then
+	-- [AUDIT-FIX] UnitIsDeadOrGhost/UnitIsConnected secret value 방어
+	local SafeBool = ns.SafeBool
+	local isDead = SafeBool and SafeBool(UnitIsDeadOrGhost(unit)) or UnitIsDeadOrGhost(unit)
+	local isConnected = SafeBool and SafeBool(UnitIsConnected(unit)) or UnitIsConnected(unit)
+
+	if UnitExists(unit) and isDead then
 		local alpha = appearance.deadAlpha or C.DEAD_ALPHA
 		frame:SetAlpha(alpha)
 		if appearance.deadDesaturate then
@@ -3051,7 +3063,7 @@ function Update:UpdateAppearance(frame, unit)
 	end
 
 	-- Priority 2: Offline
-	if UnitExists(unit) and not UnitIsConnected(unit) then
+	if UnitExists(unit) and not isConnected then
 		local alpha = appearance.offlineAlpha or C.OFFLINE_ALPHA
 		frame:SetAlpha(alpha)
 		-- [UF-OPTIONS] 오프라인 전용 색상 적용
@@ -4135,14 +4147,22 @@ function Update:EnableEditMode()
 
 			local bossContainer = CreateGroupContainer("ddingUI_SimBoss", UIParent)
 			bossContainer:SetSize(bw, bossCount * bh + (bossCount - 1) * bSpacing)
-			-- [EDITMODE-FIX] Boss mover 위치 우선 사용 (mover는 boss1 크기, container는 5개 크기 → TOPLEFT 정렬)
+			-- [EDITMODE-FIX] Boss mover 위치 우선 사용 (mover는 boss1 크기, container는 5개 크기)
 			local bossMover = _G["ddingUI_Mover_Boss"]
 			local bossPlaced = false
 			if bossMover then
-				local left, top = bossMover:GetLeft(), bossMover:GetTop()
-				if left and top then
-					bossContainer:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-					bossPlaced = true
+				if bGrow == "UP" then
+					local left, bottom = bossMover:GetLeft(), bossMover:GetBottom()
+					if left and bottom then
+						bossContainer:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+						bossPlaced = true
+					end
+				else
+					local left, top = bossMover:GetLeft(), bossMover:GetTop()
+					if left and top then
+						bossContainer:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+						bossPlaced = true
+					end
 				end
 			end
 			if not bossPlaced then
@@ -4188,14 +4208,22 @@ function Update:EnableEditMode()
 
 			local arenaContainer = CreateGroupContainer("ddingUI_SimArena", UIParent)
 			arenaContainer:SetSize(aw, arenaCount * ah + (arenaCount - 1) * aSpacing)
-			-- [EDITMODE-FIX] Arena mover 위치 우선 사용 (TOPLEFT 정렬)
+			-- [EDITMODE-FIX] Arena mover 위치 우선 사용 (mover는 arena1 크기, container는 3개 크기)
 			local arenaMover = _G["ddingUI_Mover_Arena"]
 			local arenaPlaced = false
 			if arenaMover then
-				local left, top = arenaMover:GetLeft(), arenaMover:GetTop()
-				if left and top then
-					arenaContainer:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-					arenaPlaced = true
+				if aGrow == "UP" then
+					local left, bottom = arenaMover:GetLeft(), arenaMover:GetBottom()
+					if left and bottom then
+						arenaContainer:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+						arenaPlaced = true
+					end
+				else
+					local left, top = arenaMover:GetLeft(), arenaMover:GetTop()
+					if left and top then
+						arenaContainer:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+						arenaPlaced = true
+					end
 				end
 			end
 			if not arenaPlaced then

@@ -138,8 +138,6 @@ end
 function SP:OnSpecChanged(newSpecID)
     if not DDingUI.db then return end
 
-    print("|cff00ccff[SP]|r OnSpecChanged: " .. tostring(self.lastSpecID) .. " -> " .. tostring(newSpecID))
-
     -- Cancel any pending MarkDirty timer to prevent it from
     -- firing AFTER lastSpecID changes (would overwrite new spec's snapshot)
     if self._saveTimer then
@@ -150,7 +148,6 @@ function SP:OnSpecChanged(newSpecID)
     -- Save old spec BEFORE loading new
     if self.lastSpecID and self.lastSpecID ~= newSpecID then
         self:SaveCurrentSpec()
-        print("|cff00ccff[SP]|r Saved old spec " .. tostring(self.lastSpecID))
     end
 
     -- Load new spec (or save initial snapshot if first visit)
@@ -172,9 +169,6 @@ function SP:OnSpecChanged(newSpecID)
             p.secondaryPowerBar.markerColorChange = false
         end
         self:SaveCurrentSpec()
-        print("|cff00ccff[SP]|r First visit to spec " .. tostring(newSpecID) .. " - saved current state (markers reset)")
-    else
-        print("|cff00ccff[SP]|r Loaded snapshot for spec " .. tostring(newSpecID))
     end
 
     C_Timer.After(0.1, function()

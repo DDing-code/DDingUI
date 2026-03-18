@@ -1202,12 +1202,17 @@ sharedTimerFrame:SetScript("OnUpdate", function(self, elapsed)
 					local dur = button._totalDuration or 0
 					local colorMode = button._durationColorMode
 					local colors = button._durationColors
+					local r, g, b
 					if colorMode == "gradient" and dur > 0 and colors then
-						local r, g, b = GetDurationGradientColor(remaining, dur, colors)
-						if r then button.Duration:SetTextColor(r, g, b) end
+						r, g, b = GetDurationGradientColor(remaining, dur, colors)
 					elseif colorMode == "threshold" and colors then
-						local r, g, b = GetDurationThresholdColor(remaining, colors)
-						if r then button.Duration:SetTextColor(r, g, b) end
+						r, g, b = GetDurationThresholdColor(remaining, colors)
+					end
+					
+					if r then
+						button.Duration:SetTextColor(r, g, b)
+					elseif button._baseDurationRGB then
+						button.Duration:SetTextColor(button._baseDurationRGB[1], button._baseDurationRGB[2], button._baseDurationRGB[3])
 					end
 				end
 			end
@@ -1250,7 +1255,39 @@ local function PostCreateAuraIcon(element, button)
 	-- 쿨다운 (스파이럴) — [FIX] oUF button.Cooldown (대문자 C)
 	if button.Cooldown then
 		button.Cooldown:SetReverse(true)
-		button.Cooldown:SetHideCountdownNumbers(true) -- 내장 숫자 숨기기 → 커스텀 duration 사용
+		-- [DandersFrames 패턴] SetHideCountdownNumbers: 아이콘 생성 시 1회만 설정
+		-- showDuration 설정에 따라 네이티브 카운트다운 텍스트 표시 여부 결정
+		-- PostUpdateAuraIcon에서 매번 호출하지 않음 (깜빡임 방지)
+		local showDur = element.showDuration ~= false
+		button.Cooldown:SetHideCountdownNumbers(not showDur)
+
+		-- [DandersFrames 패턴] 네이티브 쿨다운 텍스트 탐색 + 커스터마이즈
+		-- CooldownFrame의 자식 FontString을 찾아 사용자 폰트/위치 적용
+		-- → secret fallback 시 큰 기본 폰트 깜빡임 방지
+		if not button._nativeCooldownText then
+			local regions = {button.Cooldown:GetRegions()}
+			for _, region in ipairs(regions) do
+				if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+					button._nativeCooldownText = region
+					-- 즉시 사용자 설정 폰트/위치 적용
+					local nDB = fontDB and fontDB.duration
+					local nSize = (nDB and nDB.size) or 10
+					local nOutline = (nDB and nDB.outline) or C.DEFAULT_FONT_FLAGS
+					local nStyle = (nDB and nDB.style) or C.DEFAULT_FONT
+					local nAnchor = (nDB and nDB.point) or "CENTER"
+					local nOX = (nDB and nDB.offsetX) or 0
+					local nOY = (nDB and nDB.offsetY) or 0
+					SafeSetFont(region, nStyle, nSize, nOutline)
+					region:ClearAllPoints()
+					region:SetPoint(nAnchor, button, nAnchor, nOX, nOY)
+					-- 색상 적용
+					if nDB and nDB.rgb then
+						region:SetTextColor(nDB.rgb[1] or 1, nDB.rgb[2] or 1, nDB.rgb[3] or 1)
+					end
+					break
+				end
+			end
+		end
 	end
 
 	-- [FIX] 중첩 수 텍스트: DB 설정 반영 — oUF button.Count (대문자 C)
@@ -1292,7 +1329,10 @@ local function PostCreateAuraIcon(element, button)
 	button.Duration:ClearAllPoints()
 	button.Duration:SetPoint(dPoint, button, dRelPoint, dOX, dOY)
 	if dDB and dDB.rgb then
+		button._baseDurationRGB = {dDB.rgb[1] or 1, dDB.rgb[2] or 1, dDB.rgb[3] or 1}
 		button.Duration:SetTextColor(dDB.rgb[1] or 1, dDB.rgb[2] or 1, dDB.rgb[3] or 1)
+	else
+		button._baseDurationRGB = {1, 1, 1}
 	end
 	button.Duration:Hide() -- 기본 숨김 (공유 타이머에서 표시)
 
@@ -1337,7 +1377,10 @@ local function RefreshAuraFonts(element)
 					(dDB and dDB.relativePoint) or "CENTER",
 					(dDB and dDB.offsetX) or 0, (dDB and dDB.offsetY) or 0)
 				if dDB and dDB.rgb then
+					button._baseDurationRGB = {dDB.rgb[1] or 1, dDB.rgb[2] or 1, dDB.rgb[3] or 1}
 					button.Duration:SetTextColor(dDB.rgb[1] or 1, dDB.rgb[2] or 1, dDB.rgb[3] or 1)
+				else
+					button._baseDurationRGB = {1, 1, 1}
 				end
 				button._durationColorMode = (dDB and dDB.colorMode) or "fixed"
 			end
@@ -1776,6 +1819,36 @@ end
 
 -- 오라 아이콘 업데이트 콜백 — oUF PostUpdateButton
 -- 시그니처: element:PostUpdateButton(button, unit, data, position)
+
+-- [FIX] DandersFrames 패턴: ColorCurve 기반 디버프 보더 색상 (secret-safe)
+local _debuffBorderCurve
+local function GetDebuffBorderCurve()
+	if _debuffBorderCurve then return _debuffBorderCurve end
+	if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return nil end
+	local ok, curve = pcall(function()
+		local c = C_CurveUtil.CreateColorCurve()
+		c:SetType(Enum.LuaCurveType.Step)
+		local dc = C or {}
+		dc = dc.DISPEL_COLORS or {}
+		local none    = dc.none    or { 0.80, 0.00, 0.00 }
+		local magic   = dc.Magic   or { 0.20, 0.60, 1.00 }
+		local curse   = dc.Curse   or { 0.60, 0.00, 1.00 }
+		local disease = dc.Disease or { 0.60, 0.40, 0.00 }
+		local poison  = dc.Poison  or { 0.00, 0.60, 0.00 }
+		local bleed   = dc.Bleed   or { 0.80, 0.00, 0.00 }
+		c:AddPoint(0,  CreateColor(none[1], none[2], none[3], 1))      -- None
+		c:AddPoint(1,  CreateColor(magic[1], magic[2], magic[3], 1))   -- Magic
+		c:AddPoint(2,  CreateColor(curse[1], curse[2], curse[3], 1))   -- Curse
+		c:AddPoint(3,  CreateColor(disease[1], disease[2], disease[3], 1)) -- Disease
+		c:AddPoint(4,  CreateColor(poison[1], poison[2], poison[3], 1))  -- Poison
+		c:AddPoint(9,  CreateColor(bleed[1], bleed[2], bleed[3], 1))   -- Enrage
+		c:AddPoint(11, CreateColor(bleed[1], bleed[2], bleed[3], 1))   -- Bleed
+		return c
+	end)
+	if ok and curve then _debuffBorderCurve = curve end
+	return _debuffBorderCurve
+end
+
 local function PostUpdateAuraIcon(element, button, unit, data, position)
 	if not button or not data then return end
 
@@ -1793,14 +1866,30 @@ local function PostUpdateAuraIcon(element, button, unit, data, position)
 				button._border:SetBackdrop({ edgeFile = C.FLAT_TEXTURE, edgeSize = bSize })
 			end
 			local isHarmful = SafeVal(data.isHarmfulAura)
-			
+
 			if isHarmful and bDB.colorByType ~= false then
-				local dtype = SafeVal(data.dispelName)
-				local color = dtype and C.DISPEL_COLORS[dtype] or C.DISPEL_COLORS.none
-				if color then
-					button._border:SetBackdropBorderColor(color[1], color[2], color[3], 1)
-				else
-					button._border:SetBackdropBorderColor(0.8, 0, 0, 1) -- fallback: 빨강
+				-- [FIX] ColorCurve API 사용 (DandersFrames 패턴, secret-safe)
+				local colorApplied = false
+				local auraInstanceID = data.auraInstanceID
+				if auraInstanceID and C_UnitAuras and C_UnitAuras.GetAuraDispelTypeColor then
+					local curve = GetDebuffBorderCurve()
+					if curve then
+						local borderColor = C_UnitAuras.GetAuraDispelTypeColor(unit, auraInstanceID, curve)
+						if borderColor then
+							button._border:SetBackdropBorderColor(borderColor:GetRGBA())
+							colorApplied = true
+						end
+					end
+				end
+				-- fallback: SafeVal(dispelName) — secret이면 nil → DISPEL_COLORS.none(빨강)
+				if not colorApplied then
+					local dtype = SafeVal(data.dispelName)
+					local color = dtype and C.DISPEL_COLORS[dtype] or C.DISPEL_COLORS.none
+					if color then
+						button._border:SetBackdropBorderColor(color[1], color[2], color[3], 1)
+					else
+						button._border:SetBackdropBorderColor(0.8, 0, 0, 1)
+					end
 				end
 			else
 				local c = bDB.color or {0, 0, 0, 1}
@@ -1842,67 +1931,87 @@ local function PostUpdateAuraIcon(element, button, unit, data, position)
 		end
 	end
 
-	-- [REFACTOR] 지속시간 텍스트: 공유 타이머에 등록/해제
+	-- [REFACTOR] 지속시간 텍스트: DandersFrames 패턴으로 secret-safe 처리
 	if button.Duration then
 		if element.showDuration == false then
 			button._expirationTime = 0
 			button._totalDuration = 0
 			activeAuraButtons[button] = nil
 			button.Duration:Hide()
-			if button.Cooldown then
-				button.Cooldown:SetHideCountdownNumbers(true)
-			end
+			-- SetHideCountdownNumbers는 PostCreateAuraIcon에서 1회 설정 (DandersFrames 패턴)
 		else
+			local auraInstanceID = data.auraInstanceID
+
+			-- === DandersFrames Auras.lua:1405-1464 패턴 완전 복제 ===
+
+			-- 1) hasExpiration 판별 (secret boolean 가능 → Lua if 비교 금지)
+			button._hasExpiration = false
+			if auraInstanceID and C_UnitAuras and C_UnitAuras.DoesAuraHaveExpirationTime then
+				button._hasExpiration = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
+			end
+
+			-- 2) 쿨다운 설정: 항상 raw secret 값으로 호출 (hasExpiration과 무관)
+			if button.Cooldown and button.Cooldown.SetCooldownFromExpirationTime
+				and data.expirationTime and data.duration then
+				button.Cooldown:SetCooldownFromExpirationTime(data.expirationTime, data.duration)
+			end
+
+			-- 3) 쿨다운 표시/숨김: SetShownFromBoolean (secret boolean C++에서 처리)
+			if button.Cooldown then
+				if button.Cooldown.SetShownFromBoolean then
+					button.Cooldown:SetShownFromBoolean(button._hasExpiration, true, false)
+				else
+					button.Cooldown:Show()
+				end
+			end
+
+			-- 4) Duration 텍스트: non-secret이면 커스텀 텍스트, secret이면 네이티브
 			local dur = SafeNum(data.duration, 0)
 			local expTime = SafeNum(data.expirationTime, 0)
+			local isSecret = (dur == 0 and data.duration ~= nil and issecretvalue and issecretvalue(data.duration))
 
-		-- [FIX] secret duration 판별: SafeNum이 0이지만 원본이 secret인 경우
-		local isSecretDuration = dur == 0 and issecretvalue and issecretvalue(data.duration)
+			if not isSecret and dur > 0 and expTime > 0 then
+				-- non-secret → 커스텀 Duration 텍스트 사용
+				-- SetHideCountdownNumbers는 PostCreateAuraIcon에서 1회 설정
+				button._expirationTime = expTime
+				button._totalDuration = dur
+				activeAuraButtons[button] = true
 
-		if dur > 0 and expTime > 0 then
-			-- 일반 (비 secret) → 커스텀 Duration 텍스트 사용
-			if button.Cooldown then
-				button.Cooldown:SetHideCountdownNumbers(true)
-			end
-			button._expirationTime = expTime
-			button._totalDuration = dur -- [12.0.1] gradient용 전체 지속시간
-			-- 공유 타이머 등록
-			activeAuraButtons[button] = true
-
-			local remaining = expTime - GetTime()
-			if remaining > 0 then
-				button.Duration:SetText(FormatAuraDuration(remaining))
-				button.Duration:Show()
-				-- 즉시 gradient/threshold 색상 적용
-				local cm = button._durationColorMode
-				local dc = button._durationColors
-				if cm == "gradient" and dc then
-					local r, g, b = GetDurationGradientColor(remaining, dur, dc)
-					if r then button.Duration:SetTextColor(r, g, b) end
-				elseif cm == "threshold" and dc then
-					local r, g, b = GetDurationThresholdColor(remaining, dc)
-					if r then button.Duration:SetTextColor(r, g, b) end
+				local remaining = expTime - GetTime()
+				if remaining > 0 then
+					button.Duration:SetText(FormatAuraDuration(remaining))
+					button.Duration:Show()
+					local cm = button._durationColorMode
+					local dc = button._durationColors
+					local r, g, b
+					if cm == "gradient" and dc then
+						r, g, b = GetDurationGradientColor(remaining, dur, dc)
+					elseif cm == "threshold" and dc then
+						r, g, b = GetDurationThresholdColor(remaining, dc)
+					end
+					if r then
+						button.Duration:SetTextColor(r, g, b)
+					elseif button._baseDurationRGB then
+						button.Duration:SetTextColor(button._baseDurationRGB[1], button._baseDurationRGB[2], button._baseDurationRGB[3])
+					end
+				else
+					button.Duration:Hide()
 				end
+			elseif isSecret then
+				-- secret → 네이티브 Cooldown 카운트다운 사용 (SetShownFromBoolean이 Show)
+				button._expirationTime = 0
+				button._totalDuration = 0
+				activeAuraButtons[button] = nil
+				button.Duration:Hide()
+				-- SetHideCountdownNumbers는 PostCreateAuraIcon에서 1회 설정
 			else
+				-- 영구 버프 (duration == 0, non-secret) → 타이머 해제
+				-- 쿨다운 Hide (SetShownFromBoolean)로 네이티브 텍스트도 자동 숨김
+				button._expirationTime = 0
+				button._totalDuration = 0
+				activeAuraButtons[button] = nil
 				button.Duration:Hide()
 			end
-		elseif isSecretDuration then
-			-- [FIX] 전투 중 secret duration → Cooldown 네이티브 카운트다운 사용
-			-- oUF가 SetCooldownFromDurationObject로 Cooldown 설정 완료 → 네이티브 텍스트 표시
-			button._expirationTime = 0
-			button._totalDuration = 0
-			activeAuraButtons[button] = nil
-			button.Duration:Hide() -- 커스텀 텍스트 숨기기
-			if button.Cooldown then
-				button.Cooldown:SetHideCountdownNumbers(false) -- 네이티브 카운트다운 표시
-			end
-		else
-			-- 영구 버프 (duration == 0, 비 secret) → 타이머 해제
-			button._expirationTime = 0
-			button._totalDuration = 0
-			activeAuraButtons[button] = nil
-			button.Duration:Hide()
-		end
 		end
 	end
 

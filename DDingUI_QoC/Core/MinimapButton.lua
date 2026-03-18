@@ -21,7 +21,7 @@ function DDingQoC:CreateMinimapButton()
 
     local dataObj = LDB:NewDataObject(addonName, {
         type = "launcher",
-        icon = "Interface\\Icons\\INV_Misc_QuestionMark",
+        icon = "Interface\\AddOns\\DDingUI_QoC\\logo",
         label = "DDingUI QoC",
         OnClick = function(clickedframe, button)
             if button == "LeftButton" then

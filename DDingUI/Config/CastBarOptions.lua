@@ -19,15 +19,9 @@ end
 local function CreateCastBarOptions()
     return {
         type = "group",
-        name = L["Cast Bars"],
+        name = L["Player Cast Bar"] or "플레이어 시전바",
         order = 5,
-        childGroups = "tab",
         args = {
-            player = {
-                type = "group",
-                name = L["Player"],
-                order = 1,
-                args = {
                     header = {
                         type = "header",
                         name = L["Player Cast Bar Settings"],
@@ -224,6 +218,18 @@ local function CreateCastBarOptions()
                         type = "header",
                         name = L["Appearance"],
                         order = 20,
+                    },
+                    showSpark = {
+                        type = "toggle",
+                        name = L["Show Spark"] or "스파크 표시",
+                        desc = L["Show a spark effect at the end of the cast bar"] or "시전바 끝부분에 세로로 긴 반짝임 효과를 표시합니다",
+                        order = 20.5,
+                        width = "normal",
+                        get = function() return DDingUI.db.profile.castBar.showSpark end,
+                        set = function(_, val)
+                            DDingUI.db.profile.castBar.showSpark = val
+                            DDingUI:UpdateCastBarLayout()
+                        end,
                     },
                     texture = {
                         type = "select",
@@ -664,8 +670,6 @@ local function CreateCastBarOptions()
                             DDingUI.db.profile.castBar.empoweredStageColors[5] = { r, g, b, a or 1 }
                         end,
                     },
-                },
-            },
             --[[ Target/Focus/Boss cast bar options removed
             target = {
                 type = "group",

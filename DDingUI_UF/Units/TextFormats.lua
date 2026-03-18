@@ -287,12 +287,7 @@ TextFormats.health["current-max"] = function(unit, sep, htDB) -- [SECRET-V4]
 	return AbbreviateNumbers(UnitHealth(unit)) .. sep .. AbbreviateNumbers(UnitHealthMax(unit))
 end
 
-TextFormats.health["deficit"] = function(unit, sep, htDB) -- [FIX] AbbreviateNumbers 직접 전달
-	if not UnitHealthMissing then return "" end
-	local missing = UnitHealthMissing(unit)
-	if not missing then return "" end
-	return "-" .. AbbreviateNumbers(missing)
-end
+-- [REMOVED] health deficit: ⚠️ secret 환경에서 빈 문자열
 
 TextFormats.health["current-percentage"] = function(unit, sep, htDB) -- [SECRET-V4]
 	local curStr = AbbreviateNumbers(UnitHealth(unit))
@@ -322,19 +317,9 @@ TextFormats.health["smart"] = function(unit, sep, htDB) -- [SECRET-V4]
 	return curStr
 end
 
-TextFormats.health["raid"] = function(unit, sep, htDB) -- [SECRET-V4]
-	local pctStr = SafeFormatHealthPercent(unit)
-	if pctStr then return pctStr end
-	return ""
-end
+-- [REMOVED] health raid: ⚠️ secret 시 빈 문자열 (percent-full 사용 권장)
 
-TextFormats.health["healer"] = function(unit, sep, htDB) -- [FIX] AbbreviateNumbers 직접 전달
-	if UnitGroupRolesAssigned("player") ~= "HEALER" then return "" end
-	if not UnitHealthMissing then return "" end
-	local missing = UnitHealthMissing(unit)
-	if not missing then return "" end
-	return AbbreviateNumbers(missing)
-end
+-- [REMOVED] health healer: ⚠️ secret 환경에서 빈 문자열
 
 TextFormats.health["percent-full"] = function(unit, sep, htDB) -- [SECRET-V4]
 	local pctStr = SafeFormatHealthPercent(unit)
@@ -362,12 +347,7 @@ TextFormats.power["current-max"] = function(unit, sep, ptDB) -- [SECRET-V4]
 	return AbbreviateNumbers(UnitPower(unit)) .. " " .. sep .. " " .. AbbreviateNumbers(UnitPowerMax(unit))
 end
 
-TextFormats.power["deficit"] = function(unit, sep, ptDB) -- [FIX] AbbreviateNumbers 직접 전달
-	if not UnitPowerMissing then return "" end
-	local missing = UnitPowerMissing(unit)
-	if not missing then return "" end
-	return "-" .. AbbreviateNumbers(missing)
-end
+-- [REMOVED] power deficit: ⚠️ secret 환경에서 빈 문자열
 
 TextFormats.power["current-percentage"] = function(unit, sep, ptDB) -- [SECRET-V4]
 	local curStr = AbbreviateNumbers(UnitPower(unit))
@@ -619,13 +599,13 @@ end
 
 -- 포맷명 목록 (Options UI 드롭다운용)
 TextFormats.HEALTH_FORMATS = {
-	"percentage", "current", "current-max", "deficit",
+	"percentage", "current", "current-max",
 	"current-percentage", "percent-current", "current-percent",
-	"smart", "raid", "healer", "percent-full",
+	"smart", "percent-full",
 }
 
 TextFormats.POWER_FORMATS = {
-	"percentage", "current", "current-max", "deficit",
+	"percentage", "current", "current-max",
 	"current-percentage", "percent-current", "current-percent",
 	"smart",
 }
@@ -689,8 +669,7 @@ TextFormats.Methods["ddingui:ht:curpct"]  = function(unit) return (TextFormats.h
 TextFormats.Methods["ddingui:ht:pctcur"]  = function(unit) return (TextFormats.health["percent-current"])(unit, GetHealthSep(unit)) end
 TextFormats.Methods["ddingui:ht:curp"]    = function(unit) return (TextFormats.health["current-percent"])(unit, GetHealthSep(unit)) end
 TextFormats.Methods["ddingui:ht:smart"]   = function(unit) return (TextFormats.health["smart"])(unit, GetHealthSep(unit)) end
-TextFormats.Methods["ddingui:ht:raid"]    = function(unit) return (TextFormats.health["raid"])(unit, GetHealthSep(unit)) end
-TextFormats.Methods["ddingui:ht:healer"]  = function(unit) return (TextFormats.health["healer"])(unit, GetHealthSep(unit)) end
+-- [REMOVED] ddingui:ht:raid, ddingui:ht:healer
 TextFormats.Methods["ddingui:ht:pctfull"] = function(unit) return (TextFormats.health["percent-full"])(unit, GetHealthSep(unit)) end
 
 -- Health alternate names (TagPresets에서 사용)
@@ -700,15 +679,13 @@ TextFormats.Methods["ddingui:health:percent-full"]  = TextFormats.Methods["dding
 TextFormats.Methods["ddingui:health:current"]       = TextFormats.Methods["ddingui:ht:cur"]
 TextFormats.Methods["ddingui:health:current-max"]   = TextFormats.Methods["ddingui:ht:curmax"]
 TextFormats.Methods["ddingui:health:current-percent"] = TextFormats.Methods["ddingui:ht:curpct"]
-TextFormats.Methods["ddingui:health:deficit"]       = TextFormats.Methods["ddingui:ht:deficit"]
-TextFormats.Methods["ddingui:health:raid"]          = TextFormats.Methods["ddingui:ht:raid"]
-TextFormats.Methods["ddingui:health:healeronly"]     = TextFormats.Methods["ddingui:ht:healer"]
+-- [REMOVED] ddingui:health:healeronly
 
 -- Power tag methods (POWER_FORMAT_TO_TAG 키와 1:1 대응)
 TextFormats.Methods["ddingui:pt:pct"]     = function(unit) return (TextFormats.power["percentage"])(unit, GetPowerSep(unit)) end
 TextFormats.Methods["ddingui:pt:cur"]     = function(unit) return (TextFormats.power["current"])(unit, GetPowerSep(unit)) end
 TextFormats.Methods["ddingui:pt:curmax"]  = function(unit) return (TextFormats.power["current-max"])(unit, GetPowerSep(unit)) end
-TextFormats.Methods["ddingui:pt:deficit"] = function(unit) return (TextFormats.power["deficit"])(unit, GetPowerSep(unit)) end
+-- [REMOVED] ddingui:pt:deficit
 TextFormats.Methods["ddingui:pt:curpct"]  = function(unit) return (TextFormats.power["current-percentage"])(unit, GetPowerSep(unit)) end
 TextFormats.Methods["ddingui:pt:pctcur"]  = function(unit) return (TextFormats.power["percent-current"])(unit, GetPowerSep(unit)) end
 TextFormats.Methods["ddingui:pt:curp"]    = function(unit) return (TextFormats.power["current-percent"])(unit, GetPowerSep(unit)) end
@@ -739,31 +716,7 @@ TextFormats.Methods["ddingui:absorb"] = function(unit)
 	return AbbreviateNumbers(absorb)
 end
 
-TextFormats.Methods["ddingui:absorb:percent"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	if not UnitGetTotalAbsorbs then return "" end
-	-- [PERF] pcall 제거: 직접 호출 + issecretvalue 분기
-	local absorb = UnitGetTotalAbsorbs(unit)
-	if not absorb then return "" end
-	local isAbsorbSecret = issecretvalue and issecretvalue(absorb)
-	if not isAbsorbSecret then
-		absorb = tonumber(absorb) or 0
-		if absorb <= 0 then return "" end
-	end
-	local max = UnitHealthMax(unit)
-	if not max then return "" end
-	local isMaxSecret = issecretvalue and issecretvalue(max)
-	if not isMaxSecret then
-		max = tonumber(max) or 0
-		if max == 0 then return "" end
-	end
-	-- 둘 다 일반 숫자
-	if not isAbsorbSecret and not isMaxSecret then
-		return math_floor(absorb / max * 100 + 0.5) .. "%"
-	end
-	-- secret 포함 → AbbreviateNumbers로 각각 표시
-	return AbbreviateNumbers(absorb) .. "/" .. AbbreviateNumbers(max)
-end
+-- [REMOVED] ddingui:absorb:percent: ❌ secret 시 퍼센트 아닌 축약값
 
 -- Health + Absorb 합산 태그
 TextFormats.Methods["ddingui:health:absorb"] = function(unit)
@@ -822,68 +775,15 @@ end
 TextFormats.Methods["ddingui:power"]             = TextFormats.Methods["ddingui:pt:cur"]
 TextFormats.Methods["ddingui:power:percent"]     = TextFormats.Methods["ddingui:pt:pct"]
 TextFormats.Methods["ddingui:power:current-max"] = TextFormats.Methods["ddingui:pt:curmax"]
-TextFormats.Methods["ddingui:power:deficit"]     = TextFormats.Methods["ddingui:pt:deficit"]
+-- [REMOVED] ddingui:power:deficit
 TextFormats.Methods["ddingui:power:healeronly"]   = TextFormats.Methods["ddingui:pt:smart"]
 
 -- Color prefix tags (compound tags에서 앞에 붙이고 |r로 종료)
-TextFormats.Methods["ddingui:powercolor"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local pType, pToken = UnitPowerType(unit)
-	-- [12.0.1] secret value 방어
-	if pToken and issecretvalue and issecretvalue(pToken) then pToken = nil end
-	if pType and issecretvalue and issecretvalue(pType) then pType = nil end
-	-- 1) pToken 문자열로 조회
-	if pToken then
-		local customC = ns.Colors and ns.Colors.power and ns.Colors.power[pToken]
-		if not customC then
-			local C = ns.Constants
-			customC = C and C.POWER_COLORS and C.POWER_COLORS[pToken]
-		end
-		if customC then
-			return format("|cff%02x%02x%02x", math_floor((customC[1] or 1) * 255 + 0.5), math_floor((customC[2] or 1) * 255 + 0.5), math_floor((customC[3] or 1) * 255 + 0.5))
-		end
-		local c = PowerBarColor[pToken]
-		if c and c.r then
-			return format("|cff%02x%02x%02x", math_floor((c.r or 1) * 255 + 0.5), math_floor((c.g or 1) * 255 + 0.5), math_floor((c.b or 1) * 255 + 0.5))
-		end
-	end
-	-- 2) pType 숫자로 폴백 (pToken secret이거나 조회 실패 시)
-	if pType then
-		local c = PowerBarColor[pType]
-		if c and c.r then
-			return format("|cff%02x%02x%02x", math_floor((c.r or 1) * 255 + 0.5), math_floor((c.g or 1) * 255 + 0.5), math_floor((c.b or 1) * 255 + 0.5))
-		end
-	end
-	return "|cff3e7eff"
-end
+-- [REMOVED] ddingui:powercolor: ⚠️ secret 시 기본 파란색 fallback
 
-TextFormats.Methods["ddingui:healthcolor"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local cur, max = UnitHealth(unit), UnitHealthMax(unit)
-	if not cur or not max then return "|cff4ab34a" end
-	if issecretvalue and (issecretvalue(cur) or issecretvalue(max)) then return "|cff4ab34a" end
-	if max == 0 then return "|cff4ab34a" end
-	local pct = cur / max
-	-- 녹색(100%) → 노란(50%) → 빨강(0%) 그라데이션
-	local r, g
-	if pct > 0.5 then
-		r = (1 - pct) * 2
-		g = 1
-	else
-		r = 1
-		g = pct * 2
-	end
-	return format("|cff%02x%02x00", math_floor(r * 255 + 0.5), math_floor(g * 255 + 0.5))
-end
+-- [REMOVED] ddingui:healthcolor: ⚠️ secret 시 기본 녹색 고정
 
-TextFormats.Methods["ddingui:reactioncolor"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local reaction = UnitReaction(unit, "player")
-	if not reaction or (issecretvalue and issecretvalue(reaction)) then return "|cff999999" end
-	if reaction >= 5 then return "|cff4ab34a"
-	elseif reaction == 4 then return "|cffcccc33"
-	else return "|cffcc3333" end
-end
+-- [REMOVED] ddingui:reactioncolor: ⚠️ secret 시 기본 회색
 
 -- Level (단순)
 TextFormats.Methods["ddingui:level"] = function(unit)
@@ -916,10 +816,7 @@ TextFormats.Methods["ddingui:level:smart"] = function(unit)
 	return str
 end
 
--- Status tag (Dead/Ghost/Offline)
-TextFormats.Methods["ddingui:status"] = function(unit)
-	return GetStatus(unit) or ""
-end
+-- [REMOVED] ddingui:status: ⚠️ secret boolean → Dead/Offline 감지 불가
 
 -----------------------------------------------
 -- oUF 내장 태그 호환 레이어
@@ -933,32 +830,7 @@ TextFormats.Methods["name"] = function(unit)
 	return UnitName(unit) or ""
 end
 
--- dead (oUF built-in)
-TextFormats.Methods["dead"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	if issecretvalue then
-		local isDead = UnitIsDead(unit)
-		if isDead ~= nil and not issecretvalue(isDead) and isDead then return "Dead" end
-		local isGhost = UnitIsGhost(unit)
-		if isGhost ~= nil and not issecretvalue(isGhost) and isGhost then return "Ghost" end
-	else
-		if UnitIsDead(unit) then return "Dead" end
-		if UnitIsGhost(unit) then return "Ghost" end
-	end
-	return ""
-end
-
--- offline (oUF built-in)
-TextFormats.Methods["offline"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local connected = UnitIsConnected(unit)
-	if issecretvalue and issecretvalue(connected) then return "" end
-	if connected == false then return "Offline" end
-	return ""
-end
-
--- status (oUF built-in) — ddingui:status와 동일
-TextFormats.Methods["status"] = TextFormats.Methods["ddingui:status"]
+-- [REMOVED] dead, offline, status (oUF built-in): ⚠️ secret boolean
 
 -- curhp (oUF built-in)
 TextFormats.Methods["curhp"] = function(unit)
@@ -972,32 +844,7 @@ TextFormats.Methods["maxhp"] = function(unit)
 	return tostring(UnitHealthMax(unit))
 end
 
--- missinghp (oUF built-in)
-TextFormats.Methods["missinghp"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local max = UnitHealthMax(unit)
-	local cur = UnitHealth(unit)
-	if issecretvalue and (issecretvalue(max) or issecretvalue(cur)) then return "" end
-	local missing = max - cur
-	if missing > 0 then return tostring(missing) end
-	return ""
-end
-
--- perhp (oUF built-in)
-TextFormats.Methods["perhp"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	if UnitHealthPercent then
-		local pct = UnitHealthPercent(unit)
-		if pct and not (issecretvalue and issecretvalue(pct)) then
-			return math_floor(pct) .. ""
-		end
-	end
-	local max = UnitHealthMax(unit)
-	local cur = UnitHealth(unit)
-	if issecretvalue and (issecretvalue(max) or issecretvalue(cur)) then return "" end
-	if max == 0 then return "0" end
-	return tostring(math_floor(cur / max * 100))
-end
+-- [REMOVED] missinghp, perhp (oUF built-in): ❌ secret 시 빈 문자열
 
 -- curpp (oUF built-in)
 TextFormats.Methods["curpp"] = function(unit)
@@ -1011,26 +858,7 @@ TextFormats.Methods["maxpp"] = function(unit)
 	return tostring(UnitPowerMax(unit))
 end
 
--- missingpp (oUF built-in)
-TextFormats.Methods["missingpp"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local max = UnitPowerMax(unit)
-	local cur = UnitPower(unit)
-	if issecretvalue and (issecretvalue(max) or issecretvalue(cur)) then return "" end
-	local missing = max - cur
-	if missing > 0 then return tostring(missing) end
-	return ""
-end
-
--- perpp (oUF built-in)
-TextFormats.Methods["perpp"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local max = UnitPowerMax(unit)
-	local cur = UnitPower(unit)
-	if issecretvalue and (issecretvalue(max) or issecretvalue(cur)) then return "" end
-	if max == 0 then return "0" end
-	return tostring(math_floor(cur / max * 100))
-end
+-- [REMOVED] missingpp, perpp (oUF built-in): ❌ secret 시 빈 문자열
 
 -- level (oUF built-in)
 TextFormats.Methods["level"] = TextFormats.Methods["ddingui:level"]
@@ -1056,8 +884,7 @@ TextFormats.Methods["smartlevel"] = TextFormats.Methods["ddingui:level:smart"]
 -- raidcolor (oUF built-in) — class color hex prefix
 TextFormats.Methods["raidcolor"] = TextFormats.Methods["ddingui:classcolor"]
 
--- powercolor (oUF built-in)
-TextFormats.Methods["powercolor"] = TextFormats.Methods["ddingui:powercolor"]
+-- [REMOVED] powercolor (oUF built-in)
 
 -- class (oUF built-in)
 TextFormats.Methods["class"] = function(unit)
@@ -1092,15 +919,7 @@ TextFormats.Methods["faction"] = function(unit)
 	return UnitFactionGroup(unit) or ""
 end
 
--- sex (oUF built-in)
-TextFormats.Methods["sex"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local s = UnitSex(unit)
-	if s == 2 then return "Male"
-	elseif s == 3 then return "Female"
-	end
-	return ""
-end
+-- [REMOVED] sex: ⚠️ UnitSex secret 가능
 
 -- resting (oUF built-in)
 TextFormats.Methods["resting"] = function(unit)
@@ -1108,31 +927,7 @@ TextFormats.Methods["resting"] = function(unit)
 	return ""
 end
 
--- pvp (oUF built-in)
-TextFormats.Methods["pvp"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local isPvP = UnitIsPVP(unit)
-	if issecretvalue and issecretvalue(isPvP) then return "" end
-	if isPvP then return "PvP" end
-	return ""
-end
-
--- leader / leaderlong (oUF built-in)
-TextFormats.Methods["leader"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local isLeader = UnitIsGroupLeader(unit)
-	if issecretvalue and issecretvalue(isLeader) then return "" end
-	if isLeader then return "L" end
-	return ""
-end
-
-TextFormats.Methods["leaderlong"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	local isLeader = UnitIsGroupLeader(unit)
-	if issecretvalue and issecretvalue(isLeader) then return "" end
-	if isLeader then return "Leader" end
-	return ""
-end
+-- [REMOVED] pvp, leader, leaderlong: ⚠️ secret boolean
 
 -- plus / rare / affix (oUF built-in)
 TextFormats.Methods["plus"] = function(unit)
@@ -1187,19 +982,7 @@ TextFormats.Methods["difficulty"] = function(unit)
 	return ""
 end
 
--- group (oUF built-in)
-TextFormats.Methods["group"] = function(unit)
-	if not unit or not UnitExists(unit) then return "" end
-	if IsInRaid() then
-		for index = 1, GetNumGroupMembers() do
-			if UnitIsUnit(unit, "raid" .. index) then
-				local _, _, group = GetRaidRosterInfo(index)
-				if group then return tostring(group) end
-			end
-		end
-	end
-	return ""
-end
+-- [REMOVED] group: ⚠️ UnitIsUnit secret 가능
 
 -- curmana / maxmana (oUF built-in)
 TextFormats.Methods["curmana"] = function(unit)
@@ -1224,6 +1007,24 @@ TextFormats.Methods["arenaspec"] = function(unit)
 		end
 	end
 	return ""
+end
+
+-- [AUDIT-FIX] W6: 삭제된 태그 NOOP stub (기존 사용자 DB에 저장된 태그 참조 방어)
+local function NOOP_TAG() return "" end
+local DELETED_TAGS = {
+	"ddingui:status", "ddingui:healthcolor", "ddingui:reactioncolor", "ddingui:powercolor",
+	"ddingui:health:deficit", "ddingui:health:raid", "ddingui:health:healeronly",
+	"ddingui:power:deficit", "ddingui:absorb:percent",
+	"ddingui:ht:deficit", "ddingui:ht:raid", "ddingui:ht:healer",
+	"ddingui:pt:deficit",
+	"dead", "offline", "status", "powercolor",
+	"missinghp", "missingpp", "perhp", "perpp",
+	"pvp", "leader", "leaderlong", "sex", "group",
+}
+for _, tagName in ipairs(DELETED_TAGS) do
+	if not TextFormats.Methods[tagName] then
+		TextFormats.Methods[tagName] = NOOP_TAG
+	end
 end
 
 -----------------------------------------------
@@ -1318,12 +1119,8 @@ if oUF and oUF.Tags then
 			oUF.Tags.Events[tagName] = POWER_EVENTS
 		elseif tagName:find("^ddingui:name") then
 			oUF.Tags.Events[tagName] = NAME_EVENTS
-		elseif tagName == "ddingui:classcolor" or tagName == "ddingui:reactioncolor" then
+		elseif tagName == "ddingui:classcolor" then
 			oUF.Tags.Events[tagName] = NAME_EVENTS
-		elseif tagName == "ddingui:powercolor" then
-			oUF.Tags.Events[tagName] = POWER_EVENTS
-		elseif tagName == "ddingui:healthcolor" then
-			oUF.Tags.Events[tagName] = HEALTH_EVENTS
 		elseif tagName:find("^ddingui:absorb") then
 			oUF.Tags.Events[tagName] = "UNIT_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH"
 		elseif tagName == "ddingui:healabsorb" then
@@ -1332,18 +1129,10 @@ if oUF and oUF.Tags then
 			oUF.Tags.Events[tagName] = "UNIT_HEAL_PREDICTION UNIT_HEALTH UNIT_MAXHEALTH"
 		elseif tagName == "ddingui:level:smart" or tagName == "ddingui:level" or tagName == "ddingui:classification" then
 			oUF.Tags.Events[tagName] = "" -- no events (static)
-		elseif tagName == "ddingui:status" then
-			oUF.Tags.Events[tagName] = "UNIT_HEALTH UNIT_CONNECTION UNIT_FLAGS"
 		end
 	end
 
-	-- Status tag (if not in Methods yet)
-	if not oUF.Tags.Methods["ddingui:status"] then
-		oUF.Tags.Methods["ddingui:status"] = function(unit)
-			return GetStatus(unit) or ""
-		end
-		oUF.Tags.Events["ddingui:status"] = "UNIT_HEALTH UNIT_CONNECTION UNIT_FLAGS"
-	end
+-- [REMOVED] ddingui:status oUF fallback registration
 
 	ns.Debug("TextFormats → oUF.Tags registered (" .. (function()
 		local c = 0

@@ -48,11 +48,21 @@ local CLASS_COLORS = {
 local mainFrame = nil
 local manaFrame = nil  -- 분리된 힐러 마나 프레임
 local battleResFrame = nil
+local lustFrame = nil
 local healerFrames = {}
 local separateHealerFrames = {}  -- 분리 모드용 힐러 프레임
 local updateTicker = nil
 local isEnabled = false
 local isTestMode = false
+
+-- 블러드 디버프 스펠 ID (만족함, 소진, 시간의 균열, 피로, 지침)
+local LUST_DEBUFFS = {
+    [57724] = true, -- 만족함 (피의 욕망)
+    [57723] = true, -- 소진 (영웅심)
+    [80354] = true, -- 시간의 균열 (시간 왜곡)
+    [264689] = true, -- 피로 (원시적인 분노)
+    [390435] = true, -- 지침 (위상의 열기)
+}
 
 -- 초기화
 function PartyTracker:OnInitialize()
@@ -71,6 +81,7 @@ function PartyTracker:OnEnable()
                 enabled = false,
                 showInParty = false,
                 showInRaid = false,
+                showLust = true,
                 showManaBar = false,
                 showManaText = false,
                 locked = false,
@@ -122,6 +133,7 @@ function PartyTracker:CreateMainFrame()
             enabled = false,
             showInParty = false,
             showInRaid = false,
+            showLust = true,
             showManaBar = false,
             showManaText = false,
             locked = false,
@@ -146,7 +158,7 @@ function PartyTracker:CreateMainFrame()
 
     -- 드래그 가능
     frame:SetMovable(true)
-    frame:EnableMouse(true)
+    frame:EnableMouse(not self.db.locked)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self)
         if not PartyTracker.db.locked then
@@ -171,6 +183,7 @@ function PartyTracker:CreateMainFrame()
 
     -- 개별 트래커 프레임 생성
     self:CreateBattleResFrame()
+    self:CreateLustFrame()
     self:CreateHealerFrames()
 end
 
@@ -284,6 +297,7 @@ function PartyTracker:UpdateFonts()
     end
 
     updateFrame(battleResFrame)
+    updateFrame(lustFrame)
 
     for _, frame in ipairs(healerFrames) do
         updateFrame(frame)
@@ -340,14 +354,22 @@ function PartyTracker:CreateBattleResFrame()
     battleResFrame = frame
 end
 
+-- 블러드 프레임 생성
+function PartyTracker:CreateLustFrame()
+    if lustFrame then return end
+    local frame = self:CreateIconFrame(mainFrame, self.db.iconSize or 33)
+    frame.icon:SetTexture(136012)  -- 블러드 아이콘 (실제 피의 욕망 아이콘)
+    frame:Show()
+
+    lustFrame = frame
+end
+
 -- 힐러 마나 프레임 생성 (최대 6명)
 function PartyTracker:CreateHealerFrames()
     if #healerFrames > 0 then return end
     for i = 1, 6 do
         local frame = self:CreateIconFrame(mainFrame, self.db.iconSize or 33)
-        if i == 1 then
-            frame:SetPoint("TOPLEFT", battleResFrame, "BOTTOMLEFT", 0, -5)
-        else
+        if i > 1 then
             frame:SetPoint("TOPLEFT", healerFrames[i-1], "BOTTOMLEFT", 0, -5)
         end
         frame:Hide()
@@ -373,7 +395,7 @@ function PartyTracker:CreateSeparateManaFrame()
 
     -- 드래그 가능
     frame:SetMovable(true)
-    frame:EnableMouse(true)
+    frame:EnableMouse(not self.db.manaLocked)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self)
         if not PartyTracker.db.manaLocked then
@@ -517,9 +539,23 @@ function PartyTracker:UpdateVisibility()
         end
     end
 
-    -- 전투부활 + 힐러마나
+    -- 전투부활
     battleResFrame:Show()
+    local lastActiveFrame = battleResFrame
 
+    -- 블러드 (표시 여부 확인)
+    if self.db.showLust ~= false and lustFrame then
+        lustFrame:Show()
+        lustFrame:SetPoint("TOPLEFT", lastActiveFrame, "BOTTOMLEFT", 0, -5)
+        lastActiveFrame = lustFrame
+    else
+        if lustFrame then lustFrame:Hide() end
+    end
+
+    -- 힐러 (분리 모드가 아닐 때 1번 앵커 갱신)
+    if not separateMode and #healerFrames > 0 then
+        healerFrames[1]:SetPoint("TOPLEFT", lastActiveFrame, "BOTTOMLEFT", 0, -5)
+    end
 end
 
 -- 업데이트 시작
@@ -545,6 +581,10 @@ function PartyTracker:Update()
     -- 전투 부활은 파티/레이드 모두 표시
     if battleResFrame and battleResFrame:IsShown() then
         self:UpdateBattleRes()
+    end
+
+    if lustFrame and lustFrame:IsShown() then
+        self:UpdateLust()
     end
 
     -- 힐러 마나
@@ -615,6 +655,56 @@ function PartyTracker:UpdateBattleRes()
     else
         battleResFrame.mainText:SetText("")
         battleResFrame.cooldown:SetCooldown(0, 0)
+    end
+end
+
+-- 블러드 디버프 업데이트
+function PartyTracker:UpdateLust()
+    if not lustFrame or not lustFrame:IsShown() then return end
+
+    local maxExpiration = 0
+    local duration = 0
+    local hasDebuff = false
+
+    -- pcall로 감싸서 시크릿밸류 오라를 안전하게 스킵
+    for i = 1, 40 do
+        local ok, auraData = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HARMFUL")
+        if not ok or not auraData then break end
+        -- 필드 접근 자체가 시크릿일 수 있으므로 전체를 pcall로 감쌈
+        pcall(function()
+            local spellId = auraData.spellId
+            if spellId and type(spellId) == "number" and LUST_DEBUFFS[spellId] then
+                hasDebuff = true
+                local expirationTime = auraData.expirationTime
+                local dur = auraData.duration
+                if expirationTime and expirationTime > maxExpiration then
+                    maxExpiration = expirationTime
+                    duration = dur or 0
+                end
+            end
+        end)
+    end
+
+    if hasDebuff and maxExpiration > 0 then
+        local remaining = maxExpiration - GetTime()
+        if remaining > 0 then
+            lustFrame.cooldown:SetCooldown(maxExpiration - duration, duration)
+            local minutes = math.floor(remaining / 60)
+            local seconds = math.floor(remaining % 60)
+            lustFrame.mainText:SetText(string.format("%d:%02d", minutes, seconds))
+            lustFrame.mainText:SetTextColor(1, 0.2, 0.2, 1) -- 빨간색
+        else
+            lustFrame.mainText:SetText("")
+            lustFrame.cooldown:SetCooldown(0, 0)
+        end
+        lustFrame.icon:SetDesaturated(true)
+        lustFrame.chargeText:SetText("")
+    else
+        lustFrame.mainText:SetText("READY")
+        lustFrame.mainText:SetTextColor(0, 1, 0, 1) -- 초록색
+        lustFrame.icon:SetDesaturated(false)
+        lustFrame.cooldown:SetCooldown(0, 0)
+        lustFrame.chargeText:SetText("")
     end
 end
 
@@ -771,6 +861,30 @@ function PartyTracker:UpdateScale()
     end
 end
 
+-- 잠금 상태 업데이트 (마우스 상호작용)
+function PartyTracker:UpdateLockState()
+    if mainFrame then
+        local locked = self.db and self.db.locked
+        mainFrame:EnableMouse(not locked)
+    end
+    if manaFrame then
+        local manaLocked = self.db and self.db.manaLocked
+        manaFrame:EnableMouse(not manaLocked)
+    end
+end
+
+-- 잠금 상태 업데이트 (마우스 상호작용)
+function PartyTracker:UpdateLockState()
+    if mainFrame then
+        local locked = self.db and self.db.locked
+        mainFrame:EnableMouse(not locked)
+    end
+    if manaFrame then
+        local manaLocked = self.db and self.db.manaLocked
+        manaFrame:EnableMouse(not manaLocked)
+    end
+end
+
 -- 마나 프레임 크기 업데이트
 function PartyTracker:UpdateManaScale()
     if manaFrame then
@@ -833,6 +947,11 @@ function PartyTracker:TestMode()
             battleResFrame.mainText:SetText("")
             battleResFrame.subText:SetText("")
         end
+        if lustFrame then
+            lustFrame.chargeText:SetText("")
+            lustFrame.mainText:SetText("")
+            lustFrame.subText:SetText("")
+        end
         for _, frame in ipairs(healerFrames) do
             frame:Hide()
             frame.chargeText:SetText("")
@@ -888,6 +1007,18 @@ function PartyTracker:TestMode()
     battleResFrame.subText:SetText("")
     battleResFrame.cooldown:SetCooldown(0, 0)
 
+    -- 블러드 테스트
+    if self.db.showLust ~= false and lustFrame then
+        lustFrame:Show()
+        lustFrame.icon:SetTexture(136012)
+        lustFrame.icon:SetDesaturated(true)
+        lustFrame.chargeText:SetText("")
+        lustFrame.mainText:SetText("8:45")
+        lustFrame.mainText:SetTextColor(1, 0.2, 0.2, 1)
+        lustFrame.subText:SetText("")
+        lustFrame.cooldown:SetCooldown(GetTime() - 75, 600)
+    end
+
     -- 힐러 테스트 데이터
     local testHealers = {
         {class = "PRIEST", name = "Priest", mana = 85},
@@ -923,7 +1054,8 @@ function PartyTracker:TestMode()
                 end
             else
                 if i == 1 then
-                    frame:SetPoint("TOPLEFT", battleResFrame, "BOTTOMLEFT", 0, -5)
+                    local lastFrame = (self.db.showLust ~= false and lustFrame) and lustFrame or battleResFrame
+                    frame:SetPoint("TOPLEFT", lastFrame, "BOTTOMLEFT", 0, -5)
                 else
                     frame:SetPoint("TOPLEFT", targetFrames[i-1], "BOTTOMLEFT", 0, -5)
                 end

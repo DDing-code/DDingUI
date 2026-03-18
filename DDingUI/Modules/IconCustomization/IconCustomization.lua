@@ -1267,8 +1267,8 @@ function IconCustomization:Initialize()
                         HideReadyGlow(frame)
                     end
                 end
-                -- Re-hook after CDM rebuilds icons (talent changes may add/remove spells)
-                C_Timer.After(0.5, function()
+                -- [FIX] 다단계 재시도: CDM 뷰어 재생성 대기
+                local function RehookAllViewers()
                     local viewers = DDingUI.viewers or {
                         "EssentialCooldownViewer",
                         "UtilityCooldownViewer",
@@ -1289,7 +1289,10 @@ function IconCustomization:Initialize()
                         end
                     end
                     RefreshAllReadyGlows()
-                end)
+                end
+                C_Timer.After(0.5, RehookAllViewers)
+                C_Timer.After(1.5, RehookAllViewers)
+                C_Timer.After(3.0, RehookAllViewers)
                 return
             end
             RefreshAllReadyGlows()

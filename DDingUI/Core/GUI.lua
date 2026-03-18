@@ -2,6 +2,35 @@ local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 
+-- [FIX] WoW 12.0: EasyMenu 제거됨 → MenuUtil 기반 polyfill
+if not EasyMenu and MenuUtil and MenuUtil.CreateContextMenu then
+    EasyMenu = function(menuList, _, anchorFrame, x, y, displayMode)
+        MenuUtil.CreateContextMenu(anchorFrame, function(ownerRegion, rootDescription)
+            for _, item in ipairs(menuList) do
+                if item.isTitle then
+                    rootDescription:CreateTitle(item.text or "")
+                elseif item.isSeparator then
+                    rootDescription:CreateDivider()
+                elseif item.hasArrow and item.menuList then
+                    local sub = rootDescription:CreateButton(item.text or "")
+                    for _, subItem in ipairs(item.menuList) do
+                        if subItem.isTitle then
+                            sub:CreateTitle(subItem.text or "")
+                        else
+                            sub:CreateButton(subItem.text or "", function()
+                                if subItem.func then subItem.func() end
+                            end)
+                        end
+                    end
+                else
+                    rootDescription:CreateButton(item.text or "", function()
+                        if item.func then item.func() end
+                    end)
+                end
+            end
+        end)
+    end
+end
 -- ============================================
 -- DDingUI Theme - derived from DDingUI_StyleLib
 -- [REFACTOR] AceGUI → StyleLib: 하드코딩 팔레트 → StyleLib Single Source of Truth
@@ -26,6 +55,28 @@ assert(SL, "DDingUI_StyleLib must be loaded before GUI.lua") -- [12.0.1]
 local SLC = SL.Colors
 local FLAT = SL.Textures.flat or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
 local acFrom, acTo, acLight, acDark = SL.GetAccent("CDM")
+
+-- [FIX] WoW 12.0+: StaticPopup editBox 접근 헬퍼 (editBox 필드가 nil인 버전 대응)
+local function DDingUI_GetPopupEditBox(dlg)
+    if not dlg then return nil end
+    if dlg.editBox then return dlg.editBox end
+    if dlg.EditBox then return dlg.EditBox end
+    local name = dlg.GetName and dlg:GetName()
+    if name and _G[name.."EditBox"] then return _G[name.."EditBox"] end
+    -- 최종 fallback: 자식 프레임 중 EditBox 타입 검색
+    for i = 1, dlg:GetNumChildren() do
+        local child = select(i, dlg:GetChildren())
+        if child and child.IsObjectType and child:IsObjectType("EditBox") then
+            return child
+        end
+    end
+    return nil
+end
+
+-- [ELLESMERE] StyleLib v2 모듈 참조
+local Tokens = SL.Tokens               -- 60+ 디자인 토큰
+local WR     = SL.WidgetRefresh         -- 인플레이스 갱신
+local PG     = SL.ProceduralGlow        -- 수학적 글로우 엔진
 
 local THEME = {
     -- 액센트 (StyleLib accent preset "CDM")
@@ -125,15 +176,28 @@ end
 
 -- ============================================
 -- FadeIn / FadeOut (11.x 호환: UIFrameFadeIn 제거됨)
+-- [REFACTOR] MoverUtils.EaseInOut 이징 적용
 -- ============================================
 local function FadeIn(frame, duration)
     if not frame then return end
-    SL.FadeIn(frame, duration or 0.2, frame:GetAlpha(), 1)
+    local MU_fade = DDingUI.MoverUtils
+    if MU_fade and MU_fade.FadeIn then
+        MU_fade.FadeIn(frame, duration or 0.2)
+    else
+        -- fallback: StyleLib
+        SL.FadeIn(frame, duration or 0.2, frame:GetAlpha(), 1)
+    end
 end
 
 local function FadeOut(frame, duration)
     if not frame then return end
-    SL.FadeOut(frame, duration or 0.2, frame:GetAlpha(), 0, false)
+    local MU_fade = DDingUI.MoverUtils
+    if MU_fade and MU_fade.FadeOut then
+        MU_fade.FadeOut(frame, duration or 0.2)
+    else
+        -- fallback: StyleLib
+        SL.FadeOut(frame, duration or 0.2, frame:GetAlpha(), 0, false)
+    end
 end
 
 local function StyleEditBox(editBox, fontObjectName)
@@ -437,20 +501,31 @@ local function CreateCustomScrollBar(parent, scrollFrame)
 
     scrollBar.UpdateThumbPosition = UpdateThumbPosition
 
-    -- 마우스 휠 스크롤
+    -- [REFACTOR] 스무스 스크롤 적용 (MoverUtils.CreateSmoothScroll)
     scrollFrame:EnableMouseWheel(true)
-    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local ok = pcall(function()
-            local current = self:GetVerticalScroll()
-            local range = GetSafeScrollRange(self)
-            local step = 40
+    local MU = DDingUI.MoverUtils
+    local smoothCtrl = MU and MU.CreateSmoothScroll and MU.CreateSmoothScroll(scrollFrame, { speed = 12, step = 60 })
 
-            local newScroll = current - (delta * step)
-            newScroll = math.max(0, math.min(range, newScroll))
-            self:SetVerticalScroll(newScroll)
-            UpdateThumbPosition()
+    if smoothCtrl then
+        -- 스무스 스크롤 활성: OnMouseWheel → 보간 스크롤
+        scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+            smoothCtrl:OnMouseWheel(delta)
         end)
-    end)
+        scrollBar._smoothCtrl = smoothCtrl -- 외부 접근용 (SmoothScrollTo 호출)
+    else
+        -- 폴백: MoverUtils 미로드 시 기존 방식 유지
+        scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+            local ok = pcall(function()
+                local current = self:GetVerticalScroll()
+                local range = GetSafeScrollRange(self)
+                local step = 40
+                local newScroll = current - (delta * step)
+                newScroll = math.max(0, math.min(range, newScroll))
+                self:SetVerticalScroll(newScroll)
+                UpdateThumbPosition()
+            end)
+        end)
+    end
 
     -- 스크롤 변경 시 썸 위치 업데이트
     scrollFrame:HookScript("OnScrollRangeChanged", function()
@@ -2354,6 +2429,9 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         end)
 
         editBox:SetScript("OnEditFocusLost", function(self)
+            if option.set then
+                ResolveGetSet(option.set, optionsTable, option, self:GetText())
+            end
             self:EnableKeyboard(false)
             self:ClearFocus()
             -- Remove visual feedback for focus
@@ -2364,12 +2442,13 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         end)
 
         editBox:SetScript("OnTextChanged", function(self, userInput)
-            if userInput and option.set then
-                ResolveGetSet(option.set, optionsTable, option, self:GetText())
-            end
+            -- 입력 중에는 set 호출하지 않음 (Enter 또는 포커스 해제 시에만)
         end)
         
         editBox:SetScript("OnEnterPressed", function(self)
+            if option.set then
+                ResolveGetSet(option.set, optionsTable, option, self:GetText())
+            end
             self:EnableKeyboard(false)
             self:ClearFocus()
         end)
@@ -2565,7 +2644,7 @@ function Widgets.CreateHeader(parent, option, yOffset, sectionKey)
     end
 
     -- Check collapsed state
-    local isCollapsed = sectionKey and (CollapsedGroups[sectionKey] ~= false) or false
+    local isCollapsed = sectionKey and (CollapsedGroups[sectionKey] == true) or false  -- nil = 펼침 (기본)
 
     -- Collapse/Expand arrow button
     local collapseBtn = CreateFrame("Button", nil, frame)
@@ -2684,10 +2763,2102 @@ function Widgets.CreateDescription(parent, option, yOffset, optionsTable)
     
     return frame
 end
+-- [REFACTOR] Forward declaration: RenderOptions는 이 함수 뒤에 정의되지만,
+-- CreateBuffTrackerPanel 내부 클로저에서 참조됨
+local RenderOptions
 
-local function RenderOptions(contentFrame, options, path, parentFrame)
+-- ============================================================
+-- [REFACTOR] WeakAuras-style Buff Tracker Panel
+-- contentArea 안에 좌측 리스트 + 우측 탭 split-view를 임베딩
+-- ============================================================
+local function CreateBuffTrackerPanel(contentFrame, parentFrame)
+    -- contentFrame = scrollChild, parentFrame = main frame
+    local contentArea = parentFrame.contentArea
+
+    -- 기존 스크롤 UI 숨기기 (커스텀 패널이 대체)
+    parentFrame.scrollFrame:Hide()
+    if parentFrame.scrollBar then parentFrame.scrollBar:Hide() end
+
+    -- 기존 패널 재사용 (레이아웃 변경 시에는 강제 재생성)
+    if contentArea._btPanel then
+        -- 리스트 버튼 정리 후 재생성
+        for _, btn in ipairs(contentArea._btPanel.listButtons or {}) do
+            btn:Hide()
+            btn:SetParent(nil)
+        end
+        contentArea._btPanel.listButtons = {}
+        contentArea._btPanel:Hide()
+        contentArea._btPanel:SetParent(nil)
+        contentArea._btPanel = nil
+    end
+
+    local SIDE_W = Tokens and Tokens.SIDEBAR_W or 180
+    local ITEM_H = Tokens and Tokens.ROW_H or 22
+    local TAB_H  = Tokens and Tokens.TABBAR_H or 32
+
+    -- [FIX] GUI용 trackedBuffs 획득 헬퍼 (GetDisplayOrder와 동일한 소스)
+    local function GetTrackedBuffsForGUI()
+        if DDingUI.db.global and DDingUI.db.global.trackedBuffsPerSpec then
+            local specIdx = GetSpecialization and GetSpecialization() or 1
+            local specID = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx) or 0
+            return DDingUI.db.global.trackedBuffsPerSpec[specID] or {}
+        end
+        local rootCfg = DDingUI.db.profile.buffTrackerBar
+        return rootCfg and rootCfg.trackedBuffs or {}
+    end
+
+    -- [ELLESMERE] WidgetRefresh 컨텍스트 생성
+    local wrCtx = WR and WR.CreateContext("CDM_BuffTracker") or nil
+
+    -- ─── 메인 컨테이너 ───
+    local btPanel = CreateFrame("Frame", nil, contentArea)
+    btPanel:SetAllPoints(contentArea)
+    btPanel:SetFrameStrata("DIALOG")
+    btPanel:SetFrameLevel(contentArea:GetFrameLevel() + 5)
+    btPanel._wrCtx = wrCtx
+    contentArea._btPanel = btPanel
+
+    -- ─── 좌측 패널: 트래커 리스트 ───
+    local leftPanel = CreateFrame("Frame", nil, btPanel, "BackdropTemplate")
+    leftPanel:SetPoint("TOPLEFT", 0, 0)
+    leftPanel:SetPoint("BOTTOMLEFT", 0, 0)
+    leftPanel:SetWidth(SIDE_W)
+    leftPanel:SetBackdrop({bgFile = FLAT})
+    leftPanel:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 1)
+
+    -- 검색 바
+    local searchFrame = CreateFrame("Frame", nil, leftPanel)
+    searchFrame:SetPoint("TOPLEFT", 5, -5)
+    searchFrame:SetPoint("TOPRIGHT", -5, -5)
+    searchFrame:SetHeight(22)
+
+    -- Preview 토글 버튼 (검색바 오른쪽)
+    local PREVIEW_BTN_W = 22
+    local previewBtn = CreateFrame("Button", nil, searchFrame, "BackdropTemplate")
+    previewBtn:SetSize(PREVIEW_BTN_W, 22)
+    previewBtn:SetPoint("RIGHT", searchFrame, "RIGHT", 0, 0)
+    previewBtn:SetBackdrop({bgFile = FLAT, edgeFile = FLAT, edgeSize = 1})
+    previewBtn:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
+    previewBtn:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.6)
+
+    local previewIcon = previewBtn:CreateTexture(nil, "ARTWORK")
+    previewIcon:SetSize(14, 14)
+    previewIcon:SetPoint("CENTER", 0, 0)
+    previewIcon:SetAtlas("socialqueuing-icon-eye")
+
+    -- Preview state tracking
+    local isPreviewOn = DDingUI.IsBuffTrackerPreviewEnabled and DDingUI:IsBuffTrackerPreviewEnabled() or false
+    local function UpdatePreviewButtonVisual()
+        if isPreviewOn then
+            previewBtn:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.35)
+            previewBtn:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.8)
+            previewIcon:SetDesaturated(false)
+            previewIcon:SetAlpha(1)
+        else
+            previewBtn:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
+            previewBtn:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.6)
+            previewIcon:SetDesaturated(true)
+            previewIcon:SetAlpha(0.5)
+        end
+    end
+    UpdatePreviewButtonVisual()
+
+    previewBtn:SetScript("OnClick", function()
+        if DDingUI.ToggleBuffTrackerPreview then
+            DDingUI:ToggleBuffTrackerPreview()
+            isPreviewOn = DDingUI:IsBuffTrackerPreviewEnabled()
+            UpdatePreviewButtonVisual()
+        end
+    end)
+    previewBtn:SetScript("OnEnter", function(self)
+        previewBtn:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+        previewIcon:SetDesaturated(false)
+        previewIcon:SetAlpha(1)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["Preview Mode"] or "Preview Mode")
+        GameTooltip:AddLine(L["Show all tracked buffs for configuration (ignores hideWhenZero)"] or "Show all tracked buffs for configuration (ignores hideWhenZero)", 0.7, 0.7, 0.7, true)
+        if isPreviewOn then
+            GameTooltip:AddLine("\n|cff00ff00ON|r — " .. (L["Click to disable preview"] or "Click to disable"), 0.5, 0.5, 0.5)
+        else
+            GameTooltip:AddLine("\n|cffff6600OFF|r — " .. (L["Click to enable preview"] or "Click to enable"), 0.5, 0.5, 0.5)
+        end
+        GameTooltip:Show()
+    end)
+    previewBtn:SetScript("OnLeave", function()
+        UpdatePreviewButtonVisual()
+        GameTooltip:Hide()
+    end)
+
+    -- 검색 입력 배경 (Preview 버튼 왼쪽까지)
+    local searchInputFrame = CreateFrame("Frame", nil, searchFrame)
+    searchInputFrame:SetPoint("TOPLEFT", 0, 0)
+    searchInputFrame:SetPoint("BOTTOMRIGHT", previewBtn, "BOTTOMLEFT", -3, 0)
+
+    local searchBg = searchInputFrame:CreateTexture(nil, "BACKGROUND")
+    searchBg:SetAllPoints()
+    searchBg:SetColorTexture(THEME.input[1], THEME.input[2], THEME.input[3], THEME.input[4] or 0.8)
+
+    local searchBox = CreateFrame("EditBox", nil, searchInputFrame)
+    searchBox:SetAllPoints()
+    searchBox:SetFontObject(GameFontNormalSmall)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetTextInsets(6, 6, 0, 0)
+    searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    searchBox:SetScript("OnTextChanged", function(self)
+        if btPanel.RefreshList then btPanel:RefreshList(self:GetText()) end
+    end)
+
+    -- placeholder
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", 6, 0)
+    searchPlaceholder:SetText("Search...")
+    searchBox:SetScript("OnEditFocusGained", function() searchPlaceholder:Hide() end)
+    searchBox:SetScript("OnEditFocusLost", function(self)
+        if self:GetText() == "" then searchPlaceholder:Show() end
+    end)
+
+    -- 트래커 스크롤 리스트
+    local listScroll = CreateFrame("ScrollFrame", nil, leftPanel)
+    listScroll:SetPoint("TOPLEFT", searchFrame, "BOTTOMLEFT", -5, -4)
+    listScroll:SetPoint("BOTTOMRIGHT", leftPanel, "BOTTOMRIGHT", 0, 0)
+    listScroll:EnableMouseWheel(true)
+
+    local listChild = CreateFrame("Frame", nil, listScroll)
+    listChild:SetWidth(SIDE_W)
+    listScroll:SetScrollChild(listChild)
+
+    listScroll:SetScript("OnMouseWheel", function(self, delta)
+        local cur = self:GetVerticalScroll()
+        local maxS = math.max(0, listChild:GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(math.max(0, math.min(maxS, cur - delta * 22)))
+    end)
+
+    -- ─── 구분선 ───
+    local divider = btPanel:CreateTexture(nil, "ARTWORK")
+    divider:SetWidth(1)
+    divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.6)
+    -- [ELLESMERE] PP: disable pixel snap for crisp 1px
+    if divider.SetSnapToPixelGrid then
+        divider:SetSnapToPixelGrid(false)
+        divider:SetTexelSnappingBias(0)
+    end
+    divider:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 0, 0)
+    divider:SetPoint("BOTTOMLEFT", leftPanel, "BOTTOMRIGHT", 0, 0)
+
+    -- ─── 우측 패널: 탭 + 설정 ───
+    local rightPanel = CreateFrame("Frame", nil, btPanel)
+    rightPanel:SetPoint("TOPLEFT", divider, "TOPRIGHT", 0, 0)
+    rightPanel:SetPoint("BOTTOMRIGHT", btPanel, "BOTTOMRIGHT", 0, 0)
+
+    -- 탭 바
+    local tabBar = CreateFrame("Frame", nil, rightPanel, "BackdropTemplate")
+    tabBar:SetPoint("TOPLEFT", 0, 0)
+    tabBar:SetPoint("TOPRIGHT", 0, 0)
+    tabBar:SetHeight(TAB_H)
+    tabBar:SetBackdrop({bgFile = FLAT})
+    tabBar:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 0.95)
+
+    -- 탭 콘텐츠 (스크롤 영역)
+    local tabScrollFrame = CreateFrame("ScrollFrame", nil, rightPanel)
+    tabScrollFrame:SetPoint("TOPLEFT", tabBar, "BOTTOMLEFT", 0, -2)
+    tabScrollFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -12, 2)
+    tabScrollFrame:EnableMouseWheel(true)
+
+    local tabChild = CreateFrame("Frame", nil, tabScrollFrame)
+    tabChild:SetWidth(tabScrollFrame:GetWidth() or 400)
+    tabChild.widgets = {}
+    tabScrollFrame:SetScrollChild(tabChild)
+
+    -- 탭 콘텐츠 너비 동기화
+    tabScrollFrame:SetScript("OnSizeChanged", function(self)
+        local w = self:GetWidth()
+        if w and w > 0 then tabChild:SetWidth(w - 1) end
+    end)
+
+    tabScrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local cur = self:GetVerticalScroll()
+        local maxS = math.max(0, tabChild:GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(math.max(0, math.min(maxS, cur - delta * 25)))
+    end)
+
+    -- 커스텀 스크롤바 (우측 탭 콘텐츠용)
+    local tabScrollBar = CreateCustomScrollBar(rightPanel, tabScrollFrame)
+    tabScrollBar:SetPoint("TOPLEFT", tabScrollFrame, "TOPRIGHT", 3, 0)
+    tabScrollBar:SetPoint("BOTTOMLEFT", tabScrollFrame, "BOTTOMRIGHT", 3, 0)
+    tabScrollFrame.ScrollBar = tabScrollBar
+
+    -- scrollChild 높이 변경 시 스크롤바 업데이트
+    tabChild:SetScript("OnSizeChanged", function()
+        C_Timer.After(0.02, function()
+            if tabScrollBar and tabScrollBar.UpdateThumbPosition then
+                tabScrollBar.UpdateThumbPosition()
+            end
+        end)
+    end)
+
+    -- 참조 저장
+    btPanel.leftPanel = leftPanel
+    btPanel.rightPanel = rightPanel
+    btPanel.searchBox = searchBox
+    btPanel.previewBtn = previewBtn
+    btPanel.listScroll = listScroll
+    btPanel.listChild = listChild
+    btPanel.tabBar = tabBar
+    btPanel.tabScrollFrame = tabScrollFrame
+    btPanel.tabChild = tabChild
+    btPanel.tabScrollBar = tabScrollBar
+    btPanel.selectedIndex = nil
+    btPanel.selectedTab = nil
+    btPanel.tabButtons = {}
+    btPanel.listButtons = {}
+    btPanel._parentFrame = parentFrame
+
+    -- ─── 헬퍼: 탭 콘텐츠 위젯 정리 ───
+    local function ClearTabContent()
+        if tabChild.widgets then
+            for i = #tabChild.widgets, 1, -1 do
+                local w = tabChild.widgets[i]
+                if w then w:Hide(); w:SetParent(nil) end
+            end
+        end
+        tabChild.widgets = {}
+        if tabChild.subScrollChild then
+            if tabChild.subScrollChild.widgets then
+                for i = #tabChild.subScrollChild.widgets, 1, -1 do
+                    local w = tabChild.subScrollChild.widgets[i]
+                    if w then w:Hide(); w:SetParent(nil) end
+                end
+            end
+            tabChild.subScrollChild = nil
+        end
+        if tabChild.subTabContainer then
+            tabChild.subTabContainer:Hide()
+            tabChild.subTabContainer = nil
+        end
+        tabChild:SetHeight(1)
+        tabScrollFrame:SetVerticalScroll(0)
+    end
+
+    -- ─── 트래커 리스트 렌더링 ───
+    function btPanel:RefreshList(searchQueryRaw)
+        local searchQ = (searchQueryRaw or searchBox:GetText() or ""):lower()
+        local rootCfg = DDingUI.db.profile.buffTrackerBar
+        local trackedBuffs = GetTrackedBuffsForGUI()  -- [FIX] global per-spec 소스
+
+        -- 기존 버튼 숨기기
+        for _, btn in ipairs(self.listButtons) do btn:Hide() end
+
+        local yOff = 0
+        local btnIdx = 0
+
+        -- ─── 상단 고정 항목 (WeakAuras 스타일) ───
+        local staticItems = {
+            { key = "wizard",    name = "|cff44ee44+ " .. (L["New Tracker"] or "New Tracker") .. "|r",  colorR = 0.27, colorG = 0.93, colorB = 0.27 },
+            { key = "catalog",   name = L["CDM Aura Catalog"] or "CDM Catalog",                          colorR = THEME.text[1], colorG = THEME.text[2], colorB = THEME.text[3] },
+        }
+        for _, si in ipairs(staticItems) do
+            btnIdx = btnIdx + 1
+            local btn = self.listButtons[btnIdx]
+            if not btn then
+                btn = CreateFrame("Button", nil, listChild)
+                btn:SetHeight(ITEM_H + 2)
+                btn._bg = btn:CreateTexture(nil, "BACKGROUND")
+                btn._bg:SetAllPoints()
+                btn._bg:SetColorTexture(0, 0, 0, 0)
+                btn._stripe = btn:CreateTexture(nil, "OVERLAY")
+                btn._stripe:SetWidth(2)
+                btn._stripe:SetPoint("TOPLEFT", 0, 0)
+                btn._stripe:SetPoint("BOTTOMLEFT", 0, 0)
+                btn._stripe:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+                btn._stripe:Hide()
+                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._text:SetPoint("LEFT", 10, 0)
+                btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+                btn._text:SetJustifyH("LEFT")
+                self.listButtons[btnIdx] = btn
+            end
+            btn:Show()
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", listChild, "TOPLEFT", 0, -yOff)
+            btn:SetPoint("RIGHT", listChild, "RIGHT", 0, 0)
+            btn._text:SetText(si.name)
+            btn._text:ClearAllPoints()
+            btn._text:SetPoint("LEFT", 10, 0)
+            btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+
+            if self.selectedIndex == si.key then
+                btn._bg:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.15)
+                btn._stripe:Show()
+            else
+                btn._bg:SetColorTexture(0, 0, 0, 0)
+                btn._stripe:Hide()
+            end
+
+            local siKey = si.key
+            btn:SetScript("OnEnter", function(self)
+                if btPanel.selectedIndex ~= siKey then
+                    self._bg:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 0.6)
+                end
+            end)
+            btn:SetScript("OnLeave", function(self)
+                if btPanel.selectedIndex ~= siKey then
+                    self._bg:SetColorTexture(0, 0, 0, 0)
+                end
+            end)
+            btn:SetScript("OnClick", function()
+                if si.action then
+                    si.action()
+                else
+                    btPanel:SelectStatic(siKey)
+                end
+            end)
+
+            yOff = yOff + (ITEM_H + 2) + 1
+        end
+
+        -- ─── 구분선 ───
+        yOff = yOff + 4
+        btnIdx = btnIdx + 1
+        local sep = self.listButtons[btnIdx]
+        if not sep then
+            sep = CreateFrame("Frame", nil, listChild)
+            sep:SetHeight(1)
+            sep._line = sep:CreateTexture(nil, "ARTWORK")
+            sep._line:SetAllPoints()
+            sep._line:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.3)
+            -- [ELLESMERE] PP
+            if sep._line.SetSnapToPixelGrid then
+                sep._line:SetSnapToPixelGrid(false)
+                sep._line:SetTexelSnappingBias(0)
+            end
+            self.listButtons[btnIdx] = sep
+        end
+        sep:Show()
+        sep:ClearAllPoints()
+        sep:SetPoint("TOPLEFT", listChild, "TOPLEFT", 8, -yOff)
+        sep:SetPoint("RIGHT", listChild, "RIGHT", -8, 0)
+        yOff = yOff + 6
+
+        -- ─── 트래커 리스트 헤더 ───
+        btnIdx = btnIdx + 1
+        local hdr = self.listButtons[btnIdx]
+        if not hdr then
+            hdr = CreateFrame("Frame", nil, listChild)
+            hdr:SetHeight(16)
+            hdr._text = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            hdr._text:SetPoint("LEFT", 8, 0)
+            hdr._text:SetJustifyH("LEFT")
+            self.listButtons[btnIdx] = hdr
+        end
+        hdr:Show()
+        hdr:ClearAllPoints()
+        hdr:SetPoint("TOPLEFT", listChild, "TOPLEFT", 0, -yOff)
+        hdr:SetPoint("RIGHT", listChild, "RIGHT", 0, 0)
+        hdr._text:SetText("|cff888888" .. (L["Tracked Buffs"] or "Tracked Buffs") .. " (" .. #trackedBuffs .. ")|r")
+        yOff = yOff + 18
+
+        -- GetDisplayOrder로 계층적 렌더링 (그룹 + 자식)
+        local displayOrder = DDingUI.GetDisplayOrder and DDingUI.GetDisplayOrder(false) or {}
+
+        for _, entry in ipairs(displayOrder) do
+            local i = entry.index
+            local buff = trackedBuffs[i]
+            if buff then  -- buff가 nil이면 건너뛰기
+
+            local buffName = buff.name or "Unknown"
+            if not buff.isGroup and buff.spellID and buff.spellID > 0 then
+                local ok, spellName = pcall(C_Spell.GetSpellName, buff.spellID)
+                if ok and spellName then buffName = spellName end
+            end
+
+            -- 검색 필터
+            local passFilter = (searchQ == "" or buffName:lower():find(searchQ, 1, true))
+            if passFilter then
+
+            btnIdx = btnIdx + 1
+            local btn = self.listButtons[btnIdx]
+            if not btn then
+                btn = CreateFrame("Button", nil, listChild)
+                btn:SetHeight(ITEM_H)
+                btn._bg = btn:CreateTexture(nil, "BACKGROUND")
+                btn._bg:SetAllPoints()
+                btn._bg:SetColorTexture(0, 0, 0, 0)
+                -- accent stripe (좌측 2px)
+                btn._stripe = btn:CreateTexture(nil, "OVERLAY")
+                btn._stripe:SetWidth(2)
+                btn._stripe:SetPoint("TOPLEFT", 0, 0)
+                btn._stripe:SetPoint("BOTTOMLEFT", 0, 0)
+                btn._stripe:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+                -- [ELLESMERE] PP + accent 등록
+                if btn._stripe.SetSnapToPixelGrid then
+                    btn._stripe:SetSnapToPixelGrid(false)
+                    btn._stripe:SetTexelSnappingBias(0)
+                end
+                if WR then WR.RegAccent("solid", btn._stripe) end
+                btn._stripe:Hide()
+                -- 접기/펼치기 화살표 (그룹용)
+                btn._arrow = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._arrow:SetPoint("LEFT", 6, 0)
+                btn._arrow:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
+                btn._arrow:Hide()
+                -- 스펠 아이콘
+                btn._icon = btn:CreateTexture(nil, "ARTWORK")
+                btn._icon:SetSize(16, 16)
+                btn._icon:SetPoint("LEFT", 6, 0)
+                btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                -- 이름 텍스트
+                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._text:SetPoint("LEFT", btn._icon, "RIGHT", 4, 0)
+                btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+                btn._text:SetJustifyH("LEFT")
+                -- 타입 태그 텍스트 (우측)
+                btn._typeTag = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._typeTag:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
+                btn._typeTag:SetJustifyH("RIGHT")
+                btn._typeTag:Hide()
+                -- enable/disable 토글 (우측 끝 작은 동그라미)
+                btn._toggle = CreateFrame("Button", nil, btn)
+                btn._toggle:SetSize(10, 10)
+                btn._toggle:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+                btn._toggle._dot = btn._toggle:CreateTexture(nil, "OVERLAY")
+                btn._toggle._dot:SetAllPoints()
+                btn._toggle._dot:SetColorTexture(0.27, 0.93, 0.27, 1)
+                btn._toggle:Hide()
+
+                -- [DRAG] 드롭 하이라이트 (그룹 위에 드래그 시 표시)
+                btn._dropHL = btn:CreateTexture(nil, "OVERLAY", nil, 6)
+                btn._dropHL:SetAllPoints()
+                btn._dropHL:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.25)
+                btn._dropHL:Hide()
+
+                -- [GROUP] 우측 접기/펼치기 화살표 버튼
+                btn._expandBtn = CreateFrame("Button", nil, btn)
+                btn._expandBtn:SetSize(18, ITEM_H)
+                btn._expandBtn:SetPoint("RIGHT", btn, "RIGHT", -16, 0)
+                btn._expandBtn._text = btn._expandBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._expandBtn._text:SetAllPoints()
+                btn._expandBtn._text:SetJustifyH("CENTER")
+                btn._expandBtn._text:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
+                btn._expandBtn:Hide()
+
+                btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+                btn:RegisterForDrag("LeftButton")
+                self.listButtons[btnIdx] = btn
+            end
+
+            btn:Show()
+            btn:ClearAllPoints()
+
+            -- 깊이에 따른 들여쓰기 (16px per depth level)
+            local indent = (entry.depth or 0) * 16
+            btn:SetPoint("TOPLEFT", listChild, "TOPLEFT", indent, -yOff)
+            btn:SetPoint("RIGHT", listChild, "RIGHT", 0, 0)
+
+            -- 초기화
+            btn._typeTag:Hide()
+            btn._toggle:Hide()
+
+            if entry.isGroup then
+                -- ─── 그룹 항목 렌더링 ───
+                local childCount = buff.controlledChildren and #buff.controlledChildren or 0
+                local arrowChar = (buff.expanded ~= false) and "▼" or "▶"
+                btn._arrow:SetText(arrowChar)
+                btn._arrow:Show()
+                btn._arrow:ClearAllPoints()
+                btn._arrow:SetPoint("LEFT", indent + 4, 0)
+
+                btn._icon:Hide()
+                btn._text:ClearAllPoints()
+                btn._text:SetPoint("LEFT", btn._arrow, "RIGHT", 4, 0)
+                btn._text:SetPoint("RIGHT", btn._expandBtn, "LEFT", -2, 0)
+                btn._text:SetText(buffName .. "  |cff555555(" .. childCount .. ")|r")
+
+                -- 우측 접기/펼치기 화살표 버튼
+                local expandChar = (buff.expanded ~= false) and "▲" or "▼"
+                btn._expandBtn._text:SetText(expandChar)
+                btn._expandBtn:Show()
+                local gIdx2 = i
+                btn._expandBtn:SetScript("OnClick", function()
+                    local wasExpanded = trackedBuffs[gIdx2].expanded ~= false  -- nil = 열림
+                    trackedBuffs[gIdx2].expanded = not wasExpanded
+                    btPanel:RefreshList()
+                end)
+                btn._expandBtn:SetScript("OnEnter", function(self)
+                    self._text:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3])
+                end)
+                btn._expandBtn:SetScript("OnLeave", function(self)
+                    self._text:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
+                end)
+
+                -- 그룹 활성 상태 dot
+                btn._toggle:Show()
+                btn._toggle:ClearAllPoints()
+                btn._toggle:SetPoint("RIGHT", btn._expandBtn, "LEFT", -2, 0)
+                if buff.disabled then
+                    btn._text:SetTextColor(0.4, 0.4, 0.4)
+                    btn._arrow:SetTextColor(0.4, 0.4, 0.4)
+                    btn._toggle._dot:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+                else
+                    btn._text:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
+                    btn._arrow:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
+                    btn._toggle._dot:SetColorTexture(0.27, 0.93, 0.27, 1)
+                end
+
+                local gIdx = i
+                btn._toggle:SetScript("OnClick", function()
+                    trackedBuffs[gIdx].disabled = not trackedBuffs[gIdx].disabled
+                    DDingUI:UpdateBuffTrackerBar()
+                    btPanel:RefreshList()
+                end)
+            else
+                -- ─── 일반 트래커 항목 렌더링 ───
+                btn._arrow:Hide()
+                btn._expandBtn:Hide()
+
+                -- 아이콘 위치 조정 (들여쓰기 반영)
+                btn._icon:ClearAllPoints()
+                btn._icon:SetPoint("LEFT", indent + 6, 0)
+                if buff.icon then
+                    btn._icon:SetTexture(buff.icon)
+                    btn._icon:Show()
+                else
+                    btn._icon:Hide()
+                end
+
+                -- 타입 태그 [BAR] / [ICON] 등
+                local dType = (buff.displayType or "bar"):upper()
+                btn._typeTag:SetText("|cff555555" .. dType .. "|r")
+                btn._typeTag:ClearAllPoints()
+                btn._typeTag:SetPoint("RIGHT", btn, "RIGHT", -18, 0)
+                btn._typeTag:Show()
+
+                -- enable/disable dot
+                btn._toggle:Show()
+                btn._toggle:ClearAllPoints()
+                btn._toggle:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+
+                btn._text:ClearAllPoints()
+                btn._text:SetPoint("LEFT", btn._icon, "RIGHT", 4, 0)
+                btn._text:SetPoint("RIGHT", btn._typeTag, "LEFT", -4, 0)
+                btn._text:SetText(buffName)
+
+                -- [REFACTOR] 버프/능력 이름 색상 분기
+                local isAura = buff.isAura
+                if isAura == nil then
+                    -- 폴백: CDMScanner에서 확인
+                    local cdID = buff.cooldownID or (buff.trigger and buff.trigger.cooldownID)
+                    if cdID and DDingUI.CDMScanner then
+                        local cdmEntry = DDingUI.CDMScanner.GetEntry(cdID)
+                        if cdmEntry then isAura = cdmEntry.isAura end
+                    end
+                end
+                -- 색상: 버프=따뜻한 주황, 능력=하늘색
+                local nameR, nameG, nameB
+                if isAura then
+                    nameR, nameG, nameB = 0.95, 0.78, 0.40  -- 버프: warm gold
+                else
+                    nameR, nameG, nameB = 0.55, 0.85, 1.00  -- 능력: sky blue
+                end
+
+                if buff.disabled then
+                    btn._text:SetTextColor(0.4, 0.4, 0.4)
+                    btn._icon:SetAlpha(0.4)
+                    btn._toggle._dot:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+                else
+                    btn._text:SetTextColor(nameR, nameG, nameB)
+                    btn._icon:SetAlpha(1.0)
+                    btn._toggle._dot:SetColorTexture(0.27, 0.93, 0.27, 1)
+                end
+
+                local tIdx = i
+                btn._toggle:SetScript("OnClick", function()
+                    trackedBuffs[tIdx].disabled = not trackedBuffs[tIdx].disabled
+                    DDingUI:UpdateBuffTrackerBar()
+                    btPanel:RefreshList()
+                end)
+            end
+
+            -- [ELLESMERE] 얼룩말 줄무늬 + 선택 하이라이트
+            local rowAlpha = Tokens and Tokens.RowBgAlpha(btnIdx) or 0
+            if self.selectedIndex == i then
+                -- 선택됨: accent 배경 + stripe 표시 + 펄스
+                btn._bg:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.18)
+                if not entry.isGroup then
+                    btn._text:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
+                end
+                btn._stripe:Show()
+                -- [ELLESMERE] 스트라이프 펄스 애니메이션
+                if PG then PG.StartStripePulse(btn._stripe, 2.5, 0.5, 1.0) end
+            else
+                -- 비선택: 얼룩말 배경
+                btn._bg:SetColorTexture(1, 1, 1, rowAlpha)
+                btn._stripe:Hide()
+                -- [ELLESMERE] 이전 펄스 중지
+                if PG then PG.StopStripePulse(btn._stripe) end
+            end
+
+            -- [ELLESMERE] 3단계 호버 (bg + text 동시 변환)
+            local idx = i
+            local isGroup = entry.isGroup
+            local normalTextR, normalTextG, normalTextB
+            if self.selectedIndex == i then
+                normalTextR = THEME.accent[1]
+                normalTextG = THEME.accent[2]
+                normalTextB = THEME.accent[3]
+            elseif isGroup and not (buff.disabled) then
+                normalTextR = THEME.accent[1]
+                normalTextG = THEME.accent[2]
+                normalTextB = THEME.accent[3]
+            elseif buff.disabled then
+                normalTextR, normalTextG, normalTextB = 0.4, 0.4, 0.4
+            else
+                -- [REFACTOR] 버프/능력 색상 사용
+                if buff.isAura then
+                    normalTextR, normalTextG, normalTextB = 0.95, 0.78, 0.40
+                elseif buff.isAura == false then
+                    normalTextR, normalTextG, normalTextB = 0.55, 0.85, 1.00
+                else
+                    normalTextR = THEME.text[1]
+                    normalTextG = THEME.text[2]
+                    normalTextB = THEME.text[3]
+                end
+            end
+
+            btn:SetScript("OnEnter", function(self)
+                if btPanel.selectedIndex ~= idx then
+                    -- 호버: 배경 밝아짐 + 텍스트 밝아짐
+                    local hoverBgA = Tokens and Tokens.BTN_BG_HA or 0.15
+                    self._bg:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], hoverBgA + 0.45)
+                    self._text:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3])
+                    -- 호버 시 stripe 살짝 표시 (accent 30% 투명)
+                    self._stripe:SetAlpha(0.3)
+                    self._stripe:Show()
+                end
+                -- 툴팁
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(buffName, 1, 1, 1)
+                if isGroup then
+                    local cc = trackedBuffs[idx] and trackedBuffs[idx].controlledChildren or {}
+                    GameTooltip:AddLine((L["Group"] or "Group") .. " (" .. #cc .. " " .. (L["children"] or "children") .. ")", 0.7, 0.7, 0.7)
+                else
+                    local b = trackedBuffs[idx]
+                    if b then
+                        GameTooltip:AddLine((b.displayType or "bar"):upper(), THEME.accent[1], THEME.accent[2], THEME.accent[3])
+                        local idText = b.spellID and b.spellID > 0 and ("Spell ID: " .. b.spellID) or (b.cooldownID and ("CDM ID: " .. b.cooldownID) or "")
+                        if idText ~= "" then GameTooltip:AddLine(idText, 0.5, 0.5, 0.5) end
+                        if b.parentGroup then
+                            local pg = trackedBuffs[b.parentGroup]
+                            if pg then GameTooltip:AddLine("→ " .. (pg.name or "Group"), 0.4, 0.4, 0.8) end
+                        end
+                    end
+                end
+                GameTooltip:Show()
+            end)
+            btn:SetScript("OnLeave", function(self)
+                if btPanel.selectedIndex ~= idx then
+                    -- [ELLESMERE] 3단계 복원: 얼룩말 배경 + 원래 텍스트 + stripe 숨김
+                    self._bg:SetColorTexture(1, 1, 1, rowAlpha)
+                    self._text:SetTextColor(normalTextR, normalTextG, normalTextB)
+                    self._stripe:Hide()
+                end
+                GameTooltip:Hide()
+            end)
+            btn:SetScript("OnClick", function(self, button)
+                if button == "RightButton" then
+                    if isGroup then
+                        btPanel:ShowGroupContextMenu(idx, self)
+                    else
+                        btPanel:ShowTrackerContextMenu(idx, self)
+                    end
+                    return
+                end
+                if isGroup then
+                    -- 왼클릭: 그룹 설정 선택 (접기/펼치기는 우측 화살표 버튼)
+                    btPanel.selectedIndex = idx
+                    btPanel:RefreshList()
+                    btPanel:RenderGroupSettings(idx)
+                else
+                    btPanel:SelectTracker(idx)
+                end
+            end)
+
+            -- [DRAG] 드래그 앤 드롭: 순서 변경 + 그룹 편입
+            btn:RegisterForDrag("LeftButton")
+            do
+                local dragIdx = idx
+                local dragIsGroup = isGroup
+                btn:SetScript("OnDragStart", function(self)
+                    btPanel._dragIndex = dragIdx
+                    btPanel._dragIsGroup = dragIsGroup
+                    btPanel._dragBtn = self
+                    self:SetAlpha(0.4)
+                    -- 드래그 레이블
+                    if not btPanel._dragLabel then
+                        btPanel._dragLabel = UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    end
+                    btPanel._dragLabel:SetText("|cffcccccc" .. buffName .. "|r")
+                    btPanel._dragLabel:Show()
+                    -- 삽입 인디케이터
+                    if not btPanel._insertBar then
+                        btPanel._insertBar = listChild:CreateTexture(nil, "OVERLAY", nil, 7)
+                        btPanel._insertBar:SetHeight(2)
+                        btPanel._insertBar:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+                    end
+                    if not btPanel._insertGlow then
+                        btPanel._insertGlow = listChild:CreateTexture(nil, "OVERLAY", nil, 6)
+                        btPanel._insertGlow:SetHeight(8)
+                        btPanel._insertGlow:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.3)
+                    end
+                    btPanel._insertBar:Hide()
+                    btPanel._insertGlow:Hide()
+                    btPanel._dropTarget = nil
+                    -- 그룹 드롭 하이라이트 (비그룹을 그룹 위에 드래그 시)
+                    if not dragIsGroup then
+                        for bi = 1, #btPanel.listButtons do
+                            local b = btPanel.listButtons[bi]
+                            if b and b:IsShown() and b._entryIsGroup and b._dropHL then
+                                b._dropHL:Show()
+                            end
+                        end
+                    end
+                    -- OnUpdate: 삽입 위치 추적
+                    listChild:SetScript("OnUpdate", function(_, elapsed)
+                        local label = btPanel._dragLabel
+                        if label and label:IsShown() then
+                            local cx, cy = GetCursorPosition()
+                            local scale = UIParent:GetEffectiveScale()
+                            label:ClearAllPoints()
+                            label:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx/scale + 12, cy/scale)
+                        end
+                        -- 삽입 인디케이터 위치 계산
+                        local bestBtn, bestDist, bestPos = nil, 9999, nil
+                        for bi = 1, #btPanel.listButtons do
+                            local b = btPanel.listButtons[bi]
+                            if b and b:IsShown() and b._entryIndex and b._entryIndex ~= btPanel._dragIndex then
+                                local top = b:GetTop()
+                                local bot = b:GetBottom()
+                                local cx2, cy2 = GetCursorPosition()
+                                local s2 = UIParent:GetEffectiveScale()
+                                local curY = cy2 / s2
+                                if top and bot then
+                                    -- 상단 삽입점
+                                    local distTop = math.abs(curY - top)
+                                    if distTop < bestDist then
+                                        bestDist = distTop
+                                        bestBtn = b
+                                        bestPos = "before"
+                                    end
+                                    -- 하단 삽입점
+                                    local distBot = math.abs(curY - bot)
+                                    if distBot < bestDist then
+                                        bestDist = distBot
+                                        bestBtn = b
+                                        bestPos = "after"
+                                    end
+                                end
+                            end
+                        end
+                        if bestBtn and bestDist < 20 then
+                            local bar = btPanel._insertBar
+                            local glow = btPanel._insertGlow
+                            bar:ClearAllPoints()
+                            glow:ClearAllPoints()
+                            if bestPos == "before" then
+                                bar:SetPoint("TOPLEFT", bestBtn, "TOPLEFT", 5, 1)
+                                bar:SetPoint("TOPRIGHT", bestBtn, "TOPRIGHT", -5, 1)
+                                glow:SetPoint("TOPLEFT", bestBtn, "TOPLEFT", 2, 4)
+                                glow:SetPoint("TOPRIGHT", bestBtn, "TOPRIGHT", -2, 4)
+                            else
+                                bar:SetPoint("BOTTOMLEFT", bestBtn, "BOTTOMLEFT", 5, -1)
+                                bar:SetPoint("BOTTOMRIGHT", bestBtn, "BOTTOMRIGHT", -5, -1)
+                                glow:SetPoint("BOTTOMLEFT", bestBtn, "BOTTOMLEFT", 2, -4)
+                                glow:SetPoint("BOTTOMRIGHT", bestBtn, "BOTTOMRIGHT", -2, -4)
+                            end
+                            bar:Show()
+                            glow:Show()
+                            btPanel._dropTarget = { index = bestBtn._entryIndex, pos = bestPos }
+                        else
+                            if btPanel._insertBar then btPanel._insertBar:Hide() end
+                            if btPanel._insertGlow then btPanel._insertGlow:Hide() end
+                            btPanel._dropTarget = nil
+                        end
+                    end)
+                end)
+                btn:SetScript("OnDragStop", function(self)
+                    self:SetAlpha(1.0)
+                    if btPanel._dragLabel then btPanel._dragLabel:Hide() end
+                    if btPanel._insertBar then btPanel._insertBar:Hide() end
+                    if btPanel._insertGlow then btPanel._insertGlow:Hide() end
+                    listChild:SetScript("OnUpdate", nil)
+                    -- 드롭 하이라이트 전부 숨김
+                    for bi = 1, #btPanel.listButtons do
+                        local b = btPanel.listButtons[bi]
+                        if b and b._dropHL then b._dropHL:Hide() end
+                    end
+                    local fromIdx = btPanel._dragIndex
+                    local fromIsGroup = btPanel._dragIsGroup
+                    btPanel._dragIndex = nil
+                    btPanel._dragIsGroup = nil
+                    btPanel._dragBtn = nil
+                    if not fromIdx then return end
+                    local tb = GetTrackedBuffsForGUI()
+                    -- 1) 비그룹 → 그룹 위에 드롭 = 그룹 편입
+                    if not fromIsGroup then
+                        for bi = 1, #btPanel.listButtons do
+                            local b = btPanel.listButtons[bi]
+                            if b and b:IsShown() and b._entryIsGroup and b:IsMouseOver() then
+                                local groupIdx = b._entryIndex
+                                if groupIdx and groupIdx ~= fromIdx then
+                                    local tracker = tb[fromIdx]
+                                    local group = tb[groupIdx]
+                                    if tracker and group and group.isGroup then
+                                        -- 이전 그룹에서 제거
+                                        if tracker.parentGroup then
+                                            local oldGroup = tb[tracker.parentGroup]
+                                            if oldGroup and oldGroup.controlledChildren then
+                                                for ci = #oldGroup.controlledChildren, 1, -1 do
+                                                    if oldGroup.controlledChildren[ci] == fromIdx then
+                                                        table.remove(oldGroup.controlledChildren, ci)
+                                                    end
+                                                end
+                                            end
+                                        end
+                                        tracker.parentGroup = groupIdx
+                                        if not group.controlledChildren then group.controlledChildren = {} end
+                                        table.insert(group.controlledChildren, fromIdx)
+                                        group.expanded = true
+                                        DDingUI:UpdateBuffTrackerBar()
+                                        btPanel:RefreshList()
+                                    end
+                                end
+                                return
+                            end
+                        end
+                    end
+                    -- 2) 순서 변경 (삽입 인디케이터 위치)
+                    local target = btPanel._dropTarget
+                    btPanel._dropTarget = nil
+                    if target and target.index and target.index ~= fromIdx then
+                        local toIdx = target.index
+                        -- 배열에서 순서 변경
+                        if fromIdx ~= toIdx and tb[fromIdx] then
+                            -- 이동 전: 각 엔트리에 원래 인덱스 태그
+                            for ri = 1, #tb do
+                                tb[ri]._origIdx = ri
+                            end
+                            local item = table.remove(tb, fromIdx)
+                            -- fromIdx 제거 후 toIdx 조정
+                            if fromIdx < toIdx then
+                                toIdx = toIdx - 1
+                            end
+                            if target.pos == "after" then
+                                toIdx = toIdx + 1
+                            end
+                            toIdx = math.max(1, math.min(toIdx, #tb + 1))
+                            table.insert(tb, toIdx, item)
+                            -- 인덱스 매핑 테이블 생성: oldIdx → newIdx
+                            local idxMap = {}
+                            for ni = 1, #tb do
+                                if tb[ni]._origIdx then
+                                    idxMap[tb[ni]._origIdx] = ni
+                                end
+                            end
+                            -- parentGroup 재매핑
+                            for ri = 1, #tb do
+                                if tb[ri].parentGroup then
+                                    tb[ri].parentGroup = idxMap[tb[ri].parentGroup] or tb[ri].parentGroup
+                                end
+                            end
+                            -- controlledChildren 재매핑
+                            for ri = 1, #tb do
+                                if tb[ri].isGroup and tb[ri].controlledChildren then
+                                    local newCC = {}
+                                    for _, oldCI in ipairs(tb[ri].controlledChildren) do
+                                        local newCI = idxMap[oldCI]
+                                        if newCI then
+                                            table.insert(newCC, newCI)
+                                        end
+                                    end
+                                    tb[ri].controlledChildren = newCC
+                                end
+                            end
+                            -- attachTo 재매핑 (DDingUIBuffTrackerBar/Icon/Text + 인덱스)
+                            local ATTACH_PATTERNS = {
+                                "DDingUIBuffTrackerBar",
+                                "DDingUIBuffTrackerIcon",
+                                "DDingUIBuffTrackerText",
+                            }
+                            for ri = 1, #tb do
+                                local d = tb[ri].display
+                                local s = tb[ri].settings
+                                for _, pat in ipairs(ATTACH_PATTERNS) do
+                                    -- display.attachTo
+                                    if d and type(d.attachTo) == "string" then
+                                        local oldNum = tonumber(d.attachTo:match("^" .. pat .. "(%d+)$"))
+                                        if oldNum and idxMap[oldNum] then
+                                            d.attachTo = pat .. idxMap[oldNum]
+                                        end
+                                    end
+                                    -- settings.attachTo
+                                    if s and type(s.attachTo) == "string" then
+                                        local oldNum = tonumber(s.attachTo:match("^" .. pat .. "(%d+)$"))
+                                        if oldNum and idxMap[oldNum] then
+                                            s.attachTo = pat .. idxMap[oldNum]
+                                        end
+                                    end
+                                end
+                            end
+                            -- 임시 태그 제거
+                            for ri = 1, #tb do
+                                tb[ri]._origIdx = nil
+                            end
+                            DDingUI:UpdateBuffTrackerBar()
+                            btPanel:RefreshList()
+                        end
+                    end
+                end)
+            end
+            -- 버튼에 메타데이터 저장 (드래그 드롭 시 식별용)
+            btn._entryIndex = i
+            btn._entryIsGroup = entry.isGroup
+
+            yOff = yOff + ITEM_H + 1
+            end -- passFilter
+            end -- buff
+        end -- for displayOrder
+
+        listChild:SetHeight(math.max(yOff, listScroll:GetHeight()))
+    end
+
+    -- ─── 우클릭 컨텍스트 메뉴 (트래커/그룹 공용) ───
+    local _ctxFrame = nil  -- 재사용 가능한 컨텍스트 메뉴 프레임
+
+    local function CreateContextMenu()
+        if _ctxFrame then return _ctxFrame end
+        local f = CreateFrame("Frame", "DDingUI_BT_ContextMenu", UIParent, "BackdropTemplate")
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:SetFrameLevel(300)
+        f:SetClampedToScreen(true)
+        f:SetBackdrop({
+            bgFile = FLAT,
+            edgeFile = FLAT,
+            tile = false, edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 },
+        })
+        f:SetBackdropColor(THEME.bgMain[1], THEME.bgMain[2], THEME.bgMain[3], 0.98)
+        f:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.8)
+        f:Hide()
+        f._items = {}
+
+        -- ESC로 닫기
+        tinsert(UISpecialFrames, "DDingUI_BT_ContextMenu")
+
+        -- 다른 곳 클릭 시 닫기
+        f:SetScript("OnShow", function()
+            f:SetScript("OnUpdate", function()
+                if not f:IsMouseOver() and IsMouseButtonDown("LeftButton") then
+                    f:Hide()
+                end
+            end)
+        end)
+        f:SetScript("OnHide", function()
+            f:SetScript("OnUpdate", nil)
+        end)
+
+        _ctxFrame = f
+        return f
+    end
+
+    local function ShowContextMenuItems(anchorBtn, items)
+        local f = CreateContextMenu()
+
+        -- 기존 아이템 숨기기
+        for _, item in ipairs(f._items) do item:Hide() end
+
+        local ITEM_W = 160
+        local ITEM_H_CTX = 22
+        local PAD = 4
+
+        for i, entry in ipairs(items) do
+            local btn = f._items[i]
+            if not btn then
+                btn = CreateFrame("Button", nil, f)
+                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._text:SetPoint("LEFT", 8, 0)
+                btn._text:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
+                btn._text:SetJustifyH("LEFT")
+                btn._check = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._check:SetPoint("RIGHT", -6, 0)
+                btn._check:SetJustifyH("RIGHT")
+                btn:SetScript("OnEnter", function(self)
+                    self:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.3)
+                end)
+                btn:SetScript("OnLeave", function(self)
+                    self:SetBackdropColor(0, 0, 0, 0)
+                end)
+                f._items[i] = btn
+            end
+
+            btn:SetSize(ITEM_W, ITEM_H_CTX)
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -PAD - (i - 1) * ITEM_H_CTX)
+            btn._text:SetText(entry.text)
+            btn._text:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3])
+
+            if entry.checked then
+                btn._check:SetText("|cff44ee44✓|r")
+                btn._check:Show()
+            else
+                btn._check:SetText("")
+                btn._check:Hide()
+            end
+
+            if entry.isSeparator then
+                btn._text:SetText("|cff444444─────────────────|r")
+                btn:SetScript("OnClick", nil)
+                btn:EnableMouse(false)
+            else
+                btn:EnableMouse(true)
+                local func = entry.func
+                btn:SetScript("OnClick", function()
+                    f:Hide()
+                    if func then func() end
+                end)
+            end
+
+            btn:Show()
+        end
+
+        local totalH = PAD * 2 + #items * ITEM_H_CTX
+        f:SetSize(ITEM_W + PAD * 2, totalH)
+
+        -- 앵커 버튼 우측에 표시
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", anchorBtn, "TOPRIGHT", 2, 0)
+        f:Show()
+        f:Raise()
+    end
+
+    -- ─── 트래커 우클릭 컨텍스트 메뉴 ───
+    function btPanel:ShowTrackerContextMenu(idx, anchorBtn)
+        local trackedBuffs = GetTrackedBuffsForGUI()
+        local buff = trackedBuffs[idx]
+        if not buff then return end
+
+        local currentType = buff.displayType or "bar"
+        local items = {}
+
+        -- 표시 형식 변경 서브메뉴
+        local DISPLAY_TYPES = {
+            { id = "bar",   name = "BAR",   desc = L["Bar"] or "바" },
+            { id = "icon",  name = "ICON",  desc = L["Icon"] or "아이콘" },
+            { id = "ring",  name = "RING",  desc = L["Ring"] or "링" },
+            { id = "text",  name = "TEXT",  desc = L["Text"] or "텍스트" },
+            { id = "sound", name = "SOUND", desc = L["Sound"] or "사운드" },
+        }
+
+        items[#items + 1] = {
+            text = "|cff88ccff" .. (L["Display Type"] or "표시 형식") .. "|r",
+            isSeparator = false,
+            func = nil,
+        }
+
+        for _, dt in ipairs(DISPLAY_TYPES) do
+            local dtId = dt.id
+            items[#items + 1] = {
+                text = "    " .. dt.name .. "  |cff888888" .. dt.desc .. "|r",
+                checked = currentType == dtId,
+                func = function()
+                    trackedBuffs[idx].displayType = dtId
+                    DDingUI:UpdateBuffTrackerBar()
+                    btPanel:RefreshList()
+                    -- 우측 패널도 갱신
+                    if btPanel.selectedIndex == idx then
+                        btPanel:RenderTrackerTabs(idx)
+                    end
+                end,
+            }
+        end
+
+        items[#items + 1] = { isSeparator = true, text = "" }
+
+        -- 복제
+        items[#items + 1] = {
+            text = L["Duplicate"] or "복제",
+            func = function()
+                local copy = {}
+                for k, v in pairs(buff) do
+                    if type(v) == "table" then
+                        copy[k] = {}
+                        for kk, vv in pairs(v) do copy[k][kk] = vv end
+                    else
+                        copy[k] = v
+                    end
+                end
+                copy.name = (copy.name or "Copy") .. " (Copy)"
+                table.insert(trackedBuffs, idx + 1, copy)
+                DDingUI:UpdateBuffTrackerBar()
+                btPanel:RefreshList()
+            end,
+        }
+
+        -- 활성/비활성 토글
+        local toggleText = buff.disabled
+            and ("|cff44ee44" .. (L["Enable"] or "활성화") .. "|r")
+            or ("|cffaaaaaa" .. (L["Disable"] or "비활성화") .. "|r")
+        items[#items + 1] = {
+            text = toggleText,
+            func = function()
+                trackedBuffs[idx].disabled = not trackedBuffs[idx].disabled
+                DDingUI:UpdateBuffTrackerBar()
+                btPanel:RefreshList()
+            end,
+        }
+
+        items[#items + 1] = { isSeparator = true, text = "" }
+
+        -- 삭제
+        items[#items + 1] = {
+            text = "|cffff4444" .. (L["Delete"] or "삭제") .. "|r",
+            func = function()
+                DDingUI.ConfirmRemoveTrackedBuff(idx)
+            end,
+        }
+
+        ShowContextMenuItems(anchorBtn, items)
+    end
+
+    -- ─── 그룹 우클릭 컨텍스트 메뉴 ───
+    function btPanel:ShowGroupContextMenu(idx, anchorBtn)
+        local trackedBuffs = GetTrackedBuffsForGUI()
+        local group = trackedBuffs[idx]
+        if not group then return end
+
+        local items = {}
+
+        -- 활성/비활성 토글
+        local toggleText = group.disabled
+            and ("|cff44ee44" .. (L["Enable"] or "활성화") .. "|r")
+            or ("|cffaaaaaa" .. (L["Disable"] or "비활성화") .. "|r")
+        items[#items + 1] = {
+            text = toggleText,
+            func = function()
+                trackedBuffs[idx].disabled = not trackedBuffs[idx].disabled
+                DDingUI:UpdateBuffTrackerBar()
+                btPanel:RefreshList()
+            end,
+        }
+
+        -- 이름 변경 (그룹 설정 패널 열기)
+        items[#items + 1] = {
+            text = L["Rename"] or "이름 변경",
+            func = function()
+                btPanel.selectedIndex = idx
+                btPanel:RefreshList()
+                btPanel:RenderGroupSettings(idx)
+            end,
+        }
+
+        items[#items + 1] = { isSeparator = true, text = "" }
+
+        -- 삭제 (그룹 해체)
+        items[#items + 1] = {
+            text = "|cffff4444" .. (L["Delete Group"] or "그룹 삭제") .. "|r",
+            func = function()
+                -- 자식들을 최상위로 해제
+                if group.controlledChildren then
+                    for _, childIdx in ipairs(group.controlledChildren) do
+                        local child = trackedBuffs[childIdx]
+                        if child then child.parentGroup = nil end
+                    end
+                end
+                table.remove(trackedBuffs, idx)
+                -- 인덱스 재매핑
+                for ri = 1, #trackedBuffs do
+                    if trackedBuffs[ri].parentGroup then
+                        if trackedBuffs[ri].parentGroup == idx then
+                            trackedBuffs[ri].parentGroup = nil
+                        elseif trackedBuffs[ri].parentGroup > idx then
+                            trackedBuffs[ri].parentGroup = trackedBuffs[ri].parentGroup - 1
+                        end
+                    end
+                    if trackedBuffs[ri].controlledChildren then
+                        local newCC = {}
+                        for _, ci in ipairs(trackedBuffs[ri].controlledChildren) do
+                            if ci ~= idx then
+                                local newCI = ci > idx and ci - 1 or ci
+                                newCC[#newCC + 1] = newCI
+                            end
+                        end
+                        trackedBuffs[ri].controlledChildren = newCC
+                    end
+                end
+                DDingUI:UpdateBuffTrackerBar()
+                btPanel:RefreshList()
+                ClearTabContent()
+            end,
+        }
+
+        ShowContextMenuItems(anchorBtn, items)
+    end
+
+    -- ─── 트래커 선택 → 우측 탭 렌더링 ───
+    function btPanel:SelectTracker(index)
+        self.selectedIndex = index
+        self:RefreshList()
+        self:RenderTrackerTabs(index)
+    end
+
+    function btPanel:SelectStatic(key)
+        self.selectedIndex = key
+        self:RefreshList()
+        self:RenderStaticPage(key)
+    end
+
+    -- ─── 그룹 선택 → 그룹 설정 렌더링 ───
+    function btPanel:RenderGroupSettings(groupIdx)
+        ClearTabContent()
+
+        -- 탭 바 숨기기 (그룹 설정은 단일 설정 화면)
+        tabBar:Show()
+        for _, tb in ipairs(self.tabButtons) do tb:Hide() end
+
+        -- 탭 바에 그룹 설정 탭들 표시
+        tabScrollFrame:ClearAllPoints()
+        tabScrollFrame:SetPoint("TOPLEFT", tabBar, "BOTTOMLEFT", 5, -3)
+        tabScrollFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -12, 2)
+
+        -- 그룹 설정용 탭 정의 (위치 + 정렬 + 동작)
+        local groupTabs = {
+            { name = L["Position"] or "Position",  filter = {"positionHeader", "attachTo", "anchorPoint", "selfPoint", "offsetX", "offsetY", "frameStrata"} },
+            { name = L["Layout"] or "Layout",      filter = {"groupName", "groupEnabled", "layoutHeader", "growthDirection", "growthSpacing", "sortMode", "loadHeader", "loadCombatOnly", "loadInstanceType", "childrenHeader", "noChildren"} },
+            { name = L["Actions"] or "Actions",    filter = {"actionsHeader", "actionsEnabled", "set_add_spacer", "set_add"} },
+        }
+
+        -- 전체 그룹 옵션 가져오기
+        local allGroupOpts = DDingUI.CreateGroupOptions and DDingUI.CreateGroupOptions(groupIdx) or {}
+
+        -- children 옵션도 Layout 탭에 포함
+        -- set_* 동적 키는 Actions 탭에 포함
+        for key, opt in pairs(allGroupOpts) do
+            if key:match("^child%d+_") then
+                table.insert(groupTabs[2].filter, key)
+            elseif key:match("^set_") then
+                table.insert(groupTabs[3].filter, key)
+            end
+        end
+
+        -- 탭 버튼 렌더링
+        local tabXOff = 5
+        for ti, tabDef in ipairs(groupTabs) do
+            local tb = self.tabButtons[ti]
+            if not tb then
+                tb = CreateFrame("Button", nil, tabBar)
+                tb:SetHeight(TAB_H - 2)
+                tb._bg = tb:CreateTexture(nil, "BACKGROUND")
+                tb._bg:SetAllPoints()
+                tb._underline = tb:CreateTexture(nil, "OVERLAY")
+                tb._underline:SetHeight(2)
+                tb._underline:SetPoint("BOTTOMLEFT", 0, 0)
+                tb._underline:SetPoint("BOTTOMRIGHT", 0, 0)
+                tb._underline:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+                -- [ELLESMERE] PP
+                if tb._underline.SetSnapToPixelGrid then
+                    tb._underline:SetSnapToPixelGrid(false)
+                    tb._underline:SetTexelSnappingBias(0)
+                end
+                tb._label = tb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                tb._label:SetPoint("CENTER", 0, 1)
+                self.tabButtons[ti] = tb
+            end
+            tb:Show()
+            tb._label:SetText(tabDef.name)
+
+            local clampedTab = self.selectedTab
+            if not clampedTab or clampedTab > #groupTabs then clampedTab = 1 end
+            local isActive = (clampedTab == ti)
+            if isActive then
+                tb._label:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
+                tb._underline:Show()
+                tb._bg:SetColorTexture(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 0.5)
+            else
+                tb._label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
+                tb._underline:Hide()
+                tb._bg:SetColorTexture(0, 0, 0, 0)
+            end
+
+            local textW = tb._label:GetStringWidth()
+            tb:SetWidth(math.max(textW + 20, 70))
+            tb:ClearAllPoints()
+            tb:SetPoint("BOTTOMLEFT", tabBar, "BOTTOMLEFT", tabXOff, 1)
+            tabXOff = tabXOff + tb:GetWidth() + 2
+
+            -- 클릭 핸들러
+            local tabIdx = ti
+            tb:SetScript("OnClick", function()
+                self.selectedTab = tabIdx
+                self:RenderGroupSettings(groupIdx)
+            end)
+            tb:SetScript("OnEnter", function(self)
+                if not isActive then
+                    self._bg:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 0.4)
+                end
+            end)
+            tb:SetScript("OnLeave", function(self)
+                if not isActive then
+                    self._bg:SetColorTexture(0, 0, 0, 0)
+                end
+            end)
+        end
+
+        -- 나머지 탭 버튼 숨기기
+        for ti = #groupTabs + 1, #self.tabButtons do
+            self.tabButtons[ti]:Hide()
+        end
+
+        -- 활성 탭의 필터에 맞는 옵션만 렌더링
+        local activeTab = self.selectedTab or 1
+        if activeTab > #groupTabs then activeTab = 1 end  -- 트래커 탭 값 오염 방지
+        local filterKeys = {}
+        for _, key in ipairs(groupTabs[activeTab].filter) do
+            filterKeys[key] = true
+        end
+
+        local filteredOpts = {}
+        for key, opt in pairs(allGroupOpts) do
+            if filterKeys[key] then
+                filteredOpts[key] = opt
+            end
+        end
+
+        -- tabChild.scrollFrame 참조 설정 (RenderOptions 내부 스크롤바 갱신 지원)
+        tabChild.scrollFrame = tabScrollFrame
+
+        local pageOpts = { type = "group", name = groupTabs[activeTab].name, args = filteredOpts }
+        RenderOptions(tabChild, pageOpts, {}, parentFrame)
+
+        -- 높이 갱신 (딜레이 포함, inline group 확장 후 높이 재계산)
+        local function UpdateTabHeight()
+            -- tabChild 높이를 위젯 기반으로 재측정
+            local maxBottom = 0
+            if tabChild.widgets then
+                for _, w in ipairs(tabChild.widgets) do
+                    if w and w:IsShown() and w.GetBottom and w.GetTop then
+                        local wb = w:GetBottom()
+                        local wt = w:GetTop()
+                        local tct = tabChild:GetTop()
+                        if wb and tct then
+                            local widgetBottom = tct - wb
+                            if widgetBottom > maxBottom then
+                                maxBottom = widgetBottom
+                            end
+                        end
+                    end
+                end
+            end
+            if maxBottom > 0 then
+                tabChild:SetHeight(maxBottom + 50)
+            end
+            if tabScrollBar and tabScrollBar.UpdateThumbPosition then
+                tabScrollBar.UpdateThumbPosition()
+            end
+        end
+        C_Timer.After(0.05, UpdateTabHeight)
+        C_Timer.After(0.15, UpdateTabHeight)
+    end
+
+    -- ─── 그룹 우클릭 컨텍스트 메뉴 ───
+    function btPanel:ShowGroupContextMenu(groupIdx, anchorBtn)
+        local trackedBuffs = GetTrackedBuffsForGUI()  -- [FIX] global per-spec 소스
+        if not trackedBuffs[groupIdx] then return end
+
+        local group = trackedBuffs[groupIdx]
+
+        local menuFrame = CreateFrame("Frame", "DDingUI_BT_GroupCtxMenu", UIParent)
+        local childCount = group.controlledChildren and #group.controlledChildren or 0
+        local menuList = {
+            { text = group.name or "Group", isTitle = true, notCheckable = true },
+            { text = group.disabled and (L["Enable"] or "Enable") or (L["Disable"] or "Disable"), notCheckable = true, func = function()
+                trackedBuffs[groupIdx].disabled = not trackedBuffs[groupIdx].disabled
+                DDingUI:UpdateBuffTrackerBar()
+                self:RefreshList()
+            end },
+            { text = L["Rename"] or "Rename", notCheckable = true, func = function()
+                StaticPopupDialogs["DDINGUI_RENAME_GROUP"] = {
+                    text = L["Enter new group name:"] or "Enter new group name:",
+                    button1 = L["OK"] or "OK",
+                    button2 = L["Cancel"] or "Cancel",
+                    hasEditBox = true,
+                    OnAccept = function(dlg)
+                        local eb = DDingUI_GetPopupEditBox(dlg)
+                        local newName = eb and eb:GetText()
+                        if newName and newName ~= "" then
+                            trackedBuffs[groupIdx].name = newName
+                            DDingUI:UpdateBuffTrackerBar()
+                            btPanel:RefreshList()
+                        end
+                    end,
+                    timeout = 0,
+                    whileDead = true,
+                    hideOnEscape = true,
+                    preferredIndex = 3,
+                }
+                local popup = StaticPopup_Show("DDINGUI_RENAME_GROUP")
+                if popup then
+                    local eb = DDingUI_GetPopupEditBox(popup)
+                    if eb then eb:SetText(group.name or ""); eb:HighlightText() end
+                end
+            end },
+            { text = "|cffff4444" .. (L["Delete Group"] or "Delete Group") .. " (" .. childCount .. ")|r", notCheckable = true, func = function()
+                -- 확인 팝업
+                local groupName = group.name or "Group"
+                StaticPopupDialogs["DDINGUI_DELETE_GROUP_CONFIRM"] = {
+                    text = string.format(
+                        (L["Delete group '%s' and all %d children?\nThis cannot be undone."] or "Delete group '%s' and all %d children?\nThis cannot be undone."),
+                        groupName, childCount
+                    ),
+                    button1 = L["Delete"] or "Delete",
+                    button2 = L["Cancel"] or "Cancel",
+                    OnAccept = function()
+                        local tb = GetTrackedBuffsForGUI()
+                        -- 삭제할 인덱스 수집 (그룹 자신 + 모든 자식)
+                        local toRemove = { groupIdx }
+                        local children = tb[groupIdx] and tb[groupIdx].controlledChildren or {}
+                        for _, childIdx in ipairs(children) do
+                            table.insert(toRemove, childIdx)
+                        end
+                        -- 인덱스 내림차순 정렬 후 삭제 (앞에서 지우면 인덱스 밀림 방지)
+                        table.sort(toRemove, function(a, b) return a > b end)
+                        for _, removeIdx in ipairs(toRemove) do
+                            table.remove(tb, removeIdx)
+                        end
+                        -- 남은 항목들의 parentGroup / controlledChildren 인덱스 재계산
+                        for idx, entry in ipairs(tb) do
+                            -- parentGroup 정리
+                            if entry.parentGroup then
+                                local newPG = entry.parentGroup
+                                for _, removeIdx in ipairs(toRemove) do
+                                    if entry.parentGroup == removeIdx then
+                                        entry.parentGroup = nil
+                                        newPG = nil
+                                        break
+                                    elseif entry.parentGroup > removeIdx then
+                                        newPG = newPG - 1
+                                    end
+                                end
+                                entry.parentGroup = newPG
+                            end
+                            -- controlledChildren 정리
+                            if entry.controlledChildren then
+                                local newCC = {}
+                                for _, ci in ipairs(entry.controlledChildren) do
+                                    local removed = false
+                                    local newCI = ci
+                                    for _, removeIdx in ipairs(toRemove) do
+                                        if ci == removeIdx then removed = true; break end
+                                        if ci > removeIdx then newCI = newCI - 1 end
+                                    end
+                                    if not removed then
+                                        table.insert(newCC, newCI)
+                                    end
+                                end
+                                entry.controlledChildren = newCC
+                            end
+                        end
+                        DDingUI:UpdateBuffTrackerBar()
+                        if btPanel.selectedIndex == groupIdx then
+                            btPanel.selectedIndex = nil
+                            ClearTabContent()
+                            tabBar:Hide()
+                        end
+                        btPanel:RefreshList()
+                    end,
+                    timeout = 0,
+                    whileDead = true,
+                    hideOnEscape = true,
+                    showAlert = true,
+                    preferredIndex = 3,
+                }
+                StaticPopup_Show("DDINGUI_DELETE_GROUP_CONFIRM")
+            end },
+            { text = L["Move Up"] or "Move Up", notCheckable = true, disabled = groupIdx <= 1, func = function()
+                if DDingUI.MoveTrackedBuff then
+                    DDingUI.MoveTrackedBuff(groupIdx, -1)
+                    DDingUI:UpdateBuffTrackerBar()
+                    self:RefreshList()
+                end
+            end },
+            { text = L["Move Down"] or "Move Down", notCheckable = true, disabled = groupIdx >= #trackedBuffs, func = function()
+                if DDingUI.MoveTrackedBuff then
+                    DDingUI.MoveTrackedBuff(groupIdx, 1)
+                    DDingUI:UpdateBuffTrackerBar()
+                    self:RefreshList()
+                end
+            end },
+        }
+        EasyMenu(menuList, menuFrame, anchorBtn, 0, 0, "MENU")
+    end
+
+    -- ─── 우측 탭 렌더링 (WeakAuras 스타일) ───
+    -- flat options를 order 범위 + key prefix로 탭으로 자동 분류
+    function btPanel:RenderTrackerTabs(index)
+        ClearTabContent()
+
+        -- 기존 탭 버튼 숨기기
+        for _, tb in ipairs(self.tabButtons) do tb:Hide() end
+
+        -- 탭 바 표시 + 컨텐츠 위치 조정
+        tabBar:Show()
+        tabScrollFrame:ClearAllPoints()
+        tabScrollFrame:SetPoint("TOPLEFT", tabBar, "BOTTOMLEFT", 5, -3)
+        tabScrollFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -12, 2)
+
+        -- skipCollapsible=true로 옵션 가져오기 (항상 expanded, header/remove/spacer 없음)
+        local allOpts = ns.CreateTrackedBuffOptions(index, 0, true)
+
+        -- displayType 확인
+        local trackedBuffs = GetTrackedBuffsForGUI()  -- [FIX] global per-spec 소스
+        local buff = trackedBuffs[index]
+        local dType = buff and buff.displayType or "bar"
+
+        -- ─── 탭 정의 (order 범위 + key prefix) ───
+        -- 각 탭은 { name, filter } 형태
+        -- filter(key, order) → true면 해당 탭에 포함
+        local tabDefs = {}
+
+        -- 1. 기본 설정 (모든 displayType에 공통)
+        tabDefs[#tabDefs + 1] = {
+            name = L["General"] or "General",
+            filter = function(key, order)
+                -- order 0~1.09 범위 (enabled, displayType, frameStrata, trackingMode, manual 관련)
+                -- Spell bar/color/text 키는 Bar/Text 탭으로 이동되었으므로 제외
+                if key:find("_spellFillDirection", 1, true) or key:find("_spellRechargeColor", 1, true)
+                   or key:find("_spellFullChargeColor", 1, true) or key:find("_spellReadyStyle", 1, true)
+                   or key:find("_spellReadyColor", 1, true) or key:find("_spellColorCurve", 1, true)
+                   or key:find("_spellShowReadyText", 1, true) or key:find("_spellHeader", 1, true) then
+                    return false
+                end
+                return order >= 0 and order < 1.1
+            end,
+        }
+
+        -- 2. displayType별 전용 탭
+        if dType == "icon" then
+            tabDefs[#tabDefs + 1] = {
+                name = L["Icon"] or "Icon",
+                filter = function(key, order)
+                    return order >= 1.1 and order < 1.81
+                end,
+            }
+        elseif dType == "sound" then
+            tabDefs[#tabDefs + 1] = {
+                name = L["Sound"] or "Sound",
+                filter = function(key, order)
+                    return order >= 1.81 and order < 1.9
+                end,
+            }
+        elseif dType == "text" then
+            tabDefs[#tabDefs + 1] = {
+                name = L["Text"] or "Text",
+                filter = function(key, order)
+                    return order >= 1.9 and order < 2
+                end,
+            }
+        elseif dType == "ring" then
+            tabDefs[#tabDefs + 1] = {
+                name = L["Ring"] or "Ring",
+                filter = function(key, order)
+                    -- 링 설정: ring prefix (Pos, Offset 포함)
+                    return key:find("_ring") ~= nil
+                end,
+            }
+        elseif dType == "bar" then
+            -- 바 관련 스펠 옵션 키 (General에서 Bar로 이동)
+            local spellBarKeys = {
+                _spellFillDirection = true,
+                _spellRechargeColor = true,
+                _spellFullChargeColor = true,
+                _spellReadyStyle = true,
+                _spellReadyColor = true,
+                _spellColorCurve = true,
+            }
+            -- 텍스트 관련 스펠 옵션 키 (General에서 Text로 이동)
+            local spellTextKeys = {
+                _spellShowReadyText = true,
+            }
+            -- 스펠 헤더 키
+            local spellHeaderKey = "_spellHeader"
+
+            -- 스펠 키 매칭 함수 (key suffix 기반)
+            local function isSpellBarKey(key)
+                for suffix in pairs(spellBarKeys) do
+                    if key:find(suffix, 1, true) then return true end
+                end
+                return false
+            end
+            local function isSpellTextKey(key)
+                for suffix in pairs(spellTextKeys) do
+                    if key:find(suffix, 1, true) then return true end
+                end
+                return false
+            end
+            local function isSpellHeaderKey(key)
+                return key:find(spellHeaderKey, 1, true) ~= nil
+            end
+
+            -- 외관 탭 (바 색상/채움/텍스쳐/테두리 + 스펠 색상/외관 옵션)
+            tabDefs[#tabDefs + 1] = {
+                name = L["Appearance"] or "Appearance",
+                filter = function(key, order)
+                    -- order 2~4.99 (기존 bar settings) + spell bar/color 키
+                    if isSpellBarKey(key) or isSpellHeaderKey(key) then return true end
+                    if order >= 2 and order < 5 then return true end
+                    -- order 5.65~5.94: barOrientation, reverseFill, border, texture
+                    if order >= 5.65 and order < 5.95 then return true end
+                    return false
+                end,
+            }
+            -- 위치/크기 탭
+            tabDefs[#tabDefs + 1] = {
+                name = L["Position"] or "Position",
+                filter = function(key, order)
+                    -- order 5.0~5.64: attachTo, anchorPoint, selfPoint, offset, width, height
+                    return order >= 5 and order < 5.65
+                end,
+            }
+            -- 텍스트 탭 (기존 Appearance → Text 이름 변경 + spell text 옵션 포함)
+            tabDefs[#tabDefs + 1] = {
+                name = L["Text"] or "Text",
+                filter = function(key, order)
+                    -- order 5.95~7.99: tick, stacks text, duration text, border, texture + spell text keys
+                    if isSpellTextKey(key) then return true end
+                    return order >= 5.95 and order < 8
+                end,
+            }
+        end
+
+        -- 마지막: 알림 탭 (모든 displayType 공통, order 8+)
+        tabDefs[#tabDefs + 1] = {
+            name = L["Actions"] or "Actions",
+            filter = function(key, order)
+                return key:find("_alert") ~= nil or order >= 8
+            end,
+        }
+
+        -- ─── 각 탭의 옵션 분류 ───
+        local tabGroups = {}
+        for i, def in ipairs(tabDefs) do
+            local args = {}
+            local hasVisible = false
+            for key, opt in pairs(allOpts) do
+                local oOrder = opt.order or 999
+                if def.filter(key, oOrder) then
+                    args[key] = opt
+                    -- hidden 체크 (함수이면 호출)
+                    local isHidden = false
+                    if type(opt.hidden) == "function" then
+                        local ok, result = pcall(opt.hidden)
+                        isHidden = ok and result
+                    elseif opt.hidden then
+                        isHidden = true
+                    end
+                    if not isHidden then hasVisible = true end
+                end
+            end
+            tabGroups[i] = { name = def.name, args = args, hasVisible = hasVisible }
+        end
+
+        -- ─── 탭 버튼 생성 ───
+        local tabX = 5
+        local visibleTabIdx = 0
+        local firstVisibleTab = nil
+
+        for i, tg in ipairs(tabGroups) do
+            -- 빈 탭은 건너뛰기
+            if tg.hasVisible or next(tg.args) then
+                visibleTabIdx = visibleTabIdx + 1
+                local btnIdx = visibleTabIdx
+                local tb = self.tabButtons[btnIdx]
+                if not tb then
+                    tb = CreateFrame("Button", nil, tabBar)
+                    tb:SetHeight(TAB_H - 2)
+                    tb._bg = tb:CreateTexture(nil, "BACKGROUND")
+                    tb._bg:SetAllPoints()
+                    tb._bg:SetColorTexture(0, 0, 0, 0)
+                    tb._underline = tb:CreateTexture(nil, "OVERLAY")
+                    tb._underline:SetHeight(2)
+                    tb._underline:SetPoint("BOTTOMLEFT", 0, 0)
+                    tb._underline:SetPoint("BOTTOMRIGHT", 0, 0)
+                    tb._underline:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+                    tb._underline:Hide()
+                    tb._label = tb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    tb._label:SetPoint("CENTER", 0, 1)
+                    self.tabButtons[btnIdx] = tb
+                end
+
+                tb:Show()
+                tb._label:SetText(tg.name)
+                tb._label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
+                tb._underline:Hide()
+                tb._bg:SetColorTexture(0, 0, 0, 0)
+
+                local textW = tb._label:GetStringWidth()
+                tb:SetWidth(math.max(textW + 20, 50))
+                tb:ClearAllPoints()
+                tb:SetPoint("BOTTOMLEFT", tabBar, "BOTTOMLEFT", tabX, 1)
+                tabX = tabX + tb:GetWidth() + 2
+
+                -- hover
+                tb:SetScript("OnEnter", function(self)
+                    if not self._active then
+                        self._bg:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 0.3)
+                    end
+                end)
+                tb:SetScript("OnLeave", function(self)
+                    if not self._active then
+                        self._bg:SetColorTexture(0, 0, 0, 0)
+                    end
+                end)
+
+                -- 탭 클릭
+                local tabGroup = tg
+                tb:SetScript("OnClick", function()
+                    btPanel:ShowTab(tabGroup, btnIdx)
+                end)
+
+                if not firstVisibleTab then
+                    firstVisibleTab = { group = tg, idx = btnIdx }
+                end
+            end
+        end
+
+        -- 첫 번째 탭 자동 선택 (또는 이전 선택 복원)
+        if self.selectedTab and self.tabButtons[self.selectedTab] and self.tabButtons[self.selectedTab]:IsShown() then
+            -- 이전 탭 복원 시도
+            for i, tg in ipairs(tabGroups) do
+                if tg.hasVisible or next(tg.args) then
+                    local tb = self.tabButtons[self.selectedTab]
+                    if tb and tb._label and tb._label:GetText() == tg.name then
+                        btPanel:ShowTab(tg, self.selectedTab)
+                        return
+                    end
+                end
+            end
+        end
+        if firstVisibleTab then
+            btPanel:ShowTab(firstVisibleTab.group, firstVisibleTab.idx)
+        end
+    end
+
+    -- ─── 탭 콘텐츠 표시 ───
+    function btPanel:ShowTab(tabGroup, btnIdx)
+        ClearTabContent()
+
+        -- 모든 탭 비활성화
+        for _, tb in ipairs(self.tabButtons) do
+            if tb:IsShown() then
+                tb._active = false
+                tb._underline:Hide()
+                tb._bg:SetColorTexture(0, 0, 0, 0)
+                tb._label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
+            end
+        end
+
+        -- 선택된 탭 활성화
+        local activeBtn = self.tabButtons[btnIdx]
+        if activeBtn then
+            activeBtn._active = true
+            activeBtn._underline:Show()
+            activeBtn._bg:SetColorTexture(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 0.5)
+            activeBtn._label:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
+        end
+        self.selectedTab = btnIdx
+
+        -- 탭 콘텐츠 렌더링
+        local pageOpts = { type = "group", name = tabGroup.name, args = tabGroup.args }
+        RenderOptions(tabChild, pageOpts, {}, parentFrame)
+
+        -- 높이 갱신
+        C_Timer.After(0.05, function()
+            if tabScrollBar and tabScrollBar.UpdateThumbPosition then
+                tabScrollBar.UpdateThumbPosition()
+            end
+        end)
+    end
+
+    -- ─── 정적 페이지 (개요, 마법사, 카탈로그, 글로벌) ───
+    function btPanel:RenderStaticPage(key)
+        ClearTabContent()
+        -- 탭 바 숨기기 (정적 페이지는 탭 없음)
+        tabBar:Hide()
+        for _, tb in ipairs(self.tabButtons) do tb:Hide() end
+
+        -- 컨텐츠 영역 재배치 (탭바 숨김이므로 상단부터)
+        tabScrollFrame:ClearAllPoints()
+        tabScrollFrame:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 5, -5)
+        tabScrollFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -12, 2)
+
+        local pageOpts = nil
+        if key == "wizard" then
+            -- 새 트래커 추가 페이지
+            pageOpts = {
+                type = "group",
+                name = "New Tracker",
+                args = {
+                    desc = {
+                        type = "description",
+                        name = "|cffaaaaaa" .. (L["Select a buff from the CDM Catalog, or add one manually."] or "Select a buff from the CDM Catalog, or add one manually.") .. "|r",
+                        order = 1,
+                        fontSize = "medium",
+                    },
+                    spacer = {type = "description", name = " ", order = 1.5, width = "full"},
+                    manualAdd = {
+                        type = "execute",
+                        name = "|cff00ff00+ " .. (L["Manual Add"] or "Manual Add") .. "|r",
+                        desc = L["Add a manual tracked buff with trigger/spender spells"] or "Add a manual tracked buff with trigger/spender spells",
+                        order = 2,
+                        width = "full",
+                        func = function()
+                            DDingUI.AddManualTrackedBuff()
+                            if btPanel.RefreshList then btPanel:RefreshList() end
+                        end,
+                    },
+                    spellAdd = {
+                        type = "execute",
+                        name = "|cff00ccff+ " .. (L["Spell Cooldown"] or "Spell Cooldown") .. "|r",
+                        desc = L["Add a spell cooldown tracker (uses C_Spell API)"] or "Add a spell cooldown tracker (uses C_Spell API)",
+                        order = 2.2,
+                        width = "full",
+                        func = function()
+                            DDingUI.AddSpellTrackedBuff()
+                            if btPanel.RefreshList then btPanel:RefreshList() end
+                        end,
+                    },
+                    newGroup = {
+                        type = "execute",
+                        name = "|cff8888ff+ " .. (L["New Group"] or "New Group") .. "|r",
+                        desc = L["Create a new group to organize trackers"] or "Create a new group to organize trackers",
+                        order = 2.5,
+                        width = "full",
+                        func = function()
+                            DDingUI.CreateTrackerGroup()
+                            if btPanel.RefreshList then btPanel:RefreshList() end
+                        end,
+                    },
+                    gotoCatalog = {
+                        type = "execute",
+                        name = L["Open CDM Catalog"] or "Open CDM Catalog",
+                        desc = L["Go to CDM Catalog to select auras"] or "Go to CDM Catalog to select auras",
+                        order = 3,
+                        width = "full",
+                        func = function()
+                            btPanel:SelectStatic("catalog")
+                        end,
+                    },
+                },
+            }
+        elseif key == "catalog" then
+            -- CDM 카탈로그 (기존 작동 유지)
+            local catalogOpts = ns.CreateAuraIconOptions(1)
+            pageOpts = {type = "group", name = "CDM Catalog", args = catalogOpts}
+        end
+
+        if pageOpts then
+            RenderOptions(tabChild, pageOpts, {}, parentFrame)
+        end
+
+        -- 높이 갱신
+        C_Timer.After(0.05, function()
+            if tabScrollBar and tabScrollBar.UpdateThumbPosition then
+                tabScrollBar.UpdateThumbPosition()
+            end
+        end)
+    end
+
+    -- 외부(옵션)에서 카탈로그 열기 지원
+    DDingUI.OpenAuraCatalog = function()
+        if btPanel and btPanel.RenderStaticPage then
+            btPanel:RenderStaticPage("catalog")
+        end
+    end
+
+    -- ─── 우클릭 컨텍스트 메뉴 ───
+    function btPanel:ShowTrackerContextMenu(index, anchorBtn)
+        local trackedBuffs = GetTrackedBuffsForGUI()  -- [FIX] global per-spec 소스
+        if not trackedBuffs[index] then return end
+
+        local buff = trackedBuffs[index]
+        local buffName = buff.name or "Tracker #" .. index
+
+        -- 심플 드롭다운 메뉴
+        local menuFrame = CreateFrame("Frame", "DDingUI_BT_CtxMenu2", UIParent)
+        local menuList = {
+            { text = buffName, isTitle = true, notCheckable = true },
+            { text = buff.disabled and (L["Enable"] or "Enable") or (L["Disable"] or "Disable"), notCheckable = true, func = function()
+                trackedBuffs[index].disabled = not trackedBuffs[index].disabled
+                DDingUI:UpdateBuffTrackerBar()
+                self:RefreshList()
+            end },
+            { text = L["Rename"] or "Rename", notCheckable = true, func = function()
+                StaticPopupDialogs["DDINGUI_RENAME_TRACKER"] = {
+                    text = L["Enter new name:"] or "Enter new name:",
+                    button1 = L["OK"] or "OK",
+                    button2 = L["Cancel"] or "Cancel",
+                    hasEditBox = true,
+                    OnAccept = function(dlg)
+                        local eb = DDingUI_GetPopupEditBox(dlg)
+                        local newName = eb and eb:GetText()
+                        if newName and newName ~= "" then
+                            trackedBuffs[index].name = newName
+                            DDingUI:UpdateBuffTrackerBar()
+                            btPanel:RefreshList()
+                            -- 선택된 상태면 탭도 갱신
+                            if btPanel.selectedIndex == index then
+                                btPanel:RenderTrackerTabs(index)
+                            end
+                        end
+                    end,
+                    timeout = 0,
+                    whileDead = true,
+                    hideOnEscape = true,
+                    preferredIndex = 3,
+                }
+                local popup = StaticPopup_Show("DDINGUI_RENAME_TRACKER")
+                if popup then
+                    local eb = DDingUI_GetPopupEditBox(popup)
+                    if eb then eb:SetText(buffName); eb:HighlightText() end
+                end
+            end },
+            { text = L["Duplicate"] or "Duplicate", notCheckable = true, func = function()
+                if DDingUI.DuplicateTrackedBuff then
+                    DDingUI.DuplicateTrackedBuff(index)
+                    DDingUI:UpdateBuffTrackerBar()
+                    self:RefreshList()
+                end
+            end },
+            { text = L["Move Up"] or "Move Up", notCheckable = true, disabled = index <= 1, func = function()
+                if DDingUI.MoveTrackedBuff then
+                    DDingUI.MoveTrackedBuff(index, -1)
+                    DDingUI:UpdateBuffTrackerBar()
+                    self:RefreshList()
+                end
+            end },
+            { text = L["Move Down"] or "Move Down", notCheckable = true, disabled = index >= #trackedBuffs, func = function()
+                if DDingUI.MoveTrackedBuff then
+                    DDingUI.MoveTrackedBuff(index, 1)
+                    DDingUI:UpdateBuffTrackerBar()
+                    self:RefreshList()
+                end
+            end },
+        }
+
+        -- ─── Move to Group 서브메뉴 ───
+        local groupSubmenu = {}
+        -- trackedBuffs는 이미 위에서 GetTrackedBuffsForGUI()로 가져옴
+        for gi, entry in ipairs(trackedBuffs) do
+            if entry.isGroup and gi ~= index then
+                local gName = entry.name or ("Group #" .. gi)
+                local isAlreadyInGroup = (buff.parentGroup == gi)
+                table.insert(groupSubmenu, {
+                    text = (isAlreadyInGroup and "|cff44ee44✓ " or "") .. gName,
+                    notCheckable = true,
+                    func = function()
+                        if isAlreadyInGroup then
+                            DDingUI.RemoveFromGroup(index)
+                        else
+                            DDingUI.AddToGroup(index, gi)
+                        end
+                        self:RefreshList()
+                    end,
+                })
+            end
+        end
+        if #groupSubmenu > 0 then
+            table.insert(menuList, {
+                text = L["Move to Group"] or "Move to Group",
+                notCheckable = true,
+                hasArrow = true,
+                menuList = groupSubmenu,
+            })
+        end
+
+        -- Remove from Group (if in a group)
+        if buff.parentGroup then
+            local parentName = trackedBuffs[buff.parentGroup] and trackedBuffs[buff.parentGroup].name or "Group"
+            table.insert(menuList, {
+                text = "|cffff8800" .. (L["Remove from"] or "Remove from") .. " " .. parentName .. "|r",
+                notCheckable = true,
+                func = function()
+                    DDingUI.RemoveFromGroup(index)
+                    self:RefreshList()
+                end,
+            })
+        end
+
+        -- Delete (항상 마지막)
+        table.insert(menuList, {
+            text = "|cffff4444" .. (L["Delete"] or "Delete") .. "|r", notCheckable = true, func = function()
+                if DDingUI.RemoveTrackedBuff then
+                    DDingUI.RemoveTrackedBuff(index)
+                    DDingUI:UpdateBuffTrackerBar()
+                    if self.selectedIndex == index then
+                        self.selectedIndex = nil
+                        ClearTabContent()
+                        tabBar:Hide()
+                    end
+                    self:RefreshList()
+                end
+            end,
+        })
+
+        EasyMenu(menuList, menuFrame, anchorBtn, 0, 0, "MENU")
+    end
+
+    -- ─── 초기 렌더링 ───
+    btPanel:RefreshList()
+
+    -- 첫 번째 트래커 자동 선택 (있으면), 없으면 wizard
+    local trackedBuffs = GetTrackedBuffsForGUI()  -- [FIX] global per-spec 소스
+    if #trackedBuffs > 0 then
+        -- 첫 번째 비그룹 항목 찾기
+        local firstNonGroup = nil
+        for i, entry in ipairs(trackedBuffs) do
+            if not entry.isGroup then firstNonGroup = i; break end
+        end
+        if firstNonGroup then
+            btPanel:SelectTracker(firstNonGroup)
+        elseif trackedBuffs[1] and trackedBuffs[1].isGroup then
+            btPanel.selectedIndex = 1
+            btPanel:RefreshList()
+            btPanel:RenderGroupSettings(1)
+        end
+    else
+        btPanel:SelectStatic("wizard")
+    end
+end
+
+RenderOptions = function(contentFrame, options, path, parentFrame)
     path = path or {}
     parentFrame = parentFrame or contentFrame:GetParent():GetParent()
+
+    -- [REFACTOR] 커스텀 렌더러 분기
+    if options.customRenderer == "buffTracker" then
+        CreateBuffTrackerPanel(contentFrame, parentFrame)
+        return
+    end
+
+    -- Buff Tracker 커스텀 패널 숨기기 (다른 탭으로 이동 시)
+    -- NOTE: btPanel 내부의 tabChild에서 RenderOptions를 호출할 때는 숨기지 않음
+    if parentFrame and parentFrame.contentArea and parentFrame.contentArea._btPanel then
+        local btPanel = parentFrame.contentArea._btPanel
+        local isInsideBtPanel = btPanel.tabChild and (contentFrame == btPanel.tabChild)
+        if not isInsideBtPanel then
+            btPanel:Hide()
+            -- 스크롤 UI 복원
+            parentFrame.scrollFrame:Show()
+            if parentFrame.scrollBar then parentFrame.scrollBar:Show() end
+        end
+    end
 
     if contentFrame.subScrollChild then
         if contentFrame.subScrollChild.widgets then
@@ -3247,14 +5418,14 @@ local function RenderOptions(contentFrame, options, path, parentFrame)
                 -- Track this as current section
                 currentHeaderWidget = widget
                 currentSectionKey = sectionKey
-                currentSectionCollapsed = CollapsedGroups[sectionKey] ~= false
+                currentSectionCollapsed = CollapsedGroups[sectionKey] == true  -- nil = 펼침 (기본)
                 sectionWidgets[sectionKey] = {}
 
                 -- Set up collapse button click handler
                 if widget.collapseBtn then
                     widget.collapseBtn:SetScript("OnClick", function(self)
                         local sk = widget._sectionKey
-                        local collapsed = CollapsedGroups[sk] ~= false  -- nil or true = collapsed
+                        local collapsed = CollapsedGroups[sk] == true  -- nil = 펼침 (기본)
 
                         if collapsed then
                             -- Expand
@@ -3266,11 +5437,67 @@ local function RenderOptions(contentFrame, options, path, parentFrame)
                             self.arrow:SetText("▶")
                         end
 
-                        -- Refresh the content
-                        local configFrame = ConfigFrame
-                        if configFrame and configFrame.SoftRefresh then
-                            configFrame:SoftRefresh()
+                        -- 섹션 위젯 show/hide (전체 재렌더 없이 즉시 반영)
+                        local secWidgets = sectionWidgets[sk]
+                        if secWidgets then
+                            for _, sw in ipairs(secWidgets) do
+                                if collapsed then
+                                    sw:Show()
+                                else
+                                    sw:Hide()
+                                end
+                            end
                         end
+
+                        -- 보이는 위젯의 Y 위치 재배치 + contentFrame 높이 재계산
+                        C_Timer.After(0, function()
+                            -- 범용: contentFrame의 보이는 위젯 위치 재배치
+                            if contentFrame and contentFrame.widgets then
+                                local newY = 0
+                                local spacing = 15
+                                for _, w in ipairs(contentFrame.widgets) do
+                                    if w:IsShown() then
+                                        w:ClearAllPoints()
+                                        w:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, -newY)
+                                        w:SetPoint("RIGHT", contentFrame, "RIGHT", -10, 0)
+                                        local h = w:GetHeight() or 28
+                                        newY = newY + h + spacing
+                                    end
+                                end
+                                local totalH = newY + 50
+                                contentFrame:SetHeight(totalH)
+                                -- 스크롤바 업데이트
+                                if contentFrame.scrollFrame and contentFrame.scrollFrame.ScrollBar
+                                   and contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition then
+                                    pcall(contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition)
+                                end
+                            end
+
+                            -- 커스텀 오라 패널 폴백
+                            local cf = _G["DDingUI_ConfigFrame"]
+                            local btp = cf and cf.contentArea and cf.contentArea._btPanel
+                            if btp and btp.selectedIndex and btp:IsShown() then
+                                pcall(function()
+                                    local idx = btp.selectedIndex
+                                    if type(idx) == "string" then
+                                        if btp.RenderStaticPage then
+                                            btp:RenderStaticPage(idx)
+                                        end
+                                    else
+                                        local specIdx = GetSpecialization and GetSpecialization() or 1
+                                        local specID = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx) or 0
+                                        local globalStore = DDingUI.db and DDingUI.db.global and DDingUI.db.global.trackedBuffsPerSpec
+                                        local tb = (globalStore and globalStore[specID]) or (DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar and DDingUI.db.profile.buffTrackerBar.trackedBuffs) or {}
+                                        local sel = tb[idx]
+                                        if sel and sel.isGroup and btp.RenderGroupSettings then
+                                            btp:RenderGroupSettings(idx)
+                                        elseif btp.RenderTrackerTabs then
+                                            btp:RenderTrackerTabs(idx)
+                                        end
+                                    end
+                                end)
+                            end
+                        end)
                     end)
                 end
             elseif option.type == "description" then
@@ -3284,7 +5511,7 @@ local function RenderOptions(contentFrame, options, path, parentFrame)
 
                 -- Generate unique key for collapse state
                 local groupKey = table.concat(path or {}, ".") .. "." .. key
-                local isCollapsed = CollapsedGroups[groupKey] ~= false
+                local isCollapsed = CollapsedGroups[groupKey] == true  -- nil = 펼침 (기본)
 
                 -- Foldable group frame (no background)
                 local groupFrame = CreateFrame("Frame", nil, contentFrame)
@@ -3500,7 +5727,7 @@ local function RenderOptions(contentFrame, options, path, parentFrame)
                     local gf = self:GetParent()
                     local gKey = gf._groupKey
                     local cc = gf._contentContainer
-                    local collapsed = CollapsedGroups[gKey] ~= false  -- nil or true = collapsed
+                    local collapsed = CollapsedGroups[gKey] == true  -- nil = 펼침 (기본)
 
                     if collapsed then
                         -- Expand
@@ -3516,11 +5743,49 @@ local function RenderOptions(contentFrame, options, path, parentFrame)
                         self.arrow:SetText("+")
                     end
 
-                    -- Request parent to re-layout (refresh the whole content frame)
-                    local configFrame = ConfigFrame
-                    if configFrame and configFrame.SoftRefresh then
-                        configFrame:SoftRefresh()
-                    end
+                    -- 부모 레이아웃 재계산 (다음 프레임)
+                    C_Timer.After(0, function()
+                        -- 범용: contentFrame의 보이는 위젯 위치 재배치
+                        if contentFrame and contentFrame.widgets then
+                            local newY = 0
+                            local spacing = 15
+                            for _, w in ipairs(contentFrame.widgets) do
+                                if w:IsShown() then
+                                    w:ClearAllPoints()
+                                    w:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, -newY)
+                                    w:SetPoint("RIGHT", contentFrame, "RIGHT", -10, 0)
+                                    local h = w:GetHeight() or 28
+                                    newY = newY + h + spacing
+                                end
+                            end
+                            local totalH = newY + 50
+                            contentFrame:SetHeight(totalH)
+                            if contentFrame.scrollFrame and contentFrame.scrollFrame.ScrollBar
+                               and contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition then
+                                pcall(contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition)
+                            end
+                        end
+
+                        -- 커스텀 오라 패널 폴백
+                        local cf = _G["DDingUI_ConfigFrame"]
+                        local btp = cf and cf.contentArea and cf.contentArea._btPanel
+                        if btp and btp.selectedIndex and btp:IsShown() then
+                            pcall(function()
+                                if btp.RenderGroupSettings or btp.RenderTrackerTabs then
+                                    local specIdx = GetSpecialization and GetSpecialization() or 1
+                                    local specID = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx) or 0
+                                    local globalStore = DDingUI.db and DDingUI.db.global and DDingUI.db.global.trackedBuffsPerSpec
+                                    local tb = (globalStore and globalStore[specID]) or (DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar and DDingUI.db.profile.buffTrackerBar.trackedBuffs) or {}
+                                    local sel = tb[btp.selectedIndex]
+                                    if sel and sel.isGroup and btp.RenderGroupSettings then
+                                        btp:RenderGroupSettings(btp.selectedIndex)
+                                    elseif btp.RenderTrackerTabs then
+                                        btp:RenderTrackerTabs(btp.selectedIndex)
+                                    end
+                                end
+                            end)
+                        end
+                    end)
                 end)
 
                 -- Also make title clickable for toggle
@@ -3539,6 +5804,7 @@ local function RenderOptions(contentFrame, options, path, parentFrame)
 
                 groupFrame:Show()
                 table.insert(contentFrame.widgets, groupFrame)
+                widget = groupFrame  -- yOffset 증가를 위해 widget에 할당
                 widgetHeight = isCollapsed and groupFrame._collapsedHeight or (contentHeight + 28 + 10)
             end
             
@@ -4087,23 +6353,118 @@ function DDingUI:CreateConfigFrame()
         self:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
     end)
 
-    -- 프로필 드롭다운 클릭 → 프로필 목록 팝업
-    profileDropdown:SetScript("OnMouseDown", function(self)
-        -- 기존 리스트 닫기
-        if self._listFrame and self._listFrame:IsShown() then
-            self._listFrame:Hide()
-            return
-        end
+    -- ============================================
+    -- 커스텀 확인 팝업 (FULLSCREEN_DIALOG 스트라타 — config 위에 표시)
+    -- ============================================
+    local confirmPopup = CreateFrame("Frame", "DDingUI_ProfileConfirmPopup", UIParent, "BackdropTemplate")
+    confirmPopup:SetSize(300, 120)
+    confirmPopup:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+    confirmPopup:SetFrameStrata("FULLSCREEN_DIALOG")
+    confirmPopup:SetFrameLevel(500)
+    confirmPopup:EnableMouse(true)
+    confirmPopup:SetMovable(true)
+    confirmPopup:RegisterForDrag("LeftButton")
+    confirmPopup:SetScript("OnDragStart", confirmPopup.StartMoving)
+    confirmPopup:SetScript("OnDragStop", confirmPopup.StopMovingOrSizing)
+    confirmPopup:Hide()
 
+    confirmPopup:SetBackdrop({
+        bgFile = FLAT,
+        edgeFile = FLAT,
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    confirmPopup:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
+    confirmPopup:SetBackdropBorderColor(0.8, 0.2, 0.2, 0.9)
+
+    local confirmText = confirmPopup:CreateFontString(nil, "OVERLAY")
+    confirmText:SetFont(globalFontPath, 12, "")
+    confirmText:SetShadowColor(0, 0, 0, 1)
+    confirmText:SetShadowOffset(1, -1)
+    confirmText:SetPoint("TOP", 0, -18)
+    confirmText:SetWidth(260)
+    confirmText:SetJustifyH("CENTER")
+    confirmText:SetTextColor(1, 0.85, 0.85)
+    confirmPopup._text = confirmText
+
+    -- 확인 버튼
+    local confirmAcceptBtn = CreateFrame("Button", nil, confirmPopup, "BackdropTemplate")
+    confirmAcceptBtn:SetSize(100, 26)
+    confirmAcceptBtn:SetPoint("BOTTOMRIGHT", confirmPopup, "BOTTOM", -8, 14)
+    CreateBackdrop(confirmAcceptBtn, {0.6, 0.15, 0.15, 0.9}, {0.8, 0.2, 0.2, 0.9})
+
+    local acceptText = confirmAcceptBtn:CreateFontString(nil, "OVERLAY")
+    acceptText:SetFont(globalFontPath, 11, "")
+    acceptText:SetShadowColor(0, 0, 0, 1)
+    acceptText:SetShadowOffset(1, -1)
+    acceptText:SetPoint("CENTER", 0, 0)
+    acceptText:SetText(ACCEPT or "삭제")
+    acceptText:SetTextColor(1, 1, 1)
+
+    confirmAcceptBtn:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(0.8, 0.2, 0.2, 1)
+    end)
+    confirmAcceptBtn:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(0.6, 0.15, 0.15, 0.9)
+    end)
+    confirmAcceptBtn:SetScript("OnClick", function()
+        if confirmPopup._onAccept then
+            confirmPopup._onAccept()
+        end
+        confirmPopup:Hide()
+    end)
+
+    -- 취소 버튼
+    local confirmCancelBtn = CreateFrame("Button", nil, confirmPopup, "BackdropTemplate")
+    confirmCancelBtn:SetSize(100, 26)
+    confirmCancelBtn:SetPoint("BOTTOMLEFT", confirmPopup, "BOTTOM", 8, 14)
+    CreateBackdrop(confirmCancelBtn, THEME.bgWidget, {0.3, 0.3, 0.3, 0.7})
+
+    local cancelText = confirmCancelBtn:CreateFontString(nil, "OVERLAY")
+    cancelText:SetFont(globalFontPath, 11, "")
+    cancelText:SetShadowColor(0, 0, 0, 1)
+    cancelText:SetShadowOffset(1, -1)
+    cancelText:SetPoint("CENTER", 0, 0)
+    cancelText:SetText(CANCEL or "취소")
+    cancelText:SetTextColor(0.7, 0.7, 0.7)
+
+    confirmCancelBtn:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9)
+    end)
+    confirmCancelBtn:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.7)
+    end)
+    confirmCancelBtn:SetScript("OnClick", function()
+        confirmPopup:Hide()
+    end)
+
+    -- ESC로 닫기
+    confirmPopup:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            self:Hide()
+            self:SetPropagateKeyboardInput(false)
+        else
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+
+    local function ShowConfirmPopup(message, onAccept)
+        confirmPopup._text:SetText(message)
+        confirmPopup._onAccept = onAccept
+        confirmPopup:Show()
+    end
+
+    -- 드롭다운 리스트 빌드 함수 (삭제 후 재사용)
+    local function BuildProfileList(dropdown)
         local profiles = DDingUI.db:GetProfiles()
         local currentProfile = DDingUI.db:GetCurrentProfile()
 
-        local listFrame = self._listFrame
+        local listFrame = dropdown._listFrame
         if not listFrame then
-            listFrame = CreateFrame("Frame", nil, self, "BackdropTemplate")
+            listFrame = CreateFrame("Frame", nil, dropdown, "BackdropTemplate")
             listFrame:SetFrameStrata("TOOLTIP")
-            CreateBackdrop(listFrame, THEME.bgDark, {0, 0, 0, 1})  -- UF 통일
-            self._listFrame = listFrame
+            CreateBackdrop(listFrame, THEME.bgDark, {0, 0, 0, 1})
+            dropdown._listFrame = listFrame
         end
 
         -- 기존 아이템 제거
@@ -4118,6 +6479,8 @@ function DDingUI:CreateConfigFrame()
         local itemHeight = 20
         local y = -2
         for _, name in ipairs(profiles) do
+            local isCurrent = (name == currentProfile)
+
             local item = CreateFrame("Button", nil, listFrame, "BackdropTemplate")
             item:SetHeight(itemHeight)
             item:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 2, y)
@@ -4134,8 +6497,10 @@ function DDingUI:CreateConfigFrame()
             itemText:SetShadowColor(0, 0, 0, 1)
             itemText:SetShadowOffset(1, -1)
             itemText:SetPoint("LEFT", 6, 0)
+            itemText:SetPoint("RIGHT", -22, 0)
+            itemText:SetJustifyH("LEFT")
             itemText:SetText(name)
-            if name == currentProfile then
+            if isCurrent then
                 itemText:SetTextColor(SL.GetColor("accent"))
             else
                 itemText:SetTextColor(SL.GetColor("text"))
@@ -4151,29 +6516,81 @@ function DDingUI:CreateConfigFrame()
                 DDingUI.db:SetProfile(name)
                 UpdateProfileText()
                 listFrame:Hide()
-                -- soft refresh 현재 콘텐츠
                 if frame.SoftRefresh then
                     C_Timer.After(0.05, function() frame:SoftRefresh() end)
                 end
             end)
 
+            -- 삭제 버튼 (현재 프로필이 아닌 경우에만, listFrame 직접 자식)
+            if not isCurrent then
+                local delBtn = CreateFrame("Button", nil, listFrame)
+                delBtn:SetSize(16, 16)
+                delBtn:SetPoint("RIGHT", item, "RIGHT", -2, 0)
+                delBtn:SetFrameLevel(listFrame:GetFrameLevel() + 10)
+                delBtn:RegisterForClicks("AnyUp")
+
+                local delText = delBtn:CreateFontString(nil, "OVERLAY")
+                delText:SetFont(globalFontPath, 12, "OUTLINE")
+                delText:SetPoint("CENTER", 0, 0)
+                delText:SetText("|cff666666✕|r")
+
+                delBtn:SetScript("OnEnter", function(self)
+                    delText:SetText("|cffff4444✕|r")
+                    item:SetBackdropColor(0.3, 0.08, 0.08, 0.6)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 4, 0)
+                    GameTooltip:SetText((L["Delete Profile"] or "프로필 삭제") .. ": " .. name, 1, 0.3, 0.3)
+                    GameTooltip:Show()
+                end)
+                delBtn:SetScript("OnLeave", function(self)
+                    delText:SetText("|cff666666✕|r")
+                    item:SetBackdropColor(0, 0, 0, 0)
+                    GameTooltip:Hide()
+                end)
+                delBtn:SetScript("OnClick", function()
+                    local msg = string.format(
+                        (L["Delete profile '%s'?\nThis cannot be undone."] or "프로필 '%s'을(를) 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."),
+                        name
+                    )
+                    ShowConfirmPopup(msg, function()
+                        DDingUI.db:DeleteProfile(name, true)
+                        UpdateProfileText()
+                        BuildProfileList(dropdown)
+                        if frame.SoftRefresh then
+                            C_Timer.After(0.05, function() frame:SoftRefresh() end)
+                        end
+                    end)
+                end)
+
+                table.insert(listFrame._items, delBtn)
+            end
+
             table.insert(listFrame._items, item)
             y = y - itemHeight
         end
 
-        listFrame:SetSize(140, math.abs(y) + 4)
+        listFrame:SetSize(160, math.abs(y) + 4)
         listFrame:ClearAllPoints()
-        listFrame:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -2)
+        listFrame:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 0, -2)
         listFrame:Show()
 
-        -- 외부 클릭 시 닫기
+        -- 외부 클릭 시 닫기 (확인 팝업이 떠있으면 닫지 않음)
         listFrame:SetScript("OnUpdate", function(self)
+            if confirmPopup:IsShown() then return end
             if not self:IsMouseOver() and not profileDropdown:IsMouseOver() then
                 if IsMouseButtonDown("LeftButton") then
                     self:Hide()
                 end
             end
         end)
+    end
+
+    -- 프로필 드롭다운 클릭 → 프로필 목록 팝업
+    profileDropdown:SetScript("OnMouseDown", function(self)
+        if self._listFrame and self._listFrame:IsShown() then
+            self._listFrame:Hide()
+            return
+        end
+        BuildProfileList(self)
     end)
 
     frame.profileDropdown = profileDropdown
@@ -4305,6 +6722,7 @@ function DDingUI:CreateConfigFrame()
     editModeBtn:SetScript("OnLeave", function(self)
         self:SetBackdropBorderColor(0, 0, 0, 1)
         editModeText:SetTextColor(SL.GetColor("dim"))
+        GameTooltip:Hide()
     end)
     editModeBtn:SetScript("OnClick", function()
         -- 설정 창 닫기
@@ -4739,12 +7157,73 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     local menuData = {}
     frame._optionLookup = {}
 
+    -- 재귀 트리 빌더: childGroups가 "tab" 또는 "select"이면 하위 그룹을 트리 자식으로 변환
+    local function BuildTreeChildren(parentOption, parentPath)
+        local children = {}
+        local sortedChildren = {}
+        for childKey, childOption in pairs(parentOption.args or {}) do
+            if childOption.type == "group" then
+                local childHidden = false
+                if childOption.hidden then
+                    if type(childOption.hidden) == "function" then
+                        childHidden = childOption.hidden()
+                    else
+                        childHidden = childOption.hidden
+                    end
+                end
+                if not childHidden then
+                    table.insert(sortedChildren, {key = childKey, option = childOption, order = childOption.order or 999})
+                end
+            end
+        end
+        table.sort(sortedChildren, function(a, b) return a.order < b.order end)
+
+        for _, child in ipairs(sortedChildren) do
+            local childName = child.option.name or child.key
+            if type(childName) == "function" then childName = childName() end
+            local childPath = {}
+            for _, p in ipairs(parentPath) do childPath[#childPath + 1] = p end
+            childPath[#childPath + 1] = child.key
+            local childTreeKey = table.concat(childPath, ".")
+
+            local childCG = child.option.childGroups
+            local grandChildren = nil
+            if childCG == "select" and child.option.args then
+                grandChildren = BuildTreeChildren(child.option, childPath)
+            end
+
+            table.insert(children, {
+                text = childName,
+                key = childTreeKey,
+                icon = child.option.icon,
+                iconCoords = child.option.iconCoords,
+                desc = child.option.desc,
+                disabled = child.option.disabled,
+                children = (grandChildren and #grandChildren > 0) and grandChildren or nil,
+            })
+            frame._optionLookup[childTreeKey] = {
+                option = child.option,
+                path = childPath,
+            }
+
+            -- 부모-자식 포워딩: 이 자식이 grandChildren을 가지면, 클릭 시 첫 손자로 이동하도록 매핑
+            if grandChildren and #grandChildren > 0 then
+                frame._optionLookup[childTreeKey] = frame._optionLookup[grandChildren[1].key]
+            end
+        end
+        return children
+    end
+
     local sortedGroups = {}
     for key, option in pairs(options.args or {}) do
         if option.type == "group" then
             local isHidden = false
             if option.hidden then
-                isHidden = type(option.hidden) == "function" and option.hidden() or option.hidden
+                if type(option.hidden) == "function" then
+                    isHidden = option.hidden()
+                else
+                    isHidden = option.hidden
+                end
             end
             if not isHidden then
                 table.insert(sortedGroups, {key = key, option = option, order = option.order or 999})
@@ -4757,35 +7236,10 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         local displayName = item.option.name or item.key
         if type(displayName) == "function" then displayName = displayName() end
 
-        if item.option.childGroups == "tab" then
-            -- 이 그룹의 하위 항목들을 트리 자식으로 변환
-            local children = {}
-            local sortedChildren = {}
-            for childKey, childOption in pairs(item.option.args or {}) do
-                local childHidden = false
-                if childOption.hidden then
-                    childHidden = type(childOption.hidden) == "function" and childOption.hidden() or childOption.hidden
-                end
-                if not childHidden then
-                    table.insert(sortedChildren, {key = childKey, option = childOption, order = childOption.order or 999})
-                end
-            end
-            table.sort(sortedChildren, function(a, b) return a.order < b.order end)
-
-            for _, child in ipairs(sortedChildren) do
-                local childName = child.option.name or child.key
-                if type(childName) == "function" then childName = childName() end
-                local childTreeKey = item.key .. "." .. child.key
-
-                table.insert(children, {
-                    text = childName,
-                    key = childTreeKey,
-                })
-                frame._optionLookup[childTreeKey] = {
-                    option = child.option,
-                    path = {item.key, child.key},
-                }
-            end
+        local cg = item.option.childGroups
+        if cg == "tab" or cg == "select" then
+            -- 이 그룹의 하위 항목들을 트리 자식으로 재귀 변환
+            local children = BuildTreeChildren(item.option, {item.key})
 
             -- 부모 키 → 첫 번째 자식으로 매핑
             if #children > 0 then
@@ -4795,6 +7249,8 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             table.insert(menuData, {
                 text = displayName,
                 key = item.key,
+                icon = item.option.icon,            -- Phase 2: 스펠 아이콘
+                iconCoords = item.option.iconCoords,
                 children = children,
             })
         else
@@ -4864,13 +7320,20 @@ function DDingUI:OpenConfigGUI(options, tabKey)
 
             local lookup = frame._optionLookup[key]
             if not lookup then
-                -- 부모 노드 클릭 → 첫 번째 자식 선택
-                for _, item in ipairs(menuData) do
-                    if item.key == key and item.children and #item.children > 0 then
-                        tree:SetSelected(item.children[1].key)
-                        return
+                -- 부모 노드 클릭 → 첫 번째 자식 선택 (재귀 검색)
+                local function FindAndSelectFirstChild(items)
+                    for _, item in ipairs(items) do
+                        if item.key == key and item.children and #item.children > 0 then
+                            tree:SetSelected(item.children[1].key)
+                            return true
+                        end
+                        if item.children then
+                            if FindAndSelectFirstChild(item.children) then return true end
+                        end
                     end
+                    return false
                 end
+                FindAndSelectFirstChild(menuData)
                 return
             end
 
@@ -4879,30 +7342,269 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             frame.currentPath = lookup.path
             frame.configOptions = options
         end,
-        -- [12.0.1] 우클릭 → 그룹 이름 변경
+        -- [12.0.1+WA] 우클릭 → 컨텍스트 메뉴 (CDM 그룹 이름 변경 + BT 트래커 조작)
         onRightClick = function(key, text, btn)
-            -- "groupSystem.group_XXX" 패턴에서 그룹 이름 추출
+            -- ── CDM 그룹 이름 변경 ──
             local groupName = key:match("^groupSystem%.group_(.+)$")
-            if not groupName then return end
-            -- 기본 CDM 그룹은 이름 변경 불가
-            if CDM_BUILTIN_GROUPS[groupName] then return end
+            if groupName then
+                if CDM_BUILTIN_GROUPS[groupName] then return end
+                StaticPopup_Show("DDINGUI_RENAME_GROUP", nil, nil, {
+                    oldName = groupName,
+                    onAccept = function(newName)
+                        if newName == groupName then return end
+                        if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
+                            if frame.RebuildTreeMenu then
+                                frame:RebuildTreeMenu("groupSystem.group_" .. newName)
+                            end
+                            if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
+                                DDingUI.GroupSystem:Refresh()
+                            end
+                        end
+                    end,
+                })
+                return
+            end
 
-            StaticPopup_Show("DDINGUI_RENAME_GROUP", nil, nil, {
-                oldName = groupName,
-                onAccept = function(newName)
-                    if newName == groupName then return end
-                    if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
-                        -- 옵션 테이블 + 트리 메뉴 재빌드
-                        if frame.RebuildTreeMenu then
-                            frame:RebuildTreeMenu("groupSystem.group_" .. newName)
-                        end
-                        -- GroupSystem 갱신
-                        if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
-                            DDingUI.GroupSystem:Refresh()
-                        end
+            -- ── BT 트래커 우클릭: WeakAuras-equivalent context menu ──
+            -- 키 = "group_X.buff_N" 또는 "group_X.buff_N.displayTab" 등
+            local buffIndex = key:match("%.buff_(%d+)")
+            if not buffIndex then return end
+            buffIndex = tonumber(buffIndex)
+            if not buffIndex then return end
+
+            -- 컨텍스트 메뉴 프레임 (재사용)
+            if not frame._contextMenu then
+                local ctx = CreateFrame("Frame", "DDingUI_BT_ContextMenu", UIParent, "BackdropTemplate")
+                ctx:SetFrameStrata("FULLSCREEN_DIALOG")
+                ctx:SetFrameLevel(100)
+                ctx:SetSize(200, 10)
+                ctx:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8X8",
+                    edgeFile = "Interface\\Buttons\\WHITE8X8",
+                    edgeSize = 1,
+                })
+                ctx:SetBackdropColor(0.1, 0.1, 0.12, 0.95)
+                ctx:SetBackdropBorderColor(0, 0, 0, 1)
+                ctx:Hide()
+                ctx._buttonPool = {}
+                ctx._sepPool = {}
+
+                -- Click-away catcher
+                local catcher = CreateFrame("Button", nil, ctx)
+                catcher:SetFrameStrata("FULLSCREEN_DIALOG")
+                catcher:SetFrameLevel(99)
+                catcher:SetAllPoints(UIParent)
+                catcher:SetScript("OnClick", function() ctx:Hide() end)
+                catcher:EnableMouseWheel(true)
+                catcher:SetScript("OnMouseWheel", function() ctx:Hide() end)
+                catcher:Hide()
+                ctx._catcher = catcher
+
+                ctx.Show_ = ctx.Show
+                ctx.Show = function(self)
+                    self._catcher:Show()
+                    self:Show_()
+                end
+                ctx.Hide_ = ctx.Hide
+                ctx.Hide = function(self)
+                    self._catcher:Hide()
+                    self:Hide_()
+                end
+
+                frame._contextMenu = ctx
+            end
+
+            local ctx = frame._contextMenu
+            ctx:Hide()
+
+            -- Build menu items
+            local menuItems = {}
+
+            -- 1. 복제
+            menuItems[#menuItems + 1] = {
+                text = "|cff88ff88▣|r 복제",
+                func = function()
+                    DDingUI.DuplicateTrackedBuff(buffIndex)
+                    ctx:Hide()
+                end,
+            }
+            -- 2. 이름 변경
+            menuItems[#menuItems + 1] = {
+                text = "|cff88ccff✎|r 이름 변경",
+                func = function()
+                    ctx:Hide()
+                    StaticPopup_Show("DDINGUI_RENAME_TRACKER", nil, nil, {
+                        buffIndex = buffIndex,
+                        currentName = text,
+                    })
+                end,
+            }
+            -- 3. 위로 이동
+            menuItems[#menuItems + 1] = {
+                text = "|cffcccccc▲|r 위로 이동",
+                func = function()
+                    DDingUI.MoveTrackedBuffUp(buffIndex)
+                    ctx:Hide()
+                end,
+            }
+            -- 4. 아래로 이동
+            menuItems[#menuItems + 1] = {
+                text = "|cffcccccc▼|r 아래로 이동",
+                func = function()
+                    DDingUI.MoveTrackedBuffDown(buffIndex)
+                    ctx:Hide()
+                end,
+            }
+            -- 5. separator
+            menuItems[#menuItems + 1] = { separator = true }
+            -- 6. 복사 서브메뉴
+            menuItems[#menuItems + 1] = {
+                text = "|cffffcc44⧉|r 전체 설정 복사",
+                func = function()
+                    DDingUI.CopyTrackedBuffSettings(buffIndex, "all")
+                    ctx:Hide()
+                end,
+            }
+            menuItems[#menuItems + 1] = {
+                text = "    디스플레이 복사",
+                func = function()
+                    DDingUI.CopyTrackedBuffSettings(buffIndex, "display")
+                    ctx:Hide()
+                end,
+            }
+            menuItems[#menuItems + 1] = {
+                text = "    활성 조건 복사",
+                func = function()
+                    DDingUI.CopyTrackedBuffSettings(buffIndex, "trigger")
+                    ctx:Hide()
+                end,
+            }
+            menuItems[#menuItems + 1] = {
+                text = "    조건 복사",
+                func = function()
+                    DDingUI.CopyTrackedBuffSettings(buffIndex, "conditions")
+                    ctx:Hide()
+                end,
+            }
+            menuItems[#menuItems + 1] = {
+                text = "    불러오기 복사",
+                func = function()
+                    DDingUI.CopyTrackedBuffSettings(buffIndex, "load")
+                    ctx:Hide()
+                end,
+            }
+            -- 7. 붙여넣기 (클립보드에 데이터 있을 때만)
+            if DDingUI.HasTrackedBuffClipboard and DDingUI.HasTrackedBuffClipboard() then
+                menuItems[#menuItems + 1] = {
+                    text = "|cff44ff44✓|r " .. DDingUI.GetTrackedBuffPasteLabel(),
+                    func = function()
+                        DDingUI.PasteTrackedBuffSettings(buffIndex)
+                        ctx:Hide()
+                    end,
+                }
+            end
+            -- 8. separator
+            menuItems[#menuItems + 1] = { separator = true }
+            -- 9. 내보내기
+            menuItems[#menuItems + 1] = {
+                text = "|cff88aaff↗|r 내보내기",
+                func = function()
+                    ctx:Hide()
+                    local exportStr = DDingUI.ExportTrackedBuff(buffIndex)
+                    if exportStr then
+                        StaticPopup_Show("DDINGUI_EXPORT_TRACKER", nil, nil, {
+                            exportString = exportStr,
+                        })
                     end
                 end,
-            })
+            }
+            -- 9.5 가져오기
+            menuItems[#menuItems + 1] = {
+                text = "|cff88aaff↙|r 가져오기",
+                func = function()
+                    ctx:Hide()
+                    StaticPopup_Show("DDINGUI_IMPORT_TRACKER")
+                end,
+            }
+            -- 10. 활성/비활성 토글
+            menuItems[#menuItems + 1] = { separator = true }
+            local isDisabled = DDingUI.IsTrackedBuffDisabled and DDingUI.IsTrackedBuffDisabled(buffIndex) or false
+            menuItems[#menuItems + 1] = {
+                text = isDisabled and "|cff44ff44●|r 활성화" or "|cff888888●|r 비활성화",
+                func = function()
+                    DDingUI.ToggleTrackedBuffEnabled(buffIndex)
+                    ctx:Hide()
+                end,
+            }
+            -- 11. 삭제 (맨 마지막, 빨간색)
+            menuItems[#menuItems + 1] = { separator = true }
+            menuItems[#menuItems + 1] = {
+                text = "|cffff4444✕|r 삭제",
+                func = function()
+                    DDingUI.RemoveTrackedBuff(buffIndex)
+                    ctx:Hide()
+                end,
+            }
+
+            -- Create/reuse rows from separate pools
+            local ROW_H = 22
+            local SEP_H = 8
+            local yOff = -4
+            local btnIdx, sepIdx = 0, 0
+            if not ctx._buttonPool then ctx._buttonPool = {} end
+            if not ctx._sepPool then ctx._sepPool = {} end
+            -- hide all pooled
+            for _, b in ipairs(ctx._buttonPool) do b:Hide() end
+            for _, s in ipairs(ctx._sepPool) do s:Hide() end
+
+            for i, item in ipairs(menuItems) do
+                if item.separator then
+                    sepIdx = sepIdx + 1
+                    local sep = ctx._sepPool[sepIdx]
+                    if not sep then
+                        sep = ctx:CreateTexture(nil, "ARTWORK")
+                        ctx._sepPool[sepIdx] = sep
+                    end
+                    sep:SetHeight(1)
+                    sep:ClearAllPoints()
+                    sep:SetPoint("TOPLEFT", ctx, "TOPLEFT", 8, yOff - 3)
+                    sep:SetPoint("TOPRIGHT", ctx, "TOPRIGHT", -8, yOff - 3)
+                    sep:SetColorTexture(0.3, 0.3, 0.35, 0.6)
+                    sep:Show()
+                    yOff = yOff - SEP_H
+                else
+                    btnIdx = btnIdx + 1
+                    local row = ctx._buttonPool[btnIdx]
+                    if not row then
+                        row = CreateFrame("Button", nil, ctx)
+                        row:SetHeight(ROW_H)
+                        row._bg = row:CreateTexture(nil, "BACKGROUND")
+                        row._bg:SetAllPoints()
+                        row._bg:SetColorTexture(0, 0, 0, 0)
+                        row._text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                        row._text:SetPoint("LEFT", 10, 0)
+                        row._text:SetPoint("RIGHT", -10, 0)
+                        row._text:SetJustifyH("LEFT")
+                        ctx._buttonPool[btnIdx] = row
+                    end
+                    row:ClearAllPoints()
+                    row:SetPoint("TOPLEFT", ctx, "TOPLEFT", 2, yOff)
+                    row:SetPoint("TOPRIGHT", ctx, "TOPRIGHT", -2, yOff)
+                    row._text:SetText(item.text)
+                    row:SetScript("OnClick", item.func)
+                    row:SetScript("OnEnter", function(self) self._bg:SetColorTexture(0.2, 0.3, 0.5, 0.4) end)
+                    row:SetScript("OnLeave", function(self) self._bg:SetColorTexture(0, 0, 0, 0) end)
+                    row:Show()
+                    yOff = yOff - ROW_H
+                end
+            end
+
+            ctx:SetHeight(math.abs(yOff) + 8)
+
+            -- Position near the clicked button
+            ctx:ClearAllPoints()
+            ctx:SetPoint("TOPLEFT", btn, "TOPRIGHT", 2, 0)
+            ctx:Show()
         end,
     })
     frame.treeMenu = tree
@@ -4925,7 +7627,11 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             if opt.type == "group" then
                 local isHidden = false
                 if opt.hidden then
-                    isHidden = type(opt.hidden) == "function" and opt.hidden() or opt.hidden
+                    if type(opt.hidden) == "function" then
+                        isHidden = opt.hidden()
+                    else
+                        isHidden = opt.hidden
+                    end
                 end
                 if not isHidden then
                     table.insert(sorted, {key = k, option = opt, order = opt.order or 999})
@@ -4934,35 +7640,76 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         end
         table.sort(sorted, function(a, b) return a.order < b.order end)
 
+        -- RebuildTreeChildren: childGroups="select" 재귀 지원 (BuffTracker 그룹 포함)
+        local function RebuildTreeChildren(parentOption, parentPath)
+            local children = {}
+            local sortedCh = {}
+            for childKey, childOption in pairs(parentOption.args or {}) do
+                if childOption.type == "group" then
+                    local childHidden = false
+                    if childOption.hidden then
+                        if type(childOption.hidden) == "function" then
+                            childHidden = childOption.hidden()
+                        else
+                            childHidden = childOption.hidden
+                        end
+                    end
+                    if not childHidden then
+                        table.insert(sortedCh, {key = childKey, option = childOption, order = childOption.order or 999})
+                    end
+                end
+            end
+            table.sort(sortedCh, function(a, b) return a.order < b.order end)
+
+            for _, ch in ipairs(sortedCh) do
+                local childName = ch.option.name or ch.key
+                if type(childName) == "function" then childName = childName() end
+                local childPath = {}
+                for _, p in ipairs(parentPath) do childPath[#childPath + 1] = p end
+                childPath[#childPath + 1] = ch.key
+                local childTreeKey = table.concat(childPath, ".")
+
+                -- 재귀: childGroups="select"인 경우 손자 노드도 변환
+                local grandChildren = nil
+                if ch.option.childGroups == "select" and ch.option.args then
+                    grandChildren = RebuildTreeChildren(ch.option, childPath)
+                end
+
+                table.insert(children, {
+                    text = childName,
+                    key = childTreeKey,
+                    icon = ch.option.icon,
+                    iconCoords = ch.option.iconCoords,
+                    desc = ch.option.desc,
+                    disabled = ch.option.disabled,
+                    children = (grandChildren and #grandChildren > 0) and grandChildren or nil,
+                })
+                self._optionLookup[childTreeKey] = { option = ch.option, path = childPath }
+
+                if grandChildren and #grandChildren > 0 then
+                    self._optionLookup[childTreeKey] = self._optionLookup[grandChildren[1].key]
+                end
+            end
+            return children
+        end
+
         for _, item in ipairs(sorted) do
             local displayName = item.option.name or item.key
             if type(displayName) == "function" then displayName = displayName() end
 
-            if item.option.childGroups == "tab" then
-                local children = {}
-                local sortedChildren = {}
-                for childKey, childOption in pairs(item.option.args or {}) do
-                    local childHidden = false
-                    if childOption.hidden then
-                        childHidden = type(childOption.hidden) == "function" and childOption.hidden() or childOption.hidden
-                    end
-                    if not childHidden then
-                        table.insert(sortedChildren, {key = childKey, option = childOption, order = childOption.order or 999})
-                    end
-                end
-                table.sort(sortedChildren, function(a, b) return a.order < b.order end)
-
-                for _, ch in ipairs(sortedChildren) do
-                    local childName = ch.option.name or ch.key
-                    if type(childName) == "function" then childName = childName() end
-                    local childTreeKey = item.key .. "." .. ch.key
-                    table.insert(children, { text = childName, key = childTreeKey })
-                    self._optionLookup[childTreeKey] = { option = ch.option, path = {item.key, ch.key} }
-                end
+            local cg = item.option.childGroups
+            if cg == "tab" or cg == "select" then
+                local children = RebuildTreeChildren(item.option, {item.key})
                 if #children > 0 then
                     self._optionLookup[item.key] = self._optionLookup[children[1].key]
                 end
-                table.insert(newMenuData, { text = displayName, key = item.key, children = children })
+                table.insert(newMenuData, {
+                    text = displayName,
+                    key = item.key,
+                    icon = item.option.icon,
+                    iconCoords = item.option.iconCoords,
+                    children = children,
+                })
             else
                 table.insert(newMenuData, { text = displayName, key = item.key })
                 self._optionLookup[item.key] = { option = item.option, path = {item.key} }
@@ -5027,17 +7774,32 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                     local childMatch = childText:find(query, 1, true)
                     local contentMatch = OptionContainsText(ch.key, query)
                     if childMatch or contentMatch then
-                        matchedChildren[#matchedChildren + 1] = { text = ch.text, key = ch.key }
+                        matchedChildren[#matchedChildren + 1] = {
+                            text = ch.text, key = ch.key,
+                            icon = ch.icon, iconCoords = ch.iconCoords,
+                            children = ch.children,
+                        }
                     end
                 end
                 if parentMatch then
-                    filtered[#filtered + 1] = { text = item.text, key = item.key, children = item.children }
+                    filtered[#filtered + 1] = {
+                        text = item.text, key = item.key,
+                        icon = item.icon, iconCoords = item.iconCoords,
+                        children = item.children,
+                    }
                 elseif #matchedChildren > 0 then
-                    filtered[#filtered + 1] = { text = item.text, key = item.key, children = matchedChildren }
+                    filtered[#filtered + 1] = {
+                        text = item.text, key = item.key,
+                        icon = item.icon, iconCoords = item.iconCoords,
+                        children = matchedChildren,
+                    }
                 end
             else
                 if parentMatch or OptionContainsText(item.key, query) then
-                    filtered[#filtered + 1] = { text = item.text, key = item.key }
+                    filtered[#filtered + 1] = {
+                        text = item.text, key = item.key,
+                        icon = item.icon, iconCoords = item.iconCoords,
+                    }
                 end
             end
         end

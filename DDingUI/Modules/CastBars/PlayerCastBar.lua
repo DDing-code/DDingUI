@@ -61,6 +61,11 @@ function CastBars:GetCastBar()
     local tex = DDingUI:GetTexture(DDingUI.db.profile.castBar.texture)
     bar.status:SetStatusBarTexture(tex)
 
+    bar.spark = bar.status:CreateTexture(nil, "OVERLAY")
+    bar.spark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
+    bar.spark:SetBlendMode("ADD")
+    bar.spark:Hide()
+
     local sbTex = bar.status:GetStatusBarTexture()
     if sbTex then
         sbTex:SetDrawLayer("ARTWORK")  -- Draw above segment backgrounds for empowered casts
@@ -249,6 +254,9 @@ function CastBars:UpdateCastBarLayout()
     local desiredY = DDingUI:Scale(cfg.offsetY or 18)
     local height = cfg.height or 10
 
+    -- [FIX] Apply frame strata immediately (was only set during creation)
+    bar:SetFrameStrata(cfg.frameStrata or "MEDIUM")
+
     -- Mover 모드 중에는 위치/크기 재설정 건너뛰기 (드래그와 충돌 방지)
     local selfPoint = cfg.selfPoint or "CENTER" -- [FIX: selfPoint support]
     if not (DDingUI.Movers and DDingUI.Movers.ConfigMode) then
@@ -339,6 +347,11 @@ function CastBars:UpdateCastBarLayout()
     end
 
     bar.status:SetStatusBarColor(r, g, b, a or 1)
+    -- [ConditionalActions] 조건부 동작 색상 오버라이드
+    if bar._ddingColorOverride then
+        local oc = bar._ddingColorOverride
+        bar.status:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+    end
 
     bar.spellName:ClearAllPoints()
     bar.spellName:SetPoint("LEFT", bar.status, "LEFT", DDingUI:Scale(cfg.spellTextOffsetX or 4), DDingUI:Scale(cfg.spellTextOffsetY or 0))
@@ -371,18 +384,33 @@ function CastBars:UpdateCastBarLayout()
         bar.timeText:Hide()
     end
 
-    -- Reinitialize empowered stages if bar is currently showing an empowered cast
     if bar.isEmpowered and bar.numStages and bar.numStages > 0 then
         if CastBars.InitializeEmpoweredStages then
             CastBars:InitializeEmpoweredStages(bar)
         end
+    end
+
+    if cfg.showSpark then
+        bar.spark:Show()
+        -- Spark height set to effectively match or slightly exceed the bar
+        bar.spark:SetHeight(bar.status:GetHeight() * 1.5)
+        bar.spark:SetWidth(15)
+        -- 위치는 OnUpdate에서 갱신됨
+    else
+        bar.spark:Hide()
     end
 end
 
 function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
     local cfg = DDingUI.db.profile.castBar
     if not cfg.enabled then
-        if DDingUI.castBar then DDingUI.castBar:Hide() end
+        if DDingUI.castBar then
+            DDingUI.castBar:Hide()
+            -- [FIX] Explicitly hide sub-elements to prevent background leak
+            if DDingUI.castBar.bg then DDingUI.castBar.bg:Hide() end
+            if DDingUI.castBar.border then DDingUI.castBar.border:Hide() end
+            if DDingUI.castBar.spark then DDingUI.castBar.spark:Hide() end
+        end
         return
     end
 
@@ -509,6 +537,7 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
         -- Apply red color
         local color = cfg.interruptedColor or { 0.9, 0.2, 0.2, 1 }
         bar.status:SetStatusBarColor(color[1], color[2], color[3], color[4] or 1)
+        -- [ConditionalActions] 인터럽트 시에는 오버라이드 무시
 
         -- Fade out using OnUpdate (smoother than C_Timer)
         local fadeDuration = cfg.interruptedFadeDuration or 0.3
@@ -565,7 +594,13 @@ end
 function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
     local cfg = DDingUI.db.profile.castBar
     if not cfg.enabled then
-        if DDingUI.castBar then DDingUI.castBar:Hide() end
+        if DDingUI.castBar then
+            DDingUI.castBar:Hide()
+            -- [FIX] Explicitly hide sub-elements to prevent background leak
+            if DDingUI.castBar.bg then DDingUI.castBar.bg:Hide() end
+            if DDingUI.castBar.border then DDingUI.castBar.border:Hide() end
+            if DDingUI.castBar.spark then DDingUI.castBar.spark:Hide() end
+        end
         return
     end
 

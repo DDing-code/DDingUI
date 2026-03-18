@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 	ddingUI UnitFrames
 	GroupFrames/Create.lua — 프레임 요소 생성
 
@@ -581,7 +581,6 @@ function GF:CreateFrameElements(frame)
 		for _, region in ipairs(regions) do
 			if region and region.GetObjectType and region:GetObjectType() == "FontString" then
 				btn.nativeCooldownText = region
-				region:SetParent(btn.textOverlay)
 				region:ClearAllPoints()
 				region:SetPoint("CENTER", btn, "CENTER", 0, 0)
 				SafeSetFont(region, SL_FONT, 9, "OUTLINE")
@@ -690,9 +689,9 @@ function GF:CreateFrameElements(frame)
 	frame.hotOutline:Hide()
 
 	-- [HOT-TRACKER] 프레임-레벨: gradient 오버레이 (지정색→투명)
-	-- [FIX] ARTWORK sublevel 6 → debuffHighlight.overlay(ARTWORK:7) 아래에 배치
-	-- 기존 OVERLAY:2 → ARTWORK:6으로 변경 (Z-fighting 깜빡거림 방지)
-	frame.hotGradient = frame.healthBar:CreateTexture(nil, "ARTWORK", nil, 6)
+	-- [FIX] OVERLAY:1 → ARTWORK 레이어(debuff gradient 포함) 위에 배치
+	-- 디버프 gradient(ARTWORK:7)와 HOT gradient가 동시에 표시됨
+	frame.hotGradient = frame.healthBar:CreateTexture(nil, "OVERLAY", nil, 1)
 	frame.hotGradient:SetAllPoints(frame.healthBar)
 	frame.hotGradient:SetTexture(FLAT)
 	frame.hotGradient:Hide()
@@ -704,9 +703,11 @@ function GF:CreateFrameElements(frame)
 	-- ========================================
 	-- CLICK SUPPORT + HOVER HIGHLIGHT -- [12.0.1]
 	-- ========================================
-	frame:RegisterForClicks("AnyUp")
-	frame:SetAttribute("type1", "target")
-	frame:SetAttribute("type2", "togglemenu")
+	if not InCombatLockdown() then
+		frame:RegisterForClicks("AnyUp")
+		frame:SetAttribute("type1", "target")
+		frame:SetAttribute("type2", "togglemenu")
+	end
 
 	-- [12.0.1] Hover highlight + Unit Tooltip (HookScript으로 기존 스크립트 보존)
 	frame:HookScript("OnEnter", function(self)
@@ -761,6 +762,12 @@ function GF:CreateFrameElements(frame)
 				local fs = frame.contentOverlay:CreateFontString(nil, "OVERLAY")
 				local tFont = textDB.font or {}
 				SafeSetFont(fs, tFont.style or SL_FONT, tFont.size or 10, tFont.outline or "OUTLINE")
+				if tFont.shadow then
+					fs:SetShadowColor(0, 0, 0, 1)
+					fs:SetShadowOffset(1, -1)
+				else
+					fs:SetShadowOffset(0, 0)
+				end
 				fs:SetDrawLayer("OVERLAY", 7)
 				local pos = textDB.position or {}
 				fs:SetPoint(
@@ -849,7 +856,6 @@ function GF:CreateAuraIcon(parent, index, auraType)
 		for _, region in ipairs(regions) do
 			if region and region.GetObjectType and region:GetObjectType() == "FontString" then
 				icon.nativeCooldownText = region
-				region:SetParent(icon.textOverlay)
 				region:ClearAllPoints()
 				region:SetPoint("CENTER", icon, "CENTER", 0, 0)
 				SafeSetFont(region, SL_FONT, 9, "OUTLINE")
@@ -879,6 +885,14 @@ function GF:CreateAuraIcon(parent, index, auraType)
 	icon:SetScript("OnEnter", function(self)
 		if not self:IsShown() then return end
 		if not self.auraInstanceID or not self.unitFrame or not self.unitFrame.unit then return end
+
+		-- [FIX] 옵션에서 툴팁 표시를 껐을 경우 툴팁이 나타나지 않도록 방어 코드 추가
+		local db = GF:GetFrameDB(self.unitFrame)
+		local widgets = db and db.widgets or {}
+		local widgetKey = auraType == "DEBUFF" and "debuffs" or "buffs"
+		local auraDB = widgets[widgetKey] or {}
+		
+		if auraDB.showTooltip == false then return end
 
 		GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
 		if auraType == "BUFF" then
@@ -968,6 +982,12 @@ function GF:ApplyLayout(frame)
 	)
 	SafeSetFont(frame.nameText, SL_FONT, nameFont.size or 12, nameFont.outline or "OUTLINE")
 	frame.nameText:SetJustifyH(nameFont.justify or "LEFT")
+	if nameFont.shadow then
+		frame.nameText:SetShadowColor(0, 0, 0, 1)
+		frame.nameText:SetShadowOffset(1, -1)
+	else
+		frame.nameText:SetShadowOffset(0, 0)
+	end
 	if nameDB.enabled == false then
 		frame.nameText:Hide()
 	else
@@ -991,14 +1011,46 @@ function GF:ApplyLayout(frame)
 		)
 		SafeSetFont(frame.healthText, SL_FONT, healthFont.size or 11, healthFont.outline or "OUTLINE")
 		frame.healthText:SetJustifyH(healthFont.justify or "RIGHT")
+		if healthFont.shadow then
+			frame.healthText:SetShadowColor(0, 0, 0, 1)
+			frame.healthText:SetShadowOffset(1, -1)
+		else
+			frame.healthText:SetShadowOffset(0, 0)
+		end
 		frame.healthText:Show()
 	else
 		frame.healthText:Hide()
 	end
 
-	-- 상태 텍스트 폰트 (Dead/Offline/AFK) -- [REFACTOR]
-	local statusFont = healthFont
-	SafeSetFont(frame.statusText, SL_FONT, statusFont.size or 10, statusFont.outline or "OUTLINE")
+	-- 상태 텍스트 (Dead/Offline/AFK) -- [FIX] position/font/color/shadow 전부 적용
+	local statusDB = widgets.statusText or {}
+	if statusDB.enabled ~= false then
+		local statusPos = statusDB.position or {}
+		local statusFont = statusDB.font or { size = 11, outline = "OUTLINE" }
+		frame.statusText:ClearAllPoints()
+		frame.statusText:SetPoint(
+			statusPos.point or "CENTER",
+			frame,
+			statusPos.relativePoint or "CENTER",
+			statusPos.offsetX or 0,
+			statusPos.offsetY or 0
+		)
+		SafeSetFont(frame.statusText, SL_FONT, statusFont.size or 10, statusFont.outline or "OUTLINE")
+		-- 색상
+		local stColor = statusDB.color
+		if stColor and stColor.type == "custom" and stColor.rgb then
+			frame.statusText:SetTextColor(stColor.rgb[1] or 0.8, stColor.rgb[2] or 0.8, stColor.rgb[3] or 0.8, 1)
+		else
+			frame.statusText:SetTextColor(0.8, 0.8, 0.8, 1)
+		end
+		-- 그림자 (statusFont.shadow 사용 - 중복옵션 제거됨)
+		if statusFont.shadow then
+			frame.statusText:SetShadowColor(0, 0, 0, 1)
+			frame.statusText:SetShadowOffset(1, -1)
+		else
+			frame.statusText:SetShadowOffset(0, 0)
+		end
+	end
 
 	-- ========================================
 	-- 인디케이터 위치/크기 일괄 적용 -- [12.0.1]

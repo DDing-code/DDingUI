@@ -835,10 +835,25 @@ function BuffBar:Initialize()
             hooksecurefunc(CooldownViewerSettingsBarCategoryMixin, "RefreshLayout", HookSettingsBar)
             local specFrame = CreateFrame("Frame")
             specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-            specFrame:SetScript("OnEvent", function()
+            specFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+            specFrame:SetScript("OnEvent", function(_, event)
+                -- [FIX] 설정바 리프레시 (기존 로직)
                 if CooldownViewerSettingsBar and CooldownViewerSettingsBar.RefreshLayout then
                     CooldownViewerSettingsBar:RefreshLayout()
                 end
+                -- [FIX] 스펙 변경 시 뷰어 재생성 대응: 훅 리셋 + 재훅
+                C_Timer.After(0.5, function()
+                    local viewer = _G["BuffBarCooldownViewer"]
+                    if viewer then
+                        viewer.__dduiBuffBarHooked = nil  -- 훅 리셋
+                        viewer.__dduiLastBarLayoutKey = nil  -- 레이아웃 캐시 리셋
+                    end
+                    TryHookViewer()
+                end)
+                C_Timer.After(2.0, function()
+                    TryHookViewer()
+                    BuffBar:Refresh()
+                end)
             end)
         end
     end
@@ -891,7 +906,8 @@ SlashCmdList["DDINGBAR"] = function()
             end
         end)
 
-        local auraID = child.auraInstanceID and tostring(child.auraInstanceID) or "<nil>"
+        local auraID = "<nil>"
+        pcall(function() auraID = tostring(child.auraInstanceID) end)
 
         local color = shown and "|cff00ff00" or "|cffff0000"
         local barColor = hasBar and "|cff00ff00Bar|r" or "|cffff0000NoBar|r"

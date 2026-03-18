@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DDingUI Designer — WoW Addon GUI Builder</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-main:#0d0d1a;--bg-panel:#14142b;--bg-input:#1a1a35;--bg-hover:#22224a;
+  --bg-selected:#1e3a5f;--border:#2a2a50;--border-active:#00d4ff;
+  --accent:#00d4ff;--accent2:#ff6b35;--text:#e0e0e0;--text-dim:#888;
+  --text-highlight:#fff;--error:#ff4444;--success:#44ff88;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg-main);color:var(--text);font-family:'Inter',sans-serif;font-size:13px}
+
+/* Layout */
+.app{display:grid;grid-template-columns:240px 1fr 280px;grid-template-rows:40px 1fr 220px;height:100vh}
+.toolbar{grid-column:1/-1;background:var(--bg-panel);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:8px}
+.sidebar-left{grid-row:2/4;background:var(--bg-panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.canvas-area{grid-row:2;background:#111;position:relative;overflow:hidden}
+.sidebar-right{grid-row:2/4;background:var(--bg-panel);border-left:1px solid var(--border);overflow-y:auto;padding:8px}
+.code-panel{grid-row:3;background:var(--bg-panel);border-top:1px solid var(--border);display:flex;flex-direction:column}
+
+/* Toolbar */
+.toolbar .logo{font-weight:700;font-size:14px;margin-right:12px}
+.toolbar .logo span:first-child{color:#fff}
+.toolbar .logo span:nth-child(2){color:var(--accent2)}
+.toolbar .logo span:nth-child(3){color:var(--text-dim);font-weight:400;font-size:12px}
+.tb-sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.tb-btn{background:none;border:1px solid transparent;color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit;transition:.15s}
+.tb-btn:hover{background:var(--bg-hover);border-color:var(--border)}
+.tb-btn.active{background:var(--bg-selected);border-color:var(--accent);color:var(--accent)}
+.tb-select{background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font-size:12px;font-family:inherit;cursor:pointer}
+.tb-select:focus{border-color:var(--accent);outline:none}
+
+/* Sidebar Left */
+.panel-title{padding:8px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);border-bottom:1px solid var(--border)}
+.widget-palette{flex:0 0 auto;overflow-y:auto}
+.widget-item{padding:6px 12px;cursor:grab;border-bottom:1px solid rgba(255,255,255,.03);display:flex;align-items:center;gap:8px;transition:.15s}
+.widget-item:hover{background:var(--bg-hover)}
+.widget-item .icon{width:20px;height:20px;border:1px solid var(--border);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--accent);flex-shrink:0}
+.widget-item .name{font-size:12px}
+.hierarchy{flex:1;overflow-y:auto;border-top:1px solid var(--border)}
+.tree-item{padding:4px 8px;cursor:pointer;display:flex;align-items:center;gap:4px;font-size:12px;border-left:2px solid transparent;transition:.1s}
+.tree-item:hover{background:var(--bg-hover)}
+.tree-item.selected{background:var(--bg-selected);border-left-color:var(--accent);color:var(--accent)}
+.tree-item .indent{flex-shrink:0}
+.tree-item .toggle{cursor:pointer;width:14px;text-align:center;color:var(--text-dim);font-size:10px}
+
+/* Canvas */
+.canvas-area canvas{position:absolute;top:0;left:0}
+.canvas-info{position:absolute;bottom:8px;right:8px;font-size:11px;color:var(--text-dim);pointer-events:none}
+.canvas-guides{position:absolute;top:8px;left:8px;font-size:11px;color:var(--text-dim)}
+
+/* Property Panel */
+.prop-group{margin-bottom:12px}
+.prop-group-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--accent);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+.prop-row{display:flex;align-items:center;margin-bottom:4px;gap:6px}
+.prop-label{width:70px;font-size:11px;color:var(--text-dim);flex-shrink:0;text-align:right}
+.prop-input{flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-size:12px;font-family:inherit}
+.prop-input:focus{border-color:var(--accent);outline:none}
+.prop-input-sm{width:55px;text-align:center}
+.prop-color{width:24px;height:24px;border:1px solid var(--border);border-radius:3px;cursor:pointer;padding:0}
+.prop-select{flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-size:12px;font-family:inherit}
+.no-selection{padding:20px;text-align:center;color:var(--text-dim);font-size:12px}
+
+/* Code Panel */
+.code-header{display:flex;align-items:center;padding:4px 8px;gap:8px;border-bottom:1px solid var(--border);flex-shrink:0}
+.code-header .panel-title{border:none;padding:0}
+.code-body{flex:1;overflow:auto;padding:8px}
+.code-body pre{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;color:#c8d6e5;white-space:pre;tab-size:4}
+.code-body .kw{color:#c678dd}
+.code-body .fn{color:#61afef}
+.code-body .str{color:#98c379}
+.code-body .num{color:#d19a66}
+.code-body .cm{color:#5c6370;font-style:italic}
+.copy-btn{background:var(--accent);color:#000;border:none;padding:3px 10px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:600;font-family:inherit;transition:.15s}
+.copy-btn:hover{background:#33e0ff}
+.copy-btn.copied{background:var(--success)}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="logo"><span>DDing</span><span>UI</span> <span>Designer</span></div>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btnNew" title="New Project">🗋 New</button>
+    <button class="tb-btn" id="btnSave" title="Save (JSON)">💾 Save</button>
+    <button class="tb-btn" id="btnLoad" title="Load (JSON)">📂 Load</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btnUndo" title="Undo (Ctrl+Z)">↩ Undo</button>
+    <button class="tb-btn" id="btnRedo" title="Redo (Ctrl+Y)">↪ Redo</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btnGrid" title="Toggle Grid">⊞ Grid</button>
+    <button class="tb-btn" id="btnSnap" title="Toggle Snap">⟡ Snap</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btnDelete" title="Delete Selected">🗑 Delete</button>
+    <div style="flex:1"></div>
+    <label style="font-size:11px;color:var(--text-dim)">Output:</label>
+    <select class="tb-select" id="codeMode">
+      <option value="vanilla">Vanilla WoW API</option>
+      <option value="stylelib">DDingUI StyleLib</option>
+      <option value="af">AbstractFramework</option>
+    </select>
+  </div>
+
+  <!-- Left Sidebar -->
+  <div class="sidebar-left">
+    <div class="panel-title">Widgets</div>
+    <div class="widget-palette" id="palette"></div>
+    <div class="panel-title">Hierarchy</div>
+    <div class="hierarchy" id="hierarchy"></div>
+  </div>
+
+  <!-- Canvas -->
+  <div class="canvas-area" id="canvasArea">
+    <canvas id="canvas"></canvas>
+    <div class="canvas-info" id="canvasInfo">1920×1080 | 100%</div>
+  </div>
+
+  <!-- Right Sidebar -->
+  <div class="sidebar-right" id="propPanel">
+    <div class="no-selection">Select a widget to edit properties</div>
+  </div>
+
+  <!-- Code Panel -->
+  <div class="code-panel">
+    <div class="code-header">
+      <div class="panel-title" style="flex:1">Lua Output</div>
+      <button class="copy-btn" id="btnCopy">📋 Copy</button>
+    </div>
+    <div class="code-body"><pre id="codeOutput">-- Add widgets to the canvas to generate code</pre></div>
+  </div>
+</div>
+
+<script>
+// ========================================
+// DDingUI Designer — WoW Addon GUI Builder
+// ========================================
+
+const CANVAS_W = 1920, CANVAS_H = 1080;
+
+// Widget type definitions
+const WIDGET_TYPES = [
+  { type:'Frame', icon:'☐', color:'#3498db', desc:'Basic container frame' },
+  { type:'Button', icon:'☑', color:'#e74c3c', desc:'Clickable button' },
+  { type:'StatusBar', icon:'▮', color:'#2ecc71', desc:'Health/progress bar' },
+  { type:'Texture', icon:'🖼', color:'#9b59b6', desc:'Texture region' },
+  { type:'FontString', icon:'A', color:'#f39c12', desc:'Text label' },
+  { type:'EditBox', icon:'✎', color:'#1abc9c', desc:'Text input field' },
+  { type:'Slider', icon:'⊖', color:'#e67e22', desc:'Value slider' },
+  { type:'CheckButton', icon:'☑', color:'#3498db', desc:'Checkbox toggle' },
+  { type:'ScrollFrame', icon:'⇕', color:'#8e44ad', desc:'Scrollable container' },
+];
+
+// Default properties per widget type
+const DEFAULTS = {
+  Frame:       { w:200, h:150, backdrop:true, bgColor:'#1a1a2e', borderColor:'#333366' },
+  Button:      { w:120, h:28,  text:'Button',  template:'BackdropTemplate' },
+  StatusBar:   { w:200, h:20,  minVal:0, maxVal:100, value:75, barColor:'#00cc44', orientation:'HORIZONTAL' },
+  Texture:     { w:64,  h:64,  texColor:'#ffffff', layer:'ARTWORK' },
+  FontString:  { w:100, h:20,  text:'Text', fontSize:14, fontFlags:'', textColor:'#ffffff', layer:'OVERLAY' },
+  EditBox:     { w:160, h:24,  placeholder:'Enter text...' },
+  Slider:      { w:160, h:20,  minVal:0, maxVal:100, step:1, value:50 },
+  CheckButton: { w:140, h:20,  text:'Option', checked:false },
+  ScrollFrame: { w:200, h:150 },
+};
+
+// WoW anchor points
+const ANCHOR_POINTS = ['TOPLEFT','TOP','TOPRIGHT','LEFT','CENTER','RIGHT','BOTTOMLEFT','BOTTOM','BOTTOMRIGHT'];
+
+// ============= State =============
+let widgets = [];
+let selectedId = null;
+let nextId = 1;
+let undoStack = [], redoStack = [];
+let showGrid = true, snapEnabled = true;
+let gridSize = 10;
+let camera = { x:0, y:0, zoom:1 };
+let dragState = null; // {mode:'move'|'resize', widget, startX, startY, origX, origY, origW, origH, handle}
+let isPanning = false, panStart = {x:0,y:0}, camStart = {x:0,y:0};
+
+// ============= Canvas Setup =============
+const canvasArea = document.getElementById('canvasArea');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = canvasArea.clientWidth;
+  canvas.height = canvasArea.clientHeight;
+  // Fit canvas to show full 1920x1080
+  const scaleX = canvas.width / CANVAS_W;
+  const scaleY = canvas.height / CANVAS_H;
+  camera.zoom = Math.min(scaleX, scaleY) * 0.9;
+  camera.x = (canvas.width - CANVAS_W * camera.zoom) / 2;
+  camera.y = (canvas.height - CANVAS_H * camera.zoom) / 2;
+  render();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// ============= Coordinate Conversion =============
+function screenToCanvas(sx, sy) {
+  return { x: (sx - camera.x) / camera.zoom, y: (sy - camera.y) / camera.zoom };
+}
+function canvasToScreen(cx, cy) {
+  return { x: cx * camera.zoom + camera.x, y: cy * camera.zoom + camera.y };
+}
+
+// ============= Widget CRUD =============
+let addCount = 0; // cascade offset counter
+function createWidget(type, x, y, parentId) {
+  const d = DEFAULTS[type];
+  // Cascade position so widgets don't stack exactly on top of each other
+  const offsetX = (addCount % 8) * 30;
+  const offsetY = (addCount % 8) * 30;
+  addCount++;
+  const w = {
+    id: nextId++,
+    type, name: type + '_' + (nextId-1),
+    x: x !== undefined ? x : CANVAS_W/2 - d.w/2 + offsetX,
+    y: y !== undefined ? y : CANVAS_H/2 - d.h/2 + offsetY,
+    w: d.w, h: d.h,
+    parentId: parentId || null,
+    anchor: { point:'CENTER', relPoint:'CENTER', offX:0, offY:0 },
+    strata: 'MEDIUM', level: 1,
+    props: JSON.parse(JSON.stringify(d)),
+  };
+  delete w.props.w; delete w.props.h;
+  widgets.push(w);
+  pushUndo();
+  return w;
+}
+
+function deleteWidget(id) {
+  // Delete children first
+  widgets.filter(w => w.parentId === id).forEach(c => deleteWidget(c.id));
+  widgets = widgets.filter(w => w.id !== id);
+  if (selectedId === id) selectedId = null;
+  pushUndo();
+}
+
+function findWidget(id) { return widgets.find(w => w.id === id); }
+
+function getChildren(parentId) { return widgets.filter(w => w.parentId === parentId); }
+
+function getRootWidgets() { return widgets.filter(w => !w.parentId); }
+
+// ============= Undo/Redo =============
+function pushUndo() {
+  undoStack.push(JSON.stringify(widgets));
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack = [];
+  updateAll();
+}
+function undo() {
+  if (undoStack.length < 2) return;
+  redoStack.push(undoStack.pop());
+  widgets = JSON.parse(undoStack[undoStack.length-1]);
+  selectedId = null;
+  updateAll();
+}
+function redo() {
+  if (!redoStack.length) return;
+  const s = redoStack.pop();
+  undoStack.push(s);
+  widgets = JSON.parse(s);
+  selectedId = null;
+  updateAll();
+}
+
+// ============= Snap =============
+function snap(v) { return snapEnabled ? Math.round(v / gridSize) * gridSize : Math.round(v); }
+
+// ============= Rendering =============
+function render() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.translate(camera.x, camera.y);
+  ctx.scale(camera.zoom, camera.zoom);
+
+  // Game area background
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // Grid
+  if (showGrid) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1 / camera.zoom;
+    for (let x = 0; x <= CANVAS_W; x += gridSize * 2) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_H); ctx.stroke();
+    }
+    for (let y = 0; y <= CANVAS_H; y += gridSize * 2) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_W, y); ctx.stroke();
+    }
+    // Center guides
+    ctx.strokeStyle = 'rgba(0,212,255,0.15)';
+    ctx.beginPath(); ctx.moveTo(CANVAS_W/2, 0); ctx.lineTo(CANVAS_W/2, CANVAS_H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, CANVAS_H/2); ctx.lineTo(CANVAS_W, CANVAS_H/2); ctx.stroke();
+  }
+
+  // Render widgets (back to front)
+  const sorted = [...widgets].sort((a,b) => {
+    const sa = STRATA_ORDER[a.strata]||5, sb = STRATA_ORDER[b.strata]||5;
+    return sa !== sb ? sa - sb : a.level - b.level;
+  });
+  sorted.forEach(w => renderWidget(w));
+
+  // Selection handles
+  if (selectedId) {
+    const sel = findWidget(selectedId);
+    if (sel) renderSelection(sel);
+  }
+
+  ctx.restore();
+
+  // Info
+  document.getElementById('canvasInfo').textContent =
+    `${CANVAS_W}×${CANVAS_H} | ${Math.round(camera.zoom*100)}% | Widgets: ${widgets.length}`;
+}
+
+const STRATA_ORDER = { BACKGROUND:1, LOW:2, MEDIUM:3, HIGH:4, DIALOG:5, FULLSCREEN:6, FULLSCREEN_DIALOG:7, TOOLTIP:8 };
+
+function renderWidget(w) {
+  const tc = WIDGET_TYPES.find(t => t.type === w.type);
+  const color = tc ? tc.color : '#666';
+
+  ctx.save();
+
+  if (w.type === 'Frame' || w.type === 'ScrollFrame') {
+    // Background
+    ctx.fillStyle = w.props.bgColor || 'rgba(26,26,46,0.8)';
+    ctx.globalAlpha = 0.7;
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.globalAlpha = 1;
+    // Border
+    ctx.strokeStyle = w.props.borderColor || color;
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+  } else if (w.type === 'Button') {
+    ctx.fillStyle = '#2a2a4a';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.font = `${14/1}px Inter`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(w.props.text || 'Button', w.x + w.w/2, w.y + w.h/2);
+  } else if (w.type === 'StatusBar') {
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    const pct = ((w.props.value||0) - (w.props.minVal||0)) / ((w.props.maxVal||100) - (w.props.minVal||0));
+    ctx.fillStyle = w.props.barColor || '#00cc44';
+    ctx.fillRect(w.x, w.y, w.w * Math.max(0, Math.min(1, pct)), w.h);
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+  } else if (w.type === 'Texture') {
+    ctx.fillStyle = w.props.texColor || '#666';
+    ctx.globalAlpha = 0.5;
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.globalAlpha = 1;
+    // Cross pattern for texture placeholder
+    ctx.strokeStyle = w.props.texColor || '#666';
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.beginPath(); ctx.moveTo(w.x, w.y); ctx.lineTo(w.x+w.w, w.y+w.h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w.x+w.w, w.y); ctx.lineTo(w.x, w.y+w.h); ctx.stroke();
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+  } else if (w.type === 'FontString') {
+    ctx.fillStyle = w.props.textColor || '#fff';
+    ctx.font = `${w.props.fontSize || 14}px Inter`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(w.props.text || 'Text', w.x, w.y);
+    // Bounding box (dashed)
+    ctx.setLineDash([3/camera.zoom, 3/camera.zoom]);
+    ctx.strokeStyle = 'rgba(243,156,18,0.4)';
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+    ctx.setLineDash([]);
+  } else if (w.type === 'EditBox') {
+    ctx.fillStyle = '#1a1a35';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.strokeStyle = '#2a2a50';
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+    ctx.fillStyle = '#666';
+    ctx.font = '12px Inter';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(w.props.placeholder || '', w.x + 6, w.y + w.h/2);
+  } else if (w.type === 'Slider') {
+    // Track
+    ctx.fillStyle = '#1a1a35';
+    const trackY = w.y + w.h/2 - 3;
+    ctx.fillRect(w.x, trackY, w.w, 6);
+    // Thumb
+    const pct = ((w.props.value||0)-(w.props.minVal||0))/((w.props.maxVal||100)-(w.props.minVal||0));
+    const thumbX = w.x + pct * (w.w - 12);
+    ctx.fillStyle = color;
+    ctx.fillRect(thumbX, w.y, 12, w.h);
+  } else if (w.type === 'CheckButton') {
+    // Box
+    ctx.fillStyle = w.props.checked ? '#00d4ff' : '#1a1a35';
+    ctx.fillRect(w.x, w.y + 3, 14, 14);
+    ctx.strokeStyle = '#2a2a50';
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.strokeRect(w.x, w.y + 3, 14, 14);
+    // Label
+    ctx.fillStyle = '#e0e0e0';
+    ctx.font = '12px Inter';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(w.props.text || 'Option', w.x + 20, w.y + w.h/2);
+  }
+
+  // Widget name label (with type-colored tag)
+  const tagColor = tc ? tc.color : '#666';
+  ctx.fillStyle = tagColor;
+  ctx.globalAlpha = 0.7;
+  ctx.font = `600 ${11}px Inter`;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText(w.name, w.x + 1, w.y - 4);
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+}
+
+function renderSelection(w) {
+  ctx.save();
+  ctx.strokeStyle = '#00d4ff';
+  ctx.lineWidth = 2 / camera.zoom;
+  ctx.setLineDash([5/camera.zoom, 3/camera.zoom]);
+  ctx.strokeRect(w.x-1, w.y-1, w.w+2, w.h+2);
+  ctx.setLineDash([]);
+
+  // Resize handles
+  const hs = 6 / camera.zoom;
+  const handles = getHandles(w, hs);
+  ctx.fillStyle = '#00d4ff';
+  handles.forEach(h => {
+    ctx.fillRect(h.x - hs/2, h.y - hs/2, hs, hs);
+  });
+
+  // Size label
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = `${10}px Inter`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText(`${Math.round(w.w)}×${Math.round(w.h)}`, w.x + w.w/2, w.y + w.h + 4);
+  ctx.restore();
+}
+
+function getHandles(w, hs) {
+  return [
+    { x:w.x, y:w.y, cursor:'nw-resize', dir:'tl' },
+    { x:w.x+w.w/2, y:w.y, cursor:'n-resize', dir:'t' },
+    { x:w.x+w.w, y:w.y, cursor:'ne-resize', dir:'tr' },
+    { x:w.x+w.w, y:w.y+w.h/2, cursor:'e-resize', dir:'r' },
+    { x:w.x+w.w, y:w.y+w.h, cursor:'se-resize', dir:'br' },
+    { x:w.x+w.w/2, y:w.y+w.h, cursor:'s-resize', dir:'b' },
+    { x:w.x, y:w.y+w.h, cursor:'sw-resize', dir:'bl' },
+    { x:w.x, y:w.y+w.h/2, cursor:'w-resize', dir:'l' },
+  ];
+}
+
+// ============= Mouse Events =============
+canvas.addEventListener('mousedown', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const cp = screenToCanvas(sx, sy);
+
+  // Middle button = pan
+  if (e.button === 1) {
+    isPanning = true; panStart = {x:e.clientX,y:e.clientY}; camStart = {x:camera.x,y:camera.y};
+    canvas.style.cursor = 'grabbing'; return;
+  }
+
+  if (e.button !== 0) return;
+
+  // Check resize handles first
+  if (selectedId) {
+    const sel = findWidget(selectedId);
+    if (sel) {
+      const hs = 8 / camera.zoom;
+      const handles = getHandles(sel, hs);
+      for (const h of handles) {
+        if (Math.abs(cp.x - h.x) < hs && Math.abs(cp.y - h.y) < hs) {
+          dragState = { mode:'resize', widget:sel, startX:cp.x, startY:cp.y,
+            origX:sel.x, origY:sel.y, origW:sel.w, origH:sel.h, handle:h.dir };
+          return;
+        }
+      }
+    }
+  }
+
+  // Check widget hit (top-most first)
+  const sorted = [...widgets].sort((a,b) => {
+    const sa = STRATA_ORDER[a.strata]||5, sb = STRATA_ORDER[b.strata]||5;
+    return sa !== sb ? sb - sa : b.level - a.level;
+  });
+  let hit = null;
+  for (const w of sorted) {
+    if (cp.x >= w.x && cp.x <= w.x+w.w && cp.y >= w.y && cp.y <= w.y+w.h) {
+      hit = w; break;
+    }
+  }
+
+  if (hit) {
+    selectedId = hit.id;
+    dragState = { mode:'move', widget:hit, startX:cp.x, startY:cp.y, origX:hit.x, origY:hit.y };
+    updateAll();
+  } else {
+    selectedId = null;
+    updateAll();
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const cp = screenToCanvas(sx, sy);
+
+  if (isPanning) {
+    camera.x = camStart.x + (e.clientX - panStart.x);
+    camera.y = camStart.y + (e.clientY - panStart.y);
+    render(); return;
+  }
+
+  if (!dragState) {
+    // Cursor hint
+    if (selectedId) {
+      const sel = findWidget(selectedId);
+      if (sel) {
+        const hs = 8 / camera.zoom;
+        const handles = getHandles(sel, hs);
+        for (const h of handles) {
+          if (Math.abs(cp.x - h.x) < hs && Math.abs(cp.y - h.y) < hs) {
+            canvas.style.cursor = h.cursor; return;
+          }
+        }
+      }
+    }
+    canvas.style.cursor = 'default';
+    return;
+  }
+
+  const dx = cp.x - dragState.startX, dy = cp.y - dragState.startY;
+  const w = dragState.widget;
+
+  if (dragState.mode === 'move') {
+    w.x = snap(dragState.origX + dx);
+    w.y = snap(dragState.origY + dy);
+    // Clamp
+    w.x = Math.max(0, Math.min(CANVAS_W - w.w, w.x));
+    w.y = Math.max(0, Math.min(CANVAS_H - w.h, w.y));
+  } else if (dragState.mode === 'resize') {
+    const h = dragState.handle;
+    let nx = dragState.origX, ny = dragState.origY, nw = dragState.origW, nh = dragState.origH;
+    if (h.includes('r')) { nw = snap(dragState.origW + dx); }
+    if (h.includes('b')) { nh = snap(dragState.origH + dy); }
+    if (h.includes('l')) { nx = snap(dragState.origX + dx); nw = dragState.origW - (nx - dragState.origX); }
+    if (h.includes('t')) { ny = snap(dragState.origY + dy); nh = dragState.origH - (ny - dragState.origY); }
+    // Min size
+    if (nw < 10) { nw = 10; if (h.includes('l')) nx = dragState.origX + dragState.origW - 10; }
+    if (nh < 10) { nh = 10; if (h.includes('t')) ny = dragState.origY + dragState.origH - 10; }
+    w.x = nx; w.y = ny; w.w = nw; w.h = nh;
+  }
+
+  render();
+  updatePropertyPanel();
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  if (isPanning) { isPanning = false; canvas.style.cursor = 'default'; return; }
+  if (dragState) {
+    if (dragState.mode === 'move' && (dragState.widget.x !== dragState.origX || dragState.widget.y !== dragState.origY)) pushUndo();
+    if (dragState.mode === 'resize') pushUndo();
+    dragState = null;
+  }
+});
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const oldZoom = camera.zoom;
+  camera.zoom *= e.deltaY > 0 ? 0.9 : 1.1;
+  camera.zoom = Math.max(0.1, Math.min(5, camera.zoom));
+  // Zoom toward mouse
+  camera.x = mx - (mx - camera.x) * (camera.zoom / oldZoom);
+  camera.y = my - (my - camera.y) * (camera.zoom / oldZoom);
+  render();
+});
+
+// ============= Palette =============
+function buildPalette() {
+  const el = document.getElementById('palette');
+  el.innerHTML = '';
+  WIDGET_TYPES.forEach(wt => {
+    const item = document.createElement('div');
+    item.className = 'widget-item';
+    item.draggable = true;
+    item.innerHTML = `<div class="icon" style="color:${wt.color}">${wt.icon}</div><div><div class="name">${wt.type}</div></div>`;
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('widgetType', wt.type);
+    });
+    item.addEventListener('dblclick', () => {
+      const w = createWidget(wt.type);
+      selectedId = w.id;
+      updateAll();
+    });
+    el.appendChild(item);
+  });
+}
+
+// Canvas drop
+canvasArea.addEventListener('dragover', (e) => e.preventDefault());
+canvasArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const type = e.dataTransfer.getData('widgetType');
+  if (!type) return;
+  const rect = canvas.getBoundingClientRect();
+  const cp = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
+  const d = DEFAULTS[type];
+  const w = createWidget(type, snap(cp.x - d.w/2), snap(cp.y - d.h/2));
+  selectedId = w.id;
+  updateAll();
+});
+
+// ============= Hierarchy =============
+function buildHierarchy() {
+  const el = document.getElementById('hierarchy');
+  el.innerHTML = '';
+  function addItem(w, depth) {
+    const div = document.createElement('div');
+    div.className = 'tree-item' + (w.id === selectedId ? ' selected' : '');
+    div.style.paddingLeft = (8 + depth * 16) + 'px';
+    const tc = WIDGET_TYPES.find(t => t.type === w.type);
+    div.innerHTML = `<span style="color:${tc?.color||'#666'};font-size:10px">${tc?.icon||'?'}</span> ${w.name}`;
+    div.addEventListener('click', () => { selectedId = w.id; updateAll(); });
+    el.appendChild(div);
+    getChildren(w.id).forEach(c => addItem(c, depth+1));
+  }
+  getRootWidgets().forEach(w => addItem(w, 0));
+}
+
+// ============= Property Panel =============
+function updatePropertyPanel() {
+  const panel = document.getElementById('propPanel');
+  if (!selectedId) {
+    panel.innerHTML = '<div class="no-selection">Select a widget to edit properties</div>';
+    return;
+  }
+  const w = findWidget(selectedId);
+  if (!w) return;
+
+  // Only rebuild if selection changed
+  if (panel.dataset.widgetId == w.id && panel.dataset.mode === 'update') {
+    // Just update values in existing inputs
+    const nameInput = panel.querySelector('[data-prop="name"]');
+    if (nameInput && nameInput !== document.activeElement) nameInput.value = w.name;
+    const xInput = panel.querySelector('[data-prop="x"]');
+    if (xInput && xInput !== document.activeElement) xInput.value = Math.round(w.x);
+    const yInput = panel.querySelector('[data-prop="y"]');
+    if (yInput && yInput !== document.activeElement) yInput.value = Math.round(w.y);
+    const wInput = panel.querySelector('[data-prop="w"]');
+    if (wInput && wInput !== document.activeElement) wInput.value = Math.round(w.w);
+    const hInput = panel.querySelector('[data-prop="h"]');
+    if (hInput && hInput !== document.activeElement) hInput.value = Math.round(w.h);
+    return;
+  }
+
+  panel.dataset.widgetId = w.id;
+  panel.dataset.mode = 'update';
+
+  let html = '';
+
+  // Identity
+  html += `<div class="prop-group"><div class="prop-group-title">Identity</div>
+    <div class="prop-row"><span class="prop-label">Type</span><span style="color:var(--accent)">${w.type}</span></div>
+    <div class="prop-row"><span class="prop-label">Name</span><input class="prop-input" data-prop="name" value="${w.name}"></div>
+  </div>`;
+
+  // Transform
+  html += `<div class="prop-group"><div class="prop-group-title">Transform</div>
+    <div class="prop-row"><span class="prop-label">X</span><input class="prop-input prop-input-sm" data-prop="x" type="number" value="${Math.round(w.x)}">
+      <span class="prop-label">Y</span><input class="prop-input prop-input-sm" data-prop="y" type="number" value="${Math.round(w.y)}"></div>
+    <div class="prop-row"><span class="prop-label">W</span><input class="prop-input prop-input-sm" data-prop="w" type="number" value="${Math.round(w.w)}">
+      <span class="prop-label">H</span><input class="prop-input prop-input-sm" data-prop="h" type="number" value="${Math.round(w.h)}"></div>
+  </div>`;
+
+  // Anchor
+  html += `<div class="prop-group"><div class="prop-group-title">Anchor</div>
+    <div class="prop-row"><span class="prop-label">Point</span><select class="prop-select" data-prop="anchor.point">${ANCHOR_POINTS.map(p=>`<option${w.anchor.point===p?' selected':''}>${p}</option>`).join('')}</select></div>
+    <div class="prop-row"><span class="prop-label">RelPoint</span><select class="prop-select" data-prop="anchor.relPoint">${ANCHOR_POINTS.map(p=>`<option${w.anchor.relPoint===p?' selected':''}>${p}</option>`).join('')}</select></div>
+    <div class="prop-row"><span class="prop-label">OffX</span><input class="prop-input prop-input-sm" data-prop="anchor.offX" type="number" value="${w.anchor.offX}">
+      <span class="prop-label">OffY</span><input class="prop-input prop-input-sm" data-prop="anchor.offY" type="number" value="${w.anchor.offY}"></div>
+  </div>`;
+
+  // Strata
+  html += `<div class="prop-group"><div class="prop-group-title">Strata</div>
+    <div class="prop-row"><span class="prop-label">Strata</span><select class="prop-select" data-prop="strata">${Object.keys(STRATA_ORDER).map(s=>`<option${w.strata===s?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="prop-row"><span class="prop-label">Level</span><input class="prop-input prop-input-sm" data-prop="level" type="number" value="${w.level}"></div>
+  </div>`;
+
+  // Type-specific props
+  html += '<div class="prop-group"><div class="prop-group-title">Properties</div>';
+  for (const [key, val] of Object.entries(w.props)) {
+    if (typeof val === 'boolean') {
+      html += `<div class="prop-row"><span class="prop-label">${key}</span><input type="checkbox" data-prop="props.${key}" ${val?'checked':''}></div>`;
+    } else if (typeof val === 'string' && val.startsWith('#')) {
+      html += `<div class="prop-row"><span class="prop-label">${key}</span><input type="color" class="prop-color" data-prop="props.${key}" value="${val}"><input class="prop-input" data-prop="props.${key}" value="${val}" style="flex:1"></div>`;
+    } else {
+      html += `<div class="prop-row"><span class="prop-label">${key}</span><input class="prop-input" data-prop="props.${key}" value="${val}"></div>`;
+    }
+  }
+  html += '</div>';
+
+  panel.innerHTML = html;
+
+  // Bind events
+  panel.querySelectorAll('[data-prop]').forEach(input => {
+    const handler = () => {
+      const prop = input.dataset.prop;
+      let val = input.type === 'checkbox' ? input.checked : input.value;
+      if (input.type === 'number') val = parseFloat(val) || 0;
+
+      if (prop.startsWith('props.')) {
+        const k = prop.slice(6);
+        if (typeof w.props[k] === 'number') val = parseFloat(val) || 0;
+        w.props[k] = val;
+      } else if (prop.startsWith('anchor.')) {
+        w.anchor[prop.slice(7)] = val;
+      } else if (prop === 'x') w.x = val;
+      else if (prop === 'y') w.y = val;
+      else if (prop === 'w') w.w = val;
+      else if (prop === 'h') w.h = val;
+      else if (prop === 'name') w.name = val;
+      else if (prop === 'strata') w.strata = val;
+      else if (prop === 'level') w.level = parseInt(val) || 1;
+
+      render();
+      generateCode();
+    };
+    input.addEventListener('input', handler);
+    input.addEventListener('change', handler);
+  });
+}
+
+// ============= Code Generation =============
+function generateCode() {
+  const mode = document.getElementById('codeMode').value;
+  let code = '';
+  if (mode === 'vanilla') code = genVanilla();
+  else if (mode === 'stylelib') code = genStyleLib();
+  else if (mode === 'af') code = genAF();
+  document.getElementById('codeOutput').textContent = code;
+}
+
+function genVanilla() {
+  let lines = ['-- Generated by DDingUI Designer', '-- Mode: Vanilla WoW API', ''];
+  const roots = getRootWidgets();
+  roots.forEach(w => genVanillaWidget(w, 'UIParent', lines, ''));
+  return lines.join('\n');
+}
+
+function genVanillaWidget(w, parentVar, lines, indent) {
+  const varName = w.name.replace(/[^a-zA-Z0-9_]/g, '_');
+  const tmpl = w.props.backdrop || w.type === 'Frame' ? ', "BackdropTemplate"' : '';
+
+  if (w.type === 'FontString') {
+    lines.push(`${indent}local ${varName} = ${parentVar}:CreateFontString(nil, "${w.props.layer || 'OVERLAY'}")`);
+    lines.push(`${indent}${varName}:SetFont("Fonts\\\\FRIZQT__.TTF", ${w.props.fontSize || 14}, "${w.props.fontFlags || ''}")`);
+    if (w.props.textColor) lines.push(`${indent}${varName}:SetTextColor(${hexToRGB(w.props.textColor)})`);
+    if (w.props.text) lines.push(`${indent}${varName}:SetText("${w.props.text}")`);
+  } else if (w.type === 'Texture') {
+    lines.push(`${indent}local ${varName} = ${parentVar}:CreateTexture(nil, "${w.props.layer || 'ARTWORK'}")`);
+    lines.push(`${indent}${varName}:SetSize(${Math.round(w.w)}, ${Math.round(w.h)})`);
+    if (w.props.texColor) lines.push(`${indent}${varName}:SetColorTexture(${hexToRGB(w.props.texColor)})`);
+  } else if (w.type === 'StatusBar') {
+    lines.push(`${indent}local ${varName} = CreateFrame("StatusBar", "${varName}", ${parentVar})`);
+    lines.push(`${indent}${varName}:SetSize(${Math.round(w.w)}, ${Math.round(w.h)})`);
+    lines.push(`${indent}${varName}:SetStatusBarTexture("Interface\\\\TargetingFrame\\\\UI-StatusBar")`);
+    if (w.props.barColor) lines.push(`${indent}${varName}:SetStatusBarColor(${hexToRGB(w.props.barColor)})`);
+    lines.push(`${indent}${varName}:SetMinMaxValues(${w.props.minVal || 0}, ${w.props.maxVal || 100})`);
+    lines.push(`${indent}${varName}:SetValue(${w.props.value || 0})`);
+  } else {
+    const ftype = w.type === 'CheckButton' ? 'CheckButton' : w.type === 'EditBox' ? 'EditBox' : w.type === 'Slider' ? 'Slider' : w.type === 'ScrollFrame' ? 'ScrollFrame' : w.type === 'Button' ? 'Button' : 'Frame';
+    lines.push(`${indent}local ${varName} = CreateFrame("${ftype}", "${varName}", ${parentVar}${tmpl})`);
+    lines.push(`${indent}${varName}:SetSize(${Math.round(w.w)}, ${Math.round(w.h)})`);
+
+    if (w.type === 'Frame' && w.props.backdrop) {
+      lines.push(`${indent}${varName}:SetBackdrop({ bgFile = "Interface\\\\Tooltips\\\\UI-Tooltip-Background", edgeFile = "Interface\\\\Tooltips\\\\UI-Tooltip-Border", edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })`);
+      if (w.props.bgColor) lines.push(`${indent}${varName}:SetBackdropColor(${hexToRGB(w.props.bgColor)})`);
+    }
+    if (w.type === 'Button' && w.props.text) lines.push(`${indent}${varName}:SetText("${w.props.text}")`);
+    if (w.type === 'CheckButton' && w.props.text) lines.push(`${indent}${varName}:SetText("${w.props.text}")`);
+    if (w.type === 'Slider') {
+      lines.push(`${indent}${varName}:SetMinMaxValues(${w.props.minVal||0}, ${w.props.maxVal||100})`);
+      lines.push(`${indent}${varName}:SetValueStep(${w.props.step||1})`);
+      lines.push(`${indent}${varName}:SetValue(${w.props.value||0})`);
+    }
+  }
+
+  // Anchor
+  const offX = Math.round(w.x - CANVAS_W/2), offY = Math.round(-(w.y - CANVAS_H/2));
+  lines.push(`${indent}${varName}:SetPoint("${w.anchor.point}", ${parentVar}, "${w.anchor.relPoint}", ${offX}, ${offY})`);
+  lines.push('');
+
+  // Children
+  getChildren(w.id).forEach(c => genVanillaWidget(c, varName, lines, indent));
+}
+
+function genStyleLib() {
+  let lines = ['-- Generated by DDingUI Designer', '-- Mode: DDingUI StyleLib', '', 'local Lib = LibStub("DDingUI-StyleLib-1.0")', 'local ADDON_NAME = "MyAddon"', ''];
+  getRootWidgets().forEach(w => genStyleLibWidget(w, 'UIParent', lines));
+  return lines.join('\n');
+}
+
+function genStyleLibWidget(w, parentVar, lines) {
+  const varName = w.name.replace(/[^a-zA-Z0-9_]/g, '_');
+  if (w.type === 'Button') {
+    lines.push(`local ${varName} = Lib.CreateButton(${parentVar}, ADDON_NAME, "${w.props.text||'Button'}", function(self) end, { width = ${Math.round(w.w)}, height = ${Math.round(w.h)} })`);
+  } else if (w.type === 'CheckButton') {
+    lines.push(`local ${varName} = Lib.CreateCheckbox(${parentVar}, ADDON_NAME, "${w.props.text||'Option'}", ${w.props.checked||false}, {})`);
+  } else if (w.type === 'EditBox') {
+    lines.push(`local ${varName} = Lib.CreateInputField(${parentVar}, ADDON_NAME, "${w.props.placeholder||''}", "", { width = ${Math.round(w.w)} })`);
+  } else if (w.type === 'Slider') {
+    lines.push(`local ${varName} = Lib.CreateSlider(${parentVar}, ADDON_NAME, "${varName}", ${w.props.minVal||0}, ${w.props.maxVal||100}, ${w.props.step||1}, ${w.props.value||0}, { width = ${Math.round(w.w)} })`);
+  } else if (w.type === 'FontString') {
+    lines.push(`-- FontString: use Lib internal MakeFont or CreateFrame wrapper`);
+    lines.push(`local ${varName} = ${parentVar}:CreateFontString(nil, "OVERLAY")`);
+    lines.push(`${varName}:SetText("${w.props.text||''}")`);
+  } else {
+    lines.push(`local ${varName} = CreateFrame("${w.type}", "${varName}", ${parentVar}, "BackdropTemplate")`);
+    lines.push(`${varName}:SetSize(${Math.round(w.w)}, ${Math.round(w.h)})`);
+  }
+  const offX = Math.round(w.x - CANVAS_W/2), offY = Math.round(-(w.y - CANVAS_H/2));
+  lines.push(`${varName}:SetPoint("${w.anchor.point}", ${parentVar}, "${w.anchor.relPoint}", ${offX}, ${offY})`);
+  lines.push('');
+  getChildren(w.id).forEach(c => genStyleLibWidget(c, varName, lines));
+}
+
+function genAF() {
+  let lines = ['-- Generated by DDingUI Designer', '-- Mode: AbstractFramework', '', '---@type AbstractFramework', 'local AF = _G.AbstractFramework', ''];
+  getRootWidgets().forEach(w => genAFWidget(w, 'AF.UIParent', lines));
+  return lines.join('\n');
+}
+
+function genAFWidget(w, parentVar, lines) {
+  const varName = w.name.replace(/[^a-zA-Z0-9_]/g, '_');
+  const offX = Math.round(w.x - CANVAS_W/2), offY = Math.round(-(w.y - CANVAS_H/2));
+
+  if (w.type === 'Button') {
+    lines.push(`local ${varName} = AF.CreateButton(${parentVar}, "${w.props.text||'Button'}", "accent", ${Math.round(w.w)}, ${Math.round(w.h)})`);
+  } else if (w.type === 'CheckButton') {
+    lines.push(`local ${varName} = AF.CreateCheckButton(${parentVar}, "${w.props.text||'Option'}")`);
+  } else if (w.type === 'EditBox') {
+    lines.push(`local ${varName} = AF.CreateEditBox(${parentVar}, "${w.props.placeholder||''}", ${Math.round(w.w)}, ${Math.round(w.h)})`);
+  } else if (w.type === 'Slider') {
+    lines.push(`local ${varName} = AF.CreateSlider(${parentVar}, "${varName}", ${Math.round(w.w)}, ${w.props.minVal||0}, ${w.props.maxVal||100}, ${w.props.step||1})`);
+    lines.push(`${varName}:SetValue(${w.props.value||0})`);
+  } else if (w.type === 'StatusBar') {
+    lines.push(`local ${varName} = AF.CreateStatusBar(${parentVar}, ${Math.round(w.w)}, ${Math.round(w.h)})`);
+  } else if (w.type === 'FontString') {
+    lines.push(`local ${varName} = AF.CreateFontString(${parentVar}, "${w.props.text||''}")`);
+  } else if (w.type === 'Frame') {
+    lines.push(`local ${varName} = AF.CreateBorderedFrame(${parentVar}, nil, ${Math.round(w.w)}, ${Math.round(w.h)})`);
+  } else if (w.type === 'ScrollFrame') {
+    lines.push(`local ${varName} = AF.CreateScrollFrame(${parentVar}, nil, ${Math.round(w.w)}, ${Math.round(w.h)})`);
+  } else {
+    lines.push(`local ${varName} = AF.CreateBorderedFrame(${parentVar}, nil, ${Math.round(w.w)}, ${Math.round(w.h)})`);
+  }
+
+  lines.push(`AF.SetPoint(${varName}, "${w.anchor.point}", ${parentVar}, "${w.anchor.relPoint}", ${offX}, ${offY})`);
+  lines.push('');
+  getChildren(w.id).forEach(c => genAFWidget(c, varName, lines));
+}
+
+function hexToRGB(hex) {
+  if (!hex || !hex.startsWith('#')) return '1, 1, 1';
+  const r = parseInt(hex.slice(1,3),16)/255;
+  const g = parseInt(hex.slice(3,5),16)/255;
+  const b = parseInt(hex.slice(5,7),16)/255;
+  return `${r.toFixed(2)}, ${g.toFixed(2)}, ${b.toFixed(2)}`;
+}
+
+// ============= Update All =============
+function updateAll() {
+  render();
+  buildHierarchy();
+  updatePropertyPanel();
+  generateCode();
+}
+
+// ============= Toolbar Buttons =============
+document.getElementById('btnNew').addEventListener('click', () => {
+  if (widgets.length && !confirm('Clear all widgets?')) return;
+  widgets = []; selectedId = null; nextId = 1; undoStack = []; redoStack = [];
+  pushUndo(); updateAll();
+});
+
+document.getElementById('btnDelete').addEventListener('click', () => {
+  if (selectedId) { deleteWidget(selectedId); updateAll(); }
+});
+
+document.getElementById('btnUndo').addEventListener('click', undo);
+document.getElementById('btnRedo').addEventListener('click', redo);
+
+document.getElementById('btnGrid').addEventListener('click', (e) => {
+  showGrid = !showGrid;
+  e.target.classList.toggle('active', showGrid);
+  render();
+});
+document.getElementById('btnGrid').classList.add('active');
+
+document.getElementById('btnSnap').addEventListener('click', (e) => {
+  snapEnabled = !snapEnabled;
+  e.target.classList.toggle('active', snapEnabled);
+});
+document.getElementById('btnSnap').classList.add('active');
+
+document.getElementById('codeMode').addEventListener('change', generateCode);
+
+document.getElementById('btnCopy').addEventListener('click', () => {
+  const code = document.getElementById('codeOutput').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.getElementById('btnCopy');
+    btn.textContent = '✓ Copied!'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '📋 Copy'; btn.classList.remove('copied'); }, 1500);
+  });
+});
+
+// Save/Load
+document.getElementById('btnSave').addEventListener('click', () => {
+  const data = JSON.stringify({ widgets, nextId }, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ddingui_layout.json';
+  a.click();
+});
+
+document.getElementById('btnLoad').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        widgets = data.widgets || [];
+        nextId = data.nextId || widgets.length + 1;
+        selectedId = null;
+        undoStack = []; redoStack = [];
+        pushUndo(); updateAll();
+      } catch(err) { alert('Invalid JSON file'); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
+  if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedId) { deleteWidget(selectedId); updateAll(); }
+  }
+  if (e.key === 'Escape') { selectedId = null; updateAll(); }
+});
+
+// ============= Programmatic API =============
+// Use via browser console: API.addFrame("myFrame", 300, 200, 100, 100)
+window.API = {
+  // --- Widget Creation ---
+  addFrame(name, w, h, x, y, parentName) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('Frame', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (w) widget.w = w; if (h) widget.h = h;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addButton(name, text, w, h, parentName, x, y) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('Button', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (w) widget.w = w; if (h) widget.h = h;
+    if (text) widget.props.text = text;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addStatusBar(name, w, h, parentName, x, y, opts) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('StatusBar', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (w) widget.w = w; if (h) widget.h = h;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    if (opts) Object.assign(widget.props, opts);
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addTexture(name, w, h, parentName, x, y, color) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('Texture', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (w) widget.w = w; if (h) widget.h = h;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    if (color) widget.props.texColor = color;
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addText(name, text, parentName, x, y, opts) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('FontString', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (text) widget.props.text = text;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    if (opts) {
+      if (opts.fontSize) widget.props.fontSize = opts.fontSize;
+      if (opts.color) widget.props.textColor = opts.color;
+      if (opts.flags) widget.props.fontFlags = opts.flags;
+    }
+    // Auto-size based on text
+    widget.w = Math.max(60, (text||'').length * 8);
+    widget.h = (opts?.fontSize || 14) + 6;
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addEditBox(name, w, h, parentName, x, y, placeholder) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('EditBox', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (w) widget.w = w; if (h) widget.h = h;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    if (placeholder) widget.props.placeholder = placeholder;
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addSlider(name, w, parentName, x, y, opts) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('Slider', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (w) widget.w = w;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    if (opts) Object.assign(widget.props, opts);
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addCheckbox(name, text, parentName, x, y, checked) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('CheckButton', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (text) widget.props.text = text;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    if (checked !== undefined) widget.props.checked = checked;
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+  addScrollFrame(name, w, h, parentName, x, y) {
+    const parent = parentName ? widgets.find(wi => wi.name === parentName) : null;
+    const widget = createWidget('ScrollFrame', x, y, parent?.id);
+    widget.name = name || widget.name;
+    if (w) widget.w = w; if (h) widget.h = h;
+    if (x !== undefined) widget.x = x; if (y !== undefined) widget.y = y;
+    selectedId = widget.id; updateAll();
+    return name;
+  },
+
+  // --- Manipulation ---
+  setPosition(name, x, y) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return `Widget "${name}" not found`;
+    if (x !== undefined) w.x = x; if (y !== undefined) w.y = y;
+    updateAll(); return `${name} → (${w.x}, ${w.y})`;
+  },
+  setSize(name, w, h) {
+    const widget = widgets.find(wi => wi.name === name);
+    if (!widget) return `Widget "${name}" not found`;
+    if (w !== undefined) widget.w = w; if (h !== undefined) widget.h = h;
+    updateAll(); return `${name} → ${widget.w}×${widget.h}`;
+  },
+  setAnchor(name, point, relPoint, offX, offY) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return `Widget "${name}" not found`;
+    w.anchor = { point: point || 'CENTER', relPoint: relPoint || 'CENTER', offX: offX || 0, offY: offY || 0 };
+    updateAll(); return `${name} anchor → ${w.anchor.point}`;
+  },
+  setProperty(name, key, value) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return `Widget "${name}" not found`;
+    w.props[key] = value;
+    updateAll(); return `${name}.${key} = ${value}`;
+  },
+  setStrata(name, strata, level) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return `Widget "${name}" not found`;
+    w.strata = strata; if (level !== undefined) w.level = level;
+    updateAll(); return `${name} strata → ${strata}:${w.level}`;
+  },
+  setParent(childName, parentName) {
+    const child = widgets.find(w => w.name === childName);
+    const parent = parentName ? widgets.find(w => w.name === parentName) : null;
+    if (!child) return `Widget "${childName}" not found`;
+    child.parentId = parent ? parent.id : null;
+    updateAll(); return `${childName} → parent: ${parentName || 'root'}`;
+  },
+  rename(oldName, newName) {
+    const w = widgets.find(wi => wi.name === oldName);
+    if (!w) return `Widget "${oldName}" not found`;
+    w.name = newName;
+    updateAll(); return `Renamed: ${oldName} → ${newName}`;
+  },
+
+  // --- Selection ---
+  select(name) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return `Widget "${name}" not found`;
+    selectedId = w.id; updateAll(); return `Selected: ${name}`;
+  },
+  deselect() { selectedId = null; updateAll(); return 'Deselected'; },
+
+  // --- Deletion ---
+  remove(name) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return `Widget "${name}" not found`;
+    deleteWidget(w.id); updateAll(); return `Removed: ${name}`;
+  },
+  clear() {
+    widgets = []; selectedId = null; nextId = 1; addCount = 0;
+    undoStack = []; redoStack = [];
+    pushUndo(); updateAll(); return 'Canvas cleared';
+  },
+
+  // --- Duplication ---
+  duplicate(name, newName, offsetX, offsetY) {
+    const src = widgets.find(w => w.name === name);
+    if (!src) return `Widget "${name}" not found`;
+    const copy = JSON.parse(JSON.stringify(src));
+    copy.id = nextId++;
+    copy.name = newName || name + '_copy';
+    copy.x += offsetX || 20;
+    copy.y += offsetY || 20;
+    widgets.push(copy);
+    selectedId = copy.id;
+    pushUndo(); updateAll();
+    return `Duplicated: ${name} → ${copy.name}`;
+  },
+
+  // --- Query ---
+  list() {
+    return widgets.map(w => ({
+      name: w.name, type: w.type,
+      x: Math.round(w.x), y: Math.round(w.y),
+      w: Math.round(w.w), h: Math.round(w.h),
+      parent: widgets.find(p => p.id === w.parentId)?.name || null
+    }));
+  },
+  get(name) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return null;
+    return { name: w.name, type: w.type, x: w.x, y: w.y, w: w.w, h: w.h, props: w.props, anchor: w.anchor };
+  },
+
+  // --- Alignment ---
+  align(names, direction) {
+    const ws = names.map(n => widgets.find(w => w.name === n)).filter(Boolean);
+    if (ws.length < 2) return 'Need at least 2 widgets';
+    if (direction === 'left') { const minX = Math.min(...ws.map(w => w.x)); ws.forEach(w => w.x = minX); }
+    else if (direction === 'right') { const maxR = Math.max(...ws.map(w => w.x + w.w)); ws.forEach(w => w.x = maxR - w.w); }
+    else if (direction === 'top') { const minY = Math.min(...ws.map(w => w.y)); ws.forEach(w => w.y = minY); }
+    else if (direction === 'bottom') { const maxB = Math.max(...ws.map(w => w.y + w.h)); ws.forEach(w => w.y = maxB - w.h); }
+    else if (direction === 'centerX') { const cx = ws.reduce((s,w) => s + w.x + w.w/2, 0) / ws.length; ws.forEach(w => w.x = cx - w.w/2); }
+    else if (direction === 'centerY') { const cy = ws.reduce((s,w) => s + w.y + w.h/2, 0) / ws.length; ws.forEach(w => w.y = cy - w.h/2); }
+    pushUndo(); updateAll();
+    return `Aligned ${names.length} widgets: ${direction}`;
+  },
+  distribute(names, direction) {
+    const ws = names.map(n => widgets.find(w => w.name === n)).filter(Boolean);
+    if (ws.length < 3) return 'Need at least 3 widgets';
+    if (direction === 'horizontal') {
+      ws.sort((a,b) => a.x - b.x);
+      const minX = ws[0].x, maxX = ws[ws.length-1].x + ws[ws.length-1].w;
+      const totalW = ws.reduce((s,w) => s + w.w, 0);
+      const gap = (maxX - minX - totalW) / (ws.length - 1);
+      let cx = minX;
+      ws.forEach(w => { w.x = cx; cx += w.w + gap; });
+    } else {
+      ws.sort((a,b) => a.y - b.y);
+      const minY = ws[0].y, maxY = ws[ws.length-1].y + ws[ws.length-1].h;
+      const totalH = ws.reduce((s,w) => s + w.h, 0);
+      const gap = (maxY - minY - totalH) / (ws.length - 1);
+      let cy = minY;
+      ws.forEach(w => { w.y = cy; cy += w.h + gap; });
+    }
+    pushUndo(); updateAll();
+    return `Distributed ${names.length} widgets: ${direction}`;
+  },
+
+  // --- Code Export ---
+  setMode(mode) {
+    document.getElementById('codeMode').value = mode;
+    generateCode(); return `Output mode: ${mode}`;
+  },
+  getCode() {
+    generateCode();
+    return document.getElementById('codeOutput').textContent;
+  },
+
+  // --- Camera ---
+  zoomToFit() {
+    const scaleX = canvas.width / CANVAS_W;
+    const scaleY = canvas.height / CANVAS_H;
+    camera.zoom = Math.min(scaleX, scaleY) * 0.9;
+    camera.x = (canvas.width - CANVAS_W * camera.zoom) / 2;
+    camera.y = (canvas.height - CANVAS_H * camera.zoom) / 2;
+    render(); return `Zoom: ${Math.round(camera.zoom*100)}%`;
+  },
+  zoomTo(name) {
+    const w = widgets.find(wi => wi.name === name);
+    if (!w) return `Widget "${name}" not found`;
+    camera.zoom = Math.min(canvas.width / (w.w * 2), canvas.height / (w.h * 2), 3);
+    camera.x = canvas.width/2 - (w.x + w.w/2) * camera.zoom;
+    camera.y = canvas.height/2 - (w.y + w.h/2) * camera.zoom;
+    selectedId = w.id; updateAll();
+    return `Zoomed to: ${name}`;
+  },
+
+  // --- Help ---
+  help() {
+    const cmds = [
+      'API.addFrame(name, w, h, x, y, parentName)',
+      'API.addButton(name, text, w, h, parentName, x, y)',
+      'API.addStatusBar(name, w, h, parentName, x, y, {barColor, value, minVal, maxVal})',
+      'API.addTexture(name, w, h, parentName, x, y, color)',
+      'API.addText(name, text, parentName, x, y, {fontSize, color, flags})',
+      'API.addEditBox(name, w, h, parentName, x, y, placeholder)',
+      'API.addSlider(name, w, parentName, x, y, {minVal, maxVal, step, value})',
+      'API.addCheckbox(name, text, parentName, x, y, checked)',
+      'API.addScrollFrame(name, w, h, parentName, x, y)',
+      '---',
+      'API.setPosition(name, x, y)',
+      'API.setSize(name, w, h)',
+      'API.setAnchor(name, point, relPoint, offX, offY)',
+      'API.setProperty(name, key, value)',
+      'API.setStrata(name, strata, level)',
+      'API.setParent(childName, parentName)',
+      'API.rename(oldName, newName)',
+      '---',
+      'API.select(name) / API.deselect()',
+      'API.remove(name) / API.clear()',
+      'API.duplicate(name, newName, offsetX, offsetY)',
+      'API.list() / API.get(name)',
+      'API.align(names[], "left"|"right"|"top"|"bottom"|"centerX"|"centerY")',
+      'API.distribute(names[], "horizontal"|"vertical")',
+      '---',
+      'API.setMode("vanilla"|"stylelib"|"af")',
+      'API.getCode()',
+      'API.zoomToFit() / API.zoomTo(name)',
+    ];
+    console.log('%c DDingUI Designer API ', 'background:#00d4ff;color:#000;font-weight:bold;padding:4px 8px;border-radius:4px');
+    cmds.forEach(c => console.log(c.startsWith('---') ? '─'.repeat(50) : `  ${c}`));
+    return 'See console for full API reference';
+  }
+};
+
+console.log('%c DDingUI Designer loaded! %c Type API.help() for commands', 'background:#00d4ff;color:#000;font-weight:bold;padding:4px 8px;border-radius:4px', 'color:#888');
+
+// ============= Init =============
+buildPalette();
+resizeCanvas();
+pushUndo();
+</script>
+</body>
+</html>

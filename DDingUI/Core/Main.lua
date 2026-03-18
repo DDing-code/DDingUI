@@ -667,7 +667,7 @@ function DDingUI:OnEnable()
     end
 
     if self.BuffDebuffFrames and self.BuffDebuffFrames.Initialize then self.BuffDebuffFrames:Initialize() end
-    if self.MissingAlerts and self.MissingAlerts.Initialize then self.MissingAlerts:Initialize() end
+    -- MissingAlerts 모듈 삭제됨
     if self.QOL and self.QOL.Initialize then self.QOL:Initialize() end
     if self.CharacterPanel and self.CharacterPanel.Initialize then self.CharacterPanel:Initialize() end
     
@@ -1032,6 +1032,32 @@ do
         if DDingUI.powerBar then _cachedMoverFrames[DDingUI.powerBar] = true end
         if DDingUI.secondaryPowerBar then _cachedMoverFrames[DDingUI.secondaryPowerBar] = true end
         if DDingUI.buffTrackerBar then _cachedMoverFrames[DDingUI.buffTrackerBar] = true end
+
+        -- [FIX] Buff Tracker 개별 프레임: UIParent 직접 자식이므로 별도 알파 적용 필요
+        if DDingUI.GetTrackedBuffBars then
+            local bars = DDingUI:GetTrackedBuffBars()
+            if bars then
+                for _, bar in pairs(bars) do
+                    if bar then _cachedMoverFrames[bar] = true end
+                end
+            end
+        end
+        if DDingUI.GetTrackedBuffIcons then
+            local icons = DDingUI:GetTrackedBuffIcons()
+            if icons then
+                for _, icon in pairs(icons) do
+                    if icon then _cachedMoverFrames[icon] = true end
+                end
+            end
+        end
+        if DDingUI.GetTrackedBuffTexts then
+            local texts = DDingUI:GetTrackedBuffTexts()
+            if texts then
+                for _, tf in pairs(texts) do
+                    if tf then _cachedMoverFrames[tf] = true end
+                end
+            end
+        end
 
         return _cachedMoverFrames
     end

@@ -1010,7 +1010,7 @@ local function BuildFrameWidgets(frame, unit, dummy)
 			local cbPY = cbPos.offsetY or -3
 			castBar:SetPoint(cbPt, frame, cbRel, cbPX, cbPY)
 		else
-			castBar:SetPoint("TOP", frame, "BOTTOM", 0, -3)
+			castBar:SetPoint("TOP", frame, "BOTTOM", 0, -(C.CASTBAR_ATTACHED_GAP or 3))
 		end
 		local castBorderPx = (F and F.ScalePixel) and F:ScalePixel(1) or 1
 		-- [FIX] 캐스트바 배경 텍스처 반영
@@ -1060,7 +1060,10 @@ local function BuildFrameWidgets(frame, unit, dummy)
 			-- [FIX] 캐스트바 스펠명 색상 DB 반영
 			local spellCol = (spellCfg and spellCfg.color) or { 1, 1, 1 }
 			cbText:SetTextColor(spellCol[1] or 1, spellCol[2] or 1, spellCol[3] or 1)
-			cbText:SetPoint("LEFT", castBar, "LEFT", 3, 0)
+			local spellPt = (spellCfg and spellCfg.point) or "LEFT"
+			local spellOX = (spellCfg and spellCfg.offsetX) or C.CASTBAR_SPELL_PADDING
+			local spellOY = (spellCfg and spellCfg.offsetY) or 0
+			cbText:SetPoint(spellPt, castBar, spellPt, spellOX, spellOY)
 		end
 
 		-- 타이머
@@ -1073,7 +1076,10 @@ local function BuildFrameWidgets(frame, unit, dummy)
 			-- [FIX] 캐스트바 타이머 색상 DB 반영
 			local timerCol = (timerCfg and timerCfg.color) or { 1, 1, 1 }
 			tText:SetTextColor(timerCol[1] or 1, timerCol[2] or 1, timerCol[3] or 1)
-			tText:SetPoint("RIGHT", castBar, "RIGHT", -3, 0)
+			local timerPt = (timerCfg and timerCfg.point) or "RIGHT"
+			local timerOX = (timerCfg and timerCfg.offsetX) or C.CASTBAR_TIMER_PADDING
+			local timerOY = (timerCfg and timerCfg.offsetY) or 0
+			tText:SetPoint(timerPt, castBar, timerPt, timerOX, timerOY)
 			castBar._timerText = tText  -- [PREVIEW] 시뮬레이션 참조
 		end
 
@@ -1091,7 +1097,8 @@ local function BuildFrameWidgets(frame, unit, dummy)
 				end
 			end
 			cbIcon:SetTexture(iconTex)
-			cbIcon:SetTexCoord(0.15, 0.85, 0.15, 0.85)
+			local tc = C.AURA_TEXCOORD
+			cbIcon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
 			if iconCfg.position == "right" then
 				cbIcon:SetPoint("LEFT", castBar, "RIGHT", 1, 0)
 			else

@@ -5,7 +5,7 @@
 ## Version: 1.0.0
 ## IconTexture: Interface\AddOns\DDingUI_QoC\logo
 ## SavedVariables: DDingUIQoCDB
-## OptionalDeps: DDingUI_Controller
+## OptionalDeps: DDingUI_Controller, LibCustomGlow-1.0
 
 # Libraries
 Libs\LibStub\LibStub.lua
@@ -60,3 +60,6 @@ Modules\CombatTimer\CombatTimer.lua
 Modules\BuffChecker\BuffChecker.lua
 Modules\CastingAlert\CastingAlert.lua
 Modules\FocusInterrupt\FocusInterrupt.lua
+
+# Modules - Missing Buff
+Modules\MissingBuff\MissingBuff.lua

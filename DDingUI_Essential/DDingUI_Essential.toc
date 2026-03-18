@@ -45,6 +45,15 @@ Modules\Buffs.lua
 Modules\QuestTracker.lua
 Modules\DamageMeter.lua
 Modules\ActionBars.lua
+Modules\Skins\Social.lua
+Modules\Skins\Content.lua
+Modules\Skins\Trade.lua
+Modules\Skins\Character.lua
+Modules\Skins\Professions.lua
+Modules\Skins\World.lua
+Modules\Skins\UI.lua
+Modules\Skins\Misc.lua
+Modules\BlizzardSkins.lua
 
 # Config
 Config.lua

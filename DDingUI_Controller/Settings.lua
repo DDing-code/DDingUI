@@ -92,8 +92,9 @@ function Controller:ToggleSettings()
 
     -- 트리 메뉴 설정
     local menuData = {
-        { text = "폰트",   key = "font" },
-        { text = "텍스처", key = "texture" },
+        { text = "폰트",     key = "font" },
+        { text = "텍스처",   key = "texture" },
+        { text = "편집모드", key = "editmode" },
     }
 
     local contentPanels = {}
@@ -185,6 +186,7 @@ function Controller:ToggleSettings()
     previewText:SetPoint("TOPLEFT", 10, -10)
     previewText:SetPoint("RIGHT", -10, 0)
     previewText:SetJustifyH("LEFT")
+    previewText:SetFont(SL:GetFont("primary"), SL:GetFontSize("normal"), "")
     previewText:SetText("가나다라마바사 ABCDEFG 1234567890")
 
     -- 미리보기 텍스트 (보조 폰트)
@@ -192,6 +194,7 @@ function Controller:ToggleSettings()
     previewText2:SetPoint("TOPLEFT", previewText, "BOTTOMLEFT", 0, -6)
     previewText2:SetPoint("RIGHT", -10, 0)
     previewText2:SetJustifyH("LEFT")
+    previewText2:SetFont(SL:GetFont("secondary") or SL:GetFont("primary"), SL:GetFontSize("normal"), "")
     previewText2:SetText("Secondary: The quick brown fox")
     Controller._previewText2 = previewText2
 
@@ -274,6 +277,138 @@ function Controller:ToggleSettings()
         Controller:UpdateTexturePreview()
     end, { width = 120, height = 28 })
     texResetBtn:SetPoint("TOPLEFT", previewBar, "BOTTOMLEFT", 0, -S.sectionGap)
+
+    --------------------------------------------------------
+    -- 편집모드 설정 패널
+    --------------------------------------------------------
+    local editPanel = CreateFrame("Frame", nil, contentChild)
+    editPanel:SetAllPoints()
+    editPanel:Hide()
+    contentPanels["editmode"] = editPanel
+
+    local eYOff = -S.contentPad
+
+    -- 섹션 헤더: 통합 편집모드
+    local ehdr1 = SL.CreateSectionHeader(editPanel, ADDON_NAME, "통합 편집모드", { isFirst = true })
+    ehdr1:SetPoint("TOPLEFT", editPanel, "TOPLEFT", S.contentPad, eYOff)
+    ehdr1:SetPoint("RIGHT", editPanel, "RIGHT", -S.contentPad, 0)
+    eYOff = eYOff - ehdr1:GetHeight()
+
+    -- 설명 텍스트
+    local editDesc = editPanel:CreateFontString(nil, "OVERLAY")
+    editDesc:SetFont(SL:GetFont("primary"), SL:GetFontSize("normal"), "")
+    editDesc:SetTextColor(u(C.text.dim))
+    editDesc:SetJustifyH("LEFT")
+    editDesc:SetWordWrap(true)
+    editDesc:SetWidth(300)
+    editDesc:SetText("모든 DDingUI 애드온의 UI 프레임을 자유롭게 드래그하여 위치를 조정합니다.\n\n" ..
+        "• 프레임 간 자동 스냅\n" ..
+        "• 화면 중앙 자동 정렬\n" ..
+        "• 그리드 가이드\n" ..
+        "• 전투 시 자동 일시정지")
+    editDesc:SetPoint("TOPLEFT", ehdr1, "BOTTOMLEFT", 0, -S.controlGap)
+    eYOff = eYOff - editDesc:GetStringHeight() - S.controlGap - S.sectionGap
+
+    -- 편집모드 진입 버튼
+    local editEnterBtn = SL.CreateButton(editPanel, ADDON_NAME, "▶  편집모드 시작", function()
+        -- 설정 패널 닫고 편집모드 진입
+        if panel and panel.frame then
+            panel.frame:Hide()
+        end
+        C_Timer.After(0.1, function()
+            if Controller.EditMode then
+                Controller.EditMode:Enter()
+            end
+        end)
+    end, { width = 200, height = 36 })
+    editEnterBtn:SetPoint("TOPLEFT", editDesc, "BOTTOMLEFT", 0, -S.sectionGap)
+    eYOff = eYOff - 36 - S.sectionGap * 2
+
+    -- 섹션 헤더: 스냅 설정
+    local ehdr2 = SL.CreateSectionHeader(editPanel, ADDON_NAME, "스냅 설정")
+    ehdr2:SetPoint("TOPLEFT", editEnterBtn, "BOTTOMLEFT", 0, -S.sectionGap)
+    ehdr2:SetPoint("RIGHT", editPanel, "RIGHT", -S.contentPad, 0)
+
+    -- 편집모드 설정 가져오기
+    db.editMode = db.editMode or {}
+    db.editMode.settings = db.editMode.settings or {}
+    local emSettings = db.editMode.settings
+
+    -- 스냅 활성화
+    local snapCheck = SL.CreateCheckbox(editPanel, ADDON_NAME, "스냅 활성화",
+        emSettings.snapEnabled ~= false, {
+            onChange = function(v)
+                emSettings.snapEnabled = v
+                if Controller.EditMode then Controller.EditMode.Settings.snapEnabled = v end
+                Controller:SaveAndApply()
+            end,
+        })
+    snapCheck:SetPoint("TOPLEFT", ehdr2, "BOTTOMLEFT", 0, -S.controlGap)
+
+    -- 프레임 간 스냅
+    local frameSnapCheck = SL.CreateCheckbox(editPanel, ADDON_NAME, "프레임 간 스냅",
+        emSettings.snapToFrames ~= false, {
+            onChange = function(v)
+                emSettings.snapToFrames = v
+                if Controller.EditMode then Controller.EditMode.Settings.snapToFrames = v end
+                Controller:SaveAndApply()
+            end,
+        })
+    frameSnapCheck:SetPoint("TOPLEFT", snapCheck, "BOTTOMLEFT", 0, -S.controlGap)
+
+    -- 중앙 스냅
+    local centerSnapCheck = SL.CreateCheckbox(editPanel, ADDON_NAME, "화면 중앙 스냅",
+        emSettings.snapToCenter ~= false, {
+            onChange = function(v)
+                emSettings.snapToCenter = v
+                if Controller.EditMode then Controller.EditMode.Settings.snapToCenter = v end
+                Controller:SaveAndApply()
+            end,
+        })
+    centerSnapCheck:SetPoint("TOPLEFT", frameSnapCheck, "BOTTOMLEFT", 0, -S.controlGap)
+
+    -- 그리드 스냅
+    local gridSnapCheck = SL.CreateCheckbox(editPanel, ADDON_NAME, "그리드 스냅",
+        emSettings.snapToGrid ~= false, {
+            onChange = function(v)
+                emSettings.snapToGrid = v
+                if Controller.EditMode then Controller.EditMode.Settings.snapToGrid = v end
+                Controller:SaveAndApply()
+            end,
+        })
+    gridSnapCheck:SetPoint("TOPLEFT", centerSnapCheck, "BOTTOMLEFT", 0, -S.controlGap)
+
+    -- 스냅 임계값 슬라이더
+    local snapThreshSlider = SL.CreateSlider(editPanel, ADDON_NAME, "스냅 거리 (px)",
+        2, 20, 1, emSettings.snapThreshold or 8, {
+            width = 200,
+            onChange = function(v)
+                emSettings.snapThreshold = v
+                if Controller.EditMode then Controller.EditMode.Settings.snapThreshold = v end
+                Controller:SaveAndApply()
+            end,
+        })
+    snapThreshSlider:SetPoint("TOPLEFT", gridSnapCheck, "BOTTOMLEFT", 0, -S.sectionGap)
+
+    -- 그리드 크기 슬라이더
+    local gridSizeSlider = SL.CreateSlider(editPanel, ADDON_NAME, "그리드 크기 (px)",
+        8, 64, 4, emSettings.gridSize or 32, {
+            width = 200,
+            onChange = function(v)
+                emSettings.gridSize = v
+                if Controller.EditMode then Controller.EditMode.Settings.gridSize = v end
+                Controller:SaveAndApply()
+            end,
+        })
+    gridSizeSlider:SetPoint("TOPLEFT", snapThreshSlider, "BOTTOMLEFT", 0, -S.sectionGap)
+
+    -- 슬래시 커맨드 안내
+    local cmdLabel = editPanel:CreateFontString(nil, "OVERLAY")
+    cmdLabel:SetFont(SL:GetFont("primary"), SL:GetFontSize("small"), "")
+    cmdLabel:SetTextColor(u(C.text.dim))
+    cmdLabel:SetJustifyH("LEFT")
+    cmdLabel:SetText("단축키: |cffffa300/dui edit|r")
+    cmdLabel:SetPoint("TOPLEFT", gridSizeSlider, "BOTTOMLEFT", 0, -S.sectionGap)
 
     --------------------------------------------------------
     -- 트리 메뉴 연결

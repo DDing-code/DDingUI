@@ -36,6 +36,7 @@ local MENU_DATA = {
         { text = "배경/장식",      key = "actionbars.bg" },
         { text = "페이드/숨기기",  key = "actionbars.fade" },
     }},
+    { text = "스킨",          key = "skins" },
 }
 
 ------------------------------------------------------------------------
@@ -1010,6 +1011,84 @@ pageBuilders["actionbars.fade"] = function(page)
     LayoutY(page, w)
     moduleWidgets["actionbars.fade"] = mw
     if db.enabled == false then SetWidgetsEnabled("actionbars.fade", false) end
+end
+
+------------------------------------------------------------------------
+-- 페이지 빌더: 스킨 -- [ESSENTIAL-DESIGN]
+------------------------------------------------------------------------
+pageBuilders["skins"] = function(page)
+    local SL = GetSL()
+    if not SL then return end
+    local db = ns.db and ns.db.skins or {}
+    local w, mw = {}, {}
+
+    w[#w+1] = SL.CreateSectionHeader(page, ADDON_NAME, "블리자드 UI 스킨", { isFirst = true })
+
+    w[#w+1] = SL.CreateCheckbox(page, ADDON_NAME, "모듈 활성화", db.enabled ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.skins then ns.db.skins.enabled = val end
+            SetWidgetsEnabled("skins", val)
+        end,
+    })
+
+    w[#w+1] = CreateDimText(page, "변경사항은 /reload 후 적용됩니다.")
+
+    local cb
+    cb = SL.CreateCheckbox(page, ADDON_NAME, "게임 메뉴 (ESC)", db.gameMenu ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.skins then ns.db.skins.gameMenu = val end
+        end,
+    })
+    w[#w+1] = cb; mw[#mw+1] = cb
+
+    cb = SL.CreateCheckbox(page, ADDON_NAME, "확인 팝업 (StaticPopup)", db.staticPopup ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.skins then ns.db.skins.staticPopup = val end
+        end,
+    })
+    w[#w+1] = cb; mw[#mw+1] = cb
+
+    cb = SL.CreateCheckbox(page, ADDON_NAME, "툴팁", db.tooltip ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.skins then ns.db.skins.tooltip = val end
+        end,
+    })
+    w[#w+1] = cb; mw[#mw+1] = cb
+
+    cb = SL.CreateCheckbox(page, ADDON_NAME, "드롭다운 메뉴", db.dropdown ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.skins then ns.db.skins.dropdown = val end
+        end,
+    })
+    w[#w+1] = cb; mw[#mw+1] = cb
+
+    cb = SL.CreateCheckbox(page, ADDON_NAME, "준비 확인 / 역할 체크 / 유령", db.readyCheck ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.skins then
+                ns.db.skins.readyCheck = val
+                ns.db.skins.lfgPopup = val
+                ns.db.skins.ghostFrame = val
+            end
+        end,
+    })
+    w[#w+1] = cb; mw[#mw+1] = cb
+
+    cb = SL.CreateCheckbox(page, ADDON_NAME, "Phase 2: 캐릭터/주문서/세계지도", db.phase2 ~= false, {
+        onChange = function(val)
+            if ns.db and ns.db.skins then ns.db.skins.phase2 = val end
+        end,
+    })
+    w[#w+1] = cb; mw[#mw+1] = cb
+
+    -- 초기화 버튼 -- [ESSENTIAL-DESIGN]
+    w[#w+1] = SL.CreateButton(page, ADDON_NAME, "스킨 설정 초기화", {
+        width = 160,
+        onClick = function() ResetCategory("skins") end,
+    })
+
+    LayoutY(page, w)
+    moduleWidgets["skins"] = mw
+    if db.enabled == false then SetWidgetsEnabled("skins", false) end
 end
 
 ------------------------------------------------------------------------

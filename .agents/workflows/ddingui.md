@@ -32,6 +32,11 @@ description: DDingUI Project — 프로젝트 규칙 및 파일 위치 가이드
 - **SetAlphaFromBoolean**: secret boolean은 Lua `if` 비교 불가 → C++ API 사용
 - **pcall 보호**: `GetDamageAbsorbs()`, `GetIncomingHeals()` 등 Calculator 메서드는 pcall 필수
 - **Taint 방지**: 전투 중 `SetSize()`, `SetPoint()` 등 secure 프레임 변경 금지
+- **goto 금지**: WoW Lua는 `goto`/`::label::` 구문에서 파싱 에러 발생 가능 → `if-then-end` 블록으로 대체
+- **EasyMenu 제거됨 (12.0)**: `EasyMenu()`, `UIDropDownMenuTemplate` 사용 금지 → `MenuUtil.CreateContextMenu` 사용 (Toolkit.lua에 polyfill 있음)
+- **applications ≠ maxStacks**: `C_UnitAuras` API의 `applications`는 "현재 스택"이지 "최대 스택"이 아님 → max 감지에 사용 금지, 관찰 캐시(`_observedMaxStacks`) 사용
+- **Secret Value 캐싱**: `C_Spell.GetSpellCharges` 등이 전투 중 secret 반환 시, 하드코딩 기본값 대신 캐싱된 이전 값 사용
+- **trigger vs settings 불일치**: BuffTracker의 DB 구조에서 GUI는 `settings.maxStacks`에 저장하지만 런타임은 `trigger.maxStacks`를 읽음 → 반드시 양쪽 다 참조 (`trigger.X or settings.X`)
 
 ## 애드온별 악센트
 - StyleLib 참고: `DDingUI_StyleLib.GetAccent("모듈명")`

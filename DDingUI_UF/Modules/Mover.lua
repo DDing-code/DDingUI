@@ -10,6 +10,9 @@ local _, ns = ...
 local Mover = {}
 ns.Mover = Mover
 
+-- [REFACTOR] 공유 유틸리티 참조 (MoverUtils.lua)
+local MU = (_G.DDingUI and _G.DDingUI.MoverUtils) or {}
+
 local movers = {}
 local isUnlocked = false
 local gridFrame = nil
@@ -151,21 +154,23 @@ local function SaveMoverToDB(mover)
 	-- SetAllPoints → 2개 앵커, 수동 배치(ApplyMoverVisual) → 1개 앵커
 	if mover:GetNumPoints() ~= 1 then return end
 
-	local point, relativeTo, _, oX, oY = mover:GetPoint(1)
+	local point, relativeTo, relPoint, oX, oY = mover:GetPoint(1)
 	if not point then return end
 
-	-- [FIX] UIParent에 앵커되지 않은 무버는 저장 스킵 (초기 상태=미이동)
-	-- 초기: SetPoint("TOPLEFT", frame, ...) — frame 기준
-	-- 이동 후: ApplyMoverVisual → SetPoint(point, UIParent, ...) — UIParent 기준
-	if relativeTo ~= UIParent then return end
+	-- [FIX] 초기 상태(미이동): 자기 _frame에 앵커된 상태 → 저장 스킵
+	if relativeTo == mover._frame then return end
+
+	-- [ANCHOR-SYNC] attachTo 프레임 또는 UIParent에 앵커된 경우만 저장
+	local relName = (relativeTo and relativeTo ~= UIParent and relativeTo.GetName)
+	                and relativeTo:GetName() or "UIParent"
 
 	local x = math_floor((oX or 0) + 0.5)
 	local y = math_floor((oY or 0) + 0.5)
 	local key = GetMoverDBKey(mover)
 
-	-- movers 네임스페이스에 ElvUI 형식 문자열로 저장
+	-- movers 네임스페이스에 문자열로 저장 (앵커 프레임 정보 포함)
 	if not ns.db.movers then ns.db.movers = {} end
-	ns.db.movers[key] = string.format("%s,UIParent,%s,%d,%d", point, point, x, y)
+	ns.db.movers[key] = string.format("%s,%s,%s,%d,%d", point, relName, relPoint or point, x, y)
 
 	-- 레거시 위치 동기화 (Spawn.lua 호환)
 	local unitKey = mover._unitKey
@@ -173,7 +178,7 @@ local function SaveMoverToDB(mover)
 
 	if mover._isCastbar then
 		if ns.db[unitKey] and ns.db[unitKey].castbar then
-			ns.db[unitKey].castbar.position = { point, "UIParent", point, x, y }
+			ns.db[unitKey].castbar.position = { point, relName, relPoint or point, x, y }
 		end
 	elseif mover._isPowerBar then
 		-- [FIX] UIParent-relative → unitFrame-relative 좌표 변환
@@ -196,7 +201,7 @@ local function SaveMoverToDB(mover)
 			end
 		end
 	elseif ns.db[unitKey] then
-		ns.db[unitKey].position = { point, "UIParent", point, x, y }
+		ns.db[unitKey].position = { point, relName, relPoint or point, x, y }
 	end
 end
 
@@ -206,10 +211,16 @@ local function LoadMoverFromDB(name)
 	local str = ns.db.movers[name]
 	if not str or type(str) ~= "string" then return nil end
 
-	local point, parent, relPoint, x, y = strsplit(",", str)
+	local point, parentName, relPoint, x, y = strsplit(",", str)
 	x, y = tonumber(x), tonumber(y)
 	if not point or not x or not y then return nil end
-	return point, UIParent, relPoint or point, x, y
+
+	-- [ANCHOR-SYNC] 앵커 프레임 이름에서 실제 프레임 resolve
+	local anchorFrame = UIParent
+	if parentName and parentName ~= "UIParent" then
+		anchorFrame = _G[parentName] or UIParent
+	end
+	return point, anchorFrame, relPoint or point, x, y
 end
 
 -- [MOVER] movers 네임스페이스에서 삭제
@@ -220,14 +231,26 @@ local function DeleteMoverFromDB(name)
 end
 
 -- [MOVER] 시각적 이동만 (DB 저장 없음 — 편집 중 사용)
-local function ApplyMoverVisual(mover, point, x, y)
+local function ApplyMoverVisual(mover, point, x, y, anchorFrame, relPoint)
 	if not mover then return end
 
 	-- [EDITMODE-FIX] ClearAllPoints 전 사이즈 보존 (SetAllPoints 파생 사이즈 손실 방지)
 	local mW, mH = mover:GetSize()
 
+	-- 앵커 프레임/relPoint가 명시되지 않으면 기존 값 보존 (CDM 패턴)
+	if not anchorFrame or not relPoint then
+		local _, existAnchor, existRel = mover:GetPoint(1)
+		-- [SAFE] 기존 앵커가 자기 _frame이면 순환 참조 → UIParent 폴백
+		if existAnchor and existAnchor == mover._frame then
+			existAnchor = UIParent
+			existRel = point
+		end
+		anchorFrame = anchorFrame or existAnchor or UIParent
+		relPoint = relPoint or existRel or point
+	end
+
 	mover:ClearAllPoints()
-	mover:SetPoint(point, UIParent, point, x, y)
+	mover:SetPoint(point, anchorFrame, relPoint, x, y)
 
 	-- [EDITMODE-FIX] 사이즈 복원
 	if mW and mW > 0 and mH and mH > 0 then
@@ -238,25 +261,72 @@ local function ApplyMoverVisual(mover, point, x, y)
 	if mover._frame and not InCombatLockdown() then
 		local fW, fH = mover._frame:GetSize() -- [EDITMODE-FIX] 프레임 사이즈도 보존
 		mover._frame:ClearAllPoints()
-		mover._frame:SetPoint(point, UIParent, point, x, y)
+		mover._frame:SetPoint(point, anchorFrame, relPoint, x, y)
 		if fW and fW > 0 and fH and fH > 0 then
 			mover._frame:SetSize(fW, fH)
 		end
 	end
 
 	-- [EDITMODE] simContainer 동기화 (그룹 + 개별 유닛 모두)
-	-- TOPLEFT 정렬 사용 (mover와 container 크기가 다를 수 있으므로 화면 좌표 기준)
 	if ns.simContainers and mover._unitKey then
 		local sim = ns.simContainers[mover._unitKey]
 		if sim and sim:IsShown() then
-			local left, top = mover:GetLeft(), mover:GetTop()
-			if left and top then
-				sim:ClearAllPoints()
-				sim:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+			local unitDB = ns.db and ns.db[mover._unitKey]
+			local growDir = unitDB and unitDB.growDirection or "DOWN"
+			
+			if (mover._unitKey == "boss" or mover._unitKey == "arena") and growDir == "UP" then
+				local left, bottom = mover:GetLeft(), mover:GetBottom()
+				if left and bottom then
+					sim:ClearAllPoints()
+					sim:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+				end
+			else
+				local left, top = mover:GetLeft(), mover:GetTop()
+				if left and top then
+					sim:ClearAllPoints()
+					sim:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+				end
 			end
 		end
 	end
 
+end
+
+-- [ANCHOR-SYNC] attachTo 기준 상대 좌표로 재앵커링 (CDM 패턴)
+-- 드래그/넛지 후 UIParent 기준으로 배치된 무버를, DB의 attachTo 프레임 기준으로 변환
+local function ReanchorToAttachTo(mover)
+	if not mover or not mover._unitKey then return end
+	-- 그룹 무버, 캐스트바, 파워바는 자체 로직 사용
+	if mover._isGroupMover or mover._isCastbar or mover._isPowerBar then return end
+
+	local unitDB = ns.db and ns.db[mover._unitKey]
+	if not unitDB then return end
+
+	local attachTo = unitDB.attachTo
+	if not attachTo or attachTo == "" or attachTo == "UIParent" then return end
+
+	local anchorFrame = _G[attachTo]
+	if not anchorFrame or not anchorFrame.GetRect then return end
+	if not anchorFrame:GetRect() then return end
+
+	-- selfPoint / anchorPoint 결정
+	local selfPt = unitDB.selfPoint or "CENTER"
+	local anchorPt = unitDB.anchorPoint or "CENTER"
+
+	-- 무버의 화면 좌표 (selfPoint 기준)
+	local moverX, moverY = GetAnchorScreenPos(selfPt, mover)
+	if not moverX then return end
+
+	-- 앵커 프레임의 화면 좌표 (anchorPoint 기준)
+	local anchorX, anchorY = GetAnchorScreenPos(anchorPt, anchorFrame)
+	if not anchorX then return end
+
+	-- 상대 오프셋 계산
+	local offsetX = math_floor(moverX - anchorX + 0.5)
+	local offsetY = math_floor(moverY - anchorY + 0.5)
+
+	-- 앵커 프레임 기준으로 재앵커링
+	ApplyMoverVisual(mover, selfPt, offsetX, offsetY, anchorFrame, anchorPt)
 end
 
 -- [MOVER] 모든 무버 위치를 DB에 저장
@@ -270,10 +340,12 @@ end
 local function SavePositionSnapshot()
 	wipe(_positionSnapshot)
 	for _, mover in ipairs(movers) do
-		local point, _, _, oX, oY = mover:GetPoint(1)
+		local point, anchor, relPt, oX, oY = mover:GetPoint(1)
 		if point then
 			_positionSnapshot[GetMoverDBKey(mover)] = {
 				point = point,
+				anchorFrame = anchor,
+				relPoint = relPt,
 				x = oX or 0,
 				y = oY or 0,
 			}
@@ -287,10 +359,64 @@ local function RestorePositionSnapshot()
 		local key = GetMoverDBKey(mover)
 		local snap = _positionSnapshot[key]
 		if snap then
-			ApplyMoverVisual(mover, snap.point, snap.x, snap.y)
+			ApplyMoverVisual(mover, snap.point, snap.x, snap.y, snap.anchorFrame, snap.relPoint)
 		end
 	end
 	wipe(_positionSnapshot)
+end
+
+-----------------------------------------------
+-- CalcPointFromAbsolute: 절대 좌표(bottom-left) → 최적 앵커 + 오프셋
+-- [SNAP-FIX] ProcessDragStop에서 최종 위치 기반 앵커 결정용
+-- NOTE: CalcPoint보다 먼저 정의해야 함 (Lua local 함수 참조 규칙)
+-----------------------------------------------
+
+local function CalcPointFromAbsolute(absLeft, absBottom, w, h, forceCenter)
+	local parentW, parentH = UIParent:GetSize()
+	local halfW, halfH = parentW / 2, parentH / 2
+	local centerX = absLeft + w / 2
+	local centerY = absBottom + h / 2
+
+	-- Y축: 화면 중심 기준 TOP/BOTTOM
+	local vPoint, oY
+	if centerY >= halfH then
+		vPoint = "TOP"
+		oY = (absBottom + h) - parentH -- top edge → parent top (음수)
+	else
+		vPoint = "BOTTOM"
+		oY = absBottom -- bottom edge → parent bottom (양수)
+	end
+
+	-- X축: forceCenter이면 항상 CENTER, 아니면 화면 1/3 기준 LEFT/CENTER/RIGHT
+	local hPoint, oX
+	if forceCenter then
+		-- [FIX] 그룹 프레임: 항상 가운데 기준 앵커 (해상도/크기 변경 시 중앙 유지)
+		hPoint = ""
+		oX = centerX - halfW
+	else
+		local thirdW = parentW / 3
+		if centerX <= thirdW then
+			hPoint = "LEFT"
+			oX = absLeft -- left edge → parent left
+		elseif centerX >= thirdW * 2 then
+			hPoint = "RIGHT"
+			oX = (absLeft + w) - parentW -- right edge → parent right (음수)
+		else
+			hPoint = ""
+			oX = centerX - halfW -- center → parent center
+		end
+	end
+
+	local point = vPoint .. hPoint
+	-- TOP/BOTTOM 단독 앵커면 X는 center 기준
+	if point == "TOP" or point == "BOTTOM" then
+		oX = centerX - halfW
+	end
+
+	oX = math_floor(oX + 0.5)
+	oY = math_floor(oY + 0.5)
+
+	return point, oX, oY
 end
 
 -- [MOVER] 기동 시 movers 네임스페이스에서 저장된 위치 적용
@@ -298,7 +424,7 @@ local function ApplyMoverPositions()
 	if not ns.db or not ns.db.movers then return end
 	for _, mover in ipairs(movers) do
 		local key = GetMoverDBKey(mover)
-		local point, _, relPoint, x, y = LoadMoverFromDB(key)
+		local point, anchorFrame, relPoint, x, y = LoadMoverFromDB(key)
 		if point then
 			-- [FIX] 그룹 무버: 기존 LEFT/RIGHT 앵커를 CENTER로 자동 마이그레이션
 			if mover._isGroupMover and (point:find("LEFT") or point:find("RIGHT")) then
@@ -324,11 +450,13 @@ local function ApplyMoverPositions()
 						absBottom = (pH / 2) + y - (mH / 2)
 					end
 					point, x, y = CalcPointFromAbsolute(absLeft, absBottom, mW, mH, true)
+					anchorFrame = UIParent
+					relPoint = point
 					-- DB도 업데이트
 					ns.db.movers[key] = string.format("%s,UIParent,%s,%d,%d", point, point, x, y)
 				end
 			end
-			ApplyMoverVisual(mover, point, x, y)
+			ApplyMoverVisual(mover, point, x, y, anchorFrame, relPoint)
 		end
 	end
 end
@@ -508,53 +636,39 @@ end
 -- [CDM-P2] 엣지 관계 분석: 두 프레임 간 selfPoint/anchorPoint 자동 결정
 -- CDM Movers.lua OnDragStop 패턴 이식 (hOverlap/vOverlap 기반)
 local function DetectSnapRelation(myLeft, myBottom, myW, myH, tLeft, tBottom, tW, tH, threshold)
+	-- [REFACTOR] MoverUtils 공유 함수 위임 (중복 제거)
+	if MU.DetectSnapRelation then
+		return MU.DetectSnapRelation(myLeft, myBottom, myW, myH, tLeft, tBottom, tW, tH, threshold)
+	end
+	-- fallback: MoverUtils 미로드 시 로컬 구현
 	local myRight = myLeft + myW
 	local myTop = myBottom + myH
 	local tRight = tLeft + tW
 	local tTop = tBottom + tH
-
-	-- 수평 겹침 비율 (상하 스냅 인정 조건)
 	local hOverlap = math.min(myRight, tRight) - math.max(myLeft, tLeft)
 	local minW = math.min(myW, tW)
 	local hRatio = minW > 0 and (hOverlap / minW) or 0
-
-	-- 수직 겹침 비율 (좌우 스냅 인정 조건)
 	local vOverlap = math.min(myTop, tTop) - math.max(myBottom, tBottom)
 	local minH = math.min(myH, tH)
 	local vRatio = minH > 0 and (vOverlap / minH) or 0
-
 	local bestDist = threshold
 	local selfPt, anchorPt = nil, nil
-
-	-- A가 B 위에 (A.bottom ≈ B.top) → selfPt=BOTTOM, anchorPt=TOP
 	if hRatio > 0.3 then
 		local dist = math_abs(myBottom - tTop)
-		if dist < bestDist then
-			bestDist = dist; selfPt = "BOTTOM"; anchorPt = "TOP"
-		end
+		if dist < bestDist then bestDist = dist; selfPt = "BOTTOM"; anchorPt = "TOP" end
 	end
-	-- A가 B 아래에 (A.top ≈ B.bottom) → selfPt=TOP, anchorPt=BOTTOM
 	if hRatio > 0.3 then
 		local dist = math_abs(myTop - tBottom)
-		if dist < bestDist then
-			bestDist = dist; selfPt = "TOP"; anchorPt = "BOTTOM"
-		end
+		if dist < bestDist then bestDist = dist; selfPt = "TOP"; anchorPt = "BOTTOM" end
 	end
-	-- A 왼쪽에 B (A.right ≈ B.left) → selfPt=RIGHT, anchorPt=LEFT
 	if vRatio > 0.3 then
 		local dist = math_abs(myRight - tLeft)
-		if dist < bestDist then
-			bestDist = dist; selfPt = "RIGHT"; anchorPt = "LEFT"
-		end
+		if dist < bestDist then bestDist = dist; selfPt = "RIGHT"; anchorPt = "LEFT" end
 	end
-	-- A 오른쪽에 B (A.left ≈ B.right) → selfPt=LEFT, anchorPt=RIGHT
 	if vRatio > 0.3 then
 		local dist = math_abs(myLeft - tRight)
-		if dist < bestDist then
-			bestDist = dist; selfPt = "LEFT"; anchorPt = "RIGHT"
-		end
+		if dist < bestDist then bestDist = dist; selfPt = "LEFT"; anchorPt = "RIGHT" end
 	end
-
 	return selfPt, anchorPt, bestDist
 end
 
@@ -634,60 +748,6 @@ local function FindFrameSnap(self, x, y, w, h)
 	if snapDistX > threshold then snappedX = x end
 	if snapDistY > threshold then snappedY = y end
 	return snappedX, snappedY
-end
-
------------------------------------------------
--- CalcPointFromAbsolute: 절대 좌표(bottom-left) → 최적 앵커 + 오프셋
--- [SNAP-FIX] ProcessDragStop에서 최종 위치 기반 앵커 결정용
--- NOTE: CalcPoint보다 먼저 정의해야 함 (Lua local 함수 참조 규칙)
------------------------------------------------
-
-local function CalcPointFromAbsolute(absLeft, absBottom, w, h, forceCenter)
-	local parentW, parentH = UIParent:GetSize()
-	local halfW, halfH = parentW / 2, parentH / 2
-	local centerX = absLeft + w / 2
-	local centerY = absBottom + h / 2
-
-	-- Y축: 화면 중심 기준 TOP/BOTTOM
-	local vPoint, oY
-	if centerY >= halfH then
-		vPoint = "TOP"
-		oY = (absBottom + h) - parentH -- top edge → parent top (음수)
-	else
-		vPoint = "BOTTOM"
-		oY = absBottom -- bottom edge → parent bottom (양수)
-	end
-
-	-- X축: forceCenter이면 항상 CENTER, 아니면 화면 1/3 기준 LEFT/CENTER/RIGHT
-	local hPoint, oX
-	if forceCenter then
-		-- [FIX] 그룹 프레임: 항상 가운데 기준 앵커 (해상도/크기 변경 시 중앙 유지)
-		hPoint = ""
-		oX = centerX - halfW
-	else
-		local thirdW = parentW / 3
-		if centerX <= thirdW then
-			hPoint = "LEFT"
-			oX = absLeft -- left edge → parent left
-		elseif centerX >= thirdW * 2 then
-			hPoint = "RIGHT"
-			oX = (absLeft + w) - parentW -- right edge → parent right (음수)
-		else
-			hPoint = ""
-			oX = centerX - halfW -- center → parent center
-		end
-	end
-
-	local point = vPoint .. hPoint
-	-- TOP/BOTTOM 단독 앵커면 X는 center 기준
-	if point == "TOP" or point == "BOTTOM" then
-		oX = centerX - halfW
-	end
-
-	oX = math_floor(oX + 0.5)
-	oY = math_floor(oY + 0.5)
-
-	return point, oX, oY
 end
 
 -----------------------------------------------
@@ -842,17 +902,31 @@ local function ProcessDragStop(self)
 			end
 
 			-- UIParent 기준 좌표도 저장 (mover 위치 복원용)
-			local forceCenter = self._isGroupMover or false
-			local point, oX, oY = CalcPointFromAbsolute(absLeft, absBottom, w, h, forceCenter)
-			self:ClearAllPoints()
-			self:SetPoint(point, UIParent, point, oX, oY)
+			local point, oX, oY = CalcPointFromAbsolute(absLeft, absBottom, w, h, false)
+
+			-- [BUG-FIX] mover + 실제 프레임 모두 이동 (기존: mover만 이동)
+			ApplyMoverVisual(self, point, oX, oY, UIParent, point)
+			ReanchorToAttachTo(self)
+
 			if selfW and selfW > 0 and selfH and selfH > 0 then
 				self:SetSize(selfW, selfH)
 			end
 
-			-- 즉시 위치 갱신 (Spawn.lua ApplyUnitPosition 호출)
-			if ns.Update and ns.Update.RefreshUnit then
-				ns.Update:RefreshUnit(unitKey)
+			-- [BUG-FIX] 드래그 직후 즉시 DB 저장 (리로드 시 초기화 방지)
+			SaveMoverToDB(self)
+
+			-- [ANCHOR] AnchorManager 레지스트리 동기화 (스냅 분기)
+			local AM_snap = _G.DDingUI and _G.DDingUI.AnchorManager
+			if AM_snap and AM_snap.registry then
+				local key = GetMoverDBKey(self)
+				local e = AM_snap.registry[key]
+				if e then
+					e.selfPoint = snapSelfPt
+					e.attachTo = targetName
+					e.anchorPoint = snapAnchorPt
+					e.offsetX = unitDB and unitDB.position and unitDB.position[1] or 0
+					e.offsetY = unitDB and unitDB.position and unitDB.position[2] or 0
+				end
 			end
 
 			-- 사용자 피드백
@@ -864,8 +938,8 @@ local function ProcessDragStop(self)
 			))
 
 			return point, oX, oY
-		end
-	end
+		end -- if targetFrame and targetName
+	end -- if snapTarget
 
 	-- ============================================================
 	-- [CDM-P2] 스냅 미감지: 거리 기반 앵커 해제 체크
@@ -928,22 +1002,80 @@ local function ProcessDragStop(self)
 		end
 	end
 
-	-- [SNAP-FIX] 3단계: 최종 절대 좌표에서 앵커 결정 (기본 UIParent 기준)
-	local forceCenter = self._isGroupMover or false
-	local point, oX, oY = CalcPointFromAbsolute(absLeft, absBottom, w, h, forceCenter)
+	-- [SNAP-FIX] 3단계: 최종 절대 좌표에서 앵커 결정
+	local point, oX, oY
+	if self._isGroupMover and self._unitKey then
+		-- 그룹 무버: growDirection 기반 앵커 포인트 사용
+		local unitDB = ns.db[self._unitKey]
+		local growDir = (unitDB and unitDB.growDirection) or "DOWN"
+		local groupGrowDir = unitDB and unitDB.groupGrowDirection
+		if not groupGrowDir then
+			if growDir == "H_CENTER" or growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER" then
+				groupGrowDir = "RIGHT"
+			else
+				groupGrowDir = "DOWN"
+			end
+		end
+		local priIsVert = (growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER")
+		local yAnc, xAnc
+		if priIsVert then
+			yAnc = (growDir == "UP") and "BOTTOM" or (growDir == "V_CENTER") and "" or "TOP"
+			xAnc = (groupGrowDir == "LEFT") and "RIGHT" or "LEFT"
+		else
+			xAnc = (growDir == "LEFT") and "RIGHT" or (growDir == "H_CENTER") and "" or "LEFT"
+			yAnc = (groupGrowDir == "UP") and "BOTTOM" or "TOP"
+		end
+		local ancPt = yAnc .. xAnc
+		if ancPt == "" then ancPt = "CENTER" end
 
-	self:ClearAllPoints()
-	self:SetPoint(point, UIParent, point, oX, oY)
+		-- 해당 앵커 포인트 기준 화면 좌표 계산
+		local parentW, parentH = UIParent:GetSize()
+		local aX, aY
+		if ancPt:find("LEFT") then aX = absLeft
+		elseif ancPt:find("RIGHT") then aX = absLeft + w
+		else aX = absLeft + w / 2 end
+		if ancPt:find("TOP") then aY = absBottom + h
+		elseif ancPt:find("BOTTOM") then aY = absBottom
+		else aY = absBottom + h / 2 end
+
+		if ancPt:find("LEFT") then oX = aX
+		elseif ancPt:find("RIGHT") then oX = aX - parentW
+		else oX = aX - parentW / 2 end
+		if ancPt:find("TOP") then oY = aY - parentH
+		elseif ancPt:find("BOTTOM") then oY = aY
+		else oY = aY - parentH / 2 end
+
+		point = ancPt
+		oX = math_floor(oX + 0.5)
+		oY = math_floor(oY + 0.5)
+	else
+		local forceCenter = false
+		point, oX, oY = CalcPointFromAbsolute(absLeft, absBottom, w, h, forceCenter)
+	end
+
+	-- [BUG-FIX] mover + 실제 프레임 모두 이동 (기존: mover만 SetPoint)
+	ApplyMoverVisual(self, point, oX, oY, UIParent, point)
+	ReanchorToAttachTo(self)
 
 	if selfW and selfW > 0 and selfH and selfH > 0 then
 		self:SetSize(selfW, selfH)
 	end
 
-	-- [CDM-P2] 앵커 해제된 경우에도 position 동기화
-	if unitDB and not self._isGroupMover and not self._isCastbar and not self._isPowerBar then
-		local curAttach = unitDB.attachTo or "UIParent"
-		if curAttach == "UIParent" then
-			unitDB.position = { point, "UIParent", point, oX, oY }
+	-- [BUG-FIX] 드래그 직후 즉시 DB 저장 (ReanchorToAttachTo 후의 최종 좌표 반영)
+	SaveMoverToDB(self)
+
+	-- [ANCHOR] AnchorManager 레지스트리 동기화 (재앵커링 후의 실제 좌표 사용)
+	local AM_drag = _G.DDingUI and _G.DDingUI.AnchorManager
+	if AM_drag and AM_drag.registry then
+		local key = GetMoverDBKey(self)
+		local e = AM_drag.registry[key]
+		if e then
+			local curPt, curRelTo, curRelPt, curOX, curOY = self:GetPoint(1)
+			e.selfPoint = curPt or point
+			e.attachTo = (curRelTo and curRelTo ~= UIParent and curRelTo.GetName and curRelTo:GetName()) or "UIParent"
+			e.anchorPoint = curRelPt or curPt or point
+			e.offsetX = curOX or oX
+			e.offsetY = curOY or oY
 		end
 	end
 
@@ -1255,6 +1387,36 @@ local function CalcRaidMoverSize()
 	end
 end
 
+local function CalcBossMoverSize()
+	local db = ns.db.boss
+	if not db then return 180, 400 end
+	local w = (db.size and db.size[1]) or 180
+	local h = (db.size and db.size[2]) or 35
+	local spacing = db.spacing or 48
+	local count = C.MAX_BOSS_FRAMES or 8
+	local growDir = db.growDirection or "DOWN"
+	if growDir == "UP" or growDir == "DOWN" or growDir == "V_CENTER" then
+		return w, h * count + spacing * (count - 1)
+	else
+		return w * count + spacing * (count - 1), h
+	end
+end
+
+local function CalcArenaMoverSize()
+	local db = ns.db.arena
+	if not db then return 180, 400 end
+	local w = (db.size and db.size[1]) or 180
+	local h = (db.size and db.size[2]) or 35
+	local spacing = db.spacing or 48
+	local count = C.MAX_ARENA_FRAMES or 5
+	local growDir = db.growDirection or "DOWN"
+	if growDir == "UP" or growDir == "DOWN" or growDir == "V_CENTER" then
+		return w, h * count + spacing * (count - 1)
+	else
+		return w * count + spacing * (count - 1), h
+	end
+end
+
 -----------------------------------------------
 -- Fade Animation 헬퍼
 -----------------------------------------------
@@ -1560,10 +1722,21 @@ local function CreateMoverOverlay(frame, name, colorKey, overrideW, overrideH)
 			if ns.simContainers and s._unitKey then
 				local sim = ns.simContainers[s._unitKey]
 				if sim and sim:IsShown() then
-					local left, top = s:GetLeft(), s:GetTop()
-					if left and top then
-						sim:ClearAllPoints()
-						sim:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+					local unitDB = ns.db and ns.db[s._unitKey]
+					local growDir = unitDB and unitDB.growDirection or "DOWN"
+					
+					if (s._unitKey == "boss" or s._unitKey == "arena") and growDir == "UP" then
+						local left, bottom = s:GetLeft(), s:GetBottom()
+						if left and bottom then
+							sim:ClearAllPoints()
+							sim:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+						end
+					else
+						local left, top = s:GetLeft(), s:GetTop()
+						if left and top then
+							sim:ClearAllPoints()
+							sim:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+						end
 					end
 				end
 			end
@@ -1575,7 +1748,8 @@ local function CreateMoverOverlay(frame, name, colorKey, overrideW, overrideH)
 		HideSnapPreview() -- [12.0.1] 스냅 가이드라인 숨기기
 		if gridFrame and gridFrame:IsShown() then gridFrame:SetAlpha(0.4) end
 		local point, snapX, snapY = ProcessDragStop(self)
-		ApplyMoverVisual(self, point, snapX, snapY) -- [MOVER] 시각적 이동만 (Done 시 DB 저장)
+		ApplyMoverVisual(self, point, snapX, snapY, UIParent, point) -- [MOVER] 시각적 이동만 (Done 시 DB 저장)
+		ReanchorToAttachTo(self)
 		Mover:UpdateNudgeCoords()
 	end)
 
@@ -1633,47 +1807,53 @@ function Mover:Initialize()
 		end
 	end
 
-	-- Boss frames — placeholder 지원
+	-- [FIX] Boss mover — Boss1 크기로만 표시 (전용 앵커 프레임 사용)
 	do
 		local bossDB = ns.db.boss
 		if bossDB and bossDB.enabled ~= false then
-			local frame = ns.frames.boss1
-			if not frame then
-				frame = _G["ddingUI_BossPlaceholder"] or CreateFrame("Frame", "ddingUI_BossPlaceholder", UIParent)
-				local w = (bossDB.size and bossDB.size[1]) or 180
-				local h = (bossDB.size and bossDB.size[2]) or 35
-				frame:SetSize(w, h)
-				frame:Hide()
-			end
-			local mover = CreateMoverOverlay(frame, "Boss", "boss")
+			local w = (bossDB.size and bossDB.size[1]) or 180
+			local h = (bossDB.size and bossDB.size[2]) or 35
+			local anchorFrame = CreateFrame("Frame", "ddingUI_BossMoverAnchor", UIParent)
+			anchorFrame:SetSize(w, h)
+			anchorFrame:Hide()
+			local mover = CreateMoverOverlay(anchorFrame, "Boss", "boss", w, h)
+			mover._frame = ns.frames.boss1 or anchorFrame
 			mover._unitKey = "boss"
 			local pt, rel, relPt, px, py = ResolvePosition(bossDB.position, bossDB)
 			if pt then
 				mover:ClearAllPoints()
 				mover:SetPoint(pt, rel, relPt, px, py)
+				mover:SetSize(w, h)
+			else
+				mover:ClearAllPoints()
+				mover:SetPoint("RIGHT", UIParent, "RIGHT", -60, 100)
+				mover:SetSize(w, h)
 			end
 			table.insert(movers, mover)
 		end
 	end
 
-	-- Arena frames — placeholder 지원
+	-- [FIX] Arena mover — Arena1 크기로만 표시 (전용 앵커 프레임 사용)
 	do
 		local arenaDB = ns.db.arena
 		if arenaDB and arenaDB.enabled ~= false then
-			local frame = ns.frames.arena1
-			if not frame then
-				frame = _G["ddingUI_ArenaPlaceholder"] or CreateFrame("Frame", "ddingUI_ArenaPlaceholder", UIParent)
-				local w = (arenaDB.size and arenaDB.size[1]) or 180
-				local h = (arenaDB.size and arenaDB.size[2]) or 35
-				frame:SetSize(w, h)
-				frame:Hide()
-			end
-			local mover = CreateMoverOverlay(frame, "Arena", "arena")
+			local w = (arenaDB.size and arenaDB.size[1]) or 180
+			local h = (arenaDB.size and arenaDB.size[2]) or 35
+			local anchorFrame = CreateFrame("Frame", "ddingUI_ArenaMoverAnchor", UIParent)
+			anchorFrame:SetSize(w, h)
+			anchorFrame:Hide()
+			local mover = CreateMoverOverlay(anchorFrame, "Arena", "arena", w, h)
+			mover._frame = ns.frames.arena1 or anchorFrame
 			mover._unitKey = "arena"
 			local pt, rel, relPt, px, py = ResolvePosition(arenaDB.position, arenaDB)
 			if pt then
 				mover:ClearAllPoints()
 				mover:SetPoint(pt, rel, relPt, px, py)
+				mover:SetSize(w, h)
+			else
+				mover:ClearAllPoints()
+				mover:SetPoint("RIGHT", UIParent, "RIGHT", -60, -200)
+				mover:SetSize(w, h)
 			end
 			table.insert(movers, mover)
 		end
@@ -1748,7 +1928,7 @@ function Mover:Initialize()
 			HideSnapPreview() -- [12.0.1] 스냅 가이드라인 숨기기
 			if gridFrame and gridFrame:IsShown() then gridFrame:SetAlpha(0.4) end
 			local point, snapX, snapY = ProcessDragStop(self)
-			ApplyMoverVisual(self, point, snapX, snapY) -- [MOVER] 시각적 이동만
+			ApplyMoverVisual(self, point, snapX, snapY, UIParent, point) -- [MOVER] 시각적 이동만
 			Mover:UpdateNudgeCoords()
 		end)
 		table.insert(movers, mover)
@@ -1766,7 +1946,7 @@ function Mover:Initialize()
 				HideSnapPreview() -- [12.0.1] 스냅 가이드라인 숨기기
 				if gridFrame and gridFrame:IsShown() then gridFrame:SetAlpha(0.4) end
 				local point, snapX, snapY = ProcessDragStop(self)
-				ApplyMoverVisual(self, point, snapX, snapY) -- [MOVER] 시각적 이동만
+				ApplyMoverVisual(self, point, snapX, snapY, UIParent, point) -- [MOVER] 시각적 이동만
 				Mover:UpdateNudgeCoords()
 			end)
 			table.insert(movers, mover)
@@ -1777,6 +1957,26 @@ function Mover:Initialize()
 
 	-- [MOVER] 저장된 movers 위치 적용 (ns.db.movers 네임스페이스)
 	ApplyMoverPositions()
+
+	-- [ANCHOR] AnchorManager에 UF 모든 mover 일괄 등록
+	local AM_uf = _G.DDingUI and _G.DDingUI.AnchorManager
+	if AM_uf and AM_uf.Register then
+		for _, mover in ipairs(movers) do
+			local moverName = GetMoverDBKey(mover)
+			local actualFrame = mover._frame or mover
+			local opts = {}
+			-- 현재 mover 위치에서 초기 상태 읽기
+			local pt, relTo, relPt, ox, oy = mover:GetPoint(1)
+			if pt then
+				opts.selfPoint = pt
+				opts.attachTo = (relTo and relTo:GetName()) or "UIParent"
+				opts.anchorPoint = relPt or pt
+				opts.offsetX = ox or 0
+				opts.offsetY = oy or 0
+			end
+			AM_uf:Register(moverName, actualFrame, AM_uf.SOURCE_UF, opts)
+		end
+	end
 
 	-- [12.0.1] 전투 진입 시 자동 편집모드 종료 (ElvUI 패턴: PLAYER_REGEN_DISABLED)
 	-- [FIX] PLAYER_LOGOUT 시 편집모드 위치 저장 (/reload 위치 초기화 방지)
@@ -1843,8 +2043,8 @@ function Mover:UnlockAll()
 			end
 
 			mover:ClearAllPoints()
-			-- [FIX] 실제 보이는 자식 프레임의 바운딩 박스에서 **위치만** 가져옴
-			-- 크기는 항상 CalcPartyMoverSize/CalcRaidMoverSize 기준 (5명/최대그룹 고정)
+			-- [FIX] 실제 보이는 자식 프레임의 바운딩 박스에서 위치 추출
+			-- growDirection에 따라 적절한 앵커 포인트 사용
 			local positioned = false
 			local GF = ns.GroupFrames
 			if GF then
@@ -1872,15 +2072,81 @@ function Mover:UnlockAll()
 						end
 					end
 					if minL and maxR and minB and maxT then
-						-- [FIX] 바운딩 박스에서 센터 위치만 추출, 크기는 5명/최대그룹 기준 고정
-						local bbCX = (minL + maxR) / 2
-						local bbCY = (minB + maxT) / 2
-						-- w, h는 CalcPartyMoverSize/CalcRaidMoverSize에서 이미 계산됨
 						local mW, mH = w or (maxR - minL), h or (maxT - minB)
-						local absLeft = bbCX - mW / 2
-						local absBottom = bbCY - mH / 2
-						local pt, oX, oY = CalcPointFromAbsolute(absLeft, absBottom, mW, mH, true)
-						mover:SetPoint(pt, UIParent, pt, oX, oY)
+
+						-- growDirection에 따른 앵커 포인트 결정
+						local unitDB = ns.db[mover._unitKey]
+						local growDir = (unitDB and unitDB.growDirection) or "DOWN"
+						local groupGrowDir = unitDB and unitDB.groupGrowDirection
+						if not groupGrowDir then
+							if growDir == "H_CENTER" or growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER" then
+								groupGrowDir = "RIGHT"
+							else
+								groupGrowDir = "DOWN"
+							end
+						end
+
+						-- 1차 방향 → Y축 앵커
+						local yAnchor = "TOP" -- 기본: DOWN (위에서 시작)
+						if growDir == "UP" then
+							yAnchor = "BOTTOM"
+						elseif growDir == "V_CENTER" then
+							yAnchor = "" -- 센터
+						end
+
+						-- 2차 방향 → X축 앵커 (레이드만 의미 있음)
+						local xAnchor = "LEFT" -- 기본: RIGHT (왼쪽에서 시작)
+						if groupGrowDir == "LEFT" then
+							xAnchor = "RIGHT"
+						elseif mover._unitKey == "party" then
+							-- 파티: 1차 가로 방향일 때
+							if growDir == "LEFT" then
+								xAnchor = "RIGHT"
+							elseif growDir == "H_CENTER" then
+								xAnchor = ""
+							end
+						end
+
+						-- 1차가 가로이면 xAnchor/yAnchor 의미 전환
+						local priIsVert = (growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER")
+						if not priIsVert then
+							-- 1차 가로: X축이 1차
+							xAnchor = "LEFT"
+							if growDir == "LEFT" then xAnchor = "RIGHT"
+							elseif growDir == "H_CENTER" then xAnchor = "" end
+							yAnchor = "TOP"
+							if groupGrowDir == "UP" then yAnchor = "BOTTOM"
+							elseif groupGrowDir == "DOWN" then yAnchor = "TOP" end
+						end
+
+						local anchorPt = yAnchor .. xAnchor
+						if anchorPt == "" then anchorPt = "CENTER" end
+
+						-- 바운딩 박스에서 앵커 포인트 위치 추출
+						local absX, absY
+						if anchorPt:find("LEFT") then absX = minL
+						elseif anchorPt:find("RIGHT") then absX = maxR
+						else absX = (minL + maxR) / 2 end
+
+						if anchorPt:find("TOP") then absY = maxT
+						elseif anchorPt:find("BOTTOM") then absY = minB
+						else absY = (minB + maxT) / 2 end
+
+						-- UIParent 기준 오프셋 계산
+						local uiW, uiH = UIParent:GetSize()
+						local oX, oY
+						if anchorPt:find("LEFT") then oX = absX
+						elseif anchorPt:find("RIGHT") then oX = absX - uiW
+						else oX = absX - uiW / 2 end
+
+						if anchorPt:find("TOP") then oY = absY - uiH
+						elseif anchorPt:find("BOTTOM") then oY = absY
+						else oY = absY - uiH / 2 end
+
+						oX = math_floor(oX + 0.5)
+						oY = math_floor(oY + 0.5)
+
+						mover:SetPoint(anchorPt, UIParent, anchorPt, oX, oY)
 						mover:SetSize(mW, mH)
 						positioned = true
 					end
@@ -1923,6 +2189,7 @@ function Mover:UnlockAll()
 	Mover:CreateNudgePanel()
 	if nudgePanel then
 		nudgePanel:Show()
+		if nudgePanel.RefreshFrameList then nudgePanel:RefreshFrameList() end
 		if nudgePanel.UpdateFilterBtns then nudgePanel:UpdateFilterBtns() end
 	end
 
@@ -1957,6 +2224,14 @@ function Mover:LockAll()
 	if ns.Update and ns.Update.DisableEditMode then
 		ns.Update:DisableEditMode()
 	end
+
+	-- [BUG-FIX] 편집모드 종료 후 실제 프레임 위치를 DB와 동기화
+	-- (편집 중 ApplyMoverVisual로 설정된 UIParent 좌표 → DB position 기반 재적용)
+	if ns.Update and ns.Update.RefreshAllFrames then
+		C_Timer.After(0.1, function()
+			ns.Update:RefreshAllFrames()
+		end)
+	end
 end
 
 function Mover:IsUnlocked()
@@ -1990,48 +2265,52 @@ function Mover:CancelEditMode()
 		ns.Update:DisableEditMode()
 	end
 
+	-- [BUG-FIX] 편집 취소 후 실제 프레임 위치를 DB(원래 스냅샷)와 동기화
+	if ns.Update and ns.Update.RefreshAllFrames then
+		C_Timer.After(0.1, function()
+			ns.Update:RefreshAllFrames()
+		end)
+	end
+
 	ns.Print("|cffff8800편집 취소 — 이전 위치로 복원되었습니다.|r")
 end
 
 -----------------------------------------------
--- [12.0.1] 넛지 패널 (ElvUI 스타일 리모컨)
--- 타이틀 + X/Y EditBox + 방향키 + Grid/Reset/Done 버튼
+-- [CDM 호환] 넛지 패널 (CDM과 동일한 cursorY 흐름 레이아웃)
+-- 악센트 컬러만 UF(녹색 계열)로 차별화
 -----------------------------------------------
 
 function Mover:CreateNudgePanel()
 	if nudgePanel then return end
 
-	-- StyleLib 색상 참조 -- [12.0.1]
+	-- StyleLib 색상 참조 (UF 악센트)
 	local accent = SL and { SL.GetAccent("UnitFrames") } or { {0.30, 0.85, 0.45}, {0.12, 0.55, 0.20} }
 	local accentFrom = accent[1] or {0.30, 0.85, 0.45}
 	local panelBg = SL and SL.Colors.bg.main or {0.10, 0.10, 0.10, 0.95}
 	local panelBorder = SL and SL.Colors.border.default or {0.25, 0.25, 0.25, 0.50}
 	local inputBg = SL and SL.Colors.bg.input or {0.06, 0.06, 0.06, 0.80}
 
+	local SOLID = C.FLAT_TEXTURE or "Interface\\Buttons\\WHITE8x8"
+	local ddInputBg = SL and SL.Colors.bg.input or {0.06, 0.06, 0.06, 0.80}
+	local ddHoverBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
+	local ddMainBg  = SL and SL.Colors.bg.main  or {0.10, 0.10, 0.10, 0.95}
+	local ddBorder  = SL and SL.Colors.border.default or {0.25, 0.25, 0.25, 0.50}
+
 	local panel = CreateFrame("Frame", "ddingUI_NudgePanel", UIParent, "BackdropTemplate")
-	panel:SetSize(260, 560) -- [CDM-P1~P3] 확장: attachTo + selfPoint/anchorPoint + 스냅 슬라이더 + Undo/Redo
-	panel:SetPoint("TOP", UIParent, "TOP", 0, -20)
+	panel:SetSize(240, 764) -- CDM과 동일한 크기
+	panel:SetPoint("TOP", UIParent, "TOP", 0, -50)
 	panel:SetFrameStrata("FULLSCREEN_DIALOG")
 	panel:SetFrameLevel(600)
-	panel:SetMovable(true)
 	panel:EnableMouse(true)
-	panel:RegisterForDrag("LeftButton")
 	panel:SetClampedToScreen(true)
-	panel:SetScript("OnDragStart", function(self) self:StartMoving() end)
-	panel:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
 	panel:Hide()
 	panel._editing = false
 
-	-- 배경 (StyleLib) -- [12.0.1]
-	panel:SetBackdrop({
-		bgFile = C.FLAT_TEXTURE,
-		edgeFile = C.FLAT_TEXTURE,
-		edgeSize = 1,
-	})
+	-- 배경 (CDM 동일)
+	panel:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
 	panel:SetBackdropColor(panelBg[1], panelBg[2], panelBg[3], panelBg[4] or 0.95)
 	panel:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
 
-	-- 악센트 그라디언트 라인 (상단) -- [12.0.1]
 	if SL and SL.CreateHorizontalGradient then
 		local gradLine = SL.CreateHorizontalGradient(panel, accentFrom, accent[2] or accentFrom, 2, "OVERLAY")
 		if gradLine then
@@ -2041,35 +2320,114 @@ function Mover:CreateNudgePanel()
 		end
 	end
 
-	-- 타이틀
+	-- 드래그 가능한 타이틀 바 (CDM 동일 패턴)
+	local titleBar = CreateFrame("Frame", nil, panel)
+	titleBar:SetHeight(16)
+	titleBar:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+	titleBar:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+	titleBar:EnableMouse(true)
+
+	local titleBarDragging = false
+	local titleBarOffsetX, titleBarOffsetY = 0, 0
+
+	titleBar:SetScript("OnMouseDown", function(self, button)
+		if button == "LeftButton" then
+			titleBarDragging = true
+			local scale = panel:GetEffectiveScale()
+			local mouseX, mouseY = GetCursorPosition()
+			mouseX = mouseX / scale
+			mouseY = mouseY / scale
+			local frameX, frameY = panel:GetCenter()
+			titleBarOffsetX = frameX - mouseX
+			titleBarOffsetY = frameY - mouseY
+		end
+	end)
+
+	titleBar:SetScript("OnMouseUp", function() titleBarDragging = false end)
+
+	panel:SetScript("OnUpdate", function(self)
+		if titleBarDragging then
+			local scale = self:GetEffectiveScale()
+			local mouseX, mouseY = GetCursorPosition()
+			mouseX = mouseX / scale
+			mouseY = mouseY / scale
+			self:ClearAllPoints()
+			self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", mouseX + titleBarOffsetX, mouseY + titleBarOffsetY)
+		end
+	end)
+
+	-- Close button (CDM ?숈씪)
+	local closeBtn = CreateFrame("Button", nil, panel)
+	closeBtn:SetSize(28, 24)
+	closeBtn:SetPoint("TOPRIGHT", -4, -4)
+	local closeText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	closeText:SetPoint("CENTER")
+	closeText:SetText("X")
+	closeText:SetTextColor(0.5, 0.5, 0.5)
+	closeBtn:SetScript("OnEnter", function() closeText:SetTextColor(1, 0.3, 0.3) end)
+	closeBtn:SetScript("OnLeave", function() closeText:SetTextColor(0.5, 0.5, 0.5) end)
+	closeBtn:SetScript("OnClick", function()
+		if isUnlocked then
+			Mover:LockAll()
+		else
+			panel:Hide()
+		end
+	end)
+
+	-- ================================================================
+	-- cursorY 흐름 레이아웃 (CDM과 동일)
+	-- ================================================================
+	local cursorY = -10
+	local PAD = 6
+	local SECTION_PAD = 12
+
+	-- Title
 	panel.title = panel:CreateFontString(nil, "OVERLAY")
 	panel.title:SetFont(fontPath, 12, "OUTLINE")
-	panel.title:SetPoint("TOP", 0, -10)
+	panel.title:SetPoint("TOP", 0, cursorY)
 	panel.title:SetText("편집 모드")
 	panel.title:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3])
+	cursorY = cursorY - 16
 
-	-- [CDM-P1] 선택된 프레임 이름 표시
+	-- Selected frame name
 	panel.selectedText = panel:CreateFontString(nil, "OVERLAY")
 	panel.selectedText:SetFont(fontPath, 10, "OUTLINE")
-	panel.selectedText:SetPoint("TOP", panel.title, "BOTTOM", 0, -2)
+	panel.selectedText:SetPoint("TOP", 0, cursorY)
 	panel.selectedText:SetText("|cff888888프레임을 클릭하세요|r")
+	cursorY = cursorY - 14
 
-	-- 좌표 (숨겨진 참조용)
+	-- Anchor info (현재 기준점 + 앵커 프레임) (CDM 동일)
+	panel.anchorLabel = panel:CreateFontString(nil, "OVERLAY")
+	panel.anchorLabel:SetFont(fontPath, 9, "OUTLINE")
+	panel.anchorLabel:SetPoint("TOP", 0, cursorY)
+	panel.anchorLabel:SetText("-- → --")
+	panel.anchorLabel:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3])
+	cursorY = cursorY - 13
+
+	panel.anchorFrameLabel = panel:CreateFontString(nil, "OVERLAY")
+	panel.anchorFrameLabel:SetFont(fontPath, 9, "OUTLINE")
+	panel.anchorFrameLabel:SetPoint("TOP", 0, cursorY)
+	panel.anchorFrameLabel:SetText("@ --")
+	panel.anchorFrameLabel:SetTextColor(0.65, 0.65, 0.65)
+	cursorY = cursorY - 16
+
+	-- 좌표 (선택된 참조 프레임)
 	panel.coords = panel:CreateFontString(nil, "OVERLAY")
 	panel.coords:SetFont(fontPath, 1, "OUTLINE")
-	panel.coords:SetPoint("TOP", panel.selectedText, "BOTTOM", 0, 0)
+	panel.coords:SetPoint("TOP", panel.anchorFrameLabel, "BOTTOM", 0, 0)
 	panel.coords:SetAlpha(0)
 
-	-- [MOVER] P3 카테고리 필터 버튼 행
+	-- [MOVER] P3 카테고리 필터 버튼 추가
 	local filterRow = CreateFrame("Frame", nil, panel)
 	filterRow:SetSize(190, 18)
-	filterRow:SetPoint("TOP", panel.selectedText, "BOTTOM", 0, -4)
+	filterRow:SetPoint("TOP", panel, "TOP", 0, cursorY)
+	cursorY = cursorY - 20
 	panel.filterBtns = {}
 
 	local filterBtnW = 44
 	local filterBtnH = 16
 	for idx, cat in ipairs(CATEGORY_ORDER) do
-		local xOff = (idx - 2) * (filterBtnW + 2) -- 3개 균등 배치
+		local xOff = (idx - 2) * (filterBtnW + 2)
 		local btn = CreateFrame("Button", nil, filterRow)
 		btn:SetSize(filterBtnW, filterBtnH)
 		btn:SetPoint("CENTER", filterRow, "CENTER", xOff, 0)
@@ -2106,214 +2464,437 @@ function Mover:CreateNudgePanel()
 	end
 	panel:UpdateFilterBtns()
 
-	-- [CDM-P1] 앵커 포인트 드롭다운 (9-point)
-	local anchorRow = CreateFrame("Frame", nil, panel)
-	anchorRow:SetSize(190, 22)
-	anchorRow:SetPoint("TOP", filterRow, "BOTTOM", 0, -4)
-
-	local anchorLabel = anchorRow:CreateFontString(nil, "OVERLAY")
-	anchorLabel:SetFont(fontPath, 8, "OUTLINE")
-	anchorLabel:SetPoint("LEFT", 0, 0)
-	anchorLabel:SetText("Anchor:")
-	anchorLabel:SetTextColor(0.6, 0.6, 0.6)
-
-	-- 간이 드롭다운 (커스텀 구현 — Widgets 의존 없이)
+	-- ==========================================
+	-- [ANCHOR-GRID] 9-point 앵커 선택기 (CDM 동일)
+	-- ==========================================
 	local ANCHOR_POINTS = {"TOPLEFT","TOP","TOPRIGHT","LEFT","CENTER","RIGHT","BOTTOMLEFT","BOTTOM","BOTTOMRIGHT"}
-	local anchorBtn = CreateFrame("Button", nil, anchorRow, "BackdropTemplate")
-	anchorBtn:SetSize(110, 18)
-	anchorBtn:SetPoint("LEFT", anchorLabel, "RIGHT", 6, 0)
-	anchorBtn:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	anchorBtn:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	anchorBtn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
 
-	local anchorBtnText = anchorBtn:CreateFontString(nil, "OVERLAY")
-	anchorBtnText:SetFont(fontPath, 9, "OUTLINE")
-	anchorBtnText:SetPoint("CENTER")
-	anchorBtnText:SetText("CENTER")
-	anchorBtnText:SetTextColor(1, 1, 1)
+	local GRID_H_ANCHOR = 150
+	local anchorGridContainer = CreateFrame("Frame", nil, panel)
+	anchorGridContainer:SetSize(220, GRID_H_ANCHOR)
+	anchorGridContainer:SetPoint("TOP", panel, "TOP", 0, cursorY)
+	cursorY = cursorY - GRID_H_ANCHOR - PAD
 
-	local anchorMenu = CreateFrame("Frame", nil, anchorBtn, "BackdropTemplate")
-	anchorMenu:SetSize(110, #ANCHOR_POINTS * 16 + 4)
-	anchorMenu:SetPoint("TOP", anchorBtn, "BOTTOM", 0, -1)
-	anchorMenu:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	anchorMenu:SetBackdropColor(panelBg[1], panelBg[2], panelBg[3], 0.98)
-	anchorMenu:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], 0.80)
-	anchorMenu:SetFrameStrata("TOOLTIP")
-	anchorMenu:Hide()
+	local CDM_GRID_W = 180
+	local CDM_GRID_H = 105
+	local CDM_DOT_SZ = 12
+	local CDM_DOT_SEL_SZ = 18
 
-	for i, apName in ipairs(ANCHOR_POINTS) do
-		local item = CreateFrame("Button", nil, anchorMenu)
-		item:SetSize(106, 16)
-		item:SetPoint("TOPLEFT", 2, -(i-1)*16 - 2)
-		local itemText = item:CreateFontString(nil, "OVERLAY")
-		itemText:SetFont(fontPath, 8, "OUTLINE")
-		itemText:SetPoint("CENTER")
-		itemText:SetText(apName)
-		itemText:SetTextColor(0.8, 0.8, 0.8)
-		item:SetScript("OnEnter", function() itemText:SetTextColor(1, 1, 1) end)
-		item:SetScript("OnLeave", function() itemText:SetTextColor(0.8, 0.8, 0.8) end)
-		item:SetScript("OnClick", function()
-			anchorMenu:Hide()
+	local previewFrame = CreateFrame("Frame", nil, anchorGridContainer, "BackdropTemplate")
+	previewFrame:SetSize(CDM_GRID_W, CDM_GRID_H)
+	previewFrame:SetPoint("TOP", anchorGridContainer, "TOP", 0, -2)
+	previewFrame:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+	previewFrame:SetBackdropColor(0.10, 0.10, 0.10, 0.90)
+	previewFrame:SetBackdropBorderColor(0.70, 0.70, 0.70, 0.90)
+
+	-- 크기 텍스트
+	local sizeText = anchorGridContainer:CreateFontString(nil, "OVERLAY")
+	sizeText:SetFont(fontPath, 9, "OUTLINE")
+	sizeText:SetPoint("TOP", previewFrame, "BOTTOM", 0, -4)
+	sizeText:SetTextColor(0.9, 0.75, 0.2, 0.9)
+	sizeText:SetText("")
+	panel._anchorSizeText = sizeText
+
+	panel._anchorDots = {}
+	panel._selfPointCurrent = "CENTER"
+	panel._anchorPointCurrent = "CENTER"
+
+	local SELF_PT_COLOR = { 0.25, 0.78, 0.88 }
+	local ANC_PT_COLOR  = { accentFrom[1], accentFrom[2], accentFrom[3] }
+	local BOTH_PT_COLOR = { 1, 0.85, 0.3 }
+
+	local DOT_POSITIONS = {
+		TOPLEFT = {x=0, y=0}, TOP = {x=0.5, y=0}, TOPRIGHT = {x=1, y=0},
+		LEFT = {x=0, y=0.5}, CENTER = {x=0.5, y=0.5}, RIGHT = {x=1, y=0.5},
+		BOTTOMLEFT = {x=0, y=1}, BOTTOM = {x=0.5, y=1}, BOTTOMRIGHT = {x=1, y=1},
+	}
+
+	local function UpdateAnchorDots()
+		local selfPt = panel._selfPointCurrent or "CENTER"
+		local ancPt  = panel._anchorPointCurrent or "CENTER"
+		for _, apName in ipairs(ANCHOR_POINTS) do
+			local dot = panel._anchorDots[apName]
+			if dot then
+				local isSelf = (apName == selfPt)
+				local isAnc  = (apName == ancPt)
+				if isSelf and isAnc then
+					dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
+					dot._bg:SetColorTexture(BOTH_PT_COLOR[1], BOTH_PT_COLOR[2], BOTH_PT_COLOR[3], 1)
+					dot._border:SetColorTexture(1, 1, 1, 0.9)
+					if dot._glow then dot._glow:SetColorTexture(BOTH_PT_COLOR[1], BOTH_PT_COLOR[2], BOTH_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
+				elseif isSelf then
+					dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
+					dot._bg:SetColorTexture(SELF_PT_COLOR[1], SELF_PT_COLOR[2], SELF_PT_COLOR[3], 1)
+					dot._border:SetColorTexture(1, 1, 1, 0.9)
+					if dot._glow then dot._glow:SetColorTexture(SELF_PT_COLOR[1], SELF_PT_COLOR[2], SELF_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
+				elseif isAnc then
+					dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
+					dot._bg:SetColorTexture(ANC_PT_COLOR[1], ANC_PT_COLOR[2], ANC_PT_COLOR[3], 1)
+					dot._border:SetColorTexture(1, 1, 1, 0.9)
+					if dot._glow then dot._glow:SetColorTexture(ANC_PT_COLOR[1], ANC_PT_COLOR[2], ANC_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
+				else
+					dot:SetSize(CDM_DOT_SZ, CDM_DOT_SZ)
+					dot._bg:SetColorTexture(0.40, 0.40, 0.40, 0.9)
+					dot._border:SetColorTexture(0.60, 0.60, 0.60, 0.7)
+					if dot._glow then dot._glow:Hide() end
+				end
+			end
+		end
+	end
+	panel._refreshAnchorGrid = UpdateAnchorDots
+
+	for _, apName in ipairs(ANCHOR_POINTS) do
+		local posInfo = DOT_POSITIONS[apName]
+		local dot = CreateFrame("Button", nil, previewFrame)
+		dot:SetSize(CDM_DOT_SZ, CDM_DOT_SZ)
+		dot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		dot:SetPoint("CENTER", previewFrame, "TOPLEFT", posInfo.x * CDM_GRID_W, -posInfo.y * CDM_GRID_H)
+		dot:SetFrameLevel(previewFrame:GetFrameLevel() + 3)
+
+		local border = dot:CreateTexture(nil, "BACKGROUND")
+		border:SetAllPoints()
+		border:SetColorTexture(0.60, 0.60, 0.60, 0.7)
+		dot._border = border
+
+		local bg = dot:CreateTexture(nil, "ARTWORK")
+		bg:SetPoint("TOPLEFT", 1, -1)
+		bg:SetPoint("BOTTOMRIGHT", -1, 1)
+		bg:SetColorTexture(0.40, 0.40, 0.40, 0.9)
+		dot._bg = bg
+
+		local glow = dot:CreateTexture(nil, "OVERLAY")
+		glow:SetPoint("CENTER")
+		glow:SetSize(CDM_DOT_SEL_SZ + 12, CDM_DOT_SEL_SZ + 12)
+		glow:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.18)
+		glow:Hide()
+		dot._glow = glow
+
+		dot:SetScript("OnEnter", function(self)
+			local isSelf = (apName == panel._selfPointCurrent)
+			local isAnc  = (apName == panel._anchorPointCurrent)
+			if not isSelf and not isAnc then
+				self._bg:SetColorTexture(0.55, 0.55, 0.55, 1)
+				self._border:SetColorTexture(0.8, 0.8, 0.8, 0.8)
+			end
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 4, 0)
+			if isSelf and isAnc then
+				GameTooltip:AddLine("|cffffd633" .. apName .. "|r  (Self + Anchor)", 1, 1, 1)
+			elseif isSelf then
+				GameTooltip:AddLine("|cff40c8e0" .. apName .. "|r  (Self Point)", 1, 1, 1)
+			elseif isAnc then
+				GameTooltip:AddLine(apName .. "  (Anchor Point)", accentFrom[1], accentFrom[2], accentFrom[3])
+			else
+				GameTooltip:AddLine(apName, 1, 1, 1)
+			end
+			GameTooltip:AddLine("좌클릭 Anchor Point 변경", 0.5, 0.5, 0.5)
+			GameTooltip:AddLine("우클릭 Self Point 변경", 0.5, 0.5, 0.5)
+			GameTooltip:Show()
+		end)
+		dot:SetScript("OnLeave", function(self)
+			local isSelf = (apName == panel._selfPointCurrent)
+			local isAnc  = (apName == panel._anchorPointCurrent)
+			if not isSelf and not isAnc then
+				self._bg:SetColorTexture(0.35, 0.35, 0.35, 0.9)
+				self._border:SetColorTexture(0.55, 0.55, 0.55, 0.6)
+			end
+			GameTooltip:Hide()
+		end)
+
+		dot:SetScript("OnClick", function(_, button)
 			if not selectedMover then return end
+			local unitKey = selectedMover._unitKey
+			local unitDB = unitKey and ns.db[unitKey]
+
+			-- 언두 스냅샷 (변경 전)
 			local oldPt, _, _, oldX, oldY = selectedMover:GetPoint(1)
-			if not oldPt then return end
-			-- 현재 절대 좌표 계산
-			local absLeft = selectedMover:GetLeft() or 0
-			local absBottom = selectedMover:GetBottom() or 0
-			local mW, mH = selectedMover:GetSize()
-			-- 새 앵커 포인트로 오프셋 재계산
-			local parentW, parentH = UIParent:GetSize()
-			local newX, newY
-			local newPt = apName
-			-- X 오프셋
-			if newPt:find("LEFT") then newX = absLeft
-			elseif newPt:find("RIGHT") then newX = (absLeft + mW) - parentW
-			else newX = (absLeft + mW/2) - parentW/2 end
-			-- Y 오프셋
-			if newPt:find("TOP") then newY = (absBottom + mH) - parentH
-			elseif newPt:find("BOTTOM") then newY = absBottom
-			else newY = (absBottom + mH/2) - parentH/2 end
-			newX = math_floor(newX + 0.5)
-			newY = math_floor(newY + 0.5)
-			-- Undo 저장
-			if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
-			undoStack[#undoStack + 1] = { mover = selectedMover, point = oldPt, x = oldX or 0, y = oldY or 0 }
-			wipe(redoStack)
-			if nudgePanel.UpdateUndoRedoBtns then nudgePanel:UpdateUndoRedoBtns() end
-			-- 적용
-			ApplyMoverVisual(selectedMover, newPt, newX, newY)
-			anchorBtnText:SetText(newPt)
+			if oldPt then
+				if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
+				undoStack[#undoStack + 1] = { mover = selectedMover, point = oldPt, x = oldX or 0, y = oldY or 0 }
+				wipe(redoStack)
+				if nudgePanel and nudgePanel.UpdateUndoRedoBtns then nudgePanel:UpdateUndoRedoBtns() end
+			end
+
+			if button == "LeftButton" then
+				if unitDB then unitDB.anchorPoint = apName end
+				panel._anchorPointCurrent = apName
+			elseif button == "RightButton" then
+				if unitDB then unitDB.selfPoint = apName end
+				panel._selfPointCurrent = apName
+			end
+
+			-- [FIX] 앵커 변경 즉시 무버 위치 재계산
+			if unitDB then
+				local attachTo = unitDB.attachTo
+				if attachTo and attachTo ~= "" and attachTo ~= "UIParent" then
+					-- attachTo 프레임 기준: ReanchorToAttachTo 사용
+					ReanchorToAttachTo(selectedMover)
+				else
+					-- UIParent 기준: 화면 절대좌표 유지, 새 selfPoint 기준 오프셋 역산
+					local mLeft = selectedMover:GetLeft()
+					local mBottom = selectedMover:GetBottom()
+					local mW, mH = selectedMover:GetSize()
+					if mLeft and mBottom and mW and mW > 0 then
+						local pW, pH = UIParent:GetSize()
+						local newPt = unitDB.selfPoint or "CENTER"
+						local ox, oy
+
+						-- newPt 기준 오프셋 계산 (SetPoint(newPt, UIParent, newPt, ox, oy) 형태)
+						-- X축
+						if newPt:find("LEFT") then
+							ox = mLeft
+						elseif newPt:find("RIGHT") then
+							ox = (mLeft + mW) - pW
+						else
+							ox = (mLeft + mW / 2) - pW / 2
+						end
+						-- Y축
+						if newPt:find("TOP") then
+							oy = (mBottom + mH) - pH
+						elseif newPt:find("BOTTOM") then
+							oy = mBottom
+						else
+							oy = (mBottom + mH / 2) - pH / 2
+						end
+
+						ox = math_floor(ox + 0.5)
+						oy = math_floor(oy + 0.5)
+						ApplyMoverVisual(selectedMover, newPt, ox, oy, UIParent, newPt)
+					end
+				end
+			end
+
+			-- 실제 유닛 프레임 레이아웃 반영
+			if ns.Update and ns.Update.RefreshUnit and unitKey then
+				ns.Update:RefreshUnit(unitKey)
+			end
+
+			UpdateAnchorDots()
 			Mover:UpdateNudgeCoords()
 		end)
+
+		panel._anchorDots[apName] = dot
 	end
 
-	anchorBtn:SetScript("OnClick", function()
-		if anchorMenu:IsShown() then anchorMenu:Hide() else anchorMenu:Show() end
-	end)
+	UpdateAnchorDots()
 
-	panel.anchorDropdown = { SetSelected = function(_, val) anchorBtnText:SetText(val or "CENTER") end }
-	panel.anchorMenu = anchorMenu
+	-- 호환용 anchorDropdown API
+	panel.anchorDropdown = {
+		SetSelected = function(_, val)
+			panel._anchorPointCurrent = val or "CENTER"
+			UpdateAnchorDots()
+		end,
+	}
 
 	-- ==========================================
-	-- [CDM 호환] attachTo 드롭다운 행
+	-- CreateFlatDropdown 유틸리티 (CDM 동일)
 	-- ==========================================
-	local attachRow = CreateFrame("Frame", nil, panel)
-	attachRow:SetSize(230, 22)
-	attachRow:SetPoint("TOP", anchorRow, "BOTTOM", 0, -4)
+	local function CreateFlatDropdown(parent, labelText, width, anchorPt, anchorFrame_dd, anchorRelPt, xOff, yOff, items, onSelect)
+		local container = CreateFrame("Frame", nil, parent)
+		container:SetSize(width + 10, 40)
+		container:SetPoint(anchorPt, anchorFrame_dd, anchorRelPt, xOff, yOff)
 
-	local attachLbl = attachRow:CreateFontString(nil, "OVERLAY")
-	attachLbl:SetFont(fontPath, 8, "OUTLINE")
-	attachLbl:SetPoint("LEFT", 0, 0)
-	attachLbl:SetText("Attach:")
-	attachLbl:SetTextColor(0.6, 0.6, 0.6)
+		local lbl = container:CreateFontString(nil, "OVERLAY")
+		lbl:SetFont(fontPath, 9, "OUTLINE")
+		lbl:SetPoint("TOPLEFT", 0, 0)
+		lbl:SetText(labelText)
 
-	-- attachTo 아이템 목록 (CDM → UF → UIParent 순서)
-	local function BuildAttachItems()
-		local items = {}
-		-- 1) CDM 프록시 앵커 (설치 시 최우선 표시)
-		local CDM_PROXIES = {
-			{ name = "DDingUI_Anchor_Cooldowns", label = "DDingUI CDM: 핵심" },
-			{ name = "DDingUI_Anchor_Buffs",     label = "DDingUI CDM: 강화" },
-			{ name = "DDingUI_Anchor_Utility",   label = "DDingUI CDM: 보조" },
-		}
-		for _, proxy in ipairs(CDM_PROXIES) do
-			if _G[proxy.name] then
-				items[#items + 1] = { text = proxy.label, value = proxy.name }
+		local btn = CreateFrame("Button", nil, container, "BackdropTemplate")
+		btn:SetSize(width, 22)
+		btn:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -2)
+		btn:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+		btn:SetBackdropColor(unpack(ddInputBg))
+		btn:SetBackdropBorderColor(unpack(ddBorder))
+
+		local selText = btn:CreateFontString(nil, "OVERLAY")
+		selText:SetFont(fontPath, 9, "OUTLINE")
+		selText:SetPoint("LEFT", 4, 0)
+		selText:SetPoint("RIGHT", -16, 0)
+		selText:SetJustifyH("LEFT")
+		selText:SetWordWrap(false)
+
+		local arrow = btn:CreateFontString(nil, "OVERLAY")
+		arrow:SetFont(fontPath, 9, "OUTLINE")
+		arrow:SetPoint("RIGHT", -4, 0)
+		arrow:SetText("\226\150\188") -- ▼
+
+		container._value = nil
+		container._text = ""
+		container._items = items or {}
+
+		local function SetDisplay(text, value)
+			container._value = value
+			container._text = text
+			selText:SetText(text or "--")
+		end
+
+		local list = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+		list:SetFrameStrata("FULLSCREEN_DIALOG")
+		list:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+		list:SetWidth(width)
+		list:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+		list:SetBackdropColor(unpack(ddMainBg))
+		list:SetBackdropBorderColor(unpack(ddBorder))
+		list:Hide()
+
+		local catcher = CreateFrame("Button", nil, list)
+		catcher:SetFrameStrata("FULLSCREEN_DIALOG")
+		catcher:SetFrameLevel(math.max(0, list:GetFrameLevel() - 1))
+		catcher:SetAllPoints(UIParent)
+		catcher:SetScript("OnClick", function() list:Hide(); catcher:Hide() end)
+		catcher:EnableMouseWheel(true)
+		catcher:SetScript("OnMouseWheel", function() list:Hide(); catcher:Hide() end)
+		catcher:Hide()
+
+		local rowButtons = {}
+		local function RebuildItems(newItems)
+			for _, rb in ipairs(rowButtons) do rb:Hide() end
+			wipe(rowButtons)
+			container._items = newItems or container._items
+			local totalH = #container._items * 20 + 2
+			list:SetHeight(math.min(totalH, 10 * 20 + 2))
+
+			for i, item in ipairs(container._items) do
+				local row = CreateFrame("Button", nil, list)
+				row:SetSize(width - 2, 20)
+				row:SetPoint("TOPLEFT", list, "TOPLEFT", 1, -(1 + (i - 1) * 20))
+
+				local rowBG = row:CreateTexture(nil, "BACKGROUND")
+				rowBG:SetAllPoints()
+				rowBG:SetColorTexture(0, 0, 0, 0)
+
+				local rowText = row:CreateFontString(nil, "OVERLAY")
+				rowText:SetFont(fontPath, 9, "OUTLINE")
+				rowText:SetPoint("LEFT", 4, 0)
+				rowText:SetText(item.text or item)
+				rowText:SetJustifyH("LEFT")
+
+				row:SetScript("OnEnter", function() rowBG:SetColorTexture(unpack(ddHoverBg)) end)
+				row:SetScript("OnLeave", function() rowBG:SetColorTexture(0, 0, 0, 0) end)
+				row:SetScript("OnClick", function()
+					local val = item.value or item
+					local txt = item.text or item
+					SetDisplay(txt, val)
+					list:Hide()
+					catcher:Hide()
+					if onSelect then onSelect(val, txt) end
+				end)
+				rowButtons[#rowButtons + 1] = row
 			end
 		end
-		-- 2) UF 프레임
-		local UF_FRAMES = {
-			{ name = "ddingUI_Player", label = "UF: Player" },
-			{ name = "ddingUI_Target", label = "UF: Target" },
-			{ name = "ddingUI_Focus",  label = "UF: Focus" },
-			{ name = "ddingUI_Pet",    label = "UF: Pet" },
-		}
-		for _, uf in ipairs(UF_FRAMES) do
-			if _G[uf.name] then
-				items[#items + 1] = { text = uf.label, value = uf.name }
-			end
+
+		RebuildItems()
+		if #container._items > 0 then
+			local first = container._items[1]
+			SetDisplay(first.text or first, first.value or first)
 		end
-		-- 3) UIParent (기본값, 항상 마지막)
-		items[#items + 1] = { text = "UIParent", value = "UIParent" }
-		return items
+
+		btn:SetScript("OnClick", function()
+			if list:IsShown() then list:Hide(); catcher:Hide()
+			else list:Show(); catcher:Show() end
+		end)
+		btn:SetScript("OnEnter", function() btn:SetBackdropColor(unpack(ddHoverBg)) end)
+		btn:SetScript("OnLeave", function() btn:SetBackdropColor(unpack(ddInputBg)) end)
+
+		function container:SetValue(val, displayText) SetDisplay(displayText or val, val) end
+		function container:GetValue() return self._value end
+		function container:SetItems(newItems) RebuildItems(newItems) end
+
+		container.button = btn
+		container.label = lbl
+		return container
 	end
 
-	local attachBtnText
-	local attachMenuFrame
-
-	local attachBtn = CreateFrame("Button", nil, attachRow, "BackdropTemplate")
-	attachBtn:SetSize(108, 18)
-	attachBtn:SetPoint("LEFT", attachLbl, "RIGHT", 4, 0)
-	attachBtn:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	attachBtn:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	attachBtn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	attachBtnText = attachBtn:CreateFontString(nil, "OVERLAY")
-	attachBtnText:SetFont(fontPath, 9, "OUTLINE")
-	attachBtnText:SetPoint("CENTER")
-	attachBtnText:SetText("UIParent")
-	attachBtnText:SetTextColor(0.9, 0.9, 0.9)
-
-	attachMenuFrame = CreateFrame("Frame", nil, attachBtn, "BackdropTemplate")
-	attachMenuFrame:SetFrameStrata("TOOLTIP")
-	attachMenuFrame:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	attachMenuFrame:SetBackdropColor(panelBg[1], panelBg[2], panelBg[3], 0.98)
-	attachMenuFrame:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], 0.80)
-	attachMenuFrame:Hide()
-
-	local function RefreshAttachMenu()
-		-- 기존 아이템 제거
-		if attachMenuFrame._items then
-			for _, item in ipairs(attachMenuFrame._items) do item:Hide() end
-		end
-		attachMenuFrame._items = {}
-		local items = BuildAttachItems()
-		local itemH = 16
-		attachMenuFrame:SetSize(152, #items * itemH + 4)
-		attachMenuFrame:SetPoint("TOP", attachBtn, "BOTTOM", 0, -2)
-
-		for i, entry in ipairs(items) do
-			local item = CreateFrame("Button", nil, attachMenuFrame)
-			item:SetSize(148, itemH)
-			item:SetPoint("TOPLEFT", 2, -(i-1)*itemH - 2)
-			local it = item:CreateFontString(nil, "OVERLAY")
-			it:SetFont(fontPath, 9, "OUTLINE")
-			it:SetPoint("CENTER")
-			it:SetText(entry.text)
-			it:SetTextColor(0.8, 0.8, 0.8)
-			item:SetScript("OnEnter", function() it:SetTextColor(1, 1, 1) end)
-			item:SetScript("OnLeave", function() it:SetTextColor(0.8, 0.8, 0.8) end)
-			item:SetScript("OnClick", function()
-				attachMenuFrame:Hide()
-				if not selectedMover then return end
-				local unitKey = selectedMover._unitKey
-				if not unitKey or not ns.db[unitKey] then return end
-				ns.db[unitKey].attachTo = entry.value
-				attachBtnText:SetText(entry.text)
-				-- 즉시 위치 갱신
-				if ns.Update and ns.Update.RefreshUnit then
-					ns.Update:RefreshUnit(unitKey)
+	-- ==========================================
+	-- 프레임 선택 드롭다운 (CDM 동일: 모든 무버 리스트)
+	-- ==========================================
+	local frameSelectDropdown = CreateFlatDropdown(panel,
+		"프레임 선택", 170,
+		"TOP", panel, "TOP", 0, -900,  -- 임시, cursorY로 옮겨짐
+		{ {text="선택 없음", value=""} },
+		function(val)
+			if not val or val == "" then return end
+			for _, m in ipairs(movers) do
+				if m._name == val or GetMoverDBKey(m) == val then
+					SelectMover(m)
+					break
 				end
-			end)
-			attachMenuFrame._items[i] = item
+			end
+		end)
+	panel.frameSelectDropdown = frameSelectDropdown
+
+	-- 무버 리스트 갱신 함수
+	function panel:RefreshFrameList()
+		-- 프레임 선택 드롭다운
+		local items = { {text="선택 없음", value=""} }
+		for _, m in ipairs(movers) do
+			local name = m._name or GetMoverDBKey(m) or "Unknown"
+			items[#items + 1] = { text = name, value = GetMoverDBKey(m) or name }
+		end
+		table.sort(items, function(a, b) return a.text < b.text end)
+		if frameSelectDropdown.SetItems then
+			frameSelectDropdown:SetItems(items)
+		end
+
+		-- 연결 대상 드롭다운 (CDM 프록시 + UF 프레임)
+		if self.anchorFrameDropdown and self.anchorFrameDropdown.SetItems then
+			local afItems = { {text="UIParent", value="UIParent"} }
+			local CDM_PROXIES = {
+				{ name = "DDingUI_Anchor_Cooldowns", label = "CDM: 쿨다운" },
+				{ name = "DDingUI_Anchor_Buffs",     label = "CDM: 강화" },
+				{ name = "DDingUI_Anchor_Utility",   label = "CDM: 보조" },
+			}
+			for _, proxy in ipairs(CDM_PROXIES) do
+				if _G[proxy.name] then
+					afItems[#afItems + 1] = { text = proxy.label, value = proxy.name }
+				end
+			end
+			local UF_FRAMES = {
+				{ name = "ddingUI_Player", label = "UF: Player" },
+				{ name = "ddingUI_Target", label = "UF: Target" },
+				{ name = "ddingUI_Focus",  label = "UF: Focus" },
+				{ name = "ddingUI_Pet",    label = "UF: Pet" },
+			}
+			for _, uf in ipairs(UF_FRAMES) do
+				if _G[uf.name] then
+					afItems[#afItems + 1] = { text = uf.label, value = uf.name }
+				end
+			end
+			self.anchorFrameDropdown:SetItems(afItems)
 		end
 	end
 
-	attachBtn:SetScript("OnClick", function()
-		if attachMenuFrame:IsShown() then
-			attachMenuFrame:Hide()
-		else
-			RefreshAttachMenu()
-			attachMenuFrame:Show()
-		end
-	end)
+	-- Anchor Frame Dropdown (연결 대상) (CDM 동일)
+	local anchorFrameDropdown = CreateFlatDropdown(panel,
+		"연결 대상", 130,
+		"TOP", panel, "TOP", 0, -900,  -- 임시, cursorY로 옮겨짐
+		{ {text="UIParent", value="UIParent"} },
+		function(val)
+			if not selectedMover then return end
+			local unitKey = selectedMover._unitKey
+			if not unitKey or not ns.db[unitKey] then return end
+			ns.db[unitKey].attachTo = val
+			if ns.Update and ns.Update.RefreshUnit then
+				ns.Update:RefreshUnit(unitKey)
+			end
+			Mover:UpdateNudgeCoords()
+		end)
+	panel.anchorFrameDropdown = anchorFrameDropdown
 
+	-- selfPoint/anchorPoint 호환 API
+	panel.selfPtDropdown = { SetSelected = function(_, val)
+		panel._selfPointCurrent = val or "CENTER"
+		if panel._refreshAnchorGrid then panel._refreshAnchorGrid() end
+	end }
+	panel.anchorPtDropdown = { SetSelected = function(_, val)
+		panel._anchorPointCurrent = val or "CENTER"
+		if panel._refreshAnchorGrid then panel._refreshAnchorGrid() end
+	end }
+
+	-- attachDropdown 호환 API
 	panel.attachDropdown = {
 		SetSelected = function(_, val)
-			local label = val or "UIParent"
-			-- 표시 이름 해석
 			local CDM_NAMES = {
-				["DDingUI_Anchor_Cooldowns"] = "CDM: 핵심",
+				["DDingUI_Anchor_Cooldowns"] = "CDM: 쿨다운",
 				["DDingUI_Anchor_Buffs"] = "CDM: 강화",
 				["DDingUI_Anchor_Utility"] = "CDM: 보조",
 				["ddingUI_Player"] = "UF: Player",
@@ -2321,72 +2902,49 @@ function Mover:CreateNudgePanel()
 				["ddingUI_Focus"] = "UF: Focus",
 				["ddingUI_Pet"] = "UF: Pet",
 			}
-			attachBtnText:SetText(CDM_NAMES[label] or label)
+			if anchorFrameDropdown and anchorFrameDropdown.SetValue then
+				anchorFrameDropdown:SetValue(val, CDM_NAMES[val] or val)
+			end
 		end,
 	}
 
-	-- ==========================================
-	-- [CDM-P5] 프레임 피커 버튼 (attachTo dropdown 오른쪽)
-	-- CDM의 StartFramePicker API 사용 또는 UF 자체 구현
-	-- ==========================================
-	local pickerBtn = CreateFrame("Button", nil, attachRow, "BackdropTemplate")
-	pickerBtn:SetSize(20, 18)
-	pickerBtn:SetPoint("LEFT", attachBtn, "RIGHT", 2, 0)
-	pickerBtn:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	pickerBtn:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	pickerBtn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
+	-- Anchor Selection Button (CDM 동일: Select Anchor)
+	local anchorSelectBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
+	anchorSelectBtn:SetSize(210, 24)
+	anchorSelectBtn:SetPoint("TOP", anchorFrameDropdown, "BOTTOM", 0, -6)
 
-	local pickerIcon = pickerBtn:CreateFontString(nil, "OVERLAY")
-	pickerIcon:SetFont(fontPath, 9, "OUTLINE")
-	pickerIcon:SetPoint("CENTER")
-	pickerIcon:SetText("|cff80c0ff+|r")
+	local selR = accentFrom[1] * 0.3
+	local selG = accentFrom[2] * 0.3
+	local selB = accentFrom[3] * 0.3
 
-	pickerBtn:SetScript("OnEnter", function(self)
-		self:SetBackdropColor(
-			math.min((inputBg[1] or 0.15) + 0.10, 1),
-			math.min((inputBg[2] or 0.15) + 0.10, 1),
-			math.min((inputBg[3] or 0.15) + 0.10, 1),
-			0.95
-		)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP", 0, 4)
-		GameTooltip:AddLine("프레임 선택 (마우스)", 0.8, 0.8, 0.8)
-		GameTooltip:AddLine("화면에서 프레임을 클릭하여 연결합니다", 0.5, 0.5, 0.5)
-		GameTooltip:Show()
-	end)
-	pickerBtn:SetScript("OnLeave", function(self)
-		self:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-		GameTooltip:Hide()
-	end)
+	anchorSelectBtn:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+	anchorSelectBtn:SetBackdropColor(selR, selG, selB, 0.8)
+	anchorSelectBtn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.5)
 
-	-- UF 자체 프레임 피커 (CDM 미설치 시 폴백)
+	local ancSelText = anchorSelectBtn:CreateFontString(nil, "OVERLAY")
+	ancSelText:SetFont(fontPath, 9, "OUTLINE")
+	ancSelText:SetPoint("CENTER")
+	ancSelText:SetText("Select Anchor")
+
+	anchorSelectBtn:SetScript("OnEnter", function(self) self:SetBackdropColor(math.min(selR+0.12,1), math.min(selG+0.12,1), math.min(selB+0.12,1), 0.95) end)
+	anchorSelectBtn:SetScript("OnLeave", function(self) self:SetBackdropColor(selR, selG, selB, 0.8) end)
+	panel.anchorSelectBtn = anchorSelectBtn
+
+	-- UF 프레임 선택 (CDM과 동일 패턴)
 	local function UF_StartFramePicker(callback)
 		if ns._framePickerActive then return end
 		ns._framePickerActive = true
-
-		-- 넛지 패널의 키보드 비활성화 (ESC 충돌 방지)
 		panel:EnableKeyboard(false)
 
-		-- DDingUI UF 프레임 위치 기반 감지
 		local knownFrames = {
 			"ddingUI_Player", "ddingUI_Target", "ddingUI_TargetTarget",
 			"ddingUI_Focus", "ddingUI_FocusTarget", "ddingUI_Pet",
 			"ddingUI_Boss1", "ddingUI_Boss2", "ddingUI_Boss3",
 		}
-		-- CDM 프록시 앵커
 		local cdmProxies = {
 			"DDingUI_Anchor_Cooldowns", "DDingUI_Anchor_Buffs", "DDingUI_Anchor_Utility",
 		}
-		-- CDM 그룹 프레임 동적 감지
-		local DDingUI = _G.DDingUI_Addon or _G.DDingUI
-		if DDingUI and DDingUI.Movers and DDingUI.Movers.CreatedMovers then
-			for name, holder in pairs(DDingUI.Movers.CreatedMovers) do
-				if name:match("^DDingUI_Group_") and holder.parent and holder.parent:GetName() then
-					knownFrames[#knownFrames + 1] = holder.parent:GetName()
-				end
-			end
-		end
 
-		-- 마우스가 프레임 영역 안에 있는지 확인
 		local function IsMouseOverFrame(frame)
 			if not frame or not frame:IsShown() then return false end
 			if frame.GetAlpha and frame:GetAlpha() < 0.01 then return false end
@@ -2398,9 +2956,7 @@ function Mover:CreateNudgePanel()
 			return x >= left and x <= left + width and y >= bottom and y <= bottom + height
 		end
 
-		-- 현재 마우스 아래 프레임 찾기
 		local function GetFrameUnderMouse(excludeFrame)
-			-- DDingUI 프레임 위치 기반 확인
 			for _, frameName in ipairs(knownFrames) do
 				local frame = _G[frameName]
 				if frame and frame ~= excludeFrame and IsMouseOverFrame(frame) then
@@ -2413,43 +2969,29 @@ function Mover:CreateNudgePanel()
 					return frame
 				end
 			end
-			-- UF movers 확인
 			for _, m in ipairs(movers) do
 				if m and m ~= excludeFrame and m._frame and IsMouseOverFrame(m._frame) then
 					return m._frame
 				end
 			end
-			-- 일반 마우스 포커스
-			local mouseFoci = GetMouseFoci and GetMouseFoci()
-			if mouseFoci then
-				for _, frame in ipairs(mouseFoci) do
-					if frame and frame ~= excludeFrame and frame ~= WorldFrame and frame:GetName() then
-						return frame
-					end
-				end
-			end
 			return nil
 		end
 
-		-- 풀스크린 오버레이
 		local pickerFrame = CreateFrame("Frame", "DDingUI_UF_FramePicker", UIParent)
 		pickerFrame:SetFrameStrata("TOOLTIP")
 		pickerFrame:SetAllPoints(UIParent)
 		pickerFrame:EnableMouse(false)
 
-		-- 안내 텍스트
 		local hint = pickerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 		hint:SetPoint("TOP", pickerFrame, "TOP", 0, -50)
 		hint:SetText("프레임을 클릭하세요 (ESC로 취소)")
 		hint:SetTextColor(1, 1, 0, 1)
 
-		-- 하이라이트 프레임
 		local highlight = CreateFrame("Frame", nil, pickerFrame, "BackdropTemplate")
-		highlight:SetBackdrop({ edgeFile = C.FLAT_TEXTURE, edgeSize = 2 })
+		highlight:SetBackdrop({ edgeFile = SOLID, edgeSize = 2 })
 		highlight:SetBackdropBorderColor(0, 1, 0, 0.8)
 		highlight:Hide()
 
-		-- 프레임 이름 표시
 		local nameLabel = pickerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 		nameLabel:SetPoint("BOTTOM", highlight, "TOP", 0, 5)
 		nameLabel:SetTextColor(0, 1, 0, 1)
@@ -2459,60 +3001,26 @@ function Mover:CreateNudgePanel()
 
 		local function Cleanup()
 			clickHandled = true
-			if pickerFrame then
-				pickerFrame:Hide()
-				pickerFrame:SetScript("OnUpdate", nil)
-			end
-			-- 키보드 복원
+			if pickerFrame then pickerFrame:Hide(); pickerFrame:SetScript("OnUpdate", nil) end
 			panel:EnableKeyboard(true)
-			C_Timer.After(0.2, function()
-				ns._framePickerActive = nil
-			end)
+			C_Timer.After(0.2, function() ns._framePickerActive = nil end)
 		end
 
 		pickerFrame:SetScript("OnUpdate", function()
 			local focusFrame = GetFrameUnderMouse(pickerFrame)
-			if focusFrame then
-				local frameName = focusFrame:GetName()
-				if frameName then
-					currentFrame = focusFrame
-					highlight:ClearAllPoints()
-					highlight:SetPoint("TOPLEFT", focusFrame, "TOPLEFT", -2, 2)
-					highlight:SetPoint("BOTTOMRIGHT", focusFrame, "BOTTOMRIGHT", 2, -2)
-					highlight:Show()
-					nameLabel:SetText(frameName)
-				else
-					-- 이름 없는 프레임 — 부모 탐색
-					local parent = focusFrame:GetParent()
-					while parent and not parent:GetName() do
-						parent = parent:GetParent()
-					end
-					if parent and parent:GetName() then
-						currentFrame = parent
-						highlight:ClearAllPoints()
-						highlight:SetPoint("TOPLEFT", parent, "TOPLEFT", -2, 2)
-						highlight:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 2, -2)
-						highlight:Show()
-						nameLabel:SetText(parent:GetName())
-					else
-						currentFrame = nil
-						highlight:Hide()
-						nameLabel:SetText("")
-					end
-				end
+			if focusFrame and focusFrame:GetName() then
+				currentFrame = focusFrame
+				highlight:ClearAllPoints()
+				highlight:SetPoint("TOPLEFT", focusFrame, "TOPLEFT", -2, 2)
+				highlight:SetPoint("BOTTOMRIGHT", focusFrame, "BOTTOMRIGHT", 2, -2)
+				highlight:Show()
+				nameLabel:SetText(focusFrame:GetName())
 			else
 				currentFrame = nil
 				highlight:Hide()
 				nameLabel:SetText("")
 			end
-
-			-- ESC 체크
-			if IsKeyDown("ESCAPE") then
-				Cleanup()
-				return
-			end
-
-			-- 마우스 클릭 체크
+			if IsKeyDown("ESCAPE") then Cleanup(); return end
 			if clickHandled then return end
 			if IsMouseButtonDown("LeftButton") then
 				if currentFrame then
@@ -2532,31 +3040,25 @@ function Mover:CreateNudgePanel()
 		end)
 	end
 
-	pickerBtn:SetScript("OnClick", function()
+	anchorSelectBtn:SetScript("OnClick", function()
 		if not selectedMover then return end
 		local unitKey = selectedMover._unitKey
 		if not unitKey then return end
 
-		-- 프레임 피커 콜백: 선택된 프레임을 attachTo로 설정
 		local function OnFramePicked(frameName)
 			if not frameName or not ns.db[unitKey] then return end
-			-- attachTo 업데이트
 			ns.db[unitKey].attachTo = frameName
-			-- 기본 앵커 포인트 설정
 			if not ns.db[unitKey].selfPoint then ns.db[unitKey].selfPoint = "CENTER" end
 			if not ns.db[unitKey].anchorPoint then ns.db[unitKey].anchorPoint = "CENTER" end
-			ns.db[unitKey].position = { 0, 0 }  -- 오프셋 초기화
-			-- 드롭다운 동기화
+			ns.db[unitKey].position = { 0, 0 }
 			if panel.attachDropdown and panel.attachDropdown.SetSelected then
 				panel.attachDropdown:SetSelected(frameName)
 			end
-			-- 즉시 위치 갱신
 			if ns.Update and ns.Update.RefreshUnit then
 				ns.Update:RefreshUnit(unitKey)
 			end
 		end
 
-		-- CDM StartFramePicker가 있으면 사용, 없으면 UF 자체 피커
 		local DDingUI = _G.DDingUI_Addon or _G.DDingUI
 		if DDingUI and DDingUI.StartFramePicker then
 			DDingUI:StartFramePicker(OnFramePicked)
@@ -2565,246 +3067,71 @@ function Mover:CreateNudgePanel()
 		end
 	end)
 
-	panel.pickerBtn = pickerBtn
-
 	-- ==========================================
-	-- [CDM 호환] attachTo 초기화 버튼
+	-- X/Y 좌표 입력 (CDM 동일)
 	-- ==========================================
-	local clearAnchorBtn = CreateFrame("Button", nil, attachRow, "BackdropTemplate")
-	clearAnchorBtn:SetSize(20, 18)
-	clearAnchorBtn:SetPoint("LEFT", pickerBtn, "RIGHT", 2, 0)
-	clearAnchorBtn:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	clearAnchorBtn:SetBackdropColor(0.3, 0.15, 0.15, 0.80)
-	clearAnchorBtn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
+	local xLabel = panel:CreateFontString(nil, "OVERLAY")
+	xLabel:SetFont(fontPath, 10, "OUTLINE")
+	xLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, cursorY)
+	xLabel:SetText("X:")
 
-	local clearIcon = clearAnchorBtn:CreateFontString(nil, "OVERLAY")
-	clearIcon:SetFont(fontPath, 9, "OUTLINE")
-	clearIcon:SetPoint("CENTER")
-	clearIcon:SetText("|cffff6060X|r")
+	local xEditBox = CreateFrame("EditBox", nil, panel, "BackdropTemplate")
+	xEditBox:SetPoint("LEFT", xLabel, "RIGHT", 4, 0)
+	xEditBox:SetSize(60, 20)
+	xEditBox:SetFont(fontPath, 10, "OUTLINE")
+	xEditBox:SetJustifyH("CENTER")
+	xEditBox:SetAutoFocus(false)
+	xEditBox:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+	xEditBox:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
+	xEditBox:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
+	xEditBox:SetTextColor(1, 1, 1)
+	xEditBox:SetMaxLetters(7)
 
-	clearAnchorBtn:SetScript("OnEnter", function(self)
-		self:SetBackdropColor(0.5, 0.2, 0.2, 0.95)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP", 0, 4)
-		GameTooltip:AddLine("앵커 초기화", 1, 0.5, 0.5)
-		GameTooltip:AddLine("attachTo를 UIParent로 초기화합니다", 0.5, 0.5, 0.5)
-		GameTooltip:Show()
+	xEditBox:SetScript("OnEditFocusGained", function(self)
+		panel._editing = true
+		self:SetBackdropBorderColor(accentFrom[1], accentFrom[2], accentFrom[3], 1)
 	end)
-	clearAnchorBtn:SetScript("OnLeave", function(self)
-		self:SetBackdropColor(0.3, 0.15, 0.15, 0.80)
-		GameTooltip:Hide()
+	xEditBox:SetScript("OnEditFocusLost", function(self)
+		panel._editing = false
+		self:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
 	end)
+	panel.xBox = xEditBox
 
-	clearAnchorBtn:SetScript("OnClick", function()
-		if not selectedMover then return end
-		local unitKey = selectedMover._unitKey
-		if not unitKey or not ns.db[unitKey] then return end
+	local yLabel = panel:CreateFontString(nil, "OVERLAY")
+	yLabel:SetFont(fontPath, 10, "OUTLINE")
+	yLabel:SetPoint("LEFT", xEditBox, "RIGHT", 15, 0)
+	yLabel:SetText("Y:")
 
-		-- Undo 저장
-		local pt, _, _, ox, oy = selectedMover:GetPoint(1)
-		if pt then
-			if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
-			undoStack[#undoStack + 1] = { mover = selectedMover, point = pt, x = ox or 0, y = oy or 0 }
-			wipe(redoStack)
-			if nudgePanel and nudgePanel.UpdateUndoRedoBtns then nudgePanel:UpdateUndoRedoBtns() end
-		end
+	local yEditBox = CreateFrame("EditBox", nil, panel, "BackdropTemplate")
+	yEditBox:SetPoint("LEFT", yLabel, "RIGHT", 4, 0)
+	yEditBox:SetSize(60, 20)
+	yEditBox:SetFont(fontPath, 10, "OUTLINE")
+	yEditBox:SetJustifyH("CENTER")
+	yEditBox:SetAutoFocus(false)
+	yEditBox:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+	yEditBox:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
+	yEditBox:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
+	yEditBox:SetTextColor(1, 1, 1)
+	yEditBox:SetMaxLetters(7)
 
-		-- 앵커 초기화
-		ns.db[unitKey].attachTo = "UIParent"
-		ns.db[unitKey].selfPoint = "CENTER"
-		ns.db[unitKey].anchorPoint = "CENTER"
-		ns.db[unitKey].position = { 0, 0 }
-
-		-- 드롭다운 동기화
-		if panel.attachDropdown and panel.attachDropdown.SetSelected then
-			panel.attachDropdown:SetSelected("UIParent")
-		end
-		if panel.selfPtDropdown and panel.selfPtDropdown.SetSelected then
-			panel.selfPtDropdown:SetSelected("CENTER")
-		end
-		if panel.anchorPtDropdown and panel.anchorPtDropdown.SetSelected then
-			panel.anchorPtDropdown:SetSelected("CENTER")
-		end
-
-		-- 즉시 위치 갱신
-		if ns.Update and ns.Update.RefreshUnit then
-			ns.Update:RefreshUnit(unitKey)
-		end
-
-		ns.Print("|cff00ccff" .. (selectedMover._name or unitKey) .. "|r 앵커 초기화 → UIParent")
+	yEditBox:SetScript("OnEditFocusGained", function(self)
+		panel._editing = true
+		self:SetBackdropBorderColor(accentFrom[1], accentFrom[2], accentFrom[3], 1)
 	end)
-
-	panel.clearAnchorBtn = clearAnchorBtn
-
-	-- ==========================================
-	-- [CDM 호환] selfPoint 드롭다운 행
-	-- ==========================================
-	local selfPtRow = CreateFrame("Frame", nil, panel)
-	selfPtRow:SetSize(230, 22)
-	selfPtRow:SetPoint("TOP", attachRow, "BOTTOM", 0, -2)
-
-	local selfPtLabel = selfPtRow:CreateFontString(nil, "OVERLAY")
-	selfPtLabel:SetFont(fontPath, 8, "OUTLINE")
-	selfPtLabel:SetPoint("LEFT", 0, 0)
-	selfPtLabel:SetText("Self Pt:")
-	selfPtLabel:SetTextColor(0.6, 0.6, 0.6)
-
-	local selfPtBtn = CreateFrame("Button", nil, selfPtRow, "BackdropTemplate")
-	selfPtBtn:SetSize(72, 18)
-	selfPtBtn:SetPoint("LEFT", selfPtLabel, "RIGHT", 4, 0)
-	selfPtBtn:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	selfPtBtn:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	selfPtBtn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local selfPtBtnText = selfPtBtn:CreateFontString(nil, "OVERLAY")
-	selfPtBtnText:SetFont(fontPath, 8, "OUTLINE")
-	selfPtBtnText:SetPoint("CENTER")
-	selfPtBtnText:SetText("CENTER")
-	selfPtBtnText:SetTextColor(0.9, 0.9, 0.9)
-
-	local selfPtMenu = CreateFrame("Frame", nil, selfPtBtn, "BackdropTemplate")
-	selfPtMenu:SetSize(74, 9 * 16 + 4)
-	selfPtMenu:SetPoint("TOP", selfPtBtn, "BOTTOM", 0, -2)
-	selfPtMenu:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	selfPtMenu:SetBackdropColor(panelBg[1], panelBg[2], panelBg[3], 0.98)
-	selfPtMenu:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], 0.80)
-	selfPtMenu:SetFrameStrata("TOOLTIP")
-	selfPtMenu:Hide()
-
-	for i, apName in ipairs(ANCHOR_POINTS) do
-		local item = CreateFrame("Button", nil, selfPtMenu)
-		item:SetSize(70, 16)
-		item:SetPoint("TOPLEFT", 2, -(i-1)*16 - 2)
-		local it = item:CreateFontString(nil, "OVERLAY")
-		it:SetFont(fontPath, 8, "OUTLINE")
-		it:SetPoint("CENTER")
-		it:SetText(apName)
-		it:SetTextColor(0.8, 0.8, 0.8)
-		item:SetScript("OnEnter", function() it:SetTextColor(1, 1, 1) end)
-		item:SetScript("OnLeave", function() it:SetTextColor(0.8, 0.8, 0.8) end)
-		item:SetScript("OnClick", function()
-			selfPtMenu:Hide()
-			if not selectedMover then return end
-			local unitKey = selectedMover._unitKey
-			if not unitKey or not ns.db[unitKey] then return end
-			ns.db[unitKey].selfPoint = apName
-			selfPtBtnText:SetText(apName)
-			if ns.Update and ns.Update.RefreshUnit then ns.Update:RefreshUnit(unitKey) end
-		end)
-	end
-	selfPtBtn:SetScript("OnClick", function()
-		if selfPtMenu:IsShown() then selfPtMenu:Hide() else selfPtMenu:Show() end
+	yEditBox:SetScript("OnEditFocusLost", function(self)
+		panel._editing = false
+		self:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
 	end)
+	panel.yBox = yEditBox
 
-	-- anchorPoint (Anchor Pt)
-	local anchorPtLabel = selfPtRow:CreateFontString(nil, "OVERLAY")
-	anchorPtLabel:SetFont(fontPath, 8, "OUTLINE")
-	anchorPtLabel:SetPoint("LEFT", selfPtBtn, "RIGHT", 8, 0)
-	anchorPtLabel:SetText("Anc Pt:")
-	anchorPtLabel:SetTextColor(0.6, 0.6, 0.6)
-
-	local anchorPtBtn = CreateFrame("Button", nil, selfPtRow, "BackdropTemplate")
-	anchorPtBtn:SetSize(72, 18)
-	anchorPtBtn:SetPoint("LEFT", anchorPtLabel, "RIGHT", 4, 0)
-	anchorPtBtn:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	anchorPtBtn:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	anchorPtBtn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local anchorPtBtnText = anchorPtBtn:CreateFontString(nil, "OVERLAY")
-	anchorPtBtnText:SetFont(fontPath, 8, "OUTLINE")
-	anchorPtBtnText:SetPoint("CENTER")
-	anchorPtBtnText:SetText("CENTER")
-	anchorPtBtnText:SetTextColor(0.9, 0.9, 0.9)
-
-	local anchorPtMenu = CreateFrame("Frame", nil, anchorPtBtn, "BackdropTemplate")
-	anchorPtMenu:SetSize(74, 9 * 16 + 4)
-	anchorPtMenu:SetPoint("TOP", anchorPtBtn, "BOTTOM", 0, -2)
-	anchorPtMenu:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	anchorPtMenu:SetBackdropColor(panelBg[1], panelBg[2], panelBg[3], 0.98)
-	anchorPtMenu:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], 0.80)
-	anchorPtMenu:SetFrameStrata("TOOLTIP")
-	anchorPtMenu:Hide()
-
-	for i, apName in ipairs(ANCHOR_POINTS) do
-		local item = CreateFrame("Button", nil, anchorPtMenu)
-		item:SetSize(70, 16)
-		item:SetPoint("TOPLEFT", 2, -(i-1)*16 - 2)
-		local it = item:CreateFontString(nil, "OVERLAY")
-		it:SetFont(fontPath, 8, "OUTLINE")
-		it:SetPoint("CENTER")
-		it:SetText(apName)
-		it:SetTextColor(0.8, 0.8, 0.8)
-		item:SetScript("OnEnter", function() it:SetTextColor(1, 1, 1) end)
-		item:SetScript("OnLeave", function() it:SetTextColor(0.8, 0.8, 0.8) end)
-		item:SetScript("OnClick", function()
-			anchorPtMenu:Hide()
-			if not selectedMover then return end
-			local unitKey = selectedMover._unitKey
-			if not unitKey or not ns.db[unitKey] then return end
-			ns.db[unitKey].anchorPoint = apName
-			anchorPtBtnText:SetText(apName)
-			if ns.Update and ns.Update.RefreshUnit then ns.Update:RefreshUnit(unitKey) end
-		end)
-	end
-	anchorPtBtn:SetScript("OnClick", function()
-		if anchorPtMenu:IsShown() then anchorPtMenu:Hide() else anchorPtMenu:Show() end
-	end)
-
-	panel.selfPtDropdown = { SetSelected = function(_, val) selfPtBtnText:SetText(val or "CENTER") end }
-	panel.anchorPtDropdown = { SetSelected = function(_, val) anchorPtBtnText:SetText(val or "CENTER") end }
-
-	-- X/Y EditBox 행
-	local editRow = CreateFrame("Frame", nil, panel)
-	editRow:SetSize(230, 22)
-	editRow:SetPoint("TOP", selfPtRow, "BOTTOM", 0, -4)
-
-	local function CreateCoordEditBox(labelText, anchor, offX)
-		local label = editRow:CreateFontString(nil, "OVERLAY")
-		label:SetFont(fontPath, 10, "OUTLINE") -- [12.0.1] StyleLib
-		label:SetPoint("LEFT", editRow, anchor, offX, 0)
-		label:SetText(labelText)
-		label:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3]) -- [12.0.1] StyleLib accent
-
-		local box = CreateFrame("EditBox", nil, editRow, "BackdropTemplate")
-		box:SetSize(50, 18)
-		box:SetPoint("LEFT", label, "RIGHT", 4, 0)
-		box:SetFont(fontPath, 10, "OUTLINE") -- [12.0.1] StyleLib
-		box:SetJustifyH("CENTER")
-		box:SetAutoFocus(false)
-		box:SetNumeric(false)
-		box:SetMaxLetters(7)
-		box:SetTextColor(1, 1, 1)
-		box:SetBackdrop({
-			bgFile = C.FLAT_TEXTURE,
-			edgeFile = C.FLAT_TEXTURE,
-			edgeSize = 1,
-		})
-		box:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80) -- [12.0.1] StyleLib
-		box:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50) -- [12.0.1] StyleLib
-
-		box:SetScript("OnEditFocusGained", function()
-			panel._editing = true
-			box:SetBackdropBorderColor(accentFrom[1], accentFrom[2], accentFrom[3], 1) -- [12.0.1] StyleLib accent
-		end)
-		box:SetScript("OnEditFocusLost", function()
-			panel._editing = false
-			box:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50) -- [12.0.1] StyleLib
-		end)
-
-		return box
-	end
-
-	panel.xBox = CreateCoordEditBox("X:", "LEFT", 5)
-	panel.yBox = CreateCoordEditBox("Y:", "LEFT", 95)
-
-	-- EditBox Enter/Escape/Tab 핸들러
 	local function ApplyEditBoxCoords()
 		if not selectedMover then return end
 		local xVal = tonumber(panel.xBox:GetText())
 		local yVal = tonumber(panel.yBox:GetText())
 		if not xVal or not yVal then return end
-
 		local point = select(1, selectedMover:GetPoint(1)) or "CENTER"
-		ApplyMoverVisual(selectedMover, point, xVal, yVal) -- [MOVER] 시각적 이동만
+		ApplyMoverVisual(selectedMover, point, xVal, yVal)
+		ReanchorToAttachTo(selectedMover)
 		Mover:UpdateNudgeCoords()
 		panel.xBox:ClearFocus()
 		panel.yBox:ClearFocus()
@@ -2817,255 +3144,268 @@ function Mover:CreateNudgePanel()
 			Mover:UpdateNudgeCoords()
 		end)
 		box:SetScript("OnTabPressed", function(self)
-			if self == panel.xBox then
-				panel.yBox:SetFocus()
-			else
-				panel.xBox:SetFocus()
-			end
+			if self == panel.xBox then panel.yBox:SetFocus() else panel.xBox:SetFocus() end
 		end)
 	end
-	
-	-- 넛지 방향 버튼 (←↓↑→) 십자 배치
-	local btnSize = 26
-	local btnCenterY = 20  -- [ESSENTIAL] 위로 이동 (스텝 버튼과 겹치지 않게)
+	cursorY = cursorY - 24
 
-	-- [12.0.1] 넛지 버튼 색상 (StyleLib)
+	-- ==========================================
+	-- 방향키 버튼 (CDM 동일)
+	-- ==========================================
+	local ARROW_SZ = 28
 	local nudgeBtnBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
-	local nudgeBtnHover = {
-		math.min((nudgeBtnBg[1] or 0.15) + 0.10, 1),
-		math.min((nudgeBtnBg[2] or 0.15) + 0.10, 1),
-		math.min((nudgeBtnBg[3] or 0.15) + 0.10, 1),
-		0.95,
-	}
 
-	local function CreateNudgeBtn(label, offsetX, offsetY, dx, dy)
-		local btn = CreateFrame("Button", nil, panel)
-		btn:SetSize(btnSize, btnSize)
-		btn:SetPoint("CENTER", panel, "CENTER", offsetX, offsetY)
-
-		local bg = btn:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints()
-		bg:SetColorTexture(nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], nudgeBtnBg[4] or 0.80) -- [12.0.1] StyleLib
-		btn._bg = bg
-
-		local bd = CreateFrame("Frame", nil, btn, "BackdropTemplate")
-		bd:SetAllPoints()
-		bd:SetBackdrop({ edgeFile = C.FLAT_TEXTURE, edgeSize = 1 }) -- [12.0.1] 통일
-		bd:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50) -- [12.0.1] StyleLib
+	local function CreateNudgeBtn(label, dx, dy, anchorPoint_btn, anchorTo_btn, anchorRelPoint_btn, ox, oy)
+		local btn = CreateFrame("Button", nil, panel, "BackdropTemplate")
+		btn:SetSize(ARROW_SZ, ARROW_SZ)
+		btn:SetPoint(anchorPoint_btn, anchorTo_btn, anchorRelPoint_btn, ox, oy)
+		btn:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+		btn:SetBackdropColor(nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], nudgeBtnBg[4] or 0.8)
+		btn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.5)
 
 		local text = btn:CreateFontString(nil, "OVERLAY")
-		text:SetFont(fontPath, 12, "OUTLINE") -- [ESSENTIAL] 기본 폰트
+		text:SetFont(fontPath, 12, "OUTLINE")
 		text:SetPoint("CENTER")
 		text:SetText(label)
 
 		btn:SetScript("OnClick", function()
 			if not selectedMover then return end
 			local mdb = GetMoverDB()
-			local step = mdb.nudgeStep or 1
+			local step = IsControlKeyDown() and 10 or (mdb.nudgeStep or 1)
 			Mover:NudgeSelected(dx * step, dy * step)
 		end)
-
-		btn:SetScript("OnEnter", function(self)
-			self._bg:SetColorTexture(nudgeBtnHover[1], nudgeBtnHover[2], nudgeBtnHover[3], nudgeBtnHover[4]) -- [12.0.1] StyleLib
+		btn:SetScript("OnEnter", function()
+			btn:SetBackdropColor(accentFrom[1]*0.5, accentFrom[2]*0.5, accentFrom[3]*0.5, 0.9)
 		end)
-		btn:SetScript("OnLeave", function(self)
-			self._bg:SetColorTexture(nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], nudgeBtnBg[4] or 0.80) -- [12.0.1] StyleLib
+		btn:SetScript("OnLeave", function()
+			btn:SetBackdropColor(nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], nudgeBtnBg[4] or 0.8)
 		end)
-
 		return btn
 	end
 
-	local btnGap = 2
-	panel.btnUp    = CreateNudgeBtn("^", 0, btnCenterY + btnSize + btnGap, 0, 1)                -- [ESSENTIAL] ASCII 화살표
-	panel.btnDown  = CreateNudgeBtn("v", 0, btnCenterY - btnSize - btnGap, 0, -1)
-	panel.btnLeft  = CreateNudgeBtn("<", -(btnSize + btnGap), btnCenterY, -1, 0)
-	panel.btnRight = CreateNudgeBtn(">", (btnSize + btnGap), btnCenterY, 1, 0)
+	panel.upBtn    = CreateNudgeBtn("^", 0, 1,  "TOP",  panel, "TOP", 0, cursorY)
+	cursorY = cursorY - ARROW_SZ - 2
+	panel.leftBtn  = CreateNudgeBtn("<", -1, 0, "TOP",  panel, "TOP", -(ARROW_SZ/2 + 2), cursorY)
+	panel.rightBtn = CreateNudgeBtn(">", 1, 0,  "LEFT", panel.leftBtn, "RIGHT", 4, 0)
+	cursorY = cursorY - ARROW_SZ - 2
+	panel.downBtn  = CreateNudgeBtn("v", 0, -1, "TOP",  panel, "TOP", 0, cursorY)
+	cursorY = cursorY - ARROW_SZ - SECTION_PAD
 
-	-- [12.0.1] 넛지 스텝 선택 (1px / 5px / 10px)
-	local stepY = btnCenterY - (btnSize * 2) - (btnGap * 2) - 6
-	local stepBtnW, stepBtnH = 42, 20
-	local stepValues = {1, 5, 10}
-	panel.stepBtns = {}
+	-- ==========================================
+	-- 프레임 선택 / 연결 대상 드롭다운 옮겨짐 (CDM 동일)
+	-- ==========================================
+	frameSelectDropdown:ClearAllPoints()
+	frameSelectDropdown:SetPoint("TOP", panel, "TOP", 0, cursorY)
+	cursorY = cursorY - 40
 
-	for idx, step in ipairs(stepValues) do
-		local xOff = (idx - 2) * (stepBtnW + 4) -- -46, 0, 46
-		local btn = CreateFrame("Button", nil, panel)
-		btn:SetSize(stepBtnW, stepBtnH)
-		btn:SetPoint("CENTER", panel, "CENTER", xOff, stepY)
+	anchorFrameDropdown:ClearAllPoints()
+	anchorFrameDropdown:SetPoint("TOP", panel, "TOP", 0, cursorY)
+	cursorY = cursorY - 40
 
-		local bg = btn:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints()
-		btn._bg = bg
-		btn._step = step
+	anchorSelectBtn:ClearAllPoints()
+	anchorSelectBtn:SetPoint("TOP", panel, "TOP", 0, cursorY)
+	cursorY = cursorY - 24 - SECTION_PAD
 
-		local bd = CreateFrame("Frame", nil, btn, "BackdropTemplate")
-		bd:SetAllPoints()
-		bd:SetBackdrop({ edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-		bd:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
+	-- ==========================================
+	-- 설정 섹션 (CDM 동일 패턴)
+	-- ==========================================
+	local separator = panel:CreateTexture(nil, "ARTWORK")
+	separator:SetSize(210, 1)
+	separator:SetPoint("TOP", panel, "TOP", 0, cursorY)
+	separator:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.4)
+	cursorY = cursorY - PAD
 
-		local text = btn:CreateFontString(nil, "OVERLAY")
+	local settingsLabel = panel:CreateFontString(nil, "OVERLAY")
+	settingsLabel:SetFont(fontPath, 10, "OUTLINE")
+	settingsLabel:SetPoint("TOP", panel, "TOP", 0, cursorY)
+	settingsLabel:SetText("Settings")
+	settingsLabel:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3], 1)
+	cursorY = cursorY - 16
+
+	-- Helper: 체크박스 (CDM 동일 스타일)
+	local function CreateCheckbox(labelStr, settingKey, onClick, indent)
+		local container = CreateFrame("Frame", nil, panel)
+		container:SetSize(120, 18)
+		container:SetPoint("TOPLEFT", panel, "TOPLEFT", indent or 14, cursorY)
+
+		local box = CreateFrame("Button", nil, container, "BackdropTemplate")
+		box:SetSize(14, 14)
+		box:SetPoint("LEFT", 0, 0)
+		box:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+		box:SetBackdropColor(unpack(ddInputBg))
+		box:SetBackdropBorderColor(unpack(ddBorder))
+
+		local fill = box:CreateTexture(nil, "ARTWORK")
+		fill:SetPoint("TOPLEFT", 1, -1)
+		fill:SetPoint("BOTTOMRIGHT", -1, 1)
+		fill:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 1)
+
+		local mdb = GetMoverDB()
+		container._checked = mdb[settingKey] ~= false
+		if container._checked then fill:Show() else fill:Hide() end
+
+		local text = container:CreateFontString(nil, "OVERLAY")
 		text:SetFont(fontPath, 9, "OUTLINE")
-		text:SetPoint("CENTER")
-		text:SetText(step .. "px")
-		btn.text = text
+		text:SetPoint("LEFT", box, "RIGHT", 4, 0)
+		text:SetText(labelStr)
+		container.label = text
 
-		btn:SetScript("OnClick", function()
-			local mdb = GetMoverDB()
-			mdb.nudgeStep = step
-			panel:UpdateStepBtns()
+		function container:SetChecked(val) self._checked = val; if val then fill:Show() else fill:Hide() end end
+		function container:GetChecked() return self._checked end
+
+		box:SetScript("OnClick", function()
+			container._checked = not container._checked
+			if container._checked then fill:Show() else fill:Hide() end
+			mdb[settingKey] = container._checked
+			if onClick then onClick(container._checked) end
 		end)
 
-		table.insert(panel.stepBtns, btn)
+		cursorY = cursorY - 20
+		return container
 	end
 
-	function panel:UpdateStepBtns()
-		local mdb = GetMoverDB()
-		local current = mdb.nudgeStep or 1
-		for _, btn in ipairs(self.stepBtns) do
-			if btn._step == current then
-				btn._bg:SetColorTexture(accentFrom[1] * 0.5, accentFrom[2] * 0.5, accentFrom[3] * 0.5, 0.9)
-				btn.text:SetTextColor(1, 1, 1)
-			else
-				btn._bg:SetColorTexture(nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, nudgeBtnBg[4] or 0.80)
-				btn.text:SetTextColor(0.6, 0.6, 0.6)
-			end
-		end
-	end
-	panel:UpdateStepBtns()
-
-	-- 하단 버튼 행: Grid | Undo | Redo | Reset | Done
-	local bottomY = 12
-	local bottomBtnW = 36
-	local bottomBtnH = 22
-
-	local function CreateBottomBtn(label, anchorX, bgR, bgG, bgB, onClick)
-		local btn = CreateFrame("Button", nil, panel)
-		btn:SetSize(bottomBtnW, bottomBtnH)
-		btn:SetPoint("BOTTOM", panel, "BOTTOM", anchorX, bottomY)
-
-		local bg = btn:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints()
-		bg:SetColorTexture(bgR, bgG, bgB, 0.8)
-		btn._bg = bg
-		btn._r, btn._g, btn._b = bgR, bgG, bgB
-
-		-- [12.0.1] StyleLib border
-		local bd = CreateFrame("Frame", nil, btn, "BackdropTemplate")
-		bd:SetAllPoints()
-		bd:SetBackdrop({ edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-		bd:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-		local text = btn:CreateFontString(nil, "OVERLAY")
-		text:SetFont(fontPath, 10, "OUTLINE") -- [12.0.1] StyleLib
-		text:SetPoint("CENTER")
-		text:SetText(label)
-		btn.text = text
-
-		btn:SetScript("OnClick", onClick)
-
-		btn:SetScript("OnEnter", function(self)
-			self._bg:SetColorTexture(
-				math.min(self._r + 0.12, 1),
-				math.min(self._g + 0.12, 1),
-				math.min(self._b + 0.12, 1),
-				0.95
-			)
-		end)
-		btn:SetScript("OnLeave", function(self)
-			self._bg:SetColorTexture(self._r, self._g, self._b, 0.8)
-		end)
-
-		return btn
-	end
-
-	-- [12.0.1] 그리드 크기 프리셋 사이클
-	local GRID_SIZES = {8, 16, 32, 64}
-
-	-- 그리드 토글 (좌클릭=on/off, 우클릭=크기 사이클) -- [12.0.1]
-	panel.gridBtn = CreateBottomBtn("Grid", -76, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function()
-		local mdb = GetMoverDB()
-		mdb.gridSnap = not mdb.gridSnap
-		mdb.gridEnabled = mdb.gridSnap
-		panel:UpdateGridBtnText()
-		if mdb.gridEnabled then
+	-- Grid 체크박스
+	panel.gridCheckbox = CreateCheckbox("Show Grid", "gridEnabled", function(checked)
+		if checked then
 			local grid = CreateGridOverlay()
 			if grid then FadeIn(grid) end
 		elseif gridFrame then
 			FadeOut(gridFrame)
 		end
 	end)
-	panel.gridBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	panel.gridBtn:SetScript("OnClick", function(self, button)
-		local mdb = GetMoverDB()
-		if button == "RightButton" then
-			-- [12.0.1] 우클릭: 그리드 크기 사이클 (8→16→32→64→8)
-			local currentSize = mdb.gridSize or 16
-			local nextIdx = 1
-			for i, sz in ipairs(GRID_SIZES) do
-				if sz == currentSize then
-					nextIdx = (i % #GRID_SIZES) + 1
-					break
-				end
-			end
-			mdb.gridSize = GRID_SIZES[nextIdx]
-			-- [EDITMODE] 슬라이더 동기화
-			if panel._gridSlider then panel._gridSlider:SetValue(mdb.gridSize) end
-			if panel._gridValBox then panel._gridValBox:SetText(tostring(mdb.gridSize)) end
-			-- 그리드 보이는 중이면 즉시 재생성
-			if gridFrame and gridFrame:IsShown() and gridFrame.RefreshLines then
-				gridFrame:RefreshLines()
-			end
-			panel:UpdateGridBtnText()
-			ns.Print("|cff00ccff그리드 크기:|r " .. mdb.gridSize .. "px")
-		else
-			-- 좌클릭: 토글
-			mdb.gridSnap = not mdb.gridSnap
-			mdb.gridEnabled = mdb.gridSnap
-			panel:UpdateGridBtnText()
-			if mdb.gridEnabled then
-				local grid = CreateGridOverlay()
-				if grid then FadeIn(grid) end
-			elseif gridFrame then
-				FadeOut(gridFrame)
-			end
-		end
-	end)
 
-	-- [12.0.1] Grid 버튼 우클릭 안내 툴팁
-	panel.gridBtn:HookScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP", 0, 4)
-		GameTooltip:AddLine("좌클릭: 그리드 ON/OFF", 0.7, 0.7, 0.7)
-		GameTooltip:AddLine("우클릭: 프리셋 사이클 (8/16/32/64)", 0.7, 0.7, 0.7)
-		GameTooltip:AddLine("슬라이더: 4-64px 연속 조절", 0.7, 0.7, 0.7)
-		GameTooltip:Show()
-	end)
-	panel.gridBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+	-- Snap 체크박스
+	panel.snapCheckbox = CreateCheckbox("Enable Snap", "snapEnabled")
+	panel.snapGridCheckbox = CreateCheckbox("Grid", "snapToGrid", nil, 30)
+	panel.snapFramesCheckbox = CreateCheckbox("Frames", "snapToFrames", nil, 30)
+	panel.snapCenterCheckbox = CreateCheckbox("Center", "snapToCenter", nil, 30)
 
-	function panel:UpdateGridBtnText()
-		local mdb = GetMoverDB()
-		local sz = mdb.gridSize or 16
-		if mdb.gridSnap then
-			panel.gridBtn.text:SetText("Grid " .. sz .. " |cff" .. ACCENT_HEX .. "ON|r") -- [STYLE]
-		else
-			panel.gridBtn.text:SetText("Grid " .. sz .. " |cff" .. DIM_HEX .. "OFF|r") -- [STYLE]
+	cursorY = cursorY - PAD
+
+	-- Sliders (CDM 동일: CreateFlatSlider)
+	local function CreateFlatSlider(parent, labelText, minV, maxV, stepV, defaultV, xOff, yOff, onChange)
+		local container = CreateFrame("Frame", nil, parent)
+		container:SetSize(210, 40)
+		container:SetPoint("TOPLEFT", parent, "TOPLEFT", xOff, yOff)
+
+		local lbl = container:CreateFontString(nil, "OVERLAY")
+		lbl:SetFont(fontPath, 9, "OUTLINE")
+		lbl:SetPoint("TOPLEFT", 0, 0)
+		lbl:SetText(labelText)
+		container.label = lbl
+
+		local track = CreateFrame("Frame", nil, container)
+		track:SetHeight(4)
+		track:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -6)
+		track:SetPoint("RIGHT", container, "RIGHT", -4, 0)
+		local trackBg = track:CreateTexture(nil, "BACKGROUND")
+		trackBg:SetAllPoints()
+		trackBg:SetColorTexture(ddInputBg[1], ddInputBg[2], ddInputBg[3], ddInputBg[4] or 0.8)
+
+		local slider = CreateFrame("Slider", nil, container)
+		slider:SetPoint("TOPLEFT", track)
+		slider:SetPoint("BOTTOMRIGHT", track)
+		slider:SetMinMaxValues(minV, maxV)
+		slider:SetValueStep(stepV)
+		slider:SetObeyStepOnDrag(true)
+		slider:SetValue(math_max(minV, math.min(maxV, defaultV)))
+		slider:SetOrientation("HORIZONTAL")
+		slider:EnableMouseWheel(true)
+
+		local fillBar = slider:CreateTexture(nil, "ARTWORK")
+		fillBar:SetHeight(4)
+		fillBar:SetPoint("LEFT", track, "LEFT", 0, 0)
+		fillBar:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 1)
+		local function UpdateFill()
+			local pct = (slider:GetValue() - minV) / math_max(1, maxV - minV)
+			fillBar:SetWidth(math_max(1, pct * track:GetWidth()))
 		end
+
+		local thumb = slider:CreateTexture(nil, "OVERLAY")
+		thumb:SetSize(8, 8)
+		thumb:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 1)
+		slider:SetThumbTexture(thumb)
+
+		slider:SetScript("OnValueChanged", function(self, value)
+			UpdateFill()
+			if onChange then onChange(value) end
+		end)
+		slider:SetScript("OnMouseWheel", function(self, delta) self:SetValue(self:GetValue() + delta * stepV) end)
+		C_Timer.After(0, UpdateFill)
+
+		container.slider = slider
+		return container
 	end
-	panel:UpdateGridBtnText()
 
-	-- [CDM-P1] Undo 버튼
-	panel.undoBtn = CreateBottomBtn("Undo", -36, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function()
-		Mover:Undo()
-	end)
+	local mdb = GetMoverDB()
 
-	-- [CDM-P1] Redo 버튼
-	panel.redoBtn = CreateBottomBtn("Redo", 0, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function()
-		Mover:Redo()
-	end)
+	-- Grid Size Slider
+	local gridSliderContainer = CreateFlatSlider(panel,
+		"격자: " .. (mdb.gridSize or 16), 4, 64, 2, mdb.gridSize or 16,
+		14, cursorY,
+		function(value)
+			local mdb2 = GetMoverDB()
+			mdb2.gridSize = math_floor(value + 0.5)
+			if gridSliderContainer then gridSliderContainer.label:SetText("격자: " .. mdb2.gridSize) end
+			if gridFrame and gridFrame:IsShown() and gridFrame.RefreshLines then gridFrame:RefreshLines() end
+		end)
+	panel._gridSlider = gridSliderContainer.slider
+	cursorY = cursorY - 44
 
-	-- 리셋 버튼
-	panel.resetBtn = CreateBottomBtn("Reset", 36, 0.3, 0.15, 0.15, function()
+	-- Snap Threshold Slider
+	local snapSliderContainer = CreateFlatSlider(panel,
+		"스냅: " .. (mdb.snapThreshold or 12), 1, 30, 1, mdb.snapThreshold or 12,
+		14, cursorY,
+		function(value)
+			local mdb2 = GetMoverDB()
+			mdb2.snapThreshold = math_floor(value + 0.5)
+			if snapSliderContainer then snapSliderContainer.label:SetText("스냅: " .. mdb2.snapThreshold) end
+		end)
+	cursorY = cursorY - 44
+
+	-- Raid Preview Slider
+	local raidSliderContainer = CreateFlatSlider(panel,
+		"레이드 " .. (mdb.previewRaidCount or 20), 10, 30, 5, mdb.previewRaidCount or 20,
+		14, cursorY,
+		function(value)
+			local mdb2 = GetMoverDB()
+			mdb2.previewRaidCount = math_floor(value + 0.5)
+			if raidSliderContainer then raidSliderContainer.label:SetText("레이드 " .. mdb2.previewRaidCount) end
+			local TM = ns.GroupFrames and ns.GroupFrames.TestMode
+			if TM and TM.active then TM:RefreshRaid() end
+		end)
+	cursorY = cursorY - 44
+
+	-- ==========================================
+	-- Button Row (CDM 동일: Reset | Undo | Redo | Done)
+	-- ==========================================
+	local btnWidth = 50
+	local btnSpacing = 4
+	local totalWidth = (btnWidth * 4) + (btnSpacing * 3)
+	local startX = -totalWidth / 2
+
+	local function CreateBottomBtn(label, xOff, bgR, bgG, bgB, onClick)
+		local btn = CreateFrame("Button", nil, panel, "BackdropTemplate")
+		btn:SetSize(btnWidth, 22)
+		btn:SetPoint("BOTTOM", panel, "BOTTOM", xOff, 12)
+		btn:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+		btn:SetBackdropColor(bgR, bgG, bgB, 0.8)
+		btn:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.5)
+
+		local text = btn:CreateFontString(nil, "OVERLAY")
+		text:SetFont(fontPath, 10, "OUTLINE")
+		text:SetPoint("CENTER")
+		text:SetText(label)
+		btn.text = text
+
+		btn:SetScript("OnClick", onClick)
+		btn:SetScript("OnEnter", function() btn:SetBackdropColor(math.min(bgR+0.12,1), math.min(bgG+0.12,1), math.min(bgB+0.12,1), 0.95) end)
+		btn:SetScript("OnLeave", function() btn:SetBackdropColor(bgR, bgG, bgB, 0.8) end)
+		return btn
+	end
+
+	panel.resetBtn = CreateBottomBtn("Reset", startX + btnWidth/2, 0.3, 0.15, 0.15, function()
 		if not selectedMover then return end
-		-- Undo 저장
 		local pt, _, _, ox, oy = selectedMover:GetPoint(1)
 		if pt then
 			if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
@@ -3076,379 +3416,158 @@ function Mover:CreateNudgePanel()
 		if panel.UpdateUndoRedoBtns then panel:UpdateUndoRedoBtns() end
 	end)
 
-	-- 완료 버튼 (편집모드 종료)
-	local ar, ag, ab = accentFrom[1] or 0.3, accentFrom[2] or 0.85, accentFrom[3] or 0.45
-	panel.doneBtn = CreateBottomBtn(string.format("|cff%02x%02x%02xDone|r", math.floor(ar*255+0.5), math.floor(ag*255+0.5), math.floor(ab*255+0.5)), 76, ar*0.35, ag*0.35, ab*0.35, function()
+	panel.undoBtn = CreateBottomBtn("Undo", startX + btnWidth + btnSpacing + btnWidth/2, nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], function() Mover:Undo() end)
+	panel.undoBtn._bgR, panel.undoBtn._bgG, panel.undoBtn._bgB = nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3]
+	panel.undoBtn:Disable()
+
+	panel.redoBtn = CreateBottomBtn("Redo", startX + (btnWidth + btnSpacing) * 2 + btnWidth/2, nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], function() Mover:Redo() end)
+	panel.redoBtn._bgR, panel.redoBtn._bgG, panel.redoBtn._bgB = nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3]
+	panel.redoBtn:Disable()
+
+	local doneR = accentFrom[1] * 0.35
+	local doneG = accentFrom[2] * 0.35
+	local doneB = accentFrom[3] * 0.35
+	panel.doneBtn = CreateBottomBtn("Done", startX + (btnWidth + btnSpacing) * 3 + btnWidth/2, doneR, doneG, doneB, function()
 		Mover:LockAll()
 	end)
 
-	-- [CDM-P1] Undo/Redo 버튼 활성화 상태 업데이트
+	-- Undo/Redo 상태 업데이트 (CDM 동일)
 	function panel:UpdateUndoRedoBtns()
 		if self.undoBtn then
 			if #undoStack > 0 then
-				self.undoBtn:SetAlpha(1)
 				self.undoBtn:Enable()
+				self.undoBtn:SetBackdropColor(self.undoBtn._bgR or 0.15, self.undoBtn._bgG or 0.15, self.undoBtn._bgB or 0.15, 0.8)
 			else
-				self.undoBtn:SetAlpha(0.4)
 				self.undoBtn:Disable()
+				self.undoBtn:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
 			end
 		end
 		if self.redoBtn then
 			if #redoStack > 0 then
-				self.redoBtn:SetAlpha(1)
 				self.redoBtn:Enable()
+				self.redoBtn:SetBackdropColor(self.redoBtn._bgR or 0.15, self.redoBtn._bgG or 0.15, self.redoBtn._bgB or 0.15, 0.8)
 			else
-				self.redoBtn:SetAlpha(0.4)
 				self.redoBtn:Disable()
+				self.redoBtn:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
 			end
 		end
 	end
 	panel:UpdateUndoRedoBtns()
 
-	-- [EDITMODE] 그리드 크기 슬라이더 (dandersFrame 패턴: 연속 값 4-64)
-	local gridSliderY = bottomY + bottomBtnH + 6
-	local gridSliderRow = CreateFrame("Frame", nil, panel)
-	gridSliderRow:SetSize(180, 20)
-	gridSliderRow:SetPoint("BOTTOM", panel, "BOTTOM", 0, gridSliderY)
-
-	local gsLabel = gridSliderRow:CreateFontString(nil, "OVERLAY")
-	gsLabel:SetFont(fontPath, 8, "OUTLINE")
-	gsLabel:SetPoint("LEFT", 0, 0)
-	gsLabel:SetText("Grid:")
-	gsLabel:SetTextColor(0.6, 0.6, 0.6)
-
-	local gsValBox = CreateFrame("EditBox", nil, gridSliderRow, "BackdropTemplate")
-	gsValBox:SetSize(32, 16)
-	gsValBox:SetPoint("RIGHT", 0, 0)
-	gsValBox:SetFont(fontPath, 9, "OUTLINE")
-	gsValBox:SetJustifyH("CENTER")
-	gsValBox:SetAutoFocus(false)
-	gsValBox:SetMaxLetters(3)
-	gsValBox:SetTextColor(1, 1, 1)
-	gsValBox:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	gsValBox:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	gsValBox:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local gsSlider = CreateFrame("Slider", nil, gridSliderRow, "BackdropTemplate")
-	gsSlider:SetSize(110, 12)
-	gsSlider:SetPoint("LEFT", gsLabel, "RIGHT", 4, 0)
-	gsSlider:SetPoint("RIGHT", gsValBox, "LEFT", -4, 0)
-	gsSlider:SetOrientation("HORIZONTAL")
-	gsSlider:SetMinMaxValues(4, 64)
-	gsSlider:SetValueStep(2)
-	gsSlider:SetObeyStepOnDrag(true)
-	gsSlider:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	gsSlider:SetBackdropColor(0.08, 0.08, 0.08, 0.9)
-	gsSlider:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local gsThumb = gsSlider:CreateTexture(nil, "OVERLAY")
-	gsThumb:SetSize(8, 14)
-	gsThumb:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.9)
-	gsSlider:SetThumbTexture(gsThumb)
-
-	local gsTrack = gsSlider:CreateTexture(nil, "ARTWORK")
-	gsTrack:SetPoint("LEFT", 0, 0)
-	gsTrack:SetPoint("RIGHT", 0, 0)
-	gsTrack:SetHeight(4)
-	gsTrack:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-
-	local function UpdateGridSlider(val)
-		local mdb = GetMoverDB()
-		mdb.gridSize = math_floor(val + 0.5)
-		gsValBox:SetText(tostring(mdb.gridSize))
-		panel:UpdateGridBtnText()
-		if gridFrame and gridFrame:IsShown() and gridFrame.RefreshLines then
-			gridFrame:RefreshLines()
-		end
-	end
-
-	gsSlider:SetScript("OnValueChanged", function(self, val)
-		UpdateGridSlider(val)
-	end)
-
-	gsValBox:SetScript("OnEnterPressed", function(self)
-		local v = tonumber(self:GetText())
-		if v then
-			v = math_max(4, math.min(64, math_floor(v + 0.5)))
-			gsSlider:SetValue(v)
-			UpdateGridSlider(v)
-		end
-		self:ClearFocus()
-	end)
-	gsValBox:SetScript("OnEscapePressed", function(self)
-		self:ClearFocus()
-		local mdb = GetMoverDB()
-		self:SetText(tostring(mdb.gridSize or 16))
-	end)
-	gsValBox:SetScript("OnEditFocusGained", function() panel._editing = true end)
-	gsValBox:SetScript("OnEditFocusLost", function() panel._editing = false end)
-
-	-- 초기값 설정
-	local initGridSize = GetMoverDB().gridSize or 16
-	gsSlider:SetValue(initGridSize)
-	gsValBox:SetText(tostring(initGridSize))
-	panel._gridSlider = gsSlider
-	panel._gridValBox = gsValBox
-
-	-- [EDITMODE] 레이드 미리보기 인원수 슬라이더 (10~40명, step 5)
-	local raidSliderY = gridSliderY + 24
-	local raidSliderRow = CreateFrame("Frame", nil, panel)
-	raidSliderRow:SetSize(180, 20)
-	raidSliderRow:SetPoint("BOTTOM", panel, "BOTTOM", 0, raidSliderY)
-
-	local rsLabel = raidSliderRow:CreateFontString(nil, "OVERLAY")
-	rsLabel:SetFont(fontPath, 8, "OUTLINE")
-	rsLabel:SetPoint("LEFT", 0, 0)
-	rsLabel:SetText("Raid:")
-	rsLabel:SetTextColor(0.6, 0.6, 0.6)
-
-	local rsValBox = CreateFrame("EditBox", nil, raidSliderRow, "BackdropTemplate")
-	rsValBox:SetSize(32, 16)
-	rsValBox:SetPoint("RIGHT", 0, 0)
-	rsValBox:SetFont(fontPath, 9, "OUTLINE")
-	rsValBox:SetJustifyH("CENTER")
-	rsValBox:SetAutoFocus(false)
-	rsValBox:SetMaxLetters(3)
-	rsValBox:SetTextColor(1, 1, 1)
-	rsValBox:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	rsValBox:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	rsValBox:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local rsSlider = CreateFrame("Slider", nil, raidSliderRow, "BackdropTemplate")
-	rsSlider:SetSize(110, 12)
-	rsSlider:SetPoint("LEFT", rsLabel, "RIGHT", 4, 0)
-	rsSlider:SetPoint("RIGHT", rsValBox, "LEFT", -4, 0)
-	rsSlider:SetOrientation("HORIZONTAL")
-	rsSlider:SetMinMaxValues(10, 30)
-	rsSlider:SetValueStep(5)
-	rsSlider:SetObeyStepOnDrag(true)
-	rsSlider:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	rsSlider:SetBackdropColor(0.08, 0.08, 0.08, 0.9)
-	rsSlider:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local rsThumb = rsSlider:CreateTexture(nil, "OVERLAY")
-	rsThumb:SetSize(8, 14)
-	rsThumb:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.9)
-	rsSlider:SetThumbTexture(rsThumb)
-
-	local rsTrack = rsSlider:CreateTexture(nil, "ARTWORK")
-	rsTrack:SetPoint("LEFT", 0, 0)
-	rsTrack:SetPoint("RIGHT", 0, 0)
-	rsTrack:SetHeight(4)
-	rsTrack:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-
-	local function UpdateRaidSlider(val)
-		local mdb = GetMoverDB()
-		mdb.previewRaidCount = math_floor(val + 0.5)
-		rsValBox:SetText(tostring(mdb.previewRaidCount))
-		-- [REFACTOR] 레이드 프레임만 갱신 (전체 재생성 대신)
-		local TM = ns.GroupFrames and ns.GroupFrames.TestMode
-		if TM and TM.active then
-			TM:RefreshRaid()
-		end
-	end
-
-	rsSlider:SetScript("OnValueChanged", function(self, val)
-		UpdateRaidSlider(val)
-	end)
-
-	rsValBox:SetScript("OnEnterPressed", function(self)
-		local v = tonumber(self:GetText())
-		if v then
-			v = math_max(10, math.min(30, math_floor(v / 5 + 0.5) * 5))
-			rsSlider:SetValue(v)
-			UpdateRaidSlider(v)
-		end
-		self:ClearFocus()
-	end)
-	rsValBox:SetScript("OnEscapePressed", function(self)
-		self:ClearFocus()
-		local mdb = GetMoverDB()
-		self:SetText(tostring(mdb.previewRaidCount or 20))
-	end)
-	rsValBox:SetScript("OnEditFocusGained", function() panel._editing = true end)
-	rsValBox:SetScript("OnEditFocusLost", function() panel._editing = false end)
-
-	-- 초기값
-	local initRaidCount = GetMoverDB().previewRaidCount or 20
-	rsSlider:SetValue(initRaidCount)
-	rsValBox:SetText(tostring(initRaidCount))
-	panel._raidSlider = rsSlider
-	panel._raidValBox = rsValBox
-
-	-- [CDM-P2] Snap Threshold 슬라이더
-	local snapSliderY = raidSliderY + 24
-	local snapSliderRow = CreateFrame("Frame", nil, panel)
-	snapSliderRow:SetSize(180, 20)
-	snapSliderRow:SetPoint("BOTTOM", panel, "BOTTOM", 0, snapSliderY)
-
-	local stLabel = snapSliderRow:CreateFontString(nil, "OVERLAY")
-	stLabel:SetFont(fontPath, 8, "OUTLINE")
-	stLabel:SetPoint("LEFT", 0, 0)
-	stLabel:SetText("Snap:")
-	stLabel:SetTextColor(0.6, 0.6, 0.6)
-
-	local stValBox = CreateFrame("EditBox", nil, snapSliderRow, "BackdropTemplate")
-	stValBox:SetSize(32, 16)
-	stValBox:SetPoint("RIGHT", 0, 0)
-	stValBox:SetFont(fontPath, 9, "OUTLINE")
-	stValBox:SetJustifyH("CENTER")
-	stValBox:SetAutoFocus(false)
-	stValBox:SetMaxLetters(3)
-	stValBox:SetTextColor(1, 1, 1)
-	stValBox:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	stValBox:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.80)
-	stValBox:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local stSlider = CreateFrame("Slider", nil, snapSliderRow, "BackdropTemplate")
-	stSlider:SetSize(110, 12)
-	stSlider:SetPoint("LEFT", stLabel, "RIGHT", 4, 0)
-	stSlider:SetPoint("RIGHT", stValBox, "LEFT", -4, 0)
-	stSlider:SetOrientation("HORIZONTAL")
-	stSlider:SetMinMaxValues(1, 30)
-	stSlider:SetValueStep(1)
-	stSlider:SetObeyStepOnDrag(true)
-	stSlider:SetBackdrop({ bgFile = C.FLAT_TEXTURE, edgeFile = C.FLAT_TEXTURE, edgeSize = 1 })
-	stSlider:SetBackdropColor(0.08, 0.08, 0.08, 0.9)
-	stSlider:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-	local stThumb = stSlider:CreateTexture(nil, "OVERLAY")
-	stThumb:SetSize(8, 14)
-	stThumb:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.9)
-	stSlider:SetThumbTexture(stThumb)
-
-	local stTrack = stSlider:CreateTexture(nil, "ARTWORK")
-	stTrack:SetPoint("LEFT", 0, 0)
-	stTrack:SetPoint("RIGHT", 0, 0)
-	stTrack:SetHeight(4)
-	stTrack:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-
-	stSlider:SetScript("OnValueChanged", function(self, val)
-		local mdb = GetMoverDB()
-		mdb.snapThreshold = math_floor(val + 0.5)
-		stValBox:SetText(tostring(mdb.snapThreshold))
-	end)
-	stValBox:SetScript("OnEnterPressed", function(self)
-		local v = tonumber(self:GetText())
-		if v then
-			v = math_max(1, math.min(30, math_floor(v + 0.5)))
-			stSlider:SetValue(v)
-		end
-		self:ClearFocus()
-	end)
-	stValBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-	stValBox:SetScript("OnEditFocusGained", function() panel._editing = true end)
-	stValBox:SetScript("OnEditFocusLost", function() panel._editing = false end)
-
-	local initSnap = GetMoverDB().snapThreshold or 12
-	stSlider:SetValue(initSnap)
-	stValBox:SetText(tostring(initSnap))
-
-	-- [CDM-P2] 스냅 세부 토글 행: ☑ Grid  ☑ Frames  ☑ Center
-	local snapToggleY = snapSliderY + 22
-	local snapToggleRow = CreateFrame("Frame", nil, panel)
-	snapToggleRow:SetSize(190, 16)
-	snapToggleRow:SetPoint("BOTTOM", panel, "BOTTOM", 0, snapToggleY)
-
-	local function CreateSnapToggle(labelText, settingKey, xOff)
-		local cb = CreateFrame("CheckButton", nil, snapToggleRow)
-		cb:SetSize(14, 14)
-		cb:SetPoint("LEFT", snapToggleRow, "LEFT", xOff, 0)
-		local cbBg = cb:CreateTexture(nil, "BACKGROUND")
-		cbBg:SetAllPoints()
-		cbBg:SetColorTexture(0.08, 0.08, 0.08, 0.9)
-		local cbCheck = cb:CreateTexture(nil, "OVERLAY")
-		cbCheck:SetSize(10, 10)
-		cbCheck:SetPoint("CENTER")
-		cbCheck:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.9)
-		cb._check = cbCheck
-		local cbLabel = cb:CreateFontString(nil, "OVERLAY")
-		cbLabel:SetFont(fontPath, 8, "OUTLINE")
-		cbLabel:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-		cbLabel:SetText(labelText)
-		cbLabel:SetTextColor(0.7, 0.7, 0.7)
-		cb:SetScript("OnClick", function(self)
-			local mdb = GetMoverDB()
-			mdb[settingKey] = not mdb[settingKey]
-			self._check:SetShown(mdb[settingKey])
-		end)
-		local mdb = GetMoverDB()
-		cb:SetChecked(mdb[settingKey] ~= false)
-		cbCheck:SetShown(mdb[settingKey] ~= false)
-		return cb
-	end
-
-	CreateSnapToggle("Grid", "snapToGrid", 10)
-	CreateSnapToggle("Frames", "snapToFrames", 68)
-	CreateSnapToggle("Center", "snapToCenter", 136)
-
-	-- [EDITMODE] 중간 버튼 행: Mythic | Center
-	local midY = snapToggleY + 22
-	local midBtnW = 52
-
-	-- [MYTHIC-RAID] Raid/Mythic 토글 버튼
-	panel.mythicBtn = CreateBottomBtn("Raid", 0, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function()
-		ns._mythicRaidActive = not ns._mythicRaidActive
-		panel:UpdateMythicBtnText()
-		-- 테스트모드 재생성으로 프리뷰 전환
-		if ns.Update and ns.Update.DisableEditMode then
-			ns.Update:DisableEditMode()
-		end
-		if ns.Update and ns.Update.EnableEditMode then
-			ns.Update:EnableEditMode()
-			ApplyMoverFilter(_activeCategory)
-		end
-	end)
-	panel.mythicBtn:ClearAllPoints()
-	panel.mythicBtn:SetSize(midBtnW, bottomBtnH)
-	panel.mythicBtn:SetPoint("BOTTOM", panel, "BOTTOM", -28, midY)
-
-	function panel:UpdateMythicBtnText()
-		if ns._mythicRaidActive then
-			panel.mythicBtn.text:SetText("|cff" .. ACCENT_HEX .. "Mythic|r")
+	-- UpdateSelection (CDM 동일)
+	function panel:UpdateSelection()
+		if selectedMover then
+			self.selectedText:SetText(selectedMover._name or GetMoverDBKey(selectedMover) or "Unknown")
+			if self.frameSelectDropdown and self.frameSelectDropdown.SetValue then
+				self.frameSelectDropdown:SetValue(GetMoverDBKey(selectedMover), selectedMover._name or GetMoverDBKey(selectedMover))
+			end
+			self:UpdateInfo()
 		else
-			panel.mythicBtn.text:SetText("Raid")
+			self.selectedText:SetText("|cff888888프레임을 클릭하세요|r")
+			self.anchorLabel:SetText("-- → --")
+			self.anchorFrameLabel:SetText("@ --")
+			if self.xBox then self.xBox:SetText("") end
+			if self.yBox then self.yBox:SetText("") end
 		end
 	end
-	panel:UpdateMythicBtnText()
 
-	panel.centerBtn = CreateBottomBtn("Center", 0, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function()
+	-- UpdateInfo (CDM 동일)
+	function panel:UpdateInfo()
 		if not selectedMover then return end
-		-- Undo 저장
-		local pt, _, _, ox, oy = selectedMover:GetPoint(1)
-		if pt then
-			if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
-			undoStack[#undoStack + 1] = { mover = selectedMover, point = pt, x = ox or 0, y = oy or 0 }
-			wipe(redoStack)
-			if panel.UpdateUndoRedoBtns then panel:UpdateUndoRedoBtns() end
-		end
-		ApplyMoverVisual(selectedMover, "CENTER", 0, 0)
-		Mover:UpdateNudgeCoords()
-		if panel.anchorDropdown then panel.anchorDropdown:SetSelected("CENTER") end
-		ns.Print("|cff00ccff" .. (selectedMover._name or "Frame") .. "|r 화면 중앙으로 이동")
-	end)
-	panel.centerBtn:ClearAllPoints()
-	panel.centerBtn:SetSize(midBtnW, bottomBtnH)
-	panel.centerBtn:SetPoint("BOTTOM", panel, "BOTTOM", 28, midY)
+		local pt, ancFrame, relPt, x, y = selectedMover:GetPoint(1)
+		if not ancFrame then ancFrame = UIParent end
+		x = x or 0
+		y = y or 0
 
-	-- [12.0.1] 키보드 넛지: 화살표 키로 선택된 무버 이동 (ElvUI 스타일)
-	-- Ctrl+Arrow = 10px, Arrow = nudgeStep
+		if self.xBox and not self._editing then self.xBox:SetText(tostring(math_floor(x + 0.5))) end
+		if self.yBox and not self._editing then self.yBox:SetText(tostring(math_floor(y + 0.5))) end
+
+		-- [FIX] DB 기준 selfPoint/anchorPoint/attachTo 표시 (편집모드 내부 좌표 대신)
+		local unitKey = selectedMover._unitKey
+		local unitDB = unitKey and ns.db[unitKey]
+		local displaySelfPoint, displayAnchorPoint, anchorName
+		if unitDB then
+			displaySelfPoint = unitDB.selfPoint or pt or "CENTER"
+			displayAnchorPoint = unitDB.anchorPoint or relPt or pt or "CENTER"
+			local attachTo = unitDB.attachTo
+			if attachTo and attachTo ~= "" and attachTo ~= "UIParent" then
+				anchorName = attachTo
+			else
+				anchorName = (ancFrame and ancFrame:GetName()) or "UIParent"
+			end
+		else
+			displaySelfPoint = pt or "CENTER"
+			displayAnchorPoint = relPt or pt or "CENTER"
+			anchorName = (ancFrame and ancFrame:GetName()) or "UIParent"
+		end
+
+		self.anchorLabel:SetText(displaySelfPoint .. " → " .. displayAnchorPoint)
+		self.anchorFrameLabel:SetText("@ " .. anchorName)
+
+		if self._anchorSizeText and selectedMover then
+			local mW, mH = selectedMover:GetSize()
+			if mW and mH then
+				self._anchorSizeText:SetText(string.format("%d x %d", math_floor(mW + 0.5), math_floor(mH + 0.5)))
+			end
+		end
+
+		-- 앙커 프레임 드롭다운 목록 동적 갱신
+		do
+			local afItems = { {text="UIParent", value="UIParent"} }
+			local CDM_PROXIES_DD = {
+				{ name = "DDingUI_Anchor_Cooldowns", label = "CDM: 쿨다운" },
+				{ name = "DDingUI_Anchor_Buffs",     label = "CDM: 강화" },
+				{ name = "DDingUI_Anchor_Utility",   label = "CDM: 보조" },
+			}
+			for _, proxy in ipairs(CDM_PROXIES_DD) do
+				if _G[proxy.name] then
+					afItems[#afItems + 1] = { text = proxy.label, value = proxy.name }
+				end
+			end
+			local UF_FRAMES_DD = {
+				{ name = "ddingUI_Player", label = "UF: Player" },
+				{ name = "ddingUI_Target", label = "UF: Target" },
+				{ name = "ddingUI_Focus",  label = "UF: Focus" },
+				{ name = "ddingUI_Pet",    label = "UF: Pet" },
+			}
+			for _, uf in ipairs(UF_FRAMES_DD) do
+				if _G[uf.name] then
+					afItems[#afItems + 1] = { text = uf.label, value = uf.name }
+				end
+			end
+			if self.anchorFrameDropdown and self.anchorFrameDropdown.SetItems then
+				self.anchorFrameDropdown:SetItems(afItems)
+			end
+			if self.anchorFrameDropdown and self.anchorFrameDropdown.SetValue then
+				local CDM_NAMES = {
+					["DDingUI_Anchor_Cooldowns"] = "CDM: 쿨다운",
+					["DDingUI_Anchor_Buffs"] = "CDM: 강화",
+					["DDingUI_Anchor_Utility"] = "CDM: 보조",
+					["ddingUI_Player"] = "UF: Player",
+					["ddingUI_Target"] = "UF: Target",
+					["ddingUI_Focus"] = "UF: Focus",
+					["ddingUI_Pet"] = "UF: Pet",
+				}
+				self.anchorFrameDropdown:SetValue(anchorName, CDM_NAMES[anchorName] or anchorName)
+			end
+		end
+	end
+
+	-- 키보드 넛지 (CDM 동일)
 	panel:EnableKeyboard(true)
 	panel:SetPropagateKeyboardInput(true)
 	panel:SetScript("OnKeyDown", function(self, key)
-		-- EditBox 포커스 중이면 키 통과
 		if self._editing then
 			self:SetPropagateKeyboardInput(true)
 			return
 		end
-
 		if not selectedMover then
 			self:SetPropagateKeyboardInput(true)
 			return
 		end
 
-		local mdb = GetMoverDB()
-		local step = IsControlKeyDown() and 10 or (mdb.nudgeStep or 1)
+		local mdb2 = GetMoverDB()
+		local step = IsControlKeyDown() and 10 or (mdb2.nudgeStep or 1)
 
 		if key == "UP" then
 			self:SetPropagateKeyboardInput(false)
@@ -3463,16 +3582,14 @@ function Mover:CreateNudgePanel()
 			self:SetPropagateKeyboardInput(false)
 			Mover:NudgeSelected(step, 0)
 		elseif key == "Z" and IsControlKeyDown() then
-			-- [CDM-P1] Ctrl+Z: 언두
 			self:SetPropagateKeyboardInput(false)
 			Mover:Undo()
 		elseif key == "Y" and IsControlKeyDown() then
-			-- [CDM-P1] Ctrl+Y: 리두
 			self:SetPropagateKeyboardInput(false)
 			Mover:Redo()
 		elseif key == "ESCAPE" then
 			self:SetPropagateKeyboardInput(false)
-			Mover:CancelEditMode() -- [MOVER] ESC = 취소+복원 (DB 저장 없음)
+			Mover:CancelEditMode()
 		else
 			self:SetPropagateKeyboardInput(true)
 		end
@@ -3491,14 +3608,14 @@ function Mover:Undo()
 	if not entry.mover then return end
 
 	-- 현재 위치를 Redo 스택에 저장
-	local curPt, _, _, curX, curY = entry.mover:GetPoint(1)
+	local curPt, curAnc, curRel, curX, curY = entry.mover:GetPoint(1)
 	if curPt then
 		if #redoStack >= MAX_UNDO then table.remove(redoStack, 1) end
-		redoStack[#redoStack + 1] = { mover = entry.mover, point = curPt, x = curX or 0, y = curY or 0 }
+		redoStack[#redoStack + 1] = { mover = entry.mover, point = curPt, anchorFrame = curAnc, relPoint = curRel, x = curX or 0, y = curY or 0 }
 	end
 
 	-- 이전 위치로 복원
-	ApplyMoverVisual(entry.mover, entry.point, entry.x, entry.y)
+	ApplyMoverVisual(entry.mover, entry.point, entry.x, entry.y, entry.anchorFrame, entry.relPoint)
 	SelectMover(entry.mover)
 	self:UpdateNudgeCoords()
 	if nudgePanel and nudgePanel.UpdateUndoRedoBtns then nudgePanel:UpdateUndoRedoBtns() end
@@ -3511,14 +3628,14 @@ function Mover:Redo()
 	if not entry.mover then return end
 
 	-- 현재 위치를 Undo 스택에 저장
-	local curPt, _, _, curX, curY = entry.mover:GetPoint(1)
+	local curPt, curAnc, curRel, curX, curY = entry.mover:GetPoint(1)
 	if curPt then
 		if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
-		undoStack[#undoStack + 1] = { mover = entry.mover, point = curPt, x = curX or 0, y = curY or 0 }
+		undoStack[#undoStack + 1] = { mover = entry.mover, point = curPt, anchorFrame = curAnc, relPoint = curRel, x = curX or 0, y = curY or 0 }
 	end
 
 	-- Redo 위치로 이동
-	ApplyMoverVisual(entry.mover, entry.point, entry.x, entry.y)
+	ApplyMoverVisual(entry.mover, entry.point, entry.x, entry.y, entry.anchorFrame, entry.relPoint)
 	SelectMover(entry.mover)
 	self:UpdateNudgeCoords()
 	if nudgePanel and nudgePanel.UpdateUndoRedoBtns then nudgePanel:UpdateUndoRedoBtns() end
@@ -3543,10 +3660,10 @@ function Mover:NudgeSelected(dx, dy)
 	end
 
 	-- [EDITMODE] 넛지 전 위치를 언두 스택에 저장 (주 선택 무버만)
-	local mainPt, _, _, mainX, mainY = selectedMover:GetPoint(1)
+	local mainPt, mainAnc, mainRel, mainX, mainY = selectedMover:GetPoint(1)
 	if mainPt then
 		if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
-		undoStack[#undoStack + 1] = { mover = selectedMover, point = mainPt, x = mainX or 0, y = mainY or 0 }
+		undoStack[#undoStack + 1] = { mover = selectedMover, point = mainPt, anchorFrame = mainAnc, relPoint = mainRel, x = mainX or 0, y = mainY or 0 }
 		wipe(redoStack) -- [CDM-P1] 새 동작 시 리두 스택 초기화
 		if nudgePanel and nudgePanel.UpdateUndoRedoBtns then nudgePanel:UpdateUndoRedoBtns() end
 	end
@@ -3564,7 +3681,7 @@ end
 
 function Mover:UpdateNudgeCoords()
 	if not nudgePanel or not selectedMover then return end
-	local _, _, _, oX, oY = selectedMover:GetPoint(1)
+	local pt, _, _, oX, oY = selectedMover:GetPoint(1)
 	local x = math_floor((oX or 0) + 0.5)
 	local y = math_floor((oY or 0) + 0.5)
 	nudgePanel.coords:SetText(x .. ", " .. y)
@@ -3574,6 +3691,30 @@ function Mover:UpdateNudgeCoords()
 	end
 	if nudgePanel.yBox and not nudgePanel._editing then
 		nudgePanel.yBox:SetText(tostring(y))
+	end
+	-- [ANCHOR-GRID] 9-point 그리드 동기화 (selfPoint + anchorPoint)
+	if selectedMover and selectedMover._unitKey and ns.db[selectedMover._unitKey] then
+		local unitDB = ns.db[selectedMover._unitKey]
+		if nudgePanel._selfPointCurrent ~= nil then
+			nudgePanel._selfPointCurrent = unitDB.selfPoint or pt or "CENTER"
+		end
+		if nudgePanel._anchorPointCurrent ~= nil then
+			nudgePanel._anchorPointCurrent = unitDB.anchorPoint or pt or "CENTER"
+		end
+	end
+	if nudgePanel._refreshAnchorGrid then
+		nudgePanel._refreshAnchorGrid()
+	end
+	-- [ANCHOR-GRID] 크기 텍스트 업데이트
+	if nudgePanel._anchorSizeText and selectedMover then
+		local mW, mH = selectedMover:GetSize()
+		if mW and mH then
+			nudgePanel._anchorSizeText:SetText(string.format("%d x %d", math_floor(mW + 0.5), math_floor(mH + 0.5)))
+		end
+	end
+	-- [FIX] 앵커 정보 텍스트 동기화 (selfPoint → anchorPoint, @ frame)
+	if nudgePanel.UpdateInfo then
+		nudgePanel:UpdateInfo()
 	end
 end
 

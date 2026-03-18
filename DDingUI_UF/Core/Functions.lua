@@ -108,6 +108,58 @@ function ns.SafeBool(val)
 end
 
 -----------------------------------------------
+-- 보호막 유틸리티 (GetSafeHealthPercent 동일 패턴) -- [12.0.1]
+-- UnitGetTotalAbsorbs는 secret number 반환 가능
+-- issecretvalue 체크 → non-secret이면 직접 연산, secret이면 nil 반환
+-----------------------------------------------
+
+--- 보호막 퍼센트 (0-100) — secret이면 nil
+--- @param unit string
+--- @return number|nil  secret이면 nil
+function ns.GetSafeAbsorbPercent(unit)
+	if not unit then return nil end
+	local absorbs = UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)
+	if not absorbs then return nil end
+	if issecretvalue and issecretvalue(absorbs) then return nil end
+	local maxHP = UnitHealthMax(unit)
+	if not maxHP then return nil end
+	if issecretvalue and issecretvalue(maxHP) then return nil end
+	if maxHP == 0 then return 0 end
+	return absorbs / maxHP * 100
+end
+
+--- 보호막 정수값 — secret이면 nil, non-secret이면 number
+--- @param unit string
+--- @return number|nil
+function ns.GetSafeAbsorbValue(unit)
+	if not unit then return nil end
+	local absorbs = UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)
+	if not absorbs then return nil end
+	if issecretvalue and issecretvalue(absorbs) then return nil end
+	return absorbs
+end
+
+--- 보호막 축약 문자열 — secret이면 AbbreviateNumbers(C++ 처리), non-secret이면 ns.Abbreviate
+--- @param unit string
+--- @return string
+function ns.GetAbsorbText(unit)
+	if not unit then return "" end
+	local absorbs = UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)
+	if not absorbs then return "" end
+	return ns.Abbreviate(absorbs) -- C++ AbbreviateNumbers가 secret 처리
+end
+
+--- 보호막 퍼센트 문자열 — secret이면 "?%", non-secret이면 "XX%"
+--- @param unit string
+--- @return string
+function ns.GetAbsorbPercentText(unit)
+	local pct = ns.GetSafeAbsorbPercent(unit)
+	if pct == nil then return "?%" end
+	if pct <= 0 then return "" end
+	return string.format("%.0f%%", pct)
+end
+
+-----------------------------------------------
 -- Number Abbreviation (CreateAbbreviateConfig + Lua fallback)
 -- ns.db.numberFormat ("KOREAN"/"WESTERN") + ns.db.decimalLength (0~3)
 -----------------------------------------------
@@ -343,8 +395,9 @@ end
 
 function F:GetReactionColor(unit)
 	if not unit or not UnitExists(unit) then return 1, 1, 1 end
+	-- [AUDIT-FIX] UnitReaction secret number 방어
 	local reaction = UnitReaction(unit, "player")
-	if reaction then
+	if reaction and not (issecretvalue and issecretvalue(reaction)) then
 		-- [FIX] ns.Colors.reaction 글로벌 색상 우선 적용
 		local rc = ns.Colors and ns.Colors.reaction
 		if rc then
@@ -362,14 +415,18 @@ end
 
 function F:GetPowerColor(powerType, powerToken)
 	local colors = C.POWER_COLORS
-	if powerToken and colors[powerToken] then
+	-- [AUDIT-FIX] pToken(string) 우선 조회 (secret 안전)
+	if powerToken and not (issecretvalue and issecretvalue(powerToken)) and colors[powerToken] then
 		local c = colors[powerToken]
 		return c[1], c[2], c[3]
 	end
-	local typeName = C.POWER_TYPES[powerType]
-	if typeName and colors[typeName] then
-		local c = colors[typeName]
-		return c[1], c[2], c[3]
+	-- [AUDIT-FIX] powerType(number) secret 방어
+	if powerType and not (issecretvalue and issecretvalue(powerType)) then
+		local typeName = C.POWER_TYPES[powerType]
+		if typeName and colors[typeName] then
+			local c = colors[typeName]
+			return c[1], c[2], c[3]
+		end
 	end
 	return 0.31, 0.45, 0.63
 end
@@ -445,19 +502,21 @@ end
 -- Unit Functions
 -----------------------------------------------
 
+-- [AUDIT-FIX] 모듈 레벨 상수로 이동 (매 호출 테이블 생성 방지 — 레이드 시 매초 100회+ 호출)
+local DISPEL_BY_CLASS = {
+	PRIEST  = { Magic = true, Disease = true },
+	PALADIN = { Magic = true, Poison = true, Disease = true },
+	DRUID   = { Magic = true, Curse = true, Poison = true },
+	SHAMAN  = { Magic = true, Curse = true },
+	MONK    = { Magic = true, Poison = true, Disease = true },
+	MAGE    = { Curse = true },
+	EVOKER  = { Magic = true, Poison = true },
+}
+
 function F:CanDispel(debuffType)
 	if not debuffType then return false end
 	local _, class = UnitClass("player")
-	local dispels = {
-		PRIEST  = { Magic = true, Disease = true },
-		PALADIN = { Magic = true, Poison = true, Disease = true },
-		DRUID   = { Magic = true, Curse = true, Poison = true },
-		SHAMAN  = { Magic = true, Curse = true },
-		MONK    = { Magic = true, Poison = true, Disease = true },
-		MAGE    = { Curse = true },
-		EVOKER  = { Magic = true, Poison = true },
-	}
-	local classDispels = dispels[class]
+	local classDispels = DISPEL_BY_CLASS[class]
 	return classDispels and classDispels[debuffType] or false
 end
 

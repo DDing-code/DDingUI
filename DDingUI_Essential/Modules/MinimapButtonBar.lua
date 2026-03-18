@@ -302,6 +302,44 @@ function MinimapButtonBar:Enable()
         end
     end)
 
+    -- 마우스오버 페이드 -- [ESSENTIAL]
+    if db.mouseoverFade ~= false and barFrame then
+        barFrame:SetAlpha(0)
+        barFrame:EnableMouse(false) -- 클릭이 자식 버튼으로 통과하도록
+
+        -- 페이드 감지용 오버레이 (마우스 감지만, 클릭 통과) -- [ESSENTIAL]
+        local hoverDetect = CreateFrame("Frame", nil, barFrame)
+        hoverDetect:SetAllPoints(barFrame)
+        hoverDetect:SetFrameLevel(barFrame:GetFrameLevel() + 5)
+        hoverDetect:EnableMouse(true)
+        hoverDetect:SetPassThroughButtons("LeftButton", "RightButton", "MiddleButton")
+
+        hoverDetect:SetScript("OnEnter", function()
+            UIFrameFadeIn(barFrame, 0.2, barFrame:GetAlpha(), 1)
+        end)
+        hoverDetect:SetScript("OnLeave", function()
+            UIFrameFadeOut(barFrame, 0.3, barFrame:GetAlpha(), 0)
+        end)
+
+        -- 자식 버튼 호버 시에도 바 표시 -- [ESSENTIAL]
+        C_Timer.After(2, function()
+            for _, btn in ipairs(collectedButtons) do
+                if btn then
+                    btn:HookScript("OnEnter", function()
+                        UIFrameFadeIn(barFrame, 0.2, barFrame:GetAlpha(), 1)
+                    end)
+                    btn:HookScript("OnLeave", function()
+                        C_Timer.After(0.1, function()
+                            if not barFrame:IsMouseOver() and not hoverDetect:IsMouseOver() then
+                                UIFrameFadeOut(barFrame, 0.3, barFrame:GetAlpha(), 0)
+                            end
+                        end)
+                    end)
+                end
+            end
+        end)
+    end
+
     self._deSkinned = true
 end
 

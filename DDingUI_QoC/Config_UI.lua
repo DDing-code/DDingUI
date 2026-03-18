@@ -458,7 +458,7 @@ local function RenderPanel(container, panelDef)
                     end,
                 })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 48
+            yOff = yOff - S.controlGap - 52
 
         -- dropdown ---------------------------------------------
         elseif s.type == "dropdown" then

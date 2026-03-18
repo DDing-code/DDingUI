@@ -59,15 +59,19 @@ end
 
 -- Viewer configuration
 local CDM_VIEWERS = {
+    { name = "EssentialCooldownViewer", category = "Essential", viewerType = "cooldown", isAura = false },
+    { name = "UtilityCooldownViewer", category = "Utility", viewerType = "cooldown", isAura = false },
     { name = "BuffIconCooldownViewer", category = "TrackedBuff", viewerType = "aura", isAura = true },
     { name = "BuffBarCooldownViewer", category = "TrackedBar", viewerType = "aura", isAura = true },
 }
 
 -- Category display names
 local CATEGORY_NAMES = {
-    TrackedBuff = "Tracked Buffs",
-    TrackedBar = "Tracked Bars",
-    ["TrackedBuff+Bar"] = "Tracked Buffs + Bars",
+    Essential = "핵심 능력 (Essential)",
+    Utility = "보조 능력 (Utility)",
+    TrackedBuff = "강화 (Tracked Buffs)",
+    TrackedBar = "강화 (Tracked Bars)",
+    ["TrackedBuff+Bar"] = "강화 (Buffs + Bars)",
 }
 
 -- ============================================================

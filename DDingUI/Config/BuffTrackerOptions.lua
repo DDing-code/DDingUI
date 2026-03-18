@@ -180,8 +180,8 @@ local function CreateAddBuffDialog()
     local frame = CreateFrame("Frame", "DDingUI_AddBuffDialog", UIParent, "BackdropTemplate")
     frame:SetSize(320, 195)
     frame:SetPoint("CENTER")
-    frame:SetFrameStrata("DIALOG")
-    frame:SetFrameLevel(100)
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(200)
 
     -- DDingUI styled backdrop
     frame:SetBackdrop({
@@ -290,7 +290,11 @@ local function CreateAddBuffDialog()
     end)
     frame.soundBtn:SetPoint("LEFT", frame.iconBtn, "RIGHT", spacing, 0)
 
-    -- Row 2: Text button (centered)
+    -- Row 2: Text + Trigger buttons (side by side)
+    local row2Spacing = 6
+    local row2TotalWidth = (btnWidth * 2) + row2Spacing
+    local row2StartX = -row2TotalWidth / 2 + btnWidth / 2
+
     frame.textBtn = CreateDialogButton(frame, btnWidth, btnHeight, L["Text"] or "Text", function()
         if pendingBuffEntry then
             DDingUI.AddTrackedBuff(pendingBuffEntry, "text")
@@ -298,7 +302,16 @@ local function CreateAddBuffDialog()
         end
         frame:Hide()
     end)
-    frame.textBtn:SetPoint("TOP", frame, "TOP", 0, -125)
+    frame.textBtn:SetPoint("TOP", frame, "TOP", row2StartX, -125)
+
+    frame.triggerBtn = CreateDialogButton(frame, btnWidth, btnHeight, L["Trigger"] or "Trigger", function()
+        if pendingBuffEntry then
+            DDingUI.AddTrackedBuff(pendingBuffEntry, "trigger")
+            pendingBuffEntry = nil
+        end
+        frame:Hide()
+    end)
+    frame.triggerBtn:SetPoint("LEFT", frame.textBtn, "RIGHT", row2Spacing, 0)
 
     -- Row 3: Cancel button (centered)
     frame.cancelBtn = CreateDialogButton(frame, 100, btnHeight, L["Cancel"] or "Cancel", function()
@@ -320,6 +333,12 @@ local function ShowAddTrackedBuffDialog(entry)
     local dialog = CreateAddBuffDialog()
     local icon = entry.icon and string.format("|T%d:20:20:0:0|t ", entry.icon) or ""
     dialog.title:SetText(icon .. (entry.name or "Unknown Buff"))
+    -- [REFACTOR] 유형에 따라 질문 텍스트 분기
+    if entry.isAura then
+        dialog.question:SetText(L["How would you like to display this buff?"] or "이 강화 효과를 어떻게 표시할까요?")
+    else
+        dialog.question:SetText(L["How would you like to display this ability?"] or "이 능력을 어떻게 표시할까요?")
+    end
     dialog:Show()
     dialog:Raise()  -- Ensure dialog is on top
 end
@@ -420,11 +439,181 @@ local function GetTrackedBuffs()
     return globalStore[specID]
 end
 
+-- UID 생성 (고유 식별자: 순서 변경에도 불변)
+local _uidCounter = 0
+local function GenerateUID()
+    _uidCounter = _uidCounter + 1
+    return string.format("bt_%x_%x", time(), _uidCounter + math.random(1000, 9999))
+end
+
+-- 기존 오라에 uid 없으면 자동 부여 (마이그레이션)
+function DDingUI.EnsureTrackedBuffUIDs()
+    local trackedBuffs = GetTrackedBuffs()
+    if not trackedBuffs then return end
+    for i, buff in ipairs(trackedBuffs) do
+        if not buff.uid then
+            buff.uid = GenerateUID()
+        end
+    end
+end
+
+-- uid로 현재 인덱스 찾기
+function DDingUI.FindTrackedBuffByUID(uid)
+    if not uid then return nil end
+    local trackedBuffs = GetTrackedBuffs()
+    if not trackedBuffs then return nil end
+    for i, buff in ipairs(trackedBuffs) do
+        if buff.uid == uid then
+            return i, buff
+        end
+    end
+    return nil
+end
+
 -- [REFACTOR] AceGUI → StyleLib: AceConfigRegistry/AceConfigDialog 폴백 제거
 -- Refresh options panel to reflect changes (always preserves tab position)
 -- NOTE: This function must be defined before AddTrackedBuff/RemoveTrackedBuff
 local function RefreshOptions()
-    DDingUI:RefreshConfigGUI(true) -- soft refresh: 스크롤/탭 위치 유지
+    -- C_Timer.After(0): 현재 OnClick 핸들러 완료 후 다음 프레임에서 재렌더
+    -- (클릭된 버튼이 ClearTabContent로 파괴되면서 UI 스택 꼬이는 문제 방지)
+    C_Timer.After(0, function()
+        local configFrame = _G["DDingUI_ConfigFrame"]
+        local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
+        if btPanel and btPanel.selectedIndex and btPanel:IsShown() then
+            local trackedBuffs = GetTrackedBuffs()
+            local selected = trackedBuffs[btPanel.selectedIndex]
+            if selected then
+                local ok, err
+                if selected.isGroup and btPanel.RenderGroupSettings then
+                    ok, err = pcall(btPanel.RenderGroupSettings, btPanel, btPanel.selectedIndex)
+                elseif btPanel.RenderTrackerTabs then
+                    ok, err = pcall(btPanel.RenderTrackerTabs, btPanel, btPanel.selectedIndex)
+                end
+                if not ok and err then
+                    print("|cffff4444[DDingUI] RefreshOptions error:|r " .. tostring(err))
+                end
+                return
+            end
+        end
+        DDingUI:RefreshConfigGUI(true)
+    end)
+end
+
+-- Move tracked buff up (-1) or down (+1) in the list
+function DDingUI.MoveTrackedBuff(index, direction)
+    local trackedBuffs = GetTrackedBuffs()
+    if not trackedBuffs or not trackedBuffs[index] then return end
+
+    local newIndex = index + direction
+    if newIndex < 1 or newIndex > #trackedBuffs then return end
+
+    -- 각 엔트리에 원래 인덱스 태그
+    for i = 1, #trackedBuffs do
+        trackedBuffs[i]._origIdx = i
+    end
+
+    -- swap
+    trackedBuffs[index], trackedBuffs[newIndex] = trackedBuffs[newIndex], trackedBuffs[index]
+
+    -- 인덱스 매핑 테이블
+    local idxMap = {}
+    for i = 1, #trackedBuffs do
+        if trackedBuffs[i]._origIdx then
+            idxMap[trackedBuffs[i]._origIdx] = i
+        end
+    end
+
+    -- parentGroup 재매핑
+    for i = 1, #trackedBuffs do
+        if trackedBuffs[i].parentGroup then
+            trackedBuffs[i].parentGroup = idxMap[trackedBuffs[i].parentGroup] or trackedBuffs[i].parentGroup
+        end
+    end
+
+    -- controlledChildren 재매핑
+    for i = 1, #trackedBuffs do
+        if trackedBuffs[i].isGroup and trackedBuffs[i].controlledChildren then
+            local newCC = {}
+            for _, oldCI in ipairs(trackedBuffs[i].controlledChildren) do
+                local newCI = idxMap[oldCI]
+                if newCI then table.insert(newCC, newCI) end
+            end
+            trackedBuffs[i].controlledChildren = newCC
+        end
+    end
+
+    -- attachTo 재매핑 (DDingUIBuffTrackerBar/Icon/Text + 인덱스)
+    local ATTACH_PATTERNS = {
+        "DDingUIBuffTrackerBar",
+        "DDingUIBuffTrackerIcon",
+        "DDingUIBuffTrackerText",
+    }
+    for i = 1, #trackedBuffs do
+        local d = trackedBuffs[i].display
+        local s = trackedBuffs[i].settings
+        for _, pat in ipairs(ATTACH_PATTERNS) do
+            if d and type(d.attachTo) == "string" then
+                local oldNum = tonumber(d.attachTo:match("^" .. pat .. "(%d+)$"))
+                if oldNum and idxMap[oldNum] then
+                    d.attachTo = pat .. idxMap[oldNum]
+                end
+            end
+            if s and type(s.attachTo) == "string" then
+                local oldNum = tonumber(s.attachTo:match("^" .. pat .. "(%d+)$"))
+                if oldNum and idxMap[oldNum] then
+                    s.attachTo = pat .. idxMap[oldNum]
+                end
+            end
+        end
+    end
+
+    -- 임시 태그 제거
+    for i = 1, #trackedBuffs do
+        trackedBuffs[i]._origIdx = nil
+    end
+end
+
+-- Duplicate tracked buff (deep copy)
+function DDingUI.DuplicateTrackedBuff(index)
+    local trackedBuffs = GetTrackedBuffs()
+    if not trackedBuffs or not trackedBuffs[index] then return end
+
+    -- 딥카피 함수
+    local function deepCopy(orig)
+        if type(orig) ~= "table" then return orig end
+        local copy = {}
+        for k, v in pairs(orig) do
+            copy[k] = deepCopy(v)
+        end
+        return copy
+    end
+
+    local original = trackedBuffs[index]
+    local duplicate = deepCopy(original)
+    duplicate.uid = GenerateUID()  -- 복제본은 새 uid
+    duplicate.name = (duplicate.name or "Tracker") .. " (Copy)"
+
+    -- 그룹이면 자식은 복제하지 않음 (빈 그룹으로)
+    if duplicate.isGroup then
+        duplicate.controlledChildren = {}
+    end
+
+    -- 원본 바로 뒤에 삽입
+    table.insert(trackedBuffs, index + 1, duplicate)
+
+    -- 삽입으로 인한 인덱스 밀림 보정
+    for i = 1, #trackedBuffs do
+        if trackedBuffs[i].parentGroup and trackedBuffs[i].parentGroup > index then
+            trackedBuffs[i].parentGroup = trackedBuffs[i].parentGroup + 1
+        end
+        if trackedBuffs[i].isGroup and trackedBuffs[i].controlledChildren then
+            for ci = 1, #trackedBuffs[i].controlledChildren do
+                if trackedBuffs[i].controlledChildren[ci] > index then
+                    trackedBuffs[i].controlledChildren[ci] = trackedBuffs[i].controlledChildren[ci] + 1
+                end
+            end
+        end
+    end
 end
 
 -- Add a new tracked buff
@@ -443,6 +632,7 @@ function DDingUI.AddTrackedBuff(entry, displayType)
                 icon = L["Icon"] or "Icon",
                 sound = L["Sound"] or "Sound",
                 text = L["Text"] or "Text",
+                trigger = L["Trigger"] or "Trigger",
             }
             local typeText = typeNames[displayType] or displayType
             print(CDM_PREFIX .. "|cffff8800" .. (entry.name or "Buff") .. " " .. (L["is already being tracked as"] or "is already being tracked as") .. " " .. typeText)
@@ -459,23 +649,33 @@ function DDingUI.AddTrackedBuff(entry, displayType)
     -- Get bar color from spell school (주문 계열별 자동 색상)
     local autoBarColor = GetSpellSchoolColor(entry.spellID or entry.cooldownID)
 
+    -- [REFACTOR] isAura(버프) vs 능력(쿨다운)에 따라 기본 설정 분기
+    -- 능력(쿨다운)은 CDM이 자동 제공 → 수동 설정 불필요
+    local isAura = entry.isAura or false
+    local defaultBarFillMode = "duration"       -- 둘 다 지속시간/쿨다운 표시
+    local defaultMaxStacks = 1                  -- CDM이 자동 감지
+    local defaultStackDuration = 0              -- dynamicDuration이 자동 감지
+    local defaultDynamicDuration = true          -- CDM/API에서 자동 읽기
+
     -- Create new tracked buff entry
     local newBuff = {
+        uid = GenerateUID(),  -- 고유 식별자 (순서 변경에도 불변)
         cooldownID = entry.cooldownID,
         name = entry.name or "Unknown",
         icon = entry.icon or 134400,
         spellID = entry.spellID or 0,
         displayType = displayType or "bar",  -- "bar", "icon", "sound", "text"
         expanded = false,  -- foldable state
+        isAura = isAura,   -- [FIX] 유형 정보 저장 (버프 vs 능력)
         settings = {
             -- Common settings
-            maxStacks = 10,
-            stackDuration = 30,
-            dynamicDuration = true,  -- 기본값: 자동 감지 ON
+            maxStacks = defaultMaxStacks,
+            stackDuration = defaultStackDuration,
+            dynamicDuration = defaultDynamicDuration,
             hideWhenZero = true,
             resetOnCombatEnd = false,
             -- Bar mode settings
-            barFillMode = "stacks",
+            barFillMode = defaultBarFillMode,
             durationTickPositions = {},  -- 비율 배열 (예: {0.3} = 30% 팬데믹)
             barColor = autoBarColor,  -- 주문 계열 기반 자동 색상
             bgColor = { 0.15, 0.15, 0.15, 1 },
@@ -561,6 +761,32 @@ function DDingUI.AddTrackedBuff(entry, displayType)
         }
     }
 
+
+    -- [SPELL CD] Non-aura spells automatically use spell cooldown mode
+    if not isAura and (entry.spellID and entry.spellID > 0) then
+        newBuff.trackingMode = "spell"
+        -- displaySpellID = 특성 오버라이드/링크 포함 실제 주문 ID
+        -- cooldownID = CDM 내부 ID, spellID = base (info.spellID)
+        local actualSpellID = entry.displaySpellID or entry.cooldownID or entry.spellID
+        newBuff.trigger = {
+            type = "spell",
+            spellID = actualSpellID,
+            cooldownID = entry.cooldownID or 0,
+            hideWhenZero = false,
+        }
+        newBuff.display = newBuff.display or {}
+        newBuff.display.barFillMode = "duration"
+        -- 텍스트는 사용자가 명시적으로 활성화해야 함 (자동 생성 방지)
+        newBuff.display.showDurationText = false
+        newBuff.display.showStacksText = false
+    end
+
+    -- [TRIGGER] Trigger-only mode: auto-enable alert system
+    if displayType == "trigger" then
+        newBuff.settings.alerts.enabled = true
+        newBuff.settings.hideWhenZero = false
+    end
+
     table.insert(trackedBuffs, newBuff)
 
     local typeNames = {
@@ -569,6 +795,7 @@ function DDingUI.AddTrackedBuff(entry, displayType)
         icon = L["Icon"] or "Icon",
         sound = L["Sound"] or "Sound",
         text = L["Text"] or "Text",
+        trigger = L["Trigger"] or "Trigger",
     }
     local typeText = typeNames[displayType] or displayType
     print(CDM_PREFIX .. (entry.name or "Buff") .. " " .. (L["added as"] or "added as") .. " " .. typeText)
@@ -579,6 +806,73 @@ function DDingUI.AddTrackedBuff(entry, displayType)
     end
 
     -- Refresh options panel (uses SoftRefresh which preserves tab position)
+    RefreshOptions()
+end
+
+-- Add a spell cooldown tracked buff (no CDM/aura needed - uses C_Spell API directly)
+function DDingUI.AddSpellTrackedBuff()
+    local trackedBuffs = GetTrackedBuffs()
+
+    local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+    local existingCount = #trackedBuffs
+    local baseOffsetY = rootCfg and rootCfg.offsetY or 18
+    local defaultOffsetY = baseOffsetY - (existingCount * 20)
+
+    local newBuff = {
+        uid = GenerateUID(),
+        cooldownID = 0,
+        name = (L and L["Spell Cooldown"] or "Spell Cooldown") .. " " .. (#trackedBuffs + 1),
+        icon = 134400,
+        spellID = 0,
+        displayType = "bar",
+        expanded = true,
+        isAura = false,
+        trigger = {
+            type = "spell",
+            spellID = 0,
+            hideWhenZero = false,
+        },
+        display = {
+            type = "bar",
+            barFillMode = "duration",
+            barColor = { 0.26, 0.78, 1, 1 },
+            bgColor = { 0.15, 0.15, 0.15, 1 },
+            showStacksText = true,
+            showDurationText = true,
+            showTicks = true,
+            tickWidth = 2,
+            textSize = 10,
+            textAlign = "LEFT",
+            textX = 2,
+            textY = 0,
+            textColor = { 1, 1, 1, 1 },
+            durationTextSize = 10,
+            durationTextAlign = "RIGHT",
+            durationTextX = -2,
+            durationTextY = 0,
+            durationTextColor = { 1, 1, 1, 1 },
+            durationDecimals = 1,
+            width = 0,
+            height = rootCfg and rootCfg.height or 4,
+            barOrientation = "HORIZONTAL",
+            borderSize = 1,
+            borderColor = { 0, 0, 0, 1 },
+        },
+        conditions = {},
+        settings = {
+            hideWhenZero = false,
+            offsetX = 0,
+            offsetY = defaultOffsetY,
+        },
+    }
+
+    table.insert(trackedBuffs, newBuff)
+
+    print(CDM_PREFIX .. (L and L["Spell cooldown tracker added. Set spellID in trigger settings."] or "Spell cooldown tracker added. Set spellID in trigger settings."))
+
+    if DDingUI.UpdateBuffTrackerBar then
+        DDingUI:UpdateBuffTrackerBar()
+    end
     RefreshOptions()
 end
 
@@ -716,6 +1010,859 @@ function DDingUI.AddManualTrackedBuff()
     RefreshOptions()
 end
 
+-- ============================================================
+-- GROUP SYSTEM (WeakAuras-style tracker groups)
+-- ============================================================
+
+-- Check if a tracked buff entry is a group
+function DDingUI.IsGroupEntry(index)
+    local trackedBuffs = GetTrackedBuffs()
+    local entry = trackedBuffs[index]
+    return entry and entry.isGroup == true
+end
+
+-- Get children indices for a group
+function DDingUI.GetGroupChildren(groupIdx)
+    local trackedBuffs = GetTrackedBuffs()
+    local group = trackedBuffs[groupIdx]
+    if not group or not group.isGroup then return {} end
+    return group.controlledChildren or {}
+end
+
+-- Create a new tracker group
+function DDingUI.CreateTrackerGroup(name)
+    local trackedBuffs = GetTrackedBuffs()
+
+    local newGroup = {
+        isGroup = true,
+        name = name or ((L["New Group"] or "New Group") .. " " .. (#trackedBuffs + 1)),
+        expanded = true,
+        controlledChildren = {},
+        disabled = false,
+        groupSettings = {
+            growthDirection = "DOWN",
+            growthSpacing = 2,
+            sortMode = "none",    -- none / priority / duration / name
+            attachTo = DDingUI.db.profile.buffTrackerBar.attachTo or "UIParent",
+            anchorPoint = DDingUI.db.profile.buffTrackerBar.anchorPoint or "TOP",
+            selfPoint = DDingUI.db.profile.buffTrackerBar.selfPoint or "TOP",
+            offsetX = DDingUI.db.profile.buffTrackerBar.offsetX or 0,
+            offsetY = DDingUI.db.profile.buffTrackerBar.offsetY or 18,
+            frameStrata = DDingUI.db.profile.buffTrackerBar.frameStrata or "MEDIUM",
+            -- Load conditions
+            loadSpec = {},  -- spec indices that enable this group
+            loadCombatOnly = false,
+            loadInstanceType = "all",
+        },
+    }
+
+    table.insert(trackedBuffs, newGroup)
+    print(CDM_PREFIX .. (L["New group created:"] or "New group created:") .. " " .. newGroup.name)
+
+    if DDingUI.UpdateBuffTrackerBar then
+        DDingUI:UpdateBuffTrackerBar()
+    end
+    RefreshOptions()
+    return #trackedBuffs
+end
+
+-- Add tracker to a group
+function DDingUI.AddToGroup(trackerIdx, groupIdx)
+    local trackedBuffs = GetTrackedBuffs()
+    local group = trackedBuffs[groupIdx]
+    local tracker = trackedBuffs[trackerIdx]
+    if not group or not group.isGroup or not tracker then return end
+    if tracker.isGroup then return end  -- can't nest groups
+
+    -- Remove from previous group if any
+    if tracker.parentGroup then
+        DDingUI.RemoveFromGroup(trackerIdx)
+    end
+
+    -- Add to new group
+    if not group.controlledChildren then group.controlledChildren = {} end
+    table.insert(group.controlledChildren, trackerIdx)
+    tracker.parentGroup = groupIdx
+
+    if DDingUI.UpdateBuffTrackerBar then
+        DDingUI:UpdateBuffTrackerBar()
+    end
+    RefreshOptions()
+end
+
+-- Remove tracker from its group
+function DDingUI.RemoveFromGroup(trackerIdx)
+    local trackedBuffs = GetTrackedBuffs()
+    local tracker = trackedBuffs[trackerIdx]
+    if not tracker or not tracker.parentGroup then return end
+
+    local group = trackedBuffs[tracker.parentGroup]
+    if group and group.controlledChildren then
+        for i, childIdx in ipairs(group.controlledChildren) do
+            if childIdx == trackerIdx then
+                table.remove(group.controlledChildren, i)
+                break
+            end
+        end
+    end
+
+    tracker.parentGroup = nil
+
+    if DDingUI.UpdateBuffTrackerBar then
+        DDingUI:UpdateBuffTrackerBar()
+    end
+    RefreshOptions()
+end
+
+-- Build flat display order (groups then children, skip children of collapsed groups)
+function DDingUI.GetDisplayOrder(includeCollapsed)
+    local trackedBuffs = GetTrackedBuffs()
+    local order = {}
+    local childrenInGroups = {}
+
+    -- Collect all children that belong to groups
+    for i, entry in ipairs(trackedBuffs) do
+        if entry.isGroup and entry.controlledChildren then
+            for _, childIdx in ipairs(entry.controlledChildren) do
+                childrenInGroups[childIdx] = true
+            end
+        end
+    end
+
+    -- Render: first top-level items (not in any group), preserving order
+    for i, entry in ipairs(trackedBuffs) do
+        if entry.isGroup then
+            -- Group header
+            table.insert(order, { index = i, isGroup = true, depth = 0 })
+            -- Children (if expanded or includeCollapsed) — nil → 기본 열림
+            if (entry.expanded ~= false) or includeCollapsed then
+                for _, childIdx in ipairs(entry.controlledChildren or {}) do
+                    if trackedBuffs[childIdx] then
+                        table.insert(order, { index = childIdx, isGroup = false, depth = 1, parentGroup = i })
+                    end
+                end
+            end
+        elseif not childrenInGroups[i] then
+            -- Top-level tracker (not in any group)
+            table.insert(order, { index = i, isGroup = false, depth = 0 })
+        end
+    end
+
+    return order
+end
+
+-- Create group settings options (for right panel when group is selected)
+function DDingUI.CreateGroupOptions(groupIdx)
+    local trackedBuffs = GetTrackedBuffs()
+    local group = trackedBuffs[groupIdx]
+    if not group or not group.isGroup then return {} end
+
+    local gs = group.groupSettings or {}
+    local options = {}
+
+    -- ─── Group Name ───
+    options["groupName"] = {
+        type = "input",
+        name = L["Group Name"] or "Group Name",
+        order = 0.1,
+        width = "double",
+        get = function() return group.name or "" end,
+        set = function(_, val)
+            group.name = val
+            RefreshOptions()
+        end,
+    }
+    options["groupEnabled"] = {
+        type = "toggle",
+        name = L["Enabled"] or "Enabled",
+        order = 0.2,
+        width = "full",
+        get = function() return not group.disabled end,
+        set = function(_, val)
+            group.disabled = not val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+
+    -- ─── Growth / Layout ───
+    options["layoutHeader"] = {
+        type = "header",
+        name = L["Layout"] or "Layout",
+        order = 1,
+    }
+    options["growthDirection"] = {
+        type = "select",
+        name = L["Growth Direction"] or "Growth Direction",
+        order = 1.1, width = "normal",
+        values = {
+            DOWN = L["Down"] or "Down", UP = L["Up"] or "Up",
+            LEFT = L["Left"] or "Left", RIGHT = L["Right"] or "Right",
+        },
+        get = function() return gs.growthDirection or "DOWN" end,
+        set = function(_, val)
+            group.groupSettings.growthDirection = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["growthSpacing"] = {
+        type = "range",
+        name = L["Spacing"] or "Spacing",
+        order = 1.2, width = "normal",
+        min = 0, max = 50, step = 1,
+        get = function() return gs.growthSpacing or 2 end,
+        set = function(_, val)
+            group.groupSettings.growthSpacing = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["sortMode"] = {
+        type = "select",
+        name = L["Sort Mode"] or "Sort Mode",
+        desc = L["How children are sorted at runtime"] or "How children are sorted at runtime",
+        order = 1.3, width = "normal",
+        values = {
+            none = L["Manual (drag order)"] or "Manual",
+            priority = L["Priority"] or "Priority",
+            duration = L["Remaining Duration"] or "Duration",
+            name = L["Name"] or "Name",
+        },
+        get = function() return gs.sortMode or "none" end,
+        set = function(_, val)
+            group.groupSettings.sortMode = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+
+    -- ─── Position & Anchor ───
+    options["positionHeader"] = {
+        type = "header",
+        name = L["Position & Anchor"] or "Position & Anchor",
+        order = 2,
+    }
+    options["attachTo"] = {
+        type = "select",
+        name = L["Attach To"] or "Attach To",
+        order = 2.1, width = "double",
+        values = function()
+            local opts = {}
+            opts["UIParent"] = L["Screen (UIParent)"] or "Screen (UIParent)"
+            if DDingUI.db.profile.unitFrames and DDingUI.db.profile.unitFrames.enabled then
+                opts["DDingUI_Player"] = L["Player Frame (Custom)"] or "Player Frame (Custom)"
+            end
+            opts["PlayerFrame"] = L["Default Player Frame"] or "Default Player Frame"
+            return opts
+        end,
+        get = function() return gs.attachTo or "UIParent" end,
+        set = function(_, val)
+            group.groupSettings.attachTo = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["anchorPoint"] = {
+        type = "select",
+        name = L["Anchor Point"] or "Anchor Point",
+        order = 2.2, width = "normal",
+        values = {
+            ["TOPLEFT"] = L["Top Left"] or "Top Left",
+            ["TOP"] = L["Top"] or "Top",
+            ["TOPRIGHT"] = L["Top Right"] or "Top Right",
+            ["LEFT"] = L["Left"] or "Left",
+            ["CENTER"] = L["Center"] or "Center",
+            ["RIGHT"] = L["Right"] or "Right",
+            ["BOTTOMLEFT"] = L["Bottom Left"] or "Bottom Left",
+            ["BOTTOM"] = L["Bottom"] or "Bottom",
+            ["BOTTOMRIGHT"] = L["Bottom Right"] or "Bottom Right",
+        },
+        get = function() return gs.anchorPoint or "CENTER" end,
+        set = function(_, val)
+            group.groupSettings.anchorPoint = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["selfPoint"] = {
+        type = "select",
+        name = L["Self Point"] or "Self Point",
+        order = 2.3, width = "normal",
+        values = {
+            ["TOPLEFT"] = L["Top Left"] or "Top Left",
+            ["TOP"] = L["Top"] or "Top",
+            ["TOPRIGHT"] = L["Top Right"] or "Top Right",
+            ["LEFT"] = L["Left"] or "Left",
+            ["CENTER"] = L["Center"] or "Center",
+            ["RIGHT"] = L["Right"] or "Right",
+            ["BOTTOMLEFT"] = L["Bottom Left"] or "Bottom Left",
+            ["BOTTOM"] = L["Bottom"] or "Bottom",
+            ["BOTTOMRIGHT"] = L["Bottom Right"] or "Bottom Right",
+        },
+        get = function() return gs.selfPoint or "CENTER" end,
+        set = function(_, val)
+            group.groupSettings.selfPoint = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["offsetX"] = {
+        type = "range",
+        name = L["X Offset"] or "X Offset",
+        order = 2.4, width = "normal",
+        min = -500, max = 500, step = 1,
+        get = function() return gs.offsetX or 0 end,
+        set = function(_, val)
+            group.groupSettings.offsetX = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["offsetY"] = {
+        type = "range",
+        name = L["Y Offset"] or "Y Offset",
+        order = 2.5, width = "normal",
+        min = -500, max = 500, step = 1,
+        get = function() return gs.offsetY or 0 end,
+        set = function(_, val)
+            group.groupSettings.offsetY = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["frameStrata"] = {
+        type = "select",
+        name = L["Frame Strata"] or "Frame Strata",
+        order = 2.6, width = "normal",
+        values = {
+            BACKGROUND = "BACKGROUND", LOW = "LOW", MEDIUM = "MEDIUM", HIGH = "HIGH", DIALOG = "DIALOG",
+        },
+        get = function() return gs.frameStrata or "MEDIUM" end,
+        set = function(_, val)
+            group.groupSettings.frameStrata = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+
+    -- ─── Load Conditions ───
+    options["loadHeader"] = {
+        type = "header",
+        name = L["Load Conditions"] or "Load Conditions",
+        order = 3,
+    }
+    options["loadCombatOnly"] = {
+        type = "toggle",
+        name = L["Combat Only"] or "Combat Only",
+        desc = L["Only show this group during combat"] or "Only show this group during combat",
+        order = 3.1, width = "full",
+        get = function() return gs.loadCombatOnly or false end,
+        set = function(_, val)
+            group.groupSettings.loadCombatOnly = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["loadInstanceType"] = {
+        type = "select",
+        name = L["Instance Type"] or "Instance Type",
+        order = 3.2, width = "normal",
+        values = {
+            all = L["All"] or "All",
+            dungeon = L["Dungeon"] or "Dungeon",
+            raid = L["Raid"] or "Raid",
+            arena = L["Arena/BG"] or "Arena/BG",
+            world = L["Open World"] or "Open World",
+        },
+        get = function() return gs.loadInstanceType or "all" end,
+        set = function(_, val)
+            group.groupSettings.loadInstanceType = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+
+    -- ─── Children Management ───
+    options["childrenHeader"] = {
+        type = "header",
+        name = L["Children"] or "Children",
+        order = 4,
+    }
+    local children = group.controlledChildren or {}
+    local allTrackedBuffs = GetTrackedBuffs()
+    if #children == 0 then
+        options["noChildren"] = {
+            type = "description",
+            name = "|cff888888" .. (L["No children in this group. Right-click a tracker and select 'Move to Group' to add."] or "No children. Right-click a tracker → Move to Group.") .. "|r",
+            order = 4.1,
+        }
+    else
+        for ci, childIdx in ipairs(children) do
+            local child = allTrackedBuffs[childIdx]
+            if child then
+                local childName = child.name or "?"
+                if child.spellID and child.spellID > 0 then
+                    local sn = C_Spell.GetSpellName(child.spellID)
+                    if sn then childName = sn end
+                end
+                options["child" .. ci .. "_name"] = {
+                    type = "description",
+                    name = "  " .. ci .. ". " .. childName .. "  |cff888888[" .. (child.displayType or "bar"):upper() .. "]|r",
+                    order = 4 + ci * 0.1,
+                    fontSize = "medium",
+                }
+            end
+        end
+    end
+    -- ─── Conditional Actions (Action Set 구조) ───
+    -- DB 기본값 보장
+    if not group.groupSettings.conditionalActions then
+        group.groupSettings.conditionalActions = {
+            enabled = false,
+            sets = {},
+        }
+    end
+    local ca = group.groupSettings.conditionalActions
+
+    -- 마이그레이션: 기존 flat 구조 → sets 구조
+    if ca.triggers and not ca.sets then
+        ca.sets = {{
+            logic = ca.logic or "and",
+            triggers = ca.triggers,
+            actions = ca.actions or {},
+        }}
+        ca.triggers = nil
+        ca.actions = nil
+        ca.logic = nil
+    end
+    if not ca.sets then ca.sets = {} end
+
+    -- 공용 드롭다운 데이터
+    local childValues = {}
+    for ci, childIdx in ipairs(children) do
+        local child = allTrackedBuffs[childIdx]
+        if child then
+            local n = child.name or "?"
+            if child.spellID and child.spellID > 0 then
+                local sn = C_Spell.GetSpellName(child.spellID)
+                if sn then n = sn end
+            end
+            childValues[ci] = ci .. ". " .. n
+        end
+    end
+
+    local conditionValues = {}
+    local CA_MODULE = DDingUI.ConditionalActions
+    if CA_MODULE and CA_MODULE.CONDITIONS then
+        for _, cond in ipairs(CA_MODULE.CONDITIONS) do
+            conditionValues[cond.id] = cond.name
+        end
+    end
+
+    local actionTypeValues = {}
+    local actionTypeNames = {}
+    if CA_MODULE and CA_MODULE.ACTION_TYPES then
+        for _, at in ipairs(CA_MODULE.ACTION_TYPES) do
+            actionTypeValues[at.id] = at.name
+            actionTypeNames[at.id] = at.name
+        end
+    end
+
+    local barTargetValues = {}
+    -- 기본 바 대상 (자원바/시전바)
+    if CA_MODULE and CA_MODULE.BAR_TARGETS then
+        for _, bt in ipairs(CA_MODULE.BAR_TARGETS) do
+            barTargetValues[bt.id] = bt.name
+        end
+    end
+    -- BuffTracker 바 대상 추가: 자식 바들
+    for ci, childIdx in ipairs(children) do
+        local child = allTrackedBuffs[childIdx]
+        if child then
+            local n = child.name or "?"
+            if child.spellID and child.spellID > 0 then
+                local sn = C_Spell.GetSpellName(child.spellID)
+                if sn then n = sn end
+            end
+            barTargetValues["bt_child_" .. ci] = "TrackerBar: " .. n
+        end
+    end
+
+    -- 헤더
+    options["actionsHeader"] = {
+        type = "description",
+        name = "|cffffa300" .. (L["Conditional Actions"] or "Conditional Actions") .. "|r",
+        order = 5,
+        fontSize = "large",
+        width = "full",
+    }
+    options["actionsEnabled"] = {
+        type = "toggle",
+        name = L["Enable Actions"] or "Enable Actions",
+        order = 5.1, width = "full",
+        get = function() return ca.enabled end,
+        set = function(_, val) ca.enabled = val; RefreshOptions() end,
+    }
+
+    -- ─── 각 Action Set 렌더링 ───
+    for si, set in ipairs(ca.sets) do
+        local setOrder = 5.2 + si * 0.5
+        local setArgs = {}
+
+        -- ── 세트 내 Triggers 섹션 ──
+        setArgs["triggersLabel"] = {
+            type = "description",
+            name = "|cff88ccff" .. (L["Triggers"] or "Triggers") .. "|r",
+            order = 1,
+            fontSize = "medium",
+            width = "full",
+        }
+        setArgs["triggerLogic"] = {
+            type = "select",
+            name = L["Trigger Logic"] or "Logic",
+            order = 1.1, width = "half",
+            values = { ["and"] = "AND", ["or"] = "OR" },
+            get = function() return set.logic or "and" end,
+            set = function(_, val) set.logic = val end,
+        }
+
+        -- 트리거 목록
+        for ti, trigger in ipairs(set.triggers or {}) do
+            local tOrder = 1.2 + ti * 0.05
+
+            setArgs["t" .. ti .. "_source"] = {
+                type = "select",
+                name = "#" .. ti .. " " .. (L["Source"] or "Source"),
+                order = tOrder, width = "half",
+                values = childValues,
+                get = function() return trigger.childIndex or 1 end,
+                set = function(_, val) trigger.childIndex = val; trigger.source = "child" end,
+            }
+            setArgs["t" .. ti .. "_cond"] = {
+                type = "select",
+                name = L["Condition"] or "Condition",
+                order = tOrder + 0.01, width = "normal",
+                values = conditionValues,
+                get = function() return trigger.condition or "active" end,
+                set = function(_, val)
+                    trigger.condition = val
+                    -- [FIX] duration 조건 선택 시 maxDuration 자동 채우기 (툴팁에서 추출)
+                    if (val == "duration_gte" or val == "duration_lte") and not trigger.maxDuration then
+                        local targetSpellID = nil
+                        -- 트리거 대상 버프의 spellID 찾기
+                        local childIdx = children[trigger.childIndex or 1]
+                        local buff = childIdx and allTrackedBuffs[childIdx]
+                        if buff then
+                            targetSpellID = buff.spellID
+                            if (not targetSpellID or targetSpellID == 0) and buff.cooldownID and buff.cooldownID > 0 then
+                                targetSpellID = buff.cooldownID
+                            end
+                        end
+                        if targetSpellID and targetSpellID > 0 then
+                            local autoD = DDingUI.ExtractDurationFromTooltip and DDingUI.ExtractDurationFromTooltip(targetSpellID)
+                            if autoD and autoD > 0 then
+                                trigger.maxDuration = autoD
+                            end
+                        end
+                    end
+                    RefreshOptions()
+                end,
+            }
+            setArgs["t" .. ti .. "_value"] = {
+                type = "range",
+                name = L["Value"] or "Value",
+                order = tOrder + 0.02, width = "half",
+                min = 0,
+                -- [FIX] 커스텀 렌더러(CreateRange)가 함수형 max/step을 지원하지 않음
+                -- math.min(함수, 숫자) → 에러 → 이후 위젯(maxDuration) 렌더링 중단
+                -- duration 조건에서만 이 위젯이 표시되므로 duration 기준 값 사용
+                max = 120,
+                step = 0.5,
+                get = function() return trigger.value or 0 end,
+                set = function(_, val) trigger.value = val end,
+                hidden = function()
+                    local c = trigger.condition or "active"
+                    return c ~= "duration_gte" and c ~= "duration_lte"
+                end,
+            }
+            -- 전체 버프 지속시간 (duration 조건에서만 표시 - 수동 카운트다운용)
+            -- 이 값을 설정하면 API 대신 수동으로 지속시간을 추적 (전투 중 secret value 우회)
+            -- duration 조건 선택 시 툴팁에서 자동 추출하여 채움 (수동 수정 가능)
+            setArgs["t" .. ti .. "_maxDuration"] = {
+                type = "input",
+                name = L["Buff Total Duration (sec)"] or "전체 버프 지속시간 (초)",
+                desc = "수동 카운트다운용 전체 지속시간 (초). 전투 중 시크릿밸류 우회. 0 또는 빈칸 = API 사용.",
+                order = tOrder + 0.025, width = "half",
+                get = function() return tostring(trigger.maxDuration or "") end,
+                set = function(_, val)
+                    local num = tonumber(val)
+                    trigger.maxDuration = (num and num > 0) and num or nil
+                end,
+                hidden = function()
+                    local c = trigger.condition or "active"
+                    return c ~= "duration_gte" and c ~= "duration_lte"
+                end,
+            }
+            local tiCapture = ti
+            setArgs["t" .. ti .. "_delete"] = {
+                type = "execute",
+                name = "|cffff4444X|r",
+                order = tOrder + 0.03, width = "half",
+                hidden = function() return not set.triggers or #set.triggers <= 1 end,
+                func = function()
+                    table.remove(set.triggers, tiCapture)
+                    RefreshOptions()
+                end,
+            }
+        end
+
+        -- 트리거 추가 버튼
+        setArgs["trigger_add"] = {
+            type = "execute",
+            name = "+ " .. (L["Add Trigger"] or "Add Trigger"),
+            order = 1.99, width = "normal",
+            func = function()
+                if not set.triggers then set.triggers = {} end
+                table.insert(set.triggers, {
+                    source = "child",
+                    childIndex = 1,
+                    condition = "active",
+                    value = 0,
+                })
+                RefreshOptions()
+            end,
+        }
+
+        -- ── 세트 내 Actions 섹션 ──
+        setArgs["actionsLabel"] = {
+            type = "description",
+            name = "\n|cff88ccff" .. (L["Actions"] or "Actions") .. "|r",
+            order = 3,
+            fontSize = "medium",
+            width = "full",
+        }
+
+        -- 동작 목록 (flat 위젯, prefix로 구분)
+        for ai, action in ipairs(set.actions or {}) do
+            local aOrder = 3.1 + ai * 0.1
+            local typeName = actionTypeNames[action.type] or action.type or "?"
+            local p = "a" .. ai .. "_"  -- prefix
+
+            -- 동작 라벨 (구분선)
+            setArgs[p .. "label"] = {
+                type = "description",
+                name = "|cffcccccc" .. (L["Action"] or "Action") .. " " .. ai .. " (" .. typeName .. ")|r",
+                order = aOrder,
+                fontSize = "medium",
+                width = "full",
+            }
+
+            setArgs[p .. "type"] = {
+                type = "select",
+                name = L["Type"] or "Type",
+                order = aOrder + 0.01, width = "normal",
+                values = actionTypeValues,
+                get = function() return action.type or "bar_color" end,
+                set = function(_, val)
+                    action.type = val
+                    RefreshOptions()
+                end,
+            }
+            setArgs[p .. "target"] = {
+                type = "select",
+                name = L["Target Bar"] or "Target Bar",
+                order = aOrder + 0.02, width = "normal",
+                values = barTargetValues,
+                get = function() return action.target or "PrimaryPowerBar" end,
+                set = function(_, val) action.target = val end,
+                hidden = function()
+                    return action.type ~= "bar_color" and action.type ~= "bar_glow"
+                end,
+            }
+            setArgs[p .. "color"] = {
+                type = "color",
+                name = L["Color"] or "Color",
+                order = aOrder + 0.03, width = "half",
+                hasAlpha = true,
+                get = function()
+                    local c = action.color or {1, 0.2, 0.2, 1}
+                    return c[1], c[2], c[3], c[4] or 1
+                end,
+                set = function(_, r, g, b, a) action.color = {r, g, b, a} end,
+                hidden = function()
+                    return action.type ~= "bar_color" and action.type ~= "bar_glow"
+                        and action.type ~= "icon_glow" and action.type ~= "show_text"
+                end,
+            }
+            setArgs[p .. "childIndex"] = {
+                type = "select",
+                name = L["Target Child"] or "Target Child",
+                order = aOrder + 0.04, width = "normal",
+                values = childValues,
+                get = function() return action.childIndex or 1 end,
+                set = function(_, val) action.childIndex = val end,
+                hidden = function()
+                    return action.type ~= "icon_glow" and action.type ~= "icon_change"
+                end,
+            }
+            setArgs[p .. "intensity"] = {
+                type = "range",
+                name = L["Intensity"] or "Intensity",
+                order = aOrder + 0.05, width = "half",
+                min = 0.1, max = 2.0, step = 0.1,
+                get = function() return action.intensity or 0.6 end,
+                set = function(_, val) action.intensity = val end,
+                hidden = function() return action.type ~= "bar_glow" end,
+            }
+            setArgs[p .. "newIcon"] = {
+                type = "input",
+                name = L["New Icon ID"] or "New Icon ID",
+                order = aOrder + 0.051, width = "normal",
+                get = function() return tostring(action.newIconID or "") end,
+                set = function(_, val) action.newIconID = tonumber(val) or val end,
+                hidden = function() return action.type ~= "icon_change" end,
+            }
+            setArgs[p .. "sound"] = {
+                type = "input",
+                name = L["Sound File"] or "Sound File",
+                order = aOrder + 0.052, width = "double",
+                get = function() return action.soundFile or "" end,
+                set = function(_, val) action.soundFile = val end,
+                hidden = function() return action.type ~= "play_sound" end,
+            }
+            setArgs[p .. "soundChannel"] = {
+                type = "select",
+                name = L["Channel"] or "Channel",
+                order = aOrder + 0.053, width = "half",
+                values = { Master = "Master", SFX = "SFX", Music = "Music", Dialog = "Dialog" },
+                get = function() return action.channel or "Master" end,
+                set = function(_, val) action.channel = val end,
+                hidden = function() return action.type ~= "play_sound" end,
+            }
+            setArgs[p .. "soundCooldown"] = {
+                type = "range",
+                name = L["Cooldown"] or "Cooldown (sec)",
+                order = aOrder + 0.054, width = "half",
+                min = 0, max = 60, step = 1,
+                get = function() return action.cooldown or 3 end,
+                set = function(_, val) action.cooldown = val end,
+                hidden = function() return action.type ~= "play_sound" end,
+            }
+            setArgs[p .. "text"] = {
+                type = "input",
+                name = L["Text"] or "Text",
+                order = aOrder + 0.055, width = "double",
+                get = function() return action.text or "" end,
+                set = function(_, val) action.text = val end,
+                hidden = function() return action.type ~= "show_text" end,
+            }
+            setArgs[p .. "textSize"] = {
+                type = "range",
+                name = L["Size"] or "Size",
+                order = aOrder + 0.056, width = "half",
+                min = 10, max = 60, step = 1,
+                get = function() return action.size or 28 end,
+                set = function(_, val) action.size = val end,
+                hidden = function() return action.type ~= "show_text" end,
+            }
+            setArgs[p .. "textDuration"] = {
+                type = "range",
+                name = L["Duration"] or "Duration (sec)",
+                order = aOrder + 0.057, width = "half",
+                min = 0.5, max = 10, step = 0.5,
+                get = function() return action.duration or 2 end,
+                set = function(_, val) action.duration = val end,
+                hidden = function() return action.type ~= "show_text" end,
+            }
+            setArgs[p .. "textPos"] = {
+                type = "select",
+                name = L["Position"] or "Position",
+                order = aOrder + 0.058, width = "half",
+                values = { CENTER = "Center", TOP = "Top", BOTTOM = "Bottom" },
+                get = function() return action.position or "CENTER" end,
+                set = function(_, val) action.position = val end,
+                hidden = function() return action.type ~= "show_text" end,
+            }
+
+            local aiCapture = ai
+            setArgs[p .. "delete"] = {
+                type = "execute",
+                name = "|cffff4444" .. (L["Delete Action"] or "Delete") .. "|r",
+                order = aOrder + 0.09, width = "half",
+                hidden = function() return not set.actions or #set.actions <= 1 end,
+                func = function()
+                    table.remove(set.actions, aiCapture)
+                    RefreshOptions()
+                end,
+            }
+        end
+
+        -- 동작 추가 버튼
+        setArgs["action_add"] = {
+            type = "execute",
+            name = "+ " .. (L["Add Action"] or "Add Action"),
+            order = 3.99, width = "normal",
+            func = function()
+                if not set.actions then set.actions = {} end
+                table.insert(set.actions, {
+                    type = "bar_color",
+                    target = "PrimaryPowerBar",
+                    color = {1, 0.2, 0.2, 1},
+                })
+                RefreshOptions()
+            end,
+        }
+
+        -- 세트 삭제 버튼
+        local siCapture = si
+        setArgs["deleteSet"] = {
+            type = "execute",
+            name = "|cffff4444" .. (L["Delete Set"] or "Delete Set") .. "|r",
+            order = 99, width = "normal",
+            func = function()
+                table.remove(ca.sets, siCapture)
+                RefreshOptions()
+            end,
+        }
+
+        -- 세트 제목 (트리거/동작 수 표시)
+        local trigCount = set.triggers and #set.triggers or 0
+        local actCount = set.actions and #set.actions or 0
+        local setName = (L["Action Set"] or "Action Set") .. " " .. si
+            .. "  |cff888888(" .. trigCount .. " " .. (L["triggers"] or "triggers")
+            .. ", " .. actCount .. " " .. (L["actions"] or "actions") .. ")|r"
+
+        -- 세트를 폴더블 inline group으로 등록
+        options["set_" .. si] = {
+            type = "group",
+            name = setName,
+            order = setOrder,
+            inline = true,
+            args = setArgs,
+        }
+    end
+
+    -- ─── 동작 세트 추가 버튼 ───
+    options["set_add_spacer"] = {
+        type = "description",
+        name = " ",
+        order = 9.98,
+        width = "full",
+    }
+    options["set_add"] = {
+        type = "execute",
+        name = "|cff44ff44+ " .. (L["Add Action Set"] or "Add Action Set") .. "|r",
+        order = 9.99, width = "full",
+        func = function()
+            table.insert(ca.sets, {
+                logic = "and",
+                triggers = {
+                    { source = "child", childIndex = 1, condition = "active", value = 0 },
+                },
+                actions = {
+                    { type = "bar_color", target = "PrimaryPowerBar", color = {1, 0.2, 0.2, 1} },
+                },
+            })
+            RefreshOptions()
+        end,
+    }
+
+    return options
+end
+
+-- Export group functions
+ns.CreateGroupOptions = DDingUI.CreateGroupOptions
+
+
 -- Confirmation dialog for removal
 local confirmDeleteDialog = nil
 local pendingDeleteIndex = nil
@@ -738,8 +1885,8 @@ local function CreateConfirmDeleteDialog()
     local frame = CreateFrame("Frame", "DDingUI_ConfirmDeleteDialog", UIParent, "BackdropTemplate")
     frame:SetSize(280, 120)
     frame:SetPoint("CENTER")
-    frame:SetFrameStrata("DIALOG")
-    frame:SetFrameLevel(150)
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(200)
 
     frame:SetBackdrop({
         bgFile = FLAT,
@@ -1124,7 +2271,33 @@ local function CreateCDMIconGrid(parent)
 
         btn:SetScript("OnClick", function(self)
             if self.entry then
-                ShowAddTrackedBuffDialog(self.entry)
+                if DDingUI._pendingReplaceIndex then
+                    local replaceIdx = DDingUI._pendingReplaceIndex
+                    DDingUI._pendingReplaceIndex = nil
+                    local trackedBuffs = GetTrackedBuffs()
+                    if trackedBuffs[replaceIdx] then
+                        local entry = self.entry
+                        trackedBuffs[replaceIdx].spellID = entry.spellID or 0
+                        trackedBuffs[replaceIdx].cooldownID = entry.cooldownID or trackedBuffs[replaceIdx].cooldownID
+                        trackedBuffs[replaceIdx].name = entry.name or trackedBuffs[replaceIdx].name
+                        trackedBuffs[replaceIdx].icon = entry.icon or trackedBuffs[replaceIdx].icon
+                        if trackedBuffs[replaceIdx].trigger then
+                            trackedBuffs[replaceIdx].trigger.spellID = entry.spellID or 0
+                        end
+                        DDingUI:UpdateBuffTrackerBar()
+                        C_Timer.After(0, function()
+                            local configFrame = _G["DDingUI_ConfigFrame"]
+                            local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
+                            if btPanel then
+                                if btPanel.RefreshList then btPanel:RefreshList() end
+                                if btPanel.SelectTracker then btPanel:SelectTracker(replaceIdx) end
+                            end
+                        end)
+                        print("|cffffffffDDing|r|cffffa300UI|r: |cff00ff00" .. (entry.name or "Spell") .. "|r 으로 주문이 변경되었습니다.")
+                    end
+                else
+                    ShowAddTrackedBuffDialog(self.entry)
+                end
             end
         end)
 
@@ -1149,25 +2322,7 @@ local function CreateCDMIconGrid(parent)
     return cdmIconGridFrame
 end
 
-local function UpdateCDMIconGrid()
-    local entries = GetAvailableCDMAuras()
-
-    for i, btn in ipairs(cdmIconButtons) do
-        local entry = entries[i]
-        if entry then
-            btn.icon:SetTexture(entry.icon or 134400)
-            btn.entry = entry
-            btn:Show()
-        else
-            btn:Hide()
-        end
-    end
-end
-
--- Export for external use (e.g., scan button)
-function DDingUI.UpdateCDMIconGrid()
-    UpdateCDMIconGrid()
-end
+-- [REMOVED] 이전 UpdateCDMIconGrid → CreateCDMIconGridWidget 내부로 이동됨
 
 -- CDM 카탈로그 옵션
 local function CreateCDMCatalogSlotOptions(baseOrder)
@@ -1185,87 +2340,253 @@ local function CreateCDMCatalogSlotOptions(baseOrder)
 end
 
 -- CDM 아이콘 그리드 생성 함수 (GUI.lua에서 호출)
+-- [REFACTOR] 핵심/보조/강화 3섹션으로 분류 표시
 function DDingUI.CreateCDMIconGridWidget(parent)
+    -- 이미 있으면 재사용
     if cdmIconGridFrame then
         cdmIconGridFrame:SetParent(parent)
         cdmIconGridFrame:ClearAllPoints()
         cdmIconGridFrame:Show()
-        UpdateCDMIconGrid()
+        DDingUI.UpdateCDMIconGrid()
         return cdmIconGridFrame
     end
 
     local ICON_SIZE = 36
     local ICON_SPACING = 4
     local ICONS_PER_ROW = 8
-    local MAX_ICONS = 24
+    local MAX_ICONS_PER_SECTION = 16
+    local HEADER_HEIGHT = 18
+    local SECTION_SPACING = 8
+
+    local GUI = DDingUI.GUI or {}
+    local THEME = GUI.THEME or {
+        text = {0.85, 0.85, 0.85, 1},
+        accent = {0.90, 0.45, 0.12},
+        gold = {0.90, 0.45, 0.12, 1},
+        bgWidget = {0.06, 0.06, 0.06, 0.80},
+        border = {0.25, 0.25, 0.25, 0.50},
+    }
+    local StyleFontString = GUI.StyleFontString
 
     cdmIconGridFrame = CreateFrame("Frame", "DDingUICDMIconGrid", parent)
+
+    -- 카테고리 색상
+    local CAT_COLORS = {
+        Essential = {0.2, 0.8, 1.0},      -- 파랑 (핵심)
+        Utility   = {0.2, 1.0, 0.5},      -- 초록 (보조)
+        Buff      = {1.0, 0.75, 0.2},     -- 주황 (강화)
+    }
+    local CAT_LABELS = {
+        Essential = L["Essential Cooldowns"] or "핵심 능력",
+        Utility   = L["Utility Cooldowns"] or "보조 능력",
+        Buff      = L["Tracked Buffs"] or "강화 효과",
+    }
+    local CAT_ORDER = { "Buff", "Essential", "Utility" }
+
+    -- 섹션별 프레임 저장
+    cdmIconGridFrame._sections = {}
+    cdmIconGridFrame._allButtons = {}
+
     local gridWidth = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING) - ICON_SPACING
-    local gridHeight = 3 * (ICON_SIZE + ICON_SPACING) - ICON_SPACING
-    cdmIconGridFrame:SetSize(gridWidth, gridHeight)
 
-    for i = 1, MAX_ICONS do
-        local row = math.floor((i - 1) / ICONS_PER_ROW)
-        local col = (i - 1) % ICONS_PER_ROW
+    for _, catKey in ipairs(CAT_ORDER) do
+        local section = CreateFrame("Frame", nil, cdmIconGridFrame)
+        section:SetWidth(gridWidth)
 
-        local btn = CreateFrame("Button", nil, cdmIconGridFrame, "BackdropTemplate")
-        btn:SetSize(ICON_SIZE, ICON_SIZE)
-        btn:SetPoint("TOPLEFT", col * (ICON_SIZE + ICON_SPACING), -row * (ICON_SIZE + ICON_SPACING))
+        -- 카테고리 헤더
+        local header = section:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        if StyleFontString then StyleFontString(header) end
+        header:SetPoint("TOPLEFT", 0, 0)
+        local c = CAT_COLORS[catKey]
+        header:SetTextColor(c[1], c[2], c[3], 1)
+        header:SetText(CAT_LABELS[catKey])
+        section._header = header
 
-        -- 배경
-        btn:SetBackdrop({
-            bgFile = FLAT,
-            edgeFile = FLAT,
-            edgeSize = 1,
-        })
-        btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-        btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        -- 구분선
+        local line = section:CreateTexture(nil, "ARTWORK")
+        line:SetHeight(1)
+        line:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -2)
+        line:SetPoint("RIGHT", section, "RIGHT", 0, 0)
+        line:SetColorTexture(c[1], c[2], c[3], 0.3)
+        section._line = line
 
-        local icon = btn:CreateTexture(nil, "ARTWORK")
-        icon:SetPoint("TOPLEFT", 2, -2)
-        icon:SetPoint("BOTTOMRIGHT", -2, 2)
-        btn.icon = icon
+        -- 빈 문구
+        local emptyText = section:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        if StyleFontString then StyleFontString(emptyText) end
+        emptyText:SetPoint("TOPLEFT", line, "BOTTOMLEFT", 4, -4)
+        emptyText:SetTextColor(0.5, 0.5, 0.5, 1)
+        emptyText:SetText("|cff666666(없음)|r")
+        emptyText:Hide()
+        section._emptyText = emptyText
 
-        -- 호버 효과
-        btn:SetScript("OnEnter", function(self)
-            self:SetBackdropBorderColor(1, 0.82, 0, 1)
-            if self.entry then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine(self.entry.name or "Unknown", 1, 0.82, 0)
-                GameTooltip:AddLine("cooldownID: " .. (self.entry.cooldownID or 0), 0.5, 0.5, 0.5)
-                if self.entry.spellID and self.entry.spellID > 0 then
-                    GameTooltip:AddLine("spellID: " .. self.entry.spellID, 0.5, 0.5, 0.5)
+        -- 아이콘 버튼들
+        section._buttons = {}
+        for i = 1, MAX_ICONS_PER_SECTION do
+            local row = math.floor((i - 1) / ICONS_PER_ROW)
+            local col = (i - 1) % ICONS_PER_ROW
+
+            local btn = CreateFrame("Button", nil, section, "BackdropTemplate")
+            btn:SetSize(ICON_SIZE, ICON_SIZE)
+            btn:SetPoint("TOPLEFT", col * (ICON_SIZE + ICON_SPACING), -(HEADER_HEIGHT + 4) - row * (ICON_SIZE + ICON_SPACING))
+
+            btn:SetBackdrop({
+                bgFile = FLAT,
+                edgeFile = FLAT,
+                edgeSize = 1,
+            })
+            btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+            btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+            local icon = btn:CreateTexture(nil, "ARTWORK")
+            icon:SetPoint("TOPLEFT", 2, -2)
+            icon:SetPoint("BOTTOMRIGHT", -2, 2)
+            btn.icon = icon
+
+            btn:SetScript("OnEnter", function(self)
+                self:SetBackdropBorderColor(c[1], c[2], c[3], 1)
+                if self.entry then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:AddLine(self.entry.name or "Unknown", 1, 0.82, 0)
+                    GameTooltip:AddLine("|cff888888" .. (CAT_LABELS[catKey] or catKey) .. "|r")
+                    GameTooltip:AddLine(" ")
+                    if self.entry.isAura then
+                        GameTooltip:AddLine("유형: 강화 효과 (버프/디버프)", 0.7, 0.7, 0.7)
+                    else
+                        GameTooltip:AddLine("유형: 능력 (재사용 대기)", 0.7, 0.7, 0.7)
+                    end
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(L["Click to add to tracking"] or "Click to add to tracking", 0, 1, 0)
+                    GameTooltip:Show()
                 end
-                GameTooltip:AddLine(" ")
-                GameTooltip:AddLine(L["Click to add to tracking"] or "Click to add to tracking", 0, 1, 0)
-                GameTooltip:Show()
-            end
-        end)
+            end)
 
-        btn:SetScript("OnLeave", function(self)
-            self:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-            GameTooltip:Hide()
-        end)
+            btn:SetScript("OnLeave", function(self)
+                self:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+                GameTooltip:Hide()
+            end)
 
-        btn:SetScript("OnClick", function(self)
-            if self.entry then
-                ShowAddTrackedBuffDialog(self.entry)
-            end
-        end)
+            btn:SetScript("OnClick", function(self)
+                if self.entry then
+                    -- 교체 모드: 기존 트래커의 주문을 변경
+                    if DDingUI._pendingReplaceIndex then
+                        local replaceIdx = DDingUI._pendingReplaceIndex
+                        DDingUI._pendingReplaceIndex = nil
+                        local trackedBuffs = GetTrackedBuffs()
+                        if trackedBuffs[replaceIdx] then
+                            local entry = self.entry
+                            trackedBuffs[replaceIdx].spellID = entry.spellID or 0
+                            trackedBuffs[replaceIdx].cooldownID = entry.cooldownID or trackedBuffs[replaceIdx].cooldownID
+                            trackedBuffs[replaceIdx].name = entry.name or trackedBuffs[replaceIdx].name
+                            trackedBuffs[replaceIdx].icon = entry.icon or trackedBuffs[replaceIdx].icon
+                            if trackedBuffs[replaceIdx].trigger then
+                                trackedBuffs[replaceIdx].trigger.spellID = entry.spellID or 0
+                            end
+                            DDingUI:UpdateBuffTrackerBar()
+                            -- 리스트 + 설정 패널 갱신
+                            C_Timer.After(0, function()
+                                local configFrame = _G["DDingUI_ConfigFrame"]
+                                local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
+                                if btPanel then
+                                    if btPanel.RefreshList then btPanel:RefreshList() end
+                                    if btPanel.selectedIndex == replaceIdx and btPanel.RenderTrackerTabs then
+                                        btPanel:RenderTrackerTabs(replaceIdx)
+                                    end
+                                    -- 교체 후 해당 트래커를 선택 상태로
+                                    if btPanel.SelectTracker then btPanel:SelectTracker(replaceIdx) end
+                                end
+                            end)
+                            print("|cffffffffDDing|r|cffffa300UI|r: |cff00ff00" .. (entry.name or "Spell") .. "|r 으로 주문이 변경되었습니다.")
+                        end
+                    else
+                        ShowAddTrackedBuffDialog(self.entry)
+                    end
+                end
+            end)
 
-        btn:Hide()
-        cdmIconButtons[i] = btn
+            btn:Hide()
+            section._buttons[i] = btn
+            table.insert(cdmIconGridFrame._allButtons, btn)
+        end
+
+        cdmIconGridFrame._sections[catKey] = section
     end
 
-    UpdateCDMIconGrid()
+    DDingUI.UpdateCDMIconGrid()
     return cdmIconGridFrame
+end
+
+-- CDM 아이콘 그리드 업데이트 (카테고리별 배치)
+function DDingUI.UpdateCDMIconGrid()
+    if not cdmIconGridFrame or not cdmIconGridFrame._sections then return end
+
+    local CDMScanner = DDingUI.CDMScanner
+    if not CDMScanner or not CDMScanner.GetEntriesByCategory then return end
+
+    local grouped = CDMScanner.GetEntriesByCategory()
+    local CAT_ORDER = { "Buff", "Essential", "Utility" }
+
+    local ICON_SIZE = 36
+    local ICON_SPACING = 4
+    local ICONS_PER_ROW = 8
+    local HEADER_HEIGHT = 18
+    local SECTION_SPACING = 10
+
+    local gridWidth = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING) - ICON_SPACING
+    local yOffset = 0
+
+    for _, catKey in ipairs(CAT_ORDER) do
+        local section = cdmIconGridFrame._sections[catKey]
+        if not section then break end
+
+        local entries = grouped[catKey] or {}
+
+        section:ClearAllPoints()
+        section:SetPoint("TOPLEFT", cdmIconGridFrame, "TOPLEFT", 0, -yOffset)
+
+        -- 버튼 업데이트
+        for i, btn in ipairs(section._buttons) do
+            local entry = entries[i]
+            if entry then
+                btn.icon:SetTexture(entry.icon or 134400)
+                btn.entry = entry
+                btn:Show()
+            else
+                btn:Hide()
+            end
+        end
+
+        -- 높이 계산
+        local numEntries = #entries
+        local numRows = (numEntries > 0) and math.ceil(numEntries / ICONS_PER_ROW) or 0
+        local iconsHeight = numRows * (ICON_SIZE + ICON_SPACING)
+        local sectionHeight
+
+        if numEntries == 0 then
+            section._emptyText:Show()
+            sectionHeight = HEADER_HEIGHT + 20
+        else
+            section._emptyText:Hide()
+            sectionHeight = HEADER_HEIGHT + 4 + iconsHeight
+        end
+
+        section:SetHeight(sectionHeight)
+        section:Show()
+
+        yOffset = yOffset + sectionHeight + SECTION_SPACING
+    end
+
+    -- 총 높이 설정
+    cdmIconGridFrame:SetWidth(gridWidth)
+    cdmIconGridFrame:SetHeight(math.max(40, yOffset))
 end
 
 -- CDM 아이콘 그리드 높이 반환 (GUI.lua에서 레이아웃 계산용)
 function DDingUI.GetCDMIconGridHeight()
-    local ICON_SIZE = 36
-    local ICON_SPACING = 4
-    return 3 * (ICON_SIZE + ICON_SPACING) - ICON_SPACING + 10  -- 패딩 포함
+    if cdmIconGridFrame then
+        return cdmIconGridFrame:GetHeight() + 10
+    end
+    -- 기본값: 3섹션 기본 높이
+    return 200
 end
 
 -- ============================================================
@@ -1273,8 +2594,9 @@ end
 -- ============================================================
 
 -- Create a single tracked buff entry options (foldable with detail settings)
-local function CreateTrackedBuffOptions(index, baseOrder)
+local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     -- baseOrder는 이미 호출 시 index별로 계산되어 전달됨
+    -- skipCollapsible: true면 header/remove/spacer 제외, 항상 expanded (커스텀 패널용)
     local orderBase = baseOrder  -- 20 slots per entry (already calculated in caller)
     local options = {}
 
@@ -1284,60 +2606,212 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         return not trackedBuffs[index]
     end
 
-    -- Foldable header row: ▶/▼ Name [Type] [X]
-    options["tracked" .. index .. "_header"] = {
-        type = "execute",
+    -- skipCollapsible: 커스텀 패널에서는 header/remove/spacer 불필요 → 건너뜀
+    if not skipCollapsible then
+        -- Foldable header row: ▶/▼ Name [Type] [X]
+        options["tracked" .. index .. "_header"] = {
+            type = "execute",
+            name = function()
+                local buff = GetTrackedBuff(index)
+                if not buff then return "" end
+                local isEnabled = buff.enabled ~= false
+                local arrow = buff.expanded and "▼ " or "▶ "
+                local icon = buff.icon and string.format("|T%d:16:16:0:0|t ", buff.icon) or ""
+                local typeColors = {
+                    bar = "|cff88ff88[Bar]|r",
+                    ring = "|cff00ffff[Ring]|r",
+                    icon = "|cff8888ff[Icon]|r",
+                    sound = "|cffffaa00[Sound]|r",
+                    text = "|cffff88ff[Text]|r",
+                    trigger = "|cffff6666[Trigger]|r",
+                }
+                local displayType = typeColors[buff.displayType] or "|cffaaaaaa[Unknown]|r"
+                local name = buff.name or "Unknown"
+                if not isEnabled then
+                    return "|cff666666" .. arrow .. icon .. name .. " " .. displayType .. "|r"
+                end
+                return arrow .. icon .. name .. " " .. displayType
+            end,
+            desc = function()
+                local buff = GetTrackedBuff(index)
+                if not buff then return "" end
+                return (L["Click to expand/collapse settings"] or "Click to expand/collapse settings") .. "\ncooldownID: " .. (buff.cooldownID or 0)
+            end,
+            order = orderBase,
+            width = 1.25,
+            hidden = hiddenIfNotExists,
+            func = function()
+                ToggleBuffExpanded(index)
+                RefreshOptions()  -- preserveTab = true
+            end,
+        }
+
+        -- Remove button (오른쪽에 표시)
+        options["tracked" .. index .. "_remove"] = {
+            type = "execute",
+            name = "|cffff4444X|r",
+            desc = L["Remove from tracking"] or "Remove from tracking",
+            order = orderBase + 0.1,
+            width = 0.25,
+            hidden = hiddenIfNotExists,
+            func = function()
+                DDingUI.RemoveTrackedBuff(index)
+            end,
+        }
+    end
+
+    -- Detail settings: skipCollapsible이면 항상 펼침 (expanded)
+    local function hiddenIfCollapsed()
+        if skipCollapsible then return hiddenIfNotExists() end
+        return hiddenIfNotExists() or not IsBuffExpanded(index)
+    end
+
+    -- ============================================================
+    -- TRACKED SPELL INFO (order 0.3 ~ 0.45)
+    -- 추적 중인 주문 정보 표시 + 변경
+    -- ============================================================
+
+    -- Tracked spell info display (read-only description)
+    options["tracked" .. index .. "_spellInfo"] = {
+        type = "description",
         name = function()
             local buff = GetTrackedBuff(index)
             if not buff then return "" end
-            local isEnabled = buff.enabled ~= false
-            local arrow = buff.expanded and "▼ " or "▶ "
-            local icon = buff.icon and string.format("|T%d:16:16:0:0|t ", buff.icon) or ""
-            local typeColors = {
-                bar = "|cff88ff88[Bar]|r",
-                ring = "|cff00ffff[Ring]|r",
-                icon = "|cff8888ff[Icon]|r",
-                sound = "|cffffaa00[Sound]|r",
-                text = "|cffff88ff[Text]|r",
-            }
-            local displayType = typeColors[buff.displayType] or "|cffaaaaaa[Unknown]|r"
-            local name = buff.name or "Unknown"
-            if not isEnabled then
-                return "|cff666666" .. arrow .. icon .. name .. " " .. displayType .. "|r"
+            local spellID = buff.spellID or (buff.trigger and buff.trigger.spellID) or 0
+            local cdID = buff.cooldownID or (buff.trigger and buff.trigger.cooldownID) or ""
+            local mode = buff.trackingMode or "auto"
+            if buff.trigger and buff.trigger.type == "spell" then mode = "spell" end
+
+            local spellName = ""
+            if spellID and spellID > 0 then
+                local ok, name = pcall(C_Spell.GetSpellName, spellID)
+                if ok and name and name ~= "" then spellName = name end
             end
-            return arrow .. icon .. name .. " " .. displayType
+
+            local parts = {}
+            -- 모드 표시
+            local modeLabels = {
+                auto = "|cff88ff88" .. (L["Auto (Aura)"] or "Auto") .. "|r",
+                manual = "|cffffaa00" .. (L["Manual (Spell)"] or "Manual") .. "|r",
+                spell = "|cff00ccff" .. (L["Spell Cooldown"] or "Spell CD") .. "|r",
+                cdm = "|cff44ddff CDM|r",
+            }
+            parts[#parts + 1] = "|cffaaaaaa" .. (L["Mode"] or "Mode") .. ":|r " .. (modeLabels[mode] or mode)
+
+            -- 주문 정보
+            if spellName ~= "" then
+                parts[#parts + 1] = "|cffaaaaaa" .. (L["Spell"] or "Spell") .. ":|r |cffffffff" .. spellName .. "|r |cff666666(ID: " .. spellID .. ")|r"
+            elseif spellID and spellID > 0 then
+                parts[#parts + 1] = "|cffaaaaaa Spell ID:|r |cffffffff" .. spellID .. "|r"
+            end
+            if cdID ~= "" and cdID ~= 0 then
+                parts[#parts + 1] = "|cffaaaaaa CDM ID:|r |cff44ddff" .. tostring(cdID) .. "|r"
+            end
+
+            if #parts == 0 then
+                return "|cff666666" .. (L["No spell assigned"] or "No spell assigned") .. "|r"
+            end
+            return "    " .. table.concat(parts, "\n    ")
         end,
-        desc = function()
+        order = orderBase + 0.3,
+        width = "full",
+        fontSize = "medium",
+        hidden = hiddenIfCollapsed,
+    }
+
+    -- Spell ID input for changing tracked spell
+    options["tracked" .. index .. "_changeSpellID"] = {
+        type = "input",
+        name = "    " .. (L["Change Spell"] or "Change Spell"),
+        desc = (L["Enter a new Spell ID to change the tracked spell. The name and icon will be updated automatically."] or "Enter a new Spell ID to change the tracked spell. The name and icon will be updated automatically."),
+        order = orderBase + 0.35,
+        width = 1.0,
+        hidden = function()
+            local buff = GetTrackedBuff(index)
+            if not buff then return true end
+            local isHidden = false
+            if skipCollapsible then
+                isHidden = hiddenIfNotExists()
+            else
+                isHidden = hiddenIfNotExists() or not IsBuffExpanded(index)
+            end
+            if isHidden then return true end
+            
+            local mode = buff.trackingMode or "auto"
+            return mode ~= "auto"
+        end,
+        get = function()
             local buff = GetTrackedBuff(index)
             if not buff then return "" end
-            return (L["Click to expand/collapse settings"] or "Click to expand/collapse settings") .. "\ncooldownID: " .. (buff.cooldownID or 0)
+            local spellID = buff.spellID or (buff.trigger and buff.trigger.spellID) or 0
+            if spellID == 0 then return "" end
+            return tostring(spellID)
         end,
-        order = orderBase,
-        width = 1.25,
-        hidden = hiddenIfNotExists,
-        func = function()
-            ToggleBuffExpanded(index)
-            RefreshOptions()  -- preserveTab = true
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if not trackedBuffs[index] then return end
+            local newSpellID = tonumber(val)
+            if not newSpellID or newSpellID <= 0 then return end
+
+            -- Update spellID
+            trackedBuffs[index].spellID = newSpellID
+            if trackedBuffs[index].trigger then
+                trackedBuffs[index].trigger.spellID = newSpellID
+            end
+
+            -- Auto-update name and icon from spell info
+            local ok, spellName = pcall(C_Spell.GetSpellName, newSpellID)
+            if ok and spellName and spellName ~= "" then
+                trackedBuffs[index].name = spellName
+            end
+            local iconOk, iconTex = pcall(C_Spell.GetSpellTexture, newSpellID)
+            if iconOk and iconTex then
+                trackedBuffs[index].icon = iconTex
+            end
+
+            DDingUI:UpdateBuffTrackerBar()
+            RefreshOptions()
+            -- 왼쪽 리스트(이름/아이콘) 즉시 갱신
+            C_Timer.After(0, function()
+                local configFrame = _G["DDingUI_ConfigFrame"]
+                local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
+                if btPanel and btPanel.RefreshList then
+                    btPanel:RefreshList()
+                end
+            end)
         end,
     }
 
-    -- Remove button (오른쪽에 표시)
-    options["tracked" .. index .. "_remove"] = {
+    -- Open Catalog Button
+    options["tracked" .. index .. "_openCatalog"] = {
         type = "execute",
-        name = "|cffff4444X|r",
-        desc = L["Remove from tracking"] or "Remove from tracking",
-        order = orderBase + 0.1,
-        width = 0.25,
-        hidden = hiddenIfNotExists,
+        name = L["Select from Catalog"] or "Select from Catalog",
+        desc = L["Go to CDM Catalog to select auras"] or "Go to CDM Catalog to select auras",
+        order = orderBase + 0.36,
+        width = 1.0,
+        hidden = function()
+            local buff = GetTrackedBuff(index)
+            if not buff then return true end
+            local isHidden = false
+            if skipCollapsible then
+                isHidden = hiddenIfNotExists()
+            else
+                isHidden = hiddenIfNotExists() or not IsBuffExpanded(index)
+            end
+            if isHidden then return true end
+            
+            local mode = buff.trackingMode or "auto"
+            return mode ~= "auto"
+        end,
         func = function()
-            DDingUI.RemoveTrackedBuff(index)
+            if DDingUI.OpenAuraCatalog then
+                -- 교체 모드로 카탈로그 열기: 현재 인덱스 전달
+                DDingUI._pendingReplaceIndex = index
+                DDingUI.OpenAuraCatalog()
+            end
         end,
     }
 
-    -- Detail settings (only visible when expanded)
-    local function hiddenIfCollapsed()
-        return hiddenIfNotExists() or not IsBuffExpanded(index)
-    end
 
     -- Enable/Disable toggle (per-buff)
     options["tracked" .. index .. "_enabled"] = {
@@ -1373,6 +2847,7 @@ local function CreateTrackedBuffOptions(index, baseOrder)
             icon = L["Icon"] or "Icon",
             sound = L["Sound"] or "Sound",
             text = L["Text"] or "Text",
+            trigger = L["Trigger Only"] or "Trigger Only",
         },
         get = function()
             local buff = GetTrackedBuff(index)
@@ -1446,7 +2921,10 @@ local function CreateTrackedBuffOptions(index, baseOrder)
     local function hiddenIfNotDuration()
         if hiddenIfNotBar() then return true end
         local buff = GetTrackedBuff(index)
-        return not buff or not buff.settings or buff.settings.barFillMode ~= "duration"
+        if not buff or not buff.settings then return true end
+        -- [FIX] barFillMode가 nil(미설정)이면 기본값 "duration"으로 간주
+        local mode = buff.settings.barFillMode or "duration"
+        return mode ~= "duration"
     end
 
     -- Helper: Hide when not sound mode
@@ -1477,6 +2955,15 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         return not buff or buff.trackingMode ~= "manual"
     end
 
+    -- Helper: Hide when not spell tracking mode
+    local function hiddenIfNotSpell()
+        if hiddenIfCollapsed() then return true end
+        local buff = GetTrackedBuff(index)
+        if not buff then return true end
+        if buff.trigger and buff.trigger.type == "spell" then return false end
+        return buff.trackingMode ~= "spell"
+    end
+
     -- ============================================================
     -- TRACKING MODE OPTIONS (order 0.5 ~ 0.9)
     -- ============================================================
@@ -1492,15 +2979,22 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         values = {
             auto = L["Auto (Aura)"] or "Auto (Aura)",
             manual = L["Manual (Spell)"] or "Manual (Spell)",
+            spell = L["Spell Cooldown"] or "Spell Cooldown",
         },
         get = function()
             local buff = GetTrackedBuff(index)
-            return buff and buff.trackingMode or "auto"
+            if not buff then return "auto" end
+            if buff.trigger and buff.trigger.type == "spell" then return "spell" end
+            return buff.trackingMode or "auto"
         end,
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] then
                 trackedBuffs[index].trackingMode = val
+                -- Clear spell trigger when switching away from spell mode
+                if val ~= "spell" and trackedBuffs[index].trigger then
+                    trackedBuffs[index].trigger.type = nil
+                end
                 -- Initialize settings and generators/spenders if switching to manual
                 if val == "manual" then
                     -- Ensure settings table exists
@@ -1511,9 +3005,263 @@ local function CreateTrackedBuffOptions(index, baseOrder)
                     trackedBuffs[index].settings.spenders = trackedBuffs[index].settings.spenders or {}
                     trackedBuffs[index].settings.maxStacks = trackedBuffs[index].settings.maxStacks or 10
                     trackedBuffs[index].settings.stackDuration = trackedBuffs[index].settings.stackDuration or 30
+                elseif val == "spell" then
+                    -- Initialize trigger for spell mode
+                    if not trackedBuffs[index].trigger then
+                        trackedBuffs[index].trigger = {}
+                    end
+                    trackedBuffs[index].trigger.type = "spell"
+                    trackedBuffs[index].trigger.spellID = trackedBuffs[index].spellID or 0
+                    trackedBuffs[index].trigger.hideWhenZero = false
                 end
                 DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()
+            end
+        end,
+    }
+
+
+    -- Spell Cooldown Mode Header
+    options["tracked" .. index .. "_spellHeader"] = {
+        type = "description",
+        name = "\n|cff00ccff━━━ " .. (L["Spell Cooldown Settings"] or "Spell Cooldown Settings") .. " ━━━|r",
+        order = orderBase + 0.55,
+        width = "full",
+        fontSize = "medium",
+        hidden = hiddenIfNotSpell,
+    }
+
+    -- Spell ID Input
+    options["tracked" .. index .. "_spellID"] = {
+        type = "input",
+        name = "    " .. (L["Spell ID"] or "Spell ID"),
+        desc = L["Enter the spell ID to track cooldown for"] or "Enter the spell ID to track cooldown for",
+        order = orderBase + 0.56,
+        width = 1.0,
+        hidden = hiddenIfNotSpell,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            if buff and buff.trigger and buff.trigger.spellID then
+                return tostring(buff.trigger.spellID)
+            end
+            return "0"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                local spellID = tonumber(val) or 0
+                if not trackedBuffs[index].trigger then trackedBuffs[index].trigger = {} end
+                trackedBuffs[index].trigger.spellID = spellID
+                trackedBuffs[index].spellID = spellID
+                -- Auto-set name and icon from spell info
+                if spellID > 0 then
+                    local name = C_Spell.GetSpellName(spellID)
+                    if name then trackedBuffs[index].name = name end
+                    local info = C_Spell.GetSpellInfo(spellID)
+                    if info and info.iconID then trackedBuffs[index].icon = info.iconID end
+                end
+                DDingUI:UpdateBuffTrackerBar()
+                -- RefreshOptions() 제거 — 입력 중 리프레시 방지
+            end
+        end,
+    }
+
+    -- [Phase 1] Fill Direction (spell mode only)
+    options["tracked" .. index .. "_spellFillDirection"] = {
+        type = "select",
+        name = "    " .. (L["Fill Direction"] or "Fill Direction"),
+        desc = L["Bar fill direction during cooldown"] or "Bar fill direction during cooldown",
+        order = orderBase + 0.57,
+        width = 0.7,
+        hidden = hiddenIfNotSpell,
+        values = {
+            drain = L["Drain (shrink)"] or "Drain (shrink)",
+            fill = L["Fill (grow)"] or "Fill (grow)",
+        },
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.display and buff.display.spellBarFillDirection or "drain"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellBarFillDirection = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- [Phase 2] Recharge Color (spell mode, charge spells)
+    options["tracked" .. index .. "_spellRechargeColor"] = {
+        type = "color",
+        name = "    " .. (L["Recharge Color"] or "Recharge Color"),
+        desc = L["Bar color while recharging"] or "Bar color while recharging",
+        order = orderBase + 0.571,
+        width = 0.5,
+        hasAlpha = true,
+        hidden = hiddenIfNotSpell,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local c = buff and buff.display and buff.display.spellRechargeColor
+            if c then return c[1], c[2], c[3], c[4] or 1 end
+            local bc = buff and buff.display and buff.display.barColor or {1, 0.8, 0, 1}
+            return bc[1], bc[2], bc[3], bc[4] or 1
+        end,
+        set = function(_, r, g, b, a)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellRechargeColor = {r, g, b, a or 1}
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- [Phase 2] Full Charge Color
+    options["tracked" .. index .. "_spellFullChargeColor"] = {
+        type = "color",
+        name = "    " .. (L["Full Charge Color"] or "Full Charge Color"),
+        desc = L["Bar color when all charges are full"] or "Bar color when all charges are full",
+        order = orderBase + 0.572,
+        width = 0.5,
+        hasAlpha = true,
+        hidden = hiddenIfNotSpell,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local c = buff and buff.display and buff.display.spellFullChargeColor
+            if c then return c[1], c[2], c[3], c[4] or 1 end
+            local bc = buff and buff.display and buff.display.barColor or {1, 0.8, 0, 1}
+            return bc[1], bc[2], bc[3], bc[4] or 1
+        end,
+        set = function(_, r, g, b, a)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellFullChargeColor = {r, g, b, a or 1}
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- [Phase 3] Ready Style
+    options["tracked" .. index .. "_spellReadyStyle"] = {
+        type = "select",
+        name = "    " .. (L["Ready Style"] or "Ready Style"),
+        desc = L["How the bar looks when spell is ready"] or "How the bar looks when spell is ready",
+        order = orderBase + 0.573,
+        width = 0.7,
+        hidden = hiddenIfNotSpell,
+        values = {
+            full = L["Full Bar"] or "Full Bar",
+            glow = L["Glow Effect"] or "Glow Effect",
+            hide = L["Hide Bar"] or "Hide Bar",
+        },
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.display and buff.display.spellReadyStyle or "full"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellReadyStyle = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- [Phase 3] Ready Color
+    options["tracked" .. index .. "_spellReadyColor"] = {
+        type = "color",
+        name = "    " .. (L["Ready Color"] or "Ready Color"),
+        desc = L["Bar color when spell is ready"] or "Bar color when spell is ready",
+        order = orderBase + 0.574,
+        width = 0.5,
+        hasAlpha = true,
+        hidden = function()
+            if hiddenIfNotSpell() then return true end
+            local buff = GetTrackedBuff(index)
+            return buff and buff.display and buff.display.spellReadyStyle == "hide"
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local c = buff and buff.display and buff.display.spellReadyColor
+            if c then return c[1], c[2], c[3], c[4] or 1 end
+            local bc = buff and buff.display and buff.display.barColor or {1, 0.8, 0, 1}
+            return bc[1], bc[2], bc[3], bc[4] or 1
+        end,
+        set = function(_, r, g, b, a)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellReadyColor = {r, g, b, a or 1}
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- [Phase 3] Show "Ready" Text
+    options["tracked" .. index .. "_spellShowReadyText"] = {
+        type = "toggle",
+        name = "    " .. (L["Show 'Ready' Text"] or "Show 'Ready' Text"),
+        order = orderBase + 0.575,
+        width = "full",
+        hidden = hiddenIfNotSpell,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.display and buff.display.spellShowReadyText
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellShowReadyText = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- Show Duration Inside Charge Slots (rune-timer style)
+    options["tracked" .. index .. "_spellDurationInSlot"] = {
+        type = "toggle",
+        name = "    " .. (L["Show Duration In Slots"] or "칸 안에 표시"),
+        desc = L["Show cooldown text inside each charge slot instead of the shared duration text"] or "각 충전 칸 안에 재사용 대기시간을 표시합니다",
+        order = orderBase + 0.5755,
+        width = "full",
+        hidden = hiddenIfNotSpell,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.display and buff.display.spellDurationInSlot
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellDurationInSlot = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- [Phase 4] Color Curve Toggle
+    options["tracked" .. index .. "_spellColorCurve"] = {
+        type = "toggle",
+        name = "    " .. (L["Color Curve (Time → Color)"] or "Color Curve (Time → Color)"),
+        desc = L["Bar color changes based on remaining cooldown: Green → Yellow → Red"] or "Bar color changes based on remaining cooldown: Green → Yellow → Red",
+        order = orderBase + 0.576,
+        width = "full",
+        hidden = hiddenIfNotSpell,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.display and buff.display.spellColorCurveEnabled
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                if not trackedBuffs[index].display then trackedBuffs[index].display = {} end
+                trackedBuffs[index].display.spellColorCurveEnabled = val
+                DDingUI:UpdateBuffTrackerBar()
             end
         end,
     }
@@ -3270,7 +5018,10 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         hidden = function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
-            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring")
+            if not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring") then return true end
+            -- Spell 모드: maxCharges 자동 감지, 수동 설정 불필요
+            if buff.trigger and buff.trigger.type == "spell" then return true end
+            return false
         end,
         get = function()
             local buff = GetTrackedBuff(index)
@@ -3289,17 +5040,19 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         end,
     }
 
-    -- Stack Duration (bar와 ring 둘 다 표시, 자동 감지 비활성화 시에만)
+    -- Stack Duration (모든 displayType에서 표시, auto-detect 비활성화 시에만)
     options["tracked" .. index .. "_duration"] = {
         type = "range",
-        name = "    " .. (L["Duration (sec)"] or "Duration (sec)"),
-        order = orderBase + 3,
+        name = "    " .. (L["Max Duration (sec)"] or "Max Duration (sec)"),
+        desc = L["Maximum duration for manual countdown. Used by duration triggers and ring/bar fill."] or "Maximum duration for manual countdown. Used by duration triggers and ring/bar fill.",
+        order = orderBase + 0.85,
         width = 0.55,
-        min = 0, max = 120, step = 1,
+        min = 0, max = 600, step = 1,
         hidden = function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
-            if not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring") then return true end
+            if not buff then return true end
+            if buff.trigger and buff.trigger.type == "spell" then return true end
             return buff.settings and buff.settings.dynamicDuration
         end,
         get = function()
@@ -3325,7 +5078,10 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         hidden = function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
-            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring")
+            if not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring") then return true end
+            -- Spell 모드: CDM 지속시간 감지 불필요 (쿨다운 자체가 지속시간)
+            if buff.trigger and buff.trigger.type == "spell" then return true end
+            return false
         end,
         get = function()
             local buff = GetTrackedBuff(index)
@@ -3345,10 +5101,17 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         end,
     }
 
-    -- Hide When Zero (bar와 ring 둘 다 표시)
+    -- Hide When Zero / Hide When Full Charge (spell 모드에서 레이블 변경)
     options["tracked" .. index .. "_hideWhenZero"] = {
         type = "toggle",
-        name = "    " .. (L["Hide at 0 stacks"] or "Hide at 0 stacks"),
+        name = function()
+            local buff = GetTrackedBuff(index)
+            local isSpell = buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell"))
+            if isSpell then
+                return "    " .. (L["Hide when fully charged"] or "Hide when fully charged")
+            end
+            return "    " .. (L["Hide at 0 stacks"] or "Hide at 0 stacks")
+        end,
         order = orderBase + 4,
         width = 0.7,
         hidden = function()
@@ -3358,12 +5121,23 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         end,
         get = function()
             local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.hideWhenZero
+            if not buff or not buff.settings then return false end
+            local isSpell = buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell")
+            if isSpell then
+                return buff.settings.hideWhenFullCharge
+            end
+            return buff.settings.hideWhenZero
         end,
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.hideWhenZero = val
+                local buff = trackedBuffs[index]
+                local isSpell = buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell")
+                if isSpell then
+                    trackedBuffs[index].settings.hideWhenFullCharge = val
+                else
+                    trackedBuffs[index].settings.hideWhenZero = val
+                end
                 DDingUI:UpdateBuffTrackerBar()
             end
         end,
@@ -3419,18 +5193,14 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         end,
     }
 
-    -- Hide from CDM (쿨다운 관리자에서 숨기기)
+    -- Hide from CDM (쿨다운 관리자에서 숨기기) → General 탭
     options["tracked" .. index .. "_hideFromCDM"] = {
         type = "toggle",
         name = "    " .. (L["Hide from CDM"] or "Hide from CDM"),
         desc = L["Hide this buff from Cooldown Manager when tracked (avoids duplication)"] or "Hide this buff from Cooldown Manager when tracked (avoids duplication)",
-        order = orderBase + 4.5,
+        order = orderBase + 1.06,  -- [FIX] General 탭(0~1.09) 범위로 이동
         width = 0.7,
-        hidden = function()
-            if hiddenIfCollapsed() then return true end
-            local buff = GetTrackedBuff(index)
-            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring" and buff.displayType ~= "icon")
-        end,
+        hidden = hiddenIfCollapsed,  -- 모든 displayType에 표시
         get = function()
             local buff = GetTrackedBuff(index)
             return buff and buff.settings and buff.settings.hideFromCDM
@@ -3441,6 +5211,168 @@ local function CreateTrackedBuffOptions(index, baseOrder)
                 trackedBuffs[index].settings.hideFromCDM = val
                 DDingUI:UpdateBuffTrackerBar()
             end
+        end,
+    }
+
+    -- ============================================================
+    -- ACTIVATION CONDITION (활성조건 - order 1.07 ~ 1.09)
+    -- 해당 스킬을 배웠거나, 특정 특성을 배웠을 때만 트래커 활성화
+    -- ============================================================
+
+    -- Header
+    options["tracked" .. index .. "_activationHeader"] = {
+        type = "description",
+        name = "\n|cff88ccff━━━ " .. (L["Activation Condition"] or "활성조건") .. " ━━━|r",
+        order = orderBase + 1.07,
+        width = "full",
+        fontSize = "medium",
+        hidden = hiddenIfCollapsed,
+    }
+
+    -- Activation Type
+    options["tracked" .. index .. "_activationType"] = {
+        type = "select",
+        name = "    " .. (L["Condition Type"] or "조건 유형"),
+        desc = (L["Choose when this tracker should be active"] or "이 트래커를 언제 활성화할지 선택합니다"),
+        order = orderBase + 1.071,
+        width = 0.8,
+        hidden = hiddenIfCollapsed,
+        values = {
+            ["none"] = L["Always Active"] or "항상 활성",
+            ["spell"] = L["Spell Known"] or "스킬 습득 시",
+            ["talent"] = L["Talent Learned"] or "특성 습득 시",
+        },
+        sorting = { "none", "spell", "talent" },
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.activationType or "none"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.activationType = val
+                DDingUI:UpdateBuffTrackerBar()
+                RefreshOptions()
+            end
+        end,
+    }
+
+    -- Spell Known: spellID input
+    options["tracked" .. index .. "_activationSpellID"] = {
+        type = "input",
+        name = "    " .. (L["Spell ID"] or "스킬 ID"),
+        desc = (L["Enter spell ID to check. Leave empty to use cooldownID."] or "확인할 스킬 ID를 입력하세요. 비워두면 cooldownID를 사용합니다."),
+        order = orderBase + 1.072,
+        width = 0.6,
+        hidden = function()
+            if hiddenIfCollapsed() then return true end
+            local buff = GetTrackedBuff(index)
+            return not buff or not buff.settings or buff.settings.activationType ~= "spell"
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local id = buff and buff.settings and buff.settings.activationSpellID
+            if id and id > 0 then return tostring(id) end
+            return ""
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.activationSpellID = tonumber(val) or 0
+                DDingUI:UpdateBuffTrackerBar()
+                RefreshOptions()
+            end
+        end,
+    }
+
+    -- Spell Known: preview
+    options["tracked" .. index .. "_activationSpellPreview"] = {
+        type = "description",
+        name = function()
+            local buff = GetTrackedBuff(index)
+            local spellID = buff and buff.settings and buff.settings.activationSpellID
+            if not spellID or spellID <= 0 then
+                spellID = buff and buff.cooldownID or 0
+            end
+            if spellID and spellID > 0 then
+                local name = C_Spell.GetSpellName(spellID)
+                local known = IsPlayerSpell(spellID)
+                local status = known and "|cff00ff00[O] 습득|r" or "|cffff4444[X] 미습득|r"
+                return "    > " .. (name or "?") .. " " .. status
+            end
+            return "    > (ID 없음)"
+        end,
+        order = orderBase + 1.073,
+        width = "full",
+        fontSize = "small",
+        hidden = function()
+            if hiddenIfCollapsed() then return true end
+            local buff = GetTrackedBuff(index)
+            return not buff or not buff.settings or buff.settings.activationType ~= "spell"
+        end,
+    }
+
+    -- Talent: nodeID input
+    options["tracked" .. index .. "_activationTalentID"] = {
+        type = "input",
+        name = "    " .. (L["Talent Node ID"] or "특성 노드 ID"),
+        desc = (L["Enter talent node ID. The talent name will be shown for verification."] or "특성 노드 ID를 입력하세요. 확인을 위해 특성 이름이 표시됩니다."),
+        order = orderBase + 1.074,
+        width = 0.6,
+        hidden = function()
+            if hiddenIfCollapsed() then return true end
+            local buff = GetTrackedBuff(index)
+            return not buff or not buff.settings or buff.settings.activationType ~= "talent"
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local id = buff and buff.settings and buff.settings.activationTalentID
+            if id and id > 0 then return tostring(id) end
+            return ""
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.activationTalentID = tonumber(val) or 0
+                DDingUI:UpdateBuffTrackerBar()
+                RefreshOptions()
+            end
+        end,
+    }
+
+    -- Talent: preview
+    options["tracked" .. index .. "_activationTalentPreview"] = {
+        type = "description",
+        name = function()
+            local buff = GetTrackedBuff(index)
+            local nodeID = buff and buff.settings and buff.settings.activationTalentID
+            if nodeID and nodeID > 0 then
+                local configID = C_ClassTalents.GetActiveConfigID()
+                if configID then
+                    local nodeInfo = nil
+                    pcall(function() nodeInfo = C_Traits.GetNodeInfo(configID, nodeID) end)
+                    if nodeInfo and nodeInfo.entryIDs and #nodeInfo.entryIDs > 0 then
+                        local entryInfo = nil
+                        pcall(function() entryInfo = C_Traits.GetEntryInfo(configID, nodeInfo.entryIDs[1]) end)
+                        local defInfo = entryInfo and entryInfo.definitionID and C_Traits.GetDefinitionInfo(entryInfo.definitionID)
+                        local spellName = defInfo and defInfo.spellID and C_Spell.GetSpellName(defInfo.spellID)
+                        local rank = nodeInfo.activeRank or 0
+                        local maxRank = nodeInfo.maxRanks or 1
+                        local status = rank > 0 and ("|cff00ff00[O] " .. rank .. "/" .. maxRank .. "|r") or "|cffff4444[X] 미습득|r"
+                        return "    > " .. (spellName or "Node " .. nodeID) .. " " .. status
+                    end
+                end
+                return "    > Node " .. nodeID .. " (조회 불가)"
+            end
+            return "    > (ID 없음)"
+        end,
+        order = orderBase + 1.075,
+        width = "full",
+        fontSize = "small",
+        hidden = function()
+            if hiddenIfCollapsed() then return true end
+            local buff = GetTrackedBuff(index)
+            return not buff or not buff.settings or buff.settings.activationType ~= "talent"
         end,
     }
 
@@ -3478,19 +5410,46 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         name = "    " .. (L["Bar Fill Mode"] or "Bar Fill Mode"),
         order = orderBase + 4.6,
         width = 0.7,
-        hidden = hiddenIfNotBar,
+        hidden = function()
+            if hiddenIfNotBar() then return true end
+            local buff = GetTrackedBuff(index)
+            -- Spell 모드: 항상 쿨다운/충전 기반 fill, 모드 선택 불필요
+            if buff and buff.trigger and buff.trigger.type == "spell" then return true end
+            return false
+        end,
         values = {
-            stacks = L["Stacks"] or "Stacks",
             duration = L["Duration"] or "Duration",
         },
         get = function()
             local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.barFillMode or "stacks"
+            return "duration"  -- 항상 duration (stacks는 시크릿밸류 이슈로 삭제됨)
         end,
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] and trackedBuffs[index].settings then
                 trackedBuffs[index].settings.barFillMode = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    -- Max Duration for bar fill (duration mode only)
+    options["tracked" .. index .. "_barMaxDuration"] = {
+        type = "range",
+        name = "    " .. (L["Max Duration (sec)"] or "Max Duration (sec)"),
+        desc = L["Maximum duration for manual countdown. Used by duration triggers and ring/bar fill."] or "Maximum duration for manual countdown. Set to 0 to use API duration.",
+        order = orderBase + 4.65,
+        width = 1.0,
+        min = 0, max = 120, step = 0.5,
+        hidden = hiddenIfNotDuration,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.maxDuration or 0
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.maxDuration = (val > 0) and val or nil
                 DDingUI:UpdateBuffTrackerBar()
             end
         end,
@@ -3502,7 +5461,7 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         type = "input",
         name = "    " .. (L["Duration Tick Positions"] or "Duration Tick Positions"),
         desc = (L["Duration Tick Positions Desc"] or "Enter positions as percentages (0-100), separated by commas. Example: 30 for pandemic threshold."),
-        order = orderBase + 5.98,
+        order = orderBase + 4.98,
         width = 1.0,
         hidden = hiddenIfNotDuration,
         get = function()
@@ -3543,14 +5502,22 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         end,
     }
 
-    -- Bar Color (bar mode only)
+    -- Bar Color (bar mode only, spell 모드에서는 숨김 — display.barColor와 중복)
     options["tracked" .. index .. "_barColor"] = {
         type = "color",
         name = "    " .. (L["Bar Color"] or "Bar Color"),
         order = orderBase + 4.8,
         width = 0.5,
         hasAlpha = true,
-        hidden = hiddenIfNotBar,
+        hidden = function()
+            if hiddenIfNotBar() then return true end
+            -- spell 모드에서는 display.barColor가 있으므로 중복 숨김
+            local buff = GetTrackedBuff(index)
+            if buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell")) then
+                return true
+            end
+            return false
+        end,
         get = function()
             local buff = GetTrackedBuff(index)
             if buff and buff.settings and buff.settings.barColor then
@@ -3572,17 +5539,29 @@ local function CreateTrackedBuffOptions(index, baseOrder)
     -- Stacks Text Header
     options["tracked" .. index .. "_stacksTextHeader"] = {
         type = "description",
-        name = "\n|cffffaa00━━━ " .. (L["Stacks Text"] or "Stacks Text") .. " ━━━|r",
+        name = function()
+            local buff = GetTrackedBuff(index)
+            local isSpell = buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell"))
+            local label = isSpell and (L["Charge Text"] or "Charge Text") or (L["Stacks Text"] or "Stacks Text")
+            return "\n|cffffaa00━━━ " .. label .. " ━━━|r"
+        end,
         order = orderBase + 6.0,
         width = "full",
         fontSize = "medium",
         hidden = hiddenIfNotBar,
     }
 
-    -- Show Stacks Text
+    -- Show Stacks/Charge Text
     options["tracked" .. index .. "_showStacksText"] = {
         type = "toggle",
-        name = "    " .. (L["Show Stacks Text"] or "Show Stacks Text"),
+        name = function()
+            local buff = GetTrackedBuff(index)
+            local isSpell = buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell"))
+            if isSpell then
+                return "    " .. (L["Show Charge Text"] or "Show Charge Text")
+            end
+            return "    " .. (L["Show Stacks Text"] or "Show Stacks Text")
+        end,
         order = orderBase + 6.1,
         width = 0.7,
         hidden = hiddenIfNotBar,
@@ -3752,17 +5731,29 @@ local function CreateTrackedBuffOptions(index, baseOrder)
     -- Duration Text Header
     options["tracked" .. index .. "_durationTextHeader"] = {
         type = "description",
-        name = "\n|cff88ddff━━━ " .. (L["Duration Text"] or "Duration Text") .. " ━━━|r",
+        name = function()
+            local buff = GetTrackedBuff(index)
+            local isSpell = buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell"))
+            local label = isSpell and (L["Cooldown Text"] or "Cooldown Text") or (L["Duration Text"] or "Duration Text")
+            return "\n|cff88ddff━━━ " .. label .. " ━━━|r"
+        end,
         order = orderBase + 7.0,
         width = "full",
         fontSize = "medium",
         hidden = hiddenIfNotBarOrIconOrText,
     }
 
-    -- Show Duration Text
+    -- Show Duration/Cooldown Text
     options["tracked" .. index .. "_showDurationText"] = {
         type = "toggle",
-        name = "    " .. (L["Show Duration Text"] or "Show Duration Text"),
+        name = function()
+            local buff = GetTrackedBuff(index)
+            local isSpell = buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell"))
+            if isSpell then
+                return "    " .. (L["Show Cooldown Text"] or "Show Cooldown Text")
+            end
+            return "    " .. (L["Show Duration Text"] or "Show Duration Text")
+        end,
         order = orderBase + 7.1,
         width = 0.7,
         hidden = hiddenIfNotBarOrIconOrText,
@@ -4424,29 +6415,7 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         end,
     }
 
-    -- Ring Fill Mode
-    options["tracked" .. index .. "_ringFillMode"] = {
-        type = "select",
-        name = "    " .. (L["Ring Fill Mode"] or "링 채움 모드"),
-        order = orderBase + 6.15,
-        width = 0.7,
-        hidden = hiddenIfNotRing,
-        values = {
-            stacks = L["Stacks"] or "Stacks",
-            duration = L["Duration"] or "Duration",
-        },
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.ringFillMode or "stacks"
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.ringFillMode = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    -- Ring Fill Mode: 링은 항상 duration 모드 (드롭다운 제거됨)
 
     -- Ring Reverse (reverse fill direction)
     options["tracked" .. index .. "_ringReverse"] = {
@@ -4798,7 +6767,7 @@ local function CreateTrackedBuffOptions(index, baseOrder)
     -- Alert Header
     options["tracked" .. index .. "_alertHeader"] = {
         type = "description",
-        name = "\n|cffff88ff━━━ " .. (L["Alert System"] or "Alert System") .. " ━━━|r",
+        name = "\n|cffff88ff━━━ " .. (L["Conditional Actions"] or "Conditional Actions") .. " ━━━|r",
         order = orderBase + 8.0,
         width = "full",
         fontSize = "medium",
@@ -4808,8 +6777,8 @@ local function CreateTrackedBuffOptions(index, baseOrder)
     -- Alerts Enabled toggle
     options["tracked" .. index .. "_alertEnabled"] = {
         type = "toggle",
-        name = "    " .. (L["Enable Alerts"] or "Enable Alerts"),
-        desc = L["Enable trigger-action alert system"] or "Enable trigger-action alert system",
+        name = "    " .. (L["Enable Actions"] or "Enable Actions"),
+        desc = L["Enable trigger-action alert system"] or "Enable trigger-action system",
         order = orderBase + 8.01,
         width = 0.8,
         hidden = hiddenIfSoundMode,
@@ -4822,6 +6791,7 @@ local function CreateTrackedBuffOptions(index, baseOrder)
             if alerts then
                 alerts.enabled = val
                 DDingUI:UpdateBuffTrackerBar()
+                RefreshOptions()
             end
         end,
     }
@@ -4871,7 +6841,7 @@ local function CreateTrackedBuffOptions(index, baseOrder)
             hidden = hiddenIfTriggerNotExists,
             values = {
                 duration = L["Duration"] or "Duration",
-                -- stacks: 전투 중 applications가 secret number라 비교 불가 (WoW 12.0+)
+                stacks = L["Stacks"] or "Stacks",
                 active = L["Active"] or "Active",
             },
             get = function()
@@ -4888,6 +6858,9 @@ local function CreateTrackedBuffOptions(index, baseOrder)
                         alerts.triggers[trigIdx].op = "=="
                     elseif val == "duration" then
                         alerts.triggers[trigIdx].value = 5
+                        alerts.triggers[trigIdx].op = "<="
+                    elseif val == "stacks" then
+                        alerts.triggers[trigIdx].value = 3
                         alerts.triggers[trigIdx].op = "<="
                     end
                     DDingUI:UpdateBuffTrackerBar()
@@ -5028,7 +7001,13 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         hidden = hiddenIfAlertsOff,
     }
 
-    -- Action slots (5 max)
+    -- Action type display names
+    local actionTypeDisplayNames = {
+        color = L["Color"] or "Color",
+        sound = L["Sound"] or "Sound",
+    }
+
+    -- Action slots (5 max) — 폴더블 inline group
     for actIdx = 1, MAX_ALERT_ACTIONS do
         local actOrderBase = orderBase + 8.50 + (actIdx - 1) * 0.08
 
@@ -5039,27 +7018,14 @@ local function CreateTrackedBuffOptions(index, baseOrder)
             return not actions or not actions[actIdx]
         end
 
-        local function hiddenIfNotColorAction()
-            if hiddenIfActionNotExists() then return true end
-            local buff = GetTrackedBuff(index)
-            local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
-            return not a or a.type ~= "color"
-        end
-
-        local function hiddenIfNotSoundAction()
-            if hiddenIfActionNotExists() then return true end
-            local buff = GetTrackedBuff(index)
-            local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
-            return not a or a.type ~= "sound"
-        end
+        -- 각 동작의 세부 옵션을 inline group args로
+        local actionArgs = {}
 
         -- Action type select
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_type"] = {
+        actionArgs["type"] = {
             type = "select",
-            name = "    A" .. actIdx,
-            order = actOrderBase,
-            width = 0.4,
-            hidden = hiddenIfActionNotExists,
+            name = L["Type"] or "Type",
+            order = 1, width = 0.4,
             values = {
                 color = L["Color"] or "Color",
                 sound = L["Sound"] or "Sound",
@@ -5077,7 +7043,7 @@ local function CreateTrackedBuffOptions(index, baseOrder)
                         alerts.actions[actIdx].color = alerts.actions[actIdx].color or { 1, 0, 0, 1 }
                     elseif val == "sound" then
                         alerts.actions[actIdx].soundFile = alerts.actions[actIdx].soundFile or "None"
-                        alerts.actions[actIdx].soundCustomPath = alerts.actions[actIdx].soundCustomPath or "" -- [12.0.1]
+                        alerts.actions[actIdx].soundCustomPath = alerts.actions[actIdx].soundCustomPath or ""
                         alerts.actions[actIdx].soundChannel = alerts.actions[actIdx].soundChannel or "Master"
                         alerts.actions[actIdx].soundMode = alerts.actions[actIdx].soundMode or "once"
                         alerts.actions[actIdx].soundCooldown = alerts.actions[actIdx].soundCooldown or 3
@@ -5089,12 +7055,10 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         }
 
         -- Action condition select
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_condition"] = {
+        actionArgs["condition"] = {
             type = "select",
-            name = "",
-            order = actOrderBase + 0.01,
-            width = 0.4,
-            hidden = hiddenIfActionNotExists,
+            name = L["Condition"] or "Condition",
+            order = 2, width = 0.4,
             values = function()
                 local vals = { any = L["Any Trigger"] or "Any Trigger" }
                 local buff = GetTrackedBuff(index)
@@ -5119,13 +7083,16 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         }
 
         -- Color picker (color action only)
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_color"] = {
+        actionArgs["color"] = {
             type = "color",
-            name = "",
-            order = actOrderBase + 0.02,
-            width = 0.2,
+            name = L["Color"] or "Color",
+            order = 3, width = 0.2,
             hasAlpha = true,
-            hidden = hiddenIfNotColorAction,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "color"
+            end,
             get = function()
                 local buff = GetTrackedBuff(index)
                 local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
@@ -5141,13 +7108,46 @@ local function CreateTrackedBuffOptions(index, baseOrder)
             end,
         }
 
-        -- Sound file select (sound action only)
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_soundFile"] = {
+        -- Color target select (color action only)
+        actionArgs["colorTarget"] = {
             type = "select",
-            name = "",
-            order = actOrderBase + 0.02,
-            width = 0.5,
-            hidden = hiddenIfNotSoundAction,
+            name = L["Target"] or "적용 대상",
+            order = 3.5, width = 0.4,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "color"
+            end,
+            values = {
+                self = L["Tracker (Self)"] or "해당 트래커",
+                group = L["Group"] or "같은 그룹 트래커",
+                bar = L["Resource Bar"] or "자원바",
+                secondary_bar = L["Secondary Bar"] or "보조 자원바",
+            },
+            get = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return a and a.colorTarget or "self"
+            end,
+            set = function(_, val)
+                local alerts = EnsureAlerts(index)
+                if alerts and alerts.actions[actIdx] then
+                    alerts.actions[actIdx].colorTarget = val
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end,
+        }
+
+        -- Sound file select (sound action only)
+        actionArgs["soundFile"] = {
+            type = "select",
+            name = L["Sound File"] or "Sound File",
+            order = 3, width = 0.5,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "sound"
+            end,
             values = function()
                 local values = {}
                 local list = LSM:List("sound")
@@ -5177,12 +7177,15 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         }
 
         -- Sound channel (sound action only)
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_soundChannel"] = {
+        actionArgs["soundChannel"] = {
             type = "select",
-            name = "",
-            order = actOrderBase + 0.03,
-            width = 0.3,
-            hidden = hiddenIfNotSoundAction,
+            name = L["Channel"] or "Channel",
+            order = 4, width = 0.3,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "sound"
+            end,
             values = {
                 Master = L["Master"] or "Master",
                 SFX = L["SFX"] or "SFX",
@@ -5204,12 +7207,15 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         }
 
         -- Sound mode (once/repeat) (sound action only)
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_soundMode"] = {
+        actionArgs["soundMode"] = {
             type = "select",
-            name = "",
-            order = actOrderBase + 0.04,
-            width = 0.35,
-            hidden = hiddenIfNotSoundAction,
+            name = L["Mode"] or "Mode",
+            order = 5, width = 0.35,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "sound"
+            end,
             values = {
                 once = L["Once"] or "Once",
                 ["repeat"] = L["Repeat"] or "Repeat",
@@ -5229,17 +7235,15 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         }
 
         -- Sound cooldown (repeat mode only)
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_soundCooldown"] = {
+        actionArgs["soundCooldown"] = {
             type = "range",
-            name = "    " .. (L["Interval"] or "Interval") .. " (s)",
-            order = actOrderBase + 0.05,
-            width = 0.5,
+            name = (L["Interval"] or "Interval") .. " (s)",
+            order = 6, width = 0.5,
             min = 1, max = 30, step = 1,
             hidden = function()
-                if hiddenIfNotSoundAction() then return true end
                 local buff = GetTrackedBuff(index)
                 local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
-                return not a or a.soundMode ~= "repeat"
+                return not a or a.type ~= "sound" or a.soundMode ~= "repeat"
             end,
             get = function()
                 local buff = GetTrackedBuff(index)
@@ -5254,14 +7258,17 @@ local function CreateTrackedBuffOptions(index, baseOrder)
             end,
         }
 
-        -- [12.0.1] Custom sound path (sound action only)
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_soundCustomPath"] = {
+        -- Custom sound path (sound action only)
+        actionArgs["soundCustomPath"] = {
             type = "input",
-            name = "    " .. (L["Custom Path"] or "Custom Path"),
+            name = L["Custom Path"] or "Custom Path",
             desc = (L["Custom sound file path (mp3/ogg/wav). Overrides dropdown when set."] or "Custom sound file path (mp3/ogg/wav). Overrides dropdown when set."),
-            order = actOrderBase + 0.055,
-            width = 1.2,
-            hidden = hiddenIfNotSoundAction,
+            order = 7, width = 1.2,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "sound"
+            end,
             get = function()
                 local buff = GetTrackedBuff(index)
                 local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
@@ -5278,7 +7285,6 @@ local function CreateTrackedBuffOptions(index, baseOrder)
                         end
                     end
                     alerts.actions[actIdx].soundCustomPath = val or ""
-                    -- Preview
                     if val and val ~= "" then
                         local channel = alerts.actions[actIdx].soundChannel or "Master"
                         PlaySoundFile(val, channel)
@@ -5288,20 +7294,41 @@ local function CreateTrackedBuffOptions(index, baseOrder)
         }
 
         -- Remove action button
-        options["tracked" .. index .. "_alertA" .. actIdx .. "_remove"] = {
+        local actIdxCapture = actIdx
+        actionArgs["remove"] = {
             type = "execute",
-            name = "|cffff4444X|r",
-            order = actOrderBase + 0.06,
-            width = 0.15,
-            hidden = hiddenIfActionNotExists,
+            name = "|cffff4444" .. (L["Delete Action"] or "Delete") .. "|r",
+            order = 99, width = "normal",
             func = function()
                 local alerts = EnsureAlerts(index)
                 if alerts and alerts.actions then
-                    table.remove(alerts.actions, actIdx)
+                    table.remove(alerts.actions, actIdxCapture)
                     DDingUI:UpdateBuffTrackerBar()
                     RefreshOptions()
                 end
             end,
+        }
+
+        -- 동작 타입 이름 조회 (폴더블 제목용)
+        local function getActionTypeName()
+            local buff = GetTrackedBuff(index)
+            local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+            if a then
+                return actionTypeDisplayNames[a.type] or a.type or "?"
+            end
+            return "?"
+        end
+
+        -- 폴더블 inline group으로 등록
+        options["tracked" .. index .. "_alertAction" .. actIdx] = {
+            type = "group",
+            name = function()
+                return (L["Action"] or "Action") .. " " .. actIdx .. "  |cff888888(" .. getActionTypeName() .. ")|r"
+            end,
+            order = actOrderBase,
+            inline = true,
+            hidden = hiddenIfActionNotExists,
+            args = actionArgs,
         }
     end
 
@@ -5328,13 +7355,15 @@ local function CreateTrackedBuffOptions(index, baseOrder)
     }
 
     -- Separator line (only show when buff exists AND is expanded)
-    options["tracked" .. index .. "_spacer"] = {
-        type = "description",
-        name = " ",
-        order = orderBase + 10,
-        width = "full",
-        hidden = hiddenIfCollapsed,
-    }
+    if not skipCollapsible then
+        options["tracked" .. index .. "_spacer"] = {
+            type = "description",
+            name = " ",
+            order = orderBase + 10,
+            width = "full",
+            hidden = hiddenIfCollapsed,
+        }
+    end
 
     return options
 end
@@ -5389,369 +7418,246 @@ local function CreateAuraIconOptions(baseOrder)
     return CreateCDMCatalogSlotOptions(baseOrder)
 end
 
+
+-- [REFACTOR] Global settings extracted for WeakAuras-style panel (GUI.lua "Global Settings" page)
+local function CreateGlobalBuffTrackerSettings()
+    local options = {}
+
+    options["header"] = {
+        type = "header",
+        name = L["Buff Tracker Bar Settings"] or "Buff Tracker Bar Settings",
+        order = 1,
+    }
+    options["description"] = {
+        type = "description",
+        name = L["Track spell casts to display stacks as a resource bar. Configure trigger spells that generate stacks and consumer spells that spend stacks."] or "Track spell casts to display stacks as a resource bar. Configure trigger spells that generate stacks and consumer spells that spend stacks.",
+        order = 1.5,
+    }
+    options["enabled"] = {
+        type = "toggle",
+        name = L["Enable Buff Tracker Bar"] or "Enable Buff Tracker Bar",
+        desc = L["Show a bar that tracks a specific buff's stacks"] or "Show a bar that tracks a specific buff's stacks",
+        width = "full",
+        order = 2,
+        get = function() return DDingUI.db.profile.buffTrackerBar.enabled end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.enabled = val
+            local cfg = GetSpecConfig()
+            if cfg and not cfg.trackingMode then
+                cfg.trackingMode = "cdm"
+            end
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["previewMode"] = {
+        type = "toggle",
+        name = L["Preview Mode"] or "Preview Mode",
+        desc = L["Show all tracked buffs for configuration (ignores hideWhenZero)"] or "Show all tracked buffs for configuration (ignores hideWhenZero)",
+        width = "full",
+        order = 2.5,
+        get = function()
+            return DDingUI.IsBuffTrackerPreviewEnabled and DDingUI:IsBuffTrackerPreviewEnabled() or false
+        end,
+        set = function(_, val)
+            if val then
+                DDingUI:EnableBuffTrackerPreview()
+            else
+                DDingUI:DisableBuffTrackerPreview()
+            end
+        end,
+    }
+
+    -- ========== GROWTH DIRECTION ==========
+    options["growthDirectionHeader"] = {
+        type = "description",
+        name = "|cffffcc00" .. (L["Growth Direction"] or "Growth Direction") .. "|r",
+        order = 3, width = "full", fontSize = "medium",
+    }
+    options["growthDirection"] = {
+        type = "select",
+        name = L["Growth Direction"] or "Growth Direction",
+        desc = L["Direction in which multiple bars/rings stack"] or "Direction in which multiple bars/rings stack",
+        order = 3.1, width = 0.8,
+        values = {
+            ["DOWN"] = L["Down"] or "Down",
+            ["UP"] = L["Up"] or "Up",
+            ["LEFT"] = L["Left"] or "Left",
+            ["RIGHT"] = L["Right"] or "Right",
+        },
+        get = function() return DDingUI.db.profile.buffTrackerBar.growthDirection or "DOWN" end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.growthDirection = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+    options["growthSpacing"] = {
+        type = "range",
+        name = L["Growth Spacing"] or "Growth Spacing",
+        desc = L["Spacing between stacked bars/rings"] or "Spacing between stacked bars/rings",
+        order = 3.2, width = 0.8,
+        min = 0, max = 50, step = 1,
+        get = function() return DDingUI.db.profile.buffTrackerBar.growthSpacing or 20 end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.growthSpacing = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+
+    -- ========== POSITION & ANCHOR ==========
+    options["positionHeader"] = {
+        type = "description",
+        name = "|cffffcc00" .. (L["Position & Anchor"] or "Position & Anchor") .. "|r",
+        order = 3.3, width = "full", fontSize = "medium",
+    }
+    options["attachTo"] = {
+        type = "select",
+        name = L["Attach To"] or "Attach To",
+        desc = L["Which frame to attach this bar to"] or "Which frame to attach this bar to",
+        order = 3.31, width = "double",
+        values = function()
+            local opts = {}
+            opts["UIParent"] = L["Screen (UIParent)"] or "Screen (UIParent)"
+            if DDingUI.db.profile.unitFrames and DDingUI.db.profile.unitFrames.enabled then
+                opts["DDingUI_Player"] = L["Player Frame (Custom)"] or "Player Frame (Custom)"
+            end
+            opts["PlayerFrame"] = L["Default Player Frame"] or "Default Player Frame"
+            local viewerOpts = GetViewerOptions()
+            for k, v in pairs(viewerOpts) do
+                opts[k] = v
+            end
+            local current = DDingUI.db.profile.buffTrackerBar.attachTo
+            if current and not opts[current] then
+                opts[current] = current .. " (Custom)"
+            end
+            return opts
+        end,
+        get = function() return DDingUI.db.profile.buffTrackerBar.attachTo end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.attachTo = val
+            DDingUI:UpdateBuffTrackerBar()
+            if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
+                DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
+            end
+            MarkSpecDirty()
+        end,
+    }
+    options["pickFrameGlobal"] = {
+        type = "execute",
+        name = L["Pick Frame"] or "Pick Frame",
+        desc = L["Click to select a frame from the UI"] or "Click to select a frame from the UI",
+        order = 3.315, width = "half",
+        func = function()
+            DDingUI:StartFramePicker(function(frameName)
+                if frameName then
+                    DDingUI.db.profile.buffTrackerBar.attachTo = frameName
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end)
+        end,
+    }
+    options["anchorPoint"] = {
+        type = "select",
+        name = L["Anchor Point"] or "Anchor Point",
+        desc = L["Which point on the anchor frame to attach to"] or "Which point on the anchor frame to attach to",
+        order = 3.32, width = "normal",
+        values = {
+            TOPLEFT = L["Top Left"] or "Top Left", TOP = L["Top"] or "Top", TOPRIGHT = L["Top Right"] or "Top Right",
+            LEFT = L["Left"] or "Left", CENTER = L["Center"] or "Center", RIGHT = L["Right"] or "Right",
+            BOTTOMLEFT = L["Bottom Left"] or "Bottom Left", BOTTOM = L["Bottom"] or "Bottom", BOTTOMRIGHT = L["Bottom Right"] or "Bottom Right",
+        },
+        get = function() return DDingUI.db.profile.buffTrackerBar.anchorPoint or "TOP" end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.anchorPoint = val
+            DDingUI:UpdateBuffTrackerBar()
+            if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
+                DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
+            end
+            MarkSpecDirty()
+        end,
+    }
+    options["selfPoint"] = {
+        type = "select",
+        name = L["Self Point"] or "Self Point",
+        desc = L["Which point of the bar itself is used for anchoring"] or "Which point of the bar itself is used for anchoring",
+        order = 3.325, width = "normal",
+        values = {
+            TOPLEFT = L["Top Left"] or "Top Left", TOP = L["Top"] or "Top", TOPRIGHT = L["Top Right"] or "Top Right",
+            LEFT = L["Left"] or "Left", CENTER = L["Center"] or "Center", RIGHT = L["Right"] or "Right",
+            BOTTOMLEFT = L["Bottom Left"] or "Bottom Left", BOTTOM = L["Bottom"] or "Bottom", BOTTOMRIGHT = L["Bottom Right"] or "Bottom Right",
+        },
+        get = function() return DDingUI.db.profile.buffTrackerBar.selfPoint or "TOP" end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.selfPoint = val
+            DDingUI:UpdateBuffTrackerBar()
+            if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
+                DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
+            end
+            MarkSpecDirty()
+        end,
+    }
+    options["offsetX"] = {
+        type = "range",
+        name = L["X Offset"] or "X Offset",
+        desc = L["Horizontal offset from anchor point"] or "Horizontal offset from anchor point",
+        order = 3.33, width = "normal",
+        min = -500, max = 500, step = 1,
+        get = function() return DDingUI.db.profile.buffTrackerBar.offsetX or 0 end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.offsetX = val
+            DDingUI:UpdateBuffTrackerBar()
+            if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
+                DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
+            end
+            MarkSpecDirty()
+        end,
+    }
+    options["offsetY"] = {
+        type = "range",
+        name = L["Y Offset"] or "Y Offset",
+        desc = L["Vertical offset from anchor point"] or "Vertical offset from anchor point",
+        order = 3.34, width = "normal",
+        min = -500, max = 500, step = 1,
+        get = function() return DDingUI.db.profile.buffTrackerBar.offsetY or 18 end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.offsetY = val
+            DDingUI:UpdateBuffTrackerBar()
+            if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
+                DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
+            end
+            MarkSpecDirty()
+        end,
+    }
+    options["frameStrata"] = {
+        type = "select",
+        name = L["Frame Strata"] or "Frame Strata",
+        desc = L["Controls the drawing layer of this bar. Higher strata appear on top of lower ones."] or "Controls the drawing layer of this bar.",
+        order = 3.5, width = "normal",
+        values = {
+            BACKGROUND = "BACKGROUND", LOW = "LOW", MEDIUM = "MEDIUM", HIGH = "HIGH", DIALOG = "DIALOG",
+        },
+        get = function() return DDingUI.db.profile.buffTrackerBar.frameStrata or "MEDIUM" end,
+        set = function(_, val)
+            DDingUI.db.profile.buffTrackerBar.frameStrata = val
+            DDingUI:UpdateBuffTrackerBar()
+        end,
+    }
+
+    return options
+end
+
 local function CreateBuffTrackerOptions(orderNum)
+
     local options = {
         type = "group",
         name = L["Buff Tracker"] or "Buff Tracker",
         order = orderNum or 9,
-        args = {
-            header = {
-                type = "header",
-                name = L["Buff Tracker Bar Settings"] or "Buff Tracker Bar Settings",
-                order = 1,
-            },
-            description = {
-                type = "description",
-                name = L["Track spell casts to display stacks as a resource bar. Configure trigger spells that generate stacks and consumer spells that spend stacks."] or "Track spell casts to display stacks as a resource bar. Configure trigger spells that generate stacks and consumer spells that spend stacks.",
-                order = 1.5,
-            },
-            enabled = {
-                type = "toggle",
-                name = L["Enable Buff Tracker Bar"] or "Enable Buff Tracker Bar",
-                desc = L["Show a bar that tracks a specific buff's stacks"] or "Show a bar that tracks a specific buff's stacks",
-                width = "full",
-                order = 2,
-                get = function() return DDingUI.db.profile.buffTrackerBar.enabled end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.enabled = val
-                    -- Default to CDM tracking mode (most accurate)
-                    local cfg = GetSpecConfig()
-                    if cfg and not cfg.trackingMode then
-                        cfg.trackingMode = "cdm"
-                    end
-                    DDingUI:UpdateBuffTrackerBar()
-                end,
-            },
-            previewMode = {
-                type = "toggle",
-                name = L["Preview Mode"] or "미리보기 모드",
-                desc = L["Show all tracked buffs for configuration (ignores hideWhenZero)"] or "설정을 위해 모든 추적 버프를 표시합니다 (hideWhenZero 무시)",
-                width = "full",
-                order = 2.5,
-                get = function()
-                    return DDingUI.IsBuffTrackerPreviewEnabled and DDingUI:IsBuffTrackerPreviewEnabled() or false
-                end,
-                set = function(_, val)
-                    if val then
-                        DDingUI:EnableBuffTrackerPreview()
-                    else
-                        DDingUI:DisableBuffTrackerPreview()
-                    end
-                end,
-            },
-
-            -- ========== GROWTH DIRECTION (Dynamic Orientation) ==========
-            growthDirectionHeader = {
-                type = "description",
-                name = "|cffffcc00" .. (L["Growth Direction"] or "스태킹 방향") .. "|r",
-                order = 3,
-                width = "full",
-                fontSize = "medium",
-            },
-            growthDirection = {
-                type = "select",
-                name = L["Growth Direction"] or "스태킹 방향",
-                desc = L["Direction in which multiple bars/rings stack"] or "여러 바/링이 쌓이는 방향",
-                order = 3.1,
-                width = 0.8,
-                values = {
-                    ["DOWN"] = L["Down"] or "아래로",
-                    ["UP"] = L["Up"] or "위로",
-                    ["LEFT"] = L["Left"] or "왼쪽으로",
-                    ["RIGHT"] = L["Right"] or "오른쪽으로",
-                },
-                get = function()
-                    return DDingUI.db.profile.buffTrackerBar.growthDirection or "DOWN"
-                end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.growthDirection = val
-                    DDingUI:UpdateBuffTrackerBar()
-                end,
-            },
-            growthSpacing = {
-                type = "range",
-                name = L["Growth Spacing"] or "스태킹 간격",
-                desc = L["Spacing between stacked bars/rings"] or "쌓인 바/링 사이의 간격 (픽셀)",
-                order = 3.2,
-                width = 0.8,
-                min = 0, max = 50, step = 1,
-                get = function()
-                    return DDingUI.db.profile.buffTrackerBar.growthSpacing or 20
-                end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.growthSpacing = val
-                    DDingUI:UpdateBuffTrackerBar()
-                end,
-            },
-
-            -- ========== POSITION & ANCHOR ==========
-            positionHeader = {
-                type = "description",
-                name = "|cffffcc00" .. (L["Position & Anchor"] or "위치 & 앵커") .. "|r",
-                order = 3.3,
-                width = "full",
-                fontSize = "medium",
-            },
-            attachTo = {
-                type = "select",
-                name = L["Attach To"] or "Attach To",
-                desc = L["Which frame to attach this bar to"] or "Which frame to attach this bar to",
-                order = 3.31,
-                width = "double",
-                values = function()
-                    local opts = {}
-                    opts["UIParent"] = L["Screen (UIParent)"] or "Screen (UIParent)"
-                    if DDingUI.db.profile.unitFrames and DDingUI.db.profile.unitFrames.enabled then
-                        opts["DDingUI_Player"] = L["Player Frame (Custom)"] or "Player Frame (Custom)"
-                    end
-                    opts["PlayerFrame"] = L["Default Player Frame"] or "Default Player Frame"
-                    local viewerOpts = GetViewerOptions()
-                    for k, v in pairs(viewerOpts) do
-                        opts[k] = v
-                    end
-                    local current = DDingUI.db.profile.buffTrackerBar.attachTo
-                    if current and not opts[current] then
-                        opts[current] = current .. " (Custom)"
-                    end
-                    return opts
-                end,
-                get = function() return DDingUI.db.profile.buffTrackerBar.attachTo end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.attachTo = val
-                    DDingUI:UpdateBuffTrackerBar()
-                    -- [FIX] 무버 위치 동기화
-                    if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
-                        DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
-                    end
-                    MarkSpecDirty()
-                end,
-            },
-            pickFrameGlobal = {
-                type = "execute",
-                name = L["Pick Frame"] or "프레임 선택",
-                desc = L["Click to select a frame from the UI"] or "UI에서 프레임을 클릭하여 선택",
-                order = 3.315,
-                width = "half",
-                func = function()
-                    DDingUI:StartFramePicker(function(frameName)
-                        if frameName then
-                            DDingUI.db.profile.buffTrackerBar.attachTo = frameName
-                            DDingUI:UpdateBuffTrackerBar()
-                        end
-                    end)
-                end,
-            },
-            anchorPoint = {
-                type = "select",
-                name = L["Anchor Point"] or "Anchor Point",
-                desc = L["Which point on the anchor frame to attach to"] or "Which point on the anchor frame to attach to",
-                order = 3.32,
-                width = "normal",
-                values = {
-                    TOPLEFT = L["Top Left"] or "Top Left",
-                    TOP = L["Top"] or "Top",
-                    TOPRIGHT = L["Top Right"] or "Top Right",
-                    LEFT = L["Left"] or "Left",
-                    CENTER = L["Center"] or "Center",
-                    RIGHT = L["Right"] or "Right",
-                    BOTTOMLEFT = L["Bottom Left"] or "Bottom Left",
-                    BOTTOM = L["Bottom"] or "Bottom",
-                    BOTTOMRIGHT = L["Bottom Right"] or "Bottom Right",
-                },
-                get = function() return DDingUI.db.profile.buffTrackerBar.anchorPoint or "TOP" end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.anchorPoint = val
-                    DDingUI:UpdateBuffTrackerBar()
-                    -- [FIX] 무버 위치 동기화
-                    if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
-                        DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
-                    end
-                    MarkSpecDirty()
-                end,
-            },
-            offsetX = {
-                type = "range",
-                name = L["X Offset"] or "X 오프셋",
-                desc = L["Horizontal offset from anchor point"] or "앵커 포인트에서의 가로 오프셋",
-                order = 3.33,
-                width = "normal",
-                min = -500, max = 500, step = 1,
-                get = function() return DDingUI.db.profile.buffTrackerBar.offsetX or 0 end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.offsetX = val
-                    DDingUI:UpdateBuffTrackerBar()
-                    -- [FIX] 무버 위치 동기화
-                    if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
-                        DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
-                    end
-                    MarkSpecDirty()
-                end,
-            },
-            offsetY = {
-                type = "range",
-                name = L["Y Offset"] or "Y 오프셋",
-                desc = L["Vertical offset from anchor point"] or "앵커 포인트에서의 세로 오프셋",
-                order = 3.34,
-                width = "normal",
-                min = -500, max = 500, step = 1,
-                get = function() return DDingUI.db.profile.buffTrackerBar.offsetY or 18 end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.offsetY = val
-                    DDingUI:UpdateBuffTrackerBar()
-                    -- [FIX] 무버 위치 동기화
-                    if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
-                        DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
-                    end
-                    MarkSpecDirty()
-                end,
-            },
-            selfPoint = {
-                type = "select",
-                name = L["Self Point"] or "기준점",
-                desc = L["Which point of the bar itself is used for anchoring"] or "바 자체의 어느 지점을 기준으로 앵커링할지 설정",
-                order = 3.325,
-                width = "normal",
-                values = {
-                    TOPLEFT = L["Top Left"] or "Top Left",
-                    TOP = L["Top"] or "Top",
-                    TOPRIGHT = L["Top Right"] or "Top Right",
-                    LEFT = L["Left"] or "Left",
-                    CENTER = L["Center"] or "Center",
-                    RIGHT = L["Right"] or "Right",
-                    BOTTOMLEFT = L["Bottom Left"] or "Bottom Left",
-                    BOTTOM = L["Bottom"] or "Bottom",
-                    BOTTOMRIGHT = L["Bottom Right"] or "Bottom Right",
-                },
-                get = function() return DDingUI.db.profile.buffTrackerBar.selfPoint or "TOP" end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.selfPoint = val
-                    DDingUI:UpdateBuffTrackerBar()
-                    -- [FIX] 무버 위치 동기화
-                    if DDingUI.Movers and DDingUI.Movers.LoadMoverPosition then
-                        DDingUI.Movers:LoadMoverPosition("DDingUI_BuffTrackerBar")
-                    end
-                    MarkSpecDirty()
-                end,
-            },
-
-            frameStrata = {
-                type = "select",
-                name = L["Frame Strata"] or "Frame Strata",
-                desc = L["Controls the drawing layer of this bar. Higher strata appear on top of lower ones."] or "Controls the drawing layer of this bar. Higher strata appear on top of lower ones.",
-                order = 3.5,
-                width = "normal",
-                values = {
-                    BACKGROUND = "BACKGROUND",
-                    LOW = "LOW",
-                    MEDIUM = "MEDIUM",
-                    HIGH = "HIGH",
-                    DIALOG = "DIALOG",
-                },
-                get = function() return DDingUI.db.profile.buffTrackerBar.frameStrata or "MEDIUM" end,
-                set = function(_, val)
-                    DDingUI.db.profile.buffTrackerBar.frameStrata = val
-                    DDingUI:UpdateBuffTrackerBar()
-                end,
-            },
-
-            -- ========== CDM CATALOG ==========
-            cdmCatalogHeader = {
-                type = "header",
-                name = L["CDM Aura Catalog"] or "CDM Aura Catalog",
-                order = 4,
-            },
-            scanCDMButton = {
-                type = "execute",
-                name = L["Scan CDM"] or "Scan CDM",
-                desc = L["Rescan Cooldown Manager frames to update the catalog"] or "Rescan Cooldown Manager frames to update the catalog",
-                order = 4.01,
-                width = 0.5,
-                func = function()
-                    local CDMScanner = DDingUI.CDMScanner
-                    if not CDMScanner then
-                        print(CDM_PREFIX .. "|cffff0000CDMScanner 모듈을 찾을 수 없습니다|r") -- [STYLE]
-                        return
-                    end
-
-                    -- CDM CVar 활성화 보장 (viewer가 비활성화되어 있으면 스캔 불가)
-                    pcall(function()
-                        if C_CVar.GetCVar("cooldownViewerEnabled") ~= "1" then
-                            C_CVar.SetCVar("cooldownViewerEnabled", "1")
-                        end
-                    end)
-                    -- Blizzard_CooldownViewer 로드 보장
-                    pcall(function()
-                        if C_AddOns and C_AddOns.IsAddOnLoaded and not C_AddOns.IsAddOnLoaded("Blizzard_CooldownViewer") then
-                            C_AddOns.LoadAddOn("Blizzard_CooldownViewer")
-                        end
-                    end)
-
-                    local success, iconCount, barCount = CDMScanner.ScanAll()
-                    if success and (iconCount or 0) > 0 then
-                        print(CDM_PREFIX .. "CDM 스캔 완료: " .. (iconCount or 0) .. " icons, " .. (barCount or 0) .. " bars")
-                        if DDingUI.UpdateCDMIconGrid then DDingUI.UpdateCDMIconGrid() end
-                        RefreshOptions()
-                    elseif success then
-                        -- 0개: viewer가 아직 준비 안 됨 → 딜레이 후 재시도
-                        print(CDM_PREFIX .. "CDM 스캔 중... (viewer 준비 대기)") -- [STYLE]
-                        C_Timer.After(1.0, function()
-                            local s2, ic2, bc2 = CDMScanner.ScanAll()
-                            if s2 then
-                                print(CDM_PREFIX .. "CDM 재스캔 완료: " .. (ic2 or 0) .. " icons, " .. (bc2 or 0) .. " bars")
-                            end
-                            if DDingUI.UpdateCDMIconGrid then DDingUI.UpdateCDMIconGrid() end
-                            RefreshOptions()
-                        end)
-                    else
-                        print(CDM_PREFIX .. "|cffff8800CDM 스캔 실패 (전투 중이거나 CDM 비활성화)|r") -- [STYLE]
-                        if DDingUI.UpdateCDMIconGrid then DDingUI.UpdateCDMIconGrid() end
-                        RefreshOptions()
-                    end
-                end,
-            },
-            manualAddButton = {
-                type = "execute",
-                name = L["Manual"] or "Manual",
-                desc = L["Add a manual tracked buff with trigger/spender spells"] or "Add a manual tracked buff with trigger/spender spells",
-                order = 4.015,
-                width = 0.5,
-                func = function()
-                    DDingUI.AddManualTrackedBuff()
-                end,
-            },
-            cdmCatalogCount = {
-                type = "description",
-                name = function()
-                    local CDMScanner = DDingUI.CDMScanner
-                    local count = CDMScanner and CDMScanner.GetCount() or 0
-                    return "|cff888888" .. count .. " entries|r"
-                end,
-                order = 4.02,
-                width = 0.3,
-            },
-            availableAurasLabel = {
-                type = "description",
-                name = "|cffffd700" .. (L["Available Auras"] or "Available Auras") .. "|r |cff888888(" .. (L["click to select"] or "click to select") .. ")|r",
-                order = 4.1,
-                fontSize = "medium",
-            },
-
-        },
+        -- [REFACTOR] customRenderer: single node in main tree,
+        -- content panel renders WeakAuras-style split-view directly
+        customRenderer = "buffTracker",
+        args = {}
     }
 
-    -- CDM aura icons (order 5.xx)
-    local auraOpts = CreateAuraIconOptions(5)
-    for k, v in pairs(auraOpts) do
-        options.args[k] = v
-    end
-
-    -- Tracked buffs list (order 200.xx - between CDM catalog and Position settings at 300)
-    local trackedOpts = CreateTrackedBuffListOptions(200)
-    for k, v in pairs(trackedOpts) do
-        options.args[k] = v
-    end
-
-    -- Add spec profile options (at order 0, before header)
+    -- Add spec profile options
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.AddSpecProfileOptions then
         DDingUI.SpecProfiles:AddSpecProfileOptions(
             options.args,
@@ -5766,3 +7672,9 @@ local function CreateBuffTrackerOptions(orderNum)
 end
 
 ns.CreateBuffTrackerOptions = CreateBuffTrackerOptions
+
+-- [REFACTOR] Export internal functions for WeakAuras-style custom renderer (GUI.lua)
+ns.CreateTrackedBuffOptions = CreateTrackedBuffOptions
+ns.CreateTrackedBuffListOptions = CreateTrackedBuffListOptions
+ns.CreateAuraIconOptions = CreateAuraIconOptions
+ns.CreateGlobalBuffTrackerSettings = CreateGlobalBuffTrackerSettings

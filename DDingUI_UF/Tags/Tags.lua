@@ -121,6 +121,13 @@ ns.POWER_FORMAT_TO_TAG = {
 	["smart"]              = "[ddingui:pt:smart]",
 }
 
+ns.ABSORB_FORMAT_TO_TAG = {
+	["absorb"]          = "[ddingui:absorb]",
+	["absorb-percent"]  = "[ddingui:absorb:percent]",
+	["health-absorb"]   = "[ddingui:health:absorb]",
+	["healabsorb"]      = "[ddingui:healabsorb]",
+}
+
 -----------------------------------------------
 -- Tag Preset Table (Options UI 연동)
 -----------------------------------------------
@@ -159,6 +166,12 @@ ns.TagPresets = {
 		{ label = "감소량",            tag = "[ddingui:pt:deficit]",                       format = "deficit" },
 		{ label = "현재 | 퍼센트",     tag = "[ddingui:pt:curpct]",                        format = "current-percentage" },
 		{ label = "스마트",            tag = "[ddingui:pt:smart]",                         format = "smart" },
+	},
+	absorb = {
+		{ label = "보호막 (축약)",       tag = "[ddingui:absorb]",                           format = "absorb" },
+		{ label = "보호막 퍼센트",       tag = "[ddingui:absorb:percent]",                   format = "absorb-percent" },
+		{ label = "체력 + 보호막",       tag = "[ddingui:health:absorb]",                    format = "health-absorb" },
+		{ label = "힐 흡수량",           tag = "[ddingui:healabsorb]",                       format = "healabsorb" },
 	},
 }
 

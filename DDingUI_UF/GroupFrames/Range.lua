@@ -213,7 +213,8 @@ local function CheckUnitRange(unit)
 	end
 
 	-- Priority 2: 죽은 대상 + Rez 주문
-	if currentRezSpell and UnitIsDeadOrGhost(unit) then
+	-- [AUDIT-FIX] W4: UnitIsDeadOrGhost secret boolean 방어
+	if currentRezSpell and SafeBool(UnitIsDeadOrGhost(unit)) then
 		if C_Spell and C_Spell.IsSpellInRange then
 			local inRange = ns.SafeVal(C_Spell.IsSpellInRange(currentRezSpell, unit)) -- [REFACTOR]
 			if inRange ~= nil then
@@ -229,7 +230,8 @@ local function CheckUnitRange(unit)
 	end
 
 	-- Priority 4: NIL-ON-ALIVE — Friendly 주문이 nil + 살아있는 연결된 대상 → 범위 밖
-	if spellReturnedNil and UnitIsConnected(unit) and not UnitIsDeadOrGhost(unit) then
+	-- [AUDIT-FIX] W4: UnitIsConnected/UnitIsDeadOrGhost secret boolean 방어
+	if spellReturnedNil and SafeBool(UnitIsConnected(unit)) and not SafeBool(UnitIsDeadOrGhost(unit)) then
 		return false
 	end
 

@@ -56,7 +56,11 @@ function Drivers:UpdateHealth(frame)
 
 	-- Secret-safe: StatusBar API가 C++에서 secret number 처리
 	health:SetMinMaxValues(0, UnitHealthMax(unit))
-	health:SetValue(UnitHealth(unit))
+	-- [FIX] smoothing 인자 전달: ns.db.smoothBars 동적 참조 (런타임 토글 지원)
+	local interpMode = (ns.db and ns.db.smoothBars ~= false)
+		and Enum.StatusBarInterpolation.Linear
+		or Enum.StatusBarInterpolation.Immediate
+	health:SetValue(UnitHealth(unit), interpMode)
 
 	-- 색상
 	local owner = frame  -- Layout.lua에서 health.__owner 대신
@@ -151,7 +155,11 @@ function Drivers:UpdatePower(frame)
 	local cur = UnitPower(unit)
 
 	power:SetMinMaxValues(0, max)
-	power:SetValue(cur)
+	-- [FIX] smoothing 인자 전달
+	local interpMode = (ns.db and ns.db.smoothBars ~= false)
+		and Enum.StatusBarInterpolation.Linear
+		or Enum.StatusBarInterpolation.Immediate
+	power:SetValue(cur, interpMode)
 
 	-- 색상 (colorPower)
 	if power.colorPower ~= false then
@@ -472,162 +480,165 @@ function Drivers:UpdateHealthPrediction(frame)
 	if not health then return end
 
 	local maxHP = UnitHealthMax(unit)
-	local healthFill = health:GetStatusBarTexture()
-	if not healthFill then return end
-	local healthWidth = health:GetWidth()
-	local healthHeight = health:GetHeight()
-
-	-- ★ 그룹 프레임과 100% 동일 패턴: ClearAllPoints → 재앵커 + Calculator + pcall
 
 	-- 1. HEAL PREDICTION (힐 예측)
+	-- [FIX] 그룹 프레임과 동일: parent를 frame으로, 단일 앵커 + 명시적 크기
 	if hp.healingAll then
 		local incomingHeals = 0
-		if CreateUnitHealPredictionCalculator and UnitGetDetailedHealPrediction then
-			if not frame._healCalc then
-				frame._healCalc = CreateUnitHealPredictionCalculator()
-				pcall(function()
-					frame._healCalc:SetIncomingHealClampMode(0)
-					frame._healCalc:SetIncomingHealOverflowPercent(hp.incomingHealOverflow or 1.0)
-				end)
-			end
-			HealPredState_UF.unit = unit
-			HealPredState_UF.calc = frame._healCalc
-			HealPredState_UF.result = 0
-			if pcall(GetHealPredSafe_UF) then
-				incomingHeals = HealPredState_UF.result
-			end
-		elseif UnitGetIncomingHeals then
+		if UnitGetIncomingHeals then
 			local heals = UnitGetIncomingHeals(unit)
 			if heals and not (issecretvalue and issecretvalue(heals)) then
 				incomingHeals = heals
 			end
 		end
-
-		-- [FIX] ClearAllPoints → 재앵커 (그룹 프레임 동일 패턴)
-		hp.healingAll:ClearAllPoints()
-		hp.healingAll:SetPoint("LEFT", healthFill, "RIGHT", 0, 0)
-		hp.healingAll:SetWidth(healthWidth)
-		hp.healingAll:SetHeight(healthHeight)
+		local healthFill = health:GetStatusBarTexture()
+		if healthFill then
+			if hp.healingAll:GetParent() ~= frame then hp.healingAll:SetParent(frame) end
+			hp.healingAll:SetFrameLevel(health:GetFrameLevel() + 1)
+			hp.healingAll:ClearAllPoints()
+			hp.healingAll:SetPoint("LEFT", healthFill, "RIGHT", 0, 0)
+			hp.healingAll:SetWidth(health:GetWidth())
+			hp.healingAll:SetHeight(health:GetHeight())
+		end
 		hp.healingAll:SetMinMaxValues(0, maxHP)
 		hp.healingAll:SetValue(incomingHeals)
 		hp.healingAll:Show()
 	end
 
-	-- 2. DAMAGE ABSORB (보호막)
-	-- [FIX] 그룹프레임 Update.lua line 902-972과 100% 동일 패턴
-	-- 핵심: isClamped는 secret boolean → Lua `if` 비교 불가! SetAlphaFromBoolean 필수
-	if hp.damageAbsorb then
-		local absorbs = 0     -- raw (UnitGetTotalAbsorbs, 전체 보호막)
-		local attachedAbsorbs = absorbs  -- Calculator 클램핑 값
-		local isClamped = false           -- secret boolean (M+에서)
+	-- ========================================
+	-- 2. ABSORB (보호막) + OVERSHIELD (초과 보호막)
+	-- GroupFrames/Update.lua line 878-998 과 100% 동일 로직
+	-- ========================================
+	local absBar = hp.damageAbsorb
+	local overBar = hp.overShieldBar
+	local overGlow = hp.overDamageAbsorbIndicator
+	local healthFill = health:GetStatusBarTexture()
+	local barWidth = health:GetWidth()
+	local barHeight = health:GetHeight()
 
-		-- raw 값
-		if UnitGetTotalAbsorbs then
-			absorbs = UnitGetTotalAbsorbs(unit)
-			attachedAbsorbs = absorbs  -- 기본값: raw
-		end
+	if absBar then
+		local absorbs = UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit) or 0
 
-		-- Calculator 패턴 (그룹프레임 동일)
+		-- Calculator (secret-safe)
+		local attachedAbsorbs = absorbs
+		local isClamped = false
 		if CreateUnitHealPredictionCalculator and unit then
 			if not frame._absCalc then
 				frame._absCalc = CreateUnitHealPredictionCalculator()
-				pcall(function() frame._absCalc:SetDamageAbsorbClampMode(1) end) -- 1 = Missing Health 클램핑
+				pcall(function() frame._absCalc:SetDamageAbsorbClampMode(1) end)
 			end
 			local calc = frame._absCalc
 			UnitGetDetailedHealPrediction(unit, nil, calc)
 			local ok, amt, clamped = pcall(function() return calc:GetDamageAbsorbs() end)
 			if ok and amt then
 				attachedAbsorbs = amt
-				isClamped = clamped  -- secret boolean in M+
+				isClamped = clamped
 			end
 		end
 
-		-- hasAnyAbsorb 체크 (secret-safe)
 		local hasAnyAbsorb = true
 		if not (issecretvalue and issecretvalue(attachedAbsorbs)) then
 			hasAnyAbsorb = (attachedAbsorbs and attachedAbsorbs > 0)
 		end
 
 		if not hasAnyAbsorb then
-			hp.damageAbsorb:Hide()
-			if hp.overShieldBar then hp.overShieldBar:Hide() end
+			absBar:Hide()
+			if overBar then overBar:Hide() end
+			if overGlow then overGlow:Hide() end
 		else
-			-- ATTACHED BAR: 체력 빈 부분에 붙는 보호막
 			local anchor = healthFill
 			if hp.healingAll and hp.healingAll:IsShown() then
 				local hpFill = hp.healingAll:GetStatusBarTexture()
 				if hpFill then anchor = hpFill end
 			end
 
-			hp.damageAbsorb:ClearAllPoints()
-			hp.damageAbsorb:SetPoint("LEFT", anchor, "RIGHT", 0, 0)
-			hp.damageAbsorb:SetWidth(healthWidth)
-			hp.damageAbsorb:SetHeight(healthHeight)
-			hp.damageAbsorb:SetMinMaxValues(0, maxHP)
-			hp.damageAbsorb:SetValue(attachedAbsorbs)
-			hp.damageAbsorb:Show()
+			-- parent를 frame으로 (health의 child이면 클리핑됨)
+			if absBar:GetParent() ~= frame then absBar:SetParent(frame) end
+			absBar:SetFrameLevel(health:GetFrameLevel() + 1)
+			absBar:ClearAllPoints()
+			absBar:SetPoint("LEFT", anchor, "RIGHT", 0, 0)
+			absBar:SetWidth(barWidth)
+			absBar:SetHeight(barHeight)
+			absBar:SetMinMaxValues(0, maxHP)
+			absBar:SetValue(attachedAbsorbs)
+			absBar:Show()
 
-			-- [핵심] isClamped secret boolean → SetAlphaFromBoolean으로 visibility 제어
-			-- clamped=true → attached bar alpha=0 (숨김), overShield alpha=1 (표시)
-			-- clamped=false → attached bar alpha=1 (표시), overShield alpha=0 (숨김)
-			if hp.damageAbsorb.SetAlphaFromBoolean then
-				hp.damageAbsorb:SetAlphaFromBoolean(isClamped, 0, 1)  -- Inverse: clamped면 숨김
+			if absBar.SetAlphaFromBoolean then
+				absBar:SetAlphaFromBoolean(isClamped, 0, 1)
 			end
 
-			-- OVERSHIELD BAR: 오른쪽→왼쪽 ReverseFill 오버레이
-			if hp.overShieldBar then
-				hp.overShieldBar:ClearAllPoints()
-				hp.overShieldBar:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
-				hp.overShieldBar:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-				hp.overShieldBar:SetReverseFill(true)
-				hp.overShieldBar:SetMinMaxValues(0, maxHP)
-				hp.overShieldBar:SetValue(absorbs)  -- raw 전체 보호막 (클램핑 안 됨)
-				hp.overShieldBar:Show()
+			-- OverShield Bar (OVERFLOW)
+			if overBar then
+				if overBar:GetParent() ~= frame then overBar:SetParent(frame) end
+				overBar:SetFrameLevel(health:GetFrameLevel() + 2)
+				overBar:ClearAllPoints()
+				overBar:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+				overBar:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+				overBar:SetReverseFill(true)
+				overBar:SetMinMaxValues(0, maxHP)
+				overBar:SetValue(absorbs)
+				overBar:Show()
 
-				if hp.overShieldBar.SetAlphaFromBoolean then
-					hp.overShieldBar:SetAlphaFromBoolean(isClamped, 1, 0)  -- clamped면 표시
+				if overBar.SetAlphaFromBoolean then
+					overBar:SetAlphaFromBoolean(isClamped, 1, 0)
 				else
-					-- SetAlphaFromBoolean 미지원 fallback
 					local clampedVal = false
 					if not (issecretvalue and issecretvalue(isClamped)) then
 						clampedVal = isClamped
 					end
-					if clampedVal then hp.overShieldBar:SetAlpha(1) else hp.overShieldBar:SetAlpha(0) end
+					if clampedVal then overBar:SetAlpha(1) else overBar:SetAlpha(0) end
 				end
 			end
-		end
 
-		-- overDamageAbsorbIndicator
-		if hp.overDamageAbsorbIndicator then
-			if hp.overDamageAbsorbIndicator.SetAlphaFromBoolean then
-				hp.overDamageAbsorbIndicator:SetAlphaFromBoolean(isClamped, 1, 0)
-			end
-			-- [FIX] 풀피 보호막 오버레이의 "끝 부분(역방향이므로 LEFT)"에 섬광 효과(Glow) 부착
-			if hp.overShieldBar then
-				hp.overDamageAbsorbIndicator:ClearAllPoints()
-				hp.overDamageAbsorbIndicator:SetPoint("TOP", hp.overShieldBar:GetStatusBarTexture(), "TOPLEFT", 0, 0)
-				hp.overDamageAbsorbIndicator:SetPoint("BOTTOM", hp.overShieldBar:GetStatusBarTexture(), "BOTTOMLEFT", 0, 0)
+			-- OverShield Glow
+			if overGlow and overBar then
+				local overBarTex = overBar:GetStatusBarTexture()
+				if overBarTex then
+					overGlow:ClearAllPoints()
+					overGlow:SetPoint("TOP", overBarTex, "TOPLEFT", 0, 0)
+					overGlow:SetPoint("BOTTOM", overBarTex, "BOTTOMLEFT", 0, 0)
+					overGlow:SetWidth(3)
+				end
+				overGlow:Show()
+
+				if overGlow.SetAlphaFromBoolean then
+					overGlow:SetAlphaFromBoolean(isClamped, 1, 0)
+				else
+					local clampedVal = false
+					if not (issecretvalue and issecretvalue(isClamped)) then
+						clampedVal = isClamped
+					end
+					if clampedVal then overGlow:SetAlpha(1) else overGlow:SetAlpha(0) end
+				end
 			end
 		end
 	end
 
-	-- 3. HEAL ABSORB (힐 흡수)
-	-- [FIX] 그룹프레임과 동일 패턴: UnitGetTotalHealAbsorbs 직접 호출
-	-- 기존 코드는 _absCalc(미생성)에 의존 → CreateUnitHealPredictionCalculator 존재 시
-	-- elseif fallback 도달 불가 → healAbsorbAmt 항상 0이던 버그 수정
+	-- 3. HEAL ABSORB (힐 흡수) — 그룹 프레임과 동일
 	if hp.healAbsorb then
-		-- [PERF] StatusBar:SetValue()가 secret value를 C++ 레벨에서 처리
 		local healAbsorbAmt = UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit) or 0
 
-		-- [FIX] ClearAllPoints → 재앵커 (역방향: healthFill의 RIGHT에서 ReverseFill)
-		hp.healAbsorb:ClearAllPoints()
-		hp.healAbsorb:SetPoint("RIGHT", healthFill, "RIGHT", 0, 0)
-		hp.healAbsorb:SetWidth(healthWidth)
-		hp.healAbsorb:SetHeight(healthHeight)
-		hp.healAbsorb:SetReverseFill(true)
-		hp.healAbsorb:SetMinMaxValues(0, maxHP)
-		hp.healAbsorb:SetValue(healAbsorbAmt)
-		hp.healAbsorb:Show()
+		local hasHealAbsorb = true
+		if not (issecretvalue and issecretvalue(healAbsorbAmt)) then
+			hasHealAbsorb = (healAbsorbAmt and healAbsorbAmt > 0)
+		end
+
+		if not hasHealAbsorb then
+			hp.healAbsorb:Hide()
+		else
+			if hp.healAbsorb:GetParent() ~= frame then hp.healAbsorb:SetParent(frame) end
+			hp.healAbsorb:SetFrameLevel(health:GetFrameLevel() + 1)
+			if healthFill then
+				hp.healAbsorb:ClearAllPoints()
+				hp.healAbsorb:SetPoint("RIGHT", healthFill, "RIGHT", 0, 0)
+				hp.healAbsorb:SetWidth(barWidth)
+				hp.healAbsorb:SetHeight(barHeight)
+				hp.healAbsorb:SetReverseFill(true)
+			end
+			hp.healAbsorb:SetMinMaxValues(0, maxHP)
+			hp.healAbsorb:SetValue(healAbsorbAmt)
+			hp.healAbsorb:Show()
+		end
 	end
 
 	-- PostUpdate 콜백 (오버힐 글로우)
@@ -943,6 +954,15 @@ function Drivers:UpdateAuras(frame)
 	if frame.Debuffs then
 		self:_UpdateAuraElement(frame, frame.Debuffs, unit, "HARMFUL")
 	end
+
+	-- [AD] AuraDesigner 인디케이터 업데이트 (party/raid 유닛만)
+	local adEngine = ns.AuraDesigner and ns.AuraDesigner.Engine
+	if adEngine then
+		local ok, err = pcall(adEngine.UpdateStandaloneFrame, adEngine, frame)
+		if not ok and ns.db and ns.db.debug then
+			ns.Debug("AuraDesigner error:", err)
+		end
+	end
 end
 
 function Drivers:_UpdateAuraElement(frame, element, unit, filter)
@@ -954,12 +974,22 @@ function Drivers:_UpdateAuraElement(frame, element, unit, filter)
 
 	-- 기존 버튼 숨기기
 	for i = 1, createdButtons do
-		if element[i] then element[i]:Hide() end
+		if element[i] then
+			element[i]:Hide()
+			-- [DandersFrames 패턴] 아이콘 정리: 타이머 추적 방지
+			element[i]._expirationTime = nil
+			element[i]._totalDuration = nil
+			element[i]._hasExpiration = nil
+		end
 	end
 
-	-- 오라 순회
-	local index = 0
+	-- ================================================================
+	-- [FIX] Phase 1: 필터 통과 오라를 전부 수집 (maxButtons 제한없이)
+	-- 전투 중 secret value로 인해 모든 디버프가 필터를 통과할 수 있으므로
+	-- 먼저 전부 수집 → 정렬(SortAuras) → maxButtons만큼만 표시
+	-- ================================================================
 	local customFilter = element.filter or filter
+	local passedAuras = {}  -- { auraData, auraData, ... }
 
 	for i = 1, 40 do
 		local auraData = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex(unit, i, customFilter)
@@ -972,91 +1002,158 @@ function Drivers:_UpdateAuraElement(frame, element, unit, filter)
 		end
 
 		if show then
-			index = index + 1
-			if index > maxButtons then break end
+			passedAuras[#passedAuras + 1] = auraData
+		end
+	end
 
-			-- 버튼 생성 또는 재사용
-			local button = element[index]
-			if not button then
-				button = CreateFrame("Button", nil, element)
-				button:SetSize(buttonSize, buttonSize)
+	-- ================================================================
+	-- [FIX] Phase 2: 정렬 (SortAuras 구현)
+	-- Layout.lua의 SortAuras 콜백: Boss > Raid > Dispellable > Mine > Others
+	-- 정렬 후 상위 maxButtons개만 표시 → 내 디버프 우선 보장
+	-- ================================================================
+	if element.SortAuras and #passedAuras > 1 then
+		-- SortAuras는 button 기반이므로 auraData 기반 래퍼 사용
+		table.sort(passedAuras, function(a, b)
+			-- SortAuras expects buttons with _data, create temp wrappers
+			local wa = { _data = a }
+			local wb = { _data = b }
+			return element.SortAuras(element, wa, wb)
+		end)
+	end
 
-				button.Icon = button:CreateTexture(nil, "ARTWORK")
-				button.Icon:SetAllPoints()
+	-- ================================================================
+	-- [FIX] Phase 3: 상위 maxButtons개만 버튼에 표시
+	-- ================================================================
+	local displayCount = math.min(#passedAuras, maxButtons)
 
-				button.Cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
-				button.Cooldown:SetAllPoints()
+	for idx = 1, displayCount do
+		local auraData = passedAuras[idx]
 
-				button.Count = button:CreateFontString(nil, "OVERLAY")
-				button.Count:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
-				button.Count:SetPoint("BOTTOMRIGHT", 2, -1)
+		-- 버튼 생성 또는 재사용
+		local button = element[idx]
+		if not button then
+			button = CreateFrame("Button", nil, element)
+			button:SetSize(buttonSize, buttonSize)
 
-				button.Overlay = button:CreateTexture(nil, "OVERLAY")
-				button.Overlay:SetAllPoints()
+			button.Icon = button:CreateTexture(nil, "ARTWORK")
+			button.Icon:SetAllPoints()
 
-				element[index] = button
-				element.createdButtons = math.max(element.createdButtons or 0, index)
-
-				-- PostCreateButton 콜백
-				if element.PostCreateButton then
-					element:PostCreateButton(button)
+			button.Cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+			button.Cooldown:SetAllPoints()
+			button.Cooldown:SetReverse(true)
+			-- [DandersFrames 패턴] SetHideCountdownNumbers: 1회 설정
+			button.Cooldown:SetHideCountdownNumbers(false) -- 네이티브 카운트다운 표시
+			-- 네이티브 cooldown text 탐색 + 폰트 설정 (큰 기본 폰트 방지)
+			local regions = {button.Cooldown:GetRegions()}
+			for _, region in ipairs(regions) do
+				if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+					button._nativeCooldownText = region
+					region:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+					break
 				end
 			end
 
-			-- 아이콘 설정
-			local icon = auraData.icon
-			if icon then
-				button.Icon:SetTexture(icon)
+			button.Count = button:CreateFontString(nil, "OVERLAY")
+			button.Count:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+			button.Count:SetPoint("BOTTOMRIGHT", 2, -1)
+
+			button.Overlay = button:CreateTexture(nil, "OVERLAY")
+			button.Overlay:SetAllPoints()
+
+			element[idx] = button
+			element.createdButtons = math.max(element.createdButtons or 0, idx)
+
+			-- PostCreateButton 콜백
+			if element.PostCreateButton then
+				element:PostCreateButton(button)
+			end
+		end
+
+		-- 아이콘 설정
+		local icon = auraData.icon
+		if icon then
+			button.Icon:SetTexture(icon)
+		end
+
+		-- 쿨다운 (DandersFrames 패턴: SetCooldownFromExpirationTime)
+		-- [FIX] DoesAuraHaveExpirationTime은 secret boolean 반환 가능
+		-- → Lua if 비교 불가, C++ API (SetShownFromBoolean)로만 사용
+		if button.Cooldown then
+			local auraInstanceID = auraData.auraInstanceID
+
+			-- 쿨다운 설정: raw secret 값 직접 전달
+			if button.Cooldown.SetCooldownFromExpirationTime and auraData.expirationTime and auraData.duration then
+				button.Cooldown:SetCooldownFromExpirationTime(auraData.expirationTime, auraData.duration)
+			elseif auraData.duration and auraData.expirationTime then
+				local dur = SafeNum(auraData.duration, 0)
+				local exp = SafeNum(auraData.expirationTime, 0)
+				if dur > 0 and exp > 0 then
+					button.Cooldown:SetCooldown(exp - dur, dur)
+				end
 			end
 
-			-- 쿨다운
-			local duration = SafeNum(auraData.duration, 0)
-			local expirationTime = SafeNum(auraData.expirationTime, 0)
-			if duration > 0 and expirationTime > 0 then
-				button.Cooldown:SetCooldown(expirationTime - duration, duration)
-				button.Cooldown:Show()
+			-- 쿨다운 표시/숨김: secret boolean도 C++에서 처리
+			if auraInstanceID and C_UnitAuras and C_UnitAuras.DoesAuraHaveExpirationTime then
+				local hasExp = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
+				if button.Cooldown.SetShownFromBoolean then
+					button.Cooldown:SetShownFromBoolean(hasExp)
+				else
+					-- fallback: secret이 아닌 경우만 비교
+					if not (issecretvalue and issecretvalue(hasExp)) then
+						if hasExp then button.Cooldown:Show() else button.Cooldown:Hide() end
+					else
+						button.Cooldown:Show() -- secret이면 표시
+					end
+				end
 			else
-				button.Cooldown:Hide()
+				-- API 없으면 duration으로 판단
+				local dur = SafeNum(auraData.duration, 0)
+				if dur > 0 then button.Cooldown:Show() else button.Cooldown:Hide() end
 			end
+		end
 
-			-- 스택
+		-- 스택 (DandersFrames 패턴: GetAuraApplicationDisplayCount)
+		button.Count:SetText("")
+		local auraInstanceID = auraData.auraInstanceID
+		if auraInstanceID and C_UnitAuras and C_UnitAuras.GetAuraApplicationDisplayCount then
+			local stackText = C_UnitAuras.GetAuraApplicationDisplayCount(unit, auraInstanceID, 2, 99)
+			if stackText then
+				button.Count:SetText(stackText)
+				button.Count:Show()
+			else
+				button.Count:Hide()
+			end
+		else
 			local count = SafeNum(auraData.applications, 0)
 			if count > 1 then
 				button.Count:SetText(count)
 				button.Count:Show()
 			else
-				button.Count:SetText("")
 				button.Count:Hide()
 			end
-
-			-- PostUpdateButton 콜백
-			if element.PostUpdateButton then
-				element:PostUpdateButton(button, unit, auraData, index)
-			end
-
-			button:Show()
 		end
-	end
 
-	-- 정렬
-	if element.SortAuras and index > 1 then
-		-- SortAuras는 button 배열을 정렬
-		-- 이미 PostUpdateButton에서 _data가 설정됨
+		-- PostUpdateButton 콜백
+		if element.PostUpdateButton then
+			element:PostUpdateButton(button, unit, auraData, idx)
+		end
+
+		button:Show()
 	end
 
 	-- 위치 배치
-	if element.SetPosition and index > 0 then
-		element:SetPosition(1, index)
+	if element.SetPosition and displayCount > 0 then
+		element:SetPosition(1, displayCount)
 	else
 		-- 기본 배치: oUF 기본 패턴
 		local anchor = element.initialAnchor or "BOTTOMLEFT"
 		local growX = element.growthX or "RIGHT"
 		local growY = element.growthY or "UP"
-		local maxCols = element.maxCols or element.num or index
+		local maxCols = element.maxCols or element.num or displayCount
 		local spacingX = element.spacingX or element.spacing or 2
 		local spacingY = element.spacingY or element.spacing or 2
 
-		for i = 1, index do
+		for i = 1, displayCount do
 			local button = element[i]
 			if button then
 				local col = (i - 1) % maxCols

@@ -50,6 +50,7 @@ L["TAB_BUFFCHECKER"] = "버프 체크"
 L["TAB_KEYSTONETRACKER"] = "쐐기돌 추적"
 L["TAB_CASTINGALERT"] = "타겟 스펠"
 L["TAB_FOCUSINTERRUPT"] = "주시 차단"
+L["TAB_MISSINGBUFF"] = "클래스 버프"
 
 -- ==========================================
 -- General Panel
@@ -81,6 +82,45 @@ L["MODULE_BUFFCHECKER"] = "BuffChecker - 버프 체크 (음식/영약/룬)"
 L["MODULE_KEYSTONETRACKER"] = "KeystoneTracker - 파티 쐐기돌 추적"
 L["MODULE_CASTINGALERT"] = "CastingAlert - 타겟 스펠 알림"
 L["MODULE_FOCUSINTERRUPT"] = "FocusInterrupt - 주시 대상 차단바"
+L["MODULE_MISSINGBUFF"] = "MissingBuff - 클래스 버프/소모품/펫 누락 감지"
+
+-- ==========================================
+-- MissingBuff Module
+-- ==========================================
+L["MISSINGBUFF_TITLE"] = "클래스 버프 감지"
+L["MISSINGBUFF_DESC"] = "클래스 버프/소모품/펫/태세 누락 시 아이콘으로 알림"
+L["MISSINGBUFF_CHECK_ITEMS"] = "체크 항목"
+L["MISSINGBUFF_CHECK_CLASSBUFF"] = "클래스 버프"
+L["MISSINGBUFF_CHECK_FLASK"] = "영약"
+L["MISSINGBUFF_CHECK_FOOD"] = "음식"
+L["MISSINGBUFF_CHECK_WEAPON"] = "기름/숫돌"
+L["MISSINGBUFF_CHECK_PET"] = "펫 소환"
+L["MISSINGBUFF_CHECK_STANCE"] = "태세/오라"
+L["MISSINGBUFF_CHECK_POISONS"] = "도적 독"
+L["MISSINGBUFF_CONDITIONS"] = "표시 조건"
+L["MISSINGBUFF_ZONE_CHECK"] = "활성화 조건"
+L["MISSINGBUFF_ZONE_ALWAYS"] = "항상"
+L["MISSINGBUFF_ZONE_INSTANCE"] = "던전/레이드만"
+L["MISSINGBUFF_ZONE_GROUP"] = "파티/레이드 구성 시"
+L["MISSINGBUFF_ZONE_BOTH"] = "인스턴스 또는 구성 시"
+L["MISSINGBUFF_IGNORE_MOUNTED"] = "탈것 중 숨김"
+L["MISSINGBUFF_IGNORE_RESTING"] = "휴식 중 숨김"
+L["MISSINGBUFF_HIDE_COMBAT"] = "전투 중 숨김"
+L["MISSINGBUFF_DISPLAY"] = "표시 설정"
+L["MISSINGBUFF_PULSE"] = "펄스 애니메이션"
+L["MISSINGBUFF_ICON_BORDER"] = "아이콘 테두리 크기"
+L["MISSINGBUFF_TEXT_SETTINGS"] = "텍스트 설정"
+-- 글로우
+L["MISSINGBUFF_GLOW_SETTINGS"] = "글로우 설정"
+L["MISSINGBUFF_GLOW_TYPE"] = "글로우 종류"
+L["MISSINGBUFF_GLOW_PIXEL"] = "픽셀 글로우"
+L["MISSINGBUFF_GLOW_AUTOCAST"] = "오토캐스트 글로우"
+L["MISSINGBUFF_GLOW_BUTTON"] = "버튼 글로우"
+L["MISSINGBUFF_GLOW_NONE"] = "없음"
+L["MISSINGBUFF_GLOW_COLOR"] = "글로우 색상"
+L["MISSINGBUFF_GLOW_LINES"] = "선 수 (Pixel)"
+L["MISSINGBUFF_GLOW_SPEED"] = "속도"
+L["MISSINGBUFF_GLOW_THICKNESS"] = "두께 (Pixel)"
 
 -- ==========================================
 -- CastingAlert Module
@@ -149,6 +189,32 @@ L["BUFFCHECKER_FLASK"] = "영약"
 L["BUFFCHECKER_MAINHAND"] = "주무기"
 L["BUFFCHECKER_OFFHAND"] = "보조무기"
 L["BUFFCHECKER_RUNE"] = "룬"
+
+-- ==========================================
+-- MissingBuff Module
+-- ==========================================
+L["MISSINGBUFF_TITLE"] = "클래스 버프 감지"
+L["MISSINGBUFF_DESC"] = "클래스 버프/소모품/펫/자세 누락 시 아이콘으로 알림합니다.\n던전이나 레이드 시작 전 빠뜨린 버프를 확인하세요."
+L["MISSINGBUFF_CHECK_ITEMS"] = "체크 항목"
+L["MISSINGBUFF_CHECK_CLASSBUFF"] = "클래스 버프 (지능/강인/야징 등)"
+L["MISSINGBUFF_CHECK_FLASK"] = "영약 버프"
+L["MISSINGBUFF_CHECK_FOOD"] = "음식 버프 (포만감)"
+L["MISSINGBUFF_CHECK_WEAPON"] = "무기 버프 (오일/숫돌)"
+L["MISSINGBUFF_CHECK_PET"] = "펫 소환 (수렵/흑마/죽기/냉법)"
+L["MISSINGBUFF_CHECK_STANCE"] = "자세/오라 (전사/기사)"
+L["MISSINGBUFF_CHECK_POISONS"] = "로그 독 (치명독/비치명독)"
+L["MISSINGBUFF_CONDITIONS"] = "표시 조건"
+L["MISSINGBUFF_ZONE_CHECK"] = "활성화 조건"
+L["MISSINGBUFF_ZONE_ALWAYS"] = "항상"
+L["MISSINGBUFF_ZONE_INSTANCE"] = "던전/레이드만"
+L["MISSINGBUFF_ZONE_GROUP"] = "파티/레이드 구성 시"
+L["MISSINGBUFF_ZONE_BOTH"] = "인스턴스 또는 구성 시"
+L["MISSINGBUFF_IGNORE_MOUNTED"] = "탈것 중 숨김"
+L["MISSINGBUFF_IGNORE_RESTING"] = "휴식 중 숨김"
+L["MISSINGBUFF_HIDE_COMBAT"] = "전투 중 숨김"
+L["MISSINGBUFF_DISPLAY"] = "표시 설정"
+L["MISSINGBUFF_PULSE"] = "펄스 애니메이션"
+L["MISSINGBUFF_TEXT_SETTINGS"] = "텍스트 설정"
 
 -- ==========================================
 -- TalentBG Module

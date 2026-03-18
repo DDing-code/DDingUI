@@ -1108,19 +1108,142 @@ local function CreateCDMIconGrid(parent)
     return cdmIconGridFrame
 end
 
-local function UpdateCDMIconGrid()
-    local entries = GetAvailableCDMAuras()
+local cdmGroupHeaders = {}
 
-    for i, btn in ipairs(cdmIconButtons) do
-        local entry = entries[i]
-        if entry then
-            btn.icon:SetTexture(entry.icon or 134400)
-            btn.entry = entry
-            btn:Show()
+local function UpdateCDMIconGrid()
+    if not cdmIconGridFrame then return end
+    local entries = GetAvailableCDMAuras()
+    
+    -- Hide existing
+    for _, btn in ipairs(cdmIconButtons) do btn:Hide() end
+    for _, fs in ipairs(cdmGroupHeaders) do fs:Hide() end
+    
+    -- Group entries
+    local grouped = {
+        ["Essential"] = {},
+        ["Utility"] = {},
+        ["TrackedBuff"] = {},
+        ["TrackedBuff+Bar"] = {},
+        ["TrackedBar"] = {}
+    }
+    local order = {"Essential", "Utility", "TrackedBuff", "TrackedBuff+Bar", "TrackedBar"}
+    local otherGroups = {}
+    
+    for _, entry in ipairs(entries) do
+        local cat = entry.category or "Unknown"
+        if grouped[cat] then
+            table.insert(grouped[cat], entry)
         else
-            btn:Hide()
+            if not otherGroups[cat] then
+                otherGroups[cat] = {}
+                table.insert(order, cat)
+            end
+            table.insert(otherGroups[cat], entry)
         end
     end
+    for k, v in pairs(otherGroups) do grouped[k] = v end
+    
+    local CATEGORY_NAMES = {
+        Essential = "핵심 능력 (Essential)",
+        Utility = "보조 능력 (Utility)",
+        TrackedBuff = "강화 (Tracked Buffs)",
+        TrackedBar = "강화 (Tracked Bars)",
+        ["TrackedBuff+Bar"] = "강화 (Buffs + Bars)",
+        Unknown = "기타 (Unknown)"
+    }
+    
+    local yOffset = 0
+    local ICON_SIZE = 36
+    local ICON_SPACING = 4
+    local ICONS_PER_ROW = 8
+    
+    local btnIndex = 1
+    local headerIndex = 1
+    
+    for _, cat in ipairs(order) do
+        local groupEntries = grouped[cat]
+        if groupEntries and #groupEntries > 0 then
+            -- Header
+            local header = cdmGroupHeaders[headerIndex]
+            if not header then
+                header = cdmIconGridFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                header:SetJustifyH("LEFT")
+                table.insert(cdmGroupHeaders, header)
+            end
+            local color = "|cffffffff"
+            if cat == "Essential" then color = "|cffff4444" 
+            elseif cat == "Utility" then color = "|cff00ccff"
+            elseif cat == "TrackedBuff" or cat == "TrackedBuff+Bar" then color = "|cff88ff88" end
+            
+            header:SetText(color .. (CATEGORY_NAMES[cat] or cat) .. "|r (" .. #groupEntries .. ")")
+            header:ClearAllPoints()
+            header:SetPoint("TOPLEFT", cdmIconGridFrame, "TOPLEFT", 0, -yOffset)
+            header:Show()
+            
+            yOffset = yOffset + 20
+            
+            -- Icons
+            for i, entry in ipairs(groupEntries) do
+                local btn = cdmIconButtons[btnIndex]
+                if not btn then
+                    -- Create new button dynamically
+                    btn = CreateFrame("Button", nil, cdmIconGridFrame, "BackdropTemplate")
+                    btn:SetSize(ICON_SIZE, ICON_SIZE)
+                    btn:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+                    btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+                    btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+                    
+                    local icon = btn:CreateTexture(nil, "ARTWORK")
+                    icon:SetPoint("TOPLEFT", 2, -2)
+                    icon:SetPoint("BOTTOMRIGHT", -2, 2)
+                    btn.icon = icon
+                    
+                    btn:SetScript("OnEnter", function(self)
+                        self:SetBackdropBorderColor(1, 0.82, 0, 1)
+                        if self.entry then
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            GameTooltip:AddLine(self.entry.name or "Unknown", 1, 0.82, 0)
+                            GameTooltip:AddLine("cooldownID: " .. (self.entry.cooldownID or 0), 0.5, 0.5, 0.5)
+                            if self.entry.spellID and self.entry.spellID > 0 then
+                                GameTooltip:AddLine("spellID: " .. self.entry.spellID, 0.5, 0.5, 0.5)
+                            end
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine(L["Click to add to tracking"] or "Click to add to tracking", 0, 1, 0)
+                            GameTooltip:Show()
+                        end
+                    end)
+                    btn:SetScript("OnLeave", function(self)
+                        self:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+                        GameTooltip:Hide()
+                    end)
+                    btn:SetScript("OnClick", function(self)
+                        if self.entry then ShowAddTrackedBuffDialog(self.entry) end
+                    end)
+                    table.insert(cdmIconButtons, btn)
+                end
+                
+                local row = math.floor((i - 1) / ICONS_PER_ROW)
+                local col = (i - 1) % ICONS_PER_ROW
+                
+                btn:ClearAllPoints()
+                btn:SetPoint("TOPLEFT", cdmIconGridFrame, "TOPLEFT", col * (ICON_SIZE + ICON_SPACING), -(yOffset + row * (ICON_SIZE + ICON_SPACING)))
+                btn.icon:SetTexture(entry.icon or 134400)
+                btn.entry = entry
+                btn:Show()
+                
+                btnIndex = btnIndex + 1
+            end
+            
+            local rows = math.ceil(#groupEntries / ICONS_PER_ROW)
+            yOffset = yOffset + rows * (ICON_SIZE + ICON_SPACING) + 12 -- Add padding below group
+            
+            headerIndex = headerIndex + 1
+        end
+    end
+    
+    if yOffset == 0 then yOffset = 50 end
+    cdmIconGridFrame:SetHeight(yOffset)
+    cdmIconGridFrame._calculatedHeight = yOffset + 10
 end
 
 -- Export for external use (e.g., scan button)
@@ -1153,78 +1276,20 @@ function DDingUI.CreateCDMIconGridWidget(parent)
         return cdmIconGridFrame
     end
 
-    local ICON_SIZE = 36
-    local ICON_SPACING = 4
-    local ICONS_PER_ROW = 8
-    local MAX_ICONS = 24
-
     cdmIconGridFrame = CreateFrame("Frame", "DDingUICDMIconGrid", parent)
-    local gridWidth = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING) - ICON_SPACING
-    local gridHeight = 3 * (ICON_SIZE + ICON_SPACING) - ICON_SPACING
-    cdmIconGridFrame:SetSize(gridWidth, gridHeight)
-
-    for i = 1, MAX_ICONS do
-        local row = math.floor((i - 1) / ICONS_PER_ROW)
-        local col = (i - 1) % ICONS_PER_ROW
-
-        local btn = CreateFrame("Button", nil, cdmIconGridFrame, "BackdropTemplate")
-        btn:SetSize(ICON_SIZE, ICON_SIZE)
-        btn:SetPoint("TOPLEFT", col * (ICON_SIZE + ICON_SPACING), -row * (ICON_SIZE + ICON_SPACING))
-
-        -- 배경
-        btn:SetBackdrop({
-            bgFile = FLAT,
-            edgeFile = FLAT,
-            edgeSize = 1,
-        })
-        btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-        btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-
-        local icon = btn:CreateTexture(nil, "ARTWORK")
-        icon:SetPoint("TOPLEFT", 2, -2)
-        icon:SetPoint("BOTTOMRIGHT", -2, 2)
-        btn.icon = icon
-
-        -- 호버 효과
-        btn:SetScript("OnEnter", function(self)
-            self:SetBackdropBorderColor(1, 0.82, 0, 1)
-            if self.entry then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine(self.entry.name or "Unknown", 1, 0.82, 0)
-                GameTooltip:AddLine("cooldownID: " .. (self.entry.cooldownID or 0), 0.5, 0.5, 0.5)
-                if self.entry.spellID and self.entry.spellID > 0 then
-                    GameTooltip:AddLine("spellID: " .. self.entry.spellID, 0.5, 0.5, 0.5)
-                end
-                GameTooltip:AddLine(" ")
-                GameTooltip:AddLine(L["Click to add to tracking"] or "Click to add to tracking", 0, 1, 0)
-                GameTooltip:Show()
-            end
-        end)
-
-        btn:SetScript("OnLeave", function(self)
-            self:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-            GameTooltip:Hide()
-        end)
-
-        btn:SetScript("OnClick", function(self)
-            if self.entry then
-                ShowAddTrackedBuffDialog(self.entry)
-            end
-        end)
-
-        btn:Hide()
-        cdmIconButtons[i] = btn
-    end
-
+    -- Start narrow then let Update expand it
+    cdmIconGridFrame:SetSize(300, 150)
+    
     UpdateCDMIconGrid()
     return cdmIconGridFrame
 end
 
 -- CDM 아이콘 그리드 높이 반환 (GUI.lua에서 레이아웃 계산용)
 function DDingUI.GetCDMIconGridHeight()
-    local ICON_SIZE = 36
-    local ICON_SPACING = 4
-    return 3 * (ICON_SIZE + ICON_SPACING) - ICON_SPACING + 10  -- 패딩 포함
+    if cdmIconGridFrame and cdmIconGridFrame._calculatedHeight then
+        return cdmIconGridFrame._calculatedHeight
+    end
+    return 150
 end
 
 -- ============================================================
@@ -1341,6 +1406,37 @@ local function CreateTrackedBuffOptions(index, baseOrder)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] then
                 trackedBuffs[index].displayType = val
+                DDingUI:UpdateBuffTrackerBar()
+                RefreshOptions()
+            end
+        end,
+    }
+
+    -- Tracker Group
+    options["tracked" .. index .. "_group"] = {
+        type = "select",
+        name = "    " .. (L["Tracker Group"] or "트래커 그룹"),
+        order = orderBase + 1.02,
+        width = 0.7,
+        hidden = hiddenIfCollapsed,
+        values = function()
+            local rootCfg = DDingUI.db.profile.buffTrackerBar
+            local groups = rootCfg.trackerGroups or {}
+            local vals = {}
+            for k, v in pairs(groups) do
+                vals[k] = v.name or k
+            end
+            if not next(vals) then vals["Group1"] = "Group1" end
+            return vals
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.group or "Group1"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] then
+                trackedBuffs[index].group = val
                 DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()
             end
@@ -5177,13 +5273,262 @@ local function CreateTrackedBuffListOptions(baseOrder)
             return #GetTrackedBuffs() > 0
         end,
     }
+    
+    local rootCfg = DDingUI.db.profile.buffTrackerBar
+    if not rootCfg.trackerGroups then rootCfg.trackerGroups = { Group1 = { name = "Group1" } } end
 
-    -- Create slots for tracked buffs (order: baseOrder + 1 ~ baseOrder + 401)
-    for i = 1, MAX_TRACKED_BUFFS do
-        local buffOpts = CreateTrackedBuffOptions(i, baseOrder + (i * 20))
-        for k, v in pairs(buffOpts) do
-            options[k] = v
+    -- Group buffs
+    local buffsByGroup = {}
+    local trackedBuffs = GetTrackedBuffs()
+    
+    -- Initialize arrays for all known groups
+    for groupKey, _ in pairs(rootCfg.trackerGroups) do
+        buffsByGroup[groupKey] = {}
+    end
+    
+    -- For any buff with no group or an invalid group, put it in Group1 (or dynamically create the mapping)
+    for i, buff in ipairs(trackedBuffs) do
+        local g = buff.group or "Group1"
+        if not buffsByGroup[g] then
+            buffsByGroup[g] = {}
         end
+        table.insert(buffsByGroup[g], { index = i, buff = buff })
+    end
+
+    local currentOrder = baseOrder + 1
+    
+    -- Iterate through groups and their buffs
+    for groupKey, groupConfig in pairs(rootCfg.trackerGroups) do
+        local groupBuffs = buffsByGroup[groupKey] or {}
+        local isDefault = (groupKey == "Group1")
+        
+        -- Group Header
+        options["tracked_group_" .. groupKey .. "_header"] = {
+            type = "description",
+            name = "\n|cffffaa00" .. (groupConfig.name or groupKey) .. (isDefault and " (기본)" or "") .. "|r  |cff888888(" .. #groupBuffs .. ")|r",
+            order = currentOrder,
+            fontSize = "medium",
+            width = "full",
+            hidden = function()
+                return #GetTrackedBuffs() == 0
+            end,
+        }
+        currentOrder = currentOrder + 1
+        
+        -- Empty group message (optional, can omit if empty)
+        if #groupBuffs == 0 then
+            options["tracked_group_" .. groupKey .. "_empty"] = {
+                type = "description",
+                name = "|cffaaaaaa  (비어 있음)|r",
+                order = currentOrder,
+                width = "full",
+                hidden = function()
+                    return #GetTrackedBuffs() == 0
+                end,
+            }
+            currentOrder = currentOrder + 1
+        else
+            -- Create slots for tracked buffs in this group
+            for _, bData in ipairs(groupBuffs) do
+                local buffOpts = CreateTrackedBuffOptions(bData.index, currentOrder)
+                for k, v in pairs(buffOpts) do
+                    options[k] = v
+                end
+                currentOrder = currentOrder + 20 -- Increment by 20 to reserve space for the buff's internal options
+            end
+        end
+    end
+
+    return options
+end
+
+local function CreateTrackerGroupListOptions(baseOrder)
+    local options = {}
+
+    options["trackerGroupsHeader"] = {
+        type = "header",
+        name = L["Tracker Groups"] or "트래커 그룹 관리",
+        order = baseOrder,
+    }
+
+    local rootCfg = DDingUI.db.profile.buffTrackerBar
+    if not rootCfg.trackerGroups then rootCfg.trackerGroups = {} end
+
+    -- New Group Input
+    options["tg_newGroup_input"] = {
+        type = "input",
+        name = L["Add New Group"] or "새 그룹 추가 (ID 입력)",
+        desc = "그룹 ID를 입력하고 엔터를 누르세요 (예: Group2)",
+        order = baseOrder + 1,
+        width = "normal",
+        set = function(_, val)
+            if val and val ~= "" and not rootCfg.trackerGroups[val] then
+                rootCfg.trackerGroups[val] = {
+                    name = val,
+                    point = "CENTER", x = 0, y = -100,
+                    sortMethod = "TIME_LEFT",
+                    sortDirection = "ASC",
+                    growthDir = "RIGHT",
+                    spacing = 5,
+                }
+                RefreshOptions()
+            end
+        end,
+    }
+
+    local i = 1
+    for groupKey, _ in pairs(rootCfg.trackerGroups) do
+        local orderBase = baseOrder + 5 + i * 10
+        local isDefault = (groupKey == "Group1")
+
+        options["tg_" .. groupKey .. "_header"] = {
+            type = "description",
+            name = "\n|cffffaa00" .. groupKey .. (isDefault and " (기본)" or "") .. "|r",
+            order = orderBase,
+            fontSize = "medium",
+            width = isDefault and "full" or "normal",
+        }
+
+        if not isDefault then
+            options["tg_" .. groupKey .. "_delete"] = {
+                type = "execute",
+                name = L["Delete"] or "삭제",
+                order = orderBase + 0.5,
+                width = "half",
+                func = function()
+                    rootCfg.trackerGroups[groupKey] = nil
+                    -- Move buffs back to Group1
+                    local trackedBuffs = GetTrackedBuffs()
+                    for _, buff in ipairs(trackedBuffs) do
+                        if buff.group == groupKey then
+                            buff.group = "Group1"
+                        end
+                    end
+                    DDingUI:UpdateBuffTrackerBar()
+                    RefreshOptions()
+                end,
+            }
+        end
+
+        options["tg_" .. groupKey .. "_name"] = {
+            type = "input",
+            name = L["Name"] or "표시 이름",
+            order = orderBase + 1,
+            width = "normal",
+            get = function() return rootCfg.trackerGroups[groupKey].name or groupKey end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].name = val
+                DDingUI:UpdateBuffTrackerBar()
+                RefreshOptions()
+            end,
+        }
+
+        options["tg_" .. groupKey .. "_sortMethod"] = {
+            type = "select",
+            name = L["Sort Method"] or "정렬 방식",
+            order = orderBase + 2,
+            width = "normal",
+            values = {
+                TIME_LEFT = "Remaining Time (남은 시간)",
+                PRIORITY = "Priority (우선순위/순서)",
+                NAME = "Name (이름)",
+                NONE = "None (정렬 안 함)",
+            },
+            get = function() return rootCfg.trackerGroups[groupKey].sortMethod or "TIME_LEFT" end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].sortMethod = val
+                DDingUI:UpdateBuffTrackerBar()
+            end,
+        }
+
+        options["tg_" .. groupKey .. "_sortDirection"] = {
+            type = "select",
+            name = L["Sort Direction"] or "정렬 방향",
+            order = orderBase + 3,
+            width = "normal",
+            values = {
+                ASC = "Ascending (오름차순)",
+                DESC = "Descending (내림차순)",
+            },
+            get = function() return rootCfg.trackerGroups[groupKey].sortDirection or "ASC" end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].sortDirection = val
+                DDingUI:UpdateBuffTrackerBar()
+            end,
+        }
+
+        options["tg_" .. groupKey .. "_growthDir"] = {
+            type = "select",
+            name = L["Growth Direction"] or "성장 방향",
+            order = orderBase + 4,
+            width = "normal",
+            values = {
+                LEFT = "Left (좌)", RIGHT = "Right (우)", UP = "Up (상)", DOWN = "Down (하)"
+            },
+            get = function() return rootCfg.trackerGroups[groupKey].growthDir or "RIGHT" end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].growthDir = val
+                DDingUI:UpdateBuffTrackerBar()
+            end,
+        }
+
+        options["tg_" .. groupKey .. "_spacing"] = {
+            type = "range",
+            name = L["Spacing"] or "간격",
+            order = orderBase + 5,
+            width = "normal",
+            min = 0, max = 50, step = 1,
+            get = function() return rootCfg.trackerGroups[groupKey].spacing or 5 end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].spacing = val
+                DDingUI:UpdateBuffTrackerBar()
+            end,
+        }
+        
+        -- Group Position Overrides
+        options["tg_" .. groupKey .. "_point"] = {
+            type = "select",
+            name = L["Group Anchor Point"] or "그룹 앵커 오프셋 기준",
+            order = orderBase + 6,
+            width = "normal",
+            values = {
+                TOPLEFT = "TOPLEFT", TOP = "TOP", TOPRIGHT = "TOPRIGHT",
+                LEFT = "LEFT", CENTER = "CENTER", RIGHT = "RIGHT",
+                BOTTOMLEFT = "BOTTOMLEFT", BOTTOM = "BOTTOM", BOTTOMRIGHT = "BOTTOMRIGHT"
+            },
+            get = function() return rootCfg.trackerGroups[groupKey].point or "CENTER" end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].point = val
+                DDingUI:UpdateBuffTrackerBar()
+            end,
+        }
+
+        options["tg_" .. groupKey .. "_x"] = {
+            type = "range",
+            name = "X Offset (from origin)",
+            order = orderBase + 7,
+            width = "normal",
+            min = -1000, max = 1000, step = 1,
+            get = function() return rootCfg.trackerGroups[groupKey].x or 0 end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].x = val
+                DDingUI:UpdateBuffTrackerBar()
+            end,
+        }
+        options["tg_" .. groupKey .. "_y"] = {
+            type = "range",
+            name = "Y Offset (from origin)",
+            order = orderBase + 8,
+            width = "normal",
+            min = -1000, max = 1000, step = 1,
+            get = function() return rootCfg.trackerGroups[groupKey].y or 0 end,
+            set = function(_, val)
+                rootCfg.trackerGroups[groupKey].y = val
+                DDingUI:UpdateBuffTrackerBar()
+            end,
+        }
+
+        i = i + 1
     end
 
     return options
@@ -5500,6 +5845,12 @@ local function CreateBuffTrackerOptions(orderNum)
     -- CDM aura icons (order 5.xx)
     local auraOpts = CreateAuraIconOptions(5)
     for k, v in pairs(auraOpts) do
+        options.args[k] = v
+    end
+
+    -- Tracker Groups list (order 150.xx - before Tracked buffs list)
+    local trackerGroupOpts = CreateTrackerGroupListOptions(150)
+    for k, v in pairs(trackerGroupOpts) do
         options.args[k] = v
     end
 

@@ -25,6 +25,31 @@ local wipe = wipe
 local InCombatLockdown = InCombatLockdown
 local GetTime = GetTime
 local string_format = string.format
+local math_floor = math.floor
+
+-- ============================================================
+-- SAFE VALUE UTILITIES (Ayije CDM pattern)
+-- ============================================================
+
+-- [FIX] secret value / NaN / 음수 / 소수점 방어
+local function IsSafeNumber(val)
+    if val == nil then return false end
+    if issecretvalue and issecretvalue(val) then return false end
+    return type(val) == "number" and val == val -- NaN 체크: NaN ~= NaN
+end
+
+local function IsUsableID(id)
+    if not IsSafeNumber(id) then return false end
+    return id > 0 and id == math_floor(id)
+end
+
+-- [FIX] ArcUI HasAuraInstanceID 패턴: secret value 안전 체크
+local function HasAuraInstanceID(value)
+    if value == nil then return false end
+    if issecretvalue and issecretvalue(value) then return true end
+    if type(value) == "number" and value == 0 then return false end
+    return true
+end
 
 -- Master catalog: { cooldownID = { name, icon, spellID, category, frame, ... } }
 local masterCatalog = {}
@@ -40,8 +65,8 @@ local isInCombat = false
 -- Weak table: frame -> cooldownID (auto-clears when frame is garbage collected)
 local frameToCooldownID = setmetatable({}, { __mode = "k" })
 
--- Reverse lookup: viewerName_layoutIndex -> frame (weak values to prevent memory leak)
-local frameByLayoutKey = setmetatable({}, { __mode = "v" })
+-- [FIX] Nested table: viewerName → { layoutIndex → frame } (문자열 연결 제거)
+local frameByLayoutKey = {}
 
 -- Helper: Get cached cooldownID for a frame (SAFE - no taint)
 local function GetCachedCooldownID(frame)
@@ -56,30 +81,37 @@ local function CacheCooldownID(frame, cooldownID)
     end
 end
 
--- Helper: Get frame by layout key (SAFE - no taint)
+-- [FIX] 문자열 연결 없이 nested table로 O(1) 접근
 local function GetFrameByLayoutKey(viewerName, layoutIndex)
     if not viewerName or not layoutIndex then return nil end
-    return frameByLayoutKey[viewerName .. "_" .. layoutIndex]
+    local viewerTable = frameByLayoutKey[viewerName]
+    return viewerTable and viewerTable[layoutIndex]
 end
 
--- Helper: Cache frame by layout key
 local function CacheFrameByLayoutKey(viewerName, layoutIndex, frame)
     if viewerName and layoutIndex and frame then
-        frameByLayoutKey[viewerName .. "_" .. layoutIndex] = frame
+        if not frameByLayoutKey[viewerName] then
+            frameByLayoutKey[viewerName] = {}
+        end
+        frameByLayoutKey[viewerName][layoutIndex] = frame
     end
 end
 
 -- Viewer configuration
 local CDM_VIEWERS = {
+    { name = "EssentialCooldownViewer", category = "Essential", viewerType = "cooldown", isAura = false },
+    { name = "UtilityCooldownViewer", category = "Utility", viewerType = "cooldown", isAura = false },
     { name = "BuffIconCooldownViewer", category = "TrackedBuff", viewerType = "aura", isAura = true },
     { name = "BuffBarCooldownViewer", category = "TrackedBar", viewerType = "aura", isAura = true },
 }
 
 -- Category display names
 local CATEGORY_NAMES = {
-    TrackedBuff = "Tracked Buffs",
-    TrackedBar = "Tracked Bars",
-    ["TrackedBuff+Bar"] = "Tracked Buffs + Bars",
+    Essential = "핵심 능력 (Essential)",
+    Utility = "보조 능력 (Utility)",
+    TrackedBuff = "강화 (Tracked Buffs)",
+    TrackedBar = "강화 (Tracked Bars)",
+    ["TrackedBuff+Bar"] = "강화 (Buffs + Bars)",
 }
 
 -- ============================================================
@@ -94,6 +126,9 @@ end
 -- MASTER CDM SCANNER
 -- ============================================================
 
+-- [FIX] Forward declaration — GetAllEntries/GetEntriesByCategory 정렬 캐시에서 사용
+local catalogVersion = 0
+
 function CDMScanner.ScanAll()
     -- Combat protection
     if InCombatLockdown() then
@@ -103,6 +138,7 @@ function CDMScanner.ScanAll()
     wipe(masterCatalog)
     wipe(frameToCooldownID)
     wipe(frameByLayoutKey)
+    catalogVersion = catalogVersion + 1  -- [FIX] 정렬 캐시 무효화
     local totalCount = 0
 
     for _, viewerInfo in ipairs(CDM_VIEWERS) do
@@ -141,7 +177,7 @@ function CDMScanner.ScanAll()
                 end)
 
                 -- Process if we found a cooldownID
-                if cdID and type(cdID) == "number" then
+                if IsUsableID(cdID) then
                     -- Verify with CDM API that this cooldown actually exists (use pcall for safety)
                     local info
                     pcall(function()
@@ -261,6 +297,7 @@ function CDMScanner.ScanAll()
                             masterCatalog[cdID] = {
                                 cooldownID = cdID,
                                 spellID = spellID or 0,
+                                displaySpellID = displaySpellID or 0,  -- override/linked 포함
                                 name = name or "Unknown",
                                 icon = icon or 134400,
                                 category = viewerInfo.category,
@@ -280,7 +317,8 @@ function CDMScanner.ScanAll()
                                 charges = info.charges,
                                 flags = info.flags,
                                 -- Aura tracking data
-                                auraInstanceID = frame.auraInstanceID,
+                                -- [FIX] secret value 방어: auraInstanceID 존재 여부만 기록
+                                hasAuraInstance = HasAuraInstanceID(frame.auraInstanceID),
                                 auraDataUnit = frame.auraDataUnit or "player",
                             }
                             totalCount = totalCount + 1
@@ -319,26 +357,70 @@ end
 -- CATALOG ACCESS
 -- ============================================================
 
--- Get all entries as array (sorted by name)
+-- [FIX] 정렬 캐시: ScanAll 후 한 번만 정렬, 이후 캐시 반환
+local sortedAllCache = nil
+local sortedAllVersion = -1
+local sortedCategoryCache = nil
+local sortedCategoryVersion = -1
+
+-- [FIX] pcall 제거: entry.name은 ScanAll에서 "name or 'Unknown'"으로 안전하게 설정됨
+local function sortByName(a, b)
+    if a == b then return false end
+    if not a then return false end
+    if not b then return true end
+    local nameA = a.name or ""
+    local nameB = b.name or ""
+    if nameA ~= nameB then return nameA < nameB end
+    return (a.cooldownID or 0) < (b.cooldownID or 0)
+end
+
+-- Get all entries as array (sorted by name, cached)
 function CDMScanner.GetAllEntries()
-    local results = {}
-    for _, entry in pairs(masterCatalog) do
-        table.insert(results, entry)
+    if sortedAllVersion == catalogVersion and sortedAllCache then
+        return sortedAllCache
     end
 
-    table.sort(results, function(a, b)
-        -- Use pcall since name might be a secret value
-        local success, result = pcall(function()
-            return (a.name or "") < (b.name or "")
-        end)
-        if success then
-            return result
-        end
-        -- Fallback: sort by cooldownID if name comparison fails
-        return (a.cooldownID or 0) < (b.cooldownID or 0)
-    end)
+    local results = {}
+    for _, entry in pairs(masterCatalog) do
+        results[#results + 1] = entry
+    end
+    table.sort(results, sortByName)
 
+    sortedAllCache = results
+    sortedAllVersion = catalogVersion
     return results
+end
+
+-- Get entries grouped by category: { Essential = {...}, Utility = {...}, Buff = {...} }
+function CDMScanner.GetEntriesByCategory()
+    if sortedCategoryVersion == catalogVersion and sortedCategoryCache then
+        return sortedCategoryCache
+    end
+
+    local grouped = {
+        Essential = {},
+        Utility = {},
+        Buff = {},
+    }
+
+    for _, entry in pairs(masterCatalog) do
+        local cat = entry.category
+        if cat == "Essential" then
+            grouped.Essential[#grouped.Essential + 1] = entry
+        elseif cat == "Utility" then
+            grouped.Utility[#grouped.Utility + 1] = entry
+        else
+            grouped.Buff[#grouped.Buff + 1] = entry
+        end
+    end
+
+    table.sort(grouped.Essential, sortByName)
+    table.sort(grouped.Utility, sortByName)
+    table.sort(grouped.Buff, sortByName)
+
+    sortedCategoryCache = grouped
+    sortedCategoryVersion = catalogVersion
+    return grouped
 end
 
 -- Get entry by cooldownID
@@ -477,9 +559,9 @@ end
 -- AURA DATA ACCESS
 -- ============================================================
 
--- Get aura data from CDM frame's auraInstanceID
+-- Get aura data from CDM frame's auraInstanceID (secret value safe)
 function CDMScanner.GetAuraDataFromFrame(frame, unit)
-    if not frame or not frame.auraInstanceID then return nil end
+    if not frame or not HasAuraInstanceID(frame.auraInstanceID) then return nil end
     if not C_UnitAuras or not C_UnitAuras.GetAuraDataByAuraInstanceID then return nil end -- [12.0.1]
 
     unit = unit or frame.auraDataUnit or "player"
@@ -500,11 +582,11 @@ function CDMScanner.GetAuraDataByCooldownID(cooldownID)
 end
 
 -- Get stacks from CDM frame (reads from displayed Count text to avoid secret values)
+-- [FIX] 무차별 FontString 스캔 제거 — frame.Count / frame.Icon.Count만 사용
 function CDMScanner.GetStacksFromFrame(frame)
     if not frame then return 0, false end
 
     -- Use CACHED cooldownID instead of accessing frame.cooldownID directly
-    -- This is the BetterCooldownManager pattern - avoids taint propagation
     local cooldownID = GetCachedCooldownID(frame)
     local hasAura = false
 
@@ -516,94 +598,50 @@ function CDMScanner.GetStacksFromFrame(frame)
                 cooldownID = frame.cooldownInfo.cooldownID
             end
         end)
-        -- Cache it for future lookups
-        if cooldownID then
+        if IsUsableID(cooldownID) then
             CacheCooldownID(frame, cooldownID)
+        else
+            cooldownID = nil
         end
     end
 
     -- Try C_CooldownViewer API for hasAura (uses cached cooldownID - SAFE)
     if cooldownID then
-        pcall(function()
+        local ok, info = pcall(function()
             if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-                if info and info.hasAura then
-                    hasAura = true
-                end
+                return C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
             end
         end)
+        if ok and info and info.hasAura then
+            hasAura = true
+        end
     end
 
-    -- Fallback: Check auraInstanceID (safe to access - not a protected property)
+    -- [FIX] HasAuraInstanceID 래퍼: secret value 안전하게 존재만 확인
     if not hasAura then
-        pcall(function()
-            hasAura = frame.auraInstanceID ~= nil
-        end)
+        hasAura = HasAuraInstanceID(frame.auraInstanceID)
     end
 
-    -- Read stacks from the frame's Count FontString (avoids secret value issues)
-    -- [12.0.1] GetText()가 secret string 반환 가능 → 비교/tonumber 시 에러
-    -- 각 블록을 pcall로 보호
+    -- [FIX] 스택 읽기: frame.Count 또는 frame.Icon.Count만 사용 (FontString 무차별 스캔 제거)
+    -- 타이머 텍스트, 라벨 등을 스택으로 오인하는 문제 방지
     local stacks = 0
 
-    -- Try Count FontString (bar frames)
+    -- CDM bar frames: frame.Count
     if frame.Count then
         pcall(function()
             local countText = frame.Count:GetText()
-            if countText and countText ~= "" then
+            if countText and not (issecretvalue and issecretvalue(countText)) and countText ~= "" then
                 stacks = tonumber(countText) or 0
             end
         end)
     end
 
-    -- Try Icon.Count (icon frames)
+    -- CDM icon frames: frame.Icon.Count
     if stacks == 0 and frame.Icon and frame.Icon.Count then
         pcall(function()
             local countText = frame.Icon.Count:GetText()
-            if countText and countText ~= "" then
+            if countText and not (issecretvalue and issecretvalue(countText)) and countText ~= "" then
                 stacks = tonumber(countText) or 0
-            end
-        end)
-    end
-
-    -- Search all FontStrings in frame regions for stack count
-    if stacks == 0 then
-        pcall(function()
-            local regions = {frame:GetRegions()}
-            for _, region in ipairs(regions) do
-                if region:GetObjectType() == "FontString" then
-                    local text = region:GetText()
-                    if text and text ~= "" then
-                        local num = tonumber(text)
-                        if num and num > 0 and num < 100 then
-                            stacks = num
-                            break
-                        end
-                    end
-                end
-            end
-        end)
-    end
-
-    -- Search children's FontStrings
-    if stacks == 0 then
-        pcall(function()
-            local children = {frame:GetChildren()}
-            for _, child in ipairs(children) do
-                local childRegions = {child:GetRegions()}
-                for _, region in ipairs(childRegions) do
-                    if region:GetObjectType() == "FontString" then
-                        local text = region:GetText()
-                        if text and text ~= "" then
-                            local num = tonumber(text)
-                            if num and num > 0 and num < 100 then
-                                stacks = num
-                                break
-                            end
-                        end
-                    end
-                end
-                if stacks > 0 then break end
             end
         end)
     end
@@ -637,28 +675,42 @@ eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterUnitEvent("UNIT_AURA", "player")  -- 플레이어만
 
--- Debounced ScanAll: 여러 이벤트가 연속 발생해도 마지막 1회만 실행
-local pendingScanTimer = nil
-local function DebouncedScanAll(delay)
-    if pendingScanTimer then
-        pendingScanTimer:Cancel()
-    end
-    pendingScanTimer = C_Timer.NewTimer(delay, function()
-        pendingScanTimer = nil
+-- [FIX] Ayije 패턴: OnUpdate 기반 dirty flag — C_Timer 객체 생성 없이 배치 처리
+local scanDirty = false
+local scanDelayElapsed = 0
+local SCAN_DELAY_THRESHOLD = 0.1 -- UNIT_AURA 배치 처리 딜레이 (0.1초)
+
+local function OnUpdateScanProcessor(self, elapsed)
+    scanDelayElapsed = scanDelayElapsed + elapsed
+    if scanDelayElapsed < SCAN_DELAY_THRESHOLD then return end
+
+    -- 다음 프레임까지 대기 완료 → 스캔 실행
+    scanDirty = false
+    scanDelayElapsed = 0
+    self:SetScript("OnUpdate", nil)
+
+    if not InCombatLockdown() then
         CDMScanner.ScanAll()
-    end)
+    end
 end
 
--- 초기화/스펙 변경용: 점진적 재시도 (이전 타이머 취소 후 새로 생성)
+local function MarkScanDirty(delay)
+    scanDelayElapsed = 0
+    SCAN_DELAY_THRESHOLD = delay or 0.1
+    if not scanDirty then
+        scanDirty = true
+        eventFrame:SetScript("OnUpdate", OnUpdateScanProcessor)
+    end
+end
+
+-- 초기화/스펙 변경용: 점진적 재시도 (특정 딜레이 필요 → C_Timer 유지)
 local retryTimers = {}
 local function ScheduleRetryScans(delays)
-    -- 기존 재시도 타이머 전부 취소
     for i = 1, #retryTimers do
         if retryTimers[i] then
             retryTimers[i]:Cancel()
         end
     end
-    -- 테이블 초기화 후 새 타이머 추가
     wipe(retryTimers)
     for _, delay in ipairs(delays) do
         retryTimers[#retryTimers + 1] = C_Timer.NewTimer(delay, function()
@@ -673,21 +725,20 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         return
     elseif event == "PLAYER_REGEN_ENABLED" then
         isInCombat = false
-        DebouncedScanAll(0.5)
+        MarkScanDirty(0.5) -- 전투 종료 후 0.5초 대기
         return
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- 리로드/존 이동 후 CDM 스캔 (점진적 재시도, 이전 타이머 취소)
         ScheduleRetryScans({ 0.5, 1.5, 3.0 })
         return
     elseif event == "UNIT_AURA" then
-        -- 플레이어 오라 변경 시 카탈로그 업데이트 (전투 중이 아닐 때만)
+        -- [FIX] dirty flag만 설정 → OnUpdate에서 배치 처리 (C_Timer 객체 생성 없음)
         if not isInCombat then
-            DebouncedScanAll(0.1)
+            MarkScanDirty(0.1)
         end
         return
     end
 
-    -- Rescan after spec/talent change (점진적 재시도, 이전 타이머 취소)
+    -- Rescan after spec/talent change
     ScheduleRetryScans({ 0.5, 1.5, 3.0, 5.0 })
 end)
 

@@ -234,7 +234,22 @@ local function SetupViewerHooks(viewerName)
         end)
     end
 
-    -- [HOOK 5] UpdateShownState → 보이기 상태 변경 대응
+    -- [HOOK 5] SetAlpha → 은닉 상태에서 CDM이 alpha 변경 시 즉시 snap-back
+    -- 로그인 직후 CDM이 뷰어 alpha를 1로 리셋 → 아이콘이 CDM 위치에서 잠깐 보이는 문제 방지
+    hooksecurefunc(viewer, "SetAlpha", function(_, alpha)
+        if pushing then return end
+        if IsInBlizzardEditMode() then return end
+        -- secret value 방어
+        if issecretvalue and issecretvalue(alpha) then return end
+        local state = viewerState[viewerName]
+        if state and state.hidden and type(alpha) == "number" and alpha > 0.01 then
+            pushing = true
+            viewer:SetAlpha(0)
+            pushing = false
+        end
+    end)
+
+    -- [HOOK 6] UpdateShownState → 보이기 상태 변경 대응
     if viewer.UpdateShownState then
         hooksecurefunc(viewer, "UpdateShownState", function()
             if pushing then return end
@@ -246,7 +261,7 @@ local function SetupViewerHooks(viewerName)
         end)
     end
 
-    -- [HOOK 6] OnShow/OnHide → 그룹 프레임 표시 상태 동기화
+    -- [HOOK 7] OnShow/OnHide → 그룹 프레임 표시 상태 동기화
     -- CDM이 뷰어를 Show/Hide하면 (전투 진입/퇴장 등) 그룹 프레임에 전파
     -- ContainerSync는 alpha=0만 사용하므로 CDM의 Show/Hide는 독립적
     viewer:HookScript("OnShow", function()

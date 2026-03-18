@@ -1306,6 +1306,32 @@ function ActionBars:Enable()
 
     -- 8. 동적 스킨 훅 -- [ESSENTIAL]
     HookDynamicSkinning()
+
+    -- 9. 사거리 체크 (빨간 틴트) -- [ESSENTIAL]
+    if db.rangeCheck ~= false then
+        local rangeFrame = CreateFrame("Frame")
+        rangeFrame:RegisterEvent("ACTIONBAR_UPDATE_USABLE")
+        rangeFrame:SetScript("OnEvent", function()
+            for _, barInfo in ipairs(BAR_CONFIG) do
+                for i = 1, barInfo.count do
+                    local btn = _G[barInfo.prefix..i]
+                    if btn then
+                        local action = btn.action
+                        if action and HasAction(action) then
+                            local icon = btn.icon or btn.Icon
+                            if icon then
+                                if IsActionInRange(action) == false then
+                                    icon:SetVertexColor(0.8, 0.1, 0.1)
+                                else
+                                    icon:SetVertexColor(1, 1, 1)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
 end
 
 function ActionBars:Disable()

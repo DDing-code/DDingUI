@@ -298,6 +298,17 @@ WidgetDefaults.powerText = {
 	position = CreatePositionOpt("BOTTOMRIGHT", "CENTER", 0, 0),
 }
 
+-- Status Text Widget (Dead/Offline/AFK — party/raid)
+WidgetDefaults.statusText = {
+	enabled = true,
+	frameLevel = 11,
+	font = CreateFontOpt(11, "OUTLINE", true, nil, "CENTER"),
+	color = CreateColorOpt(0.8, 0.8, 0.8, "custom"),
+	position = CreatePositionOpt("CENTER", "CENTER", 0, 0),
+	shadow = true,
+	tag = "[ddingui:status]",
+}
+
 -- Level Text Widget
 WidgetDefaults.levelText = {
 	enabled = false,
@@ -1538,6 +1549,8 @@ local function BuildDefaults()
 		widgets = {
 			nameText = CopyDeep(WidgetDefaults.nameText),
 			healthText = CopyDeep(WidgetDefaults.healthText),
+			powerText = CopyDeep(WidgetDefaults.powerText), -- [FIX] 자원 텍스트 위젯 추가
+			statusText = CopyDeep(WidgetDefaults.statusText), -- [FIX] 상태 텍스트 위젯 추가
 			powerBar = CopyDeep(WidgetDefaults.powerBar),
 			buffs = CopyDeep(WidgetDefaults.buffs), -- [AURA-FILTER] raid에도 버프 위젯 추가
 			debuffs = CopyDeep(WidgetDefaults.debuffs),
@@ -1558,6 +1571,7 @@ local function BuildDefaults()
 			fader = CopyDeep(WidgetDefaults.fader),
 			highlight = CopyDeep(WidgetDefaults.highlight),
 			debuffHighlight = CopyDeep(WidgetDefaults.debuffHighlight), -- [FIX] 디버프 하이라이트
+			customText = CopyDeep(WidgetDefaults.customText), -- [FIX] 커스텀 텍스트 위젯 추가
 		},
 	},
 
@@ -1605,6 +1619,8 @@ local function BuildDefaults()
 		widgets = {
 			nameText = CopyDeep(WidgetDefaults.nameText),
 			healthText = CopyDeep(WidgetDefaults.healthText),
+			powerText = CopyDeep(WidgetDefaults.powerText), -- [FIX] 자원 텍스트 위젯 추가
+			statusText = CopyDeep(WidgetDefaults.statusText), -- [FIX] 상태 텍스트 위젯 추가
 			powerBar = CopyDeep(WidgetDefaults.powerBar),
 			buffs = CopyDeep(WidgetDefaults.buffs),
 			debuffs = CopyDeep(WidgetDefaults.debuffs),
@@ -1625,6 +1641,7 @@ local function BuildDefaults()
 			fader = CopyDeep(WidgetDefaults.fader),
 			highlight = CopyDeep(WidgetDefaults.highlight),
 			debuffHighlight = CopyDeep(WidgetDefaults.debuffHighlight),
+			customText = CopyDeep(WidgetDefaults.customText), -- [FIX] 커스텀 텍스트 위젯 추가
 		},
 	},
 	}
@@ -1739,23 +1756,40 @@ function Config:Initialize()
 	-- [PERF] ns.defaults를 여기서 구축 (파일 파싱 시점이 아닌 ADDON_LOADED 시점)
 	ns.defaults = BuildDefaults()
 	self:MergeDefaults()
+
+	-- [AD] AuraDesigner DB 기본값 초기화
+	if not ns.db.auraDesigner then
+		ns.db.auraDesigner = {
+			enabled = true, -- 프리셋 포함 → 기본 활성화
+			spec = "auto",
+			auras = {},
+			layoutGroups = {},
+			defaults = {
+				iconSize = 20, iconScale = 1.0,
+				showDuration = true, showStacks = true,
+				durationScale = 1.0, durationOutline = "OUTLINE",
+			},
+		}
+	end
+end
+
+-- [AUDIT-FIX] merge 함수를 모듈 레벨로 이동 (매 호출 클로저 생성 방지)
+local function MergeDeep(source, target)
+	for key, value in pairs(source) do
+		if target[key] == nil then
+			if type(value) == "table" then
+				target[key] = CopyDeep(value)
+			else
+				target[key] = value
+			end
+		elseif type(value) == "table" and type(target[key]) == "table" then
+			MergeDeep(value, target[key])
+		end
+	end
 end
 
 function Config:MergeDefaults()
-	local function merge(source, target)
-		for key, value in pairs(source) do
-			if target[key] == nil then
-				if type(value) == "table" then
-					target[key] = CopyDeep(value)
-				else
-					target[key] = value
-				end
-			elseif type(value) == "table" and type(target[key]) == "table" then
-				merge(value, target[key])
-			end
-		end
-	end
-	merge(ns.defaults, ns.db)
+	MergeDeep(ns.defaults, ns.db)
 end
 
 -- [FIX] 마이그레이션: 옛 축약 태그 + width 제약 제거

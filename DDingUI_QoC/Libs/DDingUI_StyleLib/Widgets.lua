@@ -309,7 +309,7 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
     local width = opts.width or 200
 
     local container = CreateFrame("Frame", nil, parent)
-    container:SetSize(width, 48)
+    container:SetSize(width, 52)
 
     -- label
     local lbl = MakeFont(container, F.normal, nil, C.text.normal)
@@ -318,19 +318,19 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
 
     -- track background
     local track = CreateFrame("Frame", nil, container, "BackdropTemplate")
-    track:SetHeight(4)
+    track:SetHeight(6)
     track:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -8)
-    track:SetPoint("RIGHT", container, "RIGHT", 0, 0)
+    track:SetPoint("RIGHT", container, "RIGHT", -64, 0)
     ApplyBackdrop(track, C.bg.input, nil)
     track:SetBackdropBorderColor(0, 0, 0, 0) -- no border on track
 
     -- clamp default to valid range
     local clamped = math.max(min, math.min(max, tonumber(default) or min))
 
-    -- slider (overlays track)
+    -- slider (overlays track, expanded hit area for easier clicking)
     local slider = CreateFrame("Slider", nil, container, "BackdropTemplate")
-    slider:SetPoint("TOPLEFT", track)
-    slider:SetPoint("BOTTOMRIGHT", track)
+    slider:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 10)
+    slider:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, -10)
     slider:SetMinMaxValues(min, max)
     slider:SetValueStep(step)
     slider:SetObeyStepOnDrag(true)
@@ -338,10 +338,11 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
     slider:SetOrientation("HORIZONTAL")
     slider:SetBackdrop(nil)
     slider:EnableMouseWheel(true)
+    slider:SetHitRectInsets(0, 0, 0, 0)
 
     -- thumb
     local thumb = slider:CreateTexture(nil, "OVERLAY")
-    thumb:SetSize(8, 8)
+    thumb:SetSize(16, 16)
     thumb:SetColorTexture(from[1], from[2], from[3], 1)
     slider:SetThumbTexture(thumb)
 
@@ -354,15 +355,16 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
     maxLabel:SetPoint("TOPRIGHT", track, "BOTTOMRIGHT", 0, -2)
     maxLabel:SetText(tostring(max))
 
-    -- editable value box (centered below track)
+    -- editable value box (right side of track, larger for easier clicking)
     local valBox = CreateFrame("EditBox", nil, container, "BackdropTemplate")
-    valBox:SetSize(48, 18)
-    valBox:SetPoint("TOP", track, "BOTTOM", 0, -2)
-    valBox:SetFont(F.path, F.small, "")
+    valBox:SetSize(56, 22)
+    valBox:SetPoint("LEFT", track, "RIGHT", 6, 0)
+    valBox:SetFont(F.path, F.normal, "")
     valBox:SetTextColor(u(C.text.highlight))
     valBox:SetJustifyH("CENTER")
     valBox:SetAutoFocus(false)
     valBox:SetNumeric(false) -- allow decimals as text
+    valBox:SetTextInsets(4, 4, 0, 0)
     ApplyBackdrop(valBox, C.bg.input, C.border.default)
 
     -- format helper (reused for initial display and OnValueChanged)

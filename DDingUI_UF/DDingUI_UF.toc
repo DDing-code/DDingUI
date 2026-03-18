@@ -38,6 +38,9 @@ Libs\DDingUI_StyleLib\CascadingMenu.lua
 Libs\DDingUI_StyleLib\DragSorter.lua
 # StyleLib Widgets
 Libs\DDingUI_StyleLib\Widgets.lua
+Libs\DDingUI_StyleLib\DesignTokens.lua
+Libs\DDingUI_StyleLib\WidgetRefresh.lua
+Libs\DDingUI_StyleLib\ProceduralGlow.lua
 
 # oUF (REMOVED — standalone mode)
 # Libs\oUF\oUF.xml
@@ -72,6 +75,17 @@ GroupFrames\Update.lua
 GroupFrames\TestMode.lua
 GroupFrames\Auras.lua
 GroupFrames\Range.lua
+
+# AuraDesigner (DandersFrames 패턴 — 인디케이터 기반 HOT 추적)
+AuraDesigner\Config.lua
+AuraDesigner\SecretAuras.lua
+AuraDesigner\AuraAdapter.lua
+AuraDesigner\LinkedAuras.lua
+AuraDesigner\Indicators.lua
+AuraDesigner\Presets.lua
+AuraDesigner\Engine.lua
+AuraDesigner\Options.lua
+AuraDesigner\OptionsUI.lua
 
 # Elements (DispelHighlight/Highlight — standalone 호환)
 Elements\DispelHighlight.lua

@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 	ddingUI UnitFrames
 	Modules/Options.lua - Cell_UnitFrames 스타일 상세 옵션 패널
 ]]
@@ -224,17 +224,17 @@ local categoryData = {
 			{ id = "personal.power", text = "자원바" },
 			{ id = "personal.castbar", text = "시전바" },
 			{ id = "personal.classbar", text = "직업 자원" },
-			{ id = "personal.altpower", text = "보조 자원" },
+			{ id = "personal.altpower", text = "추가 자원 (마나/광기)" },  -- [UX] 보조→추가, Additional Power 명확화
 			{ id = "personal.buffs", text = "버프" },
 			{ id = "personal.debuffs", text = "디버프" },
 			{ id = "personal.defensives", text = "생존기" },
 			{ id = "personal.privateauras", text = "프라이빗 오라" },
-			{ id = "personal.texts", text = "텍스트" },
+			{ id = "personal.texts", text = "텍스트" },  -- [UX] 이름/체력/자원/커스텀 통합
 			{ id = "personal.indicators", text = "인디케이터" },
-			{ id = "personal.effects", text = "위협 상태 / 하이라이트" },
+			{ id = "personal.threat", text = "위협 글로우" },
+			{ id = "personal.highlight", text = "하이라이트 (대상/포커스)" },
 			{ id = "personal.fader", text = "페이드" },
 			{ id = "personal.healprediction", text = "치유 예측" },
-			{ id = "personal.customtext", text = "커스텀 텍스트" },
 		},
 	},
 	{
@@ -250,13 +250,12 @@ local categoryData = {
 			{ id = "group.defensives", text = "생존기" },
 			{ id = "group.privateauras", text = "프라이빗 오라" },
 			{ id = "group.indicators", text = "인디케이터" },
-			{ id = "group.texts", text = "텍스트" },
-			{ id = "group.debuffhighlight", text = "디버프 하이라이트" },
-			{ id = "group.dispels", text = "해제" },
+			{ id = "group.texts", text = "텍스트" },  -- [UX] 커스텀 텍스트 통합
+			{ id = "group.dispels", text = "해제 / 디버프 강조" },
 			{ id = "group.fader", text = "페이드" },
 			{ id = "group.healprediction", text = "치유 예측" },
-			{ id = "group.effects", text = "위협 상태 / 하이라이트" },
-			{ id = "group.customtext", text = "커스텀 텍스트" },
+			{ id = "group.threat", text = "위협 글로우" },
+			{ id = "group.highlight", text = "하이라이트 (대상/포커스)" },
 		},
 	},
 	{
@@ -346,6 +345,50 @@ local function CreatePageHeader(parent, title, description)
 	end
 	
 	return header
+end
+
+-----------------------------------------------
+-- [UX] SeeAlso Links (DandersFrames 패턴)
+-- 페이지 하단에 관련 페이지로 이동하는 클릭 가능 링크 생성
+-----------------------------------------------
+local function CreateSeeAlso(parent, links, yOffset)
+	-- links = { {pageId = "group.threat", label = "위협 글로우"}, ... }
+	if not links or #links == 0 then return end
+
+	local container = CreateFrame("Frame", nil, parent)
+	container:SetSize(CONTENT_WIDTH - 40, 30)
+	container:SetPoint("TOPLEFT", 15, yOffset or -10)
+
+	local prefix = container:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+	prefix:SetText("|cff888888관련 설정:|r")
+	prefix:SetPoint("LEFT", 0, 0)
+
+	local prevAnchor = prefix
+	for i, link in ipairs(links) do
+		local btn = CreateFrame("Button", nil, container)
+		btn:SetSize(1, 20) -- 자동 크기
+		local text = btn:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+		text:SetText("|cff55aaff" .. link.label .. "|r")
+		text:SetPoint("LEFT", prevAnchor, "RIGHT", i == 1 and 8 or 5, 0)
+		btn:SetAllPoints(text)
+		btn:SetScript("OnClick", function()
+			if LoadPage then LoadPage(link.pageId) end
+		end)
+		btn:SetScript("OnEnter", function() text:SetText("|cff88ccff" .. link.label .. "|r") end)
+		btn:SetScript("OnLeave", function() text:SetText("|cff55aaff" .. link.label .. "|r") end)
+
+		-- 구분자
+		if i < #links then
+			local sep = container:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+			sep:SetText("|cff555555·|r")
+			sep:SetPoint("LEFT", text, "RIGHT", 5, 0)
+			prevAnchor = sep
+		else
+			prevAnchor = text
+		end
+	end
+
+	return container
 end
 
 -----------------------------------------------
@@ -3806,137 +3849,201 @@ local function BuildUnitAurasPage(parent, unit, auraType)
 	yOffset = BuildIconFontSection(parent, unit, auraType, "stacks", "중첩 텍스트 상세", yOffset)
 	yOffset = BuildIconBorderSection(parent, unit, auraType, yOffset)
 
-	-- [AURA-FILTER] Filter section — secret-safe 필터 (non-secret 필드만 사용, buffs/debuffs 고유)
+	-- ============================================================
+	-- [UX] 필터 섹션 — 3그룹 구조 (표시/숨김/특수)
+	-- ============================================================
 	local filterSep = Widgets:CreateSeparator(parent, "필터", CONTENT_WIDTH - 40)
 	filterSep:SetPoint("TOPLEFT", 15, yOffset)
-	yOffset = yOffset - 35
+	yOffset = yOffset - 25
 
 	local filter = auras and auras.filter or {}
 
-	-- 공통: 내가 건 것만
-	local mineCheck = Widgets:CreateCheckButton(parent, "내가 건 것만 표시", function(checked)
+	-- [UX] showAll 상태면 다른 필터를 dim 처리하기 위한 컨테이너
+	local filterControls = {}
+
+	-- ── 그룹 1: 표시 조건 (포함 필터) ──
+	local showSep = Widgets:CreateSeparator(parent, "▸ 표시 조건", CONTENT_WIDTH - 60)
+	showSep:SetPoint("TOPLEFT", 25, yOffset)
+	yOffset = yOffset - 5
+
+	local showDesc = parent:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+	showDesc:SetText("|cff888888활성화한 조건에 맞는 오라만 표시됩니다.|r")
+	showDesc:SetPoint("TOPLEFT", 30, yOffset)
+	yOffset = yOffset - 20
+
+	local mineCheck = Widgets:CreateCheckButton(parent, "내가 건 오라만", function(checked)
 		SetWidgetValue(unit, auraType, "filter.onlyMine", checked)
 		if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
 		RefreshCurrentPreview()
 	end)
-	mineCheck:SetPoint("TOPLEFT", 15, yOffset)
+	mineCheck:SetPoint("TOPLEFT", 30, yOffset)
 	mineCheck:SetChecked(filter.onlyMine)
+	filterControls[#filterControls + 1] = mineCheck
 
-	-- 공통: 보스 오라 항상 표시
-	local bossCheck = Widgets:CreateCheckButton(parent, "보스 오라 항상 표시", function(checked)
+	local bossCheck = Widgets:CreateCheckButton(parent, "보스/중요 오라 항상 표시", function(checked)
 		SetWidgetValue(unit, auraType, "filter.showBossAura", checked)
 		if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
 		RefreshCurrentPreview()
 	end)
 	bossCheck:SetPoint("LEFT", mineCheck, "RIGHT", 140, 0)
 	bossCheck:SetChecked(filter.showBossAura ~= false)
+	bossCheck.tooltipText = "'내가 건 것만' 활성화 시에도 보스 오라는 항상 표시"
+	filterControls[#filterControls + 1] = bossCheck
 	yOffset = yOffset - 30
 
-	-- 공통: 레이드 오라 표시
-	local raidCheck = Widgets:CreateCheckButton(parent, "블리자드 레이드 오라 표시", function(checked)
+	local raidCheck = Widgets:CreateCheckButton(parent, "블리자드 레이드 오라 기준 표시", function(checked)
 		SetWidgetValue(unit, auraType, "filter.showRaid", checked)
 		if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
 		RefreshCurrentPreview()
 	end)
-	raidCheck:SetPoint("TOPLEFT", 15, yOffset)
+	raidCheck:SetPoint("TOPLEFT", 30, yOffset)
 	raidCheck:SetChecked(filter.showRaid)
+	raidCheck.tooltipText = "블리자드가 '레이드에서 표시'로 분류한 오라를 포함합니다"
+	filterControls[#filterControls + 1] = raidCheck
 	yOffset = yOffset - 30
 
-	-- 파티/레이드 버프 전용: 블리자드 파티프레임 필터 (SpellGetVisibilityInfo)
 	if auraType == "buffs" and (unit == "party" or unit == "raid" or unit == "mythicRaid") then
-		local blizzFilterCheck = Widgets:CreateCheckButton(parent, "블리자드 파티프레임 필터", function(checked)
+		local blizzFilterCheck = Widgets:CreateCheckButton(parent, "블리자드 파티프레임 필터 사용", function(checked)
 			SetWidgetValue(unit, auraType, "filter.useBlizzardFilter", checked)
 			if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
 			RefreshCurrentPreview()
 		end)
-		blizzFilterCheck:SetPoint("TOPLEFT", 15, yOffset)
+		blizzFilterCheck:SetPoint("TOPLEFT", 30, yOffset)
 		blizzFilterCheck:SetChecked(filter.useBlizzardFilter)
-		blizzFilterCheck.tooltipText = "블리자드 기본 파티프레임과 동일한 버프 표시 기준 사용\n(SpellGetVisibilityInfo API)"
+		blizzFilterCheck.tooltipText = "블리자드 기본 파티프레임과 동일한 표시 기준\n(SpellGetVisibilityInfo API)"
+		filterControls[#filterControls + 1] = blizzFilterCheck
 		yOffset = yOffset - 30
 	end
 
-	-- [FIX] 버프 전용: 레이드 시너지 버프 숨기기 (인내, 전투 외침, 야생의 징표 등)
+	if auraType == "buffs" then
+		local hotWhitelistCheck = Widgets:CreateCheckButton(parent, "HoT 추적 목록만 표시", function(checked)
+			SetWidgetValue(unit, auraType, "filter.useHotWhitelist", checked)
+			local GF = ns.GroupFrames
+			if GF and GF.headersInitialized and GF.QueueAuraUpdate then
+				for _, f in pairs(GF.allFrames or {}) do GF:QueueAuraUpdate(f) end
+			end
+			RefreshCurrentPreview()
+		end)
+		hotWhitelistCheck:SetPoint("TOPLEFT", 30, yOffset)
+		hotWhitelistCheck:SetChecked(filter.useHotWhitelist)
+		hotWhitelistCheck.tooltipText = "HoT 트래커에 등록된 스킬만 버프 아이콘에 표시\n(현재 전문화의 추적 대상 HoT만 통과)"
+		filterControls[#filterControls + 1] = hotWhitelistCheck
+		yOffset = yOffset - 30
+	end
+
+	-- ── 그룹 2: 숨김 조건 (제외 필터) ──
+	yOffset = yOffset - 10
+	local hideSep = Widgets:CreateSeparator(parent, "▸ 숨김 조건", CONTENT_WIDTH - 60)
+	hideSep:SetPoint("TOPLEFT", 25, yOffset)
+	yOffset = yOffset - 5
+
+	local hideDesc = parent:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+	hideDesc:SetText("|cff888888활성화한 조건에 해당하는 오라를 숨깁니다.|r")
+	hideDesc:SetPoint("TOPLEFT", 30, yOffset)
+	yOffset = yOffset - 20
+
 	if auraType == "buffs" then
 		local hideRaidBuffsCheck = Widgets:CreateCheckButton(parent, "레이드 시너지 버프 숨기기", function(checked)
 			SetWidgetValue(unit, auraType, "filter.hideRaidBuffs", checked)
 			if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
-			-- GroupFrames 갱신
 			local GF = ns.GroupFrames
 			if GF and GF.headersInitialized and GF.QueueAuraUpdate then
-				for _, f in pairs(GF.allFrames or {}) do
-					GF:QueueAuraUpdate(f)
-				end
+				for _, f in pairs(GF.allFrames or {}) do GF:QueueAuraUpdate(f) end
 			end
 			RefreshCurrentPreview()
 		end)
-		hideRaidBuffsCheck:SetPoint("TOPLEFT", 15, yOffset)
+		hideRaidBuffsCheck:SetPoint("TOPLEFT", 30, yOffset)
 		hideRaidBuffsCheck:SetChecked(filter.hideRaidBuffs)
-		hideRaidBuffsCheck.tooltipText = "신의 권능: 인내, 전투 외침, 신비한 지능 등\n레이드 시너지 버프를 버프 바에서 숨깁니다"
-		yOffset = yOffset - 30
-
-		-- [12.0.1] HoT 목록 기반 화이트리스트
-		local hotWhitelistCheck = Widgets:CreateCheckButton(parent, "HoT 목록 기반 필터", function(checked)
-			SetWidgetValue(unit, auraType, "filter.useHotWhitelist", checked)
-			-- GroupFrames 갱신
-			local GF = ns.GroupFrames
-			if GF and GF.headersInitialized and GF.QueueAuraUpdate then
-				for _, f in pairs(GF.allFrames or {}) do
-					GF:QueueAuraUpdate(f)
-				end
-			end
-			RefreshCurrentPreview()
-		end)
-		hotWhitelistCheck:SetPoint("TOPLEFT", 15, yOffset)
-		hotWhitelistCheck:SetChecked(filter.useHotWhitelist)
-		hotWhitelistCheck.tooltipText = "HoT 트래커에 등록된 스킬만 버프 아이콘에 표시합니다\n(현재 전문화의 추적 대상 HoT만 통과)"
+		hideRaidBuffsCheck.tooltipText = "인내, 전투 외침, 신비한 지능 등\n레이드 시너지 버프를 숨깁니다"
+		filterControls[#filterControls + 1] = hideRaidBuffsCheck
 		yOffset = yOffset - 30
 	end
 
-	-- 디버프 전용 필터
-	if auraType == "debuffs" then
-		local dispelOnlyCheck = Widgets:CreateCheckButton(parent, "해제 가능한 것만 표시", function(checked)
-			SetWidgetValue(unit, auraType, "filter.onlyDispellable", checked)
-			if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
-			RefreshCurrentPreview()
-		end)
-		dispelOnlyCheck:SetPoint("TOPLEFT", 15, yOffset)
-		dispelOnlyCheck:SetChecked(filter.onlyDispellable)
-
-		local showAllCheck = Widgets:CreateCheckButton(parent, "전부 표시 (필터 무시)", function(checked)
-			SetWidgetValue(unit, auraType, "filter.showAll", checked)
-			if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
-			RefreshCurrentPreview()
-		end)
-		showAllCheck:SetPoint("LEFT", dispelOnlyCheck, "RIGHT", 140, 0)
-		showAllCheck:SetChecked(filter.showAll)
-		yOffset = yOffset - 30
-	end
-
-	-- 공통: 지속시간 필터
 	local hideNoDurCheck = Widgets:CreateCheckButton(parent, "지속시간 없는 것 숨기기", function(checked)
 		SetWidgetValue(unit, auraType, "filter.hideNoDuration", checked)
 		if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
 		RefreshCurrentPreview()
 	end)
-	hideNoDurCheck:SetPoint("TOPLEFT", 15, yOffset)
+	hideNoDurCheck:SetPoint("TOPLEFT", 30, yOffset)
 	hideNoDurCheck:SetChecked(filter.hideNoDuration)
+	filterControls[#filterControls + 1] = hideNoDurCheck
 	yOffset = yOffset - 30
 
-	-- 최대 지속시간 (secret guard: duration이 secret이면 필터 스킵)
 	local maxDurSlider = Widgets:CreateSlider("최대 지속시간(초, 0=무제한)", parent, 0, 600, 200, 1, nil, function(value)
 		SetWidgetValue(unit, auraType, "filter.maxDuration", value)
 		if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
 		RefreshCurrentPreview()
 	end)
-	maxDurSlider:SetPoint("TOPLEFT", 15, yOffset)
+	maxDurSlider:SetPoint("TOPLEFT", 30, yOffset)
 	maxDurSlider:SetValue(filter.maxDuration or 0)
+	maxDurSlider.tooltipText = "이 시간(초)을 초과하는 오라를 숨깁니다\n0 = 제한 없음"
+	filterControls[#filterControls + 1] = maxDurSlider
 	yOffset = yOffset - 60
+
+	-- ── 그룹 3: 특수 (디버프 전용) ──
+	if auraType == "debuffs" then
+		yOffset = yOffset - 10
+		local specSep = Widgets:CreateSeparator(parent, "▸ 특수 필터", CONTENT_WIDTH - 60)
+		specSep:SetPoint("TOPLEFT", 25, yOffset)
+		yOffset = yOffset - 25
+
+		local dispelOnlyCheck = Widgets:CreateCheckButton(parent, "해제 가능한 것만 표시", function(checked)
+			SetWidgetValue(unit, auraType, "filter.onlyDispellable", checked)
+			if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
+			RefreshCurrentPreview()
+		end)
+		dispelOnlyCheck:SetPoint("TOPLEFT", 30, yOffset)
+		dispelOnlyCheck:SetChecked(filter.onlyDispellable)
+		filterControls[#filterControls + 1] = dispelOnlyCheck
+		yOffset = yOffset - 30
+
+		local showAllCheck = Widgets:CreateCheckButton(parent, "|cffff8800⚠|r 전부 표시 (위 필터 무시)", function(checked)
+			SetWidgetValue(unit, auraType, "filter.showAll", checked)
+			if ns.Update and ns.Update.UpdateAuras then ns.Update:UpdateAuras(unit) end
+			RefreshCurrentPreview()
+			for _, ctrl in ipairs(filterControls) do
+				if ctrl ~= showAllCheck then SetChildrenEnabled({ ctrl }, not checked) end
+			end
+		end)
+		showAllCheck:SetPoint("TOPLEFT", 30, yOffset)
+		showAllCheck:SetChecked(filter.showAll)
+		showAllCheck.tooltipText = "활성화 시 위의 모든 필터를 무시하고\n모든 디버프를 표시합니다"
+		yOffset = yOffset - 30
+
+		if filter.showAll then
+			for _, ctrl in ipairs(filterControls) do SetChildrenEnabled({ ctrl }, false) end
+		end
+	end
+
+	-- ── SeeAlso 교차 링크 ──
+	yOffset = yOffset - 10
+	local section = (unit == "party" or unit == "raid" or unit == "mythicRaid") and "group" or "personal"
+	if auraType == "buffs" then
+		CreateSeeAlso(parent, {
+			{ pageId = section .. ".debuffs", label = "디버프" },
+			{ pageId = section .. ".defensives", label = "생존기" },
+			{ pageId = "hottracker", label = "HoT 추적" },
+		}, yOffset)
+	else
+		CreateSeeAlso(parent, {
+			{ pageId = section .. ".buffs", label = "버프" },
+			{ pageId = section .. ".dispels", label = "해제 / 디버프 강조" },
+			{ pageId = section .. ".defensives", label = "생존기" },
+		}, yOffset)
+	end
+	yOffset = yOffset - 30
 
 	-- [12.0.1] 방향 및 위치 — 공통 헬퍼 사용
 	yOffset = BuildIconGrowthSection(parent, unit, auraType, yOffset)
 	yOffset = BuildIconPositionSection(parent, unit, auraType, yOffset)
 
 	parent:SetHeight(math.abs(yOffset) + 50)
+
+
+
+
+
+
 end
 
 -----------------------------------------------
@@ -4312,7 +4419,136 @@ local function BuildUnitTextsPage(parent, unit)
 	powerPosEditor:SetPosition(powerWidget and powerWidget.position or { point = "BOTTOMRIGHT", relativePoint = "CENTER", offsetX = 0, offsetY = 0 })
 	yOffset = yOffset - 120
 
+	-- ===== Status Text Section (party/raid only) ===== -- [FIX] statusText 위젯 옵션 추가
+	if unit == "party" or unit == "raid" or unit == "mythicRaid" then
+		local stSep = Widgets:CreateSeparator(parent, "상태 텍스트 (사망/오프라인/AFK)", CONTENT_WIDTH - 40)
+		stSep:SetPoint("TOPLEFT", 15, yOffset)
+		yOffset = yOffset - 35
+
+		local stWidget = GetWidgetConfig(unit, "statusText")
+
+		local stCheck = Widgets:CreateCheckButton(parent, "상태 텍스트 표시", function(checked)
+			SetWidgetValue(unit, "statusText", "enabled", checked)
+			if ns.Update and ns.Update.UpdateTexts then ns.Update:UpdateTexts(unit) end
+			RefreshCurrentPreview()
+		end)
+		stCheck:SetPoint("TOPLEFT", 15, yOffset)
+		stCheck:SetChecked(stWidget and stWidget.enabled ~= false)
+		yOffset = yOffset - 30
+
+		-- Status font
+		local stFontSelector = Widgets:CreateFontSelector(parent, 350, function(fontOpt)
+			SetWidgetValue(unit, "statusText", "font", fontOpt)
+			if ns.Update and ns.Update.UpdateTexts then ns.Update:UpdateTexts(unit) end
+			RefreshCurrentPreview()
+		end)
+		stFontSelector:SetPoint("TOPLEFT", 15, yOffset)
+		stFontSelector:SetFont(stWidget and stWidget.font or { size = 11, outline = "OUTLINE", shadow = true, justify = "CENTER" })
+		yOffset = yOffset - 110
+
+		-- Status color
+		local stColorPicker = Widgets:CreateEnhancedColorPicker(parent, "상태 텍스트 색상", false, function(colorOpt)
+			SetWidgetValue(unit, "statusText", "color", colorOpt)
+			if ns.Update and ns.Update.UpdateTexts then ns.Update:UpdateTexts(unit) end
+			RefreshCurrentPreview()
+		end)
+		stColorPicker:SetPoint("TOPLEFT", 15, yOffset)
+		stColorPicker:SetColor(stWidget and stWidget.color or { rgb = { 0.8, 0.8, 0.8 }, type = "custom" })
+		yOffset = yOffset - 35
+
+		-- [FIX] 중복된 그림자 토글 제거 (stFontSelector 내부에 그림자 설정 존재)
+
+		-- Status position
+		local stPosEditor = Widgets:CreatePositionEditor(parent, 350, function(pos)
+			SetWidgetValue(unit, "statusText", "position", pos)
+			if ns.Update and ns.Update.UpdateTexts then ns.Update:UpdateTexts(unit) end
+			RefreshCurrentPreview()
+		end)
+		stPosEditor:SetPoint("TOPLEFT", 15, yOffset)
+		stPosEditor:SetPosition(stWidget and stWidget.position or { point = "CENTER", relativePoint = "CENTER", offsetX = 0, offsetY = 0 })
+		yOffset = yOffset - 120
+	end
+
 	-- [OPTION-CLEANUP] levelText 카테고리 전체 제거 - Retail(만렙)에서 무의미
+
+	-- ============================================================
+	-- [UX] 커스텀 텍스트 섹션 (통합)
+	-- ============================================================
+	local ctSep = Widgets:CreateSeparator(parent, "커스텀 텍스트 (태그)", CONTENT_WIDTH - 40)
+	ctSep:SetPoint("TOPLEFT", 15, yOffset)
+	yOffset = yOffset - 35
+
+	local ctWidget = settings.widgets and settings.widgets.customText
+	local ctChildren = {}
+
+	local ctEnable = Widgets:CreateCheckButton(parent, "커스텀 텍스트 활성화", function(checked)
+		SetWidgetValue(unit, "customText", "enabled", checked)
+		if ns.Update and ns.Update.UpdateTexts then ns.Update:UpdateTexts(unit) end
+		RefreshCurrentPreview()
+		SetChildrenEnabled(ctChildren, checked)
+	end)
+	ctEnable:SetPoint("TOPLEFT", 15, yOffset)
+	ctEnable:SetChecked(ctWidget and ctWidget.enabled)
+	yOffset = yOffset - 40
+
+	local ctTexts = ctWidget and ctWidget.texts or {}
+
+	local CustomTextFormatList = {
+		{ text = "없음 (직접 입력)", value = "" },
+		{ text = "[이름]", value = "[ddingui:name:medium]" },
+		{ text = "[이름 (짧은)]", value = "[ddingui:name:short]" },
+		{ text = "[체력%]", value = "[ddingui:health:percent]" },
+		{ text = "[체력]", value = "[ddingui:health:current]" },
+		{ text = "[체력/최대]", value = "[ddingui:health:current-max]" },
+		{ text = "[자원]", value = "[ddingui:power]" },
+		{ text = "[자원%]", value = "[ddingui:power:percent]" },
+		{ text = "[레벨]", value = "[ddingui:level]" },
+		{ text = "[등급]", value = "[ddingui:classification]" },
+		{ text = "[상태]", value = "[ddingui:status]" },
+		{ text = "[직업색+이름]", value = "[ddingui:classcolor][ddingui:name:medium]|r" },
+	}
+
+	local slotNames = { "text1", "text2", "text3" }
+	local slotLabels = { "텍스트 슬롯 1", "텍스트 슬롯 2", "텍스트 슬롯 3" }
+
+	for i, slotKey in ipairs(slotNames) do
+		local slot = ctTexts[slotKey] or {}
+
+		local slotSep = Widgets:CreateSeparator(parent, slotLabels[i], CONTENT_WIDTH - 60)
+		slotSep:SetPoint("TOPLEFT", 25, yOffset)
+		yOffset = yOffset - 30
+		ctChildren[#ctChildren + 1] = slotSep
+
+		local slotEnable = Widgets:CreateCheckButton(parent, slotLabels[i] .. " 활성화", function(checked)
+			SetWidgetValue(unit, "customText", "texts." .. slotKey .. ".enabled", checked)
+			if ns.Update and ns.Update.UpdateTexts then ns.Update:UpdateTexts(unit) end
+			RefreshCurrentPreview()
+		end)
+		slotEnable:SetPoint("TOPLEFT", 25, yOffset)
+		slotEnable:SetChecked(slot.enabled)
+		ctChildren[#ctChildren + 1] = slotEnable
+		yOffset = yOffset - 30
+
+		local fmtLabel = parent:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_NORMAL")
+		fmtLabel:SetText("텍스트 형식")
+		fmtLabel:SetPoint("TOPLEFT", 25, yOffset)
+		ctChildren[#ctChildren + 1] = fmtLabel
+
+		local fmtDropdown = Widgets:CreateDropdown(parent, 150)
+		fmtDropdown:SetPoint("TOPLEFT", fmtLabel, "BOTTOMLEFT", 0, -5)
+		fmtDropdown:SetItems(CustomTextFormatList)
+		fmtDropdown:SetOnSelect(function(value)
+			SetWidgetValue(unit, "customText", "texts." .. slotKey .. ".format", value)
+			if ns.Update and ns.Update.UpdateTexts then ns.Update:UpdateTexts(unit) end
+			RefreshCurrentPreview()
+		end)
+		fmtDropdown:SetSelected(slot.format or "")
+		ctChildren[#ctChildren + 1] = fmtDropdown
+		yOffset = yOffset - 55
+	end
+
+	SetChildrenEnabled(ctChildren, ctWidget and ctWidget.enabled)
+
 	parent:SetHeight(math.abs(yOffset) + 50)
 end
 
@@ -4941,17 +5177,17 @@ end
 -----------------------------------------------
 -- Threat / Highlight Page Builder
 -----------------------------------------------
-local function BuildThreatHighlightPage(parent, unit)
+-- [UX] 위협/하이라이트 분리: BuildThreatPage + BuildHighlightPage
+-----------------------------------------------
+local function BuildThreatPage(parent, unit)
 	local unitName = UnitNames[unit] or unit
-	local header = CreatePageHeader(parent, unitName .. " 위협/하이라이트", "위협 표시 및 하이라이트 설정")
+	local header = CreatePageHeader(parent, unitName .. " 위협 글로우", "어그로/위협 상태에 따른 테두리/글로우 표시")
 
 	local settings = ns.db[unit]
 	if not settings then return end
 
 	local yOffset = -60
-
 	local threatChildren = {}
-	local hlChildren = {}
 
 	-- ===== Threat =====
 	local threatSep = Widgets:CreateSeparator(parent, "위협 표시", CONTENT_WIDTH - 40)
@@ -5029,10 +5265,29 @@ local function BuildThreatHighlightPage(parent, unit)
 	tankingCP:SetColor(tkc[1], tkc[2], tkc[3], tkc[4])
 	yOffset = yOffset - 45
 
-	-- ===== Highlight =====
-	local hlSep = Widgets:CreateSeparator(parent, "하이라이트", CONTENT_WIDTH - 40)
-	hlSep:SetPoint("TOPLEFT", 15, yOffset)
-	yOffset = yOffset - 35
+	for _, c in ipairs({ styleLabel, styleDropdown, borderSizeSlider, lowThreatCP, highThreatCP, tankingCP }) do
+		threatChildren[#threatChildren + 1] = c
+	end
+	SetChildrenEnabled(threatChildren, threatWidget and threatWidget.enabled)
+	parent:SetHeight(math.abs(yOffset) + 80)
+
+	-- [UX] SeeAlso: 관련 페이지 교차 링크
+	local section = (unit == "party" or unit == "raid" or unit == "mythicRaid") and "group" or "personal"
+	CreateSeeAlso(parent, {
+		{ pageId = section .. ".highlight", label = "하이라이트 (대상/포커스)" },
+		{ pageId = section .. ".dispels", label = "해제 / 디버프 강조" },
+	}, yOffset - 10)
+end
+-----------------------------------------------
+local function BuildHighlightPage(parent, unit)
+	local unitName = UnitNames[unit] or unit
+	local header = CreatePageHeader(parent, unitName .. " 하이라이트", "대상/포커스/마우스오버 프레임 강조 설정")
+
+	local settings = ns.db[unit]
+	if not settings then return end
+
+	local yOffset = -60
+	local hlChildren = {}
 
 	local hlWidget = GetWidgetConfig(unit, "highlight")
 
@@ -5090,16 +5345,22 @@ local function BuildThreatHighlightPage(parent, unit)
 	local hcc = hlWidget and hlWidget.hoverColor or { 1, 1, 1, 0.3 }
 	hoverColorCP:SetColor(hcc[1], hcc[2], hcc[3], hcc[4])
 
-	for _, c in ipairs({ styleLabel, styleDropdown, borderSizeSlider, lowThreatCP, highThreatCP, tankingCP }) do
-		threatChildren[#threatChildren + 1] = c
-	end
 	for _, c in ipairs({ hoverCheck, targetCheck, hlSizeSlider, targetColorCP, hoverColorCP }) do
 		hlChildren[#hlChildren + 1] = c
 	end
-	SetChildrenEnabled(threatChildren, threatWidget and threatWidget.enabled)
 	SetChildrenEnabled(hlChildren, hlWidget and hlWidget.enabled)
-	parent:SetHeight(math.abs(yOffset) + 50)
+	parent:SetHeight(math.abs(yOffset) + 80)
+
+	-- [UX] SeeAlso: 관련 페이지 교차 링크
+	local section = (unit == "party" or unit == "raid" or unit == "mythicRaid") and "group" or "personal"
+	CreateSeeAlso(parent, {
+		{ pageId = section .. ".threat", label = "위협 글로우" },
+		{ pageId = section .. ".fader", label = "페이드" },
+	}, yOffset - 10)
 end
+
+-- [UX] 하위 호환 별칭
+local BuildThreatHighlightPage = BuildThreatPage
 
 -----------------------------------------------
 -- Debuff Highlight Page Builder (그룹 프레임 전용)
@@ -6156,10 +6417,11 @@ pageBuilders["personal.defensives"] = function(p) BuildSharedFeaturePage(p, "per
 pageBuilders["personal.privateauras"] = function(p) BuildSharedFeaturePage(p, "personal", BuildPrivateAurasPage) end
 pageBuilders["personal.texts"] = function(p) BuildSharedFeaturePage(p, "personal", BuildUnitTextsPage) end
 pageBuilders["personal.indicators"] = function(p) BuildSharedFeaturePage(p, "personal", BuildUnitIndicatorsPage) end
-pageBuilders["personal.effects"] = function(p) BuildSharedFeaturePage(p, "personal", BuildThreatHighlightPage) end
+pageBuilders["personal.threat"] = function(p) BuildSharedFeaturePage(p, "personal", BuildThreatHighlightPage) end  -- [UX] effects→threat 분리
+pageBuilders["personal.highlight"] = function(p) BuildSharedFeaturePage(p, "personal", BuildHighlightPage) end  -- [UX] 분리된 하이라이트 페이지
 pageBuilders["personal.fader"] = function(p) BuildSharedFeaturePage(p, "personal", BuildFaderPage) end
 pageBuilders["personal.healprediction"] = function(p) BuildSharedFeaturePage(p, "personal", BuildHealPredictionPage) end
-pageBuilders["personal.customtext"] = function(p) BuildSharedFeaturePage(p, "personal", BuildCustomTextPage) end
+pageBuilders["personal.customtext"] = function(p) BuildSharedFeaturePage(p, "personal", BuildCustomTextPage) end  -- [UX] 하위호환: 텍스트 탭에 통합됨
 
 -- Map group pages
 pageBuilders["group.general"] = function(p) BuildSharedFeaturePage(p, "group", BuildUnitGeneralPage) end
@@ -6172,12 +6434,13 @@ pageBuilders["group.defensives"] = function(p) BuildSharedFeaturePage(p, "group"
 pageBuilders["group.privateauras"] = function(p) BuildSharedFeaturePage(p, "group", BuildPrivateAurasPage) end
 pageBuilders["group.indicators"] = function(p) BuildSharedFeaturePage(p, "group", BuildUnitIndicatorsPage) end
 pageBuilders["group.texts"] = function(p) BuildSharedFeaturePage(p, "group", BuildUnitTextsPage) end
-pageBuilders["group.debuffhighlight"] = function(p) BuildSharedFeaturePage(p, "group", BuildDebuffHighlightPage) end
-pageBuilders["group.dispels"] = function(p) BuildSharedFeaturePage(p, "group", BuildDispelsPage) end
+-- [UX] group.debuffhighlight 제거 → group.dispels에 통합
+pageBuilders["group.dispels"] = function(p) BuildSharedFeaturePage(p, "group", function(c, u) BuildDispelsPage(c, u); BuildDebuffHighlightPage(c, u) end) end
 pageBuilders["group.fader"] = function(p) BuildSharedFeaturePage(p, "group", BuildFaderPage) end
 pageBuilders["group.healprediction"] = function(p) BuildSharedFeaturePage(p, "group", BuildHealPredictionPage) end
-pageBuilders["group.effects"] = function(p) BuildSharedFeaturePage(p, "group", BuildThreatHighlightPage) end
-pageBuilders["group.customtext"] = function(p) BuildSharedFeaturePage(p, "group", BuildCustomTextPage) end
+pageBuilders["group.threat"] = function(p) BuildSharedFeaturePage(p, "group", BuildThreatHighlightPage) end  -- [UX] effects→threat 분리
+pageBuilders["group.highlight"] = function(p) BuildSharedFeaturePage(p, "group", BuildHighlightPage) end  -- [UX] 분리된 하이라이트 페이지
+pageBuilders["group.customtext"] = function(p) BuildSharedFeaturePage(p, "group", BuildCustomTextPage) end  -- [UX] 하위호환: 텍스트 탭에 통합됨
 
 local HOT_SPEC_DISPLAY = {
 	["RestorationDruid"] = "회복 드루이드",
@@ -6259,384 +6522,470 @@ local function HotRefreshAll()
 end
 
 pageBuilders["hottracker"] = function(parent)
-	local header = CreatePageHeader(parent, "HoT 추적 (Aura Designer)", "힐러 HoT 버프를 아우라 디자이너 형태로 관리합니다")
+	local header = CreatePageHeader(parent, "HoT 추적")
+	-- 전체 구현은 AuraDesigner/OptionsUI.lua의 ns.BuildAuraDesignerPage()가 담당
+	if ns.BuildAuraDesignerPage then
+		ns.BuildAuraDesignerPage(parent)
+		return
+	end
 	local yOffset = -60
 
-	local GF = ns.GroupFrames
-	local HotSpecData = ns.HotSpecData
-	local defaults = ns.AURA_DISPLAY_DEFAULTS
+	local AD = ns.AuraDesigner
+	local Engine = AD and AD.Engine
 
-	-- 현재 전문화 표시
+	-- ===== 전체 활성/비활성 토글 =====
+	local adDB = ns.db.auraDesigner or {}
+
+	local enableCheck = Widgets:CreateCheckButton(parent, "HoT 추적 활성화", function(checked)
+		if not ns.db.auraDesigner then
+			ns.db.auraDesigner = { enabled = false, spec = "auto", auras = {}, layoutGroups = {}, defaults = {} }
+		end
+		ns.db.auraDesigner.enabled = checked
+		-- 모든 그룹 프레임 갱신
+		if Engine then
+			if checked then
+				Engine:UpdateAllGroupFrames()
+			else
+				-- 비활성 시 모든 인디케이터 제거
+				local GF = ns.GroupFrames
+				if GF and GF.allFrames then
+					for _, frame in ipairs(GF.allFrames) do
+						Engine:RevertFrame(frame)
+					end
+				end
+			end
+		end
+	end)
+	enableCheck:SetPoint("TOPLEFT", 15, yOffset)
+	enableCheck:SetChecked(adDB.enabled or false)
+	yOffset = yOffset - 35
+
+	-- ===== 스펙 선택 드롭다운 =====
 	local specLabel = parent:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_NORMAL")
 	specLabel:SetPoint("TOPLEFT", 15, yOffset)
-	local curSpecKey = (GF and GF.GetPlayerSpecKey) and GF:GetPlayerSpecKey() or nil
-	local specDisplay = curSpecKey and HOT_SPEC_DISPLAY[curSpecKey] or "감지 안 됨"
-	specLabel:SetText("현재 전문화: |cff00ff00" .. specDisplay .. "|r")
-	
-	-- 전문화 선택 드롭다운
-	local specList = {}
-	if HotSpecData then
-		for specKey in pairs(HotSpecData) do
-			local display = HOT_SPEC_DISPLAY[specKey] or specKey
-			table.insert(specList, { text = display, value = specKey })
-		end
-		table.sort(specList, function(a, b) return a.text < b.text end)
+	specLabel:SetText("전문화 선택:")
+
+	local specList = { { text = "자동 감지", value = "auto" } }
+	local SpecInfo = AD and AD.SpecInfo or {}
+	for specKey, info in pairs(SpecInfo) do
+		table.insert(specList, { text = info.display or specKey, value = specKey })
 	end
+	table.sort(specList, function(a, b)
+		if a.value == "auto" then return true end
+		if b.value == "auto" then return false end
+		return a.text < b.text
+	end)
 
-	local selectedSpec = curSpecKey
-	local selectedAura = nil
+	local specDropdown = Widgets:CreateDropdown(parent, 200)
+	specDropdown:SetPoint("LEFT", specLabel, "RIGHT", 10, 0)
+	specDropdown:SetItems(specList)
+	specDropdown:SetSelected(adDB.spec or "auto")
 
-	local specDropdown
-	if #specList > 0 then
-		specDropdown = Widgets:CreateDropdown(parent, 200)
-		specDropdown:SetPoint("LEFT", specLabel, "RIGHT", 30, 0)
-		specDropdown:SetItems(specList)
-		if selectedSpec and HotSpecData[selectedSpec] then
-			specDropdown:SetSelected(selectedSpec)
-		end
-	end
+	-- 현재 스펙 표시
+	local curSpecFS = parent:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+	curSpecFS:SetPoint("LEFT", specDropdown, "RIGHT", 15, 0)
+	local curSpec = Engine and Engine:ResolveSpec() or nil
+	local curSpecDisplay = curSpec and SpecInfo[curSpec] and SpecInfo[curSpec].display or "감지 안 됨"
+	curSpecFS:SetText("|cff888888현재: " .. curSpecDisplay .. "|r")
+	yOffset = yOffset - 45
 
-	yOffset = yOffset - 40
-
-	-- 메인 컨테이너
+	-- ===== 메인 컨테이너 (좌우 분할) =====
 	local container = CreateFrame("Frame", nil, parent)
-	container:SetSize(CONTENT_WIDTH - 30, 480)
+	container:SetSize(CONTENT_WIDTH - 30, 430)
 	container:SetPoint("TOPLEFT", 15, yOffset)
 
-	-- ===== 좌우 분할 패널 (DandersFrames Aura Designer 레이아웃) =====
+	-- 좌측 패널 (220px) — 오라 목록
 	local leftPanel = CreateFrame("Frame", nil, container)
-	leftPanel:SetSize(220, 480)
+	leftPanel:SetSize(220, 430)
 	leftPanel:SetPoint("TOPLEFT", 0, 0)
 
+	-- 세로 구분선
 	local vSep = container:CreateTexture(nil, "BACKGROUND")
 	vSep:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 5, 0)
 	vSep:SetPoint("BOTTOMLEFT", leftPanel, "BOTTOMRIGHT", 5, 0)
 	vSep:SetWidth(1)
 	vSep:SetColorTexture(0.3, 0.3, 0.3, 0.5)
 
+	-- 우측 패널 — 인디케이터 설정
 	local rightPanel = CreateFrame("Frame", nil, container)
 	rightPanel:SetPoint("TOPLEFT", vSep, "TOPRIGHT", 15, 0)
 	rightPanel:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
 
 	local auraWidgets = {}
 	local detailWidgets = {}
-	
-	local BuildAuraList, BuildDetailPanel
+	local selectedSpec = (adDB.spec == "auto" and curSpec) or adDB.spec
+	local selectedAura = nil
 
-	local function ClearDetailWidgets()
-		for _, w in ipairs(detailWidgets) do
-			w:Hide()
-			w:SetParent(nil)
-		end
-		wipe(detailWidgets)
+	-- ===== 클리어 헬퍼 =====
+	local function ClearList(tbl)
+		for _, w in ipairs(tbl) do w:Hide(); w:SetParent(nil) end
+		wipe(tbl)
 	end
 
-	-- ===== 우측: 개별 오라 상세 설정 패널 =====
+	-- ===== 우측: 인디케이터 설정 패널 =====
+	local BuildDetailPanel, BuildAuraList
+
+	local function ADRefreshAll()
+		if Engine then Engine:UpdateAllGroupFrames() end
+	end
+
+	local function GetOrCreateAuraDB(specKey, auraName)
+		if not ns.db.auraDesigner then return {} end
+		local adDB2 = ns.db.auraDesigner
+		if not adDB2.auras then adDB2.auras = {} end
+		if not adDB2.auras[specKey] then adDB2.auras[specKey] = {} end
+		if not adDB2.auras[specKey][auraName] then
+			adDB2.auras[specKey][auraName] = { priority = 5, indicators = {} }
+		end
+		return adDB2.auras[specKey][auraName]
+	end
+
 	BuildDetailPanel = function(specKey, auraName)
-		ClearDetailWidgets()
-		if not auraName then return end
+		ClearList(detailWidgets)
+		if not auraName or not specKey then return end
 
-		local ac = EnsureAuraCfg(specKey, auraName)
-		local displayName = HOT_AURA_DISPLAY[auraName] or auraName
-		local dy = -10
-
-		-- 제목 (우측 패널)
-		local title = rightPanel:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_NORMAL")
-		title:SetPoint("TOPLEFT", 10, dy)
-		title:SetText("|cff00ff00" .. displayName .. "|r 상세 설정")
-		table.insert(detailWidgets, title)
-
-		local titleSep = Widgets:CreateSeparator(rightPanel, "", CONTENT_WIDTH - 280)
-		titleSep:SetPoint("TOPLEFT", 10, dy - 20)
-		table.insert(detailWidgets, titleSep)
-		dy = dy - 40
-
-		-- 1. 활성화 토글
-		local enableCheck = Widgets:CreateCheckButton(rightPanel, "추적 활성화", function(checked)
-			local ac2 = EnsureAuraCfg(specKey, auraName)
-			ac2.enabled = checked
-			SetAuraCfg(specKey, auraName, ac2)
-			HotRefreshAll()
-			BuildAuraList(specKey)
-		end)
-		enableCheck:SetPoint("TOPLEFT", 10, dy)
-		enableCheck:SetChecked(ac.enabled ~= false)
-		table.insert(detailWidgets, enableCheck)
-		dy = dy - 45
-
-		-- 2. 바 (남은 시간 막대)
-		local barCheck = Widgets:CreateCheckButton(rightPanel, "바 (남은 시간 막대)", function(checked)
-			if not ac.bar then ac.bar = { enabled = false, thickness = 3, color = { unpack(defaults.bar.color) } } end
-			ac.bar.enabled = checked
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		barCheck:SetPoint("TOPLEFT", 10, dy)
-		barCheck:SetChecked(ac.bar and ac.bar.enabled or false)
-		table.insert(detailWidgets, barCheck)
-		dy = dy - 30
-
-		local barThickSlider = Widgets:CreateSlider("두께", rightPanel, 1, 8, 120, 1, nil, function(value)
-			if not ac.bar then ac.bar = {} end
-			ac.bar.thickness = value
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		barThickSlider:SetPoint("TOPLEFT", 30, dy)
-		barThickSlider:SetValue(ac.bar and ac.bar.thickness or 3)
-		table.insert(detailWidgets, barThickSlider)
-		
-		local barColorCP = Widgets:CreateColorPicker(rightPanel, "바 색상", true, function(r, g, b, a)
-			if not ac.bar then ac.bar = {} end
-			ac.bar.color = { r, g, b, a }
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		barColorCP:SetPoint("LEFT", barThickSlider, "RIGHT", 40, -10)
-		local bc = ac.bar and ac.bar.color or defaults.bar.color
-		barColorCP:SetColor(bc[1], bc[2], bc[3], bc[4] or 0.8)
-		table.insert(detailWidgets, barColorCP)
-		dy = dy - 55
-
-		-- 3. 그라데이션 (프레임 오버레이)
-		local gradCheck = Widgets:CreateCheckButton(rightPanel, "그라데이션 (프레임 오버레이)", function(checked)
-			if not ac.gradient then ac.gradient = { enabled = false, color = { unpack(defaults.gradient.color) }, alpha = defaults.gradient.alpha } end
-			ac.gradient.enabled = checked
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		gradCheck:SetPoint("TOPLEFT", 10, dy)
-		gradCheck:SetChecked(ac.gradient and ac.gradient.enabled or false)
-		table.insert(detailWidgets, gradCheck)
-		dy = dy - 30
-
-		local gradAlphaSlider = Widgets:CreateSlider("투명도", rightPanel, 0.1, 1.0, 120, 0.05, nil, function(value)
-			if not ac.gradient then ac.gradient = {} end
-			ac.gradient.alpha = value
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		gradAlphaSlider:SetPoint("TOPLEFT", 30, dy)
-		gradAlphaSlider:SetValue(ac.gradient and ac.gradient.alpha or defaults.gradient.alpha or 0.4)
-		table.insert(detailWidgets, gradAlphaSlider)
-
-		local gradCP = Widgets:CreateColorPicker(rightPanel, "그라데이션 색상", false, function(r, g, b)
-			if not ac.gradient then ac.gradient = {} end
-			ac.gradient.color = { r, g, b }
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		gradCP:SetPoint("LEFT", gradAlphaSlider, "RIGHT", 40, -10)
-		local gc = ac.gradient and ac.gradient.color or defaults.gradient.color or { 0.3, 0.85, 0.45 }
-		gradCP:SetColor(gc[1], gc[2], gc[3], 1)
-		table.insert(detailWidgets, gradCP)
-		dy = dy - 55
-
-		-- 4. 체력바 색상
-		local hcCheck = Widgets:CreateCheckButton(rightPanel, "체력바 전체 색상 오버라이드", function(checked)
-			if not ac.healthColor then ac.healthColor = { enabled = false, color = { unpack(defaults.healthColor.color) } } end
-			ac.healthColor.enabled = checked
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		hcCheck:SetPoint("TOPLEFT", 10, dy)
-		hcCheck:SetChecked(ac.healthColor and ac.healthColor.enabled or false)
-		table.insert(detailWidgets, hcCheck)
-		dy = dy - 30
-
-		local hcCP = Widgets:CreateColorPicker(rightPanel, "적용될 체력바 색상", true, function(r, g, b, a)
-			if not ac.healthColor then ac.healthColor = {} end
-			ac.healthColor.color = { r, g, b, a }
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		hcCP:SetPoint("TOPLEFT", 30, dy)
-		local hcC = ac.healthColor and ac.healthColor.color or defaults.healthColor.color
-		hcCP:SetColor(hcC[1], hcC[2], hcC[3], hcC[4] or 1)
-		table.insert(detailWidgets, hcCP)
-		dy = dy - 45
-
-		-- 5. 외곽선
-		local outCheck = Widgets:CreateCheckButton(rightPanel, "외곽선 (프레임 테두리 하이라이트)", function(checked)
-			if not ac.outline then ac.outline = { enabled = false, size = 2, color = { unpack(defaults.outline.color) } } end
-			ac.outline.enabled = checked
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		outCheck:SetPoint("TOPLEFT", 10, dy)
-		outCheck:SetChecked(ac.outline and ac.outline.enabled or false)
-		table.insert(detailWidgets, outCheck)
-		dy = dy - 30
-
-		local outSizeSlider = Widgets:CreateSlider("두께", rightPanel, 1, 5, 120, 1, nil, function(value)
-			if not ac.outline then ac.outline = {} end
-			ac.outline.size = value
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		outSizeSlider:SetPoint("TOPLEFT", 30, dy)
-		outSizeSlider:SetValue(ac.outline and ac.outline.size or 2)
-		table.insert(detailWidgets, outSizeSlider)
-
-		local outCP = Widgets:CreateColorPicker(rightPanel, "외곽선 색상", true, function(r, g, b, a)
-			if not ac.outline then ac.outline = {} end
-			ac.outline.color = { r, g, b, a }
-			SetAuraCfg(specKey, auraName, ac)
-			HotRefreshAll()
-		end)
-		outCP:SetPoint("LEFT", outSizeSlider, "RIGHT", 40, -10)
-		local oc = ac.outline and ac.outline.color or defaults.outline.color
-		outCP:SetColor(oc[1], oc[2], oc[3], oc[4] or 1)
-		table.insert(detailWidgets, outCP)
-	end
-	
-	-- ===== 좌측: 오라 목록 =====
-	local function ClearAuraWidgets()
-		for _, w in ipairs(auraWidgets) do
-			w:Hide()
-			w:SetParent(nil)
+		local auraCfg = GetOrCreateAuraDB(specKey, auraName)
+		local trackable = AD and AD.TrackableAuras and AD.TrackableAuras[specKey]
+		local displayName = auraName
+		local auraColor = {1, 1, 1}
+		local isSecret = false
+		if trackable then
+			for _, info in ipairs(trackable) do
+				if info.name == auraName then
+					displayName = info.display or auraName
+					auraColor = info.color or {1,1,1}
+					isSecret = info.secret or false
+					break
+				end
+			end
 		end
-		wipe(auraWidgets)
+
+		local dy = -5
+
+		-- 제목
+		local title = rightPanel:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_NORMAL")
+		title:SetPoint("TOPLEFT", 5, dy)
+		local colorStr = string.format("|cff%02x%02x%02x", auraColor[1]*255, auraColor[2]*255, auraColor[3]*255)
+		title:SetText(colorStr .. displayName .. "|r" .. (isSecret and " |cffff8800(Secret)|r" or ""))
+		table.insert(detailWidgets, title)
+		dy = dy - 25
+
+		-- 구분선
+		local sep1 = Widgets:CreateSeparator(rightPanel, "인디케이터", CONTENT_WIDTH - 280)
+		sep1:SetPoint("TOPLEFT", 5, dy)
+		table.insert(detailWidgets, sep1)
+		dy = dy - 30
+
+		-- 우선순위 슬라이더
+		local prioSlider = Widgets:CreateSlider("우선순위", rightPanel, 1, 10, 120, 1, nil, function(value)
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			ac.priority = value
+			ADRefreshAll()
+		end)
+		prioSlider:SetPoint("TOPLEFT", 5, dy)
+		prioSlider:SetValue(auraCfg.priority or 5)
+		table.insert(detailWidgets, prioSlider)
+		dy = dy - 55
+
+		-- 인디케이터 목록
+		local indicators = auraCfg.indicators
+		if indicators and #indicators > 0 then
+			for idx, inst in ipairs(indicators) do
+				local typeLabel = inst.type or "icon"
+				local anchorLabel = inst.anchor or "TOPLEFT"
+				local instText = string.format("#%d  %s  (%s)", inst.id or idx, typeLabel:upper(), anchorLabel)
+
+				local instBtn = Widgets:CreateButton(rightPanel, instText, "transparent", { CONTENT_WIDTH - 310, 22 })
+				instBtn:SetPoint("TOPLEFT", 5, dy)
+				table.insert(detailWidgets, instBtn)
+
+				-- 삭제 버튼
+				local delBtn = Widgets:CreateButton(rightPanel, "✕", "red", { 22, 22 })
+				delBtn:SetPoint("LEFT", instBtn, "RIGHT", 3, 0)
+				delBtn:SetScript("OnClick", function()
+					table.remove(auraCfg.indicators, idx)
+					ADRefreshAll()
+					BuildDetailPanel(specKey, auraName)
+				end)
+				table.insert(detailWidgets, delBtn)
+
+				instBtn:SetScript("OnClick", function()
+					-- 인디케이터 설정 서브패널 (간단 버전)
+					-- Anchor 드롭다운 + Offset 슬라이더 + Size 슬라이더
+					-- 현재는 인라인으로 표시
+				end)
+
+				dy = dy - 24
+			end
+		else
+			local noIndFS = rightPanel:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+			noIndFS:SetPoint("TOPLEFT", 5, dy)
+			noIndFS:SetText("|cff888888인디케이터가 없습니다|r")
+			table.insert(detailWidgets, noIndFS)
+			dy = dy - 20
+		end
+
+		dy = dy - 10
+
+		-- + 아이콘 추가 버튼
+		local addIconBtn = Widgets:CreateButton(rightPanel, "+ 아이콘", "accent", { 80, 24 })
+		addIconBtn:SetPoint("TOPLEFT", 5, dy)
+		addIconBtn:SetScript("OnClick", function()
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			if not ac.indicators then ac.indicators = {} end
+			local nextID = (#ac.indicators > 0 and ac.indicators[#ac.indicators].id or 0) + 1
+			table.insert(ac.indicators, { id = nextID, type = "icon", anchor = "TOPLEFT", offsetX = 0, offsetY = 0, size = 20 })
+			ADRefreshAll()
+			BuildDetailPanel(specKey, auraName)
+		end)
+		table.insert(detailWidgets, addIconBtn)
+
+		-- + 사각형 추가
+		local addSqBtn = Widgets:CreateButton(rightPanel, "+ 사각형", "accent", { 80, 24 })
+		addSqBtn:SetPoint("LEFT", addIconBtn, "RIGHT", 5, 0)
+		addSqBtn:SetScript("OnClick", function()
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			if not ac.indicators then ac.indicators = {} end
+			local nextID = (#ac.indicators > 0 and ac.indicators[#ac.indicators].id or 0) + 1
+			table.insert(ac.indicators, { id = nextID, type = "square", anchor = "TOPLEFT", offsetX = 0, offsetY = 0, size = 8 })
+			ADRefreshAll()
+			BuildDetailPanel(specKey, auraName)
+		end)
+		table.insert(detailWidgets, addSqBtn)
+
+		-- + 바 추가
+		local addBarBtn = Widgets:CreateButton(rightPanel, "+ 바", "accent", { 60, 24 })
+		addBarBtn:SetPoint("LEFT", addSqBtn, "RIGHT", 5, 0)
+		addBarBtn:SetScript("OnClick", function()
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			if not ac.indicators then ac.indicators = {} end
+			local nextID = (#ac.indicators > 0 and ac.indicators[#ac.indicators].id or 0) + 1
+			table.insert(ac.indicators, { id = nextID, type = "bar", anchor = "BOTTOM", offsetX = 0, offsetY = 0, matchFrameWidth = true, height = 4 })
+			ADRefreshAll()
+			BuildDetailPanel(specKey, auraName)
+		end)
+		table.insert(detailWidgets, addBarBtn)
+		dy = dy - 35
+
+		-- ===== Frame-Level 효과 =====
+		local fxSep = Widgets:CreateSeparator(rightPanel, "프레임 효과", CONTENT_WIDTH - 280)
+		fxSep:SetPoint("TOPLEFT", 5, dy)
+		table.insert(detailWidgets, fxSep)
+		dy = dy - 30
+
+		-- Border
+		local borderCheck = Widgets:CreateCheckButton(rightPanel, "테두리 색상", function(checked)
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			if checked then
+				if not ac.border then ac.border = { style = "SOLID", color = { r = auraColor[1], g = auraColor[2], b = auraColor[3] }, thickness = 2 } end
+			else
+				ac.border = nil
+			end
+			ADRefreshAll()
+		end)
+		borderCheck:SetPoint("TOPLEFT", 5, dy)
+		borderCheck:SetChecked(auraCfg.border ~= nil)
+		table.insert(detailWidgets, borderCheck)
+
+		-- Border 색상 (활성 시)
+		if auraCfg.border then
+			local bcp = Widgets:CreateColorPicker(rightPanel, "", false, function(r, g, b)
+				local ac = GetOrCreateAuraDB(specKey, auraName)
+				if ac.border then ac.border.color = { r = r, g = g, b = b } end
+				ADRefreshAll()
+			end)
+			bcp:SetPoint("LEFT", borderCheck, "RIGHT", 120, 0)
+			local bc = auraCfg.border.color or {}
+			bcp:SetColor(bc.r or 1, bc.g or 1, bc.b or 1, 1)
+			table.insert(detailWidgets, bcp)
+		end
+		dy = dy - 30
+
+		-- Health Bar Color
+		local hbCheck = Widgets:CreateCheckButton(rightPanel, "체력바 색상 (틴트)", function(checked)
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			if checked then
+				if not ac.healthbar then ac.healthbar = { mode = "Tint", color = { r = auraColor[1], g = auraColor[2], b = auraColor[3] }, blend = 0.3 } end
+			else
+				ac.healthbar = nil
+			end
+			ADRefreshAll()
+		end)
+		hbCheck:SetPoint("TOPLEFT", 5, dy)
+		hbCheck:SetChecked(auraCfg.healthbar ~= nil)
+		table.insert(detailWidgets, hbCheck)
+		dy = dy - 30
+
+		-- Name Text Color
+		local ntCheck = Widgets:CreateCheckButton(rightPanel, "이름 색상 변경", function(checked)
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			if checked then
+				if not ac.nametext then ac.nametext = { color = { r = auraColor[1], g = auraColor[2], b = auraColor[3] } } end
+			else
+				ac.nametext = nil
+			end
+			ADRefreshAll()
+		end)
+		ntCheck:SetPoint("TOPLEFT", 5, dy)
+		ntCheck:SetChecked(auraCfg.nametext ~= nil)
+		table.insert(detailWidgets, ntCheck)
+		dy = dy - 30
+
+		-- Frame Alpha
+		local faCheck = Widgets:CreateCheckButton(rightPanel, "프레임 투명도", function(checked)
+			local ac = GetOrCreateAuraDB(specKey, auraName)
+			if checked then
+				if not ac.framealpha then ac.framealpha = { alpha = 0.5 } end
+			else
+				ac.framealpha = nil
+			end
+			ADRefreshAll()
+		end)
+		faCheck:SetPoint("TOPLEFT", 5, dy)
+		faCheck:SetChecked(auraCfg.framealpha ~= nil)
+		table.insert(detailWidgets, faCheck)
 	end
 
+	-- ===== 좌측: 오라 목록 빌드 =====
 	BuildAuraList = function(specKey)
-		ClearAuraWidgets()
-		if not HotSpecData or not HotSpecData[specKey] then return end
+		ClearList(auraWidgets)
+		if not specKey or not AD or not AD.TrackableAuras then return end
 
-		local specData = HotSpecData[specKey]
-		local ay = -10
+		local trackable = AD.TrackableAuras[specKey]
+		if not trackable then
+			local noDataFS = leftPanel:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+			noDataFS:SetPoint("TOPLEFT", 5, -10)
+			noDataFS:SetText("|cff888888이 전문화에 추적 가능한 오라가 없습니다|r")
+			table.insert(auraWidgets, noDataFS)
+			return
+		end
 
+		local ay = -5
+
+		-- 목록 제목
 		local listTitle = leftPanel:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_NORMAL")
 		listTitle:SetPoint("TOPLEFT", 5, ay)
-		listTitle:SetText("디자이너 목록")
-		listTitle:SetTextColor(1, 0.82, 0)
+		local specDisplay = SpecInfo[specKey] and SpecInfo[specKey].display or specKey
+		listTitle:SetText("|cffffa300" .. specDisplay .. "|r")
 		table.insert(auraWidgets, listTitle)
-		ay = ay - 30
+		ay = ay - 25
 
-		local sortedBuffs = {}
-		for buffName in pairs(specData.auras) do
-			table.insert(sortedBuffs, buffName)
-		end
-		table.sort(sortedBuffs)
+		-- 설정된 오라 DB 조회
+		local adDB2 = ns.db.auraDesigner or {}
+		local specAuras = adDB2.auras and adDB2.auras[specKey] or {}
 
-		local buffButtons = {}
-		for _, buffName in ipairs(sortedBuffs) do
-			local auraCfg = GetAuraCfg(specKey, buffName)
-			local displayName = HOT_AURA_DISPLAY[buffName] or buffName
-			local isEnabled = (auraCfg.enabled ~= false)
+		for _, info in ipairs(trackable) do
+			local auraName = info.name
+			local displayName = info.display or auraName
+			local color = info.color or {1, 1, 1}
+			local isSecret = info.secret or false
+			local auraCfg = specAuras[auraName]
+			local isConfigured = (auraCfg ~= nil and auraCfg.indicators and #auraCfg.indicators > 0) or
+				(auraCfg ~= nil and (auraCfg.border or auraCfg.healthbar or auraCfg.nametext or auraCfg.framealpha))
 
-			local btn = Widgets:CreateButton(leftPanel, displayName, "transparent", { 200, 24 })
+			local btn = Widgets:CreateButton(leftPanel, displayName, "transparent", { 210, 22 })
 			btn:SetPoint("TOPLEFT", 5, ay)
-			
-			-- 현재 선택 중인 상태 시각적 피드백
+
 			local fs = btn:GetFontString()
-			if selectedAura == buffName then
-				btn:SetBackdropColor(0.2, 0.6, 0.2, 0.6)
-				if fs then fs:SetTextColor(0, 1, 0, 1) end
+			if selectedAura == auraName then
+				btn:SetBackdropColor(color[1] * 0.3, color[2] * 0.3, color[3] * 0.3, 0.6)
+				if fs then fs:SetTextColor(color[1], color[2], color[3], 1) end
 			else
-				if fs then
-					if isEnabled then
-						fs:SetTextColor(1, 1, 1, 1)
-					else
-						fs:SetTextColor(0.5, 0.5, 0.5, 1)
-					end
+				if isConfigured then
+					if fs then fs:SetTextColor(color[1] * 0.8, color[2] * 0.8, color[3] * 0.8, 1) end
+				else
+					if fs then fs:SetTextColor(0.5, 0.5, 0.5, 0.8) end
 				end
+			end
+
+			-- Secret 배지
+			if isSecret then
+				local secretFS = btn:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+				secretFS:SetPoint("RIGHT", btn, "RIGHT", -5, 0)
+				secretFS:SetText("|cffff8800S|r")
+			elseif isConfigured then
+				local onFS = btn:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
+				onFS:SetPoint("RIGHT", btn, "RIGHT", -5, 0)
+				onFS:SetText("|cff00ff00●|r")
 			end
 
 			btn:SetScript("OnClick", function()
-				selectedAura = buffName
+				selectedAura = auraName
 				BuildAuraList(specKey)
-				BuildDetailPanel(specKey, buffName)
+				BuildDetailPanel(specKey, auraName)
 			end)
-			
-			-- ON/OFF 배지
-			local statusFS = btn:CreateFontString(nil, "OVERLAY", "DDINGUI_UF_FONT_SMALL")
-			statusFS:SetPoint("RIGHT", btn, "RIGHT", -10, 0)
-			if isEnabled then
-				statusFS:SetText("|cff00ff00ON|r")
-			else
-				statusFS:SetText("|cff888888OFF|r")
-			end
-			
+
 			table.insert(auraWidgets, btn)
-			table.insert(buffButtons, btn)
-			ay = ay - 26
+			ay = ay - 23
 		end
 
 		ay = ay - 10
-		local allOnBtn = Widgets:CreateButton(leftPanel, "모조리 켜기", "accent", { 95, 22 })
-		allOnBtn:SetPoint("TOPLEFT", 5, ay)
-		allOnBtn:SetScript("OnClick", function()
-			for _, buffName in ipairs(sortedBuffs) do
-				local ac = EnsureAuraCfg(specKey, buffName)
-				ac.enabled = true
-				SetAuraCfg(specKey, buffName, ac)
-			end
-			HotRefreshAll()
-			BuildAuraList(specKey)
-			if selectedAura then BuildDetailPanel(specKey, selectedAura) end
-		end)
-		table.insert(auraWidgets, allOnBtn)
 
-		local allOffBtn = Widgets:CreateButton(leftPanel, "모조리 끄기", "red", { 95, 22 })
-		allOffBtn:SetPoint("LEFT", allOnBtn, "RIGHT", 10, 0)
-		allOffBtn:SetScript("OnClick", function()
-			for _, buffName in ipairs(sortedBuffs) do
-				local ac = EnsureAuraCfg(specKey, buffName)
-				ac.enabled = false
-				SetAuraCfg(specKey, buffName, ac)
+		-- 프리셋 복원 / 모두 제거 버튼
+		local presetBtn = Widgets:CreateButton(leftPanel, "프리셋 복원", "accent", { 95, 22 })
+		presetBtn:SetPoint("TOPLEFT", 5, ay)
+		presetBtn:SetScript("OnClick", function()
+			local Presets = AD and AD.Presets
+			if Presets then
+				Presets:ResetToPreset(specKey)
 			end
-			HotRefreshAll()
-			BuildAuraList(specKey)
-			if selectedAura then BuildDetailPanel(specKey, selectedAura) end
-		end)
-		table.insert(auraWidgets, allOffBtn)
-	end
-	
-	if specDropdown then
-		specDropdown:SetOnSelect(function(value)
-			selectedSpec = value
 			selectedAura = nil
-			ClearDetailWidgets()
-			BuildAuraList(value)
-			
-			-- 첫 번째 오라 자동 선택 (전문화 변경 시)
-			if HotSpecData and HotSpecData[selectedSpec] then
-				local sortedBuffs = {}
-				for buffName in pairs(HotSpecData[selectedSpec].auras) do
-					table.insert(sortedBuffs, buffName)
-				end
-				table.sort(sortedBuffs)
-				if #sortedBuffs > 0 then
-					selectedAura = sortedBuffs[1]
-					BuildAuraList(selectedSpec)
-					BuildDetailPanel(selectedSpec, selectedAura)
-				end
-			end
+			ClearList(detailWidgets)
+			BuildAuraList(specKey)
+			ADRefreshAll()
 		end)
+		table.insert(auraWidgets, presetBtn)
+
+		local clearBtn = Widgets:CreateButton(leftPanel, "모두 제거", "red", { 85, 22 })
+		clearBtn:SetPoint("LEFT", presetBtn, "RIGHT", 5, 0)
+		clearBtn:SetScript("OnClick", function()
+			if ns.db.auraDesigner and ns.db.auraDesigner.auras then
+				ns.db.auraDesigner.auras[specKey] = {}
+			end
+			selectedAura = nil
+			ClearList(detailWidgets)
+			BuildAuraList(specKey)
+			ADRefreshAll()
+		end)
+		table.insert(auraWidgets, clearBtn)
 	end
 
-	-- 초기 빌드
-	if selectedSpec then
-		-- 첫 번째 오라 자동 선택
-		local sortedBuffs = {}
-		if HotSpecData and HotSpecData[selectedSpec] then
-			for buffName in pairs(HotSpecData[selectedSpec].auras) do
-				table.insert(sortedBuffs, buffName)
-			end
-			table.sort(sortedBuffs)
-			if #sortedBuffs > 0 and not selectedAura then
-				selectedAura = sortedBuffs[1]
+	-- ===== 스펙 드롭다운 이벤트 =====
+	specDropdown:SetOnSelect(function(value)
+		if not ns.db.auraDesigner then ns.db.auraDesigner = {} end
+		ns.db.auraDesigner.spec = value
+		if value == "auto" then
+			selectedSpec = Engine and Engine:ResolveSpec() or nil
+		else
+			selectedSpec = value
+		end
+		selectedAura = nil
+		ClearList(detailWidgets)
+		if selectedSpec then
+			BuildAuraList(selectedSpec)
+			-- 첫 번째 오라 자동 선택
+			local trackable = AD and AD.TrackableAuras and AD.TrackableAuras[selectedSpec]
+			if trackable and #trackable > 0 then
+				selectedAura = trackable[1].name
+				BuildAuraList(selectedSpec)
+				BuildDetailPanel(selectedSpec, selectedAura)
 			end
 		end
-		
+	end)
+
+	-- ===== 초기 빌드 =====
+	if selectedSpec then
 		BuildAuraList(selectedSpec)
-		if selectedAura then
+		-- 첫 번째 오라 자동 선택
+		local trackable = AD and AD.TrackableAuras and AD.TrackableAuras[selectedSpec]
+		if trackable and #trackable > 0 then
+			selectedAura = trackable[1].name
+			BuildAuraList(selectedSpec)
 			BuildDetailPanel(selectedSpec, selectedAura)
 		end
 	end
-	
-	parent:SetHeight(math.abs(yOffset) + 550)
+
+	parent:SetHeight(math.abs(yOffset) + 500)
 end
 
 -----------------------------------------------
@@ -7485,9 +7834,24 @@ function Options:OpenUnit(unitKey)
 	if not unitKey then return end
 	local panel = CreateOptionsPanel()
 	panel:Show()
-	-- unitKey → categoryId 변환
-	local categoryId = "unitframes." .. unitKey .. ".general"
-	if self._treeView then
+
+	-- unitKey → section 매핑 (categoryData 구조와 일치)
+	local UNIT_TO_SECTION = {
+		player = "personal", target = "personal", targettarget = "personal",
+		focus = "personal", focustarget = "personal", pet = "personal",
+		boss = "personal", arena = "personal",
+		party = "group", raid = "group", mythicRaid = "group",
+	}
+	local section = UNIT_TO_SECTION[unitKey] or "personal"
+	local categoryId = section .. ".general"
+
+	-- [FIX] 유닛 탭 자동 선택 (우클릭한 프레임이 탭에 반영되도록)
+	TabSelections[section] = unitKey
+
+	if LoadPage then
+		LoadPage(categoryId)
+	end
+	if self._treeView and self._treeView.SelectCategory then
 		self._treeView:SelectCategory(categoryId)
 	end
 end

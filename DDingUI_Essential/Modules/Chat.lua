@@ -1173,6 +1173,81 @@ function Chat:Enable()
     if db.whisperSound ~= false then
         self:RegisterWhisperSound()
     end
+
+    -- 11. 스크롤-최하단 버튼 -- [ESSENTIAL]
+    for i = 1, NUM_CHAT_FRAMES do
+        local cf = _G["ChatFrame"..i]
+        if cf and not cf._ddeScrollBtn then
+            local scrollBtn = CreateFrame("Button", nil, cf)
+            scrollBtn:SetSize(24, 24)
+            scrollBtn:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -2, 2)
+            scrollBtn:SetFrameLevel(cf:GetFrameLevel() + 5)
+            scrollBtn:Hide()
+
+            local label = scrollBtn:CreateFontString(nil, "OVERLAY")
+            label:SetFont(SL_FONT, 14, "OUTLINE")
+            label:SetPoint("CENTER", 0, 0)
+            label:SetText("▼")
+            local dr, dg, db2 = ns.GetColor("text.dim")
+            label:SetTextColor(dr, dg, db2, 0.8)
+            scrollBtn._label = label
+
+            -- 클릭 시 최하단으로 -- [ESSENTIAL]
+            scrollBtn:SetScript("OnClick", function()
+                cf:ScrollToBottom()
+            end)
+            scrollBtn:SetScript("OnEnter", function(self)
+                if accentFrom then
+                    self._label:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3], 1)
+                end
+            end)
+            scrollBtn:SetScript("OnLeave", function(self)
+                local r, g, b = ns.GetColor("text.dim")
+                self._label:SetTextColor(r, g, b, 0.8)
+            end)
+
+            -- 스크롤 상태에 따라 표시/숨김 -- [ESSENTIAL]
+            hooksecurefunc(cf, "ScrollUp", function(self)
+                if self._ddeScrollBtn then self._ddeScrollBtn:Show() end
+            end)
+            hooksecurefunc(cf, "ScrollDown", function(self)
+                if self:AtBottom() and self._ddeScrollBtn then
+                    self._ddeScrollBtn:Hide()
+                end
+            end)
+            hooksecurefunc(cf, "ScrollToBottom", function(self)
+                if self._ddeScrollBtn then self._ddeScrollBtn:Hide() end
+            end)
+
+            cf._ddeScrollBtn = scrollBtn
+        end
+    end
+
+    -- 12. 타임스탬프 dim 색상 -- [ESSENTIAL]
+    if db.timestamps ~= false then
+        local dimHex = "|cff666666"
+        if accentFrom then
+            dimHex = string.format("|cff%02x%02x%02x",
+                math.floor(accentFrom[1] * 128 + 0.5),
+                math.floor(accentFrom[2] * 128 + 0.5),
+                math.floor(accentFrom[3] * 128 + 0.5))
+        end
+        local function TimestampFilter(_, _, msg, ...)
+            -- [HH:MM] 패턴을 dim 색상으로 감싸기
+            local newMsg = msg:gsub("(%[%d+:%d+%])", dimHex.."%1|r")
+            if newMsg ~= msg then
+                return false, newMsg, ...
+            end
+        end
+        for _, event in ipairs({
+            "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_GUILD", "CHAT_MSG_PARTY",
+            "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER",
+            "CHAT_MSG_WHISPER", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_CHANNEL",
+            "CHAT_MSG_OFFICER", "CHAT_MSG_INSTANCE_CHAT",
+        }) do
+            ChatFrame_AddMessageEventFilter(event, TimestampFilter)
+        end
+    end
 end
 
 ------------------------------------------------------------------------

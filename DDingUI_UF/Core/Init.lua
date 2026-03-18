@@ -18,8 +18,7 @@ ns.defaults = {}
 ns.frames = {}
 ns.headers = {}
 
--- oUF reference (optional — standalone mode에서는 nil)
-local oUF = ns.oUF
+-- oUF reference removed (standalone mode — ns.oUF는 nil)
 
 -----------------------------------------------
 -- Utility Functions
@@ -507,31 +506,33 @@ InitFlightHide = function()
 	end
 end
 
+-- [AUDIT-FIX] C-INIT-2: 미리 정의된 함수 참조 (매 PEW마다 클로저 생성 방지)
+local function DoFullRefreshAfterPEW()
+	-- 개인 유닛 프레임 갱신 (standalone 모드)
+	if ns.SUF and ns.ElementDrivers then
+		for _, frame in ipairs(ns.SUF.allFrames) do
+			if frame:IsVisible() and frame.unit and UnitExists(frame.unit) then
+				ns.ElementDrivers:UpdateAll(frame)
+			end
+		end
+	end
+	-- oUF 프레임 갱신 (폴백)
+	for _, frame in pairs(ns.frames) do
+		if frame.UpdateAllElements then
+			frame:UpdateAllElements("OnPlayerEnteringWorld")
+		end
+	end
+	-- GroupFrames 리프레시 (헤더 자식 생성 대기 후)
+	local GF = ns.GroupFrames
+	if GF and GF.headersInitialized then
+		GF:RebuildUnitFrameMap()
+		GF:RefreshAll()
+	end
+end
+
 local function OnPlayerEnteringWorld()
-	-- Phase 3: 모든 프레임 FullRefresh
-	C_Timer.After(0.1, function()
-		-- 개인 유닛 프레임 갱신
-		-- standalone 모드
-		if ns.SUF and ns.ElementDrivers then
-			for _, frame in ipairs(ns.SUF.allFrames) do
-				if frame:IsVisible() and frame.unit and UnitExists(frame.unit) then
-					ns.ElementDrivers:UpdateAll(frame)
-				end
-			end
-		end
-		-- oUF 프레임 갱신 (폴백)
-		for _, frame in pairs(ns.frames) do
-			if frame.UpdateAllElements then
-				frame:UpdateAllElements("OnPlayerEnteringWorld")
-			end
-		end
-		-- GroupFrames 리프레시 (헤더 자식 생성 대기 후)
-		local GF = ns.GroupFrames
-		if GF and GF.headersInitialized then
-			GF:RebuildUnitFrameMap()
-			GF:RefreshAll()
-		end
-	end)
+	-- Phase 3: 모든 프레임 FullRefresh (0.1초 지연 — 유닛 데이터 안정화 대기)
+	C_Timer.After(0.1, DoFullRefreshAfterPEW)
 end
 
 ns.RegisterEvent("ADDON_LOADED", OnAddonLoaded)
@@ -573,25 +574,31 @@ ns.RegisterEvent("GROUP_ROSTER_UPDATE", function()
 end)
 
 -- UI 스케일 변경 시 PixelPerfect 재계산
--- [FIX] 전투 중 SetSize() taint 방지: 전투 종료 후 지연 실행
-ns.RegisterEvent("UI_SCALE_CHANGED", function()
+-- [AUDIT-FIX] C-INIT-1/3: 명명된 콜백으로 이벤트 누수 방지
+local function DoUIScaleRefresh()
+	if ns.Update and ns.Update.RefreshAllFrames then
+		ns.Update:RefreshAllFrames()
+	end
+end
+
+local function OnRegenAfterUIScale()
+	ns.UnregisterEvent("PLAYER_REGEN_ENABLED", OnRegenAfterUIScale)
+	C_Timer.After(0.1, DoUIScaleRefresh)
+end
+
+local function OnUIScaleChanged()
 	if ns.Functions and ns.Functions.UpdatePixelScale then
 		ns.Functions:UpdatePixelScale()
 	end
-	local function doRefresh()
-		if ns.Update and ns.Update.RefreshAllFrames then
-			ns.Update:RefreshAllFrames()
-		end
-	end
 	if InCombatLockdown() then
-		ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
-			ns.UnregisterEvent("PLAYER_REGEN_ENABLED")
-			C_Timer.After(0.1, doRefresh)
-		end)
+		-- 이미 등록된 핸들러가 있으면 중복 방지 (연속 스케일 변경 대응)
+		ns.UnregisterEvent("PLAYER_REGEN_ENABLED", OnRegenAfterUIScale)
+		ns.RegisterEvent("PLAYER_REGEN_ENABLED", OnRegenAfterUIScale)
 	else
-		C_Timer.After(0.1, doRefresh)
+		C_Timer.After(0.1, DoUIScaleRefresh)
 	end
-end)
+end
+ns.RegisterEvent("UI_SCALE_CHANGED", OnUIScaleChanged)
 
 -----------------------------------------------
 -- [MYTHIC-RAID] 난이도 감지 시스템

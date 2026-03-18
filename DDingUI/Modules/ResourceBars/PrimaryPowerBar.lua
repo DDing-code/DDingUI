@@ -220,6 +220,10 @@ function ResourceBars:UpdatePowerBar()
         if DDingUI.powerBar then
             DDingUI.powerBar:Hide()
             DDingUI.powerBar:SetScript("OnUpdate", nil)
+            -- [FIX] Explicitly hide sub-elements to prevent background leak
+            if DDingUI.powerBar.Background then DDingUI.powerBar.Background:Hide() end
+            if DDingUI.powerBar.Border then DDingUI.powerBar.Border:Hide() end
+            if DDingUI.powerBar.TextFrame then DDingUI.powerBar.TextFrame:Hide() end
         end
         return
     end
@@ -238,22 +242,25 @@ function ResourceBars:UpdatePowerBar()
     local anchorFallback = false
     if not anchor then
         if inGracePeriod then
-            -- 특성 변경 중: 위치 틀어짐 방지를 위해 바를 잠시 숨기고
-            -- 앵커가 복구되면 정확한 위치에 다시 표시
+            -- [FIX] Ayije CDM 패턴: grace period 중 bar:Hide() 금지
+            -- 이전 위치/너비를 유지한 채 앵커 복구를 기다림 (바 사라짐 방지)
             if bar:GetParent() ~= UIParent then
                 bar:SetParent(UIParent)
             end
-            bar:Hide()
-            -- 앵커 복구 시 자동 재시도
+            -- 바를 숨기지 않음 — 이전 위치에서 계속 표시
+            -- 앵커 복구 시 자동 재시도 (더 긴 간격 포함)
             if not bar._anchorRetryScheduled then
                 bar._anchorRetryScheduled = true
                 C_Timer.After(0.2, function() ResourceBars:UpdatePowerBar() end)
                 C_Timer.After(0.5, function() ResourceBars:UpdatePowerBar() end)
                 C_Timer.After(1.0, function()
-                    bar._anchorRetryScheduled = nil
                     ResourceBars:UpdatePowerBar()
                 end)
                 C_Timer.After(2.0, function() ResourceBars:UpdatePowerBar() end)
+                C_Timer.After(4.0, function()
+                    bar._anchorRetryScheduled = nil
+                    ResourceBars:UpdatePowerBar()
+                end)
             end
             return
         end
@@ -479,6 +486,13 @@ function ResourceBars:UpdatePowerBar()
         bar._lastHeight = desiredHeight
     end
 
+    -- [FIX] Apply frame strata immediately (was only set during creation)
+    local strata = cfg.frameStrata or "MEDIUM"
+    bar:SetFrameStrata(strata)
+    if bar.TextFrame then
+        bar.TextFrame:SetFrameStrata(strata)
+    end
+
     -- Update background color
     local bgColor = cfg.bgColor or { 0.15, 0.15, 0.15, 1 }
     if bar.Background then
@@ -572,6 +586,12 @@ function ResourceBars:UpdatePowerBar()
     -- Only use base colors if threshold wasn't applied
     if not thresholdApplied then
         bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+    end
+
+    -- [ConditionalActions] 조건부 동작 색상 오버라이드
+    if bar._ddingColorOverride then
+        local oc = bar._ddingColorOverride
+        bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
     end
 
     -- Marker color overlay: clip frame + overlay StatusBar (secret value safe)

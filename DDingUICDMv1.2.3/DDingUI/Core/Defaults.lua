@@ -458,6 +458,7 @@ local defaults = {
             --         ...
             --     }
             -- }
+            trackerGroups = {},
         },
         powerTypeColors = {
             useClassColor = true,

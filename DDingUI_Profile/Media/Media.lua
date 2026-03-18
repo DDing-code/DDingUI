@@ -19,6 +19,7 @@ LSM:Register("font", "SAO Welcome Bold",          mediaPath .. "Fonts\\SAOWelcom
 ------------------------------------------------------------------------
 LSM:Register("statusbar", "DDing Melli",           mediaPath .. "Textures\\Melli.tga")
 LSM:Register("statusbar", "DDing BuiOnePixel",     mediaPath .. "Textures\\BuiOnePixel.tga")
+LSM:Register("statusbar", "DD SL Bracket",         mediaPath .. "Textures\\SL_Bracket.tga")
 
 ------------------------------------------------------------------------
 -- 사운드 (47)

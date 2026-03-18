@@ -209,6 +209,14 @@ local function ProcessDirtyAuras()
 				if GF.UpdateDefensiveIcon then
 					GF:UpdateDefensiveIcon(frame)
 				end
+				-- [AD] AuraDesigner 인디케이터 업데이트
+				local adEngine = ns.AuraDesigner and ns.AuraDesigner.Engine
+				if adEngine then
+					local adOk, adErr = pcall(adEngine.UpdateGroupFrame, adEngine, frame)
+					if not adOk and ns._debugMode then
+						ns:PrintDebug("AuraDesigner error: " .. tostring(adErr))
+					end
+				end
 			end
 		end
 
@@ -503,37 +511,62 @@ end
 -- 디스펠 타입 우선순위 (상수)
 local dispelPriority = { Magic = 4, Curse = 3, Disease = 2, Poison = 1 }
 
+local durationColorCache = {}
+local BuildDurationColorInfo, GetDurationColorInfo -- Forward declaration
+
 -- [REFACTOR] 단일 아이콘 업데이트 헬퍼 (중복 제거)
 local function ApplyAuraToIcon(icon, auraData, auraInstanceID, unit, auraType)
 	-- 텍스처 (SetTexture는 C++에서 secret 처리)
 	SafeSetTexture(icon, auraData.icon)
 
-	-- 쿨다운 스와이프
-	SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
+	-- [12.1] 쿨다운 깜빡임 방지: _cooldownSet 플래그 사용
+	-- auraInstanceID 비교는 secret value 때문에 항상 true 반환 → 사용 불가
+	-- 대신: hide될 때 플래그 리셋 → 다시 show될 때만 쿨다운 설정
+	if not icon._cooldownSet then
+		icon._cooldownSet = true
+
+		-- 쿨다운 가시성 결정 (DandersFrames 패턴)
+		if icon.cooldown and C_UnitAuras.DoesAuraHaveExpirationTime then
+			local hasExpiration = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
+			if icon.cooldown.SetShownFromBoolean then
+				icon.cooldown:SetShownFromBoolean(hasExpiration, true, false)
+			else
+				icon.cooldown:Show()
+			end
+		end
+
+		-- 쿨다운 스와이프 설정 (1회만)
+		SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
+
+		-- 텍스트 색상 초기화
+		if icon.nativeCooldownText then
+			local frame = icon.unitFrame or icon:GetParent():GetParent()
+			local frameType = frame.isRaidFrame and "raid" or "party"
+			local info = GetDurationColorInfo(frameType, auraType)
+			icon.nativeCooldownText:SetTextColor(info.rgb[1], info.rgb[2], info.rgb[3], 1)
+		end
+	end
 
 	-- [FIX] 스택 수 (DandersFrame 패턴: SetText가 C++ 레벨에서 secret 처리)
 	icon.count:SetText("")
 	if C_UnitAuras.GetAuraApplicationDisplayCount then
 		local stackText = C_UnitAuras.GetAuraApplicationDisplayCount(unit, auraInstanceID, 2, 99)
 		if stackText then
-			icon.count:SetText(stackText) -- secret string → C++에서 안전하게 렌더링
+			icon.count:SetText(stackText)
 		end
 	end
 
 	-- [FIX] 디버프 테두리 색 (종류별 색상) — ColorCurve API (secret-safe)
-	-- [DandersFrames 패턴] GetRGBA() 결과를 비교 없이 SetVertexColor에 직접 전달
-	-- 커브에 alpha 포함: None=alpha 0(투명), Magic/Curse등=alpha 1(표시)
 	if auraType == "DEBUFF" then
 		local db = GF:GetFrameDB(icon.unitFrame or icon:GetParent():GetParent())
 		local debuffsDB = db and db.widgets and db.widgets.debuffs or {}
-		local showTypeBorder = debuffsDB.showDispelTypeBorder ~= false -- 기본 true
+		local showTypeBorder = debuffsDB.showDispelTypeBorder ~= false
 
 		if showTypeBorder and auraInstanceID and C_UnitAuras.GetAuraDispelTypeColor then
 			local curve = GetDispelColorCurve()
 			if curve then
 				local borderColor = C_UnitAuras.GetAuraDispelTypeColor(unit, auraInstanceID, curve)
 				if borderColor then
-					-- [DandersFrames 패턴] secret RGBA를 C++ SetVertexColor에 직접 전달
 					icon.border:SetVertexColor(borderColor:GetRGBA())
 				else
 					icon.border:SetVertexColor(0, 0, 0, 0.8)
@@ -548,25 +581,10 @@ local function ApplyAuraToIcon(icon, auraData, auraInstanceID, unit, auraType)
 		icon.border:SetVertexColor(0, 0, 0, 0.8)
 	end
 
-	-- [FIX] 지속시간 표시: 네이티브 쿨다운 텍스트 사용 (secret-safe, C++ 레벨)
-	-- 커스텀 duration FontString은 비활성 (중복 방지)
 	if icon.duration then
 		icon.duration:Hide()
 	end
-	-- SetShownFromBoolean: secret boolean 안전하게 처리
-	if icon.nativeCooldownText and C_UnitAuras.DoesAuraHaveExpirationTime then
-		local hasExpiration = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
-		if icon.nativeCooldownText.SetShownFromBoolean then
-			icon.nativeCooldownText:SetShownFromBoolean(hasExpiration, true, false)
-		else
-			icon.nativeCooldownText:Show() -- fallback: 항상 표시
-		end
-		-- [FIX] 초기 색상 리셋 (1초 타이머 대기 중 이전 아이콘의 빨간색/임계값 색상 잔존 방지)
-		-- 새 오라는 남은 시간이 길므로 흰색(기본)으로 초기화, 1초 후 colorTimer가 정확한 색상 적용
-		icon.nativeCooldownText:SetTextColor(1, 1, 1, 1)
-	end
 
-	-- auraInstanceID 저장 (툴팁용)
 	icon.auraInstanceID = auraInstanceID
 	icon:Show()
 end
@@ -691,12 +709,14 @@ function GF:UpdateAuraIconsDirect(frame, icons, cacheSet, unit, auraType)
 		for i = iconIndex, maxIcons do
 			icons[i]:Hide()
 			icons[i].auraInstanceID = nil
+			icons[i]._cooldownSet = nil  -- [12.1] 플래그 리셋 → 다시 show될 때 쿨다운 재설정
 		end
 	else
 		-- 캐시도 없고 fallback도 없으면 전부 숨김
 		for i = 1, maxIcons do
 			icons[i]:Hide()
 			icons[i].auraInstanceID = nil
+			icons[i]._cooldownSet = nil  -- [12.1]
 		end
 	end
 end
@@ -710,9 +730,9 @@ end
 --   threshold: EvaluateRemainingDuration (Step curve, 초 기준 임계값)
 -----------------------------------------------
 
-local durationColorCache = {} -- "party_BUFF" → { mode, curve, rgb, evaluateMethod }
+-- durationColorCache = {} -- "party_BUFF" → { mode, curve, rgb, evaluateMethod } (Moved up)
 
-local function BuildDurationColorInfo(frameType, auraType)
+BuildDurationColorInfo = function(frameType, auraType)
 	local db = frameType == "raid" and GF:GetRaidDB() or GF:GetPartyDB()
 	local widgets = db and db.widgets
 	local auraDB = auraType == "DEBUFF" and (widgets and widgets.debuffs) or (widgets and widgets.buffs)
@@ -777,7 +797,7 @@ local function BuildDurationColorInfo(frameType, auraType)
 	return info
 end
 
-local function GetDurationColorInfo(frameType, auraType)
+GetDurationColorInfo = function(frameType, auraType)
 	local key = frameType .. "_" .. auraType
 	if not durationColorCache[key] then
 		durationColorCache[key] = BuildDurationColorInfo(frameType, auraType)
@@ -872,17 +892,17 @@ colorTimerFrame:SetScript("OnUpdate", function(self, elapsed)
 							if icon:IsShown() and icon.auraInstanceID and icon.nativeCooldownText then
 								local info = GetDurationColorInfo(frameType, icon.auraType or "BUFF")
 
-								if info.mode == "fixed" or not info.curve then
-									icon.nativeCooldownText:SetTextColor(info.rgb[1], info.rgb[2], info.rgb[3], 1)
-								else
+								if info.mode ~= "fixed" and info.curve then
 									local durationObj = C_UnitAuras.GetAuraDuration(frame.unit, icon.auraInstanceID)
-									if durationObj then
+									-- durationObj.EvaluateRemainingPercent 유무로 실제 지속시간이 있는지 검증 (DandersFrame 패턴)
+									if durationObj and durationObj.EvaluateRemainingPercent then
 										local result
-										if info.evaluateMethod == "percent" and durationObj.EvaluateRemainingPercent then
+										if info.evaluateMethod == "percent" then
 											result = durationObj:EvaluateRemainingPercent(info.curve)
 										elseif info.evaluateMethod == "duration" and durationObj.EvaluateRemainingDuration then
 											result = durationObj:EvaluateRemainingDuration(info.curve)
 										end
+										
 										if result and result.GetRGB then
 											icon.nativeCooldownText:SetTextColor(result:GetRGB())
 										elseif result and result.r then
@@ -897,15 +917,8 @@ colorTimerFrame:SetScript("OnUpdate", function(self, elapsed)
 					end
 				end
 
-				-- [12.0.1] 생존기 네이티브 카운트다운 텍스트 색상 업데이트 (일반 버프와 동일)
-				if frame.defensiveIcons then
-					for _, btn in ipairs(frame.defensiveIcons) do
-						if btn:IsShown() and btn.nativeCooldownText and btn.auraInstanceID then
-							-- 기본 흰색 (생존기는 gradient 미적용, 고정 색상)
-							btn.nativeCooldownText:SetTextColor(1, 1, 1, 1)
-						end
-					end
-				end
+				-- [FIX] 생존기 아이콘 텍스트를 매초마다 흰색으로 덮어쓰는 구조 삭제
+				-- 고정 색상은 OnUpdate 타이머에서 변경할 필요가 없으며, 지속시간 0초 버프 시 깜빡임(Flashing) 버그의 원인이 됨
 
 				-- [HOT-TRACKER] gradient는 프레임-레벨 (OnUpdate 불필요)
 			end

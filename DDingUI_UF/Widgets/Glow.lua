@@ -55,8 +55,12 @@ local function ReleaseGlowFrame(glow)
 	glow:Hide()
 	glow:ClearAllPoints()
 	glow:SetParent(nil)
-	-- 애니메이션 정지
+	-- 애니메이션 정지 (AnimationGroup fallback)
 	if glow._ag then glow._ag:Stop() end
+	-- [REFACTOR] OnUpdate 기반 애니메이션 정리
+	glow:SetScript("OnUpdate", nil)
+	glow:SetScript("OnSizeChanged", nil)
+	glow:SetAlpha(1)
 	-- 텍스처 숨기기
 	for _, tex in ipairs(glow._textures or {}) do
 		tex:Hide()
@@ -138,26 +142,17 @@ local function CreatePixelGlow(frame, color, opts)
 	LayoutSegments()
 	glow:SetScript("OnSizeChanged", LayoutSegments)
 
-	-- Alpha 펄스 애니메이션
-	local ag = glow:CreateAnimationGroup()
-	ag:SetLooping("REPEAT")
-	glow._ag = ag
-
-	local fadeOut = ag:CreateAnimation("Alpha")
-	fadeOut:SetFromAlpha(1)
-	fadeOut:SetToAlpha(0.2)
-	fadeOut:SetDuration(frequency)
-	fadeOut:SetOrder(1)
-	fadeOut:SetSmoothing("IN_OUT")
-
-	local fadeIn = ag:CreateAnimation("Alpha")
-	fadeIn:SetFromAlpha(0.2)
-	fadeIn:SetToAlpha(1)
-	fadeIn:SetDuration(frequency)
-	fadeIn:SetOrder(2)
-	fadeIn:SetSmoothing("IN_OUT")
-
-	ag:Play()
+	-- [REFACTOR] Alpha 펄스: AnimationGroup → OnUpdate + math.sin (Taint 방지 + 30fps 측)
+	local _accum, _timer = 0, 0
+	local speed = 1 / frequency -- frequency는 반주기(초)
+	glow:SetScript("OnUpdate", function(self, elapsed)
+		_accum = _accum + elapsed
+		if _accum < 0.033 then return end  -- 30fps
+		_timer = _timer + _accum * speed * 6.2832  -- 2π * speed
+		_accum = 0
+		if _timer > 6.2832 then _timer = _timer - 6.2832 end
+		self:SetAlpha(0.2 + 0.8 * (0.5 + 0.5 * math.sin(_timer)))
+	end)
 
 	return glow
 end
@@ -198,46 +193,16 @@ local function CreateShineGlow(frame, color, opts)
 	center:SetPoint("CENTER")
 	tinsert(glow._textures, center)
 
-	-- 회전 + 펄스 애니메이션
-	local ag = glow:CreateAnimationGroup()
-	ag:SetLooping("REPEAT")
-	glow._ag = ag
+	-- [REFACTOR] 스케일+회전+알파 모두 OnUpdate에서 처리 (AnimationGroup 제거)
 
-	-- 스케일 펄스
-	local scaleUp = ag:CreateAnimation("Scale")
-	scaleUp:SetScaleFrom(0.6, 0.6)
-	scaleUp:SetScaleTo(1.2, 1.2)
-	scaleUp:SetDuration(frequency)
-	scaleUp:SetOrder(1)
-	scaleUp:SetSmoothing("IN_OUT")
-
-	local scaleDown = ag:CreateAnimation("Scale")
-	scaleDown:SetScaleFrom(1.2, 1.2)
-	scaleDown:SetScaleTo(0.6, 0.6)
-	scaleDown:SetDuration(frequency)
-	scaleDown:SetOrder(2)
-	scaleDown:SetSmoothing("IN_OUT")
-
-	-- Alpha 펄스
-	local fadeOut = ag:CreateAnimation("Alpha")
-	fadeOut:SetFromAlpha(1)
-	fadeOut:SetToAlpha(0.3)
-	fadeOut:SetDuration(frequency)
-	fadeOut:SetOrder(1)
-
-	local fadeIn = ag:CreateAnimation("Alpha")
-	fadeIn:SetFromAlpha(0.3)
-	fadeIn:SetToAlpha(1)
-	fadeIn:SetDuration(frequency)
-	fadeIn:SetOrder(2)
-
-	ag:Play()
-
-	-- 회전 OnUpdate
-	local elapsed = 0
+	-- [REFACTOR] 회전 + 펄스: AnimationGroup → OnUpdate + 30fps 측
+	local _accum, _elapsed = 0, 0
 	glow:SetScript("OnUpdate", function(self, dt)
-		elapsed = elapsed + dt
-		local angle = elapsed * math_pi * 0.5 -- 느린 회전
+		_accum = _accum + dt
+		if _accum < 0.033 then return end  -- 30fps
+		_elapsed = _elapsed + _accum
+		_accum = 0
+		local angle = _elapsed * math_pi * 0.5 -- 느린 회전
 		for i, beam in ipairs(glow._textures) do
 			if i <= 4 then
 				local rot = angle + (i - 1) * math_pi * 0.25
@@ -249,6 +214,9 @@ local function CreateShineGlow(frame, color, opts)
 				beam:SetPoint("CENTER", ox, oy)
 			end
 		end
+		-- Alpha 펄스
+		local alphaT = _elapsed * (1 / frequency) * 6.2832
+		self:SetAlpha(0.3 + 0.7 * (0.5 + 0.5 * math.sin(alphaT)))
 	end)
 
 	return glow
@@ -305,26 +273,17 @@ local function CreateProcGlow(frame, color, opts)
 		tinsert(glow._textures, tex)
 	end
 
-	-- 강한 Alpha 펄스
-	local ag = glow:CreateAnimationGroup()
-	ag:SetLooping("REPEAT")
-	glow._ag = ag
-
-	local fadeOut = ag:CreateAnimation("Alpha")
-	fadeOut:SetFromAlpha(1)
-	fadeOut:SetToAlpha(0.1)
-	fadeOut:SetDuration(frequency)
-	fadeOut:SetOrder(1)
-	fadeOut:SetSmoothing("IN_OUT")
-
-	local fadeIn = ag:CreateAnimation("Alpha")
-	fadeIn:SetFromAlpha(0.1)
-	fadeIn:SetToAlpha(1)
-	fadeIn:SetDuration(frequency)
-	fadeIn:SetOrder(2)
-	fadeIn:SetSmoothing("IN_OUT")
-
-	ag:Play()
+	-- [REFACTOR] Alpha 펄스: AnimationGroup → OnUpdate + math.sin (Taint 방지 + 30fps 측)
+	local _accum, _timer = 0, 0
+	local speed = 1 / frequency
+	glow:SetScript("OnUpdate", function(self, elapsed)
+		_accum = _accum + elapsed
+		if _accum < 0.033 then return end  -- 30fps
+		_timer = _timer + _accum * speed * 6.2832
+		_accum = 0
+		if _timer > 6.2832 then _timer = _timer - 6.2832 end
+		self:SetAlpha(0.1 + 0.9 * (0.5 + 0.5 * math.sin(_timer)))
+	end)
 
 	return glow
 end
@@ -381,26 +340,17 @@ local function CreateNormalGlow(frame, color, opts)
 		tinsert(glow._textures, tex)
 	end
 
-	-- 느린 Alpha 펄스
-	local ag = glow:CreateAnimationGroup()
-	ag:SetLooping("REPEAT")
-	glow._ag = ag
-
-	local fadeOut = ag:CreateAnimation("Alpha")
-	fadeOut:SetFromAlpha(1)
-	fadeOut:SetToAlpha(0.4)
-	fadeOut:SetDuration(frequency)
-	fadeOut:SetOrder(1)
-	fadeOut:SetSmoothing("IN_OUT")
-
-	local fadeIn = ag:CreateAnimation("Alpha")
-	fadeIn:SetFromAlpha(0.4)
-	fadeIn:SetToAlpha(1)
-	fadeIn:SetDuration(frequency)
-	fadeIn:SetOrder(2)
-	fadeIn:SetSmoothing("IN_OUT")
-
-	ag:Play()
+	-- [REFACTOR] Alpha 펄스: AnimationGroup → OnUpdate + math.sin (Taint 방지 + 30fps 측)
+	local _accum, _timer = 0, 0
+	local speed = 1 / frequency
+	glow:SetScript("OnUpdate", function(self, elapsed)
+		_accum = _accum + elapsed
+		if _accum < 0.033 then return end  -- 30fps
+		_timer = _timer + _accum * speed * 6.2832
+		_accum = 0
+		if _timer > 6.2832 then _timer = _timer - 6.2832 end
+		self:SetAlpha(0.4 + 0.6 * (0.5 + 0.5 * math.sin(_timer)))
+	end)
 
 	return glow
 end
@@ -417,9 +367,12 @@ local glowCreators = {
 	normal = CreateNormalGlow,
 }
 
+-- [ELLESMERE] StyleLib ProceduralGlow 브릿지
+local SL_PG = DDingUI_StyleLib and DDingUI_StyleLib.ProceduralGlow or nil
+
 --- 프레임에 글로우 효과 시작
 -- @param frame   대상 프레임
--- @param glowType "pixel"|"shine"|"proc"|"normal"
+-- @param glowType "pixel"|"shine"|"proc"|"normal"|"ants"|"shape"
 -- @param color   {r, g, b[, a]}
 -- @param opts    { lines, frequency, length, thickness } (타입별 옵션)
 function Glow:Start(frame, glowType, color, opts)
@@ -428,19 +381,38 @@ function Glow:Start(frame, glowType, color, opts)
 	-- 기존 글로우 제거
 	self:Stop(frame)
 
+	color = color or { 1, 1, 1, 1 }
+
+	-- [ELLESMERE] ProceduralGlow 타입 처리
+	if SL_PG and (glowType == "ants" or glowType == "shape") then
+		SL_PG.StartGlow(frame, glowType, color[1], color[2], color[3], opts)
+		frame._ddingGlowType = glowType
+		frame._ddingGlowPG = true  -- ProceduralGlow 플래그
+		return
+	end
+
 	local creator = glowCreators[glowType]
 	if not creator then
 		creator = glowCreators.normal -- fallback
 	end
 
-	color = color or { 1, 1, 1, 1 }
 	frame._ddingGlow = creator(frame, color, opts)
 	frame._ddingGlowType = glowType
 end
 
 --- 프레임의 글로우 효과 중지
 function Glow:Stop(frame)
-	if not frame or not frame._ddingGlow then return end
+	if not frame then return end
+
+	-- [ELLESMERE] ProceduralGlow 정리
+	if frame._ddingGlowPG and SL_PG then
+		SL_PG.StopGlow(frame)
+		frame._ddingGlowPG = nil
+		frame._ddingGlowType = nil
+		return
+	end
+
+	if not frame._ddingGlow then return end
 	ReleaseGlowFrame(frame._ddingGlow)
 	frame._ddingGlow = nil
 	frame._ddingGlowType = nil
@@ -448,7 +420,15 @@ end
 
 --- 글로우 색상 업데이트 (재생성 없이)
 function Glow:SetColor(frame, color)
-	if not frame or not frame._ddingGlow then return end
+	if not frame then return end
+	-- [ELLESMERE] PG 글로우는 재생성 필요
+	if frame._ddingGlowPG then
+		local glowType = frame._ddingGlowType
+		self:Stop(frame)
+		self:Start(frame, glowType, color)
+		return
+	end
+	if not frame._ddingGlow then return end
 	local glow = frame._ddingGlow
 	local r, g, b, a = color[1], color[2], color[3], color[4] or 1
 	for _, tex in ipairs(glow._textures or {}) do
@@ -458,5 +438,16 @@ end
 
 --- 글로우 활성 여부
 function Glow:IsActive(frame)
-	return frame and frame._ddingGlow ~= nil
+	return frame and (frame._ddingGlow ~= nil or frame._ddingGlowPG ~= nil)
 end
+
+-- [ELLESMERE] Taint-free fade 유틸리티 노출
+function Glow:Fade(frame, fromAlpha, toAlpha, duration, opts)
+	if SL_PG then
+		SL_PG.Fade(frame, fromAlpha, toAlpha, duration, opts)
+	else
+		-- Fallback: 즉시 설정
+		frame:SetAlpha(toAlpha)
+	end
+end
+

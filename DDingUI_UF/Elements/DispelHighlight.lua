@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 	oUF DispelHighlight Element (Standalone Plugin)
 	해제 가능한 디버프가 있을 때 프레임 보더/글로우/그라데이션/아이콘 강조
 
@@ -299,8 +299,9 @@ local function ApplyDispelIcon(element, unit, auraInstanceID)
 		element._icons = {}
 		local function CreateTypeIcon(atlas)
 			local tex = element.__owner:CreateTexture(nil, "OVERLAY", nil, 3)
+			local iconOffset = element._iconOffset or -2
 			tex:SetSize(element._iconSize or 14, element._iconSize or 14)
-			tex:SetPoint(element._iconPosition or "TOPRIGHT", element.__owner, element._iconPosition or "TOPRIGHT", -2, -2)
+			tex:SetPoint(element._iconPosition or "TOPRIGHT", element.__owner, element._iconPosition or "TOPRIGHT", iconOffset, iconOffset)
 			tex:SetAtlas(atlas)
 			tex:Hide()
 			return tex
@@ -469,10 +470,67 @@ local function Update(self, event, unit)
 		return
 	end
 
-	-- Slow Path: 출혈 / 격노 검출 불가 (WoW 11.0 Secret Value 제한)
-	-- 블리자드 기본 API(C_UnitAuras.GetAuraDispelTypeColor)에서 alpha 값을 Lua로 검출할 수 없고,
-	-- auraData.dispelName 역시 Secret String이라 Lua에서 `== "Bleed"` 비교 시 테인트가 발생함.
-	-- 따라서 플레이어 디스펠 불가(Fast Path 미해당)인 출혈/격노를 강제로 하이라이트하는 편법 제거.
+	-- Slow Path: ColorCurve API로 출혈(Bleed=11)/격노(Enrage=9) 탐지
+	-- [FIX] 기존 주석처럼 dispelName 비교는 secret string이라 불가
+	-- 대신 GetBleedEnrageCurve로 Bleed/Enrage만 alpha=1인 커브를 만들고
+	-- C_UnitAuras.ForEachAura로 디버프를 순회하며 검출
+	if hasColorCurveAPI then
+		local bleedCurve = GetBleedEnrageCurve()
+		if bleedCurve then
+			local bleedFound = false
+			local bleedAuraID = nil
+			local function checkBleed(auraData)
+				if bleedFound then return end
+				if auraData and auraData.auraInstanceID then
+					local color = C_UnitAuras.GetAuraDispelTypeColor(unit, auraData.auraInstanceID, bleedCurve)
+					if color then
+						-- alpha > 0이면 Bleed/Enrage — secret alpha이므로 임시 텍스처로 판정
+						-- SetAlphaFromBoolean 대안: 단순히 color 존재 여부로 판단
+						-- GetBleedEnrageCurve는 non-bleed에 alpha=0 → C++ 렌더링 시 투명
+						-- 하지만 colorObj 자체는 반환됨 → secret alpha 검사가 필요
+						-- [FIX] 간접 검출: _bleedDetector 텍스처의 alpha를 C++에서 설정
+						if not element._bleedDetector then
+							element._bleedDetector = element.__owner:CreateTexture(nil, "BACKGROUND")
+							element._bleedDetector:SetSize(1, 1)
+							element._bleedDetector:SetPoint("CENTER")
+							element._bleedDetector:Hide()
+						end
+						element._bleedDetector:SetVertexColor(color:GetRGBA())
+						-- IsShown() 상태와 무관하게 GetAlpha 확인 불가 → 직접 alpha 접근도 불가
+						-- 최종 방법: pcall로 GetRGBA의 4번째 값(alpha)을 산술 비교
+						local aOk, _, _, _, a = pcall(color.GetRGBA, color)
+						if aOk then
+							local alphaOk, nonZero = pcall(function() return a > 0 end)
+							if alphaOk and nonZero then
+								bleedFound = true
+								bleedAuraID = auraData.auraInstanceID
+							end
+						end
+					end
+				end
+			end
+			if C_UnitAuras.ForEachAura then
+				C_UnitAuras.ForEachAura(unit, "HARMFUL", nil, checkBleed)
+			end
+			if bleedFound then
+				ClearDispelVisual(element)
+				local bleedColor = dc.Bleed or { 1, 0, 0 }
+				local mode = element._mode or "border"
+				if mode == "border" then
+					ApplyDispelBorder_Direct(element, bleedColor[1], bleedColor[2], bleedColor[3])
+				elseif mode == "gradient" then
+					ApplyDispelGradient(element, bleedColor[1], bleedColor[2], bleedColor[3])
+				elseif mode == "glow" then
+					ApplyDispelGlow(element, bleedColor[1], bleedColor[2], bleedColor[3])
+				elseif mode == "icon" then
+					ApplyDispelIconRGB(element, DISPEL_ICON_ATLAS["Bleed"], bleedColor[1], bleedColor[2], bleedColor[3])
+				end
+				if element.PostUpdate then element:PostUpdate(unit) end
+				return
+			end
+		end
+	end
+
 	ClearDispelVisual(element)
 
 	if element.PostUpdate then

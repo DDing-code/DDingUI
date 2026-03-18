@@ -73,6 +73,15 @@ local function IsIconActive(iconKey, iconData, iconFrame)
         if not spellInfo then return false end
     end
 
+    -- aura 타입: buff가 현재 활성 상태인지 확인
+    if iconData.type == "aura" and iconData.id then
+        local auraData = nil
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconData.id)
+        end)
+        if not auraData then return false end
+    end
+
     -- loadConditions 체크
     local settings = iconData.settings
     if settings and settings.loadConditions and settings.loadConditions.enabled then
@@ -126,12 +135,16 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
         end
     end
 
+    -- [FIX] 편집모드에서는 모든 아이콘 반환 (비활성 강화효과도 표시)
+    local isEditMode = (DDingUI.Movers and DDingUI.Movers.ConfigMode)
+        or (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive())
+
     -- 활성 아이콘 필터링
     local result = {}
     for iconKey in pairs(targetKeys) do
         local frame = iconFrames[iconKey]
         local iconData = db.iconData[iconKey]
-        if frame and iconData and IsIconActive(iconKey, iconData, frame) then
+        if frame and iconData and (isEditMode or IsIconActive(iconKey, iconData, frame)) then
             result[#result + 1] = {
                 iconKey = iconKey,
                 frame = frame,

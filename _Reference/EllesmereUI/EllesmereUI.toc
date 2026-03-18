@@ -1,0 +1,25 @@
+## Interface: 120000, 120001
+## Title: |cff0cd29fEllesmereUI|r
+## Notes: Shared framework for the EllesmereUI addon suite
+## Author: Ellesmere
+## Version: 3.4.5
+## SavedVariables: EllesmereUIDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+## X-Curse-Project-ID: 1477613
+## X-Wago-ID: ZKbxbRN1
+
+# Lightweight addon framework (replaces Ace3)
+EllesmereUI_Lite.lua
+
+# Early startup — applies engine-cached settings before PLAYER_LOGIN
+EllesmereUI_Startup.lua
+
+# Shared EllesmereUI Files
+EllesmereUI.lua
+EllesmereUI_Widgets.lua
+EllesmereUI_Presets.lua
+EllesmereUI_PartyMode.lua
+EUI__General_Options.lua
+EUI_UnlockMode.lua
+EUI_PartyMode_Options.lua
+EllesmereUI_Glows.lua

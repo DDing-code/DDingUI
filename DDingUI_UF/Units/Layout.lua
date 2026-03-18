@@ -538,6 +538,7 @@ end
 local function CreateAdditionalPower(self, unit, settings)
 	local texture = GetTexture()
 	local inset = 0
+	local apDB = GetWidgetSettings(settings, "altPowerBar") -- [FIX] SetHeight보다 앞에 정의
 
 	local addPower = CreateFrame("StatusBar", nil, self)
 	addPower:SetStatusBarTexture(texture)
@@ -550,13 +551,13 @@ local function CreateAdditionalPower(self, unit, settings)
 		addPower:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", inset, inset)
 		addPower:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", -inset, inset)
 	end
-	addPower:SetHeight(4)
+	local addPowerHeight = (apDB and apDB.size and apDB.size.height) or C.ADDITIONAL_POWER_HEIGHT
+	addPower:SetHeight(addPowerHeight)
 
 	StyleAltBar(addPower, texture)
 
 	addPower.colorPower = true
 	addPower.frequentUpdates = true
-	local apDB = GetWidgetSettings(settings, "altPowerBar")
 	if apDB and apDB.enabled == false then
 		addPower:Hide()
 		self._additionalPowerFrame = addPower
@@ -623,7 +624,7 @@ local function CreateCastbar(self, unit, cbDB, ownerWidth)
 			pos.offsetY or 0
 		)
 	else
-		local gap = 2 -- [REFACTOR] raw pixel
+		local gap = cbDB.attachedGap or C.CASTBAR_ATTACHED_GAP -- [FIX] DB 참조 (상수 fallback)
 		cbWidth = fallbackW -- [REFACTOR] 부착형: 항상 부모 너비 사용
 		castbar:SetHeight(cbHeight)
 		local leftOff = iconPos == "inside-left" and iconW or 0
@@ -692,25 +693,40 @@ local function CreateCastbar(self, unit, cbDB, ownerWidth)
 	elseif iconPos == "inside-left" then
 		icon:SetPoint("RIGHT", castbar, "LEFT", 0, 0) -- 바 왼쪽 바깥에 붙임
 	else -- "left" (외부 좌측)
-		icon:SetPoint("RIGHT", castbar, "LEFT", -3, 0)
+		icon:SetPoint("RIGHT", castbar, "LEFT", -C.CASTBAR_ICON_GAP, 0)
 	end
 	castbar.Icon = icon
 	castbar._iconPos = iconPos
 
 	-- Icon border: backdrop이 아이콘 영역까지 커버하므로 별도 테두리 불필요
 
-	-- Text -- [REFACTOR] 아이콘이 바 바깥이므로 텍스트는 항상 바 시작점 기준
+	-- Text -- [REFACTOR] DB spell/timer 설정 적용
+	local spellDB = cbDB.spell
 	castbar.Text = castbar:CreateFontString(nil, "OVERLAY")
-	castbar.Text:SetFont(font, fontSize - 1, fontFlags)
-	castbar.Text:SetPoint("LEFT", castbar, 4, 0)
-	castbar.Text:SetPoint("RIGHT", castbar, -40, 0)
+	local spellFontSize = (spellDB and spellDB.size) or (fontSize - 1)
+	local spellFontStyle = (spellDB and spellDB.style) or font
+	local spellFontOutline = (spellDB and spellDB.outline) or fontFlags
+	castbar.Text:SetFont(spellFontStyle, spellFontSize, spellFontOutline)
+	local spellPoint = (spellDB and spellDB.point) or "LEFT"
+	local spellOffsetX = (spellDB and spellDB.offsetX) or C.CASTBAR_SPELL_PADDING
+	local spellOffsetY = (spellDB and spellDB.offsetY) or 0
+	castbar.Text:SetPoint(spellPoint, castbar, spellOffsetX, spellOffsetY)
+	castbar.Text:SetPoint("RIGHT", castbar, C.CASTBAR_TEXT_RIGHT_CLIP, 0)
 	castbar.Text:SetJustifyH("LEFT")
 	castbar.Text:SetWordWrap(false)
 
-	-- Time -- [REFACTOR] 아이콘이 바 바깥이므로 시간은 항상 바 끝점 기준
+	-- Time -- [REFACTOR] DB timer 설정 적용
+	local timerFontDB = cbDB.timer
 	castbar.Time = castbar:CreateFontString(nil, "OVERLAY")
-	castbar.Time:SetFont(font, fontSize - 1, fontFlags)
-	castbar.Time:SetPoint("RIGHT", castbar, -4, 0)
+	local timerFontSize = (timerFontDB and timerFontDB.size) or (fontSize - 1)
+	local timerFontStyle = (timerFontDB and timerFontDB.style) or font
+	local timerFontOutline = (timerFontDB and timerFontDB.outline) or fontFlags
+	castbar.Time:SetFont(timerFontStyle, timerFontSize, timerFontOutline)
+	local timerPoint = (timerFontDB and timerFontDB.point) or "RIGHT"
+	local timerRelPoint = (timerFontDB and timerFontDB.relativePoint) or timerPoint
+	local timerOffsetX = (timerFontDB and timerFontDB.offsetX) or C.CASTBAR_TIMER_PADDING
+	local timerOffsetY = (timerFontDB and timerFontDB.offsetY) or 0
+	castbar.Time:SetPoint(timerPoint, castbar, timerRelPoint, timerOffsetX, timerOffsetY)
 	castbar.Time:SetJustifyH("RIGHT")
 
 	-- CustomTimeText -- [REFACTOR] 시전바 Timer 포맷 옵션
@@ -867,8 +883,8 @@ local function CreateNameText(self, unit, settings)
 	-- [ESSENTIAL] 그림자 DB 설정 참조 (하드코딩 제거)
 	local nameShadow = nameDB and nameDB.font and nameDB.font.shadow
 	if nameShadow ~= false then -- nil(미설정) = 기본 켜짐
-		name:SetShadowColor(0, 0, 0, 1)
-		name:SetShadowOffset(1, -1)
+		name:SetShadowColor(C.SHADOW_COLOR[1], C.SHADOW_COLOR[2], C.SHADOW_COLOR[3], C.SHADOW_COLOR[4])
+		name:SetShadowOffset(C.SHADOW_OFFSET[1], C.SHADOW_OFFSET[2])
 	else
 		name:SetShadowOffset(0, 0)
 	end
@@ -995,17 +1011,17 @@ local function CreateHealthText(self, unit, settings)
 	-- [FIX] 미적용 옵션 연결: position from Config
 	if healthDB and healthDB.position then
 		local pos = healthDB.position
-		healthText:SetPoint(pos.point or "RIGHT", self.Health, pos.relativePoint or "CENTER", pos.offsetX or -4, pos.offsetY or 0)
+		healthText:SetPoint(pos.point or "RIGHT", self.Health, pos.relativePoint or "CENTER", pos.offsetX or C.TEXT_OFFSET.healthRightPad, pos.offsetY or 0)
 	else
-		healthText:SetPoint("RIGHT", self.Health, "RIGHT", -4, 0)
+		healthText:SetPoint("RIGHT", self.Health, "RIGHT", C.TEXT_OFFSET.healthRightPad, 0)
 	end
 	healthText:SetJustifyH(hJustify)
 
 	-- [ESSENTIAL] 그림자 DB 설정 참조 (하드코딩 제거)
 	local healthShadow = healthDB and healthDB.font and healthDB.font.shadow
 	if healthShadow ~= false then
-		healthText:SetShadowColor(0, 0, 0, 1)
-		healthText:SetShadowOffset(1, -1)
+		healthText:SetShadowColor(C.SHADOW_COLOR[1], C.SHADOW_COLOR[2], C.SHADOW_COLOR[3], C.SHADOW_COLOR[4])
+		healthText:SetShadowOffset(C.SHADOW_OFFSET[1], C.SHADOW_OFFSET[2])
 	else
 		healthText:SetShadowOffset(0, 0)
 	end
@@ -1059,19 +1075,19 @@ local function CreatePowerText(self, unit, settings)
 	-- 위치
 	if ptDB and ptDB.position then
 		local pos = ptDB.position
-		powerText:SetPoint(pos.point or "RIGHT", anchor, pos.relativePoint or "CENTER", pos.offsetX or -4, pos.offsetY or 0)
+		powerText:SetPoint(pos.point or "RIGHT", anchor, pos.relativePoint or "CENTER", pos.offsetX or C.TEXT_OFFSET.healthRightPad, pos.offsetY or 0)
 	elseif self.Power and ptDB and ptDB.anchorToPowerBar then
 		powerText:SetPoint("CENTER", self.Power, "CENTER", 0, 0)
 	else
-		powerText:SetPoint("LEFT", self.Health, "LEFT", 4, 0)
+		powerText:SetPoint("LEFT", self.Health, "LEFT", C.TEXT_OFFSET.nameLeftPad, 0)
 	end
 	powerText:SetJustifyH(pJustify)
 
 	-- 그림자
 	local pShadow = pFont and pFont.shadow
 	if pShadow ~= false then
-		powerText:SetShadowColor(0, 0, 0, 1)
-		powerText:SetShadowOffset(1, -1)
+		powerText:SetShadowColor(C.SHADOW_COLOR[1], C.SHADOW_COLOR[2], C.SHADOW_COLOR[3], C.SHADOW_COLOR[4])
+		powerText:SetShadowOffset(C.SHADOW_OFFSET[1], C.SHADOW_OFFSET[2])
 	else
 		powerText:SetShadowOffset(0, 0)
 	end
@@ -1230,14 +1246,14 @@ local function PostCreateAuraIcon(element, button)
 
 	-- [FIX] oUF button.Icon (대문자 I)
 	if button.Icon then
-		button.Icon:SetTexCoord(0.15, 0.85, 0.15, 0.85)
+		button.Icon:SetTexCoord(C.AURA_TEXCOORD[1], C.AURA_TEXCOORD[2], C.AURA_TEXCOORD[3], C.AURA_TEXCOORD[4])
 	end
 
 	-- oUF 기본 Overlay 숨기기 (DDingUI는 커스텀 테두리 사용)
 	if button.Overlay then button.Overlay:Hide() end
 
 	-- [FIX] 디버프 외곽선: 기본 테두리 없음, 디버프만 dispel 색상 외곽선
-	local borderSize = 1
+	local borderSize = C.AURA_BORDER_SIZE
 	local border = CreateFrame("Frame", nil, button, "BackdropTemplate")
 	border:SetPoint("TOPLEFT", -borderSize, borderSize)
 	border:SetPoint("BOTTOMRIGHT", borderSize, -borderSize)
@@ -1781,6 +1797,36 @@ end
 
 -- 오라 아이콘 업데이트 콜백 — oUF PostUpdateButton
 -- 시그니처: element:PostUpdateButton(button, unit, data, position)
+
+-- [FIX] DandersFrames 패턴: ColorCurve 기반 디버프 보더 색상 (secret-safe)
+local _debuffBorderCurve
+local function GetDebuffBorderCurve()
+	if _debuffBorderCurve then return _debuffBorderCurve end
+	if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return nil end
+	local ok, curve = pcall(function()
+		local c = C_CurveUtil.CreateColorCurve()
+		c:SetType(Enum.LuaCurveType.Step)
+		local dc = C or {}
+		dc = dc.DISPEL_COLORS or {}
+		local none    = dc.none    or { 0.80, 0.00, 0.00 }
+		local magic   = dc.Magic   or { 0.20, 0.60, 1.00 }
+		local curse   = dc.Curse   or { 0.60, 0.00, 1.00 }
+		local disease = dc.Disease or { 0.60, 0.40, 0.00 }
+		local poison  = dc.Poison  or { 0.00, 0.60, 0.00 }
+		local bleed   = dc.Bleed   or { 0.80, 0.00, 0.00 }
+		c:AddPoint(0,  CreateColor(none[1], none[2], none[3], 1))
+		c:AddPoint(1,  CreateColor(magic[1], magic[2], magic[3], 1))
+		c:AddPoint(2,  CreateColor(curse[1], curse[2], curse[3], 1))
+		c:AddPoint(3,  CreateColor(disease[1], disease[2], disease[3], 1))
+		c:AddPoint(4,  CreateColor(poison[1], poison[2], poison[3], 1))
+		c:AddPoint(9,  CreateColor(bleed[1], bleed[2], bleed[3], 1))
+		c:AddPoint(11, CreateColor(bleed[1], bleed[2], bleed[3], 1))
+		return c
+	end)
+	if ok and curve then _debuffBorderCurve = curve end
+	return _debuffBorderCurve
+end
+
 local function PostUpdateAuraIcon(element, button, unit, data, position)
 	if not button or not data then return end
 
@@ -1790,12 +1836,27 @@ local function PostUpdateAuraIcon(element, button, unit, data, position)
 	-- [FIX] 디버프 외곽선: 디버프만 dispel 타입 색상, 버프는 테두리 없음(투명)
 	if button._border then
 		if SafeVal(data.isHarmfulAura) then
-			local dtype = SafeVal(data.dispelName)
-			local color = dtype and C.DISPEL_COLORS[dtype] or C.DISPEL_COLORS.none
-			if color then
-				button._border:SetBackdropBorderColor(color[1], color[2], color[3], 1)
-			else
-				button._border:SetBackdropBorderColor(0.8, 0, 0, 1) -- fallback: 빨강
+			-- [FIX] ColorCurve API 사용 (DandersFrames 패턴, secret-safe)
+			local colorApplied = false
+			local auraInstanceID = data.auraInstanceID
+			if auraInstanceID and C_UnitAuras and C_UnitAuras.GetAuraDispelTypeColor then
+				local curve = GetDebuffBorderCurve()
+				if curve then
+					local borderColor = C_UnitAuras.GetAuraDispelTypeColor(unit, auraInstanceID, curve)
+					if borderColor then
+						button._border:SetBackdropBorderColor(borderColor:GetRGBA())
+						colorApplied = true
+					end
+				end
+			end
+			if not colorApplied then
+				local dtype = SafeVal(data.dispelName)
+				local color = dtype and C.DISPEL_COLORS[dtype] or C.DISPEL_COLORS.none
+				if color then
+					button._border:SetBackdropBorderColor(color[1], color[2], color[3], 1)
+				else
+					button._border:SetBackdropBorderColor(0.8, 0, 0, 1)
+				end
 			end
 		else
 			button._border:SetBackdropBorderColor(0, 0, 0, 0) -- 버프: 투명
@@ -2172,7 +2233,7 @@ local function CreateHealthPrediction(self, settings) -- [FIX] 미적용 옵션 
 	overHealGlow:SetPoint("TOP", health)
 	overHealGlow:SetPoint("BOTTOM", health)
 	overHealGlow:SetPoint("RIGHT", health)
-	overHealGlow:SetWidth(4)
+	overHealGlow:SetWidth(C.OVERHEAL_GLOW_WIDTH)
 
 	-- reverseFill 시 반대편 (좌측 끝)
 	local overHealGlowReverse = health:CreateTexture(nil, "OVERLAY", nil, 3)
@@ -2182,16 +2243,16 @@ local function CreateHealthPrediction(self, settings) -- [FIX] 미적용 옵션 
 	overHealGlowReverse:SetPoint("TOP", health)
 	overHealGlowReverse:SetPoint("BOTTOM", health)
 	overHealGlowReverse:SetPoint("LEFT", health)
-	overHealGlowReverse:SetWidth(4)
+	overHealGlowReverse:SetWidth(C.OVERHEAL_GLOW_WIDTH)
 	overHealGlowReverse:Hide()
 
 	-- [FIX] overDamageAbsorb 인디케이터: 피해흡수량이 체력바를 초과할 때 글로우 표시
 	local overDamageAbsorbGlow = health:CreateTexture(nil, "OVERLAY", nil, 3)
 	overDamageAbsorbGlow:SetTexture([[Interface\RaidFrame\Shield-Overshield]])
 	overDamageAbsorbGlow:SetBlendMode("ADD")
-	overDamageAbsorbGlow:SetPoint("TOP", health, "TOPRIGHT", -4, 3)
-	overDamageAbsorbGlow:SetPoint("BOTTOM", health, "BOTTOMRIGHT", -4, -3)
-	overDamageAbsorbGlow:SetWidth(8)
+	overDamageAbsorbGlow:SetPoint("TOP", health, "TOPRIGHT", C.OVERSHIELD_GLOW_OFFSET[1], C.OVERSHIELD_GLOW_OFFSET[2])
+	overDamageAbsorbGlow:SetPoint("BOTTOM", health, "BOTTOMRIGHT", C.OVERSHIELD_GLOW_OFFSET[3], C.OVERSHIELD_GLOW_OFFSET[4])
+	overDamageAbsorbGlow:SetWidth(C.OVERSHIELD_GLOW_WIDTH)
 
 	local hdData = {
 		healingAll = healingAll,
@@ -2346,7 +2407,7 @@ local function CreateIndicators(self, unit, settings)
 	local leaderDB = GetWidgetSettings(settings, "leaderIcon")
 
 	-- Raid Target Icon - Health 위에 표시 (sublevel 7)
-	local riSize = (raidIconDB and raidIconDB.size and raidIconDB.size.width) or 14
+	local riSize = (raidIconDB and raidIconDB.size and raidIconDB.size.width) or C.INDICATOR_SIZE.raidIcon
 	local raidIcon = self.Health:CreateTexture(nil, "OVERLAY", nil, 7)
 	raidIcon:SetSize(riSize, riSize)
 	if raidIconDB and raidIconDB.position then
@@ -2364,7 +2425,7 @@ local function CreateIndicators(self, unit, settings)
 
 	-- Group Role (tank/healer/dps) - Health 위에 표시 (sublevel 7)
 	if baseUnit == "party" or baseUnit == "raid" or baseUnit == "player" then
-		local roSize = (roleIconDB and roleIconDB.size and roleIconDB.size.width) or 14
+		local roSize = (roleIconDB and roleIconDB.size and roleIconDB.size.width) or C.INDICATOR_SIZE.roleIcon
 		local roleIcon = self.Health:CreateTexture(nil, "OVERLAY", nil, 7)
 		roleIcon:SetSize(roSize, roSize)
 		if roleIconDB and roleIconDB.position then
@@ -2414,7 +2475,7 @@ local function CreateIndicators(self, unit, settings)
 
 	-- Ready Check - Health 위에 표시 (sublevel 7)
 	if baseUnit == "player" or baseUnit == "party" or baseUnit == "raid" then
-		local rcSize = (readyCheckDB and readyCheckDB.size and readyCheckDB.size.width) or 16
+		local rcSize = (readyCheckDB and readyCheckDB.size and readyCheckDB.size.width) or C.INDICATOR_SIZE.readyCheckIcon
 		local readyCheck = self.Health:CreateTexture(nil, "OVERLAY", nil, 7)
 		readyCheck:SetSize(rcSize, rcSize)
 		if readyCheckDB and readyCheckDB.position then
@@ -2433,7 +2494,7 @@ local function CreateIndicators(self, unit, settings)
 
 	-- Resurrect - Health 위에 표시 (sublevel 7)
 	if baseUnit == "player" or baseUnit == "party" or baseUnit == "raid" then
-		local resSize = (resurrectDB and resurrectDB.size and resurrectDB.size.width) or 20
+		local resSize = (resurrectDB and resurrectDB.size and resurrectDB.size.width) or C.INDICATOR_SIZE.resurrectIcon
 		local resurrect = self.Health:CreateTexture(nil, "OVERLAY", nil, 7)
 		resurrect:SetSize(resSize, resSize)
 		if resurrectDB and resurrectDB.position then
@@ -2453,7 +2514,7 @@ local function CreateIndicators(self, unit, settings)
 	-- Leader Icon - Health 위에 표시 (sublevel 7)
 	-- [FIX] 항상 생성 (런타임 enable/disable 지원 - reload 불필요)
 	if baseUnit == "party" or baseUnit == "raid" or baseUnit == "player" then
-		local ldSize = (leaderDB and leaderDB.size and leaderDB.size.width) or 14
+		local ldSize = (leaderDB and leaderDB.size and leaderDB.size.width) or C.INDICATOR_SIZE.leaderIcon
 		local leader = self.Health:CreateTexture(nil, "OVERLAY", nil, 7)
 		leader:SetSize(ldSize, ldSize)
 		leader:SetTexture(iconSet.leader) -- [REFACTOR] 아이콘 세트 적용
@@ -2476,7 +2537,7 @@ local function CreateIndicators(self, unit, settings)
 	-- [FIX] 항상 생성 (런타임 enable/disable 지원)
 	if baseUnit == "player" then
 		local combatDB = GetWidgetSettings(settings, "combatIcon")
-		local cbSize = (combatDB and combatDB.size and combatDB.size.width) or 20
+		local cbSize = (combatDB and combatDB.size and combatDB.size.width) or C.INDICATOR_SIZE.combatIcon
 		local combat = self.Health:CreateTexture(nil, "OVERLAY", nil, 7)
 		combat:SetSize(cbSize, cbSize)
 		combat:SetTexture(iconSet.combat) -- [REFACTOR] 아이콘 세트 적용
@@ -2501,7 +2562,7 @@ local function CreateIndicators(self, unit, settings)
 	-- [FIX] 항상 생성 (런타임 enable/disable 지원)
 	if baseUnit == "player" then
 		local restDB = GetWidgetSettings(settings, "restingIcon")
-		local rstSize = (restDB and restDB.size and restDB.size.width) or 18
+		local rstSize = (restDB and restDB.size and restDB.size.width) or C.INDICATOR_SIZE.restingIcon
 		local resting = self.Health:CreateTexture(nil, "OVERLAY", nil, 7)
 		resting:SetSize(rstSize, rstSize)
 		-- [REFACTOR] 커스텀 아이콘 세트 텍스처 적용
@@ -2539,7 +2600,7 @@ local function CreateIndicators(self, unit, settings)
 	-- Threat (glow border effect)
 	if baseUnit == "party" or baseUnit == "raid" then
 		local threat = CreateFrame("Frame", nil, self, "BackdropTemplate")
-		local threatBorder = 2 -- [REFACTOR] raw pixel
+		local threatBorder = C.HIGHLIGHT_BORDER_SIZE -- threat glow border
 		threat:SetPoint("TOPLEFT", -threatBorder, threatBorder)
 		threat:SetPoint("BOTTOMRIGHT", threatBorder, -threatBorder)
 		threat:SetFrameLevel(math_max(0, self:GetFrameLevel() - 2))
@@ -2617,7 +2678,7 @@ local function CreateClassPower(self, settings)
 	local cpDB = GetWidgetSettings(settings, "classBar")
 	if not cpDB or cpDB.enabled == false then return end
 
-	local cpHeight = (cpDB.size and cpDB.size.height) or 4
+	local cpHeight = (cpDB.size and cpDB.size.height) or C.CLASSPOWER_DEFAULT_HEIGHT
 	local maxPower = 10
 	-- [FIX] 미적용 옵션 연결: classBar.texture
 	local cpTexture = cpDB.texture and cpDB.texture or GetTexture()
@@ -2648,11 +2709,11 @@ local function CreateClassPower(self, settings)
 		end
 
 		-- [FIX] 미적용 옵션 연결: Config spacing/sameSizeAsHealthBar
-		local totalWidth = self:GetWidth() - 2
+		local totalWidth = self:GetWidth() - C.CLASSPOWER_MARGIN
 		if cpDB.sameSizeAsHealthBar ~= false and self.Health then
 			totalWidth = self.Health:GetWidth()
 		end
-		local gap = cpDB.spacing or 1
+		local gap = cpDB.spacing or C.CLASSPOWER_DEFAULT_GAP
 		local barWidth = (totalWidth - (max - 1) * gap) / max
 
 		for i = 1, max do
@@ -2740,7 +2801,7 @@ local function CreateHighlight(self, settings)
 	-- OnEnter/OnLeave (Hover 스크립트 처리)
 	self:SetScript("OnEnter", function(frame)
 		if frame.highlightTex then
-			frame.highlightTex:SetVertexColor(1, 1, 1, 0.08)
+			frame.highlightTex:SetVertexColor(1, 1, 1, C.MOUSEOVER_ALPHA)
 		end
 		if frame.Highlight and frame.Highlight.hover and hlDB.hover then
 			-- [FIX] ns.Colors.highlight.hover 글로벌 색상 우선 적용
@@ -2771,19 +2832,49 @@ end
 -- Status Text Overlay (Dead/Offline/AFK)
 -----------------------------------------------
 
-local function CreateStatusText(self)
+local function CreateStatusText(self, settings)
+	-- [FIX] DB 참조: settings.widgets.statusText에서 font/position/color/shadow/tag/enabled 읽기
+	local stDB = GetWidgetSettings(settings, "statusText")
+	if stDB and stDB.enabled == false then return end
+
 	local font, fontSize, fontFlags = GetFont()
+	local stFont = stDB and stDB.font
 
 	local stParent = self.TextOverlay or self.Health -- [FIX] 오버레이 프레임 사용
 	local statusText = stParent:CreateFontString(nil, "OVERLAY", nil, 5)
-	statusText:SetFont(font, fontSize, fontFlags)
-	statusText:SetPoint("CENTER", self.Health, "CENTER", 0, 0)
-	statusText:SetTextColor(0.8, 0.8, 0.8)
-	-- [ESSENTIAL] StatusText는 항상 그림자 (설정 없음)
-	statusText:SetShadowColor(0, 0, 0, 1)
-	statusText:SetShadowOffset(1, -1)
+	statusText:SetFont(
+		(stFont and stFont.style) or font,
+		(stFont and stFont.size) or fontSize,
+		(stFont and stFont.outline) or fontFlags
+	)
 
-	self:Tag(statusText, "[ddingui:status]")
+	-- position from DB
+	if stDB and stDB.position then
+		local pos = stDB.position
+		statusText:SetPoint(pos.point or "CENTER", self.Health, pos.relativePoint or "CENTER", pos.offsetX or 0, pos.offsetY or 0)
+	else
+		statusText:SetPoint("CENTER", self.Health, "CENTER", 0, 0)
+	end
+
+	-- color from DB
+	local stColor = stDB and stDB.color
+	if stColor and stColor[1] then
+		statusText:SetTextColor(stColor[1], stColor[2] or 0.8, stColor[3] or 0.8)
+	else
+		statusText:SetTextColor(0.8, 0.8, 0.8)
+	end
+
+	-- shadow from DB
+	local showShadow = (stDB and stDB.shadow ~= nil) and stDB.shadow or true
+	if showShadow then
+		statusText:SetShadowColor(0, 0, 0, 1)
+		statusText:SetShadowOffset(1, -1)
+	else
+		statusText:SetShadowColor(0, 0, 0, 0)
+	end
+
+	local stTag = (stDB and stDB.tag and stDB.tag ~= "") and stDB.tag or "[ddingui:status]"
+	self:Tag(statusText, stTag)
 	self.StatusText = statusText
 end
 
@@ -2877,37 +2968,9 @@ function Layout:StyleUnit(self, unit)
 		CreatePowerText(self, unit, settings)
 	end
 
-	-- Party: health percent on right -- [12.0.1] Config 태그 지원
+	-- Health text (group frames) — [FIX] CreateHealthText 통합 (DB font/position 적용)
 	if baseUnit == "party" then
-		-- [FIX] 기존 HealthText 정리 (/reload 스택 방지)
-		if self.HealthText then
-			self.HealthText:SetText("")
-			self.HealthText:Hide()
-		end
-		local font, fontSize, fontFlags = GetFont()
-		local partyTextParent = self.TextOverlay or self.Health -- [FIX] 오버레이 프레임 사용
-		local hpText = partyTextParent:CreateFontString(nil, "OVERLAY")
-		hpText:SetFont(font, fontSize - 1, fontFlags)
-		hpText:SetPoint("RIGHT", self.Health, "RIGHT", -3, 0)
-		hpText:SetJustifyH("RIGHT")
-		hpText:SetShadowColor(0, 0, 0, 1)
-		hpText:SetShadowOffset(1, -1)
-		-- [ElvUI 패턴] 포맷별 태그 문자열로 등록
-		self.HealthText = hpText
-		local partyHtFmt = (settings.widgets and settings.widgets.healthText and settings.widgets.healthText.format) or "percentage"
-		local partyHtTagMap = ns.HEALTH_FORMAT_TO_TAG
-		local partyHtTagStr = (partyHtTagMap and partyHtTagMap[partyHtFmt]) or "[ddingui:ht:pct]"
-		-- [FIX] healthText 색상 타입에 따른 태그 프리픽스 추가
-		local partyHtDB = settings.widgets and settings.widgets.healthText
-		local partyHtColorType = partyHtDB and partyHtDB.color and partyHtDB.color.type or "custom"
-		if partyHtColorType == "class_color" then
-			partyHtTagStr = "[ddingui:classcolor]" .. partyHtTagStr .. "|r"
-		elseif partyHtColorType == "reaction_color" then
-			partyHtTagStr = "[ddingui:reactioncolor]" .. partyHtTagStr .. "|r"
-		elseif partyHtColorType == "power_color" then
-			partyHtTagStr = "[ddingui:powercolor]" .. partyHtTagStr .. "|r"
-		end
-		self:Tag(hpText, partyHtTagStr)
+		CreateHealthText(self, unit, settings)
 	end
 
 	-- Castbar -- [12.0.1] party/raid 제외 (인스턴스 secret value → Backdrop 크래시 방지)
@@ -2943,7 +3006,7 @@ function Layout:StyleUnit(self, unit)
 
 	-- Status text (raid/party)
 	if baseUnit == "party" or baseUnit == "raid" then
-		CreateStatusText(self)
+		CreateStatusText(self, settings)
 	end
 
 	-- PrivateAuras (per-unit 설정 우선, 글로벌 fallback)
