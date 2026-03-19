@@ -2116,6 +2116,24 @@ function CustomIcons:LoadDynamicIcons()
             end
         end
     end
+
+    -- [FIX] GroupSystem이 활성이면 CustomIcons 자체 프레임을 즉시 숨김
+    -- CreateDynamicIcon이 Show()를 호출하여 리로드 시 회색 프레임이 잠깐 보이는 것 방지
+    -- GroupSystem이 자체 레이아웃으로 관리하므로 CustomIcons 프레임은 보일 필요 없음
+    local bridge = DDingUI.DynamicIconBridge
+    if bridge and bridge:IsActive() then
+        for _, frame in pairs(runtime.iconFrames) do
+            if frame and frame.Hide then
+                frame:Hide()
+            end
+        end
+        for _, container in pairs(runtime.groupFrames) do
+            if container and container.Hide then
+                container:Hide()
+            end
+        end
+    end
+
     RefreshAllLayouts()
     -- Initial update to ensure icons show correct state
     UpdateAllIcons()

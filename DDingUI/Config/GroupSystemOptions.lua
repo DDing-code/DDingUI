@@ -489,8 +489,13 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                                     if iconKey and sourceKey then
                                         ci:MoveIconToGroup(iconKey, sourceKey)
                                     end
-                                    -- [FIX] AssignSpell 제거: dynamicIcons DB의 0순위 매칭만으로 충분
-                                    -- 이중 등록(dynamicIcons + spellAssignments)으로 삭제 시 두 번 해야 하는 버그 방지
+                                    -- [FIX] AssignSpell 복원: 리로드 직후 CDM spellName 미준비 시
+                                    -- ClassifyIcon 1순위(spellAssignments) 폴백으로 올바른 그룹 분류 보장
+                                    -- 삭제 시 dyna_ func에서 spellAssignments도 동기 제거됨
+                                    local GroupMgr = DDingUI.GroupManager
+                                    if GroupMgr and self.spellName then
+                                        GroupMgr:AssignSpell(self.spellName, groupName)
+                                    end
                                     SoftRefreshDynamicIcons()
                                 else
                                     print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
