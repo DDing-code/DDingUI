@@ -1066,33 +1066,6 @@ local function CreateGroupOptions(groupName, order)
         or (groupSettings and groupSettings.name)
         or groupName
 
-    -- [FIX] 커스텀 그룹: 가상 뷰어 등록 → GS_Range가 VIEWER_REDIRECT_KEYS 경로를 사용
-    -- CDM 3대 그룹과 동일한 profile.viewers 기반 설정 경로
-    if not isCDM and not GROUP_VIEWER_MAP[groupName] then
-        local virtualName = "DDingUI_VV_" .. groupName
-        GROUP_VIEWER_MAP[groupName] = virtualName
-        -- profile.viewers에 초기 설정 동기화
-        if groupSettings then
-            local profile = DDingUI.db and DDingUI.db.profile
-            if profile then
-                profile.viewers = profile.viewers or {}
-                if not profile.viewers[virtualName] then
-                    profile.viewers[virtualName] = {
-                        iconSize = groupSettings.iconSize or 32,
-                        spacing = groupSettings.spacing or 2,
-                        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
-                        rowLimit = groupSettings.rowLimit or 0,
-                        primaryDirection = groupSettings.direction or "RIGHT",
-                        secondaryDirection = groupSettings.growDirection,
-                        borderSize = groupSettings.borderSize,
-                        zoom = groupSettings.zoom,
-                        groupAlpha = groupSettings.groupAlpha,
-                    }
-                end
-            end
-        end
-    end
-
     local viewerKey = GROUP_VIEWER_MAP[groupName]
     local category = GetGroupCategory(groupName)
 
@@ -1400,12 +1373,6 @@ local function CreateGroupOptions(groupName, order)
             name = "|cff888888" .. (L["Tip: Use Edit Mode (Esc > Edit Mode) to drag groups directly."] or "팁: 편집 모드(Esc → 편집 모드)에서 그룹을 직접 드래그할 수 있습니다.") .. "|r",
         },
     }
-    -- [Ayije 통합] CDM/커스텀 구분 없이 동일 GS_Range 옵션 사용 — CopyVO 제거
-
-    -- [FIX] 커스텀 그룹: 가상 뷰어 기반으로 전환 완료
-    -- GS_Range/GS_Select의 기본 setter가 VIEWER_REDIRECT_KEYS를 통해
-    -- profile.viewers[virtualViewer]에 직접 쓰므로, LAYOUT_OPT_KEYS 오버라이드 불필요
-    -- (CDM 3대 그룹과 동일한 경로)
 
     -- 커스텀 그룹: 카테고리 선택 + 삭제 버튼
     if not isCDM then
