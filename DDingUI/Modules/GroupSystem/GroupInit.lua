@@ -408,9 +408,6 @@ local function DoFullUpdate()
     for groupName, groupSettings in pairs(gs.groups) do
         if groupSettings.enabled then
             local ok, err = pcall(function()
-                -- [Ayije 통합] CDM 3대 → viewer 설정을 groupSettings에 일회성 마이그레이션
-                GroupRenderer:SyncViewerToGroup(groupName, groupSettings)
-
                 -- 커스텀 그룹: 가상 뷰어 등록 + groupSettings → viewer 정방향 동기화
                 GroupRenderer:RegisterVirtualViewer(groupName)
                 GroupRenderer:SyncGroupToViewer(groupName, groupSettings)

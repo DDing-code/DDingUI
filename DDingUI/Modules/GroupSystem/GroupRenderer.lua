@@ -240,28 +240,7 @@ function GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
     end
 end
 
--- [Ayije 통합] CDM 3대 그룹: profile.viewers → groupSettings 일회성 마이그레이션
--- 사용자의 기존 CDM viewer 설정을 groupSettings로 이전 (기본값 덮어쓰기)
--- 마이그레이션 후에는 groupSettings가 단일 소스 → GS_Range 변경이 보존됨
-function GroupRenderer:SyncViewerToGroup(groupName, groupSettings)
-    -- 이미 마이그레이션 완료면 스킵
-    if groupSettings._viewerMigrated then return end
-
-    local viewerName = GROUP_VIEWER_MAP[groupName]
-    -- CDM 3대 그룹만 (가상 뷰어는 반대 방향)
-    if not viewerName or viewerName:match("^DDingUI_VV_") then return end
-
-    local profile = DDingUI.db and DDingUI.db.profile
-    local vs = profile and profile.viewers and profile.viewers[viewerName]
-    if not vs then return end
-
-    -- viewer의 모든 설정을 groupSettings에 무조건 복사 (기본값 덮어쓰기)
-    for key, val in pairs(vs) do
-        groupSettings[key] = val
-    end
-    -- 마이그레이션 완료 표시 → 이후 GS_Range 변경이 보존됨
-    groupSettings._viewerMigrated = true
-end
+-- [Ayije 통합] SyncViewerToGroup 제거 — groupSettings가 단일 소스, 마이그레이션 불필요
 
 -- ============================================================
 -- ViewerLayout 동일 헬퍼 함수들
