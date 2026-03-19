@@ -853,7 +853,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     end
 
     -- [DEBUG] 커스텀 그룹 진단
-    if not CDM_GROUPS[groupName] then
+    local isCDMGroup = GROUP_VIEWER_MAP[groupName] and not GROUP_VIEWER_MAP[groupName]:match("^DDingUI_VV_")
+    if not isCDMGroup then
         print("|cff00ff00[DDingUI DEBUG] Group:", groupName,
             "| type:", tostring(groupSettings.groupType),
             "| srcKey:", tostring(groupSettings.sourceGroupKey),
