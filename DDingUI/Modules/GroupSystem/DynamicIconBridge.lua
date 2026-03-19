@@ -110,7 +110,11 @@ end
 -- sourceGroupKey: CustomIcons의 그룹 키 ("group_xxx" 또는 "ungrouped")
 -- 반환: { {iconKey=string, frame=Frame, iconData=table}, ... }
 function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
-    if not initialized then return {} end
+    -- [FIX] 미초기화 시 자동 초기화 시도
+    if not initialized then
+        self:Initialize()
+        if not initialized then return {} end
+    end
 
     local ci = GetCustomIcons()
     if not ci then return {} end
@@ -478,20 +482,22 @@ end
 
 function DynamicIconBridge:Initialize()
     if initialized then return end
-    initialized = true
 
-    -- CustomIcons가 로드되지 않았으면 대기
+    -- CustomIcons가 로드되지 않았으면 재시도
     local ci = GetCustomIcons()
     if not ci then
-        -- CustomIcons 로드 대기 (1초 후 재시도)
-        C_Timer.After(1, function()
-            if initialized and not GetCustomIcons() then
-                -- CustomIcons 없으면 Bridge 비활성
-                initialized = false
-            end
-        end)
+        -- [FIX] 최대 10회 재시도 (1초 간격) — 이전에는 1회만 시도 후 포기
+        self._initRetries = (self._initRetries or 0) + 1
+        if self._initRetries <= 10 then
+            C_Timer.After(1, function()
+                self:Initialize()
+            end)
+        end
         return
     end
+
+    initialized = true
+    self._initRetries = nil
 
     -- 레이아웃 억제 시작
     self:SuppressCustomIconsLayout()
