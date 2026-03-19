@@ -951,6 +951,57 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             end
         end
     end
+    -- [FIX] Dynamic 그룹: DynamicIconBridge(CustomIcons) 아이콘도 _managedIcons에 합류
+    -- CDM 하이재킹 아이콘만으로는 LayoutGroup에서 DynBridge 아이콘이 빠짐
+    if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
+        local DynBridge = DDingUI.DynamicIconBridge
+        if DynBridge and DynBridge.GetActiveIconsForGroup then
+            local dynIcons = DynBridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey)
+            for _, dynEntry in ipairs(dynIcons) do
+                local dynFrame = dynEntry.frame
+                if dynFrame and not newSet[dynFrame] then
+                    -- DynBridge 자체 SetupFrameInContainer으로 reparent + size + snap-back
+                    DynBridge:SetupFrameInContainer(
+                        dynFrame, frame,
+                        baseIconW, baseIconH,
+                        dynEntry.iconKey,
+                        groupSettings.zoom or 0.08,
+                        groupSettings.aspectRatioCrop or 1.0
+                    )
+
+                    -- [스키닝] groupSettings 기반
+                    if IconViewers and IconViewers.SkinIcon then
+                        pcall(IconViewers.SkinIcon, IconViewers, dynFrame, groupSettings)
+                    end
+
+                    -- 개별 아이콘 설정 오버라이드
+                    local iconData = dynEntry.iconData
+                    if iconData then
+                        if iconData.useCustomTex and iconData.texID and dynFrame.icon then
+                            dynFrame.icon:SetTexture(iconData.texID)
+                        end
+                        if iconData.borderColor and dynFrame.border then
+                            dynFrame.border:SetVertexColor(unpack(iconData.borderColor))
+                        end
+                    end
+
+                    idx = idx + 1
+                    frame._managedIcons[idx] = dynFrame
+
+                    -- OnHide → dirty 컨테이너
+                    if not dynFrame._ddLayoutHooked then
+                        dynFrame._ddLayoutHooked = true
+                        dynFrame:HookScript("OnHide", function(self)
+                            if not self._ddIsManaged then return end
+                            local p = self._ddContainerRef
+                            if not (p and p._isDDContainer and p._groupName) then return end
+                            GroupRenderer:MarkContainerDirty(p)
+                        end)
+                    end
+                end
+            end
+        end
+    end
     frame._iconCount = idx
 
     -- [REPARENT] viewerSettings fallback: 뷰어 매핑 없는 그룹은 groupSettings 사용
