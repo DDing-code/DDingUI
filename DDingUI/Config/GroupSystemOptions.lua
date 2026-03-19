@@ -891,47 +891,16 @@ local function GetGroupCategory(groupName)
     return gs and gs.groups[groupName] and gs.groups[groupName].groupCategory or "skill"
 end
 
--- 헬퍼: group settings 읽기/쓰기 옵션 생성
--- [FIX] 핵심 3대 그룹(Cooldowns/Buffs/Utility)의 렌더링 관련 키는
--- profile.viewers[viewerName]에서 직접 읽고 씀 (GroupRenderer가 해당 테이블을 참조하므로)
-local VIEWER_REDIRECT_KEYS = {
-    iconSize = "iconSize",
-    spacing = "spacing",
-    aspectRatioCrop = "aspectRatioCrop",
-    rowLimit = "rowLimit",
-    borderSize = "borderSize",
-    zoom = "zoom",
-    groupAlpha = "groupAlpha",
-}
-
+-- [Ayije 통합] 그룹 설정 읽기/쓰기 — 모든 그룹 동일 (groupSettings가 단일 소스)
 local function GS_Range(groupName, key, name, order, default, min, max, step, extra)
-    local viewerName = GROUP_VIEWER_MAP[groupName]
-    local viewerKey = viewerName and VIEWER_REDIRECT_KEYS[key]
-
     local opt = {
         type = "range", name = name, order = order, width = "full",
         min = min, max = max, step = step,
         get = function()
-            -- 핵심 그룹 + 뷰어 연동 키 → profile.viewers[viewerName]에서 읽기
-            if viewerKey then
-                local profile = DDingUI.db and DDingUI.db.profile
-                local vs = profile and profile.viewers and profile.viewers[viewerName]
-                return vs and vs[viewerKey] or default
-            end
             local gs = GetGS(); local g = gs and gs.groups[groupName]
             return g and g[key] or default
         end,
         set = function(_, val)
-            -- 핵심 그룹 + 뷰어 연동 키 → profile.viewers[viewerName]에 쓰기
-            if viewerKey then
-                local profile = DDingUI.db and DDingUI.db.profile
-                if profile then
-                    profile.viewers = profile.viewers or {}
-                    profile.viewers[viewerName] = profile.viewers[viewerName] or {}
-                    profile.viewers[viewerName][viewerKey] = val
-                end
-            end
-            -- groupSettings에도 동기화 (표시용 + 비뷰어 그룹 fallback)
             local gs = GetGS()
             if gs and gs.groups[groupName] then gs.groups[groupName][key] = val end
             RefreshGroupSystem()
@@ -955,35 +924,14 @@ local function GS_Color(groupName, key, name, order, default)
     }
 end
 
-local VIEWER_REDIRECT_SELECT_KEYS = {
-    direction = "primaryDirection",
-    growDirection = "secondaryDirection",
-}
-
 local function GS_Select(groupName, key, name, order, default, values)
-    local viewerName = GROUP_VIEWER_MAP[groupName]
-    local viewerKey = viewerName and VIEWER_REDIRECT_SELECT_KEYS[key]
-
     return {
         type = "select", name = name, order = order, width = "full", values = values,
         get = function()
-            if viewerKey then
-                local profile = DDingUI.db and DDingUI.db.profile
-                local vs = profile and profile.viewers and profile.viewers[viewerName]
-                return vs and vs[viewerKey] or default
-            end
             local gs = GetGS(); local g = gs and gs.groups[groupName]
             return g and g[key] or default
         end,
         set = function(_, val)
-            if viewerKey then
-                local profile = DDingUI.db and DDingUI.db.profile
-                if profile then
-                    profile.viewers = profile.viewers or {}
-                    profile.viewers[viewerName] = profile.viewers[viewerName] or {}
-                    profile.viewers[viewerName][viewerKey] = val
-                end
-            end
             local gs = GetGS()
             if gs and gs.groups[groupName] then gs.groups[groupName][key] = val end
             RefreshGroupSystem()
@@ -1148,11 +1096,7 @@ local function CreateGroupOptions(groupName, order)
     local viewerKey = GROUP_VIEWER_MAP[groupName]
     local category = GetGroupCategory(groupName)
 
-    -- CDM 그룹: 뷰어 옵션 한 번만 빌드
-    local viewerOpts
-    if isCDM and viewerKey and ns.CreateSingleViewerOptions then
-        viewerOpts = ns.CreateSingleViewerOptions(viewerKey, displayName, 1)
-    end
+    -- [Ayije 통합] CDM/커스텀 구분 없이 동일 옵션 빌더 사용
 
     local args = {}
 
@@ -1456,22 +1400,7 @@ local function CreateGroupOptions(groupName, order)
             name = "|cff888888" .. (L["Tip: Use Edit Mode (Esc > Edit Mode) to drag groups directly."] or "팁: 편집 모드(Esc → 편집 모드)에서 그룹을 직접 드래그할 수 있습니다.") .. "|r",
         },
     }
-    -- [12.0.1] CDM 그룹: 레이아웃 옵션은 뷰어 설정(profile.viewers[viewerKey])에서 직접 읽기/쓰기
-    -- GS_Range는 gs.groups[groupName]에 쓰지만 렌더러는 뷰어 설정을 읽으므로 CopyVO로 덮어씀
-    if isCDM and viewerOpts and viewerOpts.args then
-        local vo = viewerOpts.args
-        -- [12.0.1] layoutOnly=true: 크기/간격/방향 변경은 레이아웃만 갱신 (깜빡임 방지)
-        -- 외관
-        if vo.iconSize then layoutArgs.iconSize = CopyVO(vo, "iconSize", 2, true) end
-        if vo.spacing then layoutArgs.spacing = CopyVO(vo, "spacing", 3, true) end
-        if vo.borderSize then layoutArgs.borderSize = CopyVO(vo, "borderSize", 4, true) end
-        if vo.zoom then layoutArgs.zoom = CopyVO(vo, "zoom", 6, true) end
-        if vo.aspectRatio then layoutArgs.aspectRatio = CopyVO(vo, "aspectRatio", 7, true) end
-        -- 레이아웃
-        if vo.primaryDirection then layoutArgs.direction = CopyVO(vo, "primaryDirection", 11, true) end
-        if vo.secondaryDirection then layoutArgs.growDirection = CopyVO(vo, "secondaryDirection", 12, true) end
-        if vo.rowLimit then layoutArgs.rowLimit = CopyVO(vo, "rowLimit", 13, true) end
-    end
+    -- [Ayije 통합] CDM/커스텀 구분 없이 동일 GS_Range 옵션 사용 — CopyVO 제거
 
     -- [FIX] 커스텀 그룹: 가상 뷰어 기반으로 전환 완료
     -- GS_Range/GS_Select의 기본 setter가 VIEWER_REDIRECT_KEYS를 통해
