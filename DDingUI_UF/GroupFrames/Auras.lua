@@ -190,31 +190,34 @@ local function ProcessDirtyAuras()
 	end
 
 	-- Phase B: 프레임 렌더링 (큐된 모든 프레임 1회씩만)
+	-- [P0] pcall 제거: 릴리즈 모드 → 직접 호출 (80+ pcall/update 절감)
 	if hasDirtyRender then
 		hasDirtyRender = false
+		local debugMode = ns._debugMode
 
 		for frame in pairs(dirtyRenderFrames) do
 			if frame.unit and frame.gfEventsEnabled then
-				-- [FIX] 개별 프레임 업데이트를 독립적으로 실행
-				-- UpdateAuras 에러가 DebuffHighlight/DefensiveIcon 호출을 차단하지 않도록
-				local auraOk, auraErr = pcall(GF.UpdateAuras, GF, frame)
-				if not auraOk and ns._debugMode then
-					ns:PrintDebug("UpdateAuras error: " .. tostring(auraErr))
-				end
-				-- [FIX] 아우라 갱신 후 디버프 하이라이트도 갱신
-				if GF.UpdateDebuffHighlight then
-					GF:UpdateDebuffHighlight(frame)
-				end
-				-- [12.0.1] 생존기 아이콘도 캐시 기반으로 갱신
-				if GF.UpdateDefensiveIcon then
-					GF:UpdateDefensiveIcon(frame)
-				end
-				-- [AD] AuraDesigner 인디케이터 업데이트
-				local adEngine = ns.AuraDesigner and ns.AuraDesigner.Engine
-				if adEngine then
-					local adOk, adErr = pcall(adEngine.UpdateGroupFrame, adEngine, frame)
-					if not adOk and ns._debugMode then
-						ns:PrintDebug("AuraDesigner error: " .. tostring(adErr))
+				if debugMode then
+					-- 디버그 모드: 1개 pcall로 모든 업데이트 통합
+					local ok, err = pcall(function()
+						GF:UpdateAuras(frame)
+						if GF.UpdateDebuffHighlight then GF:UpdateDebuffHighlight(frame) end
+						if GF.UpdateDefensiveIcon then GF:UpdateDefensiveIcon(frame) end
+						local adEngine = ns.AuraDesigner and ns.AuraDesigner.Engine
+						if adEngine and adEngine.hasActiveIndicators then
+							adEngine:UpdateGroupFrame(frame)
+						end
+					end)
+					if not ok then ns:PrintDebug("UpdateFrame error: " .. tostring(err)) end
+				else
+					-- [P0] 릴리즈 모드: 직접 호출 (pcall 오버헤드 제거)
+					GF:UpdateAuras(frame)
+					if GF.UpdateDebuffHighlight then GF:UpdateDebuffHighlight(frame) end
+					if GF.UpdateDefensiveIcon then GF:UpdateDefensiveIcon(frame) end
+					-- [P4] AuraDesigner: hasActiveIndicators 체크로 불필요시 건너뜀
+					local adEngine = ns.AuraDesigner and ns.AuraDesigner.Engine
+					if adEngine and adEngine.hasActiveIndicators then
+						adEngine:UpdateGroupFrame(frame)
 					end
 				end
 			end
@@ -275,6 +278,93 @@ function GF:SetupBlizzardHooks()
 		-- [FIX] 초기 블리자드 프레임 스캔 (Cell 패턴)
 		-- hook이 아직 발동하지 않은 시점에서 CenterDefensiveBuff 캡처
 		GF:ScheduleBlizzardFrameScan()
+	end)
+
+	-- [P2] UNIT_AURA incremental event handler (DandersFrames oUF 패턴)
+	-- hook보다 먼저 발동 → updateInfo로 incremental 캐시 업데이트
+	-- isFullUpdate인 경우만 기존 hook 경로 사용 (full re-scan)
+	local unitAuraHandler = CreateFrame("Frame")
+	unitAuraHandler:RegisterEvent("UNIT_AURA")
+	unitAuraHandler:SetScript("OnEvent", function(_, _, unit, updateInfo)
+		if not unit or not IsGroupUnit(unit) then return end
+		if not GF.headersInitialized then return end
+		if not updateInfo then return end
+
+		-- isFullUpdate → 기존 hook 경로가 처리 (ScanBlizzardFrames)
+		if updateInfo.isFullUpdate then return end
+
+		-- [P2] 캐시 초기화 (없으면 생성)
+		if not BlizzardAuraCache[unit] then
+			BlizzardAuraCache[unit] = { buffs = {}, debuffs = {}, defensives = {} }
+		end
+		local cache = BlizzardAuraCache[unit]
+		if not cache.buffs then cache.buffs = {} end
+		if not cache.debuffs then cache.debuffs = {} end
+		BlizzardCacheValid[unit] = true
+
+		local changed = false
+
+		-- [P2] 제거된 오라: 캐시에서 직접 삭제
+		if updateInfo.removedAuraInstanceIDs then
+			for _, auraInstanceID in next, updateInfo.removedAuraInstanceIDs do
+				if cache.buffs[auraInstanceID] then
+					cache.buffs[auraInstanceID] = nil
+					changed = true
+				end
+				if cache.debuffs[auraInstanceID] then
+					cache.debuffs[auraInstanceID] = nil
+					changed = true
+				end
+				if cache.defensives and cache.defensives[auraInstanceID] then
+					cache.defensives[auraInstanceID] = nil
+					changed = true
+				end
+			end
+		end
+
+		-- [P2] 추가된 오라: HELPFUL/HARMFUL 필터로 분류 후 캐시에 추가
+		if updateInfo.addedAuras then
+			for _, data in next, updateInfo.addedAuras do
+				if data.auraInstanceID then
+					local isHarmful = not C_UnitAuras.IsAuraFilteredOutByInstanceID(
+						unit, data.auraInstanceID, "HARMFUL"
+					)
+					if isHarmful then
+						cache.debuffs[data.auraInstanceID] = true
+					else
+						cache.buffs[data.auraInstanceID] = true
+					end
+					changed = true
+				end
+			end
+		end
+
+		-- [P2] 업데이트된 오라: 이미 캐시에 있으면 → 렌더만 트리거
+		if updateInfo.updatedAuraInstanceIDs then
+			for _, auraInstanceID in next, updateInfo.updatedAuraInstanceIDs do
+				if cache.buffs[auraInstanceID] or cache.debuffs[auraInstanceID] then
+					changed = true
+				end
+			end
+		end
+
+		-- [P2+AD] AuraDesigner incremental 캐시도 동시 업데이트
+		-- Engine:UpdateGroupFrame(frame) 호출 시 Adapter는 이미 패치된 캐시를 읽음
+		local adAdapter = ns.AuraDesigner and ns.AuraDesigner.Adapter
+		if adAdapter and adAdapter.OnUnitAuraEvent then
+			local adChanged = adAdapter:OnUnitAuraEvent(unit, updateInfo)
+			if adChanged then changed = true end
+		end
+
+		-- 변경 있으면 렌더 큐에 추가 (hook 경로 우회)
+		if changed then
+			local frame = GF.unitFrameMap[unit]
+			if frame and frame.gfEventsEnabled then
+				dirtyRenderFrames[frame] = true
+				hasDirtyRender = true
+				dirtyProcessor:Show()
+			end
+		end
 	end)
 end
 
@@ -519,26 +609,26 @@ local function ApplyAuraToIcon(icon, auraData, auraInstanceID, unit, auraType)
 	-- 텍스처 (SetTexture는 C++에서 secret 처리)
 	SafeSetTexture(icon, auraData.icon)
 
-	-- 쿨다운 설정 (DandersFrames 패턴: GetAuraDuration → SetCooldownFromDurationObject)
-	-- [FIX] GetAuraDuration은 무한 지속 오라에 nil 반환 → 깜빡임 완전 방지
-	if icon.cooldown then
-		if C_UnitAuras.GetAuraDuration then
-			local duration = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
-			if duration then
-				icon.cooldown:SetCooldownFromDurationObject(duration)
-				icon.cooldown:Show()
-			else
-				icon.cooldown:Clear()
-				icon.cooldown:Hide()
-			end
+	-- 쿨다운 설정 (DandersFrames 패턴: GetAuraDuration -> SetCooldownFromDurationObject)
+	-- [FIX] 0초 깜빡임 3중 방지: Hide->Clear 순서, SetHideCountdownNumbers, 텍스트 조건부 처리
+	if icon.cooldown and C_UnitAuras.GetAuraDuration then
+		local duration = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
+		if duration then
+			-- 유한 지속: 쿨다운 표시
+			icon.cooldown:SetHideCountdownNumbers(false)
+			icon.cooldown:SetCooldownFromDurationObject(duration)
+			icon.cooldown:Show()
 		else
-			-- 폴백: 구 API
-			SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
+			-- 무한 지속: [FIX] Hide 먼저 -> Clear (순서 중요!
+			-- Clear()가 내부적으로 텍스트를 리셋하면서 1프레임 "0" 표시 가능)
+			icon.cooldown:SetHideCountdownNumbers(true) -- 네이티브 카운트다운 텍스트 완전 억제
+			icon.cooldown:Hide()
+			icon.cooldown:Clear()
 		end
 	end
 
-	-- 텍스트 색상 초기화
-	if icon.nativeCooldownText then
+	-- 텍스트 색상 초기화 (쿨다운이 보이는 경우만 — 무한 오라 깜빡임 방지)
+	if icon.nativeCooldownText and icon.cooldown and icon.cooldown:IsShown() then
 		local frame = icon.unitFrame or icon:GetParent():GetParent()
 		local frameType = frame.isRaidFrame and "raid" or "party"
 		local info = GetDurationColorInfo(frameType, auraType)
@@ -885,7 +975,8 @@ colorTimerFrame:SetScript("OnUpdate", function(self, elapsed)
 				local iconList = _iconPass == 1 and frame.buffIcons or frame.debuffIcons
 					if iconList then
 						for _, icon in ipairs(iconList) do
-							if icon:IsShown() and icon.auraInstanceID and icon.nativeCooldownText then
+							if icon:IsShown() and icon.auraInstanceID and icon.nativeCooldownText
+						   and icon.cooldown and icon.cooldown:IsShown() then
 								local info = GetDurationColorInfo(frameType, icon.auraType or "BUFF")
 
 								if info.mode ~= "fixed" and info.curve then
@@ -964,9 +1055,31 @@ colorTimerFrame:SetScript("OnUpdate", function(self, elapsed)
 	end
 end)
 
--- [PERF] colorTimerFrame 그룹 상태 감시: 그룹 진입 / 테스트모드 시 Show, 아니면 Hide
+-- [P1] 색상 타이머 필요 여부 판별: gradient/threshold 모드가 하나라도 있으면 true
+local function NeedsColorTimer()
+	-- 테스트 모드면 항상 필요
+	if GF.TestMode and GF.TestMode.active then return true end
+
+	-- 파티/레이드/미시크 모든 설정 확인
+	local profiles = { ns.db and ns.db.party, ns.db and ns.db.raid, ns.db and ns.db.mythicRaid }
+	for _, profile in ipairs(profiles) do
+		if profile and profile.widgets then
+			for _, widgetKey in ipairs({ "buffs", "debuffs" }) do
+				local w = profile.widgets[widgetKey]
+				local fontDB = w and w.font and w.font.duration
+				if fontDB and fontDB.colorMode and fontDB.colorMode ~= "fixed" then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+-- [PERF] colorTimerFrame 그룹 상태 감시: 그룹 진입 시 Show, 아니면 Hide
+-- [P1] fixed 색상 모드에서는 colorTimerFrame 완전 비활성 (120+ API 호출/초 절감)
 function GF:UpdateColorTimerState()
-	if GF.headersInitialized and (IsInGroup() or IsInRaid()) then
+	if GF.headersInitialized and (IsInGroup() or IsInRaid()) and NeedsColorTimer() then
 		colorTimerFrame:Show()
 	elseif GF.TestMode and GF.TestMode.active then
 		colorTimerFrame:Show()

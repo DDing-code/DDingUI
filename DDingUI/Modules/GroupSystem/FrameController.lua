@@ -853,6 +853,10 @@ local function InstallCDMHooks()
                 if InCombatLockdown() then return end
                 -- 로딩 화면 중에는 재표시하지 않음
                 if FrameController._loadingScreenActive then return end
+                -- [FIX] Hide 이벤트도 Reconcile 트리거 (레이아웃 갱신에 필요)
+                if FrameController.initialized then
+                    ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+                end
                 C_Timer.After(0, function()
                     if InCombatLockdown() then return end
                     if not self:IsShown() then

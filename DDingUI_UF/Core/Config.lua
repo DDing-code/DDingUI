@@ -392,6 +392,7 @@ WidgetDefaults.buffs = {
 			offsetY = 0,
 			rgb = { 1, 1, 1 },
 			colorMode = "fixed", -- [12.0.1] "fixed" | "gradient" | "threshold"
+			scaleByIconSize = false, -- [REFACTOR] 아이콘 크기 비례 폰트 스케일 (DandersFrames 패턴)
 		},
 	},
 	durationColors = { -- [12.0.1] gradient 모드 색상 (remaining/total 비율 기반)
@@ -465,6 +466,7 @@ WidgetDefaults.debuffs = {
 			offsetY = 0,
 			rgb = { 1, 1, 1 },
 			colorMode = "fixed", -- [12.0.1] "fixed" | "gradient" | "threshold"
+			scaleByIconSize = false, -- [REFACTOR] 아이콘 크기 비례 폰트 스케일 (DandersFrames 패턴)
 		},
 	},
 	durationColors = { -- [12.0.1] gradient 모드 색상

@@ -1062,8 +1062,8 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     --
     -- [FIX] _viewerHidden 고착 방지: 뷰어 재생성 시 OnShow 훅이 새 객체에
     -- 미설치되어 플래그가 true로 고착될 수 있음. 실제 뷰어 상태를 확인하여 보정.
-    if frame._viewerHidden then
-        local actualViewer = viewerName and _G[viewerName]
+    if viewerName and frame._viewerHidden then
+        local actualViewer = _G[viewerName]
         if actualViewer and actualViewer:IsShown() then
             -- 뷰어가 실제로 보이는데 플래그가 true → 고착 상태 → 해제
             frame._viewerHidden = false

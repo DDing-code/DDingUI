@@ -795,24 +795,36 @@ end
 
 function GF:CreateAuraIcon(parent, index, auraType)
 	local iconParent = parent.contentOverlay or parent
-	local icon = CreateFrame("Frame", nil, iconParent)
+	-- [REFACTOR] BackdropTemplate 보더 (DandersFrames StyleAuras 패턴)
+	local icon = CreateFrame("Frame", nil, iconParent, "BackdropTemplate")
 	icon:SetSize(18, 18)
 	icon.unitFrame = parent  -- 유닛프레임 참조 저장
 
 	local baseLevel = parent:GetFrameLevel()
 	icon:SetFrameLevel(baseLevel + 40)
 
-	-- Border (BACKGROUND layer → 아이콘 텍스처가 위에 그려짐)
-	icon.border = icon:CreateTexture(nil, "BACKGROUND")
-	icon.border:SetPoint("TOPLEFT", -1, 1)
-	icon.border:SetPoint("BOTTOMRIGHT", 1, -1)
-	icon.border:SetColorTexture(1, 1, 1, 1)  -- 흰색 기본 → SetVertexColor로 색상 변경
-	icon.border:SetVertexColor(0, 0, 0, 0.8)
+	-- Border — BackdropTemplate 1px 검정 보더 (DandersFrames 패턴)
+	icon:SetBackdrop({
+		edgeFile = "Interface\\Buttons\\WHITE8X8",
+		edgeSize = 1,
+		insets = { left = 0, right = 0, top = 0, bottom = 0 },
+	})
+	icon:SetBackdropBorderColor(0, 0, 0, 1)
+	-- 호환 레이어: Auras.lua의 icon.border:SetVertexColor 호출 유지
+	icon.border = {
+		SetVertexColor = function(_, r, g, b, a)
+			icon:SetBackdropBorderColor(r, g, b, a or 1)
+		end,
+	}
+	-- 직접 호출용 메서드
+	icon.SetBorderColor = function(self, r, g, b, a)
+		self:SetBackdropBorderColor(r, g, b, a or 1)
+	end
 
-	-- Icon texture
+	-- Icon texture (TexCoord 0.07~0.93: DandersFrames 패턴)
 	icon.texture = icon:CreateTexture(nil, "ARTWORK")
 	icon.texture:SetAllPoints()
-	icon.texture:SetTexCoord(0.15, 0.85, 0.15, 0.85)
+	icon.texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
 	-- Cooldown (swipe)
 	icon.cooldown = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
@@ -820,8 +832,8 @@ function GF:CreateAuraIcon(parent, index, auraType)
 	icon.cooldown:SetDrawEdge(false)
 	icon.cooldown:SetDrawSwipe(true)
 	icon.cooldown:SetReverse(true)
-	icon.cooldown:SetHideCountdownNumbers(false) -- [FIX] 네이티브 카운트다운 사용 (secret-safe, C++ 레벨)
-	icon.cooldown.noCooldownCount = true -- [FIX] OmniCC 등 외부 쿨다운 텍스트 애드온 차단
+	icon.cooldown:SetHideCountdownNumbers(false) -- 네이티브 카운트다운 (secret-safe, C++ 레벨)
+	icon.cooldown.noCooldownCount = true -- OmniCC 등 외부 쿨다운 텍스트 애드온 차단
 
 	-- Text overlay (쿨다운 위)
 	icon.textOverlay = CreateFrame("Frame", nil, icon)
@@ -836,7 +848,7 @@ function GF:CreateAuraIcon(parent, index, auraType)
 	icon.count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
 	icon.count:SetTextColor(1, 1, 1, 1)
 
-	-- Duration text (커스텀 FontString은 비활성 — 네이티브 카운트다운 사용)
+	-- Duration text (커스텀 FontString — 비활성, 네이티브 카운트다운 사용)
 	icon.duration = icon.textOverlay:CreateFontString(nil, "OVERLAY")
 	icon.duration:SetFontObject(GameFontNormalSmall)
 	SafeSetFont(icon.duration, SL_FONT, 9, "OUTLINE")
@@ -844,20 +856,22 @@ function GF:CreateAuraIcon(parent, index, auraType)
 	icon.duration:SetTextColor(1, 1, 1, 1)
 	icon.duration:Hide()
 
-	-- [FIX] 네이티브 쿨다운 텍스트 찾기 (DandersFrame 패턴)
-	-- CooldownFrameTemplate의 내장 FontString을 textOverlay로 이동 + 리스타일
+	-- [REFACTOR] 네이티브 쿨다운 텍스트 리스타일 (DandersFrames ApplyAuraDuration 패턴)
+	-- C_Timer.After(0.01): 쿨다운 프레임의 내장 FontString이 생성된 후 리스타일
 	if icon.cooldown then
-		local regions = { icon.cooldown:GetRegions() }
-		for _, region in ipairs(regions) do
-			if region and region.GetObjectType and region:GetObjectType() == "FontString" then
-				icon.nativeCooldownText = region
-				region:ClearAllPoints()
-				region:SetPoint("CENTER", icon, "CENTER", 0, 0)
-				SafeSetFont(region, SL_FONT, 9, "OUTLINE")
-				region:SetTextColor(1, 1, 1, 1)
-				break
+		C_Timer.After(0.01, function()
+			local regions = { icon.cooldown:GetRegions() }
+			for _, region in ipairs(regions) do
+				if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+					icon.nativeCooldownText = region
+					region:ClearAllPoints()
+					region:SetPoint("CENTER", icon, "CENTER", 0, 0)
+					SafeSetFont(region, SL_FONT, 9, "OUTLINE")
+					region:SetTextColor(1, 1, 1, 1)
+					break
+				end
 			end
-		end
+		end)
 	end
 
 	icon.auraType = auraType

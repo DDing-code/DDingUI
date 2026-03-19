@@ -312,6 +312,26 @@ function Engine:Initialize()
 	if Presets then
 		Presets:ApplyAllDefaults()
 	end
+
+	-- [P4] hasActiveIndicators 플래그 설정
+	-- Auras.lua Phase B에서 이 플래그로 AuraDesigner 호출 건너뜀
+	self:RefreshActiveState()
+end
+
+-- [P4] 액티브 인디케이터 상태 갱신 (spec 변경 / 설정 변경 시)
+function Engine:RefreshActiveState()
+	local adDB = GetAuraDesignerDB()
+	if not adDB or not adDB.enabled then
+		self.hasActiveIndicators = false
+		return
+	end
+	local spec = self:ResolveSpec()
+	if not spec then
+		self.hasActiveIndicators = false
+		return
+	end
+	local specAuras = GetSpecAuras(spec)
+	self.hasActiveIndicators = (next(specAuras) ~= nil)
 end
 
 -- Lazy initialization on first UpdateFrame call
