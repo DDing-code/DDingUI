@@ -852,6 +852,15 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         end
     end
 
+    -- [DEBUG] 커스텀 그룹 진단
+    if not CDM_GROUPS[groupName] then
+        print("|cff00ff00[DDingUI DEBUG] Group:", groupName,
+            "| type:", tostring(groupSettings.groupType),
+            "| srcKey:", tostring(groupSettings.sourceGroupKey),
+            "| CDM icons:", #iconList,
+            "| combined:", #combinedList, "|r")
+    end
+
     -- 3. 제거 대상 아이콘 해제 (newSet에 없는 이전 아이콘)
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] then
