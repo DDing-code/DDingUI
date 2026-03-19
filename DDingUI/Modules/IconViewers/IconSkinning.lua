@@ -175,6 +175,8 @@ function IconViewers:SkinIcon(icon, settings)
     -- Skip if icon is being released/reset by Blizzard's pool system
     -- Use pcall to safely check cooldownID without triggering taint
     local success, wasReset = pcall(function()
+        -- [FIX] DynBridge 프레임(_ddIconKey)은 cooldownID 없어도 리셋이 아님
+        if icon._ddIconKey then return false end
         local id = iconData[icon]
         return icon.cooldownID == nil and (id and id.skinned)
     end)
@@ -193,12 +195,17 @@ function IconViewers:SkinIcon(icon, settings)
     end
 
     -- Skip placeholder icons (empty CDM slot) -- [FIX: 복합 체크로 전투 중 재사용 프레임 오판 방지]
+    -- [FIX] DynBridge 프레임(_ddIconKey)은 CDM 슬롯이 아니므로 placeholder 아님
     local isPlaceholder = true
-    pcall(function()
-        if icon.layoutIndex ~= nil then isPlaceholder = false; return end
-        if icon.cooldownInfo then isPlaceholder = false; return end
-        if icon.cooldownID ~= nil then isPlaceholder = false; return end
-    end)
+    if icon._ddIconKey then
+        isPlaceholder = false
+    else
+        pcall(function()
+            if icon.layoutIndex ~= nil then isPlaceholder = false; return end
+            if icon.cooldownInfo then isPlaceholder = false; return end
+            if icon.cooldownID ~= nil then isPlaceholder = false; return end
+        end)
+    end
     if isPlaceholder and icon.IsActive and type(icon.IsActive) == "function" then
         local okA, activeVal = pcall(icon.IsActive, icon)
         if okA and not (issecretvalue and issecretvalue(activeVal)) and activeVal then isPlaceholder = false end
