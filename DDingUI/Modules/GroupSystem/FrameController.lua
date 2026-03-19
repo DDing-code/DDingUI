@@ -500,6 +500,8 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
     if not frame._ddingHidden then
         frame:SetAlpha(1)
     end
+    -- [Ayije 패턴 C] provisional reparent에서 alpha=0으로 숨긴 경우 복원
+    frame._ddProvisionalHidden = nil
 
     if container:IsShown() and viewerVisible then
         frame:Show()
@@ -863,6 +865,44 @@ local function InstallCDMHooks()
         end
     end
 
+    -- [Ayije 패턴 C] Provisional Reparent — 리로드 직후 비관리 아이콘 즉시 reparent
+    -- OnCooldownIDSet에서 아이콘이 아직 managed가 아니더라도,
+    -- ClassifyIcon으로 하이재킹 대상 판별 → 즉시 SetParent(UIParent) + 그룹 컨테이너 CENTER
+    -- CDM Layout이 뷰어 내부에 배치하기 전에 reparent 완료
+    local function ProvisionalReparent(frame)
+        if not frame then return end
+        if frame._ddIsManaged then return end  -- 이미 관리 중이면 snap-back으로 처리됨
+        if frame.isEditing then return end
+
+        -- cooldownID 가져오기
+        local cooldownID = frame.cooldownID
+        if not cooldownID then return end
+        if issecretvalue and issecretvalue(cooldownID) then return end
+
+        -- ClassifyIcon으로 하이재킹 대상 그룹 판별
+        local GroupManager = DDingUI.GroupManager
+        if not GroupManager then return end
+        local groupName = GroupManager:ClassifyIcon(cooldownID)
+        if not groupName then return end
+
+        -- 그룹 컨테이너가 있으면 즉시 reparent + 임시 위치
+        local GroupRenderer = DDingUI.GroupRenderer
+        local container = GroupRenderer and GroupRenderer.groupFrames and GroupRenderer.groupFrames[groupName]
+        if container then
+            frame:SetParent(UIParent)
+            frame:SetFrameStrata("MEDIUM")
+            frame:SetFrameLevel(container:GetFrameLevel() + 10)
+            frame._ddSettingPosition = true
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", container, "CENTER", 0, 0)
+            frame._ddSettingPosition = false
+        else
+            -- 컨테이너 없으면 alpha=0으로 숨김 (DoFullUpdate에서 복원)
+            frame._ddProvisionalHidden = true
+            frame:SetAlpha(0)
+        end
+    end
+
     -- [HOOK E] Mixin.OnCooldownIDSet — 아이콘 생성 즉시 감지 (Ayije 핵심 패턴)
     -- CDM이 아이콘에 cooldownID를 할당하는 시점 → 가장 빠른 감지 타이밍
     -- HOOK C(SetCooldownID)보다 먼저 실행되어 managed 프레임 즉시 snap-back
@@ -893,6 +933,9 @@ local function InstallCDMHooks()
                         frame._ddSettingPosition = false
                     end
                 end
+            else
+                -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
+                ProvisionalReparent(frame)
             end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
@@ -925,6 +968,9 @@ local function InstallCDMHooks()
                         frame._ddSettingPosition = false
                     end
                 end
+            else
+                -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
+                ProvisionalReparent(frame)
             end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
@@ -957,6 +1003,9 @@ local function InstallCDMHooks()
                         frame._ddSettingPosition = false
                     end
                 end
+            else
+                -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
+                ProvisionalReparent(frame)
             end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
