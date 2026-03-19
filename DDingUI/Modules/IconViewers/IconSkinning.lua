@@ -154,6 +154,18 @@ end
 
 -- Icon Skinning
 
+-- [Ayije 통합] Color 값 안전 추출 — viewer 마이그레이션된 값이 Color 객체/테이블/nil일 수 있음
+local function SafeColor(c, fallbackR, fallbackG, fallbackB, fallbackA)
+    if not c then return fallbackR or 0, fallbackG or 0, fallbackB or 0, fallbackA or 1 end
+    -- {r, g, b, a} 테이블
+    if type(c) == "table" and c[1] then return c[1], c[2], c[3], c[4] or 1 end
+    -- CreateColor() 객체 (GetRGBA 메서드)
+    if type(c) == "table" and c.GetRGBA then return c:GetRGBA() end
+    -- {r=, g=, b=, a=} 테이블
+    if type(c) == "table" and c.r then return c.r, c.g, c.b, c.a or 1 end
+    return fallbackR or 0, fallbackG or 0, fallbackB or 0, fallbackA or 1
+end
+
 function IconViewers:SkinIcon(icon, settings)
     -- Skip skinning during EditMode to avoid triggering Blizzard secret value errors
     -- Check both IsShown() and editModeActive for complete protection
@@ -584,7 +596,8 @@ function IconViewers:SkinIcon(icon, settings)
         -- Apply custom swipe color if set (for non-aura display)
         if settings.swipeColor and not settings.disableSwipeAnimation then
             local swipeColor = settings.swipeColor
-            icon.Cooldown:SetSwipeColor(swipeColor[1], swipeColor[2], swipeColor[3], swipeColor[4])
+            local sr, sg, sb, sa = SafeColor(swipeColor, 0, 0, 0, 0.8)
+            icon.Cooldown:SetSwipeColor(sr, sg, sb, sa)
         end
 
         -- Apply swipe reverse setting
@@ -664,7 +677,8 @@ function IconViewers:SkinIcon(icon, settings)
                             region:SetFont(dtFont, dtSize, "OUTLINE")
                             local dtColor = settings.durationTextColor
                             if dtColor then
-                                region:SetTextColor(dtColor[1], dtColor[2], dtColor[3], dtColor[4] or 1)
+                                local dr, dg, db, da = SafeColor(dtColor, 1, 1, 1, 1)
+                                region:SetTextColor(dr, dg, db, da)
                             end
                         end
                     end
@@ -733,7 +747,8 @@ function IconViewers:SkinIcon(icon, settings)
         -- [12.0.1] Stack/charge text color
         local ctc = settings.countTextColor
         if ctc then
-            fs:SetTextColor(ctc[1], ctc[2], ctc[3], ctc[4] or 1)
+            local cr, cg, cb, ca = SafeColor(ctc, 1, 0.82, 0, 1)
+            fs:SetTextColor(cr, cg, cb, ca)
         end
 
     end
@@ -791,7 +806,7 @@ function IconViewers:SkinIcon(icon, settings)
 
     local topB, bottomB, leftB, rightB = unpack(borders)
     if topB and bottomB and leftB and rightB then
-        local r, g, b, a = unpack(settings.borderColor or { 0, 0, 0, 1 })
+        local r, g, b, a = SafeColor(settings.borderColor, 0, 0, 0, 1)
         local shouldShow = edgeSize > 0
 
         topB:SetHeight(edgeSize)
