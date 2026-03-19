@@ -1030,7 +1030,7 @@ local function BuildCustomTextArgs(groupName, category)
         countTextFont = GS_Font(groupName, "countTextFont", L["Font"] or "폰트", 1.5, "2002"),
         countTextSize = GS_Range(groupName, "countTextSize", L["Font Size"] or "글꼴 크기", 2, 14, 6, 32, 1),
         countTextColor = GS_Color(groupName, "countTextColor", L["Font Color"] or "글꼴 색상", 3, {1, 0.82, 0, 1}),
-        countTextAnchor = GS_Select(groupName, "countTextAnchor", L["Anchor"] or "앵커", 4, "BOTTOMRIGHT", ANCHOR_POINTS),
+        countTextAnchor = GS_Select(groupName, "chargeTextAnchor", L["Anchor"] or "앵커", 4, "BOTTOMRIGHT", ANCHOR_POINTS),
         countTextOffsetX = GS_Range(groupName, "countTextOffsetX", L["X Offset"] or "X 오프셋", 5, 0, -20, 20, 1),
         countTextOffsetY = GS_Range(groupName, "countTextOffsetY", L["Y Offset"] or "Y 오프셋", 6, 0, -20, 20, 1),
         -- 쿨다운 텍스트
@@ -1603,77 +1603,8 @@ local function CreateGroupOptions(groupName, order)
         args.spellManagement.args[k] = v
     end
 
-    -- ========== 3. 시각 효과 ==========
-    local visualArgs
-    if isCDM and viewerOpts and viewerOpts.args then
-        local vo = viewerOpts.args
-        visualArgs = {}
-
-        -- [3-1] 쿨다운 스와이프
-        visualArgs.sec01_swipeHeader = { type = "header", name = L["Cooldown Swipe"] or "쿨다운 스와이프", order = 1 }
-        visualArgs.sec01_swipeReverse    = GS_Toggle(groupName, "swipeReverse", L["Reverse Swipe"] or "스와이프 반전", 2, true)
-        visualArgs.sec01_swipeColor      = GS_Color(groupName, "swipeColor", L["Swipe Color"] or "스와이프 색상", 3, {0,0,0,0.8})
-        visualArgs.disableSwipeAnimation = CopyVO(vo, "disableSwipeAnimation", 4)
-        visualArgs.auraSwipeColor        = CopyVO(vo, "auraSwipeColor", 5)
-        visualArgs.resetAuraSwipeColor   = CopyVO(vo, "resetAuraSwipeColor", 6)
-
-        -- [3-2] 그림자
-        visualArgs.sec02_shadowHeader    = { type = "header", name = L["Shadow"] or "그림자", order = 10 }
-        visualArgs.cooldownShadowOffsetX = CopyVO(vo, "cooldownShadowOffsetX", 11)
-        visualArgs.cooldownShadowOffsetY = CopyVO(vo, "cooldownShadowOffsetY", 12)
-
-        -- [3-3] 애니메이션 설정
-        visualArgs.sec03_animHeader      = { type = "header", name = L["Animation"] or "애니메이션 설정", order = 20 }
-        visualArgs.disableEdgeGlow       = CopyVO(vo, "disableEdgeGlow", 21)
-        visualArgs.disableBlingAnimation = CopyVO(vo, "disableBlingAnimation", 22)
-
-        -- [3-4] 보조 강조 효과
-        visualArgs.sec04_assistHeader         = { type = "header", name = L["Assist Highlight"] or "보조 강조 효과", order = 30 }
-        visualArgs.assistHighlightEnabled     = CopyVO(vo, "assistHighlightEnabled", 31)
-        visualArgs.assistHighlightType        = CopyVO(vo, "assistHighlightType", 32)
-        visualArgs.assistFlipbookScale        = CopyVO(vo, "assistFlipbookScale", 33)
-        visualArgs.assistGlowType             = CopyVO(vo, "assistGlowType", 34)
-        visualArgs.assistGlowColor            = CopyVO(vo, "assistGlowColor", 35)
-        visualArgs.assistGlowLines            = CopyVO(vo, "assistGlowLines", 36)
-        visualArgs.assistGlowFrequency        = CopyVO(vo, "assistGlowFrequency", 37)
-        visualArgs.assistGlowThickness        = CopyVO(vo, "assistGlowThickness", 38)
-        visualArgs.assistHighlightPixelLength = CopyVO(vo, "assistHighlightPixelLength", 39)
-
-        -- [3-5] 아이콘 글로우 (프록)
-        visualArgs.sec05_glowHeader          = { type = "header", name = L["Icon Glow"] or "아이콘 글로우", order = 40 }
-        visualArgs.auraGlow                  = CopyVO(vo, "auraGlow", 41)
-        visualArgs.auraGlowType              = CopyVO(vo, "auraGlowType", 42)
-        visualArgs.auraGlowColor             = CopyVO(vo, "auraGlowColor", 43)
-        visualArgs.auraGlowPixelLines        = CopyVO(vo, "auraGlowPixelLines", 44)
-        visualArgs.auraGlowPixelFrequency    = CopyVO(vo, "auraGlowPixelFrequency", 45)
-        visualArgs.auraGlowPixelThickness    = CopyVO(vo, "auraGlowPixelThickness", 46)
-        visualArgs.auraGlowPixelLength       = CopyVO(vo, "auraGlowPixelLength", 47)
-        visualArgs.auraGlowAutocastParticles = CopyVO(vo, "auraGlowAutocastParticles", 48)
-        visualArgs.auraGlowAutocastFrequency = CopyVO(vo, "auraGlowAutocastFrequency", 49)
-        visualArgs.auraGlowAutocastScale     = CopyVO(vo, "auraGlowAutocastScale", 50)
-        visualArgs.auraGlowButtonFrequency   = CopyVO(vo, "auraGlowButtonFrequency", 51)
-        visualArgs.procGlowEnabled           = CopyVO(vo, "procGlowEnabled", 52)
-        visualArgs.procGlowType              = CopyVO(vo, "procGlowType", 53)
-        visualArgs.procGlowColor             = CopyVO(vo, "procGlowColor", 54)
-        visualArgs.procGlowPixelLines        = CopyVO(vo, "procGlowPixelLines", 55)
-        visualArgs.procGlowPixelFrequency    = CopyVO(vo, "procGlowPixelFrequency", 56)
-        visualArgs.procGlowPixelThickness    = CopyVO(vo, "procGlowPixelThickness", 57)
-        visualArgs.procGlowPixelLength       = CopyVO(vo, "procGlowPixelLength", 58)
-        visualArgs.procGlowAutocastParticles = CopyVO(vo, "procGlowAutocastParticles", 59)
-        visualArgs.procGlowAutocastFrequency = CopyVO(vo, "procGlowAutocastFrequency", 60)
-        visualArgs.procGlowAutocastScale     = CopyVO(vo, "procGlowAutocastScale", 61)
-        visualArgs.procGlowButtonFrequency   = CopyVO(vo, "procGlowButtonFrequency", 62)
-
-        -- [3-6] 생존기/쿨기 스와이프 글로우
-        visualArgs.sec06_survivalHeader = { type = "header", name = L["Personal Swipe Glow"] or "생존기 스와이프 글로우", order = 70 }
-        local swcOpt = CopyVO(vo, "swipeColor", 71)
-        if swcOpt then visualArgs.viewerSwipeColor = swcOpt end
-        local swrOpt = CopyVO(vo, "swipeReverse", 72)
-        if swrOpt then visualArgs.viewerSwipeReverse = swrOpt end
-    else
-        -- 커스텀 그룹: group settings 기반 시각 효과
-        visualArgs = BuildCustomVisualArgs(groupName)
-    end
+    -- [Ayije 통합] 모든 그룹 동일 시각 효과 옵션 (CDM/커스텀 구분 없음)
+    local visualArgs = BuildCustomVisualArgs(groupName)
     args.visual = {
         type = "group",
         name = L["Visual Effects"] or "시각 효과",
@@ -1681,58 +1612,8 @@ local function CreateGroupOptions(groupName, order)
         args = visualArgs,
     }
 
-    -- ========== 4. 텍스트 ==========
-    local textArgs
-    if isCDM and viewerOpts and viewerOpts.args then
-        local vo = viewerOpts.args
-        textArgs = {}
-
-        -- [4-1] 충전 / 중첩 텍스트
-        textArgs.sec01_chargeHeader = { type = "header", name = L["Stack Text"] or "충전 / 중첩 텍스트", order = 1 }
-        textArgs.countTextFont    = CopyVO(vo, "countTextFont", 2)
-        textArgs.countTextSize    = CopyVO(vo, "countTextSize", 3)
-        textArgs.countTextColor   = CopyVO(vo, "countTextColor", 4)
-        textArgs.chargeTextAnchor = CopyVO(vo, "chargeTextAnchor", 5)
-        textArgs.countTextOffsetX = CopyVO(vo, "countTextOffsetX", 6)
-        textArgs.countTextOffsetY = CopyVO(vo, "countTextOffsetY", 7)
-
-        -- [4-2] 쿨다운 텍스트
-        textArgs.sec02_cdHeader = { type = "header", name = L["Cooldown Text"] or "쿨다운 텍스트", order = 10 }
-        textArgs.hideDurationText    = CopyVO(vo, "hideDurationText", 10.5)
-        textArgs.cooldownFont        = CopyVO(vo, "cooldownFont", 11)
-        textArgs.cooldownFontSize    = CopyVO(vo, "cooldownFontSize", 12)
-        textArgs.cooldownTextColor   = CopyVO(vo, "cooldownTextColor", 13)
-        textArgs.cooldownTextAnchor  = CopyVO(vo, "cooldownTextAnchor", 14)
-        textArgs.cooldownTextOffsetX = CopyVO(vo, "cooldownTextOffsetX", 15)
-        textArgs.cooldownTextOffsetY = CopyVO(vo, "cooldownTextOffsetY", 16)
-        textArgs.cooldownTextFormat  = CopyVO(vo, "cooldownTextFormat", 17)
-
-        -- [4-3] 강화 효과 지속시간 텍스트 (BuffIcon only)
-        if viewerKey == "BuffIconCooldownViewer" then
-            textArgs.sec03_durHeader     = { type = "header", name = L["Duration Text"] or "강화 효과 지속시간 텍스트", order = 20 }
-            textArgs.durationTextAnchor  = CopyVO(vo, "durationTextAnchor", 21)
-            textArgs.durationTextOffsetX = CopyVO(vo, "durationTextOffsetX", 22)
-            textArgs.durationTextOffsetY = CopyVO(vo, "durationTextOffsetY", 23)
-            textArgs.durationTextFont    = CopyVO(vo, "durationTextFont", 24)
-            textArgs.durationTextSize    = CopyVO(vo, "durationTextSize", 25)
-            textArgs.durationTextColor   = CopyVO(vo, "durationTextColor", 26)
-        end
-
-        -- [4-4] 단축키 텍스트 (Essential/Utility only)
-        if viewerKey == "EssentialCooldownViewer" or viewerKey == "UtilityCooldownViewer" then
-            textArgs.sec04_keybindHeader = { type = "header", name = L["Keybind Text"] or "단축키 텍스트", order = 30 }
-            textArgs.showKeybinds     = CopyVO(vo, "showKeybinds", 31)
-            textArgs.keybindFont      = CopyVO(vo, "keybindFont", 32)
-            textArgs.keybindFontSize  = CopyVO(vo, "keybindFontSize", 33)
-            textArgs.keybindFontColor = CopyVO(vo, "keybindFontColor", 34)
-            textArgs.keybindAnchor    = CopyVO(vo, "keybindAnchor", 35)
-            textArgs.keybindOffsetX   = CopyVO(vo, "keybindOffsetX", 36)
-            textArgs.keybindOffsetY   = CopyVO(vo, "keybindOffsetY", 37)
-        end
-    else
-        -- 커스텀 그룹: group settings 기반 텍스트 (카테고리별)
-        textArgs = BuildCustomTextArgs(groupName, category)
-    end
+    -- [Ayije 통합] 모든 그룹 동일 텍스트 옵션 (CDM/커스텀 구분 없음, 카테고리별 분기)
+    local textArgs = BuildCustomTextArgs(groupName, category)
     args.text = {
         type = "group",
         name = L["Text"] or "텍스트",
@@ -1740,25 +1621,25 @@ local function CreateGroupOptions(groupName, order)
         args = textArgs,
     }
 
-    -- ========== 5. 뷰어 (CDM 그룹 전용) ==========
-    if isCDM and viewerOpts and viewerOpts.args then
-        local vo = viewerOpts.args
-        local viewerDetailArgs = {}
+    -- ========== 5. 뷰어 오프셋 (CDM 그룹 전용) ==========
+    if isCDM and viewerKey and ns.CreateSingleViewerOptions then
+        local vo = ns.CreateSingleViewerOptions(viewerKey, displayName, 1)
+        if vo and vo.args then
+            local viewerDetailArgs = {}
+            viewerDetailArgs.sec02_offsetHeader = { type = "header", name = L["Group Offsets"] or "그룹 오프셋 (파티/레이드)", order = 1 }
+            viewerDetailArgs.groupOffsetDesc = CopyVO(vo.args, "groupOffsetDesc", 2)
+            viewerDetailArgs.partyOffsetX    = CopyVO(vo.args, "partyOffsetX", 3)
+            viewerDetailArgs.partyOffsetY    = CopyVO(vo.args, "partyOffsetY", 4)
+            viewerDetailArgs.raidOffsetX     = CopyVO(vo.args, "raidOffsetX", 5)
+            viewerDetailArgs.raidOffsetY     = CopyVO(vo.args, "raidOffsetY", 6)
 
-        -- 그룹 오프셋 (파티/레이드) — 오프셋 0이면 비활성화와 동일
-        viewerDetailArgs.sec02_offsetHeader = { type = "header", name = L["Group Offsets"] or "그룹 오프셋 (파티/레이드)", order = 1 }
-        viewerDetailArgs.groupOffsetDesc = CopyVO(vo, "groupOffsetDesc", 2)
-        viewerDetailArgs.partyOffsetX    = CopyVO(vo, "partyOffsetX", 3)
-        viewerDetailArgs.partyOffsetY    = CopyVO(vo, "partyOffsetY", 4)
-        viewerDetailArgs.raidOffsetX     = CopyVO(vo, "raidOffsetX", 5)
-        viewerDetailArgs.raidOffsetY     = CopyVO(vo, "raidOffsetY", 6)
-
-        args.viewer = {
-            type = "group",
-            name = L["Group Offsets"] or "오프셋",
-            order = 50,
-            args = viewerDetailArgs,
-        }
+            args.viewer = {
+                type = "group",
+                name = L["Group Offsets"] or "오프셋",
+                order = 50,
+                args = viewerDetailArgs,
+            }
+        end
     end
 
     return {
