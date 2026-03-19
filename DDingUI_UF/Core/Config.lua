@@ -571,6 +571,9 @@ WidgetDefaults.privateAuras = {
 	growDirection = "RIGHT",
 	columnGrowDirection = "DOWN",
 	numPerLine = 5,
+	borderScale = 0.6, -- 프라이빗 오라 테두리 크기 (0=없음, 1=기본)
+	showCountdownFrame = true, -- 쿨다운 스와이프 표시
+	showCountdownNumbers = true, -- 쿨다운 숫자 텍스트 표시
 	size = CreateSizeOpt(24, 24),
 	spacing = {
 		horizontal = 2,

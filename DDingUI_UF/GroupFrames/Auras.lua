@@ -1497,12 +1497,16 @@ function GF:UpdatePrivateAuraAnchors(frame)
 
 	for i, anchor in ipairs(frame.privateAuraAnchors) do
 		local w, h = anchor:GetSize()
+		-- [FIX] DB에서 borderScale, showCountdownFrame, showCountdownNumbers 읽기
+		local paBorderScale = paDB and paDB.borderScale or 0.6
+		local paShowCooldown = paDB and paDB.showCountdownFrame ~= false
+		local paShowNumbers = paDB and paDB.showCountdownNumbers ~= false
 		local auraAnchorInfo = {
 			unitToken = frame.unit,
 			auraIndex = i,
 			parent = anchor,
-			showCountdownFrame = true,
-			showCountdownNumbers = true,
+			showCountdownFrame = paShowCooldown,
+			showCountdownNumbers = paShowNumbers,
 			iconInfo = {
 				iconWidth = w,
 				iconHeight = h,
@@ -1513,6 +1517,7 @@ function GF:UpdatePrivateAuraAnchors(frame)
 					offsetX = 0,
 					offsetY = 0,
 				},
+				borderScale = paBorderScale,
 			},
 		}
 		local ok, anchorID = pcall(C_UnitAuras.AddPrivateAuraAnchor, auraAnchorInfo)

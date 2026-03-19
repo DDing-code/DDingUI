@@ -955,6 +955,14 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     local fh = DDingUI.FlightHide
     local flightHiding = fh and (fh.isActive or fh._hiding)
     local groupAlpha = flightHiding and 0 or (groupSettings.groupAlpha or 1.0)
+
+    -- [FIX] 비행 중 컨테이너 프레임 자체 알파도 0으로 (FlightHide OnUpdate가 alpha=0 도달 후 재적용 안 하므로)
+    if flightHiding then
+        frame:SetAlpha(0)
+    else
+        frame:SetAlpha(groupSettings.groupAlpha or 1.0)
+    end
+
     for i = 1, idx do
         local ic = frame._managedIcons[i]
         if ic then
