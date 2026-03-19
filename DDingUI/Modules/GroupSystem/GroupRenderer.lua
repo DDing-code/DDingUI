@@ -895,11 +895,16 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     local fc = GetFC()
 
     -- [Ayije 통합] groupSettings가 단일 설정 소스
-    -- LayoutGroup이 읽는 키(primaryDirection, secondaryDirection)와
-    -- groupSettings의 키(direction, growDirection)를 매핑
+    -- LayoutGroup은 primaryDirection/secondaryDirection 키를 읽음
+    -- GS_Range는 direction/growDirection 키에 씀 → 매핑 필요
+    -- direction이 있으면 항상 우선 (or 사용 금지 — 이전 값이 고착됨)
     local viewerName = GROUP_VIEWER_MAP[groupName]
-    groupSettings.primaryDirection = groupSettings.primaryDirection or groupSettings.direction
-    groupSettings.secondaryDirection = groupSettings.secondaryDirection or groupSettings.growDirection
+    if groupSettings.direction then
+        groupSettings.primaryDirection = groupSettings.direction
+    end
+    if groupSettings.growDirection then
+        groupSettings.secondaryDirection = groupSettings.growDirection
+    end
 
     -- 기본 아이콘 크기 계산 (groupSettings 직접 사용)
     local baseIconW, baseIconH = ComputeIconDimensions(groupSettings)
