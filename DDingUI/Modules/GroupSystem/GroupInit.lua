@@ -407,16 +407,20 @@ local function DoFullUpdate()
     local staleGroups
     for groupName, groupSettings in pairs(gs.groups) do
         if groupSettings.enabled then
-            -- [Ayije 통합] CDM 3대 → viewer 설정을 groupSettings에 역방향 동기화
-            -- SkinIcon이 항상 groupSettings를 사용하므로 viewer에만 있던 설정을 복사
-            GroupRenderer:SyncViewerToGroup(groupName, groupSettings)
+            local ok, err = pcall(function()
+                -- [Ayije 통합] CDM 3대 → viewer 설정을 groupSettings에 일회성 마이그레이션
+                GroupRenderer:SyncViewerToGroup(groupName, groupSettings)
 
-            -- 커스텀 그룹: 가상 뷰어 등록 + groupSettings → viewer 정방향 동기화
-            GroupRenderer:RegisterVirtualViewer(groupName)
-            GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
+                -- 커스텀 그룹: 가상 뷰어 등록 + groupSettings → viewer 정방향 동기화
+                GroupRenderer:RegisterVirtualViewer(groupName)
+                GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
 
-            local iconList = classified[groupName] or {}
-            GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
+                local iconList = classified[groupName] or {}
+                GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
+            end)
+            if not ok then
+                print("|cffff4444[DDingUI] DoFullUpdate error for group", groupName, ":", tostring(err), "|r")
+            end
         end
     end
 

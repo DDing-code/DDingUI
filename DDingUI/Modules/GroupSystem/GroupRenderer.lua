@@ -962,7 +962,10 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                             local srcViewer = fc:GetIconSource(entry.cooldownID)
                             if srcViewer then icon._ddSourceViewer = srcViewer end
                         end
-                        pcall(IconViewers.SkinIcon, IconViewers, icon, groupSettings)
+                        local ok, err = pcall(IconViewers.SkinIcon, IconViewers, icon, groupSettings)
+                        if not ok then
+                            print("|cffff4444[DDingUI] SkinIcon error in group", groupName, ":", tostring(err), "|r")
+                        end
                     end
 
                     -- 개별 아이콘 설정 오버라이드 (Aura 디자이너)
