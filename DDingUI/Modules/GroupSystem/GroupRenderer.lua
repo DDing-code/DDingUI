@@ -1456,3 +1456,38 @@ function GroupRenderer:SyncViewerVisibility(viewerName)
     end
 end
 
+-- ============================================================
+-- [FIX] 단일 그룹 레이아웃 직접 갱신 (커스텀 그룹 spacing/layout 설정 변경 시)
+-- ============================================================
+
+function GroupRenderer:RelayoutSingleGroup(groupName)
+    local frame = self.groupFrames[groupName]
+    if not frame or not frame._managedIcons then return end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    local gs = profile and profile.groupSystem
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return end
+
+    local vs = {
+        iconSize = groupSettings.iconSize or 32,
+        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
+        spacing = groupSettings.spacing or 2,
+        primaryDirection = groupSettings.direction or "RIGHT",
+        secondaryDirection = groupSettings.growDirection,
+        rowLimit = groupSettings.rowLimit or 0,
+        rowIconSizes = groupSettings.rowIconSizes,
+    }
+
+    local baseIconW, baseIconH = ComputeIconDimensions(vs)
+    for i = 1, (frame._iconCount or 0) do
+        local icon = frame._managedIcons[i]
+        if icon then
+            SetIconSize(icon, baseIconW, baseIconH)
+        end
+    end
+
+    self:LayoutGroup(frame, vs, nil)
+end
+
+

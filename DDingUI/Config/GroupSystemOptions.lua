@@ -1464,8 +1464,11 @@ local function CreateGroupOptions(groupName, order)
                     local gs = GetGS()
                     if gs and gs.groups[groupName] then
                         gs.groups[groupName][dbKey] = val
-                        -- [FIX] RefreshGroupLayout → RefreshGroupSystem: 커스텀 그룹은
-                        -- _forceFullSetup=true가 필요 (아이콘 재배치 + 레이아웃 전체 재실행)
+                        -- [FIX] 커스텀 그룹 레이아웃 직접 갱신 (Refresh 전체 경로 우회)
+                        local GR = DDingUI.GroupRenderer
+                        if GR and GR.RelayoutSingleGroup then
+                            GR:RelayoutSingleGroup(groupName)
+                        end
                         RefreshGroupSystem()
                     end
                 end
@@ -1480,6 +1483,10 @@ local function CreateGroupOptions(groupName, order)
                     local gs = GetGS()
                     if gs and gs.groups[groupName] then
                         gs.groups[groupName][dbKey] = val
+                        local GR = DDingUI.GroupRenderer
+                        if GR and GR.RelayoutSingleGroup then
+                            GR:RelayoutSingleGroup(groupName)
+                        end
                         RefreshGroupSystem()
                     end
                 end
