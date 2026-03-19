@@ -124,6 +124,12 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
 
     local iconFrames = GetIconFrames()
 
+    -- [DEBUG] 각 단계별 카운트
+    local frameCount = 0
+    for _ in pairs(iconFrames) do frameCount = frameCount + 1 end
+    local groupExists = db.groups and db.groups[sourceGroupKey]
+    local iconCount = groupExists and groupExists.icons and #groupExists.icons or 0
+
     -- 대상 아이콘 키 수집
     local targetKeys = {}
     if sourceGroupKey == "ungrouped" then
@@ -139,22 +145,45 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
         end
     end
 
+    local targetCount = 0
+    for _ in pairs(targetKeys) do targetCount = targetCount + 1 end
+
     -- [FIX] 편집모드에서는 모든 아이콘 반환 (비활성 강화효과도 표시)
     local isEditMode = (DDingUI.Movers and DDingUI.Movers.ConfigMode)
         or (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive())
 
     -- 활성 아이콘 필터링
     local result = {}
+    local noFrame, noData, notActive = 0, 0, 0
     for iconKey in pairs(targetKeys) do
         local frame = iconFrames[iconKey]
         local iconData = db.iconData[iconKey]
-        if frame and iconData and (isEditMode or IsIconActive(iconKey, iconData, frame)) then
+        if not frame then
+            noFrame = noFrame + 1
+        elseif not iconData then
+            noData = noData + 1
+        elseif not (isEditMode or IsIconActive(iconKey, iconData, frame)) then
+            notActive = notActive + 1
+        else
             result[#result + 1] = {
                 iconKey = iconKey,
                 frame = frame,
                 iconData = iconData,
             }
         end
+    end
+
+    -- [DEBUG] 1회성 진단 출력
+    if not self._debugPrinted then
+        self._debugPrinted = true
+        print("|cffff8800[DynBridge DEBUG]",
+            "frames:", frameCount,
+            "| dbIcons:", iconCount,
+            "| targets:", targetCount,
+            "| noFrame:", noFrame,
+            "| noData:", noData,
+            "| notActive:", notActive,
+            "| result:", #result, "|r")
     end
 
     -- 정렬: 그룹 내 순서 유지
