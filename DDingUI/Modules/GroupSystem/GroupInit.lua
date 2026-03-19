@@ -1812,8 +1812,9 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
         end
 
         -- DDingUI DB가 준비될 때까지 대기
-        -- [Ayije 패턴] 지연 최소화: 3초→0.5초 (Mixin 훅이 즉시 감지하므로 긴 대기 불필요)
-        C_Timer.After(0.5, function()
+        -- [Ayije 패턴] 지연 최소화: 0.5초→0.1초 (Mixin 훅이 즉시 감지하므로 긴 대기 불필요)
+        -- LOADING_SCREEN_DISABLED 이벤트가 뷰어 재셋업을 트리거하므로 안전
+        C_Timer.After(0.1, function()
             if not DDingUI.db then return end
 
             GroupSystem.initialized = true

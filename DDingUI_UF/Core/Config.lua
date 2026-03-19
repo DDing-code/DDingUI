@@ -873,7 +873,7 @@ WidgetDefaults.highlight = {
 WidgetDefaults.debuffHighlight = {
 	enabled = true,
 	borderSize = 0,
-	overlayAlpha = 0.25,
+	overlayAlpha = 0.45,
 	showNonDispellable = true, -- 해제 불가 디버프(출혈/격노)도 표시할지
 	-- [FIX] 그라디언트 오버레이 옵션 (DandersFrames 패턴)
 	overlayMode = "gradient",      -- "solid" (기존 단색 오버레이) | "gradient" (가장자리→중앙 페이드)

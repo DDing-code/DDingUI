@@ -847,10 +847,18 @@ local function InstallCDMHooks()
                     ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
                 end
             end)
-            hooksecurefunc(viewer, "Hide", function()
-                if FrameController.initialized then
-                    ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
-                end
+            -- [Ayije 패턴] OnHide 복원: 블리자드가 뷰어를 Hide()해도 즉시 다시 Show
+            -- 스펙 변경/레벨업 등에서 뷰어가 사라지는 것 방지
+            viewer:HookScript("OnHide", function(self)
+                if InCombatLockdown() then return end
+                -- 로딩 화면 중에는 재표시하지 않음
+                if FrameController._loadingScreenActive then return end
+                C_Timer.After(0, function()
+                    if InCombatLockdown() then return end
+                    if not self:IsShown() then
+                        self:Show()
+                    end
+                end)
             end)
         end
     end
@@ -950,6 +958,35 @@ local function InstallCDMHooks()
                     end
                 end
             end
+            MarkDirty()
+            if not state.pollingActive then EnablePolling() end
+        end)
+    end
+
+    -- [HOOK G] BuffBar Mixin OnCooldownIDSet (Ayije 패턴 — DDingUI 누락 보완)
+    if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnCooldownIDSet then
+        hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnCooldownIDSet", function(frame)
+            if not FrameController.initialized then return end
+            if frame and frame.isEditing then return end
+            if frame and frame.SetScale then frame:SetScale(1) end
+            MarkDirty()
+            if not state.pollingActive then EnablePolling() end
+        end)
+    end
+
+    -- [HOOK H] BuffBar OnActiveStateChanged (Ayije 패턴)
+    if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnActiveStateChanged then
+        hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnActiveStateChanged", function(frame)
+            if not FrameController.initialized then return end
+            MarkDirty()
+            if not state.pollingActive then EnablePolling() end
+        end)
+    end
+
+    -- [HOOK I] Buff OnActiveStateChanged (Ayije 패턴)
+    if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnActiveStateChanged then
+        hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
+            if not FrameController.initialized then return end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
         end)
@@ -1187,7 +1224,24 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     eventFrame:RegisterEvent("SPELLS_CHANGED")
     eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- [FIX] 전투 진입 시 즉시 재스캔
+    -- [Ayije 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
+    eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
+    eventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     eventFrame:SetScript("OnEvent", function(_, event, ...)
+        if event == "LOADING_SCREEN_ENABLED" then
+            FrameController._loadingScreenActive = true
+            return
+        elseif event == "LOADING_SCREEN_DISABLED" then
+            FrameController._loadingScreenActive = false
+            -- [Ayije 패턴] 로딩 화면 끝 → 뷰어 재셋업 + 전체 큐
+            if FrameController.initialized then
+                FrameController:RefreshViewerRefs()
+                MarkDirty()
+                if not state.pollingActive then EnablePolling() end
+            end
+            return
+        end
+
         if not FrameController.initialized then return end
 
         if event == "PLAYER_REGEN_DISABLED" then
