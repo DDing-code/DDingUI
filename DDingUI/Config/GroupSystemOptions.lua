@@ -1464,7 +1464,9 @@ local function CreateGroupOptions(groupName, order)
                     local gs = GetGS()
                     if gs and gs.groups[groupName] then
                         gs.groups[groupName][dbKey] = val
-                        RefreshGroupLayout()
+                        -- [FIX] RefreshGroupLayout → RefreshGroupSystem: 커스텀 그룹은
+                        -- _forceFullSetup=true가 필요 (아이콘 재배치 + 레이아웃 전체 재실행)
+                        RefreshGroupSystem()
                     end
                 end
             end
@@ -1478,7 +1480,7 @@ local function CreateGroupOptions(groupName, order)
                     local gs = GetGS()
                     if gs and gs.groups[groupName] then
                         gs.groups[groupName][dbKey] = val
-                        RefreshGroupLayout()
+                        RefreshGroupSystem()
                     end
                 end
             end
