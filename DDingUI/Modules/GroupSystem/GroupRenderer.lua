@@ -894,23 +894,22 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     local fc = GetFC()
 
-    -- [REPARENT] 뷰어 설정 resolve — 모든 레이아웃/스키닝 파라미터의 원천
+    -- [Ayije 통합] groupSettings가 단일 설정 소스
+    -- LayoutGroup이 읽는 키(primaryDirection, secondaryDirection)와
+    -- groupSettings의 키(direction, growDirection)를 매핑
     local viewerName = GROUP_VIEWER_MAP[groupName]
-    local vs = GetViewerSettings(viewerName)
+    groupSettings.primaryDirection = groupSettings.primaryDirection or groupSettings.direction
+    groupSettings.secondaryDirection = groupSettings.secondaryDirection or groupSettings.growDirection
 
-    -- 기본 아이콘 크기 계산 (뷰어 설정 기반, 없으면 groupSettings fallback)
-    local baseIconW, baseIconH
-    if vs then
-        baseIconW, baseIconH = ComputeIconDimensions(vs)
-    else
+    -- 기본 아이콘 크기 계산 (groupSettings 직접 사용)
+    local baseIconW, baseIconH = ComputeIconDimensions(groupSettings)
+    if not baseIconW or baseIconW == 0 then
         local fallback = groupSettings.iconSize or 32
         baseIconW, baseIconH = fallback, fallback
     end
 
     -- [REPARENT] 스키닝용 프로필 참조 (미리 resolve)
     local IconViewers = DDingUI.IconViewers
-    local profile = DDingUI.db and DDingUI.db.profile
-    local viewers = profile and profile.viewers
 
     -- [REPARENT] 1단계: SetupFrameInContainer + SkinIcon (텍스처/테두리/글로우)
     -- SkinIcon이 LayoutGroup보다 먼저 실행 → LayoutGroup이 최종 크기 결정 (rowIconSizes 보존)
@@ -1002,25 +1001,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     end
     frame._iconCount = idx
 
-    -- [REPARENT] viewerSettings fallback: 뷰어 매핑 없는 그룹은 groupSettings 사용
-    if not vs then
-        -- [REPARENT] 기본 뷰어 매핑 그룹은 뷰어 기본값(CENTERED_HORIZONTAL, rowLimit=0) 사용
-        -- groupSettings.rowLimit은 migration 레거시(12) → 의도치 않은 두 줄 방지
-        local isDefaultViewer = GROUP_VIEWER_MAP[groupName] ~= nil
-        vs = {
-            iconSize = groupSettings.iconSize or 32,
-            aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
-            spacing = groupSettings.spacing or 2,
-            primaryDirection = isDefaultViewer and "CENTERED_HORIZONTAL" or groupSettings.direction,
-            secondaryDirection = isDefaultViewer and nil or groupSettings.growDirection,
-            rowLimit = isDefaultViewer and 0 or (groupSettings.rowLimit or 0),
-            rowIconSizes = groupSettings.rowIconSizes,
-        }
-    end
-
-    -- [REPARENT] 2단계: LayoutGroup (최종 크기/위치 결정 — rowIconSizes 반영)
-    -- SkinIcon이 설정한 크기를 LayoutGroup이 덮어씀 → rowIconSizes 정상 동작
-    self:LayoutGroup(frame, vs, viewerName)
+    -- [Ayije 통합] LayoutGroup도 groupSettings 직접 사용 (profile.viewers 경유 안 함)
+    self:LayoutGroup(frame, groupSettings, viewerName)
 
     if idx > 0 then
         -- [FIX] CDM 뷰어의 IsShown() 반영 (전투 외 버프 숨김 등)
