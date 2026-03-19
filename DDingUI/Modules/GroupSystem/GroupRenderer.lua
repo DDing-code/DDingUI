@@ -214,7 +214,8 @@ end
 -- [FIX] 커스텀 그룹 설정 → profile.viewers[virtualViewer]에 동기화
 -- GS_Range의 VIEWER_REDIRECT_KEYS가 읽고 쓰는 위치와 동일
 local SYNC_KEYS = { "iconSize", "spacing", "aspectRatioCrop", "rowLimit",
-    "primaryDirection", "secondaryDirection", "rowIconSizes" }
+    "primaryDirection", "secondaryDirection", "rowIconSizes",
+    "borderSize", "zoom", "groupAlpha" }
 
 function GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
     local viewerName = GROUP_VIEWER_MAP[groupName]

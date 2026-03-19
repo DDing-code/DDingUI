@@ -899,6 +899,9 @@ local VIEWER_REDIRECT_KEYS = {
     spacing = "spacing",
     aspectRatioCrop = "aspectRatioCrop",
     rowLimit = "rowLimit",
+    borderSize = "borderSize",
+    zoom = "zoom",
+    groupAlpha = "groupAlpha",
 }
 
 local function GS_Range(groupName, key, name, order, default, min, max, step, extra)
@@ -1133,6 +1136,9 @@ local function CreateGroupOptions(groupName, order)
                         rowLimit = groupSettings.rowLimit or 0,
                         primaryDirection = groupSettings.direction or "RIGHT",
                         secondaryDirection = groupSettings.growDirection,
+                        borderSize = groupSettings.borderSize,
+                        zoom = groupSettings.zoom,
+                        groupAlpha = groupSettings.groupAlpha,
                     }
                 end
             end
