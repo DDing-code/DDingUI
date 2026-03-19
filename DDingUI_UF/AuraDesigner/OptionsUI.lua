@@ -330,6 +330,37 @@ local function ClearPlacedIndicators()
     wipe(placedIndicators)
 end
 
+-- ============================================================
+-- [FIX] LIVE PREVIEW TIMER — 쿨다운 순환 애니메이션
+-- 15초 주기로 mock 데이터 갱신 → 쿨다운 스와이프 실시간 반복
+-- ============================================================
+local PREVIEW_CYCLE_DURATION = 15  -- 순환 주기 (초)
+local previewTimerFrame = CreateFrame("Frame")
+local previewTimerElapsed = 0
+previewTimerFrame:Hide()
+
+previewTimerFrame:SetScript("OnUpdate", function(self, elapsed)
+    previewTimerElapsed = previewTimerElapsed + elapsed
+    if previewTimerElapsed >= PREVIEW_CYCLE_DURATION then
+        previewTimerElapsed = 0
+        -- 프리뷰 인디케이터 쿨다운 갱신 (순환)
+        if framePreview and framePreview:IsVisible() and RefreshPlacedIndicators then
+            RefreshPlacedIndicators()
+        end
+    end
+end)
+
+-- 프리뷰 라이브 타이머 시작/중지
+local function StartPreviewTimer()
+    previewTimerElapsed = 0
+    previewTimerFrame:Show()
+end
+
+local function StopPreviewTimer()
+    previewTimerFrame:Hide()
+    previewTimerElapsed = 0
+end
+
 RefreshPlacedIndicators = function()
     ClearPlacedIndicators()
     if not framePreview or not framePreview.mockFrame then return end
@@ -2385,6 +2416,12 @@ function ns.BuildAuraDesignerPage(parent)
     SwitchTab("effects")
     RefreshPlacedIndicators()
     RefreshPreviewEffects()
+
+    -- [FIX] 라이브 프리뷰 타이머 시작 (쿨다운 순환 애니메이션)
+    StartPreviewTimer()
+    parent:HookScript("OnHide", function()
+        StopPreviewTimer()
+    end)
 
     parent:SetHeight(math.abs(yOffset) + 500)
 end
