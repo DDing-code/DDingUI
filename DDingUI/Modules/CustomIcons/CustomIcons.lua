@@ -2183,6 +2183,12 @@ end
 -- ------------------------
 -- Public API
 -- ------------------------
+
+-- [FIX] FlightHide에서 다이나믹 그룹 프레임 알파 적용을 위한 getter
+function CustomIcons:GetRuntimeFrames()
+    return runtime
+end
+
 function CustomIcons:AddDynamicIcon(iconData)
     local db = GetDynamicDB()
     local iconKey = iconData.key or ("icon_" .. tostring(math.floor(GetTime() * 1000)))

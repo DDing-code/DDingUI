@@ -519,17 +519,23 @@ local function ApplyAuraToIcon(icon, auraData, auraInstanceID, unit, auraType)
 	-- 텍스처 (SetTexture는 C++에서 secret 처리)
 	SafeSetTexture(icon, auraData.icon)
 
-	-- 쿨다운 가시성 결정 + 스와이프 설정 (매 프레임 호출)
-	-- SetCooldownFromExpirationTime은 C++ 레벨에서 동일 값 중복 호출 시 내부 스킵 → 깜빡임 없음
-	if icon.cooldown and C_UnitAuras.DoesAuraHaveExpirationTime then
-		local hasExpiration = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
-		if icon.cooldown.SetShownFromBoolean then
-			icon.cooldown:SetShownFromBoolean(hasExpiration, true, false)
+	-- 쿨다운 설정 (DandersFrames 패턴: GetAuraDuration → SetCooldownFromDurationObject)
+	-- [FIX] GetAuraDuration은 무한 지속 오라에 nil 반환 → 깜빡임 완전 방지
+	if icon.cooldown then
+		if C_UnitAuras.GetAuraDuration then
+			local duration = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
+			if duration then
+				icon.cooldown:SetCooldownFromDurationObject(duration)
+				icon.cooldown:Show()
+			else
+				icon.cooldown:Clear()
+				icon.cooldown:Hide()
+			end
 		else
-			icon.cooldown:Show()
+			-- 폴백: 구 API
+			SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
 		end
 	end
-	SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
 
 	-- 텍스트 색상 초기화
 	if icon.nativeCooldownText then

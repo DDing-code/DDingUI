@@ -1107,6 +1107,26 @@ do
             end
         end
 
+        -- [FIX] CustomIcons 다이나믹 그룹 (컨테이너 + 개별 아이콘) 알파 적용
+        local ci = DDingUI.CustomIcons
+        if ci and ci.GetRuntimeFrames then
+            local rt = ci:GetRuntimeFrames()
+            if rt and rt.groupFrames then
+                for _, container in pairs(rt.groupFrames) do
+                    if container and container.SetAlpha then
+                        container:SetAlpha(alpha)
+                    end
+                end
+            end
+            if rt.iconFrames then
+                for _, iconFrame in pairs(rt.iconFrames) do
+                    if iconFrame and iconFrame.SetAlpha then
+                        iconFrame:SetAlpha(alpha)
+                    end
+                end
+            end
+        end
+
         return count
     end
 
