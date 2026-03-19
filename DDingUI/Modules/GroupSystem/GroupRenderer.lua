@@ -832,34 +832,27 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         end
     end
 
-    -- 2. DynBridge 아이콘 수집 (release 체크 전에 newSet에 등록)
+    -- 2. 커스텀 그룹 아이콘 수집 — CustomIcons에서 직접 수집 (DynBridge 우회)
     if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
-        local DynBridge = DDingUI.DynamicIconBridge
-        if DynBridge and DynBridge.GetActiveIconsForGroup then
-            local dynIcons = DynBridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey)
-            for _, dynEntry in ipairs(dynIcons) do
-                local dynFrame = dynEntry.frame
+        local ci = DDingUI.CustomIcons
+        local profile = DDingUI.db and DDingUI.db.profile
+        local dynDB = profile and profile.dynamicIcons
+        local iconFrames = ci and ci.GetAllIconFrames and ci:GetAllIconFrames() or {}
+        local srcGroup = dynDB and dynDB.groups and dynDB.groups[groupSettings.sourceGroupKey]
+        if srcGroup and srcGroup.icons then
+            for _, iconKey in ipairs(srcGroup.icons) do
+                local dynFrame = iconFrames[iconKey]
                 if dynFrame and not newSet[dynFrame] then
                     newSet[dynFrame] = true
                     combinedList[#combinedList + 1] = {
                         icon = dynFrame,
                         isDynBridge = true,
-                        iconKey = dynEntry.iconKey,
-                        iconData = dynEntry.iconData,
+                        iconKey = iconKey,
+                        iconData = dynDB.iconData and dynDB.iconData[iconKey],
                     }
                 end
             end
         end
-    end
-
-    -- [DEBUG] 커스텀 그룹 진단
-    local isCDMGroup = GROUP_VIEWER_MAP[groupName] and not GROUP_VIEWER_MAP[groupName]:match("^DDingUI_VV_")
-    if not isCDMGroup then
-        print("|cff00ff00[DDingUI DEBUG] Group:", groupName,
-            "| type:", tostring(groupSettings.groupType),
-            "| srcKey:", tostring(groupSettings.sourceGroupKey),
-            "| CDM icons:", #iconList,
-            "| combined:", #combinedList, "|r")
     end
 
     -- 3. 제거 대상 아이콘 해제 (newSet에 없는 이전 아이콘)
@@ -883,41 +876,47 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     local fc = GetFC()
 
-    -- [Ayije 통합] groupSettings가 단일 설정 소스
-    -- LayoutGroup은 primaryDirection/secondaryDirection 키를 읽음
-    -- GS_Range는 direction/growDirection 키에 씀 → 매핑 필요
-    -- direction이 있으면 항상 우선 (or 사용 금지 — 이전 값이 고착됨)
+    -- 뷰어 설정 resolve — CDM 그룹은 profile.viewers, 커스텀은 groupSettings
     local viewerName = GROUP_VIEWER_MAP[groupName]
-    if groupSettings.direction then
-        groupSettings.primaryDirection = groupSettings.direction
+    local isCDMViewer = viewerName and not viewerName:match("^DDingUI_VV_")
+    local vs  -- 레이아웃/스킨용 설정
+    if isCDMViewer then
+        -- CDM 그룹: v1.2.4 원래 방식 — profile.viewers에서 직접 읽기
+        vs = GetViewerSettings(viewerName)
     end
-    if groupSettings.growDirection then
-        groupSettings.secondaryDirection = groupSettings.growDirection
+    if not vs then
+        -- 커스텀 그룹: groupSettings 사용 + direction→primaryDirection 매핑
+        vs = groupSettings
+        if groupSettings.direction then
+            groupSettings.primaryDirection = groupSettings.direction
+        end
+        if groupSettings.growDirection then
+            groupSettings.secondaryDirection = groupSettings.growDirection
+        end
     end
 
-    -- 기본 아이콘 크기 계산 (groupSettings 직접 사용)
-    local baseIconW, baseIconH = ComputeIconDimensions(groupSettings)
+    -- 기본 아이콘 크기 계산
+    local baseIconW, baseIconH = ComputeIconDimensions(vs)
     if not baseIconW or baseIconW == 0 then
-        local fallback = groupSettings.iconSize or 32
+        local fallback = vs.iconSize or groupSettings.iconSize or 32
         baseIconW, baseIconH = fallback, fallback
     end
 
-    -- [REPARENT] 스키닝용 프로필 참조 (미리 resolve)
+    -- 스키닝용 프로필 참조
     local IconViewers = DDingUI.IconViewers
+    local profile = DDingUI.db and DDingUI.db.profile
+    local viewers = profile and profile.viewers
 
-    -- [REPARENT] 1단계: SetupFrameInContainer + SkinIcon (텍스처/테두리/글로우)
-    -- SkinIcon이 LayoutGroup보다 먼저 실행 → LayoutGroup이 최종 크기 결정 (rowIconSizes 보존)
-
-    -- [Ayije 통합] 하나의 루프에서 CDM + DynBridge 모든 아이콘 처리
+    -- 1단계: SetupFrameInContainer + SkinIcon
     local idx = 0
     for i, entry in ipairs(combinedList) do
         local icon = entry.icon
 
         if icon then
-            -- iconData resolve — CDM 하이재킹(spellID/spellName 매칭) 또는 DynBridge 직접 전달
-            local iconData = entry.iconData  -- DynBridge는 직접 전달
+            -- iconData resolve
+            local iconData = entry.iconData
             if not iconData and groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
-                local dynDB = GetDynamicDB()
+                local dynDB = profile and profile.dynamicIcons
                 local sourceGroup = dynDB and dynDB.groups[groupSettings.sourceGroupKey]
                 if sourceGroup and sourceGroup.icons then
                     for _, iconKey in ipairs(sourceGroup.icons) do
@@ -934,30 +933,34 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
                     and not GroupRenderer._forceFullSetup
                 if not alreadyManaged then
-                    -- [Ayije 통합] 통일된 SetupFrameInContainer (CDM + DynBridge 모두)
                     if entry.isDynBridge then
-                        -- DynBridge 프레임: iconKey 기반 관리
                         fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, nil)
                         icon._ddIconKey = entry.iconKey
                     else
-                        -- CDM 프레임: cooldownID 기반 관리
                         fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
                     end
 
-                    -- [Ayije 통합] SkinIcon — 아이콘은 소속 그룹의 설정을 따른다
+                    -- SkinIcon — CDM은 원본 뷰어 설정, 커스텀은 groupSettings
                     if IconViewers and IconViewers.SkinIcon then
-                        -- CDM 아이콘의 원본 뷰어 참조는 유지 (ContainerSync 등에서 필요)
                         if entry.cooldownID then
                             local srcViewer = fc:GetIconSource(entry.cooldownID)
                             if srcViewer then icon._ddSourceViewer = srcViewer end
                         end
-                        local ok, err = pcall(IconViewers.SkinIcon, IconViewers, icon, groupSettings)
-                        if not ok then
-                            print("|cffff4444[DDingUI] SkinIcon error in group", groupName, ":", tostring(err), "|r")
+                        local skinSettings
+                        if isCDMViewer then
+                            -- CDM: 원본 뷰어 설정 (v1.2.4 방식)
+                            local srcViewer = icon._ddSourceViewer
+                            skinSettings = srcViewer and viewers and viewers[srcViewer]
+                        else
+                            -- 커스텀: groupSettings
+                            skinSettings = groupSettings
+                        end
+                        if skinSettings then
+                            pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
                         end
                     end
 
-                    -- 개별 아이콘 설정 오버라이드 (Aura 디자이너)
+                    -- 개별 아이콘 설정 오버라이드
                     if iconData and icon.icon then
                         if iconData.useCustomTex and iconData.texID then
                             icon.icon:SetTexture(iconData.texID)
@@ -975,9 +978,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     icon._ddLastCooldownID = entry.cooldownID
                     if entry.isDynBridge then
                         icon._ddIconKey = entry.iconKey
-                    end
-                    if iconData and icon.icon then
-                        ApplyTexCoordCrop(icon.icon, groupSettings.zoom, groupSettings.aspectRatioCrop)
                     end
                 end
                 idx = idx + 1
@@ -998,8 +998,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     end
     frame._iconCount = idx
 
-    -- [Ayije 통합] LayoutGroup도 groupSettings 직접 사용 (profile.viewers 경유 안 함)
-    self:LayoutGroup(frame, groupSettings, viewerName)
+    -- LayoutGroup — CDM은 vs(profile.viewers), 커스텀은 groupSettings
+    self:LayoutGroup(frame, vs, viewerName)
 
     if idx > 0 then
         -- [FIX] CDM 뷰어의 IsShown() 반영 (전투 외 버프 숨김 등)
