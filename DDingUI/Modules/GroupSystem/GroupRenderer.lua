@@ -918,15 +918,16 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         end
                     else
                         -- [일반 CDM 아이콘 스키닝]
+                        -- [FIX] 원본 뷰어(srcViewer) 설정이 아닌 그룹의 가상 뷰어(viewerName) 설정 사용
+                        -- 커스텀 그룹의 외관 설정(borderSize, zoom, spacing 등)이 적용되지 않던 버그 수정
                         if IconViewers and IconViewers.SkinIcon and entry.cooldownID then
                             local srcViewer = fc:GetIconSource(entry.cooldownID)
                             if srcViewer then
                                 icon._ddSourceViewer = srcViewer
                             end
-                            local skinSettings = srcViewer and viewers and viewers[srcViewer]
-                            if skinSettings then
-                                pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
-                            end
+                            -- 그룹 가상 뷰어 설정 우선 → 없으면 groupSettings → 최후 원본 뷰어
+                            local skinSettings = vs or groupSettings
+                            pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
                         end
                     end
                 else
