@@ -407,8 +407,11 @@ local function DoFullUpdate()
     local staleGroups
     for groupName, groupSettings in pairs(gs.groups) do
         if groupSettings.enabled then
-            -- [FIX] 커스텀 그룹: 가상 뷰어 등록 + 설정 동기화
-            -- → GetViewerSettings(viewerName)가 profile.viewers에서 읽도록
+            -- [Ayije 통합] CDM 3대 → viewer 설정을 groupSettings에 역방향 동기화
+            -- SkinIcon이 항상 groupSettings를 사용하므로 viewer에만 있던 설정을 복사
+            GroupRenderer:SyncViewerToGroup(groupName, groupSettings)
+
+            -- 커스텀 그룹: 가상 뷰어 등록 + groupSettings → viewer 정방향 동기화
             GroupRenderer:RegisterVirtualViewer(groupName)
             GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
 

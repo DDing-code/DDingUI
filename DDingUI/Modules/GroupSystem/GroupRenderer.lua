@@ -240,6 +240,24 @@ function GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
     end
 end
 
+-- [Ayije 통합] CDM 3대 그룹: profile.viewers → groupSettings 역방향 동기화
+-- SkinIcon이 항상 groupSettings를 사용하므로, CDM viewer에만 있던 설정을 groupSettings에 복사
+function GroupRenderer:SyncViewerToGroup(groupName, groupSettings)
+    local viewerName = GROUP_VIEWER_MAP[groupName]
+    -- CDM 3대 그룹만 (가상 뷰어는 반대 방향)
+    if not viewerName or viewerName:match("^DDingUI_VV_") then return end
+    local profile = DDingUI.db and DDingUI.db.profile
+    local vs = profile and profile.viewers and profile.viewers[viewerName]
+    if not vs then return end
+    -- viewer에 있는 모든 설정을 groupSettings에 복사 (groupSettings에 없는 것만)
+    -- 이미 groupSettings에 설정된 값은 유지 (사용자가 GroupSystem 옵션에서 변경한 값 우선)
+    for key, val in pairs(vs) do
+        if groupSettings[key] == nil then
+            groupSettings[key] = val
+        end
+    end
+end
+
 -- ============================================================
 -- ViewerLayout 동일 헬퍼 함수들
 -- [REPARENT] 뷰어 설정을 100% 반영하기 위해 ViewerLayout과 동일 로직 복제
@@ -893,7 +911,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     -- SkinIcon이 LayoutGroup보다 먼저 실행 → LayoutGroup이 최종 크기 결정 (rowIconSizes 보존)
 
     -- [Ayije 통합] 하나의 루프에서 CDM + DynBridge 모든 아이콘 처리
-    local isVirtual = viewerName and viewerName:match("^DDingUI_VV_")
     local idx = 0
     for i, entry in ipairs(combinedList) do
         local icon = entry.icon
@@ -929,18 +946,14 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
                     end
 
-                    -- [Ayije 통합] 통일된 SkinIcon — 항상 groupSettings 사용
-                    -- CDM 3대 그룹만 원본 뷰어 설정 사용 (IconViewers 옵션)
+                    -- [Ayije 통합] SkinIcon — 아이콘은 소속 그룹의 설정을 따른다
                     if IconViewers and IconViewers.SkinIcon then
-                        local skinSettings
-                        if isVirtual or iconData then
-                            skinSettings = groupSettings
-                        else
-                            local srcViewer = entry.cooldownID and fc:GetIconSource(entry.cooldownID)
+                        -- CDM 아이콘의 원본 뷰어 참조는 유지 (ContainerSync 등에서 필요)
+                        if entry.cooldownID then
+                            local srcViewer = fc:GetIconSource(entry.cooldownID)
                             if srcViewer then icon._ddSourceViewer = srcViewer end
-                            skinSettings = (srcViewer and viewers and viewers[srcViewer]) or groupSettings
                         end
-                        pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
+                        pcall(IconViewers.SkinIcon, IconViewers, icon, groupSettings)
                     end
 
                     -- 개별 아이콘 설정 오버라이드 (Aura 디자이너)
