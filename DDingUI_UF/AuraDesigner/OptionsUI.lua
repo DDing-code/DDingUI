@@ -415,7 +415,7 @@ RefreshPlacedIndicators = function()
                         tinsert(placedIndicators, icon)
                     end
                 elseif indicator.type == "square" then
-                    local mockData = { spellId = 0, icon = nil, duration = 15, expirationTime = GetTime() + 10, stacks = 3 }
+                    local mockData = { spellId = 0, icon = nil, duration = PREVIEW_CYCLE_DURATION, expirationTime = GetTime() + PREVIEW_CYCLE_DURATION, stacks = 3 }
                     Indicators:ApplySquare(mockFrame, indicator, mockData, adDB.defaults, instanceKey)
                     local sqMap = mockFrame.dfAD_squares or mockFrame.ddAD_squares
                     local sq = sqMap and sqMap[instanceKey]
@@ -442,7 +442,7 @@ RefreshPlacedIndicators = function()
                         tinsert(placedIndicators, sq)
                     end
                 elseif indicator.type == "bar" then
-                    local mockData = { spellId = 0, icon = nil, duration = 15, expirationTime = GetTime() + 10, stacks = 0 }
+                    local mockData = { spellId = 0, icon = nil, duration = PREVIEW_CYCLE_DURATION, expirationTime = GetTime() + PREVIEW_CYCLE_DURATION, stacks = 0 }
                     Indicators:ApplyBar(mockFrame, indicator, mockData, adDB.defaults, instanceKey)
                     local barMap = mockFrame.dfAD_bars or mockFrame.ddAD_bars
                     local bar = barMap and barMap[instanceKey]

@@ -407,6 +407,11 @@ local function DoFullUpdate()
     local staleGroups
     for groupName, groupSettings in pairs(gs.groups) do
         if groupSettings.enabled then
+            -- [FIX] 커스텀 그룹: 가상 뷰어 등록 + 설정 동기화
+            -- → GetViewerSettings(viewerName)가 profile.viewers에서 읽도록
+            GroupRenderer:RegisterVirtualViewer(groupName)
+            GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
+
             local iconList = classified[groupName] or {}
             GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         end

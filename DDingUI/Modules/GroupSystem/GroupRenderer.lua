@@ -188,6 +188,7 @@ end
 
 -- ============================================================
 -- [REPARENT] 그룹 이름 → 소속 뷰어 매핑
+-- CDM 3대 그룹은 실제 뷰어, 커스텀 그룹은 가상 뷰어 사용
 -- ============================================================
 
 GROUP_VIEWER_MAP = {
@@ -195,6 +196,48 @@ GROUP_VIEWER_MAP = {
     ["Buffs"]     = "BuffIconCooldownViewer",
     ["Utility"]   = "UtilityCooldownViewer",
 }
+
+-- [FIX] 커스텀 그룹용 가상 뷰어 등록 — CDM과 동일한 경로(GetViewerSettings 등) 사용
+function GroupRenderer:RegisterVirtualViewer(groupName)
+    if GROUP_VIEWER_MAP[groupName] then return end -- 이미 등록됨
+    local virtualName = "DDingUI_VV_" .. groupName
+    GROUP_VIEWER_MAP[groupName] = virtualName
+end
+
+function GroupRenderer:UnregisterVirtualViewer(groupName)
+    local existing = GROUP_VIEWER_MAP[groupName]
+    if existing and existing:match("^DDingUI_VV_") then
+        GROUP_VIEWER_MAP[groupName] = nil
+    end
+end
+
+-- [FIX] 커스텀 그룹 설정 → profile.viewers[virtualViewer]에 동기화
+-- GS_Range의 VIEWER_REDIRECT_KEYS가 읽고 쓰는 위치와 동일
+local SYNC_KEYS = { "iconSize", "spacing", "aspectRatioCrop", "rowLimit",
+    "primaryDirection", "secondaryDirection", "rowIconSizes" }
+
+function GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
+    local viewerName = GROUP_VIEWER_MAP[groupName]
+    if not viewerName or not viewerName:match("^DDingUI_VV_") then return end
+    local profile = DDingUI.db and DDingUI.db.profile
+    if not profile then return end
+    profile.viewers = profile.viewers or {}
+    local vs = profile.viewers[viewerName]
+    if not vs then
+        vs = {}
+        profile.viewers[viewerName] = vs
+    end
+    for _, key in ipairs(SYNC_KEYS) do
+        vs[key] = groupSettings[key]
+    end
+    -- direction → primaryDirection 변환
+    if groupSettings.direction and not groupSettings.primaryDirection then
+        vs.primaryDirection = groupSettings.direction
+    end
+    if groupSettings.growDirection and not groupSettings.secondaryDirection then
+        vs.secondaryDirection = groupSettings.growDirection
+    end
+end
 
 -- ============================================================
 -- ViewerLayout 동일 헬퍼 함수들
