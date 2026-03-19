@@ -879,7 +879,17 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                             if srcViewer then
                                 icon._ddSourceViewer = srcViewer
                             end
-                            local skinSettings = srcViewer and viewers and viewers[srcViewer]
+                            -- [FIX] 커스텀 그룹(GROUP_VIEWER_MAP에 없는 그룹)은
+                            -- 원래 CDM 뷰어 설정이 아닌 groupSettings 사용
+                            -- → 커스텀 그룹에서 변경한 iconSize/spacing/borderSize 등 반영
+                            local skinSettings
+                            if viewerName then
+                                -- CDM 3대 그룹: 뷰어 설정 사용
+                                skinSettings = srcViewer and viewers and viewers[srcViewer]
+                            else
+                                -- 커스텀 그룹: 그룹 자체 설정 사용
+                                skinSettings = groupSettings
+                            end
                             if skinSettings then
                                 pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
                             end
