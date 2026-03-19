@@ -773,81 +773,18 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         return
     end
 
-    -- [FIX] groupType == "dynamic" 일 때도 CDM 아이콘(iconList)을 병합하여 둘 다 렌더링하도록 수정
-    local dynamicIcons = {}
-    if groupSettings.groupType == "dynamic" then
-        local sourceKey = groupSettings.sourceGroupKey
-        if sourceKey then
-            local dynDB = GetDynamicDB()
-            local sourceGroup = dynDB and dynDB.groups[sourceKey]
-            if sourceGroup and sourceGroup.icons then
-                local ci = DDingUI.CustomIcons
-                local allFrames = ci and ci.GetAllIconFrames and ci:GetAllIconFrames() or {}
-                for _, iconKey in ipairs(sourceGroup.icons) do
-                    local iconData = dynDB.iconData[iconKey]
-                    local iconFrame = allFrames[iconKey]
-                    if iconData and iconFrame and IsIconActive(iconData, iconFrame) then
-                        dynamicIcons[#dynamicIcons + 1] = {
-                            iconKey = iconKey,
-                            iconData = iconData,
-                            frame = iconFrame,
-                        }
-                    end
-                end
-            end
-        end
-    end
-
-    -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
+    -- 이제 GroupManager:ClassifyIcon에서 원본 CDM 아이콘 자체를 분류해주므로
+    -- 다이나믹 아이콘 생성/스킵 등의 이중 로직이 필요 없습니다. (네이티브 하이재킹)
     local newSet = {}
     local combinedList = {}
 
-    -- 1. CDM 아이콘
-    -- [FIX] 다이나믹 그룹: aura 동적 아이콘이 있으면 같은 buff의 CDM 아이콘 스킵
-    local dynSpellIDs = {}
-    local dynSpellNames = {}  -- spellName 기반 매칭 (cooldownID가 다를 수 있음)
-    if groupSettings.groupType == "dynamic" then
-        for _, dEntry in ipairs(dynamicIcons) do
-            if dEntry.iconData and dEntry.iconData.id then
-                dynSpellIDs[dEntry.iconData.id] = true
-                -- aura 타입: spellName도 수집 (CDM 매칭용)
-                if dEntry.iconData.type == "aura" then
-                    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(dEntry.iconData.id)
-                    if info and info.name then
-                        dynSpellNames["buff_" .. info.name] = true
-                    end
-                end
-            end
-        end
-    end
     for i, entry in ipairs(iconList) do
         if entry.icon then
-            -- 동적 아이콘과 같은 cooldownID면 스킵
-            local cdmID = entry.icon.cooldownID or entry.cooldownID
-            local cdmName = entry.spellName
-            if dynSpellIDs[cdmID] or dynSpellNames[cdmName] then
-                -- 중복: 스킵 (aura 프레임이 대신 표시)
-            else
-                newSet[entry.icon] = true
-                entry.isCDM = true
-                combinedList[#combinedList + 1] = entry
-            end
+            newSet[entry.icon] = true
+            entry.isCDM = true
+            combinedList[#combinedList + 1] = entry
         end
     end
-
-    -- 2. 동적 아이콘
-    for _, entry in ipairs(dynamicIcons) do
-        if entry.frame then
-            newSet[entry.frame] = true
-            combinedList[#combinedList + 1] = {
-                isDynamic = true,
-                icon = entry.frame,
-                entry = entry, -- iconData 등 원본 참조
-                cooldownID = entry.iconKey,
-            }
-        end
-    end
-
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] then
             if icon._ddIconKey then
@@ -893,45 +830,66 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         local icon = entry.icon
 
         if icon then
-            if entry.isDynamic then
-                -- [동적 아이콘 스키닝] — 그룹 통일 크기 사용 (baseIconW/baseIconH)
-                local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame and not GroupRenderer._forceFullSetup
-                if not alreadyManaged then
-                    fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
-                    if icon.icon then
-                        ApplyTexCoordCrop(icon.icon, groupSettings.zoom, groupSettings.aspectRatioCrop)
+            local iconData = nil
+            if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
+                local dynDB = GetDynamicDB()
+                local sourceGroup = dynDB and dynDB.groups[groupSettings.sourceGroupKey]
+                if sourceGroup and sourceGroup.icons then
+                    for _, iconKey in ipairs(sourceGroup.icons) do
+                        local data = dynDB.iconData[iconKey]
+                        if data and (data.id == entry.cooldownID or data.spellName == entry.spellName) then
+                            iconData = data
+                            break
+                        end
                     end
-                elseif icon.icon then
-                    -- [FIX] 이미 managed 아이콘도 zoom + 종횡비 크롭 갱신
-                    ApplyTexCoordCrop(icon.icon, groupSettings.zoom, groupSettings.aspectRatioCrop)
                 end
-                idx = idx + 1
-                frame._managedIcons[idx] = icon
+            end
 
-                -- [INTEGRATION] GroupRenderer가 직접 아이콘 상태 업데이트
-                local ci = DDingUI.CustomIcons
-                if ci and ci.UpdateDynamicIcon and entry.cooldownID then
-                    ci.UpdateDynamicIcon(entry.cooldownID)
-                end
-            elseif fc then
-                -- [CDM 아이콘 스키닝]
+            if fc then
                 local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
                     and not GroupRenderer._forceFullSetup
                 if not alreadyManaged then
                     fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
 
-                    if IconViewers and IconViewers.SkinIcon and entry.cooldownID then
-                        local srcViewer = fc:GetIconSource(entry.cooldownID)
-                        if srcViewer then
-                            icon._ddSourceViewer = srcViewer
+                    if iconData then
+                        -- [다이나믹 아이콘 스키닝]
+                        -- 1) 그룹 전체 옵션 적용 (폰트, 배경, 공통 두께 등)
+                        if IconViewers and IconViewers.SkinIcon then
+                            pcall(IconViewers.SkinIcon, IconViewers, icon, groupSettings)
                         end
-                        local skinSettings = srcViewer and viewers and viewers[srcViewer]
-                        if skinSettings then
-                            pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
+
+                        -- 2) 개별 아이콘 설정(Aura 디자이너) 오버라이드
+                        if iconData.useCustomTex and iconData.texID then
+                            icon.icon:SetTexture(iconData.texID)
+                        end
+                        if iconData.desaturate then
+                            icon.icon:SetDesaturated(true)
+                        else
+                            icon.icon:SetDesaturated(false)
+                        end
+                        if iconData.borderColor then
+                            if icon.border then
+                                icon.border:SetVertexColor(unpack(iconData.borderColor))
+                            end
+                        end
+                    else
+                        -- [일반 CDM 아이콘 스키닝]
+                        if IconViewers and IconViewers.SkinIcon and entry.cooldownID then
+                            local srcViewer = fc:GetIconSource(entry.cooldownID)
+                            if srcViewer then
+                                icon._ddSourceViewer = srcViewer
+                            end
+                            local skinSettings = srcViewer and viewers and viewers[srcViewer]
+                            if skinSettings then
+                                pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
+                            end
                         end
                     end
                 else
                     icon._ddLastCooldownID = entry.cooldownID
+                    if iconData and icon.icon then
+                        ApplyTexCoordCrop(icon.icon, groupSettings.zoom, groupSettings.aspectRatioCrop)
+                    end
                 end
                 idx = idx + 1
                 frame._managedIcons[idx] = icon
@@ -1490,181 +1448,3 @@ function GroupRenderer:SyncViewerVisibility(viewerName)
     end
 end
 
--- ============================================================
--- [DYNAMIC] UpdateDynamicGroup: CustomIcons 프레임을 그룹 컨테이너에 배치
--- DynamicIconBridge를 통해 활성 아이콘을 가져와 GroupRenderer 레이아웃 엔진으로 배치
--- ============================================================
-
-function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
-    if not frame then
-        frame = self.groupFrames[groupName]
-        if not frame then
-            frame = self:CreateGroupFrame(groupName, groupSettings)
-        end
-    end
-
-    if not groupSettings or not groupSettings.enabled then
-        self:ReleaseGroupIcons(frame)
-        frame:Hide()
-        return
-    end
-
-    local sourceKey = groupSettings.sourceGroupKey
-    if not sourceKey then
-        frame:Hide()
-        return
-    end
-
-    local dynDB = GetDynamicDB()
-    local sourceGroup = dynDB and dynDB.groups[sourceKey]
-    if not sourceGroup or not sourceGroup.icons then
-        frame:Hide()
-        return
-    end
-
-    local activeIcons = {}
-    local ci = DDingUI.CustomIcons
-    local allFrames = ci and ci.GetAllIconFrames and ci:GetAllIconFrames() or {}
-    
-    for _, iconKey in ipairs(sourceGroup.icons) do
-        local iconData = dynDB.iconData[iconKey]
-        local iconFrame = allFrames[iconKey]
-        if iconData and iconFrame and IsIconActive(iconData, iconFrame) then
-            activeIcons[#activeIcons + 1] = {
-                iconKey = iconKey,
-                iconData = iconData,
-                frame = iconFrame,
-            }
-        end
-    end
-
-    -- 기존 managed 아이콘 중 이번 리스트에 없는 것 release
-    local newSet = {}
-    for _, entry in ipairs(activeIcons) do
-        newSet[entry.iconKey] = true
-    end
-    if frame._managedIcons then
-        for _, icon in pairs(frame._managedIcons) do
-            if icon and icon._ddIconKey and not newSet[icon._ddIconKey] then
-                local fc = GetFC()
-                if fc and fc.ReleaseFrameFromContainer then
-                    fc:ReleaseFrameFromContainer(icon)
-                    icon:Hide()
-                end
-            end
-        end
-    end
-    frame._managedIcons = frame._managedIcons or {}
-    wipe(frame._managedIcons)
-
-    -- 아이콘 크기 계산
-    local baseIconW, baseIconH = ComputeIconDimensions({
-        iconSize = groupSettings.iconSize or 32,
-        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
-    })
-
-    -- 아이콘 설정 + 컨테이너 배치
-    local idx = 0
-    for _, entry in ipairs(activeIcons) do
-        local icon = entry.frame
-        if icon then
-            -- 개별 아이콘 크기 오버라이드 (아이콘 자체 settings.iconSize)
-            local iw, ih = baseIconW, baseIconH
-            local iconData = entry.iconData
-            if iconData and iconData.settings and iconData.settings.iconSize then
-                iw, ih = ComputeIconDimensions({
-                    iconSize = iconData.settings.iconSize,
-                    aspectRatioCrop = iconData.settings.aspectRatio or groupSettings.aspectRatioCrop or 1.0,
-                })
-            end
-
-            -- SetupFrameInContainer (이미 managed면 위치만 갱신)
-            local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
-                and not GroupRenderer._forceFullSetup
-            if not alreadyManaged then
-                local fc = GetFC()
-                if fc and fc.SetupFrameInContainer then
-                    fc:SetupFrameInContainer(icon, frame, iw, ih, entry.iconKey)
-                    if icon.icon then
-                        ApplyTexCoordCrop(icon.icon, groupSettings.zoom, groupSettings.aspectRatioCrop)
-                    end
-                end
-            elseif icon.icon then
-                -- [FIX] 이미 managed 아이콘도 zoom + 종횡비 크롭 갱신
-                ApplyTexCoordCrop(icon.icon, groupSettings.zoom, groupSettings.aspectRatioCrop)
-            end
-
-            idx = idx + 1
-            frame._managedIcons[idx] = icon
-            -- [INTEGRATION] GroupRenderer가 직접 아이콘 상태 업데이트
-            -- CustomIcons OnUpdate 틱커에 의존하지 않음 → 타이밍 문제 제거
-            local ci = DDingUI.CustomIcons
-            if ci and ci.UpdateDynamicIcon and entry.iconKey then
-                ci.UpdateDynamicIcon(entry.iconKey)
-            end
-            icon:Show()
-        end
-    end
-    frame._iconCount = idx
-
-    -- [FIX] IsShown=false 누락 복구: 아이콘이 스캔되었다면 CDM이 실질적으로 활성 상태임
-    -- LayoutGroup이 스킵되는 것을 방지하기 위해 여기서 미리 _viewerHidden 플래그를 점검/해제
-    local sourceViewer = viewerName and _G[viewerName]
-    if sourceViewer and sourceViewer:IsShown() and frame._viewerHidden then
-        frame._viewerHidden = false
-    end
-
-    -- viewerSettings 구성 (groupSettings → viewerSettings 형식 변환)
-    local vs = {
-        iconSize = groupSettings.iconSize or 32,
-        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
-        spacing = groupSettings.spacing or 2,
-        primaryDirection = groupSettings.direction or "RIGHT",
-        secondaryDirection = groupSettings.growDirection or "DOWN",
-        rowLimit = groupSettings.rowLimit or 0,
-    }
-
-    -- LayoutGroup (기존 레이아웃 엔진 재사용)
-    self:LayoutGroup(frame, vs, nil)
-
-    -- Show/Hide 결정
-    if idx > 0 then
-        frame:Show()
-    else
-        -- [FIX] 편집모드에서는 그룹에 등록된 전체 아이콘 수 기준 크기로 Show
-        -- 모든 아이콘이 활성화된 상황을 상정하여 배치 편집 가능
-        local isEditMode = (DDingUI.Movers and DDingUI.Movers.ConfigMode)
-            or (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive())
-        if isEditMode then
-            -- CustomIcons DB에서 이 그룹의 전체 아이콘 수 계산
-            local totalIcons = 0
-            local sourceKey = groupSettings.sourceGroupKey
-            if sourceKey then
-                local dynDB = DDingUI.db and DDingUI.db.profile
-                    and DDingUI.db.profile.dynamicIcons
-                if dynDB and dynDB.groups and dynDB.groups[sourceKey] then
-                    local icons = dynDB.groups[sourceKey].icons
-                    totalIcons = icons and #icons or 0
-                end
-            end
-            if totalIcons > 0 then
-                local iconSize = groupSettings.iconSize or 32
-                local spacing = groupSettings.spacing or 2
-                local maxPerRow = groupSettings.rowLimit or 0
-                if maxPerRow <= 0 then maxPerRow = totalIcons end
-                local rows = math.ceil(totalIcons / maxPerRow)
-                local cols = math.min(totalIcons, maxPerRow)
-                local fullW = cols * iconSize + math.max(cols - 1, 0) * spacing
-                local fullH = rows * iconSize + math.max(rows - 1, 0) * spacing
-                frame:SetSize(math.max(fullW, 1), math.max(fullH, 1))
-            else
-                -- 등록된 아이콘 없으면 기본 1칸 크기
-                local iconSize = groupSettings.iconSize or 32
-                frame:SetSize(iconSize, iconSize)
-            end
-            frame:Show()
-        else
-            frame:Hide()
-        end
-    end
-end

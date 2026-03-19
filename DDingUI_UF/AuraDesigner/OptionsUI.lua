@@ -474,6 +474,7 @@ end
 ns.AuraDesignerOptions_RefreshPreviewLightweight = function()
     RefreshPlacedIndicators()
     RefreshPreviewEffects()
+    ADRefreshAll()
 end
 
 -- ============================================================

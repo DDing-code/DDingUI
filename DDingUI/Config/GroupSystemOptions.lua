@@ -1039,11 +1039,28 @@ local function BuildCustomVisualArgs(groupName)
     }
 end
 
+local function GS_Font(groupName, key, name, order, default)
+    return {
+        type = "select", dialogControl = "LSM30_Font",
+        name = name, order = order, width = "full",
+        values = AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font or {},
+        get = function()
+            local gs = GetGS(); local g = gs and gs.groups[groupName]
+            return g and g[key] or default
+        end,
+        set = function(_, val)
+            local gs = GetGS()
+            if gs and gs.groups[groupName] then gs.groups[groupName][key] = val; RefreshGroupSystem() end
+        end,
+    }
+end
+
 -- [CATEGORY] 커스텀 그룹용 텍스트 옵션 빌드 (카테고리별 분기)
 local function BuildCustomTextArgs(groupName, category)
     local args = {
         -- 충전/스택 텍스트
         chargeTextHeader = { type = "header", name = L["Stack Text"] or "중첩 텍스트", order = 1 },
+        countTextFont = GS_Font(groupName, "countTextFont", L["Font"] or "폰트", 1.5, "2002"),
         countTextSize = GS_Range(groupName, "countTextSize", L["Font Size"] or "글꼴 크기", 2, 14, 6, 32, 1),
         countTextColor = GS_Color(groupName, "countTextColor", L["Font Color"] or "글꼴 색상", 3, {1, 0.82, 0, 1}),
         countTextAnchor = GS_Select(groupName, "countTextAnchor", L["Anchor"] or "앵커", 4, "BOTTOMRIGHT", ANCHOR_POINTS),
@@ -1051,6 +1068,7 @@ local function BuildCustomTextArgs(groupName, category)
         countTextOffsetY = GS_Range(groupName, "countTextOffsetY", L["Y Offset"] or "Y 오프셋", 6, 0, -20, 20, 1),
         -- 쿨다운 텍스트
         cooldownTextHeader = { type = "header", name = L["Cooldown Text"] or "쿨다운 텍스트", order = 10 },
+        cooldownFont = GS_Font(groupName, "cooldownFont", L["Font"] or "폰트", 10.5, "2002"),
         cooldownFontSize = GS_Range(groupName, "cooldownFontSize", L["Font Size"] or "글꼴 크기", 11, 14, 6, 32, 1),
         cooldownTextColor = GS_Color(groupName, "cooldownTextColor", L["Font Color"] or "글꼴 색상", 12, {1, 1, 1, 1}),
         cooldownTextAnchor = GS_Select(groupName, "cooldownTextAnchor", L["Anchor"] or "앵커", 13, "CENTER", ANCHOR_POINTS),
@@ -1062,6 +1080,7 @@ local function BuildCustomTextArgs(groupName, category)
     -- 버프 카테고리: 지속시간 텍스트 추가
     if category == "buff" then
         args.durationHeader = { type = "header", name = L["Duration Text"] or "지속시간 텍스트", order = 30 }
+        args.durationTextFont = GS_Font(groupName, "durationTextFont", L["Font"] or "폰트", 30.5, "2002")
         args.durationTextSize = GS_Range(groupName, "durationTextSize", L["Font Size"] or "글꼴 크기", 31, 12, 6, 32, 1)
         args.durationTextColor = GS_Color(groupName, "durationTextColor", L["Font Color"] or "글꼴 색상", 32, {1, 1, 1, 1})
         args.durationTextAnchor = GS_Select(groupName, "durationTextAnchor", L["Anchor"] or "앵커", 33, "TOP", ANCHOR_POINTS)

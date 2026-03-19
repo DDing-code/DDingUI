@@ -519,32 +519,24 @@ local function ApplyAuraToIcon(icon, auraData, auraInstanceID, unit, auraType)
 	-- 텍스처 (SetTexture는 C++에서 secret 처리)
 	SafeSetTexture(icon, auraData.icon)
 
-	-- [12.1] 쿨다운 깜빡임 방지: _cooldownSet 플래그 사용
-	-- auraInstanceID 비교는 secret value 때문에 항상 true 반환 → 사용 불가
-	-- 대신: hide될 때 플래그 리셋 → 다시 show될 때만 쿨다운 설정
-	if not icon._cooldownSet then
-		icon._cooldownSet = true
-
-		-- 쿨다운 가시성 결정 (DandersFrames 패턴)
-		if icon.cooldown and C_UnitAuras.DoesAuraHaveExpirationTime then
-			local hasExpiration = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
-			if icon.cooldown.SetShownFromBoolean then
-				icon.cooldown:SetShownFromBoolean(hasExpiration, true, false)
-			else
-				icon.cooldown:Show()
-			end
+	-- 쿨다운 가시성 결정 + 스와이프 설정 (매 프레임 호출)
+	-- SetCooldownFromExpirationTime은 C++ 레벨에서 동일 값 중복 호출 시 내부 스킵 → 깜빡임 없음
+	if icon.cooldown and C_UnitAuras.DoesAuraHaveExpirationTime then
+		local hasExpiration = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
+		if icon.cooldown.SetShownFromBoolean then
+			icon.cooldown:SetShownFromBoolean(hasExpiration, true, false)
+		else
+			icon.cooldown:Show()
 		end
+	end
+	SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
 
-		-- 쿨다운 스와이프 설정 (1회만)
-		SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
-
-		-- 텍스트 색상 초기화
-		if icon.nativeCooldownText then
-			local frame = icon.unitFrame or icon:GetParent():GetParent()
-			local frameType = frame.isRaidFrame and "raid" or "party"
-			local info = GetDurationColorInfo(frameType, auraType)
-			icon.nativeCooldownText:SetTextColor(info.rgb[1], info.rgb[2], info.rgb[3], 1)
-		end
+	-- 텍스트 색상 초기화
+	if icon.nativeCooldownText then
+		local frame = icon.unitFrame or icon:GetParent():GetParent()
+		local frameType = frame.isRaidFrame and "raid" or "party"
+		local info = GetDurationColorInfo(frameType, auraType)
+		icon.nativeCooldownText:SetTextColor(info.rgb[1], info.rgb[2], info.rgb[3], 1)
 	end
 
 	-- [FIX] 스택 수 (DandersFrame 패턴: SetText가 C++ 레벨에서 secret 처리)
@@ -709,14 +701,12 @@ function GF:UpdateAuraIconsDirect(frame, icons, cacheSet, unit, auraType)
 		for i = iconIndex, maxIcons do
 			icons[i]:Hide()
 			icons[i].auraInstanceID = nil
-			icons[i]._cooldownSet = nil  -- [12.1] 플래그 리셋 → 다시 show될 때 쿨다운 재설정
 		end
 	else
 		-- 캐시도 없고 fallback도 없으면 전부 숨김
 		for i = 1, maxIcons do
 			icons[i]:Hide()
 			icons[i].auraInstanceID = nil
-			icons[i]._cooldownSet = nil  -- [12.1]
 		end
 	end
 end
@@ -1086,8 +1076,50 @@ function GF:UpdateDebuffHighlight(frame)
 		-- fallback for when colorObj fails (should not happen)
 		local c = dc.Magic or { 0.20, 0.60, 1.00 }
 		self:ShowDebuffHighlight(frame, c[1], c[2], c[3], dhDB)
+	elseif showNonDispellable then
+		-- SLOW PATH: Bleed/Enrage 디버프 탐지 (디스펠 불가 → playerDispellable에 없음)
+		-- bleedDetectCurve: Bleed(11)/Enrage(9)만 alpha=1, 나머지 alpha=0
+		local bCurve = GetBleedDetectCurve()
+		if bCurve and C_UnitAuras.GetAuraDispelTypeColor then
+			local foundBleed = false
+			local bleedAuraID = nil
+			-- ForEachAura로 HARMFUL 디버프 순회
+			if C_UnitAuras.ForEachAura then
+				C_UnitAuras.ForEachAura(unit, "HARMFUL", nil, function(auraData)
+					if foundBleed then return false end
+					local aid = auraData.auraInstanceID
+					if aid and not (issecretvalue and issecretvalue(aid)) then
+						local colorObj = C_UnitAuras.GetAuraDispelTypeColor(unit, aid, bCurve)
+						if colorObj then
+							local _, _, _, a = colorObj:GetRGBA()
+							if a and a > 0 then
+								foundBleed = true
+								bleedAuraID = aid
+								return false -- stop iteration
+							end
+						end
+					end
+					return false -- continue
+				end, true) -- usePackedAuraData=true
+			end
+			if foundBleed and bleedAuraID then
+				-- bleedDetectCurve는 감지 전용이지만 색상도 포함 → 직접 사용
+				if not dispelColorCurve then dispelColorCurve = BuildDispelCurve(true) end
+				local colorObj = C_UnitAuras.GetAuraDispelTypeColor(unit, bleedAuraID, dispelColorCurve)
+				if colorObj then
+					self:ShowDebuffHighlightColor(frame, colorObj, dhDB)
+					return
+				end
+				-- fallback: 직접 bleed 색상 사용
+				local bleedC = dc.Bleed or { 1.00, 0.00, 0.00 }
+				self:ShowDebuffHighlight(frame, bleedC[1], bleedC[2], bleedC[3], dhDB)
+				return
+			end
+		end
+		-- Bleed/Enrage도 없으면 숨기기
+		self:HideDebuffHighlight(frame)
 	else
-		-- 디스펠 가능 디버프 없음 → 하이라이트 숨김
+		-- 디스펠 가능 디버프 없음 + showNonDispellable 비활성 → 하이라이트 숨김
 		self:HideDebuffHighlight(frame)
 	end
 end
@@ -1230,44 +1262,39 @@ end
 local function ApplyGradientColors(hl, r, g, b, a, dhDB)
 	local alpha = (dhDB and dhDB.overlayAlpha) or 0.25
 	local style = (dhDB and dhDB.gradientStyle) or "EDGE"
-	-- [FIX] CreateColor는 C++ 함수라 secret value인 a도 정상 처리됨
-	local solidColor = CreateColor(r, g, b, a)
-	local clearColor = CreateColor(r, g, b, 0)
+	-- [FIX] GradientV.tga 프리베이크 텍스처 사용 → SetGradient 불필요
+	-- 텍스처 자체에 알파 그라데이션이 내장되어 있으므로 SetVertexColor만으로 페이드 효과 달성
+	-- secret value에서도 안전 (SetVertexColor는 C++ 함수)
 
 	if style == "EDGE" then
-		-- Top: 불투명(상) → 투명(하)
 		if hl.gradientTop then
-			hl.gradientTop:SetGradient("VERTICAL", clearColor, solidColor)
+			hl.gradientTop:SetVertexColor(r, g, b, a)
 			hl.gradientTop:SetAlpha(alpha)
 			hl.gradientTop:Show()
 		end
-		-- Bottom: 불투명(하) → 투명(상)
 		if hl.gradientBottom then
-			hl.gradientBottom:SetGradient("VERTICAL", solidColor, clearColor)
+			hl.gradientBottom:SetVertexColor(r, g, b, a)
 			hl.gradientBottom:SetAlpha(alpha)
 			hl.gradientBottom:Show()
 		end
-		-- Left: 불투명(좌) → 투명(우)
 		if hl.gradientLeft then
-			hl.gradientLeft:SetGradient("HORIZONTAL", solidColor, clearColor)
+			hl.gradientLeft:SetVertexColor(r, g, b, a)
 			hl.gradientLeft:SetAlpha(alpha)
 			hl.gradientLeft:Show()
 		end
-		-- Right: 불투명(우) → 투명(좌)
 		if hl.gradientRight then
-			hl.gradientRight:SetGradient("HORIZONTAL", clearColor, solidColor)
+			hl.gradientRight:SetVertexColor(r, g, b, a)
 			hl.gradientRight:SetAlpha(alpha)
 			hl.gradientRight:Show()
 		end
 	elseif style == "TOP_BOTTOM" then
-		-- 위아래 그라데이션 (좌우 없음)
 		if hl.gradientTop then
-			hl.gradientTop:SetGradient("VERTICAL", clearColor, solidColor)
+			hl.gradientTop:SetVertexColor(r, g, b, a)
 			hl.gradientTop:SetAlpha(alpha)
 			hl.gradientTop:Show()
 		end
 		if hl.gradientBottom then
-			hl.gradientBottom:SetGradient("VERTICAL", solidColor, clearColor)
+			hl.gradientBottom:SetVertexColor(r, g, b, a)
 			hl.gradientBottom:SetAlpha(alpha)
 			hl.gradientBottom:Show()
 		end
@@ -1275,7 +1302,7 @@ local function ApplyGradientColors(hl, r, g, b, a, dhDB)
 		if hl.gradientRight then hl.gradientRight:Hide() end
 	elseif style == "TOP" then
 		if hl.gradientTop then
-			hl.gradientTop:SetGradient("VERTICAL", clearColor, solidColor)
+			hl.gradientTop:SetVertexColor(r, g, b, a)
 			hl.gradientTop:SetAlpha(alpha)
 			hl.gradientTop:Show()
 		end
@@ -1284,7 +1311,7 @@ local function ApplyGradientColors(hl, r, g, b, a, dhDB)
 		if hl.gradientRight then hl.gradientRight:Hide() end
 	elseif style == "BOTTOM" then
 		if hl.gradientBottom then
-			hl.gradientBottom:SetGradient("VERTICAL", solidColor, clearColor)
+			hl.gradientBottom:SetVertexColor(r, g, b, a)
 			hl.gradientBottom:SetAlpha(alpha)
 			hl.gradientBottom:Show()
 		end
@@ -1342,86 +1369,12 @@ function GF:ShowDebuffHighlightColor(frame, color, dhDB)
 	end
 
 	-- [FIX] Overlay 모드 분기: solid vs gradient
-	-- [DandersFrames 핵심] SetGradient + CreateColor는 secret value에서 에러 발생
-	-- 대신 SetVertexColor(color:GetRGBA())로 직접 적용 (C++ 함수, secret 수용)
+	-- GradientV.tga 프리베이크 텍스처 사용 → SetVertexColor만으로 그라데이션 적용
+	-- SetVertexColor는 C++ 함수이므로 secret RGBA도 직접 처리 가능 (secret-safe)
 	if overlayMode == "gradient" then
-		-- [FIX] secret Color → SetGradient + CreateColor 불가 (secret value 에러)
-		-- SetVertexColor는 C++ 함수이므로 secret RGBA 직접 처리 가능
 		if hl.overlay then hl.overlay:SetAlpha(0) end
 		ApplyGradientLayout(hl, dhDB, frame.healthBar)
-		local style = (dhDB and dhDB.gradientStyle) or "EDGE"
-		local blendMode = (dhDB and dhDB.gradientBlendMode) or "ADD"
-
-		if style == "EDGE" then
-			if hl.gradientTop then
-				hl.gradientTop:SetVertexColor(color:GetRGBA())
-				hl.gradientTop:SetBlendMode(blendMode)
-				hl.gradientTop:SetAlpha(overlayAlpha)
-				hl.gradientTop:Show()
-			end
-			if hl.gradientBottom then
-				hl.gradientBottom:SetVertexColor(color:GetRGBA())
-				hl.gradientBottom:SetBlendMode(blendMode)
-				hl.gradientBottom:SetAlpha(overlayAlpha)
-				hl.gradientBottom:Show()
-			end
-			if hl.gradientLeft then
-				hl.gradientLeft:SetVertexColor(color:GetRGBA())
-				hl.gradientLeft:SetBlendMode(blendMode)
-				hl.gradientLeft:SetAlpha(overlayAlpha)
-				hl.gradientLeft:Show()
-			end
-			if hl.gradientRight then
-				hl.gradientRight:SetVertexColor(color:GetRGBA())
-				hl.gradientRight:SetBlendMode(blendMode)
-				hl.gradientRight:SetAlpha(overlayAlpha)
-				hl.gradientRight:Show()
-			end
-		elseif style == "TOP_BOTTOM" then
-			if hl.gradientTop then
-				hl.gradientTop:SetVertexColor(color:GetRGBA())
-				hl.gradientTop:SetBlendMode(blendMode)
-				hl.gradientTop:SetAlpha(overlayAlpha)
-				hl.gradientTop:Show()
-			end
-			if hl.gradientBottom then
-				hl.gradientBottom:SetVertexColor(color:GetRGBA())
-				hl.gradientBottom:SetBlendMode(blendMode)
-				hl.gradientBottom:SetAlpha(overlayAlpha)
-				hl.gradientBottom:Show()
-			end
-			if hl.gradientLeft then hl.gradientLeft:Hide() end
-			if hl.gradientRight then hl.gradientRight:Hide() end
-		elseif style == "TOP" then
-			if hl.gradientTop then
-				hl.gradientTop:SetVertexColor(color:GetRGBA())
-				hl.gradientTop:SetBlendMode(blendMode)
-				hl.gradientTop:SetAlpha(overlayAlpha)
-				hl.gradientTop:Show()
-			end
-			if hl.gradientBottom then hl.gradientBottom:Hide() end
-			if hl.gradientLeft then hl.gradientLeft:Hide() end
-			if hl.gradientRight then hl.gradientRight:Hide() end
-		elseif style == "BOTTOM" then
-			if hl.gradientBottom then
-				hl.gradientBottom:SetVertexColor(color:GetRGBA())
-				hl.gradientBottom:SetBlendMode(blendMode)
-				hl.gradientBottom:SetAlpha(overlayAlpha)
-				hl.gradientBottom:Show()
-			end
-			if hl.gradientTop then hl.gradientTop:Hide() end
-			if hl.gradientLeft then hl.gradientLeft:Hide() end
-			if hl.gradientRight then hl.gradientRight:Hide() end
-		else -- "FULL"
-			if hl.gradientTop then
-				hl.gradientTop:SetVertexColor(color:GetRGBA())
-				hl.gradientTop:SetAlpha(overlayAlpha)
-				hl.gradientTop:Show()
-			end
-			if hl.gradientBottom then hl.gradientBottom:Hide() end
-			if hl.gradientLeft then hl.gradientLeft:Hide() end
-			if hl.gradientRight then hl.gradientRight:Hide() end
-		end
+		ApplyGradientColors(hl, color:GetRGBA())
 	else
 		-- 기존 solid 모드
 		HideAllGradients(hl)

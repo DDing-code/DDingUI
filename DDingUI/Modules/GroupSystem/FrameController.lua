@@ -728,6 +728,11 @@ local function InstallCDMHooks()
             -- [FIX] EditMode의 테스트 프레임은 무시하여 Taint 및 에러 방지
             if frame and frame.isEditing then return end
 
+            -- [Ayije 패턴] acquire 시 scale 강제 1 (CDM이 변경할 수 있음)
+            if frame and frame.SetScale then
+                frame:SetScale(1)
+            end
+
             -- 이미 managed 프레임이면 즉시 re-parent (CDM이 viewer 자식으로 되돌린 것 복구)
             if frame and frame._ddIsManaged and frame._ddContainerRef then
                 frame:SetParent(UIParent)
@@ -846,6 +851,123 @@ local function InstallCDMHooks()
                 if FrameController.initialized then
                     ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
                 end
+            end)
+        end
+    end
+
+    -- [HOOK E] Mixin.OnCooldownIDSet — 아이콘 생성 즉시 감지 (Ayije 핵심 패턴)
+    -- CDM이 아이콘에 cooldownID를 할당하는 시점 → 가장 빠른 감지 타이밍
+    -- HOOK C(SetCooldownID)보다 먼저 실행되어 managed 프레임 즉시 snap-back
+    if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
+        hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
+            if not FrameController.initialized then return end
+            if frame and frame.isEditing then return end
+            if frame and frame.SetScale then frame:SetScale(1) end
+            -- managed 프레임 즉시 snap-back
+            if frame and frame._ddIsManaged and frame._ddContainerRef then
+                local parent = frame:GetParent()
+                if parent and parent ~= UIParent then
+                    frame:SetParent(UIParent)
+                    frame:SetFrameStrata("MEDIUM")
+                    if frame._ddContainerRef then
+                        frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
+                    end
+                    if frame._ddTargetPoint then
+                        frame._ddSettingPosition = true
+                        frame:ClearAllPoints()
+                        frame:SetPoint(
+                            frame._ddTargetPoint,
+                            frame._ddContainerRef,
+                            frame._ddTargetRelPoint or "CENTER",
+                            frame._ddTargetX or 0,
+                            frame._ddTargetY or 0
+                        )
+                        frame._ddSettingPosition = false
+                    end
+                end
+            end
+            MarkDirty()
+            if not state.pollingActive then EnablePolling() end
+        end)
+    end
+
+    if CooldownViewerEssentialItemMixin and CooldownViewerEssentialItemMixin.OnCooldownIDSet then
+        hooksecurefunc(CooldownViewerEssentialItemMixin, "OnCooldownIDSet", function(frame)
+            if not FrameController.initialized then return end
+            if frame and frame.isEditing then return end
+            if frame and frame.SetScale then frame:SetScale(1) end
+            if frame and frame._ddIsManaged and frame._ddContainerRef then
+                local parent = frame:GetParent()
+                if parent and parent ~= UIParent then
+                    frame:SetParent(UIParent)
+                    frame:SetFrameStrata("MEDIUM")
+                    if frame._ddContainerRef then
+                        frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
+                    end
+                    if frame._ddTargetPoint then
+                        frame._ddSettingPosition = true
+                        frame:ClearAllPoints()
+                        frame:SetPoint(
+                            frame._ddTargetPoint,
+                            frame._ddContainerRef,
+                            frame._ddTargetRelPoint or "CENTER",
+                            frame._ddTargetX or 0,
+                            frame._ddTargetY or 0
+                        )
+                        frame._ddSettingPosition = false
+                    end
+                end
+            end
+            MarkDirty()
+            if not state.pollingActive then EnablePolling() end
+        end)
+    end
+
+    if CooldownViewerUtilityItemMixin and CooldownViewerUtilityItemMixin.OnCooldownIDSet then
+        hooksecurefunc(CooldownViewerUtilityItemMixin, "OnCooldownIDSet", function(frame)
+            if not FrameController.initialized then return end
+            if frame and frame.isEditing then return end
+            if frame and frame.SetScale then frame:SetScale(1) end
+            if frame and frame._ddIsManaged and frame._ddContainerRef then
+                local parent = frame:GetParent()
+                if parent and parent ~= UIParent then
+                    frame:SetParent(UIParent)
+                    frame:SetFrameStrata("MEDIUM")
+                    if frame._ddContainerRef then
+                        frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
+                    end
+                    if frame._ddTargetPoint then
+                        frame._ddSettingPosition = true
+                        frame:ClearAllPoints()
+                        frame:SetPoint(
+                            frame._ddTargetPoint,
+                            frame._ddContainerRef,
+                            frame._ddTargetRelPoint or "CENTER",
+                            frame._ddTargetX or 0,
+                            frame._ddTargetY or 0
+                        )
+                        frame._ddSettingPosition = false
+                    end
+                end
+            end
+            MarkDirty()
+            if not state.pollingActive then EnablePolling() end
+        end)
+    end
+
+    -- [HOOK F] itemFramePool Acquire/Release — 풀 레벨 즉시 감지 (Ayije 패턴)
+    for globalName, viewer in pairs(viewerRefs) do
+        if viewer.itemFramePool and not viewer._fcPoolHooked then
+            viewer._fcPoolHooked = true
+            hooksecurefunc(viewer.itemFramePool, "Acquire", function()
+                if not FrameController.initialized then return end
+                MarkDirty()
+                if not state.pollingActive then EnablePolling() end
+            end)
+            hooksecurefunc(viewer.itemFramePool, "Release", function()
+                if not FrameController.initialized then return end
+                MarkDirty()
+                if not state.pollingActive then EnablePolling() end
             end)
         end
     end

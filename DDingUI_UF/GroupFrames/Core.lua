@@ -425,8 +425,11 @@ local updateTicker = C_Timer.NewTicker(1, function()
 		if frame and frame:IsVisible() and frame.gfEventsEnabled then
 			local unit = frame.unit
 			if unit then
-				local isAFK = UnitIsAFK(unit)
-				local isOff = not UnitIsConnected(unit)
+				local rawAFK = UnitIsAFK(unit)
+				local rawConn = UnitIsConnected(unit)
+				-- [FIX] WoW 12.0: secret boolean 방어 — boolean test 불가 시 스킵
+				local isAFK = (not issecretvalue(rawAFK)) and rawAFK
+				local isOff = (not issecretvalue(rawConn)) and (not rawConn)
 				if (isAFK or isOff) and GF.UpdateStatusIcons then
 					GF:UpdateStatusIcons(frame)
 				end

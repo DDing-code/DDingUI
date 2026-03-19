@@ -1457,7 +1457,7 @@ local function CaptureBlizzardAuras(frame)
 
 	-- GUID 매핑 (oUF unit ≠ Blizzard unit 일 때 역매핑용)
 	local guid = UnitGUID(unit)
-	if guid then
+	if guid and not (issecretvalue and issecretvalue(guid)) then
 		BlizzardCacheGUIDMap[guid] = unit
 	end
 
@@ -1474,7 +1474,9 @@ local function CaptureBlizzardAuras(frame)
 	if frame.buffFrames then
 		for _, bf in ipairs(frame.buffFrames) do
 			if bf and bf.IsShown and bf:IsShown() and bf.auraInstanceID then
-				cache.buffs[bf.auraInstanceID] = true
+				if not (issecretvalue and issecretvalue(bf.auraInstanceID)) then
+					cache.buffs[bf.auraInstanceID] = true
+				end
 			end
 		end
 	end
@@ -1482,7 +1484,9 @@ local function CaptureBlizzardAuras(frame)
 	if frame.debuffFrames then
 		for _, df in ipairs(frame.debuffFrames) do
 			if df and df.IsShown and df:IsShown() and df.auraInstanceID then
-				cache.debuffs[df.auraInstanceID] = true
+				if not (issecretvalue and issecretvalue(df.auraInstanceID)) then
+					cache.debuffs[df.auraInstanceID] = true
+				end
 			end
 		end
 	end
@@ -1490,7 +1494,9 @@ local function CaptureBlizzardAuras(frame)
 	if frame.dispelDebuffFrames then
 		for _, df in ipairs(frame.dispelDebuffFrames) do
 			if df and df.IsShown and df:IsShown() and df.auraInstanceID then
-				cache.debuffs[df.auraInstanceID] = true
+				if not (issecretvalue and issecretvalue(df.auraInstanceID)) then
+					cache.debuffs[df.auraInstanceID] = true
+				end
 			end
 		end
 	end
@@ -1533,7 +1539,7 @@ local function FindCacheForUnit(unit)
 	end
 	-- GUID 역매핑: oUF "player" ↔ Blizzard "raid1", oUF "party1" ↔ Blizzard "raid3" 등
 	local guid = UnitGUID(unit)
-	if guid then
+	if guid and not (issecretvalue and issecretvalue(guid)) then
 		local cacheUnit = BlizzardCacheGUIDMap[guid]
 		if cacheUnit and BlizzardCacheValid[cacheUnit] then
 			return BlizzardAuraCache[cacheUnit]
@@ -1547,7 +1553,7 @@ local function BlizzardBuffFilter(auraData, unit)
 	local cache = FindCacheForUnit(unit)
 	if cache then
 		local auraInstanceID = auraData.auraInstanceID
-		if auraInstanceID then
+		if auraInstanceID and not (issecretvalue and issecretvalue(auraInstanceID)) then
 			return cache.buffs[auraInstanceID] == true
 		end
 		return false

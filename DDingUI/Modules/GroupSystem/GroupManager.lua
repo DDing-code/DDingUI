@@ -192,8 +192,51 @@ function GroupManager:ClassifyIcon(cooldownID)
     local gs = GetGroupSystemSettings()
     if not gs then return nil end
 
-    -- 1순위: 수동 할당 (spellName 기반)
     local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
+    local cleanSpellName
+    if spellName then
+        cleanSpellName = spellName:match("^buff_(.+)") or spellName
+    end
+
+    -- [0순위] 다이나믹 그룹 (CustomIcons 연동) 네이티브 하이재킹
+    -- CustomIcons UI에서 설정한 버프/주문을 원본 판단하여 다이나믹 그룹으로 보냅니다.
+    local profile = DDingUI.db and DDingUI.db.profile
+    if profile and profile.dynamicIcons and profile.dynamicIcons.groups then
+        local dynDB = profile.dynamicIcons
+        -- 활성화된 그룹만 검사
+        if gs.groups then
+            for gName, gSettings in pairs(gs.groups) do
+                if gSettings.groupType == "dynamic" and gSettings.enabled and gSettings.sourceGroupKey then
+                    local sourceGroup = dynDB.groups[gSettings.sourceGroupKey]
+                    if sourceGroup and sourceGroup.icons then
+                        for _, iconKey in ipairs(sourceGroup.icons) do
+                            local iconData = dynDB.iconData[iconKey]
+                            if iconData then
+                                -- 1. spellID 완전 일치
+                                if iconData.id == cooldownID then
+                                    return gName
+                                end
+                                -- 2. 이름 기반 일치 (Aura 폴백용)
+                                if cleanSpellName then
+                                    if iconData.spellName == cleanSpellName then
+                                        return gName
+                                    end
+                                    if iconData.type == "aura" then
+                                        local spellInfo = C_Spell.GetSpellInfo(iconData.id)
+                                        if spellInfo and spellInfo.name == cleanSpellName then
+                                            return gName
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 1순위: 수동 할당 (spellName 기반)
     if spellName and gs.spellAssignments and gs.spellAssignments[spellName] then
         local assigned = gs.spellAssignments[spellName]
         -- 할당된 그룹이 실제로 존재하고 활성화되어 있는지 확인

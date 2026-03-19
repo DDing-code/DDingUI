@@ -396,39 +396,34 @@ function GF:CreateFrameElements(frame)
 	frame.debuffHighlight.overlay:SetBlendMode("ADD")
 	frame.debuffHighlight.overlay:SetAlpha(0)
 
-	-- [FIX] 그라디언트 오버레이 (DandersFrames 패턴: 가장자리→중앙 페이드)
-	-- 4면(상/하/좌/우) 각각 독립 텍스처로 구성 → SetGradient API로 방향별 페이드
+	-- [FIX] 그라디언트 오버레이 (DandersFrames 패턴: 프리베이크 텍스처)
+	-- GradientV.tga: 알파 그라데이션이 내장된 텍스처 (상=불투명, 하=투명)
+	-- SetTexCoord로 방향 회전 → SetVertexColor만으로 색 적용 (secret-safe)
 	local hl = frame.debuffHighlight
+	local GRAD_TEX = "Interface\\AddOns\\DDingUI_UF\\Media\\GradientV"
+
 	hl.gradientTop = frame.healthBar:CreateTexture(nil, "ARTWORK", nil, 7)
-	hl.gradientTop:SetTexture(FLAT)
+	hl.gradientTop:SetTexture(GRAD_TEX)
+	hl.gradientTop:SetTexCoord(0, 1, 0, 1) -- 기본: 상=불투명, 하=투명
 	hl.gradientTop:SetBlendMode("ADD")
-	if hl.gradientTop.SetGradient then
-		hl.gradientTop:SetGradient("VERTICAL", CreateColor(1, 1, 1, 0), CreateColor(1, 1, 1, 1))
-	end
 	hl.gradientTop:Hide()
 
 	hl.gradientBottom = frame.healthBar:CreateTexture(nil, "ARTWORK", nil, 7)
-	hl.gradientBottom:SetTexture(FLAT)
+	hl.gradientBottom:SetTexture(GRAD_TEX)
+	hl.gradientBottom:SetTexCoord(0, 1, 1, 0) -- 상하 반전: 하=불투명, 상=투명
 	hl.gradientBottom:SetBlendMode("ADD")
-	if hl.gradientBottom.SetGradient then
-		hl.gradientBottom:SetGradient("VERTICAL", CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 0))
-	end
 	hl.gradientBottom:Hide()
 
 	hl.gradientLeft = frame.healthBar:CreateTexture(nil, "ARTWORK", nil, 7)
-	hl.gradientLeft:SetTexture(FLAT)
+	hl.gradientLeft:SetTexture(GRAD_TEX)
+	hl.gradientLeft:SetTexCoord(0, 0, 1, 0, 0, 1, 1, 1) -- 90° 회전: 좌=불투명, 우=투명
 	hl.gradientLeft:SetBlendMode("ADD")
-	if hl.gradientLeft.SetGradient then
-		hl.gradientLeft:SetGradient("HORIZONTAL", CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 0))
-	end
 	hl.gradientLeft:Hide()
 
 	hl.gradientRight = frame.healthBar:CreateTexture(nil, "ARTWORK", nil, 7)
-	hl.gradientRight:SetTexture(FLAT)
+	hl.gradientRight:SetTexture(GRAD_TEX)
+	hl.gradientRight:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1) -- -90° 회전: 우=불투명, 좌=투명
 	hl.gradientRight:SetBlendMode("ADD")
-	if hl.gradientRight.SetGradient then
-		hl.gradientRight:SetGradient("HORIZONTAL", CreateColor(1, 1, 1, 0), CreateColor(1, 1, 1, 1))
-	end
 	hl.gradientRight:Hide()
 
 	-- ========================================

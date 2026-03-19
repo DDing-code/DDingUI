@@ -397,58 +397,35 @@ local function DoFullUpdate()
         CDMHookEngine:ScanCDMViewers()
     end
 
-    -- 1. CDMHookEngine 맵 → 그룹별 분류
+    -- [DYNAMIC] 동적 그룹 동기화 + 업데이트
+    SyncDynamicGroups(gs)
+
+    -- 1. CDMHookEngine 맵 → 그룹별 분류 (동적 그룹 네이티브 하이재킹 포함)
     local classified = GroupManager:ClassifyAll()
 
     -- 2. 렌더링 (CDM 프레임 re-parent)
-    -- [FIX] CDM + dynamic 병합: UpdateGroup이 두 타입 모두 처리
-    local processedDynamicGroups = {}
-    for groupName, iconList in pairs(classified) do
-        local groupSettings = gs.groups and gs.groups[groupName]
-        if groupSettings and groupSettings.enabled then
-            GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
-            -- dynamic 그룹이 CDM 경로에서 처리됨 → UpdateDynamicGroup에서 스킵
-            if groupSettings.groupType == "dynamic" then
-                processedDynamicGroups[groupName] = true
-            end
-        end
-    end
-
-    -- [DYNAMIC] 동적 그룹 동기화 + 업데이트
-    -- [FIX] CDM 경로에서 이미 처리된 동적 그룹은 스킵 (이중 렌더링 방지)
-    SyncDynamicGroups(gs)
-    if gs.groups then
-        for groupName, groupSettings in pairs(gs.groups) do
-            if groupSettings.groupType == "dynamic" and groupSettings.enabled
-               and not processedDynamicGroups[groupName] then
-                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
-            end
-        end
-    end
-
-    -- 비활성/미분류 그룹 숨기기 + 관리 아이콘 해제
-    -- [FIX] 삭제된 그룹의 stale 프레임/mover도 완전 정리
     local staleGroups
+    for groupName, groupSettings in pairs(gs.groups) do
+        if groupSettings.enabled then
+            local iconList = classified[groupName] or {}
+            GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
+        end
+    end
+
+    -- 비활성/미분류 그룹 숨기기 + 삭제 판정
     for groupName, frame in pairs(GroupRenderer.groupFrames) do
         local groupSettings = gs.groups and gs.groups[groupName]
         if not groupSettings then
             -- 설정이 없는 그룹 = 삭제됨 → DestroyGroup으로 완전 정리
             if not staleGroups then staleGroups = {} end
             staleGroups[#staleGroups + 1] = groupName
-        -- [DYNAMIC] 동적 그룹은 classified에 없어도 정상 (별도 업데이트)
-        elseif groupSettings.groupType == "dynamic" then
-            -- 동적 그룹: 위에서 이미 처리됨, 스킵
         elseif not groupSettings.enabled then
             -- 비활성 그룹: 아이콘 해제 + 숨김
             GroupRenderer:ReleaseGroupIcons(frame)
             frame:Hide()
-        elseif not classified[groupName] or #classified[groupName] == 0 then
-            -- [FIX] 활성 그룹이지만 아이콘 0개: 아이콘만 해제, 프레임은 숨기지 않음
-            -- 숨기면 이 그룹에 앵커된 시전바/자원바/다른 그룹의 앵커가 끊어져
-            -- UIParent로 폴백 → 오프셋 누적(엘레베이터 현상) 발생
-            GroupRenderer:ReleaseGroupIcons(frame)
         end
     end
+
     if staleGroups then
         for _, groupName in ipairs(staleGroups) do
             GroupRenderer:DestroyGroup(groupName)
@@ -459,7 +436,6 @@ local function DoFullUpdate()
     if ContainerSync then
         ContainerSync:SyncAll()
     end
-
 end
 
 -- DoFullUpdate를 외부에서 호출 가능하도록 노출 (DynamicIconBridge 등)
@@ -1809,7 +1785,7 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
             local enforceFrame = CreateFrame("Frame")
             enforceFrame:SetScript("OnUpdate", function(self, elapsed)
                 enforceTicks = enforceTicks + elapsed
-                if enforceTicks > 4.0 then
+                if enforceTicks > 1.5 then
                     self:SetScript("OnUpdate", nil)
                     return
                 end
@@ -1836,7 +1812,8 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
         end
 
         -- DDingUI DB가 준비될 때까지 대기
-        C_Timer.After(3, function()
+        -- [Ayije 패턴] 지연 최소화: 3초→0.5초 (Mixin 훅이 즉시 감지하므로 긴 대기 불필요)
+        C_Timer.After(0.5, function()
             if not DDingUI.db then return end
 
             GroupSystem.initialized = true
@@ -1851,13 +1828,14 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
             -- [FIX] 리로드 후 버프(아이콘)가 보이지 않는 현상 해결
             -- 편집모드를 나갈 때 발생하는 이벤트(ForceReconcile + SyncAll)를
             -- 로딩 후 안정화 단계에서 한 번 강제로 발생시켜 뷰어/아이콘 렌더링을 완전히 확정 지음 (유저 제안)
-            C_Timer.After(1.5, function()
+            -- [Ayije 패턴] 안정화 타이머 단축: 1.5초→0.3초, 2.0초→0.5초
+            C_Timer.After(0.3, function()
                 local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
                 if fc and fc.ForceReconcile then
                     fc:ForceReconcile()
                 end
             end)
-            C_Timer.After(2.0, function()
+            C_Timer.After(0.5, function()
                 if DDingUI.ContainerSync then
                     DDingUI.ContainerSync:SyncAll()
                 end

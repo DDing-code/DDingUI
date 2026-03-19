@@ -739,9 +739,9 @@ function GF:UpdateStatusIcons(frame)
 		-- 우선순위: Dead/Ghost > Offline > 소환 > AFK
 		if isDeadOrGhostSI then
 			if isGhostSI then
-				frame.statusText:SetText("|cff999999|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:12|t Ghost|r")
+				frame.statusText:SetText("|cff999999|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:16:16:0:-1|tGhost|r")
 			else
-				frame.statusText:SetText("|cffcc3333|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:12|t Dead|r")
+				frame.statusText:SetText("|cffcc3333|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:16:16:0:-1|tDead|r")
 			end
 			frame.statusText:Show()
 			frame._afkStartTime = nil
@@ -754,25 +754,25 @@ function GF:UpdateStatusIcons(frame)
 			local elapsed = GetTime() - frame._offlineStartTime
 			local offText
 			if elapsed >= 3600 then
-				offText = string.format("|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:12|t Offline %dh%dm|r", elapsed / 3600, (elapsed % 3600) / 60)
+				offText = string.format("|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:16:16:0:-1|tOffline %dh%dm|r", elapsed / 3600, (elapsed % 3600) / 60)
 			elseif elapsed >= 60 then
-				offText = string.format("|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:12|t Offline %dm%ds|r", elapsed / 60, elapsed % 60)
+				offText = string.format("|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:16:16:0:-1|tOffline %dm%ds|r", elapsed / 60, elapsed % 60)
 			else
-				offText = "|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:12|t Offline|r"
+				offText = "|cff999999|TInterface\\FriendsFrame\\StatusIcon-Offline:16:16:0:-1|tOffline|r"
 			end
 			frame.statusText:SetText(offText)
 			frame.statusText:Show()
 			frame._afkStartTime = nil
 		elseif summonStatus == 1 then -- Pending
-			frame.statusText:SetText("|cff00ccff|TInterface\\Icons\\Spell_Magic_SummonFast:12|t \xEC\x86\x8C\xED\x99\x98 \xEB\x8C\x80\xEA\xB8\xB0\xEC\xA4\x91|r")
+			frame.statusText:SetText("|cff00ccff|TInterface\\Icons\\Spell_Magic_SummonFast:16:16:0:-1|t소환 대기중|r")
 			frame.statusText:Show()
 			frame._offlineStartTime = nil
 		elseif summonStatus == 2 then -- Accepted
-			frame.statusText:SetText("|cff00ff00|TInterface\\RaidFrame\\ReadyCheck-Ready:12|t \xEC\x86\x8C\xED\x99\x98 \xEC\x88\x98\xEB\x9D\xBD|r")
+			frame.statusText:SetText("|cff00ff00|TInterface\\RaidFrame\\ReadyCheck-Ready:16:16:0:-1|t소환 수락|r")
 			frame.statusText:Show()
 			frame._offlineStartTime = nil
 		elseif summonStatus == 3 then -- Declined
-			frame.statusText:SetText("|cffff3333|TInterface\\RaidFrame\\ReadyCheck-NotReady:12|t \xEC\x86\x8C\xED\x99\x98 \xEA\xB1\xB0\xEC\xA0\x88|r")
+			frame.statusText:SetText("|cffff3333|TInterface\\RaidFrame\\ReadyCheck-NotReady:16:16:0:-1|t소환 거절|r")
 			frame.statusText:Show()
 			frame._offlineStartTime = nil
 		elseif isAFK then
@@ -783,11 +783,11 @@ function GF:UpdateStatusIcons(frame)
 			local elapsed = GetTime() - frame._afkStartTime
 			local afkText
 			if elapsed >= 3600 then
-				afkText = string.format("|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:12|t AFK %dh%dm|r", elapsed / 3600, (elapsed % 3600) / 60)
+				afkText = string.format("|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:16:16:0:-1|tAFK %dh%dm|r", elapsed / 3600, (elapsed % 3600) / 60)
 			elseif elapsed >= 60 then
-				afkText = string.format("|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:12|t AFK %dm%ds|r", elapsed / 60, elapsed % 60)
+				afkText = string.format("|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:16:16:0:-1|tAFK %dm%ds|r", elapsed / 60, elapsed % 60)
 			else
-				afkText = "|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:12|t AFK|r"
+				afkText = "|cffcccc00|TInterface\\FriendsFrame\\StatusIcon-Away:16:16:0:-1|tAFK|r"
 			end
 			frame.statusText:SetText(afkText)
 			frame.statusText:Show()
@@ -1082,11 +1082,11 @@ function GF:UpdateHealPrediction(frame)
 			haBar:SetMinMaxValues(0, maxHealth)
 			haBar:SetValue(healAbsorb)
 
-			-- [FIX] 텍스쳐 적용: 위젯별(기본 WHITE8x8 제외) → 글로벌 미디어 텍스처 fallback (LSM 변환 적용)
+			-- [FIX] 텍스쳐 적용: 위젯별 → 글로벌 미디어 텍스처 fallback (LSM 변환 적용)
 			local haTexRaw = haDB.texture
-			local haTexture = (haTexRaw and haTexRaw ~= [[Interface\Buttons\WHITE8x8]] and haTexRaw) or (ns.db and ns.db.media and ns.db.media.texture)
+			local haTexture = haTexRaw or (ns.db and ns.db.media and ns.db.media.texture)
 			local resolvedTex = ResolveLSM("statusbar", haTexture)
-			if resolvedTex and resolvedTex ~= [[Interface\Buttons\WHITE8x8]] then
+			if resolvedTex then
 				haBar:SetStatusBarTexture(resolvedTex)
 			end
 
