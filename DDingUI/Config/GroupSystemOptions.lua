@@ -489,11 +489,8 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                                     if iconKey and sourceKey then
                                         ci:MoveIconToGroup(iconKey, sourceKey)
                                     end
-                                    -- CDM 기본 뷰어에서 해당 buff 제거 (중복 방지)
-                                    local GroupMgr = DDingUI.GroupManager
-                                    if GroupMgr and self.spellName then
-                                        GroupMgr:AssignSpell(self.spellName, groupName)
-                                    end
+                                    -- [FIX] AssignSpell 제거: dynamicIcons DB의 0순위 매칭만으로 충분
+                                    -- 이중 등록(dynamicIcons + spellAssignments)으로 삭제 시 두 번 해야 하는 버그 방지
                                     SoftRefreshDynamicIcons()
                                 else
                                     print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
@@ -750,11 +747,25 @@ local function BuildAssignedSpellsArgs(groupName)
                                 iconIdx = iconIdx,
                             },
                             func = function()
+                                -- [FIX] 관련 spellAssignments를 먼저 제거 (RemoveDynamicIcon이 iconData를 삭제하므로)
+                                local gsCur = GetGS()
+                                if gsCur and gsCur.spellAssignments then
+                                    local dynDBCur = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+                                    local iconDataCur = dynDBCur and dynDBCur.iconData and dynDBCur.iconData[capturedIconKey]
+                                    if iconDataCur and iconDataCur.id then
+                                        local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconDataCur.id)
+                                        if spellInfo and spellInfo.name then
+                                            -- buff_ 접두사 버전과 일반 이름 둘 다 제거
+                                            gsCur.spellAssignments["buff_" .. spellInfo.name] = nil
+                                            gsCur.spellAssignments[spellInfo.name] = nil
+                                        end
+                                    end
+                                end
                                 -- 클릭 = 삭제
                                 if DDingUI.CustomIcons and DDingUI.CustomIcons.RemoveDynamicIcon then
                                     DDingUI.CustomIcons:RemoveDynamicIcon(capturedIconKey)
-                                    SoftRefreshDynamicIcons()
                                 end
+                                SoftRefreshDynamicIcons()
                             end,
                         }
                     end

@@ -1519,10 +1519,72 @@ function GF:UpdatePrivateAuraAnchors(frame)
 				},
 				borderScale = paBorderScale,
 			},
+			-- [FIX] durationAnchor: 지속시간 텍스트 위치 커스터마이즈
+			durationAnchor = {
+				point = "CENTER",
+				relativeTo = anchor,
+				relativePoint = "CENTER",
+				offsetX = 0,
+				offsetY = 0,
+			},
 		}
 		local ok, anchorID = pcall(C_UnitAuras.AddPrivateAuraAnchor, auraAnchorInfo)
 		if ok and anchorID then
 			anchor._auraAnchorID = anchorID
+
+			-- [FIX] 포스트-생성 스키닝: 블리자드가 만든 자식 프레임들 재스타일
+			-- ElvUI/BigWigs 패턴: GetChildren/GetRegions로 자식 요소 탐색 후 재스타일
+			C_Timer.After(0, function()
+				if not anchor:IsShown() then return end
+				-- 자식 프레임 스킨 (쿨다운, 카운트다운 텍스트 등)
+				local children = { anchor:GetChildren() }
+				for _, child in ipairs(children) do
+					-- 쿨다운 프레임의 FontString (카운트다운 텍스트) 크기 조절
+					local regions = { child:GetRegions() }
+					for _, region in ipairs(regions) do
+						if region:GetObjectType() == "FontString" then
+							local fontPath, _, fontFlags = region:GetFont()
+							if fontPath then
+								local fontSize = paDB and paDB.durationFontSize or 10
+								region:SetFont(fontPath, fontSize, fontFlags or "OUTLINE")
+							end
+						elseif region:GetObjectType() == "Texture" then
+							-- 아이콘 텍스처: texcoord 크롭 적용
+							local texFile = region:GetTexture()
+							if texFile and type(texFile) == "number" then
+								region:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+							end
+						end
+					end
+					-- 재귀: 쿨다운 안의 카운트다운 프레임
+					local subChildren = { child:GetChildren() }
+					for _, sub in ipairs(subChildren) do
+						local subRegions = { sub:GetRegions() }
+						for _, region in ipairs(subRegions) do
+							if region:GetObjectType() == "FontString" then
+								local fontPath, _, fontFlags = region:GetFont()
+								if fontPath then
+									local fontSize = paDB and paDB.durationFontSize or 10
+									region:SetFont(fontPath, fontSize, fontFlags or "OUTLINE")
+								end
+							end
+						end
+					end
+				end
+				-- 앵커 자체의 regions (블리자드 border 텍스처 등)
+				local anchorRegions = { anchor:GetRegions() }
+				for _, region in ipairs(anchorRegions) do
+					if region:GetObjectType() == "Texture" then
+						local texFile = region:GetTexture()
+						-- 보더 텍스처 (icon이 아닌 것)는 숨기거나 축소
+						if texFile and type(texFile) ~= "number" then
+							-- 보더 텍스처 인셋 조정 (1px 보더)
+							region:SetPoint("TOPLEFT", anchor, "TOPLEFT", -1, 1)
+							region:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 1, -1)
+						end
+					end
+				end
+			end)
 		end
 	end
 end
