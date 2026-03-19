@@ -869,13 +869,37 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     -- [REPARENT] 1단계: SetupFrameInContainer + SkinIcon (텍스처/테두리/글로우)
     -- SkinIcon이 LayoutGroup보다 먼저 실행 → LayoutGroup이 최종 크기 결정 (rowIconSizes 보존)
+
+    -- [Ayije 통합] DynBridge 아이콘도 combinedList에 합류 — 하나의 코드 경로
+    if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
+        local DynBridge = DDingUI.DynamicIconBridge
+        if DynBridge and DynBridge.GetActiveIconsForGroup then
+            local dynIcons = DynBridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey)
+            for _, dynEntry in ipairs(dynIcons) do
+                local dynFrame = dynEntry.frame
+                if dynFrame and not newSet[dynFrame] then
+                    newSet[dynFrame] = true
+                    combinedList[#combinedList + 1] = {
+                        icon = dynFrame,
+                        isDynBridge = true,
+                        iconKey = dynEntry.iconKey,
+                        iconData = dynEntry.iconData,
+                    }
+                end
+            end
+        end
+    end
+
+    -- [Ayije 통합] 하나의 루프에서 CDM + DynBridge 모든 아이콘 처리
+    local isVirtual = viewerName and viewerName:match("^DDingUI_VV_")
     local idx = 0
     for i, entry in ipairs(combinedList) do
         local icon = entry.icon
 
         if icon then
-            local iconData = nil
-            if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
+            -- iconData resolve — CDM 하이재킹(spellID/spellName 매칭) 또는 DynBridge 직접 전달
+            local iconData = entry.iconData  -- DynBridge는 직접 전달
+            if not iconData and groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
                 local dynDB = GetDynamicDB()
                 local sourceGroup = dynDB and dynDB.groups[groupSettings.sourceGroupKey]
                 if sourceGroup and sourceGroup.icons then
@@ -893,16 +917,32 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
                     and not GroupRenderer._forceFullSetup
                 if not alreadyManaged then
-                    fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
+                    -- [Ayije 통합] 통일된 SetupFrameInContainer (CDM + DynBridge 모두)
+                    if entry.isDynBridge then
+                        -- DynBridge 프레임: iconKey 기반 관리
+                        fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, nil)
+                        icon._ddIconKey = entry.iconKey
+                    else
+                        -- CDM 프레임: cooldownID 기반 관리
+                        fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
+                    end
 
-                    if iconData then
-                        -- [다이나믹 아이콘 스키닝]
-                        -- 1) 그룹 전체 옵션 적용 (폰트, 배경, 공통 두께 등)
-                        if IconViewers and IconViewers.SkinIcon then
-                            pcall(IconViewers.SkinIcon, IconViewers, icon, groupSettings)
+                    -- [Ayije 통합] 통일된 SkinIcon — 항상 groupSettings 사용
+                    -- CDM 3대 그룹만 원본 뷰어 설정 사용 (IconViewers 옵션)
+                    if IconViewers and IconViewers.SkinIcon then
+                        local skinSettings
+                        if isVirtual or iconData then
+                            skinSettings = groupSettings
+                        else
+                            local srcViewer = entry.cooldownID and fc:GetIconSource(entry.cooldownID)
+                            if srcViewer then icon._ddSourceViewer = srcViewer end
+                            skinSettings = (srcViewer and viewers and viewers[srcViewer]) or groupSettings
                         end
+                        pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
+                    end
 
-                        -- 2) 개별 아이콘 설정(Aura 디자이너) 오버라이드
+                    -- 개별 아이콘 설정 오버라이드 (Aura 디자이너)
+                    if iconData and icon.icon then
                         if iconData.useCustomTex and iconData.texID then
                             icon.icon:SetTexture(iconData.texID)
                         end
@@ -911,35 +951,15 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         else
                             icon.icon:SetDesaturated(false)
                         end
-                        if iconData.borderColor then
-                            if icon.border then
-                                icon.border:SetVertexColor(unpack(iconData.borderColor))
-                            end
-                        end
-                    else
-                        -- [일반 CDM 아이콘 스키닝]
-                        if IconViewers and IconViewers.SkinIcon and entry.cooldownID then
-                            local srcViewer = fc:GetIconSource(entry.cooldownID)
-                            if srcViewer then
-                                icon._ddSourceViewer = srcViewer
-                            end
-                            -- [FIX] CDM 3대 그룹 vs 커스텀 그룹 설정 소스 분기
-                            -- CDM 3대(Essential/Utility/Buff): profile.viewers[srcViewer] 사용 (IconViewers 옵션)
-                            -- 커스텀 그룹(DDingUI_VV_ 접두사): groupSettings 사용 (GroupSystem 옵션)
-                            local skinSettings
-                            local isVirtual = viewerName and viewerName:match("^DDingUI_VV_")
-                            if isVirtual then
-                                skinSettings = groupSettings
-                            else
-                                skinSettings = srcViewer and viewers and viewers[srcViewer]
-                            end
-                            if skinSettings then
-                                pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
-                            end
+                        if iconData.borderColor and icon.border then
+                            icon.border:SetVertexColor(unpack(iconData.borderColor))
                         end
                     end
                 else
                     icon._ddLastCooldownID = entry.cooldownID
+                    if entry.isDynBridge then
+                        icon._ddIconKey = entry.iconKey
+                    end
                     if iconData and icon.icon then
                         ApplyTexCoordCrop(icon.icon, groupSettings.zoom, groupSettings.aspectRatioCrop)
                     end
@@ -948,7 +968,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 frame._managedIcons[idx] = icon
             end
 
-            -- [FIX] OnHide → dirty 컨테이너 등록 (C_Timer.After 제거, OnUpdate 배치 처리)
+            -- OnHide → dirty 컨테이너 등록
             if not icon._ddLayoutHooked then
                 icon._ddLayoutHooked = true
                 icon:HookScript("OnHide", function(self)
@@ -957,57 +977,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     if not (p and p._isDDContainer and p._groupName) then return end
                     GroupRenderer:MarkContainerDirty(p)
                 end)
-            end
-        end
-    end
-    -- [FIX] Dynamic 그룹: DynamicIconBridge(CustomIcons) 아이콘도 _managedIcons에 합류
-    -- CDM 하이재킹 아이콘만으로는 LayoutGroup에서 DynBridge 아이콘이 빠짐
-    if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
-        local DynBridge = DDingUI.DynamicIconBridge
-        if DynBridge and DynBridge.GetActiveIconsForGroup then
-            local dynIcons = DynBridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey)
-            for _, dynEntry in ipairs(dynIcons) do
-                local dynFrame = dynEntry.frame
-                if dynFrame and not newSet[dynFrame] then
-                    -- DynBridge 자체 SetupFrameInContainer으로 reparent + size + snap-back
-                    DynBridge:SetupFrameInContainer(
-                        dynFrame, frame,
-                        baseIconW, baseIconH,
-                        dynEntry.iconKey,
-                        groupSettings.zoom or 0.08,
-                        groupSettings.aspectRatioCrop or 1.0
-                    )
-
-                    -- [스키닝] groupSettings 기반
-                    if IconViewers and IconViewers.SkinIcon then
-                        pcall(IconViewers.SkinIcon, IconViewers, dynFrame, groupSettings)
-                    end
-
-                    -- 개별 아이콘 설정 오버라이드
-                    local iconData = dynEntry.iconData
-                    if iconData then
-                        if iconData.useCustomTex and iconData.texID and dynFrame.icon then
-                            dynFrame.icon:SetTexture(iconData.texID)
-                        end
-                        if iconData.borderColor and dynFrame.border then
-                            dynFrame.border:SetVertexColor(unpack(iconData.borderColor))
-                        end
-                    end
-
-                    idx = idx + 1
-                    frame._managedIcons[idx] = dynFrame
-
-                    -- OnHide → dirty 컨테이너
-                    if not dynFrame._ddLayoutHooked then
-                        dynFrame._ddLayoutHooked = true
-                        dynFrame:HookScript("OnHide", function(self)
-                            if not self._ddIsManaged then return end
-                            local p = self._ddContainerRef
-                            if not (p and p._isDDContainer and p._groupName) then return end
-                            GroupRenderer:MarkContainerDirty(p)
-                        end)
-                    end
-                end
             end
         end
     end
