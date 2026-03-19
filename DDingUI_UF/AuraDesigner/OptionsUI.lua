@@ -388,7 +388,7 @@ RefreshPlacedIndicators = function()
 
                 if indicator.type == "icon" then
                     local tex = O.GetAuraIcon(spec, auraName)
-                    local mockData = { spellId = 0, icon = tex, duration = 15, expirationTime = GetTime() + 10, stacks = 3 }
+                    local mockData = { spellId = 0, icon = tex, duration = PREVIEW_CYCLE_DURATION, expirationTime = GetTime() + PREVIEW_CYCLE_DURATION, stacks = 3 }
                     Indicators:ApplyIcon(mockFrame, indicator, mockData, adDB.defaults, instanceKey)
                     local iconMap = mockFrame.dfAD_icons or mockFrame.ddAD_icons
                     local icon = iconMap and iconMap[instanceKey]

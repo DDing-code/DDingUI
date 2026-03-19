@@ -1442,10 +1442,36 @@ local function CreateGroupOptions(groupName, order)
         if vo.rowLimit then layoutArgs.rowLimit = CopyVO(vo, "rowLimit", 13, true) end
     end
 
-    -- [12.0.1] 커스텀 그룹: 레이아웃 옵션 setter를 RefreshGroupLayout()으로 교체
-    -- GS_Range/GS_Select의 기본 setter는 RefreshGroupSystem()(=_forceFullSetup)을 호출하므로
-    -- 아이콘 크기/간격/방향 변경 시 깜빡임 발생 → 레이아웃만 갱신하도록 변경
+    -- [12.0.1][FIX] 커스텀 그룹: 레이아웃 옵션 setter를 직접 LayoutGroup 호출로 교체
+    -- Ayije CDM 리팩토링 후, DoFullUpdate 파이프라인(Refresh/Reconcile)이
+    -- SetupFrameInContainer snap-back과 충돌하여 커스텀 그룹 레이아웃이 갱신되지 않음
+    -- → 값 저장 후 해당 그룹만 LayoutGroup 직접 호출 (파이프라인 완전 우회)
     if not isCDM then
+        -- 커스텀 그룹의 groupSettings → vs 변환 + LayoutGroup 직접 호출
+        local function DirectRelayout()
+            local GR = DDingUI.GroupRenderer
+            if not GR or not GR.groupFrames then return end
+            local frame = GR.groupFrames[groupName]
+            if not frame or not frame._managedIcons then return end
+
+            local gsNow = GetGS()
+            local grp = gsNow and gsNow.groups and gsNow.groups[groupName]
+            if not grp then return end
+
+            local vs = {
+                iconSize = grp.iconSize or 32,
+                aspectRatioCrop = grp.aspectRatioCrop or 1.0,
+                spacing = grp.spacing or 2,
+                primaryDirection = grp.direction or "RIGHT",
+                secondaryDirection = grp.growDirection,
+                rowLimit = grp.rowLimit or 0,
+                rowIconSizes = grp.rowIconSizes,
+            }
+
+            -- 아이콘 크기도 직접 갱신 (LayoutGroup 내부에서 처리)
+            GR:LayoutGroup(frame, vs, nil)
+        end
+
         local LAYOUT_OPT_KEYS = {
             { arg = "iconSize",    dbKey = "iconSize" },
             { arg = "spacing",     dbKey = "spacing" },
@@ -1454,7 +1480,6 @@ local function CreateGroupOptions(groupName, order)
             { arg = "aspectRatio", dbKey = "aspectRatioCrop" },
             { arg = "groupAlpha",  dbKey = "groupAlpha" },
             { arg = "rowLimit",    dbKey = "rowLimit" },
-            -- [FIX] offsetX/offsetY 제거: 앵커 재적용이 필요하므로 RefreshGroupSystem() 유지
         }
         for _, info in ipairs(LAYOUT_OPT_KEYS) do
             local opt = layoutArgs[info.arg]
@@ -1464,7 +1489,7 @@ local function CreateGroupOptions(groupName, order)
                     local gs = GetGS()
                     if gs and gs.groups[groupName] then
                         gs.groups[groupName][dbKey] = val
-                        RefreshGroupLayout()
+                        DirectRelayout()
                     end
                 end
             end
@@ -1478,7 +1503,7 @@ local function CreateGroupOptions(groupName, order)
                     local gs = GetGS()
                     if gs and gs.groups[groupName] then
                         gs.groups[groupName][dbKey] = val
-                        RefreshGroupLayout()
+                        DirectRelayout()
                     end
                 end
             end
