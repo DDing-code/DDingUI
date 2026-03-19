@@ -817,11 +817,11 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         return
     end
 
-    -- 이제 GroupManager:ClassifyIcon에서 원본 CDM 아이콘 자체를 분류해주므로
-    -- 다이나믹 아이콘 생성/스킵 등의 이중 로직이 필요 없습니다. (네이티브 하이재킹)
+    -- [Ayije 통합] CDM + DynBridge 아이콘을 모두 combinedList에 수집 (release 체크 전!)
     local newSet = {}
     local combinedList = {}
 
+    -- 1. CDM 아이콘 수집
     for i, entry in ipairs(iconList) do
         if entry.icon then
             newSet[entry.icon] = true
@@ -829,6 +829,28 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             combinedList[#combinedList + 1] = entry
         end
     end
+
+    -- 2. DynBridge 아이콘 수집 (release 체크 전에 newSet에 등록)
+    if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
+        local DynBridge = DDingUI.DynamicIconBridge
+        if DynBridge and DynBridge.GetActiveIconsForGroup then
+            local dynIcons = DynBridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey)
+            for _, dynEntry in ipairs(dynIcons) do
+                local dynFrame = dynEntry.frame
+                if dynFrame and not newSet[dynFrame] then
+                    newSet[dynFrame] = true
+                    combinedList[#combinedList + 1] = {
+                        icon = dynFrame,
+                        isDynBridge = true,
+                        iconKey = dynEntry.iconKey,
+                        iconData = dynEntry.iconData,
+                    }
+                end
+            end
+        end
+    end
+
+    -- 3. 제거 대상 아이콘 해제 (newSet에 없는 이전 아이콘)
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] then
             if icon._ddIconKey then
@@ -869,26 +891,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     -- [REPARENT] 1단계: SetupFrameInContainer + SkinIcon (텍스처/테두리/글로우)
     -- SkinIcon이 LayoutGroup보다 먼저 실행 → LayoutGroup이 최종 크기 결정 (rowIconSizes 보존)
-
-    -- [Ayije 통합] DynBridge 아이콘도 combinedList에 합류 — 하나의 코드 경로
-    if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
-        local DynBridge = DDingUI.DynamicIconBridge
-        if DynBridge and DynBridge.GetActiveIconsForGroup then
-            local dynIcons = DynBridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey)
-            for _, dynEntry in ipairs(dynIcons) do
-                local dynFrame = dynEntry.frame
-                if dynFrame and not newSet[dynFrame] then
-                    newSet[dynFrame] = true
-                    combinedList[#combinedList + 1] = {
-                        icon = dynFrame,
-                        isDynBridge = true,
-                        iconKey = dynEntry.iconKey,
-                        iconData = dynEntry.iconData,
-                    }
-                end
-            end
-        end
-    end
 
     -- [Ayije 통합] 하나의 루프에서 CDM + DynBridge 모든 아이콘 처리
     local isVirtual = viewerName and viewerName:match("^DDingUI_VV_")
