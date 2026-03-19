@@ -222,9 +222,14 @@ function GroupManager:ClassifyIcon(cooldownID)
                                         return gName
                                     end
                                     if iconData.type == "aura" then
-                                        local spellInfo = C_Spell.GetSpellInfo(iconData.id)
-                                        if spellInfo and spellInfo.name == cleanSpellName then
-                                            return gName
+                                        -- [FIX] aura 매칭은 BuffIconCooldownViewer 소속만 (buff_ 접두사)
+                                        -- 같은 이름의 스펠(Essential/Utility)이 잘못 끌려오는 것 방지
+                                        local isBuffViewer = spellName and spellName:match("^buff_")
+                                        if isBuffViewer then
+                                            local spellInfo = C_Spell.GetSpellInfo(iconData.id)
+                                            if spellInfo and spellInfo.name == cleanSpellName then
+                                                return gName
+                                            end
                                         end
                                     end
                                 end
