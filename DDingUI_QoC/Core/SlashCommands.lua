@@ -62,9 +62,15 @@ local function SlashHandler(msg)
         }
         StaticPopup_Show("DDINGQOC_RESET_CONFIRM")
 
+    elseif command == "move" or command == "unlock" then
+        if ns.QoCMovers then
+            ns.QoCMovers:ToggleConfigMode()
+        end
+
     else
         print(CHAT_PREFIX .. "Commands:") -- [STYLE]
         print("  /qoc - Open config UI")
+        print("  /qoc move - Toggle edit mode")
         print("  /qoc enable <module> - Enable module")
         print("  /qoc disable <module> - Disable module")
         print("  /qoc list - List all modules")

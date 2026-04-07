@@ -91,6 +91,39 @@ local SPEC_LIST = {
     {id=1473, name="Augmentation", classID=13, icon=5198700},
 }
 
+-- [RACIALS] 종족 특성 매핑 (자동 감지용)
+local RACIAL_SPELLS = {
+    Human       = 59752,  -- Will to Survive
+    Orc         = 20572,  -- Blood Fury
+    NightElf    = 58984,  -- Shadowmeld
+    Dwarf       = 20594,  -- Stoneform
+    Undead      = 7744,   -- Will of the Forsaken
+    Troll       = 26297,  -- Berserking
+    BloodElf    = 25046,  -- Arcane Torrent
+    Gnome       = 20589,  -- Escape Artist
+    Draenei     = 28880,  -- Gift of the Naaru
+    Worgen      = 68992,  -- Darkflight
+    Goblin      = 69070,  -- Rocket Jump
+    Pandaren    = 107079, -- Quaking Palm
+    VoidElf     = 256948, -- Spatial Rift
+    LightforgedDraenei = 255647, -- Light's Judgment
+    DarkIronDwarf  = 265221, -- Fireblood
+    KulTiran    = 287712, -- Haymaker
+    Mechagnome  = 312924, -- Hyper Organic Light Originator
+    Nightborne  = 260364, -- Arcane Pulse
+    HighmountainTauren = 255654, -- Bull Rush
+    MagharOrc   = 274738, -- Ancestral Call
+    ZandalariTroll = 291944, -- Regeneratin'
+    Vulpera     = 312411, -- Bag of Tricks
+    Dracthyr    = 368970, -- Tail Swipe
+}
+
+local function GetPlayerRacialSpellID()
+    local _, raceKey = UnitRace("player")
+    local raceFile = (raceKey or ""):gsub("%s", ""):gsub("^%l", string.upper)
+    return RACIAL_SPELLS[raceFile]
+end
+
 -- [REFACTOR] CreateBackdrop은 GUI.lua로 이동됨 → EnsureGUILoaded()에서 lazy-load
 
 -- Runtime containers
@@ -239,6 +272,42 @@ end
 -- ------------------------
 local IsCooldownFrameActive
 
+-- [Ayije CDM 방식] 아이템 → 스펠 쿨다운 매핑
+-- 아이템 쿨다운이 전투 중 보이지 않을 때(combatLockout 등) 스펠 쿨다운으로 폴백
+local ITEM_SPELL_MAP = {
+    [5512]   = 6262,    -- Healthstone → Use: Healthstone
+    [224464] = 452930,  -- Demonic Healthstone → Use: Demonic Healthstone
+    [241304] = 1234768, -- Silvermoon Health Potion R2
+    [241305] = 1234768, -- Silvermoon Health Potion R1
+    [241308] = 1236616, -- Light's Potential R2
+    [241309] = 1236616, -- Light's Potential R1
+    [241300] = 1234770, -- Lightfused Mana Potion R2
+    [241301] = 1234770, -- Lightfused Mana Potion R1
+}
+local ITEM_COOLDOWN_MIN_SECONDS = 1.6
+
+-- [FIX] Combat Lockout Tracker for Items (like Healthstones in DF/TWW)
+local combatLockoutSpells = {
+    [6262] = 5512,
+    [452930] = 224464,
+}
+local inCombatLockout = {}
+
+local lockoutTracker = CreateFrame("Frame")
+lockoutTracker:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+lockoutTracker:RegisterEvent("PLAYER_REGEN_ENABLED")
+lockoutTracker:SetScript("OnEvent", function(self, event, ...)
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local _, _, spellID = ...
+        if combatLockoutSpells[spellID] and InCombatLockdown() then
+            local targetItemID = combatLockoutSpells[spellID]
+            inCombatLockout[targetItemID] = true
+        end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        wipe(inCombatLockout)
+    end
+end)
+
 local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
     if not itemID or not iconFrame then return end
@@ -285,14 +354,61 @@ local function UpdateItemIcon(iconFrame, iconData)
         iconFrame.icon:SetTexture(iconFrame._originalTexture)
     end
 
-    local start, duration = GetItemCooldown(activeItemID)
-    -- SetCooldown is a Blizzard widget call (safe with secret values)
-    -- Do NOT compare duration > 1.5 — secret values in combat cannot be compared (WoW 12.0+)
+    -- [Ayije CDM 방식] 아이템 쿨다운 처리
+    -- 1. 스펠 기반 DurationObject (전투 중 secret value 안전)
+    local itemSpellID = ITEM_SPELL_MAP[activeItemID] or (iconData.settings and iconData.settings.itemSpellID)
+    local SCD = itemSpellID and C_Spell.GetSpellCooldownDuration(itemSpellID) or nil
+
+    -- 2. 아이템 쿨다운 직접 조회
+    local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
+    local itemCdStart, itemCdDuration = 0, 0
     pcall(function()
-        if start and duration then
-            iconFrame.cooldown:SetCooldown(start, duration)
+        itemCdStart, itemCdDuration = getItemCD(activeItemID)
+    end)
+    local hasItemCooldown = false
+    if itemCdStart and itemCdDuration then
+        if issecretvalue and issecretvalue(itemCdDuration) then
+            hasItemCooldown = true
+        elseif type(itemCdDuration) == "number" and itemCdDuration >= ITEM_COOLDOWN_MIN_SECONDS then
+            hasItemCooldown = true
+        end
+    end
+
+    -- 3. GCD 체크 (스펠 기반)
+    local isOnGCD = false
+    if SCD then
+        pcall(function()
+            local cdInfo = C_Spell.GetSpellCooldown(itemSpellID)
+            if cdInfo and cdInfo.isOnGCD then
+                isOnGCD = true
+            end
+        end)
+    end
+
+    -- 4. 쿨다운 설정 (Ayije 우선순위: item cooldown > spell cooldown > clear)
+    local cooldownWasSet = false
+    pcall(function()
+        if hasItemCooldown then
+            -- 아이템 쿨다운이 보이면 직접 사용 (가장 정확, duration >= 1.6s 검증됨)
+            iconFrame.cooldown:SetCooldown(itemCdStart, itemCdDuration)
             if iconFrame.cooldownProbe then
-                iconFrame.cooldownProbe:SetCooldown(start, duration)
+                iconFrame.cooldownProbe:SetCooldown(itemCdStart, itemCdDuration)
+            end
+            cooldownWasSet = true
+        elseif not isOnGCD and SCD then
+            iconFrame.cooldown:SetCooldownFromDurationObject(SCD)
+            if iconFrame.cooldownProbe then
+                iconFrame.cooldownProbe:SetCooldownFromDurationObject(SCD)
+            end
+            -- [FIX] SCD는 쿨다운 없을 때도 0-duration DurationObject를 반환할 수 있음
+            -- SetCooldownFromDurationObject 후 GetCooldownTimes로 실제 쿨다운 검증
+            local cdStart, cdDur = iconFrame.cooldown:GetCooldownTimes()
+            if cdDur then
+                if issecretvalue and issecretvalue(cdDur) then
+                    cooldownWasSet = true
+                elseif type(cdDur) == "number" and cdDur > 0 then
+                    cooldownWasSet = true
+                end
             end
         else
             iconFrame.cooldown:Clear()
@@ -301,8 +417,14 @@ local function UpdateItemIcon(iconFrame, iconData)
             end
         end
     end)
-    -- Use visibility-based check to avoid arithmetic on secret values (WoW 12.0+)
-    local onCooldown = IsCooldownFrameActive(iconFrame.cooldownProbe or iconFrame.cooldown)
+
+    -- [FIX] onCooldown: hasItemCooldown이 확실하면 직접 사용, SCD는 검증 후 사용
+    local onCooldown = cooldownWasSet
+
+    -- IsVisible 폴백: cooldownWasSet이 false여도 프레임이 이미 보이면 쿨다운 활성
+    if not onCooldown then
+        onCooldown = IsCooldownFrameActive(iconFrame.cooldownProbe or iconFrame.cooldown)
+    end
 
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
@@ -315,7 +437,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     end
 
     if iconFrame.count then
-        iconFrame.count:SetText(itemCount or 0)
+        pcall(iconFrame.count.SetText, iconFrame.count, itemCount or 0)
         if iconData.settings and iconData.settings.showCharges == false then
             iconFrame.count:Hide()
         else
@@ -337,10 +459,15 @@ local function UpdateItemIcon(iconFrame, iconData)
             wantDesat = allowCooldownDesat and onCooldown
             alpha = 1.0
         end
+    elseif inCombatLockout[activeItemID] or inCombatLockout[itemID] then
+        if allowCooldownDesat then
+            wantDesat = true
+        end
     elseif onCooldown then
         wantDesat = allowCooldownDesat
     end
 
+    iconFrame.icon:SetDesaturation(0) -- Clear any curves
     iconFrame.icon:SetDesaturated(wantDesat == true)
     iconFrame.icon:SetAlpha(alpha)
 end
@@ -363,55 +490,45 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     -- Get cooldown info with protected call to handle secret values
     local cooldownSet = false
     local isOnCooldown = false
-    local ignoreGCD = false
-    local isGCDOnly = false
-    local ok, cooldownInfo = pcall(C_Spell.GetSpellCooldown, spellID)
-    if ok and cooldownInfo then
-        local setOk = pcall(function()
-            -- Ignore GCD-only updates so we don't desaturate just for the global cooldown.
-            if cooldownInfo.isOnGCD == true then
-                if not showGCDSwipe then
-                    iconFrame.cooldown:Clear()
-                    if iconFrame.cooldownProbe then
-                        iconFrame.cooldownProbe:Clear()
-                    end
-                    cooldownSet = false
-                    ignoreGCD = true
-                    return
-                end
-                isGCDOnly = true
-            end
 
-            if cooldownInfo.duration and cooldownInfo.startTime then
-                iconFrame.cooldown:SetCooldown(cooldownInfo.startTime, cooldownInfo.duration)
-                if iconFrame.cooldownProbe then
-                    iconFrame.cooldownProbe:SetCooldown(cooldownInfo.startTime, cooldownInfo.duration)
-                end
-                cooldownSet = true
-            end
-        end)
-        -- Do not early-return; we still need to handle usability/desat logic
-    end
-
-    -- Fallback to old API if C_Spell failed
-    local fallbackOk = pcall(function()
-        if ignoreGCD then return end
-        local start, duration = GetSpellCooldown(spellID)
-        if start and duration then
-            iconFrame.cooldown:SetCooldown(start, duration)
-            if iconFrame.cooldownProbe then
-                iconFrame.cooldownProbe:SetCooldown(start, duration)
-            end
-            cooldownSet = true
-        end
+    local cdInfo
+    local chargeInfo
+    pcall(function()
+        cdInfo = C_Spell.GetSpellCooldown(spellID)
+        chargeInfo = C_Spell.GetSpellCharges(spellID)
     end)
 
-    -- Clear cooldown if we couldn't set it
+    local CCD = C_Spell.GetSpellChargeDuration(spellID)
+    local SCD = C_Spell.GetSpellCooldownDuration(spellID)
+    
+    local isOnGCD = false
+    if SCD then
+        pcall(function()
+            local cdInfo = C_Spell.GetSpellCooldown(spellID)
+            if cdInfo and cdInfo.isOnGCD then
+                isOnGCD = true
+            end
+        end)
+    end
+
+    local durObj = nil
+    if chargeInfo and chargeInfo.maxCharges > 1 and chargeInfo.currentCharges < chargeInfo.maxCharges then
+        durObj = CCD or SCD
+    else
+        durObj = SCD
+    end
+
+    if durObj and not isOnGCD then
+        pcall(function()
+            iconFrame.cooldown:SetCooldownFromDurationObject(durObj)
+            if iconFrame.cooldownProbe then iconFrame.cooldownProbe:SetCooldownFromDurationObject(durObj) end
+        end)
+        cooldownSet = true
+    end
+
     if not cooldownSet then
         iconFrame.cooldown:Clear()
-        if iconFrame.cooldownProbe then
-            iconFrame.cooldownProbe:Clear()
-        end
+        if iconFrame.cooldownProbe then iconFrame.cooldownProbe:Clear() end
     end
 
     if iconData.settings and iconData.settings.showCooldown == false then
@@ -419,8 +536,6 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     end
 
     -- Get charges using C_Spell API with protected call.
-    -- Important: for charge spells, we only desaturate when OUT of charges (0),
-    -- and we only show the swipe while a charge is recharging.
     local chargesInfo
     local chargesOk = pcall(function()
         chargesInfo = C_Spell.GetSpellCharges(spellID)
@@ -437,62 +552,34 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         if hasChargesText then
             iconFrame.count:Show()
         else
-            iconFrame.count:SetText("")
+            pcall(iconFrame.count.SetText, iconFrame.count, "")
             iconFrame.count:Hide()
         end
     end
 
-    -- Cooldown state uses the probe so user "Hide Cooldown" doesn't affect logic.
+    -- Cooldown state: probe 기반 가시성 체크
     local cooldownActive = IsCooldownFrameActive(iconFrame.cooldownProbe or iconFrame.cooldown)
-    isOnCooldown = cooldownActive and not isGCDOnly
+    isOnCooldown = cooldownActive
 
-    local rechargeActive = false
-    if isChargeSpell then
-        if chargesInfo.cooldownStartTime and chargesInfo.cooldownDuration then
-            pcall(function()
-                iconFrame.cooldown:SetCooldown(chargesInfo.cooldownStartTime, chargesInfo.cooldownDuration)
-                if iconFrame.cooldownChargeProbe then
-                    iconFrame.cooldownChargeProbe:SetCooldown(chargesInfo.cooldownStartTime, chargesInfo.cooldownDuration)
-                end
-            end)
-            rechargeActive = IsCooldownFrameActive(iconFrame.cooldownChargeProbe or iconFrame.cooldown)
-        else
-            iconFrame.cooldown:Clear()
-            if iconFrame.cooldownChargeProbe then
-                iconFrame.cooldownChargeProbe:Clear()
-            end
-        end
-    end
+    -- 충전 스킬 재충전 표시: chargeDurObj 경로에서 이미 처리됨
+    -- 추가 SetCooldown 호출 불필요
 
-    -- Only show the cooldown swipe when enabled.
+    -- Swipe 스타일 설정
     if not (iconData.settings and iconData.settings.showCooldown == false) then
         if isChargeSpell then
-            -- For charge recharges, avoid the dark swipe "background" fill; keep just the edge indicator.
             pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0)
-            pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, rechargeActive == true)
-            if rechargeActive then
-                iconFrame.cooldown:Show()
-            else
-                iconFrame.cooldown:Hide()
+            pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, cooldownActive == true)
+            if iconFrame.cooldown.SetDrawSwipe then
+                pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
             end
         else
-            -- Normal cooldowns use the standard dark swipe fill.
             pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0.8)
-            -- Do not draw an edge for normal spell cooldowns (edge reserved for charge recharge indicator).
             pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false)
-            -- If showing GCD swipes, allow display while on GCD but do not desaturate for it.
-            local displayActive = cooldownActive
-            if isGCDOnly and not showGCDSwipe then
-                displayActive = false
-            end
-            if displayActive then
-                iconFrame.cooldown:Show()
-            else
-                iconFrame.cooldown:Hide()
+            if iconFrame.cooldown.SetDrawSwipe then
+                pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
             end
         end
     else
-        -- Cooldown hidden: ensure edge doesn't get stuck on from previous updates.
         pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false)
     end
 
@@ -513,21 +600,25 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         usable = true
     end
 
+    -- [FIX] boolean fallback but using cooldownSet rather than visibility
     if usable then
-        -- For charge spells: only desaturate when you're out of charges, which matches main cooldown active.
-        local shouldDesaturate = isOnCooldown
+        local shouldDesaturate = cooldownSet
         if allowDesat and shouldDesaturate then
+            iconFrame.icon:SetDesaturation(0)
             iconFrame.icon:SetDesaturated(true)
             iconFrame.icon:SetAlpha(1.0)
         else
+            iconFrame.icon:SetDesaturation(0)
             iconFrame.icon:SetDesaturated(false)
             iconFrame.icon:SetAlpha(1.0)
         end
     else
         if allowUnusableDesat then
+            iconFrame.icon:SetDesaturation(0)
             iconFrame.icon:SetDesaturated(true)
             iconFrame.icon:SetAlpha(1.0)
         else
+            iconFrame.icon:SetDesaturation(0)
             iconFrame.icon:SetDesaturated(false)
             iconFrame.icon:SetAlpha(1.0)
         end
@@ -661,6 +752,14 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
     if auraData then
         procActive = true
+        
+        -- [Visuals: Active Buff]
+        iconFrame.cooldown:SetReverse(true)
+        local LCG = LibStub("LibCustomGlow-1.0", true)
+        if LCG and LCG.ProcGlow_Start then
+            LCG.ProcGlow_Start(iconFrame, {color = {0.95, 0.95, 0.32, 1}, startAnim = true})
+        end
+
         -- Show proc buff duration via CooldownFrame
         if settings.showProcDuration ~= false then
             pcall(function()
@@ -686,6 +785,13 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
     -- 2. Proc not active → show item cooldown as fallback
     if not procActive then
+        -- [Visuals: Reset]
+        iconFrame.cooldown:SetReverse(false)
+        local LCG = LibStub("LibCustomGlow-1.0", true)
+        if LCG and LCG.ProcGlow_Stop then
+            LCG.ProcGlow_Stop(iconFrame)
+        end
+
         if settings.showItemCooldown ~= false then
             local start, duration = GetInventoryItemCooldown("player", slotID)
             pcall(function()
@@ -896,7 +1002,12 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
             fontPath = fetchedFont
         end
     end
-    iconFrame.count:SetFont(fontPath, cs.size, "OUTLINE")
+    if fontPath and cs.size and tonumber(cs.size) > 0 then
+        -- pcall to safely set font just in case path is invalid
+        pcall(function() iconFrame.count:SetFont(fontPath, tonumber(cs.size), "OUTLINE") end)
+    else
+        pcall(function() iconFrame.count:SetFont(STANDARD_TEXT_FONT, 16, "OUTLINE") end)
+    end
     if cs.color then
         iconFrame.count:SetTextColor(unpack(cs.color))
     end
@@ -987,7 +1098,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
         local stacks = auraData.applications or 0
         if stacks > 1 and settings.showCharges ~= false then
-            iconFrame.count:SetText(stacks)
+            pcall(iconFrame.count.SetText, iconFrame.count, stacks)
             iconFrame.count:Show()
         else
             iconFrame.count:Hide()
@@ -1018,18 +1129,31 @@ end
 local function UpdateAllIcons()
     -- Update all active icon frames
     for iconKey, frame in pairs(runtime.iconFrames) do
-        -- [INTEGRATION] GroupRenderer 관리 프레임은 스킵 (GroupRenderer 자체 업데이트 루프에서 처리)
-        -- [FIX] aura 타입은 숨겨져 있어도 업데이트 (buff 재활성화 → Show() 호출 필요)
-        if frame and not frame._ddIsManaged and (frame:IsVisible() or frame._type == "aura") then
+        if frame then
             local db = GetDynamicDB()
-            local iconData = db.iconData[iconKey]
-            if iconData then
+            local iconData = db.iconData and db.iconData[iconKey]
+            -- 그룹렌더러가 관리하는 프레임도 쿨다운 갱신을 위해 업데이트 대상에 포함합니다.
+            -- 가시성 최적화: aura는 숨김 상태여도 활성 상태 체크를 위해 업데이트, 
+            -- 나머지는 가시성(IsVisible) 있거나 GroupRenderer에 의해 관리되는 경우에만 업데이트
+            if iconData and (iconData.type == "aura" or frame._ddIsManaged or frame:IsVisible()) then
                 -- Group settings will be applied via frame._groupSettings if available
                 ApplyIconSettings(frame, iconData, frame._groupSettings)
+                -- [FIX] managed 프레임은 ApplyIconSettings에서 SetFont를 실행하지만,
+                -- GroupRenderer에서 크기가 덮어써질 수 있으므로 Font 초기화를 명시적으로 보장
+                if frame._ddIsManaged and frame.count and not frame._fontInitialized then
+                    local fontPath = DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
+                    pcall(frame.count.SetFont, frame.count, fontPath, 16, "OUTLINE")
+                    frame._fontInitialized = true
+                end
                 if iconData.type == "item" then
                     UpdateItemIcon(frame, iconData)
                 elseif iconData.type == "spell" then
                     UpdateSpellIconFrame(frame, iconData)
+                elseif iconData.type == "racial" then
+                    local racialID = GetPlayerRacialSpellID()
+                    if racialID then
+                        UpdateSpellIconFrame(frame, {id = racialID, settings = iconData.settings})
+                    end
                 elseif iconData.type == "slot" then
                     UpdateSlotIcon(frame, iconData)
                 elseif iconData.type == "trinketProc" then
@@ -1183,6 +1307,9 @@ local function IsIconLoadable(iconData)
     if not iconData then return false end
     if iconData.type == "spell" then
         return IsSpellInPlayerBook(iconData.id)
+    elseif iconData.type == "racial" then
+        local racialID = GetPlayerRacialSpellID()
+        return racialID and IsSpellInPlayerBook(racialID)
     end
     return true
 end
@@ -1203,6 +1330,9 @@ local function ShouldIconSpawn(iconData)
     -- Spellbook gating
     if iconData.type == "spell" and not IsSpellInPlayerBook(iconData.id) then
         return false
+    elseif iconData.type == "racial" then
+        local racialID = GetPlayerRacialSpellID()
+        if not racialID or not IsSpellInPlayerBook(racialID) then return false end
     end
 
     EnsureLoadConditions(iconData)
@@ -1486,6 +1616,7 @@ local function CreateBaseIcon(name, parent)
     countLayer:SetFrameLevel(frame:GetFrameLevel() + 2)
     countLayer:SetAllPoints(frame)
 
+    -- [FIX] Define template "NumberFontNormal" to prevent "Font not set" on SetText before SetFont is executed.
     local count = countLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     count:SetJustifyH("RIGHT")
     count:SetTextColor(1, 1, 1, 1)
@@ -1605,6 +1736,13 @@ local function CreateDynamicIcon(iconKey, iconData, parent)
         return CreateSlotIcon(iconKey, iconData, parent)  -- Reuse slot icon frame
     elseif iconData.type == "aura" then
         return CreateAuraIcon(iconKey, iconData, parent)
+    elseif iconData.type == "racial" then
+        local racialID = GetPlayerRacialSpellID()
+        if not racialID then return nil end
+        -- 임시 테이블로 CreateSpellIcon을 호출하여 데이터 오염 방지
+        local frame = CreateSpellIcon(iconKey, {id = racialID}, parent)
+        if frame then frame._type = "racial" end
+        return frame
     end
     return nil
 end
@@ -1621,6 +1759,11 @@ local function UpdateDynamicIcon(iconKey)
         UpdateItemIcon(frame, iconData)
     elseif iconData.type == "spell" then
         UpdateSpellIconFrame(frame, iconData)
+    elseif iconData.type == "racial" then
+        local racialID = GetPlayerRacialSpellID()
+        if racialID then
+            UpdateSpellIconFrame(frame, {id = racialID, settings = iconData.settings})
+        end
     elseif iconData.type == "slot" then
         UpdateSlotIcon(frame, iconData)
     elseif iconData.type == "trinketProc" then

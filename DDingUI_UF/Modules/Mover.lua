@@ -29,6 +29,12 @@ local math_abs = math.abs
 local math_max = math.max
 local select = select
 
+-- [CDM-DRAG] 드래그 상태 (CDM OnUpdate 패턴)
+local _isDragging = false
+local _dragMover = nil
+local _dragOffsetX, _dragOffsetY = 0, 0
+local _dragUpdateFrame = CreateFrame("Frame")
+
 -- [12.0.1] StyleLib 참조 (넛지패널 + 무버 오버레이 공용)
 local SL = _G.DDingUI_StyleLib
 local fontPath = (SL and SL.Font.path) or "Fonts\\2002.TTF"
@@ -48,21 +54,21 @@ local SelectMover
 -----------------------------------------------
 
 local MOVER_COLORS = {
-	player       = { bg = {1.0, 0.2, 0.2, 0.30}, border = {1.0, 0.3, 0.3, 0.80} },  -- 빨강
-	target       = { bg = {1.0, 0.5, 0.0, 0.30}, border = {1.0, 0.6, 0.1, 0.80} },  -- 주황
-	targettarget = { bg = {1.0, 1.0, 0.0, 0.25}, border = {1.0, 1.0, 0.2, 0.80} },  -- 노랑
-	focus        = { bg = {0.0, 0.8, 0.2, 0.30}, border = {0.1, 0.9, 0.3, 0.80} },  -- 초록
-	focustarget  = { bg = {0.2, 0.8, 0.5, 0.25}, border = {0.3, 0.9, 0.5, 0.80} },  -- 청록
-	pet          = { bg = {0.0, 0.5, 1.0, 0.30}, border = {0.1, 0.6, 1.0, 0.80} },  -- 파랑
-	boss         = { bg = {0.8, 0.0, 0.8, 0.30}, border = {0.9, 0.1, 0.9, 0.80} },  -- 보라
-	arena        = { bg = {0.8, 0.0, 0.4, 0.30}, border = {0.9, 0.1, 0.5, 0.80} },  -- 핑크
-	party        = { bg = {0.0, 0.7, 0.7, 0.30}, border = {0.1, 0.8, 0.8, 0.80} },  -- 청록
-	raid         = { bg = {0.4, 0.6, 1.0, 0.30}, border = {0.5, 0.7, 1.0, 0.80} },  -- 하늘
-	castbar      = { bg = {1.0, 0.8, 0.0, 0.30}, border = {1.0, 0.9, 0.2, 0.80} },  -- 금색
-	powerbar     = { bg = {0.3, 0.5, 1.0, 0.30}, border = {0.4, 0.6, 1.0, 0.80} },  -- 파워 파랑
+	player       = { bg = {0.05, 0.05, 0.05, 0.70}, border = {1.0, 0.3, 0.3, 1.0} },  -- 빨강
+	target       = { bg = {0.05, 0.05, 0.05, 0.70}, border = {1.0, 0.6, 0.1, 1.0} },  -- 주황
+	targettarget = { bg = {0.05, 0.05, 0.05, 0.70}, border = {1.0, 1.0, 0.2, 1.0} },  -- 노랑
+	focus        = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.1, 0.9, 0.3, 1.0} },  -- 초록
+	focustarget  = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.3, 0.9, 0.5, 1.0} },  -- 청록
+	pet          = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.1, 0.6, 1.0, 1.0} },  -- 파랑
+	boss         = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.9, 0.1, 0.9, 1.0} },  -- 보라
+	arena        = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.9, 0.1, 0.5, 1.0} },  -- 핑크
+	party        = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.1, 0.8, 0.8, 1.0} },  -- 청록
+	raid         = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.5, 0.7, 1.0, 1.0} },  -- 하늘
+	castbar      = { bg = {0.05, 0.05, 0.05, 0.70}, border = {1.0, 0.9, 0.2, 1.0} },  -- 금색
+	powerbar     = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0.4, 0.6, 1.0, 1.0} },  -- 파워 파랑
 }
 
-local DEFAULT_COLOR = { bg = {0, 0.5, 1, 0.3}, border = {0, 0.7, 1, 0.8} }
+local DEFAULT_COLOR = { bg = {0.05, 0.05, 0.05, 0.70}, border = {0, 0.7, 1, 1.0} }
 
 -- [MOVER] P3 카테고리 필터
 local MOVER_CATEGORIES = {
@@ -250,7 +256,8 @@ local function ApplyMoverVisual(mover, point, x, y, anchorFrame, relPoint)
 	end
 
 	mover:ClearAllPoints()
-	mover:SetPoint(point, anchorFrame, relPoint, x, y)
+	local ok1 = pcall(function() mover:SetPoint(point, anchorFrame, relPoint, x, y) end)
+	if not ok1 then mover:SetPoint("CENTER", UIParent, "CENTER", 0, 0) end
 
 	-- [EDITMODE-FIX] 사이즈 복원
 	if mW and mW > 0 and mH and mH > 0 then
@@ -261,7 +268,8 @@ local function ApplyMoverVisual(mover, point, x, y, anchorFrame, relPoint)
 	if mover._frame and not InCombatLockdown() then
 		local fW, fH = mover._frame:GetSize() -- [EDITMODE-FIX] 프레임 사이즈도 보존
 		mover._frame:ClearAllPoints()
-		mover._frame:SetPoint(point, anchorFrame, relPoint, x, y)
+		local ok2 = pcall(function() mover._frame:SetPoint(point, anchorFrame, relPoint, x, y) end)
+		if not ok2 then mover._frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) end
 		if fW and fW > 0 and fH and fH > 0 then
 			mover._frame:SetSize(fW, fH)
 		end
@@ -562,10 +570,10 @@ end
 -----------------------------------------------
 
 local EXTERNAL_SNAP_FRAMES = {
-	-- DDingUI CDM 프록시 앵커
-	{ name = "DDingUI_Anchor_Cooldowns", label = "DDingUI CDM: 핵심" },
-	{ name = "DDingUI_Anchor_Buffs",     label = "DDingUI CDM: 강화" },
-	{ name = "DDingUI_Anchor_Utility",   label = "DDingUI CDM: 보조" },
+	-- DDingUI CDM 그룹 프레임
+	{ name = "DDingUI_Group_Cooldowns", label = "CDM: 핵심 능력" },
+	{ name = "DDingUI_Group_Buffs",     label = "CDM: 강화 효과" },
+	{ name = "DDingUI_Group_Utility",   label = "CDM: 보조 능력" },
 	-- UF 프레임
 	{ name = "ddingUI_Player", label = "UF: Player" },
 	{ name = "ddingUI_Target", label = "UF: Target" },
@@ -689,41 +697,25 @@ local function FindFrameSnap(self, x, y, w, h)
 	local snappedX, snappedY = x, y
 	local snapDistX, snapDistY = threshold + 1, threshold + 1
 
-	-- 내부 스냅 검사 함수 (UF movers + 외부 프레임 공용)
+	-- [PERF] 내부 스냅 검사 함수 — 테이블 할당 제거, 인라인 비교
 	local function CheckSnap(oLeft, oRight, oBottom, oTop, oX, oY)
 		-- X축 스냅: 수직으로 겹치거나 인접할 때만
 		if selfB <= oTop and oBottom <= selfT then
-			local xPairs = {
-				{ selfL, oLeft },      -- 왼쪽 정렬
-				{ selfR, oRight },     -- 오른쪽 정렬
-				{ selfL, oRight },     -- 자기 왼쪽 → 대상 오른쪽 (외부)
-				{ selfR, oLeft },      -- 자기 오른쪽 → 대상 왼쪽 (외부)
-				{ selfCX, oX },        -- 중심 정렬
-			}
-			for _, pair in ipairs(xPairs) do
-				local d = math_abs(pair[1] - pair[2])
-				if d < snapDistX then
-					snapDistX = d
-					snappedX = x + (pair[2] - pair[1])
-				end
-			end
+			local d
+			d = math_abs(selfL - oLeft);     if d < snapDistX then snapDistX = d; snappedX = x + (oLeft - selfL) end
+			d = math_abs(selfR - oRight);    if d < snapDistX then snapDistX = d; snappedX = x + (oRight - selfR) end
+			d = math_abs(selfL - oRight);    if d < snapDistX then snapDistX = d; snappedX = x + (oRight - selfL) end
+			d = math_abs(selfR - oLeft);     if d < snapDistX then snapDistX = d; snappedX = x + (oLeft - selfR) end
+			d = math_abs(selfCX - oX);       if d < snapDistX then snapDistX = d; snappedX = x + (oX - selfCX) end
 		end
 		-- Y축 스냅: 수평으로 겹치거나 인접할 때만
 		if selfL <= oRight and oLeft <= selfR then
-			local yPairs = {
-				{ selfB, oBottom },    -- 하단 정렬
-				{ selfT, oTop },       -- 상단 정렬
-				{ selfB, oTop },       -- 자기 하단 → 대상 상단 (외부)
-				{ selfT, oBottom },    -- 자기 상단 → 대상 하단 (외부)
-				{ selfCY, oY },        -- 중심 정렬
-			}
-			for _, pair in ipairs(yPairs) do
-				local d = math_abs(pair[1] - pair[2])
-				if d < snapDistY then
-					snapDistY = d
-					snappedY = y + (pair[2] - pair[1])
-				end
-			end
+			local d
+			d = math_abs(selfB - oBottom);   if d < snapDistY then snapDistY = d; snappedY = y + (oBottom - selfB) end
+			d = math_abs(selfT - oTop);      if d < snapDistY then snapDistY = d; snappedY = y + (oTop - selfT) end
+			d = math_abs(selfB - oTop);      if d < snapDistY then snapDistY = d; snappedY = y + (oTop - selfB) end
+			d = math_abs(selfT - oBottom);   if d < snapDistY then snapDistY = d; snappedY = y + (oBottom - selfT) end
+			d = math_abs(selfCY - oY);       if d < snapDistY then snapDistY = d; snappedY = y + (oY - selfCY) end
 		end
 	end
 
@@ -770,7 +762,7 @@ end
 -----------------------------------------------
 
 local function ProcessDragStop(self)
-	self:StopMovingOrSizing()
+	-- [CDM-DRAG] StopMovingOrSizing 제거 — OnUpdate 드래그 사용
 
 	local selfW, selfH = self:GetSize()
 	local w, h = selfW or 0, selfH or 0
@@ -778,7 +770,14 @@ local function ProcessDragStop(self)
 	-- [EDITMODE] 언두 스택에 드래그 전 위치 저장 (OnDragStart에서 캡처)
 	if self._preDragPos then
 		if #undoStack >= MAX_UNDO then table.remove(undoStack, 1) end
-		undoStack[#undoStack + 1] = { mover = self, point = self._preDragPos.point, x = self._preDragPos.x, y = self._preDragPos.y }
+		undoStack[#undoStack + 1] = {
+			mover = self,
+			point = self._preDragPos.point,
+			x = self._preDragPos.x,
+			y = self._preDragPos.y,
+			anchorFrame = self._preDragPos.anchorFrame,
+			relPoint = self._preDragPos.relPoint,
+		}
 		wipe(redoStack) -- [CDM-P1] 새 동작 시 리두 스택 초기화
 		self._preDragPos = nil
 		if nudgePanel and nudgePanel.UpdateUndoRedoBtns then nudgePanel:UpdateUndoRedoBtns() end
@@ -816,8 +815,7 @@ local function ProcessDragStop(self)
 	local SNAP_THRESHOLD = mdb.snapThreshold or 15
 	local snapTarget, snapSelfPt, snapAnchorPt = nil, nil, nil
 
-	if unitDB and not self._isGroupMover and not self._isCastbar and not self._isPowerBar
-	   and (mdb.snapToFrames or mdb.frameSnap) and not IsShiftKeyDown() then
+	if unitDB and (mdb.snapToFrames or mdb.frameSnap) and not IsShiftKeyDown() then
 		local moverFrame = self._frame
 		local externals = GetExternalSnapTargets(moverFrame)
 
@@ -944,7 +942,7 @@ local function ProcessDragStop(self)
 	-- ============================================================
 	-- [CDM-P2] 스냅 미감지: 거리 기반 앵커 해제 체크
 	-- ============================================================
-	if unitDB and not self._isGroupMover and not self._isCastbar and not self._isPowerBar then
+	if unitDB then
 		local origAttachTo = unitDB.attachTo or "UIParent"
 		if origAttachTo ~= "UIParent" then
 			local origFrame = _G[origAttachTo]
@@ -1353,9 +1351,8 @@ local function CalcPartyMoverSize()
 end
 
 local function CalcRaidMoverSize()
-	-- [MYTHIC-RAID] 활성 레이드 DB 참조
-	local GF = ns.GroupFrames
-	local db = (GF and GF.GetActiveRaidDB and GF:GetActiveRaidDB()) or ns.db.raid
+	-- Raid mover는 항상 ns.db.raid 사용 (40인 레이아웃)
+	local db = ns.db.raid
 	if not db then return 540, 240 end
 
 	local w = (db.size and db.size[1]) or 66
@@ -1366,21 +1363,49 @@ local function CalcRaidMoverSize()
 	local groupSpacing = db.groupSpacing or 5
 	local growDir = db.growDirection or "DOWN"
 
-	-- [FIX] 편집모드에서는 previewRaidCount 기준, 아니면 maxGroups 기준
+	-- [FIX] previewRaidCount 기반 그룹 수 계산 (슬라이더 반영)
 	local moverDB = (ns.db and ns.db.mover) or {}
 	local previewCount = moverDB.previewRaidCount or 20
 	local previewGroups = math.ceil(previewCount / 5)
 	local maxGroups = math.min(previewGroups, db.maxGroups or C.MAX_RAID_GROUPS)
 
-	-- [FIX] growDirection에 따라 mover 크기 방향 변경
 	local priIsVert = (growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER")
 	if priIsVert then
-		-- 1차 세로: 유닛이 세로로 쌓임, 그룹은 가로로 나열
 		local totalW = w * maxGroups + groupSpacing * (maxGroups - 1)
 		local totalH = h * unitsPerGroup + spacingY * (unitsPerGroup - 1)
 		return totalW, totalH
 	else
-		-- 1차 가로: 유닛이 가로로 나열, 그룹은 세로로 쌓임
+		local totalW = w * unitsPerGroup + spacingX * (unitsPerGroup - 1)
+		local totalH = h * maxGroups + groupSpacing * (maxGroups - 1)
+		return totalW, totalH
+	end
+end
+
+local function CalcMythicRaidMoverSize()
+	-- MythicRaid mover는 항상 ns.db.mythicRaid 사용 (20인 레이아웃)
+	local db = ns.db.mythicRaid
+	if not db then return 330, 240 end
+
+	local w = (db.size and db.size[1]) or 66
+	local h = (db.size and db.size[2]) or 46
+	local unitsPerGroup = db.unitsPerColumn or 5
+	local spacingY = db.spacingY or db.spacing or 3
+	local spacingX = db.spacingX or 3
+	local groupSpacing = db.groupSpacing or 5
+	local growDir = db.growDirection or "DOWN"
+
+	-- [FIX] previewRaidCount 기반 그룹 수 계산 (슬라이더 반영)
+	local moverDB = (ns.db and ns.db.mover) or {}
+	local previewCount = moverDB.previewRaidCount or 20
+	local previewGroups = math.ceil(previewCount / 5)
+	local maxGroups = math.min(previewGroups, db.maxGroups or 4)
+
+	local priIsVert = (growDir == "DOWN" or growDir == "UP" or growDir == "V_CENTER")
+	if priIsVert then
+		local totalW = w * maxGroups + groupSpacing * (maxGroups - 1)
+		local totalH = h * unitsPerGroup + spacingY * (unitsPerGroup - 1)
+		return totalW, totalH
+	else
 		local totalW = w * unitsPerGroup + spacingX * (unitsPerGroup - 1)
 		local totalH = h * maxGroups + groupSpacing * (maxGroups - 1)
 		return totalW, totalH
@@ -1619,24 +1644,31 @@ local function CreateMoverOverlay(frame, name, colorKey, overrideW, overrideH)
 	mover:SetClampedToScreen(true)
 	mover:Hide()
 
-	-- 색상 코딩된 배경
+	-- 색상 코딩된 배경 (Danders 스타일 다크 테마)
 	mover.bg = mover:CreateTexture(nil, "BACKGROUND")
 	mover.bg:SetAllPoints()
 	mover.bg:SetColorTexture(unpack(colors.bg))
 
-	-- 색상 코딩된 테두리
+	-- 색상 코딩된 테두리 (선명하게 1px)
 	mover.bd = CreateFrame("Frame", nil, mover, "BackdropTemplate")
 	mover.bd:SetAllPoints()
 	mover.bd:SetBackdrop({
-		edgeFile = C.FLAT_TEXTURE, -- [12.0.1] 통일
+		edgeFile = C.FLAT_TEXTURE,
 		edgeSize = 1,
 	})
 	mover.bd:SetBackdropBorderColor(unpack(colors.border))
 
+	-- [STYLE] 프리미엄 상단 포인트 라인 (DandersFrames 패턴)
+	mover.topLine = mover:CreateTexture(nil, "ARTWORK")
+	mover.topLine:SetPoint("TOPLEFT", 1, -1)
+	mover.topLine:SetPoint("TOPRIGHT", -1, -1)
+	mover.topLine:SetHeight(1)
+	mover.topLine:SetColorTexture(colors.border[1], colors.border[2], colors.border[3], 1)
+
 	-- 라벨
 	mover.text = mover:CreateFontString(nil, "OVERLAY")
-	mover.text:SetFont(fontPath, 10, "OUTLINE") -- [12.0.1] StyleLib
-	mover.text:SetPoint("CENTER")
+	mover.text:SetFont(fontPath, 11, "OUTLINE") -- 살짝 폰트 키우기
+	mover.text:SetPoint("CENTER", 0, 1)
 	mover.text:SetText(name)
 	mover.text:SetTextColor(1, 1, 1)
 
@@ -1703,53 +1735,173 @@ local function CreateMoverOverlay(frame, name, colorKey, overrideW, overrideH)
 		end
 	end)
 
-	-- Drag -- [12.0.1] 드래그 중 스냅 미리보기 + 미리보기 동기화 + 그리드 알파
+	-- Drag -- [12.0.1] 드래그 중 스냅 미리보기 + 미리보기 동기화 + 다중 선택 이동
 	mover:SetScript("OnDragStart", function(self)
-		SelectMover(self)
-		-- [EDITMODE] 드래그 전 위치 저장 (언두용: StartMoving 전에 캡처해야 함)
-		local pt, _, _, px, py = self:GetPoint(1)
-		if pt then self._preDragPos = { point = pt, x = px or 0, y = py or 0 } end
-		self:StartMoving()
-		-- 그리드 드래그 시 선명하게
+		if InCombatLockdown() then return end
+		
+		-- [EDITMODE-FIX] 다중 선택 유지: 쉬프트 클릭으로 모아둔 세트 중 하나를 드래그하면 전체 선택 유지
+		if not selectedMovers[self] then
+			SelectMover(self)
+		end
+
+		-- [CDM-DRAG] 드래그 전 위치 저장 (언두용 및 다중드래그 상대거리용)
+		for m, _ in pairs(selectedMovers) do
+			local pt, ancFrame, relPt, px, py = m:GetPoint(1)
+			local mcx, mcy = m:GetCenter()
+			if pt then
+				m._preDragPos = { point = pt, x = px or 0, y = py or 0, anchorFrame = ancFrame, relPoint = relPt, cx = mcx, cy = mcy }
+			end
+		end
+
+		local scale = self:GetEffectiveScale()
+		local mouseX, mouseY = GetCursorPosition()
+		mouseX = mouseX / scale
+		mouseY = mouseY / scale
+		local frameX, frameY = self:GetCenter()
+		if not frameX or not frameY then return end
+		_dragOffsetX = frameX - mouseX
+		_dragOffsetY = frameY - mouseY
+		_dragMover = self
+		_isDragging = true
+
 		if gridFrame and gridFrame:IsShown() then
 			gridFrame:SetAlpha(1)
+		else
+			self._tempGridShown = true
 		end
-		-- OnUpdate: 스냅 미리보기 + 그룹 Mover 동기화
-		self:SetScript("OnUpdate", function(s)
-			UpdateSnapPreview(s)
-			-- [EDITMODE-FIX] 모든 유닛 Mover: 미리보기 컨테이너 실시간 동기화
-			-- TOPLEFT 정렬 사용 (CENTER 사용 시 Boss 같은 다중 프레임 컨테이너에서 위치 점프)
-			if ns.simContainers and s._unitKey then
-				local sim = ns.simContainers[s._unitKey]
-				if sim and sim:IsShown() then
-					local unitDB = ns.db and ns.db[s._unitKey]
-					local growDir = unitDB and unitDB.growDirection or "DOWN"
-					
-					if (s._unitKey == "boss" or s._unitKey == "arena") and growDir == "UP" then
-						local left, bottom = s:GetLeft(), s:GetBottom()
-						if left and bottom then
-							sim:ClearAllPoints()
-							sim:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
-						end
-					else
-						local left, top = s:GetLeft(), s:GetTop()
-						if left and top then
-							sim:ClearAllPoints()
-							sim:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+
+		-- [PERF] 드래그 상태 캐시 (매 프레임 재계산 방지)
+		local _lastSnapX, _lastSnapY = 0, 0
+		local _dragTickCount = 0
+
+		_dragUpdateFrame:SetScript("OnUpdate", function()
+			if not _isDragging or not _dragMover then return end
+			local s = _dragMover
+			local sc = s:GetEffectiveScale()
+			local cx, cy = GetCursorPosition()
+			cx = cx / sc
+			cy = cy / sc
+
+			local targetX = cx + _dragOffsetX
+			local targetY = cy + _dragOffsetY
+
+			-- [PERF] 커서가 거의 안 움직였으면 전체 스킵 (0.3px 미만)
+			local dCX = targetX - _lastSnapX
+			local dCY = targetY - _lastSnapY
+			if dCX * dCX + dCY * dCY < 0.09 then return end
+
+			_dragTickCount = _dragTickCount + 1
+
+			-- [PERF] 실시간 마그네틱 스냅 (Frame Snap + Grid Snap)
+			local mW, mH = s:GetSize()
+			local snapX, snapY = targetX, targetY
+			if mW and mW > 0 and mH and mH > 0 and not IsShiftKeyDown() then
+				local halfW, halfH = mW / 2, mH / 2
+				local absLeft = targetX - halfW
+				local absBottom = targetY - halfH
+
+				-- Frame Snap (매 프레임 실행 — 가벼운 연산)
+				local fsLeft, fsBottom = FindFrameSnap(s, absLeft, absBottom, mW, mH)
+				local frameSnappedX = (fsLeft ~= absLeft)
+				local frameSnappedY = (fsBottom ~= absBottom)
+				absLeft, absBottom = fsLeft, fsBottom
+
+				-- Grid Snap (Frame Snap 미적용 축만)
+				local rcx, rcy = absLeft + halfW, absBottom + halfH
+				local snappedCX, snappedCY = SnapToGridWithEdges(s, rcx, rcy)
+				if not frameSnappedX then absLeft = snappedCX - halfW end
+				if not frameSnappedY then absBottom = snappedCY - halfH end
+
+				snapX = absLeft + halfW
+				snapY = absBottom + halfH
+			end
+
+			_lastSnapX, _lastSnapY = snapX, snapY
+
+			-- 리더 무버 이동
+			s:ClearAllPoints()
+			s:SetPoint("CENTER", UIParent, "BOTTOMLEFT", snapX, snapY)
+
+			-- [PERF] 실제 프레임 동기화 — InCombatLockdown 캐시 (비싼 API)
+			local inCombat = InCombatLockdown()
+			if s._frame and not inCombat then
+				s._frame:ClearAllPoints()
+				s._frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", snapX, snapY)
+			end
+
+			-- 다중 선택 이동 (리더 기준 델타)
+			if s._preDragPos then
+				local diffX = snapX - s._preDragPos.cx
+				local diffY = snapY - s._preDragPos.cy
+				for m, _ in pairs(selectedMovers) do
+					if m ~= s and m._preDragPos then
+						local mCX = m._preDragPos.cx + diffX
+						local mCY = m._preDragPos.cy + diffY
+						m:ClearAllPoints()
+						m:SetPoint("CENTER", UIParent, "BOTTOMLEFT", mCX, mCY)
+						if m._frame and not inCombat then
+							m._frame:ClearAllPoints()
+							m._frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", mCX, mCY)
 						end
 					end
 				end
+			end
+
+			-- [PERF] 스냅 프리뷰 + simContainer + 넛지패널 → 매 3틱마다만
+			if _dragTickCount % 3 == 0 then
+				UpdateSnapPreview(s)
+
+				if ns.simContainers then
+					for m, _ in pairs(selectedMovers) do
+						if m._unitKey then
+							local sim = ns.simContainers[m._unitKey]
+							if sim and sim:IsShown() then
+								local unitDB = ns.db and ns.db[m._unitKey]
+								local growDir = unitDB and unitDB.growDirection or "DOWN"
+								local left = m:GetLeft()
+								if (m._unitKey == "boss" or m._unitKey == "arena") and growDir == "UP" then
+									local bot = m:GetBottom()
+									if left and bot then
+										sim:ClearAllPoints()
+										sim:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bot)
+									end
+								else
+									local top = m:GetTop()
+									if left and top then
+										sim:ClearAllPoints()
+										sim:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+									end
+								end
+							end
+						end
+					end
+				end
+
+				if nudgePanel and nudgePanel:IsShown() then Mover:UpdateNudgeCoords() end
 			end
 		end)
 	end)
 
 	mover:SetScript("OnDragStop", function(self)
-		self:SetScript("OnUpdate", nil) -- [12.0.1] 드래그 OnUpdate 해제
-		HideSnapPreview() -- [12.0.1] 스냅 가이드라인 숨기기
+		if not _isDragging then return end
+		_isDragging = false
+		_dragMover = nil
+		_dragUpdateFrame:SetScript("OnUpdate", nil)
+
+		HideSnapPreview()
 		if gridFrame and gridFrame:IsShown() then gridFrame:SetAlpha(0.4) end
-		local point, snapX, snapY = ProcessDragStop(self)
-		ApplyMoverVisual(self, point, snapX, snapY, UIParent, point) -- [MOVER] 시각적 이동만 (Done 시 DB 저장)
-		ReanchorToAttachTo(self)
+		if self._tempGridShown then self._tempGridShown = nil end
+
+		-- [EDITMODE-FIX] 모든 다중 선택 프레임의 최종 앵커링 및 저장
+		local anySelected = false
+		for m, _ in pairs(selectedMovers) do
+			ProcessDragStop(m)
+			anySelected = true
+		end
+		if not anySelected then
+			ProcessDragStop(self)
+		end
+		
 		Mover:UpdateNudgeCoords()
 	end)
 
@@ -1889,19 +2041,16 @@ function Mover:Initialize()
 		end
 	end
 
-	-- [EDITMODE-FIX] Raid mover — 항상 전용 앵커 사용 (SecureGroupHeader ._mover 오염 방지)
+	-- [EDITMODE-FIX] Raid mover — 항상 ns.db.raid 참조 (40인 레이아웃)
 	do
-		-- [MYTHIC-RAID] 활성 레이드 DB 참조
-		local _GF = ns.GroupFrames
-		local rdb = (_GF and _GF.GetActiveRaidDB and _GF:GetActiveRaidDB()) or ns.db.raid
+		local rdb = ns.db.raid
 		if rdb and rdb.enabled ~= false then
 			local w, h = CalcRaidMoverSize()
-			-- 항상 전용 앵커 프레임 사용
 			local anchorFrame = CreateFrame("Frame", "ddingUI_RaidMoverAnchor", UIParent)
 			anchorFrame:SetSize(w, h)
 			anchorFrame:Hide()
 			local mover = CreateMoverOverlay(anchorFrame, "Raid", "raid", w, h)
-			mover._frame = ns.headers.gf_raid_group1 or ns.headers.raid_group1 or anchorFrame -- [FIX] 키 이름 일치
+			mover._frame = ns.headers.gf_raid_group1 or ns.headers.raid_group1 or anchorFrame
 			mover._unitKey = "raid"
 			mover._isGroupMover = true
 			local pt, rel, relPt, px, py = ResolvePosition(rdb.position, rdb)
@@ -1912,6 +2061,32 @@ function Mover:Initialize()
 			else
 				mover:ClearAllPoints()
 				mover:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -100)
+				mover:SetSize(w, h)
+			end
+			table.insert(movers, mover)
+		end
+	end
+
+	-- [MYTHIC-RAID] MythicRaid mover — ns.db.mythicRaid 참조 (20인 레이아웃)
+	do
+		local mrdb = ns.db.mythicRaid
+		if mrdb and mrdb.enabled then
+			local w, h = CalcMythicRaidMoverSize()
+			local anchorFrame = CreateFrame("Frame", "ddingUI_MythicRaidMoverAnchor", UIParent)
+			anchorFrame:SetSize(w, h)
+			anchorFrame:Hide()
+			local mover = CreateMoverOverlay(anchorFrame, "MythicRaid", "raid", w, h)
+			mover._frame = ns.headers.gf_raid_group1 or ns.headers.raid_group1 or anchorFrame
+			mover._unitKey = "mythicRaid"
+			mover._isGroupMover = true
+			local pt, rel, relPt, px, py = ResolvePosition(mrdb.position, mrdb)
+			if pt then
+				mover:ClearAllPoints()
+				mover:SetPoint(pt, rel, relPt, px, py)
+				mover:SetSize(w, h)
+			else
+				mover:ClearAllPoints()
+				mover:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -300)
 				mover:SetSize(w, h)
 			end
 			table.insert(movers, mover)
@@ -1936,7 +2111,7 @@ function Mover:Initialize()
 
 	-- [12.0.1] 분리형 파워바 Mover 등록
 	for unitKey, frame in pairs(ns.frames) do
-		if frame and frame._powerDetached and frame.Power then
+		if frame and frame._powerDetached and frame.Power and unitKey ~= "target" then
 			local label = (unitKey:sub(1, 1):upper() .. unitKey:sub(2)) .. " Power"
 			local mover = CreateMoverOverlay(frame.Power, label, "powerbar")
 			mover._unitKey = unitKey
@@ -2164,11 +2339,31 @@ function Mover:UnlockAll()
 				end
 			end
 		else
-			-- [EDITMODE-FIX] 비그룹 Mover 사이즈를 프레임에 동기화 (설정 변경/사이즈 손실 대응)
+			-- [CDM-DRAG] 비그룹 Mover: 실제 프레임 위치에서 명시적 단일 앵커 설정
+			-- SetAllPoints(frame) 상태 → GetNumPoints()=2 → SaveMoverToDB 스킵 방지
 			if mover._frame then
 				local fW, fH = mover._frame:GetSize()
 				if fW and fW > 0 and fH and fH > 0 then
 					mover:SetSize(fW, fH)
+				end
+
+				-- DB 저장된 위치가 있으면 사용
+				local key = GetMoverDBKey(mover)
+				local savedPt, savedAnc, savedRel, savedX, savedY = LoadMoverFromDB(key)
+				if savedPt then
+					mover:ClearAllPoints()
+					mover:SetPoint(savedPt, savedAnc, savedRel, savedX, savedY)
+				else
+					-- DB 없으면 실제 프레임의 화면 좌표에서 역산
+					local cx, cy = mover._frame:GetCenter()
+					if cx and cy then
+						local mW, mH = mover:GetSize()
+						local absLeft = cx - (mW or 0) / 2
+						local absBottom = cy - (mH or 0) / 2
+						local pt, oX, oY = CalcPointFromAbsolute(absLeft, absBottom, mW or 0, mH or 0, false)
+						mover:ClearAllPoints()
+						mover:SetPoint(pt, UIParent, pt, oX, oY)
+					end
 				end
 			end
 		end
@@ -2206,6 +2401,11 @@ function Mover:LockAll()
 	wipe(selectedMovers) -- [EDITMODE] 다중 선택 해제
 	wipe(undoStack) -- [EDITMODE] 언두 스택 초기화
 	wipe(redoStack) -- [CDM-P1] 리두 스택 초기화
+
+	-- [CDM-DRAG] 드래그 상태 초기화 (편집 중 드래그 중단 방지)
+	_isDragging = false
+	_dragMover = nil
+	_dragUpdateFrame:SetScript("OnUpdate", nil)
 
 	-- [MOVER] 모든 무버 위치를 DB에 저장 (Done 시점)
 	SaveAllMoversToDB()
@@ -2247,6 +2447,11 @@ function Mover:CancelEditMode()
 	wipe(undoStack) -- [EDITMODE] 언두 스택 초기화
 	wipe(redoStack) -- [CDM-P1] 리두 스택 초기화
 
+	-- [CDM-DRAG] 드래그 상태 초기화
+	_isDragging = false
+	_dragMover = nil
+	_dragUpdateFrame:SetScript("OnUpdate", nil)
+
 	-- 편집 전 위치로 복원
 	RestorePositionSnapshot()
 
@@ -2284,17 +2489,17 @@ function Mover:CreateNudgePanel()
 	if nudgePanel then return end
 
 	-- StyleLib 색상 참조 (UF 악센트)
-	local accent = SL and { SL.GetAccent("UnitFrames") } or { {0.30, 0.85, 0.45}, {0.12, 0.55, 0.20} }
-	local accentFrom = accent[1] or {0.30, 0.85, 0.45}
-	local panelBg = SL and SL.Colors.bg.main or {0.10, 0.10, 0.10, 0.95}
-	local panelBorder = SL and SL.Colors.border.default or {0.25, 0.25, 0.25, 0.50}
-	local inputBg = SL and SL.Colors.bg.input or {0.06, 0.06, 0.06, 0.80}
+	local accent = SL and { SL.GetAccent("UnitFrames") } or { {0.20, 0.70, 0.95}, {0.10, 0.40, 0.70} } -- 기본을 깔끔한 블루로
+	local accentFrom = accent[1] or {0.20, 0.70, 0.95}
+	local panelBg = {0.05, 0.05, 0.05, 0.95} -- Danders 스타일 딥 다크
+	local panelBorder = {0, 0, 0, 1} -- 쨍한 1px 블랙 보더
+	local inputBg = {0.08, 0.08, 0.08, 0.90}
 
 	local SOLID = C.FLAT_TEXTURE or "Interface\\Buttons\\WHITE8x8"
-	local ddInputBg = SL and SL.Colors.bg.input or {0.06, 0.06, 0.06, 0.80}
-	local ddHoverBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
-	local ddMainBg  = SL and SL.Colors.bg.main  or {0.10, 0.10, 0.10, 0.95}
-	local ddBorder  = SL and SL.Colors.border.default or {0.25, 0.25, 0.25, 0.50}
+	local ddInputBg = {0.08, 0.08, 0.08, 0.90}
+	local ddHoverBg = {0.15, 0.15, 0.15, 0.90}
+	local ddMainBg  = {0.05, 0.05, 0.05, 0.98}
+	local ddBorder  = {0.2, 0.2, 0.2, 1}
 
 	local panel = CreateFrame("Frame", "ddingUI_NudgePanel", UIParent, "BackdropTemplate")
 	panel:SetSize(240, 764) -- CDM과 동일한 크기
@@ -2484,8 +2689,8 @@ function Mover:CreateNudgePanel()
 	previewFrame:SetSize(CDM_GRID_W, CDM_GRID_H)
 	previewFrame:SetPoint("TOP", anchorGridContainer, "TOP", 0, -2)
 	previewFrame:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-	previewFrame:SetBackdropColor(0.10, 0.10, 0.10, 0.90)
-	previewFrame:SetBackdropBorderColor(0.70, 0.70, 0.70, 0.90)
+	previewFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+	previewFrame:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
 
 	-- 크기 텍스트
 	local sizeText = anchorGridContainer:CreateFontString(nil, "OVERLAY")
@@ -2715,7 +2920,8 @@ function Mover:CreateNudgePanel()
 		local arrow = btn:CreateFontString(nil, "OVERLAY")
 		arrow:SetFont(fontPath, 9, "OUTLINE")
 		arrow:SetPoint("RIGHT", -4, 0)
-		arrow:SetText("\226\150\188") -- ▼
+		arrow:SetText("▼")
+		arrow:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3])
 
 		container._value = nil
 		container._text = ""
@@ -2839,9 +3045,9 @@ function Mover:CreateNudgePanel()
 		if self.anchorFrameDropdown and self.anchorFrameDropdown.SetItems then
 			local afItems = { {text="UIParent", value="UIParent"} }
 			local CDM_PROXIES = {
-				{ name = "DDingUI_Anchor_Cooldowns", label = "CDM: 쿨다운" },
-				{ name = "DDingUI_Anchor_Buffs",     label = "CDM: 강화" },
-				{ name = "DDingUI_Anchor_Utility",   label = "CDM: 보조" },
+				{ name = "DDingUI_Group_Cooldowns", label = "CDM: 핵심 능력" },
+				{ name = "DDingUI_Group_Buffs",     label = "CDM: 강화 효과" },
+				{ name = "DDingUI_Group_Utility",   label = "CDM: 보조 능력" },
 			}
 			for _, proxy in ipairs(CDM_PROXIES) do
 				if _G[proxy.name] then
@@ -2894,9 +3100,9 @@ function Mover:CreateNudgePanel()
 	panel.attachDropdown = {
 		SetSelected = function(_, val)
 			local CDM_NAMES = {
-				["DDingUI_Anchor_Cooldowns"] = "CDM: 쿨다운",
-				["DDingUI_Anchor_Buffs"] = "CDM: 강화",
-				["DDingUI_Anchor_Utility"] = "CDM: 보조",
+				["DDingUI_Group_Cooldowns"] = "CDM: 핵심 능력",
+				["DDingUI_Group_Buffs"] = "CDM: 강화 효과",
+				["DDingUI_Group_Utility"] = "CDM: 보조 능력",
 				["ddingUI_Player"] = "UF: Player",
 				["ddingUI_Target"] = "UF: Target",
 				["ddingUI_Focus"] = "UF: Focus",
@@ -2942,7 +3148,7 @@ function Mover:CreateNudgePanel()
 			"ddingUI_Boss1", "ddingUI_Boss2", "ddingUI_Boss3",
 		}
 		local cdmProxies = {
-			"DDingUI_Anchor_Cooldowns", "DDingUI_Anchor_Buffs", "DDingUI_Anchor_Utility",
+			"DDingUI_Group_Cooldowns", "DDingUI_Group_Buffs", "DDingUI_Group_Utility",
 		}
 
 		local function IsMouseOverFrame(frame)
@@ -3183,12 +3389,12 @@ function Mover:CreateNudgePanel()
 		return btn
 	end
 
-	panel.upBtn    = CreateNudgeBtn("^", 0, 1,  "TOP",  panel, "TOP", 0, cursorY)
+	panel.upBtn    = CreateNudgeBtn("▲", 0, 1,  "TOP",  panel, "TOP", 0, cursorY)
 	cursorY = cursorY - ARROW_SZ - 2
-	panel.leftBtn  = CreateNudgeBtn("<", -1, 0, "TOP",  panel, "TOP", -(ARROW_SZ/2 + 2), cursorY)
-	panel.rightBtn = CreateNudgeBtn(">", 1, 0,  "LEFT", panel.leftBtn, "RIGHT", 4, 0)
+	panel.leftBtn  = CreateNudgeBtn("◀", -1, 0, "TOP",  panel, "TOP", -(ARROW_SZ/2 + 2), cursorY)
+	panel.rightBtn = CreateNudgeBtn("▶", 1, 0,  "LEFT", panel.leftBtn, "RIGHT", 4, 0)
 	cursorY = cursorY - ARROW_SZ - 2
-	panel.downBtn  = CreateNudgeBtn("v", 0, -1, "TOP",  panel, "TOP", 0, cursorY)
+	panel.downBtn  = CreateNudgeBtn("▼", 0, -1, "TOP",  panel, "TOP", 0, cursorY)
 	cursorY = cursorY - ARROW_SZ - SECTION_PAD
 
 	-- ==========================================
@@ -3322,7 +3528,7 @@ function Mover:CreateNudgePanel()
 		end
 
 		local thumb = slider:CreateTexture(nil, "OVERLAY")
-		thumb:SetSize(8, 8)
+		thumb:SetSize(4, 12) -- [STYLE] 모던 직사각형 슬라이더 핸들
 		thumb:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 1)
 		slider:SetThumbTexture(thumb)
 
@@ -3371,6 +3577,17 @@ function Mover:CreateNudgePanel()
 			local mdb2 = GetMoverDB()
 			mdb2.previewRaidCount = math_floor(value + 0.5)
 			if raidSliderContainer then raidSliderContainer.label:SetText("레이드 " .. mdb2.previewRaidCount) end
+			-- [FIX] Mover 크기 실시간 갱신
+			local raidMover = _G["ddingUI_Mover_Raid"]
+			if raidMover and raidMover:IsShown() then
+				local rw, rh = CalcRaidMoverSize()
+				raidMover:SetSize(rw, rh)
+			end
+			local mrMover = _G["ddingUI_Mover_MythicRaid"]
+			if mrMover and mrMover:IsShown() then
+				local mw, mh = CalcMythicRaidMoverSize()
+				mrMover:SetSize(mw, mh)
+			end
 			local TM = ns.GroupFrames and ns.GroupFrames.TestMode
 			if TM and TM.active then TM:RefreshRaid() end
 		end)
@@ -3404,7 +3621,7 @@ function Mover:CreateNudgePanel()
 		return btn
 	end
 
-	panel.resetBtn = CreateBottomBtn("Reset", startX + btnWidth/2, 0.3, 0.15, 0.15, function()
+	panel.resetBtn = CreateBottomBtn("Reset", startX + btnWidth/2, 0.6, 0.15, 0.15, function()
 		if not selectedMover then return end
 		local pt, _, _, ox, oy = selectedMover:GetPoint(1)
 		if pt then
@@ -3416,20 +3633,22 @@ function Mover:CreateNudgePanel()
 		if panel.UpdateUndoRedoBtns then panel:UpdateUndoRedoBtns() end
 	end)
 
-	panel.undoBtn = CreateBottomBtn("Undo", startX + btnWidth + btnSpacing + btnWidth/2, nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], function() Mover:Undo() end)
-	panel.undoBtn._bgR, panel.undoBtn._bgG, panel.undoBtn._bgB = nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3]
+	local undoRedoBgIdx = {0.15, 0.15, 0.15}
+	panel.undoBtn = CreateBottomBtn("Undo", startX + btnWidth + btnSpacing + btnWidth/2, undoRedoBgIdx[1], undoRedoBgIdx[2], undoRedoBgIdx[3], function() Mover:Undo() end)
+	panel.undoBtn._bgR, panel.undoBtn._bgG, panel.undoBtn._bgB = undoRedoBgIdx[1], undoRedoBgIdx[2], undoRedoBgIdx[3]
 	panel.undoBtn:Disable()
 
-	panel.redoBtn = CreateBottomBtn("Redo", startX + (btnWidth + btnSpacing) * 2 + btnWidth/2, nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3], function() Mover:Redo() end)
-	panel.redoBtn._bgR, panel.redoBtn._bgG, panel.redoBtn._bgB = nudgeBtnBg[1], nudgeBtnBg[2], nudgeBtnBg[3]
+	panel.redoBtn = CreateBottomBtn("Redo", startX + (btnWidth + btnSpacing) * 2 + btnWidth/2, undoRedoBgIdx[1], undoRedoBgIdx[2], undoRedoBgIdx[3], function() Mover:Redo() end)
+	panel.redoBtn._bgR, panel.redoBtn._bgG, panel.redoBtn._bgB = undoRedoBgIdx[1], undoRedoBgIdx[2], undoRedoBgIdx[3]
 	panel.redoBtn:Disable()
 
-	local doneR = accentFrom[1] * 0.35
-	local doneG = accentFrom[2] * 0.35
-	local doneB = accentFrom[3] * 0.35
+	local doneR = accentFrom[1] * 0.8
+	local doneG = accentFrom[2] * 0.8
+	local doneB = accentFrom[3] * 0.8
 	panel.doneBtn = CreateBottomBtn("Done", startX + (btnWidth + btnSpacing) * 3 + btnWidth/2, doneR, doneG, doneB, function()
 		Mover:LockAll()
 	end)
+
 
 	-- Undo/Redo 상태 업데이트 (CDM 동일)
 	function panel:UpdateUndoRedoBtns()
@@ -3515,9 +3734,9 @@ function Mover:CreateNudgePanel()
 		do
 			local afItems = { {text="UIParent", value="UIParent"} }
 			local CDM_PROXIES_DD = {
-				{ name = "DDingUI_Anchor_Cooldowns", label = "CDM: 쿨다운" },
-				{ name = "DDingUI_Anchor_Buffs",     label = "CDM: 강화" },
-				{ name = "DDingUI_Anchor_Utility",   label = "CDM: 보조" },
+				{ name = "DDingUI_Group_Cooldowns", label = "CDM: 핵심 능력" },
+				{ name = "DDingUI_Group_Buffs",     label = "CDM: 강화 효과" },
+				{ name = "DDingUI_Group_Utility",   label = "CDM: 보조 능력" },
 			}
 			for _, proxy in ipairs(CDM_PROXIES_DD) do
 				if _G[proxy.name] then
@@ -3540,9 +3759,9 @@ function Mover:CreateNudgePanel()
 			end
 			if self.anchorFrameDropdown and self.anchorFrameDropdown.SetValue then
 				local CDM_NAMES = {
-					["DDingUI_Anchor_Cooldowns"] = "CDM: 쿨다운",
-					["DDingUI_Anchor_Buffs"] = "CDM: 강화",
-					["DDingUI_Anchor_Utility"] = "CDM: 보조",
+					["DDingUI_Group_Cooldowns"] = "CDM: 핵심 능력",
+					["DDingUI_Group_Buffs"] = "CDM: 강화 효과",
+					["DDingUI_Group_Utility"] = "CDM: 보조 능력",
 					["ddingUI_Player"] = "UF: Player",
 					["ddingUI_Target"] = "UF: Target",
 					["ddingUI_Focus"] = "UF: Focus",

@@ -1,10 +1,10 @@
 --[[
-    DDingToolKit - CombatTimer Module
+    DDingQoC - CombatTimer Module
     전투 타이머 표시
 ]]
 
 local addonName, ns = ...
-local DDingToolKit = ns.DDingToolKit
+local DDingQoC = ns.DDingQoC
 local UI = ns.UI
 local L = ns.L
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
@@ -40,7 +40,12 @@ function CombatTimer:OnEnable()
         if event == "PLAYER_REGEN_DISABLED" then
             self:StartTimer()
         elseif event == "PLAYER_REGEN_ENABLED" then
-            self:StopTimer()
+            -- 그룹 전투 중이면 타이머 유지 (죽어서 전투 해제된 경우)
+            if self:IsGroupStillFighting() then
+                self:WatchGroupCombat()
+            else
+                self:StopTimer()
+            end
         end
     end)
 
@@ -68,7 +73,7 @@ end
 function CombatTimer:CreateTimerFrame()
     if timerFrame then return end
 
-    local frame = CreateFrame("Frame", "DDingToolKit_CombatTimerFrame", UIParent)
+    local frame = CreateFrame("Frame", "DDingQoC_CombatTimerFrame", UIParent)
     frame:SetSize(120, 40)
     frame:SetPoint(self.db.position.point or "TOP", UIParent, self.db.position.relativePoint or "TOP", self.db.position.x or 0, self.db.position.y or -100)
     frame:SetFrameStrata("HIGH")
@@ -207,6 +212,7 @@ end
 
 -- 타이머 시작
 function CombatTimer:StartTimer()
+    self:CancelGroupWatch()  -- 기존 감시 취소
     startTime = GetTime()
     if timerFrame then
         -- bg가 없으면 생성 (기존 프레임 호환)
@@ -236,6 +242,7 @@ end
 
 -- 타이머 정지
 function CombatTimer:StopTimer()
+    self:CancelGroupWatch()
     if timerFrame and startTime then
         -- 최종 시간 표시 유지
         self:UpdateTimer()
@@ -261,6 +268,46 @@ function CombatTimer:StopTimer()
     end
 
     startTime = nil
+end
+
+-- 그룹 멤버 중 전투 중인 사람이 있는지 확인
+function CombatTimer:IsGroupStillFighting()
+    if not (IsInGroup() or IsInRaid()) then return false end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            if UnitAffectingCombat("raid"..i) then return true end
+        end
+    else
+        for i = 1, GetNumSubgroupMembers() do
+            if UnitAffectingCombat("party"..i) then return true end
+        end
+    end
+    return false
+end
+
+-- 그룹 전투 감시: 1초마다 체크, 전투 끝나면 StopTimer
+function CombatTimer:WatchGroupCombat()
+    if self._watchTicker then return end -- 이미 감시 중
+    self._watchTicker = C_Timer.NewTicker(1, function()
+        -- 플레이어가 다시 전투에 진입하면 감시 중지 (이벤트가 처리)
+        if InCombatLockdown() then
+            self:CancelGroupWatch()
+            return
+        end
+        -- 그룹 전투가 끝났으면 정지
+        if not self:IsGroupStillFighting() then
+            self:CancelGroupWatch()
+            self:StopTimer()
+        end
+    end)
+end
+
+-- 그룹 전투 감시 취소
+function CombatTimer:CancelGroupWatch()
+    if self._watchTicker then
+        self._watchTicker:Cancel()
+        self._watchTicker = nil
+    end
 end
 
 -- 타이머 업데이트
@@ -334,5 +381,28 @@ function CombatTimer:ResetPosition()
     end
 end
 
+-- 편집 모드 연동 (Movers)
+function CombatTimer:EnterEditPreview()
+    if not startTime then
+        startTime = GetTime()
+        if timerFrame then
+            if not timerFrame.bg then
+                timerFrame.bg = timerFrame:CreateTexture(nil, "BACKGROUND", nil, -8)
+                timerFrame.bg:SetAllPoints(timerFrame)
+                timerFrame.bg:SetTexture(SL_FLAT)
+                timerFrame.bg:SetVertexColor(0, 0, 0, 0.5)
+            end
+            timerFrame:Show()
+            self:UpdateFrameStyle()
+        end
+    end
+end
+
+function CombatTimer:ExitEditPreview()
+    if startTime then
+        self:StopTimer()
+    end
+end
+
 -- 모듈 등록
-DDingToolKit:RegisterModule("CombatTimer", CombatTimer)
+DDingQoC:RegisterModule("CombatTimer", CombatTimer)

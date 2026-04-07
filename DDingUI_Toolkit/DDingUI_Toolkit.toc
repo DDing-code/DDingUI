@@ -80,9 +80,6 @@ Modules\ItemLevel\ItemLevel.lua
 Modules\Notepad\Notepad.lua
 
 
-# Modules - PartyTracker
-Modules\PartyTracker\PartyTracker.lua
-
 # Modules - MythicPlusHelper
 Modules\MythicPlusHelper\MythicPlusHelper.lua
 

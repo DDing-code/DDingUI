@@ -1317,6 +1317,15 @@ function Update:UpdateAuras(frameOrUnit, unitKey)
 
 			-- [AURA-FILTER] CustomFilter는 Layout.lua에서 설정한 ConfigBasedAuraFilter 유지
 
+			-- [FIX] 보스/아레나: onlyMine 런타임 동기화 → API 레벨 HARMFUL|PLAYER 필터
+			local baseUnit = unitKey
+			local debuffFilter = dDB.filter
+			if (baseUnit == "boss" or baseUnit == "arena") and debuffFilter and debuffFilter.onlyMine then
+				frame.Debuffs.filter = "HARMFUL|PLAYER"
+			elseif (baseUnit == "boss" or baseUnit == "arena") then
+				frame.Debuffs.filter = nil -- 기본 HARMFUL 사용
+			end
+
 			-- [12.0.1] 폰트 DB + gradient 색상 런타임 갱신
 			frame.Debuffs._fontDB = dDB.font
 			frame.Debuffs._durationColors = dDB.durationColors

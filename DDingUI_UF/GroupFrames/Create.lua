@@ -856,7 +856,7 @@ function GF:CreateAuraIcon(parent, index, auraType)
 	icon.duration:SetTextColor(1, 1, 1, 1)
 	icon.duration:Hide()
 
-	-- [REFACTOR] 네이티브 쿨다운 텍스트 리스타일 (DandersFrames ApplyAuraDuration 패턴)
+	-- [REFACTOR] 네이티브 쿨다운 텍스트 리스타일 (DandersFrames 패턴)
 	-- C_Timer.After(0.01): 쿨다운 프레임의 내장 FontString이 생성된 후 리스타일
 	if icon.cooldown then
 		C_Timer.After(0.01, function()
@@ -864,6 +864,16 @@ function GF:CreateAuraIcon(parent, index, auraType)
 			for _, region in ipairs(regions) do
 				if region and region.GetObjectType and region:GetObjectType() == "FontString" then
 					icon.nativeCooldownText = region
+					-- [FIX] DandersFrames 패턴: CooldownFrame C++이 텍스트 알파/폰트 등을 
+					-- 강제로 리셋하므로 부모 프레임의 알파로 제어할 수 있도록 wrapper 프레임에 reparent
+					if not icon.durationHideWrapper then
+						icon.durationHideWrapper = CreateFrame("Frame", nil, icon.cooldown)
+						icon.durationHideWrapper:SetAllPoints(icon)
+						icon.durationHideWrapper:SetFrameLevel(icon.cooldown:GetFrameLevel() + 2)
+						icon.durationHideWrapper:EnableMouse(false)
+					end
+					region:SetParent(icon.durationHideWrapper)
+					
 					region:ClearAllPoints()
 					region:SetPoint("CENTER", icon, "CENTER", 0, 0)
 					SafeSetFont(region, SL_FONT, 9, "OUTLINE")

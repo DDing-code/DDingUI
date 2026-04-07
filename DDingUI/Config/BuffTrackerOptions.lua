@@ -5013,7 +5013,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     options["tracked" .. index .. "_maxStacks"] = {
         type = "input",
         name = "    " .. (L["Max Stacks"] or "Max Stacks"),
-        order = orderBase + 2,
+        order = orderBase + 0.86,
         width = 0.5,
         hidden = function()
             if hiddenIfCollapsed() then return true end
@@ -5073,7 +5073,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         type = "toggle",
         name = "    " .. (L["Auto-detect duration"] or "지속시간 자동 감지"),
         desc = L["Automatically read duration from CDM when buff activates"] or "버프 활성화 시 CDM에서 지속시간 자동 읽기",
-        order = orderBase + 3.5,
+        order = orderBase + 0.87,
         width = "full",
         hidden = function()
             if hiddenIfCollapsed() then return true end
@@ -5408,7 +5408,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     options["tracked" .. index .. "_barFillMode"] = {
         type = "select",
         name = "    " .. (L["Bar Fill Mode"] or "Bar Fill Mode"),
-        order = orderBase + 4.6,
+        order = orderBase + 0.88,
         width = 0.7,
         hidden = function()
             if hiddenIfNotBar() then return true end
@@ -5433,27 +5433,6 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         end,
     }
 
-    -- Max Duration for bar fill (duration mode only)
-    options["tracked" .. index .. "_barMaxDuration"] = {
-        type = "range",
-        name = "    " .. (L["Max Duration (sec)"] or "Max Duration (sec)"),
-        desc = L["Maximum duration for manual countdown. Used by duration triggers and ring/bar fill."] or "Maximum duration for manual countdown. Set to 0 to use API duration.",
-        order = orderBase + 4.65,
-        width = 1.0,
-        min = 0, max = 120, step = 0.5,
-        hidden = hiddenIfNotDuration,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.maxDuration or 0
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.maxDuration = (val > 0) and val or nil
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
 
     -- Duration Tick Positions (duration mode only)
     -- 사용자가 비율로 tick 위치를 설정 (예: "0.3" = 30%, 팬데믹 기준점)

@@ -46,6 +46,7 @@ Core\Database.lua
 Core\Core.lua
 Core\SlashCommands.lua
 Core\MinimapButton.lua
+Core\Movers.lua
 
 # Config (DDingUI_StyleLib based)
 Config_Data.lua
@@ -61,5 +62,5 @@ Modules\BuffChecker\BuffChecker.lua
 Modules\CastingAlert\CastingAlert.lua
 Modules\FocusInterrupt\FocusInterrupt.lua
 
-# Modules - Missing Buff
-Modules\MissingBuff\MissingBuff.lua
+# Modules - Party Tracker
+Modules\PartyTracker\PartyTracker.lua

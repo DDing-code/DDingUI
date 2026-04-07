@@ -47,10 +47,7 @@ local function u(t) return unpack(t) end
 local function ResolveOptions(options)
     if type(options) == "table" then return options end
     if options == "soundChannels"  then return ns:GetSoundChannelOptions() end
-    if options == "alertPositions" then return ns:GetAlertPositionOptions() end
     if options == "alignOptions"   then return ns:GetAlignOptions() end
-    if options == "chatTypes"      then return ns:GetChatTypeOptions() end
-    if options == "cursorTrailTextures" then return ns.CursorTrailTextureList or {} end
     return {}
 end
 
@@ -1030,10 +1027,42 @@ function ConfigUI:Initialize()
     -- 원본 메뉴 데이터 저장 (검색 필터 해제 시 복원용)
     fullMenuData = tree.menu
 
+    -- 편집 모드 버튼 (타이틀바 우측, 검색 박스 좌측)
+    local editModeBtn = CreateFrame("Button", nil, settingsPanel.titleBar, "BackdropTemplate")
+    editModeBtn:SetSize(90, 22)
+    editModeBtn:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+    editModeBtn:SetBackdropColor(0.15, 0.15, 0.15, 0.8)
+    editModeBtn:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.5)
+    local editBtnText = editModeBtn:CreateFontString(nil, "OVERLAY")
+    editBtnText:SetFont(F.path, F.small or 10, "")
+    editBtnText:SetPoint("CENTER")
+    editBtnText:SetText("|cffffa300⚙|r " .. (L["MOVER_TITLE"] or "Edit Mode"))
+    editBtnText:SetTextColor(0.9, 0.9, 0.9)
+    editModeBtn:SetScript("OnClick", function()
+        if ns.QoCMovers then
+            if settingsPanel and settingsPanel.frame:IsShown() then
+                settingsPanel.frame:Hide()
+            end
+            ns.QoCMovers:ToggleConfigMode()
+        end
+    end)
+    editModeBtn:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(0.25, 0.25, 0.25, 0.9)
+        self:SetBackdropBorderColor(1, 0.64, 0, 0.8)
+    end)
+    editModeBtn:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(0.15, 0.15, 0.15, 0.8)
+        self:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.5)
+    end)
+    settingsPanel.editModeBtn = editModeBtn
+
     -- 검색 박스 (타이틀바 우측, 닫기 버튼 좌측)
     local searchBox = Lib.CreateSearchBox(settingsPanel.titleBar, 200)
     searchBox:SetPoint("RIGHT", settingsPanel.titleBar.closeBtn, "LEFT", -10, 0)
     settingsPanel.searchBox = searchBox
+
+    -- 편집 모드 버튼 위치: 검색 박스 좌측
+    editModeBtn:SetPoint("RIGHT", searchBox.frame or searchBox, "LEFT", -8, 0)
 
     -- 검색 박스 연결: 트리 필터 + 콘텐츠 검색
     searchBox:SetOnTextChanged(function(text)

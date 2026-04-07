@@ -101,6 +101,25 @@ local function GetGS()
 end
 
 local function RefreshGroupSystem()
+    -- [FIX] 전투 중 named frame의 ClearAllPoints() 호출 → ADDON_ACTION_BLOCKED 방지
+    -- 전투 종료 후 Refresh 예약
+    if InCombatLockdown() then
+        if not DDingUI._pendingGroupRefresh then
+            DDingUI._pendingGroupRefresh = true
+            local f = DDingUI._groupRefreshFrame
+            if not f then
+                f = CreateFrame("Frame")
+                DDingUI._groupRefreshFrame = f
+            end
+            f:RegisterEvent("PLAYER_REGEN_ENABLED")
+            f:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                DDingUI._pendingGroupRefresh = false
+                RefreshGroupSystem()
+            end)
+        end
+        return
+    end
     if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
         DDingUI.GroupSystem:Refresh()
     end
@@ -999,6 +1018,32 @@ local function BuildCustomVisualArgs(groupName)
         glowHeader = { type = "header", name = L["Glow Effects"] or "글로우 효과", order = 15 },
         auraGlow = GS_Toggle(groupName, "auraGlow", L["Aura Glow"] or "오라 글로우", 16, false),
         procGlowEnabled = GS_Toggle(groupName, "procGlowEnabled", L["Proc Glow"] or "발동 글로우", 17, true),
+        -- 지속 효과 숨기기 (EllesmereUI hideActive 이식)
+        hideActiveState = GS_Toggle(groupName, "hideActiveState", L["Hide Active State"] or "지속 효과 숨기기", 18, false),
+        hideActiveStateDesc = {
+            type = "description", order = 18.5,
+            name = "|cff888888" .. (L["Hide active buff/aura overlay when the effect is active. The icon remains visible but the active state animation (glow, swipe color) is suppressed."] or "효과가 활성화되었을 때 활성 상태 오버레이(글로우, 스와이프 색상)를 숨깁니다. 아이콘은 보이지만 활성 표시만 비활성화됩니다.") .. "|r",
+        },
+        -- 보조 강조 효과 (Assist Highlight)
+        assistHighlightHeader = { type = "header", name = L["Assist Highlight"] or "보조 강조 효과", order = 20 },
+        assistHighlightEnabled = GS_Toggle(groupName, "assistHighlightEnabled", L["Enable Assist Highlight"] or "보조 강조 효과 활성화", 20.1, false),
+        assistHighlightType = GS_Select(groupName, "assistHighlightType", L["Highlight Type"] or "강조 유형", 20.2, "flipbook", {
+            ["flipbook"] = L["Flipbook (Blizzard)"] or "Flipbook (Blizzard)",
+            ["lcg"] = L["LibCustomGlow"] or "LibCustomGlow",
+        }),
+        assistFlipbookScale = GS_Range(groupName, "assistFlipbookScale", L["Flipbook Scale"] or "Flipbook 크기", 20.3, 1.5, 1.0, 2.5, 0.1),
+        assistGlowType = GS_Select(groupName, "assistGlowType", L["Glow Type"] or "글로우 유형", 20.4, "Pixel Glow", {
+            ["Pixel Glow"] = "Pixel Glow",
+            ["Autocast Shine"] = "Autocast Shine",
+            ["Action Button Glow"] = "Action Button Glow",
+            ["Proc Glow"] = "Proc Glow",
+            ["Blizzard Glow"] = "Blizzard Glow",
+        }),
+        assistGlowColor = GS_Color(groupName, "assistGlowColor", L["Assist Glow Color"] or "보조 강조 색상", 20.5, {0.3, 0.7, 1.0, 1}),
+        assistGlowLines = GS_Range(groupName, "assistGlowLines", L["Pixel Glow Lines"] or "라인 수", 20.6, 10, 1, 30, 1),
+        assistGlowFrequency = GS_Range(groupName, "assistGlowFrequency", L["Pixel Glow Speed"] or "속도", 20.7, 0.25, 0.01, 1.0, 0.01),
+        assistGlowThickness = GS_Range(groupName, "assistGlowThickness", L["Pixel Glow Thickness"] or "두께", 20.8, 1, 0.5, 5, 0.5),
+        assistHighlightPixelLength = GS_Range(groupName, "assistHighlightPixelLength", L["Pixel Glow Length"] or "길이", 20.9, 8, 1, 10, 1),
         -- 애니메이션
         animHeader = { type = "header", name = L["Animation"] or "애니메이션", order = 25 },
         disableEdgeGlow = GS_Toggle(groupName, "disableEdgeGlow", L["Disable Edge Glow"] or "엣지 글로우 비활성화", 26, false),
@@ -1590,9 +1635,182 @@ local function CreateGroupOptions(groupName, order)
                     end)
                 end,
             } or nil,
+            -- [HARDCODED] 생명석 추가 버튼
+            addHealthstone = not isCDM and {
+                type = "execute",
+                name = function() local _, cls = UnitClass("player"); local icon = (cls == "WARLOCK") and (C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(224464) or 538745) or (C_Item.GetItemIconByID(5512) or 538745); return "|T" .. icon .. ":16:16:0:0|t " .. (L["Add Healthstone"] or "생명석 추가") end,
+                desc = L["Add Healthstone icon. Warlocks use Create Healthstone spell, others use Healthstone item."] or "생명석 아이콘을 추가합니다. 흑마법사는 생명석 생성 스펠, 다른 직업은 생명석 아이템으로 추가됩니다.",
+                order = 44, width = "normal",
+                func = function()
+                    if not DDingUI.CustomIcons then return end
+                    local sourceKey = EnsureSourceGroup(groupName)
+                    local _, playerClass = UnitClass("player")
+                    local iconKey
+                    if playerClass == "WARLOCK" then
+                        -- 흑마법사: 생명석 아이템 (224464 - 악마의 생명석)
+                        iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = 224464})
+                    else
+                        -- 다른 직업: 생명석 아이템 (5512)
+                        iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = 5512})
+                    end
+                    if iconKey and sourceKey then
+                        DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey)
+                    end
+                    local attempts = 0
+                    local poller = nil
+                    poller = C_Timer.NewTicker(0.5, function()
+                        attempts = attempts + 1
+                        local ci = DDingUI.CustomIcons
+                        local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
+                        if hasFrame or attempts >= 6 then
+                            if poller then poller:Cancel() end
+                            SoftRefreshDynamicIcons()
+                        end
+                    end)
+                end,
+            } or nil,
             advancedDesc = not isCDM and {
-                type = "description", order = 44,
+                type = "description", order = 50,
                 name = "|cff888888" .. (L["Trinkets auto-detect proc buffs and show item cooldown. Fallback items can be configured per-icon in Dynamic Icons tab."] or "장신구는 발동 버프를 자동 감지하고 아이템 쿨다운을 표시합니다. 폴백 아이템은 동적 아이콘 탭에서 아이콘별로 설정 가능합니다.") .. "|r",
+            } or nil,
+
+            -- ===========================================
+            -- [QUICK-ADD] 소모품 빠른 추가 (R2→R1 폴백)
+            -- ===========================================
+            quickAddHeader = not isCDM and {
+                type = "header", name = L["Quick Add Consumables"] or "소모품 빠른 추가", order = 55,
+            } or nil,
+
+            -- 실버문 생명력 물약 (R2 241304 / R1 241305)
+            addHealthPotion = not isCDM and {
+                type = "execute", order = 56, width = "normal",
+                name = function() local icon = C_Item.GetItemIconByID(241304) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Silvermoon Health Potion"] or "실버문 생명력 물약") end,
+                desc = "Item ID: 241304 (★★) / 241305 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
+                func = function()
+                    if not DDingUI.CustomIcons then return end
+                    local itemID = 241304
+                    C_Item.RequestLoadItemDataByID(itemID)
+                    C_Item.RequestLoadItemDataByID(241305)
+                    C_Timer.After(0.3, function()
+                        local sourceKey = EnsureSourceGroup(groupName)
+                        local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = itemID})
+                        if iconKey then
+                            local db = DDingUI.db.profile.dynamicIcons
+                            if db and db.iconData and db.iconData[iconKey] then
+                                db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
+                                db.iconData[iconKey].settings.fallbackItems = "241305"
+                            end
+                            if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
+                        end
+                        SoftRefreshDynamicIcons()
+                    end)
+                end,
+            } or nil,
+
+            -- 빛주입 마나 물약 (R2 241300 / R1 241301)
+            addManaPotion = not isCDM and {
+                type = "execute", order = 57, width = "normal",
+                name = function() local icon = C_Item.GetItemIconByID(241300) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Lightfused Mana Potion"] or "빛주입 마나 물약") end,
+                desc = "Item ID: 241300 (★★) / 241301 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
+                func = function()
+                    if not DDingUI.CustomIcons then return end
+                    local itemID = 241300
+                    C_Item.RequestLoadItemDataByID(itemID)
+                    C_Item.RequestLoadItemDataByID(241301)
+                    C_Timer.After(0.3, function()
+                        local sourceKey = EnsureSourceGroup(groupName)
+                        local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = itemID})
+                        if iconKey then
+                            local db = DDingUI.db.profile.dynamicIcons
+                            if db and db.iconData and db.iconData[iconKey] then
+                                db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
+                                db.iconData[iconKey].settings.fallbackItems = "241301"
+                            end
+                            if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
+                        end
+                        SoftRefreshDynamicIcons()
+                    end)
+                end,
+            } or nil,
+
+            -- 빛의 잠재력 (R2 241308 / R1 241309)
+            addTemperedPotion = not isCDM and {
+                type = "execute", order = 58, width = "normal",
+                name = function() local icon = C_Item.GetItemIconByID(241308) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Light's Potential"] or "빛의 잠재력") end,
+                desc = "Item ID: 241308 (★★) / 241309 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
+                func = function()
+                    if not DDingUI.CustomIcons then return end
+                    local itemID = 241308
+                    C_Item.RequestLoadItemDataByID(itemID)
+                    C_Item.RequestLoadItemDataByID(241309)
+                    C_Timer.After(0.3, function()
+                        local sourceKey = EnsureSourceGroup(groupName)
+                        local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = itemID})
+                        if iconKey then
+                            local db = DDingUI.db.profile.dynamicIcons
+                            if db and db.iconData and db.iconData[iconKey] then
+                                db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
+                                db.iconData[iconKey].settings.fallbackItems = "241309"
+                            end
+                            if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
+                        end
+                        SoftRefreshDynamicIcons()
+                    end)
+                end,
+            } or nil,
+
+            -- 종족 특성 (현재 캐릭터 종족 자동 감지)
+            racialHeader = not isCDM and {
+                type = "header", name = L["Racial Ability"] or "종족 특성", order = 60,
+            } or nil,
+            addRacial = not isCDM and {
+                type = "execute", order = 61, width = "normal",
+                name = function()
+                    local RACIAL_SPELLS = {
+                        Human       = 59752,
+                        Orc         = 20572,
+                        NightElf    = 58984,
+                        Dwarf       = 20594,
+                        Undead      = 7744,
+                        Troll       = 26297,
+                        BloodElf    = 25046,
+                        Gnome       = 20589,
+                        Draenei     = 28880,
+                        Worgen      = 68992,
+                        Goblin      = 69070,
+                        Pandaren    = 107079,
+                        VoidElf     = 256948,
+                        LightforgedDraenei = 255647,
+                        DarkIronDwarf  = 265221,
+                        KulTiran    = 287712,
+                        Mechagnome  = 312924,
+                        Nightborne  = 260364,
+                        HighmountainTauren = 255654,
+                        MagharOrc   = 274738,
+                        ZandalariTroll = 291944,
+                        Vulpera     = 312411,
+                        Dracthyr    = 368970,
+                    }
+                    local _, raceKey = UnitRace("player")
+                    local raceFile = (raceKey or ""):gsub("%s", ""):gsub("^%l", string.upper)
+                    local spellID = RACIAL_SPELLS[raceFile]
+                    if spellID then
+                        local spellName = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+                        if spellName then
+                            return (L["Add Racial"] or "종족 특성 추가") .. ": " .. spellName
+                        end
+                    end
+                    return L["Add Racial"] or "종족 특성 추가"
+                end,
+                desc = "현재 캐릭터의 종족 특성을 동적으로 표시하는 슬롯을 추가합니다. 프로필을 공유해도 접속한 캐릭터의 최신 종족 스킬이 자동 변환되어 적용됩니다.",
+                func = function()
+                    if not DDingUI.CustomIcons then return end
+                    local sourceKey = EnsureSourceGroup(groupName)
+                    -- 고정된 스펠 ID를 저장하지 않고, 렌더링 시점에 종족을 감지하는 메타 슬롯(racial)을 주입합니다
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "racial", id = "racial"})
+                    if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
+                    SoftRefreshDynamicIcons()
+                end,
             } or nil,
         },
     }

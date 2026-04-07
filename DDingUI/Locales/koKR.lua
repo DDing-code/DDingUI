@@ -1705,6 +1705,8 @@ L["Add Trinket 2 (Slot 14)"] = "장신구 2 추가 (슬롯 14)"
 L["Automatically track trinket in slot 13 (proc detection + item cooldown)"] = "슬롯 13 장신구 자동 추적 (발동 감지 + 아이템 쿨다운)"
 L["Automatically track trinket in slot 14 (proc detection + item cooldown)"] = "슬롯 14 장신구 자동 추적 (발동 감지 + 아이템 쿨다운)"
 L["Trinkets auto-detect proc buffs and show item cooldown. Fallback items can be configured per-icon in Dynamic Icons tab."] = "장신구는 발동 버프를 자동 감지하고 아이템 쿨다운을 표시합니다. 폴백 아이템은 동적 아이콘 탭에서 아이콘별로 설정 가능합니다."
+L["Add Healthstone"] = "생명석 추가"
+L["Add Healthstone icon. Warlocks use Create Healthstone spell, others use Healthstone item."] = "생명석 아이콘을 추가합니다. 흑마법사는 생명석 생성 스펠, 다른 직업은 생명석 아이템으로 추가됩니다."
 L["Enter new group name:"] = "새 그룹 이름을 입력하세요:"
 L["Opacity"] = "투명도"
 
@@ -1797,3 +1799,15 @@ L["Talent Node ID"] = "특성 노드 ID"
 L["Enter talent node ID. The talent name will be shown for verification."] = "특성 노드 ID를 입력하세요. 확인을 위해 특성 이름이 표시됩니다."
 L["Max Duration (sec)"] = "최대 지속시간 (초)"
 L["Maximum duration for manual countdown. Used by duration triggers and ring/bar fill."] = "수동 카운트다운의 최대 지속시간. 지속시간 트리거 및 링/바 채움에 사용됩니다."
+
+-- Quick Add (GroupSystemOptions.lua)
+L["Quick Add Consumables"] = "소모품 빠른 추가"
+L["Silvermoon Health Potion"] = "실버문 생명력 물약"
+L["Lightfused Mana Potion"] = "빛주입 마나 물약"
+L["Light's Potential"] = "빛의 잠재력"
+L["Racial Ability"] = "종족 특성"
+L["Add Racial"] = "종족 특성 추가"
+
+-- Hide Active State (Visual Effect)
+L["Hide Active State"] = "지속 효과 숨기기"
+L["Hide active buff/aura overlay when the effect is active. The icon remains visible but the active state animation (glow, swipe color) is suppressed."] = "효과가 활성화되었을 때 활성 상태 오버레이(글로우, 스와이프 색상)를 숨깁니다. 아이콘은 보이지만 활성 표시만 비활성화됩니다."

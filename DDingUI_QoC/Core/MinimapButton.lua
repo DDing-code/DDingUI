@@ -27,7 +27,9 @@ function DDingQoC:CreateMinimapButton()
             if button == "LeftButton" then
                 DDingQoC:ToggleConfig()
             elseif button == "RightButton" then
-                DDingQoC:ToggleConfig()
+                if ns.QoCMovers then
+                    ns.QoCMovers:ToggleConfigMode()
+                end
             end
         end,
         OnTooltipShow = function(tooltip)
@@ -35,6 +37,7 @@ function DDingQoC:CreateMinimapButton()
             local title = (SL and SL.CreateAddonTitle) and SL.CreateAddonTitle("QoC", "QoC") or "|cffffffffDDing|r|cffffa300UI|r QoC"
             tooltip:SetText(title)
             tooltip:AddLine("|cffffffffLeft-click|r  " .. (L["MINIMAP_LEFT_CLICK"] or "Open settings"), 0.7, 0.7, 0.7)
+            tooltip:AddLine("|cffffffffRight-click|r  " .. (L["MINIMAP_RIGHT_CLICK"] or "Toggle edit mode"), 0.7, 0.7, 0.7)
             tooltip:AddLine("|cffffffffDrag|r  " .. (L["MINIMAP_DRAG"] or "Move button"), 0.7, 0.7, 0.7)
         end,
     })

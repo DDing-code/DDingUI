@@ -1,0 +1,16 @@
+## Interface: 120001
+## Title: |cffffffffDDing|r|cffffa300UI|r |cff88cc44PersonalBar|r
+## Notes: Personal Resource Display Bar customizer
+## Notes-koKR: 개인 자원바 크기/텍스쳐 조절 애드온
+## Author: DDing
+## Version: 1.0.0
+## IconTexture: Interface\AddOns\DDingUI_PersonalBar\logo
+## SavedVariables: DDingUI_PersonalBarDB
+
+# Libraries
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+
+Core.lua

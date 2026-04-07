@@ -123,6 +123,14 @@ end
 -- [CDM 호환] ns에 공개 (Update.lua / Mover.lua 에서 사용)
 ns.ResolveAnchorFrame = ResolveAnchorFrame
 
+local function SafeSetPoint(frame, ...)
+	local ok = pcall(frame.SetPoint, frame, ...)
+	if not ok then
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
+end
+
 local function ApplyPosition(frame, pos, fallbackPoint, fallbackRelative, fallbackRelPoint, fallbackX, fallbackY)
 	if pos then
 		-- New object format: { point = "CENTER", relativePoint = "CENTER", offsetX = 0, offsetY = 0 }
@@ -131,20 +139,20 @@ local function ApplyPosition(frame, pos, fallbackPoint, fallbackRelative, fallba
 			local relPoint = pos.relativePoint or point
 			local x = pos.offsetX or 0
 			local y = pos.offsetY or 0
-			frame:SetPoint(point, UIParent, relPoint, x, y)
+			SafeSetPoint(frame, point, UIParent, relPoint, x, y)
 		-- Legacy full array format: { "BOTTOMLEFT", "UIParent", "BOTTOM", -260, 200 }
 		elseif type(pos[1]) == "string" then
 			local relativeTo = pos[2] and (_G[pos[2]] or UIParent) or UIParent
-			frame:SetPoint(pos[1], relativeTo, pos[3] or pos[1], pos[4] or 0, pos[5] or 0)
+			SafeSetPoint(frame, pos[1], relativeTo, pos[3] or pos[1], pos[4] or 0, pos[5] or 0)
 		-- Simple offset format: { x, y } - use fallbackPoint with these offsets
 		elseif type(pos[1]) == "number" and type(pos[2]) == "number" then
-			frame:SetPoint(fallbackPoint, fallbackRelative or UIParent, fallbackRelPoint or fallbackPoint, pos[1], pos[2])
+			SafeSetPoint(frame, fallbackPoint, fallbackRelative or UIParent, fallbackRelPoint or fallbackPoint, pos[1], pos[2])
 		else
 			-- Fallback
-			frame:SetPoint(fallbackPoint, fallbackRelative or UIParent, fallbackRelPoint or fallbackPoint, fallbackX or 0, fallbackY or 0)
+			SafeSetPoint(frame, fallbackPoint, fallbackRelative or UIParent, fallbackRelPoint or fallbackPoint, fallbackX or 0, fallbackY or 0)
 		end
 	else
-		frame:SetPoint(fallbackPoint, fallbackRelative or UIParent, fallbackRelPoint or fallbackPoint, fallbackX or 0, fallbackY or 0)
+		SafeSetPoint(frame, fallbackPoint, fallbackRelative or UIParent, fallbackRelPoint or fallbackPoint, fallbackX or 0, fallbackY or 0)
 	end
 end
 
@@ -157,30 +165,78 @@ local function ApplyUnitPosition(frame, cfg, fallbackPoint, fallbackRelative, fa
 
 	-- attachTo가 UIParent가 아닌 프레임이면 CDM 스타일 앵커
 	if attachTo and attachTo ~= "UIParent" and attachTo ~= "" then
-		local anchor = ResolveAnchorFrame(attachTo)
-		local sp = selfPoint or "CENTER"
-		local ap = anchorPoint or "CENTER"
-		local oX, oY = 0, 0
-
-		if pos then
-			if pos.offsetX then
-				-- object format: { point = ..., offsetX = ..., offsetY = ... }
-				oX = pos.offsetX or 0
-				oY = pos.offsetY or 0
-			elseif type(pos[1]) == "string" then
-				-- legacy array format: { "BOTTOM", "ddingUI_Player", "CENTER", -323, 485 }
-				-- selfPoint/anchorPoint는 cfg에서 이미 가져왔으므로 오프셋만 추출
-				oX = pos[4] or 0
-				oY = pos[5] or 0
-			elseif type(pos[1]) == "number" then
-				-- simple offset format: { x, y }
-				oX = pos[1] or 0
-				oY = pos[2] or 0
+		-- [FIX] 자기참조 방지: attachTo가 자신이면 UIParent 기반 위치로 폴백
+		local frameName = frame:GetName()
+		if frameName and attachTo == frameName then
+			-- 자기참조 → UIParent 기반으로 폴백
+		else
+			local anchor = _G[attachTo]
+			-- [FIX] CDM 앵커 미로드 대기: 프레임이 아직 없으면 폴링
+			if not anchor then
+				-- 먼저 UIParent 기반 fallback 위치 적용 (화면에서 사라지지 않도록)
+				ApplyPosition(frame, pos, fallbackPoint, fallbackRelative, fallbackRelPoint, fallbackX, fallbackY)
+				-- 폴링: 0.5초 간격, 최대 10회 재시도
+				local retries = 0
+				local function TryAnchor()
+					retries = retries + 1
+					local resolvedAnchor = _G[attachTo]
+					if resolvedAnchor then
+						local sp = selfPoint or "CENTER"
+						local ap = anchorPoint or "CENTER"
+						local oX, oY = 0, 0
+						if pos then
+							if pos.offsetX then
+								oX = pos.offsetX or 0
+								oY = pos.offsetY or 0
+							elseif type(pos[1]) == "string" then
+								oX = pos[4] or 0
+								oY = pos[5] or 0
+							elseif type(pos[1]) == "number" then
+								oX = pos[1] or 0
+								oY = pos[2] or 0
+							end
+						end
+						if not InCombatLockdown() then
+							frame:ClearAllPoints()
+							local ok = pcall(function() frame:SetPoint(sp, resolvedAnchor, ap, oX, oY) end)
+							if not ok then
+								frame:ClearAllPoints()
+								frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+							end
+						else
+							if retries < 10 then C_Timer.After(0.5, TryAnchor) end
+						end
+					elseif retries < 10 then
+						C_Timer.After(0.5, TryAnchor)
+					end
+				end
+				C_Timer.After(0.5, TryAnchor)
+				return
 			end
-		end
 
-		frame:SetPoint(sp, anchor, ap, oX, oY)
-		return
+			local sp = selfPoint or "CENTER"
+			local ap = anchorPoint or "CENTER"
+			local oX, oY = 0, 0
+			if pos then
+				if pos.offsetX then
+					oX = pos.offsetX or 0
+					oY = pos.offsetY or 0
+				elseif type(pos[1]) == "string" then
+					oX = pos[4] or 0
+					oY = pos[5] or 0
+				elseif type(pos[1]) == "number" then
+					oX = pos[1] or 0
+					oY = pos[2] or 0
+				end
+			end
+
+			local ok = pcall(function() frame:SetPoint(sp, anchor, ap, oX, oY) end)
+			if not ok then
+				frame:ClearAllPoints()
+				frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+			end
+			return
+		end
 	end
 
 	-- 기존 UIParent 기반 위치 적용

@@ -1704,6 +1704,8 @@ L["Add Trinket 2 (Slot 14)"] = "Add Trinket 2 (Slot 14)"
 L["Automatically track trinket in slot 13 (proc detection + item cooldown)"] = "Automatically track trinket in slot 13 (proc detection + item cooldown)"
 L["Automatically track trinket in slot 14 (proc detection + item cooldown)"] = "Automatically track trinket in slot 14 (proc detection + item cooldown)"
 L["Trinkets auto-detect proc buffs and show item cooldown. Fallback items can be configured per-icon in Dynamic Icons tab."] = "Trinkets auto-detect proc buffs and show item cooldown. Fallback items can be configured per-icon in Dynamic Icons tab."
+L["Add Healthstone"] = "Add Healthstone"
+L["Add Healthstone icon. Warlocks use Create Healthstone spell, others use Healthstone item."] = "Add Healthstone icon. Warlocks use Create Healthstone spell, others use Healthstone item."
 L["Enter new group name:"] = "Enter new group name:"
 
 -- Buff Tracker Refactor (Phase 2 Condition)

@@ -132,6 +132,36 @@ function Profiles:Initialize()
 		end
 	end
 
+	-- [ANCHOR-MIGRATION] 프록시 앵커(DDingUI_Anchor_*) → GroupSystem 프레임(DDingUI_Group_*) 자동 변환
+	-- GroupSystem 도입 후 프록시 프레임이 삭제되었으므로 기존 DB 값을 자동 마이그레이션
+	local ANCHOR_MIGRATION = {
+		["DDingUI_Anchor_Cooldowns"] = "DDingUI_Group_Cooldowns",
+		["DDingUI_Anchor_Buffs"]     = "DDingUI_Group_Buffs",
+		["DDingUI_Anchor_Utility"]   = "DDingUI_Group_Utility",
+	}
+	local MIGRATE_UNITS = {"player","target","targettarget","focus","focustarget","pet","party","raid","mythicRaid","boss","arena"}
+	for _, unitKey in ipairs(MIGRATE_UNITS) do
+		local unitDB = ns.db[unitKey]
+		if unitDB and unitDB.attachTo then
+			local newVal = ANCHOR_MIGRATION[unitDB.attachTo]
+			if newVal then
+				unitDB.attachTo = newVal
+			end
+		end
+	end
+	-- movers 네임스페이스의 앵커 프레임 이름도 마이그레이션
+	if ns.db.movers then
+		for key, str in pairs(ns.db.movers) do
+			if type(str) == "string" then
+				for oldName, newName in pairs(ANCHOR_MIGRATION) do
+					if str:find(oldName, 1, true) then
+						ns.db.movers[key] = str:gsub(oldName, newName)
+					end
+				end
+			end
+		end
+	end
+
 	-- [SPEC-SWITCH] 전문화별 프로필 자동 전환 초기화
 	self:InitSpecSwitch()
 

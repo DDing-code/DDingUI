@@ -2395,9 +2395,9 @@ local function BuildUnitGeneralPage(parent, unit)
 		}
 		-- [CDM 호환] CDM 프록시 앵커 동적 감지 (DDingUI CDM 로드 시에만 표시)
 		local CDM_PROXIES = {
-			{ name = "DDingUI_Anchor_Cooldowns", label = "CDM: 핵심 능력" },
-			{ name = "DDingUI_Anchor_Buffs",     label = "CDM: 강화 효과" },
-			{ name = "DDingUI_Anchor_Utility",   label = "CDM: 보조 능력" },
+			{ name = "DDingUI_Group_Cooldowns", label = "CDM: 핵심 능력" },
+			{ name = "DDingUI_Group_Buffs",     label = "CDM: 강화 효과" },
+			{ name = "DDingUI_Group_Utility",   label = "CDM: 보조 능력" },
 		}
 		for _, proxy in ipairs(CDM_PROXIES) do
 			if _G[proxy.name] then
@@ -4161,7 +4161,51 @@ local function BuildPrivateAurasPage(parent, unit)
 	yOffset = BuildIconGrowthSection(parent, unit, "privateAuras", yOffset)
 	yOffset = BuildIconPositionSection(parent, unit, "privateAuras", yOffset)
 
-	-- 글꼴/표시옵션/필터 섹션 없음 (블리자드 API 제약 — 렌더링 직접 관리)
+	-- ============================================================
+	-- [FIX] 텍스트/표시 옵션 (블리자드 AddPrivateAuraAnchor API 파라미터)
+	-- ============================================================
+	local dispSep = Widgets:CreateSeparator(parent, "표시 설정", CONTENT_WIDTH - 40)
+	dispSep:SetPoint("TOPLEFT", 15, yOffset)
+	yOffset = yOffset - 35
+
+	-- 쿨다운 스와이프 표시
+	local cdCheck = Widgets:CreateCheckButton(parent, "쿨다운 스와이프 표시", function(checked)
+		SetWidgetValue(unit, "privateAuras", "showCountdownFrame", checked)
+		IconRefresh(unit, "privateAuras")
+	end)
+	cdCheck:SetPoint("TOPLEFT", 15, yOffset)
+	cdCheck:SetChecked(paDB.showCountdownFrame ~= false)
+	cdCheck.tooltipText = "아이콘 위에 쿨다운 스와이프(시계 회전) 효과를 표시합니다"
+
+	-- 카운트다운 숫자 표시
+	local numCheck = Widgets:CreateCheckButton(parent, "카운트다운 숫자 표시", function(checked)
+		SetWidgetValue(unit, "privateAuras", "showCountdownNumbers", checked)
+		IconRefresh(unit, "privateAuras")
+	end)
+	numCheck:SetPoint("LEFT", cdCheck, "RIGHT", 160, 0)
+	numCheck:SetChecked(paDB.showCountdownNumbers ~= false)
+	numCheck.tooltipText = "아이콘 위에 남은 시간 숫자를 표시합니다"
+	yOffset = yOffset - 35
+
+	-- 지속시간 폰트 크기
+	local fontSlider = Widgets:CreateSlider("지속시간 폰트 크기", parent, 6, 20, 140, 1, nil, function(value)
+		SetWidgetValue(unit, "privateAuras", "durationFontSize", value)
+		IconRefresh(unit, "privateAuras")
+	end)
+	fontSlider:SetPoint("TOPLEFT", 15, yOffset)
+	fontSlider:SetValue(paDB.durationFontSize or 10)
+	fontSlider.tooltipText = "프라이빗 오라 아이콘의 카운트다운 텍스트 크기"
+
+	-- 보더 스케일
+	local borderSlider = Widgets:CreateSlider("보더 스케일", parent, 0, 2, 140, 0.1, nil, function(value)
+		SetWidgetValue(unit, "privateAuras", "borderScale", value)
+		IconRefresh(unit, "privateAuras")
+	end)
+	borderSlider:SetPoint("LEFT", fontSlider, "RIGHT", 30, 0)
+	borderSlider:SetValue(paDB.borderScale or 0.6)
+	borderSlider.tooltipText = "프라이빗 오라 아이콘 테두리 두께 비율 (0=없음)"
+	yOffset = yOffset - 60
+
 	parent:SetHeight(math.abs(yOffset) + 50)
 end
 

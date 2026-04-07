@@ -1,11 +1,11 @@
 --[[
-    DDingToolKit - CastingAlert Module
+    DDingQoC - CastingAlert Module
     타겟 스펠 알림 (asCastingAlert 참고)
     레이아웃: [아이콘] [남은초] [아이콘] - 위로 쌓임
 ]]
 
 local addonName, ns = ...
-local DDingToolKit = ns.DDingToolKit
+local DDingQoC = ns.DDingQoC
 local UI = ns.UI
 local L = ns.L
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
@@ -175,7 +175,7 @@ function CastingAlert:CreateMainFrame()
     if mainFrame then return end
 
     local pos = self.db.position or {}
-    local frame = CreateFrame("Frame", "DDingToolKit_CastingAlertFrame", UIParent)
+    local frame = CreateFrame("Frame", "DDingQoC_CastingAlertFrame", UIParent)
     frame:SetSize(1, 1)
     frame:SetPoint(pos.point or "CENTER", UIParent, pos.relativePoint or "CENTER", pos.x or 0, pos.y or -30)
     frame:SetFrameStrata("LOW")
@@ -520,5 +520,40 @@ function CastingAlert:ResetPosition()
     end
 end
 
+-- 편집 모드 연동 (Movers)
+function CastingAlert:EnterEditPreview()
+    if isTestMode then return end
+    if not mainFrame then self:CreateMainFrame() end
+    isTestMode = true
+    local size = self.db.iconSize or 35
+    local rowSpacing = size + 4
+    local maxShow = math.min(self.db.maxShow or 10, 3)
+    for i = 1, maxShow do
+        local row = castFrames[i]
+        if row then
+            row:ClearAllPoints()
+            row:SetPoint("CENTER", mainFrame, "CENTER", 0, (i - 1) * rowSpacing)
+            row.leftIcon.tex:SetTexture(134400)
+            row.rightIcon.tex:SetTexture(134400)
+            row.leftIcon.important:SetAlpha(i == 1 and 1 or 0)
+            row.rightIcon.important:SetAlpha(i == 1 and 1 or 0)
+            row.timeText:SetText(string.format("%.1f", 3.5 - i))
+            row:SetAlpha(1)
+        end
+    end
+    for i = maxShow + 1, (self.db.maxShow or 10) do
+        if castFrames[i] then castFrames[i]:SetAlpha(0) end
+    end
+end
+
+function CastingAlert:ExitEditPreview()
+    if not isTestMode then return end
+    isTestMode = false
+    local maxShow = self.db.maxShow or 10
+    for i = 1, maxShow do
+        if castFrames[i] then castFrames[i]:SetAlpha(0) end
+    end
+end
+
 -- 모듈 등록
-DDingToolKit:RegisterModule("CastingAlert", CastingAlert)
+DDingQoC:RegisterModule("CastingAlert", CastingAlert)

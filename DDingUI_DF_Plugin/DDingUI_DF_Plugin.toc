@@ -1,0 +1,11 @@
+## Interface: 120000, 120001
+## Title: DDingUI DF Plugin
+## Notes: DDingUI Icon Set & Flight Fade for DandersFrames
+## Author: DDing
+## Version: 1.0.0
+## Dependencies: DandersFrames
+## IconTexture: Interface\AddOns\DDingUI_DF_Plugin\Media\logo
+## SavedVariables: DDingUI_DF_PluginDB
+
+Core.lua
+FlightFade.lua

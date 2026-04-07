@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 	ddingUI UnitFrames
 	GroupFrames/Headers.lua — SecureGroupHeaderTemplate 생성
 
@@ -259,6 +259,11 @@ function GF:CreateHeaders()
 	-- [PERF] 색상 타이머 활성화 (그룹 시에만)
 	if GF.UpdateColorTimerState then
 		GF:UpdateColorTimerState()
+	end
+
+	-- [PERF] HoT 추적 이벤트 등록 (그룹 활성 시에만)
+	if GF.StartHotTracker then
+		GF:StartHotTracker()
 	end
 end
 
@@ -636,39 +641,50 @@ function GF:CreateRaidHeaders()
 
 		local function RecenterRaidHeaders()
 			if InCombatLockdown() then return end
+			
+			-- 가장 멤버 수가 많은 파티를 기준으로 정렬 기준 계산
+			local maxCountFound = 0
 			for idx, hdr in ipairs(self.raidHeaders) do
 				if not hdr then break end
-				local count = 0
-				for j = 1, 40 do
-					local child = hdr:GetAttribute("child" .. j)
-					if child and child:IsShown() then count = count + 1 else break end
-				end
-				-- 첫 번째 헤더만 자체 중앙 정렬, 나머지는 prev 기준 상대 배치라 자동 따라감
-				if idx == 1 and count > 0 then
-					local bPoint, bRelTo, bRelPoint, bOffX, bOffY = ReadBaseRaidPosition()
-
-					hdr:ClearAllPoints()
-					if growDir == "H_CENTER" then
-						local maxW = maxMembers * frameW + (maxMembers - 1) * sp
-						local actualW = count * frameW + (count - 1) * sp
-						local padX = 0
-						if bPoint:find("LEFT") then
-							padX = (maxW - actualW) / 2
-						elseif bPoint:find("RIGHT") then
-							padX = -(maxW - actualW) / 2
-						end
-						hdr:SetPoint(bPoint, bRelTo, bRelPoint, bOffX + padX, bOffY)
-					else -- V_CENTER
-						local maxH = maxMembers * frameH + (maxMembers - 1) * sp
-						local actualH = count * frameH + (count - 1) * sp
-						local padY = 0
-						if bPoint:find("TOP") then
-							padY = (maxH - actualH) / 2
-						elseif bPoint:find("BOTTOM") then
-							padY = -(maxH - actualH) / 2
-						end
-						hdr:SetPoint(bPoint, bRelTo, bRelPoint, bOffX, bOffY - padY)
+				-- 헤더 자체가 표시중인 그룹만 체크
+				if hdr:IsShown() then
+					local count = 0
+					for j = 1, 40 do
+						local child = hdr:GetAttribute("child" .. j)
+						if child and child:IsShown() then count = count + 1 else break end
 					end
+					if count > maxCountFound then
+						maxCountFound = count
+					end
+				end
+			end
+			
+			-- 첫 번째 헤더 위치 보정 (나머지는 상대 배치로 자동 따라감)
+			local hdr1 = self.raidHeaders[1]
+			if hdr1 and maxCountFound > 0 then
+				local bPoint, bRelTo, bRelPoint, bOffX, bOffY = ReadBaseRaidPosition()
+
+				hdr1:ClearAllPoints()
+				if growDir == "H_CENTER" then
+					local maxW = maxMembers * frameW + (maxMembers - 1) * sp
+					local actualW = maxCountFound * frameW + (maxCountFound - 1) * sp
+					local padX = 0
+					if bPoint:find("LEFT") then
+						padX = (maxW - actualW) / 2
+					elseif bPoint:find("RIGHT") then
+						padX = -(maxW - actualW) / 2
+					end
+					hdr1:SetPoint(bPoint, bRelTo, bRelPoint, bOffX + padX, bOffY)
+				else -- V_CENTER
+					local maxH = maxMembers * frameH + (maxMembers - 1) * sp
+					local actualH = maxCountFound * frameH + (maxCountFound - 1) * sp
+					local padY = 0
+					if bPoint:find("TOP") then
+						padY = (maxH - actualH) / 2
+					elseif bPoint:find("BOTTOM") then
+						padY = -(maxH - actualH) / 2
+					end
+					hdr1:SetPoint(bPoint, bRelTo, bRelPoint, bOffX, bOffY - padY)
 				end
 			end
 		end

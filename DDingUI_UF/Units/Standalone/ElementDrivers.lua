@@ -991,18 +991,37 @@ function Drivers:_UpdateAuraElement(frame, element, unit, filter)
 	local customFilter = element.filter or filter
 	local passedAuras = {}  -- { auraData, auraData, ... }
 
-	for i = 1, 40 do
-		local auraData = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex(unit, i, customFilter)
-		if not auraData then break end
-
-		-- 커스텀 필터 적용
-		local show = true
-		if element.FilterAura then
-			show = element.FilterAura(element, unit, auraData)
+	-- [FIX] WoW 12.0: GetAuraDataByIndex는 보스/hostile 유닛에서 secret 오라를 만나면
+	-- 순회가 조기 종료되거나 누락되는 심각한 버그가 있음 (oUF/ElvUI가 작동하는 이유).
+	-- GetAuraSlots + GetAuraDataBySlot 순회 방식으로 변경하여 모든 오라를 정확히 캡처
+	if C_UnitAuras and C_UnitAuras.GetAuraSlots then
+		local slots = { C_UnitAuras.GetAuraSlots(unit, customFilter) }
+		for i = 2, #slots do -- 1번은 continuationToken이므로 2번부터
+			local auraData = C_UnitAuras.GetAuraDataBySlot(unit, slots[i])
+			if auraData then
+				local show = true
+				if element.FilterAura then
+					show = element.FilterAura(element, unit, auraData)
+				end
+				if show then
+					passedAuras[#passedAuras + 1] = auraData
+				end
+			end
 		end
+	else
+		-- fallback
+		for i = 1, 40 do
+			local auraData = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex(unit, i, customFilter)
+			if not auraData then break end
 
-		if show then
-			passedAuras[#passedAuras + 1] = auraData
+			local show = true
+			if element.FilterAura then
+				show = element.FilterAura(element, unit, auraData)
+			end
+
+			if show then
+				passedAuras[#passedAuras + 1] = auraData
+			end
 		end
 	end
 
@@ -1081,9 +1100,17 @@ function Drivers:_UpdateAuraElement(frame, element, unit, filter)
 		if button.Cooldown then
 			local auraInstanceID = auraData.auraInstanceID
 
-			-- 쿨다운 설정: raw secret 값 직접 전달
+		-- 쿨다운 설정: pcall 보호 (expirationTime/duration이 Secret일 수 있음)
 			if button.Cooldown.SetCooldownFromExpirationTime and auraData.expirationTime and auraData.duration then
-				button.Cooldown:SetCooldownFromExpirationTime(auraData.expirationTime, auraData.duration)
+				local ok = pcall(button.Cooldown.SetCooldownFromExpirationTime, button.Cooldown, auraData.expirationTime, auraData.duration)
+				if not ok then
+					-- Secret Value 에러 시 SafeNum fallback
+					local dur = SafeNum(auraData.duration, 0)
+					local exp = SafeNum(auraData.expirationTime, 0)
+					if dur > 0 and exp > 0 then
+						button.Cooldown:SetCooldown(exp - dur, dur)
+					end
+				end
 			elseif auraData.duration and auraData.expirationTime then
 				local dur = SafeNum(auraData.duration, 0)
 				local exp = SafeNum(auraData.expirationTime, 0)

@@ -4841,12 +4841,6 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
     path = path or {}
     parentFrame = parentFrame or contentFrame:GetParent():GetParent()
 
-    -- [REFACTOR] 커스텀 렌더러 분기
-    if options.customRenderer == "buffTracker" then
-        CreateBuffTrackerPanel(contentFrame, parentFrame)
-        return
-    end
-
     -- Buff Tracker 커스텀 패널 숨기기 (다른 탭으로 이동 시)
     -- NOTE: btPanel 내부의 tabChild에서 RenderOptions를 호출할 때는 숨기지 않음
     if parentFrame and parentFrame.contentArea and parentFrame.contentArea._btPanel then
@@ -4903,6 +4897,12 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         end
     end
     contentFrame.widgets = {}
+
+    -- [REFACTOR] 커스텀 렌더러 분기
+    if options.customRenderer == "buffTracker" then
+        CreateBuffTrackerPanel(contentFrame, parentFrame)
+        return
+    end
     
     if options.childGroups == "tab" then
         -- Get the parent frame's content area and scroll frame to make tabs sticky

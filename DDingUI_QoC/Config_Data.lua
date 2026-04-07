@@ -106,10 +106,11 @@ end
 
 ns.ConfigModuleMap = {
     combattimer     = "CombatTimer",
+    partytracker    = "PartyTracker",
+    durability      = "DurabilityCheck",
     buffchecker     = "BuffChecker",
     castingalert    = "CastingAlert",
     focusinterrupt  = "FocusInterrupt",
-    missingbuff     = "MissingBuff",
 }
 
 ------------------------------------------------------
@@ -126,8 +127,9 @@ function ns:InitConfigTree()
     tree.menu = {
         { text = L["TAB_GENERAL"],          key = "general" },
         { text = L["TAB_COMBATTIMER"],      key = "combattimer" },
+        { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
+        { text = L["TAB_DURABILITY"],       key = "durability" },
         { text = L["TAB_BUFFCHECKER"],      key = "buffchecker" },
-        { text = L["TAB_MISSINGBUFF"] or "클래스 버프 감지",  key = "missingbuff" },
         { text = L["TAB_CASTINGALERT"],     key = "castingalert" },
         { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
     }
@@ -153,251 +155,7 @@ function ns:InitConfigTree()
         },
     }
 
-    -----------------------------------------------
-    -- TalentBG (커스텀 렌더 - 텍스처 그리드 + 프리뷰)
-    -----------------------------------------------
-    tree.panels["talentbg"] = {
-        title = L["TALENTBG_TITLE"],
-        desc  = L["TALENTBG_DESC"],
-        customRender = true,
-        moduleEnableKey = "profile.modules.TalentBG",
-    }
 
-    -----------------------------------------------
-    -- LFGAlert
-    -----------------------------------------------
-    tree.panels["lfgalert"] = {
-        title = L["LFGALERT_TITLE"],
-        desc  = L["LFGALERT_DESC"],
-        moduleEnableKey = "profile.modules.LFGAlert",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.LFGAlert", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            -- 알림 방식
-            { type = "header", label = L["ALERT_METHOD"] },
-            { type = "toggle", key = "profile.LFGAlert.soundEnabled",       label = L["LFGALERT_SOUND_ENABLED"] },
-            { type = "toggle", key = "profile.LFGAlert.flashEnabled",       label = L["LFGALERT_FLASH_DESC"] },
-            { type = "toggle", key = "profile.LFGAlert.screenAlertEnabled", label = L["LFGALERT_SCREEN_DESC"] },
-            { type = "toggle", key = "profile.LFGAlert.chatAlert",          label = L["LFGALERT_CHAT_DESC"] },
-            { type = "toggle", key = "profile.LFGAlert.autoOpenLFG",        label = L["LFGALERT_AUTO_OPEN_DESC"] },
-
-            -- 사운드 설정
-            { type = "header", label = L["SOUND_SETTINGS"] },
-            { type = "sound",    key = "profile.LFGAlert.soundFile",    label = L["LFGALERT_SOUND_FILE"],    defaultLabel = L["LFGALERT_DEFAULT_SOUND"], customPathKey = "profile.LFGAlert.soundCustomPath" },
-            { type = "dropdown", key = "profile.LFGAlert.soundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
-
-            -- 화면 알림 설정
-            { type = "header", label = L["SCREEN_ALERT_SETTINGS"] },
-            { type = "dropdown", key = "profile.LFGAlert.alertPosition",  label = L["LFGALERT_POSITION"],  options = "alertPositions" },
-            { type = "dropdown", key = "profile.LFGAlert.alertAnimation", label = L["LFGALERT_ANIMATION"], options = {
-                { text = L["ANIM_BOUNCE"], value = "bounce" },
-                { text = L["ANIM_FADE"],   value = "fade" },
-                { text = L["ANIM_NONE"],   value = "none" },
-            }},
-            { type = "slider", key = "profile.LFGAlert.alertScale",    label = L["ALERT_SIZE"],          min = 0.5, max = 2.0, step = 0.1 },
-            { type = "slider", key = "profile.LFGAlert.alertDuration", label = L["DISPLAY_DURATION"],    min = 1,   max = 15,  step = 1 },
-
-            -- 조건
-            { type = "header", label = L["CONDITIONS"] },
-            { type = "toggle", key = "profile.LFGAlert.leaderOnly", label = L["LFGALERT_LEADER_ONLY_DESC"] },
-            { type = "slider", key = "profile.LFGAlert.cooldown",   label = L["ALERT_COOLDOWN"], min = 0, max = 10, step = 1 },
-
-            -- 테스트
-            { type = "separator" },
-            { type = "button", label = L["TEST_ALERT"], onClick = function()
-                local mod = ns.modules and ns.modules["LFGAlert"]
-                if mod and mod.TriggerAlert then mod:TriggerAlert(1, true) end
-            end },
-        },
-    }
-
-    -----------------------------------------------
-    -- MailAlert
-    -----------------------------------------------
-    tree.panels["mailalert"] = {
-        title = L["MAILALERT_TITLE"],
-        desc  = L["MAILALERT_DESC"],
-        moduleEnableKey = "profile.modules.MailAlert",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.MailAlert", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            -- 알림 방식
-            { type = "header", label = L["ALERT_METHOD"] },
-            { type = "toggle", key = "profile.MailAlert.soundEnabled",       label = L["MAILALERT_SOUND_ENABLED"] },
-            { type = "toggle", key = "profile.MailAlert.flashEnabled",       label = L["MAILALERT_FLASH_ENABLED"] },
-            { type = "toggle", key = "profile.MailAlert.screenAlertEnabled", label = L["MAILALERT_SCREEN_ALERT"] },
-            { type = "toggle", key = "profile.MailAlert.chatAlert",          label = L["MAILALERT_CHAT_ALERT"] },
-
-            -- 조건 설정
-            { type = "header", label = L["MAILALERT_CONDITION_SETTINGS"] },
-            { type = "toggle", key = "profile.MailAlert.hideInCombat",   label = L["MAILALERT_HIDE_IN_COMBAT_DESC"] },
-            { type = "toggle", key = "profile.MailAlert.hideInInstance", label = L["MAILALERT_HIDE_IN_INSTANCE_DESC"] },
-            { type = "slider", key = "profile.MailAlert.cooldown",       label = L["ALERT_COOLDOWN"], min = 10, max = 300, step = 10 },
-
-            -- 사운드 설정
-            { type = "header", label = L["SOUND_SETTINGS"] },
-            { type = "sound",    key = "profile.MailAlert.soundFile",    label = L["LFGALERT_SOUND_FILE"],    defaultLabel = L["MAILALERT_TEST_MSG"], customPathKey = "profile.MailAlert.soundCustomPath" },
-            { type = "dropdown", key = "profile.MailAlert.soundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
-
-            -- 화면 알림 설정
-            { type = "header", label = L["SCREEN_ALERT_SETTINGS"] },
-            { type = "dropdown", key = "profile.MailAlert.alertPosition",  label = L["ALERT_POSITION"], options = "alertPositions" },
-            { type = "dropdown", key = "profile.MailAlert.alertAnimation", label = L["ANIMATION"], options = {
-                { text = L["ANIM_PULSE"], value = "pulse" },
-                { text = L["ANIM_FADE"],  value = "fade" },
-                { text = L["ANIM_NONE"],  value = "none" },
-            }},
-            { type = "slider", key = "profile.MailAlert.alertScale",    label = L["ALERT_SIZE"],       min = 0.5, max = 2.0, step = 0.1 },
-            { type = "slider", key = "profile.MailAlert.alertDuration", label = L["DISPLAY_DURATION"], min = 1,   max = 15,  step = 1 },
-
-            -- 테스트
-            { type = "separator" },
-            { type = "button", label = L["TEST_ALERT"], onClick = function()
-                local mod = ns.modules and ns.modules["MailAlert"]
-                if mod and mod.TriggerAlert then mod:TriggerAlert(true) end
-            end },
-        },
-    }
-
-    -----------------------------------------------
-    -- CursorTrail
-    -----------------------------------------------
-    tree.panels["cursortrail"] = {
-        title = L["CURSORTRAIL_TITLE"],
-        desc  = L["CURSORTRAIL_DESC"],
-        moduleEnableKey = "profile.modules.CursorTrail",
-        settings = {
-            -- 기본 설정
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.CursorTrail", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-
-            -- 프리셋 (onChange 는 Phase 5에서 구현)
-            { type = "header", label = L["CURSORTRAIL_PRESETS"] },
-            { type = "custom", customType = "cursortrail_presets" },
-
-            -- 색상 설정 (동적 색상 피커 - 커스텀 렌더)
-            { type = "header", label = L["CURSORTRAIL_COLOR_SETTINGS"] },
-            { type = "slider", key = "profile.CursorTrail.colorCount", label = L["CURSORTRAIL_COLOR_NUM"], min = 1, max = 10, step = 1 },
-            { type = "custom", customType = "colorArray",
-              countKey  = "profile.CursorTrail.colorCount",
-              colorsKey = "profile.CursorTrail.colors",
-              maxColors = 10,
-            },
-            { type = "toggle", key = "profile.CursorTrail.colorFlow",      label = L["CURSORTRAIL_COLOR_FLOW_DESC"] },
-            { type = "slider", key = "profile.CursorTrail.colorFlowSpeed", label = L["CURSORTRAIL_FLOW_SPEED"], min = 0.1, max = 5.0, step = 0.1 },
-
-            -- 외형
-            { type = "header", label = L["CURSORTRAIL_APPEARANCE"] },
-            { type = "slider",   key = "profile.CursorTrail.width",  label = L["WIDTH"],  min = 10, max = 200, step = 5 },
-            { type = "slider",   key = "profile.CursorTrail.height", label = L["HEIGHT"], min = 10, max = 200, step = 5 },
-            { type = "slider",   key = "profile.CursorTrail.alpha",  label = L["TRANSPARENCY"], min = 0.1, max = 1.0, step = 0.05 },
-            { type = "dropdown", key = "profile.CursorTrail.texture", label = L["TEXTURE"], options = "cursorTrailTextures",
-              onChange = function()
-                local mod = ns.modules and ns.modules["CursorTrail"]
-                if mod and mod.ApplySettings then mod:ApplySettings() end
-              end,
-            },
-            { type = "dropdown", key = "profile.CursorTrail.blendMode", label = L["CURSORTRAIL_BLEND_MODE"], options = {
-                { text = L["CURSORTRAIL_BLEND_ADD"],   value = "ADD" },
-                { text = L["CURSORTRAIL_BLEND_BLEND"], value = "BLEND" },
-            },
-              onChange = function()
-                local mod = ns.modules and ns.modules["CursorTrail"]
-                if mod and mod.ApplySettings then mod:ApplySettings() end
-              end,
-            },
-
-            -- 성능
-            { type = "header", label = L["CURSORTRAIL_PERFORMANCE"] },
-            { type = "text",   label = L["CURSORTRAIL_PERFORMANCE_WARNING"] },
-            { type = "slider", key = "profile.CursorTrail.lifetime",    label = L["CURSORTRAIL_DOT_LIFETIME"], min = 0.1, max = 1.0, step = 0.05 },
-            { type = "slider", key = "profile.CursorTrail.maxDots",     label = L["CURSORTRAIL_MAX_DOTS"],     min = 100, max = 2000, step = 100,
-              onChange = function()
-                local mod = ns.modules and ns.modules["CursorTrail"]
-                if mod and mod.CreateElementPool then mod:CreateElementPool() end
-              end,
-            },
-            { type = "slider", key = "profile.CursorTrail.dotDistance",  label = L["CURSORTRAIL_DOT_SPACING"],  min = 1,   max = 50,   step = 1 },
-
-            -- 표시 조건
-            { type = "header", label = L["CURSORTRAIL_DISPLAY_CONDITIONS"] },
-            { type = "toggle",   key = "profile.CursorTrail.onlyInCombat",  label = L["CURSORTRAIL_COMBAT_ONLY"] },
-            { type = "toggle",   key = "profile.CursorTrail.hideInInstance", label = L["CURSORTRAIL_HIDE_INSTANCE"] },
-            { type = "dropdown", key = "profile.CursorTrail.layer", label = L["CURSORTRAIL_DISPLAY_LAYER"], options = {
-                { text = L["CURSORTRAIL_LAYER_TOP"], value = "TOOLTIP" },
-                { text = L["CURSORTRAIL_LAYER_BG"],  value = "BACKGROUND" },
-            },
-              onChange = function()
-                local mod = ns.modules and ns.modules["CursorTrail"]
-                if mod and mod.ApplySettings then mod:ApplySettings() end
-              end,
-            },
-        },
-    }
-
-    -----------------------------------------------
-    -- ItemLevel
-    -----------------------------------------------
-    tree.panels["itemlevel"] = {
-        title = L["ITEMLEVEL_TITLE"],
-        desc  = L["ITEMLEVEL_DESC"],
-        moduleEnableKey = "profile.modules.ItemLevel",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.ItemLevel", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            -- 표시 설정
-            { type = "header", label = L["ITEMLEVEL_DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.ItemLevel.showItemLevel",    label = L["ITEMLEVEL_SHOW_ILVL"] },
-            { type = "toggle", key = "profile.ItemLevel.showEnchant",      label = L["ITEMLEVEL_SHOW_ENCHANT"] },
-            { type = "toggle", key = "profile.ItemLevel.showGems",         label = L["ITEMLEVEL_SHOW_GEMS"] },
-            { type = "toggle", key = "profile.ItemLevel.showAverageIlvl",  label = L["ITEMLEVEL_SHOW_AVG"] },
-            { type = "toggle", key = "profile.ItemLevel.showEnhancedStats",label = L["ITEMLEVEL_SHOW_ENHANCED"] },
-
-            -- 본인 캐릭터
-            { type = "header", label = L["ITEMLEVEL_SELF_SETTINGS"] },
-            { type = "slider", key = "profile.ItemLevel.selfIlvlSize",    label = L["ITEMLEVEL_SELF_ILVL_SIZE"],    min = 8, max = 20, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.selfEnchantSize", label = L["ITEMLEVEL_SELF_ENCHANT_SIZE"], min = 8, max = 16, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.selfGemSize",     label = L["ITEMLEVEL_SELF_GEM_SIZE"],     min = 10, max = 24, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.selfAvgSize",     label = L["ITEMLEVEL_SELF_AVG_SIZE"],     min = 12, max = 24, step = 1 },
-
-            -- 살펴보기
-            { type = "header", label = L["ITEMLEVEL_INSPECT_SETTINGS"] },
-            { type = "slider", key = "profile.ItemLevel.inspIlvlSize",    label = L["ITEMLEVEL_INSPECT_ILVL_SIZE"],    min = 8, max = 20, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.inspEnchantSize", label = L["ITEMLEVEL_INSPECT_ENCHANT_SIZE"], min = 8, max = 16, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.inspGemSize",     label = L["ITEMLEVEL_INSPECT_GEM_SIZE"],     min = 10, max = 24, step = 1 },
-
-            -- 리셋
-            { type = "separator" },
-            { type = "button", label = L["RESET_TO_DEFAULT"], onClick = function()
-                local mod = ns.modules and ns.modules["ItemLevel"]
-                if mod and mod.ResetSettings then mod:ResetSettings() end
-            end },
-        },
-    }
-
-    -----------------------------------------------
-    -- Notepad
-    -----------------------------------------------
-    tree.panels["notepad"] = {
-        title = L["NOTEPAD_TITLE"],
-        desc  = L["NOTEPAD_DESC"],
-        moduleEnableKey = "profile.modules.Notepad",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.Notepad", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            { type = "header", label = L["NOTEPAD_BASIC_SETTINGS"] },
-            { type = "toggle", key = "profile.Notepad.showPVEButton", label = L["NOTEPAD_SHOW_PVE_BUTTON"] },
-
-            { type = "header", label = L["NOTEPAD_USAGE_TITLE"] },
-            { type = "text",   label = L["NOTEPAD_USAGE_TEXT"] },
-
-            { type = "header", label = L["QUICK_ACCESS"] },
-            { type = "button", label = L["NOTEPAD_OPEN"], onClick = function()
-                local mod = ns.modules and ns.modules["Notepad"]
-                if mod and mod.ToggleMainFrame then mod:ToggleMainFrame() end
-            end },
-        },
-    }
 
     -----------------------------------------------
     -- CombatTimer
@@ -438,104 +196,13 @@ function ns:InitConfigTree()
 
             -- 버튼
             { type = "separator" },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["CombatTimer"]
-                if mod and mod.TestTimer then mod:TestTimer() end
-            end },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["CombatTimer"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
+            { type = "button", label = L["EDIT_POSITION"] or "위치 편집", onClick = function()
+                if ns.QoCMovers then ns.QoCMovers:ToggleConfigMode() end
             end },
         },
     }
 
-    -----------------------------------------------
-    -- MissingBuff
-    -----------------------------------------------
-    -- 공통 콜백 헬퍼
-    local function mbRecheck()
-        local mod = ns.modules and ns.modules["MissingBuff"]
-        if mod then
-            if mod.DoCheck then mod:DoCheck() end
-        end
-    end
-    local function mbUpdateVisuals()
-        local mod = ns.modules and ns.modules["MissingBuff"]
-        if mod and mod.UpdateVisuals then mod:UpdateVisuals() end
-    end
 
-    tree.panels["missingbuff"] = {
-        title = L["MISSINGBUFF_TITLE"] or "클래스 버프 감지",
-        desc  = L["MISSINGBUFF_DESC"] or "클래스 버프/소모품/펫/자세 누락 시 아이콘으로 알림",
-        moduleEnableKey = "profile.modules.MissingBuff",
-        settings = {
-            -- 모듈 활성화
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.MissingBuff", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-
-            -- 체크 항목
-            { type = "header", label = L["MISSINGBUFF_CHECK_ITEMS"] or "체크 항목" },
-            { type = "toggle", key = "profile.MissingBuff.checkClassBuff",    label = L["MISSINGBUFF_CHECK_CLASSBUFF"] or "클래스 버프",  onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.checkFlask",        label = L["MISSINGBUFF_CHECK_FLASK"] or "영약",             onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.checkFood",         label = L["MISSINGBUFF_CHECK_FOOD"] or "음식",              onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.checkWeaponOil",    label = L["MISSINGBUFF_CHECK_WEAPON"] or "무기 버프",       onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.checkPet",          label = L["MISSINGBUFF_CHECK_PET"] or "펫 소환",            onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.checkStance",       label = L["MISSINGBUFF_CHECK_STANCE"] or "자세/오라",       onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.checkRoguePoisons", label = L["MISSINGBUFF_CHECK_POISONS"] or "로그 독",        onChange = mbRecheck },
-
-            -- 조건
-            { type = "header", label = L["MISSINGBUFF_CONDITIONS"] or "표시 조건" },
-            { type = "dropdown", key = "profile.MissingBuff.zoneCheck", label = L["MISSINGBUFF_ZONE_CHECK"] or "활성화 조건", onChange = mbRecheck, options = {
-                { text = L["MISSINGBUFF_ZONE_ALWAYS"] or "항상",                      value = "always" },
-                { text = L["MISSINGBUFF_ZONE_INSTANCE"] or "던전/레이드만",          value = "instance" },
-                { text = L["MISSINGBUFF_ZONE_GROUP"] or "파티/레이드 구성 시",       value = "group" },
-                { text = L["MISSINGBUFF_ZONE_BOTH"] or "인스턴스 또는 구성 시", value = "instanceOrGroup" },
-            }},
-            { type = "toggle", key = "profile.MissingBuff.ignoreWhileMounted", label = L["MISSINGBUFF_IGNORE_MOUNTED"] or "탈것 중 숨김", onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.ignoreWhileResting", label = L["MISSINGBUFF_IGNORE_RESTING"] or "휴식 중 숨김", onChange = mbRecheck },
-            { type = "toggle", key = "profile.MissingBuff.hideInCombat",       label = L["MISSINGBUFF_HIDE_COMBAT"] or "전투 중 숨김",    onChange = mbRecheck },
-
-            -- 표시 설정
-            { type = "header", label = L["MISSINGBUFF_DISPLAY"] or "표시 설정" },
-            { type = "slider",   key = "profile.MissingBuff.iconSize",    label = L["ICON_SIZE"],       min = 20, max = 80, step = 5,      onChange = mbUpdateVisuals },
-            { type = "slider",   key = "profile.MissingBuff.iconBorder",  label = L["MISSINGBUFF_ICON_BORDER"],  min = 0, max = 4, step = 1,  onChange = mbUpdateVisuals },
-            { type = "slider",   key = "profile.MissingBuff.scale",       label = L["SCALE"],           min = 0.5, max = 2.0, step = 0.1,  onChange = mbUpdateVisuals },
-            { type = "slider",   key = "profile.MissingBuff.bgAlpha",   label = L["BACKGROUND_ALPHA"], min = 0, max = 1, step = 0.05,    onChange = mbUpdateVisuals },
-            { type = "toggle",   key = "profile.MissingBuff.locked",    label = L["POSITION_LOCKED"] },
-            { type = "toggle",   key = "profile.MissingBuff.pulseAnimation", label = L["MISSINGBUFF_PULSE"],        onChange = mbUpdateVisuals },
-
-            -- 글로우 설정
-            { type = "header", label = L["MISSINGBUFF_GLOW_SETTINGS"] },
-            { type = "dropdown", key = "profile.MissingBuff.glowType", label = L["MISSINGBUFF_GLOW_TYPE"], onChange = mbUpdateVisuals, options = {
-                { text = L["MISSINGBUFF_GLOW_PIXEL"],    value = "pixel" },
-                { text = L["MISSINGBUFF_GLOW_AUTOCAST"], value = "autocast" },
-                { text = L["MISSINGBUFF_GLOW_BUTTON"],   value = "button" },
-                { text = L["MISSINGBUFF_GLOW_NONE"],     value = "none" },
-            }},
-            { type = "color",  key = "profile.MissingBuff.glowColor",     label = L["MISSINGBUFF_GLOW_COLOR"],     hasAlpha = false, colorFormat = "rgb_object", onChange = mbUpdateVisuals },
-            { type = "slider", key = "profile.MissingBuff.glowLines",     label = L["MISSINGBUFF_GLOW_LINES"],     min = 1, max = 16, step = 1, onChange = mbUpdateVisuals },
-            { type = "slider", key = "profile.MissingBuff.glowSpeed",     label = L["MISSINGBUFF_GLOW_SPEED"],     min = 0.05, max = 1.0, step = 0.05, onChange = mbUpdateVisuals },
-            { type = "slider", key = "profile.MissingBuff.glowThickness", label = L["MISSINGBUFF_GLOW_THICKNESS"], min = 1, max = 5, step = 1, onChange = mbUpdateVisuals },
-
-            -- 텍스트 설정
-            { type = "header", label = L["MISSINGBUFF_TEXT_SETTINGS"] or "텍스트 설정" },
-            { type = "toggle", key = "profile.MissingBuff.showText",  label = L["SHOW_TEXT"],   onChange = mbUpdateVisuals },
-            { type = "slider", key = "profile.MissingBuff.fontSize",  label = L["FONT_SIZE"], min = 8, max = 20, step = 1, onChange = mbUpdateVisuals },
-            { type = "font",   key = "profile.MissingBuff.font",      label = L["FONT"],      onChange = mbUpdateVisuals },
-            { type = "color",  key = "profile.MissingBuff.textColor", label = L["TEXT_COLOR"], hasAlpha = false, colorFormat = "rgb_object", onChange = mbUpdateVisuals },
-
-            -- 버튼
-            { type = "separator" },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["MissingBuff"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
-            end },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["MissingBuff"]
-                if mod and mod.TestMode then mod:TestMode() end
-            end },
-        },
-    }
 
     -----------------------------------------------
     -- PartyTracker
@@ -617,13 +284,8 @@ function ns:InitConfigTree()
 
             -- 버튼
             { type = "separator" },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.TestMode then mod:TestMode() end
-            end },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
+            { type = "button", label = L["EDIT_POSITION"] or "위치 편집", onClick = function()
+                if ns.QoCMovers then ns.QoCMovers:ToggleConfigMode() end
             end },
 
             -- 정보 텍스트
@@ -632,64 +294,7 @@ function ns:InitConfigTree()
         },
     }
 
-    -----------------------------------------------
-    -- MythicPlusHelper
-    -----------------------------------------------
-    tree.panels["mythicplus"] = {
-        title = L["MYTHICPLUS_TITLE"],
-        desc  = L["MYTHICPLUS_DESC_FULL"],
-        moduleEnableKey = "profile.modules.MythicPlusHelper",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.MythicPlusHelper", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            { type = "header", label = L["DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.MythicPlusHelper.enabled",       label = L["MYTHICPLUS_ENABLE_OVERLAY"] },
-            { type = "slider", key = "profile.MythicPlusHelper.scale",         label = L["SCALE"], min = 0.5, max = 2.0, step = 0.1 },
 
-            { type = "separator" },
-            { type = "button", label = L["MYTHICPLUS_OPEN_TAB"], onClick = function()
-                local mod = ns.modules and ns.modules["MythicPlusHelper"]
-                if mod and mod.Toggle then mod:Toggle() end
-            end },
-
-            { type = "header", label = L["MYTHICPLUS_USAGE_TITLE"] },
-            { type = "text",   label = L["MYTHICPLUS_USAGE_TEXT"] },
-        },
-    }
-
-    -----------------------------------------------
-    -- GoldSplit
-    -----------------------------------------------
-    tree.panels["goldsplit"] = {
-        title = L["GOLDSPLIT_TITLE"],
-        desc  = L["GOLDSPLIT_DESC_FULL"],
-        moduleEnableKey = "profile.modules.GoldSplit",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.GoldSplit", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            -- 채팅 설정
-            { type = "header",   label = L["CHAT_SETTINGS"] },
-            { type = "dropdown", key = "profile.GoldSplit.chatType", label = L["GOLDSPLIT_DEFAULT_CHANNEL"], options = "chatTypes" },
-            { type = "text",     label = L["GOLDSPLIT_NOTE"] },
-
-            -- 위치 설정
-            { type = "header", label = L["GOLDSPLIT_POSITION_SETTINGS"] },
-            { type = "toggle", key = "profile.GoldSplit.locked", label = L["POSITION_LOCKED"] },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                ns:SetDBValue("profile.GoldSplit.position", nil)
-                local mod = ns.modules and ns.modules["GoldSplit"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
-            end },
-            { type = "text", label = L["GOLDSPLIT_DRAG_TIP"] },
-
-            -- 열기
-            { type = "separator" },
-            { type = "button", label = L["GOLDSPLIT_OPEN_WINDOW"], onClick = function()
-                local mod = ns.modules and ns.modules["GoldSplit"]
-                if mod and mod.Show then mod:Show() end
-            end },
-        },
-    }
 
     -----------------------------------------------
     -- DurabilityCheck
@@ -734,96 +339,77 @@ function ns:InitConfigTree()
     -----------------------------------------------
     -- BuffChecker
     -----------------------------------------------
+    local function bcRecheck()
+        local mod = ns.modules and ns.modules["BuffChecker"]
+        if mod and mod.DoCheck then mod:DoCheck() end
+    end
+
+    local function bcVisuals()
+        local mod = ns.modules and ns.modules["BuffChecker"]
+        if mod and mod.UpdateVisuals then mod:UpdateVisuals() end
+    end
+
     tree.panels["buffchecker"] = {
-        title = L["BUFFCHECKER_TITLE"],
-        desc  = L["BUFFCHECKER_DESC"],
+        title = L["BUFFCHECKER_TITLE"] or "버프 체커 (Buff Checker)",
+        desc  = L["BUFFCHECKER_DESC"] or "개인, 직업 버프, 소모품 등 버프 누락 시 아이콘으로 알림",
         moduleEnableKey = "profile.modules.BuffChecker",
         settings = {
             -- 기본
             { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
             { type = "toggle", key = "profile.modules.BuffChecker", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
 
-            -- 체크 항목
-            { type = "header", label = L["BUFFCHECKER_CHECK_ITEMS"] },
-            { type = "toggle", key = "profile.BuffChecker.showFood",   label = L["BUFFCHECKER_CHECK_FOOD"] },
-            { type = "toggle", key = "profile.BuffChecker.showFlask",  label = L["BUFFCHECKER_CHECK_FLASK"] },
-            { type = "toggle", key = "profile.BuffChecker.showWeapon", label = L["BUFFCHECKER_CHECK_WEAPON"] },
-            { type = "toggle", key = "profile.BuffChecker.showRune",   label = L["BUFFCHECKER_CHECK_RUNE"] },
+            -- 표시/일반 설정
+            { type = "header", label = L["BUFFCHECKER_DISPLAY_SETTINGS"] or "일반 및 표시 설정" },
+            { type = "dropdown", key = "profile.BuffChecker.zoneCheck", label = L["BUFFCHECKER_ZONE_CHECK"] or "활성화 조건", onChange = bcRecheck, options = {
+                { text = L["BUFFCHECKER_ZONE_ALWAYS"] or "항상",                      value = "always" },
+                { text = L["BUFFCHECKER_ZONE_INSTANCE"] or "던전/레이드만",          value = "instance" },
+                { text = L["BUFFCHECKER_ZONE_GROUP"] or "파티/레이드 구성 시",       value = "group" },
+                { text = L["BUFFCHECKER_ZONE_BOTH"] or "인스턴스 또는 구성 시", value = "instanceOrGroup" },
+            }},
+            { type = "toggle", key = "profile.BuffChecker.hideInCombat",       label = L["BUFFCHECKER_HIDE_COMBAT"] or "전투 중 숨김", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.ignoreWhileMounted", label = L["BUFFCHECKER_IGNORE_MOUNTED"] or "탈것 탑승 시 숨김", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.ignoreWhileResting", label = L["BUFFCHECKER_IGNORE_RESTING"] or "휴식 상태 시 숨김", onChange = bcRecheck },
+            { type = "slider", key = "profile.BuffChecker.threshold",          label = L["BUFFCHECKER_THRESHOLD"] or "남은 시간 경고 (분)", min = 1, max = 60, step = 1, onChange = bcRecheck },
+            
+            -- UI 레이아웃
+            { type = "header", label = L["BUFFCHECKER_UI_SETTINGS"] or "프레임 및 레이아웃" },
+            { type = "slider",   key = "profile.BuffChecker.iconSize",    label = L["ICON_SIZE"],       min = 20, max = 80, step = 5,      onChange = bcVisuals },
+            { type = "slider",   key = "profile.BuffChecker.iconSpacing", label = L["ICON_SPACING"] or "간격", min = 0, max = 20, step = 1, onChange = bcVisuals },
+            { type = "slider",   key = "profile.BuffChecker.scale",       label = L["SCALE"],           min = 0.5, max = 2.0, step = 0.1,  onChange = bcVisuals },
+            { type = "slider",   key = "profile.BuffChecker.bgAlpha",     label = L["BACKGROUND_ALPHA"], min = 0, max = 1, step = 0.05,    onChange = bcVisuals },            
+            { type = "toggle",   key = "profile.BuffChecker.showText",    label = L["SHOW_TEXT"],   onChange = bcVisuals },
+            { type = "dropdown", key = "profile.BuffChecker.glowType",    label = L["BUFFCHECKER_GLOW_TYPE"] or "글로우 타입", onChange = bcVisuals, options = {
+                { text = "Pixel",    value = "pixel" },
+                { text = "Autocast", value = "autocast" },
+                { text = "Button",   value = "button" },
+                { text = "None",     value = "none" },
+            }},
+            { type = "color",  key = "profile.BuffChecker.glowColor",     label = L["BUFFCHECKER_GLOW_COLOR"] or "글로우 생상", hasAlpha = false, colorFormat = "rgb_object", onChange = bcVisuals },
+            { type = "toggle",   key = "profile.BuffChecker.locked",      label = L["POSITION_LOCKED"] },
 
-            -- 표시 조건
-            { type = "header", label = L["BUFFCHECKER_DISPLAY_CONDITIONS"] },
-            { type = "toggle", key = "profile.BuffChecker.instanceOnly", label = L["BUFFCHECKER_INSTANCE_ONLY"] },
-            { type = "button", label = L["ALL_CHECK_ON"], onClick = function()
-                ns:SetDBValue("profile.BuffChecker.showFood", true)
-                ns:SetDBValue("profile.BuffChecker.showFlask", true)
-                ns:SetDBValue("profile.BuffChecker.showWeapon", true)
-                ns:SetDBValue("profile.BuffChecker.showRune", true)
-            end },
-            { type = "button", label = L["ALL_CHECK_OFF"], onClick = function()
-                ns:SetDBValue("profile.BuffChecker.showFood", false)
-                ns:SetDBValue("profile.BuffChecker.showFlask", false)
-                ns:SetDBValue("profile.BuffChecker.showWeapon", false)
-                ns:SetDBValue("profile.BuffChecker.showRune", false)
-            end },
+            -- 소모품 체크 항목
+            { type = "header", label = L["BUFFCHECKER_CHECK_CONSUMABLES"] or "소모품 (음식/영약/오일/룬) 체크" },
+            { type = "toggle", key = "profile.BuffChecker.showFood",   label = L["BUFFCHECKER_CHECK_FOOD"] or "음식 부족 시 알림", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.showFlask",  label = L["BUFFCHECKER_CHECK_FLASK"] or "영약 부족 시 알림", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.showWeapon", label = L["BUFFCHECKER_CHECK_WEAPON"] or "무기 오일/독 부족 시 알림", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.showRune",   label = L["BUFFCHECKER_CHECK_RUNE"] or "증강의 룬 부족 시 알림", onChange = bcRecheck },
 
-            -- 표시 설정
-            { type = "header",   label = L["BUFFCHECKER_DISPLAY_SETTINGS"] },
-            { type = "slider",   key = "profile.BuffChecker.iconSize",   label = L["ICON_SIZE"], min = 20, max = 80, step = 5 },
-            { type = "slider",   key = "profile.BuffChecker.scale",      label = L["SCALE"],     min = 0.5, max = 2.0, step = 0.1 },
-            { type = "dropdown", key = "profile.BuffChecker.alignment",  label = L["TEXT_ALIGN"], options = "alignOptions" },
-            { type = "toggle",   key = "profile.BuffChecker.locked",     label = L["POSITION_LOCKED"] },
-
-            -- 텍스트 설정
-            { type = "header", label = L["BUFFCHECKER_TEXT_SETTINGS"] },
-            { type = "toggle", key = "profile.BuffChecker.showText",  label = L["SHOW_TEXT"] },
-            { type = "slider", key = "profile.BuffChecker.textSize",  label = L["FONT_SIZE"], min = 8, max = 20, step = 1 },
-            { type = "font",   key = "profile.BuffChecker.textFont",  label = L["BUFFCHECKER_TEXT_FONT"] },
-            { type = "color",  key = "profile.BuffChecker.textColor", label = L["TEXT_COLOR"], hasAlpha = false, colorFormat = "rgb_object" },
+            -- 직업별 버프 체크 항목
+            { type = "header", label = L["BUFFCHECKER_CHECK_CLASS"] or "직업별 버프 및 펫/태세 체크" },
+            { type = "toggle", key = "profile.BuffChecker.checkClassBuff", label = L["BUFFCHECKER_CHECK_CLASSBUFF"] or "주 시너지 체크 (사제 인내 등)", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.checkPet",       label = L["BUFFCHECKER_CHECK_PET"] or "소환수 부재 시 알림 (냥꾼, 흑마, 법사 등)", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.checkStance",    label = L["BUFFCHECKER_CHECK_STANCE"] or "전투 태세/오라 누락 알림", onChange = bcRecheck },
+            { type = "toggle", key = "profile.BuffChecker.checkRoguePoisons", label = L["BUFFCHECKER_CHECK_POISONS"] or "로그 독 점검 (전투 단검 등)", onChange = bcRecheck },
 
             -- 버튼
             { type = "separator" },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["BuffChecker"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
-            end },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["BuffChecker"]
-                if mod and mod.TestMode then mod:TestMode() end
+            { type = "button", label = L["EDIT_POSITION"] or "위치 편집", onClick = function()
+                if ns.QoCMovers then ns.QoCMovers:ToggleConfigMode() end
             end },
         },
     }
 
-    -----------------------------------------------
-    -- KeystoneTracker
-    -----------------------------------------------
-    tree.panels["keystonetracker"] = {
-        title = L["KEYSTONETRACKER_TITLE"],
-        desc  = L["KEYSTONETRACKER_DESC"],
-        moduleEnableKey = "profile.modules.KeystoneTracker",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.KeystoneTracker", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            { type = "header", label = L["DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.KeystoneTracker.showInParty", label = L["KEYSTONETRACKER_SHOW_IN_PARTY"] },
-            { type = "toggle", key = "profile.KeystoneTracker.showInRaid",  label = L["KEYSTONETRACKER_SHOW_IN_RAID"] },
-            { type = "toggle", key = "profile.KeystoneTracker.locked",      label = L["POSITION_LOCKED"] },
-            { type = "slider", key = "profile.KeystoneTracker.scale",       label = L["SCALE"],     min = 0.5, max = 2.0, step = 0.1 },
-            { type = "slider", key = "profile.KeystoneTracker.fontSize",    label = L["FONT_SIZE"], min = 8,   max = 20,  step = 1 },
 
-            { type = "separator" },
-            { type = "button", label = L["KEYSTONETRACKER_TOGGLE_WINDOW"], onClick = function()
-                local mod = ns.modules and ns.modules["KeystoneTracker"]
-                if mod and mod.Toggle then mod:Toggle() end
-            end },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["KeystoneTracker"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
-            end },
-
-            { type = "header", label = L["KEYSTONETRACKER_USAGE_TITLE"] },
-            { type = "text",   label = L["KEYSTONETRACKER_USAGE_TEXT"] },
-        },
-    }
 
     -----------------------------------------------
     -- CastingAlert
@@ -870,13 +456,8 @@ function ns:InitConfigTree()
 
             -- 버튼
             { type = "separator" },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.TestMode then mod:TestMode() end
-            end },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
+            { type = "button", label = L["EDIT_POSITION"] or "위치 편집", onClick = function()
+                if ns.QoCMovers then ns.QoCMovers:ToggleConfigMode() end
             end },
         },
     }
@@ -925,33 +506,13 @@ function ns:InitConfigTree()
 
             -- 버튼
             { type = "separator" },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["FocusInterrupt"]
-                if mod and mod.TestMode then mod:TestMode() end
-            end },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["FocusInterrupt"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
+            { type = "button", label = L["EDIT_POSITION"] or "위치 편집", onClick = function()
+                if ns.QoCMovers then ns.QoCMovers:ToggleConfigMode() end
             end },
         },
     }
 
-    -----------------------------------------------
-    -- AutoRepair
-    -----------------------------------------------
-    tree.panels["autorepair"] = {
-        title = L["AUTOREPAIR_TITLE"],
-        desc  = L["AUTOREPAIR_DESC"],
-        moduleEnableKey = "profile.modules.AutoRepair",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.AutoRepair", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            { type = "header", label = L["AUTOREPAIR_TITLE"] },
-            { type = "toggle", key = "profile.AutoRepair.useGuildBank", label = L["AUTOREPAIR_USE_GUILD_BANK"] },
-            { type = "text",   label = L["AUTOREPAIR_GUILD_BANK_NOTE"] },
-            { type = "toggle", key = "profile.AutoRepair.chatOutput",   label = L["AUTOREPAIR_CHAT_OUTPUT"] },
-        },
-    }
+
 
     self.ConfigTree = tree
     return tree

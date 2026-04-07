@@ -528,11 +528,8 @@ local function CreateProfileOptions()
 
                             local ok = false
                             if moduleImportSource == "spec" and moduleImportSourceSpec then
-                                -- composite key: "charKey::specID"
-                                local charKey, specIDStr = moduleImportSourceSpec:match("^(.+)::(%d+)$")
-                                if charKey and specIDStr then
-                                    ok = SP:CopyModulesFromCharSpec(charKey, tonumber(specIDStr), keys)
-                                end
+                                -- moduleImportSourceSpec는 GetAllSavedSpecs()에서 반환된 숫자 specID
+                                ok = SP:CopyModulesFromSpec(moduleImportSourceSpec, keys)
                             elseif moduleImportSource == "profile" and moduleImportSourceProfile then
                                 ok = SP:CopyModulesFromProfile(moduleImportSourceProfile, keys)
                             else

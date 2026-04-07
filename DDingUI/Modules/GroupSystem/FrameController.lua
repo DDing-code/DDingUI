@@ -504,9 +504,9 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
     frame._ddProvisionalHidden = nil
 
     if container:IsShown() and viewerVisible then
-        frame:Show()
+        if not InCombatLockdown() then frame:Show() end
     else
-        frame:Hide()
+        if not InCombatLockdown() then frame:Hide() end
     end
 
     -- [FIX] FlightHide 활성 중이면 새 아이콘도 알파 0 적용

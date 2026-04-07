@@ -21,7 +21,7 @@ ns.defaults = {
             CastingAlert = true,
             FocusInterrupt = true,
             BuffChecker = true,
-            MissingBuff = true,
+            PartyTracker = false,
         },
 
         -- 전역 설정
@@ -56,7 +56,6 @@ ns.defaults = {
 
         -- PartyTracker 설정 (기본값 비활성화 - SavedVariables 없으면 모두 꺼짐)
         PartyTracker = {
-            enabled = false,           -- 모듈 활성화
             showInParty = false,       -- 파티에서 표시
             showInRaid = false,        -- 레이드에서 표시
             showManaBar = false,       -- 마나바 표시
@@ -189,57 +188,38 @@ ns.defaults = {
             chatOutput = true,
         },
 
-        -- BuffChecker (버프 체크) 설정
+        -- BuffChecker (통합 버프 체커) 설정
         BuffChecker = {
-            enabled = false,
-            showFood = false,
-            showFlask = false,
-            showWeapon = false,
-            showRune = false,
-            instanceOnly = true,
-            iconSize = 40,
-            scale = 1.0,
-            locked = false,
-            showText = true,
-            textSize = 10,
-            textFont = SL and SL.Font.path or "Fonts\\2002.TTF", -- [12.0.1]
-            textColor = { r = 1, g = 0.3, b = 0.3 },
-            alignment = "CENTER",
-            position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -200 },
-        },
-
-        -- MissingBuff (클래스 버프/소모품/펫 누락 감지) 설정
-        MissingBuff = {
-            -- 체크 항목
+            -- 소모품 토글 (Config 패널 key = showFood/showFlask/showWeapon/showRune)
+            showFood = true,
+            showFlask = true,
+            showWeapon = true,
+            showRune = true,
+            -- 직업 버프/펫/태세 토글
             checkClassBuff = true,
-            checkFlask = true,
-            checkFood = true,
-            checkWeaponOil = true,
+            checkFlask = true,      -- 코드 내부용 (showFlask 미러)
+            checkFood = true,       -- 코드 내부용 (showFood 미러)
+            checkWeaponOil = true,  -- 코드 내부용 (showWeapon 미러)
             checkPet = true,
             checkStance = true,
             checkRoguePoisons = true,
             -- 조건
-            zoneCheck = "instanceOrGroup",  -- always, instance, group, instanceOrGroup
+            zoneCheck = "instanceOrGroup",  -- always / instance / group / instanceOrGroup
             ignoreWhileMounted = true,
             ignoreWhileResting = true,
             hideInCombat = false,
+            threshold = 5,  -- 분 단위
             -- 표시
             iconSize = 40,
-            iconBorder = 1,
+            iconSpacing = 5,
             scale = 1.0,
             bgAlpha = 0.6,
             locked = false,
             showText = true,
-            fontSize = 10,
-            font = SL and SL.Font.path or "Fonts\\2002.TTF",
             textColor = { r = 1, g = 0.3, b = 0.3 },
-            pulseAnimation = true,
             -- 글로우
-            glowType = "pixel",  -- pixel, autocast, button, none
-            glowColor = { r = 0.95, g = 0.2, b = 0.2 },
-            glowLines = 8,
-            glowSpeed = 0.25,
-            glowThickness = 2,
+            glowType = "autocast",  -- pixel / autocast / button / none
+            glowColor = { r = 1, g = 1, b = 0 },
             position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -150 },
         },
     },
@@ -279,6 +259,70 @@ function ns:InitDB()
         DDingUIQoCDB.global = self:DeepCopy(self.defaults.global)
     else
         self:MergeDefaults(DDingUIQoCDB.global, self.defaults.global)
+    end
+
+    -- =========================================
+    -- Toolkit → QoC 마이그레이션 (공통 모듈 전체)
+    -- DDingUIToolkitDB가 존재하고, 아직 마이그레이션 안 했으면 실행
+    -- =========================================
+    if not DDingUIQoCDB._migratedToolkit then
+        local toolkitDB = _G.DDingUIToolkitDB
+        if toolkitDB and toolkitDB.profile then
+            local SL = _G.DDingUI_StyleLib
+            local prefix = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("QoC", "QoC") or "|cffffffffDDing|r|cffffa300UI|r |cffd93380QoC|r: "
+
+            -- QoC에 존재하는 모듈 중 Toolkit DB에도 설정이 있는 것들
+            local sharedModules = {
+                "TalentBG", "LFGAlert", "MailAlert", "CursorTrail",
+                "ItemLevel", "Notepad", "CombatTimer", "PartyTracker",
+                "CastingAlert", "FocusInterrupt", "BuffChecker",
+            }
+
+            local migrated = {}
+            for _, modName in ipairs(sharedModules) do
+                local src = toolkitDB.profile[modName]
+                if src and type(src) == "table" then
+                    local dst = DDingUIQoCDB.profile[modName]
+                    if dst and type(dst) == "table" then
+                        for k, v in pairs(src) do
+                            if k ~= "enabled" then  -- enabled는 modules.X가 관리
+                                if type(v) == "table" then
+                                    dst[k] = self:DeepCopy(v)
+                                else
+                                    dst[k] = v
+                                end
+                            end
+                        end
+
+                        -- Toolkit에서 enabled=true였으면 QoC modules도 활성화
+                        if src.enabled and DDingUIQoCDB.profile.modules[modName] ~= nil then
+                            DDingUIQoCDB.profile.modules[modName] = true
+                        end
+
+                        migrated[#migrated + 1] = modName
+                    end
+                end
+
+                -- modules 토글 마이그레이션 (Toolkit에서 꺼둔 것도 반영)
+                if toolkitDB.profile.modules and toolkitDB.profile.modules[modName] ~= nil then
+                    if DDingUIQoCDB.profile.modules[modName] ~= nil then
+                        DDingUIQoCDB.profile.modules[modName] = toolkitDB.profile.modules[modName]
+                    end
+                end
+            end
+
+            -- minimap 설정도 가져오기 (위치 등)
+            if toolkitDB.profile.minimap then
+                for k, v in pairs(toolkitDB.profile.minimap) do
+                    DDingUIQoCDB.profile.minimap[k] = v
+                end
+            end
+
+            if #migrated > 0 then
+                print(prefix .. "|cff00ff00Toolkit에서 " .. #migrated .. "개 모듈 설정 마이그레이션 완료:|r " .. table.concat(migrated, ", "))
+            end
+        end
+        DDingUIQoCDB._migratedToolkit = true
     end
 
     -- 데이터베이스 참조 설정

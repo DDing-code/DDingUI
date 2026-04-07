@@ -392,56 +392,86 @@ function IconViewers:SkinIcon(icon, settings)
                 end
 
                 if isAuraSwipe and s then
+                    -- Option 0: hideActiveState — convert aura swipe to normal cooldown swipe
+                    -- (Ayije CDM "hideActive" port: SetReverse(false) + normal swipe color)
+                    -- The icon shows its regular CD timer instead of the active-state yellow overlay
+                    if s.hideActiveState then
+                        -- Switch from reversed (aura) to forward (cooldown) direction
+                        if self.SetReverse then self:SetReverse(false) end
+                        -- Override yellow aura color → normal cooldown swipe color
+                        cd.bypassColorHook = true
+                        local swipeAlpha = 0.7
+                        if s.swipeColor then
+                            local sc = s.swipeColor
+                            local sr, sg, sb, sa = sc[1] or 0, sc[2] or 0, sc[3] or 0, sc[4] or 0.8
+                            self:SetSwipeColor(sr, sg, sb, sa)
+                        else
+                            self:SetSwipeColor(0, 0, 0, swipeAlpha)
+                        end
+                        cd.bypassColorHook = nil
                     -- Option 1: Replace aura swipe with glow
-                    if s.auraGlow then
+                    elseif s.auraGlow then
                         -- Hide swipe (make transparent)
                         cd.bypassColorHook = true
                         self:SetSwipeColor(0, 0, 0, 0)
                         cd.bypassColorHook = nil
 
-                        -- Show glow
-                        local SL = _G.DDingUI_StyleLib
-                        if SL then
-                                local glowType = s.auraGlowType or "Pixel Glow"
-                                local glowColor = s.auraGlowColor or {0.95, 0.95, 0.32, 1}
-                                local glowKey = "_DDingUIAuraGlow"
-                                local glowTarget = parentIcon
+                        -- [FIX] 글로우가 이미 활성이면 재적용하지 않음 — 매 프레임 리셋 깜빡임 방지
+                        local pid = GetIconData(parentIcon)
+                        -- [FIX] aura swipe 재감지 → 디바운스 제거 타이머 무효화
+                        pid._glowRemoveTimer = nil
+                        if pid.auraGlowActive then
+                            if pid.auraGlowType == (s.auraGlowType or "Pixel Glow") then
+                                -- do nothing — glow is already showing
+                            else
+                                pid.auraGlowActive = nil
+                            end
+                        end
 
-                                local glowSuccess, err = pcall(function()
-                                    if glowType == "Pixel Glow" then
-                                        local pixelLines = s.auraGlowPixelLines or 8
-                                        local pixelFrequency = s.auraGlowPixelFrequency or 0.25
-                                        local pixelLength = s.auraGlowPixelLength  -- nil or 0 = auto
-                                        if pixelLength == 0 then pixelLength = nil end
-                                        local pixelThickness = s.auraGlowPixelThickness or 2
-                                        SL.ShowPixelGlow(glowTarget, glowColor, pixelLines, pixelFrequency, pixelLength, pixelThickness, 0, 0, false, glowKey)
-                                    elseif glowType == "Autocast Shine" then
-                                        local particles = s.auraGlowAutocastParticles or 8
-                                        local freq = s.auraGlowAutocastFrequency or 0.25
-                                        local scale = s.auraGlowAutocastScale or 1.0
-                                        SL.ShowAutocastGlow(glowTarget, glowColor, particles, freq, scale, 0, 0, glowKey)
-                                    elseif glowType == "Action Button Glow" then
-                                        local freq = s.auraGlowButtonFrequency or 0.25
-                                        SL.ShowButtonGlow(glowTarget, glowColor, freq)
-                                    elseif glowType == "Proc Glow" then
-                                        local LCG = LibStub("LibCustomGlow-1.0", true)
-                                        if LCG and LCG.ProcGlow_Start then
-                                            LCG.ProcGlow_Start(glowTarget, {
-                                                color = glowColor, startAnim = false,
-                                                xOffset = 0, yOffset = 0, key = glowKey
-                                            })
-                                        end
-                                    elseif glowType == "Blizzard Glow" then
-                                        if ActionButton_ShowOverlayGlow then
-                                            ActionButton_ShowOverlayGlow(glowTarget)
-                                        end
-                                    end
-                                end)
+                        if not pid.auraGlowActive then
+                            -- Show glow
+                            local SL = _G.DDingUI_StyleLib
+                            if SL then
+                                    local glowType = s.auraGlowType or "Pixel Glow"
+                                    local glowColor = s.auraGlowColor or {0.95, 0.95, 0.32, 1}
+                                    local glowKey = "_DDingUIAuraGlow"
+                                    local glowTarget = parentIcon
 
-                            if glowSuccess then
-                                local pid = GetIconData(parentIcon)
-                                pid.auraGlowActive = true
-                                pid.auraGlowType = glowType
+                                    local glowSuccess, err = pcall(function()
+                                        if glowType == "Pixel Glow" then
+                                            local pixelLines = s.auraGlowPixelLines or 8
+                                            local pixelFrequency = s.auraGlowPixelFrequency or 0.25
+                                            local pixelLength = s.auraGlowPixelLength  -- nil or 0 = auto
+                                            if pixelLength == 0 then pixelLength = nil end
+                                            local pixelThickness = s.auraGlowPixelThickness or 2
+                                            SL.ShowPixelGlow(glowTarget, glowColor, pixelLines, pixelFrequency, pixelLength, pixelThickness, 0, 0, false, glowKey)
+                                        elseif glowType == "Autocast Shine" then
+                                            local particles = s.auraGlowAutocastParticles or 8
+                                            local freq = s.auraGlowAutocastFrequency or 0.25
+                                            local scale = s.auraGlowAutocastScale or 1.0
+                                            SL.ShowAutocastGlow(glowTarget, glowColor, particles, freq, scale, 0, 0, glowKey)
+                                        elseif glowType == "Action Button Glow" then
+                                            local freq = s.auraGlowButtonFrequency or 0.25
+                                            SL.ShowButtonGlow(glowTarget, glowColor, freq)
+                                        elseif glowType == "Proc Glow" then
+                                            local LCG = LibStub("LibCustomGlow-1.0", true)
+                                            if LCG and LCG.ProcGlow_Start then
+                                                LCG.ProcGlow_Start(glowTarget, {
+                                                    color = glowColor, startAnim = false,
+                                                    xOffset = 0, yOffset = 0, key = glowKey
+                                                })
+                                            end
+                                        elseif glowType == "Blizzard Glow" then
+                                            if ActionButton_ShowOverlayGlow then
+                                                ActionButton_ShowOverlayGlow(glowTarget)
+                                            end
+                                        end
+                                    end)
+
+                                if glowSuccess then
+                                    pid.auraGlowActive = true
+                                    pid.auraGlowType = glowType
+                                end
                             end
                         end
 
@@ -453,59 +483,108 @@ function IconViewers:SkinIcon(icon, settings)
                         cd.bypassColorHook = nil
                     end
                 else
-                    -- Not aura swipe (regular cooldown) - stop any active glow
-                    -- But check if aura is still active (auraInstanceID > 0) to survive CDM cooldown updates
+                    -- Not aura swipe (regular cooldown) - debounce glow removal
                     local pid = iconData[parentIcon]
-                    if pid and pid.auraGlowActive then
-                        -- Check if the icon still has an active aura
-                        local auraStillActive = false
-                        pcall(function()
-                            local auraID = parentIcon.auraInstanceID
-                            if auraID ~= nil then
-                                -- [FIX] secret value = 오라 활성 상태 (secret은 활성 오라에만 존재)
-                                if issecretvalue and issecretvalue(auraID) then
-                                    auraStillActive = true
-                                elseif type(auraID) == "number" and auraID > 0 then
-                                    auraStillActive = true
-                                end
-                            end
-                        end)
+                    if pid and pid.auraGlowActive and s and s.auraGlow then
+                        -- [FIX] 즉시 제거 금지 — 0.3초 디바운스로 CDM 순간 전환 무시
+                        cd.bypassColorHook = true
+                        self:SetSwipeColor(0, 0, 0, 0)
+                        cd.bypassColorHook = nil
 
-                        if auraStillActive and s and s.auraGlow then
-                            -- Aura is still active but CDM switched to cooldown display
-                            -- Keep the glow and suppress the non-aura swipe color
-                            cd.bypassColorHook = true
-                            self:SetSwipeColor(0, 0, 0, 0)
-                            cd.bypassColorHook = nil
-                        else
-                            -- Aura actually ended - stop the glow
-                            local activeGlowType = pid.auraGlowType
-                            pid.auraGlowActive = nil
-                            pid.auraGlowType = nil
-                            local SL2 = _G.DDingUI_StyleLib
-                            if SL2 then
-                                local glowKey = "_DDingUIAuraGlow"
-                                local glowTarget = parentIcon
-                                pcall(function()
-                                    if activeGlowType == "Pixel Glow" then
-                                        SL2.HidePixelGlow(glowTarget, glowKey)
-                                    elseif activeGlowType == "Autocast Shine" then
-                                        SL2.HideAutocastGlow(glowTarget, glowKey)
-                                    elseif activeGlowType == "Action Button Glow" then
-                                        SL2.HideButtonGlow(glowTarget)
-                                    elseif activeGlowType == "Proc Glow" then
-                                        local LCG = LibStub("LibCustomGlow-1.0", true)
-                                        if LCG and LCG.ProcGlow_Stop then LCG.ProcGlow_Stop(glowTarget, glowKey) end
-                                    elseif activeGlowType == "Blizzard Glow" then
-                                        if ActionButton_HideOverlayGlow then
-                                            ActionButton_HideOverlayGlow(glowTarget)
+                        pid._glowRemoveTimer = GetTime()
+                        if not pid._glowRemoveScheduled then
+                            pid._glowRemoveScheduled = true
+                            C_Timer.After(0.35, function()
+                                pid._glowRemoveScheduled = nil
+                                if not pid._glowRemoveTimer then return end
+                                if (GetTime() - pid._glowRemoveTimer) < 0.3 then return end
+                                if not pid.auraGlowActive then return end
+                                local activeGlowType = pid.auraGlowType
+                                pid.auraGlowActive = nil
+                                pid.auraGlowType = nil
+                                pid._glowRemoveTimer = nil
+                                local SL2 = _G.DDingUI_StyleLib
+                                if SL2 then
+                                    local glowKey = "_DDingUIAuraGlow"
+                                    local glowTarget = parentIcon
+                                    pcall(function()
+                                        if activeGlowType == "Pixel Glow" then
+                                            SL2.HidePixelGlow(glowTarget, glowKey)
+                                        elseif activeGlowType == "Autocast Shine" then
+                                            SL2.HideAutocastGlow(glowTarget, glowKey)
+                                        elseif activeGlowType == "Action Button Glow" then
+                                            SL2.HideButtonGlow(glowTarget)
+                                        elseif activeGlowType == "Proc Glow" then
+                                            local LCG = LibStub("LibCustomGlow-1.0", true)
+                                            if LCG and LCG.ProcGlow_Stop then LCG.ProcGlow_Stop(glowTarget, glowKey) end
+                                        elseif activeGlowType == "Blizzard Glow" then
+                                            if ActionButton_HideOverlayGlow then
+                                                ActionButton_HideOverlayGlow(glowTarget)
+                                            end
                                         end
-                                    end
-                                end)
-                            end
+                                    end)
+                                end
+                            end)
                         end
                     end
                 end
+            end)
+        end
+
+        -- Hook SetCooldown for hideActiveState — CMC pattern:
+        -- When CDM pushes aura duration data, replace it with actual spell cooldown
+        -- using C_Spell.GetSpellCooldownDuration + SetCooldownFromDurationObject.
+        -- This makes the icon show the real cooldown timer instead of aura remaining time.
+        if not cdd.setCooldownHooked then
+            cdd.setCooldownHooked = true
+            hooksecurefunc(icon.Cooldown, "SetCooldown", function(self)
+                local cd = cdData[self]
+                if not cd then return end
+                if cd.bypassCDHook then return end  -- prevent recursion
+                local s = cd.settings
+                local parentIcon = cd.parentIcon
+                if not s or not parentIcon or not s.hideActiveState then return end
+                -- Check if frame is in aura state
+                local isActive = false
+                pcall(function()
+                    isActive = parentIcon.wasSetFromAura == true
+                        or parentIcon.auraInstanceID ~= nil
+                end)
+                if not isActive then return end
+                -- Get spellID from CDM frame
+                local spellID = nil
+                pcall(function()
+                    local ci = parentIcon.cooldownInfo
+                    if ci then spellID = ci.overrideSpellID or ci.spellID end
+                end)
+                if not spellID then return end
+                -- Visual: normal cooldown appearance
+                self:SetReverse(false)
+                cd.bypassColorHook = true
+                if s.swipeColor then
+                    local sc = s.swipeColor
+                    self:SetSwipeColor(sc[1] or 0, sc[2] or 0, sc[3] or 0, sc[4] or 0.8)
+                else
+                    self:SetSwipeColor(0, 0, 0, 0.7)
+                end
+                cd.bypassColorHook = nil
+                -- Data: replace aura duration with actual spell cooldown (CMC pattern)
+                cd.bypassCDHook = true
+                cd.bypassColorHook = true
+                pcall(function()
+                    local durObj
+                    local charges = C_Spell.GetSpellCharges(spellID)
+                    if charges and charges.maxCharges and charges.maxCharges > 1 then
+                        durObj = C_Spell.GetSpellChargeDuration(spellID)
+                    else
+                        durObj = C_Spell.GetSpellCooldownDuration(spellID)
+                    end
+                    if durObj then
+                        self:SetCooldownFromDurationObject(durObj)
+                    end
+                end)
+                cd.bypassCDHook = nil
+                cd.bypassColorHook = nil
             end)
         end
 
@@ -604,6 +683,56 @@ function IconViewers:SkinIcon(icon, settings)
         local swipeReverse = settings.swipeReverse
         if swipeReverse == nil then swipeReverse = false end
         icon.Cooldown:SetReverse(swipeReverse)
+
+        -- [hideActiveState] Immediate application for already-active icons
+        -- When user toggles the option, icons already showing aura state get overridden now
+        if settings.hideActiveState then
+            local isActive = false
+            pcall(function()
+                isActive = icon.wasSetFromAura == true or icon.auraInstanceID ~= nil
+            end)
+            if not isActive then
+                -- Fallback: check current swipe color
+                local ok2, cr, cg, cb = pcall(function() return icon.Cooldown:GetSwipeColor() end)
+                if ok2 and cr and cg and cb and cr > 0.9 and cg > 0.9 and cb > 0.4 then
+                    isActive = true
+                end
+            end
+            if isActive then
+                -- Visual: normal cooldown appearance
+                icon.Cooldown:SetReverse(false)
+                cdd.bypassColorHook = true
+                if settings.swipeColor then
+                    local sc = settings.swipeColor
+                    icon.Cooldown:SetSwipeColor(sc[1] or 0, sc[2] or 0, sc[3] or 0, sc[4] or 0.8)
+                else
+                    icon.Cooldown:SetSwipeColor(0, 0, 0, 0.7)
+                end
+                cdd.bypassColorHook = nil
+                GetIconData(icon).isAuraSwipe = true
+                -- Data: replace aura duration with actual spell cooldown (CMC pattern)
+                pcall(function()
+                    local ci = icon.cooldownInfo
+                    local spellID = ci and (ci.overrideSpellID or ci.spellID)
+                    if spellID then
+                        cdd.bypassCDHook = true
+                        cdd.bypassColorHook = true
+                        local durObj
+                        local charges = C_Spell.GetSpellCharges(spellID)
+                        if charges and charges.maxCharges and charges.maxCharges > 1 then
+                            durObj = C_Spell.GetSpellChargeDuration(spellID)
+                        else
+                            durObj = C_Spell.GetSpellCooldownDuration(spellID)
+                        end
+                        if durObj then
+                            icon.Cooldown:SetCooldownFromDurationObject(durObj)
+                        end
+                        cdd.bypassCDHook = nil
+                        cdd.bypassColorHook = nil
+                    end
+                end)
+            end
+        end
 
         -- Check current swipe color to detect if aura is active and apply auraSwipeColor immediately
         -- This handles the case where settings are changed while an aura swipe is already visible

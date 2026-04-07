@@ -29,13 +29,14 @@ local IsInGroup = IsInGroup   -- [PERF] colorTimerFrame 그룹 체크
 local IsInRaid = IsInRaid     -- [PERF]
 local SafeVal = ns.SafeVal   -- [REFACTOR] 통합 유틸리티
 local SafeNum = ns.SafeNum   -- [REFACTOR]
+local SafeBool = ns.SafeBool -- [REFACTOR]
 local C = ns.Constants       -- [FIX] ns.C → ns.Constants
 
 -----------------------------------------------
 -- BlizzardAuraCache
 -----------------------------------------------
 
-local BlizzardAuraCache = {}  -- unit → { buffs = {id=true}, debuffs = {id=true}, defensives = {id=true} }
+local BlizzardAuraCache = {}  -- unit → { buffs={id=true}, debuffs={id=true}, defensives={id=true}, buffOrder={}, debuffOrder={} }
 local BlizzardCacheGUIDMap = {} -- GUID → unit key
 local BlizzardCacheValid = {} -- unit → true
 
@@ -65,48 +66,197 @@ local hasDirtyAuras = false
 local dirtyRenderFrames = {} -- frame → true
 local hasDirtyRender = false
 
-local dirtyProcessor -- forward declaration (MarkAuraDirty에서 참조)
-local isBatchScan = false -- [PERF] ScanBlizzardFrames 배치 모드 플래그
+-- [REFACTOR] Phase 1 Core Engine: Direct Scan Logic
+-- Instead of hooking Blizzard UI, we iterate C_UnitAuras directly to populate the cache.
+-- This decouples DDingUI from the sluggish CompactUnitFrame update loop.
 
--- [FIX] DandersFrames 완전 복제: hook → 즉시 캡처 → 즉시 렌더링
--- 단, ScanBlizzardFrames 배치 스캔 중에는 즉시 렌더링 건너뜀 (Phase B에서 일괄 처리)
-local function MarkAuraDirty(blizzFrame)
-	if not blizzFrame then return end
-	local unit = blizzFrame.unit
-	if not unit then return end
+local function ShouldDisplayBuff(unit, aura)
+	local auraInstanceID = aura.auraInstanceID
+	if not auraInstanceID then return false end
+	
+	-- 12.0.1+ Native C-Level checks: Avoids ANY 'secret boolean' crashes by running checks in C++.
+	-- `IsAuraFilteredOutByInstanceID` returns false if the aura MATCHES the filter.
+	
+	-- Check if cast by player
+	local isPlayer = not C_UnitAuras.IsAuraFilteredOutByInstanceID(unit, auraInstanceID, "HELPFUL|PLAYER")
+	if isPlayer then return true end
+	
+	-- Check if it's a raid mechanic/buff
+	local isRaid = not C_UnitAuras.IsAuraFilteredOutByInstanceID(unit, auraInstanceID, "HELPFUL|RAID")
+	if isRaid then return true end
+	
+	-- Check if it's explicitly marked as important by Blizzard
+	if AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Important then
+		local isImportant = not C_UnitAuras.IsAuraFilteredOutByInstanceID(unit, auraInstanceID, "HELPFUL|"..AuraUtil.AuraFilters.Important)
+		if isImportant then return true end
+	end
+	
+	-- Fallback for boss auras if not caught by raid 
+	if SafeBool(aura.isBossAura) then
+		return true
+	end
 
-	-- [PERF] 그룹 유닛만 (네임플레이트/보스/아레나 제외 → 최대 90% 호출 차단)
+	-- 핵심 외생기 수동 검사 (타인이 걸어줘도 표시)
+	if GF.IsDefensiveAura and GF:IsDefensiveAura(aura.spellId) then 
+		return true 
+	end
+
+	return false
+end
+
+local function ShouldDisplayDebuff(unit, aura)
+	local auraInstanceID = aura.auraInstanceID
+	if not auraInstanceID then return false end
+	
+	-- 12.0.1+ 최신 API 기준: 'nameplateOnly' 잡동사니 제거 및 C-Level 검증 수행
+	-- Secret Value 크래시 우려가 있는 속성(isFromPlayerOrPlayerPet) 절대 직접 비교 금지 
+	if aura.nameplateOnly and type(aura.nameplateOnly) ~= "userdata" then return false end
+	
+	-- 기본적으로 파티 프레임상 디버프는 거의 다 띄우되 필터링이 필요할 수 있음
+	return true
+end
+
+-- ============================================================
+-- [DANDERSFRAMES BLIZZARD MODE] — 블리자드 프레임 스크래핑
+-- DDingUI의 HideBlizzard.lua는 파티/레이드 프레임을 SetAlpha(0)으로 숨기되
+-- 이벤트(UNIT_AURA 포함)는 살려둡니다.
+-- 따라서 블리자드 엔진이 buffFrames/debuffFrames를 계속 갱신하고 있으며,
+-- 댄더스 프레임과 100% 동일하게 그 데이터를 '그대로' 복사할 수 있습니다.
+-- ============================================================
+
+-- 블리자드 CompactUnitFrame이 오라 업데이트를 끝낸 직후 호출되어
+-- buffFrames/debuffFrames의 auraInstanceID를 그대로 캐시에 복사합니다.
+-- 댄더스의 CaptureAurasFromBlizzardFrame과 100% 동일한 로직입니다.
+local function CaptureAurasFromBlizzardFrame(frame)
+	if not frame or not frame.unit then return end
+	if frame.unitExists == false then return end
+
+	local unit = frame.unit
+	if type(unit) ~= "string" then return end
+	if unit:find("nameplate") or unit:find("boss") then return end
+
+	local frameName = frame.GetName and frame:GetName()
+	if frameName and (frameName:find("Preview") or frameName:find("Settings")) then return end
+
 	if not IsGroupUnit(unit) then return end
 
-	dirtyAuraFrames[unit] = blizzFrame
-	hasDirtyAuras = true
-
-	-- [FIX] CenterDefensiveBuff 즉시 캡처 (DandersFrames CaptureAurasFromBlizzardFrame 패턴)
+	-- 캐시 초기화
 	if not BlizzardAuraCache[unit] then
-		BlizzardAuraCache[unit] = { buffs = {}, debuffs = {}, defensives = {} }
+		BlizzardAuraCache[unit] = { buffs = {}, debuffs = {}, defensives = {}, buffOrder = {}, debuffOrder = {} }
 	end
-	if not BlizzardAuraCache[unit].defensives then
-		BlizzardAuraCache[unit].defensives = {}
-	else
-		wipe(BlizzardAuraCache[unit].defensives)
+	local cache = BlizzardAuraCache[unit]
+	wipe(cache.buffs)
+	wipe(cache.debuffs)
+	wipe(cache.defensives)
+	wipe(cache.buffOrder)
+	wipe(cache.debuffOrder)
+	BlizzardCacheValid[unit] = true
+
+	local guid = SafeVal(UnitGUID(unit))
+	if guid then
+		BlizzardCacheGUIDMap[guid] = unit
 	end
-	if blizzFrame.CenterDefensiveBuff then
-		local defFrame = blizzFrame.CenterDefensiveBuff
-		if defFrame.IsShown and defFrame:IsShown() and defFrame.auraInstanceID then
-			BlizzardAuraCache[unit].defensives[defFrame.auraInstanceID] = true
+
+	-- [DANDERSFRAMES 동일] 버프: buffFrames 순서 그대로 복사 (buffOrder 배열로 순서 보존)
+	if frame.buffFrames and type(frame.buffFrames) == "table" then
+		for _, bf in ipairs(frame.buffFrames) do
+			if bf and bf.IsShown and bf:IsShown() and bf.auraInstanceID then
+				cache.buffs[bf.auraInstanceID] = true
+				cache.buffOrder[#cache.buffOrder + 1] = bf.auraInstanceID
+			end
 		end
 	end
 
-	-- [FIX] DandersFrames 패턴: 즉시 프레임 조회 → 즉시 UpdateDefensiveIcon 호출
-	-- [PERF] 배치 스캔 중에는 건너뜀 (85프레임 × 즉시렌더링 = script ran too long 방지)
-	if not isBatchScan then
-		local ourFrame = GF.unitFrameMap[unit]
-		if ourFrame and ourFrame:IsVisible() and GF.UpdateDefensiveIcon then
+	-- [DANDERSFRAMES 동일] 디버프: debuffFrames 순서 그대로 복사
+	if frame.debuffFrames and type(frame.debuffFrames) == "table" then
+		for _, df in ipairs(frame.debuffFrames) do
+			if df and df.IsShown and df:IsShown() and df.auraInstanceID then
+				cache.debuffs[df.auraInstanceID] = true
+				cache.debuffOrder[#cache.debuffOrder + 1] = df.auraInstanceID
+			end
+		end
+	end
+
+	-- [DANDERSFRAMES 동일] 해제 가능 디버프
+	if frame.dispelDebuffFrames and type(frame.dispelDebuffFrames) == "table" then
+		for _, df in ipairs(frame.dispelDebuffFrames) do
+			if df and df.IsShown and df:IsShown() and df.auraInstanceID then
+				if not cache.debuffs[df.auraInstanceID] then
+					cache.debuffs[df.auraInstanceID] = true
+					cache.debuffOrder[#cache.debuffOrder + 1] = df.auraInstanceID
+				end
+			end
+		end
+	end
+
+	-- 중앙 생존기
+	if frame.CenterDefensiveBuff and frame.CenterDefensiveBuff.IsShown 
+		and frame.CenterDefensiveBuff:IsShown() and frame.CenterDefensiveBuff.auraInstanceID then
+		cache.defensives[frame.CenterDefensiveBuff.auraInstanceID] = true
+	end
+
+	-- DDingUI 프레임 렌더링 트리거
+	local ourFrame = GF.unitFrameMap[unit]
+	if ourFrame and ourFrame.gfEventsEnabled then
+		dirtyRenderFrames[ourFrame] = true
+		hasDirtyRender = true
+		dirtyProcessor:Show()
+
+		if GF.UpdateDefensiveIcon then
 			GF:UpdateDefensiveIcon(ourFrame)
 		end
 	end
+end
 
-	dirtyProcessor:Show() -- 나머지 aura(버프/디버프) 처리는 다음 OnUpdate에서 배치
+-- DirectMarkAuraDirty: 블리자드 훅이 아직 캐시를 채우지 않은 유닛용 폴백
+local function DirectMarkAuraDirty(unit)
+	if not unit or not IsGroupUnit(unit) then return end
+
+	-- 이미 블리자드 훅이 캐시를 채웠다면 렌더링만 트리거
+	if BlizzardCacheValid[unit] and BlizzardAuraCache[unit] then
+		local frame = GF.unitFrameMap[unit]
+		if frame and frame.gfEventsEnabled then
+			dirtyRenderFrames[frame] = true
+			hasDirtyRender = true
+			dirtyProcessor:Show()
+		end
+		return
+	end
+
+	-- 캐시가 없는 경우에만 C-Level 폴백 스캔 (초기 로딩 등)
+	if not BlizzardAuraCache[unit] then
+		BlizzardAuraCache[unit] = { buffs = {}, debuffs = {}, defensives = {}, buffOrder = {}, debuffOrder = {} }
+	end
+	local cache = BlizzardAuraCache[unit]
+	wipe(cache.buffs)
+	wipe(cache.debuffs)
+	wipe(cache.defensives)
+	wipe(cache.buffOrder)
+	wipe(cache.debuffOrder)
+	BlizzardCacheValid[unit] = true
+
+	local guid = SafeVal(UnitGUID(unit))
+	if guid then
+		BlizzardCacheGUIDMap[guid] = unit
+	end
+
+	-- C-Level 폴백: 블리자드 훅 데이터가 없을 때만 작동
+	local harmfulRaidFilter = "HARMFUL|RAID"
+	for i = 1, 40 do
+		local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, harmfulRaidFilter)
+		if not aura then break end
+		if aura.auraInstanceID then
+			cache.debuffs[aura.auraInstanceID] = true
+			cache.debuffOrder[#cache.debuffOrder + 1] = aura.auraInstanceID
+		end
+	end
+
+	local frame = GF.unitFrameMap[unit]
+	if frame and frame.gfEventsEnabled then
+		dirtyRenderFrames[frame] = true
+		hasDirtyRender = true
+		dirtyProcessor:Show()
+	end
 end
 
 -- [REFACTOR] QueueAuraUpdate: 프레임 렌더링을 큐에 추가
@@ -118,79 +268,9 @@ function GF:QueueAuraUpdate(frame)
 	dirtyProcessor:Show()
 end
 
--- [PERF] 배치 처리: 동일 유닛 3x hook → 1x 처리
+-- [REFACTOR] ProcessDirtyAuras is mostly simplified since Phase A cache injection is gone!
 local function ProcessDirtyAuras()
-	-- Phase A: BlizzardAuraCache 캡처 (hook으로 인한 더티)
-	if hasDirtyAuras then
-		hasDirtyAuras = false
-
-		for unit, blizzFrame in pairs(dirtyAuraFrames) do
-			-- 캐시 초기화 (defensives는 MarkAuraDirty에서 즉시 캡처됨 → 여기서 wipe 안 함)
-			if not BlizzardAuraCache[unit] then
-				BlizzardAuraCache[unit] = { buffs = {}, debuffs = {}, defensives = {} }
-			else
-				wipe(BlizzardAuraCache[unit].buffs)
-				wipe(BlizzardAuraCache[unit].debuffs)
-				if not BlizzardAuraCache[unit].defensives then
-					BlizzardAuraCache[unit].defensives = {}
-				end
-			end
-
-			BlizzardCacheValid[unit] = true
-
-			-- GUID 매핑 -- [REFACTOR] SafeVal 통일
-			local guid = SafeVal(UnitGUID(unit))
-			if guid then
-				BlizzardCacheGUIDMap[guid] = unit
-			end
-
-			-- 버프 캡처: IsShown() + auraInstanceID
-			if blizzFrame.buffFrames then
-				for i = 1, #blizzFrame.buffFrames do
-					local buffFrame = blizzFrame.buffFrames[i]
-					if buffFrame and buffFrame:IsShown() and buffFrame.auraInstanceID then
-						BlizzardAuraCache[unit].buffs[buffFrame.auraInstanceID] = true
-					end
-				end
-			end
-
-			-- 디버프 캡처
-			if blizzFrame.debuffFrames then
-				for i = 1, #blizzFrame.debuffFrames do
-					local debuffFrame = blizzFrame.debuffFrames[i]
-					if debuffFrame and debuffFrame:IsShown() and debuffFrame.auraInstanceID then
-						BlizzardAuraCache[unit].debuffs[debuffFrame.auraInstanceID] = true
-					end
-				end
-			end
-
-			-- 디스펠 가능 디버프
-			if blizzFrame.dispelDebuffFrames then
-				for i = 1, #blizzFrame.dispelDebuffFrames do
-					local dispelFrame = blizzFrame.dispelDebuffFrames[i]
-					if dispelFrame and dispelFrame:IsShown() and dispelFrame.auraInstanceID then
-						BlizzardAuraCache[unit].debuffs[dispelFrame.auraInstanceID] = true
-					end
-				end
-			end
-
-			-- [FIX] CenterDefensiveBuff: MarkAuraDirty에서 즉시 캡처됨
-			-- Phase A(지연)에서 읽으면 CompactUnitFrame_UpdateCenterStatusIcon이
-			-- 상태를 변경한 후일 수 있어 캡처 유실 가능 → hook 시점 즉시 캡처로 변경
-
-			-- 캡처 완료 → 렌더 큐에 추가 (직접 UpdateAuras 대신)
-			local frame = GF.unitFrameMap[unit]
-			if frame and frame.gfEventsEnabled then
-				dirtyRenderFrames[frame] = true
-				hasDirtyRender = true
-			end
-		end
-
-		wipe(dirtyAuraFrames)
-	end
-
 	-- Phase B: 프레임 렌더링 (큐된 모든 프레임 1회씩만)
-	-- [P0] pcall 제거: 릴리즈 모드 → 직접 호출 (80+ pcall/update 절감)
 	if hasDirtyRender then
 		hasDirtyRender = false
 		local debugMode = ns._debugMode
@@ -198,7 +278,6 @@ local function ProcessDirtyAuras()
 		for frame in pairs(dirtyRenderFrames) do
 			if frame.unit and frame.gfEventsEnabled then
 				if debugMode then
-					-- 디버그 모드: 1개 pcall로 모든 업데이트 통합
 					local ok, err = pcall(function()
 						GF:UpdateAuras(frame)
 						if GF.UpdateDebuffHighlight then GF:UpdateDebuffHighlight(frame) end
@@ -210,11 +289,9 @@ local function ProcessDirtyAuras()
 					end)
 					if not ok then ns:PrintDebug("UpdateFrame error: " .. tostring(err)) end
 				else
-					-- [P0] 릴리즈 모드: 직접 호출 (pcall 오버헤드 제거)
 					GF:UpdateAuras(frame)
 					if GF.UpdateDebuffHighlight then GF:UpdateDebuffHighlight(frame) end
 					if GF.UpdateDefensiveIcon then GF:UpdateDefensiveIcon(frame) end
-					-- [P4] AuraDesigner: hasActiveIndicators 체크로 불필요시 건너뜀
 					local adEngine = ns.AuraDesigner and ns.AuraDesigner.Engine
 					if adEngine and adEngine.hasActiveIndicators then
 						adEngine:UpdateGroupFrame(frame)
@@ -222,7 +299,6 @@ local function ProcessDirtyAuras()
 				end
 			end
 		end
-
 		wipe(dirtyRenderFrames)
 	end
 end
@@ -240,22 +316,9 @@ end)
 -----------------------------------------------
 
 function GF:SetupBlizzardHooks()
-	-- [PERF] 모든 hook이 경량 MarkAuraDirty → 실제 처리는 다음 OnUpdate에서 배치
-	if CompactUnitFrame_UpdateAuras then
-		hooksecurefunc("CompactUnitFrame_UpdateAuras", MarkAuraDirty)
-	end
-	if CompactUnitFrame_UpdateBuffs then
-		hooksecurefunc("CompactUnitFrame_UpdateBuffs", MarkAuraDirty)
-	end
-	if CompactUnitFrame_UpdateDebuffs then
-		hooksecurefunc("CompactUnitFrame_UpdateDebuffs", MarkAuraDirty)
-	end
-
-	-- [FIX] CenterDefensiveBuff 전용 hook (UpdateAuras와 별도로 호출될 수 있음)
-	if CompactUnitFrame_UpdateCenterStatusIcon then
-		hooksecurefunc("CompactUnitFrame_UpdateCenterStatusIcon", MarkAuraDirty)
-	end
-
+	-- [REFACTOR] Phase 1 Core Engine: ALL BLIZZARD HOOKS REMOVED.
+	-- We dynamically build our own cache via DirectMarkAuraDirty on events.
+	
 	-- 그룹 변경 시 캐시 리셋
 	local watcher = CreateFrame("Frame")
 	watcher:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -264,9 +327,7 @@ function GF:SetupBlizzardHooks()
 		wipe(BlizzardAuraCache)
 		wipe(BlizzardCacheGUIDMap)
 		wipe(BlizzardCacheValid)
-		wipe(dirtyAuraFrames)
-		wipe(dirtyRenderFrames) -- [REFACTOR] 렌더 큐도 초기화
-		hasDirtyAuras = false
+		wipe(dirtyRenderFrames)
 		hasDirtyRender = false
 		dirtyProcessor:Hide()
 
@@ -275,135 +336,77 @@ function GF:SetupBlizzardHooks()
 			GF:UpdateColorTimerState()
 		end
 
-		-- [FIX] 초기 블리자드 프레임 스캔 (Cell 패턴)
-		-- hook이 아직 발동하지 않은 시점에서 CenterDefensiveBuff 캡처
-		GF:ScheduleBlizzardFrameScan()
 	end)
 
-	-- [P2] UNIT_AURA incremental event handler (DandersFrames oUF 패턴)
-	-- hook보다 먼저 발동 → updateInfo로 incremental 캐시 업데이트
-	-- isFullUpdate인 경우만 기존 hook 경로 사용 (full re-scan)
+	-- [DANDERSFRAMES PATTERN] 캐시 갱신은 CompactUnitFrame_UpdateAuras 훅만 담당!
+	-- UNIT_AURA 핸들러는 캐시/렌더를 건드리지 않고, AuraDesigner에게만 페이로드를 전달합니다.
+	-- 댄더스 프레임과 동일한 단일 트리거 아키텍처입니다.
 	local unitAuraHandler = CreateFrame("Frame")
+	-- [PERF] 이벤트 등록은 SetupBlizzardHooks 호출 시에만 (비활성 시 CPU 0)
 	unitAuraHandler:RegisterEvent("UNIT_AURA")
 	unitAuraHandler:SetScript("OnEvent", function(_, _, unit, updateInfo)
 		if not unit or not IsGroupUnit(unit) then return end
 		if not GF.headersInitialized then return end
-		if not updateInfo then return end
 
-		-- isFullUpdate → 기존 hook 경로가 처리 (ScanBlizzardFrames)
-		if updateInfo.isFullUpdate then return end
-
-		-- [P2] 캐시 초기화 (없으면 생성)
-		if not BlizzardAuraCache[unit] then
-			BlizzardAuraCache[unit] = { buffs = {}, debuffs = {}, defensives = {} }
-		end
-		local cache = BlizzardAuraCache[unit]
-		if not cache.buffs then cache.buffs = {} end
-		if not cache.debuffs then cache.debuffs = {} end
-		BlizzardCacheValid[unit] = true
-
-		local changed = false
-
-		-- [P2] 제거된 오라: 캐시에서 직접 삭제
-		if updateInfo.removedAuraInstanceIDs then
-			for _, auraInstanceID in next, updateInfo.removedAuraInstanceIDs do
-				if cache.buffs[auraInstanceID] then
-					cache.buffs[auraInstanceID] = nil
-					changed = true
-				end
-				if cache.debuffs[auraInstanceID] then
-					cache.debuffs[auraInstanceID] = nil
-					changed = true
-				end
-				if cache.defensives and cache.defensives[auraInstanceID] then
-					cache.defensives[auraInstanceID] = nil
-					changed = true
-				end
-			end
-		end
-
-		-- [P2] 추가된 오라: HELPFUL/HARMFUL 필터로 분류 후 캐시에 추가
-		if updateInfo.addedAuras then
-			for _, data in next, updateInfo.addedAuras do
-				if data.auraInstanceID then
-					local isHarmful = not C_UnitAuras.IsAuraFilteredOutByInstanceID(
-						unit, data.auraInstanceID, "HARMFUL"
-					)
-					if isHarmful then
-						cache.debuffs[data.auraInstanceID] = true
-					else
-						cache.buffs[data.auraInstanceID] = true
+		-- AuraDesigner에게만 페이로드 원본 전달 (캐시/렌더 터치 금지)
+		if updateInfo then
+			local adAdapter = ns.AuraDesigner and ns.AuraDesigner.Adapter
+			if adAdapter and adAdapter.OnUnitAuraEvent then
+				local adChanged = adAdapter:OnUnitAuraEvent(unit, updateInfo)
+				if adChanged then
+					local frame = GF.unitFrameMap[unit]
+					if frame and frame.gfEventsEnabled then
+						dirtyRenderFrames[frame] = true
+						hasDirtyRender = true
+						dirtyProcessor:Show()
 					end
-					changed = true
 				end
-			end
-		end
-
-		-- [P2] 업데이트된 오라: 이미 캐시에 있으면 → 렌더만 트리거
-		if updateInfo.updatedAuraInstanceIDs then
-			for _, auraInstanceID in next, updateInfo.updatedAuraInstanceIDs do
-				if cache.buffs[auraInstanceID] or cache.debuffs[auraInstanceID] then
-					changed = true
-				end
-			end
-		end
-
-		-- [P2+AD] AuraDesigner incremental 캐시도 동시 업데이트
-		-- Engine:UpdateGroupFrame(frame) 호출 시 Adapter는 이미 패치된 캐시를 읽음
-		local adAdapter = ns.AuraDesigner and ns.AuraDesigner.Adapter
-		if adAdapter and adAdapter.OnUnitAuraEvent then
-			local adChanged = adAdapter:OnUnitAuraEvent(unit, updateInfo)
-			if adChanged then changed = true end
-		end
-
-		-- 변경 있으면 렌더 큐에 추가 (hook 경로 우회)
-		if changed then
-			local frame = GF.unitFrameMap[unit]
-			if frame and frame.gfEventsEnabled then
-				dirtyRenderFrames[frame] = true
-				hasDirtyRender = true
-				dirtyProcessor:Show()
 			end
 		end
 	end)
-end
-
--- [FIX] 블리자드 프레임 직접 스캔 (Cell 패턴 — hook 미발동 시 fallback)
--- [PERF] isBatchScan 플래그로 즉시 렌더링 억제 → Phase B에서 일괄 처리
-function GF:ScanBlizzardFrames()
-	isBatchScan = true -- 즉시 렌더링 억제 (85프레임 × UpdateDefensiveIcon 방지)
-
-	-- 파티 프레임
-	for i = 1, 5 do
-		local frame = _G["CompactPartyFrameMember" .. i]
-		if frame and frame.unit then
-			MarkAuraDirty(frame)
-		end
+	
+	-- [DANDERSFRAMES BLIZZARD MODE] CompactUnitFrame_UpdateAuras 훅
+	-- 블리자드가 오라 업데이트를 끝낸 직후 buffFrames/debuffFrames를 스크래핑합니다.
+	-- 이것이 댄더스 프레임의 핵심 훅이며, DDingUI에서도 동일하게 사용합니다.
+	if CompactUnitFrame_UpdateAuras then
+		hooksecurefunc("CompactUnitFrame_UpdateAuras", function(frame)
+			if not frame or frame.unitExists == false then return end
+			CaptureAurasFromBlizzardFrame(frame)
+		end)
 	end
-	-- 레이드 프레임
-	for i = 1, 40 do
-		local frame = _G["CompactRaidFrame" .. i]
-		if frame and frame.unit then
-			MarkAuraDirty(frame)
-		end
+	if CompactUnitFrame_UpdateBuffs then
+		hooksecurefunc("CompactUnitFrame_UpdateBuffs", function(frame)
+			if not frame or frame.unitExists == false then return end
+			CaptureAurasFromBlizzardFrame(frame)
+		end)
 	end
-	-- 레이드 그룹 프레임
-	for group = 1, 8 do
-		for member = 1, 5 do
-			local frame = _G["CompactRaidGroup" .. group .. "Member" .. member]
-			if frame and frame.unit then
-				MarkAuraDirty(frame)
-			end
-		end
+	if CompactUnitFrame_UpdateDebuffs then
+		hooksecurefunc("CompactUnitFrame_UpdateDebuffs", function(frame)
+			if not frame or frame.unitExists == false then return end
+			CaptureAurasFromBlizzardFrame(frame)
+		end)
 	end
 
-	isBatchScan = false -- 즉시 렌더링 복원
+	-- [DANDERSFRAMES 동일] CompactUnitFrame_UpdateUnitEvents 훅
+	-- 블리자드가 이벤트를 재등록할 때마다 UNIT_AURA만 남기고 나머지를 스트립
+	-- DDingUI는 블리자드 프레임을 시각적으로만 숨기므로 이벤트 관리가 필수
+	if CompactUnitFrame_UpdateUnitEvents then
+		hooksecurefunc("CompactUnitFrame_UpdateUnitEvents", function(frame)
+			if not frame or not frame.unit then return end
+			local unit = frame.unit
+			if not IsGroupUnit(unit) then return end
+			-- UNIT_AURA만 유지하고 나머지 불필요한 이벤트 해제
+			pcall(function()
+				frame:UnregisterAllEvents()
+				frame:RegisterUnitEvent("UNIT_AURA", unit)
+			end)
+		end)
+	end
 end
 
--- [PERF] 시차 스캔 스케줄: 3회 → 1회 (0.5s만 — 충분한 대기 후 1회 스캔)
-function GF:ScheduleBlizzardFrameScan()
-	C_Timer.After(0.5, function() GF:ScanBlizzardFrames() end)
-end
+-- [COMPAT] 외부에서 호출 가능한 폴백 (GF:ScheduleBlizzardFrameScan 호출 처)
+function GF:ScanBlizzardFrames() end
+function GF:ScheduleBlizzardFrameScan() end
 
 -----------------------------------------------
 -- Phase 1: 캐시 조회 (GUID 폴백)
@@ -440,24 +443,19 @@ local function SafeSetTexture(icon, texture)
 	end
 end
 
--- SafeSetCooldown: SetCooldownFromExpirationTime 사용 (11.1+ API)
+-- [DANDERSFRAMES 동일] SafeSetCooldown: 항상 호출 (C++ 내부에서 중복 값 무시)
 local function SafeSetCooldown(cooldown, expirationTime, duration)
 	if not cooldown then return end
 	if not expirationTime or not duration then
-		cooldown:Clear()
+		if cooldown.Clear then cooldown:Clear() end
 		return
 	end
-
-	-- SetCooldownFromExpirationTime는 secret-safe (C++ 레벨)
 	if cooldown.SetCooldownFromExpirationTime then
 		cooldown:SetCooldownFromExpirationTime(expirationTime, duration)
 	else
-		-- 폴백: CooldownFrame_Set (구 API)
 		local startTime = expirationTime - duration
 		if startTime > 0 and duration > 0 then
 			cooldown:SetCooldown(startTime, duration)
-		else
-			cooldown:Clear()
 		end
 	end
 end
@@ -471,41 +469,15 @@ function GF:UpdateAuras(frame)
 	local unit = frame.unit
 	if not UnitExists(unit) then return end
 
-	-- 캐시 조회
-	local cache = FindCacheForUnit(unit)
-
-	-- 버프 렌더링
-	self:UpdateAuraIconsDirect(frame, frame.buffIcons, cache and cache.buffs, unit, "BUFF")
-
-	-- 디버프 렌더링
-	self:UpdateAuraIconsDirect(frame, frame.debuffIcons, cache and cache.debuffs, unit, "DEBUFF")
+	-- [DANDERSFRAMES 동일] 캐시 기반 렌더링 (orderList 사용)
+	self:UpdateAuraIconsDirect(frame, frame.buffIcons, nil, unit, "BUFF")
+	self:UpdateAuraIconsDirect(frame, frame.debuffIcons, nil, unit, "DEBUFF")
 end
 
 -----------------------------------------------
--- Phase 2: UpdateAuraIconsDirect -- [REFACTOR] auraIs* 필드 기반 우선순위 정렬 추가
--- cacheSet: { [auraInstanceID] = true } (블리자드가 승인한 아우라 목록)
+-- Phase 2: UpdateAuraIconsDirect
+-- [DANDERSFRAMES 동일] buffOrder/debuffOrder 배열 순서대로 렌더링
 -----------------------------------------------
-
--- [REFACTOR] 오라 우선순위 점수 계산 (높을수록 먼저 표시)
-local SafeBool = ns.SafeBool
-local sortBuffer = {} -- 재사용 정렬 버퍼
-
--- [PERF] 정렬 함수를 모듈 레벨로 (매 호출 시 클로저 생성 방지)
-local function SortByPriorityDesc(a, b)
-	return a.priority > b.priority
-end
-
-local function CalcAuraPriority(auraData, isDebuff)
-	local score = 0
-	if SafeBool(auraData.isBossAura) then score = score + 100 end
-	if SafeBool(auraData.isRaid) then score = score + 50 end
-	if isDebuff and SafeVal(auraData.dispelName) then score = score + 30 end
-	if SafeBool(auraData.isFromPlayerOrPlayerPet) then score = score + 20 end
-	-- duration이 짧을수록 긴급 → 약간 가산
-	local dur = SafeNum(auraData.duration, 0)
-	if dur > 0 and dur <= 30 then score = score + 10 end
-	return score
-end
 
 -----------------------------------------------
 -- [FIX] ColorCurve (DandersFrame 패턴: lazy 생성)
@@ -604,31 +576,55 @@ local dispelPriority = { Magic = 4, Curse = 3, Disease = 2, Poison = 1 }
 local durationColorCache = {}
 local BuildDurationColorInfo, GetDurationColorInfo -- Forward declaration
 
--- [REFACTOR] 단일 아이콘 업데이트 헬퍼 (중복 제거)
+-- [DANDERSFRAMES 동일] 단일 아이콘 업데이트 헬퍼
 local function ApplyAuraToIcon(icon, auraData, auraInstanceID, unit, auraType)
+	-- 같은 오라가 같은 슬롯에 이미 표시 중이면 스킵 (DandersFrames 동일 로직)
+	if icon.auraInstanceID == auraInstanceID and icon:IsShown() then
+		return
+	end
+
 	-- 텍스처 (SetTexture는 C++에서 secret 처리)
 	SafeSetTexture(icon, auraData.icon)
 
-	-- 쿨다운 설정 (DandersFrames 패턴: GetAuraDuration -> SetCooldownFromDurationObject)
-	-- [FIX] 0초 깜빡임 3중 방지: Hide->Clear 순서, SetHideCountdownNumbers, 텍스트 조건부 처리
-	if icon.cooldown and C_UnitAuras.GetAuraDuration then
-		local duration = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
-		if duration then
-			-- 유한 지속: 쿨다운 표시
-			icon.cooldown:SetHideCountdownNumbers(false)
-			icon.cooldown:SetCooldownFromDurationObject(duration)
-			icon.cooldown:Show()
-		else
-			-- 무한 지속: [FIX] Hide 먼저 -> Clear (순서 중요!
-			-- Clear()가 내부적으로 텍스트를 리셋하면서 1프레임 "0" 표시 가능)
-			icon.cooldown:SetHideCountdownNumbers(true) -- 네이티브 카운트다운 텍스트 완전 억제
-			icon.cooldown:Hide()
-			icon.cooldown:Clear()
+	-- 쿨다운 설정 (DandersFrames 패턴: DoesAuraHaveExpirationTime -> SafeSetCooldown)
+	-- [FIX] 0초 깜빡임 방지: DandersFrames와 정확히 동일한 로직으로 수정
+	icon.expirationTime = nil
+	icon.auraDuration = nil
+	icon.hasExpiration = false
+
+	if C_UnitAuras.DoesAuraHaveExpirationTime then
+		icon.hasExpiration = C_UnitAuras.DoesAuraHaveExpirationTime(unit, auraInstanceID)
+		icon.expirationTime = auraData.expirationTime
+		icon.auraDuration = auraData.duration
+	else
+		if auraData.expirationTime and auraData.expirationTime > 0 then
+			icon.expirationTime = auraData.expirationTime
+			icon.hasExpiration = true
+		end
+		if auraData.duration and auraData.duration > 0 then
+			icon.auraDuration = auraData.duration
 		end
 	end
 
-	-- 텍스트 색상 초기화 (쿨다운이 보이는 경우만 — 무한 오라 깜빡임 방지)
-	if icon.nativeCooldownText and icon.cooldown and icon.cooldown:IsShown() then
+	-- [DANDERSFRAMES 동일] Set cooldown (항상 호출, C++이 중복 처리)
+	SafeSetCooldown(icon.cooldown, auraData.expirationTime, auraData.duration)
+	
+
+
+	-- Show/hide cooldown (swipe + native countdown text) based on whether aura expires
+	-- Hiding the cooldown frame also hides the native countdown text (as its child)
+	-- This is the primary mechanism for hiding duration text on permanent buffs
+	-- [DANDERSFRAMES 동일] cooldown Show/Hide
+	if icon.cooldown then
+		if icon.cooldown.SetShownFromBoolean then
+			icon.cooldown:SetShownFromBoolean(icon.hasExpiration, true, false)
+		else
+			icon.cooldown:Show()
+		end
+	end
+
+	-- 텍스트 색상 초기화 (cooldown 텍스트 컬러 지정은 항상 적용, 무한일 땐 C++ 단에서 어차피 안 그림)
+	if icon.nativeCooldownText then
 		local frame = icon.unitFrame or icon:GetParent():GetParent()
 		local frameType = frame.isRaidFrame and "raid" or "party"
 		local info = GetDurationColorInfo(frameType, auraType)
@@ -683,36 +679,17 @@ function GF:UpdateAuraIconsDirect(frame, icons, cacheSet, unit, auraType)
 	local maxIcons = #icons
 	local isDebuff = (auraType == "DEBUFF")
 
-	-- [FIX] cacheSet이 nil인 경우 (HideBlizzard가 파티프레임 이벤트 해제 → hook 미발동)
-	-- C_UnitAuras.ForEachAura로 직접 수집하여 fallback
-	local effectiveCacheSet = cacheSet
-	local fallbackCache = nil
-	if not effectiveCacheSet and UnitExists(unit) then
-		fallbackCache = {}
-		local filter = isDebuff and "HARMFUL" or "HELPFUL"
-		local function collector(auraData)
-			if auraData and auraData.auraInstanceID then
-				fallbackCache[auraData.auraInstanceID] = true
-			end
-		end
-		if C_UnitAuras.ForEachAura then
-			C_UnitAuras.ForEachAura(unit, filter, nil, collector)
-		elseif AuraUtil and AuraUtil.ForEachAura then
-			AuraUtil.ForEachAura(unit, filter, nil, collector)
-		end
-		effectiveCacheSet = next(fallbackCache) and fallbackCache or nil
-	end
+	-- [DANDERSFRAMES 동일] 캐시에서 순서 배열 가져오기
+	local cache = BlizzardAuraCache[unit]
+	local orderList = cache and (auraType == "BUFF" and cache.buffOrder or cache.debuffOrder)
 
-	if effectiveCacheSet then
-		-- [FIX] per-unit 필터 로드 (블랙리스트/화이트리스트 + 레이드 버프 숨기기)
-		local db = GF:GetFrameDB(frame)
-		local widgetKey = isDebuff and "debuffs" or "buffs"
-		local widgetDB = db and db.widgets and db.widgets[widgetKey]
-		local filter = widgetDB and widgetDB.filter
+	if orderList and #orderList > 0 then
+		-- [DANDERSFRAMES 동일] Dedup: defensives에 이미 표시된 오라는 버프칸에서 제외
+		local dedupSet = (not isDebuff) and cache.defensives or nil
 
-		-- [FIX] 레이드 시너지 버프 필터 준비 (hideRaidBuffs용)
-		-- 파티/레이드 어느 쪽이든 켜져 있으면 모든 그룹 프레임에 적용
+		-- 레이드 시너지 버프 필터 준비
 		local hideRaidBuffs = false
+		local raidBuffIcons = nil
 		if not isDebuff then
 			local pf = ns.db and ns.db.party and ns.db.party.widgets
 				and ns.db.party.widgets.buffs and ns.db.party.widgets.buffs.filter
@@ -721,88 +698,81 @@ function GF:UpdateAuraIconsDirect(frame, icons, cacheSet, unit, auraType)
 			local mrf = ns.db and ns.db.mythicRaid and ns.db.mythicRaid.widgets
 				and ns.db.mythicRaid.widgets.buffs and ns.db.mythicRaid.widgets.buffs.filter
 			hideRaidBuffs = (pf and pf.hideRaidBuffs) or (rf and rf.hideRaidBuffs) or (mrf and mrf.hideRaidBuffs) or false
-		end
-		local raidBuffIcons = nil
-		if hideRaidBuffs then
-			raidBuffIcons = ns.GetRaidSynergyBuffIcons()
+			if hideRaidBuffs then
+				raidBuffIcons = ns.GetRaidSynergyBuffIcons()
+			end
 		end
 
-		-- 1) auraData 수집 + 우선순위 계산 + 필터링
-		local count = 0
-		for auraInstanceID in pairs(effectiveCacheSet) do
-			local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-			if auraData then
-				local shouldShow = true
+		-- HoT 화이트리스트 준비
+		local db = GF:GetFrameDB(frame)
+		local widgetKey = isDebuff and "debuffs" or "buffs"
+		local widgetDB = db and db.widgets and db.widgets[widgetKey]
+		local filter = widgetDB and widgetDB.filter
 
-				-- [FIX] 레이드 시너지 버프 필터 (spellId 1차 + 아이콘 텍스처 2차 fallback)
-				if hideRaidBuffs then
-					-- 1차: spellId 직접 매칭 (전투 밖에서 확실)
-					local spellID = SafeVal(auraData.spellId)
-					if spellID and ns.RaidSynergyBuffs[spellID] then
-						shouldShow = false
-					elseif not spellID and auraData.icon then
-						-- 2차: 아이콘 텍스처 매칭 (spellId가 secret일 때)
-						local iconTex = auraData.icon
-						if not (issecretvalue and issecretvalue(iconTex)) and raidBuffIcons and raidBuffIcons[iconTex] then
-							shouldShow = false
+		-- [DANDERSFRAMES 동일] 순서 배열대로 아이콘 적용 (자체 정렬 없음)
+		local displayedCount = 0
+		for i = 1, #orderList do
+			if displayedCount >= maxIcons then break end
+			local auraInstanceID = orderList[i]
+			if not auraInstanceID then break end
+
+			-- [DANDERSFRAMES 동일] Dedup 체크
+			if dedupSet and dedupSet[auraInstanceID] then
+				-- 이미 DefensiveBar에서 표시 중 → 스킵
+			else
+				local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
+				if auraData then
+					local skipAura = false
+
+					-- 레이드 시너지 버프 필터
+					if not skipAura and hideRaidBuffs then
+						local spellID = SafeVal(auraData.spellId)
+						if spellID and ns.RaidSynergyBuffs[spellID] then
+							skipAura = true
+						elseif not spellID and auraData.icon then
+							local iconTex = auraData.icon
+							if not (issecretvalue and issecretvalue(iconTex)) and raidBuffIcons and raidBuffIcons[iconTex] then
+								skipAura = true
+							end
 						end
 					end
-				end
 
-				-- [12.0.1] HoT 목록 기반 화이트리스트 (패턴 매칭 결과 재활용)
-				if shouldShow and not isDebuff and filter and filter.useHotWhitelist then
-					local hotCache = HotAuraCache[unit]
-					if hotCache then
-						-- HotAuraCache에 있는 auraInstanceID만 통과
-						if not hotCache[auraInstanceID] then
-							shouldShow = false
+					-- HoT 화이트리스트
+					if not skipAura and not isDebuff and filter and filter.useHotWhitelist then
+						local hotCache = HotAuraCache[unit]
+						if hotCache and not hotCache[auraInstanceID] then
+							skipAura = true
 						end
 					end
-				end
 
-				if shouldShow then
-					count = count + 1
-					-- [PERF] 테이블 재사용: 기존 엔트리 객체 재활용 (GC 압력 감소)
-					local entry = sortBuffer[count]
-					if not entry then
-						entry = {}
-						sortBuffer[count] = entry
+					if not skipAura then
+						displayedCount = displayedCount + 1
+						ApplyAuraToIcon(icons[displayedCount], auraData, auraInstanceID, unit, auraType)
 					end
-					entry.id = auraInstanceID
-					entry.data = auraData
-					entry.priority = CalcAuraPriority(auraData, isDebuff)
 				end
 			end
 		end
-		-- 이전 호출의 잔여 엔트리 정리 (sort 정확성 보장)
-		for i = count + 1, #sortBuffer do
-			sortBuffer[i] = nil
-		end
 
-		-- 2) 우선순위 정렬 (높은 점수 먼저) -- [PERF] 모듈 레벨 sort 함수 사용
-		if count > 1 then
-			table.sort(sortBuffer, SortByPriorityDesc)
-		end
-
-		-- 3) 정렬된 순서로 아이콘 적용
-		local iconIndex = 1
-		for i = 1, count do
-			if iconIndex > maxIcons then break end
-			local entry = sortBuffer[i]
-			ApplyAuraToIcon(icons[iconIndex], entry.data, entry.id, unit, auraType)
-			iconIndex = iconIndex + 1
-		end
-
-		-- 남은 아이콘 숨기기
-		for i = iconIndex, maxIcons do
-			icons[i]:Hide()
-			icons[i].auraInstanceID = nil
+		-- [DANDERSFRAMES 동일] 남은 아이콘 완전 정리
+		for i = displayedCount + 1, maxIcons do
+			local icon = icons[i]
+			icon.auraInstanceID = nil
+			icon.expirationTime = nil
+			icon.auraDuration = nil
+			icon.hasExpiration = nil
+			if icon.duration then icon.duration:Hide() end
+			icon:Hide()
 		end
 	else
-		-- 캐시도 없고 fallback도 없으면 전부 숨김
+		-- 캐시 없음 → 전부 숨김
 		for i = 1, maxIcons do
-			icons[i]:Hide()
-			icons[i].auraInstanceID = nil
+			local icon = icons[i]
+			icon.auraInstanceID = nil
+			icon.expirationTime = nil
+			icon.auraDuration = nil
+			icon.hasExpiration = nil
+			if icon.duration then icon.duration:Hide() end
+			icon:Hide()
 		end
 	end
 end
@@ -975,8 +945,7 @@ colorTimerFrame:SetScript("OnUpdate", function(self, elapsed)
 				local iconList = _iconPass == 1 and frame.buffIcons or frame.debuffIcons
 					if iconList then
 						for _, icon in ipairs(iconList) do
-							if icon:IsShown() and icon.auraInstanceID and icon.nativeCooldownText
-						   and icon.cooldown and icon.cooldown:IsShown() then
+							if icon:IsShown() and icon.auraInstanceID and icon.nativeCooldownText and icon.cooldown then
 								local info = GetDurationColorInfo(frameType, icon.auraType or "BUFF")
 
 								if info.mode ~= "fixed" and info.curve then
@@ -2428,13 +2397,10 @@ end
 
 -----------------------------------------------
 -- [HOT-TRACKER] 이벤트 프레임 (Phase 6)
+-- [PERF] 이벤트 등록은 StartHotTracker() 호출 시에만 수행
 -----------------------------------------------
 
 local hotEventFrame = CreateFrame("Frame")
-hotEventFrame:RegisterEvent("UNIT_AURA")
-hotEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-hotEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-hotEventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 hotEventFrame:SetScript("OnEvent", function(self, event, ...)
 	if event == "UNIT_AURA" then
 		local unit, updateInfo = ...
@@ -2458,3 +2424,13 @@ hotEventFrame:SetScript("OnEvent", function(self, event, ...)
 		end
 	end
 end)
+
+-- [PERF] Initialize 시점에 호출 (비활성 시 CPU 0)
+function GF:StartHotTracker()
+	if hotEventFrame._registered then return end
+	hotEventFrame._registered = true
+	hotEventFrame:RegisterEvent("UNIT_AURA")
+	hotEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+	hotEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	hotEventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+end

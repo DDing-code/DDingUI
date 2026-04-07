@@ -42,7 +42,7 @@ local UnitHealthMissing = UnitHealthMissing   -- [12.0.1] deficit API
 local AbbreviateNumbers = function(v) return ns.Abbreviate(v) end
 
 -----------------------------------------------
--- Shared Media Helper
+-- Shared Media / SmoothBar Helper
 -----------------------------------------------
 
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
@@ -56,6 +56,20 @@ local function ResolveLSM(mediaType, val, fallback)
 	return fallback
 end
 
+-- [FIX] DandersFrames 패턴: C++ 네이티브 스무스바 애니메이션 (12.0.5 API)
+-- OnUpdate 루프 없이 완벽하게 부드러운 체력/자원 소모 애니메이션을 제공합니다.
+local function SafeSetBarValue(bar, value)
+	if not bar or not bar.SetValue then return end
+	
+	-- 기본적으로 스무스바 활성화 (db.smoothBars가 명시적으로 false가 아닐 경우)
+	local smoothEnabled = (ns.db.smoothBars ~= false)
+	
+	if smoothEnabled and Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut then
+		bar:SetValue(value, Enum.StatusBarInterpolation.ExponentialEaseOut)
+	else
+		bar:SetValue(value)
+	end
+end
 
 -----------------------------------------------
 -- GetSafeHealthPercent (DF 패턴: secret-safe)
@@ -95,7 +109,7 @@ function GF:UpdateHealthFast(frame)
 	-- [12.0.1] Secret-safe: StatusBar API로 직접 설정 (UpdatePower 패턴)
 	-- UnitHealth/UnitHealthMax → StatusBar가 C++ 레벨에서 secret number 처리
 	healthBar:SetMinMaxValues(0, UnitHealthMax(unit))
-	healthBar:SetValue(UnitHealth(unit))
+	SafeSetBarValue(healthBar, UnitHealth(unit))
 
 	-- 체력 색상
 	self:ApplyHealthColor(frame)
@@ -444,7 +458,7 @@ function GF:UpdatePower(frame)
 	-- [AUDIT-FIX] C1: powerType을 인자로 전달하지 않음 (secret number taint 방지)
 	-- UnitPower(unit), UnitPowerMax(unit)는 기본 자원 타입을 C++에서 자동 결정
 	powerBar:SetMinMaxValues(0, UnitPowerMax(unit))
-	powerBar:SetValue(UnitPower(unit))
+	SafeSetBarValue(powerBar, UnitPower(unit))
 
 	-- [AUDIT-FIX] 색상: pToken(string)으로만 조회 (number powerType 미사용)
 	local _, pToken = UnitPowerType(unit)
@@ -900,7 +914,7 @@ function GF:UpdateHealPrediction(frame)
 			healBar:SetWidth(barWidth)
 			healBar:SetHeight(barHeight)
 			healBar:SetMinMaxValues(0, maxHealth)
-			healBar:SetValue(incomingHeals)
+			SafeSetBarValue(healBar, incomingHeals)
 
 			-- [FIX] 텍스쳐 적용: 위젯별(기본 WHITE8x8 제외) → 글로벌 미디어 텍스처 fallback (LSM 변환 적용)
 			local hpTexRaw = hpDB.texture
@@ -996,7 +1010,7 @@ function GF:UpdateHealPrediction(frame)
 				absBar:SetWidth(barWidth)
 				absBar:SetHeight(barHeight)
 				absBar:SetMinMaxValues(0, maxHealth)
-				absBar:SetValue(attachedAbsorbs)
+				SafeSetBarValue(absBar, attachedAbsorbs)
 				absBar:SetStatusBarColor(color[1], color[2], color[3], color[4] or 0.4)
 				absBar:Show()
 
@@ -1013,7 +1027,7 @@ function GF:UpdateHealPrediction(frame)
 					overBar:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", 0, 0)
 					overBar:SetReverseFill(true)
 					overBar:SetMinMaxValues(0, maxHealth)
-					overBar:SetValue(absorbs) -- [FIX] 원본 전체 보호막량 (클램핑 안 된 값)
+					SafeSetBarValue(overBar, absorbs) -- [FIX] 원본 전체 보호막량 (클램핑 안 된 값)
 					overBar:SetStatusBarColor(osColor[1], osColor[2], osColor[3], (osColor[4] or 0.4) * 0.7)
 					overBar:Show()
 
@@ -1080,7 +1094,7 @@ function GF:UpdateHealPrediction(frame)
 			haBar:SetWidth(barWidth)
 			haBar:SetHeight(barHeight)
 			haBar:SetMinMaxValues(0, maxHealth)
-			haBar:SetValue(healAbsorb)
+			SafeSetBarValue(haBar, healAbsorb)
 
 			-- [FIX] 텍스쳐 적용: 위젯별 → 글로벌 미디어 텍스처 fallback (LSM 변환 적용)
 			local haTexRaw = haDB.texture

@@ -1380,7 +1380,12 @@ ns._RefreshAuraFonts = RefreshAuraFonts -- [FIX] Update.lua / Options.lua에서 
 -- 1차: 직접 API 호출 — 가장 확실한 방법 (양방향 필터 체크)
 -- 2차: non-secret 필드 fallback (unit 없을 때)
 -- 3차: oUF processData의 isPlayerAura
-local function GetIsMine(auraData, unit)
+local function GetIsMine(auraData, unit, element)
+	-- 0차: API 필터로 이미 내 것이 확정된 경우 (boss/arena의 HARMFUL|PLAYER 등)
+	if element and element.filter and string.find(element.filter, "PLAYER") then
+		return true
+	end
+
 	-- 1차: non-secret 필드 (가장 정확함, Pet/차량 오라 포함)
 	local val = SafeVal(auraData.isFromPlayerOrPlayerPet)
 	if val ~= nil then return val end
@@ -1583,13 +1588,13 @@ local function BlizzardBuffFilter(auraData, unit)
 end
 
 -- [AURA-FILTER] 메인 버프 필터 (party/raid/target/focus 등)
-local function FilterBuffs(filter, auraData, unit)
+local function FilterBuffs(filter, auraData, unit, element)
 	-- 0) 보스 버프는 항상 통과 (secret guard)
 	if SafeVal(auraData.isBossAura) then return true end
 
 	-- 1) onlyMine: 내가 건 버프만 (secret guard)
 	if filter.onlyMine then
-		local isMine = GetIsMine(auraData, unit)
+		local isMine = GetIsMine(auraData, unit, element)
 		if isMine == false then return false end
 		-- nil(판별 불가) → 통과 (전투 중 보이는 게 안전)
 	end
@@ -1605,7 +1610,7 @@ local function FilterBuffs(filter, auraData, unit)
 			-- fallback: 내 버프 + 보스 + 레이드만
 			local isBoss = SafeVal(auraData.isBossAura)
 			local isRaidAura = SafeVal(auraData.isRaid)
-			local isMine = GetIsMine(auraData, unit)
+			local isMine = GetIsMine(auraData, unit, element)
 			-- [FIX] 전투 중 전부 secret(nil) → 표시 (안 보이는 것보다 나음)
 			if isMine ~= nil or isBoss ~= nil or isRaidAura ~= nil then
 				if not (isMine or isBoss or isRaidAura) then
@@ -1625,7 +1630,7 @@ local function FilterBuffs(filter, auraData, unit)
 end
 
 -- [AURA-FILTER] 메인 디버프 필터 (party/raid/target/focus 등)
-local function FilterDebuffs(filter, auraData, unit)
+local function FilterDebuffs(filter, auraData, unit, element)
 	-- 0) showAll: 전부 표시 모드
 	if filter.showAll then
 		return CheckDurationFilter(filter, auraData)
@@ -1641,7 +1646,7 @@ local function FilterDebuffs(filter, auraData, unit)
 	if filter.onlyDispellable then
 		if SafeVal(auraData.dispelName) then return true end
 		if SafeVal(auraData.isBossAura) then return true end
-		local isMine = GetIsMine(auraData, unit)
+		local isMine = GetIsMine(auraData, unit, element)
 		if isMine then return true end
 		-- [FIX] 전투 중 전부 secret(nil) → 표시 (판별 불가 시 숨기지 않음)
 		if SafeVal(auraData.dispelName) == nil and SafeVal(auraData.isBossAura) == nil and isMine == nil then
@@ -1652,7 +1657,7 @@ local function FilterDebuffs(filter, auraData, unit)
 
 	-- 4) onlyMine: 내 디버프만 (secret guard)
 	if filter.onlyMine then
-		local isMine = GetIsMine(auraData, unit)
+		local isMine = GetIsMine(auraData, unit, element)
 		if isMine == false then return false end
 		-- nil(판별 불가) → 통과 (전투 중 보이는 게 안전)
 	end
@@ -1661,7 +1666,7 @@ local function FilterDebuffs(filter, auraData, unit)
 	if not CheckDurationFilter(filter, auraData) then return false end
 
 	-- 6) 기본: 내 것 + 보스 표시 (secret guard)
-	local isMine = GetIsMine(auraData, unit)
+	local isMine = GetIsMine(auraData, unit, element)
 	local isBoss = SafeVal(auraData.isBossAura)
 	-- [FIX] 전투 중 전부 secret(nil) → 표시 (판별 불가)
 	if isMine ~= nil or isBoss ~= nil then
@@ -1745,7 +1750,7 @@ local function ConfigBasedAuraFilter(element, unit, auraData)
 	if not filter then
 		if isDebuff then
 			-- [FIX] 전투 중 secret → 표시 (판별 불가 시 숨기지 않음)
-			local isMine = GetIsMine(auraData, unit)
+			local isMine = GetIsMine(auraData, unit, element)
 			local isBoss = SafeVal(auraData.isBossAura)
 			if isMine ~= nil or isBoss ~= nil then
 				return isMine or isBoss or false
@@ -1753,7 +1758,7 @@ local function ConfigBasedAuraFilter(element, unit, auraData)
 			return true -- 전부 secret → 보이는 게 안전
 		else
 			-- [FIX] 전투 중 secret → 표시
-			local isMine = GetIsMine(auraData, unit)
+			local isMine = GetIsMine(auraData, unit, element)
 			if isMine ~= nil then return isMine end
 			return true -- secret → 보이는 게 안전
 		end
@@ -1761,9 +1766,9 @@ local function ConfigBasedAuraFilter(element, unit, auraData)
 
 	-- 4) 타입별 필터
 	if isDebuff then
-		return FilterDebuffs(filter, auraData, unit)
+		return FilterDebuffs(filter, auraData, unit, element)
 	else
-		return FilterBuffs(filter, auraData, unit)
+		return FilterBuffs(filter, auraData, unit, element)
 	end
 end
 
@@ -2139,6 +2144,16 @@ local function CreateAuras(self, unit, settings)
 		debuffs.showDebuffType = true
 		debuffs._fontDB = debuffDB.font -- [FIX] PostCreateAuraIcon에서 사용
 		debuffs._durationColors = debuffDB.durationColors -- [12.0.1] gradient 색상
+
+		-- [FIX] 보스/아레나: onlyMine일 때 API 레벨 HARMFUL|PLAYER 필터 적용
+		-- 적 유닛에서 GetIsMine의 secret value fallback (IsAuraFilteredOutByInstanceID)이
+		-- 오작동할 수 있음 → WoW 엔진이 내 디버프만 반환하도록 pre-filter
+		local uk = self._unitKey
+		local debuffFilter = debuffDB.filter
+		if (uk == "boss" or uk == "arena") and debuffFilter and debuffFilter.onlyMine then
+			debuffs.filter = "HARMFUL|PLAYER"
+		end
+
 		-- oUF Auras 콜백
 		debuffs._auraType = "debuffs" -- [FIX] secret value 방어용
 		debuffs.PostCreateButton = PostCreateAuraIcon

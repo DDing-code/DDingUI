@@ -153,42 +153,10 @@ end
 
 -----------------------------------------------
 -- 중앙 이벤트 디스패치 (DF 패턴)
+-- [PERF] 이벤트 등록은 Initialize() 호출 시에만 수행 (비활성 시 CPU 0)
 -----------------------------------------------
 
 local eventFrame = CreateFrame("Frame")
-
--- 유닛별 이벤트 (고빈도, 먼저 처리)
-eventFrame:RegisterEvent("UNIT_HEALTH")
-eventFrame:RegisterEvent("UNIT_MAXHEALTH")
-eventFrame:RegisterEvent("UNIT_AURA")
-eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
-eventFrame:RegisterEvent("UNIT_POWER_UPDATE")
-eventFrame:RegisterEvent("UNIT_MAXPOWER")
-eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")
-eventFrame:RegisterEvent("UNIT_CONNECTION")
--- 흡수/힐 예측
-eventFrame:RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED")
-eventFrame:RegisterEvent("UNIT_HEAL_ABSORB_AMOUNT_CHANGED")
-eventFrame:RegisterEvent("UNIT_HEAL_PREDICTION")
--- 상태 아이콘
-eventFrame:RegisterEvent("INCOMING_SUMMON_CHANGED")
-eventFrame:RegisterEvent("INCOMING_RESURRECT_CHANGED")
-eventFrame:RegisterEvent("UNIT_PHASE")
-eventFrame:RegisterEvent("UNIT_FLAGS")
-eventFrame:RegisterEvent("UNIT_ENTERED_VEHICLE")
-eventFrame:RegisterEvent("UNIT_EXITED_VEHICLE")
-eventFrame:RegisterEvent("PLAYER_FLAGS_CHANGED")
--- 위협/하이라이트 -- [12.0.1]
-eventFrame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE")
-eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
--- 글로벌 이벤트
-eventFrame:RegisterEvent("RAID_TARGET_UPDATE")
-eventFrame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
-eventFrame:RegisterEvent("READY_CHECK")
-eventFrame:RegisterEvent("READY_CHECK_CONFIRM")
-eventFrame:RegisterEvent("READY_CHECK_FINISHED")
-eventFrame:RegisterEvent("PARTY_LEADER_CHANGED")
 
 local lastMapRebuild = 0
 
@@ -235,16 +203,9 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
 		if not unit then return end
 		local frame = unitFrameMap[unit]
 		if frame and frame.gfEventsEnabled then
-			-- [FIX] BlizzardAuraCache hook이 발동하지 않는 유닛(파티)에 대해
-			-- UNIT_AURA 이벤트에서 직접 아우라 업데이트 큐에 추가
-			-- hook 기반 캐시가 있으면 ProcessDirtyAuras에서 중복 방지됨
 			if GF.QueueAuraUpdate then
 				GF:QueueAuraUpdate(frame)
 			end
-			-- 생존기 아이콘: ProcessDirtyAuras Phase B에서 캐시 구축 후 자동 호출
-			-- [PERF] 디버프 하이라이트: ProcessDirtyAuras Phase B에서 이미 호출됨 (중복 제거)
-			-- [HOT-TRACKER] HoT 추적 업데이트 (Auras.lua 이벤트 프레임에서 독립 처리)
-			-- UNIT_AURA는 hotEventFrame에서 직접 처리하므로 여기서는 생략
 		end
 		return
 	end
@@ -327,8 +288,6 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
 		local frame = unitFrameMap[unit]
 		if frame and frame.gfEventsEnabled then
 			if GF.UpdateStatusIcons then GF:UpdateStatusIcons(frame) end
-			-- [FIX] 사망/부활/오프라인 상태 변경 시 체력바 색상도 갱신
-			-- UNIT_HEALTH 시점에는 UnitIsDead()가 아직 false일 수 있음
 			if GF.ApplyHealthColor then GF:ApplyHealthColor(frame) end
 		end
 		return
@@ -414,29 +373,73 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2)
 end)
 
 -----------------------------------------------
--- [FIX] AFK & Offline OnUpdate Ticker
--- AFK 및 오프라인 시간 실시간 갱신을 위해 1초마다 활성 그룹 프레임 상태 갱신
+-- [PERF] 이벤트 등록 함수 (Initialize 시점에만 호출)
 -----------------------------------------------
-local updateTicker = C_Timer.NewTicker(1, function()
-	if not GF.allFrames then return end
-	if InCombatLockdown() then return end -- 전투 중 타이머 무시 (성능 최적화)
-	
-	for _, frame in pairs(GF.allFrames) do
-		if frame and frame:IsVisible() and frame.gfEventsEnabled then
-			local unit = frame.unit
-			if unit then
-				local rawAFK = UnitIsAFK(unit)
-				local rawConn = UnitIsConnected(unit)
-				-- [FIX] WoW 12.0: secret boolean 방어 — boolean test 불가 시 스킵
-				local isAFK = (not issecretvalue(rawAFK)) and rawAFK
-				local isOff = (not issecretvalue(rawConn)) and (not rawConn)
-				if (isAFK or isOff) and GF.UpdateStatusIcons then
-					GF:UpdateStatusIcons(frame)
+
+local function RegisterCoreEvents()
+	-- 유닛별 이벤트 (고빈도)
+	eventFrame:RegisterEvent("UNIT_HEALTH")
+	eventFrame:RegisterEvent("UNIT_MAXHEALTH")
+	eventFrame:RegisterEvent("UNIT_AURA")
+	eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
+	eventFrame:RegisterEvent("UNIT_POWER_UPDATE")
+	eventFrame:RegisterEvent("UNIT_MAXPOWER")
+	eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")
+	eventFrame:RegisterEvent("UNIT_CONNECTION")
+	-- 흡수/힐 예측
+	eventFrame:RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED")
+	eventFrame:RegisterEvent("UNIT_HEAL_ABSORB_AMOUNT_CHANGED")
+	eventFrame:RegisterEvent("UNIT_HEAL_PREDICTION")
+	-- 상태 아이콘
+	eventFrame:RegisterEvent("INCOMING_SUMMON_CHANGED")
+	eventFrame:RegisterEvent("INCOMING_RESURRECT_CHANGED")
+	eventFrame:RegisterEvent("UNIT_PHASE")
+	eventFrame:RegisterEvent("UNIT_FLAGS")
+	eventFrame:RegisterEvent("UNIT_ENTERED_VEHICLE")
+	eventFrame:RegisterEvent("UNIT_EXITED_VEHICLE")
+	eventFrame:RegisterEvent("PLAYER_FLAGS_CHANGED")
+	-- 위협/하이라이트
+	eventFrame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE")
+	eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+	eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
+	-- 글로벌 이벤트
+	eventFrame:RegisterEvent("RAID_TARGET_UPDATE")
+	eventFrame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+	eventFrame:RegisterEvent("READY_CHECK")
+	eventFrame:RegisterEvent("READY_CHECK_CONFIRM")
+	eventFrame:RegisterEvent("READY_CHECK_FINISHED")
+	eventFrame:RegisterEvent("PARTY_LEADER_CHANGED")
+end
+
+-----------------------------------------------
+-- [FIX] AFK & Offline OnUpdate Ticker
+-- [PERF] Initialize 시점에 생성 (비활성 시 CPU 0)
+-----------------------------------------------
+
+local updateTicker = nil
+
+local function StartAFKTicker()
+	if updateTicker then return end
+	updateTicker = C_Timer.NewTicker(1, function()
+		if not GF.allFrames then return end
+		if InCombatLockdown() then return end
+
+		for _, frame in pairs(GF.allFrames) do
+			if frame and frame:IsVisible() and frame.gfEventsEnabled then
+				local unit = frame.unit
+				if unit then
+					local rawAFK = UnitIsAFK(unit)
+					local rawConn = UnitIsConnected(unit)
+					local isAFK = (not issecretvalue(rawAFK)) and rawAFK
+					local isOff = (not issecretvalue(rawConn)) and (not rawConn)
+					if (isAFK or isOff) and GF.UpdateStatusIcons then
+						GF:UpdateStatusIcons(frame)
+					end
 				end
 			end
 		end
-	end
-end)
+	end)
+end
 
 -----------------------------------------------
 -- 초기화
@@ -444,6 +447,10 @@ end)
 
 function GF:Initialize()
 	if self.initialized then return end
+
+	-- [PERF] 이벤트 등록은 Initialize 시점에만 (비활성 시 CPU 0)
+	RegisterCoreEvents()
+	StartAFKTicker()
 
 	-- 헤더 생성
 	if GF.CreateHeaders then

@@ -291,6 +291,7 @@ local function CreateBarFrame(parent)
 	local border = CreateFrame("Frame", nil, f, "BackdropTemplate")
 	border:SetPoint("TOPLEFT", -1, 1)
 	border:SetPoint("BOTTOMRIGHT", 1, -1)
+	border:SetFrameLevel(f:GetFrameLevel() + 2)
 	border:SetBackdrop({
 		bgFile = nil,
 		edgeFile = "Interface\\Buttons\\WHITE8x8",

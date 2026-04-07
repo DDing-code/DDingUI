@@ -67,19 +67,46 @@ local function IsIconActive(iconKey, iconData, iconFrame)
     if not iconData then return false end
     if not iconFrame then return false end
 
+    -- item/racial 타입: 등록 후 항상 활성 (쿨다운 상태만 변함)
+    if iconData.type == "item" or iconData.type == "racial" then
+        return true
+    end
+
     -- spellbook 체크: spell 타입이면 배운 주문만
     if iconData.type == "spell" and iconData.id then
         local spellInfo = C_Spell and C_Spell.GetSpellInfo(iconData.id)
-        if not spellInfo then return false end
+        if not spellInfo then
+            -- [FIX] 전투 중 GetSpellInfo가 일시적 nil 반환 — 폴백 체크
+            local isKnown = false
+            pcall(function()
+                isKnown = IsSpellKnownOrOverridesKnown(iconData.id)
+                    or IsPlayerSpell(iconData.id)
+            end)
+            if not isKnown then
+                if iconFrame._wasVisibleInGroup then
+                    return true
+                end
+                return false
+            end
+        end
     end
 
-    -- aura 타입: buff가 현재 활성 상태인지 확인
+    -- aura 타입: buff가 현재 활성 상태인지 직접 확인
+    -- [FIX] _cachedAuraSpellID 폴백 추가 (spellID ≠ buffID인 경우 대응)
     if iconData.type == "aura" and iconData.id then
         local auraData = nil
         pcall(function()
-            auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconData.id)
+            if iconFrame and iconFrame._cachedAuraSpellID then
+                auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedAuraSpellID)
+            else
+                auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconData.id)
+            end
         end)
-        if not auraData then return false end
+        local isActive = (auraData ~= nil)
+        if iconFrame then
+            iconFrame._auraWasActive = isActive
+        end
+        if not isActive then return false end
     end
 
     -- loadConditions 체크
@@ -154,6 +181,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
 
     -- 활성 아이콘 필터링
     local result = {}
+    local activeSet = {}
     local noFrame, noData, notActive = 0, 0, 0
     for iconKey in pairs(targetKeys) do
         local frame = iconFrames[iconKey]
@@ -164,12 +192,17 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
             noData = noData + 1
         elseif not (isEditMode or IsIconActive(iconKey, iconData, frame)) then
             notActive = notActive + 1
+            -- [FIX] 비활성 전환: hysteresis 플래그 해제
+            frame._wasVisibleInGroup = nil
         else
             result[#result + 1] = {
                 iconKey = iconKey,
                 frame = frame,
                 iconData = iconData,
             }
+            -- [FIX] 활성 상태 기록: 다음 틱에서 일시적 nil 반환 시 유지
+            frame._wasVisibleInGroup = true
+            activeSet[iconKey] = true
         end
     end
 

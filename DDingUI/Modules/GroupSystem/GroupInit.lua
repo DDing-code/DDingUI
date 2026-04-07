@@ -192,8 +192,65 @@ local function SyncDynamicGroups(gs)
                 foundSettings.name = info.name
             end
 
+            -- [FIX] 마이그레이션 적용 (누락된 기존 그룹용)
             local profile = DDingUI.db and DDingUI.db.profile
             local dynDB = profile and profile.dynamicIcons
+            local dynSettings = dynDB and dynDB.groups and dynDB.groups[sourceKey] and dynDB.groups[sourceKey].settings
+            
+            if dynSettings then
+                -- 시각적 설정 마이그레이션 (이전에 V2 마이그레이션을 안 거친 그룹)
+                if not foundSettings._viewerSettingsMigV2 then
+                    if dynSettings.spacing then foundSettings.spacing = dynSettings.spacing end
+                    if dynSettings.growthDirection then foundSettings.direction = dynSettings.growthDirection end
+                    if dynSettings.rowGrowthDirection then foundSettings.growDirection = dynSettings.rowGrowthDirection end
+                    if dynSettings.maxIconsPerRow then foundSettings.rowLimit = dynSettings.maxIconsPerRow end
+                    if dynSettings.anchorFrom then foundSettings.selfPoint = dynSettings.anchorFrom end
+                    if dynSettings.aspectRatio and dynSettings.aspectRatio ~= 1.0 then foundSettings.aspectRatioCrop = dynSettings.aspectRatio end
+                    if dynSettings.zoom then foundSettings.zoom = dynSettings.zoom end
+                    if dynSettings.borderSize then foundSettings.borderSize = dynSettings.borderSize end
+                    if dynSettings.borderColor then foundSettings.borderColor = { unpack(dynSettings.borderColor) } end
+                    
+                    foundSettings._viewerSettingsMigV2 = true
+                    foundSettings._viewerSettingsMigV1 = true
+                end
+
+                -- 위치 마이그레이션 (이전에 V3 마이그레이션을 안 거친 그룹)
+                if not foundSettings._viewerPosMigV3 then
+                    if dynSettings.position then
+                        foundSettings.offsetX = dynSettings.position.x or foundSettings.offsetX
+                        foundSettings.offsetY = dynSettings.position.y or foundSettings.offsetY
+                        if dynSettings.anchorFrame and dynSettings.anchorFrame ~= "" then
+                            foundSettings.attachTo = dynSettings.anchorFrame
+                        end
+                        if dynSettings.anchorTo then
+                            foundSettings.anchorPoint = dynSettings.anchorTo
+                        end
+                        foundSettings._moverSaved = true
+                    end
+                    foundSettings._viewerPosMigV3 = true
+                end
+            end
+
+            -- 1순위: DB 위치 없으면 Movers 맵에서 마이그레이션 (동일하게 누락된 경우)
+            if not foundSettings._viewerPosMigV3 then
+                local movers = profile and profile.movers
+                local moverStr = movers and movers["DDingUI_DynGroup_" .. sourceKey]
+                if moverStr and type(moverStr) == "string" then
+                    local pt, relFrame, relPt, sx, sy = strsplit(",", moverStr)
+                    local mx, my = tonumber(sx), tonumber(sy)
+                    if mx and my then
+                        foundSettings.anchorPoint = relPt or "CENTER"
+                        foundSettings.offsetX = mx
+                        foundSettings.offsetY = my
+                        if relFrame and relFrame ~= "" and relFrame ~= "UIParent" then
+                            foundSettings.attachTo = relFrame
+                        end
+                        foundSettings._moverSaved = true
+                    end
+                end
+                foundSettings._viewerPosMigV3 = true
+            end
+
             if dynDB and dynDB.iconData then
                 local needSize = (foundSettings.iconSize == nil or foundSettings.iconSize == DYNAMIC_GROUP_DEFAULTS.iconSize)
                 local needAR = (foundSettings.aspectRatioCrop == nil or foundSettings.aspectRatioCrop == 1.0)
@@ -787,7 +844,12 @@ local function MigrateToViewerGroups(gs)
                     grp.auraGlowButtonFrequency = vs.auraGlowButtonFrequency
                 end
 
-                -- 8) 그룹 상태 오프셋 (파티/레이드)
+                -- 8) 지속 효과 숨기기 (hideActiveState)
+                if vs.hideActiveState ~= nil and grp.hideActiveState == nil then
+                    grp.hideActiveState = vs.hideActiveState
+                end
+
+                -- 9) 그룹 상태 오프셋 (파티/레이드)
                 if vs.groupOffsets and not grp.groupOffsets then
                     grp.groupOffsets = {}
                     if vs.groupOffsets.party then

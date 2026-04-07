@@ -299,16 +299,23 @@ end
 
 -- ============================================================
 -- 이벤트 처리
+-- [PERF] UNIT_AURA → ScanUnit 제거: GetAuraDataByIndex가 매 호출마다
+-- 새 Lua 테이블을 생성하므로 레이드 전투 중 수십MB 가비지 유발.
+-- 대신 lazy invalidation: UNIT_AURA 시 캐시만 무효화 (O(1)),
+-- 실제 스캔은 GetHelpful/GetHarmful 호출 시에만 온디맨드 수행.
 -- ============================================================
 
 local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+-- [PERF] UNIT_AURA는 등록하되, ScanUnit 대신 캐시 무효화만 수행
+eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:SetScript("OnEvent", function(self, event, unit)
 	if event == "UNIT_AURA" then
-		if unit then
-			ScanUnit(unit)
+		-- [PERF] 스캔하지 않고 캐시만 무효화 (O(1))
+		-- 실제 스캔은 GetHelpful/GetHarmful 호출 시 lazy로 수행
+		if unit and cache[unit] then
+			cache[unit].frame = -1  -- 프레임 카운터 불일치 → 다음 Get 시 재스캔
 		end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		wipe(cache)

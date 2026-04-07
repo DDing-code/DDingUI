@@ -479,33 +479,228 @@ end
 -- ============================================================
 RefreshPreviewEffects = function()
     if not framePreview then return end
+    local mockFrame = framePreview.mockFrame
+    if not mockFrame then return end
+
     -- Reset defaults
     if framePreview.healthFill then framePreview.healthFill:SetVertexColor(0.18, 0.80, 0.44, 0.85) end
     if framePreview.nameText then framePreview.nameText:SetTextColor(0.18, 0.80, 0.44, 1) end
-    if framePreview.mockFrame then framePreview.mockFrame:SetAlpha(1) end
+    if framePreview.hpText then framePreview.hpText:SetTextColor(0.87, 0.87, 0.87, 1) end
+    mockFrame:SetAlpha(1)
+
+    -- Reset border overlay
+    if framePreview.borderOverlay then
+        framePreview.borderOverlay:Hide()
+        -- Clear any previous border textures
+        if framePreview.borderOverlay._edges then
+            for _, edge in pairs(framePreview.borderOverlay._edges) do edge:Hide() end
+        end
+    end
 
     for _, auraCfg in pairs(O.GetSpecAuras()) do
-        if type(auraCfg) == "table" then
-            if auraCfg.healthbar and framePreview.healthFill then
-                local clr = auraCfg.healthbar.color or {r=1,g=1,b=1,a=1}
+        if type(auraCfg) ~= "table" then
+        -- skip corrupted entries
+        else
+
+        -- Border effect preview
+        if auraCfg.border and framePreview.borderOverlay then
+            local clr = auraCfg.border.color or {r=1,g=1,b=1,a=1}
+            local thickness = auraCfg.border.thickness or 2
+            local inset = auraCfg.border.inset or 0
+            local overlay = framePreview.borderOverlay
+
+            -- Create edge textures if needed
+            if not overlay._edges then
+                overlay._edges = {}
+                for _, side in ipairs({"TOP", "BOTTOM", "LEFT", "RIGHT"}) do
+                    local tex = overlay:CreateTexture(nil, "OVERLAY")
+                    tex:SetColorTexture(1, 1, 1, 1)
+                    overlay._edges[side] = tex
+                end
+            end
+
+            -- Position edges
+            local e = overlay._edges
+            e.TOP:ClearAllPoints()
+            e.TOP:SetPoint("TOPLEFT", mockFrame, "TOPLEFT", -inset, inset)
+            e.TOP:SetPoint("TOPRIGHT", mockFrame, "TOPRIGHT", inset, inset)
+            e.TOP:SetHeight(thickness)
+            e.TOP:SetColorTexture(clr.r, clr.g, clr.b, clr.a or 1)
+            e.TOP:Show()
+
+            e.BOTTOM:ClearAllPoints()
+            e.BOTTOM:SetPoint("BOTTOMLEFT", mockFrame, "BOTTOMLEFT", -inset, -inset)
+            e.BOTTOM:SetPoint("BOTTOMRIGHT", mockFrame, "BOTTOMRIGHT", inset, -inset)
+            e.BOTTOM:SetHeight(thickness)
+            e.BOTTOM:SetColorTexture(clr.r, clr.g, clr.b, clr.a or 1)
+            e.BOTTOM:Show()
+
+            e.LEFT:ClearAllPoints()
+            e.LEFT:SetPoint("TOPLEFT", mockFrame, "TOPLEFT", -inset, inset)
+            e.LEFT:SetPoint("BOTTOMLEFT", mockFrame, "BOTTOMLEFT", -inset, -inset)
+            e.LEFT:SetWidth(thickness)
+            e.LEFT:SetColorTexture(clr.r, clr.g, clr.b, clr.a or 1)
+            e.LEFT:Show()
+
+            e.RIGHT:ClearAllPoints()
+            e.RIGHT:SetPoint("TOPRIGHT", mockFrame, "TOPRIGHT", inset, inset)
+            e.RIGHT:SetPoint("BOTTOMRIGHT", mockFrame, "BOTTOMRIGHT", inset, -inset)
+            e.RIGHT:SetWidth(thickness)
+            e.RIGHT:SetColorTexture(clr.r, clr.g, clr.b, clr.a or 1)
+            e.RIGHT:Show()
+
+            overlay:Show()
+        end
+
+        -- Health bar color (Replace / Tint mode)
+        if auraCfg.healthbar and framePreview.healthFill then
+            local clr = auraCfg.healthbar.color or {r=1,g=1,b=1,a=1}
+            local blend = auraCfg.healthbar.blend or 0.5
+            if auraCfg.healthbar.mode == "Replace" then
                 framePreview.healthFill:SetVertexColor(clr.r, clr.g, clr.b, clr.a or 1)
+            else
+                -- Tint: blend original green with configured color
+                local r = 0.18 * (1 - blend) + clr.r * blend
+                local g = 0.80 * (1 - blend) + clr.g * blend
+                local b = 0.44 * (1 - blend) + clr.b * blend
+                framePreview.healthFill:SetVertexColor(r, g, b, 0.85)
             end
-            if auraCfg.nametext and framePreview.nameText then
-                local clr = auraCfg.nametext.color or {r=1,g=1,b=1,a=1}
-                framePreview.nameText:SetTextColor(clr.r, clr.g, clr.b, clr.a or 1)
-            end
-            if auraCfg.framealpha and framePreview.mockFrame then
-                framePreview.mockFrame:SetAlpha(auraCfg.framealpha.alpha or 0.5)
+        end
+
+        -- Name text color
+        if auraCfg.nametext and framePreview.nameText then
+            local clr = auraCfg.nametext.color or {r=1,g=1,b=1,a=1}
+            framePreview.nameText:SetTextColor(clr.r, clr.g, clr.b, clr.a or 1)
+        end
+
+        -- Health text color
+        if auraCfg.healthtext and framePreview.hpText then
+            local clr = auraCfg.healthtext.color or {r=1,g=1,b=1,a=1}
+            framePreview.hpText:SetTextColor(clr.r, clr.g, clr.b, clr.a or 1)
+        end
+
+        -- Frame alpha
+        if auraCfg.framealpha then
+            mockFrame:SetAlpha(auraCfg.framealpha.alpha or 0.5)
+        end
+
+        end -- else (type guard)
+    end -- for _, auraCfg
+end
+
+-- ============================================================
+-- LIGHTWEIGHT PREVIEW REFRESH (DandersFrames style)
+-- Re-applies indicator settings to existing preview frames WITHOUT
+-- destroying/recreating them. Called from proxy __newindex so every
+-- slider drag tick, checkbox toggle, or dropdown change is live.
+-- ============================================================
+ns.AuraDesignerOptions_RefreshPreviewLightweight = function()
+    if not framePreview or not framePreview.mockFrame then
+        -- No preview built yet, skip
+        return
+    end
+    local mockFrame = framePreview.mockFrame
+    local AD = ns.AuraDesigner
+    local Indicators = AD and AD.Indicators
+    if not Indicators then return end
+
+    local adDB = O.GetAuraDesignerDB()
+    local spec = O.ResolveSpec()
+    if not spec or not adDB then return end
+
+    -- Build layout group position lookup (same as RefreshPlacedIndicators)
+    local groupPositions = {}
+    local specGroups = O.GetSpecLayoutGroups()
+    for _, group in ipairs(specGroups) do
+        if group.members then
+            for memberIdx, member in ipairs(group.members) do
+                local key = member.auraName .. "#" .. member.indicatorID
+                local activeIdx = memberIdx - 1
+                local memberCfg = O.GetSpecAuras()[member.auraName]
+                local indCfg = nil
+                if memberCfg and memberCfg.indicators then
+                    for _, ind in ipairs(memberCfg.indicators) do
+                        if ind.id == member.indicatorID then indCfg = ind; break end
+                    end
+                end
+                local sz = (indCfg and indCfg.size) or (adDB.defaults and adDB.defaults.iconSize) or 24
+                local sc = (indCfg and indCfg.scale) or (adDB.defaults and adDB.defaults.iconScale) or 1.0
+                local step = (sz * sc) + (group.spacing or 2)
+                local oX, oY = group.offsetX or 0, group.offsetY or 0
+                local dir = group.growDirection or "RIGHT"
+                if dir == "RIGHT" then oX = oX + (activeIdx * step)
+                elseif dir == "LEFT" then oX = oX - (activeIdx * step)
+                elseif dir == "DOWN" then oY = oY - (activeIdx * step)
+                elseif dir == "UP" then oY = oY + (activeIdx * step) end
+                groupPositions[key] = { anchor = group.anchor or "TOPLEFT", offsetX = oX, offsetY = oY }
             end
         end
     end
-end
 
--- Set forward reference
-ns.AuraDesignerOptions_RefreshPreviewLightweight = function()
-    RefreshPlacedIndicators()
+    -- Re-apply placed indicator instances using current settings (no destroy)
+    for auraName, auraCfg in pairs(O.GetSpecAuras()) do
+        if type(auraCfg) == "table" and auraCfg.indicators then
+            for _, indicator in ipairs(auraCfg.indicators) do
+                local instanceKey = auraName .. "#" .. indicator.id
+
+                -- Apply layout group position override if applicable
+                local effectiveConfig = indicator
+                local gPos = groupPositions[instanceKey]
+                if gPos then
+                    effectiveConfig = setmetatable({
+                        anchor = gPos.anchor, offsetX = gPos.offsetX, offsetY = gPos.offsetY,
+                    }, { __index = indicator })
+                end
+
+                if indicator.type == "icon" then
+                    local iconMap = mockFrame.dfAD_icons or mockFrame.ddAD_icons
+                    local icon = iconMap and iconMap[instanceKey]
+                    if icon then
+                        local tex = O.GetAuraIcon(spec, auraName)
+                        local mockData = {
+                            spellId = 0, icon = tex,
+                            duration = PREVIEW_CYCLE_DURATION,
+                            expirationTime = GetTime() + PREVIEW_CYCLE_DURATION,
+                            stacks = 3,
+                        }
+                        Indicators:ApplyIcon(mockFrame, effectiveConfig, mockData, adDB.defaults, instanceKey)
+                        icon:EnableMouse(true)
+                        if icon.SetMouseClickEnabled then icon:SetMouseClickEnabled(true) end
+                    end
+                elseif indicator.type == "square" then
+                    local sqMap = mockFrame.dfAD_squares or mockFrame.ddAD_squares
+                    local sq = sqMap and sqMap[instanceKey]
+                    if sq then
+                        local mockData = {
+                            spellId = 0, icon = nil,
+                            duration = PREVIEW_CYCLE_DURATION,
+                            expirationTime = GetTime() + PREVIEW_CYCLE_DURATION,
+                            stacks = 3,
+                        }
+                        Indicators:ApplySquare(mockFrame, effectiveConfig, mockData, adDB.defaults, instanceKey)
+                        sq:EnableMouse(true)
+                    end
+                elseif indicator.type == "bar" then
+                    local barMap = mockFrame.dfAD_bars or mockFrame.ddAD_bars
+                    local bar = barMap and barMap[instanceKey]
+                    if bar then
+                        local mockData = {
+                            spellId = 0, icon = nil,
+                            duration = PREVIEW_CYCLE_DURATION,
+                            expirationTime = GetTime() + PREVIEW_CYCLE_DURATION,
+                            stacks = 0,
+                        }
+                        Indicators:ApplyBar(mockFrame, effectiveConfig, mockData, adDB.defaults, instanceKey)
+                        bar:EnableMouse(true)
+                        if bar.SetMouseClickEnabled then bar:SetMouseClickEnabled(true) end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Also refresh frame-level preview effects (border, healthbar color, text colors, alpha)
     RefreshPreviewEffects()
-    ADRefreshAll()
 end
 
 -- ============================================================

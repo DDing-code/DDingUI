@@ -1340,7 +1340,7 @@ function TM:EnableRaidTest()
 
 	TM.raidContainer = CreateGroupContainer("ddingUI_GF_TestRaidContainer", UIParent)
 	TM.raidContainer:SetSize(containerW, containerH)
-	SetContainerFromMover(TM.raidContainer, "ddingUI_Mover_Raid", rdb, "TOPLEFT", 20, -100)
+	SetContainerFromMover(TM.raidContainer, (ns._mythicRaidActive and ns.db.mythicRaid and ns.db.mythicRaid.enabled) and "ddingUI_Mover_MythicRaid" or "ddingUI_Mover_Raid", rdb, "TOPLEFT", 20, -100)
 	TM.raidContainer:Show()
 
 	simContainers.raid = TM.raidContainer

@@ -386,9 +386,41 @@ end
 -- ============================================================
 
 local GLOBAL_DEFAULT_MAP = {
-    icon   = { size = "iconSize", scale = "iconScale", showDuration = "showDuration", showStacks = "showStacks" },
-    square = { size = "iconSize", scale = "iconScale", showDuration = "showDuration", showStacks = "showStacks" },
-    bar    = {},
+    icon   = {
+        size = "iconSize", scale = "iconScale",
+        showDuration = "showDuration", showStacks = "showStacks",
+        durationFont = "durationFont", durationScale = "durationScale",
+        durationOutline = "durationOutline",
+        durationAnchor = "durationAnchor", durationX = "durationX", durationY = "durationY",
+        durationColorByTime = "durationColorByTime", durationColor = "durationColor",
+        stackFont = "stackFont", stackScale = "stackScale",
+        stackOutline = "stackOutline", stackAnchor = "stackAnchor",
+        stackX = "stackX", stackY = "stackY",
+        stackMinimum = "stackMinimum", stackColor = "stackColor",
+        hideSwipe = "hideSwipe", hideIcon = "hideIcon",
+        frameLevel = "indicatorFrameLevel", frameStrata = "indicatorFrameStrata",
+    },
+    square = {
+        size = "iconSize", scale = "iconScale",
+        showDuration = "showDuration", showStacks = "showStacks",
+        durationFont = "durationFont", durationScale = "durationScale",
+        durationOutline = "durationOutline",
+        durationAnchor = "durationAnchor", durationX = "durationX", durationY = "durationY",
+        durationColorByTime = "durationColorByTime", durationColor = "durationColor",
+        stackFont = "stackFont", stackScale = "stackScale",
+        stackOutline = "stackOutline", stackAnchor = "stackAnchor",
+        stackX = "stackX", stackY = "stackY",
+        stackMinimum = "stackMinimum", stackColor = "stackColor",
+        hideSwipe = "hideSwipe", hideIcon = "hideIcon",
+        frameLevel = "indicatorFrameLevel", frameStrata = "indicatorFrameStrata",
+    },
+    bar    = {
+        durationFont = "durationFont", durationScale = "durationScale",
+        durationOutline = "durationOutline",
+        durationAnchor = "durationAnchor", durationX = "durationX", durationY = "durationY",
+        durationColorByTime = "durationColorByTime",
+        frameLevel = "indicatorFrameLevel", frameStrata = "indicatorFrameStrata",
+    },
 }
 
 

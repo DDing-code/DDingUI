@@ -285,6 +285,12 @@ CreateMinimapButton = function()
 end
 
 local function OnPlayerLogin()
+	-- [FIX] 편집모드 상태 리셋: 리로드 시 locked=false가 남아 프레임 증발 방지
+	-- 편집모드는 의도적 진입 필요 → 리로드 후 항상 잠금 상태로 시작
+	if ns.db then
+		ns.db.locked = true
+	end
+
 	-- Phase 2: 프레임 생성 + 모듈 초기화 (PLAYER_LOGIN에서 유닛 데이터 사용 가능)
 	if ns.Functions and ns.Functions.UpdatePixelScale then
 		ns.Functions:UpdatePixelScale()
@@ -522,9 +528,39 @@ local function DoFullRefreshAfterPEW()
 			frame:UpdateAllElements("OnPlayerEnteringWorld")
 		end
 	end
+	-- [FIX] 개별 유닛 프레임 위치 재적용: PLAYER_LOGIN 시 CDM 프레임 미로드 → 앵커 실패
+	-- PEW+0.1초 시점에는 CDM이 로드 완료 → _G["DDingUI_Group_*"] 존재 보장
+	if ns.ApplyUnitPosition then
+		local db = ns.db
+		for unitKey, frame in pairs(ns.frames) do
+			local cfg = db and db[unitKey]
+			if cfg and cfg.attachTo and cfg.attachTo ~= "UIParent" and cfg.attachTo ~= "" then
+				if not InCombatLockdown() then
+					frame:ClearAllPoints()
+					ns.ApplyUnitPosition(frame, cfg, "CENTER", UIParent, "CENTER", 0, 0)
+				else
+					ns.PrintDebug("Skipped positioning " .. unitKey .. " due to combat lockdown")
+				end
+			end
+		end
+	end
+	-- [FIX] Mover 위치 재적용 (PLAYER_LOGIN에서 프레임 미준비 시 위치 누락 방지)
+	if ns.Mover and ns.Mover.ApplyPositions then
+		ns.Mover:ApplyPositions()
+	end
 	-- GroupFrames 리프레시 (헤더 자식 생성 대기 후)
 	local GF = ns.GroupFrames
 	if GF and GF.headersInitialized then
+		-- [FIX] 헤더 명시적 Show: 리로드 후 state driver가 아직 트리거하지 않아
+		-- 헤더가 숨겨진 상태로 남는 문제 방지 (편집모드 해제 시에만 Show되던 버그)
+		if not InCombatLockdown() then
+			if GF.partyHeader then GF.partyHeader:Show() end
+			if GF.raidHeaders then
+				for _, rh in ipairs(GF.raidHeaders) do
+					if rh then rh:Show() end
+				end
+			end
+		end
 		GF:RebuildUnitFrameMap()
 		GF:RefreshAll()
 	end
@@ -533,6 +569,17 @@ end
 local function OnPlayerEnteringWorld()
 	-- Phase 3: 모든 프레임 FullRefresh (0.1초 지연 — 유닛 데이터 안정화 대기)
 	C_Timer.After(0.1, DoFullRefreshAfterPEW)
+
+	-- [FIX] Phase 4: CDM 앵커 안정화 (1.5초 후)
+	-- PLAYER_LOGIN 시점에 CDM 프레임 미로드 → attachTo 앵커 실패
+	-- 1.5초면 모든 애드온 초기화 완료 → RefreshAllFrames로 위치 재적용
+	-- 이것은 편집모드 진입→해제 시 LockAll() → RefreshAllFrames()가
+	-- 프레임을 복원하는 것과 동일한 경로
+	C_Timer.After(1.5, function()
+		if ns.Update and ns.Update.RefreshAllFrames then
+			ns.Update:RefreshAllFrames()
+		end
+	end)
 end
 
 ns.RegisterEvent("ADDON_LOADED", OnAddonLoaded)

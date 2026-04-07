@@ -784,7 +784,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
         for i = 1, (self._iconCount or 0) do
             local ic = self._managedIcons[i]
             if ic and ic._ddIsManaged then
-                ic:Hide()
+                if not InCombatLockdown() then ic:Hide() end
             end
         end
     end)
@@ -793,7 +793,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
             local ic = self._managedIcons[i]
             -- [FIX] _ddingHidden 아이콘은 Show하지 않음 (BuffTrackerBar 추적 중)
             if ic and ic._ddIsManaged and not ic._ddingHidden then
-                ic:Show()
+                if not InCombatLockdown() then ic:Show() end
             end
         end
     end)
@@ -815,7 +815,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     if not groupSettings.enabled then
         self:ReleaseGroupIcons(frame)
-        frame:Hide()
+        if not InCombatLockdown() then frame:Hide() end
         return
     end
 
@@ -862,7 +862,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 local fc = GetFC()
                 if fc and fc.ReleaseFrameFromContainer then
                     fc:ReleaseFrameFromContainer(icon)
-                    icon:Hide()
+                    if not InCombatLockdown() then icon:Hide() end
                 end
             else
                 local fc = GetFC()
@@ -1010,16 +1010,18 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             -- [FIX] 프레임 자체는 숨기지 않음 — 앵커 체인 보존
             for i = 1, idx do
                 local ic = frame._managedIcons[i]
-                if ic then ic:Hide() end
+                if ic then
+                    if not InCombatLockdown() then ic:Hide() end
+                end
             end
         else
-            frame:Show()
+            if not InCombatLockdown() then frame:Show() end
         end
     else
         -- [FIX] 아이콘 0개여도 프레임을 숨기지 않음
         -- 숨기면 이 그룹에 앵커된 프레임들의 앵커가 끊어져 엘레베이터 현상 발생
         -- 프레임은 비어있지만 :IsShown()=true 유지 → 앵커 체인 보존
-        frame:Show()
+        if not InCombatLockdown() then frame:Show() end
     end
 
     -- [12.0.1] 그룹 아이콘 투명도 적용
@@ -1397,7 +1399,7 @@ function GroupRenderer:ReleaseGroupIcons(frame)
         if icon then
             if icon._ddIconKey then
                 -- [FIX] 동적 아이콘: bridge로 해제 + 숨기기
-                if icon.Hide then icon:Hide() end
+                if icon.Hide and not InCombatLockdown() then icon:Hide() end
                 iconsToHide[#iconsToHide + 1] = icon
                 if bridge then bridge:ReleaseFrame(icon, icon._ddIconKey) end
             else
@@ -1410,8 +1412,10 @@ function GroupRenderer:ReleaseGroupIcons(frame)
     end
     
     -- 동적 아이콘은 Release 후 reparent로 Show될 수 있으므로 다시 Hide
-    for _, icon in ipairs(iconsToHide) do
-        if icon.Hide then icon:Hide() end
+    if not InCombatLockdown() then
+        for _, icon in ipairs(iconsToHide) do
+            if icon.Hide then icon:Hide() end
+        end
     end
     
     wipe(frame._managedIcons)
@@ -1432,7 +1436,7 @@ function GroupRenderer:DestroyAllGroups()
     self:RestoreAllIcons()
 
     for groupName, frame in pairs(self.groupFrames) do
-        frame:Hide()
+        if not InCombatLockdown() then frame:Hide() end
     end
     wipe(self.groupFrames)
 
@@ -1464,7 +1468,7 @@ function GroupRenderer:DestroyGroup(groupName)
         end
     end
 
-    frame:Hide()
+    if not InCombatLockdown() then frame:Hide() end
     self.groupFrames[groupName] = nil
 end
 
@@ -1496,11 +1500,13 @@ function GroupRenderer:SyncViewerVisibility(viewerName)
         frame._viewerHidden = false
 
         if frame._iconCount and frame._iconCount > 0 then
-            frame:Show()
+            if not InCombatLockdown() then frame:Show() end
             for i = 1, (frame._iconCount or 0) do
                 local ic = frame._managedIcons and frame._managedIcons[i]
                 -- [FIX] _ddingHidden 아이콘은 Show하지 않음 (BuffTrackerBar 추적 중)
-                if ic and not ic._ddingHidden then ic:Show() end
+                if ic and not ic._ddingHidden then
+                    if not InCombatLockdown() then ic:Show() end
+                end
             end
         end
 
@@ -1523,7 +1529,9 @@ function GroupRenderer:SyncViewerVisibility(viewerName)
         frame._viewerHidden = true
         for i = 1, (frame._iconCount or 0) do
             local ic = frame._managedIcons and frame._managedIcons[i]
-            if ic then ic:Hide() end
+            if ic then
+                if not InCombatLockdown() then ic:Hide() end
+            end
         end
     end
 end

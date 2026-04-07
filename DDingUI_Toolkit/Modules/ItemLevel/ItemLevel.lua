@@ -69,23 +69,59 @@ local function GetEnchantIDFromLink(link)
     return nil
 end
 
--- 아이템 링크에서 gemID 추출 (위치 3~6)
-local function GetGemsFromLink(link)
-    if not link then return {} end
+-- 아이템 소켓 정보 추출: 총 소켓 수 + 장착된 보석 ID -- [FIX]
+local function GetSocketInfo(link)
+    if not link then return {}, 0 end
+    -- 12.0+ API: 총 소켓 수 (빈 소켓 포함)
+    local totalSockets = 0
+    if C_Item.GetItemNumSockets then
+        totalSockets = C_Item.GetItemNumSockets(link) or 0
+    end
     local _, linkOptions = LinkUtil.ExtractLink(link)
-    if not linkOptions then return {} end
+    if not linkOptions then return {}, totalSockets end
     local parts = {strsplit(":", linkOptions)}
     local gems = {}
     for i = 3, 6 do
         local gid = tonumber(parts[i])
-        if gid and gid > 0 then
-            gems[#gems + 1] = gid
+        gems[i - 2] = (gid and gid > 0) and gid or nil
+    end
+    -- API 없으면 장착된 보석 수로 폴백
+    if totalSockets == 0 then
+        for _, g in pairs(gems) do
+            if g then totalSockets = totalSockets + 1 end
         end
     end
-    return gems
+    return gems, totalSockets
 end
 
--- C_TooltipInfo로 마법부여 이름 가져오기
+-- [FIX] 12.0 마법부여 텍스트 정리: |cn 색상, |A 아틀라스, &/+ 제거
+local MATCH_ENCHANT = ENCHANTED_TOOLTIP_LINE and ENCHANTED_TOOLTIP_LINE:gsub("%%s", "(.+)") or nil
+local function CleanEnchantText(raw)
+    if not raw or raw == "" then return "" end
+    -- |A...|a 아틀라스 태그 추출 (아이콘 보존용) -- [FIX]
+    local atlas = ""
+    for tag in raw:gmatch("|A.-|a") do
+        atlas = atlas .. " " .. tag
+    end
+    -- |A...|a 아틀라스 태그 제거 (텍스트에서)
+    local text = raw:gsub("%s?|A.-|a", "")
+    -- |cn...:...|r 색상 래퍼 → 내부 텍스트만 추출
+    text = text:gsub("|cn.-:(.-)|r", "%1")
+    -- 기타 이스케이프 시퀀스 제거
+    text = text:gsub("|c%x%x%x%x%x%x%x%x(.-)|r", "%1")
+    -- &, + 기호 정리
+    text = text:gsub("[&+] ?", "")
+    -- 앞뒤 공백 정리
+    text = text:match("^%s*(.-)%s*$") or text
+    -- "가슴보호구 마법부여 - 마법학자의 징표" → "마법학자의 징표" (접두어 제거)
+    local suffix = text:match("^.+ %- (.+)$")
+    if suffix then text = suffix end
+    -- 아틀라스 아이콘 복원
+    if atlas ~= "" then text = text .. atlas end
+    return text
+end
+
+-- C_TooltipInfo로 마법부여 이름 가져오기 -- [FIX] 12.0 포맷 대응
 local function GetEnchantNameFromTooltip(link)
     if not link then return "" end
     local tooltipData = C_TooltipInfo and C_TooltipInfo.GetHyperlink(link)
@@ -93,26 +129,52 @@ local function GetEnchantNameFromTooltip(link)
         -- 폴백: 스캔 툴팁
         scanTip:ClearLines()
         scanTip:SetHyperlink(link)
-        for i = 1, scanTip:NumLines() do
+        local numLines = scanTip:NumLines()
+        -- Pass 1: ENCHANTED_TOOLTIP_LINE 패턴 ("마법부여: ...")
+        if MATCH_ENCHANT then
+            for i = 1, numLines do
+                local ln = _G["DDT_ItemLevelScanTipTextLeft" .. i]
+                if ln then
+                    local text = ln:GetText() or ""
+                    local enchant = text:match(MATCH_ENCHANT)
+                    if enchant then
+                        return CleanEnchantText(enchant)
+                    end
+                end
+            end
+        end
+        -- Pass 2: 초록색 텍스트 폴백 (마법부여 라인은 보통 툴팁 하단)
+        for i = numLines, 1, -1 do
             local ln = _G["DDT_ItemLevelScanTipTextLeft" .. i]
             if ln then
-                local text = ln:GetText() or ""
                 local r, g, b = ln:GetTextColor()
-                -- 초록색 텍스트 = 마법부여 (r<0.1, g>0.9, b<0.1)
                 if r < 0.2 and g > 0.8 and b < 0.2 then
-                    return text:gsub(" [+%-]%d+", "")
+                    return CleanEnchantText(ln:GetText() or "")
                 end
             end
         end
         return ""
     end
 
-    for _, line in ipairs(tooltipData.lines) do
-        if line.leftColor then
+    -- Pass 1: ENCHANTED_TOOLTIP_LINE 패턴 매칭 (정확한 마법부여 라인)
+    if MATCH_ENCHANT then
+        for _, line in ipairs(tooltipData.lines) do
+            local lt = line.leftText
+            if lt then
+                local enchant = lt:match(MATCH_ENCHANT)
+                if enchant then
+                    return CleanEnchantText(enchant)
+                end
+            end
+        end
+    end
+    -- Pass 2: 초록색 라인 폴백 (역순 — 마법부여 라인은 보통 하단에 위치)
+    for i = #tooltipData.lines, 1, -1 do
+        local line = tooltipData.lines[i]
+        if line.leftColor and line.leftText then
             local c = line.leftColor
-            -- 초록색 (마법부여 라인)
-            if c.r < 0.2 and c.g > 0.8 and c.b < 0.2 and line.leftText then
-                return line.leftText:gsub(" [+%-]%d+", "")
+            if c.r < 0.2 and c.g > 0.8 and c.b < 0.2 then
+                return CleanEnchantText(line.leftText)
             end
         end
     end
@@ -234,11 +296,10 @@ local function UpdateSelfSlot(button)
         end
     end
 
-    -- 보석 아이콘 (아이템 링크에서 gemID 파싱)
+    -- 보석 아이콘 (소켓 수 기반 — 빈 소켓도 표시) -- [FIX]
     if db.showGems then
-        local gems = GetGemsFromLink(link)
-        local cnt = #gems
-        for i = 1, cnt do
+        local gems, totalSockets = GetSocketInfo(link)
+        for i = 1, totalSockets do
             local tex = d.gems[i]
             if not tex then
                 tex = button:CreateTexture(nil, "OVERLAY")
@@ -249,13 +310,18 @@ local function UpdateSelfSlot(button)
             tex:ClearAllPoints()
 
             local gid = gems[i]
-            local icon = gid and C_Item.GetItemIconByID(gid) or "Interface\\ItemSocketingFrame\\UI-EmptySocket"
+            local icon
+            if gid then
+                icon = C_Item.GetItemIconByID(gid) or "Interface\\ItemSocketingFrame\\UI-EmptySocket"
+            else
+                icon = "Interface\\ItemSocketingFrame\\UI-EmptySocket"
+            end
             tex:SetTexture(icon)
 
             local spacing = db.selfGemSpacing
             if id == SlotIDs.MainHandSlot or id == SlotIDs.SecondaryHandSlot then
                 tex:SetPoint("TOP", d.ilvlFS, "BOTTOM",
-                    (i - 1) * (db.selfGemSize + spacing) - ((cnt - 1) * (db.selfGemSize + spacing) / 2), -2)
+                    (i - 1) * (db.selfGemSize + spacing) - ((totalSockets - 1) * (db.selfGemSize + spacing) / 2), -2)
             elseif IsRight(id) then
                 local off = -((i - 1) * (db.selfGemSize + spacing) + 5)
                 tex:SetPoint("RIGHT", d.ilvlFS, "LEFT", off, 0)
@@ -412,11 +478,10 @@ local function UpdateInspectSlot(button, unit)
         end
     end
 
-    -- 보석 아이콘 (아이템 링크에서 gemID 파싱)
+    -- 보석 아이콘 (소켓 수 기반 — 빈 소켓도 표시) -- [FIX]
     if db.showGems then
-        local gems = GetGemsFromLink(link)
-        local cnt = #gems
-        for i = 1, cnt do
+        local gems, totalSockets = GetSocketInfo(link)
+        for i = 1, totalSockets do
             local tex = d.gems[i]
             if not tex then
                 tex = button:CreateTexture(nil, "OVERLAY")
@@ -427,13 +492,18 @@ local function UpdateInspectSlot(button, unit)
             tex:ClearAllPoints()
 
             local gid = gems[i]
-            local icon = gid and C_Item.GetItemIconByID(gid) or "Interface\\ItemSocketingFrame\\UI-EmptySocket"
+            local icon
+            if gid then
+                icon = C_Item.GetItemIconByID(gid) or "Interface\\ItemSocketingFrame\\UI-EmptySocket"
+            else
+                icon = "Interface\\ItemSocketingFrame\\UI-EmptySocket"
+            end
             tex:SetTexture(icon)
 
             local spacing = db.inspGemSpacing
             if id == SlotIDs.MainHandSlot or id == SlotIDs.SecondaryHandSlot then
                 tex:SetPoint("TOP", d.ilvlFS, "BOTTOM",
-                    (i - 1) * (db.inspGemSize + spacing) - ((cnt - 1) * (db.inspGemSize + spacing) / 2), -2)
+                    (i - 1) * (db.inspGemSize + spacing) - ((totalSockets - 1) * (db.inspGemSize + spacing) / 2), -2)
             elseif IsRight(id) then
                 local off = -((i - 1) * (db.inspGemSize + spacing) + 5)
                 tex:SetPoint("RIGHT", d.ilvlFS, "LEFT", off, 0)

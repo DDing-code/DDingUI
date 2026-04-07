@@ -1,0 +1,41 @@
+{
+  "title": "Ayije CDM Architecture Patterns",
+  "description": "DDingUI CDM 최적화 시 참조 기준이 되는 Ayije_CDM의 핵심 아키텍처 패턴 문서. 단일 Updater 큐, 이벤트 파이프라인, 캐시 전략, Taint 방어, 쿨다운 추적 패턴을 포함.",
+  "version": "1.0.0",
+  "source_addon": "Ayije_CDM_",
+  "source_version": "v3.60",
+  "wow_version": "12.0.1 Retail",
+  "created": "2026-04-07",
+  "author": "Antigravity (AI analysis)",
+  "tags": ["performance", "OnUpdate", "event-driven", "cooldown", "taint", "cache"],
+  "files": {
+    "01_update_queue.md": "단일 Updater + QueueProcessor 패턴. 동시 OnUpdate 수를 1개로 제한.",
+    "02_event_pipeline.md": "이벤트 → 갱신 파이프라인. C_Timer.After 없이 dirty flag로 처리.",
+    "03_cache_patterns.md": "spellIDCache (weak-table), styleCacheVersion, C_CurveUtil 캐시 전략.",
+    "04_taint_safety.md": "secret value 방어, combatDirtyViewers, weak-table 격리.",
+    "05_cooldown_watcher.md": "TrackerCooldownWatcher. IsVisible 대체, EvaluateRemainingDuration + C_CurveUtil."
+  },
+  "ddingui_applied": {
+    "P0_completed": [
+      "IconViewers.lua: OnUpdate 3개 폐기, C_Timer → dirty flag 교체",
+      "Main.lua: FlightHide OnUpdate 조건부 활성화",
+      "Main.lua: SelectionAlpha NewTicker 제거"
+    ],
+    "P1_pending": [
+      "FrameController: GetSpellName 캐시 우선 체크",
+      "Main.lua: SelectionAlpha EditMode 이벤트 기반"
+    ],
+    "P2_pending": [
+      "ProcessPendingIcons: GetChildren 임시 테이블 → 재사용 버퍼",
+      "ScanCDMViewers: suppressed pcall 캐시화",
+      "StyleLib LOD 분리"
+    ],
+    "previous_session": [
+      "Toolkit.lua: _DesaturationCurve, _GCDFilterCurve 정의",
+      "CustomIcons.lua: IsCooldownFrameActive → EvaluateRemainingDuration",
+      "GroupRenderer.lua: _ddLastGroupAlpha 캐시 (SetAlpha 중복 방지)",
+      "DynamicIconBridge.lua: SetPoint 위치 동일성 체크",
+      "FrameController.lua: SPELL_UPDATE_COOLDOWN 이벤트 등록, 20fps 폴링"
+    ]
+  }
+}

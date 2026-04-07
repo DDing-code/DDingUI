@@ -1,11 +1,11 @@
 --[[
-    DDingToolKit - FocusInterrupt Module
+    DDingQoC - FocusInterrupt Module
     포커스 대상 시전바 + 차단 준비 표시 (MidnightFocusInterrupt 참고)
     12.0 Secret Value: Blizzard C-level API 패턴 적용
 ]]
 
 local addonName, ns = ...
-local DDingToolKit = ns.DDingToolKit
+local DDingQoC = ns.DDingQoC
 local UI = ns.UI
 local L = ns.L
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
@@ -129,7 +129,7 @@ function FocusInterrupt:CreateBarFrame()
     if barFrame then return end
 
     local db = self.db
-    local frame = CreateFrame("Frame", "DDingToolKit_FocusInterruptFrame", UIParent)
+    local frame = CreateFrame("Frame", "DDingQoC_FocusInterruptFrame", UIParent)
     frame:SetSize(db.barWidth or 280, db.barHeight or 30)
     frame:SetPoint("CENTER", UIParent, "CENTER", (db.position and db.position.x or 0), (db.position and db.position.y or 250))
     frame:SetFrameStrata("HIGH")
@@ -243,12 +243,12 @@ local function HandleCast()
     local db = FocusInterrupt.db
 
     -- 채널링 먼저 체크 (notInterruptible은 secret boolean → C API에만 전달)
-    local name, _, texture, _, _, _, notInterruptible, _ = UnitChannelInfo("focus")
+    local name, _, texture, startTimeMS, endTimeMS, _, notInterruptible, _ = UnitChannelInfo("focus")
     local isChannel = false
     if name then
         isChannel = true
     else
-        name, _, texture, _, _, _, _, notInterruptible, _ = UnitCastingInfo("focus")
+        name, _, texture, startTimeMS, endTimeMS, _, _, notInterruptible, _ = UnitCastingInfo("focus")
     end
 
     if not name then
@@ -274,40 +274,72 @@ local function HandleCast()
         barFrame.spellText:SetText(name)
     end
 
-    -- 지속시간
-    local duration
+    -- 지속시간 (12.0 Duration 객체 우선, fallback: startTimeMS/endTimeMS)
+    local duration, useFallback
     if isChannel then
-        duration = UnitChannelDuration("focus")
+        if UnitChannelDuration then
+            local ok, d = pcall(UnitChannelDuration, "focus")
+            if ok and d then duration = d end
+        end
     else
-        duration = UnitCastingDuration("focus")
+        if UnitCastingDuration then
+            local ok, d = pcall(UnitCastingDuration, "focus")
+            if ok and d then duration = d end
+        end
     end
 
-    if duration then
+    -- fallback: startTimeMS/endTimeMS 기반
+    local fallbackStart, fallbackEnd
+    if not duration and startTimeMS and endTimeMS then
+        useFallback = true
+        fallbackStart = startTimeMS / 1000
+        fallbackEnd = endTimeMS / 1000
+        local totalDur = fallbackEnd - fallbackStart
+        if totalDur > 0 then
+            barFrame.statusBar:SetMinMaxValues(0, totalDur)
+        end
+    elseif duration then
         barFrame.statusBar:SetMinMaxValues(0, duration:GetTotalDuration())
     end
 
-    -- OnUpdate에서 바 갱신 -- [PERF] elapsed throttle 추가
+    -- OnUpdate에서 바 갱신
     local fiElapsed = 0
-    local fiLastReady = nil  -- 쿨다운 상태 캐시
     barFrame:SetScript("OnUpdate", function(self, elapsed)
-        if not isActive or not duration then return end
+        if not isActive then return end
 
-        -- [PERF] 바 진행률은 매 프레임, 나머지는 0.05초마다
-        local remaining
-        if isChannel then
-            remaining = duration:GetRemainingDuration()
-        else
-            remaining = duration:GetElapsedDuration()
+        -- 바 진행률
+        if duration then
+            local val
+            if isChannel then
+                val = duration:GetRemainingDuration()
+            else
+                val = duration:GetElapsedDuration()
+            end
+            barFrame.statusBar:SetValue(val)
+        elseif useFallback then
+            local now = GetTime()
+            if isChannel then
+                barFrame.statusBar:SetValue(math.max(0, fallbackEnd - now))
+            else
+                barFrame.statusBar:SetValue(math.max(0, now - fallbackStart))
+            end
         end
-        barFrame.statusBar:SetValue(remaining)
 
         fiElapsed = fiElapsed + elapsed
-        if fiElapsed < 0.05 then return end  -- [PERF] 50ms throttle (나머지 로직)
+        if fiElapsed < 0.05 then return end
         fiElapsed = 0
 
         -- 시간 텍스트
         if db.showTime then
-            barFrame.timeText:SetText(string.format("%.1f", duration:GetRemainingDuration()))
+            local remain
+            if duration then
+                remain = duration:GetRemainingDuration()
+            elseif useFallback then
+                remain = math.max(0, fallbackEnd - GetTime())
+            end
+            if remain then
+                barFrame.timeText:SetText(string.format("%.1f", remain))
+            end
         end
 
         -- 차단 준비 여부
@@ -326,7 +358,6 @@ local function HandleCast()
             end
         end
 
-        -- [PERF] 색상/아이콘은 상태 변경 시에만
         SetBarColor(false, notInterruptible, isReady)
 
         if kickIcon and db.showKickIcon then
@@ -344,7 +375,7 @@ local function HandleCast()
         end
     end)
 
-    -- 사운드 -- [12.0.1] ns:PlaySound 통합
+    -- 사운드
     if not db.mute then
         local soundFile = db.soundFile
         local customPath = db.soundCustomPath
@@ -355,6 +386,7 @@ local function HandleCast()
         end
     end
 
+    barFrame:SetAlpha(1)
     barFrame:Show()
 end
 
@@ -384,23 +416,26 @@ local function HandleInterrupted(guid)
     end)
 end
 
--- 이벤트 등록
+-- 이벤트 등록 -- [FIX] RegisterEvent + unit 필터 (RegisterUnitEvent("focus") 12.0 미작동 대응)
 function FocusInterrupt:RegisterEvents()
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
     end
 
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "focus")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "focus")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "focus")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "focus")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "focus")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "focus")
+    eventFrame:RegisterEvent("UNIT_SPELLCAST_START")
+    eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
+    eventFrame:RegisterEvent("UNIT_SPELLCAST_STOP")
+    eventFrame:RegisterEvent("UNIT_SPELLCAST_FAILED")
+    eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+    eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
     eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
     eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 
-    eventFrame:SetScript("OnEvent", function(_, event, ...)
+    eventFrame:SetScript("OnEvent", function(_, event, arg1, ...)
         if not isEnabled then return end
+
+        -- UNIT_SPELLCAST 이벤트는 focus 유닛만 처리
+        if event:find("UNIT_SPELLCAST") and arg1 ~= "focus" then return end
 
         if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" or event == "PLAYER_FOCUS_CHANGED" then
             if fadeTimer then fadeTimer:Cancel(); fadeTimer = nil end
@@ -414,8 +449,7 @@ function FocusInterrupt:RegisterEvents()
             end
 
         elseif event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-            -- MidnightFocusInterrupt 패턴: 4번째 인자가 차단자 GUID
-            local _, _, _, guid = ...
+            local _, _, guid = ...
             if guid then
                 HandleInterrupted(guid)
             else
@@ -470,8 +504,17 @@ end
 
 -- 테스트 모드
 function FocusInterrupt:TestMode()
+    -- [FIX] 모듈이 활성화 안 된 상태에서 테스트 시 전체 초기화 수행
+    if not isEnabled then
+        interruptID, subInterruptID = GetInterruptSpellID()
+        CreateColorObjects(self.db)
+        isEnabled = true
+    end
     if not barFrame then
         self:CreateBarFrame()
+    end
+    if not eventFrame or not eventFrame:IsEventRegistered("UNIT_SPELLCAST_START") then
+        self:RegisterEvents()
     end
 
     isTestMode = not isTestMode
@@ -496,6 +539,7 @@ function FocusInterrupt:TestMode()
         barFrame.spellText:SetText("Test Spell - Target")
         barFrame.statusBar:SetMinMaxValues(0, 1)
         barFrame.statusBar:SetValue(0.5)
+        if not interruptedColorObj then CreateColorObjects(self.db) end -- [FIX] nil 색상 방지
         SetBarColor(false, false, true)
 
         if kickIcon and self.db.showKickIcon then
@@ -531,5 +575,37 @@ function FocusInterrupt:ResetPosition()
     end
 end
 
+-- 편집 모드 연동 (Movers)
+function FocusInterrupt:EnterEditPreview()
+    if isTestMode then return end
+    if not isEnabled then
+        interruptID, subInterruptID = GetInterruptSpellID()
+        CreateColorObjects(self.db)
+        isEnabled = true
+    end
+    if not barFrame then self:CreateBarFrame() end
+    if not eventFrame or not eventFrame:IsEventRegistered("UNIT_SPELLCAST_START") then
+        self:RegisterEvents()
+    end
+    isTestMode = true
+    barFrame.icon:SetTexture(134400)
+    barFrame.spellText:SetText("Test Spell - Target")
+    barFrame.statusBar:SetMinMaxValues(0, 1)
+    barFrame.statusBar:SetValue(0.5)
+    if not interruptedColorObj then CreateColorObjects(self.db) end
+    SetBarColor(false, false, true)
+    if kickIcon and self.db.showKickIcon then kickIcon:SetAlpha(1); kickIcon:Show() end
+    barFrame:SetScript("OnUpdate", nil)
+    barFrame:SetAlpha(1)
+    barFrame:Show()
+end
+
+function FocusInterrupt:ExitEditPreview()
+    if not isTestMode then return end
+    isTestMode = false
+    if barFrame then barFrame:Hide() end
+    if kickIcon then kickIcon:Hide() end
+end
+
 -- 모듈 등록
-DDingToolKit:RegisterModule("FocusInterrupt", FocusInterrupt)
+DDingQoC:RegisterModule("FocusInterrupt", FocusInterrupt)
