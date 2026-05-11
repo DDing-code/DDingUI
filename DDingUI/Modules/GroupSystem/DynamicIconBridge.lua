@@ -136,6 +136,26 @@ local function IsBuffSourceGroup(sourceGroupKey, db)
     return false
 end
 
+local function IsBuffGroup(groupName, groupSettings)
+    if groupName == "Buffs" then return true end
+    if groupSettings and groupSettings.groupCategory == "buff" then return true end
+    return GROUP_VIEWER_MAP[groupName] == "BuffIconCooldownViewer"
+end
+
+local function AddSuppressedSpellName(suppressed, spellName)
+    if type(spellName) ~= "string" then return end
+    local rawName = spellName:gsub("^buff_", "")
+    if rawName == "" then return end
+
+    local ok, info = pcall(function()
+        return C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(rawName)
+    end)
+    local spellID = ok and info and tonumber(info.spellID)
+    if spellID and spellID > 0 then
+        suppressed[spellID] = true
+    end
+end
+
 local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
     if not iconData then return false end
     if not iconFrame then return false end
@@ -515,13 +535,22 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
 
     local suppressed = {}
 
+    if type(gs.unassignedBuffSpells) == "table" then
+        for spellName, enabled in pairs(gs.unassignedBuffSpells) do
+            if enabled then
+                AddSuppressedSpellName(suppressed, spellName)
+            end
+        end
+    end
+
     -- 모든 dynamic 그룹의 아이콘 spell ID 수집
     for groupName, groupSettings in pairs(gs.groups) do
-        if groupSettings.enabled
+        local shouldSuppressDuplicates = groupSettings.enabled
             and groupSettings.sourceGroupKey
-            and groupSettings.groupType ~= "dynamic"
-            and groupSettings.suppressCDMDuplicates == true
-        then
+            and (IsBuffGroup(groupName, groupSettings)
+                or (groupSettings.groupType ~= "dynamic" and groupSettings.suppressCDMDuplicates == true))
+
+        if shouldSuppressDuplicates then
             local srcKey = groupSettings.sourceGroupKey
             local group = db.groups and db.groups[srcKey]
             if group and group.icons then

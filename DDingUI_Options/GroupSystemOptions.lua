@@ -332,6 +332,121 @@ local GROUP_DISPLAY_NAMES = {
     ["Utility"]   = L["Utility Cooldowns"] or "보조 능력",
 }
 
+local function IsBuffGroup(groupName, groupSettings)
+    if groupName == "Buffs" then return true end
+    if groupSettings and groupSettings.groupCategory == "buff" then return true end
+    return GROUP_VIEWER_MAP[groupName] == "BuffIconCooldownViewer"
+end
+
+local function IsBuffSpell(spellName, entry)
+    if type(spellName) == "string" and spellName:match("^buff_") then return true end
+    return entry and entry.viewerName == "BuffIconCooldownViewer"
+end
+
+local function GetUnassignedBuffSpells(gs, create)
+    if not gs then return nil end
+    if type(gs.unassignedBuffSpells) ~= "table" then
+        if not create then return nil end
+        gs.unassignedBuffSpells = {}
+    end
+    return gs.unassignedBuffSpells
+end
+
+local function IsBuffSpellUnassigned(gs, spellName)
+    local unassigned = GetUnassignedBuffSpells(gs, false)
+    return spellName and unassigned and unassigned[spellName] == true
+end
+
+local function FindBuffDynamicSpellOwner(gs, spellID, exceptGroup)
+    spellID = tonumber(spellID)
+    if not gs or not spellID or spellID <= 0 then return nil end
+
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local iconDataDB = dynDB and dynDB.iconData
+    if not iconDataDB then return nil end
+
+    for groupName, groupSettings in pairs(gs.groups or {}) do
+        if groupName ~= exceptGroup and groupSettings and IsBuffGroup(groupName, groupSettings) then
+            local sourceKey = groupSettings.sourceGroupKey
+            local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
+            if dynGroup and dynGroup.icons then
+                for _, iconKey in ipairs(dynGroup.icons) do
+                    local iconData = iconDataDB[iconKey]
+                    if iconData and (iconData.type == "spell" or iconData.type == "aura") then
+                        local existingID = tonumber(iconData.id)
+                        if existingID and existingID == spellID then
+                            return groupName, iconKey
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function ClearBuffSpellUnassigned(spellName)
+    local gs = GetGS()
+    local unassigned = GetUnassignedBuffSpells(gs, false)
+    if unassigned and spellName then
+        unassigned[spellName] = nil
+    end
+end
+
+local function MoveBuffSpellToUnassigned(spellName)
+    if not spellName or not IsBuffSpell(spellName) then return false end
+    local GroupMgr = DDingUI.GroupManager
+    if GroupMgr and GroupMgr.MoveSpellToUnassigned then
+        return GroupMgr:MoveSpellToUnassigned(spellName)
+    end
+
+    local gs = GetGS()
+    if not gs then return false end
+    local unassigned = GetUnassignedBuffSpells(gs, true)
+    unassigned[spellName] = true
+    if gs.spellAssignments then
+        gs.spellAssignments[spellName] = nil
+    end
+    MarkSpecProfileDirty()
+    return true
+end
+
+local function RemoveBuffDynamicSpellCopies(spellID, exceptGroup)
+    spellID = tonumber(spellID)
+    if not spellID or spellID <= 0 then return false end
+
+    local gs = GetGS()
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local iconDataDB = dynDB and dynDB.iconData
+    local ci = DDingUI.CustomIcons
+    if not gs or not iconDataDB or not ci or not ci.RemoveDynamicIcon then return false end
+
+    local removed = false
+    for groupName, groupSettings in pairs(gs.groups or {}) do
+        if groupName ~= exceptGroup and groupSettings and IsBuffGroup(groupName, groupSettings) then
+            local sourceKey = groupSettings.sourceGroupKey
+            local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
+            if dynGroup and dynGroup.icons then
+                local toRemove = {}
+                for _, iconKey in ipairs(dynGroup.icons) do
+                    local iconData = iconDataDB[iconKey]
+                    if iconData and (iconData.type == "spell" or iconData.type == "aura") then
+                        local existingID = tonumber(iconData.id)
+                        if existingID and existingID == spellID then
+                            toRemove[#toRemove + 1] = iconKey
+                        end
+                    end
+                end
+                for _, iconKey in ipairs(toRemove) do
+                    ci:RemoveDynamicIcon(iconKey)
+                    removed = true
+                end
+            end
+        end
+    end
+    return removed
+end
+
 local function SafeCDMLayoutIndex(icon, fallback)
     if not icon then return fallback or 0 end
 
@@ -592,9 +707,13 @@ local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames)
     for idx, entry in ipairs(allEntries or GetCDMIconEntries()) do
         local spellName = GetGSSpellName(entry)
         if spellName and not seen[spellName] and not (skipSpellNames and skipSpellNames[spellName]) then
+            local spellID = ResolveEntrySpellID(entry, spellName)
+            local isBuffSpell = IsBuffSpell(spellName, entry)
+            local buffOwnedByDynamic = isBuffSpell and FindBuffDynamicSpellOwner(gs, spellID, nil)
+            local isGloballyUnassigned = isBuffSpell and IsBuffSpellUnassigned(gs, spellName)
             local assigned = GetUsableSpellAssignment(gs, spellName)
             local belongsToGroup = assigned == groupName or (not assigned and targetViewer and entry.viewerName == targetViewer)
-            if belongsToGroup then
+            if belongsToGroup and not isGloballyUnassigned and not buffOwnedByDynamic then
                 seen[spellName] = true
                 rows[#rows + 1] = {
                     kind = "cdm",
@@ -602,6 +721,7 @@ local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames)
                     spellName = spellName,
                     entry = entry,
                     isManual = assigned == groupName,
+                    isBuffSpell = isBuffSpell,
                     fallbackOrder = tonumber(entry.layoutIndex) or idx,
                 }
             end
@@ -795,6 +915,17 @@ local function AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellNam
     local sourceKey = EnsureSourceGroup(groupName)
     if not sourceKey then return nil, nil, false end
 
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local isBuffTarget = IsBuffGroup(groupName, groupSettings) and IsBuffSpell(spellName, { viewerName = iconType == "aura" and "BuffIconCooldownViewer" or nil })
+    if isBuffTarget then
+        RemoveBuffDynamicSpellCopies(spellID, groupName)
+        ClearBuffSpellUnassigned(spellName)
+        if gs and gs.spellAssignments and spellName then
+            gs.spellAssignments[spellName] = nil
+        end
+    end
+
     PruneDuplicateDynamicSpellIcons(sourceKey)
     local existingKey = FindDynamicIconInSourceGroup(sourceKey, iconType, spellID)
     if existingKey then
@@ -851,6 +982,7 @@ local function BuildUnassignedSpellRows(groupName)
     if not groupSettings then return rows end
 
     local isDynamicGroup = groupSettings.groupType == "dynamic"
+    local isBuffPoolGroup = IsBuffGroup(groupName, groupSettings)
     local sourceKey = isDynamicGroup and EnsureSourceGroup(groupName) or nil
     local viewers = GetSpellCandidateViewers(groupName, groupSettings)
     local viewerSet = {}
@@ -871,9 +1003,14 @@ local function BuildUnassignedSpellRows(groupName)
                 local belongsToGroup = assigned == groupName or defaultAssigned
                 local iconType = GetDynamicIconTypeForEntry(entry, spellName)
                 local spellID = ResolveEntrySpellID(entry, spellName)
+                local isBuffEntry = isBuffPoolGroup and IsBuffSpell(spellName, entry)
+                local dynamicBuffOwner = isBuffEntry and FindBuffDynamicSpellOwner(gs, spellID, nil)
+                local sharedBuffUnassigned = isBuffEntry and IsBuffSpellUnassigned(gs, spellName)
                 local include
 
-                if isDynamicGroup then
+                if isBuffEntry then
+                    include = sharedBuffUnassigned and not assigned and not dynamicBuffOwner
+                elseif isDynamicGroup then
                     include = sourceKey and spellID and spellID > 0 and not FindDynamicIconInSourceGroup(sourceKey, iconType, spellID)
                 else
                     include = not belongsToGroup
@@ -889,6 +1026,7 @@ local function BuildUnassignedSpellRows(groupName)
                         displayName = ((entry.name or spellName or "Unknown"):gsub("^buff_", "")),
                         assignedGroup = assigned,
                         isDynamicTarget = isDynamicGroup,
+                        isBuffShared = isBuffEntry == true,
                         fallbackOrder = tonumber(entry.layoutIndex) or idx,
                     }
                 end
@@ -914,6 +1052,7 @@ local function AssignUnassignedSpellRow(groupName, row)
         local iconKey = AddOrReuseDynamicSpellIcon(groupName, row.iconType or "spell", spellID, row.spellName)
         if iconKey then
             ClearDynamicSpellAssignment(groupName, row.spellName)
+            ClearBuffSpellUnassigned(row.spellName)
             return true
         end
         return false
@@ -1374,10 +1513,12 @@ local function BuildAssignedSpellsArgs(groupName)
             local capturedSpell = row.spellName
             local capturedToken = row.token
             local capturedIsManual = row.isManual
+            local capturedIsBuffSpell = row.isBuffSpell == true or IsBuffSpell(capturedSpell, row.entry)
+            local capturedCanRemove = capturedIsManual == true or capturedIsBuffSpell == true
             args["cdma_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedSpell or "Unknown"),
-                desc = capturedIsManual
+                desc = capturedCanRemove
                     and ((rawget(L, "Drag to reorder | Right-click to unassign") or "드래그: 순서 변경 | 우클릭: 할당 해제") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r")
                     or ((rawget(L, "Default CDM icon. Drag to reorder.") or "기본 CDM 아이콘입니다. 드래그로 순서를 변경하세요.") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r"),
                 order = 11 + (count * 0.01),
@@ -1385,15 +1526,21 @@ local function BuildAssignedSpellsArgs(groupName)
                 _gridBadge = capturedIsManual and "CDM+" or "CDM",
                 _gridIconTex = iconTex,
                 _gridDisplayName = row.displayName or capturedSpell or "Unknown",
-                _gridCanRemove = capturedIsManual == true,
+                _gridCanRemove = capturedCanRemove == true,
                 _dragData = {
                     groupKey = MakeGroupOrderDragKey(groupName),
                     iconKey = capturedToken,
                     iconIdx = count,
                 },
                 func = function()
-                    if capturedIsManual and DDingUI.GroupManager and capturedSpell then
-                        DDingUI.GroupManager:UnassignSpell(capturedSpell)
+                    if not capturedSpell then return end
+                    local changed = false
+                    if capturedIsBuffSpell then
+                        changed = MoveBuffSpellToUnassigned(capturedSpell)
+                    elseif capturedIsManual and DDingUI.GroupManager then
+                        changed = DDingUI.GroupManager:UnassignSpell(capturedSpell)
+                    end
+                    if changed then
                         SoftRefreshDynamicIcons()
                     end
                 end,
@@ -1427,14 +1574,20 @@ local function BuildAssignedSpellsArgs(groupName)
                 func = function()
                     -- [FIX] 관련 spellAssignments를 먼저 제거 (RemoveDynamicIcon이 iconData를 삭제하므로)
                     local gsCur = GetGS()
-                    if gsCur and gsCur.spellAssignments then
-                        local dynDBCur = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
-                        local iconDataCur = dynDBCur and dynDBCur.iconData and dynDBCur.iconData[capturedIconKey]
-                        if iconDataCur and iconDataCur.id then
-                            local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconDataCur.id)
-                            if spellInfo and spellInfo.name then
-                                -- 이전 버그로 dynamic 그룹에 기록된 할당만 정리한다.
-                                -- 다른 CDM 그룹에 사용자가 직접 할당한 값은 건드리지 않는다.
+                    local spellNameForUnassigned
+                    local spellIDForUnassigned
+                    local dynDBCur = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+                    local iconDataCur = dynDBCur and dynDBCur.iconData and dynDBCur.iconData[capturedIconKey]
+                    if iconDataCur and iconDataCur.id then
+                        local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconDataCur.id)
+                        if spellInfo and spellInfo.name then
+                            if IsBuffGroup(groupName, groupSettings) and (iconDataCur.type == "spell" or iconDataCur.type == "aura") then
+                                spellNameForUnassigned = "buff_" .. spellInfo.name
+                                spellIDForUnassigned = tonumber(iconDataCur.id)
+                            end
+                            -- 이전 버그로 dynamic 그룹에 기록된 할당만 정리한다.
+                            -- 다른 CDM 그룹에 사용자가 직접 할당한 값은 건드리지 않는다.
+                            if gsCur and gsCur.spellAssignments then
                                 local buffKey = "buff_" .. spellInfo.name
                                 if gsCur.spellAssignments[buffKey] == groupName then
                                     gsCur.spellAssignments[buffKey] = nil
@@ -1446,8 +1599,14 @@ local function BuildAssignedSpellsArgs(groupName)
                         end
                     end
                     -- 클릭 = 삭제
+                    if spellIDForUnassigned then
+                        RemoveBuffDynamicSpellCopies(spellIDForUnassigned, groupName)
+                    end
                     if DDingUI.CustomIcons and DDingUI.CustomIcons.RemoveDynamicIcon then
                         DDingUI.CustomIcons:RemoveDynamicIcon(capturedIconKey)
+                    end
+                    if spellNameForUnassigned then
+                        MoveBuffSpellToUnassigned(spellNameForUnassigned)
                     end
                     SoftRefreshDynamicIcons()
                 end,

@@ -42,6 +42,19 @@ local function BuildCDMOrderToken(spellName)
     return "cdm:" .. tostring(spellName)
 end
 
+local function IsBuffSpellKey(spellName)
+    return type(spellName) == "string" and spellName:match("^buff_") ~= nil
+end
+
+local function GetUnassignedBuffSpells(gs, create)
+    if not gs then return nil end
+    if type(gs.unassignedBuffSpells) ~= "table" then
+        if not create then return nil end
+        gs.unassignedBuffSpells = {}
+    end
+    return gs.unassignedBuffSpells
+end
+
 local function BuildDynamicOrderToken(iconKey)
     if not iconKey or iconKey == "" then return nil end
     return "dyn:" .. tostring(iconKey)
@@ -354,19 +367,33 @@ function GroupManager:AssignSpell(spellName, groupName)
     if previousGroup ~= groupName then
         RemoveTokenFromAllGroups(gs, token)
     end
+    local unassignedBuffs = IsBuffSpellKey(spellName) and GetUnassignedBuffSpells(gs, false)
+    if unassignedBuffs then
+        unassignedBuffs[spellName] = nil
+    end
     gs.spellAssignments[spellName] = groupName
     AppendGroupIconOrderToken(gs, groupName, token)
     SaveCurrentSpecNow()
     return true
 end
 
-function GroupManager:UnassignSpell(spellName)
+function GroupManager:UnassignSpell(spellName, opts)
     local gs = GetGroupSystemSettings()
-    if not gs or not gs.spellAssignments then return false end
-    gs.spellAssignments[spellName] = nil
+    if not gs then return false end
+    if gs.spellAssignments then
+        gs.spellAssignments[spellName] = nil
+    end
+    if opts and opts.toUnassignedBuffPool and IsBuffSpellKey(spellName) then
+        local unassignedBuffs = GetUnassignedBuffSpells(gs, true)
+        unassignedBuffs[spellName] = true
+    end
     RemoveTokenFromAllGroups(gs, BuildCDMOrderToken(spellName))
     SaveCurrentSpecNow()
     return true
+end
+
+function GroupManager:MoveSpellToUnassigned(spellName)
+    return self:UnassignSpell(spellName, { toUnassignedBuffPool = true })
 end
 
 function GroupManager:NormalizeGroupIconOrder(groupName)
@@ -490,6 +517,11 @@ function GroupManager:ClassifyIcon(cooldownID)
         if assigned and gs.groups[assigned] and gs.groups[assigned].enabled then
             return assigned
         end
+    end
+
+    local unassignedBuffs = IsBuffSpellKey(spellName) and GetUnassignedBuffSpells(gs, false)
+    if unassignedBuffs and unassignedBuffs[spellName] then
+        return nil
     end
 
     -- 2순위: 뷰어 소스 기반 자동 분류 (기본 그룹)

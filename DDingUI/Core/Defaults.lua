@@ -803,6 +803,7 @@ local defaults = {
                 -- (GroupInit.SyncDynamicGroups에서 dynamicIcons.groups를 읽어 자동 생성)
             },
             spellAssignments = {}, -- [spellName] = "groupName" (수동 오버라이드, CDM re-parent 방식)
+            unassignedBuffSpells = {}, -- [buff_spellName] = true (버프 그룹들이 공유하는 미할당 풀)
             deletedGroups = {}, -- [groupName] = true (삭제된 그룹, SyncDynamicGroups 재생성 방지)
         },
         buffDebuffFrames = {
