@@ -1450,18 +1450,18 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if not ghostFrame or not anchor or not anchor.GetEffectiveScale then return end
 
         local cx, cy = GetCursorPosition()
-        local scale = anchor:GetEffectiveScale()
-        if not scale or scale == 0 then
-            scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-        end
-        if not scale or scale == 0 then scale = 1 end
-
+        local uiScale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+        if not uiScale or uiScale == 0 then uiScale = 1 end
+        local anchorScale = anchor:GetEffectiveScale()
+        if not anchorScale or anchorScale == 0 then anchorScale = uiScale end
+        local relativeScale = anchorScale / uiScale
+        if not relativeScale or relativeScale == 0 then relativeScale = 1 end
         local left = anchor.GetLeft and anchor:GetLeft()
         local bottom = anchor.GetBottom and anchor:GetBottom()
         if not left or not bottom then return end
 
         ghostFrame:ClearAllPoints()
-        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", cx / scale - left + 12, cy / scale - bottom - 10)
+        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", (cx / uiScale - left) / relativeScale + 12, (cy / uiScale - bottom) / relativeScale - 10)
     end
 
     local function EnsureGhost()
@@ -1642,6 +1642,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         local ghost = EnsureGhost()
         ghost.icon:SetTexture(GetGridOptionIcon(opt))
         ghost.text:SetText(GetGridOptionName(opt))
+        PositionGhostAtCursor(ghost)
         ghost:Show()
     end
 
@@ -1822,7 +1823,7 @@ end
 
 -- Runtime-shaped assigned icon preview.
 -- Mirrors GroupRenderer layout rules and adds Ellesmere-style manual drag feedback.
-local ASSIGNED_GRID_DRAG_THRESHOLD = 3
+local ASSIGNED_GRID_DRAG_THRESHOLD = 8
 
 local ASSIGNED_DIRECTION_RULES = {
     CENTERED_HORIZONTAL = { type = "HORIZONTAL", defaultSecondary = "DOWN",  allowed = { UP = true, DOWN = true } },
@@ -2234,6 +2235,14 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if preview.SetClipsChildren then
         preview:SetClipsChildren(false)
     end
+    local staleGhost = DDingUI._assignedIconRuntimeGhost
+    if staleGhost then staleGhost:Hide() end
+    preview:SetScript("OnHide", function()
+        local ghost = DDingUI._assignedIconRuntimeGhost
+        if ghost and ghost:GetParent() == preview then
+            ghost:Hide()
+        end
+    end)
 
     local function CallOptionFunc(opt)
         if opt and type(opt.func) == "function" then
@@ -2295,18 +2304,18 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if not ghostFrame or not anchor or not anchor.GetEffectiveScale then return end
 
         local cx, cy = GetCursorPosition()
-        local scale = anchor:GetEffectiveScale()
-        if not scale or scale == 0 then
-            scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-        end
-        if not scale or scale == 0 then scale = 1 end
-
+        local uiScale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+        if not uiScale or uiScale == 0 then uiScale = 1 end
+        local anchorScale = anchor:GetEffectiveScale()
+        if not anchorScale or anchorScale == 0 then anchorScale = uiScale end
+        local relativeScale = anchorScale / uiScale
+        if not relativeScale or relativeScale == 0 then relativeScale = 1 end
         local left = anchor.GetLeft and anchor:GetLeft()
         local bottom = anchor.GetBottom and anchor:GetBottom()
         if not left or not bottom then return end
 
         ghostFrame:ClearAllPoints()
-        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", cx / scale - left + 12, cy / scale - bottom - 10)
+        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", (cx / uiScale - left) / relativeScale, (cy / uiScale - bottom) / relativeScale)
     end
 
     local function EnsureGhost()
@@ -2315,6 +2324,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             ghost:SetParent(preview)
             ghost._ddAnchorFrame = preview
             ghost:SetFrameLevel((preview:GetFrameLevel() or 1) + 200)
+            ghost:SetScale(1)
             return ghost
         end
 
@@ -2322,7 +2332,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         ghost:SetFrameStrata("TOOLTIP")
         ghost:SetFrameLevel((preview:GetFrameLevel() or 1) + 200)
         ghost:SetSize(36, 36)
-        ghost:SetScale(0.72)
+        ghost:SetScale(1)
+        ghost:SetAlpha(0.96)
         ghost._ddAnchorFrame = preview
         ghost.bg = ghost:CreateTexture(nil, "BACKGROUND")
         ghost.bg:SetAllPoints()
@@ -2665,6 +2676,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         ghost:SetSize(slot._w, slot._h)
         ghost.icon:SetTexture(slot._icon:GetTexture())
         AssignedGridApplyTexCoord(ghost.icon, settings)
+        PositionRuntimeGhostAtCursor(ghost)
         ghost:Show()
         slot:SetAlpha(0.26)
 
