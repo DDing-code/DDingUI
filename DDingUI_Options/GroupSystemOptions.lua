@@ -81,6 +81,7 @@ local FILTER_VALUES = {
 
 local CDM_ENTRY_CACHE_TTL = 0.5
 local GROUP_QUICK_ASSIGN_ENABLED = false
+local GROUP_SPELL_INPUT_ENABLED = false
 local cdmEntryCache
 local cdmEntryCacheTime = 0
 
@@ -828,6 +829,101 @@ local function ClearDynamicSpellAssignment(groupName, spellName)
 end
 
 -- [REFACTOR] 인라인 그리드 업데이트 (groupName 인자로 받음)
+local function GetSpellCandidateViewers(groupName, groupSettings)
+    local targetViewer = GROUP_VIEWER_MAP[groupName]
+    if targetViewer then
+        return { targetViewer }
+    end
+
+    local category = GetGroupCategory and GetGroupCategory(groupName)
+    if category == "buff" then
+        return { "BuffIconCooldownViewer" }
+    elseif category == "skill" then
+        return { "EssentialCooldownViewer", "UtilityCooldownViewer" }
+    end
+    return { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
+end
+
+local function BuildUnassignedSpellRows(groupName)
+    local rows = {}
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return rows end
+
+    local isDynamicGroup = groupSettings.groupType == "dynamic"
+    local sourceKey = isDynamicGroup and EnsureSourceGroup(groupName) or nil
+    local viewers = GetSpellCandidateViewers(groupName, groupSettings)
+    local viewerSet = {}
+    for _, viewerKey in ipairs(viewers) do
+        viewerSet[viewerKey] = true
+    end
+
+    local targetViewer = GROUP_VIEWER_MAP[groupName]
+    local seen = {}
+    for idx, entry in ipairs(GetCDMIconEntries()) do
+        local viewerName = entry and entry.viewerName
+        if viewerName and viewerSet[viewerName] then
+            local spellName = GetGSSpellName(entry)
+            if spellName and not seen[spellName] then
+                seen[spellName] = true
+                local assigned = GetUsableSpellAssignment(gs, spellName)
+                local defaultAssigned = (not assigned) and targetViewer and viewerName == targetViewer
+                local belongsToGroup = assigned == groupName or defaultAssigned
+                local iconType = GetDynamicIconTypeForEntry(entry, spellName)
+                local spellID = ResolveEntrySpellID(entry, spellName)
+                local include
+
+                if isDynamicGroup then
+                    include = sourceKey and spellID and spellID > 0 and not FindDynamicIconInSourceGroup(sourceKey, iconType, spellID)
+                else
+                    include = not belongsToGroup
+                end
+
+                if include then
+                    rows[#rows + 1] = {
+                        entry = entry,
+                        spellName = spellName,
+                        spellID = spellID,
+                        iconType = iconType,
+                        iconTex = entry.icon or 134400,
+                        displayName = ((entry.name or spellName or "Unknown"):gsub("^buff_", "")),
+                        assignedGroup = assigned,
+                        isDynamicTarget = isDynamicGroup,
+                        fallbackOrder = tonumber(entry.layoutIndex) or idx,
+                    }
+                end
+            end
+        end
+    end
+
+    table.sort(rows, function(a, b)
+        local aOrder = a.fallbackOrder or 0
+        local bOrder = b.fallbackOrder or 0
+        if aOrder ~= bOrder then return aOrder < bOrder end
+        return tostring(a.displayName or a.spellName or "") < tostring(b.displayName or b.spellName or "")
+    end)
+    return rows
+end
+
+local function AssignUnassignedSpellRow(groupName, row)
+    if not groupName or not row or not row.spellName then return false end
+
+    if row.isDynamicTarget then
+        local spellID = row.spellID
+        if not spellID or spellID <= 0 then return false end
+        local iconKey = AddOrReuseDynamicSpellIcon(groupName, row.iconType or "spell", spellID, row.spellName)
+        if iconKey then
+            ClearDynamicSpellAssignment(groupName, row.spellName)
+            return true
+        end
+        return false
+    end
+
+    local GroupMgr = DDingUI.GroupManager
+    if not GroupMgr or not GroupMgr.AssignSpell then return false end
+    return GroupMgr:AssignSpell(row.spellName, groupName) == true
+end
+
 local function UpdateGroupAssignGrid(parent, groupName)
     if not parent or not parent._grids then return end
 
@@ -1282,7 +1378,7 @@ local function BuildAssignedSpellsArgs(groupName)
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedSpell or "Unknown"),
                 desc = capturedIsManual
-                    and ((rawget(L, "Click to unassign spell") or "클릭시 할당 해제") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r")
+                    and ((rawget(L, "Drag to reorder | Right-click to unassign") or "드래그: 순서 변경 | 우클릭: 할당 해제") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r")
                     or ((rawget(L, "Default CDM icon. Drag to reorder.") or "기본 CDM 아이콘입니다. 드래그로 순서를 변경하세요.") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r"),
                 order = 11 + (count * 0.01),
                 _gridKind = "cdm",
@@ -1316,7 +1412,7 @@ local function BuildAssignedSpellsArgs(groupName)
             args["dyna_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedIconKey or "Unknown"),
-                desc = (rawget(L, "Drag to reorder | Click to remove") or "드래그: 순서 변경 | 클릭: 삭제"),
+                desc = (rawget(L, "Drag to reorder | Right-click to remove") or "드래그: 순서 변경 | 우클릭: 삭제"),
                 order = 11 + (count * 0.01),
                 _gridKind = "dynamic",
                 _gridBadge = badge,
@@ -2204,11 +2300,20 @@ end
 
 function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
     local rows = GetAssignedGridRows(groupName)
-    if #rows == 0 then return 34 end
-
     local settings = AssignedGridPreviewSettings(groupName)
     local layout = AssignedGridBuildLayout(settings, #rows)
-    return math.max(34, (layout.height or 1) + 18)
+    width = tonumber(width) or 760
+
+    local assignedHeight = (#rows > 0) and ((layout.height or 1) + 18) or 34
+    local unassignedRows = BuildUnassignedSpellRows(groupName)
+    if #unassignedRows == 0 then
+        return math.max(34, assignedHeight)
+    end
+
+    local tileSize, gap = 34, 6
+    local cols = math.max(1, math.floor((width - 16 + gap) / (tileSize + gap)))
+    local unassignedHeight = 34 + math.ceil(#unassignedRows / cols) * (tileSize + gap)
+    return math.max(34, assignedHeight + unassignedHeight)
 end
 
 function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
@@ -2236,19 +2341,16 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local drag = {}
     local slotFrames = {}
 
-    parent:SetHeight(math.max(34, math.ceil(layout.height + padY * 2)))
+    local assignedPreviewHeight = (count > 0) and math.ceil(layout.height + padY * 2) or 34
+    local unassignedTileSize, unassignedGap = 34, 6
+    local unassignedCols = math.max(1, math.floor((width - 16 + unassignedGap) / (unassignedTileSize + unassignedGap)))
+    local unassignedGridHeight = (#unassignedRows > 0) and (math.ceil(#unassignedRows / unassignedCols) * (unassignedTileSize + unassignedGap) - unassignedGap) or 0
+    local unassignedSectionHeight = (#unassignedRows > 0) and (34 + unassignedGridHeight + 8) or 0
 
-    if count == 0 then
-        local msg = parent:CreateFontString(nil, "OVERLAY")
-        msg:SetFont(gf, 12, "")
-        msg:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -4)
-        msg:SetText(emptyText or "|cff888888No assigned icons.|r")
-        msg:SetTextColor(0.65, 0.65, 0.65, 1)
-        return
-    end
+    parent:SetHeight(math.max(34, assignedPreviewHeight + unassignedSectionHeight))
 
     local preview = CreateFrame("Frame", nil, parent)
-    preview:SetSize(math.max(layout.width + startX + padX, localParentW), layout.height + padY * 2)
+    preview:SetSize(math.max(layout.width + startX + padX, localParentW), assignedPreviewHeight)
     preview:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     if preview.SetClipsChildren then
         preview:SetClipsChildren(false)
@@ -2261,6 +2363,13 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             ghost:Hide()
         end
     end)
+    if count == 0 then
+        local msg = preview:CreateFontString(nil, "OVERLAY")
+        msg:SetFont(gf, 12, "")
+        msg:SetPoint("TOPLEFT", preview, "TOPLEFT", 10, -4)
+        msg:SetText(emptyText or "|cff888888No assigned icons.|r")
+        msg:SetTextColor(0.65, 0.65, 0.65, 1)
+    end
 
     local function CallOptionFunc(opt)
         if opt and type(opt.func) == "function" then
@@ -2372,6 +2481,13 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return CursorLocalPoint(preview)
     end
 
+    local function CursorInsideFrame(frame)
+        local x, y = CursorLocalPoint(frame)
+        if not x or not y or not frame then return false end
+        local w, h = frame:GetWidth(), frame:GetHeight()
+        return x >= 0 and x <= (w or 0) and y >= 0 and y <= (h or 0)
+    end
+
     local function SlotPreviewRect(slot)
         if not slot then return nil, nil, nil, nil end
         local previewH = preview:GetHeight()
@@ -2390,6 +2506,16 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     insertLine.core = insertLine:CreateTexture(nil, "ARTWORK")
     insertLine.core:SetColorTexture(insertR, insertG, insertB, 0.96)
     insertLine:Hide()
+
+    local assignDropOverlay = CreateFrame("Frame", nil, preview)
+    assignDropOverlay:SetAllPoints(preview)
+    assignDropOverlay:SetFrameLevel(preview:GetFrameLevel() + 90)
+    assignDropOverlay.bg = assignDropOverlay:CreateTexture(nil, "BACKGROUND")
+    assignDropOverlay.bg:SetAllPoints()
+    assignDropOverlay.bg:SetColorTexture(insertR, insertG, insertB, 0.12)
+    assignDropOverlay.edges = AssignedGridCreateEdges(assignDropOverlay, "OVERLAY", 3)
+    AssignedGridSetEdges(assignDropOverlay.edges, insertR, insertG, insertB, 0.95, 2)
+    assignDropOverlay:Hide()
 
     local function ClearSlotTarget(slot)
         if not slot then return end
@@ -2438,6 +2564,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
 
     local function ClearDragFeedback()
         insertLine:Hide()
+        assignDropOverlay:Hide()
         for _, slot in ipairs(slotFrames) do
             ClearSlotTarget(slot)
         end
@@ -2740,6 +2867,56 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         end)
     end
 
+    local function FinishUnassignedDrag()
+        if not drag.active or drag.kind ~= "unassigned" then return end
+
+        local row = drag.unassignedRow
+        local overAssigned = CursorInsideFrame(preview)
+        local ghost = DDingUI._assignedIconRuntimeGhost
+        if ghost then ghost:Hide() end
+
+        parent:SetScript("OnUpdate", nil)
+        drag.active = false
+        drag.kind = nil
+        drag.unassignedRow = nil
+        assignDropOverlay:Hide()
+
+        if overAssigned and AssignUnassignedSpellRow(groupName, row) then
+            RefreshAfterCommit()
+        end
+    end
+
+    local function BeginUnassignedDrag(button, row)
+        if drag.active or not row then return end
+
+        drag.active = true
+        drag.kind = "unassigned"
+        drag.unassignedRow = row
+        GameTooltip:Hide()
+        if button then button:SetAlpha(0.35) end
+
+        local ghost = EnsureGhost()
+        ghost:SetSize(unassignedTileSize, unassignedTileSize)
+        ghost.icon:SetTexture(row.iconTex or 134400)
+        AssignedGridApplyTexCoord(ghost.icon, settings)
+        PositionRuntimeGhostAtCursor(ghost)
+        ghost:Show()
+
+        parent:SetScript("OnUpdate", function(self)
+            if not IsMouseButtonDown("LeftButton") then
+                if button then button:SetAlpha(1) end
+                FinishUnassignedDrag()
+                return
+            end
+
+            if CursorInsideFrame(preview) then
+                assignDropOverlay:Show()
+            else
+                assignDropOverlay:Hide()
+            end
+        end)
+    end
+
     local function SetupTooltip(slot, opt)
         local desc = opt and opt.desc
         if type(desc) == "function" then desc = desc() end
@@ -2747,6 +2924,12 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         GameTooltip:SetText(GetGridOptionName(opt), 1, 1, 1, 1, true)
         if desc and desc ~= "" then
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
+        end
+        if opt and opt._gridCanRemove then
+            local removeText = (opt._gridKind == "cdm")
+                and (L["Right-click to unassign"] or "우클릭: 할당 해제")
+                or (L["Right-click to remove"] or "우클릭: 삭제")
+            GameTooltip:AddLine(removeText, 1, 0.38, 0.32, true)
         end
         GameTooltip:Show()
     end
@@ -2842,7 +3025,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                     self._ddSuppressClick = nil
                     return
                 end
-                if button == "MiddleButton" and opt and opt._gridCanRemove then
+                if (button == "RightButton" or button == "MiddleButton") and opt and opt._gridCanRemove then
                     CallOptionFunc(opt)
                 end
             end)
@@ -2878,6 +3061,92 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             end)
 
             slotFrames[#slotFrames + 1] = slot
+        end
+    end
+
+    if #unassignedRows > 0 then
+        local sectionY = assignedPreviewHeight + 12
+        local title = parent:CreateFontString(nil, "OVERLAY")
+        title:SetFont(gf, 12, "")
+        title:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -sectionY)
+        title:SetText(L["Unassigned Spells"] or "할당되지 않은 스펠")
+        title:SetTextColor(1, 0.55, 0.18, 1)
+
+        local desc = parent:CreateFontString(nil, "OVERLAY")
+        desc:SetFont(gf, 10, "")
+        desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+        desc:SetText(L["Drag icons up to assign them to this group."] or "아이콘을 위로 드래그하면 이 그룹에 할당됩니다.")
+        desc:SetTextColor(0.65, 0.65, 0.65, 1)
+
+        local grid = CreateFrame("Frame", nil, parent)
+        grid:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -(sectionY + 30))
+        grid:SetSize(width - 20, unassignedGridHeight)
+
+        for idx, unassignedRow in ipairs(unassignedRows) do
+            local col = (idx - 1) % unassignedCols
+            local rowIdx = math.floor((idx - 1) / unassignedCols)
+            local btn = CreateFrame("Button", nil, grid)
+            btn:SetSize(unassignedTileSize, unassignedTileSize)
+            btn:SetPoint("TOPLEFT", grid, "TOPLEFT", col * (unassignedTileSize + unassignedGap), -rowIdx * (unassignedTileSize + unassignedGap))
+            btn:SetHitRectInsets(-2, -2, -2, -2)
+
+            btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+            btn.bg:SetAllPoints()
+            btn.bg:SetColorTexture(0.02, 0.025, 0.03, 0.68)
+
+            btn.icon = btn:CreateTexture(nil, "ARTWORK")
+            btn.icon:SetAllPoints()
+            btn.icon:SetTexture(unassignedRow.iconTex or 134400)
+            AssignedGridApplyTexCoord(btn.icon, settings)
+
+            btn.edges = AssignedGridCreateEdges(btn, "OVERLAY", 2)
+            AssignedGridSetEdges(btn.edges, 0.18, 0.18, 0.18, 0.8, 1)
+
+            btn:SetScript("OnEnter", function(self)
+                if drag.active then return end
+                AssignedGridSetEdges(self.edges, accentR, accentG, accentB, 1, 2)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText(unassignedRow.displayName or unassignedRow.spellName or "Unknown", 1, 1, 1, 1, true)
+                if unassignedRow.assignedGroup and unassignedRow.assignedGroup ~= groupName then
+                    GameTooltip:AddLine((L["Assigned to: "] or "할당: ") .. tostring(unassignedRow.assignedGroup), 1, 0.55, 0.35, true)
+                end
+                GameTooltip:AddLine(L["Drag to assigned spells"] or "할당된 스펠 영역으로 드래그", 0.35, 1, 0.45, true)
+                GameTooltip:Show()
+            end)
+            btn:SetScript("OnLeave", function(self)
+                AssignedGridSetEdges(self.edges, 0.18, 0.18, 0.18, 0.8, 1)
+                GameTooltip:Hide()
+            end)
+            btn:SetScript("OnMouseDown", function(self, button)
+                if button ~= "LeftButton" or drag.active then return end
+                local cx, cy = GetCursorPosition()
+                self._pendingDragStartX = cx
+                self._pendingDragStartY = cy
+                self:SetScript("OnUpdate", function(s)
+                    if not IsMouseButtonDown("LeftButton") then
+                        s:SetScript("OnUpdate", nil)
+                        s._pendingDragStartX = nil
+                        s._pendingDragStartY = nil
+                        return
+                    end
+                    local nx, ny = GetCursorPosition()
+                    local dx = nx - (s._pendingDragStartX or nx)
+                    local dy = ny - (s._pendingDragStartY or ny)
+                    if dx * dx + dy * dy >= ASSIGNED_GRID_DRAG_THRESHOLD * ASSIGNED_GRID_DRAG_THRESHOLD then
+                        s:SetScript("OnUpdate", nil)
+                        s._pendingDragStartX = nil
+                        s._pendingDragStartY = nil
+                        BeginUnassignedDrag(s, unassignedRow)
+                    end
+                end)
+            end)
+            btn:SetScript("OnMouseUp", function(self, button)
+                if button == "LeftButton" then
+                    self:SetScript("OnUpdate", nil)
+                    self._pendingDragStartX = nil
+                    self._pendingDragStartY = nil
+                end
+            end)
         end
     end
 end
@@ -3603,8 +3872,8 @@ local function CreateGroupOptions(groupName, order)
                     end
                 end,
             } or nil,
-            addSpellHeader = { type = "header", name = L["Add Spell"] or "스펠 추가", order = 20 },
-            addSpell = {
+            addSpellHeader = GROUP_SPELL_INPUT_ENABLED and { type = "header", name = L["Add Spell"] or "스펠 추가", order = 20 } or nil,
+            addSpell = GROUP_SPELL_INPUT_ENABLED and {
                 type = "spellSearch", -- [REFACTOR] Ayije 패턴 이식 — 실시간 Spell ID 검증
                 name = L["Spell Name or ID"] or "스펠 이름 또는 ID",
                 placeholder = "Spell ID...",
@@ -3664,7 +3933,7 @@ local function CreateGroupOptions(groupName, order)
                         return false
                     end
                 end,
-            },
+            } or nil,
 
             -- ===========================================
             -- [QUICK-ADD] 커스텀 강화효과 빠른 추가 (버프 그룹 전용)
