@@ -576,7 +576,7 @@ end
 local IsCooldownFrameActive  -- unused, kept for reference only
 
 -- [Ayije CDM 방식] 아이템 → 스펠 쿨다운 매핑
--- 아이템 쿨다운이 전투 중 보이지 않을 때(combatLockout 등) 스펠 쿨다운으로 폴백
+-- 아이템 쿨다운 API가 전투 중 늦게 갱신될 때 스펠 쿨다운으로 폴백
 local ITEM_SPELL_MAP = {
     [5512]   = 6262,    -- Healthstone
     [224464] = 452930,  -- Demonic Healthstone
@@ -1064,29 +1064,8 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
     return nil
 end
 
--- [FIX] Combat Lockout Tracker for Items (like Healthstones in DF/TWW)
-local combatLockoutSpells = {
-    [6262] = 5512,
-    [452930] = 224464,
-}
-local inCombatLockout = {}
-
--- [NEW] 아이템이 배치된 액션바(숏컷) 슬롯 캐시
--- 액션바의 쿨다운은 블리자드 C_Container.GetItemCooldown의 Taint 영향을 받지 않음.
-local lockoutTracker = CreateFrame("Frame")
-lockoutTracker:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-lockoutTracker:RegisterEvent("PLAYER_REGEN_ENABLED")
-lockoutTracker:SetScript("OnEvent", function(self, event, ...)
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local _, _, spellID = ...
-        if combatLockoutSpells[spellID] and InCombatLockdown() then
-            local targetItemID = combatLockoutSpells[spellID]
-            inCombatLockout[targetItemID] = true
-        end
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        wipe(inCombatLockout)
-    end
-end)
+-- Item cooldown APIs can briefly report zero immediately after combat item use.
+-- Keep the last valid cooldown span until it expires instead of hiding the count.
 
 -- [FIX Ayije] IsCooldownFrameActive 제거 — 대신 EvaluateRemainingDuration(GCDFilterCurve)로 frame-perfect 쿨다운 감지
 local function EvalDesatFromDurObj(durObj, isOnGCD)
@@ -1103,19 +1082,102 @@ local function EvalDesatFromDurObj(durObj, isOnGCD)
     return 0
 end
 
+local function ResolveUsableItemSpellID(iconFrame, itemID, settings)
+    if not itemID then return nil end
+
+    local itemSpellID = ITEM_SPELL_MAP[itemID] or (settings and settings.itemSpellID)
+    if itemSpellID then return itemSpellID end
+
+    if iconFrame and iconFrame._cachedSpellItemID == itemID then
+        return iconFrame._cachedSpellID
+    end
+
+    if C_Item and C_Item.GetItemSpell then
+        pcall(function()
+            local _, sid = C_Item.GetItemSpell(itemID)
+            if sid then
+                itemSpellID = sid
+                if iconFrame then
+                    iconFrame._cachedSpellID = sid
+                    iconFrame._cachedSpellItemID = itemID
+                end
+            end
+        end)
+    end
+
+    return itemSpellID
+end
+
+local function StoreCooldownSpan(iconFrame, prefix, start, duration)
+    if not iconFrame or not prefix or not start or not duration then return end
+    iconFrame[prefix .. "Start"] = start
+    iconFrame[prefix .. "Duration"] = duration
+    iconFrame[prefix .. "Until"] = start + duration
+end
+
+local function ClearCooldownSpan(iconFrame, prefix)
+    if not iconFrame or not prefix then return end
+    iconFrame[prefix .. "Start"] = nil
+    iconFrame[prefix .. "Duration"] = nil
+    iconFrame[prefix .. "Until"] = nil
+end
+
+local function EnsureCooldownSpanOwner(iconFrame, prefix, ownerID)
+    if not iconFrame or not prefix then return end
+    local ownerKey = prefix .. "OwnerID"
+    if iconFrame[ownerKey] ~= ownerID then
+        ClearCooldownSpan(iconFrame, prefix)
+        iconFrame[ownerKey] = ownerID
+    end
+end
+
+local function GetStoredCooldownSpan(iconFrame, prefix)
+    if not iconFrame or not prefix then return nil, nil end
+
+    local expiresAt = SafeNumber(iconFrame[prefix .. "Until"])
+    local now = GetTime and GetTime() or 0
+    if expiresAt and expiresAt > now then
+        return iconFrame[prefix .. "Start"], iconFrame[prefix .. "Duration"]
+    end
+
+    ClearCooldownSpan(iconFrame, prefix)
+    return nil, nil
+end
+
+local function GetRealSpellCooldownDuration(spellID)
+    if not spellID or not C_Spell then return nil, false end
+
+    local isRealCooldown = false
+    if C_Spell.GetSpellCooldown then
+        pcall(function()
+            local cdInfo = C_Spell.GetSpellCooldown(spellID)
+            if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
+                isRealCooldown = true
+            end
+        end)
+    end
+
+    if not isRealCooldown then return nil, false end
+    if C_Spell.GetSpellCooldownDuration then
+        return C_Spell.GetSpellCooldownDuration(spellID), true
+    end
+    return nil, false
+end
+
 
 local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
     if not itemID or not iconFrame then return end
 
-    local includeCharges = iconData.settings and iconData.settings.showCharges
+    local settings = iconData.settings
+    local includeCharges = settings and settings.showCharges
     local itemCount = C_Item.GetItemCount(itemID, false, includeCharges, false)
     local activeItemID = itemID
     local usedFallback = false
 
     -- Fallback item logic: if primary item count is 0 and fallbackItems are configured
-    if (itemCount == 0 or itemCount == nil) and iconData.settings and iconData.settings.fallbackItems then
-        local fallbackItems = iconData.settings.fallbackItems
+    if (itemCount == 0 or itemCount == nil) and settings and settings.fallbackItems then
+        local fallbackItems = settings.fallbackItems
         if type(fallbackItems) == "string" and fallbackItems ~= "" then
             -- Parse comma-separated item IDs
             for fallbackID in string.gmatch(fallbackItems, "(%d+)") do
@@ -1141,37 +1203,16 @@ local function UpdateItemIcon(iconFrame, iconData)
     SetStableIconTexture(iconFrame, itemTexture, true)
 
     -- [Ayije_CDM 패턴] 아이템 쿨다운 (GetItemCooldown 최우선 -> GetSpellCooldownDuration 폴백)
-    local itemSpellID = ITEM_SPELL_MAP[activeItemID]
-                     or (iconData.settings and iconData.settings.itemSpellID)
-    
-    if not itemSpellID then
-        if iconFrame._cachedSpellItemID == activeItemID then
-            itemSpellID = iconFrame._cachedSpellID
-        else
-            pcall(function()
-                local _, sid = C_Item.GetItemSpell(activeItemID)
-                if sid then
-                    iconFrame._cachedSpellID = sid
-                    iconFrame._cachedSpellItemID = activeItemID
-                    itemSpellID = sid
-                end
-            end)
-        end
-    end
+    local itemSpellID = ResolveUsableItemSpellID(iconFrame, activeItemID, settings)
+    EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
 
     local desatDurationObject = nil
     local desatSpellID = nil
     local itemCooldownActive = false
-    local itemInCombatLockout = false
     local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
 
-    -- [Ayije_CDM 패턴] 전투 중 쿨다운 잠금 상태 우선 체크 (생명석 등)
-    -- 전투 중 사용 시 GetItemCooldown이 0을 반환해 쿨다운이 안 보이는 아이템 처리
-    if inCombatLockout[activeItemID] then
-        itemInCombatLockout = true
-        iconFrame.cooldown:Clear()
-        iconFrame.cooldown:Hide()
-    elseif itemSpellID then
+    -- GetItemCooldown can briefly return 0 in combat; keep a cached valid span as fallback.
+    if itemSpellID then
         -- 스펠 ID가 매핑된 아이템: Ayije_CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
         local realDur = nil
         if C_Spell and C_Spell.GetSpellCooldownDuration then
@@ -1180,6 +1221,7 @@ local function UpdateItemIcon(iconFrame, iconData)
 
         local hasItemCooldown = false
         local itemCdStart, itemCdDuration = nil, nil
+        local cachedItemStart, cachedItemDuration = GetStoredCooldownSpan(iconFrame, "_ddItemCooldown")
         pcall(function()
             local cdStart, cdDur, cdEnable = getItemCD(activeItemID)
             if cdStart and cdDur and cdEnable == 1 and type(cdDur) == "number" and cdDur > 1.5 then
@@ -1187,6 +1229,10 @@ local function UpdateItemIcon(iconFrame, iconData)
                 hasItemCooldown = true
             end
         end)
+        if not hasItemCooldown and cachedItemStart and cachedItemDuration then
+            itemCdStart, itemCdDuration = cachedItemStart, cachedItemDuration
+            hasItemCooldown = true
+        end
 
         desatDurationObject = realDur
         desatSpellID = itemSpellID
@@ -1196,6 +1242,7 @@ local function UpdateItemIcon(iconFrame, iconData)
                 iconFrame._itemDurObj = C_DurationUtil.CreateDuration()
             end
             iconFrame._itemDurObj:SetTimeFromStart(itemCdStart, itemCdDuration)
+            StoreCooldownSpan(iconFrame, "_ddItemCooldown", itemCdStart, itemCdDuration)
             iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._itemDurObj)
             itemCooldownActive = true
         elseif realDur then
@@ -1207,6 +1254,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         -- [Fallback] 스펠 ID 없는 아이템 (비전투/제한적 작동)
         local hasItemCooldown = false
         local itemCdStart, itemCdDuration = nil, nil
+        local cachedItemStart, cachedItemDuration = GetStoredCooldownSpan(iconFrame, "_ddItemCooldown")
         pcall(function()
             local cdStart, cdDur, cdEnable = getItemCD(activeItemID)
             if cdStart and cdDur and cdEnable == 1 and type(cdDur) == "number" and cdDur > 1.5 then
@@ -1214,12 +1262,17 @@ local function UpdateItemIcon(iconFrame, iconData)
                 hasItemCooldown = true
             end
         end)
+        if not hasItemCooldown and cachedItemStart and cachedItemDuration then
+            itemCdStart, itemCdDuration = cachedItemStart, cachedItemDuration
+            hasItemCooldown = true
+        end
 
         if hasItemCooldown then
             if not iconFrame._itemDurObj then
                 iconFrame._itemDurObj = C_DurationUtil.CreateDuration()
             end
             iconFrame._itemDurObj:SetTimeFromStart(itemCdStart, itemCdDuration)
+            StoreCooldownSpan(iconFrame, "_ddItemCooldown", itemCdStart, itemCdDuration)
             iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._itemDurObj)
             itemCooldownActive = true
         else
@@ -1227,13 +1280,11 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
-    -- 쿨다운 프레임 Show/Hide (combatLockout 상태면 이미 Clear+Hide 처리됨)
-    if not itemInCombatLockout then
-        if iconData.settings and iconData.settings.showCooldown == false then
-            iconFrame.cooldown:Hide()
-        else
-            iconFrame.cooldown:Show()
-        end
+    -- 쿨다운 프레임 Show/Hide
+    if iconData.settings and iconData.settings.showCooldown == false then
+        iconFrame.cooldown:Hide()
+    else
+        iconFrame.cooldown:Show()
     end
 
     -- 아이템 카운트 표시
@@ -1256,11 +1307,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     -- [FIX] OnUpdate 진입 조건: cdInfo.isActive (safe boolean) 사용 — secret number 비교 금지
     local itemIsOnRealCD = false
 
-    if itemInCombatLockout then
-        -- [Ayije_CDM] 전투 중 쿨다운 잠금: 즉시 완전 탈색, OnUpdate 루프 비활성화
-        if allowCooldownDesat then desatVal = 1 end
-        if iconFrame._cdmDesatUpdater then iconFrame._cdmDesatUpdater:Hide() end
-    elseif itemCooldownActive then
+    if itemCooldownActive then
         if allowCooldownDesat then desatVal = 1 end
     elseif showEmptyItem then
         if allowUnusableDesat then desatVal = 1 end
@@ -1510,9 +1557,18 @@ local function UpdateSlotIcon(iconFrame, iconData)
 
     iconFrame._textureCacheKey = "slot:" .. tostring(slotID)
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
+    EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
 
     -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
     local start, duration, enable = GetInventoryItemCooldown("player", slotID)
+    local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, iconData.settings)
+    local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
+    local cachedStart, cachedDuration = GetStoredCooldownSpan(iconFrame, "_ddSlotCooldown")
+    if not (start and duration and enable == 1 and type(duration) == "number" and duration > ITEM_COOLDOWN_MIN_SECONDS) then
+        if cachedStart and cachedDuration then
+            start, duration, enable = cachedStart, cachedDuration, 1
+        end
+    end
     local onCooldown = false
     pcall(function()
         if start and duration and enable == 1 then
@@ -1526,6 +1582,7 @@ local function UpdateSlotIcon(iconFrame, iconData)
                     iconFrame._slotDurObj = C_DurationUtil.CreateDuration()
                 end
                 iconFrame._slotDurObj:SetTimeFromStart(start, duration)
+                StoreCooldownSpan(iconFrame, "_ddSlotCooldown", start, duration)
                 iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._slotDurObj)
             else
                 iconFrame.cooldown:Clear()
@@ -1534,6 +1591,10 @@ local function UpdateSlotIcon(iconFrame, iconData)
             iconFrame.cooldown:Clear()
         end
     end)
+    if not onCooldown and spellDurObj then
+        iconFrame.cooldown:SetCooldownFromDurationObject(spellDurObj)
+        onCooldown = true
+    end
 
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
@@ -1635,6 +1696,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     iconFrame._textureCacheKey = "trinketProc:" .. tostring(slotID)
     -- Update trinket item texture
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
+    EnsureCooldownSpanOwner(iconFrame, "_ddTrinketCooldown", itemID)
 
     -- Determine proc spell ID (auto-detect or manual override)
     local settings = iconData.settings or {}
@@ -1775,6 +1837,14 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         if settings.showItemCooldown ~= false then
             -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
             local start, duration, enable = GetInventoryItemCooldown("player", slotID)
+            local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, settings)
+            local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
+            local cachedStart, cachedDuration = GetStoredCooldownSpan(iconFrame, "_ddTrinketCooldown")
+            if not (start and duration and enable == 1 and type(duration) == "number" and duration > ITEM_COOLDOWN_MIN_SECONDS) then
+                if cachedStart and cachedDuration then
+                    start, duration, enable = cachedStart, cachedDuration, 1
+                end
+            end
             local onCooldown = false
             pcall(function()
                 if start and duration and enable == 1 then
@@ -1788,6 +1858,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
                             iconFrame._trinketDurObj = C_DurationUtil.CreateDuration()
                         end
                         iconFrame._trinketDurObj:SetTimeFromStart(start, duration)
+                        StoreCooldownSpan(iconFrame, "_ddTrinketCooldown", start, duration)
                         iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._trinketDurObj)
                     else
                         iconFrame.cooldown:Clear()
@@ -1796,6 +1867,10 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
                     iconFrame.cooldown:Clear()
                 end
             end)
+            if not onCooldown and spellDurObj then
+                iconFrame.cooldown:SetCooldownFromDurationObject(spellDurObj)
+                onCooldown = true
+            end
             if settings.showCooldown ~= false and onCooldown then
                 iconFrame.cooldown:Show()
             else
@@ -2366,12 +2441,30 @@ local function HandleCustomTimedAuraEvent(event, ...)
     return false
 end
 
+local function HasItemCooldownIcon()
+    local db = GetDynamicDB()
+    for _, iconData in pairs((db and db.iconData) or {}) do
+        if iconData.type == "item" or iconData.type == "slot" or iconData.type == "trinketProc" then
+            return true
+        end
+    end
+    return false
+end
+
+local function RefreshItemCooldownIcons(needsLayoutNotify)
+    UpdateAllIcons(needsLayoutNotify)
+    C_Timer.After(0.05, function() UpdateAllIcons(needsLayoutNotify) end)
+    C_Timer.After(0.20, function() UpdateAllIcons(needsLayoutNotify) end)
+end
+
 local function EnsureEventFrame()
     if runtime.eventFrame then return end
     runtime.eventFrame = CreateFrame("Frame")
 
     -- Register for events that should trigger icon updates
     runtime.eventFrame:RegisterEvent("BAG_UPDATE")                    -- Bag contents change
+    runtime.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")            -- Coalesced bag count changes
+    runtime.eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")           -- Item cooldown changes
     runtime.eventFrame:RegisterEvent("ITEM_COUNT_CHANGED")             -- Item counts change
     runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")          -- Spell cooldowns change
     runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")           -- Spell charges change
@@ -2414,10 +2507,13 @@ local function EnsureEventFrame()
         end
 
         local customTimedChanged = HandleCustomTimedAuraEvent(event, ...)
-        if (event == "UNIT_SPELLCAST_SUCCEEDED"
-            or event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
+        if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
             or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
             and not customTimedChanged then
+            return
+        end
+        local hasItemCooldownIcon = (event == "UNIT_SPELLCAST_SUCCEEDED" or event == "BAG_UPDATE_COOLDOWN") and HasItemCooldownIcon()
+        if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon then
             return
         end
 
@@ -2427,12 +2523,19 @@ local function EnsureEventFrame()
             or event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
             or event == "BAG_UPDATE"
+            or event == "BAG_UPDATE_DELAYED"
             or event == "ITEM_COUNT_CHANGED"
         then
             needsLayoutNotify = "force"
         elseif event == "UNIT_AURA" then
             needsLayoutNotify = "aura"
         end
+
+        if hasItemCooldownIcon then
+            RefreshItemCooldownIcons(needsLayoutNotify)
+            return
+        end
+
         UpdateAllIcons(needsLayoutNotify)
     end)
 end
