@@ -80,6 +80,7 @@ local FILTER_VALUES = {
 }
 
 local CDM_ENTRY_CACHE_TTL = 0.5
+local GROUP_QUICK_ASSIGN_ENABLED = false
 local cdmEntryCache
 local cdmEntryCacheTime = 0
 
@@ -724,6 +725,21 @@ function DDingUI:ReorderGroupSystemIcon(groupKey, sourceToken, targetToken, inse
     return true
 end
 
+function DDingUI:ResetGroupSystemIconOrder(groupName)
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return false end
+
+    groupSettings.iconOrder = nil
+    InvalidateCDMIconEntryCache()
+    RefreshGroupSystem()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
+    SoftRefreshDynamicIcons()
+    return true
+end
+
 local function FindDynamicIconInSourceGroup(sourceKey, iconType, spellID)
     if not sourceKey or not iconType or not spellID then return nil end
     local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
@@ -1346,7 +1362,7 @@ local function BuildAssignedSpellsArgs(groupName)
     if count == 0 then
         args.emptyAssigned = {
             type = "description",
-            name = "|cff888888" .. (rawget(L, "No manual assignments. Use Quick Assign or Spell ID below.") or "수동 할당 없음. 아래의 빠른 할당이나 입력창을 이용하세요.") .. "|r",
+            name = "|cff888888" .. (rawget(L, "No manual assignments. Use Spell ID below.") or "수동 할당 없음. 아래 입력창을 이용하세요.") .. "|r",
             order = 11,
             width = "full",
         }
@@ -3208,7 +3224,7 @@ local function CreateGroupOptions(groupName, order)
         groupCategory = not isCDM and {
             type = "select",
             name = L["Group Category"] or "그룹 분류",
-            desc = L["Select category to filter available spells in Quick Assign"] or "빠른 할당에서 표시할 스킬 유형 선택",
+            desc = L["Select category used by spell and icon add controls"] or "스펠/아이콘 추가에서 사용할 분류를 선택합니다",
             order = 0.5, width = "full",
             values = CATEGORY_VALUES,
             get = function()
@@ -3570,6 +3586,23 @@ local function CreateGroupOptions(groupName, order)
         order = 20,
         args = {
             assignedHeader = { type = "header", name = L["Assigned Spells"] or "할당된 스펠", order = 10 },
+            restoreBlizzardOrder = isCDM and {
+                type = "execute",
+                name = L["Restore Blizzard CDM Order"] or "블리자드 CDM 기본 순서로 복원",
+                desc = L["Clear the manual icon order for this group and fall back to Blizzard's current CDM order."] or "이 그룹의 수동 아이콘 순서를 지우고 현재 블리자드 CDM 기본 순서로 되돌립니다.",
+                order = 12,
+                width = "normal",
+                disabled = function()
+                    local gsNow = GetGS()
+                    local iconOrder = gsNow and gsNow.groups and gsNow.groups[groupName] and gsNow.groups[groupName].iconOrder
+                    return type(iconOrder) ~= "table" or next(iconOrder) == nil
+                end,
+                func = function()
+                    if DDingUI.ResetGroupSystemIconOrder and DDingUI:ResetGroupSystemIconOrder(groupName) then
+                        SoftRefreshGroupSystemOptions(0)
+                    end
+                end,
+            } or nil,
             addSpellHeader = { type = "header", name = L["Add Spell"] or "스펠 추가", order = 20 },
             addSpell = {
                 type = "spellSearch", -- [REFACTOR] Ayije 패턴 이식 — 실시간 Spell ID 검증
@@ -3737,13 +3770,13 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            iconGridHeader = { type = "header", name = L["Quick Assign"] or "빠른 할당", order = 30 },
-            iconGrid = {
+            iconGridHeader = GROUP_QUICK_ASSIGN_ENABLED and { type = "header", name = L["Quick Assign"] or "빠른 할당", order = 30 } or nil,
+            iconGrid = GROUP_QUICK_ASSIGN_ENABLED and {
                 type = "groupAssignGrid",
                 name = L["Icon Assignment"] or "아이콘 할당",
                 order = 31,
                 groupName = groupName,
-            },
+            } or nil,
             -- [12.0.1] 추가 옵션: 아이템/장신구 추가 (커스텀/동적 그룹 전용 + skill 카테고리만)
             advancedHeader = showAdvanced and { type = "header", name = L["Advanced Add"] or "추가 옵션 (아이템/장신구)", order = 40 } or nil,
             addItemID = showAdvanced and {
