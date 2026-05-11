@@ -464,7 +464,7 @@ local function IsSpellOnCooldown(iconFrame)
 end
 
 -- Update glow state for an icon frame
-local function UpdateReadyGlow(iconFrame)
+local function UpdateReadyGlow(iconFrame, isTimerFiring)
     if not iconFrame then return end
 
     local iconData = GetFrameData(iconFrame)
@@ -472,15 +472,27 @@ local function UpdateReadyGlow(iconFrame)
     -- Always read fresh spellID from frame (CDM may reuse frames for different spells)
     local spellID = GetSpellIDFromIcon(iconFrame)
     if not spellID then
-        -- Spell gone from this frame — clear cache and hide glow
+        -- Spell gone from this frame — delay hiding to avoid flicker during pool reallocation
         if iconData.readyGlowActive then
-            HideReadyGlow(iconFrame)
+            if isTimerFiring then
+                HideReadyGlow(iconFrame)
+                iconData.cachedSpellID = nil
+            elseif not iconData._readyGlowHideTimer then
+                iconData._readyGlowHideTimer = C_Timer.NewTimer(0.1, function()
+                    iconData._readyGlowHideTimer = nil
+                    if iconFrame and not iconFrame:IsForbidden() then
+                        UpdateReadyGlow(iconFrame, true)
+                    end
+                end)
+            end
+        else
+            iconData.cachedSpellID = nil
         end
-        iconData.cachedSpellID = nil
         return
     end
+
     if spellID ~= iconData.cachedSpellID then
-        -- Spell changed on this frame - hide old glow and reset state
+        -- Spell changed on this frame
         if iconData.readyGlowActive then
             HideReadyGlow(iconFrame)
         end
@@ -495,7 +507,16 @@ local function UpdateReadyGlow(iconFrame)
 
     if not ShouldShowReadyGlow(spellID, viewerType) then
         if iconData.readyGlowActive then
-            HideReadyGlow(iconFrame)
+            if isTimerFiring then
+                HideReadyGlow(iconFrame)
+            elseif not iconData._readyGlowHideTimer then
+                iconData._readyGlowHideTimer = C_Timer.NewTimer(0.1, function()
+                    iconData._readyGlowHideTimer = nil
+                    if iconFrame and not iconFrame:IsForbidden() then
+                        UpdateReadyGlow(iconFrame, true)
+                    end
+                end)
+            end
         end
         return
     end
@@ -523,12 +544,25 @@ local function UpdateReadyGlow(iconFrame)
 
     -- Only update if state actually changed (prevent flashing)
     if shouldGlow then
+        if iconData._readyGlowHideTimer then
+            iconData._readyGlowHideTimer:Cancel()
+            iconData._readyGlowHideTimer = nil
+        end
         if not iconData.readyGlowActive then
             ShowReadyGlow(iconFrame, spellID, viewerType)
         end
     else
         if iconData.readyGlowActive then
-            HideReadyGlow(iconFrame)
+            if isTimerFiring then
+                HideReadyGlow(iconFrame)
+            elseif not iconData._readyGlowHideTimer then
+                iconData._readyGlowHideTimer = C_Timer.NewTimer(0.1, function()
+                    iconData._readyGlowHideTimer = nil
+                    if iconFrame and not iconFrame:IsForbidden() then
+                        UpdateReadyGlow(iconFrame, true)
+                    end
+                end)
+            end
         end
     end
 end
@@ -594,7 +628,7 @@ local function HookCooldownFrame(iconFrame)
         -- OnHide: Buff deactivated - hide glow
         iconFrame:HookScript("OnHide", function(self)
             if GetFrameData(iconFrame).readyGlowActive then
-                HideReadyGlow(iconFrame)
+                UpdateReadyGlow(iconFrame)
             end
         end)
     end
@@ -632,10 +666,6 @@ local function FindAndHookIconForSpell(targetSpellID)
     end
 end
 
--- Refresh all icons with ready glow customizations
--- forceRefresh: true면 활성화된 글로우도 강제로 재적용 (설정 변경 시)
--- targetSpellID: 특정 스펠만 새로고침 (nil이면 전체)
--- targetViewerType: 특정 뷰어만 새로고침 (nil이면 전체)
 local function RefreshAllReadyGlows(forceRefresh, targetSpellID, targetViewerType)
     -- Loop through tracked frames
     for frame, _ in pairs(hookedFrames) do
@@ -648,45 +678,23 @@ local function RefreshAllReadyGlows(forceRefresh, targetSpellID, targetViewerTyp
             end
             local viewerType = frameData.viewerType or nil
 
-            -- Always read fresh spellID (CDM may reuse frames for different spells)
             local freshID = GetSpellIDFromIcon(frame)
-            if not freshID then
-                -- Spell gone from this frame — clear cache and hide glow
-                if frameData.readyGlowActive then
-                    HideReadyGlow(frame)
-                end
-                frameData.cachedSpellID = nil
-            else
-                if freshID ~= frameData.cachedSpellID then
-                    -- Spell changed on this frame - hide old glow
-                    if frameData.readyGlowActive then
-                        HideReadyGlow(frame)
-                    end
-                    frameData.cachedSpellID = freshID
-                end
 
-                -- targetSpellID/targetViewerType 필터
-                if targetSpellID and freshID ~= targetSpellID then
-                    -- skip: 다른 스펠
-                elseif targetViewerType and viewerType ~= targetViewerType then
-                    -- skip: 다른 뷰어
-                else
-                    -- Check if glow should be shown (뷰어별)
-                    if ShouldShowReadyGlow(freshID, viewerType) then
-                        -- forceRefresh면 기존 글로우 숨기고 재적용
-                        if forceRefresh and frameData.readyGlowActive then
-                            HideReadyGlow(frame)
-                            -- 바로 재적용
-                            ShowReadyGlow(frame, freshID, viewerType)
-                        else
-                            UpdateReadyGlow(frame)
-                        end
-                    else
-                        -- Hide glow if customization was removed
-                        if frameData.readyGlowActive then
-                            HideReadyGlow(frame)
-                        end
+            -- targetSpellID/targetViewerType 필터
+            if targetSpellID and freshID ~= targetSpellID then
+                -- skip: 다른 스펠
+            elseif targetViewerType and viewerType ~= targetViewerType then
+                -- skip: 다른 뷰어
+            else
+                if forceRefresh and frameData.readyGlowActive then
+                    HideReadyGlow(frame)
+                    if freshID and ShouldShowReadyGlow(freshID, viewerType) then
+                        -- 바로 재적용
+                        ShowReadyGlow(frame, freshID, viewerType)
                     end
+                else
+                    -- UpdateReadyGlow 내부에 디바운스 및 spellID 캐싱 로직이 완성되어 있으므로 위임
+                    UpdateReadyGlow(frame)
                 end
             end
         end

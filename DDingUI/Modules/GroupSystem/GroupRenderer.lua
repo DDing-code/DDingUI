@@ -8,6 +8,42 @@ if not DDingUI then return end
 local GroupRenderer = {}
 DDingUI.GroupRenderer = GroupRenderer
 
+-- [DEBUG] FrameController DLog 접근
+local function GRLog(...)
+    local fc = DDingUI.FrameController
+    if fc and fc._isDebugLog and fc._isDebugLog() then
+        print("|cffcccc88[GR]|r", ...)
+    end
+end
+
+-- [AYIJE PATTERN] 전투 종료 후 deferred 컨테이너 조작 재실행
+-- Ayije의 combatDirtyViewers 패턴: 전투 중 명명된 프레임 조작 skip → 전투 종료 후 전체 Reconcile
+local regenFrame = CreateFrame("Frame")
+regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+regenFrame:SetScript("OnEvent", function()
+    -- [FIX] pending Show/Hide 처리 (전투 중 named 프레임 Show/Hide 불가 → 전투 종료 시 실행)
+    if GroupRenderer.groupFrames then
+        for _, frame in pairs(GroupRenderer.groupFrames) do
+            if frame._pendingCombatShow then
+                frame._pendingCombatShow = nil
+                frame:Show()
+            elseif frame._pendingCombatHide then
+                frame._pendingCombatHide = nil
+                frame:Hide()
+            end
+        end
+    end
+    -- 전투 종료 → FrameController에 Reconcile 요청 (pending Show/Hide/SetSize 해결)
+    local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
+    if fc and fc.ScheduleReconcile then
+        fc:ScheduleReconcile(0.1)
+    elseif fc and fc.ForceReconcile then
+        C_Timer.After(0.1, function()
+            fc:ForceReconcile()
+        end)
+    end
+end)
+
 -- Locals
 local CreateFrame = CreateFrame
 local math_max = math.max
@@ -18,9 +54,11 @@ local math_abs = math.abs
 local pairs = pairs
 local ipairs = ipairs
 local wipe = wipe
+local table_concat = table.concat
 local IsInRaid = IsInRaid
 local IsInGroup = IsInGroup
 local C_Timer = C_Timer
+local COMBAT_DYNAMIC_MISSING_GRACE = 1.5
 
 -- FrameController 참조 (런타임에 resolve)
 local FC -- FrameController lazy reference
@@ -32,227 +70,308 @@ local function GetFC()
     return FC
 end
 
+local function FindCooldownFontString(...)
+    for i = 1, select("#", ...) do
+        local region = select(i, ...)
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+            return region
+        end
+    end
+    return nil
+end
+
+local function GetCooldownTextFontString(cooldown)
+    if not cooldown then return nil end
+    local cached = cooldown._ddCooldownTextFS
+    if cached and cached.GetObjectType and cached:GetObjectType() == "FontString" then
+        return cached
+    end
+    cached = FindCooldownFontString(cooldown:GetRegions())
+    cooldown._ddCooldownTextFS = cached
+    return cached
+end
+
 -- 그룹 프레임 저장소
 GroupRenderer.groupFrames = {} -- [groupName] = containerFrame
 GroupRenderer._forceFullSetup = false -- [FIX] Refresh 시 강제 재설정 플래그
 
 -- ============================================================
--- [DYNAMIC] CustomIcons 내재화 헬퍼
--- ============================================================
-local function GetDynamicDB()
-    local profile = DDingUI.db and DDingUI.db.profile
-    if not profile then return nil end
-    profile.dynamicIcons = profile.dynamicIcons or {}
-    local db = profile.dynamicIcons
-    db.iconData = db.iconData or {}
-    db.groups = db.groups or {}
-    return db
-end
-
-local function IsIconActive(iconData, iconFrame)
-    if not iconData then return false end
-
-    -- spellbook 체크
-    if iconData.type == "spell" and iconData.id then
-        local spellInfo = C_Spell and C_Spell.GetSpellInfo(iconData.id)
-        if not spellInfo then return false end
-    end
-
-    -- aura 타입: buff 활성 상태 (spellID 및 spellName 기반 폴백)
-    if iconData.type == "aura" and iconData.id then
-        local auraData = nil
-        pcall(function() auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconData.id) end)
-
-        if not auraData and iconFrame and not iconFrame._cachedAuraSpellID then
-            -- 아직 실제 buff spellID를 찾지 못한 경우 (최초 시점)
-            pcall(function()
-                local spellInfo = C_Spell.GetSpellInfo(iconData.id)
-                if spellInfo and spellInfo.name then
-                    AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
-                        if a and a.name == spellInfo.name then
-                            auraData = a
-                            if a.spellId and a.spellId ~= iconData.id then
-                                iconFrame._cachedAuraSpellID = a.spellId
-                            end
-                            return true
-                        end
-                    end)
-                end
-            end)
-        end
-
-        if not auraData and iconFrame and iconFrame._cachedAuraSpellID then
-            pcall(function() auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedAuraSpellID) end)
-            -- 캐시된 ID로도 없으면 지우지 않고 유지 (같은 스펠이면 캐시는 계속 유효하므로)
-        end
-
-        if not auraData then return false end
-    end
-
-    -- loadConditions 체크
-    local settings = iconData.settings
-    if settings and settings.loadConditions and settings.loadConditions.enabled then
-        local lc = settings.loadConditions
-        if lc.specs then
-            local anySpecSet = false
-            for _, v in pairs(lc.specs) do
-                if v then anySpecSet = true; break end
-            end
-            if anySpecSet then
-                local currentSpec = GetSpecialization and GetSpecialization() or 0
-                local specID = currentSpec and GetSpecializationInfo and GetSpecializationInfo(currentSpec) or 0
-                if not lc.specs[specID] then return false end
-            end
-        end
-        if lc.inCombat and not InCombatLockdown() then return false end
-        if lc.outOfCombat and InCombatLockdown() then return false end
-    end
-    return true
-end
-
-local function ApplyTexCoordCrop(texture, zoom, cropAR)
-    if not texture then return end
-    zoom = zoom or 0.08
-    cropAR = cropAR or 1.0
-    local baseU1, baseU2 = zoom, 1 - zoom
-    local baseV1, baseV2 = zoom, 1 - zoom
-    local hSize = baseU2 - baseU1
-    local vSize = baseV2 - baseV1
-    if cropAR < 1.0 then
-        local desiredH = vSize * cropAR
-        local diff = hSize - desiredH
-        baseU1 = baseU1 + (diff / 2)
-        baseU2 = baseU2 - (diff / 2)
-    elseif cropAR > 1.0 then
-        local desiredV = hSize / cropAR
-        local diff = vSize - desiredV
-        baseV1 = baseV1 + (diff / 2)
-        baseV2 = baseV2 - (diff / 2)
-    end
-    texture:SetTexCoord(baseU1, baseU2, baseV1, baseV2)
-end
-
--- ============================================================
--- [FIX] Forward declarations — ProcessDirtyContainers에서 사용하는 변수
--- ============================================================
-local GROUP_VIEWER_MAP  -- 정의: 아래 "그룹 이름 → 소속 뷰어 매핑" 섹션
-local GetViewerSettings  -- 정의: 아래 ViewerLayout 헬퍼 함수 섹션
-
--- ============================================================
--- [FIX] Ayije 패턴: OnUpdate 기반 dirty 컨테이너 배치 레이아웃
--- C_Timer.After(0.03) 대신 OnUpdate로 다음 프레임에 한 번만 처리
--- ============================================================
-local dirtyContainers = setmetatable({}, { __mode = "k" }) -- weak-key: GC 시 자동 정리
-local dirtyProcessorActive = false
-local dirtyProcessorFrame = CreateFrame("Frame")
-
-local function ProcessDirtyContainers(self)
-    dirtyProcessorActive = false
-    self:SetScript("OnUpdate", nil)
-
-    for container in pairs(dirtyContainers) do
-        dirtyContainers[container] = nil
-        if container and container._isDDContainer then
-            local gn = container._groupName
-            if gn then
-                local vn = GROUP_VIEWER_MAP[gn]
-                local vSettings = GetViewerSettings(vn)
-                if vSettings then
-                    GroupRenderer:LayoutGroup(container, vSettings, vn)
-                end
-            end
-            -- 모든 아이콘이 숨겨졌으면 그룹 프레임도 숨기기
-            local anyVis = false
-            for i = 1, (container._iconCount or 0) do
-                local ic = container._managedIcons[i]
-                if ic and ic:IsShown() then anyVis = true; break end
-            end
-            if not anyVis then
-                container:Hide()
-                if DDingUI.ContainerSync then
-                    DDingUI.ContainerSync:SyncAll()
-                end
-            end
-        end
-    end
-end
-
-function GroupRenderer:MarkContainerDirty(container)
-    if not container then return end
-    dirtyContainers[container] = true
-    if not dirtyProcessorActive then
-        dirtyProcessorActive = true
-        dirtyProcessorFrame:SetScript("OnUpdate", ProcessDirtyContainers)
-    end
-end
-
--- ============================================================
 -- [REPARENT] 그룹 이름 → 소속 뷰어 매핑
--- CDM 3대 그룹은 실제 뷰어, 커스텀 그룹은 가상 뷰어 사용
 -- ============================================================
 
-GROUP_VIEWER_MAP = {
+local GROUP_VIEWER_MAP = {
     ["Cooldowns"] = "EssentialCooldownViewer",
     ["Buffs"]     = "BuffIconCooldownViewer",
     ["Utility"]   = "UtilityCooldownViewer",
 }
 
--- [FIX] 커스텀 그룹용 가상 뷰어 등록 — CDM과 동일한 경로(GetViewerSettings 등) 사용
-function GroupRenderer:RegisterVirtualViewer(groupName)
-    if GROUP_VIEWER_MAP[groupName] then return end -- 이미 등록됨
-    local virtualName = "DDingUI_VV_" .. groupName
-    GROUP_VIEWER_MAP[groupName] = virtualName
+local function GroupUsesDurationText(groupName, groupSettings)
+    return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
 end
 
-function GroupRenderer:UnregisterVirtualViewer(groupName)
-    local existing = GROUP_VIEWER_MAP[groupName]
-    if existing and existing:match("^DDingUI_VV_") then
-        GROUP_VIEWER_MAP[groupName] = nil
+local function ResolveCooldownTextStyle(groupName, groupSettings)
+    if not groupSettings then
+        return nil, 0, 0, nil, nil, nil
     end
+
+    if GroupUsesDurationText(groupName, groupSettings) then
+        return groupSettings.durationTextAnchor or groupSettings.cooldownTextAnchor,
+            groupSettings.durationTextOffsetX or groupSettings.cooldownTextOffsetX,
+            groupSettings.durationTextOffsetY or groupSettings.cooldownTextOffsetY,
+            groupSettings.durationTextSize or groupSettings.cooldownFontSize,
+            groupSettings.durationTextFont or groupSettings.cooldownFont,
+            groupSettings.durationTextColor or groupSettings.cooldownTextColor
+    end
+
+    return groupSettings.cooldownTextAnchor,
+        groupSettings.cooldownTextOffsetX,
+        groupSettings.cooldownTextOffsetY,
+        groupSettings.cooldownFontSize,
+        groupSettings.cooldownFont,
+        groupSettings.cooldownTextColor
 end
 
--- [FIX] 커스텀 그룹 설정 → profile.viewers[virtualViewer]에 동기화
--- GS_Range의 VIEWER_REDIRECT_KEYS가 읽고 쓰는 위치와 동일
-local SYNC_KEYS = { "iconSize", "spacing", "aspectRatioCrop", "rowLimit",
-    "primaryDirection", "secondaryDirection", "rowIconSizes",
-    "borderSize", "zoom", "groupAlpha" }
-
-function GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
-    local viewerName = GROUP_VIEWER_MAP[groupName]
-    if not viewerName or not viewerName:match("^DDingUI_VV_") then return end
-    local profile = DDingUI.db and DDingUI.db.profile
-    if not profile then return end
-    profile.viewers = profile.viewers or {}
-    local vs = profile.viewers[viewerName]
-    if not vs then
-        vs = {}
-        profile.viewers[viewerName] = vs
-    end
-    for _, key in ipairs(SYNC_KEYS) do
-        vs[key] = groupSettings[key]
-    end
-    -- direction → primaryDirection 변환
-    if groupSettings.direction and not groupSettings.primaryDirection then
-        vs.primaryDirection = groupSettings.direction
-    end
-    if groupSettings.growDirection and not groupSettings.secondaryDirection then
-        vs.secondaryDirection = groupSettings.growDirection
+local function TagDynamicIconForGroup(icon, groupName, groupSettings)
+    if not icon then return end
+    icon._groupSettings = groupSettings
+    icon._ddGroupName = groupName
+    icon._ddSourceViewer = GROUP_VIEWER_MAP[groupName]
+    if icon.cooldown then
+        icon.cooldown._ddGroupName = groupName
+        icon.cooldown._ddSourceViewer = icon._ddSourceViewer
     end
 end
 
--- [Ayije 통합] SyncViewerToGroup 제거 — groupSettings가 단일 소스, 마이그레이션 불필요
+local function SafeTokenValue(value)
+    if value == nil then return nil end
+    local ok, result = pcall(function()
+        if issecretvalue and issecretvalue(value) then return nil end
+        return tostring(value)
+    end)
+    if ok and result and result ~= "" then return result end
+    return nil
+end
+
+local function BuildCDMOrderToken(entry)
+    if not entry then return nil end
+
+    local spellName = entry.spellName
+    if not spellName and entry.cooldownID then
+        local fc = GetFC()
+        if fc and fc.GetSpellNameForID then
+            spellName = fc:GetSpellNameForID(entry.cooldownID)
+        end
+    end
+
+    if spellName and spellName ~= "" then
+        return "cdm:" .. spellName
+    end
+
+    local fallbackID = SafeTokenValue(entry.cooldownID)
+    if fallbackID then
+        return "cdm_id:" .. fallbackID
+    end
+    return nil
+end
+
+local function BuildDynamicOrderToken(iconKey)
+    if not iconKey then return nil end
+    return "dyn:" .. tostring(iconKey)
+end
+
+local function BuildCDMPlacement(entry)
+    if not entry or not entry.icon then return nil end
+    entry.isCDM = true
+    entry.isDynamic = nil
+    entry._ddOrderToken = BuildCDMOrderToken(entry)
+    return entry
+end
+
+local function BuildDynamicPlacement(entry)
+    if not entry or not entry.frame then return nil end
+    return {
+        isDynamic = true,
+        icon = entry.frame,
+        iconKey = entry.iconKey,
+        entry = entry,
+        cooldownID = entry.iconKey,
+        active = entry.active ~= false,
+        combatKeepAlive = entry.combatKeepAlive and true or false,
+        combatVisible = entry.combatVisible ~= false,
+        _ddOrderToken = BuildDynamicOrderToken(entry.iconKey),
+    }
+end
+
+local function GetDynamicIconData(iconKey)
+    local ci = DDingUI.CustomIcons
+    local db = ci and ci.GetDynamicDB and ci.GetDynamicDB()
+    return db and db.iconData and db.iconData[iconKey]
+end
+
+local function SafeNumber(value)
+    local valueType = type(value)
+    if valueType == "number" then return value end
+    if valueType == "string" then return tonumber(value) end
+    return nil
+end
+
+local function ShouldKeepDynamicIconInCombat(icon)
+    if not icon or not icon._ddIconKey then return false end
+
+    local iconData = GetDynamicIconData(icon._ddIconKey)
+    if not iconData then
+        return true
+    end
+
+    local now = GetTime and GetTime() or 0
+    local function IsStillWithinKnownDuration(...)
+        for i = 1, select("#", ...) do
+            local activeUntil = SafeNumber((select(i, ...)))
+            if activeUntil and activeUntil > now then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Ayije custom buffs hide and reanchor immediately when their timer ends.
+    -- Do not resurrect expired aura/proc frames through combat layout fallback.
+    if iconData.type == "aura" then
+        if IsStillWithinKnownDuration(icon._ddTimedAuraActiveUntil, icon._ddAuraActiveUntil) then
+            return true
+        end
+
+        local ci = DDingUI.CustomIcons
+        if ci and ci.GetActiveCustomTimedAuraForIcon then
+            local timedAura = ci:GetActiveCustomTimedAuraForIcon(iconData)
+            if timedAura then
+                icon._ddTimedAuraActiveUntil = timedAura.expirationTime
+                return true
+            end
+        end
+        if ci and ci.ResolvePlayerAuraForIcon then
+            local auraData = ci:ResolvePlayerAuraForIcon(icon, iconData)
+            if auraData then
+                local expirationTime = SafeNumber(auraData.expirationTime)
+                if expirationTime and expirationTime > 0 then
+                    icon._ddAuraActiveUntil = expirationTime
+                end
+                return true
+            end
+        end
+
+        return IsStillWithinKnownDuration(icon._ddTimedAuraActiveUntil, icon._ddAuraActiveUntil)
+    end
+
+    if iconData.type == "trinketProc" then
+        if IsStillWithinKnownDuration(icon._ddProcActiveUntil) then
+            return true
+        end
+
+        local ci = DDingUI.CustomIcons
+        if ci and ci.ResolveTrinketProcAuraForIcon then
+            local auraData = ci:ResolveTrinketProcAuraForIcon(icon, iconData)
+            if auraData then
+                local duration = SafeNumber(auraData.duration)
+                icon._ddProcActiveUntil = SafeNumber(auraData.expirationTime)
+                    or (duration and (now + duration))
+                    or (now + 0.75)
+                return true
+            end
+        end
+        return icon._trinketProcWasActive == true and IsStillWithinKnownDuration(icon._ddProcActiveUntil)
+    end
+
+    return true
+end
+
+local function RestoreDynamicIconVisibility(icon, groupAlpha, combatVisible)
+    if not icon then return end
+    if icon.Show then
+        icon:Show()
+    end
+    local iconAlpha = combatVisible == false and 0 or (groupAlpha or 1)
+    if icon._ddLastGroupAlpha ~= iconAlpha then
+        icon._ddLastGroupAlpha = iconAlpha
+        icon:SetAlpha(iconAlpha)
+    end
+end
+
+local function RestoreActiveDynamicPlacements(list, groupAlpha)
+    for _, entry in ipairs(list or {}) do
+        if entry and entry.isDynamic then
+            RestoreDynamicIconVisibility(entry.icon, groupAlpha, entry.combatVisible)
+        end
+    end
+end
+
+local function RestoreActiveDynamicEntries(list, groupAlpha)
+    for _, entry in ipairs(list or {}) do
+        if entry then
+            RestoreDynamicIconVisibility(entry.frame, groupAlpha, entry.combatVisible)
+        end
+    end
+end
+
+local function ApplyGroupIconOrder(groupSettings, combinedList)
+    local iconOrder = groupSettings and groupSettings.iconOrder
+    if type(iconOrder) ~= "table" or #iconOrder == 0 then return end
+
+    local orderMap = {}
+    for i, token in ipairs(iconOrder) do
+        if type(token) == "string" and token ~= "" and not orderMap[token] then
+            orderMap[token] = i
+        end
+    end
+
+    for i, entry in ipairs(combinedList) do
+        entry._ddDefaultOrder = i
+        if not entry._ddOrderToken then
+            if entry.isDynamic then
+                entry._ddOrderToken = BuildDynamicOrderToken(entry.iconKey or entry.cooldownID)
+            else
+                entry._ddOrderToken = BuildCDMOrderToken(entry)
+            end
+        end
+    end
+
+    table.sort(combinedList, function(a, b)
+        local aOrder = a._ddOrderToken and orderMap[a._ddOrderToken]
+        local bOrder = b._ddOrderToken and orderMap[b._ddOrderToken]
+        if aOrder or bOrder then
+            return (aOrder or (100000 + (a._ddDefaultOrder or 0))) < (bOrder or (100000 + (b._ddDefaultOrder or 0)))
+        end
+        return (a._ddDefaultOrder or 0) < (b._ddDefaultOrder or 0)
+    end)
+end
 
 -- ============================================================
 -- ViewerLayout 동일 헬퍼 함수들
 -- [REPARENT] 뷰어 설정을 100% 반영하기 위해 ViewerLayout과 동일 로직 복제
 -- ============================================================
 
+local function BuildPlacementHash(combinedList)
+    local parts = {}
+    for i, entry in ipairs(combinedList or {}) do
+        local token = entry._ddOrderToken
+            or (entry.isDynamic and BuildDynamicOrderToken(entry.iconKey or entry.cooldownID))
+            or BuildCDMOrderToken(entry)
+            or tostring(i)
+        local visible = "1"
+        if entry.isDynamic and entry.combatVisible == false then
+            visible = "0"
+        end
+        parts[#parts + 1] = tostring(token) .. ":" .. visible
+    end
+    return table_concat(parts, ";")
+end
+
 local function PixelSnap(val)
     return math_floor(val + 0.5)
 end
 
--- profile.viewers[viewerName] 참조 (forward-declared at top)
-GetViewerSettings = function(viewerName)
+-- profile.viewers[viewerName] 참조
+local function GetViewerSettings(viewerName)
     local profile = DDingUI.db and DDingUI.db.profile
     return viewerName and profile and profile.viewers and profile.viewers[viewerName]
 end
@@ -416,6 +535,8 @@ local function SetIconPosition(icon, container, x, y)
 end
 
 local function SetIconSize(icon, w, h)
+    w = math_max(tonumber(w) or 1, 1)
+    h = math_max(tonumber(h) or w, 1)
     -- 크기 동일하면 skip
     if icon._ddTargetWidth == w and icon._ddTargetHeight == h then return end
     icon._ddTargetWidth = w
@@ -758,15 +879,36 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
             end
         end
 
+        local goX, goY = 0, 0
+        local vn = GROUP_VIEWER_MAP[groupName]
+        if vn then
+            local profile = DDingUI.db and DDingUI.db.profile
+            local vs = profile and profile.viewers and profile.viewers[vn]
+            local overrides = vs and vs.groupOffsets
+            if overrides then
+                if IsInRaid() then
+                    goX = overrides.raid and overrides.raid.x or 0
+                    goY = overrides.raid and overrides.raid.y or 0
+                elseif IsInGroup() then
+                    goX = overrides.party and overrides.party.x or 0
+                    goY = overrides.party and overrides.party.y or 0
+                end
+            end
+        end
+
         local attachTo = groupSettings.attachTo or "UIParent"
         local anchorFrame = _G[attachTo] or UIParent
         local selfPoint = groupSettings.selfPoint or "CENTER"
+        
+        local scaledGoX = DDingUI.Scale and DDingUI:Scale(goX) or goX
+        local scaledGoY = DDingUI.Scale and DDingUI:Scale(goY) or goY
+        
         frame:SetPoint(
             selfPoint,
             anchorFrame,
             groupSettings.anchorPoint or "CENTER",
-            groupSettings.offsetX or 0,
-            groupSettings.offsetY or 0
+            (groupSettings.offsetX or 0) + scaledGoX,
+            (groupSettings.offsetY or 0) + scaledGoY
         )
     end
 
@@ -784,7 +926,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
         for i = 1, (self._iconCount or 0) do
             local ic = self._managedIcons[i]
             if ic and ic._ddIsManaged then
-                if not InCombatLockdown() then ic:Hide() end
+                ic:Hide()
             end
         end
     end)
@@ -793,7 +935,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
             local ic = self._managedIcons[i]
             -- [FIX] _ddingHidden 아이콘은 Show하지 않음 (BuffTrackerBar 추적 중)
             if ic and ic._ddIsManaged and not ic._ddingHidden then
-                if not InCombatLockdown() then ic:Show() end
+                ic:Show()
             end
         end
     end)
@@ -813,215 +955,448 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         frame = self:CreateGroupFrame(groupName, groupSettings)
     end
 
+
     if not groupSettings.enabled then
         self:ReleaseGroupIcons(frame)
-        if not InCombatLockdown() then frame:Hide() end
+        -- [FIX] named 프레임 전투 중 Hide 보호
+        if not frame:IsShown() then return end  -- 이미 숨김
+        if InCombatLockdown() and frame:GetName() then
+            frame._pendingCombatHide = true
+        else
+            frame:Hide()
+        end
         return
     end
 
-    -- [Ayije 통합] CDM + DynBridge 아이콘을 모두 combinedList에 수집 (release 체크 전!)
+    -- [FIX] groupType에 상관없이 sourceGroupKey가 있으면 동적 아이콘을 병합하여 하이브리드(CDM+Dynamic) 지원
+    local dynamicIcons = {}
+    local bridge = DDingUI.DynamicIconBridge
+    if bridge and groupSettings.sourceGroupKey then
+        dynamicIcons = bridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey) or {}
+    end
+    local hasDynamicIcons = false
+
+    -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
     local newSet = {}
     local combinedList = {}
 
-    -- 1. CDM 아이콘 수집
-    for i, entry in ipairs(iconList) do
-        if entry.icon then
-            newSet[entry.icon] = true
-            entry.isCDM = true
-            combinedList[#combinedList + 1] = entry
+    -- CDM icons stay in their source group; dynamic icons are additions.
+    -- 1. CDM icons
+    for _, entry in ipairs(iconList) do
+        local placement = BuildCDMPlacement(entry)
+        if placement then
+            newSet[placement.icon] = true
+            combinedList[#combinedList + 1] = placement
         end
     end
 
-    -- 2. 커스텀 그룹 아이콘 수집 — CustomIcons에서 직접 수집 (DynBridge 우회)
-    if groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
-        local ci = DDingUI.CustomIcons
-        local profile = DDingUI.db and DDingUI.db.profile
-        local dynDB = profile and profile.dynamicIcons
-        local iconFrames = ci and ci.GetAllIconFrames and ci:GetAllIconFrames() or {}
-        local srcGroup = dynDB and dynDB.groups and dynDB.groups[groupSettings.sourceGroupKey]
-        if srcGroup and srcGroup.icons then
-            for _, iconKey in ipairs(srcGroup.icons) do
-                local dynFrame = iconFrames[iconKey]
-                if dynFrame and not newSet[dynFrame] then
-                    newSet[dynFrame] = true
-                    combinedList[#combinedList + 1] = {
-                        icon = dynFrame,
-                        isDynBridge = true,
-                        iconKey = iconKey,
-                        iconData = dynDB.iconData and dynDB.iconData[iconKey],
-                    }
-                end
+    -- 2. Dynamic icons
+    for _, entry in ipairs(dynamicIcons) do
+        local placement = BuildDynamicPlacement(entry)
+        if placement then
+            hasDynamicIcons = true
+            newSet[placement.icon] = true
+            combinedList[#combinedList + 1] = placement
+        end
+    end
+
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    frame._ddDeferredReleaseIcons = frame._ddDeferredReleaseIcons or {}
+    if inCombat and frame._managedIcons then
+        for _, icon in pairs(frame._managedIcons) do
+            if icon and icon._ddIconKey and not newSet[icon] and ShouldKeepDynamicIconInCombat(icon) then
+                newSet[icon] = true
+                combinedList[#combinedList + 1] = {
+                    isDynamic = true,
+                    icon = icon,
+                    iconKey = icon._ddIconKey,
+                    cooldownID = icon._ddIconKey,
+                    active = false,
+                    combatKeepAlive = true,
+                    combatVisible = true,
+                    _ddOrderToken = BuildDynamicOrderToken(icon._ddIconKey),
+                }
+                hasDynamicIcons = true
             end
         end
     end
+    if not inCombat and frame._ddDeferredReleaseIcons then
+        for iconKey, icon in pairs(frame._ddDeferredReleaseIcons) do
+            if icon and not newSet[icon] then
+                local releaseBridge = DDingUI.DynamicIconBridge
+                if releaseBridge then
+                    releaseBridge:ReleaseFrame(icon, iconKey)
+                end
+            end
+            frame._ddDeferredReleaseIcons[iconKey] = nil
+        end
+    end
 
-    -- 3. 제거 대상 아이콘 해제 (newSet에 없는 이전 아이콘)
+    ApplyGroupIconOrder(groupSettings, combinedList)
+    local combinedHash = BuildPlacementHash(combinedList)
+    if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
+        RestoreActiveDynamicPlacements(combinedList, groupSettings.groupAlpha or 1)
+        if #combinedList > 0 and not frame:IsShown() then
+            frame:Show()
+        end
+        return
+    end
+    frame._lastCombinedLayoutHash = combinedHash
+
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] then
+            GRLog("cleanup:", tostring(icon.cooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
             if icon._ddIconKey then
-                local fc = GetFC()
-                if fc and fc.ReleaseFrameFromContainer then
-                    fc:ReleaseFrameFromContainer(icon)
-                    if not InCombatLockdown() then icon:Hide() end
-                end
-            else
-                local fc = GetFC()
-                if fc then
-                    fc:ReleaseFrameFromContainer(icon)
+                -- 동적 아이콘: DDingUI가 소유 → 직접 Hide + Release
+                if inCombat then
+                    frame._ddDeferredReleaseIcons[icon._ddIconKey] = icon
+                    icon._ddCombatKeepAlive = true
+                    icon._ddCombatVisible = false
+                    if icon.Show then icon:Show() end
+                    if icon._ddLastGroupAlpha ~= 0 then
+                        icon._ddLastGroupAlpha = 0
+                        icon:SetAlpha(0)
+                    end
+                else
+                    icon:Hide()
+                    local bridge = DDingUI.DynamicIconBridge
+                    if bridge then bridge:ReleaseFrame(icon, icon._ddIconKey) end
                 end
             end
+            -- [AYIJE PATTERN] CDM 아이콘: cleanup 안 함!
         end
     end
     wipe(frame._managedIcons)
 
     local fc = GetFC()
 
-    -- 뷰어 설정 resolve — CDM 그룹은 profile.viewers, 커스텀은 groupSettings
+    -- [FIX] groupSettings가 단일 소스 — Config UI가 gs.groups[name]에 기록
     local viewerName = GROUP_VIEWER_MAP[groupName]
-    local isCDMViewer = viewerName and not viewerName:match("^DDingUI_VV_")
-    local vs  -- 레이아웃/스킨용 설정
-    if isCDMViewer then
-        -- CDM 그룹: v1.2.4 원래 방식 — profile.viewers에서 직접 읽기
-        vs = GetViewerSettings(viewerName)
-    end
-    if not vs then
-        -- 커스텀 그룹: groupSettings 사용 + direction→primaryDirection 매핑
-        vs = groupSettings
-        if groupSettings.direction then
-            groupSettings.primaryDirection = groupSettings.direction
-        end
-        if groupSettings.growDirection then
-            groupSettings.secondaryDirection = groupSettings.growDirection
-        end
-    end
 
-    -- 기본 아이콘 크기 계산
-    local baseIconW, baseIconH = ComputeIconDimensions(vs)
-    if not baseIconW or baseIconW == 0 then
-        local fallback = vs.iconSize or groupSettings.iconSize or 32
-        baseIconW, baseIconH = fallback, fallback
-    end
+    -- 아이콘 크기: groupSettings에서 직접 계산 (viewer settings 무시)
+    local baseIconW, baseIconH = ComputeIconDimensions(groupSettings)
 
-    -- 스키닝용 프로필 참조
+    -- [FIX] groupSettings를 프레임에 캐시 (OnHide relayout에서 사용)
+    frame._groupSettings = groupSettings
+
+    -- [REPARENT] 스키닝용 프로필 참조 (미리 resolve)
     local IconViewers = DDingUI.IconViewers
     local profile = DDingUI.db and DDingUI.db.profile
     local viewers = profile and profile.viewers
 
-    -- 1단계: SetupFrameInContainer + SkinIcon
+    -- [REPARENT] 1단계: SetupFrameInContainer + SkinIcon (텍스처/테두리/글로우)
+    -- SkinIcon이 LayoutGroup보다 먼저 실행 → LayoutGroup이 최종 크기 결정 (rowIconSizes 보존)
+    -- [FIX] groupSettings 기반 SkinIcon 설정 — 텍스트/테두리/글로우 모두 groupSettings에서 읽음
+    -- CDM 그룹: CopyVO가 viewer→gs.groups로 복사하므로 groupSettings에 텍스트 키 존재
+    -- 커스텀 그룹: BuildCustomTextArgs/GS_Range가 gs.groups에 직접 기록
+    local skinSettingsForGroup = groupSettings
+
     local idx = 0
     for i, entry in ipairs(combinedList) do
         local icon = entry.icon
 
         if icon then
-            -- iconData resolve
-            local iconData = entry.iconData
-            if not iconData and groupSettings.groupType == "dynamic" and groupSettings.sourceGroupKey then
-                local dynDB = profile and profile.dynamicIcons
-                local sourceGroup = dynDB and dynDB.groups[groupSettings.sourceGroupKey]
-                if sourceGroup and sourceGroup.icons then
-                    for _, iconKey in ipairs(sourceGroup.icons) do
-                        local data = dynDB.iconData[iconKey]
-                        if data and (data.id == entry.cooldownID or data.spellName == entry.spellName) then
-                            iconData = data
-                            break
+            if entry.isDynamic then
+                if frame._ddDeferredReleaseIcons then
+                    frame._ddDeferredReleaseIcons[entry.iconKey or entry.cooldownID] = nil
+                end
+                -- [동적 아이콘 스키닝] — 그룹 통일 크기 사용 (baseIconW/baseIconH)
+                local bridge = DDingUI.DynamicIconBridge
+                if bridge then
+                    TagDynamicIconForGroup(icon, groupName, groupSettings)
+                    icon._ddCombatKeepAlive = entry.combatKeepAlive and true or nil
+                    icon._ddCombatVisible = entry.combatVisible ~= false
+                    local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame and not GroupRenderer._forceFullSetup
+                    if not alreadyManaged then
+                        bridge:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID, groupSettings.zoom, groupSettings.aspectRatioCrop)
+                        -- [FIX] CustomIcons 자체 .border 프레임 숨기기 (GroupRenderer _ddBorders와 이중 표시 방지)
+                        if icon.border then icon.border:Hide() end
+                    elseif icon.icon then
+                        -- [FIX] 이미 managed 아이콘도 zoom + 종횡비 크롭 갱신
+                        bridge.ApplyTexCoordCrop(icon.icon, groupSettings.zoom or 0.08, groupSettings.aspectRatioCrop or 1.0)
+                    end
+                    -- [FIX] 동적 아이콘 테두리 적용 (SkinIcon은 CDM 전용이라 사용 불가 — 텍스처 파괴)
+                    -- groupSettings에서 borderSize/borderColor만 적용
+                    local edgeSize = tonumber(groupSettings.borderSize) or 1
+                    if DDingUI and DDingUI.ScaleBorder then
+                        edgeSize = DDingUI:ScaleBorder(edgeSize)
+                    else
+                        edgeSize = math.floor(edgeSize + 0.5)
+                    end
+                    local iconTexture = icon.icon or icon.Icon
+                    if iconTexture then
+                        icon._ddBorders = icon._ddBorders or {}
+                        local borders = icon._ddBorders
+                        if #borders == 0 then
+                            local function CreateBorderLine()
+                                return icon:CreateTexture(nil, "OVERLAY")
+                            end
+                            local top = CreateBorderLine()
+                            top:SetPoint("TOPLEFT", iconTexture, "TOPLEFT", 0, 0)
+                            top:SetPoint("TOPRIGHT", iconTexture, "TOPRIGHT", 0, 0)
+                            local bottom = CreateBorderLine()
+                            bottom:SetPoint("BOTTOMLEFT", iconTexture, "BOTTOMLEFT", 0, 0)
+                            bottom:SetPoint("BOTTOMRIGHT", iconTexture, "BOTTOMRIGHT", 0, 0)
+                            local left = CreateBorderLine()
+                            left:SetPoint("TOPLEFT", iconTexture, "TOPLEFT", 0, 0)
+                            left:SetPoint("BOTTOMLEFT", iconTexture, "BOTTOMLEFT", 0, 0)
+                            local right = CreateBorderLine()
+                            right:SetPoint("TOPRIGHT", iconTexture, "TOPRIGHT", 0, 0)
+                            right:SetPoint("BOTTOMRIGHT", iconTexture, "BOTTOMRIGHT", 0, 0)
+                            icon._ddBorders = { top, bottom, left, right }
+                            borders = icon._ddBorders
+                        end
+                        if #borders >= 4 then
+                            local bc = groupSettings.borderColor or { 0, 0, 0, 1 }
+                            local br, bg, bb, ba = bc[1] or 0, bc[2] or 0, bc[3] or 0, bc[4] or 1
+                            local shouldShow = edgeSize > 0
+                            borders[1]:SetHeight(edgeSize); borders[2]:SetHeight(edgeSize)
+                            borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
+                            for _, borderTex in ipairs(borders) do
+                                borderTex:SetColorTexture(br, bg, bb, ba)
+                                borderTex:SetShown(shouldShow)
+                            end
                         end
                     end
-                end
-            end
 
-            if fc then
+                    -- [FIX] 동적 아이콘 텍스트 파라미터 적용 (SkinIcon 우회)
+                    -- count (스택/충전) 텍스트
+                    if icon.count then
+                        local countAnchor = groupSettings.chargeTextAnchor or "BOTTOMRIGHT"
+                        if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
+                        local cox = tonumber(groupSettings.countTextOffsetX) or 0
+                        local coy = tonumber(groupSettings.countTextOffsetY) or 0
+                        icon.count:ClearAllPoints()
+                        icon.count:SetPoint(countAnchor, iconTexture or icon, countAnchor, cox, coy)
+
+                        local cSize = tonumber(groupSettings.countTextSize)
+                        if cSize and cSize > 0 then
+                            local cFont = DDingUI:GetFont(groupSettings.countTextFont)
+                            icon.count:SetFont(cFont, cSize, "OUTLINE")
+                        end
+
+                        local ctc = groupSettings.countTextColor
+                        if type(ctc) == "table" then
+                            local cr, cg, cb, ca = 1, 1, 1, 1
+                            if ctc.GetRGBA then cr, cg, cb, ca = ctc:GetRGBA()
+                            elseif ctc[1] then cr, cg, cb, ca = ctc[1], ctc[2], ctc[3], ctc[4] or 1
+                            elseif ctc.r then cr, cg, cb, ca = ctc.r, ctc.g, ctc.b, ctc.a or 1 end
+                            icon.count:SetTextColor(cr, cg, cb, ca)
+                        end
+                    end
+
+                    -- duration (지속시간) 텍스트
+                    if icon.cooldown then
+                        local cdAnchor, doxRaw, doyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
+                        local dox = tonumber(doxRaw) or 0
+                        local doy = tonumber(doyRaw) or 0
+                        if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
+
+                        if groupSettings.hideDurationText then
+                            if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(true) end
+                            icon.cooldown.noCooldownCount = true
+                        else
+                            if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(false) end
+                            icon.cooldown.noCooldownCount = nil
+                        end
+
+                        local cdTextFS = GetCooldownTextFontString(icon.cooldown)
+
+                        if cdTextFS then
+                            if groupSettings.hideDurationText then
+                                cdTextFS:Hide()
+                                if not cdTextFS.hookedHideText then
+                                    cdTextFS.hookedHideText = true
+                                    hooksecurefunc(cdTextFS, "Show", function(self)
+                                        local cd = self:GetParent()
+                                        if cd and cd.noCooldownCount then self:Hide() end
+                                    end)
+                                end
+                            else
+                                cdTextFS:Show()
+                                if cdAnchor then
+                                    cdTextFS:ClearAllPoints()
+                                    cdTextFS:SetPoint(cdAnchor, icon.cooldown, cdAnchor, dox, doy)
+                                end
+                                local dSize = tonumber(textSizeRaw)
+                                if dSize and dSize > 0 then
+                                    local dFont = DDingUI:GetFont(textFont)
+                                    cdTextFS:SetFont(dFont, dSize, "OUTLINE")
+                                end
+                                local dtc = textColor
+                                if type(dtc) == "table" then
+                                    local dr, dg, db, da = 1, 1, 1, 1
+                                    if dtc.GetRGBA then dr, dg, db, da = dtc:GetRGBA()
+                                    elseif dtc[1] then dr, dg, db, da = dtc[1], dtc[2], dtc[3], dtc[4] or 1
+                                    elseif dtc.r then dr, dg, db, da = dtc.r, dtc.g, dtc.b, dtc.a or 1 end
+                                    cdTextFS:SetTextColor(dr, dg, db, da)
+                                end
+                            end
+                        end
+                    end
+
+                    idx = idx + 1
+                    frame._managedIcons[idx] = icon
+                    -- CDM 기본 그룹이 아직 숨겨진 상태여도 동적 아이콘은 레이아웃 대상에 포함되어야 한다.
+                    icon:Show()
+                end
+            elseif fc then
+                -- [CDM 아이콘 스키닝]
                 local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
                     and not GroupRenderer._forceFullSetup
                 if not alreadyManaged then
-                    if entry.isDynBridge then
-                        fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, nil)
-                        icon._ddIconKey = entry.iconKey
-                    else
-                        fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
-                    end
+                    GRLog("SetupFrame:", tostring(entry.cooldownID), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
+                    fc:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID)
 
-                    -- SkinIcon — CDM은 원본 뷰어 설정, 커스텀은 groupSettings
-                    if IconViewers and IconViewers.SkinIcon then
-                        if entry.cooldownID then
-                            local srcViewer = fc:GetIconSource(entry.cooldownID)
-                            if srcViewer then icon._ddSourceViewer = srcViewer end
+                    if IconViewers and IconViewers.SkinIcon and entry.cooldownID then
+                        local srcViewer = fc:GetIconSource(entry.cooldownID)
+                        if srcViewer then
+                            icon._ddSourceViewer = srcViewer
                         end
-                        local skinSettings
-                        if isCDMViewer then
-                            -- CDM: 원본 뷰어 설정 (v1.2.4 방식)
-                            local srcViewer = icon._ddSourceViewer
-                            skinSettings = srcViewer and viewers and viewers[srcViewer]
-                        else
-                            -- 커스텀: groupSettings
-                            skinSettings = groupSettings
-                        end
-                        if skinSettings then
-                            pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettings)
-                        end
-                    end
-
-                    -- 개별 아이콘 설정 오버라이드
-                    if iconData and icon.icon then
-                        if iconData.useCustomTex and iconData.texID then
-                            icon.icon:SetTexture(iconData.texID)
-                        end
-                        if iconData.desaturate then
-                            icon.icon:SetDesaturated(true)
-                        else
-                            icon.icon:SetDesaturated(false)
-                        end
-                        if iconData.borderColor and icon.border then
-                            icon.border:SetVertexColor(unpack(iconData.borderColor))
-                        end
+                        pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettingsForGroup)
                     end
                 else
                     icon._ddLastCooldownID = entry.cooldownID
-                    if entry.isDynBridge then
-                        icon._ddIconKey = entry.iconKey
-                    end
                 end
                 idx = idx + 1
                 frame._managedIcons[idx] = icon
             end
 
-            -- OnHide → dirty 컨테이너 등록
+            -- [FIX] 동적 그룹 아이콘 등 새로 할당된 아이콘 가시성 복구
+            -- 컨테이너가 이미 보이는 상태에서 아이콘이 추가되면 OnShow가 안 타므로 직접 Show
+            if frame:IsShown() and not icon._ddSuppressed and not icon._ddingHidden then
+                if not icon:IsShown() then
+                    icon:Show()
+                end
+            end
+
+            -- [FIX] OnHide 디바운스 재배치: 여러 아이콘 hide를 0.05초 내 한 번에 처리
+            -- 즉시 호출 시 매 아이콘 hide마다 전체 ClearAllPoints → 깜빡임/겹침 유발
             if not icon._ddLayoutHooked then
                 icon._ddLayoutHooked = true
                 icon:HookScript("OnHide", function(self)
                     if not self._ddIsManaged then return end
+                    -- [REPARENT] _ddContainerRef 사용 (parent는 UIParent)
                     local p = self._ddContainerRef
                     if not (p and p._isDDContainer and p._groupName) then return end
-                    GroupRenderer:MarkContainerDirty(p)
+                    local gn = p._groupName
+                    if not gn then return end
+
+                    -- 디바운스: 0.03초 후 한 번만 레이아웃
+                    if not p._ddLayoutPending then
+                        p._ddLayoutPending = true
+                        C_Timer.After(0.03, function()
+                            p._ddLayoutPending = nil
+                            if not (p and p._isDDContainer) then return end
+                            if InCombatLockdown() then return end -- [FIX] 전투 중 SetSize 보호
+
+                            -- [FIX] 캐시된 groupSettings 사용 (viewer settings 대신)
+                            local cachedGS = p._groupSettings
+                            if cachedGS then
+                                local vn2 = GROUP_VIEWER_MAP[gn]
+                                local ls = {
+                                    iconSize = cachedGS.iconSize or 32,
+                                    aspectRatioCrop = cachedGS.aspectRatioCrop or 1.0,
+                                    spacing = cachedGS.spacing or 2,
+                                    primaryDirection = cachedGS.direction or "RIGHT",
+                                    secondaryDirection = cachedGS.growDirection,
+                                    rowLimit = cachedGS.rowLimit or 0,
+                                    rowIconSizes = cachedGS.rowIconSizes,
+                                }
+                                GroupRenderer:LayoutGroup(p, ls, vn2)
+                            end
+                            -- 모든 아이콘이 숨겨졌으면 그룹 프레임도 숨기기
+                            local anyVis = false
+                            for i = 1, (p._iconCount or 0) do
+                                local ic = p._managedIcons[i]
+                                if ic and ic:IsShown() then anyVis = true; break end
+                            end
+                            if not anyVis then
+                                p:Hide()
+                                if DDingUI.ContainerSync then
+                                    DDingUI.ContainerSync:SyncAll()
+                                end
+                            end
+                        end)
+                    end
                 end)
             end
         end
     end
     frame._iconCount = idx
 
-    -- LayoutGroup — CDM은 vs(profile.viewers), 커스텀은 groupSettings
-    self:LayoutGroup(frame, vs, viewerName)
+    -- [FIX] groupSettings → LayoutGroup 형식 변환 (모든 그룹 통일)
+    -- Config UI가 gs.groups[name]에 기록한 값을 직접 사용
+    -- [FIX] groupOffsets: ViewerOptions SaveGroupOffset은 viewers[viewerKey]에 저장하므로
+    -- 실시간 반영을 위해 viewers DB를 직접 읽음. 비-CDM 그룹은 groupSettings에서 읽음.
+    local resolvedGroupOffsets = groupSettings.groupOffsets
+    if viewerName then
+        local profile = DDingUI.db and DDingUI.db.profile
+        local vs = profile and profile.viewers and profile.viewers[viewerName]
+        if vs and vs.groupOffsets then
+            resolvedGroupOffsets = vs.groupOffsets
+        end
+    end
+    local layoutSettings = {
+        iconSize = groupSettings.iconSize or 32,
+        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
+        spacing = groupSettings.spacing or 2,
+        primaryDirection = groupSettings.direction or "RIGHT",
+        secondaryDirection = groupSettings.growDirection,
+        rowLimit = groupSettings.rowLimit or 0,
+        rowIconSizes = groupSettings.rowIconSizes,
+        groupOffsets = resolvedGroupOffsets,
+    }
+
+    -- 2단계: LayoutGroup (최종 크기/위치 결정 — rowIconSizes 반영)
+    self:LayoutGroup(frame, layoutSettings, viewerName)
 
     if idx > 0 then
         -- [FIX] CDM 뷰어의 IsShown() 반영 (전투 외 버프 숨김 등)
         -- ContainerSync는 alpha=0만 설정 → CDM의 Show/Hide는 그대로 유지
-        -- 뷰어가 CDM에 의해 숨겨진 상태면 아이콘만 숨김 (프레임은 유지 — 앵커 보존)
+        -- 뷰어가 CDM에 의해 숨겨진 상태면 CDM 아이콘만 숨김.
+        -- 물약/장신구 같은 동적 아이콘이 있으면 기본 CDM 그룹에서도 독립적으로 표시한다.
         local sourceViewer = viewerName and _G[viewerName]
-        if sourceViewer and not sourceViewer:IsShown() then
+        if sourceViewer and not sourceViewer:IsShown() and not hasDynamicIcons then
             -- [FIX] 프레임 자체는 숨기지 않음 — 앵커 체인 보존
             for i = 1, idx do
                 local ic = frame._managedIcons[i]
-                if ic then
-                    if not InCombatLockdown() then ic:Hide() end
-                end
+                if ic then ic:Hide() end
             end
         else
-            if not InCombatLockdown() then frame:Show() end
+            if sourceViewer and not sourceViewer:IsShown() and hasDynamicIcons then
+                for i = 1, idx do
+                    local ic = frame._managedIcons[i]
+                    if ic then
+                        if ic._ddIconKey then
+                            ic:Show()
+                        else
+                            ic:Hide()
+                        end
+                    end
+                end
+            end
+            -- [FIX] 이미 보이면 Skip (전투 중 불필요한 Show 방지)
+            if not frame:IsShown() then
+                if InCombatLockdown() and frame:GetName() then
+                    frame._pendingCombatShow = true
+                else
+                    frame:Show()
+                end
+            end
         end
     else
         -- [FIX] 아이콘 0개여도 프레임을 숨기지 않음
         -- 숨기면 이 그룹에 앵커된 프레임들의 앵커가 끊어져 엘레베이터 현상 발생
         -- 프레임은 비어있지만 :IsShown()=true 유지 → 앵커 체인 보존
-        if not InCombatLockdown() then frame:Show() end
+        -- [FIX] 이미 보이면 Skip
+        if not frame:IsShown() then
+            if InCombatLockdown() and frame:GetName() then
+                frame._pendingCombatShow = true
+            else
+                frame:Show()
+            end
+        end
     end
 
     -- [12.0.1] 그룹 아이콘 투명도 적용
@@ -1030,94 +1405,30 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     local flightHiding = fh and (fh.isActive or fh._hiding)
     local groupAlpha = flightHiding and 0 or (groupSettings.groupAlpha or 1.0)
 
-    -- [FIX] 비행 중 컨테이너 프레임 자체 알파도 0으로 (FlightHide OnUpdate가 alpha=0 도달 후 재적용 안 하므로)
-    if flightHiding then
-        frame:SetAlpha(0)
-    else
-        frame:SetAlpha(groupSettings.groupAlpha or 1.0)
+    -- [FIX Ayije] 컨테이너 프레임 alpha: 변경 시에만 SetAlpha (매 틱 호출 방지)
+    if frame._ddLastFrameAlpha ~= groupAlpha then
+        frame._ddLastFrameAlpha = groupAlpha
+        frame:SetAlpha(groupAlpha)
     end
 
     for i = 1, idx do
         local ic = frame._managedIcons[i]
         if ic then
             -- [FIX] BuffTrackerBar가 _ddingHidden으로 숨긴 아이콘은 alpha 유지 (깜빡임 방지)
+            -- [FIX Ayije] alpha 실제 변경 시에만 SetAlpha → CooldownFrame 재렌더 방지
+            -- 스와이프·아이콘색상 동시 깜빡임의 근본 원인 차단
             if not ic._ddingHidden then
-                ic:SetAlpha(groupAlpha)
+                local iconAlpha = groupAlpha
+                if ic._ddIconKey and ic._ddCombatKeepAlive and ic._ddCombatVisible == false then
+                    iconAlpha = 0
+                end
+                if ic._ddLastGroupAlpha ~= iconAlpha then
+                    ic._ddLastGroupAlpha = iconAlpha
+                    ic:SetAlpha(iconAlpha)
+                end
             end
         end
     end
-end
-
--- ============================================================
--- [FIX] 편집모드 팬텀 크기 계산
--- 그룹의 전체 아이콘 수 × 레이아웃 설정으로 LayoutGroup과 동일한 크기 산출
--- ============================================================
-function GroupRenderer:ComputeEditModeSize(groupName)
-    local gsDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
-    if not gsDB or not gsDB.groups then return nil, nil end
-    local grpCfg = gsDB.groups[groupName]
-    if not grpCfg then return nil, nil end
-
-    -- 1. 총 아이콘 수 계산 (CDM 할당 + 동적 아이콘)
-    local totalIcons = 0
-    -- CDM spellAssignments
-    if gsDB.spellAssignments then
-        for _, grp in pairs(gsDB.spellAssignments) do
-            if grp == groupName then
-                totalIcons = totalIcons + 1
-            end
-        end
-    end
-    -- 동적 아이콘 (CustomIcons)
-    local sourceKey = grpCfg.sourceGroupKey
-    if sourceKey then
-        local dynDB = DDingUI.db.profile.dynamicIcons
-        local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
-        if dynGroup and dynGroup.icons then
-            totalIcons = totalIcons + #dynGroup.icons
-        end
-    end
-
-    if totalIcons <= 0 then return nil, nil end
-
-    -- 2. 뷰어 설정 구성 (그룹 설정에서 레이아웃 관련 필드 수집)
-    local vs = {}
-    vs.iconSize = grpCfg.iconSize or 32
-    vs.spacing = grpCfg.spacing or 2
-    vs.rowLimit = grpCfg.rowLimit or 0
-    vs.primaryDirection = grpCfg.primaryDirection or "CENTERED_HORIZONTAL"
-    vs.secondaryDirection = grpCfg.secondaryDirection
-    vs.growthDirection = grpCfg.growthDirection
-    -- 종횡비: 숫자(aspectRatioCrop) 또는 문자열("W:H" 형태)
-    if grpCfg.aspectRatioCrop then
-        vs.aspectRatioCrop = grpCfg.aspectRatioCrop
-    elseif grpCfg.aspectRatio then
-        vs.aspectRatio = grpCfg.aspectRatio
-    end
-
-    -- 3. 아이콘 크기 계산 (종횡비 반영)
-    local iconW, iconH = ComputeIconDimensions(vs)
-    local spacing = ComputeSpacing(vs)
-
-    -- 4. 방향 및 rowLimit
-    local _, _, rowLimit, layoutType = ResolveDirections(nil, vs)
-    if rowLimit <= 0 then rowLimit = totalIcons end
-
-    -- 5. 행/열 계산
-    local rows = math.ceil(totalIcons / rowLimit)
-    local cols = math.min(totalIcons, rowLimit)
-
-    -- 6. 전체 크기 (VERTICAL이면 가로/세로 스왑)
-    local w, h
-    if layoutType == "VERTICAL" then
-        w = rows * iconW + math.max(rows - 1, 0) * spacing
-        h = cols * iconH + math.max(cols - 1, 0) * spacing
-    else
-        w = cols * iconW + math.max(cols - 1, 0) * spacing
-        h = rows * iconH + math.max(rows - 1, 0) * spacing
-    end
-
-    return math.max(math.floor(w + 0.5), 1), math.max(math.floor(h + 0.5), 1)
 end
 
 -- ============================================================
@@ -1189,31 +1500,17 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     end
 
     if count == 0 then
-        -- [FIX] 편집모드에서 다이나믹 그룹: 등록된 전체 아이콘 수 기반 크기
-        local isEditMode = (DDingUI.Movers and DDingUI.Movers.ConfigMode)
-            or (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive())
-        if isEditMode and frame._groupName and not isCoreGroup then
-            local gsDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
-            local grpCfg = gsDB and gsDB.groups and gsDB.groups[frame._groupName]
-            local sourceKey = grpCfg and grpCfg.sourceGroupKey
-            if sourceKey then
-                local dynDB = DDingUI.db.profile.dynamicIcons
-                local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
-                local totalIcons = dynGroup and dynGroup.icons and #dynGroup.icons or 0
-                if totalIcons > 0 then
-                    local vs = viewerSettings or {}
-                    local iconW, iconH = ComputeIconDimensions(vs)
-                    local spacing = ComputeSpacing(vs)
-                    local rowLimit = vs.rowLimit or 0
-                    if rowLimit <= 0 then rowLimit = totalIcons end
-                    local rows = math.ceil(totalIcons / rowLimit)
-                    local cols = math.min(totalIcons, rowLimit)
-                    phantomW = math_max(cols * iconW + math.max(cols - 1, 0) * spacing, 1)
-                    phantomH = math_max(rows * iconH + math.max(rows - 1, 0) * spacing, 1)
-                end
-            end
+        if frame._lastLayoutW and frame._lastLayoutW > phantomW then
+            phantomW = frame._lastLayoutW
         end
-        frame:SetSize(phantomW, phantomH)
+        if frame._lastLayoutH and frame._lastLayoutH > phantomH then
+            phantomH = frame._lastLayoutH
+        end
+        if InCombatLockdown() and frame:GetName() then
+            frame._pendingLayoutSize = { phantomW, phantomH }
+        else
+            frame:SetSize(phantomW, phantomH)
+        end
         frame._lastLayoutW = phantomW
         frame._lastLayoutH = phantomH
         frame.__cdmIconWidth = phantomW
@@ -1310,7 +1607,27 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         end
     end
 
-    frame:SetSize(finalW, finalH)
+    -- [FIX] 전투 중 SetSize 보호 함수 에러 방지
+    -- 명명된 프레임(DDingUI_Group_*)은 전투 중 SetSize 불가 → defer
+    if InCombatLockdown() and frame:GetName() then
+        frame._pendingLayoutSize = { finalW, finalH }
+        -- 전투 종료 후 재적용
+        if not GroupRenderer._combatDeferFrame then
+            GroupRenderer._combatDeferFrame = CreateFrame("Frame")
+            GroupRenderer._combatDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            GroupRenderer._combatDeferFrame:SetScript("OnEvent", function()
+                for _, gf in pairs(GroupRenderer.groupFrames or {}) do
+                    if gf._pendingLayoutSize then
+                        local pw, ph = gf._pendingLayoutSize[1], gf._pendingLayoutSize[2]
+                        gf:SetSize(pw, ph)
+                        gf._pendingLayoutSize = nil
+                    end
+                end
+            end)
+        end
+    else
+        frame:SetSize(finalW, finalH)
+    end
     frame._lastLayoutW = finalW  -- [FIX] 엘레베이터 방지: count==0일 때 이 크기 유지
     frame._lastLayoutH = finalH
 
@@ -1399,7 +1716,7 @@ function GroupRenderer:ReleaseGroupIcons(frame)
         if icon then
             if icon._ddIconKey then
                 -- [FIX] 동적 아이콘: bridge로 해제 + 숨기기
-                if icon.Hide and not InCombatLockdown() then icon:Hide() end
+                if icon.Hide then icon:Hide() end
                 iconsToHide[#iconsToHide + 1] = icon
                 if bridge then bridge:ReleaseFrame(icon, icon._ddIconKey) end
             else
@@ -1412,14 +1729,14 @@ function GroupRenderer:ReleaseGroupIcons(frame)
     end
     
     -- 동적 아이콘은 Release 후 reparent로 Show될 수 있으므로 다시 Hide
-    if not InCombatLockdown() then
-        for _, icon in ipairs(iconsToHide) do
-            if icon.Hide then icon:Hide() end
-        end
+    for _, icon in ipairs(iconsToHide) do
+        if icon.Hide then icon:Hide() end
     end
     
     wipe(frame._managedIcons)
     frame._iconCount = 0
+    frame._lastCombinedLayoutHash = nil
+    frame._lastDynHash = nil
 end
 
 function GroupRenderer:RestoreAllIcons()
@@ -1436,7 +1753,7 @@ function GroupRenderer:DestroyAllGroups()
     self:RestoreAllIcons()
 
     for groupName, frame in pairs(self.groupFrames) do
-        if not InCombatLockdown() then frame:Hide() end
+        frame:Hide()
     end
     wipe(self.groupFrames)
 
@@ -1468,7 +1785,7 @@ function GroupRenderer:DestroyGroup(groupName)
         end
     end
 
-    if not InCombatLockdown() then frame:Hide() end
+    frame:Hide()
     self.groupFrames[groupName] = nil
 end
 
@@ -1500,13 +1817,11 @@ function GroupRenderer:SyncViewerVisibility(viewerName)
         frame._viewerHidden = false
 
         if frame._iconCount and frame._iconCount > 0 then
-            if not InCombatLockdown() then frame:Show() end
+            frame:Show()
             for i = 1, (frame._iconCount or 0) do
                 local ic = frame._managedIcons and frame._managedIcons[i]
                 -- [FIX] _ddingHidden 아이콘은 Show하지 않음 (BuffTrackerBar 추적 중)
-                if ic and not ic._ddingHidden then
-                    if not InCombatLockdown() then ic:Show() end
-                end
+                if ic and not ic._ddingHidden then ic:Show() end
             end
         end
 
@@ -1529,10 +1844,333 @@ function GroupRenderer:SyncViewerVisibility(viewerName)
         frame._viewerHidden = true
         for i = 1, (frame._iconCount or 0) do
             local ic = frame._managedIcons and frame._managedIcons[i]
-            if ic then
-                if not InCombatLockdown() then ic:Hide() end
-            end
+            if ic then ic:Hide() end
         end
     end
 end
 
+-- ============================================================
+-- [DYNAMIC] UpdateDynamicGroup: CustomIcons 프레임을 그룹 컨테이너에 배치
+-- DynamicIconBridge를 통해 활성 아이콘을 가져와 GroupRenderer 레이아웃 엔진으로 배치
+-- ============================================================
+
+function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
+    if not frame then
+        frame = self.groupFrames[groupName]
+        if not frame then
+            frame = self:CreateGroupFrame(groupName, groupSettings)
+        end
+    end
+
+    if not groupSettings or not groupSettings.enabled then
+        self:ReleaseGroupIcons(frame)
+        frame:Hide()
+        return
+    end
+
+    local bridge = DDingUI.DynamicIconBridge
+    if not bridge then
+        frame:Hide()
+        return
+    end
+
+    -- [DYNAMIC] sourceGroupKey로 해당 CustomIcons 그룹의 아이콘만 요청
+    local sourceKey = groupSettings.sourceGroupKey
+    if not sourceKey then
+        frame:Hide()
+        return
+    end
+    local activeIcons = bridge:GetActiveIconsForGroup(sourceKey)
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    local now = GetTime and GetTime() or 0
+    if inCombat and frame._managedIcons then
+        local existingKeys = {}
+        for _, entry in ipairs(activeIcons) do
+            if entry.iconKey then
+                existingKeys[entry.iconKey] = true
+            end
+            if entry.frame then
+                entry.frame._ddCombatMissingSince = nil
+            end
+        end
+        for _, icon in pairs(frame._managedIcons) do
+            local iconKey = icon and icon._ddIconKey
+            if iconKey and not existingKeys[iconKey] then
+                local keepVisible = ShouldKeepDynamicIconInCombat(icon)
+                if keepVisible then
+                    icon._ddCombatMissingSince = nil
+                else
+                    icon._ddCombatMissingSince = icon._ddCombatMissingSince or now
+                    keepVisible = (now - icon._ddCombatMissingSince) <= COMBAT_DYNAMIC_MISSING_GRACE
+                end
+                if keepVisible then
+                    existingKeys[iconKey] = true
+                    activeIcons[#activeIcons + 1] = {
+                        iconKey = iconKey,
+                        frame = icon,
+                        iconData = nil,
+                        active = false,
+                        combatKeepAlive = true,
+                        combatVisible = true,
+                    }
+                end
+            end
+        end
+    end
+
+    -- [FIX] 아이콘 구성이 변경되지 않았으면 전체 레이아웃 스킵 (0x0 플래시 방지)
+    -- 매 틱마다 wipe→재배치→LayoutGroup을 실행하면 중간에 크기가 0x0이 되었다가 복구됨
+    -- → 아이콘 추가/제거/전문화 변경 시에만 재실행
+    local newKeyHash = ""
+    for _, entry in ipairs(activeIcons) do
+        local visibleToken = (inCombat and ":c") or (entry.combatVisible == false and ":0" or ":1")
+        newKeyHash = newKeyHash .. (entry.iconKey or "") .. visibleToken .. ";"
+    end
+    local hasDeferredRelease = false
+    if not inCombat and frame._ddDeferredReleaseIcons then
+        for _ in pairs(frame._ddDeferredReleaseIcons) do
+            hasDeferredRelease = true
+            break
+        end
+    end
+    if frame._lastDynHash and frame._lastDynHash == newKeyHash
+       and not GroupRenderer._forceFullSetup
+       and not hasDeferredRelease then
+        RestoreActiveDynamicEntries(activeIcons, groupSettings.groupAlpha or 1)
+        if #activeIcons > 0 and not frame:IsShown() then
+            frame:Show()
+        end
+        return  -- 아이콘 구성 동일 → 레이아웃 불필요
+    end
+    frame._lastDynHash = newKeyHash
+
+    -- 기존 managed 아이콘 중 이번 리스트에 없는 것 release
+    local newSet = {}
+    for _, entry in ipairs(activeIcons) do
+        newSet[entry.iconKey] = true
+    end
+    frame._ddDeferredReleaseIcons = frame._ddDeferredReleaseIcons or {}
+    if not inCombat then
+        for iconKey, icon in pairs(frame._ddDeferredReleaseIcons) do
+            if icon and not newSet[iconKey] then
+                bridge:ReleaseFrame(icon, iconKey)
+            end
+            frame._ddDeferredReleaseIcons[iconKey] = nil
+        end
+    end
+    if frame._managedIcons then
+        for _, icon in pairs(frame._managedIcons) do
+            if icon and icon._ddIconKey and not newSet[icon._ddIconKey] then
+                if inCombat then
+                    frame._ddDeferredReleaseIcons[icon._ddIconKey] = icon
+                    icon._ddCombatKeepAlive = true
+                    icon._ddCombatVisible = false
+                    if icon.Show then icon:Show() end
+                    if icon._ddLastGroupAlpha ~= 0 then
+                        icon._ddLastGroupAlpha = 0
+                        icon:SetAlpha(0)
+                    end
+                else
+                    bridge:ReleaseFrame(icon, icon._ddIconKey)
+                end
+            end
+        end
+    end
+    frame._managedIcons = frame._managedIcons or {}
+    wipe(frame._managedIcons)
+
+    -- 아이콘 크기 계산
+    frame._groupSettings = groupSettings
+
+    local baseIconW, baseIconH = ComputeIconDimensions({
+        iconSize = groupSettings.iconSize or 32,
+        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
+    })
+
+    -- 아이콘 설정 + 컨테이너 배치
+    local idx = 0
+    for _, entry in ipairs(activeIcons) do
+        local icon = entry.frame
+        if icon then
+            if frame._ddDeferredReleaseIcons then
+                frame._ddDeferredReleaseIcons[entry.iconKey] = nil
+            end
+            icon._ddCombatMissingSince = nil
+            -- 개별 아이콘 크기 오버라이드 (아이콘 자체 settings.iconSize)
+            TagDynamicIconForGroup(icon, groupName, groupSettings)
+            icon._ddCombatKeepAlive = entry.combatKeepAlive and true or nil
+            icon._ddCombatVisible = entry.combatVisible ~= false
+
+            local iw, ih = baseIconW, baseIconH
+            local iconData = entry.iconData
+            if iconData and iconData.settings and iconData.settings.iconSize then
+                iw, ih = ComputeIconDimensions({
+                    iconSize = iconData.settings.iconSize,
+                    aspectRatioCrop = iconData.settings.aspectRatio or groupSettings.aspectRatioCrop or 1.0,
+                })
+            end
+
+            -- SetupFrameInContainer (이미 managed면 위치만 갱신)
+            local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
+                and not GroupRenderer._forceFullSetup
+            if not alreadyManaged then
+                bridge:SetupFrameInContainer(icon, frame, iw, ih, entry.iconKey, groupSettings.zoom, groupSettings.aspectRatioCrop)
+            elseif icon.icon then
+                -- [FIX] 이미 managed 아이콘도 zoom + 종횡비 크롭 갱신
+                bridge.ApplyTexCoordCrop(icon.icon, groupSettings.zoom or 0.08, groupSettings.aspectRatioCrop or 1.0)
+            end
+
+            -- [FIX] 동적 그룹 테두리 적용
+            local iconTexture = icon.icon or icon.Icon
+            if iconTexture then
+                local edgeSize = tonumber(groupSettings.borderSize) or 1
+                if DDingUI and DDingUI.ScaleBorder then
+                    edgeSize = DDingUI:ScaleBorder(edgeSize)
+                else
+                    edgeSize = math.floor(edgeSize + 0.5)
+                end
+                
+                icon._ddBorders = icon._ddBorders or {}
+                local borders = icon._ddBorders
+                if #borders == 0 then
+                    local function CreateBorderLine() return icon:CreateTexture(nil, "OVERLAY") end
+                    borders[1] = CreateBorderLine(); borders[1]:SetPoint("TOPLEFT", iconTexture, "TOPLEFT", 0, 0); borders[1]:SetPoint("TOPRIGHT", iconTexture, "TOPRIGHT", 0, 0)
+                    borders[2] = CreateBorderLine(); borders[2]:SetPoint("BOTTOMLEFT", iconTexture, "BOTTOMLEFT", 0, 0); borders[2]:SetPoint("BOTTOMRIGHT", iconTexture, "BOTTOMRIGHT", 0, 0)
+                    borders[3] = CreateBorderLine(); borders[3]:SetPoint("TOPLEFT", iconTexture, "TOPLEFT", 0, 0); borders[3]:SetPoint("BOTTOMLEFT", iconTexture, "BOTTOMLEFT", 0, 0)
+                    borders[4] = CreateBorderLine(); borders[4]:SetPoint("TOPRIGHT", iconTexture, "TOPRIGHT", 0, 0); borders[4]:SetPoint("BOTTOMRIGHT", iconTexture, "BOTTOMRIGHT", 0, 0)
+                end
+                if #borders >= 4 then
+                    local bc = groupSettings.borderColor or { 0, 0, 0, 1 }
+                    local br, bg, bb, ba = 0, 0, 0, 1
+                    if type(bc) == "table" and bc.GetRGBA then br, bg, bb, ba = bc:GetRGBA()
+                    elseif type(bc) == "table" and bc[1] then br, bg, bb, ba = bc[1], bc[2], bc[3], bc[4] or 1
+                    elseif type(bc) == "table" and bc.r then br, bg, bb, ba = bc.r, bc.g, bc.b, bc.a or 1 end
+                    
+                    borders[1]:SetHeight(edgeSize); borders[2]:SetHeight(edgeSize)
+                    borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
+                    for _, borderTex in ipairs(borders) do
+                        borderTex:SetColorTexture(br, bg, bb, ba)
+                        borderTex:SetShown(edgeSize > 0)
+                    end
+                end
+            end
+
+            -- [FIX] 동적 그룹 텍스트 파라미터 적용
+            if icon.count then
+                local anchor = groupSettings.chargeTextAnchor or "BOTTOMRIGHT"
+                if anchor == "MIDDLE" then anchor = "CENTER" end
+                local ox = tonumber(groupSettings.countTextOffsetX) or 0
+                local oy = tonumber(groupSettings.countTextOffsetY) or 0
+                icon.count:ClearAllPoints()
+                icon.count:SetPoint(anchor, iconTexture or icon, anchor, ox, oy)
+                
+                local size = tonumber(groupSettings.countTextSize)
+                if size and size > 0 then
+                    local font = DDingUI:GetFont(groupSettings.countTextFont)
+                    icon.count:SetFont(font, size, "OUTLINE")
+                end
+                
+                local tc = groupSettings.countTextColor
+                if type(tc) == "table" then
+                    local r, g, b, a = 1, 1, 1, 1
+                    if tc.GetRGBA then r, g, b, a = tc:GetRGBA()
+                    elseif tc[1] then r, g, b, a = tc[1], tc[2], tc[3], tc[4] or 1
+                    elseif tc.r then r, g, b, a = tc.r, tc.g, tc.b, tc.a or 1 end
+                    icon.count:SetTextColor(r, g, b, a)
+                end
+            end
+
+            if icon.cooldown then
+                local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
+                local ox = tonumber(oxRaw) or 0
+                local oy = tonumber(oyRaw) or 0
+                if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
+                
+                if groupSettings.hideDurationText then
+                    if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(true) end
+                    icon.cooldown.noCooldownCount = true
+                else
+                    if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(false) end
+                    icon.cooldown.noCooldownCount = nil
+                end
+
+                local cdText = GetCooldownTextFontString(icon.cooldown)
+
+                if cdText then
+                    if groupSettings.hideDurationText then
+                        cdText:Hide()
+                        if not cdText.hookedHideText then
+                            cdText.hookedHideText = true
+                            hooksecurefunc(cdText, "Show", function(self)
+                                local cd = self:GetParent()
+                                if cd and cd.noCooldownCount then self:Hide() end
+                            end)
+                        end
+                    else
+                        cdText:Show()
+                        if cdAnchor then
+                            cdText:ClearAllPoints()
+                            cdText:SetPoint(cdAnchor, icon.cooldown, cdAnchor, ox, oy)
+                        end
+                        local size = tonumber(textSizeRaw)
+                        if size and size > 0 then
+                            local font = DDingUI:GetFont(textFont)
+                            cdText:SetFont(font, size, "OUTLINE")
+                        end
+                        local tc = textColor
+                        if type(tc) == "table" then
+                            local r, g, b, a = 1, 1, 1, 1
+                            if tc.GetRGBA then r, g, b, a = tc:GetRGBA()
+                            elseif tc[1] then r, g, b, a = tc[1], tc[2], tc[3], tc[4] or 1
+                            elseif tc.r then r, g, b, a = tc.r, tc.g, tc.b, tc.a or 1 end
+                            cdText:SetTextColor(r, g, b, a)
+                        end
+                    end
+                end
+            end
+
+            idx = idx + 1
+            frame._managedIcons[idx] = icon
+            -- [FIX] 동적 아이콘 명시적 Show (LayoutGroup의 IsShown 필터 통과)
+            icon:Show()
+            local iconAlpha = groupSettings.groupAlpha or 1
+            if icon._ddCombatKeepAlive and icon._ddCombatVisible == false then
+                iconAlpha = 0
+            end
+            if icon._ddLastGroupAlpha ~= iconAlpha then
+                icon._ddLastGroupAlpha = iconAlpha
+                icon:SetAlpha(iconAlpha)
+            end
+        end
+    end
+    frame._iconCount = idx
+
+    -- [FIX] IsShown=false 누락 복구: 아이콘이 스캔되었다면 CDM이 실질적으로 활성 상태임
+    -- LayoutGroup이 스킵되는 것을 방지하기 위해 여기서 미리 _viewerHidden 플래그를 점검/해제
+    local sourceViewer = viewerName and _G[viewerName]
+    if sourceViewer and sourceViewer:IsShown() and frame._viewerHidden then
+        frame._viewerHidden = false
+    end
+
+    -- viewerSettings 구성 (groupSettings → viewerSettings 형식 변환)
+    local vs = {
+        iconSize = groupSettings.iconSize or 32,
+        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
+        spacing = groupSettings.spacing or 2,
+        primaryDirection = groupSettings.direction or "RIGHT",
+        secondaryDirection = groupSettings.growDirection or "DOWN",
+        rowLimit = groupSettings.rowLimit or 0,
+    }
+
+    -- LayoutGroup (기존 레이아웃 엔진 재사용)
+    self:LayoutGroup(frame, vs, nil)
+
+    -- Show/Hide 결정
+    if idx > 0 then
+        frame:Show()
+    elseif inCombat then
+        frame._pendingCombatHide = true
+    else
+        frame:Hide()
+    end
+end

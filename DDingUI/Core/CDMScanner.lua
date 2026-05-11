@@ -202,71 +202,70 @@ function CDMScanner.ScanAll()
                         local displaySpellID = firstLinkedSpellID or overrideSpellID or baseSpellID
 
                         spellID = baseSpellID
-                        name = displaySpellID and C_Spell.GetSpellName(displaySpellID)
+                        pcall(function() name = displaySpellID and C_Spell.GetSpellName(displaySpellID) end)
+
+                        -- [FIX] pcall-safe texture resolver
+                        local function SafeGetSpellTexture(sid)
+                            if not sid or sid == 0 then return nil end
+                            local ok, tex = pcall(C_Spell.GetSpellTexture, sid)
+                            if ok and tex and tex ~= 0 and tex ~= "" then return tex end
+                            return nil
+                        end
 
                         -- ICON PRIORITY: Read from frame first (shows actual CDM texture)
-                        -- Icon viewers: frame.Icon:GetTexture() or frame.Icon:GetTextureFileID()
-                        -- Bar viewers: frame.Icon.Icon:GetTexture()
                         if frame.Icon then
-                            -- Try GetTexture first (returns path or ID)
-                            if frame.Icon.GetTexture then
-                                local tex = frame.Icon:GetTexture()
-                                -- Validate texture is actually set (not nil, not 0, not empty, not secret)
-                                if tex and not issecretvalue(tex) and tex ~= 0 and tex ~= "" then
-                                    icon = tex
-                                end
-                            end
-                            -- Try GetTextureFileID as fallback (returns numeric ID)
-                            if not icon and frame.Icon.GetTextureFileID then
-                                local texID = frame.Icon:GetTextureFileID()
-                                if texID and not issecretvalue(texID) and texID > 0 then
-                                    icon = texID
-                                end
-                            end
-                            -- Bar viewer structure: frame.Icon.Icon
-                            if not icon and frame.Icon.Icon then
-                                if frame.Icon.Icon.GetTexture then
-                                    local tex = frame.Icon.Icon:GetTexture()
+                            pcall(function()
+                                -- Try GetTexture first
+                                if frame.Icon.GetTexture then
+                                    local tex = frame.Icon:GetTexture()
                                     if tex and not issecretvalue(tex) and tex ~= 0 and tex ~= "" then
                                         icon = tex
                                     end
                                 end
-                                if not icon and frame.Icon.Icon.GetTextureFileID then
-                                    local texID = frame.Icon.Icon:GetTextureFileID()
+                                -- Try GetTextureFileID
+                                if not icon and frame.Icon.GetTextureFileID then
+                                    local texID = frame.Icon:GetTextureFileID()
                                     if texID and not issecretvalue(texID) and texID > 0 then
                                         icon = texID
                                     end
                                 end
-                            end
+                                -- Bar viewer structure: frame.Icon.Icon
+                                if not icon and frame.Icon.Icon then
+                                    if frame.Icon.Icon.GetTexture then
+                                        local tex = frame.Icon.Icon:GetTexture()
+                                        if tex and not issecretvalue(tex) and tex ~= 0 and tex ~= "" then
+                                            icon = tex
+                                        end
+                                    end
+                                    if not icon and frame.Icon.Icon.GetTextureFileID then
+                                        local texID = frame.Icon.Icon:GetTextureFileID()
+                                        if texID and not issecretvalue(texID) and texID > 0 then
+                                            icon = texID
+                                        end
+                                    end
+                                end
+                            end)
                         end
 
-                        -- Fallback to API for icon
+                        -- [FIX] cooldownInfo fallback (CDM stores texture data here)
                         if not icon then
-                            if viewerInfo.isAura then
-                                -- Auras: try overrideTooltipSpellID first (this is what CDM uses for display)
-                                if overrideTooltipSpellID and overrideTooltipSpellID > 0 then
-                                    icon = C_Spell.GetSpellTexture(overrideTooltipSpellID)
+                            pcall(function()
+                                if frame.cooldownInfo then
+                                    local ci = frame.cooldownInfo
+                                    if ci.texture and ci.texture ~= 0 then icon = ci.texture end
+                                    if not icon and ci.iconFileID and ci.iconFileID > 0 then icon = ci.iconFileID end
                                 end
-                                -- Then try base spellID
-                                if not icon and baseSpellID > 0 then
-                                    icon = C_Spell.GetSpellTexture(baseSpellID)
-                                end
-                                if not icon and overrideSpellID then
-                                    icon = C_Spell.GetSpellTexture(overrideSpellID)
-                                end
-                                if not icon and displaySpellID then
-                                    icon = C_Spell.GetSpellTexture(displaySpellID)
-                                end
-                            else
-                                -- Cooldowns: use override/linked chain
-                                icon = displaySpellID and C_Spell.GetSpellTexture(displaySpellID)
-                                if not icon and overrideSpellID then
-                                    icon = C_Spell.GetSpellTexture(overrideSpellID)
-                                end
-                                if not icon and baseSpellID > 0 then
-                                    icon = C_Spell.GetSpellTexture(baseSpellID)
-                                end
-                            end
+                                -- CDM API info fallback
+                                if not icon and info.iconFileID and info.iconFileID > 0 then icon = info.iconFileID end
+                            end)
+                        end
+
+                        -- Fallback to spell API (pcall-safe)
+                        if not icon then
+                            icon = SafeGetSpellTexture(overrideTooltipSpellID)
+                                or SafeGetSpellTexture(displaySpellID)
+                                or SafeGetSpellTexture(overrideSpellID)
+                                or SafeGetSpellTexture(baseSpellID)
                         end
 
                         -- Fallbacks for name

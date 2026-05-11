@@ -1,3 +1,5 @@
+-- LEGACY / NOT LOADED: DDingUI.toc does not load this file.
+-- Active GroupSystem path: FrameController -> GroupManager -> GroupRenderer -> DynamicIconBridge -> GroupInit.
 -- [GROUP SYSTEM] BuffFrameManager: 독립 버프 프레임 관리
 -- CDM BuffIconCooldownViewer의 네이티브 프레임을 숨기고,
 -- 자체 생성한 독립 프레임으로 버프를 표시

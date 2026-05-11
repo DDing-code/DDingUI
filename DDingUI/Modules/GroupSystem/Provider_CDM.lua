@@ -1,3 +1,5 @@
+-- LEGACY / NOT LOADED: DDingUI.toc does not load this file.
+-- Active GroupSystem path: FrameController -> GroupManager -> GroupRenderer -> DynamicIconBridge -> GroupInit.
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end

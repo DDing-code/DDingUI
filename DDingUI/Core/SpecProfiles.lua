@@ -1,21 +1,29 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 
--- ============================================================
--- SPEC PROFILES - Per-specialization full-profile snapshot
---
--- ONE AceDB profile; each spec's settings stored in db.profile.specData[specID].
--- specData is in db.profile (not db.char) so same-class characters share settings.
--- On spec change: save entire db.profile → load new spec's snapshot.
--- No per-module toggles; everything switches together.
--- ============================================================
-
-DDingUI.SpecProfiles = {}
+DDingUI.SpecProfiles = DDingUI.SpecProfiles or {}
 local SP = DDingUI.SpecProfiles
 
--- ============================================================
--- HELPERS
--- ============================================================
+-- Per-specialization full-profile snapshots.
+-- v7 is intentionally non-destructive: it only repairs stale CDM source links.
+local SPEC_DATA_VERSION = 7
+
+local EXCLUDE_KEYS = {
+    specData = true,
+    specDataVersion = true,
+    profileVersion = true,
+    pendingMoverMigration = true,
+}
+
+local PRESERVE_MISSING_TOP_LEVEL_KEYS = {
+    dynamicIcons = true,
+}
+
+local CORE_CDM_GROUPS = {
+    Cooldowns = true,
+    Buffs = true,
+    Utility = true,
+}
 
 local function GetCurrentSpecID()
     local specIndex = GetSpecialization()
@@ -32,29 +40,22 @@ local function DeepCopy(orig)
     return copy
 end
 
--- [PERF] 모듈 스코프 상수: 재귀마다 테이블 재생성 방지
-local EXCLUDE_KEYS = {
-    specData = true,
-    specDataVersion = true,
-    profileVersion = true,
-    pendingMoverMigration = true,
-}
-
--- FullSnapshot: captures ALL values including AceDB metatable defaults
--- (pairs() only returns explicitly stored keys; defaults come via __index)
--- isTopLevel: excludeKeys는 최상위 호출에서만 적용 (하위 테이블에는 해당 키가 없음)
 local function FullSnapshot(settings, defaults, isTopLevel)
     local snapshot = {}
-    for k, v in pairs(settings) do
-        if not (isTopLevel and EXCLUDE_KEYS[k]) then
-            if type(v) == "table" then
-                local subDef = defaults and type(defaults[k]) == "table" and defaults[k] or nil
-                snapshot[k] = FullSnapshot(v, subDef, false)
-            else
-                snapshot[k] = v
+
+    if settings then
+        for k, v in pairs(settings) do
+            if not (isTopLevel and EXCLUDE_KEYS[k]) then
+                if type(v) == "table" then
+                    local subDef = defaults and type(defaults[k]) == "table" and defaults[k] or nil
+                    snapshot[k] = FullSnapshot(v, subDef, false)
+                else
+                    snapshot[k] = v
+                end
             end
         end
     end
+
     if defaults then
         for k, v in pairs(defaults) do
             if not (isTopLevel and EXCLUDE_KEYS[k]) and snapshot[k] == nil then
@@ -62,16 +63,31 @@ local function FullSnapshot(settings, defaults, isTopLevel)
             end
         end
     end
+
     return snapshot
 end
 
--- ApplySnapshot: overwrites dest in-place (preserves AceDB table/metatable)
+local function MergeSnapshot(dest, source)
+    if type(dest) ~= "table" or type(source) ~= "table" then return end
+    for k, v in pairs(source) do
+        if type(v) == "table" then
+            if type(dest[k]) == "table" then
+                MergeSnapshot(dest[k], v)
+            else
+                dest[k] = DeepCopy(v)
+            end
+        else
+            dest[k] = v
+        end
+    end
+end
+
 local function ApplySnapshot(dest, source, isTopLevel)
-    -- [FIX] 2-pass 삭제: pairs() 순회 중 nil 할당 시 키 누락 방지
-    -- Lua 5.1에서 pairs()/next()는 테이블 수정 시 동작이 미정의
+    if type(dest) ~= "table" or type(source) ~= "table" then return end
+
     local toRemove
     for k in pairs(dest) do
-        if not (isTopLevel and EXCLUDE_KEYS[k]) and source[k] == nil then
+        if not (isTopLevel and (EXCLUDE_KEYS[k] or PRESERVE_MISSING_TOP_LEVEL_KEYS[k])) and source[k] == nil then
             if not toRemove then toRemove = {} end
             toRemove[#toRemove + 1] = k
         end
@@ -81,9 +97,14 @@ local function ApplySnapshot(dest, source, isTopLevel)
             dest[k] = nil
         end
     end
+
     for k, v in pairs(source) do
         if type(v) == "table" then
-            if type(dest[k]) == "table" then
+            if isTopLevel and PRESERVE_MISSING_TOP_LEVEL_KEYS[k] then
+                -- Keep legacy snapshots that do not have this key from wiping user data,
+                -- but when a spec snapshot does have it, treat it as the spec's complete state.
+                dest[k] = DeepCopy(v)
+            elseif type(dest[k]) == "table" then
                 ApplySnapshot(dest[k], v, false)
             else
                 dest[k] = DeepCopy(v)
@@ -94,70 +115,127 @@ local function ApplySnapshot(dest, source, isTopLevel)
     end
 end
 
--- ============================================================
--- SAVE / LOAD entire profile per spec
--- ============================================================
+local function RepairStaleHybridSources(profile)
+    local gs = profile and profile.groupSystem
+    local groups = gs and gs.groups
+    if not groups then return end
+
+    local dynGroups = profile.dynamicIcons and profile.dynamicIcons.groups
+    for groupName in pairs(CORE_CDM_GROUPS) do
+        local group = groups[groupName]
+        if group then
+            group.groupType = "cdm"
+            if group.sourceGroupKey and (not dynGroups or not dynGroups[group.sourceGroupKey]) then
+                group.sourceGroupKey = nil
+            end
+        end
+    end
+end
+
+local function ResetIconGroupsForFreshSpec(profile)
+    if not profile then return end
+
+    profile.dynamicIcons = {
+        enabled = true,
+        groups = {},
+        iconData = {},
+        ungrouped = {},
+        ungroupedPositions = {},
+    }
+
+    local gs = profile.groupSystem
+    local groups = gs and gs.groups
+    if not groups then return end
+
+    local toRemove
+    for groupName, group in pairs(groups) do
+        if group and group.groupType == "dynamic" then
+            if not toRemove then toRemove = {} end
+            toRemove[#toRemove + 1] = groupName
+        elseif group and group.sourceGroupKey then
+            group.sourceGroupKey = nil
+        end
+    end
+    if toRemove then
+        for _, groupName in ipairs(toRemove) do
+            groups[groupName] = nil
+        end
+    end
+end
+
+local function MigrateSpecData()
+    if not DDingUI.db or not DDingUI.db.profile then return end
+
+    if DDingUI.db.char then
+        DDingUI.db.char.specData = nil
+        DDingUI.db.char.specDataVersion = nil
+        DDingUI.db.char.specDataProfileKey = nil
+    end
+
+    local profile = DDingUI.db.profile
+    local ver = profile.specDataVersion or 0
+    if ver >= SPEC_DATA_VERSION then return end
+
+    if profile.specData then
+        for _, snapshot in pairs(profile.specData) do
+            RepairStaleHybridSources(snapshot)
+        end
+    end
+    RepairStaleHybridSources(profile)
+
+    profile.specDataVersion = SPEC_DATA_VERSION
+end
 
 SP.lastSpecID = nil
+SP._saveTimer = nil
 
 function SP:SaveCurrentSpec()
     local specID = self.lastSpecID or GetCurrentSpecID()
-    if not specID then return end
-    if not DDingUI.db then return end
+    if not specID or not DDingUI.db or not DDingUI.db.profile then return end
 
-    if not DDingUI.db.profile.specData then
-        DDingUI.db.profile.specData = {}
-    end
-
+    DDingUI.db.profile.specData = DDingUI.db.profile.specData or {}
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     DDingUI.db.profile.specData[specID] = FullSnapshot(DDingUI.db.profile, defaults, true)
 end
 
 function SP:LoadSpec(specID)
-    if not specID then return false end
-    if not DDingUI.db then return false end
-    if not DDingUI.db.profile.specData then return false end
-
-    local snapshot = DDingUI.db.profile.specData[specID]
+    if not specID or not DDingUI.db or not DDingUI.db.profile then return false end
+    local specData = DDingUI.db.profile.specData
+    local snapshot = specData and specData[specID]
     if not snapshot then return false end
 
-    -- Enrich with current defaults (forward compatibility for new keys)
+    local snapshotHasDynamicIcons = type(snapshot.dynamicIcons) == "table"
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     if defaults then
         snapshot = FullSnapshot(snapshot, defaults, true)
     end
+    if not snapshotHasDynamicIcons then
+        snapshot.dynamicIcons = nil
+    end
 
     ApplySnapshot(DDingUI.db.profile, snapshot, true)
+    RepairStaleHybridSources(DDingUI.db.profile)
     return true
 end
 
--- ============================================================
--- SPEC CHANGE HANDLING
--- ============================================================
-
 function SP:OnSpecChanged(newSpecID)
-    if not DDingUI.db then return end
+    if not newSpecID or not DDingUI.db or not DDingUI.db.profile then return end
 
-    -- Cancel any pending MarkDirty timer to prevent it from
-    -- firing AFTER lastSpecID changes (would overwrite new spec's snapshot)
     if self._saveTimer then
         self._saveTimer:Cancel()
         self._saveTimer = nil
     end
 
-    -- Save old spec BEFORE loading new
     if self.lastSpecID and self.lastSpecID ~= newSpecID then
         self:SaveCurrentSpec()
     end
 
-    -- Load new spec (or save initial snapshot if first visit)
     local loaded = self:LoadSpec(newSpecID)
     self.lastSpecID = newSpecID
 
     if not loaded then
-        -- [FIX] 첫 방문 전문화: 자원바 markers를 기본값(빈 배열)으로 리셋
-        -- 이전 전문화의 markers가 새 전문화에 상속되는 것을 방지
         local p = DDingUI.db.profile
+
         if p.powerBar then
             p.powerBar.markers = {}
             p.powerBar.markerBarColors = {}
@@ -168,6 +246,9 @@ function SP:OnSpecChanged(newSpecID)
             p.secondaryPowerBar.markerBarColors = {}
             p.secondaryPowerBar.markerColorChange = false
         end
+        ResetIconGroupsForFreshSpec(p)
+
+        RepairStaleHybridSources(p)
         self:SaveCurrentSpec()
     end
 
@@ -177,12 +258,6 @@ function SP:OnSpecChanged(newSpecID)
         end
     end)
 end
-
--- ============================================================
--- DEBOUNCED SAVE (called by config option changes)
--- ============================================================
-
-SP._saveTimer = nil
 
 function SP:MarkDirty()
     if self._saveTimer then
@@ -194,46 +269,12 @@ function SP:MarkDirty()
     end)
 end
 
--- ============================================================
--- MIGRATION
--- ============================================================
-
-local SPEC_DATA_VERSION = 4  -- v4: specData를 db.char → db.profile로 이동
-
-local function MigrateSpecData()
-    if not DDingUI.db then return end
-
-    -- db.char 정리 (이전 버전 잔여 데이터 삭제, 복사하지 않음 — 오염 가능성)
-    if DDingUI.db.char then
-        DDingUI.db.char.specData = nil
-        DDingUI.db.char.specDataVersion = nil
-        DDingUI.db.char.specDataProfileKey = nil
-    end
-
-    -- 버전 체크 (db.profile 기준)
-    local ver = DDingUI.db.profile.specDataVersion or 0
-    if ver < SPEC_DATA_VERSION then
-        -- 오래된 포맷이면 초기화
-        if ver > 0 and ver < 4 then
-            DDingUI.db.profile.specData = {}
-        end
-        DDingUI.db.profile.specDataVersion = SPEC_DATA_VERSION
-    end
-end
-
--- ============================================================
--- INITIALIZE
--- ============================================================
-
 function SP:Initialize()
-    -- Check if per-spec snapshots are enabled (default: true)
     if DDingUI.db and DDingUI.db.char and DDingUI.db.char.specProfilesEnabled == false then
         return
     end
 
-    -- Migrate specData: db.char → db.profile
     MigrateSpecData()
-
     self.lastSpecID = GetCurrentSpecID()
 
     if not self.eventFrame then
@@ -249,33 +290,25 @@ function SP:Initialize()
                     SP:OnSpecChanged(newSpecID)
                 end
             elseif event == "PLAYER_ENTERING_WORLD" then
-                -- arg1=isInitialLogin, arg2=isReloadingUI
-                -- [FIX] 3분기: 인스턴스 전환(arg1=false, arg2=false) 시 LoadSpec 방지
-                -- 인스턴스 입장 시 LoadSpec하면 저장하지 않은 설정 변경이 롤백됨
                 local specID = GetCurrentSpecID()
                 if specID then
                     SP.lastSpecID = specID
                     if arg2 then
-                        -- 리로드: AceDB가 SavedVariables에서 직접 복원하므로 저장만
                         SP:SaveCurrentSpec()
                     elseif arg1 then
-                        -- 초기 로그인: 전문화별 스냅샷 복원
                         if DDingUI.db.profile.specData and DDingUI.db.profile.specData[specID] then
                             SP:LoadSpec(specID)
                             C_Timer.After(0.1, function()
                                 if DDingUI.RefreshAll then DDingUI:RefreshAll() end
                             end)
                         else
-                            -- 첫 방문: 현재 상태를 스냅샷으로 저장
                             SP:SaveCurrentSpec()
                         end
                     else
-                        -- 인스턴스 전환/포탈: 현재 상태 저장만 (롤백 방지)
                         SP:SaveCurrentSpec()
                     end
                 end
             elseif event == "PLAYER_LOGOUT" or event == "PLAYER_LEAVING_WORLD" then
-                -- 저장 대기 중인 타이머 즉시 실행
                 if SP._saveTimer then
                     SP._saveTimer:Cancel()
                     SP._saveTimer = nil
@@ -285,71 +318,59 @@ function SP:Initialize()
         end)
     end
 
-    -- [FIX] 프로필 전환 시 specData 초기화
     if DDingUI.db and DDingUI.db.RegisterCallback then
         DDingUI.db.RegisterCallback(SP, "OnProfileChanged", "OnProfileSwitched")
-        DDingUI.db.RegisterCallback(SP, "OnProfileCopied",  "OnProfileSwitched")
-        DDingUI.db.RegisterCallback(SP, "OnProfileReset",   "OnProfileSwitched")
+        DDingUI.db.RegisterCallback(SP, "OnProfileCopied", "OnProfileSwitched")
+        DDingUI.db.RegisterCallback(SP, "OnProfileReset", "OnProfileSwitched")
     end
 
-    -- Save initial snapshot for current spec if none exists yet
     local specID = GetCurrentSpecID()
-    if specID and DDingUI.db then
-        if not DDingUI.db.profile.specData then
-            DDingUI.db.profile.specData = {}
-        end
+    if specID and DDingUI.db and DDingUI.db.profile then
+        DDingUI.db.profile.specData = DDingUI.db.profile.specData or {}
         if not DDingUI.db.profile.specData[specID] then
             self:SaveCurrentSpec()
         end
     end
 end
 
--- [FIX] 프로필 전환 콜백: specData 초기화 + 새 프로필 스냅샷 저장
 function SP:OnProfileSwitched()
-    -- 대기 중인 저장 타이머 취소 (이전 프로필 데이터 저장 방지)
     if self._saveTimer then
         self._saveTimer:Cancel()
         self._saveTimer = nil
     end
 
-    -- 새 프로필의 현재 spec 스냅샷 저장
+    MigrateSpecData()
     local specID = GetCurrentSpecID()
-    if specID then
-        self.lastSpecID = specID
-        -- 새 프로필에 specData가 있으면 로드, 없으면 저장
-        if DDingUI.db.profile.specData and DDingUI.db.profile.specData[specID] then
-            self:LoadSpec(specID)
-            -- [FIX] LoadSpec 후 화면 갱신 (이전에 누락)
-            C_Timer.After(0.1, function()
-                if DDingUI.RefreshAll then DDingUI:RefreshAll() end
-            end)
-        else
-            self:SaveCurrentSpec()
-        end
+    if not specID then return end
+
+    self.lastSpecID = specID
+    if DDingUI.db.profile.specData and DDingUI.db.profile.specData[specID] then
+        self:LoadSpec(specID)
+        C_Timer.After(0.1, function()
+            if DDingUI.RefreshAll then DDingUI:RefreshAll() end
+        end)
+    else
+        self:SaveCurrentSpec()
     end
 end
 
--- ============================================================
--- MODULE-LEVEL IMPORT from another spec snapshot
--- ============================================================
-
--- 모듈 카테고리 → 표시 이름 + 실제 프로필 키 매핑
 SP.MODULE_KEYS = {
-    { key = "general",           name = "일반",              profileKeys = {"general"} },
-    { key = "iconGroups",        name = "아이콘 그룹",       profileKeys = {"viewers", "groupSystem", "dynamicIcons", "customIcons"} },
-    { key = "resourceBars",      name = "자원바",            profileKeys = {"powerBar", "secondaryPowerBar"} },
-    { key = "iconCustomization", name = "아이콘 커스터마이징", profileKeys = {"iconCustomization"} },
-    { key = "castBar",           name = "시전바",            profileKeys = {"castBar"} },
-    { key = "buffTrackerBar",    name = "추적중인 막대",     profileKeys = {"buffTrackerBar"} },
-    { key = "buffBarViewer",     name = "버프추적기",        profileKeys = {"buffBarViewer"} },
+    { key = "general",           name = "General",            profileKeys = {"general"} },
+    { key = "cdmGroups",         name = "Default CDM Groups", profileKeys = {"viewers", "__cdmGroups"} },
+    { key = "dynamicGroups",     name = "Dynamic Groups",     profileKeys = {"__dynamicGroups"} },
+    { key = "shortcutIcons",     name = "Shortcut Icons",     profileKeys = {"customIcons"} },
+    { key = "resourceBars",      name = "Resource Bars",      profileKeys = {"powerBar", "secondaryPowerBar"} },
+    { key = "iconCustomization", name = "Icon Customization", profileKeys = {"iconCustomization"} },
+    { key = "castBar",           name = "Cast Bar",           profileKeys = {"castBar"} },
+    { key = "buffTrackerBar",    name = "Aura Tracker",       profileKeys = {"buffTrackerBar"} },
+    { key = "buffBarViewer",     name = "Buff Viewer",        profileKeys = {"buffBarViewer"} },
 }
 
 function SP:GetAvailableSpecs()
     local result = {}
-    if not DDingUI.db or not DDingUI.db.profile or not DDingUI.db.profile.specData then
-        return result
-    end
-    for specID, _ in pairs(DDingUI.db.profile.specData) do
+    local specData = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.specData
+    if not specData then return result end
+    for specID in pairs(specData) do
         result[specID] = specID
     end
     return result
@@ -357,7 +378,7 @@ end
 
 function SP:GetSpecName(specID)
     if not specID then return "?" end
-    -- 현재 클래스 전문화 먼저 시도
+
     local numSpecs = GetNumSpecializations()
     for i = 1, numSpecs do
         local id, name = GetSpecializationInfo(i)
@@ -365,74 +386,310 @@ function SP:GetSpecName(specID)
             return name
         end
     end
-    -- 다른 클래스 전문화: GetSpecializationInfoByID 사용
+
     if GetSpecializationInfoByID then
         local _, sName, _, _, _, _, className = GetSpecializationInfoByID(specID)
         if sName then
             return (className and (className .. " - ") or "") .. sName
         end
     end
-    return "전문화 " .. specID
+    return "Spec " .. tostring(specID)
 end
 
--- 전체 캐릭터의 저장된 전문화 목록 (크로스캐릭터 지원)
 function SP:GetAllSavedSpecs()
     local result = {}
-    -- db.profile.specData에서 직접 읽음 (프로필 공유이므로 모든 캐릭터 데이터가 여기 있음)
-    if not DDingUI.db or not DDingUI.db.profile or not DDingUI.db.profile.specData then
-        return result
-    end
+    local specData = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.specData
+    if not specData then return result end
 
     local currentSpecID = self.lastSpecID
-
-    for specID, _ in pairs(DDingUI.db.profile.specData) do
+    for specID in pairs(specData) do
         if specID ~= currentSpecID then
-            local specLabel = "전문화 " .. specID
-            if GetSpecializationInfoByID then
-                local _, sName, _, _, _, _, className = GetSpecializationInfoByID(specID)
-                if sName and className then
-                    specLabel = className .. "-" .. sName
-                elseif sName then
-                    specLabel = sName
-                end
-            end
-            result[specID] = specLabel
+            result[specID] = self:GetSpecName(specID)
         end
     end
-
     return result
 end
 
--- 크로스캐릭터 모듈 복사 (이제 불필요하지만 호환성 유지)
+local function EnsureProfileTable(profile, key)
+    profile[key] = profile[key] or {}
+    return profile[key]
+end
+
+local function EnsureDynamicDB(profile)
+    local db = EnsureProfileTable(profile, "dynamicIcons")
+    db.enabled = db.enabled ~= false
+    db.groups = db.groups or {}
+    db.iconData = db.iconData or {}
+    db.ungrouped = db.ungrouped or {}
+    db.ungroupedPositions = db.ungroupedPositions or {}
+    return db
+end
+
+local function EnsureGroupSystemDB(profile)
+    local gs = EnsureProfileTable(profile, "groupSystem")
+    gs.groups = gs.groups or {}
+    gs.spellAssignments = gs.spellAssignments or {}
+    gs.deletedGroups = gs.deletedGroups or {}
+    return gs
+end
+
+local function GetModuleDefaults(moduleKey)
+    local defaults = DDingUI.defaults and DDingUI.defaults.profile
+    if defaults and defaults[moduleKey] ~= nil then
+        return defaults[moduleKey]
+    end
+
+    defaults = DDingUI.db and DDingUI.db.defaults and DDingUI.db.defaults.profile
+    return defaults and defaults[moduleKey]
+end
+
+local function RemoveDynamicSourceGroup(profile, sourceKey)
+    if not sourceKey then return end
+    local dynDB = profile and profile.dynamicIcons
+    if not dynDB or not dynDB.groups then return end
+
+    local group = dynDB.groups[sourceKey]
+    if group and group.icons then
+        for _, iconKey in ipairs(group.icons) do
+            if dynDB.iconData then dynDB.iconData[iconKey] = nil end
+            if dynDB.ungrouped then dynDB.ungrouped[iconKey] = nil end
+            if dynDB.ungroupedPositions then dynDB.ungroupedPositions[iconKey] = nil end
+        end
+    end
+
+    dynDB.groups[sourceKey] = nil
+end
+
+local function CopyDynamicSourceGroup(sourceProfile, destProfile, sourceKey)
+    local sourceDyn = sourceProfile and sourceProfile.dynamicIcons
+    local sourceGroup = sourceDyn and sourceDyn.groups and sourceDyn.groups[sourceKey]
+    if not sourceGroup then return false end
+
+    local destDyn = EnsureDynamicDB(destProfile)
+    destDyn.groups[sourceKey] = DeepCopy(sourceGroup)
+
+    if sourceDyn.iconData and sourceGroup.icons then
+        for _, iconKey in ipairs(sourceGroup.icons) do
+            if sourceDyn.iconData[iconKey] then
+                destDyn.iconData[iconKey] = DeepCopy(sourceDyn.iconData[iconKey])
+            end
+            if sourceDyn.ungrouped and sourceDyn.ungrouped[iconKey] ~= nil then
+                destDyn.ungrouped[iconKey] = DeepCopy(sourceDyn.ungrouped[iconKey])
+            end
+            if sourceDyn.ungroupedPositions and sourceDyn.ungroupedPositions[iconKey] then
+                destDyn.ungroupedPositions[iconKey] = DeepCopy(sourceDyn.ungroupedPositions[iconKey])
+            end
+        end
+    end
+
+    return true
+end
+
+local function IsCDMSourceGroup(profile, sourceKey)
+    if not sourceKey then return false end
+
+    local gs = profile and profile.groupSystem
+    local groups = gs and gs.groups
+    if groups then
+        for groupName in pairs(CORE_CDM_GROUPS) do
+            local group = groups[groupName]
+            if group and group.sourceGroupKey == sourceKey then
+                return true
+            end
+        end
+    end
+
+    local dynGroup = profile and profile.dynamicIcons and profile.dynamicIcons.groups
+        and profile.dynamicIcons.groups[sourceKey]
+    return dynGroup and CORE_CDM_GROUPS[dynGroup.linkedCDMGroup] == true
+end
+
+local function CopyCDMGroupsFromSource(sourceProfile)
+    local destProfile = DDingUI.db and DDingUI.db.profile
+    local sourceGS = sourceProfile and sourceProfile.groupSystem
+    local sourceGroups = sourceGS and sourceGS.groups
+    if not destProfile or not sourceGS or not sourceGroups then return false end
+
+    local destGS = EnsureGroupSystemDB(destProfile)
+    local oldSourceKeys = {}
+    for groupName in pairs(CORE_CDM_GROUPS) do
+        local group = destGS.groups[groupName]
+        if group and group.sourceGroupKey then
+            oldSourceKeys[group.sourceGroupKey] = true
+        end
+    end
+    for sourceKey in pairs(oldSourceKeys) do
+        RemoveDynamicSourceGroup(destProfile, sourceKey)
+    end
+
+    for k, v in pairs(sourceGS) do
+        if k ~= "groups" and k ~= "spellAssignments" and k ~= "deletedGroups" then
+            destGS[k] = type(v) == "table" and DeepCopy(v) or v
+        end
+    end
+
+    local newSourceKeys = {}
+    for groupName in pairs(CORE_CDM_GROUPS) do
+        local sourceGroup = sourceGroups[groupName]
+        if sourceGroup then
+            destGS.groups[groupName] = DeepCopy(sourceGroup)
+            destGS.groups[groupName].groupType = "cdm"
+            if destGS.deletedGroups then
+                destGS.deletedGroups[groupName] = nil
+            end
+            if sourceGroup.sourceGroupKey then
+                newSourceKeys[sourceGroup.sourceGroupKey] = true
+            end
+        end
+    end
+
+    local assignmentsToRemove
+    for spellName, assignedGroup in pairs(destGS.spellAssignments or {}) do
+        if CORE_CDM_GROUPS[assignedGroup] then
+            if not assignmentsToRemove then assignmentsToRemove = {} end
+            assignmentsToRemove[#assignmentsToRemove + 1] = spellName
+        end
+    end
+    if assignmentsToRemove then
+        for _, spellName in ipairs(assignmentsToRemove) do
+            destGS.spellAssignments[spellName] = nil
+        end
+    end
+    for spellName, assignedGroup in pairs(sourceGS.spellAssignments or {}) do
+        if CORE_CDM_GROUPS[assignedGroup] then
+            destGS.spellAssignments[spellName] = assignedGroup
+        end
+    end
+
+    local sourceDyn = sourceProfile.dynamicIcons
+    for sourceKey, dynGroup in pairs((sourceDyn and sourceDyn.groups) or {}) do
+        local linkedGroup = dynGroup.linkedCDMGroup
+        if CORE_CDM_GROUPS[linkedGroup] then
+            newSourceKeys[sourceKey] = true
+            if destGS.groups[linkedGroup] then
+                destGS.groups[linkedGroup].sourceGroupKey = sourceKey
+            end
+        end
+    end
+    for sourceKey in pairs(newSourceKeys) do
+        CopyDynamicSourceGroup(sourceProfile, destProfile, sourceKey)
+    end
+
+    return true
+end
+
+local function CopyDynamicGroupsFromSource(sourceProfile)
+    local destProfile = DDingUI.db and DDingUI.db.profile
+    if not destProfile or not sourceProfile then return false end
+
+    local destGS = EnsureGroupSystemDB(destProfile)
+    local destDyn = EnsureDynamicDB(destProfile)
+
+    local removeSourceKeys = {}
+    for groupName, group in pairs(destGS.groups) do
+        if group and group.groupType == "dynamic" then
+            if group.sourceGroupKey then
+                removeSourceKeys[group.sourceGroupKey] = true
+            end
+            destGS.groups[groupName] = nil
+        end
+    end
+    for sourceKey, dynGroup in pairs(destDyn.groups) do
+        if not IsCDMSourceGroup(destProfile, sourceKey) then
+            removeSourceKeys[sourceKey] = true
+        elseif dynGroup and dynGroup.linkedCDMGroup and not CORE_CDM_GROUPS[dynGroup.linkedCDMGroup] then
+            removeSourceKeys[sourceKey] = true
+        end
+    end
+    for sourceKey in pairs(removeSourceKeys) do
+        RemoveDynamicSourceGroup(destProfile, sourceKey)
+    end
+
+    local sourceDyn = sourceProfile.dynamicIcons
+    if sourceDyn and sourceDyn.enabled ~= nil then
+        destDyn.enabled = sourceDyn.enabled ~= false
+    end
+
+    local copiedSourceKeys = {}
+    for sourceKey in pairs((sourceDyn and sourceDyn.groups) or {}) do
+        if not IsCDMSourceGroup(sourceProfile, sourceKey) then
+            if CopyDynamicSourceGroup(sourceProfile, destProfile, sourceKey) then
+                copiedSourceKeys[sourceKey] = true
+            end
+        end
+    end
+
+    local sourceGS = sourceProfile.groupSystem
+    for groupName, group in pairs((sourceGS and sourceGS.groups) or {}) do
+        local hasSource = group and (not group.sourceGroupKey or copiedSourceKeys[group.sourceGroupKey])
+        if group and group.groupType == "dynamic" and hasSource and not IsCDMSourceGroup(sourceProfile, group.sourceGroupKey) then
+            destGS.groups[groupName] = DeepCopy(group)
+            if group.sourceGroupKey then
+                copiedSourceKeys[group.sourceGroupKey] = true
+            end
+            if destGS.deletedGroups then
+                destGS.deletedGroups[groupName] = nil
+            end
+        end
+    end
+
+    for sourceKey in pairs(copiedSourceKeys) do
+        if destGS.deletedGroups then
+            destGS.deletedGroups["dyn_" .. tostring(sourceKey)] = nil
+        end
+    end
+
+    return sourceDyn ~= nil or sourceGS ~= nil
+end
+
+local function CopyWholeModuleFromSource(sourceProfile, moduleKey, useDefaults)
+    if moduleKey == "__cdmGroups" then
+        return CopyCDMGroupsFromSource(sourceProfile)
+    elseif moduleKey == "__dynamicGroups" then
+        return CopyDynamicGroupsFromSource(sourceProfile)
+    end
+
+    if not sourceProfile or not sourceProfile[moduleKey] then return false end
+
+    local copied
+    if useDefaults then
+        copied = FullSnapshot(sourceProfile[moduleKey], GetModuleDefaults(moduleKey), false)
+    else
+        copied = DeepCopy(sourceProfile[moduleKey])
+    end
+
+    local destProfile = DDingUI.db and DDingUI.db.profile
+    if not destProfile then return false end
+
+    if type(destProfile[moduleKey]) == "table" and type(copied) == "table" then
+        ApplySnapshot(destProfile[moduleKey], copied, false)
+    else
+        destProfile[moduleKey] = copied
+    end
+    return true
+end
+
 function SP:CopyModulesFromCharSpec(charKey, specID, moduleKeys)
     return self:CopyModulesFromSpec(specID, moduleKeys)
 end
 
 function SP:CopyModulesFromSpec(sourceSpecID, moduleKeys)
     if not sourceSpecID or not moduleKeys or #moduleKeys == 0 then return false end
-    if not DDingUI.db or not DDingUI.db.profile or not DDingUI.db.profile.specData then return false end
+    local specData = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.specData
+    if not specData then return false end
 
-    local snapshot = DDingUI.db.profile.specData[sourceSpecID]
+    local snapshot = specData[sourceSpecID]
     if not snapshot then return false end
 
+    local copiedAny = false
     for _, moduleKey in ipairs(moduleKeys) do
-        if snapshot[moduleKey] then
-            local copied = DeepCopy(snapshot[moduleKey])
-            if type(DDingUI.db.profile[moduleKey]) == "table" then
-                ApplySnapshot(DDingUI.db.profile[moduleKey], copied, false)
-            else
-                DDingUI.db.profile[moduleKey] = copied
-            end
-        end
+        copiedAny = CopyWholeModuleFromSource(snapshot, moduleKey, false) or copiedAny
     end
 
-    -- Update current spec snapshot
     self:SaveCurrentSpec()
-
-    return true
+    return copiedAny
 end
 
--- Also allow copying from a different AceDB profile (not just spec)
 function SP:CopyModulesFromProfile(sourceProfileKey, moduleKeys)
     if not sourceProfileKey or not moduleKeys or #moduleKeys == 0 then return false end
     if not DDingUI.db or not DDingUI.db.profiles then return false end
@@ -440,36 +697,26 @@ function SP:CopyModulesFromProfile(sourceProfileKey, moduleKeys)
     local sourceProfile = DDingUI.db.profiles[sourceProfileKey]
     if not sourceProfile then return false end
 
+    local copiedAny = false
     for _, moduleKey in ipairs(moduleKeys) do
-        if sourceProfile[moduleKey] then
-            local defaults = DDingUI.db and DDingUI.db.defaults
-                and DDingUI.db.defaults.profile and DDingUI.db.defaults.profile[moduleKey]
-            local copied = FullSnapshot(sourceProfile[moduleKey], defaults, false)
-            if type(DDingUI.db.profile[moduleKey]) == "table" then
-                ApplySnapshot(DDingUI.db.profile[moduleKey], copied, false)
-            else
-                DDingUI.db.profile[moduleKey] = copied
-            end
-        end
+        copiedAny = CopyWholeModuleFromSource(sourceProfile, moduleKey, true) or copiedAny
     end
 
     self:SaveCurrentSpec()
-    return true
+    return copiedAny
 end
-
--- ============================================================
--- STUBS for external callers (per-module UI is no longer needed)
--- ============================================================
 
 function SP:AddSpecProfileOptions() end
 function SP:IsEnabled() return true end
 function SP:IsAnyModuleEnabled() return true end
+
 function SP:GetCurrentSpecInfo()
     local specIndex = GetSpecialization()
     if not specIndex then return nil end
     local specID, specName, _, specIcon = GetSpecializationInfo(specIndex)
     return specIndex, specID, specName, specIcon
 end
+
 function SP:GetAllSpecInfo()
     local specs = {}
     local numSpecs = GetNumSpecializations()

@@ -11,6 +11,7 @@ local GetTime = GetTime
 local UnitPower = UnitPower
 local UnitPowerMax = UnitPowerMax
 local wipe = wipe
+local canaccessvalue = canaccessvalue  -- secret value 감지 (WoW 12.0+)
 
 -- Reusable tables for Essence/Rune update functions (avoid per-frame allocation)
 local _displayOrder = {}
@@ -522,8 +523,20 @@ function ResourceBars:UpdateFragmentedPowerDisplay(bar, resource)
     if resource == Enum.PowerType.Essence then
         local current = UnitPower("player", resource)
         local maxEssence = UnitPowerMax("player", resource)
-        local regenRate = (type(GetPowerRegenForPowerType) == "function" and GetPowerRegenForPowerType(resource)) or 0.2
-        local tickDuration = 5 / (5 / (1 / regenRate))
+        
+        -- [FIX] 12.0.5+ GetPowerRegenForPowerType이 secret value를 반환하는 경우
+        -- canaccessvalue()로 먼저 확인 후 안전한 경우에만 비교/저장 (Ayije CDM 패턴)
+        if not InCombatLockdown() then
+            local raw = GetPowerRegenForPowerType and GetPowerRegenForPowerType(resource)
+            if raw and type(raw) == "number" and canaccessvalue(raw) and raw > 0 then
+                bar._cachedEssenceRegenRate = raw
+            end
+        end
+        
+        local regenRate = bar._cachedEssenceRegenRate or 0.2
+        if regenRate <= 0 then regenRate = 0.2 end
+        
+        local tickDuration = 1 / regenRate
         local now = GetTime()
 
         bar._NextEssenceTick = bar._NextEssenceTick or nil

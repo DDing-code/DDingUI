@@ -101,20 +101,21 @@ end
 local function HideViewer(viewerName)
     local viewer = _G[viewerName]
     if not viewer then return end
-    -- [REFACTOR] SetAlpha는 보호 함수가 아님 → 전투 중에도 안전
+    -- [AYIJE] BuffIcon: 절대 숨기지 않음 — CDM Layout 사이클 유지 필수
+    if viewerName == "BuffIconCooldownViewer" then return end
     local state = viewerState[viewerName]
     if not state then return end
     if state.hidden then return end
 
     pushing = true
     viewer:SetAlpha(0)
-    -- [FIX] 마우스 차단 해제 — 숨겨진 뷰어 + 자식 아이콘이 앵커 클릭을 가로막는 문제 방지
-    viewer:EnableMouse(false)
-    if viewer.EnableMouseWheel then viewer:EnableMouseWheel(false) end
-    -- [FIX] itemFramePool 순회 — SetParent(UIParent)된 관리 아이콘도 포함
-    if viewer.itemFramePool then
-        for icon in viewer.itemFramePool:EnumerateActive() do
-            if icon.EnableMouse then icon:EnableMouse(false) end
+    if not InCombatLockdown() then
+        viewer:EnableMouse(false)
+        if viewer.EnableMouseWheel then pcall(viewer.EnableMouseWheel, viewer, false) end
+        if viewer.itemFramePool then
+            for icon in viewer.itemFramePool:EnumerateActive() do
+                if icon.EnableMouse then pcall(icon.EnableMouse, icon, false) end
+            end
         end
     end
     pushing = false
@@ -125,6 +126,8 @@ end
 local function ShowViewer(viewerName)
     local viewer = _G[viewerName]
     if not viewer then return end
+    -- [AYIJE] BuffIcon: 항상 visible — show/hide 관리 안 함
+    if viewerName == "BuffIconCooldownViewer" then return end
 
     local state = viewerState[viewerName]
     if not state then return end
@@ -132,13 +135,13 @@ local function ShowViewer(viewerName)
 
     pushing = true
     viewer:SetAlpha(1)
-    -- [FIX] 마우스 복원 — Edit Mode에서 뷰어 조작 가능
-    viewer:EnableMouse(true)
-    if viewer.EnableMouseWheel then viewer:EnableMouseWheel(true) end
-    -- [FIX] itemFramePool 순회 — SetParent(UIParent)된 관리 아이콘도 포함
-    if viewer.itemFramePool then
-        for icon in viewer.itemFramePool:EnumerateActive() do
-            if icon.EnableMouse then icon:EnableMouse(true) end
+    if not InCombatLockdown() then
+        viewer:EnableMouse(true)
+        if viewer.EnableMouseWheel then pcall(viewer.EnableMouseWheel, viewer, true) end
+        if viewer.itemFramePool then
+            for icon in viewer.itemFramePool:EnumerateActive() do
+                if icon.EnableMouse then pcall(icon.EnableMouse, icon, true) end
+            end
         end
     end
     pushing = false
@@ -239,8 +242,9 @@ local function SetupViewerHooks(viewerName)
     hooksecurefunc(viewer, "SetAlpha", function(_, alpha)
         if pushing then return end
         if IsInBlizzardEditMode() then return end
-        -- secret value 방어
         if issecretvalue and issecretvalue(alpha) then return end
+        -- [AYIJE] BuffIcon: alpha snap-back 불필요 (offscreen 방식)
+        if viewerName == "BuffIconCooldownViewer" then return end
         local state = viewerState[viewerName]
         if state and state.hidden and type(alpha) == "number" and alpha > 0.01 then
             pushing = true
@@ -277,6 +281,19 @@ local function SetupViewerHooks(viewerName)
     viewer:HookScript("OnHide", function()
         if pushing then return end
         if IsInBlizzardEditMode() then return end
+        -- [AYIJE] BuffIcon: CDM이 Hide해도 즉시 재Show → CDM Layout 사이클 유지
+        -- CDM은 VIEWER를 숨기지만, 개별 프레임은 정상적으로 Show/Hide 관리
+        if viewerName == "BuffIconCooldownViewer" then
+            C_Timer.After(0, function()
+                local v = _G["BuffIconCooldownViewer"]
+                if v and not v:IsShown() and not InCombatLockdown() then
+                    pushing = true
+                    v:Show()
+                    pushing = false
+                end
+            end)
+            return
+        end
         C_Timer.After(0, function()
             if initialized and DDingUI.GroupRenderer and DDingUI.GroupRenderer.SyncViewerVisibility then
                 DDingUI.GroupRenderer:SyncViewerVisibility(viewerName)
@@ -458,9 +475,12 @@ function ContainerSync:Initialize()
             if enforceThrottle < 0.1 then return end
             enforceThrottle = 0
             for _, viewerName in pairs(CDM_VIEWER_NAMES) do
-                local viewer = _G[viewerName]
-                if viewer and viewer:GetAlpha() > 0.01 then
-                    viewer:SetAlpha(0)
+                -- [AYIJE] BuffIcon: alpha enforce 불필요 (offscreen 방식)
+                if viewerName ~= "BuffIconCooldownViewer" then
+                    local viewer = _G[viewerName]
+                    if viewer and viewer:GetAlpha() > 0.01 then
+                        viewer:SetAlpha(0)
+                    end
                 end
             end
         end)

@@ -8,6 +8,9 @@ local DDingUI = LibStub("AceAddon-3.0"):NewAddon(
 
 ns.Addon = DDingUI
 
+-- [LoD] DDingUI_Options이 네임스페이스에 접근할 수 있도록 공유
+DDingUI._ns = ns
+
 -- Get localization table (should be loaded by Locales/Locale.lua)
 local L = ns.L or LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME, true)
 
@@ -190,11 +193,10 @@ function DDingUI:InitializeSelectionAlphaController()
         DDingUI:ApplySelectionAlphaToAllFrames()
     end)
 
-    self.SelectionAlphaTicker = C_Timer.NewTicker(1.0, function()
-        if EditModeManagerFrame and EditModeManagerFrame.editModeActive then
-            DDingUI:ApplySelectionAlphaToAllFrames()
-        end
-    end)
+    -- [P0] C_Timer.NewTicker 제거 — 게임 내내 1초마다 editModeActive 체크하던 비용 제거
+    -- EditModeSelectionFrameBaseMixin.OnShow/OnLoad 훅(상단)이 동일 역할 수행
+    -- 초기 1회 적용은 위 C_Timer.After(0.5, ...) 로 충분
+
 end
 
 function DDingUI:ExportProfileToString()
@@ -473,7 +475,12 @@ function DDingUI:OnInitialize()
         self.SpecProfiles:Initialize()
     end
 
-    self:SetupOptions()
+    if self.CustomIcons and self.CustomIcons.GetDynamicDB then
+        pcall(self.CustomIcons.GetDynamicDB)
+    end
+
+    -- [LoD] SetupOptions는 OpenConfig() 최초 호출 시 DDingUI_Options LoD 로드 후 실행
+    -- self:SetupOptions()
     
     self:RegisterChatCommand("dcm", "OpenConfig")      -- [CONTROLLER] /dui → /dcm 변경 (Controller /ddingui 충돌 방지)
     self:RegisterChatCommand("ddcm", "OpenConfig")     -- [CONTROLLER] /ddingui → /ddcm 변경
@@ -498,6 +505,185 @@ function DDingUI:OnInitialize()
                 print("  " .. key .. ": |cffff0000NOT FOUND|r")
             end
         end
+    end)
+
+    self:RegisterChatCommand("ddrecovericons", function(msg)
+        local ci = DDingUI.CustomIcons
+        if not ci or not ci.GetDynamicDB then
+            print(CDM_PREFIX .. "|cffff0000CustomIcons recovery is unavailable.|r")
+            return
+        end
+
+        msg = (msg or ""):lower():match("^%s*(.-)%s*$")
+        local recover = msg == "legacy" or msg == "deep"
+
+        local ok, db, profileName, sourceKey, groupCount, iconCount
+        if recover and ci.RecoverDynamicIcons then
+            ok, db, profileName, sourceKey, groupCount, iconCount = pcall(function()
+                return ci:RecoverDynamicIcons(msg == "deep")
+            end)
+        else
+            ok, db = pcall(ci.GetDynamicDB)
+        end
+
+        if not ok or not db then
+            print(CDM_PREFIX .. "|cffff0000CustomIcons recovery failed.|r")
+            return
+        end
+
+        groupCount = groupCount or 0
+        iconCount = iconCount or 0
+        if groupCount == 0 then
+            for _ in pairs(db.groups or {}) do groupCount = groupCount + 1 end
+        end
+        if iconCount == 0 then
+            for _ in pairs(db.iconData or {}) do iconCount = iconCount + 1 end
+        end
+
+        if ci.LoadDynamicIcons then
+            ci:LoadDynamicIcons()
+        end
+        if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
+            DDingUI.GroupSystem:Refresh()
+        end
+        if ci.RefreshDynamicListUI then
+            ci:RefreshDynamicListUI()
+        end
+        if ci.RefreshDynamicConfigUI then
+            ci:RefreshDynamicConfigUI()
+        end
+
+        local source = sourceKey or db._legacySpecsPromoted or profileName or "current"
+        if recover then
+            print(CDM_PREFIX .. string.format("|cff00ff00CustomIcons recovery applied.|r groups=%d icons=%d source=%s", groupCount, iconCount, tostring(source)))
+        else
+            print(CDM_PREFIX .. string.format("|cff00ff00CustomIcons recovery checked only.|r groups=%d icons=%d source=%s", groupCount, iconCount, tostring(source)))
+            print(CDM_PREFIX .. "Use |cffffd200/ddrecovericons legacy|r for shallow legacy data, or |cffffd200/ddrecovericons deep|r only for old spec snapshots.")
+        end
+    end)
+
+    self:RegisterChatCommand("ddmigrateicons", function(msg)
+        local ci = DDingUI.CustomIcons
+        if not ci or not ci.GetDynamicDB or not ci.GetDynamicIconMigrationReport then
+            print(CDM_PREFIX .. "|cffff0000CustomIcons migration is unavailable.|r")
+            return
+        end
+
+        msg = (msg or ""):lower():match("^%s*(.-)%s*$")
+        local mode = msg ~= "" and msg or "check"
+        if mode == "status" or mode == "dryrun" or mode == "dry-run" or mode == "test" then
+            mode = "check"
+        elseif mode == "apply" or mode == "migrate" then
+            mode = "run"
+        elseif mode == "deepcheck" or mode == "deep-check" then
+            mode = "deep"
+        end
+
+        local function CountDeletedGroupMarkers()
+            local profile = DDingUI.db and DDingUI.db.profile
+            local deleted = profile and profile.groupSystem and profile.groupSystem.deletedGroups
+            local count = 0
+            if type(deleted) == "table" then
+                for _ in pairs(deleted) do count = count + 1 end
+            end
+            return count
+        end
+
+        local function PrintReport(title, report)
+            if type(report) ~= "table" then
+                print(CDM_PREFIX .. "|cffff0000Dynamic icon migration report failed.|r")
+                return
+            end
+
+            print(CDM_PREFIX .. title)
+            print(string.format("  current: groups=%d icons=%d ungrouped=%d enabled=%s",
+                report.rootGroups or 0,
+                report.rootIcons or 0,
+                report.rootUngrouped or 0,
+                report.enabled and "true" or "false"))
+
+            if (report.legacyIcons or 0) > 0 then
+                print(string.format("  legacy specs: spec=%s groups=%d icons=%d ungrouped=%d canRun=%s",
+                    tostring(report.legacySpecKey or "?"),
+                    report.legacyGroups or 0,
+                    report.legacyIcons or 0,
+                    report.legacyUngrouped or 0,
+                    report.canPromoteLegacy and "true" or "false"))
+            else
+                print("  legacy specs: none")
+            end
+
+            if (report.fallbackIcons or 0) > 0 then
+                print(string.format("  fallback: profile=%s source=%s groups=%d icons=%d deep=%s",
+                    tostring(report.fallbackProfile or "?"),
+                    tostring(report.fallbackSourceKey or "?"),
+                    report.fallbackGroups or 0,
+                    report.fallbackIcons or 0,
+                    report.includeDeepSnapshots and "true" or "false"))
+            else
+                print(string.format("  fallback: none deep=%s", report.includeDeepSnapshots and "true" or "false"))
+            end
+
+            print(string.format("  markers: deletedGroups=%d promoted=%s recovered=%s/%s",
+                CountDeletedGroupMarkers(),
+                tostring(report.promotedFrom or "no"),
+                tostring(report.recoveredFromProfile or "no"),
+                tostring(report.recoveredFromSpec or "no")))
+
+            if report.canPromoteLegacy then
+                print(CDM_PREFIX .. "Use |cffffd200/ddmigrateicons run|r to merge the current profile legacy-spec data.")
+            elseif mode == "check" or mode == "deep" then
+                print(CDM_PREFIX .. "No safe current-profile migration is needed.")
+            end
+        end
+
+        local function RefreshDynamicIcons()
+            if ci.LoadDynamicIcons then
+                ci:LoadDynamicIcons()
+            end
+            if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
+                DDingUI.GroupSystem:Refresh()
+            end
+            if ci.RefreshDynamicListUI then
+                ci:RefreshDynamicListUI()
+            end
+            if ci.RefreshDynamicConfigUI then
+                ci:RefreshDynamicConfigUI()
+            end
+        end
+
+        if mode == "run" then
+            local before = ci:GetDynamicIconMigrationReport(false)
+            local ok = pcall(ci.GetDynamicDB)
+            if not ok then
+                print(CDM_PREFIX .. "|cffff0000Dynamic icon migration failed.|r")
+                return
+            end
+            RefreshDynamicIcons()
+            local after = ci:GetDynamicIconMigrationReport(false)
+            PrintReport("|cff00ff00Dynamic icon migration run complete.|r", after)
+            if before and before.canPromoteLegacy and after and not after.canPromoteLegacy then
+                print(CDM_PREFIX .. "|cff00ff00Legacy-spec data was merged into the current profile.|r")
+            end
+            return
+        end
+
+        if mode == "check" or mode == "deep" then
+            local ok, report = pcall(function()
+                return ci:GetDynamicIconMigrationReport(mode == "deep")
+            end)
+            if not ok then
+                print(CDM_PREFIX .. "|cffff0000Dynamic icon migration check failed.|r")
+                return
+            end
+            PrintReport(mode == "deep" and "|cff00ccffDynamic icon migration deep check.|r" or "|cff00ccffDynamic icon migration check.|r", report)
+            if mode == "deep" then
+                print(CDM_PREFIX .. "Deep check is read-only. Use |cffffd200/ddrecovericons deep|r only if you intentionally want old spec snapshots.")
+            end
+            return
+        end
+
+        print(CDM_PREFIX .. "Usage: |cffffd200/ddmigrateicons|r, |cffffd200/ddmigrateicons run|r, |cffffd200/ddmigrateicons deep|r")
     end)
 
     self:CreateMinimapButton()
@@ -747,6 +933,13 @@ function DDingUI:OnEnable()
 
     self:InitializeSelectionAlphaController()
 
+    -- [P0] Blizzard 편집모드에서 CDM 뷰어 조작 완전 차단 (Ayije 3중 차단)
+    if self.SetupEditModeLock then
+        C_Timer.After(1.0, function()
+            self:SetupEditModeLock()
+        end)
+    end
+
 
     -- 충돌 가능한 스킨 애드온 감지 및 경고
     C_Timer.After(3.0, function()
@@ -789,7 +982,7 @@ function DDingUI:OnEnable()
             OnCancel = function()
                 -- 마이그레이션 건너뛰기: profileVersion만 설정
                 local addonVersion = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("DDingUI", "Version")
-                DDingUI.db.profile.profileVersion = addonVersion or "1.2.5"
+                DDingUI.db.profile.profileVersion = addonVersion or "1.2.7.1"
                 print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffaaaaaaa마이그레이션을 건너뛰었습니다. 설정 > 프로필에서 수동으로 변경할 수 있습니다.|r")
             end,
         }
@@ -848,7 +1041,26 @@ end
 
 
 function DDingUI:OpenConfig()
-    -- [REFACTOR] AceGUI → StyleLib: AceConfigDialog 폴백 제거
+    -- [LoD] DDingUI_Options 최초 로드
+    if not self._optionsLoaded then
+        local loaded, reason = C_AddOns.LoadAddOn("DDingUI_Options")
+        if not loaded then
+            print(CDM_PREFIX .. "|cffff6600DDingUI_Options 로드 실패: |r" .. (reason or "unknown")) -- [STYLE]
+            if self.SetupOptions then
+                self:SetupOptions()
+                self._optionsLoaded = true
+            else
+                print(CDM_PREFIX .. "|cffff0000Error: Config files not available.|r") -- [STYLE]
+                return
+            end
+        else
+            if self.SetupOptions then
+                self:SetupOptions()
+            end
+            self._optionsLoaded = true
+        end
+    end
+
     if self.OpenConfigGUI then
         self:OpenConfigGUI()
     else
@@ -1077,20 +1289,27 @@ do
         local viewerKeys = DDingUI.viewers or {}
         local count = 0
         for _, key in ipairs(viewerKeys) do
-            local viewer = _G[key]
-            if viewer then
-                viewer:SetAlpha(alpha)
-                local vf = viewer.viewerFrame
-                if vf and vf.SetAlpha then
-                    vf:SetAlpha(alpha)
+            -- [FIX] BuffIcon viewer: ContainerSync가 offscreen으로 관리
+            -- FlightHide가 alpha 건드리면 CDM 위치에서 12개 프레임 플래시
+            if key ~= "BuffIconCooldownViewer" then
+                local viewer = _G[key]
+                if viewer then
+                    viewer:SetAlpha(alpha)
+                    local vf = viewer.viewerFrame
+                    if vf and vf.SetAlpha then
+                        vf:SetAlpha(alpha)
+                    end
+                    count = count + 1
                 end
-                count = count + 1
             end
         end
 
         -- GroupSystem 컨테이너 + UIParent로 reparent된 아이콘 알파 동기화
         local GR = DDingUI.GroupRenderer
         if GR and GR.groupFrames then
+            -- [FIX] idIconMap 참조: 비활성 버프 아이콘에 alpha 복원 방지
+            local FC = DDingUI.FrameController
+            local activeMap = FC and FC.GetIdIconMap and FC:GetIdIconMap()
             for _, container in pairs(GR.groupFrames) do
                 if container and container.SetAlpha then
                     container:SetAlpha(alpha)
@@ -1100,7 +1319,11 @@ do
                     for i = 1, (container._iconCount or 0) do
                         local ic = container._managedIcons[i]
                         if ic and ic._ddIsManaged and ic.SetAlpha then
-                            ic:SetAlpha(alpha)
+                            -- [FIX] idIconMap에 없는 아이콘(비활성 버프)은 alpha 복원 안 함
+                            local cdID = ic._ddLastCooldownID or ic.cooldownID
+                            if not activeMap or not cdID or activeMap[cdID] then
+                                ic:SetAlpha(alpha)
+                            end
                         end
                     end
                 end
@@ -1228,7 +1451,13 @@ do
         self._initialized = true
 
         flightHideFrame = CreateFrame("Frame")
-        flightHideFrame:SetScript("OnUpdate", FlightHideOnUpdate)
+        -- [P0 Ayije 패턴] 기능이 활성화된 경우에만 OnUpdate 시작
+        -- 꺼져 있으면 nil 유지 → 매 프레임 DB 접근/조건 체크 비용 0
+        local cfg = DDingUI.db and DDingUI.db.profile.general
+        if cfg and AnyFeatureEnabled(cfg) then
+            flightHideFrame:SetScript("OnUpdate", FlightHideOnUpdate)
+        end
+        -- EnsureOnUpdate는 설정 변경 콜백에서 호출되어 필요 시 재활성화
     end
 end
 
@@ -1422,6 +1651,19 @@ function DDingUI:RefreshAll()
         for name in pairs(self.Movers.CreatedMovers) do
             self.Movers:LoadMoverPosition(name)
         end
+    end
+
+    -- [FIX] Config GUI 갱신: 프로필/스펙 전환 후 아이콘 그룹 리스트 등 재빌드
+    -- RebuildTreeMenu: configOptions 재생성 + 트리 메뉴(사이드바) 전체 재빌드
+    -- (내부에서 ns.CreateGroupSystemOptions로 groupSystem args도 재생성됨)
+    local configFrame = _G["DDingUI_ConfigFrame"]
+    if configFrame and configFrame:IsShown() and configFrame.RebuildTreeMenu then
+        C_Timer.After(0.5, function()
+            local cf = _G["DDingUI_ConfigFrame"]
+            if cf and cf:IsShown() and cf.RebuildTreeMenu then
+                cf:RebuildTreeMenu()
+            end
+        end)
     end
 end
 

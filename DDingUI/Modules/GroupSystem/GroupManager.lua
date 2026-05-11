@@ -31,6 +31,158 @@ local function GetSpellAssignments()
     return gs and gs.spellAssignments or {}
 end
 
+local function SaveCurrentSpecNow()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
+end
+
+local function BuildCDMOrderToken(spellName)
+    if not spellName or spellName == "" then return nil end
+    return "cdm:" .. tostring(spellName)
+end
+
+local function BuildDynamicOrderToken(iconKey)
+    if not iconKey or iconKey == "" then return nil end
+    return "dyn:" .. tostring(iconKey)
+end
+
+local function RemoveTokenFromList(list, token)
+    if type(list) ~= "table" or not token then return false end
+    local changed = false
+    for i = #list, 1, -1 do
+        if list[i] == token then
+            table.remove(list, i)
+            changed = true
+        end
+    end
+    return changed
+end
+
+local function HasToken(list, token)
+    if type(list) ~= "table" or not token then return false end
+    for _, existing in ipairs(list) do
+        if existing == token then return true end
+    end
+    return false
+end
+
+local function RemoveTokenFromAllGroups(gs, token, exceptGroup)
+    if not gs or not gs.groups or not token then return false end
+    local changed = false
+    for groupName, settings in pairs(gs.groups) do
+        if groupName ~= exceptGroup and settings and RemoveTokenFromList(settings.iconOrder, token) then
+            changed = true
+        end
+    end
+    return changed
+end
+
+local function GetLinkedDynamicIcons(groupSettings)
+    local sourceKey = groupSettings and groupSettings.sourceGroupKey
+    if not sourceKey then return nil end
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynDB = profile and profile.dynamicIcons
+    local sourceGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    return sourceGroup and sourceGroup.icons
+end
+
+local function NormalizeGroupIconOrder(gs, groupName)
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return nil end
+
+    local valid = {}
+    local orderedCDM = {}
+    local orderedDynamic = {}
+
+    if gs.spellAssignments then
+        for spellName, assignedGroup in pairs(gs.spellAssignments) do
+            if assignedGroup == groupName then
+                local token = BuildCDMOrderToken(spellName)
+                if token then
+                    valid[token] = true
+                    orderedCDM[#orderedCDM + 1] = token
+                end
+            end
+        end
+    end
+    table.sort(orderedCDM)
+
+    local dynamicIcons = GetLinkedDynamicIcons(groupSettings)
+    if type(dynamicIcons) == "table" then
+        for _, iconKey in ipairs(dynamicIcons) do
+            local token = BuildDynamicOrderToken(iconKey)
+            if token then
+                valid[token] = true
+                orderedDynamic[#orderedDynamic + 1] = token
+            end
+        end
+    end
+
+    local normalized = {}
+    local seen = {}
+    if type(groupSettings.iconOrder) == "table" then
+        for _, token in ipairs(groupSettings.iconOrder) do
+            if valid[token] and not seen[token] then
+                normalized[#normalized + 1] = token
+                seen[token] = true
+            end
+        end
+    end
+
+    for _, token in ipairs(orderedCDM) do
+        if not seen[token] then
+            normalized[#normalized + 1] = token
+            seen[token] = true
+        end
+    end
+    for _, token in ipairs(orderedDynamic) do
+        if not seen[token] then
+            normalized[#normalized + 1] = token
+            seen[token] = true
+        end
+    end
+
+    groupSettings.iconOrder = normalized
+    return normalized
+end
+
+local function AppendGroupIconOrderToken(gs, groupName, token)
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings or not token then return false end
+    NormalizeGroupIconOrder(gs, groupName)
+    groupSettings.iconOrder = groupSettings.iconOrder or {}
+    if HasToken(groupSettings.iconOrder, token) then return false end
+    groupSettings.iconOrder[#groupSettings.iconOrder + 1] = token
+    return true
+end
+
+local function NormalizeGroupOrders(gs)
+    if not gs or not gs.groups then return nil end
+
+    local list = {}
+    for name, settings in pairs(gs.groups) do
+        list[#list + 1] = {
+            name = name,
+            settings = settings,
+            order = tonumber(settings and settings.order) or 999,
+        }
+    end
+
+    table.sort(list, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return tostring(a.name) < tostring(b.name)
+    end)
+
+    for i, entry in ipairs(list) do
+        if entry.settings then
+            entry.settings.order = i
+        end
+    end
+
+    return list
+end
+
 -- ============================================================
 -- 그룹 CRUD (변경 없음)
 -- ============================================================
@@ -39,17 +191,7 @@ function GroupManager:GetGroups()
     local gs = GetGroupSystemSettings()
     if not gs or not gs.groups then return {} end
 
-    -- order 순으로 정렬된 배열 반환
-    local sorted = {}
-    for name, settings in pairs(gs.groups) do
-        sorted[#sorted + 1] = {
-            name = name,
-            settings = settings,
-            order = settings.order or 999,
-        }
-    end
-    table.sort(sorted, function(a, b) return a.order < b.order end)
-    return sorted
+    return NormalizeGroupOrders(gs) or {}
 end
 
 function GroupManager:GetGroupByName(groupName)
@@ -112,6 +254,7 @@ function GroupManager:CreateGroup(name, settings)
         end
     end
 
+    SaveCurrentSpecNow()
     return true
 end
 
@@ -133,6 +276,7 @@ function GroupManager:DeleteGroup(name)
     gs.deletedGroups[name] = true
 
     gs.groups[name] = nil
+    SaveCurrentSpecNow()
     return true
 end
 
@@ -152,6 +296,43 @@ function GroupManager:RenameGroup(oldName, newName)
         end
     end
 
+    SaveCurrentSpecNow()
+    return true
+end
+
+function GroupManager:ReorderGroup(sourceName, targetName, insertAfter)
+    local gs = GetGroupSystemSettings()
+    if not gs or not gs.groups or not sourceName or not targetName then return false end
+    if sourceName == targetName then return false end
+    if not gs.groups[sourceName] or not gs.groups[targetName] then return false end
+
+    local list = NormalizeGroupOrders(gs)
+    if not list then return false end
+
+    local sourceIndex, targetIndex
+    for i, entry in ipairs(list) do
+        if entry.name == sourceName then sourceIndex = i end
+        if entry.name == targetName then targetIndex = i end
+    end
+    if not sourceIndex or not targetIndex or sourceIndex == targetIndex then return false end
+
+    local moving = table.remove(list, sourceIndex)
+    if sourceIndex < targetIndex then
+        targetIndex = targetIndex - 1
+    end
+
+    local insertIndex = insertAfter and (targetIndex + 1) or targetIndex
+    if insertIndex < 1 then insertIndex = 1 end
+    if insertIndex > #list + 1 then insertIndex = #list + 1 end
+    table.insert(list, insertIndex, moving)
+
+    for i, entry in ipairs(list) do
+        if entry.settings then
+            entry.settings.order = i
+        end
+    end
+
+    SaveCurrentSpecNow()
     return true
 end
 
@@ -163,8 +344,19 @@ end
 function GroupManager:AssignSpell(spellName, groupName)
     local gs = GetGroupSystemSettings()
     if not gs then return false end
+    local group = gs.groups and gs.groups[groupName]
+    if not group or group.groupType == "dynamic" then
+        return false
+    end
     if not gs.spellAssignments then gs.spellAssignments = {} end
+    local token = BuildCDMOrderToken(spellName)
+    local previousGroup = gs.spellAssignments[spellName]
+    if previousGroup ~= groupName then
+        RemoveTokenFromAllGroups(gs, token)
+    end
     gs.spellAssignments[spellName] = groupName
+    AppendGroupIconOrderToken(gs, groupName, token)
+    SaveCurrentSpecNow()
     return true
 end
 
@@ -172,6 +364,77 @@ function GroupManager:UnassignSpell(spellName)
     local gs = GetGroupSystemSettings()
     if not gs or not gs.spellAssignments then return false end
     gs.spellAssignments[spellName] = nil
+    RemoveTokenFromAllGroups(gs, BuildCDMOrderToken(spellName))
+    SaveCurrentSpecNow()
+    return true
+end
+
+function GroupManager:NormalizeGroupIconOrder(groupName)
+    local gs = GetGroupSystemSettings()
+    return NormalizeGroupIconOrder(gs, groupName)
+end
+
+function GroupManager:ReorderGroupIcon(groupName, sourceToken, targetToken, insertAfter, dropAction)
+    local gs = GetGroupSystemSettings()
+    if not gs or not groupName or not sourceToken or not targetToken then return false end
+    if sourceToken == targetToken then return false end
+
+    local order = NormalizeGroupIconOrder(gs, groupName)
+    if type(order) ~= "table" then return false end
+
+    local sourceIndex, targetIndex
+    for i, token in ipairs(order) do
+        if token == sourceToken then sourceIndex = i end
+        if token == targetToken then targetIndex = i end
+    end
+    if not sourceIndex or not targetIndex or sourceIndex == targetIndex then return false end
+
+    if dropAction == "swap" then
+        order[sourceIndex], order[targetIndex] = order[targetIndex], order[sourceIndex]
+        SaveCurrentSpecNow()
+        return true
+    end
+
+    local moving = table.remove(order, sourceIndex)
+    if sourceIndex < targetIndex then
+        targetIndex = targetIndex - 1
+    end
+
+    local insertIndex = insertAfter and (targetIndex + 1) or targetIndex
+    if insertIndex < 1 then insertIndex = 1 end
+    if insertIndex > #order + 1 then insertIndex = #order + 1 end
+    table.insert(order, insertIndex, moving)
+
+    SaveCurrentSpecNow()
+    return true
+end
+
+function GroupManager:ReorderAssignedSpell(groupName, spellName, targetSpellName, insertAfter)
+    return self:ReorderGroupIcon(groupName, BuildCDMOrderToken(spellName), BuildCDMOrderToken(targetSpellName), insertAfter)
+end
+
+function GroupManager:PruneInvalidAssignments()
+    local gs = GetGroupSystemSettings()
+    if not gs or not gs.spellAssignments or not gs.groups then return false end
+
+    local toRemove
+    for spellName, groupName in pairs(gs.spellAssignments) do
+        local group = gs.groups[groupName]
+        if not group or group.groupType == "dynamic" then
+            if not toRemove then toRemove = {} end
+            toRemove[#toRemove + 1] = spellName
+        end
+    end
+
+    if not toRemove then return false end
+    for _, spellName in ipairs(toRemove) do
+        gs.spellAssignments[spellName] = nil
+        RemoveTokenFromAllGroups(gs, BuildCDMOrderToken(spellName))
+    end
+
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+        DDingUI.SpecProfiles:MarkDirty()
+    end
     return true
 end
 
@@ -193,59 +456,38 @@ function GroupManager:ClassifyIcon(cooldownID)
     if not gs then return nil end
 
     local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
+
+    -- [Fix C] 캐시 미스 시 아이콘에서 직접 추출 (전투 중 secret value 해제 즉시 반영)
+    if not spellName then
+        local icon = CDMHookEngine:GetIconFrame(cooldownID)
+        if icon and CDMHookEngine.GetSpellName then
+            spellName = CDMHookEngine:GetSpellName(icon)
+        end
+    end
+
     local cleanSpellName
     if spellName then
         cleanSpellName = spellName:match("^buff_(.+)") or spellName
     end
 
-    -- [0순위] 다이나믹 그룹 (CustomIcons 연동) 네이티브 하이재킹
-    -- CustomIcons UI에서 설정한 버프/주문을 원본 판단하여 다이나믹 그룹으로 보냅니다.
-    local profile = DDingUI.db and DDingUI.db.profile
-    if profile and profile.dynamicIcons and profile.dynamicIcons.groups then
-        local dynDB = profile.dynamicIcons
-        -- 활성화된 그룹만 검사
-        if gs.groups then
-            for gName, gSettings in pairs(gs.groups) do
-                if gSettings.groupType == "dynamic" and gSettings.enabled and gSettings.sourceGroupKey then
-                    local sourceGroup = dynDB.groups[gSettings.sourceGroupKey]
-                    if sourceGroup and sourceGroup.icons then
-                        for _, iconKey in ipairs(sourceGroup.icons) do
-                            local iconData = dynDB.iconData[iconKey]
-                            if iconData then
-                                -- 1. spellID 완전 일치
-                                if iconData.id == cooldownID then
-                                    return gName
-                                end
-                                -- 2. 이름 기반 일치 (Aura 폴백용)
-                                if cleanSpellName then
-                                    if iconData.spellName == cleanSpellName then
-                                        return gName
-                                    end
-                                    if iconData.type == "aura" then
-                                        -- [FIX] aura 매칭은 BuffIconCooldownViewer 소속만 (buff_ 접두사)
-                                        -- 같은 이름의 스펠(Essential/Utility)이 잘못 끌려오는 것 방지
-                                        local isBuffViewer = spellName and spellName:match("^buff_")
-                                        if isBuffViewer then
-                                            local spellInfo = C_Spell.GetSpellInfo(iconData.id)
-                                            if spellInfo and spellInfo.name == cleanSpellName then
-                                                return gName
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
+    -- [REMOVED] 0순위 다이나믹 그룹 하이재킹 제거
+    -- DynamicIconBridge가 CustomIcons 프레임을 직접 제공하므로
+    -- CDM 아이콘을 커스텀 그룹으로 분류하면 중복 발생 (CDM 프레임 + CustomIcons 프레임)
+
+    -- [FIX] dynamic 그룹 필터 — CDM 아이콘은 dynamic 그룹에 절대 들어가면 안 됨
+    local function notDynamic(groupName)
+        if not groupName then return nil end
+        local g = gs.groups[groupName]
+        if g and g.groupType == "dynamic" then return nil end
+        return groupName
     end
 
     -- 1순위: 수동 할당 (spellName 기반)
+    -- dynamic 그룹은 CustomIcons 복사본으로만 표시한다. CDM 원본을 dynamic으로 분류하면
+    -- 기존 CDM 그룹에서 빠지고 CustomIcons 복사본과 중복 렌더링된다.
     if spellName and gs.spellAssignments and gs.spellAssignments[spellName] then
-        local assigned = gs.spellAssignments[spellName]
-        -- 할당된 그룹이 실제로 존재하고 활성화되어 있는지 확인
-        if gs.groups[assigned] and gs.groups[assigned].enabled then
+        local assigned = notDynamic(gs.spellAssignments[spellName])
+        if assigned and gs.groups[assigned] and gs.groups[assigned].enabled then
             return assigned
         end
     end
@@ -255,22 +497,25 @@ function GroupManager:ClassifyIcon(cooldownID)
     if gs.autoClassify then
         local defaultGroup = CDMHookEngine:GetDefaultGroupForViewer(viewerName)
         if defaultGroup and gs.groups[defaultGroup] and gs.groups[defaultGroup].enabled then
-            return defaultGroup
+            local result = notDynamic(defaultGroup)
+            if result then return result end
         end
     end
 
     -- 3순위: autoFilter 매칭
     if viewerName then
         local filterGroup = self:FindGroupByViewerFilter(viewerName)
-        if filterGroup then return filterGroup end
+        local result = notDynamic(filterGroup)
+        if result then return result end
     end
 
     -- 4순위: autoFilter = "ALL" 그룹
     local allGroup = self:FindGroupByFilter("ALL")
-    if allGroup then return allGroup end
+    local allResult = notDynamic(allGroup)
+    if allResult then return allResult end
 
     -- 5순위: 첫 번째 활성 그룹
-    return self:GetFirstEnabledGroup()
+    return notDynamic(self:GetFirstEnabledGroup())
 end
 
 -- 뷰어 이름 → autoFilter 매칭
@@ -340,6 +585,7 @@ function GroupManager:ClassifyAll()
 
     local idIconMap = CDMHookEngine:GetIconMap()
     local result = {} -- [groupName] = { {cooldownID=, icon=, spellName=}... }
+    self:PruneInvalidAssignments()
 
     -- 빈 그룹 초기화
     local gs = GetGroupSystemSettings()

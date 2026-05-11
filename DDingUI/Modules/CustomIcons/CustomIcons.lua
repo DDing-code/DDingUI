@@ -3,6 +3,7 @@ local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
 local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
+local canaccessvalue = canaccessvalue  -- [12.0.5] secret value 감지
 
 DDingUI.CustomIcons = DDingUI.CustomIcons or {}
 local CustomIcons = DDingUI.CustomIcons
@@ -46,6 +47,7 @@ end
 
 -- Forward declarations
 local RefreshAllLayouts
+local UpdateAllIcons
 local uiState
 
 local SPEC_LIST = {
@@ -93,35 +95,99 @@ local SPEC_LIST = {
 
 -- [RACIALS] 종족 특성 매핑 (자동 감지용)
 local RACIAL_SPELLS = {
-    Human       = 59752,  -- Will to Survive
-    Orc         = 20572,  -- Blood Fury
-    NightElf    = 58984,  -- Shadowmeld
-    Dwarf       = 20594,  -- Stoneform
-    Undead      = 7744,   -- Will of the Forsaken
-    Troll       = 26297,  -- Berserking
-    BloodElf    = 25046,  -- Arcane Torrent
-    Gnome       = 20589,  -- Escape Artist
-    Draenei     = 28880,  -- Gift of the Naaru
-    Worgen      = 68992,  -- Darkflight
-    Goblin      = 69070,  -- Rocket Jump
-    Pandaren    = 107079, -- Quaking Palm
-    VoidElf     = 256948, -- Spatial Rift
-    LightforgedDraenei = 255647, -- Light's Judgment
-    DarkIronDwarf  = 265221, -- Fireblood
-    KulTiran    = 287712, -- Haymaker
-    Mechagnome  = 312924, -- Hyper Organic Light Originator
-    Nightborne  = 260364, -- Arcane Pulse
-    HighmountainTauren = 255654, -- Bull Rush
-    MagharOrc   = 274738, -- Ancestral Call
-    ZandalariTroll = 291944, -- Regeneratin'
-    Vulpera     = 312411, -- Bag of Tricks
-    Dracthyr    = 368970, -- Tail Swipe
+    Orc         = { 20572, 33697, 33702 }, -- Blood Fury
+    Tauren      = { 20549 }, -- War Stomp
+    NightElf    = { 58984 }, -- Shadowmeld
+    Human       = { 59752 }, -- Will to Survive
+    Dwarf       = { 20594 }, -- Stoneform
+    Scourge     = { 7744 },  -- Will of the Forsaken
+    Troll       = { 26297 }, -- Berserking
+    BloodElf    = { 202719, 50613, 25046, 69179, 80483, 155145, 129597, 232633, 28730 }, -- Arcane Torrent variants
+    Gnome       = { 20589 }, -- Escape Artist
+    Draenei     = { 28880 }, -- Gift of the Naaru
+    Worgen      = { 68992 }, -- Darkflight
+    Goblin      = { 69070 }, -- Rocket Jump
+    Pandaren    = { 107079 }, -- Quaking Palm
+    VoidElf     = { 256948 }, -- Spatial Rift
+    LightforgedDraenei = { 255647 }, -- Light's Judgment
+    DarkIronDwarf  = { 265221 }, -- Fireblood
+    KulTiran    = { 287712 }, -- Haymaker
+    Mechagnome  = { 312924 }, -- Hyper Organic Light Originator
+    Nightborne  = { 260364 }, -- Arcane Pulse
+    HighmountainTauren = { 255654 }, -- Bull Rush
+    MagharOrc   = { 274738 }, -- Ancestral Call
+    ZandalariTroll = { 291944 }, -- Regeneratin'
+    Vulpera     = { 312411 }, -- Bag of Tricks
+    Dracthyr    = { 357214, 368970 }, -- Wing Buffet, Tail Swipe
+    EarthenDwarf = { 436344 },
+    Haranir     = { 1287685 },
 }
 
-local function GetPlayerRacialSpellID()
+local function IsSpellInPlayerBook(spellID)
+    if not spellID then return false end
+
+    -- Use the new Dragonflight API that checks if spell is actually known for current spec
+    -- Includes handling of spell overrides/replacements
+    if C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.FindBaseSpellByID and C_SpellBook.FindSpellOverrideByID and Enum and Enum.SpellBookSpellBank then
+        local bank = Enum.SpellBookSpellBank.Player
+
+        -- Direct check first
+        local ok, result = pcall(C_SpellBook.IsSpellKnown, spellID, bank)
+        if ok and result then
+            return true
+        end
+
+        -- Check base spell if this might be an override
+        ok, result = pcall(C_SpellBook.FindBaseSpellByID, spellID)
+        if ok and result and result ~= spellID then
+            ok, result = pcall(C_SpellBook.IsSpellKnown, result, bank)
+            if ok and result then
+                return true
+            end
+        end
+
+        -- Check override spell if this might be a base
+        ok, result = pcall(C_SpellBook.FindSpellOverrideByID, spellID)
+        if ok and result and result ~= spellID then
+            ok, result = pcall(C_SpellBook.IsSpellKnown, result, bank)
+            if ok and result then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- Fallback to old API for backward compatibility
+    if C_SpellBook and C_SpellBook.IsSpellInSpellBook then
+        local ok, result = pcall(C_SpellBook.IsSpellInSpellBook, spellID)
+        if ok then
+            return result == true
+        end
+    end
+
+    -- Fallback: assume available if API missing/failed
+    return true
+end
+
+function CustomIcons:GetPlayerRacialSpellID()
     local _, raceKey = UnitRace("player")
     local raceFile = (raceKey or ""):gsub("%s", ""):gsub("^%l", string.upper)
-    return RACIAL_SPELLS[raceFile]
+    local spellList = RACIAL_SPELLS[raceFile]
+    
+    if type(spellList) == "table" then
+        for _, spellID in ipairs(spellList) do
+            if IsSpellInPlayerBook(spellID) then
+                return spellID
+            end
+        end
+        return spellList[1] -- fallback
+    end
+    return spellList
+end
+
+local function GetPlayerRacialSpellID()
+    return CustomIcons:GetPlayerRacialSpellID()
 end
 
 -- [REFACTOR] CreateBackdrop은 GUI.lua로 이동됨 → EnsureGUILoaded()에서 lazy-load
@@ -130,8 +196,11 @@ end
 local runtime = {
     iconFrames = {},  -- [iconKey] = frame
     groupFrames = {}, -- [groupKey] = frame
+    iconFramePool = {}, -- reusable inactive icon frames
+    textureCache = {},  -- [stable identity] = resolved texture
     dragState = {},
     pendingSpecReload = false,
+    customTimedAuras = {}, -- [spellID] = { startTime, duration, expirationTime, token, iconTexture }
 }
 
 -- UI state containers
@@ -245,6 +314,149 @@ local function EnsureIconSettings(iconData)
     end
 end
 
+local function HasTableEntries(tbl)
+    return type(tbl) == "table" and next(tbl) ~= nil
+end
+
+local function HasDynamicPayload(db)
+    return type(db) == "table"
+        and (HasTableEntries(db.groups) or HasTableEntries(db.iconData) or HasTableEntries(db.ungrouped))
+end
+
+local function CountTableEntries(tbl)
+    if type(tbl) ~= "table" then return 0 end
+    local count = 0
+    for _ in pairs(tbl) do
+        count = count + 1
+    end
+    return count
+end
+
+local function CountDynamicPayload(db)
+    if type(db) ~= "table" then return 0 end
+    return CountTableEntries(db.groups) + CountTableEntries(db.iconData) + CountTableEntries(db.ungrouped)
+end
+
+local function FindLegacyDynamicSpec(db)
+    if type(db) ~= "table" or type(db.specs) ~= "table" then
+        return nil, nil
+    end
+
+    local currentSpecID
+    if GetSpecialization and GetSpecializationInfo then
+        local specIndex = GetSpecialization()
+        if specIndex then
+            currentSpecID = GetSpecializationInfo(specIndex)
+        end
+    end
+
+    local source = currentSpecID and db.specs[currentSpecID]
+    if HasDynamicPayload(source) then
+        return source, currentSpecID
+    end
+
+    source = db.specs[0]
+    if HasDynamicPayload(source) then
+        return source, 0
+    end
+
+    for specID, specDB in pairs(db.specs) do
+        if HasDynamicPayload(specDB) then
+            return specDB, specID
+        end
+    end
+
+    return nil, nil
+end
+
+local function CopyStoredValue(value)
+    if type(value) ~= "table" then return value end
+    if CopyTable then return CopyTable(value) end
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[CopyStoredValue(k)] = CopyStoredValue(v)
+    end
+    return copy
+end
+
+local function MergeMissingEntries(target, source)
+    target = type(target) == "table" and target or {}
+    if type(source) == "table" then
+        for key, value in pairs(source) do
+            if target[key] == nil then
+                target[key] = CopyStoredValue(value)
+            end
+        end
+    end
+    return target
+end
+
+local function ScoreDynamicPayload(db)
+    if type(db) ~= "table" then return 0 end
+    return (CountTableEntries(db.iconData) * 10)
+        + CountTableEntries(db.groups)
+        + CountTableEntries(db.ungrouped)
+end
+
+local function FindFallbackDynamicProfile(currentDB, includeDeepSnapshots)
+    local profiles = DDingUI.db and DDingUI.db.profiles
+    if type(profiles) ~= "table" then return nil, nil, nil, 0 end
+
+    local bestSource, bestProfileName, bestSourceKey
+    local bestScore = 0
+
+    local function considerSource(source, profileName, sourceKey)
+        local score = ScoreDynamicPayload(source)
+        if source and score > bestScore then
+            bestSource = source
+            bestProfileName = profileName
+            bestSourceKey = sourceKey
+            bestScore = score
+        end
+    end
+
+    local function considerDynamicDB(dynDB, profileName, label)
+        if type(dynDB) ~= "table" or dynDB == currentDB then return end
+
+        if HasDynamicPayload(dynDB) then
+            considerSource(dynDB, profileName, label or "root")
+        end
+
+        local legacySource, legacySourceKey = FindLegacyDynamicSpec(dynDB)
+        if legacySource then
+            considerSource(legacySource, profileName, (label or "root") .. ".specs." .. tostring(legacySourceKey or "?"))
+        end
+    end
+
+    for profileName, profileDB in pairs(profiles) do
+        if type(profileDB) == "table" then
+            considerDynamicDB(profileDB.dynamicIcons, profileName, "dynamicIcons")
+
+            local specProfiles = profileDB.specProfiles
+            if type(specProfiles) == "table" then
+                considerDynamicDB(specProfiles.dynamicIcons, profileName, "specProfiles.dynamicIcons")
+            end
+
+            if includeDeepSnapshots then
+                local specData = profileDB.specData
+                if type(specData) == "table" then
+                    for specID, specDB in pairs(specData) do
+                        if type(specDB) == "table" then
+                            considerDynamicDB(specDB.dynamicIcons, profileName, "specData." .. tostring(specID) .. ".dynamicIcons")
+                            local nestedProfiles = specDB.specProfiles
+                            if type(nestedProfiles) == "table" then
+                                considerDynamicDB(nestedProfiles.dynamicIcons, profileName, "specData." .. tostring(specID) .. ".specProfiles.dynamicIcons")
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestSource, bestProfileName, bestSourceKey, bestScore
+end
+
 local function GetDynamicDB()
     local profile = DDingUI.db.profile
     profile.dynamicIcons = profile.dynamicIcons or {}
@@ -254,7 +466,96 @@ local function GetDynamicDB()
     db.ungrouped = db.ungrouped or {}
     db.groups = db.groups or {}
 
+    -- Older DDingUI builds stored dynamic icons under dynamicIcons.specs[specID].
+    -- The current renderer reads dynamicIcons.groups/iconData directly. Merge the
+    -- legacy payload back into the root without deleting any newer root entries.
+    local hadRootPayload = HasDynamicPayload(db)
+    local rootIconCount = CountTableEntries(db.iconData)
+    local legacySource, legacySourceKey = FindLegacyDynamicSpec(db)
+    if legacySource and not db._legacySpecsPromoted and rootIconCount == 0 then
+        db.groups = MergeMissingEntries(db.groups, legacySource.groups)
+        db.iconData = MergeMissingEntries(db.iconData, legacySource.iconData)
+        db.ungrouped = MergeMissingEntries(db.ungrouped, legacySource.ungrouped)
+        db.ungroupedPositions = MergeMissingEntries(db.ungroupedPositions, legacySource.ungroupedPositions)
+        if not hadRootPayload then
+            db.enabled = legacySource.enabled ~= false
+        end
+        db._legacySpecsPromoted = legacySourceKey or true
+    end
+
     return db
+end
+
+function CustomIcons:RecoverDynamicIcons(includeDeepSnapshots)
+    if not DDingUI.db or not DDingUI.db.profile then return nil end
+
+    local profile = DDingUI.db.profile
+    profile.dynamicIcons = profile.dynamicIcons or {}
+    local db = profile.dynamicIcons
+    db.iconData = db.iconData or {}
+    db.ungrouped = db.ungrouped or {}
+    db.groups = db.groups or {}
+
+    local source, profileName, sourceKey = FindFallbackDynamicProfile(db, includeDeepSnapshots == true)
+    if not source or CountTableEntries(source.iconData) == 0 then
+        return db, nil, nil, CountTableEntries(db.groups), CountTableEntries(db.iconData)
+    end
+
+    db.groups = MergeMissingEntries(db.groups, source.groups)
+    db.iconData = MergeMissingEntries(db.iconData, source.iconData)
+    db.ungrouped = MergeMissingEntries(db.ungrouped, source.ungrouped)
+    db.ungroupedPositions = MergeMissingEntries(db.ungroupedPositions, source.ungroupedPositions)
+    db.enabled = source.enabled ~= false
+    db._recoveredFromProfile = profileName or true
+    db._recoveredFromSpec = sourceKey
+    db._recoveredIconCount = CountTableEntries(source.iconData)
+    db._recoveredGroupCount = CountTableEntries(source.groups)
+
+    return db, profileName, sourceKey, CountTableEntries(db.groups), CountTableEntries(db.iconData)
+end
+
+function CustomIcons:GetDynamicIconMigrationReport(includeDeepSnapshots)
+    local profile = DDingUI.db and DDingUI.db.profile
+    local db = profile and profile.dynamicIcons
+    local legacySource, legacySourceKey = FindLegacyDynamicSpec(db)
+    local fallbackSource, fallbackProfileName, fallbackSourceKey, fallbackScore = FindFallbackDynamicProfile(db, includeDeepSnapshots == true)
+
+    local report = {
+        hasDB = type(db) == "table",
+        enabled = db and db.enabled ~= false,
+        rootGroups = CountTableEntries(db and db.groups),
+        rootIcons = CountTableEntries(db and db.iconData),
+        rootUngrouped = CountTableEntries(db and db.ungrouped),
+        promotedFrom = db and db._legacySpecsPromoted,
+        recoveredFromProfile = db and db._recoveredFromProfile,
+        recoveredFromSpec = db and db._recoveredFromSpec,
+        legacySpecKey = legacySourceKey,
+        legacyGroups = CountTableEntries(legacySource and legacySource.groups),
+        legacyIcons = CountTableEntries(legacySource and legacySource.iconData),
+        legacyUngrouped = CountTableEntries(legacySource and legacySource.ungrouped),
+        fallbackProfile = fallbackProfileName,
+        fallbackSourceKey = fallbackSourceKey,
+        fallbackScore = fallbackScore or 0,
+        fallbackGroups = CountTableEntries(fallbackSource and fallbackSource.groups),
+        fallbackIcons = CountTableEntries(fallbackSource and fallbackSource.iconData),
+        fallbackUngrouped = CountTableEntries(fallbackSource and fallbackSource.ungrouped),
+        includeDeepSnapshots = includeDeepSnapshots == true,
+    }
+
+    report.canPromoteLegacy = report.hasDB and not report.promotedFrom and report.rootIcons == 0 and report.legacyIcons > 0
+    report.hasFallback = report.fallbackScore > 0 and report.fallbackIcons > 0
+    return report
+end
+
+local function BuildUniqueDBKey(prefix, targetTable)
+    local base = tostring(math.floor((GetTime and GetTime() or 0) * 1000))
+    local key = prefix .. base
+    local n = 1
+    while targetTable and targetTable[key] do
+        n = n + 1
+        key = prefix .. base .. "_" .. n
+    end
+    return key
 end
 
 local function EnsureLoadConditions(iconData)
@@ -270,21 +571,498 @@ end
 -- ------------------------
 -- Icon updates
 -- ------------------------
-local IsCooldownFrameActive
+-- [FIX] IsCooldownFrameActive: 이전 패치에서 정의 제거됨 — forward declaration 유지 (nil)
+-- L830 호출부도 GetCooldownTimes 기반으로 교체되었으므로 더 이상 보안 필요 없음
+local IsCooldownFrameActive  -- unused, kept for reference only
 
 -- [Ayije CDM 방식] 아이템 → 스펠 쿨다운 매핑
 -- 아이템 쿨다운이 전투 중 보이지 않을 때(combatLockout 등) 스펠 쿨다운으로 폴백
 local ITEM_SPELL_MAP = {
-    [5512]   = 6262,    -- Healthstone → Use: Healthstone
-    [224464] = 452930,  -- Demonic Healthstone → Use: Demonic Healthstone
+    [5512]   = 6262,    -- Healthstone
+    [224464] = 452930,  -- Demonic Healthstone
     [241304] = 1234768, -- Silvermoon Health Potion R2
     [241305] = 1234768, -- Silvermoon Health Potion R1
     [241308] = 1236616, -- Light's Potential R2
     [241309] = 1236616, -- Light's Potential R1
+    [245898] = 1236616, -- Light's Potential alt
+    [245897] = 1236616, -- Light's Potential alt
+    [241288] = 1236994, -- Potion of Recklessness R2
+    [241289] = 1236994, -- Potion of Recklessness R1
+    [245902] = 1236994, -- Potion of Recklessness alt
+    [245903] = 1236994, -- Potion of Recklessness alt
     [241300] = 1234770, -- Lightfused Mana Potion R2
     [241301] = 1234770, -- Lightfused Mana Potion R1
+    [245917] = 1234770, -- Lightfused Mana Potion alt
+    [245916] = 1234770, -- Lightfused Mana Potion alt
+    [211878] = 431416,  -- Algari Healing Potion R1
+    [211879] = 431416,  -- Algari Healing Potion R2
+    [211880] = 431416,  -- Algari Healing Potion R3
 }
 local ITEM_COOLDOWN_MIN_SECONDS = 1.6
+local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local CUSTOM_ICON_EFFECT_GRACE_SECONDS = 1.5
+
+local BLOODLUST_AURA_IDS = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
+local BLOODLUST_DEBUFFS = {
+    [57723]  = 32182,  -- Exhaustion -> Heroism
+    [57724]  = 2825,   -- Sated -> Bloodlust
+    [80354]  = 80353,  -- Temporal Displacement -> Time Warp
+    [95809]  = 90355,  -- Insanity -> Ancient Hysteria
+    [160455] = 264667, -- Fatigued -> Primal Rage
+    [264689] = 264667, -- Fatigued -> Primal Rage
+    [390435] = 390386, -- Exhaustion -> Fury of the Aspects
+}
+local CUSTOM_TIMED_AURA_CONFIGS = {
+    [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
+    [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
+    [1239479] = { duration = 10, trigger = "spellcast" },   -- Potion of Devoured Dreams
+    [374968]  = { duration = 10, trigger = "timespiral" },  -- Time Spiral
+    [2825]    = { duration = 40, trigger = "bloodlust" },   -- Bloodlust family
+}
+local TIME_SPIRAL_TRIGGERS = {
+    [48265] = true, [195072] = true, [189110] = true, [1850] = true,
+    [252216] = true, [358267] = true, [186257] = true, [1953] = true,
+    [212653] = true, [361138] = true, [119085] = true, [190784] = true,
+    [73325] = true, [2983] = true, [192063] = true, [58875] = true,
+    [79206] = true, [48020] = true, [6544] = true,
+}
+local AURA_EQUIVALENT_IDS = {}
+for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
+    AURA_EQUIVALENT_IDS[spellID] = BLOODLUST_AURA_IDS
+end
+
+local function SetStableIconTexture(iconFrame, texture, allowFallback)
+    if not iconFrame or not iconFrame.icon then return end
+    if texture then
+        iconFrame._lastResolvedTexture = texture
+        if iconFrame._textureCacheKey then
+            runtime.textureCache[iconFrame._textureCacheKey] = texture
+        end
+        iconFrame.icon:SetTexture(texture)
+    elseif iconFrame._textureCacheKey and runtime.textureCache[iconFrame._textureCacheKey] then
+        iconFrame._lastResolvedTexture = runtime.textureCache[iconFrame._textureCacheKey]
+        iconFrame.icon:SetTexture(iconFrame._lastResolvedTexture)
+    elseif iconFrame._lastResolvedTexture then
+        iconFrame.icon:SetTexture(iconFrame._lastResolvedTexture)
+    elseif allowFallback then
+        iconFrame.icon:SetTexture(QUESTION_MARK_ICON)
+    end
+end
+
+local function ResolveItemTexture(itemID, slotID)
+    local tex = nil
+    if slotID then
+        tex = GetInventoryItemTexture("player", slotID)
+    end
+    if not tex and itemID and C_Item and C_Item.GetItemIconByID then
+        tex = C_Item.GetItemIconByID(itemID)
+    end
+    if not tex and itemID then
+        local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
+        tex = itemTexture
+    end
+    if not tex and itemID and C_Item and C_Item.RequestLoadItemDataByID then
+        C_Item.RequestLoadItemDataByID(itemID)
+    end
+    return tex
+end
+
+local function ResolveSpellTexture(spellID)
+    local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+    if not tex and C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(spellID)
+        tex = info and info.iconID
+    end
+    if not tex and C_Spell and C_Spell.RequestLoadSpellData then
+        C_Spell.RequestLoadSpellData(spellID)
+    end
+    return tex
+end
+
+local function AddAuraCandidate(candidates, seen, spellID)
+    spellID = tonumber(spellID)
+    if spellID and spellID > 0 and not seen[spellID] then
+        seen[spellID] = true
+        candidates[#candidates + 1] = spellID
+    end
+end
+
+local function AddAuraCandidatesFromValue(candidates, seen, value)
+    if type(value) == "number" then
+        AddAuraCandidate(candidates, seen, value)
+    elseif type(value) == "string" then
+        for id in string.gmatch(value, "(%d+)") do
+            AddAuraCandidate(candidates, seen, id)
+        end
+    elseif type(value) == "table" then
+        for _, id in pairs(value) do
+            AddAuraCandidatesFromValue(candidates, seen, id)
+        end
+    end
+end
+
+local function BuildAuraCandidateIDs(iconFrame, iconData)
+    local candidates, seen = {}, {}
+    local spellID = iconData and tonumber(iconData.id)
+    AddAuraCandidate(candidates, seen, iconFrame and iconFrame._cachedAuraSpellID)
+    AddAuraCandidate(candidates, seen, spellID)
+
+    local equivalentIDs = spellID and AURA_EQUIVALENT_IDS[spellID]
+    if equivalentIDs then
+        AddAuraCandidatesFromValue(candidates, seen, equivalentIDs)
+    end
+
+    local settings = iconData and iconData.settings
+    if settings then
+        AddAuraCandidatesFromValue(candidates, seen, settings.auraAliases)
+        -- Legacy bloodlust quick-add used fallbackItems for spell aliases.
+        if iconData.type == "aura" then
+            AddAuraCandidatesFromValue(candidates, seen, settings.fallbackItems)
+        end
+    end
+
+    return candidates
+end
+
+local function GetCustomTimedAuraConfig(iconData)
+    if not iconData or iconData.type ~= "aura" then return nil end
+
+    local spellID = tonumber(iconData.id)
+    if not spellID then return nil end
+
+    local stateID = spellID
+    if AURA_EQUIVALENT_IDS[spellID] then
+        stateID = 2825
+    end
+
+    local preset = CUSTOM_TIMED_AURA_CONFIGS[stateID]
+    local settings = iconData.settings or {}
+    local duration = tonumber(settings.customAuraDuration or (preset and preset.duration))
+    if not duration or duration <= 0 then return nil end
+
+    return {
+        stateID = stateID,
+        duration = duration,
+        trigger = settings.customAuraTrigger or (preset and preset.trigger) or "spellcast",
+    }
+end
+
+local function BuildTimedAuraData(spellID, state)
+    return {
+        spellId = spellID,
+        duration = state.duration,
+        expirationTime = state.expirationTime,
+        applications = 0,
+        icon = state.iconTexture,
+        __ddinguiTimedAura = true,
+    }
+end
+
+local function GetAuraSpellIDSafe(aura)
+    if not aura then return nil end
+    local ok, spellID = pcall(function()
+        local sid = aura.spellId
+        if not sid then return nil end
+        if type(sid) == "number" then
+            if canaccessvalue and not canaccessvalue(sid) then
+                return nil
+            end
+            return sid
+        end
+        return tonumber(sid)
+    end)
+    if ok then return spellID end
+    return nil
+end
+
+local function SafeNumber(value)
+    if value == nil then return nil end
+    local valueType = type(value)
+    if valueType == "number" then
+        if canaccessvalue and not canaccessvalue(value) then
+            return nil
+        end
+        return value
+    end
+    if valueType == "string" then return tonumber(value) end
+    return nil
+end
+
+local function MaxSafeNumber(...)
+    local best
+    for i = 1, select("#", ...) do
+        local value = SafeNumber(select(i, ...))
+        if value and value > 0 and (not best or value > best) then
+            best = value
+        end
+    end
+    return best
+end
+
+local function HasRecentEffectState(iconFrame, now)
+    if not iconFrame then return false end
+    now = now or (GetTime and GetTime()) or 0
+    local lastActive = MaxSafeNumber(iconFrame._ddLastDynamicActiveAt, iconFrame._ddLastAuraActiveAt, iconFrame._ddLastProcActiveAt)
+    return lastActive and (now - lastActive) <= CUSTOM_ICON_EFFECT_GRACE_SECONDS
+end
+
+local function ScheduleEffectGraceUpdate(iconFrame)
+    if not iconFrame or iconFrame._ddEffectGraceUpdatePending then return end
+    iconFrame._ddEffectGraceUpdatePending = true
+    C_Timer.After(CUSTOM_ICON_EFFECT_GRACE_SECONDS + 0.05, function()
+        if iconFrame then
+            iconFrame._ddEffectGraceUpdatePending = nil
+        end
+        if UpdateAllIcons then
+            UpdateAllIcons("force")
+        end
+    end)
+end
+
+local MarkCustomTimedAuraExpired
+
+local function DeactivateCustomTimedAura(spellID)
+    if not runtime.customTimedAuras[spellID] then return false end
+    runtime.customTimedAuras[spellID] = nil
+    if MarkCustomTimedAuraExpired then
+        MarkCustomTimedAuraExpired(spellID)
+    end
+    return true
+end
+
+MarkCustomTimedAuraExpired = function(spellID)
+    local db = GetDynamicDB()
+    local iconDataByKey = db and db.iconData
+    if not iconDataByKey then return end
+
+    for iconKey, frame in pairs(runtime.iconFrames) do
+        local iconData = iconDataByKey[iconKey]
+        local config = GetCustomTimedAuraConfig(iconData)
+        if config and config.stateID == spellID and frame then
+            frame._ddTimedAuraActiveUntil = nil
+            frame._ddLastDynamicActiveAt = nil
+            frame._wasVisibleInGroup = nil
+            frame._auraWasActive = false
+            if frame.cooldown then
+                if frame.cooldown.SetScript then
+                    pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", nil)
+                end
+                if frame.cooldown.Clear then
+                    pcall(frame.cooldown.Clear, frame.cooldown)
+                end
+                if frame.cooldown.Hide then
+                    pcall(frame.cooldown.Hide, frame.cooldown)
+                end
+            end
+            if frame.count then
+                pcall(frame.count.Hide, frame.count)
+            end
+            if frame._ddIsManaged then
+                frame._ddManagedAuraExpired = true
+            elseif frame.Hide then
+                frame:Hide()
+            end
+        end
+    end
+end
+
+local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
+    spellID = tonumber(spellID)
+    if not spellID or not config then return nil, false end
+
+    local duration = tonumber(config.duration) or 0
+    if duration <= 0 then return nil, false end
+
+    local now = GetTime()
+    local started = tonumber(startTime) or now
+    local expirationTime = started + duration
+    if expirationTime <= now then
+        return nil, DeactivateCustomTimedAura(spellID)
+    end
+
+    local old = runtime.customTimedAuras[spellID]
+    local changed = not old
+        or math.abs((old.startTime or 0) - started) > 0.05
+        or math.abs((old.expirationTime or 0) - expirationTime) > 0.05
+
+    local token = {}
+    local state = {
+        startTime = started,
+        duration = duration,
+        expirationTime = expirationTime,
+        token = token,
+        iconTexture = ResolveSpellTexture(iconSpellID or spellID),
+    }
+    runtime.customTimedAuras[spellID] = state
+
+    C_Timer.After((expirationTime - now) + 0.05, function()
+        local current = runtime.customTimedAuras and runtime.customTimedAuras[spellID]
+        if current and current.token == token then
+            DeactivateCustomTimedAura(spellID)
+            if UpdateAllIcons then
+                UpdateAllIcons(true)
+            end
+            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+            end
+        end
+    end)
+
+    return state, changed
+end
+
+local function ScanBloodlustTimedAura(updateInfo)
+    if updateInfo and not updateInfo.isFullUpdate and updateInfo.addedAuras then
+        local relevant = false
+        local needsFullScan = false
+        for _, aura in ipairs(updateInfo.addedAuras) do
+            local sid = GetAuraSpellIDSafe(aura)
+            if sid and BLOODLUST_DEBUFFS[sid] then
+                relevant = true
+                break
+            elseif aura and not sid then
+                needsFullScan = true
+            end
+        end
+        if not relevant and not needsFullScan then return false end
+    end
+
+    local config = CUSTOM_TIMED_AURA_CONFIGS[2825]
+    for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
+        local auraData
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(debuffID)
+        end)
+        local expirationTime = auraData and SafeNumber(auraData.expirationTime)
+        if expirationTime then
+            local duration = SafeNumber(auraData.duration) or 600
+            if duration <= 0 then duration = 600 end
+            local appliedTime = expirationTime - duration
+            if (GetTime() - appliedTime) < config.duration then
+                local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, lustBuffID)
+                return changed
+            end
+        end
+    end
+
+    return false
+end
+
+local function GetActiveCustomTimedAura(iconData)
+    local config = GetCustomTimedAuraConfig(iconData)
+    if not config then return nil end
+
+    if config.trigger == "bloodlust" then
+        ScanBloodlustTimedAura(nil)
+    end
+
+    local state = runtime.customTimedAuras[config.stateID]
+    if not state then return nil end
+
+    local now = GetTime()
+    if state.expirationTime and state.expirationTime > now then
+        return BuildTimedAuraData(config.stateID, state)
+    end
+
+    DeactivateCustomTimedAura(config.stateID)
+    return nil
+end
+
+local function AdoptCustomTimedAuraFromAura(iconFrame, iconData, auraData, fallbackSpellID)
+    local config = GetCustomTimedAuraConfig(iconData)
+    local expirationTime = auraData and SafeNumber(auraData.expirationTime)
+    if not config or not expirationTime then return nil end
+
+    local now = GetTime()
+    if expirationTime <= now then return nil end
+
+    local duration = SafeNumber(auraData.duration) or tonumber(config.duration) or 0
+    if duration <= 0 then
+        duration = tonumber(config.duration) or 0
+    end
+    if duration <= 0 then return nil end
+
+    local auraSpellID = GetAuraSpellIDSafe(auraData) or tonumber(fallbackSpellID) or config.stateID
+    local startTime = expirationTime - duration
+    local state = ActivateCustomTimedAura(config.stateID, config, startTime, auraSpellID)
+    if state and iconFrame then
+        iconFrame._ddTimedAuraActiveUntil = state.expirationTime
+        iconFrame._cachedAuraSpellID = auraSpellID
+    end
+    return state
+end
+
+local function ResolvePlayerAuraForIcon(iconFrame, iconData)
+    if not iconData or iconData.type ~= "aura" or not iconData.id then return nil end
+
+    local timedAura = GetActiveCustomTimedAura(iconData)
+    if timedAura then
+        if iconFrame then
+            iconFrame._ddTimedAuraActiveUntil = timedAura.expirationTime
+            iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(timedAura) or timedAura.spellId or iconData.id
+        end
+        return timedAura
+    elseif iconFrame then
+        local activeUntil = SafeNumber(iconFrame._ddTimedAuraActiveUntil)
+        local now = GetTime and GetTime() or 0
+        if not (InCombatLockdown and InCombatLockdown() and activeUntil and activeUntil > now) then
+            iconFrame._ddTimedAuraActiveUntil = nil
+        end
+    end
+
+    local candidates = BuildAuraCandidateIDs(iconFrame, iconData)
+    for _, spellID in ipairs(candidates) do
+        local auraData
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+        end)
+        if auraData then
+            if iconFrame then
+                iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(auraData) or spellID
+                local expirationTime = SafeNumber(auraData.expirationTime)
+                if expirationTime and expirationTime > 0 then
+                    iconFrame._ddAuraActiveUntil = expirationTime
+                end
+            end
+            AdoptCustomTimedAuraFromAura(iconFrame, iconData, auraData, spellID)
+            return auraData
+        end
+    end
+
+    local nameSet = {}
+    for _, spellID in ipairs(candidates) do
+        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+        if info and info.name then
+            nameSet[info.name] = true
+        end
+    end
+
+    if next(nameSet) and AuraUtil and AuraUtil.ForEachAura then
+        local auraData
+        pcall(function()
+            AuraUtil.ForEachAura("player", "HELPFUL", nil, function(aura)
+                if aura and aura.name and nameSet[aura.name] then
+                    auraData = aura
+                    local auraSpellID = GetAuraSpellIDSafe(aura)
+                    if iconFrame and auraSpellID then
+                        iconFrame._cachedAuraSpellID = auraSpellID
+                        local expirationTime = SafeNumber(aura.expirationTime)
+                        if expirationTime and expirationTime > 0 then
+                            iconFrame._ddAuraActiveUntil = expirationTime
+                        end
+                    end
+                    return true
+                end
+            end)
+        end)
+        if auraData then
+            AdoptCustomTimedAuraFromAura(iconFrame, iconData, auraData, GetAuraSpellIDSafe(auraData))
+            return auraData
+        end
+    end
+
+    return nil
+end
 
 -- [FIX] Combat Lockout Tracker for Items (like Healthstones in DF/TWW)
 local combatLockoutSpells = {
@@ -293,6 +1071,8 @@ local combatLockoutSpells = {
 }
 local inCombatLockout = {}
 
+-- [NEW] 아이템이 배치된 액션바(숏컷) 슬롯 캐시
+-- 액션바의 쿨다운은 블리자드 C_Container.GetItemCooldown의 Taint 영향을 받지 않음.
 local lockoutTracker = CreateFrame("Frame")
 lockoutTracker:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 lockoutTracker:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -307,6 +1087,22 @@ lockoutTracker:SetScript("OnEvent", function(self, event, ...)
         wipe(inCombatLockout)
     end
 end)
+
+-- [FIX Ayije] IsCooldownFrameActive 제거 — 대신 EvaluateRemainingDuration(GCDFilterCurve)로 frame-perfect 쿨다운 감지
+local function EvalDesatFromDurObj(durObj, isOnGCD)
+    local DDingUI = ns.Addon
+    local desatCurve = isOnGCD
+        and (DDingUI and DDingUI._GCDFilterCurve)
+        or  (DDingUI and DDingUI._DesaturationCurve)
+    if desatCurve and durObj and durObj.EvaluateRemainingDuration then
+        local ok, v = pcall(durObj.EvaluateRemainingDuration, durObj, desatCurve, 0)
+        if ok and type(v) == "number" then return v end
+    end
+    -- fallback: curve 미생성 환경 (WoW 구 버전) — durObj가 있고 GCD가 아니면 1
+    if durObj and not isOnGCD then return 1 end
+    return 0
+end
+
 
 local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
@@ -337,105 +1133,110 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
-    -- Update icon texture if using fallback item
-    if usedFallback then
-        local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(activeItemID)
-        if itemTexture then
-            iconFrame.icon:SetTexture(itemTexture)
-        end
-    elseif not iconFrame._originalTexture then
-        -- Store original texture on first run
-        local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
+    iconFrame._textureCacheKey = activeItemID and ("item:" .. tostring(activeItemID)) or iconFrame._textureCacheKey
+    local itemTexture = ResolveItemTexture(activeItemID)
+    if itemTexture then
         iconFrame._originalTexture = itemTexture
     end
+    SetStableIconTexture(iconFrame, itemTexture, true)
 
-    -- If not using fallback, restore original texture
-    if not usedFallback and iconFrame._originalTexture then
-        iconFrame.icon:SetTexture(iconFrame._originalTexture)
-    end
-
-    -- [Ayije CDM 방식] 아이템 쿨다운 처리
-    -- 1. 스펠 기반 DurationObject (전투 중 secret value 안전)
-    local itemSpellID = ITEM_SPELL_MAP[activeItemID] or (iconData.settings and iconData.settings.itemSpellID)
-    local SCD = itemSpellID and C_Spell.GetSpellCooldownDuration(itemSpellID) or nil
-
-    -- 2. 아이템 쿨다운 직접 조회
-    local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
-    local itemCdStart, itemCdDuration = 0, 0
-    pcall(function()
-        itemCdStart, itemCdDuration = getItemCD(activeItemID)
-    end)
-    local hasItemCooldown = false
-    if itemCdStart and itemCdDuration then
-        if issecretvalue and issecretvalue(itemCdDuration) then
-            hasItemCooldown = true
-        elseif type(itemCdDuration) == "number" and itemCdDuration >= ITEM_COOLDOWN_MIN_SECONDS then
-            hasItemCooldown = true
+    -- [Ayije_CDM 패턴] 아이템 쿨다운 (GetItemCooldown 최우선 -> GetSpellCooldownDuration 폴백)
+    local itemSpellID = ITEM_SPELL_MAP[activeItemID]
+                     or (iconData.settings and iconData.settings.itemSpellID)
+    
+    if not itemSpellID then
+        if iconFrame._cachedSpellItemID == activeItemID then
+            itemSpellID = iconFrame._cachedSpellID
+        else
+            pcall(function()
+                local _, sid = C_Item.GetItemSpell(activeItemID)
+                if sid then
+                    iconFrame._cachedSpellID = sid
+                    iconFrame._cachedSpellItemID = activeItemID
+                    itemSpellID = sid
+                end
+            end)
         end
     end
 
-    -- 3. GCD 체크 (스펠 기반)
-    local isOnGCD = false
-    if SCD then
+    local desatDurationObject = nil
+    local desatSpellID = nil
+    local itemCooldownActive = false
+    local itemInCombatLockout = false
+    local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
+
+    -- [Ayije_CDM 패턴] 전투 중 쿨다운 잠금 상태 우선 체크 (생명석 등)
+    -- 전투 중 사용 시 GetItemCooldown이 0을 반환해 쿨다운이 안 보이는 아이템 처리
+    if inCombatLockout[activeItemID] then
+        itemInCombatLockout = true
+        iconFrame.cooldown:Clear()
+        iconFrame.cooldown:Hide()
+    elseif itemSpellID then
+        -- 스펠 ID가 매핑된 아이템: Ayije_CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
+        local realDur = nil
+        if C_Spell and C_Spell.GetSpellCooldownDuration then
+            realDur = C_Spell.GetSpellCooldownDuration(itemSpellID)
+        end
+
+        local hasItemCooldown = false
+        local itemCdStart, itemCdDuration = nil, nil
         pcall(function()
-            local cdInfo = C_Spell.GetSpellCooldown(itemSpellID)
-            if cdInfo and cdInfo.isOnGCD then
-                isOnGCD = true
+            local cdStart, cdDur, cdEnable = getItemCD(activeItemID)
+            if cdStart and cdDur and cdEnable == 1 and type(cdDur) == "number" and cdDur > 1.5 then
+                itemCdStart, itemCdDuration = cdStart, cdDur
+                hasItemCooldown = true
             end
         end)
-    end
 
-    -- 4. 쿨다운 설정 (Ayije 우선순위: item cooldown > spell cooldown > clear)
-    local cooldownWasSet = false
-    pcall(function()
+        desatDurationObject = realDur
+        desatSpellID = itemSpellID
+
         if hasItemCooldown then
-            -- 아이템 쿨다운이 보이면 직접 사용 (가장 정확, duration >= 1.6s 검증됨)
-            iconFrame.cooldown:SetCooldown(itemCdStart, itemCdDuration)
-            if iconFrame.cooldownProbe then
-                iconFrame.cooldownProbe:SetCooldown(itemCdStart, itemCdDuration)
+            if not iconFrame._itemDurObj then
+                iconFrame._itemDurObj = C_DurationUtil.CreateDuration()
             end
-            cooldownWasSet = true
-        elseif not isOnGCD and SCD then
-            iconFrame.cooldown:SetCooldownFromDurationObject(SCD)
-            if iconFrame.cooldownProbe then
-                iconFrame.cooldownProbe:SetCooldownFromDurationObject(SCD)
-            end
-            -- [FIX] SCD는 쿨다운 없을 때도 0-duration DurationObject를 반환할 수 있음
-            -- SetCooldownFromDurationObject 후 GetCooldownTimes로 실제 쿨다운 검증
-            local cdStart, cdDur = iconFrame.cooldown:GetCooldownTimes()
-            if cdDur then
-                if issecretvalue and issecretvalue(cdDur) then
-                    cooldownWasSet = true
-                elseif type(cdDur) == "number" and cdDur > 0 then
-                    cooldownWasSet = true
-                end
-            end
+            iconFrame._itemDurObj:SetTimeFromStart(itemCdStart, itemCdDuration)
+            iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._itemDurObj)
+            itemCooldownActive = true
+        elseif realDur then
+            iconFrame.cooldown:SetCooldownFromDurationObject(realDur)
         else
             iconFrame.cooldown:Clear()
-            if iconFrame.cooldownProbe then
-                iconFrame.cooldownProbe:Clear()
-            end
         end
-    end)
-
-    -- [FIX] onCooldown: hasItemCooldown이 확실하면 직접 사용, SCD는 검증 후 사용
-    local onCooldown = cooldownWasSet
-
-    -- IsVisible 폴백: cooldownWasSet이 false여도 프레임이 이미 보이면 쿨다운 활성
-    if not onCooldown then
-        onCooldown = IsCooldownFrameActive(iconFrame.cooldownProbe or iconFrame.cooldown)
-    end
-
-    if iconData.settings and iconData.settings.showCooldown == false then
-        iconFrame.cooldown:Hide()
     else
-        if onCooldown then
-            iconFrame.cooldown:Show()
+        -- [Fallback] 스펠 ID 없는 아이템 (비전투/제한적 작동)
+        local hasItemCooldown = false
+        local itemCdStart, itemCdDuration = nil, nil
+        pcall(function()
+            local cdStart, cdDur, cdEnable = getItemCD(activeItemID)
+            if cdStart and cdDur and cdEnable == 1 and type(cdDur) == "number" and cdDur > 1.5 then
+                itemCdStart, itemCdDuration = cdStart, cdDur
+                hasItemCooldown = true
+            end
+        end)
+
+        if hasItemCooldown then
+            if not iconFrame._itemDurObj then
+                iconFrame._itemDurObj = C_DurationUtil.CreateDuration()
+            end
+            iconFrame._itemDurObj:SetTimeFromStart(itemCdStart, itemCdDuration)
+            iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._itemDurObj)
+            itemCooldownActive = true
         else
-            iconFrame.cooldown:Hide()
+            iconFrame.cooldown:Clear()
         end
     end
 
+    -- 쿨다운 프레임 Show/Hide (combatLockout 상태면 이미 Clear+Hide 처리됨)
+    if not itemInCombatLockout then
+        if iconData.settings and iconData.settings.showCooldown == false then
+            iconFrame.cooldown:Hide()
+        else
+            iconFrame.cooldown:Show()
+        end
+    end
+
+    -- 아이템 카운트 표시
     if iconFrame.count then
         pcall(iconFrame.count.SetText, iconFrame.count, itemCount or 0)
         if iconData.settings and iconData.settings.showCharges == false then
@@ -445,107 +1246,152 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
+    -- [Ayije_CDM 패턴] 탈색 처리
     local allowCooldownDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
 
-    local wantDesat = false
-    local alpha = 1.0
+    local showEmptyItem = (itemCount == 0 or itemCount == nil)
+    local desatVal = 0
 
-    if itemCount == 0 or itemCount == nil then
-        if allowUnusableDesat then
-            wantDesat = true
-            alpha = 1.0
-        else
-            wantDesat = allowCooldownDesat and onCooldown
-            alpha = 1.0
+    -- [FIX] OnUpdate 진입 조건: cdInfo.isActive (safe boolean) 사용 — secret number 비교 금지
+    local itemIsOnRealCD = false
+
+    if itemInCombatLockout then
+        -- [Ayije_CDM] 전투 중 쿨다운 잠금: 즉시 완전 탈색, OnUpdate 루프 비활성화
+        if allowCooldownDesat then desatVal = 1 end
+        if iconFrame._cdmDesatUpdater then iconFrame._cdmDesatUpdater:Hide() end
+    elseif itemCooldownActive then
+        if allowCooldownDesat then desatVal = 1 end
+    elseif showEmptyItem then
+        if allowUnusableDesat then desatVal = 1 end
+    elseif allowCooldownDesat and desatDurationObject and desatSpellID then
+        -- isOnRealCD: boolean (safe) — secret number 비교 없음
+        pcall(function()
+            local cdInfo = C_Spell.GetSpellCooldown(desatSpellID)
+            if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
+                itemIsOnRealCD = true
+                -- isOnGCD는 이미 false이므로 EvalDesatFromDurObj에 false 전달
+            end
+        end)
+        if itemIsOnRealCD then
+            -- EvaluateRemainingDuration 결과(secret)는 비교 없이 SetDesaturation에 직접 전달
+            desatVal = EvalDesatFromDurObj(desatDurationObject, false)
         end
-    elseif inCombatLockout[activeItemID] or inCombatLockout[itemID] then
-        if allowCooldownDesat then
-            wantDesat = true
-        end
-    elseif onCooldown then
-        wantDesat = allowCooldownDesat
     end
 
-    iconFrame.icon:SetDesaturation(0) -- Clear any curves
-    iconFrame.icon:SetDesaturated(wantDesat == true)
-    iconFrame.icon:SetAlpha(alpha)
-end
+    iconFrame.icon:SetDesaturated(false)
+    iconFrame.icon:SetDesaturation(desatVal)
 
-IsCooldownFrameActive = function(cooldownFrame)
-    if not cooldownFrame then return false end
-    -- Avoid arithmetic/comparisons on "secret" values; rely on the cooldown widget's own visibility.
-    local ok, visible = pcall(cooldownFrame.IsVisible, cooldownFrame)
-    return ok and visible == true
+    -- OnUpdate 루프: isOnRealCD (safe boolean)으로만 진입 판단 — desatVal 비교 금지
+    if itemIsOnRealCD then
+        if not iconFrame._cdmDesatUpdater then
+            iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
+            iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
+                local stillOnRealCD = false
+                pcall(function()
+                    local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
+                    if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
+                        stillOnRealCD = true
+                    end
+                end)
+                if stillOnRealCD and self.durObj then
+                    self.targetIcon:SetDesaturation(EvalDesatFromDurObj(self.durObj, false))
+                else
+                    self.targetIcon:SetDesaturation(0)
+                    self:Hide()
+                end
+            end)
+        end
+        iconFrame._cdmDesatUpdater.spellID = desatSpellID
+        iconFrame._cdmDesatUpdater.durObj = desatDurationObject
+        iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
+        iconFrame._cdmDesatUpdater:Show()
+    elseif iconFrame._cdmDesatUpdater then
+        iconFrame._cdmDesatUpdater:Hide()
+    end
+
+    iconFrame.icon:SetAlpha(1.0)
+    iconFrame.icon:SetAlpha(1.0)
 end
 
 local function UpdateSpellIconFrame(iconFrame, iconData)
     local spellID = iconData.id
     if not spellID or not iconFrame then return end
 
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        local ok, overrideID = pcall(C_SpellBook.FindSpellOverrideByID, spellID)
+        if ok and overrideID and overrideID ~= spellID then
+            spellID = overrideID
+        end
+    end
+
+    iconFrame._textureCacheKey = "spell:" .. tostring(spellID)
+    -- 텍스처동적 갱신 (오버라이드/누락 초기로드 대응)
+    SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID), true)
+
     local allowDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
-    local showGCDSwipe = (iconData.settings and iconData.settings.showGCDSwipe == true)
 
-    -- Get cooldown info with protected call to handle secret values
-    local cooldownSet = false
-    local isOnCooldown = false
-
-    local cdInfo
+    -- 쿨다운 정보
     local chargeInfo
     pcall(function()
-        cdInfo = C_Spell.GetSpellCooldown(spellID)
         chargeInfo = C_Spell.GetSpellCharges(spellID)
     end)
 
     local CCD = C_Spell.GetSpellChargeDuration(spellID)
     local SCD = C_Spell.GetSpellCooldownDuration(spellID)
-    
+    local isChargeSpell = chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1
+
     local isOnGCD = false
     if SCD then
         pcall(function()
             local cdInfo = C_Spell.GetSpellCooldown(spellID)
-            if cdInfo and cdInfo.isOnGCD then
-                isOnGCD = true
-            end
+            if cdInfo and cdInfo.isOnGCD then isOnGCD = true end
         end)
     end
 
-    local durObj = nil
-    if chargeInfo and chargeInfo.maxCharges > 1 and chargeInfo.currentCharges < chargeInfo.maxCharges then
-        durObj = CCD or SCD
+    -- [Ayije 패턴] 쿨다운 DurationObject 선택
+    -- CCD(ChargeDuration)가 존재하면 충전 쿨다운, 없으면 SCD(SpellCooldown) 사용
+    -- currentCharges/maxCharges 값 비교 불필요 (secret value taint 방지)
+    local durObj
+    if isChargeSpell and CCD then
+        durObj = CCD
     else
         durObj = SCD
     end
 
-    if durObj and not isOnGCD then
+    -- [FIX 깜빡임] 쿨다운 상태 캐싱 — 동일 상태 재Set/Clear 방지
+    -- GCD 진입/해제 시 durObj 변화가 없으면 cooldown 프레임을 건드리지 않음
+    local cooldownSet = false
+    local newCDState = (durObj and not isOnGCD) and "set" or "clear"
+    if newCDState == "set" then
         pcall(function()
             iconFrame.cooldown:SetCooldownFromDurationObject(durObj)
             if iconFrame.cooldownProbe then iconFrame.cooldownProbe:SetCooldownFromDurationObject(durObj) end
         end)
         cooldownSet = true
-    end
-
-    if not cooldownSet then
+    else
         iconFrame.cooldown:Clear()
         if iconFrame.cooldownProbe then iconFrame.cooldownProbe:Clear() end
     end
+    iconFrame._lastCDState = newCDState
 
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
+    else
+        iconFrame.cooldown:Show()
+        local hideNumbers = iconFrame._groupSettings and iconFrame._groupSettings.hideDurationText
+        if iconFrame.cooldown.SetHideCountdownNumbers then
+            iconFrame.cooldown:SetHideCountdownNumbers(hideNumbers and true or false)
+        end
+        iconFrame.cooldown.noCooldownCount = hideNumbers and true or nil
     end
 
-    -- Get charges using C_Spell API with protected call.
-    local chargesInfo
-    local chargesOk = pcall(function()
-        chargesInfo = C_Spell.GetSpellCharges(spellID)
-    end)
-    local isChargeSpell = chargesOk and chargesInfo
-    local charges = chargesOk and chargesInfo and chargesInfo.currentCharges
-
-    -- Count display: do not compare charge values (can be secret). Just attempt to set text.
+    -- 충전 카운트 표시
+    local charges = isChargeSpell and chargeInfo.currentCharges
     local hasChargesText = false
-    if isChargeSpell and iconData.settings and iconData.settings.showCharges == false then
+    if not isChargeSpell or (iconData.settings and iconData.settings.showCharges == false) or charges == nil then
+        pcall(iconFrame.count.SetText, iconFrame.count, "")
         iconFrame.count:Hide()
     else
         hasChargesText = pcall(iconFrame.count.SetText, iconFrame.count, charges)
@@ -557,18 +1403,11 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         end
     end
 
-    -- Cooldown state: probe 기반 가시성 체크
-    local cooldownActive = IsCooldownFrameActive(iconFrame.cooldownProbe or iconFrame.cooldown)
-    isOnCooldown = cooldownActive
-
-    -- 충전 스킬 재충전 표시: chargeDurObj 경로에서 이미 처리됨
-    -- 추가 SetCooldown 호출 불필요
-
-    -- Swipe 스타일 설정
+    -- [FIX Ayije] Swipe/Edge 스타일 (변경 없음)
     if not (iconData.settings and iconData.settings.showCooldown == false) then
         if isChargeSpell then
             pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0)
-            pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, cooldownActive == true)
+            pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, cooldownSet)
             if iconFrame.cooldown.SetDrawSwipe then
                 pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
             end
@@ -583,81 +1422,118 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false)
     end
 
-    -- Check usability (fallback for different WoW versions)
-    local usable = false
+    -- 사용가능 여부
+    local usable = true
     if C_Spell and C_Spell.IsSpellUsable then
         local okUsable, usableVal = pcall(C_Spell.IsSpellUsable, spellID)
-        if okUsable then
-            usable = usableVal == true
-        end
+        if okUsable then usable = usableVal == true end
     elseif IsUsableSpell then
         local okUsable, usableVal = pcall(IsUsableSpell, spellID)
-        if okUsable then
-            usable = usableVal == true
-        end
-    else
-        -- Fallback: assume usable if spell exists
-        usable = true
+        if okUsable then usable = usableVal == true end
     end
 
-    -- [FIX] boolean fallback but using cooldownSet rather than visibility
+    -- [FIX Ayije] EvaluateRemainingDuration 기반 탈색
+    -- secret number를 비교하지 않음 — cdInfo.isActive (safe boolean)으로 OnUpdate 진입 결정
+    local desatDurObj = SCD
+    local desatValue = 0
+    local isOnRealCD = false  -- safe boolean
+
     if usable then
-        local shouldDesaturate = cooldownSet
-        if allowDesat and shouldDesaturate then
-            iconFrame.icon:SetDesaturation(0)
-            iconFrame.icon:SetDesaturated(true)
-            iconFrame.icon:SetAlpha(1.0)
-        else
-            iconFrame.icon:SetDesaturation(0)
-            iconFrame.icon:SetDesaturated(false)
-            iconFrame.icon:SetAlpha(1.0)
+        if allowDesat then
+            -- 1단계: safe boolean으로 쿨다운 활성 여부 판단
+            pcall(function()
+                local cdInfo = C_Spell.GetSpellCooldown(spellID)
+                if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
+                    isOnRealCD = true
+                end
+            end)
+            -- 2단계: secret number는 비교 없이 SetDesaturation에만 전달
+            -- [FIX 깜빡임] GCD 진입 시 탈색값 보존 — isOnGCD면 이전 값 유지, 없으면 0
+            if desatDurObj then
+                if isOnGCD then
+                    -- GCD 중: 직전 탈색값을 그대로 유지 (흰색↔회색 교번 방지)
+                    desatValue = iconFrame._lastDesatValue or 0
+                else
+                    desatValue = EvalDesatFromDurObj(desatDurObj, false)
+                    iconFrame._lastDesatValue = desatValue
+                end
+            end
         end
     else
         if allowUnusableDesat then
-            iconFrame.icon:SetDesaturation(0)
-            iconFrame.icon:SetDesaturated(true)
-            iconFrame.icon:SetAlpha(1.0)
-        else
-            iconFrame.icon:SetDesaturation(0)
-            iconFrame.icon:SetDesaturated(false)
-            iconFrame.icon:SetAlpha(1.0)
+            desatValue = 1
         end
+        iconFrame._lastDesatValue = nil  -- unusable 상태 전환 시 캐시 초기화
     end
+    iconFrame.icon:SetDesaturation(desatValue)
+
+    -- OnUpdate 루프: isOnRealCD (safe boolean)만으로 진입 결정 — desatValue 비교 금지
+    if usable and allowDesat and desatDurObj and isOnRealCD then
+        if not iconFrame._cdmDesatUpdater then
+            iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
+            iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
+                local stillOnRealCD = false
+                pcall(function()
+                    local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
+                    if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
+                        stillOnRealCD = true
+                    end
+                end)
+                if stillOnRealCD and self.durObj then
+                    self.targetIcon:SetDesaturation(EvalDesatFromDurObj(self.durObj, false))
+                else
+                    self.targetIcon:SetDesaturation(0)
+                    self:Hide()
+                end
+            end)
+        end
+        iconFrame._cdmDesatUpdater.spellID = spellID
+        iconFrame._cdmDesatUpdater.durObj = desatDurObj
+        iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
+        iconFrame._cdmDesatUpdater:Show()
+    elseif iconFrame._cdmDesatUpdater then
+        iconFrame._cdmDesatUpdater:Hide()
+    end
+
+    iconFrame.icon:SetAlpha(1.0)
 end
 
 local function UpdateSlotIcon(iconFrame, iconData)
     local slotID = iconData.slotID
     local itemID = GetInventoryItemID("player", slotID)
     if not itemID then
-        iconFrame.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        SetStableIconTexture(iconFrame, nil, not iconFrame._ddIsManaged)
         iconFrame.cooldown:Clear()
         iconFrame.count:Hide()
         return
     end
 
-    local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
-    if itemTexture then
-        iconFrame.icon:SetTexture(itemTexture)
-    end
+    iconFrame._textureCacheKey = "slot:" .. tostring(slotID)
+    SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
 
-    local start, duration = GetInventoryItemCooldown("player", slotID)
-    -- SetCooldown is a Blizzard widget call (safe with secret values)
-    -- Do NOT compare duration > 1.5 — secret values in combat cannot be compared (WoW 12.0+)
+    -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
+    local start, duration, enable = GetInventoryItemCooldown("player", slotID)
+    local onCooldown = false
     pcall(function()
-        if start and duration then
-            iconFrame.cooldown:SetCooldown(start, duration)
-            if iconFrame.cooldownProbe then
-                iconFrame.cooldownProbe:SetCooldown(start, duration)
+        if start and duration and enable == 1 then
+            if type(duration) == "number" and not canaccessvalue(duration) then
+                -- secret value: 쿨다운 중이지만 수치 불명 → 탈색만 적용
+                onCooldown = true
+                iconFrame.cooldown:Clear()
+            elseif type(duration) == "number" and duration > 1.5 then
+                onCooldown = true
+                if not iconFrame._slotDurObj then
+                    iconFrame._slotDurObj = C_DurationUtil.CreateDuration()
+                end
+                iconFrame._slotDurObj:SetTimeFromStart(start, duration)
+                iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._slotDurObj)
+            else
+                iconFrame.cooldown:Clear()
             end
         else
             iconFrame.cooldown:Clear()
-            if iconFrame.cooldownProbe then
-                iconFrame.cooldownProbe:Clear()
-            end
         end
     end)
-    -- Use visibility-based check to avoid arithmetic on secret values (WoW 12.0+)
-    local onCooldown = IsCooldownFrameActive(iconFrame.cooldownProbe or iconFrame.cooldown)
 
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
@@ -670,28 +1546,95 @@ local function UpdateSlotIcon(iconFrame, iconData)
     end
 
     local allowDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
-    if allowDesat and onCooldown then
-        iconFrame.icon:SetDesaturated(true)
-    else
-        iconFrame.icon:SetDesaturated(false)
+    iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+end
+
+local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
+    if not iconData then return nil end
+
+    local slotID = iconData.slotID
+    if not slotID then return nil end
+
+    local itemID = GetInventoryItemID("player", slotID)
+    if not itemID then return nil end
+
+    local settings = iconData.settings or {}
+    local procSpellID = settings.procSpellID
+    local hasProcID = false
+    pcall(function() hasProcID = procSpellID and procSpellID > 0 end)
+
+    if not hasProcID then
+        pcall(function()
+            local _, spellID = C_Item.GetItemSpell(itemID)
+            procSpellID = spellID
+        end)
+        pcall(function() hasProcID = procSpellID and procSpellID > 0 end)
     end
+
+    if not hasProcID then
+        if iconFrame then iconFrame._trinketProcWasActive = false end
+        return nil
+    end
+
+    local auraData = nil
+    pcall(function()
+        auraData = C_UnitAuras.GetPlayerAuraBySpellID(procSpellID)
+    end)
+
+    if not auraData and iconFrame and iconFrame._cachedBuffSpellID then
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedBuffSpellID)
+        end)
+        if not auraData then
+            iconFrame._cachedBuffSpellID = nil
+        end
+    end
+
+    if not auraData then
+        pcall(function()
+            local spellInfo = C_Spell.GetSpellInfo(procSpellID)
+            if spellInfo and spellInfo.name then
+                AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
+                    if a and a.name == spellInfo.name then
+                        auraData = a
+                        local auraSpellID = GetAuraSpellIDSafe(a)
+                        if iconFrame and auraSpellID and auraSpellID ~= procSpellID then
+                            iconFrame._cachedBuffSpellID = auraSpellID
+                        end
+                        return true
+                    end
+                end)
+            end
+        end)
+    end
+
+    if iconFrame then
+        iconFrame._trinketProcWasActive = auraData ~= nil
+        if auraData then
+            local now = GetTime and GetTime() or 0
+            iconFrame._ddLastProcActiveAt = now
+            local duration = SafeNumber(auraData.duration)
+            iconFrame._ddProcActiveUntil = SafeNumber(auraData.expirationTime)
+                or (duration and (now + duration))
+                or (now + 0.75)
+        end
+    end
+    return auraData, procSpellID, itemID
 end
 
 local function UpdateTrinketProcIcon(iconFrame, iconData)
     local slotID = iconData.slotID
     local itemID = GetInventoryItemID("player", slotID)
     if not itemID then
-        iconFrame.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        SetStableIconTexture(iconFrame, nil, not iconFrame._ddIsManaged)
         iconFrame.cooldown:Clear()
         iconFrame.count:Hide()
         return
     end
 
+    iconFrame._textureCacheKey = "trinketProc:" .. tostring(slotID)
     -- Update trinket item texture
-    local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
-    if itemTexture then
-        iconFrame.icon:SetTexture(itemTexture)
-    end
+    SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
 
     -- Determine proc spell ID (auto-detect or manual override)
     local settings = iconData.settings or {}
@@ -739,8 +1682,9 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
                         if a and a.name == spellInfo.name then
                             auraData = a
                             -- Cache actual buff spell ID for fast future lookups
-                            if a.spellId and a.spellId ~= procSpellID then
-                                iconFrame._cachedBuffSpellID = a.spellId
+                            local auraSpellID = GetAuraSpellIDSafe(a)
+                            if auraSpellID and auraSpellID ~= procSpellID then
+                                iconFrame._cachedBuffSpellID = auraSpellID
                             end
                             return true  -- stop iteration
                         end
@@ -750,27 +1694,62 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         end
     end
 
+    if not auraData and InCombatLockdown and InCombatLockdown() then
+        local activeUntil = SafeNumber(iconFrame._ddProcActiveUntil)
+        local now = GetTime and GetTime() or 0
+        if activeUntil and activeUntil > now then
+            iconFrame._trinketProcWasActive = true
+            return
+        end
+        if HasRecentEffectState(iconFrame, now) then
+            iconFrame._trinketProcWasActive = false
+            ScheduleEffectGraceUpdate(iconFrame)
+            return
+        end
+    end
+
     if auraData then
         procActive = true
-        
+        local now = GetTime and GetTime() or 0
+        iconFrame._ddLastProcActiveAt = now
+        local auraDuration = SafeNumber(auraData.duration)
+        local auraExpiration = SafeNumber(auraData.expirationTime)
+        iconFrame._ddProcActiveUntil = auraExpiration
+            or (auraDuration and (now + auraDuration))
+            or (now + 0.75)
+
         -- [Visuals: Active Buff]
         iconFrame.cooldown:SetReverse(true)
-        local LCG = LibStub("LibCustomGlow-1.0", true)
-        if LCG and LCG.ProcGlow_Start then
-            LCG.ProcGlow_Start(iconFrame, {color = {0.95, 0.95, 0.32, 1}, startAnim = true})
-        end
 
-        -- Show proc buff duration via CooldownFrame
+        -- 프록 버프 지속시간
         if settings.showProcDuration ~= false then
             pcall(function()
-                local startTime = auraData.expirationTime - auraData.duration
-                iconFrame.cooldown:SetCooldown(startTime, auraData.duration)
+                if auraDuration and auraDuration > 0 and auraExpiration then
+                    local startTime = auraExpiration - auraDuration
+                    iconFrame.cooldown:SetCooldown(startTime, auraDuration)
+                else
+                    iconFrame.cooldown:Clear()
+                end
             end)
             if settings.showCooldown ~= false then
                 iconFrame.cooldown:Show()
             end
         end
-        -- Show stack count
+
+        -- [FIX] 글로우를 아이콘 외부로 확장하여 스와이프와 겹치지 않는 테두리로 사용
+        -- 스와이프는 아이콘 내부에만 그려지므로, 외곽으로 벗어난 글로우는 항상 보임
+        -- xOffset/yOffset으로 아이콘 경계 밖 8px 추가 확장
+        local LCG = LibStub("LibCustomGlow-1.0", true)
+        if LCG and LCG.ProcGlow_Start then
+            LCG.ProcGlow_Start(iconFrame, {
+                color = {0.95, 0.95, 0.32, 1},
+                startAnim = true,
+                xOffset = 8,
+                yOffset = 8,
+            })
+        end
+
+        -- 스택 수
         if settings.showProcStacks ~= false then
             local stacks = auraData.applications or 0
             if stacks > 1 then
@@ -792,33 +1771,38 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
             LCG.ProcGlow_Stop(iconFrame)
         end
 
+
         if settings.showItemCooldown ~= false then
-            local start, duration = GetInventoryItemCooldown("player", slotID)
+            -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
+            local start, duration, enable = GetInventoryItemCooldown("player", slotID)
+            local onCooldown = false
             pcall(function()
-                if start and duration then
-                    iconFrame.cooldown:SetCooldown(start, duration)
-                    if iconFrame.cooldownProbe then
-                        iconFrame.cooldownProbe:SetCooldown(start, duration)
+                if start and duration and enable == 1 then
+                    if type(duration) == "number" and not canaccessvalue(duration) then
+                        -- secret value: 쿨다운 중이지만 수치 불명 → 탈색만 적용
+                        onCooldown = true
+                        iconFrame.cooldown:Clear()
+                    elseif type(duration) == "number" and duration > 1.5 then
+                        onCooldown = true
+                        if not iconFrame._trinketDurObj then
+                            iconFrame._trinketDurObj = C_DurationUtil.CreateDuration()
+                        end
+                        iconFrame._trinketDurObj:SetTimeFromStart(start, duration)
+                        iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._trinketDurObj)
+                    else
+                        iconFrame.cooldown:Clear()
                     end
                 else
                     iconFrame.cooldown:Clear()
-                    if iconFrame.cooldownProbe then
-                        iconFrame.cooldownProbe:Clear()
-                    end
                 end
             end)
-            local onCooldown = IsCooldownFrameActive(iconFrame.cooldownProbe or iconFrame.cooldown)
             if settings.showCooldown ~= false and onCooldown then
                 iconFrame.cooldown:Show()
             else
                 iconFrame.cooldown:Hide()
             end
             local allowDesat = not (settings.desaturateOnCooldown == false)
-            if allowDesat and onCooldown then
-                iconFrame.icon:SetDesaturated(true)
-            else
-                iconFrame.icon:SetDesaturated(false)
-            end
+            iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
         else
             iconFrame.cooldown:Clear()
             iconFrame.cooldown:Hide()
@@ -994,33 +1978,36 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
         borderColor = settings.borderColor or DEFAULT_ICON_SETTINGS.borderColor,
     })
 
-    local cs = BuildCountSettings(settings)
-    local fontPath = DDingUI:GetGlobalFont()
-    if cs.font and LSM then
-        local fetchedFont = LSM:Fetch("font", cs.font)
-        if fetchedFont then
-            fontPath = fetchedFont
+    local groupOwnsText = iconFrame._ddIsManaged and groupSettings
+    if not groupOwnsText then
+        local cs = BuildCountSettings(settings)
+        local fontPath = DDingUI:GetGlobalFont()
+        if cs.font and LSM then
+            local fetchedFont = LSM:Fetch("font", cs.font)
+            if fetchedFont then
+                fontPath = fetchedFont
+            end
         end
-    end
-    if fontPath and cs.size and tonumber(cs.size) > 0 then
-        -- pcall to safely set font just in case path is invalid
-        pcall(function() iconFrame.count:SetFont(fontPath, tonumber(cs.size), "OUTLINE") end)
-    else
-        pcall(function() iconFrame.count:SetFont(STANDARD_TEXT_FONT, 16, "OUTLINE") end)
-    end
-    if cs.color then
-        iconFrame.count:SetTextColor(unpack(cs.color))
-    end
-    iconFrame.count:ClearAllPoints()
-    iconFrame.count:SetPoint(cs.anchor, iconFrame, cs.anchor, cs.offsetX, cs.offsetY)
+        if fontPath and cs.size and tonumber(cs.size) > 0 then
+            -- pcall to safely set font just in case path is invalid
+            pcall(function() iconFrame.count:SetFont(fontPath, tonumber(cs.size), "OUTLINE") end)
+        else
+            pcall(function() iconFrame.count:SetFont(STANDARD_TEXT_FONT, 16, "OUTLINE") end)
+        end
+        if cs.color then
+            iconFrame.count:SetTextColor(unpack(cs.color))
+        end
+        iconFrame.count:ClearAllPoints()
+        iconFrame.count:SetPoint(cs.anchor, iconFrame, cs.anchor, cs.offsetX, cs.offsetY)
 
-    -- Apply cooldown text settings
-    local cooldownSettings = settings.cooldownSettings or {size = 12, color = {1, 1, 1, 1}}
-    if iconFrame.cooldown.SetCountdownFont then
-        local cdFontPath = DDingUI:GetGlobalFont()
-        iconFrame.cooldown:SetCountdownFont(cdFontPath, cooldownSettings.size, "OUTLINE")
+        -- Apply cooldown text settings
+        local cooldownSettings = settings.cooldownSettings or {size = 12, color = {1, 1, 1, 1}}
+        if iconFrame.cooldown.SetCountdownFont then
+            local cdFontPath = DDingUI:GetGlobalFont()
+            iconFrame.cooldown:SetCountdownFont(cdFontPath, cooldownSettings.size, "OUTLINE")
+        end
+        ApplyCooldownTextStyle(iconFrame.cooldown, iconData)
     end
-    ApplyCooldownTextStyle(iconFrame.cooldown, iconData)
     -- Note: Cooldown text color is not directly controllable with standard WoW cooldown frames.
     -- The color setting is saved but may not be applied depending on WoW API limitations.
 end
@@ -1037,11 +2024,15 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
     local settings = iconData.settings or {}
     local allowDesat = not (settings.desaturateOnCooldown == false)
+    iconFrame._textureCacheKey = "aura:" .. tostring(spellID)
+    SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID), true)
 
     -- 1. buff 활성 여부 확인
-    local auraData = nil
+    local auraData = ResolvePlayerAuraForIcon(iconFrame, iconData)
     pcall(function()
-        auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+        if not auraData then
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+        end
     end)
 
     -- spellName 기반 폴백 (buff spellID ≠ spell spellID인 경우)
@@ -1055,8 +2046,9 @@ local function UpdateAuraIcon(iconFrame, iconData)
                     AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
                         if a and a.name == spellInfo.name then
                             auraData = a
-                            if a.spellId and a.spellId ~= spellID then
-                                iconFrame._cachedAuraSpellID = a.spellId
+                            local auraSpellID = GetAuraSpellIDSafe(a)
+                            if auraSpellID and auraSpellID ~= spellID then
+                                iconFrame._cachedAuraSpellID = auraSpellID
                             end
                             return true
                         end
@@ -1069,8 +2061,36 @@ local function UpdateAuraIcon(iconFrame, iconData)
     -- 캐시된 buff spellID로 재시도
     if not auraData and iconFrame._cachedAuraSpellID then
         pcall(function()
-            auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedAuraSpellID)
+            if not auraData then
+                auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedAuraSpellID)
+            end
         end)
+    end
+
+    if not auraData and InCombatLockdown and InCombatLockdown() then
+        local activeUntil = SafeNumber(iconFrame._ddTimedAuraActiveUntil) or SafeNumber(iconFrame._ddAuraActiveUntil)
+        local now = GetTime and GetTime() or 0
+        if activeUntil and activeUntil > now then
+            iconFrame._auraWasActive = true
+            return
+        end
+        if HasRecentEffectState(iconFrame, now) then
+            iconFrame._auraWasActive = false
+            ScheduleEffectGraceUpdate(iconFrame)
+            return
+        end
+    end
+
+    local auraExpirationTime = auraData and SafeNumber(auraData.expirationTime)
+    if auraExpirationTime and auraExpirationTime > 0 then
+        iconFrame._ddAuraActiveUntil = auraExpirationTime
+    elseif not auraData then
+        iconFrame._ddAuraActiveUntil = nil
+    end
+
+    local activeTexture = auraData and (auraData.icon or auraData.iconID)
+    if activeTexture then
+        SetStableIconTexture(iconFrame, activeTexture, true)
     end
 
     local isActive = (auraData ~= nil)
@@ -1081,11 +2101,16 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     if auraData then
+        -- [FIX] 버프 스와이프 방향: fill-up (Ayije 패턴)
+        iconFrame.cooldown:SetReverse(true)
+
         -- 활성: duration 쿨다운 + 스택 표시
         pcall(function()
-            if auraData.duration and auraData.duration > 0 and auraData.expirationTime then
-                local startTime = auraData.expirationTime - auraData.duration
-                iconFrame.cooldown:SetCooldown(startTime, auraData.duration)
+            local auraDuration = SafeNumber(auraData.duration)
+            local auraExpiration = SafeNumber(auraData.expirationTime)
+            if auraDuration and auraDuration > 0 and auraExpiration then
+                local startTime = auraExpiration - auraDuration
+                iconFrame.cooldown:SetCooldown(startTime, auraDuration)
             else
                 iconFrame.cooldown:Clear()
             end
@@ -1106,7 +2131,10 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetAlpha(1.0)
-        iconFrame:Show()
+        -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
+        if not iconFrame._ddIsManaged then
+            iconFrame:Show()
+        end
     else
         -- 비활성: 쿨다운 클리어 + 숨김
         iconFrame.cooldown:Clear()
@@ -1119,31 +2147,76 @@ local function UpdateAuraIcon(iconFrame, iconData)
             iconFrame.icon:SetDesaturated(false)
         end
         iconFrame.icon:SetAlpha(1.0)
-        iconFrame:Hide()
+        -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
+        if not iconFrame._ddIsManaged then
+            iconFrame:Hide()
+        end
     end
+end
+
+function CustomIcons:ResolvePlayerAuraForIcon(iconFrame, iconData)
+    return ResolvePlayerAuraForIcon(iconFrame, iconData)
+end
+
+function CustomIcons:GetActiveCustomTimedAuraForIcon(iconData)
+    return GetActiveCustomTimedAura(iconData)
+end
+
+function CustomIcons:ResolveTrinketProcAuraForIcon(iconFrame, iconData)
+    return ResolveTrinketProcAuraForIcon(iconFrame, iconData)
 end
 
 -- ------------------------
 -- Event-based update system
 -- ------------------------
-local function UpdateAllIcons()
-    -- Update all active icon frames
+
+-- [Ayije 패턴] 디바운스 상태 — 같은 틱에 여러 이벤트가 동시에 UpdateAllIcons를
+-- 호출해도 실제 실행은 다음 프레임에 단 1회만 수행 (C_Timer.After(0) 배치 처리)
+local _pendingIconUpdate = false
+local _iconUpdateSeq = 0
+local _pendingIconLayoutNotify = false
+
+local function GetDynamicLayoutStateToken(frame, iconData)
+    if not frame or not iconData then return nil end
+    if iconData.type ~= "aura" and iconData.type ~= "trinketProc" then return nil end
+
+    local now = GetTime and GetTime() or 0
+    local activeUntil = MaxSafeNumber(frame._ddTimedAuraActiveUntil, frame._ddAuraActiveUntil, frame._ddProcActiveUntil)
+    local active = frame._auraWasActive == true
+        or frame._trinketProcWasActive == true
+        or (activeUntil and activeUntil > now)
+        or (InCombatLockdown and InCombatLockdown() and HasRecentEffectState(frame, now))
+
+    return active and "active" or "inactive"
+end
+
+local function QueueIconLayoutNotify(mode)
+    if not mode then return end
+    if mode == true or mode == "force" then
+        _pendingIconLayoutNotify = "force"
+    elseif _pendingIconLayoutNotify ~= "force" then
+        _pendingIconLayoutNotify = mode
+    end
+end
+
+local function ExecuteUpdateAllIcons()
+    local layoutStateChanged = false
+
     for iconKey, frame in pairs(runtime.iconFrames) do
         if frame then
             local db = GetDynamicDB()
             local iconData = db.iconData and db.iconData[iconKey]
-            -- 그룹렌더러가 관리하는 프레임도 쿨다운 갱신을 위해 업데이트 대상에 포함합니다.
-            -- 가시성 최적화: aura는 숨김 상태여도 활성 상태 체크를 위해 업데이트, 
-            -- 나머지는 가시성(IsVisible) 있거나 GroupRenderer에 의해 관리되는 경우에만 업데이트
-            if iconData and (iconData.type == "aura" or frame._ddIsManaged or frame:IsVisible()) then
-                -- Group settings will be applied via frame._groupSettings if available
-                ApplyIconSettings(frame, iconData, frame._groupSettings)
-                -- [FIX] managed 프레임은 ApplyIconSettings에서 SetFont를 실행하지만,
-                -- GroupRenderer에서 크기가 덮어써질 수 있으므로 Font 초기화를 명시적으로 보장
-                if frame._ddIsManaged and frame.count and not frame._fontInitialized then
-                    local fontPath = DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
-                    pcall(frame.count.SetFont, frame.count, fontPath, 16, "OUTLINE")
-                    frame._fontInitialized = true
+            if iconData and (frame:IsVisible() or iconData.type == "aura" or iconData.type == "trinketProc" or frame._ddIsManaged) then
+                local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
+
+                if not frame._ddIsManaged then
+                    ApplyIconSettings(frame, iconData, frame._groupSettings)
+                else
+                    if frame.count and not frame._fontInitialized then
+                        local fontPath = DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
+                        pcall(frame.count.SetFont, frame.count, fontPath, 16, "OUTLINE")
+                        frame._fontInitialized = true
+                    end
                 end
                 if iconData.type == "item" then
                     UpdateItemIcon(frame, iconData)
@@ -1161,9 +2234,41 @@ local function UpdateAllIcons()
                 elseif iconData.type == "aura" then
                     UpdateAuraIcon(frame, iconData)
                 end
+
+                local afterLayoutState = GetDynamicLayoutStateToken(frame, iconData)
+                if beforeLayoutState and afterLayoutState and beforeLayoutState ~= afterLayoutState then
+                    layoutStateChanged = true
+                end
             end
         end
     end
+
+    return layoutStateChanged
+end
+
+-- [Ayije 패턴] 공개 진입점 — 이벤트 핸들러는 이 함수만 호출
+-- 같은 틱 내 다수 호출을 1회로 병합, 다음 프레임에 실행
+UpdateAllIcons = function(needsLayoutNotify)
+    if needsLayoutNotify then
+        QueueIconLayoutNotify(needsLayoutNotify)
+    end
+    if _pendingIconUpdate then return end
+    _pendingIconUpdate = true
+    _iconUpdateSeq = _iconUpdateSeq + 1
+    local capturedSeq = _iconUpdateSeq
+    C_Timer.After(0, function()
+        if capturedSeq ~= _iconUpdateSeq then return end  -- 더 최신 요청이 있으면 스킵
+        _pendingIconUpdate = false
+        local notifyLayout = _pendingIconLayoutNotify
+        _pendingIconLayoutNotify = false
+        local layoutStateChanged = ExecuteUpdateAllIcons()
+        if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+            local forceLayout = notifyLayout == true or notifyLayout == "force"
+            if forceLayout or layoutStateChanged then
+                DDingUI.DynamicIconBridge:NotifyIconsChanged(forceLayout)
+            end
+        end
+    end)
 end
 
 local function HandleCooldownDone(cooldownFrame)
@@ -1177,6 +2282,23 @@ local function HandleCooldownDone(cooldownFrame)
 end
 
 local function ScheduleSpecReload()
+    if InCombatLockdown and InCombatLockdown() then
+        runtime.pendingSpecReload = true
+        if not runtime.deferredSpecReloadFrame then
+            runtime.deferredSpecReloadFrame = CreateFrame("Frame")
+            runtime.deferredSpecReloadFrame:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                runtime.pendingSpecReload = false
+                ScheduleSpecReload()
+            end)
+        end
+        runtime.deferredSpecReloadFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        if UpdateAllIcons then
+            UpdateAllIcons("aura")
+        end
+        return
+    end
+
     if runtime.pendingSpecReload then return end
     runtime.pendingSpecReload = true
 
@@ -1206,6 +2328,44 @@ local function ScheduleSpecReload()
     end)
 end
 
+local function HandleCustomTimedAuraEvent(event, ...)
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local unit, _, spellID = ...
+        if unit ~= "player" then return false end
+        local config = CUSTOM_TIMED_AURA_CONFIGS[tonumber(spellID)]
+        if config and config.trigger == "spellcast" then
+            local _, changed = ActivateCustomTimedAura(spellID, config)
+            return changed
+        end
+        return false
+    end
+
+    if event == "UNIT_AURA" then
+        local unit, updateInfo = ...
+        if unit ~= "player" then return false end
+        return ScanBloodlustTimedAura(updateInfo)
+    end
+
+    if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
+        local spellID = tonumber(...)
+        if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
+            local _, changed = ActivateCustomTimedAura(374968, CUSTOM_TIMED_AURA_CONFIGS[374968])
+            return changed
+        end
+        return false
+    end
+
+    if event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
+        local spellID = tonumber(...)
+        if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
+            return DeactivateCustomTimedAura(374968)
+        end
+        return false
+    end
+
+    return false
+end
+
 local function EnsureEventFrame()
     if runtime.eventFrame then return end
     runtime.eventFrame = CreateFrame("Frame")
@@ -1223,9 +2383,21 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")   -- Talent group/spec change (alternative event)
     runtime.eventFrame:RegisterEvent("SPELLS_CHANGED")                -- Spellbook changes (often after spec change)
     runtime.eventFrame:RegisterEvent("UNIT_AURA")                      -- Trinket proc buff tracking
+    runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
+    runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+    runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
 
     runtime.eventFrame:SetScript("OnEvent", function(self, event, ...)
         local arg1 = ...
+
+        if event == "PLAYER_ENTERING_WORLD" then
+            runtime.loginTime = runtime.loginTime or GetTime()
+            -- Force reload layout after loading screen to catch delayed cache/spellbook states
+            C_Timer.After(1.0, function() ScheduleSpecReload() end)
+            C_Timer.After(3.0, function() ScheduleSpecReload() end)
+            return
+        end
 
         -- Only update for events that affect the player
         if event == "UNIT_INVENTORY_CHANGED" or event == "UNIT_AURA" then
@@ -1241,8 +2413,27 @@ local function EnsureEventFrame()
             return
         end
 
-        -- Update all icons when relevant events fire
-        UpdateAllIcons()
+        local customTimedChanged = HandleCustomTimedAuraEvent(event, ...)
+        if (event == "UNIT_SPELLCAST_SUCCEEDED"
+            or event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
+            or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+            and not customTimedChanged then
+            return
+        end
+
+        -- Update all icons when relevant events fire.
+        local needsLayoutNotify = nil
+        if customTimedChanged
+            or event == "UNIT_INVENTORY_CHANGED"
+            or event == "PLAYER_EQUIPMENT_CHANGED"
+            or event == "BAG_UPDATE"
+            or event == "ITEM_COUNT_CHANGED"
+        then
+            needsLayoutNotify = "force"
+        elseif event == "UNIT_AURA" then
+            needsLayoutNotify = "aura"
+        end
+        UpdateAllIcons(needsLayoutNotify)
     end)
 end
 
@@ -1634,6 +2825,137 @@ local function CreateBaseIcon(name, parent)
     return frame
 end
 
+local function ResetDynamicIconFrame(frame)
+    if not frame then return end
+
+    local bridge = DDingUI.DynamicIconBridge
+    if bridge and bridge.ReleaseFrame and (frame._ddIsManaged or frame._ddIconKey) then
+        bridge:ReleaseFrame(frame, frame._ddIconKey or frame._iconKey)
+    end
+
+    if frame._cdmDesatUpdater then
+        frame._cdmDesatUpdater:Hide()
+        frame._cdmDesatUpdater.spellID = nil
+        frame._cdmDesatUpdater.durObj = nil
+        frame._cdmDesatUpdater.targetIcon = nil
+    end
+
+    if frame._DDingUIAssistFlipbook then
+        frame._DDingUIAssistFlipbook:SetAlpha(0)
+        if frame._DDingUIAssistFlipbook.Anim and frame._DDingUIAssistFlipbook.Anim:IsPlaying() then
+            frame._DDingUIAssistFlipbook.Anim:Stop()
+        end
+    end
+    if SL then
+        if SL.HidePixelGlow then
+            SL.HidePixelGlow(frame, "_DDingUIAssistGlow")
+            SL.HidePixelGlow(frame, "_DDingUICustomGlow")
+        end
+        if SL.HideAutocastGlow then
+            SL.HideAutocastGlow(frame, "_DDingUIAssistGlow")
+            SL.HideAutocastGlow(frame, "_DDingUICustomGlow")
+        end
+        if SL.HideButtonGlow then
+            SL.HideButtonGlow(frame)
+        end
+    end
+    local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+    if LCG and LCG.ProcGlow_Stop then
+        LCG.ProcGlow_Stop(frame, "_DDingUIAssistGlow")
+        LCG.ProcGlow_Stop(frame, "_DDingUICustomGlow")
+    end
+
+    if frame.cooldown then
+        frame.cooldown:Clear()
+        frame.cooldown:Hide()
+        frame.cooldown:SetDrawEdge(false)
+        frame.cooldown:SetDrawSwipe(true)
+        frame.cooldown:SetSwipeColor(0, 0, 0, 0.8)
+        frame.cooldown:SetHideCountdownNumbers(false)
+        frame.cooldown.noCooldownCount = nil
+    end
+    if frame.cooldownProbe then
+        frame.cooldownProbe:Clear()
+        frame.cooldownProbe:Hide()
+    end
+    if frame.cooldownChargeProbe then
+        frame.cooldownChargeProbe:Clear()
+        frame.cooldownChargeProbe:Hide()
+    end
+    if frame.count then
+        frame.count:SetText("")
+        frame.count:Hide()
+    end
+    if frame.border then
+        frame.border:Hide()
+    end
+    if frame.icon then
+        frame.icon:ClearAllPoints()
+        frame.icon:SetAllPoints(frame)
+        frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        frame.icon:SetTexture(nil)
+        frame.icon:SetAlpha(1)
+        frame.icon:SetDesaturation(0)
+    end
+
+    frame:Hide()
+    frame:ClearAllPoints()
+    frame:SetParent(nil)
+    frame:SetSize(40, 40)
+    frame:SetScale(1)
+    frame:SetAlpha(1)
+    frame:EnableMouse(true)
+
+    frame._type = nil
+    frame._itemID = nil
+    frame._spellID = nil
+    frame._slotID = nil
+    frame._iconKey = nil
+    frame._groupSettings = nil
+    frame._textureCacheKey = nil
+    frame._lastResolvedTexture = nil
+    frame._originalTexture = nil
+    frame._cachedSpellItemID = nil
+    frame._cachedSpellID = nil
+    frame._auraWasActive = nil
+    frame._wasVisibleInGroup = nil
+    frame._ddIsManaged = nil
+    frame._ddIconKey = nil
+    frame._ddOrigState = nil
+    frame._ddContainerRef = nil
+    frame._ddTargetPoint = nil
+    frame._ddTargetRelPoint = nil
+    frame._ddTargetX = nil
+    frame._ddTargetY = nil
+    frame._ddTargetWidth = nil
+    frame._ddTargetHeight = nil
+    frame._ddSuppressed = nil
+    frame._ddSourceViewer = nil
+    frame._DDingUIAssistViewerName = nil
+    frame._DDingUIAssistGlowActive = nil
+end
+
+local function AcquireDynamicIconFrame(name, parent)
+    local frame = table.remove(runtime.iconFramePool)
+    if frame then
+        frame._ddInIconPool = nil
+        frame:SetParent(parent)
+        frame:SetSize(40, 40)
+        frame:SetScale(1)
+        frame:SetAlpha(1)
+        frame:EnableMouse(true)
+        return frame
+    end
+    return CreateBaseIcon(name, parent)
+end
+
+local function ReleaseDynamicIconFrame(iconKey, frame)
+    if not frame or frame._ddInIconPool then return end
+    ResetDynamicIconFrame(frame)
+    frame._ddInIconPool = true
+    runtime.iconFramePool[#runtime.iconFramePool + 1] = frame
+end
+
 -- ------------------------
 -- Icon creation per type
 -- ------------------------
@@ -1643,16 +2965,17 @@ local function CreateItemIcon(iconKey, iconData, parent)
 
     -- [FIX] Ayije 방식: 프레임은 항상 생성, 텍스처만 나중에 업데이트
     -- GetItemInfo가 nil이어도 프레임은 만들어야 GroupSystem이 추적 가능
-    local itemName, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
-    if not itemName then
+    local itemName = GetItemInfo(itemID)
+    if not itemName and C_Item and C_Item.RequestLoadItemDataByID then
         C_Item.RequestLoadItemDataByID(itemID)
     end
 
-    local frame = CreateBaseIcon("DDingUI_DynItem_" .. iconKey, parent)
+    local frame = AcquireDynamicIconFrame("DDingUI_DynItem_" .. iconKey, parent)
     frame._type = "item"
     frame._itemID = itemID
     frame._iconKey = iconKey
-    frame.icon:SetTexture(itemTexture or "Interface\\Icons\\INV_Misc_QuestionMark")
+    frame._textureCacheKey = "item:" .. tostring(itemID)
+    SetStableIconTexture(frame, ResolveItemTexture(itemID), true)
     return frame
 end
 
@@ -1662,19 +2985,19 @@ local function CreateSpellIcon(iconKey, iconData, parent)
     -- [FIX] 스펠북 체크는 IsIconActive에서 하므로 여기서는 프레임만 생성
     -- 유저가 추가한 스펠이 현재 특성에 없더라도 프레임은 존재해야 함
 
-    local spellInfo = C_Spell.GetSpellInfo(spellID)
+    local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
     if not spellInfo then
-        if C_Spell.RequestLoadSpellData then
+        if C_Spell and C_Spell.RequestLoadSpellData then
             C_Spell.RequestLoadSpellData(spellID)
         end
     end
 
-    local frame = CreateBaseIcon("DDingUI_DynSpell_" .. iconKey, parent)
+    local frame = AcquireDynamicIconFrame("DDingUI_DynSpell_" .. iconKey, parent)
     frame._type = "spell"
     frame._spellID = spellID
     frame._iconKey = iconKey
-    local tex = (spellInfo and spellInfo.iconID) or (C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID))
-    frame.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+    frame._textureCacheKey = "spell:" .. tostring(spellID)
+    SetStableIconTexture(frame, ResolveSpellTexture(spellID), true)
     return frame
 end
 
@@ -1683,10 +3006,11 @@ local function CreateSlotIcon(iconKey, iconData, parent)
     if not slotID then return nil end
 
     local prefix = (iconData.type == "trinketProc") and "DDingUI_DynTrinket_" or "DDingUI_DynSlot_"
-    local frame = CreateBaseIcon(prefix .. iconKey, parent)
+    local frame = AcquireDynamicIconFrame(prefix .. iconKey, parent)
     frame._type = iconData.type or "slot"
     frame._slotID = slotID
     frame._iconKey = iconKey
+    frame._textureCacheKey = (iconData.type or "slot") .. ":" .. tostring(slotID)
 
     -- [FIX] 텍스처 항상 설정 — GetItemInfo 캐시 미스 시에도 아이콘 보이도록
     local itemID = GetInventoryItemID("player", slotID)
@@ -1698,11 +3022,11 @@ local function CreateSlotIcon(iconKey, iconData, parent)
             local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
             tex = itemTexture
         end
-        if not tex then
+        if not tex and C_Item and C_Item.RequestLoadItemDataByID then
             C_Item.RequestLoadItemDataByID(itemID)
         end
     end
-    frame.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+    SetStableIconTexture(frame, tex or ResolveItemTexture(itemID, slotID), true)
     return frame
 end
 
@@ -1710,18 +3034,14 @@ local function CreateAuraIcon(iconKey, iconData, parent)
     local spellID = iconData.id
     if not spellID then return nil end
 
-    local frame = CreateBaseIcon("DDingUI_DynAura_" .. iconKey, parent)
+    local frame = AcquireDynamicIconFrame("DDingUI_DynAura_" .. iconKey, parent)
     frame._type = "aura"
     frame._spellID = spellID
     frame._iconKey = iconKey
+    frame._textureCacheKey = "aura:" .. tostring(spellID)
 
     -- 텍스처: C_Spell.GetSpellTexture → GetSpellInfo.iconID 폴백
-    local tex = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
-    if not tex then
-        local info = C_Spell.GetSpellInfo(spellID)
-        tex = info and info.iconID
-    end
-    frame.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+    SetStableIconTexture(frame, ResolveSpellTexture(spellID), true)
     return frame
 end
 
@@ -2092,6 +3412,12 @@ local function LayoutGroup(groupKey, iconKeys)
 
     local contentWidth = maxRight - minLeft
     local contentHeight = maxTop - minBottom
+    if contentWidth <= 0 then
+        contentWidth = container._lastLayoutW or 1
+    end
+    if contentHeight <= 0 then
+        contentHeight = container._lastLayoutH or 1
+    end
 
     for i, iconKey in ipairs(iconKeys) do
         local iconFrame = runtime.iconFrames[iconKey]
@@ -2106,6 +3432,8 @@ local function LayoutGroup(groupKey, iconKeys)
     end
 
     container:SetSize(contentWidth, contentHeight)
+    container._lastLayoutW = contentWidth
+    container._lastLayoutH = contentHeight
 
     -- Re-apply anchor using stored anchor points
     if settings.position then
@@ -2125,7 +3453,7 @@ local function RefreshAllLayouts()
 
     -- [DYNAMIC] GroupSystem이 활성이면 레이아웃 스킵 → GroupSystem 업데이트 트리거
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-        DDingUI.DynamicIconBridge:NotifyIconsChanged()
+        DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
         return
     end
 
@@ -2197,8 +3525,7 @@ function CustomIcons:LoadDynamicIcons()
     -- 프로필 변경 시 기존 프레임 정리: db에 없는 아이콘 제거
     for iconKey, frame in pairs(runtime.iconFrames) do
         if not db.iconData[iconKey] then
-            frame:Hide()
-            frame:SetParent(nil)
+            ReleaseDynamicIconFrame(iconKey, frame)
             runtime.iconFrames[iconKey] = nil
         end
     end
@@ -2213,9 +3540,18 @@ function CustomIcons:LoadDynamicIcons()
 
     -- [FIX] 프레임 생성 실패한 아이콘 수집 (아이템 캐시 미준비 등)
     local pendingKeys = {}
+    local timeSinceLogin = GetTime() - (runtime.loginTime or GetTime())
     for iconKey, iconData in pairs(db.iconData) do
         EnsureLoadConditions(iconData)
-        if IsIconLoadable(iconData) then
+        local isLoadable = IsIconLoadable(iconData)
+        
+        -- [FIX] 로그인 직후(10초 이내) 스펠북이 준비 안 되어 false를 반환하는 경우 실패로 간주하지 않고 재시도 대기열에 추가
+        if not isLoadable and timeSinceLogin < 10 then
+            pendingKeys[#pendingKeys + 1] = iconKey
+            if iconData.type == "spell" and iconData.id and C_Spell and C_Spell.RequestLoadSpellData then
+                pcall(C_Spell.RequestLoadSpellData, iconData.id)
+            end
+        elseif isLoadable then
             local groupKey = FindIconGroup(iconKey, db)
             local settings
             if groupKey == "ungrouped" or db.ungrouped[iconKey] then
@@ -2236,26 +3572,35 @@ function CustomIcons:LoadDynamicIcons()
                     -- 프레임 생성 실패 → 재시도 목록에 추가
                     pendingKeys[#pendingKeys + 1] = iconKey
                     -- 아이템 데이터 프리로드 요청
-                    if iconData.type == "item" and iconData.id then
+                    if iconData.type == "item" and iconData.id and C_Item and C_Item.RequestLoadItemDataByID then
                         C_Item.RequestLoadItemDataByID(iconData.id)
                     elseif iconData.type == "trinketProc" and iconData.slotID then
                         local itemID = GetInventoryItemID("player", iconData.slotID)
-                        if itemID then C_Item.RequestLoadItemDataByID(itemID) end
+                        if itemID and C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
                     elseif iconData.type == "slot" and iconData.slotID then
                         local itemID = GetInventoryItemID("player", iconData.slotID)
-                        if itemID then C_Item.RequestLoadItemDataByID(itemID) end
+                        if itemID and C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
                     elseif iconData.type == "spell" and iconData.id then
-                        if C_Spell.RequestLoadSpellData then C_Spell.RequestLoadSpellData(iconData.id) end
+                        if C_Spell and C_Spell.RequestLoadSpellData then pcall(C_Spell.RequestLoadSpellData, iconData.id) end
                     end
                 end
+            end
+            if frame then
+                frame._ddDeferredLoadRelease = nil
             end
         else
             -- Hide/clear frames for spells not in the spellbook
             local frame = runtime.iconFrames[iconKey]
             if frame then
-                frame:Hide()
-                frame:SetParent(nil)
-                runtime.iconFrames[iconKey] = nil
+                if InCombatLockdown and InCombatLockdown() then
+                    frame._ddDeferredLoadRelease = true
+                    if iconData.type == "spell" and iconData.id and C_Spell and C_Spell.RequestLoadSpellData then
+                        pcall(C_Spell.RequestLoadSpellData, iconData.id)
+                    end
+                else
+                    ReleaseDynamicIconFrame(iconKey, frame)
+                    runtime.iconFrames[iconKey] = nil
+                end
             end
         end
     end
@@ -2266,7 +3611,7 @@ function CustomIcons:LoadDynamicIcons()
     local bridge = DDingUI.DynamicIconBridge
     if bridge and bridge:IsActive() then
         for _, frame in pairs(runtime.iconFrames) do
-            if frame and frame.Hide then
+            if frame and frame.Hide and not frame._ddIsManaged then
                 frame:Hide()
             end
         end
@@ -2350,9 +3695,90 @@ function CustomIcons:GetRuntimeFrames()
     return runtime
 end
 
+local CDM_SOURCE_GROUP_NAMES = {
+    Cooldowns = "Essential Cooldowns",
+    Buffs = "Buffs",
+    Utility = "Utility Cooldowns",
+}
+
+function CustomIcons:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
+    if type(groupName) ~= "string" or groupName == "" then return nil end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    if not profile then return nil end
+
+    profile.groupSystem = profile.groupSystem or {}
+    local gs = profile.groupSystem
+    gs.groups = gs.groups or {}
+
+    local groupSettings = gs.groups[groupName]
+    if not groupSettings then
+        groupSettings = {
+            name = displayName or CDM_SOURCE_GROUP_NAMES[groupName] or groupName,
+            enabled = true,
+            groupType = "cdm",
+        }
+        gs.groups[groupName] = groupSettings
+    end
+
+    local db = GetDynamicDB()
+    if groupSettings.sourceGroupKey and db.groups[groupSettings.sourceGroupKey] then
+        db.groups[groupSettings.sourceGroupKey].linkedCDMGroup = groupName
+        db.groups[groupSettings.sourceGroupKey].enabled = groupSettings.enabled ~= false
+        return groupSettings.sourceGroupKey
+    end
+
+    for sourceKey, sourceGroup in pairs(db.groups or {}) do
+        if sourceGroup.linkedCDMGroup == groupName then
+            groupSettings.sourceGroupKey = sourceKey
+            sourceGroup.enabled = groupSettings.enabled ~= false
+            return sourceKey
+        end
+    end
+
+    local sourceKey = self:CreateDynamicGroup(displayName or groupSettings.name or CDM_SOURCE_GROUP_NAMES[groupName] or groupName)
+    if not sourceKey then return nil end
+
+    local sourceGroup = db.groups and db.groups[sourceKey]
+    if sourceGroup then
+        sourceGroup.linkedCDMGroup = groupName
+        sourceGroup.enabled = groupSettings.enabled ~= false
+    end
+
+    groupSettings.sourceGroupKey = sourceKey
+    groupSettings.groupType = groupSettings.groupType or "cdm"
+    return sourceKey
+end
+
+function CustomIcons:AddIconToCDMGroup(groupName, iconData, displayName)
+    if type(iconData) ~= "table" then return nil end
+
+    local sourceKey = self:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
+    if not sourceKey then return nil end
+
+    iconData.settings = iconData.settings or {}
+    iconData.settings.targetCDMGroup = groupName
+
+    local iconKey = self:AddDynamicIcon(iconData)
+    if iconKey then
+        self:MoveIconToGroup(iconKey, sourceKey)
+        C_Timer.After(0.05, function()
+            local gs = DDingUI.GroupSystem
+            if gs and gs.Refresh then
+                gs:Refresh()
+            end
+        end)
+    end
+
+    return iconKey, sourceKey
+end
+
 function CustomIcons:AddDynamicIcon(iconData)
     local db = GetDynamicDB()
-    local iconKey = iconData.key or ("icon_" .. tostring(math.floor(GetTime() * 1000)))
+    local iconKey = iconData.key
+    if not iconKey or db.iconData[iconKey] then
+        iconKey = BuildUniqueDBKey("icon_", db.iconData)
+    end
     iconData.key = iconKey
     EnsureIconSettings(iconData)
     EnsureLoadConditions(iconData)
@@ -2407,18 +3833,20 @@ function CustomIcons:RemoveDynamicIcon(iconKey)
 
     local frame = runtime.iconFrames[iconKey]
     if frame then
-        frame:Hide()
-        frame:SetParent(nil)
+        ReleaseDynamicIconFrame(iconKey, frame)
         runtime.iconFrames[iconKey] = nil
     end
 
     RefreshAllLayouts()
     CustomIcons:RefreshDynamicListUI()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
 end
 
 function CustomIcons:CreateDynamicGroup(name)
     local db = GetDynamicDB()
-    local key = "group_" .. tostring(math.floor(GetTime() * 1000))
+    local key = BuildUniqueDBKey("group_", db.groups)
     local startAnchor = GetStartAnchorForGrowthPair("RIGHT", "DOWN")
     db.groups[key] = {
         name = name or (L["New Group"] or "New Group"),
@@ -2436,6 +3864,9 @@ function CustomIcons:CreateDynamicGroup(name)
     }
     RefreshAllLayouts()
     CustomIcons:RefreshDynamicListUI()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
     return key
 end
 
@@ -2461,18 +3892,32 @@ function CustomIcons:RemoveGroup(groupKey)
         -- bridge managed 상태 정리 (DestroyGroup→ReleaseFrame이 orig.parent로 복원하는 것 방지)
         local frame = runtime.iconFrames[iconKey]
         if frame then
-            -- origState 먼저 제거 → ReleaseFrame이 reparent하지 않음
-            frame._ddOrigState = nil
-            if bridge then
+            if bridge and bridge.ReleaseFrame then
                 bridge:ReleaseFrame(frame, iconKey)
             end
-            frame:Hide()
-            frame:SetParent(nil)
+            ReleaseDynamicIconFrame(iconKey, frame)
             runtime.iconFrames[iconKey] = nil
         end
     end
 
     db.groups[groupKey] = nil
+    local gs = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
+    if gs and gs.groups then
+        for gsGroupKey, settings in pairs(gs.groups) do
+            if settings and settings.sourceGroupKey == groupKey then
+                if settings.groupType == "dynamic" then
+                    gs.groups[gsGroupKey] = nil
+                    if gs.deletedGroups then
+                        gs.deletedGroups[gsGroupKey] = true
+                    end
+                else
+                    settings.sourceGroupKey = nil
+                    settings._missingDynamicSource = nil
+                    settings._missingDynamicSourceKey = nil
+                end
+            end
+        end
+    end
     -- [FIX] 그룹 컨테이너 프레임도 정리 (고스트 컨테이너 방지)
     local container = runtime.groupFrames and runtime.groupFrames[groupKey]
     if container then
@@ -2485,6 +3930,9 @@ function CustomIcons:RemoveGroup(groupKey)
     RefreshAllLayouts()
     CustomIcons:RefreshDynamicListUI()
     CustomIcons:RefreshDynamicConfigUI()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
 end
 
 function CustomIcons:MoveIconToGroup(iconKey, targetGroup)
@@ -2512,6 +3960,11 @@ function CustomIcons:MoveIconToGroup(iconKey, targetGroup)
             db.groups[targetGroup].icons = db.groups[targetGroup].icons or {}
             -- Ensure the icon is not already present to avoid duplicates
             removeFromGroup(targetGroup)
+
+            if db.groups[targetGroup].linkedCDMGroup and db.iconData[iconKey] then
+                db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
+                db.iconData[iconKey].settings.targetCDMGroup = db.groups[targetGroup].linkedCDMGroup
+            end
 
             -- If this is the first icon in the group, position the group at the icon's current location
             if #db.groups[targetGroup].icons == 0 then
@@ -2586,27 +4039,37 @@ function CustomIcons:MoveIconToGroup(iconKey, targetGroup)
     end
 end
 
-function CustomIcons:ReorderIconInGroup(groupKey, iconKey, targetKey)
+function CustomIcons:ReorderIconInGroup(groupKey, iconKey, targetKey, insertAfter)
     local db = GetDynamicDB()
     if groupKey == "ungrouped" then
         -- preserve set semantics for ungrouped; sorting not needed
-        return
+        return false
     end
     local group = db.groups[groupKey]
-    if not group or not group.icons then return end
+    if not group or not group.icons then return false end
 
-    -- [FIX] swap 방식: 두 아이콘의 위치를 교환
-    -- insert-before 방식은 1번→2번 드래그 시 동일한 결과가 나옴
     local srcIdx, dstIdx
     for i, k in ipairs(group.icons) do
         if k == iconKey then srcIdx = i end
         if k == targetKey then dstIdx = i end
     end
-    if not srcIdx or not dstIdx or srcIdx == dstIdx then return end
+    if not srcIdx or not dstIdx or srcIdx == dstIdx then return false end
 
-    group.icons[srcIdx], group.icons[dstIdx] = group.icons[dstIdx], group.icons[srcIdx]
+    local moving = table.remove(group.icons, srcIdx)
+    if srcIdx < dstIdx then
+        dstIdx = dstIdx - 1
+    end
+
+    local insertIdx = insertAfter and (dstIdx + 1) or dstIdx
+    if insertIdx < 1 then insertIdx = 1 end
+    if insertIdx > #group.icons + 1 then insertIdx = #group.icons + 1 end
+    table.insert(group.icons, insertIdx, moving)
 
     RefreshAllLayouts()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
+    return true
 end
 
 -- [FIX] 방향 이동 (↑위/↓아래): 그룹 내 아이콘 순서 변경
@@ -2791,6 +4254,22 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         local iid = GetInventoryItemID("player", iconData.slotID)
         local _, _, _, _, _, _, _, _, _, tex = iid and GetItemInfo(iid)
         node.iconTex:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+    elseif iconData.type == "racial" then
+        local racialID = GetPlayerRacialSpellID()
+        if racialID then
+            if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                local ok, overrideID = pcall(C_SpellBook.FindSpellOverrideByID, racialID)
+                if ok and overrideID and overrideID ~= racialID then
+                    racialID = overrideID
+                end
+            end
+            local info = C_Spell.GetSpellInfo(racialID)
+            node.iconTex:SetTexture((info and info.iconID) or C_Spell.GetSpellTexture(racialID) or "Interface\\Icons\\Spell_magic_polymorphrabbit")
+        else
+            node.iconTex:SetTexture("Interface\\Icons\\Spell_magic_polymorphrabbit")
+        end
+    else
+        node.iconTex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     end
 
     local globalFont = DDingUI:GetGlobalFont() or "Fonts\\2002.TTF"
@@ -2812,6 +4291,20 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     elseif iconData.type == "trinketProc" then
         local iid = GetInventoryItemID("player", iconData.slotID or 13)
         displayName = (iid and GetItemInfo(iid)) or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
+    elseif iconData.type == "racial" then
+        local racialID = GetPlayerRacialSpellID()
+        if racialID then
+            if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                local ok, overrideID = pcall(C_SpellBook.FindSpellOverrideByID, racialID)
+                if ok and overrideID and overrideID ~= racialID then
+                    racialID = overrideID
+                end
+            end
+            local info = C_Spell.GetSpellInfo(racialID)
+            displayName = (info and info.name) or "Racial Trait"
+        else
+            displayName = "Racial Trait"
+        end
     end
     label:SetText(displayName)
 
@@ -4173,8 +5666,7 @@ function CustomIcons:ConfirmDeleteSelected()
             end
             local frame = runtime.iconFrames[iconKey]
             if frame then
-                frame:Hide()
-                frame:SetParent(nil)
+                ReleaseDynamicIconFrame(iconKey, frame)
                 runtime.iconFrames[iconKey] = nil
             end
         end
@@ -4374,8 +5866,8 @@ function CustomIcons:ShowCreateIconDialog()
 
         -- Type toggle buttons (styled)
         f.typeButtons = {}
-        local types = { {key = "spell", label = "Spell"}, {key = "item", label = "Item"}, {key = "slot", label = "Slot"}, {key = "trinketProc", label = "Trinket"} }
-        local spacing = 85
+        local types = { {key = "spell", label = "Spell"}, {key = "item", label = "Item"}, {key = "slot", label = "Slot"}, {key = "trinketProc", label = "Trinket"}, {key = "racial", label = "Racial"} }
+        local spacing = 75
         local startX = -((#types - 1) * spacing) / 2
         for idx, info in ipairs(types) do
             local btn = CreateStyledToggle(f, info.label, 80)
@@ -4398,6 +5890,13 @@ function CustomIcons:ShowCreateIconDialog()
                     f.slotLabel:Hide()
                     if f.trinketDropdown then f.trinketDropdown:Show() end
                     if f.trinketLabel then f.trinketLabel:Show() end
+                elseif info.key == "racial" then
+                    f.idInput:Hide()
+                    f.idLabel:Hide()
+                    f.slotDropdown:Hide()
+                    f.slotLabel:Hide()
+                    if f.trinketDropdown then f.trinketDropdown:Hide() end
+                    if f.trinketLabel then f.trinketLabel:Hide() end
                 else
                     f.idInput:Show()
                     f.idLabel:Show()
@@ -4483,13 +5982,22 @@ function CustomIcons:ShowCreateIconDialog()
             elseif t == "trinketProc" then
                 local slotID = f.trinketDropdown.selectedValue or 13
                 CustomIcons:AddDynamicIcon({type = "trinketProc", slotID = slotID})
+            elseif t == "racial" then
+                CustomIcons:AddDynamicIcon({type = "racial", id = 0})
             else
-                local idVal = tonumber(f.idInput:GetText() or "")
-                if not idVal or idVal <= 0 then
-                    UIErrorsFrame:AddMessage("Enter a valid ID", 1, 0, 0)
+                local idVal = f.idInput:GetText() or ""
+                -- String (spell name) or Number (spell ID) allowed
+                local numId = tonumber(idVal)
+                if not numId and idVal ~= "" then
+                    local info = C_Spell.GetSpellInfo(idVal)
+                    if info and info.spellID then numId = info.spellID end
+                end
+
+                if not numId or numId <= 0 then
+                    UIErrorsFrame:AddMessage("Enter a valid ID or Spell Name", 1, 0, 0)
                     return
                 end
-                CustomIcons:AddDynamicIcon({type = t, id = idVal})
+                CustomIcons:AddDynamicIcon({type = t, id = numId})
             end
             f:Hide()
         end)

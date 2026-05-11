@@ -1,3 +1,5 @@
+-- LEGACY / NOT LOADED: DDingUI.toc does not load this file.
+-- Active GroupSystem path: FrameController -> GroupManager -> GroupRenderer -> DynamicIconBridge -> GroupInit.
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
@@ -47,7 +49,25 @@ local function IsIconActive(iconKey, iconData)
     -- Aura buff checking
     if iconData.type == "aura" and iconData.id then
         local auraData = nil
-        pcall(function() auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconData.id) end)
+        -- Provider_Dynamic uses GetAllIconFrames but doesn't pass iconFrame into IsIconActive. We need to fetch it.
+        local frame
+        local ci = DDingUI.CustomIcons
+        if ci and ci.GetAllIconFrames then
+            local frames = ci:GetAllIconFrames()
+            frame = frames and frames[iconKey]
+        end
+
+        if frame and type(frame._auraWasActive) == "boolean" then
+            return frame._auraWasActive
+        end
+
+        pcall(function() 
+            if frame and frame._cachedAuraSpellID then
+                auraData = C_UnitAuras.GetPlayerAuraBySpellID(frame._cachedAuraSpellID)
+            else
+                auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconData.id) 
+            end
+        end)
         if not auraData then return false end
     end
     

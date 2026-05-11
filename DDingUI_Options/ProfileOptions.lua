@@ -7,10 +7,6 @@ local newProfileNameBuffer = ""
 local newProfileBuffer = ""
 local copyFromBuffer = ""
 
-local function T(key, fallback)
-    return (key and rawget(L, key)) or fallback or key
-end
-
 -- 모듈별 불러오기 상태
 local moduleImportSource = "spec"  -- "spec" or "profile"
 local moduleImportSourceSpec = nil
@@ -384,14 +380,13 @@ local function CreateProfileOptions()
             -- 모듈별 불러오기 Tab
             moduleImport = {
                 type = "group",
-                name = T("Module Import", "Module Import"),
+                name = "모듈별 불러오기",
                 order = 3,
                 args = {
                     desc = {
                         type = "description",
                         order = 1,
-                        name = T("Import selected module settings from another specialization or profile.\nSelected module settings will overwrite the current profile.",
-                            "Import selected module settings from another specialization or profile.\nSelected module settings will overwrite the current profile."),
+                        name = "다른 전문화 또는 프로필에서 특정 모듈 설정만 불러옵니다.\n선택한 모듈의 설정이 현재 프로필에 덮어씌워집니다.",
                     },
 
                     spacer1 = {
@@ -402,12 +397,12 @@ local function CreateProfileOptions()
 
                     sourceType = {
                         type = "select",
-                        name = T("Import Source", "Import Source"),
+                        name = "불러올 대상",
                         order = 10,
                         width = "normal",
                         values = {
-                            spec = T("Another Specialization", "Another Specialization"),
-                            profile = T("Another Profile", "Another Profile"),
+                            spec = "다른 전문화",
+                            profile = "다른 프로필",
                         },
                         get = function() return moduleImportSource end,
                         set = function(_, val)
@@ -419,7 +414,7 @@ local function CreateProfileOptions()
 
                     sourceSpec = {
                         type = "select",
-                        name = T("Source Specialization", "Source Specialization"),
+                        name = "원본 전문화",
                         order = 11,
                         width = "double",
                         hidden = function() return moduleImportSource ~= "spec" end,
@@ -436,7 +431,7 @@ local function CreateProfileOptions()
 
                     sourceProfile = {
                         type = "select",
-                        name = T("Source Profile", "Source Profile"),
+                        name = "원본 프로필",
                         order = 11,
                         width = "normal",
                         hidden = function() return moduleImportSource ~= "profile" end,
@@ -464,14 +459,14 @@ local function CreateProfileOptions()
 
                     moduleHeader = {
                         type = "header",
-                        name = T("Modules to Import", "Modules to Import"),
+                        name = "불러올 모듈 선택",
                         order = 20,
                     },
 
                     -- 동적으로 모듈 체크박스 생성
                     selectAll = {
                         type = "execute",
-                        name = T("Select All", "Select All"),
+                        name = "전체 선택",
                         order = 21,
                         width = "half",
                         func = function()
@@ -487,7 +482,7 @@ local function CreateProfileOptions()
 
                     deselectAll = {
                         type = "execute",
-                        name = T("Clear All", "Clear All"),
+                        name = "전체 해제",
                         order = 21.1,
                         width = "half",
                         func = function()
@@ -504,16 +499,15 @@ local function CreateProfileOptions()
 
                     applyButton = {
                         type = "execute",
-                        name = "|cff00ff00" .. T("Apply Import", "Apply Import") .. "|r",
+                        name = "|cff00ff00불러오기 적용|r",
                         order = 40,
                         width = "full",
                         confirm = true,
-                        confirmText = T("Selected module settings will overwrite the current profile. Continue?",
-                            "Selected module settings will overwrite the current profile. Continue?"),
+                        confirmText = "선택한 모듈 설정을 현재 프로필에 덮어씌웁니다. 계속하시겠습니까?",
                         func = function()
                             local SP = DDingUI.SpecProfiles
                             if not SP then
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 " .. T("SpecProfiles module not found.", "SpecProfiles module not found.") .. "|r")
+                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 SpecProfiles 모듈을 찾을 수 없습니다.|r")
                                 return
                             end
 
@@ -528,7 +522,7 @@ local function CreateProfileOptions()
                             end
 
                             if #keys == 0 then
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 " .. T("Please select modules to import.", "Please select modules to import.") .. "|r")
+                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 불러올 모듈을 선택해주세요.|r")
                                 return
                             end
 
@@ -539,7 +533,7 @@ local function CreateProfileOptions()
                             elseif moduleImportSource == "profile" and moduleImportSourceProfile then
                                 ok = SP:CopyModulesFromProfile(moduleImportSourceProfile, keys)
                             else
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 " .. T("Please select an import source.", "Please select an import source.") .. "|r")
+                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 원본을 선택해주세요.|r")
                                 return
                             end
 
@@ -547,21 +541,15 @@ local function CreateProfileOptions()
                                 local moduleNames = {}
                                 for _, entry in ipairs(SP.MODULE_KEYS) do
                                     if moduleImportSelected[entry.key] then
-                                        table.insert(moduleNames, T(entry.name, entry.name))
+                                        table.insert(moduleNames, entry.name)
                                     end
                                 end
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 " .. string.format(T("Import complete: %s", "Import complete: %s"), table.concat(moduleNames, ", ")) .. "|r")
-                                if DDingUI.CustomIcons and DDingUI.CustomIcons.LoadDynamicIcons then
-                                    DDingUI.CustomIcons:LoadDynamicIcons()
-                                end
-                                if DDingUI.GroupSystem and DDingUI.GroupSystem.SyncDynamicGroups then
-                                    DDingUI.GroupSystem:SyncDynamicGroups()
-                                end
+                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 불러오기 완료: " .. table.concat(moduleNames, ", ") .. "|r")
                                 if DDingUI.RefreshAll then
                                     DDingUI:RefreshAll()
                                 end
                             else
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 " .. T("Import failed: source data not found.", "Import failed: source data not found.") .. "|r")
+                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 불러오기 실패: 원본 데이터를 찾을 수 없습니다.|r")
                             end
                         end,
                     },
@@ -577,7 +565,7 @@ local function CreateProfileOptions()
         for i, entry in ipairs(SP.MODULE_KEYS) do
             moduleArgs["module_" .. entry.key] = {
                 type = "toggle",
-                name = T(entry.name, entry.name),
+                name = entry.name,
                 order = 22 + (i * 0.1),
                 width = "normal",
                 get = function() return moduleImportSelected[entry.key] or false end,

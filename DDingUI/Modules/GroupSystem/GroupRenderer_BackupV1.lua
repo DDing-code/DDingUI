@@ -1,3 +1,5 @@
+-- LEGACY / NOT LOADED: DDingUI.toc does not load this file.
+-- Active GroupSystem path: FrameController -> GroupManager -> GroupRenderer -> DynamicIconBridge -> GroupInit.
 -- [GROUP SYSTEM] GroupRenderer: CDM 프레임 SetParent 방식 렌더링
 -- [REPARENT] ViewerLayout 동일 레이아웃 엔진 — 뷰어 설정값 100% 반영
 -- FrameController.SetupFrameInContainer 통합, Blizzard CDM 프레임 직접 관리

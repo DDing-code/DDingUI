@@ -886,6 +886,10 @@ local specChangeGraceUntil = 0
 local SPEC_CHANGE_GRACE_DURATION = 2.0  -- 초: CDM 데이터 로딩 대기
 local buffTrackerInitialized = false
 local loadingScreenActive = false
+local startupRefreshTimers = {}
+local buffTrackerTicker
+local StartBuffTrackerTicker
+local StopBuffTrackerTicker
 
 -- 모든 bar 프레임의 위치/스타일 캐시를 초기화
 -- 전문화 변경 시 이전 전문화의 앵커 정보가 남아있으면 위치가 틀어짐
@@ -901,6 +905,40 @@ local function InvalidateAllFrameCaches()
             bar._lastWidth = nil
             bar._lastBarStyle = nil
         end
+    end
+end
+
+local function RunBuffTrackerStartupRefresh(reason)
+    local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+    if not cfg or not cfg.enabled then return end
+
+    if not buffTrackerTicker then
+        StartBuffTrackerTicker()
+    end
+
+    local CDMScanner = DDingUI.CDMScanner
+    if CDMScanner and CDMScanner.ScanAll then
+        pcall(CDMScanner.ScanAll)
+    end
+
+    InvalidateAllFrameCaches()
+    ResourceBars:UpdateBuffTrackerBar()
+end
+
+local function ScheduleBuffTrackerStartupRefresh(reason, delays)
+    delays = delays or { 0.05, 0.5, 1.5, 3.0 }
+
+    for _, timer in ipairs(startupRefreshTimers) do
+        if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
+            timer:Cancel()
+        end
+    end
+    wipe(startupRefreshTimers)
+
+    for _, delay in ipairs(delays) do
+        startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(delay, function()
+            RunBuffTrackerStartupRefresh(reason)
+        end)
     end
 end
 
@@ -1696,16 +1734,16 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
 end
 
 -- Ticker for buff updates
-local buffTrackerTicker = nil
+buffTrackerTicker = nil
 
-local function StopBuffTrackerTicker()
+StopBuffTrackerTicker = function()
     if buffTrackerTicker then
         buffTrackerTicker:Cancel()
         buffTrackerTicker = nil
     end
 end
 
-local function StartBuffTrackerTicker()
+StartBuffTrackerTicker = function()
     if buffTrackerTicker then return end
 
     -- [PERF] 0.1→0.2초 간격 (5fps). expirationCheck도 여기서 통합 처리
@@ -5459,6 +5497,7 @@ function ResourceBars:InitializeBuffTracker()
 
     -- Initial update (여러 번) + 마지막에 초기화 완료 플래그 설정
     local initDelays = { 0.1, 0.5, 1.0, 2.0 }
+    ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5, 3.0 })
     for i, delay in ipairs(initDelays) do
         C_Timer.After(delay, function()
             ResourceBars:UpdateBuffTrackerBar()
@@ -5471,39 +5510,11 @@ function ResourceBars:InitializeBuffTracker()
     -- [12.0.1] PLAYER_ENTERING_WORLD: 메뉴 열 때와 동일하게 ScanAll + 갱신
     -- 리로드/존 이동 후 CDM 뷰어가 안정화되면 ScanAll → BuffTracker 강제 갱신
     local buffTrackerInitFrame = CreateFrame("Frame")
-    local pendingInitTimer = nil
     buffTrackerInitFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     buffTrackerInitFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     buffTrackerInitFrame:SetScript("OnEvent", function(self, event, ...)
-        -- 이전 타이머 취소
-        if pendingInitTimer then
-            pendingInitTimer:Cancel()
-            pendingInitTimer = nil
-        end
-
-        -- [FIX] 0.5초 후 업데이트 (프록시 앵커 위치 복원 대기 + aura API 안정화 대기)
-        C_Timer.After(0.5, function()
-            local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
-            if cfg and cfg.enabled then
-                ResourceBars:UpdateBuffTrackerBar()
-            end
-        end)
-
-        -- [12.0.1] 1.5초 대기 후 ScanAll + 갱신 (CDMScanner 안정화)
-        pendingInitTimer = C_Timer.NewTimer(1.5, function()
-            pendingInitTimer = nil
-            local CDMScanner = DDingUI.CDMScanner
-            if CDMScanner then
-                CDMScanner.ScanAll()
-            end
-            local cfg3 = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
-            if cfg3 and cfg3.enabled then
-                if not buffTrackerTicker then
-                    StartBuffTrackerTicker()
-                end
-                ResourceBars:UpdateBuffTrackerBar()
-            end
-        end)
+        -- 초기/지역이동 재스캔 예약
+        ScheduleBuffTrackerStartupRefresh(event, { 0.05, 0.5, 1.5, 3.0 })
     end)
 end
 

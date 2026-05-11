@@ -28,9 +28,16 @@ local CreateFrame = CreateFrame
 local hooksecurefunc = hooksecurefunc
 local C_Timer = C_Timer
 
--- canaccessvalue / issecretvalue polyfill
-if not canaccessvalue then
-    canaccessvalue = function() return true end
+-- [AYIJE 패턴] IsSafeNumber: secret value 안전 검증 (pcall 불필요)
+local IsSafeNumber
+if type(issecretvalue) == "function" then
+    IsSafeNumber = function(v)
+        return v ~= nil and type(v) == "number" and not issecretvalue(v)
+    end
+else
+    IsSafeNumber = function(v)
+        return v ~= nil and type(v) == "number"
+    end
 end
 
 -- ============================================================
@@ -52,12 +59,14 @@ local CONFIG = {
     DEBOUNCE_TALENT   = 0.6,
     DEBOUNCE_SPEC     = 1.0,
     DEBOUNCE_NORMAL   = 0.15,  -- ScheduleReconcile 하위 호환용
-    DEBOUNCE_ONSHOW   = 0.05,  -- [FIX] OnShow/OnHide 디바운스 (기존 nil → 즉시 실행 버그 수정)
+    DEBOUNCE_ONSHOW   = 0.05,  -- [FIX] OnShow/OnHide 디바운스 (기존 nil → 즐시 실행 버그 수정)
     -- [Ayije 패턴] OnUpdate 폴링 제어
-    BURST_THROTTLE    = 0.033,  -- ~30fps (dirty 상태에서 빠른 스캔)
+    -- [FIX Ayije] burst 감소: 스와이프·색상 깜빡임 작업량 절감 (30fps → 20fps)
+    -- SPELL_UPDATE_COOLDOWN 이벤트가 쿨다운 변화를 직접 트리거하므로 폴링 의존도 감소
+    BURST_THROTTLE    = 0.05,   -- ~20fps (30fps → 20fps)
     WATCHDOG_THROTTLE = 0.25,   -- 4fps (안정화 후 느린 스캔)
-    BURST_TICKS       = 15,     -- burst 모드 틱 수 (전투 진입 시 CDM Layout 안정화)
-    IDLE_TIMEOUT      = 2.0,    -- idle 후 OnUpdate 비활성화 (초)
+    BURST_TICKS       = 8,      -- 15틱 → 8틱 (0.4초 burst)
+    IDLE_TIMEOUT      = 1.0,    -- 2초 → 1초 (idle 후 OnUpdate 비활성화)
 }
 
 -- ============================================================
@@ -78,6 +87,67 @@ FrameController._callbacks = {}
 FrameController._editMode = false
 FrameController._postCombatQueue = {}
 
+-- [DEBUG] /ddbufflog 토글
+local _debugLog = false
+local function DLog(...)
+    if _debugLog then print("|cff88ccff[FC]|r", ...) end
+end
+-- GroupRenderer 등에서 접근 가능하도록 노출
+FrameController._DLog = DLog
+FrameController._isDebugLog = function() return _debugLog end
+SLASH_DDBUFFLOG1 = "/ddbufflog"
+SlashCmdList["DDBUFFLOG"] = function()
+    _debugLog = not _debugLog
+    print("|cff00ff00[DDingUI] BuffLog:", _debugLog and "ON" or "OFF", "|r")
+end
+
+-- [DEBUG] /ddbuffwatch: 매 프레임 managed 아이콘 가시성 모니터
+local _watchFrame = CreateFrame("Frame")
+local _watchActive = false
+local _watchState = {}  -- [frame] = {shown, alpha, parent, numPts, texShown, texAlpha}
+SLASH_DDBUFFWATCH1 = "/ddbuffwatch"
+SlashCmdList["DDBUFFWATCH"] = function()
+    _watchActive = not _watchActive
+    if _watchActive then
+        wipe(_watchState)
+        _watchFrame:SetScript("OnUpdate", function()
+            for cdID, icon in pairs(idIconMap) do
+                if icon._ddIsManaged then
+                    local shown = icon:IsShown()
+                    local alpha = icon:GetAlpha()
+                    local p = icon:GetParent()
+                    local pname = p and p:GetName() or "nil"
+                    local nPts = icon:GetNumPoints()
+                    local w, h = icon:GetWidth(), icon:GetHeight()
+                    local iconTex = icon.icon or icon.Icon
+                    local texShown = iconTex and iconTex:IsShown()
+                    local texAlpha = iconTex and iconTex:GetAlpha()
+                    local texW = iconTex and iconTex:GetWidth() or 0
+
+                    local wasVisible = _watchState[icon]
+                    local isVisible = shown and alpha > 0.01 and nPts > 0 and w > 1
+
+                    if wasVisible and not isVisible then
+                        print(string.format(
+                            "|cffff0000[WATCH] LOST|r %s: shown=%s alpha=%.2f parent=%s pts=%d w=%.0f h=%.0f tex=%s texA=%.2f texW=%.0f",
+                            tostring(cdID), tostring(shown), alpha, pname,
+                            nPts, w, h,
+                            tostring(texShown), texAlpha or -1, texW
+                        ))
+                    end
+
+                    _watchState[icon] = isVisible
+                end
+            end
+        end)
+        print("|cff00ff00[DDingUI] BuffWatch: ON (per-frame monitoring)|r")
+    else
+        _watchFrame:SetScript("OnUpdate", nil)
+        wipe(_watchState)
+        print("|cff00ff00[DDingUI] BuffWatch: OFF|r")
+    end
+end
+
 local state = {
     hooksInstalled = false,
     frameHooksInstalled = {},  -- [frameAddress] = true (중복 훅 방지)
@@ -92,6 +162,8 @@ local state = {
     talentChangeDetected = false,
     isProcessing = false,
     pendingReconcile = false,  -- Reconcile() 내부 호환용
+    scanCompleted = false,     -- [PERF] Reconcile 내 ScanCDMViewers 완료 플래그 (이중 스캔 방지)
+    specChangeVersion = 0,      -- stale delayed refresh guard
     -- 통계
     reconcileCount = 0,
 }
@@ -150,7 +222,8 @@ EnablePolling = function()
             or CONFIG.WATCHDOG_THROTTLE
         state.nextUpdateTime = now + throttle
 
-        -- Reconcile 실행
+        -- Reconcile 실행 — 전투 중에도 실행 (개별 아이콘 Show/Hide는 무명 프레임이라 안전)
+        -- 명명된 컨테이너 프레임(DDingUI_Group_*)의 Show/Hide/SetSize는 GroupRenderer에서 개별 가드
         if not state.isProcessing then
             FrameController:Reconcile()
         end
@@ -179,9 +252,37 @@ local function ScheduleReconcile(debounceTime)
     end
 end
 
+-- [FAST REPARENT] OnShow 트리거 → MarkDirty + Burst 폴링 시작
+-- CDM이 아이콘 상태를 결정한 후 33ms 내 Reconcile 실행
+-- 동기 Reconcile이나 C_Timer.After(0)은 CDM 초기화 경쟁을 일으킴
+local function ForceImmediateReconcile()
+    if not FrameController.initialized then return end
+    MarkDirty()
+    state.burstTicksRemaining = CONFIG.BURST_TICKS -- burst 모드 시작 (33ms 간격)
+    if not state.pollingActive then
+        EnablePolling()
+    end
+end
+
 -- ============================================================
--- 뷰어 탐색
+-- [FIX Ayije] 쿨다운 변화 이벤트 기반 트리거 (Ayije TrackerSpellCooldownWatcher 패턴)
+-- SPELL_UPDATE_COOLDOWN/CHARGES는 GCD마다 발생하지만, MarkDirty()는 idempotent이므로 안전
+-- 폴링에만 의존하던 쿨다운 스와이프 갱신을 이벤트 기반으로 보완
 -- ============================================================
+do
+    local cdEventFrame = CreateFrame("Frame")
+    cdEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    cdEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+    cdEventFrame:SetScript("OnEvent", function()
+        if FrameController.initialized then
+            MarkDirty()
+            if not state.pollingActive then
+                EnablePolling()
+            end
+        end
+    end)
+end
+
 
 local function FindViewers()
     local found = 0
@@ -214,38 +315,41 @@ function FrameController:RefreshViewerRefs()
                 -- 새 뷰어에 Layout/Show/Hide 훅 설치
                 if not hookedViewerLayout[currentViewer] then
                     hookedViewerLayout[currentViewer] = true
-                    hooksecurefunc(currentViewer, "Layout", function()
-                        if FrameController.initialized then
-                            if currentViewer.itemFramePool then
-                                for icon in currentViewer.itemFramePool:EnumerateActive() do
-                                    if icon._ddIsManaged and icon._ddContainerRef then
-                                        local parent = icon:GetParent()
-                                        if parent and parent ~= UIParent then
-                                            icon:SetParent(UIParent)
-                                            icon:SetFrameStrata("MEDIUM")
-                                            local container = icon._ddContainerRef
-                                            if container then
-                                                icon:SetFrameLevel(container:GetFrameLevel() + 10)
-                                            end
-                                            if icon._ddTargetPoint then
-                                                icon._ddSettingPosition = true
-                                                icon:ClearAllPoints()
-                                                icon:SetPoint(
-                                                    icon._ddTargetPoint,
-                                                    icon._ddContainerRef,
-                                                    icon._ddTargetRelPoint or "CENTER",
-                                                    icon._ddTargetX or 0,
-                                                    icon._ddTargetY or 0
-                                                )
-                                                icon._ddSettingPosition = false
-                                            end
-                                        end
-                                    end
-                                end
+                    -- [AYIJE ForceReanchor] 동기 Reconcile 핸들러
+                    -- CDM 이벤트 완료 후 즉시 전체 재배치
+                    local function PostLayoutHandler()
+                        if not FrameController.initialized then return end
+                        if state.isProcessing then return end
+                        DLog("PostLayoutHandler →", viewerGlobalName)
+                        FrameController:Reconcile()
+                    end
+                    -- [1] UpdateLayout/Layout 훅 (Ayije Main.lua:225)
+                    if currentViewer.UpdateLayout then
+                        hooksecurefunc(currentViewer, "UpdateLayout", PostLayoutHandler)
+                    elseif currentViewer.Layout then
+                        hooksecurefunc(currentViewer, "Layout", PostLayoutHandler)
+                    end
+                    -- [2] RefreshData 훅 — MarkDirty만 (동기 Reconcile 아님!)
+                    -- RefreshData는 CDM Release→Re-Acquire 전환 중간에 발생
+                    -- 이때 동기 Reconcile → 프레임 미발견 → Hide() → 깜빡임
+                    -- Layout/UpdateLayout이 CDM 완료 후 동기 Reconcile 처리
+                    if currentViewer.RefreshData then
+                        hooksecurefunc(currentViewer, "RefreshData", function()
+                            if FrameController.initialized then
+                                MarkDirty()
+                                if not state.pollingActive then EnablePolling() end
                             end
-                            ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
-                        end
-                    end)
+                        end)
+                    end
+                    -- [3] RefreshLayout 훅 — MarkDirty만 (동일 이유)
+                    if currentViewer.RefreshLayout then
+                        hooksecurefunc(currentViewer, "RefreshLayout", function()
+                            if FrameController.initialized then
+                                MarkDirty()
+                                if not state.pollingActive then EnablePolling() end
+                            end
+                        end)
+                    end
                     hooksecurefunc(currentViewer, "Show", function()
                         if FrameController.initialized then
                             ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
@@ -273,16 +377,263 @@ function FrameController:RefreshViewerRefs()
 end
 
 -- ============================================================
+-- [AYIJE] OnActiveStateChanged 훅
+-- CDM이 프레임 active 상태 변경 시 호출
+-- frame:IsShown()은 DDingUI의 Show() 호출로 오염됨
+-- → _ddCDMActive 플래그로 CDM의 진짜 상태를 추적
+-- ============================================================
+
+if not FrameController._activeStateHooked then
+    FrameController._activeStateHooked = true
+    FrameController._diagCounters = { activeStateChanged = 0, cooldownIDSet = 0, poolRelease = 0 }
+    if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnActiveStateChanged then
+        hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
+            FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
+            -- CDM이 active → true, inactive → false
+            -- IsShown()이 아닌 CDM 내부 상태를 반영
+            frame._ddCDMActive = frame:IsShown()
+            if FrameController.initialized then
+                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+            end
+        end)
+    end
+    if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
+        hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
+            FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
+            frame._ddCDMActive = true
+            if FrameController.initialized then
+                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+            end
+        end)
+    end
+end
+
+-- ============================================================
+-- [AYIJE] itemFramePool.Release 훅
+-- CDM이 버프 만료 시 pool에서 Release() 호출
+-- Release된 프레임: EnumerateActive()에서 제거 + Hide() 호출
+-- DDingUI가 reparent한 프레임은 CDM viewer로 복원 필요
+-- ============================================================
+
+if not FrameController._poolReleaseHooked then
+    FrameController._poolReleaseHooked = true
+    -- [AYIJE REACTIVE] Pool Acquire/Release → Reconcile만 트리거
+    -- 상태 변경 없음: Reconcile이 매번 전체 재배치
+    FrameController._installPoolHooks = function(viewer, globalName)
+        if not viewer or not viewer.itemFramePool then return end
+        if viewer._ddPoolHooked then return end
+        viewer._ddPoolHooked = true
+        -- Pool.Release: dirty만 표시 (Reconcile 즉시 트리거 안 함 → Layout 완료 후 Reconcile)
+        -- Pool.Release는 CDM Layout 중간에 발생 → 즉시 Reconcile하면 미완성 상태 스캔
+        hooksecurefunc(viewer.itemFramePool, "Release", function()
+            FrameController._diagCounters.poolRelease = FrameController._diagCounters.poolRelease + 1
+            if FrameController.initialized then
+                MarkDirty()
+                if not state.pollingActive then EnablePolling() end
+            end
+        end)
+        -- Pool.Acquire: dirty만 표시 (Ayije Main.lua:411 패턴)
+        hooksecurefunc(viewer.itemFramePool, "Acquire", function()
+            if FrameController.initialized then
+                MarkDirty()
+                if not state.pollingActive then EnablePolling() end
+            end
+        end)
+    end
+end
+
+-- [DIAG] /ddbuffdiag — CDM buff pool 진단
+SLASH_DDBUFFDIAG1 = "/ddbuffdiag"
+SlashCmdList["DDBUFFDIAG"] = function()
+    local viewer = _G["BuffIconCooldownViewer"]
+    if not viewer or not viewer.itemFramePool then
+        print("|cffff4444BuffIconCooldownViewer not found|r")
+        return
+    end
+    local counters = FrameController._diagCounters or {}
+    print("|cff00ff00=== /ddbuffdiag ===|r")
+    print("|cffffcc00Hook Counters:|r")
+    print("  OnActiveStateChanged: " .. (counters.activeStateChanged or "?"))
+    print("  OnCooldownIDSet: " .. (counters.cooldownIDSet or "?"))
+    print("  Pool Release: " .. (counters.poolRelease or "?"))
+    print("|cffffcc00Pool State:|r")
+    local activeCount, shownCount, hiddenCount, managedCount = 0, 0, 0, 0
+    for icon in viewer.itemFramePool:EnumerateActive() do
+        activeCount = activeCount + 1
+        local shown = icon:IsShown()
+        local managed = icon._ddIsManaged
+        local cdmActive = icon._ddCDMActive
+        local parent = icon:GetParent()
+        local parentName = parent and (parent:GetName() or "anon") or "nil"
+        if shown then shownCount = shownCount + 1 end
+        if not shown then hiddenCount = hiddenCount + 1 end
+        if managed then managedCount = managedCount + 1 end
+        local cdStr = icon.cooldownID and tostring(icon.cooldownID) or "nil"
+        -- 스펠 이름 + 아이콘 알파 + C_UnitAuras 체크
+        local spellName = "?"
+        local iconAlpha = icon:GetAlpha()
+        local auraActive = "?"
+        pcall(function()
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo and icon.cooldownID then
+                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
+                if info then
+                    local sid = info.spellID or (info.linkedSpellIDs and info.linkedSpellIDs[1]) or 0
+                    spellName = C_Spell.GetSpellName(sid) or "?"
+                    -- C_UnitAuras 체크
+                    if sid and sid > 0 then
+                        local aura = C_UnitAuras.GetPlayerAuraBySpellID(sid)
+                        auraActive = aura and "YES" or "no"
+                    end
+                end
+            end
+        end)
+        print(string.format("  #%d [%s] layout=%s auraSID=%s cdmA=%s managed=%s alpha=%.1f aura=%s parent=%s",
+            activeCount, spellName,
+            tostring(icon.layoutIndex), tostring(icon.auraSpellID ~= nil), tostring(cdmActive), tostring(managed), iconAlpha, auraActive, parentName))
+    end
+    print(string.format("|cffffcc00Summary: Active=%d Shown=%d Hidden=%d Managed=%d|r",
+        activeCount, shownCount, hiddenCount, managedCount))
+end
+
+-- [DIAG] /ddpipeline — 전투 중 파이프라인 전 단계 덤프
+SLASH_DDPIPELINE1 = "/ddpipeline"
+SlashCmdList["DDPIPELINE"] = function()
+    local combat = InCombatLockdown() and "|cffff4444YES|r" or "|cff44ff44no|r"
+    print("|cff00ff00=== /ddpipeline === Combat: " .. combat .. "|r")
+
+    -- 1단계: BuffIcon 뷰어 raw 스캔
+    local viewer = _G["BuffIconCooldownViewer"]
+    if not viewer or not viewer.itemFramePool then
+        print("|cffff4444BuffIconCooldownViewer not found|r")
+        return
+    end
+
+    print("|cffffcc00[Stage 1] Raw BuffIcon Pool Scan:|r")
+    local poolCount = 0
+    for icon in viewer.itemFramePool:EnumerateActive() do
+        poolCount = poolCount + 1
+        local cdID = "?"
+        pcall(function() cdID = tostring(icon.cooldownID) end)
+        local shown = icon:IsShown()
+        local auraSID = "nil"
+        pcall(function()
+            if icon.auraSpellID ~= nil then
+                if type(issecretvalue) == "function" and issecretvalue(icon.auraSpellID) then
+                    auraSID = "SECRET"
+                else
+                    auraSID = tostring(icon.auraSpellID)
+                end
+            end
+        end)
+        local isActiveFn = "N/A"
+        pcall(function()
+            if icon.IsActive and type(icon.IsActive) == "function" then
+                local v = icon:IsActive()
+                if v == nil then isActiveFn = "nil"
+                elseif type(issecretvalue) == "function" and issecretvalue(v) then isActiveFn = "SECRET"
+                else isActiveFn = tostring(v) end
+            end
+        end)
+        local hasCdInfo = icon.cooldownInfo and "YES" or "no"
+        local managed = icon._ddIsManaged and "YES" or "no"
+        local parent = icon:GetParent()
+        local pName = parent and (parent:GetName() or "anon") or "nil"
+        local alpha = string.format("%.1f", icon:GetAlpha())
+
+        -- GetSpellIDForIcon 시도
+        local spellIDResult = "nil"
+        pcall(function()
+            local fc = DDingUI.CDMHookEngine
+            if fc and fc.GetSpellIDForIcon then
+                local sid = fc:GetSpellIDForIcon(icon)
+                if sid then spellIDResult = tostring(sid) end
+            end
+        end)
+
+        -- 캐시된 spellName
+        local cachedName = "nil"
+        pcall(function()
+            local fc = DDingUI.CDMHookEngine
+            if fc and fc.GetSpellNameForID and icon.cooldownID then
+                local n = fc:GetSpellNameForID(icon.cooldownID)
+                if n then cachedName = n end
+            end
+        end)
+
+        -- ClassifyIcon 결과
+        local classResult = "nil"
+        pcall(function()
+            local gm = DDingUI.GroupManager
+            if gm and gm.ClassifyIcon and icon.cooldownID then
+                local g = gm:ClassifyIcon(icon.cooldownID)
+                if g then classResult = g end
+            end
+        end)
+
+        print(string.format("  #%d cd=%s shown=%s auraSID=%s isActive=%s cdInfo=%s managed=%s alpha=%s parent=%s",
+            poolCount, cdID, tostring(shown), auraSID, isActiveFn, hasCdInfo, managed, alpha, pName))
+        print(string.format("       spellID=%s cachedName=%s classify=%s",
+            spellIDResult, cachedName, classResult))
+    end
+    print("|cffffcc00Pool total: " .. poolCount .. "|r")
+
+    -- 2단계: idIconMap 상태
+    print("|cffffcc00[Stage 2] idIconMap (BuffIcon only):|r")
+    local mapCount = 0
+    for cooldownID, icon in pairs(idIconMap) do
+        local src = iconSourceMap[cooldownID]
+        if src == "BuffIconCooldownViewer" then
+            mapCount = mapCount + 1
+            local name = iconSpellNameMap[cooldownID] or "nil"
+            print(string.format("  cd=%s name=%s managed=%s",
+                tostring(cooldownID), name, tostring(icon._ddIsManaged or false)))
+        end
+    end
+    print("|cffffcc00BuffIcon in idIconMap: " .. mapCount .. "|r")
+
+    -- 3단계: spellAssignments
+    print("|cffffcc00[Stage 3] spellAssignments:|r")
+    local gs = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
+    if gs and gs.spellAssignments then
+        for spellName, groupName in pairs(gs.spellAssignments) do
+            -- 그룹 존재/활성 여부도 함께 출력
+            local gInfo = "NOT_IN_GROUPS"
+            if gs.groups and gs.groups[groupName] then
+                local g = gs.groups[groupName]
+                gInfo = string.format("enabled=%s type=%s", tostring(g.enabled), tostring(g.groupType or "static"))
+            end
+            print(string.format("  '%s' → '%s' [%s]", tostring(spellName), tostring(groupName), gInfo))
+        end
+    else
+        print("  (none)")
+    end
+
+    -- 4단계: 모든 그룹 상태
+    print("|cffffcc00[Stage 4] All Groups:|r")
+    if gs and gs.groups then
+        for name, g in pairs(gs.groups) do
+            print(string.format("  '%s': enabled=%s type=%s", name, tostring(g.enabled), tostring(g.groupType or "static")))
+        end
+    else
+        print("  (no groups)")
+    end
+end
+
+-- ============================================================
 -- 맵 빌드 (스캔)
 -- ============================================================
 
 function FrameController:ScanCDMViewers()
+    -- [FIX] idIconMap/iconSourceMap만 wipe. iconSpellNameMap은 영구 캐시 유지.
+    -- 전투 중 secret value로 GetSpellName 실패해도 이전 캐시로 분류 가능.
     wipe(idIconMap)
     wipe(iconSourceMap)
 
     -- [REPARENT] DDingUI 프로필 참조 — 뷰어 활성화 상태 확인
     local profile = DDingUI.db and DDingUI.db.profile
     local viewerProfiles = profile and profile.viewers
+    local bridge = DDingUI.DynamicIconBridge
+    local suppressed = bridge and bridge.GetSuppressedSpellIDs and bridge:GetSuppressedSpellIDs()
 
     for globalName, viewer in pairs(viewerRefs) do
         local shouldScan = true
@@ -297,24 +648,112 @@ function FrameController:ScanCDMViewers()
 
         -- [FIX] cooldownID + IsShown 체크: CDM이 Hide한 비활성 버프는 분류/렌더링 제외
         -- 단, 숨겨진 아이콘에도 OnShow 훅을 설치하여 CDM이 Show 시 Reconcile 트리거
+        local isBuffViewer = (globalName == "BuffIconCooldownViewer")
         if shouldScan and viewer.itemFramePool then
+            -- [AYIJE] Buff viewer: pool Release 훅 설치 (최초 1회)
+            if FrameController._installPoolHooks then
+                FrameController._installPoolHooks(viewer, globalName)
+            end
+
             for icon in viewer.itemFramePool:EnumerateActive() do
                 -- [FIX] isEditing 프레임 무시 (EditMode 종료 시 블리자드 코드 Taint 에러 방지)
                 if icon.cooldownID and not icon.isEditing then
-                    if icon:IsShown() then
-                        -- 표시된 아이콘 → 분류 + 렌더링 대상
+                    -- [AYIJE Buffs.lua L265] 모든 뷰어: IsShown()만 사용, CDM 가시성 신뢰
+                    local shouldInclude = icon:IsShown()
+                    if not shouldInclude and _debugLog then
+                        local pname = icon:GetParent() and icon:GetParent():GetName() or "?"
+                        DLog("  SKIP hidden:", tostring(icon.cooldownID), "managed=" .. tostring(icon._ddIsManaged), "alpha=" .. string.format("%.2f", icon:GetAlpha()), "parent=" .. pname)
+                    end
+                    if shouldInclude then
+                        -- [FIX] CDM 중복 억제 (ArcUI auraSpellID + Ayije 분리 패턴)
+                        -- CDM cooldownID ≠ spell ID → auraSpellID(실제 spell ID) 사용
+                        -- 매칭 시 _ddIsManaged 설정 → CDM Layout 훅이 자동으로 뷰어에서 분리
+                        if suppressed then
+                            local isSuppressed = false
+                            -- auraSpellID 우선 (BuffIcon), fallback으로 cooldownID
+                            -- 둘 다 secret value일 수 있으므로 pcall 필수
+                            local ok1 = pcall(function()
+                                if icon.auraSpellID and suppressed[icon.auraSpellID] then
+                                    isSuppressed = true
+                                end
+                            end)
+                            local ok2 = true
+                            if not isSuppressed then
+                                ok2 = pcall(function()
+                                    if icon.cooldownID and suppressed[icon.cooldownID] then
+                                        isSuppressed = true
+                                    end
+                                end)
+                            end
+                            -- [FIX] pcall 실패(secret value) 시: suppress 비교 불가
+                            -- 이전 _ddSuppressed가 고착되지 않도록 안전하게 해제
+                            if not ok1 and not ok2 and icon._ddSuppressed then
+                                icon._ddSuppressed = false
+                                icon:SetAlpha(1)
+                            end
+                            if isSuppressed then
+                                -- SetAlpha(0) + SetAlpha 훅으로 숨김 (Hide 대신 → OnHide 미발동)
+                                icon._ddSuppressed = true
+                                icon:SetAlpha(0)
+                                -- [FIX] SetAlpha 훅: CDM이 SetAlpha(1) 호출해도 즉시 재적용
+                                if not icon._ddSuppressAlphaHooked then
+                                    hooksecurefunc(icon, "SetAlpha", function(self, alpha)
+                                        if self._ddSuppressed and alpha and alpha > 0 then
+                                            self:SetAlpha(0)
+                                        end
+                                    end)
+                                    icon._ddSuppressAlphaHooked = true
+                                end
+                                shouldInclude = false
+                            elseif icon._ddSuppressed then
+                                -- 억제 해제: 더 이상 suppressed 아닌 아이콘 복원
+                                icon._ddSuppressed = false
+                                icon:SetAlpha(1)
+                            end
+                        end
+                    end
+                    if shouldInclude then
                         idIconMap[icon.cooldownID] = icon
                         iconSourceMap[icon.cooldownID] = globalName
 
-                        if not iconSpellNameMap[icon.cooldownID] then
-                            local name = self:GetSpellName(icon)
-                            if name then
-                                iconSpellNameMap[icon.cooldownID] = name
-                            end
+                        -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
+                        local name = self:GetSpellName(icon)
+                        if name then
+                            iconSpellNameMap[icon.cooldownID] = name
+                        end
+
+                        if not icon._fcShowHideHooked then
+                            icon:HookScript("OnShow", function(self)
+                                if self._ddSuppressed then self:SetAlpha(0); return end
+                                if not FrameController.initialized then return end
+                                -- managed 프레임 즉시 복원 (Essential 뷰어는 Layout 없이 Show만 호출할 수 있음)
+                                if self._ddIsManaged and self._ddTargetPoint then
+                                    self:SetParent(UIParent)
+                                    self:ClearAllPoints()
+                                    self:SetPoint(
+                                        self._ddTargetPoint,
+                                        self._ddContainerRef,
+                                        self._ddTargetRelPoint or "CENTER",
+                                        self._ddTargetX or 0,
+                                        self._ddTargetY or 0
+                                    )
+                                    if self:GetAlpha() < 0.01 then
+                                        local fh = DDingUI.FlightHide
+                                        if not (fh and fh.isActive) then
+                                            self:SetAlpha(1)
+                                        end
+                                    end
+                                end
+                                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+                            end)
+                            icon:HookScript("OnHide", function(self)
+                                if not FrameController.initialized then return end
+                                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+                            end)
+                            icon._fcShowHideHooked = true
                         end
                     else
-                        -- [FIX] 숨겨진 아이콘에도 OnShow 훅 설치
-                        -- CDM이 나중에 Show()하면 OnShow 훅 → Reconcile → 재스캔
+                        -- 숨겨진 아이콘에도 OnShow/OnHide 훅 설치
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
                                 if not FrameController.initialized then return end
@@ -333,10 +772,26 @@ function FrameController:ScanCDMViewers()
             end
         end
     end
+
+    -- [DEBUG] 스캔 결과 요약
+    if _debugLog then
+        local count = 0
+        for _ in pairs(idIconMap) do count = count + 1 end
+        DLog("ScanDone: idIconMap=" .. count .. " entries")
+    end
+
+    -- [AYIJE REACTIVE] 고아 정리 없음.
+    -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
+    -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
 end
 
 -- 하위 호환 별칭
 FrameController.RebuildMaps = FrameController.ScanCDMViewers
+
+-- [FIX] FlightHide용 idIconMap 접근자
+function FrameController:GetIdIconMap()
+    return idIconMap
+end
 
 -- ============================================================
 -- Reconcile (핵심 파이프라인)
@@ -349,16 +804,40 @@ function FrameController:Reconcile()
         return
     end
 
+    -- [FIX] 블리자드 편집모드 중 Reconcile 완전 차단
+    -- CDM이 편집모드용 테스트 프레임을 생성/파괴하면서 cooldownID에 secret value 할당
+    -- 이 상태에서 ScanCDMViewers가 프레임을 순회하면 Taint 발생
+    if EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive() then
+        state.dirty = true  -- 편집모드 퇴장 후 다시 스캔하도록 dirty 유지
+        return
+    end
+
     state.isProcessing = true
     state.pendingReconcile = false
+    local _rc = state.reconcileCount or 0
+    DLog("Reconcile #" .. _rc, "talent=" .. tostring(state.talentChangeDetected))
+
+    -- [AYIJE REACTIVE] 특성 변경 시: idIconMap만 wipe.
+    -- 다음 ScanCDMViewers가 처음부터 재구축하므로 개별 Release 불필요.
+    if state.talentChangeDetected then
+        wipe(idIconMap)
+        wipe(iconSourceMap)
+        wipe(iconSpellNameMap)
+    end
 
     -- 1. CDM 뷰어 스캔 (맵 재구축)
     self:ScanCDMViewers()
 
     -- 2. 콜백 알림 (GroupInit → DoFullUpdate)
+    -- [PERF] scanCompleted 플래그: NotifyUpdate → DoFullUpdate에서 ScanCDMViewers 이중 호출 방지
+    state.scanCompleted = true
     self:NotifyUpdate()
+    state.scanCompleted = false
 
-    -- 3. 상태 플래그 리셋
+    -- 3. [COOLDOWN TIMER] 만료 감지는 SetupFrameInContainer에서 alpha=0으로 처리
+    -- CDM pool sync 불필요 — 매 Reconcile 틱마다 cooldown 시간 체크
+
+    -- 4. 상태 플래그 리셋
     state.specChangeDetected = false
     state.talentChangeDetected = false
     state.isProcessing = false
@@ -371,12 +850,40 @@ end
 -- SpellName 안전 추출
 -- ============================================================
 
-function FrameController:GetSpellName(icon)
-    if not icon or not icon.GetSpellID then return nil end
+function FrameController:GetSpellIDForIcon(icon)
+    if not icon then return nil end
 
-    local ok, spellID = pcall(icon.GetSpellID, icon)
-    if not ok or not spellID then return nil end
-    if not canaccessvalue(spellID) then return nil end
+    -- 1. [AYIJE 패턴] GetAuraSpellID — pcall 불필요 (전투 중 안전)
+    if icon.GetAuraSpellID then
+        local sid = icon:GetAuraSpellID()
+        if IsSafeNumber(sid) and sid > 0 then
+            return sid
+        end
+    end
+
+    -- 2. [AYIJE 패턴] Raw cooldownInfo 메타테이블 스캐닝
+    local info = icon.GetCooldownInfo and icon:GetCooldownInfo() or icon.cooldownInfo
+    if info then
+        local sid = info.overrideSpellID or info.spellID or info.linkedSpellID
+        if IsSafeNumber(sid) and sid > 0 then
+            return sid
+        end
+    end
+
+    -- 3. [최후수단] GetSpellID — 전투 중 secret value 가능성 있음
+    if icon.GetSpellID then
+        local sid = icon:GetSpellID()
+        if IsSafeNumber(sid) and sid > 0 then
+            return sid
+        end
+    end
+
+    return nil
+end
+
+function FrameController:GetSpellName(icon)
+    local spellID = self:GetSpellIDForIcon(icon)
+    if not spellID then return nil end
 
     -- FindBaseSpellByID로 기본 스펠 ID 가져오기
     local baseID = spellID
@@ -487,32 +994,19 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
     )
     frame._ddSettingPosition = false
 
-    -- 8. Alpha + Show -- [REPARENT]
-    -- UIParent 자식이므로 컨테이너 숨김 상태를 수동 체크
-    -- ScanCDMViewers에서 IsShown() 체크 완료 → 여기 도달 = CDM이 Show한 아이콘
-    local sourceViewerName = cooldownID and iconSourceMap[cooldownID]
-    local sourceViewer = sourceViewerName and _G[sourceViewerName]
-    local viewerVisible = not sourceViewer or sourceViewer:IsShown()
-
-    -- [FIX] alpha 리셋 — CDM 뷰어 alpha=0 은닉 또는 CDM 내부 로직에 의해
-    -- 아이콘 alpha가 0으로 남아있을 수 있음 (re-parent해도 개별 alpha 유지)
-    -- [FIX] BuffTrackerBar가 _ddingHidden으로 숨긴 프레임은 alpha 유지 (깜빡임 방지)
-    if not frame._ddingHidden then
-        frame:SetAlpha(1)
-    end
-    -- [Ayije 패턴 C] provisional reparent에서 alpha=0으로 숨긴 경우 복원
+    -- 8. [FIX] 고아 정리(alpha=0)에서 복원: 관리 등록 시 alpha 명시적 복원
+    -- AYIJE 패턴은 CDM 가시성을 신뢰하지만, DDingUI 자체의 고아 정리에서
+    -- SetAlpha(0)이 적용된 프레임은 CDM Show() 후에도 alpha=0이 유지됨
+    -- → 관리 등록 시점에 alpha=1로 복원해야 UpdateGroup의 alpha 루프 전에 보임
     frame._ddProvisionalHidden = nil
-
-    if container:IsShown() and viewerVisible then
-        if not InCombatLockdown() then frame:Show() end
-    else
-        if not InCombatLockdown() then frame:Hide() end
-    end
 
     -- [FIX] FlightHide 활성 중이면 새 아이콘도 알파 0 적용
     local fh = DDingUI.FlightHide
     if fh and fh.isActive then
         frame:SetAlpha(0)
+    elseif frame:GetAlpha() < 0.01 then
+        -- 고아 정리 등으로 alpha=0이면 즉시 복원
+        frame:SetAlpha(1)
     end
 end
 
@@ -567,18 +1061,45 @@ function FrameController:InstallFrameHooks(frame)
     local addr = tostring(frame)
     if state.frameHooksInstalled[addr] then return end
 
-    -- [HOOK 1] ClearAllPoints snap-back -- [REPARENT] _ddContainerRef 사용
-    if not frame._fcClearPointsHooked then
+    -- [HOOK] SetSize 스냅백: CDM이 managed 프레임 크기 변경 시 DDingUI 크기로 복원
+    -- 드루이드 변신 등으로 CDM이 Layout 후 추가 SetSize 호출 → 종횡비 깨짐 방지
+    if not frame._ddSetSizeHooked then
+        hooksecurefunc(frame, "SetSize", function(self, w, h)
+            if self._ddSettingSize then return end
+            if self._ddIsManaged and self._ddTargetWidth then
+                if math_abs(w - self._ddTargetWidth) > 0.5 or math_abs(h - self._ddTargetHeight) > 0.5 then
+                    self._ddSettingSize = true
+                    self:SetSize(self._ddTargetWidth, self._ddTargetHeight)
+                    self._ddSettingSize = false
+                end
+            end
+        end)
+        frame._ddSetSizeHooked = true
+    end
+
+    -- [HOOK] SetScale 스냅백: CDM이 managed 프레임 스케일 변경 시 1로 복원
+    if not frame._ddSetScaleHooked then
+        hooksecurefunc(frame, "SetScale", function(self, scale)
+            if self._ddSettingScale then return end
+            if self._ddIsManaged and math_abs(scale - 1) > 0.01 then
+                self._ddSettingScale = true
+                self:SetScale(1)
+                self._ddSettingScale = false
+            end
+        end)
+        frame._ddSetScaleHooked = true
+    end
+
+    -- [HOOK] ClearAllPoints 스냅백: CDM Layout이 앵커 제거 → DDingUI 앵커 즉시 복원
+    -- CDM이 ClearAllPoints() + SetPoint(뷰어기준) 호출 → pts=0 순간 발생 → 렌더링 안 됨
+    if not frame._ddClearPointsHooked then
         hooksecurefunc(frame, "ClearAllPoints", function(self)
             if self._ddSettingPosition then return end
-            if not self._ddIsManaged then return end
-
-            local container = self._ddContainerRef
-            if container and self._ddTargetPoint then
+            if self._ddIsManaged and self._ddTargetPoint and self._ddContainerRef then
                 self._ddSettingPosition = true
                 self:SetPoint(
                     self._ddTargetPoint,
-                    container,
+                    self._ddContainerRef,
                     self._ddTargetRelPoint or "CENTER",
                     self._ddTargetX or 0,
                     self._ddTargetY or 0
@@ -586,101 +1107,63 @@ function FrameController:InstallFrameHooks(frame)
                 self._ddSettingPosition = false
             end
         end)
-        frame._fcClearPointsHooked = true
+        frame._ddClearPointsHooked = true
     end
 
-    -- [HOOK 2] SetScale → force 1 -- [REPARENT] _ddIsManaged 체크
-    if not frame._fcScaleHooked then
-        hooksecurefunc(frame, "SetScale", function(self, scale)
-            if self._ddSettingScale then return end
-            if not self._ddIsManaged then return end
-
-            -- secret value 방어
-            if issecretvalue and issecretvalue(scale) then return end
-
-            if math_abs((scale or 1) - 1) > 0.01 then
-                self._ddSettingScale = true
-                self:SetScale(1)
-                self._ddSettingScale = false
-            end
-        end)
-        frame._fcScaleHooked = true
-    end
-
-    -- [HOOK 3] SetSize → 타겟 사이즈 강제 -- [REPARENT] _ddIsManaged 체크
-    if not frame._fcSizeHooked then
-        hooksecurefunc(frame, "SetSize", function(self, w, h)
-            if self._ddSettingSize then return end
-            if not self._ddIsManaged then return end
-
-            -- secret value 방어
-            if issecretvalue and (issecretvalue(w) or issecretvalue(h)) then return end
-
-            -- 타겟 사이즈가 설정되어 있고, CDM이 다른 값으로 변경하려 할 때
-            local targetW = self._ddTargetWidth
-            local targetH = self._ddTargetHeight
-            if targetW and targetH then
-                local dw = math_abs((w or 0) - targetW)
-                local dh = math_abs((h or 0) - targetH)
-                if dw > 0.5 or dh > 0.5 then
-                    self._ddSettingSize = true
-                    self:SetSize(targetW, targetH)
-                    self._ddSettingSize = false
+    -- [HOOK] SetPoint 스냅백: CDM Layout이 뷰어 기준으로 SetPoint → DDingUI 앵커로 복원
+    if not frame._ddSetPointHooked then
+        hooksecurefunc(frame, "SetPoint", function(self, point, relativeTo, ...)
+            if self._ddSettingPosition then return end
+            if self._ddIsManaged and self._ddContainerRef then
+                -- CDM이 뷰어 기준으로 SetPoint → DDingUI 컨테이너 기준으로 교체
+                if relativeTo ~= self._ddContainerRef then
+                    self._ddSettingPosition = true
+                    self:ClearAllPoints()
+                    self:SetPoint(
+                        self._ddTargetPoint,
+                        self._ddContainerRef,
+                        self._ddTargetRelPoint or "CENTER",
+                        self._ddTargetX or 0,
+                        self._ddTargetY or 0
+                    )
+                    self._ddSettingPosition = false
                 end
             end
         end)
-        frame._fcSizeHooked = true
+        frame._ddSetPointHooked = true
     end
 
-    -- [HOOK 4] SetFrameStrata → MEDIUM 강제 -- [REPARENT] _ddIsManaged 체크
-    if not frame._fcStrataHooked then
-        hooksecurefunc(frame, "SetFrameStrata", function(self, strata)
-            if self._ddSettingStrata then return end
-
-            if self._ddIsManaged and strata ~= "MEDIUM" then
-                self._ddSettingStrata = true
-                self:SetFrameStrata("MEDIUM")
-                self._ddSettingStrata = false
-            end
-        end)
-        frame._fcStrataHooked = true
-    end
-
-    -- [HOOK 5] SetPoint → CDM의 모든 재배치 시도를 snap-back -- [REPARENT]
-    -- UIParent 자식이므로 CDM의 SetPoint(CENTER,viewer,...)는 뷰어 기준으로 이동시킴
-    -- → _ddContainerRef 기준으로 즉시 복원
-    if not frame._fcSetPointHooked then
-        hooksecurefunc(frame, "SetPoint", function(self)
-            if self._ddSettingPosition then return end
-            if not self._ddIsManaged then return end
-
-            local container = self._ddContainerRef
-            if not container then return end
-            if not self._ddTargetPoint then return end
-
-            -- 우리 코드가 아닌 SetPoint → 우리 레이아웃 위치로 복원
-            self._ddSettingPosition = true
-            self:ClearAllPoints()
-            self:SetPoint(
-                self._ddTargetPoint,
-                container,
-                self._ddTargetRelPoint or "CENTER",
-                self._ddTargetX or 0,
-                self._ddTargetY or 0
-            )
-            self._ddSettingPosition = false
-        end)
-        frame._fcSetPointHooked = true
-    end
-
-    -- [HOOK 6] OnShow/OnHide → CDM이 아이콘을 Show/Hide하면 Reconcile 트리거
-    -- 이미 OnAcquireItemFrame 등에서 전역 훅으로 설치했더라도 안전하게 중복 방지
     if not frame._fcShowHideHooked then
         frame:HookScript("OnShow", function(self)
+            DLog("OnShow", tostring(self.cooldownID), "managed=" .. tostring(self._ddIsManaged), "sup=" .. tostring(self._ddSuppressed), "pt=" .. tostring(self._ddTargetPoint))
+            if self._ddSuppressed then self:SetAlpha(0); return end
             if not FrameController.initialized then return end
+            -- managed 프레임 즉시 복원
+            if self._ddIsManaged and self._ddTargetPoint then
+                DLog("  → instant restore to", tostring(self._ddContainerRef and self._ddContainerRef:GetName()))
+                self:SetParent(UIParent)
+                self:ClearAllPoints()
+                self:SetPoint(
+                    self._ddTargetPoint,
+                    self._ddContainerRef,
+                    self._ddTargetRelPoint or "CENTER",
+                    self._ddTargetX or 0,
+                    self._ddTargetY or 0
+                )
+                if self:GetAlpha() < 0.01 then
+                    local fh = DDingUI.FlightHide
+                    if not (fh and fh.isActive) then
+                        self:SetAlpha(1)
+                        DLog("  → alpha restored to 1")
+                    end
+                end
+            else
+                DLog("  → NO instant restore (managed=" .. tostring(self._ddIsManaged) .. " pt=" .. tostring(self._ddTargetPoint) .. ")")
+            end
             ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
         end)
         frame:HookScript("OnHide", function(self)
+            DLog("OnHide", tostring(self.cooldownID), "managed=" .. tostring(self._ddIsManaged))
             if not FrameController.initialized then return end
             ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
         end)
@@ -744,19 +1227,12 @@ local function InstallCDMHooks()
                     frame:SetFrameLevel(container:GetFrameLevel() + 10)
                 end
 
-                -- snap-back: 이전 LayoutGroup 위치로 즉시 복원
-                if frame._ddTargetPoint then
-                    frame._ddSettingPosition = true
-                    frame:ClearAllPoints()
-                    frame:SetPoint(
-                        frame._ddTargetPoint,
-                        frame._ddContainerRef,
-                        frame._ddTargetRelPoint or "CENTER",
-                        frame._ddTargetX or 0,
-                        frame._ddTargetY or 0
-                    )
-                    frame._ddSettingPosition = false
-                end
+                -- [Ayije Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 주석 처리합니다.
+                -- 대신 MarkDirty()를 통해 큐가 터질 때 Watchdog이 좌표를 갱신하게 둡니다.
+                -- if frame._ddTargetPoint then
+                --     frame:ClearAllPoints()
+                --     frame:SetPoint(...)
+                -- end
             end
 
             -- 블리자드 CDM이 프레임을 풀에서 꺼낼 때 OnShow/OnHide를 미리 잡아둠
@@ -824,19 +1300,8 @@ local function InstallCDMHooks()
                                     if container then
                                         icon:SetFrameLevel(container:GetFrameLevel() + 10)
                                     end
-                                    -- snap-back
-                                    if icon._ddTargetPoint then
-                                        icon._ddSettingPosition = true
-                                        icon:ClearAllPoints()
-                                        icon:SetPoint(
-                                            icon._ddTargetPoint,
-                                            icon._ddContainerRef,
-                                            icon._ddTargetRelPoint or "CENTER",
-                                            icon._ddTargetX or 0,
-                                            icon._ddTargetY or 0
-                                        )
-                                        icon._ddSettingPosition = false
-                                    end
+                                    -- [Ayije Phase 1: 스냅백 삭제] 
+                                    -- Layout 직후 다시 뺏어오는 행위 삭제. Reconcile 엔진이 일괄 처리합니다.
                                 end
                             end
                         end
@@ -889,12 +1354,13 @@ local function InstallCDMHooks()
         local GroupRenderer = DDingUI.GroupRenderer
         local container = GroupRenderer and GroupRenderer.groupFrames and GroupRenderer.groupFrames[groupName]
         if container then
+            -- [Ayije Phase 2] 중앙에 모이는 팝업 현상 방지를 위해 큐 처리 전까지 우주 밖으로 날려버림 (Provisional Placement)
             frame:SetParent(UIParent)
             frame:SetFrameStrata("MEDIUM")
             frame:SetFrameLevel(container:GetFrameLevel() + 10)
             frame._ddSettingPosition = true
             frame:ClearAllPoints()
-            frame:SetPoint("CENTER", container, "CENTER", 0, 0)
+            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 9999, -9999)
             frame._ddSettingPosition = false
         else
             -- 컨테이너 없으면 alpha=0으로 숨김 (DoFullUpdate에서 복원)
@@ -920,18 +1386,12 @@ local function InstallCDMHooks()
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
                     end
-                    if frame._ddTargetPoint then
-                        frame._ddSettingPosition = true
-                        frame:ClearAllPoints()
-                        frame:SetPoint(
-                            frame._ddTargetPoint,
-                            frame._ddContainerRef,
-                            frame._ddTargetRelPoint or "CENTER",
-                            frame._ddTargetX or 0,
-                            frame._ddTargetY or 0
-                        )
-                        frame._ddSettingPosition = false
-                    end
+                    -- [Ayije Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 제거.
+                    -- if frame._ddTargetPoint then ... end
+                end
+                -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
+                if frame:GetAlpha() < 0.01 and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
+                    frame:SetAlpha(1)
                 end
             else
                 -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
@@ -955,18 +1415,12 @@ local function InstallCDMHooks()
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
                     end
-                    if frame._ddTargetPoint then
-                        frame._ddSettingPosition = true
-                        frame:ClearAllPoints()
-                        frame:SetPoint(
-                            frame._ddTargetPoint,
-                            frame._ddContainerRef,
-                            frame._ddTargetRelPoint or "CENTER",
-                            frame._ddTargetX or 0,
-                            frame._ddTargetY or 0
-                        )
-                        frame._ddSettingPosition = false
-                    end
+                    -- [Ayije Phase 1: 스냅백 삭제] 
+                    -- if frame._ddTargetPoint then ... end
+                end
+                -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
+                if frame:GetAlpha() < 0.01 and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
+                    frame:SetAlpha(1)
                 end
             else
                 -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
@@ -990,18 +1444,8 @@ local function InstallCDMHooks()
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
                     end
-                    if frame._ddTargetPoint then
-                        frame._ddSettingPosition = true
-                        frame:ClearAllPoints()
-                        frame:SetPoint(
-                            frame._ddTargetPoint,
-                            frame._ddContainerRef,
-                            frame._ddTargetRelPoint or "CENTER",
-                            frame._ddTargetX or 0,
-                            frame._ddTargetY or 0
-                        )
-                        frame._ddSettingPosition = false
-                    end
+                    -- [Ayije Phase 1: 스냅백 삭제]
+                    -- if frame._ddTargetPoint then ... end
                 end
             else
                 -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
@@ -1107,6 +1551,12 @@ function FrameController:IsSpecChangePending()
     return state.specChangeDetected or false
 end
 
+-- [PERF] Reconcile 체인에서 ScanCDMViewers가 이미 완료되었는지 조회
+-- DoFullUpdate에서 이중 스캔 방지용
+function FrameController:IsScanCompleted()
+    return state.scanCompleted or false
+end
+
 -- ============================================================
 -- 옵저버 패턴
 -- ============================================================
@@ -1133,25 +1583,27 @@ function FrameController:EnableEditModeClicks()
     for globalName, viewer in pairs(viewerRefs) do
         if viewer.itemFramePool then
             for icon in viewer.itemFramePool:EnumerateActive() do
-                if not InCombatLockdown() then
-                    icon:SetPropagateMouseClicks(true)
-                else
-                    tinsert(self._postCombatQueue, function()
-                        icon:SetPropagateMouseClicks(true)
-                    end)
-                end
-                icon:SetMouseClickEnabled(true)
-                icon:SetMouseMotionEnabled(true)
-
-                -- 클릭 핸들러 (중복 방지)
-                if not icon._gsClickHooked then
-                    icon._gsClickHooked = true
-                    icon:SetScript("OnMouseDown", function(self, button)
-                        if not FrameController._editMode then return end
-                        if button == "LeftButton" and IsControlKeyDown() then
-                            FrameController:ShowGroupAssignPopup(self)
+                -- [FIX] 편집모드 테스트 프레임 스킵
+                if not icon.isEditing then
+                    -- [FIX] pcall 래핑 — WoW 12.0+ 보호 함수 Taint 방지
+                    pcall(function()
+                        if not InCombatLockdown() then
+                            icon:SetPropagateMouseClicks(true)
                         end
+                        icon:SetMouseClickEnabled(true)
+                        icon:SetMouseMotionEnabled(true)
                     end)
+
+                    -- 클릭 핸들러 (중복 방지)
+                    if not icon._gsClickHooked then
+                        icon._gsClickHooked = true
+                        icon:SetScript("OnMouseDown", function(self, button)
+                            if not FrameController._editMode then return end
+                            if button == "LeftButton" and IsControlKeyDown() then
+                                FrameController:ShowGroupAssignPopup(self)
+                            end
+                        end)
+                    end
                 end
             end
         end
@@ -1163,15 +1615,17 @@ function FrameController:DisableEditModeClicks()
     for globalName, viewer in pairs(viewerRefs) do
         if viewer.itemFramePool then
             for icon in viewer.itemFramePool:EnumerateActive() do
-                if not InCombatLockdown() then
-                    icon:SetPropagateMouseClicks(false)
-                else
-                    tinsert(self._postCombatQueue, function()
-                        icon:SetPropagateMouseClicks(false)
+                -- [FIX] 편집모드 테스트 프레임 스킵
+                if not icon.isEditing then
+                    -- [FIX] pcall 래핑 — WoW 12.0+ 보호 함수 Taint 방지
+                    pcall(function()
+                        if not InCombatLockdown() then
+                            icon:SetPropagateMouseClicks(false)
+                        end
+                        icon:SetMouseClickEnabled(false)
+                        icon:SetMouseMotionEnabled(false)
                     end)
                 end
-                icon:SetMouseClickEnabled(false)
-                icon:SetMouseMotionEnabled(false)
             end
         end
     end
@@ -1304,12 +1758,15 @@ function FrameController:Initialize()
 
         elseif event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
             state.specChangeDetected = true
+            state.specChangeVersion = state.specChangeVersion + 1
+            local specVersion = state.specChangeVersion
             wipe(iconSpellNameMap) -- 캐시 초기화
             ScheduleReconcile(CONFIG.DEBOUNCE_SPEC)
 
             -- [FIX] CDM이 뷰어를 재생성할 시간 대기 후 참조 갱신 + 앵커 재적용
             C_Timer.After(1.5, function()
                 if not FrameController.initialized then return end
+                if specVersion ~= state.specChangeVersion then return end
                 FrameController:RefreshViewerRefs()
 
                 -- [FIX] _viewerHidden 강제 리셋
@@ -1336,6 +1793,7 @@ function FrameController:Initialize()
             -- 안정화 패스: CDM Layout이 지연될 수 있으므로
             C_Timer.After(3.0, function()
                 if not FrameController.initialized then return end
+                if specVersion ~= state.specChangeVersion then return end
                 FrameController:RefreshViewerRefs()
 
                 -- [FIX] 안정화 패스에서도 _viewerHidden 리셋
@@ -1419,4 +1877,538 @@ function FrameController:ForceReconcile()
     state.reconcileCount = 0
     self._initTime = GetTime() -- [DIAG] 진단 리셋 (15초간 다시 출력)
     ScheduleReconcile(0) -- 즉시
+end
+
+-- ============================================================
+-- [DEBUG] /ddbuffdump — 버프 아이콘 상태 정밀 덤프
+-- ============================================================
+SLASH_DDBUFFDUMP1 = "/ddbuffdump"
+SlashCmdList["DDBUFFDUMP"] = function()
+    local P = function(...) print("|cff00ff00[DDingUI BuffDump]|r", ...) end
+    P("=== CDM Pool State ===")
+    local viewer = _G["BuffIconCooldownViewer"]
+    if not viewer then P("BuffIconCooldownViewer NOT FOUND") return end
+    
+    local activeCount, activeShown, activeHidden = 0, 0, 0
+    if viewer.itemFramePool then
+        for frame in viewer.itemFramePool:EnumerateActive() do
+            activeCount = activeCount + 1
+            if frame:IsShown() then
+                activeShown = activeShown + 1
+            else
+                activeHidden = activeHidden + 1
+            end
+        end
+    end
+    P("Active pool:", activeCount, "Shown:", activeShown, "Hidden:", activeHidden)
+    
+    P("=== idIconMap (BuffIcon entries) ===")
+    local mapCount = 0
+    for cid, icon in pairs(idIconMap) do
+        local src = iconSourceMap[cid]
+        if src == "BuffIconCooldownViewer" then
+            mapCount = mapCount + 1
+            local parentName = icon:GetParent() and icon:GetParent():GetName() or "unnamed"
+            -- [DIAG] spellID 캐싱 상태 + C_CooldownViewer 실시간 조회
+            local cachedSID = icon._ddCachedSpellID or "nil"
+            local liveSID = "?"
+            local auraActive = "?"
+            pcall(function()
+                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cid)
+                if info then
+                    local sid = (info.linkedSpellIDs and info.linkedSpellIDs[1])
+                        or info.overrideSpellID or info.spellID
+                    liveSID = tostring(sid) .. " type=" .. type(sid)
+                    if sid and type(sid) == "number" and sid > 0 then
+                        local aura = C_UnitAuras.GetPlayerAuraBySpellID(sid)
+                        auraActive = aura and "YES" or "NO"
+                    end
+                else
+                    liveSID = "info=nil"
+                end
+            end)
+            P("  CID:", cid, "Cached:", cachedSID, "Live:", liveSID, "Aura:", auraActive, "Shown:", icon:IsShown(), "Alpha:", icon:GetAlpha())
+        end
+    end
+    P("idIconMap buff entries:", mapCount)
+    
+    P("=== GroupRenderer Managed Icons ===")
+    local GR = DDingUI.GroupRenderer
+    if GR and GR.groupFrames then
+        for groupName, groupFrame in pairs(GR.groupFrames) do
+            if groupFrame._managedIcons then
+                local count = 0
+                for i, icon in pairs(groupFrame._managedIcons) do
+                    if icon then count = count + 1 end
+                end
+                if count > 0 then
+                    P("Group:", groupName, "Icons:", count)
+                    for i, icon in pairs(groupFrame._managedIcons) do
+                        if icon then
+                            local parentName = icon:GetParent() and icon:GetParent():GetName() or "unnamed"
+                            local src = icon.cooldownID and iconSourceMap[icon.cooldownID] or "?"
+                            P("  [" .. i .. "] CID:", icon.cooldownID or "nil", "Src:", src, "Shown:", icon:IsShown(), "Alpha:", string.format("%.2f", icon:GetAlpha()), "Parent:", parentName, "Managed:", tostring(icon._ddIsManaged))
+                        end
+                    end
+                end
+            end
+        end
+    end
+    P("=== Done ===")
+end
+
+-- ============================================================
+-- [DIAG] /ddbuffdiag — 버프 분류 진단
+-- ============================================================
+SLASH_DDBUFFDIAG1 = "/ddbuffdiag"
+SlashCmdList["DDBUFFDIAG"] = function()
+    local P = function(...) print("|cff00ccff[BuffDiag]|r", ...) end
+    P("=== 버프 분류 진단 ===")
+
+    -- 1. 각 뷰어별 아이콘 스캔
+    local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
+    for _, vName in ipairs(viewers) do
+        local v = _G[vName]
+        if v and v.itemFramePool then
+            local total, shown, hasAura = 0, 0, 0
+            local samples = {}
+            for icon in v.itemFramePool:EnumerateActive() do
+                total = total + 1
+                if icon:IsShown() then shown = shown + 1 end
+                pcall(function()
+                    if icon.auraSpellID then hasAura = hasAura + 1 end
+                end)
+                if #samples < 5 and icon.cooldownID then
+                    local sid = "?"
+                    pcall(function()
+                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
+                        if info then
+                            sid = tostring((info.linkedSpellIDs and info.linkedSpellIDs[1]) or info.spellID or "?")
+                            local n = C_Spell.GetSpellName(tonumber(sid) or 0)
+                            if n then sid = sid .. "(" .. n .. ")" end
+                        end
+                    end)
+                    samples[#samples+1] = string.format("  CID:%s Shown:%s Aura:%s SID:%s",
+                        tostring(icon.cooldownID), tostring(icon:IsShown()),
+                        tostring(icon.auraSpellID ~= nil), sid)
+                end
+            end
+            P(vName, "Total:", total, "Shown:", shown, "HasAura:", hasAura)
+            for _, s in ipairs(samples) do P(s) end
+        else
+            P(vName, "= NOT FOUND")
+        end
+    end
+
+    -- 2. 프로필 그룹 목록 + autoClassify 상태
+    local gs = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
+    if gs then
+        P("--- 프로필 그룹 ---")
+        P("  autoClassify:", tostring(gs.autoClassify))
+        if gs.groups then
+            for groupName, groupSettings in pairs(gs.groups) do
+                P("  [" .. groupName .. "] enabled:" .. tostring(groupSettings.enabled)
+                    .. " type:" .. (groupSettings.groupType or "cdm")
+                    .. " autoFilter:" .. (groupSettings.autoFilter or "nil"))
+            end
+        else
+            P("  groups = nil!")
+        end
+    else
+        P("  groupSystem = nil!")
+    end
+
+    -- 3. 프로필 spellAssignments
+    if gs and gs.spellAssignments then
+        P("--- spellAssignments ---")
+        local count = 0
+        for spell, group in pairs(gs.spellAssignments) do
+            P("  ", spell, "→", group)
+            count = count + 1
+        end
+        if count == 0 then P("  (없음)") end
+    else
+        P("--- spellAssignments: nil ---")
+    end
+
+    -- 3. 그룹별 아이콘 분류 결과
+    P("--- 그룹별 분류 ---")
+    local GroupManager = DDingUI.GroupManager
+    if GroupManager and GroupManager.ClassifyIcon then
+        local classified = {}
+        for cooldownID, icon in pairs(idIconMap) do
+            local group = GroupManager:ClassifyIcon(cooldownID)
+            classified[group or "nil"] = (classified[group or "nil"] or 0) + 1
+        end
+        for g, c in pairs(classified) do
+            P("  ", g, ":", c, "icons")
+        end
+    end
+
+    P("=== Done ===")
+end
+
+-- ============================================================
+-- [DEBUG] /ddalpha — 아이콘 alpha 상태 진단
+-- 투명도 0 문제 디버깅용: 모든 managed 아이콘의 alpha/플래그 출력
+-- ============================================================
+SLASH_DDALPHA1 = "/ddalpha"
+SlashCmdList["DDALPHA"] = function()
+    local P = function(...) print("|cff00ff00[DDAlpha]|r", ...) end
+    P("=== Alpha 진단 시작 ===")
+
+    -- 1. FlightHide 상태
+    local fh = DDingUI.FlightHide
+    if fh then
+        P("FlightHide: isActive=", tostring(fh.isActive), " _hiding=", tostring(fh._hiding))
+    else
+        P("FlightHide: 모듈 없음")
+    end
+
+    -- 2. GroupRenderer 프레임별 상태
+    local GroupRenderer = DDingUI.GroupRenderer
+    if GroupRenderer and GroupRenderer.groupFrames then
+        for groupName, frame in pairs(GroupRenderer.groupFrames) do
+            local gs = DDingUI.GroupSystem and DDingUI.GroupSystem.db
+            local groupSettings = gs and gs.groups and gs.groups[groupName]
+            local groupAlpha = groupSettings and groupSettings.groupAlpha or 1.0
+            P("--- 그룹: ", groupName, " containerAlpha=", string.format("%.2f", frame:GetAlpha()), " groupAlpha설정=", groupAlpha, " shown=", tostring(frame:IsShown()))
+            
+            if frame._managedIcons then
+                local total = 0
+                local hidden = 0
+                for i = 1, (frame._iconCount or #frame._managedIcons) do
+                    local ic = frame._managedIcons[i]
+                    if ic then
+                        total = total + 1
+                        local alpha = ic:GetAlpha()
+                        if alpha < 0.01 then
+                            hidden = hidden + 1
+                            -- 상세 출력 (alpha=0인 아이콘만)
+                            local flags = ""
+                            if ic._ddSuppressed then flags = flags .. " SUPPRESSED" end
+                            if ic._ddDynBridgeHidden then flags = flags .. " DYNBRIDGE_HIDDEN" end
+                            if ic._ddingHidden then flags = flags .. " DDING_HIDDEN" end
+                            if ic._ddProvisionalHidden then flags = flags .. " PROVISIONAL" end
+                            if ic._ddSuppressAlphaHooked then flags = flags .. " ALPHA_HOOKED" end
+                            if ic._ddDynBridgeAlphaHooked then flags = flags .. " BRIDGE_ALPHA_HOOKED" end
+                            local cdID = "?"
+                            pcall(function() cdID = tostring(ic.cooldownID) end)
+                            local auraID = "?"
+                            pcall(function() auraID = tostring(ic.auraSpellID) end)
+                            P("  [HIDDEN] alpha=", string.format("%.2f", alpha),
+                              " cdID=", cdID,
+                              " auraID=", auraID,
+                              " managed=", tostring(ic._ddIsManaged),
+                              " shown=", tostring(ic:IsShown()),
+                              flags)
+                        end
+                    end
+                end
+                P("  합계: ", total, "개 중 ", hidden, "개 alpha=0")
+            end
+        end
+    else
+        P("GroupRenderer 없음")
+    end
+
+    -- 3. CDM 뷰어 직접 스캔 (managed 아닌 아이콘도 포함)
+    P("--- CDM 뷰어 직접 스캔 ---")
+    local viewers = {"EssentialCooldownViewer", "BuffIconCooldownViewer", "UtilityCooldownViewer"}
+    for _, vName in ipairs(viewers) do
+        local v = _G[vName]
+        if v and v.itemFramePool then
+            local total = 0
+            local alphaZero = 0
+            for icon in v.itemFramePool:EnumerateActive() do
+                total = total + 1
+                local a = icon:GetAlpha()
+                if a < 0.01 then
+                    alphaZero = alphaZero + 1
+                    if alphaZero <= 5 then  -- 처음 5개만 상세 출력
+                        local flags = ""
+                        if icon._ddSuppressed then flags = flags .. " SUPPRESSED" end
+                        if icon._ddDynBridgeHidden then flags = flags .. " DYNBRIDGE_HIDDEN" end
+                        if icon._ddingHidden then flags = flags .. " DDING_HIDDEN" end
+                        if icon._ddSuppressAlphaHooked then flags = flags .. " ALPHA_HOOKED" end
+                        if icon._ddDynBridgeAlphaHooked then flags = flags .. " BRIDGE_ALPHA_HOOKED" end
+                        local cdID = "?"
+                        pcall(function() cdID = tostring(icon.cooldownID) end)
+                        P("  ", vName, " [a=0]",
+                          " cdID=", cdID,
+                          " managed=", tostring(icon._ddIsManaged),
+                          flags)
+                    end
+                end
+            end
+            P("  ", vName, ": ", total, "개 활성 중 ", alphaZero, "개 alpha=0")
+        end
+    end
+
+    P("=== Alpha 진단 완료 ===")
+end
+
+-- ============================================================
+-- [DEBUG] /ddwatch — SetAlpha(0) 실시간 호출 추적
+-- BuffIcon 프레임에 SetAlpha 훅을 설치하여 alpha=0 호출 시
+-- 스택 트레이스 출력. /ddwatch 다시 입력하면 중지.
+-- ============================================================
+local ddWatchActive = false
+SLASH_DDWATCH1 = "/ddwatch"
+SlashCmdList["DDWATCH"] = function()
+    local P = function(...) print("|cffff8800[DDWatch]|r", ...) end
+
+    if ddWatchActive then
+        ddWatchActive = false
+        P("감시 중지. (훅은 제거 불가, /reload 필요)")
+        return
+    end
+
+    ddWatchActive = true
+    P("SetAlpha(0) 호출 추적 시작. BuffIcon 프레임에 훅 설치 중...")
+
+    local bv = _G["BuffIconCooldownViewer"]
+    if not bv or not bv.itemFramePool then
+        P("|cffff0000BuffIconCooldownViewer 없음!|r")
+        return
+    end
+
+    local hookCount = 0
+    for icon in bv.itemFramePool:EnumerateActive() do
+        -- 프레임 자체의 SetAlpha 훅
+        if not icon._ddWatchAlphaHooked then
+            icon._ddWatchAlphaHooked = true
+            hookCount = hookCount + 1
+            hooksecurefunc(icon, "SetAlpha", function(self, alpha)
+                if not ddWatchActive then return end
+                if type(alpha) ~= "number" then return end
+                if alpha < 0.01 then
+                    local cdID = "?"
+                    pcall(function() cdID = tostring(self.cooldownID) end)
+                    local isMgd = self._ddIsManaged and "Y" or "N"
+                    local parent = self:GetParent()
+                    local pName = parent and (parent:GetName() or "?") or "nil"
+                    local stack = debugstack(2, 5, 0)
+                    P("|cffff0000[FRAME→0]|r cd=", cdID,
+                      " mgd=", isMgd,
+                      " parent=", pName,
+                      " sup=", tostring(self._ddSuppressed or false))
+                    P("  stack: ", stack)
+                end
+            end)
+        end
+
+        -- 아이콘 텍스처의 SetAlpha 훅
+        local texObj = icon.icon or icon.Icon
+        if texObj and not texObj._ddWatchTexAlphaHooked then
+            texObj._ddWatchTexAlphaHooked = true
+            hooksecurefunc(texObj, "SetAlpha", function(self, alpha)
+                if not ddWatchActive then return end
+                if type(alpha) ~= "number" then return end
+                if alpha < 0.01 then
+                    local parentFrame = self:GetParent()
+                    local cdID = "?"
+                    pcall(function() cdID = tostring(parentFrame and parentFrame.cooldownID) end)
+                    local stack = debugstack(2, 5, 0)
+                    P("|cffff6600[TEX→0]|r cd=", cdID)
+                    P("  stack: ", stack)
+                end
+            end)
+        end
+
+        -- Hide() 훅도 설치
+        if not icon._ddWatchHideHooked then
+            icon._ddWatchHideHooked = true
+            hooksecurefunc(icon, "Hide", function(self)
+                if not ddWatchActive then return end
+                if self._ddIsManaged and self:GetParent() == UIParent then
+                    local cdID = "?"
+                    pcall(function() cdID = tostring(self.cooldownID) end)
+                    local stack = debugstack(2, 5, 0)
+                    P("|cffff00ff[HIDE]|r cd=", cdID, " (managed, UIParent)")
+                    P("  stack: ", stack)
+                end
+            end)
+        end
+    end
+
+    P(hookCount, "개 프레임에 훅 설치 완료. 투명 발생 시 자동 출력됩니다.")
+end
+
+
+-- ============================================================
+-- [DEBUG] /dddump — 전체 아이콘 프레임 덤프
+-- 투명도 문제 발생 시 실행: 모든 CDM/Dynamic 아이콘 상태 출력
+-- ============================================================
+SLASH_DDDUMP1 = "/dddump"
+SlashCmdList["DDDUMP"] = function()
+    local P = function(...) print("|cff00ffff[DDDump]|r", ...) end
+    P("=== 전체 아이콘 덤프 시작 ===")
+
+    -- 1. 모든 CDM 뷰어 풀의 모든 아이콘
+    local viewers = {"EssentialCooldownViewer", "BuffIconCooldownViewer", "UtilityCooldownViewer"}
+    for _, vName in ipairs(viewers) do
+        local v = _G[vName]
+        if v and v.itemFramePool then
+            P("--- ", vName, " (viewer alpha=", string.format("%.2f", v:GetAlpha()), " shown=", tostring(v:IsShown()), ") ---")
+            local count = 0
+            for icon in v.itemFramePool:EnumerateActive() do
+                count = count + 1
+                local fA = icon:GetAlpha()
+                local shown = icon:IsShown()
+                local texObj = icon.icon or icon.Icon
+                local tA = texObj and texObj.GetAlpha and texObj:GetAlpha() or -1
+                local tShown = texObj and texObj.IsShown and texObj:IsShown()
+                local hasTex = true
+                pcall(function() hasTex = (texObj and texObj:GetTexture()) ~= nil end)
+
+                -- 비정상 상태만 출력 (alpha=0, 텍스처 없음, hidden 등)
+                local problem = false
+                local issues = ""
+                if fA < 0.01 then issues = issues .. " fA=0"; problem = true end
+                if tA >= 0 and tA < 0.01 then issues = issues .. " tA=0"; problem = true end
+                if not shown then issues = issues .. " HIDDEN"; problem = true end
+                if tShown == false then issues = issues .. " TEX_HIDDEN"; problem = true end
+                if not hasTex then issues = issues .. " NO_TEX"; problem = true end
+
+                if problem then
+                    local cdID = "?"
+                    pcall(function() cdID = tostring(icon.cooldownID) end)
+                    local auraID = "?"
+                    pcall(function() auraID = tostring(icon.auraSpellID) end)
+                    local parent = icon:GetParent()
+                    local parentName = parent and (parent:GetName() or "unnamed") or "nil"
+                    local flags = ""
+                    if icon._ddIsManaged then flags = flags .. " MGD" end
+                    if icon._ddSuppressed then flags = flags .. " SUP" end
+                    if icon._ddDynBridgeHidden then flags = flags .. " DYN" end
+                    if icon._ddingHidden then flags = flags .. " BTB" end
+                    P("  #", count, issues,
+                      " cd=", cdID, " aura=", auraID,
+                      " parent=", parentName, flags)
+                end
+            end
+            P("  총: ", count, "개 활성")
+        end
+    end
+
+    -- 2. 그룹별 managed 아이콘 상태
+    local GR = DDingUI.GroupRenderer
+    if GR and GR.groupFrames then
+        P("--- GroupRenderer 그룹 ---")
+        for gName, frame in pairs(GR.groupFrames) do
+            local iconCount = frame._iconCount or 0
+            local totalManaged = frame._managedIcons and #frame._managedIcons or 0
+            P("  ", gName, ": _iconCount=", iconCount, " totalManagedArr=", totalManaged,
+              " containerAlpha=", string.format("%.2f", frame:GetAlpha()),
+              " shown=", tostring(frame:IsShown()))
+
+            if frame._managedIcons then
+                for i = 1, math.max(iconCount, totalManaged) do
+                    local ic = frame._managedIcons[i]
+                    if ic then
+                        local fA = ic:GetAlpha()
+                        local shown = ic:IsShown()
+                        local texObj = ic.icon or ic.Icon
+                        local tA = texObj and texObj.GetAlpha and texObj:GetAlpha() or -1
+                        local tShown = texObj and texObj.IsShown and texObj:IsShown()
+
+                        local problem = false
+                        local issues = ""
+                        if fA < 0.01 then issues = issues .. " fA=0"; problem = true end
+                        if tA >= 0 and tA < 0.01 then issues = issues .. " tA=0"; problem = true end
+                        if not shown then issues = issues .. " HIDDEN"; problem = true end
+                        if tShown == false then issues = issues .. " TEX_HIDDEN"; problem = true end
+                        if i > iconCount then issues = issues .. " STALE(>"..iconCount..")"; problem = true end
+
+                        if problem then
+                            local cdID = "?"
+                            pcall(function() cdID = tostring(ic.cooldownID) end)
+                            P("    [", i, "]", issues, " cd=", cdID, " fA=", string.format("%.2f", fA))
+                        end
+                    end
+                end
+            end
+        end
+    end
+    -- 3. CDM BuffIcon 분류 파이프라인 추적 (핵심 진단)
+    P("--- BuffIcon 분류 파이프라인 ---")
+    local bv2 = _G["BuffIconCooldownViewer"]
+    if bv2 and bv2.itemFramePool then
+        local CDMHook = DDingUI.CDMHookEngine
+        local GM = DDingUI.GroupManager
+        local bridge = DDingUI.DynamicIconBridge
+        local suppressed = bridge and bridge.GetSuppressedSpellIDs and bridge:GetSuppressedSpellIDs() or {}
+
+        for icon in bv2.itemFramePool:EnumerateActive() do
+            local cdID = "?"
+            pcall(function() cdID = tostring(icon.cooldownID) end)
+            local isShown = icon:IsShown()
+            local isMgd = icon._ddIsManaged
+            local fA = icon:GetAlpha()
+
+            -- spellName 해소
+            local spellName = "?"
+            pcall(function()
+                if CDMHook then
+                    spellName = CDMHook:GetSpellNameForID(icon.cooldownID) or "nil"
+                end
+            end)
+
+            -- suppress 체크
+            local isSup = false
+            pcall(function()
+                if icon.auraSpellID and suppressed[icon.auraSpellID] then isSup = true end
+            end)
+            if not isSup then
+                pcall(function()
+                    if icon.cooldownID and suppressed[icon.cooldownID] then isSup = true end
+                end)
+            end
+
+            -- 그룹 분류
+            local classGroup = "?"
+            pcall(function()
+                if GM then classGroup = GM:ClassifyIcon(icon.cooldownID) or "nil" end
+            end)
+
+            -- idIconMap 포함 여부
+            local inMap = false
+            pcall(function()
+                if idIconMap and idIconMap[icon.cooldownID] then inMap = true end
+            end)
+
+            -- 상태 요약
+            local status = ""
+            if not isShown then status = status .. " NOT_SHOWN" end
+            if isSup then status = status .. " SUPPRESSED" end
+            if icon._ddSuppressed then status = status .. " _ddSUP" end
+            if icon._ddDynBridgeHidden then status = status .. " _ddDYN" end
+            if icon._ddingHidden then status = status .. " _ddBTB" end
+            if isMgd then status = status .. " MANAGED" end
+            if not inMap then status = status .. " NOT_IN_MAP" end
+            if fA < 0.01 then status = status .. " fA=0" end
+
+            local parent = icon:GetParent()
+            local pName = parent and (parent:GetName() or "?") or "nil"
+
+            P("  cd=", cdID,
+              " spell=", spellName,
+              " group=", classGroup,
+              " parent=", pName,
+              status)
+        end
+    end
+
+    -- 4. idIconMap 전체 (FrameController 내부 맵)
+    P("--- idIconMap 내용 ---")
+    local mapCount = 0
+    if idIconMap then
+        for cid, icon in pairs(idIconMap) do
+            mapCount = mapCount + 1
+        end
+    end
+    P("  총 ", mapCount, "개 엔트리")
+
+    P("=== 전체 아이콘 덤프 완료 ===")
 end

@@ -249,39 +249,263 @@ function DDingUI:ApplyGlobalFont()
     end
     end -- End of applyToBlizzard conditional
 
+    local function IsSafeCooldownFrame(cooldownFrame)
+        if not cooldownFrame then return false end
+
+        local ok, forbidden = pcall(function()
+            if cooldownFrame.IsForbidden then
+                return cooldownFrame:IsForbidden()
+            end
+            return false
+        end)
+
+        return ok and not forbidden
+    end
+
+    local function SafeGetParent(frame)
+        if not frame then return nil end
+
+        local ok, parent = pcall(function()
+            return frame:GetParent()
+        end)
+
+        return ok and parent or nil
+    end
+
+    local function SafeGetName(frame)
+        if not frame then return nil end
+
+        local ok, name = pcall(function()
+            return frame:GetName()
+        end)
+
+        return ok and name or nil
+    end
+
+    local function SafeGetObjectType(frame)
+        if not frame then return nil end
+
+        local ok, objectType = pcall(function()
+            return frame:GetObjectType()
+        end)
+
+        return ok and objectType or nil
+    end
+
+    local function SafeGetRegions(frame)
+        if not IsSafeCooldownFrame(frame) then return nil end
+
+        local regions
+        local ok = pcall(function()
+            regions = { frame:GetRegions() }
+        end)
+
+        return ok and regions or nil
+    end
+
+    local function SafeGetChildren(frame)
+        if not frame then return nil end
+
+        local children
+        local ok = pcall(function()
+            children = { frame:GetChildren() }
+        end)
+
+        return ok and children or nil
+    end
+
+    local function SafeClearCooldownFontCache(cooldownFrame)
+        if not IsSafeCooldownFrame(cooldownFrame) then return false end
+
+        return pcall(function()
+            cooldownFrame._ddingui_fontString = nil
+        end)
+    end
+
+    local function ResolveRGBA(color, fallback)
+        fallback = fallback or {1, 1, 1, 1}
+        if type(color) ~= "table" then
+            return fallback[1] or 1, fallback[2] or 1, fallback[3] or 1, fallback[4] or 1
+        end
+
+        if color.GetRGBA then
+            local ok, r, g, b, a = pcall(color.GetRGBA, color)
+            if ok and r ~= nil and g ~= nil and b ~= nil then
+                return r, g, b, a or 1
+            end
+        end
+
+        if color[1] ~= nil and color[2] ~= nil and color[3] ~= nil then
+            return color[1], color[2], color[3], color[4] or 1
+        end
+
+        if color.r ~= nil and color.g ~= nil and color.b ~= nil then
+            return color.r, color.g, color.b, color.a or color.opacity or 1
+        end
+
+        return fallback[1] or 1, fallback[2] or 1, fallback[3] or 1, fallback[4] or 1
+    end
+
+    local function SafeSetTextColor(fontString, color)
+        if not fontString or not fontString.SetTextColor then return end
+        local r, g, b, a = ResolveRGBA(color)
+        if pcall(fontString.SetTextColor, fontString, r, g, b, a) then return end
+        if CreateColor then
+            pcall(fontString.SetTextColor, fontString, CreateColor(r, g, b, a), a)
+        end
+    end
+
+    local GROUP_TO_VIEWER = {
+        ["Cooldowns"] = "EssentialCooldownViewer",
+        ["Buffs"] = "BuffIconCooldownViewer",
+        ["Utility"] = "UtilityCooldownViewer",
+    }
+
+    local function GetDynamicIconData(iconKey)
+        if not iconKey or not self.db or not self.db.profile then return nil end
+        local dynamicIcons = self.db.profile.dynamicIcons
+        return dynamicIcons and dynamicIcons.iconData and dynamicIcons.iconData[tostring(iconKey)] or nil
+    end
+
+    local function GetManagedIconKey(iconFrame)
+        if not iconFrame then return nil end
+        local iconKey
+        pcall(function()
+            iconKey = iconFrame._iconKey or iconFrame._ddIconKey
+        end)
+        return iconKey
+    end
+
+    local function BuildManagedSource(iconFrame, groupName)
+        local iconKey = GetManagedIconKey(iconFrame)
+        if iconKey and groupName then
+            return "customIcon:" .. tostring(iconKey) .. ":group:" .. tostring(groupName)
+        elseif iconKey then
+            return "customIcon:" .. tostring(iconKey)
+        elseif groupName then
+            return "group:" .. tostring(groupName)
+        end
+        return nil
+    end
+
+    local function ShouldUseDurationText(groupName, groupSettings)
+        return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
+    end
+
+    local function ResolveGroupCooldownSettings(groupName, iconData)
+        if not groupName or not self.db or not self.db.profile then return nil end
+
+        local profile = self.db.profile
+        local viewers = profile.viewers
+        local general = viewers and viewers.general
+        local groupSettings = profile.groupSystem and profile.groupSystem.groups and profile.groupSystem.groups[groupName]
+        local viewerName = GROUP_TO_VIEWER[groupName]
+        local viewerSettings = viewerName and viewers and viewers[viewerName]
+
+        if not groupSettings and not viewerSettings then return nil end
+
+        local fontSize = 18
+        local textColor = {1, 1, 1, 1}
+        local shadowOffsetX = 1
+        local shadowOffsetY = -1
+        local fontName = nil
+        local textFormat = "auto"
+
+        if ShouldUseDurationText(groupName, groupSettings) then
+            fontSize = (groupSettings and groupSettings.durationTextSize)
+                or (viewerSettings and viewerSettings.durationTextSize)
+                or (groupSettings and groupSettings.cooldownFontSize)
+                or (viewerSettings and viewerSettings.cooldownFontSize)
+                or (general and general.cooldownFontSize)
+                or fontSize
+            textColor = (groupSettings and groupSettings.durationTextColor)
+                or (viewerSettings and viewerSettings.durationTextColor)
+                or (groupSettings and groupSettings.cooldownTextColor)
+                or (viewerSettings and viewerSettings.cooldownTextColor)
+                or (general and general.cooldownTextColor)
+                or textColor
+            fontName = (groupSettings and groupSettings.durationTextFont)
+                or (viewerSettings and viewerSettings.durationTextFont)
+                or (groupSettings and groupSettings.cooldownFont)
+                or (viewerSettings and viewerSettings.cooldownFont)
+                or (general and general.cooldownFont)
+        else
+            fontSize = (groupSettings and groupSettings.cooldownFontSize)
+                or (viewerSettings and viewerSettings.cooldownFontSize)
+                or (general and general.cooldownFontSize)
+                or fontSize
+            textColor = (groupSettings and groupSettings.cooldownTextColor)
+                or (viewerSettings and viewerSettings.cooldownTextColor)
+                or (general and general.cooldownTextColor)
+                or textColor
+            fontName = (groupSettings and groupSettings.cooldownFont)
+                or (viewerSettings and viewerSettings.cooldownFont)
+                or (general and general.cooldownFont)
+        end
+
+        shadowOffsetX = (viewerSettings and viewerSettings.cooldownShadowOffsetX)
+            or (general and general.cooldownShadowOffsetX)
+            or shadowOffsetX
+        shadowOffsetY = (viewerSettings and viewerSettings.cooldownShadowOffsetY)
+            or (general and general.cooldownShadowOffsetY)
+            or shadowOffsetY
+        textFormat = (groupSettings and groupSettings.cooldownTextFormat)
+            or (viewerSettings and viewerSettings.cooldownTextFormat)
+            or (general and general.cooldownTextFormat)
+            or textFormat
+
+        return fontSize, textColor, shadowOffsetX, shadowOffsetY, fontName, textFormat
+    end
+
     -- Always apply fonts to DDingUI's own elements (cooldown viewers, target auras, etc.)
     if not self._cooldownFontHooked then
         local function IdentifyCooldownSource(cooldownFrame)
-            if not cooldownFrame then return nil end
+            if not IsSafeCooldownFrame(cooldownFrame) then return nil end
 
-            local parent = cooldownFrame:GetParent()
+            local parent = SafeGetParent(cooldownFrame)
             if not parent then return nil end
 
             -- [REPARENT] DDingUI GroupSystem: 관리 아이콘 → 소속 뷰어 resolve
             -- UIParent reparent 후 GetParent()는 UIParent → _ddContainerRef 우선
-            local container = parent._ddContainerRef or parent:GetParent()
-            if container and container._isDDContainer and container._groupName then
-                local GROUP_TO_VIEWER = {
-                    ["Cooldowns"] = "EssentialCooldownViewer",
-                    ["Buffs"]     = "BuffIconCooldownViewer",
-                    ["Utility"]   = "UtilityCooldownViewer",
-                }
-                return GROUP_TO_VIEWER[container._groupName]
+            local container
+            pcall(function()
+                container = parent._ddContainerRef
+            end)
+            container = container or SafeGetParent(parent)
+
+            local isDDContainer, groupName
+            pcall(function()
+                isDDContainer = container and container._isDDContainer
+                groupName = container and container._groupName
+            end)
+            if container and isDDContainer and groupName then
+                return BuildManagedSource(parent, groupName)
             end
 
             local iconFrame = parent
-            local hasIcon = iconFrame.icon or iconFrame.Icon
-            local hasCooldownRef = iconFrame.cooldown == cooldownFrame
+            local hasIcon, hasCooldownRef
+            pcall(function()
+                hasIcon = iconFrame.icon or iconFrame.Icon
+                hasCooldownRef = iconFrame.cooldown == cooldownFrame
+            end)
 
             if hasIcon or hasCooldownRef then
-                -- DDingUI CustomIcons: per-icon cooldown text settings
-                if iconFrame._iconKey then
-                    return "customIcon:" .. tostring(iconFrame._iconKey)
+                -- DDingUI CustomIcons: inherit GroupSystem text settings while managed.
+                local managedGroupName
+                pcall(function()
+                    managedGroupName = iconFrame._ddGroupName
+                    if not managedGroupName and iconFrame._ddContainerRef then
+                        managedGroupName = iconFrame._ddContainerRef._groupName
+                    end
+                end)
+                local managedSource = BuildManagedSource(iconFrame, managedGroupName)
+                if managedSource then
+                    return managedSource
                 end
 
-                local viewerFrame = iconFrame:GetParent()
+                local viewerFrame = SafeGetParent(iconFrame)
                 if viewerFrame then
-                    local viewerName = viewerFrame:GetName()
+                    local viewerName = SafeGetName(viewerFrame)
                     if viewerName then
                         if viewerName == "EssentialCooldownViewer" then
                             return "EssentialCooldownViewer"
@@ -316,9 +540,9 @@ function DDingUI:ApplyGlobalFont()
                         end
 
                         -- Also check if viewerFrame's parent is DDingUI_Target (in case of nested frames)
-                        local targetFrame = viewerFrame:GetParent()
+                        local targetFrame = SafeGetParent(viewerFrame)
                         if targetFrame then
-                            local targetFrameName = targetFrame:GetName()
+                            local targetFrameName = SafeGetName(targetFrame)
                             if targetFrameName == "DDingUI_Target" then
                                 -- Check if this icon frame is in buffIcons or debuffIcons
                                 if targetFrame.buffIcons or targetFrame.debuffIcons then
@@ -348,7 +572,7 @@ function DDingUI:ApplyGlobalFont()
                         end
                 end
             else
-                local viewerName = parent:GetName()
+                local viewerName = SafeGetName(parent)
                 if viewerName then
                     if viewerName == "EssentialCooldownViewer" then
                         return "EssentialCooldownViewer"
@@ -363,9 +587,9 @@ function DDingUI:ApplyGlobalFont()
                     end
                 end
 
-                local targetFrame = parent:GetParent()
+                local targetFrame = SafeGetParent(parent)
                 if targetFrame then
-                    local targetFrameName = targetFrame:GetName()
+                    local targetFrameName = SafeGetName(targetFrame)
                     if targetFrameName == "DDingUI_Target" then
                         if targetFrame.buffIcons or targetFrame.debuffIcons then
                             return "targetAuras"
@@ -386,13 +610,28 @@ function DDingUI:ApplyGlobalFont()
             local textFormat = "auto"
 
             if source and type(source) == "string" then
+                local iconKey, groupName = source:match("^customIcon:([^:]+):group:(.+)$")
+                if iconKey and groupName then
+                    local iconData = GetDynamicIconData(iconKey)
+                    local gFontSize, gTextColor, gShadowX, gShadowY, gFontName, gTextFormat = ResolveGroupCooldownSettings(groupName, iconData)
+                    if gFontSize then
+                        return gFontSize, gTextColor, gShadowX, gShadowY, gFontName, gTextFormat
+                    end
+                end
+
+                local sourceGroup = source:match("^group:(.+)$")
+                if sourceGroup then
+                    local gFontSize, gTextColor, gShadowX, gShadowY, gFontName, gTextFormat = ResolveGroupCooldownSettings(sourceGroup)
+                    if gFontSize then
+                        return gFontSize, gTextColor, gShadowX, gShadowY, gFontName, gTextFormat
+                    end
+                    source = GROUP_TO_VIEWER[sourceGroup] or source
+                end
+
                 local iconKey = source:match("^customIcon:(.+)$")
                 if iconKey then
                     -- Use per-icon settings where available; fallback to global viewer general settings.
-                    local iconData
-                    if self.db and self.db.profile and self.db.profile.dynamicIcons and self.db.profile.dynamicIcons.iconData then
-                        iconData = self.db.profile.dynamicIcons.iconData[iconKey]
-                    end
+                    local iconData = GetDynamicIconData(iconKey)
 
                     local cds = iconData and iconData.settings and iconData.settings.cooldownSettings
                     fontSize = (cds and cds.size) or 12
@@ -458,15 +697,22 @@ function DDingUI:ApplyGlobalFont()
         end
 
         local function GetCooldownFontString(cooldownFrame)
-            if not cooldownFrame then return nil end
+            if not IsSafeCooldownFrame(cooldownFrame) then return nil end
 
-            if cooldownFrame._ddingui_fontString then
-                return cooldownFrame._ddingui_fontString
-            end
+            local cachedFontString
+            pcall(function()
+                cachedFontString = cooldownFrame._ddingui_fontString
+            end)
+            if cachedFontString then return cachedFontString end
 
-            for _, region in ipairs({cooldownFrame:GetRegions()}) do
-                if region:GetObjectType() == "FontString" then
-                    cooldownFrame._ddingui_fontString = region
+            local regions = SafeGetRegions(cooldownFrame)
+            if not regions then return nil end
+
+            for _, region in ipairs(regions) do
+                if SafeGetObjectType(region) == "FontString" then
+                    pcall(function()
+                        cooldownFrame._ddingui_fontString = region
+                    end)
                     return region
                 end
             end
@@ -513,12 +759,13 @@ function DDingUI:ApplyGlobalFont()
 
         -- Hook fontstring SetText for custom format
         local function HookCooldownTextFormat(cooldownFrame, fontString, format)
-            if not fontString or format == "auto" then return end
+            if not fontString then return end
+            fontString._ddingui_textFormat = format or "auto"
+            fontString._ddingui_cooldown = cooldownFrame
+            if format == "auto" then return end
             if fontString._ddingui_textFormatHooked then return end
 
             fontString._ddingui_textFormatHooked = true
-            fontString._ddingui_textFormat = format
-            fontString._ddingui_cooldown = cooldownFrame
 
             hooksecurefunc(fontString, "SetText", function(self, text)
                 if self._ddingui_skipFormat then return end
@@ -549,12 +796,12 @@ function DDingUI:ApplyGlobalFont()
         end
 
         local function ApplyCooldownFont(cooldownFrame)
-            if not cooldownFrame then return end
+            if not IsSafeCooldownFrame(cooldownFrame) then return end
 
             -- Skip action button cooldowns to avoid taint
-            local parent = cooldownFrame:GetParent()
+            local parent = SafeGetParent(cooldownFrame)
             if parent then
-                local parentName = parent:GetName() or ""
+                local parentName = SafeGetName(parent) or ""
                 -- Check if this is an action button cooldown
                 if parentName:match("ActionButton") or parentName:match("MultiBar") or
                    parentName:match("PetActionButton") or parentName:match("StanceButton") then
@@ -585,7 +832,7 @@ function DDingUI:ApplyGlobalFont()
                                 delayedFontString:SetFont(currentFontPath, fontSize)
                             end
 
-                            delayedFontString:SetTextColor(textColor[1], textColor[2], textColor[3], textColor[4] or 1)
+                            SafeSetTextColor(delayedFontString, textColor)
                             delayedFontString:SetShadowOffset(shadowOffsetX, shadowOffsetY)
 
                             -- Hook text format
@@ -606,7 +853,7 @@ function DDingUI:ApplyGlobalFont()
                     fontString:SetFont(currentFontPath, fontSize)
                 end
 
-                fontString:SetTextColor(textColor[1], textColor[2], textColor[3], textColor[4] or 1)
+                SafeSetTextColor(fontString, textColor)
                 fontString:SetShadowOffset(shadowOffsetX, shadowOffsetY)
 
                 -- Hook text format
@@ -616,15 +863,15 @@ function DDingUI:ApplyGlobalFont()
 
         if CooldownFrame_Set then
             hooksecurefunc("CooldownFrame_Set", function(cooldownFrame, start, duration, enable, forceShowDrawEdge, modRate)
-                if not cooldownFrame or cooldownFrame:IsForbidden() then
+                if not IsSafeCooldownFrame(cooldownFrame) then
                     return
                 end
 
                 -- Use pcall to safely handle any errors during combat
                 pcall(function()
-                    cooldownFrame._ddingui_fontString = nil
+                    SafeClearCooldownFontCache(cooldownFrame)
                     C_Timer.After(0, function()
-                        if cooldownFrame and not cooldownFrame:IsForbidden() then
+                        if IsSafeCooldownFrame(cooldownFrame) then
                             pcall(ApplyCooldownFont, cooldownFrame)
                         end
                     end)
@@ -634,15 +881,15 @@ function DDingUI:ApplyGlobalFont()
 
         if CooldownFrame_SetTimer then
             hooksecurefunc("CooldownFrame_SetTimer", function(cooldownFrame, start, duration, enable, forceShowDrawEdge, modRate)
-                if not cooldownFrame or cooldownFrame:IsForbidden() then
+                if not IsSafeCooldownFrame(cooldownFrame) then
                     return
                 end
 
                 -- Use pcall to safely handle any errors during combat
                 pcall(function()
-                    cooldownFrame._ddingui_fontString = nil
+                    SafeClearCooldownFontCache(cooldownFrame)
                     C_Timer.After(0, function()
-                        if cooldownFrame and not cooldownFrame:IsForbidden() then
+                        if IsSafeCooldownFrame(cooldownFrame) then
                             pcall(ApplyCooldownFont, cooldownFrame)
                         end
                     end)
@@ -665,9 +912,9 @@ function DDingUI:ApplyGlobalFont()
 
                     local cooldownFrame = name and _G[name] or nil
                     if not cooldownFrame and parent then
-                        local children = {parent:GetChildren()}
-                        for _, child in ipairs(children) do
-                            if child:GetObjectType() == "Cooldown" then
+                        local children = SafeGetChildren(parent)
+                        for _, child in ipairs(children or {}) do
+                            if SafeGetObjectType(child) == "Cooldown" then
                                 cooldownFrame = child
                                 break
                             end
@@ -685,8 +932,8 @@ function DDingUI:ApplyGlobalFont()
             if currentFontPath and EnumerateFrames then
                 local frame = EnumerateFrames()
                 while frame do
-                    if frame:GetObjectType() == "Cooldown" then
-                        frame._ddingui_fontString = nil
+                    if SafeGetObjectType(frame) == "Cooldown" then
+                        SafeClearCooldownFontCache(frame)
                         ApplyCooldownFont(frame)
                     end
                     frame = EnumerateFrames(frame)
@@ -718,7 +965,7 @@ function DDingUI:ApplyGlobalFont()
                             end
                         end
                         for _, cooldownFrame in ipairs(allIcons) do
-                            cooldownFrame._ddingui_fontString = nil
+                            SafeClearCooldownFontCache(cooldownFrame)
                             ApplyCooldownFont(cooldownFrame)
                         end
                     end
@@ -735,34 +982,54 @@ function DDingUI:ApplyGlobalFont()
         local currentFontPath = self:GetGlobalFont()
         if currentFontPath then
             local function IdentifyCooldownSource(cooldownFrame)
-                if not cooldownFrame then return nil end
+                if not IsSafeCooldownFrame(cooldownFrame) then return nil end
 
-                local parent = cooldownFrame:GetParent()
+                local parent = SafeGetParent(cooldownFrame)
                 if not parent then return nil end
 
                 -- [REPARENT] DDingUI GroupSystem: 관리 아이콘 → 소속 뷰어 resolve
                 -- UIParent reparent 후 GetParent()는 UIParent → _ddContainerRef 우선
-                local container = parent._ddContainerRef or parent:GetParent()
-                if container and container._isDDContainer and container._groupName then
-                    local GROUP_TO_VIEWER = {
-                        ["Cooldowns"] = "EssentialCooldownViewer",
-                        ["Buffs"]     = "BuffIconCooldownViewer",
-                        ["Utility"]   = "UtilityCooldownViewer",
-                    }
-                    return GROUP_TO_VIEWER[container._groupName]
+                local container
+                pcall(function()
+                    container = parent._ddContainerRef
+                end)
+                container = container or SafeGetParent(parent)
+
+                local isDDContainer, groupName
+                pcall(function()
+                    isDDContainer = container and container._isDDContainer
+                groupName = container and container._groupName
+            end)
+            if container and isDDContainer and groupName then
+                    return BuildManagedSource(parent, groupName)
                 end
 
                 -- Check if parent is an icon frame (has icon texture or cooldown property)
                 -- For target auras: iconFrame is parent of cooldown, and iconFrame's parent is DDingUI_Target
                 local iconFrame = parent
-                local hasIcon = iconFrame.icon or iconFrame.Icon
-                local hasCooldownRef = iconFrame.cooldown == cooldownFrame
+                local hasIcon, hasCooldownRef
+                pcall(function()
+                    hasIcon = iconFrame.icon or iconFrame.Icon
+                    hasCooldownRef = iconFrame.cooldown == cooldownFrame
+                end)
 
                 if hasIcon or hasCooldownRef then
+                    local managedGroupName
+                    pcall(function()
+                        managedGroupName = iconFrame._ddGroupName
+                        if not managedGroupName and iconFrame._ddContainerRef then
+                            managedGroupName = iconFrame._ddContainerRef._groupName
+                        end
+                    end)
+                    local managedSource = BuildManagedSource(iconFrame, managedGroupName)
+                    if managedSource then
+                        return managedSource
+                    end
+
                     -- This is likely an icon frame, check its parent
-                    local viewerFrame = iconFrame:GetParent()
+                    local viewerFrame = SafeGetParent(iconFrame)
                     if viewerFrame then
-                        local viewerName = viewerFrame:GetName()
+                        local viewerName = SafeGetName(viewerFrame)
                         if viewerName then
                             -- Check if it's one of our viewers
                             if viewerName == "EssentialCooldownViewer" then
@@ -802,9 +1069,9 @@ function DDingUI:ApplyGlobalFont()
                         end
 
                         -- Also check if viewerFrame's parent is DDingUI_Target (in case of nested frames)
-                        local targetFrame = viewerFrame:GetParent()
+                        local targetFrame = SafeGetParent(viewerFrame)
                         if targetFrame then
-                            local targetFrameName = targetFrame:GetName()
+                            local targetFrameName = SafeGetName(targetFrame)
                             if targetFrameName == "DDingUI_Target" then
                                 -- Check if this icon frame is in buffIcons or debuffIcons
                                 if targetFrame.buffIcons or targetFrame.debuffIcons then
@@ -835,7 +1102,7 @@ function DDingUI:ApplyGlobalFont()
                     end
                 else
                     -- Parent might be the viewer frame directly
-                    local viewerName = parent:GetName()
+                    local viewerName = SafeGetName(parent)
                     if viewerName then
                         if viewerName == "EssentialCooldownViewer" then
                             return "EssentialCooldownViewer"
@@ -852,9 +1119,9 @@ function DDingUI:ApplyGlobalFont()
                     end
 
                     -- Check if parent is part of target auras
-                    local targetFrame = parent:GetParent()
+                    local targetFrame = SafeGetParent(parent)
                     if targetFrame then
-                        local targetFrameName = targetFrame:GetName()
+                        local targetFrameName = SafeGetName(targetFrame)
                         if targetFrameName == "DDingUI_Target" then
                             if targetFrame.buffIcons or targetFrame.debuffIcons then
                                 return "targetAuras"
@@ -872,6 +1139,26 @@ function DDingUI:ApplyGlobalFont()
                 local shadowOffsetX = 1
                 local shadowOffsetY = -1
                 local fontName = nil
+
+                if source and type(source) == "string" then
+                    local iconKey, groupName = source:match("^customIcon:([^:]+):group:(.+)$")
+                    if iconKey and groupName then
+                        local iconData = GetDynamicIconData(iconKey)
+                        local gFontSize, gTextColor, gShadowX, gShadowY, gFontName = ResolveGroupCooldownSettings(groupName, iconData)
+                        if gFontSize then
+                            return gFontSize, gTextColor, gShadowX, gShadowY, gFontName
+                        end
+                    end
+
+                    local sourceGroup = source:match("^group:(.+)$")
+                    if sourceGroup then
+                        local gFontSize, gTextColor, gShadowX, gShadowY, gFontName = ResolveGroupCooldownSettings(sourceGroup)
+                        if gFontSize then
+                            return gFontSize, gTextColor, gShadowX, gShadowY, gFontName
+                        end
+                        source = GROUP_TO_VIEWER[sourceGroup] or source
+                    end
+                end
 
                 if source == "targetAuras" then
                     -- Get from target auras settings
@@ -918,13 +1205,22 @@ function DDingUI:ApplyGlobalFont()
             end
 
             local function GetCooldownFontString(cooldownFrame)
-                if not cooldownFrame then return nil end
-                if cooldownFrame._ddingui_fontString then
-                    return cooldownFrame._ddingui_fontString
-                end
-                for _, region in ipairs({cooldownFrame:GetRegions()}) do
-                    if region:GetObjectType() == "FontString" then
-                        cooldownFrame._ddingui_fontString = region
+                if not IsSafeCooldownFrame(cooldownFrame) then return nil end
+
+                local cachedFontString
+                pcall(function()
+                    cachedFontString = cooldownFrame._ddingui_fontString
+                end)
+                if cachedFontString then return cachedFontString end
+
+                local regions = SafeGetRegions(cooldownFrame)
+                if not regions then return nil end
+
+                for _, region in ipairs(regions) do
+                    if SafeGetObjectType(region) == "FontString" then
+                        pcall(function()
+                            cooldownFrame._ddingui_fontString = region
+                        end)
                         return region
                     end
                 end
@@ -935,11 +1231,11 @@ function DDingUI:ApplyGlobalFont()
                 if EnumerateFrames then
                     local frame = EnumerateFrames()
                     while frame do
-                        if frame:GetObjectType() == "Cooldown" then
+                        if SafeGetObjectType(frame) == "Cooldown" then
                             -- Only apply to DDingUI frames
                             local source = IdentifyCooldownSource(frame)
                             if source then
-                                frame._ddingui_fontString = nil -- Clear cache
+                                SafeClearCooldownFontCache(frame)
                                 local fontString = GetCooldownFontString(frame)
                                 if fontString then
                                     local fontSize, textColor, shadowOffsetX, shadowOffsetY, fontName = GetCooldownSettings(source)
@@ -951,7 +1247,7 @@ function DDingUI:ApplyGlobalFont()
                                     else
                                         fontString:SetFont(fontPath, fontSize)
                                     end
-                                    fontString:SetTextColor(textColor[1], textColor[2], textColor[3], textColor[4] or 1)
+                                    SafeSetTextColor(fontString, textColor)
                                     fontString:SetShadowOffset(shadowOffsetX, shadowOffsetY)
                                 end
                             end

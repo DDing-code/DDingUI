@@ -531,3 +531,21 @@ end
 AddAPI(_G.GameFontNormal)
 AddAPI(CreateFrame('ScrollFrame'))
 
+-- ============================================================
+-- [FIX Ayije] 쿨다운 탈색 판단용 CurveDataProvider (Ayije CDM Constants.lua 동일 패턴)
+-- desatDurationObject:EvaluateRemainingDuration(curve, 0) → 0 or 1 (Step)
+-- DesaturationCurve : 남은 시간 > 0 → 1 (쿨다운 중 = 회색)
+-- GCDFilterCurve    : 남은 시간 > 1.6s → 1 (GCD 이상 쿨다운만 회색)
+-- ============================================================
+if C_CurveUtil and C_CurveUtil.CreateCurve then
+    DDingUI._DesaturationCurve = C_CurveUtil.CreateCurve()
+    DDingUI._DesaturationCurve:SetType(Enum.LuaCurveType.Step)
+    DDingUI._DesaturationCurve:AddPoint(0, 0)
+    DDingUI._DesaturationCurve:AddPoint(0.001, 1)
+
+    DDingUI._GCDFilterCurve = C_CurveUtil.CreateCurve()
+    DDingUI._GCDFilterCurve:SetType(Enum.LuaCurveType.Step)
+    DDingUI._GCDFilterCurve:AddPoint(0, 0)
+    DDingUI._GCDFilterCurve:AddPoint(1.6, 1)
+end
+

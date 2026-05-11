@@ -19,6 +19,27 @@ local DynamicIconBridge  -- [DYNAMIC] CustomIcons 통합 어댑터
 GroupSystem.initialized = false
 GroupSystem.enabled = false
 
+-- [FIX] 전투 중 ClearAllPoints() 호출 방지 (ADDON_ACTION_BLOCKED 해결)
+-- Refresh/RefreshLayout이 전투 중 호출되면 전투 종료 후 자동 실행
+local _pendingRefresh = false      -- Refresh 대기
+local _pendingRefreshLayout = false -- RefreshLayout 대기
+local _combatDeferFrame = CreateFrame("Frame")
+_combatDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+_combatDeferFrame:SetScript("OnEvent", function()
+    if _pendingRefresh then
+        _pendingRefresh = false
+        _pendingRefreshLayout = false  -- Refresh가 RefreshLayout을 포함
+        if GroupSystem.enabled then
+            GroupSystem:Refresh()
+        end
+    elseif _pendingRefreshLayout then
+        _pendingRefreshLayout = false
+        if GroupSystem.enabled then
+            GroupSystem:RefreshLayout()
+        end
+    end
+end)
+
 -- ============================================================
 -- 프로필 접근
 -- ============================================================
@@ -30,11 +51,33 @@ local function GetSettings()
     return profile and profile.groupSystem
 end
 
+local function GetDynamicDB()
+    local ci = DDingUI.CustomIcons
+    if ci and ci.GetDynamicDB then
+        local db = ci.GetDynamicDB()
+        if db then return db end
+    end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    if not profile then return nil end
+    profile.dynamicIcons = profile.dynamicIcons or {}
+    profile.dynamicIcons.groups = profile.dynamicIcons.groups or {}
+    profile.dynamicIcons.iconData = profile.dynamicIcons.iconData or {}
+    profile.dynamicIcons.ungrouped = profile.dynamicIcons.ungrouped or {}
+    return profile.dynamicIcons
+end
+
 -- [FIX] 그룹 표시명 (무버/편집모드에서 사용)
 local GROUP_DISPLAY_NAMES = {
     ["Cooldowns"] = "핵심 능력",
     ["Buffs"]     = "강화 효과",
     ["Utility"]   = "보조 능력",
+}
+
+local CORE_CDM_GROUPS = {
+    Cooldowns = true,
+    Buffs = true,
+    Utility = true,
 }
 
 local function GetGroupDisplayName(groupName)
@@ -90,7 +133,7 @@ local function RegisterGroupMovers()
                     end
 
                     if not DDingUI.Movers.CreatedMovers[moverName] then
-                        DDingUI.Movers:RegisterMover(proxyFrame, moverName, proxyInfo.display, nil, nil, true)
+                        DDingUI.Movers:RegisterMover(proxyFrame, moverName, proxyInfo.display)
                     else
                         -- [FIX] 이미 등록된 Mover → 위치만 재로드 (새 스펙 데이터 반영)
                         -- RegisterMover는 CreatedMovers에 이미 있으면 early return (L909)
@@ -166,6 +209,19 @@ local function SyncDynamicGroups(gs)
 
     local dynamicGroups = bridge:GetDynamicGroups()
 
+    for groupName in pairs(CORE_CDM_GROUPS) do
+        local settings = gs.groups and gs.groups[groupName]
+        if settings then
+            settings.groupType = "cdm"
+            if settings.sourceGroupKey and not dynamicGroups[settings.sourceGroupKey] then
+                settings.sourceGroupKey = nil
+                if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                    DDingUI.SpecProfiles:MarkDirty()
+                end
+            end
+        end
+    end
+
     -- 1. 다음 order 번호 계산 (기존 그룹 최대 order + 1)
     local maxOrder = 3
     for _, settings in pairs(gs.groups) do
@@ -177,80 +233,59 @@ local function SyncDynamicGroups(gs)
     -- 2. 새 dynamic 그룹 추가 (CustomIcons에 있는데 GroupSystem에 없는 것)
     for sourceKey, info in pairs(dynamicGroups) do
         -- 이미 매핑된 GroupSystem 그룹이 있는지 확인
+        -- CDM 기본 그룹(Cooldowns/Buffs/Utility)에 붙은 sourceGroupKey도 이미 처리된 것으로 본다.
+        -- 그렇지 않으면 물약/장신구를 기본 CDM 그룹에 추가할 때 같은 source가 dyn_* 그룹으로 중복 생성된다.
         local foundSettings = nil
-        for _, settings in pairs(gs.groups) do
-            if settings.groupType == "dynamic" and settings.sourceGroupKey == sourceKey then
-                foundSettings = settings
-                break
+        local foundIsDynamic = false
+        local linkedGroupName = info.linkedCDMGroup
+        if not linkedGroupName then
+            local dynDB = GetDynamicDB()
+            local sourceGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+            linkedGroupName = sourceGroup and sourceGroup.linkedCDMGroup
+        end
+
+        -- linkedCDMGroup이 있는 source는 CDM 하이브리드 그룹을 우선 소유자로 본다.
+        -- 이전 버그로 만들어진 dyn_<sourceKey> 중복 그룹은 여기서 제거한다.
+        if linkedGroupName and gs.groups[linkedGroupName] then
+            local linkedSettings = gs.groups[linkedGroupName]
+            if linkedSettings.groupType ~= "dynamic" then
+                linkedSettings.sourceGroupKey = sourceKey
+                foundSettings = linkedSettings
+                foundIsDynamic = false
+
+                local duplicateKey = "dyn_" .. sourceKey
+                if gs.groups[duplicateKey] and gs.groups[duplicateKey].groupType == "dynamic" then
+                    gs.groups[duplicateKey] = nil
+                end
             end
         end
 
-        -- [FIX] 기존 그룹도 iconSize/aspectRatioCrop가 기본값이면 1번 아이콘에서 업데이트
-        if foundSettings then
+        if not foundSettings then
+            for _, settings in pairs(gs.groups) do
+                if settings.sourceGroupKey == sourceKey then
+                    foundSettings = settings
+                    foundIsDynamic = (settings.groupType == "dynamic")
+                    if foundIsDynamic then
+                        break
+                    end
+                end
+            end
+        end
+
+        -- [FIX] 기존 순수 dynamic 그룹만 CustomIcons 설정에서 마이그레이션한다.
+        -- CDM 하이브리드 그룹은 자신의 CDM 시각 설정을 보존해야 한다.
+        if type(foundSettings) == "table" then
+            foundSettings._missingDynamicSource = nil
+            foundSettings._missingDynamicSourceKey = nil
+        end
+
+        if foundSettings and foundIsDynamic then
             -- [FIX] 그룹 표시명 동기화 (CustomIcons 이름 → GroupSystem 그룹)
             if info.name and (not foundSettings.name or foundSettings.name:match("^dyn_")) then
                 foundSettings.name = info.name
             end
 
-            -- [FIX] 마이그레이션 적용 (누락된 기존 그룹용)
-            local profile = DDingUI.db and DDingUI.db.profile
-            local dynDB = profile and profile.dynamicIcons
-            local dynSettings = dynDB and dynDB.groups and dynDB.groups[sourceKey] and dynDB.groups[sourceKey].settings
-            
-            if dynSettings then
-                -- 시각적 설정 마이그레이션 (이전에 V2 마이그레이션을 안 거친 그룹)
-                if not foundSettings._viewerSettingsMigV2 then
-                    if dynSettings.spacing then foundSettings.spacing = dynSettings.spacing end
-                    if dynSettings.growthDirection then foundSettings.direction = dynSettings.growthDirection end
-                    if dynSettings.rowGrowthDirection then foundSettings.growDirection = dynSettings.rowGrowthDirection end
-                    if dynSettings.maxIconsPerRow then foundSettings.rowLimit = dynSettings.maxIconsPerRow end
-                    if dynSettings.anchorFrom then foundSettings.selfPoint = dynSettings.anchorFrom end
-                    if dynSettings.aspectRatio and dynSettings.aspectRatio ~= 1.0 then foundSettings.aspectRatioCrop = dynSettings.aspectRatio end
-                    if dynSettings.zoom then foundSettings.zoom = dynSettings.zoom end
-                    if dynSettings.borderSize then foundSettings.borderSize = dynSettings.borderSize end
-                    if dynSettings.borderColor then foundSettings.borderColor = { unpack(dynSettings.borderColor) } end
-                    
-                    foundSettings._viewerSettingsMigV2 = true
-                    foundSettings._viewerSettingsMigV1 = true
-                end
-
-                -- 위치 마이그레이션 (이전에 V3 마이그레이션을 안 거친 그룹)
-                if not foundSettings._viewerPosMigV3 then
-                    if dynSettings.position then
-                        foundSettings.offsetX = dynSettings.position.x or foundSettings.offsetX
-                        foundSettings.offsetY = dynSettings.position.y or foundSettings.offsetY
-                        if dynSettings.anchorFrame and dynSettings.anchorFrame ~= "" then
-                            foundSettings.attachTo = dynSettings.anchorFrame
-                        end
-                        if dynSettings.anchorTo then
-                            foundSettings.anchorPoint = dynSettings.anchorTo
-                        end
-                        foundSettings._moverSaved = true
-                    end
-                    foundSettings._viewerPosMigV3 = true
-                end
-            end
-
-            -- 1순위: DB 위치 없으면 Movers 맵에서 마이그레이션 (동일하게 누락된 경우)
-            if not foundSettings._viewerPosMigV3 then
-                local movers = profile and profile.movers
-                local moverStr = movers and movers["DDingUI_DynGroup_" .. sourceKey]
-                if moverStr and type(moverStr) == "string" then
-                    local pt, relFrame, relPt, sx, sy = strsplit(",", moverStr)
-                    local mx, my = tonumber(sx), tonumber(sy)
-                    if mx and my then
-                        foundSettings.anchorPoint = relPt or "CENTER"
-                        foundSettings.offsetX = mx
-                        foundSettings.offsetY = my
-                        if relFrame and relFrame ~= "" and relFrame ~= "UIParent" then
-                            foundSettings.attachTo = relFrame
-                        end
-                        foundSettings._moverSaved = true
-                    end
-                end
-                foundSettings._viewerPosMigV3 = true
-            end
-
+            local dynDB = GetDynamicDB()
             if dynDB and dynDB.iconData then
                 local needSize = (foundSettings.iconSize == nil or foundSettings.iconSize == DYNAMIC_GROUP_DEFAULTS.iconSize)
                 local needAR = (foundSettings.aspectRatioCrop == nil or foundSettings.aspectRatioCrop == 1.0)
@@ -276,11 +311,10 @@ local function SyncDynamicGroups(gs)
             -- 사용자가 삭제한 그룹이면 재생성하지 않음
             if gs.deletedGroups and gs.deletedGroups[gsGroupKey] then
                 foundSettings = true  -- 삭제된 그룹 마커
-                -- [FIX] CustomIcons DB에 남아있는 고스트 데이터 원천 삭제
-                local ci = DDingUI.CustomIcons
-                if ci and ci.RemoveGroup then
-                    ci:RemoveGroup(sourceKey)
-                end
+                -- Do not delete the CustomIcons source group here. Older builds
+                -- may leave deletedGroups markers behind, and treating those as
+                -- destructive cleanup can erase a user's saved custom groups on
+                -- upgrade. The marker only suppresses GroupSystem recreation.
             end
         end
 
@@ -302,8 +336,7 @@ local function SyncDynamicGroups(gs)
 
             -- [FIX] 기존 CustomIcons 그룹 위치 마이그레이션
             -- 1순위: dynamicIcons.groups[sourceKey].settings.position (직접 저장)
-            local profile = DDingUI.db and DDingUI.db.profile
-            local dynDB = profile and profile.dynamicIcons
+            local dynDB = GetDynamicDB()
             local dynSettings = dynDB and dynDB.groups and dynDB.groups[sourceKey]
                 and dynDB.groups[sourceKey].settings
             if dynSettings then
@@ -410,17 +443,18 @@ local function SyncDynamicGroups(gs)
         end
     end
 
-    -- 3. 삭제된 dynamic 그룹 제거 (GroupSystem에 있는데 CustomIcons에 없는 것)
-    local toRemove = {}
+    -- 3. CustomIcons source가 일시적으로 안 보이는 dynamic 그룹 보호
+    -- 실제 삭제는 CustomIcons:RemoveGroup()에서만 처리한다.
     for gsGroupKey, settings in pairs(gs.groups) do
         if settings.groupType == "dynamic" and settings.sourceGroupKey then
             if not dynamicGroups[settings.sourceGroupKey] then
-                toRemove[#toRemove + 1] = gsGroupKey
+                settings._missingDynamicSource = true
+                settings._missingDynamicSourceKey = settings.sourceGroupKey
+            else
+                settings._missingDynamicSource = nil
+                settings._missingDynamicSourceKey = nil
             end
         end
-    end
-    for _, key in ipairs(toRemove) do
-        gs.groups[key] = nil
     end
 
     -- [FIX] 4. sourceGroupKey 누락 동적 그룹 자동 복구
@@ -449,36 +483,73 @@ local function DoFullUpdate()
     local gs = GetSettings()
     if not gs then return end
 
-    -- [REPARENT] 맵 재구축 (뷰어 활성화 상태 변경 즉시 반영)
-    if CDMHookEngine and CDMHookEngine.ScanCDMViewers then
-        CDMHookEngine:ScanCDMViewers()
-    end
-
-    -- [DYNAMIC] 동적 그룹 동기화 + 업데이트
-    SyncDynamicGroups(gs)
-
-    -- 1. CDMHookEngine 맵 → 그룹별 분류 (동적 그룹 네이티브 하이재킹 포함)
-    local classified = GroupManager:ClassifyAll()
-
-    -- 2. 렌더링 (CDM 프레임 re-parent)
-    local staleGroups
-    for groupName, groupSettings in pairs(gs.groups) do
-        if groupSettings.enabled then
-            local ok, err = pcall(function()
-                -- 커스텀 그룹: 가상 뷰어 등록 + groupSettings → viewer 정방향 동기화
-                GroupRenderer:RegisterVirtualViewer(groupName)
-                GroupRenderer:SyncGroupToViewer(groupName, groupSettings)
-
-                local iconList = classified[groupName] or {}
-                GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
-            end)
-            if not ok then
-                print("|cffff4444[DDingUI] DoFullUpdate error for group", groupName, ":", tostring(err), "|r")
+    -- [FIX] 핵심 3대 그룹 groupType 보정 — dynamic으로 오염된 프로필 복구
+    -- SyncDynamicGroups나 이전 버전 버그로 Buffs 등이 dynamic으로 변경되면
+    -- ClassifyIcon의 notDynamic() 필터에 의해 모든 아이콘이 Cooldowns로 밀림
+    local CORE_GROUPS = { "Cooldowns", "Buffs", "Utility" }
+    if gs.groups then
+        for _, name in ipairs(CORE_GROUPS) do
+            if gs.groups[name] and gs.groups[name].groupType ~= "cdm" then
+                gs.groups[name].groupType = "cdm"
             end
         end
     end
 
-    -- 비활성/미분류 그룹 숨기기 + 삭제 판정
+    -- [PERF] Reconcile → NotifyUpdate → DoFullUpdate 체인에서는 ScanCDMViewers 이미 완료
+    -- 단독 호출(Config UI, DynamicIconBridge 등)에서만 스캔 실행
+    if CDMHookEngine and CDMHookEngine.ScanCDMViewers then
+        if not CDMHookEngine.IsScanCompleted or not CDMHookEngine:IsScanCompleted() then
+            CDMHookEngine:ScanCDMViewers()
+        end
+    end
+
+    -- 1. CDMHookEngine 맵 → 그룹별 분류
+    local classified = GroupManager:ClassifyAll()
+
+    -- 2. 렌더링 (CDM 프레임 re-parent)
+    -- [FIX] CDM + dynamic 병합: UpdateGroup이 두 타입 모두 처리
+    local processedGroups = {}
+    local processedDynamicGroups = {}
+    for groupName, iconList in pairs(classified) do
+        local groupSettings = gs.groups and gs.groups[groupName]
+        if groupSettings and groupSettings.enabled then
+            GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
+            processedGroups[groupName] = true
+            -- dynamic 그룹이 CDM 경로에서 처리됨 → UpdateDynamicGroup에서 스킵
+            if groupSettings.groupType == "dynamic" then
+                processedDynamicGroups[groupName] = true
+            end
+        end
+    end
+
+    if gs.groups then
+        for groupName, groupSettings in pairs(gs.groups) do
+            if groupSettings.enabled
+                and groupSettings.groupType ~= "dynamic"
+                and groupSettings.sourceGroupKey
+                and not processedGroups[groupName]
+            then
+                GroupRenderer:UpdateGroup(groupName, {}, groupSettings)
+                processedGroups[groupName] = true
+            end
+        end
+    end
+
+    -- [DYNAMIC] 동적 그룹 동기화 + 업데이트
+    -- [FIX] CDM 경로에서 이미 처리된 동적 그룹은 스킵 (이중 렌더링 방지)
+    SyncDynamicGroups(gs)
+    if gs.groups then
+        for groupName, groupSettings in pairs(gs.groups) do
+            if groupSettings.groupType == "dynamic" and groupSettings.enabled
+               and not processedDynamicGroups[groupName] then
+                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+            end
+        end
+    end
+
+    -- 비활성/미분류 그룹 숨기기 + 관리 아이콘 해제
+    -- [FIX] 삭제된 그룹의 stale 프레임/mover도 완전 정리
+    local staleGroups
     for groupName, frame in pairs(GroupRenderer.groupFrames) do
         local groupSettings = gs.groups and gs.groups[groupName]
         if not groupSettings then
@@ -488,10 +559,18 @@ local function DoFullUpdate()
         elseif not groupSettings.enabled then
             -- 비활성 그룹: 아이콘 해제 + 숨김
             GroupRenderer:ReleaseGroupIcons(frame)
+            frame._lastDynHash = nil
             frame:Hide()
+        -- [DYNAMIC] 동적 그룹은 classified에 없어도 정상 (별도 업데이트)
+        elseif groupSettings.groupType == "dynamic" then
+            -- 동적 그룹: 위에서 이미 처리됨, 스킵
+        elseif (not classified[groupName] or #classified[groupName] == 0) and not groupSettings.sourceGroupKey then
+            -- [FIX] 활성 그룹이지만 아이콘 0개: 아이콘만 해제, 프레임은 숨기지 않음
+            -- 숨기면 이 그룹에 앵커된 시전바/자원바/다른 그룹의 앵커가 끊어져
+            -- UIParent로 폴백 → 오프셋 누적(엘레베이터 현상) 발생
+            GroupRenderer:ReleaseGroupIcons(frame)
         end
     end
-
     if staleGroups then
         for _, groupName in ipairs(staleGroups) do
             GroupRenderer:DestroyGroup(groupName)
@@ -502,6 +581,7 @@ local function DoFullUpdate()
     if ContainerSync then
         ContainerSync:SyncAll()
     end
+
 end
 
 -- DoFullUpdate를 외부에서 호출 가능하도록 노출 (DynamicIconBridge 등)
@@ -521,23 +601,6 @@ end
 local function OnHookEngineUpdate(updateType)
     DoFullUpdate()
 end
-
--- [INTEGRATION] UNIT_AURA 이벤트 → 디바운스 DoFullUpdate
--- aura 타입 아이콘 상태 변경 시 GroupRenderer가 즉시 위치 배정
-local auraUpdatePending = false
-local auraEventFrame = CreateFrame("Frame")
-auraEventFrame:RegisterEvent("UNIT_AURA")
-auraEventFrame:SetScript("OnEvent", function(self, event, unit)
-    if unit ~= "player" then return end
-    if auraUpdatePending then return end
-    auraUpdatePending = true
-    C_Timer.After(0.15, function()
-        auraUpdatePending = false
-        if initialized then
-            DoFullUpdate()
-        end
-    end)
-end)
 
 -- ============================================================
 -- CDM 뷰어 Layout 트리거 (비활성화 시 원래 위치 복원)
@@ -585,12 +648,117 @@ local GROUP_VIEWER_MAP = {
     ["Utility"]   = "UtilityCooldownViewer",
 }
 
+local CURRENT_CDM_GROUP_SCHEMA_VERSION = 2  -- v1.2.7+ update guard
 local CURRENT_GROUP_SYSTEM_VERSION = 1  -- 1.2.4
+
+local function CopyArray(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[k] = v
+    end
+    return copy
+end
+
+local function ApplyMissingGroupDefaults(group, defaults)
+    local changed = false
+    for key, value in pairs(defaults) do
+        if group[key] == nil then
+            group[key] = CopyArray(value)
+            changed = true
+        end
+    end
+    return changed
+end
+
+local function EnsureCoreCDMGroupSchema(gs)
+    if not gs then return false end
+
+    local changed = false
+    if gs.autoClassify ~= true then
+        gs.autoClassify = true
+        changed = true
+    end
+    if gs.hideDefaultViewers == nil then
+        gs.hideDefaultViewers = true
+        changed = true
+    end
+    if type(gs.groups) ~= "table" then
+        gs.groups = {}
+        changed = true
+    end
+    if type(gs.spellAssignments) ~= "table" then
+        gs.spellAssignments = {}
+        changed = true
+    end
+    if type(gs.deletedGroups) ~= "table" then
+        gs.deletedGroups = {}
+        changed = true
+    end
+
+    for _, def in ipairs(VIEWER_GROUP_DEFAULTS) do
+        local groupName = def.name
+        local group = gs.groups[groupName]
+        if type(group) ~= "table" then
+            group = {}
+            gs.groups[groupName] = group
+            changed = true
+        end
+
+        local category = groupName == "Buffs" and "buff" or "skill"
+        if ApplyMissingGroupDefaults(group, {
+            order = def.order,
+            enabled = true,
+            iconSize = 36,
+            aspectRatioCrop = 1.0,
+            spacing = 2,
+            zoom = 0.08,
+            borderSize = 1,
+            borderColor = { 0, 0, 0, 1 },
+            direction = "RIGHT",
+            growDirection = "DOWN",
+            rowLimit = 12,
+            anchorPoint = "CENTER",
+            selfPoint = "CENTER",
+            attachTo = "UIParent",
+            offsetX = 0,
+            offsetY = def.offsetY or 0,
+            iconOrder = {},
+        }) then
+            changed = true
+        end
+
+        if group.groupType ~= "cdm" then
+            group.groupType = "cdm"
+            changed = true
+        end
+        if group.groupCategory ~= category then
+            group.groupCategory = category
+            changed = true
+        end
+        if group.autoFilter ~= def.autoFilter then
+            group.autoFilter = def.autoFilter
+            changed = true
+        end
+        if gs.deletedGroups[groupName] then
+            gs.deletedGroups[groupName] = nil
+            changed = true
+        end
+    end
+
+    if (tonumber(gs._cdmGroupSchemaVersion) or 0) < CURRENT_CDM_GROUP_SCHEMA_VERSION then
+        gs._cdmGroupSchemaVersion = CURRENT_CDM_GROUP_SCHEMA_VERSION
+        changed = true
+    end
+
+    return changed
+end
 
 local function MigrateToViewerGroups(gs)
     if not gs then return end
 
     local profileRef = DDingUI.db and DDingUI.db.profile
+    EnsureCoreCDMGroupSchema(gs)
     -- 이미 현재 버전이면 마이그레이션 스킵
     if gs._groupSystemVersion and gs._groupSystemVersion >= CURRENT_GROUP_SYSTEM_VERSION then
         -- autoClassify만 보장
@@ -1033,7 +1201,7 @@ local function MigrateToViewerGroups(gs)
         end
 
         -- [V3] 동적 아이콘 그룹의 anchorFrame
-        local dynDB = profileRef.dynamicIcons
+        local dynDB = profileRef == (DDingUI.db and DDingUI.db.profile) and GetDynamicDB() or profileRef.dynamicIcons
         if dynDB and dynDB.groups then
             for _, dynGroup in pairs(dynDB.groups) do
                 if dynGroup.settings and dynGroup.settings.anchorFrame
@@ -1159,13 +1327,18 @@ local function CleanupOrphanedDynamicIcons()
         end
     end
 
-    -- 2. 활성 GroupSystem 그룹의 sourceGroupKey 리스트 수집
-    local activeSourceKeys = {}
+    -- 2. GroupSystem에 연결된 sourceGroupKey 리스트 수집
+    -- 비활성 그룹도 "존재하는 그룹"이므로 orphan cleanup 대상이 아니다.
+    local linkedSourceKeys = {}
+    local visibleSourceKeys = {}
     local gs = GetSettings()
     if gs and gs.groups then
         for _, grpSettings in pairs(gs.groups) do
-            if grpSettings.enabled and grpSettings.sourceGroupKey then
-                activeSourceKeys[grpSettings.sourceGroupKey] = true
+            if grpSettings.sourceGroupKey then
+                linkedSourceKeys[grpSettings.sourceGroupKey] = true
+                if grpSettings.enabled then
+                    visibleSourceKeys[grpSettings.sourceGroupKey] = true
+                end
             end
         end
     end
@@ -1190,8 +1363,8 @@ local function CleanupOrphanedDynamicIcons()
         local groupFrames = ci:GetGroupFrames()
         if groupFrames then
             for groupKey, container in pairs(groupFrames) do
-                -- GroupSystem에서 활성 그룹으로 매핑되지 않은 컨테이너 → 숨기기
-                if not activeSourceKeys[groupKey] then
+                -- GroupSystem에 없거나 비활성인 컨테이너 → 화면에서만 숨기기
+                if not linkedSourceKeys[groupKey] or not visibleSourceKeys[groupKey] then
                     -- 컨테이너 안의 아이콘들도 숨기기
                     local children = { container:GetChildren() }
                     for _, child in ipairs(children) do
@@ -1214,7 +1387,7 @@ local function CleanupOrphanedDynamicIcons()
         local ok, name = pcall(child.GetName, child)
         if ok and name then
             local dynGroupKey = name:match("^DDingUI_DynGroup_(.+)$")
-            if dynGroupKey and not activeSourceKeys[dynGroupKey] then
+            if dynGroupKey and (not linkedSourceKeys[dynGroupKey] or not visibleSourceKeys[dynGroupKey]) then
                 local subs = { pcall(child.GetChildren, child) }
                 if subs[1] then  -- pcall success
                     for i = 2, #subs do
@@ -1250,14 +1423,6 @@ function GroupSystem:Enable()
 
     if not CDMHookEngine or not GroupManager or not GroupRenderer then
         return
-    end
-
-    -- ★ CastBar 강제 생성 (lazy-created → 다른 시스템보다 먼저 존재해야 함)
-    -- RegisterGroupMovers/LoadMoverPosition/Refresh가 CastBar를 앵커로 사용
-    if not _G["DDingUICastBar"] and not DDingUI.castBar then
-        if DDingUI.GetCastBar then
-            pcall(function() DDingUI:GetCastBar() end)
-        end
     end
 
     -- CDMHookEngine 초기화 (뷰어 존재 확인 포함)
@@ -1372,59 +1537,19 @@ function GroupSystem:Enable()
         end
     end
 
-    -- Mover 등록 + 아이콘 렌더링 (CDM 아이콘 로드 완료 후)
+    -- Mover 등록 (CDM 아이콘 로드 완료 후 크기 보정)
     C_Timer.After(1.5, function()
         if GroupSystem.enabled then
             RegisterGroupMovers()
-            -- [FIX] CDM 뷰어 참조 갱신 (리로드 후 뷰어가 재생성되었을 수 있음)
-            if CDMHookEngine and CDMHookEngine.RefreshViewerRefs then
-                CDMHookEngine:RefreshViewerRefs()
-            end
-            -- [FIX] CDM 뷰어에 Layout() 강제 호출 → 활성 버프 아이콘을 Show하도록 유도
-            -- CDM은 리로드 직후 BuffIconCooldownViewer의 모든 아이콘을 Hide 상태로 시작
-            -- Layout() 호출 시 CDM이 활성 버프를 재평가하여 Show() → OnShow 훅 → Reconcile
-            for _, vName in pairs({"BuffIconCooldownViewer", "EssentialCooldownViewer", "UtilityCooldownViewer"}) do
-                local v = _G[vName]
-                if v then
-                    if v.Layout then pcall(v.Layout, v) end
-                end
-            end
-            -- CDM Layout 후 약간의 대기 (아이콘 Show 이벤트 처리 시간)
-            C_Timer.After(0.2, function()
-                if not GroupSystem.enabled then return end
-                DoFullUpdate()
-            end)
-            -- [FIX] 폴링 활성화 — CDM 아이콘이 아직 Show 안 됐으면 OnShow 훅으로 감지
-            if CDMHookEngine and CDMHookEngine.EnablePolling then
-                CDMHookEngine:EnablePolling()
-            end
             -- [FIX] Enable 완료 콜백: ResourceBars/CastBars가 프록시 위치 확정 후 Refresh
+            -- RegisterGroupMovers 후 1프레임 대기: 컨테이너 크기가 레이아웃 엔진에 확정된 후 호출
             if GroupSystem._onReadyCallback then
                 local cb = GroupSystem._onReadyCallback
                 GroupSystem._onReadyCallback = nil
                 C_Timer.After(0, cb)
             end
-
-            -- ★ T+3초: 최종 렌더링 보장 (CDM 뷰어 완전 안정화 후)
-            C_Timer.After(1.5, function()
-                if not GroupSystem.enabled then return end
-                -- 뷰어 참조 다시 갱신 + CDM Layout 강제 + 최종 렌더링
-                if CDMHookEngine and CDMHookEngine.RefreshViewerRefs then
-                    CDMHookEngine:RefreshViewerRefs()
-                end
-                -- CDM Layout 다시 한번 강제 (완전 안정화 보장)
-                local buffViewer = _G["BuffIconCooldownViewer"]
-                if buffViewer and buffViewer.Layout then
-                    pcall(buffViewer.Layout, buffViewer)
-                end
-                C_Timer.After(0.2, function()
-                    if not GroupSystem.enabled then return end
-                    DoFullUpdate()
-                end)
-            end)
         end
     end)
-
 
     -- [REPARENT] SkinAllIconsInViewer 훅 — 설정 패널에서 뷰어 옵션 변경 시
     -- 관리 아이콘(reparent)도 새 설정으로 재스키닝 + 레이아웃 갱신
@@ -1477,29 +1602,6 @@ function GroupSystem:Enable()
             hooksecurefunc(DDingUI.Movers, "ShowMovers", function()
                 if CDMHookEngine and GroupSystem.enabled then
                     CDMHookEngine:EnableEditModeClicks()
-                    DoFullUpdate()
-                    -- [FIX] 편집모드 후처리: ComputeEditModeSize로 정확한 크기 적용
-                    if GroupRenderer and GroupRenderer.groupFrames and GroupRenderer.ComputeEditModeSize then
-                        for gn, gFrame in pairs(GroupRenderer.groupFrames) do
-                            local fw, fh = gFrame:GetSize()
-                            if fw < 10 or fh < 10 then
-                                local calcW, calcH = GroupRenderer:ComputeEditModeSize(gn)
-                                if calcW and calcH then
-                                    gFrame:SetSize(calcW, calcH)
-                                    gFrame:Show()
-                                end
-                            end
-                        end
-                    end
-                    -- [FIX] mover 크기 재동기화 (frame 크기 변경 반영)
-                    for name, holder in pairs(DDingUI.Movers.CreatedMovers) do
-                        if holder.parent and holder.mover and holder.mover:IsShown() then
-                            local pw, ph = holder.parent:GetSize()
-                            if pw and pw > 1 and ph and ph > 1 then
-                                holder.mover:SetSize(pw, ph)
-                            end
-                        end
-                    end
                 end
             end)
         end
@@ -1630,6 +1732,12 @@ end
 function GroupSystem:Refresh()
     if not self.enabled then return end
 
+    -- [FIX] 전투 중에는 ClearAllPoints 등 보호된 함수 호출 불가 → 전투 종료 후 실행
+    if InCombatLockdown() then
+        _pendingRefresh = true
+        return
+    end
+
     -- [FIX] 그룹 프레임 앵커 재적용 (attachTo/anchorPoint 변경 반영)
     -- CreateGroupFrame은 기존 프레임을 스킵하므로, 설정 변경 시 여기서 재적용
     local gs = GetSettings()
@@ -1732,6 +1840,12 @@ end
 -- SetupFrameInContainer + SkinIcon 스킵 → 깜빡임 없음
 function GroupSystem:RefreshLayout()
     if not self.enabled then return end
+
+    -- [FIX] 전투 중 보호된 프레임 조작 방지
+    if InCombatLockdown() then
+        _pendingRefreshLayout = true
+        return
+    end
     DoFullUpdate()
 end
 
@@ -1751,7 +1865,9 @@ end
 
 -- 그룹 삭제 후 정리
 function GroupSystem:OnGroupDeleted(groupName, passedSourceKey)
-    -- [FIX] 다이나믹 그룹이면 CustomIcons 원본도 정리 (고스트 프레임 방지)
+    -- GroupSystem deletion only removes the rendered GroupSystem wrapper.
+    -- CustomIcons owns the source DB group; deleting it here can destroy user
+    -- data during upgrades or stale deletedGroups cleanup.
     local gs = GetSettings()
     -- passedSourceKey: 호출자가 DeleteGroup 전에 미리 캡처한 값 (DB 삭제 후에는 조회 불가)
     local sourceKey = passedSourceKey
@@ -1768,9 +1884,6 @@ function GroupSystem:OnGroupDeleted(groupName, passedSourceKey)
     end
     if sourceKey then
         local ci = DDingUI.CustomIcons
-        if ci and ci.RemoveGroup then
-            ci:RemoveGroup(sourceKey)
-        end
         -- [FIX] CustomIcons 네이티브 컨테이너 명시적 숨기기 (고스트 아이콘 방지)
         if ci and ci.GetGroupFrames then
             local groupFrames = ci:GetGroupFrames()
@@ -1816,7 +1929,7 @@ function GroupSystem:OnGroupDeleted(groupName, passedSourceKey)
                     if ci and ci.GetAllIconFrames then
                         iconFrames = ci:GetAllIconFrames()
                     end
-                    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+                    local dynDB = GetDynamicDB()
                     if dynDB then
                         -- 삭제된 그룹의 아이콘들 숨기기
                         local group = dynDB.groups and dynDB.groups[sourceKey]
@@ -1856,7 +1969,7 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
             local enforceFrame = CreateFrame("Frame")
             enforceFrame:SetScript("OnUpdate", function(self, elapsed)
                 enforceTicks = enforceTicks + elapsed
-                if enforceTicks > 1.5 then
+                if enforceTicks > 4.0 then
                     self:SetScript("OnUpdate", nil)
                     return
                 end
@@ -1883,9 +1996,7 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
         end
 
         -- DDingUI DB가 준비될 때까지 대기
-        -- [Ayije 패턴] 지연 최소화: 0.5초→0.1초 (Mixin 훅이 즉시 감지하므로 긴 대기 불필요)
-        -- LOADING_SCREEN_DISABLED 이벤트가 뷰어 재셋업을 트리거하므로 안전
-        C_Timer.After(0.1, function()
+        C_Timer.After(3, function()
             if not DDingUI.db then return end
 
             GroupSystem.initialized = true
@@ -1900,14 +2011,13 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
             -- [FIX] 리로드 후 버프(아이콘)가 보이지 않는 현상 해결
             -- 편집모드를 나갈 때 발생하는 이벤트(ForceReconcile + SyncAll)를
             -- 로딩 후 안정화 단계에서 한 번 강제로 발생시켜 뷰어/아이콘 렌더링을 완전히 확정 지음 (유저 제안)
-            -- [Ayije 패턴] 안정화 타이머 단축: 1.5초→0.3초, 2.0초→0.5초
-            C_Timer.After(0.3, function()
+            C_Timer.After(1.5, function()
                 local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
                 if fc and fc.ForceReconcile then
                     fc:ForceReconcile()
                 end
             end)
-            C_Timer.After(0.5, function()
+            C_Timer.After(2.0, function()
                 if DDingUI.ContainerSync then
                     DDingUI.ContainerSync:SyncAll()
                 end
@@ -2057,7 +2167,7 @@ SlashCmdList["DDGS"] = function(msg)
             for _ in pairs(allFrames) do frameCount = frameCount + 1 end
             p("  runtime.iconFrames count:", frameCount)
         end
-        local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+        local dynDB = GetDynamicDB()
         if dynDB then
             p("  dynDB.groups:")
             for gk, grp in pairs(dynDB.groups or {}) do

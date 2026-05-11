@@ -2,6 +2,31 @@
 
 ---
 
+## v1.2.7.1
+
+### Updates
+- Improved CDM icon drag reorder feedback: target body swaps icons, target edges insert between icons.
+- Refined the hover indicator to show only a swap border or a single insert line.
+
+---
+
+## v1.2.7
+
+### Updates
+- Version bump for the DDingUI Cooldown Manager and Options addon.
+- Includes the recent CDM group, custom icon, default group item/potion, and assigned icon grid improvements.
+- Added a smoother edit mode grid fade with subtle minor lines, accent snap lines, and brighter center guides.
+
+---
+
+## v1.2.6
+
+### 버그 수정 / Bug Fixes
+- 전투 중 다이나믹 아이콘(생석, 치물 등)의 크기가 0x0으로 깜빡이는 문제 수정 (메서드 오버라이드를 통해 CustomIcons의 프레임 제어 원천 차단)
+- Fixed dynamic icons (Healthstone, Potions, etc.) flickering to 0x0 size during combat (blocked CustomIcons frame control via method overrides)
+
+---
+
 ## v1.2.1
 
 ### 버그 수정 / Bug Fixes

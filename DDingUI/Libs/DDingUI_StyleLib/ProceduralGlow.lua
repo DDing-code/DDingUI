@@ -22,6 +22,24 @@ local FLAT = [[Interface\Buttons\WHITE8x8]]
 -- Reusable glow data pool (prevent frame creation spam)
 local _glowPool = {}
 
+local function SafeNumber(value)
+    return tonumber(tostring(value)) or 0
+end
+
+local function GetFallbackSize(frame, opts)
+    opts = opts or {}
+    local w = SafeNumber(opts.width or opts.size or opts.iconSize)
+    local h = SafeNumber(opts.height or opts.size or opts.iconSize)
+    if w <= 0 or h <= 0 then
+        local fw, fh = frame:GetSize()
+        if w <= 0 then w = SafeNumber(fw) end
+        if h <= 0 then h = SafeNumber(fh) end
+    end
+    if w <= 0 then w = 36 end
+    if h <= 0 then h = w end
+    return w, h
+end
+
 ------------------------------------------------------
 -- 1. SHAPE GLOW — 부드러운 펄스 글로우
 ------------------------------------------------------
@@ -39,7 +57,7 @@ function PG.StartShapeGlow(frame, r, g, b, opts)
     local key = opts.key or "default"
     local glowKey = "_pgShapeGlow_" .. key
 
-    -- Stop existing glow with same key
+    -- Stop existing glow with same key, keeping its frame for reuse.
     PG.StopShapeGlow(frame, key)
 
     local size   = opts.size or 4
@@ -47,15 +65,27 @@ function PG.StartShapeGlow(frame, r, g, b, opts)
     local minA   = opts.minAlpha or 0.15
     local maxA   = opts.maxAlpha or 0.55
 
-    -- Create glow frame
-    local glow = CreateFrame("Frame", nil, frame)
+    -- Create or reuse glow frame
+    local glow = frame[glowKey]
+    if not glow then
+        glow = CreateFrame("Frame", nil, frame)
+        frame[glowKey] = glow
+    else
+        glow:SetParent(frame)
+        glow:ClearAllPoints()
+    end
     glow:SetFrameLevel(max(1, frame:GetFrameLevel() - 1))
     glow:SetPoint("TOPLEFT", frame, "TOPLEFT", -size, size)
     glow:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", size, -size)
 
     -- Glow texture
-    local tex = glow:CreateTexture(nil, "BACKGROUND")
-    tex:SetAllPoints()
+    local tex = glow._pgTex
+    if not tex then
+        tex = glow:CreateTexture(nil, "BACKGROUND")
+        glow._pgTex = tex
+    end
+    tex:ClearAllPoints()
+    tex:SetAllPoints(glow)
     tex:SetColorTexture(r, g, b, minA)
     if tex.SetSnapToPixelGrid then
         tex:SetSnapToPixelGrid(false)
@@ -63,7 +93,13 @@ function PG.StartShapeGlow(frame, r, g, b, opts)
     end
 
     -- Animation state
-    local d = { timer = 0, speed = speed, minA = minA, maxA = maxA, tex = tex }
+    glow._pgData = glow._pgData or {}
+    local d = glow._pgData
+    d.timer = 0
+    d.speed = speed
+    d.minA = minA
+    d.maxA = maxA
+    d.tex = tex
 
     -- OnUpdate: sine wave alpha modulation (~30fps limited)
     local accum = 0
@@ -76,7 +112,7 @@ function PG.StartShapeGlow(frame, r, g, b, opts)
         accum = 0
     end)
 
-    frame[glowKey] = glow
+    glow:Show()
 end
 
 --- Stop a pulsing shape glow.
@@ -88,8 +124,6 @@ function PG.StopShapeGlow(frame, key)
     if frame[glowKey] then
         frame[glowKey]:SetScript("OnUpdate", nil)
         frame[glowKey]:Hide()
-        frame[glowKey]:SetParent(nil)
-        frame[glowKey] = nil
     end
 end
 
@@ -188,48 +222,79 @@ function PG.StartAnts(frame, r, g, b, opts)
     local key = opts.key or "default"
     local antsKey = "_pgAnts_" .. key
 
+    -- Stop existing ants with same key, keeping textures for reuse.
     PG.StopAnts(frame, key)
 
     local N         = opts.N or 4
     local thickness = opts.thickness or 2
     local lineLen   = opts.lineLen or 8
     local period    = opts.period or 2.0
+    local fallbackW, fallbackH = GetFallbackSize(frame, opts)
 
     -- Container
-    local container = CreateFrame("Frame", nil, frame)
+    local container = frame[antsKey]
+    if not container then
+        container = CreateFrame("Frame", nil, frame)
+        container._pgAnts = {}
+        frame[antsKey] = container
+    else
+        container:SetParent(frame)
+        container:ClearAllPoints()
+    end
     container:SetAllPoints(frame)
     container:SetFrameLevel(frame:GetFrameLevel() + 2)
 
     -- Create ant textures (2 per ant: primary + overflow for corner wrapping)
-    local ants = {}
+    local ants = container._pgAnts
     for i = 1, N do
-        local primary = container:CreateTexture(nil, "OVERLAY", nil, 7)
+        local ant = ants[i]
+        if not ant then
+            ant = {}
+            ants[i] = ant
+        end
+        local primary = ant.primary
+        if not primary then
+            primary = container:CreateTexture(nil, "OVERLAY", nil, 7)
+            ant.primary = primary
+        end
         primary:SetColorTexture(r, g, b, 0.85)
         if primary.SetSnapToPixelGrid then
             primary:SetSnapToPixelGrid(false)
             primary:SetTexelSnappingBias(0)
         end
 
-        local overflow = container:CreateTexture(nil, "OVERLAY", nil, 7)
+        local overflow = ant.overflow
+        if not overflow then
+            overflow = container:CreateTexture(nil, "OVERLAY", nil, 7)
+            ant.overflow = overflow
+        end
         overflow:SetColorTexture(r, g, b, 0.85)
         if overflow.SetSnapToPixelGrid then
             overflow:SetSnapToPixelGrid(false)
             overflow:SetTexelSnappingBias(0)
         end
         overflow:Hide()
-
-        ants[i] = { primary = primary, overflow = overflow }
+        primary:Show()
+    end
+    for i = N + 1, #ants do
+        local ant = ants[i]
+        if ant then
+            if ant.primary then ant.primary:Hide() end
+            if ant.overflow then ant.overflow:Hide() end
+        end
     end
 
     -- Animation data
-    local d = {
-        timer = 0,
-        period = period,
-        N = N,
-        lineLen = lineLen,
-        thickness = thickness,
-        ants = ants,
-    }
+    container._pgAntData = container._pgAntData or {}
+    local d = container._pgAntData
+    d.timer = 0
+    d.period = period
+    d.N = N
+    d.lineLen = lineLen
+    d.thickness = thickness
+    d.ants = ants
+    d.fallbackW = fallbackW
+    d.fallbackH = fallbackH
 
     -- OnUpdate (~30fps limited)
     local accum = 0
@@ -241,8 +306,12 @@ function PG.StartAnts(frame, r, g, b, opts)
         if d.timer > d.period then d.timer = d.timer - d.period end
         accum = 0
 
-        local w = self:GetWidth()
-        local h = self:GetHeight()
+        local w = SafeNumber(self:GetWidth())
+        local h = SafeNumber(self:GetHeight())
+        if w < 2 or h < 2 then
+            w = d.fallbackW or w
+            h = d.fallbackH or h
+        end
         if w < 2 or h < 2 then return end
 
         local perim = 2 * (w + h)
@@ -273,7 +342,7 @@ function PG.StartAnts(frame, r, g, b, opts)
         end
     end)
 
-    frame[antsKey] = container
+    container:Show()
 end
 
 --- Stop procedural ants animation.
@@ -285,8 +354,12 @@ function PG.StopAnts(frame, key)
     if frame[antsKey] then
         frame[antsKey]:SetScript("OnUpdate", nil)
         frame[antsKey]:Hide()
-        frame[antsKey]:SetParent(nil)
-        frame[antsKey] = nil
+        if frame[antsKey]._pgAnts then
+            for _, ant in ipairs(frame[antsKey]._pgAnts) do
+                if ant.primary then ant.primary:Hide() end
+                if ant.overflow then ant.overflow:Hide() end
+            end
+        end
     end
 end
 

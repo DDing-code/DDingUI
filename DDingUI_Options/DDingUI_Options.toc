@@ -1,0 +1,22 @@
+## Interface: 120005, 110207
+## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fOptions|r
+## Notes: DDingUI CooldownManager - Options UI (Load on Demand)
+## Author: DDing
+## Version: 1.2.7.1
+## LoadOnDemand: 1
+## Dependencies: DDingUI
+
+OptionsLoader.lua
+GUI.lua
+ConfigHelpers.lua
+ViewerOptions.lua
+ResourceBarOptions.lua
+CustomIconOptions.lua
+IconCustomizationOptions.lua
+CastBarOptions.lua
+BuffDebuffFramesOptions.lua
+BuffBarOptions.lua
+BuffTrackerOptions.lua
+ProfileOptions.lua
+GroupSystemOptions.lua
+Config.lua

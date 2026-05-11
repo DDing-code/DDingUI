@@ -48,7 +48,6 @@ local DragState = {
     sourceData = nil,   -- { groupKey, iconKey, iconIdx }
     sourceBtn = nil,
     ghostFrame = nil,
-    dropIndicator = nil,
 }
 
 local function IsDropAfterTarget(button)
@@ -62,153 +61,6 @@ local function IsDropAfterTarget(button)
     if not scale or scale == 0 then scale = 1 end
     local cursorUIY = cursorY / scale
     return cursorUIY < ((top + bottom) * 0.5)
-end
-
-local function GetDropPlacement(button)
-    if not button or not button.GetTop or not button.GetBottom or not button.GetLeft or not button.GetRight then
-        return "insert", IsDropAfterTarget(button), "bottom"
-    end
-
-    local top = button:GetTop()
-    local bottom = button:GetBottom()
-    local left = button:GetLeft()
-    local right = button:GetRight()
-    if not top or not bottom or not left or not right then
-        return "insert", IsDropAfterTarget(button), "bottom"
-    end
-
-    local cursorX, cursorY = GetCursorPosition()
-    local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-    if not scale or scale == 0 then scale = 1 end
-    local x = cursorX / scale
-    local y = cursorY / scale
-    local width = right - left
-    local height = top - bottom
-    if width <= 0 or height <= 0 then
-        return "insert", IsDropAfterTarget(button), "bottom"
-    end
-
-    local edge = 0.25
-    local xRatio = (x - left) / width
-    local yRatio = (top - y) / height
-    local isListRow = width > (height * 2.5)
-
-    if yRatio <= edge then
-        return "insert", false, "top"
-    elseif yRatio >= (1 - edge) then
-        return "insert", true, "bottom"
-    elseif not isListRow and xRatio <= edge then
-        return "insert", false, "left"
-    elseif not isListRow and xRatio >= (1 - edge) then
-        return "insert", true, "right"
-    end
-
-    return "swap", false, "center"
-end
-
-local function EnsureDropIndicator()
-    if DragState.dropIndicator then return DragState.dropIndicator end
-
-    local indicator = CreateFrame("Frame", nil, UIParent)
-    indicator:SetFrameStrata("TOOLTIP")
-    indicator:SetSize(1, 1)
-
-    indicator.border = {}
-    for i = 1, 4 do
-        local tex = indicator:CreateTexture(nil, "OVERLAY")
-        tex:SetColorTexture(1, 0.82, 0.08, 1)
-        indicator.border[i] = tex
-    end
-
-    indicator.line = indicator:CreateTexture(nil, "OVERLAY")
-    indicator.line:SetColorTexture(1, 0.82, 0.08, 1)
-    indicator:Hide()
-
-    DragState.dropIndicator = indicator
-    return indicator
-end
-
-local function HideDropIndicator()
-    local indicator = DragState.dropIndicator
-    if indicator then
-        indicator._target = nil
-        indicator:Hide()
-    end
-end
-
-local function ShowDropIndicator(button, dropAction, edge)
-    if not button then return end
-
-    local indicator = EnsureDropIndicator()
-    indicator._target = button
-    indicator:SetParent(button)
-    indicator:SetFrameStrata(button:GetFrameStrata() or "TOOLTIP")
-    indicator:SetFrameLevel((button:GetFrameLevel() or 1) + 30)
-    indicator:ClearAllPoints()
-    indicator:SetAllPoints(button)
-
-    local border = indicator.border
-    local line = indicator.line
-    for i = 1, 4 do
-        border[i]:Hide()
-        border[i]:ClearAllPoints()
-    end
-    line:Hide()
-    line:ClearAllPoints()
-
-    if dropAction == "swap" then
-        local thickness = 2
-        border[1]:SetPoint("TOPLEFT", indicator, "TOPLEFT", 0, 0)
-        border[1]:SetPoint("TOPRIGHT", indicator, "TOPRIGHT", 0, 0)
-        border[1]:SetHeight(thickness)
-
-        border[2]:SetPoint("BOTTOMLEFT", indicator, "BOTTOMLEFT", 0, 0)
-        border[2]:SetPoint("BOTTOMRIGHT", indicator, "BOTTOMRIGHT", 0, 0)
-        border[2]:SetHeight(thickness)
-
-        border[3]:SetPoint("TOPLEFT", indicator, "TOPLEFT", 0, 0)
-        border[3]:SetPoint("BOTTOMLEFT", indicator, "BOTTOMLEFT", 0, 0)
-        border[3]:SetWidth(thickness)
-
-        border[4]:SetPoint("TOPRIGHT", indicator, "TOPRIGHT", 0, 0)
-        border[4]:SetPoint("BOTTOMRIGHT", indicator, "BOTTOMRIGHT", 0, 0)
-        border[4]:SetWidth(thickness)
-
-        for i = 1, 4 do border[i]:Show() end
-    else
-        local thickness = 3
-        if edge == "left" then
-            line:SetPoint("TOPLEFT", indicator, "TOPLEFT", 0, 0)
-            line:SetPoint("BOTTOMLEFT", indicator, "BOTTOMLEFT", 0, 0)
-            line:SetWidth(thickness)
-        elseif edge == "right" then
-            line:SetPoint("TOPRIGHT", indicator, "TOPRIGHT", 0, 0)
-            line:SetPoint("BOTTOMRIGHT", indicator, "BOTTOMRIGHT", 0, 0)
-            line:SetWidth(thickness)
-        elseif edge == "top" then
-            line:SetPoint("TOPLEFT", indicator, "TOPLEFT", 0, 0)
-            line:SetPoint("TOPRIGHT", indicator, "TOPRIGHT", 0, 0)
-            line:SetHeight(thickness)
-        else
-            line:SetPoint("BOTTOMLEFT", indicator, "BOTTOMLEFT", 0, 0)
-            line:SetPoint("BOTTOMRIGHT", indicator, "BOTTOMRIGHT", 0, 0)
-            line:SetHeight(thickness)
-        end
-        line:Show()
-    end
-
-    indicator:Show()
-end
-
-local function IsGroupIconDropTarget(button)
-    local srcData = DragState.sourceData
-    local dstData = button and button._dragData
-    if not DragState.active or DragState.sourceBtn == button or not srcData or not dstData then
-        return false
-    end
-    if srcData.groupKey ~= dstData.groupKey then return false end
-    if srcData.dragKind ~= "groupIcon" or dstData.dragKind ~= "groupIcon" then return false end
-    return srcData.orderToken and dstData.orderToken and srcData.orderToken ~= dstData.orderToken
 end
 
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
@@ -2240,7 +2092,6 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                 if not DragState.active then return end
                 self:SetAlpha(1)
                 if DragState.ghostFrame then DragState.ghostFrame:Hide() end
-                HideDropIndicator()
 
                 -- 드롭 대상 찾기: 마우스 아래 프레임 검색
                 local frames = GetMouseFoci and GetMouseFoci() or { GetMouseFocus and GetMouseFocus() }
@@ -2260,32 +2111,20 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                 if targetBtn and targetBtn._dragData then
                     local srcData = DragState.sourceData
                     local dstData = targetBtn._dragData
-                    if srcData and dstData and srcData.groupKey == dstData.groupKey
-                        and (srcData.orderToken or srcData.iconKey or srcData.groupName) ~= (dstData.orderToken or dstData.iconKey or dstData.groupName) then
-                        local dropAction = "insert"
+                    if srcData and dstData and srcData.groupKey == dstData.groupKey and srcData.iconKey ~= dstData.iconKey then
                         local insertAfter = IsDropAfterTarget(targetBtn)
-                        if srcData.dragKind == "groupIcon" and dstData.dragKind == "groupIcon" then
-                            dropAction, insertAfter = GetDropPlacement(targetBtn)
+                        local handled = false
+                        if DDingUI.ReorderGroupSystemIcon then
+                            handled = DDingUI:ReorderGroupSystemIcon(srcData.groupKey, srcData.iconKey, dstData.iconKey, insertAfter) == true
                         end
-                        local changed = false
-
-                        if srcData.dragKind == "groupOrder" and dstData.dragKind == "groupOrder" and srcData.groupName ~= dstData.groupName then
-                            if DDingUI.GroupManager and DDingUI.GroupManager.ReorderGroup then
-                                changed = DDingUI.GroupManager:ReorderGroup(srcData.groupName, dstData.groupName, insertAfter) and true or false
-                            end
-                        elseif srcData.dragKind == "groupIcon" and dstData.dragKind == "groupIcon" and srcData.orderToken ~= dstData.orderToken then
-                            if DDingUI.GroupManager and DDingUI.GroupManager.ReorderGroupIcon then
-                                changed = DDingUI.GroupManager:ReorderGroupIcon(srcData.orderGroup, srcData.orderToken, dstData.orderToken, insertAfter, dropAction) and true or false
-                            end
-                        elseif DDingUI.CustomIcons and DDingUI.CustomIcons.ReorderIconInGroup then
-                            changed = DDingUI.CustomIcons:ReorderIconInGroup(srcData.groupKey, srcData.iconKey, dstData.iconKey, insertAfter) and true or false
+                        -- ReorderIconInGroup 사용: src를 dst 위치로 이동
+                        if not handled and DDingUI.CustomIcons and DDingUI.CustomIcons.ReorderIconInGroup then
+                            DDingUI.CustomIcons:ReorderIconInGroup(srcData.groupKey, srcData.iconKey, dstData.iconKey, insertAfter)
+                            handled = true
                         end
-
-                        if changed then
+                        if handled then
                             -- [FIX] RefreshLayout + SoftRefresh (FullRefresh는 서브탭 없으면 창 닫힘)
-                            if srcData.dragKind == "groupOrder" and DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
-                                DDingUI.GroupSystem:Refresh()
-                            elseif DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
+                            if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
                                 DDingUI.GroupSystem:RefreshLayout()
                             end
                             C_Timer.After(0.1, function()
@@ -2324,15 +2163,8 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
             local origOnEnter = button:GetScript("OnEnter")
             button:SetScript("OnEnter", function(self)
                 if DragState.active and DragState.sourceBtn ~= self and self._dragData then
-                    if IsGroupIconDropTarget(self) then
-                        local dropAction, _, edge = GetDropPlacement(self)
-                        ShowDropIndicator(self, dropAction, edge)
-                        self:SetBackdropColor(SL.GetColor("widget"))
-                        self:SetBackdropBorderColor(0, 0, 0, 1)
-                    else
-                        self:SetBackdropColor(0.2, 0.8, 0.2, 0.5)
-                        self:SetBackdropBorderColor(0.2, 1, 0.2, 1)
-                    end
+                    self:SetBackdropColor(0.2, 0.8, 0.2, 0.5)
+                    self:SetBackdropBorderColor(0.2, 1, 0.2, 1)
                 else
                     self:SetBackdropColor(SL.GetColor("accent"))
                     self:SetBackdropBorderColor(SL.GetColor("accent"))
@@ -2341,63 +2173,49 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
             end)
 
             button:SetScript("OnLeave", function(self)
-                if DragState.dropIndicator and DragState.dropIndicator._target == self then
-                    HideDropIndicator()
-                end
                 self:SetBackdropColor(SL.GetColor("widget"))
                 self:SetBackdropBorderColor(0, 0, 0, 1)
                 label:SetTextColor(SL.GetColor("text"))
             end)
 
-            button:SetScript("OnUpdate", function(self)
-                if IsGroupIconDropTarget(self) and self:IsMouseOver() then
-                    local dropAction, _, edge = GetDropPlacement(self)
-                    ShowDropIndicator(self, dropAction, edge)
-                elseif DragState.dropIndicator and DragState.dropIndicator._target == self and not self:IsMouseOver() then
-                    HideDropIndicator()
-                end
-            end)
-
             -- 메인 버튼 클릭은 아무 동작 없음 (드래그 전용)
             button:SetScript("OnClick", function(self) end)
 
-            if not dragData.noClose then
-                -- [FIX] X 삭제 버튼 (오른쪽)
-                local closeBtn = CreateFrame("Button", nil, frame, "BackdropTemplate")
-                closeBtn:SetSize(22, 22)
-                closeBtn:SetPoint("LEFT", button, "RIGHT", 4, 0)
-                closeBtn:SetBackdrop({
-                    bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
-                    insets = { left = 0, right = 0, top = 0, bottom = 0 }
-                })
-                closeBtn:SetBackdropColor(0.3, 0.1, 0.1, 0.8)
-                closeBtn:SetBackdropBorderColor(0, 0, 0, 1)
+            -- [FIX] X 삭제 버튼 (오른쪽)
+            local closeBtn = CreateFrame("Button", nil, frame, "BackdropTemplate")
+            closeBtn:SetSize(22, 22)
+            closeBtn:SetPoint("LEFT", button, "RIGHT", 4, 0)
+            closeBtn:SetBackdrop({
+                bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
+                insets = { left = 0, right = 0, top = 0, bottom = 0 }
+            })
+            closeBtn:SetBackdropColor(0.3, 0.1, 0.1, 0.8)
+            closeBtn:SetBackdropBorderColor(0, 0, 0, 1)
 
-                local closeText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                StyleFontString(closeText)
-                closeText:SetPoint("CENTER")
-                closeText:SetText("X")
+            local closeText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            StyleFontString(closeText)
+            closeText:SetPoint("CENTER")
+            closeText:SetText("X")
+            closeText:SetTextColor(0.6, 0.3, 0.3, 1)
+
+            closeBtn:SetScript("OnEnter", function(self)
+                self:SetBackdropColor(0.8, 0.15, 0.15, 1)
+                self:SetBackdropBorderColor(1, 0.3, 0.3, 1)
+                closeText:SetTextColor(1, 1, 1, 1)
+            end)
+            closeBtn:SetScript("OnLeave", function(self)
+                self:SetBackdropColor(0.3, 0.1, 0.1, 0.8)
+                self:SetBackdropBorderColor(0, 0, 0, 1)
                 closeText:SetTextColor(0.6, 0.3, 0.3, 1)
-
-                closeBtn:SetScript("OnEnter", function(self)
-                    self:SetBackdropColor(0.8, 0.15, 0.15, 1)
-                    self:SetBackdropBorderColor(1, 0.3, 0.3, 1)
-                    closeText:SetTextColor(1, 1, 1, 1)
-                end)
-                closeBtn:SetScript("OnLeave", function(self)
-                    self:SetBackdropColor(0.3, 0.1, 0.1, 0.8)
-                    self:SetBackdropBorderColor(0, 0, 0, 1)
-                    closeText:SetTextColor(0.6, 0.3, 0.3, 1)
-                end)
-                closeBtn:SetScript("OnClick", function()
-                    if option.func then
-                        if type(option.func) == "function" then
-                            option.func()
-                        end
+            end)
+            closeBtn:SetScript("OnClick", function()
+                if option.func then
+                    if type(option.func) == "function" then
+                        option.func()
                     end
-                end)
-                frame.closeBtn = closeBtn
-            end
+                end
+            end)
+            frame.closeBtn = closeBtn
         else
             -- 드래그 미지원 일반 버튼
             button:SetScript("OnEnter", function(self)
@@ -5435,6 +5253,17 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     widget = gridFrame
                     widgetHeight = gridFrame:GetHeight() or 200
                 end
+            elseif option.type == "groupAssignedIconGrid" then
+                local groupName = option.groupName
+                if groupName and DDingUI.BuildGroupAssignedIconGridUI then
+                    local gridFrame = CreateFrame("Frame", nil, contentFrame, "BackdropTemplate")
+                    gridFrame:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -yOffset)
+                    gridFrame:SetPoint("RIGHT", contentFrame, "RIGHT", 0, 0)
+                    gridFrame:SetWidth(contentFrame:GetWidth() or 760)
+                    DDingUI:BuildGroupAssignedIconGridUI(gridFrame, groupName)
+                    widget = gridFrame
+                    widgetHeight = gridFrame:GetHeight() or 80
+                end
             elseif option.type == "spellSearch" then
                 -- [REFACTOR] 실시간 Spell ID 검증 위젯 (Ayije 패턴 이식)
                 local _GUI = DDingUI.GUI -- 런타임 참조 (local 정의가 파일 후반부)
@@ -6494,7 +6323,6 @@ function DDingUI:CreateConfigFrame()
     -- ============================================
     -- StyleLib 패널 뼈대 생성
     -- ============================================
-    -- [FIX] ADDON_NAME은 LoD 모듈명("DDingUI_Options")이므로 메인 애드온에서 버전 조회
     local version = C_AddOns.GetAddOnMetadata("DDingUI", "Version") or "1.0"
 
     local panel = SL.CreateSettingsPanel("CDM", "DDingUI CDM", version, {
@@ -6504,11 +6332,6 @@ function DDingUI:CreateConfigFrame()
         minHeight = 400,
         menuWidth = 200,
     })
-
-    -- [FIX] 패널이 캐시에서 반환될 경우 verText가 구버전으로 굳어있으므로 항상 강제 갱신
-    if panel.titleBar and panel.titleBar.verText then
-        panel.titleBar.verText:SetText("v" .. version)
-    end
 
     local frame = panel.frame
     local titleBar = panel.titleBar

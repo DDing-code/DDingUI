@@ -1,8 +1,8 @@
-## Interface: 120001, 110207
+## Interface: 120005, 110207
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fCooldownManager|r
 ## Notes: Lightweight Resource Bar & Cooldown Manager
 ## Author: DDing
-## Version: 1.2.5
+## Version: 1.2.7.1
 ## SavedVariables: DDingUIDB
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, DDingUI_Controller
 ## IconTexture: Interface\AddOns\DDingUI\Media\logo.tga
@@ -63,13 +63,16 @@ Locales\Locale.lua
 Core\Main.lua
 Core\Defaults.lua
 Core\Media.lua
-Core\GUI.lua
+# Core\GUI.lua — [LoD] DDingUI_Options에서 로드
 Core\CDMScanner.lua
 Core\ConditionalActions.lua
 Core\Movers.lua
+Core\EditModeLock.lua
 Core\CircularProgress.lua
 
 # Utility files
+Utils\SecretSafe.lua
+Utils\CombatSafe.lua
 Utils\MoverUtils.lua
 Utils\AnchorManager.lua
 Utils\Toolkit.lua
@@ -79,19 +82,19 @@ Utils\PixelPerfect.lua
 # Core addon files (continued)
 Core\SpecProfiles.lua
 
-# Config files
-Config\ConfigHelpers.lua
-Config\ViewerOptions.lua
-Config\ResourceBarOptions.lua
-Config\CustomIconOptions.lua
-Config\IconCustomizationOptions.lua
-Config\CastBarOptions.lua
-Config\BuffDebuffFramesOptions.lua
-Config\BuffBarOptions.lua
-Config\BuffTrackerOptions.lua
-Config\ProfileOptions.lua
-Config\GroupSystemOptions.lua
-Config.lua
+# Config files — [LoD] DDingUI_Options에서 로드
+# Config\ConfigHelpers.lua
+# Config\ViewerOptions.lua
+# Config\ResourceBarOptions.lua
+# Config\CustomIconOptions.lua
+# Config\IconCustomizationOptions.lua
+# Config\CastBarOptions.lua
+# Config\BuffDebuffFramesOptions.lua
+# Config\BuffBarOptions.lua
+# Config\BuffTrackerOptions.lua
+# Config\ProfileOptions.lua
+# Config\GroupSystemOptions.lua
+# Config.lua
 
 # AutoUIScale
 Modules\AutoUIScale\AutoUIScale.lua
@@ -131,7 +134,8 @@ Modules\GroupSystem\FrameController.lua
 Modules\GroupSystem\ContainerSync.lua
 Modules\GroupSystem\GroupManager.lua
 Modules\GroupSystem\GroupRenderer.lua
-
+Modules\GroupSystem\GroupStyle.lua
+Modules\GroupSystem\DynamicIconBridge.lua
 Modules\GroupSystem\GroupInit.lua
 
 # Alerts (module removed)

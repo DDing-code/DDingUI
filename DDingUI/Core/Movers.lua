@@ -504,6 +504,7 @@ local function OnUpdateDrag(self, elapsed)
     -- 스냅 계산
     local width, height = dragFrame:GetSize()
     local snapX, snapY = CalculateSnap(targetX, targetY, width, height, dragFrame)
+    Movers:UpdateGridHighlight(snapX, snapY)
 
     dragFrame:ClearAllPoints()
     dragFrame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", snapX, snapY)
@@ -569,6 +570,7 @@ local function OnDragStop(mover)
     isDragging = false
     dragFrame = nil
     updateFrame:SetScript("OnUpdate", nil)
+    Movers:ClearGridHighlight()
 
     -- Hide grid after drag only if it was temporarily shown
     if mover._tempGridShown then
@@ -1906,19 +1908,20 @@ function Movers:ShowMovers()
             -- 시작 위치 저장 (종료 시 비교용)
             holder.mover._startPoint = GetPoint(holder.mover)
 
-            if not silent then holder.mover:Show() end
+            if not silent then
+                UIFrameFadeIn(holder.mover, 0.2, 0, 1)
+            end
         end
     end
 
     if not silent then
-        -- 그리드 설정에 따라 표시
-        if self.Settings.gridEnabled then
-            self:ShowGrid()
-        end
+        -- 편집모드 진입 시 Ellesmere 스타일의 은은한 기준 그리드를 자동 표시
+        self:ShowGrid()
 
         -- Nudge Frame 표시
         if self.NudgeFrame then
             self.NudgeFrame:Show()
+            UIFrameFadeIn(self.NudgeFrame, 0.2, 0, 1)
         end
 
         -- [FIX] 알파 0으로 숨겨진 CDM 뷰어의 마우스 이벤트 비활성화 + Mover 숨기기
@@ -2070,14 +2073,26 @@ function Movers:HideMovers()
             end
         end
         holder.mover._startPoint = nil
-        holder.mover:Hide()
+        UIFrameFadeOut(holder.mover, 0.2, 1, 0)
+        -- [FIX] 페이드아웃 후 투명 상태로 마우스 클릭을 가로채지 않도록 확실히 Hide 처리
+        C_Timer.After(0.25, function()
+            if not self.ConfigMode and holder.mover then
+                holder.mover:Hide()
+            end
+        end)
     end
 
     self:HideGrid()
     self.Settings.gridEnabled = false  -- 종료 시 그리드 상태 초기화
 
     if self.NudgeFrame then
-        self.NudgeFrame:Hide()
+        UIFrameFadeOut(self.NudgeFrame, 0.2, 1, 0)
+        -- [FIX] NudgeFrame 숨기기 보장
+        C_Timer.After(0.25, function()
+            if not self.ConfigMode and self.NudgeFrame then
+                self.NudgeFrame:Hide()
+            end
+        end)
     end
 
     self.SelectedMover = nil
@@ -2166,105 +2181,389 @@ end
 -- Grid (ElvUI Style Snap Grid)
 --------------------------------------------------------------------------------
 
-function Movers:CreateGrid()
-    local gridSize = self.Settings.gridSize
-    if not gridSize or gridSize <= 0 then gridSize = 32 end
-    local width, height = UIParent:GetSize()
+local GRID_FADE_IN_DURATION = 0.75
+local GRID_FADE_OUT_DURATION = 0.18
+local GRID_SPACING = 32
+local GRID_ALPHA = 0.30
+local GRID_CENTER_ALPHA = 0.54
+local GRID_CROSS_ALPHA = 0.62
+local GRID_OVERLAY_ALPHA = 0.18
+local GRID_DRAG_LIGHT_RADIUS = 180
+local GRID_DRAG_LIGHT_BOOST = 0.62
+local GRID_DRAG_LIGHT_SEGMENTS = 6
 
-    -- 기존 그리드 프레임 재사용 (텍스쳐만 재생성)
-    if self.Grid then
-        -- 기존 라인 텍스쳐 숨기기
-        for _, line in ipairs(self.Grid.lines or {}) do
-            line:Hide()
-            line:ClearAllPoints()
-        end
-    else
-        local grid = CreateFrame("Frame", "DDingUI_MoverGrid", UIParent)
-        grid:SetAllPoints(UIParent)
-        grid:SetFrameStrata("BACKGROUND")
-        grid:Hide()
-        grid.lines = {}
-        self.Grid = grid
-    end
-
-    local grid = self.Grid
-    local lineIdx = 0
-
-    -- 기존 텍스쳐 재사용 또는 새로 생성하는 헬퍼
-    local function GetOrCreateLine()
-        lineIdx = lineIdx + 1
-        local line = grid.lines[lineIdx]
-        if not line then
-            line = grid:CreateTexture(nil, "BACKGROUND")
-            grid.lines[lineIdx] = line
-        end
-        line:ClearAllPoints()
-        line:Show()
-        return line
-    end
-
-    -- [FIX] 실제 화면 중앙에 독립 중앙선 그리기 (격자 간격과 무관)
-    local centerX = math.floor(width / 2 + 0.5)
-    local centerY = math.floor(height / 2 + 0.5)
-
-    -- 수직 중앙선
-    local vCenter = GetOrCreateLine()
-    vCenter:SetSize(2, height)
-    vCenter:SetPoint("TOP", grid, "TOPLEFT", centerX, 0)
-    vCenter:SetColorTexture(1, 0.3, 0.3, 0.7)
-
-    -- 수평 중앙선
-    local hCenter = GetOrCreateLine()
-    hCenter:SetSize(width, 2)
-    hCenter:SetPoint("LEFT", grid, "TOPLEFT", 0, -centerY)
-    hCenter:SetColorTexture(1, 0.3, 0.3, 0.7)
-
-    -- Create vertical grid lines
-    for i = 0, width, gridSize do
-        if math.abs(i - centerX) > 1 then -- 중앙선과 겹치지 않게
-            local line = GetOrCreateLine()
-            line:SetSize(1, height)
-            line:SetPoint("TOP", grid, "TOPLEFT", i, 0)
-            line:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+local function GetGridAccentColor()
+    local SL = _G.DDingUI_StyleLib
+    if SL and SL.GetAccent then
+        local accent = select(1, SL.GetAccent("CDM"))
+        if type(accent) == "table" then
+            return accent[1] or 0.90, accent[2] or 0.45, accent[3] or 0.12
         end
     end
+    return 0.90, 0.45, 0.12
+end
 
-    -- Create horizontal grid lines
-    for i = 0, height, gridSize do
-        if math.abs(i - centerY) > 1 then -- 중앙선과 겹치지 않게
-            local line = GetOrCreateLine()
-            line:SetSize(width, 1)
-            line:SetPoint("LEFT", grid, "TOPLEFT", 0, -i)
-            line:SetColorTexture(0.3, 0.3, 0.3, 0.5)
-        end
+local function GetPixelMult()
+    local SL = _G.DDingUI_StyleLib
+    local PP = SL and SL.PP
+    if PP and PP.UpdateMult then
+        PP.UpdateMult()
+    end
+    if PP and PP.mult then
+        return PP.mult
     end
 
-    -- 남은 미사용 라인 숨기기
-    for i = lineIdx + 1, #grid.lines do
-        grid.lines[i]:Hide()
+    local _, physicalHeight = GetPhysicalScreenSize()
+    local uiScale = UIParent and UIParent:GetScale() or 1
+    if not physicalHeight or physicalHeight <= 0 or not uiScale or uiScale <= 0 then
+        return 1
+    end
+    return (768 / physicalHeight) / uiScale
+end
+
+local function SnapToPixel(value, mult)
+    mult = mult or 1
+    if mult == 1 then
+        return math.floor(value + 0.5)
+    end
+    return math.floor(value / mult + 0.5) * mult
+end
+
+local function DisablePixelSnap(texture)
+    if texture and texture.SetSnapToPixelGrid then
+        texture:SetSnapToPixelGrid(false)
+        texture:SetTexelSnappingBias(0)
     end
 end
 
-function Movers:ShowGrid()
-    if not self.Grid then
-        self:CreateGrid()
+local function EnsureGridOverlay(self)
+    if self.GridOverlay then return self.GridOverlay end
+
+    local overlay = CreateFrame("Frame", "DDingUI_MoverGridOverlay", UIParent)
+    overlay:SetAllPoints(UIParent)
+    overlay:SetFrameStrata("DIALOG")
+    overlay:SetFrameLevel(80)
+    overlay:EnableMouse(false)
+    overlay:SetAlpha(0)
+    overlay:Hide()
+
+    overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
+    overlay.texture:SetAllPoints(overlay)
+    overlay.texture:SetColorTexture(0.02, 0.03, 0.04, GRID_OVERLAY_ALPHA)
+    DisablePixelSnap(overlay.texture)
+
+    self.GridOverlay = overlay
+    return overlay
+end
+
+local function FadeOutFrame(frame, duration)
+    if not frame or not frame:IsShown() then return end
+    local startAlpha = frame:GetAlpha() or 1
+    local elapsed = 0
+    frame:SetScript("OnUpdate", function(self, dt)
+        elapsed = elapsed + dt
+        local t = math.min(1, elapsed / (duration or GRID_FADE_OUT_DURATION))
+        self:SetAlpha(startAlpha * (1 - t))
+        if t >= 1 then
+            self:SetScript("OnUpdate", nil)
+            self:SetAlpha(0)
+            self:Hide()
+        end
+    end)
+end
+
+function Movers:CreateGrid()
+    if self.Grid then
+        return self.Grid
     end
-    self.Grid:Show()
+
+    local grid = CreateFrame("Frame", "DDingUI_MoverGrid", UIParent)
+    grid:SetAllPoints(UIParent)
+    grid:SetFrameStrata("BACKGROUND")
+    grid:SetFrameLevel(1)
+    grid:EnableMouse(false)
+    grid:SetAlpha(0)
+    grid:Hide()
+    grid.lines = {}
+    grid.glows = {}
+    self.Grid = grid
+
+    function grid:Rebuild()
+        for _, tex in ipairs(self.lines) do
+            tex:Hide()
+            tex:ClearAllPoints()
+        end
+
+        local idx = 0
+        local width, height = UIParent:GetSize()
+        local accentR, accentG, accentB = GetGridAccentColor()
+        local mult = GetPixelMult()
+        local lineWidth = mult
+        local spacing = GRID_SPACING * mult
+        local centerX = SnapToPixel(width / 2, mult)
+        local centerY = SnapToPixel(height / 2, mult)
+        self._accentR, self._accentG, self._accentB = accentR, accentG, accentB
+        self._lineWidth = lineWidth
+
+        local function GetLine(subLevel)
+            idx = idx + 1
+            local tex = self.lines[idx]
+            if not tex then
+                tex = self:CreateTexture(nil, "BACKGROUND", nil, subLevel or -7)
+                DisablePixelSnap(tex)
+                self.lines[idx] = tex
+            end
+            tex:ClearAllPoints()
+            tex:Show()
+            return tex
+        end
+
+        local function MakeLine(isVertical, pos, r, g, b, a, subLevel)
+            local tex = GetLine(subLevel)
+            tex:SetColorTexture(r, g, b, a)
+            tex._r, tex._g, tex._b = r, g, b
+            tex._baseAlpha = a
+            tex._isWhite = false
+            tex._isVert = isVertical
+            tex._pos = pos
+            if isVertical then
+                tex:SetSize(lineWidth, height)
+                tex:SetPoint("TOPLEFT", UIParent, "TOPLEFT", pos, 0)
+            else
+                tex:SetSize(width, lineWidth)
+                tex:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, -pos)
+            end
+        end
+
+        local x = centerX - spacing
+        while x > 0 do
+            MakeLine(true, SnapToPixel(x, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
+            x = x - spacing
+        end
+        x = centerX + spacing
+        while x < width do
+            MakeLine(true, SnapToPixel(x, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
+            x = x + spacing
+        end
+
+        local y = centerY - spacing
+        while y > 0 do
+            MakeLine(false, SnapToPixel(y, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
+            y = y - spacing
+        end
+        y = centerY + spacing
+        while y < height do
+            MakeLine(false, SnapToPixel(y, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
+            y = y + spacing
+        end
+
+        MakeLine(true, centerX, accentR, accentG, accentB, GRID_CENTER_ALPHA, -6)
+        MakeLine(false, centerY, accentR, accentG, accentB, GRID_CENTER_ALPHA, -6)
+
+        local crossArm = 20
+        local crossV = GetLine(-5)
+        crossV:SetColorTexture(1, 1, 1, GRID_CROSS_ALPHA)
+        crossV._r, crossV._g, crossV._b = 1, 1, 1
+        crossV._baseAlpha = GRID_CROSS_ALPHA
+        crossV._isWhite = true
+        crossV._isVert = true
+        crossV._pos = centerX
+        crossV:SetSize(lineWidth, crossArm * 2)
+        crossV:SetPoint("TOPLEFT", UIParent, "TOPLEFT", centerX, -(centerY - crossArm))
+
+        local crossH = GetLine(-5)
+        crossH:SetColorTexture(1, 1, 1, GRID_CROSS_ALPHA)
+        crossH._r, crossH._g, crossH._b = 1, 1, 1
+        crossH._baseAlpha = GRID_CROSS_ALPHA
+        crossH._isWhite = true
+        crossH._isVert = false
+        crossH._pos = centerY
+        crossH:SetSize(crossArm * 2, lineWidth)
+        crossH:SetPoint("TOPLEFT", UIParent, "TOPLEFT", centerX - crossArm, -centerY)
+
+        for i = idx + 1, #self.lines do
+            self.lines[i]:Hide()
+        end
+
+        self._lineCount = idx
+        self._lastWidth = width
+        self._lastHeight = height
+    end
+
+    return grid
+end
+
+local function GetGridGlow(grid, idx)
+    local glow = grid.glows[idx]
+    if not glow then
+        glow = grid:CreateTexture(nil, "BACKGROUND", nil, -4)
+        glow:SetBlendMode("ADD")
+        DisablePixelSnap(glow)
+        grid.glows[idx] = glow
+    end
+    return glow
+end
+
+function Movers:ClearGridHighlight()
+    local grid = self.Grid
+    if not grid or not grid.glows then return end
+
+    for _, glow in ipairs(grid.glows) do
+        glow:Hide()
+    end
+    grid._glowCount = 0
+end
+
+function Movers:UpdateGridHighlight(focusX, focusY)
+    local grid = self.Grid
+    if not grid or not grid:IsShown() or not focusX or not focusY then
+        self:ClearGridHighlight()
+        return
+    end
+
+    local width, height = UIParent:GetSize()
+    if not width or not height then
+        self:ClearGridHighlight()
+        return
+    end
+
+    local radius = GRID_DRAG_LIGHT_RADIUS
+    local radiusSquared = radius * radius
+    local focusYFromTop = height - focusY
+    local lineWidth = grid._lineWidth or GetPixelMult()
+    local glowWidth = math.max(lineWidth * 2, lineWidth)
+    local glowIdx = 0
+    local lineCount = grid._lineCount or #grid.lines
+
+    for i = 1, lineCount do
+        local tex = grid.lines[i]
+        if tex and tex:IsShown() and tex._pos then
+            local perpendicular = tex._isVert and math.abs(tex._pos - focusX) or math.abs(tex._pos - focusYFromTop)
+            if perpendicular < radius then
+                local halfSpan = math.sqrt(radiusSquared - perpendicular * perpendicular)
+                local segSize = math.max((halfSpan * 2) / GRID_DRAG_LIGHT_SEGMENTS, lineWidth)
+                local r = tex._isWhite and 1 or (grid._accentR or tex._r or 1)
+                local g = tex._isWhite and 1 or (grid._accentG or tex._g or 1)
+                local b = tex._isWhite and 1 or (grid._accentB or tex._b or 1)
+
+                if tex._isVert then
+                    local spanStart = math.max(0, focusY - halfSpan)
+                    local spanEnd = math.min(height, focusY + halfSpan)
+                    local segY = spanStart
+                    while segY < spanEnd do
+                        local segEnd = math.min(segY + segSize, spanEnd)
+                        local midY = (segY + segEnd) * 0.5
+                        local dx = tex._pos - focusX
+                        local dy = midY - focusY
+                        local distSquared = dx * dx + dy * dy
+                        if distSquared < radiusSquared then
+                            local t = 1 - math.sqrt(distSquared) / radius
+                            local alpha = GRID_DRAG_LIGHT_BOOST * t * t
+                            if alpha > 0.003 then
+                                glowIdx = glowIdx + 1
+                                local glow = GetGridGlow(grid, glowIdx)
+                                glow:SetColorTexture(r, g, b, alpha)
+                                glow:ClearAllPoints()
+                                glow:SetSize(glowWidth, segEnd - segY)
+                                glow:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", tex._pos - glowWidth * 0.5, segY)
+                                glow:Show()
+                            end
+                        end
+                        segY = segEnd
+                    end
+                else
+                    local spanStart = math.max(0, focusX - halfSpan)
+                    local spanEnd = math.min(width, focusX + halfSpan)
+                    local segX = spanStart
+                    local y = height - tex._pos - glowWidth * 0.5
+                    while segX < spanEnd do
+                        local segEnd = math.min(segX + segSize, spanEnd)
+                        local midX = (segX + segEnd) * 0.5
+                        local dx = midX - focusX
+                        local dy = tex._pos - focusYFromTop
+                        local distSquared = dx * dx + dy * dy
+                        if distSquared < radiusSquared then
+                            local t = 1 - math.sqrt(distSquared) / radius
+                            local alpha = GRID_DRAG_LIGHT_BOOST * t * t
+                            if alpha > 0.003 then
+                                glowIdx = glowIdx + 1
+                                local glow = GetGridGlow(grid, glowIdx)
+                                glow:SetColorTexture(r, g, b, alpha)
+                                glow:ClearAllPoints()
+                                glow:SetSize(segEnd - segX, glowWidth)
+                                glow:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", segX, y)
+                                glow:Show()
+                            end
+                        end
+                        segX = segEnd
+                    end
+                end
+            end
+        end
+    end
+
+    for i = glowIdx + 1, #grid.glows do
+        grid.glows[i]:Hide()
+    end
+    grid._glowCount = glowIdx
+end
+
+function Movers:ShowGrid()
+    local grid = self:CreateGrid()
+    local overlay = EnsureGridOverlay(self)
+
+    grid:Rebuild()
+    self:ClearGridHighlight()
+    grid:SetAlpha(0)
+    grid:Show()
+
+    overlay:SetAlpha(0)
+    overlay:Show()
+
+    local elapsed = 0
+    grid:SetScript("OnUpdate", function(frame, dt)
+        elapsed = elapsed + dt
+        local progress = math.min(1, elapsed / GRID_FADE_IN_DURATION)
+        local flicker = 0
+        if progress < 0.9 then
+            local intensity = (1 - progress) * 0.7
+            flicker = (
+                math.sin(elapsed * 37.3) * 0.4 +
+                math.sin(elapsed * 13.7) * 0.35 +
+                math.sin(elapsed * 71.1) * 0.25
+            ) * intensity
+            if math.sin(elapsed * 5.3) > 0.85 and progress < 0.6 then
+                flicker = flicker - 0.5
+            end
+        end
+
+        frame:SetAlpha(math.max(0, math.min(1, progress + flicker)))
+        overlay:SetAlpha(math.min(1, progress))
+
+        if progress >= 1 then
+            frame:SetScript("OnUpdate", nil)
+            frame:SetAlpha(1)
+            overlay:SetAlpha(1)
+        end
+    end)
+
     self.Settings.gridEnabled = true
 
-    -- Update checkbox if nudge frame exists
     if self.NudgeFrame and self.NudgeFrame.gridCheckbox then
         self.NudgeFrame.gridCheckbox:SetChecked(true)
     end
 end
 
 function Movers:HideGrid()
+    self:ClearGridHighlight()
     if self.Grid then
-        self.Grid:Hide()
+        FadeOutFrame(self.Grid, GRID_FADE_OUT_DURATION)
+    end
+    if self.GridOverlay then
+        FadeOutFrame(self.GridOverlay, GRID_FADE_OUT_DURATION)
     end
     self.Settings.gridEnabled = false
 
-    -- Update checkbox if nudge frame exists
     if self.NudgeFrame and self.NudgeFrame.gridCheckbox then
         self.NudgeFrame.gridCheckbox:SetChecked(false)
     end
@@ -3467,7 +3766,7 @@ function Movers:MigrateAnchorPoints()
 
     -- profileVersion 세팅 (이후 마이그레이션 재실행 방지)
     local addonVersion = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("DDingUI", "Version")
-    profile.profileVersion = addonVersion or "1.2.5"
+    profile.profileVersion = addonVersion or "1.2.7.1"
 
     -- 구 pendingMoverMigration 플래그 정리
     profile.pendingMoverMigration = nil

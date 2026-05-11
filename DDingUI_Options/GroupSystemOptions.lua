@@ -79,6 +79,16 @@ local FILTER_VALUES = {
     ["ALL"]      = L["All"] or "전체",
 }
 
+local CDM_ENTRY_CACHE_TTL = 0.5
+local cdmEntryCache
+local cdmEntryCacheTime = 0
+
+local function InvalidateCDMIconEntryCache()
+    cdmEntryCache = nil
+    cdmEntryCacheTime = 0
+end
+DDingUI.InvalidateGroupCDMIconEntryCache = InvalidateCDMIconEntryCache
+
 local ANCHOR_VALUES = {
     ["CENTER"]      = "CENTER",
     ["TOP"]         = "TOP",
@@ -101,6 +111,8 @@ local function GetGS()
 end
 
 local function RefreshGroupSystem()
+    InvalidateCDMIconEntryCache()
+
     -- [FIX] 전투 중 named frame의 ClearAllPoints() 호출 → ADDON_ACTION_BLOCKED 방지
     -- 전투 종료 후 Refresh 예약
     if InCombatLockdown() then
@@ -137,21 +149,86 @@ end
 
 -- [FIX] 수동 생성 그룹에 아이템/장신구 추가 시 CustomIcons 그룹과 자동 연결
 -- sourceGroupKey가 없는 dynamic 그룹에 CustomIcons 그룹을 자동 생성하여 연결
+local CORE_CDM_GROUPS = {
+    Cooldowns = true,
+    Buffs = true,
+    Utility = true,
+}
+
+local function MarkSpecProfileDirty()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+        DDingUI.SpecProfiles:MarkDirty()
+    end
+end
+
 local function EnsureSourceGroup(groupName)
     local gs = GetGS()
     if not gs or not gs.groups or not gs.groups[groupName] then return nil end
     local grp = gs.groups[groupName]
+    local isCoreCDMGroup = CORE_CDM_GROUPS[groupName] == true
+    if isCoreCDMGroup and grp.groupType ~= "cdm" then
+        grp.groupType = "cdm"
+    end
+    local isCDMGroup = isCoreCDMGroup or grp.groupType ~= "dynamic"
     -- 이미 sourceGroupKey가 있으면 그대로 반환
-    if grp.sourceGroupKey then return grp.sourceGroupKey end
+    if grp.sourceGroupKey then
+        local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+        local sourceGroup = dynDB and dynDB.groups and dynDB.groups[grp.sourceGroupKey]
+        if sourceGroup then
+            if isCDMGroup then
+                sourceGroup.linkedCDMGroup = groupName
+                sourceGroup.enabled = grp.enabled ~= false
+            end
+            return grp.sourceGroupKey
+        end
+        grp.sourceGroupKey = nil
+    end
+
+    local customIcons = DDingUI.CustomIcons
+    if isCDMGroup and customIcons and customIcons.GetOrCreateSourceGroupForCDMGroup then
+        local sourceKey = customIcons:GetOrCreateSourceGroupForCDMGroup(groupName, grp.name or groupName)
+        if sourceKey then
+            MarkSpecProfileDirty()
+            return sourceKey
+        end
+    end
+
     -- CustomIcons 그룹 자동 생성
     local ci = DDingUI.CustomIcons
     if not ci or not ci.CreateDynamicGroup then return nil end
     local sourceKey = ci:CreateDynamicGroup(grp.name or groupName)
     if sourceKey then
         grp.sourceGroupKey = sourceKey
-        grp.groupType = "dynamic"
+        local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+        local sourceGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+        if sourceGroup then
+            sourceGroup.enabled = grp.enabled ~= false
+            if isCDMGroup then
+                sourceGroup.linkedCDMGroup = groupName
+            end
+        end
+        -- [FIX] grp.groupType = "dynamic" 강제 변경 제거 (기본그룹 CDM 억제 방지)
+        MarkSpecProfileDirty()
     end
     return sourceKey
+end
+
+local function GetUsableSpellAssignment(gs, spellName)
+    if not gs or not spellName or not gs.spellAssignments then return nil end
+    local assigned = gs.spellAssignments[spellName]
+    if not assigned then return nil end
+
+    local assignedGroup = gs.groups and gs.groups[assigned]
+    if not assignedGroup or assignedGroup.groupType == "dynamic" then
+        gs.spellAssignments[spellName] = nil
+        MarkSpecProfileDirty()
+        return nil
+    end
+    if assignedGroup.enabled == false then
+        return nil
+    end
+
+    return assigned
 end
 
 -- [12.0.1] 레이아웃만 갱신 (아이콘 크기/간격/방향 변경 시)
@@ -176,13 +253,8 @@ end
 -- 1. RefreshLayout: 게임 아이콘 레이아웃 즉시 갱신 (겹침 방지)
 -- 2. SoftRefresh: 그룹 설정 페이지는 서브탭이 없어서 FullRefresh → SetContent
 --    (전체 재빌드 = 창 닫힘). SoftRefresh는 콘텐츠만 재렌더링 (창 유지)
-local function SoftRefreshDynamicIcons()
-    -- 게임 레이아웃 갱신
-    if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
-        DDingUI.GroupSystem:RefreshLayout()
-    end
-    -- GUI 목록 갱신 (지연, SoftRefresh로 메뉴 닫히지 않음)
-    C_Timer.After(0.1, function()
+local function SoftRefreshGroupSystemOptions(delay)
+    local function refreshGUI()
         local configFrame = _G["DDingUI_ConfigFrame"]
         if not configFrame or not configFrame:IsShown() then return end
         -- 옵션 테이블 재생성 (RefreshConfigGUI의 soft 경로와 동일)
@@ -210,7 +282,20 @@ local function SoftRefreshDynamicIcons()
         if configFrame.SoftRefresh then
             configFrame:SoftRefresh()
         end
-    end)
+    end
+
+    C_Timer.After(delay or 0, refreshGUI)
+end
+
+local function SoftRefreshDynamicIcons()
+    InvalidateCDMIconEntryCache()
+
+    -- 게임 레이아웃 갱신
+    if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
+        DDingUI.GroupSystem:RefreshLayout()
+    end
+    -- GUI 목록 갱신 (지연, SoftRefresh로 메뉴 닫히지 않음)
+    SoftRefreshGroupSystemOptions(0.1)
 end
 
 -- [12.0.1] 새 그룹 이름 임시 저장 (입력과 생성 분리 — 포커스 잃을 때 리프레시 방지)
@@ -245,12 +330,38 @@ local GROUP_DISPLAY_NAMES = {
     ["Utility"]   = L["Utility Cooldowns"] or "보조 능력",
 }
 
+local function SafeCDMLayoutIndex(icon, fallback)
+    if not icon then return fallback or 0 end
+
+    local ok, value = pcall(function()
+        local layoutIndex = icon.layoutIndex
+        if layoutIndex == nil then return nil end
+        if issecretvalue and issecretvalue(layoutIndex) then return nil end
+        return layoutIndex
+    end)
+    if ok and type(value) == "number" then return value end
+
+    local okID, cooldownID = pcall(function()
+        local cdID = icon.cooldownID
+        if issecretvalue and issecretvalue(cdID) then return nil end
+        return cdID
+    end)
+    if okID and type(cooldownID) == "number" then return cooldownID end
+
+    return fallback or 0
+end
+
 -- CDMHookEngine에서 전체 뷰어 아이콘 목록 수집
 -- [FIX] CDMScanner는 BuffIcon/BuffBar만 스캔 → Essential/Utility 누락
 -- CDMHookEngine은 3개 뷰어 모두 스캔하므로 그룹 할당 그리드에 적합
 local function GetCDMIconEntries()
     local CDMHookEngine = DDingUI.CDMHookEngine
     if not CDMHookEngine then return {} end
+
+    local now = GetTime and GetTime() or 0
+    if cdmEntryCache and (now - cdmEntryCacheTime) <= CDM_ENTRY_CACHE_TTL then
+        return cdmEntryCache
+    end
 
     CDMHookEngine:RebuildMaps()
     local iconMap = CDMHookEngine:GetIconMap()
@@ -293,6 +404,7 @@ local function GetCDMIconEntries()
             name = spellName or "Unknown",
             icon = tex,
             viewerName = CDMHookEngine:GetIconSource(cooldownID) or "",
+            layoutIndex = SafeCDMLayoutIndex(icon, #result + 1),
         }
     end
 
@@ -371,12 +483,15 @@ local function GetCDMIconEntries()
                         name = spellName,
                         icon = tex,
                         viewerName = "BuffIconCooldownViewer",
+                        layoutIndex = SafeCDMLayoutIndex(icon, #result + 1),
                     }
                 end
             end
         end
     end
 
+    cdmEntryCache = result
+    cdmEntryCacheTime = now
     return result
 end
 
@@ -393,6 +508,309 @@ local function GetGSSpellName(entry)
     return name
 end
 
+local function GetDynamicIconTypeForEntry(entry, spellName)
+    if (spellName and spellName:match("^buff_")) or (entry and entry.viewerName == "BuffIconCooldownViewer") then
+        return "aura"
+    end
+    return "spell"
+end
+
+local function ResolveEntrySpellID(entry, spellName)
+    local spellID = entry and tonumber(entry.spellID)
+    if spellID and spellID > 0 then return spellID end
+
+    local rawName = (spellName or (entry and entry.name) or ""):gsub("^buff_", "")
+    if rawName ~= "" and C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(rawName)
+        spellID = info and tonumber(info.spellID)
+        if spellID and spellID > 0 then return spellID end
+    end
+    return nil
+end
+
+local GROUP_ORDER_DRAG_PREFIX = "__gs_icon_order__:"
+
+local function MakeGroupOrderDragKey(groupName)
+    return GROUP_ORDER_DRAG_PREFIX .. tostring(groupName or "")
+end
+
+local function ParseGroupOrderDragKey(groupKey)
+    if type(groupKey) ~= "string" then return nil end
+    return groupKey:match("^" .. GROUP_ORDER_DRAG_PREFIX .. "(.+)$")
+end
+
+local function MakeCDMOrderToken(spellName)
+    if not spellName or spellName == "" then return nil end
+    return "cdm:" .. spellName
+end
+
+local function MakeDynamicOrderToken(iconKey)
+    if not iconKey or iconKey == "" then return nil end
+    return "dyn:" .. tostring(iconKey)
+end
+
+local function BuildIconOrderMap(groupSettings)
+    local orderMap = {}
+    local iconOrder = groupSettings and groupSettings.iconOrder
+    if type(iconOrder) == "table" then
+        for i, token in ipairs(iconOrder) do
+            if type(token) == "string" and token ~= "" and not orderMap[token] then
+                orderMap[token] = i
+            end
+        end
+    end
+    return orderMap
+end
+
+local function SortRowsByIconOrder(groupSettings, rows)
+    local orderMap = BuildIconOrderMap(groupSettings)
+    table.sort(rows, function(a, b)
+        local aOrder = a.token and orderMap[a.token]
+        local bOrder = b.token and orderMap[b.token]
+        local aFallback = a.fallbackOrder or 0
+        local bFallback = b.fallbackOrder or 0
+        if aOrder or bOrder then
+            return (aOrder or (100000 + aFallback)) < (bOrder or (100000 + bFallback))
+        end
+        if aFallback ~= bFallback then return aFallback < bFallback end
+        return tostring(a.displayName or a.token or "") < tostring(b.displayName or b.token or "")
+    end)
+end
+
+local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames)
+    local rows = {}
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings or groupSettings.groupType == "dynamic" then return rows end
+
+    local targetViewer = GROUP_VIEWER_MAP[groupName]
+    local assignments = gs and gs.spellAssignments or {}
+    local seen = {}
+
+    for idx, entry in ipairs(allEntries or GetCDMIconEntries()) do
+        local spellName = GetGSSpellName(entry)
+        if spellName and not seen[spellName] and not (skipSpellNames and skipSpellNames[spellName]) then
+            local assigned = GetUsableSpellAssignment(gs, spellName)
+            local belongsToGroup = assigned == groupName or (not assigned and targetViewer and entry.viewerName == targetViewer)
+            if belongsToGroup then
+                seen[spellName] = true
+                rows[#rows + 1] = {
+                    kind = "cdm",
+                    token = MakeCDMOrderToken(spellName),
+                    spellName = spellName,
+                    entry = entry,
+                    isManual = assigned == groupName,
+                    fallbackOrder = tonumber(entry.layoutIndex) or idx,
+                }
+            end
+        end
+    end
+
+    if assignments then
+        for spellName, assignedGroup in pairs(assignments) do
+            if assignedGroup == groupName and not seen[spellName] and not (skipSpellNames and skipSpellNames[spellName]) then
+                seen[spellName] = true
+                rows[#rows + 1] = {
+                    kind = "cdm",
+                    token = MakeCDMOrderToken(spellName),
+                    spellName = spellName,
+                    isManual = true,
+                    fallbackOrder = 9000 + #rows,
+                }
+            end
+        end
+    end
+
+    SortRowsByIconOrder(groupSettings, rows)
+    return rows
+end
+
+local function CollectDynamicTokensForGroup(groupName, startFallback)
+    local rows = {}
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local sourceKey = groupSettings and EnsureSourceGroup(groupName)
+    if not sourceKey then return rows end
+
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local ciGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    if not ciGroup or not ciGroup.icons then return rows end
+
+    local base = startFallback or 10000
+    local seenDynamicIdentity = {}
+    for iconIdx, iconKey in ipairs(ciGroup.icons) do
+        local iconData = dynDB.iconData and dynDB.iconData[iconKey]
+        local skipDuplicate = false
+        if iconData and (iconData.type == "spell" or iconData.type == "aura") and iconData.id then
+            local identity = iconData.type .. ":" .. tostring(tonumber(iconData.id) or iconData.id)
+            if seenDynamicIdentity[identity] then
+                skipDuplicate = true
+            else
+                seenDynamicIdentity[identity] = true
+            end
+        end
+
+        if iconData and not skipDuplicate then
+            rows[#rows + 1] = {
+                kind = "dynamic",
+                token = MakeDynamicOrderToken(iconKey),
+                iconKey = iconKey,
+                iconIdx = iconIdx,
+                fallbackOrder = base + iconIdx,
+            }
+        end
+    end
+
+    return rows
+end
+
+local function CollectGroupOrderRows(groupName)
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return {} end
+
+    local rows = CollectCDMRowsForGroup(groupName)
+    local dynamicRows = CollectDynamicTokensForGroup(groupName, 10000)
+    for _, row in ipairs(dynamicRows) do
+        rows[#rows + 1] = row
+    end
+    SortRowsByIconOrder(groupSettings, rows)
+    return rows
+end
+
+function DDingUI:ReorderGroupSystemIcon(groupKey, sourceToken, targetToken, insertAfter)
+    local groupName = ParseGroupOrderDragKey(groupKey)
+    if not groupName or not sourceToken or not targetToken or sourceToken == targetToken then
+        return false
+    end
+
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return false end
+
+    local rows = CollectGroupOrderRows(groupName)
+    if #rows == 0 then return false end
+
+    local ordered = {}
+    local srcIdx, dstIdx
+    local seen = {}
+    for _, row in ipairs(rows) do
+        local token = row.token
+        if token and not seen[token] then
+            ordered[#ordered + 1] = token
+            seen[token] = true
+            if token == sourceToken then srcIdx = #ordered end
+            if token == targetToken then dstIdx = #ordered end
+        end
+    end
+
+    if not srcIdx or not dstIdx or srcIdx == dstIdx then return false end
+
+    local moving = table.remove(ordered, srcIdx)
+    if srcIdx < dstIdx then
+        dstIdx = dstIdx - 1
+    end
+
+    local insertIdx = insertAfter and (dstIdx + 1) or dstIdx
+    if insertIdx < 1 then insertIdx = 1 end
+    if insertIdx > #ordered + 1 then insertIdx = #ordered + 1 end
+    table.insert(ordered, insertIdx, moving)
+    groupSettings.iconOrder = ordered
+
+    RefreshGroupSystem()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
+    return true
+end
+
+local function FindDynamicIconInSourceGroup(sourceKey, iconType, spellID)
+    if not sourceKey or not iconType or not spellID then return nil end
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    local iconDataDB = dynDB and dynDB.iconData
+    if not dynGroup or not dynGroup.icons or not iconDataDB then return nil end
+
+    local wantedID = tonumber(spellID) or spellID
+    for _, iconKey in ipairs(dynGroup.icons) do
+        local iconData = iconDataDB[iconKey]
+        if iconData and iconData.type == iconType then
+            local existingID = tonumber(iconData.id) or iconData.id
+            if existingID == wantedID or tostring(existingID) == tostring(wantedID) then
+                return iconKey
+            end
+        end
+    end
+    return nil
+end
+
+local function PruneDuplicateDynamicSpellIcons(sourceKey)
+    if not sourceKey or DDingUI._pruningDynamicSpellIcons then return end
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    local iconDataDB = dynDB and dynDB.iconData
+    local ci = DDingUI.CustomIcons
+    if not dynGroup or not dynGroup.icons or not iconDataDB or not ci or not ci.RemoveDynamicIcon then return end
+
+    local seen = {}
+    local duplicates = {}
+    for _, iconKey in ipairs(dynGroup.icons) do
+        local iconData = iconDataDB[iconKey]
+        if iconData and (iconData.type == "spell" or iconData.type == "aura") and iconData.id then
+            local identity = iconData.type .. ":" .. tostring(tonumber(iconData.id) or iconData.id)
+            if seen[identity] then
+                duplicates[#duplicates + 1] = iconKey
+            else
+                seen[identity] = iconKey
+            end
+        end
+    end
+
+    if #duplicates == 0 then return end
+    DDingUI._pruningDynamicSpellIcons = true
+    for _, iconKey in ipairs(duplicates) do
+        ci:RemoveDynamicIcon(iconKey)
+    end
+    DDingUI._pruningDynamicSpellIcons = nil
+end
+
+local function AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName)
+    local sourceKey = EnsureSourceGroup(groupName)
+    if not sourceKey then return nil, nil, false end
+
+    PruneDuplicateDynamicSpellIcons(sourceKey)
+    local existingKey = FindDynamicIconInSourceGroup(sourceKey, iconType, spellID)
+    if existingKey then
+        return existingKey, sourceKey, true
+    end
+
+    local ci = DDingUI.CustomIcons
+    if not ci or not ci.AddDynamicIcon then return nil, sourceKey, false end
+
+    local iconKey = ci:AddDynamicIcon({
+        type = iconType,
+        id = spellID,
+        settings = {
+            sourceSpellName = spellName,
+            copiedFromCDM = true,
+        },
+    })
+    if iconKey then
+        ci:MoveIconToGroup(iconKey, sourceKey)
+    end
+    return iconKey, sourceKey, false
+end
+
+local function ClearDynamicSpellAssignment(groupName, spellName)
+    if not groupName or not spellName then return end
+    local gs = GetGS()
+    local group = gs and gs.groups and gs.groups[groupName]
+    if not group or group.groupType ~= "dynamic" then return end
+    if gs.spellAssignments and gs.spellAssignments[spellName] == groupName then
+        gs.spellAssignments[spellName] = nil
+    end
+end
+
 -- [REFACTOR] 인라인 그리드 업데이트 (groupName 인자로 받음)
 local function UpdateGroupAssignGrid(parent, groupName)
     if not parent or not parent._grids then return end
@@ -400,6 +818,9 @@ local function UpdateGroupAssignGrid(parent, groupName)
     local allEntries = GetCDMIconEntries()
     local gs = GetGS()
     local assignments = gs and gs.spellAssignments or {}
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local isDynamicGroup = groupSettings and groupSettings.groupType == "dynamic"
+    local sourceKey = (groupSettings and isDynamicGroup) and EnsureSourceGroup(groupName) or nil
 
     for _, grid in ipairs(parent._grids) do
         local targetViewer = grid._viewerKey
@@ -419,8 +840,24 @@ local function UpdateGroupAssignGrid(parent, groupName)
                 btn.spellName = GetGSSpellName(entry)
 
                 -- 할당 상태 확인
-                local assigned = btn.spellName and assignments[btn.spellName]
-                if assigned == groupName then
+                local assigned = GetUsableSpellAssignment(gs, btn.spellName)
+                local defaultAssigned = (not assigned) and (not isDynamicGroup) and targetViewer and entry.viewerName == targetViewer
+                local hasDynamicCopy = false
+                if isDynamicGroup and sourceKey then
+                    local iconType = GetDynamicIconTypeForEntry(entry, btn.spellName)
+                    local spellID = ResolveEntrySpellID(entry, btn.spellName)
+                    hasDynamicCopy = FindDynamicIconInSourceGroup(sourceKey, iconType, spellID) ~= nil
+                end
+
+                if isDynamicGroup then
+                    if hasDynamicCopy then
+                        btn:SetBackdropBorderColor(0.3, 1, 0.3, 1)
+                        btn.checkmark:Show()
+                    else
+                        btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+                        btn.checkmark:Hide()
+                    end
+                elseif assigned == groupName or defaultAssigned then
                     -- 이 그룹에 할당됨 → 골드 테두리 + 체크마크
                     btn:SetBackdropBorderColor(1, 0.82, 0, 1)
                     btn.checkmark:Show()
@@ -563,19 +1000,36 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                     GameTooltip:AddLine(displayName, 1, 0.82, 0)
 
                     local gsCurrent = GetGS()
-                    local assigned = self.spellName and gsCurrent and gsCurrent.spellAssignments and gsCurrent.spellAssignments[self.spellName]
-                    if assigned then
+                    local assigned = GetUsableSpellAssignment(gsCurrent, self.spellName)
+                    local grpSettings = gsCurrent and gsCurrent.groups and gsCurrent.groups[groupName]
+                    local isDynamic = grpSettings and grpSettings.groupType == "dynamic"
+                    local defaultAssigned = (not assigned) and (not isDynamic) and self.entry and GROUP_VIEWER_MAP[groupName] == self.entry.viewerName
+                    local hasDynamicCopy = false
+                    local sourceKey = isDynamic and EnsureSourceGroup(groupName) or nil
+                    if isDynamic and sourceKey then
+                        local iconType = GetDynamicIconTypeForEntry(self.entry, self.spellName)
+                        local spellID = ResolveEntrySpellID(self.entry, self.spellName)
+                        hasDynamicCopy = FindDynamicIconInSourceGroup(sourceKey, iconType, spellID) ~= nil
+                    end
+                    if isDynamic and hasDynamicCopy then
+                        GameTooltip:AddLine(L["Already added to this custom group"] or "이미 이 커스텀 그룹에 추가됨", 0.3, 1, 0.3)
+                    elseif assigned then
                         if assigned == groupName then
                             GameTooltip:AddLine(L["Assigned to this group"] or "이 그룹에 할당됨", 0.3, 1, 0.3)
                         else
                             GameTooltip:AddLine((L["Assigned to: "] or "할당: ") .. assigned, 1, 0.5, 0.3)
                         end
+                    elseif defaultAssigned then
+                        GameTooltip:AddLine(L["Assigned to this group"] or "이 그룹에 할당됨", 0.3, 1, 0.3)
+                        GameTooltip:AddLine(L["Auto (Default)"] or "자동 (기본)", 0.5, 0.5, 0.5)
                     else
                         GameTooltip:AddLine(L["Auto (Default)"] or "자동 (기본)", 0.5, 0.5, 0.5)
                     end
 
                     GameTooltip:AddLine(" ")
-                    local toggleText = rawget(L, "Click: Toggle Assignment") or "클릭: 할당 / 해제"
+                    local toggleText = isDynamic
+                        and (rawget(L, "Click: Add Copy") or "클릭: 커스텀 복사 추가")
+                        or (rawget(L, "Click: Toggle Assignment") or "클릭: 할당 / 해제")
                     GameTooltip:AddLine(toggleText, 0, 1, 0)
                     GameTooltip:Show()
                 end)
@@ -593,64 +1047,17 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                     local isDynamic = grpSettings and grpSettings.groupType == "dynamic"
 
                     if isDynamic then
-                        -- [FIX] 다이나믹 그룹: buff는 CDM이 추적 → AssignSpell만
-                        -- spell(쿨다운)만 CustomIcons 아이콘 생성
-                        local isBuff = self.spellName and self.spellName:match("^buff_")
-                        if isBuff then
-                            -- [FIX] 강화효과: CustomIcons aura 타입으로 독립 프레임 생성
-                            -- CDM reparent가 아닌 C_UnitAuras 기반 자체 추적
-                            local ci = DDingUI.CustomIcons
-                            if ci and ci.AddDynamicIcon then
-                                local spellID = self.entry and self.entry.spellID
-                                if (not spellID or spellID == 0) and C_Spell and C_Spell.GetSpellInfo then
-                                    local rawName = self.spellName:gsub("^buff_", "")
-                                    local info = C_Spell.GetSpellInfo(rawName)
-                                    spellID = info and info.spellID
-                                end
-                                if spellID and spellID > 0 then
-                                    local sourceKey = EnsureSourceGroup(groupName)
-                                    local iconKey = ci:AddDynamicIcon({type = "aura", id = spellID})
-                                    if iconKey and sourceKey then
-                                        ci:MoveIconToGroup(iconKey, sourceKey)
-                                    end
-                                    -- [FIX] AssignSpell 복원: 리로드 직후 CDM spellName 미준비 시
-                                    -- ClassifyIcon 1순위(spellAssignments) 폴백으로 올바른 그룹 분류 보장
-                                    -- 삭제 시 dyna_ func에서 spellAssignments도 동기 제거됨
-                                    local GroupMgr = DDingUI.GroupManager
-                                    if GroupMgr and self.spellName then
-                                        GroupMgr:AssignSpell(self.spellName, groupName)
-                                    end
-                                    SoftRefreshDynamicIcons()
-                                else
-                                    print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
-                                end
+                        -- 커스텀 그룹은 CDM 원본을 이동시키지 않고 CustomIcons 복사본만 추가한다.
+                        local iconType = GetDynamicIconTypeForEntry(self.entry, self.spellName)
+                        local spellID = ResolveEntrySpellID(self.entry, self.spellName)
+                        if spellID and spellID > 0 then
+                            local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, self.spellName)
+                            if iconKey then
+                                ClearDynamicSpellAssignment(groupName, self.spellName)
+                                SoftRefreshDynamicIcons()
                             end
                         else
-                            -- 주문(쿨다운): CustomIcons 아이콘 생성 + AssignSpell
-                            local ci = DDingUI.CustomIcons
-                            if ci and ci.AddDynamicIcon then
-                                local iconType = "spell"
-                                local spellID = self.entry and self.entry.spellID
-                                if (not spellID or spellID == 0) and C_Spell and C_Spell.GetSpellInfo then
-                                    local rawName = self.spellName:gsub("^buff_", "")
-                                    local info = C_Spell.GetSpellInfo(rawName)
-                                    spellID = info and info.spellID
-                                end
-                                if spellID and spellID > 0 then
-                                    local sourceKey = EnsureSourceGroup(groupName)
-                                    local iconKey = ci:AddDynamicIcon({type = iconType, id = spellID})
-                                    if iconKey and sourceKey then
-                                        ci:MoveIconToGroup(iconKey, sourceKey)
-                                    end
-                                    local GroupMgr = DDingUI.GroupManager
-                                    if GroupMgr and self.spellName then
-                                        GroupMgr:AssignSpell(self.spellName, groupName)
-                                    end
-                                    SoftRefreshDynamicIcons()
-                                else
-                                    print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
-                                end
-                            end
+                            print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
                         end
                     else
                         -- CDM 그룹: 기존 AssignSpell 경로
@@ -690,6 +1097,7 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
     end
     scanBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, currentY - 6)
     scanBtn:SetScript("OnClick", function()
+        InvalidateCDMIconEntryCache()
         if DDingUI.RefreshConfigGUI then
             DDingUI:RefreshConfigGUI()
         end
@@ -718,137 +1126,51 @@ end
 local function BuildAssignedSpellsArgs(groupName)
     local args = {}
     local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
     local count = 0
-    local fallbackOrder = 0
+    local rows = {}
 
-    -- 1. CDM 스펠 할당 (gs.spellAssignments)
-    -- [FIX] aura 동적 아이콘이 있으면 같은 buff의 CDM 항목 UI 스킵
-    local auraSpellNames = {}
-    local grpCfg = gs and gs.groups and gs.groups[groupName]
-    local sourceKey = grpCfg and grpCfg.sourceGroupKey
-    if grpCfg and type(grpCfg.iconOrder) == "table" and DDingUI.GroupManager and DDingUI.GroupManager.NormalizeGroupIconOrder then
-        DDingUI.GroupManager:NormalizeGroupIconOrder(groupName)
-    end
+    -- 1. CDM 기본/수동 아이콘도 "할당된 목록"처럼 보여준다.
+    -- 실제 DB를 강제로 채우지는 않고, 기본 뷰어 소속이면 자동 할당처럼 표시한다.
+    local cdmRows = CollectCDMRowsForGroup(groupName)
+    for _, row in ipairs(cdmRows) do
+        local spellName = row.spellName
+        local displayName = spellName and spellName:gsub("^buff_", "") or "Unknown"
+        local iconTex = (row.entry and row.entry.icon) or 134400
 
-    local orderMap = {}
-    local hasIconOrder = false
-    if grpCfg and type(grpCfg.iconOrder) == "table" then
-        for i, token in ipairs(grpCfg.iconOrder) do
-            if type(token) == "string" and token ~= "" and not orderMap[token] then
-                orderMap[token] = i
-                hasIconOrder = true
+        if iconTex == 134400 and spellName then
+            local ok, tex = pcall(function()
+                return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellName:gsub("^buff_", ""))
+            end)
+            if ok and tex and not (issecretvalue and issecretvalue(tex)) and tex ~= 0 and tex ~= "" and type(tex) == "number" then
+                iconTex = tex
             end
         end
+
+        row.displayName = displayName
+        row.iconTex = iconTex
+        rows[#rows + 1] = row
     end
 
-    local function GetDisplayOrder(token, fallbackIndex)
-        if token and orderMap[token] then
-            return 11 + (orderMap[token] * 0.01)
-        end
-        fallbackOrder = fallbackOrder + 1
-        if hasIconOrder then
-            return 21 + (fallbackOrder * 0.01)
-        end
-        return 11 + ((fallbackIndex or fallbackOrder) * 0.01)
-    end
-
-    if sourceKey then
-        local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
-        local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
-        if dynGroup and dynGroup.icons then
-            local iconDataDB = dynDB.iconData
-            for _, iconKey in ipairs(dynGroup.icons) do
-                local iconData = iconDataDB and iconDataDB[iconKey]
-                if iconData and iconData.type == "aura" and iconData.id then
-                    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconData.id)
-                    if info and info.name then
-                        auraSpellNames["buff_" .. info.name] = true
-                    end
-                end
-            end
-        end
-    end
-    if gs and gs.spellAssignments then
-        local cdmHook = DDingUI.CDMHookEngine
-        
-        local sortedList = {}
-        for spellName, grp in pairs(gs.spellAssignments) do
-            if grp == groupName and not auraSpellNames[spellName] then
-                table.insert(sortedList, spellName)
-            end
-        end
-        table.sort(sortedList, function(a, b)
-            local aOrder = orderMap["cdm:" .. tostring(a)]
-            local bOrder = orderMap["cdm:" .. tostring(b)]
-            if aOrder or bOrder then
-                return (aOrder or 100000) < (bOrder or 100000)
-            end
-            return tostring(a) < tostring(b)
-        end)
-
-        for _, spellName in ipairs(sortedList) do
-            count = count + 1
-            local displayName = spellName:gsub("^buff_", "")
-            local iconTex = 134400
-                            if cdmHook then
-                                local iconMap = cdmHook:GetIconMap()
-                                for cdId, iconFrame in pairs(iconMap) do
-                                    if cdmHook:GetSpellNameForID(cdId) == spellName then
-                                        local ok, tex = pcall(function() return iconFrame.Icon and iconFrame.Icon:GetTexture() end)
-                                        if ok and tex and not (issecretvalue and issecretvalue(tex)) and tex ~= 0 and tex ~= "" and type(tex) == "number" then iconTex = tex end
-                                        break
-                                    end
-                                end
-                            end
-
-                            -- 만약 여전히 134400(물음표)라면 Spell ID를 통해 C_Spell API로 텍스처를 시도
-                            if iconTex == 134400 then
-                                -- displayName을 통해 ID를 찾거나, 더 직관적으로 GetSpellTexture 시도
-                                local ok, tex = pcall(function() return C_Spell.GetSpellTexture(spellName:gsub("^buff_", "")) end)
-                                if ok and tex and not (issecretvalue and issecretvalue(tex)) and tex ~= 0 and tex ~= "" and type(tex) == "number" then
-                                    iconTex = tex
-                                end
-                            end
-
-            local iconStr = "|T" .. iconTex .. ":20:20:0:0:64:64:5:59:5:59|t "
-            local arrowPrefix = "|cff888888(" .. count .. ")|r "
-            local capturedSpell = spellName
-            local orderToken = "cdm:" .. tostring(capturedSpell)
-            args["cdma_" .. count] = {
-                type = "execute",
-                name = arrowPrefix .. iconStr .. displayName,
-                desc = (L["Click to unassign spell"] or "클릭시 할당 해제") .. "\n|cffaaaaaa" .. spellName .. "|r",
-                order = GetDisplayOrder(orderToken, count),
-                -- [FIX] _dragData 추가 → GUI.lua가 새 스타일 (다크배경 + X버튼)로 렌더링
-                _dragData = {
-                    groupKey = "__group_order__:" .. tostring(groupName),
-                    orderGroup = groupName,
-                    orderToken = orderToken,
-                    dragKind = "groupIcon",
-                    iconKey = capturedSpell,
-                    iconIdx = count,
-                },
-                func = function()
-                    if DDingUI.GroupManager then
-                        DDingUI.GroupManager:UnassignSpell(capturedSpell)
-                        SoftRefreshDynamicIcons()
-                    end
-                end,
-            }
-        end
-    end
-
-    -- [12.0.1] 2. 동적 그룹: CustomIcons 아이콘도 표시
-    if gs and gs.groups and gs.groups[groupName] then
-        local grpSettings = gs.groups[groupName]
-        if grpSettings.sourceGroupKey then
+    -- 2. 동적 그룹/하이브리드 CDM 그룹: CustomIcons 아이콘도 같은 목록에 섞는다.
+    local sourceGroupKey = groupSettings and EnsureSourceGroup(groupName)
+    if groupSettings and sourceGroupKey then
             local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
-            local ciGroup = dynDB and dynDB.groups and dynDB.groups[grpSettings.sourceGroupKey]
+            local ciGroup = dynDB and dynDB.groups and dynDB.groups[sourceGroupKey]
             if ciGroup and ciGroup.icons then
+                local seenDynamicIdentity = {}
                 for iconIdx, iconKey in ipairs(ciGroup.icons) do
-                    count = count + 1
                     local iconData = dynDB.iconData and dynDB.iconData[iconKey]
-                    if iconData then
+                    local skipDuplicate = false
+                    if iconData and (iconData.type == "spell" or iconData.type == "aura") and iconData.id then
+                        local identity = iconData.type .. ":" .. tostring(tonumber(iconData.id) or iconData.id)
+                        if seenDynamicIdentity[identity] then
+                            skipDuplicate = true
+                        else
+                            seenDynamicIdentity[identity] = true
+                        end
+                    end
+                    if iconData and not skipDuplicate then
                         local displayName, iconTex = iconKey, 134400
                         if iconData.type == "item" then
                             local itemID = iconData.id or 0
@@ -912,70 +1234,569 @@ local function BuildAssignedSpellsArgs(groupName)
                                 iconTex = 134400
                             end
                         end
-                        
-                        local iconStr = "|T" .. iconTex .. ":20:20:0:0:64:64:5:59:5:59|t "
-                        local capturedSourceKey = grpSettings.sourceGroupKey
-                        local capturedIconKey = iconKey
-                        local orderToken = "dyn:" .. tostring(capturedIconKey)
-                        local orderBase = GetDisplayOrder(orderToken, count)
-                        local totalIcons = #ciGroup.icons
-                        local arrowPrefix = ""
-                        if totalIcons > 1 then
-                            arrowPrefix = "|cff888888[" .. iconIdx .. "]|r "
-                        end
-                        args["dyna_" .. count] = {
-                            type = "execute",
-                            name = arrowPrefix .. iconStr .. displayName,
-                            desc = (L["Drag to reorder | Click to remove"] or "드래그: 순서 변경 | 클릭: 삭제"),
-                            order = orderBase,
-                            -- [FIX] 드래그&드롭 순서 변경용 데이터
-                            _dragData = {
-                                groupKey = "__group_order__:" .. tostring(groupName),
-                                orderGroup = groupName,
-                                orderToken = orderToken,
-                                dragKind = "groupIcon",
-                                sourceGroupKey = capturedSourceKey,
-                                iconKey = capturedIconKey,
-                                iconIdx = iconIdx,
-                            },
-                            func = function()
-                                -- [FIX] 관련 spellAssignments를 먼저 제거 (RemoveDynamicIcon이 iconData를 삭제하므로)
-                                local gsCur = GetGS()
-                                if gsCur and gsCur.spellAssignments then
-                                    local dynDBCur = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
-                                    local iconDataCur = dynDBCur and dynDBCur.iconData and dynDBCur.iconData[capturedIconKey]
-                                    if iconDataCur and iconDataCur.id then
-                                        local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconDataCur.id)
-                                        if spellInfo and spellInfo.name then
-                                            -- buff_ 접두사 버전과 일반 이름 둘 다 제거
-                                            gsCur.spellAssignments["buff_" .. spellInfo.name] = nil
-                                            gsCur.spellAssignments[spellInfo.name] = nil
-                                        end
-                                    end
-                                end
-                                -- 클릭 = 삭제
-                                if DDingUI.CustomIcons and DDingUI.CustomIcons.RemoveDynamicIcon then
-                                    DDingUI.CustomIcons:RemoveDynamicIcon(capturedIconKey)
-                                end
-                                SoftRefreshDynamicIcons()
-                            end,
+
+                        rows[#rows + 1] = {
+                            kind = "dynamic",
+                            token = MakeDynamicOrderToken(iconKey),
+                            iconKey = iconKey,
+                            iconIdx = iconIdx,
+                            iconType = iconData.type,
+                            displayName = displayName,
+                            iconTex = iconTex,
+                            fallbackOrder = 10000 + iconIdx,
                         }
                     end
                 end
             end
+    end
+
+    SortRowsByIconOrder(groupSettings, rows)
+
+    for _, row in ipairs(rows) do
+        count = count + 1
+        local iconTex = row.iconTex or 134400
+        local iconStr = "|T" .. iconTex .. ":20:20:0:0:64:64:5:59:5:59|t "
+        local arrowPrefix = "|cff888888[" .. count .. "]|r "
+
+        if row.kind == "cdm" then
+            local capturedSpell = row.spellName
+            local capturedToken = row.token
+            local capturedIsManual = row.isManual
+            args["cdma_" .. count] = {
+                type = "execute",
+                name = arrowPrefix .. iconStr .. (row.displayName or capturedSpell or "Unknown"),
+                desc = capturedIsManual
+                    and ((rawget(L, "Click to unassign spell") or "클릭시 할당 해제") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r")
+                    or ((rawget(L, "Default CDM icon. Drag to reorder.") or "기본 CDM 아이콘입니다. 드래그로 순서를 변경하세요.") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r"),
+                order = 11 + (count * 0.01),
+                _gridKind = "cdm",
+                _gridBadge = capturedIsManual and "CDM+" or "CDM",
+                _gridIconTex = iconTex,
+                _gridDisplayName = row.displayName or capturedSpell or "Unknown",
+                _gridCanRemove = capturedIsManual == true,
+                _dragData = {
+                    groupKey = MakeGroupOrderDragKey(groupName),
+                    iconKey = capturedToken,
+                    iconIdx = count,
+                },
+                func = function()
+                    if capturedIsManual and DDingUI.GroupManager and capturedSpell then
+                        DDingUI.GroupManager:UnassignSpell(capturedSpell)
+                        SoftRefreshDynamicIcons()
+                    end
+                end,
+            }
+        elseif row.kind == "dynamic" then
+            local capturedSourceKey = groupSettings and groupSettings.sourceGroupKey
+            local capturedIconKey = row.iconKey
+            local useGroupOrder = groupSettings and groupSettings.groupType ~= "dynamic"
+            local badge = "CUSTOM"
+            if row.iconType == "item" then badge = "ITEM"
+            elseif row.iconType == "slot" then badge = "SLOT"
+            elseif row.iconType == "trinketProc" then badge = "PROC"
+            elseif row.iconType == "aura" then badge = "AURA"
+            elseif row.iconType == "spell" then badge = "SPELL"
+            elseif row.iconType == "racial" then badge = "RACE" end
+            args["dyna_" .. count] = {
+                type = "execute",
+                name = arrowPrefix .. iconStr .. (row.displayName or capturedIconKey or "Unknown"),
+                desc = (rawget(L, "Drag to reorder | Click to remove") or "드래그: 순서 변경 | 클릭: 삭제"),
+                order = 11 + (count * 0.01),
+                _gridKind = "dynamic",
+                _gridBadge = badge,
+                _gridIconTex = iconTex,
+                _gridDisplayName = row.displayName or capturedIconKey or "Unknown",
+                _gridCanRemove = true,
+                _dragData = {
+                    groupKey = useGroupOrder and MakeGroupOrderDragKey(groupName) or capturedSourceKey,
+                    iconKey = useGroupOrder and row.token or capturedIconKey,
+                    iconIdx = count,
+                },
+                func = function()
+                    -- [FIX] 관련 spellAssignments를 먼저 제거 (RemoveDynamicIcon이 iconData를 삭제하므로)
+                    local gsCur = GetGS()
+                    if gsCur and gsCur.spellAssignments then
+                        local dynDBCur = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+                        local iconDataCur = dynDBCur and dynDBCur.iconData and dynDBCur.iconData[capturedIconKey]
+                        if iconDataCur and iconDataCur.id then
+                            local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconDataCur.id)
+                            if spellInfo and spellInfo.name then
+                                -- 이전 버그로 dynamic 그룹에 기록된 할당만 정리한다.
+                                -- 다른 CDM 그룹에 사용자가 직접 할당한 값은 건드리지 않는다.
+                                local buffKey = "buff_" .. spellInfo.name
+                                if gsCur.spellAssignments[buffKey] == groupName then
+                                    gsCur.spellAssignments[buffKey] = nil
+                                end
+                                if gsCur.spellAssignments[spellInfo.name] == groupName then
+                                    gsCur.spellAssignments[spellInfo.name] = nil
+                                end
+                            end
+                        end
+                    end
+                    -- 클릭 = 삭제
+                    if DDingUI.CustomIcons and DDingUI.CustomIcons.RemoveDynamicIcon then
+                        DDingUI.CustomIcons:RemoveDynamicIcon(capturedIconKey)
+                    end
+                    SoftRefreshDynamicIcons()
+                end,
+            }
         end
     end
 
     if count == 0 then
         args.emptyAssigned = {
             type = "description",
-            name = "|cff888888" .. (L["No manual assignments. Use Quick Assign or Spell ID below."] or "수동 할당 없음. 아래의 빠른 할당이나 입력창을 이용하세요.") .. "|r",
+            name = "|cff888888" .. (rawget(L, "No manual assignments. Use Quick Assign or Spell ID below.") or "수동 할당 없음. 아래의 빠른 할당이나 입력창을 이용하세요.") .. "|r",
             order = 11,
             width = "full",
         }
     end
 
     return args
+end
+
+local function GetAssignedGridRows(groupName)
+    local optionArgs = BuildAssignedSpellsArgs(groupName)
+    local rows = {}
+    local emptyText
+
+    for key, opt in pairs(optionArgs or {}) do
+        if opt and opt.type == "execute" and opt._dragData then
+            rows[#rows + 1] = {
+                key = key,
+                option = opt,
+                order = tonumber(opt.order) or 9999,
+            }
+        elseif opt and opt.type == "description" and opt.name then
+            emptyText = opt.name
+        end
+    end
+
+    table.sort(rows, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return tostring(a.key or "") < tostring(b.key or "")
+    end)
+
+    return rows, emptyText
+end
+
+local function StripIconGridText(text)
+    text = tostring(text or "")
+    text = text:gsub("|T.-|t%s*", "")
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
+    text = text:gsub("|r", "")
+    text = text:gsub("^%[%d+%]%s*", "")
+    return text
+end
+
+local function GetGridOptionName(opt)
+    if not opt then return "Unknown" end
+    if opt._gridDisplayName then return opt._gridDisplayName end
+    local name = opt.name
+    if type(name) == "function" then name = name() end
+    return StripIconGridText(name)
+end
+
+local function GetGridOptionIcon(opt)
+    if opt and opt._gridIconTex then return opt._gridIconTex end
+    local name = opt and opt.name
+    if type(name) == "function" then name = name() end
+    local tex = name and tostring(name):match("|T([^:|]+)")
+    return tonumber(tex) or tex or 134400
+end
+
+function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
+    local rows = GetAssignedGridRows(groupName)
+    local count = #rows
+    if count == 0 then return 34 end
+    local tileW, tileH, gap = 68, 72, 8
+    width = tonumber(width) or 760
+    local cols = math.max(1, math.floor((width - 20 + gap) / (tileW + gap)))
+    cols = math.min(cols, 10)
+    return math.ceil(count / cols) * (tileH + gap) + 4
+end
+
+function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
+    if not parent then return end
+
+    local rows, emptyText = GetAssignedGridRows(groupName)
+    local width = parent:GetWidth()
+    if not width or width < 240 then width = 760 end
+
+    local tileW, tileH, iconSize, gap = 68, 72, 42, 8
+    local cols = math.max(1, math.floor((width - 20 + gap) / (tileW + gap)))
+    cols = math.min(cols, 10)
+
+    local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
+    local accentR, accentG, accentB = 0.3, 0.85, 1
+    local normalBorderA, hoverBorderA = 0.22, 0.9
+    local dragState = { active = false }
+
+    local function CallOptionFunc(opt)
+        if opt and type(opt.func) == "function" then
+            opt.func()
+        end
+    end
+
+    local function RefreshGridLater()
+        if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
+            DDingUI.GroupSystem:RefreshLayout()
+        end
+        SoftRefreshDynamicIcons()
+    end
+
+    local function EnsureGhost()
+        local ghost = DDingUI._assignedIconGridGhost
+        if ghost then return ghost end
+
+        ghost = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        ghost:SetFrameStrata("TOOLTIP")
+        ghost:SetSize(170, 34)
+        ghost:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        ghost:SetBackdropColor(0.04, 0.06, 0.08, 0.92)
+        ghost:SetBackdropBorderColor(accentR, accentG, accentB, 0.9)
+
+        ghost.icon = ghost:CreateTexture(nil, "ARTWORK")
+        ghost.icon:SetSize(24, 24)
+        ghost.icon:SetPoint("LEFT", ghost, "LEFT", 5, 0)
+        ghost.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+        ghost.text = ghost:CreateFontString(nil, "OVERLAY")
+        ghost.text:SetFont(gf, 11, "")
+        ghost.text:SetShadowOffset(1, -1)
+        ghost.text:SetShadowColor(0, 0, 0, 1)
+        ghost.text:SetPoint("LEFT", ghost.icon, "RIGHT", 6, 0)
+        ghost.text:SetPoint("RIGHT", ghost, "RIGHT", -6, 0)
+        ghost.text:SetJustifyH("LEFT")
+
+        ghost:SetScript("OnUpdate", function(g)
+            local cx, cy = GetCursorPosition()
+            local s = UIParent:GetEffectiveScale()
+            g:ClearAllPoints()
+            g:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / s + 12, cy / s - 10)
+        end)
+        ghost:Hide()
+        DDingUI._assignedIconGridGhost = ghost
+        return ghost
+    end
+
+    local function InstallHover(btn, isAssigned)
+        local progress, target = 0, 0
+        local dur = 0.10
+        local baseAlpha = isAssigned and 1 or 0.58
+        local hoverAlpha = 1
+        local function Apply(t)
+            btn:SetAlpha(baseAlpha + (hoverAlpha - baseAlpha) * t)
+            btn:SetBackdropBorderColor(
+                accentR * t + 0.15 * (1 - t),
+                accentG * t + 0.15 * (1 - t),
+                accentB * t + 0.15 * (1 - t),
+                normalBorderA + (hoverBorderA - normalBorderA) * t
+            )
+        end
+        local function OnUpdate(self, elapsed)
+            local dir = (target == 1) and 1 or -1
+            progress = progress + dir * (elapsed / dur)
+            if (dir == 1 and progress >= 1) or (dir == -1 and progress <= 0) then
+                progress = target
+                self:SetScript("OnUpdate", nil)
+            end
+            Apply(progress)
+        end
+        Apply(0)
+        btn._ddGridHoverIn = function(self)
+            target = 1
+            self:SetScript("OnUpdate", OnUpdate)
+        end
+        btn._ddGridHoverOut = function(self)
+            target = 0
+            self:SetScript("OnUpdate", OnUpdate)
+        end
+    end
+
+    local function IsDropAfterGridTarget(button)
+        if not button or not button.GetLeft or not button.GetRight then return false end
+        local left = button:GetLeft()
+        local right = button:GetRight()
+        if not left or not right then return false end
+
+        local cursorX = GetCursorPosition()
+        local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+        if not scale or scale == 0 then scale = 1 end
+        local cursorUIX = cursorX / scale
+        return cursorUIX > ((left + right) * 0.5)
+    end
+
+    local function PositionInsertIndicator(indicator, targetBtn)
+        if not indicator or not targetBtn then return end
+
+        local insertAfter = IsDropAfterGridTarget(targetBtn)
+        local side = insertAfter and "RIGHT" or "LEFT"
+        local offset = math.max(3, math.floor((gap or 0) * 0.5))
+
+        indicator:ClearAllPoints()
+        indicator:SetHeight(tileH + 8)
+        indicator:SetFrameLevel((targetBtn:GetFrameLevel() or 1) + 20)
+        indicator:SetPoint("CENTER", targetBtn, side, insertAfter and offset or -offset, 0)
+        indicator._ddSide = side
+    end
+
+    local function EnsureInsertIndicator()
+        local indicator = parent._ddInsertIndicator
+        if indicator then return indicator end
+
+        indicator = CreateFrame("Frame", nil, parent)
+        indicator:SetSize(10, tileH + 8)
+        indicator:Hide()
+
+        indicator.glow = indicator:CreateTexture(nil, "BACKGROUND")
+        indicator.glow:SetPoint("TOP", indicator, "TOP", 0, 0)
+        indicator.glow:SetPoint("BOTTOM", indicator, "BOTTOM", 0, 0)
+        indicator.glow:SetWidth(10)
+        indicator.glow:SetColorTexture(accentR, accentG, accentB, 0.22)
+
+        indicator.core = indicator:CreateTexture(nil, "ARTWORK")
+        indicator.core:SetPoint("TOP", indicator, "TOP", 0, -2)
+        indicator.core:SetPoint("BOTTOM", indicator, "BOTTOM", 0, 2)
+        indicator.core:SetWidth(2)
+        indicator.core:SetColorTexture(0.75, 1, 0.82, 0.95)
+
+        indicator:SetScript("OnUpdate", function(self, elapsed)
+            if not dragState.active or not self._ddTargetBtn or not self._ddTargetBtn:IsShown() then
+                self:Hide()
+                return
+            end
+
+            self._ddPulse = (self._ddPulse or 0) + elapsed * 6
+            local pulse = (math.sin(self._ddPulse) + 1) * 0.5
+            self.glow:SetAlpha(0.34 + pulse * 0.18)
+            self.core:SetAlpha(0.78 + pulse * 0.22)
+            PositionInsertIndicator(self, self._ddTargetBtn)
+        end)
+
+        parent._ddInsertIndicator = indicator
+        return indicator
+    end
+
+    local function HideInsertIndicator()
+        local indicator = parent._ddInsertIndicator
+        if indicator then
+            indicator._ddTargetBtn = nil
+            indicator:Hide()
+        end
+    end
+
+    local function ShowInsertIndicator(targetBtn)
+        if not dragState.active or not targetBtn then
+            HideInsertIndicator()
+            return
+        end
+
+        local dropFrame = targetBtn._ddAssignedDropFrame or targetBtn
+        if dropFrame == dragState.sourceBtn then
+            HideInsertIndicator()
+            return
+        end
+
+        local src = dragState.sourceData
+        local dst = targetBtn._ddAssignedDropData or dropFrame._ddAssignedDropData
+        if not src or not dst or src.groupKey ~= dst.groupKey or src.iconKey == dst.iconKey then
+            HideInsertIndicator()
+            return
+        end
+
+        local indicator = EnsureInsertIndicator()
+        indicator._ddTargetBtn = dropFrame
+        PositionInsertIndicator(indicator, dropFrame)
+        indicator:Show()
+    end
+
+    local function StartDrag(btn, opt)
+        if not opt or not opt._dragData then return end
+        dragState.active = true
+        dragState.sourceBtn = btn
+        dragState.sourceData = opt._dragData
+        btn:SetAlpha(0.32)
+
+        local ghost = EnsureGhost()
+        ghost.icon:SetTexture(GetGridOptionIcon(opt))
+        ghost.text:SetText(GetGridOptionName(opt))
+        ghost:Show()
+    end
+
+    local function StopDrag(btn)
+        if not dragState.active then return end
+        if btn then btn:SetAlpha(btn._ddBaseAlpha or 1) end
+        local ghost = DDingUI._assignedIconGridGhost
+        if ghost then ghost:Hide() end
+        HideInsertIndicator()
+
+        local frames = GetMouseFoci and GetMouseFoci() or { GetMouseFocus and GetMouseFocus() }
+        local targetBtn
+        for _, f in ipairs(frames) do
+            if f and f._ddAssignedDropData and f ~= dragState.sourceBtn then
+                targetBtn = f
+                break
+            elseif f and f:GetParent() and f:GetParent()._ddAssignedDropData and f:GetParent() ~= dragState.sourceBtn then
+                targetBtn = f:GetParent()
+                break
+            end
+        end
+
+        if targetBtn and targetBtn._ddAssignedDropData and dragState.sourceData then
+            local src = dragState.sourceData
+            local dst = targetBtn._ddAssignedDropData
+            if src.groupKey == dst.groupKey and src.iconKey ~= dst.iconKey then
+                local dropFrame = targetBtn._ddAssignedDropFrame or targetBtn
+                local insertAfter = IsDropAfterGridTarget(dropFrame)
+                local handled = false
+                if DDingUI.ReorderGroupSystemIcon then
+                    handled = DDingUI:ReorderGroupSystemIcon(src.groupKey, src.iconKey, dst.iconKey, insertAfter) == true
+                end
+                if not handled and DDingUI.CustomIcons and DDingUI.CustomIcons.ReorderIconInGroup then
+                    DDingUI.CustomIcons:ReorderIconInGroup(src.groupKey, src.iconKey, dst.iconKey, insertAfter)
+                    handled = true
+                end
+                if handled then
+                    RefreshGridLater()
+                end
+            end
+        end
+
+        dragState.active = false
+        dragState.sourceBtn = nil
+        dragState.sourceData = nil
+    end
+
+    if #rows == 0 then
+        local msg = parent:CreateFontString(nil, "OVERLAY")
+        msg:SetFont(gf, 12, "")
+        msg:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -4)
+        msg:SetText(emptyText or "|cff888888No assigned icons.|r")
+        msg:SetTextColor(0.65, 0.65, 0.65, 1)
+        parent:SetHeight(34)
+        return
+    end
+
+    for idx, row in ipairs(rows) do
+        local opt = row.option
+        local col = (idx - 1) % cols
+        local rowIdx = math.floor((idx - 1) / cols)
+        local x = 10 + col * (tileW + gap)
+        local y = 2 + rowIdx * (tileH + gap)
+        local isDynamic = opt._gridKind == "dynamic"
+        local isAssigned = isDynamic or opt._gridCanRemove
+
+        local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+        btn:SetSize(tileW, tileH)
+        btn:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+        btn:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        btn:SetBackdropColor(0.04, 0.055, 0.07, isDynamic and 0.72 or 0.48)
+        btn:SetBackdropBorderColor(0.15, 0.15, 0.15, normalBorderA)
+        btn._ddAssignedDropData = opt._dragData
+        btn._ddAssignedDropFrame = btn
+        btn._ddBaseAlpha = isAssigned and 1 or 0.58
+        btn:SetAlpha(btn._ddBaseAlpha)
+        btn:RegisterForClicks("LeftButtonUp")
+        btn:RegisterForDrag("LeftButton")
+
+        local icon = btn:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(iconSize, iconSize)
+        icon:SetPoint("TOP", btn, "TOP", 0, -5)
+        icon:SetTexture(GetGridOptionIcon(opt))
+        icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+        local badge = btn:CreateFontString(nil, "OVERLAY")
+        badge:SetFont(gf, 8, "")
+        badge:SetPoint("TOPLEFT", btn, "TOPLEFT", 4, -4)
+        badge:SetText(opt._gridBadge or "CDM")
+        badge:SetTextColor(isDynamic and accentR or 1, isDynamic and accentG or 1, isDynamic and accentB or 1, 0.88)
+
+        local orderText = btn:CreateFontString(nil, "OVERLAY")
+        orderText:SetFont(gf, 8, "")
+        orderText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -4, -4)
+        orderText:SetText(idx)
+        orderText:SetTextColor(0.8, 0.8, 0.8, 0.55)
+
+        local label = btn:CreateFontString(nil, "OVERLAY")
+        label:SetFont(gf, 9, "")
+        label:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", -8, -3)
+        label:SetPoint("TOPRIGHT", icon, "BOTTOMRIGHT", 8, -3)
+        label:SetHeight(18)
+        label:SetJustifyH("CENTER")
+        label:SetText(GetGridOptionName(opt))
+        label:SetTextColor(0.9, 0.9, 0.9, isAssigned and 0.82 or 0.55)
+
+        InstallHover(btn, isAssigned)
+
+        btn:SetScript("OnEnter", function(self)
+            if dragState.active and dragState.sourceBtn ~= self then
+                self:SetBackdropBorderColor(0.25, 1, 0.35, 1)
+                ShowInsertIndicator(self)
+            else
+                HideInsertIndicator()
+                self:_ddGridHoverIn()
+            end
+            local desc = opt.desc
+            if type(desc) == "function" then desc = desc() end
+            if desc and desc ~= "" then
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText(desc, 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        btn:SetScript("OnLeave", function(self)
+            self:_ddGridHoverOut()
+            HideInsertIndicator()
+            GameTooltip:Hide()
+        end)
+        btn:SetScript("OnDragStart", function(self)
+            StartDrag(self, opt)
+        end)
+        btn:SetScript("OnDragStop", function(self)
+            StopDrag(self)
+        end)
+        btn:SetScript("OnClick", function()
+            if opt._gridCanRemove then
+                CallOptionFunc(opt)
+            end
+        end)
+
+        if opt._gridCanRemove then
+            local xBtn = CreateFrame("Button", nil, btn, "BackdropTemplate")
+            xBtn:SetSize(14, 14)
+            xBtn:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -3, 3)
+            xBtn:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+            xBtn:SetBackdropColor(0.18, 0.04, 0.04, 0.9)
+            xBtn:SetBackdropBorderColor(0.5, 0.12, 0.12, 0.9)
+            xBtn._ddAssignedDropData = opt._dragData
+            xBtn._ddAssignedDropFrame = btn
+            local xText = xBtn:CreateFontString(nil, "OVERLAY")
+            xText:SetFont(gf, 9, "")
+            xText:SetPoint("CENTER")
+            xText:SetText("X")
+            xText:SetTextColor(1, 0.65, 0.65, 0.95)
+            xBtn:SetScript("OnEnter", function(self)
+                if dragState.active then
+                    ShowInsertIndicator(self)
+                else
+                    self:SetBackdropColor(0.65, 0.08, 0.08, 1)
+                    xText:SetTextColor(1, 1, 1, 1)
+                end
+            end)
+            xBtn:SetScript("OnLeave", function(self)
+                self:SetBackdropColor(0.18, 0.04, 0.04, 0.9)
+                xText:SetTextColor(1, 0.65, 0.65, 0.95)
+                HideInsertIndicator()
+            end)
+            xBtn:SetScript("OnClick", function()
+                CallOptionFunc(opt)
+            end)
+        end
+    end
+
+    local totalRows = math.ceil(#rows / cols)
+    parent:SetHeight(totalRows * (tileH + gap) + 4)
 end
 
 -- 스펠 이름/ID → GroupManager 할당용 이름 변환
@@ -1301,7 +2122,17 @@ local function CreateGroupOptions(groupName, order)
             set = function(_, val)
                 local gs = GetGS()
                 if gs and gs.groups[groupName] then
-                    gs.groups[groupName].enabled = val; RefreshGroupSystem()
+                    local grp = gs.groups[groupName]
+                    grp.enabled = val == true
+                    if grp.groupType == "dynamic" and grp.sourceGroupKey then
+                        local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+                        local sourceGroup = dynDB and dynDB.groups and dynDB.groups[grp.sourceGroupKey]
+                        if sourceGroup then
+                            sourceGroup.enabled = grp.enabled
+                        end
+                    end
+                    RefreshGroupSystem()
+                    SoftRefreshGroupSystemOptions(0)
                 end
             end,
         },
@@ -1321,11 +2152,10 @@ local function CreateGroupOptions(groupName, order)
                 local gs = GetGS()
                 if gs and gs.groups[groupName] then
                     gs.groups[groupName].groupCategory = val
+                    RefreshGroupSystem()
                 end
-                -- 전체 UI 재빌드 (빠른 할당 그리드가 카테고리에 따라 변경)
-                if DDingUI.RefreshConfigGUI then
-                    DDingUI:RefreshConfigGUI()
-                end
+                -- 빠른 할당/텍스트 탭은 카테고리별로 옵션 구성이 달라져서 즉시 재빌드가 필요
+                SoftRefreshGroupSystemOptions(0)
             end,
         } or nil,
         appearanceHeader = { type = "header", name = L["Appearance"] or "외관", order = 1 },
@@ -1612,10 +2442,8 @@ local function CreateGroupOptions(groupName, order)
         },
     }
 
-    -- 커스텀 그룹: 카테고리 선택 + 삭제 버튼
+    -- 커스텀 그룹: 삭제 버튼
     if not isCDM then
-        layoutArgs.categoryHeader = { type = "header", name = L["Group Category"] or "그룹 분류", order = 80 }
-        layoutArgs.groupCategory = GS_Select(groupName, "groupCategory", L["Category"] or "분류", 81, "skill", CATEGORY_VALUES)
         layoutArgs.deleteHeader = { type = "header", name = L["Delete Group"] or "그룹 삭제", order = 90 }
         layoutArgs.deleteGroup = {
             type = "execute", name = L["Delete Group"] or "그룹 삭제",
@@ -1665,26 +2493,10 @@ local function CreateGroupOptions(groupName, order)
     }
 
     -- ========== 2. 스펠 관리 ==========
-    -- [FIX] 버프 그룹 여부를 명확히 판별 (CDM 뷰어 매핑 우선)
-    local isBuffGrp = false
-    local targetViewer = GROUP_VIEWER_MAP[groupName]
-    if targetViewer then
-        isBuffGrp = (targetViewer == "BuffIconCooldownViewer")
-    else
-        isBuffGrp = (category == "buff")
-    end
-
-    local showAdvanced = not isBuffGrp
-    local showBuffAdvanced = true -- [DEBUG] 무조건 표시해서 UI 렌더링 문제인지 그룹 판별 문제인지 확인
-
-    -- 아이콘 안전 획득 헬퍼
-    local function GetSafeIcon(spellID)
-        if C_Spell and C_Spell.GetSpellTexture then
-            return C_Spell.GetSpellTexture(spellID) or 134830
-        end
-        return 134830
-    end
-
+    -- [FIX] CDM 기본 그룹에서도 아이템/장신구/종족특성 프리셋 표시
+    -- 이전: (not isCDM) and (category ~= "buff") → CDM 그룹에서 모든 프리셋 숨김
+    -- 현재: buff 카테고리만 제외 (CDM Buffs 그룹은 버프 전용이므로 아이템 추가 불필요)
+    local showAdvanced = (category ~= "buff")
     args.spellManagement = {
         type = "group",
         name = L["Spell Management"] or "스펠 관리",
@@ -1702,8 +2514,7 @@ local function CreateGroupOptions(groupName, order)
                     if isCDM then
                         -- CDM 그룹: spellAssignments 경로
                         local spellName = ResolveSpellInput(val, groupName)
-                        if spellName and DDingUI.GroupManager then
-                            DDingUI.GroupManager:AssignSpell(spellName, groupName)
+                        if spellName and DDingUI.GroupManager and DDingUI.GroupManager:AssignSpell(spellName, groupName) then
                             SoftRefreshDynamicIcons()
                             return true
                         end
@@ -1725,13 +2536,18 @@ local function CreateGroupOptions(groupName, order)
                         local ci = DDingUI.CustomIcons
                         if ci and ci.AddDynamicIcon then
                             -- [FIX] buff_ 접두사 처리: 버프 뷰어 그룹이면 aura 타입 (커스텀 그룹 호환)
+                            local isBuffGrp = false
+                            local targetViewer = GROUP_VIEWER_MAP[groupName]
+                            if targetViewer then
+                                isBuffGrp = (targetViewer == "BuffIconCooldownViewer")
+                            else
+                                local category = GetGroupCategory(groupName)
+                                isBuffGrp = (category == "buff")
+                            end
                             local iconType = isBuffGrp and "aura" or "spell"
                             
-                            local sourceKey = EnsureSourceGroup(groupName)
-                            local iconKey = ci:AddDynamicIcon({type = iconType, id = spellID})
-                            if iconKey and sourceKey then
-                                ci:MoveIconToGroup(iconKey, sourceKey)
-                            end
+                            local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, tostring(val))
+                            if not iconKey then return false end
                             -- 프레임 생성 완료까지 폴링 후 갱신
                             local attempts = 0
                             local poller = nil
@@ -1752,77 +2568,101 @@ local function CreateGroupOptions(groupName, order)
 
             -- ===========================================
             -- [QUICK-ADD] 커스텀 강화효과 빠른 추가 (버프 그룹 전용)
-            -- [FIX] name은 무조건 정적 문자열 — 함수/GetSafeIcon 호출 금지 (AceConfig 렌더링 뻗음 방지)
+            -- [FIX] CDM 기본그룹은 AssignSpell 경로, 커스텀 그룹은 CustomIcons 경로
             -- ===========================================
-            customBuffHeader = showBuffAdvanced and {
+            customBuffHeader = (category == "buff") and {
                 type = "header", name = "커스텀 강화효과 빠른 추가", order = 25,
             } or nil,
 
-            addLightsPotential = showBuffAdvanced and {
+            addLightsPotential = (category == "buff") and {
                 type = "execute", order = 25.1, width = "normal",
-                name = "빛의 잠재력 추가",
+                name = function()
+                    local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1236616) end)
+                    local icon = (ok and tex and tex ~= 0) and tex or 134830
+                    return "|T" .. icon .. ":16:16:0:0|t 빛의 잠재력"
+                end,
                 desc = "Spell ID: 1236616\n빛의 잠재력 (연금술 물약 강화 효과)을 추적합니다.",
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 1236616})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 1236616, settings = { customAuraDuration = 30, customAuraTrigger = "spellcast" }})
                     if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                     SoftRefreshDynamicIcons()
                 end,
             } or nil,
 
-            addRecklessness = showBuffAdvanced and {
+            addRecklessness = (category == "buff") and {
                 type = "execute", order = 25.2, width = "normal",
-                name = "무모함의 물약 추가",
+                name = function()
+                    local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1236994) end)
+                    local icon = (ok and tex and tex ~= 0) and tex or 134830
+                    return "|T" .. icon .. ":16:16:0:0|t 무모함의 물약"
+                end,
                 desc = "Spell ID: 1236994\n무모함의 물약 강화 효과를 추적합니다.",
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 1236994})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 1236994, settings = { customAuraDuration = 30, customAuraTrigger = "spellcast" }})
                     if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                     SoftRefreshDynamicIcons()
                 end,
             } or nil,
 
-            addDevouredDreams = showBuffAdvanced and {
+            addDevouredDreams = (category == "buff") and {
                 type = "execute", order = 25.3, width = "normal",
-                name = "삼켜진 꿈의 물약 추가",
+                name = function()
+                    local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1239479) end)
+                    local icon = (ok and tex and tex ~= 0) and tex or 134830
+                    return "|T" .. icon .. ":16:16:0:0|t 삼켜진 꿈의 물약"
+                end,
                 desc = "Spell ID: 1239479\n삼켜진 꿈의 물약 강화 효과를 추적합니다.",
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 1239479})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 1239479, settings = { customAuraDuration = 10, customAuraTrigger = "spellcast" }})
                     if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                     SoftRefreshDynamicIcons()
                 end,
             } or nil,
 
-            addTimeSpiral = showBuffAdvanced and {
+            addTimeSpiral = (category == "buff") and {
                 type = "execute", order = 25.4, width = "normal",
-                name = "시간의 와류 추가",
+                name = function()
+                    local ok, tex = pcall(function() return C_Spell.GetSpellTexture(374968) end)
+                    local icon = (ok and tex and tex ~= 0) and tex or 134830
+                    return "|T" .. icon .. ":16:16:0:0|t 시간의 와류"
+                end,
                 desc = "Spell ID: 374968\n시간의 와류 강화 효과를 추적합니다.",
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 374968})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 374968, settings = { customAuraDuration = 10, customAuraTrigger = "timespiral" }})
                     if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                     SoftRefreshDynamicIcons()
                 end,
             } or nil,
 
-            addBloodlust = showBuffAdvanced and {
+            addBloodlust = (category == "buff") and {
                 type = "execute", order = 25.5, width = "normal",
-                name = "블러드 (피의 욕망) 추가",
+                name = function()
+                    local ok, tex = pcall(function() return C_Spell.GetSpellTexture(2825) end)
+                    local icon = (ok and tex and tex ~= 0) and tex or 134830
+                    return "|T" .. icon .. ":16:16:0:0|t 피의 욕망 / 영웅심"
+                end,
                 desc = "Spell ID: 2825, 32182 등\n피의 욕망, 영웅심, 시간 왜곡 등 블러드류 버프를 추적합니다.",
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 2825})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 2825, settings = {
+                        customAuraDuration = 40,
+                        customAuraTrigger = "bloodlust",
+                        auraAliases = {2825, 32182, 80353, 90355, 160452, 264667, 390386},
+                    }})
                     if iconKey then
                         local db = DDingUI.db.profile.dynamicIcons
                         if db and db.iconData and db.iconData[iconKey] then
                             db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
-                            db.iconData[iconKey].settings.fallbackItems = "32182, 80353, 90355, 264667, 390386"
+                            db.iconData[iconKey].settings.auraAliases = {2825, 32182, 80353, 90355, 160452, 264667, 390386}
                         end
                         if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                     end
@@ -1985,7 +2825,7 @@ local function CreateGroupOptions(groupName, order)
                             local db = DDingUI.db.profile.dynamicIcons
                             if db and db.iconData and db.iconData[iconKey] then
                                 db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
-                                db.iconData[iconKey].settings.fallbackItems = "241301"
+                                db.iconData[iconKey].settings.fallbackItems = "245917,245916,241301"
                             end
                             if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                         end
@@ -2011,7 +2851,7 @@ local function CreateGroupOptions(groupName, order)
                             local db = DDingUI.db.profile.dynamicIcons
                             if db and db.iconData and db.iconData[iconKey] then
                                 db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
-                                db.iconData[iconKey].settings.fallbackItems = "241309"
+                                db.iconData[iconKey].settings.fallbackItems = "245898,245897,241309"
                             end
                             if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                         end
@@ -2093,15 +2933,17 @@ local function CreateGroupOptions(groupName, order)
                     SoftRefreshDynamicIcons()
                 end,
             } or nil,
-
         },
     }
 
-    -- [REFACTOR] 할당된 스펠 목록을 병합 (인라인 그룹 충돌 우회)
-    local assignedArgs = BuildAssignedSpellsArgs(groupName)
-    for k, v in pairs(assignedArgs) do
-        args.spellManagement.args[k] = v
-    end
+    -- [ELLESMERE] Assigned icons render as a compact visual grid.
+    args.spellManagement.args.assignedIconGrid = {
+        type = "groupAssignedIconGrid",
+        groupName = groupName,
+        order = 11,
+        width = "full",
+    }
+
 
     -- [Ayije 통합] 모든 그룹 동일 시각 효과 옵션 (CDM/커스텀 구분 없음)
     local visualArgs = BuildCustomVisualArgs(groupName)
@@ -2241,50 +3083,12 @@ local function BuildGroupSystemOptions(order)
 
     -- 그룹별 탭 생성
     local gs = GetGS()
-    local sorted = {}
     if gs and gs.groups then
+        local sorted = {}
         for name, settings in pairs(gs.groups) do
             sorted[#sorted + 1] = { name = name, order = settings.order or 999 }
         end
-        table.sort(sorted, function(a, b)
-            if a.order ~= b.order then return a.order < b.order end
-            return tostring(a.name) < tostring(b.name)
-        end)
-
-        local systemArgs = options.args.systemSettings and options.args.systemSettings.args
-        if systemArgs then
-            systemArgs.groupOrderHeader = {
-                type = "header",
-                name = "그룹 순서",
-                order = 30,
-            }
-            systemArgs.groupOrderDesc = {
-                type = "description",
-                name = "|cff888888그룹을 다른 그룹의 위쪽/아래쪽 절반에 드롭하면 앞/뒤로 끼워 넣습니다.|r",
-                order = 31,
-                width = "full",
-            }
-
-            for i, entry in ipairs(sorted) do
-                local groupName = entry.name
-                local displayName = GROUP_DISPLAY_NAMES[groupName]
-                    or (gs.groups[groupName] and gs.groups[groupName].name)
-                    or groupName
-                systemArgs["groupOrder_" .. i] = {
-                    type = "execute",
-                    name = "|cff888888[" .. i .. "]|r " .. tostring(displayName),
-                    desc = "드래그해서 그룹 순서를 변경합니다.",
-                    order = 31 + (i * 0.01),
-                    width = "full",
-                    _dragData = {
-                        groupKey = "__group_sort__",
-                        groupName = groupName,
-                        dragKind = "groupOrder",
-                        noClose = true,
-                    },
-                }
-            end
-        end
+        table.sort(sorted, function(a, b) return a.order < b.order end)
 
         for i, entry in ipairs(sorted) do
             options.args["group_" .. entry.name] = CreateGroupOptions(entry.name, i)

@@ -186,30 +186,34 @@ function IconViewers:SkinIcon(icon, settings)
 
     -- Skip if icon is being released/reset by Blizzard's pool system
     -- Use pcall to safely check cooldownID without triggering taint
-    local success, wasReset = pcall(function()
-        -- [FIX] DynBridge 프레임(_ddIconKey)은 cooldownID 없어도 리셋이 아님
-        if icon._ddIconKey then return false end
-        local id = iconData[icon]
-        return icon.cooldownID == nil and (id and id.skinned)
-    end)
-    if success and wasReset then
-        -- Frame was reset by CDM pool system - hide our borders and reset skinned flag
-        local id = iconData[icon]
-        if id then
-            if id.borders then
-                for _, borderTex in ipairs(id.borders) do
-                    borderTex:SetShown(false)
+    -- [FIX] _ddIsManaged 프레임은 건너뜀: 버프 갱신 중 cooldownID 일시 nil 가능
+    if not icon._ddIsManaged then
+        local success, wasReset = pcall(function()
+            -- [FIX] DynBridge 프레임(_ddIconKey)은 cooldownID 없어도 리셋이 아님
+            if icon._ddIconKey then return false end
+            local id = iconData[icon]
+            return icon.cooldownID == nil and (id and id.skinned)
+        end)
+        if success and wasReset then
+            -- Frame was reset by CDM pool system - hide our borders and reset skinned flag
+            local id = iconData[icon]
+            if id then
+                if id.borders then
+                    for _, borderTex in ipairs(id.borders) do
+                        borderTex:SetShown(false)
+                    end
                 end
+                id.skinned = nil  -- Reset so frame gets re-skinned when CDM reuses it
             end
-            id.skinned = nil  -- Reset so frame gets re-skinned when CDM reuses it
+            return
         end
-        return
     end
 
     -- Skip placeholder icons (empty CDM slot) -- [FIX: 복합 체크로 전투 중 재사용 프레임 오판 방지]
     -- [FIX] DynBridge 프레임(_ddIconKey)은 CDM 슬롯이 아니므로 placeholder 아님
+    -- [FIX] _ddIsManaged 프레임은 건너뜀: 전투 중 cooldownID secret value 가능
     local isPlaceholder = true
-    if icon._ddIconKey then
+    if icon._ddIsManaged or icon._ddIconKey then
         isPlaceholder = false
     else
         pcall(function()
@@ -322,6 +326,79 @@ function IconViewers:SkinIcon(icon, settings)
     -- Apply texture coordinates - this zooms/crops instead of stretching
     iconTexture:SetTexCoord(left, right, top, bottom)
 
+    -- [FIX] texcoord 캐시 저장 + CDM snap-back 훅 설치
+    icon._ddTexCoord = { left, right, top, bottom }
+
+    if not icon._ddTexSnapHooked then
+        -- [PERF] TLog: 인라인 boolean 체크로 교체 (함수 호출 비용 제거)
+        -- 디버그가 필요하면 /run DDingUI._texDebug=true
+        local _texDebug = DDingUI._texDebug
+
+        -- AddMaskTexture 훅
+        if iconTexture.AddMaskTexture then
+            hooksecurefunc(iconTexture, "AddMaskTexture", function(self, mask)
+                if icon._ddIsManaged and mask then
+                    if _texDebug then print("|cffff8888[TEX]|r AddMask", tostring(icon.cooldownID)) end
+                    self:RemoveMaskTexture(mask)
+                end
+            end)
+        end
+
+        -- SetTexCoord 훅
+        hooksecurefunc(iconTexture, "SetTexCoord", function(self)
+            if icon._ddIsManaged and icon._ddTexCoord and not icon._ddSettingTexCoord then
+                local tc = icon._ddTexCoord
+                icon._ddSettingTexCoord = true
+                self:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
+                icon._ddSettingTexCoord = false
+            end
+        end)
+
+        -- Hide 훅
+        hooksecurefunc(iconTexture, "Hide", function(self)
+            if icon._ddIsManaged then
+                self:Show()
+            end
+        end)
+
+        -- SetShown 훅
+        if iconTexture.SetShown then
+            hooksecurefunc(iconTexture, "SetShown", function(self, shown)
+                if icon._ddIsManaged and not shown then
+                    self:Show()
+                end
+            end)
+        end
+
+        -- SetAlpha 훅 (texture level)
+        hooksecurefunc(iconTexture, "SetAlpha", function(self, a)
+            if icon._ddIsManaged and a and a < 0.01 then
+                self:SetAlpha(1)
+            end
+        end)
+
+        -- SetVertexColor 훅 (alpha channel로 숨길 수 있음)
+        hooksecurefunc(iconTexture, "SetVertexColor", function(self, r, g, b, a)
+            if icon._ddIsManaged and a and a < 0.01 then
+                self:SetVertexColor(r or 1, g or 1, b or 1, 1)
+            end
+        end)
+
+        -- ClearAllPoints 훅 (앵커 제거 → 렌더링 안 됨)
+        hooksecurefunc(iconTexture, "ClearAllPoints", function(self)
+            if icon._ddIsManaged and not icon._ddSettingSkin then
+                self:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+                self:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
+            end
+        end)
+
+        -- SetTexture 훅 (nil로 설정 시 빈 텍스쳐)
+        -- [PERF] SetTexture 훅 제거: 로깅 전용이었으므로 성능에만 악영향
+        -- (디버그 필요 시 DDingUI._texDebug = true + 필요한 훅에서 개별 로깅)
+
+        icon._ddTexSnapHooked = true
+    end
+
     -- [REPARENT] 관리 아이콘도 동일하게 크기 적용 — snap-back 훅 우회 + 타겟 갱신
     if icon._ddIsManaged then
         icon._ddTargetWidth = iconWidth
@@ -359,37 +436,42 @@ function IconViewers:SkinIcon(icon, settings)
             cdd.swipeColorHooked = true
             hooksecurefunc(icon.Cooldown, "SetSwipeColor", function(self, r, g, b, a)
                 local cd = cdData[self]
-                if cd and cd.bypassColorHook then return end
-                if not cd then return end
+                if not cd or cd.bypassColorHook then return end
                 local s = cd.settings
                 local parentIcon = cd.parentIcon
                 if not parentIcon then return end
 
-                -- Detect yellow/gold aura swipe color
-                -- CDM uses (1.0, 0.95, 0.57) for aura duration, (0, 0, 0) for regular cooldown
+                -- [PERF] 변경 감지: 이전 isAuraSwipe 상태와 동일하면 전체 로직 스킵
                 local isAuraSwipe = r and g and b and r > 0.9 and g > 0.9 and b > 0.4
-                GetIconData(parentIcon).isAuraSwipe = isAuraSwipe
+                local pid = iconData[parentIcon]
+                if not pid then pid = {}; iconData[parentIcon] = pid end
+                local prevAura = pid.isAuraSwipe
+                pid.isAuraSwipe = isAuraSwipe
+                -- [PERF] 상태 변경 없으면 heavy 로직 전부 스킵 (매 프레임 → 전환 시에만)
+                if isAuraSwipe == prevAura then return end
 
-                -- [12.0.1] Hide Duration Text logic (dynamically toggle text display based on swipe type)
+                -- [12.0.1] Hide Duration Text logic (상태 전환 시에만 실행)
                 if s.hideDurationText then
-                    if isAuraSwipe then
-                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(true) end
-                        self.noCooldownCount = true
+                    -- [PERF] FontString 캐시: GetRegions() 임시 테이블 생성 방지
+                    if not cd._cachedFontStrings then
+                        cd._cachedFontStrings = {}
                         for _, region in ipairs({ self:GetRegions() }) do
                             if region:GetObjectType() == "FontString" and not region.hookedHideText then
-                                region:Hide()
-                            end
-                        end
-                    else
-                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(false) end
-                        self.noCooldownCount = nil
-                        for _, region in ipairs({ self:GetRegions() }) do
-                            if region:GetObjectType() == "FontString" and not region.hookedHideText then
-                                region:Show()
+                                cd._cachedFontStrings[#cd._cachedFontStrings + 1] = region
                             end
                         end
                     end
+                    if isAuraSwipe then
+                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(true) end
+                        self.noCooldownCount = true
+                        for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Hide() end
+                    else
+                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(false) end
+                        self.noCooldownCount = nil
+                        for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Show() end
+                    end
                 end
+
 
                 if isAuraSwipe and s then
                     -- Option 0: hideActiveState — convert aura swipe to normal cooldown swipe
@@ -417,13 +499,16 @@ function IconViewers:SkinIcon(icon, settings)
                         cd.bypassColorHook = nil
 
                         -- [FIX] 글로우가 이미 활성이면 재적용하지 않음 — 매 프레임 리셋 깜빡임 방지
+                        -- CDM이 매 프레임 SetSwipeColor를 호출하므로, 한번 적용 후 스킵해야 함
                         local pid = GetIconData(parentIcon)
                         -- [FIX] aura swipe 재감지 → 디바운스 제거 타이머 무효화
                         pid._glowRemoveTimer = nil
                         if pid.auraGlowActive then
+                            -- 글로우 타입이 변경된 경우에만 재적용
                             if pid.auraGlowType == (s.auraGlowType or "Pixel Glow") then
                                 -- do nothing — glow is already showing
                             else
+                                -- 타입 변경 → 기존 글로우 제거 후 아래에서 재적용
                                 pid.auraGlowActive = nil
                             end
                         end
@@ -484,20 +569,26 @@ function IconViewers:SkinIcon(icon, settings)
                     end
                 else
                     -- Not aura swipe (regular cooldown) - debounce glow removal
+                    -- CDM rapidly alternates between aura/cooldown swipe colors during updates
+                    -- Immediate removal causes glow flickering
                     local pid = iconData[parentIcon]
                     if pid and pid.auraGlowActive and s and s.auraGlow then
                         -- [FIX] 즉시 제거 금지 — 0.3초 디바운스로 CDM 순간 전환 무시
+                        -- swipe를 투명하게 유지하여 글로우가 보이는 상태 유지
                         cd.bypassColorHook = true
                         self:SetSwipeColor(0, 0, 0, 0)
                         cd.bypassColorHook = nil
 
+                        -- 디바운스 타이머 설정: 0.3초 후에도 aura swipe가 없으면 글로우 제거
                         pid._glowRemoveTimer = GetTime()
                         if not pid._glowRemoveScheduled then
                             pid._glowRemoveScheduled = true
                             C_Timer.After(0.35, function()
                                 pid._glowRemoveScheduled = nil
+                                -- 0.35초 시점에서 마지막 non-aura 이벤트가 아직 유효한지 확인
                                 if not pid._glowRemoveTimer then return end
                                 if (GetTime() - pid._glowRemoveTimer) < 0.3 then return end
+                                -- 0.3초 동안 aura swipe가 없었으면 = 오라 종료 → 글로우 제거
                                 if not pid.auraGlowActive then return end
                                 local activeGlowType = pid.auraGlowType
                                 pid.auraGlowActive = nil
@@ -674,9 +765,34 @@ function IconViewers:SkinIcon(icon, settings)
 
         -- Apply custom swipe color if set (for non-aura display)
         if settings.swipeColor and not settings.disableSwipeAnimation then
+            local pid = GetIconData(icon)
+            local currentColorOk, cr, cg, cb = pcall(function() return icon.Cooldown:GetSwipeColor() end)
+            local isPhysicallyYellow = currentColorOk and cr and cg and cb and cr > 0.9 and cg > 0.9 and cb > 0.4
+            local currentlyIsAura = isPhysicallyYellow or pid.isAuraSwipe or pid.auraGlowActive
+
+            if isPhysicallyYellow then
+                pid.isAuraSwipe = true
+            end
+
             local swipeColor = settings.swipeColor
             local sr, sg, sb, sa = SafeColor(swipeColor, 0, 0, 0, 0.8)
-            icon.Cooldown:SetSwipeColor(sr, sg, sb, sa)
+
+            if currentlyIsAura then
+                if settings.hideActiveState then
+                    icon.Cooldown:SetSwipeColor(sr, sg, sb, sa)
+                elseif settings.auraGlow then
+                    -- If auraGlow is active, keep the swipe native bypass transparent
+                    -- Do not let SkinIcon break the transparency set by the hook
+                    local cdd = GetCdData(icon.Cooldown)
+                    if cdd then cdd.bypassColorHook = true end
+                    icon.Cooldown:SetSwipeColor(0, 0, 0, 0)
+                    if cdd then cdd.bypassColorHook = nil end
+                end
+                -- If it's a native aura swipe and no override features are on, we leave it alone (skip SetSwipeColor)
+            else
+                -- Normal non-aura state
+                icon.Cooldown:SetSwipeColor(sr, sg, sb, sa)
+            end
         end
 
         -- Apply swipe reverse setting
@@ -873,12 +989,10 @@ function IconViewers:SkinIcon(icon, settings)
             fs:SetFont(font, desiredSize, "OUTLINE")
         end
 
-        -- [12.0.1] Stack/charge text color
-        local ctc = settings.countTextColor
-        if ctc then
-            local cr, cg, cb, ca = SafeColor(ctc, 1, 0.82, 0, 1)
-            fs:SetTextColor(cr, cg, cb, ca)
-        end
+        -- [12.0.1] Stack/charge text color — nil이면 흰색 기본값 적용 (CDM 노란색 폴백 방지)
+        local ctc = settings.countTextColor or {1, 1, 1, 1}
+        local cr, cg, cb, ca = SafeColor(ctc, 1, 1, 1, 1)
+        fs:SetTextColor(cr, cg, cb, ca)
 
     end
 

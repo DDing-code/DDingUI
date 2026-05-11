@@ -219,71 +219,58 @@ function IconViewers:HookViewers()
                 end
             end)
 
-            -- Event-based updates instead of OnUpdate for better performance
+            -- [P0 Ayije 패턴] C_Timer 클로저 생성 없이 dirty flag + 단일 OnUpdate 프로세서로 교체
+            -- 이벤트 핸들러는 dirty flag만 세팅 → OnUpdate 프로세서가 다음 프레임 처리 후 자신을 제거
             if name == "BuffIconCooldownViewer" then
-                -- Buff viewer: hook into UNIT_AURA events for immediate updates
-                local state = GetViewerState(viewer)
-                if not state.auraHook then
-                    state.auraHook = CreateFrame("Frame")
-                    state.auraHook:RegisterUnitEvent("UNIT_AURA", "player")
-                    state.auraHook:SetScript("OnEvent", function(_, event, unit)
-                        if unit == "player" and viewer:IsShown() then
-                            -- Throttled rescan to avoid spam (reduced delay for timer accuracy)
-                            if not GetViewerState(viewer).rescanPending then
-                                GetViewerState(viewer).rescanPending = true
-                                C_Timer.After(0.01, function()
-                                    GetViewerState(viewer).rescanPending = nil
-                                    if viewer:IsShown() and IconViewers.RescanViewer then
-                                        IconViewers:RescanViewer(viewer)
-                                    end
-                                end)
-                            end
+                local vs = GetViewerState(viewer)
+                if not vs.auraHook then
+                    vs.auraHook = CreateFrame("Frame")
+                    vs.auraHook:RegisterUnitEvent("UNIT_AURA", "player")
+                    vs.auraHook:SetScript("OnEvent", function(_, _, unit)
+                        if unit == "player" and viewer:IsShown() and not vs.rescanDirty then
+                            vs.rescanDirty = true
+                            -- [Ayije 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
+                            vs.auraHook:SetScript("OnUpdate", function(self)
+                                self:SetScript("OnUpdate", nil)  -- 1회 실행 후 즉시 제거
+                                vs.rescanDirty = false
+                                if viewer:IsShown() and IconViewers.RescanViewer then
+                                    IconViewers:RescanViewer(viewer)
+                                end
+                                -- [P0] ProcessPendingIcons 통합 처리
+                                if not InCombatLockdown() then
+                                    IconViewers:ProcessPendingIcons()
+                                end
+                            end)
                         end
                     end)
                 end
-
-                -- Minimal OnUpdate for pending icons only
-                local lastProcessTime = 0
-                viewer:HookScript("OnUpdate", function(f, elapsed)
-                    lastProcessTime = lastProcessTime + elapsed
-                    if lastProcessTime > 1.0 and not InCombatLockdown() then -- Process once per second
-                        lastProcessTime = 0
-                        IconViewers:ProcessPendingIcons()
-                    end
-                end)
+                -- [P0] 뷰어 HookScript OnUpdate 제거 — ProcessPendingIcons는 이벤트 핸들러 내 통합 처리
             else
-                -- Other viewers: use SPELL_UPDATE_COOLDOWN and other events
-                local state = GetViewerState(viewer)
-                if not state.cooldownHook then
-                    state.cooldownHook = CreateFrame("Frame")
-                    state.cooldownHook:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-                    state.cooldownHook:RegisterEvent("BAG_UPDATE_COOLDOWN")
-                    state.cooldownHook:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
-                    state.cooldownHook:SetScript("OnEvent", function(_, event)
-                        if viewer:IsShown() then
-                            -- Throttled rescan to avoid spam during heavy cooldown usage
-                            if not GetViewerState(viewer).rescanPending then
-                                GetViewerState(viewer).rescanPending = true
-                                C_Timer.After(0.2, function()
-                                    GetViewerState(viewer).rescanPending = nil
-                                    if viewer:IsShown() and IconViewers.RescanViewer then
-                                        IconViewers:RescanViewer(viewer)
-                                    end
-                                end)
-                            end
+                local vs = GetViewerState(viewer)
+                if not vs.cooldownHook then
+                    vs.cooldownHook = CreateFrame("Frame")
+                    vs.cooldownHook:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+                    vs.cooldownHook:RegisterEvent("BAG_UPDATE_COOLDOWN")
+                    vs.cooldownHook:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
+                    vs.cooldownHook:SetScript("OnEvent", function(self)
+                        if viewer:IsShown() and not vs.rescanDirty then
+                            vs.rescanDirty = true
+                            -- [Ayije 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
+                            self:SetScript("OnUpdate", function(s)
+                                s:SetScript("OnUpdate", nil)  -- 1회 실행 후 즉시 제거
+                                vs.rescanDirty = false
+                                if viewer:IsShown() and IconViewers.RescanViewer then
+                                    IconViewers:RescanViewer(viewer)
+                                end
+                                -- [P0] ProcessPendingIcons 통합 처리
+                                if not InCombatLockdown() then
+                                    IconViewers:ProcessPendingIcons()
+                                end
+                            end)
                         end
                     end)
                 end
-
-                -- Minimal OnUpdate for pending icons only
-                local lastProcessTime = 0
-                viewer:HookScript("OnUpdate", function(f, elapsed)
-                    lastProcessTime = lastProcessTime + elapsed
-                    if lastProcessTime > 2.0 and not InCombatLockdown() then -- Process every 2 seconds
-                        lastProcessTime = 0
-                        IconViewers:ProcessPendingIcons()
-                    end
-                end)
+                -- [P0] 뷰어 HookScript OnUpdate 제거 — ProcessPendingIcons는 이벤트 핸들러 내 통합 처리
             end
 
             self:ApplyViewerSkin(viewer)
