@@ -2182,16 +2182,9 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
 
-    local previewScale = 1
-    if UIParent and UIParent.GetEffectiveScale and parent.GetEffectiveScale then
-        local parentScale = parent:GetEffectiveScale()
-        local rootScale = UIParent:GetEffectiveScale()
-        if parentScale and parentScale > 0 and rootScale and rootScale > 0 then
-            previewScale = rootScale / parentScale
-        end
-    end
-
-    local localParentW = width / previewScale
+    -- Keep the preview in the option frame's own scale. Counter-scaling it against
+    -- UIParent makes WoW's mouse hit regions drift inside a scaled options window.
+    local localParentW = width
     local padX, padY = 8, 6
     local startX = math.max(padX, math.floor((localParentW - layout.width) * 0.5 + 0.5))
     local startY = padY
@@ -2203,7 +2196,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local drag = {}
     local slotFrames = {}
 
-    parent:SetHeight(math.max(34, math.ceil((layout.height + padY * 2) * previewScale)))
+    parent:SetHeight(math.max(34, math.ceil(layout.height + padY * 2)))
 
     if count == 0 then
         local msg = parent:CreateFontString(nil, "OVERLAY")
@@ -2215,7 +2208,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     end
 
     local preview = CreateFrame("Frame", nil, parent)
-    preview:SetScale(previewScale)
     preview:SetSize(math.max(layout.width + startX + padX, localParentW), layout.height + padY * 2)
     preview:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     if preview.SetClipsChildren then
@@ -2304,14 +2296,11 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return ghost
     end
 
-    local function SlotLocalCursor()
+    local function CursorScreenPoint()
         local cx, cy = GetCursorPosition()
-        local scale = preview:GetEffectiveScale()
+        local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
         if not scale or scale == 0 then scale = 1 end
-        local left = preview:GetLeft()
-        local top = preview:GetTop()
-        if not left or not top then return nil, nil end
-        return (cx / scale) - left, top - (cy / scale)
+        return cx / scale, cy / scale
     end
 
     local insertLine = CreateFrame("Frame", nil, preview)
@@ -2507,45 +2496,50 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         PositionInsertLine(targetIdx)
     end
 
-    local function FindDragTarget(localX, localY)
-        if not localX or not localY then return nil, nil end
+    local function FindDragTarget()
+        local cursorX, cursorY = CursorScreenPoint()
+        if not cursorX or not cursorY then return nil, nil end
+
         local horizontal = layout.layoutType ~= "VERTICAL"
         local bestIdx, bestDist
+        local pad = math.max(6, layout.spacing)
 
         for idx, slot in ipairs(slotFrames) do
             if idx ~= drag.fromIdx then
-                local x1 = startX + slot._baseX - math.max(6, layout.spacing)
-                local y1 = startY + slot._baseY - math.max(6, layout.spacing)
-                local x2 = startX + slot._baseX + slot._w + math.max(6, layout.spacing)
-                local y2 = startY + slot._baseY + slot._h + math.max(6, layout.spacing)
+                local left, right = slot:GetLeft(), slot:GetRight()
+                local top, bottom = slot:GetTop(), slot:GetBottom()
+                if left and right and top and bottom then
+                    local centerX = (left + right) * 0.5
+                    local centerY = (top + bottom) * 0.5
+                    local dx, dy = cursorX - centerX, cursorY - centerY
+                    local dist = dx * dx + dy * dy
+                    if not bestDist or dist < bestDist then
+                        bestDist = dist
+                        bestIdx = idx
+                    end
 
-                local centerX = startX + slot._baseX + slot._w * 0.5
-                local centerY = startY + slot._baseY + slot._h * 0.5
-                local dx, dy = localX - centerX, localY - centerY
-                local dist = dx * dx + dy * dy
-                if not bestDist or dist < bestDist then
-                    bestDist = dist
-                    bestIdx = idx
-                end
+                    if cursorX >= left - pad and cursorX <= right + pad and cursorY >= bottom - pad and cursorY <= top + pad then
+                        if horizontal then
+                            local slotW = math.max(1, right - left)
+                            if math.abs(cursorX - centerX) <= math.max(5, slotW * 0.22) then
+                                return "swap", idx
+                            end
+                            if layout.primary == "LEFT" then
+                                return "insert", (cursorX < centerX) and (idx + 1) or idx
+                            end
+                            return "insert", (cursorX < centerX) and idx or (idx + 1)
+                        end
 
-                if localX >= x1 and localX <= x2 and localY >= y1 and localY <= y2 then
-                    if horizontal then
-                        if math.abs(localX - centerX) <= math.max(5, slot._w * 0.22) then
+                        local slotH = math.max(1, top - bottom)
+                        if math.abs(cursorY - centerY) <= math.max(5, slotH * 0.22) then
                             return "swap", idx
                         end
-                        if layout.primary == "LEFT" then
-                            return "insert", (localX < centerX) and (idx + 1) or idx
+                        local beforeCenter = cursorY > centerY
+                        if layout.primary == "UP" then
+                            return "insert", beforeCenter and (idx + 1) or idx
                         end
-                        return "insert", (localX < centerX) and idx or (idx + 1)
+                        return "insert", beforeCenter and idx or (idx + 1)
                     end
-
-                    if math.abs(localY - centerY) <= math.max(5, slot._h * 0.22) then
-                        return "swap", idx
-                    end
-                    if layout.primary == "UP" then
-                        return "insert", (localY < centerY) and (idx + 1) or idx
-                    end
-                    return "insert", (localY < centerY) and idx or (idx + 1)
                 end
             end
         end
@@ -2553,18 +2547,24 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if bestIdx then
             local slot = slotFrames[bestIdx]
             if slot then
-                local center = horizontal and (startX + slot._baseX + slot._w * 0.5) or (startY + slot._baseY + slot._h * 0.5)
-                local cursor = horizontal and localX or localY
+                local left, right = slot:GetLeft(), slot:GetRight()
+                local top, bottom = slot:GetTop(), slot:GetBottom()
+                if not left or not right or not top or not bottom then return nil, nil end
+
                 if horizontal then
+                    local center = (left + right) * 0.5
                     if layout.primary == "LEFT" then
-                        return "insert", (cursor < center) and (bestIdx + 1) or bestIdx
+                        return "insert", (cursorX < center) and (bestIdx + 1) or bestIdx
                     end
-                    return "insert", (cursor < center) and bestIdx or (bestIdx + 1)
+                    return "insert", (cursorX < center) and bestIdx or (bestIdx + 1)
                 end
+
+                local center = (top + bottom) * 0.5
+                local beforeCenter = cursorY > center
                 if layout.primary == "UP" then
-                    return "insert", (cursor < center) and (bestIdx + 1) or bestIdx
+                    return "insert", beforeCenter and (bestIdx + 1) or bestIdx
                 end
-                return "insert", (cursor < center) and bestIdx or (bestIdx + 1)
+                return "insert", beforeCenter and bestIdx or (bestIdx + 1)
             end
         end
 
@@ -2634,8 +2634,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             end
 
             TickAnimation(elapsed)
-            local x, y = SlotLocalCursor()
-            local mode, targetIdx = FindDragTarget(x, y)
+            local mode, targetIdx = FindDragTarget()
             local noop = false
             if mode == "swap" then
                 noop = targetIdx == drag.fromIdx
