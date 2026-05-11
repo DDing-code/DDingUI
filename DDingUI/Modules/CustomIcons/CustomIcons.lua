@@ -918,35 +918,109 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
     return state, changed
 end
 
+local function GetBloodlustNameLookup()
+    if runtime.bloodlustNameLookup then return runtime.bloodlustNameLookup end
+
+    local names = {}
+    local function addName(spellID, iconSpellID)
+        if not spellID or not C_Spell or not C_Spell.GetSpellInfo then return end
+        local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
+        local name = ok and info and info.name
+        if name and name ~= "" and not names[name] then
+            names[name] = iconSpellID or spellID
+        end
+    end
+
+    for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
+        addName(spellID, spellID)
+    end
+    for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
+        addName(debuffID, lustBuffID)
+    end
+
+    runtime.bloodlustNameLookup = names
+    return names
+end
+
+local function ResolveBloodlustAuraIconSpellID(aura)
+    if not aura then return nil end
+
+    local sid = GetAuraSpellIDSafe(aura)
+    if sid then
+        if BLOODLUST_AURA_LOOKUP[sid] then return sid end
+        if BLOODLUST_DEBUFFS[sid] then return BLOODLUST_DEBUFFS[sid] end
+    end
+
+    local ok, rawSID = pcall(function()
+        return tonumber(aura.spellId)
+    end)
+    if ok and rawSID then
+        if BLOODLUST_AURA_LOOKUP[rawSID] then return rawSID end
+        if BLOODLUST_DEBUFFS[rawSID] then return BLOODLUST_DEBUFFS[rawSID] end
+    end
+
+    local name = aura.name
+    if name and name ~= "" then
+        return GetBloodlustNameLookup()[name]
+    end
+
+    return nil
+end
+
+local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, allowBlindStart)
+    local config = CUSTOM_TIMED_AURA_CONFIGS[2825]
+    if not config then return false end
+
+    local now = GetTime()
+    local expirationTime = SafeNumber(aura and aura.expirationTime)
+    local duration = SafeNumber(aura and aura.duration)
+    local appliedTime
+
+    if expirationTime then
+        if duration and duration > 0 then
+            appliedTime = expirationTime - duration
+        else
+            appliedTime = expirationTime - config.duration
+        end
+        if (now - appliedTime) >= config.duration then
+            return false
+        end
+    else
+        local active = runtime.customTimedAuras[2825]
+        if active and active.expirationTime and active.expirationTime > now then
+            return false
+        end
+        if not allowBlindStart then
+            return false
+        end
+        appliedTime = now
+    end
+
+    local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, iconSpellID or 2825)
+    return changed
+end
+
 local function ScanBloodlustTimedAura(updateInfo)
     if updateInfo and not updateInfo.isFullUpdate and updateInfo.addedAuras then
-        local relevant = false
         local needsFullScan = false
         for _, aura in ipairs(updateInfo.addedAuras) do
-            local sid = GetAuraSpellIDSafe(aura)
-            if sid and (BLOODLUST_AURA_LOOKUP[sid] or BLOODLUST_DEBUFFS[sid]) then
-                relevant = true
-                break
-            elseif aura and not sid then
+            local iconSpellID = ResolveBloodlustAuraIconSpellID(aura)
+            if iconSpellID then
+                return ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, true)
+            elseif aura then
                 needsFullScan = true
             end
         end
-        if not relevant and not needsFullScan then return false end
+        if not needsFullScan then return false end
     end
 
-    local config = CUSTOM_TIMED_AURA_CONFIGS[2825]
     for _, lustBuffID in ipairs(BLOODLUST_AURA_IDS) do
         local auraData
         pcall(function()
             auraData = C_UnitAuras.GetPlayerAuraBySpellID(lustBuffID)
         end)
-        local expirationTime = auraData and SafeNumber(auraData.expirationTime)
-        if expirationTime then
-            local duration = SafeNumber(auraData.duration) or config.duration
-            if duration <= 0 then duration = config.duration end
-            local appliedTime = expirationTime - duration
-            local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, lustBuffID)
-            return changed
+        if auraData then
+            return ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, true)
         end
     end
 
@@ -955,15 +1029,35 @@ local function ScanBloodlustTimedAura(updateInfo)
         pcall(function()
             auraData = C_UnitAuras.GetPlayerAuraBySpellID(debuffID)
         end)
-        local expirationTime = auraData and SafeNumber(auraData.expirationTime)
-        if expirationTime then
-            local duration = SafeNumber(auraData.duration) or 600
-            if duration <= 0 then duration = 600 end
-            local appliedTime = expirationTime - duration
-            if (GetTime() - appliedTime) < config.duration then
-                local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, lustBuffID)
-                return changed
+        if auraData then
+            return ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, false)
+        end
+    end
+
+    if AuraUtil and AuraUtil.ForEachAura then
+        local function scanFilter(filter, allowBlindStart)
+            local foundAura, foundIconSpellID
+            pcall(function()
+                AuraUtil.ForEachAura("player", filter, nil, function(aura)
+                    local iconSpellID = ResolveBloodlustAuraIconSpellID(aura)
+                    if iconSpellID then
+                        foundAura = aura
+                        foundIconSpellID = iconSpellID
+                        return true
+                    end
+                end)
+            end)
+            if foundAura then
+                return ActivateBloodlustTimedAuraFromAura(foundAura, foundIconSpellID, allowBlindStart)
             end
+            return false
+        end
+
+        if scanFilter("HELPFUL", true) then
+            return true
+        end
+        if scanFilter("HARMFUL", false) then
+            return true
         end
     end
 
