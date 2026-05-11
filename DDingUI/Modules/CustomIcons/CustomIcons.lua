@@ -778,7 +778,23 @@ local function GetAuraSpellIDSafe(aura)
         end
         return tonumber(sid)
     end)
-    if ok then return spellID end
+    if ok then
+        local safeOK, value = pcall(function()
+            if spellID == nil then return nil end
+            local spellIDType = type(spellID)
+            if spellIDType == "number" then
+                if canaccessvalue and not canaccessvalue(spellID) then
+                    return nil
+                end
+                return spellID
+            end
+            if spellIDType == "string" then
+                return tonumber(spellID)
+            end
+            return nil
+        end)
+        if safeOK then return value end
+    end
     return nil
 end
 
@@ -951,17 +967,13 @@ local function ResolveBloodlustAuraIconSpellID(aura)
         if BLOODLUST_DEBUFFS[sid] then return BLOODLUST_DEBUFFS[sid] end
     end
 
-    local ok, rawSID = pcall(function()
-        return tonumber(aura.spellId)
-    end)
-    if ok and rawSID then
-        if BLOODLUST_AURA_LOOKUP[rawSID] then return rawSID end
-        if BLOODLUST_DEBUFFS[rawSID] then return BLOODLUST_DEBUFFS[rawSID] end
-    end
-
-    local name = aura.name
-    if name and name ~= "" then
+    local ok, iconSpellID = pcall(function()
+        local name = aura.name
+        if type(name) ~= "string" or name == "" then return nil end
         return GetBloodlustNameLookup()[name]
+    end)
+    if ok then
+        return iconSpellID
     end
 
     return nil
