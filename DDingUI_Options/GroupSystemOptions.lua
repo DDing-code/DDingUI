@@ -1445,16 +1445,42 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         SoftRefreshDynamicIcons()
     end
 
+    local function PositionGhostAtCursor(ghostFrame)
+        local anchor = ghostFrame and (ghostFrame._ddAnchorFrame or ghostFrame:GetParent()) or parent
+        if not ghostFrame or not anchor or not anchor.GetEffectiveScale then return end
+
+        local cx, cy = GetCursorPosition()
+        local scale = anchor:GetEffectiveScale()
+        if not scale or scale == 0 then
+            scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+        end
+        if not scale or scale == 0 then scale = 1 end
+
+        local left = anchor.GetLeft and anchor:GetLeft()
+        local bottom = anchor.GetBottom and anchor:GetBottom()
+        if not left or not bottom then return end
+
+        ghostFrame:ClearAllPoints()
+        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", cx / scale - left + 12, cy / scale - bottom - 10)
+    end
+
     local function EnsureGhost()
         local ghost = DDingUI._assignedIconGridGhost
-        if ghost then return ghost end
+        if ghost then
+            ghost:SetParent(parent)
+            ghost._ddAnchorFrame = parent
+            ghost:SetFrameLevel((parent:GetFrameLevel() or 1) + 200)
+            return ghost
+        end
 
-        ghost = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        ghost = CreateFrame("Frame", nil, parent, "BackdropTemplate")
         ghost:SetFrameStrata("TOOLTIP")
+        ghost:SetFrameLevel((parent:GetFrameLevel() or 1) + 200)
         ghost:SetSize(170, 34)
         ghost:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
         ghost:SetBackdropColor(0.04, 0.06, 0.08, 0.92)
         ghost:SetBackdropBorderColor(accentR, accentG, accentB, 0.9)
+        ghost._ddAnchorFrame = parent
 
         ghost.icon = ghost:CreateTexture(nil, "ARTWORK")
         ghost.icon:SetSize(24, 24)
@@ -1469,12 +1495,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         ghost.text:SetPoint("RIGHT", ghost, "RIGHT", -6, 0)
         ghost.text:SetJustifyH("LEFT")
 
-        ghost:SetScript("OnUpdate", function(g)
-            local cx, cy = GetCursorPosition()
-            local s = UIParent:GetEffectiveScale()
-            g:ClearAllPoints()
-            g:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / s + 12, cy / s - 10)
-        end)
+        ghost:SetScript("OnUpdate", PositionGhostAtCursor)
         ghost:Hide()
         DDingUI._assignedIconGridGhost = ghost
         return ghost
@@ -2269,14 +2290,40 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return AssignedGridCommitDynamicOrder(sourceGroupKey, ordered)
     end
 
+    local function PositionRuntimeGhostAtCursor(ghostFrame)
+        local anchor = ghostFrame and (ghostFrame._ddAnchorFrame or ghostFrame:GetParent()) or preview
+        if not ghostFrame or not anchor or not anchor.GetEffectiveScale then return end
+
+        local cx, cy = GetCursorPosition()
+        local scale = anchor:GetEffectiveScale()
+        if not scale or scale == 0 then
+            scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+        end
+        if not scale or scale == 0 then scale = 1 end
+
+        local left = anchor.GetLeft and anchor:GetLeft()
+        local bottom = anchor.GetBottom and anchor:GetBottom()
+        if not left or not bottom then return end
+
+        ghostFrame:ClearAllPoints()
+        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", cx / scale - left + 12, cy / scale - bottom - 10)
+    end
+
     local function EnsureGhost()
         local ghost = DDingUI._assignedIconRuntimeGhost
-        if ghost then return ghost end
+        if ghost then
+            ghost:SetParent(preview)
+            ghost._ddAnchorFrame = preview
+            ghost:SetFrameLevel((preview:GetFrameLevel() or 1) + 200)
+            return ghost
+        end
 
-        ghost = CreateFrame("Frame", nil, UIParent)
+        ghost = CreateFrame("Frame", nil, preview)
         ghost:SetFrameStrata("TOOLTIP")
+        ghost:SetFrameLevel((preview:GetFrameLevel() or 1) + 200)
         ghost:SetSize(36, 36)
         ghost:SetScale(0.72)
+        ghost._ddAnchorFrame = preview
         ghost.bg = ghost:CreateTexture(nil, "BACKGROUND")
         ghost.bg:SetAllPoints()
         ghost.bg:SetColorTexture(0, 0, 0, 0.42)
@@ -2284,13 +2331,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         ghost.icon:SetAllPoints()
         ghost.edges = AssignedGridCreateEdges(ghost, "OVERLAY", 2)
         AssignedGridSetEdges(ghost.edges, accentR, accentG, accentB, 0.95, 2)
-        ghost:SetScript("OnUpdate", function(g)
-            local cx, cy = GetCursorPosition()
-            local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-            if not scale or scale == 0 then scale = 1 end
-            g:ClearAllPoints()
-            g:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / scale + 12, cy / scale - 10)
-        end)
+        ghost:SetScript("OnUpdate", PositionRuntimeGhostAtCursor)
         ghost:Hide()
         DDingUI._assignedIconRuntimeGhost = ghost
         return ghost
