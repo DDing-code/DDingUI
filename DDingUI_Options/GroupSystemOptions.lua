@@ -1445,23 +1445,25 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         SoftRefreshDynamicIcons()
     end
 
-    local function PositionGhostAtCursor(ghostFrame)
-        local anchor = ghostFrame and (ghostFrame._ddAnchorFrame or ghostFrame:GetParent()) or parent
-        if not ghostFrame or not anchor or not anchor.GetEffectiveScale then return end
-
+    local function CursorLocalPoint(anchor)
+        if not anchor or not anchor.GetEffectiveScale then return nil, nil end
         local cx, cy = GetCursorPosition()
-        local uiScale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-        if not uiScale or uiScale == 0 then uiScale = 1 end
-        local anchorScale = anchor:GetEffectiveScale()
-        if not anchorScale or anchorScale == 0 then anchorScale = uiScale end
-        local relativeScale = anchorScale / uiScale
-        if not relativeScale or relativeScale == 0 then relativeScale = 1 end
+        local scale = anchor:GetEffectiveScale()
+        if not scale or scale == 0 then scale = 1 end
         local left = anchor.GetLeft and anchor:GetLeft()
         local bottom = anchor.GetBottom and anchor:GetBottom()
-        if not left or not bottom then return end
+        if not left or not bottom then return nil, nil end
+        return cx / scale - left, cy / scale - bottom
+    end
+
+    local function PositionGhostAtCursor(ghostFrame)
+        local anchor = ghostFrame and (ghostFrame._ddAnchorFrame or ghostFrame:GetParent()) or parent
+        if not ghostFrame then return end
+        local x, y = CursorLocalPoint(anchor)
+        if not x or not y then return end
 
         ghostFrame:ClearAllPoints()
-        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", (cx / uiScale - left) / relativeScale + 12, (cy / uiScale - bottom) / relativeScale - 10)
+        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", x + 12, y - 10)
     end
 
     local function EnsureGhost()
@@ -2299,23 +2301,25 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return AssignedGridCommitDynamicOrder(sourceGroupKey, ordered)
     end
 
-    local function PositionRuntimeGhostAtCursor(ghostFrame)
-        local anchor = ghostFrame and (ghostFrame._ddAnchorFrame or ghostFrame:GetParent()) or preview
-        if not ghostFrame or not anchor or not anchor.GetEffectiveScale then return end
-
+    local function CursorLocalPoint(anchor)
+        if not anchor or not anchor.GetEffectiveScale then return nil, nil end
         local cx, cy = GetCursorPosition()
-        local uiScale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-        if not uiScale or uiScale == 0 then uiScale = 1 end
-        local anchorScale = anchor:GetEffectiveScale()
-        if not anchorScale or anchorScale == 0 then anchorScale = uiScale end
-        local relativeScale = anchorScale / uiScale
-        if not relativeScale or relativeScale == 0 then relativeScale = 1 end
+        local scale = anchor:GetEffectiveScale()
+        if not scale or scale == 0 then scale = 1 end
         local left = anchor.GetLeft and anchor:GetLeft()
         local bottom = anchor.GetBottom and anchor:GetBottom()
-        if not left or not bottom then return end
+        if not left or not bottom then return nil, nil end
+        return cx / scale - left, cy / scale - bottom
+    end
+
+    local function PositionRuntimeGhostAtCursor(ghostFrame)
+        local anchor = ghostFrame and (ghostFrame._ddAnchorFrame or ghostFrame:GetParent()) or preview
+        if not ghostFrame then return end
+        local x, y = CursorLocalPoint(anchor)
+        if not x or not y then return end
 
         ghostFrame:ClearAllPoints()
-        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", (cx / uiScale - left) / relativeScale, (cy / uiScale - bottom) / relativeScale)
+        ghostFrame:SetPoint("CENTER", anchor, "BOTTOMLEFT", x, y)
     end
 
     local function EnsureGhost()
@@ -2348,11 +2352,18 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return ghost
     end
 
-    local function CursorScreenPoint()
-        local cx, cy = GetCursorPosition()
-        local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-        if not scale or scale == 0 then scale = 1 end
-        return cx / scale, cy / scale
+    local function CursorPreviewPoint()
+        return CursorLocalPoint(preview)
+    end
+
+    local function SlotPreviewRect(slot)
+        if not slot then return nil, nil, nil, nil end
+        local previewH = preview:GetHeight()
+        if not previewH then return nil, nil, nil, nil end
+
+        local left = startX + (slot._baseX or 0) + (slot._currentOffX or 0)
+        local top = previewH - (startY + (slot._baseY or 0) + (slot._currentOffY or 0))
+        return left, left + (slot._w or 0), top, top - (slot._h or 0)
     end
 
     local insertLine = CreateFrame("Frame", nil, preview)
@@ -2549,7 +2560,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     end
 
     local function FindDragTarget()
-        local cursorX, cursorY = CursorScreenPoint()
+        local cursorX, cursorY = CursorPreviewPoint()
         if not cursorX or not cursorY then return nil, nil end
 
         local horizontal = layout.layoutType ~= "VERTICAL"
@@ -2558,8 +2569,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
 
         for idx, slot in ipairs(slotFrames) do
             if idx ~= drag.fromIdx then
-                local left, right = slot:GetLeft(), slot:GetRight()
-                local top, bottom = slot:GetTop(), slot:GetBottom()
+                local left, right, top, bottom = SlotPreviewRect(slot)
                 if left and right and top and bottom then
                     local centerX = (left + right) * 0.5
                     local centerY = (top + bottom) * 0.5
@@ -2599,8 +2609,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if bestIdx then
             local slot = slotFrames[bestIdx]
             if slot then
-                local left, right = slot:GetLeft(), slot:GetRight()
-                local top, bottom = slot:GetTop(), slot:GetBottom()
+                local left, right, top, bottom = SlotPreviewRect(slot)
                 if not left or not right or not top or not bottom then return nil, nil end
 
                 if horizontal then
