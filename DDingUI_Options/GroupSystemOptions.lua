@@ -2894,12 +2894,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if desc and desc ~= "" then
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
         end
-        if opt and opt._gridCanRemove then
-            local removeText = (opt._gridKind == "cdm")
-                and (L["Right-click to unassign"] or "우클릭: 할당 해제")
-                or (L["Right-click to remove"] or "우클릭: 삭제")
-            GameTooltip:AddLine(removeText, 1, 0.38, 0.32, true)
-        end
         GameTooltip:Show()
     end
 
