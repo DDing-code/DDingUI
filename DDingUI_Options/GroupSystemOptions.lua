@@ -2320,6 +2320,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if not parent then return end
 
     local rows, emptyText = GetAssignedGridRows(groupName)
+    local unassignedRows = BuildUnassignedSpellRows(groupName) or {}
     local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
     local settings = AssignedGridPreviewSettings(groupName)
     local count = #rows
