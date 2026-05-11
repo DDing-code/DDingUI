@@ -1799,6 +1799,1012 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     parent:SetHeight(totalRows * (tileH + gap) + 4)
 end
 
+-- Runtime-shaped assigned icon preview.
+-- Mirrors GroupRenderer layout rules and adds Ellesmere-style manual drag feedback.
+local ASSIGNED_GRID_DRAG_THRESHOLD = 3
+
+local ASSIGNED_DIRECTION_RULES = {
+    CENTERED_HORIZONTAL = { type = "HORIZONTAL", defaultSecondary = "DOWN",  allowed = { UP = true, DOWN = true } },
+    LEFT                = { type = "HORIZONTAL", defaultSecondary = "DOWN",  allowed = { UP = true, DOWN = true } },
+    RIGHT               = { type = "HORIZONTAL", defaultSecondary = "DOWN",  allowed = { UP = true, DOWN = true } },
+    UP                  = { type = "VERTICAL",   defaultSecondary = "RIGHT", allowed = { LEFT = true, RIGHT = true } },
+    DOWN                = { type = "VERTICAL",   defaultSecondary = "RIGHT", allowed = { LEFT = true, RIGHT = true } },
+    STATIC              = { type = "STATIC" },
+}
+
+local function AssignedGridNumber(value, fallback)
+    value = tonumber(value)
+    if value == nil then return fallback end
+    return value
+end
+
+local function AssignedGridPixelSnap(value)
+    return math.floor((tonumber(value) or 0) + 0.5)
+end
+
+local function AssignedGridNormalizeDirection(token)
+    if not token or token == "" then return nil end
+    local aliases = {
+        CENTEREDHORIZONTAL = "CENTERED_HORIZONTAL",
+        CENTERHORIZONTAL   = "CENTERED_HORIZONTAL",
+        CENTERED           = "CENTERED_HORIZONTAL",
+        CENTER             = "CENTERED_HORIZONTAL",
+        CENTRED            = "CENTERED_HORIZONTAL",
+        CENTRE             = "CENTERED_HORIZONTAL",
+    }
+    local cleaned = tostring(token):gsub("[%s%-_]+", ""):upper()
+    return aliases[cleaned] or cleaned
+end
+
+local function AssignedGridAspect(settings)
+    local aspect = AssignedGridNumber(settings and settings.aspectRatioCrop, nil)
+    if not aspect and settings and settings.aspectRatio then
+        local w, h = tostring(settings.aspectRatio):match("^(%d+%.?%d*):(%d+%.?%d*)$")
+        w, h = tonumber(w), tonumber(h)
+        if w and h and h ~= 0 then aspect = w / h end
+    end
+    if not aspect or aspect <= 0 then aspect = 1 end
+    return aspect
+end
+
+local function AssignedGridRowIconSize(settings, rowIndex)
+    local sizes = settings and settings.rowIconSizes
+    local value = sizes and sizes[rowIndex]
+    value = AssignedGridNumber(value, nil)
+    if value and value > 0 then return value end
+    return nil
+end
+
+local function AssignedGridIconDimensions(settings, rowIndex)
+    local sizeOverride = AssignedGridRowIconSize(settings, rowIndex)
+    local iconSize = (sizeOverride or AssignedGridNumber(settings and settings.iconSize, 32)) + 0.1
+    local aspect = AssignedGridAspect(settings)
+    local iconW, iconH = iconSize, iconSize
+
+    if aspect > 1 then
+        iconH = iconSize / aspect
+    elseif aspect < 1 then
+        iconW = iconSize * aspect
+    end
+
+    return math.max(1, AssignedGridPixelSnap(iconW)), math.max(1, AssignedGridPixelSnap(iconH))
+end
+
+local function AssignedGridSpacing(settings)
+    return math.max(0, AssignedGridPixelSnap(AssignedGridNumber(settings and settings.spacing, 2)))
+end
+
+local function AssignedGridResolveDirections(settings)
+    local primary = AssignedGridNormalizeDirection(settings and settings.direction)
+        or AssignedGridNormalizeDirection(settings and settings.primaryDirection)
+        or "RIGHT"
+    local secondary = AssignedGridNormalizeDirection(settings and settings.growDirection)
+        or AssignedGridNormalizeDirection(settings and settings.secondaryDirection)
+
+    local rule = ASSIGNED_DIRECTION_RULES[primary]
+    if not rule then
+        primary = "RIGHT"
+        rule = ASSIGNED_DIRECTION_RULES[primary]
+    end
+
+    local rowLimit = math.floor(AssignedGridNumber(settings and settings.rowLimit, 0) + 0.0001)
+    if rowLimit < 0 then rowLimit = 0 end
+
+    if rule.type ~= "STATIC" and rowLimit > 0 then
+        if not secondary or not rule.allowed[secondary] then
+            secondary = rule.defaultSecondary
+        end
+    else
+        secondary = nil
+    end
+
+    return primary, secondary, rowLimit, rule.type
+end
+
+local function AssignedGridPreviewSettings(groupName)
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    return groupSettings or {}
+end
+
+local function AssignedGridBuildLayout(settings, count)
+    local layout = {
+        slots = {},
+        width = 1,
+        height = 1,
+        spacing = AssignedGridSpacing(settings),
+    }
+
+    if count <= 0 then return layout end
+
+    local primary, secondary, rowLimit, layoutType = AssignedGridResolveDirections(settings)
+    layout.primary = primary
+    layout.secondary = secondary
+    layout.rowLimit = rowLimit
+    layout.layoutType = layoutType
+
+    local spacing = layout.spacing
+
+    if layoutType == "VERTICAL" then
+        local iconsPerColumn = rowLimit > 0 and math.max(1, rowLimit) or count
+        local numColumns = math.ceil(count / iconsPerColumn)
+        local columns = {}
+        local totalW, maxH = 0, 0
+
+        for column = 1, numColumns do
+            local iconW, iconH = AssignedGridIconDimensions(settings, column)
+            local startIndex = (column - 1) * iconsPerColumn + 1
+            local endIndex = math.min(column * iconsPerColumn, count)
+            local columnCount = endIndex - startIndex + 1
+            local columnH = columnCount * iconH + math.max(0, columnCount - 1) * spacing
+
+            columns[column] = {
+                startIndex = startIndex,
+                count = columnCount,
+                width = iconW,
+                height = columnH,
+                iconW = iconW,
+                iconH = iconH,
+            }
+            totalW = totalW + iconW
+            if column > 1 then totalW = totalW + spacing end
+            maxH = math.max(maxH, columnH)
+        end
+
+        local currentX
+        if secondary == "LEFT" then
+            currentX = totalW
+            for column = 1, numColumns do
+                local meta = columns[column]
+                currentX = currentX - meta.width
+                meta.x = currentX
+                currentX = currentX - spacing
+            end
+        else
+            currentX = 0
+            for column = 1, numColumns do
+                local meta = columns[column]
+                meta.x = currentX
+                currentX = currentX + meta.width + spacing
+            end
+        end
+
+        for column = 1, numColumns do
+            local meta = columns[column]
+            local columnY = (primary == "UP") and (maxH - meta.height) or 0
+            for position = 0, meta.count - 1 do
+                local idx = meta.startIndex + position
+                local y
+                if primary == "UP" then
+                    y = columnY + meta.height - meta.iconH - position * (meta.iconH + spacing)
+                else
+                    y = columnY + position * (meta.iconH + spacing)
+                end
+                layout.slots[idx] = {
+                    x = AssignedGridPixelSnap(meta.x),
+                    y = AssignedGridPixelSnap(y),
+                    w = meta.iconW,
+                    h = meta.iconH,
+                    line = column,
+                }
+            end
+        end
+
+        layout.width = math.max(1, AssignedGridPixelSnap(totalW))
+        layout.height = math.max(1, AssignedGridPixelSnap(maxH))
+        return layout
+    end
+
+    local iconsPerRow = rowLimit > 0 and math.max(1, rowLimit) or count
+    local numRows = math.ceil(count / iconsPerRow)
+    local rows = {}
+    local maxW, totalH = 0, 0
+
+    for row = 1, numRows do
+        local iconW, iconH = AssignedGridIconDimensions(settings, row)
+        local startIndex = (row - 1) * iconsPerRow + 1
+        local endIndex = math.min(row * iconsPerRow, count)
+        local rowCount = endIndex - startIndex + 1
+        local rowW = rowCount * iconW + math.max(0, rowCount - 1) * spacing
+
+        rows[row] = {
+            startIndex = startIndex,
+            count = rowCount,
+            width = math.max(iconW, rowW),
+            iconW = iconW,
+            iconH = iconH,
+        }
+        maxW = math.max(maxW, rows[row].width)
+        totalH = totalH + iconH
+        if row > 1 then totalH = totalH + spacing end
+    end
+
+    local currentY
+    if secondary == "UP" then
+        currentY = totalH
+        for row = 1, numRows do
+            local meta = rows[row]
+            currentY = currentY - meta.iconH
+            meta.y = currentY
+            currentY = currentY - spacing
+        end
+    else
+        currentY = 0
+        for row = 1, numRows do
+            local meta = rows[row]
+            meta.y = currentY
+            currentY = currentY + meta.iconH + spacing
+        end
+    end
+
+    for row = 1, numRows do
+        local meta = rows[row]
+        local rowX
+        if primary == "LEFT" then
+            rowX = maxW - meta.width
+        elseif primary == "CENTERED_HORIZONTAL" then
+            rowX = (maxW - meta.width) * 0.5
+        else
+            rowX = 0
+        end
+
+        for position = 0, meta.count - 1 do
+            local idx = meta.startIndex + position
+            local x
+            if primary == "LEFT" then
+                x = rowX + meta.width - meta.iconW - position * (meta.iconW + spacing)
+            else
+                x = rowX + position * (meta.iconW + spacing)
+            end
+            layout.slots[idx] = {
+                x = AssignedGridPixelSnap(x),
+                y = AssignedGridPixelSnap(meta.y),
+                w = meta.iconW,
+                h = meta.iconH,
+                line = row,
+            }
+        end
+    end
+
+    layout.width = math.max(1, AssignedGridPixelSnap(maxW))
+    layout.height = math.max(1, AssignedGridPixelSnap(totalH))
+    return layout
+end
+
+local function AssignedGridApplyTexCoord(texture, settings)
+    local zoom = AssignedGridNumber(settings and settings.zoom, 0.08)
+    if zoom < 0 then zoom = 0 end
+    if zoom > 0.45 then zoom = 0.45 end
+
+    local left, right, top, bottom = zoom, 1 - zoom, zoom, 1 - zoom
+    local aspect = AssignedGridAspect(settings)
+    if aspect > 1 then
+        local crop = (1 - (1 / aspect)) * 0.5
+        local span = bottom - top
+        top = top + span * crop
+        bottom = bottom - span * crop
+    elseif aspect < 1 then
+        local crop = (1 - aspect) * 0.5
+        local span = right - left
+        left = left + span * crop
+        right = right - span * crop
+    end
+
+    texture:SetTexCoord(left, right, top, bottom)
+end
+
+local function AssignedGridSetEdges(edges, r, g, b, a, thickness)
+    if not edges then return end
+    thickness = math.max(1, AssignedGridPixelSnap(thickness or 1))
+    edges[1]:SetHeight(thickness)
+    edges[2]:SetHeight(thickness)
+    edges[3]:SetWidth(thickness)
+    edges[4]:SetWidth(thickness)
+    for i = 1, 4 do
+        edges[i]:SetColorTexture(r, g, b, a)
+    end
+end
+
+local function AssignedGridCreateEdges(frame, layer, level)
+    local edges = {}
+    for i = 1, 4 do
+        edges[i] = frame:CreateTexture(nil, layer or "OVERLAY", nil, level or 0)
+    end
+    edges[1]:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    edges[1]:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    edges[2]:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    edges[2]:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    edges[3]:SetPoint("TOPLEFT", edges[1], "BOTTOMLEFT", 0, 0)
+    edges[3]:SetPoint("BOTTOMLEFT", edges[2], "TOPLEFT", 0, 0)
+    edges[4]:SetPoint("TOPRIGHT", edges[1], "BOTTOMRIGHT", 0, 0)
+    edges[4]:SetPoint("BOTTOMRIGHT", edges[2], "TOPRIGHT", 0, 0)
+    return edges
+end
+
+local function AssignedGridGroupOrderName(data)
+    return data and ParseGroupOrderDragKey(data.groupKey)
+end
+
+local function AssignedGridCommitGroupOrder(groupName, ordered)
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return false end
+    groupSettings.iconOrder = ordered
+    RefreshGroupSystem()
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+        DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
+    return true
+end
+
+local function AssignedGridCommitDynamicOrder(sourceKey, orderedKeys)
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    if not dynGroup or type(dynGroup.icons) ~= "table" then return false end
+
+    local wanted = {}
+    for _, key in ipairs(orderedKeys) do
+        wanted[key] = true
+    end
+
+    local nextIcons = {}
+    for _, key in ipairs(orderedKeys) do
+        nextIcons[#nextIcons + 1] = key
+    end
+    for _, key in ipairs(dynGroup.icons) do
+        if not wanted[key] then
+            nextIcons[#nextIcons + 1] = key
+        end
+    end
+
+    dynGroup.icons = nextIcons
+    SoftRefreshDynamicIcons()
+    return true
+end
+
+function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
+    local rows = GetAssignedGridRows(groupName)
+    if #rows == 0 then return 34 end
+
+    local settings = AssignedGridPreviewSettings(groupName)
+    local layout = AssignedGridBuildLayout(settings, #rows)
+    return math.max(34, (layout.height or 1) + 18)
+end
+
+function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
+    if not parent then return end
+
+    local rows, emptyText = GetAssignedGridRows(groupName)
+    local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
+    local settings = AssignedGridPreviewSettings(groupName)
+    local count = #rows
+    local layout = AssignedGridBuildLayout(settings, count)
+    local width = parent:GetWidth()
+    if not width or width < 240 then width = 760 end
+
+    local previewScale = 1
+    if UIParent and UIParent.GetEffectiveScale and parent.GetEffectiveScale then
+        local parentScale = parent:GetEffectiveScale()
+        local rootScale = UIParent:GetEffectiveScale()
+        if parentScale and parentScale > 0 and rootScale and rootScale > 0 then
+            previewScale = rootScale / parentScale
+        end
+    end
+
+    local localParentW = width / previewScale
+    local padX, padY = 8, 6
+    local startX = math.max(padX, math.floor((localParentW - layout.width) * 0.5 + 0.5))
+    local startY = padY
+    local accentR, accentG, accentB = 0.3, 0.85, 1
+    local insertR, insertG, insertB = 0.52, 1, 0.52
+    local borderSize = math.max(1, AssignedGridPixelSnap(AssignedGridNumber(settings.borderSize, 1)))
+    local groupAlpha = AssignedGridNumber(settings.groupAlpha, 1)
+    if groupAlpha < 0.2 then groupAlpha = 0.2 end
+    local drag = {}
+    local slotFrames = {}
+
+    parent:SetHeight(math.max(34, math.ceil((layout.height + padY * 2) * previewScale)))
+
+    if count == 0 then
+        local msg = parent:CreateFontString(nil, "OVERLAY")
+        msg:SetFont(gf, 12, "")
+        msg:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -4)
+        msg:SetText(emptyText or "|cff888888No assigned icons.|r")
+        msg:SetTextColor(0.65, 0.65, 0.65, 1)
+        return
+    end
+
+    local preview = CreateFrame("Frame", nil, parent)
+    preview:SetScale(previewScale)
+    preview:SetSize(math.max(layout.width + startX + padX, localParentW), layout.height + padY * 2)
+    preview:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+    if preview.SetClipsChildren then
+        preview:SetClipsChildren(false)
+    end
+
+    local function CallOptionFunc(opt)
+        if opt and type(opt.func) == "function" then
+            opt.func()
+        end
+    end
+
+    local function RefreshAfterCommit()
+        RefreshGroupSystem()
+        if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
+            DDingUI.GroupSystem:RefreshLayout()
+        end
+        SoftRefreshGroupSystemOptions(0.05)
+    end
+
+    local function OrderedDragValues()
+        local values, sourceGroupKey
+        for _, row in ipairs(rows) do
+            local data = row.option and row.option._dragData
+            if data and data.groupKey and data.iconKey then
+                if not values then
+                    values = {}
+                    sourceGroupKey = data.groupKey
+                end
+                if data.groupKey ~= sourceGroupKey then
+                    return nil, nil
+                end
+                values[#values + 1] = data.iconKey
+            end
+        end
+        return values, sourceGroupKey
+    end
+
+    local function CommitDrag(mode, fromIdx, targetIdx)
+        if not fromIdx or not targetIdx or fromIdx == targetIdx then return false end
+        local ordered, sourceGroupKey = OrderedDragValues()
+        if not ordered or not sourceGroupKey or not ordered[fromIdx] or not ordered[targetIdx] then
+            return false
+        end
+
+        if mode == "swap" then
+            ordered[fromIdx], ordered[targetIdx] = ordered[targetIdx], ordered[fromIdx]
+        else
+            local moving = table.remove(ordered, fromIdx)
+            if targetIdx < 1 then targetIdx = 1 end
+            if targetIdx > #ordered + 1 then targetIdx = #ordered + 1 end
+            table.insert(ordered, targetIdx, moving)
+        end
+
+        local groupOrderName = AssignedGridGroupOrderName({ groupKey = sourceGroupKey })
+        if groupOrderName then
+            return AssignedGridCommitGroupOrder(groupOrderName, ordered)
+        end
+        return AssignedGridCommitDynamicOrder(sourceGroupKey, ordered)
+    end
+
+    local function EnsureGhost()
+        local ghost = DDingUI._assignedIconRuntimeGhost
+        if ghost then return ghost end
+
+        ghost = CreateFrame("Frame", nil, UIParent)
+        ghost:SetFrameStrata("TOOLTIP")
+        ghost:SetSize(36, 36)
+        ghost:SetScale(0.72)
+        ghost.bg = ghost:CreateTexture(nil, "BACKGROUND")
+        ghost.bg:SetAllPoints()
+        ghost.bg:SetColorTexture(0, 0, 0, 0.42)
+        ghost.icon = ghost:CreateTexture(nil, "ARTWORK")
+        ghost.icon:SetAllPoints()
+        ghost.edges = AssignedGridCreateEdges(ghost, "OVERLAY", 2)
+        AssignedGridSetEdges(ghost.edges, accentR, accentG, accentB, 0.95, 2)
+        ghost:SetScript("OnUpdate", function(g)
+            local cx, cy = GetCursorPosition()
+            local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+            if not scale or scale == 0 then scale = 1 end
+            g:ClearAllPoints()
+            g:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / scale + 12, cy / scale - 10)
+        end)
+        ghost:Hide()
+        DDingUI._assignedIconRuntimeGhost = ghost
+        return ghost
+    end
+
+    local function SlotLocalCursor()
+        local cx, cy = GetCursorPosition()
+        local scale = preview:GetEffectiveScale()
+        if not scale or scale == 0 then scale = 1 end
+        local left = preview:GetLeft()
+        local top = preview:GetTop()
+        if not left or not top then return nil, nil end
+        return (cx / scale) - left, top - (cy / scale)
+    end
+
+    local insertLine = CreateFrame("Frame", nil, preview)
+    insertLine:SetFrameLevel(preview:GetFrameLevel() + 100)
+    insertLine.glow = insertLine:CreateTexture(nil, "BACKGROUND")
+    insertLine.glow:SetAllPoints()
+    insertLine.glow:SetColorTexture(insertR, insertG, insertB, 0.24)
+    insertLine.core = insertLine:CreateTexture(nil, "ARTWORK")
+    insertLine.core:SetColorTexture(insertR, insertG, insertB, 0.96)
+    insertLine:Hide()
+
+    local function ClearSlotTarget(slot)
+        if not slot then return end
+        slot._targetOffX = 0
+        slot._targetOffY = 0
+        slot._swapTarget = false
+        slot:SetAlpha(slot._baseAlpha or groupAlpha)
+        AssignedGridSetEdges(slot._edges, 0, 0, 0, 0.78, borderSize)
+        if slot._hoverEdges then
+            for i = 1, 4 do slot._hoverEdges[i]:Hide() end
+        end
+    end
+
+    local function PositionSlot(slot)
+        slot:ClearAllPoints()
+        slot:SetPoint(
+            "TOPLEFT",
+            preview,
+            "TOPLEFT",
+            startX + slot._baseX + (slot._currentOffX or 0),
+            -(startY + slot._baseY + (slot._currentOffY or 0))
+        )
+    end
+
+    local function TickAnimation(dt)
+        local allDone = true
+        for _, slot in ipairs(slotFrames) do
+            local targetX = slot._targetOffX or 0
+            local targetY = slot._targetOffY or 0
+            local currentX = slot._currentOffX or 0
+            local currentY = slot._currentOffY or 0
+            local rate = math.min(1, (dt or 0) * 16)
+            currentX = currentX + (targetX - currentX) * rate
+            currentY = currentY + (targetY - currentY) * rate
+            if math.abs(targetX - currentX) < 0.25 then currentX = targetX end
+            if math.abs(targetY - currentY) < 0.25 then currentY = targetY end
+            slot._currentOffX = currentX
+            slot._currentOffY = currentY
+            PositionSlot(slot)
+            if currentX ~= targetX or currentY ~= targetY then
+                allDone = false
+            end
+        end
+        return allDone
+    end
+
+    local function ClearDragFeedback()
+        insertLine:Hide()
+        for _, slot in ipairs(slotFrames) do
+            ClearSlotTarget(slot)
+        end
+    end
+
+    local function PositionInsertLine(insertIdx)
+        local beforeSlot = slotFrames[insertIdx - 1]
+        local afterSlot = slotFrames[insertIdx]
+        local useSlot = afterSlot or beforeSlot
+        if not useSlot then
+            insertLine:Hide()
+            return
+        end
+
+        local horizontal = layout.layoutType ~= "VERTICAL"
+        insertLine:ClearAllPoints()
+
+        if horizontal then
+            local x, y, h
+            if beforeSlot and afterSlot and beforeSlot._line == afterSlot._line then
+                local leftSlot = beforeSlot._baseX < afterSlot._baseX and beforeSlot or afterSlot
+                local rightSlot = leftSlot == beforeSlot and afterSlot or beforeSlot
+                x = (leftSlot._baseX + leftSlot._w + rightSlot._baseX) * 0.5
+                y = math.min(beforeSlot._baseY, afterSlot._baseY) - 4
+                h = math.max(beforeSlot._h, afterSlot._h) + 8
+            else
+                local sideRight = layout.primary == "LEFT"
+                if afterSlot then
+                    x = afterSlot._baseX + (sideRight and afterSlot._w or 0)
+                    y = afterSlot._baseY - 4
+                    h = afterSlot._h + 8
+                else
+                    x = beforeSlot._baseX + (sideRight and 0 or beforeSlot._w)
+                    y = beforeSlot._baseY - 4
+                    h = beforeSlot._h + 8
+                end
+            end
+
+            insertLine:SetSize(8, h)
+            insertLine:SetPoint("TOPLEFT", preview, "TOPLEFT", startX + x - 4, -(startY + y))
+            insertLine.core:ClearAllPoints()
+            insertLine.core:SetPoint("TOP", insertLine, "TOP", 0, 1)
+            insertLine.core:SetPoint("BOTTOM", insertLine, "BOTTOM", 0, -1)
+            insertLine.core:SetWidth(2)
+        else
+            local x, y, w
+            if beforeSlot and afterSlot and beforeSlot._line == afterSlot._line then
+                local topSlot = beforeSlot._baseY < afterSlot._baseY and beforeSlot or afterSlot
+                local bottomSlot = topSlot == beforeSlot and afterSlot or beforeSlot
+                y = (topSlot._baseY + topSlot._h + bottomSlot._baseY) * 0.5
+                x = math.min(beforeSlot._baseX, afterSlot._baseX) - 4
+                w = math.max(beforeSlot._w, afterSlot._w) + 8
+            else
+                local sideBottom = layout.primary ~= "UP"
+                if afterSlot then
+                    y = afterSlot._baseY + (sideBottom and 0 or afterSlot._h)
+                    x = afterSlot._baseX - 4
+                    w = afterSlot._w + 8
+                else
+                    y = beforeSlot._baseY + (sideBottom and beforeSlot._h or 0)
+                    x = beforeSlot._baseX - 4
+                    w = beforeSlot._w + 8
+                end
+            end
+
+            insertLine:SetSize(w, 8)
+            insertLine:SetPoint("TOPLEFT", preview, "TOPLEFT", startX + x, -(startY + y - 4))
+            insertLine.core:ClearAllPoints()
+            insertLine.core:SetPoint("LEFT", insertLine, "LEFT", 1, 0)
+            insertLine.core:SetPoint("RIGHT", insertLine, "RIGHT", -1, 0)
+            insertLine.core:SetHeight(2)
+        end
+
+        insertLine._pulse = 0
+        insertLine:Show()
+    end
+
+    insertLine:SetScript("OnUpdate", function(self, elapsed)
+        self._pulse = (self._pulse or 0) + (elapsed or 0) * 7
+        local pulse = (math.sin(self._pulse) + 1) * 0.5
+        self.glow:SetAlpha(0.22 + pulse * 0.22)
+        self.core:SetAlpha(0.78 + pulse * 0.22)
+    end)
+
+    local function ApplyDragFeedback(mode, targetIdx, fromIdx)
+        for _, slot in ipairs(slotFrames) do
+            ClearSlotTarget(slot)
+        end
+
+        local dragged = slotFrames[fromIdx]
+        if dragged then dragged:SetAlpha(0.26) end
+
+        if mode == "swap" then
+            local target = slotFrames[targetIdx]
+            if target then
+                target._swapTarget = true
+                AssignedGridSetEdges(target._edges, insertR, insertG, insertB, 1, 2)
+            end
+            insertLine:Hide()
+            return
+        end
+
+        local visualTarget = targetIdx
+        if visualTarget > fromIdx then visualTarget = visualTarget - 1 end
+        local horizontal = layout.layoutType ~= "VERTICAL"
+        local axisSign
+        if horizontal then
+            axisSign = (layout.primary == "LEFT") and -1 or 1
+        else
+            axisSign = (layout.primary == "UP") and -1 or 1
+        end
+
+        local baseSlot = slotFrames[fromIdx] or slotFrames[targetIdx] or slotFrames[1]
+        local nudge = 10
+        if baseSlot then
+            nudge = math.max(5, math.min(18, math.floor(((horizontal and baseSlot._w or baseSlot._h) + layout.spacing) * 0.25 + 0.5)))
+        end
+
+        for idx, slot in ipairs(slotFrames) do
+            if idx ~= fromIdx then
+                local visualIdx = idx
+                if visualIdx > fromIdx then visualIdx = visualIdx - 1 end
+                local shiftToEnd = visualIdx >= visualTarget
+                local offset = shiftToEnd and axisSign * nudge or -axisSign * nudge
+                if horizontal then
+                    slot._targetOffX = offset
+                    slot._targetOffY = 0
+                else
+                    slot._targetOffX = 0
+                    slot._targetOffY = offset
+                end
+            end
+        end
+
+        PositionInsertLine(targetIdx)
+    end
+
+    local function FindDragTarget(localX, localY)
+        if not localX or not localY then return nil, nil end
+        local horizontal = layout.layoutType ~= "VERTICAL"
+        local bestIdx, bestDist
+
+        for idx, slot in ipairs(slotFrames) do
+            if idx ~= drag.fromIdx then
+                local x1 = startX + slot._baseX - math.max(6, layout.spacing)
+                local y1 = startY + slot._baseY - math.max(6, layout.spacing)
+                local x2 = startX + slot._baseX + slot._w + math.max(6, layout.spacing)
+                local y2 = startY + slot._baseY + slot._h + math.max(6, layout.spacing)
+
+                local centerX = startX + slot._baseX + slot._w * 0.5
+                local centerY = startY + slot._baseY + slot._h * 0.5
+                local dx, dy = localX - centerX, localY - centerY
+                local dist = dx * dx + dy * dy
+                if not bestDist or dist < bestDist then
+                    bestDist = dist
+                    bestIdx = idx
+                end
+
+                if localX >= x1 and localX <= x2 and localY >= y1 and localY <= y2 then
+                    if horizontal then
+                        if math.abs(localX - centerX) <= math.max(5, slot._w * 0.22) then
+                            return "swap", idx
+                        end
+                        if layout.primary == "LEFT" then
+                            return "insert", (localX < centerX) and (idx + 1) or idx
+                        end
+                        return "insert", (localX < centerX) and idx or (idx + 1)
+                    end
+
+                    if math.abs(localY - centerY) <= math.max(5, slot._h * 0.22) then
+                        return "swap", idx
+                    end
+                    if layout.primary == "UP" then
+                        return "insert", (localY < centerY) and (idx + 1) or idx
+                    end
+                    return "insert", (localY < centerY) and idx or (idx + 1)
+                end
+            end
+        end
+
+        if bestIdx then
+            local slot = slotFrames[bestIdx]
+            if slot then
+                local center = horizontal and (startX + slot._baseX + slot._w * 0.5) or (startY + slot._baseY + slot._h * 0.5)
+                local cursor = horizontal and localX or localY
+                if horizontal then
+                    if layout.primary == "LEFT" then
+                        return "insert", (cursor < center) and (bestIdx + 1) or bestIdx
+                    end
+                    return "insert", (cursor < center) and bestIdx or (bestIdx + 1)
+                end
+                if layout.primary == "UP" then
+                    return "insert", (cursor < center) and (bestIdx + 1) or bestIdx
+                end
+                return "insert", (cursor < center) and bestIdx or (bestIdx + 1)
+            end
+        end
+
+        return nil, nil
+    end
+
+    local function FinishDrag()
+        if not drag.active then return end
+
+        local ghost = DDingUI._assignedIconRuntimeGhost
+        if ghost then ghost:Hide() end
+
+        local didChange = false
+        if drag.mode == "swap" and drag.targetIdx and drag.targetIdx ~= drag.fromIdx then
+            didChange = CommitDrag("swap", drag.fromIdx, drag.targetIdx)
+        elseif drag.mode == "insert" and drag.insertIdx then
+            local toIdx = drag.insertIdx
+            if toIdx > drag.fromIdx then toIdx = toIdx - 1 end
+            if toIdx < 1 then toIdx = 1 end
+            if toIdx > count then toIdx = count end
+            if toIdx ~= drag.fromIdx then
+                didChange = CommitDrag("move", drag.fromIdx, toIdx)
+            end
+        end
+
+        drag.active = false
+        drag.fromIdx = nil
+        drag.mode = nil
+        drag.targetIdx = nil
+        drag.insertIdx = nil
+        preview:SetScript("OnUpdate", function(self, elapsed)
+            if TickAnimation(elapsed) then
+                self:SetScript("OnUpdate", nil)
+                ClearDragFeedback()
+            end
+        end)
+
+        if didChange then
+            RefreshAfterCommit()
+        end
+    end
+
+    local function BeginDrag(slot)
+        local data = slot._data
+        if not data then return end
+
+        drag.active = true
+        drag.fromIdx = slot._index
+        drag.mode = nil
+        drag.targetIdx = nil
+        drag.insertIdx = nil
+        slot._ddSuppressClick = true
+        GameTooltip:Hide()
+        if slot._removeButton then slot._removeButton:Hide() end
+
+        local ghost = EnsureGhost()
+        ghost:SetSize(slot._w, slot._h)
+        ghost.icon:SetTexture(slot._icon:GetTexture())
+        AssignedGridApplyTexCoord(ghost.icon, settings)
+        ghost:Show()
+        slot:SetAlpha(0.26)
+
+        preview:SetScript("OnUpdate", function(self, elapsed)
+            if not IsMouseButtonDown("LeftButton") then
+                FinishDrag()
+                return
+            end
+
+            TickAnimation(elapsed)
+            local x, y = SlotLocalCursor()
+            local mode, targetIdx = FindDragTarget(x, y)
+            local noop = false
+            if mode == "swap" then
+                noop = targetIdx == drag.fromIdx
+            elseif mode == "insert" then
+                local toIdx = targetIdx
+                if toIdx > drag.fromIdx then toIdx = toIdx - 1 end
+                noop = toIdx == drag.fromIdx
+            end
+
+            if mode and targetIdx and not noop then
+                if mode ~= drag.mode or targetIdx ~= (mode == "swap" and drag.targetIdx or drag.insertIdx) then
+                    drag.mode = mode
+                    drag.targetIdx = (mode == "swap") and targetIdx or nil
+                    drag.insertIdx = (mode == "insert") and targetIdx or nil
+                    ApplyDragFeedback(mode, targetIdx, drag.fromIdx)
+                end
+            else
+                drag.mode = nil
+                drag.targetIdx = nil
+                drag.insertIdx = nil
+                ClearDragFeedback()
+                local dragged = slotFrames[drag.fromIdx]
+                if dragged then dragged:SetAlpha(0.26) end
+            end
+        end)
+    end
+
+    local function SetupTooltip(slot, opt)
+        local desc = opt and opt.desc
+        if type(desc) == "function" then desc = desc() end
+        GameTooltip:SetOwner(slot, "ANCHOR_TOP")
+        GameTooltip:SetText(GetGridOptionName(opt), 1, 1, 1, 1, true)
+        if desc and desc ~= "" then
+            GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
+        end
+        GameTooltip:Show()
+    end
+
+    for idx, row in ipairs(rows) do
+        local opt = row.option
+        local pos = layout.slots[idx]
+        if pos then
+            local slot = CreateFrame("Button", nil, preview)
+            slot:SetSize(pos.w, pos.h)
+            slot._index = idx
+            slot._baseX = pos.x
+            slot._baseY = pos.y
+            slot._currentOffX = 0
+            slot._currentOffY = 0
+            slot._targetOffX = 0
+            slot._targetOffY = 0
+            slot._w = pos.w
+            slot._h = pos.h
+            slot._line = pos.line
+            slot._data = opt and opt._dragData
+            slot._baseAlpha = groupAlpha
+            slot:SetAlpha(groupAlpha)
+            slot:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+            slot:SetHitRectInsets(-3, -3, -3, -3)
+            PositionSlot(slot)
+
+            local bg = slot:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            bg:SetColorTexture(0.02, 0.025, 0.03, 0.75)
+
+            local icon = slot:CreateTexture(nil, "ARTWORK")
+            icon:SetAllPoints()
+            icon:SetTexture(GetGridOptionIcon(opt))
+            AssignedGridApplyTexCoord(icon, settings)
+            slot._icon = icon
+
+            slot._edges = AssignedGridCreateEdges(slot, "OVERLAY", 2)
+            AssignedGridSetEdges(slot._edges, 0, 0, 0, 0.78, borderSize)
+            slot._hoverEdges = AssignedGridCreateEdges(slot, "OVERLAY", 4)
+            AssignedGridSetEdges(slot._hoverEdges, accentR, accentG, accentB, 1, 2)
+            for i = 1, 4 do slot._hoverEdges[i]:Hide() end
+
+            local orderText = slot:CreateFontString(nil, "OVERLAY")
+            orderText:SetFont(gf, math.max(8, math.min(11, math.floor(pos.h * 0.28))), "OUTLINE")
+            orderText:SetPoint("TOPLEFT", slot, "TOPLEFT", 2, -1)
+            orderText:SetText(idx)
+            orderText:SetTextColor(1, 1, 1, 0.58)
+
+            if opt and opt._gridCanRemove then
+                local xBtn = CreateFrame("Button", nil, slot)
+                xBtn:SetSize(math.max(12, math.min(16, pos.w * 0.38)), math.max(12, math.min(16, pos.h * 0.38)))
+                xBtn:SetPoint("TOPRIGHT", slot, "TOPRIGHT", 0, 0)
+                xBtn:Hide()
+                xBtn.bg = xBtn:CreateTexture(nil, "BACKGROUND")
+                xBtn.bg:SetAllPoints()
+                xBtn.bg:SetColorTexture(0.16, 0.02, 0.02, 0.86)
+                xBtn.edges = AssignedGridCreateEdges(xBtn, "OVERLAY", 2)
+                AssignedGridSetEdges(xBtn.edges, 0.62, 0.12, 0.12, 0.9, 1)
+                local xText = xBtn:CreateFontString(nil, "OVERLAY")
+                xText:SetFont(gf, 9, "OUTLINE")
+                xText:SetPoint("CENTER")
+                xText:SetText("x")
+                xText:SetTextColor(1, 0.7, 0.7, 1)
+                xBtn:SetScript("OnClick", function()
+                    CallOptionFunc(opt)
+                end)
+                xBtn:SetScript("OnEnter", function()
+                    xBtn.bg:SetColorTexture(0.55, 0.04, 0.04, 0.95)
+                end)
+                xBtn:SetScript("OnLeave", function()
+                    xBtn.bg:SetColorTexture(0.16, 0.02, 0.02, 0.86)
+                end)
+                slot._removeButton = xBtn
+            end
+
+            slot:SetScript("OnEnter", function(self)
+                if not drag.active then
+                    for i = 1, 4 do self._hoverEdges[i]:Show() end
+                    if self._removeButton then self._removeButton:Show() end
+                    SetupTooltip(self, opt)
+                end
+            end)
+            slot:SetScript("OnLeave", function(self)
+                if not self._swapTarget then
+                    for i = 1, 4 do self._hoverEdges[i]:Hide() end
+                end
+                if self._removeButton then self._removeButton:Hide() end
+                GameTooltip:Hide()
+            end)
+            slot:SetScript("OnClick", function(self, button)
+                if self._ddSuppressClick then
+                    self._ddSuppressClick = nil
+                    return
+                end
+                if button == "MiddleButton" and opt and opt._gridCanRemove then
+                    CallOptionFunc(opt)
+                end
+            end)
+            slot:SetScript("OnMouseDown", function(self, button)
+                if button ~= "LeftButton" or drag.active or not self._data then return end
+                local cx, cy = GetCursorPosition()
+                self._pendingDragStartX = cx
+                self._pendingDragStartY = cy
+                self:SetScript("OnUpdate", function(s)
+                    if not IsMouseButtonDown("LeftButton") then
+                        s:SetScript("OnUpdate", nil)
+                        s._pendingDragStartX = nil
+                        s._pendingDragStartY = nil
+                        return
+                    end
+                    local nx, ny = GetCursorPosition()
+                    local dx = nx - (s._pendingDragStartX or nx)
+                    local dy = ny - (s._pendingDragStartY or ny)
+                    if dx * dx + dy * dy >= ASSIGNED_GRID_DRAG_THRESHOLD * ASSIGNED_GRID_DRAG_THRESHOLD then
+                        s:SetScript("OnUpdate", nil)
+                        s._pendingDragStartX = nil
+                        s._pendingDragStartY = nil
+                        BeginDrag(s)
+                    end
+                end)
+            end)
+            slot:SetScript("OnMouseUp", function(self, button)
+                if button == "LeftButton" then
+                    self:SetScript("OnUpdate", nil)
+                    self._pendingDragStartX = nil
+                    self._pendingDragStartY = nil
+                end
+            end)
+
+            slotFrames[#slotFrames + 1] = slot
+        end
+    end
+end
+
 -- 스펠 이름/ID → GroupManager 할당용 이름 변환
 local function ResolveSpellInput(input, groupName)
     if not input or input == "" then return nil end
