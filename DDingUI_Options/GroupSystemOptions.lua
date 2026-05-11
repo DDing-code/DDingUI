@@ -1898,37 +1898,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             end
         end)
 
-        if opt._gridCanRemove then
-            local xBtn = CreateFrame("Button", nil, btn, "BackdropTemplate")
-            xBtn:SetSize(14, 14)
-            xBtn:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -3, 3)
-            xBtn:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-            xBtn:SetBackdropColor(0.18, 0.04, 0.04, 0.9)
-            xBtn:SetBackdropBorderColor(0.5, 0.12, 0.12, 0.9)
-            xBtn._ddAssignedDropData = opt._dragData
-            xBtn._ddAssignedDropFrame = btn
-            local xText = xBtn:CreateFontString(nil, "OVERLAY")
-            xText:SetFont(gf, 9, "")
-            xText:SetPoint("CENTER")
-            xText:SetText("X")
-            xText:SetTextColor(1, 0.65, 0.65, 0.95)
-            xBtn:SetScript("OnEnter", function(self)
-                if dragState.active then
-                    ShowInsertIndicator(self)
-                else
-                    self:SetBackdropColor(0.65, 0.08, 0.08, 1)
-                    xText:SetTextColor(1, 1, 1, 1)
-                end
-            end)
-            xBtn:SetScript("OnLeave", function(self)
-                self:SetBackdropColor(0.18, 0.04, 0.04, 0.9)
-                xText:SetTextColor(1, 0.65, 0.65, 0.95)
-                HideInsertIndicator()
-            end)
-            xBtn:SetScript("OnClick", function()
-                CallOptionFunc(opt)
-            end)
-        end
     end
 
     local totalRows = math.ceil(#rows / cols)
@@ -2823,7 +2792,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         drag.insertIdx = nil
         slot._ddSuppressClick = true
         GameTooltip:Hide()
-        if slot._removeButton then slot._removeButton:Hide() end
 
         local ghost = EnsureGhost()
         ghost:SetSize(slot._w, slot._h)
@@ -2980,37 +2948,9 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             orderText:SetText(idx)
             orderText:SetTextColor(1, 1, 1, 0.58)
 
-            if opt and opt._gridCanRemove then
-                local xBtn = CreateFrame("Button", nil, slot)
-                xBtn:SetSize(math.max(12, math.min(16, pos.w * 0.38)), math.max(12, math.min(16, pos.h * 0.38)))
-                xBtn:SetPoint("TOPRIGHT", slot, "TOPRIGHT", 0, 0)
-                xBtn:Hide()
-                xBtn.bg = xBtn:CreateTexture(nil, "BACKGROUND")
-                xBtn.bg:SetAllPoints()
-                xBtn.bg:SetColorTexture(0.16, 0.02, 0.02, 0.86)
-                xBtn.edges = AssignedGridCreateEdges(xBtn, "OVERLAY", 2)
-                AssignedGridSetEdges(xBtn.edges, 0.62, 0.12, 0.12, 0.9, 1)
-                local xText = xBtn:CreateFontString(nil, "OVERLAY")
-                xText:SetFont(gf, 9, "OUTLINE")
-                xText:SetPoint("CENTER")
-                xText:SetText("x")
-                xText:SetTextColor(1, 0.7, 0.7, 1)
-                xBtn:SetScript("OnClick", function()
-                    CallOptionFunc(opt)
-                end)
-                xBtn:SetScript("OnEnter", function()
-                    xBtn.bg:SetColorTexture(0.55, 0.04, 0.04, 0.95)
-                end)
-                xBtn:SetScript("OnLeave", function()
-                    xBtn.bg:SetColorTexture(0.16, 0.02, 0.02, 0.86)
-                end)
-                slot._removeButton = xBtn
-            end
-
             slot:SetScript("OnEnter", function(self)
                 if not drag.active then
                     for i = 1, 4 do self._hoverEdges[i]:Show() end
-                    if self._removeButton then self._removeButton:Show() end
                     SetupTooltip(self, opt)
                 end
             end)
@@ -3018,7 +2958,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 if not self._swapTarget then
                     for i = 1, 4 do self._hoverEdges[i]:Hide() end
                 end
-                if self._removeButton then self._removeButton:Hide() end
                 GameTooltip:Hide()
             end)
             slot:SetScript("OnClick", function(self, button)
