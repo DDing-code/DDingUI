@@ -264,6 +264,11 @@ local function ShouldKeepDynamicIconInCombat(icon)
     end
 
     if iconData.type == "trinketProc" then
+        local settings = iconData.settings or {}
+        if settings.showItemCooldown ~= false and iconData.slotID and GetInventoryItemID("player", iconData.slotID) then
+            return true
+        end
+
         if IsStillWithinKnownDuration(icon._ddProcActiveUntil) then
             return true
         end

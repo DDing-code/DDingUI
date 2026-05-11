@@ -164,6 +164,23 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
     end
 
     if iconData.type == "trinketProc" then
+        local settings = iconData.settings or {}
+        if settings.showItemCooldown ~= false then
+            local slotID = iconData.slotID
+            if slotID then
+                local itemID = GetInventoryItemID("player", slotID)
+                if itemID then
+                    iconFrame._lastInventoryItemID = itemID
+                    iconFrame._lastInventoryItemAt = now
+                    return true
+                end
+                local lastSeen = iconFrame._lastInventoryItemAt
+                if lastSeen and (now - lastSeen) < 1.0 then
+                    return true
+                end
+            end
+        end
+
         if not isBuffContext then
             local slotID = iconData.slotID
             if not slotID then return false end
@@ -392,7 +409,9 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
                 frame._wasVisibleInGroup = true
                 keepVisible = true
             elseif inCombat then
-                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext)
+                local isCooldownTrinket = iconData.type == "trinketProc"
+                    and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
+                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
                 local liveEffect = isEffectIcon and FrameHasLiveEffect(frame, now)
                 local recentEffect = isEffectIcon and FrameHadRecentEffect(frame, now)
                 keepManaged = (not isEffectIcon) and (frame._ddIsManaged and frame._ddContainerRef) and true or false
@@ -609,7 +628,9 @@ local function BuildDynamicLayoutStateHash()
             local frame = iconFrames and iconFrames[iconKey]
             if iconData and frame then
                 local token = "1"
-                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext)
+                local isCooldownTrinket = iconData.type == "trinketProc"
+                    and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
+                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
 
                 if isEffectIcon then
                     local active = frame._auraWasActive == true

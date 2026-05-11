@@ -3,7 +3,7 @@ local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
 local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
-local canaccessvalue = canaccessvalue  -- [12.0.5] secret value 감지
+local canaccessvalue = canaccessvalue or function() return true end
 
 DDingUI.CustomIcons = DDingUI.CustomIcons or {}
 local CustomIcons = DDingUI.CustomIcons
@@ -1164,6 +1164,75 @@ local function GetRealSpellCooldownDuration(spellID)
     return nil, false
 end
 
+local function IsCooldownEnabled(enable)
+    if enable == true then return true end
+    local value = SafeNumber(enable)
+    return value == 1
+end
+
+local function NormalizeCooldownSpan(start, duration, enable)
+    if not IsCooldownEnabled(enable) then return nil, nil end
+
+    local safeStart = SafeNumber(start)
+    local safeDuration = SafeNumber(duration)
+    if safeStart and safeDuration and safeDuration > ITEM_COOLDOWN_MIN_SECONDS then
+        return safeStart, safeDuration
+    end
+    return nil, nil
+end
+
+local function ReadInventoryCooldownSpan(slotID)
+    if not slotID or not GetInventoryItemCooldown then return nil, nil end
+
+    local start, duration, enable
+    pcall(function()
+        start, duration, enable = GetInventoryItemCooldown("player", slotID)
+    end)
+    return NormalizeCooldownSpan(start, duration, enable)
+end
+
+local function ReadItemCooldownSpan(itemID)
+    if not itemID then return nil, nil end
+
+    local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
+    if not getItemCD then return nil, nil end
+
+    local start, duration, enable
+    pcall(function()
+        start, duration, enable = getItemCD(itemID)
+    end)
+    return NormalizeCooldownSpan(start, duration, enable)
+end
+
+local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID)
+    local start, duration = ReadInventoryCooldownSpan(slotID)
+    if not start then
+        start, duration = ReadItemCooldownSpan(itemID)
+    end
+    if start and duration then
+        StoreCooldownSpan(iconFrame, prefix, start, duration)
+        return start, duration, true
+    end
+
+    start, duration = GetStoredCooldownSpan(iconFrame, prefix)
+    if start and duration then
+        return start, duration, true
+    end
+
+    return nil, nil, false
+end
+
+local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration)
+    if not iconFrame or not start or not duration then return false end
+    if not C_DurationUtil or not C_DurationUtil.CreateDuration then return false end
+
+    if not iconFrame[durObjKey] then
+        iconFrame[durObjKey] = C_DurationUtil.CreateDuration()
+    end
+    iconFrame[durObjKey]:SetTimeFromStart(start, duration)
+    iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame[durObjKey])
+    return true
+end
 
 local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
@@ -1560,15 +1629,11 @@ local function UpdateSlotIcon(iconFrame, iconData)
     EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
 
     -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
-    local start, duration, enable = GetInventoryItemCooldown("player", slotID)
+    local start, duration, hasCooldown = ResolveItemCooldownSpan(iconFrame, "_ddSlotCooldown", itemID, slotID)
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, iconData.settings)
     local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
-    local cachedStart, cachedDuration = GetStoredCooldownSpan(iconFrame, "_ddSlotCooldown")
-    if not (start and duration and enable == 1 and type(duration) == "number" and duration > ITEM_COOLDOWN_MIN_SECONDS) then
-        if cachedStart and cachedDuration then
-            start, duration, enable = cachedStart, cachedDuration, 1
-        end
-    end
+    local enable = hasCooldown and 1 or nil
+
     local onCooldown = false
     pcall(function()
         if start and duration and enable == 1 then
@@ -1836,15 +1901,10 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
         if settings.showItemCooldown ~= false then
             -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
-            local start, duration, enable = GetInventoryItemCooldown("player", slotID)
+            local start, duration, hasCooldown = ResolveItemCooldownSpan(iconFrame, "_ddTrinketCooldown", itemID, slotID)
             local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, settings)
             local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
-            local cachedStart, cachedDuration = GetStoredCooldownSpan(iconFrame, "_ddTrinketCooldown")
-            if not (start and duration and enable == 1 and type(duration) == "number" and duration > ITEM_COOLDOWN_MIN_SECONDS) then
-                if cachedStart and cachedDuration then
-                    start, duration, enable = cachedStart, cachedDuration, 1
-                end
-            end
+            local enable = hasCooldown and 1 or nil
             local onCooldown = false
             pcall(function()
                 if start and duration and enable == 1 then
@@ -2455,6 +2515,8 @@ local function RefreshItemCooldownIcons(needsLayoutNotify)
     UpdateAllIcons(needsLayoutNotify)
     C_Timer.After(0.05, function() UpdateAllIcons(needsLayoutNotify) end)
     C_Timer.After(0.20, function() UpdateAllIcons(needsLayoutNotify) end)
+    C_Timer.After(0.50, function() UpdateAllIcons(needsLayoutNotify) end)
+    C_Timer.After(1.00, function() UpdateAllIcons(needsLayoutNotify) end)
 end
 
 local function EnsureEventFrame()
