@@ -1167,22 +1167,35 @@ end
 local function IsCooldownEnabled(enable)
     if enable == true then return true end
     local value = SafeNumber(enable)
-    return value == 1
+    if value then return value == 1 end
+    local ok, enabled = pcall(function()
+        return enable == 1
+    end)
+    return ok and enabled == true
 end
 
 local function NormalizeCooldownSpan(start, duration, enable)
-    if not IsCooldownEnabled(enable) then return nil, nil end
+    if not IsCooldownEnabled(enable) then return nil, nil, false end
 
     local safeStart = SafeNumber(start)
     local safeDuration = SafeNumber(duration)
-    if safeStart and safeDuration and safeDuration > ITEM_COOLDOWN_MIN_SECONDS then
-        return safeStart, safeDuration
+    if safeStart and safeDuration then
+        if safeDuration > ITEM_COOLDOWN_MIN_SECONDS then
+            return safeStart, safeDuration, true
+        end
+        return nil, nil, false
     end
-    return nil, nil
+
+    -- In combat, item cooldown APIs can return protected numeric values.
+    -- Cooldown:SetCooldown can consume those directly, so keep the raw span.
+    if start ~= nil and duration ~= nil then
+        return start, duration, false
+    end
+    return nil, nil, false
 end
 
 local function ReadInventoryCooldownSpan(slotID)
-    if not slotID or not GetInventoryItemCooldown then return nil, nil end
+    if not slotID or not GetInventoryItemCooldown then return nil, nil, false end
 
     local start, duration, enable
     pcall(function()
@@ -1192,10 +1205,10 @@ local function ReadInventoryCooldownSpan(slotID)
 end
 
 local function ReadItemCooldownSpan(itemID)
-    if not itemID then return nil, nil end
+    if not itemID then return nil, nil, false end
 
     local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
-    if not getItemCD then return nil, nil end
+    if not getItemCD then return nil, nil, false end
 
     local start, duration, enable
     pcall(function()
@@ -1205,33 +1218,39 @@ local function ReadItemCooldownSpan(itemID)
 end
 
 local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID)
-    local start, duration = ReadInventoryCooldownSpan(slotID)
+    local start, duration, safeSpan = ReadInventoryCooldownSpan(slotID)
     if not start then
-        start, duration = ReadItemCooldownSpan(itemID)
+        start, duration, safeSpan = ReadItemCooldownSpan(itemID)
     end
     if start and duration then
-        StoreCooldownSpan(iconFrame, prefix, start, duration)
-        return start, duration, true
+        if safeSpan then
+            StoreCooldownSpan(iconFrame, prefix, start, duration)
+        end
+        return start, duration, true, safeSpan
     end
 
     start, duration = GetStoredCooldownSpan(iconFrame, prefix)
     if start and duration then
-        return start, duration, true
+        return start, duration, true, true
     end
 
-    return nil, nil, false
+    return nil, nil, false, false
 end
 
-local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration)
-    if not iconFrame or not start or not duration then return false end
-    if not C_DurationUtil or not C_DurationUtil.CreateDuration then return false end
+local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan)
+    if not iconFrame or not iconFrame.cooldown or not start or not duration then return false end
 
-    if not iconFrame[durObjKey] then
-        iconFrame[durObjKey] = C_DurationUtil.CreateDuration()
+    if safeSpan ~= false and C_DurationUtil and C_DurationUtil.CreateDuration then
+        if not iconFrame[durObjKey] then
+            iconFrame[durObjKey] = C_DurationUtil.CreateDuration()
+        end
+        iconFrame[durObjKey]:SetTimeFromStart(start, duration)
+        iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame[durObjKey])
+        return true
     end
-    iconFrame[durObjKey]:SetTimeFromStart(start, duration)
-    iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame[durObjKey])
-    return true
+
+    local ok = pcall(iconFrame.cooldown.SetCooldown, iconFrame.cooldown, start, duration)
+    return ok == true
 end
 
 local function UpdateItemIcon(iconFrame, iconData)
@@ -1278,8 +1297,6 @@ local function UpdateItemIcon(iconFrame, iconData)
     local desatDurationObject = nil
     local desatSpellID = nil
     local itemCooldownActive = false
-    local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
-
     -- GetItemCooldown can briefly return 0 in combat; keep a cached valid span as fallback.
     if itemSpellID then
         -- 스펠 ID가 매핑된 아이템: Ayije_CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
@@ -1288,32 +1305,18 @@ local function UpdateItemIcon(iconFrame, iconData)
             realDur = C_Spell.GetSpellCooldownDuration(itemSpellID)
         end
 
-        local hasItemCooldown = false
-        local itemCdStart, itemCdDuration = nil, nil
-        local cachedItemStart, cachedItemDuration = GetStoredCooldownSpan(iconFrame, "_ddItemCooldown")
-        pcall(function()
-            local cdStart, cdDur, cdEnable = getItemCD(activeItemID)
-            if cdStart and cdDur and cdEnable == 1 and type(cdDur) == "number" and cdDur > 1.5 then
-                itemCdStart, itemCdDuration = cdStart, cdDur
-                hasItemCooldown = true
-            end
-        end)
-        if not hasItemCooldown and cachedItemStart and cachedItemDuration then
-            itemCdStart, itemCdDuration = cachedItemStart, cachedItemDuration
-            hasItemCooldown = true
-        end
+        local itemCdStart, itemCdDuration, hasItemCooldown, itemCdSafe =
+            ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID)
 
         desatDurationObject = realDur
         desatSpellID = itemSpellID
 
         if hasItemCooldown then
-            if not iconFrame._itemDurObj then
-                iconFrame._itemDurObj = C_DurationUtil.CreateDuration()
+            if ApplyCooldownSpan(iconFrame, "_itemDurObj", itemCdStart, itemCdDuration, itemCdSafe) then
+                itemCooldownActive = true
+            else
+                iconFrame.cooldown:Clear()
             end
-            iconFrame._itemDurObj:SetTimeFromStart(itemCdStart, itemCdDuration)
-            StoreCooldownSpan(iconFrame, "_ddItemCooldown", itemCdStart, itemCdDuration)
-            iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._itemDurObj)
-            itemCooldownActive = true
         elseif realDur then
             iconFrame.cooldown:SetCooldownFromDurationObject(realDur)
         else
@@ -1321,29 +1324,15 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     else
         -- [Fallback] 스펠 ID 없는 아이템 (비전투/제한적 작동)
-        local hasItemCooldown = false
-        local itemCdStart, itemCdDuration = nil, nil
-        local cachedItemStart, cachedItemDuration = GetStoredCooldownSpan(iconFrame, "_ddItemCooldown")
-        pcall(function()
-            local cdStart, cdDur, cdEnable = getItemCD(activeItemID)
-            if cdStart and cdDur and cdEnable == 1 and type(cdDur) == "number" and cdDur > 1.5 then
-                itemCdStart, itemCdDuration = cdStart, cdDur
-                hasItemCooldown = true
-            end
-        end)
-        if not hasItemCooldown and cachedItemStart and cachedItemDuration then
-            itemCdStart, itemCdDuration = cachedItemStart, cachedItemDuration
-            hasItemCooldown = true
-        end
+        local itemCdStart, itemCdDuration, hasItemCooldown, itemCdSafe =
+            ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID)
 
         if hasItemCooldown then
-            if not iconFrame._itemDurObj then
-                iconFrame._itemDurObj = C_DurationUtil.CreateDuration()
+            if ApplyCooldownSpan(iconFrame, "_itemDurObj", itemCdStart, itemCdDuration, itemCdSafe) then
+                itemCooldownActive = true
+            else
+                iconFrame.cooldown:Clear()
             end
-            iconFrame._itemDurObj:SetTimeFromStart(itemCdStart, itemCdDuration)
-            StoreCooldownSpan(iconFrame, "_ddItemCooldown", itemCdStart, itemCdDuration)
-            iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._itemDurObj)
-            itemCooldownActive = true
         else
             iconFrame.cooldown:Clear()
         end
@@ -1629,14 +1618,18 @@ local function UpdateSlotIcon(iconFrame, iconData)
     EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
 
     -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
-    local start, duration, hasCooldown = ResolveItemCooldownSpan(iconFrame, "_ddSlotCooldown", itemID, slotID)
+    local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddSlotCooldown", itemID, slotID)
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, iconData.settings)
     local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
-    local enable = hasCooldown and 1 or nil
 
     local onCooldown = false
     pcall(function()
-        if start and duration and enable == 1 then
+        if start and duration and hasCooldown then
+            onCooldown = ApplyCooldownSpan(iconFrame, "_slotDurObj", start, duration, safeSpan)
+            if not onCooldown then iconFrame.cooldown:Clear() end
+            return
+        end
+        if start and duration and hasCooldown then
             if type(duration) == "number" and not canaccessvalue(duration) then
                 -- secret value: 쿨다운 중이지만 수치 불명 → 탈색만 적용
                 onCooldown = true
@@ -1901,13 +1894,17 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
         if settings.showItemCooldown ~= false then
             -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
-            local start, duration, hasCooldown = ResolveItemCooldownSpan(iconFrame, "_ddTrinketCooldown", itemID, slotID)
+            local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddTrinketCooldown", itemID, slotID)
             local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, settings)
             local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
-            local enable = hasCooldown and 1 or nil
             local onCooldown = false
             pcall(function()
-                if start and duration and enable == 1 then
+                if start and duration and hasCooldown then
+                    onCooldown = ApplyCooldownSpan(iconFrame, "_trinketDurObj", start, duration, safeSpan)
+                    if not onCooldown then iconFrame.cooldown:Clear() end
+                    return
+                end
+                if false then
                     if type(duration) == "number" and not canaccessvalue(duration) then
                         -- secret value: 쿨다운 중이지만 수치 불명 → 탈색만 적용
                         onCooldown = true
