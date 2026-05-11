@@ -602,7 +602,14 @@ local ITEM_COOLDOWN_MIN_SECONDS = 1.6
 local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CUSTOM_ICON_EFFECT_GRACE_SECONDS = 1.5
 
-local BLOODLUST_AURA_IDS = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
+local BLOODLUST_AURA_IDS = {
+    2825, 32182, 80353, 90355, 160452, 264667, 390386,
+    146555, 178207, 230935, 256740, 292686, 309658, 381301, 444257,
+}
+local BLOODLUST_AURA_LOOKUP = {}
+for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
+    BLOODLUST_AURA_LOOKUP[spellID] = true
+end
 local BLOODLUST_DEBUFFS = {
     [57723]  = 32182,  -- Exhaustion -> Heroism
     [57724]  = 2825,   -- Sated -> Bloodlust
@@ -917,7 +924,7 @@ local function ScanBloodlustTimedAura(updateInfo)
         local needsFullScan = false
         for _, aura in ipairs(updateInfo.addedAuras) do
             local sid = GetAuraSpellIDSafe(aura)
-            if sid and BLOODLUST_DEBUFFS[sid] then
+            if sid and (BLOODLUST_AURA_LOOKUP[sid] or BLOODLUST_DEBUFFS[sid]) then
                 relevant = true
                 break
             elseif aura and not sid then
@@ -928,6 +935,21 @@ local function ScanBloodlustTimedAura(updateInfo)
     end
 
     local config = CUSTOM_TIMED_AURA_CONFIGS[2825]
+    for _, lustBuffID in ipairs(BLOODLUST_AURA_IDS) do
+        local auraData
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(lustBuffID)
+        end)
+        local expirationTime = auraData and SafeNumber(auraData.expirationTime)
+        if expirationTime then
+            local duration = SafeNumber(auraData.duration) or config.duration
+            if duration <= 0 then duration = config.duration end
+            local appliedTime = expirationTime - duration
+            local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, lustBuffID)
+            return changed
+        end
+    end
+
     for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
         local auraData
         pcall(function()
@@ -1165,13 +1187,15 @@ local function GetRealSpellCooldownDuration(spellID)
 end
 
 local function IsCooldownEnabled(enable)
+    if enable == nil then return true end
     if enable == true then return true end
     local value = SafeNumber(enable)
     if value then return value == 1 end
     local ok, enabled = pcall(function()
         return enable == 1
     end)
-    return ok and enabled == true
+    if ok then return enabled == true end
+    return true
 end
 
 local function NormalizeCooldownSpan(start, duration, enable)
@@ -1207,14 +1231,27 @@ end
 local function ReadItemCooldownSpan(itemID)
     if not itemID then return nil, nil, false end
 
-    local getItemCD = C_Container and C_Container.GetItemCooldown or GetItemCooldown
-    if not getItemCD then return nil, nil, false end
+    local function readWith(getter)
+        local start, duration, enable
+        pcall(function()
+            start, duration, enable = getter(itemID)
+        end)
+        return NormalizeCooldownSpan(start, duration, enable)
+    end
 
-    local start, duration, enable
-    pcall(function()
-        start, duration, enable = getItemCD(itemID)
-    end)
-    return NormalizeCooldownSpan(start, duration, enable)
+    if C_Container and C_Container.GetItemCooldown then
+        local start, duration, safeSpan = readWith(C_Container.GetItemCooldown)
+        if start then return start, duration, safeSpan end
+    end
+    if C_Item and C_Item.GetItemCooldown then
+        local start, duration, safeSpan = readWith(C_Item.GetItemCooldown)
+        if start then return start, duration, safeSpan end
+    end
+    if GetItemCooldown then
+        local start, duration, safeSpan = readWith(GetItemCooldown)
+        if start then return start, duration, safeSpan end
+    end
+    return nil, nil, false
 end
 
 local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID)
@@ -1811,20 +1848,6 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
                     end)
                 end
             end)
-        end
-    end
-
-    if not auraData and InCombatLockdown and InCombatLockdown() then
-        local activeUntil = SafeNumber(iconFrame._ddProcActiveUntil)
-        local now = GetTime and GetTime() or 0
-        if activeUntil and activeUntil > now then
-            iconFrame._trinketProcWasActive = true
-            return
-        end
-        if HasRecentEffectState(iconFrame, now) then
-            iconFrame._trinketProcWasActive = false
-            ScheduleEffectGraceUpdate(iconFrame)
-            return
         end
     end
 
@@ -2514,6 +2537,8 @@ local function RefreshItemCooldownIcons(needsLayoutNotify)
     C_Timer.After(0.20, function() UpdateAllIcons(needsLayoutNotify) end)
     C_Timer.After(0.50, function() UpdateAllIcons(needsLayoutNotify) end)
     C_Timer.After(1.00, function() UpdateAllIcons(needsLayoutNotify) end)
+    C_Timer.After(2.00, function() UpdateAllIcons(needsLayoutNotify) end)
+    C_Timer.After(3.00, function() UpdateAllIcons(needsLayoutNotify) end)
 end
 
 local function EnsureEventFrame()
