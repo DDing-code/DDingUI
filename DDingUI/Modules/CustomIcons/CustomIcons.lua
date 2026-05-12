@@ -620,6 +620,7 @@ local BLOODLUST_DEBUFFS = {
     [390435] = 390386, -- Exhaustion -> Fury of the Aspects
 }
 local BLOODLUST_DEBUFF_DURATION_SECONDS = 600
+local bloodlustHandledUntil = 0
 local CUSTOM_TIMED_AURA_CONFIGS = {
     [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
     [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
@@ -634,9 +635,37 @@ local TIME_SPIRAL_TRIGGERS = {
     [73325] = true, [2983] = true, [192063] = true, [58875] = true,
     [79206] = true, [48020] = true, [6544] = true,
 }
+local TIME_SPIRAL_GLOW_FILTERS = {
+    { talentID = 427640, spells = { 198793, 370965, 195072 } }, -- Inertia -> Vengeful Retreat, The Hunt, Fel Rush
+    { talentID = 427794, spells = { 195072 } },                 -- Dash of Chaos -> Fel Rush
+    { talentID = 385899, spells = { 385899 } },                 -- Soulburn
+}
+local TIME_SPIRAL_GLOW_SUPPRESS_SECONDS = 1.5
+local timeSpiralGlowSuppressSpells = {}
+local timeSpiralSuppressGlowUntil = 0
 local AURA_EQUIVALENT_IDS = {}
 for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
     AURA_EQUIVALENT_IDS[spellID] = BLOODLUST_AURA_IDS
+end
+
+local function RebuildTimeSpiralGlowFilters()
+    for spellID in pairs(timeSpiralGlowSuppressSpells) do
+        timeSpiralGlowSuppressSpells[spellID] = nil
+    end
+
+    for _, entry in ipairs(TIME_SPIRAL_GLOW_FILTERS) do
+        local hasTalent = false
+        if IsPlayerSpell then
+            pcall(function()
+                hasTalent = IsPlayerSpell(entry.talentID) == true
+            end)
+        end
+        if hasTalent then
+            for _, spellID in ipairs(entry.spells or {}) do
+                timeSpiralGlowSuppressSpells[spellID] = true
+            end
+        end
+    end
 end
 
 local function SetStableIconTexture(iconFrame, texture, allowFallback)
@@ -1025,10 +1054,22 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, allowBlindS
     end
 
     local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, iconSpellID or 2825)
+    if sourceIsDebuff and expirationTime then
+        bloodlustHandledUntil = expirationTime
+    end
     return changed
 end
 
 local function ScanBloodlustTimedAura(updateInfo)
+    local now = GetTime()
+    local active = runtime.customTimedAuras[2825]
+    if active and active.expirationTime and active.expirationTime > now then
+        return false
+    end
+    if now < bloodlustHandledUntil then
+        return false
+    end
+
     if updateInfo and not updateInfo.isFullUpdate and updateInfo.addedAuras then
         local needsFullScan = false
         for _, aura in ipairs(updateInfo.addedAuras) do
@@ -2610,10 +2651,21 @@ local function ScheduleSpecReload()
 end
 
 local function HandleCustomTimedAuraEvent(event, ...)
+    if event == "UNIT_SPELLCAST_SENT" then
+        local unit, _, _, spellID = ...
+        if unit ~= "player" then return false end
+        spellID = SafeNumber(spellID)
+        if spellID and timeSpiralGlowSuppressSpells[spellID] then
+            timeSpiralSuppressGlowUntil = GetTime() + TIME_SPIRAL_GLOW_SUPPRESS_SECONDS
+        end
+        return false
+    end
+
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
         if unit ~= "player" then return false end
-        local config = CUSTOM_TIMED_AURA_CONFIGS[tonumber(spellID)]
+        spellID = SafeNumber(spellID)
+        local config = CUSTOM_TIMED_AURA_CONFIGS[spellID]
         if config and config.trigger == "spellcast" then
             local _, changed = ActivateCustomTimedAura(spellID, config)
             return changed
@@ -2628,8 +2680,9 @@ local function HandleCustomTimedAuraEvent(event, ...)
     end
 
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
-        local spellID = tonumber(...)
+        local spellID = SafeNumber(...)
         if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
+            if GetTime() < timeSpiralSuppressGlowUntil then return false end
             local _, changed = ActivateCustomTimedAura(374968, CUSTOM_TIMED_AURA_CONFIGS[374968])
             return changed
         end
@@ -2637,7 +2690,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
     end
 
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
-        local spellID = tonumber(...)
+        local spellID = SafeNumber(...)
         if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
             return DeactivateCustomTimedAura(374968)
         end
@@ -2684,18 +2737,23 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")       -- Equipment changes (alternative event)
     runtime.eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")  -- Spec change
     runtime.eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")   -- Talent group/spec change (alternative event)
+    runtime.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")           -- Talent changes for Time Spiral glow filters
+    runtime.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")           -- Talent changes for Time Spiral glow filters
     runtime.eventFrame:RegisterEvent("SPELLS_CHANGED")                -- Spellbook changes (often after spec change)
     runtime.eventFrame:RegisterEvent("UNIT_AURA")                      -- Trinket proc buff tracking
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
+    runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
     runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+    RebuildTimeSpiralGlowFilters()
 
     runtime.eventFrame:SetScript("OnEvent", function(self, event, ...)
         local arg1 = ...
 
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
+            RebuildTimeSpiralGlowFilters()
             -- Force reload layout after loading screen to catch delayed cache/spellbook states
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
             C_Timer.After(3.0, function() ScheduleSpecReload() end)
@@ -2711,12 +2769,19 @@ local function EnsureEventFrame()
             return
         end
 
-        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "SPELLS_CHANGED" then
+        if event == "PLAYER_SPECIALIZATION_CHANGED"
+            or event == "ACTIVE_TALENT_GROUP_CHANGED"
+            or event == "PLAYER_TALENT_UPDATE"
+            or event == "TRAIT_CONFIG_UPDATED"
+            or event == "SPELLS_CHANGED"
+        then
+            RebuildTimeSpiralGlowFilters()
             ScheduleSpecReload()
             return
         end
 
         local customTimedChanged = HandleCustomTimedAuraEvent(event, ...)
+        if event == "UNIT_SPELLCAST_SENT" then return end
         if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
             or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
             and not customTimedChanged then
