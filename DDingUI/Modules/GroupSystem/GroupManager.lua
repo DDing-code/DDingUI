@@ -46,6 +46,17 @@ local function IsBuffSpellKey(spellName)
     return type(spellName) == "string" and spellName:match("^buff_") ~= nil
 end
 
+local function IsBuffGroup(groupName, groupSettings)
+    if groupName == "Buffs" then return true end
+    return groupSettings and groupSettings.groupCategory == "buff"
+end
+
+local function CanAssignCDMSpellToGroup(spellName, groupName, groupSettings)
+    if not groupSettings then return false end
+    if groupSettings.groupType ~= "dynamic" then return true end
+    return IsBuffSpellKey(spellName) and IsBuffGroup(groupName, groupSettings)
+end
+
 local function GetUnassignedBuffSpells(gs, create)
     if not gs then return nil end
     if type(gs.unassignedBuffSpells) ~= "table" then
@@ -167,6 +178,113 @@ local function AppendGroupIconOrderToken(gs, groupName, token)
     groupSettings.iconOrder = groupSettings.iconOrder or {}
     if HasToken(groupSettings.iconOrder, token) then return false end
     groupSettings.iconOrder[#groupSettings.iconOrder + 1] = token
+    return true
+end
+
+local function ReplaceGroupOrderToken(groupSettings, oldToken, newToken)
+    local order = groupSettings and groupSettings.iconOrder
+    if type(order) ~= "table" or not oldToken or not newToken then return false end
+
+    local changed = false
+    local primaryIndex
+    for i, token in ipairs(order) do
+        if token == oldToken then
+            order[i] = newToken
+            primaryIndex = i
+            changed = true
+            break
+        end
+    end
+
+    if primaryIndex then
+        for i = #order, 1, -1 do
+            local token = order[i]
+            if token == oldToken or (token == newToken and i ~= primaryIndex) then
+                table.remove(order, i)
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+
+local function GetCopiedCDMBuffSpellName(iconData)
+    if not iconData or (iconData.type ~= "spell" and iconData.type ~= "aura") then return nil end
+    local settings = iconData.settings
+    if not settings or settings.copiedFromCDM ~= true then return nil end
+
+    if IsBuffSpellKey(settings.sourceSpellName) then
+        return settings.sourceSpellName
+    end
+
+    local spellID = tonumber(iconData.id)
+    if not spellID or spellID <= 0 then return nil end
+    local ok, info = pcall(function()
+        return C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    end)
+    local spellName = ok and info and info.name
+    if type(spellName) == "string" and spellName ~= "" and not (issecretvalue and issecretvalue(spellName)) then
+        return "buff_" .. spellName
+    end
+    return nil
+end
+
+local function ConvertCopiedBuffDynamicIcons(gs)
+    if DDingUI._convertingCopiedBuffIcons then return false end
+    if not gs or not gs.groups then return false end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynDB = profile and profile.dynamicIcons
+    local iconDataDB = dynDB and dynDB.iconData
+    local ci = DDingUI.CustomIcons
+    if not iconDataDB or not ci or not ci.RemoveDynamicIcon then return false end
+
+    local converted = {}
+    for groupName, groupSettings in pairs(gs.groups) do
+        if groupSettings and IsBuffGroup(groupName, groupSettings) then
+            local sourceKey = groupSettings.sourceGroupKey
+            local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
+            if dynGroup and dynGroup.icons then
+                for _, iconKey in ipairs(dynGroup.icons) do
+                    local spellName = GetCopiedCDMBuffSpellName(iconDataDB[iconKey])
+                    if spellName then
+                        converted[#converted + 1] = {
+                            groupName = groupName,
+                            groupSettings = groupSettings,
+                            iconKey = iconKey,
+                            spellName = spellName,
+                        }
+                    end
+                end
+            end
+        end
+    end
+    if #converted == 0 then return false end
+
+    if not gs.spellAssignments then gs.spellAssignments = {} end
+    DDingUI._convertingCopiedBuffIcons = true
+
+    for _, entry in ipairs(converted) do
+        local newToken = BuildCDMOrderToken(entry.spellName)
+        if newToken then
+            if gs.spellAssignments[entry.spellName] ~= entry.groupName then
+                RemoveTokenFromAllGroups(gs, newToken)
+            end
+            gs.spellAssignments[entry.spellName] = entry.groupName
+            local unassignedBuffs = GetUnassignedBuffSpells(gs, false)
+            if unassignedBuffs then
+                unassignedBuffs[entry.spellName] = nil
+            end
+            AppendGroupIconOrderToken(gs, entry.groupName, newToken)
+            ReplaceGroupOrderToken(entry.groupSettings, BuildDynamicOrderToken(entry.iconKey), newToken)
+        end
+    end
+
+    for _, entry in ipairs(converted) do
+        pcall(ci.RemoveDynamicIcon, ci, entry.iconKey)
+    end
+
+    DDingUI._convertingCopiedBuffIcons = nil
     return true
 end
 
@@ -358,7 +476,7 @@ function GroupManager:AssignSpell(spellName, groupName)
     local gs = GetGroupSystemSettings()
     if not gs then return false end
     local group = gs.groups and gs.groups[groupName]
-    if not group or group.groupType == "dynamic" then
+    if not CanAssignCDMSpellToGroup(spellName, groupName, group) then
         return false
     end
     if not gs.spellAssignments then gs.spellAssignments = {} end
@@ -442,18 +560,25 @@ end
 
 function GroupManager:PruneInvalidAssignments()
     local gs = GetGroupSystemSettings()
-    if not gs or not gs.spellAssignments or not gs.groups then return false end
+    if not gs or not gs.groups then return false end
 
+    local converted = ConvertCopiedBuffDynamicIcons(gs)
+    if not gs.spellAssignments then return converted == true end
     local toRemove
     for spellName, groupName in pairs(gs.spellAssignments) do
         local group = gs.groups[groupName]
-        if not group or group.groupType == "dynamic" then
+        if not CanAssignCDMSpellToGroup(spellName, groupName, group) then
             if not toRemove then toRemove = {} end
             toRemove[#toRemove + 1] = spellName
         end
     end
 
-    if not toRemove then return false end
+    if not toRemove then
+        if converted and DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+            DDingUI.SpecProfiles:MarkDirty()
+        end
+        return converted == true
+    end
     for _, spellName in ipairs(toRemove) do
         gs.spellAssignments[spellName] = nil
         RemoveTokenFromAllGroups(gs, BuildCDMOrderToken(spellName))
@@ -501,19 +626,18 @@ function GroupManager:ClassifyIcon(cooldownID)
     -- DynamicIconBridge가 CustomIcons 프레임을 직접 제공하므로
     -- CDM 아이콘을 커스텀 그룹으로 분류하면 중복 발생 (CDM 프레임 + CustomIcons 프레임)
 
-    -- [FIX] dynamic 그룹 필터 — CDM 아이콘은 dynamic 그룹에 절대 들어가면 안 됨
-    local function notDynamic(groupName)
+    -- CDM 원본은 일반 그룹으로 분류하되, 강화효과 CDM 스펠만 커스텀 buff 그룹에 재배치할 수 있다.
+    local function resolveCDMGroup(groupName, spellKey)
         if not groupName then return nil end
         local g = gs.groups[groupName]
-        if g and g.groupType == "dynamic" then return nil end
+        if not CanAssignCDMSpellToGroup(spellKey, groupName, g) then return nil end
         return groupName
     end
 
     -- 1순위: 수동 할당 (spellName 기반)
-    -- dynamic 그룹은 CustomIcons 복사본으로만 표시한다. CDM 원본을 dynamic으로 분류하면
-    -- 기존 CDM 그룹에서 빠지고 CustomIcons 복사본과 중복 렌더링된다.
+    -- 일반 dynamic 그룹은 CustomIcons 전용으로 유지한다. buff 그룹만 CDM 원본 재배치를 허용한다.
     if spellName and gs.spellAssignments and gs.spellAssignments[spellName] then
-        local assigned = notDynamic(gs.spellAssignments[spellName])
+        local assigned = resolveCDMGroup(gs.spellAssignments[spellName], spellName)
         if assigned and gs.groups[assigned] and gs.groups[assigned].enabled then
             return assigned
         end
@@ -529,7 +653,7 @@ function GroupManager:ClassifyIcon(cooldownID)
     if gs.autoClassify then
         local defaultGroup = CDMHookEngine:GetDefaultGroupForViewer(viewerName)
         if defaultGroup and gs.groups[defaultGroup] and gs.groups[defaultGroup].enabled then
-            local result = notDynamic(defaultGroup)
+            local result = resolveCDMGroup(defaultGroup, spellName)
             if result then return result end
         end
     end
@@ -537,17 +661,17 @@ function GroupManager:ClassifyIcon(cooldownID)
     -- 3순위: autoFilter 매칭
     if viewerName then
         local filterGroup = self:FindGroupByViewerFilter(viewerName)
-        local result = notDynamic(filterGroup)
+        local result = resolveCDMGroup(filterGroup, spellName)
         if result then return result end
     end
 
     -- 4순위: autoFilter = "ALL" 그룹
     local allGroup = self:FindGroupByFilter("ALL")
-    local allResult = notDynamic(allGroup)
+    local allResult = resolveCDMGroup(allGroup, spellName)
     if allResult then return allResult end
 
     -- 5순위: 첫 번째 활성 그룹
-    return notDynamic(self:GetFirstEnabledGroup())
+    return resolveCDMGroup(self:GetFirstEnabledGroup(), spellName)
 end
 
 -- 뷰어 이름 → autoFilter 매칭

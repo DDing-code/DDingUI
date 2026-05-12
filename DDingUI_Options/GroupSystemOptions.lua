@@ -221,7 +221,12 @@ local function GetUsableSpellAssignment(gs, spellName)
     if not assigned then return nil end
 
     local assignedGroup = gs.groups and gs.groups[assigned]
-    if not assignedGroup or assignedGroup.groupType == "dynamic" then
+    local isBuffSpell = type(spellName) == "string" and spellName:match("^buff_") ~= nil
+    local isDynamicBuffGroup = assignedGroup
+        and assignedGroup.groupType == "dynamic"
+        and isBuffSpell
+        and (assigned == "Buffs" or assignedGroup.groupCategory == "buff")
+    if not assignedGroup or (assignedGroup.groupType == "dynamic" and not isDynamicBuffGroup) then
         gs.spellAssignments[spellName] = nil
         MarkSpecProfileDirty()
         return nil
@@ -445,6 +450,116 @@ local function RemoveBuffDynamicSpellCopies(spellID, exceptGroup)
         end
     end
     return removed
+end
+
+local function GetCopiedCDMBuffSpellName(iconData)
+    if not iconData or (iconData.type ~= "spell" and iconData.type ~= "aura") then return nil end
+    local settings = iconData.settings
+    if not settings or settings.copiedFromCDM ~= true then return nil end
+
+    if type(settings.sourceSpellName) == "string" and settings.sourceSpellName:match("^buff_") then
+        return settings.sourceSpellName
+    end
+
+    local spellID = tonumber(iconData.id)
+    if not spellID or spellID <= 0 then return nil end
+    local ok, info = pcall(function()
+        return C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    end)
+    local spellName = ok and info and info.name
+    if type(spellName) == "string" and spellName ~= "" and not (issecretvalue and issecretvalue(spellName)) then
+        return "buff_" .. spellName
+    end
+    return nil
+end
+
+local function ReplaceGroupOrderToken(groupSettings, oldToken, newToken)
+    local order = groupSettings and groupSettings.iconOrder
+    if type(order) ~= "table" or not oldToken or not newToken then return false end
+
+    local changed = false
+    local primaryIndex
+    for i, token in ipairs(order) do
+        if token == oldToken then
+            order[i] = newToken
+            primaryIndex = i
+            changed = true
+            break
+        end
+    end
+
+    if primaryIndex then
+        for i = #order, 1, -1 do
+            local token = order[i]
+            if token == oldToken or (token == newToken and i ~= primaryIndex) then
+                table.remove(order, i)
+                changed = true
+            end
+        end
+    else
+        local seenNew = false
+        for i = #order, 1, -1 do
+            local token = order[i]
+            if token == oldToken then
+                table.remove(order, i)
+                changed = true
+            elseif token == newToken then
+                if not seenNew then
+                    seenNew = true
+                else
+                    table.remove(order, i)
+                    changed = true
+                end
+            end
+        end
+    end
+
+    return changed
+end
+
+local function ConvertCopiedBuffDynamicIconsToAssignments(groupName, groupSettings)
+    if DDingUI._convertingCopiedBuffIcons then return false end
+    if not groupName or not groupSettings or not IsBuffGroup(groupName, groupSettings) then return false end
+
+    local sourceKey = groupSettings.sourceGroupKey
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local dynGroup = sourceKey and dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    local iconDataDB = dynDB and dynDB.iconData
+    local ci = DDingUI.CustomIcons
+    local GroupMgr = DDingUI.GroupManager
+    if not dynGroup or not dynGroup.icons or not iconDataDB or not ci or not ci.RemoveDynamicIcon or not GroupMgr or not GroupMgr.AssignSpell then
+        return false
+    end
+
+    local toRemove = {}
+    for _, iconKey in ipairs(dynGroup.icons) do
+        local iconData = iconDataDB[iconKey]
+        local spellName = GetCopiedCDMBuffSpellName(iconData)
+        if spellName then
+            toRemove[#toRemove + 1] = { iconKey = iconKey, spellName = spellName }
+        end
+    end
+    if #toRemove == 0 then return false end
+
+    DDingUI._convertingCopiedBuffIcons = true
+    local changed = false
+    for _, entry in ipairs(toRemove) do
+        if GroupMgr:AssignSpell(entry.spellName, groupName) then
+            ReplaceGroupOrderToken(groupSettings, "dyn:" .. tostring(entry.iconKey), "cdm:" .. tostring(entry.spellName))
+            changed = true
+        end
+    end
+    for _, entry in ipairs(toRemove) do
+        pcall(ci.RemoveDynamicIcon, ci, entry.iconKey)
+        changed = true
+    end
+    DDingUI._convertingCopiedBuffIcons = nil
+
+    if changed then
+        MarkSpecProfileDirty()
+        InvalidateCDMIconEntryCache()
+    end
+    return changed
 end
 
 local function SafeCDMLayoutIndex(icon, fallback)
@@ -698,7 +813,8 @@ local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames)
     local rows = {}
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
-    if not groupSettings or groupSettings.groupType == "dynamic" then return rows end
+    local isBuffTargetGroup = IsBuffGroup(groupName, groupSettings)
+    if not groupSettings or (groupSettings.groupType == "dynamic" and not isBuffTargetGroup) then return rows end
 
     local targetViewer = GROUP_VIEWER_MAP[groupName]
     local assignments = gs and gs.spellAssignments or {}
@@ -980,6 +1096,7 @@ local function BuildUnassignedSpellRows(groupName)
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     if not groupSettings then return rows end
+    ConvertCopiedBuffDynamicIconsToAssignments(groupName, groupSettings)
 
     local isDynamicGroup = groupSettings.groupType == "dynamic"
     local isBuffPoolGroup = IsBuffGroup(groupName, groupSettings)
@@ -1025,7 +1142,7 @@ local function BuildUnassignedSpellRows(groupName)
                         iconTex = entry.icon or 134400,
                         displayName = ((entry.name or spellName or "Unknown"):gsub("^buff_", "")),
                         assignedGroup = assigned,
-                        isDynamicTarget = isDynamicGroup,
+                        isDynamicTarget = isDynamicGroup and not isBuffEntry,
                         isBuffShared = isBuffEntry == true,
                         fallbackOrder = tonumber(entry.layoutIndex) or idx,
                     }
@@ -1380,6 +1497,7 @@ local function BuildAssignedSpellsArgs(groupName)
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     local count = 0
     local rows = {}
+    ConvertCopiedBuffDynamicIconsToAssignments(groupName, groupSettings)
 
     -- 1. CDM 기본/수동 아이콘도 "할당된 목록"처럼 보여준다.
     -- 실제 DB를 강제로 채우지는 않고, 기본 뷰어 소속이면 자동 할당처럼 표시한다.
@@ -1579,16 +1697,17 @@ local function BuildAssignedSpellsArgs(groupName)
                     local dynDBCur = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
                     local iconDataCur = dynDBCur and dynDBCur.iconData and dynDBCur.iconData[capturedIconKey]
                     if iconDataCur and iconDataCur.id then
+                        local copiedBuffSpellName = GetCopiedCDMBuffSpellName(iconDataCur)
                         local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconDataCur.id)
                         if spellInfo and spellInfo.name then
-                            if IsBuffGroup(groupName, groupSettings) and (iconDataCur.type == "spell" or iconDataCur.type == "aura") then
-                                spellNameForUnassigned = "buff_" .. spellInfo.name
+                            if IsBuffGroup(groupName, groupSettings) and copiedBuffSpellName then
+                                spellNameForUnassigned = copiedBuffSpellName
                                 spellIDForUnassigned = tonumber(iconDataCur.id)
                             end
                             -- 이전 버그로 dynamic 그룹에 기록된 할당만 정리한다.
                             -- 다른 CDM 그룹에 사용자가 직접 할당한 값은 건드리지 않는다.
                             if gsCur and gsCur.spellAssignments then
-                                local buffKey = "buff_" .. spellInfo.name
+                                local buffKey = copiedBuffSpellName or ("buff_" .. spellInfo.name)
                                 if gsCur.spellAssignments[buffKey] == groupName then
                                     gsCur.spellAssignments[buffKey] = nil
                                 end
