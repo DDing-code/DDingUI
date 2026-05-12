@@ -619,6 +619,7 @@ local BLOODLUST_DEBUFFS = {
     [264689] = 264667, -- Fatigued -> Primal Rage
     [390435] = 390386, -- Exhaustion -> Fury of the Aspects
 }
+local BLOODLUST_DEBUFF_DURATION_SECONDS = 600
 local CUSTOM_TIMED_AURA_CONFIGS = {
     [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
     [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
@@ -765,10 +766,19 @@ local function BuildTimedAuraData(spellID, state)
     }
 end
 
+local function GetAuraFieldSafe(aura, key)
+    if not aura or not key then return nil end
+    local ok, value = pcall(function()
+        return aura[key]
+    end)
+    if ok then return value end
+    return nil
+end
+
 local function GetAuraSpellIDSafe(aura)
     if not aura then return nil end
     local ok, spellID = pcall(function()
-        local sid = aura.spellId
+        local sid = GetAuraFieldSafe(aura, "spellId")
         if not sid then return nil end
         if type(sid) == "number" then
             if canaccessvalue and not canaccessvalue(sid) then
@@ -809,6 +819,10 @@ local function SafeNumber(value)
     end
     if valueType == "string" then return tonumber(value) end
     return nil
+end
+
+local function GetAuraNumberFieldSafe(aura, key)
+    return SafeNumber(GetAuraFieldSafe(aura, key))
 end
 
 local function MaxSafeNumber(...)
@@ -938,20 +952,23 @@ local function GetBloodlustNameLookup()
     if runtime.bloodlustNameLookup then return runtime.bloodlustNameLookup end
 
     local names = {}
-    local function addName(spellID, iconSpellID)
+    local function addName(spellID, iconSpellID, sourceIsDebuff)
         if not spellID or not C_Spell or not C_Spell.GetSpellInfo then return end
         local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
         local name = ok and info and info.name
         if name and name ~= "" and not names[name] then
-            names[name] = iconSpellID or spellID
+            names[name] = {
+                iconSpellID = iconSpellID or spellID,
+                sourceIsDebuff = sourceIsDebuff == true,
+            }
         end
     end
 
     for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
-        addName(spellID, spellID)
+        addName(spellID, spellID, false)
     end
     for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
-        addName(debuffID, lustBuffID)
+        addName(debuffID, lustBuffID, true)
     end
 
     runtime.bloodlustNameLookup = names
@@ -963,37 +980,36 @@ local function ResolveBloodlustAuraIconSpellID(aura)
 
     local sid = GetAuraSpellIDSafe(aura)
     if sid then
-        if BLOODLUST_AURA_LOOKUP[sid] then return sid end
-        if BLOODLUST_DEBUFFS[sid] then return BLOODLUST_DEBUFFS[sid] end
+        if BLOODLUST_AURA_LOOKUP[sid] then return sid, false end
+        if BLOODLUST_DEBUFFS[sid] then return BLOODLUST_DEBUFFS[sid], true end
     end
 
-    local ok, iconSpellID = pcall(function()
-        local name = aura.name
+    local ok, entry = pcall(function()
+        local name = GetAuraFieldSafe(aura, "name")
         if type(name) ~= "string" or name == "" then return nil end
         return GetBloodlustNameLookup()[name]
     end)
-    if ok then
-        return iconSpellID
+    if ok and entry then
+        return entry.iconSpellID, entry.sourceIsDebuff == true
     end
 
     return nil
 end
 
-local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, allowBlindStart)
+local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, allowBlindStart, sourceIsDebuff)
     local config = CUSTOM_TIMED_AURA_CONFIGS[2825]
     if not config then return false end
 
     local now = GetTime()
-    local expirationTime = SafeNumber(aura and aura.expirationTime)
-    local duration = SafeNumber(aura and aura.duration)
+    local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
+    local duration = GetAuraNumberFieldSafe(aura, "duration")
     local appliedTime
 
     if expirationTime then
-        if duration and duration > 0 then
-            appliedTime = expirationTime - duration
-        else
-            appliedTime = expirationTime - config.duration
+        if not duration or duration <= 0 then
+            duration = sourceIsDebuff and BLOODLUST_DEBUFF_DURATION_SECONDS or config.duration
         end
+        appliedTime = expirationTime - duration
         if (now - appliedTime) >= config.duration then
             return false
         end
@@ -1016,9 +1032,12 @@ local function ScanBloodlustTimedAura(updateInfo)
     if updateInfo and not updateInfo.isFullUpdate and updateInfo.addedAuras then
         local needsFullScan = false
         for _, aura in ipairs(updateInfo.addedAuras) do
-            local iconSpellID = ResolveBloodlustAuraIconSpellID(aura)
+            local iconSpellID, sourceIsDebuff = ResolveBloodlustAuraIconSpellID(aura)
             if iconSpellID then
-                return ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, true)
+                if ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, not sourceIsDebuff, sourceIsDebuff) then
+                    return true
+                end
+                needsFullScan = true
             elseif aura then
                 needsFullScan = true
             end
@@ -1031,8 +1050,8 @@ local function ScanBloodlustTimedAura(updateInfo)
         pcall(function()
             auraData = C_UnitAuras.GetPlayerAuraBySpellID(lustBuffID)
         end)
-        if auraData then
-            return ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, true)
+        if auraData and ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, true, false) then
+            return true
         end
     end
 
@@ -1041,26 +1060,27 @@ local function ScanBloodlustTimedAura(updateInfo)
         pcall(function()
             auraData = C_UnitAuras.GetPlayerAuraBySpellID(debuffID)
         end)
-        if auraData then
-            return ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, false)
+        if auraData and ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, false, true) then
+            return true
         end
     end
 
     if AuraUtil and AuraUtil.ForEachAura then
         local function scanFilter(filter, allowBlindStart)
-            local foundAura, foundIconSpellID
+            local foundAura, foundIconSpellID, foundSourceIsDebuff
             pcall(function()
                 AuraUtil.ForEachAura("player", filter, nil, function(aura)
-                    local iconSpellID = ResolveBloodlustAuraIconSpellID(aura)
+                    local iconSpellID, sourceIsDebuff = ResolveBloodlustAuraIconSpellID(aura)
                     if iconSpellID then
                         foundAura = aura
                         foundIconSpellID = iconSpellID
+                        foundSourceIsDebuff = sourceIsDebuff or filter == "HARMFUL"
                         return true
                     end
                 end)
             end)
             if foundAura then
-                return ActivateBloodlustTimedAuraFromAura(foundAura, foundIconSpellID, allowBlindStart)
+                return ActivateBloodlustTimedAuraFromAura(foundAura, foundIconSpellID, allowBlindStart and not foundSourceIsDebuff, foundSourceIsDebuff)
             end
             return false
         end
