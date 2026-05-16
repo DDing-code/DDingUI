@@ -59,6 +59,7 @@ local IsInRaid = IsInRaid
 local IsInGroup = IsInGroup
 local C_Timer = C_Timer
 local COMBAT_DYNAMIC_MISSING_GRACE = 1.5
+local ALPHA_EPSILON = 0.01
 
 -- FrameController 참조 (런타임에 resolve)
 local FC -- FrameController lazy reference
@@ -209,6 +210,44 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
                     cdText:SetTextColor(ResolveRGBA(textColor))
                 end
             end
+        end
+    end
+end
+
+local function GetObjectAlpha(obj)
+    if not (obj and obj.GetAlpha) then return nil end
+    local ok, alpha = pcall(obj.GetAlpha, obj)
+    if ok and type(alpha) == "number" then return alpha end
+    return nil
+end
+
+local function SetAlphaIfNeeded(obj, alpha, cacheField)
+    if not (obj and obj.SetAlpha) then return end
+    alpha = tonumber(alpha) or 1
+    local actual = GetObjectAlpha(obj)
+    local cached = cacheField and obj[cacheField]
+    if cached ~= alpha or not actual or math_abs(actual - alpha) > ALPHA_EPSILON then
+        if cacheField then
+            obj[cacheField] = alpha
+        end
+        obj:SetAlpha(alpha)
+    end
+end
+
+local function RestoreIconTextureOpacity(icon)
+    if not icon or icon._ddingHidden then return end
+    local texture = icon.icon or icon.Icon
+    if not texture then return end
+
+    if texture.Show then
+        pcall(texture.Show, texture)
+    end
+    SetAlphaIfNeeded(texture, 1, "_ddLastTextureAlpha")
+
+    if texture.GetVertexColor and texture.SetVertexColor then
+        local ok, r, g, b, a = pcall(texture.GetVertexColor, texture)
+        if ok and type(a) == "number" and a < (1 - ALPHA_EPSILON) then
+            pcall(texture.SetVertexColor, texture, r or 1, g or 1, b or 1, 1)
         end
     end
 end
@@ -379,17 +418,32 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
         icon:Show()
     end
     local iconAlpha = combatVisible == false and 0 or (groupAlpha or 1)
-    if icon._ddLastGroupAlpha ~= iconAlpha then
-        icon._ddLastGroupAlpha = iconAlpha
-        icon:SetAlpha(iconAlpha)
+    SetAlphaIfNeeded(icon, iconAlpha, "_ddLastGroupAlpha")
+    if iconAlpha > 0 then
+        RestoreIconTextureOpacity(icon)
     end
 end
 
-local function RestoreActiveDynamicPlacements(list, groupName, groupSettings, groupAlpha)
+local function RestorePlacementVisibility(entry, groupName, groupSettings, groupAlpha)
+    if not entry then return end
+    local icon = entry.icon or entry.frame
+    if not icon then return end
+    if entry.isDynamic then
+        RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, entry.combatVisible)
+        return
+    end
+    if icon.Show and not icon._ddingHidden then
+        icon:Show()
+    end
+    if not icon._ddingHidden then
+        SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
+        RestoreIconTextureOpacity(icon)
+    end
+end
+
+local function RestoreActivePlacements(list, groupName, groupSettings, groupAlpha)
     for _, entry in ipairs(list or {}) do
-        if entry and entry.isDynamic then
-            RestoreDynamicIconVisibility(entry.icon, groupName, groupSettings, groupAlpha, entry.combatVisible)
-        end
+        RestorePlacementVisibility(entry, groupName, groupSettings, groupAlpha)
     end
 end
 
@@ -1123,7 +1177,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     ApplyGroupIconOrder(groupSettings, combinedList)
     local combinedHash = BuildPlacementHash(combinedList)
     if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
-        RestoreActiveDynamicPlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
+        RestoreActivePlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
         if #combinedList > 0 and not frame:IsShown() then
             frame:Show()
         end
@@ -1141,10 +1195,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     icon._ddCombatKeepAlive = true
                     icon._ddCombatVisible = false
                     if icon.Show then icon:Show() end
-                    if icon._ddLastGroupAlpha ~= 0 then
-                        icon._ddLastGroupAlpha = 0
-                        icon:SetAlpha(0)
-                    end
+                    SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
                 else
                     icon:Hide()
                     local bridge = DDingUI.DynamicIconBridge
@@ -1494,10 +1545,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     local groupAlpha = flightHiding and 0 or (groupSettings.groupAlpha or 1.0)
 
     -- [FIX Ayije] 컨테이너 프레임 alpha: 변경 시에만 SetAlpha (매 틱 호출 방지)
-    if frame._ddLastFrameAlpha ~= groupAlpha then
-        frame._ddLastFrameAlpha = groupAlpha
-        frame:SetAlpha(groupAlpha)
-    end
+    SetAlphaIfNeeded(frame, groupAlpha, "_ddLastFrameAlpha")
 
     for i = 1, idx do
         local ic = frame._managedIcons[i]
@@ -1510,9 +1558,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 if ic._ddIconKey and ic._ddCombatKeepAlive and ic._ddCombatVisible == false then
                     iconAlpha = 0
                 end
-                if ic._ddLastGroupAlpha ~= iconAlpha then
-                    ic._ddLastGroupAlpha = iconAlpha
-                    ic:SetAlpha(iconAlpha)
+                SetAlphaIfNeeded(ic, iconAlpha, "_ddLastGroupAlpha")
+                if iconAlpha > 0 then
+                    RestoreIconTextureOpacity(ic)
                 end
             end
         end
@@ -2054,10 +2102,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                     icon._ddCombatKeepAlive = true
                     icon._ddCombatVisible = false
                     if icon.Show then icon:Show() end
-                    if icon._ddLastGroupAlpha ~= 0 then
-                        icon._ddLastGroupAlpha = 0
-                        icon:SetAlpha(0)
-                    end
+                    SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
                 else
                     bridge:ReleaseFrame(icon, icon._ddIconKey)
                 end
@@ -2225,9 +2270,9 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
             if icon._ddCombatKeepAlive and icon._ddCombatVisible == false then
                 iconAlpha = 0
             end
-            if icon._ddLastGroupAlpha ~= iconAlpha then
-                icon._ddLastGroupAlpha = iconAlpha
-                icon:SetAlpha(iconAlpha)
+            SetAlphaIfNeeded(icon, iconAlpha, "_ddLastGroupAlpha")
+            if iconAlpha > 0 then
+                RestoreIconTextureOpacity(icon)
             end
         end
     end
