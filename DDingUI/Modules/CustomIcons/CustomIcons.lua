@@ -886,6 +886,17 @@ local function ScheduleEffectGraceUpdate(iconFrame)
 end
 
 local MarkCustomTimedAuraExpired
+local MarkCustomTimedAuraActive
+
+local function NotifyCustomTimedAuraChanged(forceLayout)
+    local mode = forceLayout or "force"
+    if UpdateAllIcons then
+        UpdateAllIcons(mode)
+    end
+    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+        DDingUI.DynamicIconBridge:NotifyIconsChanged(mode == true or mode == "force")
+    end
+end
 
 local function DeactivateCustomTimedAura(spellID)
     if not runtime.customTimedAuras[spellID] then return false end
@@ -932,6 +943,36 @@ MarkCustomTimedAuraExpired = function(spellID)
     end
 end
 
+MarkCustomTimedAuraActive = function(spellID, state)
+    local db = GetDynamicDB()
+    local iconDataByKey = db and db.iconData
+    if not iconDataByKey then return false end
+
+    local matchedFrame = false
+    local hasMatchingIcon = false
+    local now = GetTime and GetTime() or 0
+    for iconKey, iconData in pairs(iconDataByKey) do
+        local config = GetCustomTimedAuraConfig(iconData)
+        if config and config.stateID == spellID then
+            hasMatchingIcon = true
+            local frame = runtime.iconFrames[iconKey]
+            if frame then
+                matchedFrame = true
+                frame._ddTimedAuraActiveUntil = state and state.expirationTime or nil
+                frame._ddLastAuraActiveAt = now
+                frame._ddLastDynamicActiveAt = now
+                frame._wasVisibleInGroup = true
+                frame._auraWasActive = true
+                frame._ddManagedAuraExpired = nil
+                if state and state.iconTexture then
+                    SetStableIconTexture(frame, state.iconTexture, true)
+                end
+            end
+        end
+    end
+    return matchedFrame, hasMatchingIcon
+end
+
 local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
     spellID = tonumber(spellID)
     if not spellID or not config then return nil, false end
@@ -960,6 +1001,24 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         iconTexture = ResolveSpellTexture(iconSpellID or spellID),
     }
     runtime.customTimedAuras[spellID] = state
+    if changed then
+        local matchedFrame, hasMatchingIcon
+        if MarkCustomTimedAuraActive then
+            matchedFrame, hasMatchingIcon = MarkCustomTimedAuraActive(spellID, state)
+        end
+        NotifyCustomTimedAuraChanged("force")
+        if hasMatchingIcon and not matchedFrame and CustomIcons and CustomIcons.LoadDynamicIcons then
+            C_Timer.After(0, function()
+                if CustomIcons and CustomIcons.LoadDynamicIcons then
+                    CustomIcons:LoadDynamicIcons()
+                end
+                if MarkCustomTimedAuraActive then
+                    MarkCustomTimedAuraActive(spellID, state)
+                end
+                NotifyCustomTimedAuraChanged("force")
+            end)
+        end
+    end
 
     C_Timer.After((expirationTime - now) + 0.05, function()
         local current = runtime.customTimedAuras and runtime.customTimedAuras[spellID]
@@ -2740,7 +2799,7 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")           -- Talent changes for Time Spiral glow filters
     runtime.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")           -- Talent changes for Time Spiral glow filters
     runtime.eventFrame:RegisterEvent("SPELLS_CHANGED")                -- Spellbook changes (often after spec change)
-    runtime.eventFrame:RegisterEvent("UNIT_AURA")                      -- Trinket proc buff tracking
+    runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")        -- Trinket proc/custom buff tracking
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
