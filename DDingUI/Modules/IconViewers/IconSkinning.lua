@@ -26,6 +26,30 @@ end
 
 -- Helper Functions
 
+local function IsAuraSwipeColor(r, g, b)
+    return r and g and b and r > 0.9 and g > 0.9 and b > 0.4
+end
+
+local function IconHasAuraState(icon, cooldown)
+    if not icon then return false end
+
+    local ok, active = pcall(function()
+        return icon.wasSetFromAura == true or icon.auraInstanceID ~= nil
+    end)
+    if ok and active then return true end
+
+    if cooldown and cooldown.GetSwipeColor then
+        local colorOk, r, g, b = pcall(function()
+            return cooldown:GetSwipeColor()
+        end)
+        if colorOk and IsAuraSwipeColor(r, g, b) then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function IsCooldownIconFrame(frame)
     return frame and (frame.icon or frame.Icon) and frame.Cooldown
 end
@@ -442,13 +466,19 @@ function IconViewers:SkinIcon(icon, settings)
                 if not parentIcon then return end
 
                 -- [PERF] 변경 감지: 이전 isAuraSwipe 상태와 동일하면 전체 로직 스킵
-                local isAuraSwipe = r and g and b and r > 0.9 and g > 0.9 and b > 0.4
+                local isAuraSwipe = IsAuraSwipeColor(r, g, b)
                 local pid = iconData[parentIcon]
                 if not pid then pid = {}; iconData[parentIcon] = pid end
+                if not isAuraSwipe and IconHasAuraState(parentIcon, self) then
+                    isAuraSwipe = true
+                end
                 local prevAura = pid.isAuraSwipe
                 pid.isAuraSwipe = isAuraSwipe
+                if isAuraSwipe and s and s.auraGlow then
+                    pid._glowRemoveTimer = nil
+                end
                 -- [PERF] 상태 변경 없으면 heavy 로직 전부 스킵 (매 프레임 → 전환 시에만)
-                if isAuraSwipe == prevAura then return end
+                if isAuraSwipe == prevAura and not (isAuraSwipe and s and s.auraGlow and not pid.auraGlowActive) then return end
 
                 -- [12.0.1] Hide Duration Text logic (상태 전환 시에만 실행)
                 if s.hideDurationText then
@@ -582,12 +612,17 @@ function IconViewers:SkinIcon(icon, settings)
                         -- 디바운스 타이머 설정: 0.3초 후에도 aura swipe가 없으면 글로우 제거
                         pid._glowRemoveTimer = GetTime()
                         if not pid._glowRemoveScheduled then
+                            local cooldownFrame = self
                             pid._glowRemoveScheduled = true
                             C_Timer.After(0.35, function()
                                 pid._glowRemoveScheduled = nil
                                 -- 0.35초 시점에서 마지막 non-aura 이벤트가 아직 유효한지 확인
                                 if not pid._glowRemoveTimer then return end
                                 if (GetTime() - pid._glowRemoveTimer) < 0.3 then return end
+                                if IconHasAuraState(parentIcon, cooldownFrame) then
+                                    pid._glowRemoveTimer = nil
+                                    return
+                                end
                                 -- 0.3초 동안 aura swipe가 없었으면 = 오라 종료 → 글로우 제거
                                 if not pid.auraGlowActive then return end
                                 local activeGlowType = pid.auraGlowType
