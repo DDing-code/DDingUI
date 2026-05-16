@@ -131,6 +131,88 @@ local function ResolveCooldownTextStyle(groupName, groupSettings)
         groupSettings.cooldownTextColor
 end
 
+local function ResolveRGBA(color)
+    if type(color) ~= "table" then return 1, 1, 1, 1 end
+    if color.GetRGBA then
+        local ok, r, g, b, a = pcall(color.GetRGBA, color)
+        if ok then return r or 1, g or 1, b or 1, a or 1 end
+    end
+    if color[1] then
+        return color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
+    end
+    if color.r then
+        return color.r or 1, color.g or 1, color.b or 1, color.a or 1
+    end
+    return 1, 1, 1, 1
+end
+
+local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
+    if not icon or not groupSettings then return end
+    local iconTexture = icon.icon or icon.Icon or icon
+
+    if icon.count then
+        local countAnchor = groupSettings.chargeTextAnchor or "BOTTOMRIGHT"
+        if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
+        local cox = tonumber(groupSettings.countTextOffsetX) or 0
+        local coy = tonumber(groupSettings.countTextOffsetY) or 0
+        icon.count:ClearAllPoints()
+        icon.count:SetPoint(countAnchor, iconTexture, countAnchor, cox, coy)
+
+        local cSize = tonumber(groupSettings.countTextSize)
+        if cSize and cSize > 0 then
+            local cFont = DDingUI:GetFont(groupSettings.countTextFont)
+            icon.count:SetFont(cFont, cSize, "OUTLINE")
+        end
+
+        if type(groupSettings.countTextColor) == "table" then
+            icon.count:SetTextColor(ResolveRGBA(groupSettings.countTextColor))
+        end
+    end
+
+    if icon.cooldown then
+        local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
+        local ox = tonumber(oxRaw) or 0
+        local oy = tonumber(oyRaw) or 0
+        if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
+
+        if groupSettings.hideDurationText then
+            if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(true) end
+            icon.cooldown.noCooldownCount = true
+        else
+            if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(false) end
+            icon.cooldown.noCooldownCount = nil
+        end
+
+        local cdText = GetCooldownTextFontString(icon.cooldown)
+        if cdText then
+            if groupSettings.hideDurationText then
+                cdText:Hide()
+                if not cdText.hookedHideText then
+                    cdText.hookedHideText = true
+                    hooksecurefunc(cdText, "Show", function(self)
+                        local cd = self:GetParent()
+                        if cd and cd.noCooldownCount then self:Hide() end
+                    end)
+                end
+            else
+                cdText:Show()
+                if cdAnchor then
+                    cdText:ClearAllPoints()
+                    cdText:SetPoint(cdAnchor, icon.cooldown, cdAnchor, ox, oy)
+                end
+                local size = tonumber(textSizeRaw)
+                if size and size > 0 then
+                    local font = DDingUI:GetFont(textFont)
+                    cdText:SetFont(font, size, "OUTLINE")
+                end
+                if type(textColor) == "table" then
+                    cdText:SetTextColor(ResolveRGBA(textColor))
+                end
+            end
+        end
+    end
+end
+
 local function TagDynamicIconForGroup(icon, groupName, groupSettings)
     if not icon then return end
     icon._groupSettings = groupSettings
@@ -290,8 +372,9 @@ local function ShouldKeepDynamicIconInCombat(icon)
     return true
 end
 
-local function RestoreDynamicIconVisibility(icon, groupAlpha, combatVisible)
+local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible)
     if not icon then return end
+    ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
     if icon.Show then
         icon:Show()
     end
@@ -302,18 +385,18 @@ local function RestoreDynamicIconVisibility(icon, groupAlpha, combatVisible)
     end
 end
 
-local function RestoreActiveDynamicPlacements(list, groupAlpha)
+local function RestoreActiveDynamicPlacements(list, groupName, groupSettings, groupAlpha)
     for _, entry in ipairs(list or {}) do
         if entry and entry.isDynamic then
-            RestoreDynamicIconVisibility(entry.icon, groupAlpha, entry.combatVisible)
+            RestoreDynamicIconVisibility(entry.icon, groupName, groupSettings, groupAlpha, entry.combatVisible)
         end
     end
 end
 
-local function RestoreActiveDynamicEntries(list, groupAlpha)
+local function RestoreActiveDynamicEntries(list, groupName, groupSettings, groupAlpha)
     for _, entry in ipairs(list or {}) do
         if entry then
-            RestoreDynamicIconVisibility(entry.frame, groupAlpha, entry.combatVisible)
+            RestoreDynamicIconVisibility(entry.frame, groupName, groupSettings, groupAlpha, entry.combatVisible)
         end
     end
 end
@@ -1040,7 +1123,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     ApplyGroupIconOrder(groupSettings, combinedList)
     local combinedHash = BuildPlacementHash(combinedList)
     if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
-        RestoreActiveDynamicPlacements(combinedList, groupSettings.groupAlpha or 1)
+        RestoreActiveDynamicPlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
         if #combinedList > 0 and not frame:IsShown() then
             frame:Show()
         end
@@ -1941,7 +2024,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
     if frame._lastDynHash and frame._lastDynHash == newKeyHash
        and not GroupRenderer._forceFullSetup
        and not hasDeferredRelease then
-        RestoreActiveDynamicEntries(activeIcons, groupSettings.groupAlpha or 1)
+        RestoreActiveDynamicEntries(activeIcons, groupName, groupSettings, groupSettings.groupAlpha or 1)
         if #activeIcons > 0 and not frame:IsShown() then
             frame:Show()
         end
