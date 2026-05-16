@@ -784,6 +784,11 @@ local function GetCustomTimedAuraConfig(iconData)
     }
 end
 
+local function IsEventDrivenCustomTimedAuraConfig(config)
+    if not config then return false end
+    return config.trigger == "bloodlust" or config.trigger == "timespiral"
+end
+
 local function BuildTimedAuraData(spellID, state)
     return {
         spellId = spellID,
@@ -1200,10 +1205,6 @@ local function GetActiveCustomTimedAura(iconData)
     local config = GetCustomTimedAuraConfig(iconData)
     if not config then return nil end
 
-    if config.trigger == "bloodlust" then
-        ScanBloodlustTimedAura(nil)
-    end
-
     local state = runtime.customTimedAuras[config.stateID]
     if not state then return nil end
 
@@ -1243,7 +1244,8 @@ end
 local function ResolvePlayerAuraForIcon(iconFrame, iconData)
     if not iconData or iconData.type ~= "aura" or not iconData.id then return nil end
 
-    local timedAura = GetActiveCustomTimedAura(iconData)
+    local timedConfig = GetCustomTimedAuraConfig(iconData)
+    local timedAura = timedConfig and GetActiveCustomTimedAura(iconData)
     if timedAura then
         if iconFrame then
             iconFrame._ddTimedAuraActiveUntil = timedAura.expirationTime
@@ -1256,6 +1258,15 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         if not (InCombatLockdown and InCombatLockdown() and activeUntil and activeUntil > now) then
             iconFrame._ddTimedAuraActiveUntil = nil
         end
+    end
+
+    if IsEventDrivenCustomTimedAuraConfig(timedConfig) then
+        if iconFrame then
+            iconFrame._ddTimedAuraActiveUntil = nil
+            iconFrame._ddAuraActiveUntil = nil
+            iconFrame._auraWasActive = false
+        end
+        return nil
     end
 
     local candidates = BuildAuraCandidateIDs(iconFrame, iconData)
@@ -2405,19 +2416,22 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
     local settings = iconData.settings or {}
     local allowDesat = not (settings.desaturateOnCooldown == false)
+    local timedOnly = IsEventDrivenCustomTimedAuraConfig(GetCustomTimedAuraConfig(iconData))
     iconFrame._textureCacheKey = "aura:" .. tostring(spellID)
     SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID), true)
 
     -- 1. buff 활성 여부 확인
     local auraData = ResolvePlayerAuraForIcon(iconFrame, iconData)
-    pcall(function()
-        if not auraData then
-            auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-        end
-    end)
+    if not timedOnly then
+        pcall(function()
+            if not auraData then
+                auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+            end
+        end)
+    end
 
     -- spellName 기반 폴백 (buff spellID ≠ spell spellID인 경우)
-    if not auraData and not iconFrame._cachedAuraSpellID then
+    if not timedOnly and not auraData and not iconFrame._cachedAuraSpellID then
         local now = GetTime()
         if not iconFrame._lastAuraScan or (now - iconFrame._lastAuraScan) > 1.0 then
             iconFrame._lastAuraScan = now
@@ -2440,7 +2454,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     -- 캐시된 buff spellID로 재시도
-    if not auraData and iconFrame._cachedAuraSpellID then
+    if not timedOnly and not auraData and iconFrame._cachedAuraSpellID then
         pcall(function()
             if not auraData then
                 auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedAuraSpellID)
