@@ -1130,9 +1130,6 @@ local function ScanBloodlustTimedAura(updateInfo)
     if active and active.expirationTime and active.expirationTime > now then
         return false
     end
-    if now < bloodlustHandledUntil then
-        return false
-    end
 
     if updateInfo and not updateInfo.isFullUpdate and updateInfo.addedAuras then
         local needsFullScan = false
@@ -1158,6 +1155,10 @@ local function ScanBloodlustTimedAura(updateInfo)
         if auraData and ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, true, false) then
             return true
         end
+    end
+
+    if now < bloodlustHandledUntil then
+        return false
     end
 
     for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
@@ -2827,6 +2828,13 @@ local function EnsureEventFrame()
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
             RebuildTimeSpiralGlowFilters()
+            local function seedBloodlust()
+                if ScanBloodlustTimedAura({ isFullUpdate = true }) then
+                    UpdateAllIcons("force")
+                end
+            end
+            C_Timer.After(0.2, seedBloodlust)
+            C_Timer.After(1.0, seedBloodlust)
             -- Force reload layout after loading screen to catch delayed cache/spellbook states
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
             C_Timer.After(3.0, function() ScheduleSpecReload() end)
