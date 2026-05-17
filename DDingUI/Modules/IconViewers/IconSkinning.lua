@@ -12,6 +12,8 @@ local iconData = IconViewers._iconData
 local cdData = IconViewers._cdData
 local texData = IconViewers._texData
 
+local AURA_GLOW_KEY = "_DDingUIAuraGlow"
+
 local function GetIconData(frame)
     local d = iconData[frame]
     if not d then d = {}; iconData[frame] = d end
@@ -48,6 +50,208 @@ local function IconHasAuraState(icon, cooldown)
     end
 
     return false
+end
+
+local function ColorComponent(color, index, key, fallback)
+    if type(color) ~= "table" then return fallback end
+    local value = color[index]
+    if value == nil then value = color[key] end
+    if value == nil then return fallback end
+    return value
+end
+
+local function ColorsMatch(a, b)
+    if a == b then return true end
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    return ColorComponent(a, 1, "r", 1) == ColorComponent(b, 1, "r", 1)
+        and ColorComponent(a, 2, "g", 1) == ColorComponent(b, 2, "g", 1)
+        and ColorComponent(a, 3, "b", 1) == ColorComponent(b, 3, "b", 1)
+        and ColorComponent(a, 4, "a", 1) == ColorComponent(b, 4, "a", 1)
+end
+
+local function CopyColor(color)
+    if type(color) ~= "table" then return nil end
+    return {
+        ColorComponent(color, 1, "r", 1),
+        ColorComponent(color, 2, "g", 1),
+        ColorComponent(color, 3, "b", 1),
+        ColorComponent(color, 4, "a", 1),
+    }
+end
+
+local function SyncAuraGlowHost(icon, pid)
+    if not icon or not pid then return nil end
+
+    local host = pid.auraGlowHost
+    if not host then
+        host = CreateFrame("Frame", nil, icon)
+        host:SetClampedToScreen(false)
+        pid.auraGlowHost = host
+    end
+
+    if host:GetParent() ~= icon then
+        host:SetParent(icon)
+    end
+    host:ClearAllPoints()
+    host:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+    host:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
+
+    if host.SetFrameStrata and icon.GetFrameStrata then
+        local strata = icon:GetFrameStrata()
+        if strata then host:SetFrameStrata(strata) end
+    end
+    if host.SetFrameLevel and icon.GetFrameLevel then
+        host:SetFrameLevel((icon:GetFrameLevel() or 0) + 5)
+    end
+
+    return host
+end
+
+local function StopAuraGlowOnTarget(target, glowType)
+    if not target or not glowType then return end
+
+    local SL = _G.DDingUI_StyleLib
+    pcall(function()
+        if glowType == "Pixel Glow" then
+            if SL and SL.HidePixelGlow then SL.HidePixelGlow(target, AURA_GLOW_KEY) end
+        elseif glowType == "Autocast Shine" then
+            if SL and SL.HideAutocastGlow then SL.HideAutocastGlow(target, AURA_GLOW_KEY) end
+        elseif glowType == "Action Button Glow" then
+            if SL and SL.HideButtonGlow then SL.HideButtonGlow(target) end
+        elseif glowType == "Proc Glow" then
+            local LCG = LibStub("LibCustomGlow-1.0", true)
+            if LCG and LCG.ProcGlow_Stop then LCG.ProcGlow_Stop(target, AURA_GLOW_KEY) end
+        elseif glowType == "Blizzard Glow" then
+            if ActionButton_HideOverlayGlow then ActionButton_HideOverlayGlow(target) end
+        end
+    end)
+end
+
+local function StopAuraGlow(parentIcon, pid, clearWanted)
+    if not pid then return end
+
+    local glowType = pid.auraGlowType
+    local target = pid.auraGlowTarget or pid.auraGlowHost or parentIcon
+    StopAuraGlowOnTarget(target, glowType)
+    if target ~= parentIcon then
+        StopAuraGlowOnTarget(parentIcon, glowType)
+    end
+    if pid.auraGlowHost then
+        pid.auraGlowHost:Hide()
+    end
+
+    pid.auraGlowActive = nil
+    pid.auraGlowType = nil
+    pid.auraGlowColor = nil
+    pid.auraGlowTarget = nil
+    pid._glowRemoveTimer = nil
+    if clearWanted ~= false then
+        pid.auraGlowWanted = nil
+        pid.auraGlowSettings = nil
+    end
+end
+
+local ShowAuraGlow
+
+local function EnsureAuraGlowHooks(icon, pid)
+    if not icon or not pid or pid.auraGlowHooks then return end
+    if not icon.HookScript then return end
+
+    pid.auraGlowHooks = true
+    icon:HookScript("OnShow", function(self)
+        local data = iconData[self]
+        if data and data.auraGlowWanted and data.auraGlowSettings and ShowAuraGlow then
+            ShowAuraGlow(self, data, data.auraGlowSettings)
+        end
+    end)
+    icon:HookScript("OnHide", function(self)
+        local data = iconData[self]
+        if data and data.auraGlowHost then
+            data.auraGlowHost:Hide()
+        end
+    end)
+end
+
+ShowAuraGlow = function(parentIcon, pid, settings)
+    if not parentIcon or not pid or not settings then return end
+
+    local glowType = settings.auraGlowType or "Pixel Glow"
+    local glowColor = settings.auraGlowColor or {0.95, 0.95, 0.32, 1}
+    local glowTarget = parentIcon
+    if glowType ~= "Blizzard Glow" then
+        glowTarget = SyncAuraGlowHost(parentIcon, pid)
+        if not glowTarget then return end
+    end
+
+    pid.auraGlowWanted = true
+    pid.auraGlowSettings = settings
+    EnsureAuraGlowHooks(parentIcon, pid)
+
+    if glowTarget.Show then
+        glowTarget:Show()
+    end
+
+    if pid.auraGlowActive
+        and pid.auraGlowType == glowType
+        and pid.auraGlowTarget == glowTarget
+        and ColorsMatch(pid.auraGlowColor, glowColor) then
+        return
+    end
+
+    if pid.auraGlowActive then
+        StopAuraGlow(parentIcon, pid, false)
+    end
+
+    local SL = _G.DDingUI_StyleLib
+    local glowStarted = false
+    local glowSuccess = pcall(function()
+        if glowType == "Pixel Glow" then
+            if not (SL and SL.ShowPixelGlow) then return end
+            local pixelLines = settings.auraGlowPixelLines or 8
+            local pixelFrequency = settings.auraGlowPixelFrequency or 0.25
+            local pixelLength = settings.auraGlowPixelLength
+            if pixelLength == 0 then pixelLength = nil end
+            local pixelThickness = settings.auraGlowPixelThickness or 2
+            SL.ShowPixelGlow(glowTarget, glowColor, pixelLines, pixelFrequency, pixelLength, pixelThickness, 0, 0, false, AURA_GLOW_KEY)
+            glowStarted = true
+        elseif glowType == "Autocast Shine" then
+            if not (SL and SL.ShowAutocastGlow) then return end
+            local particles = settings.auraGlowAutocastParticles or 8
+            local freq = settings.auraGlowAutocastFrequency or 0.25
+            local scale = settings.auraGlowAutocastScale or 1.0
+            SL.ShowAutocastGlow(glowTarget, glowColor, particles, freq, scale, 0, 0, AURA_GLOW_KEY)
+            glowStarted = true
+        elseif glowType == "Action Button Glow" then
+            if not (SL and SL.ShowButtonGlow) then return end
+            local freq = settings.auraGlowButtonFrequency or 0.25
+            SL.ShowButtonGlow(glowTarget, glowColor, freq)
+            glowStarted = true
+        elseif glowType == "Proc Glow" then
+            local LCG = LibStub("LibCustomGlow-1.0", true)
+            if LCG and LCG.ProcGlow_Start then
+                LCG.ProcGlow_Start(glowTarget, {
+                    color = glowColor,
+                    startAnim = false,
+                    xOffset = 0,
+                    yOffset = 0,
+                    key = AURA_GLOW_KEY,
+                })
+                glowStarted = true
+            end
+        elseif glowType == "Blizzard Glow" then
+            if ActionButton_ShowOverlayGlow then
+                ActionButton_ShowOverlayGlow(glowTarget)
+                glowStarted = true
+            end
+        end
+    end)
+
+    if glowSuccess and glowStarted then
+        pid.auraGlowActive = true
+        pid.auraGlowType = glowType
+        pid.auraGlowColor = CopyColor(glowColor)
+        pid.auraGlowTarget = glowTarget
+    end
 end
 
 local function IsCooldownIconFrame(frame)
@@ -523,72 +727,12 @@ function IconViewers:SkinIcon(icon, settings)
                         cd.bypassColorHook = nil
                     -- Option 1: Replace aura swipe with glow
                     elseif s.auraGlow then
+                        pid._glowRemoveTimer = nil
+                        ShowAuraGlow(parentIcon, pid, s)
                         -- Hide swipe (make transparent)
                         cd.bypassColorHook = true
                         self:SetSwipeColor(0, 0, 0, 0)
                         cd.bypassColorHook = nil
-
-                        -- [FIX] 글로우가 이미 활성이면 재적용하지 않음 — 매 프레임 리셋 깜빡임 방지
-                        -- CDM이 매 프레임 SetSwipeColor를 호출하므로, 한번 적용 후 스킵해야 함
-                        local pid = GetIconData(parentIcon)
-                        -- [FIX] aura swipe 재감지 → 디바운스 제거 타이머 무효화
-                        pid._glowRemoveTimer = nil
-                        if pid.auraGlowActive then
-                            -- 글로우 타입이 변경된 경우에만 재적용
-                            if pid.auraGlowType == (s.auraGlowType or "Pixel Glow") then
-                                -- do nothing — glow is already showing
-                            else
-                                -- 타입 변경 → 기존 글로우 제거 후 아래에서 재적용
-                                pid.auraGlowActive = nil
-                            end
-                        end
-
-                        if not pid.auraGlowActive then
-                            -- Show glow
-                            local SL = _G.DDingUI_StyleLib
-                            if SL then
-                                    local glowType = s.auraGlowType or "Pixel Glow"
-                                    local glowColor = s.auraGlowColor or {0.95, 0.95, 0.32, 1}
-                                    local glowKey = "_DDingUIAuraGlow"
-                                    local glowTarget = parentIcon
-
-                                    local glowSuccess, err = pcall(function()
-                                        if glowType == "Pixel Glow" then
-                                            local pixelLines = s.auraGlowPixelLines or 8
-                                            local pixelFrequency = s.auraGlowPixelFrequency or 0.25
-                                            local pixelLength = s.auraGlowPixelLength  -- nil or 0 = auto
-                                            if pixelLength == 0 then pixelLength = nil end
-                                            local pixelThickness = s.auraGlowPixelThickness or 2
-                                            SL.ShowPixelGlow(glowTarget, glowColor, pixelLines, pixelFrequency, pixelLength, pixelThickness, 0, 0, false, glowKey)
-                                        elseif glowType == "Autocast Shine" then
-                                            local particles = s.auraGlowAutocastParticles or 8
-                                            local freq = s.auraGlowAutocastFrequency or 0.25
-                                            local scale = s.auraGlowAutocastScale or 1.0
-                                            SL.ShowAutocastGlow(glowTarget, glowColor, particles, freq, scale, 0, 0, glowKey)
-                                        elseif glowType == "Action Button Glow" then
-                                            local freq = s.auraGlowButtonFrequency or 0.25
-                                            SL.ShowButtonGlow(glowTarget, glowColor, freq)
-                                        elseif glowType == "Proc Glow" then
-                                            local LCG = LibStub("LibCustomGlow-1.0", true)
-                                            if LCG and LCG.ProcGlow_Start then
-                                                LCG.ProcGlow_Start(glowTarget, {
-                                                    color = glowColor, startAnim = false,
-                                                    xOffset = 0, yOffset = 0, key = glowKey
-                                                })
-                                            end
-                                        elseif glowType == "Blizzard Glow" then
-                                            if ActionButton_ShowOverlayGlow then
-                                                ActionButton_ShowOverlayGlow(glowTarget)
-                                            end
-                                        end
-                                    end)
-
-                                if glowSuccess then
-                                    pid.auraGlowActive = true
-                                    pid.auraGlowType = glowType
-                                end
-                            end
-                        end
 
                     -- Option 2: Change aura swipe color
                     elseif s.auraSwipeColor then
@@ -625,31 +769,7 @@ function IconViewers:SkinIcon(icon, settings)
                                 end
                                 -- 0.3초 동안 aura swipe가 없었으면 = 오라 종료 → 글로우 제거
                                 if not pid.auraGlowActive then return end
-                                local activeGlowType = pid.auraGlowType
-                                pid.auraGlowActive = nil
-                                pid.auraGlowType = nil
-                                pid._glowRemoveTimer = nil
-                                local SL2 = _G.DDingUI_StyleLib
-                                if SL2 then
-                                    local glowKey = "_DDingUIAuraGlow"
-                                    local glowTarget = parentIcon
-                                    pcall(function()
-                                        if activeGlowType == "Pixel Glow" then
-                                            SL2.HidePixelGlow(glowTarget, glowKey)
-                                        elseif activeGlowType == "Autocast Shine" then
-                                            SL2.HideAutocastGlow(glowTarget, glowKey)
-                                        elseif activeGlowType == "Action Button Glow" then
-                                            SL2.HideButtonGlow(glowTarget)
-                                        elseif activeGlowType == "Proc Glow" then
-                                            local LCG = LibStub("LibCustomGlow-1.0", true)
-                                            if LCG and LCG.ProcGlow_Stop then LCG.ProcGlow_Stop(glowTarget, glowKey) end
-                                        elseif activeGlowType == "Blizzard Glow" then
-                                            if ActionButton_HideOverlayGlow then
-                                                ActionButton_HideOverlayGlow(glowTarget)
-                                            end
-                                        end
-                                    end)
-                                end
+                                StopAuraGlow(parentIcon, pid)
                             end)
                         end
                     end
