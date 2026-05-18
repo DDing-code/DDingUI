@@ -103,6 +103,30 @@ local function GetBarIndex(child)
     return idx
 end
 
+local function CollectBarFrames(viewer)
+    local children = {}
+    if not viewer then return children end
+
+    if viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
+        for frame in viewer.itemFramePool:EnumerateActive() do
+            if frame and frame.Bar then
+                children[#children + 1] = frame
+            end
+        end
+        return children
+    end
+
+    if viewer.GetChildren then
+        for _, child in ipairs({ viewer:GetChildren() }) do
+            if child and child.Bar then
+                children[#children + 1] = child
+            end
+        end
+    end
+
+    return children
+end
+
 local function GetAnchorFrame(settings)
     -- Custom anchor: return custom target if set
     if settings then
@@ -726,15 +750,12 @@ function BuffBar:ApplyViewerStyle(viewer, settings)
     -- Apply grow direction (BOTTOM = bars grow upward, TOP = bars grow downward)
     local growDirection = settings.growDirection or "BOTTOM"
 
-    if viewer.GetChildren then
-        local children = {}
+    local children = CollectBarFrames(viewer)
+    if #children > 0 then
         local visibleChildren = {}
-        for _, child in ipairs({ viewer:GetChildren() }) do
-            if child.Bar then
-                table.insert(children, child)
-                if child:IsShown() then
-                    table.insert(visibleChildren, child)
-                end
+        for _, child in ipairs(children) do
+            if child:IsShown() then
+                table.insert(visibleChildren, child)
             end
         end
 
