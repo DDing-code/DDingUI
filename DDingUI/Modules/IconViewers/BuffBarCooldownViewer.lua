@@ -16,6 +16,17 @@ local PixelSnap = DDingUI.PixelSnapLocal or function(value)
     return math.max(0, math.floor((value or 0) + 0.5))
 end
 
+local frameState = setmetatable({}, { __mode = "k" })
+local function GetFrameState(frame)
+    if not frame then return nil end
+    local state = frameState[frame]
+    if not state then
+        state = {}
+        frameState[frame] = state
+    end
+    return state
+end
+
 local function StripTextureMasks(texture)
     if not texture or not texture.GetMaskTexture then return end
 
@@ -202,8 +213,9 @@ local function ApplyIconBorder(iconFrame, settings)
     local borderSize = DDingUI:ScaleBorder(size)
 
     -- Use texture-based borders like BetterCooldownManager (no SetBackdrop = no taint)
-    iconFrame.__dduiIconBorders = iconFrame.__dduiIconBorders or {}
-    local borders = iconFrame.__dduiIconBorders
+    local state = GetFrameState(iconFrame)
+    state.iconBorders = state.iconBorders or {}
+    local borders = state.iconBorders
 
     if #borders == 0 then
         local function CreateBorderLine()
@@ -225,8 +237,8 @@ local function ApplyIconBorder(iconFrame, settings)
         rightBorder:SetPoint("TOPRIGHT", iconFrame, "TOPRIGHT", 0, 0)
         rightBorder:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", 0, 0)
 
-        iconFrame.__dduiIconBorders = { topBorder, bottomBorder, leftBorder, rightBorder }
-        borders = iconFrame.__dduiIconBorders
+        state.iconBorders = { topBorder, bottomBorder, leftBorder, rightBorder }
+        borders = state.iconBorders
     end
 
     local top, bottom, left, right = unpack(borders)
@@ -251,15 +263,16 @@ local function GetBarBackground(bar)
     if bar.BarBG then
         return bar.BarBG
     end
-    if bar.__dduiBarBG and bar.__dduiBarBG.GetObjectType and bar.__dduiBarBG:GetObjectType() == "Texture" then
-        return bar.__dduiBarBG
+    local state = GetFrameState(bar)
+    if state.barBG and state.barBG.GetObjectType and state.barBG:GetObjectType() == "Texture" then
+        return state.barBG
     end
 
     for _, region in ipairs({ bar:GetRegions() }) do
         if region:IsObjectType("Texture") then
             local atlas = region.GetAtlas and region:GetAtlas()
             if atlas == "UI-HUD-CoolDownManager-Bar-BG" or atlas == "UI-HUD-CooldownManager-Bar-BG" then
-                bar.__dduiBarBG = region
+                state.barBG = region
                 return region
             end
         end
@@ -299,6 +312,42 @@ local function RaiseTextLayer(fs, owner)
     -- No-op; frame level adjustments removed
 end
 
+local function InstallBuffBarVisibilityShowHook(ownerFrame, hookKey, textElement, settingKey)
+    if not ownerFrame or not textElement or not hooksecurefunc then return end
+
+    local state = GetFrameState(ownerFrame)
+    if not state or state[hookKey] then return end
+
+    local ok = pcall(hooksecurefunc, textElement, "Show", function(self)
+        local current = GetFrameState(ownerFrame)
+        local currentSettings = current and current.lastSettings
+        if currentSettings and currentSettings[settingKey] == false then
+            self:Hide()
+            self:SetAlpha(0)
+        end
+    end)
+    if ok then
+        state[hookKey] = true
+    end
+end
+
+local function HideStoredBorders(ownerFrame, stateKey)
+    local state = GetFrameState(ownerFrame)
+    local borders = state and state[stateKey]
+    if not borders then return end
+
+    for _, borderTex in ipairs(borders) do
+        borderTex:Hide()
+    end
+end
+
+local function ResetViewerLayoutState(viewer)
+    local state = GetFrameState(viewer)
+    if state then
+        state.lastBarLayoutKey = nil
+    end
+end
+
 local function StyleBarChild(child, settings, viewer)
     if not child or not child.Bar then return end
 
@@ -306,6 +355,11 @@ local function StyleBarChild(child, settings, viewer)
     local success, err = pcall(function()
 
     local bar = child.Bar
+    local childState = GetFrameState(child)
+    if childState then
+        childState.lastSettings = settings
+    end
+    local barState = GetFrameState(bar)
     local iconFrame = child.Icon or child.IconFrame or child.IconButton
     local applicationsFS = GetApplicationsFont(iconFrame)
     local barHeight = PixelSnap(ComputeBarHeight(settings, bar))
@@ -329,9 +383,7 @@ local function StyleBarChild(child, settings, viewer)
             iconFrame:ClearAllPoints()
             iconFrame:SetSize(0.001, 0.001)
             iconFrame:SetPoint("LEFT", child, "LEFT", 0, 0)
-            if iconFrame.__dduiIconBorder then
-                iconFrame.__dduiIconBorder:Hide()
-            end
+            HideStoredBorders(iconFrame, "iconBorders")
         end
     else
         if settings.hideIconMask ~= false then
@@ -366,7 +418,9 @@ local function StyleBarChild(child, settings, viewer)
     bar:SetStatusBarTexture(tex)
     local color = GetBarColor(settings, barIndex) or settings.barColor or { 0.9, 0.9, 0.9, 1 }
     bar:SetStatusBarColor(color[1], color[2], color[3], color[4] or 1)
-    bar.__dduiBarIndex = barIndex
+    if barState then
+        barState.barIndex = barIndex
+    end
     local barBG = GetBarBackground(bar)
     if barBG then
         barBG:SetTexture(WHITE8)
@@ -381,14 +435,29 @@ local function StyleBarChild(child, settings, viewer)
     if bar.Pip then
         -- Hide Blizzard's end-cap "spark" so it doesn't overhang the bar
         bar.Pip:Hide()
-        bar.Pip:SetTexture(nil)
+        if bar.Pip.SetTexture then
+            bar.Pip:SetTexture(nil)
+        end
+        if childState and not childState.pipShowHooked and hooksecurefunc then
+            local ok = pcall(hooksecurefunc, bar.Pip, "Show", function(self)
+                self:Hide()
+                self:SetAlpha(0)
+                if self.SetTexture then
+                    self:SetTexture(nil)
+                end
+            end)
+            if ok then
+                childState.pipShowHooked = true
+            end
+        end
     end
 
     -- Use texture-based borders like BetterCooldownManager (no SetBackdrop = no taint)
     local borderSize = DDingUI:ScaleBorder(settings.borderSize or 1)
 
-    bar.__dduiBarBorders = bar.__dduiBarBorders or {}
-    local borders = bar.__dduiBarBorders
+    if not barState then return end
+    barState.barBorders = barState.barBorders or {}
+    local borders = barState.barBorders
 
     if #borders == 0 then
         local function CreateBorderLine()
@@ -410,8 +479,8 @@ local function StyleBarChild(child, settings, viewer)
         rightBorder:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0)
         rightBorder:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
 
-        bar.__dduiBarBorders = { topBorder, bottomBorder, leftBorder, rightBorder }
-        borders = bar.__dduiBarBorders
+        barState.barBorders = { topBorder, bottomBorder, leftBorder, rightBorder }
+        borders = barState.barBorders
     end
 
     local top, bottom, left, right = unpack(borders)
@@ -455,10 +524,13 @@ local function StyleBarChild(child, settings, viewer)
     -- Text styling
     local nameFS = bar.Name
     if nameFS then
+        InstallBuffBarVisibilityShowHook(child, "nameShowHooked", nameFS, "showName")
         if settings.showName == false then
             nameFS:Hide()
+            nameFS:SetAlpha(0)
         else
             nameFS:Show()
+            nameFS:SetAlpha(1)
             local nameFont = DDingUI:GetFont(settings.nameFont)
             if nameFont then
                 nameFS:SetFont(nameFont, settings.nameSize or 14, "OUTLINE")
@@ -477,9 +549,12 @@ local function StyleBarChild(child, settings, viewer)
     end
 
     if applicationsFS and (iconFrame or bar) then
+        InstallBuffBarVisibilityShowHook(child, "applicationsShowHooked", applicationsFS, "showApplications")
         if settings.showApplications == false then
             applicationsFS:Hide()
+            applicationsFS:SetAlpha(0)
         else
+            applicationsFS:SetAlpha(1)
             if settings.applicationsSize then
                 local appFont = DDingUI:GetFont(settings.applicationsFont)
                 if appFont then
@@ -515,10 +590,13 @@ local function StyleBarChild(child, settings, viewer)
 
     local durFS = bar.Duration
     if durFS then
+        InstallBuffBarVisibilityShowHook(child, "durationShowHooked", durFS, "showDuration")
         if settings.showDuration == false then
             durFS:Hide()
+            durFS:SetAlpha(0)
         else
             durFS:Show()
+            durFS:SetAlpha(1)
             local durFont = DDingUI:GetFont(settings.durationFont)
             if durFont then
                 durFS:SetFont(durFont, settings.durationSize or 12, "OUTLINE")
@@ -550,6 +628,8 @@ end
 
 function BuffBar:ApplyViewerStyle(viewer, settings)
     if not viewer or not settings then return end
+
+    local viewerState = GetFrameState(viewer)
 
     -- Apply grow direction (BOTTOM = bars grow upward, TOP = bars grow downward)
     local growDirection = settings.growDirection or "BOTTOM"
@@ -585,10 +665,10 @@ function BuffBar:ApplyViewerStyle(viewer, settings)
             layoutKey = layoutKey .. "_" .. tostring(GetBarIndex(child))
         end
 
-        if viewer.__dduiLastBarLayoutKey == layoutKey then
+        if viewerState.lastBarLayoutKey == layoutKey then
             return -- Layout unchanged, skip repositioning to avoid ping-pong
         end
-        viewer.__dduiLastBarLayoutKey = layoutKey
+        viewerState.lastBarLayoutKey = layoutKey
 
         if #visibleChildren > 0 then
             local barHeight = PixelSnap(ComputeBarHeight(settings, visibleChildren[1].Bar))
@@ -602,7 +682,7 @@ function BuffBar:ApplyViewerStyle(viewer, settings)
             end
 
             -- Suppress OnSizeChanged feedback during repositioning
-            viewer.__dduiBarLayoutInProgress = true
+            viewerState.barLayoutInProgress = true
 
             for i, child in ipairs(visibleChildren) do
                 pcall(function()
@@ -623,7 +703,7 @@ function BuffBar:ApplyViewerStyle(viewer, settings)
                 end)
             end
 
-            viewer.__dduiBarLayoutInProgress = nil
+            viewerState.barLayoutInProgress = nil
         end
     end
 end
@@ -671,35 +751,42 @@ end
 
 local function TryHookViewer()
     local viewer = _G["BuffBarCooldownViewer"]
-    if not viewer or viewer.__dduiBuffBarHooked then
+    if not viewer then
+        return false
+    end
+
+    local viewerState = GetFrameState(viewer)
+    if viewerState.buffBarHooked then
         return viewer ~= nil
     end
 
-    viewer.__dduiBuffBarHooked = true
+    viewerState.buffBarHooked = true
 
     viewer:HookScript("OnShow", function()
         BuffBar:Refresh()
     end)
     viewer:HookScript("OnSizeChanged", function()
-        if viewer.__dduiBarLayoutInProgress then return end
-        if viewer.__dduiSizeChangedTimer then
-            viewer.__dduiSizeChangedTimer:Cancel()
+        local state = GetFrameState(viewer)
+        if state.barLayoutInProgress then return end
+        if state.sizeChangedTimer then
+            state.sizeChangedTimer:Cancel()
         end
-        viewer.__dduiSizeChangedTimer = C_Timer.NewTimer(0.05, function()
-            viewer.__dduiSizeChangedTimer = nil
-            viewer.__dduiLastBarLayoutKey = nil
+        state.sizeChangedTimer = C_Timer.NewTimer(0.05, function()
+            state.sizeChangedTimer = nil
+            ResetViewerLayoutState(viewer)
             BuffBar:Refresh()
         end)
     end)
 
     if viewer.Bar and viewer.Bar.HookScript then
         viewer.Bar:HookScript("OnSizeChanged", function()
-            if viewer.__dduiBarSizeChangedTimer then
-                viewer.__dduiBarSizeChangedTimer:Cancel()
+            local state = GetFrameState(viewer)
+            if state.barSizeChangedTimer then
+                state.barSizeChangedTimer:Cancel()
             end
-            viewer.__dduiBarSizeChangedTimer = C_Timer.NewTimer(0.05, function()
-                viewer.__dduiBarSizeChangedTimer = nil
-                viewer.__dduiLastBarLayoutKey = nil
+            state.barSizeChangedTimer = C_Timer.NewTimer(0.05, function()
+                state.barSizeChangedTimer = nil
+                ResetViewerLayoutState(viewer)
                 BuffBar:Refresh()
             end)
         end)
@@ -748,7 +835,7 @@ function BuffBar:Initialize()
                 throttle = 0
                 local viewer = _G["BuffBarCooldownViewer"]
                 if viewer then
-                    viewer.__dduiLastBarLayoutKey = nil
+                    ResetViewerLayoutState(viewer)
                 end
                 pcall(function()
                     BuffBar:Refresh()
@@ -773,15 +860,16 @@ function BuffBar:Initialize()
                 fill:SetVertexColor(savedColor[1], savedColor[2], savedColor[3], savedColor[4] or 1)
             end
 
-            if not item.__dduiColorSwatch then
+            local itemState = GetFrameState(item)
+            if not itemState.colorSwatch then
                 local swatch = CreateFrame("Button", nil, item, "ColorSwatchTemplate")
                 swatch:SetPoint("LEFT", item, "RIGHT", 4, 0)
                 swatch:SetSize(18, 18)
                 swatch:Show()
-                item.__dduiColorSwatch = swatch
+                itemState.colorSwatch = swatch
             end
 
-            local swatch = item.__dduiColorSwatch
+            local swatch = itemState.colorSwatch
             swatch:SetColorRGB(savedColor[1], savedColor[2], savedColor[3])
             swatch:Show()
 
@@ -845,8 +933,7 @@ function BuffBar:Initialize()
                 C_Timer.After(0.5, function()
                     local viewer = _G["BuffBarCooldownViewer"]
                     if viewer then
-                        viewer.__dduiBuffBarHooked = nil  -- 훅 리셋
-                        viewer.__dduiLastBarLayoutKey = nil  -- 레이아웃 캐시 리셋
+                        ResetViewerLayoutState(viewer)
                     end
                     TryHookViewer()
                 end)
