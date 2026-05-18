@@ -89,6 +89,19 @@ local function BuildBuffBarOptions(order)
                             RefreshBuffBar()
                         end,
                     },
+                    barSpacing = {
+                        type = "range",
+                        name = L["Bar Spacing"],
+                        desc = L["Space between bars"],
+                        order = 12.5,
+                        width = "full",
+                        min = 0, max = 24, step = 1,
+                        get = function() return DDingUI.db.profile.buffBarViewer.barSpacing or 2 end,
+                        set = function(_, val)
+                            DDingUI.db.profile.buffBarViewer.barSpacing = val
+                            RefreshBuffBar()
+                        end,
+                    },
                     growDirection = {
                         type = "select",
                         name = L["Bar Growth Direction"] or "Bar Growth Direction",
@@ -278,12 +291,43 @@ local function BuildBuffBarOptions(order)
                             RefreshBuffBar()
                         end,
                     },
+                    iconPosition = {
+                        type = "select",
+                        name = L["Icon Position"],
+                        desc = L["Where the icon sits relative to the bar"],
+                        width = "full",
+                        order = 3,
+                        disabled = function() return DDingUI.db.profile.buffBarViewer.hideIcon end,
+                        values = {
+                            LEFT = L["Icon Left"],
+                            RIGHT = L["Icon Right"],
+                        },
+                        get = function() return DDingUI.db.profile.buffBarViewer.iconPosition or "LEFT" end,
+                        set = function(_, val)
+                            DDingUI.db.profile.buffBarViewer.iconPosition = val
+                            RefreshBuffBar()
+                        end,
+                    },
+                    iconGap = {
+                        type = "range",
+                        name = L["Icon Gap"],
+                        desc = L["Space between the icon and the bar"],
+                        order = 4,
+                        width = "full",
+                        min = 0, max = 24, step = 1,
+                        disabled = function() return DDingUI.db.profile.buffBarViewer.hideIcon end,
+                        get = function() return DDingUI.db.profile.buffBarViewer.iconGap or 0 end,
+                        set = function(_, val)
+                            DDingUI.db.profile.buffBarViewer.iconGap = val
+                            RefreshBuffBar()
+                        end,
+                    },
                     hideIconMask = {
                         type = "toggle",
                         name = L["Remove Icon Mask"],
                         desc = L["Remove the circular mask from icons (makes them square)"],
                         width = "full",
-                        order = 3,
+                        order = 5,
                         disabled = function() return DDingUI.db.profile.buffBarViewer.hideIcon end,
                         get = function() return DDingUI.db.profile.buffBarViewer.hideIconMask ~= false end,
                         set = function(_, val)
@@ -295,7 +339,7 @@ local function BuildBuffBarOptions(order)
                         type = "range",
                         name = L["Icon Zoom"],
                         desc = L["Crops the edges of the icon (higher = more zoom)"],
-                        order = 4,
+                        order = 6,
                         width = "full",
                         min = 0, max = 0.45, step = 0.01,
                         disabled = function() return DDingUI.db.profile.buffBarViewer.hideIcon end,
