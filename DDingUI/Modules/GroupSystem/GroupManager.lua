@@ -71,6 +71,85 @@ local function BuildDynamicOrderToken(iconKey)
     return "dyn:" .. tostring(iconKey)
 end
 
+local function IsCDMOrderToken(token)
+    return type(token) == "string" and (token:match("^cdm:") or token:match("^cdm_id:"))
+end
+
+local function SafeNumber(value)
+    if value == nil then return nil end
+    local ok, result = pcall(function()
+        if issecretvalue and issecretvalue(value) then return nil end
+        return tonumber(value)
+    end)
+    if ok then return result end
+    return nil
+end
+
+local function CollectCurrentDefaultCDMTokens(gs, groupName)
+    local tokens, seen, entries = {}, {}, {}
+    local cdm = DDingUI.CDMHookEngine or DDingUI.FrameController
+    if not cdm then return tokens, seen end
+
+    local map
+    local ok = pcall(function()
+        if cdm.GetIdIconMap then
+            map = cdm:GetIdIconMap()
+        elseif cdm.GetIconMap then
+            map = cdm:GetIconMap()
+        end
+    end)
+    if not ok or type(map) ~= "table" then return tokens, seen end
+
+    local unassignedBuffs = GetUnassignedBuffSpells(gs, false)
+    for cooldownID, icon in pairs(map) do
+        local viewerName, defaultGroup, spellName
+        pcall(function()
+            if cdm.GetIconSource then viewerName = cdm:GetIconSource(cooldownID) end
+        end)
+        pcall(function()
+            if cdm.GetDefaultGroupForViewer then defaultGroup = cdm:GetDefaultGroupForViewer(viewerName) end
+        end)
+
+        if defaultGroup == groupName then
+            pcall(function()
+                if cdm.GetSpellNameForID then spellName = cdm:GetSpellNameForID(cooldownID) end
+            end)
+            if not spellName and icon then
+                pcall(function()
+                    if cdm.GetSpellName then spellName = cdm:GetSpellName(icon) end
+                end)
+            end
+
+            local token = BuildCDMOrderToken(spellName)
+            local assigned = spellName and gs and gs.spellAssignments and gs.spellAssignments[spellName]
+            local blocked = spellName and unassignedBuffs and unassignedBuffs[spellName]
+            if token and not blocked and (not assigned or assigned == groupName) then
+                entries[#entries + 1] = {
+                    token = token,
+                    order = SafeNumber(icon and icon.layoutIndex) or 99999,
+                    cooldownID = SafeNumber(cooldownID) or 0,
+                }
+            end
+        end
+    end
+
+    table.sort(entries, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        if a.cooldownID ~= b.cooldownID then return a.cooldownID < b.cooldownID end
+        return tostring(a.token) < tostring(b.token)
+    end)
+
+    for _, entry in ipairs(entries) do
+        local token = entry.token
+        if token and not seen[token] then
+            tokens[#tokens + 1] = token
+            seen[token] = true
+        end
+    end
+
+    return tokens, seen
+end
+
 local function RemoveTokenFromList(list, token)
     if type(list) ~= "table" or not token then return false end
     local changed = false
@@ -117,7 +196,14 @@ local function NormalizeGroupIconOrder(gs, groupName)
 
     local valid = {}
     local orderedCDM = {}
+    local orderedManualCDM = {}
     local orderedDynamic = {}
+    local currentCDMSeen
+
+    orderedCDM, currentCDMSeen = CollectCurrentDefaultCDMTokens(gs, groupName)
+    for _, token in ipairs(orderedCDM) do
+        valid[token] = true
+    end
 
     if gs.spellAssignments then
         for spellName, assignedGroup in pairs(gs.spellAssignments) do
@@ -125,12 +211,14 @@ local function NormalizeGroupIconOrder(gs, groupName)
                 local token = BuildCDMOrderToken(spellName)
                 if token then
                     valid[token] = true
-                    orderedCDM[#orderedCDM + 1] = token
+                    if not currentCDMSeen[token] then
+                        orderedManualCDM[#orderedManualCDM + 1] = token
+                    end
                 end
             end
         end
     end
-    table.sort(orderedCDM)
+    table.sort(orderedManualCDM)
 
     local dynamicIcons = GetLinkedDynamicIcons(groupSettings)
     if type(dynamicIcons) == "table" then
@@ -147,7 +235,7 @@ local function NormalizeGroupIconOrder(gs, groupName)
     local seen = {}
     if type(groupSettings.iconOrder) == "table" then
         for _, token in ipairs(groupSettings.iconOrder) do
-            if valid[token] and not seen[token] then
+            if (valid[token] or IsCDMOrderToken(token)) and not seen[token] then
                 normalized[#normalized + 1] = token
                 seen[token] = true
             end
@@ -155,6 +243,12 @@ local function NormalizeGroupIconOrder(gs, groupName)
     end
 
     for _, token in ipairs(orderedCDM) do
+        if not seen[token] then
+            normalized[#normalized + 1] = token
+            seen[token] = true
+        end
+    end
+    for _, token in ipairs(orderedManualCDM) do
         if not seen[token] then
             normalized[#normalized + 1] = token
             seen[token] = true

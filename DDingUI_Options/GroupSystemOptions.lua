@@ -796,13 +796,67 @@ end
 
 local function SortRowsByIconOrder(groupSettings, rows)
     local orderMap = BuildIconOrderMap(groupSettings)
+    local ORDER_STRIDE = 1000
+    local scaledOrderMap = {}
+    for token, order in pairs(orderMap) do
+        scaledOrderMap[token] = order * ORDER_STRIDE
+    end
+
+    local cdmAnchors = {}
+    for _, row in ipairs(rows or {}) do
+        local token = row and row.token
+        local rank = token and scaledOrderMap[token]
+        if rank and row.kind == "cdm" then
+            cdmAnchors[#cdmAnchors + 1] = {
+                fallbackOrder = row.fallbackOrder or 0,
+                rank = rank,
+            }
+        end
+    end
+    table.sort(cdmAnchors, function(a, b)
+        return (a.fallbackOrder or 0) < (b.fallbackOrder or 0)
+    end)
+
+    local function GetImplicitCDMRank(row)
+        if not row or row.kind ~= "cdm" then return nil end
+        if row.token and scaledOrderMap[row.token] then return nil end
+        local fallbackOrder = row.fallbackOrder or 0
+        local prevAnchor, nextAnchor
+        for _, anchor in ipairs(cdmAnchors) do
+            if anchor.fallbackOrder < fallbackOrder then
+                prevAnchor = anchor
+            elseif anchor.fallbackOrder > fallbackOrder then
+                nextAnchor = anchor
+                break
+            end
+        end
+
+        if prevAnchor and nextAnchor and nextAnchor.rank > prevAnchor.rank then
+            local span = nextAnchor.fallbackOrder - prevAnchor.fallbackOrder
+            if span > 0 then
+                local ratio = (fallbackOrder - prevAnchor.fallbackOrder) / span
+                return prevAnchor.rank + ((nextAnchor.rank - prevAnchor.rank) * ratio) + (fallbackOrder * 0.001)
+            end
+        elseif prevAnchor then
+            return prevAnchor.rank + (ORDER_STRIDE * 0.5) + (fallbackOrder * 0.001)
+        elseif nextAnchor then
+            return nextAnchor.rank - (ORDER_STRIDE * 0.5) + (fallbackOrder * 0.001)
+        end
+
+        return nil
+    end
+
     table.sort(rows, function(a, b)
-        local aOrder = a.token and orderMap[a.token]
-        local bOrder = b.token and orderMap[b.token]
+        local aOrder = a.token and scaledOrderMap[a.token]
+        local bOrder = b.token and scaledOrderMap[b.token]
         local aFallback = a.fallbackOrder or 0
         local bFallback = b.fallbackOrder or 0
-        if aOrder or bOrder then
-            return (aOrder or (100000 + aFallback)) < (bOrder or (100000 + bFallback))
+        local aRank = aOrder or GetImplicitCDMRank(a)
+        local bRank = bOrder or GetImplicitCDMRank(b)
+        if aRank or bRank then
+            aRank = aRank or (100000000 + aFallback)
+            bRank = bRank or (100000000 + bFallback)
+            if aRank ~= bRank then return aRank < bRank end
         end
         if aFallback ~= bFallback then return aFallback < bFallback end
         return tostring(a.displayName or a.token or "") < tostring(b.displayName or b.token or "")
