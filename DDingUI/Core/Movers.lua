@@ -43,6 +43,7 @@ local MoverToModuleMapping = {
     ["DDingUI_SecondaryPowerBar"] = { path = "secondaryPowerBar", xKey = "offsetX", yKey = "offsetY", attachKey = "attachTo", pointKey = "anchorPoint", selfPointKey = "selfPoint" },
     ["DDingUI_PlayerCastBar"] = { path = "castBar", xKey = "offsetX", yKey = "offsetY", attachKey = "attachTo", pointKey = "anchorPoint", selfPointKey = "selfPoint" },
     ["DDingUI_BuffTrackerBar"] = { path = "buffTrackerBar", xKey = "offsetX", yKey = "offsetY", attachKey = "attachTo", pointKey = "anchorPoint", selfPointKey = "selfPoint" },
+    ["DDingUI_BuffBarViewer"] = { path = "buffBarViewer", xKey = "offsetX", yKey = "offsetY", attachKey = "attachTo", pointKey = "anchorPoint", selfPointKey = "selfPoint" },
     -- Missing Alerts
     ["DDingUI_PetMissingAlert"] = { path = "missingAlerts", xKey = "petOffsetX", yKey = "petOffsetY", pointKey = "petAnchorPoint" },
     ["DDingUI_BuffMissingAlert"] = { path = "missingAlerts", xKey = "buffOffsetX", yKey = "buffOffsetY", pointKey = "buffAnchorPoint" },
@@ -1729,6 +1730,8 @@ function Movers:ReloadMappedModulePositions()
                         if rb and rb.UpdateSecondaryPowerBar then
                             pcall(rb.UpdateSecondaryPowerBar, rb)
                         end
+                    elseif name == "DDingUI_BuffBarViewer" and DDingUI.RefreshBuffBarCooldownViewer then
+                        pcall(DDingUI.RefreshBuffBarCooldownViewer, DDingUI)
                     end
                 end
             end
@@ -1746,6 +1749,7 @@ local MOVER_TO_GUI = {
     ["DDingUI_SecondaryPowerBar"]  = "resourceBars.secondary",
     ["DDingUI_PlayerCastBar"]     = "castBars",
     ["DDingUI_BuffTrackerBar"]    = "buffTracker",
+    ["DDingUI_BuffBarViewer"]     = "buffBar",
 }
 
 function Movers:GetGUIKeyFromMoverName(moverName)
@@ -2170,6 +2174,9 @@ function Movers:HideMovers()
         if DDingUI.ResourceBars.UpdateSecondaryPowerBar then
             pcall(DDingUI.ResourceBars.UpdateSecondaryPowerBar, DDingUI.ResourceBars)
         end
+    end
+    if DDingUI.RefreshBuffBarCooldownViewer then
+        pcall(DDingUI.RefreshBuffBarCooldownViewer, DDingUI)
     end
 end
 
@@ -3906,6 +3913,24 @@ function Movers:Initialize()
     print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00로드 완료. |cffffa300/dcm|r|cff00ff00 으로 설정을 열 수 있습니다.|r") -- [STYLE]
 end
 
+local function SeedBuffBarViewerMoverConfig(viewer)
+    if not viewer or not DDingUI.db or not DDingUI.db.profile then return end
+
+    local cfg = DDingUI.db.profile.buffBarViewer
+    if not cfg or cfg._moverSaved or cfg.attachTo then return end
+
+    local vx, vy = viewer:GetCenter()
+    local ux, uy = UIParent:GetCenter()
+    if not vx or not ux then return end
+
+    cfg.attachTo = "UIParent"
+    cfg.anchorPoint = "CENTER"
+    cfg.selfPoint = "CENTER"
+    cfg.offsetX = vx - ux
+    cfg.offsetY = vy - uy
+    cfg._moverSaved = true
+end
+
 function Movers:RegisterStandardFrames()
     -- [FIX] CastBar는 lazy 생성이라 편집모드 진입 시 아직 없을 수 있음 → 강제 생성
     if not _G["DDingUICastBar"] and not DDingUI.castBar then
@@ -3919,18 +3944,24 @@ function Movers:RegisterStandardFrames()
         { global = "DDingUISecondaryPowerBar", ref = "secondaryPowerBar", key = "DDingUI_SecondaryPowerBar", display = L["Secondary Resource"] or "Secondary Resource" },
         { global = "DDingUICastBar", ref = "castBar", key = "DDingUI_PlayerCastBar", display = L["Player Cast Bar"] or "Player Cast Bar" },
         { global = "DDingUIBuffTrackerBar", ref = "buffTrackerBar", key = "DDingUI_BuffTrackerBar", display = L["Buff Tracker Bar"] or "Buff Tracker Bar" },
+        { global = "BuffBarCooldownViewer", ref = nil, key = "DDingUI_BuffBarViewer", display = L["Buff Bar"] or "Tracked Bars", beforeRegister = SeedBuffBarViewerMoverConfig },
     }
 
     for _, info in ipairs(standardFrames) do
-        local frame = _G[info.global] or DDingUI[info.ref]
+        local frame = _G[info.global] or (info.ref and DDingUI[info.ref])
         if frame then
+            if info.beforeRegister then
+                info.beforeRegister(frame)
+            end
             self:RegisterMover(frame, info.key, info.display)
+            if info.key == "DDingUI_BuffBarViewer" and DDingUI.RefreshBuffBarCooldownViewer then
+                pcall(DDingUI.RefreshBuffBarCooldownViewer, DDingUI)
+            end
         end
     end
 
-    -- Cooldown Viewers는 mover에서 제외 (Blizzard EditMode와 taint 충돌 방지)
-    -- 뷰어 위치는 Blizzard EditMode에서 조절
-    -- 다른 프레임(리소스바, 캐스트바 등)은 뷰어를 앵커로 사용 가능
+    -- Icon cooldown viewers stay excluded to avoid Blizzard CDM taint.
+    -- BuffBarCooldownViewer is registered above as a DDingUI mapped module.
 
     -- Custom Icons 그룹 프레임 등록 (동적 아이콘)
     -- [FIX] GroupSystem 활성 시 CustomIcons 무버 등록 억제 (GroupSystem이 통합 관리)

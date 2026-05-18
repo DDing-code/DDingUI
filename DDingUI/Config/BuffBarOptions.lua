@@ -129,7 +129,7 @@ local function BuildBuffBarOptions(order)
                     },
                     anchorDesc = {
                         type = "description",
-                        name = "바 너비 자동 계산(너비=0)의 기준이 되는 프레임입니다. 비워두면 Essential 뷰어 기준. 위치는 WoW 편집 모드(EditMode)에서 조절하세요.",
+                        name = "바 너비 자동 계산(너비=0)의 기준 프레임입니다. 비워두면 핵심 능력 뷰어 기준입니다. 위치는 DDingUI 자체 편집모드(/ddmove)에서 조절하세요.",
                         order = 14.1,
                     },
                     anchorFrame = {

@@ -276,7 +276,13 @@ local defaults = {
             disableDynamicLayout = true,
             barColors = {},
             barColorsBySpec = {},
-            -- Custom anchor settings
+            -- DDingUI mover position. attachTo is intentionally nil until the
+            -- first mover capture so existing Blizzard positions are preserved.
+            offsetX = 0,
+            offsetY = 0,
+            selfPoint = nil,
+            attachTo = nil,
+            -- Width reference settings
             anchorFrame   = "",
             anchorPoint   = "CENTER",
             anchorOffsetX = 0,

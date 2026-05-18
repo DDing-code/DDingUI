@@ -144,6 +144,53 @@ local function GetAnchorFrame(settings)
     return nil
 end
 
+local function ResolvePositionAnchor(settings)
+    if not settings then return nil end
+    if not settings._moverSaved and not settings.attachTo then
+        return nil
+    end
+
+    local frameName = settings.attachTo
+    if not frameName or frameName == "" then
+        frameName = "UIParent"
+    end
+
+    if DDingUI.ResolveAnchorFrame then
+        return DDingUI:ResolveAnchorFrame(frameName)
+    end
+    return _G[frameName] or UIParent
+end
+
+local function ApplyViewerPosition(viewer, settings)
+    if not viewer or not settings then return end
+    if DDingUI.Movers and DDingUI.Movers.ConfigMode then return end
+
+    local anchor = ResolvePositionAnchor(settings)
+    if not anchor then return end
+    if InCombatLockdown() and viewer.IsProtected and viewer:IsProtected() then return end
+
+    local selfPoint = settings.selfPoint or "CENTER"
+    local anchorPoint = settings.anchorPoint or "CENTER"
+    if anchor == UIParent then
+        selfPoint = "CENTER"
+        anchorPoint = "CENTER"
+    end
+
+    local offsetX = DDingUI:Scale(settings.offsetX or settings.anchorOffsetX or 0)
+    local offsetY = DDingUI:Scale(settings.offsetY or settings.anchorOffsetY or 0)
+    local state = GetFrameState(viewer)
+    local layoutKey = tostring(selfPoint) .. ":" .. tostring(anchor:GetName() or "UIParent")
+        .. ":" .. tostring(anchorPoint) .. ":" .. tostring(offsetX) .. ":" .. tostring(offsetY)
+
+    if state.lastViewerPositionKey == layoutKey then
+        return
+    end
+    state.lastViewerPositionKey = layoutKey
+
+    viewer:ClearAllPoints()
+    viewer:SetPoint(selfPoint, anchor, anchorPoint, offsetX, offsetY)
+end
+
 local function ComputeBarWidth(settings, viewer, iconTotal, spacing, barBorder)
     local width = settings.width or 0
     local anchor = GetAnchorFrame(settings) or viewer
@@ -855,8 +902,9 @@ function BuffBar:Refresh()
 
     viewer:Show()
 
-    -- Position is managed by Blizzard EditMode (no custom anchor override)
-    -- anchorFrame setting is used only for width auto-calculation in ComputeBarWidth
+    -- Position is managed by DDingUI's own mover mode. anchorFrame is only
+    -- used as the auto-width reference for ComputeBarWidth.
+    ApplyViewerPosition(viewer, settings)
 
     self:ApplyViewerStyle(viewer, settings)
     BuffBar.__refreshInProgress = nil
