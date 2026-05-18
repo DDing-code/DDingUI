@@ -2598,6 +2598,18 @@ end
 local function ExecuteUpdateAllIcons()
     local layoutStateChanged = false
 
+    local function ReapplyManagedGroupText(frame)
+        if not (frame and frame._ddIsManaged) then return end
+        local renderer = DDingUI.GroupRenderer
+        if not (renderer and renderer.ApplyDynamicIconTextOptions) then return end
+        local container = frame._ddContainerRef
+        renderer:ApplyDynamicIconTextOptions(
+            frame,
+            frame._ddGroupName or (container and container._groupName),
+            frame._groupSettings or (container and container._groupSettings)
+        )
+    end
+
     for iconKey, frame in pairs(runtime.iconFrames) do
         if frame then
             local db = GetDynamicDB()
@@ -2630,6 +2642,7 @@ local function ExecuteUpdateAllIcons()
                 elseif iconData.type == "aura" then
                     UpdateAuraIcon(frame, iconData)
                 end
+                ReapplyManagedGroupText(frame)
 
                 local afterLayoutState = GetDynamicLayoutStateToken(frame, iconData)
                 if beforeLayoutState and afterLayoutState and beforeLayoutState ~= afterLayoutState then
@@ -3549,6 +3562,17 @@ local function UpdateDynamicIcon(iconKey)
         UpdateTrinketProcIcon(frame, iconData)
     elseif iconData.type == "aura" then
         UpdateAuraIcon(frame, iconData)
+    end
+    if frame._ddIsManaged then
+        local renderer = DDingUI.GroupRenderer
+        if renderer and renderer.ApplyDynamicIconTextOptions then
+            local container = frame._ddContainerRef
+            renderer:ApplyDynamicIconTextOptions(
+                frame,
+                frame._ddGroupName or (container and container._groupName),
+                frame._groupSettings or (container and container._groupSettings)
+            )
+        end
     end
 end
 

@@ -215,7 +215,27 @@ end
 
 local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
     if not icon or not groupSettings then return end
-    local iconTexture = icon.icon or icon.Icon or icon
+    local iconTexture = icon.icon or icon.Icon
+    local textAnchorFrame = iconTexture or icon
+
+    local function ScheduleTextRetry()
+        if icon._ddDynamicTextRetryPending then return end
+        local retryCount = tonumber(icon._ddDynamicTextRetryCount) or 0
+        if retryCount >= 3 then return end
+        icon._ddDynamicTextRetryCount = retryCount + 1
+        icon._ddDynamicTextRetryPending = true
+        C_Timer.After(0, function()
+            icon._ddDynamicTextRetryPending = nil
+            if icon._ddIsManaged and not icon._ddingHidden then
+                local container = icon._ddContainerRef
+                ApplyDynamicIconTextOptions(
+                    icon,
+                    icon._ddGroupName or groupName or (container and container._groupName),
+                    icon._groupSettings or groupSettings or (container and container._groupSettings)
+                )
+            end
+        end)
+    end
 
     if icon.count then
         local countAnchor = groupSettings.chargeTextAnchor or "BOTTOMRIGHT"
@@ -223,7 +243,7 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
         local cox = tonumber(groupSettings.countTextOffsetX) or 0
         local coy = tonumber(groupSettings.countTextOffsetY) or 0
         icon.count:ClearAllPoints()
-        icon.count:SetPoint(countAnchor, iconTexture, countAnchor, cox, coy)
+        icon.count:SetPoint(countAnchor, textAnchorFrame, countAnchor, cox, coy)
 
         local cSize = tonumber(groupSettings.countTextSize)
         if cSize and cSize > 0 then
@@ -252,6 +272,7 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
 
         local cdText = GetCooldownTextFontString(icon.cooldown)
         if cdText then
+            icon._ddDynamicTextRetryCount = nil
             if groupSettings.hideDurationText then
                 cdText:Hide()
                 if not cdText.hookedHideText then
@@ -265,7 +286,7 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
                 cdText:Show()
                 if cdAnchor then
                     cdText:ClearAllPoints()
-                    cdText:SetPoint(cdAnchor, icon.cooldown, cdAnchor, ox, oy)
+                    cdText:SetPoint(cdAnchor, textAnchorFrame, cdAnchor, ox, oy)
                 end
                 local size = tonumber(textSizeRaw)
                 if size and size > 0 then
@@ -276,8 +297,14 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
                     cdText:SetTextColor(ResolveRGBA(textColor))
                 end
             end
+        else
+            ScheduleTextRetry()
         end
     end
+end
+
+function GroupRenderer:ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
+    return ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
 end
 
 local function GetObjectAlpha(obj)
@@ -1531,6 +1558,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         end
                     end
 
+                    ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
+
                     idx = idx + 1
                     frame._managedIcons[idx] = icon
                     -- CDM 기본 그룹이 아직 숨겨진 상태여도 동적 아이콘은 레이아웃 대상에 포함되어야 한다.
@@ -2427,6 +2456,8 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                     end
                 end
             end
+
+            ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
 
             idx = idx + 1
             frame._managedIcons[idx] = icon
