@@ -916,6 +916,42 @@ local function CollectGroupOrderRows(groupName)
     return rows
 end
 
+local function SnapshotGroupOrderTokens(groupName)
+    local tokens, seen = {}, {}
+    for _, row in ipairs(CollectGroupOrderRows(groupName) or {}) do
+        local token = row and row.token
+        if token and not seen[token] then
+            tokens[#tokens + 1] = token
+            seen[token] = true
+        end
+    end
+    return tokens, seen
+end
+
+local function AppendGroupOrderToken(groupName, beforeTokens, token)
+    if not groupName or not token then return false end
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return false end
+
+    local ordered, seen = {}, {}
+    for _, existing in ipairs(beforeTokens or {}) do
+        if existing and not seen[existing] then
+            ordered[#ordered + 1] = existing
+            seen[existing] = true
+        end
+    end
+    if not seen[token] then
+        ordered[#ordered + 1] = token
+    end
+
+    groupSettings.iconOrder = ordered
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+        DDingUI.SpecProfiles:MarkDirty()
+    end
+    return true
+end
+
 function DDingUI:ReorderGroupSystemIcon(groupKey, sourceToken, targetToken, insertAfter)
     local groupName = ParseGroupOrderDragKey(groupKey)
     if not groupName or not sourceToken or not targetToken or sourceToken == targetToken then
@@ -1809,7 +1845,7 @@ end
 function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if not parent then return end
 
-    local rows, emptyText = GetAssignedGridRows(groupName)
+    local rows = GetAssignedGridRows(groupName)
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
 
@@ -2545,22 +2581,475 @@ local function AssignedGridCommitDynamicOrder(sourceKey, orderedKeys)
     return true
 end
 
+local function SafeTextureValue(value, fallback)
+    if issecretvalue and issecretvalue(value) then return fallback end
+    if value and value ~= 0 and value ~= "" then return value end
+    return fallback
+end
+
+local function SafeSpellTexture(spellID, fallback)
+    local ok, tex = pcall(function()
+        return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+    end)
+    return SafeTextureValue(ok and tex, fallback or 134400)
+end
+
+local function SafeItemIcon(itemID, fallback)
+    local ok, tex = pcall(function()
+        return C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)
+    end)
+    if ok and tex then return tex end
+    ok, tex = pcall(function()
+        local _, _, _, _, icon = C_Item.GetItemInfoInstant(itemID)
+        return icon
+    end)
+    return SafeTextureValue(ok and tex, fallback or 134400)
+end
+
+local function ScheduleDynamicIconRefresh(iconKey)
+    local attempts = 0
+    local poller
+    poller = C_Timer.NewTicker(0.35, function()
+        attempts = attempts + 1
+        local ci = DDingUI.CustomIcons
+        local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
+        if hasFrame or attempts >= 6 then
+            if poller then poller:Cancel() end
+            SoftRefreshDynamicIcons()
+        end
+    end)
+end
+
+local function MergeDynamicIconSettings(iconKey, settings)
+    if not iconKey or type(settings) ~= "table" then return end
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local iconData = dynDB and dynDB.iconData and dynDB.iconData[iconKey]
+    if not iconData then return end
+    iconData.settings = iconData.settings or {}
+    for k, v in pairs(settings) do
+        iconData.settings[k] = v
+    end
+end
+
+local function AddDynamicPayloadToGroup(groupName, payload, settings)
+    if not groupName or type(payload) ~= "table" then return false end
+    local ci = DDingUI.CustomIcons
+    if not ci or not ci.AddDynamicIcon then return false end
+
+    if payload.type == "item" and payload.id and C_Item and C_Item.RequestLoadItemDataByID then
+        pcall(C_Item.RequestLoadItemDataByID, payload.id)
+    end
+
+    local beforeTokens = SnapshotGroupOrderTokens(groupName)
+    local sourceKey = EnsureSourceGroup(groupName)
+    if not sourceKey then return false end
+
+    local iconKey = ci:AddDynamicIcon(payload)
+    if not iconKey then return false end
+    if settings then
+        MergeDynamicIconSettings(iconKey, settings)
+    end
+    ci:MoveIconToGroup(iconKey, sourceKey)
+    AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
+    ScheduleDynamicIconRefresh(iconKey)
+    return true
+end
+
+local function AddSpellIDToGroup(groupName, spellID, forcedType, settings)
+    spellID = tonumber(spellID)
+    if not groupName or not spellID or spellID <= 0 then return false end
+
+    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    local name = info and info.name
+    if not name or name == "" then return false end
+
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local iconType = forcedType or (IsBuffGroup(groupName, groupSettings) and "aura" or "spell")
+    local spellName = name
+    if iconType == "aura" and spellName:sub(1, 5) ~= "buff_" then
+        spellName = "buff_" .. spellName
+    end
+
+    local beforeTokens = SnapshotGroupOrderTokens(groupName)
+    local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName)
+    if not iconKey then return false end
+    if settings then
+        MergeDynamicIconSettings(iconKey, settings)
+    end
+    AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
+    ScheduleDynamicIconRefresh(iconKey)
+    return true
+end
+
+local function AddRacialIconToGroup(groupName)
+    return AddDynamicPayloadToGroup(groupName, { type = "racial", id = "racial" })
+end
+
+local function AddUnassignedRowToGroup(groupName, row)
+    if not row then return false end
+    local beforeTokens = SnapshotGroupOrderTokens(groupName)
+    if AssignUnassignedSpellRow(groupName, row) then
+        if row.spellName then
+            AppendGroupOrderToken(groupName, beforeTokens, MakeCDMOrderToken(row.spellName))
+        end
+        SoftRefreshDynamicIcons()
+        return true
+    end
+    return false
+end
+
+local function BuildGroupAddPopupItems(groupName, unassignedRows)
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local isBuff = IsBuffGroup(groupName, groupSettings)
+    local items = {}
+
+    if isBuff then
+        local bloodlustAliases = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
+        items[#items + 1] = {
+            label = rawget(L, "Light's Potential") or "Light's Potential",
+            icon = SafeSpellTexture(1236616),
+            action = function() return AddSpellIDToGroup(groupName, 1236616, "aura", { customAuraDuration = 30, customAuraTrigger = "spellcast" }) end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Potion of Recklessness") or "Potion of Recklessness",
+            icon = SafeSpellTexture(1236994),
+            action = function() return AddSpellIDToGroup(groupName, 1236994, "aura", { customAuraDuration = 30, customAuraTrigger = "spellcast" }) end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Devoured Dreams") or "Devoured Dreams",
+            icon = SafeSpellTexture(1239479),
+            action = function() return AddSpellIDToGroup(groupName, 1239479, "aura", { customAuraDuration = 10, customAuraTrigger = "spellcast" }) end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Time Spiral") or "Time Spiral",
+            icon = SafeSpellTexture(374968),
+            action = function() return AddSpellIDToGroup(groupName, 374968, "aura", { customAuraDuration = 10, customAuraTrigger = "timespiral" }) end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Bloodlust / Heroism") or "Bloodlust / Heroism",
+            icon = SafeSpellTexture(2825),
+            action = function()
+                return AddSpellIDToGroup(groupName, 2825, "aura", {
+                    customAuraDuration = 40,
+                    customAuraTrigger = "bloodlust",
+                    auraAliases = bloodlustAliases,
+                })
+            end,
+        }
+    else
+        items[#items + 1] = {
+            label = rawget(L, "Trinket Slot 1") or "Trinket Slot 1",
+            icon = GetInventoryItemID("player", 13) and SafeItemIcon(GetInventoryItemID("player", 13)) or 134400,
+            action = function() return AddDynamicPayloadToGroup(groupName, { type = "trinketProc", slotID = 13 }) end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Trinket Slot 2") or "Trinket Slot 2",
+            icon = GetInventoryItemID("player", 14) and SafeItemIcon(GetInventoryItemID("player", 14)) or 134400,
+            action = function() return AddDynamicPayloadToGroup(groupName, { type = "trinketProc", slotID = 14 }) end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Racial Ability") or "Racial Ability",
+            icon = 134400,
+            action = function() return AddRacialIconToGroup(groupName) end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Potions & Healthstone") or "Potions & Healthstone",
+            icon = SafeItemIcon(241304),
+            submenu = {
+                {
+                    label = rawget(L, "Light's Potential") or "Light's Potential",
+                    icon = SafeItemIcon(241308),
+                    action = function()
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241308 }, { fallbackItems = "245898,245897,241309" })
+                    end,
+                },
+                {
+                    label = rawget(L, "Potion of Recklessness") or "Potion of Recklessness",
+                    icon = SafeItemIcon(241288),
+                    action = function()
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241288 }, { fallbackItems = "245902,245903,241289" })
+                    end,
+                },
+                {
+                    label = rawget(L, "Silvermoon Health Potion") or "Silvermoon Health Potion",
+                    icon = SafeItemIcon(241304),
+                    action = function()
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241304 }, { fallbackItems = "241305" })
+                    end,
+                },
+                {
+                    label = rawget(L, "Lightfused Mana Potion") or "Lightfused Mana Potion",
+                    icon = SafeItemIcon(241300),
+                    action = function()
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241300 }, { fallbackItems = "245917,245916,241301" })
+                    end,
+                },
+                {
+                    label = rawget(L, "Invisibility Potion") or "Invisibility Potion",
+                    icon = SafeItemIcon(241302),
+                    action = function()
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241302 })
+                    end,
+                },
+                {
+                    label = rawget(L, "Healthstone") or "Healthstone",
+                    icon = SafeItemIcon(5512, 538745),
+                    action = function()
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 5512 })
+                    end,
+                },
+                {
+                    label = rawget(L, "Demonic Healthstone") or "Demonic Healthstone",
+                    icon = SafeItemIcon(224464, 538745),
+                    action = function()
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 224464 })
+                    end,
+                },
+            },
+        }
+    end
+
+    if unassignedRows and #unassignedRows > 0 then
+        items[#items + 1] = { separator = true, label = rawget(L, "Unassigned Spells") or "Unassigned Spells" }
+        local maxRows = math.min(#unassignedRows, 14)
+        for i = 1, maxRows do
+            local row = unassignedRows[i]
+            items[#items + 1] = {
+                label = row.displayName or row.spellName or "Unknown",
+                icon = row.iconTex or 134400,
+                action = function() return AddUnassignedRowToGroup(groupName, row) end,
+            }
+        end
+        if #unassignedRows > maxRows then
+            items[#items + 1] = {
+                label = string.format("+%d more", #unassignedRows - maxRows),
+                disabled = true,
+            }
+        end
+    end
+
+    return items
+end
+
+local function HideGroupAddSubmenu()
+    local popup = DDingUI._groupIconAddPopup
+    if popup and popup.submenu then
+        popup.submenu:Hide()
+    end
+end
+
+local function HideGroupIconAddPopup()
+    local popup = DDingUI._groupIconAddPopup
+    if popup then
+        HideGroupAddSubmenu()
+        popup:Hide()
+    end
+end
+
+local function AcquirePopupRow(parent, index, width, height)
+    parent._rows = parent._rows or {}
+    local row = parent._rows[index]
+    if not row then
+        row = CreateFrame("Button", nil, parent, "BackdropTemplate")
+        row:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(22, 22)
+        row.icon:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        row.text = row:CreateFontString(nil, "OVERLAY")
+        row.text:SetPoint("LEFT", row, "LEFT", 10, 0)
+        row.text:SetPoint("RIGHT", row.icon, "LEFT", -10, 0)
+        row.text:SetJustifyH("LEFT")
+        row.arrow = row:CreateFontString(nil, "OVERLAY")
+        row.arrow:SetPoint("RIGHT", row.icon, "LEFT", -6, 0)
+        row.arrow:SetText(">")
+        parent._rows[index] = row
+    end
+    row:SetSize(width, height)
+    row:Show()
+    return row
+end
+
+local function ResetPopupRows(parent, fromIndex)
+    if not parent or not parent._rows then return end
+    for i = fromIndex or 1, #parent._rows do
+        parent._rows[i]:Hide()
+        parent._rows[i]:SetScript("OnEnter", nil)
+        parent._rows[i]:SetScript("OnLeave", nil)
+        parent._rows[i]:SetScript("OnClick", nil)
+    end
+end
+
+local function StylePopupRow(row, item, gf, accentR, accentG, accentB)
+    row:SetBackdropColor(0, 0, 0, 0)
+    row:SetBackdropBorderColor(0, 0, 0, 0)
+    row.bg:SetColorTexture(0.04, 0.065, 0.075, 0)
+    row.text:SetFont(gf, item.separator and 10 or 11, "")
+    row.text:SetText(item.label or "")
+    row.text:SetTextColor(item.disabled and 0.36 or (item.separator and 0.9 or 0.82), item.disabled and 0.36 or (item.separator and 0.55 or 0.82), item.disabled and 0.36 or (item.separator and 0.22 or 0.82), 1)
+    if item.icon and not item.separator then
+        row.icon:SetTexture(item.icon)
+        row.icon:Show()
+    else
+        row.icon:Hide()
+    end
+    row.arrow:SetShown(item.submenu ~= nil)
+    row.arrow:SetTextColor(accentR, accentG, accentB, 0.9)
+end
+
+local function ShowGroupAddSubmenu(ownerRow, items, gf, accentR, accentG, accentB, onDone)
+    local popup = DDingUI._groupIconAddPopup
+    if not popup or not ownerRow or not items then return end
+    local submenu = popup.submenu
+    if not submenu then
+        submenu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        submenu:SetFrameStrata("TOOLTIP")
+        submenu:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        submenu:SetBackdropColor(0.025, 0.05, 0.06, 0.96)
+        submenu:SetBackdropBorderColor(0.16, 0.26, 0.28, 1)
+        popup.submenu = submenu
+    end
+
+    local rowW, rowH, pad = 248, 30, 8
+    submenu:SetSize(rowW + pad * 2, #items * rowH + pad * 2)
+    submenu:ClearAllPoints()
+    submenu:SetPoint("TOPLEFT", ownerRow, "TOPRIGHT", 2, 0)
+    submenu:Show()
+
+    for i, item in ipairs(items) do
+        local row = AcquirePopupRow(submenu, i, rowW, rowH)
+        row:SetPoint("TOPLEFT", submenu, "TOPLEFT", pad, -(pad + (i - 1) * rowH))
+        StylePopupRow(row, item, gf, accentR, accentG, accentB)
+        row:SetEnabled(not item.disabled and not item.separator)
+        row:SetScript("OnEnter", function(self)
+            self.bg:SetColorTexture(accentR, accentG, accentB, 0.18)
+        end)
+        row:SetScript("OnLeave", function(self)
+            self.bg:SetColorTexture(0.04, 0.065, 0.075, 0)
+        end)
+        row:SetScript("OnClick", function()
+            if item.action and item.action() then
+                HideGroupIconAddPopup()
+                if onDone then onDone() end
+            end
+        end)
+    end
+    ResetPopupRows(submenu, #items + 1)
+end
+
+function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRows, onDone)
+    if not owner or not groupName then return end
+    local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
+    local accentR, accentG, accentB = 1, 0.35, 0.12
+    local popup = self._groupIconAddPopup
+    if not popup then
+        popup = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        popup:SetFrameStrata("TOOLTIP")
+        popup:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        popup:SetBackdropColor(0.025, 0.05, 0.06, 0.96)
+        popup:SetBackdropBorderColor(0.16, 0.26, 0.28, 1)
+        popup.edit = CreateFrame("EditBox", nil, popup, "InputBoxTemplate")
+        popup.edit:SetAutoFocus(false)
+        popup.edit:SetHeight(24)
+        popup.edit:SetFontObject(GameFontHighlightSmall)
+        popup.edit.placeholder = popup.edit:CreateFontString(nil, "OVERLAY")
+        popup.edit.placeholder:SetPoint("LEFT", popup.edit, "LEFT", 4, 0)
+        popup.edit.placeholder:SetTextColor(0.55, 0.62, 0.64, 1)
+        popup.addButton = CreateFrame("Button", nil, popup, "BackdropTemplate")
+        popup.addButton:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        popup.addButton:SetBackdropColor(0.09, 0.13, 0.15, 1)
+        popup.addButton:SetBackdropBorderColor(accentR, accentG, accentB, 0.7)
+        popup.addButton.text = popup.addButton:CreateFontString(nil, "OVERLAY")
+        popup.addButton.text:SetPoint("CENTER")
+        popup.addButton.text:SetFont(gf, 16, "")
+        popup.addButton.text:SetText("+")
+        popup.addButton.text:SetTextColor(accentR, accentG, accentB, 1)
+        self._groupIconAddPopup = popup
+    end
+
+    HideGroupAddSubmenu()
+    popup:ClearAllPoints()
+    popup:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -6)
+    popup._groupName = groupName
+    popup._owner = owner
+
+    local rowW, rowH, pad = 248, 30, 8
+    local inputH = 30
+    local items = BuildGroupAddPopupItems(groupName, unassignedRows)
+    local height = pad * 2 + inputH + 4 + (#items * rowH)
+    popup:SetSize(rowW + pad * 2, math.max(72, height))
+
+    local function SubmitCustomSpell()
+        local text = popup.edit:GetText()
+        if AddSpellIDToGroup(groupName, tonumber(text)) then
+            HideGroupIconAddPopup()
+            popup.edit:SetText("")
+            if onDone then onDone() end
+        else
+            UIErrorsFrame:AddMessage(rawget(L, "Invalid Spell") or "Invalid Spell", 1, 0.15, 0.1)
+        end
+    end
+
+    popup.edit:ClearAllPoints()
+    popup.edit:SetPoint("TOPLEFT", popup, "TOPLEFT", pad + 2, -pad - 2)
+    popup.edit:SetSize(rowW - 34, 24)
+    popup.edit:SetText("")
+    popup.edit.placeholder:SetFont(gf, 11, "")
+    popup.edit.placeholder:SetText(rawget(L, "Custom Spell ID") or "Custom Spell ID")
+    popup.edit:SetScript("OnTextChanged", function(self)
+        if (self:GetText() or "") == "" then
+            self.placeholder:Show()
+        else
+            self.placeholder:Hide()
+        end
+    end)
+    popup.edit:SetScript("OnEnterPressed", SubmitCustomSpell)
+    popup.edit:SetScript("OnEscapePressed", HideGroupIconAddPopup)
+    popup.edit.placeholder:Show()
+
+    popup.addButton:ClearAllPoints()
+    popup.addButton:SetPoint("LEFT", popup.edit, "RIGHT", 6, 0)
+    popup.addButton:SetSize(26, 22)
+    popup.addButton:SetScript("OnClick", SubmitCustomSpell)
+
+    for i, item in ipairs(items) do
+        local row = AcquirePopupRow(popup, i, rowW, rowH)
+        row:SetPoint("TOPLEFT", popup, "TOPLEFT", pad, -(pad + inputH + 4 + (i - 1) * rowH))
+        StylePopupRow(row, item, gf, accentR, accentG, accentB)
+        row:SetEnabled(not item.disabled and not item.separator)
+        row:SetScript("OnEnter", function(self)
+            self.bg:SetColorTexture(accentR, accentG, accentB, 0.16)
+            if item.submenu then
+                ShowGroupAddSubmenu(self, item.submenu, gf, accentR, accentG, accentB, onDone)
+            else
+                HideGroupAddSubmenu()
+            end
+        end)
+        row:SetScript("OnLeave", function(self)
+            self.bg:SetColorTexture(0.04, 0.065, 0.075, 0)
+        end)
+        row:SetScript("OnClick", function()
+            if item.action and item.action() then
+                HideGroupIconAddPopup()
+                if onDone then onDone() end
+            end
+        end)
+    end
+    ResetPopupRows(popup, #items + 1)
+
+    popup:Show()
+end
+
 function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
     local rows = GetAssignedGridRows(groupName)
     local settings = AssignedGridPreviewSettings(groupName)
-    local layout = AssignedGridBuildLayout(settings, #rows)
+    local layout = AssignedGridBuildLayout(settings, #rows + 1)
     width = tonumber(width) or 760
 
-    local assignedHeight = (#rows > 0) and ((layout.height or 1) + 18) or 34
-    local unassignedRows = BuildUnassignedSpellRows(groupName)
-    if #unassignedRows == 0 then
-        return math.max(34, assignedHeight)
-    end
-
-    local tileSize, gap = 34, 6
-    local cols = math.max(1, math.floor((width - 16 + gap) / (tileSize + gap)))
-    local unassignedHeight = 34 + math.ceil(#unassignedRows / cols) * (tileSize + gap)
-    return math.max(34, assignedHeight + unassignedHeight)
+    return math.max(34, (layout.height or 1) + 18)
 end
 
 function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
@@ -2571,7 +3060,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
     local settings = AssignedGridPreviewSettings(groupName)
     local count = #rows
-    local layout = AssignedGridBuildLayout(settings, count)
+    local layout = AssignedGridBuildLayout(settings, count + 1)
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
 
@@ -2589,13 +3078,12 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local drag = {}
     local slotFrames = {}
 
-    local assignedPreviewHeight = (count > 0) and math.ceil(layout.height + padY * 2) or 34
+    local assignedPreviewHeight = math.ceil(layout.height + padY * 2)
     local unassignedTileSize, unassignedGap = 34, 6
     local unassignedCols = math.max(1, math.floor((width - 16 + unassignedGap) / (unassignedTileSize + unassignedGap)))
     local unassignedGridHeight = (#unassignedRows > 0) and (math.ceil(#unassignedRows / unassignedCols) * (unassignedTileSize + unassignedGap) - unassignedGap) or 0
-    local unassignedSectionHeight = (#unassignedRows > 0) and (34 + unassignedGridHeight + 8) or 0
 
-    parent:SetHeight(math.max(34, assignedPreviewHeight + unassignedSectionHeight))
+    parent:SetHeight(math.max(34, assignedPreviewHeight))
 
     local preview = CreateFrame("Frame", nil, parent)
     preview:SetSize(math.max(layout.width + startX + padX, localParentW), assignedPreviewHeight)
@@ -2610,15 +3098,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if ghost and ghost:GetParent() == preview then
             ghost:Hide()
         end
+        HideGroupIconAddPopup()
     end)
-    if count == 0 then
-        local msg = preview:CreateFontString(nil, "OVERLAY")
-        msg:SetFont(gf, 12, "")
-        msg:SetPoint("TOPLEFT", preview, "TOPLEFT", 10, -4)
-        msg:SetText(emptyText or "|cff888888No assigned icons.|r")
-        msg:SetTextColor(0.65, 0.65, 0.65, 1)
-    end
-
     local function CallOptionFunc(opt)
         if opt and type(opt.func) == "function" then
             opt.func()
@@ -3143,7 +3624,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if button then button:SetAlpha(0.35) end
 
         local ghost = EnsureGhost()
-        ghost:SetSize(unassignedTileSize, unassignedTileSize)
+        ghost:SetSize(34, 34)
         ghost.icon:SetTexture(row.iconTex or 134400)
         AssignedGridApplyTexCoord(ghost.icon, settings)
         PositionRuntimeGhostAtCursor(ghost)
@@ -3276,7 +3757,42 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         end
     end
 
-    if #unassignedRows > 0 then
+    local addPos = layout.slots[count + 1]
+    if addPos then
+        local addSlot = CreateFrame("Button", nil, preview, "BackdropTemplate")
+        addSlot:SetSize(addPos.w, addPos.h)
+        addSlot:SetPoint("TOPLEFT", preview, "TOPLEFT", startX + addPos.x, -(startY + addPos.y))
+        addSlot:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        addSlot:SetBackdropColor(0.05, 0.035, 0.04, 0.86)
+        addSlot:SetBackdropBorderColor(1, 0.35, 0.12, 0.46)
+        addSlot:RegisterForClicks("LeftButtonUp")
+
+        local plus = addSlot:CreateFontString(nil, "OVERLAY")
+        plus:SetPoint("CENTER", addSlot, "CENTER", 0, 0)
+        plus:SetFont(gf, math.max(16, math.floor(math.min(addPos.w, addPos.h) * 0.58)), "")
+        plus:SetText("+")
+        plus:SetTextColor(1, 0.35, 0.12, 0.95)
+
+        addSlot:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(1, 0.35, 0.12, 1)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(rawget(L, "Add Spell or Item") or "Add Spell or Item", 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        addSlot:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(1, 0.35, 0.12, 0.46)
+            GameTooltip:Hide()
+        end)
+        addSlot:SetScript("OnClick", function(self)
+            if DDingUI._groupIconAddPopup and DDingUI._groupIconAddPopup:IsShown() and DDingUI._groupIconAddPopup._owner == self then
+                HideGroupIconAddPopup()
+                return
+            end
+            DDingUI:ShowGroupIconAddPopup(self, groupName, settings, unassignedRows, RefreshAfterCommit)
+        end)
+    end
+
+    if false and #unassignedRows > 0 then
         local sectionY = assignedPreviewHeight + 12
         local title = parent:CreateFontString(nil, "OVERLAY")
         title:SetFont(gf, 12, "")
@@ -4074,7 +4590,8 @@ local function CreateGroupOptions(groupName, order)
     -- [FIX] CDM 기본 그룹에서도 아이템/장신구/종족특성 프리셋 표시
     -- 이전: (not isCDM) and (category ~= "buff") → CDM 그룹에서 모든 프리셋 숨김
     -- 현재: buff 카테고리만 제외 (CDM Buffs 그룹은 버프 전용이므로 아이템 추가 불필요)
-    local showAdvanced = (category ~= "buff")
+    local showInlineAddOptions = false
+    local showAdvanced = showInlineAddOptions and (category ~= "buff")
     args.spellManagement = {
         type = "group",
         name = L["Spell Management"] or "스펠 관리",
@@ -4165,11 +4682,11 @@ local function CreateGroupOptions(groupName, order)
             -- [QUICK-ADD] 커스텀 강화효과 빠른 추가 (버프 그룹 전용)
             -- [FIX] CDM 기본그룹은 AssignSpell 경로, 커스텀 그룹은 CustomIcons 경로
             -- ===========================================
-            customBuffHeader = (category == "buff") and {
+            customBuffHeader = (showInlineAddOptions and category == "buff") and {
                 type = "header", name = "커스텀 강화효과 빠른 추가", order = 25,
             } or nil,
 
-            addLightsPotential = (category == "buff") and {
+            addLightsPotential = (showInlineAddOptions and category == "buff") and {
                 type = "execute", order = 25.1, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1236616) end)
@@ -4186,7 +4703,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addRecklessness = (category == "buff") and {
+            addRecklessness = (showInlineAddOptions and category == "buff") and {
                 type = "execute", order = 25.2, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1236994) end)
@@ -4203,7 +4720,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addDevouredDreams = (category == "buff") and {
+            addDevouredDreams = (showInlineAddOptions and category == "buff") and {
                 type = "execute", order = 25.3, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1239479) end)
@@ -4220,7 +4737,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addTimeSpiral = (category == "buff") and {
+            addTimeSpiral = (showInlineAddOptions and category == "buff") and {
                 type = "execute", order = 25.4, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(374968) end)
@@ -4237,7 +4754,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addBloodlust = (category == "buff") and {
+            addBloodlust = (showInlineAddOptions and category == "buff") and {
                 type = "execute", order = 25.5, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(2825) end)
