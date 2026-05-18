@@ -48,6 +48,25 @@ local function ForEachGroupName(callback)
     end
 end
 
+local function IsCallable(obj, method)
+    return obj and type(obj[method]) == "function"
+end
+
+local function ForEachViewerIcon(viewerFrame, callback)
+    if not viewerFrame or not callback then return end
+
+    if viewerFrame.itemFramePool and IsCallable(viewerFrame.itemFramePool, "EnumerateActive") then
+        for icon in viewerFrame.itemFramePool:EnumerateActive() do
+            callback(icon)
+        end
+    elseif IsCallable(viewerFrame, "GetChildren") then
+        local children = { viewerFrame:GetChildren() }
+        for _, child in ipairs(children) do
+            callback(child)
+        end
+    end
+end
+
 -- Flipbook config
 local flipbookConfig = {
     atlas = "RotationHelper_Ants_Flipbook_2x",
@@ -490,13 +509,13 @@ function AssistHighlight:UpdateViewerHighlights(viewerName)
     if viewerFrame then
         -- [FIX] GroupSystem 활성 시 아이콘이 UIParent로 reparent되어
         -- GetChildren()으로 찾을 수 없음 → itemFramePool 사용
-        if viewerFrame.itemFramePool then
+        if viewerFrame.itemFramePool and IsCallable(viewerFrame.itemFramePool, "EnumerateActive") then
             for icon in viewerFrame.itemFramePool:EnumerateActive() do
                 if icon.Icon and not icon.isEditing then
                     UpdateIconHighlight(icon, viewerName)
                 end
             end
-        else
+        elseif IsCallable(viewerFrame, "GetChildren") then
             -- Fallback: itemFramePool이 없는 경우 (비CDM 뷰어)
             local children = { viewerFrame:GetChildren() }
             for _, child in ipairs(children) do
@@ -547,11 +566,11 @@ function AssistHighlight:RefreshAll()
     for _, vName in ipairs(viewerNames) do
         local viewerFrame = _G[vName]
         if viewerFrame then
-            if viewerFrame.itemFramePool then
+            if viewerFrame.itemFramePool and IsCallable(viewerFrame.itemFramePool, "EnumerateActive") then
                 for icon in viewerFrame.itemFramePool:EnumerateActive() do
                     HideHighlight(icon)
                 end
-            else
+            elseif IsCallable(viewerFrame, "GetChildren") then
                 local children = { viewerFrame:GetChildren() }
                 for _, child in ipairs(children) do
                     HideHighlight(child)
