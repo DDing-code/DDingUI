@@ -11,7 +11,6 @@ local LOCK_FRAME_NAMES = {
     "EssentialCooldownViewer",
     "UtilityCooldownViewer",
     "BuffIconCooldownViewer",
-    "BuffBarCooldownViewer",
 }
 
 local selectionState = setmetatable({}, { __mode = "k" })
@@ -28,6 +27,16 @@ end
 local function IsCooldownViewerSystemFrame(frame)
     local cooldownSystem = Enum and Enum.EditModeSystem and Enum.EditModeSystem.CooldownViewer
     return cooldownSystem and frame and frame.system == cooldownSystem
+end
+
+local function IsLockedCooldownViewerFrame(frame)
+    if not IsCooldownViewerSystemFrame(frame) then return false end
+    for _, name in ipairs(LOCK_FRAME_NAMES) do
+        if frame == _G[name] then
+            return true
+        end
+    end
+    return false
 end
 
 -- 차단 1: Selection 하이라이트/마우스 비활성화
@@ -107,7 +116,7 @@ function DDingUI:SetupEditModeLock()
         if not (EditModeSystemSettingsDialog and Enum and Enum.EditModeSystem) then return false end
 
         hooksecurefunc(EditModeSystemSettingsDialog, "AttachToSystemFrame", function(dialog, systemFrame)
-            if not IsCooldownViewerSystemFrame(systemFrame) then return end
+            if not IsLockedCooldownViewerFrame(systemFrame) then return end
             dialog:Hide()
             ShowLockNotice()
         end)
