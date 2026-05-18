@@ -79,6 +79,26 @@ local function CopyColor(color)
     }
 end
 
+local function GetAuraGlowSettingKey(settings, glowType)
+    if glowType == "Pixel Glow" then
+        return string.format("pixel:%s:%s:%s:%s",
+            tostring(settings.auraGlowPixelLines or 8),
+            tostring(settings.auraGlowPixelFrequency or 0.25),
+            tostring(settings.auraGlowPixelThickness or 2),
+            tostring(settings.auraGlowPixelLength or 8))
+    elseif glowType == "Autocast Shine" then
+        return string.format("autocast:%s:%s:%s",
+            tostring(settings.auraGlowAutocastParticles or 8),
+            tostring(settings.auraGlowAutocastFrequency or 0.25),
+            tostring(settings.auraGlowAutocastScale or 1.0))
+    elseif glowType == "Action Button Glow" then
+        return "button:" .. tostring(settings.auraGlowButtonFrequency or 0.25)
+    elseif glowType == "Proc Glow" then
+        return "proc:" .. tostring(settings.auraGlowProcDuration or 1.0)
+    end
+    return glowType or "none"
+end
+
 local function SyncAuraGlowHost(icon, pid)
     if not icon or not pid then return nil end
 
@@ -144,6 +164,7 @@ local function StopAuraGlow(parentIcon, pid, clearWanted)
     pid.auraGlowType = nil
     pid.auraGlowColor = nil
     pid.auraGlowTarget = nil
+    pid.auraGlowSettingKey = nil
     pid._glowRemoveTimer = nil
     if clearWanted ~= false then
         pid.auraGlowWanted = nil
@@ -177,6 +198,7 @@ ShowAuraGlow = function(parentIcon, pid, settings)
 
     local glowType = settings.auraGlowType or "Pixel Glow"
     local glowColor = settings.auraGlowColor or {0.95, 0.95, 0.32, 1}
+    local glowSettingKey = GetAuraGlowSettingKey(settings, glowType)
     local glowTarget = parentIcon
     if glowType ~= "Blizzard Glow" then
         glowTarget = SyncAuraGlowHost(parentIcon, pid)
@@ -194,7 +216,8 @@ ShowAuraGlow = function(parentIcon, pid, settings)
     if pid.auraGlowActive
         and pid.auraGlowType == glowType
         and pid.auraGlowTarget == glowTarget
-        and ColorsMatch(pid.auraGlowColor, glowColor) then
+        and ColorsMatch(pid.auraGlowColor, glowColor)
+        and pid.auraGlowSettingKey == glowSettingKey then
         return
     end
 
@@ -232,6 +255,7 @@ ShowAuraGlow = function(parentIcon, pid, settings)
                 LCG.ProcGlow_Start(glowTarget, {
                     color = glowColor,
                     startAnim = false,
+                    duration = settings.auraGlowProcDuration or 1.0,
                     xOffset = 0,
                     yOffset = 0,
                     key = AURA_GLOW_KEY,
@@ -251,6 +275,7 @@ ShowAuraGlow = function(parentIcon, pid, settings)
         pid.auraGlowType = glowType
         pid.auraGlowColor = CopyColor(glowColor)
         pid.auraGlowTarget = glowTarget
+        pid.auraGlowSettingKey = glowSettingKey
     end
 end
 
