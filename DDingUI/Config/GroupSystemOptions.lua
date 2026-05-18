@@ -1220,7 +1220,7 @@ local function BuildCustomVisualArgs(groupName)
         assistHighlightPixelLength = GS_Range(groupName, "assistHighlightPixelLength", L["Pixel Glow Length"] or "길이", 20.9, 8, 1, 10, 1),
         -- 이동 애니메이션
         motionHeader = isBuffGroup and { type = "header", name = L["Movement Animation"] or "이동 애니메이션", order = 24 } or nil,
-        iconMotion = isBuffGroup and GS_Toggle(groupName, "iconMotion", L["Icon Movement Animation"] or "아이콘 이동 애니메이션", 24.1, true) or nil,
+        iconMotion = isBuffGroup and GS_Toggle(groupName, "iconMotion", L["Enable Movement Animation"] or "이동 애니메이션 사용", 24.1, true) or nil,
         iconMotionDuration = isBuffGroup and GS_Range(groupName, "iconMotionDuration", L["Motion Duration"] or "모션 시간", 24.2, 0.18, 0.05, 0.5, 0.01, {
             disabled = function()
                 local gs = GetGS()
