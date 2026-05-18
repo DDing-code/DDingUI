@@ -4581,6 +4581,35 @@ local function CreateGroupOptions(groupName, order)
             end,
         }
     end
+    layoutArgs.assignedHeader = {
+        type = "header",
+        name = L["Assigned Spells"] or "할당된 스펠",
+        order = -30,
+    }
+    layoutArgs.restoreBlizzardOrder = isCDM and {
+        type = "execute",
+        name = L["Restore Blizzard CDM Order"] or "블리자드 CDM 기본 순서로 복원",
+        desc = L["Clear the manual icon order for this group and fall back to Blizzard's current CDM order."] or "이 그룹의 수동 아이콘 순서를 지우고 현재 블리자드 CDM 기본 순서로 되돌립니다.",
+        order = -29,
+        width = "normal",
+        disabled = function()
+            local gsNow = GetGS()
+            local iconOrder = gsNow and gsNow.groups and gsNow.groups[groupName] and gsNow.groups[groupName].iconOrder
+            return type(iconOrder) ~= "table" or next(iconOrder) == nil
+        end,
+        func = function()
+            if DDingUI.ResetGroupSystemIconOrder and DDingUI:ResetGroupSystemIconOrder(groupName) then
+                SoftRefreshGroupSystemOptions(0)
+            end
+        end,
+    } or nil
+    layoutArgs.assignedIconGrid = {
+        type = "groupAssignedIconGrid",
+        groupName = groupName,
+        order = -28,
+        width = "full",
+    }
+
     args.layout = {
         type = "group",
         name = L["Layout"] or "배치",
@@ -5050,14 +5079,8 @@ local function CreateGroupOptions(groupName, order)
         },
     }
 
-    -- [ELLESMERE] Assigned icons render as a compact visual grid.
-    args.spellManagement.args.assignedIconGrid = {
-        type = "groupAssignedIconGrid",
-        groupName = groupName,
-        order = 11,
-        width = "full",
-    }
-
+    -- Spell management controls now live at the top of the layout tab.
+    args.spellManagement = nil
 
     -- [Ayije 통합] 모든 그룹 동일 시각 효과 옵션 (CDM/커스텀 구분 없음)
     local visualArgs = BuildCustomVisualArgs(groupName)
