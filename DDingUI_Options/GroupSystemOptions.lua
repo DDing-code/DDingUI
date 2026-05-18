@@ -3404,7 +3404,7 @@ local VIEWER_VISUAL_KEYS = {
     "auraGlowHeader", "auraGlow", "auraGlowType", "auraGlowColor",
     "auraGlowPixelLines", "auraGlowPixelFrequency", "auraGlowPixelThickness", "auraGlowPixelLength",
     "auraGlowAutocastParticles", "auraGlowAutocastFrequency", "auraGlowAutocastScale",
-    "auraGlowButtonFrequency", "auraGlowProcDuration",
+    "auraGlowButtonFrequency",
     -- 아이콘 글로우 (프록)
     "procGlowHeader", "procGlowEnabled", "procGlowType", "procGlowColor",
     "procGlowPixelLines", "procGlowPixelFrequency", "procGlowPixelThickness", "procGlowPixelLength",
@@ -3484,8 +3484,8 @@ local function GS_Range(groupName, key, name, order, default, min, max, step, ex
     return opt
 end
 
-local function GS_Color(groupName, key, name, order, default, extra)
-    local opt = {
+local function GS_Color(groupName, key, name, order, default)
+    return {
         type = "color", name = name, order = order, width = "full", hasAlpha = true,
         get = function()
             local gs = GetGS(); local c = gs and gs.groups[groupName] and gs.groups[groupName][key] or default
@@ -3496,12 +3496,10 @@ local function GS_Color(groupName, key, name, order, default, extra)
             if gs and gs.groups[groupName] then gs.groups[groupName][key] = {r, g, b, a or 1}; RefreshGroupSystem() end
         end,
     }
-    if extra then for k, v in pairs(extra) do opt[k] = v end end
-    return opt
 end
 
-local function GS_Select(groupName, key, name, order, default, values, extra)
-    local opt = {
+local function GS_Select(groupName, key, name, order, default, values)
+    return {
         type = "select", name = name, order = order, width = "full", values = values,
         get = function()
             local gs = GetGS(); local g = gs and gs.groups[groupName]
@@ -3513,8 +3511,6 @@ local function GS_Select(groupName, key, name, order, default, values, extra)
             RefreshGroupSystem()
         end,
     }
-    if extra then for k, v in pairs(extra) do opt[k] = v end end
-    return opt
 end
 
 local function GS_Toggle(groupName, key, name, order, default)
@@ -3530,16 +3526,6 @@ local function GS_Toggle(groupName, key, name, order, default)
             if gs and gs.groups[groupName] then gs.groups[groupName][key] = val; RefreshGroupSystem() end
         end,
     }
-end
-
-local function IsGroupAuraGlowDisabled(groupName)
-    local gs = GetGS(); local g = gs and gs.groups[groupName]
-    return not (g and g.auraGlow)
-end
-
-local function IsGroupAuraGlowTypeHidden(groupName, glowType)
-    local gs = GetGS(); local g = gs and gs.groups[groupName]
-    return not (g and g.auraGlow) or ((g.auraGlowType or "Pixel Glow") ~= glowType)
 end
 
 local ANCHOR_POINTS = {
@@ -3586,44 +3572,7 @@ local function BuildCustomVisualArgs(groupName)
         -- 글로우 효과
         glowHeader = { type = "header", name = L["Glow Effects"] or "글로우 효과", order = 15 },
         auraGlow = GS_Toggle(groupName, "auraGlow", L["Aura Glow"] or "오라 글로우", 16, false),
-        auraGlowType = GS_Select(groupName, "auraGlowType", L["Glow Type"] or "글로우 유형", 16.1, "Pixel Glow", {
-            ["Pixel Glow"] = "Pixel Glow",
-            ["Autocast Shine"] = "Autocast Shine",
-            ["Action Button Glow"] = "Action Button Glow",
-            ["Proc Glow"] = "Proc Glow",
-            ["Blizzard Glow"] = "Blizzard Glow",
-        }, { disabled = function() return IsGroupAuraGlowDisabled(groupName) end }),
-        auraGlowColor = GS_Color(groupName, "auraGlowColor", L["Glow Color"] or "글로우 색상", 16.2, {0.95, 0.95, 0.32, 1}, {
-            disabled = function() return IsGroupAuraGlowDisabled(groupName) end,
-        }),
-        auraGlowPixelLines = GS_Range(groupName, "auraGlowPixelLines", L["Pixel Glow Lines"] or "픽셀 글로우 라인 수", 16.3, 8, 1, 20, 1, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Pixel Glow") end,
-        }),
-        auraGlowPixelFrequency = GS_Range(groupName, "auraGlowPixelFrequency", L["Pixel Glow Speed"] or "속도", 16.4, 0.25, 0.05, 1.0, 0.05, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Pixel Glow") end,
-        }),
-        auraGlowPixelThickness = GS_Range(groupName, "auraGlowPixelThickness", L["Pixel Glow Thickness"] or "두께", 16.5, 2, 1, 5, 1, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Pixel Glow") end,
-        }),
-        auraGlowPixelLength = GS_Range(groupName, "auraGlowPixelLength", L["Pixel Glow Length"] or "길이", 16.6, 8, 0, 20, 1, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Pixel Glow") end,
-        }),
-        auraGlowAutocastParticles = GS_Range(groupName, "auraGlowAutocastParticles", L["Particles"] or "파티클 수", 16.7, 8, 1, 16, 1, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Autocast Shine") end,
-        }),
-        auraGlowAutocastFrequency = GS_Range(groupName, "auraGlowAutocastFrequency", L["Speed"] or "속도", 16.8, 0.25, 0.05, 1.0, 0.05, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Autocast Shine") end,
-        }),
-        auraGlowAutocastScale = GS_Range(groupName, "auraGlowAutocastScale", L["Scale"] or "크기", 16.9, 1.0, 0.5, 3.0, 0.1, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Autocast Shine") end,
-        }),
-        auraGlowButtonFrequency = GS_Range(groupName, "auraGlowButtonFrequency", L["Speed"] or "속도", 17.0, 0.25, 0.05, 1.0, 0.05, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Action Button Glow") end,
-        }),
-        auraGlowProcDuration = GS_Range(groupName, "auraGlowProcDuration", L["Duration"] or "지속시간", 17.1, 1.0, 0.1, 5.0, 0.1, {
-            hidden = function() return IsGroupAuraGlowTypeHidden(groupName, "Proc Glow") end,
-        }),
-        procGlowEnabled = GS_Toggle(groupName, "procGlowEnabled", L["Proc Glow"] or "발동 글로우", 17.5, true),
+        procGlowEnabled = GS_Toggle(groupName, "procGlowEnabled", L["Proc Glow"] or "발동 글로우", 17, true),
         -- 지속 효과 숨기기 (EllesmereUI hideActive 이식)
         hideActiveState = GS_Toggle(groupName, "hideActiveState", L["Hide Active State"] or "지속 효과 숨기기", 18, false),
         hideActiveStateDesc = {

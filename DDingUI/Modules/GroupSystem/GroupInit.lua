@@ -197,18 +197,6 @@ local DYNAMIC_GROUP_DEFAULTS = {
     rowLimit = 12,
     swipeColor = { 0, 0, 0, 0.8 },
     swipeReverse = true,
-    auraGlow = false,
-    auraGlowType = "Pixel Glow",
-    auraGlowColor = { 0.95, 0.95, 0.32, 1 },
-    auraGlowPixelLines = 8,
-    auraGlowPixelFrequency = 0.25,
-    auraGlowPixelThickness = 2,
-    auraGlowPixelLength = 8,
-    auraGlowAutocastParticles = 8,
-    auraGlowAutocastFrequency = 0.25,
-    auraGlowAutocastScale = 1.0,
-    auraGlowButtonFrequency = 0.25,
-    auraGlowProcDuration = 1.0,
     anchorPoint = "CENTER",
     attachTo = "UIParent", -- [FIX] 앵커 프레임 저장용
     offsetX = 0,
@@ -736,18 +724,6 @@ local function EnsureCoreCDMGroupSchema(gs)
             offsetX = 0,
             offsetY = def.offsetY or 0,
             iconOrder = {},
-            auraGlow = false,
-            auraGlowType = "Pixel Glow",
-            auraGlowColor = { 0.95, 0.95, 0.32, 1 },
-            auraGlowPixelLines = 8,
-            auraGlowPixelFrequency = 0.25,
-            auraGlowPixelThickness = 2,
-            auraGlowPixelLength = 8,
-            auraGlowAutocastParticles = 8,
-            auraGlowAutocastFrequency = 0.25,
-            auraGlowAutocastScale = 1.0,
-            auraGlowButtonFrequency = 0.25,
-            auraGlowProcDuration = 1.0,
         }) then
             changed = true
         end
@@ -1023,18 +999,6 @@ local function MigrateToViewerGroups(gs)
                 if vs.auraGlowColor and not grp.auraGlowColor then
                     grp.auraGlowColor = { unpack(vs.auraGlowColor) }
                 end
-                if vs.auraGlowPixelLines and not grp.auraGlowPixelLines then
-                    grp.auraGlowPixelLines = vs.auraGlowPixelLines
-                end
-                if vs.auraGlowPixelFrequency and not grp.auraGlowPixelFrequency then
-                    grp.auraGlowPixelFrequency = vs.auraGlowPixelFrequency
-                end
-                if vs.auraGlowPixelThickness and not grp.auraGlowPixelThickness then
-                    grp.auraGlowPixelThickness = vs.auraGlowPixelThickness
-                end
-                if vs.auraGlowPixelLength and not grp.auraGlowPixelLength then
-                    grp.auraGlowPixelLength = vs.auraGlowPixelLength
-                end
                 if vs.auraGlowAutocastParticles and not grp.auraGlowAutocastParticles then
                     grp.auraGlowAutocastParticles = vs.auraGlowAutocastParticles
                 end
@@ -1046,9 +1010,6 @@ local function MigrateToViewerGroups(gs)
                 end
                 if vs.auraGlowButtonFrequency and not grp.auraGlowButtonFrequency then
                     grp.auraGlowButtonFrequency = vs.auraGlowButtonFrequency
-                end
-                if vs.auraGlowProcDuration and not grp.auraGlowProcDuration then
-                    grp.auraGlowProcDuration = vs.auraGlowProcDuration
                 end
 
                 -- 8) 지속 효과 숨기기 (hideActiveState)
@@ -1155,18 +1116,6 @@ local function MigrateToViewerGroups(gs)
                 direction = "RIGHT",
                 growDirection = "DOWN",
                 rowLimit = 12,
-                auraGlow = false,
-                auraGlowType = "Pixel Glow",
-                auraGlowColor = { 0.95, 0.95, 0.32, 1 },
-                auraGlowPixelLines = 8,
-                auraGlowPixelFrequency = 0.25,
-                auraGlowPixelThickness = 2,
-                auraGlowPixelLength = 8,
-                auraGlowAutocastParticles = 8,
-                auraGlowAutocastFrequency = 0.25,
-                auraGlowAutocastScale = 1.0,
-                auraGlowButtonFrequency = 0.25,
-                auraGlowProcDuration = 1.0,
                 anchorPoint = "CENTER",
                 offsetX = 0,
                 offsetY = def.offsetY or 0,  -- [FIX] v1.2.3 마이그레이션: 뷰어 위치 못 읽으면 폴백 오프셋 사용
