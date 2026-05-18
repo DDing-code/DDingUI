@@ -2863,8 +2863,10 @@ local function AcquirePopupRow(parent, index, width, height)
         row.text:SetPoint("LEFT", row, "LEFT", 10, 0)
         row.text:SetPoint("RIGHT", row.icon, "LEFT", -10, 0)
         row.text:SetJustifyH("LEFT")
+        row.text:SetFont(STANDARD_TEXT_FONT, 11, "")
         row.arrow = row:CreateFontString(nil, "OVERLAY")
         row.arrow:SetPoint("RIGHT", row.icon, "LEFT", -6, 0)
+        row.arrow:SetFont(STANDARD_TEXT_FONT, 11, "")
         row.arrow:SetText(">")
         parent._rows[index] = row
     end
