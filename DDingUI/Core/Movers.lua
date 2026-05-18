@@ -939,10 +939,21 @@ local function CreateMoverFrame(parent, name, displayText)
                 end
                 Movers:ExitEditMode()
                 C_Timer.After(0.1, function()
-                    if guiKey then
-                        DDingUI:OpenConfigGUI(nil, guiKey)
-                    else
-                        DDingUI:OpenConfigGUI()
+                    if DDingUI.OpenConfigGUI then
+                        if guiKey then
+                            DDingUI:OpenConfigGUI(nil, guiKey)
+                        else
+                            DDingUI:OpenConfigGUI()
+                        end
+                    elseif DDingUI.OpenConfig then
+                        DDingUI:OpenConfig()
+                        if guiKey then
+                            C_Timer.After(0.15, function()
+                                if DDingUI.OpenConfigGUI then
+                                    DDingUI:OpenConfigGUI(nil, guiKey)
+                                end
+                            end)
+                        end
                     end
                     -- BuffTracker 선택 지연 실행 (패널 렌더링 후)
                     if DDingUI._pendingBTSelect then
