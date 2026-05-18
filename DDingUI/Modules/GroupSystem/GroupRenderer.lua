@@ -60,6 +60,72 @@ local IsInGroup = IsInGroup
 local C_Timer = C_Timer
 local COMBAT_DYNAMIC_MISSING_GRACE = 1.5
 local ALPHA_EPSILON = 0.01
+local ICON_MOTION_DEFAULT_DURATION = 0.18
+local ICON_MOTION_MIN_DELTA = 0.5
+
+local iconMotionDriver = CreateFrame("Frame")
+iconMotionDriver:Hide()
+local activeIconMotions = {}
+local activeIconMotionCount = 0
+
+local function EaseOutCubic(t)
+    local inv = 1 - t
+    return 1 - inv * inv * inv
+end
+
+local function ApplyIconPositionNow(icon, container, x, y)
+    icon._ddSettingPosition = true
+    icon:ClearAllPoints()
+    icon:SetPoint("CENTER", container, "CENTER", x, y)
+    icon._ddSettingPosition = false
+    icon._ddContainerRef = container
+    icon._ddCurrentContainer = container
+    icon._ddCurrentX = x
+    icon._ddCurrentY = y
+end
+
+local function StopIconMotion(icon)
+    if not icon or not icon._ddPositionMotion then return end
+    activeIconMotions[icon] = nil
+    icon._ddPositionMotion = nil
+    activeIconMotionCount = math_max(activeIconMotionCount - 1, 0)
+    if activeIconMotionCount == 0 then
+        iconMotionDriver:Hide()
+    end
+end
+
+iconMotionDriver:SetScript("OnUpdate", function(_, elapsed)
+    if activeIconMotionCount <= 0 then
+        iconMotionDriver:Hide()
+        return
+    end
+
+    for icon, motion in pairs(activeIconMotions) do
+        if not icon:IsShown() or icon._ddingHidden then
+            activeIconMotions[icon] = nil
+            icon._ddPositionMotion = nil
+            activeIconMotionCount = math_max(activeIconMotionCount - 1, 0)
+        else
+            motion.elapsed = motion.elapsed + elapsed
+            local t = motion.elapsed / motion.duration
+            if t >= 1 then
+                ApplyIconPositionNow(icon, motion.container, motion.toX, motion.toY)
+                activeIconMotions[icon] = nil
+                icon._ddPositionMotion = nil
+                activeIconMotionCount = math_max(activeIconMotionCount - 1, 0)
+            else
+                local eased = EaseOutCubic(t)
+                local x = motion.fromX + (motion.toX - motion.fromX) * eased
+                local y = motion.fromY + (motion.toY - motion.fromY) * eased
+                ApplyIconPositionNow(icon, motion.container, x, y)
+            end
+        end
+    end
+
+    if activeIconMotionCount <= 0 then
+        iconMotionDriver:Hide()
+    end
+end)
 
 -- FrameController 참조 (런타임에 resolve)
 local FC -- FrameController lazy reference
@@ -656,7 +722,7 @@ end
 -- FrameController 훅을 우회하면서 타겟 값도 동시 갱신
 -- ============================================================
 
-local function SetIconPosition(icon, container, x, y)
+local function SetIconPosition(icon, container, x, y, motionSettings)
     -- 위치 동일하면 skip → ClearAllPoints 깜빡임 방지
     -- [REPARENT] GetParent() → _ddContainerRef (parent는 UIParent)
     if icon._ddTargetPoint == "CENTER"
@@ -665,15 +731,57 @@ local function SetIconPosition(icon, container, x, y)
         return
     end
 
+    local fromX = icon._ddCurrentX
+    local fromY = icon._ddCurrentY
+    local fromContainer = icon._ddCurrentContainer
+    local activeMotion = icon._ddPositionMotion
+    if activeMotion then
+        fromX = icon._ddCurrentX or activeMotion.fromX
+        fromY = icon._ddCurrentY or activeMotion.fromY
+        fromContainer = activeMotion.container
+    end
+    if fromContainer ~= container then
+        fromX = icon._ddTargetX
+        fromY = icon._ddTargetY
+        fromContainer = icon._ddContainerRef
+    end
+
     icon._ddTargetPoint = "CENTER"
     icon._ddTargetRelPoint = "CENTER"
     icon._ddTargetX = x
     icon._ddTargetY = y
 
-    icon._ddSettingPosition = true
-    icon:ClearAllPoints()
-    icon:SetPoint("CENTER", container, "CENTER", x, y)
-    icon._ddSettingPosition = false
+    local canAnimate = motionSettings and motionSettings.enabled
+        and fromContainer == container
+        and fromX ~= nil and fromY ~= nil
+        and (math_abs(fromX - x) > ICON_MOTION_MIN_DELTA or math_abs(fromY - y) > ICON_MOTION_MIN_DELTA)
+
+    if canAnimate then
+        local duration = tonumber(motionSettings.duration) or ICON_MOTION_DEFAULT_DURATION
+        if duration <= 0.01 then
+            StopIconMotion(icon)
+            ApplyIconPositionNow(icon, container, x, y)
+            return
+        end
+
+        if not icon._ddPositionMotion then
+            activeIconMotionCount = activeIconMotionCount + 1
+        end
+        icon._ddPositionMotion = {
+            container = container,
+            fromX = fromX,
+            fromY = fromY,
+            toX = x,
+            toY = y,
+            elapsed = 0,
+            duration = duration,
+        }
+        activeIconMotions[icon] = icon._ddPositionMotion
+        iconMotionDriver:Show()
+    else
+        StopIconMotion(icon)
+        ApplyIconPositionNow(icon, container, x, y)
+    end
 end
 
 local function SetIconSize(icon, w, h)
@@ -694,7 +802,7 @@ end
 -- CENTERED_HORIZONTAL, LEFT, RIGHT + 보조 방향 UP/DOWN
 -- ============================================================
 
-local function LayoutHorizontal(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow)
+local function LayoutHorizontal(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow, motionSettings)
     local count = #icons
     if count == 0 then return 0, 0 end
 
@@ -760,7 +868,7 @@ local function LayoutHorizontal(icons, container, primary, secondary, spacing, r
             end
 
             SetIconSize(icon, meta.iconWidth, meta.iconHeight)
-            SetIconPosition(icon, container, math_floor(x + 0.5), math_floor(currentY + 0.5))
+            SetIconPosition(icon, container, math_floor(x + 0.5), math_floor(currentY + 0.5), motionSettings)
         end
 
         local nextMeta = rowMeta[row + 1]
@@ -778,7 +886,7 @@ end
 -- UP, DOWN + 보조 방향 LEFT/RIGHT
 -- ============================================================
 
-local function LayoutVertical(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow)
+local function LayoutVertical(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow, motionSettings)
     local count = #icons
     if count == 0 then return 0, 0 end
 
@@ -841,7 +949,7 @@ local function LayoutVertical(icons, container, primary, secondary, spacing, row
             local y = startY + position * (meta.iconHeight + spacing) * verticalDirection
 
             SetIconSize(icon, meta.iconWidth, meta.iconHeight)
-            SetIconPosition(icon, container, math_floor(currentX + 0.5), math_floor(y + 0.5))
+            SetIconPosition(icon, container, math_floor(currentX + 0.5), math_floor(y + 0.5), motionSettings)
         end
 
         local nextMeta = columnMeta[column + 1]
@@ -1658,6 +1766,15 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         viewerSettings = { iconSize = 32, spacing = 2, primaryDirection = "CENTERED_HORIZONTAL" }
     end
 
+    local motionSettings
+    local isBuffMotionGroup = (viewerName == "BuffIconCooldownViewer") or (viewerSettings.groupCategory == "buff")
+    if isBuffMotionGroup and viewerSettings.iconMotion ~= false then
+        motionSettings = {
+            enabled = true,
+            duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION,
+        }
+    end
+
     -- ViewerLayout과 동일하게 방향/행제한 resolve
     local primary, secondary, rowLimit, layoutType = ResolveDirections(viewerName, viewerSettings)
 
@@ -1680,9 +1797,9 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     -- 레이아웃 실행
     local totalW, totalH = 0, 0
     if layoutType == "HORIZONTAL" then
-        totalW, totalH = LayoutHorizontal(icons, frame, primary, secondary, spacing, rowLimit, GetDimensionsForRow)
+        totalW, totalH = LayoutHorizontal(icons, frame, primary, secondary, spacing, rowLimit, GetDimensionsForRow, motionSettings)
     elseif layoutType == "VERTICAL" then
-        totalW, totalH = LayoutVertical(icons, frame, primary, secondary, spacing, rowLimit, GetDimensionsForRow)
+        totalW, totalH = LayoutVertical(icons, frame, primary, secondary, spacing, rowLimit, GetDimensionsForRow, motionSettings)
     else
         -- STATIC: 크기만 설정, 위치는 그대로
         local iconW, iconH = GetDimensionsForRow(1)
@@ -1717,7 +1834,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
             for i = 1, count do
                 local icon = icons[i]
                 if icon and icon._ddTargetX and icon._ddTargetY then
-                    SetIconPosition(icon, frame, icon._ddTargetX, icon._ddTargetY + math_floor(shiftY + 0.5))
+                    SetIconPosition(icon, frame, icon._ddTargetX, icon._ddTargetY + math_floor(shiftY + 0.5), motionSettings)
                 end
             end
         end
@@ -1828,7 +1945,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
             for i = 1, count do
                 local icon = icons[i]
                 if icon and icon._ddTargetX and icon._ddTargetY then
-                    SetIconPosition(icon, frame, icon._ddTargetX + groupOX, icon._ddTargetY + groupOY)
+                    SetIconPosition(icon, frame, icon._ddTargetX + groupOX, icon._ddTargetY + groupOY, motionSettings)
                 end
             end
         end

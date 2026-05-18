@@ -215,6 +215,8 @@ local defaults = {
                 disableSwipeAnimation = false,
                 swipeColor = {0, 0, 0, 0.8},
                 swipeReverse = true,
+                iconMotion = true,
+                iconMotionDuration = 0.18,
                 disableEdgeGlow = false,
                 disableBlingAnimation = false,
             },
@@ -771,6 +773,8 @@ local defaults = {
                     durationTextColor = { 1, 1, 1, 1 },
                     swipeColor = { 0, 0, 0, 0.8 },
                     swipeReverse = true,
+                    iconMotion = true,
+                    iconMotionDuration = 0.18,
                     selfPoint = "CENTER", -- [FIX] 기준점 (셀프 포인트)
                     anchorPoint = "CENTER",
                     attachTo = "UIParent", -- [FIX] 앵커 프레임 저장용

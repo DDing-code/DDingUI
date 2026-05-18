@@ -3414,6 +3414,8 @@ local VIEWER_VISUAL_KEYS = {
     "assistHighlightHeader", "assistHighlightEnabled", "assistHighlightType",
     "assistFlipbookScale", "assistGlowType", "assistGlowColor",
     "assistGlowLines", "assistGlowFrequency", "assistGlowThickness", "assistHighlightPixelLength",
+    -- 이동 애니메이션
+    "motionHeader", "iconMotion", "iconMotionDuration",
     -- 엣지/블링 애니메이션
     "disableEdgeGlow", "disableBlingAnimation",
 }
@@ -3559,6 +3561,8 @@ end
 
 -- [CATEGORY] 커스텀 그룹용 시각 효과 옵션 빌드
 local function BuildCustomVisualArgs(groupName)
+    local isBuffGroup = GetGroupCategory(groupName) == "buff"
+
     return {
         -- 쿨다운 스와이프
         swipeHeader = { type = "header", name = L["Cooldown Swipe"] or "쿨다운 스와이프", order = 1 },
@@ -3599,6 +3603,16 @@ local function BuildCustomVisualArgs(groupName)
         assistGlowFrequency = GS_Range(groupName, "assistGlowFrequency", L["Pixel Glow Speed"] or "속도", 20.7, 0.25, 0.01, 1.0, 0.01),
         assistGlowThickness = GS_Range(groupName, "assistGlowThickness", L["Pixel Glow Thickness"] or "두께", 20.8, 1, 0.5, 5, 0.5),
         assistHighlightPixelLength = GS_Range(groupName, "assistHighlightPixelLength", L["Pixel Glow Length"] or "길이", 20.9, 8, 1, 10, 1),
+        -- 이동 애니메이션
+        motionHeader = isBuffGroup and { type = "header", name = L["Movement Animation"] or "이동 애니메이션", order = 24 } or nil,
+        iconMotion = isBuffGroup and GS_Toggle(groupName, "iconMotion", L["Icon Movement Animation"] or "아이콘 이동 애니메이션", 24.1, true) or nil,
+        iconMotionDuration = isBuffGroup and GS_Range(groupName, "iconMotionDuration", L["Motion Duration"] or "모션 시간", 24.2, 0.18, 0.05, 0.5, 0.01, {
+            disabled = function()
+                local gs = GetGS()
+                local g = gs and gs.groups[groupName]
+                return g and g.iconMotion == false
+            end,
+        }) or nil,
         -- 애니메이션
         animHeader = { type = "header", name = L["Animation"] or "애니메이션", order = 25 },
         disableEdgeGlow = GS_Toggle(groupName, "disableEdgeGlow", L["Disable Edge Glow"] or "엣지 글로우 비활성화", 26, false),
