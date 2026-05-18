@@ -308,10 +308,6 @@ local function GetApplicationsFont(iconFrame)
     return nil
 end
 
-local function RaiseTextLayer(fs, owner)
-    -- No-op; frame level adjustments removed
-end
-
 local function InstallBuffBarVisibilityShowHook(ownerFrame, hookKey, textElement, settingKey)
     if not ownerFrame or not textElement or not hooksecurefunc then return end
 
@@ -348,6 +344,65 @@ local function ResetViewerLayoutState(viewer)
     end
 end
 
+local function QueueBuffBarRefresh(delay)
+    if BuffBar.__barContentRefreshQueued then return end
+
+    BuffBar.__barContentRefreshQueued = true
+    C_Timer.After(delay or 0.01, function()
+        BuffBar.__barContentRefreshQueued = nil
+        BuffBar:Refresh()
+    end)
+end
+
+local function GetIconPosition(settings)
+    if settings.hideIcon then
+        return "HIDDEN"
+    end
+
+    local iconPosition = settings.iconPosition or "LEFT"
+    if iconPosition ~= "RIGHT" and iconPosition ~= "HIDDEN" then
+        iconPosition = "LEFT"
+    end
+    return iconPosition
+end
+
+local function EnsureOverlayContainer(parent, state, stateKey, levelOffset)
+    if not parent or not state then return nil end
+
+    local container = state[stateKey]
+    if not container then
+        container = CreateFrame("Frame", nil, parent)
+        state[stateKey] = container
+    end
+
+    if container:GetParent() ~= parent then
+        container:SetParent(parent)
+    end
+    container:ClearAllPoints()
+    container:SetAllPoints(parent)
+    container:SetFrameLevel((parent:GetFrameLevel() or 0) + (levelOffset or 6))
+    container:Show()
+    return container
+end
+
+local function InstallBarContentHook(child, childState)
+    if not child or not childState or childState.barContentHooked or not child.SetBarContent or not hooksecurefunc then
+        return
+    end
+
+    local ok = pcall(hooksecurefunc, child, "SetBarContent", function(self)
+        local state = GetFrameState(self)
+        if state then
+            state.lastStyleKey = nil
+        end
+        ResetViewerLayoutState(_G["BuffBarCooldownViewer"])
+        QueueBuffBarRefresh(0.01)
+    end)
+    if ok then
+        childState.barContentHooked = true
+    end
+end
+
 local function StyleBarChild(child, settings, viewer)
     if not child or not child.Bar then return end
 
@@ -359,17 +414,21 @@ local function StyleBarChild(child, settings, viewer)
     if childState then
         childState.lastSettings = settings
     end
+    InstallBarContentHook(child, childState)
     local barState = GetFrameState(bar)
     local iconFrame = child.Icon or child.IconFrame or child.IconButton
     local applicationsFS = GetApplicationsFont(iconFrame)
     local barHeight = PixelSnap(ComputeBarHeight(settings, bar))
     local iconSize = barHeight
-    local font = (DDingUI.GetFont and DDingUI:GetFont(nil)) or (DDingUI.GetGlobalFont and DDingUI:GetGlobalFont()) or nil
     local iconBorderSize = settings.iconBorderSize or 0
     local iconBorderScaled = DDingUI:ScaleBorder(iconBorderSize)
     local barIndex = GetBarIndex(child)
+    local iconPosition = GetIconPosition(settings)
+    local iconHidden = iconPosition == "HIDDEN"
+    local iconGap = iconHidden and 0 or PixelSnap(DDingUI:Scale(settings.iconGap or 0))
+    local iconVisible = not iconHidden and iconFrame ~= nil
 
-    if settings.hideIcon then
+    if iconHidden then
         iconSize = 0
         if applicationsFS and bar then
             if applicationsFS:GetParent() ~= bar then
@@ -399,7 +458,11 @@ local function StyleBarChild(child, settings, viewer)
             local iconFrameSize = PixelSnap(barHeight + (iconBorderScaled * 2))
             iconFrame:ClearAllPoints()
             iconFrame:SetSize(iconFrameSize, iconFrameSize)
-            iconFrame:SetPoint("LEFT", child, "LEFT", 0, 0)
+            if iconPosition == "RIGHT" then
+                iconFrame:SetPoint("RIGHT", child, "RIGHT", 0, 0)
+            else
+                iconFrame:SetPoint("LEFT", child, "LEFT", 0, 0)
+            end
         end
         if applicationsFS then
             applicationsFS:Show()
@@ -408,11 +471,9 @@ local function StyleBarChild(child, settings, viewer)
             end
         end
     end
-    local iconTotalWidth = settings.hideIcon and 0 or PixelSnap(iconSize + (iconBorderScaled * 2))
-    local iconTotalHeight = settings.hideIcon and 0 or PixelSnap(iconSize + (iconBorderScaled * 2))
-    local barBorderSize = DDingUI:ScaleBorder(settings.borderSize or 1)
-
-    local barWidth = ComputeBarWidth(settings, viewer, iconTotalWidth, 0, 0)
+    local iconTotalWidth = iconVisible and PixelSnap(iconSize + (iconBorderScaled * 2)) or 0
+    local iconTotalHeight = iconVisible and PixelSnap(iconSize + (iconBorderScaled * 2)) or 0
+    local barWidth = ComputeBarWidth(settings, viewer, iconTotalWidth, iconGap, 0)
     -- Bar visuals
     local tex = DDingUI.GetTexture and DDingUI:GetTexture(settings.texture) or WHITE8
     bar:SetStatusBarTexture(tex)
@@ -503,34 +564,54 @@ local function StyleBarChild(child, settings, viewer)
     bar:SetHeight(barHeight)
     if barWidth then
         local effectiveBarWidth = PixelSnap(math.max(1, barWidth))
+        local effectiveFrameWidth = effectiveBarWidth + iconTotalWidth + iconGap
         bar:SetWidth(effectiveBarWidth)
-        child:SetWidth(effectiveBarWidth + iconTotalWidth)
-        -- Re-anchor bar so it starts flush after icon (or at child left when icon hidden)
+        child:SetWidth(effectiveFrameWidth)
+
         bar:ClearAllPoints()
-        if settings.hideIcon then
+        if iconHidden then
             bar:SetPoint("LEFT", child, "LEFT", 0, 0)
+            bar:SetPoint("RIGHT", child, "RIGHT", 0, 0)
+        elseif iconPosition == "RIGHT" then
+            bar:SetPoint("LEFT", child, "LEFT", 0, 0)
+            bar:SetPoint("RIGHT", iconFrame or child, iconFrame and "LEFT" or "RIGHT", iconFrame and -iconGap or 0, 0)
         else
-            bar:SetPoint("LEFT", iconFrame or child, "RIGHT", 0, 0)
+            bar:SetPoint("LEFT", iconFrame or child, iconFrame and "RIGHT" or "LEFT", iconFrame and iconGap or 0, 0)
+            bar:SetPoint("RIGHT", child, "RIGHT", 0, 0)
         end
     end
 
     -- Sync child frame height to match bar height (prevents gaps between bars)
     local childHeight = barHeight
-    if not settings.hideIcon then
+    if iconVisible then
         childHeight = math.max(barHeight, iconTotalHeight)
     end
     child:SetHeight(childHeight)
 
     -- Text styling
     local nameFS = bar.Name
+    local durFS = bar.Duration
+    local textContainer
+    if barState then
+        if (nameFS and settings.showName ~= false) or (durFS and settings.showDuration ~= false) then
+            textContainer = EnsureOverlayContainer(bar, barState, "barTextContainer", 6)
+        elseif barState.barTextContainer then
+            barState.barTextContainer:Hide()
+        end
+    end
+
     if nameFS then
         InstallBuffBarVisibilityShowHook(child, "nameShowHooked", nameFS, "showName")
         if settings.showName == false then
             nameFS:Hide()
             nameFS:SetAlpha(0)
         else
+            if textContainer and nameFS:GetParent() ~= textContainer then
+                nameFS:SetParent(textContainer)
+            end
             nameFS:Show()
             nameFS:SetAlpha(1)
+            if nameFS.SetIgnoreParentScale then nameFS:SetIgnoreParentScale(true) end
             local nameFont = DDingUI:GetFont(settings.nameFont)
             if nameFont then
                 nameFS:SetFont(nameFont, settings.nameSize or 14, "OUTLINE")
@@ -539,6 +620,10 @@ local function StyleBarChild(child, settings, viewer)
             end
             local nc = settings.nameColor or {1, 1, 1, 1}
             nameFS:SetTextColor(nc[1], nc[2], nc[3], nc[4] or 1)
+            if nameFS.SetShadowOffset then nameFS:SetShadowOffset(0, 0) end
+            if nameFS.SetDrawLayer then nameFS:SetDrawLayer("OVERLAY", 7) end
+            if nameFS.SetWordWrap then nameFS:SetWordWrap(false) end
+            if nameFS.SetNonSpaceWrap then nameFS:SetNonSpaceWrap(false) end
             nameFS:ClearAllPoints()
             local anchor = settings.nameAnchor or "LEFT"
             if anchor == "MIDDLE" then anchor = "CENTER" end
@@ -553,7 +638,14 @@ local function StyleBarChild(child, settings, viewer)
         if settings.showApplications == false then
             applicationsFS:Hide()
             applicationsFS:SetAlpha(0)
+            if barState and barState.barAppTextContainer then
+                barState.barAppTextContainer:Hide()
+            end
         else
+            local appContainer = EnsureOverlayContainer(bar, barState, "barAppTextContainer", 6)
+            if appContainer and applicationsFS:GetParent() ~= appContainer then
+                applicationsFS:SetParent(appContainer)
+            end
             applicationsFS:SetAlpha(1)
             if settings.applicationsSize then
                 local appFont = DDingUI:GetFont(settings.applicationsFont)
@@ -565,6 +657,10 @@ local function StyleBarChild(child, settings, viewer)
             end
             local ac = settings.applicationsColor or {1, 1, 1, 1}
             applicationsFS:SetTextColor(ac[1], ac[2], ac[3], ac[4] or 1)
+            if applicationsFS.SetIgnoreParentScale then applicationsFS:SetIgnoreParentScale(true) end
+            if applicationsFS.SetShadowOffset then applicationsFS:SetShadowOffset(0, 0) end
+            if applicationsFS.SetDrawLayer then applicationsFS:SetDrawLayer("OVERLAY", 7) end
+            if applicationsFS.SetJustifyH then applicationsFS:SetJustifyH("CENTER") end
 
             applicationsFS:ClearAllPoints()
             local anchor = settings.applicationsAnchor or "BOTTOMRIGHT"
@@ -573,30 +669,24 @@ local function StyleBarChild(child, settings, viewer)
             end
             local ax = settings.applicationsOffsetX or 0
             local ay = settings.applicationsOffsetY or 0
-            local target = settings.hideIcon and bar or iconFrame
-            if settings.hideIcon then
-                if applicationsFS:GetParent() ~= bar then
-                    applicationsFS:SetParent(bar)
-                end
-            else
-                if applicationsFS:GetParent() ~= iconFrame then
-                    applicationsFS:SetParent(iconFrame)
-                end
-            end
+            local target = iconVisible and iconFrame or bar
             applicationsFS:SetPoint(anchor, target, anchor, ax, ay)
             applicationsFS:Show()
         end
     end
 
-    local durFS = bar.Duration
     if durFS then
         InstallBuffBarVisibilityShowHook(child, "durationShowHooked", durFS, "showDuration")
         if settings.showDuration == false then
             durFS:Hide()
             durFS:SetAlpha(0)
         else
+            if textContainer and durFS:GetParent() ~= textContainer then
+                durFS:SetParent(textContainer)
+            end
             durFS:Show()
             durFS:SetAlpha(1)
+            if durFS.SetIgnoreParentScale then durFS:SetIgnoreParentScale(true) end
             local durFont = DDingUI:GetFont(settings.durationFont)
             if durFont then
                 durFS:SetFont(durFont, settings.durationSize or 12, "OUTLINE")
@@ -605,6 +695,8 @@ local function StyleBarChild(child, settings, viewer)
             end
             local dc = settings.durationColor or {1, 1, 1, 1}
             durFS:SetTextColor(dc[1], dc[2], dc[3], dc[4] or 1)
+            if durFS.SetShadowOffset then durFS:SetShadowOffset(0, 0) end
+            if durFS.SetDrawLayer then durFS:SetDrawLayer("OVERLAY", 7) end
             durFS:ClearAllPoints()
             local anchor = settings.durationAnchor or "RIGHT"
             if anchor == "MIDDLE" then anchor = "CENTER" end
@@ -659,8 +751,16 @@ function BuffBar:ApplyViewerStyle(viewer, settings)
             StyleBarChild(child, settings, viewer)
         end
 
+        local spacing = PixelSnap(DDingUI:Scale(settings.barSpacing ~= nil and settings.barSpacing or 2))
+        local iconPosition = GetIconPosition(settings)
+        local iconGap = settings.iconGap or 0
+
         -- Reposition only VISIBLE bars based on grow direction
         local layoutKey = growDirection .. "_" .. #visibleChildren
+            .. "_h" .. tostring(settings.height or 16)
+            .. "_s" .. tostring(spacing)
+            .. "_i" .. tostring(iconPosition)
+            .. "_g" .. tostring(iconGap)
         for _, child in ipairs(visibleChildren) do
             layoutKey = layoutKey .. "_" .. tostring(GetBarIndex(child))
         end
@@ -671,15 +771,7 @@ function BuffBar:ApplyViewerStyle(viewer, settings)
         viewerState.lastBarLayoutKey = layoutKey
 
         if #visibleChildren > 0 then
-            local barHeight = PixelSnap(ComputeBarHeight(settings, visibleChildren[1].Bar))
-            local spacing = 2  -- spacing between bars
-
-            -- When icon hidden, shift bars right by half icon width to keep bar centered
             local xOffset = 0
-            if settings.hideIcon then
-                local iconBorderScaled = DDingUI:ScaleBorder(settings.iconBorderSize or 0)
-                xOffset = PixelSnap(barHeight + (iconBorderScaled * 2)) / 2
-            end
 
             -- Suppress OnSizeChanged feedback during repositioning
             viewerState.barLayoutInProgress = true
