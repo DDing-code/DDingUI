@@ -2,6 +2,36 @@
 
 ---
 
+## v1.2.8
+
+_Scope: Git changes from the v1.2.7.2 development line through this release._
+
+### English Patch Notes
+- Reworked the CDM spell management flow: the assigned spell grid now lives at the top of the Layout tab, supports a plus-button add menu, and includes a Blizzard CDM order restore action.
+- Improved assigned spell drag and drop behavior, including scaled cursor coordinates, aligned drag ghosts, insert/swap feedback, and safer popup row fonts.
+- Added unassigned spell management for buff-category CDM groups, including right-click remove/unassign behavior and a shared unassigned buff spell pool across buff groups.
+- Improved combat tracking for trinkets, item cooldowns, dynamic item slots, Bloodlust/Heroism-style effects, exhaustion debuffs, and custom timed buff triggers based on the Ayije-style detection path.
+- Stabilized custom buff icons during combat by waking managed icons, keeping timer-driven Bloodlust icons alive, restoring managed buff opacity, and reapplying dynamic icon text settings.
+- Improved custom buff/CDM rendering by reparenting custom buff CDM icons, aligning custom buff icon text to group text options, anchoring aura glows on the host frame, and debouncing glow removal.
+- Expanded tracked bar support with layout controls, stronger styling persistence, item frame pool collection, and DDingUI mover-mode positioning while keeping Blizzard Edit Mode behavior locked.
+- Added buff icon movement animation for appearing/disappearing tracked buffs, with a clearer visual toggle label.
+- Stabilized CDM icon order across talent changes so custom/manual additions are not displaced by Blizzard CDM rescans.
+- Added safeguards for mover config opening and Assist Highlight updates when group names collide with non-frame globals such as `test`.
+
+### 한국어 패치노트
+- CDM 스펠 관리 흐름을 재구성했습니다. 할당된 스펠 그리드는 이제 레이아웃 탭 최상단에 표시되며, 플러스 버튼 추가 메뉴와 블리자드 CDM 기본 순서 복원 기능을 제공합니다.
+- 할당 스펠 드래그 앤 드롭을 개선했습니다. 스케일 적용 좌표, 드래그 고스트 위치, 끼워넣기/교체 피드백, 팝업 행 폰트 안정성을 보강했습니다.
+- 강화효과 계열 CDM 그룹에 할당되지 않은 스펠 관리 기능을 추가했습니다. 우클릭 삭제/할당 해제와 모든 강화효과 그룹이 공유하는 미할당 버프 풀을 지원합니다.
+- 전투 중 장신구, 사용 아이템, 동적 아이템 슬롯, 블러드/영웅심 계열 효과, 탈진 디버프, 커스텀 시간제 버프 트리거 감지를 Ayije 방식에 맞춰 개선했습니다.
+- 전투 중 커스텀 강화효과 아이콘 안정성을 개선했습니다. 관리 중인 아이콘을 깨우고, 타이머 기반 블러드 아이콘을 유지하며, 투명도와 동적 아이콘 텍스트 설정을 다시 적용합니다.
+- 커스텀 강화효과/CDM 렌더링을 개선했습니다. 커스텀 강화효과 CDM 아이콘 reparent, 그룹 텍스트 옵션에 맞춘 텍스트 위치, 호스트 프레임 기준 글로우, 글로우 제거 디바운스를 적용했습니다.
+- 추적중인 막대 기능을 확장했습니다. 레이아웃 옵션, 스타일 유지, item frame pool 수집, DDingUI 자체 편집모드 이동을 지원하며 Blizzard 편집모드에서는 잠금 동작을 유지합니다.
+- 버프 아이콘이 나타나고 사라질 때 움직이는 애니메이션을 추가하고, 시각 효과 토글 이름을 더 명확하게 정리했습니다.
+- 특성 변경 시 CDM 아이콘 순서를 안정화하여 커스텀/수동 추가 아이콘이 블리자드 CDM 재스캔에 밀리지 않도록 했습니다.
+- 이동 설정 열기와 Assist Highlight 갱신을 방어 처리하여 `test` 같은 그룹명이 비프레임 전역값과 충돌해도 오류가 나지 않게 했습니다.
+
+---
+
 ## v1.2.7.1
 
 ### Updates
