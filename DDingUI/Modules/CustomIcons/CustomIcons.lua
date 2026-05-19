@@ -1068,6 +1068,25 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     return changed
 end
 
+local function SeedBloodlustTimedAura(requireWithinWindow)
+    bloodlustDebuffInstanceID = nil
+    for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
+        local auraData
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(debuffID)
+        end)
+        if auraData
+            and GetAuraFieldSafe(auraData, "auraInstanceID")
+            and GetAuraNumberFieldSafe(auraData, "expirationTime")
+            and ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, requireWithinWindow)
+        then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function ScanBloodlustTimedAura(updateInfo)
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > GetTime() then
@@ -1075,22 +1094,7 @@ local function ScanBloodlustTimedAura(updateInfo)
     end
 
     if not updateInfo or updateInfo.isFullUpdate then
-        bloodlustDebuffInstanceID = nil
-        for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
-            local auraData
-            pcall(function()
-                auraData = C_UnitAuras.GetPlayerAuraBySpellID(debuffID)
-            end)
-            if auraData
-                and GetAuraFieldSafe(auraData, "auraInstanceID")
-                and GetAuraNumberFieldSafe(auraData, "expirationTime")
-                and ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, true)
-            then
-                return true
-            end
-        end
-
-        return false
+        return SeedBloodlustTimedAura(true)
     end
 
     local changed = false
@@ -1107,6 +1111,10 @@ local function ScanBloodlustTimedAura(updateInfo)
                 break
             end
         end
+    end
+
+    if not changed then
+        changed = SeedBloodlustTimedAura(true)
     end
 
     if bloodlustDebuffInstanceID and updateInfo.removedAuraInstanceIDs then
