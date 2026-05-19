@@ -84,12 +84,143 @@ local GROUP_QUICK_ASSIGN_ENABLED = false
 local GROUP_SPELL_INPUT_ENABLED = false
 local cdmEntryCache
 local cdmEntryCacheTime = 0
+local pendingOptionSpellIconRefresh = {}
 
 local function InvalidateCDMIconEntryCache()
     cdmEntryCache = nil
     cdmEntryCacheTime = 0
 end
 DDingUI.InvalidateGroupCDMIconEntryCache = InvalidateCDMIconEntryCache
+
+local QUESTION_MARK_TEXTURE = 134400
+
+local function SafeOptionValue(value)
+    if issecretvalue and issecretvalue(value) then return nil end
+    return value
+end
+
+local function SafeOptionID(value)
+    value = SafeOptionValue(value)
+    local id = tonumber(value)
+    if id and id > 0 then return id end
+    return nil
+end
+
+local function SafeOptionTexture(value, fallback)
+    value = SafeOptionValue(value)
+    if value and value ~= 0 and value ~= "" then return value end
+    return fallback
+end
+
+local function QueueOptionSpellIconRefresh(spellID)
+    spellID = SafeOptionID(spellID)
+    if not spellID or pendingOptionSpellIconRefresh[spellID] then return end
+
+    pendingOptionSpellIconRefresh[spellID] = true
+    if C_Spell and C_Spell.RequestLoadSpellData then
+        pcall(C_Spell.RequestLoadSpellData, spellID)
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.35, function()
+            pendingOptionSpellIconRefresh[spellID] = nil
+            InvalidateCDMIconEntryCache()
+            if DDingUI.RefreshConfigGUI then
+                DDingUI:RefreshConfigGUI()
+            end
+        end)
+    end
+end
+
+local function SafeOptionSpellTexture(spellID)
+    spellID = SafeOptionID(spellID)
+    if not spellID or not C_Spell then return nil end
+
+    local okInfo, info = pcall(function()
+        return C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    end)
+    local iconID = okInfo and info and SafeOptionTexture(info.iconID)
+    if iconID and iconID ~= QUESTION_MARK_TEXTURE then return iconID end
+
+    local okTex, tex = pcall(function()
+        return C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+    end)
+    tex = SafeOptionTexture(okTex and tex)
+    if tex and tex ~= QUESTION_MARK_TEXTURE then return tex end
+
+    QueueOptionSpellIconRefresh(spellID)
+    return iconID or tex
+end
+
+local function AddOptionSpellCandidate(candidates, seen, value)
+    local id = SafeOptionID(value)
+    if id and not seen[id] then
+        seen[id] = true
+        candidates[#candidates + 1] = id
+    end
+end
+
+local function GetCooldownInfoSpellCandidates(info, cooldownID)
+    local candidates, seen = {}, {}
+    if info then
+        AddOptionSpellCandidate(candidates, seen, info.overrideTooltipSpellID)
+        AddOptionSpellCandidate(candidates, seen, info.overrideSpellID)
+        AddOptionSpellCandidate(candidates, seen, info.spellID)
+        local linkedSpellIDs = SafeOptionValue(info.linkedSpellIDs)
+        if type(linkedSpellIDs) == "table" then
+            pcall(function()
+                for _, linkedID in ipairs(linkedSpellIDs) do
+                    AddOptionSpellCandidate(candidates, seen, linkedID)
+                end
+            end)
+        end
+    end
+    AddOptionSpellCandidate(candidates, seen, cooldownID)
+    return candidates
+end
+
+local function ResolveSpellTextureFromCandidates(candidates, fallback)
+    local deferred
+    for _, spellID in ipairs(candidates or {}) do
+        local tex = SafeOptionSpellTexture(spellID)
+        if tex and tex ~= QUESTION_MARK_TEXTURE then
+            return tex
+        end
+        deferred = deferred or tex
+    end
+    return SafeOptionTexture(fallback, deferred or QUESTION_MARK_TEXTURE)
+end
+
+local function ResolveCDMEntryIconTexture(entry, spellName, fallback)
+    local candidates, seen = {}, {}
+    if entry then
+        AddOptionSpellCandidate(candidates, seen, entry.iconSpellID)
+        AddOptionSpellCandidate(candidates, seen, entry.spellID)
+        if entry.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+            local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, entry.cooldownID)
+            if ok and info then
+                for _, id in ipairs(GetCooldownInfoSpellCandidates(info, entry.cooldownID)) do
+                    AddOptionSpellCandidate(candidates, seen, id)
+                end
+            else
+                AddOptionSpellCandidate(candidates, seen, entry.cooldownID)
+            end
+        end
+    end
+
+    local rawName = (spellName or (entry and entry.name) or ""):gsub("^buff_", "")
+    if rawName ~= "" and C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, rawName)
+        if ok and info then
+            local iconID = SafeOptionTexture(info.iconID)
+            if iconID and iconID ~= QUESTION_MARK_TEXTURE then
+                return iconID
+            end
+            AddOptionSpellCandidate(candidates, seen, info.spellID)
+        end
+    end
+
+    return ResolveSpellTextureFromCandidates(candidates, fallback)
+end
 
 local ANCHOR_VALUES = {
     ["CENTER"]      = "CENTER",
@@ -619,20 +750,25 @@ local function GetCDMIconEntries()
 
         -- [FIX] 실제 spellID 조회 — cooldownID와 spellID가 다를 수 있음
         local realSpellID = 0
+        local iconSpellID = nil
+        local spellCandidates = GetCooldownInfoSpellCandidates(nil, cooldownID)
         pcall(function()
             if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
                 local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
                 if info then
-                    -- linkedSpellIDs > overrideSpellID > spellID 우선순위
-                    local linked = info.linkedSpellIDs and info.linkedSpellIDs[1]
-                    realSpellID = linked or info.overrideSpellID or info.spellID or 0
+                    -- 표시용 스펠 우선순위: overrideTooltipSpellID > overrideSpellID > spellID > linkedSpellIDs
+                    spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
+                    iconSpellID = spellCandidates and spellCandidates[1]
+                    realSpellID = iconSpellID or 0
                 end
             end
         end)
+        tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
 
         result[#result + 1] = {
             cooldownID = cooldownID,
             spellID = (realSpellID and realSpellID > 0) and realSpellID or cooldownID,
+            iconSpellID = iconSpellID,
             name = spellName or "Unknown",
             icon = tex,
             viewerName = CDMHookEngine:GetIconSource(cooldownID) or "",
@@ -672,14 +808,17 @@ local function GetCDMIconEntries()
                 local spellName = nil
                 local tex = 134400
                 local realSpellID = 0
+                local iconSpellID = nil
+                local spellCandidates = GetCooldownInfoSpellCandidates(nil, icon.cooldownID)
 
                 -- C_CooldownViewer API로 정보 수집
                 pcall(function()
                     if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
                         local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
                         if info then
-                            local linked = info.linkedSpellIDs and info.linkedSpellIDs[1]
-                            realSpellID = linked or info.overrideSpellID or info.spellID or 0
+                            spellCandidates = GetCooldownInfoSpellCandidates(info, icon.cooldownID)
+                            iconSpellID = spellCandidates and spellCandidates[1]
+                            realSpellID = iconSpellID or 0
                             -- spellID로 이름/아이콘 조회
                             local sid = realSpellID > 0 and realSpellID or info.spellID
                             if sid and sid > 0 and C_Spell then
@@ -697,6 +836,8 @@ local function GetCDMIconEntries()
                 end)
 
                 -- 아이콘 텍스처 fallback
+                tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
+
                 if tex == 134400 then
                     pcall(function()
                         if icon.Icon and icon.Icon.GetTexture then
@@ -712,6 +853,7 @@ local function GetCDMIconEntries()
                     result[#result + 1] = {
                         cooldownID = icon.cooldownID,
                         spellID = (realSpellID and realSpellID > 0) and realSpellID or icon.cooldownID,
+                        iconSpellID = iconSpellID,
                         name = spellName,
                         icon = tex,
                         viewerName = "BuffIconCooldownViewer",
@@ -1229,7 +1371,7 @@ local function BuildUnassignedSpellRows(groupName)
                         spellName = spellName,
                         spellID = spellID,
                         iconType = iconType,
-                        iconTex = entry.icon or 134400,
+                        iconTex = ResolveCDMEntryIconTexture(entry, spellName, entry.icon),
                         displayName = ((entry.name or spellName or "Unknown"):gsub("^buff_", "")),
                         assignedGroup = assigned,
                         isDynamicTarget = isDynamicGroup and not isBuffEntry,
@@ -1292,10 +1434,11 @@ local function UpdateGroupAssignGrid(parent, groupName)
         for i, btn in ipairs(grid._buttons) do
             local entry = entries[i]
             if entry then
-                btn.icon:SetTexture(entry.icon or 134400)
+                local spellName = GetGSSpellName(entry)
+                btn.icon:SetTexture(ResolveCDMEntryIconTexture(entry, spellName, entry.icon))
                 btn.icon:SetAlpha(1.0)
                 btn.entry = entry
-                btn.spellName = GetGSSpellName(entry)
+                btn.spellName = spellName
 
                 -- 할당 상태 확인
                 local assigned = GetUsableSpellAssignment(gs, btn.spellName)
@@ -1595,7 +1738,7 @@ local function BuildAssignedSpellsArgs(groupName)
     for _, row in ipairs(cdmRows) do
         local spellName = row.spellName
         local displayName = spellName and spellName:gsub("^buff_", "") or "Unknown"
-        local iconTex = (row.entry and row.entry.icon) or 134400
+        local iconTex = ResolveCDMEntryIconTexture(row.entry, spellName, row.entry and row.entry.icon)
 
         if iconTex == 134400 and spellName then
             local ok, tex = pcall(function()
@@ -1671,6 +1814,8 @@ local function BuildAssignedSpellsArgs(groupName)
                                 if name then displayName = name end
                                 if icon then iconTex = icon end
                             end
+
+                            iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex)
 
                             if iconTex == 134400 then
                                 displayName = "Invalid Spell: " .. tostring(spellID)
