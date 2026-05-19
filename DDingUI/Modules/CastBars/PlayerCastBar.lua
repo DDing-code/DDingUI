@@ -90,6 +90,7 @@ function CastBars:GetCastBar()
 
     -- Empowered stages storage
     bar.empoweredStages = {}
+    bar.channelTicks = {}
 
     DDingUI.castBar = bar
     return bar
@@ -399,6 +400,10 @@ function CastBars:UpdateCastBarLayout()
     else
         bar.spark:Hide()
     end
+
+    if CastBars.UpdateChannelTicks then
+        CastBars:UpdateChannelTicks(bar)
+    end
 end
 
 function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
@@ -440,6 +445,7 @@ function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
     -- Regular casts are never empowered - don't initialize empowered stages here
     bar.isEmpowered = false
     bar.numStages = 0
+    bar.spellID = unitSpellID or spellID
 
     bar.icon:SetTexture(texture)
     bar.spellName:SetText(name)
@@ -489,6 +495,9 @@ function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
     if bar.empoweredGlow then
         bar.empoweredGlow:Hide()
     end
+    if CastBars.HideChannelTicks then
+        CastBars:HideChannelTicks(bar)
+    end
 
     bar:SetScript("OnUpdate", CastBar_OnUpdate)
     bar:Show()
@@ -516,6 +525,7 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
             bar.startTime = startTimeMS / 1000
             bar.endTime = endTimeMS / 1000
             bar.castBarID = castBarID
+            bar.spellID = unitSpellID or spellID
             return
         end
     end
@@ -553,9 +563,13 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
                 -- Cleanup
                 self.castGUID = nil
                 self.castBarID = nil
+                self.spellID = nil
                 self.isChannel = nil
                 self.isEmpowered = nil
                 self.numStages = nil
+                if CastBars.HideChannelTicks then
+                    CastBars:HideChannelTicks(self)
+                end
             else
                 self:SetAlpha(1 - progress)
             end
@@ -566,6 +580,7 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
     -- Normal cleanup (successful cast or fade disabled)
     bar.castGUID  = nil
     bar.castBarID = nil
+    bar.spellID = nil
     bar.isChannel = nil
     bar.isEmpowered = nil
     bar.numStages = nil
@@ -586,6 +601,9 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
     end
     if bar.empoweredGlow then
         bar.empoweredGlow:Hide()
+    end
+    if CastBars.HideChannelTicks then
+        CastBars:HideChannelTicks(bar)
     end
     bar:Hide()
     bar:SetScript("OnUpdate", nil)
@@ -633,6 +651,7 @@ function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
     
     bar.isEmpowered = isEmpoweredCast
     bar.numStages = numStages or 0
+    bar.spellID = unitSpellID or spellID
 
     bar.icon:SetTexture(texture)
     bar.spellName:SetText(name)
@@ -687,6 +706,9 @@ function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
     end
 
     bar:SetScript("OnUpdate", CastBar_OnUpdate)
+    if CastBars.UpdateChannelTicks then
+        CastBars:UpdateChannelTicks(bar)
+    end
     bar:Show()
 end
 
@@ -710,6 +732,7 @@ function CastBars:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID)
     local isEmpoweredCast = (numStages and numStages > 0) or false
     bar.isEmpowered = isEmpoweredCast
     bar.numStages = numStages or 0
+    bar.spellID = unitSpellID or spellID
 
     bar.icon:SetTexture(texture)
     bar.spellName:SetText(name)
@@ -725,6 +748,10 @@ function CastBars:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID)
                 CastBars:InitializeEmpoweredStages(bar)
             end
         end
+    end
+
+    if CastBars.UpdateChannelTicks then
+        CastBars:UpdateChannelTicks(bar)
     end
 end
 

@@ -510,6 +510,92 @@ local function CreateCastBarOptions()
                             DDingUI:UpdateCastBarLayout()
                         end,
                     },
+                    channelTicksHeader = {
+                        type = "header",
+                        name = L["Channel Tick Settings"],
+                        order = 27.1,
+                    },
+                    showChannelTicks = {
+                        type = "toggle",
+                        name = L["Show Channel Tick Markers"],
+                        desc = L["Show tick markers for supported channeled spells."],
+                        order = 27.2,
+                        width = "normal",
+                        get = function() return DDingUI.db.profile.castBar.showChannelTicks ~= false end,
+                        set = function(_, val)
+                            local cfg = DDingUI.db.profile.castBar
+                            cfg.showChannelTicks = val
+                            if val and cfg.showChannelTickMarks == false and cfg.showChannelLastTick ~= true then
+                                cfg.showChannelTickMarks = true
+                            end
+                            DDingUI:UpdateCastBarLayout()
+                            if DDingUI.CastBars and DDingUI.CastBars.UpdateChannelTicks and DDingUI.castBar then
+                                DDingUI.CastBars:UpdateChannelTicks(DDingUI.castBar)
+                            end
+                        end,
+                    },
+                    showChannelTickMarks = {
+                        type = "toggle",
+                        name = L["Channel Ticks"],
+                        desc = L["Show regular damage tick markers on supported channeled spells."],
+                        order = 27.3,
+                        width = "normal",
+                        get = function() return DDingUI.db.profile.castBar.showChannelTickMarks ~= false end,
+                        set = function(_, val)
+                            DDingUI.db.profile.castBar.showChannelTickMarks = val
+                            if DDingUI.CastBars and DDingUI.CastBars.UpdateChannelTicks and DDingUI.castBar then
+                                DDingUI.CastBars:UpdateChannelTicks(DDingUI.castBar)
+                            end
+                        end,
+                    },
+                    channelTickColor = {
+                        type = "color",
+                        name = L["Channel Tick Color"],
+                        order = 27.4,
+                        width = "normal",
+                        hasAlpha = true,
+                        get = function()
+                            local c = DDingUI.db.profile.castBar.channelTickColor or { 1, 1, 1, 0.7 }
+                            return c[1], c[2], c[3], c[4] or 0.7
+                        end,
+                        set = function(_, r, g, b, a)
+                            DDingUI.db.profile.castBar.channelTickColor = { r, g, b, a }
+                            if DDingUI.CastBars and DDingUI.CastBars.UpdateChannelTicks and DDingUI.castBar then
+                                DDingUI.CastBars:UpdateChannelTicks(DDingUI.castBar)
+                            end
+                        end,
+                    },
+                    showChannelLastTick = {
+                        type = "toggle",
+                        name = L["Last Channel Tick"],
+                        desc = L["Highlight the final damage tick on supported channeled spells."],
+                        order = 27.5,
+                        width = "normal",
+                        get = function() return DDingUI.db.profile.castBar.showChannelLastTick == true end,
+                        set = function(_, val)
+                            DDingUI.db.profile.castBar.showChannelLastTick = val
+                            if DDingUI.CastBars and DDingUI.CastBars.UpdateChannelTicks and DDingUI.castBar then
+                                DDingUI.CastBars:UpdateChannelTicks(DDingUI.castBar)
+                            end
+                        end,
+                    },
+                    channelLastTickColor = {
+                        type = "color",
+                        name = L["Last Channel Tick Color"],
+                        order = 27.6,
+                        width = "normal",
+                        hasAlpha = true,
+                        get = function()
+                            local c = DDingUI.db.profile.castBar.channelLastTickColor or { 1, 0.82, 0, 0.95 }
+                            return c[1], c[2], c[3], c[4] or 0.95
+                        end,
+                        set = function(_, r, g, b, a)
+                            DDingUI.db.profile.castBar.channelLastTickColor = { r, g, b, a }
+                            if DDingUI.CastBars and DDingUI.CastBars.UpdateChannelTicks and DDingUI.castBar then
+                                DDingUI.CastBars:UpdateChannelTicks(DDingUI.castBar)
+                            end
+                        end,
+                    },
                     empoweredHeader = {
                         type = "header",
                         name = L["Empowered Cast Settings"],
@@ -1706,4 +1792,3 @@ local function CreateCastBarOptions()
 end
 
 ns.CreateCastBarOptions = CreateCastBarOptions
-

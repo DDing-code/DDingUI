@@ -24,6 +24,22 @@ local wipe = wipe
 local BUILD_NUMBER = tonumber((select(4, GetBuildInfo()))) or 0
 local IS_MIDNIGHT_OR_LATER = BUILD_NUMBER >= 120000
 
+local CHANNEL_TICK_DATA = {
+    [356995] = { ticks = 4, modSpell = 1219723, modTicks = 5 }, -- Disintegrate / Azure Celerity
+    [15407]  = { ticks = 6 }, -- Mind Flay
+    [5143]   = { ticks = 5 }, -- Arcane Missiles
+    [198013] = { tickInterval = 0.2 }, -- Eye Beam
+    [473728] = { tickInterval = 0.2 }, -- Void Ray
+    [212084] = { ticks = 10 }, -- Fel Devastation
+    [198590] = { ticks = 5 }, -- Drain Soul
+    [47757]  = { ticks = 3 }, -- Penance
+    [47758]  = { ticks = 3 }, -- Penance
+    [373129] = { ticks = 3 }, -- Dark Reprimand
+    [400171] = { ticks = 3 }, -- Dark Reprimand
+}
+
+CastBars.CHANNEL_TICK_DATA = CHANNEL_TICK_DATA
+
 -- Utility functions (from Main.lua)
 local function GetClassColor()
     local classColor = RAID_CLASS_COLORS[select(2, UnitClass("player"))]
@@ -131,6 +147,144 @@ CastBars.FormatCastTime = FormatCastTime
 -- Reusable table for empowered stage percentages (avoids per-frame allocation)
 local stagePercentages = {}
 
+local function PlayerKnowsSpell(spellID)
+    if not spellID then return false end
+
+    if IsPlayerSpell then
+        local ok, known = pcall(IsPlayerSpell, spellID)
+        if ok and known then
+            return true
+        end
+    end
+
+    if C_SpellBook and C_SpellBook.IsSpellKnown then
+        local ok, known = pcall(C_SpellBook.IsSpellKnown, spellID)
+        if ok and known then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function GetChannelTickCount(spellID, duration)
+    local tickData = spellID and CHANNEL_TICK_DATA[spellID]
+    if not tickData then return 0 end
+
+    if tickData.tickInterval then
+        if not duration or duration <= 0 then return 0 end
+        return math_floor(duration / tickData.tickInterval)
+    end
+
+    if tickData.modSpell and tickData.modTicks and PlayerKnowsSpell(tickData.modSpell) then
+        return tickData.modTicks
+    end
+
+    return tickData.ticks or 0
+end
+
+function CastBars:HideChannelTicks(bar)
+    if not bar or not bar.channelTicks then return end
+
+    for _, tick in pairs(bar.channelTicks) do
+        if tick then
+            tick:Hide()
+        end
+    end
+    bar.numChannelTicks = 0
+end
+
+function CastBars:UpdateChannelTicks(bar)
+    if not bar then return end
+
+    local cfg = DDingUI.db.profile.castBar
+    if not cfg or cfg.showChannelTicks == false or not bar.isChannel or bar.isEmpowered then
+        self:HideChannelTicks(bar)
+        return
+    end
+
+    local spellID = bar.spellID
+    local tickData = spellID and CHANNEL_TICK_DATA[spellID]
+    local showTickMarks = cfg.showChannelTickMarks ~= false
+    local showLastTick = cfg.showChannelLastTick == true
+    if not tickData or (not showTickMarks and not showLastTick) then
+        self:HideChannelTicks(bar)
+        return
+    end
+
+    local status = bar.status
+    if not status then
+        self:HideChannelTicks(bar)
+        return
+    end
+
+    local barWidth = status:GetWidth()
+    local barHeight = status:GetHeight()
+    if barWidth <= 0 or barHeight <= 0 then
+        self:HideChannelTicks(bar)
+        return
+    end
+
+    local duration = (bar.endTime or 0) - (bar.startTime or 0)
+    local numTicks = GetChannelTickCount(spellID, duration)
+    if numTicks < 2 then
+        self:HideChannelTicks(bar)
+        return
+    end
+
+    if not bar.channelTicks then
+        bar.channelTicks = {}
+    end
+
+    local effectiveScale = status.GetEffectiveScale and status:GetEffectiveScale() or 1
+    if not effectiveScale or effectiveScale <= 0 then
+        effectiveScale = 1
+    end
+
+    local pixelSize = 1 / effectiveScale
+    local tickWidth = math_max(pixelSize, math_floor(2 * effectiveScale + 0.5) / effectiveScale)
+    local highlightWidth = math_max(pixelSize, math_floor(3 * effectiveScale + 0.5) / effectiveScale)
+    local snappedHeight = math_floor(barHeight * effectiveScale + 0.5) / effectiveScale
+    local tickColor = cfg.channelTickColor or { 1, 1, 1, 0.7 }
+    local lastTickColor = cfg.channelLastTickColor or { 1, 0.82, 0, 0.95 }
+
+    for i = 1, numTicks - 1 do
+        local isLastTick = (i == numTicks - 1)
+        if not showTickMarks and not (isLastTick and showLastTick) then
+            if bar.channelTicks[i] then
+                bar.channelTicks[i]:Hide()
+            end
+        else
+            local tick = bar.channelTicks[i]
+            if not tick then
+                tick = status:CreateTexture(nil, "OVERLAY", nil, 3)
+                bar.channelTicks[i] = tick
+            end
+
+            local snappedOffset = math_floor(barWidth * (numTicks - i) / numTicks * effectiveScale + 0.5) / effectiveScale
+            if isLastTick and showLastTick then
+                tick:SetColorTexture(lastTickColor[1] or 1, lastTickColor[2] or 0.82, lastTickColor[3] or 0, lastTickColor[4] or 0.95)
+                tick:SetSize(highlightWidth, snappedHeight)
+            else
+                tick:SetColorTexture(tickColor[1] or 1, tickColor[2] or 1, tickColor[3] or 1, tickColor[4] or 0.7)
+                tick:SetSize(tickWidth, snappedHeight)
+            end
+
+            tick:ClearAllPoints()
+            tick:SetPoint("CENTER", status, "LEFT", snappedOffset, 0)
+            tick:Show()
+        end
+    end
+
+    for index, tick in pairs(bar.channelTicks) do
+        if index >= numTicks and tick then
+            tick:Hide()
+        end
+    end
+
+    bar.numChannelTicks = numTicks
+end
+
 -- CastBar OnUpdate function
 local function CastBar_OnUpdate(frame, elapsed)
     if not frame.startTime or not frame.endTime then return end
@@ -163,6 +317,9 @@ local function CastBar_OnUpdate(frame, elapsed)
                     segment:Hide()
                 end
             end
+        end
+        if CastBars.HideChannelTicks then
+            CastBars:HideChannelTicks(frame)
         end
         frame:Hide()
         frame:SetScript("OnUpdate", nil)
@@ -684,6 +841,10 @@ local function CastBar_OnUpdate(frame, elapsed)
                 frame.bg:SetColorTexture(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 1)
             end
         end
+    end
+
+    if CastBars.UpdateChannelTicks then
+        CastBars:UpdateChannelTicks(frame)
     end
 
     -- Update Spark Position
