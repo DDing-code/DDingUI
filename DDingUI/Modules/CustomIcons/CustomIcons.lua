@@ -4499,6 +4499,74 @@ local CDM_SOURCE_GROUP_NAMES = {
     Utility = "Utility Cooldowns",
 }
 
+local function GetDynamicGroupIconCount(group)
+    return group and group.icons and #group.icons or 0
+end
+
+local function BuildDynamicIconOrderSet(groupSettings)
+    local order = groupSettings and groupSettings.iconOrder
+    if type(order) ~= "table" then return nil, 0 end
+
+    local set, count = {}, 0
+    for _, token in ipairs(order) do
+        if type(token) == "string" then
+            local iconKey = token:match("^dyn:(.+)$")
+            if iconKey and not set[iconKey] then
+                set[iconKey] = true
+                count = count + 1
+            end
+        end
+    end
+
+    if count == 0 then return nil, 0 end
+    return set, count
+end
+
+local function CountDynamicIconOrderMatches(sourceGroup, orderSet)
+    if not (sourceGroup and sourceGroup.icons and orderSet) then return 0 end
+
+    local matches = 0
+    for _, iconKey in ipairs(sourceGroup.icons) do
+        if orderSet[iconKey] then
+            matches = matches + 1
+        end
+    end
+    return matches
+end
+
+local function FindBestSourceGroupForCDMGroup(db, groupName, groupSettings)
+    if not (db and db.groups and groupName) then return nil end
+
+    local preferredKey = groupSettings and groupSettings.sourceGroupKey
+    local orderSet = BuildDynamicIconOrderSet(groupSettings)
+    local bestKey, bestGroup, bestCount, bestOrderMatches
+    local function Consider(sourceKey, sourceGroup)
+        if not sourceKey or not sourceGroup or sourceGroup.linkedCDMGroup ~= groupName then return end
+        local count = GetDynamicGroupIconCount(sourceGroup)
+        local orderMatches = CountDynamicIconOrderMatches(sourceGroup, orderSet)
+        if not bestKey
+            or orderMatches > bestOrderMatches
+            or (orderMatches == bestOrderMatches and count > bestCount)
+            or (orderMatches == bestOrderMatches and count == bestCount and sourceKey == preferredKey)
+            or (orderMatches == bestOrderMatches and count == bestCount and sourceKey ~= preferredKey and bestKey ~= preferredKey and tostring(sourceKey) < tostring(bestKey))
+        then
+            bestKey = sourceKey
+            bestGroup = sourceGroup
+            bestCount = count
+            bestOrderMatches = orderMatches
+        end
+    end
+
+    if preferredKey then
+        Consider(preferredKey, db.groups[preferredKey])
+    end
+    for sourceKey, sourceGroup in pairs(db.groups) do
+        Consider(sourceKey, sourceGroup)
+    end
+
+    return bestKey, bestGroup
+end
+
 function CustomIcons:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
     if type(groupName) ~= "string" or groupName == "" then return nil end
 
@@ -4520,24 +4588,18 @@ function CustomIcons:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
     end
 
     local db = GetDynamicDB()
-    if groupSettings.sourceGroupKey and db.groups[groupSettings.sourceGroupKey] then
-        db.groups[groupSettings.sourceGroupKey].linkedCDMGroup = groupName
-        db.groups[groupSettings.sourceGroupKey].enabled = groupSettings.enabled ~= false
-        return groupSettings.sourceGroupKey
+    local sourceKey, sourceGroup = FindBestSourceGroupForCDMGroup(db, groupName, groupSettings)
+    if sourceKey and sourceGroup then
+        groupSettings.sourceGroupKey = sourceKey
+        sourceGroup.linkedCDMGroup = groupName
+        sourceGroup.enabled = groupSettings.enabled ~= false
+        return sourceKey
     end
 
-    for sourceKey, sourceGroup in pairs(db.groups or {}) do
-        if sourceGroup.linkedCDMGroup == groupName then
-            groupSettings.sourceGroupKey = sourceKey
-            sourceGroup.enabled = groupSettings.enabled ~= false
-            return sourceKey
-        end
-    end
-
-    local sourceKey = self:CreateDynamicGroup(displayName or groupSettings.name or CDM_SOURCE_GROUP_NAMES[groupName] or groupName)
+    sourceKey = self:CreateDynamicGroup(displayName or groupSettings.name or CDM_SOURCE_GROUP_NAMES[groupName] or groupName)
     if not sourceKey then return nil end
 
-    local sourceGroup = db.groups and db.groups[sourceKey]
+    sourceGroup = db.groups and db.groups[sourceKey]
     if sourceGroup then
         sourceGroup.linkedCDMGroup = groupName
         sourceGroup.enabled = groupSettings.enabled ~= false

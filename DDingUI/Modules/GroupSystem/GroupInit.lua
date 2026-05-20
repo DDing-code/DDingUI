@@ -205,17 +205,87 @@ local DYNAMIC_GROUP_DEFAULTS = {
     offsetY = -120,
 }
 
+local function BuildDynamicIconOrderSet(groupSettings)
+    local order = groupSettings and groupSettings.iconOrder
+    if type(order) ~= "table" then return nil, 0 end
+
+    local set, count = {}, 0
+    for _, token in ipairs(order) do
+        if type(token) == "string" then
+            local iconKey = token:match("^dyn:(.+)$")
+            if iconKey and not set[iconKey] then
+                set[iconKey] = true
+                count = count + 1
+            end
+        end
+    end
+
+    if count == 0 then return nil, 0 end
+    return set, count
+end
+
+local function CountDynamicIconOrderMatches(sourceGroup, orderSet)
+    if not (sourceGroup and sourceGroup.icons and orderSet) then return 0 end
+
+    local matches = 0
+    for _, iconKey in ipairs(sourceGroup.icons) do
+        if orderSet[iconKey] then
+            matches = matches + 1
+        end
+    end
+    return matches
+end
+
+local function SelectBestLinkedSourceGroup(dynamicGroups, groupName, preferredKey, groupSettings, dynDB)
+    if type(dynamicGroups) ~= "table" or not groupName then return nil end
+
+    local orderSet = BuildDynamicIconOrderSet(groupSettings)
+    local bestKey, bestCount, bestOrderMatches
+    local function Consider(sourceKey, info)
+        if not sourceKey or not info or info.linkedCDMGroup ~= groupName then return end
+        local count = tonumber(info.iconCount) or 0
+        local sourceGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+        local orderMatches = CountDynamicIconOrderMatches(sourceGroup, orderSet)
+        if not bestKey
+            or orderMatches > bestOrderMatches
+            or (orderMatches == bestOrderMatches and count > bestCount)
+            or (orderMatches == bestOrderMatches and count == bestCount and sourceKey == preferredKey)
+            or (orderMatches == bestOrderMatches and count == bestCount and sourceKey ~= preferredKey and bestKey ~= preferredKey and tostring(sourceKey) < tostring(bestKey))
+        then
+            bestKey = sourceKey
+            bestCount = count
+            bestOrderMatches = orderMatches
+        end
+    end
+
+    if preferredKey then
+        Consider(preferredKey, dynamicGroups[preferredKey])
+    end
+    for sourceKey, info in pairs(dynamicGroups) do
+        Consider(sourceKey, info)
+    end
+
+    return bestKey
+end
+
 local function SyncDynamicGroups(gs)
     local bridge = DDingUI.DynamicIconBridge
     if not bridge then return end
 
     local dynamicGroups = bridge:GetDynamicGroups()
+    local dynDB = GetDynamicDB()
 
     for groupName in pairs(CORE_CDM_GROUPS) do
         local settings = gs.groups and gs.groups[groupName]
         if settings then
             settings.groupType = "cdm"
-            if settings.sourceGroupKey and not dynamicGroups[settings.sourceGroupKey] then
+            local bestSourceKey = SelectBestLinkedSourceGroup(dynamicGroups, groupName, settings.sourceGroupKey, settings, dynDB)
+            if bestSourceKey and settings.sourceGroupKey ~= bestSourceKey then
+                settings.sourceGroupKey = bestSourceKey
+                if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                    DDingUI.SpecProfiles:MarkDirty()
+                end
+            elseif settings.sourceGroupKey and not dynamicGroups[settings.sourceGroupKey] then
                 settings.sourceGroupKey = nil
                 if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
                     DDingUI.SpecProfiles:MarkDirty()
@@ -241,7 +311,6 @@ local function SyncDynamicGroups(gs)
         local foundIsDynamic = false
         local linkedGroupName = info.linkedCDMGroup
         if not linkedGroupName then
-            local dynDB = GetDynamicDB()
             local sourceGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
             linkedGroupName = sourceGroup and sourceGroup.linkedCDMGroup
         end
@@ -251,7 +320,13 @@ local function SyncDynamicGroups(gs)
         if linkedGroupName and gs.groups[linkedGroupName] then
             local linkedSettings = gs.groups[linkedGroupName]
             if linkedSettings.groupType ~= "dynamic" then
-                linkedSettings.sourceGroupKey = sourceKey
+                local bestSourceKey = SelectBestLinkedSourceGroup(dynamicGroups, linkedGroupName, linkedSettings.sourceGroupKey, linkedSettings, dynDB)
+                if sourceKey == bestSourceKey and linkedSettings.sourceGroupKey ~= sourceKey then
+                    linkedSettings.sourceGroupKey = sourceKey
+                    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                        DDingUI.SpecProfiles:MarkDirty()
+                    end
+                end
                 foundSettings = linkedSettings
                 foundIsDynamic = false
 

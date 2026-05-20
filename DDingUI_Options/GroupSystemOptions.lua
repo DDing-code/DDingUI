@@ -443,6 +443,14 @@ local function EnsureSourceGroup(groupName)
         grp.groupType = "cdm"
     end
     local isCDMGroup = isCoreCDMGroup or grp.groupType ~= "dynamic"
+    local customIcons = DDingUI.CustomIcons
+    if isCDMGroup and customIcons and customIcons.GetOrCreateSourceGroupForCDMGroup then
+        local sourceKey = customIcons:GetOrCreateSourceGroupForCDMGroup(groupName, grp.name or groupName)
+        if sourceKey then
+            MarkSpecProfileDirty()
+            return sourceKey
+        end
+    end
     -- 이미 sourceGroupKey가 있으면 그대로 반환
     if grp.sourceGroupKey then
         local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
@@ -455,15 +463,6 @@ local function EnsureSourceGroup(groupName)
             return grp.sourceGroupKey
         end
         grp.sourceGroupKey = nil
-    end
-
-    local customIcons = DDingUI.CustomIcons
-    if isCDMGroup and customIcons and customIcons.GetOrCreateSourceGroupForCDMGroup then
-        local sourceKey = customIcons:GetOrCreateSourceGroupForCDMGroup(groupName, grp.name or groupName)
-        if sourceKey then
-            MarkSpecProfileDirty()
-            return sourceKey
-        end
     end
 
     -- CustomIcons 그룹 자동 생성
