@@ -584,7 +584,6 @@ end
 -- ------------------------
 -- [FIX] IsCooldownFrameActive: 이전 패치에서 정의 제거됨 — forward declaration 유지 (nil)
 -- L830 호출부도 GetCooldownTimes 기반으로 교체되었으므로 더 이상 보안 필요 없음
-local IsCooldownFrameActive  -- unused, kept for reference only
 
 -- [Ayije CDM 방식] 아이템 → 스펠 쿨다운 매핑
 -- 아이템 쿨다운 API가 전투 중 늦게 갱신될 때 스펠 쿨다운으로 폴백
@@ -6800,7 +6799,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
 end
 
 -- Creation dialog
-local slotOptions = {
+CustomIcons.slotOptions = CustomIcons.slotOptions or {
     {text = "Trinket 0 (Slot 13)", slotID = 13},
     {text = "Trinket 1 (Slot 14)", slotID = 14},
     {text = "Main Hand (16)", slotID = 16},
@@ -6820,7 +6819,7 @@ local slotOptions = {
 }
 
 -- Keep dropdown menus above the create dialog so they don't get obscured
-local function RaiseDropDownMenus()
+function CustomIcons.RaiseDropDownMenus()
     for i = 1, 2 do
         local list = _G["DropDownList"..i]
         if list then
@@ -6829,7 +6828,7 @@ local function RaiseDropDownMenus()
                 list:SetFrameLevel(uiFrames.createFrame:GetFrameLevel() + 10)
             end
             if not list.__dduiStrataHooked then
-                list:HookScript("OnShow", RaiseDropDownMenus)
+                list:HookScript("OnShow", CustomIcons.RaiseDropDownMenus)
                 list.__dduiStrataHooked = true
             end
         end
@@ -6931,13 +6930,13 @@ function CustomIcons:ShowCreateIconDialog()
         slotLabel:Hide()
         f.slotLabel = slotLabel
 
-        local dropdown = CreateStyledDropdown(f, slotOptions, 200)
+        local dropdown = CreateStyledDropdown(f, CustomIcons.slotOptions, 200)
         dropdown:SetPoint("TOPLEFT", slotLabel, "BOTTOMLEFT", 0, -4)
         dropdown:SetText("Select Slot")
         dropdown:Hide()
         f.slotDropdown = dropdown
-        f.selectedSlot = slotOptions[1].slotID
-        dropdown.selectedValue = slotOptions[1].slotID
+        f.selectedSlot = CustomIcons.slotOptions[1].slotID
+        dropdown.selectedValue = CustomIcons.slotOptions[1].slotID
 
         -- Trinket slot dropdown (for trinketProc type)
         local trinketSlotOptions = {
@@ -6972,7 +6971,7 @@ function CustomIcons:ShowCreateIconDialog()
         f.confirm:SetScript("OnClick", function()
             local t = f.selectedType
             if t == "slot" then
-                local slotID = f.slotDropdown.selectedValue or slotOptions[1].slotID
+                local slotID = f.slotDropdown.selectedValue or CustomIcons.slotOptions[1].slotID
                 CustomIcons:AddDynamicIcon({type = "slot", slotID = slotID})
             elseif t == "trinketProc" then
                 local slotID = f.trinketDropdown.selectedValue or 13
