@@ -601,6 +601,11 @@ local ITEM_SPELL_MAP = {
 local ITEM_COOLDOWN_MIN_SECONDS = 1.6
 local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CUSTOM_ICON_EFFECT_GRACE_SECONDS = 1.5
+local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
+    [1236616] = 241308, -- Light's Potential
+    [1236994] = 241288, -- Potion of Recklessness
+    [1239479] = 241294, -- Potion of Devoured Dreams
+}
 
 local BLOODLUST_AURA_IDS = {
     2825, 32182, 80353, 90355, 160452, 264667, 390386,
@@ -702,9 +707,21 @@ end
 
 local function ResolveSpellTexture(spellID)
     local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+    if tex == 134400 or tex == QUESTION_MARK_ICON then
+        tex = nil
+    end
     if not tex and C_Spell and C_Spell.GetSpellInfo then
         local info = C_Spell.GetSpellInfo(spellID)
         tex = info and info.iconID
+        if tex == 134400 or tex == QUESTION_MARK_ICON then
+            tex = nil
+        end
+    end
+    if not tex then
+        local fallbackItemID = CUSTOM_AURA_ICON_ITEM_FALLBACKS[tonumber(spellID)]
+        if fallbackItemID then
+            tex = ResolveItemTexture(fallbackItemID)
+        end
     end
     if not tex and C_Spell and C_Spell.RequestLoadSpellData then
         C_Spell.RequestLoadSpellData(spellID)
@@ -4657,9 +4674,8 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     if iconData.type == "item" then
         local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(iconData.id)
         node.iconTex:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
-    elseif iconData.type == "spell" then
-        local info = C_Spell.GetSpellInfo(iconData.id)
-        node.iconTex:SetTexture((info and info.iconID) or C_Spell.GetSpellTexture(iconData.id) or "Interface\\Icons\\INV_Misc_QuestionMark")
+    elseif iconData.type == "spell" or iconData.type == "aura" then
+        node.iconTex:SetTexture(ResolveSpellTexture(iconData.id) or "Interface\\Icons\\INV_Misc_QuestionMark")
     elseif iconData.type == "slot" or iconData.type == "trinketProc" then
         local iid = GetInventoryItemID("player", iconData.slotID)
         local _, _, _, _, _, _, _, _, _, tex = iid and GetItemInfo(iid)
@@ -4693,7 +4709,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     local displayName = ""
     if iconData.type == "item" then
         displayName = GetItemInfo(iconData.id) or ((L["Item"] or "Item") .. " ID: " .. iconData.id)
-    elseif iconData.type == "spell" then
+    elseif iconData.type == "spell" or iconData.type == "aura" then
         local info = C_Spell.GetSpellInfo(iconData.id)
         displayName = (info and info.name) or ((L["Spell"] or "Spell") .. " ID: " .. iconData.id)
     elseif iconData.type == "slot" then

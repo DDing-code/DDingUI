@@ -538,7 +538,12 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
     if type(gs.unassignedBuffSpells) == "table" then
         for spellName, enabled in pairs(gs.unassignedBuffSpells) do
             if enabled then
-                AddSuppressedSpellName(suppressed, spellName)
+                local spellID = type(enabled) == "table" and tonumber(enabled.spellID)
+                if spellID and spellID > 0 then
+                    suppressed[spellID] = true
+                else
+                    AddSuppressedSpellName(suppressed, spellName)
+                end
             end
         end
     end

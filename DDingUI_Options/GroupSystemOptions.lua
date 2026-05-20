@@ -93,6 +93,12 @@ end
 DDingUI.InvalidateGroupCDMIconEntryCache = InvalidateCDMIconEntryCache
 
 local QUESTION_MARK_TEXTURE = 134400
+local QUESTION_MARK_ICON_PATH = "Interface\\Icons\\INV_Misc_QuestionMark"
+local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
+    [1236616] = 241308, -- Light's Potential
+    [1236994] = 241288, -- Potion of Recklessness
+    [1239479] = 241294, -- Potion of Devoured Dreams
+}
 
 local function SafeOptionValue(value)
     if issecretvalue and issecretvalue(value) then return nil end
@@ -110,6 +116,34 @@ local function SafeOptionTexture(value, fallback)
     value = SafeOptionValue(value)
     if value and value ~= 0 and value ~= "" then return value end
     return fallback
+end
+
+local function IsQuestionTexture(value)
+    return value == QUESTION_MARK_TEXTURE or value == QUESTION_MARK_ICON_PATH
+end
+
+local function SafeOptionItemTexture(itemID)
+    itemID = SafeOptionID(itemID)
+    if not itemID then return nil end
+
+    local okIcon, icon = pcall(function()
+        return C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)
+    end)
+    icon = SafeOptionTexture(okIcon and icon)
+    if icon and not IsQuestionTexture(icon) then return icon end
+
+    local okInstant, instantIcon = pcall(function()
+        if not C_Item or not C_Item.GetItemInfoInstant then return nil end
+        local _, _, _, _, tex = C_Item.GetItemInfoInstant(itemID)
+        return tex
+    end)
+    instantIcon = SafeOptionTexture(okInstant and instantIcon)
+    if instantIcon and not IsQuestionTexture(instantIcon) then return instantIcon end
+
+    if C_Item and C_Item.RequestLoadItemDataByID then
+        pcall(C_Item.RequestLoadItemDataByID, itemID)
+    end
+    return icon or instantIcon
 end
 
 local function QueueOptionSpellIconRefresh(spellID)
@@ -139,16 +173,20 @@ local function SafeOptionSpellTexture(spellID)
         return C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
     end)
     local iconID = okInfo and info and SafeOptionTexture(info.iconID)
-    if iconID and iconID ~= QUESTION_MARK_TEXTURE then return iconID end
+    if iconID and not IsQuestionTexture(iconID) then return iconID end
 
     local okTex, tex = pcall(function()
         return C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
     end)
     tex = SafeOptionTexture(okTex and tex)
-    if tex and tex ~= QUESTION_MARK_TEXTURE then return tex end
+    if tex and not IsQuestionTexture(tex) then return tex end
+
+    local fallbackItemID = CUSTOM_AURA_ICON_ITEM_FALLBACKS[spellID]
+    local itemTex = fallbackItemID and SafeOptionItemTexture(fallbackItemID)
+    if itemTex and not IsQuestionTexture(itemTex) then return itemTex end
 
     QueueOptionSpellIconRefresh(spellID)
-    return iconID or tex
+    return iconID or tex or itemTex
 end
 
 local function AddOptionSpellCandidate(candidates, seen, value)
@@ -182,7 +220,7 @@ local function ResolveSpellTextureFromCandidates(candidates, fallback)
     local deferred
     for _, spellID in ipairs(candidates or {}) do
         local tex = SafeOptionSpellTexture(spellID)
-        if tex and tex ~= QUESTION_MARK_TEXTURE then
+        if tex and not IsQuestionTexture(tex) then
             return tex
         end
         deferred = deferred or tex
@@ -212,7 +250,7 @@ local function ResolveCDMEntryIconTexture(entry, spellName, fallback)
         local ok, info = pcall(C_Spell.GetSpellInfo, rawName)
         if ok and info then
             local iconID = SafeOptionTexture(info.iconID)
-            if iconID and iconID ~= QUESTION_MARK_TEXTURE then
+            if iconID and not IsQuestionTexture(iconID) then
                 return iconID
             end
             AddOptionSpellCandidate(candidates, seen, info.spellID)
@@ -490,7 +528,37 @@ end
 
 local function IsBuffSpellUnassigned(gs, spellName)
     local unassigned = GetUnassignedBuffSpells(gs, false)
-    return spellName and unassigned and unassigned[spellName] == true
+    return spellName and unassigned and unassigned[spellName] ~= nil and unassigned[spellName] ~= false
+end
+
+local function GetBuffSpellRawName(spellName)
+    if type(spellName) ~= "string" then return nil end
+    local rawName = spellName:gsub("^buff_", "")
+    if rawName ~= "" then return rawName end
+    return nil
+end
+
+local function ResolveBuffSpellIDFromName(spellName)
+    local rawName = GetBuffSpellRawName(spellName)
+    if not rawName or not C_Spell or not C_Spell.GetSpellInfo then return nil end
+    local ok, info = pcall(C_Spell.GetSpellInfo, rawName)
+    return ok and info and SafeOptionID(info.spellID) or nil
+end
+
+local function StoreUnassignedBuffSpellMetadata(spellName, entry, iconTex, displayName)
+    if not spellName or not IsBuffSpell(spellName, entry) then return end
+    local gs = GetGS()
+    local unassigned = GetUnassignedBuffSpells(gs, true)
+    if not unassigned then return end
+
+    local spellID = entry and SafeOptionID(entry.spellID) or ResolveBuffSpellIDFromName(spellName)
+    local icon = iconTex or ResolveCDMEntryIconTexture(entry, spellName, entry and entry.icon)
+    unassigned[spellName] = {
+        spellID = spellID,
+        icon = icon,
+        displayName = displayName or GetBuffSpellRawName(spellName) or spellName,
+    }
+    MarkSpecProfileDirty()
 end
 
 local function FindBuffDynamicSpellOwner(gs, spellID, exceptGroup)
@@ -529,22 +597,28 @@ local function ClearBuffSpellUnassigned(spellName)
     end
 end
 
-local function MoveBuffSpellToUnassigned(spellName)
+local function MoveBuffSpellToUnassigned(spellName, entry, iconTex, displayName)
     if not spellName or not IsBuffSpell(spellName) then return false end
     local GroupMgr = DDingUI.GroupManager
+    local changed = false
     if GroupMgr and GroupMgr.MoveSpellToUnassigned then
-        return GroupMgr:MoveSpellToUnassigned(spellName)
+        changed = GroupMgr:MoveSpellToUnassigned(spellName) == true
+    else
+        local gs = GetGS()
+        if not gs then return false end
+        local unassigned = GetUnassignedBuffSpells(gs, true)
+        unassigned[spellName] = true
+        if gs.spellAssignments then
+            gs.spellAssignments[spellName] = nil
+        end
+        MarkSpecProfileDirty()
+        changed = true
     end
 
-    local gs = GetGS()
-    if not gs then return false end
-    local unassigned = GetUnassignedBuffSpells(gs, true)
-    unassigned[spellName] = true
-    if gs.spellAssignments then
-        gs.spellAssignments[spellName] = nil
+    if changed then
+        StoreUnassignedBuffSpellMetadata(spellName, entry, iconTex, displayName)
     end
-    MarkSpecProfileDirty()
-    return true
+    return changed
 end
 
 local function RemoveBuffDynamicSpellCopies(spellID, exceptGroup)
@@ -1383,6 +1457,32 @@ local function BuildUnassignedSpellRows(groupName)
         end
     end
 
+    local unassigned = isBuffPoolGroup and GetUnassignedBuffSpells(gs, false)
+    if unassigned then
+        for spellName, meta in pairs(unassigned) do
+            if meta and not seen[spellName] then
+                seen[spellName] = true
+                local metaTable = type(meta) == "table" and meta or nil
+                local spellID = metaTable and SafeOptionID(metaTable.spellID) or ResolveBuffSpellIDFromName(spellName)
+                local iconTex = metaTable and SafeOptionTexture(metaTable.icon) or nil
+                if not iconTex or IsQuestionTexture(iconTex) then
+                    iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex or 134400)
+                end
+                rows[#rows + 1] = {
+                    spellName = spellName,
+                    spellID = spellID,
+                    iconType = "aura",
+                    iconTex = iconTex or 134400,
+                    displayName = (metaTable and metaTable.displayName) or GetBuffSpellRawName(spellName) or spellName,
+                    assignedGroup = nil,
+                    isDynamicTarget = false,
+                    isBuffShared = true,
+                    fallbackOrder = 20000 + #rows,
+                }
+            end
+        end
+    end
+
     table.sort(rows, function(a, b)
         local aOrder = a.fallbackOrder or 0
         local bOrder = b.fallbackOrder or 0
@@ -1868,6 +1968,9 @@ local function BuildAssignedSpellsArgs(groupName)
             local capturedIsManual = row.isManual
             local capturedIsBuffSpell = row.isBuffSpell == true or IsBuffSpell(capturedSpell, row.entry)
             local capturedCanRemove = capturedIsManual == true or capturedIsBuffSpell == true
+            local capturedEntry = row.entry
+            local capturedIconTex = iconTex
+            local capturedDisplayName = row.displayName or capturedSpell
             args["cdma_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedSpell or "Unknown"),
@@ -1889,7 +1992,7 @@ local function BuildAssignedSpellsArgs(groupName)
                     if not capturedSpell then return end
                     local changed = false
                     if capturedIsBuffSpell then
-                        changed = MoveBuffSpellToUnassigned(capturedSpell)
+                        changed = MoveBuffSpellToUnassigned(capturedSpell, capturedEntry, capturedIconTex, capturedDisplayName)
                     elseif capturedIsManual and DDingUI.GroupManager then
                         changed = DDingUI.GroupManager:UnassignSpell(capturedSpell)
                     end
@@ -1960,7 +2063,8 @@ local function BuildAssignedSpellsArgs(groupName)
                         DDingUI.CustomIcons:RemoveDynamicIcon(capturedIconKey)
                     end
                     if spellNameForUnassigned then
-                        MoveBuffSpellToUnassigned(spellNameForUnassigned)
+                        local restoreIcon = ResolveSpellTextureFromCandidates({ spellIDForUnassigned }, nil)
+                        MoveBuffSpellToUnassigned(spellNameForUnassigned, nil, restoreIcon, spellNameForUnassigned:gsub("^buff_", ""))
                     end
                     SoftRefreshDynamicIcons()
                 end,
@@ -2787,10 +2891,9 @@ local function SafeTextureValue(value, fallback)
 end
 
 local function SafeSpellTexture(spellID, fallback)
-    local ok, tex = pcall(function()
-        return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
-    end)
-    return SafeTextureValue(ok and tex, fallback or 134400)
+    local tex = SafeOptionSpellTexture(spellID)
+    if tex and not IsQuestionTexture(tex) then return tex end
+    return SafeTextureValue(tex, fallback or 134400)
 end
 
 local function SafeItemIcon(itemID, fallback)
