@@ -673,12 +673,19 @@ local BLOODLUST_DEBUFFS = {
 }
 local BLOODLUST_DEBUFF_DURATION_SECONDS = 600
 local bloodlustDebuffInstanceID
+local TIME_SPIRAL_AURA_IDS = {
+    [375234] = true, -- Time Spiral player aura
+}
+local timeSpiralAuraInstanceID
 local CUSTOM_TIMED_AURA_CONFIGS = {
     [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
     [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
     [1239479] = { duration = 10, trigger = "spellcast" },   -- Potion of Devoured Dreams
     [374968]  = { duration = 10, trigger = "timespiral" },  -- Time Spiral
     [2825]    = { duration = 40, trigger = "bloodlust" },   -- Bloodlust family
+}
+local CUSTOM_TIMED_AURA_STATE_ALIASES = {
+    [375234] = 374968,
 }
 local TIME_SPIRAL_TRIGGERS = {
     [48265] = true, [195072] = true, [189110] = true, [1850] = true,
@@ -703,6 +710,10 @@ local AURA_EQUIVALENT_IDS = {}
 for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
     AURA_EQUIVALENT_IDS[spellID] = BLOODLUST_AURA_IDS
 end
+local CUSTOM_TIMED_AURA_EQUIVALENT_IDS = {
+    [374968] = { 374968, 375234 },
+    [375234] = { 374968, 375234 },
+}
 
 local function GetTimedAuraDebugKey(spellIDOrKey)
     if type(spellIDOrKey) == "string" then
@@ -943,6 +954,11 @@ local function BuildAuraCandidateIDs(iconFrame, iconData)
         end
     end
 
+    local customTimedAliases = spellID and CUSTOM_TIMED_AURA_EQUIVALENT_IDS[spellID]
+    if customTimedAliases then
+        AddAuraCandidatesFromValue(candidates, seen, customTimedAliases)
+    end
+
     return candidates
 end
 
@@ -952,7 +968,7 @@ local function GetCustomTimedAuraConfig(iconData)
     local spellID = tonumber(iconData.id)
     if not spellID then return nil end
 
-    local stateID = spellID
+    local stateID = CUSTOM_TIMED_AURA_STATE_ALIASES[spellID] or spellID
     if AURA_EQUIVALENT_IDS[spellID] then
         stateID = 2825
     end
@@ -1368,6 +1384,99 @@ local function ScanBloodlustTimedAura(updateInfo)
                 break
             end
         end
+    end
+
+    return changed
+end
+
+local function ActivateTimeSpiralTimedAuraFromAura(aura, auraSpellID, requireWithinWindow)
+    local config = CUSTOM_TIMED_AURA_CONFIGS[374968]
+    if not config then return false end
+
+    local now = GetTime()
+    local active = runtime.customTimedAuras[374968]
+    if active and active.expirationTime and active.expirationTime > now then
+        return false
+    end
+
+    local auraInstanceID = GetAuraFieldSafe(aura, "auraInstanceID")
+    local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
+    local duration = GetAuraNumberFieldSafe(aura, "duration") or tonumber(config.duration) or 0
+
+    if not auraInstanceID or not expirationTime then
+        return false
+    end
+    if duration <= 0 then
+        duration = tonumber(config.duration) or 10
+    end
+
+    local appliedTime = expirationTime - duration
+    if requireWithinWindow and (now - appliedTime) >= duration then
+        return false
+    end
+
+    local _, changed = ActivateCustomTimedAura(374968, config, appliedTime, 374968)
+    timeSpiralAuraInstanceID = auraInstanceID
+    return changed
+end
+
+local function SeedTimeSpiralTimedAura(requireWithinWindow)
+    timeSpiralAuraInstanceID = nil
+    for auraSpellID in pairs(TIME_SPIRAL_AURA_IDS) do
+        local auraData
+        pcall(function()
+            auraData = C_UnitAuras.GetPlayerAuraBySpellID(auraSpellID)
+        end)
+        if auraData
+            and GetAuraFieldSafe(auraData, "auraInstanceID")
+            and GetAuraNumberFieldSafe(auraData, "expirationTime")
+            and ActivateTimeSpiralTimedAuraFromAura(auraData, auraSpellID, requireWithinWindow)
+        then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function ScanTimeSpiralTimedAura(updateInfo)
+    local removedActiveAura = false
+    if timeSpiralAuraInstanceID and updateInfo and updateInfo.removedAuraInstanceIDs then
+        for _, id in ipairs(updateInfo.removedAuraInstanceIDs) do
+            if id == timeSpiralAuraInstanceID then
+                timeSpiralAuraInstanceID = nil
+                removedActiveAura = DeactivateCustomTimedAura(374968) or removedActiveAura
+                break
+            end
+        end
+    end
+
+    local active = runtime.customTimedAuras[374968]
+    if active and active.expirationTime and active.expirationTime > GetTime() then
+        return removedActiveAura
+    end
+
+    if not updateInfo or updateInfo.isFullUpdate then
+        return SeedTimeSpiralTimedAura(true) or removedActiveAura
+    end
+
+    local changed = removedActiveAura
+    if updateInfo.addedAuras then
+        for _, aura in ipairs(updateInfo.addedAuras) do
+            local sid = GetAuraSpellIDSafe(aura)
+            if sid and TIME_SPIRAL_AURA_IDS[sid]
+                and GetAuraFieldSafe(aura, "auraInstanceID")
+                and GetAuraNumberFieldSafe(aura, "expirationTime")
+                and ActivateTimeSpiralTimedAuraFromAura(aura, sid, false)
+            then
+                changed = true
+                break
+            end
+        end
+    end
+
+    if not changed then
+        changed = SeedTimeSpiralTimedAura(true)
     end
 
     return changed
@@ -3015,7 +3124,9 @@ local function HandleCustomTimedAuraEvent(event, ...)
     if event == "UNIT_AURA" then
         local unit, updateInfo = ...
         if unit ~= "player" then return false end
-        return ScanBloodlustTimedAura(updateInfo)
+        local changed = ScanBloodlustTimedAura(updateInfo)
+        changed = ScanTimeSpiralTimedAura(updateInfo) or changed
+        return changed
     end
 
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
@@ -3100,13 +3211,15 @@ local function EnsureEventFrame()
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
             RebuildTimeSpiralGlowFilters()
-            local function seedBloodlust()
-                if ScanBloodlustTimedAura({ isFullUpdate = true }) then
+            local function seedCustomTimedAuras()
+                local changed = ScanBloodlustTimedAura({ isFullUpdate = true })
+                changed = ScanTimeSpiralTimedAura({ isFullUpdate = true }) or changed
+                if changed then
                     UpdateAllIcons("force")
                 end
             end
-            C_Timer.After(0.2, seedBloodlust)
-            C_Timer.After(1.0, seedBloodlust)
+            C_Timer.After(0.2, seedCustomTimedAuras)
+            C_Timer.After(1.0, seedCustomTimedAuras)
             -- Force reload layout after loading screen to catch delayed cache/spellbook states
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
             C_Timer.After(3.0, function() ScheduleSpecReload() end)
