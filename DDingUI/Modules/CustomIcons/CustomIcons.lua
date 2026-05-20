@@ -202,6 +202,10 @@ local runtime = {
     pendingSpecReload = false,
     customTimedAuras = {}, -- [spellID] = { startTime, duration, expirationTime, token, iconTexture }
     itemCombatLockouts = {},
+    timedAuraDebug = {
+        bloodlust = {},
+        timespiral = {},
+    },
 }
 
 -- UI state containers
@@ -691,9 +695,38 @@ local TIME_SPIRAL_GLOW_FILTERS = {
 local TIME_SPIRAL_GLOW_SUPPRESS_SECONDS = 1.5
 local timeSpiralGlowSuppressSpells = {}
 local timeSpiralSuppressGlowUntil = 0
+local TIMED_AURA_DEBUG_KEYS = {
+    [2825] = "bloodlust",
+    [374968] = "timespiral",
+}
 local AURA_EQUIVALENT_IDS = {}
 for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
     AURA_EQUIVALENT_IDS[spellID] = BLOODLUST_AURA_IDS
+end
+
+local function GetTimedAuraDebugKey(spellIDOrKey)
+    if type(spellIDOrKey) == "string" then
+        return spellIDOrKey
+    end
+    return TIMED_AURA_DEBUG_KEYS[tonumber(spellIDOrKey)]
+end
+
+local function RecordTimedAuraDebug(spellIDOrKey, field, detail)
+    local key = GetTimedAuraDebugKey(spellIDOrKey)
+    if not key or not field then return nil end
+
+    runtime.timedAuraDebug = runtime.timedAuraDebug or {}
+    local bucket = runtime.timedAuraDebug[key]
+    if not bucket then
+        bucket = {}
+        runtime.timedAuraDebug[key] = bucket
+    end
+
+    bucket[field] = (tonumber(bucket[field]) or 0) + 1
+    bucket.lastEvent = field
+    bucket.lastDetail = detail
+    bucket.lastAt = GetTime and GetTime() or 0
+    return bucket
 end
 
 local function RebuildTimeSpiralGlowFilters()
@@ -1140,6 +1173,35 @@ MarkCustomTimedAuraActive = function(spellID, state)
     return matchedFrame, hasMatchingIcon
 end
 
+local function CountCustomTimedAuraLinks(spellID)
+    local db = GetDynamicDB()
+    local iconDataByKey = db and db.iconData
+    if not iconDataByKey then return 0, 0 end
+
+    local iconCount, frameCount = 0, 0
+    for iconKey, iconData in pairs(iconDataByKey) do
+        local config = GetCustomTimedAuraConfig(iconData)
+        if config and config.stateID == spellID then
+            iconCount = iconCount + 1
+            if runtime.iconFrames[iconKey] then
+                frameCount = frameCount + 1
+            end
+        end
+    end
+    return iconCount, frameCount
+end
+
+local function RecordCustomTimedAuraLink(spellID, matchedFrame, hasMatchingIcon)
+    local bucket = RecordTimedAuraDebug(spellID, "activated", tostring(spellID))
+    if not bucket then return end
+
+    local iconCount, frameCount = CountCustomTimedAuraLinks(spellID)
+    bucket.lastMatchedFrame = matchedFrame == true
+    bucket.lastHasMatchingIcon = hasMatchingIcon == true
+    bucket.iconCount = iconCount
+    bucket.frameCount = frameCount
+end
+
 local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
     spellID = tonumber(spellID)
     if not spellID or not config then return nil, false end
@@ -1173,6 +1235,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         if MarkCustomTimedAuraActive then
             matchedFrame, hasMatchingIcon = MarkCustomTimedAuraActive(spellID, state)
         end
+        RecordCustomTimedAuraLink(spellID, matchedFrame, hasMatchingIcon)
         NotifyCustomTimedAuraChanged("force")
         if hasMatchingIcon and not matchedFrame and CustomIcons and CustomIcons.LoadDynamicIcons then
             C_Timer.After(0, function()
@@ -1210,6 +1273,7 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     local now = GetTime()
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > now then
+        RecordTimedAuraDebug(2825, "alreadyActive", "debuff")
         return false
     end
 
@@ -1218,6 +1282,7 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     local duration = GetAuraNumberFieldSafe(aura, "duration")
 
     if not auraInstanceID or not expirationTime then
+        RecordTimedAuraDebug(2825, "debuffSkipped", "missing-instance-or-expiration")
         return false
     end
     if not duration or duration <= 0 then
@@ -1236,11 +1301,16 @@ end
 
 local function SeedBloodlustTimedAura(requireWithinWindow)
     bloodlustDebuffInstanceID = nil
+    local sawCandidate = false
     for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
         local auraData
         pcall(function()
             auraData = C_UnitAuras.GetPlayerAuraBySpellID(debuffID)
         end)
+        if auraData then
+            sawCandidate = true
+            RecordTimedAuraDebug(2825, "seedMatch", tostring(debuffID) .. "->" .. tostring(lustBuffID))
+        end
         if auraData
             and GetAuraFieldSafe(auraData, "auraInstanceID")
             and GetAuraNumberFieldSafe(auraData, "expirationTime")
@@ -1250,12 +1320,17 @@ local function SeedBloodlustTimedAura(requireWithinWindow)
         end
     end
 
+    if not sawCandidate then
+        RecordTimedAuraDebug(2825, "seedMiss", requireWithinWindow and "window" or "open")
+    end
     return false
 end
 
 local function ScanBloodlustTimedAura(updateInfo)
+    RecordTimedAuraDebug(2825, "unitAura", (updateInfo and updateInfo.isFullUpdate) and "full" or "partial")
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > GetTime() then
+        RecordTimedAuraDebug(2825, "alreadyActive", "unitAura")
         return false
     end
 
@@ -1268,6 +1343,9 @@ local function ScanBloodlustTimedAura(updateInfo)
         for _, aura in ipairs(updateInfo.addedAuras) do
             local sid = GetAuraSpellIDSafe(aura)
             local lustBuffID = sid and BLOODLUST_DEBUFFS[sid]
+            if lustBuffID then
+                RecordTimedAuraDebug(2825, "unitAuraMatch", tostring(sid) .. "->" .. tostring(lustBuffID))
+            end
             if lustBuffID
                 and GetAuraFieldSafe(aura, "auraInstanceID")
                 and GetAuraNumberFieldSafe(aura, "expirationTime")
@@ -1313,6 +1391,7 @@ local function HandleBloodlustCombatLog()
     end
     if not iconSpellID then return false end
 
+    RecordTimedAuraDebug(2825, "combatLogMatch", tostring(spellID) .. "->" .. tostring(iconSpellID))
     local _, changed = ActivateCustomTimedAura(2825, CUSTOM_TIMED_AURA_CONFIGS[2825], GetTime(), iconSpellID)
     return changed == true
 end
@@ -2910,6 +2989,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
         if unit ~= "player" then return false end
         spellID = SafeNumber(spellID)
         if spellID and timeSpiralGlowSuppressSpells[spellID] then
+            RecordTimedAuraDebug(374968, "suppressArmed", tostring(spellID))
             timeSpiralSuppressGlowUntil = GetTime() + TIME_SPIRAL_GLOW_SUPPRESS_SECONDS
         end
         return false
@@ -2941,7 +3021,11 @@ local function HandleCustomTimedAuraEvent(event, ...)
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
         local spellID = SafeNumber(...)
         if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
-            if GetTime() < timeSpiralSuppressGlowUntil then return false end
+            RecordTimedAuraDebug(374968, "glowShow", tostring(spellID))
+            if GetTime() < timeSpiralSuppressGlowUntil then
+                RecordTimedAuraDebug(374968, "suppressed", tostring(spellID))
+                return false
+            end
             local _, changed = ActivateCustomTimedAura(374968, CUSTOM_TIMED_AURA_CONFIGS[374968])
             return changed
         end
@@ -2951,6 +3035,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
         local spellID = SafeNumber(...)
         if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
+            RecordTimedAuraDebug(374968, "glowHide", tostring(spellID))
             return DeactivateCustomTimedAura(374968)
         end
         return false
@@ -3094,6 +3179,79 @@ local function EnsureEventFrame()
 
         UpdateAllIcons(needsLayoutNotify)
     end)
+end
+
+local function BuildTimedAuraDebugBucket(key, spellID)
+    local source = runtime.timedAuraDebug and runtime.timedAuraDebug[key] or {}
+    local data = {}
+    for field, value in pairs(source) do
+        data[field] = value
+    end
+
+    local active = runtime.customTimedAuras and runtime.customTimedAuras[spellID]
+    local now = GetTime and GetTime() or 0
+    data.active = active and active.expirationTime and active.expirationTime > now or false
+    data.expiresIn = data.active and (active.expirationTime - now) or nil
+    data.icons, data.frames = CountCustomTimedAuraLinks(spellID)
+    return data
+end
+
+function CustomIcons:GetTimedAuraDebugStatus()
+    return {
+        bloodlust = BuildTimedAuraDebugBucket("bloodlust", 2825),
+        timespiral = BuildTimedAuraDebugBucket("timespiral", 374968),
+    }
+end
+
+function CustomIcons:PrintTimedAuraDebugStatus()
+    local status = self:GetTimedAuraDebugStatus()
+    local prefix = "|cffffffffDDing|r|cffffa300UI|r timed aura: "
+
+    local function count(data, key)
+        return tonumber(data and data[key]) or 0
+    end
+
+    local function boolText(value)
+        return value and "yes" or "no"
+    end
+
+    local function printBucket(label, data)
+        data = data or {}
+        local expires = data.expiresIn and string.format("%.1f", data.expiresIn) or "-"
+        print(prefix .. string.format("%s active=%s expires=%s icons=%d frames=%d",
+            label,
+            boolText(data.active),
+            expires,
+            tonumber(data.icons) or 0,
+            tonumber(data.frames) or 0))
+        print(prefix .. string.format("%s events unitAura=%d unitMatch=%d seed=%d combatLog=%d glowShow=%d glowHide=%d suppressed=%d activated=%d",
+            label,
+            count(data, "unitAura"),
+            count(data, "unitAuraMatch"),
+            count(data, "seedMatch"),
+            count(data, "combatLogMatch"),
+            count(data, "glowShow"),
+            count(data, "glowHide"),
+            count(data, "suppressed"),
+            count(data, "activated")))
+        print(prefix .. string.format("%s link matchedFrame=%s hasIcon=%s last=%s detail=%s",
+            label,
+            boolText(data.lastMatchedFrame),
+            boolText(data.lastHasMatchingIcon),
+            tostring(data.lastEvent or "-"),
+            tostring(data.lastDetail or "-")))
+    end
+
+    printBucket("Bloodlust", status.bloodlust)
+    printBucket("TimeSpiral", status.timespiral)
+end
+
+SLASH_DDTIMEDAURA1 = "/ddtimed"
+SLASH_DDTIMEDAURA2 = "/ddtimedaura"
+SlashCmdList["DDTIMEDAURA"] = function()
+    if DDingUI and DDingUI.CustomIcons and DDingUI.CustomIcons.PrintTimedAuraDebugStatus then
+        DDingUI.CustomIcons:PrintTimedAuraDebugStatus()
+    end
 end
 
 -- ------------------------
