@@ -106,6 +106,16 @@ local CUSTOM_AURA_ICON_TEXTURES = {
     [374968] = 4622479, -- Time Spiral
     [2825] = "Interface\\Icons\\Spell_Nature_BloodLust", -- Bloodlust
 }
+local BLOODLUST_ALIAS_SPELL_IDS = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
+local CUSTOM_AURA_PRESET_SPELL_IDS = {
+    [1236616] = true,
+    [1236994] = true,
+    [1239479] = true,
+    [374968] = true,
+}
+for _, spellID in ipairs(BLOODLUST_ALIAS_SPELL_IDS) do
+    CUSTOM_AURA_PRESET_SPELL_IDS[spellID] = true
+end
 local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
     [1236616] = 241308, -- Light's Potential
     [1236994] = 241288, -- Potion of Recklessness
@@ -570,6 +580,70 @@ local function ResolveBuffSpellIDFromName(spellName)
     if not rawName or not C_Spell or not C_Spell.GetSpellInfo then return nil end
     local ok, info = pcall(C_Spell.GetSpellInfo, rawName)
     return ok and info and SafeOptionID(info.spellID) or nil
+end
+
+local CUSTOM_AURA_PRESET_FALLBACK_NAMES = {
+    ["Light's Potential"] = 1236616,
+    ["Potion of Recklessness"] = 1236994,
+    ["Devoured Dreams"] = 1239479,
+    ["Potion of Devoured Dreams"] = 1239479,
+    ["Time Spiral"] = 374968,
+    ["Bloodlust"] = 2825,
+    ["Bloodlust / Heroism"] = 2825,
+    ["Heroism"] = 32182,
+    ["Time Warp"] = 80353,
+    ["Ancient Hysteria"] = 90355,
+    ["Fury of the Aspects"] = 390386,
+    ["빛의 잠재력"] = 1236616,
+    ["무모함의 물약"] = 1236994,
+    ["잠식된 꿈"] = 1239479,
+    ["시간의 와류"] = 374968,
+    ["피의 욕망"] = 2825,
+    ["영웅심"] = 32182,
+    ["시간 왜곡"] = 80353,
+}
+
+local function ResolveCustomAuraPresetSpellID(spellName, spellID)
+    spellID = SafeOptionID(spellID)
+    if spellID and CUSTOM_AURA_PRESET_SPELL_IDS[spellID] then return spellID end
+
+    local rawName = GetBuffSpellRawName(spellName) or spellName
+    if type(rawName) ~= "string" or rawName == "" then return nil end
+
+    local fallbackID = CUSTOM_AURA_PRESET_FALLBACK_NAMES[rawName] or CUSTOM_AURA_PRESET_FALLBACK_NAMES[spellName]
+    if fallbackID then return fallbackID end
+
+    if C_Spell and C_Spell.GetSpellInfo then
+        for presetID in pairs(CUSTOM_AURA_PRESET_SPELL_IDS) do
+            local ok, info = pcall(C_Spell.GetSpellInfo, presetID)
+            if ok and info and info.name and (info.name == rawName or info.name == spellName) then
+                return presetID
+            end
+        end
+    end
+    return nil
+end
+
+local function IsCustomAuraPresetSpell(spellName, spellID)
+    return ResolveCustomAuraPresetSpellID(spellName, spellID) ~= nil
+end
+
+local function PruneCustomAuraPresetUnassignedBuffs(gs)
+    local unassigned = GetUnassignedBuffSpells(gs, false)
+    if not unassigned then return end
+
+    local changed = false
+    for spellName, meta in pairs(unassigned) do
+        local metaTable = type(meta) == "table" and meta or nil
+        local spellID = metaTable and SafeOptionID(metaTable.spellID)
+        if IsCustomAuraPresetSpell(spellName, spellID) then
+            unassigned[spellName] = nil
+            changed = true
+        end
+    end
+    if changed then
+        MarkSpecProfileDirty()
+    end
 end
 
 local function StoreUnassignedBuffSpellMetadata(spellName, entry, iconTex, displayName)
@@ -1429,6 +1503,7 @@ local function BuildUnassignedSpellRows(groupName)
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     if not groupSettings then return rows end
+    PruneCustomAuraPresetUnassignedBuffs(gs)
     ConvertCopiedBuffDynamicIconsToAssignments(groupName, groupSettings)
 
     local isDynamicGroup = groupSettings.groupType == "dynamic"
@@ -1454,11 +1529,14 @@ local function BuildUnassignedSpellRows(groupName)
                 local iconType = GetDynamicIconTypeForEntry(entry, spellName)
                 local spellID = ResolveEntrySpellID(entry, spellName)
                 local isBuffEntry = isBuffPoolGroup and IsBuffSpell(spellName, entry)
+                local isCustomPresetBuff = isBuffEntry and IsCustomAuraPresetSpell(spellName, spellID)
                 local dynamicBuffOwner = isBuffEntry and FindBuffDynamicSpellOwner(gs, spellID, nil)
                 local sharedBuffUnassigned = isBuffEntry and IsBuffSpellUnassigned(gs, spellName)
                 local include
 
-                if isBuffEntry then
+                if isCustomPresetBuff then
+                    include = false
+                elseif isBuffEntry then
                     include = sharedBuffUnassigned and not assigned and not dynamicBuffOwner
                 elseif isDynamicGroup then
                     include = sourceKey and spellID and spellID > 0 and not FindDynamicIconInSourceGroup(sourceKey, iconType, spellID)
@@ -1491,21 +1569,26 @@ local function BuildUnassignedSpellRows(groupName)
                 seen[spellName] = true
                 local metaTable = type(meta) == "table" and meta or nil
                 local spellID = metaTable and SafeOptionID(metaTable.spellID) or ResolveBuffSpellIDFromName(spellName)
-                local iconTex = metaTable and SafeOptionTexture(metaTable.icon) or nil
-                if not iconTex or IsQuestionTexture(iconTex) then
-                    iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex or DEFAULT_BUFF_ICON_TEXTURE)
+                if IsCustomAuraPresetSpell(spellName, spellID) then
+                    unassigned[spellName] = nil
+                    MarkSpecProfileDirty()
+                else
+                    local iconTex = metaTable and SafeOptionTexture(metaTable.icon) or nil
+                    if not iconTex or IsQuestionTexture(iconTex) then
+                        iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex or DEFAULT_BUFF_ICON_TEXTURE)
+                    end
+                    rows[#rows + 1] = {
+                        spellName = spellName,
+                        spellID = spellID,
+                        iconType = "aura",
+                        iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),
+                        displayName = (metaTable and metaTable.displayName) or GetBuffSpellRawName(spellName) or spellName,
+                        assignedGroup = nil,
+                        isDynamicTarget = false,
+                        isBuffShared = true,
+                        fallbackOrder = 20000 + #rows,
+                    }
                 end
-                rows[#rows + 1] = {
-                    spellName = spellName,
-                    spellID = spellID,
-                    iconType = "aura",
-                    iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),
-                    displayName = (metaTable and metaTable.displayName) or GetBuffSpellRawName(spellName) or spellName,
-                    assignedGroup = nil,
-                    isDynamicTarget = false,
-                    isBuffShared = true,
-                    fallbackOrder = 20000 + #rows,
-                }
             end
         end
     end

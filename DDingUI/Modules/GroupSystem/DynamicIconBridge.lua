@@ -30,6 +30,38 @@ local GROUP_VIEWER_MAP = {
     ["Utility"] = "UtilityCooldownViewer",
 }
 
+local BLOODLUST_ALIAS_SPELL_IDS = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
+local CUSTOM_AURA_PRESET_SPELL_IDS = {
+    [1236616] = true,
+    [1236994] = true,
+    [1239479] = true,
+    [374968] = true,
+}
+for _, spellID in ipairs(BLOODLUST_ALIAS_SPELL_IDS) do
+    CUSTOM_AURA_PRESET_SPELL_IDS[spellID] = true
+end
+
+local CUSTOM_AURA_PRESET_FALLBACK_NAMES = {
+    ["Light's Potential"] = true,
+    ["Potion of Recklessness"] = true,
+    ["Devoured Dreams"] = true,
+    ["Potion of Devoured Dreams"] = true,
+    ["Time Spiral"] = true,
+    ["Bloodlust"] = true,
+    ["Bloodlust / Heroism"] = true,
+    ["Heroism"] = true,
+    ["Time Warp"] = true,
+    ["Ancient Hysteria"] = true,
+    ["Fury of the Aspects"] = true,
+    ["빛의 잠재력"] = true,
+    ["무모함의 물약"] = true,
+    ["잠식된 꿈"] = true,
+    ["시간의 와류"] = true,
+    ["피의 욕망"] = true,
+    ["영웅심"] = true,
+    ["시간 왜곡"] = true,
+}
+
 -- ============================================================
 -- State
 -- ============================================================
@@ -46,6 +78,25 @@ local function SafeNumber(value)
     if valueType == "number" then return value end
     if valueType == "string" then return tonumber(value) end
     return nil
+end
+
+local function IsCustomAuraPresetUnassignedEntry(spellName, entry)
+    local spellID = type(entry) == "table" and SafeNumber(entry.spellID)
+    if spellID and CUSTOM_AURA_PRESET_SPELL_IDS[spellID] then return true end
+
+    local rawName = type(spellName) == "string" and spellName:gsub("^buff_", "") or nil
+    if rawName and CUSTOM_AURA_PRESET_FALLBACK_NAMES[rawName] then return true end
+    if type(spellName) == "string" and CUSTOM_AURA_PRESET_FALLBACK_NAMES[spellName] then return true end
+
+    if rawName and C_Spell and C_Spell.GetSpellInfo then
+        for presetID in pairs(CUSTOM_AURA_PRESET_SPELL_IDS) do
+            local ok, info = pcall(C_Spell.GetSpellInfo, presetID)
+            if ok and info and info.name and info.name == rawName then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 local function MaxActiveUntil(...)
@@ -537,7 +588,7 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
 
     if type(gs.unassignedBuffSpells) == "table" then
         for spellName, enabled in pairs(gs.unassignedBuffSpells) do
-            if enabled then
+            if enabled and not IsCustomAuraPresetUnassignedEntry(spellName, enabled) then
                 local spellID = type(enabled) == "table" and tonumber(enabled.spellID)
                 if spellID and spellID > 0 then
                     suppressed[spellID] = true
