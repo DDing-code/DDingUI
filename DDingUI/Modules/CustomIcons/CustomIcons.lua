@@ -1281,37 +1281,8 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     if not config then return false end
 
     local now = GetTime()
-    local auraInstanceID = GetAuraFieldSafe(aura, "auraInstanceID")
-    local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
-    local duration = GetAuraNumberFieldSafe(aura, "duration")
-
-    if not auraInstanceID or not expirationTime then
-        RecordTimedAuraDebug(2825, "debuffSkipped", "missing-instance-or-expiration")
-        return false
-    end
-    if not duration or duration <= 0 then
-        duration = BLOODLUST_DEBUFF_DURATION_SECONDS
-    end
-
-    local appliedTime = expirationTime - duration
-    if not requireWithinWindow and (now - appliedTime) > 2 then
-        RecordTimedAuraDebug(2825, "startClamped", "addedAura")
-        appliedTime = now
-    end
-    if requireWithinWindow and (now - appliedTime) >= config.duration then
-        return false
-    end
-
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > now then
-        local desiredExpirationTime = appliedTime + config.duration
-        if desiredExpirationTime > (active.expirationTime or 0) + 0.05 then
-            local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, iconSpellID or 2825)
-            bloodlustDebuffInstanceID = auraInstanceID
-            RecordTimedAuraDebug(2825, "refreshed", "debuff")
-            return changed
-        end
-
         local textureChanged = false
         local iconTexture = CustomIcons.ResolveCustomTimedAuraStateTexture(2825, config, iconSpellID or 2825)
         if iconTexture and active.iconTexture ~= iconTexture then
@@ -1337,9 +1308,26 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
                 end)
             end
         end
-        bloodlustDebuffInstanceID = auraInstanceID
+        bloodlustDebuffInstanceID = GetAuraFieldSafe(aura, "auraInstanceID") or bloodlustDebuffInstanceID
         RecordTimedAuraDebug(2825, "alreadyActive", "debuff")
         return needsLayout or textureChanged
+    end
+
+    local auraInstanceID = GetAuraFieldSafe(aura, "auraInstanceID")
+    local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
+    local duration = GetAuraNumberFieldSafe(aura, "duration")
+
+    if not auraInstanceID or not expirationTime then
+        RecordTimedAuraDebug(2825, "debuffSkipped", "missing-instance-or-expiration")
+        return false
+    end
+    if not duration or duration <= 0 then
+        duration = BLOODLUST_DEBUFF_DURATION_SECONDS
+    end
+
+    local appliedTime = expirationTime - duration
+    if requireWithinWindow and (now - appliedTime) >= config.duration then
+        return false
     end
 
     local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, iconSpellID or 2825)
