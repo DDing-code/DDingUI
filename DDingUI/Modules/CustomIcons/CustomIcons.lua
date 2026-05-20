@@ -201,6 +201,7 @@ local runtime = {
     dragState = {},
     pendingSpecReload = false,
     customTimedAuras = {}, -- [spellID] = { startTime, duration, expirationTime, token, iconTexture }
+    itemCombatLockouts = {},
 }
 
 -- UI state containers
@@ -605,6 +606,14 @@ local ITEM_SPELL_MAP = {
     [211880] = 431416,  -- Algari Healing Potion R3
 }
 local ITEM_COOLDOWN_MIN_SECONDS = 1.6
+local ITEM_COMBAT_LOCKOUT_ITEMS = {
+    [5512] = true,
+    [224464] = true,
+}
+local ITEM_COMBAT_LOCKOUT_SPELLS = {
+    [6262] = true,
+    [452930] = true,
+}
 local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local QUESTION_MARK_TEXTURE = 134400
 local FALLBACK_SPELL_ICON = "Interface\\Icons\\Spell_Holy_PowerWordShield"
@@ -931,6 +940,15 @@ end
 local function IsEventDrivenCustomTimedAuraConfig(config)
     if not config then return false end
     return config.trigger == "bloodlust" or config.trigger == "timespiral"
+end
+
+local function IsBloodlustAuraSpellID(spellID)
+    spellID = tonumber(spellID)
+    if not spellID then return false end
+    for _, auraID in ipairs(BLOODLUST_AURA_IDS) do
+        if auraID == spellID then return true end
+    end
+    return false
 end
 
 local function BuildTimedAuraData(spellID, state)
@@ -1277,6 +1295,28 @@ local function ScanBloodlustTimedAura(updateInfo)
     return changed
 end
 
+local function HandleBloodlustCombatLog()
+    if not CombatLogGetCurrentEventInfo then return false end
+
+    local _, subEvent, _, _, _, _, _, destGUID, _, _, _, spellID = CombatLogGetCurrentEventInfo()
+    if subEvent ~= "SPELL_AURA_APPLIED" and subEvent ~= "SPELL_AURA_REFRESH" then
+        return false
+    end
+    if destGUID ~= UnitGUID("player") then return false end
+
+    spellID = SafeNumber(spellID)
+    if not spellID then return false end
+
+    local iconSpellID = BLOODLUST_DEBUFFS[spellID]
+    if not iconSpellID and IsBloodlustAuraSpellID(spellID) then
+        iconSpellID = spellID
+    end
+    if not iconSpellID then return false end
+
+    local _, changed = ActivateCustomTimedAura(2825, CUSTOM_TIMED_AURA_CONFIGS[2825], GetTime(), iconSpellID)
+    return changed == true
+end
+
 local function GetActiveCustomTimedAura(iconData)
     local config = GetCustomTimedAuraConfig(iconData)
     if not config then return nil end
@@ -1587,6 +1627,40 @@ local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID)
     return nil, nil, false, false
 end
 
+local function SetItemCombatLockout(itemID, active)
+    if not ITEM_COMBAT_LOCKOUT_ITEMS[itemID] then return end
+    runtime.itemCombatLockouts = runtime.itemCombatLockouts or {}
+    if active then
+        for lockedItemID in pairs(ITEM_COMBAT_LOCKOUT_ITEMS) do
+            runtime.itemCombatLockouts[lockedItemID] = true
+        end
+    else
+        runtime.itemCombatLockouts[itemID] = nil
+    end
+end
+
+local function ClearItemCombatLockouts()
+    runtime.itemCombatLockouts = {}
+end
+
+local function IsItemCombatLocked(itemID)
+    return itemID and runtime.itemCombatLockouts and runtime.itemCombatLockouts[itemID] == true
+end
+
+local function MarkItemCombatLockoutFromSpell(spellID)
+    spellID = SafeNumber(spellID)
+    if not spellID or not ITEM_COMBAT_LOCKOUT_SPELLS[spellID] then return false end
+    if not InCombatLockdown or not InCombatLockdown() then return false end
+
+    for itemID, mappedSpellID in pairs(ITEM_SPELL_MAP) do
+        if mappedSpellID == spellID and ITEM_COMBAT_LOCKOUT_ITEMS[itemID] then
+            SetItemCombatLockout(itemID, true)
+            return true
+        end
+    end
+    return false
+end
+
 local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan)
     if not iconFrame or not iconFrame.cooldown or not start or not duration then return false end
 
@@ -1612,6 +1686,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     local itemCount = C_Item.GetItemCount(itemID, false, includeCharges, false)
     local activeItemID = itemID
     local usedFallback = false
+    local previousCombatCount = iconFrame._ddCombatItemCount
 
     -- Fallback item logic: if primary item count is 0 and fallbackItems are configured
     if (itemCount == 0 or itemCount == nil) and settings and settings.fallbackItems then
@@ -1633,6 +1708,14 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
+    if ITEM_COMBAT_LOCKOUT_ITEMS[activeItemID] and InCombatLockdown and InCombatLockdown() then
+        local currentCount = SafeNumber(itemCount)
+        if previousCombatCount and currentCount and currentCount < previousCombatCount then
+            SetItemCombatLockout(activeItemID, true)
+        end
+    end
+    iconFrame._ddCombatItemCount = SafeNumber(itemCount)
+
     iconFrame._textureCacheKey = activeItemID and ("item:" .. tostring(activeItemID)) or iconFrame._textureCacheKey
     local itemTexture = ResolveItemTexture(activeItemID)
     if itemTexture then
@@ -1647,6 +1730,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     local desatDurationObject = nil
     local desatSpellID = nil
     local itemCooldownActive = false
+    local itemCombatLocked = IsItemCombatLocked(activeItemID)
     -- GetItemCooldown can briefly return 0 in combat; keep a cached valid span as fallback.
     if itemSpellID then
         -- 스펠 ID가 매핑된 아이템: Ayije_CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
@@ -1715,7 +1799,9 @@ local function UpdateItemIcon(iconFrame, iconData)
     -- [FIX] OnUpdate 진입 조건: cdInfo.isActive (safe boolean) 사용 — secret number 비교 금지
     local itemIsOnRealCD = false
 
-    if itemCooldownActive then
+    if itemCombatLocked then
+        if allowCooldownDesat or allowUnusableDesat then desatVal = 1 end
+    elseif itemCooldownActive then
         if allowCooldownDesat then desatVal = 1 end
     elseif showEmptyItem then
         if allowUnusableDesat then desatVal = 1 end
@@ -1738,7 +1824,11 @@ local function UpdateItemIcon(iconFrame, iconData)
     iconFrame.icon:SetDesaturation(desatVal)
 
     -- OnUpdate 루프: isOnRealCD (safe boolean)으로만 진입 판단 — desatVal 비교 금지
-    if itemIsOnRealCD then
+    if itemCombatLocked then
+        if iconFrame._cdmDesatUpdater then
+            iconFrame._cdmDesatUpdater:Hide()
+        end
+    elseif itemIsOnRealCD then
         if not iconFrame._cdmDesatUpdater then
             iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
             iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
@@ -2829,12 +2919,17 @@ local function HandleCustomTimedAuraEvent(event, ...)
         local unit, _, spellID = ...
         if unit ~= "player" then return false end
         spellID = SafeNumber(spellID)
+        local itemLocked = MarkItemCombatLockoutFromSpell(spellID)
         local config = CUSTOM_TIMED_AURA_CONFIGS[spellID]
         if config and config.trigger == "spellcast" then
             local _, changed = ActivateCustomTimedAura(spellID, config)
-            return changed
+            return changed or itemLocked
         end
-        return false
+        return itemLocked
+    end
+
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        return HandleBloodlustCombatLog()
     end
 
     if event == "UNIT_AURA" then
@@ -2906,6 +3001,8 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterEvent("SPELLS_CHANGED")                -- Spellbook changes (often after spec change)
     runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")        -- Trinket proc/custom buff tracking
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
+    runtime.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")           -- Clear healthstone-style combat lockouts
+    runtime.eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")    -- Bloodlust fallback when UNIT_AURA is protected
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
@@ -2928,6 +3025,12 @@ local function EnsureEventFrame()
             -- Force reload layout after loading screen to catch delayed cache/spellbook states
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
             C_Timer.After(3.0, function() ScheduleSpecReload() end)
+            return
+        end
+
+        if event == "PLAYER_REGEN_ENABLED" then
+            ClearItemCombatLockouts()
+            RefreshItemCooldownIcons("force")
             return
         end
 
@@ -2958,7 +3061,14 @@ local function EnsureEventFrame()
             and not customTimedChanged then
             return
         end
-        local hasItemCooldownIcon = (event == "UNIT_SPELLCAST_SUCCEEDED" or event == "BAG_UPDATE_COOLDOWN") and HasItemCooldownIcon()
+        if event == "COMBAT_LOG_EVENT_UNFILTERED" and not customTimedChanged then
+            return
+        end
+        local hasItemCooldownIcon = (event == "UNIT_SPELLCAST_SUCCEEDED"
+            or event == "BAG_UPDATE_COOLDOWN"
+            or event == "ITEM_COUNT_CHANGED"
+            or event == "BAG_UPDATE_DELAYED")
+            and HasItemCooldownIcon()
         if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon then
             return
         end
