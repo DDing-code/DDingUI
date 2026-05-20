@@ -116,6 +116,26 @@ local CUSTOM_AURA_PRESET_SPELL_IDS = {
 for _, spellID in ipairs(BLOODLUST_ALIAS_SPELL_IDS) do
     CUSTOM_AURA_PRESET_SPELL_IDS[spellID] = true
 end
+local CUSTOM_AURA_PRESET_NAME_IDS = {
+    ["Light's Potential"] = 1236616,
+    ["Potion of Recklessness"] = 1236994,
+    ["Devoured Dreams"] = 1239479,
+    ["Potion of Devoured Dreams"] = 1239479,
+    ["Time Spiral"] = 374968,
+    ["Bloodlust"] = 2825,
+    ["Bloodlust / Heroism"] = 2825,
+    ["Heroism"] = 32182,
+    ["Time Warp"] = 80353,
+    ["Ancient Hysteria"] = 90355,
+    ["Fury of the Aspects"] = 390386,
+    ["빛의 잠재력"] = 1236616,
+    ["무모함의 물약"] = 1236994,
+    ["잠식된 꿈"] = 1239479,
+    ["시간의 와류"] = 374968,
+    ["피의 욕망"] = 2825,
+    ["영웅심"] = 32182,
+    ["시간 왜곡"] = 80353,
+}
 local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
     [1236616] = 241308, -- Light's Potential
     [1236994] = 241288, -- Potion of Recklessness
@@ -161,6 +181,38 @@ local function GetCustomAuraPresetIconTexture(spellID)
     local presetTex = spellID and SafeOptionTexture(CUSTOM_AURA_ICON_TEXTURES[spellID])
     if presetTex and not IsQuestionTexture(presetTex) then return presetTex end
     return nil
+end
+
+local function ResolveCustomAuraPresetIDForTexture(spellName, spellID)
+    spellID = SafeOptionID(spellID)
+    if spellID and CUSTOM_AURA_PRESET_SPELL_IDS[spellID] then return spellID end
+
+    if type(spellName) == "string" and spellName ~= "" then
+        local rawName = spellName:gsub("^buff_", "")
+        local mapped = CUSTOM_AURA_PRESET_NAME_IDS[rawName] or CUSTOM_AURA_PRESET_NAME_IDS[spellName]
+        if mapped then return mapped end
+    end
+    return nil
+end
+
+local function NormalizeCustomAuraPresetIconData(iconData)
+    if type(iconData) ~= "table" or not (iconData.type == "spell" or iconData.type == "aura") then return end
+    local presetID = ResolveCustomAuraPresetIDForTexture(iconData.settings and iconData.settings.auraName, iconData.id)
+    local presetIcon = presetID and GetCustomAuraPresetIconTexture(presetID)
+    if not presetIcon then return end
+
+    iconData.id = presetID
+    iconData.settings = iconData.settings or {}
+    iconData.settings.iconTexture = presetIcon
+    iconData.settings.auraIcon = presetIcon
+end
+
+local function NormalizeCustomAuraPresetDynamicIcons(dynDB)
+    local iconDataDB = dynDB and dynDB.iconData
+    if type(iconDataDB) ~= "table" then return end
+    for _, iconData in pairs(iconDataDB) do
+        NormalizeCustomAuraPresetIconData(iconData)
+    end
 end
 
 local function SafeOptionItemTexture(itemID)
@@ -275,6 +327,10 @@ local function ResolveSpellTextureFromCandidates(candidates, fallback)
 end
 
 local function ResolveCDMEntryIconTexture(entry, spellName, fallback)
+    local presetID = ResolveCustomAuraPresetIDForTexture(spellName, entry and entry.spellID)
+    local presetIcon = presetID and GetCustomAuraPresetIconTexture(presetID)
+    if presetIcon then return presetIcon end
+
     local candidates, seen = {}, {}
     if entry then
         AddOptionSpellCandidate(candidates, seen, entry.iconSpellID)
@@ -591,26 +647,7 @@ local function ResolveBuffSpellIDFromName(spellName)
     return ok and info and SafeOptionID(info.spellID) or nil
 end
 
-local CUSTOM_AURA_PRESET_FALLBACK_NAMES = {
-    ["Light's Potential"] = 1236616,
-    ["Potion of Recklessness"] = 1236994,
-    ["Devoured Dreams"] = 1239479,
-    ["Potion of Devoured Dreams"] = 1239479,
-    ["Time Spiral"] = 374968,
-    ["Bloodlust"] = 2825,
-    ["Bloodlust / Heroism"] = 2825,
-    ["Heroism"] = 32182,
-    ["Time Warp"] = 80353,
-    ["Ancient Hysteria"] = 90355,
-    ["Fury of the Aspects"] = 390386,
-    ["빛의 잠재력"] = 1236616,
-    ["무모함의 물약"] = 1236994,
-    ["잠식된 꿈"] = 1239479,
-    ["시간의 와류"] = 374968,
-    ["피의 욕망"] = 2825,
-    ["영웅심"] = 32182,
-    ["시간 왜곡"] = 80353,
-}
+local CUSTOM_AURA_PRESET_FALLBACK_NAMES = CUSTOM_AURA_PRESET_NAME_IDS
 
 local function ResolveCustomAuraPresetSpellID(spellName, spellID)
     spellID = SafeOptionID(spellID)
@@ -1977,6 +2014,7 @@ local function BuildAssignedSpellsArgs(groupName)
     local sourceGroupKey = groupSettings and EnsureSourceGroup(groupName)
     if groupSettings and sourceGroupKey then
             local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+            NormalizeCustomAuraPresetDynamicIcons(dynDB)
             local ciGroup = dynDB and dynDB.groups and dynDB.groups[sourceGroupKey]
             if ciGroup and ciGroup.icons then
                 local seenDynamicIdentity = {}

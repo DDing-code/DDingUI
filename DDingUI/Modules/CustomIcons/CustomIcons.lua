@@ -398,6 +398,9 @@ local function ScoreDynamicPayload(db)
         + CountTableEntries(db.ungrouped)
 end
 
+local NormalizePresetIconData
+local NormalizePresetIconDB
+
 local function FindFallbackDynamicProfile(currentDB, includeDeepSnapshots)
     local profiles = DDingUI.db and DDingUI.db.profiles
     if type(profiles) ~= "table" then return nil, nil, nil, 0 end
@@ -483,6 +486,8 @@ local function GetDynamicDB()
         db._legacySpecsPromoted = legacySourceKey or true
     end
 
+    NormalizePresetIconDB(db)
+
     return db
 end
 
@@ -510,6 +515,7 @@ function CustomIcons:RecoverDynamicIcons(includeDeepSnapshots)
     db._recoveredFromSpec = sourceKey
     db._recoveredIconCount = CountTableEntries(source.iconData)
     db._recoveredGroupCount = CountTableEntries(source.groups)
+    NormalizePresetIconDB(db)
 
     return db, profileName, sourceKey, CountTableEntries(db.groups), CountTableEntries(db.iconData)
 end
@@ -799,6 +805,7 @@ local function EnsureStoredIconTexture(iconData)
         local preset = GetCustomAuraPresetIconTexture(iconData.id)
         if preset then
             iconData.settings.iconTexture = preset
+            iconData.settings.auraIcon = preset
             return preset
         end
     end
@@ -823,6 +830,33 @@ local function EnsureStoredIconTexture(iconData)
         return texture
     end
     return nil
+end
+
+NormalizePresetIconData = function(iconData)
+    if type(iconData) ~= "table" or not (iconData.type == "spell" or iconData.type == "aura") then return false end
+    local preset = GetCustomAuraPresetIconTexture(iconData.id)
+    if not preset then return false end
+
+    iconData.settings = iconData.settings or {}
+    if iconData.settings.iconTexture ~= preset or iconData.settings.auraIcon ~= preset then
+        iconData.settings.iconTexture = preset
+        iconData.settings.auraIcon = preset
+        return true
+    end
+    return false
+end
+
+NormalizePresetIconDB = function(db)
+    local iconDataDB = db and db.iconData
+    if type(iconDataDB) ~= "table" then return false end
+
+    local changed = false
+    for _, iconData in pairs(iconDataDB) do
+        if NormalizePresetIconData(iconData) then
+            changed = true
+        end
+    end
+    return changed
 end
 
 local function AddAuraCandidate(candidates, seen, spellID)
@@ -2528,7 +2562,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     local activeTexture = auraData and (auraData.icon or auraData.iconID)
-    if activeTexture then
+    if activeTexture and not timedOnly then
         SetStableIconTexture(iconFrame, activeTexture, true)
     end
 
