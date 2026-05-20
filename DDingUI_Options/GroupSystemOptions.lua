@@ -94,6 +94,18 @@ DDingUI.InvalidateGroupCDMIconEntryCache = InvalidateCDMIconEntryCache
 
 local QUESTION_MARK_TEXTURE = 134400
 local QUESTION_MARK_ICON_PATH = "Interface\\Icons\\INV_Misc_QuestionMark"
+local DEFAULT_BUFF_ICON_TEXTURE = "Interface\\Icons\\Spell_Holy_PowerWordShield"
+local DEFAULT_SPELL_ICON_TEXTURE = "Interface\\Icons\\Spell_Nature_TimeStop"
+local DEFAULT_ITEM_ICON_TEXTURE = "Interface\\Icons\\INV_Potion_93"
+local DEFAULT_TRINKET_ICON_TEXTURE = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
+local DEFAULT_RACIAL_ICON_TEXTURE = "Interface\\Icons\\Spell_magic_polymorphrabbit"
+local CUSTOM_AURA_ICON_TEXTURES = {
+    [1236616] = 7548911, -- Light's Potential
+    [1236994] = 7548916, -- Potion of Recklessness
+    [1239479] = "Interface\\Icons\\INV_12_Profession_Alchemy_VoidPotion_Blue", -- Potion of Devoured Dreams
+    [374968] = 4622479, -- Time Spiral
+    [2825] = "Interface\\Icons\\Spell_Nature_BloodLust", -- Bloodlust
+}
 local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
     [1236616] = 241308, -- Light's Potential
     [1236994] = 241288, -- Potion of Recklessness
@@ -119,7 +131,19 @@ local function SafeOptionTexture(value, fallback)
 end
 
 local function IsQuestionTexture(value)
+    if value == 0 or value == "" then return true end
+    if type(value) == "string" then
+        return value:gsub("/", "\\"):lower():find("inv_misc_questionmark", 1, true) ~= nil
+    end
     return value == QUESTION_MARK_TEXTURE or value == QUESTION_MARK_ICON_PATH
+end
+
+local function NonQuestionTexture(value, fallback)
+    value = SafeOptionTexture(value)
+    if value and not IsQuestionTexture(value) then return value end
+    fallback = SafeOptionTexture(fallback)
+    if fallback and not IsQuestionTexture(fallback) then return fallback end
+    return DEFAULT_BUFF_ICON_TEXTURE
 end
 
 local function SafeOptionItemTexture(itemID)
@@ -143,7 +167,7 @@ local function SafeOptionItemTexture(itemID)
     if C_Item and C_Item.RequestLoadItemDataByID then
         pcall(C_Item.RequestLoadItemDataByID, itemID)
     end
-    return icon or instantIcon
+    return NonQuestionTexture(icon or instantIcon, DEFAULT_ITEM_ICON_TEXTURE)
 end
 
 local function QueueOptionSpellIconRefresh(spellID)
@@ -180,6 +204,9 @@ local function SafeOptionSpellTexture(spellID)
     end)
     tex = SafeOptionTexture(okTex and tex)
     if tex and not IsQuestionTexture(tex) then return tex end
+
+    local presetTex = SafeOptionTexture(CUSTOM_AURA_ICON_TEXTURES[spellID])
+    if presetTex and not IsQuestionTexture(presetTex) then return presetTex end
 
     local fallbackItemID = CUSTOM_AURA_ICON_ITEM_FALLBACKS[spellID]
     local itemTex = fallbackItemID and SafeOptionItemTexture(fallbackItemID)
@@ -225,7 +252,7 @@ local function ResolveSpellTextureFromCandidates(candidates, fallback)
         end
         deferred = deferred or tex
     end
-    return SafeOptionTexture(fallback, deferred or QUESTION_MARK_TEXTURE)
+    return NonQuestionTexture(fallback, deferred or DEFAULT_BUFF_ICON_TEXTURE)
 end
 
 local function ResolveCDMEntryIconTexture(entry, spellName, fallback)
@@ -808,7 +835,7 @@ local function GetCDMIconEntries()
     for cooldownID, icon in pairs(iconMap) do
         seenCooldownIDs[cooldownID] = true
         local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
-        local tex = 134400
+        local tex = nil
         local ok, texResult = pcall(function()
             if icon.Icon and icon.Icon.GetTexture then
                 return icon.Icon:GetTexture()
@@ -880,7 +907,7 @@ local function GetCDMIconEntries()
             if icon.cooldownID and not seenCooldownIDs[icon.cooldownID] then
                 seenCooldownIDs[icon.cooldownID] = true
                 local spellName = nil
-                local tex = 134400
+                local tex = nil
                 local realSpellID = 0
                 local iconSpellID = nil
                 local spellCandidates = GetCooldownInfoSpellCandidates(nil, icon.cooldownID)
@@ -912,7 +939,7 @@ local function GetCDMIconEntries()
                 -- 아이콘 텍스처 fallback
                 tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
 
-                if tex == 134400 then
+                if not tex or IsQuestionTexture(tex) then
                     pcall(function()
                         if icon.Icon and icon.Icon.GetTexture then
                             local t = icon.Icon:GetTexture()
@@ -1466,13 +1493,13 @@ local function BuildUnassignedSpellRows(groupName)
                 local spellID = metaTable and SafeOptionID(metaTable.spellID) or ResolveBuffSpellIDFromName(spellName)
                 local iconTex = metaTable and SafeOptionTexture(metaTable.icon) or nil
                 if not iconTex or IsQuestionTexture(iconTex) then
-                    iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex or 134400)
+                    iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex or DEFAULT_BUFF_ICON_TEXTURE)
                 end
                 rows[#rows + 1] = {
                     spellName = spellName,
                     spellID = spellID,
                     iconType = "aura",
-                    iconTex = iconTex or 134400,
+                    iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),
                     displayName = (metaTable and metaTable.displayName) or GetBuffSpellRawName(spellName) or spellName,
                     assignedGroup = nil,
                     isDynamicTarget = false,
@@ -1840,7 +1867,7 @@ local function BuildAssignedSpellsArgs(groupName)
         local displayName = spellName and spellName:gsub("^buff_", "") or "Unknown"
         local iconTex = ResolveCDMEntryIconTexture(row.entry, spellName, row.entry and row.entry.icon)
 
-        if iconTex == 134400 and spellName then
+        if IsQuestionTexture(iconTex) and spellName then
             local ok, tex = pcall(function()
                 return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellName:gsub("^buff_", ""))
             end)
@@ -1873,7 +1900,7 @@ local function BuildAssignedSpellsArgs(groupName)
                         end
                     end
                     if iconData and not skipDuplicate then
-                        local displayName, iconTex = iconKey, 134400
+                        local displayName, iconTex = iconKey, nil
                         if iconData.type == "item" then
                             local itemID = iconData.id or 0
                             if type(itemID) == "string" then itemID = tonumber(itemID) or 0 end
@@ -1917,7 +1944,7 @@ local function BuildAssignedSpellsArgs(groupName)
 
                             iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex)
 
-                            if iconTex == 134400 then
+                            if IsQuestionTexture(iconTex) then
                                 displayName = "Invalid Spell: " .. tostring(spellID)
                             end
                         elseif iconData.type == "racial" then
@@ -1932,10 +1959,10 @@ local function BuildAssignedSpellsArgs(groupName)
                                 end
                                 local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(racialID)
                                 displayName = (info and info.name) or "Racial Trait"
-                                iconTex = (info and info.iconID) or (C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(racialID)) or 134400
+                                iconTex = NonQuestionTexture((info and info.iconID) or (C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(racialID)), DEFAULT_RACIAL_ICON_TEXTURE)
                             else
                                 displayName = "Racial Trait"
-                                iconTex = 134400
+                                iconTex = DEFAULT_RACIAL_ICON_TEXTURE
                             end
                         end
 
@@ -1946,7 +1973,7 @@ local function BuildAssignedSpellsArgs(groupName)
                             iconIdx = iconIdx,
                             iconType = iconData.type,
                             displayName = displayName,
-                            iconTex = iconTex,
+                            iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),
                             fallbackOrder = 10000 + iconIdx,
                         }
                     end
@@ -1958,7 +1985,7 @@ local function BuildAssignedSpellsArgs(groupName)
 
     for _, row in ipairs(rows) do
         count = count + 1
-        local iconTex = row.iconTex or 134400
+        local iconTex = NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE)
         local iconStr = "|T" .. iconTex .. ":20:20:0:0:64:64:5:59:5:59|t "
         local arrowPrefix = "|cff888888[" .. count .. "]|r "
 
@@ -2131,7 +2158,7 @@ local function GetGridOptionIcon(opt)
     local name = opt and opt.name
     if type(name) == "function" then name = name() end
     local tex = name and tostring(name):match("|T([^:|]+)")
-    return tonumber(tex) or tex or 134400
+    return NonQuestionTexture(tonumber(tex) or tex, DEFAULT_BUFF_ICON_TEXTURE)
 end
 
 function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
@@ -2893,7 +2920,7 @@ end
 local function SafeSpellTexture(spellID, fallback)
     local tex = SafeOptionSpellTexture(spellID)
     if tex and not IsQuestionTexture(tex) then return tex end
-    return SafeTextureValue(tex, fallback or 134400)
+    return NonQuestionTexture(tex, fallback or DEFAULT_BUFF_ICON_TEXTURE)
 end
 
 local function SafeItemIcon(itemID, fallback)
@@ -2905,7 +2932,45 @@ local function SafeItemIcon(itemID, fallback)
         local _, _, _, _, icon = C_Item.GetItemInfoInstant(itemID)
         return icon
     end)
-    return SafeTextureValue(ok and tex, fallback or 134400)
+    return NonQuestionTexture(ok and tex, fallback or DEFAULT_ITEM_ICON_TEXTURE)
+end
+
+local function CopyDynamicIconSettings(settings)
+    local copy = {}
+    if type(settings) == "table" then
+        for k, v in pairs(settings) do
+            copy[k] = v
+        end
+    end
+    return copy
+end
+
+local function ResolveDynamicIconTexture(iconType, id, slotID, fallback)
+    if iconType == "item" then
+        return SafeItemIcon(id, fallback or DEFAULT_ITEM_ICON_TEXTURE)
+    elseif iconType == "slot" or iconType == "trinketProc" then
+        local itemID = slotID and GetInventoryItemID("player", slotID)
+        if itemID then
+            return SafeItemIcon(itemID, fallback or DEFAULT_TRINKET_ICON_TEXTURE)
+        end
+        return NonQuestionTexture(fallback, DEFAULT_TRINKET_ICON_TEXTURE)
+    elseif iconType == "racial" then
+        return NonQuestionTexture(fallback, DEFAULT_RACIAL_ICON_TEXTURE)
+    elseif iconType == "spell" then
+        return ResolveSpellTextureFromCandidates({ id }, fallback or DEFAULT_SPELL_ICON_TEXTURE)
+    elseif iconType == "aura" then
+        return ResolveSpellTextureFromCandidates({ id }, fallback or DEFAULT_BUFF_ICON_TEXTURE)
+    end
+    return NonQuestionTexture(fallback, DEFAULT_BUFF_ICON_TEXTURE)
+end
+
+local function BuildDynamicIconSettings(iconType, id, slotID, settings)
+    local merged = CopyDynamicIconSettings(settings)
+    local existing = merged.iconTexture or merged.fallbackIcon or merged.icon
+    if not existing or IsQuestionTexture(existing) then
+        merged.iconTexture = ResolveDynamicIconTexture(iconType, id, slotID, existing)
+    end
+    return merged
 end
 
 local function ScheduleDynamicIconRefresh(iconKey)
@@ -2946,11 +3011,18 @@ local function AddDynamicPayloadToGroup(groupName, payload, settings)
     local sourceKey = EnsureSourceGroup(groupName)
     if not sourceKey then return false end
 
+    local initialSettings = CopyDynamicIconSettings(payload.settings)
+    if type(settings) == "table" then
+        for k, v in pairs(settings) do
+            initialSettings[k] = v
+        end
+    end
+    local resolvedSettings = BuildDynamicIconSettings(payload.type, payload.id, payload.slotID, initialSettings)
+    payload.settings = CopyDynamicIconSettings(resolvedSettings)
+
     local iconKey = ci:AddDynamicIcon(payload)
     if not iconKey then return false end
-    if settings then
-        MergeDynamicIconSettings(iconKey, settings)
-    end
+    MergeDynamicIconSettings(iconKey, resolvedSettings)
     ci:MoveIconToGroup(iconKey, sourceKey)
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
@@ -2976,9 +3048,7 @@ local function AddSpellIDToGroup(groupName, spellID, forcedType, settings)
     local beforeTokens = SnapshotGroupOrderTokens(groupName)
     local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName)
     if not iconKey then return false end
-    if settings then
-        MergeDynamicIconSettings(iconKey, settings)
-    end
+    MergeDynamicIconSettings(iconKey, BuildDynamicIconSettings(iconType, spellID, nil, settings))
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
     return true
@@ -3043,17 +3113,17 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows)
     else
         items[#items + 1] = {
             label = rawget(L, "Trinket Slot 1") or "Trinket Slot 1",
-            icon = GetInventoryItemID("player", 13) and SafeItemIcon(GetInventoryItemID("player", 13)) or 134400,
+            icon = GetInventoryItemID("player", 13) and SafeItemIcon(GetInventoryItemID("player", 13), DEFAULT_TRINKET_ICON_TEXTURE) or DEFAULT_TRINKET_ICON_TEXTURE,
             action = function() return AddDynamicPayloadToGroup(groupName, { type = "trinketProc", slotID = 13 }) end,
         }
         items[#items + 1] = {
             label = rawget(L, "Trinket Slot 2") or "Trinket Slot 2",
-            icon = GetInventoryItemID("player", 14) and SafeItemIcon(GetInventoryItemID("player", 14)) or 134400,
+            icon = GetInventoryItemID("player", 14) and SafeItemIcon(GetInventoryItemID("player", 14), DEFAULT_TRINKET_ICON_TEXTURE) or DEFAULT_TRINKET_ICON_TEXTURE,
             action = function() return AddDynamicPayloadToGroup(groupName, { type = "trinketProc", slotID = 14 }) end,
         }
         items[#items + 1] = {
             label = rawget(L, "Racial Ability") or "Racial Ability",
-            icon = 134400,
+            icon = DEFAULT_RACIAL_ICON_TEXTURE,
             action = function() return AddRacialIconToGroup(groupName) end,
         }
         items[#items + 1] = {
@@ -3120,7 +3190,7 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows)
             local row = unassignedRows[i]
             items[#items + 1] = {
                 label = row.displayName or row.spellName or "Unknown",
-                icon = row.iconTex or 134400,
+                icon = NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE),
                 action = function() return AddUnassignedRowToGroup(groupName, row) end,
             }
         end
@@ -3929,7 +3999,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
 
         local ghost = EnsureGhost()
         ghost:SetSize(34, 34)
-        ghost.icon:SetTexture(row.iconTex or 134400)
+        ghost.icon:SetTexture(NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE))
         AssignedGridApplyTexCoord(ghost.icon, settings)
         PositionRuntimeGhostAtCursor(ghost)
         ghost:Show()
@@ -4128,7 +4198,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
 
             btn.icon = btn:CreateTexture(nil, "ARTWORK")
             btn.icon:SetAllPoints()
-            btn.icon:SetTexture(unassignedRow.iconTex or 134400)
+            btn.icon:SetTexture(NonQuestionTexture(unassignedRow.iconTex, DEFAULT_BUFF_ICON_TEXTURE))
             AssignedGridApplyTexCoord(btn.icon, settings)
 
             btn.edges = AssignedGridCreateEdges(btn, "OVERLAY", 2)

@@ -600,12 +600,38 @@ local ITEM_SPELL_MAP = {
 }
 local ITEM_COOLDOWN_MIN_SECONDS = 1.6
 local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local QUESTION_MARK_TEXTURE = 134400
+local FALLBACK_SPELL_ICON = "Interface\\Icons\\Spell_Holy_PowerWordShield"
+local FALLBACK_ITEM_ICON = "Interface\\Icons\\INV_Potion_93"
+local FALLBACK_SLOT_ICON = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
+local FALLBACK_RACIAL_ICON = "Interface\\Icons\\Spell_magic_polymorphrabbit"
 local CUSTOM_ICON_EFFECT_GRACE_SECONDS = 1.5
+local CUSTOM_AURA_ICON_TEXTURES = {
+    [1236616] = 7548911, -- Light's Potential
+    [1236994] = 7548916, -- Potion of Recklessness
+    [1239479] = "Interface\\Icons\\INV_12_Profession_Alchemy_VoidPotion_Blue", -- Potion of Devoured Dreams
+    [374968] = 4622479, -- Time Spiral
+    [2825] = "Interface\\Icons\\Spell_Nature_BloodLust", -- Bloodlust
+}
 local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
     [1236616] = 241308, -- Light's Potential
     [1236994] = 241288, -- Potion of Recklessness
     [1239479] = 241294, -- Potion of Devoured Dreams
 }
+
+local function IsQuestionTexture(texture)
+    if texture == 0 or texture == "" then return true end
+    if type(texture) == "string" then
+        return texture:gsub("/", "\\"):lower():find("inv_misc_questionmark", 1, true) ~= nil
+    end
+    return texture == QUESTION_MARK_TEXTURE or texture == QUESTION_MARK_ICON or texture == 0 or texture == ""
+end
+
+local function NonQuestionTexture(texture, fallback)
+    if texture and not IsQuestionTexture(texture) then return texture end
+    if fallback and not IsQuestionTexture(fallback) then return fallback end
+    return FALLBACK_SPELL_ICON
+end
 
 local BLOODLUST_AURA_IDS = {
     2825, 32182, 80353, 90355, 160452, 264667, 390386,
@@ -671,6 +697,9 @@ end
 
 local function SetStableIconTexture(iconFrame, texture, allowFallback)
     if not iconFrame or not iconFrame.icon then return end
+    if IsQuestionTexture(texture) then
+        texture = nil
+    end
     if texture then
         iconFrame._lastResolvedTexture = texture
         if iconFrame._textureCacheKey then
@@ -683,7 +712,7 @@ local function SetStableIconTexture(iconFrame, texture, allowFallback)
     elseif iconFrame._lastResolvedTexture then
         iconFrame.icon:SetTexture(iconFrame._lastResolvedTexture)
     elseif allowFallback then
-        iconFrame.icon:SetTexture(QUESTION_MARK_ICON)
+        iconFrame.icon:SetTexture(iconFrame._fallbackTexture or FALLBACK_SPELL_ICON)
     end
 end
 
@@ -691,13 +720,22 @@ local function ResolveItemTexture(itemID, slotID)
     local tex = nil
     if slotID then
         tex = GetInventoryItemTexture("player", slotID)
+        if IsQuestionTexture(tex) then
+            tex = nil
+        end
     end
     if not tex and itemID and C_Item and C_Item.GetItemIconByID then
         tex = C_Item.GetItemIconByID(itemID)
+        if IsQuestionTexture(tex) then
+            tex = nil
+        end
     end
     if not tex and itemID then
         local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
         tex = itemTexture
+        if IsQuestionTexture(tex) then
+            tex = nil
+        end
     end
     if not tex and itemID and C_Item and C_Item.RequestLoadItemDataByID then
         C_Item.RequestLoadItemDataByID(itemID)
@@ -705,15 +743,21 @@ local function ResolveItemTexture(itemID, slotID)
     return tex
 end
 
-local function ResolveSpellTexture(spellID)
+local function ResolveSpellTexture(spellID, fallbackTexture)
     local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
-    if tex == 134400 or tex == QUESTION_MARK_ICON then
+    if IsQuestionTexture(tex) then
         tex = nil
     end
     if not tex and C_Spell and C_Spell.GetSpellInfo then
         local info = C_Spell.GetSpellInfo(spellID)
         tex = info and info.iconID
-        if tex == 134400 or tex == QUESTION_MARK_ICON then
+        if IsQuestionTexture(tex) then
+            tex = nil
+        end
+    end
+    if not tex then
+        tex = CUSTOM_AURA_ICON_TEXTURES[tonumber(spellID)]
+        if IsQuestionTexture(tex) then
             tex = nil
         end
     end
@@ -723,10 +767,46 @@ local function ResolveSpellTexture(spellID)
             tex = ResolveItemTexture(fallbackItemID)
         end
     end
+    if not tex and fallbackTexture and not IsQuestionTexture(fallbackTexture) then
+        tex = fallbackTexture
+    end
     if not tex and C_Spell and C_Spell.RequestLoadSpellData then
         C_Spell.RequestLoadSpellData(spellID)
     end
     return tex
+end
+
+local function GetStoredIconTexture(iconData)
+    local settings = iconData and iconData.settings
+    if type(settings) ~= "table" then return nil end
+    local texture = settings.iconTexture or settings.fallbackIcon or settings.icon
+    if texture and not IsQuestionTexture(texture) then return texture end
+    return nil
+end
+
+local function EnsureStoredIconTexture(iconData)
+    if not iconData then return nil end
+    iconData.settings = iconData.settings or {}
+    local stored = GetStoredIconTexture(iconData)
+    if stored then return stored end
+
+    local texture
+    if iconData.type == "item" then
+        texture = ResolveItemTexture(iconData.id)
+    elseif iconData.type == "spell" or iconData.type == "aura" then
+        texture = ResolveSpellTexture(iconData.id)
+    elseif iconData.type == "slot" or iconData.type == "trinketProc" then
+        local itemID = iconData.slotID and GetInventoryItemID("player", iconData.slotID)
+        texture = ResolveItemTexture(itemID, iconData.slotID)
+    elseif iconData.type == "racial" then
+        texture = FALLBACK_RACIAL_ICON
+    end
+
+    if texture and not IsQuestionTexture(texture) then
+        iconData.settings.iconTexture = texture
+        return texture
+    end
+    return nil
 end
 
 local function AddAuraCandidate(candidates, seen, spellID)
@@ -794,6 +874,7 @@ local function GetCustomTimedAuraConfig(iconData)
         stateID = stateID,
         duration = duration,
         trigger = settings.customAuraTrigger or (preset and preset.trigger) or "spellcast",
+        iconTexture = GetStoredIconTexture(iconData) or ResolveSpellTexture(spellID),
     }
 end
 
@@ -1016,7 +1097,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         duration = duration,
         expirationTime = expirationTime,
         token = token,
-        iconTexture = ResolveSpellTexture(iconSpellID or spellID),
+        iconTexture = ResolveSpellTexture(iconSpellID or spellID, config.iconTexture),
     }
     runtime.customTimedAuras[spellID] = state
     if changed then
@@ -1651,7 +1732,8 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
 
     iconFrame._textureCacheKey = "spell:" .. tostring(spellID)
     -- 텍스처동적 갱신 (오버라이드/누락 초기로드 대응)
-    SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID), true)
+    iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
+    SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
 
     local allowDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
@@ -2363,7 +2445,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
     local allowDesat = not (settings.desaturateOnCooldown == false)
     local timedOnly = IsEventDrivenCustomTimedAuraConfig(GetCustomTimedAuraConfig(iconData))
     iconFrame._textureCacheKey = "aura:" .. tostring(spellID)
-    SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID), true)
+    iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
+    SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
 
     -- 1. buff 활성 여부 확인
     local auraData = ResolvePlayerAuraForIcon(iconFrame, iconData)
@@ -3329,6 +3412,7 @@ local function ResetDynamicIconFrame(frame)
     frame._iconKey = nil
     frame._groupSettings = nil
     frame._textureCacheKey = nil
+    frame._fallbackTexture = nil
     frame._lastResolvedTexture = nil
     frame._originalTexture = nil
     frame._cachedSpellItemID = nil
@@ -3391,6 +3475,7 @@ local function CreateItemIcon(iconKey, iconData, parent)
     frame._itemID = itemID
     frame._iconKey = iconKey
     frame._textureCacheKey = "item:" .. tostring(itemID)
+    frame._fallbackTexture = FALLBACK_ITEM_ICON
     SetStableIconTexture(frame, ResolveItemTexture(itemID), true)
     return frame
 end
@@ -3413,7 +3498,8 @@ local function CreateSpellIcon(iconKey, iconData, parent)
     frame._spellID = spellID
     frame._iconKey = iconKey
     frame._textureCacheKey = "spell:" .. tostring(spellID)
-    SetStableIconTexture(frame, ResolveSpellTexture(spellID), true)
+    frame._fallbackTexture = GetStoredIconTexture(iconData) or FALLBACK_SPELL_ICON
+    SetStableIconTexture(frame, ResolveSpellTexture(spellID, frame._fallbackTexture), true)
     return frame
 end
 
@@ -3427,6 +3513,7 @@ local function CreateSlotIcon(iconKey, iconData, parent)
     frame._slotID = slotID
     frame._iconKey = iconKey
     frame._textureCacheKey = (iconData.type or "slot") .. ":" .. tostring(slotID)
+    frame._fallbackTexture = FALLBACK_SLOT_ICON
 
     -- [FIX] 텍스처 항상 설정 — GetItemInfo 캐시 미스 시에도 아이콘 보이도록
     local itemID = GetInventoryItemID("player", slotID)
@@ -3455,9 +3542,10 @@ local function CreateAuraIcon(iconKey, iconData, parent)
     frame._spellID = spellID
     frame._iconKey = iconKey
     frame._textureCacheKey = "aura:" .. tostring(spellID)
+    frame._fallbackTexture = GetStoredIconTexture(iconData) or FALLBACK_SPELL_ICON
 
     -- 텍스처: C_Spell.GetSpellTexture → GetSpellInfo.iconID 폴백
-    SetStableIconTexture(frame, ResolveSpellTexture(spellID), true)
+    SetStableIconTexture(frame, ResolveSpellTexture(spellID, frame._fallbackTexture), true)
     return frame
 end
 
@@ -3477,7 +3565,10 @@ local function CreateDynamicIcon(iconKey, iconData, parent)
         if not racialID then return nil end
         -- 임시 테이블로 CreateSpellIcon을 호출하여 데이터 오염 방지
         local frame = CreateSpellIcon(iconKey, {id = racialID}, parent)
-        if frame then frame._type = "racial" end
+        if frame then
+            frame._type = "racial"
+            frame._fallbackTexture = FALLBACK_RACIAL_ICON
+        end
         return frame
     end
     return nil
@@ -4209,6 +4300,7 @@ function CustomIcons:AddDynamicIcon(iconData)
     iconData.key = iconKey
     EnsureIconSettings(iconData)
     EnsureLoadConditions(iconData)
+    EnsureStoredIconTexture(iconData)
 
     db.iconData[iconKey] = iconData
     EnsureLoadConditions(db.iconData[iconKey])
@@ -4673,13 +4765,14 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
 
     if iconData.type == "item" then
         local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(iconData.id)
-        node.iconTex:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+        node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iconData.id) or FALLBACK_ITEM_ICON))
     elseif iconData.type == "spell" or iconData.type == "aura" then
-        node.iconTex:SetTexture(ResolveSpellTexture(iconData.id) or "Interface\\Icons\\INV_Misc_QuestionMark")
+        local stored = GetStoredIconTexture(iconData)
+        node.iconTex:SetTexture(NonQuestionTexture(ResolveSpellTexture(iconData.id, stored), stored or FALLBACK_SPELL_ICON))
     elseif iconData.type == "slot" or iconData.type == "trinketProc" then
         local iid = GetInventoryItemID("player", iconData.slotID)
         local _, _, _, _, _, _, _, _, _, tex = iid and GetItemInfo(iid)
-        node.iconTex:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+        node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iid, iconData.slotID) or FALLBACK_SLOT_ICON))
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()
         if racialID then
@@ -4690,12 +4783,13 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
                 end
             end
             local info = C_Spell.GetSpellInfo(racialID)
-            node.iconTex:SetTexture((info and info.iconID) or C_Spell.GetSpellTexture(racialID) or "Interface\\Icons\\Spell_magic_polymorphrabbit")
+            local tex = (info and info.iconID) or C_Spell.GetSpellTexture(racialID)
+            node.iconTex:SetTexture(NonQuestionTexture(tex, FALLBACK_RACIAL_ICON))
         else
-            node.iconTex:SetTexture("Interface\\Icons\\Spell_magic_polymorphrabbit")
+            node.iconTex:SetTexture(FALLBACK_RACIAL_ICON)
         end
     else
-        node.iconTex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        node.iconTex:SetTexture(FALLBACK_SPELL_ICON)
     end
 
     local globalFont = DDingUI:GetGlobalFont() or "Fonts\\2002.TTF"
