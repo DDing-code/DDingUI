@@ -673,19 +673,12 @@ local BLOODLUST_DEBUFFS = {
 }
 local BLOODLUST_DEBUFF_DURATION_SECONDS = 600
 local bloodlustDebuffInstanceID
-local TIME_SPIRAL_AURA_IDS = {
-    [375234] = true, -- Time Spiral player aura
-}
-local timeSpiralAuraInstanceID
 local CUSTOM_TIMED_AURA_CONFIGS = {
     [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
     [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
     [1239479] = { duration = 10, trigger = "spellcast" },   -- Potion of Devoured Dreams
     [374968]  = { duration = 10, trigger = "timespiral" },  -- Time Spiral
     [2825]    = { duration = 40, trigger = "bloodlust" },   -- Bloodlust family
-}
-local CUSTOM_TIMED_AURA_STATE_ALIASES = {
-    [375234] = 374968,
 }
 local TIME_SPIRAL_TRIGGERS = {
     [48265] = true, [195072] = true, [189110] = true, [1850] = true,
@@ -710,10 +703,6 @@ local AURA_EQUIVALENT_IDS = {}
 for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
     AURA_EQUIVALENT_IDS[spellID] = BLOODLUST_AURA_IDS
 end
-local CUSTOM_TIMED_AURA_EQUIVALENT_IDS = {
-    [374968] = { 374968, 375234 },
-    [375234] = { 374968, 375234 },
-}
 
 local function GetTimedAuraDebugKey(spellIDOrKey)
     if type(spellIDOrKey) == "string" then
@@ -954,11 +943,6 @@ local function BuildAuraCandidateIDs(iconFrame, iconData)
         end
     end
 
-    local customTimedAliases = spellID and CUSTOM_TIMED_AURA_EQUIVALENT_IDS[spellID]
-    if customTimedAliases then
-        AddAuraCandidatesFromValue(candidates, seen, customTimedAliases)
-    end
-
     return candidates
 end
 
@@ -968,7 +952,7 @@ local function GetCustomTimedAuraConfig(iconData)
     local spellID = tonumber(iconData.id)
     if not spellID then return nil end
 
-    local stateID = CUSTOM_TIMED_AURA_STATE_ALIASES[spellID] or spellID
+    local stateID = spellID
     if AURA_EQUIVALENT_IDS[spellID] then
         stateID = 2825
     end
@@ -989,15 +973,6 @@ end
 local function IsEventDrivenCustomTimedAuraConfig(config)
     if not config then return false end
     return config.trigger == "bloodlust" or config.trigger == "timespiral"
-end
-
-local function IsBloodlustAuraSpellID(spellID)
-    spellID = tonumber(spellID)
-    if not spellID then return false end
-    for _, auraID in ipairs(BLOODLUST_AURA_IDS) do
-        if auraID == spellID then return true end
-    end
-    return false
 end
 
 local function BuildTimedAuraData(spellID, state)
@@ -1344,12 +1319,6 @@ end
 
 local function ScanBloodlustTimedAura(updateInfo)
     RecordTimedAuraDebug(2825, "unitAura", (updateInfo and updateInfo.isFullUpdate) and "full" or "partial")
-    local active = runtime.customTimedAuras[2825]
-    if active and active.expirationTime and active.expirationTime > GetTime() then
-        RecordTimedAuraDebug(2825, "alreadyActive", "unitAura")
-        return false
-    end
-
     if not updateInfo or updateInfo.isFullUpdate then
         return SeedBloodlustTimedAura(true)
     end
@@ -1387,122 +1356,6 @@ local function ScanBloodlustTimedAura(updateInfo)
     end
 
     return changed
-end
-
-local function ActivateTimeSpiralTimedAuraFromAura(aura, auraSpellID, requireWithinWindow)
-    local config = CUSTOM_TIMED_AURA_CONFIGS[374968]
-    if not config then return false end
-
-    local now = GetTime()
-    local active = runtime.customTimedAuras[374968]
-    if active and active.expirationTime and active.expirationTime > now then
-        return false
-    end
-
-    local auraInstanceID = GetAuraFieldSafe(aura, "auraInstanceID")
-    local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
-    local duration = GetAuraNumberFieldSafe(aura, "duration") or tonumber(config.duration) or 0
-
-    if not auraInstanceID or not expirationTime then
-        return false
-    end
-    if duration <= 0 then
-        duration = tonumber(config.duration) or 10
-    end
-
-    local appliedTime = expirationTime - duration
-    if requireWithinWindow and (now - appliedTime) >= duration then
-        return false
-    end
-
-    local _, changed = ActivateCustomTimedAura(374968, config, appliedTime, 374968)
-    timeSpiralAuraInstanceID = auraInstanceID
-    return changed
-end
-
-local function SeedTimeSpiralTimedAura(requireWithinWindow)
-    timeSpiralAuraInstanceID = nil
-    for auraSpellID in pairs(TIME_SPIRAL_AURA_IDS) do
-        local auraData
-        pcall(function()
-            auraData = C_UnitAuras.GetPlayerAuraBySpellID(auraSpellID)
-        end)
-        if auraData
-            and GetAuraFieldSafe(auraData, "auraInstanceID")
-            and GetAuraNumberFieldSafe(auraData, "expirationTime")
-            and ActivateTimeSpiralTimedAuraFromAura(auraData, auraSpellID, requireWithinWindow)
-        then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function ScanTimeSpiralTimedAura(updateInfo)
-    local removedActiveAura = false
-    if timeSpiralAuraInstanceID and updateInfo and updateInfo.removedAuraInstanceIDs then
-        for _, id in ipairs(updateInfo.removedAuraInstanceIDs) do
-            if id == timeSpiralAuraInstanceID then
-                timeSpiralAuraInstanceID = nil
-                removedActiveAura = DeactivateCustomTimedAura(374968) or removedActiveAura
-                break
-            end
-        end
-    end
-
-    local active = runtime.customTimedAuras[374968]
-    if active and active.expirationTime and active.expirationTime > GetTime() then
-        return removedActiveAura
-    end
-
-    if not updateInfo or updateInfo.isFullUpdate then
-        return SeedTimeSpiralTimedAura(true) or removedActiveAura
-    end
-
-    local changed = removedActiveAura
-    if updateInfo.addedAuras then
-        for _, aura in ipairs(updateInfo.addedAuras) do
-            local sid = GetAuraSpellIDSafe(aura)
-            if sid and TIME_SPIRAL_AURA_IDS[sid]
-                and GetAuraFieldSafe(aura, "auraInstanceID")
-                and GetAuraNumberFieldSafe(aura, "expirationTime")
-                and ActivateTimeSpiralTimedAuraFromAura(aura, sid, false)
-            then
-                changed = true
-                break
-            end
-        end
-    end
-
-    if not changed then
-        changed = SeedTimeSpiralTimedAura(true)
-    end
-
-    return changed
-end
-
-local function HandleBloodlustCombatLog()
-    if not CombatLogGetCurrentEventInfo then return false end
-
-    local _, subEvent, _, _, _, _, _, destGUID, _, _, _, spellID = CombatLogGetCurrentEventInfo()
-    if subEvent ~= "SPELL_AURA_APPLIED" and subEvent ~= "SPELL_AURA_REFRESH" then
-        return false
-    end
-    if destGUID ~= UnitGUID("player") then return false end
-
-    spellID = SafeNumber(spellID)
-    if not spellID then return false end
-
-    local iconSpellID = BLOODLUST_DEBUFFS[spellID]
-    if not iconSpellID and IsBloodlustAuraSpellID(spellID) then
-        iconSpellID = spellID
-    end
-    if not iconSpellID then return false end
-
-    RecordTimedAuraDebug(2825, "combatLogMatch", tostring(spellID) .. "->" .. tostring(iconSpellID))
-    local _, changed = ActivateCustomTimedAura(2825, CUSTOM_TIMED_AURA_CONFIGS[2825], GetTime(), iconSpellID)
-    return changed == true
 end
 
 local function GetActiveCustomTimedAura(iconData)
@@ -3117,16 +2970,10 @@ local function HandleCustomTimedAuraEvent(event, ...)
         return itemLocked
     end
 
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        return HandleBloodlustCombatLog()
-    end
-
     if event == "UNIT_AURA" then
         local unit, updateInfo = ...
         if unit ~= "player" then return false end
-        local changed = ScanBloodlustTimedAura(updateInfo)
-        changed = ScanTimeSpiralTimedAura(updateInfo) or changed
-        return changed
+        return ScanBloodlustTimedAura(updateInfo)
     end
 
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
@@ -3198,7 +3045,6 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")        -- Trinket proc/custom buff tracking
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
     runtime.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")           -- Clear healthstone-style combat lockouts
-    runtime.eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")    -- Bloodlust fallback when UNIT_AURA is protected
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
@@ -3211,15 +3057,13 @@ local function EnsureEventFrame()
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
             RebuildTimeSpiralGlowFilters()
-            local function seedCustomTimedAuras()
-                local changed = ScanBloodlustTimedAura({ isFullUpdate = true })
-                changed = ScanTimeSpiralTimedAura({ isFullUpdate = true }) or changed
-                if changed then
+            local function seedBloodlust()
+                if ScanBloodlustTimedAura({ isFullUpdate = true }) then
                     UpdateAllIcons("force")
                 end
             end
-            C_Timer.After(0.2, seedCustomTimedAuras)
-            C_Timer.After(1.0, seedCustomTimedAuras)
+            C_Timer.After(0.2, seedBloodlust)
+            C_Timer.After(1.0, seedBloodlust)
             -- Force reload layout after loading screen to catch delayed cache/spellbook states
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
             C_Timer.After(3.0, function() ScheduleSpecReload() end)
@@ -3257,9 +3101,6 @@ local function EnsureEventFrame()
         if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
             or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
             and not customTimedChanged then
-            return
-        end
-        if event == "COMBAT_LOG_EVENT_UNFILTERED" and not customTimedChanged then
             return
         end
         local hasItemCooldownIcon = (event == "UNIT_SPELLCAST_SUCCEEDED"
@@ -3344,12 +3185,11 @@ function CustomIcons:PrintTimedAuraDebugStatus()
             expires,
             tonumber(data.icons) or 0,
             tonumber(data.frames) or 0))
-        print(prefix .. string.format("%s events unitAura=%d unitMatch=%d seed=%d combatLog=%d glowShow=%d glowHide=%d suppressed=%d activated=%d",
+        print(prefix .. string.format("%s events unitAura=%d unitMatch=%d seed=%d glowShow=%d glowHide=%d suppressed=%d activated=%d",
             label,
             count(data, "unitAura"),
             count(data, "unitAuraMatch"),
             count(data, "seedMatch"),
-            count(data, "combatLogMatch"),
             count(data, "glowShow"),
             count(data, "glowHide"),
             count(data, "suppressed"),

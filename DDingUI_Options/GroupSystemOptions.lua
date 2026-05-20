@@ -3227,13 +3227,7 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows)
         items[#items + 1] = {
             label = rawget(L, "Time Spiral") or "Time Spiral",
             icon = SafeSpellTexture(374968),
-            action = function()
-                return AddSpellIDToGroup(groupName, 374968, "aura", {
-                    customAuraDuration = 10,
-                    customAuraTrigger = "timespiral",
-                    auraAliases = { 374968, 375234 },
-                })
-            end,
+            action = function() return AddSpellIDToGroup(groupName, 374968, "aura", { customAuraDuration = 10, customAuraTrigger = "timespiral" }) end,
         }
         items[#items + 1] = {
             label = rawget(L, "Bloodlust / Heroism") or "Bloodlust / Heroism",
