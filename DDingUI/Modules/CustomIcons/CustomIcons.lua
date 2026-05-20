@@ -827,6 +827,18 @@ local function ResolveSpellTexture(spellID, fallbackTexture)
     return tex
 end
 
+local function ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
+    local stateID = tonumber(spellID)
+    local displayID = tonumber(iconSpellID)
+    if displayID and displayID ~= stateID then
+        local tex = ResolveSpellTexture(displayID)
+        if tex and not IsQuestionTexture(tex) then
+            return tex
+        end
+    end
+    return ResolveSpellTexture(displayID or stateID, config and config.iconTexture)
+end
+
 local function GetStoredIconTexture(iconData)
     if iconData and (iconData.type == "spell" or iconData.type == "aura") then
         local preset = GetCustomAuraPresetIconTexture(iconData.id)
@@ -1214,9 +1226,11 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
     end
 
     local old = runtime.customTimedAuras[spellID]
+    local iconTexture = ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
     local changed = not old
         or math.abs((old.startTime or 0) - started) > 0.05
         or math.abs((old.expirationTime or 0) - expirationTime) > 0.05
+        or (iconTexture and old.iconTexture ~= iconTexture)
 
     local token = {}
     local state = {
@@ -1224,7 +1238,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         duration = duration,
         expirationTime = expirationTime,
         token = token,
-        iconTexture = ResolveSpellTexture(iconSpellID or spellID, config.iconTexture),
+        iconTexture = iconTexture,
     }
     runtime.customTimedAuras[spellID] = state
     local matchedFrame, hasMatchingIcon, needsLayout
@@ -1270,11 +1284,17 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     local now = GetTime()
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > now then
+        local textureChanged = false
+        local iconTexture = ResolveCustomTimedAuraStateTexture(2825, config, iconSpellID or 2825)
+        if iconTexture and active.iconTexture ~= iconTexture then
+            active.iconTexture = iconTexture
+            textureChanged = true
+        end
         local matchedFrame, hasMatchingIcon, needsLayout
         if MarkCustomTimedAuraActive then
             matchedFrame, hasMatchingIcon, needsLayout = MarkCustomTimedAuraActive(2825, active)
         end
-        if needsLayout then
+        if needsLayout or textureChanged then
             RecordCustomTimedAuraLink(2825, matchedFrame, hasMatchingIcon)
             NotifyCustomTimedAuraChanged("force")
             if hasMatchingIcon and not matchedFrame and CustomIcons and CustomIcons.LoadDynamicIcons then
