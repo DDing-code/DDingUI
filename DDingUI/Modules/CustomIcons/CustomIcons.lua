@@ -827,7 +827,7 @@ local function ResolveSpellTexture(spellID, fallbackTexture)
     return tex
 end
 
-local function ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
+function CustomIcons.ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
     local stateID = tonumber(spellID)
     local displayID = tonumber(iconSpellID)
     if displayID and displayID ~= stateID then
@@ -1226,7 +1226,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
     end
 
     local old = runtime.customTimedAuras[spellID]
-    local iconTexture = ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
+    local iconTexture = CustomIcons.ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
     local changed = not old
         or math.abs((old.startTime or 0) - started) > 0.05
         or math.abs((old.expirationTime or 0) - expirationTime) > 0.05
@@ -1285,7 +1285,7 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > now then
         local textureChanged = false
-        local iconTexture = ResolveCustomTimedAuraStateTexture(2825, config, iconSpellID or 2825)
+        local iconTexture = CustomIcons.ResolveCustomTimedAuraStateTexture(2825, config, iconSpellID or 2825)
         if iconTexture and active.iconTexture ~= iconTexture then
             active.iconTexture = iconTexture
             textureChanged = true
