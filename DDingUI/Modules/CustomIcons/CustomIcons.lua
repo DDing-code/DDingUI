@@ -1162,6 +1162,8 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 if state and state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
+            else
+                needsLayout = true
             end
         end
     end
@@ -1275,6 +1277,17 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
         if needsLayout then
             RecordCustomTimedAuraLink(2825, matchedFrame, hasMatchingIcon)
             NotifyCustomTimedAuraChanged("force")
+            if hasMatchingIcon and not matchedFrame and CustomIcons and CustomIcons.LoadDynamicIcons then
+                C_Timer.After(0, function()
+                    if CustomIcons and CustomIcons.LoadDynamicIcons then
+                        CustomIcons:LoadDynamicIcons()
+                    end
+                    if MarkCustomTimedAuraActive then
+                        MarkCustomTimedAuraActive(2825, active)
+                    end
+                    NotifyCustomTimedAuraChanged("force")
+                end)
+            end
         end
         RecordTimedAuraDebug(2825, "alreadyActive", "debuff")
         return false
@@ -2776,6 +2789,94 @@ end
 
 function CustomIcons:GetActiveCustomTimedAuraForIcon(iconData)
     return GetActiveCustomTimedAura(iconData)
+end
+
+local function IconListContains(iconList, iconKey)
+    if type(iconList) ~= "table" or not iconKey then return false end
+    for _, key in ipairs(iconList) do
+        if key == iconKey then
+            return true
+        end
+    end
+    return false
+end
+
+local function GroupOrderContainsDynamicIcon(groupSettings, iconKey)
+    local order = groupSettings and groupSettings.iconOrder
+    if type(order) ~= "table" or not iconKey then return false end
+    local token = "dyn:" .. tostring(iconKey)
+    for _, value in ipairs(order) do
+        if value == token then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsIconLinkedToCDMGroup(db, iconKey, iconData, groupName, groupSettings)
+    if not iconKey or not iconData or not groupName then return false end
+
+    local settings = iconData.settings or {}
+    if settings.targetCDMGroup == groupName then
+        return true
+    end
+
+    if GroupOrderContainsDynamicIcon(groupSettings, iconKey) then
+        return true
+    end
+
+    local sourceKey = groupSettings and groupSettings.sourceGroupKey
+    local sourceGroup = sourceKey and db and db.groups and db.groups[sourceKey]
+    if IconListContains(sourceGroup and sourceGroup.icons, iconKey) then
+        return true
+    end
+
+    for _, linkedGroup in pairs((db and db.groups) or {}) do
+        if linkedGroup and linkedGroup.linkedCDMGroup == groupName and IconListContains(linkedGroup.icons, iconKey) then
+            return true
+        end
+    end
+
+    return false
+end
+
+function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, groupSettings)
+    local db = GetDynamicDB()
+    local iconDataByKey = db and db.iconData
+    if not iconDataByKey then return nil end
+
+    local now = GetTime and GetTime() or 0
+    local result
+    for iconKey, iconData in pairs(iconDataByKey) do
+        local config = GetCustomTimedAuraConfig(iconData)
+        local state = config and runtime.customTimedAuras[config.stateID]
+        if state and state.expirationTime and state.expirationTime > now
+            and IsIconLinkedToCDMGroup(db, iconKey, iconData, groupName, groupSettings)
+        then
+            local frame = runtime.iconFrames[iconKey]
+            if frame then
+                frame._ddTimedAuraActiveUntil = state.expirationTime
+                frame._ddLastAuraActiveAt = now
+                frame._ddLastDynamicActiveAt = now
+                frame._wasVisibleInGroup = true
+                frame._auraWasActive = true
+                frame._ddManagedAuraExpired = nil
+                if state.iconTexture then
+                    SetStableIconTexture(frame, state.iconTexture, true)
+                end
+                result = result or {}
+                result[#result + 1] = {
+                    iconKey = iconKey,
+                    frame = frame,
+                    iconData = iconData,
+                    active = true,
+                    combatVisible = true,
+                }
+            end
+        end
+    end
+
+    return result
 end
 
 function CustomIcons:ResolveTrinketProcAuraForIcon(iconFrame, iconData)

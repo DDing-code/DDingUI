@@ -1300,6 +1300,24 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     if bridge and groupSettings.sourceGroupKey then
         dynamicIcons = bridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey) or {}
     end
+    local ci = DDingUI.CustomIcons
+    if ci and ci.GetActiveCustomTimedAuraEntriesForCDMGroup then
+        local timedEntries = ci:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, groupSettings)
+        if timedEntries then
+            local seenDynamic = {}
+            for _, entry in ipairs(dynamicIcons) do
+                if entry and entry.iconKey then
+                    seenDynamic[entry.iconKey] = true
+                end
+            end
+            for _, entry in ipairs(timedEntries) do
+                if entry and entry.iconKey and not seenDynamic[entry.iconKey] then
+                    dynamicIcons[#dynamicIcons + 1] = entry
+                    seenDynamic[entry.iconKey] = true
+                end
+            end
+        end
+    end
     local hasDynamicIcons = false
 
     -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
