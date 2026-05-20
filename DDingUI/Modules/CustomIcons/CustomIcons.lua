@@ -1141,6 +1141,7 @@ MarkCustomTimedAuraActive = function(spellID, state)
 
     local matchedFrame = false
     local hasMatchingIcon = false
+    local needsLayout = false
     local now = GetTime and GetTime() or 0
     for iconKey, iconData in pairs(iconDataByKey) do
         local config = GetCustomTimedAuraConfig(iconData)
@@ -1149,6 +1150,9 @@ MarkCustomTimedAuraActive = function(spellID, state)
             local frame = runtime.iconFrames[iconKey]
             if frame then
                 matchedFrame = true
+                if not frame._ddIsManaged or not (frame.IsShown and frame:IsShown()) then
+                    needsLayout = true
+                end
                 frame._ddTimedAuraActiveUntil = state and state.expirationTime or nil
                 frame._ddLastAuraActiveAt = now
                 frame._ddLastDynamicActiveAt = now
@@ -1161,7 +1165,7 @@ MarkCustomTimedAuraActive = function(spellID, state)
             end
         end
     end
-    return matchedFrame, hasMatchingIcon
+    return matchedFrame, hasMatchingIcon, needsLayout
 end
 
 local function CountCustomTimedAuraLinks(spellID)
@@ -1221,11 +1225,11 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         iconTexture = ResolveSpellTexture(iconSpellID or spellID, config.iconTexture),
     }
     runtime.customTimedAuras[spellID] = state
-    if changed then
-        local matchedFrame, hasMatchingIcon
-        if MarkCustomTimedAuraActive then
-            matchedFrame, hasMatchingIcon = MarkCustomTimedAuraActive(spellID, state)
-        end
+    local matchedFrame, hasMatchingIcon, needsLayout
+    if MarkCustomTimedAuraActive then
+        matchedFrame, hasMatchingIcon, needsLayout = MarkCustomTimedAuraActive(spellID, state)
+    end
+    if changed or needsLayout then
         RecordCustomTimedAuraLink(spellID, matchedFrame, hasMatchingIcon)
         NotifyCustomTimedAuraChanged("force")
         if hasMatchingIcon and not matchedFrame and CustomIcons and CustomIcons.LoadDynamicIcons then
@@ -1264,6 +1268,14 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     local now = GetTime()
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > now then
+        local matchedFrame, hasMatchingIcon, needsLayout
+        if MarkCustomTimedAuraActive then
+            matchedFrame, hasMatchingIcon, needsLayout = MarkCustomTimedAuraActive(2825, active)
+        end
+        if needsLayout then
+            RecordCustomTimedAuraLink(2825, matchedFrame, hasMatchingIcon)
+            NotifyCustomTimedAuraChanged("force")
+        end
         RecordTimedAuraDebug(2825, "alreadyActive", "debuff")
         return false
     end
