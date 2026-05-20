@@ -580,6 +580,10 @@ local function DoFullUpdate()
         end
     end
 
+    -- CDM groups can include CustomIcons through sourceGroupKey. Reconcile the
+    -- mapping before rendering so custom buff icons are merged in this update.
+    SyncDynamicGroups(gs)
+
     -- 1. CDMHookEngine 맵 → 그룹별 분류
     local classified = GroupManager:ClassifyAll()
 
@@ -614,7 +618,6 @@ local function DoFullUpdate()
 
     -- [DYNAMIC] 동적 그룹 동기화 + 업데이트
     -- [FIX] CDM 경로에서 이미 처리된 동적 그룹은 스킵 (이중 렌더링 방지)
-    SyncDynamicGroups(gs)
     if gs.groups then
         for groupName, groupSettings in pairs(gs.groups) do
             if groupSettings.groupType == "dynamic" and groupSettings.enabled
