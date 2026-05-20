@@ -630,7 +630,7 @@ end
 -- canaccessvalue polyfill (CDMHookEngine 패턴 — WoW 12.x API)
 local _canaccessvalue = canaccessvalue or function() return true end
 
--- [FIX] ArcUI 패턴: texture → keybind 직접 매핑 (spellID 우회)
+-- [FIX] DDingUI 패턴: texture → keybind 직접 매핑 (spellID 우회)
 local textureKeybindMap = {} -- texture(number|string) → formatted keybind string
 local textureMapValid = false
 
@@ -696,7 +696,7 @@ local function ExtractSpellIDFromIcon(icon)
     return nil
 end
 
--- [FIX] ArcUI 패턴: 텍스처로 keybind 직접 조회 (spellID 없어도 작동)
+-- [FIX] DDingUI 패턴: 텍스처로 keybind 직접 조회 (spellID 없어도 작동)
 local function GetKeybindByTexture(icon)
     if not textureMapValid then
         BuildTextureKeybindMap()
@@ -815,7 +815,7 @@ local function BuildIconSpellCacheForViewer(viewerName)
                 end
             end
 
-            -- 경로 B: texture → keybind 직접 매핑 (ArcUI 패턴, spellID 없어도 작동)
+            -- 경로 B: texture → keybind 직접 매핑 (DDingUI 패턴, spellID 없어도 작동)
             if finalKeybind == "" then
                 local texKeybind = GetKeybindByTexture(child)
                 if texKeybind then

@@ -16,8 +16,8 @@ local function GRLog(...)
     end
 end
 
--- [AYIJE PATTERN] 전투 종료 후 deferred 컨테이너 조작 재실행
--- Ayije의 combatDirtyViewers 패턴: 전투 중 명명된 프레임 조작 skip → 전투 종료 후 전체 Reconcile
+-- [CDM PATTERN] 전투 종료 후 deferred 컨테이너 조작 재실행
+-- CDM의 combatDirtyViewers 패턴: 전투 중 명명된 프레임 조작 skip → 전투 종료 후 전체 Reconcile
 local regenFrame = CreateFrame("Frame")
 regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 regenFrame:SetScript("OnEvent", function()
@@ -448,7 +448,7 @@ local function ShouldKeepDynamicIconInCombat(icon)
         return false
     end
 
-    -- Ayije custom buffs hide and reanchor immediately when their timer ends.
+    -- CDM custom buffs hide and reanchor immediately when their timer ends.
     -- Do not resurrect expired aura/proc frames through combat layout fallback.
     if iconData.type == "aura" then
         if IsStillWithinKnownDuration(icon._ddTimedAuraActiveUntil, icon._ddAuraActiveUntil) then
@@ -1065,7 +1065,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
     }
     local proxyName = CORE_PROXY[groupName]
     local proxyFrame = proxyName and _G[proxyName]
-    
+
     local moverId = proxyName or ("DDingUI_Group_" .. groupName)
     local hasMoverPos = DDingUI.Movers and DDingUI.Movers.CreatedMovers
         and DDingUI.Movers.CreatedMovers[moverId]
@@ -1074,7 +1074,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
     local usedViewerPos = false
 
     -- [FIX] 프록시 앵커가 있는 핵심 3대 그룹은 별도의 폴백이나 좌표계산 없이 프록시를 앵커로 종속됨.
-    -- 프록시 자체의 위치는 Mover에서 groupSettings 정보를 읽어 완벽히 복원하므로, 
+    -- 프록시 자체의 위치는 Mover에서 groupSettings 정보를 읽어 완벽히 복원하므로,
     -- 0,0으로 맞추기만 하면 항상 정확히 일치하며 마우스 드래그도 실시간으로 반영됨.
     if proxyFrame then
         frame:SetPoint("CENTER", proxyFrame, "CENTER", 0, 0)
@@ -1146,10 +1146,10 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
                 end
             end
 
-            -- 3순위: CDM 편집모드 DB 직접 읽기 (Ayije_CDM.db.editModePositions)
+            -- 3순위: CDM 편집모드 DB 직접 읽기 (CDM.db.editModePositions)
             -- CDM이 뷰어 위치를 DB에 저장하므로, 프레임 위치 대신 DB에서 직접 읽으면 타이밍 문제 없음
             if not usedViewerPos and not viewerWasDisabled then
-                local CDM_Addon = _G["Ayije_CDM"]
+                local CDM_Addon = nil
                 local cdmDB = CDM_Addon and CDM_Addon.db
                 local editPos = cdmDB and cdmDB.editModePositions
                 if editPos then
@@ -1225,10 +1225,10 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
         local attachTo = groupSettings.attachTo or "UIParent"
         local anchorFrame = _G[attachTo] or UIParent
         local selfPoint = groupSettings.selfPoint or "CENTER"
-        
+
         local scaledGoX = DDingUI.Scale and DDingUI:Scale(goX) or goX
         local scaledGoY = DDingUI.Scale and DDingUI:Scale(goY) or goY
-        
+
         frame:SetPoint(
             selfPoint,
             anchorFrame,
@@ -1404,7 +1404,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     if bridge then bridge:ReleaseFrame(icon, icon._ddIconKey) end
                 end
             end
-            -- [AYIJE PATTERN] CDM 아이콘: cleanup 안 함!
+            -- [CDM PATTERN] CDM 아이콘: cleanup 안 함!
         end
     end
     wipe(frame._managedIcons)
@@ -1748,14 +1748,14 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     local flightHiding = fh and (fh.isActive or fh._hiding)
     local groupAlpha = flightHiding and 0 or (groupSettings.groupAlpha or 1.0)
 
-    -- [FIX Ayije] 컨테이너 프레임 alpha: 변경 시에만 SetAlpha (매 틱 호출 방지)
+    -- [FIX CDM] 컨테이너 프레임 alpha: 변경 시에만 SetAlpha (매 틱 호출 방지)
     SetAlphaIfNeeded(frame, groupAlpha, "_ddLastFrameAlpha")
 
     for i = 1, idx do
         local ic = frame._managedIcons[i]
         if ic then
             -- [FIX] BuffTrackerBar가 _ddingHidden으로 숨긴 아이콘은 alpha 유지 (깜빡임 방지)
-            -- [FIX Ayije] alpha 실제 변경 시에만 SetAlpha → CooldownFrame 재렌더 방지
+            -- [FIX CDM] alpha 실제 변경 시에만 SetAlpha → CooldownFrame 재렌더 방지
             -- 스와이프·아이콘색상 동시 깜빡임의 근본 원인 차단
             if not ic._ddingHidden then
                 local iconAlpha = groupAlpha
@@ -2058,9 +2058,9 @@ function GroupRenderer:ReleaseGroupIcons(frame)
 
     local fc = GetFC()
     local bridge = DDingUI.DynamicIconBridge
-    
+
     local iconsToHide = {}
-    
+
     for _, icon in pairs(frame._managedIcons) do
         if icon then
             if icon._ddIconKey then
@@ -2076,12 +2076,12 @@ function GroupRenderer:ReleaseGroupIcons(frame)
             end
         end
     end
-    
+
     -- 동적 아이콘은 Release 후 reparent로 Show될 수 있으므로 다시 Hide
     for _, icon in ipairs(iconsToHide) do
         if icon.Hide then icon:Hide() end
     end
-    
+
     wipe(frame._managedIcons)
     frame._iconCount = 0
     frame._lastCombinedLayoutHash = nil
@@ -2375,7 +2375,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                 else
                     edgeSize = math.floor(edgeSize + 0.5)
                 end
-                
+
                 icon._ddBorders = icon._ddBorders or {}
                 local borders = icon._ddBorders
                 if #borders == 0 then
@@ -2391,7 +2391,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                     if type(bc) == "table" and bc.GetRGBA then br, bg, bb, ba = bc:GetRGBA()
                     elseif type(bc) == "table" and bc[1] then br, bg, bb, ba = bc[1], bc[2], bc[3], bc[4] or 1
                     elseif type(bc) == "table" and bc.r then br, bg, bb, ba = bc.r, bc.g, bc.b, bc.a or 1 end
-                    
+
                     borders[1]:SetHeight(edgeSize); borders[2]:SetHeight(edgeSize)
                     borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
                     for _, borderTex in ipairs(borders) do
@@ -2409,13 +2409,13 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                 local oy = tonumber(groupSettings.countTextOffsetY) or 0
                 icon.count:ClearAllPoints()
                 icon.count:SetPoint(anchor, iconTexture or icon, anchor, ox, oy)
-                
+
                 local size = tonumber(groupSettings.countTextSize)
                 if size and size > 0 then
                     local font = DDingUI:GetFont(groupSettings.countTextFont)
                     icon.count:SetFont(font, size, "OUTLINE")
                 end
-                
+
                 local tc = groupSettings.countTextColor
                 if type(tc) == "table" then
                     local r, g, b, a = 1, 1, 1, 1
@@ -2431,7 +2431,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                 local ox = tonumber(oxRaw) or 0
                 local oy = tonumber(oyRaw) or 0
                 if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
-                
+
                 if groupSettings.hideDurationText then
                     if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(true) end
                     icon.cooldown.noCooldownCount = true

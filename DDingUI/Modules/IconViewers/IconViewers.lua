@@ -70,7 +70,7 @@ function IconViewers:ApplyViewerSkin(viewer)
     if DDingUI.CastBars and DDingUI.CastBars.UpdateCastBarLayout then
         DDingUI.CastBars:UpdateCastBarLayout()
     end
-    
+
     if not InCombatLockdown() then
         self:ProcessPendingIcons()
     end
@@ -89,7 +89,7 @@ function IconViewers:ProcessPendingIcons()
         end)
         if inEditMode then return end
     end
-    
+
     local processed = {}
     for icon, data in pairs(DDingUI.__cdmPendingIcons) do
         local id = iconData[icon]
@@ -103,7 +103,7 @@ function IconViewers:ProcessPendingIcons()
             processed[icon] = true
         end
     end
-    
+
     -- Also process icons that were partially skinned but need border created/updated
     for _, name in ipairs(viewers) do
         local viewer = _G[name]
@@ -180,7 +180,7 @@ function IconViewers:ProcessPendingIcons()
             end
         end
     end
-    
+
     for icon in pairs(processed) do
         DDingUI.__cdmPendingIcons[icon] = nil
     end
@@ -219,7 +219,7 @@ function IconViewers:HookViewers()
                 end
             end)
 
-            -- [P0 Ayije 패턴] C_Timer 클로저 생성 없이 dirty flag + 단일 OnUpdate 프로세서로 교체
+            -- [P0 CDM 패턴] C_Timer 클로저 생성 없이 dirty flag + 단일 OnUpdate 프로세서로 교체
             -- 이벤트 핸들러는 dirty flag만 세팅 → OnUpdate 프로세서가 다음 프레임 처리 후 자신을 제거
             if name == "BuffIconCooldownViewer" then
                 local vs = GetViewerState(viewer)
@@ -229,7 +229,7 @@ function IconViewers:HookViewers()
                     vs.auraHook:SetScript("OnEvent", function(_, _, unit)
                         if unit == "player" and viewer:IsShown() and not vs.rescanDirty then
                             vs.rescanDirty = true
-                            -- [Ayije 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
+                            -- [CDM 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
                             vs.auraHook:SetScript("OnUpdate", function(self)
                                 self:SetScript("OnUpdate", nil)  -- 1회 실행 후 즉시 제거
                                 vs.rescanDirty = false
@@ -255,7 +255,7 @@ function IconViewers:HookViewers()
                     vs.cooldownHook:SetScript("OnEvent", function(self)
                         if viewer:IsShown() and not vs.rescanDirty then
                             vs.rescanDirty = true
-                            -- [Ayije 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
+                            -- [CDM 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
                             self:SetScript("OnUpdate", function(s)
                                 s:SetScript("OnUpdate", nil)  -- 1회 실행 후 즉시 제거
                                 vs.rescanDirty = false
@@ -295,7 +295,7 @@ end
 function IconViewers:AutoLoadBuffIcons(retryCount)
     retryCount = retryCount or 0
     local maxRetries = 5
-    
+
     local viewer = _G["BuffIconCooldownViewer"]
     if not viewer then
         if retryCount < maxRetries then
@@ -304,7 +304,7 @@ function IconViewers:AutoLoadBuffIcons(retryCount)
         end
         return
     end
-    
+
     GetViewerState(viewer).initialLoading = true
 
     -- [FIX] 뷰어가 아직 안 보이면 Show()해서 스킨 적용 가능하게 함
@@ -313,17 +313,17 @@ function IconViewers:AutoLoadBuffIcons(retryCount)
     if buffViewer and not buffViewer:IsShown() then
         buffViewer:Show()
     end
-    
+
     local settings = DDingUI.db.profile.viewers["BuffIconCooldownViewer"]
     if not settings or not settings.enabled then
         GetViewerState(viewer).initialLoading = nil
         return
     end
-    
+
     local function collectAllIcons(container)
         local icons = {}
         if not container or not container.GetNumChildren then return icons end
-        
+
         local n = container:GetNumChildren() or 0
         for i = 1, n do
             local child = select(i, container:GetChildren())
@@ -341,10 +341,10 @@ function IconViewers:AutoLoadBuffIcons(retryCount)
         end
         return icons
     end
-    
+
     local container = viewer.viewerFrame or viewer
     local icons = collectAllIcons(container)
-    
+
     local skinnedCount = 0
     local pendingCount = 0
     for _, icon in ipairs(icons) do
@@ -367,11 +367,11 @@ function IconViewers:AutoLoadBuffIcons(retryCount)
             end
         end
     end
-    
+
     if #icons > 0 and self.ApplyViewerLayout then
         self:ApplyViewerLayout(viewer)
     end
-    
+
     -- [PERF] 3개 중복 타이머 → 1개만 (지수적 타이머 폭풍 방지)
     local shouldRetry = false
     if #icons == 0 and retryCount < maxRetries then
@@ -381,7 +381,7 @@ function IconViewers:AutoLoadBuffIcons(retryCount)
         shouldRetry = true
         C_Timer.After(1.0, function() IconViewers:AutoLoadBuffIcons(retryCount + 1) end)
     end
-    
+
     if not shouldRetry then
         GetViewerState(viewer).initialLoading = nil
         -- [FIX] 뷰어를 Hide()하지 않음. 기존 코드가 BuffIconCooldownViewer를 2초 후 Hide()해서

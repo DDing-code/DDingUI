@@ -26,14 +26,14 @@ local hookedIcons = {}
 -- ============================================================
 function Provider_CDM:Initialize()
     if self.initialized then return end
-    
+
     local engine = DDingUI.GroupEngine
     if not engine then return end
-    
+
     engine:RegisterProvider("CDM", self)
     self:HookViewers()
     self:InstallSpecHooks()
-    
+
     self.initialized = true
 end
 
@@ -51,14 +51,14 @@ end
 local function HookIcon(icon, targetGroup)
     if not icon or hookedIcons[icon] then return end
     hookedIcons[icon] = true
-    
+
     icon._ddTargetGroup = targetGroup
-    
+
     -- Combate-safe Hijacking: Parent to UIParent directly
     if icon:GetParent() ~= UIParent then
         icon:SetParent(UIParent)
     end
-    
+
     icon:HookScript("OnShow", function(self) OnIconShowHide(self) end)
     icon:HookScript("OnHide", function(self) OnIconShowHide(self) end)
 end
@@ -68,7 +68,7 @@ function Provider_CDM:HookViewers()
         local viewer = _G[def.globalName]
         if viewer and viewer.itemFramePool then
             viewerRefs[def.globalName] = { viewer = viewer, group = def.targetGroup }
-            
+
             -- Hook Acquire/Release
             hooksecurefunc(viewer.itemFramePool, "Acquire", function()
                 if DDingUI.GroupEngine then
@@ -80,7 +80,7 @@ function Provider_CDM:HookViewers()
                     DDingUI.GroupEngine:RequestUpdate(def.targetGroup, 0)
                 end
             end)
-            
+
             -- Hook existing active icons
             for icon in viewer.itemFramePool:EnumerateActive() do
                 HookIcon(icon, def.targetGroup)
@@ -90,7 +90,7 @@ function Provider_CDM:HookViewers()
 end
 
 -- ============================================================
--- Spec/Talent Change Handling (Ayije 3-tier Queue)
+-- Spec/Talent Change Handling (CDM 3-tier Queue)
 -- ============================================================
 function Provider_CDM:InstallSpecHooks()
     local eventFrame = CreateFrame("Frame")
@@ -99,17 +99,17 @@ function Provider_CDM:InstallSpecHooks()
     eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     eventFrame:RegisterEvent("SPELLS_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    
+
     eventFrame:SetScript("OnEvent", function(_, event)
         if not DDingUI.GroupEngine then return end
-        
+
         if event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
             -- 3-tier delayed retry for heavy spec changes
             DDingUI.GroupEngine:RequestUpdateAll(0.3)
             C_Timer.After(1.0, function() DDingUI.GroupEngine:RequestUpdateAll(0) end)
-            C_Timer.After(1.5, function() 
+            C_Timer.After(1.5, function()
                 Provider_CDM:HookViewers() -- Refresh refs just in case
-                DDingUI.GroupEngine:RequestUpdateAll(0) 
+                DDingUI.GroupEngine:RequestUpdateAll(0)
             end)
             C_Timer.After(3.0, function() DDingUI.GroupEngine:RequestUpdateAll(0) end) -- Final parity check
         elseif event == "TRAIT_CONFIG_UPDATED" then
@@ -126,7 +126,7 @@ end
 function Provider_CDM:GetIconsForGroup(groupName, settings)
     local icons = {}
     local count = 0
-    
+
     for _, ref in pairs(viewerRefs) do
         if ref.group == groupName then
             local viewer = ref.viewer
@@ -135,8 +135,8 @@ function Provider_CDM:GetIconsForGroup(groupName, settings)
                     if not hookedIcons[icon] then
                         HookIcon(icon, groupName)
                     end
-                    
-                    -- Ayije filtering relies on IsShown(). 
+
+                    -- CDM filtering relies on IsShown().
                     -- Dynamic Engine forces Show, but CDM must respect native IsShown.
                     if icon:IsShown() and not icon._ddingHidden then
                         count = count + 1
@@ -146,6 +146,6 @@ function Provider_CDM:GetIconsForGroup(groupName, settings)
             end
         end
     end
-    
+
     return icons
 end

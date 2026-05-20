@@ -1273,7 +1273,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         ResourceBars._pendingAuraUpdates = nil
         ResourceBars._spellCastRefresh = nil
 
-        -- 3단계 재시도 (Ayije CDM 패턴)
+        -- 3단계 재시도 (CDM CDM 패턴)
         -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
         C_Timer.After(0.5, function()
             ResourceBars:UpdateBuffTrackerBar()

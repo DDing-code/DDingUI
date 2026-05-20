@@ -358,7 +358,7 @@ end
 local function IsPlaceholderIcon(iconFrame)
     -- [FIX] 전투 중 CDM이 프레임 재사용 시 layoutIndex가 일시적으로 nil일 수 있음
     -- layoutIndex만으로 판단하면 실제 활성 버프를 placeholder로 필터링하는 버그 발생
-    -- Ayije_CDM 패턴: cooldownInfo/IsActive/cooldownID 등 복합 체크
+    -- CDM 패턴: cooldownInfo/IsActive/cooldownID 등 복합 체크
     if not iconFrame then return true end
 
     -- layoutIndex가 존재하면 확실히 활성 아이콘
@@ -546,7 +546,7 @@ local function PrepareIconOrder(viewerName, icons)
         end
     end
 
-    -- [FIX] secret value 안전 비교 (Ayije_CDM ToSortNumber 패턴)
+    -- [FIX] secret value 안전 비교 (CDM ToSortNumber 패턴)
     local function SafeLayoutIndex(frame)
         local val = 0
         pcall(function()
@@ -1325,7 +1325,7 @@ do
 end
 
 -- ============================================
--- [Ayije_CDM 패턴] 로딩 화면 플래그 + 스펙 변경 가드 + OnHide 재표시 훅
+-- [CDM 패턴] 로딩 화면 플래그 + 스펙 변경 가드 + OnHide 재표시 훅
 -- 스펙/특성 변경 중에는 블리자드가 뷰어를 재구축하므로 재표시 억제
 -- 재구축 완료 후(3초 뒤)에만 Hide 방지 작동
 -- ============================================
@@ -1420,7 +1420,7 @@ do
     local function HookAllViewerRefreshLayouts()
         for _, name in ipairs(viewerNames) do
             HookViewerRefreshLayout(name)
-            HookViewerOnHideReshow(name)  -- [Ayije_CDM 패턴] OnHide 재표시 훅
+            HookViewerOnHideReshow(name)  -- [CDM 패턴] OnHide 재표시 훅
         end
     end
 
@@ -1456,7 +1456,7 @@ do
         end
     end
 
-    -- [Ayije_CDM 패턴] CountPopulatedFrames: 빈 프레임 감지 → 재시도
+    -- [CDM 패턴] CountPopulatedFrames: 빈 프레임 감지 → 재시도
     local function CheckAndRecoverUnpopulatedFrames()
         local anyUnpopulated = false
         for _, vName in ipairs(viewerNames) do
@@ -1489,7 +1489,7 @@ do
     viewerRefreshFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     viewerRefreshFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_ENTERING_WORLD" then
-            -- [FIX] 리로드 직후 강화효과 위치 즉시 보정 (Ayije_CDM RunVisualSetup 패턴)
+            -- [FIX] 리로드 직후 강화효과 위치 즉시 보정 (CDM RunVisualSetup 패턴)
             -- IsViewerReady 가드를 우회하여 빠르게 CenterBuffIcons 실행
             C_Timer.After(0.1, function()
                 nextCenterBuffsUpdate = 0
@@ -1506,7 +1506,7 @@ do
         C_Timer.After(0.3, OnMajorStateChange)
         C_Timer.After(1.0, OnMajorStateChange)
         C_Timer.After(2.5, OnMajorStateChange)
-        -- [Ayije_CDM 패턴] 4초 후 빈 프레임 체크 → 미복구 아이콘 강제 재시도
+        -- [CDM 패턴] 4초 후 빈 프레임 체크 → 미복구 아이콘 강제 재시도
         C_Timer.After(4.0, CheckAndRecoverUnpopulatedFrames)
     end)
 end

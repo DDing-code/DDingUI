@@ -33,7 +33,7 @@ local lastPrimaryUpdate = 0
 local lastSecondaryUpdate = 0
 local UPDATE_THROTTLE = 0.066  -- 66ms minimum between updates (~15fps)
 
--- Grace Period (ArcUI style) - don't hide bars during spec/level changes
+-- Grace Period (DDingUI style) - don't hide bars during spec/level changes
 -- CDM frames may not have loaded new spec's abilities yet
 local GRACE_PERIOD_DURATION = 5.0  -- seconds
 local gracePeriodUntil = 0
@@ -285,7 +285,7 @@ end
 local specChangeTimers = {}
 
 function ResourceBars:OnSpecChanged()
-    -- ArcUI-style Grace Period approach:
+    -- DDingUI-style Grace Period approach:
     -- 1. Invalidate caches
     -- 2. Set grace period (don't hide bars during this time)
     -- 3. Progressive updates with previous timer cancellation

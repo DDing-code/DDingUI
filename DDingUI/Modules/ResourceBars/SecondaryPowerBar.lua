@@ -486,7 +486,7 @@ end
 function ResourceBars:CreateFragmentedPowerBars(bar, resource)
     local cfg = DDingUI.db.profile.secondaryPowerBar
     local maxPower = (resource == "MAELSTROM_WEAPON" and 5) or (resource == Enum.PowerType.ArcaneCharges and 4) or UnitPowerMax("player", resource) or 0
-    
+
     for i = 1, maxPower do
         if not bar.FragmentedPowerBars[i] then
             local fragmentBar = CreateFrame("StatusBar", nil, bar)
@@ -496,7 +496,7 @@ function ResourceBars:CreateFragmentedPowerBars(bar, resource)
             fragmentBar:SetOrientation("HORIZONTAL")
             fragmentBar:SetFrameLevel(bar.StatusBar:GetFrameLevel())
             bar.FragmentedPowerBars[i] = fragmentBar
-            
+
             -- Create text for reload time display (centered on fragment bar)
             local text = fragmentBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             text:SetPoint("CENTER", fragmentBar, "CENTER", 0, 0)
@@ -523,19 +523,19 @@ function ResourceBars:UpdateFragmentedPowerDisplay(bar, resource)
     if resource == Enum.PowerType.Essence then
         local current = UnitPower("player", resource)
         local maxEssence = UnitPowerMax("player", resource)
-        
+
         -- [FIX] 12.0.5+ GetPowerRegenForPowerType이 secret value를 반환하는 경우
-        -- canaccessvalue()로 먼저 확인 후 안전한 경우에만 비교/저장 (Ayije CDM 패턴)
+        -- canaccessvalue()로 먼저 확인 후 안전한 경우에만 비교/저장 (CDM CDM 패턴)
         if not InCombatLockdown() then
             local raw = GetPowerRegenForPowerType and GetPowerRegenForPowerType(resource)
             if raw and type(raw) == "number" and canaccessvalue(raw) and raw > 0 then
                 bar._cachedEssenceRegenRate = raw
             end
         end
-        
+
         local regenRate = bar._cachedEssenceRegenRate or 0.2
         if regenRate <= 0 then regenRate = 0.2 end
-        
+
         local tickDuration = 1 / regenRate
         local now = GetTime()
 
@@ -866,7 +866,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
     local anchorFallback = false
     if not anchor then
         if inGracePeriod then
-            -- [FIX] Ayije CDM 패턴: grace period 중 bar:Hide() 금지
+            -- [FIX] CDM CDM 패턴: grace period 중 bar:Hide() 금지
             -- 이전 위치/너비를 유지한 채 앵커 복구를 기다림 (바 사라짐 방지)
             if bar:GetParent() ~= UIParent then
                 bar:SetParent(UIParent)
@@ -1386,7 +1386,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
                 bar.TextValue:SetText(AbbreviateNumbers(displayValue))
             end
         end
-        
+
         -- Hide fragmented bars
         for _, fragmentBar in ipairs(bar.FragmentedPowerBars) do
             fragmentBar:Hide()

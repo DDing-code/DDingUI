@@ -186,7 +186,7 @@ local function ApplyAuraToFrame(frame, spellID)
 end
 
 -- ============================================================
--- CDM 버프 프레임 숨김 (ArcUI 3중 Hook)
+-- CDM 버프 프레임 숨김 (DDingUI 3중 Hook)
 -- ============================================================
 
 local function HideCDMFrame(frame, cooldownID)

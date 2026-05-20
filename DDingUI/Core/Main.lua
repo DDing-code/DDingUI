@@ -481,7 +481,7 @@ function DDingUI:OnInitialize()
 
     -- [LoD] SetupOptions는 OpenConfig() 최초 호출 시 DDingUI_Options LoD 로드 후 실행
     -- self:SetupOptions()
-    
+
     self:RegisterChatCommand("dcm", "OpenConfig")      -- [CONTROLLER] /dui → /dcm 변경 (Controller /ddingui 충돌 방지)
     self:RegisterChatCommand("ddcm", "OpenConfig")     -- [CONTROLLER] /ddingui → /ddcm 변경
     self:RegisterChatCommand("ddfly", function()
@@ -739,9 +739,9 @@ function DDingUI:InitializePixelPerfect()
     self.physicalWidth, self.physicalHeight = GetPhysicalScreenSize()
     self.resolution = string.format('%dx%d', self.physicalWidth, self.physicalHeight)
     self.perfect = 768 / self.physicalHeight
-    
+
     self:UIMult()
-    
+
     self:RegisterEvent('UI_SCALE_CHANGED')
 end
 
@@ -794,23 +794,23 @@ end
 
 function DDingUI:OnEnable()
     SetCVar("cooldownViewerEnabled", 1)
-    
+
     if self.UIMult then
         self:UIMult()
     end
-    
+
     if self.ApplyGlobalFont then
         C_Timer.After(0.5, function()
             self:ApplyGlobalFont()
         end)
     end
-    
+
     self:RegisterEvent("PLAYER_LOGIN")
-    
+
     C_Timer.After(0.1, function()
         DDingUI:StyleMicroButtons()
     end)
-    
+
     if self.IconViewers and self.IconViewers.HookViewers then
         self.IconViewers:HookViewers()
     end
@@ -856,24 +856,24 @@ function DDingUI:OnEnable()
     -- MissingAlerts 모듈 삭제됨
     if self.QOL and self.QOL.Initialize then self.QOL:Initialize() end
     if self.CharacterPanel and self.CharacterPanel.Initialize then self.CharacterPanel:Initialize() end
-    
+
     -- Flight Hide System
     if self.FlightHide and self.FlightHide.Initialize then
         self.FlightHide:Initialize()
     end
 
     -- Target/Focus/Boss cast bars removed - player cast bar only
-    
+
     if self.UnitFrames and self.db.profile.unitFrames and self.db.profile.unitFrames.enabled then
         C_Timer.After(0.5, function()
             if self.UnitFrames.Initialize then
                 self.UnitFrames:Initialize()
             end
-            
+
             if self.AbsorbBars and self.AbsorbBars.Initialize then
                 self.AbsorbBars:Initialize()
             end
-            
+
             local UF = self.UnitFrames
             if UF and UF.RepositionAllUnitFrames then
                 local originalReposition = UF.RepositionAllUnitFrames
@@ -891,7 +891,7 @@ function DDingUI:OnEnable()
             end
         end)
     end
-    
+
     if self.IconViewers and self.IconViewers.AutoLoadBuffIcons then
         C_Timer.After(0.5, function()
             self.IconViewers:AutoLoadBuffIcons()
@@ -904,7 +904,7 @@ function DDingUI:OnEnable()
             self.IconViewers:RefreshAll()
         end)
     end
-    
+
     if self.CustomIcons then
         C_Timer.After(1.5, function()
             if self.CustomIcons.CreateCustomIconsTrackerFrame then
@@ -933,7 +933,7 @@ function DDingUI:OnEnable()
 
     self:InitializeSelectionAlphaController()
 
-    -- [P0] Blizzard 편집모드에서 CDM 뷰어 조작 완전 차단 (Ayije 3중 차단)
+    -- [P0] Blizzard 편집모드에서 CDM 뷰어 조작 완전 차단 (CDM 3중 차단)
     if self.SetupEditModeLock then
         C_Timer.After(1.0, function()
             self:SetupEditModeLock()
@@ -1083,25 +1083,25 @@ function DDingUI:CheckDualSpec()
         print("|cffffff00This is normal on Classic Era realms (except Season of Discovery/Anniversary).|r")
         return
     end
-    
+
     print(CDM_PREFIX .. "|cff00ff00LibDualSpec-1.0 is loaded.|r") -- [STYLE]
-    
+
     if not self.db then
         print(CDM_PREFIX .. "|cffff0000Database not initialized yet.|r") -- [STYLE]
         return
     end
-    
+
     if self.db.IsDualSpecEnabled then
         local isEnabled = self.db:IsDualSpecEnabled()
         print(CDM_PREFIX .. string.format("|cff00ff00Dual Spec support: %s|r", isEnabled and "ENABLED" or "DISABLED")) -- [STYLE]
-        
+
         if isEnabled then
             local currentSpec = GetSpecialization() or 0
             print(CDM_PREFIX .. string.format("|cff00ff00Current spec: %d|r", currentSpec)) -- [STYLE]
-            
+
             local currentProfile = self.db:GetCurrentProfile()
             print(CDM_PREFIX .. string.format("|cff00ff00Current profile: %s|r", currentProfile)) -- [STYLE]
-            
+
             -- Check spec profiles
             for i = 1, 2 do
                 local specProfile = self.db:GetDualSpecProfile(i)
@@ -1116,17 +1116,17 @@ end
 function DDingUI:CreateMinimapButton()
     local LDB = LibStub("LibDataBroker-1.1", true)
     local LibDBIcon = LibStub("LibDBIcon-1.0", true)
-    
+
     if not LDB or not LibDBIcon then
         return
     end
-    
+
     if not self.db.profile.minimap then
         self.db.profile.minimap = {
             hide = false,
         }
     end
-    
+
     local dataObj = LDB:NewDataObject(ADDON_NAME, {
         type = "launcher",
         icon = "Interface\\AddOns\\DDingUI\\Media\\logo.tga",
@@ -1148,7 +1148,7 @@ function DDingUI:CreateMinimapButton()
             tooltip:AddLine("|cffffffffRight-click|r  Toggle move mode", 0.7, 0.7, 0.7)
         end,
     })
-    
+
     LibDBIcon:Register(ADDON_NAME, dataObj, self.db.profile.minimap)
 end
 
@@ -1451,7 +1451,7 @@ do
         self._initialized = true
 
         flightHideFrame = CreateFrame("Frame")
-        -- [P0 Ayije 패턴] 기능이 활성화된 경우에만 OnUpdate 시작
+        -- [P0 CDM 패턴] 기능이 활성화된 경우에만 OnUpdate 시작
         -- 꺼져 있으면 nil 유지 → 매 프레임 DB 접근/조건 체크 비용 0
         local cfg = DDingUI.db and DDingUI.db.profile.general
         if cfg and AnyFeatureEnabled(cfg) then
@@ -1602,15 +1602,15 @@ function DDingUI:RefreshAll()
             self.CastBars:RefreshAll()
         end
     end
-    
+
     if self.Chat and self.Chat.RefreshAll then
         self.Chat:RefreshAll()
     end
-    
+
     if self.ActionBars and self.ActionBars.RefreshAll then
         self.ActionBars:RefreshAll()
     end
-    
+
     if self.BuffDebuffFrames and self.BuffDebuffFrames.RefreshAll then
         self.BuffDebuffFrames:RefreshAll()
     end
@@ -1622,7 +1622,7 @@ function DDingUI:RefreshAll()
     if self.CharacterPanel and self.CharacterPanel.Refresh then
         self.CharacterPanel:Refresh()
     end
-    
+
     if self.UnitFrames and self.UnitFrames.RefreshFrames then
         self.UnitFrames:RefreshFrames()
     end
@@ -1634,11 +1634,11 @@ function DDingUI:RefreshAll()
     if self.RaidFrames and self.RaidFrames.Refresh then
         self.RaidFrames:Refresh()
     end
-    
+
     if self.Minimap and self.Minimap.Refresh then
         self.Minimap:Refresh()
     end
-    
+
     if self.CustomIcons and self.db.profile.customIcons and self.db.profile.customIcons.enabled ~= false then
         self:RefreshCustomIcons()
     end

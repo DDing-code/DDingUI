@@ -1930,7 +1930,7 @@ function Movers:ShowMovers()
     end
 
     if not silent then
-        -- 편집모드 진입 시 Ellesmere 스타일의 은은한 기준 그리드를 자동 표시
+        -- 편집모드 진입 시 DDingUI 스타일의 은은한 기준 그리드를 자동 표시
         self:ShowGrid()
 
         -- Nudge Frame 표시
@@ -3079,28 +3079,28 @@ function Movers:CreateNudgeFrame()
             local targetFrame = _G[val] or UIParent
             local holder = Movers.CreatedMovers[mv.name]
             local parentName = holder and holder.parent and holder.parent:GetName()
-            
+
             if targetFrame == mv or (holder and targetFrame == holder.parent) or val == parentName or val == mv.name then
                 print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
-                return 
+                return
             end
-            
+
             local oldPointStr = GetPoint(mv)
             local selfPt, _, relPoint, px, py = mv:GetPoint(1)
-            
+
             mv:ClearAllPoints()
             mv:SetPoint(selfPt or "CENTER", targetFrame, relPoint or "CENTER", 0, 0)
-            
+
             Movers:PushUndo(mv.name, oldPointStr)
             Movers:SaveMoverPosition(mv.name)
             Movers:UpdateParentPosition(mv.name)
-            
+
             local mapping = MoverToModuleMapping[mv.name]
             if mapping and DDingUI.db then
                 local anchorCfg = ResolvePath(DDingUI.db.profile, mapping.path)
                 if anchorCfg and mapping.attachKey then anchorCfg[mapping.attachKey] = val end
             end
-            
+
             nudge:UpdateInfo()
         end)
     nudge.anchorFrameDropdown = anchorFrameDropdown
@@ -3110,11 +3110,11 @@ function Movers:CreateNudgeFrame()
     local anchorSelectBtn = CreateFrame("Button", nil, nudge, "BackdropTemplate")
     anchorSelectBtn:SetSize(250, 24)
     anchorSelectBtn:SetPoint("TOP", nudge, "TOP", 0, cursorY)
-    
+
     local dR = (accentFrom and accentFrom[1] or 0.3) * 0.3
     local dG = (accentFrom and accentFrom[2] or 0.8) * 0.3
     local dB = (accentFrom and accentFrom[3] or 0.4) * 0.3
-    
+
     anchorSelectBtn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
     anchorSelectBtn:SetBackdropColor(dR, dG, dB, 0.8)
     local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
@@ -3123,7 +3123,7 @@ function Movers:CreateNudgeFrame()
     local txt = anchorSelectBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     txt:SetPoint("CENTER")
     txt:SetText(L["Select Anchor"] or "Select Anchor")
-    
+
     anchorSelectBtn:SetScript("OnEnter", function() anchorSelectBtn:SetBackdropColor(math.min(dR+0.12,1), math.min(dG+0.12,1), math.min(dB+0.12,1), 0.95) end)
     anchorSelectBtn:SetScript("OnLeave", function() anchorSelectBtn:SetBackdropColor(dR, dG, dB, 0.8) end)
     nudge.anchorSelectBtn = anchorSelectBtn
@@ -3178,9 +3178,9 @@ function Movers:CreateNudgeFrame()
             end
         end)
     end)
-    
+
     cursorY = cursorY - 35
-    
+
     -- Coordinate container
     local coordY = cursorY
     cursorY = cursorY - 40
@@ -3203,11 +3203,11 @@ function Movers:CreateNudgeFrame()
     local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
     xEditBox:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
 
-    xEditBox:SetScript("OnEditFocusGained", function(self) 
+    xEditBox:SetScript("OnEditFocusGained", function(self)
         local pR = accentFrom and accentFrom[1] or 0.3
         local pG = accentFrom and accentFrom[2] or 0.8
         local pB2 = accentFrom and accentFrom[3] or 0.4
-        self:SetBackdropBorderColor(pR, pG, pB2, 1) 
+        self:SetBackdropBorderColor(pR, pG, pB2, 1)
     end)
     xEditBox:SetScript("OnEditFocusLost", function(self) self:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5) end)
     xEditBox:SetScript("OnEnterPressed", function(self)
@@ -3237,11 +3237,11 @@ function Movers:CreateNudgeFrame()
     yEditBox:SetBackdropColor(inputBg[1] or 0.06, inputBg[2] or 0.06, inputBg[3] or 0.06, inputBg[4] or 0.8)
     yEditBox:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
 
-    yEditBox:SetScript("OnEditFocusGained", function(self) 
+    yEditBox:SetScript("OnEditFocusGained", function(self)
         local pR = accentFrom and accentFrom[1] or 0.3
         local pG = accentFrom and accentFrom[2] or 0.8
         local pB2 = accentFrom and accentFrom[3] or 0.4
-        self:SetBackdropBorderColor(pR, pG, pB2, 1) 
+        self:SetBackdropBorderColor(pR, pG, pB2, 1)
     end)
     yEditBox:SetScript("OnEditFocusLost", function(self) self:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5) end)
     yEditBox:SetScript("OnEnterPressed", function(self)
@@ -3259,7 +3259,7 @@ function Movers:CreateNudgeFrame()
     -- Arrow buttons (Flat UI)
     local arrowCenterY = cursorY - 10
     cursorY = cursorY - 60
-    
+
     local arrowSize = 28
     local nudgeBtnBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
 
@@ -3271,20 +3271,20 @@ function Movers:CreateNudgeFrame()
         btn:SetBackdropColor(nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, nudgeBtnBg[4] or 0.8)
         local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
         btn:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
-        
+
         local text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         text:SetPoint("CENTER")
         text:SetText(label)
-        
+
         btn:SetScript("OnClick", function()
             local amount = IsShiftKeyDown() and 10 or 1
             Movers:NudgeMover(dx * amount, dy * amount)
         end)
-        btn:SetScript("OnEnter", function() 
+        btn:SetScript("OnEnter", function()
             local pR = (accentFrom and accentFrom[1] or 0.3) * 0.5
             local pG = (accentFrom and accentFrom[2] or 0.8) * 0.5
             local pB2 = (accentFrom and accentFrom[3] or 0.4) * 0.5
-            btn:SetBackdropColor(pR, pG, pB2, 0.9) 
+            btn:SetBackdropColor(pR, pG, pB2, 0.9)
         end)
         btn:SetScript("OnLeave", function() btn:SetBackdropColor(nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, nudgeBtnBg[4] or 0.8) end)
         return btn
@@ -3514,10 +3514,10 @@ function Movers:CreateNudgeFrame()
         btn:SetPoint("BOTTOM", nudge, "BOTTOM", xOff, 12)
         btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
         btn:SetBackdropColor(bgR, bgG, bgB, 0.8)
-        
+
         local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
         btn:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
-        
+
         local text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         text:SetPoint("CENTER")
         text:SetText(label)
@@ -3538,11 +3538,11 @@ function Movers:CreateNudgeFrame()
     nudge.undoBtn = CreateBottomBtn(L["Undo"] or "Undo", startX + btnWidth + btnSpacing + btnWidth/2, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function() Movers:Undo() end)
     nudge.undoBtn._bg = {r = nudgeBtnBg[1] or 0.15, g = nudgeBtnBg[2] or 0.15, b = nudgeBtnBg[3] or 0.15}
     nudge.undoBtn:Disable()
-    
+
     nudge.redoBtn = CreateBottomBtn(L["Redo"] or "Redo", startX + (btnWidth + btnSpacing) * 2 + btnWidth/2, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function() Movers:Redo() end)
     nudge.redoBtn._bg = {r = nudgeBtnBg[1] or 0.15, g = nudgeBtnBg[2] or 0.15, b = nudgeBtnBg[3] or 0.15}
     nudge.redoBtn:Disable()
-    
+
     local dR = (accentFrom and accentFrom[1] or 0.3) * 0.35
     local dG = (accentFrom and accentFrom[2] or 0.8) * 0.35
     local dB = (accentFrom and accentFrom[3] or 0.4) * 0.35
@@ -3608,7 +3608,7 @@ function Movers:CreateNudgeFrame()
             if self.frameSelectDropdown and self.frameSelectDropdown.SetValue then
                 self.frameSelectDropdown:SetValue("", L["No selection"] or "선택 없음")
             end
-            
+
             self.anchorLabel:SetText("Anchor: --")
             if self.xEditBox then self.xEditBox:SetText("") end
             if self.yEditBox then self.yEditBox:SetText("") end

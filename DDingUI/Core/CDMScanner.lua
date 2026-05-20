@@ -28,7 +28,7 @@ local string_format = string.format
 local math_floor = math.floor
 
 -- ============================================================
--- SAFE VALUE UTILITIES (Ayije CDM pattern)
+-- SAFE VALUE UTILITIES (CDM CDM pattern)
 -- ============================================================
 
 -- [FIX] secret value / NaN / 음수 / 소수점 방어
@@ -43,7 +43,7 @@ local function IsUsableID(id)
     return id > 0 and id == math_floor(id)
 end
 
--- [FIX] ArcUI HasAuraInstanceID 패턴: secret value 안전 체크
+-- [FIX] DDingUI HasAuraInstanceID 패턴: secret value 안전 체크
 local function HasAuraInstanceID(value)
     if value == nil then return false end
     if issecretvalue and issecretvalue(value) then return true end
@@ -488,7 +488,7 @@ function CDMScanner.FindFrameByCooldownID(cooldownID)
             else
                 children = { viewer:GetChildren() }
             end
-            
+
             for _, frame in ipairs(children) do
                 local cdID
                 pcall(function()
@@ -674,7 +674,7 @@ eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterUnitEvent("UNIT_AURA", "player")  -- 플레이어만
 
--- [FIX] Ayije 패턴: OnUpdate 기반 dirty flag — C_Timer 객체 생성 없이 배치 처리
+-- [FIX] CDM 패턴: OnUpdate 기반 dirty flag — C_Timer 객체 생성 없이 배치 처리
 local scanDirty = false
 local scanDelayElapsed = 0
 local SCAN_DELAY_THRESHOLD = 0.1 -- UNIT_AURA 배치 처리 딜레이 (0.1초)

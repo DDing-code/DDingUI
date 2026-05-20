@@ -314,7 +314,7 @@ end
 
 -- ============================================================
 -- 10. SmoothScroll 모듈
--- Ellesmere SmoothScrollTo 패턴 이식
+-- DDingUI SmoothScrollTo 패턴 이식
 -- OnUpdate 보간 스크롤 (Linear interpolation + 임계값 스냅)
 -- ============================================================
 

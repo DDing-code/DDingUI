@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: WidgetRefresh
--- In-place widget refresh system (EllesmereUI pattern)
+-- In-place widget refresh system (DDingUI pattern)
 -- Prevents flicker by updating values without destroying/recreating widgets
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"

@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_Controller :: EditMode
--- 통합 편집모드 시스템 (EllesmereUI UnlockMode 패턴)
+-- 통합 편집모드 시스템 (DDingUI UnlockMode 패턴)
 -- 모든 DDingUI 계열 애드온의 mover를 한 곳에서 관리
 ------------------------------------------------------
 local Controller = _G.DDingUI_Controller
@@ -56,7 +56,7 @@ EditMode.Settings = {
 
 ------------------------------------------------------
 -- Registration API — 각 애드온이 자기 Mover 등록
--- EllesmereUI:RegisterUnlockElements() 패턴
+-- DDingUI:RegisterUnlockElements() 패턴
 ------------------------------------------------------
 
 --- 애드온의 편집모드 참여를 등록합니다.

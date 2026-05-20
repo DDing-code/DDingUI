@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: DualRow
--- 2-column layout system for option panels (EllesmereUI DualRow pattern)
+-- 2-column layout system for option panels (DDingUI DualRow pattern)
 -- 한 행에 좌/우 위젯 2개를 선언적으로 배치
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"
@@ -39,7 +39,7 @@ local function MakeLabel(parent, text, size, color)
     return fs
 end
 
---- 교대 행 배경 (EllesmereUI RowBg 패턴)
+--- 교대 행 배경 (DDingUI RowBg 패턴)
 local _globalRowCount = 0
 local function RowBg(frame, parent)
     _globalRowCount = _globalRowCount + 1
@@ -563,7 +563,7 @@ end
 -- CreateSectionHeaderRow — 섹션 헤더 (DualRow 시스템용)
 ------------------------------------------------------
 --- 옵션 패널 내 섹션 제목 행.
---- EllesmereUI의 대문자 좌안 정렬 + 구분선 패턴.
+--- DDingUI의 대문자 좌안 정렬 + 구분선 패턴.
 --- @param parent Frame
 --- @param addonName string
 --- @param text string       섹션 제목 (자동 대문자 변환)

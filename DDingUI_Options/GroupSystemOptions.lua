@@ -1816,7 +1816,7 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
             gridContainer:SetSize(gridWidth, gridHeight)
             gridContainer._buttons = {}
             gridContainer._viewerKey = vInfo.key
-            
+
             for i = 1, #entries do
                 local row = math.floor((i - 1) / ICONS_PER_ROW)
                 local col = (i - 1) % ICONS_PER_ROW
@@ -1934,7 +1934,7 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                 btn:Hide()
                 table.insert(gridContainer._buttons, btn)
             end
-            
+
             table.insert(parent._grids, gridContainer)
             currentY = currentY - gridHeight - 14 -- 간격 축소
         end
@@ -1974,7 +1974,7 @@ function DDingUI:GetGroupAssignGridHeight()
 end
 
 -- ============================================================
--- [REFACTOR] Ayije CDM 영감 — 할당 목록 + Spell ID 입력 + 접힘 설정
+-- [REFACTOR] CDM CDM 영감 — 할당 목록 + Spell ID 입력 + 접힘 설정
 -- 그룹 하나의 옵션 테이블 생성
 -- ============================================================
 
@@ -2033,7 +2033,7 @@ local function BuildAssignedSpellsArgs(groupName)
                         if iconData.type == "item" then
                             local itemID = iconData.id or 0
                             if type(itemID) == "string" then itemID = tonumber(itemID) or 0 end
-                            
+
                             -- GetItemInfoInstant는 바로 아이콘을 반환 (GetItemInfo는 캐시 대기 필요)
                             local itemIDNum, itemType, itemSubType, itemEquipLoc, icon, itemClassID, itemSubClassID = C_Item.GetItemInfoInstant(itemID)
                             -- 이름은 캐시가 안 되어있으면 nil일 수 있으므로 id 보존
@@ -2041,7 +2041,7 @@ local function BuildAssignedSpellsArgs(groupName)
                             if GetItemInfo then
                                 name = GetItemInfo(itemID)
                             end
-                            
+
                             displayName = name or ((L["Item"] or "Item") .. " " .. itemID)
                             iconTex = icon or iconTex
                         elseif iconData.type == "trinketProc" then
@@ -2058,7 +2058,7 @@ local function BuildAssignedSpellsArgs(groupName)
                         elseif iconData.type == "spell" or iconData.type == "aura" then
                             local spellID = iconData.id or 0
                             if type(spellID) == "string" then spellID = tonumber(spellID) or spellID end
-                            
+
                             local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
                             if spellInfo then
                                 displayName = spellInfo.name or displayName
@@ -2678,7 +2678,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
 end
 
 -- Runtime-shaped assigned icon preview.
--- Mirrors GroupRenderer layout rules and adds Ellesmere-style manual drag feedback.
+-- Mirrors GroupRenderer layout rules and adds DDingUI-style manual drag feedback.
 local ASSIGNED_GRID_DRAG_THRESHOLD = 8
 
 local ASSIGNED_DIRECTION_RULES = {
@@ -4486,7 +4486,7 @@ GetGroupCategory = function(groupName)
     return grp and grp.groupCategory or nil
 end
 
--- [Ayije 통합] 그룹 설정 읽기/쓰기 — 모든 그룹 동일 (groupSettings가 단일 소스)
+-- [CDM 통합] 그룹 설정 읽기/쓰기 — 모든 그룹 동일 (groupSettings가 단일 소스)
 local function GS_Range(groupName, key, name, order, default, min, max, step, extra)
     local opt = {
         type = "range", name = name, order = order, width = "full",
@@ -4596,7 +4596,7 @@ local function BuildCustomVisualArgs(groupName)
         glowHeader = { type = "header", name = L["Glow Effects"] or "글로우 효과", order = 15 },
         auraGlow = GS_Toggle(groupName, "auraGlow", L["Aura Glow"] or "오라 글로우", 16, false),
         procGlowEnabled = GS_Toggle(groupName, "procGlowEnabled", L["Proc Glow"] or "발동 글로우", 17, true),
-        -- 지속 효과 숨기기 (EllesmereUI hideActive 이식)
+        -- 지속 효과 숨기기 (DDingUI hideActive 이식)
         hideActiveState = GS_Toggle(groupName, "hideActiveState", L["Hide Active State"] or "지속 효과 숨기기", 18, false),
         hideActiveStateDesc = {
             type = "description", order = 18.5,
@@ -4702,7 +4702,7 @@ local function CreateGroupOptions(groupName, order)
     local viewerKey = GROUP_VIEWER_MAP[groupName]
     local category = GetGroupCategory(groupName)
 
-    -- [Ayije 통합] CDM/커스텀 구분 없이 동일 옵션 빌더 사용
+    -- [CDM 통합] CDM/커스텀 구분 없이 동일 옵션 빌더 사용
 
     local args = {}
 
@@ -5149,7 +5149,7 @@ local function CreateGroupOptions(groupName, order)
             } or nil,
             addSpellHeader = GROUP_SPELL_INPUT_ENABLED and { type = "header", name = L["Add Spell"] or "스펠 추가", order = 20 } or nil,
             addSpell = GROUP_SPELL_INPUT_ENABLED and {
-                type = "spellSearch", -- [REFACTOR] Ayije 패턴 이식 — 실시간 Spell ID 검증
+                type = "spellSearch", -- [REFACTOR] CDM 패턴 이식 — 실시간 Spell ID 검증
                 name = L["Spell Name or ID"] or "스펠 이름 또는 ID",
                 placeholder = "Spell ID...",
                 buttonText = "추가",
@@ -5189,7 +5189,7 @@ local function CreateGroupOptions(groupName, order)
                                 isBuffGrp = (category == "buff")
                             end
                             local iconType = isBuffGrp and "aura" or "spell"
-                            
+
                             local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, tostring(val))
                             if not iconKey then return false end
                             -- 프레임 생성 완료까지 폴링 후 갱신
@@ -5582,7 +5582,7 @@ local function CreateGroupOptions(groupName, order)
     -- Spell management controls now live at the top of the layout tab.
     args.spellManagement = nil
 
-    -- [Ayije 통합] 모든 그룹 동일 시각 효과 옵션 (CDM/커스텀 구분 없음)
+    -- [CDM 통합] 모든 그룹 동일 시각 효과 옵션 (CDM/커스텀 구분 없음)
     local visualArgs = BuildCustomVisualArgs(groupName)
     args.visual = {
         type = "group",
@@ -5591,7 +5591,7 @@ local function CreateGroupOptions(groupName, order)
         args = visualArgs,
     }
 
-    -- [Ayije 통합] 모든 그룹 동일 텍스트 옵션 (CDM/커스텀 구분 없음, 카테고리별 분기)
+    -- [CDM 통합] 모든 그룹 동일 텍스트 옵션 (CDM/커스텀 구분 없음, 카테고리별 분기)
     local textArgs = BuildCustomTextArgs(groupName, category)
     args.text = {
         type = "group",

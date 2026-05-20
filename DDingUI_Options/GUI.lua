@@ -86,7 +86,7 @@ local function DDingUI_GetPopupEditBox(dlg)
     return nil
 end
 
--- [ELLESMERE] StyleLib v2 모듈 참조
+-- [DDINGUI] StyleLib v2 모듈 참조
 local Tokens = SL.Tokens               -- 60+ 디자인 토큰
 local WR     = SL.WidgetRefresh         -- 인플레이스 갱신
 local PG     = SL.ProceduralGlow        -- 수학적 글로우 엔진
@@ -1518,7 +1518,7 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
 
     -- Apply ElvUI-style to slider
     StyleSlider(slider)
-    
+
     local min = option.min or 0
     local max = option.max or 100
     local step = option.step or 0.1
@@ -1530,7 +1530,7 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
         local value = ResolveGetSet(option.get, optionsTable, option) or min
         value = math.max(min, math.min(max, value))
         value = math.floor((value + 0.5 * step) / step) * step
-        
+
         slider:SetMinMaxValues(min, max)
         slider:SetValueStep(step)
         slider:SetValue(value)
@@ -1566,31 +1566,31 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
             self:UpdateFillBar()
         end
     end)
-    
+
     valueEditBox:SetScript("OnEditFocusGained", function(self)
         self:EnableKeyboard(true)
         self:HighlightText()
     end)
-    
+
     valueEditBox:SetScript("OnEditFocusLost", function(self)
         self:EnableKeyboard(false)
         self:ClearFocus()
         UpdateValueFromEditBox()
     end)
-    
+
     valueEditBox:SetScript("OnEnterPressed", function(self)
         self:EnableKeyboard(false)
         self:ClearFocus()
         UpdateValueFromEditBox()
     end)
-    
+
     valueEditBox:SetScript("OnEscapePressed", function(self)
         local currentValue = slider:GetValue()
         self:SetText(tostring(currentValue))
         self:EnableKeyboard(false)
         self:ClearFocus()
     end)
-    
+
     if option.disabled then
         local function UpdateDisabled()
             local disabled = ResolveDisabled(option.disabled, optionsTable, option)
@@ -1607,7 +1607,7 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
         UpdateDisabled()
         frame.UpdateDisabled = UpdateDisabled
     end
-    
+
     frame.Refresh = function(self)
         if option.get then
             local min = option.min or 0
@@ -1626,11 +1626,11 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
             self.UpdateDisabled()
         end
     end
-    
+
     frame.slider = slider
     frame.label = label
     frame.valueEditBox = valueEditBox
-    
+
     return frame
 end
 
@@ -1639,7 +1639,7 @@ function Widgets.CreateSelect(parent, option, yOffset, optionsTable, optionKey, 
     frame:SetHeight(36)
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
     frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
-    
+
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     StyleFontString(label)
     label:SetPoint("LEFT", frame, "LEFT", 0, 0)
@@ -1662,7 +1662,7 @@ function Widgets.CreateSelect(parent, option, yOffset, optionsTable, optionKey, 
         end
         return info
     end
-    
+
     local name = option.name or ""
     if type(name) == "function" then
         -- Create info structure for the name function (similar to AceConfig)
@@ -1801,7 +1801,7 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
     colorButton:SetScript("OnLeave", function(self)
         self:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
     end)
-    
+
     local r, g, b, a = 1, 1, 1, 1
     if option.get then
         local info = {
@@ -1823,18 +1823,18 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
         r, g, b, a = r or 1, g or 1, b or 1, a or 1
     end
     colorSwatch:SetColorTexture(r, g, b, a or 1)
-    
+
     colorButton:SetScript("OnClick", function(self)
         ColorPickerFrame:Hide()
         local previousValues = {r, g, b, a}
-        
+
         if ColorPickerFrame.SetupColorPickerAndShow then
             local r2, g2, b2, a2 = r, g, b, (a or 1)
             local INVERTED_ALPHA = (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
             if INVERTED_ALPHA then
                 a2 = 1 - a2
             end
-            
+
             local info = {
                 swatchFunc = function()
                     local r, g, b = ColorPickerFrame:GetColorRGB()
@@ -1868,12 +1868,12 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
                 g = g2,
                 b = b2,
             }
-            
+
             ColorPickerFrame:SetupColorPickerAndShow(info)
         else
             local colorPicker = ColorPickerFrame
             colorPicker.previousValues = previousValues
-            
+
             colorPicker.func = function()
                 if ColorPickerFrame.GetColorRGB then
                     r, g, b = ColorPickerFrame:GetColorRGB()
@@ -1894,7 +1894,7 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
                     ResolveGetSet(option.set, optionsTable, option, r, g, b, a)
                 end
             end
-            
+
             colorPicker.hasOpacity = option.hasAlpha or false
             if option.hasAlpha then
                 colorPicker.opacityFunc = function()
@@ -1917,7 +1917,7 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
                 end
                 colorPicker.opacity = 1 - (a or 1)
             end
-            
+
             if colorPicker.SetColorRGB then
                 colorPicker:SetColorRGB(r, g, b)
             else
@@ -1925,20 +1925,20 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
                 colorPicker.g = g
                 colorPicker.b = b
             end
-            
+
             colorPicker.cancelFunc = function()
                 r, g, b, a = unpack(previousValues)
                 colorSwatch:SetColorTexture(r, g, b, a or 1)
             end
-            
+
             ColorPickerFrame:Show()
         end
     end)
-    
+
     frame.colorButton = colorButton
     frame.colorSwatch = colorSwatch
     frame.label = label
-    
+
     return frame
 end
 
@@ -2332,16 +2332,16 @@ end
 function Widgets.CreateInput(parent, option, yOffset, optionsTable)
     local isMultiline = option.multiline or false
     local frame = CreateFrame("Frame", nil, parent)
-    
+
     if isMultiline then
         frame:SetHeight(150)
     else
         frame:SetHeight(30)
     end
-    
+
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
     frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
-    
+
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     StyleFontString(label)
     label:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
@@ -2364,7 +2364,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         })
         scrollContainer:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], THEME.input[4])
         scrollContainer:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
-        
+
         local scrollFrame = CreateFrame("ScrollFrame", nil, scrollContainer, "UIPanelScrollFrameTemplate")
         scrollFrame:SetPoint("TOPLEFT", 4, -4)
         scrollFrame:SetPoint("BOTTOMRIGHT", -22, 4)
@@ -2379,18 +2379,18 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
         scrollFrame:SetScrollChild(editBox)
-        
+
         -- Make the container and scroll frame clickable to focus and highlight the EditBox
         local function FocusAndHighlight()
             editBox:SetFocus()
             editBox:HighlightText()
         end
-        
+
         scrollContainer:EnableMouse(true)
         scrollContainer:SetScript("OnMouseDown", FocusAndHighlight)
         scrollFrame:EnableMouse(true)
         scrollFrame:SetScript("OnMouseDown", FocusAndHighlight)
-        
+
         -- Also highlight when EditBox gains focus (for direct clicks on the EditBox)
         editBox:SetScript("OnEditFocusGained", function(self)
             self:HighlightText()
@@ -2409,7 +2409,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             editBox:SetCursorPosition(0)
             editBox:ClearFocus()
         end
-        
+
         editBox:SetScript("OnTextChanged", function(self, userInput)
             if userInput and option.set then
                 ResolveGetSet(option.set, optionsTable, option, self:GetText())
@@ -2419,9 +2419,9 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             local height = math.max(120, (lines + 1) * 14)
             self:SetHeight(height)
         end)
-        
+
         editBox:ClearFocus()
-        
+
         frame.editBox = editBox
         frame.scrollFrame = scrollFrame
         frame.scrollContainer = scrollContainer
@@ -2433,15 +2433,15 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         StyleEditBox(editBox, "GameFontNormal")
         editBox:SetTextColor(SL.GetColor("text"))
         CreateBackdrop(editBox, THEME.input, {0, 0, 0, 1})  -- UF 통일
-        
+
         editBox:EnableKeyboard(false)
-        
+
         if option.get then
             local text = ResolveGetSet(option.get, optionsTable, option) or ""
             editBox:SetText(text)
             editBox:ClearFocus()
         end
-        
+
         editBox:SetScript("OnEditFocusGained", function(self)
             self:EnableKeyboard(true)
             self:SetCursorPosition(string.len(self:GetText()))
@@ -2465,7 +2465,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         editBox:SetScript("OnTextChanged", function(self, userInput)
             -- 입력 중에는 set 호출하지 않음 (Enter 또는 포커스 해제 시에만)
         end)
-        
+
         editBox:SetScript("OnEnterPressed", function(self)
             if option.set then
                 ResolveGetSet(option.set, optionsTable, option, self:GetText())
@@ -2473,14 +2473,14 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             self:EnableKeyboard(false)
             self:ClearFocus()
         end)
-        
+
         editBox:ClearFocus()
-        
+
         frame.editBox = editBox
     end
-    
+
     frame.label = label
-    
+
     if option.desc then
         local desc = option.desc
         if type(desc) == "function" then
@@ -2495,7 +2495,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             GameTooltip:Hide()
         end)
     end
-    
+
     return frame
 end
 
@@ -2749,14 +2749,14 @@ function Widgets.CreateDescription(parent, option, yOffset, optionsTable)
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
     frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
-    
+
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     StyleFontString(label)
     label:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     label:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
     label:SetJustifyH("LEFT")
     label:SetJustifyV("TOP")
-    
+
     local name = option.name or ""
     if type(name) == "function" then
         local info = {
@@ -2778,10 +2778,10 @@ function Widgets.CreateDescription(parent, option, yOffset, optionsTable)
         end
     label:SetText(name)
     label:SetTextColor(SL.GetColor("dim"))
-    
+
     frame:SetHeight(label:GetStringHeight() + 10)
     frame.label = label
-    
+
     return frame
 end
 -- [REFACTOR] Forward declaration: RenderOptions는 이 함수 뒤에 정의되지만,
@@ -2828,7 +2828,7 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
         return rootCfg and rootCfg.trackedBuffs or {}
     end
 
-    -- [ELLESMERE] WidgetRefresh 컨텍스트 생성
+    -- [DDINGUI] WidgetRefresh 컨텍스트 생성
     local wrCtx = WR and WR.CreateContext("CDM_BuffTracker") or nil
 
     -- ─── 메인 컨테이너 ───
@@ -2958,7 +2958,7 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
     local divider = btPanel:CreateTexture(nil, "ARTWORK")
     divider:SetWidth(1)
     divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.6)
-    -- [ELLESMERE] PP: disable pixel snap for crisp 1px
+    -- [DDINGUI] PP: disable pixel snap for crisp 1px
     if divider.SetSnapToPixelGrid then
         divider:SetSnapToPixelGrid(false)
         divider:SetTexelSnappingBias(0)
@@ -3147,7 +3147,7 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
             sep._line = sep:CreateTexture(nil, "ARTWORK")
             sep._line:SetAllPoints()
             sep._line:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.3)
-            -- [ELLESMERE] PP
+            -- [DDINGUI] PP
             if sep._line.SetSnapToPixelGrid then
                 sep._line:SetSnapToPixelGrid(false)
                 sep._line:SetTexelSnappingBias(0)
@@ -3210,7 +3210,7 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
                 btn._stripe:SetPoint("TOPLEFT", 0, 0)
                 btn._stripe:SetPoint("BOTTOMLEFT", 0, 0)
                 btn._stripe:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-                -- [ELLESMERE] PP + accent 등록
+                -- [DDINGUI] PP + accent 등록
                 if btn._stripe.SetSnapToPixelGrid then
                     btn._stripe:SetSnapToPixelGrid(false)
                     btn._stripe:SetTexelSnappingBias(0)
@@ -3399,7 +3399,7 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
                 end)
             end
 
-            -- [ELLESMERE] 얼룩말 줄무늬 + 선택 하이라이트
+            -- [DDINGUI] 얼룩말 줄무늬 + 선택 하이라이트
             local rowAlpha = Tokens and Tokens.RowBgAlpha(btnIdx) or 0
             if self.selectedIndex == i then
                 -- 선택됨: accent 배경 + stripe 표시 + 펄스
@@ -3408,17 +3408,17 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
                     btn._text:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
                 end
                 btn._stripe:Show()
-                -- [ELLESMERE] 스트라이프 펄스 애니메이션
+                -- [DDINGUI] 스트라이프 펄스 애니메이션
                 if PG then PG.StartStripePulse(btn._stripe, 2.5, 0.5, 1.0) end
             else
                 -- 비선택: 얼룩말 배경
                 btn._bg:SetColorTexture(1, 1, 1, rowAlpha)
                 btn._stripe:Hide()
-                -- [ELLESMERE] 이전 펄스 중지
+                -- [DDINGUI] 이전 펄스 중지
                 if PG then PG.StopStripePulse(btn._stripe) end
             end
 
-            -- [ELLESMERE] 3단계 호버 (bg + text 동시 변환)
+            -- [DDINGUI] 3단계 호버 (bg + text 동시 변환)
             local idx = i
             local isGroup = entry.isGroup
             local normalTextR, normalTextG, normalTextB
@@ -3477,7 +3477,7 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
             end)
             btn:SetScript("OnLeave", function(self)
                 if btPanel.selectedIndex ~= idx then
-                    -- [ELLESMERE] 3단계 복원: 얼룩말 배경 + 원래 텍스트 + stripe 숨김
+                    -- [DDINGUI] 3단계 복원: 얼룩말 배경 + 원래 텍스트 + stripe 숨김
                     self._bg:SetColorTexture(1, 1, 1, rowAlpha)
                     self._text:SetTextColor(normalTextR, normalTextG, normalTextB)
                     self._stripe:Hide()
@@ -4083,7 +4083,7 @@ local function CreateBuffTrackerPanel(contentFrame, parentFrame)
                 tb._underline:SetPoint("BOTTOMLEFT", 0, 0)
                 tb._underline:SetPoint("BOTTOMRIGHT", 0, 0)
                 tb._underline:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-                -- [ELLESMERE] PP
+                -- [DDINGUI] PP
                 if tb._underline.SetSnapToPixelGrid then
                     tb._underline:SetSnapToPixelGrid(false)
                     tb._underline:SetTexelSnappingBias(0)
@@ -4924,17 +4924,17 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         CreateBuffTrackerPanel(contentFrame, parentFrame)
         return
     end
-    
+
     if options.childGroups == "tab" then
         -- Get the parent frame's content area and scroll frame to make tabs sticky
         local parentContentArea = parentFrame and parentFrame.contentArea
         local parentScrollFrame = parentFrame and parentFrame.scrollFrame
-        
+
         -- Check if we're in a nested tab situation (sub-sub tabs)
         -- Look for parent sub tab containers to calculate offset
         local cumulativeTabHeight = 0
         local parentSubTabContainer = nil
-        
+
         -- When nested, contentFrame is a subScrollChild, whose parent is subContentArea,
         -- whose parent is the parent contentFrame that has the subTabContainer
         local parentContainer = contentFrame:GetParent()
@@ -4958,11 +4958,11 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         -- 기존 "HIGH"는 DIALOG보다 낮아서 탭이 콘텐츠 배경에 가려짐
         subTabContainer:SetFrameStrata("DIALOG")
         subTabContainer:SetFrameLevel((parentScrollFrame and parentScrollFrame:GetFrameLevel() or 1) + 10)
-        
+
         -- Add background to make it look good when sticky
         local bgMediumTransparent = {THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 0.95}
         CreateBackdrop(subTabContainer, bgMediumTransparent, {0, 0, 0, 1})  -- UF 통일
-        
+
         if parentContentArea and parentScrollFrame then
             if parentSubTabContainer then
                 -- Nested tabs: position below parent sub tab container
@@ -4989,12 +4989,12 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         local tabContainerHeight = 35
         subContentArea:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -1)
         subContentArea:SetPoint("BOTTOMRIGHT", contentFrame, "BOTTOMRIGHT", 0, 0)
-        
+
         -- Store tab container height for height calculations
         contentFrame._subTabContainerHeight = tabContainerHeight
         -- Store cumulative height for nested tabs
         contentFrame._cumulativeTabHeight = cumulativeTabHeight + tabContainerHeight
-        
+
         local subScrollChild = CreateFrame("Frame", nil, subContentArea)
         -- Position normally - content will start below tab container via yOffset
         subScrollChild:SetPoint("TOPLEFT", subContentArea, "TOPLEFT", 10, -10)
@@ -5002,7 +5002,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         subScrollChild.widgets = {}
         -- Store tab container height so RenderOptions can account for it
         subScrollChild._tabContainerHeight = contentFrame._cumulativeTabHeight or (contentFrame._subTabContainerHeight or 35)
-        
+
         local sortedTabs = {}
         for key, option in pairs(options.args or {}) do
             if option.type == "group" or (option.type ~= "group" and option.type ~= "header" and option.type ~= "description") then
@@ -5021,16 +5021,16 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
             end
         end
         table.sort(sortedTabs, function(a, b) return a.order < b.order end)
-        
+
         local subTabButtons = {}
         local tabX = 5
-        
+
         for i, item in ipairs(sortedTabs) do
             local displayName = item.option.name or item.key
             if type(displayName) == "function" then
                 displayName = displayName()
             end
-            
+
             local subTabBtn = CreateTabButton(subTabContainer, displayName, function(btn)
                 for _, t in ipairs(subTabButtons) do
                     t:SetActive(false)
@@ -5052,10 +5052,10 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
             local buttonWidth = textWidth + 20
             subTabBtn:SetWidth(buttonWidth)
             tabX = tabX + buttonWidth + 5
-            
+
             table.insert(subTabButtons, subTabBtn)
         end
-        
+
         contentFrame.subTabContainer = subTabContainer
         contentFrame.subContentArea = subContentArea
         contentFrame.subTabButtons = subTabButtons
@@ -5100,13 +5100,13 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
         return
     end
-    
+
     local sortedOptions = {}
     for key, option in pairs(options.args or {}) do
         table.insert(sortedOptions, {key = key, option = option, order = option.order or 999})
     end
     table.sort(sortedOptions, function(a, b) return a.order < b.order end)
-    
+
     -- Start yOffset accounting for sticky tab container if present
     local yOffset = 15
     if contentFrame._tabContainerHeight then
@@ -5265,7 +5265,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     widgetHeight = gridFrame:GetHeight() or 80
                 end
             elseif option.type == "spellSearch" then
-                -- [REFACTOR] 실시간 Spell ID 검증 위젯 (Ayije 패턴 이식)
+                -- [REFACTOR] 실시간 Spell ID 검증 위젯 (CDM 패턴 이식)
                 local _GUI = DDingUI.GUI -- 런타임 참조 (local 정의가 파일 후반부)
                 local searchFrame = CreateFrame("Frame", nil, contentFrame)
                 searchFrame:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -yOffset)
@@ -5688,14 +5688,14 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                             local nestedGroupFrame = CreateFrame("Frame", nil, contentContainer)
                             nestedGroupFrame:SetPoint("TOPLEFT", contentContainer, "TOPLEFT", 10, -inlineYOffset)
                             nestedGroupFrame:SetPoint("RIGHT", contentContainer, "RIGHT", -10, 0)
-                            
+
                             -- Nested group title
                             local nestedGroupTitle = nestedGroupFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                             StyleFontString(nestedGroupTitle)
                             nestedGroupTitle:SetPoint("TOPLEFT", nestedGroupFrame, "TOPLEFT", 10, -8)
                             nestedGroupTitle:SetText(nestedGroupName)
                             nestedGroupTitle:SetTextColor(SL.GetColor("accent"))
-                            
+
                             -- Render nested inline group options
                             local nestedYOffset = 35
                             local nestedSorted = {}
@@ -5703,7 +5703,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                                 table.insert(nestedSorted, {key = k, option = v, order = v.order or 999})
                             end
                             table.sort(nestedSorted, function(a, b) return a.order < b.order end)
-                            
+
                             for _, nestedItem in ipairs(nestedSorted) do
                                 -- Skip if hidden
                                 local nestedHidden = false
@@ -5717,7 +5717,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                                 if not nestedHidden then
                                     local nestedWidget = nil
                                     local nestedHeight = 0
-                                    
+
                                     if nestedItem.option.type == "toggle" then
                                         nestedWidget = Widgets.CreateToggle(nestedGroupFrame, nestedItem.option, nestedYOffset, options)
                                         nestedHeight = 35
@@ -5748,7 +5748,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                                         nestedWidget = Widgets.CreateDescription(nestedGroupFrame, nestedItem.option, nestedYOffset, options)
                                         nestedHeight = nestedWidget:GetHeight() + 5
                                     end
-                                    
+
                                     if nestedWidget then
                                         nestedWidget:SetParent(nestedGroupFrame)
                                         nestedWidget:Show()
@@ -5757,14 +5757,14 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                                     end
                                 end
                             end
-                            
+
                             nestedGroupFrame:SetHeight(nestedYOffset + 10)
                             nestedGroupFrame:Show()
                             table.insert(contentFrame.widgets, nestedGroupFrame)
                             inlineWidget = nestedGroupFrame
                             inlineHeight = nestedYOffset + 10
                         end
-                        
+
                         if inlineWidget then
                             inlineWidget:SetParent(contentContainer)
                             inlineWidget:Show()
@@ -5875,7 +5875,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 widget = groupFrame  -- yOffset 증가를 위해 widget에 할당
                 widgetHeight = isCollapsed and groupFrame._collapsedHeight or (contentHeight + 28 + 10)
             end
-            
+
             if widget then
                 widget:SetParent(contentFrame)
 
@@ -8016,7 +8016,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
 end
 
 -- ============================================
--- Shared Styled Widget Helpers -- [REFACTOR] Ayije 패턴 이식용 공용 위젯
+-- Shared Styled Widget Helpers -- [REFACTOR] CDM 패턴 이식용 공용 위젯
 -- ============================================
 
 local function CreateStyledButton(parent, text, width, height)
@@ -8255,7 +8255,7 @@ local function CreateStyledDropdown(parent, options, width)
 end
 
 -- ============================================
--- Modal Overlay Utility -- [REFACTOR] Ayije 패턴 이식
+-- Modal Overlay Utility -- [REFACTOR] CDM 패턴 이식
 -- ============================================
 
 local function CreateModalOverlay(parentFrame, width, height)
@@ -8296,7 +8296,7 @@ local function CreateModalOverlay(parentFrame, width, height)
 end
 
 -- ============================================
--- Expand/Collapse Row Utility -- [REFACTOR] Ayije 아코디언 패턴 이식
+-- Expand/Collapse Row Utility -- [REFACTOR] CDM 아코디언 패턴 이식
 -- ============================================
 
 local ROW_HEIGHT_COLLAPSED = 32
@@ -8451,14 +8451,14 @@ DDingUI.GUI = {
     PropagateMouseWheelToScroll = PropagateMouseWheelToScroll,
     PropagateMouseWheelRecursive = PropagateMouseWheelRecursive,
 
-    -- Styled Widget Helpers -- [REFACTOR] Ayije 패턴 이식용
+    -- Styled Widget Helpers -- [REFACTOR] CDM 패턴 이식용
     CreateStyledButton = CreateStyledButton,
     CreateStyledToggle = CreateStyledToggle,
     CreateStyledInput = CreateStyledInput,
     CreateStyledDropdown = CreateStyledDropdown,
     CreateModalOverlay = CreateModalOverlay,
 
-    -- Expand/Collapse Row -- [REFACTOR] Ayije 아코디언 패턴
+    -- Expand/Collapse Row -- [REFACTOR] CDM 아코디언 패턴
     CreateExpandableRow = CreateExpandableRow,
     RepositionExpandableRows = RepositionExpandableRows,
     ROW_HEIGHT_COLLAPSED = ROW_HEIGHT_COLLAPSED,

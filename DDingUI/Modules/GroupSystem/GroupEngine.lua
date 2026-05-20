@@ -19,14 +19,14 @@ function GroupEngine:RegisterProvider(name, provider)
 end
 
 -- ============================================================
--- Debounced Queue System (Ayije 3-tier pattern)
+-- Debounced Queue System (CDM 3-tier pattern)
 -- ============================================================
 local updateQueue = {}
 local isProcessing = false
 
 function GroupEngine:RequestUpdate(groupName, delay)
     if isProcessing then return end
-    
+
     local d = delay or 0.05
     if not updateQueue[groupName] then
         updateQueue[groupName] = true
@@ -43,7 +43,7 @@ end
 function GroupEngine:RequestUpdateAll(delay)
     local gs = DDingUI.GroupSystem and DDingUI.GroupSystem.db
     if not gs or not gs.groups then return end
-    
+
     for groupName, settings in pairs(gs.groups) do
         if settings.enabled then
             self:RequestUpdate(groupName, delay)
@@ -56,29 +56,29 @@ end
 -- ============================================================
 function GroupEngine:ExecuteUpdate(groupName)
     isProcessing = true
-    
+
     local pool = DDingUI.GroupPool
     local renderer = DDingUI.GroupRenderer
     local gs = DDingUI.GroupSystem and DDingUI.GroupSystem.db
-    
+
     if not pool or not renderer or not gs then
         isProcessing = false
         return
     end
-    
+
     local settings = gs.groups[groupName]
     if not settings or not settings.enabled then
         pool:HideGroup(groupName)
         isProcessing = false
         return
     end
-    
+
     local container = pool:GetContainer(groupName)
     if not container then
         isProcessing = false
         return
     end
-    
+
     -- 1. Get active icons from providers
     local activeIcons = {}
     for _, provider in pairs(self.providers) do
@@ -91,36 +91,36 @@ function GroupEngine:ExecuteUpdate(groupName)
             end
         end
     end
-    
+
     -- 2. Sort icons if needed (Stable sort)
     table.sort(activeIcons, function(a, b)
         local aSort = a._cdmStableSortID or a.layoutIndex or 0
         local bSort = b._cdmStableSortID or b.layoutIndex or 0
         return aSort < bSort
     end)
-    
+
     -- 3. Layout Mathematics (Stateless)
     local totalW, totalH = renderer:CalculateAndSetPositions(container, activeIcons, settings)
-    
+
     -- 4. Set Container Size (Combat Safe)
     if not InCombatLockdown() then
         local minW, minH = renderer:GetPhantomSize(settings)
         local finalW = math.max(totalW, minW)
         local finalH = math.max(totalH, minH)
         container:SetSize(finalW, finalH)
-        
+
         if #activeIcons > 0 then
             container:Show()
         else
             container:Hide()
         end
     end
-    
+
     -- 5. Apply Style
     if DDingUI.GroupStyle then
         DDingUI.GroupStyle:ApplyToGroup(activeIcons, settings)
     end
-    
+
     isProcessing = false
 end
 

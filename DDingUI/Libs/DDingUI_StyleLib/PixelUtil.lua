@@ -1,7 +1,7 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: PixelUtil
 -- Pixel-perfect rendering system
--- EllesmereUI PP / PanelPP 시스템 완전 이식 + 기존 API 하위 호환
+-- DDingUI PP / PanelPP 시스템 완전 이식 + 기존 API 하위 호환
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
@@ -12,7 +12,7 @@ local math_floor = math.floor
 local type = type
 
 ---------------------------------------------------------------------
--- PP (Pixel Perfect) — EllesmereUI 음수 모듈로 스냅 알고리즘
+-- PP (Pixel Perfect) — DDingUI 음수 모듈로 스냅 알고리즘
 -- 모든 UIParent 자식 프레임에 적용
 ---------------------------------------------------------------------
 local PP = {}
@@ -36,7 +36,7 @@ function PP.UpdateMult()
 end
 
 --- 값을 가장 가까운 물리 픽셀 경계로 스냅
---- EllesmereUI의 음수 모듈로 알고리즘 — floor(x/m+0.5)*m 보다 부동소수점 오차 적음
+--- DDingUI의 음수 모듈로 알고리즘 — floor(x/m+0.5)*m 보다 부동소수점 오차 적음
 --- @param x number  스냅할 값
 --- @return number   물리 픽셀 경계에 맞춘 값
 function PP.Scale(x)

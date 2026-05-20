@@ -1,6 +1,6 @@
 -- [GROUP SYSTEM] ContainerSync: CDM 뷰어 ↔ DDingUI 컨테이너 동기화
 -- [REPARENT] SetParent 후 빈 CDM 뷰어를 은닉하고, Blizzard 탈환 시 snap-back
--- ArcUI CDMContainerSync 패턴 기반 — Push 방식, hooksecurefunc only
+-- DDingUI CDMContainerSync 패턴 기반 — Push 방식, hooksecurefunc only
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
@@ -101,7 +101,7 @@ end
 local function HideViewer(viewerName)
     local viewer = _G[viewerName]
     if not viewer then return end
-    -- [AYIJE] BuffIcon: 절대 숨기지 않음 — CDM Layout 사이클 유지 필수
+    -- [CDM] BuffIcon: 절대 숨기지 않음 — CDM Layout 사이클 유지 필수
     if viewerName == "BuffIconCooldownViewer" then return end
     local state = viewerState[viewerName]
     if not state then return end
@@ -126,7 +126,7 @@ end
 local function ShowViewer(viewerName)
     local viewer = _G[viewerName]
     if not viewer then return end
-    -- [AYIJE] BuffIcon: 항상 visible — show/hide 관리 안 함
+    -- [CDM] BuffIcon: 항상 visible — show/hide 관리 안 함
     if viewerName == "BuffIconCooldownViewer" then return end
 
     local state = viewerState[viewerName]
@@ -243,7 +243,7 @@ local function SetupViewerHooks(viewerName)
         if pushing then return end
         if IsInBlizzardEditMode() then return end
         if issecretvalue and issecretvalue(alpha) then return end
-        -- [AYIJE] BuffIcon: alpha snap-back 불필요 (offscreen 방식)
+        -- [CDM] BuffIcon: alpha snap-back 불필요 (offscreen 방식)
         if viewerName == "BuffIconCooldownViewer" then return end
         local state = viewerState[viewerName]
         if state and state.hidden and type(alpha) == "number" and alpha > 0.01 then
@@ -281,7 +281,7 @@ local function SetupViewerHooks(viewerName)
     viewer:HookScript("OnHide", function()
         if pushing then return end
         if IsInBlizzardEditMode() then return end
-        -- [AYIJE] BuffIcon: CDM이 Hide해도 즉시 재Show → CDM Layout 사이클 유지
+        -- [CDM] BuffIcon: CDM이 Hide해도 즉시 재Show → CDM Layout 사이클 유지
         -- CDM은 VIEWER를 숨기지만, 개별 프레임은 정상적으로 Show/Hide 관리
         if viewerName == "BuffIconCooldownViewer" then
             C_Timer.After(0, function()
@@ -459,7 +459,7 @@ function ContainerSync:Initialize()
     local profile = DDingUI.db and DDingUI.db.profile
     local gs = profile and profile.groupSystem
     local hideDefault = gs and gs.enabled and gs.hideDefaultViewers ~= false
-    
+
     if hideDefault then
         local enforceTicks = 0
         local enforceThrottle = 0  -- [PERF] 매 프레임 → 0.1초 스로틀
@@ -475,7 +475,7 @@ function ContainerSync:Initialize()
             if enforceThrottle < 0.1 then return end
             enforceThrottle = 0
             for _, viewerName in pairs(CDM_VIEWER_NAMES) do
-                -- [AYIJE] BuffIcon: alpha enforce 불필요 (offscreen 방식)
+                -- [CDM] BuffIcon: alpha enforce 불필요 (offscreen 방식)
                 if viewerName ~= "BuffIconCooldownViewer" then
                     local viewer = _G[viewerName]
                     if viewer and viewer:GetAlpha() > 0.01 then

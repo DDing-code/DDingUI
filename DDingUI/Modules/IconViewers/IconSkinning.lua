@@ -382,7 +382,7 @@ end
 
 -- Icon Skinning
 
--- [Ayije 통합] Color 값 안전 추출 — viewer 마이그레이션된 값이 Color 객체/테이블/nil일 수 있음
+-- [CDM 통합] Color 값 안전 추출 — viewer 마이그레이션된 값이 Color 객체/테이블/nil일 수 있음
 local function SafeColor(c, fallbackR, fallbackG, fallbackB, fallbackA)
     if not c then return fallbackR or 0, fallbackG or 0, fallbackB or 0, fallbackA or 1 end
     -- {r, g, b, a} 테이블
@@ -709,7 +709,7 @@ function IconViewers:SkinIcon(icon, settings)
 
                 if isAuraSwipe and s then
                     -- Option 0: hideActiveState — convert aura swipe to normal cooldown swipe
-                    -- (Ayije CDM "hideActive" port: SetReverse(false) + normal swipe color)
+                    -- (CDM CDM "hideActive" port: SetReverse(false) + normal swipe color)
                     -- The icon shows its regular CD timer instead of the active-state yellow overlay
                     if s.hideActiveState then
                         -- Switch from reversed (aura) to forward (cooldown) direction

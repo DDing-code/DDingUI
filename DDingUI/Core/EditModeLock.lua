@@ -1,7 +1,7 @@
 -- ============================================================
 -- DDingUI EditModeLock
 -- Blizzard 편집모드에서 CDM 뷰어 조작 완전 차단
--- Adapted from Ayije_CDM_ EditMode.lua (3중 차단 시스템)
+-- Adapted from CDM_ EditMode.lua (3중 차단 시스템)
 -- ============================================================
 
 local AddonName, ns = ...

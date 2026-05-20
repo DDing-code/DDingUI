@@ -860,7 +860,7 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
             end
             -- Ignore unauthorized SetPoint
         end
-        
+
         frame._ddBridgeHooksInstalled = true
     end
 
@@ -1173,7 +1173,7 @@ function DynamicIconBridge:Initialize()
         end
     end
 
-    -- [PERF] UNIT_AURA 이벤트 → Ayije 패턴의 dirty-flag 디바운싱
+    -- [PERF] UNIT_AURA 이벤트 → CDM 패턴의 dirty-flag 디바운싱
     -- 이전: 매 UNIT_AURA마다 ScanAndHideCDMBuffs() + NotifyIconsChanged() 즉시 실행
     -- 현재: dirty 플래그만 세팅 → FrameController Reconcile 틱에서 1회 실행
     -- 이유: BuffFrameManager/CustomIcons도 같은 UNIT_AURA를 처리하므로 3중 즉시 실행 불필요

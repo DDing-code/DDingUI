@@ -242,7 +242,7 @@ function ResourceBars:UpdatePowerBar()
     local anchorFallback = false
     if not anchor then
         if inGracePeriod then
-            -- [FIX] Ayije CDM 패턴: grace period 중 bar:Hide() 금지
+            -- [FIX] CDM CDM 패턴: grace period 중 bar:Hide() 금지
             -- 이전 위치/너비를 유지한 채 앵커 복구를 기다림 (바 사라짐 방지)
             if bar:GetParent() ~= UIParent then
                 bar:SetParent(UIParent)
@@ -708,7 +708,7 @@ end
 
 function ResourceBars:UpdatePowerBarTicks(bar, resource, max)
     local cfg = DDingUI.db.profile.powerBar
-    
+
     -- Hide all ticks first
     for _, tick in ipairs(bar.ticks) do
         tick:Hide()
@@ -730,7 +730,7 @@ function ResourceBars:UpdatePowerBarTicks(bar, resource, max)
             tick:SetColorTexture(0, 0, 0, 1)
             bar.ticks[i] = tick
         end
-        
+
         local x = math_floor((i / max) * width)
         tick:ClearAllPoints()
         -- x is already in pixels (calculated from bar width), no need to scale

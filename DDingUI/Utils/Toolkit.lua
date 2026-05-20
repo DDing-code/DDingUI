@@ -532,7 +532,7 @@ AddAPI(_G.GameFontNormal)
 AddAPI(CreateFrame('ScrollFrame'))
 
 -- ============================================================
--- [FIX Ayije] 쿨다운 탈색 판단용 CurveDataProvider (Ayije CDM Constants.lua 동일 패턴)
+-- [FIX CDM] 쿨다운 탈색 판단용 CurveDataProvider (CDM CDM Constants.lua 동일 패턴)
 -- desatDurationObject:EvaluateRemainingDuration(curve, 0) → 0 or 1 (Step)
 -- DesaturationCurve : 남은 시간 > 0 → 1 (쿨다운 중 = 회색)
 -- GCDFilterCurve    : 남은 시간 > 1.6s → 1 (GCD 이상 쿨다운만 회색)

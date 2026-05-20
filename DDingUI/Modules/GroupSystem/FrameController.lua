@@ -1,5 +1,5 @@
 -- [GROUP SYSTEM] FrameController: CDM 리빌드 감지 + Reconcile + 프레임 훅 엔진
--- [REFACTOR] CDMHookEngine.lua 대체 — ArcUI FrameController 패턴 기반
+-- [REFACTOR] CDMHookEngine.lua 대체 — DDingUI FrameController 패턴 기반
 -- NotifyListeners 훅으로 CDM 리빌드 즉시 감지, 디바운스 Reconcile로 안정적 처리
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
@@ -28,7 +28,7 @@ local CreateFrame = CreateFrame
 local hooksecurefunc = hooksecurefunc
 local C_Timer = C_Timer
 
--- [AYIJE 패턴] IsSafeNumber: secret value 안전 검증 (pcall 불필요)
+-- [CDM 패턴] IsSafeNumber: secret value 안전 검증 (pcall 불필요)
 local IsSafeNumber
 if type(issecretvalue) == "function" then
     IsSafeNumber = function(v)
@@ -51,7 +51,7 @@ local CDM_VIEWERS = {
 }
 
 -- ============================================================
--- 디바운스 설정 (ArcUI 검증 타이밍)
+-- 디바운스 설정 (DDingUI 검증 타이밍)
 -- ============================================================
 
 local CONFIG = {
@@ -60,8 +60,8 @@ local CONFIG = {
     DEBOUNCE_SPEC     = 1.0,
     DEBOUNCE_NORMAL   = 0.15,  -- ScheduleReconcile 하위 호환용
     DEBOUNCE_ONSHOW   = 0.05,  -- [FIX] OnShow/OnHide 디바운스 (기존 nil → 즐시 실행 버그 수정)
-    -- [Ayije 패턴] OnUpdate 폴링 제어
-    -- [FIX Ayije] burst 감소: 스와이프·색상 깜빡임 작업량 절감 (30fps → 20fps)
+    -- [CDM 패턴] OnUpdate 폴링 제어
+    -- [FIX CDM] burst 감소: 스와이프·색상 깜빡임 작업량 절감 (30fps → 20fps)
     -- SPELL_UPDATE_COOLDOWN 이벤트가 쿨다운 변화를 직접 트리거하므로 폴링 의존도 감소
     BURST_THROTTLE    = 0.05,   -- ~20fps (30fps → 20fps)
     WATCHDOG_THROTTLE = 0.25,   -- 4fps (안정화 후 느린 스캔)
@@ -151,7 +151,7 @@ end
 local state = {
     hooksInstalled = false,
     frameHooksInstalled = {},  -- [frameAddress] = true (중복 훅 방지)
-    -- [Ayije 패턴] OnUpdate 폴링 상태
+    -- [CDM 패턴] OnUpdate 폴링 상태
     dirty = false,             -- Reconcile 필요 플래그
     burstTicksRemaining = 0,   -- burst 모드 남은 틱
     lastActivityTime = 0,      -- 마지막 활동 시간
@@ -169,7 +169,7 @@ local state = {
 }
 
 -- ============================================================
--- [Ayije 패턴] OnUpdate 폴링 시스템
+-- [CDM 패턴] OnUpdate 폴링 시스템
 -- CDM의 아이콘 생명주기(acquire→show→layout)가 여러 프레임에 걸쳐
 -- 발생하므로, 이벤트 기반 디바운스 대신 폴링으로 상태 확인.
 -- Burst(33ms) → Watchdog(250ms) → Idle(자동 비활성화)
@@ -265,7 +265,7 @@ local function ForceImmediateReconcile()
 end
 
 -- ============================================================
--- [FIX Ayije] 쿨다운 변화 이벤트 기반 트리거 (Ayije TrackerSpellCooldownWatcher 패턴)
+-- [FIX CDM] 쿨다운 변화 이벤트 기반 트리거 (CDM TrackerSpellCooldownWatcher 패턴)
 -- SPELL_UPDATE_COOLDOWN/CHARGES는 GCD마다 발생하지만, MarkDirty()는 idempotent이므로 안전
 -- 폴링에만 의존하던 쿨다운 스와이프 갱신을 이벤트 기반으로 보완
 -- ============================================================
@@ -315,7 +315,7 @@ function FrameController:RefreshViewerRefs()
                 -- 새 뷰어에 Layout/Show/Hide 훅 설치
                 if not hookedViewerLayout[currentViewer] then
                     hookedViewerLayout[currentViewer] = true
-                    -- [AYIJE ForceReanchor] 동기 Reconcile 핸들러
+                    -- [CDM ForceReanchor] 동기 Reconcile 핸들러
                     -- CDM 이벤트 완료 후 즉시 전체 재배치
                     local function PostLayoutHandler()
                         if not FrameController.initialized then return end
@@ -323,7 +323,7 @@ function FrameController:RefreshViewerRefs()
                         DLog("PostLayoutHandler →", viewerGlobalName)
                         FrameController:Reconcile()
                     end
-                    -- [1] UpdateLayout/Layout 훅 (Ayije Main.lua:225)
+                    -- [1] UpdateLayout/Layout 훅 (CDM Main.lua:225)
                     if currentViewer.UpdateLayout then
                         hooksecurefunc(currentViewer, "UpdateLayout", PostLayoutHandler)
                     elseif currentViewer.Layout then
@@ -377,7 +377,7 @@ function FrameController:RefreshViewerRefs()
 end
 
 -- ============================================================
--- [AYIJE] OnActiveStateChanged 훅
+-- [CDM] OnActiveStateChanged 훅
 -- CDM이 프레임 active 상태 변경 시 호출
 -- frame:IsShown()은 DDingUI의 Show() 호출로 오염됨
 -- → _ddCDMActive 플래그로 CDM의 진짜 상태를 추적
@@ -409,7 +409,7 @@ if not FrameController._activeStateHooked then
 end
 
 -- ============================================================
--- [AYIJE] itemFramePool.Release 훅
+-- [CDM] itemFramePool.Release 훅
 -- CDM이 버프 만료 시 pool에서 Release() 호출
 -- Release된 프레임: EnumerateActive()에서 제거 + Hide() 호출
 -- DDingUI가 reparent한 프레임은 CDM viewer로 복원 필요
@@ -417,7 +417,7 @@ end
 
 if not FrameController._poolReleaseHooked then
     FrameController._poolReleaseHooked = true
-    -- [AYIJE REACTIVE] Pool Acquire/Release → Reconcile만 트리거
+    -- [CDM REACTIVE] Pool Acquire/Release → Reconcile만 트리거
     -- 상태 변경 없음: Reconcile이 매번 전체 재배치
     FrameController._installPoolHooks = function(viewer, globalName)
         if not viewer or not viewer.itemFramePool then return end
@@ -432,7 +432,7 @@ if not FrameController._poolReleaseHooked then
                 if not state.pollingActive then EnablePolling() end
             end
         end)
-        -- Pool.Acquire: dirty만 표시 (Ayije Main.lua:411 패턴)
+        -- Pool.Acquire: dirty만 표시 (CDM Main.lua:411 패턴)
         hooksecurefunc(viewer.itemFramePool, "Acquire", function()
             if FrameController.initialized then
                 MarkDirty()
@@ -650,7 +650,7 @@ function FrameController:ScanCDMViewers()
         -- 단, 숨겨진 아이콘에도 OnShow 훅을 설치하여 CDM이 Show 시 Reconcile 트리거
         local isBuffViewer = (globalName == "BuffIconCooldownViewer")
         if shouldScan and viewer.itemFramePool then
-            -- [AYIJE] Buff viewer: pool Release 훅 설치 (최초 1회)
+            -- [CDM] Buff viewer: pool Release 훅 설치 (최초 1회)
             if FrameController._installPoolHooks then
                 FrameController._installPoolHooks(viewer, globalName)
             end
@@ -658,14 +658,14 @@ function FrameController:ScanCDMViewers()
             for icon in viewer.itemFramePool:EnumerateActive() do
                 -- [FIX] isEditing 프레임 무시 (EditMode 종료 시 블리자드 코드 Taint 에러 방지)
                 if icon.cooldownID and not icon.isEditing then
-                    -- [AYIJE Buffs.lua L265] 모든 뷰어: IsShown()만 사용, CDM 가시성 신뢰
+                    -- [CDM Buffs.lua L265] 모든 뷰어: IsShown()만 사용, CDM 가시성 신뢰
                     local shouldInclude = icon:IsShown()
                     if not shouldInclude and _debugLog then
                         local pname = icon:GetParent() and icon:GetParent():GetName() or "?"
                         DLog("  SKIP hidden:", tostring(icon.cooldownID), "managed=" .. tostring(icon._ddIsManaged), "alpha=" .. string.format("%.2f", icon:GetAlpha()), "parent=" .. pname)
                     end
                     if shouldInclude then
-                        -- [FIX] CDM 중복 억제 (ArcUI auraSpellID + Ayije 분리 패턴)
+                        -- [FIX] CDM 중복 억제 (DDingUI auraSpellID + CDM 분리 패턴)
                         -- CDM cooldownID ≠ spell ID → auraSpellID(실제 spell ID) 사용
                         -- 매칭 시 _ddIsManaged 설정 → CDM Layout 훅이 자동으로 뷰어에서 분리
                         if suppressed then
@@ -780,7 +780,7 @@ function FrameController:ScanCDMViewers()
         DLog("ScanDone: idIconMap=" .. count .. " entries")
     end
 
-    -- [AYIJE REACTIVE] 고아 정리 없음.
+    -- [CDM REACTIVE] 고아 정리 없음.
     -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
     -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
 end
@@ -817,7 +817,7 @@ function FrameController:Reconcile()
     local _rc = state.reconcileCount or 0
     DLog("Reconcile #" .. _rc, "talent=" .. tostring(state.talentChangeDetected))
 
-    -- [AYIJE REACTIVE] 특성 변경 시: idIconMap만 wipe.
+    -- [CDM REACTIVE] 특성 변경 시: idIconMap만 wipe.
     -- 다음 ScanCDMViewers가 처음부터 재구축하므로 개별 Release 불필요.
     if state.talentChangeDetected then
         wipe(idIconMap)
@@ -841,7 +841,7 @@ function FrameController:Reconcile()
     state.specChangeDetected = false
     state.talentChangeDetected = false
     state.isProcessing = false
-    state.dirty = false -- [Ayije] 이번 스캔 완료 → dirty 해제
+    state.dirty = false -- [CDM] 이번 스캔 완료 → dirty 해제
     state.reconcileCount = state.reconcileCount + 1
     -- OnUpdate 폴링이 watchdog(250ms)으로 자동 재스캔 → 수동 followup 불필요
 end
@@ -853,7 +853,7 @@ end
 function FrameController:GetSpellIDForIcon(icon)
     if not icon then return nil end
 
-    -- 1. [AYIJE 패턴] GetAuraSpellID — pcall 불필요 (전투 중 안전)
+    -- 1. [CDM 패턴] GetAuraSpellID — pcall 불필요 (전투 중 안전)
     if icon.GetAuraSpellID then
         local sid = icon:GetAuraSpellID()
         if IsSafeNumber(sid) and sid > 0 then
@@ -861,7 +861,7 @@ function FrameController:GetSpellIDForIcon(icon)
         end
     end
 
-    -- 2. [AYIJE 패턴] Raw cooldownInfo 메타테이블 스캐닝
+    -- 2. [CDM 패턴] Raw cooldownInfo 메타테이블 스캐닝
     local info = icon.GetCooldownInfo and icon:GetCooldownInfo() or icon.cooldownInfo
     if info then
         local sid = info.overrideSpellID or info.spellID or info.linkedSpellID
@@ -924,7 +924,7 @@ end
 
 -- ============================================================
 -- SetupFrameInContainer (핵심: CDM 아이콘을 DDingUI 컨테이너로 이관)
--- [REPARENT] ArcUI SetupFrameInContainer 패턴 기반
+-- [REPARENT] DDingUI SetupFrameInContainer 패턴 기반
 -- ============================================================
 
 function FrameController:SetupFrameInContainer(frame, container, targetW, targetH, cooldownID)
@@ -947,7 +947,7 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
     end
 
     -- 2. SetParent(UIParent) + 컨테이너 참조 저장 -- [REPARENT]
-    -- Ayije CDM 패턴: 아이콘을 UIParent 자식으로 두고 컨테이너는 앵커 참조만
+    -- CDM CDM 패턴: 아이콘을 UIParent 자식으로 두고 컨테이너는 앵커 참조만
     -- → CDM Layout이 뷰어 기준으로 재배치해도 parent 계층에 영향 없음
     frame:SetParent(UIParent)
     frame._ddContainerRef = container
@@ -995,7 +995,7 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
     frame._ddSettingPosition = false
 
     -- 8. [FIX] 고아 정리(alpha=0)에서 복원: 관리 등록 시 alpha 명시적 복원
-    -- AYIJE 패턴은 CDM 가시성을 신뢰하지만, DDingUI 자체의 고아 정리에서
+    -- CDM 패턴은 CDM 가시성을 신뢰하지만, DDingUI 자체의 고아 정리에서
     -- SetAlpha(0)이 적용된 프레임은 CDM Show() 후에도 alpha=0이 유지됨
     -- → 관리 등록 시점에 alpha=1로 복원해야 UpdateGroup의 alpha 루프 전에 보임
     frame._ddProvisionalHidden = nil
@@ -1213,7 +1213,7 @@ local function InstallCDMHooks()
             -- [FIX] EditMode의 테스트 프레임은 무시하여 Taint 및 에러 방지
             if frame and frame.isEditing then return end
 
-            -- [Ayije 패턴] acquire 시 scale 강제 1 (CDM이 변경할 수 있음)
+            -- [CDM 패턴] acquire 시 scale 강제 1 (CDM이 변경할 수 있음)
             if frame and frame.SetScale then
                 frame:SetScale(1)
             end
@@ -1227,7 +1227,7 @@ local function InstallCDMHooks()
                     frame:SetFrameLevel(container:GetFrameLevel() + 10)
                 end
 
-                -- [Ayije Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 주석 처리합니다.
+                -- [CDM Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 주석 처리합니다.
                 -- 대신 MarkDirty()를 통해 큐가 터질 때 Watchdog이 좌표를 갱신하게 둡니다.
                 -- if frame._ddTargetPoint then
                 --     frame:ClearAllPoints()
@@ -1300,7 +1300,7 @@ local function InstallCDMHooks()
                                     if container then
                                         icon:SetFrameLevel(container:GetFrameLevel() + 10)
                                     end
-                                    -- [Ayije Phase 1: 스냅백 삭제] 
+                                    -- [CDM Phase 1: 스냅백 삭제]
                                     -- Layout 직후 다시 뺏어오는 행위 삭제. Reconcile 엔진이 일괄 처리합니다.
                                 end
                             end
@@ -1314,7 +1314,7 @@ local function InstallCDMHooks()
                     ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
                 end
             end)
-            -- [Ayije 패턴] OnHide 복원: 블리자드가 뷰어를 Hide()해도 즉시 다시 Show
+            -- [CDM 패턴] OnHide 복원: 블리자드가 뷰어를 Hide()해도 즉시 다시 Show
             -- 스펙 변경/레벨업 등에서 뷰어가 사라지는 것 방지
             viewer:HookScript("OnHide", function(self)
                 if InCombatLockdown() then return end
@@ -1330,7 +1330,7 @@ local function InstallCDMHooks()
         end
     end
 
-    -- [Ayije 패턴 C] Provisional Reparent — 리로드 직후 비관리 아이콘 즉시 reparent
+    -- [CDM 패턴 C] Provisional Reparent — 리로드 직후 비관리 아이콘 즉시 reparent
     -- OnCooldownIDSet에서 아이콘이 아직 managed가 아니더라도,
     -- ClassifyIcon으로 하이재킹 대상 판별 → 즉시 SetParent(UIParent) + 그룹 컨테이너 CENTER
     -- CDM Layout이 뷰어 내부에 배치하기 전에 reparent 완료
@@ -1354,7 +1354,7 @@ local function InstallCDMHooks()
         local GroupRenderer = DDingUI.GroupRenderer
         local container = GroupRenderer and GroupRenderer.groupFrames and GroupRenderer.groupFrames[groupName]
         if container then
-            -- [Ayije Phase 2] 중앙에 모이는 팝업 현상 방지를 위해 큐 처리 전까지 우주 밖으로 날려버림 (Provisional Placement)
+            -- [CDM Phase 2] 중앙에 모이는 팝업 현상 방지를 위해 큐 처리 전까지 우주 밖으로 날려버림 (Provisional Placement)
             frame:SetParent(UIParent)
             frame:SetFrameStrata("MEDIUM")
             frame:SetFrameLevel(container:GetFrameLevel() + 10)
@@ -1369,7 +1369,7 @@ local function InstallCDMHooks()
         end
     end
 
-    -- [HOOK E] Mixin.OnCooldownIDSet — 아이콘 생성 즉시 감지 (Ayije 핵심 패턴)
+    -- [HOOK E] Mixin.OnCooldownIDSet — 아이콘 생성 즉시 감지 (CDM 핵심 패턴)
     -- CDM이 아이콘에 cooldownID를 할당하는 시점 → 가장 빠른 감지 타이밍
     -- HOOK C(SetCooldownID)보다 먼저 실행되어 managed 프레임 즉시 snap-back
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
@@ -1386,7 +1386,7 @@ local function InstallCDMHooks()
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
                     end
-                    -- [Ayije Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 제거.
+                    -- [CDM Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 제거.
                     -- if frame._ddTargetPoint then ... end
                 end
                 -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
@@ -1394,7 +1394,7 @@ local function InstallCDMHooks()
                     frame:SetAlpha(1)
                 end
             else
-                -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
+                -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
                 ProvisionalReparent(frame)
             end
             MarkDirty()
@@ -1415,7 +1415,7 @@ local function InstallCDMHooks()
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
                     end
-                    -- [Ayije Phase 1: 스냅백 삭제] 
+                    -- [CDM Phase 1: 스냅백 삭제]
                     -- if frame._ddTargetPoint then ... end
                 end
                 -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
@@ -1423,7 +1423,7 @@ local function InstallCDMHooks()
                     frame:SetAlpha(1)
                 end
             else
-                -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
+                -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
                 ProvisionalReparent(frame)
             end
             MarkDirty()
@@ -1444,11 +1444,11 @@ local function InstallCDMHooks()
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
                     end
-                    -- [Ayije Phase 1: 스냅백 삭제]
+                    -- [CDM Phase 1: 스냅백 삭제]
                     -- if frame._ddTargetPoint then ... end
                 end
             else
-                -- [Ayije 패턴 C] 비관리 아이콘: provisional reparent
+                -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
                 ProvisionalReparent(frame)
             end
             MarkDirty()
@@ -1456,7 +1456,7 @@ local function InstallCDMHooks()
         end)
     end
 
-    -- [HOOK G] BuffBar Mixin OnCooldownIDSet (Ayije 패턴 — DDingUI 누락 보완)
+    -- [HOOK G] BuffBar Mixin OnCooldownIDSet (CDM 패턴 — DDingUI 누락 보완)
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnCooldownIDSet", function(frame)
             if not FrameController.initialized then return end
@@ -1467,7 +1467,7 @@ local function InstallCDMHooks()
         end)
     end
 
-    -- [HOOK H] BuffBar OnActiveStateChanged (Ayije 패턴)
+    -- [HOOK H] BuffBar OnActiveStateChanged (CDM 패턴)
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnActiveStateChanged then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnActiveStateChanged", function(frame)
             if not FrameController.initialized then return end
@@ -1476,7 +1476,7 @@ local function InstallCDMHooks()
         end)
     end
 
-    -- [HOOK I] Buff OnActiveStateChanged (Ayije 패턴)
+    -- [HOOK I] Buff OnActiveStateChanged (CDM 패턴)
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnActiveStateChanged then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
             if not FrameController.initialized then return end
@@ -1485,7 +1485,7 @@ local function InstallCDMHooks()
         end)
     end
 
-    -- [HOOK F] itemFramePool Acquire/Release — 풀 레벨 즉시 감지 (Ayije 패턴)
+    -- [HOOK F] itemFramePool Acquire/Release — 풀 레벨 즉시 감지 (CDM 패턴)
     for globalName, viewer in pairs(viewerRefs) do
         if viewer.itemFramePool and not viewer._fcPoolHooked then
             viewer._fcPoolHooked = true
@@ -1727,7 +1727,7 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     eventFrame:RegisterEvent("SPELLS_CHANGED")
     eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- [FIX] 전투 진입 시 즉시 재스캔
-    -- [Ayije 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
+    -- [CDM 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
     eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
     eventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     eventFrame:SetScript("OnEvent", function(_, event, ...)
@@ -1736,7 +1736,7 @@ function FrameController:Initialize()
             return
         elseif event == "LOADING_SCREEN_DISABLED" then
             FrameController._loadingScreenActive = false
-            -- [Ayije 패턴] 로딩 화면 끝 → 뷰어 재셋업 + 전체 큐
+            -- [CDM 패턴] 로딩 화면 끝 → 뷰어 재셋업 + 전체 큐
             if FrameController.initialized then
                 FrameController:RefreshViewerRefs()
                 MarkDirty()
@@ -1828,7 +1828,7 @@ function FrameController:Initialize()
     self.initialized = true
     self._initTime = GetTime() -- [DIAG] 진단 시간 기준점
 
-    -- [Ayije 패턴] OnUpdate 폴링 시작 — CDM 아이콘 상태를 자동 감지
+    -- [CDM 패턴] OnUpdate 폴링 시작 — CDM 아이콘 상태를 자동 감지
     -- 초기화 직후 burst 모드로 빠르게 스캔 → 안정화 후 watchdog → idle 비활성화
     EnablePolling()
 
@@ -1888,7 +1888,7 @@ SlashCmdList["DDBUFFDUMP"] = function()
     P("=== CDM Pool State ===")
     local viewer = _G["BuffIconCooldownViewer"]
     if not viewer then P("BuffIconCooldownViewer NOT FOUND") return end
-    
+
     local activeCount, activeShown, activeHidden = 0, 0, 0
     if viewer.itemFramePool then
         for frame in viewer.itemFramePool:EnumerateActive() do
@@ -1901,7 +1901,7 @@ SlashCmdList["DDBUFFDUMP"] = function()
         end
     end
     P("Active pool:", activeCount, "Shown:", activeShown, "Hidden:", activeHidden)
-    
+
     P("=== idIconMap (BuffIcon entries) ===")
     local mapCount = 0
     for cid, icon in pairs(idIconMap) do
@@ -1931,7 +1931,7 @@ SlashCmdList["DDBUFFDUMP"] = function()
         end
     end
     P("idIconMap buff entries:", mapCount)
-    
+
     P("=== GroupRenderer Managed Icons ===")
     local GR = DDingUI.GroupRenderer
     if GR and GR.groupFrames then
@@ -2073,7 +2073,7 @@ SlashCmdList["DDALPHA"] = function()
             local groupSettings = gs and gs.groups and gs.groups[groupName]
             local groupAlpha = groupSettings and groupSettings.groupAlpha or 1.0
             P("--- 그룹: ", groupName, " containerAlpha=", string.format("%.2f", frame:GetAlpha()), " groupAlpha설정=", groupAlpha, " shown=", tostring(frame:IsShown()))
-            
+
             if frame._managedIcons then
                 local total = 0
                 local hidden = 0

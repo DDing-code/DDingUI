@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: DesignTokens
--- 100+ design tokens (EllesmereUI pattern)
+-- 100+ design tokens (DDingUI pattern)
 -- Centralized visual constants for all DDingUI modules
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"
@@ -53,7 +53,7 @@ Tokens.BTN_BRD_HA       = 0.30     -- 버튼 보더 투명도 (호버)
 Tokens.BTN_TXT_A        = 0.85     -- 버튼 텍스트 투명도 (기본)
 Tokens.BTN_TXT_HA       = 1.00     -- 버튼 텍스트 투명도 (호버)
 
--- ─── Checkboxes (상태별 세분화 — EllesmereUI CB 패턴) ───
+-- ─── Checkboxes (상태별 세분화 — DDingUI CB 패턴) ───
 Tokens.CB = {
     BOX_R    = 0.075,   -- 체크박스 배경 R
     BOX_G    = 0.113,   -- 체크박스 배경 G
@@ -64,7 +64,7 @@ Tokens.CB = {
     CHECK_INSET = 2,    -- 체크마크 안쪽 여백
 }
 
--- ─── Dropdowns (상태별 세분화 — EllesmereUI DD 패턴) ───
+-- ─── Dropdowns (상태별 세분화 — DDingUI DD 패턴) ───
 Tokens.DD = {
     BG_R     = 0.075,   -- 드롭다운 배경 RGB
     BG_G     = 0.113,
@@ -82,7 +82,7 @@ Tokens.DD = {
     ARROW_SZ = 12,      -- 드롭다운 화살표 크기
 }
 
--- ─── Sliders (상태별 세분화 — EllesmereUI SL 패턴) ───
+-- ─── Sliders (상태별 세분화 — DDingUI SL 패턴) ───
 Tokens.SL = {
     TRACK_R  = 0.08,    -- 슬라이더 트랙 RGB
     TRACK_G  = 0.10,
@@ -98,7 +98,7 @@ Tokens.SL = {
     THUMB_SZ = 12,      -- 썸 크기
 }
 
--- ─── Toggles (상태별 세분화 — EllesmereUI TG 패턴) ───
+-- ─── Toggles (상태별 세분화 — DDingUI TG 패턴) ───
 Tokens.TG = {
     OFF_R    = 0.10,    -- OFF 트랙 RGB
     OFF_G    = 0.12,

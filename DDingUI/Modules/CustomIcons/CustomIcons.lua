@@ -174,7 +174,7 @@ function CustomIcons:GetPlayerRacialSpellID()
     local _, raceKey = UnitRace("player")
     local raceFile = (raceKey or ""):gsub("%s", ""):gsub("^%l", string.upper)
     local spellList = RACIAL_SPELLS[raceFile]
-    
+
     if type(spellList) == "table" then
         for _, spellID in ipairs(spellList) do
             if IsSpellInPlayerBook(spellID) then
@@ -585,7 +585,7 @@ end
 -- [FIX] IsCooldownFrameActive: 이전 패치에서 정의 제거됨 — forward declaration 유지 (nil)
 -- L830 호출부도 GetCooldownTimes 기반으로 교체되었으므로 더 이상 보안 필요 없음
 
--- [Ayije CDM 방식] 아이템 → 스펠 쿨다운 매핑
+-- [CDM CDM 방식] 아이템 → 스펠 쿨다운 매핑
 -- 아이템 쿨다운 API가 전투 중 늦게 갱신될 때 스펠 쿨다운으로 폴백
 local ITEM_SPELL_MAP = {
     [5512]   = 6262,    -- Healthstone
@@ -1528,7 +1528,7 @@ end
 -- Item cooldown APIs can briefly report zero immediately after combat item use.
 -- Keep the last valid cooldown span until it expires instead of hiding the count.
 
--- [FIX Ayije] IsCooldownFrameActive 제거 — 대신 EvaluateRemainingDuration(GCDFilterCurve)로 frame-perfect 쿨다운 감지
+-- [FIX CDM] IsCooldownFrameActive 제거 — 대신 EvaluateRemainingDuration(GCDFilterCurve)로 frame-perfect 쿨다운 감지
 local function EvalDesatFromDurObj(durObj, isOnGCD)
     local DDingUI = ns.Addon
     local desatCurve = isOnGCD
@@ -1809,7 +1809,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     end
     SetStableIconTexture(iconFrame, itemTexture, true)
 
-    -- [Ayije_CDM 패턴] 아이템 쿨다운 (GetItemCooldown 최우선 -> GetSpellCooldownDuration 폴백)
+    -- [CDM 패턴] 아이템 쿨다운 (GetItemCooldown 최우선 -> GetSpellCooldownDuration 폴백)
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, activeItemID, settings)
     EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
 
@@ -1819,7 +1819,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     local itemCombatLocked = IsItemCombatLocked(activeItemID)
     -- GetItemCooldown can briefly return 0 in combat; keep a cached valid span as fallback.
     if itemSpellID then
-        -- 스펠 ID가 매핑된 아이템: Ayije_CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
+        -- 스펠 ID가 매핑된 아이템: CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
         local realDur = nil
         if C_Spell and C_Spell.GetSpellCooldownDuration then
             realDur = C_Spell.GetSpellCooldownDuration(itemSpellID)
@@ -1875,7 +1875,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
-    -- [Ayije_CDM 패턴] 탈색 처리
+    -- [CDM 패턴] 탈색 처리
     local allowCooldownDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
 
@@ -1982,7 +1982,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         end)
     end
 
-    -- [Ayije 패턴] 쿨다운 DurationObject 선택
+    -- [CDM 패턴] 쿨다운 DurationObject 선택
     -- CCD(ChargeDuration)가 존재하면 충전 쿨다운, 없으면 SCD(SpellCooldown) 사용
     -- currentCharges/maxCharges 값 비교 불필요 (secret value taint 방지)
     local durObj
@@ -2035,7 +2035,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         end
     end
 
-    -- [FIX Ayije] Swipe/Edge 스타일 (변경 없음)
+    -- [FIX CDM] Swipe/Edge 스타일 (변경 없음)
     if not (iconData.settings and iconData.settings.showCooldown == false) then
         if isChargeSpell then
             pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0)
@@ -2064,7 +2064,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         if okUsable then usable = usableVal == true end
     end
 
-    -- [FIX Ayije] EvaluateRemainingDuration 기반 탈색
+    -- [FIX CDM] EvaluateRemainingDuration 기반 탈색
     -- secret number를 비교하지 않음 — cdInfo.isActive (safe boolean)으로 OnUpdate 진입 결정
     local desatDurObj = SCD
     local desatValue = 0
@@ -2144,7 +2144,7 @@ local function UpdateSlotIcon(iconFrame, iconData)
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
     EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
 
-    -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
+    -- [CDM 패턴] enable == 1 + canaccessvalue + C_DurationUtil
     local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddSlotCooldown", itemID, slotID)
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, iconData.settings)
     local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
@@ -2406,7 +2406,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
 
         if settings.showItemCooldown ~= false then
-            -- [Ayije 패턴] enable == 1 + canaccessvalue + C_DurationUtil
+            -- [CDM 패턴] enable == 1 + canaccessvalue + C_DurationUtil
             local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddTrinketCooldown", itemID, slotID)
             local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, settings)
             local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
@@ -2750,7 +2750,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     if auraData then
-        -- [FIX] 버프 스와이프 방향: fill-up (Ayije 패턴)
+        -- [FIX] 버프 스와이프 방향: fill-up (CDM 패턴)
         iconFrame.cooldown:SetReverse(true)
 
         -- 활성: duration 쿨다운 + 스택 표시
@@ -2907,7 +2907,7 @@ end
 -- Event-based update system
 -- ------------------------
 
--- [Ayije 패턴] 디바운스 상태 — 같은 틱에 여러 이벤트가 동시에 UpdateAllIcons를
+-- [CDM 패턴] 디바운스 상태 — 같은 틱에 여러 이벤트가 동시에 UpdateAllIcons를
 -- 호출해도 실제 실행은 다음 프레임에 단 1회만 수행 (C_Timer.After(0) 배치 처리)
 local _pendingIconUpdate = false
 local _iconUpdateSeq = 0
@@ -2996,7 +2996,7 @@ local function ExecuteUpdateAllIcons()
     return layoutStateChanged
 end
 
--- [Ayije 패턴] 공개 진입점 — 이벤트 핸들러는 이 함수만 호출
+-- [CDM 패턴] 공개 진입점 — 이벤트 핸들러는 이 함수만 호출
 -- 같은 틱 내 다수 호출을 1회로 병합, 다음 프레임에 실행
 UpdateAllIcons = function(needsLayoutNotify)
     if needsLayoutNotify then
@@ -3667,19 +3667,19 @@ end
 local function CreateBaseIcon(name, parent)
     local frame = CreateFrame("Button", name, parent, "BackdropTemplate")
     frame:SetSize(40, 40)
-    
+
     -- [FIX] ARTWORK 레이어 사용: BackdropTemplate의 backdrop이 BACKGROUND 레이어를 차지하므로
     -- BACKGROUND에 icon을 만들면 backdrop에 가려져 투명하게 보임
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(frame)
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    
+
     -- Border frame (texture-based, no SetBackdrop = no taint)
     local border = CreateFrame("Frame", nil, frame)
     border:SetFrameLevel(frame:GetFrameLevel() + 1)
     border:SetAllPoints(frame)
     border:Hide()
-    
+
     local cd = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
     cd:SetAllPoints(frame)
     cd:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -3714,7 +3714,7 @@ local function CreateBaseIcon(name, parent)
     cd:SetScript("OnCooldownDone", HandleCooldownDone)
     cdProbe:SetScript("OnCooldownDone", HandleCooldownDone)
     cdChargeProbe:SetScript("OnCooldownDone", HandleCooldownDone)
-    
+
     local countLayer = CreateFrame("Frame", nil, frame)
     countLayer:SetFrameLevel(frame:GetFrameLevel() + 2)
     countLayer:SetAllPoints(frame)
@@ -3732,7 +3732,7 @@ local function CreateBaseIcon(name, parent)
     frame.cooldownChargeProbe = cdChargeProbe
     frame.count = count
     frame.border = border
-    
+
     frame:EnableMouse(true)
     return frame
 end
@@ -3876,7 +3876,7 @@ local function CreateItemIcon(iconKey, iconData, parent)
     local itemID = iconData.id
     if not itemID then return nil end
 
-    -- [FIX] Ayije 방식: 프레임은 항상 생성, 텍스처만 나중에 업데이트
+    -- [FIX] CDM 방식: 프레임은 항상 생성, 텍스처만 나중에 업데이트
     -- GetItemInfo가 nil이어도 프레임은 만들어야 GroupSystem이 추적 가능
     local itemName = GetItemInfo(itemID)
     if not itemName and C_Item and C_Item.RequestLoadItemDataByID then
@@ -4475,7 +4475,7 @@ function CustomIcons:LoadDynamicIcons()
     for iconKey, iconData in pairs(db.iconData) do
         EnsureLoadConditions(iconData)
         local isLoadable = IsIconLoadable(iconData)
-        
+
         -- [FIX] 로그인 직후(10초 이내) 스펠북이 준비 안 되어 false를 반환하는 경우 실패로 간주하지 않고 재시도 대기열에 추가
         if not isLoadable and timeSinceLogin < 10 then
             pendingKeys[#pendingKeys + 1] = iconKey
@@ -4783,7 +4783,7 @@ function CustomIcons:AddDynamicIcon(iconData)
     db.ungroupedPositions = db.ungroupedPositions or {}
     db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
 
-    -- Build frame — CreateDynamicIcon은 항상 프레임 반환 (Ayije 방식)
+    -- Build frame — CreateDynamicIcon은 항상 프레임 반환 (CDM 방식)
     local frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(iconKey, db.ungroupedPositions[iconKey]))
     if frame then
         runtime.iconFrames[iconKey] = frame

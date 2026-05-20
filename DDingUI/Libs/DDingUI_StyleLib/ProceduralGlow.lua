@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: ProceduralGlow
--- Mathematical glow engine (EllesmereUI Procedural Ants + Shape Glow)
+-- Mathematical glow engine (DDingUI Procedural Ants + Shape Glow)
 -- Taint-free: uses OnUpdate + trigonometry instead of AnimationGroup
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"

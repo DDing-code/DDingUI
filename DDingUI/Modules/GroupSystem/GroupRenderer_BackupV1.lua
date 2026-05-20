@@ -424,7 +424,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
     }
     local proxyName = CORE_PROXY[groupName]
     local proxyFrame = proxyName and _G[proxyName]
-    
+
     local moverId = proxyName or ("DDingUI_Group_" .. groupName)
     local hasMoverPos = DDingUI.Movers and DDingUI.Movers.CreatedMovers
         and DDingUI.Movers.CreatedMovers[moverId]
@@ -433,7 +433,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
     local usedViewerPos = false
 
     -- [FIX] 프록시 앵커가 있는 핵심 3대 그룹은 별도의 폴백이나 좌표계산 없이 프록시를 앵커로 종속됨.
-    -- 프록시 자체의 위치는 Mover에서 groupSettings 정보를 읽어 완벽히 복원하므로, 
+    -- 프록시 자체의 위치는 Mover에서 groupSettings 정보를 읽어 완벽히 복원하므로,
     -- 0,0으로 맞추기만 하면 항상 정확히 일치하며 마우스 드래그도 실시간으로 반영됨.
     if proxyFrame then
         frame:SetPoint("CENTER", proxyFrame, "CENTER", 0, 0)
@@ -505,10 +505,10 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
                 end
             end
 
-            -- 3순위: CDM 편집모드 DB 직접 읽기 (Ayije_CDM.db.editModePositions)
+            -- 3순위: CDM 편집모드 DB 직접 읽기 (CDM.db.editModePositions)
             -- CDM이 뷰어 위치를 DB에 저장하므로, 프레임 위치 대신 DB에서 직접 읽으면 타이밍 문제 없음
             if not usedViewerPos and not viewerWasDisabled then
-                local CDM_Addon = _G["Ayije_CDM"]
+                local CDM_Addon = nil
                 local cdmDB = CDM_Addon and CDM_Addon.db
                 local editPos = cdmDB and cdmDB.editModePositions
                 if editPos then
@@ -804,7 +804,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     -- SkinIcon이 설정한 크기를 LayoutGroup이 덮어씀 → rowIconSizes 정상 동작
     self:LayoutGroup(frame, vs, viewerName)
 
-    -- [AYIJE] 그룹 컨테이너(DDingUI_Group_*)는 Taint 전파로 전투 중 Protected
+    -- [CDM] 그룹 컨테이너(DDingUI_Group_*)는 Taint 전파로 전투 중 Protected
     -- 컨테이너의 Show/SetSize/SetAlpha → 전투 외에서만
     -- 아이콘 자체(ic:SetAlpha)는 Protected 아니므로 전투 무관
     if not InCombatLockdown() then
@@ -896,7 +896,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     end
 
     if count == 0 then
-        -- [AYIJE] 컨테이너는 Taint 전파로 전투 중 Protected
+        -- [CDM] 컨테이너는 Taint 전파로 전투 중 Protected
         if not InCombatLockdown() then
             frame:SetSize(phantomW, phantomH)
         end
@@ -996,7 +996,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         end
     end
 
-    -- [AYIJE Phase 1] 그룹 컨테이너는 Taint 전파로 전투 중 SetSize 차단됨
+    -- [CDM Phase 1] 그룹 컨테이너는 Taint 전파로 전투 중 SetSize 차단됨
     -- CDM 아이콘의 SetParent(container)로 인해 블리자드 Taint가 컨테이너로 전파
     -- 아이콘 자체(SetPoint/SetSize/Show/Hide)는 Protected가 아니므로 전투 무관
     frame._lastLayoutW = finalW
@@ -1101,9 +1101,9 @@ function GroupRenderer:ReleaseGroupIcons(frame)
 
     local fc = GetFC()
     local bridge = DDingUI.DynamicIconBridge
-    
+
     local iconsToHide = {}
-    
+
     for _, icon in pairs(frame._managedIcons) do
         if icon then
             if icon._ddIconKey then
@@ -1119,12 +1119,12 @@ function GroupRenderer:ReleaseGroupIcons(frame)
             end
         end
     end
-    
+
     -- 동적 아이콘은 Release 후 reparent로 Show될 수 있으므로 다시 Hide
     for _, icon in ipairs(iconsToHide) do
         if icon.Hide then icon:Hide() end
     end
-    
+
     wipe(frame._managedIcons)
     frame._iconCount = 0
 end
