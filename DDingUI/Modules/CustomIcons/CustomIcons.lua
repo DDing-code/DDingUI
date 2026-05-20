@@ -1100,6 +1100,18 @@ local function NotifyCustomTimedAuraChanged(forceLayout)
     end
 end
 
+function CustomIcons.ApplyManagedGroupTextOptions(frame)
+    if not (frame and frame._ddIsManaged) then return end
+    local renderer = DDingUI.GroupRenderer
+    if not (renderer and renderer.ApplyDynamicIconTextOptions) then return end
+    local container = frame._ddContainerRef
+    renderer:ApplyDynamicIconTextOptions(
+        frame,
+        frame._ddGroupName or (container and container._groupName),
+        frame._groupSettings or (container and container._groupSettings)
+    )
+end
+
 local function DeactivateCustomTimedAura(spellID)
     if not runtime.customTimedAuras[spellID] then return false end
     runtime.customTimedAuras[spellID] = nil
@@ -1173,6 +1185,7 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 if state and state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
+                CustomIcons.ApplyManagedGroupTextOptions(frame)
             else
                 needsLayout = true
             end
@@ -1284,7 +1297,13 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > now then
         local textureChanged = false
-        local iconTexture = CustomIcons.ResolveCustomTimedAuraStateTexture(2825, config, iconSpellID or 2825)
+        local displaySpellID = tonumber(iconSpellID)
+        local iconTexture
+        if displaySpellID and displaySpellID ~= 2825 then
+            iconTexture = CustomIcons.ResolveCustomTimedAuraStateTexture(2825, config, displaySpellID)
+        elseif not active.iconTexture then
+            iconTexture = CustomIcons.ResolveCustomTimedAuraStateTexture(2825, config, displaySpellID or 2825)
+        end
         if iconTexture and active.iconTexture ~= iconTexture then
             active.iconTexture = iconTexture
             textureChanged = true
@@ -2672,7 +2691,9 @@ local function UpdateAuraIcon(iconFrame, iconData)
     local timedOnly = IsEventDrivenCustomTimedAuraConfig(GetCustomTimedAuraConfig(iconData))
     iconFrame._textureCacheKey = "aura:" .. tostring(spellID)
     iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
-    SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
+    if not timedOnly then
+        SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
+    end
 
     -- 1. buff 활성 여부 확인
     local auraData = ResolvePlayerAuraForIcon(iconFrame, iconData)
@@ -2738,7 +2759,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     local activeTexture = auraData and (auraData.icon or auraData.iconID)
-    if activeTexture and not timedOnly then
+    if activeTexture then
         SetStableIconTexture(iconFrame, activeTexture, true)
     end
 
@@ -2801,6 +2822,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
             iconFrame:Hide()
         end
     end
+    CustomIcons.ApplyManagedGroupTextOptions(iconFrame)
 end
 
 function CustomIcons:ResolvePlayerAuraForIcon(iconFrame, iconData)
@@ -2884,6 +2906,7 @@ function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, group
                 if state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
+                CustomIcons.ApplyManagedGroupTextOptions(frame)
                 result = result or {}
                 result[#result + 1] = {
                     iconKey = iconKey,
