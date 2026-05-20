@@ -3193,6 +3193,8 @@ local function BuildTimedAuraDebugBucket(key, spellID)
     data.active = active and active.expirationTime and active.expirationTime > now or false
     data.expiresIn = data.active and (active.expirationTime - now) or nil
     data.icons, data.frames = CountCustomTimedAuraLinks(spellID)
+    data.currentHasIcon = data.icons > 0
+    data.currentMatchedFrame = data.frames > 0
     return data
 end
 
@@ -3215,6 +3217,11 @@ function CustomIcons:PrintTimedAuraDebugStatus()
         return value and "yes" or "no"
     end
 
+    local function optionalBoolText(value)
+        if value == nil then return "-" end
+        return value and "yes" or "no"
+    end
+
     local function printBucket(label, data)
         data = data or {}
         local expires = data.expiresIn and string.format("%.1f", data.expiresIn) or "-"
@@ -3234,10 +3241,12 @@ function CustomIcons:PrintTimedAuraDebugStatus()
             count(data, "glowHide"),
             count(data, "suppressed"),
             count(data, "activated")))
-        print(prefix .. string.format("%s link matchedFrame=%s hasIcon=%s last=%s detail=%s",
+        print(prefix .. string.format("%s link currentFrame=%s currentIcon=%s lastFrame=%s lastIcon=%s last=%s detail=%s",
             label,
-            boolText(data.lastMatchedFrame),
-            boolText(data.lastHasMatchingIcon),
+            boolText(data.currentMatchedFrame),
+            boolText(data.currentHasIcon),
+            optionalBoolText(data.lastMatchedFrame),
+            optionalBoolText(data.lastHasMatchingIcon),
             tostring(data.lastEvent or "-"),
             tostring(data.lastDetail or "-")))
     end
