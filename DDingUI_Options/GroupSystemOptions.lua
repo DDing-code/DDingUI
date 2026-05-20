@@ -156,6 +156,13 @@ local function NonQuestionTexture(value, fallback)
     return DEFAULT_BUFF_ICON_TEXTURE
 end
 
+local function GetCustomAuraPresetIconTexture(spellID)
+    spellID = SafeOptionID(spellID)
+    local presetTex = spellID and SafeOptionTexture(CUSTOM_AURA_ICON_TEXTURES[spellID])
+    if presetTex and not IsQuestionTexture(presetTex) then return presetTex end
+    return nil
+end
+
 local function SafeOptionItemTexture(itemID)
     itemID = SafeOptionID(itemID)
     if not itemID then return nil end
@@ -201,7 +208,12 @@ end
 
 local function SafeOptionSpellTexture(spellID)
     spellID = SafeOptionID(spellID)
-    if not spellID or not C_Spell then return nil end
+    if not spellID then return nil end
+
+    local presetTex = GetCustomAuraPresetIconTexture(spellID)
+    if presetTex then return presetTex end
+
+    if not C_Spell then return nil end
 
     local okInfo, info = pcall(function()
         return C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
@@ -214,9 +226,6 @@ local function SafeOptionSpellTexture(spellID)
     end)
     tex = SafeOptionTexture(okTex and tex)
     if tex and not IsQuestionTexture(tex) then return tex end
-
-    local presetTex = SafeOptionTexture(CUSTOM_AURA_ICON_TEXTURES[spellID])
-    if presetTex and not IsQuestionTexture(presetTex) then return presetTex end
 
     local fallbackItemID = CUSTOM_AURA_ICON_ITEM_FALLBACKS[spellID]
     local itemTex = fallbackItemID and SafeOptionItemTexture(fallbackItemID)
@@ -5226,15 +5235,14 @@ local function CreateGroupOptions(groupName, order)
             addTimeSpiral = (showInlineAddOptions and category == "buff") and {
                 type = "execute", order = 25.4, width = "normal",
                 name = function()
-                    local ok, tex = pcall(function() return C_Spell.GetSpellTexture(374968) end)
-                    local icon = (ok and tex and tex ~= 0) and tex or 134830
+                    local icon = SafeSpellTexture(374968)
                     return "|T" .. icon .. ":16:16:0:0|t 시간의 와류"
                 end,
                 desc = "Spell ID: 374968\n시간의 와류 강화 효과를 추적합니다.",
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 374968, settings = { customAuraDuration = 10, customAuraTrigger = "timespiral" }})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "aura", id = 374968, settings = { customAuraDuration = 10, customAuraTrigger = "timespiral", iconTexture = SafeSpellTexture(374968) }})
                     if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
                     SoftRefreshDynamicIcons()
                 end,
@@ -5243,8 +5251,7 @@ local function CreateGroupOptions(groupName, order)
             addBloodlust = (showInlineAddOptions and category == "buff") and {
                 type = "execute", order = 25.5, width = "normal",
                 name = function()
-                    local ok, tex = pcall(function() return C_Spell.GetSpellTexture(2825) end)
-                    local icon = (ok and tex and tex ~= 0) and tex or 134830
+                    local icon = SafeSpellTexture(2825)
                     return "|T" .. icon .. ":16:16:0:0|t 피의 욕망 / 영웅심"
                 end,
                 desc = "Spell ID: 2825, 32182 등\n피의 욕망, 영웅심, 시간 왜곡 등 블러드류 버프를 추적합니다.",
@@ -5255,6 +5262,7 @@ local function CreateGroupOptions(groupName, order)
                         customAuraDuration = 40,
                         customAuraTrigger = "bloodlust",
                         auraAliases = {2825, 32182, 80353, 90355, 160452, 264667, 390386},
+                        iconTexture = SafeSpellTexture(2825),
                     }})
                     if iconKey then
                         local db = DDingUI.db.profile.dynamicIcons

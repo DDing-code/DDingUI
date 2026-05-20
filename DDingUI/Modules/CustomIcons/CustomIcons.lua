@@ -633,6 +633,12 @@ local function NonQuestionTexture(texture, fallback)
     return FALLBACK_SPELL_ICON
 end
 
+local function GetCustomAuraPresetIconTexture(spellID)
+    local texture = CUSTOM_AURA_ICON_TEXTURES[tonumber(spellID)]
+    if texture and not IsQuestionTexture(texture) then return texture end
+    return nil
+end
+
 local BLOODLUST_AURA_IDS = {
     2825, 32182, 80353, 90355, 160452, 264667, 390386,
     146555, 178207, 230935, 256740, 292686, 309658, 381301, 444257,
@@ -744,19 +750,16 @@ local function ResolveItemTexture(itemID, slotID)
 end
 
 local function ResolveSpellTexture(spellID, fallbackTexture)
-    local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+    local tex = GetCustomAuraPresetIconTexture(spellID)
+    if tex then return tex end
+
+    tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
     if IsQuestionTexture(tex) then
         tex = nil
     end
     if not tex and C_Spell and C_Spell.GetSpellInfo then
         local info = C_Spell.GetSpellInfo(spellID)
         tex = info and info.iconID
-        if IsQuestionTexture(tex) then
-            tex = nil
-        end
-    end
-    if not tex then
-        tex = CUSTOM_AURA_ICON_TEXTURES[tonumber(spellID)]
         if IsQuestionTexture(tex) then
             tex = nil
         end
@@ -777,6 +780,11 @@ local function ResolveSpellTexture(spellID, fallbackTexture)
 end
 
 local function GetStoredIconTexture(iconData)
+    if iconData and (iconData.type == "spell" or iconData.type == "aura") then
+        local preset = GetCustomAuraPresetIconTexture(iconData.id)
+        if preset then return preset end
+    end
+
     local settings = iconData and iconData.settings
     if type(settings) ~= "table" then return nil end
     local texture = settings.iconTexture or settings.fallbackIcon or settings.icon
@@ -787,6 +795,14 @@ end
 local function EnsureStoredIconTexture(iconData)
     if not iconData then return nil end
     iconData.settings = iconData.settings or {}
+    if iconData.type == "spell" or iconData.type == "aura" then
+        local preset = GetCustomAuraPresetIconTexture(iconData.id)
+        if preset then
+            iconData.settings.iconTexture = preset
+            return preset
+        end
+    end
+
     local stored = GetStoredIconTexture(iconData)
     if stored then return stored end
 
