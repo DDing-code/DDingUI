@@ -475,9 +475,19 @@ local function GetDynamicIconData(iconKey)
 end
 
 local function SafeNumber(value)
+    if value == nil then return nil end
+    if issecretvalue then
+        local okSecret, secret = pcall(issecretvalue, value)
+        if okSecret and secret then return nil end
+    end
     local valueType = type(value)
-    if valueType == "number" then return value end
-    if valueType == "string" then return tonumber(value) end
+    if valueType == "number" then
+        return value
+    end
+    if valueType == "string" then
+        local okNumber, numberValue = pcall(tonumber, value)
+        if okNumber then return numberValue end
+    end
     return nil
 end
 
@@ -512,18 +522,22 @@ local ITEM_EFFECT_IDS = {
 
 local function AddNormalizedID(set, value)
     local id = SafeNumber(value)
-    if not id or id <= 0 then return end
-    set[id] = true
-    local effectID = ITEM_EFFECT_IDS[id]
-    if effectID then
-        set[effectID] = true
-    end
-    if BLOODLUST_GROUP_IDS[id] then
-        set[2825] = true
-        for aliasID in pairs(BLOODLUST_GROUP_IDS) do
-            set[aliasID] = true
+    if not id then return end
+    local ok = pcall(function()
+        if id <= 0 then return end
+        set[id] = true
+        local effectID = ITEM_EFFECT_IDS[id]
+        if effectID then
+            set[effectID] = true
         end
-    end
+        if BLOODLUST_GROUP_IDS[id] then
+            set[2825] = true
+            for aliasID in pairs(BLOODLUST_GROUP_IDS) do
+                set[aliasID] = true
+            end
+        end
+    end)
+    if not ok then return end
 end
 
 local function AddIDsFromValue(set, value)
