@@ -1105,11 +1105,27 @@ function CustomIcons.ApplyManagedGroupTextOptions(frame)
     local renderer = DDingUI.GroupRenderer
     if not (renderer and renderer.ApplyDynamicIconTextOptions) then return end
     local container = frame._ddContainerRef
+    frame._ddDynamicTextRetryCount = nil
     renderer:ApplyDynamicIconTextOptions(
         frame,
         frame._ddGroupName or (container and container._groupName),
         frame._groupSettings or (container and container._groupSettings)
     )
+    if frame._ddManagedTextRetryPending then return end
+    frame._ddManagedTextRetryPending = true
+    C_Timer.After(0, function()
+        frame._ddManagedTextRetryPending = nil
+        if not (frame and frame._ddIsManaged) then return end
+        local retryRenderer = DDingUI.GroupRenderer
+        if not (retryRenderer and retryRenderer.ApplyDynamicIconTextOptions) then return end
+        local retryContainer = frame._ddContainerRef
+        frame._ddDynamicTextRetryCount = nil
+        retryRenderer:ApplyDynamicIconTextOptions(
+            frame,
+            frame._ddGroupName or (retryContainer and retryContainer._groupName),
+            frame._groupSettings or (retryContainer and retryContainer._groupSettings)
+        )
+    end)
 end
 
 local function DeactivateCustomTimedAura(spellID)
@@ -2742,11 +2758,13 @@ local function UpdateAuraIcon(iconFrame, iconData)
         local now = GetTime and GetTime() or 0
         if activeUntil and activeUntil > now then
             iconFrame._auraWasActive = true
+            CustomIcons.ApplyManagedGroupTextOptions(iconFrame)
             return
         end
         if HasRecentEffectState(iconFrame, now) then
             iconFrame._auraWasActive = false
             ScheduleEffectGraceUpdate(iconFrame)
+            CustomIcons.ApplyManagedGroupTextOptions(iconFrame)
             return
         end
     end
@@ -2963,15 +2981,7 @@ local function ExecuteUpdateAllIcons()
     local layoutStateChanged = false
 
     local function ReapplyManagedGroupText(frame)
-        if not (frame and frame._ddIsManaged) then return end
-        local renderer = DDingUI.GroupRenderer
-        if not (renderer and renderer.ApplyDynamicIconTextOptions) then return end
-        local container = frame._ddContainerRef
-        renderer:ApplyDynamicIconTextOptions(
-            frame,
-            frame._ddGroupName or (container and container._groupName),
-            frame._groupSettings or (container and container._groupSettings)
-        )
+        CustomIcons.ApplyManagedGroupTextOptions(frame)
     end
 
     for iconKey, frame in pairs(runtime.iconFrames) do
@@ -4035,15 +4045,7 @@ local function UpdateDynamicIcon(iconKey)
         UpdateAuraIcon(frame, iconData)
     end
     if frame._ddIsManaged then
-        local renderer = DDingUI.GroupRenderer
-        if renderer and renderer.ApplyDynamicIconTextOptions then
-            local container = frame._ddContainerRef
-            renderer:ApplyDynamicIconTextOptions(
-                frame,
-                frame._ddGroupName or (container and container._groupName),
-                frame._groupSettings or (container and container._groupSettings)
-            )
-        end
+        CustomIcons.ApplyManagedGroupTextOptions(frame)
     end
 end
 
