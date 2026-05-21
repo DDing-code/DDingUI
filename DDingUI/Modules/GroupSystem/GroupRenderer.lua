@@ -703,6 +703,10 @@ local function ShouldKeepDynamicIconInCombat(icon)
     -- CDM custom buffs hide and reanchor immediately when their timer ends.
     -- Do not resurrect expired aura/proc frames through combat layout fallback.
     if iconData.type == "aura" then
+        if icon._ddManagedAuraExpired then
+            return false
+        end
+
         if IsStillWithinKnownDuration(icon._ddTimedAuraActiveUntil, icon._ddAuraActiveUntil) then
             return true
         end
@@ -2498,12 +2502,16 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
         for _, icon in pairs(frame._managedIcons) do
             local iconKey = icon and icon._ddIconKey
             if iconKey and not existingKeys[iconKey] then
+                local iconData = GetDynamicIconData(iconKey)
+                local allowMissingGrace = not (iconData and iconData.type == "aura")
                 local keepVisible = ShouldKeepDynamicIconInCombat(icon)
                 if keepVisible then
                     icon._ddCombatMissingSince = nil
-                else
+                elseif allowMissingGrace then
                     icon._ddCombatMissingSince = icon._ddCombatMissingSince or now
                     keepVisible = (now - icon._ddCombatMissingSince) <= COMBAT_DYNAMIC_MISSING_GRACE
+                else
+                    icon._ddCombatMissingSince = nil
                 end
                 if keepVisible then
                     existingKeys[iconKey] = true

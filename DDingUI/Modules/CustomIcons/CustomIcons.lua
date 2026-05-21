@@ -1365,6 +1365,35 @@ function CustomIcons.ApplyManagedGroupTextOptions(frame)
     end
 end
 
+function CustomIcons.RestoreActiveIconVisual(frame)
+    if not frame then return end
+    local icon = frame.icon or frame.Icon
+    if icon then
+        if icon.Show then pcall(icon.Show, icon) end
+        if icon.SetAlpha then pcall(icon.SetAlpha, icon, 1) end
+        if icon.SetDesaturated then pcall(icon.SetDesaturated, icon, false) end
+        if icon.SetDesaturation then pcall(icon.SetDesaturation, icon, 0) end
+    end
+    frame._ddManagedAuraExpired = nil
+    frame._ddCombatKeepAlive = nil
+    frame._ddCombatVisible = nil
+    frame._ddCombatMissingSince = nil
+end
+
+function CustomIcons.SuppressExpiredIconVisual(frame)
+    if not frame then return end
+    local icon = frame.icon or frame.Icon
+    if icon and icon.SetAlpha then
+        pcall(icon.SetAlpha, icon, 0)
+    end
+    if frame.border and frame.border.Hide then
+        pcall(frame.border.Hide, frame.border)
+    end
+    frame._ddCombatKeepAlive = nil
+    frame._ddCombatVisible = false
+    frame._ddCombatMissingSince = nil
+end
+
 local function DeactivateCustomTimedAura(spellID)
     if not runtime.customTimedAuras[spellID] then return false end
     runtime.customTimedAuras[spellID] = nil
@@ -1384,9 +1413,14 @@ MarkCustomTimedAuraExpired = function(spellID)
         local config = GetCustomTimedAuraConfig(iconData)
         if config and config.stateID == spellID and frame then
             frame._ddTimedAuraActiveUntil = nil
+            frame._ddAuraActiveUntil = nil
+            frame._ddProcActiveUntil = nil
             frame._ddLastDynamicActiveAt = nil
+            frame._ddLastAuraActiveAt = nil
+            frame._ddLastProcActiveAt = nil
             frame._wasVisibleInGroup = nil
             frame._auraWasActive = false
+            frame._trinketProcWasActive = false
             if frame.cooldown then
                 if frame.cooldown.SetScript then
                     pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", nil)
@@ -1401,6 +1435,7 @@ MarkCustomTimedAuraExpired = function(spellID)
             if frame.count then
                 pcall(frame.count.Hide, frame.count)
             end
+            CustomIcons.SuppressExpiredIconVisual(frame)
             if frame._ddIsManaged then
                 frame._ddManagedAuraExpired = true
             elseif frame.Hide then
@@ -1438,6 +1473,7 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 if state and state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
+                CustomIcons.RestoreActiveIconVisual(frame)
                 CustomIcons.ApplyManagedGroupTextOptions(frame)
             else
                 needsLayout = true
@@ -2998,10 +3034,11 @@ local function UpdateAuraIcon(iconFrame, iconData)
         local now = GetTime and GetTime() or 0
         if activeUntil and activeUntil > now then
             iconFrame._auraWasActive = true
+            CustomIcons.RestoreActiveIconVisual(iconFrame)
             CustomIcons.ApplyManagedGroupTextOptions(iconFrame)
             return
         end
-        if HasRecentEffectState(iconFrame, now) then
+        if not iconFrame._ddManagedAuraExpired and HasRecentEffectState(iconFrame, now) then
             iconFrame._auraWasActive = false
             ScheduleEffectGraceUpdate(iconFrame)
             CustomIcons.ApplyManagedGroupTextOptions(iconFrame)
@@ -3058,6 +3095,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         end
 
         iconFrame.icon:SetDesaturated(false)
+        iconFrame.icon:SetDesaturation(0)
         iconFrame.icon:SetAlpha(1.0)
         -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
         if not iconFrame._ddIsManaged then
@@ -3074,7 +3112,11 @@ local function UpdateAuraIcon(iconFrame, iconData)
         else
             iconFrame.icon:SetDesaturated(false)
         end
-        iconFrame.icon:SetAlpha(1.0)
+        if iconFrame._ddIsManaged and iconFrame._ddManagedAuraExpired then
+            iconFrame.icon:SetAlpha(0)
+        else
+            iconFrame.icon:SetAlpha(1.0)
+        end
         -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
         if not iconFrame._ddIsManaged then
             iconFrame:Hide()
@@ -3167,6 +3209,7 @@ function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, group
                 if state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
+                CustomIcons.RestoreActiveIconVisual(frame)
                 CustomIcons.ApplyManagedGroupTextOptions(frame)
                 result = result or {}
                 result[#result + 1] = {
@@ -3200,13 +3243,14 @@ local _pendingIconLayoutNotify = false
 local function GetDynamicLayoutStateToken(frame, iconData)
     if not frame or not iconData then return nil end
     if iconData.type ~= "aura" and iconData.type ~= "trinketProc" then return nil end
+    if iconData.type == "aura" and frame._ddManagedAuraExpired then return "inactive" end
 
     local now = GetTime and GetTime() or 0
     local activeUntil = MaxSafeNumber(frame._ddTimedAuraActiveUntil, frame._ddAuraActiveUntil, frame._ddProcActiveUntil)
     local active = frame._auraWasActive == true
         or frame._trinketProcWasActive == true
         or (activeUntil and activeUntil > now)
-        or (InCombatLockdown and InCombatLockdown() and HasRecentEffectState(frame, now))
+        or (not frame._ddManagedAuraExpired and InCombatLockdown and InCombatLockdown() and HasRecentEffectState(frame, now))
 
     return active and "active" or "inactive"
 end

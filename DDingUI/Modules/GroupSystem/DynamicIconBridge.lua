@@ -328,6 +328,10 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
                     iconFrame._auraWasActive = true
                     iconFrame._ddTimedAuraActiveUntil = timedAura.expirationTime
                     iconFrame._ddLastAuraActiveAt = now
+                    iconFrame._ddManagedAuraExpired = nil
+                    iconFrame._ddCombatKeepAlive = nil
+                    iconFrame._ddCombatVisible = nil
+                    iconFrame._ddCombatMissingSince = nil
                 end
                 return true
             elseif iconFrame then
@@ -343,6 +347,10 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
                 iconFrame._auraWasActive = isActive
                 if auraData then
                     iconFrame._ddLastAuraActiveAt = now
+                    iconFrame._ddManagedAuraExpired = nil
+                    iconFrame._ddCombatKeepAlive = nil
+                    iconFrame._ddCombatVisible = nil
+                    iconFrame._ddCombatMissingSince = nil
                     local expirationTime = SafeNumber(auraData.expirationTime)
                     if expirationTime and expirationTime > 0 then
                         iconFrame._ddAuraActiveUntil = expirationTime
@@ -484,12 +492,13 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
                     and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
                 local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
                 local liveEffect = isEffectIcon and FrameHasLiveEffect(frame, now)
-                local recentEffect = isEffectIcon and FrameHadRecentEffect(frame, now)
+                local expiredManagedAura = isEffectIcon and iconData.type == "aura" and frame._ddManagedAuraExpired
+                local recentEffect = isEffectIcon and not expiredManagedAura and FrameHadRecentEffect(frame, now)
                 keepManaged = (not isEffectIcon) and (frame._ddIsManaged and frame._ddContainerRef) and true or false
                 local keepHistorical = (not isEffectIcon) and frame._wasVisibleInGroup == true
                 local lastActive = frame._ddLastDynamicActiveAt
                 local graceVisible = lastActive and (now - lastActive) <= COMBAT_ICON_GRACE_SECONDS
-                keepVisible = liveEffect or recentEffect or keepManaged or keepHistorical or ((not isEffectIcon) and graceVisible)
+                keepVisible = (not expiredManagedAura and (liveEffect or recentEffect)) or keepManaged or keepHistorical or ((not isEffectIcon) and graceVisible)
                 if liveEffect then
                     frame._ddLastDynamicActiveAt = now
                 end
@@ -722,7 +731,7 @@ local function BuildDynamicLayoutStateHash()
                     local active = frame._auraWasActive == true
                         or frame._trinketProcWasActive == true
                         or FrameHasLiveEffect(frame, now)
-                        or (inCombat and FrameHadRecentEffect(frame, now))
+                        or (inCombat and not frame._ddManagedAuraExpired and FrameHadRecentEffect(frame, now))
                     token = active and "1" or nil
                 elseif iconData.type == "slot" or iconData.type == "trinketProc" then
                     local slotID = iconData.slotID
