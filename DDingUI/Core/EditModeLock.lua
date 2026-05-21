@@ -16,6 +16,10 @@ local LOCK_FRAME_NAMES = {
 
 local selectionState = setmetatable({}, { __mode = "k" })
 
+local function ShouldSkipBlizzardEditModeSideEffects()
+    return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+end
+
 local function GetSelectionState(selection)
     local state = selectionState[selection]
     if not state then
@@ -85,6 +89,7 @@ local function ShowLockNotice()
 end
 
 local function LockAllCooldownViewers()
+    if ShouldSkipBlizzardEditModeSideEffects() then return end
     for _, name in ipairs(LOCK_FRAME_NAMES) do
         local frame = _G[name]
         if IsCooldownViewerSystemFrame(frame) then
@@ -107,6 +112,7 @@ function DDingUI:SetupEditModeLock()
         if not (EditModeSystemSettingsDialog and Enum and Enum.EditModeSystem) then return false end
 
         hooksecurefunc(EditModeSystemSettingsDialog, "AttachToSystemFrame", function(dialog, systemFrame)
+            if ShouldSkipBlizzardEditModeSideEffects() then return end
             if not IsCooldownViewerSystemFrame(systemFrame) then return end
             dialog:Hide()
             ShowLockNotice()
@@ -116,6 +122,7 @@ function DDingUI:SetupEditModeLock()
             local frame = _G[name]
             if IsCooldownViewerSystemFrame(frame) then
                 hooksecurefunc(frame, "SelectSystem", function(sf)
+                    if ShouldSkipBlizzardEditModeSideEffects() then return end
                     sf:SetMovable(false)
                     if EditModeSystemSettingsDialog.attachedToSystem == sf then
                         EditModeSystemSettingsDialog:Hide()
@@ -123,7 +130,10 @@ function DDingUI:SetupEditModeLock()
                     DisableSelectionInteraction(sf)
                     ShowLockNotice()
                 end)
-                hooksecurefunc(frame, "HighlightSystem", function(sf) DisableSelectionInteraction(sf) end)
+                hooksecurefunc(frame, "HighlightSystem", function(sf)
+                    if ShouldSkipBlizzardEditModeSideEffects() then return end
+                    DisableSelectionInteraction(sf)
+                end)
             end
         end
 

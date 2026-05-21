@@ -51,6 +51,10 @@ local function IsInBlizzardEditMode()
     return EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()
 end
 
+local function ShouldSkipBlizzardEditModeSideEffects()
+    return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+end
+
 -- 뷰어별 관리 아이콘 수 계산 -- [REPARENT]
 -- SetParent 후에도 itemFramePool:EnumerateActive()는 동작 (ObjectPool은 parent 무관)
 local function CountManagedIcons(viewerName)
@@ -385,6 +389,7 @@ end
 if EditModeManagerFrame then
     hooksecurefunc(EditModeManagerFrame, "EnterEditMode", function()
         if not initialized then return end
+        if ShouldSkipBlizzardEditModeSideEffects() then return end
         -- Edit Mode 진입 → 뷰어 복원 (Blizzard가 조작할 수 있게)
         pushing = true
         C_Timer.After(0.1, function()
@@ -397,6 +402,7 @@ if EditModeManagerFrame then
 
     hooksecurefunc(EditModeManagerFrame, "ExitEditMode", function()
         if not initialized then return end
+        if ShouldSkipBlizzardEditModeSideEffects() then return end
         -- Edit Mode 퇴장 → FrameController 재스캔 + 뷰어 동기화
         -- [REPARENT] 편집모드 중 CDM이 아이콘을 재배치했을 수 있으므로 ForceReconcile
         local fc = DDingUI.FrameController or DDingUI.CDMHookEngine

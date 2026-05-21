@@ -290,6 +290,10 @@ local editModeHooksInstalled = false
 local editModeHookTimer = false
 local editModeHookListener = nil
 
+local function ShouldSkipBlizzardEditModeSideEffects()
+    return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+end
+
 local function EnsureEditModeHooks()
     if editModeHooksInstalled then return end
 
@@ -321,6 +325,7 @@ local function EnsureEditModeHooks()
 
     -- On EnterEditMode: restore original Blizzard viewer sizes so snap grid is correct
     hooksecurefunc(EditModeManagerFrame, "EnterEditMode", function()
+        if ShouldSkipBlizzardEditModeSideEffects() then return end
         if InCombatLockdown() then return end
         for viewer in pairs(trackedViewers) do
             if viewer and viewer.GetName then
@@ -332,7 +337,10 @@ local function EnsureEditModeHooks()
         end
     end)
 
-    hooksecurefunc(EditModeManagerFrame, "ExitEditMode", ResetTrackedViewerAnchors)
+    hooksecurefunc(EditModeManagerFrame, "ExitEditMode", function()
+        if ShouldSkipBlizzardEditModeSideEffects() then return end
+        ResetTrackedViewerAnchors()
+    end)
 end
 
 local function TrackViewer(viewer)

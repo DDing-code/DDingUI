@@ -40,6 +40,10 @@ local viewers = DDingUI.viewers or {
     "BuffIconCooldownViewer",
 }
 
+local function ShouldSkipBlizzardEditModeSideEffects()
+    return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+end
+
 local function IsCooldownIconFrame(frame)
     return frame and (frame.icon or frame.Icon) and frame.Cooldown
 end
@@ -435,6 +439,7 @@ end
 -- This sanitizer cleans secret booleans from icon frames to prevent cascading errors.
 do
     local function SanitizeViewerIcons()
+        if ShouldSkipBlizzardEditModeSideEffects() then return end
         if not issecretvalue then return end
         for _, name in ipairs(viewers) do
             local viewer = _G[name]
@@ -479,4 +484,3 @@ do
     -- Export for debug/manual use
     IconViewers.SanitizeViewerIcons = SanitizeViewerIcons
 end
-
