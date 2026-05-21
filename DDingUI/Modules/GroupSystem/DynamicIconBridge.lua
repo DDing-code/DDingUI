@@ -159,6 +159,11 @@ local function GetDynamicDB()
     return db
 end
 
+local function GetDynamicIconData(iconKey)
+    local db = GetDynamicDB()
+    return db and db.iconData and db.iconData[iconKey] or nil
+end
+
 -- ============================================================
 -- 활성 아이콘 수집
 -- ============================================================
