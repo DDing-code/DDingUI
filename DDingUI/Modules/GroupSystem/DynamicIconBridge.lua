@@ -728,10 +728,11 @@ local function BuildDynamicLayoutStateHash()
                 local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
 
                 if isEffectIcon then
+                    local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
                     local active = frame._auraWasActive == true
                         or frame._trinketProcWasActive == true
                         or FrameHasLiveEffect(frame, now)
-                        or (inCombat and not frame._ddManagedAuraExpired and FrameHadRecentEffect(frame, now))
+                        or (inCombat and not expiredManagedAura and FrameHadRecentEffect(frame, now))
                     token = active and "1" or nil
                 elseif iconData.type == "slot" or iconData.type == "trinketProc" then
                     local slotID = iconData.slotID
@@ -811,6 +812,13 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     frame._ddGroupName = container._groupName
     frame._ddSourceViewer = GROUP_VIEWER_MAP[frame._ddGroupName]
     frame._groupSettings = container._groupSettings or frame._groupSettings
+    local iconData = GetDynamicIconData(iconKey)
+    if not (iconData and iconData.type == "aura") then
+        frame._ddManagedAuraExpired = nil
+        if frame.icon and frame.icon.SetAlpha then
+            frame.icon:SetAlpha(1)
+        end
+    end
     if frame.cooldown then
         frame.cooldown._ddGroupName = frame._ddGroupName
         frame.cooldown._ddSourceViewer = frame._ddSourceViewer
@@ -943,6 +951,7 @@ function DynamicIconBridge:ReleaseFrame(frame, iconKey)
     frame._ddTimedAuraActiveUntil = nil
     frame._ddAuraActiveUntil = nil
     frame._ddProcActiveUntil = nil
+    frame._ddManagedAuraExpired = nil
     if frame.cooldown then
         frame.cooldown._ddGroupName = nil
         frame.cooldown._ddSourceViewer = nil

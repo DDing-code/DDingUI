@@ -2074,6 +2074,7 @@ end
 local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
     if not itemID or not iconFrame then return end
+    CustomIcons.RestoreActiveIconVisual(iconFrame)
 
     local settings = iconData.settings
     local includeCharges = settings and settings.showCharges
@@ -2447,6 +2448,7 @@ local function UpdateSlotIcon(iconFrame, iconData)
         iconFrame.count:Hide()
         return
     end
+    CustomIcons.RestoreActiveIconVisual(iconFrame)
 
     iconFrame._textureCacheKey = "slot:" .. tostring(slotID)
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
@@ -2585,6 +2587,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         iconFrame.count:Hide()
         return
     end
+    CustomIcons.RestoreActiveIconVisual(iconFrame)
 
     iconFrame._textureCacheKey = "trinketProc:" .. tostring(slotID)
     -- Update trinket item texture
@@ -3243,14 +3246,15 @@ local _pendingIconLayoutNotify = false
 local function GetDynamicLayoutStateToken(frame, iconData)
     if not frame or not iconData then return nil end
     if iconData.type ~= "aura" and iconData.type ~= "trinketProc" then return nil end
-    if iconData.type == "aura" and frame._ddManagedAuraExpired then return "inactive" end
+    local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
+    if expiredManagedAura then return "inactive" end
 
     local now = GetTime and GetTime() or 0
     local activeUntil = MaxSafeNumber(frame._ddTimedAuraActiveUntil, frame._ddAuraActiveUntil, frame._ddProcActiveUntil)
     local active = frame._auraWasActive == true
         or frame._trinketProcWasActive == true
         or (activeUntil and activeUntil > now)
-        or (not frame._ddManagedAuraExpired and InCombatLockdown and InCombatLockdown() and HasRecentEffectState(frame, now))
+        or (not expiredManagedAura and InCombatLockdown and InCombatLockdown() and HasRecentEffectState(frame, now))
 
     return active and "active" or "inactive"
 end
@@ -3556,11 +3560,14 @@ local function EnsureEventFrame()
             and not customTimedChanged then
             return
         end
-        local hasItemCooldownIcon = (event == "UNIT_SPELLCAST_SUCCEEDED"
+        local isItemCooldownEvent = event == "UNIT_SPELLCAST_SUCCEEDED"
             or event == "BAG_UPDATE_COOLDOWN"
+            or event == "SPELL_UPDATE_COOLDOWN"
+            or event == "ACTIONBAR_UPDATE_COOLDOWN"
+            or event == "SPELL_UPDATE_USABLE"
             or event == "ITEM_COUNT_CHANGED"
-            or event == "BAG_UPDATE_DELAYED")
-            and HasItemCooldownIcon()
+            or event == "BAG_UPDATE_DELAYED"
+        local hasItemCooldownIcon = isItemCooldownEvent and HasItemCooldownIcon()
         if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon then
             return
         end
@@ -3571,6 +3578,7 @@ local function EnsureEventFrame()
             or event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
             or event == "BAG_UPDATE"
+            or event == "BAG_UPDATE_COOLDOWN"
             or event == "BAG_UPDATE_DELAYED"
             or event == "ITEM_COUNT_CHANGED"
         then
@@ -4155,6 +4163,7 @@ local function ResetDynamicIconFrame(frame)
     frame._cachedSpellID = nil
     frame._auraWasActive = nil
     frame._wasVisibleInGroup = nil
+    frame._ddManagedAuraExpired = nil
     frame._ddIsManaged = nil
     frame._ddIconKey = nil
     frame._ddOrigState = nil
