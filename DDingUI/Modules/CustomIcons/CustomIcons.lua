@@ -1339,19 +1339,30 @@ function CustomIcons.ApplyManagedGroupTextOptions(frame)
     )
     if frame._ddManagedTextRetryPending then return end
     frame._ddManagedTextRetryPending = true
-    C_Timer.After(0, function()
-        frame._ddManagedTextRetryPending = nil
-        if not (frame and frame._ddIsManaged) then return end
-        local retryRenderer = DDingUI.GroupRenderer
-        if not (retryRenderer and retryRenderer.ApplyDynamicIconTextOptions) then return end
-        local retryContainer = frame._ddContainerRef
-        frame._ddDynamicTextRetryCount = nil
-        retryRenderer:ApplyDynamicIconTextOptions(
-            frame,
-            frame._ddGroupName or (retryContainer and retryContainer._groupName),
-            frame._groupSettings or (retryContainer and retryContainer._groupSettings)
-        )
-    end)
+    local retryDelays = { 0, 0.05, 0.2 }
+    local remainingRetries = #retryDelays
+    for _, delay in ipairs(retryDelays) do
+        C_Timer.After(delay, function()
+            if frame and frame._ddManagedTextRetryPending then
+                if frame._ddIsManaged then
+                    local retryRenderer = DDingUI.GroupRenderer
+                    if retryRenderer and retryRenderer.ApplyDynamicIconTextOptions then
+                        local retryContainer = frame._ddContainerRef
+                        frame._ddDynamicTextRetryCount = nil
+                        retryRenderer:ApplyDynamicIconTextOptions(
+                            frame,
+                            frame._ddGroupName or (retryContainer and retryContainer._groupName),
+                            frame._groupSettings or (retryContainer and retryContainer._groupSettings)
+                        )
+                    end
+                end
+                remainingRetries = remainingRetries - 1
+                if remainingRetries <= 0 then
+                    frame._ddManagedTextRetryPending = nil
+                end
+            end
+        end)
+    end
 end
 
 local function DeactivateCustomTimedAura(spellID)
@@ -2884,7 +2895,10 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
         borderColor = settings.borderColor or DEFAULT_ICON_SETTINGS.borderColor,
     })
 
-    local groupOwnsText = iconFrame._ddIsManaged and groupSettings
+    local managedGroupSettings = groupSettings
+        or iconFrame._groupSettings
+        or (iconFrame._ddContainerRef and iconFrame._ddContainerRef._groupSettings)
+    local groupOwnsText = iconFrame._ddIsManaged and managedGroupSettings
     if not groupOwnsText then
         local cs = BuildCountSettings(settings)
         local fontPath = DDingUI:GetGlobalFont()

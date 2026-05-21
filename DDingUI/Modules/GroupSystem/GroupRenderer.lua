@@ -314,6 +314,14 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
         local oy = tonumber(oyRaw) or 0
         if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
 
+        local textSize = tonumber(textSizeRaw)
+        if textSize and textSize > 0 and cooldown.SetCountdownFont then
+            local font = DDingUI:GetFont(textFont)
+            if font then
+                pcall(cooldown.SetCountdownFont, cooldown, font, textSize, "OUTLINE")
+            end
+        end
+
         if groupSettings.hideDurationText then
             if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
             cooldown.noCooldownCount = true
@@ -339,10 +347,9 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
                     cdText:ClearAllPoints()
                     cdText:SetPoint(cdAnchor, textAnchorFrame, cdAnchor, ox, oy)
                 end
-                local size = tonumber(textSizeRaw)
-                if size and size > 0 then
+                if textSize and textSize > 0 then
                     local font = DDingUI:GetFont(textFont)
-                    cdText:SetFont(font, size, "OUTLINE")
+                    cdText:SetFont(font, textSize, "OUTLINE")
                 end
                 if type(textColor) == "table" then
                     cdText:SetTextColor(ResolveRGBA(textColor))
