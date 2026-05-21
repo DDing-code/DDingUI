@@ -51,6 +51,10 @@ local function IsInBlizzardEditMode()
     return EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()
 end
 
+local function IsPvPSafeModeActive()
+    return DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive()
+end
+
 -- 뷰어별 관리 아이콘 수 계산 -- [REPARENT]
 -- SetParent 후에도 itemFramePool:EnumerateActive()는 동작 (ObjectPool은 parent 무관)
 local function CountManagedIcons(viewerName)
@@ -161,6 +165,7 @@ local function ScheduleSnapBack(viewerName)
         snapPending[viewerName] = false
 
         if not initialized then return end
+        if IsPvPSafeModeActive() then return end
         if IsInBlizzardEditMode() then return end
         -- [REFACTOR] InCombatLockdown 제거: SetAlpha는 보호 함수가 아님
 
@@ -322,6 +327,7 @@ end
 -- DDingUI에서 비활성화된 뷰어만 원래 상태 유지
 function ContainerSync:SyncViewer(viewerName)
     if not initialized then return end
+    if IsPvPSafeModeActive() then return end
 
     -- [FIX] GroupSystem이 활성이고 hideDefaultViewers가 true이면
     -- 개별 viewers.enabled 상태와 무관하게 항상 숨김
@@ -358,6 +364,7 @@ end
 -- 전체 동기화
 function ContainerSync:SyncAll()
     if not initialized then return end
+    if IsPvPSafeModeActive() then return end
     if IsInBlizzardEditMode() then return end
 
     for _, viewerName in pairs(CDM_VIEWER_NAMES) do
@@ -385,6 +392,7 @@ end
 if EditModeManagerFrame then
     hooksecurefunc(EditModeManagerFrame, "EnterEditMode", function()
         if not initialized then return end
+        if IsPvPSafeModeActive() then return end
         -- Edit Mode 진입 → 뷰어 복원 (Blizzard가 조작할 수 있게)
         pushing = true
         C_Timer.After(0.1, function()
@@ -397,6 +405,7 @@ if EditModeManagerFrame then
 
     hooksecurefunc(EditModeManagerFrame, "ExitEditMode", function()
         if not initialized then return end
+        if IsPvPSafeModeActive() then return end
         -- Edit Mode 퇴장 → FrameController 재스캔 + 뷰어 동기화
         -- [REPARENT] 편집모드 중 CDM이 아이콘을 재배치했을 수 있으므로 ForceReconcile
         local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
@@ -423,6 +432,7 @@ local combatFrame = CreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatFrame:SetScript("OnEvent", function()
     if not initialized then return end
+    if IsPvPSafeModeActive() then return end
     if IsInBlizzardEditMode() then return end
     C_Timer.After(0.1, function()
         if initialized then
@@ -448,6 +458,10 @@ function ContainerSync:Initialize()
     end
 
     initialized = true
+    if IsPvPSafeModeActive() then
+        self:RestoreAll()
+        return
+    end
 
     -- [FIX] 초기화 시 즉시 숨김 → 로딩 중 뷰어 깜빡거림 방지
     self:SyncAll()
@@ -500,6 +514,7 @@ end
 -- CDMHookEngine:RefreshViewers()에서 호출
 function ContainerSync:RefreshViewerHooks()
     if not initialized then return end
+    if IsPvPSafeModeActive() then return end
     for _, viewerName in pairs(CDM_VIEWER_NAMES) do
         local viewer = _G[viewerName]
         if viewer and not hooksInstalled[viewer] then

@@ -792,6 +792,16 @@ function DDingUI:PLAYER_LOGIN()
     self:UnregisterEvent("PLAYER_LOGIN")
 end
 
+function DDingUI:IsPvPInstance()
+    if not IsInInstance then return false end
+    local inInstance, instanceType = IsInInstance()
+    return inInstance and (instanceType == "arena" or instanceType == "pvp") or false
+end
+
+function DDingUI:IsPvPSafeModeActive()
+    return self:IsPvPInstance()
+end
+
 function DDingUI:OnEnable()
     SetCVar("cooldownViewerEnabled", 1)
 

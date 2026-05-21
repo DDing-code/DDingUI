@@ -16,6 +16,10 @@ local LOCK_FRAME_NAMES = {
 
 local selectionState = setmetatable({}, { __mode = "k" })
 
+local function IsPvPSafeModeActive()
+    return DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive()
+end
+
 local function GetSelectionState(selection)
     local state = selectionState[selection]
     if not state then
@@ -32,6 +36,7 @@ end
 
 -- 차단 1: Selection 하이라이트/마우스 비활성화
 local function DisableSelectionInteraction(frame)
+    if IsPvPSafeModeActive() then return end
     if not frame then return end
     local selection = frame.Selection
     if not selection then return end
@@ -47,6 +52,7 @@ end
 -- 차단 2: 사이드바 체크박스 비활성화
 local sidebarDisabled = false
 local function DisableSidebarCooldownViewerButtons()
+    if IsPvPSafeModeActive() then return end
     if sidebarDisabled then return end
     local EditModeManagerFrame = _G.EditModeManagerFrame
     if not EditModeManagerFrame then return end
@@ -85,6 +91,7 @@ local function ShowLockNotice()
 end
 
 local function LockAllCooldownViewers()
+    if IsPvPSafeModeActive() then return end
     for _, name in ipairs(LOCK_FRAME_NAMES) do
         local frame = _G[name]
         if IsCooldownViewerSystemFrame(frame) then
@@ -107,6 +114,7 @@ function DDingUI:SetupEditModeLock()
         if not (EditModeSystemSettingsDialog and Enum and Enum.EditModeSystem) then return false end
 
         hooksecurefunc(EditModeSystemSettingsDialog, "AttachToSystemFrame", function(dialog, systemFrame)
+            if IsPvPSafeModeActive() then return end
             if not IsCooldownViewerSystemFrame(systemFrame) then return end
             dialog:Hide()
             ShowLockNotice()
@@ -116,6 +124,7 @@ function DDingUI:SetupEditModeLock()
             local frame = _G[name]
             if IsCooldownViewerSystemFrame(frame) then
                 hooksecurefunc(frame, "SelectSystem", function(sf)
+                    if IsPvPSafeModeActive() then return end
                     sf:SetMovable(false)
                     if EditModeSystemSettingsDialog.attachedToSystem == sf then
                         EditModeSystemSettingsDialog:Hide()
@@ -123,7 +132,10 @@ function DDingUI:SetupEditModeLock()
                     DisableSelectionInteraction(sf)
                     ShowLockNotice()
                 end)
-                hooksecurefunc(frame, "HighlightSystem", function(sf) DisableSelectionInteraction(sf) end)
+                hooksecurefunc(frame, "HighlightSystem", function(sf)
+                    if IsPvPSafeModeActive() then return end
+                    DisableSelectionInteraction(sf)
+                end)
             end
         end
 
