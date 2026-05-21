@@ -153,9 +153,59 @@ local function GetCooldownTextFontString(cooldown)
     if cached and cached.GetObjectType and cached:GetObjectType() == "FontString" then
         return cached
     end
-    cached = FindCooldownFontString(cooldown:GetRegions())
+    cached = cooldown.Text or cooldown.text
+    if cached and cached.GetObjectType and cached:GetObjectType() == "FontString" then
+        cooldown._ddCooldownTextFS = cached
+        return cached
+    end
+    local ok, found = pcall(function()
+        return FindCooldownFontString(cooldown:GetRegions())
+    end)
+    cached = ok and found or nil
     cooldown._ddCooldownTextFS = cached
     return cached
+end
+
+local function GetIconCooldownFrame(icon)
+    if not icon then return nil end
+    return icon.cooldown or icon.Cooldown
+end
+
+local function GetIconCountText(icon)
+    if not icon then return nil end
+    if icon.count then return icon.count end
+    local applications = icon.Applications
+    return applications and applications.Applications or nil
+end
+
+local function ForEachCooldownTextFontString(cooldown, callback)
+    if not (cooldown and callback) then return false end
+    local seen = {}
+    local found = false
+
+    local function Visit(region)
+        if region and not seen[region] and region.GetObjectType and region:GetObjectType() == "FontString" then
+            seen[region] = true
+            found = true
+            callback(region)
+        end
+    end
+
+    Visit(cooldown.Text)
+    Visit(cooldown.text)
+
+    local ok, regions = pcall(function()
+        return { cooldown:GetRegions() }
+    end)
+    if ok and type(regions) == "table" then
+        for _, region in ipairs(regions) do
+            Visit(region)
+        end
+    end
+
+    local cached = GetCooldownTextFontString(cooldown)
+    Visit(cached)
+    return found
 end
 
 -- 그룹 프레임 저장소
@@ -237,41 +287,42 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
         end)
     end
 
-    if icon.count then
+    local countText = GetIconCountText(icon)
+    if countText then
         local countAnchor = groupSettings.chargeTextAnchor or "BOTTOMRIGHT"
         if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
         local cox = tonumber(groupSettings.countTextOffsetX) or 0
         local coy = tonumber(groupSettings.countTextOffsetY) or 0
-        icon.count:ClearAllPoints()
-        icon.count:SetPoint(countAnchor, textAnchorFrame, countAnchor, cox, coy)
+        countText:ClearAllPoints()
+        countText:SetPoint(countAnchor, textAnchorFrame, countAnchor, cox, coy)
 
         local cSize = tonumber(groupSettings.countTextSize)
         if cSize and cSize > 0 then
             local cFont = DDingUI:GetFont(groupSettings.countTextFont)
-            icon.count:SetFont(cFont, cSize, "OUTLINE")
+            countText:SetFont(cFont, cSize, "OUTLINE")
         end
 
         if type(groupSettings.countTextColor) == "table" then
-            icon.count:SetTextColor(ResolveRGBA(groupSettings.countTextColor))
+            countText:SetTextColor(ResolveRGBA(groupSettings.countTextColor))
         end
     end
 
-    if icon.cooldown then
+    local cooldown = GetIconCooldownFrame(icon)
+    if cooldown then
         local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
         local ox = tonumber(oxRaw) or 0
         local oy = tonumber(oyRaw) or 0
         if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
 
         if groupSettings.hideDurationText then
-            if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(true) end
-            icon.cooldown.noCooldownCount = true
+            if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
+            cooldown.noCooldownCount = true
         else
-            if icon.cooldown.SetHideCountdownNumbers then icon.cooldown:SetHideCountdownNumbers(false) end
-            icon.cooldown.noCooldownCount = nil
+            if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(false) end
+            cooldown.noCooldownCount = nil
         end
 
-        local cdText = GetCooldownTextFontString(icon.cooldown)
-        if cdText then
+        local foundCooldownText = ForEachCooldownTextFontString(cooldown, function(cdText)
             icon._ddDynamicTextRetryCount = nil
             if groupSettings.hideDurationText then
                 cdText:Hide()
@@ -297,7 +348,8 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
                     cdText:SetTextColor(ResolveRGBA(textColor))
                 end
             end
-        else
+        end)
+        if not foundCooldownText then
             ScheduleTextRetry()
         end
     end
@@ -427,6 +479,185 @@ local function SafeNumber(value)
     if valueType == "number" then return value end
     if valueType == "string" then return tonumber(value) end
     return nil
+end
+
+local BLOODLUST_GROUP_IDS = {
+    [2825] = true, [32182] = true, [80353] = true, [90355] = true,
+    [160452] = true, [264667] = true, [390386] = true,
+    [146555] = true, [178207] = true, [230935] = true, [256740] = true,
+    [292686] = true, [309658] = true, [381301] = true, [444257] = true,
+}
+
+local ITEM_EFFECT_IDS = {
+    [5512] = 6262,
+    [224464] = 452930,
+    [241304] = 1234768,
+    [241305] = 1234768,
+    [241308] = 1236616,
+    [241309] = 1236616,
+    [245898] = 1236616,
+    [245897] = 1236616,
+    [241288] = 1236994,
+    [241289] = 1236994,
+    [245902] = 1236994,
+    [245903] = 1236994,
+    [241300] = 1234770,
+    [241301] = 1234770,
+    [245917] = 1234770,
+    [245916] = 1234770,
+    [211878] = 431416,
+    [211879] = 431416,
+    [211880] = 431416,
+}
+
+local function AddNormalizedID(set, value)
+    local id = SafeNumber(value)
+    if not id or id <= 0 then return end
+    set[id] = true
+    local effectID = ITEM_EFFECT_IDS[id]
+    if effectID then
+        set[effectID] = true
+    end
+    if BLOODLUST_GROUP_IDS[id] then
+        set[2825] = true
+        for aliasID in pairs(BLOODLUST_GROUP_IDS) do
+            set[aliasID] = true
+        end
+    end
+end
+
+local function AddIDsFromValue(set, value)
+    local valueType = type(value)
+    if valueType == "table" then
+        pcall(function()
+            for _, id in pairs(value) do
+                AddIDsFromValue(set, id)
+            end
+        end)
+    elseif valueType == "string" then
+        local matched = false
+        for id in string.gmatch(value, "(%d+)") do
+            matched = true
+            AddNormalizedID(set, id)
+        end
+        if not matched then
+            AddNormalizedID(set, value)
+        end
+    else
+        AddNormalizedID(set, value)
+    end
+end
+
+local function GetTableField(tbl, key)
+    if type(tbl) ~= "table" then return nil end
+    local ok, value = pcall(function() return tbl[key] end)
+    if ok then return value end
+    return nil
+end
+
+local function AddCooldownInfoIDs(set, info)
+    if type(info) ~= "table" then return end
+    AddNormalizedID(set, GetTableField(info, "overrideTooltipSpellID"))
+    AddNormalizedID(set, GetTableField(info, "overrideSpellID"))
+    AddNormalizedID(set, GetTableField(info, "spellID"))
+    AddIDsFromValue(set, GetTableField(info, "linkedSpellIDs"))
+end
+
+local function AddCDMEntryIDs(set, entry)
+    if not entry then return end
+    AddNormalizedID(set, entry.cooldownID)
+
+    local icon = entry.icon
+    if icon then
+        local okAura, auraSpellID = pcall(function() return icon.auraSpellID end)
+        if okAura then AddNormalizedID(set, auraSpellID) end
+
+        local okGetAura, getAuraSpellID = pcall(function()
+            return icon.GetAuraSpellID and icon:GetAuraSpellID()
+        end)
+        if okGetAura then AddNormalizedID(set, getAuraSpellID) end
+
+        local okInfo, cooldownInfo = pcall(function() return icon.cooldownInfo end)
+        if okInfo then AddCooldownInfoIDs(set, cooldownInfo) end
+
+        local okGetInfo, getInfo = pcall(function()
+            return icon.GetCooldownInfo and icon:GetCooldownInfo()
+        end)
+        if okGetInfo then AddCooldownInfoIDs(set, getInfo) end
+    end
+
+    if entry.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, entry.cooldownID)
+        if ok then AddCooldownInfoIDs(set, info) end
+    end
+end
+
+local function AddDynamicEntryIDs(set, entry)
+    local iconData = entry and entry.iconData
+    if iconData then
+        AddNormalizedID(set, iconData.id)
+        local settings = iconData.settings
+        if settings then
+            AddIDsFromValue(set, settings.auraAliases)
+            AddIDsFromValue(set, settings.fallbackItems)
+            AddIDsFromValue(set, settings.customAuraSpellID)
+            AddIDsFromValue(set, settings.customTimedAuraSpellID)
+        end
+    end
+
+    local frame = entry and entry.frame
+    if frame then
+        AddNormalizedID(set, frame._cachedAuraSpellID)
+        AddNormalizedID(set, frame._ddAuraSpellID)
+        AddNormalizedID(set, frame._ddTimedAuraSpellID)
+    end
+end
+
+local function IDSetsIntersect(a, b)
+    for id in pairs(a or {}) do
+        if b and b[id] then return true end
+    end
+    return false
+end
+
+local function MarkIDs(target, source)
+    for id in pairs(source or {}) do
+        target[id] = true
+    end
+end
+
+local function FilterGroupedBuffDynamicEntries(dynamicIcons, iconList, groupName, groupSettings)
+    if type(dynamicIcons) ~= "table" or #dynamicIcons == 0 then return dynamicIcons end
+
+    local cdmIDs = {}
+    if GroupUsesDurationText(groupName, groupSettings) then
+        for _, entry in ipairs(iconList or {}) do
+            AddCDMEntryIDs(cdmIDs, entry)
+        end
+    end
+
+    local seenIDs = {}
+    local seenKeys = {}
+    local result = {}
+    for _, entry in ipairs(dynamicIcons) do
+        local entryIDs = {}
+        AddDynamicEntryIDs(entryIDs, entry)
+
+        local duplicateCDM = next(cdmIDs) and next(entryIDs) and IDSetsIntersect(entryIDs, cdmIDs)
+        local duplicateDynamic = next(entryIDs) and IDSetsIntersect(entryIDs, seenIDs)
+        local key = entry and entry.iconKey and tostring(entry.iconKey)
+        if key and seenKeys[key] then
+            duplicateDynamic = true
+        end
+
+        if not duplicateCDM and not duplicateDynamic then
+            result[#result + 1] = entry
+            MarkIDs(seenIDs, entryIDs)
+            if key then seenKeys[key] = true end
+        end
+    end
+
+    return result
 end
 
 local function ShouldKeepDynamicIconInCombat(icon)
@@ -1318,6 +1549,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             end
         end
     end
+    dynamicIcons = FilterGroupedBuffDynamicEntries(dynamicIcons, iconList, groupName, groupSettings)
     local hasDynamicIcons = false
 
     -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
