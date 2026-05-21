@@ -85,6 +85,143 @@ local function SafeNumber(value)
     return nil
 end
 
+local pvpIconOrderCache = {}
+
+local function IsPvPInstance()
+    return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+end
+
+local function BuildOrderMap(groupSettings)
+    local map = {}
+    local order = groupSettings and groupSettings.iconOrder
+    if type(order) ~= "table" then return map end
+    for index, token in ipairs(order) do
+        if type(token) == "string" and token ~= "" and not map[token] then
+            map[token] = index
+        end
+    end
+    return map
+end
+
+local function BuildEntryOrderToken(entry)
+    if not entry then return nil end
+    local spellName = entry.spellName
+    if (not spellName or spellName == "") and entry.cooldownID then
+        local cdm = DDingUI.CDMHookEngine or DDingUI.FrameController
+        pcall(function()
+            if cdm and cdm.GetSpellNameForID then
+                spellName = cdm:GetSpellNameForID(entry.cooldownID)
+            end
+        end)
+    end
+    if spellName and spellName ~= "" then
+        return BuildCDMOrderToken(spellName)
+    end
+    local cooldownID = SafeNumber(entry.cooldownID)
+    if cooldownID then
+        return "cdm_id:" .. tostring(cooldownID)
+    end
+    return nil
+end
+
+local function SafeLayoutIndexForEntry(entry)
+    if not entry then return 0 end
+    local icon = entry.icon
+    if icon then
+        local layoutIndex = SafeNumber(icon.layoutIndex)
+        if layoutIndex then return layoutIndex end
+        local iconCooldownID = SafeNumber(icon.cooldownID)
+        if iconCooldownID then return iconCooldownID end
+    end
+    local cooldownID = SafeNumber(entry.cooldownID)
+    if cooldownID then return cooldownID end
+    return 0
+end
+
+local function CompareByCurrentLayout(a, b)
+    local aLayout = SafeLayoutIndexForEntry(a)
+    local bLayout = SafeLayoutIndexForEntry(b)
+    if aLayout ~= bLayout then return aLayout < bLayout end
+
+    local aCooldownID = SafeNumber(a and a.cooldownID) or 0
+    local bCooldownID = SafeNumber(b and b.cooldownID) or 0
+    if aCooldownID ~= bCooldownID then return aCooldownID < bCooldownID end
+
+    return tostring(a and a._ddGroupOrderToken or "") < tostring(b and b._ddGroupOrderToken or "")
+end
+
+local function SortIconListForGroup(groupName, iconList, groupSettings)
+    if type(iconList) ~= "table" then return end
+
+    local orderMap = BuildOrderMap(groupSettings)
+    for _, entry in ipairs(iconList) do
+        entry._ddGroupOrderToken = BuildEntryOrderToken(entry)
+    end
+
+    local function ExplicitRank(entry)
+        local token = entry and entry._ddGroupOrderToken
+        return token and orderMap[token] or nil
+    end
+
+    if not IsPvPInstance() then
+        pvpIconOrderCache[groupName] = nil
+        table.sort(iconList, function(a, b)
+            local aRank = ExplicitRank(a)
+            local bRank = ExplicitRank(b)
+            if aRank or bRank then
+                aRank = aRank or 100000000 + SafeLayoutIndexForEntry(a)
+                bRank = bRank or 100000000 + SafeLayoutIndexForEntry(b)
+                if aRank ~= bRank then return aRank < bRank end
+            end
+            return CompareByCurrentLayout(a, b)
+        end)
+        return
+    end
+
+    table.sort(iconList, function(a, b)
+        local aRank = ExplicitRank(a)
+        local bRank = ExplicitRank(b)
+        if aRank or bRank then
+            aRank = aRank or 100000000 + SafeLayoutIndexForEntry(a)
+            bRank = bRank or 100000000 + SafeLayoutIndexForEntry(b)
+            if aRank ~= bRank then return aRank < bRank end
+        end
+        return CompareByCurrentLayout(a, b)
+    end)
+
+    local cache = pvpIconOrderCache[groupName]
+    if not cache then
+        cache = { ranks = {}, nextRank = 1 }
+        pvpIconOrderCache[groupName] = cache
+    end
+    for _, entry in ipairs(iconList) do
+        local token = entry._ddGroupOrderToken
+        if token and not cache.ranks[token] then
+            cache.ranks[token] = cache.nextRank
+            cache.nextRank = cache.nextRank + 1
+        end
+    end
+
+    table.sort(iconList, function(a, b)
+        local aRank = ExplicitRank(a)
+        local bRank = ExplicitRank(b)
+        if aRank or bRank then
+            aRank = aRank or 100000000 + (cache.ranks[a and a._ddGroupOrderToken] or SafeLayoutIndexForEntry(a))
+            bRank = bRank or 100000000 + (cache.ranks[b and b._ddGroupOrderToken] or SafeLayoutIndexForEntry(b))
+            if aRank ~= bRank then return aRank < bRank end
+        end
+
+        local aCached = cache.ranks[a and a._ddGroupOrderToken]
+        local bCached = cache.ranks[b and b._ddGroupOrderToken]
+        if aCached or bCached then
+            aCached = aCached or 100000000 + SafeLayoutIndexForEntry(a)
+            bCached = bCached or 100000000 + SafeLayoutIndexForEntry(b)
+            if aCached ~= bCached then return aCached < bCached end
+        end
+        return CompareByCurrentLayout(a, b)
+    end)
+end
+
 local function CollectCurrentDefaultCDMTokens(gs, groupName)
     local tokens, seen, entries = {}, {}, {}
     local cdm = DDingUI.CDMHookEngine or DDingUI.FrameController
@@ -1126,27 +1263,8 @@ function GroupManager:ClassifyAll()
         end
     end
 
-    -- [REPARENT] CDM 뷰어의 원래 아이콘 순서 유지 (layoutIndex 기반 정렬)
-    -- layoutIndex가 secret value일 수 있으므로 pcall로 안전하게 접근
-    local function SafeLayoutIndex(icon)
-        if not icon then return 0 end
-        local ok, val = pcall(function()
-            local li = icon.layoutIndex
-            if li == nil then return nil end
-            if issecretvalue and issecretvalue(li) then return nil end
-            return li
-        end)
-        if ok and val then return val end
-        -- fallback: cooldownID 순서
-        local okID, cdID = pcall(function() return icon.cooldownID end)
-        if okID and cdID and type(cdID) == "number" then return cdID end
-        return 0
-    end
-
     for groupName, iconList in pairs(result) do
-        table.sort(iconList, function(a, b)
-            return SafeLayoutIndex(a.icon) < SafeLayoutIndex(b.icon)
-        end)
+        SortIconListForGroup(groupName, iconList, gs and gs.groups and gs.groups[groupName])
     end
 
     return result
