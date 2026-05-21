@@ -853,6 +853,26 @@ end
 function FrameController:GetSpellIDForIcon(icon)
     if not icon then return nil end
 
+    local function GetCooldownInfoSpellID(info)
+        if not info then return nil end
+        local sid = info.overrideTooltipSpellID or info.overrideSpellID or info.spellID
+        if not IsSafeNumber(sid) and type(info.linkedSpellIDs) == "table" then
+            sid = info.linkedSpellIDs[1]
+        end
+        if IsSafeNumber(sid) and sid > 0 then
+            return sid
+        end
+        return nil
+    end
+
+    local sourceName = icon.cooldownID and iconSourceMap[icon.cooldownID]
+    local parent = icon.GetParent and icon:GetParent()
+    if sourceName == "BuffIconCooldownViewer" or parent == viewerRefs["BuffIconCooldownViewer"] then
+        local info = icon.GetCooldownInfo and icon:GetCooldownInfo() or icon.cooldownInfo
+        local sid = GetCooldownInfoSpellID(info)
+        if sid then return sid end
+    end
+
     -- 1. [CDM 패턴] GetAuraSpellID — pcall 불필요 (전투 중 안전)
     if icon.GetAuraSpellID then
         local sid = icon:GetAuraSpellID()
@@ -863,12 +883,8 @@ function FrameController:GetSpellIDForIcon(icon)
 
     -- 2. [CDM 패턴] Raw cooldownInfo 메타테이블 스캐닝
     local info = icon.GetCooldownInfo and icon:GetCooldownInfo() or icon.cooldownInfo
-    if info then
-        local sid = info.overrideSpellID or info.spellID or info.linkedSpellID
-        if IsSafeNumber(sid) and sid > 0 then
-            return sid
-        end
-    end
+    local sid = GetCooldownInfoSpellID(info)
+    if sid then return sid end
 
     -- 3. [최후수단] GetSpellID — 전투 중 secret value 가능성 있음
     if icon.GetSpellID then

@@ -351,6 +351,21 @@ local function AddCandidateValue(ids, names, value)
     local valueType = type(value)
     if valueType == "number" or valueType == "string" then
         AddCandidateSpellID(ids, names, value)
+        value = SafeNumber(value)
+        if value and C_Spell then
+            local okBase, baseID = pcall(function()
+                return C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(value)
+            end)
+            if okBase and baseID and baseID ~= value then
+                AddCandidateSpellID(ids, names, baseID)
+            end
+            local okOverride, overrideID = pcall(function()
+                return C_Spell.GetOverrideSpell and C_Spell.GetOverrideSpell(value)
+            end)
+            if okOverride and overrideID and overrideID ~= value then
+                AddCandidateSpellID(ids, names, overrideID)
+            end
+        end
     elseif valueType == "table" then
         for _, spellID in pairs(value) do
             AddCandidateValue(ids, names, spellID)
@@ -361,7 +376,7 @@ end
 local function BuildDynamicIconCandidateSets(iconData)
     local ids, names = {}, {}
     if not iconData or (iconData.type ~= "spell" and iconData.type ~= "aura") then return ids, names end
-    AddCandidateSpellID(ids, names, iconData.id)
+    AddCandidateValue(ids, names, iconData.id)
     local settings = iconData.settings
     if settings then
         AddCandidateName(names, settings.sourceSpellName)
@@ -397,7 +412,12 @@ local function IconMatchesCandidateIDs(icon, cooldownID, ids)
         if okAura and MatchesCandidateID(ids, auraSpellID) then return true end
         local okInfo, cooldownInfo = pcall(function() return icon.cooldownInfo end)
         if okInfo and type(cooldownInfo) == "table" then
-            if MatchesCandidateID(ids, cooldownInfo.spellID) or MatchesCandidateID(ids, cooldownInfo.overrideSpellID) then return true end
+            if MatchesCandidateID(ids, cooldownInfo.overrideTooltipSpellID)
+                or MatchesCandidateID(ids, cooldownInfo.overrideSpellID)
+                or MatchesCandidateID(ids, cooldownInfo.spellID)
+            then
+                return true
+            end
             if type(cooldownInfo.linkedSpellIDs) == "table" then
                 for _, linkedID in ipairs(cooldownInfo.linkedSpellIDs) do
                     if MatchesCandidateID(ids, linkedID) then return true end
@@ -408,7 +428,12 @@ local function IconMatchesCandidateIDs(icon, cooldownID, ids)
     if cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
         local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
         if ok and type(info) == "table" then
-            if MatchesCandidateID(ids, info.spellID) or MatchesCandidateID(ids, info.overrideSpellID) then return true end
+            if MatchesCandidateID(ids, info.overrideTooltipSpellID)
+                or MatchesCandidateID(ids, info.overrideSpellID)
+                or MatchesCandidateID(ids, info.spellID)
+            then
+                return true
+            end
             if type(info.linkedSpellIDs) == "table" then
                 for _, linkedID in ipairs(info.linkedSpellIDs) do
                     if MatchesCandidateID(ids, linkedID) then return true end
@@ -419,7 +444,88 @@ local function IconMatchesCandidateIDs(icon, cooldownID, ids)
     return false
 end
 
+local function GetSpellNameFromID(spellID)
+    spellID = SafeNumber(spellID)
+    if not spellID or spellID <= 0 then return nil end
+    local okInfo, info = pcall(function()
+        return C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    end)
+    if okInfo and type(info) == "table" then
+        if type(info.name) == "string" and info.name ~= "" and not (issecretvalue and issecretvalue(info.name)) then
+            return info.name
+        end
+    end
+    local okName, name = pcall(function()
+        return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+    end)
+    if okName and type(name) == "string" and name ~= "" and not (issecretvalue and issecretvalue(name)) then
+        return name
+    end
+    return nil
+end
+
+local function GetCooldownInfoPreferredSpellID(info)
+    if type(info) ~= "table" then return nil end
+    return SafeNumber(info.overrideTooltipSpellID)
+        or SafeNumber(info.overrideSpellID)
+        or SafeNumber(info.spellID)
+end
+
+local function CooldownInfoMatchesCandidates(info, ids, names)
+    if type(info) ~= "table" then return false end
+    if MatchesCandidateID(ids, info.overrideTooltipSpellID)
+        or MatchesCandidateID(ids, info.overrideSpellID)
+        or MatchesCandidateID(ids, info.spellID)
+    then
+        return true
+    end
+    if type(info.linkedSpellIDs) == "table" then
+        for _, linkedID in ipairs(info.linkedSpellIDs) do
+            if MatchesCandidateID(ids, linkedID) then return true end
+        end
+    end
+    local preferredName = GetSpellNameFromID(GetCooldownInfoPreferredSpellID(info))
+    return preferredName and names[preferredName] == true
+end
+
+local function FindMatchingCooldownViewerBuffSpellName(iconData)
+    if not (C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return nil end
+    if not (Enum and Enum.CooldownViewerCategory) then return nil end
+
+    local ids, names = BuildDynamicIconCandidateSets(iconData)
+    if not next(ids) and not next(names) then return nil end
+
+    local categories = Enum.CooldownViewerCategory
+    local categoryNames = { "TrackedBuff", "Essential", "Utility", "TrackedBar" }
+    local seenCooldownIDs = {}
+
+    for _, categoryName in ipairs(categoryNames) do
+        local categoryID = categories[categoryName]
+        if categoryID then
+            local okSet, cooldownIDs = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, categoryID, true)
+            if okSet and type(cooldownIDs) == "table" then
+                for _, cooldownID in ipairs(cooldownIDs) do
+                    local safeCooldownID = SafeNumber(cooldownID)
+                    if safeCooldownID and not seenCooldownIDs[safeCooldownID] then
+                        seenCooldownIDs[safeCooldownID] = true
+                        local okInfo, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, safeCooldownID)
+                        if okInfo and CooldownInfoMatchesCandidates(info, ids, names) then
+                            local spellName = GetSpellNameFromID(GetCooldownInfoPreferredSpellID(info)) or GetFirstCandidateName(names)
+                            return GetNormalizedBuffSpellName(spellName)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
 local function FindMatchingCDMBuffSpellName(iconData)
+    local viewerSpellName = FindMatchingCooldownViewerBuffSpellName(iconData)
+    if viewerSpellName then return viewerSpellName end
+
     local ids, names = BuildDynamicIconCandidateSets(iconData)
     if not next(ids) and not next(names) then return nil end
 
