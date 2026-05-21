@@ -4771,6 +4771,20 @@ end
 function CustomIcons:AddIconToCDMGroup(groupName, iconData, displayName)
     if type(iconData) ~= "table" then return nil end
 
+    local groupManager = DDingUI.GroupManager
+    if groupManager and groupManager.AssignMatchingCDMBuffIcon then
+        local assignedSpellName = groupManager:AssignMatchingCDMBuffIcon(iconData, groupName)
+        if assignedSpellName then
+            C_Timer.After(0.05, function()
+                local gs = DDingUI.GroupSystem
+                if gs and gs.Refresh then
+                    gs:Refresh()
+                end
+            end)
+            return assignedSpellName
+        end
+    end
+
     local sourceKey = self:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
     if not sourceKey then return nil end
 

@@ -323,6 +323,152 @@ local function GetCopiedCDMBuffSpellName(iconData)
     return nil
 end
 
+local function AddCandidateName(names, name)
+    if type(name) ~= "string" or name == "" then return end
+    if issecretvalue and issecretvalue(name) then return end
+    names[name:match("^buff_(.+)") or name] = true
+end
+
+local function AddCandidateSpellID(ids, names, spellID)
+    spellID = SafeNumber(spellID)
+    if not spellID or spellID <= 0 then return end
+    ids[spellID] = true
+    local ok, info = pcall(function()
+        return C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    end)
+    if ok and info then
+        AddCandidateName(names, type(info) == "table" and info.name or info)
+    end
+    local okName, spellName = pcall(function()
+        return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+    end)
+    if okName then
+        AddCandidateName(names, spellName)
+    end
+end
+
+local function AddCandidateValue(ids, names, value)
+    local valueType = type(value)
+    if valueType == "number" or valueType == "string" then
+        AddCandidateSpellID(ids, names, value)
+    elseif valueType == "table" then
+        for _, spellID in pairs(value) do
+            AddCandidateValue(ids, names, spellID)
+        end
+    end
+end
+
+local function BuildDynamicIconCandidateSets(iconData)
+    local ids, names = {}, {}
+    if not iconData or (iconData.type ~= "spell" and iconData.type ~= "aura") then return ids, names end
+    AddCandidateSpellID(ids, names, iconData.id)
+    local settings = iconData.settings
+    if settings then
+        AddCandidateName(names, settings.sourceSpellName)
+        AddCandidateValue(ids, names, settings.auraAliases)
+        AddCandidateValue(ids, names, settings.fallbackItems)
+    end
+    return ids, names
+end
+
+local function MatchesCandidateID(ids, spellID)
+    spellID = SafeNumber(spellID)
+    return spellID and ids[spellID] == true
+end
+
+local function GetNormalizedBuffSpellName(spellName)
+    if type(spellName) ~= "string" or spellName == "" then return nil end
+    if issecretvalue and issecretvalue(spellName) then return nil end
+    if IsBuffSpellKey(spellName) then return spellName end
+    return "buff_" .. spellName
+end
+
+local function GetFirstCandidateName(names)
+    for name in pairs(names or {}) do
+        return name
+    end
+    return nil
+end
+
+local function IconMatchesCandidateIDs(icon, cooldownID, ids)
+    if MatchesCandidateID(ids, cooldownID) then return true end
+    if icon then
+        local okAura, auraSpellID = pcall(function() return icon.auraSpellID end)
+        if okAura and MatchesCandidateID(ids, auraSpellID) then return true end
+        local okInfo, cooldownInfo = pcall(function() return icon.cooldownInfo end)
+        if okInfo and type(cooldownInfo) == "table" then
+            if MatchesCandidateID(ids, cooldownInfo.spellID) or MatchesCandidateID(ids, cooldownInfo.overrideSpellID) then return true end
+            if type(cooldownInfo.linkedSpellIDs) == "table" then
+                for _, linkedID in ipairs(cooldownInfo.linkedSpellIDs) do
+                    if MatchesCandidateID(ids, linkedID) then return true end
+                end
+            end
+        end
+    end
+    if cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
+        if ok and type(info) == "table" then
+            if MatchesCandidateID(ids, info.spellID) or MatchesCandidateID(ids, info.overrideSpellID) then return true end
+            if type(info.linkedSpellIDs) == "table" then
+                for _, linkedID in ipairs(info.linkedSpellIDs) do
+                    if MatchesCandidateID(ids, linkedID) then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function FindMatchingCDMBuffSpellName(iconData)
+    local ids, names = BuildDynamicIconCandidateSets(iconData)
+    if not next(ids) and not next(names) then return nil end
+
+    local cdm = DDingUI.CDMHookEngine or DDingUI.FrameController
+    if not cdm then return nil end
+
+    local map
+    local okMap = pcall(function()
+        if cdm.GetIdIconMap then
+            map = cdm:GetIdIconMap()
+        elseif cdm.GetIconMap then
+            map = cdm:GetIconMap()
+        end
+    end)
+    if not okMap or type(map) ~= "table" then return nil end
+
+    for cooldownID, icon in pairs(map) do
+        local viewerName, defaultGroup, spellName
+        pcall(function()
+            if cdm.GetIconSource then viewerName = cdm:GetIconSource(cooldownID) end
+        end)
+        pcall(function()
+            if cdm.GetDefaultGroupForViewer then defaultGroup = cdm:GetDefaultGroupForViewer(viewerName) end
+        end)
+        if defaultGroup == "Buffs" or viewerName == "BuffIconCooldownViewer" then
+            pcall(function()
+                if cdm.GetSpellNameForID then spellName = cdm:GetSpellNameForID(cooldownID) end
+            end)
+            if not spellName and icon then
+                pcall(function()
+                    if cdm.GetSpellName then spellName = cdm:GetSpellName(icon) end
+                end)
+            end
+            local cleanSpellName = spellName and (spellName:match("^buff_(.+)") or spellName)
+            if cleanSpellName and names[cleanSpellName] then
+                return GetNormalizedBuffSpellName(spellName)
+            end
+            if IconMatchesCandidateIDs(icon, cooldownID, ids) then
+                return GetNormalizedBuffSpellName(spellName or cleanSpellName or GetFirstCandidateName(names))
+            end
+        end
+    end
+    return nil
+end
+
+local function GetCDMBuffSpellNameForDynamicIcon(iconData)
+    return GetCopiedCDMBuffSpellName(iconData) or FindMatchingCDMBuffSpellName(iconData)
+end
+
 local function ConvertCopiedBuffDynamicIcons(gs)
     if DDingUI._convertingCopiedBuffIcons then return false end
     if not gs or not gs.groups then return false end
@@ -340,7 +486,7 @@ local function ConvertCopiedBuffDynamicIcons(gs)
             local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
             if dynGroup and dynGroup.icons then
                 for _, iconKey in ipairs(dynGroup.icons) do
-                    local spellName = GetCopiedCDMBuffSpellName(iconDataDB[iconKey])
+                    local spellName = GetCDMBuffSpellNameForDynamicIcon(iconDataDB[iconKey])
                     if spellName then
                         converted[#converted + 1] = {
                             groupName = groupName,
@@ -608,6 +754,19 @@ end
 
 function GroupManager:MoveSpellToUnassigned(spellName)
     return self:UnassignSpell(spellName, { toUnassignedBuffPool = true })
+end
+
+function GroupManager:AssignMatchingCDMBuffIcon(iconData, groupName)
+    local gs = GetGroupSystemSettings()
+    local group = gs and gs.groups and gs.groups[groupName]
+    if not IsBuffGroup(groupName, group) then return nil end
+
+    local spellName = GetCDMBuffSpellNameForDynamicIcon(iconData)
+    if not spellName then return nil end
+    if self:AssignSpell(spellName, groupName) then
+        return spellName
+    end
+    return nil
 end
 
 function GroupManager:NormalizeGroupIconOrder(groupName)

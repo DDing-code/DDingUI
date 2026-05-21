@@ -612,10 +612,11 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
             if group and group.icons then
                 for _, iconKey in ipairs(group.icons) do
                     local iconData = db.iconData[iconKey]
-                    -- Hybrid CDM groups render these icons through CustomIcons.
                     if iconData then
                         if iconData.id and (iconData.type == "spell" or iconData.type == "aura") then
-                            suppressed[iconData.id] = true
+                            if not (IsBuffGroup(groupName, groupSettings) and iconData.type == "aura") then
+                                suppressed[iconData.id] = true
+                            end
                         elseif iconData.type == "trinketProc" and iconData.settings then
                             local procSpellID = tonumber(iconData.settings.procSpellID)
                             if procSpellID and procSpellID > 0 then

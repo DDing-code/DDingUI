@@ -429,129 +429,6 @@ local function SafeNumber(value)
     return nil
 end
 
-local function NormalizeSpellName(value)
-    if type(value) ~= "string" or value == "" then return nil end
-    return value:gsub("^buff_", "")
-end
-
-local function AddSuppressedName(names, value)
-    local name = NormalizeSpellName(value)
-    if name then names[name] = true end
-end
-
-local function AddSuppressedSpellID(ids, names, spellID)
-    spellID = SafeNumber(spellID)
-    if not spellID or spellID <= 0 then return end
-    ids[spellID] = true
-    if C_Spell and C_Spell.GetSpellInfo then
-        local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
-        if ok and info then
-            if type(info) == "table" then
-                AddSuppressedName(names, info.name)
-            else
-                AddSuppressedName(names, info)
-            end
-        end
-    end
-    if C_Spell and C_Spell.GetSpellName then
-        local ok, name = pcall(C_Spell.GetSpellName, spellID)
-        if ok then AddSuppressedName(names, name) end
-    end
-end
-
-local function AddSuppressedIDsFromValue(ids, names, value)
-    local valueType = type(value)
-    if valueType == "number" or valueType == "string" then
-        AddSuppressedSpellID(ids, names, value)
-    elseif valueType == "table" then
-        for _, spellID in pairs(value) do
-            AddSuppressedIDsFromValue(ids, names, spellID)
-        end
-    end
-end
-
-local function BuildDynamicCDMSuppression(dynamicIcons, groupName, groupSettings)
-    if not GroupUsesDurationText(groupName, groupSettings) then return nil, nil end
-
-    local ids, names = {}, {}
-    for _, entry in ipairs(dynamicIcons or {}) do
-        local iconData = entry and entry.iconData
-        if iconData then
-            if iconData.type == "spell" or iconData.type == "aura" then
-                AddSuppressedSpellID(ids, names, iconData.id)
-            elseif iconData.type == "trinketProc" and iconData.settings then
-                AddSuppressedSpellID(ids, names, iconData.settings.procSpellID)
-            end
-            local settings = iconData.settings
-            if settings then
-                AddSuppressedIDsFromValue(ids, names, settings.auraAliases)
-                AddSuppressedIDsFromValue(ids, names, settings.fallbackItems)
-            end
-        end
-    end
-
-    if next(ids) or next(names) then
-        return ids, names
-    end
-    return nil, nil
-end
-
-local function CDMEntryMatchesDynamicSuppression(entry, ids, names)
-    if not entry or not (ids or names) then return false end
-    local function MatchesID(spellID)
-        spellID = SafeNumber(spellID)
-        return spellID and ids and ids[spellID] == true
-    end
-    local function MatchesName(name)
-        name = NormalizeSpellName(name)
-        return name and names and names[name] == true
-    end
-
-    if MatchesID(entry.cooldownID) or MatchesID(entry.spellID) or MatchesName(entry.spellName) then
-        return true
-    end
-
-    local icon = entry.icon
-    if icon then
-        local okAura, auraSpellID = pcall(function() return icon.auraSpellID end)
-        if okAura and MatchesID(auraSpellID) then return true end
-        local okInfo, cooldownInfo = pcall(function() return icon.cooldownInfo end)
-        if okInfo and type(cooldownInfo) == "table" then
-            if MatchesID(cooldownInfo.spellID) or MatchesID(cooldownInfo.overrideSpellID) then return true end
-            if type(cooldownInfo.linkedSpellIDs) == "table" then
-                for _, linkedID in ipairs(cooldownInfo.linkedSpellIDs) do
-                    if MatchesID(linkedID) then return true end
-                end
-            end
-        end
-    end
-
-    local cooldownID = SafeNumber(entry.cooldownID)
-    if cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
-        if ok and type(info) == "table" then
-            if MatchesID(info.spellID) or MatchesID(info.overrideSpellID) then return true end
-            if type(info.linkedSpellIDs) == "table" then
-                for _, linkedID in ipairs(info.linkedSpellIDs) do
-                    if MatchesID(linkedID) then return true end
-                end
-            end
-        end
-    end
-
-    return false
-end
-
-local function SuppressDynamicDuplicateCDMIcon(icon)
-    if not icon then return end
-    icon._ddSuppressed = true
-    icon._ddSuppressedByDynamic = true
-    SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
-    if icon.EnableMouse then
-        pcall(icon.EnableMouse, icon, false)
-    end
-end
-
 local function ShouldKeepDynamicIconInCombat(icon)
     if not icon or not icon._ddIconKey then return false end
 
@@ -1442,7 +1319,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         end
     end
     local hasDynamicIcons = false
-    local suppressedDynamicIDs, suppressedDynamicNames = BuildDynamicCDMSuppression(dynamicIcons, groupName, groupSettings)
 
     -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
     local newSet = {}
@@ -1453,12 +1329,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     for _, entry in ipairs(iconList) do
         local placement = BuildCDMPlacement(entry)
         if placement then
-            if CDMEntryMatchesDynamicSuppression(placement, suppressedDynamicIDs, suppressedDynamicNames) then
-                SuppressDynamicDuplicateCDMIcon(placement.icon)
-            else
-                newSet[placement.icon] = true
-                combinedList[#combinedList + 1] = placement
-            end
+            newSet[placement.icon] = true
+            combinedList[#combinedList + 1] = placement
         end
     end
 
@@ -1565,13 +1437,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         local icon = entry.icon
 
         if icon then
-            if icon._ddSuppressedByDynamic then
-                icon._ddSuppressedByDynamic = nil
-                icon._ddSuppressed = nil
-                if icon.EnableMouse then
-                    pcall(icon.EnableMouse, icon, true)
-                end
-            end
             if entry.isDynamic then
                 if frame._ddDeferredReleaseIcons then
                     frame._ddDeferredReleaseIcons[entry.iconKey or entry.cooldownID] = nil
