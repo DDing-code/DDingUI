@@ -2001,8 +2001,25 @@ local function ReadItemCooldownSpan(itemID)
     return nil, nil, false
 end
 
+local function FindEquippedItemSlot(itemID)
+    itemID = SafeNumber(itemID)
+    if not itemID or not GetInventoryItemID then return nil end
+
+    for _, slotID in ipairs({ 13, 14 }) do
+        local equippedID
+        pcall(function()
+            equippedID = GetInventoryItemID("player", slotID)
+        end)
+        if SafeNumber(equippedID) == itemID then
+            return slotID
+        end
+    end
+    return nil
+end
+
 local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID)
-    local start, duration, safeSpan = ReadInventoryCooldownSpan(slotID)
+    local equippedSlotID = slotID or FindEquippedItemSlot(itemID)
+    local start, duration, safeSpan = ReadInventoryCooldownSpan(equippedSlotID)
     if not start then
         start, duration, safeSpan = ReadItemCooldownSpan(itemID)
     end
@@ -2058,13 +2075,18 @@ end
 local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan)
     if not iconFrame or not iconFrame.cooldown or not start or not duration then return false end
 
-    if safeSpan ~= false and C_DurationUtil and C_DurationUtil.CreateDuration then
+    if C_DurationUtil and C_DurationUtil.CreateDuration then
         if not iconFrame[durObjKey] then
             iconFrame[durObjKey] = C_DurationUtil.CreateDuration()
         end
-        iconFrame[durObjKey]:SetTimeFromStart(start, duration)
-        iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame[durObjKey])
-        return true
+        local okObj = pcall(iconFrame[durObjKey].SetTimeFromStart, iconFrame[durObjKey], start, duration)
+        if okObj then
+            local okSet = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, iconFrame[durObjKey], true)
+            if not okSet then
+                okSet = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, iconFrame[durObjKey])
+            end
+            if okSet then return true end
+        end
     end
 
     local ok = pcall(iconFrame.cooldown.SetCooldown, iconFrame.cooldown, start, duration)
