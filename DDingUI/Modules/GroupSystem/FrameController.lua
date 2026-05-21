@@ -179,7 +179,6 @@ local pollingFrame = CreateFrame("Frame")
 
 -- dirty 마킹 — 모든 CDM 훅에서 이것만 호출
 local function MarkDirty()
-    if DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive() then return end
     if state.isProcessing then return end
     state.dirty = true
     state.burstTicksRemaining = CONFIG.BURST_TICKS
@@ -202,10 +201,6 @@ end
 
 -- 폴링 활성화
 EnablePolling = function()
-    if DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive() then
-        FrameController:DisablePolling()
-        return
-    end
     if state.pollingActive then
         MarkDirty() -- 이미 활성이면 dirty만 표시
         return
@@ -629,11 +624,6 @@ end
 -- ============================================================
 
 function FrameController:ScanCDMViewers()
-    if DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive() then
-        wipe(idIconMap)
-        wipe(iconSourceMap)
-        return 0
-    end
     -- [FIX] idIconMap/iconSourceMap만 wipe. iconSpellNameMap은 영구 캐시 유지.
     -- 전투 중 secret value로 GetSpellName 실패해도 이전 캐시로 분류 가능.
     wipe(idIconMap)
@@ -811,14 +801,6 @@ end
 function FrameController:Reconcile()
     if not self.initialized then
         state.pendingReconcile = false
-        return
-    end
-    if DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive() then
-        self:DisablePolling()
-        wipe(idIconMap)
-        wipe(iconSourceMap)
-        state.pendingReconcile = false
-        state.dirty = false
         return
     end
 
@@ -1907,7 +1889,6 @@ end
 -- ============================================================
 
 function FrameController:ForceReconcile()
-    if DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive() then return end
     if not self.initialized then return end
     state.reconcileCount = 0
     self._initTime = GetTime() -- [DIAG] 진단 리셋 (15초간 다시 출력)

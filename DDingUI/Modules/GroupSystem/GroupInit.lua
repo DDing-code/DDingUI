@@ -24,12 +24,8 @@ GroupSystem.enabled = false
 local _pendingRefresh = false      -- Refresh 대기
 local _pendingRefreshLayout = false -- RefreshLayout 대기
 local _combatDeferFrame = CreateFrame("Frame")
-local ApplyPvPSafeMode
 _combatDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 _combatDeferFrame:SetScript("OnEvent", function()
-    if GroupSystem._pvpSafeModePending and ApplyPvPSafeMode() then
-        return
-    end
     if _pendingRefresh then
         _pendingRefresh = false
         _pendingRefreshLayout = false  -- Refresh가 RefreshLayout을 포함
@@ -53,10 +49,6 @@ local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 local function GetSettings()
     local profile = DDingUI.db and DDingUI.db.profile
     return profile and profile.groupSystem
-end
-
-local function IsPvPSafeModeActive()
-    return DDingUI.IsPvPSafeModeActive and DDingUI:IsPvPSafeModeActive()
 end
 
 local function GetDynamicDB()
@@ -87,77 +79,6 @@ local CORE_CDM_GROUPS = {
     Buffs = true,
     Utility = true,
 }
-
-ApplyPvPSafeMode = function()
-    if not IsPvPSafeModeActive() then
-        if GroupSystem._pvpSafeMode or GroupSystem._pvpSafeModePending or GroupSystem._pvpEnableDeferred then
-            GroupSystem._pvpSafeMode = false
-            GroupSystem._pvpSafeModePending = nil
-            GroupSystem._pvpEnableDeferred = nil
-            C_Timer.After(0.5, function()
-                if GroupSystem.enabled and not IsPvPSafeModeActive() then
-                    if CDMHookEngine and CDMHookEngine.Shutdown then
-                        CDMHookEngine:Shutdown()
-                    end
-                    GroupSystem.enabled = false
-                    GroupSystem:Enable()
-                end
-            end)
-        end
-        return false
-    end
-
-    if GroupSystem._pvpSafeMode then return true end
-    if InCombatLockdown and InCombatLockdown() then
-        GroupSystem._pvpSafeModePending = true
-        if CDMHookEngine then
-            if CDMHookEngine.DisablePolling then
-                CDMHookEngine:DisablePolling()
-            end
-            CDMHookEngine.initialized = false
-        end
-        return true
-    end
-
-    GroupSystem._pvpSafeMode = true
-    GroupSystem._pvpSafeModePending = nil
-    _pendingRefresh = false
-    _pendingRefreshLayout = false
-
-    if CDMHookEngine and CDMHookEngine.Shutdown then
-        CDMHookEngine:Shutdown()
-    elseif CDMHookEngine and CDMHookEngine.DisablePolling then
-        CDMHookEngine:DisablePolling()
-    end
-    if GroupRenderer then
-        if GroupRenderer.RestoreAllIcons then GroupRenderer:RestoreAllIcons() end
-        if GroupRenderer.DestroyAllGroups then GroupRenderer:DestroyAllGroups() end
-    end
-    if DynamicIconBridge and DynamicIconBridge.Shutdown then
-        DynamicIconBridge:Shutdown()
-    end
-    if ContainerSync and ContainerSync.RestoreAll then
-        ContainerSync:RestoreAll()
-    end
-
-    return true
-end
-
-local function EnsurePvPSafeModeWatcher()
-    if GroupSystem._pvpSafeModeFrame then return end
-    local frame = CreateFrame("Frame")
-    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    frame:SetScript("OnEvent", function()
-        C_Timer.After(0.2, function()
-            if GroupSystem.enabled then
-                ApplyPvPSafeMode()
-            end
-        end)
-    end)
-    GroupSystem._pvpSafeModeFrame = frame
-end
 
 local function GetGroupDisplayName(groupName)
     if GROUP_DISPLAY_NAMES[groupName] then
@@ -635,7 +556,6 @@ end
 
 local function DoFullUpdate()
     if not GroupSystem.enabled then return end
-    if ApplyPvPSafeMode and ApplyPvPSafeMode() then return end
 
     local gs = GetSettings()
     if not gs then return end
@@ -1589,13 +1509,6 @@ function GroupSystem:Enable()
         return
     end
 
-    EnsurePvPSafeModeWatcher()
-    if ApplyPvPSafeMode and ApplyPvPSafeMode() then
-        self.enabled = true
-        self._pvpEnableDeferred = true
-        return
-    end
-
     -- CDMHookEngine 초기화 (뷰어 존재 확인 포함)
     local ok = CDMHookEngine:Initialize()
     if not ok then
@@ -1852,13 +1765,6 @@ function GroupSystem:Disable()
     if not self.enabled then return end
 
     self.enabled = false
-    self._pvpSafeMode = nil
-    self._pvpSafeModePending = nil
-    self._pvpEnableDeferred = nil
-    if self._pvpSafeModeFrame then
-        self._pvpSafeModeFrame:UnregisterAllEvents()
-        self._pvpSafeModeFrame = nil
-    end
 
     -- CDM 아이콘 원래 상태 복원
     if GroupRenderer then
@@ -1909,7 +1815,6 @@ end
 
 function GroupSystem:Refresh()
     if not self.enabled then return end
-    if ApplyPvPSafeMode and ApplyPvPSafeMode() then return end
 
     -- [FIX] 전투 중에는 ClearAllPoints 등 보호된 함수 호출 불가 → 전투 종료 후 실행
     if InCombatLockdown() then
@@ -2019,7 +1924,6 @@ end
 -- SetupFrameInContainer + SkinIcon 스킵 → 깜빡임 없음
 function GroupSystem:RefreshLayout()
     if not self.enabled then return end
-    if ApplyPvPSafeMode and ApplyPvPSafeMode() then return end
 
     -- [FIX] 전투 중 보호된 프레임 조작 방지
     if InCombatLockdown() then
