@@ -91,6 +91,10 @@ local function IsPvPInstance()
     return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
 end
 
+local RemoveTokenFromList
+local InsertCDMTokenByDefaultOrder
+local lastCDMTokenSets = {}
+
 local function BuildOrderMap(groupSettings)
     local map = {}
     local order = groupSettings and groupSettings.iconOrder
@@ -158,16 +162,99 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
         entry._ddGroupOrderToken = BuildEntryOrderToken(entry)
     end
 
+    local defaultEntries = {}
+    for _, entry in ipairs(iconList) do
+        if IsCDMOrderToken(entry and entry._ddGroupOrderToken) then
+            defaultEntries[#defaultEntries + 1] = entry
+        end
+    end
+    table.sort(defaultEntries, CompareByCurrentLayout)
+
+    local currentDefaultTokens, currentTokenSet = {}, {}
+    for _, entry in ipairs(defaultEntries) do
+        local token = entry._ddGroupOrderToken
+        if token and not currentTokenSet[token] then
+            currentDefaultTokens[#currentDefaultTokens + 1] = token
+            currentTokenSet[token] = true
+        end
+    end
+
+    local previousTokenSet = lastCDMTokenSets[groupName]
+    local order = groupSettings and groupSettings.iconOrder
+    if previousTokenSet and type(order) == "table" and InsertCDMTokenByDefaultOrder and RemoveTokenFromList then
+        local changed = false
+        for _, token in ipairs(currentDefaultTokens) do
+            if not previousTokenSet[token] and orderMap[token] then
+                RemoveTokenFromList(order, token)
+                local seen = {}
+                for _, existing in ipairs(order) do
+                    if type(existing) == "string" then seen[existing] = true end
+                end
+                InsertCDMTokenByDefaultOrder(order, seen, currentDefaultTokens, token)
+                changed = true
+            end
+        end
+        if changed then
+            orderMap = BuildOrderMap(groupSettings)
+        end
+    end
+    lastCDMTokenSets[groupName] = currentTokenSet
+
     local function ExplicitRank(entry)
         local token = entry and entry._ddGroupOrderToken
         return token and orderMap[token] or nil
     end
 
+    local cdmAnchors = {}
+    for _, entry in ipairs(iconList) do
+        local token = entry and entry._ddGroupOrderToken
+        local rank = ExplicitRank(entry)
+        if rank and IsCDMOrderToken(token) then
+            cdmAnchors[#cdmAnchors + 1] = {
+                layout = SafeLayoutIndexForEntry(entry),
+                rank = rank,
+            }
+        end
+    end
+    table.sort(cdmAnchors, function(a, b)
+        return (a.layout or 0) < (b.layout or 0)
+    end)
+
+    local function ImplicitCDMRank(entry)
+        local token = entry and entry._ddGroupOrderToken
+        if not token or orderMap[token] or not IsCDMOrderToken(token) then return nil end
+
+        local layout = SafeLayoutIndexForEntry(entry)
+        local prevAnchor, nextAnchor
+        for _, anchor in ipairs(cdmAnchors) do
+            if anchor.layout < layout then
+                prevAnchor = anchor
+            elseif anchor.layout > layout then
+                nextAnchor = anchor
+                break
+            end
+        end
+
+        if prevAnchor and nextAnchor and nextAnchor.rank > prevAnchor.rank then
+            local span = nextAnchor.layout - prevAnchor.layout
+            if span > 0 then
+                local ratio = (layout - prevAnchor.layout) / span
+                return prevAnchor.rank + ((nextAnchor.rank - prevAnchor.rank) * ratio) + (layout * 0.001)
+            end
+        elseif prevAnchor then
+            return prevAnchor.rank + 500 + (layout * 0.001)
+        elseif nextAnchor then
+            return nextAnchor.rank - 500 + (layout * 0.001)
+        end
+
+        return nil
+    end
+
     if not IsPvPInstance() then
         pvpIconOrderCache[groupName] = nil
         table.sort(iconList, function(a, b)
-            local aRank = ExplicitRank(a)
-            local bRank = ExplicitRank(b)
+            local aRank = ExplicitRank(a) or ImplicitCDMRank(a)
+            local bRank = ExplicitRank(b) or ImplicitCDMRank(b)
             if aRank or bRank then
                 aRank = aRank or 100000000 + SafeLayoutIndexForEntry(a)
                 bRank = bRank or 100000000 + SafeLayoutIndexForEntry(b)
@@ -179,8 +266,8 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
     end
 
     table.sort(iconList, function(a, b)
-        local aRank = ExplicitRank(a)
-        local bRank = ExplicitRank(b)
+        local aRank = ExplicitRank(a) or ImplicitCDMRank(a)
+        local bRank = ExplicitRank(b) or ImplicitCDMRank(b)
         if aRank or bRank then
             aRank = aRank or 100000000 + SafeLayoutIndexForEntry(a)
             bRank = bRank or 100000000 + SafeLayoutIndexForEntry(b)
@@ -194,11 +281,38 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
         cache = { ranks = {}, nextRank = 1 }
         pvpIconOrderCache[groupName] = cache
     end
-    for _, entry in ipairs(iconList) do
+    for index, entry in ipairs(iconList) do
         local token = entry._ddGroupOrderToken
         if token and not cache.ranks[token] then
-            cache.ranks[token] = cache.nextRank
-            cache.nextRank = cache.nextRank + 1
+            local prevRank, nextRank
+            for i = index - 1, 1, -1 do
+                local prevToken = iconList[i] and iconList[i]._ddGroupOrderToken
+                if prevToken and cache.ranks[prevToken] then
+                    prevRank = cache.ranks[prevToken]
+                    break
+                end
+            end
+            for i = index + 1, #iconList do
+                local nextToken = iconList[i] and iconList[i]._ddGroupOrderToken
+                if nextToken and cache.ranks[nextToken] then
+                    nextRank = cache.ranks[nextToken]
+                    break
+                end
+            end
+
+            if prevRank and nextRank and nextRank > prevRank then
+                cache.ranks[token] = (prevRank + nextRank) / 2
+            elseif prevRank then
+                cache.ranks[token] = prevRank + 0.5
+            elseif nextRank then
+                cache.ranks[token] = nextRank - 0.5
+            else
+                cache.ranks[token] = cache.nextRank
+                cache.nextRank = cache.nextRank + 1
+            end
+            if cache.ranks[token] >= cache.nextRank then
+                cache.nextRank = cache.ranks[token] + 1
+            end
         end
     end
 
@@ -287,7 +401,7 @@ local function CollectCurrentDefaultCDMTokens(gs, groupName)
     return tokens, seen
 end
 
-local function RemoveTokenFromList(list, token)
+RemoveTokenFromList = function(list, token)
     if type(list) ~= "table" or not token then return false end
     local changed = false
     for i = #list, 1, -1 do
@@ -305,6 +419,50 @@ local function HasToken(list, token)
         if existing == token then return true end
     end
     return false
+end
+
+local function FindTokenIndex(list, token)
+    if type(list) ~= "table" or not token then return nil end
+    for index, existing in ipairs(list) do
+        if existing == token then return index end
+    end
+    return nil
+end
+
+InsertCDMTokenByDefaultOrder = function(list, seen, orderedCDM, token)
+    if type(list) ~= "table" or type(orderedCDM) ~= "table" or not token or seen[token] then return end
+
+    local defaultIndex
+    for index, existing in ipairs(orderedCDM) do
+        if existing == token then
+            defaultIndex = index
+            break
+        end
+    end
+    if not defaultIndex then return end
+
+    for index = defaultIndex + 1, #orderedCDM do
+        local nextToken = orderedCDM[index]
+        local insertIndex = FindTokenIndex(list, nextToken)
+        if insertIndex then
+            table.insert(list, insertIndex, token)
+            seen[token] = true
+            return
+        end
+    end
+
+    for index = defaultIndex - 1, 1, -1 do
+        local prevToken = orderedCDM[index]
+        local insertIndex = FindTokenIndex(list, prevToken)
+        if insertIndex then
+            table.insert(list, insertIndex + 1, token)
+            seen[token] = true
+            return
+        end
+    end
+
+    list[#list + 1] = token
+    seen[token] = true
 end
 
 local function RemoveTokenFromAllGroups(gs, token, exceptGroup)
@@ -381,8 +539,7 @@ local function NormalizeGroupIconOrder(gs, groupName)
 
     for _, token in ipairs(orderedCDM) do
         if not seen[token] then
-            normalized[#normalized + 1] = token
-            seen[token] = true
+            InsertCDMTokenByDefaultOrder(normalized, seen, orderedCDM, token)
         end
     end
     for _, token in ipairs(orderedManualCDM) do
