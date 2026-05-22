@@ -273,6 +273,9 @@ do
     local cdEventFrame = CreateFrame("Frame")
     cdEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     cdEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+    cdEventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
+    cdEventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    cdEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     cdEventFrame:SetScript("OnEvent", function()
         if FrameController.initialized then
             MarkDirty()

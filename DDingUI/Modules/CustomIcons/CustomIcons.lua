@@ -2074,6 +2074,9 @@ end
 
 local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan)
     if not iconFrame or not iconFrame.cooldown or not start or not duration then return false end
+    if iconFrame.cooldown.SetReverse then
+        pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false)
+    end
 
     if C_DurationUtil and C_DurationUtil.CreateDuration then
         if not iconFrame[durObjKey] then
@@ -2085,11 +2088,40 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
             if not okSet then
                 okSet = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, iconFrame[durObjKey])
             end
-            if okSet then return true end
+            if okSet then
+                if iconFrame.cooldown.SetDrawSwipe then
+                    pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+                end
+                if iconFrame.cooldown.Show then
+                    pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
+                end
+                return true
+            end
+        end
+    end
+
+    if CooldownFrame_Set then
+        local okFrameSet = pcall(CooldownFrame_Set, iconFrame.cooldown, start, duration, 1, false)
+        if okFrameSet then
+            if iconFrame.cooldown.SetDrawSwipe then
+                pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+            end
+            if iconFrame.cooldown.Show then
+                pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
+            end
+            return true
         end
     end
 
     local ok = pcall(iconFrame.cooldown.SetCooldown, iconFrame.cooldown, start, duration)
+    if ok then
+        if iconFrame.cooldown.SetDrawSwipe then
+            pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+        end
+        if iconFrame.cooldown.Show then
+            pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
+        end
+    end
     return ok == true
 end
 
