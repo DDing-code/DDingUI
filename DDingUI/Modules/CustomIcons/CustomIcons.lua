@@ -2001,6 +2001,41 @@ local function ReadItemCooldownSpan(itemID)
     return nil, nil, false
 end
 
+local function ReadSpellCooldownSpan(spellID)
+    if not spellID then return nil, nil, false end
+
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local cdInfo
+        pcall(function()
+            cdInfo = C_Spell.GetSpellCooldown(spellID)
+        end)
+        if cdInfo then
+            local isGCD = false
+            pcall(function()
+                isGCD = cdInfo.isOnGCD == true
+            end)
+            if not isGCD then
+                local enable = 1
+                pcall(function()
+                    if cdInfo.isEnabled == false then enable = 0 end
+                end)
+                local start, duration, safeSpan = NormalizeCooldownSpan(cdInfo.startTime or cdInfo.start, cdInfo.duration, enable)
+                if start then return start, duration, safeSpan end
+            end
+        end
+    end
+
+    if GetSpellCooldown then
+        local start, duration, enable
+        pcall(function()
+            start, duration, enable = GetSpellCooldown(spellID)
+        end)
+        return NormalizeCooldownSpan(start, duration, enable)
+    end
+
+    return nil, nil, false
+end
+
 local function FindEquippedItemSlot(itemID)
     itemID = SafeNumber(itemID)
     if not itemID or not GetInventoryItemID then return nil end
@@ -2017,11 +2052,14 @@ local function FindEquippedItemSlot(itemID)
     return nil
 end
 
-local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID)
+local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID, spellID)
     local equippedSlotID = slotID or FindEquippedItemSlot(itemID)
     local start, duration, safeSpan = ReadInventoryCooldownSpan(equippedSlotID)
     if not start then
         start, duration, safeSpan = ReadItemCooldownSpan(itemID)
+    end
+    if not start then
+        start, duration, safeSpan = ReadSpellCooldownSpan(spellID)
     end
     if start and duration then
         if safeSpan then
@@ -2189,7 +2227,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
 
         local itemCdStart, itemCdDuration, hasItemCooldown, itemCdSafe =
-            ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID)
+            ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID, nil, itemSpellID)
 
         desatDurationObject = realDur
         desatSpellID = itemSpellID
@@ -2208,7 +2246,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     else
         -- [Fallback] 스펠 ID 없는 아이템 (비전투/제한적 작동)
         local itemCdStart, itemCdDuration, hasItemCooldown, itemCdSafe =
-            ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID)
+            ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID, nil, itemSpellID)
 
         if hasItemCooldown then
             if ApplyCooldownSpan(iconFrame, "_itemDurObj", itemCdStart, itemCdDuration, itemCdSafe) then
@@ -2509,8 +2547,8 @@ local function UpdateSlotIcon(iconFrame, iconData)
     EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
 
     -- [CDM 패턴] enable == 1 + canaccessvalue + C_DurationUtil
-    local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddSlotCooldown", itemID, slotID)
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, iconData.settings)
+    local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddSlotCooldown", itemID, slotID, itemSpellID)
     local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
 
     local onCooldown = false
@@ -2772,8 +2810,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
         if settings.showItemCooldown ~= false then
             -- [CDM 패턴] enable == 1 + canaccessvalue + C_DurationUtil
-            local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddTrinketCooldown", itemID, slotID)
             local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, settings)
+            local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddTrinketCooldown", itemID, slotID, itemSpellID)
             local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
             local onCooldown = false
             pcall(function()
