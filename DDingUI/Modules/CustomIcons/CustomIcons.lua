@@ -2036,10 +2036,24 @@ local function ReadSpellCooldownSpan(spellID)
     return nil, nil, false
 end
 
+function runtime.GetKnownPvPTrinketSlot()
+    for slotID = 13, 14 do
+        local itemID = GetInventoryItemID and GetInventoryItemID("player", slotID)
+        local itemSpellID = itemID and ResolveUsableItemSpellID(nil, itemID, nil)
+        local safeSpellID = SafeNumber(itemSpellID)
+        if safeSpellID == 336126 or safeSpellID == 42292 then
+            return slotID
+        end
+    end
+    return nil
+end
+
 function runtime.ReadPvPTrinketCooldownObject(slotID, spellID)
     if slotID ~= 13 and slotID ~= 14 then return nil end
     local safeSpellID = SafeNumber(spellID)
-    if safeSpellID ~= 336126 and safeSpellID ~= 42292 then return nil end
+    if safeSpellID and safeSpellID ~= 336126 and safeSpellID ~= 42292 then return nil end
+    local knownSlot = runtime.GetKnownPvPTrinketSlot()
+    if knownSlot and knownSlot ~= slotID then return nil end
     if not (C_PvP and C_PvP.GetArenaCrowdControlDuration) then return nil end
 
     local durationObject
