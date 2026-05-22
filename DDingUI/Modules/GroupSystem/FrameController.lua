@@ -244,6 +244,43 @@ EnablePolling = function()
 end
 FrameController.EnablePolling = function(self) EnablePolling() end
 
+local function ResetGroupViewerHiddenFlags()
+    local gr = DDingUI.GroupRenderer
+    if not (gr and gr.groupFrames) then return end
+    for _, frame in pairs(gr.groupFrames) do
+        if frame._viewerHidden then
+            frame._viewerHidden = false
+        end
+    end
+end
+
+local function RunViewerTransitionRecovery(reloadMapped)
+    if not FrameController.initialized then return end
+    FrameController:RefreshViewerRefs()
+    ResetGroupViewerHiddenFlags()
+    if DDingUI.ContainerSync and DDingUI.ContainerSync.SyncAll then
+        DDingUI.ContainerSync:SyncAll()
+    end
+    if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
+        DDingUI.GroupSystem:Refresh()
+    end
+    if reloadMapped and DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
+        DDingUI.Movers:ReloadMappedModulePositions()
+    end
+    MarkDirty()
+    if not state.pollingActive then
+        EnablePolling()
+    end
+end
+
+local function ScheduleViewerTransitionRecovery(reloadMapped)
+    for _, delay in pairs({ 0.2, 1.0, 3.0 }) do
+        C_Timer.After(delay, function()
+            RunViewerTransitionRecovery(reloadMapped)
+        end)
+    end
+end
+
 -- 하위 호환: ScheduleReconcile → MarkDirty + EnablePolling
 local function ScheduleReconcile(debounceTime)
     MarkDirty()
@@ -1745,6 +1782,7 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("PLAYER_LEVEL_UP")  -- [FIX] 레벨업 시 CDM 뷰어 재생성 감지
     eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     eventFrame:RegisterEvent("SPELLS_CHANGED")
+    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- [FIX] 전투 진입 시 즉시 재스캔
     -- [CDM 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
     eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
@@ -1760,11 +1798,17 @@ function FrameController:Initialize()
                 FrameController:RefreshViewerRefs()
                 MarkDirty()
                 if not state.pollingActive then EnablePolling() end
+                ScheduleViewerTransitionRecovery(true)
             end
             return
         end
 
         if not FrameController.initialized then return end
+
+        if event == "PLAYER_ENTERING_WORLD" then
+            ScheduleViewerTransitionRecovery(true)
+            return
+        end
 
         if event == "PLAYER_REGEN_DISABLED" then
             -- [FIX] 전투 진입 시 CDM이 아이콘을 Show하므로 burst 재시작
