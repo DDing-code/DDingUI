@@ -2201,9 +2201,9 @@ function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
     if iconFrame.cooldown.Show then
         pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
     end
-    local ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject, true)
+    local ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject)
     if not ok then
-        ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject)
+        ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject, true)
     end
     if ok then
         if iconFrame.cooldown.SetDrawSwipe then
@@ -2214,6 +2214,42 @@ function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
         end
     end
     return ok == true
+end
+
+function runtime.ApplyPvPTrinketCooldown(iconFrame, slotID, spellID)
+    if slotID ~= 13 and slotID ~= 14 then return false end
+
+    local inPvPInstance = DDingUI and DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+    if not inPvPInstance then
+        local safeSpellID = SafeNumber(spellID)
+        if safeSpellID and safeSpellID ~= 336126 and safeSpellID ~= 42292 then return false end
+        local knownSlot = runtime.GetKnownPvPTrinketSlot()
+        if knownSlot and knownSlot ~= slotID then return false end
+        if not safeSpellID and not knownSlot then return false end
+    end
+
+    local durationObject = runtime.ReadPvPTrinketCooldownObject(slotID, spellID)
+    if durationObject and runtime.ApplyCooldownDurationObject(iconFrame, durationObject) then
+        return true
+    end
+
+    if runtime.ApplyCooldownDurationObject(iconFrame, GetRealSpellCooldownDuration(spellID)) then return true end
+    if runtime.ApplyCooldownDurationObject(iconFrame, GetRealSpellCooldownDuration(336126)) then return true end
+    if runtime.ApplyCooldownDurationObject(iconFrame, GetRealSpellCooldownDuration(42292)) then return true end
+
+    if C_Spell and C_Spell.GetSpellCooldownDuration then
+        local directObject
+        if spellID then
+            pcall(function() directObject = C_Spell.GetSpellCooldownDuration(spellID) end)
+            if runtime.ApplyCooldownDurationObject(iconFrame, directObject) then return true end
+        end
+        pcall(function() directObject = C_Spell.GetSpellCooldownDuration(336126) end)
+        if runtime.ApplyCooldownDurationObject(iconFrame, directObject) then return true end
+        pcall(function() directObject = C_Spell.GetSpellCooldownDuration(42292) end)
+        if runtime.ApplyCooldownDurationObject(iconFrame, directObject) then return true end
+    end
+
+    return false
 end
 
 local function UpdateItemIcon(iconFrame, iconData)
@@ -2265,7 +2301,7 @@ local function UpdateItemIcon(iconFrame, iconData)
 
     -- [CDM 패턴] 아이템 쿨다운 (GetItemCooldown 최우선 -> GetSpellCooldownDuration 폴백)
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, activeItemID, settings)
-    local pvpTrinketDurationObject = runtime.ReadPvPTrinketCooldownObject(FindEquippedItemSlot(activeItemID), itemSpellID)
+    local pvpTrinketSlotID = FindEquippedItemSlot(activeItemID)
     EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
 
     local desatDurationObject = nil
@@ -2273,7 +2309,9 @@ local function UpdateItemIcon(iconFrame, iconData)
     local itemCooldownActive = false
     local itemCombatLocked = IsItemCombatLocked(activeItemID)
     -- GetItemCooldown can briefly return 0 in combat; keep a cached valid span as fallback.
-    if itemSpellID then
+    if runtime.ApplyPvPTrinketCooldown(iconFrame, pvpTrinketSlotID, itemSpellID) then
+        itemCooldownActive = true
+    elseif itemSpellID then
         -- 스펠 ID가 매핑된 아이템: CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
         local realDur = nil
         if C_Spell and C_Spell.GetSpellCooldownDuration then
@@ -2289,12 +2327,12 @@ local function UpdateItemIcon(iconFrame, iconData)
         if hasItemCooldown then
             if ApplyCooldownSpan(iconFrame, "_itemDurObj", itemCdStart, itemCdDuration, itemCdSafe) then
                 itemCooldownActive = true
-            elseif pvpTrinketDurationObject and runtime.ApplyCooldownDurationObject(iconFrame, pvpTrinketDurationObject) then
+            elseif runtime.ApplyPvPTrinketCooldown(iconFrame, pvpTrinketSlotID, itemSpellID) then
                 itemCooldownActive = true
             else
                 iconFrame.cooldown:Clear()
             end
-        elseif pvpTrinketDurationObject and runtime.ApplyCooldownDurationObject(iconFrame, pvpTrinketDurationObject) then
+        elseif runtime.ApplyPvPTrinketCooldown(iconFrame, pvpTrinketSlotID, itemSpellID) then
             itemCooldownActive = true
         elseif realDur then
             iconFrame.cooldown:SetCooldownFromDurationObject(realDur)
@@ -2309,12 +2347,12 @@ local function UpdateItemIcon(iconFrame, iconData)
         if hasItemCooldown then
             if ApplyCooldownSpan(iconFrame, "_itemDurObj", itemCdStart, itemCdDuration, itemCdSafe) then
                 itemCooldownActive = true
-            elseif pvpTrinketDurationObject and runtime.ApplyCooldownDurationObject(iconFrame, pvpTrinketDurationObject) then
+            elseif runtime.ApplyPvPTrinketCooldown(iconFrame, pvpTrinketSlotID, itemSpellID) then
                 itemCooldownActive = true
             else
                 iconFrame.cooldown:Clear()
             end
-        elseif pvpTrinketDurationObject and runtime.ApplyCooldownDurationObject(iconFrame, pvpTrinketDurationObject) then
+        elseif runtime.ApplyPvPTrinketCooldown(iconFrame, pvpTrinketSlotID, itemSpellID) then
             itemCooldownActive = true
         else
             iconFrame.cooldown:Clear()
@@ -2612,10 +2650,10 @@ local function UpdateSlotIcon(iconFrame, iconData)
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, iconData.settings)
     local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddSlotCooldown", itemID, slotID, itemSpellID)
     local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
-    local pvpTrinketDurationObject = runtime.ReadPvPTrinketCooldownObject(slotID, itemSpellID)
 
-    local onCooldown = false
-    pcall(function()
+    local onCooldown = runtime.ApplyPvPTrinketCooldown(iconFrame, slotID, itemSpellID)
+    if not onCooldown then
+        pcall(function()
         if start and duration and hasCooldown then
             onCooldown = ApplyCooldownSpan(iconFrame, "_slotDurObj", start, duration, safeSpan)
             if not onCooldown then iconFrame.cooldown:Clear() end
@@ -2640,15 +2678,12 @@ local function UpdateSlotIcon(iconFrame, iconData)
         else
             iconFrame.cooldown:Clear()
         end
-    end)
+        end)
+    end
     if not onCooldown and spellDurObj then
         iconFrame.cooldown:SetCooldownFromDurationObject(spellDurObj)
         onCooldown = true
     end
-    if not onCooldown and pvpTrinketDurationObject then
-        onCooldown = runtime.ApplyCooldownDurationObject(iconFrame, pvpTrinketDurationObject)
-    end
-
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
     else
@@ -2879,9 +2914,9 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
             local itemSpellID = ResolveUsableItemSpellID(iconFrame, itemID, settings)
             local start, duration, hasCooldown, safeSpan = ResolveItemCooldownSpan(iconFrame, "_ddTrinketCooldown", itemID, slotID, itemSpellID)
             local spellDurObj = itemSpellID and GetRealSpellCooldownDuration(itemSpellID)
-            local pvpTrinketDurationObject = runtime.ReadPvPTrinketCooldownObject(slotID, itemSpellID)
-            local onCooldown = false
-            pcall(function()
+            local onCooldown = runtime.ApplyPvPTrinketCooldown(iconFrame, slotID, itemSpellID)
+            if not onCooldown then
+                pcall(function()
                 if start and duration and hasCooldown then
                     onCooldown = ApplyCooldownSpan(iconFrame, "_trinketDurObj", start, duration, safeSpan)
                     if not onCooldown then iconFrame.cooldown:Clear() end
@@ -2906,13 +2941,11 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
                 else
                     iconFrame.cooldown:Clear()
                 end
-            end)
+                end)
+            end
             if not onCooldown and spellDurObj then
                 iconFrame.cooldown:SetCooldownFromDurationObject(spellDurObj)
                 onCooldown = true
-            end
-            if not onCooldown and pvpTrinketDurationObject then
-                onCooldown = runtime.ApplyCooldownDurationObject(iconFrame, pvpTrinketDurationObject)
             end
             if settings.showCooldown ~= false and onCooldown then
                 iconFrame.cooldown:Show()
