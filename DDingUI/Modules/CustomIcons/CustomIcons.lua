@@ -1729,13 +1729,13 @@ end
 
 local function AdoptCustomTimedAuraFromAura(iconFrame, iconData, auraData, fallbackSpellID)
     local config = GetCustomTimedAuraConfig(iconData)
-    local expirationTime = auraData and SafeNumber(auraData.expirationTime)
+    local expirationTime = auraData and GetAuraNumberFieldSafe(auraData, "expirationTime")
     if not config or not expirationTime then return nil end
 
     local now = GetTime()
     if expirationTime <= now then return nil end
 
-    local duration = SafeNumber(auraData.duration) or tonumber(config.duration) or 0
+    local duration = GetAuraNumberFieldSafe(auraData, "duration") or tonumber(config.duration) or 0
     if duration <= 0 then
         duration = tonumber(config.duration) or 0
     end
@@ -1758,8 +1758,8 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
     local timedAura = timedConfig and GetActiveCustomTimedAura(iconData)
     if timedAura then
         if iconFrame then
-            iconFrame._ddTimedAuraActiveUntil = timedAura.expirationTime
-            iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(timedAura) or timedAura.spellId or iconData.id
+            iconFrame._ddTimedAuraActiveUntil = GetAuraNumberFieldSafe(timedAura, "expirationTime")
+            iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(timedAura) or GetAuraNumberFieldSafe(timedAura, "spellId") or iconData.id
         end
         return timedAura
     elseif iconFrame then
@@ -1788,7 +1788,7 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         if auraData then
             if iconFrame then
                 iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(auraData) or spellID
-                local expirationTime = SafeNumber(auraData.expirationTime)
+                local expirationTime = GetAuraNumberFieldSafe(auraData, "expirationTime")
                 if expirationTime and expirationTime > 0 then
                     iconFrame._ddAuraActiveUntil = expirationTime
                 end
@@ -1810,12 +1810,13 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         local auraData
         pcall(function()
             AuraUtil.ForEachAura("player", "HELPFUL", nil, function(aura)
-                if aura and aura.name and nameSet[aura.name] then
+                local auraName = GetAuraFieldSafe(aura, "name")
+                if auraName and nameSet[auraName] then
                     auraData = aura
                     local auraSpellID = GetAuraSpellIDSafe(aura)
                     if iconFrame and auraSpellID then
                         iconFrame._cachedAuraSpellID = auraSpellID
-                        local expirationTime = SafeNumber(aura.expirationTime)
+                        local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
                         if expirationTime and expirationTime > 0 then
                             iconFrame._ddAuraActiveUntil = expirationTime
                         end
@@ -2744,7 +2745,8 @@ local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
             local spellInfo = C_Spell.GetSpellInfo(procSpellID)
             if spellInfo and spellInfo.name then
                 AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
-                    if a and a.name == spellInfo.name then
+                    local auraName = GetAuraFieldSafe(a, "name")
+                    if auraName == spellInfo.name then
                         auraData = a
                         local auraSpellID = GetAuraSpellIDSafe(a)
                         if iconFrame and auraSpellID and auraSpellID ~= procSpellID then
@@ -2762,8 +2764,8 @@ local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
         if auraData then
             local now = GetTime and GetTime() or 0
             iconFrame._ddLastProcActiveAt = now
-            local duration = SafeNumber(auraData.duration)
-            iconFrame._ddProcActiveUntil = SafeNumber(auraData.expirationTime)
+            local duration = GetAuraNumberFieldSafe(auraData, "duration")
+            iconFrame._ddProcActiveUntil = GetAuraNumberFieldSafe(auraData, "expirationTime")
                 or (duration and (now + duration))
                 or (now + 0.75)
         end
@@ -2830,7 +2832,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
                 local spellInfo = C_Spell.GetSpellInfo(procSpellID)
                 if spellInfo and spellInfo.name then
                     AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
-                        if a and a.name == spellInfo.name then
+                        local auraName = GetAuraFieldSafe(a, "name")
+                        if auraName == spellInfo.name then
                             auraData = a
                             -- Cache actual buff spell ID for fast future lookups
                             local auraSpellID = GetAuraSpellIDSafe(a)
@@ -2849,8 +2852,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         procActive = true
         local now = GetTime and GetTime() or 0
         iconFrame._ddLastProcActiveAt = now
-        local auraDuration = SafeNumber(auraData.duration)
-        local auraExpiration = SafeNumber(auraData.expirationTime)
+        local auraDuration = GetAuraNumberFieldSafe(auraData, "duration")
+        local auraExpiration = GetAuraNumberFieldSafe(auraData, "expirationTime")
         iconFrame._ddProcActiveUntil = auraExpiration
             or (auraDuration and (now + auraDuration))
             or (now + 0.75)
@@ -2888,7 +2891,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
         -- 스택 수
         if settings.showProcStacks ~= false then
-            local stacks = auraData.applications or 0
+            local stacks = GetAuraNumberFieldSafe(auraData, "applications") or 0
             if stacks > 1 then
                 iconFrame.count:SetText(stacks)
                 iconFrame.count:Show()
@@ -3204,7 +3207,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
                 local spellInfo = C_Spell.GetSpellInfo(spellID)
                 if spellInfo and spellInfo.name then
                     AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
-                        if a and a.name == spellInfo.name then
+                        local auraName = GetAuraFieldSafe(a, "name")
+                        if auraName == spellInfo.name then
                             auraData = a
                             local auraSpellID = GetAuraSpellIDSafe(a)
                             if auraSpellID and auraSpellID ~= spellID then
@@ -3244,14 +3248,14 @@ local function UpdateAuraIcon(iconFrame, iconData)
         end
     end
 
-    local auraExpirationTime = auraData and SafeNumber(auraData.expirationTime)
+    local auraExpirationTime = auraData and GetAuraNumberFieldSafe(auraData, "expirationTime")
     if auraExpirationTime and auraExpirationTime > 0 then
         iconFrame._ddAuraActiveUntil = auraExpirationTime
     elseif not auraData then
         iconFrame._ddAuraActiveUntil = nil
     end
 
-    local activeTexture = auraData and (auraData.icon or auraData.iconID)
+    local activeTexture = auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID"))
     if activeTexture then
         SetStableIconTexture(iconFrame, activeTexture, true)
     end
@@ -3269,8 +3273,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
         -- 활성: duration 쿨다운 + 스택 표시
         pcall(function()
-            local auraDuration = SafeNumber(auraData.duration)
-            local auraExpiration = SafeNumber(auraData.expirationTime)
+            local auraDuration = GetAuraNumberFieldSafe(auraData, "duration")
+            local auraExpiration = GetAuraNumberFieldSafe(auraData, "expirationTime")
             if auraDuration and auraDuration > 0 and auraExpiration then
                 local startTime = auraExpiration - auraDuration
                 iconFrame.cooldown:SetCooldown(startTime, auraDuration)
@@ -3284,7 +3288,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
             iconFrame.cooldown:Hide()
         end
 
-        local stacks = auraData.applications or 0
+        local stacks = GetAuraNumberFieldSafe(auraData, "applications") or 0
         if stacks > 1 and settings.showCharges ~= false then
             pcall(iconFrame.count.SetText, iconFrame.count, stacks)
             iconFrame.count:Show()
@@ -3473,40 +3477,47 @@ local function ExecuteUpdateAllIcons()
     for iconKey, frame in pairs(runtime.iconFrames) do
         if frame then
             local db = GetDynamicDB()
-            local iconData = db.iconData and db.iconData[iconKey]
+            local iconData = db and db.iconData and db.iconData[iconKey]
             if iconData and (frame:IsVisible() or iconData.type == "aura" or iconData.type == "trinketProc" or frame._ddIsManaged) then
-                local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
+                local okUpdate, err = pcall(function()
+                    local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
 
-                if not frame._ddIsManaged then
-                    ApplyIconSettings(frame, iconData, frame._groupSettings)
+                    if not frame._ddIsManaged then
+                        ApplyIconSettings(frame, iconData, frame._groupSettings)
+                    else
+                        if frame.count and not frame._fontInitialized then
+                            local fontPath = DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
+                            pcall(frame.count.SetFont, frame.count, fontPath, 16, "OUTLINE")
+                            frame._fontInitialized = true
+                        end
+                    end
+                    if iconData.type == "item" then
+                        UpdateItemIcon(frame, iconData)
+                    elseif iconData.type == "spell" then
+                        UpdateSpellIconFrame(frame, iconData)
+                    elseif iconData.type == "racial" then
+                        local racialID = GetPlayerRacialSpellID()
+                        if racialID then
+                            UpdateSpellIconFrame(frame, {id = racialID, settings = iconData.settings})
+                        end
+                    elseif iconData.type == "slot" then
+                        UpdateSlotIcon(frame, iconData)
+                    elseif iconData.type == "trinketProc" then
+                        UpdateTrinketProcIcon(frame, iconData)
+                    elseif iconData.type == "aura" then
+                        UpdateAuraIcon(frame, iconData)
+                    end
+                    ReapplyManagedGroupText(frame)
+
+                    local afterLayoutState = GetDynamicLayoutStateToken(frame, iconData)
+                    if beforeLayoutState and afterLayoutState and beforeLayoutState ~= afterLayoutState then
+                        layoutStateChanged = true
+                    end
+                end)
+                if okUpdate then
+                    frame._ddLastUpdateError = nil
                 else
-                    if frame.count and not frame._fontInitialized then
-                        local fontPath = DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
-                        pcall(frame.count.SetFont, frame.count, fontPath, 16, "OUTLINE")
-                        frame._fontInitialized = true
-                    end
-                end
-                if iconData.type == "item" then
-                    UpdateItemIcon(frame, iconData)
-                elseif iconData.type == "spell" then
-                    UpdateSpellIconFrame(frame, iconData)
-                elseif iconData.type == "racial" then
-                    local racialID = GetPlayerRacialSpellID()
-                    if racialID then
-                        UpdateSpellIconFrame(frame, {id = racialID, settings = iconData.settings})
-                    end
-                elseif iconData.type == "slot" then
-                    UpdateSlotIcon(frame, iconData)
-                elseif iconData.type == "trinketProc" then
-                    UpdateTrinketProcIcon(frame, iconData)
-                elseif iconData.type == "aura" then
-                    UpdateAuraIcon(frame, iconData)
-                end
-                ReapplyManagedGroupText(frame)
-
-                local afterLayoutState = GetDynamicLayoutStateToken(frame, iconData)
-                if beforeLayoutState and afterLayoutState and beforeLayoutState ~= afterLayoutState then
-                    layoutStateChanged = true
+                    frame._ddLastUpdateError = tostring(err)
                 end
             end
         end
@@ -3711,11 +3722,20 @@ local function EnsureEventFrame()
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
             RebuildTimeSpiralGlowFilters()
+            local function refreshInstanceIcons()
+                UpdateAllIcons("force")
+                if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+                    DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+                end
+            end
             local function seedBloodlust()
                 if ScanBloodlustTimedAura({ isFullUpdate = true }) then
                     UpdateAllIcons("force")
                 end
             end
+            C_Timer.After(0.2, refreshInstanceIcons)
+            C_Timer.After(1.0, refreshInstanceIcons)
+            C_Timer.After(3.0, refreshInstanceIcons)
             C_Timer.After(0.2, seedBloodlust)
             C_Timer.After(1.0, seedBloodlust)
             -- Force reload layout after loading screen to catch delayed cache/spellbook states

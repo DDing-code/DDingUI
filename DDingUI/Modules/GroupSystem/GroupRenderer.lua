@@ -498,6 +498,15 @@ local function SafeNumber(value)
     return nil
 end
 
+local function SafeTableField(tbl, key)
+    if not tbl or not key then return nil end
+    local ok, value = pcall(function()
+        return tbl[key]
+    end)
+    if ok then return value end
+    return nil
+end
+
 local BLOODLUST_GROUP_IDS = {
     [2825] = true, [32182] = true, [80353] = true, [90355] = true,
     [160452] = true, [264667] = true, [390386] = true,
@@ -715,14 +724,14 @@ local function ShouldKeepDynamicIconInCombat(icon)
         if ci and ci.GetActiveCustomTimedAuraForIcon then
             local timedAura = ci:GetActiveCustomTimedAuraForIcon(iconData)
             if timedAura then
-                icon._ddTimedAuraActiveUntil = timedAura.expirationTime
+                icon._ddTimedAuraActiveUntil = SafeNumber(SafeTableField(timedAura, "expirationTime"))
                 return true
             end
         end
         if ci and ci.ResolvePlayerAuraForIcon then
             local auraData = ci:ResolvePlayerAuraForIcon(icon, iconData)
             if auraData then
-                local expirationTime = SafeNumber(auraData.expirationTime)
+                local expirationTime = SafeNumber(SafeTableField(auraData, "expirationTime"))
                 if expirationTime and expirationTime > 0 then
                     icon._ddAuraActiveUntil = expirationTime
                 end
@@ -747,8 +756,8 @@ local function ShouldKeepDynamicIconInCombat(icon)
         if ci and ci.ResolveTrinketProcAuraForIcon then
             local auraData = ci:ResolveTrinketProcAuraForIcon(icon, iconData)
             if auraData then
-                local duration = SafeNumber(auraData.duration)
-                icon._ddProcActiveUntil = SafeNumber(auraData.expirationTime)
+                local duration = SafeNumber(SafeTableField(auraData, "duration"))
+                icon._ddProcActiveUntil = SafeNumber(SafeTableField(auraData, "expirationTime"))
                     or (duration and (now + duration))
                     or (now + 0.75)
                 return true

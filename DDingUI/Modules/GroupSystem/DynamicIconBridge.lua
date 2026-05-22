@@ -74,9 +74,28 @@ local hiddenCDMFrames = {}  -- [frame] = cooldownID (CDM 숨김 추적)
 
 local function SafeNumber(value)
     if value == nil then return nil end
+    if issecretvalue then
+        local okSecret, secret = pcall(issecretvalue, value)
+        if okSecret and secret then return nil end
+    end
     local valueType = type(value)
-    if valueType == "number" then return value end
-    if valueType == "string" then return tonumber(value) end
+    if valueType == "number" then
+        if canaccessvalue and not canaccessvalue(value) then return nil end
+        return value
+    end
+    if valueType == "string" then
+        local okNumber, numberValue = pcall(tonumber, value)
+        if okNumber then return numberValue end
+    end
+    return nil
+end
+
+local function SafeTableField(tbl, key)
+    if not tbl or not key then return nil end
+    local ok, value = pcall(function()
+        return tbl[key]
+    end)
+    if ok then return value end
     return nil
 end
 
@@ -281,8 +300,8 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
                 iconFrame._trinketProcWasActive = isActive
                 if auraData then
                     iconFrame._ddLastProcActiveAt = now
-                    local duration = SafeNumber(auraData.duration)
-                    iconFrame._ddProcActiveUntil = SafeNumber(auraData.expirationTime)
+                    local duration = SafeNumber(SafeTableField(auraData, "duration"))
+                    iconFrame._ddProcActiveUntil = SafeNumber(SafeTableField(auraData, "expirationTime"))
                         or (duration and (now + duration))
                         or (now + COMBAT_ICON_GRACE_SECONDS)
                 elseif inCombat and FrameHasLiveEffect(iconFrame, now) then
@@ -331,7 +350,7 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
             if timedAura then
                 if iconFrame then
                     iconFrame._auraWasActive = true
-                    iconFrame._ddTimedAuraActiveUntil = timedAura.expirationTime
+                    iconFrame._ddTimedAuraActiveUntil = SafeNumber(SafeTableField(timedAura, "expirationTime"))
                     iconFrame._ddLastAuraActiveAt = now
                     iconFrame._ddManagedAuraExpired = nil
                     iconFrame._ddCombatKeepAlive = nil
@@ -356,12 +375,12 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
                     iconFrame._ddCombatKeepAlive = nil
                     iconFrame._ddCombatVisible = nil
                     iconFrame._ddCombatMissingSince = nil
-                    local expirationTime = SafeNumber(auraData.expirationTime)
+                    local expirationTime = SafeNumber(SafeTableField(auraData, "expirationTime"))
                     if expirationTime and expirationTime > 0 then
                         iconFrame._ddAuraActiveUntil = expirationTime
                     end
-                    if auraData.__ddinguiTimedAura then
-                        iconFrame._ddTimedAuraActiveUntil = auraData.expirationTime
+                    if SafeTableField(auraData, "__ddinguiTimedAura") then
+                        iconFrame._ddTimedAuraActiveUntil = expirationTime
                     end
                 elseif not isActive then
                     if inCombat and FrameHasLiveEffect(iconFrame, now) then
@@ -388,7 +407,7 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
         -- 캐시도 동기화 (UpdateAuraIcon과 일관성 유지)
         if iconFrame then
             iconFrame._auraWasActive = isActive
-            local expirationTime = auraData and SafeNumber(auraData.expirationTime)
+            local expirationTime = auraData and SafeNumber(SafeTableField(auraData, "expirationTime"))
             if expirationTime and expirationTime > 0 then
                 iconFrame._ddAuraActiveUntil = expirationTime
                 iconFrame._ddLastAuraActiveAt = now
@@ -484,7 +503,17 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
         elseif not iconData then
             -- skip: no icon data
         else
-            local isActive = isEditMode or IsIconActive(iconKey, iconData, frame, isBuffContext)
+            local isActive = isEditMode
+            if not isActive then
+                local okActive, activeResult = pcall(IsIconActive, iconKey, iconData, frame, isBuffContext)
+                if okActive then
+                    isActive = activeResult == true
+                    frame._ddLastDynamicError = nil
+                else
+                    isActive = false
+                    frame._ddLastDynamicError = tostring(activeResult)
+                end
+            end
             local keepVisible = false
             local keepManaged = false
 
