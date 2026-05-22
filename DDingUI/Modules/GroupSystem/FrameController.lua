@@ -312,6 +312,8 @@ do
     cdEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
     cdEventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
     cdEventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    cdEventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
+    cdEventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
     cdEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     cdEventFrame:SetScript("OnEvent", function()
         if FrameController.initialized then
