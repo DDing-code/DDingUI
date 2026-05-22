@@ -2050,10 +2050,13 @@ end
 
 function runtime.ReadPvPTrinketCooldownObject(slotID, spellID)
     if slotID ~= 13 and slotID ~= 14 then return nil end
-    local safeSpellID = SafeNumber(spellID)
-    if safeSpellID and safeSpellID ~= 336126 and safeSpellID ~= 42292 then return nil end
-    local knownSlot = runtime.GetKnownPvPTrinketSlot()
-    if knownSlot and knownSlot ~= slotID then return nil end
+    local inPvPInstance = DDingUI and DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+    if not inPvPInstance then
+        local safeSpellID = SafeNumber(spellID)
+        if safeSpellID and safeSpellID ~= 336126 and safeSpellID ~= 42292 then return nil end
+        local knownSlot = runtime.GetKnownPvPTrinketSlot()
+        if knownSlot and knownSlot ~= slotID then return nil end
+    end
     if not (C_PvP and C_PvP.GetArenaCrowdControlDuration) then return nil end
 
     local durationObject
@@ -2194,6 +2197,9 @@ function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
     if not (iconFrame and iconFrame.cooldown and durationObject) then return false end
     if iconFrame.cooldown.SetReverse then
         pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false)
+    end
+    if iconFrame.cooldown.Show then
+        pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
     end
     local ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject, true)
     if not ok then
