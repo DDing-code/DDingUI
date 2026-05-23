@@ -2265,6 +2265,31 @@ local function ApplyInventorySlotCooldown(iconFrame, durObjKey, slotID)
     return false
 end
 
+function runtime.ApplyTrinketSlotCooldown(iconFrame, slotID)
+    if not (iconFrame and iconFrame.cooldown and slotID and GetInventoryItemCooldown) then return false end
+
+    local start, duration, enable
+    pcall(function()
+        start, duration, enable = GetInventoryItemCooldown("player", slotID)
+    end)
+
+    local isOnCooldown = false
+    pcall(function()
+        isOnCooldown = start and duration and duration > ITEM_COOLDOWN_MIN_SECONDS and enable == 1
+    end)
+
+    if isOnCooldown then
+        local safeSpan = SafeNumber(start) ~= nil and SafeNumber(duration) ~= nil
+        if safeSpan then
+            StoreCooldownSpan(iconFrame, "_ddTrinketCooldown", start, duration)
+        end
+        return ApplyCooldownSpan(iconFrame, "_trinketDurObj", start, duration, safeSpan)
+    end
+
+    iconFrame.cooldown:Clear()
+    return false
+end
+
 function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
     if not (iconFrame and iconFrame.cooldown and durationObject) then return false end
     if iconFrame.cooldown.SetReverse then
@@ -2780,7 +2805,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
             LCG.ProcGlow_Stop(iconFrame)
         end
 
-        local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
+        local onCooldown = runtime.ApplyTrinketSlotCooldown(iconFrame, slotID)
         if settings.showCooldown ~= false and onCooldown then
             iconFrame.cooldown:Show()
         else
