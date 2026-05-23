@@ -55,6 +55,10 @@ local function ShouldSkipBlizzardEditModeSideEffects()
     return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
 end
 
+local function ShouldKeepDefaultViewersVisible()
+    return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
+end
+
 -- 뷰어별 관리 아이콘 수 계산 -- [REPARENT]
 -- SetParent 후에도 itemFramePool:EnumerateActive()는 동작 (ObjectPool은 parent 무관)
 local function CountManagedIcons(viewerName)
@@ -78,7 +82,6 @@ local function SaveViewerState(viewerName)
 
     local viewer = _G[viewerName]
     if not viewer then return end
-
     local state = {
         hidden = false,
         origW = viewer:GetWidth(),
@@ -105,6 +108,7 @@ end
 local function HideViewer(viewerName)
     local viewer = _G[viewerName]
     if not viewer then return end
+    if ShouldKeepDefaultViewersVisible() then return end
     -- [CDM] BuffIcon: 절대 숨기지 않음 — CDM Layout 사이클 유지 필수
     if viewerName == "BuffIconCooldownViewer" then return end
     local state = viewerState[viewerName]
@@ -135,7 +139,10 @@ local function ShowViewer(viewerName)
 
     local state = viewerState[viewerName]
     if not state then return end
-    if not state.hidden then return end
+    if not state.hidden then
+        if not ShouldKeepDefaultViewersVisible() then return end
+        if viewer:GetAlpha() > 0.01 then return end
+    end
 
     pushing = true
     viewer:SetAlpha(1)
@@ -166,6 +173,7 @@ local function ScheduleSnapBack(viewerName)
 
         if not initialized then return end
         if IsInBlizzardEditMode() then return end
+        if ShouldKeepDefaultViewersVisible() then return end
         -- [REFACTOR] InCombatLockdown 제거: SetAlpha는 보호 함수가 아님
 
         local state = viewerState[viewerName]
@@ -246,6 +254,7 @@ local function SetupViewerHooks(viewerName)
     hooksecurefunc(viewer, "SetAlpha", function(_, alpha)
         if pushing then return end
         if IsInBlizzardEditMode() then return end
+        if ShouldKeepDefaultViewersVisible() then return end
         if issecretvalue and issecretvalue(alpha) then return end
         -- [CDM] BuffIcon: alpha snap-back 불필요 (offscreen 방식)
         if viewerName == "BuffIconCooldownViewer" then return end
@@ -326,6 +335,10 @@ end
 -- DDingUI에서 비활성화된 뷰어만 원래 상태 유지
 function ContainerSync:SyncViewer(viewerName)
     if not initialized then return end
+    if ShouldKeepDefaultViewersVisible() then
+        ShowViewer(viewerName)
+        return
+    end
 
     -- [FIX] GroupSystem이 활성이고 hideDefaultViewers가 true이면
     -- 개별 viewers.enabled 상태와 무관하게 항상 숨김
@@ -466,11 +479,16 @@ function ContainerSync:Initialize()
     local gs = profile and profile.groupSystem
     local hideDefault = gs and gs.enabled and gs.hideDefaultViewers ~= false
 
-    if hideDefault then
+    if hideDefault and not ShouldKeepDefaultViewersVisible() then
         local enforceTicks = 0
         local enforceThrottle = 0  -- [PERF] 매 프레임 → 0.1초 스로틀
         local enforceFrame = CreateFrame("Frame")
         enforceFrame:SetScript("OnUpdate", function(self, elapsed)
+            if ShouldKeepDefaultViewersVisible() then
+                self:SetScript("OnUpdate", nil)
+                ContainerSync:SyncAll()
+                return
+            end
             enforceTicks = enforceTicks + elapsed
             if enforceTicks > 3.0 then
                 self:SetScript("OnUpdate", nil)
