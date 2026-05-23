@@ -2764,8 +2764,34 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         EnsureCooldownSpanOwner(iconFrame, "_ddTrinketCooldown", itemID)
     end
 
-    -- Determine proc spell ID (auto-detect or manual override)
     local settings = iconData.settings or {}
+
+    if settings.showItemCooldown ~= false then
+        iconFrame._trinketProcWasActive = false
+        iconFrame._ddProcActiveUntil = nil
+        if iconFrame.count then
+            iconFrame.count:Hide()
+        end
+        if iconFrame.cooldown and iconFrame.cooldown.SetReverse then
+            iconFrame.cooldown:SetReverse(false)
+        end
+        local LCG = LibStub("LibCustomGlow-1.0", true)
+        if LCG and LCG.ProcGlow_Stop then
+            LCG.ProcGlow_Stop(iconFrame)
+        end
+
+        local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
+        if settings.showCooldown ~= false and onCooldown then
+            iconFrame.cooldown:Show()
+        else
+            iconFrame.cooldown:Hide()
+        end
+        local allowDesat = not (settings.desaturateOnCooldown == false)
+        iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+        return
+    end
+
+    -- Determine proc spell ID (auto-detect or manual override)
     local procSpellID = settings.procSpellID
 
     -- [12.0.1] Secret value safe comparison (procSpellID > 0 can error with secret values)
