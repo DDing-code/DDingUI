@@ -1949,27 +1949,28 @@ local function IsCooldownEnabled(enable)
 end
 
 local function NormalizeCooldownSpan(start, duration, enable)
-    if not IsCooldownEnabled(enable) then return nil, nil, false end
+    local observed = start ~= nil or duration ~= nil or enable ~= nil
+    if not IsCooldownEnabled(enable) then return nil, nil, false, observed end
 
     local safeStart = SafeNumber(start)
     local safeDuration = SafeNumber(duration)
     if safeStart and safeDuration then
         if safeDuration > ITEM_COOLDOWN_MIN_SECONDS then
-            return safeStart, safeDuration, true
+            return safeStart, safeDuration, true, true
         end
-        return nil, nil, false
+        return nil, nil, false, true
     end
 
     -- In combat, item cooldown APIs can return protected numeric values.
     -- Cooldown:SetCooldown can consume those directly, so keep the raw span.
     if start ~= nil and duration ~= nil then
-        return start, duration, false
+        return start, duration, false, true
     end
-    return nil, nil, false
+    return nil, nil, false, observed
 end
 
 local function ReadInventoryCooldownSpan(slotID)
-    if not slotID or not GetInventoryItemCooldown then return nil, nil, false end
+    if not slotID or not GetInventoryItemCooldown then return nil, nil, false, false end
 
     local start, duration, enable
     pcall(function()
@@ -1979,7 +1980,7 @@ local function ReadInventoryCooldownSpan(slotID)
 end
 
 local function ReadItemCooldownSpan(itemID)
-    if not itemID then return nil, nil, false end
+    if not itemID then return nil, nil, false, false end
 
     local function readWith(getter)
         local start, duration, enable
@@ -1990,22 +1991,25 @@ local function ReadItemCooldownSpan(itemID)
     end
 
     if C_Container and C_Container.GetItemCooldown then
-        local start, duration, safeSpan = readWith(C_Container.GetItemCooldown)
+        local start, duration, safeSpan, observed = readWith(C_Container.GetItemCooldown)
         if start then return start, duration, safeSpan end
+        if observed then return nil, nil, false, true end
     end
     if C_Item and C_Item.GetItemCooldown then
-        local start, duration, safeSpan = readWith(C_Item.GetItemCooldown)
+        local start, duration, safeSpan, observed = readWith(C_Item.GetItemCooldown)
         if start then return start, duration, safeSpan end
+        if observed then return nil, nil, false, true end
     end
     if GetItemCooldown then
-        local start, duration, safeSpan = readWith(GetItemCooldown)
+        local start, duration, safeSpan, observed = readWith(GetItemCooldown)
         if start then return start, duration, safeSpan end
+        if observed then return nil, nil, false, true end
     end
-    return nil, nil, false
+    return nil, nil, false, false
 end
 
 local function ReadSpellCooldownSpan(spellID)
-    if not spellID then return nil, nil, false end
+    if not spellID then return nil, nil, false, false end
 
     if C_Spell and C_Spell.GetSpellCooldown then
         local cdInfo
@@ -2024,6 +2028,7 @@ local function ReadSpellCooldownSpan(spellID)
                 end)
                 local start, duration, safeSpan = NormalizeCooldownSpan(cdInfo.startTime or cdInfo.start, cdInfo.duration, enable)
                 if start then return start, duration, safeSpan end
+                return nil, nil, false, true
             end
         end
     end
@@ -2036,7 +2041,7 @@ local function ReadSpellCooldownSpan(spellID)
         return NormalizeCooldownSpan(start, duration, enable)
     end
 
-    return nil, nil, false
+    return nil, nil, false, false
 end
 
 function runtime.GetKnownPvPTrinketSlot()
@@ -2084,18 +2089,22 @@ end
 
 local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID, spellID)
     local equippedSlotID = slotID or FindEquippedItemSlot(itemID)
-    local start, duration, safeSpan = ReadInventoryCooldownSpan(equippedSlotID)
-    if not start then
-        start, duration, safeSpan = ReadItemCooldownSpan(itemID)
+    local start, duration, safeSpan, observed = ReadInventoryCooldownSpan(equippedSlotID)
+    if not start and not observed then
+        start, duration, safeSpan, observed = ReadItemCooldownSpan(itemID)
     end
-    if not start then
-        start, duration, safeSpan = ReadSpellCooldownSpan(spellID)
+    if not start and not observed then
+        start, duration, safeSpan, observed = ReadSpellCooldownSpan(spellID)
     end
     if start and duration then
         if safeSpan then
             StoreCooldownSpan(iconFrame, prefix, start, duration)
         end
         return start, duration, true, safeSpan
+    end
+    if observed then
+        ClearCooldownSpan(iconFrame, prefix)
+        return nil, nil, false, false
     end
 
     start, duration = GetStoredCooldownSpan(iconFrame, prefix)
