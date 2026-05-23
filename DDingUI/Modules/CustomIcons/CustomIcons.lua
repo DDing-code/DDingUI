@@ -2224,25 +2224,38 @@ function runtime.ApplyPvPTrinketCooldown(iconFrame, slotID, spellID)
         return false
     end
 
-    local durationObject = runtime.ReadPvPTrinketCooldownObject(slotID, spellID)
-    if durationObject and runtime.ApplyCooldownDurationObject(iconFrame, durationObject) then
+    local itemID = GetInventoryItemID and GetInventoryItemID("player", slotID)
+    local mappedSpellID = itemID and ResolveUsableItemSpellID(iconFrame, itemID, nil)
+    local effectiveSpellID = mappedSpellID or spellID
+
+    EnsureCooldownSpanOwner(iconFrame, "_ddPvPTrinketCooldown", itemID or slotID)
+    local start, duration, hasCooldown, safeSpan =
+        ResolveItemCooldownSpan(iconFrame, "_ddPvPTrinketCooldown", itemID, slotID, effectiveSpellID)
+    if hasCooldown and ApplyCooldownSpan(iconFrame, "_pvpTrinketDurObj", start, duration, safeSpan) then
         return true
     end
 
-    if runtime.ApplyCooldownDurationObject(iconFrame, GetRealSpellCooldownDuration(spellID)) then return true end
+    if runtime.ApplyCooldownDurationObject(iconFrame, GetRealSpellCooldownDuration(effectiveSpellID)) then return true end
     if runtime.ApplyCooldownDurationObject(iconFrame, GetRealSpellCooldownDuration(336126)) then return true end
     if runtime.ApplyCooldownDurationObject(iconFrame, GetRealSpellCooldownDuration(42292)) then return true end
 
     if C_Spell and C_Spell.GetSpellCooldownDuration then
         local directObject
-        if spellID then
-            pcall(function() directObject = C_Spell.GetSpellCooldownDuration(spellID) end)
+        if effectiveSpellID then
+            pcall(function() directObject = C_Spell.GetSpellCooldownDuration(effectiveSpellID) end)
             if runtime.ApplyCooldownDurationObject(iconFrame, directObject) then return true end
         end
+        directObject = nil
         pcall(function() directObject = C_Spell.GetSpellCooldownDuration(336126) end)
         if runtime.ApplyCooldownDurationObject(iconFrame, directObject) then return true end
+        directObject = nil
         pcall(function() directObject = C_Spell.GetSpellCooldownDuration(42292) end)
         if runtime.ApplyCooldownDurationObject(iconFrame, directObject) then return true end
+    end
+
+    local durationObject = runtime.ReadPvPTrinketCooldownObject(slotID, effectiveSpellID)
+    if durationObject and runtime.ApplyCooldownDurationObject(iconFrame, durationObject) then
+        return true
     end
 
     return false
