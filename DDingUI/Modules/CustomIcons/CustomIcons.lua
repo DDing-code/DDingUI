@@ -2320,10 +2320,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     -- GetItemCooldown can briefly return 0 in combat; keep a cached valid span as fallback.
     if itemSpellID then
         -- 스펠 ID가 매핑된 아이템: CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
-        local realDur = nil
-        if C_Spell and C_Spell.GetSpellCooldownDuration then
-            realDur = C_Spell.GetSpellCooldownDuration(itemSpellID)
-        end
+        local realDur = GetRealSpellCooldownDuration(itemSpellID)
 
         local itemCdStart, itemCdDuration, hasItemCooldown, itemCdSafe =
             ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID, nil, itemSpellID)
