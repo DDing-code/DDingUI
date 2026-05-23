@@ -60,6 +60,8 @@ local CONFIG = {
     DEBOUNCE_SPEC     = 1.0,
     DEBOUNCE_NORMAL   = 0.15,  -- ScheduleReconcile 하위 호환용
     DEBOUNCE_ONSHOW   = 0.05,  -- [FIX] OnShow/OnHide 디바운스 (기존 nil → 즐시 실행 버그 수정)
+    SCAN_EMPTY_GRACE  = 2,     -- 일시적인 빈 스캔을 바로 확정하지 않음
+    SCAN_PARTIAL_GRACE = 1,    -- 렉/전환 중 부분 스캔 보호
     -- [CDM 패턴] OnUpdate 폴링 제어
     -- [FIX CDM] burst 감소: 스와이프·색상 깜빡임 작업량 절감 (30fps → 20fps)
     -- SPELL_UPDATE_COOLDOWN 이벤트가 쿨다운 변화를 직접 트리거하므로 폴링 의존도 감소
@@ -164,6 +166,11 @@ local state = {
     pendingReconcile = false,  -- Reconcile() 내부 호환용
     scanCompleted = false,     -- [PERF] Reconcile 내 ScanCDMViewers 완료 플래그 (이중 스캔 방지)
     specChangeVersion = 0,      -- stale delayed refresh guard
+    emptyScanStreak = 0,
+    partialScanStreak = 0,
+    scanHoldActive = false,
+    scanHoldStartedAt = 0,
+    lastAcceptedScanCount = 0,
     -- 통계
     reconcileCount = 0,
 }
@@ -666,10 +673,15 @@ end
 -- ============================================================
 
 function FrameController:ScanCDMViewers()
-    -- [FIX] idIconMap/iconSourceMap만 wipe. iconSpellNameMap은 영구 캐시 유지.
-    -- 전투 중 secret value로 GetSpellName 실패해도 이전 캐시로 분류 가능.
-    wipe(idIconMap)
-    wipe(iconSourceMap)
+    local previousCount = 0
+    for _ in pairs(idIconMap) do previousCount = previousCount + 1 end
+
+    local nextIdIconMap = {}
+    local nextIconSourceMap = {}
+    local scannedViewers = 0
+    local activeFrameCount = 0
+    local hiddenFrameCount = 0
+    local unsafeKeyCount = 0
 
     -- [REPARENT] DDingUI 프로필 참조 — 뷰어 활성화 상태 확인
     local profile = DDingUI.db and DDingUI.db.profile
@@ -679,19 +691,17 @@ function FrameController:ScanCDMViewers()
 
     for globalName, viewer in pairs(viewerRefs) do
         local shouldScan = true
-        local skipReason = ""
 
         -- [REPARENT] DDingUI에서 비활성화된 뷰어는 스캔하지 않음
         local vp = viewerProfiles and viewerProfiles[globalName]
         if vp and vp.enabled == false then
             shouldScan = false
-            skipReason = "disabled"
         end
 
         -- [FIX] cooldownID + IsShown 체크: CDM이 Hide한 비활성 버프는 분류/렌더링 제외
         -- 단, 숨겨진 아이콘에도 OnShow 훅을 설치하여 CDM이 Show 시 Reconcile 트리거
-        local isBuffViewer = (globalName == "BuffIconCooldownViewer")
         if shouldScan and viewer.itemFramePool then
+            scannedViewers = scannedViewers + 1
             -- [CDM] Buff viewer: pool Release 훅 설치 (최초 1회)
             if FrameController._installPoolHooks then
                 FrameController._installPoolHooks(viewer, globalName)
@@ -700,8 +710,21 @@ function FrameController:ScanCDMViewers()
             for icon in viewer.itemFramePool:EnumerateActive() do
                 -- [FIX] isEditing 프레임 무시 (EditMode 종료 시 블리자드 코드 Taint 에러 방지)
                 if icon.cooldownID and not icon.isEditing then
+                    local cooldownID = icon.cooldownID
+                    local keySafe = true
+                    if issecretvalue then
+                        local okSecret, isSecret = pcall(issecretvalue, cooldownID)
+                        if okSecret and isSecret then
+                            keySafe = false
+                            unsafeKeyCount = unsafeKeyCount + 1
+                        end
+                    end
+                    activeFrameCount = activeFrameCount + 1
                     -- [CDM Buffs.lua L265] 모든 뷰어: IsShown()만 사용, CDM 가시성 신뢰
                     local shouldInclude = icon:IsShown()
+                    if not shouldInclude then
+                        hiddenFrameCount = hiddenFrameCount + 1
+                    end
                     if not shouldInclude and _debugLog then
                         local pname = icon:GetParent() and icon:GetParent():GetName() or "?"
                         DLog("  SKIP hidden:", tostring(icon.cooldownID), "managed=" .. tostring(icon._ddIsManaged), "alpha=" .. string.format("%.2f", icon:GetAlpha()), "parent=" .. pname)
@@ -754,14 +777,14 @@ function FrameController:ScanCDMViewers()
                             end
                         end
                     end
-                    if shouldInclude then
-                        idIconMap[icon.cooldownID] = icon
-                        iconSourceMap[icon.cooldownID] = globalName
+                    if shouldInclude and keySafe then
+                        nextIdIconMap[cooldownID] = icon
+                        nextIconSourceMap[cooldownID] = globalName
 
                         -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
                         local name = self:GetSpellName(icon)
                         if name then
-                            iconSpellNameMap[icon.cooldownID] = name
+                            iconSpellNameMap[cooldownID] = name
                         end
 
                         if not icon._fcShowHideHooked then
@@ -808,12 +831,52 @@ function FrameController:ScanCDMViewers()
                             icon._fcShowHideHooked = true
                         end
                         -- iconSourceMap은 저장 (나중에 ClassifyIcon에서 참조)
-                        iconSourceMap[icon.cooldownID] = globalName
+                        if keySafe then
+                            nextIconSourceMap[cooldownID] = globalName
+                        end
                     end
                 end
             end
         end
     end
+
+    local nextCount = 0
+    for _ in pairs(nextIdIconMap) do nextCount = nextCount + 1 end
+
+    local emptyDrop = previousCount > 0 and nextCount == 0 and scannedViewers > 0
+    local partialDrop = previousCount > 1 and nextCount > 0 and nextCount < previousCount
+    local hiddenTransition = hiddenFrameCount > 0 or activeFrameCount == 0 or unsafeKeyCount > 0
+    local holdScan = false
+
+    if emptyDrop and state.emptyScanStreak < CONFIG.SCAN_EMPTY_GRACE then
+        state.emptyScanStreak = state.emptyScanStreak + 1
+        state.partialScanStreak = 0
+        holdScan = true
+    elseif partialDrop and hiddenTransition and state.partialScanStreak < CONFIG.SCAN_PARTIAL_GRACE then
+        state.partialScanStreak = state.partialScanStreak + 1
+        holdScan = true
+    end
+
+    if holdScan then
+        state.scanHoldActive = true
+        state.scanHoldStartedAt = GetTime and GetTime() or 0
+        DLog("ScanHold: prev=" .. previousCount .. " next=" .. nextCount .. " active=" .. activeFrameCount .. " hidden=" .. hiddenFrameCount .. " unsafe=" .. unsafeKeyCount)
+        return false
+    end
+
+    wipe(idIconMap)
+    wipe(iconSourceMap)
+    for cooldownID, icon in pairs(nextIdIconMap) do
+        idIconMap[cooldownID] = icon
+    end
+    for cooldownID, sourceName in pairs(nextIconSourceMap) do
+        iconSourceMap[cooldownID] = sourceName
+    end
+
+    state.emptyScanStreak = 0
+    state.partialScanStreak = 0
+    state.scanHoldActive = false
+    state.lastAcceptedScanCount = nextCount
 
     -- [DEBUG] 스캔 결과 요약
     if _debugLog then
@@ -825,6 +888,7 @@ function FrameController:ScanCDMViewers()
     -- [CDM REACTIVE] 고아 정리 없음.
     -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
     -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
+    return true
 end
 
 -- 하위 호환 별칭
@@ -859,11 +923,9 @@ function FrameController:Reconcile()
     local _rc = state.reconcileCount or 0
     DLog("Reconcile #" .. _rc, "talent=" .. tostring(state.talentChangeDetected))
 
-    -- [CDM REACTIVE] 특성 변경 시: idIconMap만 wipe.
-    -- 다음 ScanCDMViewers가 처음부터 재구축하므로 개별 Release 불필요.
+    -- [CDM REACTIVE] 특성 변경 시에도 기존 맵은 스캔 안정화까지 유지.
+    -- 전환 중 빈 pool이 들어와도 기존 아이콘을 바로 release하지 않기 위함.
     if state.talentChangeDetected then
-        wipe(idIconMap)
-        wipe(iconSourceMap)
         wipe(iconSpellNameMap)
     end
 
@@ -1577,6 +1639,12 @@ end
 
 function FrameController:GetIconSource(cooldownID)
     return iconSourceMap[cooldownID]
+end
+
+function FrameController:IsScanHoldActive()
+    if not state.scanHoldActive then return false end
+    local now = GetTime and GetTime() or 0
+    return (now - (state.scanHoldStartedAt or 0)) < 1.0
 end
 
 function FrameController:GetSpellNameForID(cooldownID)

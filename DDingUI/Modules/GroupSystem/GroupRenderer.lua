@@ -1616,6 +1616,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
+    local fc = GetFC()
+    local scanHolding = fc and fc.IsScanHoldActive and fc:IsScanHoldActive()
     frame._ddDeferredReleaseIcons = frame._ddDeferredReleaseIcons or {}
     if inCombat and frame._managedIcons then
         for _, icon in pairs(frame._managedIcons) do
@@ -1632,6 +1634,28 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     _ddOrderToken = BuildDynamicOrderToken(icon._ddIconKey),
                 }
                 hasDynamicIcons = true
+            end
+        end
+    end
+    if scanHolding and frame._managedIcons then
+        for _, icon in pairs(frame._managedIcons) do
+            if icon and not icon._ddIconKey and icon._ddIsManaged and not newSet[icon] then
+                local cooldownID = icon._ddLastCooldownID or icon.cooldownID
+                local spellName
+                if fc and fc.GetSpellNameForID and cooldownID then
+                    pcall(function()
+                        spellName = fc:GetSpellNameForID(cooldownID)
+                    end)
+                end
+                local placement = {
+                    icon = icon,
+                    cooldownID = cooldownID,
+                    spellName = spellName,
+                    cdmKeepAlive = true,
+                }
+                placement._ddOrderToken = BuildCDMOrderToken(placement)
+                newSet[icon] = true
+                combinedList[#combinedList + 1] = placement
             end
         end
     end
@@ -1679,8 +1703,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         end
     end
     wipe(frame._managedIcons)
-
-    local fc = GetFC()
 
     -- [FIX] groupSettings가 단일 소스 — Config UI가 gs.groups[name]에 기록
     local viewerName = GROUP_VIEWER_MAP[groupName]
@@ -1880,7 +1902,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             -- 컨테이너가 이미 보이는 상태에서 아이콘이 추가되면 OnShow가 안 타므로 직접 Show
             if frame:IsShown() and not icon._ddSuppressed and not icon._ddingHidden then
                 if not icon:IsShown() then
-                    icon:Show()
+                    if not (scanHolding and not icon._ddIconKey) then
+                        icon:Show()
+                    end
                 end
             end
 
@@ -1925,7 +1949,12 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                                 local ic = p._managedIcons[i]
                                 if ic and ic:IsShown() then anyVis = true; break end
                             end
-                            if not anyVis then
+                            local holdHiddenCDM = false
+                            local holdFC = GetFC()
+                            if holdFC and holdFC.IsScanHoldActive and holdFC:IsScanHoldActive() then
+                                holdHiddenCDM = true
+                            end
+                            if not anyVis and not holdHiddenCDM then
                                 p:Hide()
                                 if DDingUI.ContainerSync then
                                     DDingUI.ContainerSync:SyncAll()
