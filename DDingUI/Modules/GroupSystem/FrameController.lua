@@ -1785,6 +1785,7 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     eventFrame:RegisterEvent("SPELLS_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
     eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- [FIX] 전투 진입 시 즉시 재스캔
     -- [CDM 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
     eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
@@ -1807,7 +1808,7 @@ function FrameController:Initialize()
 
         if not FrameController.initialized then return end
 
-        if event == "PLAYER_ENTERING_WORLD" then
+        if event == "PLAYER_ENTERING_WORLD" or event == "PVP_MATCH_STATE_CHANGED" then
             ScheduleViewerTransitionRecovery(true)
             return
         end

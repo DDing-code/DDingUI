@@ -2043,7 +2043,8 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
         -- [FIX] 로딩 지연(3초) 대기 중에 기본 CDM 뷰어가 나타나 기본 위치에 나열되는 것을 방지
         -- 화면에 "잠깐 나왔다가 사라짐" 현상 해결
         local gsDB = DDingUI_DB and DDingUI_DB.profile and DDingUI_DB.profile.groupSystem
-        if not gsDB or (gsDB.enabled ~= false and gsDB.hideDefaultViewers ~= false) then
+        if (not (DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()))
+            and (not gsDB or (gsDB.enabled ~= false and gsDB.hideDefaultViewers ~= false)) then
             -- [FIX] 3초 대기 중 CustomIcons 레이아웃도 미리 억제
             if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.SuppressCustomIconsLayout then
                 DDingUI.DynamicIconBridge:SuppressCustomIconsLayout()
