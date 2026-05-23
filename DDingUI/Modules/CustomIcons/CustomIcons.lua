@@ -3196,23 +3196,6 @@ local function UpdateAuraIcon(iconFrame, iconData)
         end)
     end
 
-    if not auraData and InCombatLockdown and InCombatLockdown() then
-        local activeUntil = SafeNumber(iconFrame._ddTimedAuraActiveUntil) or SafeNumber(iconFrame._ddAuraActiveUntil)
-        local now = GetTime and GetTime() or 0
-        if activeUntil and activeUntil > now then
-            iconFrame._auraWasActive = true
-            CustomIcons.RestoreActiveIconVisual(iconFrame)
-            CustomIcons.ApplyManagedGroupTextOptions(iconFrame)
-            return
-        end
-        if not iconFrame._ddManagedAuraExpired and HasRecentEffectState(iconFrame, now) then
-            iconFrame._auraWasActive = false
-            ScheduleEffectGraceUpdate(iconFrame)
-            CustomIcons.ApplyManagedGroupTextOptions(iconFrame)
-            return
-        end
-    end
-
     local auraExpirationTime = auraData and GetAuraNumberFieldSafe(auraData, "expirationTime")
     if auraExpirationTime and auraExpirationTime > 0 then
         iconFrame._ddAuraActiveUntil = auraExpirationTime
@@ -3414,6 +3397,10 @@ local function GetDynamicLayoutStateToken(frame, iconData)
     if expiredManagedAura then return "inactive" end
 
     local now = GetTime and GetTime() or 0
+    if iconData.type == "aura" then
+        return frame._auraWasActive == true and "active" or "inactive"
+    end
+
     local activeUntil = MaxSafeNumber(frame._ddTimedAuraActiveUntil, frame._ddAuraActiveUntil, frame._ddProcActiveUntil)
     local active = frame._auraWasActive == true
         or frame._trinketProcWasActive == true

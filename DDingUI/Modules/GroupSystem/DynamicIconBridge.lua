@@ -348,9 +348,7 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
                 end
                 return true
             elseif iconFrame then
-                if not (inCombat and FrameHasLiveEffect(iconFrame, now)) then
-                    iconFrame._ddTimedAuraActiveUntil = nil
-                end
+                iconFrame._ddTimedAuraActiveUntil = nil
             end
         end
         if ci and ci.ResolvePlayerAuraForIcon then
@@ -372,10 +370,6 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
                         iconFrame._ddTimedAuraActiveUntil = expirationTime
                     end
                 elseif not isActive then
-                    if inCombat and FrameHasLiveEffect(iconFrame, now) then
-                        iconFrame._auraWasActive = true
-                        return true
-                    end
                     iconFrame._ddTimedAuraActiveUntil = nil
                     iconFrame._ddAuraActiveUntil = nil
                 end
@@ -401,10 +395,6 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
                 iconFrame._ddAuraActiveUntil = expirationTime
                 iconFrame._ddLastAuraActiveAt = now
             elseif not isActive then
-                if inCombat and FrameHasLiveEffect(iconFrame, now) then
-                    iconFrame._auraWasActive = true
-                    return true
-                end
                 iconFrame._ddAuraActiveUntil = nil
             end
         end
@@ -513,10 +503,11 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
             elseif inCombat then
                 local isCooldownTrinket = iconData.type == "trinketProc"
                     and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
-                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
-                local liveEffect = isEffectIcon and FrameHasLiveEffect(frame, now)
+                local isAuraIcon = iconData.type == "aura"
+                local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
+                local liveEffect = isEffectIcon and not isAuraIcon and FrameHasLiveEffect(frame, now)
                 local expiredManagedAura = isEffectIcon and iconData.type == "aura" and frame._ddManagedAuraExpired
-                local recentEffect = isEffectIcon and not expiredManagedAura and FrameHadRecentEffect(frame, now)
+                local recentEffect = isEffectIcon and not isAuraIcon and not expiredManagedAura and FrameHadRecentEffect(frame, now)
                 keepManaged = (not isEffectIcon) and (frame._ddIsManaged and frame._ddContainerRef) and true or false
                 local keepHistorical = (not isEffectIcon) and frame._wasVisibleInGroup == true
                 local lastActive = frame._ddLastDynamicActiveAt
@@ -752,10 +743,14 @@ local function BuildDynamicLayoutStateHash()
 
                 if isEffectIcon then
                     local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
-                    local active = frame._auraWasActive == true
-                        or frame._trinketProcWasActive == true
-                        or FrameHasLiveEffect(frame, now)
-                        or (inCombat and not expiredManagedAura and FrameHadRecentEffect(frame, now))
+                    local active = false
+                    if iconData.type == "aura" then
+                        active = not expiredManagedAura and frame._auraWasActive == true
+                    else
+                        active = frame._trinketProcWasActive == true
+                            or FrameHasLiveEffect(frame, now)
+                            or (inCombat and not expiredManagedAura and FrameHadRecentEffect(frame, now))
+                    end
                     token = active and "1" or nil
                 elseif iconData.type == "slot" or iconData.type == "trinketProc" then
                     local slotID = iconData.slotID

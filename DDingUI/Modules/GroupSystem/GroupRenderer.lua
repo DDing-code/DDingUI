@@ -716,10 +716,6 @@ local function ShouldKeepDynamicIconInCombat(icon)
             return false
         end
 
-        if IsStillWithinKnownDuration(icon._ddTimedAuraActiveUntil, icon._ddAuraActiveUntil) then
-            return true
-        end
-
         local ci = DDingUI.CustomIcons
         if ci and ci.GetActiveCustomTimedAuraForIcon then
             local timedAura = ci:GetActiveCustomTimedAuraForIcon(iconData)
@@ -739,7 +735,9 @@ local function ShouldKeepDynamicIconInCombat(icon)
             end
         end
 
-        return IsStillWithinKnownDuration(icon._ddTimedAuraActiveUntil, icon._ddAuraActiveUntil)
+        icon._ddTimedAuraActiveUntil = nil
+        icon._ddAuraActiveUntil = nil
+        return false
     end
 
     if iconData.type == "trinketProc" then
