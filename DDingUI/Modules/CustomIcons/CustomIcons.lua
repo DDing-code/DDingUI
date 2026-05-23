@@ -590,6 +590,8 @@ end
 local ITEM_SPELL_MAP = {
     [5512]   = 6262,    -- Healthstone
     [224464] = 452930,  -- Demonic Healthstone
+    [255327] = 336126,  -- PvP trinket
+    [255616] = 336126,  -- PvP trinket
     [241304] = 1234768, -- Silvermoon Health Potion R2
     [241305] = 1234768, -- Silvermoon Health Potion R1
     [241308] = 1236616, -- Light's Potential R2
