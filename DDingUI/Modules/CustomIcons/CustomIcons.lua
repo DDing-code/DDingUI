@@ -871,7 +871,7 @@ local function EnsureStoredIconTexture(iconData)
     elseif iconData.type == "spell" or iconData.type == "aura" then
         texture = ResolveSpellTexture(iconData.id)
     elseif iconData.type == "slot" or iconData.type == "trinketProc" then
-        local itemID = iconData.slotID and GetInventoryItemID("player", iconData.slotID)
+        local itemID = iconData.slotID and CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
         texture = ResolveItemTexture(itemID, iconData.slotID)
     elseif iconData.type == "racial" then
         texture = FALLBACK_RACIAL_ICON
@@ -1266,6 +1266,10 @@ end
 
 local function SafeNumber(value)
     if value == nil then return nil end
+    if issecretvalue then
+        local okSecret, secret = pcall(issecretvalue, value)
+        if okSecret and secret then return nil end
+    end
     local valueType = type(value)
     if valueType == "number" then
         if canaccessvalue and not canaccessvalue(value) then
@@ -1275,6 +1279,22 @@ local function SafeNumber(value)
     end
     if valueType == "string" then return tonumber(value) end
     return nil
+end
+
+function CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
+    if not slotID or not GetInventoryItemID then return nil end
+
+    local ok, rawItemID = pcall(GetInventoryItemID, "player", slotID)
+    local itemID = ok and SafeNumber(rawItemID)
+    if itemID then
+        if iconFrame then
+            iconFrame._lastInventoryItemID = itemID
+            iconFrame._lastInventoryItemAt = GetTime and GetTime() or 0
+        end
+        return itemID
+    end
+
+    return iconFrame and iconFrame._lastInventoryItemID or nil
 end
 
 local function GetAuraNumberFieldSafe(aura, key)
@@ -2046,10 +2066,7 @@ local function FindEquippedItemSlot(itemID)
     if not itemID or not GetInventoryItemID then return nil end
 
     for _, slotID in ipairs({ 13, 14 }) do
-        local equippedID
-        pcall(function()
-            equippedID = GetInventoryItemID("player", slotID)
-        end)
+        local equippedID = CustomIcons.GetEquippedSlotItemID(nil, slotID)
         if SafeNumber(equippedID) == itemID then
             return slotID
         end
@@ -2204,8 +2221,7 @@ local function ApplyInventorySlotCooldown(iconFrame, durObjKey, slotID)
     end
 
     local start, duration, safeSpan = ReadInventoryCooldownSpan(slotID)
-    local itemID = slotID and GetInventoryItemID and GetInventoryItemID("player", slotID)
-    local safeItemID = SafeNumber(itemID)
+    local safeItemID = CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
 
     if not start and safeItemID then
         start, duration, safeSpan = ReadItemCooldownSpan(safeItemID)
@@ -2640,18 +2656,14 @@ end
 
 local function UpdateSlotIcon(iconFrame, iconData)
     local slotID = iconData.slotID
-    local itemID = GetInventoryItemID("player", slotID)
-    if not itemID then
-        SetStableIconTexture(iconFrame, nil, not iconFrame._ddIsManaged)
-        iconFrame.cooldown:Clear()
-        iconFrame.count:Hide()
-        return
-    end
+    local itemID = CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
     CustomIcons.RestoreActiveIconVisual(iconFrame)
 
     iconFrame._textureCacheKey = "slot:" .. tostring(slotID)
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
-    EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
+    if itemID then
+        EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
+    end
 
     local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_slotDurObj", slotID)
     if iconData.settings and iconData.settings.showCooldown == false then
@@ -2672,7 +2684,7 @@ local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
     local slotID = iconData.slotID
     if not slotID then return nil end
 
-    local itemID = GetInventoryItemID("player", slotID)
+    local itemID = CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
     if not itemID then return nil end
 
     local settings = iconData.settings or {}
@@ -2742,19 +2754,15 @@ end
 
 local function UpdateTrinketProcIcon(iconFrame, iconData)
     local slotID = iconData.slotID
-    local itemID = GetInventoryItemID("player", slotID)
-    if not itemID then
-        SetStableIconTexture(iconFrame, nil, not iconFrame._ddIsManaged)
-        iconFrame.cooldown:Clear()
-        iconFrame.count:Hide()
-        return
-    end
+    local itemID = CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
     CustomIcons.RestoreActiveIconVisual(iconFrame)
 
     iconFrame._textureCacheKey = "trinketProc:" .. tostring(slotID)
     -- Update trinket item texture
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
-    EnsureCooldownSpanOwner(iconFrame, "_ddTrinketCooldown", itemID)
+    if itemID then
+        EnsureCooldownSpanOwner(iconFrame, "_ddTrinketCooldown", itemID)
+    end
 
     -- Determine proc spell ID (auto-detect or manual override)
     local settings = iconData.settings or {}
@@ -4413,7 +4421,7 @@ local function CreateSlotIcon(iconKey, iconData, parent)
     frame._fallbackTexture = FALLBACK_SLOT_ICON
 
     -- [FIX] 텍스처 항상 설정 — GetItemInfo 캐시 미스 시에도 아이콘 보이도록
-    local itemID = GetInventoryItemID("player", slotID)
+    local itemID = CustomIcons.GetEquippedSlotItemID(frame, slotID)
     local tex = nil
     if itemID then
         -- GetItemInfo보다 GetInventoryItemTexture가 더 신뢰할 수 있음 (캐시 불필요)
@@ -4630,7 +4638,7 @@ local function GetGroupDisplayName(groupKey)
             elseif iconData.type == "slot" then
                 return ((L["Slot"] or "Slot") .. " " .. (iconData.slotID or ""))
             elseif iconData.type == "trinketProc" then
-                local iid = GetInventoryItemID("player", iconData.slotID or 13)
+                local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID or 13)
                 local itemName = iid and GetItemInfo(iid)
                 return itemName or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
             end
@@ -4982,10 +4990,10 @@ function CustomIcons:LoadDynamicIcons()
                     if iconData.type == "item" and iconData.id and C_Item and C_Item.RequestLoadItemDataByID then
                         C_Item.RequestLoadItemDataByID(iconData.id)
                     elseif iconData.type == "trinketProc" and iconData.slotID then
-                        local itemID = GetInventoryItemID("player", iconData.slotID)
+                        local itemID = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
                         if itemID and C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
                     elseif iconData.type == "slot" and iconData.slotID then
-                        local itemID = GetInventoryItemID("player", iconData.slotID)
+                        local itemID = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
                         if itemID and C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
                     elseif iconData.type == "spell" and iconData.id then
                         if C_Spell and C_Spell.RequestLoadSpellData then pcall(C_Spell.RequestLoadSpellData, iconData.id) end
@@ -5643,7 +5651,7 @@ local function MatchesSearch(iconKey, iconData)
     elseif iconData.type == "slot" then
         name = ((L["Slot"] or "Slot") .. " " .. (iconData.slotID or ""))
     elseif iconData.type == "trinketProc" then
-        local iid = GetInventoryItemID("player", iconData.slotID or 13)
+        local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID or 13)
         name = (iid and GetItemInfo(iid)) or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
     end
     name = string.lower(tostring(name))
@@ -5765,7 +5773,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         local stored = GetStoredIconTexture(iconData)
         node.iconTex:SetTexture(NonQuestionTexture(ResolveSpellTexture(iconData.id, stored), stored or FALLBACK_SPELL_ICON))
     elseif iconData.type == "slot" or iconData.type == "trinketProc" then
-        local iid = GetInventoryItemID("player", iconData.slotID)
+        local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
         local _, _, _, _, _, _, _, _, _, tex = iid and GetItemInfo(iid)
         node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iid, iconData.slotID) or FALLBACK_SLOT_ICON))
     elseif iconData.type == "racial" then
@@ -5804,7 +5812,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     elseif iconData.type == "slot" then
         displayName = (L["Slot"] or "Slot") .. " " .. tostring(iconData.slotID or "")
     elseif iconData.type == "trinketProc" then
-        local iid = GetInventoryItemID("player", iconData.slotID or 13)
+        local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID or 13)
         displayName = (iid and GetItemInfo(iid)) or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()

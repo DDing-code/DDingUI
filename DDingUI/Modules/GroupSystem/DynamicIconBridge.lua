@@ -183,6 +183,28 @@ local function GetDynamicIconData(iconKey)
     return db and db.iconData and db.iconData[iconKey] or nil
 end
 
+local function GetEquippedSlotItemID(iconFrame, slotID)
+    if not slotID or not GetInventoryItemID then return nil end
+
+    local ok, rawItemID = pcall(GetInventoryItemID, "player", slotID)
+    local itemID = ok and SafeNumber(rawItemID)
+    if itemID then
+        if iconFrame then
+            iconFrame._lastInventoryItemID = itemID
+            iconFrame._lastInventoryItemAt = GetTime and GetTime() or 0
+        end
+        return itemID
+    end
+
+    return iconFrame and iconFrame._lastInventoryItemID or nil
+end
+
+local function ShouldTrackSlot(iconFrame, slotID)
+    if not slotID then return false end
+    if GetEquippedSlotItemID(iconFrame, slotID) then return true end
+    return slotID == 13 or slotID == 14
+end
+
 -- ============================================================
 -- 활성 아이콘 수집
 -- ============================================================
@@ -244,52 +266,19 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
 
     if iconData.type == "slot" then
         local slotID = iconData.slotID
-        if not slotID then return false end
-        local itemID = GetInventoryItemID("player", slotID)
-        if itemID then
-            iconFrame._lastInventoryItemID = itemID
-            iconFrame._lastInventoryItemAt = GetTime()
-            return true
-        end
-        local lastSeen = iconFrame._lastInventoryItemAt
-        if lastSeen and (GetTime() - lastSeen) < 1.0 then
-            return true
-        end
-        return false
+        return ShouldTrackSlot(iconFrame, slotID)
     end
 
     if iconData.type == "trinketProc" then
         local settings = iconData.settings or {}
         if settings.showItemCooldown ~= false then
             local slotID = iconData.slotID
-            if slotID then
-                local itemID = GetInventoryItemID("player", slotID)
-                if itemID then
-                    iconFrame._lastInventoryItemID = itemID
-                    iconFrame._lastInventoryItemAt = now
-                    return true
-                end
-                local lastSeen = iconFrame._lastInventoryItemAt
-                if lastSeen and (now - lastSeen) < 1.0 then
-                    return true
-                end
-            end
+            if ShouldTrackSlot(iconFrame, slotID) then return true end
         end
 
         if not isBuffContext then
             local slotID = iconData.slotID
-            if not slotID then return false end
-            local itemID = GetInventoryItemID("player", slotID)
-            if itemID then
-                iconFrame._lastInventoryItemID = itemID
-                iconFrame._lastInventoryItemAt = GetTime()
-                return true
-            end
-            local lastSeen = iconFrame._lastInventoryItemAt
-            if lastSeen and (GetTime() - lastSeen) < 1.0 then
-                return true
-            end
-            return false
+            return ShouldTrackSlot(iconFrame, slotID)
         end
 
         local ci = GetCustomIcons()
@@ -770,8 +759,7 @@ local function BuildDynamicLayoutStateHash()
                     token = active and "1" or nil
                 elseif iconData.type == "slot" or iconData.type == "trinketProc" then
                     local slotID = iconData.slotID
-                    local hasItem = slotID and GetInventoryItemID("player", slotID)
-                    token = (hasItem or (inCombat and frame._wasVisibleInGroup)) and "1" or nil
+                    token = (ShouldTrackSlot(frame, slotID) or (inCombat and frame._wasVisibleInGroup)) and "1" or nil
                 end
 
                 if token then
