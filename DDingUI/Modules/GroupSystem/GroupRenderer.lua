@@ -507,28 +507,6 @@ local function SafeTableField(tbl, key)
     return nil
 end
 
-local function ShouldTrackInventorySlotIcon(icon, slotID)
-    if not slotID then return false end
-
-    local ci = DDingUI.CustomIcons
-    if ci and ci.GetEquippedSlotItemID then
-        if ci.GetEquippedSlotItemID(icon, slotID) then return true end
-    elseif GetInventoryItemID then
-        local ok, rawItemID = pcall(GetInventoryItemID, "player", slotID)
-        local itemID = ok and SafeNumber(rawItemID)
-        if itemID then
-            if icon then icon._lastInventoryItemID = itemID end
-            return true
-        end
-        if ok and rawItemID ~= nil and (slotID == 13 or slotID == 14) then
-            return true
-        end
-    end
-
-    if icon and icon._lastInventoryItemID then return true end
-    return slotID == 13 or slotID == 14
-end
-
 local BLOODLUST_GROUP_IDS = {
     [2825] = true, [32182] = true, [80353] = true, [90355] = true,
     [160452] = true, [264667] = true, [390386] = true,
@@ -766,7 +744,7 @@ local function ShouldKeepDynamicIconInCombat(icon)
 
     if iconData.type == "trinketProc" then
         local settings = iconData.settings or {}
-        if settings.showItemCooldown ~= false and ShouldTrackInventorySlotIcon(icon, iconData.slotID) then
+        if settings.showItemCooldown ~= false and iconData.slotID and GetInventoryItemID("player", iconData.slotID) then
             return true
         end
 
