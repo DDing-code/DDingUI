@@ -1363,8 +1363,9 @@ do
     local function FlightHideOnUpdate(_, elapsed)
         local cfg = DDingUI.db and DDingUI.db.profile.general
         if not cfg or not AnyFeatureEnabled(cfg) then
-            if currentAlpha < 1 or FlightHide.isActive then
+            if currentAlpha < 1 or FlightHide.isActive or FlightHide._hiding then
                 FlightHide.isActive = false
+                FlightHide._hiding = false
                 targetAlpha = 1
                 debugShown = false
                 ApplyViewerAlpha(1)
@@ -1402,6 +1403,13 @@ do
                     C_Timer.After(1.0, function()
                         FlightHide._restoring = false
                     end)
+                elseif not shouldHide and (FlightHide._hiding or FlightHide.isActive or targetAlpha == 0 or currentAlpha < 1) then
+                    wasHidden = false
+                    targetAlpha = 1
+                    FlightHide.isActive = false
+                    FlightHide._hiding = false
+                    debugShown = false
+                    ApplyViewerAlpha(1)
                 end
             end
         end
@@ -1437,6 +1445,7 @@ do
         targetAlpha = 1
         currentAlpha = 1
         FlightHide.isActive = false
+        FlightHide._hiding = false
         FlightHide._restoring = true  -- [FIX] SkinAllIconsInViewer 훅에서 앵커 리셋 방지
         debugShown = false
         ApplyAlpha(1)

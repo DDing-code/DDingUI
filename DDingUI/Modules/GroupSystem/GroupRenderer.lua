@@ -775,6 +775,11 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
     if icon.Show then
         icon:Show()
     end
+    if combatVisible ~= false then
+        icon._ddCombatKeepAlive = nil
+        icon._ddCombatVisible = nil
+        icon._ddCombatMissingSince = nil
+    end
     local iconAlpha = combatVisible == false and 0 or (groupAlpha or 1)
     SetAlphaIfNeeded(icon, iconAlpha, "_ddLastGroupAlpha")
     if iconAlpha > 0 then
