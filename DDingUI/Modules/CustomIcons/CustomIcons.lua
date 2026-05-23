@@ -1280,6 +1280,25 @@ local function SafeNumber(value)
     return nil
 end
 
+local function IsKnownPvPTrinketItemID(itemID)
+    itemID = SafeNumber(itemID)
+    return itemID == 255327 or itemID == 255616
+end
+
+local function FindEquippedPvPTrinketSlot()
+    if not GetInventoryItemID then return nil, nil end
+    for slotID = 13, 14 do
+        local equippedID
+        pcall(function()
+            equippedID = GetInventoryItemID("player", slotID)
+        end)
+        if IsKnownPvPTrinketItemID(equippedID) then
+            return slotID, SafeNumber(equippedID)
+        end
+    end
+    return nil, nil
+end
+
 local function GetAuraNumberFieldSafe(aura, key)
     return SafeNumber(GetAuraFieldSafe(aura, key))
 end
@@ -2047,6 +2066,9 @@ end
 function runtime.GetKnownPvPTrinketSlot()
     for slotID = 13, 14 do
         local itemID = GetInventoryItemID and GetInventoryItemID("player", slotID)
+        if IsKnownPvPTrinketItemID(itemID) then
+            return slotID
+        end
         local itemSpellID = itemID and ResolveUsableItemSpellID(nil, itemID, nil)
         local safeSpellID = SafeNumber(itemSpellID)
         if safeSpellID == 336126 or safeSpellID == 42292 then
@@ -2083,6 +2105,9 @@ local function FindEquippedItemSlot(itemID)
         if SafeNumber(equippedID) == itemID then
             return slotID
         end
+    end
+    if IsKnownPvPTrinketItemID(itemID) then
+        return FindEquippedPvPTrinketSlot()
     end
     return nil
 end
@@ -2229,13 +2254,14 @@ function runtime.ApplyPvPTrinketCooldown(iconFrame, slotID, spellID)
     if slotID ~= 13 and slotID ~= 14 then return false end
 
     local inPvPInstance = DDingUI and DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
-    if not inPvPInstance then
-        return false
-    end
 
     local itemID = GetInventoryItemID and GetInventoryItemID("player", slotID)
     local mappedSpellID = itemID and ResolveUsableItemSpellID(iconFrame, itemID, nil)
     local effectiveSpellID = mappedSpellID or spellID
+    local safeSpellID = SafeNumber(effectiveSpellID)
+    if not (inPvPInstance and (IsKnownPvPTrinketItemID(itemID) or safeSpellID == 336126 or safeSpellID == 42292)) then
+        return false
+    end
 
     EnsureCooldownSpanOwner(iconFrame, "_ddPvPTrinketCooldown", itemID or slotID)
     local start, duration, hasCooldown, safeSpan =
@@ -2299,6 +2325,17 @@ local function UpdateItemIcon(iconFrame, iconData)
                     end
                 end
             end
+        end
+    end
+
+    if IsKnownPvPTrinketItemID(activeItemID) then
+        local equippedSlotID, equippedItemID = FindEquippedPvPTrinketSlot()
+        if equippedSlotID and equippedItemID then
+            activeItemID = equippedItemID
+            local equippedCount = C_Item.GetItemCount(equippedItemID, false, includeCharges, false)
+            local safeEquippedCount = SafeNumber(equippedCount)
+            itemCount = (safeEquippedCount and safeEquippedCount > 0) and safeEquippedCount or 1
+            usedFallback = usedFallback or activeItemID ~= itemID
         end
     end
 
