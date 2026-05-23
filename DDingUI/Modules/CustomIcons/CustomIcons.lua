@@ -1,4 +1,4 @@
-local ADDON_NAME, ns = ...
+local ns = select(2, ...)
 local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
@@ -9,24 +9,21 @@ DDingUI.CustomIcons = DDingUI.CustomIcons or {}
 local CustomIcons = DDingUI.CustomIcons
 
 -- Lazy-loaded GUI components (DDingUI.GUI is exported after this file loads)
-local Widgets, THEME
-local CreateCustomScrollBar, GetSafeScrollRange, PropagateMouseWheelRecursive
-local CreateStyledButton, CreateStyledToggle, CreateStyledInput, CreateStyledDropdown -- [REFACTOR] GUI.lua에서 로드
-local CreateBackdrop -- [REFACTOR] GUI.lua에서 로드
+local GUIRefs = {}
 local function EnsureGUILoaded()
-    if not Widgets and DDingUI.GUI then
-        Widgets = DDingUI.GUI.Widgets
-        THEME = DDingUI.GUI.THEME
-        CreateCustomScrollBar = DDingUI.GUI.CreateCustomScrollBar
-        GetSafeScrollRange = DDingUI.GUI.GetSafeScrollRange
-        PropagateMouseWheelRecursive = DDingUI.GUI.PropagateMouseWheelRecursive
-        CreateStyledButton = DDingUI.GUI.CreateStyledButton -- [REFACTOR]
-        CreateStyledToggle = DDingUI.GUI.CreateStyledToggle -- [REFACTOR]
-        CreateStyledInput = DDingUI.GUI.CreateStyledInput -- [REFACTOR]
-        CreateStyledDropdown = DDingUI.GUI.CreateStyledDropdown -- [REFACTOR]
-        CreateBackdrop = DDingUI.GUI.CreateBackdrop -- [REFACTOR]
+    if not GUIRefs.Widgets and DDingUI.GUI then
+        GUIRefs.Widgets = DDingUI.GUI.Widgets
+        GUIRefs.THEME = DDingUI.GUI.THEME
+        GUIRefs.CreateCustomScrollBar = DDingUI.GUI.CreateCustomScrollBar
+        GUIRefs.GetSafeScrollRange = DDingUI.GUI.GetSafeScrollRange
+        GUIRefs.PropagateMouseWheelRecursive = DDingUI.GUI.PropagateMouseWheelRecursive
+        GUIRefs.CreateStyledButton = DDingUI.GUI.CreateStyledButton
+        GUIRefs.CreateStyledToggle = DDingUI.GUI.CreateStyledToggle
+        GUIRefs.CreateStyledInput = DDingUI.GUI.CreateStyledInput
+        GUIRefs.CreateStyledDropdown = DDingUI.GUI.CreateStyledDropdown
+        GUIRefs.CreateBackdrop = DDingUI.GUI.CreateBackdrop
     end
-    return Widgets and THEME
+    return GUIRefs.Widgets and GUIRefs.THEME
 end
 
 local LSM = LibStub("LibSharedMedia-3.0", true)
@@ -3920,15 +3917,15 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
         edgeSize = 1,
         insets = {left = 0, right = 0, top = 0, bottom = 0},
     })
-    f:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.95)
-    f:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+    f:SetBackdropColor(GUIRefs.THEME.bgDark[1], GUIRefs.THEME.bgDark[2], GUIRefs.THEME.bgDark[3], 0.95)
+    f:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 1)
 
     f.title = f:CreateFontString(nil, "OVERLAY")
     f.title:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 14, "")
     f.title:SetShadowOffset(1, -1)
     f.title:SetShadowColor(0, 0, 0, 1)
     f.title:SetPoint("TOP", f, "TOP", 0, -10)
-    f.title:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+    f.title:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
     f.title:SetText(L["Load Conditions"] or "Load Conditions")
 
     f.close = CreateFrame("Button", nil, f, "BackdropTemplate")
@@ -3940,24 +3937,24 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
         edgeSize = 1,
         insets = {left = 0, right = 0, top = 0, bottom = 0},
     })
-    f.close:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
-    f.close:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+    f.close:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
+    f.close:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 1)
     local closeText = f.close:CreateFontString(nil, "OVERLAY")
     closeText:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
     closeText:SetShadowOffset(1, -1)
     closeText:SetShadowColor(0, 0, 0, 1)
     closeText:SetPoint("CENTER", 0, 1)
     closeText:SetText("×")
-    closeText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+    closeText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
     f.close:SetScript("OnEnter", function(self)
         self:SetBackdropColor(0.8, 0.2, 0.2, 1)
         self:SetBackdropBorderColor(1, 0.3, 0.3, 1)
         closeText:SetTextColor(1, 1, 1, 1)
     end)
     f.close:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
-        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
-        closeText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        self:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
+        self:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 1)
+        closeText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
     end)
     f.close:SetScript("OnClick", function() f:Hide() end)
 
@@ -3971,24 +3968,24 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
         edgeSize = 1,
         insets = {left = 0, right = 0, top = 0, bottom = 0},
     })
-    enableBtn:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
+    enableBtn:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
     enableBtn:SetBackdropBorderColor(0, 0, 0, 1)
     local enableCheck = enableBtn:CreateTexture(nil, "OVERLAY")
     enableCheck:SetPoint("TOPLEFT", 1, -1)
     enableCheck:SetPoint("BOTTOMRIGHT", -1, 1)
     enableCheck:SetGradient("HORIZONTAL",
-        CreateColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1),
-        CreateColor(THEME.accentDark[1], THEME.accentDark[2], THEME.accentDark[3], 1))
+        CreateColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1),
+        CreateColor(GUIRefs.THEME.accentDark[1], GUIRefs.THEME.accentDark[2], GUIRefs.THEME.accentDark[3], 1))
     enableBtn:SetCheckedTexture(enableCheck)
     local enableHighlight = enableBtn:CreateTexture(nil, "ARTWORK")
     enableHighlight:SetAllPoints()
-    enableHighlight:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.1)
+    enableHighlight:SetColorTexture(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 0.1)
     enableBtn:SetHighlightTexture(enableHighlight, "ADD")
     local enableLabel = enableBtn:CreateFontString(nil, "OVERLAY")
     enableLabel:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
     enableLabel:SetShadowOffset(1, -1)
     enableLabel:SetShadowColor(0, 0, 0, 1)
-    enableLabel:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3], 1)
+    enableLabel:SetTextColor(GUIRefs.THEME.text[1], GUIRefs.THEME.text[2], GUIRefs.THEME.text[3], 1)
     enableLabel:SetPoint("LEFT", enableBtn, "RIGHT", 6, 0)
     enableLabel:SetText(L["Enable Load Conditions"] or "Enable Load Conditions")
     enableBtn:SetChecked(lc.enabled == true)
@@ -4002,7 +3999,7 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
     specHeader:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 13, "")
     specHeader:SetShadowOffset(1, -1)
     specHeader:SetShadowColor(0, 0, 0, 1)
-    specHeader:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+    specHeader:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
     specHeader:SetPoint("TOPLEFT", enableBtn, "BOTTOMLEFT", 4, -12)
     specHeader:SetText(L["By Specialization"] or "By Specialization")
 
@@ -4016,8 +4013,8 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
     specChild:SetHeight(400)
     specScroll:SetScrollChild(specChild)
 
-    if CreateCustomScrollBar then
-        local specScrollBar = CreateCustomScrollBar(f, specScroll)
+    if GUIRefs.CreateCustomScrollBar then
+        local specScrollBar = GUIRefs.CreateCustomScrollBar(f, specScroll)
         specScrollBar:SetPoint("TOPLEFT", specScroll, "TOPRIGHT", 4, 0)
         specScrollBar:SetPoint("BOTTOMLEFT", specScroll, "BOTTOMRIGHT", 4, 0)
         specScroll.ScrollBar = specScrollBar
@@ -4039,7 +4036,7 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
         name:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
         name:SetShadowOffset(1, -1)
         name:SetShadowColor(0, 0, 0, 1)
-        name:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3], 1)
+        name:SetTextColor(GUIRefs.THEME.text[1], GUIRefs.THEME.text[2], GUIRefs.THEME.text[3], 1)
         name:SetPoint("LEFT", icon, "RIGHT", 6, 0)
         name:SetText(spec.name)
 
@@ -4052,18 +4049,18 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
             edgeSize = 1,
             insets = {left = 0, right = 0, top = 0, bottom = 0},
         })
-        toggle:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
+        toggle:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
         toggle:SetBackdropBorderColor(0, 0, 0, 1)
         local toggleCheck = toggle:CreateTexture(nil, "OVERLAY")
         toggleCheck:SetPoint("TOPLEFT", 1, -1)
         toggleCheck:SetPoint("BOTTOMRIGHT", -1, 1)
         toggleCheck:SetGradient("HORIZONTAL",
-            CreateColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1),
-            CreateColor(THEME.accentDark[1], THEME.accentDark[2], THEME.accentDark[3], 1))
+            CreateColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1),
+            CreateColor(GUIRefs.THEME.accentDark[1], GUIRefs.THEME.accentDark[2], GUIRefs.THEME.accentDark[3], 1))
         toggle:SetCheckedTexture(toggleCheck)
         local toggleHL = toggle:CreateTexture(nil, "ARTWORK")
         toggleHL:SetAllPoints()
-        toggleHL:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.1)
+        toggleHL:SetColorTexture(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 0.1)
         toggle:SetHighlightTexture(toggleHL, "ADD")
         toggle:SetChecked(lc.specs[spec.id] == true)
         toggle:SetScript("OnClick", function(self)
@@ -5598,8 +5595,8 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         insets = {left = 0, right = 0, top = 0, bottom = 0},
     })
     -- [STYLE] bg.input 기본, bg.hover 호버, bg.selected 선택
-    node:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.80)
-    node:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.5)
+    node:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.80)
+    node:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 0.5)
     node._iconKey = iconKey
     node._hover = false
 
@@ -5607,16 +5604,16 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         local isSelected = uiState.selectedIcon == iconKey
         local isMultiSelected = uiState.selectedIcons[iconKey]
         -- [STYLE] default=bgWidget, hover=bgLight, selected=bgMedium
-        local bg = THEME.bgWidget
-        local border = THEME.border
+        local bg = GUIRefs.THEME.bgWidget
+        local border = GUIRefs.THEME.border
         local alpha = 0.80
         if isSelected or isMultiSelected then
-            bg = THEME.bgMedium
-            border = THEME.accent
+            bg = GUIRefs.THEME.bgMedium
+            border = GUIRefs.THEME.accent
             alpha = 0.80
         elseif node._hover then
-            bg = THEME.bgLight
-            border = {THEME.borderLight[1], THEME.borderLight[2], THEME.borderLight[3]}
+            bg = GUIRefs.THEME.bgLight
+            border = {GUIRefs.THEME.borderLight[1], GUIRefs.THEME.borderLight[2], GUIRefs.THEME.borderLight[3]}
             alpha = 0.60
         end
         node:SetBackdropColor(bg[1], bg[2], bg[3], alpha)
@@ -5641,18 +5638,18 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     checkTex:SetPoint("BOTTOMRIGHT", -1, 1)
     checkTex:SetColorTexture(1, 1, 1, 1)
     checkTex:SetGradient("HORIZONTAL",
-        CreateColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1),
-        CreateColor(THEME.accentDark[1], THEME.accentDark[2], THEME.accentDark[3], 1)
+        CreateColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1),
+        CreateColor(GUIRefs.THEME.accentDark[1], GUIRefs.THEME.accentDark[2], GUIRefs.THEME.accentDark[3], 1)
     )
     checkTex:Hide()
 
     local function updateCheckboxVisual()
         if checkbox._checked then
-            checkbox:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
+            checkbox:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
             checkbox:SetBackdropBorderColor(0, 0, 0, 1)
             checkTex:Show()
         else
-            checkbox:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
+            checkbox:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
             checkbox:SetBackdropBorderColor(0, 0, 0, 1)
             checkTex:Hide()
         end
@@ -5660,7 +5657,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     updateCheckboxVisual()
     -- 하이라이트
     local cbHighlight = checkbox:CreateTexture(nil, "ARTWORK")
-    cbHighlight:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.1)
+    cbHighlight:SetColorTexture(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 0.1)
     cbHighlight:SetPoint("TOPLEFT", 1, -1)
     cbHighlight:SetPoint("BOTTOMRIGHT", -1, 1)
     cbHighlight:Hide()
@@ -5730,7 +5727,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     label:SetShadowOffset(1, -1)
     label:SetShadowColor(0, 0, 0, 1)
     label:SetPoint("LEFT", node.iconTex, "RIGHT", 6, 6)
-    label:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3], 1)
+    label:SetTextColor(GUIRefs.THEME.text[1], GUIRefs.THEME.text[2], GUIRefs.THEME.text[3], 1)
 
     local displayName = ""
     if iconData.type == "item" then
@@ -5765,7 +5762,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     badge:SetShadowOffset(1, -1)
     badge:SetShadowColor(0, 0, 0, 1)
     badge:SetPoint("LEFT", label, "LEFT", 0, -12)
-    badge:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.9)
+    badge:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 0.9)
     badge:SetText(string.upper(iconData.type))
 
     local deleteBtn = CreateFrame("Button", nil, node, "BackdropTemplate")
@@ -5777,22 +5774,22 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         edgeSize = 1,
         insets = {left = 0, right = 0, top = 0, bottom = 0},
     })
-    deleteBtn:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
-    deleteBtn:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], THEME.border[4] or 0.50)
+    deleteBtn:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
+    deleteBtn:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], GUIRefs.THEME.border[4] or 0.50)
     local deleteBtnText = deleteBtn:CreateFontString(nil, "OVERLAY")
     deleteBtnText:SetFont(globalFont, 11, "")
     deleteBtnText:SetPoint("CENTER", 0, 1)
     deleteBtnText:SetText("×")
-    deleteBtnText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+    deleteBtnText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
     deleteBtn:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(THEME.error[1], THEME.error[2], THEME.error[3], 0.9)
-        self:SetBackdropBorderColor(THEME.error[1], THEME.error[2], THEME.error[3], 1)
+        self:SetBackdropColor(GUIRefs.THEME.error[1], GUIRefs.THEME.error[2], GUIRefs.THEME.error[3], 0.9)
+        self:SetBackdropBorderColor(GUIRefs.THEME.error[1], GUIRefs.THEME.error[2], GUIRefs.THEME.error[3], 1)
         deleteBtnText:SetTextColor(1, 1, 1, 1)
     end)
     deleteBtn:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.9)
-        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], THEME.border[4] or 0.50)
-        deleteBtnText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        self:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
+        self:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], GUIRefs.THEME.border[4] or 0.50)
+        deleteBtnText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
     end)
     deleteBtn:SetScript("OnClick", function()
         CustomIcons:ConfirmDeleteIcon(iconKey, displayName)
@@ -5866,7 +5863,7 @@ local uiFrames = {
     loadWindow = nil,
 }
 
--- [REFACTOR] CreateStyledButton/Toggle/Input/Dropdown → DDingUI.GUI로 이동 (EnsureGUILoaded에서 로드)
+-- [REFACTOR] GUIRefs.CreateStyledButton/Toggle/Input/Dropdown → DDingUI.GUI로 이동 (EnsureGUILoaded에서 로드)
 
 function CustomIcons:RefreshDynamicListUI()
     if not uiFrames.listParent then return end
@@ -5887,7 +5884,7 @@ function CustomIcons:RefreshDynamicListUI()
     selectBtnFrame:SetPoint("TOPLEFT", uiFrames.listParent, "TOPLEFT", 0, y)
     selectBtnFrame:SetSize(240, 24)
 
-    local selectAllBtn = CreateStyledButton(selectBtnFrame, "전체 선택", 75, 22)
+    local selectAllBtn = GUIRefs.CreateStyledButton(selectBtnFrame, "전체 선택", 75, 22)
     selectAllBtn:SetPoint("LEFT", selectBtnFrame, "LEFT", 0, 0)
     selectAllBtn:SetScript("OnClick", function()
         -- Select all visible icons
@@ -5905,7 +5902,7 @@ function CustomIcons:RefreshDynamicListUI()
         CustomIcons:RefreshDynamicConfigUI()
     end)
 
-    local deselectAllBtn = CreateStyledButton(selectBtnFrame, "선택 해제", 75, 22)
+    local deselectAllBtn = GUIRefs.CreateStyledButton(selectBtnFrame, "선택 해제", 75, 22)
     deselectAllBtn:SetPoint("LEFT", selectAllBtn, "RIGHT", 4, 0)
     deselectAllBtn:SetScript("OnClick", function()
         uiState.selectedIcons = {}
@@ -5948,8 +5945,8 @@ function CustomIcons:RefreshDynamicListUI()
             insets = {left = 1, right = 1, top = 1, bottom = 1},
         })
         -- [STYLE] 그룹 헤더 bg.widget, border.default
-        box:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.80)
-        box:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.50)
+        box:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.80)
+        box:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 0.50)
         box:SetPoint("TOPLEFT", uiFrames.listParent, "TOPLEFT", -2, y)
         box:SetPoint("TOPRIGHT", uiFrames.listParent, "TOPRIGHT", 2, y)
 
@@ -5964,10 +5961,10 @@ function CustomIcons:RefreshDynamicListUI()
         headerText:SetShadowColor(0, 0, 0, 1)
         headerText:SetPoint("LEFT", header, "LEFT", 4, 0)
         if isDisabled then
-            headerText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.6)
+            headerText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 0.6)
             headerText:SetText(title .. " |cff888888[OFF]|r")
         else
-            headerText:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            headerText:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
             headerText:SetText(title)
         end
 
@@ -5980,15 +5977,15 @@ function CustomIcons:RefreshDynamicListUI()
             edgeSize = 1,
             insets = {left = 0, right = 0, top = 0, bottom = 0},
         })
-        arrowBtn:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.8)
-        arrowBtn:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], THEME.border[4] or 0.50)
+        arrowBtn:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.8)
+        arrowBtn:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], GUIRefs.THEME.border[4] or 0.50)
         local globalFont = DDingUI:GetGlobalFont() or "Fonts\\2002.TTF"
         local arrowText = arrowBtn:CreateFontString(nil, "OVERLAY")
         arrowText:SetFont(globalFont, 11, "")
         arrowText:SetShadowOffset(1, -1)
         arrowText:SetShadowColor(0, 0, 0, 1)
         arrowText:SetPoint("CENTER", 0, 0)
-        arrowText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        arrowText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         local function updateArrow()
             if uiState.collapsedGroups[groupKey] == true then
                 arrowText:SetText("▶")
@@ -5998,26 +5995,26 @@ function CustomIcons:RefreshDynamicListUI()
         end
         updateArrow()
         arrowBtn:SetScript("OnEnter", function(self)
-            self:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.2)
-            self:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.6)
-            arrowText:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3], 1)
+            self:SetBackdropColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 0.2)
+            self:SetBackdropBorderColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 0.6)
+            arrowText:SetTextColor(GUIRefs.THEME.text[1], GUIRefs.THEME.text[2], GUIRefs.THEME.text[3], 1)
         end)
         arrowBtn:SetScript("OnLeave", function(self)
-            self:SetBackdropColor(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 0.8)
-            self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], THEME.border[4] or 0.50)
-            arrowText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+            self:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.8)
+            self:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], GUIRefs.THEME.border[4] or 0.50)
+            arrowText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         end)
 
         local function applyBoxHighlight()
             -- [STYLE] default=bgWidget, selected=bgMedium, hover=accent border
-            local bg = isSelectedGroup and THEME.bgMedium or THEME.bgWidget
+            local bg = isSelectedGroup and GUIRefs.THEME.bgMedium or GUIRefs.THEME.bgWidget
             local alpha = isSelectedGroup and 0.80 or 0.80
-            local border = (isSelectedGroup or headerHover) and THEME.accent or THEME.border
+            local border = (isSelectedGroup or headerHover) and GUIRefs.THEME.accent or GUIRefs.THEME.border
             local borderAlpha = (isSelectedGroup or headerHover) and 1 or 0.50
             -- Dim disabled groups
             if isDisabled then
                 alpha = alpha * 0.5
-                border = THEME.border
+                border = GUIRefs.THEME.border
                 borderAlpha = 0.3
             end
             box:SetBackdropColor(bg[1], bg[2], bg[3], alpha)
@@ -6110,8 +6107,8 @@ function CustomIcons:RefreshDynamicListUI()
 
     -- 자식 위젯 위에서도 스크롤 가능하도록 마우스 휠 전파
     local listScroll = uiFrames.listParent:GetParent()
-    if listScroll and PropagateMouseWheelRecursive then
-        PropagateMouseWheelRecursive(uiFrames.listParent, listScroll)
+    if listScroll and GUIRefs.PropagateMouseWheelRecursive then
+        GUIRefs.PropagateMouseWheelRecursive(uiFrames.listParent, listScroll)
     end
 end
 
@@ -6180,7 +6177,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         header:SetShadowOffset(1, -1)
         header:SetShadowColor(0, 0, 0, 1)
         header:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
-        header:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+        header:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
         header:SetText(selectedCount .. "개 아이콘 일괄 편집")
         y = y + 30
 
@@ -6190,11 +6187,11 @@ function CustomIcons:RefreshDynamicConfigUI()
         desc:SetShadowColor(0, 0, 0, 1)
         desc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
         desc:SetText("아래 설정을 조정 후 '일괄 적용' 버튼을 눌러주세요")
-        desc:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        desc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         y = y + 25
 
         -- Icon Size
-        local sizeSlider = Widgets.CreateRange(uiFrames.configParent, {
+        local sizeSlider = GUIRefs.Widgets.CreateRange(uiFrames.configParent, {
             name = "아이콘 크기",
             min = 16, max = 128, step = 1,
             get = function() return batchEditState.iconSize end,
@@ -6206,7 +6203,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 36
 
         -- Aspect Ratio
-        local aspectSlider = Widgets.CreateRange(uiFrames.configParent, {
+        local aspectSlider = GUIRefs.Widgets.CreateRange(uiFrames.configParent, {
             name = "종횡비",
             min = 0.5, max = 2.0, step = 0.01,
             get = function() return batchEditState.aspectRatio end,
@@ -6218,7 +6215,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 36
 
         -- Border Size
-        local borderSlider = Widgets.CreateRange(uiFrames.configParent, {
+        local borderSlider = GUIRefs.Widgets.CreateRange(uiFrames.configParent, {
             name = "테두리 크기",
             min = 0, max = 10, step = 1,
             get = function() return batchEditState.borderSize end,
@@ -6230,7 +6227,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 36
 
         -- Border Color
-        Widgets.CreateColor(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateColor(uiFrames.configParent, {
             name = "테두리 색상",
             get = function() return unpack(batchEditState.borderColor) end,
             set = function(_, r, g, b, a) batchEditState.borderColor = {r, g, b, a} end,
@@ -6239,7 +6236,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 40
 
         -- Toggles
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "쿨다운 표시",
             get = function() return batchEditState.showCooldown end,
             set = function(_, val) batchEditState.showCooldown = val end,
@@ -6247,7 +6244,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "충전/횟수 표시",
             get = function() return batchEditState.showCharges end,
             set = function(_, val) batchEditState.showCharges = val end,
@@ -6255,7 +6252,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "쿨다운 시 흑백",
             get = function() return batchEditState.desaturateOnCooldown end,
             set = function(_, val) batchEditState.desaturateOnCooldown = val end,
@@ -6263,7 +6260,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "사용 불가 시 흑백",
             get = function() return batchEditState.desaturateWhenUnusable end,
             set = function(_, val) batchEditState.desaturateWhenUnusable = val end,
@@ -6271,7 +6268,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "GCD 스와이프 표시",
             get = function() return batchEditState.showGCDSwipe end,
             set = function(_, val) batchEditState.showGCDSwipe = val end,
@@ -6280,7 +6277,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 40
 
         -- Apply Button
-        Widgets.CreateExecute(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = "|cff00ff00일괄 적용|r",
             func = function()
                 CustomIcons:ApplyBatchSettings({
@@ -6301,7 +6298,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 50
 
         -- Delete Selected Button
-        local deleteBtn = Widgets.CreateExecute(uiFrames.configParent, {
+        local deleteBtn = GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = "|cffff4040선택 삭제 (" .. selectedCount .. "개)|r",
             func = function()
                 CustomIcons:ConfirmDeleteSelected()
@@ -6325,7 +6322,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
     local y = 0
     local function addSlider(text, min, max, step, getter, setter)
-        local slider = Widgets.CreateRange(uiFrames.configParent, {
+        local slider = GUIRefs.Widgets.CreateRange(uiFrames.configParent, {
             name = text,
             min = min,
             max = max,
@@ -6350,7 +6347,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         addSlider(L["Icon Size"] or "Icon Size", 16, 128, 1, function() return iconData.settings.iconSize or 40 end, function(val) iconData.settings.iconSize = val end)
 
         -- Use Own Size toggle (ignore group size)
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = L["Use Own Size"] or "Use Own Size",
             desc = L["Ignore group icon size and use this icon's own size setting"] or "Ignore group icon size and use this icon's own size setting",
             get = function() return iconData.settings.useOwnSize or false end,
@@ -6369,7 +6366,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         addSlider(L["Border Size"] or "Border Size", 0, 10, 1, function() return iconData.settings.borderSize or DEFAULT_ICON_SETTINGS.borderSize end, function(val) iconData.settings.borderSize = val end)
 
         -- Border Color
-        Widgets.CreateColor(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateColor(uiFrames.configParent, {
             name = L["Border Color"] or "Border Color",
             get = function() return unpack(iconData.settings.borderColor or {1, 1, 1, 1}) end,
             set = function(_, r, g, b, a)
@@ -6398,7 +6395,7 @@ function CustomIcons:RefreshDynamicConfigUI()
                     fontValues[name] = name
                 end
             end
-            Widgets.CreateSelect(uiFrames.configParent, {
+            GUIRefs.Widgets.CreateSelect(uiFrames.configParent, {
                 name = L["Count Font Type"] or "Count Font Type",
                 values = fontValues,
                 get = function()
@@ -6420,7 +6417,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         end
 
         -- Count Color
-        Widgets.CreateColor(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateColor(uiFrames.configParent, {
             name = L["Count Color"] or "Count Color",
             get = function()
                 local cs = iconData.settings.countSettings or {}
@@ -6465,7 +6462,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         end)
 
         -- Count Anchor Point
-        Widgets.CreateSelect(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateSelect(uiFrames.configParent, {
             name = L["Count Anchor Point"] or "Count Anchor Point",
             values = {
                 TOPLEFT = L["Top Left"] or "Top Left",
@@ -6504,7 +6501,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         end)
 
         -- Cooldown Text Color
-        Widgets.CreateColor(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateColor(uiFrames.configParent, {
             name = "Cooldown Text Color",
             get = function()
                 local cds = iconData.settings.cooldownSettings or {}
@@ -6523,7 +6520,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 40
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "Show Cooldown",
             get = function() return iconData.settings.showCooldown ~= false end,
             set = function(_, val)
@@ -6538,7 +6535,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "Show GCD Swipe",
             get = function() return iconData.settings.showGCDSwipe == true end,
             set = function(_, val)
@@ -6553,7 +6550,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "Show Charges/Count",
             get = function() return iconData.settings.showCharges ~= false end,
             set = function(_, val)
@@ -6575,13 +6572,13 @@ function CustomIcons:RefreshDynamicConfigUI()
             trinketHeader:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "")
             trinketHeader:SetShadowOffset(1, -1)
             trinketHeader:SetShadowColor(0, 0, 0, 1)
-            trinketHeader:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            trinketHeader:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
             trinketHeader:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
             trinketHeader:SetText("━━━ Trinket Proc Settings ━━━")
             trinketHeader:SetJustifyH("LEFT")
             y = y + 24
 
-            Widgets.CreateInput(uiFrames.configParent, {
+            GUIRefs.Widgets.CreateInput(uiFrames.configParent, {
                 name = "Proc Spell ID (0 = Auto)",
                 get = function() return tostring(iconData.settings.procSpellID or 0) end,
                 set = function(_, val)
@@ -6598,13 +6595,13 @@ function CustomIcons:RefreshDynamicConfigUI()
             procDesc:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 10, "")
             procDesc:SetShadowOffset(1, -1)
             procDesc:SetShadowColor(0, 0, 0, 1)
-            procDesc:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+            procDesc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
             procDesc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
             procDesc:SetText("0: Use: 효과 자동 감지 / 수동: 패시브 프록 spellID 입력")
             procDesc:SetJustifyH("LEFT")
             y = y + 20
 
-            Widgets.CreateToggle(uiFrames.configParent, {
+            GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
                 name = "Show Proc Duration",
                 get = function() return iconData.settings.showProcDuration ~= false end,
                 set = function(_, val)
@@ -6617,7 +6614,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             }, y)
             y = y + 32
 
-            Widgets.CreateToggle(uiFrames.configParent, {
+            GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
                 name = "Show Item Cooldown",
                 get = function() return iconData.settings.showItemCooldown ~= false end,
                 set = function(_, val)
@@ -6630,7 +6627,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             }, y)
             y = y + 32
 
-            Widgets.CreateToggle(uiFrames.configParent, {
+            GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
                 name = "Show Proc Stacks",
                 get = function() return iconData.settings.showProcStacks ~= false end,
                 set = function(_, val)
@@ -6647,7 +6644,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         -- Fallback Item IDs (show for item type or unknown type with id)
         local isItemType = (iconData.type == "item") or (iconData.type ~= "spell" and iconData.type ~= "slot" and iconData.type ~= "trinketProc" and iconData.id)
         if isItemType then
-            Widgets.CreateInput(uiFrames.configParent, {
+            GUIRefs.Widgets.CreateInput(uiFrames.configParent, {
                 name = "Fallback Item IDs",
                 get = function() return iconData.settings.fallbackItems or "" end,
                 set = function(_, val)
@@ -6665,14 +6662,14 @@ function CustomIcons:RefreshDynamicConfigUI()
             fallbackDesc:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 10, "")
             fallbackDesc:SetShadowOffset(1, -1)
             fallbackDesc:SetShadowColor(0, 0, 0, 1)
-            fallbackDesc:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+            fallbackDesc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
             fallbackDesc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
             fallbackDesc:SetText("예: 3성 물약ID, 2성ID, 1성ID (쉼표 구분)")
             fallbackDesc:SetJustifyH("LEFT")
             y = y + 20
         end
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "Desaturate on Cooldown",
             get = function() return iconData.settings.desaturateOnCooldown ~= false end,
             set = function(_, val)
@@ -6687,7 +6684,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "Desaturate When Unusable",
             get = function() return iconData.settings.desaturateWhenUnusable ~= false end,
             set = function(_, val)
@@ -6702,7 +6699,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 32
 
-        Widgets.CreateExecute(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = L["Load Conditions..."] or "Load Conditions...",
             func = function() CustomIcons:ShowLoadConditionsWindow(iconKey, iconData) end,
             width = "full",
@@ -6712,8 +6709,8 @@ function CustomIcons:RefreshDynamicConfigUI()
         -- Update scroll child height
         uiFrames.configParent:SetHeight(y + 20)
         -- 마우스 휠 전파 (아이콘 설정)
-        if uiFrames.configScroll and PropagateMouseWheelRecursive then
-            PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
+        if uiFrames.configScroll and GUIRefs.PropagateMouseWheelRecursive then
+            GUIRefs.PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
         end
     end
 
@@ -6749,14 +6746,14 @@ function CustomIcons:RefreshDynamicConfigUI()
             label:SetShadowColor(0, 0, 0, 1)
             label:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, 20)
             label:SetText("Select an icon or group")
-            label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+            label:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
             return
         end
         ensureGroupDefaults(selectedGroup)
         local s = selectedGroup.settings
 
         -- Enabled toggle at the top
-        Widgets.CreateToggle(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
             name = "Enable Group",
             desc = "Show or hide all icons in this group",
             get = function() return selectedGroup.enabled ~= false end,
@@ -6769,7 +6766,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 35
 
-        Widgets.CreateInput(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateInput(uiFrames.configParent, {
             name = "Group Name",
             get = function() return selectedGroup.name or "" end,
             set = function(_, val)
@@ -6780,7 +6777,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 40
 
-        Widgets.CreateSelect(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateSelect(uiFrames.configParent, {
             name = "Growth Direction",
             values = {RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down"},
             get = function() return s.growthDirection end,
@@ -6795,7 +6792,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y, nil, nil, nil)
         y = y + 40
 
-        Widgets.CreateSelect(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateSelect(uiFrames.configParent, {
             name = "Row Growth",
             values = {RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down"},
             get = function() return s.rowGrowthDirection end,
@@ -6809,7 +6806,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y, nil, nil, nil)
         y = y + 40
 
-        Widgets.CreateSelect(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateSelect(uiFrames.configParent, {
             name = "Anchor Frame Point",
             values = {
                 TOPLEFT="TOPLEFT", TOP="TOP", TOPRIGHT="TOPRIGHT",
@@ -6829,7 +6826,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         addSlider(L["Icon Size"] or "Icon Size", 16, 128, 1, function() return s.iconSize or 40 end, function(val) s.iconSize = val end)
 
         -- Apply size to all icons in group button
-        Widgets.CreateExecute(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = L["Apply Size to All Icons"] or "Apply Size to All Icons",
             func = function()
                 if selectedGroup and selectedGroup.icons then
@@ -6860,7 +6857,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             s.position.y = val
         end)
 
-        Widgets.CreateInput(uiFrames.configParent, {
+        GUIRefs.Widgets.CreateInput(uiFrames.configParent, {
             name = "Anchor Frame",
             get = function() return s.anchorFrame or "" end,
             set = function(_, val)
@@ -6880,7 +6877,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 30
 
         -- 앵커 선택 버튼: 마우스로 프레임 직접 선택
-        local pickBtn = Widgets.CreateExecute(uiFrames.configParent, {
+        local pickBtn = GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = "앵커 선택 (마우스 클릭)",
             func = function()
                 DDingUI:StartFramePicker(function(frameName)
@@ -6892,11 +6889,11 @@ function CustomIcons:RefreshDynamicConfigUI()
             width = "full",
         }, y)
         if pickBtn and pickBtn.text then
-            pickBtn.text:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            pickBtn.text:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
         end
         y = y + 40
 
-        local deleteGroupBtn = Widgets.CreateExecute(uiFrames.configParent, {
+        local deleteGroupBtn = GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = "Delete Group",
             func = function()
                 CustomIcons:ConfirmDeleteGroup(groupKey, selectedGroup.name or groupKey)
@@ -6912,8 +6909,8 @@ function CustomIcons:RefreshDynamicConfigUI()
         -- Update scroll child height
         uiFrames.configParent:SetHeight(y + 20)
         -- 마우스 휠 전파 (그룹 설정)
-        if uiFrames.configScroll and PropagateMouseWheelRecursive then
-            PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
+        if uiFrames.configScroll and GUIRefs.PropagateMouseWheelRecursive then
+            GUIRefs.PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
         end
     end
 
@@ -6933,11 +6930,11 @@ function CustomIcons:RefreshDynamicConfigUI()
     label:SetShadowColor(0, 0, 0, 1)
     label:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, 20)
     label:SetText("Select an icon or group")
-    label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+    label:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
 
     -- 자식 위젯 위에서도 스크롤 가능하도록 마우스 휠 전파
-    if uiFrames.configScroll and PropagateMouseWheelRecursive then
-        PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
+    if uiFrames.configScroll and GUIRefs.PropagateMouseWheelRecursive then
+        GUIRefs.PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
     end
 end
 
@@ -6954,27 +6951,27 @@ function CustomIcons:ConfirmDeleteIcon(iconKey, label)
             edgeSize = 1,
             insets = {left = 0, right = 0, top = 0, bottom = 0},
         })
-        f:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.95)
-        f:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        f:SetBackdropColor(GUIRefs.THEME.bgDark[1], GUIRefs.THEME.bgDark[2], GUIRefs.THEME.bgDark[3], 0.95)
+        f:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 1)
 
         f.title = f:CreateFontString(nil, "OVERLAY")
         f.title:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 14, "")
         f.title:SetShadowOffset(1, -1)
         f.title:SetShadowColor(0, 0, 0, 1)
         f.title:SetPoint("TOP", f, "TOP", 0, -12)
-        f.title:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+        f.title:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
 
         f.text = f:CreateFontString(nil, "OVERLAY")
         f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
         f.text:SetShadowOffset(1, -1)
         f.text:SetShadowColor(0, 0, 0, 1)
         f.text:SetPoint("TOP", f, "TOP", 0, -38)
-        f.text:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        f.text:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
 
-        f.confirm = CreateStyledButton(f, "Confirm", 100, 26)
+        f.confirm = GUIRefs.CreateStyledButton(f, "Confirm", 100, 26)
         f.confirm:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 12)
 
-        f.cancel = CreateStyledButton(f, "Cancel", 100, 26)
+        f.cancel = GUIRefs.CreateStyledButton(f, "Cancel", 100, 26)
         f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 12)
 
         f:Hide()
@@ -7005,30 +7002,30 @@ function CustomIcons:ConfirmDeleteGroup(groupKey, label)
             edgeSize = 1,
             insets = {left = 0, right = 0, top = 0, bottom = 0},
         })
-        f:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.95)
-        f:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        f:SetBackdropColor(GUIRefs.THEME.bgDark[1], GUIRefs.THEME.bgDark[2], GUIRefs.THEME.bgDark[3], 0.95)
+        f:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 1)
 
         f.title = f:CreateFontString(nil, "OVERLAY")
         f.title:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 14, "")
         f.title:SetShadowOffset(1, -1)
         f.title:SetShadowColor(0, 0, 0, 1)
         f.title:SetPoint("TOP", f, "TOP", 0, -12)
-        f.title:SetTextColor(0.90, 0.25, 0.25, 1)  -- Red for warning (THEME error color)
+        f.title:SetTextColor(0.90, 0.25, 0.25, 1)  -- Red for warning (GUIRefs.THEME error color)
 
         f.text = f:CreateFontString(nil, "OVERLAY")
         f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
         f.text:SetShadowOffset(1, -1)
         f.text:SetShadowColor(0, 0, 0, 1)
         f.text:SetPoint("TOP", f, "TOP", 0, -38)
-        f.text:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        f.text:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         f.text:SetWidth(280)
         f.text:SetJustifyH("CENTER")
 
-        f.confirm = CreateStyledButton(f, "Delete", 100, 26)
+        f.confirm = GUIRefs.CreateStyledButton(f, "Delete", 100, 26)
         f.confirm:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 12)
         f.confirm:SetBackdropColor(0.5, 0.1, 0.1, 1)  -- Red tint for delete
 
-        f.cancel = CreateStyledButton(f, "Cancel", 100, 26)
+        f.cancel = GUIRefs.CreateStyledButton(f, "Cancel", 100, 26)
         f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 12)
 
         f:Hide()
@@ -7067,8 +7064,8 @@ function CustomIcons:ConfirmDeleteSelected()
             edgeSize = 1,
             insets = {left = 0, right = 0, top = 0, bottom = 0},
         })
-        f:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.95)
-        f:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        f:SetBackdropColor(GUIRefs.THEME.bgDark[1], GUIRefs.THEME.bgDark[2], GUIRefs.THEME.bgDark[3], 0.95)
+        f:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 1)
 
         f.title = f:CreateFontString(nil, "OVERLAY")
         f.title:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 14, "")
@@ -7082,15 +7079,15 @@ function CustomIcons:ConfirmDeleteSelected()
         f.text:SetShadowOffset(1, -1)
         f.text:SetShadowColor(0, 0, 0, 1)
         f.text:SetPoint("TOP", f, "TOP", 0, -38)
-        f.text:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        f.text:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         f.text:SetWidth(280)
         f.text:SetJustifyH("CENTER")
 
-        f.confirm = CreateStyledButton(f, "Delete", 100, 26)
+        f.confirm = GUIRefs.CreateStyledButton(f, "Delete", 100, 26)
         f.confirm:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 12)
         f.confirm:SetBackdropColor(0.5, 0.1, 0.1, 1)
 
-        f.cancel = CreateStyledButton(f, "Cancel", 100, 26)
+        f.cancel = GUIRefs.CreateStyledButton(f, "Cancel", 100, 26)
         f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 12)
 
         f:Hide()
@@ -7153,7 +7150,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
     container:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -10, 10)
 
     -- Search bar
-    local search = Widgets.CreateInput(container, {
+    local search = GUIRefs.Widgets.CreateInput(container, {
         name = "Search by name or ID...",
         width = "full",
         get = function() return uiState.searchText end,
@@ -7176,24 +7173,24 @@ function CustomIcons:BuildDynamicIconsUI(parent)
     else
         resultText:SetPoint("TOPLEFT", container, "TOPLEFT", 4, -34)
     end
-    resultText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+    resultText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
     uiFrames.resultText = resultText
 
     -- Buttons
-    local createIconBtn = Widgets.CreateExecute(container, {
+    local createIconBtn = GUIRefs.Widgets.CreateExecute(container, {
         name = "+ Create Icon",
         func = function() CustomIcons:ShowCreateIconDialog() end,
         width = "normal",
     }, 40)
     -- [STYLE] 악센트 텍스트
-    if createIconBtn.text then createIconBtn.text:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1) end
+    if createIconBtn.text then createIconBtn.text:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1) end
     if search.editBox then
         createIconBtn:SetPoint("TOPLEFT", search.editBox, "BOTTOMLEFT", 0, -18)
     else
         createIconBtn:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -52)
     end
 
-    local createGroupBtn = Widgets.CreateExecute(container, {
+    local createGroupBtn = GUIRefs.Widgets.CreateExecute(container, {
         name = "+ " .. (L["New Group"] or "Create Group"),
         func = function()
             CustomIcons:CreateDynamicGroup(L["New Group"] or "New Group")
@@ -7201,7 +7198,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
         width = "normal",
     }, 40)
     -- [STYLE] 악센트 텍스트
-    if createGroupBtn.text then createGroupBtn.text:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1) end
+    if createGroupBtn.text then createGroupBtn.text:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1) end
     createGroupBtn:SetPoint("LEFT", createIconBtn, "RIGHT", 8, 0)
 
     -- Left list scroll (DDingUI custom scrollbar)
@@ -7215,7 +7212,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
     listChild:SetHeight(400)
     listScroll:SetScrollChild(listChild)
 
-    local listScrollBar = CreateCustomScrollBar(container, listScroll)
+    local listScrollBar = GUIRefs.CreateCustomScrollBar(container, listScroll)
     listScrollBar:SetPoint("TOPLEFT", listScroll, "TOPRIGHT", 4, 0)
     listScrollBar:SetPoint("BOTTOMLEFT", listScroll, "BOTTOMRIGHT", 4, 0)
     listScroll.ScrollBar = listScrollBar
@@ -7233,7 +7230,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
     local configContainer = CreateFrame("Frame", nil, container, "BackdropTemplate")
     configContainer:SetPoint("TOPLEFT", listScroll, "TOPRIGHT", 12, 0)
     configContainer:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
-    CreateBackdrop(configContainer, THEME.bgDark, THEME.border)
+    GUIRefs.CreateBackdrop(configContainer, GUIRefs.THEME.bgDark, GUIRefs.THEME.border)
 
     local configScroll = CreateFrame("ScrollFrame", nil, configContainer)
     configScroll:SetPoint("TOPLEFT", configContainer, "TOPLEFT", 8, -8)
@@ -7244,7 +7241,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
     configChild:SetHeight(800)  -- Will be adjusted dynamically
     configScroll:SetScrollChild(configChild)
 
-    local configScrollBar = CreateCustomScrollBar(configContainer, configScroll)
+    local configScrollBar = GUIRefs.CreateCustomScrollBar(configContainer, configScroll)
     configScrollBar:SetPoint("TOPLEFT", configScroll, "TOPRIGHT", 4, 0)
     configScrollBar:SetPoint("BOTTOMLEFT", configScroll, "BOTTOMRIGHT", 4, 0)
     configScroll.ScrollBar = configScrollBar
@@ -7300,7 +7297,7 @@ function CustomIcons:ShowCreateIconDialog()
         f:SetSize(360, 200)
         f:SetPoint("CENTER")
         f:SetFrameStrata("TOOLTIP")
-        CreateBackdrop(f, THEME.bgDark, THEME.border)
+        GUIRefs.CreateBackdrop(f, GUIRefs.THEME.bgDark, GUIRefs.THEME.border)
         f:EnableMouse(true)
         f:SetMovable(true)
         f:RegisterForDrag("LeftButton")
@@ -7313,7 +7310,7 @@ function CustomIcons:ShowCreateIconDialog()
         f.title:SetShadowOffset(1, -1)
         f.title:SetShadowColor(0, 0, 0, 1)
         f.title:SetPoint("TOP", f, "TOP", 0, -12)
-        f.title:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+        f.title:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
         f.title:SetText("Create Icon")
 
         -- Type toggle buttons (styled)
@@ -7322,7 +7319,7 @@ function CustomIcons:ShowCreateIconDialog()
         local spacing = 75
         local startX = -((#types - 1) * spacing) / 2
         for idx, info in ipairs(types) do
-            local btn = CreateStyledToggle(f, info.label, 80)
+            local btn = GUIRefs.CreateStyledToggle(f, info.label, 80)
             btn:SetPoint("TOP", f, "TOP", startX + (idx - 1) * spacing, -42)
             btn:SetScript("OnClick", function()
                 for _, b in pairs(f.typeButtons) do b:SetChecked(false) end
@@ -7370,10 +7367,10 @@ function CustomIcons:ShowCreateIconDialog()
         idLabel:SetShadowColor(0, 0, 0, 1)
         idLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -78)
         idLabel:SetText("Spell or Item ID")
-        idLabel:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        idLabel:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         f.idLabel = idLabel
 
-        local idBox = CreateStyledInput(f, 200, 28, true)
+        local idBox = GUIRefs.CreateStyledInput(f, 200, 28, true)
         idBox:SetPoint("TOPLEFT", idLabel, "BOTTOMLEFT", 0, -4)
         f.idInput = idBox
 
@@ -7384,11 +7381,11 @@ function CustomIcons:ShowCreateIconDialog()
         slotLabel:SetShadowColor(0, 0, 0, 1)
         slotLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -78)
         slotLabel:SetText("Equipment Slot")
-        slotLabel:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        slotLabel:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         slotLabel:Hide()
         f.slotLabel = slotLabel
 
-        local dropdown = CreateStyledDropdown(f, CustomIcons.slotOptions, 200)
+        local dropdown = GUIRefs.CreateStyledDropdown(f, CustomIcons.slotOptions, 200)
         dropdown:SetPoint("TOPLEFT", slotLabel, "BOTTOMLEFT", 0, -4)
         dropdown:SetText("Select Slot")
         dropdown:Hide()
@@ -7407,11 +7404,11 @@ function CustomIcons:ShowCreateIconDialog()
         trinketLabel:SetShadowColor(0, 0, 0, 1)
         trinketLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -78)
         trinketLabel:SetText("Trinket Slot")
-        trinketLabel:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        trinketLabel:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         trinketLabel:Hide()
         f.trinketLabel = trinketLabel
 
-        local trinketDD = CreateStyledDropdown(f, trinketSlotOptions, 200)
+        local trinketDD = GUIRefs.CreateStyledDropdown(f, trinketSlotOptions, 200)
         trinketDD:SetPoint("TOPLEFT", trinketLabel, "BOTTOMLEFT", 0, -4)
         trinketDD:SetText("Trinket 1 (Slot 13)")
         trinketDD:Hide()
@@ -7419,10 +7416,10 @@ function CustomIcons:ShowCreateIconDialog()
         trinketDD.selectedValue = 13
 
         -- Buttons (styled)
-        f.confirm = CreateStyledButton(f, "Create", 100, 28)
+        f.confirm = GUIRefs.CreateStyledButton(f, "Create", 100, 28)
         f.confirm:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 16)
 
-        f.cancel = CreateStyledButton(f, "Cancel", 100, 28)
+        f.cancel = GUIRefs.CreateStyledButton(f, "Cancel", 100, 28)
         f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 16)
         f.cancel:SetScript("OnClick", function() f:Hide() end)
 
