@@ -587,6 +587,8 @@ end
 local ITEM_SPELL_MAP = {
     [5512]   = 6262,    -- Healthstone
     [224464] = 452930,  -- Demonic Healthstone
+    [255327] = 336126,  -- PvP medallion
+    [255616] = 336126,  -- PvP medallion
     [241304] = 1234768, -- Silvermoon Health Potion R2
     [241305] = 1234768, -- Silvermoon Health Potion R1
     [241308] = 1236616, -- Light's Potential R2
@@ -2170,13 +2172,77 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
     return ok == true
 end
 
-local function ApplyInventorySlotCooldown(iconFrame, durObjKey, slotID)
-    local start, duration, safeSpan = ReadInventoryCooldownSpan(slotID)
+local function ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, spellID)
+    if not spellID then return false end
+
+    local start, duration, safeSpan = ReadSpellCooldownSpan(spellID)
     if start and duration then
+        if safeSpan then
+            StoreCooldownSpan(iconFrame, spanPrefix, start, duration)
+        end
         if ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan) then
             return true
         end
     end
+
+    if runtime.ApplyCooldownDurationObject then
+        local durationObject = GetRealSpellCooldownDuration(spellID)
+        if runtime.ApplyCooldownDurationObject(iconFrame, durationObject) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function ApplyInventorySlotCooldown(iconFrame, durObjKey, slotID)
+    local spanPrefix = durObjKey
+    if durObjKey == "_slotDurObj" then
+        spanPrefix = "_ddSlotCooldown"
+    elseif durObjKey == "_trinketDurObj" then
+        spanPrefix = "_ddTrinketCooldown"
+    end
+
+    local start, duration, safeSpan = ReadInventoryCooldownSpan(slotID)
+    local itemID = slotID and GetInventoryItemID and GetInventoryItemID("player", slotID)
+    local safeItemID = SafeNumber(itemID)
+
+    if not start and safeItemID then
+        start, duration, safeSpan = ReadItemCooldownSpan(safeItemID)
+    end
+
+    if start and duration then
+        if safeSpan then
+            StoreCooldownSpan(iconFrame, spanPrefix, start, duration)
+        end
+        if ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan) then
+            return true
+        end
+    end
+
+    if safeItemID then
+        local mappedSpellID = ITEM_SPELL_MAP[safeItemID]
+        local spellID = ResolveUsableItemSpellID(iconFrame, safeItemID, nil)
+        if ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, spellID) then
+            return true
+        end
+        if mappedSpellID ~= spellID
+            and ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, mappedSpellID)
+        then
+            return true
+        end
+        if (safeItemID == 255327 or safeItemID == 255616)
+            and ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, 42292)
+        then
+            return true
+        end
+    end
+
+    start, duration = GetStoredCooldownSpan(iconFrame, spanPrefix)
+    if start and duration and ApplyCooldownSpan(iconFrame, durObjKey, start, duration, true) then
+        return true
+    end
+
     if iconFrame and iconFrame.cooldown then
         iconFrame.cooldown:Clear()
     end
