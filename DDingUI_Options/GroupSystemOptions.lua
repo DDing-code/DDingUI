@@ -3243,12 +3243,12 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows)
         items[#items + 1] = {
             label = rawget(L, "Trinket Slot 1") or "Trinket Slot 1",
             icon = GetInventoryItemID("player", 13) and SafeItemIcon(GetInventoryItemID("player", 13), DEFAULT_TRINKET_ICON_TEXTURE) or DEFAULT_TRINKET_ICON_TEXTURE,
-            action = function() return AddDynamicPayloadToGroup(groupName, { type = "trinketProc", slotID = 13 }) end,
+            action = function() return AddDynamicPayloadToGroup(groupName, { type = "slot", slotID = 13 }) end,
         }
         items[#items + 1] = {
             label = rawget(L, "Trinket Slot 2") or "Trinket Slot 2",
             icon = GetInventoryItemID("player", 14) and SafeItemIcon(GetInventoryItemID("player", 14), DEFAULT_TRINKET_ICON_TEXTURE) or DEFAULT_TRINKET_ICON_TEXTURE,
-            action = function() return AddDynamicPayloadToGroup(groupName, { type = "trinketProc", slotID = 14 }) end,
+            action = function() return AddDynamicPayloadToGroup(groupName, { type = "slot", slotID = 14 }) end,
         }
         items[#items + 1] = {
             label = rawget(L, "Racial Ability") or "Racial Ability",
@@ -5368,7 +5368,7 @@ local function CreateGroupOptions(groupName, order)
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "trinketProc", slotID = 13})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "slot", slotID = 13})
                     if iconKey and sourceKey then
                         DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey)
                     end
@@ -5394,7 +5394,7 @@ local function CreateGroupOptions(groupName, order)
                 func = function()
                     if not DDingUI.CustomIcons then return end
                     local sourceKey = EnsureSourceGroup(groupName)
-                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "trinketProc", slotID = 14})
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "slot", slotID = 14})
                     if iconKey and sourceKey then
                         DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey)
                     end
