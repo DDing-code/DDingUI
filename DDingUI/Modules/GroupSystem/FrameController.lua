@@ -675,11 +675,19 @@ local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
         return true
     end
 
+    if icon._ddCDMActive == false then
+        return false
+    end
+
+    if icon._ddIsManaged then
+        return icon._ddCDMActive == true
+    end
+
     if icon.IsShown and icon:IsShown() then
         return true
     end
 
-    if icon.cooldownInfo then
+    if icon.cooldownInfo and icon._ddCDMActive == true then
         return true
     end
 
@@ -701,7 +709,7 @@ if not FrameController._activeStateHooked then
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             -- CDM이 active → true, inactive → false
             -- IsShown()이 아닌 CDM 내부 상태를 반영
-            frame._ddCDMActive = ShouldIncludeCooldownViewerFrame(frame, "BuffIconCooldownViewer")
+            frame._ddCDMActive = frame.IsShown and frame:IsShown() or false
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -1067,7 +1075,12 @@ function FrameController:ScanCDMViewers()
                             icon:HookScript("OnShow", function(self)
                                 if self._ddSuppressed then self:SetAlpha(0); return end
                                 if self._ddCDMStaleBuff then
-                                    RestoreStaleBuffFrame(self)
+                                    if ShouldIncludeCooldownViewerFrame(self, "BuffIconCooldownViewer") then
+                                        RestoreStaleBuffFrame(self)
+                                    else
+                                        SuppressStaleBuffFrame(self)
+                                        return
+                                    end
                                 end
                                 if not FrameController.initialized then return end
                                 -- managed 프레임 즉시 복원 (Essential 뷰어는 Layout 없이 Show만 호출할 수 있음)
@@ -1101,7 +1114,12 @@ function FrameController:ScanCDMViewers()
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
                                 if self._ddCDMStaleBuff then
-                                    RestoreStaleBuffFrame(self)
+                                    if ShouldIncludeCooldownViewerFrame(self, "BuffIconCooldownViewer") then
+                                        RestoreStaleBuffFrame(self)
+                                    else
+                                        SuppressStaleBuffFrame(self)
+                                        return
+                                    end
                                 end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
