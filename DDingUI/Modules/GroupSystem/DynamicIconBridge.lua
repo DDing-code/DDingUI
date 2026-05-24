@@ -253,6 +253,76 @@ local function AddSuppressedSpellName(suppressed, spellName)
     end
 end
 
+local function AddSuppressedID(suppressed, value)
+    local id = SafeNumber(value)
+    if id and id > 0 then
+        suppressed[id] = true
+    end
+end
+
+local function AddSuppressedCooldownInfo(suppressed, cooldownID)
+    local id = SafeNumber(cooldownID)
+    if not id or id <= 0 then return end
+    AddSuppressedID(suppressed, id)
+
+    if not (C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return end
+    local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, id)
+    if not ok or type(info) ~= "table" then return end
+
+    AddSuppressedID(suppressed, SafeTableField(info, "spellID"))
+    AddSuppressedID(suppressed, SafeTableField(info, "overrideSpellID"))
+    AddSuppressedID(suppressed, SafeTableField(info, "overrideTooltipSpellID"))
+
+    local linkedIDs = SafeTableField(info, "linkedSpellIDs")
+    if type(linkedIDs) == "table" then
+        pcall(function()
+            for _, linkedID in pairs(linkedIDs) do
+                AddSuppressedID(suppressed, linkedID)
+            end
+        end)
+    end
+end
+
+local function AddTrackedBuffSuppression(suppressed, buff)
+    if type(buff) ~= "table" or buff.enabled == false or buff.disabled == true or buff.isGroup then return end
+    local settings = buff.settings
+    if not (type(settings) == "table" and settings.hideFromCDM) then return end
+
+    AddSuppressedCooldownInfo(suppressed, buff.cooldownID)
+    AddSuppressedID(suppressed, buff.spellID)
+    AddSuppressedID(suppressed, settings.spellID)
+    AddSuppressedID(suppressed, settings.customSpellID)
+    AddSuppressedID(suppressed, settings.customAuraSpellID)
+    AddSuppressedSpellName(suppressed, buff.name)
+end
+
+local function AddTrackedBuffSuppressions(suppressed)
+    local db = DDingUI.db
+    if not db then return end
+    local rootCfg = db.profile and db.profile.buffTrackerBar
+    if type(rootCfg) ~= "table" or rootCfg.enabled == false then return end
+
+    local specID
+    if GetSpecialization and GetSpecializationInfo then
+        local specIndex = GetSpecialization()
+        specID = specIndex and GetSpecializationInfo(specIndex)
+    end
+
+    local globalStore = db.global and db.global.trackedBuffsPerSpec
+    local tracked = specID and globalStore and globalStore[specID]
+    if type(tracked) == "table" then
+        for _, buff in ipairs(tracked) do
+            AddTrackedBuffSuppression(suppressed, buff)
+        end
+    end
+
+    if type(rootCfg.trackedBuffs) == "table" then
+        for _, buff in ipairs(rootCfg.trackedBuffs) do
+            AddTrackedBuffSuppression(suppressed, buff)
+        end
+    end
+end
+
 local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
     if not iconData then return false end
     if not iconFrame then return false end
@@ -634,6 +704,8 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
     end
 
     -- 모든 dynamic 그룹의 아이콘 spell ID 수집
+    AddTrackedBuffSuppressions(suppressed)
+
     for groupName, groupSettings in pairs(gs.groups) do
         local shouldSuppressDuplicates = groupSettings.enabled
             and groupSettings.sourceGroupKey

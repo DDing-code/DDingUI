@@ -5210,6 +5210,13 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             if trackedBuffs[index] and trackedBuffs[index].settings then
                 trackedBuffs[index].settings.hideFromCDM = val
                 DDingUI:UpdateBuffTrackerBar()
+                if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged then
+                    DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+                end
+                local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
+                if fc and fc.ForceReconcile then
+                    fc:ForceReconcile()
+                end
             end
         end,
     }
