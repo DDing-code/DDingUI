@@ -602,6 +602,67 @@ local function BuffFrameHasPlayerAura(frame)
     return false
 end
 
+local function HideManagedBorderLayers(frame)
+    if not frame then return end
+    if frame.border then
+        if frame.border.SetAlpha then pcall(frame.border.SetAlpha, frame.border, 0) end
+        if frame.border.Hide then pcall(frame.border.Hide, frame.border) end
+    end
+    local borders = frame._ddBorders
+    if type(borders) == "table" then
+        for _, borderTex in ipairs(borders) do
+            if borderTex then
+                if borderTex.SetAlpha then pcall(borderTex.SetAlpha, borderTex, 0) end
+                if borderTex.SetShown then pcall(borderTex.SetShown, borderTex, false) end
+                if borderTex.Hide then pcall(borderTex.Hide, borderTex) end
+            end
+        end
+    end
+end
+
+local function SuppressStaleBuffFrame(icon)
+    if not icon then return end
+    icon._ddCDMStaleBuff = true
+    icon._ddCDMActive = false
+    icon._ddCombatKeepAlive = nil
+    icon._ddCombatVisible = false
+    HideManagedBorderLayers(icon)
+    local texture = icon.icon or icon.Icon
+    if texture and texture.SetAlpha then
+        pcall(texture.SetAlpha, texture, 0)
+    end
+    if icon.cooldown and icon.cooldown.Hide then
+        pcall(icon.cooldown.Hide, icon.cooldown)
+    end
+    if icon.Cooldown and icon.Cooldown.Hide and icon.Cooldown ~= icon.cooldown then
+        pcall(icon.Cooldown.Hide, icon.Cooldown)
+    end
+    if icon.count and icon.count.Hide then
+        pcall(icon.count.Hide, icon.count)
+    end
+    if icon.SetAlpha then
+        pcall(icon.SetAlpha, icon, 0)
+        icon._ddLastGroupAlpha = 0
+    end
+    if icon._ddIsManaged and icon.Hide then
+        pcall(icon.Hide, icon)
+    end
+end
+
+local function RestoreStaleBuffFrame(icon)
+    if not icon then return end
+    icon._ddCDMStaleBuff = nil
+    local fh = DDingUI.FlightHide
+    if icon.SetAlpha and not (fh and fh.isActive) then
+        pcall(icon.SetAlpha, icon, 1)
+        icon._ddLastGroupAlpha = 1
+    end
+    local texture = icon.icon or icon.Icon
+    if texture and texture.SetAlpha then
+        pcall(texture.SetAlpha, texture, 1)
+    end
+end
+
 local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
     if not (icon and icon.IsShown and icon:IsShown()) then
         return false
@@ -925,6 +986,21 @@ function FrameController:ScanCDMViewers()
                     activeFrameCount = activeFrameCount + 1
                     -- Buff frames must still have a live player aura; managed frames can remain shown after expiry.
                     local shouldInclude = ShouldIncludeCooldownViewerFrame(icon, globalName)
+                    if globalName == "BuffIconCooldownViewer" then
+                        if shouldInclude then
+                            RestoreStaleBuffFrame(icon)
+                        else
+                            SuppressStaleBuffFrame(icon)
+                        end
+                        if not icon._ddStaleBuffAlphaHooked then
+                            hooksecurefunc(icon, "SetAlpha", function(self, alpha)
+                                if self._ddCDMStaleBuff and alpha and alpha > 0 then
+                                    self:SetAlpha(0)
+                                end
+                            end)
+                            icon._ddStaleBuffAlphaHooked = true
+                        end
+                    end
                     if not shouldInclude then
                         hiddenFrameCount = hiddenFrameCount + 1
                     end
@@ -993,6 +1069,15 @@ function FrameController:ScanCDMViewers()
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
                                 if self._ddSuppressed then self:SetAlpha(0); return end
+                                if self._ddCDMStaleBuff then
+                                    local hasAura = BuffFrameHasPlayerAura(self)
+                                    if hasAura == true then
+                                        RestoreStaleBuffFrame(self)
+                                    else
+                                        SuppressStaleBuffFrame(self)
+                                        return
+                                    end
+                                end
                                 if not FrameController.initialized then return end
                                 -- managed 프레임 즉시 복원 (Essential 뷰어는 Layout 없이 Show만 호출할 수 있음)
                                 if self._ddIsManaged and self._ddTargetPoint then
@@ -1024,6 +1109,15 @@ function FrameController:ScanCDMViewers()
                         -- 숨겨진 아이콘에도 OnShow/OnHide 훅 설치
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
+                                if self._ddCDMStaleBuff then
+                                    local hasAura = BuffFrameHasPlayerAura(self)
+                                    if hasAura == true then
+                                        RestoreStaleBuffFrame(self)
+                                    else
+                                        SuppressStaleBuffFrame(self)
+                                        return
+                                    end
+                                end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)

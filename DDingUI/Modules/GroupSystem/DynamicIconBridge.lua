@@ -830,6 +830,7 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     frame._ddSourceViewer = GROUP_VIEWER_MAP[frame._ddGroupName]
     frame._groupSettings = container._groupSettings or frame._groupSettings
     local iconData = GetDynamicIconData(iconKey)
+    local expiredManagedAura = iconData and iconData.type == "aura" and frame._ddManagedAuraExpired
     if not (iconData and iconData.type == "aura") then
         frame._ddManagedAuraExpired = nil
         if frame.icon and frame.icon.SetAlpha then
@@ -865,7 +866,12 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     frame._ddIconKey = iconKey
 
     -- [FIX] reparent 후 명시적 Show (이전 부모가 숨겨졌으면 프레임도 숨겨진 상태)
-    frame:Show()
+    if expiredManagedAura then
+        frame:SetAlpha(0)
+        frame:Hide()
+    else
+        frame:Show()
+    end
 
     -- [FIX] SetSize, ClearAllPoints, SetPoint table overrides (Not hooksecurefunc)
     -- hooksecurefunc runs AFTER the original, causing 1-frame flickering (0x0 or wrong position).
@@ -919,7 +925,10 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     frame._ddSettingPosition = false
 
     -- 7. Show
-    if container:IsShown() then
+    if expiredManagedAura then
+        frame:SetAlpha(0)
+        frame:Hide()
+    elseif container:IsShown() then
         frame:Show()
     else
         frame:Hide()

@@ -1407,6 +1407,31 @@ function CustomIcons.RestoreActiveIconVisual(frame)
     frame._ddCombatMissingSince = nil
 end
 
+function CustomIcons.HideManagedIconBorderLayers(frame)
+    if not frame then return end
+    if frame.border then
+        if ShowTextureBorder then
+            pcall(ShowTextureBorder, frame.border, false)
+        end
+        if frame.border.SetAlpha then
+            pcall(frame.border.SetAlpha, frame.border, 0)
+        end
+        if frame.border.Hide then
+            pcall(frame.border.Hide, frame.border)
+        end
+    end
+    local borders = frame._ddBorders
+    if type(borders) == "table" then
+        for _, borderTex in ipairs(borders) do
+            if borderTex then
+                if borderTex.SetAlpha then pcall(borderTex.SetAlpha, borderTex, 0) end
+                if borderTex.SetShown then pcall(borderTex.SetShown, borderTex, false) end
+                if borderTex.Hide then pcall(borderTex.Hide, borderTex) end
+            end
+        end
+    end
+end
+
 function CustomIcons.SuppressExpiredIconVisual(frame)
     if not frame then return end
     if frame.SetAlpha then
@@ -1417,9 +1442,18 @@ function CustomIcons.SuppressExpiredIconVisual(frame)
     if icon and icon.SetAlpha then
         pcall(icon.SetAlpha, icon, 0)
     end
-    if frame.border and frame.border.Hide then
-        pcall(frame.border.Hide, frame.border)
+    if frame.cooldown then
+        if frame.cooldown.Clear then pcall(frame.cooldown.Clear, frame.cooldown) end
+        if frame.cooldown.Hide then pcall(frame.cooldown.Hide, frame.cooldown) end
     end
+    if frame.Cooldown and frame.Cooldown ~= frame.cooldown then
+        if frame.Cooldown.Clear then pcall(frame.Cooldown.Clear, frame.Cooldown) end
+        if frame.Cooldown.Hide then pcall(frame.Cooldown.Hide, frame.Cooldown) end
+    end
+    if frame.count and frame.count.Hide then
+        pcall(frame.count.Hide, frame.count)
+    end
+    CustomIcons.HideManagedIconBorderLayers(frame)
     frame._ddCombatKeepAlive = nil
     frame._ddCombatVisible = false
     frame._ddCombatMissingSince = nil
@@ -1435,6 +1469,21 @@ local function DeactivateCustomTimedAura(spellID)
         MarkCustomTimedAuraExpired(spellID)
     end
     return true
+end
+
+function CustomIcons.ClearExpiredCustomTimedAuras()
+    if not runtime.customTimedAuras then return false end
+    local now = GetTime and GetTime() or 0
+    local changed = false
+    for spellID, state in pairs(runtime.customTimedAuras) do
+        local expirationTime = state and SafeNumber(state.expirationTime)
+        if not expirationTime or expirationTime <= now then
+            if DeactivateCustomTimedAura(spellID) then
+                changed = true
+            end
+        end
+    end
+    return changed
 end
 
 MarkCustomTimedAuraExpired = function(spellID)
@@ -3386,6 +3435,9 @@ local function IsIconLinkedToCDMGroup(db, iconKey, iconData, groupName, groupSet
 end
 
 function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, groupSettings)
+    if CustomIcons.ClearExpiredCustomTimedAuras then
+        CustomIcons.ClearExpiredCustomTimedAuras()
+    end
     local db = GetDynamicDB()
     local iconDataByKey = db and db.iconData
     if not iconDataByKey then return nil end
@@ -3474,6 +3526,9 @@ end
 
 local function ExecuteUpdateAllIcons()
     local layoutStateChanged = false
+    if CustomIcons.ClearExpiredCustomTimedAuras and CustomIcons.ClearExpiredCustomTimedAuras() then
+        layoutStateChanged = true
+    end
 
     local function ReapplyManagedGroupText(frame)
         CustomIcons.ApplyManagedGroupTextOptions(frame)
@@ -4355,9 +4410,7 @@ local function ResetDynamicIconFrame(frame)
         frame.count:SetText("")
         frame.count:Hide()
     end
-    if frame.border then
-        frame.border:Hide()
-    end
+    CustomIcons.HideManagedIconBorderLayers(frame)
     if frame.icon then
         frame.icon:ClearAllPoints()
         frame.icon:SetAllPoints(frame)

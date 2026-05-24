@@ -404,6 +404,24 @@ local function RestoreIconTextureOpacity(icon)
     end
 end
 
+local function HideDynamicIconBorderLayers(icon)
+    if not icon then return end
+    if icon.border then
+        if icon.border.SetAlpha then pcall(icon.border.SetAlpha, icon.border, 0) end
+        if icon.border.Hide then pcall(icon.border.Hide, icon.border) end
+    end
+    local borders = icon._ddBorders
+    if type(borders) == "table" then
+        for _, borderTex in ipairs(borders) do
+            if borderTex then
+                if borderTex.SetAlpha then pcall(borderTex.SetAlpha, borderTex, 0) end
+                if borderTex.SetShown then pcall(borderTex.SetShown, borderTex, false) end
+                if borderTex.Hide then pcall(borderTex.Hide, borderTex) end
+            end
+        end
+    end
+end
+
 local function TagDynamicIconForGroup(icon, groupName, groupSettings)
     if not icon then return end
     icon._groupSettings = groupSettings
@@ -776,10 +794,23 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
         if icon.icon and icon.icon.SetAlpha then
             pcall(icon.icon.SetAlpha, icon.icon, 0)
         end
-        if icon.border and icon.border.Hide then
-            pcall(icon.border.Hide, icon.border)
+        if icon.cooldown and icon.cooldown.Hide then
+            pcall(icon.cooldown.Hide, icon.cooldown)
         end
-        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+        if icon.Cooldown and icon.Cooldown.Hide and icon.Cooldown ~= icon.cooldown then
+            pcall(icon.Cooldown.Hide, icon.Cooldown)
+        end
+        if icon.count and icon.count.Hide then
+            pcall(icon.count.Hide, icon.count)
+        end
+        HideDynamicIconBorderLayers(icon)
+        if icon.SetAlpha then
+            pcall(icon.SetAlpha, icon, 0)
+            icon._ddLastGroupAlpha = 0
+        end
+        if icon.Hide then
+            pcall(icon.Hide, icon)
+        end
         return
     end
     if icon.Show then
@@ -1704,11 +1735,18 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     icon._ddCombatKeepAlive = isExpiredAura and nil or true
                     icon._ddCombatVisible = false
                     if isExpiredAura then
+                        HideDynamicIconBorderLayers(icon)
+                        if icon.SetAlpha then
+                            pcall(icon.SetAlpha, icon, 0)
+                            icon._ddLastGroupAlpha = 0
+                        end
                         if icon.Hide then icon:Hide() end
                     elseif icon.Show then
                         icon:Show()
                     end
-                    SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+                    if not isExpiredAura then
+                        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+                    end
                 else
                     icon:Hide()
                     local bridge = DDingUI.DynamicIconBridge
@@ -1799,7 +1837,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         if #borders >= 4 then
                             local bc = groupSettings.borderColor or { 0, 0, 0, 1 }
                             local br, bg, bb, ba = bc[1] or 0, bc[2] or 0, bc[3] or 0, bc[4] or 1
-                            local shouldShow = edgeSize > 0
+                            local shouldShow = edgeSize > 0 and not icon._ddManagedAuraExpired and entry.combatVisible ~= false
                             borders[1]:SetHeight(edgeSize); borders[2]:SetHeight(edgeSize)
                             borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
                             for _, borderTex in ipairs(borders) do
@@ -2637,11 +2675,18 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                     icon._ddCombatKeepAlive = isExpiredAura and nil or true
                     icon._ddCombatVisible = false
                     if isExpiredAura then
+                        HideDynamicIconBorderLayers(icon)
+                        if icon.SetAlpha then
+                            pcall(icon.SetAlpha, icon, 0)
+                            icon._ddLastGroupAlpha = 0
+                        end
                         if icon.Hide then icon:Hide() end
                     elseif icon.Show then
                         icon:Show()
                     end
-                    SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+                    if not isExpiredAura then
+                        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+                    end
                 else
                     bridge:ReleaseFrame(icon, icon._ddIconKey)
                 end
@@ -2722,7 +2767,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                     borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
                     for _, borderTex in ipairs(borders) do
                         borderTex:SetColorTexture(br, bg, bb, ba)
-                        borderTex:SetShown(edgeSize > 0)
+                        borderTex:SetShown(edgeSize > 0 and not icon._ddManagedAuraExpired and entry.combatVisible ~= false)
                     end
                 end
             end
