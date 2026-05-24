@@ -171,6 +171,7 @@ local state = {
     scanHoldActive = false,
     scanHoldStartedAt = 0,
     lastAcceptedScanCount = 0,
+    lastPvPInstance = nil,
     -- 통계
     reconcileCount = 0,
 }
@@ -261,15 +262,61 @@ local function ResetGroupViewerHiddenFlags()
     end
 end
 
-local function RunViewerTransitionRecovery(reloadMapped)
+local function RestoreGroupFrameState()
+    local gr = DDingUI.GroupRenderer
+    if not (gr and gr.groupFrames) then return end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    local gs = profile and profile.groupSystem
+    local groups = gs and gs.groups
+    local fh = DDingUI.FlightHide
+    local keepHidden = fh and (fh.isActive or fh._hiding)
+
+    for groupName, frame in pairs(gr.groupFrames) do
+        if frame then
+            frame._viewerHidden = false
+            local settings = groups and groups[groupName]
+            if settings and settings.enabled then
+                if not keepHidden and frame.SetAlpha then
+                    local alpha = settings.groupAlpha or 1
+                    pcall(frame.SetAlpha, frame, alpha)
+                    frame._ddLastFrameAlpha = alpha
+                end
+                if not frame:IsShown() then
+                    if InCombatLockdown() and frame:GetName() then
+                        frame._pendingCombatShow = true
+                    else
+                        frame:Show()
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     if not FrameController.initialized then return end
     FrameController:RefreshViewerRefs()
     ResetGroupViewerHiddenFlags()
-    if DDingUI.ContainerSync and DDingUI.ContainerSync.SyncAll then
-        DDingUI.ContainerSync:SyncAll()
+    if forceFrameControl then
+        RestoreGroupFrameState()
+    end
+    if DDingUI.ContainerSync then
+        if DDingUI.ContainerSync.RefreshViewerHooks then
+            DDingUI.ContainerSync:RefreshViewerHooks()
+        elseif DDingUI.ContainerSync.SyncAll then
+            DDingUI.ContainerSync:SyncAll()
+        end
     end
     if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
-        DDingUI.GroupSystem:Refresh()
+        if forceFrameControl and DDingUI.GroupSystem.DoFullUpdate then
+            DDingUI.GroupSystem:DoFullUpdate()
+        else
+            DDingUI.GroupSystem:Refresh()
+        end
+    end
+    if forceFrameControl and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged then
+        DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
     end
     if reloadMapped and DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
         DDingUI.Movers:ReloadMappedModulePositions()
@@ -280,11 +327,25 @@ local function RunViewerTransitionRecovery(reloadMapped)
     end
 end
 
-local function ScheduleViewerTransitionRecovery(reloadMapped)
-    for _, delay in pairs({ 0.2, 1.0, 3.0 }) do
+local function ScheduleViewerTransitionRecovery(reloadMapped, forceFrameControl, longTail)
+    local delays = longTail and { 0.05, 0.2, 1.0, 3.0, 5.0 } or { 0.2, 1.0, 3.0 }
+    for _, delay in pairs(delays) do
         C_Timer.After(delay, function()
-            RunViewerTransitionRecovery(reloadMapped)
+            RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
         end)
+    end
+end
+
+local function RunPvPTransitionRecovery(event)
+    local inPvP = DDingUI.IsPvPInstance and DDingUI:IsPvPInstance() or false
+    local changed = state.lastPvPInstance == nil or state.lastPvPInstance ~= inPvP
+    state.lastPvPInstance = inPvP
+
+    if changed or event == "PVP_MATCH_STATE_CHANGED" then
+        RunViewerTransitionRecovery(true, true)
+        ScheduleViewerTransitionRecovery(true, true, true)
+    else
+        ScheduleViewerTransitionRecovery(true, false)
     end
 end
 
@@ -1854,6 +1915,7 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("SPELLS_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
+    eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- [FIX] 전투 진입 시 즉시 재스캔
     -- [CDM 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
     eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
@@ -1869,15 +1931,15 @@ function FrameController:Initialize()
                 FrameController:RefreshViewerRefs()
                 MarkDirty()
                 if not state.pollingActive then EnablePolling() end
-                ScheduleViewerTransitionRecovery(true)
+                ScheduleViewerTransitionRecovery(true, true, true)
             end
             return
         end
 
         if not FrameController.initialized then return end
 
-        if event == "PLAYER_ENTERING_WORLD" or event == "PVP_MATCH_STATE_CHANGED" then
-            ScheduleViewerTransitionRecovery(true)
+        if event == "PLAYER_ENTERING_WORLD" or event == "PVP_MATCH_STATE_CHANGED" or event == "ZONE_CHANGED_NEW_AREA" then
+            RunPvPTransitionRecovery(event)
             return
         end
 
