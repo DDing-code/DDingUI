@@ -226,26 +226,56 @@ local function GroupUsesDurationText(groupName, groupSettings)
     return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
 end
 
+local function ResolveGroupTextSetting(groupName, groupSettings, primaryKey, fallbackKey)
+    if groupSettings then
+        if primaryKey and groupSettings[primaryKey] ~= nil then
+            return groupSettings[primaryKey]
+        end
+        if fallbackKey and groupSettings[fallbackKey] ~= nil then
+            return groupSettings[fallbackKey]
+        end
+    end
+
+    local viewerName = GROUP_VIEWER_MAP[groupName]
+    local profile = DDingUI.db and DDingUI.db.profile
+    local viewerSettings = viewerName and profile and profile.viewers and profile.viewers[viewerName]
+    if viewerSettings then
+        if primaryKey and viewerSettings[primaryKey] ~= nil then
+            return viewerSettings[primaryKey]
+        end
+        if fallbackKey and viewerSettings[fallbackKey] ~= nil then
+            return viewerSettings[fallbackKey]
+        end
+    end
+
+    return nil
+end
+
 local function ResolveCooldownTextStyle(groupName, groupSettings)
     if not groupSettings then
-        return nil, 0, 0, nil, nil, nil
+        return ResolveGroupTextSetting(groupName, nil, "cooldownTextAnchor"),
+            ResolveGroupTextSetting(groupName, nil, "cooldownTextOffsetX"),
+            ResolveGroupTextSetting(groupName, nil, "cooldownTextOffsetY"),
+            ResolveGroupTextSetting(groupName, nil, "cooldownFontSize"),
+            ResolveGroupTextSetting(groupName, nil, "cooldownFont"),
+            ResolveGroupTextSetting(groupName, nil, "cooldownTextColor")
     end
 
     if GroupUsesDurationText(groupName, groupSettings) then
-        return groupSettings.durationTextAnchor or groupSettings.cooldownTextAnchor,
-            groupSettings.durationTextOffsetX or groupSettings.cooldownTextOffsetX,
-            groupSettings.durationTextOffsetY or groupSettings.cooldownTextOffsetY,
-            groupSettings.durationTextSize or groupSettings.cooldownFontSize,
-            groupSettings.durationTextFont or groupSettings.cooldownFont,
-            groupSettings.durationTextColor or groupSettings.cooldownTextColor
+        return ResolveGroupTextSetting(groupName, groupSettings, "durationTextAnchor", "cooldownTextAnchor"),
+            ResolveGroupTextSetting(groupName, groupSettings, "durationTextOffsetX", "cooldownTextOffsetX"),
+            ResolveGroupTextSetting(groupName, groupSettings, "durationTextOffsetY", "cooldownTextOffsetY"),
+            ResolveGroupTextSetting(groupName, groupSettings, "durationTextSize", "cooldownFontSize"),
+            ResolveGroupTextSetting(groupName, groupSettings, "durationTextFont", "cooldownFont"),
+            ResolveGroupTextSetting(groupName, groupSettings, "durationTextColor", "cooldownTextColor")
     end
 
-    return groupSettings.cooldownTextAnchor,
-        groupSettings.cooldownTextOffsetX,
-        groupSettings.cooldownTextOffsetY,
-        groupSettings.cooldownFontSize,
-        groupSettings.cooldownFont,
-        groupSettings.cooldownTextColor
+    return ResolveGroupTextSetting(groupName, groupSettings, "cooldownTextAnchor"),
+        ResolveGroupTextSetting(groupName, groupSettings, "cooldownTextOffsetX"),
+        ResolveGroupTextSetting(groupName, groupSettings, "cooldownTextOffsetY"),
+        ResolveGroupTextSetting(groupName, groupSettings, "cooldownFontSize"),
+        ResolveGroupTextSetting(groupName, groupSettings, "cooldownFont"),
+        ResolveGroupTextSetting(groupName, groupSettings, "cooldownTextColor")
 end
 
 local function ResolveRGBA(color)
@@ -289,21 +319,22 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
 
     local countText = GetIconCountText(icon)
     if countText then
-        local countAnchor = groupSettings.chargeTextAnchor or "BOTTOMRIGHT"
+        local countAnchor = ResolveGroupTextSetting(groupName, groupSettings, "chargeTextAnchor") or "BOTTOMRIGHT"
         if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
-        local cox = tonumber(groupSettings.countTextOffsetX) or 0
-        local coy = tonumber(groupSettings.countTextOffsetY) or 0
+        local cox = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetX")) or 0
+        local coy = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetY")) or 0
         countText:ClearAllPoints()
         countText:SetPoint(countAnchor, textAnchorFrame, countAnchor, cox, coy)
 
-        local cSize = tonumber(groupSettings.countTextSize)
+        local cSize = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextSize"))
         if cSize and cSize > 0 then
-            local cFont = DDingUI:GetFont(groupSettings.countTextFont)
+            local cFont = DDingUI:GetFont(ResolveGroupTextSetting(groupName, groupSettings, "countTextFont"))
             countText:SetFont(cFont, cSize, "OUTLINE")
         end
 
-        if type(groupSettings.countTextColor) == "table" then
-            countText:SetTextColor(ResolveRGBA(groupSettings.countTextColor))
+        local countColor = ResolveGroupTextSetting(groupName, groupSettings, "countTextColor")
+        if type(countColor) == "table" then
+            countText:SetTextColor(ResolveRGBA(countColor))
         end
     end
 
