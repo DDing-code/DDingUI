@@ -57,6 +57,10 @@ local function IsIconActive(iconKey, iconData)
             frame = frames and frames[iconKey]
         end
 
+        if ci and ci.IsCustomTimedAuraIcon and ci:IsCustomTimedAuraIcon(iconData) then
+            return ci.GetActiveCustomTimedAuraForIcon and ci:GetActiveCustomTimedAuraForIcon(iconData) ~= nil
+        end
+
         if frame and type(frame._auraWasActive) == "boolean" then
             return frame._auraWasActive
         end

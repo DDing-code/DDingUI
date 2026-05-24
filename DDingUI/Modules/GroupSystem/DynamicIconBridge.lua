@@ -334,6 +334,7 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
     -- CustomIcons가 _cachedAuraSpellID와 AuraUtil 폴백으로 계산한 최종 상태 사용
     if iconData.type == "aura" and iconData.id then
         local ci = GetCustomIcons()
+        local isCustomTimedAura = ci and ci.IsCustomTimedAuraIcon and ci:IsCustomTimedAuraIcon(iconData)
         if ci and ci.GetActiveCustomTimedAuraForIcon then
             local timedAura = ci:GetActiveCustomTimedAuraForIcon(iconData)
             if timedAura then
@@ -350,6 +351,16 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
             elseif iconFrame then
                 iconFrame._ddTimedAuraActiveUntil = nil
             end
+        end
+        if isCustomTimedAura then
+            if iconFrame then
+                iconFrame._auraWasActive = false
+                iconFrame._ddTimedAuraActiveUntil = nil
+                iconFrame._ddAuraActiveUntil = nil
+                iconFrame._ddLastAuraActiveAt = nil
+                iconFrame._ddManagedAuraExpired = true
+            end
+            return false
         end
         if ci and ci.ResolvePlayerAuraForIcon then
             local auraData = ci:ResolvePlayerAuraForIcon(iconFrame, iconData)
@@ -745,7 +756,12 @@ local function BuildDynamicLayoutStateHash()
                     local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
                     local active = false
                     if iconData.type == "aura" then
-                        active = not expiredManagedAura and frame._auraWasActive == true
+                        local ci = GetCustomIcons()
+                        if ci and ci.IsCustomTimedAuraIcon and ci:IsCustomTimedAuraIcon(iconData) then
+                            active = ci.GetActiveCustomTimedAuraForIcon and ci:GetActiveCustomTimedAuraForIcon(iconData) ~= nil
+                        else
+                            active = not expiredManagedAura and frame._auraWasActive == true
+                        end
                     else
                         active = frame._trinketProcWasActive == true
                             or FrameHasLiveEffect(frame, now)

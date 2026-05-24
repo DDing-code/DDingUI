@@ -1853,11 +1853,12 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         end
     end
 
-    if IsEventDrivenCustomTimedAuraConfig(timedConfig) then
+    if timedConfig then
         if iconFrame then
             iconFrame._ddTimedAuraActiveUntil = nil
             iconFrame._ddAuraActiveUntil = nil
             iconFrame._auraWasActive = false
+            iconFrame._ddManagedAuraExpired = true
         end
         return nil
     end
@@ -3385,6 +3386,10 @@ function CustomIcons:GetActiveCustomTimedAuraForIcon(iconData)
     return GetActiveCustomTimedAura(iconData)
 end
 
+function CustomIcons:IsCustomTimedAuraIcon(iconData)
+    return GetCustomTimedAuraConfig(iconData) ~= nil
+end
+
 local function IconListContains(iconList, iconKey)
     if type(iconList) ~= "table" or not iconKey then return false end
     for _, key in ipairs(iconList) do
@@ -3503,6 +3508,9 @@ local function GetDynamicLayoutStateToken(frame, iconData)
 
     local now = GetTime and GetTime() or 0
     if iconData.type == "aura" then
+        if CustomIcons.IsCustomTimedAuraIcon and CustomIcons:IsCustomTimedAuraIcon(iconData) then
+            return CustomIcons:GetActiveCustomTimedAuraForIcon(iconData) and "active" or "inactive"
+        end
         return frame._auraWasActive == true and "active" or "inactive"
     end
 
