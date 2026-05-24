@@ -8,6 +8,8 @@ if not DDingUI then return end
 local GroupRenderer = {}
 DDingUI.GroupRenderer = GroupRenderer
 
+local ResetPostCombatDynamicIconState
+
 -- [DEBUG] FrameController DLog 접근
 local function GRLog(...)
     local fc = DDingUI.FrameController
@@ -21,6 +23,11 @@ end
 local regenFrame = CreateFrame("Frame")
 regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 regenFrame:SetScript("OnEvent", function()
+    if ResetPostCombatDynamicIconState then
+        ResetPostCombatDynamicIconState()
+        C_Timer.After(0.05, ResetPostCombatDynamicIconState)
+        C_Timer.After(0.25, ResetPostCombatDynamicIconState)
+    end
     -- [FIX] pending Show/Hide 처리 (전투 중 named 프레임 Show/Hide 불가 → 전투 종료 시 실행)
     if GroupRenderer.groupFrames then
         for _, frame in pairs(GroupRenderer.groupFrames) do
@@ -40,6 +47,14 @@ regenFrame:SetScript("OnEvent", function()
     elseif fc and fc.ForceReconcile then
         C_Timer.After(0.1, function()
             fc:ForceReconcile()
+        end)
+    end
+    local gs = DDingUI.GroupSystem
+    if gs and gs.enabled and gs.Refresh then
+        C_Timer.After(0.05, function()
+            if gs.enabled then
+                pcall(gs.Refresh, gs)
+            end
         end)
     end
 end)
@@ -550,6 +565,60 @@ local function GetDynamicIconData(iconKey)
     local ci = DDingUI.CustomIcons
     local db = ci and ci.GetDynamicDB and ci.GetDynamicDB()
     return db and db.iconData and db.iconData[iconKey]
+end
+
+ResetPostCombatDynamicIconState = function()
+    local frames = GroupRenderer.groupFrames
+    if not frames then return end
+
+    local bridge = DDingUI.DynamicIconBridge
+    local fh = DDingUI.FlightHide
+    for _, frame in pairs(frames) do
+        if frame and frame._ddDeferredReleaseIcons then
+            for iconKey, icon in pairs(frame._ddDeferredReleaseIcons) do
+                if icon then
+                    local iconData = GetDynamicIconData(iconKey)
+                    if iconData and iconData.type == "aura" then
+                        icon._ddCombatKeepAlive = nil
+                        icon._ddCombatVisible = false
+                        icon._ddManagedAuraExpired = true
+                        HideDynamicIconBorderLayers(icon)
+                        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+                        if icon.Hide then pcall(icon.Hide, icon) end
+                    elseif bridge and bridge.ReleaseFrame then
+                        bridge:ReleaseFrame(icon, iconKey)
+                    else
+                        icon._ddCombatKeepAlive = nil
+                        icon._ddCombatVisible = nil
+                        icon._ddCombatMissingSince = nil
+                    end
+                end
+                frame._ddDeferredReleaseIcons[iconKey] = nil
+            end
+        end
+
+        if frame and frame._managedIcons then
+            local groupAlpha = frame._groupSettings and frame._groupSettings.groupAlpha or 1
+            for _, icon in pairs(frame._managedIcons) do
+                if icon and icon._ddIconKey then
+                    icon._ddCombatKeepAlive = nil
+                    icon._ddCombatVisible = nil
+                    icon._ddCombatMissingSince = nil
+
+                    local iconData = GetDynamicIconData(icon._ddIconKey)
+                    if iconData and iconData.type == "aura" and icon._ddManagedAuraExpired then
+                        HideDynamicIconBorderLayers(icon)
+                        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+                        if icon.Hide then pcall(icon.Hide, icon) end
+                    elseif not (fh and fh.isActive) then
+                        if icon.Show and frame:IsShown() then pcall(icon.Show, icon) end
+                        SetAlphaIfNeeded(icon, groupAlpha, "_ddLastGroupAlpha")
+                        RestoreIconTextureOpacity(icon)
+                    end
+                end
+            end
+        end
+    end
 end
 
 local function SafeNumber(value)
