@@ -770,6 +770,18 @@ end
 local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible)
     if not icon then return end
     ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
+    if icon._ddManagedAuraExpired then
+        icon._ddCombatVisible = false
+        icon._ddCombatKeepAlive = nil
+        if icon.icon and icon.icon.SetAlpha then
+            pcall(icon.icon.SetAlpha, icon.icon, 0)
+        end
+        if icon.border and icon.border.Hide then
+            pcall(icon.border.Hide, icon.border)
+        end
+        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+        return
+    end
     if icon.Show then
         icon:Show()
     end

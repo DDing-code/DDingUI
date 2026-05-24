@@ -3299,6 +3299,9 @@ local function UpdateAuraIcon(iconFrame, iconData)
         if iconFrame._ddIsManaged then
             iconFrame._ddManagedAuraExpired = true
             CustomIcons.SuppressExpiredIconVisual(iconFrame)
+            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+            end
         else
             iconFrame.icon:SetAlpha(1.0)
         end
