@@ -573,18 +573,83 @@ ResetPostCombatDynamicIconState = function()
 
     local bridge = DDingUI.DynamicIconBridge
     local fh = DDingUI.FlightHide
+
+    local function IsDynamicAuraActive(icon, iconData)
+        if not (iconData and iconData.type == "aura") then return false end
+        local ci = DDingUI.CustomIcons
+        if not ci then return false end
+
+        if ci.ResolvePlayerAuraForIcon then
+            local okAura, auraData = pcall(ci.ResolvePlayerAuraForIcon, ci, icon, iconData)
+            if okAura then return auraData ~= nil end
+        end
+
+        if ci.IsCustomTimedAuraIcon then
+            local okTimed, isTimed = pcall(ci.IsCustomTimedAuraIcon, ci, iconData)
+            if okTimed and isTimed then
+                if not ci.GetActiveCustomTimedAuraForIcon then return false end
+                local okActive, auraState = pcall(ci.GetActiveCustomTimedAuraForIcon, ci, iconData)
+                return okActive and auraState ~= nil
+            end
+        end
+
+        return false
+    end
+
+    local function RestoreDynamicIconAfterCombat(icon, frame, groupAlpha, visualBlocked)
+        if not icon then return end
+        local now = GetTime and GetTime() or 0
+        icon._ddManagedAuraExpired = nil
+        icon._ddCombatKeepAlive = nil
+        icon._ddCombatVisible = nil
+        icon._ddCombatMissingSince = nil
+        icon._ddLastDynamicActiveAt = now
+        icon._ddLastAuraActiveAt = now
+        icon._wasVisibleInGroup = true
+        icon._auraWasActive = true
+        if visualBlocked then return end
+        if icon.Show and (not frame or frame:IsShown()) then pcall(icon.Show, icon) end
+        SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
+        RestoreIconTextureOpacity(icon)
+    end
+
+    local function HideInactiveDynamicAura(icon)
+        if not icon then return end
+        icon._ddCombatKeepAlive = nil
+        icon._ddCombatVisible = false
+        icon._ddManagedAuraExpired = true
+        icon._wasVisibleInGroup = nil
+        icon._auraWasActive = false
+        icon._ddTimedAuraActiveUntil = nil
+        icon._ddAuraActiveUntil = nil
+        icon._ddLastDynamicActiveAt = nil
+        icon._ddLastAuraActiveAt = nil
+        if icon.cooldown then
+            if icon.cooldown.Clear then pcall(icon.cooldown.Clear, icon.cooldown) end
+            if icon.cooldown.Hide then pcall(icon.cooldown.Hide, icon.cooldown) end
+        end
+        if icon.Cooldown and icon.Cooldown ~= icon.cooldown then
+            if icon.Cooldown.Clear then pcall(icon.Cooldown.Clear, icon.Cooldown) end
+            if icon.Cooldown.Hide then pcall(icon.Cooldown.Hide, icon.Cooldown) end
+        end
+        if icon.count and icon.count.Hide then pcall(icon.count.Hide, icon.count) end
+        HideDynamicIconBorderLayers(icon)
+        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
+        if icon.Hide then pcall(icon.Hide, icon) end
+    end
+
     for _, frame in pairs(frames) do
+        local groupAlpha = frame and frame._groupSettings and frame._groupSettings.groupAlpha or 1
         if frame and frame._ddDeferredReleaseIcons then
             for iconKey, icon in pairs(frame._ddDeferredReleaseIcons) do
                 if icon then
                     local iconData = GetDynamicIconData(iconKey)
                     if iconData and iconData.type == "aura" then
-                        icon._ddCombatKeepAlive = nil
-                        icon._ddCombatVisible = false
-                        icon._ddManagedAuraExpired = true
-                        HideDynamicIconBorderLayers(icon)
-                        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
-                        if icon.Hide then pcall(icon.Hide, icon) end
+                        if IsDynamicAuraActive(icon, iconData) then
+                            RestoreDynamicIconAfterCombat(icon, frame, groupAlpha, fh and fh.isActive)
+                        else
+                            HideInactiveDynamicAura(icon)
+                        end
                     elseif bridge and bridge.ReleaseFrame then
                         bridge:ReleaseFrame(icon, iconKey)
                     else
@@ -598,7 +663,6 @@ ResetPostCombatDynamicIconState = function()
         end
 
         if frame and frame._managedIcons then
-            local groupAlpha = frame._groupSettings and frame._groupSettings.groupAlpha or 1
             for _, icon in pairs(frame._managedIcons) do
                 if icon and icon._ddIconKey then
                     icon._ddCombatKeepAlive = nil
@@ -607,9 +671,11 @@ ResetPostCombatDynamicIconState = function()
 
                     local iconData = GetDynamicIconData(icon._ddIconKey)
                     if iconData and iconData.type == "aura" and icon._ddManagedAuraExpired then
-                        HideDynamicIconBorderLayers(icon)
-                        SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
-                        if icon.Hide then pcall(icon.Hide, icon) end
+                        if IsDynamicAuraActive(icon, iconData) then
+                            RestoreDynamicIconAfterCombat(icon, frame, groupAlpha, fh and fh.isActive)
+                        else
+                            HideInactiveDynamicAura(icon)
+                        end
                     elseif not (fh and fh.isActive) then
                         if icon.Show and frame:IsShown() then pcall(icon.Show, icon) end
                         SetAlphaIfNeeded(icon, groupAlpha, "_ddLastGroupAlpha")
