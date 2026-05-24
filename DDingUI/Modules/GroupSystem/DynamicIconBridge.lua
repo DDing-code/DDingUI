@@ -71,17 +71,13 @@ local initialized = false
 local layoutSuppressed = false
 local COMBAT_ICON_GRACE_SECONDS = 1.5
 local hiddenCDMFrames = {}  -- [frame] = cooldownID (CDM 숨김 추적)
-local SUPPRESSED_SPELL_HASH_TTL = 1.0
-local EMPTY_SUPPRESSED_SPELLS = {}
+local SUPPRESSED_SPELL_CACHE_TTL = 0.15
 local suppressedSpellCache = nil
-local suppressedSpellCacheDirty = true
-local suppressedSpellCacheHash = nil
-local suppressedSpellHashCheckedAt = 0
+local suppressedSpellCacheAt = 0
 
 local function InvalidateSuppressedSpellCache()
-    suppressedSpellCacheDirty = true
-    suppressedSpellCacheHash = nil
-    suppressedSpellHashCheckedAt = 0
+    suppressedSpellCache = nil
+    suppressedSpellCacheAt = 0
 end
 
 local function SafeNumber(value)
@@ -333,89 +329,6 @@ local function AddTrackedBuffSuppressions(suppressed)
             AddTrackedBuffSuppression(suppressed, buff)
         end
     end
-end
-
-local function AddTrackedBuffSuppressionHash(parts, buff)
-    if type(buff) ~= "table" or buff.enabled == false or buff.disabled == true or buff.isGroup then return end
-    local settings = buff.settings
-    if not (type(settings) == "table" and settings.hideFromCDM) then return end
-    parts[#parts + 1] = table_concat({
-        "tb",
-        tostring(buff.cooldownID or ""),
-        tostring(buff.spellID or ""),
-        tostring(settings.spellID or ""),
-        tostring(settings.customSpellID or ""),
-        tostring(settings.customAuraSpellID or ""),
-        tostring(buff.name or ""),
-    }, ":")
-end
-
-local function BuildSuppressionConfigHash(db, gs)
-    if not db or not gs or type(gs.groups) ~= "table" then return "" end
-
-    local parts = {}
-
-    if type(gs.unassignedBuffSpells) == "table" then
-        for spellName, enabled in pairs(gs.unassignedBuffSpells) do
-            if enabled then
-                local spellID = type(enabled) == "table" and enabled.spellID or ""
-                parts[#parts + 1] = "u:" .. tostring(spellName) .. ":" .. tostring(spellID)
-            end
-        end
-    end
-
-    local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
-    if type(rootCfg) == "table" and rootCfg.enabled ~= false then
-        local specID
-        if GetSpecialization and GetSpecializationInfo then
-            local specIndex = GetSpecialization()
-            specID = specIndex and GetSpecializationInfo(specIndex)
-        end
-
-        local globalStore = DDingUI.db and DDingUI.db.global and DDingUI.db.global.trackedBuffsPerSpec
-        local tracked = specID and globalStore and globalStore[specID]
-        if type(tracked) == "table" then
-            for _, buff in ipairs(tracked) do
-                AddTrackedBuffSuppressionHash(parts, buff)
-            end
-        end
-        if type(rootCfg.trackedBuffs) == "table" then
-            for _, buff in ipairs(rootCfg.trackedBuffs) do
-                AddTrackedBuffSuppressionHash(parts, buff)
-            end
-        end
-    end
-
-    for groupName, groupSettings in pairs(gs.groups) do
-        local shouldSuppressDuplicates = groupSettings.enabled
-            and groupSettings.sourceGroupKey
-            and (IsBuffGroup(groupName, groupSettings)
-                or (groupSettings.groupType ~= "dynamic" and groupSettings.suppressCDMDuplicates == true))
-
-        if shouldSuppressDuplicates then
-            local sourceKey = groupSettings.sourceGroupKey
-            parts[#parts + 1] = "g:" .. tostring(groupName) .. ":" .. tostring(sourceKey)
-            local group = db.groups and db.groups[sourceKey]
-            if group and group.icons then
-                for _, iconKey in ipairs(group.icons) do
-                    local iconData = db.iconData and db.iconData[iconKey]
-                    if iconData then
-                        local settings = iconData.settings
-                        parts[#parts + 1] = table_concat({
-                            "i",
-                            tostring(iconKey),
-                            tostring(iconData.type or ""),
-                            tostring(iconData.id or ""),
-                            tostring(settings and settings.procSpellID or ""),
-                        }, ":")
-                    end
-                end
-            end
-        end
-    end
-
-    table_sort(parts)
-    return table_concat(parts, ";")
 end
 
 local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
@@ -774,32 +687,21 @@ end
 function DynamicIconBridge:GetSuppressedSpellIDs()
     if not initialized then
         self:Initialize()
-        if not initialized then return EMPTY_SUPPRESSED_SPELLS end
+        if not initialized then return {} end
     end
 
     local now = GetTime and GetTime() or 0
-
-    local db = GetDynamicDB()
-    if not db then return EMPTY_SUPPRESSED_SPELLS end
-
-    local gs = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
-    if not gs or not gs.groups then return EMPTY_SUPPRESSED_SPELLS end
-
-    local configHash
-    if suppressedSpellCache and not suppressedSpellCacheDirty then
-        if (now - suppressedSpellHashCheckedAt) <= SUPPRESSED_SPELL_HASH_TTL then
-            return suppressedSpellCache
-        end
-
-        configHash = BuildSuppressionConfigHash(db, gs)
-        suppressedSpellHashCheckedAt = now
-        if configHash == suppressedSpellCacheHash then
-            return suppressedSpellCache
-        end
+    if suppressedSpellCache and (now - suppressedSpellCacheAt) <= SUPPRESSED_SPELL_CACHE_TTL then
+        return suppressedSpellCache
     end
 
+    local db = GetDynamicDB()
+    if not db then return {} end
+
+    local gs = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
+    if not gs or not gs.groups then return {} end
+
     local suppressed = {}
-    configHash = configHash or BuildSuppressionConfigHash(db, gs)
 
     if type(gs.unassignedBuffSpells) == "table" then
         for spellName, enabled in pairs(gs.unassignedBuffSpells) do
@@ -847,9 +749,7 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
     end
 
     suppressedSpellCache = suppressed
-    suppressedSpellCacheDirty = false
-    suppressedSpellCacheHash = configHash
-    suppressedSpellHashCheckedAt = now
+    suppressedSpellCacheAt = now
     return suppressed
 end
 
@@ -1336,57 +1236,38 @@ local function UnhideCDMFrame(frame)
     if frame.EnableMouse then pcall(frame.EnableMouse, frame, true) end
 end
 
-local function IsCDMFrameSuppressed(frame, suppressed)
-    if not frame or not suppressed then return false end
-    local matched = false
-    pcall(function()
-        if frame.auraSpellID and suppressed[frame.auraSpellID] then
-            matched = true
-        end
-    end)
-    if matched then return true end
-    pcall(function()
-        if frame.cooldownID and suppressed[frame.cooldownID] then
-            matched = true
-        end
-    end)
-    return matched
-end
-
-local function ScanCDMViewerForSuppressed(viewer, suppressed)
-    if not viewer then return end
-    if viewer.itemFramePool then
-        for frame in viewer.itemFramePool:EnumerateActive() do
-            if IsCDMFrameSuppressed(frame, suppressed) then
-                HideCDMFrame(frame, frame.cooldownID)
-            end
+local function ScanAndHideCDMBuffs()
+    local suppressed = DynamicIconBridge:GetSuppressedSpellIDs()
+    if not next(suppressed) then
+        for frame in pairs(hiddenCDMFrames) do
+            UnhideCDMFrame(frame)
         end
         return
     end
 
-    local children = { viewer:GetChildren() }
-    for _, frame in ipairs(children) do
-        if IsCDMFrameSuppressed(frame, suppressed) then
-            HideCDMFrame(frame, frame.cooldownID)
+    local viewer = _G["BuffIconCooldownViewer"]
+    if not viewer or not viewer.itemFramePool then return end
+
+    for frame in viewer.itemFramePool:EnumerateActive() do
+        if frame and frame.cooldownID then
+            local shouldSuppress = false
+            pcall(function()
+                if frame.auraSpellID and suppressed[frame.auraSpellID] then
+                    shouldSuppress = true
+                end
+            end)
+            if not shouldSuppress then
+                pcall(function()
+                    if frame.cooldownID and suppressed[frame.cooldownID] then
+                        shouldSuppress = true
+                    end
+                end)
+            end
+            if shouldSuppress then
+                HideCDMFrame(frame, frame.cooldownID)
+            end
         end
     end
-end
-
-local function RestoreUnsuppressedCDMFrames(suppressed)
-    for frame in pairs(hiddenCDMFrames) do
-        if not IsCDMFrameSuppressed(frame, suppressed) then
-            UnhideCDMFrame(frame)
-        end
-    end
-end
-
-local function ScanAndHideCDMBuffs()
-    local suppressed = DynamicIconBridge:GetSuppressedSpellIDs()
-    RestoreUnsuppressedCDMFrames(suppressed)
-    if not next(suppressed) then return end
-
-    ScanCDMViewerForSuppressed(_G["BuffIconCooldownViewer"], suppressed)
-    ScanCDMViewerForSuppressed(_G["BuffBarCooldownViewer"], suppressed)
 end
 
 -- cooldownID가 억제 대상인지 확인 (HideCDMFrame 재활용 체크용)
@@ -1451,7 +1332,7 @@ function DynamicIconBridge:Initialize()
     if not self._auraEventFrame then
         self._auraDirty = false
         self._auraEventFrame = CreateFrame("Frame")
-        self._auraEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+        self._auraEventFrame:RegisterEvent("UNIT_AURA")
         self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         self._auraEventFrame:SetScript("OnEvent", function(_, event, unit)
             if event == "UNIT_AURA" and unit ~= "player" then return end
@@ -1460,12 +1341,11 @@ function DynamicIconBridge:Initialize()
             -- NotifyIconsChanged는 이미 0.2초 디바운스가 있으므로 즉시 호출해도 안전
             if not self._auraDirty then
                 self._auraDirty = true
-                local forceLayout = event == "PLAYER_REGEN_ENABLED"
-                C_Timer.After(0.05, function()
+                C_Timer.After(0, function()
                     self._auraDirty = false
                     if not initialized then return end
                     ScanAndHideCDMBuffs()
-                    self:NotifyIconsChanged(forceLayout)
+                    self:NotifyIconsChanged(event == "PLAYER_REGEN_ENABLED")
                 end)
             end
         end)
@@ -1510,9 +1390,6 @@ end
 function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     if not initialized then return end
     if not layoutSuppressed then return end
-    if forceLayout then
-        InvalidateSuppressedSpellCache()
-    end
 
     local stateHash = BuildDynamicLayoutStateHash()
     if not forceLayout and self._lastQueuedLayoutStateHash == stateHash then
