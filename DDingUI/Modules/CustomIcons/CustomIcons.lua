@@ -5083,7 +5083,6 @@ function CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
     frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(groupKey, settings))
     if frame then
         runtime.iconFrames[iconKey] = frame
-        UpdateDynamicIcon(iconKey)
     end
     return frame
 end
