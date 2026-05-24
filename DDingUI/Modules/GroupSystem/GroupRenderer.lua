@@ -470,10 +470,32 @@ local function BuildDynamicOrderToken(iconKey)
     return "dyn:" .. tostring(iconKey)
 end
 
+function GroupRenderer:IsHiddenSourceBuffIcon(icon)
+    return icon
+        and icon._ddSourceViewer == "BuffIconCooldownViewer"
+        and icon._ddCDMViewerShown == false
+end
+
+function GroupRenderer:CanShowManagedIcon(icon)
+    return icon and not icon._ddingHidden and not self:IsHiddenSourceBuffIcon(icon)
+end
+
+function GroupRenderer:HideHiddenSourceBuffIcon(icon)
+    if not self:IsHiddenSourceBuffIcon(icon) then return end
+    if icon.SetAlpha then
+        pcall(icon.SetAlpha, icon, 0)
+        icon._ddLastGroupAlpha = 0
+    end
+    if icon.Hide then
+        pcall(icon.Hide, icon)
+    end
+end
+
 local function BuildCDMPlacement(entry)
     if not entry or not entry.icon then return nil end
     entry.isCDM = true
     entry.isDynamic = nil
+    entry.sourceVisible = not GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)
     entry._ddOrderToken = BuildCDMOrderToken(entry)
     return entry
 end
@@ -836,6 +858,10 @@ local function RestorePlacementVisibility(entry, groupName, groupSettings, group
         RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, entry.combatVisible)
         return
     end
+    if entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(icon) then
+        GroupRenderer:HideHiddenSourceBuffIcon(icon)
+        return
+    end
     if icon.Show and not icon._ddingHidden then
         icon:Show()
     end
@@ -954,6 +980,8 @@ local function BuildPlacementHash(combinedList)
             or tostring(i)
         local visible = "1"
         if entry.isDynamic and entry.combatVisible == false then
+            visible = "0"
+        elseif entry.isCDM and (entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)) then
             visible = "0"
         end
         parts[#parts + 1] = tostring(token) .. ":" .. visible
@@ -1571,7 +1599,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
         for i = 1, (self._iconCount or 0) do
             local ic = self._managedIcons[i]
             -- [FIX] _ddingHidden 아이콘은 Show하지 않음 (BuffTrackerBar 추적 중)
-            if ic and ic._ddIsManaged and not ic._ddingHidden then
+            if ic and ic._ddIsManaged and GroupRenderer:CanShowManagedIcon(ic) then
                 ic:Show()
             end
         end
@@ -1689,10 +1717,12 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     end)
                 end
                 local placement = {
+                    isCDM = true,
                     icon = icon,
                     cooldownID = cooldownID,
                     spellName = spellName,
                     cdmKeepAlive = true,
+                    sourceVisible = not GroupRenderer:IsHiddenSourceBuffIcon(icon),
                 }
                 placement._ddOrderToken = BuildCDMOrderToken(placement)
                 newSet[icon] = true
@@ -1784,6 +1814,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         local icon = entry.icon
 
         if icon then
+            local sourceVisible = entry.sourceVisible ~= false and not GroupRenderer:IsHiddenSourceBuffIcon(icon)
             if entry.isDynamic then
                 if frame._ddDeferredReleaseIcons then
                     frame._ddDeferredReleaseIcons[entry.iconKey or entry.cooldownID] = nil
@@ -1950,11 +1981,14 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 end
                 idx = idx + 1
                 frame._managedIcons[idx] = icon
+                if not sourceVisible then
+                    GroupRenderer:HideHiddenSourceBuffIcon(icon)
+                end
             end
 
             -- [FIX] 동적 그룹 아이콘 등 새로 할당된 아이콘 가시성 복구
             -- 컨테이너가 이미 보이는 상태에서 아이콘이 추가되면 OnShow가 안 타므로 직접 Show
-            if frame:IsShown() and not icon._ddSuppressed and not icon._ddingHidden then
+            if frame:IsShown() and sourceVisible and not icon._ddSuppressed and not icon._ddingHidden then
                 if not icon:IsShown() then
                     if not (scanHolding and not icon._ddIconKey) then
                         icon:Show()
@@ -2114,6 +2148,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             if not ic._ddingHidden then
                 local iconAlpha = groupAlpha
                 if ic._ddIconKey and ic._ddCombatKeepAlive and ic._ddCombatVisible == false then
+                    iconAlpha = 0
+                elseif GroupRenderer:IsHiddenSourceBuffIcon(ic) then
                     iconAlpha = 0
                 end
                 SetAlphaIfNeeded(ic, iconAlpha, "_ddLastGroupAlpha")
@@ -2524,7 +2560,7 @@ function GroupRenderer:SyncViewerVisibility(viewerName)
             for i = 1, (frame._iconCount or 0) do
                 local ic = frame._managedIcons and frame._managedIcons[i]
                 -- [FIX] _ddingHidden 아이콘은 Show하지 않음 (BuffTrackerBar 추적 중)
-                if ic and not ic._ddingHidden then ic:Show() end
+                if GroupRenderer:CanShowManagedIcon(ic) then ic:Show() end
             end
         end
 

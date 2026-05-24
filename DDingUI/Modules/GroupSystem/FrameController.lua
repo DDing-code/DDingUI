@@ -981,9 +981,12 @@ function FrameController:ScanCDMViewers()
                         end
                     end
                     activeFrameCount = activeFrameCount + 1
+                    local sourceShown = icon.IsShown and icon:IsShown() or false
+                    icon._ddSourceViewer = globalName
+                    icon._ddCDMViewerShown = sourceShown and true or false
                     local shouldInclude = ShouldIncludeCooldownViewerFrame(icon, globalName)
                     if globalName == "BuffIconCooldownViewer" then
-                        if shouldInclude then
+                        if shouldInclude and sourceShown then
                             RestoreStaleBuffFrame(icon)
                         end
                         if not icon._ddStaleBuffAlphaHooked then
@@ -1062,6 +1065,9 @@ function FrameController:ScanCDMViewers()
 
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
+                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
+                                    self._ddCDMViewerShown = true
+                                end
                                 if self._ddSuppressed then self:SetAlpha(0); return end
                                 if self._ddCDMStaleBuff then
                                     RestoreStaleBuffFrame(self)
@@ -1088,6 +1094,9 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
+                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
+                                    self._ddCDMViewerShown = false
+                                end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
@@ -1097,6 +1106,9 @@ function FrameController:ScanCDMViewers()
                         -- 숨겨진 아이콘에도 OnShow/OnHide 훅 설치
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
+                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
+                                    self._ddCDMViewerShown = true
+                                end
                                 if self._ddCDMStaleBuff then
                                     RestoreStaleBuffFrame(self)
                                 end
@@ -1104,6 +1116,9 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
+                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
+                                    self._ddCDMViewerShown = false
+                                end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
