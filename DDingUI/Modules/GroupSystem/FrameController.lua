@@ -27,16 +27,29 @@ local InCombatLockdown = InCombatLockdown
 local CreateFrame = CreateFrame
 local hooksecurefunc = hooksecurefunc
 local C_Timer = C_Timer
+local canaccessvalue = canaccessvalue
 
--- [CDM 패턴] IsSafeNumber: secret value 안전 검증 (pcall 불필요)
+-- [CDM 패턴] IsSafeNumber: secret value 안전 검증
 local IsSafeNumber
 if type(issecretvalue) == "function" then
     IsSafeNumber = function(v)
-        return v ~= nil and type(v) == "number" and not issecretvalue(v)
+        if v == nil or type(v) ~= "number" then return false end
+        local okSecret, secret = pcall(issecretvalue, v)
+        if okSecret and secret then return false end
+        if type(canaccessvalue) == "function" then
+            local okAccess, access = pcall(canaccessvalue, v)
+            if okAccess and not access then return false end
+        end
+        return true
     end
 else
     IsSafeNumber = function(v)
-        return v ~= nil and type(v) == "number"
+        if v == nil or type(v) ~= "number" then return false end
+        if type(canaccessvalue) == "function" then
+            local okAccess, access = pcall(canaccessvalue, v)
+            if okAccess and not access then return false end
+        end
+        return true
     end
 end
 
@@ -486,6 +499,130 @@ function FrameController:RefreshViewerRefs()
     return changed
 end
 
+local function SafeTableField(tbl, key)
+    if not tbl or not key then return nil end
+    local ok, value = pcall(function()
+        return tbl[key]
+    end)
+    if ok then return value end
+    return nil
+end
+
+local function GetCooldownInfoSpellID(info)
+    if not info then return nil end
+    local sid = SafeTableField(info, "overrideTooltipSpellID") or SafeTableField(info, "overrideSpellID") or SafeTableField(info, "spellID")
+    local linkedSpellIDs = SafeTableField(info, "linkedSpellIDs")
+    if not IsSafeNumber(sid) and type(linkedSpellIDs) == "table" then
+        sid = SafeTableField(linkedSpellIDs, 1)
+    end
+    if IsSafeNumber(sid) and sid > 0 then
+        return sid
+    end
+    return nil
+end
+
+local function AddAuraCandidate(list, seen, value)
+    if IsSafeNumber(value) and value > 0 and not seen[value] then
+        seen[value] = true
+        list[#list + 1] = value
+    end
+end
+
+local function AddLinkedAuraCandidates(list, seen, linkedSpellIDs)
+    if type(linkedSpellIDs) ~= "table" then return end
+    pcall(function()
+        for _, linkedID in ipairs(linkedSpellIDs) do
+            AddAuraCandidate(list, seen, linkedID)
+        end
+    end)
+end
+
+local function AddCooldownInfoAuraCandidates(list, seen, info)
+    if type(info) ~= "table" then return end
+    AddAuraCandidate(list, seen, SafeTableField(info, "overrideTooltipSpellID"))
+    AddAuraCandidate(list, seen, SafeTableField(info, "overrideSpellID"))
+    AddAuraCandidate(list, seen, SafeTableField(info, "spellID"))
+    AddLinkedAuraCandidates(list, seen, SafeTableField(info, "linkedSpellIDs"))
+end
+
+local function BuffFrameHasPlayerAura(frame)
+    if not frame then return nil end
+
+    local candidates = {}
+    local seen = {}
+
+    if frame.GetAuraSpellID then
+        local ok, sid = pcall(frame.GetAuraSpellID, frame)
+        if ok then AddAuraCandidate(candidates, seen, sid) end
+    end
+
+    local okAura, auraSpellID = pcall(function() return frame.auraSpellID end)
+    if okAura then
+        AddAuraCandidate(candidates, seen, auraSpellID)
+    end
+
+    local okInfo, info = pcall(function()
+        if frame.GetCooldownInfo then
+            return frame:GetCooldownInfo()
+        end
+        return frame.cooldownInfo
+    end)
+    if okInfo then
+        AddCooldownInfoAuraCandidates(candidates, seen, info)
+    end
+
+    local okCooldownID, cooldownID = pcall(function()
+        return frame.cooldownID
+    end)
+    if okCooldownID and IsSafeNumber(cooldownID)
+        and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    then
+        local okViewerInfo, viewerInfo = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
+        if okViewerInfo then
+            AddCooldownInfoAuraCandidates(candidates, seen, viewerInfo)
+        end
+    end
+
+    if #candidates == 0 then
+        return nil
+    end
+
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        for _, sid in ipairs(candidates) do
+            local auraData
+            local ok = pcall(function()
+                auraData = C_UnitAuras.GetPlayerAuraBySpellID(sid)
+            end)
+            if ok and auraData then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
+    if not (icon and icon.IsShown and icon:IsShown()) then
+        return false
+    end
+
+    if viewerName ~= "BuffIconCooldownViewer" then
+        return true
+    end
+
+    local hasAura = BuffFrameHasPlayerAura(icon)
+    if hasAura ~= nil then
+        return hasAura
+    end
+
+    if icon._ddCDMActive == false then
+        return false
+    end
+
+    return true
+end
+
 -- ============================================================
 -- [CDM] OnActiveStateChanged 훅
 -- CDM이 프레임 active 상태 변경 시 호출
@@ -501,7 +638,12 @@ if not FrameController._activeStateHooked then
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             -- CDM이 active → true, inactive → false
             -- IsShown()이 아닌 CDM 내부 상태를 반영
-            frame._ddCDMActive = frame:IsShown()
+            local hasAura = BuffFrameHasPlayerAura(frame)
+            if hasAura ~= nil then
+                frame._ddCDMActive = hasAura
+            else
+                frame._ddCDMActive = frame:IsShown()
+            end
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -781,8 +923,8 @@ function FrameController:ScanCDMViewers()
                         end
                     end
                     activeFrameCount = activeFrameCount + 1
-                    -- [CDM Buffs.lua L265] 모든 뷰어: IsShown()만 사용, CDM 가시성 신뢰
-                    local shouldInclude = icon:IsShown()
+                    -- Buff frames must still have a live player aura; managed frames can remain shown after expiry.
+                    local shouldInclude = ShouldIncludeCooldownViewerFrame(icon, globalName)
                     if not shouldInclude then
                         hiddenFrameCount = hiddenFrameCount + 1
                     end
@@ -1017,18 +1159,6 @@ end
 
 function FrameController:GetSpellIDForIcon(icon)
     if not icon then return nil end
-
-    local function GetCooldownInfoSpellID(info)
-        if not info then return nil end
-        local sid = info.overrideTooltipSpellID or info.overrideSpellID or info.spellID
-        if not IsSafeNumber(sid) and type(info.linkedSpellIDs) == "table" then
-            sid = info.linkedSpellIDs[1]
-        end
-        if IsSafeNumber(sid) and sid > 0 then
-            return sid
-        end
-        return nil
-    end
 
     local sourceName = icon.cooldownID and iconSourceMap[icon.cooldownID]
     local parent = icon.GetParent and icon:GetParent()

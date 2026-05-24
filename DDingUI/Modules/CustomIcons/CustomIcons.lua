@@ -1386,6 +1386,14 @@ end
 
 function CustomIcons.RestoreActiveIconVisual(frame)
     if not frame then return end
+    if frame.Show then
+        pcall(frame.Show, frame)
+    end
+    local fh = DDingUI.FlightHide
+    if frame.SetAlpha and not (fh and fh.isActive) then
+        pcall(frame.SetAlpha, frame, 1)
+        frame._ddLastGroupAlpha = 1
+    end
     local icon = frame.icon or frame.Icon
     if icon then
         if icon.Show then pcall(icon.Show, icon) end
@@ -1401,6 +1409,10 @@ end
 
 function CustomIcons.SuppressExpiredIconVisual(frame)
     if not frame then return end
+    if frame.SetAlpha then
+        pcall(frame.SetAlpha, frame, 0)
+        frame._ddLastGroupAlpha = 0
+    end
     local icon = frame.icon or frame.Icon
     if icon and icon.SetAlpha then
         pcall(icon.SetAlpha, icon, 0)
@@ -1411,6 +1423,9 @@ function CustomIcons.SuppressExpiredIconVisual(frame)
     frame._ddCombatKeepAlive = nil
     frame._ddCombatVisible = false
     frame._ddCombatMissingSince = nil
+    if frame.Hide then
+        pcall(frame.Hide, frame)
+    end
 end
 
 local function DeactivateCustomTimedAura(spellID)

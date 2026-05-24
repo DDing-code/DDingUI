@@ -1699,9 +1699,15 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 -- 동적 아이콘: DDingUI가 소유 → 직접 Hide + Release
                 if inCombat then
                     frame._ddDeferredReleaseIcons[icon._ddIconKey] = icon
-                    icon._ddCombatKeepAlive = true
+                    local iconData = GetDynamicIconData(icon._ddIconKey)
+                    local isExpiredAura = iconData and iconData.type == "aura"
+                    icon._ddCombatKeepAlive = isExpiredAura and nil or true
                     icon._ddCombatVisible = false
-                    if icon.Show then icon:Show() end
+                    if isExpiredAura then
+                        if icon.Hide then icon:Hide() end
+                    elseif icon.Show then
+                        icon:Show()
+                    end
                     SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
                 else
                     icon:Hide()
@@ -2626,9 +2632,15 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
             if icon and icon._ddIconKey and not newSet[icon._ddIconKey] then
                 if inCombat then
                     frame._ddDeferredReleaseIcons[icon._ddIconKey] = icon
-                    icon._ddCombatKeepAlive = true
+                    local iconData = GetDynamicIconData(icon._ddIconKey)
+                    local isExpiredAura = iconData and iconData.type == "aura"
+                    icon._ddCombatKeepAlive = isExpiredAura and nil or true
                     icon._ddCombatVisible = false
-                    if icon.Show then icon:Show() end
+                    if isExpiredAura then
+                        if icon.Hide then icon:Hide() end
+                    elseif icon.Show then
+                        icon:Show()
+                    end
                     SetAlphaIfNeeded(icon, 0, "_ddLastGroupAlpha")
                 else
                     bridge:ReleaseFrame(icon, icon._ddIconKey)
