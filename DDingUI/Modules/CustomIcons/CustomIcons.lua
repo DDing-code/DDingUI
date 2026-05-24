@@ -1542,6 +1542,9 @@ MarkCustomTimedAuraActive = function(spellID, state)
         if config and config.stateID == spellID then
             hasMatchingIcon = true
             local frame = runtime.iconFrames[iconKey]
+            if not frame and CustomIcons.EnsureDynamicIconFrame then
+                frame = CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
+            end
             if frame then
                 matchedFrame = true
                 if not frame._ddIsManaged or not (frame.IsShown and frame:IsShown()) then
@@ -3438,6 +3441,9 @@ function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, group
             and not seenStateIDs[config.stateID]
         then
             local frame = runtime.iconFrames[iconKey]
+            if not frame and CustomIcons.EnsureDynamicIconFrame then
+                frame = CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
+            end
             if frame then
                 seenStateIDs[config.stateID] = true
                 frame._ddTimedAuraActiveUntil = state.expirationTime
@@ -3758,6 +3764,7 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")        -- Trinket proc/custom buff tracking
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
     runtime.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")           -- Clear healthstone-style combat lockouts
+    runtime.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")          -- Resync active timed buffs on combat start
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
@@ -3789,6 +3796,15 @@ local function EnsureEventFrame()
             -- Force reload layout after loading screen to catch delayed cache/spellbook states
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
             C_Timer.After(3.0, function() ScheduleSpecReload() end)
+            return
+        end
+
+        if event == "PLAYER_REGEN_DISABLED" then
+            ScanBloodlustTimedAura({ isFullUpdate = true })
+            UpdateAllIcons("force")
+            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+            end
             return
         end
 
@@ -5038,6 +5054,38 @@ local function FindIconGroup(iconKey, db)
         end
     end
     return "ungrouped"
+end
+
+function CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
+    if not iconKey then return nil end
+
+    local frame = runtime.iconFrames[iconKey]
+    if frame then return frame end
+
+    local db = GetDynamicDB()
+    iconData = iconData or (db.iconData and db.iconData[iconKey])
+    if not iconData then return nil end
+
+    EnsureLoadConditions(iconData)
+    if not IsIconLoadable(iconData) then return nil end
+
+    local groupKey = FindIconGroup(iconKey, db)
+    local settings
+    if groupKey == "ungrouped" or db.ungrouped[iconKey] then
+        db.ungroupedPositions = db.ungroupedPositions or {}
+        db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+        settings = db.ungroupedPositions[iconKey]
+        groupKey = iconKey
+    else
+        settings = GetGroupSettings(groupKey)
+    end
+
+    frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(groupKey, settings))
+    if frame then
+        runtime.iconFrames[iconKey] = frame
+        UpdateDynamicIcon(iconKey)
+    end
+    return frame
 end
 
 function CustomIcons:LoadDynamicIcons()
