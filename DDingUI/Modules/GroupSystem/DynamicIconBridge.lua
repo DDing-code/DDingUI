@@ -71,6 +71,14 @@ local initialized = false
 local layoutSuppressed = false
 local COMBAT_ICON_GRACE_SECONDS = 1.5
 local hiddenCDMFrames = {}  -- [frame] = cooldownID (CDM 숨김 추적)
+local SUPPRESSED_SPELL_CACHE_TTL = 0.15
+local suppressedSpellCache = nil
+local suppressedSpellCacheAt = 0
+
+local function InvalidateSuppressedSpellCache()
+    suppressedSpellCache = nil
+    suppressedSpellCacheAt = 0
+end
 
 local function SafeNumber(value)
     if value == nil then return nil end
@@ -682,6 +690,11 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
         if not initialized then return {} end
     end
 
+    local now = GetTime and GetTime() or 0
+    if suppressedSpellCache and (now - suppressedSpellCacheAt) <= SUPPRESSED_SPELL_CACHE_TTL then
+        return suppressedSpellCache
+    end
+
     local db = GetDynamicDB()
     if not db then return {} end
 
@@ -735,7 +748,13 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
         end
     end
 
+    suppressedSpellCache = suppressed
+    suppressedSpellCacheAt = now
     return suppressed
+end
+
+function DynamicIconBridge:InvalidateSuppressedSpellCache()
+    InvalidateSuppressedSpellCache()
 end
 
 -- CustomIcons 그룹 목록 반환 (GroupSystem 동기화용)
