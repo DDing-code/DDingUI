@@ -664,24 +664,26 @@ local function RestoreStaleBuffFrame(icon)
 end
 
 local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
-    if not (icon and icon.IsShown and icon:IsShown()) then
+    if not icon then
         return false
     end
 
     if viewerName ~= "BuffIconCooldownViewer" then
+        if not (icon.IsShown and icon:IsShown()) then
+            return false
+        end
         return true
     end
 
-    local hasAura = BuffFrameHasPlayerAura(icon)
-    if hasAura ~= nil then
-        return hasAura
+    if icon.IsShown and icon:IsShown() then
+        return true
     end
 
-    if icon._ddCDMActive == false then
-        return false
+    if icon.cooldownInfo then
+        return true
     end
 
-    return true
+    return false
 end
 
 -- ============================================================
@@ -699,12 +701,7 @@ if not FrameController._activeStateHooked then
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             -- CDM이 active → true, inactive → false
             -- IsShown()이 아닌 CDM 내부 상태를 반영
-            local hasAura = BuffFrameHasPlayerAura(frame)
-            if hasAura ~= nil then
-                frame._ddCDMActive = hasAura
-            else
-                frame._ddCDMActive = frame:IsShown()
-            end
+            frame._ddCDMActive = ShouldIncludeCooldownViewerFrame(frame, "BuffIconCooldownViewer")
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -1070,13 +1067,7 @@ function FrameController:ScanCDMViewers()
                             icon:HookScript("OnShow", function(self)
                                 if self._ddSuppressed then self:SetAlpha(0); return end
                                 if self._ddCDMStaleBuff then
-                                    local hasAura = BuffFrameHasPlayerAura(self)
-                                    if hasAura == true then
-                                        RestoreStaleBuffFrame(self)
-                                    else
-                                        SuppressStaleBuffFrame(self)
-                                        return
-                                    end
+                                    RestoreStaleBuffFrame(self)
                                 end
                                 if not FrameController.initialized then return end
                                 -- managed 프레임 즉시 복원 (Essential 뷰어는 Layout 없이 Show만 호출할 수 있음)
@@ -1110,13 +1101,7 @@ function FrameController:ScanCDMViewers()
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
                                 if self._ddCDMStaleBuff then
-                                    local hasAura = BuffFrameHasPlayerAura(self)
-                                    if hasAura == true then
-                                        RestoreStaleBuffFrame(self)
-                                    else
-                                        SuppressStaleBuffFrame(self)
-                                        return
-                                    end
+                                    RestoreStaleBuffFrame(self)
                                 end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
