@@ -3269,6 +3269,9 @@ local function UpdateAuraIcon(iconFrame, iconData)
             iconFrame.count:Hide()
         end
 
+        iconFrame._ddManagedAuraExpired = nil
+        iconFrame._ddCombatVisible = nil
+        iconFrame._ddCombatKeepAlive = nil
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
         iconFrame.icon:SetAlpha(1.0)
@@ -3281,14 +3284,21 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame.cooldown:Clear()
         iconFrame.cooldown:Hide()
         iconFrame.count:Hide()
+        iconFrame._ddTimedAuraActiveUntil = nil
+        iconFrame._ddAuraActiveUntil = nil
+        iconFrame._ddLastDynamicActiveAt = nil
+        iconFrame._ddLastAuraActiveAt = nil
+        iconFrame._wasVisibleInGroup = nil
+        iconFrame._auraWasActive = false
 
         if allowDesat then
             iconFrame.icon:SetDesaturated(true)
         else
             iconFrame.icon:SetDesaturated(false)
         end
-        if iconFrame._ddIsManaged and iconFrame._ddManagedAuraExpired then
-            iconFrame.icon:SetAlpha(0)
+        if iconFrame._ddIsManaged then
+            iconFrame._ddManagedAuraExpired = true
+            CustomIcons.SuppressExpiredIconVisual(iconFrame)
         else
             iconFrame.icon:SetAlpha(1.0)
         end
