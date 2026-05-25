@@ -9,6 +9,7 @@ if not Lib then return end
 local C    = Lib.Colors
 local S    = Lib.Spacing
 local F    = Lib.Font
+local Motion = Lib.Motion
 local T    = Lib.Tokens
 local PP   = Lib.PP
 local SOLID = Lib.Textures and Lib.Textures.flat or "Interface\\Buttons\\WHITE8x8"
@@ -123,12 +124,12 @@ end
 ------------------------------------------------------
 -- CreateButton
 ------------------------------------------------------
---- Standard button with hover & click flash.
+--- Standard button with smooth hover & click flash.
 --- @param parent Frame
 --- @param addonName string
 --- @param text string
 --- @param onClick function(self)
---- @param opts table|nil { width, height, disabled }
+--- @param opts table|nil { width, height, disabled, hoverMotion, motion, flash }
 --- @return Frame
 function Lib.CreateButton(parent, addonName, text, onClick, opts)
     opts = opts or {}
@@ -143,20 +144,56 @@ function Lib.CreateButton(parent, addonName, text, onClick, opts)
     label:SetText(text)
     btn.label = label
 
-    -- hover
-    btn:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(u(C.bg.hover))
-    end)
-    btn:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(u(C.bg.input))
-    end)
+    local hoverMotion
+    if Motion and opts.hoverMotion ~= false then
+        hoverMotion = Motion.ButtonHover(btn, {
+            normalBg = opts.normalBg or C.bg.input,
+            hoverBg = opts.hoverBg or C.bg.hover,
+            normalBorder = opts.normalBorder or C.border.default,
+            hoverBorder = opts.hoverBorder or { from[1], from[2], from[3], opts.hoverBorderAlpha or 0.65 },
+            text = label,
+            normalText = opts.normalText or C.text.normal,
+            hoverText = opts.hoverText or C.text.highlight,
+            duration = opts.hoverDuration or 0.10,
+            bind = true,
+        })
+    else
+        btn:SetScript("OnEnter", function(self)
+            self:SetBackdropColor(u(C.bg.hover))
+        end)
+        btn:SetScript("OnLeave", function(self)
+            self:SetBackdropColor(u(C.bg.input))
+        end)
+    end
 
     -- click flash
     btn:SetScript("OnMouseDown", function(self)
+        if Motion and hoverMotion then Motion.Stop(self, "buttonHover") end
         self:SetBackdropColor(from[1], from[2], from[3], 0.6)
+        if Motion and opts.motion == true then
+            self._ddslMotionBaseScale = self._ddslMotionBaseScale or self:GetScale() or 1
+            Motion.Press(self, { baseScale = self._ddslMotionBaseScale })
+        end
     end)
     btn:SetScript("OnMouseUp", function(self)
-        self:SetBackdropColor(u(C.bg.input))
+        if hoverMotion then
+            hoverMotion:SetTarget((self.IsMouseOver and self:IsMouseOver()) and 1 or 0)
+        else
+            self:SetBackdropColor(u(C.bg.input))
+        end
+        if Motion then
+            if opts.motion == true then
+                self._ddslMotionBaseScale = self._ddslMotionBaseScale or self:GetScale() or 1
+                Motion.Release(self, { baseScale = self._ddslMotionBaseScale })
+            end
+            if opts.flash ~= false then
+                Motion.EdgeFlash(self, from[1], from[2], from[3], {
+                    thickness = opts.flashThickness or 2,
+                    alpha = opts.flashAlpha or 0.75,
+                    duration = opts.flashDuration or 0.28,
+                })
+            end
+        end
     end)
 
     if onClick then btn:SetScript("OnClick", onClick) end
@@ -760,7 +797,13 @@ function Lib.CreateTitleBar(parent, addonName, title, version, opts)
         closeText:SetTextColor(u(C.text.dim))
     end)
     closeBtn:SetScript("OnClick", function()
-        parent:Hide()
+        if parent.HideAnimated then
+            parent:HideAnimated()
+        elseif Motion then
+            Motion.PanelClose(parent)
+        else
+            parent:Hide()
+        end
     end)
 
     bar.accentLine = accentLine
@@ -1034,7 +1077,11 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     local panelName = "DDingUI_" .. addonName .. "_Panel"
     local existingFrame = _G[panelName]
     if existingFrame then
-        existingFrame:Show()
+        if existingFrame.ShowAnimated then
+            existingFrame:ShowAnimated()
+        else
+            existingFrame:Show()
+        end
         return existingFrame._panelResult or { frame = existingFrame }
     end
     local frame = CreateFrame("Frame", panelName, UIParent, "BackdropTemplate")
@@ -1042,6 +1089,29 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     ApplyBackdrop(frame, C.bg.main, { 0, 0, 0, 1 })
+    frame._ddslMotionBaseScale = frame:GetScale() or 1
+
+    local function MotionOpts(motionOpts)
+        motionOpts = motionOpts or {}
+        motionOpts.baseScale = motionOpts.baseScale or frame._ddslMotionBaseScale
+        return motionOpts
+    end
+
+    function frame:ShowAnimated(motionOpts)
+        if Motion then
+            Motion.PanelOpen(self, MotionOpts(motionOpts))
+        else
+            self:Show()
+        end
+    end
+
+    function frame:HideAnimated(motionOpts)
+        if Motion then
+            Motion.PanelClose(self, MotionOpts(motionOpts))
+        else
+            self:Hide()
+        end
+    end
 
     -- draggable
     frame:SetMovable(true)

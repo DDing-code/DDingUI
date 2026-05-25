@@ -2,7 +2,7 @@
 -- DDingUI_StyleLib :: Core
 -- Namespace, accent preset registration, addon registry
 ------------------------------------------------------
-local MAJOR, MINOR = "DDingUI-StyleLib-1.0", 1
+local MAJOR, MINOR = "DDingUI-StyleLib-1.0", 3
 local lib, oldMinor = LibStub:NewLibrary(MAJOR, MINOR)
 if not lib then return end
 

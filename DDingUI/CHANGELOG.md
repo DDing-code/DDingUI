@@ -2,6 +2,35 @@
 
 ---
 
+## v1.2.9
+
+_Release date: 2026-05-26_
+_Scope: Git changes from v1.2.8 through this release._
+
+### English Patch Notes
+- Added cast bar channel tick markers and timing indicators for supported spells.
+- Improved CDM spell management so restored, preset, and newly learned spells keep their intended order across rescans and talent changes.
+- Stabilized custom buff shortcuts, preset icons, and unassigned buff handling so duplicate, question-mark, or incorrectly listed buff icons are avoided.
+- Improved Bloodlust/Heroism-style and Time Spiral-style timed buff tracking, including debuff seeding, icon texture selection, active-state linking, and combat persistence.
+- Fixed custom buff rendering in CDM groups, including grouped text option inheritance, hidden-source suppression, duplicate buff filtering, expired aura cleanup, and stale transparency states.
+- Reworked custom item and trinket cooldown tracking around targeted item/slot watchers so healthstones, potions, PvP trinkets, equipped trinkets, and slot icons update without full custom icon churn.
+- Improved PvP and instance transition recovery so CDM viewers keep order, visibility, alpha, and cooldown state when entering or leaving instances.
+- Reduced custom icon runtime pressure by removing stale cache paths and trimming local declarations that could trigger Lua local-variable warnings.
+- Added shared UI motion helpers for smoother options-panel and button feedback.
+
+### Korean Patch Notes
+- 지원 주문의 시전바 채널 틱 표시와 타이밍 표시를 추가했습니다.
+- CDM 스펠 관리 안정성을 개선해 복원된 스펠, 프리셋 스펠, 새로 배운 스펠이 재스캔과 특성 변경 후에도 의도한 순서를 유지하도록 했습니다.
+- 커스텀 강화효과 바로가기, 프리셋 아이콘, 할당되지 않은 강화효과 처리를 안정화해 중복 아이콘, 물음표 아이콘, 잘못 분류된 강화효과가 나오지 않도록 했습니다.
+- 피의 욕망 계열 및 시간의 와류 계열 시간제 강화효과 추적을 개선했습니다. 디버프 기반 시드, 아이콘 텍스처 선택, 활성 상태 연결, 전투 중 유지 처리를 보강했습니다.
+- CDM 그룹 안의 커스텀 강화효과 렌더링을 수정했습니다. 그룹 텍스트 옵션 상속, 숨김 처리, 중복 필터링, 만료 오라 정리, 오래 남는 투명도 상태를 보정했습니다.
+- 커스텀 사용 아이템과 장신구 쿨다운 추적을 item/slot 단위 감시 방식으로 재구성했습니다. 생명석, 물약, PvP 장신구, 장착 장신구, 슬롯 아이콘이 전체 커스텀 아이콘 갱신 없이 필요한 대상만 갱신됩니다.
+- PvP 및 인스턴스 입퇴장 후 CDM 뷰어의 순서, 표시 상태, 투명도, 쿨다운 상태가 유지되도록 복구 흐름을 개선했습니다.
+- 오래된 캐시 경로와 과도한 local 선언을 줄여 커스텀 아이콘 런타임 부담과 Lua local-variable 경고 가능성을 낮췄습니다.
+- 옵션 패널과 버튼 피드백을 더 부드럽게 만드는 공용 UI 모션 헬퍼를 추가했습니다.
+
+---
+
 ## v1.2.8
 
 _Scope: Git changes from the v1.2.7.2 development line through this release._

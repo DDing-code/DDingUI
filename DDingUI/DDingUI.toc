@@ -2,7 +2,7 @@
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fCooldownManager|r
 ## Notes: Lightweight Resource Bar & Cooldown Manager
 ## Author: DDing
-## Version: 1.2.8
+## Version: 1.2.9
 ## SavedVariables: DDingUIDB
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, DDingUI_Controller
 ## IconTexture: Interface\AddOns\DDingUI\Media\logo.tga
@@ -15,7 +15,8 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
 Libs\DDingUI_StyleLib\Core.lua
 Libs\DDingUI_StyleLib\Colors.lua
 Libs\DDingUI_StyleLib\Gradient.lua
-# StyleLib v2 Foundation (AF 패턴 차용)
+Libs\DDingUI_StyleLib\Motion.lua
+# StyleLib v2 Foundation
 Libs\DDingUI_StyleLib\TableUtils.lua
 Libs\DDingUI_StyleLib\Delay.lua
 Libs\DDingUI_StyleLib\ColorNames.lua
