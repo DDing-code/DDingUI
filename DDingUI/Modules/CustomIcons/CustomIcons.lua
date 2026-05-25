@@ -2148,25 +2148,11 @@ local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID, spellI
     if not start and not observed then
         start, duration, safeSpan, observed = ReadItemCooldownSpan(itemID)
     end
-    if not start and not observed then
-        start, duration, safeSpan, observed = ReadSpellCooldownSpan(spellID)
-    end
     if start and duration then
-        if safeSpan then
-            StoreCooldownSpan(iconFrame, prefix, start, duration)
-        end
         return start, duration, true, safeSpan
     end
-    if observed then
-        ClearCooldownSpan(iconFrame, prefix)
-        return nil, nil, false, false
-    end
 
-    start, duration = GetStoredCooldownSpan(iconFrame, prefix)
-    if start and duration then
-        return start, duration, true, true
-    end
-
+    ClearCooldownSpan(iconFrame, prefix)
     return nil, nil, false, false
 end
 
@@ -2257,29 +2243,6 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
     return ok == true
 end
 
-local function ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, spellID)
-    if not spellID then return false end
-
-    local start, duration, safeSpan = ReadSpellCooldownSpan(spellID)
-    if start and duration then
-        if safeSpan then
-            StoreCooldownSpan(iconFrame, spanPrefix, start, duration)
-        end
-        if ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan) then
-            return true
-        end
-    end
-
-    if runtime.ApplyCooldownDurationObject then
-        local durationObject = GetRealSpellCooldownDuration(spellID)
-        if runtime.ApplyCooldownDurationObject(iconFrame, durationObject) then
-            return true
-        end
-    end
-
-    return false
-end
-
 local function ApplyInventorySlotCooldown(iconFrame, durObjKey, slotID)
     local spanPrefix = durObjKey
     if durObjKey == "_slotDurObj" then
@@ -2289,44 +2252,14 @@ local function ApplyInventorySlotCooldown(iconFrame, durObjKey, slotID)
     end
 
     local start, duration, safeSpan = ReadInventoryCooldownSpan(slotID)
-    local safeItemID = CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
-
-    if not start and safeItemID then
-        start, duration, safeSpan = ReadItemCooldownSpan(safeItemID)
-    end
 
     if start and duration then
-        if safeSpan then
-            StoreCooldownSpan(iconFrame, spanPrefix, start, duration)
-        end
         if ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan) then
             return true
         end
     end
 
-    if safeItemID then
-        local mappedSpellID = ITEM_SPELL_MAP[safeItemID]
-        local spellID = ResolveUsableItemSpellID(iconFrame, safeItemID, nil)
-        if ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, spellID) then
-            return true
-        end
-        if mappedSpellID ~= spellID
-            and ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, mappedSpellID)
-        then
-            return true
-        end
-        if (safeItemID == 255327 or safeItemID == 255616)
-            and ApplySpellCooldownFallback(iconFrame, durObjKey, spanPrefix, 42292)
-        then
-            return true
-        end
-    end
-
-    start, duration = GetStoredCooldownSpan(iconFrame, spanPrefix)
-    if start and duration and ApplyCooldownSpan(iconFrame, durObjKey, start, duration, true) then
-        return true
-    end
-
+    ClearCooldownSpan(iconFrame, spanPrefix)
     if iconFrame and iconFrame.cooldown then
         iconFrame.cooldown:Clear()
     end
@@ -2408,15 +2341,15 @@ local function UpdateItemIcon(iconFrame, iconData)
     end
     SetStableIconTexture(iconFrame, itemTexture, true)
 
-    -- [CDM 패턴] 아이템 쿨다운 (GetItemCooldown 최우선 -> GetSpellCooldownDuration 폴백)
-    local itemSpellID = ResolveUsableItemSpellID(iconFrame, activeItemID, settings)
+    -- [CDM] Item cooldown uses item/equipment APIs only.
     EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
 
+    local itemSpellID = nil
     local desatDurationObject = nil
     local desatSpellID = nil
     local itemCooldownActive = false
-    local itemCombatLocked = IsItemCombatLocked(activeItemID)
-    -- GetItemCooldown can briefly return 0 in combat; keep a cached valid span as fallback.
+    local itemCombatLocked = false
+    -- Direct item cooldown path; stale stored spans are cleared when no cooldown is reported.
     if itemSpellID then
         -- 스펠 ID가 매핑된 아이템: CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
         local realDur = GetRealSpellCooldownDuration(itemSpellID)
@@ -2458,8 +2391,10 @@ local function UpdateItemIcon(iconFrame, iconData)
     -- 쿨다운 프레임 Show/Hide
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
-    else
+    elseif itemCooldownActive then
         iconFrame.cooldown:Show()
+    else
+        iconFrame.cooldown:Hide()
     end
 
     -- 아이템 카운트 표시
@@ -2538,7 +2473,6 @@ local function UpdateItemIcon(iconFrame, iconData)
         iconFrame._cdmDesatUpdater:Hide()
     end
 
-    iconFrame.icon:SetAlpha(1.0)
     iconFrame.icon:SetAlpha(1.0)
 end
 
