@@ -1965,13 +1965,6 @@ local function ResolveUsableItemSpellID(iconFrame, itemID, settings)
     return itemSpellID
 end
 
-local function StoreCooldownSpan(iconFrame, prefix, start, duration)
-    if not iconFrame or not prefix or not start or not duration then return end
-    iconFrame[prefix .. "Start"] = start
-    iconFrame[prefix .. "Duration"] = duration
-    iconFrame[prefix .. "Until"] = start + duration
-end
-
 local function ClearCooldownSpan(iconFrame, prefix)
     if not iconFrame or not prefix then return end
     iconFrame[prefix .. "Start"] = nil
@@ -1988,37 +1981,9 @@ local function EnsureCooldownSpanOwner(iconFrame, prefix, ownerID)
     end
 end
 
-local function GetStoredCooldownSpan(iconFrame, prefix)
-    if not iconFrame or not prefix then return nil, nil end
-
-    local expiresAt = SafeNumber(iconFrame[prefix .. "Until"])
-    local now = GetTime and GetTime() or 0
-    if expiresAt and expiresAt > now then
-        return iconFrame[prefix .. "Start"], iconFrame[prefix .. "Duration"]
-    end
-
-    ClearCooldownSpan(iconFrame, prefix)
-    return nil, nil
-end
-
 local function GetRealSpellCooldownDuration(spellID)
-    if not spellID or not C_Spell then return nil, false end
-
-    local isRealCooldown = false
-    if C_Spell.GetSpellCooldown then
-        pcall(function()
-            local cdInfo = C_Spell.GetSpellCooldown(spellID)
-            if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
-                isRealCooldown = true
-            end
-        end)
-    end
-
-    if not isRealCooldown then return nil, false end
-    if C_Spell.GetSpellCooldownDuration then
-        return C_Spell.GetSpellCooldownDuration(spellID), true
-    end
-    return nil, false
+    if not spellID or not (C_Spell and C_Spell.GetSpellCooldownDuration) then return nil, false end
+    return C_Spell.GetSpellCooldownDuration(spellID), true
 end
 
 local function IsCooldownEnabled(enable)
@@ -2068,11 +2033,11 @@ local function ReadItemCooldownSpan(itemID)
     if not itemID then return nil, nil, false, false end
 
     local function readWith(getter)
-        local start, duration, enable
+        local start, duration
         pcall(function()
-            start, duration, enable = getter(itemID)
+            start, duration = getter(itemID)
         end)
-        return NormalizeCooldownSpan(start, duration, enable)
+        return NormalizeCooldownSpan(start, duration, nil)
     end
 
     if C_Container and C_Container.GetItemCooldown then
@@ -2090,42 +2055,6 @@ local function ReadItemCooldownSpan(itemID)
         if start then return start, duration, safeSpan end
         if observed then return nil, nil, false, true end
     end
-    return nil, nil, false, false
-end
-
-local function ReadSpellCooldownSpan(spellID)
-    if not spellID then return nil, nil, false, false end
-
-    if C_Spell and C_Spell.GetSpellCooldown then
-        local cdInfo
-        pcall(function()
-            cdInfo = C_Spell.GetSpellCooldown(spellID)
-        end)
-        if cdInfo then
-            local isGCD = false
-            pcall(function()
-                isGCD = cdInfo.isOnGCD == true
-            end)
-            if not isGCD then
-                local enable = 1
-                pcall(function()
-                    if cdInfo.isEnabled == false then enable = 0 end
-                end)
-                local start, duration, safeSpan = NormalizeCooldownSpan(cdInfo.startTime or cdInfo.start, cdInfo.duration, enable)
-                if start then return start, duration, safeSpan end
-                return nil, nil, false, true
-            end
-        end
-    end
-
-    if GetSpellCooldown then
-        local start, duration, enable
-        pcall(function()
-            start, duration, enable = GetSpellCooldown(spellID)
-        end)
-        return NormalizeCooldownSpan(start, duration, enable)
-    end
-
     return nil, nil, false, false
 end
 
@@ -2341,15 +2270,14 @@ local function UpdateItemIcon(iconFrame, iconData)
     end
     SetStableIconTexture(iconFrame, itemTexture, true)
 
-    -- [CDM] Item cooldown uses item/equipment APIs only.
+    -- [CDM] Item cooldown uses item cooldown first, then mapped spell duration.
     EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
 
-    local itemSpellID = nil
+    local itemSpellID = ResolveUsableItemSpellID(iconFrame, activeItemID, settings)
     local desatDurationObject = nil
     local desatSpellID = nil
     local itemCooldownActive = false
-    local itemCombatLocked = false
-    -- Direct item cooldown path; stale stored spans are cleared when no cooldown is reported.
+    local itemCombatLocked = IsItemCombatLocked(activeItemID)
     if itemSpellID then
         -- 스펠 ID가 매핑된 아이템: CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
         local realDur = GetRealSpellCooldownDuration(itemSpellID)
@@ -2418,6 +2346,9 @@ local function UpdateItemIcon(iconFrame, iconData)
     local itemIsOnRealCD = false
 
     if itemCombatLocked then
+        if iconFrame.cooldown then
+            iconFrame.cooldown:Clear()
+        end
         if allowCooldownDesat or allowUnusableDesat then desatVal = 1 end
     elseif itemCooldownActive then
         if allowCooldownDesat then desatVal = 1 end
