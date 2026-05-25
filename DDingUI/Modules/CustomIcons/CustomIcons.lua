@@ -2308,13 +2308,17 @@ local function UpdateItemIcon(iconFrame, iconData)
                 iconFrame.cooldown:Clear()
             end
         elseif realDur then
-            iconFrame.cooldown:SetCooldownFromDurationObject(realDur)
             pcall(function()
                 local cdInfo = C_Spell.GetSpellCooldown(itemSpellID)
                 if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
                     itemSpellCooldownActive = true
                 end
             end)
+            if itemSpellCooldownActive then
+                iconFrame.cooldown:SetCooldownFromDurationObject(realDur)
+            else
+                iconFrame.cooldown:Clear()
+            end
         else
             iconFrame.cooldown:Clear()
         end
