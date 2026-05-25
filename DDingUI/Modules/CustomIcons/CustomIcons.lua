@@ -2289,6 +2289,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     local desatDurationObject = nil
     local desatSpellID = nil
     local itemCooldownActive = false
+    local itemSpellCooldownActive = false
     local itemCombatLocked = IsItemCombatLocked(activeItemID)
     if itemSpellID then
         -- 스펠 ID가 매핑된 아이템: CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
@@ -2308,7 +2309,12 @@ local function UpdateItemIcon(iconFrame, iconData)
             end
         elseif realDur then
             iconFrame.cooldown:SetCooldownFromDurationObject(realDur)
-            itemCooldownActive = true
+            pcall(function()
+                local cdInfo = C_Spell.GetSpellCooldown(itemSpellID)
+                if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
+                    itemSpellCooldownActive = true
+                end
+            end)
         else
             iconFrame.cooldown:Clear()
         end
@@ -2331,7 +2337,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     -- 쿨다운 프레임 Show/Hide
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
-    elseif itemCooldownActive then
+    elseif itemCooldownActive or itemSpellCooldownActive then
         iconFrame.cooldown:Show()
     else
         iconFrame.cooldown:Hide()
