@@ -1868,16 +1868,6 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         end
     end
 
-    if timedConfig then
-        if iconFrame then
-            iconFrame._ddTimedAuraActiveUntil = nil
-            iconFrame._ddAuraActiveUntil = nil
-            iconFrame._auraWasActive = false
-            iconFrame._ddManagedAuraExpired = true
-        end
-        return nil
-    end
-
     local candidates = BuildAuraCandidateIDs(iconFrame, iconData)
     for _, spellID in ipairs(candidates) do
         local auraData
@@ -1928,6 +1918,13 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
             AdoptCustomTimedAuraFromAura(iconFrame, iconData, auraData, GetAuraSpellIDSafe(auraData))
             return auraData
         end
+    end
+
+    if timedConfig and iconFrame then
+        iconFrame._ddTimedAuraActiveUntil = nil
+        iconFrame._ddAuraActiveUntil = nil
+        iconFrame._auraWasActive = false
+        iconFrame._ddManagedAuraExpired = true
     end
 
     return nil
@@ -3163,7 +3160,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddAuraActiveUntil = nil
     end
 
-    local activeTexture = auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID"))
+    local activeTexture = GetStoredIconTexture(iconData)
+        or (auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID")))
     if activeTexture then
         SetStableIconTexture(iconFrame, activeTexture, true)
     end
@@ -3207,13 +3205,18 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddManagedAuraExpired = nil
         iconFrame._ddCombatVisible = nil
         iconFrame._ddCombatKeepAlive = nil
+        local managedAlpha = 1
+        if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
+            managedAlpha = iconFrame._groupSettings.groupAlpha
+        end
+        if iconFrame.SetAlpha then
+            iconFrame:SetAlpha(managedAlpha)
+            iconFrame._ddLastGroupAlpha = managedAlpha
+        end
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
         iconFrame.icon:SetAlpha(1.0)
-        -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
-        if not iconFrame._ddIsManaged then
-            iconFrame:Show()
-        end
+        iconFrame:Show()
     else
         -- 비활성: 쿨다운 클리어 + 숨김
         iconFrame.cooldown:Clear()
@@ -3566,12 +3569,33 @@ local function HandleCustomTimedAuraEvent(event, ...)
         if unit ~= "player" then return false end
         spellID = SafeNumber(spellID)
         local itemLocked = MarkItemCombatLockoutFromSpell(spellID)
-        local config = CUSTOM_TIMED_AURA_CONFIGS[spellID]
-        if config and config.trigger == "spellcast" then
-            local _, changed = ActivateCustomTimedAura(spellID, config)
-            return changed or itemLocked
+        local changed = false
+        local activated = {}
+        local db = GetDynamicDB()
+        local iconDataByKey = db and db.iconData
+        if spellID and type(iconDataByKey) == "table" then
+            for _, iconData in pairs(iconDataByKey) do
+                if type(iconData) == "table" and iconData.type == "aura" then
+                    local config = GetCustomTimedAuraConfig(iconData)
+                    local iconSpellID = SafeNumber(iconData.id)
+                    local stateID = config and SafeNumber(config.stateID)
+                    if config and config.trigger == "spellcast"
+                        and (iconSpellID == spellID or stateID == spellID)
+                        and not activated[stateID or spellID]
+                    then
+                        activated[stateID or spellID] = true
+                        local _, didChange = ActivateCustomTimedAura(stateID or spellID, config, nil, iconSpellID or spellID)
+                        changed = didChange or changed
+                    end
+                end
+            end
         end
-        return itemLocked
+        local config = CUSTOM_TIMED_AURA_CONFIGS[spellID]
+        if config and config.trigger == "spellcast" and not activated[spellID] then
+            local _, didChange = ActivateCustomTimedAura(spellID, config)
+            changed = didChange or changed
+        end
+        return changed or itemLocked
     end
 
     if event == "UNIT_AURA" then
