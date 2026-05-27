@@ -999,6 +999,133 @@ NormalizePresetIconDB = function(db)
         end
     end
 
+    local spellAssignments = profile and profile.groupSystem and profile.groupSystem.spellAssignments
+    if type(spellAssignments) == "table" and type(gsGroups) == "table" then
+        local function ResolvePresetAssignment(spellName)
+            if type(spellName) ~= "string" then return nil end
+            local rawName = spellName:gsub("^buff_", "")
+            for presetID in pairs(CUSTOM_TIMED_AURA_CONFIGS) do
+                local ok, info = pcall(function()
+                    return C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(presetID)
+                end)
+                if ok and info and info.name and (info.name == rawName or info.name == spellName) then
+                    return presetID
+                end
+            end
+            return nil
+        end
+
+        local function EnsureAssignmentSourceGroup(groupName, groupSettings)
+            local sourceKey = groupSettings and groupSettings.sourceGroupKey
+            if sourceKey and db.groups[sourceKey] then return sourceKey, db.groups[sourceKey] end
+
+            sourceKey = BuildUniqueDBKey("group_", db.groups)
+            db.groups[sourceKey] = {
+                enabled = groupSettings and groupSettings.enabled ~= false,
+                name = groupSettings and (groupSettings.name or groupName) or groupName,
+                linkedCDMGroup = groupName,
+                icons = {},
+                settings = {
+                    anchorFrom = "TOPLEFT",
+                    anchorTo = "TOPLEFT",
+                    growthDirection = "RIGHT",
+                    rowGrowthDirection = "DOWN",
+                    spacing = 5,
+                    maxIconsPerRow = 10,
+                },
+            }
+            if groupSettings then
+                groupSettings.sourceGroupKey = sourceKey
+            end
+            cdmSourceGroups[groupName] = sourceKey
+            changed = true
+            return sourceKey, db.groups[sourceKey]
+        end
+
+        local function FindPresetIconInGroup(group, presetID)
+            if type(group) ~= "table" or type(group.icons) ~= "table" then return nil end
+            local stateID = AURA_EQUIVALENT_IDS[presetID] and 2825 or presetID
+            for _, iconKey in ipairs(group.icons) do
+                local iconData = iconDataDB[iconKey]
+                local iconID = iconData and tonumber(iconData.id)
+                if iconID and AURA_EQUIVALENT_IDS[iconID] then
+                    iconID = 2825
+                end
+                if iconData and iconData.type == "aura" and iconID == stateID then
+                    return iconKey
+                end
+            end
+            return nil
+        end
+
+        local function ReplaceAssignmentToken(groupSettings, spellName, iconKey)
+            if type(groupSettings) ~= "table" or not spellName or not iconKey then return false end
+            local oldToken = "cdm:" .. tostring(spellName)
+            local newToken = "dyn:" .. tostring(iconKey)
+            groupSettings.iconOrder = type(groupSettings.iconOrder) == "table" and groupSettings.iconOrder or {}
+            local replaced = false
+            local hasNew = false
+            for i = #groupSettings.iconOrder, 1, -1 do
+                local token = groupSettings.iconOrder[i]
+                if token == newToken then
+                    if hasNew then
+                        table.remove(groupSettings.iconOrder, i)
+                    else
+                        hasNew = true
+                    end
+                elseif token == oldToken then
+                    if not hasNew and not replaced then
+                        groupSettings.iconOrder[i] = newToken
+                        hasNew = true
+                    else
+                        table.remove(groupSettings.iconOrder, i)
+                    end
+                    replaced = true
+                end
+            end
+            if not hasNew then
+                groupSettings.iconOrder[#groupSettings.iconOrder + 1] = newToken
+            end
+            return true
+        end
+
+        for spellName, groupName in pairs(spellAssignments) do
+            local groupSettings = type(groupName) == "string" and gsGroups[groupName]
+            local isBuffGroup = groupName == "Buffs" or (type(groupSettings) == "table" and groupSettings.groupCategory == "buff")
+            local presetID = isBuffGroup and ResolvePresetAssignment(spellName)
+            local presetConfig = presetID and CUSTOM_TIMED_AURA_CONFIGS[AURA_EQUIVALENT_IDS[presetID] and 2825 or presetID]
+            if presetID and presetConfig and groupSettings then
+                local sourceKey, sourceGroup = EnsureAssignmentSourceGroup(groupName, groupSettings)
+                local iconKey = FindPresetIconInGroup(sourceGroup, presetID)
+                if not iconKey then
+                    iconKey = BuildUniqueDBKey("icon_", iconDataDB)
+                    local stateID = AURA_EQUIVALENT_IDS[presetID] and 2825 or presetID
+                    local texture = CUSTOM_AURA_ICON_TEXTURES[stateID] or ResolveSpellTexture(presetID)
+                    iconDataDB[iconKey] = {
+                        key = iconKey,
+                        type = "aura",
+                        id = presetID,
+                        settings = {
+                            targetCDMGroup = groupName,
+                            customAuraDuration = presetConfig.duration,
+                            customAuraTrigger = presetConfig.trigger,
+                            iconTexture = texture,
+                            auraIcon = texture,
+                            auraAliases = stateID == 2825 and BLOODLUST_AURA_IDS or nil,
+                        },
+                    }
+                    EnsureIconSettings(iconDataDB[iconKey])
+                    EnsureLoadConditions(iconDataDB[iconKey])
+                    EnsureStoredIconTexture(iconDataDB[iconKey])
+                    AddIconToGroup(sourceGroup, iconKey)
+                end
+                spellAssignments[spellName] = nil
+                ReplaceAssignmentToken(groupSettings, spellName, iconKey)
+                changed = true
+            end
+        end
+    end
+
     return changed
 end
 

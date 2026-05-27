@@ -293,17 +293,11 @@ function SP:Initialize()
                 local specID = GetCurrentSpecID()
                 if specID then
                     SP.lastSpecID = specID
-                    if arg2 then
-                        SP:SaveCurrentSpec()
-                    elseif arg1 then
-                        if DDingUI.db.profile.specData and DDingUI.db.profile.specData[specID] then
-                            SP:LoadSpec(specID)
-                            C_Timer.After(0.1, function()
-                                if DDingUI.RefreshAll then DDingUI:RefreshAll() end
-                            end)
-                        else
-                            SP:SaveCurrentSpec()
-                        end
+                    if DDingUI.db.profile.specData and DDingUI.db.profile.specData[specID] then
+                        SP:LoadSpec(specID)
+                        C_Timer.After(0.1, function()
+                            if DDingUI.RefreshAll then DDingUI:RefreshAll() end
+                        end)
                     else
                         SP:SaveCurrentSpec()
                     end
