@@ -1721,16 +1721,6 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         end
     end
 
-    if timedConfig then
-        if iconFrame then
-            iconFrame._ddTimedAuraActiveUntil = nil
-            iconFrame._ddAuraActiveUntil = nil
-            iconFrame._auraWasActive = false
-            iconFrame._ddManagedAuraExpired = true
-        end
-        return nil
-    end
-
     local candidates = BuildAuraCandidateIDs(iconFrame, iconData)
     for _, spellID in ipairs(candidates) do
         local auraData
@@ -1783,6 +1773,12 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         end
     end
 
+    if timedConfig and iconFrame then
+        iconFrame._ddTimedAuraActiveUntil = nil
+        iconFrame._ddAuraActiveUntil = nil
+        iconFrame._auraWasActive = false
+        iconFrame._ddManagedAuraExpired = true
+    end
     return nil
 end
 
@@ -3016,7 +3012,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddAuraActiveUntil = nil
     end
 
-    local activeTexture = auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID"))
+    local activeTexture = GetStoredIconTexture(iconData)
+        or (auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID")))
     if activeTexture then
         SetStableIconTexture(iconFrame, activeTexture, true)
     end
