@@ -3421,12 +3421,33 @@ local function HandleCustomTimedAuraEvent(event, ...)
         if unit ~= "player" then return false end
         spellID = SafeNumber(spellID)
         local itemLocked = MarkItemCombatLockoutFromSpell(spellID)
-        local config = CUSTOM_TIMED_AURA_CONFIGS[spellID]
-        if config and config.trigger == "spellcast" then
-            local _, changed = ActivateCustomTimedAura(spellID, config)
-            return changed or itemLocked
+        local changed = false
+        local activated = {}
+        local db = GetDynamicDB()
+        local iconDataByKey = db and db.iconData
+        if spellID and type(iconDataByKey) == "table" then
+            for _, iconData in pairs(iconDataByKey) do
+                if type(iconData) == "table" and iconData.type == "aura" then
+                    local config = GetCustomTimedAuraConfig(iconData)
+                    local iconSpellID = SafeNumber(iconData.id)
+                    local stateID = config and SafeNumber(config.stateID)
+                    if config and config.trigger == "spellcast"
+                        and (iconSpellID == spellID or stateID == spellID)
+                        and not activated[stateID or spellID]
+                    then
+                        activated[stateID or spellID] = true
+                        local _, didChange = ActivateCustomTimedAura(stateID or spellID, config, nil, iconSpellID or spellID)
+                        changed = didChange or changed
+                    end
+                end
+            end
         end
-        return itemLocked
+        local config = CUSTOM_TIMED_AURA_CONFIGS[spellID]
+        if config and config.trigger == "spellcast" and not activated[spellID] then
+            local _, didChange = ActivateCustomTimedAura(spellID, config)
+            changed = didChange or changed
+        end
+        return changed or itemLocked
     end
 
     if event == "UNIT_AURA" then
