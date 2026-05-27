@@ -730,6 +730,11 @@ function DDingUI:OnProfileChanged(event, db, profileKey)
                     self.Movers:LoadMoverPosition(moverName)
                 end
             end
+            if self.CustomIcons and self.CustomIcons.EnsureCDMSourceGroups then
+                pcall(self.CustomIcons.EnsureCDMSourceGroups, self.CustomIcons)
+            elseif self.CustomIcons and self.CustomIcons.GetDynamicDB then
+                pcall(self.CustomIcons.GetDynamicDB)
+            end
             self:RefreshAll()
         end
     end
@@ -1177,6 +1182,11 @@ function DDingUI:RefreshCustomIcons()
     end
 
     local module = self.CustomIcons
+    if module.EnsureCDMSourceGroups then
+        pcall(module.EnsureCDMSourceGroups, module)
+    elseif module.GetDynamicDB then
+        pcall(module.GetDynamicDB)
+    end
     if module.CreateCustomIconsTrackerFrame then
         module:CreateCustomIconsTrackerFrame()
     end

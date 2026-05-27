@@ -3115,6 +3115,9 @@ local function ScheduleDynamicIconRefresh(iconKey)
         local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
         if hasFrame or attempts >= 6 then
             if poller then poller:Cancel() end
+            if ci and ci.LoadDynamicIcons then
+                ci:LoadDynamicIcons()
+            end
             SoftRefreshDynamicIcons()
         end
     end)

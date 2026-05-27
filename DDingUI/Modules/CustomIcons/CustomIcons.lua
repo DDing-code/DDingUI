@@ -476,8 +476,12 @@ end
 
 local function GetDynamicDB()
     local profile = DDingUI.db.profile
-    profile.dynamicIcons = profile.dynamicIcons or {}
-    local db = profile.dynamicIcons
+    local db = rawget(profile, "dynamicIcons")
+    if type(db) ~= "table" then
+        local defaults = DDingUI.defaults and DDingUI.defaults.profile and DDingUI.defaults.profile.dynamicIcons
+        db = type(defaults) == "table" and CopyStoredValue(defaults) or {}
+        profile.dynamicIcons = db
+    end
 
     db.iconData = db.iconData or {}
     db.ungrouped = db.ungrouped or {}
@@ -5528,18 +5532,32 @@ function CustomIcons:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
     local profile = DDingUI.db and DDingUI.db.profile
     if not profile then return nil end
 
-    profile.groupSystem = profile.groupSystem or {}
-    local gs = profile.groupSystem
-    gs.groups = gs.groups or {}
+    local gs = rawget(profile, "groupSystem")
+    if type(gs) ~= "table" then
+        local defaults = DDingUI.defaults and DDingUI.defaults.profile and DDingUI.defaults.profile.groupSystem
+        gs = type(defaults) == "table" and CopyStoredValue(defaults) or {}
+        profile.groupSystem = gs
+    end
 
-    local groupSettings = gs.groups[groupName]
-    if not groupSettings then
-        groupSettings = {
-            name = displayName or CDM_SOURCE_GROUP_NAMES[groupName] or groupName,
-            enabled = true,
-            groupType = "cdm",
-        }
+    local groupDefaults = DDingUI.defaults
+        and DDingUI.defaults.profile
+        and DDingUI.defaults.profile.groupSystem
+        and DDingUI.defaults.profile.groupSystem.groups
+    if type(gs.groups) ~= "table" then
+        gs.groups = type(groupDefaults) == "table" and CopyStoredValue(groupDefaults) or {}
+    end
+
+    local groupSettings = rawget(gs.groups, groupName)
+    if type(groupSettings) ~= "table" then
+        local defaultGroup = type(groupDefaults) == "table" and groupDefaults[groupName]
+        groupSettings = type(defaultGroup) == "table" and CopyStoredValue(defaultGroup) or {}
         gs.groups[groupName] = groupSettings
+    end
+    if not groupSettings.name then
+        groupSettings.name = displayName or CDM_SOURCE_GROUP_NAMES[groupName] or groupName
+    end
+    if groupSettings.enabled == nil then
+        groupSettings.enabled = true
     end
 
     local db = GetDynamicDB()
@@ -5561,8 +5579,25 @@ function CustomIcons:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
     end
 
     groupSettings.sourceGroupKey = sourceKey
-    groupSettings.groupType = groupSettings.groupType or "cdm"
+    groupSettings.groupType = "cdm"
     return sourceKey
+end
+
+function CustomIcons:EnsureCDMSourceGroups()
+    if not (DDingUI.db and DDingUI.db.profile) then return false end
+
+    GetDynamicDB()
+    local changed = false
+    for _, groupName in ipairs({ "Cooldowns", "Buffs", "Utility" }) do
+        local profile = DDingUI.db.profile
+        local gs = profile and profile.groupSystem
+        local before = gs and gs.groups and gs.groups[groupName] and gs.groups[groupName].sourceGroupKey
+        local sourceKey = self:GetOrCreateSourceGroupForCDMGroup(groupName, CDM_SOURCE_GROUP_NAMES[groupName] or groupName)
+        if sourceKey and sourceKey ~= before then
+            changed = true
+        end
+    end
+    return changed
 end
 
 function CustomIcons:AddIconToCDMGroup(groupName, iconData, displayName)
