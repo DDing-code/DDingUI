@@ -844,12 +844,16 @@ local function BuildDynamicLayoutStateHash()
                 local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
 
                 if isEffectIcon then
+                    local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
                     local active = false
                     if iconData.type == "aura" then
-                        local okActive, activeResult = pcall(IsIconActive, iconKey, iconData, frame, isBuffContext)
-                        active = okActive and activeResult == true
+                        local ci = GetCustomIcons()
+                        if ci and ci.IsCustomTimedAuraIcon and ci:IsCustomTimedAuraIcon(iconData) then
+                            active = ci.GetActiveCustomTimedAuraForIcon and ci:GetActiveCustomTimedAuraForIcon(iconData) ~= nil
+                        else
+                            active = not expiredManagedAura and frame._auraWasActive == true
+                        end
                     else
-                        local expiredManagedAura = frame._ddManagedAuraExpired
                         active = frame._trinketProcWasActive == true
                             or FrameHasLiveEffect(frame, now)
                             or (inCombat and not expiredManagedAura and FrameHadRecentEffect(frame, now))
@@ -1341,7 +1345,7 @@ function DynamicIconBridge:Initialize()
                     self._auraDirty = false
                     if not initialized then return end
                     ScanAndHideCDMBuffs()
-                    self:NotifyIconsChanged(event == "PLAYER_REGEN_ENABLED")
+                    self:NotifyIconsChanged(event == "UNIT_AURA" or event == "PLAYER_REGEN_ENABLED")
                 end)
             end
         end)
