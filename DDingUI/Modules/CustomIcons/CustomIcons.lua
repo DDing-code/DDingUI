@@ -927,19 +927,34 @@ NormalizePresetIconDB = function(db)
 
     local profile = DDingUI.db and DDingUI.db.profile
     local gsGroups = profile and profile.groupSystem and profile.groupSystem.groups
+    local referencedSourceGroups = {}
     local cdmSourceGroups = {}
+    local orderPreferred = {}
 
     if type(gsGroups) == "table" then
         for groupName, groupSettings in pairs(gsGroups) do
             local sourceKey = type(groupSettings) == "table" and groupSettings.sourceGroupKey
             if sourceKey then
+                referencedSourceGroups[sourceKey] = true
                 if type(groupName) == "string" then
                     cdmSourceGroups[groupName] = sourceKey
+                end
+            end
+            local iconOrder = type(groupSettings) == "table" and groupSettings.iconOrder
+            if type(iconOrder) == "table" then
+                for _, token in ipairs(iconOrder) do
+                    if type(token) == "string" then
+                        local iconKey = token:match("^dyn:(.+)$")
+                        if iconKey then
+                            orderPreferred[iconKey] = true
+                        end
+                    end
                 end
             end
         end
     end
 
+    local memberships = {}
     for groupKey, group in pairs(db.groups) do
         local icons = type(group) == "table" and group.icons
         if type(icons) == "table" then
@@ -951,6 +966,8 @@ NormalizePresetIconDB = function(db)
                     changed = true
                 else
                     seenInGroup[iconKey] = true
+                    memberships[iconKey] = memberships[iconKey] or {}
+                    memberships[iconKey][groupKey] = true
                 end
             end
         end
@@ -999,131 +1016,134 @@ NormalizePresetIconDB = function(db)
         end
     end
 
-    local spellAssignments = profile and profile.groupSystem and profile.groupSystem.spellAssignments
-    if type(spellAssignments) == "table" and type(gsGroups) == "table" then
-        local function ResolvePresetAssignment(spellName)
-            if type(spellName) ~= "string" then return nil end
-            local rawName = spellName:gsub("^buff_", "")
-            for presetID in pairs(CUSTOM_TIMED_AURA_CONFIGS) do
-                local ok, info = pcall(function()
-                    return C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(presetID)
-                end)
-                if ok and info and info.name and (info.name == rawName or info.name == spellName) then
-                    return presetID
-                end
+    memberships = {}
+    for groupKey, group in pairs(db.groups) do
+        local icons = type(group) == "table" and group.icons
+        if type(icons) == "table" then
+            for _, iconKey in ipairs(icons) do
+                memberships[iconKey] = memberships[iconKey] or {}
+                memberships[iconKey][groupKey] = true
             end
+        end
+    end
+
+    local function GetLinkedGroupName(iconKey, iconData)
+        local settings = type(iconData) == "table" and iconData.settings
+        if type(settings) == "table" and type(settings.targetCDMGroup) == "string" then
+            return settings.targetCDMGroup
+        end
+        for groupKey in pairs(memberships[iconKey] or {}) do
+            local group = db.groups[groupKey]
+            if type(group) == "table" and type(group.linkedCDMGroup) == "string" then
+                return group.linkedCDMGroup
+            end
+        end
+        return nil
+    end
+
+    local function GetAuraIdentity(iconKey, iconData)
+        if type(iconData) ~= "table" or iconData.type ~= "aura" then return nil end
+        local spellID = tonumber(iconData.id)
+        if not spellID then return nil end
+        if AURA_EQUIVALENT_IDS[spellID] then
+            spellID = 2825
+        end
+        local settings = type(iconData.settings) == "table" and iconData.settings or nil
+        if not CUSTOM_TIMED_AURA_CONFIGS[spellID]
+            and not (settings and settings.customAuraDuration)
+            and not GetLinkedGroupName(iconKey, iconData)
+        then
             return nil
         end
+        return (GetLinkedGroupName(iconKey, iconData) or "aura") .. ":" .. tostring(spellID)
+    end
 
-        local function EnsureAssignmentSourceGroup(groupName, groupSettings)
-            local sourceKey = groupSettings and groupSettings.sourceGroupKey
-            if sourceKey and db.groups[sourceKey] then return sourceKey, db.groups[sourceKey] end
-
-            sourceKey = BuildUniqueDBKey("group_", db.groups)
-            db.groups[sourceKey] = {
-                enabled = groupSettings and groupSettings.enabled ~= false,
-                name = groupSettings and (groupSettings.name or groupName) or groupName,
-                linkedCDMGroup = groupName,
-                icons = {},
-                settings = {
-                    anchorFrom = "TOPLEFT",
-                    anchorTo = "TOPLEFT",
-                    growthDirection = "RIGHT",
-                    rowGrowthDirection = "DOWN",
-                    spacing = 5,
-                    maxIconsPerRow = 10,
-                },
-            }
-            if groupSettings then
-                groupSettings.sourceGroupKey = sourceKey
+    local function GetIconScore(iconKey, iconData)
+        local score = 0
+        local linkedGroupName = GetLinkedGroupName(iconKey, iconData)
+        local preferredSourceKey = linkedGroupName and cdmSourceGroups[linkedGroupName]
+        if orderPreferred[iconKey] then
+            score = score + 4000
+        end
+        for groupKey in pairs(memberships[iconKey] or {}) do
+            if groupKey == preferredSourceKey then
+                score = score + 3000
+            elseif referencedSourceGroups[groupKey] then
+                score = score + 1000
+            else
+                score = score + 100
             end
-            cdmSourceGroups[groupName] = sourceKey
+        end
+        if db.ungrouped[iconKey] then
+            score = score - 10
+        end
+        return score
+    end
+
+    local bestByIdentity = {}
+    local removeKeys = {}
+    for iconKey, iconData in pairs(iconDataDB) do
+        local identity = GetAuraIdentity(iconKey, iconData)
+        if identity then
+            local currentBest = bestByIdentity[identity]
+            if not currentBest then
+                bestByIdentity[identity] = iconKey
+            else
+                local score = GetIconScore(iconKey, iconData)
+                local bestScore = GetIconScore(currentBest, iconDataDB[currentBest])
+                if score > bestScore or (score == bestScore and tostring(iconKey) < tostring(currentBest)) then
+                    removeKeys[currentBest] = true
+                    bestByIdentity[identity] = iconKey
+                else
+                    removeKeys[iconKey] = true
+                end
+            end
+        end
+    end
+
+    local function RemoveOrderToken(iconKey)
+        if type(gsGroups) ~= "table" then return false end
+        local token = "dyn:" .. tostring(iconKey)
+        local removed = false
+        for _, groupSettings in pairs(gsGroups) do
+            local iconOrder = type(groupSettings) == "table" and groupSettings.iconOrder
+            if type(iconOrder) == "table" then
+                for i = #iconOrder, 1, -1 do
+                    if iconOrder[i] == token then
+                        table.remove(iconOrder, i)
+                        removed = true
+                    end
+                end
+            end
+        end
+        return removed
+    end
+
+    for iconKey in pairs(removeKeys) do
+        iconDataDB[iconKey] = nil
+        db.ungrouped[iconKey] = nil
+        db.ungroupedPositions[iconKey] = nil
+        if RemoveOrderToken(iconKey) then
             changed = true
-            return sourceKey, db.groups[sourceKey]
         end
-
-        local function FindPresetIconInGroup(group, presetID)
-            if type(group) ~= "table" or type(group.icons) ~= "table" then return nil end
-            local stateID = AURA_EQUIVALENT_IDS[presetID] and 2825 or presetID
-            for _, iconKey in ipairs(group.icons) do
-                local iconData = iconDataDB[iconKey]
-                local iconID = iconData and tonumber(iconData.id)
-                if iconID and AURA_EQUIVALENT_IDS[iconID] then
-                    iconID = 2825
-                end
-                if iconData and iconData.type == "aura" and iconID == stateID then
-                    return iconKey
-                end
-            end
-            return nil
-        end
-
-        local function ReplaceAssignmentToken(groupSettings, spellName, iconKey)
-            if type(groupSettings) ~= "table" or not spellName or not iconKey then return false end
-            local oldToken = "cdm:" .. tostring(spellName)
-            local newToken = "dyn:" .. tostring(iconKey)
-            groupSettings.iconOrder = type(groupSettings.iconOrder) == "table" and groupSettings.iconOrder or {}
-            local replaced = false
-            local hasNew = false
-            for i = #groupSettings.iconOrder, 1, -1 do
-                local token = groupSettings.iconOrder[i]
-                if token == newToken then
-                    if hasNew then
-                        table.remove(groupSettings.iconOrder, i)
-                    else
-                        hasNew = true
+        for _, group in pairs(db.groups) do
+            local icons = type(group) == "table" and group.icons
+            if type(icons) == "table" then
+                for i = #icons, 1, -1 do
+                    if icons[i] == iconKey then
+                        table.remove(icons, i)
                     end
-                elseif token == oldToken then
-                    if not hasNew and not replaced then
-                        groupSettings.iconOrder[i] = newToken
-                        hasNew = true
-                    else
-                        table.remove(groupSettings.iconOrder, i)
-                    end
-                    replaced = true
                 end
             end
-            if not hasNew then
-                groupSettings.iconOrder[#groupSettings.iconOrder + 1] = newToken
-            end
-            return true
         end
-
-        for spellName, groupName in pairs(spellAssignments) do
-            local groupSettings = type(groupName) == "string" and gsGroups[groupName]
-            local isBuffGroup = groupName == "Buffs" or (type(groupSettings) == "table" and groupSettings.groupCategory == "buff")
-            local presetID = isBuffGroup and ResolvePresetAssignment(spellName)
-            local presetConfig = presetID and CUSTOM_TIMED_AURA_CONFIGS[AURA_EQUIVALENT_IDS[presetID] and 2825 or presetID]
-            if presetID and presetConfig and groupSettings then
-                local sourceKey, sourceGroup = EnsureAssignmentSourceGroup(groupName, groupSettings)
-                local iconKey = FindPresetIconInGroup(sourceGroup, presetID)
-                if not iconKey then
-                    iconKey = BuildUniqueDBKey("icon_", iconDataDB)
-                    local stateID = AURA_EQUIVALENT_IDS[presetID] and 2825 or presetID
-                    local texture = CUSTOM_AURA_ICON_TEXTURES[stateID] or ResolveSpellTexture(presetID)
-                    iconDataDB[iconKey] = {
-                        key = iconKey,
-                        type = "aura",
-                        id = presetID,
-                        settings = {
-                            targetCDMGroup = groupName,
-                            customAuraDuration = presetConfig.duration,
-                            customAuraTrigger = presetConfig.trigger,
-                            iconTexture = texture,
-                            auraIcon = texture,
-                            auraAliases = stateID == 2825 and BLOODLUST_AURA_IDS or nil,
-                        },
-                    }
-                    EnsureIconSettings(iconDataDB[iconKey])
-                    EnsureLoadConditions(iconDataDB[iconKey])
-                    EnsureStoredIconTexture(iconDataDB[iconKey])
-                    AddIconToGroup(sourceGroup, iconKey)
-                end
-                spellAssignments[spellName] = nil
-                ReplaceAssignmentToken(groupSettings, spellName, iconKey)
-                changed = true
-            end
+        local frame = runtime.iconFrames and runtime.iconFrames[iconKey]
+        if frame and frame.Hide then
+            frame:Hide()
         end
+        if runtime.iconFrames then
+            runtime.iconFrames[iconKey] = nil
+        end
+        changed = true
     end
 
     return changed
@@ -1848,6 +1868,16 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         end
     end
 
+    if timedConfig then
+        if iconFrame then
+            iconFrame._ddTimedAuraActiveUntil = nil
+            iconFrame._ddAuraActiveUntil = nil
+            iconFrame._auraWasActive = false
+            iconFrame._ddManagedAuraExpired = true
+        end
+        return nil
+    end
+
     local candidates = BuildAuraCandidateIDs(iconFrame, iconData)
     for _, spellID in ipairs(candidates) do
         local auraData
@@ -1900,12 +1930,6 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         end
     end
 
-    if timedConfig and iconFrame then
-        iconFrame._ddTimedAuraActiveUntil = nil
-        iconFrame._ddAuraActiveUntil = nil
-        iconFrame._auraWasActive = false
-        iconFrame._ddManagedAuraExpired = true
-    end
     return nil
 end
 
@@ -3139,8 +3163,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddAuraActiveUntil = nil
     end
 
-    local activeTexture = GetStoredIconTexture(iconData)
-        or (auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID")))
+    local activeTexture = auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID"))
     if activeTexture then
         SetStableIconTexture(iconFrame, activeTexture, true)
     end
@@ -3184,18 +3207,13 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddManagedAuraExpired = nil
         iconFrame._ddCombatVisible = nil
         iconFrame._ddCombatKeepAlive = nil
-        local managedAlpha = 1
-        if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
-            managedAlpha = iconFrame._groupSettings.groupAlpha
-        end
-        if iconFrame.SetAlpha then
-            iconFrame:SetAlpha(managedAlpha)
-            iconFrame._ddLastGroupAlpha = managedAlpha
-        end
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
         iconFrame.icon:SetAlpha(1.0)
-        iconFrame:Show()
+        -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
+        if not iconFrame._ddIsManaged then
+            iconFrame:Show()
+        end
     else
         -- 비활성: 쿨다운 클리어 + 숨김
         iconFrame.cooldown:Clear()
@@ -3548,33 +3566,12 @@ local function HandleCustomTimedAuraEvent(event, ...)
         if unit ~= "player" then return false end
         spellID = SafeNumber(spellID)
         local itemLocked = MarkItemCombatLockoutFromSpell(spellID)
-        local changed = false
-        local activated = {}
-        local db = GetDynamicDB()
-        local iconDataByKey = db and db.iconData
-        if spellID and type(iconDataByKey) == "table" then
-            for _, iconData in pairs(iconDataByKey) do
-                if type(iconData) == "table" and iconData.type == "aura" then
-                    local config = GetCustomTimedAuraConfig(iconData)
-                    local iconSpellID = SafeNumber(iconData.id)
-                    local stateID = config and SafeNumber(config.stateID)
-                    if config and config.trigger == "spellcast"
-                        and (iconSpellID == spellID or stateID == spellID)
-                        and not activated[stateID or spellID]
-                    then
-                        activated[stateID or spellID] = true
-                        local _, didChange = ActivateCustomTimedAura(stateID or spellID, config, nil, iconSpellID or spellID)
-                        changed = didChange or changed
-                    end
-                end
-            end
-        end
         local config = CUSTOM_TIMED_AURA_CONFIGS[spellID]
-        if config and config.trigger == "spellcast" and not activated[spellID] then
-            local _, didChange = ActivateCustomTimedAura(spellID, config)
-            changed = didChange or changed
+        if config and config.trigger == "spellcast" then
+            local _, changed = ActivateCustomTimedAura(spellID, config)
+            return changed or itemLocked
         end
-        return changed or itemLocked
+        return itemLocked
     end
 
     if event == "UNIT_AURA" then

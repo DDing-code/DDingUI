@@ -806,10 +806,6 @@ end
 local function GetCopiedCDMBuffSpellName(iconData)
     if not iconData or (iconData.type ~= "spell" and iconData.type ~= "aura") then return nil end
     local settings = iconData.settings
-    if iconData.type == "aura" then
-        if type(settings) == "table" and (settings.customAuraDuration or settings.customAuraTrigger) then return nil end
-        if IsCustomAuraPresetSpell(nil, iconData.id) then return nil end
-    end
     if not settings or settings.copiedFromCDM ~= true then return nil end
 
     if type(settings.sourceSpellName) == "string" and settings.sourceSpellName:match("^buff_") then
@@ -3128,9 +3124,6 @@ local function MergeDynamicIconSettings(iconKey, settings)
     iconData.settings = iconData.settings or {}
     for k, v in pairs(settings) do
         iconData.settings[k] = v
-    end
-    if iconData.type == "aura" and (settings.customAuraDuration or settings.customAuraTrigger) then
-        iconData.settings.copiedFromCDM = nil
     end
 end
 

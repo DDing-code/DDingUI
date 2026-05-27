@@ -412,6 +412,7 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
     -- CustomIcons가 _cachedAuraSpellID와 AuraUtil 폴백으로 계산한 최종 상태 사용
     if iconData.type == "aura" and iconData.id then
         local ci = GetCustomIcons()
+        local isCustomTimedAura = ci and ci.IsCustomTimedAuraIcon and ci:IsCustomTimedAuraIcon(iconData)
         if ci and ci.GetActiveCustomTimedAuraForIcon then
             local timedAura = ci:GetActiveCustomTimedAuraForIcon(iconData)
             if timedAura then
@@ -428,6 +429,16 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
             elseif iconFrame then
                 iconFrame._ddTimedAuraActiveUntil = nil
             end
+        end
+        if isCustomTimedAura then
+            if iconFrame then
+                iconFrame._auraWasActive = false
+                iconFrame._ddTimedAuraActiveUntil = nil
+                iconFrame._ddAuraActiveUntil = nil
+                iconFrame._ddLastAuraActiveAt = nil
+                iconFrame._ddManagedAuraExpired = true
+            end
+            return false
         end
         if ci and ci.ResolvePlayerAuraForIcon then
             local auraData = ci:ResolvePlayerAuraForIcon(iconFrame, iconData)
@@ -1334,7 +1345,7 @@ function DynamicIconBridge:Initialize()
                     self._auraDirty = false
                     if not initialized then return end
                     ScanAndHideCDMBuffs()
-                    self:NotifyIconsChanged(event == "UNIT_AURA" or event == "PLAYER_REGEN_ENABLED")
+                    self:NotifyIconsChanged(event == "PLAYER_REGEN_ENABLED")
                 end)
             end
         end)
