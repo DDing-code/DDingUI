@@ -844,16 +844,12 @@ local function BuildDynamicLayoutStateHash()
                 local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
 
                 if isEffectIcon then
-                    local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
                     local active = false
                     if iconData.type == "aura" then
-                        local ci = GetCustomIcons()
-                        if ci and ci.IsCustomTimedAuraIcon and ci:IsCustomTimedAuraIcon(iconData) then
-                            active = ci.GetActiveCustomTimedAuraForIcon and ci:GetActiveCustomTimedAuraForIcon(iconData) ~= nil
-                        else
-                            active = not expiredManagedAura and frame._auraWasActive == true
-                        end
+                        local okActive, activeResult = pcall(IsIconActive, iconKey, iconData, frame, isBuffContext)
+                        active = okActive and activeResult == true
                     else
+                        local expiredManagedAura = frame._ddManagedAuraExpired
                         active = frame._trinketProcWasActive == true
                             or FrameHasLiveEffect(frame, now)
                             or (inCombat and not expiredManagedAura and FrameHadRecentEffect(frame, now))

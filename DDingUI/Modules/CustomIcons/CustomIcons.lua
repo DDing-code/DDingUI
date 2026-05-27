@@ -927,34 +927,19 @@ NormalizePresetIconDB = function(db)
 
     local profile = DDingUI.db and DDingUI.db.profile
     local gsGroups = profile and profile.groupSystem and profile.groupSystem.groups
-    local referencedSourceGroups = {}
     local cdmSourceGroups = {}
-    local orderPreferred = {}
 
     if type(gsGroups) == "table" then
         for groupName, groupSettings in pairs(gsGroups) do
             local sourceKey = type(groupSettings) == "table" and groupSettings.sourceGroupKey
             if sourceKey then
-                referencedSourceGroups[sourceKey] = true
                 if type(groupName) == "string" then
                     cdmSourceGroups[groupName] = sourceKey
-                end
-            end
-            local iconOrder = type(groupSettings) == "table" and groupSettings.iconOrder
-            if type(iconOrder) == "table" then
-                for _, token in ipairs(iconOrder) do
-                    if type(token) == "string" then
-                        local iconKey = token:match("^dyn:(.+)$")
-                        if iconKey then
-                            orderPreferred[iconKey] = true
-                        end
-                    end
                 end
             end
         end
     end
 
-    local memberships = {}
     for groupKey, group in pairs(db.groups) do
         local icons = type(group) == "table" and group.icons
         if type(icons) == "table" then
@@ -966,8 +951,6 @@ NormalizePresetIconDB = function(db)
                     changed = true
                 else
                     seenInGroup[iconKey] = true
-                    memberships[iconKey] = memberships[iconKey] or {}
-                    memberships[iconKey][groupKey] = true
                 end
             end
         end
@@ -1014,136 +997,6 @@ NormalizePresetIconDB = function(db)
             db.groups[sourceKey] = nil
             changed = true
         end
-    end
-
-    memberships = {}
-    for groupKey, group in pairs(db.groups) do
-        local icons = type(group) == "table" and group.icons
-        if type(icons) == "table" then
-            for _, iconKey in ipairs(icons) do
-                memberships[iconKey] = memberships[iconKey] or {}
-                memberships[iconKey][groupKey] = true
-            end
-        end
-    end
-
-    local function GetLinkedGroupName(iconKey, iconData)
-        local settings = type(iconData) == "table" and iconData.settings
-        if type(settings) == "table" and type(settings.targetCDMGroup) == "string" then
-            return settings.targetCDMGroup
-        end
-        for groupKey in pairs(memberships[iconKey] or {}) do
-            local group = db.groups[groupKey]
-            if type(group) == "table" and type(group.linkedCDMGroup) == "string" then
-                return group.linkedCDMGroup
-            end
-        end
-        return nil
-    end
-
-    local function GetAuraIdentity(iconKey, iconData)
-        if type(iconData) ~= "table" or iconData.type ~= "aura" then return nil end
-        local spellID = tonumber(iconData.id)
-        if not spellID then return nil end
-        if AURA_EQUIVALENT_IDS[spellID] then
-            spellID = 2825
-        end
-        local settings = type(iconData.settings) == "table" and iconData.settings or nil
-        if not CUSTOM_TIMED_AURA_CONFIGS[spellID]
-            and not (settings and settings.customAuraDuration)
-            and not GetLinkedGroupName(iconKey, iconData)
-        then
-            return nil
-        end
-        return (GetLinkedGroupName(iconKey, iconData) or "aura") .. ":" .. tostring(spellID)
-    end
-
-    local function GetIconScore(iconKey, iconData)
-        local score = 0
-        local linkedGroupName = GetLinkedGroupName(iconKey, iconData)
-        local preferredSourceKey = linkedGroupName and cdmSourceGroups[linkedGroupName]
-        if orderPreferred[iconKey] then
-            score = score + 4000
-        end
-        for groupKey in pairs(memberships[iconKey] or {}) do
-            if groupKey == preferredSourceKey then
-                score = score + 3000
-            elseif referencedSourceGroups[groupKey] then
-                score = score + 1000
-            else
-                score = score + 100
-            end
-        end
-        if db.ungrouped[iconKey] then
-            score = score - 10
-        end
-        return score
-    end
-
-    local bestByIdentity = {}
-    local removeKeys = {}
-    for iconKey, iconData in pairs(iconDataDB) do
-        local identity = GetAuraIdentity(iconKey, iconData)
-        if identity then
-            local currentBest = bestByIdentity[identity]
-            if not currentBest then
-                bestByIdentity[identity] = iconKey
-            else
-                local score = GetIconScore(iconKey, iconData)
-                local bestScore = GetIconScore(currentBest, iconDataDB[currentBest])
-                if score > bestScore or (score == bestScore and tostring(iconKey) < tostring(currentBest)) then
-                    removeKeys[currentBest] = true
-                    bestByIdentity[identity] = iconKey
-                else
-                    removeKeys[iconKey] = true
-                end
-            end
-        end
-    end
-
-    local function RemoveOrderToken(iconKey)
-        if type(gsGroups) ~= "table" then return false end
-        local token = "dyn:" .. tostring(iconKey)
-        local removed = false
-        for _, groupSettings in pairs(gsGroups) do
-            local iconOrder = type(groupSettings) == "table" and groupSettings.iconOrder
-            if type(iconOrder) == "table" then
-                for i = #iconOrder, 1, -1 do
-                    if iconOrder[i] == token then
-                        table.remove(iconOrder, i)
-                        removed = true
-                    end
-                end
-            end
-        end
-        return removed
-    end
-
-    for iconKey in pairs(removeKeys) do
-        iconDataDB[iconKey] = nil
-        db.ungrouped[iconKey] = nil
-        db.ungroupedPositions[iconKey] = nil
-        if RemoveOrderToken(iconKey) then
-            changed = true
-        end
-        for _, group in pairs(db.groups) do
-            local icons = type(group) == "table" and group.icons
-            if type(icons) == "table" then
-                for i = #icons, 1, -1 do
-                    if icons[i] == iconKey then
-                        table.remove(icons, i)
-                    end
-                end
-            end
-        end
-        local frame = runtime.iconFrames and runtime.iconFrames[iconKey]
-        if frame and frame.Hide then
-            frame:Hide()
-        end
-        if runtime.iconFrames then
-            runtime.iconFrames[iconKey] = nil
-        end
-        changed = true
     end
 
     return changed
@@ -3207,13 +3060,18 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddManagedAuraExpired = nil
         iconFrame._ddCombatVisible = nil
         iconFrame._ddCombatKeepAlive = nil
+        local managedAlpha = 1
+        if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
+            managedAlpha = iconFrame._groupSettings.groupAlpha
+        end
+        if iconFrame.SetAlpha then
+            iconFrame:SetAlpha(managedAlpha)
+            iconFrame._ddLastGroupAlpha = managedAlpha
+        end
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
         iconFrame.icon:SetAlpha(1.0)
-        -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
-        if not iconFrame._ddIsManaged then
-            iconFrame:Show()
-        end
+        iconFrame:Show()
     else
         -- 비활성: 쿨다운 클리어 + 숨김
         iconFrame.cooldown:Clear()
