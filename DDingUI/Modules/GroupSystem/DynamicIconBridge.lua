@@ -1380,6 +1380,7 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     if not initialized then return end
     if not layoutSuppressed then return end
 
+    local inCombat = InCombatLockdown and InCombatLockdown()
     local stateHash = BuildDynamicLayoutStateHash()
     if not forceLayout and self._lastQueuedLayoutStateHash == stateHash then
         return
@@ -1394,7 +1395,7 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     self._updatePending = true
     self._pendingForceLayout = forceLayout and true or false
 
-    C_Timer.After(0.2, function()
+    C_Timer.After(inCombat and 0.3 or 0.16, function()
         local pendingForce = self._pendingForceLayout
         self._updatePending = false
         self._pendingForceLayout = false

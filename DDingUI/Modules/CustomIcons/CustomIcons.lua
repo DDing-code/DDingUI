@@ -218,14 +218,7 @@ local runtime = {
 }
 
 -- UI state containers
-local uiFrames = {
-    listParent = nil,
-    configParent = nil,
-    searchBox = nil,
-    resultText = nil,
-    createFrame = nil,
-    loadWindow = nil,
-}
+runtime.loadWindow = nil
 
 -- ------------------------
 -- DB helpers
@@ -623,7 +616,6 @@ local ITEM_SPELL_MAP = {
     [211879] = 431416,  -- Algari Healing Potion R2
     [211880] = 431416,  -- Algari Healing Potion R3
 }
-local ITEM_COOLDOWN_MIN_SECONDS = 1.6
 local ITEM_COMBAT_LOCKOUT_ITEMS = {
     [5512] = true,
     [224464] = true,
@@ -633,7 +625,6 @@ local ITEM_COMBAT_LOCKOUT_SPELLS = {
     [452930] = true,
 }
 local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local QUESTION_MARK_TEXTURE = 134400
 local FALLBACK_SPELL_ICON = "Interface\\Icons\\Spell_Holy_PowerWordShield"
 local FALLBACK_ITEM_ICON = "Interface\\Icons\\INV_Potion_93"
 local FALLBACK_SLOT_ICON = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
@@ -657,7 +648,7 @@ local function IsQuestionTexture(texture)
     if type(texture) == "string" then
         return texture:gsub("/", "\\"):lower():find("inv_misc_questionmark", 1, true) ~= nil
     end
-    return texture == QUESTION_MARK_TEXTURE or texture == QUESTION_MARK_ICON or texture == 0 or texture == ""
+    return texture == 134400 or texture == QUESTION_MARK_ICON or texture == 0 or texture == ""
 end
 
 local function NonQuestionTexture(texture, fallback)
@@ -685,7 +676,6 @@ local BLOODLUST_DEBUFFS = {
     [264689] = 264667, -- Fatigued -> Primal Rage
     [390435] = 390386, -- Exhaustion -> Fury of the Aspects
 }
-local BLOODLUST_DEBUFF_DURATION_SECONDS = 600
 local bloodlustDebuffInstanceID
 local CUSTOM_TIMED_AURA_CONFIGS = {
     [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
@@ -709,10 +699,6 @@ local TIME_SPIRAL_GLOW_FILTERS = {
 local TIME_SPIRAL_GLOW_SUPPRESS_SECONDS = 1.5
 local timeSpiralGlowSuppressSpells = {}
 local timeSpiralSuppressGlowUntil = 0
-local TIMED_AURA_DEBUG_KEYS = {
-    [2825] = "bloodlust",
-    [374968] = "timespiral",
-}
 local AURA_EQUIVALENT_IDS = {}
 for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
     AURA_EQUIVALENT_IDS[spellID] = BLOODLUST_AURA_IDS
@@ -722,7 +708,10 @@ local function GetTimedAuraDebugKey(spellIDOrKey)
     if type(spellIDOrKey) == "string" then
         return spellIDOrKey
     end
-    return TIMED_AURA_DEBUG_KEYS[tonumber(spellIDOrKey)]
+    spellIDOrKey = tonumber(spellIDOrKey)
+    if spellIDOrKey == 2825 then return "bloodlust" end
+    if spellIDOrKey == 374968 then return "timespiral" end
+    return nil
 end
 
 local function RecordTimedAuraDebug(spellIDOrKey, field, detail)
@@ -1343,7 +1332,7 @@ local function ScheduleEffectGraceUpdate(iconFrame)
             iconFrame._ddEffectGraceUpdatePending = nil
         end
         if UpdateAllIcons then
-            UpdateAllIcons("force")
+            UpdateAllIcons("force", "aura")
         end
     end)
 end
@@ -1354,7 +1343,7 @@ local MarkCustomTimedAuraActive
 local function NotifyCustomTimedAuraChanged(forceLayout)
     local mode = forceLayout or "force"
     if UpdateAllIcons then
-        UpdateAllIcons(mode)
+        UpdateAllIcons(mode, "aura")
     end
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
         DDingUI.DynamicIconBridge:NotifyIconsChanged(mode == true or mode == "force")
@@ -1669,7 +1658,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         if current and current.token == token then
             DeactivateCustomTimedAura(spellID)
             if UpdateAllIcons then
-                UpdateAllIcons(true)
+                UpdateAllIcons(true, "aura")
             end
             if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
                 DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -1732,7 +1721,7 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
         return false
     end
     if not duration or duration <= 0 then
-        duration = BLOODLUST_DEBUFF_DURATION_SECONDS
+        duration = 600
     end
 
     local appliedTime = expirationTime - duration
@@ -2018,7 +2007,7 @@ local function NormalizeCooldownSpan(start, duration, enable)
     local safeStart = SafeNumber(start)
     local safeDuration = SafeNumber(duration)
     if safeStart and safeDuration then
-        if safeDuration > ITEM_COOLDOWN_MIN_SECONDS then
+        if safeDuration > 1.6 then
             return safeStart, safeDuration, true, true
         end
         return nil, nil, false, true
@@ -3412,7 +3401,7 @@ local function QueueIconLayoutNotify(mode)
     end
 end
 
-local function ExecuteUpdateAllIcons()
+local function ExecuteUpdateAllIcons(filter)
     local layoutStateChanged = false
     if CustomIcons.ClearExpiredCustomTimedAuras and CustomIcons.ClearExpiredCustomTimedAuras() then
         layoutStateChanged = true
@@ -3422,11 +3411,20 @@ local function ExecuteUpdateAllIcons()
         CustomIcons.ApplyManagedGroupTextOptions(frame)
     end
 
+    local db = GetDynamicDB()
     for iconKey, frame in pairs(runtime.iconFrames) do
         if frame then
-            local db = GetDynamicDB()
             local iconData = db and db.iconData and db.iconData[iconKey]
-            if iconData and (frame:IsVisible() or iconData.type == "aura" or iconData.type == "trinketProc" or frame._ddIsManaged) then
+            local iconType = iconData and iconData.type
+            local typeMatches = true
+            if filter == "aura" then
+                typeMatches = iconType == "aura" or iconType == "trinketProc"
+            elseif filter == "item" then
+                typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc"
+            elseif filter == "cooldown" then
+                typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc" or iconType == "spell" or iconType == "racial"
+            end
+            if iconData and typeMatches and (frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or frame._ddIsManaged) then
                 local okUpdate, err = pcall(function()
                     local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
 
@@ -3476,20 +3474,42 @@ end
 
 -- [CDM 패턴] 공개 진입점 — 이벤트 핸들러는 이 함수만 호출
 -- 같은 틱 내 다수 호출을 1회로 병합, 다음 프레임에 실행
-UpdateAllIcons = function(needsLayoutNotify)
+UpdateAllIcons = function(needsLayoutNotify, filter)
     if needsLayoutNotify then
         QueueIconLayoutNotify(needsLayoutNotify)
+    end
+    if filter then
+        if runtime.pendingIconUpdateFilter ~= "all" then
+            if filter == "all" or not runtime.pendingIconUpdateFilter then
+                runtime.pendingIconUpdateFilter = filter
+            elseif runtime.pendingIconUpdateFilter ~= filter then
+                runtime.pendingIconUpdateFilter = "all"
+            end
+        end
+    elseif not runtime.pendingIconUpdateFilter then
+        runtime.pendingIconUpdateFilter = "all"
     end
     if _pendingIconUpdate then return end
     _pendingIconUpdate = true
     _iconUpdateSeq = _iconUpdateSeq + 1
     local capturedSeq = _iconUpdateSeq
-    C_Timer.After(0, function()
+    local now = GetTime and GetTime() or 0
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    local minInterval = inCombat and 0.08 or 0.02
+    if filter == "aura" then
+        minInterval = inCombat and 0.12 or 0.04
+    end
+    local elapsed = now - (runtime.lastIconUpdateAt or 0)
+    local delay = elapsed >= minInterval and 0 or (minInterval - elapsed)
+    C_Timer.After(delay, function()
         if capturedSeq ~= _iconUpdateSeq then return end  -- 더 최신 요청이 있으면 스킵
         _pendingIconUpdate = false
         local notifyLayout = _pendingIconLayoutNotify
         _pendingIconLayoutNotify = false
-        local layoutStateChanged = ExecuteUpdateAllIcons()
+        local updateFilter = runtime.pendingIconUpdateFilter
+        runtime.pendingIconUpdateFilter = nil
+        runtime.lastIconUpdateAt = GetTime and GetTime() or now
+        local layoutStateChanged = ExecuteUpdateAllIcons(updateFilter)
         if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
             local forceLayout = notifyLayout == true or notifyLayout == "force"
             if forceLayout or layoutStateChanged then
@@ -3506,7 +3526,7 @@ local function HandleCooldownDone(cooldownFrame)
         runtime.UpdateDynamicIcon(iconKey)
         return
     end
-    UpdateAllIcons()
+    UpdateAllIcons(nil, "cooldown")
 end
 
 local function ScheduleSpecReload()
@@ -3522,7 +3542,7 @@ local function ScheduleSpecReload()
         end
         runtime.deferredSpecReloadFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         if UpdateAllIcons then
-            UpdateAllIcons("aura")
+            UpdateAllIcons("aura", "aura")
         end
         return
     end
@@ -3542,7 +3562,7 @@ local function ScheduleSpecReload()
             CustomIcons:LoadDynamicIcons()
         else
             if RefreshAllLayouts then RefreshAllLayouts() end
-            UpdateAllIcons()
+            UpdateAllIcons(nil, "all")
         end
     end)
     -- Phase 2 (1.5s): CDM 안정화 후 최종 갱신
@@ -3551,7 +3571,7 @@ local function ScheduleSpecReload()
             CustomIcons:LoadDynamicIcons()
         else
             if RefreshAllLayouts then RefreshAllLayouts() end
-            UpdateAllIcons()
+            UpdateAllIcons(nil, "all")
         end
     end)
 end
@@ -3648,7 +3668,7 @@ local function RefreshItemCooldownIcons(needsLayoutNotify)
     if runtime.QueueCustomCooldownIconRefresh then
         runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify)
     else
-        UpdateAllIcons(needsLayoutNotify)
+        UpdateAllIcons(needsLayoutNotify, "item")
     end
 end
 
@@ -3694,14 +3714,14 @@ local function EnsureEventFrame()
             runtime.loginTime = runtime.loginTime or GetTime()
             RebuildTimeSpiralGlowFilters()
             local function refreshInstanceIcons()
-                UpdateAllIcons("force")
+                UpdateAllIcons("force", "all")
                 if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
                     DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
                 end
             end
             local function seedBloodlust()
                 if ScanBloodlustTimedAura({ isFullUpdate = true }) then
-                    UpdateAllIcons("force")
+                    UpdateAllIcons("force", "aura")
                 end
             end
             C_Timer.After(0.2, refreshInstanceIcons)
@@ -3717,7 +3737,7 @@ local function EnsureEventFrame()
 
         if event == "PLAYER_REGEN_DISABLED" then
             ScanBloodlustTimedAura({ isFullUpdate = true })
-            UpdateAllIcons("force")
+            UpdateAllIcons("force", "aura")
             if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
                 DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
             end
@@ -3797,7 +3817,17 @@ local function EnsureEventFrame()
             return
         end
 
-        UpdateAllIcons(needsLayoutNotify)
+        local updateFilter = nil
+        if customTimedChanged or event == "UNIT_AURA" then
+            updateFilter = "aura"
+        elseif isItemCooldownEvent
+            or event == "UNIT_INVENTORY_CHANGED"
+            or event == "PLAYER_EQUIPMENT_CHANGED"
+            or event == "BAG_UPDATE"
+        then
+            updateFilter = "cooldown"
+        end
+        UpdateAllIcons(needsLayoutNotify, updateFilter)
     end)
 end
 
@@ -4019,9 +4049,9 @@ end
 function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
     EnsureLoadConditions(iconData)
     -- If a window already exists, discard it and rebuild to guarantee fresh bindings
-    if uiFrames.loadWindow then
-        uiFrames.loadWindow:Hide()
-        uiFrames.loadWindow = nil
+    if runtime.loadWindow then
+        runtime.loadWindow:Hide()
+        runtime.loadWindow = nil
     end
 
     local lc = iconData.settings.loadConditions
@@ -4191,7 +4221,7 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
     end
     specChild:SetHeight(y)
 
-    uiFrames.loadWindow = f
+    runtime.loadWindow = f
 end
 
 -- ------------------------
@@ -4735,7 +4765,7 @@ end
 function runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify, iconKeys)
     local watcher = runtime.EnsureCustomCooldownWatcher()
     if not watcher then
-        UpdateAllIcons(needsLayoutNotify)
+        UpdateAllIcons(needsLayoutNotify, "item")
         return
     end
     if iconKeys then
@@ -5166,18 +5196,30 @@ local function LayoutGroup(groupKey, iconKeys)
 end
 
 local function RefreshAllLayouts()
+    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+        if runtime.refreshAllLayoutsPending then return end
+        runtime.refreshAllLayoutsPending = true
+        C_Timer.After((InCombatLockdown and InCombatLockdown()) and 0.12 or 0.04, function()
+            runtime.refreshAllLayoutsPending = nil
+            if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                DDingUI.SpecProfiles:MarkDirty()
+            end
+            if runtime.RegisterCustomCooldownWatches then
+                runtime.RegisterCustomCooldownWatches()
+            end
+            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+            end
+        end)
+        return
+    end
+
     -- SpecProfiles 자동 저장 트리거 (동적 아이콘 설정 변경 감지)
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
         DDingUI.SpecProfiles:MarkDirty()
     end
     if runtime.RegisterCustomCooldownWatches then
         runtime.RegisterCustomCooldownWatches()
-    end
-
-    -- [DYNAMIC] GroupSystem이 활성이면 레이아웃 스킵 → GroupSystem 업데이트 트리거
-    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-        DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
-        return
     end
 
     local db = GetDynamicDB()
@@ -5381,7 +5423,7 @@ function CustomIcons:LoadDynamicIcons()
 
     RefreshAllLayouts()
     -- Initial update to ensure icons show correct state
-    UpdateAllIcons()
+    UpdateAllIcons(nil, "all")
 
     -- [FIX] 프레임 생성 실패한 아이콘 재시도 (아이템/스펠 캐시 로드 대기)
     if #pendingKeys > 0 then
@@ -5418,7 +5460,7 @@ function CustomIcons:LoadDynamicIcons()
                 if retryTimer then retryTimer:Cancel() end
                 -- 새로 생성된 프레임이 있으면 레이아웃 갱신 + GroupSystem 알림
                 RefreshAllLayouts()
-                UpdateAllIcons()
+                UpdateAllIcons(nil, "all")
             end
         end)
     end

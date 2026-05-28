@@ -695,7 +695,9 @@ local function SafeNumber(value)
     end
     local valueType = type(value)
     if valueType == "number" then
-        return value
+        local okText, text = pcall(tostring, value)
+        if not okText then return nil end
+        return tonumber(text)
     end
     if valueType == "string" then
         local okNumber, numberValue = pcall(tonumber, value)
