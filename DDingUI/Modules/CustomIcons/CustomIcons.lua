@@ -3814,6 +3814,9 @@ local function EnsureEventFrame()
             else
                 RefreshItemCooldownIcons(needsLayoutNotify)
             end
+            if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
+                UpdateAllIcons(nil, "cooldown")
+            end
             return
         end
 
