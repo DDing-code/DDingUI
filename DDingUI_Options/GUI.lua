@@ -6356,6 +6356,9 @@ function DDingUI:CreateConfigFrame()
         if DDingUI.DisableBuffTrackerPreview then
             DDingUI:DisableBuffTrackerPreview()
         end
+        if DDingUI.CleanupGroupSystemOptionsRuntime then
+            DDingUI:CleanupGroupSystemOptionsRuntime()
+        end
         -- [12.0.1] cooldownViewerEnabled CVar는 복원하지 않음
         -- DDingUI CDM 기능 사용 시 CDM이 항상 활성화되어야 스캔/추적이 정상 작동
         -- CVar를 "0"으로 되돌리면 viewer 자식 프레임이 소멸 → 재열기 시 스캔 0개 반환

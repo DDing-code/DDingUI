@@ -85,6 +85,7 @@ local GROUP_SPELL_INPUT_ENABLED = false
 local cdmEntryCache
 local cdmEntryCacheTime = 0
 local pendingOptionSpellIconRefresh = {}
+local dynamicIconRefreshPollers = {}
 
 local function InvalidateCDMIconEntryCache()
     cdmEntryCache = nil
@@ -3114,13 +3115,17 @@ local function ScheduleDynamicIconRefresh(iconKey)
         local ci = DDingUI.CustomIcons
         local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
         if hasFrame or attempts >= 6 then
-            if poller then poller:Cancel() end
+            if poller then
+                poller:Cancel()
+                dynamicIconRefreshPollers[poller] = nil
+            end
             if ci and ci.LoadDynamicIcons then
                 ci:LoadDynamicIcons()
             end
             SoftRefreshDynamicIcons()
         end
     end)
+    dynamicIconRefreshPollers[poller] = true
 end
 
 local function MergeDynamicIconSettings(iconKey, settings)
@@ -3357,6 +3362,32 @@ local function HideGroupIconAddPopup()
         HideGroupAddSubmenu()
         popup:Hide()
     end
+end
+
+function DDingUI:CleanupGroupSystemOptionsRuntime()
+    for poller in pairs(dynamicIconRefreshPollers) do
+        if poller and poller.Cancel then
+            poller:Cancel()
+        end
+        dynamicIconRefreshPollers[poller] = nil
+    end
+    wipe(pendingOptionSpellIconRefresh)
+
+    HideGroupIconAddPopup()
+
+    local ghost = DDingUI._assignedIconGridGhost
+    if ghost then
+        ghost:SetScript("OnUpdate", nil)
+        ghost:Hide()
+    end
+
+    ghost = DDingUI._assignedIconRuntimeGhost
+    if ghost then
+        ghost:SetScript("OnUpdate", nil)
+        ghost:Hide()
+    end
+
+    GameTooltip:Hide()
 end
 
 local function AcquirePopupRow(parent, index, width, height)
@@ -5209,10 +5240,14 @@ local function CreateGroupOptions(groupName, order)
                                 attempts = attempts + 1
                                 local hasFrame = ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
                                 if hasFrame or attempts >= 6 then
-                                    if poller then poller:Cancel() end
+                                    if poller then
+                                        poller:Cancel()
+                                        dynamicIconRefreshPollers[poller] = nil
+                                    end
                                     SoftRefreshDynamicIcons()
                                 end
                             end)
+                            dynamicIconRefreshPollers[poller] = true
                             return true
                         end
                         return false
@@ -5362,10 +5397,14 @@ local function CreateGroupOptions(groupName, order)
                             local ci = DDingUI.CustomIcons
                             local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
                             if hasFrame or attempts >= 6 then
-                                if poller then poller:Cancel() end
+                                if poller then
+                                    poller:Cancel()
+                                    dynamicIconRefreshPollers[poller] = nil
+                                end
                                 SoftRefreshDynamicIcons()
                             end
                         end)
+                        dynamicIconRefreshPollers[poller] = true
                     end)
                     return true
                 end,
@@ -5390,10 +5429,14 @@ local function CreateGroupOptions(groupName, order)
                         local ci = DDingUI.CustomIcons
                         local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
                         if hasFrame or attempts >= 6 then
-                            if poller then poller:Cancel() end
+                            if poller then
+                                poller:Cancel()
+                                dynamicIconRefreshPollers[poller] = nil
+                            end
                             SoftRefreshDynamicIcons()
                         end
                     end)
+                    dynamicIconRefreshPollers[poller] = true
                 end,
             } or nil,
             addTrinket2 = showAdvanced and {
@@ -5416,10 +5459,14 @@ local function CreateGroupOptions(groupName, order)
                         local ci = DDingUI.CustomIcons
                         local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
                         if hasFrame or attempts >= 6 then
-                            if poller then poller:Cancel() end
+                            if poller then
+                                poller:Cancel()
+                                dynamicIconRefreshPollers[poller] = nil
+                            end
                             SoftRefreshDynamicIcons()
                         end
                     end)
+                    dynamicIconRefreshPollers[poller] = true
                 end,
             } or nil,
             advancedDesc = showAdvanced and {

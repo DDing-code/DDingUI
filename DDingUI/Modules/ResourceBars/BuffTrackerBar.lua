@@ -890,6 +890,11 @@ local startupRefreshTimers = {}
 local buffTrackerTicker
 local StartBuffTrackerTicker
 local StopBuffTrackerTicker
+local buffTrackerEventFrame
+local buffTrackerEventsRegistered = false
+local buffTrackerUpdatePending = false
+local QueueBuffTrackerUpdate
+local SetBuffTrackerEventsEnabled
 
 -- 모든 bar 프레임의 위치/스타일 캐시를 초기화
 -- 전문화 변경 시 이전 전문화의 앵커 정보가 남아있으면 위치가 틀어짐
@@ -922,7 +927,11 @@ local function RunBuffTrackerStartupRefresh(reason)
     end
 
     InvalidateAllFrameCaches()
-    ResourceBars:UpdateBuffTrackerBar()
+    if QueueBuffTrackerUpdate then
+        QueueBuffTrackerUpdate(reason, 0)
+    else
+        ResourceBars:UpdateBuffTrackerBar()
+    end
 end
 
 local function ScheduleBuffTrackerStartupRefresh(reason, delays)
@@ -1170,16 +1179,54 @@ local function ParseSpenders(cfg)
 end
 
 -- Event frame for combat log tracking
-local buffTrackerEventFrame = CreateFrame("Frame")
-buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-buffTrackerEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-buffTrackerEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-buffTrackerEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-buffTrackerEventFrame:RegisterUnitEvent("UNIT_AURA", "player")  -- 플레이어 오라만 (레이드 성능 최적화)
-buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
-buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+buffTrackerEventFrame = CreateFrame("Frame")
+
+local function IsBuffTrackerRuntimeEnabled()
+    local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+    return rootCfg and rootCfg.enabled
+end
+
+SetBuffTrackerEventsEnabled = function(enabled)
+    if not buffTrackerEventFrame then return end
+    enabled = enabled and true or false
+    if buffTrackerEventsRegistered == enabled then return end
+
+    buffTrackerEventFrame:UnregisterAllEvents()
+    buffTrackerEventsRegistered = enabled
+    if not enabled then return end
+
+    buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    buffTrackerEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    buffTrackerEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
+    buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    buffTrackerEventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+end
+
+QueueBuffTrackerUpdate = function(reason, delay)
+    if not IsBuffTrackerRuntimeEnabled() and not isInPreviewMode and not isInMoverMode then
+        if StopBuffTrackerTicker then StopBuffTrackerTicker() end
+        if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
+        return
+    end
+    if buffTrackerUpdatePending then return end
+
+    buffTrackerUpdatePending = true
+    C_Timer.After(delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03), function()
+        buffTrackerUpdatePending = false
+        if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
+            ResourceBars:UpdateBuffTrackerBar()
+        else
+            if StopBuffTrackerTicker then StopBuffTrackerTicker() end
+            if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
+        end
+    end)
+end
 
 local playerInCombat = false
 
@@ -1197,17 +1244,22 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
             if CDMScanner then
                 pcall(CDMScanner.ScanAll)
             end
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("loading", 0)
         end)
         -- [FIX] 1.5초 후 최종 업데이트 (CDMScanner 완전 안정화)
         C_Timer.After(1.5, function()
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("loading-final", 0)
         end)
         return
     end
 
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not rootCfg or not rootCfg.enabled then return end
+
+    if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
+        ScheduleBuffTrackerStartupRefresh(event, { 0.05, 0.5, 1.5, 3.0 })
+        return
+    end
 
     -- UNIT_SPELLCAST_SUCCEEDED: 스킬 시전 성공 시 갱신 플래그
     -- NOTE: return 제거 - 수동 트래킹 로직(line 1164+)도 실행되어야 함
@@ -1233,7 +1285,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                     ResourceBars._pendingAuraUpdates[updatedAuraID] = GetTime()
                 end
             end
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("unit-aura")
         end
         return
     end
@@ -1246,7 +1298,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" then
         -- Talent changed - update bar to reflect new talent conditions
         C_Timer.After(0.1, function()
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("talent", 0)
         end)
         return
     end
@@ -1276,7 +1328,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         -- 3단계 재시도 (CDM CDM 패턴)
         -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
         C_Timer.After(0.5, function()
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("spec-1", 0)
         end)
         -- Phase 2 (1.5초): CDM 데이터 안정화 후 ScanAll + 업데이트
         C_Timer.After(1.5, function()
@@ -1284,11 +1336,11 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
             if CDMScanner then
                 pcall(CDMScanner.ScanAll)
             end
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("spec-2", 0)
         end)
         -- Phase 3 (Grace Period 종료 후): 최종 정리 업데이트
         C_Timer.After(SPEC_CHANGE_GRACE_DURATION + 0.5, function()
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("spec-3", 0)
         end)
         return
     end
@@ -1308,7 +1360,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
 
     if event == "PLAYER_REGEN_DISABLED" then
         playerInCombat = true
-        ResourceBars:UpdateBuffTrackerBar()
+        QueueBuffTrackerUpdate("combat-start")
     elseif event == "PLAYER_REGEN_ENABLED" then
         playerInCombat = false
 
@@ -1330,7 +1382,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
             manualExpiresAt = nil
         end
 
-        ResourceBars:UpdateBuffTrackerBar()
+        QueueBuffTrackerUpdate("combat-end")
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, castGUID, spellID = ...
         if unit ~= "player" then return end
@@ -1415,7 +1467,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                         end
 
                         SetManualStacks(barIndex, newStacks, newExpires)
-                        ResourceBars:UpdateBuffTrackerBar()
+                        QueueBuffTrackerUpdate("manual-gain")
                     end
                 else
                     -- Spender spell cast - always consumes stacks
@@ -1426,7 +1478,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                             -- Keep duration if stacks remain, clear if all consumed
                             local newExpires = newStacks > 0 and currentExpires or nil
                             SetManualStacks(barIndex, newStacks, newExpires)
-                            ResourceBars:UpdateBuffTrackerBar()
+                            QueueBuffTrackerUpdate("manual-spend")
                         end
                     end
                 end
@@ -1463,7 +1515,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                 else
                     manualExpiresAt = nil  -- No expiration for unlimited duration
                 end
-                ResourceBars:UpdateBuffTrackerBar()
+                QueueBuffTrackerUpdate("legacy-manual-gain")
             end
         -- Spender spell cast - consume specified amount
         else
@@ -1473,7 +1525,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                 if manualStacks == 0 then
                     manualExpiresAt = nil
                 end
-                ResourceBars:UpdateBuffTrackerBar()
+                QueueBuffTrackerUpdate("legacy-manual-spend")
             end
         end
     end
@@ -1741,6 +1793,12 @@ StopBuffTrackerTicker = function()
         buffTrackerTicker:Cancel()
         buffTrackerTicker = nil
     end
+    for _, timer in ipairs(startupRefreshTimers) do
+        if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
+            timer:Cancel()
+        end
+    end
+    wipe(startupRefreshTimers)
 end
 
 StartBuffTrackerTicker = function()
@@ -1755,8 +1813,10 @@ StartBuffTrackerTicker = function()
         end
 
         -- [PERF] 만료 체크 통합 (별도 OnUpdate 제거됨)
-        CheckExpirations()
-        ResourceBars:UpdateBuffTrackerBar()
+        local needsUpdate = CheckExpirations()
+        if needsUpdate or isInPreviewMode or isInMoverMode then
+            QueueBuffTrackerUpdate("ticker", 0)
+        end
     end)
 end
 
@@ -2742,6 +2802,9 @@ function ResourceBars:UpdateBuffTrackerBar()
             DDingUI.buffTrackerBar:Hide()
         end
         StopBuffTrackerTicker()
+        if SetBuffTrackerEventsEnabled then
+            SetBuffTrackerEventsEnabled(false)
+        end
         return
     end
 
@@ -2759,6 +2822,9 @@ function ResourceBars:UpdateBuffTrackerBar()
     end
 
     -- Start ticker if not running
+    if SetBuffTrackerEventsEnabled then
+        SetBuffTrackerEventsEnabled(true)
+    end
     if not buffTrackerTicker then
         StartBuffTrackerTicker()
     end
@@ -5491,31 +5557,31 @@ end
 -- Initialize buff tracker
 function ResourceBars:InitializeBuffTracker()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
-    if rootCfg and rootCfg.enabled then
-        StartBuffTrackerTicker()
+    if not rootCfg or not rootCfg.enabled then
+        if SetBuffTrackerEventsEnabled then
+            SetBuffTrackerEventsEnabled(false)
+        end
+        StopBuffTrackerTicker()
+        buffTrackerInitialized = true
+        return
     end
+
+    if SetBuffTrackerEventsEnabled then
+        SetBuffTrackerEventsEnabled(true)
+    end
+    StartBuffTrackerTicker()
 
     -- Initial update (여러 번) + 마지막에 초기화 완료 플래그 설정
     local initDelays = { 0.1, 0.5, 1.0, 2.0 }
     ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5, 3.0 })
     for i, delay in ipairs(initDelays) do
         C_Timer.After(delay, function()
-            ResourceBars:UpdateBuffTrackerBar()
+            QueueBuffTrackerUpdate("initial", 0)
             if i == #initDelays then
                 buffTrackerInitialized = true
             end
         end)
     end
-
-    -- [12.0.1] PLAYER_ENTERING_WORLD: 메뉴 열 때와 동일하게 ScanAll + 갱신
-    -- 리로드/존 이동 후 CDM 뷰어가 안정화되면 ScanAll → BuffTracker 강제 갱신
-    local buffTrackerInitFrame = CreateFrame("Frame")
-    buffTrackerInitFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    buffTrackerInitFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    buffTrackerInitFrame:SetScript("OnEvent", function(self, event, ...)
-        -- 초기/지역이동 재스캔 예약
-        ScheduleBuffTrackerStartupRefresh(event, { 0.05, 0.5, 1.5, 3.0 })
-    end)
 end
 
 -- Enter mover mode for tracked buff bars (shows all bars regardless of hideWhenZero)
