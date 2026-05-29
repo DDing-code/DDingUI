@@ -1412,6 +1412,154 @@ function CustomIcons.RestoreActiveIconVisual(frame)
     frame._ddCombatMissingSince = nil
 end
 
+function CustomIcons.ApplyAuraStateVisual(frame, iconData, auraData, config)
+    if not (frame and iconData and auraData) then return false end
+
+    local settings = iconData.settings or {}
+    local duration = GetAuraNumberFieldSafe(auraData, "duration") or (config and tonumber(config.duration))
+    local expirationTime = GetAuraNumberFieldSafe(auraData, "expirationTime")
+    local startTime = duration and expirationTime and (expirationTime - duration) or nil
+    local auraSpellID = GetAuraSpellIDSafe(auraData) or tonumber(iconData.id)
+    local auraInstanceID = GetAuraFieldSafe(auraData, "auraInstanceID")
+    local durationObject
+    local now = GetTime and GetTime() or 0
+    local isTimedAura = config ~= nil or GetAuraFieldSafe(auraData, "__ddinguiTimedAura") == true
+
+    frame._auraWasActive = true
+    frame._ddManagedAuraExpired = nil
+    frame._ddCombatVisible = nil
+    frame._ddCombatKeepAlive = nil
+    frame._ddCombatMissingSince = nil
+    frame._ddLastAuraActiveAt = now
+    frame._ddLastDynamicActiveAt = now
+    frame._wasVisibleInGroup = true
+    if auraSpellID then
+        frame._cachedAuraSpellID = auraSpellID
+    end
+    if expirationTime and expirationTime > 0 then
+        frame._ddAuraActiveUntil = expirationTime
+        if isTimedAura then
+            frame._ddTimedAuraActiveUntil = expirationTime
+        end
+    elseif isTimedAura then
+        frame._ddTimedAuraActiveUntil = nil
+    end
+
+    local auraTexture = GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID")
+    local storedTexture = GetStoredIconTexture(iconData)
+    local activeTexture = isTimedAura and (auraTexture or storedTexture) or (storedTexture or auraTexture)
+    if activeTexture then
+        SetStableIconTexture(frame, activeTexture, true)
+    end
+
+    CustomIcons.RestoreActiveIconVisual(frame)
+
+    if frame.cooldown then
+        if frame.cooldown.SetReverse then pcall(frame.cooldown.SetReverse, frame.cooldown, true) end
+        if (not (duration and duration > 0 and expirationTime)) and auraInstanceID
+            and C_UnitAuras and C_UnitAuras.GetAuraDuration
+        then
+            pcall(function()
+                durationObject = C_UnitAuras.GetAuraDuration("player", auraInstanceID)
+            end)
+        end
+        if durationObject then
+            local visualToken = "obj:" .. tostring(auraSpellID or "") .. ":" .. tostring(auraInstanceID or "")
+            if frame._ddAuraVisualToken ~= visualToken or not (frame.cooldown.IsShown and frame.cooldown:IsShown()) then
+                frame._ddAuraVisualToken = visualToken
+                local applied = pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, durationObject)
+                if not applied then
+                    pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, durationObject, true)
+                end
+            end
+            if frame.cooldown.SetDrawSwipe then pcall(frame.cooldown.SetDrawSwipe, frame.cooldown, true) end
+            if frame.cooldown.SetScript then
+                if isTimedAura then
+                    pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", function()
+                        if CustomIcons.ClearExpiredCustomTimedAuras then
+                            CustomIcons.ClearExpiredCustomTimedAuras()
+                        end
+                        if UpdateAllIcons then
+                            UpdateAllIcons(true, "aura")
+                        end
+                    end)
+                else
+                    pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", nil)
+                end
+            end
+        elseif duration and duration > 0 and expirationTime then
+            local visualToken = tostring(startTime) .. ":" .. tostring(duration) .. ":" .. tostring(expirationTime)
+            if frame._ddAuraVisualToken ~= visualToken then
+                frame._ddAuraVisualToken = visualToken
+                local applied = false
+                if C_DurationUtil and C_DurationUtil.CreateDuration then
+                    frame._ddAuraDurationObj = frame._ddAuraDurationObj or C_DurationUtil.CreateDuration()
+                    if pcall(frame._ddAuraDurationObj.SetTimeFromStart, frame._ddAuraDurationObj, startTime, duration) then
+                        applied = pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._ddAuraDurationObj)
+                        if not applied then
+                            applied = pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._ddAuraDurationObj, true)
+                        end
+                    end
+                end
+                if not applied then
+                    pcall(frame.cooldown.SetCooldown, frame.cooldown, startTime, duration)
+                end
+            end
+            if frame.cooldown.SetDrawSwipe then pcall(frame.cooldown.SetDrawSwipe, frame.cooldown, true) end
+            if frame.cooldown.SetScript then
+                if isTimedAura then
+                    pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", function()
+                        if CustomIcons.ClearExpiredCustomTimedAuras then
+                            CustomIcons.ClearExpiredCustomTimedAuras()
+                        end
+                        if UpdateAllIcons then
+                            UpdateAllIcons(true, "aura")
+                        end
+                    end)
+                else
+                    pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", nil)
+                end
+            end
+        else
+            frame._ddAuraVisualToken = nil
+            if frame.cooldown.Clear then pcall(frame.cooldown.Clear, frame.cooldown) end
+        end
+        if settings.showCooldown ~= false then
+            if frame.cooldown.Show then frame.cooldown:Show() end
+        elseif frame.cooldown.Hide then
+            frame.cooldown:Hide()
+        end
+    end
+
+    if frame.count then
+        local stacks = GetAuraNumberFieldSafe(auraData, "applications") or 0
+        if stacks > 1 and settings.showCharges ~= false then
+            if pcall(frame.count.SetText, frame.count, stacks) then
+                frame.count:Show()
+            end
+        else
+            frame.count:Hide()
+        end
+    end
+
+    local managedAlpha = 1
+    if frame._groupSettings and frame._groupSettings.groupAlpha ~= nil then
+        managedAlpha = frame._groupSettings.groupAlpha
+    end
+    if frame.SetAlpha then
+        frame:SetAlpha(managedAlpha)
+        frame._ddLastGroupAlpha = managedAlpha
+    end
+    if frame.icon then
+        frame.icon:SetDesaturated(false)
+        frame.icon:SetDesaturation(0)
+        frame.icon:SetAlpha(1)
+    end
+    if frame.Show then frame:Show() end
+    CustomIcons.ApplyManagedGroupTextOptions(frame)
+    return true
+end
+
 function CustomIcons.HideManagedIconBorderLayers(frame)
     if not frame then return end
     if frame.border then
@@ -1443,6 +1591,7 @@ function CustomIcons.SuppressExpiredIconVisual(frame)
         pcall(frame.SetAlpha, frame, 0)
         frame._ddLastGroupAlpha = 0
     end
+    frame._ddAuraVisualToken = nil
     local icon = frame.icon or frame.Icon
     if icon and icon.SetAlpha then
         pcall(icon.SetAlpha, icon, 0)
@@ -1564,8 +1713,7 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 if state and state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
-                CustomIcons.RestoreActiveIconVisual(frame)
-                CustomIcons.ApplyManagedGroupTextOptions(frame)
+                CustomIcons.ApplyAuraStateVisual(frame, iconData, BuildTimedAuraData(config.stateID, state), config)
             else
                 needsLayout = true
             end
@@ -1851,6 +1999,7 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         if iconFrame then
             iconFrame._ddTimedAuraActiveUntil = GetAuraNumberFieldSafe(timedAura, "expirationTime")
             iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(timedAura) or GetAuraNumberFieldSafe(timedAura, "spellId") or iconData.id
+            CustomIcons.ApplyAuraStateVisual(iconFrame, iconData, timedAura, timedConfig)
         end
         return timedAura
     elseif iconFrame then
@@ -1876,6 +2025,9 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
                 end
             end
             AdoptCustomTimedAuraFromAura(iconFrame, iconData, auraData, spellID)
+            if iconFrame and (timedConfig or iconFrame._ddIsManaged) then
+                CustomIcons.ApplyAuraStateVisual(iconFrame, iconData, auraData, timedConfig)
+            end
             return auraData
         end
     end
@@ -1909,6 +2061,9 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         end)
         if auraData then
             AdoptCustomTimedAuraFromAura(iconFrame, iconData, auraData, GetAuraSpellIDSafe(auraData))
+            if iconFrame and (timedConfig or iconFrame._ddIsManaged) then
+                CustomIcons.ApplyAuraStateVisual(iconFrame, iconData, auraData, timedConfig)
+            end
             return auraData
         end
     end
@@ -3096,7 +3251,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
     local settings = iconData.settings or {}
     local allowDesat = not (settings.desaturateOnCooldown == false)
-    local timedOnly = IsEventDrivenCustomTimedAuraConfig(GetCustomTimedAuraConfig(iconData))
+    local timedConfig = GetCustomTimedAuraConfig(iconData)
+    local timedOnly = IsEventDrivenCustomTimedAuraConfig(timedConfig)
     iconFrame._textureCacheKey = "aura:" .. tostring(spellID)
     iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
     if not timedOnly then
@@ -3167,49 +3323,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     if auraData then
-        -- [FIX] 버프 스와이프 방향: fill-up (CDM 패턴)
-        iconFrame.cooldown:SetReverse(true)
-
-        -- 활성: duration 쿨다운 + 스택 표시
-        pcall(function()
-            local auraDuration = GetAuraNumberFieldSafe(auraData, "duration")
-            local auraExpiration = GetAuraNumberFieldSafe(auraData, "expirationTime")
-            if auraDuration and auraDuration > 0 and auraExpiration then
-                local startTime = auraExpiration - auraDuration
-                iconFrame.cooldown:SetCooldown(startTime, auraDuration)
-            else
-                iconFrame.cooldown:Clear()
-            end
-        end)
-        if settings.showCooldown ~= false then
-            iconFrame.cooldown:Show()
-        else
-            iconFrame.cooldown:Hide()
-        end
-
-        local stacks = GetAuraNumberFieldSafe(auraData, "applications") or 0
-        if stacks > 1 and settings.showCharges ~= false then
-            pcall(iconFrame.count.SetText, iconFrame.count, stacks)
-            iconFrame.count:Show()
-        else
-            iconFrame.count:Hide()
-        end
-
-        iconFrame._ddManagedAuraExpired = nil
-        iconFrame._ddCombatVisible = nil
-        iconFrame._ddCombatKeepAlive = nil
-        local managedAlpha = 1
-        if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
-            managedAlpha = iconFrame._groupSettings.groupAlpha
-        end
-        if iconFrame.SetAlpha then
-            iconFrame:SetAlpha(managedAlpha)
-            iconFrame._ddLastGroupAlpha = managedAlpha
-        end
-        iconFrame.icon:SetDesaturated(false)
-        iconFrame.icon:SetDesaturation(0)
-        iconFrame.icon:SetAlpha(1.0)
-        iconFrame:Show()
+        CustomIcons.ApplyAuraStateVisual(iconFrame, iconData, auraData, timedConfig)
     else
         -- 비활성: 쿨다운 클리어 + 숨김
         iconFrame.cooldown:Clear()
@@ -3221,6 +3335,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddLastAuraActiveAt = nil
         iconFrame._wasVisibleInGroup = nil
         iconFrame._auraWasActive = false
+        iconFrame._ddAuraVisualToken = nil
 
         if allowDesat then
             iconFrame.icon:SetDesaturated(true)
@@ -3664,6 +3779,16 @@ local function HasItemCooldownIcon()
     return false
 end
 
+function runtime.HasRacialCooldownIcon()
+    local db = GetDynamicDB()
+    for _, iconData in pairs((db and db.iconData) or {}) do
+        if iconData.type == "racial" then
+            return true
+        end
+    end
+    return false
+end
+
 local function RefreshItemCooldownIcons(needsLayoutNotify)
     if runtime.QueueCustomCooldownIconRefresh then
         runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify)
@@ -3787,7 +3912,8 @@ local function EnsureEventFrame()
             or event == "ITEM_COUNT_CHANGED"
             or event == "BAG_UPDATE_DELAYED"
         local hasItemCooldownIcon = isItemCooldownEvent and HasItemCooldownIcon()
-        if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon then
+        local hasRacialCooldownIcon = isItemCooldownEvent and runtime.HasRacialCooldownIcon()
+        if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon and not hasRacialCooldownIcon then
             return
         end
 
@@ -3815,6 +3941,8 @@ local function EnsureEventFrame()
                 RefreshItemCooldownIcons(needsLayoutNotify)
             end
             if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
+                UpdateAllIcons(nil, "cooldown")
+            elseif hasRacialCooldownIcon then
                 UpdateAllIcons(nil, "cooldown")
             end
             return
@@ -3978,7 +4106,7 @@ local function IsIconLoadable(iconData)
         return IsSpellInPlayerBook(iconData.id)
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()
-        return racialID and IsSpellInPlayerBook(racialID)
+        return racialID ~= nil
     end
     return true
 end
@@ -4001,7 +4129,7 @@ local function ShouldIconSpawn(iconData)
         return false
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()
-        if not racialID or not IsSpellInPlayerBook(racialID) then return false end
+        if not racialID then return false end
     end
 
     EnsureLoadConditions(iconData)
