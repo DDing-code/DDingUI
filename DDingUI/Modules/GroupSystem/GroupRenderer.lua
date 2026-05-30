@@ -22,17 +22,11 @@ end
 -- CDM의 combatDirtyViewers 패턴: 전투 중 명명된 프레임 조작 skip → 전투 종료 후 전체 Reconcile
 local regenFrame = CreateFrame("Frame")
 regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-regenFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-regenFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-regenFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
-regenFrame:SetScript("OnEvent", function(_, event)
+regenFrame:SetScript("OnEvent", function()
     if ResetPostCombatDynamicIconState then
         ResetPostCombatDynamicIconState()
         C_Timer.After(0.05, ResetPostCombatDynamicIconState)
         C_Timer.After(0.25, ResetPostCombatDynamicIconState)
-        if event ~= "PLAYER_REGEN_ENABLED" then
-            C_Timer.After(1.0, ResetPostCombatDynamicIconState)
-        end
     end
     -- [FIX] pending Show/Hide 처리 (전투 중 named 프레임 Show/Hide 불가 → 전투 종료 시 실행)
     if GroupRenderer.groupFrames then
@@ -874,8 +868,10 @@ local function FilterGroupedBuffDynamicEntries(dynamicIcons, iconList, groupName
     if type(dynamicIcons) ~= "table" or #dynamicIcons == 0 then return dynamicIcons end
 
     local cdmIDs = {}
-    for _, entry in ipairs(iconList or {}) do
-        AddCDMEntryIDs(cdmIDs, entry)
+    if GroupUsesDurationText(groupName, groupSettings) then
+        for _, entry in ipairs(iconList or {}) do
+            AddCDMEntryIDs(cdmIDs, entry)
+        end
     end
 
     local seenIDs = {}

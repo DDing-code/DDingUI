@@ -65,33 +65,8 @@ local function IsManagedDynamicIcon(frame)
     return ok and result == true or false
 end
 
-local function IconCanUseAuraVisualState(icon)
-    if not icon then return false end
-
-    local okNative, nativeAura = pcall(function()
-        return icon.wasSetFromAura == true or icon.auraInstanceID ~= nil
-    end)
-    if okNative and nativeAura then return true end
-
-    local okMeta, eligible = pcall(function()
-        local sourceViewer = icon._ddSourceViewer
-            or (icon.Cooldown and icon.Cooldown._ddSourceViewer)
-            or (icon.cooldown and icon.cooldown._ddSourceViewer)
-        if sourceViewer == "BuffIconCooldownViewer" then return true end
-        if icon._ddGroupName == "Buffs" then return true end
-
-        local settings = icon._groupSettings
-            or (icon._ddContainerRef and icon._ddContainerRef._groupSettings)
-        if settings and settings.groupCategory == "buff" then return true end
-
-        return icon._type == "aura" or icon._type == "trinketProc"
-    end)
-    return okMeta and eligible == true
-end
-
 local function IconHasAuraState(icon, cooldown)
     if not icon then return false end
-    if not IconCanUseAuraVisualState(icon) then return false end
 
     local ok, active = pcall(function()
         return icon.wasSetFromAura == true or icon.auraInstanceID ~= nil
@@ -480,12 +455,6 @@ function IconViewers:SkinIcon(icon, settings)
     local iconTexture = icon.icon or icon.Icon
     if not icon or not iconTexture then return end
 
-    local existingIconData = GetIconData(icon)
-    if existingIconData and existingIconData.auraGlowActive and not IconCanUseAuraVisualState(icon) then
-        StopAuraGlow(icon, existingIconData, true)
-        existingIconData.isAuraSwipe = false
-    end
-
     -- Skip if frame is forbidden (protected)
     if icon.IsForbidden and icon:IsForbidden() then return end
 
@@ -747,11 +716,10 @@ function IconViewers:SkinIcon(icon, settings)
                 if not parentIcon then return end
 
                 -- [PERF] 변경 감지: 이전 isAuraSwipe 상태와 동일하면 전체 로직 스킵
-                local canUseAuraVisual = IconCanUseAuraVisualState(parentIcon)
-                local isAuraSwipe = canUseAuraVisual and IsAuraSwipeColor(r, g, b) or false
+                local isAuraSwipe = IsAuraSwipeColor(r, g, b)
                 local pid = iconData[parentIcon]
                 if not pid then pid = {}; iconData[parentIcon] = pid end
-                if canUseAuraVisual and not isAuraSwipe and IconHasAuraState(parentIcon, self) then
+                if not isAuraSwipe and IconHasAuraState(parentIcon, self) then
                     isAuraSwipe = true
                 end
                 local prevAura = pid.isAuraSwipe
@@ -1006,10 +974,9 @@ function IconViewers:SkinIcon(icon, settings)
             local pid = GetIconData(icon)
             local currentColorOk, cr, cg, cb = pcall(function() return icon.Cooldown:GetSwipeColor() end)
             local isPhysicallyYellow = currentColorOk and cr and cg and cb and cr > 0.9 and cg > 0.9 and cb > 0.4
-            local canUseAuraVisual = IconCanUseAuraVisualState(icon)
-            local currentlyIsAura = canUseAuraVisual and (isPhysicallyYellow or pid.isAuraSwipe or pid.auraGlowActive)
+            local currentlyIsAura = isPhysicallyYellow or pid.isAuraSwipe or pid.auraGlowActive
 
-            if canUseAuraVisual and isPhysicallyYellow then
+            if isPhysicallyYellow then
                 pid.isAuraSwipe = true
             end
 
@@ -1046,9 +1013,10 @@ function IconViewers:SkinIcon(icon, settings)
             pcall(function()
                 isActive = icon.wasSetFromAura == true or icon.auraInstanceID ~= nil
             end)
-            if not isActive and IconCanUseAuraVisualState(icon) then
+            if not isActive then
+                -- Fallback: check current swipe color
                 local ok2, cr, cg, cb = pcall(function() return icon.Cooldown:GetSwipeColor() end)
-                if ok2 and IsAuraSwipeColor(cr, cg, cb) then
+                if ok2 and cr and cg and cb and cr > 0.9 and cg > 0.9 and cb > 0.4 then
                     isActive = true
                 end
             end
