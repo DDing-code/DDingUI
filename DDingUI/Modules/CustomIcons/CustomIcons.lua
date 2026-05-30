@@ -28,13 +28,13 @@ end
 
 local LSM = LibStub("LibSharedMedia-3.0", true)
 
--- [REFACTOR] 공통 TextureBorder 유틸리티 (Toolkit.lua) — CustomIcons는 안쪽 보더(inset=true)
+-- [REFACTOR] 공통 TextureBorder ?�틸리티 (Toolkit.lua) ??CustomIcons???�쪽 보더(inset=true)
 local _CreateTextureBorder = DDingUI.CreateTextureBorder
 local UpdateTextureBorderColor = DDingUI.UpdateTextureBorderColor
 local _UpdateTextureBorderSize = DDingUI.UpdateTextureBorderSize
 local ShowTextureBorder = DDingUI.ShowTextureBorder
 
--- 안쪽 보더 래퍼 (inset=true 자동 전달)
+-- ?�쪽 보더 ?�퍼 (inset=true ?�동 ?�달)
 local function CreateTextureBorder(parent, borderSize, r, g, b, a)
     return _CreateTextureBorder(parent, borderSize, r, g, b, a, true)
 end
@@ -90,7 +90,7 @@ local SPEC_LIST = {
     {id=1473, name="Augmentation", classID=13, icon=5198700},
 }
 
--- [RACIALS] 종족 특성 매핑 (자동 감지용)
+-- [RACIALS] 종족 ?�성 매핑 (?�동 감�???
 local RACIAL_SPELLS = {
     Orc         = { 20572, 33697, 33702 }, -- Blood Fury
     Tauren      = { 20549 }, -- War Stomp
@@ -187,7 +187,7 @@ local function GetPlayerRacialSpellID()
     return CustomIcons:GetPlayerRacialSpellID()
 end
 
--- [REFACTOR] CreateBackdrop은 GUI.lua로 이동됨 → EnsureGUILoaded()에서 lazy-load
+-- [REFACTOR] CreateBackdrop?� GUI.lua�??�동????EnsureGUILoaded()?�서 lazy-load
 
 -- Runtime containers
 local runtime = {
@@ -588,11 +588,11 @@ end
 -- ------------------------
 -- Icon updates
 -- ------------------------
--- [FIX] IsCooldownFrameActive: 이전 패치에서 정의 제거됨 — forward declaration 유지 (nil)
--- L830 호출부도 GetCooldownTimes 기반으로 교체되었으므로 더 이상 보안 필요 없음
+-- [FIX] IsCooldownFrameActive: ?�전 ?�치?�서 ?�의 ?�거????forward declaration ?��? (nil)
+-- L830 ?�출부??GetCooldownTimes 기반?�로 교체?�었?��?�????�상 보안 ?�요 ?�음
 
--- [CDM CDM 방식] 아이템 → 스펠 쿨다운 매핑
--- 아이템 쿨다운 API가 전투 중 늦게 갱신될 때 스펠 쿨다운으로 폴백
+-- [CDM CDM 방식] ?�이?????�펠 쿨다??매핑
+-- ?�이??쿨다??API가 ?�투 �???�� 갱신?????�펠 쿨다?�으�??�백
 local ITEM_SPELL_MAP = {
     [5512]   = 6262,    -- Healthstone
     [224464] = 452930,  -- Demonic Healthstone
@@ -625,7 +625,7 @@ local ITEM_COMBAT_LOCKOUT_SPELLS = {
     [452930] = true,
 }
 local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local FALLBACK_SPELL_ICON = "Interface\\Icons\\Spell_Holy_PowerWordShield"
+local FALLBACK_SPELL_ICON = "Interface\\Icons\\INV_Misc_Rune_01"
 local FALLBACK_ITEM_ICON = "Interface\\Icons\\INV_Potion_93"
 local FALLBACK_SLOT_ICON = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
 local FALLBACK_RACIAL_ICON = "Interface\\Icons\\Spell_magic_polymorphrabbit"
@@ -1207,7 +1207,9 @@ local function GetCustomTimedAuraConfig(iconData)
         stateID = stateID,
         duration = duration,
         trigger = settings.customAuraTrigger or (preset and preset.trigger) or "spellcast",
-        iconTexture = GetStoredIconTexture(iconData) or ResolveSpellTexture(spellID),
+        iconTexture = GetStoredIconTexture(iconData)
+            or GetCustomAuraPresetIconTexture(stateID)
+            or ResolveSpellTexture(spellID),
     }
 end
 
@@ -1562,8 +1564,11 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 frame._wasVisibleInGroup = true
                 frame._auraWasActive = true
                 frame._ddManagedAuraExpired = nil
-                if state and state.iconTexture then
-                    SetStableIconTexture(frame, state.iconTexture, true)
+                local stableTexture = GetStoredIconTexture(iconData)
+                    or (config and config.iconTexture)
+                    or (state and state.iconTexture)
+                if stableTexture then
+                    SetStableIconTexture(frame, stableTexture, true)
                 end
                 CustomIcons.RestoreActiveIconVisual(frame)
                 CustomIcons.ApplyManagedGroupTextOptions(frame)
@@ -1864,7 +1869,7 @@ end
 -- Item cooldown APIs can briefly report zero immediately after combat item use.
 -- Keep the last valid cooldown span until it expires instead of hiding the count.
 
--- [FIX CDM] IsCooldownFrameActive 제거 — 대신 EvaluateRemainingDuration(GCDFilterCurve)로 frame-perfect 쿨다운 감지
+-- [FIX CDM] IsCooldownFrameActive ?�거 ???�??EvaluateRemainingDuration(GCDFilterCurve)�?frame-perfect 쿨다??감�?
 local function EvalDesatFromDurObj(durObj, isOnGCD)
     local DDingUI = ns.Addon
     local desatCurve = isOnGCD
@@ -1874,7 +1879,7 @@ local function EvalDesatFromDurObj(durObj, isOnGCD)
         local ok, v = pcall(durObj.EvaluateRemainingDuration, durObj, desatCurve, 0)
         if ok and type(v) == "number" then return v end
     end
-    -- fallback: curve 미생성 환경 (WoW 구 버전) — durObj가 있고 GCD가 아니면 1
+    -- fallback: curve 미생???�경 (WoW �?버전) ??durObj가 ?�고 GCD가 ?�니�?1
     if durObj and not isOnGCD then return 1 end
     return 0
 end
@@ -2220,7 +2225,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     local itemSpellCooldownActive = false
     local itemCombatLocked = IsItemCombatLocked(activeItemID)
     if itemSpellID then
-        -- 스펠 ID가 매핑된 아이템: CDM의 최우선 ItemCD 시도, 실패시 SpellDur 사용
+        -- ?�펠 ID가 매핑???�이?? CDM??최우??ItemCD ?�도, ?�패??SpellDur ?�용
         local realDur = GetRealSpellCooldownDuration(itemSpellID)
 
         local itemCdStart, itemCdDuration, hasItemCooldown, itemCdSafe =
@@ -2251,7 +2256,7 @@ local function UpdateItemIcon(iconFrame, iconData)
             iconFrame.cooldown:Clear()
         end
     else
-        -- [Fallback] 스펠 ID 없는 아이템 (비전투/제한적 작동)
+        -- [Fallback] ?�펠 ID ?�는 ?�이??(비전???�한???�동)
         local itemCdStart, itemCdDuration, hasItemCooldown, itemCdSafe =
             ResolveItemCooldownSpan(iconFrame, "_ddItemCooldown", activeItemID, nil, itemSpellID)
 
@@ -2266,7 +2271,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
-    -- 쿨다운 프레임 Show/Hide
+    -- 쿨다???�레??Show/Hide
     if iconData.settings and iconData.settings.showCooldown == false then
         iconFrame.cooldown:Hide()
     elseif itemCooldownActive or itemSpellCooldownActive then
@@ -2275,7 +2280,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         iconFrame.cooldown:Hide()
     end
 
-    -- 아이템 카운트 표시
+    -- ?�이??카운???�시
     if iconFrame.count then
         pcall(iconFrame.count.SetText, iconFrame.count, itemCount or 0)
         if iconData.settings and iconData.settings.showCharges == false then
@@ -2285,14 +2290,14 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
-    -- [CDM 패턴] 탈색 처리
+    -- [CDM ?�턴] ?�색 처리
     local allowCooldownDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
 
     local showEmptyItem = (itemCount == 0 or itemCount == nil)
     local desatVal = 0
 
-    -- [FIX] OnUpdate 진입 조건: cdInfo.isActive (safe boolean) 사용 — secret number 비교 금지
+    -- [FIX] OnUpdate 진입 조건: cdInfo.isActive (safe boolean) ?�용 ??secret number 비교 금�?
     local itemIsOnRealCD = false
 
     if itemCombatLocked then
@@ -2305,16 +2310,16 @@ local function UpdateItemIcon(iconFrame, iconData)
     elseif showEmptyItem then
         if allowUnusableDesat then desatVal = 1 end
     elseif allowCooldownDesat and desatDurationObject and desatSpellID then
-        -- isOnRealCD: boolean (safe) — secret number 비교 없음
+        -- isOnRealCD: boolean (safe) ??secret number 비교 ?�음
         pcall(function()
             local cdInfo = C_Spell.GetSpellCooldown(desatSpellID)
             if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
                 itemIsOnRealCD = true
-                -- isOnGCD는 이미 false이므로 EvalDesatFromDurObj에 false 전달
+                -- isOnGCD???��? false?��?�?EvalDesatFromDurObj??false ?�달
             end
         end)
         if itemIsOnRealCD then
-            -- EvaluateRemainingDuration 결과(secret)는 비교 없이 SetDesaturation에 직접 전달
+            -- EvaluateRemainingDuration 결과(secret)??비교 ?�이 SetDesaturation??직접 ?�달
             desatVal = EvalDesatFromDurObj(desatDurationObject, false)
         end
     end
@@ -2322,7 +2327,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     iconFrame.icon:SetDesaturated(false)
     iconFrame.icon:SetDesaturation(desatVal)
 
-    -- OnUpdate 루프: isOnRealCD (safe boolean)으로만 진입 판단 — desatVal 비교 금지
+    -- OnUpdate 루프: isOnRealCD (safe boolean)?�로�?진입 ?�단 ??desatVal 비교 금�?
     if itemCombatLocked then
         if iconFrame._cdmDesatUpdater then
             iconFrame._cdmDesatUpdater:Hide()
@@ -2369,14 +2374,14 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     end
 
     iconFrame._textureCacheKey = "spell:" .. tostring(spellID)
-    -- 텍스처동적 갱신 (오버라이드/누락 초기로드 대응)
+    -- ?�스처동??갱신 (?�버?�이???�락 초기로드 ?�??
     iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
     SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
 
     local allowDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
 
-    -- 쿨다운 정보
+    -- 쿨다???�보
     local chargeInfo
     pcall(function()
         chargeInfo = C_Spell.GetSpellCharges(spellID)
@@ -2394,9 +2399,9 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         end)
     end
 
-    -- [CDM 패턴] 쿨다운 DurationObject 선택
-    -- CCD(ChargeDuration)가 존재하면 충전 쿨다운, 없으면 SCD(SpellCooldown) 사용
-    -- currentCharges/maxCharges 값 비교 불필요 (secret value taint 방지)
+    -- [CDM ?�턴] 쿨다??DurationObject ?�택
+    -- CCD(ChargeDuration)가 존재?�면 충전 쿨다?? ?�으�?SCD(SpellCooldown) ?�용
+    -- currentCharges/maxCharges �?비교 불필??(secret value taint 방�?)
     local durObj
     if isChargeSpell and CCD then
         durObj = CCD
@@ -2404,8 +2409,8 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         durObj = SCD
     end
 
-    -- [FIX 깜빡임] 쿨다운 상태 캐싱 — 동일 상태 재Set/Clear 방지
-    -- GCD 진입/해제 시 durObj 변화가 없으면 cooldown 프레임을 건드리지 않음
+    -- [FIX 깜빡?? 쿨다???�태 캐싱 ???�일 ?�태 ?�Set/Clear 방�?
+    -- GCD 진입/?�제 ??durObj 변?��? ?�으�?cooldown ?�레?�을 건드리�? ?�음
     local cooldownSet = false
     local newCDState = (durObj and not isOnGCD) and "set" or "clear"
     if newCDState == "set" then
@@ -2431,7 +2436,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         iconFrame.cooldown.noCooldownCount = hideNumbers and true or nil
     end
 
-    -- 충전 카운트 표시
+    -- 충전 카운???�시
     local charges = isChargeSpell and chargeInfo.currentCharges
     local hasChargesText = false
     if not isChargeSpell or (iconData.settings and iconData.settings.showCharges == false) or charges == nil then
@@ -2447,7 +2452,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         end
     end
 
-    -- [FIX CDM] Swipe/Edge 스타일 (변경 없음)
+    -- [FIX CDM] Swipe/Edge ?��???(변�??�음)
     if not (iconData.settings and iconData.settings.showCooldown == false) then
         if isChargeSpell then
             pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0)
@@ -2466,7 +2471,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false)
     end
 
-    -- 사용가능 여부
+    -- ?�용가???��?
     local usable = true
     if C_Spell and C_Spell.IsSpellUsable then
         local okUsable, usableVal = pcall(C_Spell.IsSpellUsable, spellID)
@@ -2476,26 +2481,26 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         if okUsable then usable = usableVal == true end
     end
 
-    -- [FIX CDM] EvaluateRemainingDuration 기반 탈색
-    -- secret number를 비교하지 않음 — cdInfo.isActive (safe boolean)으로 OnUpdate 진입 결정
+    -- [FIX CDM] EvaluateRemainingDuration 기반 ?�색
+    -- secret number�?비교?��? ?�음 ??cdInfo.isActive (safe boolean)?�로 OnUpdate 진입 결정
     local desatDurObj = SCD
     local desatValue = 0
     local isOnRealCD = false  -- safe boolean
 
     if usable then
         if allowDesat then
-            -- 1단계: safe boolean으로 쿨다운 활성 여부 판단
+            -- 1?�계: safe boolean?�로 쿨다???�성 ?��? ?�단
             pcall(function()
                 local cdInfo = C_Spell.GetSpellCooldown(spellID)
                 if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
                     isOnRealCD = true
                 end
             end)
-            -- 2단계: secret number는 비교 없이 SetDesaturation에만 전달
-            -- [FIX 깜빡임] GCD 진입 시 탈색값 보존 — isOnGCD면 이전 값 유지, 없으면 0
+            -- 2?�계: secret number??비교 ?�이 SetDesaturation?�만 ?�달
+            -- [FIX 깜빡?? GCD 진입 ???�색�?보존 ??isOnGCD�??�전 �??��?, ?�으�?0
             if desatDurObj then
                 if isOnGCD then
-                    -- GCD 중: 직전 탈색값을 그대로 유지 (흰색↔회색 교번 방지)
+                    -- GCD �? 직전 ?�색값을 그�?�??��? (?�색?�회??교번 방�?)
                     desatValue = iconFrame._lastDesatValue or 0
                 else
                     desatValue = EvalDesatFromDurObj(desatDurObj, false)
@@ -2507,11 +2512,10 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         if allowUnusableDesat then
             desatValue = 1
         end
-        iconFrame._lastDesatValue = nil  -- unusable 상태 전환 시 캐시 초기화
-    end
+        iconFrame._lastDesatValue = nil  -- unusable ?�태 ?�환 ??캐시 초기??    end
     iconFrame.icon:SetDesaturation(desatValue)
 
-    -- OnUpdate 루프: isOnRealCD (safe boolean)만으로 진입 결정 — desatValue 비교 금지
+    -- OnUpdate 루프: isOnRealCD (safe boolean)만으�?진입 결정 ??desatValue 비교 금�?
     if usable and allowDesat and desatDurObj and isOnRealCD then
         if not iconFrame._cdmDesatUpdater then
             iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
@@ -2695,7 +2699,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     end
 
     -- [REFACTOR] 3-method buff detection for on-use trinket compatibility
-    -- Method A: Direct spell ID → Method B: Cached buff ID → Method C: Name scan
+    -- Method A: Direct spell ID ??Method B: Cached buff ID ??Method C: Name scan
     local procActive = false
     local auraData = nil
 
@@ -2715,7 +2719,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
             end
         end
 
-        -- Method C: Spell name scan (on-use trinkets where cast spell ID ≠ buff spell ID)
+        -- Method C: Spell name scan (on-use trinkets where cast spell ID ??buff spell ID)
         if not auraData then
             pcall(function()
                 local spellInfo = C_Spell.GetSpellInfo(procSpellID)
@@ -2765,9 +2769,9 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
             end
         end
 
-        -- [FIX] 글로우를 아이콘 외부로 확장하여 스와이프와 겹치지 않는 테두리로 사용
-        -- 스와이프는 아이콘 내부에만 그려지므로, 외곽으로 벗어난 글로우는 항상 보임
-        -- xOffset/yOffset으로 아이콘 경계 밖 8px 추가 확장
+        -- [FIX] 글로우�??�이�??��?�??�장?�여 ?��??�프?� 겹치지 ?�는 ?�두리로 ?�용
+        -- ?��??�프???�이�??��??�만 그려지므�? ?�곽?�로 벗어??글로우????�� 보임
+        -- xOffset/yOffset?�로 ?�이�?경계 �?8px 추�? ?�장
         local LCG = LibStub("LibCustomGlow-1.0", true)
         if LCG and LCG.ProcGlow_Start then
             LCG.ProcGlow_Start(iconFrame, {
@@ -2791,7 +2795,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         iconFrame.icon:SetDesaturated(false)
     end
 
-    -- 2. Proc not active → show item cooldown as fallback
+    -- 2. Proc not active ??show item cooldown as fallback
     if not procActive then
         -- [Visuals: Reset]
         iconFrame.cooldown:SetReverse(false)
@@ -2965,9 +2969,8 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
     elseif aspect < 1.0 then
         width = size * aspect
     end
-    -- [FIX] DynamicIconBridge 관리 아이콘은 GroupSystem이 크기를 관리하므로 건너뜀
-    -- CustomIcons의 aspectRatio와 GroupSystem의 aspectRatioCrop이 다르면
-    -- SetSize → snap-back 훅 → 1프레임 깜빡임 발생 방지
+    -- [FIX] DynamicIconBridge 관�??�이콘�? GroupSystem???�기�?관리하므�?건너?�
+    -- CustomIcons??aspectRatio?� GroupSystem??aspectRatioCrop???�르�?    -- SetSize ??snap-back ????1?�레??깜빡??발생 방�?
     if not iconFrame._ddIsManaged then
         iconFrame:SetSize(width, height)
     end
@@ -3023,8 +3026,8 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
 end
 
 -- ------------------------
--- Aura (buff/debuff) icon update — trinketProc 패턴 기반
--- CDM reparent가 아닌 독립 프레임으로 buff 추적
+-- Aura (buff/debuff) icon update ??trinketProc ?�턴 기반
+-- CDM reparent가 ?�닌 ?�립 ?�레?�으�?buff 추적
 -- ------------------------
 
 
@@ -3041,7 +3044,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
     end
 
-    -- 1. buff 활성 여부 확인
+    -- 1. buff ?�성 ?��? ?�인
     local auraData = ResolvePlayerAuraForIcon(iconFrame, iconData)
     if not timedOnly then
         pcall(function()
@@ -3051,7 +3054,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         end)
     end
 
-    -- spellName 기반 폴백 (buff spellID ≠ spell spellID인 경우)
+    -- spellName 기반 ?�백 (buff spellID ??spell spellID??경우)
     if not timedOnly and not auraData and not iconFrame._cachedAuraSpellID then
         local now = GetTime()
         if not iconFrame._lastAuraScan or (now - iconFrame._lastAuraScan) > 1.0 then
@@ -3075,8 +3078,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         end
     end
 
-    -- 캐시된 buff spellID로 재시도
-    if not timedOnly and not auraData and iconFrame._cachedAuraSpellID then
+    -- 캐시??buff spellID�??�시??    if not timedOnly and not auraData and iconFrame._cachedAuraSpellID then
         pcall(function()
             if not auraData then
                 auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedAuraSpellID)
@@ -3094,7 +3096,9 @@ local function UpdateAuraIcon(iconFrame, iconData)
     local auraTexture = auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID"))
     local activeTexture
     if auraData and GetAuraFieldSafe(auraData, "__ddinguiTimedAura") then
-        activeTexture = auraTexture or GetStoredIconTexture(iconData)
+        activeTexture = GetStoredIconTexture(iconData)
+            or (timedConfig and timedConfig.iconTexture)
+            or auraTexture
     else
         activeTexture = GetStoredIconTexture(iconData) or auraTexture
     end
@@ -3110,10 +3114,10 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     if auraData then
-        -- [FIX] 버프 스와이프 방향: fill-up (CDM 패턴)
+        -- [FIX] 버프 ?��??�프 방향: fill-up (CDM ?�턴)
         iconFrame.cooldown:SetReverse(true)
 
-        -- 활성: duration 쿨다운 + 스택 표시
+        -- ?�성: duration 쿨다??+ ?�택 ?�시
         pcall(function()
             local auraDuration = GetAuraNumberFieldSafe(auraData, "duration")
             local auraExpiration = GetAuraNumberFieldSafe(auraData, "expirationTime")
@@ -3163,7 +3167,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame.icon:SetAlpha(1.0)
         iconFrame:Show()
     else
-        -- 비활성: 쿨다운 클리어 + 숨김
+        -- 비활?? 쿨다???�리??+ ?��?
         iconFrame.cooldown:Clear()
         iconFrame.cooldown:Hide()
         iconFrame.count:Hide()
@@ -3189,7 +3193,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         else
             iconFrame.icon:SetAlpha(1.0)
         end
-        -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
+        -- [FIX] managed ?�레?��? GroupRenderer가 Show/Hide 관�?
         if not iconFrame._ddIsManaged then
             iconFrame:Hide()
         end
@@ -3288,8 +3292,11 @@ function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, group
                 frame._wasVisibleInGroup = true
                 frame._auraWasActive = true
                 frame._ddManagedAuraExpired = nil
-                if state.iconTexture then
-                    SetStableIconTexture(frame, state.iconTexture, true)
+                local stableTexture = GetStoredIconTexture(iconData)
+                    or (config and config.iconTexture)
+                    or state.iconTexture
+                if stableTexture then
+                    SetStableIconTexture(frame, stableTexture, true)
                 end
                 CustomIcons.RestoreActiveIconVisual(frame)
                 CustomIcons.ApplyManagedGroupTextOptions(frame)
@@ -3316,8 +3323,7 @@ end
 -- Event-based update system
 -- ------------------------
 
--- [CDM 패턴] 디바운스 상태 — 같은 틱에 여러 이벤트가 동시에 UpdateAllIcons를
--- 호출해도 실제 실행은 다음 프레임에 단 1회만 수행 (C_Timer.After(0) 배치 처리)
+-- [CDM ?�턴] ?�바?�스 ?�태 ??같�? ?�에 ?�러 ?�벤?��? ?�시??UpdateAllIcons�?-- ?�출?�도 ?�제 ?�행?� ?�음 ?�레?�에 ??1?�만 ?�행 (C_Timer.After(0) 배치 처리)
 local _pendingIconUpdate = false
 local _iconUpdateSeq = 0
 local _pendingIconLayoutNotify = false
@@ -3425,8 +3431,8 @@ local function ExecuteUpdateAllIcons(filter)
     return layoutStateChanged
 end
 
--- [CDM 패턴] 공개 진입점 — 이벤트 핸들러는 이 함수만 호출
--- 같은 틱 내 다수 호출을 1회로 병합, 다음 프레임에 실행
+-- [CDM ?�턴] 공개 진입?????�벤???�들?�는 ???�수�??�출
+-- 같�? ?????�수 ?�출??1?�로 병합, ?�음 ?�레?�에 ?�행
 UpdateAllIcons = function(needsLayoutNotify, filter)
     if needsLayoutNotify then
         QueueIconLayoutNotify(needsLayoutNotify)
@@ -3455,7 +3461,7 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
     local elapsed = now - (runtime.lastIconUpdateAt or 0)
     local delay = elapsed >= minInterval and 0 or (minInterval - elapsed)
     C_Timer.After(delay, function()
-        if capturedSeq ~= _iconUpdateSeq then return end  -- 더 최신 요청이 있으면 스킵
+        if capturedSeq ~= _iconUpdateSeq then return end  -- ??최신 ?�청???�으�??�킵
         _pendingIconUpdate = false
         local notifyLayout = _pendingIconLayoutNotify
         _pendingIconLayoutNotify = false
@@ -3503,11 +3509,10 @@ local function ScheduleSpecReload()
     if runtime.pendingSpecReload then return end
     runtime.pendingSpecReload = true
 
-    -- [FIX] 다단계 재시도: CDM 뷰어 재생성 대기
-    -- Phase 1 (0.3s): 빠른 초기 갱신
+    -- [FIX] ?�단�??�시?? CDM 뷰어 ?�생???��?    -- Phase 1 (0.3s): 빠른 초기 갱신
     C_Timer.After(0.3, function()
         runtime.pendingSpecReload = false
-        -- trinket proc 캐시 무효화
+        -- trinket proc 캐시 무효??
         for _, frame in pairs(runtime.iconFrames or {}) do
             if frame then frame._cachedBuffSpellID = nil end
         end
@@ -3518,7 +3523,7 @@ local function ScheduleSpecReload()
             UpdateAllIcons(nil, "all")
         end
     end)
-    -- Phase 2 (1.5s): CDM 안정화 후 최종 갱신
+    -- Phase 2 (1.5s): CDM ?�정????최종 갱신
     C_Timer.After(1.5, function()
         if CustomIcons and CustomIcons.LoadDynamicIcons then
             CustomIcons:LoadDynamicIcons()
@@ -3714,6 +3719,11 @@ local function EnsureEventFrame()
         end
 
         local customTimedChanged = HandleCustomTimedAuraEvent(event, ...)
+        if event == "UNIT_INVENTORY_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then
+            if runtime.RegisterCustomCooldownWatches then
+                runtime.RegisterCustomCooldownWatches()
+            end
+        end
         local succeededSpellID = event == "UNIT_SPELLCAST_SUCCEEDED" and SafeNumber(select(3, ...)) or nil
         local isRacialSpellcast = succeededSpellID and succeededSpellID == GetPlayerRacialSpellID()
         if event == "UNIT_SPELLCAST_SENT" then return end
@@ -4179,8 +4189,7 @@ local function CreateBaseIcon(name, parent)
     local frame = CreateFrame("Button", name, parent, "BackdropTemplate")
     frame:SetSize(40, 40)
 
-    -- [FIX] ARTWORK 레이어 사용: BackdropTemplate의 backdrop이 BACKGROUND 레이어를 차지하므로
-    -- BACKGROUND에 icon을 만들면 backdrop에 가려져 투명하게 보임
+    -- [FIX] ARTWORK ?�이???�용: BackdropTemplate??backdrop??BACKGROUND ?�이?��? 차�??��?�?    -- BACKGROUND??icon??만들�?backdrop??가?�져 ?�명?�게 보임
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(frame)
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -4389,9 +4398,8 @@ local function CreateItemIcon(iconKey, iconData, parent)
     local itemID = iconData.id
     if not itemID then return nil end
 
-    -- [FIX] CDM 방식: 프레임은 항상 생성, 텍스처만 나중에 업데이트
-    -- GetItemInfo가 nil이어도 프레임은 만들어야 GroupSystem이 추적 가능
-    local itemName = GetItemInfo(itemID)
+    -- [FIX] CDM 방식: ?�레?��? ??�� ?�성, ?�스처만 ?�중???�데?�트
+    -- GetItemInfo가 nil?�어???�레?��? 만들?�야 GroupSystem??추적 가??    local itemName = GetItemInfo(itemID)
     if not itemName and C_Item and C_Item.RequestLoadItemDataByID then
         C_Item.RequestLoadItemDataByID(itemID)
     end
@@ -4409,9 +4417,8 @@ end
 local function CreateSpellIcon(iconKey, iconData, parent)
     local spellID = iconData.id
     if not spellID then return nil end
-    -- [FIX] 스펠북 체크는 IsIconActive에서 하므로 여기서는 프레임만 생성
-    -- 유저가 추가한 스펠이 현재 특성에 없더라도 프레임은 존재해야 함
-
+    -- [FIX] ?�펠�?체크??IsIconActive?�서 ?��?�??�기?�는 ?�레?�만 ?�성
+    -- ?��?가 추�????�펠???�재 ?�성???�더?�도 ?�레?��? 존재?�야 ??
     local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
     if not spellInfo then
         if C_Spell and C_Spell.RequestLoadSpellData then
@@ -4441,11 +4448,11 @@ local function CreateSlotIcon(iconKey, iconData, parent)
     frame._textureCacheKey = (iconData.type or "slot") .. ":" .. tostring(slotID)
     frame._fallbackTexture = FALLBACK_SLOT_ICON
 
-    -- [FIX] 텍스처 항상 설정 — GetItemInfo 캐시 미스 시에도 아이콘 보이도록
+    -- [FIX] ?�스�???�� ?�정 ??GetItemInfo 캐시 미스 ?�에???�이�?보이?�록
     local itemID = CustomIcons.GetEquippedSlotItemID(frame, slotID)
     local tex = nil
     if itemID then
-        -- GetItemInfo보다 GetInventoryItemTexture가 더 신뢰할 수 있음 (캐시 불필요)
+        -- GetItemInfo보다 GetInventoryItemTexture가 ???�뢰?????�음 (캐시 불필??
         tex = GetInventoryItemTexture("player", slotID)
         if not tex then
             local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
@@ -4470,7 +4477,7 @@ local function CreateAuraIcon(iconKey, iconData, parent)
     frame._textureCacheKey = "aura:" .. tostring(spellID)
     frame._fallbackTexture = GetStoredIconTexture(iconData) or FALLBACK_SPELL_ICON
 
-    -- 텍스처: C_Spell.GetSpellTexture → GetSpellInfo.iconID 폴백
+    -- ?�스�? C_Spell.GetSpellTexture ??GetSpellInfo.iconID ?�백
     SetStableIconTexture(frame, ResolveSpellTexture(spellID, frame._fallbackTexture), true)
     return frame
 end
@@ -4489,7 +4496,7 @@ local function CreateDynamicIcon(iconKey, iconData, parent)
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()
         if not racialID then return nil end
-        -- 임시 테이블로 CreateSpellIcon을 호출하여 데이터 오염 방지
+        -- ?�시 ?�이블로 CreateSpellIcon???�출?�여 ?�이???�염 방�?
         local frame = CreateSpellIcon(iconKey, {id = racialID}, parent)
         if frame then
             frame._type = "racial"
@@ -4579,6 +4586,16 @@ function runtime.ReadCustomItemCooldown(itemID)
     if C_Container and C_Container.GetItemCooldown then
         pcall(function()
             startTime, duration, enable = C_Container.GetItemCooldown(itemID)
+        end)
+    end
+    if not startTime and C_Item and C_Item.GetItemCooldown then
+        pcall(function()
+            startTime, duration, enable = C_Item.GetItemCooldown(itemID)
+        end)
+    end
+    if not startTime and GetItemCooldown then
+        pcall(function()
+            startTime, duration, enable = GetItemCooldown(itemID)
         end)
     end
     return startTime, duration, enable
@@ -4743,6 +4760,10 @@ function runtime.AddCustomFallbackItemTargets(settings, iconKey)
     if type(settings) ~= "table" or type(settings.fallbackItems) ~= "string" then return end
     for itemText in string.gmatch(settings.fallbackItems, "(%d+)") do
         runtime.AddCustomCooldownTarget(runtime.cooldownWatcher.itemTargets, itemText, iconKey)
+        local slotID = FindEquippedItemSlot(itemText)
+        if slotID then
+            runtime.AddCustomCooldownTarget(runtime.cooldownWatcher.slotTargets, slotID, iconKey)
+        end
     end
 end
 
@@ -4773,6 +4794,10 @@ function runtime.RegisterCustomCooldownWatches()
         if iconData then
             if iconData.type == "item" then
                 runtime.AddCustomCooldownTarget(watcher.itemTargets, iconData.id, iconKey)
+                local slotID = FindEquippedItemSlot(iconData.id)
+                if slotID then
+                    runtime.AddCustomCooldownTarget(watcher.slotTargets, slotID, iconKey)
+                end
                 runtime.AddCustomFallbackItemTargets(iconData.settings, iconKey)
             elseif iconData.type == "slot" then
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
@@ -4796,7 +4821,10 @@ end
 -- ------------------------
 -- Group layout
 -- ------------------------
-local function GetStartAnchorForGrowth(growth)
+local Layout = CustomIcons._Layout or {}
+CustomIcons._Layout = Layout
+
+function Layout.GetStartAnchorForGrowth(growth)
     if growth == "LEFT" then
         return "TOPRIGHT"
     elseif growth == "UP" then
@@ -4805,14 +4833,14 @@ local function GetStartAnchorForGrowth(growth)
     return "TOPLEFT"
 end
 
-local function GetDefaultRowGrowth(growth)
+function Layout.GetDefaultRowGrowth(growth)
     if growth == "LEFT" or growth == "RIGHT" then
         return "DOWN"
     end
     return "RIGHT"
 end
 
-local function NormalizeRowGrowth(growth, rowGrowth)
+function Layout.NormalizeRowGrowth(growth, rowGrowth)
     if growth == "LEFT" or growth == "RIGHT" then
         if rowGrowth ~= "UP" and rowGrowth ~= "DOWN" then
             return "DOWN"
@@ -4825,9 +4853,9 @@ local function NormalizeRowGrowth(growth, rowGrowth)
     return rowGrowth
 end
 
-local function GetStartAnchorForGrowthPair(growth, rowGrowth)
+function Layout.GetStartAnchorForGrowthPair(growth, rowGrowth)
     local g = growth or "RIGHT"
-    local rg = NormalizeRowGrowth(g, rowGrowth or GetDefaultRowGrowth(g))
+    local rg = Layout.NormalizeRowGrowth(g, rowGrowth or Layout.GetDefaultRowGrowth(g))
 
     local top = (g == "LEFT" or g == "RIGHT" or rg == "DOWN")
     local left = (g == "RIGHT" or rg == "RIGHT")
@@ -4838,10 +4866,10 @@ local function GetStartAnchorForGrowthPair(growth, rowGrowth)
     return "BOTTOMRIGHT"
 end
 
-local function BuildDefaultSettings(growth)
+function Layout.BuildDefaultSettings(growth)
     local g = growth or "RIGHT"
-    local rg = NormalizeRowGrowth(g, GetDefaultRowGrowth(g))
-    local startAnchor = GetStartAnchorForGrowthPair(g, rg)
+    local rg = Layout.NormalizeRowGrowth(g, Layout.GetDefaultRowGrowth(g))
+    local startAnchor = Layout.GetStartAnchorForGrowthPair(g, rg)
     return {
         growthDirection = g,
         rowGrowthDirection = rg,
@@ -4854,15 +4882,15 @@ local function BuildDefaultSettings(growth)
     }
 end
 
-local function BuildDefaultUngroupedPositionSettings()
-    local settings = BuildDefaultSettings("RIGHT")
+function Layout.BuildDefaultUngroupedPositionSettings()
+    local settings = Layout.BuildDefaultSettings("RIGHT")
     settings.anchorFrom = "CENTER"
     settings.anchorTo = "CENTER"
     settings.position = { x = 0, y = 0 }
     return settings
 end
 
-local function NormalizeAnchor(settings)
+function Layout.NormalizeAnchor(settings)
     if not settings then return end
     if settings.anchorPoint and not settings.anchorFrom and not settings.anchorTo then
         settings.anchorFrom = settings.anchorPoint
@@ -4872,40 +4900,40 @@ local function NormalizeAnchor(settings)
     if settings.anchorPoint then
         settings.anchorPoint = nil
     end
-    settings.rowGrowthDirection = settings.rowGrowthDirection or GetDefaultRowGrowth(settings.growthDirection or "RIGHT")
-    settings.rowGrowthDirection = NormalizeRowGrowth(settings.growthDirection or "RIGHT", settings.rowGrowthDirection)
+    settings.rowGrowthDirection = settings.rowGrowthDirection or Layout.GetDefaultRowGrowth(settings.growthDirection or "RIGHT")
+    settings.rowGrowthDirection = Layout.NormalizeRowGrowth(settings.growthDirection or "RIGHT", settings.rowGrowthDirection)
     if settings.maxIconsPerRow == nil and settings.maxColumns ~= nil then
         settings.maxIconsPerRow = settings.maxColumns
         settings.maxColumns = nil
     end
-    settings.anchorFrom = settings.anchorFrom or GetStartAnchorForGrowthPair(settings.growthDirection or "RIGHT", settings.rowGrowthDirection)
+    settings.anchorFrom = settings.anchorFrom or Layout.GetStartAnchorForGrowthPair(settings.growthDirection or "RIGHT", settings.rowGrowthDirection)
     settings.anchorTo = settings.anchorTo or settings.anchorFrom
 end
 
-local function GetGroupSettings(groupKey)
+function Layout.GetGroupSettings(groupKey)
     local db = GetDynamicDB()
     if groupKey == "ungrouped" then
-        db.ungroupedSettings = db.ungroupedSettings or BuildDefaultSettings("RIGHT")
-        NormalizeAnchor(db.ungroupedSettings)
+        db.ungroupedSettings = db.ungroupedSettings or Layout.BuildDefaultSettings("RIGHT")
+        Layout.NormalizeAnchor(db.ungroupedSettings)
         return db.ungroupedSettings
     end
     if db.iconData[groupKey] and db.ungrouped[groupKey] then
         db.ungroupedPositions = db.ungroupedPositions or {}
-        db.ungroupedPositions[groupKey] = db.ungroupedPositions[groupKey] or BuildDefaultUngroupedPositionSettings()
-        NormalizeAnchor(db.ungroupedPositions[groupKey])
+        db.ungroupedPositions[groupKey] = db.ungroupedPositions[groupKey] or Layout.BuildDefaultUngroupedPositionSettings()
+        Layout.NormalizeAnchor(db.ungroupedPositions[groupKey])
         return db.ungroupedPositions[groupKey]
     end
     if db.groups[groupKey] then
-        db.groups[groupKey].settings = db.groups[groupKey].settings or BuildDefaultSettings(db.groups[groupKey].growthDirection or "RIGHT")
-        NormalizeAnchor(db.groups[groupKey].settings)
+        db.groups[groupKey].settings = db.groups[groupKey].settings or Layout.BuildDefaultSettings(db.groups[groupKey].growthDirection or "RIGHT")
+        Layout.NormalizeAnchor(db.groups[groupKey].settings)
         return db.groups[groupKey].settings
     end
-    local defaults = BuildDefaultSettings("RIGHT")
-    NormalizeAnchor(defaults)
+    local defaults = Layout.BuildDefaultSettings("RIGHT")
+    Layout.NormalizeAnchor(defaults)
     return defaults
 end
 
-local function GetGroupDisplayName(groupKey)
+function Layout.GetGroupDisplayName(groupKey)
     if groupKey == "ungrouped" then
         return L["Ungrouped"] or "Ungrouped"
     end
@@ -4934,9 +4962,9 @@ local function GetGroupDisplayName(groupKey)
     return groupKey
 end
 
-local function EnsureGroupFrame(groupKey, settings)
-    settings = settings or GetGroupSettings(groupKey)
-    NormalizeAnchor(settings)
+function Layout.EnsureGroupFrame(groupKey, settings)
+    settings = settings or Layout.GetGroupSettings(groupKey)
+    Layout.NormalizeAnchor(settings)
     if runtime.groupFrames[groupKey] then
         return runtime.groupFrames[groupKey]
     end
@@ -4955,12 +4983,12 @@ local function EnsureGroupFrame(groupKey, settings)
     -- Position the container
     if settings.position then
         local anchorFrame = GetAnchorFrame(settings.anchorFrame)
-        local containerPoint = settings.anchorFrom or GetStartAnchorForGrowth(settings.growthDirection or "RIGHT")
+        local containerPoint = settings.anchorFrom or Layout.GetStartAnchorForGrowth(settings.growthDirection or "RIGHT")
         local anchorPoint = settings.anchorTo or containerPoint
         container:ClearAllPoints()
         container:SetPoint(containerPoint, anchorFrame, anchorPoint, settings.position.x or 0, settings.position.y or 0)
     else
-        local containerPoint = GetStartAnchorForGrowth(settings.growthDirection or "RIGHT")
+        local containerPoint = Layout.GetStartAnchorForGrowth(settings.growthDirection or "RIGHT")
         container:SetPoint(containerPoint, UIParent, containerPoint, 0, -200)
     end
 
@@ -4968,18 +4996,18 @@ local function EnsureGroupFrame(groupKey, settings)
     return container
 end
 
-local function LayoutGroup(groupKey, iconKeys)
-    -- [DYNAMIC] GroupSystem이 활성이면 레이아웃 스킵 (GroupRenderer가 대신 처리)
+function Layout.LayoutGroup(groupKey, iconKeys)
+    -- [DYNAMIC] GroupSystem???�성?�면 ?�이?�웃 ?�킵 (GroupRenderer가 ?�??처리)
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
         return
     end
     local db = GetDynamicDB()
-    local groupSettings = GetGroupSettings(groupKey)
+    local groupSettings = Layout.GetGroupSettings(groupKey)
     local growth = groupSettings.growthDirection or "RIGHT"
     local settings = groupSettings
     growth = settings.growthDirection or growth
-    settings.rowGrowthDirection = settings.rowGrowthDirection or GetDefaultRowGrowth(growth)
-    settings.rowGrowthDirection = NormalizeRowGrowth(growth, settings.rowGrowthDirection)
+    settings.rowGrowthDirection = settings.rowGrowthDirection or Layout.GetDefaultRowGrowth(growth)
+    settings.rowGrowthDirection = Layout.NormalizeRowGrowth(growth, settings.rowGrowthDirection)
 
     if not iconKeys or #iconKeys == 0 then
         local container = runtime.groupFrames[groupKey]
@@ -4989,7 +5017,7 @@ local function LayoutGroup(groupKey, iconKeys)
         return
     end
 
-    local container = EnsureGroupFrame(groupKey, settings)
+    local container = Layout.EnsureGroupFrame(groupKey, settings)
     container:Show()
 
     local spacing = settings.spacing or 5
@@ -5019,7 +5047,7 @@ local function LayoutGroup(groupKey, iconKeys)
         end
     end
 
-    local startAnchor = GetStartAnchorForGrowthPair(growth, settings.rowGrowthDirection)
+    local startAnchor = Layout.GetStartAnchorForGrowthPair(growth, settings.rowGrowthDirection)
 
     local function borderInsetForAnchor(anchor, border)
         if not border or border <= 0 then return 0, 0 end
@@ -5162,7 +5190,7 @@ local function RefreshAllLayouts()
         return
     end
 
-    -- SpecProfiles 자동 저장 트리거 (동적 아이콘 설정 변경 감지)
+    -- SpecProfiles ?�동 ?�???�리�?(?�적 ?�이�??�정 변�?감�?)
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
         DDingUI.SpecProfiles:MarkDirty()
     end
@@ -5180,9 +5208,9 @@ local function RefreshAllLayouts()
     table.sort(ungroupedKeys)
     for _, iconKey in ipairs(ungroupedKeys) do
         db.ungroupedPositions = db.ungroupedPositions or {}
-        db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+        db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or Layout.BuildDefaultUngroupedPositionSettings()
         if ShouldIconSpawn(db.iconData[iconKey]) then
-            LayoutGroup(iconKey, {iconKey})
+            Layout.LayoutGroup(iconKey, {iconKey})
         else
             local cont = runtime.groupFrames[iconKey]
             if cont then cont:Hide() end
@@ -5214,12 +5242,12 @@ local function RefreshAllLayouts()
                     if frame then frame:Hide() end
                 end
             end
-            LayoutGroup(groupKey, keys)
+            Layout.LayoutGroup(groupKey, keys)
         end
     end
 end
 
-local function FindIconGroup(iconKey, db)
+function Layout.FindIconGroup(iconKey, db)
     if db.ungrouped[iconKey] then return "ungrouped" end
     for gk, group in pairs(db.groups) do
         for _, k in ipairs(group.icons or {}) do
@@ -5244,18 +5272,18 @@ function CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
     EnsureLoadConditions(iconData)
     if not IsIconLoadable(iconData) then return nil end
 
-    local groupKey = FindIconGroup(iconKey, db)
+    local groupKey = Layout.FindIconGroup(iconKey, db)
     local settings
     if groupKey == "ungrouped" or db.ungrouped[iconKey] then
         db.ungroupedPositions = db.ungroupedPositions or {}
-        db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+        db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or Layout.BuildDefaultUngroupedPositionSettings()
         settings = db.ungroupedPositions[iconKey]
         groupKey = iconKey
     else
-        settings = GetGroupSettings(groupKey)
+        settings = Layout.GetGroupSettings(groupKey)
     end
 
-    frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(groupKey, settings))
+    frame = CreateDynamicIcon(iconKey, iconData, Layout.EnsureGroupFrame(groupKey, settings))
     if frame then
         runtime.iconFrames[iconKey] = frame
         if runtime.RegisterCustomCooldownWatches then
@@ -5269,14 +5297,14 @@ function CustomIcons:LoadDynamicIcons()
     EnsureEventFrame()
     local db = GetDynamicDB()
 
-    -- 프로필 변경 시 기존 프레임 정리: db에 없는 아이콘 제거
+    -- ?�로??변�???기존 ?�레???�리: db???�는 ?�이�??�거
     for iconKey, frame in pairs(runtime.iconFrames) do
         if not db.iconData[iconKey] then
             ReleaseDynamicIconFrame(iconKey, frame)
             runtime.iconFrames[iconKey] = nil
         end
     end
-    -- 기존 그룹 프레임도 정리
+    -- 기존 그룹 ?�레?�도 ?�리
     for groupKey, container in pairs(runtime.groupFrames) do
         if not db.groups[groupKey] and not db.ungrouped[groupKey] and not db.iconData[groupKey] then
             container:Hide()
@@ -5285,40 +5313,40 @@ function CustomIcons:LoadDynamicIcons()
         end
     end
 
-    -- [FIX] 프레임 생성 실패한 아이콘 수집 (아이템 캐시 미준비 등)
+    -- [FIX] ?�레???�성 ?�패???�이�??�집 (?�이??캐시 미�?�???
     local pendingKeys = {}
     local timeSinceLogin = GetTime() - (runtime.loginTime or GetTime())
     for iconKey, iconData in pairs(db.iconData) do
         EnsureLoadConditions(iconData)
         local isLoadable = IsIconLoadable(iconData)
 
-        -- [FIX] 로그인 직후(10초 이내) 스펠북이 준비 안 되어 false를 반환하는 경우 실패로 간주하지 않고 재시도 대기열에 추가
+        -- [FIX] 로그??직후(10�??�내) ?�펠북이 준�????�어 false�?반환?�는 경우 ?�패�?간주?��? ?�고 ?�시???�기열??추�?
         if not isLoadable and timeSinceLogin < 10 then
             pendingKeys[#pendingKeys + 1] = iconKey
             if iconData.type == "spell" and iconData.id and C_Spell and C_Spell.RequestLoadSpellData then
                 pcall(C_Spell.RequestLoadSpellData, iconData.id)
             end
         elseif isLoadable then
-            local groupKey = FindIconGroup(iconKey, db)
+            local groupKey = Layout.FindIconGroup(iconKey, db)
             local settings
             if groupKey == "ungrouped" or db.ungrouped[iconKey] then
                 db.ungroupedPositions = db.ungroupedPositions or {}
-                db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+                db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or Layout.BuildDefaultUngroupedPositionSettings()
                 settings = db.ungroupedPositions[iconKey]
                 groupKey = iconKey
             else
-                settings = GetGroupSettings(groupKey)
+                settings = Layout.GetGroupSettings(groupKey)
             end
-            local parent = EnsureGroupFrame(groupKey, settings)
+            local parent = Layout.EnsureGroupFrame(groupKey, settings)
             local frame = runtime.iconFrames[iconKey]
             if not frame then
                 frame = CreateDynamicIcon(iconKey, iconData, parent)
                 if frame then
                     runtime.iconFrames[iconKey] = frame
                 else
-                    -- 프레임 생성 실패 → 재시도 목록에 추가
+                    -- ?�레???�성 ?�패 ???�시??목록??추�?
                     pendingKeys[#pendingKeys + 1] = iconKey
-                    -- 아이템 데이터 프리로드 요청
+                    -- ?�이???�이???�리로드 ?�청
                     if iconData.type == "item" and iconData.id and C_Item and C_Item.RequestLoadItemDataByID then
                         C_Item.RequestLoadItemDataByID(iconData.id)
                     elseif iconData.type == "trinketProc" and iconData.slotID then
@@ -5352,9 +5380,9 @@ function CustomIcons:LoadDynamicIcons()
         end
     end
 
-    -- [FIX] GroupSystem이 활성이면 CustomIcons 자체 프레임을 즉시 숨김
-    -- CreateDynamicIcon이 Show()를 호출하여 리로드 시 회색 프레임이 잠깐 보이는 것 방지
-    -- GroupSystem이 자체 레이아웃으로 관리하므로 CustomIcons 프레임은 보일 필요 없음
+    -- [FIX] GroupSystem???�성?�면 CustomIcons ?�체 ?�레?�을 즉시 ?��?
+    -- CreateDynamicIcon??Show()�??�출?�여 리로?????�색 ?�레?�이 ?�깐 보이??�?방�?
+    -- GroupSystem???�체 ?�이?�웃?�로 관리하므�?CustomIcons ?�레?��? 보일 ?�요 ?�음
     local bridge = DDingUI.DynamicIconBridge
     if bridge and bridge:IsActive() then
         for _, frame in pairs(runtime.iconFrames) do
@@ -5373,7 +5401,7 @@ function CustomIcons:LoadDynamicIcons()
     -- Initial update to ensure icons show correct state
     UpdateAllIcons(nil, "all")
 
-    -- [FIX] 프레임 생성 실패한 아이콘 재시도 (아이템/스펠 캐시 로드 대기)
+    -- [FIX] ?�레???�성 ?�패???�이�??�시??(?�이???�펠 캐시 로드 ?��?
     if #pendingKeys > 0 then
         local attempts = 0
         local maxAttempts = 5
@@ -5385,15 +5413,15 @@ function CustomIcons:LoadDynamicIcons()
                 if not runtime.iconFrames[iconKey] then
                     local iconData = db.iconData[iconKey]
                     if iconData then
-                        local groupKey = FindIconGroup(iconKey, db)
+                        local groupKey = Layout.FindIconGroup(iconKey, db)
                         local settings
                         if groupKey == "ungrouped" or db.ungrouped[iconKey] then
                             settings = db.ungroupedPositions and db.ungroupedPositions[iconKey]
                             groupKey = iconKey
                         else
-                            settings = GetGroupSettings(groupKey)
+                            settings = Layout.GetGroupSettings(groupKey)
                         end
-                        local parent = EnsureGroupFrame(groupKey, settings)
+                        local parent = Layout.EnsureGroupFrame(groupKey, settings)
                         local frame = CreateDynamicIcon(iconKey, iconData, parent)
                         if frame then
                             runtime.iconFrames[iconKey] = frame
@@ -5406,7 +5434,7 @@ function CustomIcons:LoadDynamicIcons()
             pendingKeys = stillPending
             if #pendingKeys == 0 or attempts >= maxAttempts then
                 if retryTimer then retryTimer:Cancel() end
-                -- 새로 생성된 프레임이 있으면 레이아웃 갱신 + GroupSystem 알림
+                -- ?�로 ?�성???�레?�이 ?�으�??�이?�웃 갱신 + GroupSystem ?�림
                 RefreshAllLayouts()
                 UpdateAllIcons(nil, "all")
             end
@@ -5437,7 +5465,7 @@ end
 -- Public API
 -- ------------------------
 
--- [FIX] FlightHide에서 다이나믹 그룹 프레임 알파 적용을 위한 getter
+-- [FIX] FlightHide?�서 ?�이?��? 그룹 ?�레???�파 ?�용???�한 getter
 function CustomIcons:GetRuntimeFrames()
     return runtime
 end
@@ -5448,11 +5476,11 @@ local CDM_SOURCE_GROUP_NAMES = {
     Utility = "Utility Cooldowns",
 }
 
-local function GetDynamicGroupIconCount(group)
+function Layout.GetDynamicGroupIconCount(group)
     return group and group.icons and #group.icons or 0
 end
 
-local function BuildDynamicIconOrderSet(groupSettings)
+function Layout.BuildDynamicIconOrderSet(groupSettings)
     local order = groupSettings and groupSettings.iconOrder
     if type(order) ~= "table" then return nil, 0 end
 
@@ -5471,7 +5499,7 @@ local function BuildDynamicIconOrderSet(groupSettings)
     return set, count
 end
 
-local function CountDynamicIconOrderMatches(sourceGroup, orderSet)
+function Layout.CountDynamicIconOrderMatches(sourceGroup, orderSet)
     if not (sourceGroup and sourceGroup.icons and orderSet) then return 0 end
 
     local matches = 0
@@ -5483,16 +5511,16 @@ local function CountDynamicIconOrderMatches(sourceGroup, orderSet)
     return matches
 end
 
-local function FindBestSourceGroupForCDMGroup(db, groupName, groupSettings)
+function Layout.FindBestSourceGroupForCDMGroup(db, groupName, groupSettings)
     if not (db and db.groups and groupName) then return nil end
 
     local preferredKey = groupSettings and groupSettings.sourceGroupKey
-    local orderSet = BuildDynamicIconOrderSet(groupSettings)
+    local orderSet = Layout.BuildDynamicIconOrderSet(groupSettings)
     local bestKey, bestGroup, bestCount, bestOrderMatches
     local function Consider(sourceKey, sourceGroup)
         if not sourceKey or not sourceGroup or sourceGroup.linkedCDMGroup ~= groupName then return end
-        local count = GetDynamicGroupIconCount(sourceGroup)
-        local orderMatches = CountDynamicIconOrderMatches(sourceGroup, orderSet)
+        local count = Layout.GetDynamicGroupIconCount(sourceGroup)
+        local orderMatches = Layout.CountDynamicIconOrderMatches(sourceGroup, orderSet)
         if not bestKey
             or orderMatches > bestOrderMatches
             or (orderMatches == bestOrderMatches and count > bestCount)
@@ -5551,7 +5579,7 @@ function CustomIcons:GetOrCreateSourceGroupForCDMGroup(groupName, displayName)
     end
 
     local db = GetDynamicDB()
-    local sourceKey, sourceGroup = FindBestSourceGroupForCDMGroup(db, groupName, groupSettings)
+    local sourceKey, sourceGroup = Layout.FindBestSourceGroupForCDMGroup(db, groupName, groupSettings)
     if sourceKey and sourceGroup then
         groupSettings.sourceGroupKey = sourceKey
         sourceGroup.linkedCDMGroup = groupName
@@ -5672,17 +5700,17 @@ function CustomIcons:AddDynamicIcon(iconData)
     EnsureLoadConditions(db.iconData[iconKey])
     db.ungrouped[iconKey] = true
     db.ungroupedPositions = db.ungroupedPositions or {}
-    db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+    db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or Layout.BuildDefaultUngroupedPositionSettings()
 
-    -- Build frame — CreateDynamicIcon은 항상 프레임 반환 (CDM 방식)
-    local frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(iconKey, db.ungroupedPositions[iconKey]))
+    -- Build frame ??CreateDynamicIcon?� ??�� ?�레??반환 (CDM 방식)
+    local frame = CreateDynamicIcon(iconKey, iconData, Layout.EnsureGroupFrame(iconKey, db.ungroupedPositions[iconKey]))
     if frame then
         runtime.iconFrames[iconKey] = frame
         UpdateDynamicIcon(iconKey)
         RefreshAllLayouts()
     end
 
-    -- [FIX] GroupSystem 즉시 갱신 — 디바운스 우회하여 아이콘 바로 표시
+    -- [FIX] GroupSystem 즉시 갱신 ???�바?�스 ?�회?�여 ?�이�?바로 ?�시
     C_Timer.After(0.1, function()
         local bridge = DDingUI.DynamicIconBridge
         if bridge and bridge:IsActive() then
@@ -5694,7 +5722,7 @@ function CustomIcons:AddDynamicIcon(iconData)
     end)
 
     CustomIcons:RefreshDynamicListUI()
-    -- [FIX] SpecProfiles 즉시 저장 — 리로드 시 LoadSpec이 이전 스냅샷으로 복원하여 데이터 손실 방지
+    -- [FIX] SpecProfiles 즉시 ?�????리로????LoadSpec???�전 ?�냅?�으�?복원?�여 ?�이???�실 방�?
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
         DDingUI.SpecProfiles:SaveCurrentSpec()
     end
@@ -5732,7 +5760,7 @@ end
 function CustomIcons:CreateDynamicGroup(name)
     local db = GetDynamicDB()
     local key = BuildUniqueDBKey("group_", db.groups)
-    local startAnchor = GetStartAnchorForGrowthPair("RIGHT", "DOWN")
+    local startAnchor = Layout.GetStartAnchorForGrowthPair("RIGHT", "DOWN")
     db.groups[key] = {
         name = name or (L["New Group"] or "New Group"),
         enabled = true,
@@ -5760,21 +5788,21 @@ function CustomIcons:RemoveGroup(groupKey)
     local group = db.groups[groupKey]
     if not group then return end
 
-    -- 그룹 내 아이콘들을 실제로 삭제
+    -- 그룹 ???�이콘들???�제�???��
     local iconsToRemove = {}
     for _, iconKey in ipairs(group.icons or {}) do
         iconsToRemove[#iconsToRemove + 1] = iconKey
     end
-    -- [FIX] DynamicIconBridge managed 상태도 정리 (DestroyGroup의 ReleaseFrame이 복원하는 것 방지)
+    -- [FIX] DynamicIconBridge managed ?�태???�리 (DestroyGroup??ReleaseFrame??복원?�는 �?방�?)
     local bridge = DDingUI.DynamicIconBridge
     for _, iconKey in ipairs(iconsToRemove) do
-        -- iconData 삭제
+        -- iconData ??��
         db.iconData[iconKey] = nil
         db.ungrouped[iconKey] = nil
         if db.ungroupedPositions then
             db.ungroupedPositions[iconKey] = nil
         end
-        -- bridge managed 상태 정리 (DestroyGroup→ReleaseFrame이 orig.parent로 복원하는 것 방지)
+        -- bridge managed ?�태 ?�리 (DestroyGroup?�ReleaseFrame??orig.parent�?복원?�는 �?방�?)
         local frame = runtime.iconFrames[iconKey]
         if frame then
             if bridge and bridge.ReleaseFrame then
@@ -5803,7 +5831,7 @@ function CustomIcons:RemoveGroup(groupKey)
             end
         end
     end
-    -- [FIX] 그룹 컨테이너 프레임도 정리 (고스트 컨테이너 방지)
+    -- [FIX] 그룹 컨테?�너 ?�레?�도 ?�리 (고스??컨테?�너 방�?)
     local container = runtime.groupFrames and runtime.groupFrames[groupKey]
     if container then
         container:Hide()
@@ -5835,7 +5863,7 @@ function CustomIcons:MoveIconToGroup(iconKey, targetGroup)
     if targetGroup == "ungrouped" then
         db.ungrouped[iconKey] = true
         db.ungroupedPositions = db.ungroupedPositions or {}
-        db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+        db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or Layout.BuildDefaultUngroupedPositionSettings()
     else
         db.ungrouped[iconKey] = nil
         if db.ungroupedPositions then
@@ -5903,7 +5931,7 @@ function CustomIcons:MoveIconToGroup(iconKey, targetGroup)
     end
 
     RefreshAllLayouts()
-    -- [FIX] GroupSystem 즉시 갱신 — MoveIconToGroup 후 바로 아이콘 표시
+    -- [FIX] GroupSystem 즉시 갱신 ??MoveIconToGroup ??바로 ?�이�??�시
     C_Timer.After(0.1, function()
         local bridge = DDingUI.DynamicIconBridge
         if bridge and bridge:IsActive() then
@@ -5914,11 +5942,11 @@ function CustomIcons:MoveIconToGroup(iconKey, targetGroup)
         end
     end)
     CustomIcons:RefreshDynamicListUI()
-    -- [FIX] SpecProfiles 즉시 저장 — MoveIconToGroup 후 스냅샷 갱신
+    -- [FIX] SpecProfiles 즉시 ?�????MoveIconToGroup ???�냅??갱신
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
         DDingUI.SpecProfiles:SaveCurrentSpec()
     end
-    -- [FIX] GroupSystem 옵션 트리 재빌드 — 할당 목록에 새 아이콘 즉시 표시
+    -- [FIX] GroupSystem ?�션 ?�리 ?�빌?????�당 목록?????�이�?즉시 ?�시
     if DDingUI.RefreshConfigGUI then
         DDingUI:RefreshConfigGUI(true)
     end
@@ -5957,7 +5985,7 @@ function CustomIcons:ReorderIconInGroup(groupKey, iconKey, targetKey, insertAfte
     return true
 end
 
--- [FIX] 방향 이동 (↑위/↓아래): 그룹 내 아이콘 순서 변경
+-- [FIX] 방향 ?�동 (?�위/?�아??: 그룹 ???�이�??�서 변�?
 function CustomIcons:MoveIconInGroup(groupKey, iconKey, direction)
     local db = GetDynamicDB()
     local group = db.groups[groupKey]
@@ -5984,7 +6012,7 @@ function CustomIcons:MoveIconInGroup(groupKey, iconKey, direction)
     group.icons[currentIndex], group.icons[newIndex] = group.icons[newIndex], group.icons[currentIndex]
 
     RefreshAllLayouts()
-    -- SpecProfiles 즉시 저장
+    -- SpecProfiles 즉시 ?�??
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
         DDingUI.SpecProfiles:SaveCurrentSpec()
     end
@@ -6031,7 +6059,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         edgeSize = 1,
         insets = {left = 0, right = 0, top = 0, bottom = 0},
     })
-    -- [STYLE] bg.input 기본, bg.hover 호버, bg.selected 선택
+    -- [STYLE] bg.input 기본, bg.hover ?�버, bg.selected ?�택
     node:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.80)
     node:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 0.5)
     node._iconKey = iconKey
@@ -6057,7 +6085,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         node:SetBackdropBorderColor(border[1], border[2], border[3], isSelected and 1 or 0.5)
     end
 
-    -- Multi-select checkbox (UF 통일: 14x14, 그라디언트 체크)
+    -- Multi-select checkbox (UF ?�일: 14x14, 그라?�언??체크)
     local checkbox = CreateFrame("Button", nil, node, "BackdropTemplate")
     checkbox:SetSize(14, 14)
     checkbox:SetPoint("LEFT", node, "LEFT", 6, 0)
@@ -6069,7 +6097,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     })
     checkbox._checked = uiState.selectedIcons[iconKey] or false
 
-    -- 체크 마크 텍스쳐 (UF 통일: 전체 채우기 그라디언트)
+    -- 체크 마크 ?�스�?(UF ?�일: ?�체 채우�?그라?�언??
     local checkTex = checkbox:CreateTexture(nil, "OVERLAY")
     checkTex:SetPoint("TOPLEFT", 1, -1)
     checkTex:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -6092,8 +6120,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         end
     end
     updateCheckboxVisual()
-    -- 하이라이트
-    local cbHighlight = checkbox:CreateTexture(nil, "ARTWORK")
+    -- ?�이?�이??    local cbHighlight = checkbox:CreateTexture(nil, "ARTWORK")
     cbHighlight:SetColorTexture(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 0.1)
     cbHighlight:SetPoint("TOPLEFT", 1, -1)
     cbHighlight:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -6300,7 +6327,7 @@ local uiFrames = {
     loadWindow = nil,
 }
 
--- [REFACTOR] GUIRefs.CreateStyledButton/Toggle/Input/Dropdown → DDingUI.GUI로 이동 (EnsureGUILoaded에서 로드)
+-- [REFACTOR] GUIRefs.CreateStyledButton/Toggle/Input/Dropdown ??DDingUI.GUI�??�동 (EnsureGUILoaded?�서 로드)
 
 function CustomIcons:RefreshDynamicListUI()
     if not uiFrames.listParent then return end
@@ -6321,7 +6348,7 @@ function CustomIcons:RefreshDynamicListUI()
     selectBtnFrame:SetPoint("TOPLEFT", uiFrames.listParent, "TOPLEFT", 0, y)
     selectBtnFrame:SetSize(240, 24)
 
-    local selectAllBtn = GUIRefs.CreateStyledButton(selectBtnFrame, "전체 선택", 75, 22)
+    local selectAllBtn = GUIRefs.CreateStyledButton(selectBtnFrame, "?�체 ?�택", 75, 22)
     selectAllBtn:SetPoint("LEFT", selectBtnFrame, "LEFT", 0, 0)
     selectAllBtn:SetScript("OnClick", function()
         -- Select all visible icons
@@ -6339,7 +6366,7 @@ function CustomIcons:RefreshDynamicListUI()
         CustomIcons:RefreshDynamicConfigUI()
     end)
 
-    local deselectAllBtn = GUIRefs.CreateStyledButton(selectBtnFrame, "선택 해제", 75, 22)
+    local deselectAllBtn = GUIRefs.CreateStyledButton(selectBtnFrame, "?�택 ?�제", 75, 22)
     deselectAllBtn:SetPoint("LEFT", selectAllBtn, "RIGHT", 4, 0)
     deselectAllBtn:SetScript("OnClick", function()
         uiState.selectedIcons = {}
@@ -6357,7 +6384,7 @@ function CustomIcons:RefreshDynamicListUI()
     countText:SetShadowColor(0, 0, 0, 1)
     countText:SetPoint("LEFT", deselectAllBtn, "RIGHT", 8, 0)
     if selectedCount > 0 then
-        countText:SetText("|cff00ff00" .. selectedCount .. "개 선택됨|r")
+        countText:SetText("|cff00ff00" .. selectedCount .. "�??�택??r")
     else
         countText:SetText("")
     end
@@ -6381,7 +6408,7 @@ function CustomIcons:RefreshDynamicListUI()
             edgeSize = 1,
             insets = {left = 1, right = 1, top = 1, bottom = 1},
         })
-        -- [STYLE] 그룹 헤더 bg.widget, border.default
+        -- [STYLE] 그룹 ?�더 bg.widget, border.default
         box:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.80)
         box:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 0.50)
         box:SetPoint("TOPLEFT", uiFrames.listParent, "TOPLEFT", -2, y)
@@ -6425,9 +6452,9 @@ function CustomIcons:RefreshDynamicListUI()
         arrowText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         local function updateArrow()
             if uiState.collapsedGroups[groupKey] == true then
-                arrowText:SetText("▶")
+                arrowText:SetText(">")
             else
-                arrowText:SetText("▼")
+                arrowText:SetText("v")
             end
         end
         updateArrow()
@@ -6533,7 +6560,7 @@ function CustomIcons:RefreshDynamicListUI()
                 seen[k] = true
             end
         end
-        renderSection(GetGroupDisplayName(groupKey), keys, groupKey)
+        renderSection(Layout.GetGroupDisplayName(groupKey), keys, groupKey)
     end
 
     if uiFrames.resultText then
@@ -6542,7 +6569,7 @@ function CustomIcons:RefreshDynamicListUI()
 
     uiFrames.listParent:SetHeight(math.abs(y) + 20)
 
-    -- 자식 위젯 위에서도 스크롤 가능하도록 마우스 휠 전파
+    -- ?�식 ?�젯 ?�에?�도 ?�크�?가?�하?�록 마우?????�파
     local listScroll = uiFrames.listParent:GetParent()
     if listScroll and GUIRefs.PropagateMouseWheelRecursive then
         GUIRefs.PropagateMouseWheelRecursive(uiFrames.listParent, listScroll)
@@ -6587,12 +6614,12 @@ end
 function CustomIcons:RefreshDynamicConfigUI()
     if not uiFrames.configParent then return end
     if not EnsureGUILoaded() then return end
-    -- 자식 프레임 정리
+    -- ?�식 ?�레???�리
     for _, child in ipairs({uiFrames.configParent:GetChildren()}) do
         child:Hide()
         child:SetParent(nil)
     end
-    -- FontString/Texture 등 Region 정리
+    -- FontString/Texture ??Region ?�리
     for _, region in ipairs({uiFrames.configParent:GetRegions()}) do
         region:Hide()
         region:SetParent(nil)
@@ -6615,7 +6642,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         header:SetShadowColor(0, 0, 0, 1)
         header:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
         header:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
-        header:SetText(selectedCount .. "개 아이콘 일괄 편집")
+        header:SetText(selectedCount .. "�??�이�??�괄 ?�집")
         y = y + 30
 
         local desc = uiFrames.configParent:CreateFontString(nil, "OVERLAY")
@@ -6623,13 +6650,13 @@ function CustomIcons:RefreshDynamicConfigUI()
         desc:SetShadowOffset(1, -1)
         desc:SetShadowColor(0, 0, 0, 1)
         desc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
-        desc:SetText("아래 설정을 조정 후 '일괄 적용' 버튼을 눌러주세요")
+        desc:SetText("Adjust the settings below, then click Apply Batch.")
         desc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
         y = y + 25
 
         -- Icon Size
         local sizeSlider = GUIRefs.Widgets.CreateRange(uiFrames.configParent, {
-            name = "아이콘 크기",
+            name = "?�이�??�기",
             min = 16, max = 128, step = 1,
             get = function() return batchEditState.iconSize end,
             set = function(_, val) batchEditState.iconSize = val end,
@@ -6641,7 +6668,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Aspect Ratio
         local aspectSlider = GUIRefs.Widgets.CreateRange(uiFrames.configParent, {
-            name = "종횡비",
+            name = "Aspect Ratio",
             min = 0.5, max = 2.0, step = 0.01,
             get = function() return batchEditState.aspectRatio end,
             set = function(_, val) batchEditState.aspectRatio = val end,
@@ -6653,7 +6680,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Border Size
         local borderSlider = GUIRefs.Widgets.CreateRange(uiFrames.configParent, {
-            name = "테두리 크기",
+            name = "Border Size",
             min = 0, max = 10, step = 1,
             get = function() return batchEditState.borderSize end,
             set = function(_, val) batchEditState.borderSize = val end,
@@ -6665,7 +6692,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Border Color
         GUIRefs.Widgets.CreateColor(uiFrames.configParent, {
-            name = "테두리 색상",
+            name = "Border Color",
             get = function() return unpack(batchEditState.borderColor) end,
             set = function(_, r, g, b, a) batchEditState.borderColor = {r, g, b, a} end,
             width = "full",
@@ -6674,7 +6701,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Toggles
         GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
-            name = "쿨다운 표시",
+            name = "Show Cooldown",
             get = function() return batchEditState.showCooldown end,
             set = function(_, val) batchEditState.showCooldown = val end,
             width = "full",
@@ -6682,7 +6709,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 32
 
         GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
-            name = "충전/횟수 표시",
+            name = "Show Charges",
             get = function() return batchEditState.showCharges end,
             set = function(_, val) batchEditState.showCharges = val end,
             width = "full",
@@ -6690,7 +6717,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 32
 
         GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
-            name = "쿨다운 시 흑백",
+            name = "Desaturate On Cooldown",
             get = function() return batchEditState.desaturateOnCooldown end,
             set = function(_, val) batchEditState.desaturateOnCooldown = val end,
             width = "full",
@@ -6698,7 +6725,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 32
 
         GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
-            name = "사용 불가 시 흑백",
+            name = "Desaturate When Unusable",
             get = function() return batchEditState.desaturateWhenUnusable end,
             set = function(_, val) batchEditState.desaturateWhenUnusable = val end,
             width = "full",
@@ -6706,7 +6733,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 32
 
         GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
-            name = "GCD 스와이프 표시",
+            name = "Show GCD Swipe",
             get = function() return batchEditState.showGCDSwipe end,
             set = function(_, val) batchEditState.showGCDSwipe = val end,
             width = "full",
@@ -6715,7 +6742,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Apply Button
         GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
-            name = "|cff00ff00일괄 적용|r",
+            name = "|cff00ff00Apply Batch|r",
             func = function()
                 CustomIcons:ApplyBatchSettings({
                     iconSize = batchEditState.iconSize,
@@ -6728,7 +6755,7 @@ function CustomIcons:RefreshDynamicConfigUI()
                     desaturateWhenUnusable = batchEditState.desaturateWhenUnusable,
                     showGCDSwipe = batchEditState.showGCDSwipe,
                 })
-                print(((SL and SL.GetChatPrefix and SL.GetChatPrefix("CDM", "CDM")) or "|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: ") .. "|cff00ff00" .. selectedCount .. "개 아이콘에 설정이 적용되었습니다.|r") -- [STYLE]
+                print(((SL and SL.GetChatPrefix and SL.GetChatPrefix("CDM", "CDM")) or "|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: ") .. "|cff00ff00Applied settings to " .. selectedCount .. " icons.|r")
             end,
             width = "full",
         }, y)
@@ -6736,7 +6763,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Delete Selected Button
         local deleteBtn = GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
-            name = "|cffff4040선택 삭제 (" .. selectedCount .. "개)|r",
+            name = "|cffff4040Delete Selected (" .. selectedCount .. ")|r",
             func = function()
                 CustomIcons:ConfirmDeleteSelected()
             end,
@@ -7011,7 +7038,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             trinketHeader:SetShadowColor(0, 0, 0, 1)
             trinketHeader:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
             trinketHeader:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
-            trinketHeader:SetText("━━━ Trinket Proc Settings ━━━")
+            trinketHeader:SetText("?�━??Trinket Proc Settings ?�━??)
             trinketHeader:SetJustifyH("LEFT")
             y = y + 24
 
@@ -7034,7 +7061,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             procDesc:SetShadowColor(0, 0, 0, 1)
             procDesc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
             procDesc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
-            procDesc:SetText("0: Use: 효과 자동 감지 / 수동: 패시브 프록 spellID 입력")
+            procDesc:SetText("0: Use: ?�과 ?�동 감�? / ?�동: ?�시�??�록 spellID ?�력")
             procDesc:SetJustifyH("LEFT")
             y = y + 20
 
@@ -7101,7 +7128,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             fallbackDesc:SetShadowColor(0, 0, 0, 1)
             fallbackDesc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
             fallbackDesc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
-            fallbackDesc:SetText("예: 3성 물약ID, 2성ID, 1성ID (쉼표 구분)")
+            fallbackDesc:SetText("?? 3??물약ID, 2?�ID, 1?�ID (?�표 구분)")
             fallbackDesc:SetJustifyH("LEFT")
             y = y + 20
         end
@@ -7145,7 +7172,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Update scroll child height
         uiFrames.configParent:SetHeight(y + 20)
-        -- 마우스 휠 전파 (아이콘 설정)
+        -- 마우?????�파 (?�이�??�정)
         if uiFrames.configScroll and GUIRefs.PropagateMouseWheelRecursive then
             GUIRefs.PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
         end
@@ -7155,8 +7182,8 @@ function CustomIcons:RefreshDynamicConfigUI()
         group.settings = group.settings or {}
         local s = group.settings
         s.growthDirection = s.growthDirection or "RIGHT"
-        s.rowGrowthDirection = s.rowGrowthDirection or GetDefaultRowGrowth(s.growthDirection)
-        s.rowGrowthDirection = NormalizeRowGrowth(s.growthDirection, s.rowGrowthDirection)
+        s.rowGrowthDirection = s.rowGrowthDirection or Layout.GetDefaultRowGrowth(s.growthDirection)
+        s.rowGrowthDirection = Layout.NormalizeRowGrowth(s.growthDirection, s.rowGrowthDirection)
         if s.maxIconsPerRow == nil and s.maxColumns ~= nil then
             s.maxIconsPerRow = s.maxColumns
             s.maxColumns = nil
@@ -7166,7 +7193,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             s.anchorTo = s.anchorPoint
             s.anchorPoint = nil
         end
-        s.anchorFrom = s.anchorFrom or GetStartAnchorForGrowthPair(s.growthDirection, s.rowGrowthDirection)
+        s.anchorFrom = s.anchorFrom or Layout.GetStartAnchorForGrowthPair(s.growthDirection, s.rowGrowthDirection)
         s.anchorTo = s.anchorTo or s.anchorFrom
         s.spacing = s.spacing or 5
         s.iconSize = s.iconSize or 40
@@ -7220,8 +7247,8 @@ function CustomIcons:RefreshDynamicConfigUI()
             get = function() return s.growthDirection end,
             set = function(_, val)
                 s.growthDirection = val
-                s.rowGrowthDirection = NormalizeRowGrowth(val, s.rowGrowthDirection or GetDefaultRowGrowth(val))
-                s.anchorFrom = GetStartAnchorForGrowthPair(val, s.rowGrowthDirection)
+                s.rowGrowthDirection = Layout.NormalizeRowGrowth(val, s.rowGrowthDirection or Layout.GetDefaultRowGrowth(val))
+                s.anchorFrom = Layout.GetStartAnchorForGrowthPair(val, s.rowGrowthDirection)
                 RefreshAllLayouts()
                 CustomIcons:RefreshDynamicConfigUI()
             end,
@@ -7234,8 +7261,8 @@ function CustomIcons:RefreshDynamicConfigUI()
             values = {RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down"},
             get = function() return s.rowGrowthDirection end,
             set = function(_, val)
-                s.rowGrowthDirection = NormalizeRowGrowth(s.growthDirection or "RIGHT", val)
-                s.anchorFrom = GetStartAnchorForGrowthPair(s.growthDirection or "RIGHT", s.rowGrowthDirection)
+                s.rowGrowthDirection = Layout.NormalizeRowGrowth(s.growthDirection or "RIGHT", val)
+                s.anchorFrom = Layout.GetStartAnchorForGrowthPair(s.growthDirection or "RIGHT", s.rowGrowthDirection)
                 RefreshAllLayouts()
                 CustomIcons:RefreshDynamicConfigUI()
             end,
@@ -7313,9 +7340,9 @@ function CustomIcons:RefreshDynamicConfigUI()
         }, y)
         y = y + 30
 
-        -- 앵커 선택 버튼: 마우스로 프레임 직접 선택
+        -- ?�커 ?�택 버튼: 마우?�로 ?�레??직접 ?�택
         local pickBtn = GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
-            name = "앵커 선택 (마우스 클릭)",
+            name = "?�커 ?�택 (마우???�릭)",
             func = function()
                 DDingUI:StartFramePicker(function(frameName)
                     s.anchorFrame = frameName or ""
@@ -7337,7 +7364,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             end,
             width = "full",
         }, y)
-        -- [STYLE] Delete 버튼: status.error 컬러 텍스트
+        -- Delete button uses the error color for emphasis.
         if deleteGroupBtn and deleteGroupBtn.text then
             deleteGroupBtn.text:SetTextColor(0.90, 0.25, 0.25, 1)
         end
@@ -7345,7 +7372,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Update scroll child height
         uiFrames.configParent:SetHeight(y + 20)
-        -- 마우스 휠 전파 (그룹 설정)
+        -- 마우?????�파 (그룹 ?�정)
         if uiFrames.configScroll and GUIRefs.PropagateMouseWheelRecursive then
             GUIRefs.PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
         end
@@ -7369,7 +7396,7 @@ function CustomIcons:RefreshDynamicConfigUI()
     label:SetText("Select an icon or group")
     label:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
 
-    -- 자식 위젯 위에서도 스크롤 가능하도록 마우스 휠 전파
+    -- ?�식 ?�젯 ?�에?�도 ?�크�?가?�하?�록 마우?????�파
     if uiFrames.configScroll and GUIRefs.PropagateMouseWheelRecursive then
         GUIRefs.PropagateMouseWheelRecursive(uiFrames.configParent, uiFrames.configScroll)
     end
@@ -7575,7 +7602,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
         return
     end
 
-    -- 이전 uiFrames 참조 초기화 (재진입 시 잔상 방지)
+    -- ?�전 uiFrames 참조 초기??(?�진?????�상 방�?)
     uiFrames.listParent = nil
     uiFrames.configParent = nil
     uiFrames.configScroll = nil
@@ -7619,8 +7646,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
         func = function() CustomIcons:ShowCreateIconDialog() end,
         width = "normal",
     }, 40)
-    -- [STYLE] 악센트 텍스트
-    if createIconBtn.text then createIconBtn.text:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1) end
+    -- [STYLE] ?�센???�스??    if createIconBtn.text then createIconBtn.text:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1) end
     if search.editBox then
         createIconBtn:SetPoint("TOPLEFT", search.editBox, "BOTTOMLEFT", 0, -18)
     else
@@ -7634,8 +7660,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
         end,
         width = "normal",
     }, 40)
-    -- [STYLE] 악센트 텍스트
-    if createGroupBtn.text then createGroupBtn.text:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1) end
+    -- [STYLE] ?�센???�스??    if createGroupBtn.text then createGroupBtn.text:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1) end
     createGroupBtn:SetPoint("LEFT", createIconBtn, "RIGHT", 8, 0)
 
     -- Left list scroll (DDingUI custom scrollbar)
@@ -7656,15 +7681,14 @@ function CustomIcons:BuildDynamicIconsUI(parent)
 
     uiFrames.listParent = listChild
 
-    -- [STYLE] 좌우 구분선 (border.separator)
+    -- [STYLE] 좌우 구분??(border.separator)
     local separator = container:CreateTexture(nil, "ARTWORK")
     separator:SetWidth(1)
     separator:SetPoint("TOPLEFT", listScroll, "TOPRIGHT", 5, 0)
     separator:SetPoint("BOTTOMLEFT", listScroll, "BOTTOMRIGHT", 5, 0)
     separator:SetColorTexture(0.20, 0.20, 0.20, 0.40)
 
-    -- [STYLE] 우측 설정 영역: bg.sidebar 배경, border.default 테두리
-    local configContainer = CreateFrame("Frame", nil, container, "BackdropTemplate")
+    -- [STYLE] ?�측 ?�정 ?�역: bg.sidebar 배경, border.default ?�두�?    local configContainer = CreateFrame("Frame", nil, container, "BackdropTemplate")
     configContainer:SetPoint("TOPLEFT", listScroll, "TOPRIGHT", 12, 0)
     configContainer:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
     GUIRefs.CreateBackdrop(configContainer, GUIRefs.THEME.bgDark, GUIRefs.THEME.border)
@@ -7936,13 +7960,13 @@ function CustomIcons:ApplyDefensivesLayout()
     -- Not implemented
 end
 
--- [DYNAMIC] GroupSystem DynamicIconBridge용 API
--- 모든 활성 아이콘 프레임 반환 (runtime.iconFrames 참조)
+-- [DYNAMIC] GroupSystem DynamicIconBridge??API
+-- 모든 ?�성 ?�이�??�레??반환 (runtime.iconFrames 참조)
 function CustomIcons:GetAllIconFrames()
     return runtime.iconFrames
 end
 
--- [INTEGRATION] GroupRenderer가 직접 호출할 수 있도록 export
+-- [INTEGRATION] GroupRenderer가 직접 ?�출?????�도�?export
 CustomIcons.CreateDynamicIcon = CreateDynamicIcon
 CustomIcons.UpdateDynamicIcon = UpdateDynamicIcon
 CustomIcons.GetDynamicDB = GetDynamicDB

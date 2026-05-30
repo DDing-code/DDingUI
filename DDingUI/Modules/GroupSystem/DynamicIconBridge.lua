@@ -30,7 +30,11 @@ local GROUP_VIEWER_MAP = {
     ["Utility"] = "UtilityCooldownViewer",
 }
 
-local BLOODLUST_ALIAS_SPELL_IDS = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
+local BLOODLUST_ALIAS_SPELL_IDS = {
+    2825, 32182, 80353, 90355, 160452, 264667, 390386,
+    146555, 178207, 230935, 256740, 292686, 309658, 381301, 444257,
+}
+local BLOODLUST_ALIAS_LOOKUP = {}
 local CUSTOM_AURA_PRESET_SPELL_IDS = {
     [1236616] = true,
     [1236994] = true,
@@ -38,6 +42,7 @@ local CUSTOM_AURA_PRESET_SPELL_IDS = {
     [374968] = true,
 }
 for _, spellID in ipairs(BLOODLUST_ALIAS_SPELL_IDS) do
+    BLOODLUST_ALIAS_LOOKUP[spellID] = true
     CUSTOM_AURA_PRESET_SPELL_IDS[spellID] = true
 end
 
@@ -265,6 +270,11 @@ local function AddSuppressedID(suppressed, value)
     local id = SafeNumber(value)
     if id and id > 0 then
         suppressed[id] = true
+        if BLOODLUST_ALIAS_LOOKUP[id] then
+            for _, aliasID in ipairs(BLOODLUST_ALIAS_SPELL_IDS) do
+                suppressed[aliasID] = true
+            end
+        end
     end
 end
 
@@ -722,9 +732,7 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
                     local iconData = db.iconData[iconKey]
                     if iconData then
                         if iconData.id and (iconData.type == "spell" or iconData.type == "aura") then
-                            if not (IsBuffGroup(groupName, groupSettings) and iconData.type == "aura") then
-                                suppressed[iconData.id] = true
-                            end
+                            AddSuppressedID(suppressed, iconData.id)
                         elseif iconData.type == "trinketProc" and iconData.settings then
                             local procSpellID = tonumber(iconData.settings.procSpellID)
                             if procSpellID and procSpellID > 0 then
@@ -1323,6 +1331,9 @@ function DynamicIconBridge:Initialize()
         self._auraEventFrame = CreateFrame("Frame")
         self._auraEventFrame:RegisterEvent("UNIT_AURA")
         self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        self._auraEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        self._auraEventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        self._auraEventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
         self._auraEventFrame:SetScript("OnEvent", function(_, event, unit)
             if event == "UNIT_AURA" and unit ~= "player" then return end
             if not initialized then return end
@@ -1334,7 +1345,7 @@ function DynamicIconBridge:Initialize()
                     self._auraDirty = false
                     if not initialized then return end
                     ScanAndHideCDMBuffs()
-                    self:NotifyIconsChanged(event == "UNIT_AURA" or event == "PLAYER_REGEN_ENABLED")
+                    self:NotifyIconsChanged(event ~= "UNIT_AURA")
                 end)
             end
         end)
