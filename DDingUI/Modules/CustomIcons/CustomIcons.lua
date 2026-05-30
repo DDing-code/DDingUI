@@ -3091,8 +3091,13 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddAuraActiveUntil = nil
     end
 
-    local activeTexture = GetStoredIconTexture(iconData)
-        or (auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID")))
+    local auraTexture = auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID"))
+    local activeTexture
+    if auraData and GetAuraFieldSafe(auraData, "__ddinguiTimedAura") then
+        activeTexture = auraTexture or GetStoredIconTexture(iconData)
+    else
+        activeTexture = GetStoredIconTexture(iconData) or auraTexture
+    end
     if activeTexture then
         SetStableIconTexture(iconFrame, activeTexture, true)
     end
