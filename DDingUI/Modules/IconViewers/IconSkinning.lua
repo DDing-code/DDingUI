@@ -32,6 +32,31 @@ local function IsAuraSwipeColor(r, g, b)
     return r and g and b and r > 0.9 and g > 0.9 and b > 0.4
 end
 
+local function SafeBool(value)
+    local ok, result = pcall(function()
+        return value == true
+    end)
+    return ok and result or false
+end
+
+local function FrameFlagIsTrue(frame, key)
+    if not frame or not key then return false end
+    local ok, value = pcall(function()
+        return frame[key]
+    end)
+    return ok and SafeBool(value) or false
+end
+
+local function FrameTimeIsFuture(frame, key)
+    if not frame or not key then return false end
+    local now = GetTime and GetTime() or 0
+    local ok, active = pcall(function()
+        local value = frame[key]
+        return type(value) == "number" and value > now
+    end)
+    return ok and active or false
+end
+
 local function IconHasAuraState(icon, cooldown)
     if not icon then return false end
 
@@ -39,6 +64,29 @@ local function IconHasAuraState(icon, cooldown)
         return icon.wasSetFromAura == true or icon.auraInstanceID ~= nil
     end)
     if ok and active then return true end
+
+    if FrameFlagIsTrue(icon, "_auraWasActive")
+        or FrameFlagIsTrue(icon, "_trinketProcWasActive")
+        or FrameTimeIsFuture(icon, "_ddTimedAuraActiveUntil")
+        or FrameTimeIsFuture(icon, "_ddAuraActiveUntil")
+        or FrameTimeIsFuture(icon, "_ddProcActiveUntil")
+    then
+        return true
+    end
+
+    if icon.IsActive and type(icon.IsActive) == "function" then
+        local activeOk, activeValue = pcall(icon.IsActive, icon)
+        if activeOk and SafeBool(activeValue) then
+            return true
+        end
+    end
+
+    if cooldown and cooldown.GetReverse then
+        local reverseOk, reverse = pcall(cooldown.GetReverse, cooldown)
+        if reverseOk and SafeBool(reverse) then
+            return true
+        end
+    end
 
     if cooldown and cooldown.GetSwipeColor then
         local colorOk, r, g, b = pcall(function()
@@ -144,6 +192,7 @@ local function StopAuraGlow(parentIcon, pid, clearWanted)
     pid.auraGlowType = nil
     pid.auraGlowColor = nil
     pid.auraGlowTarget = nil
+    pid.auraGlowLastSeen = nil
     pid._glowRemoveTimer = nil
     if clearWanted ~= false then
         pid.auraGlowWanted = nil
@@ -185,6 +234,7 @@ ShowAuraGlow = function(parentIcon, pid, settings)
 
     pid.auraGlowWanted = true
     pid.auraGlowSettings = settings
+    pid.auraGlowLastSeen = GetTime and GetTime() or 0
     EnsureAuraGlowHooks(parentIcon, pid)
 
     if glowTarget.Show then
@@ -680,6 +730,7 @@ function IconViewers:SkinIcon(icon, settings)
                 pid.isAuraSwipe = isAuraSwipe
                 if isAuraSwipe and s and s.auraGlow then
                     pid._glowRemoveTimer = nil
+                    pid.auraGlowLastSeen = GetTime and GetTime() or 0
                 end
                 -- [PERF] 상태 변경 없으면 heavy 로직 전부 스킵 (매 프레임 → 전환 시에만)
                 if isAuraSwipe == prevAura and not (isAuraSwipe and s and s.auraGlow and not pid.auraGlowActive) then return end
@@ -763,6 +814,10 @@ function IconViewers:SkinIcon(icon, settings)
                                 -- 0.35초 시점에서 마지막 non-aura 이벤트가 아직 유효한지 확인
                                 if not pid._glowRemoveTimer then return end
                                 if (GetTime() - pid._glowRemoveTimer) < 0.3 then return end
+                                if pid.auraGlowLastSeen and (GetTime() - pid.auraGlowLastSeen) < 0.75 then
+                                    pid._glowRemoveTimer = nil
+                                    return
+                                end
                                 if IconHasAuraState(parentIcon, cooldownFrame) then
                                     pid._glowRemoveTimer = nil
                                     return
@@ -777,7 +832,7 @@ function IconViewers:SkinIcon(icon, settings)
             end)
         end
 
-        -- Hook SetCooldown for hideActiveState — CMC pattern:
+        -- Hook SetCooldown for hideActiveState:
         -- When CDM pushes aura duration data, replace it with actual spell cooldown
         -- using C_Spell.GetSpellCooldownDuration + SetCooldownFromDurationObject.
         -- This makes the icon show the real cooldown timer instead of aura remaining time.
@@ -814,7 +869,7 @@ function IconViewers:SkinIcon(icon, settings)
                     self:SetSwipeColor(0, 0, 0, 0.7)
                 end
                 cd.bypassColorHook = nil
-                -- Data: replace aura duration with actual spell cooldown (CMC pattern)
+                -- Data: replace aura duration with actual spell cooldown
                 cd.bypassCDHook = true
                 cd.bypassColorHook = true
                 pcall(function()
@@ -981,7 +1036,7 @@ function IconViewers:SkinIcon(icon, settings)
                 end
                 cdd.bypassColorHook = nil
                 GetIconData(icon).isAuraSwipe = true
-                -- Data: replace aura duration with actual spell cooldown (CMC pattern)
+                -- Data: replace aura duration with actual spell cooldown
                 pcall(function()
                     local ci = icon.cooldownInfo
                     local spellID = ci and (ci.overrideSpellID or ci.spellID)
@@ -1157,7 +1212,7 @@ function IconViewers:SkinIcon(icon, settings)
     -- Hide Blizzard debuff border (BuffIconCooldownViewer uses DebuffBorder as well)
     HideDebuffBorder(icon)
 
-    -- Border - use texture-based borders like BetterCooldownManager (no SetBackdrop = no taint)
+    -- Border - use texture-based borders instead of SetBackdrop to avoid taint.
     if icon.IsForbidden and icon:IsForbidden() then
         GetIconData(icon).skinned = true
         return
@@ -1173,7 +1228,7 @@ function IconViewers:SkinIcon(icon, settings)
         edgeSize = math.floor(edgeSize + 0.5)
     end
 
-    -- Create texture-based borders (like BetterCooldownManager) instead of BackdropTemplate
+    -- Create texture-based borders instead of BackdropTemplate.
     local id = GetIconData(icon)
     id.borders = id.borders or {}
     local borders = id.borders
