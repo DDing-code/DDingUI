@@ -4824,6 +4824,45 @@ end
 -- ------------------------
 local Layout = CustomIcons._Layout or {}
 CustomIcons._Layout = Layout
+Layout.ApplyIconSettingsImpl = CustomIcons.ApplyIconSettings
+function CustomIcons.ApplyIconSettings(iconFrame, iconData, groupSettings)
+    if type(Layout.ApplyIconSettingsImpl) == "function" then
+        return Layout.ApplyIconSettingsImpl(iconFrame, iconData, groupSettings)
+    end
+    if not iconFrame or not iconData then return end
+    local settings = iconData.settings or {}
+    iconData.settings = settings
+    local size = tonumber(settings.iconSize or (groupSettings and groupSettings.iconSize)) or 44
+    local aspect = tonumber(settings.aspectRatio) or 1
+    if aspect <= 0 then aspect = 1 end
+    local width, height = size, size
+    if aspect > 1 then
+        height = size / aspect
+    elseif aspect < 1 then
+        width = size * aspect
+    end
+    if not iconFrame._ddIsManaged and iconFrame.SetSize then
+        iconFrame:SetSize(width, height)
+    end
+    if iconFrame.icon and not iconFrame._ddIsManaged then
+        iconFrame.icon:ClearAllPoints()
+        iconFrame.icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 0, 0)
+        iconFrame.icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", 0, 0)
+        local zoom = 0.08
+        iconFrame.icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
+    end
+    if iconFrame.count then
+        local countSettings = settings.countSettings or {}
+        local fontPath = (DDingUI.GetGlobalFont and DDingUI:GetGlobalFont()) or STANDARD_TEXT_FONT
+        pcall(iconFrame.count.SetFont, iconFrame.count, fontPath, tonumber(countSettings.size) or 16, "OUTLINE")
+        if type(countSettings.color) == "table" then
+            iconFrame.count:SetTextColor(countSettings.color[1] or 1, countSettings.color[2] or 1, countSettings.color[3] or 1, countSettings.color[4] or 1)
+        end
+        iconFrame.count:ClearAllPoints()
+        local anchor = countSettings.anchor or "BOTTOMRIGHT"
+        iconFrame.count:SetPoint(anchor, iconFrame, anchor, tonumber(countSettings.offsetX) or -2, tonumber(countSettings.offsetY) or 2)
+    end
+end
 
 function Layout.GetStartAnchorForGrowth(growth)
     if growth == "LEFT" then
