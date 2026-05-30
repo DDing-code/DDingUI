@@ -57,6 +57,14 @@ local function FrameTimeIsFuture(frame, key)
     return ok and active or false
 end
 
+local function IsManagedDynamicIcon(frame)
+    if not frame then return false end
+    local ok, result = pcall(function()
+        return frame._ddIsManaged == true or frame._ddIconKey ~= nil or frame._iconKey ~= nil
+    end)
+    return ok and result == true or false
+end
+
 local function IconHasAuraState(icon, cooldown)
     if not icon then return false end
 
@@ -65,25 +73,13 @@ local function IconHasAuraState(icon, cooldown)
     end)
     if ok and active then return true end
 
-    if FrameFlagIsTrue(icon, "_auraWasActive")
-        or FrameFlagIsTrue(icon, "_trinketProcWasActive")
-        or FrameTimeIsFuture(icon, "_ddTimedAuraActiveUntil")
-        or FrameTimeIsFuture(icon, "_ddAuraActiveUntil")
-        or FrameTimeIsFuture(icon, "_ddProcActiveUntil")
-    then
-        return true
-    end
-
-    if icon.IsActive and type(icon.IsActive) == "function" then
-        local activeOk, activeValue = pcall(icon.IsActive, icon)
-        if activeOk and SafeBool(activeValue) then
-            return true
-        end
-    end
-
-    if cooldown and cooldown.GetReverse then
-        local reverseOk, reverse = pcall(cooldown.GetReverse, cooldown)
-        if reverseOk and SafeBool(reverse) then
+    if IsManagedDynamicIcon(icon) then
+        if FrameFlagIsTrue(icon, "_auraWasActive")
+            or FrameFlagIsTrue(icon, "_trinketProcWasActive")
+            or FrameTimeIsFuture(icon, "_ddTimedAuraActiveUntil")
+            or FrameTimeIsFuture(icon, "_ddAuraActiveUntil")
+            or FrameTimeIsFuture(icon, "_ddProcActiveUntil")
+        then
             return true
         end
     end
