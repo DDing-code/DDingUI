@@ -7038,7 +7038,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             trinketHeader:SetShadowColor(0, 0, 0, 1)
             trinketHeader:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
             trinketHeader:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
-            trinketHeader:SetText("?Å‚îÅ??Trinket Proc Settings ?Å‚îÅ??)
+            trinketHeader:SetText("Trinket Proc Settings")
             trinketHeader:SetJustifyH("LEFT")
             y = y + 24
 
