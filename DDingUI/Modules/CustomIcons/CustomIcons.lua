@@ -3024,6 +3024,7 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
     -- Note: Cooldown text color is not directly controllable with standard WoW cooldown frames.
     -- The color setting is saved but may not be applied depending on WoW API limitations.
 end
+CustomIcons.ApplyIconSettings = ApplyIconSettings
 
 -- ------------------------
 -- Aura (buff/debuff) icon update ??trinketProc ?�턴 기반
@@ -3388,7 +3389,7 @@ local function ExecuteUpdateAllIcons(filter)
                     local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
 
                     if not frame._ddIsManaged then
-                        ApplyIconSettings(frame, iconData, frame._groupSettings)
+                        CustomIcons.ApplyIconSettings(frame, iconData, frame._groupSettings)
                     else
                         if frame.count and not frame._fontInitialized then
                             local fontPath = DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
@@ -4514,7 +4515,7 @@ local function UpdateDynamicIcon(iconKey)
     if not iconData or not frame then return end
 
     -- Group settings are stored on the frame during LayoutGroup
-    ApplyIconSettings(frame, iconData, frame._groupSettings)
+    CustomIcons.ApplyIconSettings(frame, iconData, frame._groupSettings)
     if iconData.type == "item" then
         UpdateItemIcon(frame, iconData)
     elseif iconData.type == "spell" then
@@ -5039,7 +5040,7 @@ function Layout.LayoutGroup(groupKey, iconKeys)
             -- Store group settings on the frame for later use (UpdateDynamicIcon, UpdateAllIcons)
             iconFrame._groupSettings = groupSettings
             if iconData then
-                ApplyIconSettings(iconFrame, iconData, groupSettings)
+                CustomIcons.ApplyIconSettings(iconFrame, iconData, groupSettings)
                 borderSize = math.max((iconData.settings and iconData.settings.borderSize) or 0, 0)
             end
             local w, h = iconFrame:GetWidth(), iconFrame:GetHeight()
