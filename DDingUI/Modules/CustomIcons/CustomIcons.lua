@@ -1200,14 +1200,14 @@ local function GetCustomTimedAuraConfig(iconData)
 
     local preset = CUSTOM_TIMED_AURA_CONFIGS[stateID]
     local settings = iconData.settings or {}
-    local duration = tonumber(settings.customAuraDuration or (preset and preset.duration))
+    local duration = tonumber((preset and preset.duration) or settings.customAuraDuration)
     if not duration or duration <= 0 then return nil end
 
     return {
         stateID = stateID,
         duration = duration,
-        trigger = settings.customAuraTrigger or (preset and preset.trigger) or "spellcast",
-        iconTexture = GetStoredIconTexture(iconData) or ResolveSpellTexture(spellID),
+        trigger = (preset and preset.trigger) or settings.customAuraTrigger or "spellcast",
+        iconTexture = (preset and preset.iconTexture) or GetStoredIconTexture(iconData) or ResolveSpellTexture(spellID),
     }
 end
 
@@ -1697,7 +1697,7 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     end
 
     local appliedTime = expirationTime - duration
-    if requireWithinWindow and (now - appliedTime) >= config.duration then
+    if requireWithinWindow and (now - appliedTime) >= 40 then
         return false
     end
 
@@ -3104,8 +3104,9 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
     local isActive = (auraData ~= nil)
     local wasActive = iconFrame._auraWasActive
+    local stateChanged = isActive ~= wasActive
 
-    if isActive ~= wasActive then
+    if stateChanged then
         iconFrame._auraWasActive = isActive
     end
 
@@ -3183,7 +3184,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         if iconFrame._ddIsManaged then
             iconFrame._ddManagedAuraExpired = true
             CustomIcons.SuppressExpiredIconVisual(iconFrame)
-            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+            if stateChanged and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
                 DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
             end
         else
@@ -3545,7 +3546,6 @@ local function HandleCustomTimedAuraEvent(event, ...)
         local unit, _, spellID = ...
         if unit ~= "player" then return false end
         spellID = SafeNumber(spellID)
-        local itemLocked = MarkItemCombatLockoutFromSpell(spellID)
         local changed = false
         local activated = {}
         local db = GetDynamicDB()
@@ -3567,7 +3567,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
                 end
             end
         end
-        return changed or itemLocked
+        return changed
     end
 
     if event == "UNIT_AURA" then
@@ -3732,6 +3732,9 @@ local function EnsureEventFrame()
             or event == "ITEM_COUNT_CHANGED"
             or event == "BAG_UPDATE_DELAYED"
         local hasItemCooldownIcon = isItemCooldownEvent and HasItemCooldownIcon()
+        if hasItemCooldownIcon and succeededSpellID then
+            MarkItemCombatLockoutFromSpell(succeededSpellID)
+        end
         if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon and not isRacialSpellcast then
             return
         end
