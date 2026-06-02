@@ -1534,6 +1534,51 @@ MarkCustomTimedAuraExpired = function(spellID)
     end
 end
 
+local function ApplyCustomTimedAuraCooldownFrame(frame, state, showCooldown)
+    if not frame or not state or not frame.cooldown then return end
+    local startTime = tonumber(state.startTime)
+    local duration = tonumber(state.duration)
+    if not startTime or not duration or duration <= 0 then return end
+
+    if frame.cooldown.SetReverse then
+        pcall(frame.cooldown.SetReverse, frame.cooldown, true)
+    end
+
+    if C_DurationUtil and C_DurationUtil.CreateDuration and frame.cooldown.SetCooldownFromDurationObject then
+        frame._customTimedAuraDuration = frame._customTimedAuraDuration or C_DurationUtil.CreateDuration()
+        local okObj = pcall(frame._customTimedAuraDuration.SetTimeFromStart, frame._customTimedAuraDuration, startTime, duration)
+        if okObj then
+            local okSet = pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._customTimedAuraDuration)
+            if not okSet then
+                pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._customTimedAuraDuration, true)
+            end
+        else
+            pcall(frame.cooldown.SetCooldown, frame.cooldown, startTime, duration)
+        end
+    else
+        pcall(frame.cooldown.SetCooldown, frame.cooldown, startTime, duration)
+    end
+
+    local hideNumbers = frame._groupSettings and frame._groupSettings.hideDurationText
+    if frame.cooldown.SetHideCountdownNumbers then
+        pcall(frame.cooldown.SetHideCountdownNumbers, frame.cooldown, hideNumbers and true or false)
+    end
+    frame.cooldown.noCooldownCount = hideNumbers and true or nil
+
+    if showCooldown == false then
+        if frame.cooldown.Hide then
+            pcall(frame.cooldown.Hide, frame.cooldown)
+        end
+    else
+        if frame.cooldown.SetDrawSwipe then
+            pcall(frame.cooldown.SetDrawSwipe, frame.cooldown, true)
+        end
+        if frame.cooldown.Show then
+            pcall(frame.cooldown.Show, frame.cooldown)
+        end
+    end
+end
+
 MarkCustomTimedAuraActive = function(spellID, state)
     local db = GetDynamicDB()
     local iconDataByKey = db and db.iconData
@@ -1565,6 +1610,8 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 if state and state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
+                local settings = iconData.settings or {}
+                ApplyCustomTimedAuraCooldownFrame(frame, state, settings.showCooldown ~= false)
                 CustomIcons.RestoreActiveIconVisual(frame)
                 CustomIcons.ApplyManagedGroupTextOptions(frame)
             else
@@ -3762,7 +3809,10 @@ local function EnsureEventFrame()
             else
                 RefreshItemCooldownIcons(needsLayoutNotify)
             end
-            if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
+            if customTimedChanged then
+                UpdateAllIcons(needsLayoutNotify, "aura")
+            end
+            if isRacialSpellcast or event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
                 UpdateAllIcons(nil, "cooldown")
             end
             return
