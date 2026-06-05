@@ -2,6 +2,33 @@
 
 ---
 
+## v1.2.10
+
+_Release date: 2026-06-05_
+_Scope: Git changes from v1.2.9 through this release._
+
+### English Patch Notes
+- Stabilized custom buff and timed-aura icons so active effects keep their duration swipe, texture, glow state, and text settings through combat refreshes.
+- Improved custom item, potion, healthstone, trinket, and racial cooldown refreshes so item fast-path updates no longer skip related aura or spell cooldown updates.
+- Reduced custom icon refresh pressure by debouncing layout rebuilds, filtering icon updates by type, and avoiding unnecessary full rescans during combat.
+- Improved CDM group recovery for profile changes and source-group initialization so copied or newly created profiles retain usable source groups.
+- Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
+- Improved tracked buff bar performance by registering events only while the feature is active, merging duplicate updates, and cleaning startup timers when disabled.
+- Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
+- Reduced aura glow flicker by preserving recent glow state briefly while managed icons are refreshing.
+
+### Korean Patch Notes
+- 커스텀 강화효과와 시간제 오라 아이콘이 전투 중 갱신되어도 지속시간 스와이프, 텍스처, 글로우 상태, 텍스트 설정을 유지하도록 안정화했습니다.
+- 커스텀 사용 아이템, 물약, 생명석, 장신구, 종족 특성 쿨다운 갱신을 개선해 item 빠른 갱신 경로가 관련 오라나 주문 쿨다운 갱신을 건너뛰지 않도록 했습니다.
+- 레이아웃 재구성 디바운스, 아이콘 타입별 갱신 필터, 전투 중 불필요한 전체 재스캔 회피로 커스텀 아이콘 갱신 부담을 줄였습니다.
+- 프로필 변경과 소스 그룹 초기화 시 CDM 그룹 복구를 개선해 복사되거나 새로 만든 프로필에서도 사용할 수 있는 소스 그룹이 유지되도록 했습니다.
+- 보호된 값이나 secret 값이 섞인 상황에서도 CDM 렌더링이 깨지지 않도록 숫자 변환과 관리 아이콘 상태 확인을 더 안전하게 처리했습니다.
+- 추적중인 버프 바가 활성화된 동안에만 이벤트를 등록하고, 중복 업데이트를 합치며, 비활성화 시 시작 타이머를 정리하도록 성능을 개선했습니다.
+- 설정창을 닫을 때 동적 아이콘 갱신 poller, 추가 팝업, 드래그 고스트, 툴팁 같은 옵션 패널 런타임 작업을 정리하도록 했습니다.
+- 관리 아이콘 갱신 중 최근 글로우 상태를 짧게 보존해 오라 글로우 깜빡임을 줄였습니다.
+
+---
+
 ## v1.2.9
 
 _Release date: 2026-05-26_
