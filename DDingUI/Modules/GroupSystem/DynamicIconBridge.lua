@@ -78,6 +78,9 @@ local suppressedSpellCacheAt = 0
 local function InvalidateSuppressedSpellCache()
     suppressedSpellCache = nil
     suppressedSpellCacheAt = 0
+    if DynamicIconBridge.RefreshAuraEventRegistration then
+        DynamicIconBridge:RefreshAuraEventRegistration()
+    end
 end
 
 local function SafeNumber(value)
@@ -1278,6 +1281,24 @@ local function UnitAuraUpdateTouchesSuppressed(updateInfo)
     return false
 end
 
+function DynamicIconBridge:RefreshAuraEventRegistration()
+    local frame = self._auraEventFrame
+    if not frame then return end
+
+    local suppressed = self:GetSuppressedSpellIDs()
+    local hasSuppressed = next(suppressed) ~= nil
+    if hasSuppressed then
+        frame:RegisterEvent("UNIT_AURA")
+        frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    else
+        frame:UnregisterEvent("UNIT_AURA")
+        frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        for hiddenFrame in pairs(hiddenCDMFrames) do
+            UnhideCDMFrame(hiddenFrame)
+        end
+    end
+end
+
 -- cooldownID가 억제 대상인지 확인 (HideCDMFrame 재활용 체크용)
 function DynamicIconBridge:ShouldSuppressCooldownID(cooldownID)
     local suppressed = self:GetSuppressedSpellIDs()
@@ -1340,8 +1361,6 @@ function DynamicIconBridge:Initialize()
     if not self._auraEventFrame then
         self._auraDirty = false
         self._auraEventFrame = CreateFrame("Frame")
-        self._auraEventFrame:RegisterEvent("UNIT_AURA")
-        self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         self._auraEventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo)
             if event == "UNIT_AURA" and unit ~= "player" then return end
             if not initialized then return end
@@ -1361,6 +1380,7 @@ function DynamicIconBridge:Initialize()
             end
         end)
     end
+    self:RefreshAuraEventRegistration()
 
     -- 즉시 초기 스캔
     ScanAndHideCDMBuffs()
@@ -1401,6 +1421,8 @@ end
 function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     if not initialized then return end
     if not layoutSuppressed then return end
+
+    self:RefreshAuraEventRegistration()
 
     local inCombat = InCombatLockdown and InCombatLockdown()
     local stateHash = BuildDynamicLayoutStateHash()
