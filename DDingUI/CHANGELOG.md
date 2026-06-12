@@ -21,6 +21,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Reduced tracked buff bar startup, loading-screen, and specialization-change work to tokenized settle/backstop refreshes instead of multiple delayed full passes.
 - Replaced startup default-viewer hiding OnUpdate polling with a small number of scheduled hide passes.
 - Debounced group transition refreshes after edit-mode exit and specialization changes to avoid stacking redundant full group renders.
+- Coalesced dynamic icon cache-load retries into one pending queue and reduced startup aura suppression rechecks to a single cancelable follow-up scan.
 - Limited proxy anchor synchronization and keybind text updates to event-driven refresh windows instead of continuous per-frame polling.
 - Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
@@ -39,6 +40,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - 추적 버프 바의 시작, 로딩 화면, 전문화 변경 작업을 여러 지연 전체 갱신 대신 토큰 기반 settle/backstop 갱신으로 줄였습니다.
 - 시작 시 기본 뷰어 숨김 처리를 매 프레임 OnUpdate 폴링 대신 소수의 예약 패스로 교체했습니다.
 - 편집모드 종료와 전문화 변경 뒤 그룹 전환 갱신을 디바운스해 불필요한 전체 그룹 렌더링이 겹치지 않게 했습니다.
+- 동적 아이콘 캐시 로드 재시도를 하나의 pending 큐로 합치고, 시작 시 오라 억제 재확인을 취소 가능한 후속 스캔 1회로 줄였습니다.
 - 프록시 앵커 동기화와 키바인드 텍스트 갱신을 지속적인 매 프레임 폴링 대신 이벤트 기반 갱신 구간에서만 실행하도록 제한했습니다.
 - 설정창이 닫힐 때 동적 아이콘 갱신 poller, 추가 팝업, 드래그 고스트, 툴팁 같은 옵션 패널 임시 작업을 정리하도록 개선했습니다.
 - 보호 값이나 secret 값이 섞인 상황에서도 CDM 렌더링이 깨지지 않도록 숫자 변환과 관리 아이콘 상태 확인을 더 안전하게 처리했습니다.
