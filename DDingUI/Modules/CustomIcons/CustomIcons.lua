@@ -4011,13 +4011,17 @@ local function EnsureEventFrame()
             else
                 RefreshItemCooldownIcons(needsLayoutNotify)
             end
-            if customTimedChanged then
-                UpdateAllIcons(needsLayoutNotify, "aura")
-            end
-            if isRacialSpellcast then
+        if customTimedChanged then
+            UpdateAllIcons(needsLayoutNotify, "aura")
+        end
+        if isRacialSpellcast then
+            if runtime.QueueCustomSpellCooldownIconRefresh then
+                runtime.QueueCustomSpellCooldownIconRefresh()
+            else
                 UpdateAllIcons(nil, "spellCooldown")
             end
-            return
+        end
+        return
         end
 
         local updateFilter = nil
@@ -4031,6 +4035,10 @@ local function EnsureEventFrame()
             updateFilter = "aura"
         elseif isSpellCooldownEvent then
             if runtime.HasSpellCooldownIcon and runtime.HasSpellCooldownIcon() then
+                if runtime.QueueCustomSpellCooldownIconRefresh then
+                    runtime.QueueCustomSpellCooldownIconRefresh()
+                    return
+                end
                 updateFilter = "spellCooldown"
             end
         elseif event == "UNIT_INVENTORY_CHANGED"
@@ -5091,6 +5099,21 @@ function runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify, iconKeys)
     watcher.dispatchFrame:Show()
 end
 
+function runtime.QueueCustomSpellCooldownIconRefresh()
+    local watcher = runtime.EnsureCustomCooldownWatcher()
+    if not watcher or (watcher.spellTargetCount or 0) <= 0 then return end
+    watcher.touchedSpellIconKeys = watcher.touchedSpellIconKeys or {}
+    runtime.ClearCustomCooldownTable(watcher.touchedSpellIconKeys)
+    for _, iconKeys in pairs(watcher.spellTargets or {}) do
+        for iconKey in pairs(iconKeys) do
+            watcher.touchedSpellIconKeys[iconKey] = true
+        end
+    end
+    if next(watcher.touchedSpellIconKeys) then
+        runtime.QueueCustomCooldownIconRefresh(nil, watcher.touchedSpellIconKeys)
+    end
+end
+
 function runtime.AddCustomCooldownTarget(targets, id, iconKey)
     local safeID = SafeNumber(id)
     if not safeID or not iconKey then return end
@@ -5159,7 +5182,11 @@ function runtime.BuildCustomCooldownWatchSignature(db)
                     }, ":")
                 end
             elseif iconType == "spell" or iconType == "racial" then
-                parts[#parts + 1] = base .. ":" .. tostring(iconData.id or "")
+                local watchID = iconData.id
+                if iconType == "racial" then
+                    watchID = GetPlayerRacialSpellID() or watchID
+                end
+                parts[#parts + 1] = base .. ":" .. tostring(watchID or "")
             end
         end
     end
@@ -5195,12 +5222,16 @@ function runtime.RegisterCustomCooldownWatches()
     watcher.watchSignature = watchSignature
     runtime.ClearCustomCooldownTable(watcher.itemTargets)
     runtime.ClearCustomCooldownTable(watcher.slotTargets)
+    watcher.spellTargets = watcher.spellTargets or {}
+    watcher.touchedSpellIconKeys = watcher.touchedSpellIconKeys or {}
     watcher.auraSpellTargets = watcher.auraSpellTargets or {}
     watcher.auraInstanceTargets = watcher.auraInstanceTargets or {}
     watcher.auraSpellIconTargets = watcher.auraSpellIconTargets or {}
     watcher.auraInstanceIconTargets = watcher.auraInstanceIconTargets or {}
     watcher.auraUnknownIconKeys = watcher.auraUnknownIconKeys or {}
     watcher.touchedAuraIconKeys = watcher.touchedAuraIconKeys or {}
+    runtime.ClearCustomCooldownTable(watcher.spellTargets)
+    runtime.ClearCustomCooldownTable(watcher.touchedSpellIconKeys)
     runtime.ClearCustomCooldownTable(watcher.auraSpellTargets)
     runtime.ClearCustomCooldownTable(watcher.auraInstanceTargets)
     runtime.ClearCustomCooldownTable(watcher.auraSpellIconTargets)
@@ -5286,7 +5317,11 @@ function runtime.RegisterCustomCooldownWatches()
             elseif iconType == "trinketProc" and (not iconData.settings or iconData.settings.showItemCooldown ~= false) then
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
             elseif iconType == "spell" or iconType == "racial" then
-                watcher.spellTargetCount = watcher.spellTargetCount + 1
+                local spellID = iconData.id
+                if iconType == "racial" then
+                    spellID = GetPlayerRacialSpellID() or spellID
+                end
+                runtime.AddCustomCooldownTarget(watcher.spellTargets, spellID, iconKey)
             end
         end
     end
@@ -5296,6 +5331,9 @@ function runtime.RegisterCustomCooldownWatches()
     end
     for _ in pairs(watcher.slotTargets) do
         watcher.activeTargetCount = watcher.activeTargetCount + 1
+    end
+    for _ in pairs(watcher.spellTargets) do
+        watcher.spellTargetCount = watcher.spellTargetCount + 1
     end
 
     runtime.RefreshCustomIconEventRegistration()
