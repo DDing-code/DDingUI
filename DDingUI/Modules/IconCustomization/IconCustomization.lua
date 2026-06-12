@@ -308,6 +308,12 @@ local function HasReadyGlowSettings()
     return false
 end
 
+local function IsReadyGlowConfigured(spellID, viewerType)
+    if not spellID then return false end
+    local custom = GetSpellCustomization(spellID, viewerType)
+    return custom and custom.readyGlow == true
+end
+
 local function EnsureReadyGlowEvents()
     if not readyGlowEventFrame then
         readyGlowEventFrame = CreateFrame("Frame")
@@ -772,9 +778,12 @@ local function RefreshAllReadyGlows(forceRefresh, targetSpellID, targetViewerTyp
             elseif targetViewerType and viewerType ~= targetViewerType then
                 -- skip: 다른 뷰어
             else
-                if forceRefresh and frameData.readyGlowActive then
+                local hasReadyGlow = IsReadyGlowConfigured(freshID, viewerType)
+                if not hasReadyGlow and not frameData.readyGlowActive then
+                    -- skip: 설정도 없고 현재 정리할 글로우도 없음
+                elseif forceRefresh and frameData.readyGlowActive then
                     HideReadyGlow(frame)
-                    if freshID and ShouldShowReadyGlow(freshID, viewerType) then
+                    if hasReadyGlow and ShouldShowReadyGlow(freshID, viewerType) then
                         -- 바로 재적용
                         ShowReadyGlow(frame, freshID, viewerType)
                     end
@@ -869,6 +878,10 @@ end)
 
 QueueReadyGlowRefresh = function(resetFrames)
     if not next(hookedFrames) then
+        return
+    end
+    if not HasReadyGlowSettings() then
+        readyGlowQueuedReset = false
         return
     end
 
