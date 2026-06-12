@@ -23,9 +23,6 @@ local procActiveCache = setmetatable({}, { __mode = "k" })   -- replaces button.
 -- Glow key for LibCustomGlow
 local GLOW_KEY = "_DDingUICustomGlow"
 
--- Glow persistence timers: re-apply glow if removed externally
-local glowPersistenceTimers = {}  -- [icon] = ticker
-
 -- LibCustomGlow glow types
 ProcGlow.LibCustomGlowTypes = {
     "Pixel Glow",
@@ -216,7 +213,7 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
     activeGlowingIcons[iconFrame] = true
 end
 
--- Start glow on an icon with persistence timer
+-- Start glow on an icon
 local function StartGlow(iconFrame)
     local glowSettings = GetProcGlowSettings(iconFrame)
     if not glowSettings then return end
@@ -233,45 +230,11 @@ local function StartGlow(iconFrame)
     -- Apply the glow
     ApplyGlowEffect(iconFrame)
 
-    -- Cancel existing persistence timer
-    if glowPersistenceTimers[iconFrame] then
-        glowPersistenceTimers[iconFrame]:Cancel()
-        glowPersistenceTimers[iconFrame] = nil
-    end
-
-    -- Start persistence timer: checks every 0.3s if glow was removed externally
-    glowPersistenceTimers[iconFrame] = C_Timer.NewTicker(0.3, function()
-        if not activeGlowingIcons[iconFrame] then
-            if glowPersistenceTimers[iconFrame] then
-                glowPersistenceTimers[iconFrame]:Cancel()
-                glowPersistenceTimers[iconFrame] = nil
-            end
-            return
-        end
-
-        if not iconFrame:IsShown() then return end
-
-        local gs = GetProcGlowSettings(iconFrame)
-        if not gs then return end
-        local gt = gs.glowType or "Pixel Glow"
-        if not IsGlowFramePresent(iconFrame, gt) then
-            ApplyGlowEffect(iconFrame)
-            if gt ~= "Blizzard Glow" then
-                HideBlizzardGlow(iconFrame)
-            end
-        end
-    end)
 end
 
 -- Stop glow on an icon
 local function StopGlow(iconFrame)
     if not glowActiveCache[iconFrame] then return end
-
-    -- Cancel persistence timer first
-    if glowPersistenceTimers[iconFrame] then
-        glowPersistenceTimers[iconFrame]:Cancel()
-        glowPersistenceTimers[iconFrame] = nil
-    end
 
     SL.HidePixelGlow(iconFrame, GLOW_KEY)
     SL.HideAutocastGlow(iconFrame, GLOW_KEY)
