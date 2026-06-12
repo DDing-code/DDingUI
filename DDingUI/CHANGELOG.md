@@ -24,11 +24,13 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Coalesced dynamic icon cache-load retries into one pending queue and reduced startup aura suppression rechecks to a single cancelable follow-up scan.
 - Indexed timed-aura spellcast targets and player-aura scan targets so frequent combat events avoid repeated full custom icon database walks.
 - Registered custom icon aura, spellcast, glow, and death events only while matching tracked icons exist, reducing idle combat event traffic.
+- Registered tracked buff bar aura, spellcast, and combat events only when active tracked entries need them, reducing idle event traffic.
 - Limited proxy anchor synchronization and keybind text updates to event-driven refresh windows instead of continuous per-frame polling.
 - Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
 
 ### Korean Patch Notes
+- 활성 추적 항목이 필요로 할 때만 추적 버프 바의 오라, 주문 시전, 전투 이벤트를 등록해 대기 중 이벤트 유입을 줄였습니다.
 - 커스텀 버프, 지속시간 오라, 종족 특성, 사용 아이템, 물약, 생명석, 장신구 아이콘이 전투 중 갱신 후에도 지속시간 스와이프, 텍스처, 쿨다운 상태, 글로우 상태, 텍스트 설정을 유지하도록 안정화했습니다.
 - 복사한 프로필이나 새로 만든 프로필에서도 커스텀 오라 초기화와 실제 오라 연결이 정상적으로 동작하도록 개선했습니다.
 - 레이아웃 재구성 디바운스, 아이콘 유형별 갱신 필터, 쿨다운 대상 수 캐시, 전투 중 불필요한 전체 재스캔 회피로 커스텀 아이콘 갱신 부담을 줄였습니다.
