@@ -701,6 +701,46 @@ local function RefreshAllReadyGlows(forceRefresh, targetSpellID, targetViewerTyp
     end
 end
 
+local pendingReadyGlowRehook = false
+local readyGlowRehookToken = 0
+
+local function RehookAllViewerReadyGlows()
+    pendingReadyGlowRehook = false
+    local viewers = DDingUI.viewers or {
+        "EssentialCooldownViewer",
+        "UtilityCooldownViewer",
+        "BuffIconCooldownViewer",
+    }
+    for _, viewerName in ipairs(viewers) do
+        local viewer = _G[viewerName]
+        if viewer and viewer.itemFramePool then
+            for child in viewer.itemFramePool:EnumerateActive() do
+                if child and child.cooldownID and child.Cooldown then
+                    local fd = FrameData[child]
+                    if fd then fd.cachedSpellID = nil end
+                    IconCustomization:HookIconFrame(child)
+                end
+            end
+        end
+    end
+    RefreshAllReadyGlows()
+end
+
+local function ScheduleReadyGlowRehook(delay)
+    if pendingReadyGlowRehook then return end
+    pendingReadyGlowRehook = true
+    readyGlowRehookToken = readyGlowRehookToken + 1
+    local token = readyGlowRehookToken
+    C_Timer.After(delay or 0.5, function()
+        if token ~= readyGlowRehookToken then return end
+        RehookAllViewerReadyGlows()
+    end)
+    C_Timer.After(3.0, function()
+        if token ~= readyGlowRehookToken or not pendingReadyGlowRehook then return end
+        RehookAllViewerReadyGlows()
+    end)
+end
+
 -- Build the Icon Customization UI
 function IconCustomization:BuildIconCustomizationUI(parentFrame)
     if not parentFrame then return end
@@ -1263,6 +1303,25 @@ function IconCustomization:Initialize()
         self.__eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
         self.__eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
         self.__eventFrame:SetScript("OnEvent", function(self, event, unit)
+            do
+                if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
+                    for frame in pairs(hookedFrames) do
+                        if frame and not frame:IsForbidden() then
+                            local fd = FrameData[frame]
+                            if fd then
+                                fd.cachedSpellID = nil
+                                fd.viewerType = nil
+                            end
+                            HideReadyGlow(frame)
+                        end
+                    end
+                    ScheduleReadyGlowRehook(0.5)
+                    return
+                end
+
+                RefreshAllReadyGlows()
+                return
+            end
             if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
                 -- Clear all cached spellIDs (frames are reused for different spells)
                 for frame, _ in pairs(hookedFrames) do
@@ -1298,9 +1357,7 @@ function IconCustomization:Initialize()
                     end
                     RefreshAllReadyGlows()
                 end
-                C_Timer.After(0.5, RehookAllViewers)
-                C_Timer.After(1.5, RehookAllViewers)
-                C_Timer.After(3.0, RehookAllViewers)
+                ScheduleReadyGlowRehook(0.5)
                 return
             end
             RefreshAllReadyGlows()
