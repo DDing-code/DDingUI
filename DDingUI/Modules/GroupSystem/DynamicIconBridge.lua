@@ -1369,7 +1369,7 @@ function DynamicIconBridge:Initialize()
             -- NotifyIconsChanged는 이미 0.2초 디바운스가 있으므로 즉시 호출해도 안전
             if not self._auraDirty then
                 self._auraDirty = true
-                C_Timer.After(0, function()
+                C_Timer.After((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03, function()
                     self._auraDirty = false
                     if not initialized then return end
                     ScanAndHideCDMBuffs()
