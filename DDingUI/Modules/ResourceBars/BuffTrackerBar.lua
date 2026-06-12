@@ -1331,6 +1331,14 @@ local function BuildBuffTrackerEventKey(needs)
         .. (needs.hasManualTracking and "M" or "-")
 end
 
+local function BuffTrackerNeedsExpirationTicker(trackedBuffs, rootCfg, specCfg)
+    if isInPreviewMode or isInMoverMode then
+        return false
+    end
+    local needs = GetBuffTrackerEventNeeds(trackedBuffs, rootCfg, specCfg)
+    return needs and needs.hasTracked and needs.hasManualTracking
+end
+
 SetBuffTrackerEventsEnabled = function(enabled, trackedBuffs, rootCfg, specCfg)
     if not buffTrackerEventFrame then return end
     enabled = enabled and true or false
@@ -1933,10 +1941,13 @@ end
 -- Ticker for buff updates
 buffTrackerTicker = nil
 
-StopBuffTrackerTicker = function()
+StopBuffTrackerTicker = function(cancelStartupTimers)
     if buffTrackerTicker then
         buffTrackerTicker:Cancel()
         buffTrackerTicker = nil
+    end
+    if cancelStartupTimers == false then
+        return
     end
     startupRefreshToken = startupRefreshToken + 1
     for _, timer in ipairs(startupRefreshTimers) do
@@ -2200,8 +2211,7 @@ SlashCmdList["BTTEST"] = function()
         bar:Show()
         print("  - Bar at CENTER, 200x10, value 5/10")
     else
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00Buff Tracker Test Mode: OFF|r (ticker resumed)") -- [STYLE]
-        StartBuffTrackerTicker()
+        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00Buff Tracker Test Mode: OFF|r") -- [STYLE]
         ResourceBars:UpdateBuffTrackerBar()
     end
 end
@@ -2982,12 +2992,13 @@ function ResourceBars:UpdateBuffTrackerBar()
         return
     end
 
-    -- Start ticker if not running
     if SetBuffTrackerEventsEnabled then
         SetBuffTrackerEventsEnabled(true, trackedBuffs, rootCfg, cfg)
     end
-    if not buffTrackerTicker then
+    if BuffTrackerNeedsExpirationTicker(trackedBuffs, rootCfg, cfg) then
         StartBuffTrackerTicker()
+    else
+        StopBuffTrackerTicker(false)
     end
 
     -- Use new multi-bar system if we have tracked buffs
@@ -5767,7 +5778,11 @@ function ResourceBars:InitializeBuffTracker()
     if SetBuffTrackerEventsEnabled then
         SetBuffTrackerEventsEnabled(true, trackedBuffs, rootCfg)
     end
-    StartBuffTrackerTicker()
+    if BuffTrackerNeedsExpirationTicker(trackedBuffs, rootCfg, rootCfg) then
+        StartBuffTrackerTicker()
+    else
+        StopBuffTrackerTicker(false)
+    end
 
     -- Initial update + settle/backstop handled by ScheduleBuffTrackerStartupRefresh
     ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5, 3.0 })
