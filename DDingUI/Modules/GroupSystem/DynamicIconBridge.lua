@@ -94,31 +94,32 @@ local function ExecutePendingIconsChanged(bridge)
 
     local previousHash = bridge._lastAppliedLayoutStateHash
     local previousSourceHashes = bridge._lastAppliedSourceLayoutStateHashes
-    local targetedSources = pendingSourcesKnown and not pendingForce and previousHash and type(previousSourceHashes) == "table"
+    local targetedSources = pendingSourcesKnown and previousHash and type(previousSourceHashes) == "table"
     local currentHash, sourceHashes = BuildDynamicLayoutStateHash(targetedSources and pendingSourceKeys or nil)
-    if not pendingForce then
-        if targetedSources then
-            local changedSources
-            local mergedSourceHashes = {}
-            for sourceKey, hash in pairs(previousSourceHashes) do
+    local targetedChangedSources
+    if targetedSources then
+        local mergedSourceHashes = {}
+        for sourceKey, hash in pairs(previousSourceHashes) do
+            mergedSourceHashes[sourceKey] = hash
+        end
+        for sourceKey in pairs(pendingSourceKeys or {}) do
+            local hash = sourceHashes and sourceHashes[sourceKey] or ""
+            if previousSourceHashes[sourceKey] ~= hash then
+                targetedChangedSources = targetedChangedSources or {}
+                targetedChangedSources[sourceKey] = true
                 mergedSourceHashes[sourceKey] = hash
             end
-            for sourceKey in pairs(pendingSourceKeys or {}) do
-                local hash = sourceHashes and sourceHashes[sourceKey] or ""
-                if previousSourceHashes[sourceKey] ~= hash then
-                    changedSources = changedSources or {}
-                    changedSources[sourceKey] = true
-                    mergedSourceHashes[sourceKey] = hash
-                end
-            end
-            if not changedSources then
-                return
-            end
-            sourceHashes = mergedSourceHashes
-            currentHash = BuildCombinedHashFromSourceHashes(sourceHashes)
-        elseif currentHash == previousHash then
+        end
+        if not targetedChangedSources then
             return
         end
+        sourceHashes = mergedSourceHashes
+        currentHash = BuildCombinedHashFromSourceHashes(sourceHashes)
+    elseif not pendingForce and currentHash == previousHash then
+        return
+    end
+
+    if not pendingForce or targetedSources then
         bridge._lastAppliedLayoutStateHash = currentHash
         bridge._lastQueuedLayoutStateHash = currentHash
         bridge._lastAppliedSourceLayoutStateHashes = sourceHashes
@@ -129,7 +130,11 @@ local function ExecutePendingIconsChanged(bridge)
     end
 
     local gs = DDingUI.GroupSystem
-    if not pendingForce and previousHash and type(sourceHashes) == "table" and type(previousSourceHashes) == "table" then
+    if targetedChangedSources then
+        if gs and gs.UpdateDynamicSourceGroups and gs:UpdateDynamicSourceGroups(targetedChangedSources) then
+            return
+        end
+    elseif not pendingForce and previousHash and type(sourceHashes) == "table" and type(previousSourceHashes) == "table" then
         local changedSources
         for sourceKey, hash in pairs(sourceHashes) do
             if previousSourceHashes[sourceKey] ~= hash then
@@ -1680,12 +1685,12 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
-    local changedSourceKeys = (not forceLayout) and GetSourceKeysForIconKeys(changedIconKeys) or nil
+    local changedSourceKeys = GetSourceKeysForIconKeys(changedIconKeys)
 
     -- DoFullUpdate 트리거 (디바운스)
     if self._updatePending then
         self._pendingForceLayout = self._pendingForceLayout or forceLayout
-        if forceLayout or not changedSourceKeys then
+        if not changedSourceKeys then
             self._pendingChangedSourcesKnown = false
             self._pendingChangedSourceKeys = nil
         elseif self._pendingChangedSourcesKnown then
