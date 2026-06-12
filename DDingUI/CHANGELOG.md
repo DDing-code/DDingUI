@@ -39,6 +39,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Stopped combat-start CDM frame-controller rescans and skipped viewer transition recovery when PvP or zone events did not actually change viewer state, reducing pull and instance-transition stutter.
 - Coalesced resource bar specialization, talent, and trait refresh bursts and removed the redundant player power update listener, reducing duplicate resource bar work during combat and transition events.
 - Tokenized icon viewer transition refresh timers so repeated specialization, loading-screen, and world-entry events cancel stale delayed refresh batches instead of stacking viewer rescans and reanchors.
+- Coalesced assisted highlight and keybind refresh bursts into one dispatch pass, reducing repeated full viewer scans during talent, spell, action-bar, and layout events.
 - Filtered custom aura UNIT_AURA refreshes through cached spell and aura instance targets, then queued only the affected icon keys when possible so unrelated combat aura changes no longer trigger broad custom icon rescans.
 - Debounced icon customization ready-glow event handling so cooldown, charge, aura, and specialization event bursts update hooked icons once through a dispatch frame.
 - Coalesced CDM frame-controller dirty marking so repeated hook callbacks keep the existing queued reconcile instead of forcing the next update time back to immediate.
@@ -48,6 +49,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
 
 ### Korean Patch Notes
+- 지원 강조와 단축키 텍스트 갱신을 한 번의 디스패치 처리로 합쳐 특성, 주문, 액션바, 레이아웃 이벤트가 몰릴 때 전체 뷰어 재스캔이 반복되지 않도록 줄였습니다.
 - 전투 시작만으로 CDM 프레임 컨트롤러가 전체 재스캔을 돌리지 않게 하고, PvP/지역 이벤트에서 실제 뷰어 상태 변화가 없으면 전환 복구를 건너뛰어 전투 시작과 인스턴스 전환 시 스터터링을 줄였습니다.
 - 리소스 바의 전문화, 특성, trait 갱신 burst를 한 번으로 합치고 중복 플레이어 파워 갱신 리스너를 제거해 전투와 전환 이벤트 중 리소스 바 중복 작업을 줄였습니다.
 - 아이콘 뷰어 전환 갱신 타이머를 토큰 기반으로 바꿔 전문화, 로딩 화면, 월드 진입 이벤트가 반복될 때 오래된 지연 갱신 묶음이 뷰어 재스캔과 재고정을 누적 실행하지 않게 했습니다.

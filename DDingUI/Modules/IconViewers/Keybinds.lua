@@ -47,6 +47,8 @@ local PrintDebug = function(...)
     end
 end
 local isModuleKeybindsEnabled = false
+local QueueKeybindRefresh
+local QueueViewerKeybindRefresh
 local hookedViewers = {} -- [FIX] 뷰어별 hook 등록 추적 (areHooksInitialized 대체)
 
 local NUM_ACTIONBAR_BUTTONS = 12
@@ -762,8 +764,12 @@ local function BuildIconSpellCacheForViewer(viewerName)
         hooksecurefunc(viewerFrame, "RefreshLayout", function()
             if not isModuleKeybindsEnabled then return end
             PrintDebug("[DDingUI Keybinds] RefreshLayout called for viewer:", viewerName)
-            BuildIconSpellCacheForViewer(viewerName)
-            Keybinds:UpdateViewerKeybinds(viewerName)
+            if QueueViewerKeybindRefresh then
+                QueueViewerKeybindRefresh(viewerName)
+            else
+                BuildIconSpellCacheForViewer(viewerName)
+                Keybinds:UpdateViewerKeybinds(viewerName)
+            end
         end)
         PrintDebug("[DDingUI Keybinds] Lazy-hooked RefreshLayout for:", viewerName)
     end
@@ -929,6 +935,68 @@ function Keybinds:ApplyKeybindSettings(viewerName)
 end
 
 local eventFrame = CreateFrame("Frame")
+local pendingKeybindRefresh = false
+local pendingViewerKeybindRefreshes = {}
+local delayedKeybindRefreshToken = 0
+
+local function FlushQueuedKeybindRefresh(self)
+    self:SetScript("OnUpdate", nil)
+
+    if not isModuleKeybindsEnabled then
+        pendingKeybindRefresh = false
+        wipe(pendingViewerKeybindRefreshes)
+        return
+    end
+
+    if pendingKeybindRefresh then
+        pendingKeybindRefresh = false
+        wipe(pendingViewerKeybindRefreshes)
+        BuildAllIconSpellCaches()
+        Keybinds:UpdateAllKeybinds()
+        return
+    end
+
+    for viewerName in pairs(pendingViewerKeybindRefreshes) do
+        pendingViewerKeybindRefreshes[viewerName] = nil
+        BuildIconSpellCacheForViewer(viewerName)
+        Keybinds:UpdateViewerKeybinds(viewerName)
+    end
+end
+
+local function EnsureKeybindDispatch()
+    eventFrame:SetScript("OnUpdate", FlushQueuedKeybindRefresh)
+end
+
+QueueKeybindRefresh = function(invalidateBindings, invalidateKeybinds, invalidateState, followupDelay)
+    if invalidateBindings then
+        bindingCacheValid = false
+    end
+    if invalidateKeybinds then
+        keybindCacheValid = false
+    end
+    if invalidateState then
+        cachedStateData.valid = false
+    end
+
+    pendingKeybindRefresh = true
+    EnsureKeybindDispatch()
+
+    if followupDelay then
+        delayedKeybindRefreshToken = delayedKeybindRefreshToken + 1
+        local token = delayedKeybindRefreshToken
+        C_Timer.After(followupDelay, function()
+            if token == delayedKeybindRefreshToken then
+                QueueKeybindRefresh(invalidateBindings, invalidateKeybinds, invalidateState)
+            end
+        end)
+    end
+end
+
+QueueViewerKeybindRefresh = function(viewerName)
+    if not viewerName then return end
+    pendingViewerKeybindRefreshes[viewerName] = true
+    EnsureKeybindDispatch()
+end
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if not isModuleKeybindsEnabled then
@@ -937,16 +1005,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 
     if event == "EDIT_MODE_LAYOUTS_UPDATED" then
         PrintDebug("[DDingUI Keybinds] EditMode layout changed - rebuilding cache")
-        BuildAllIconSpellCaches()
-        Keybinds:UpdateAllKeybinds()
+        QueueKeybindRefresh(true, true, true)
     elseif event == "UPDATE_BINDINGS" then
-        bindingCacheValid = false
-        keybindCacheValid = false
-        BuildAllIconSpellCaches()
-        Keybinds:UpdateAllKeybinds()
+        QueueKeybindRefresh(true, true, false)
     elseif event == "PLAYER_ENTERING_WORLD" then
-        BuildAllIconSpellCaches()
-        Keybinds:UpdateAllKeybinds()
+        QueueKeybindRefresh(true, true, true)
         PrintDebug(
             "[DDingUI Keybinds] PLAYER_ENTERING_WORLD - LoadOrBuild result:",
             "inLockdown:",
@@ -957,24 +1020,14 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         or event == "UPDATE_BONUS_ACTIONBAR"
         or event == "PLAYER_MOUNT_DISPLAY_CHANGED"
     then
-        keybindCacheValid = false
-        cachedStateData.valid = false
-        BuildAllIconSpellCaches()
-        Keybinds:UpdateAllKeybinds()
+        QueueKeybindRefresh(false, true, true, event == "UPDATE_BONUS_ACTIONBAR" and 0.1 or nil)
     elseif
         event == "PLAYER_TALENT_UPDATE"
         or event == "SPELLS_CHANGED"
         or event == "PLAYER_SPECIALIZATION_CHANGED"
-        or event == "PLAYER_REGEN_DISABLED"
         or event == "ACTIONBAR_HIDEGRID" -- eg. Dropping a spell on action bar
     then
-        C_Timer.After(0, function()
-            bindingCacheValid = false
-            keybindCacheValid = false
-            cachedStateData.valid = false
-            BuildAllIconSpellCaches()
-            Keybinds:UpdateAllKeybinds()
-        end)
+        QueueKeybindRefresh(true, true, true)
     end
 end)
 
@@ -984,6 +1037,9 @@ function Keybinds:Shutdown()
     isModuleKeybindsEnabled = false
 
     eventFrame:UnregisterAllEvents()
+    eventFrame:SetScript("OnUpdate", nil)
+    pendingKeybindRefresh = false
+    wipe(pendingViewerKeybindRefreshes)
 
     wipe(bindingKeyCache)
     bindingCacheValid = false
@@ -1035,7 +1091,6 @@ function Keybinds:Enable()
     eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
     eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     eventFrame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
-    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     eventFrame:RegisterEvent("ACTIONBAR_HIDEGRID")
 
     -- [FIX] hook 등록은 BuildIconSpellCacheForViewer에서 lazy로 처리
