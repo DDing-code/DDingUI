@@ -894,6 +894,7 @@ local StartBuffTrackerTicker
 local StopBuffTrackerTicker
 local buffTrackerEventFrame
 local buffTrackerEventsRegistered = false
+local buffTrackerRegisteredEventKey = nil
 local buffTrackerUpdatePending = false
 local QueueBuffTrackerUpdate
 local SetBuffTrackerEventsEnabled
@@ -1298,13 +1299,57 @@ local function IsBuffTrackerRuntimeEnabled()
     return rootCfg and rootCfg.enabled
 end
 
-SetBuffTrackerEventsEnabled = function(enabled)
+local function GetBuffTrackerEventNeeds(trackedBuffs, rootCfg, specCfg)
+    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
+    specCfg = specCfg or select(1, GetFullSpecConfig()) or rootCfg
+
+    local hasTracked = false
+    local hasAuraTracking = false
+    local hasManualTracking = specCfg and specCfg.trackingMode == "manual"
+
+    for _, buff in ipairs(trackedBuffs) do
+        if buff and buff.enabled ~= false then
+            hasTracked = true
+            if buff.trackingMode == "manual" then
+                hasManualTracking = true
+            elseif not buff.isGroup then
+                hasAuraTracking = true
+            end
+        end
+    end
+
+    return {
+        hasTracked = hasTracked,
+        hasAuraTracking = hasAuraTracking,
+        hasManualTracking = hasManualTracking,
+    }
+end
+
+local function BuildBuffTrackerEventKey(needs)
+    if not needs or not needs.hasTracked then return "off" end
+    return (needs.hasAuraTracking and "A" or "-")
+        .. (needs.hasManualTracking and "M" or "-")
+end
+
+SetBuffTrackerEventsEnabled = function(enabled, trackedBuffs, rootCfg, specCfg)
     if not buffTrackerEventFrame then return end
     enabled = enabled and true or false
-    if buffTrackerEventsRegistered == enabled then return end
+
+    local needs = nil
+    local eventKey = "off"
+    if enabled then
+        needs = GetBuffTrackerEventNeeds(trackedBuffs, rootCfg, specCfg)
+        if not needs.hasTracked then
+            enabled = false
+        end
+        eventKey = BuildBuffTrackerEventKey(needs)
+    end
+
+    if buffTrackerEventsRegistered == enabled and buffTrackerRegisteredEventKey == eventKey then return end
 
     buffTrackerEventFrame:UnregisterAllEvents()
     buffTrackerEventsRegistered = enabled
+    buffTrackerRegisteredEventKey = eventKey
     if not enabled then
         MarkTrackedAuraFilterDirty()
         wipe(trackedAuraSpellSet)
@@ -1313,17 +1358,22 @@ SetBuffTrackerEventsEnabled = function(enabled)
         return
     end
 
-    buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     buffTrackerEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-    buffTrackerEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
     buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
     buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     buffTrackerEventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+
+    if needs and needs.hasAuraTracking then
+        buffTrackerEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    end
+    if needs and needs.hasManualTracking then
+        buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    end
 end
 
 QueueBuffTrackerUpdate = function(reason, delay)
@@ -2934,7 +2984,7 @@ function ResourceBars:UpdateBuffTrackerBar()
 
     -- Start ticker if not running
     if SetBuffTrackerEventsEnabled then
-        SetBuffTrackerEventsEnabled(true)
+        SetBuffTrackerEventsEnabled(true, trackedBuffs, rootCfg, cfg)
     end
     if not buffTrackerTicker then
         StartBuffTrackerTicker()
@@ -5715,7 +5765,7 @@ function ResourceBars:InitializeBuffTracker()
     end
 
     if SetBuffTrackerEventsEnabled then
-        SetBuffTrackerEventsEnabled(true)
+        SetBuffTrackerEventsEnabled(true, trackedBuffs, rootCfg)
     end
     StartBuffTrackerTicker()
 
