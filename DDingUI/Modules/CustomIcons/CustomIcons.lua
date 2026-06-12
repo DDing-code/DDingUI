@@ -3676,10 +3676,6 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterEvent("BAG_UPDATE")                    -- Bag contents change
     runtime.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")            -- Coalesced bag count changes
     runtime.eventFrame:RegisterEvent("ITEM_COUNT_CHANGED")             -- Item counts change
-    runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")          -- Spell cooldowns change
-    runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")           -- Spell charges change
-    runtime.eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")            -- Spells become usable/unusable (often at cooldown end)
-    runtime.eventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")      -- Cooldown updates (reliable at cooldown end)
     runtime.eventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
     runtime.eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
     runtime.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")         -- Equipment changes
@@ -4848,6 +4844,20 @@ function runtime.RegisterCustomCooldownWatches()
     end
     for _ in pairs(watcher.slotTargets) do
         watcher.activeTargetCount = watcher.activeTargetCount + 1
+    end
+
+    if runtime.eventFrame then
+        if (watcher.spellTargetCount or 0) > 0 then
+            runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+            runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+            runtime.eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")
+            runtime.eventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+        else
+            runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+            runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_CHARGES")
+            runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_USABLE")
+            runtime.eventFrame:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+        end
     end
 
     runtime.PrimeCustomCooldownWatcherStates()
