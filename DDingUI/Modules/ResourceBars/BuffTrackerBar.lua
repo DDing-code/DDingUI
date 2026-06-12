@@ -1881,7 +1881,7 @@ end)
 -- Check expiration in OnUpdate
 -- [PERF] 별도 OnUpdate 대신 buffTrackerTicker 내에서 만료 체크 통합
 -- expirationCheckFrame 제거 → StartBuffTrackerTicker의 0.1s 틱에서 처리
-local function CheckExpirations()
+local function CheckExpirations(trackedBuffs)
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not rootCfg or not rootCfg.enabled then return false end
 
@@ -1889,7 +1889,7 @@ local function CheckExpirations()
     local needsUpdate = false
 
     -- Per-buff manual expiration check
-    local trackedBuffs = GetTrackedBuffs()
+    trackedBuffs = trackedBuffs or GetTrackedBuffs()
     for barIndex, buff in ipairs(trackedBuffs) do
         if buff.trackingMode == "manual" and buff.settings then
             local stacks, expiresAt = GetManualStacks(barIndex)
@@ -2158,11 +2158,12 @@ StartBuffTrackerTicker = function()
         end
 
         -- [PERF] 만료 체크 통합 (별도 OnUpdate 제거됨)
-        local needsUpdate = CheckExpirations()
+        local trackedBuffs = GetTrackedBuffs()
+        local needsUpdate = CheckExpirations(trackedBuffs)
         if needsUpdate or isInPreviewMode or isInMoverMode then
             QueueBuffTrackerUpdate("ticker", 0)
         end
-        if not BuffTrackerHasManualExpiration() and not isInPreviewMode and not isInMoverMode then
+        if not BuffTrackerHasManualExpiration(trackedBuffs) and not isInPreviewMode and not isInMoverMode then
             StopBuffTrackerTicker()
         end
     end)
