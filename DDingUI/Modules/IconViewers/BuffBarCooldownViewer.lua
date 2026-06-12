@@ -971,27 +971,12 @@ local function TryHookViewer()
     viewer:HookScript("OnSizeChanged", function()
         local state = GetFrameState(viewer)
         if state.barLayoutInProgress then return end
-        if state.sizeChangedTimer then
-            state.sizeChangedTimer:Cancel()
-        end
-        state.sizeChangedTimer = C_Timer.NewTimer(0.05, function()
-            state.sizeChangedTimer = nil
-            ResetViewerLayoutState(viewer)
-            BuffBar:Refresh()
-        end)
+        QueueBuffBarRefresh(0.05, true, true)
     end)
 
     if viewer.Bar and viewer.Bar.HookScript then
         viewer.Bar:HookScript("OnSizeChanged", function()
-            local state = GetFrameState(viewer)
-            if state.barSizeChangedTimer then
-                state.barSizeChangedTimer:Cancel()
-            end
-            state.barSizeChangedTimer = C_Timer.NewTimer(0.05, function()
-                state.barSizeChangedTimer = nil
-                ResetViewerLayoutState(viewer)
-                BuffBar:Refresh()
-            end)
+            QueueBuffBarRefresh(0.05, true, true)
         end)
     end
 
