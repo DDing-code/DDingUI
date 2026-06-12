@@ -3402,7 +3402,23 @@ local function ExecuteUpdateAllIcons(filter)
             local iconData = db and db.iconData and db.iconData[iconKey]
             local iconType = iconData and iconData.type
             local typeMatches = true
-            if filter == "aura" then
+            if type(filter) == "table" then
+                typeMatches = false
+                for updateFilter in pairs(filter) do
+                    if updateFilter == "aura" then
+                        typeMatches = iconType == "aura" or iconType == "trinketProc"
+                    elseif updateFilter == "item" then
+                        typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc"
+                    elseif updateFilter == "cooldown" then
+                        typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc" or iconType == "spell" or iconType == "racial"
+                    elseif updateFilter == "spellCooldown" then
+                        typeMatches = iconType == "spell" or iconType == "racial"
+                    else
+                        typeMatches = true
+                    end
+                    if typeMatches then break end
+                end
+            elseif filter == "aura" then
                 typeMatches = iconType == "aura" or iconType == "trinketProc"
             elseif filter == "item" then
                 typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc"
@@ -3465,16 +3481,13 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
     if needsLayoutNotify then
         QueueIconLayoutNotify(needsLayoutNotify)
     end
-    if filter then
-        if runtime.pendingIconUpdateFilter ~= "all" then
-            if filter == "all" or not runtime.pendingIconUpdateFilter then
-                runtime.pendingIconUpdateFilter = filter
-            elseif runtime.pendingIconUpdateFilter ~= filter then
-                runtime.pendingIconUpdateFilter = "all"
-            end
-        end
-    elseif not runtime.pendingIconUpdateFilter then
+    if not filter or filter == "all" then
         runtime.pendingIconUpdateFilter = "all"
+        runtime.pendingIconUpdateFilters = nil
+    elseif runtime.pendingIconUpdateFilter ~= "all" then
+        runtime.pendingIconUpdateFilters = runtime.pendingIconUpdateFilters or {}
+        runtime.pendingIconUpdateFilters[filter] = true
+        runtime.pendingIconUpdateFilter = nil
     end
     if _pendingIconUpdate then return end
     _pendingIconUpdate = true
@@ -3494,7 +3507,11 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
         local notifyLayout = _pendingIconLayoutNotify
         _pendingIconLayoutNotify = false
         local updateFilter = runtime.pendingIconUpdateFilter
+        if updateFilter ~= "all" and runtime.pendingIconUpdateFilters then
+            updateFilter = runtime.pendingIconUpdateFilters
+        end
         runtime.pendingIconUpdateFilter = nil
+        runtime.pendingIconUpdateFilters = nil
         runtime.lastIconUpdateAt = GetTime and GetTime() or now
         local layoutStateChanged = ExecuteUpdateAllIcons(updateFilter)
         if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
