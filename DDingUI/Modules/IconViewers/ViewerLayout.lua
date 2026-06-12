@@ -212,6 +212,7 @@ CreateProxyAnchors()
 local proxySyncFrame = CreateFrame("Frame")
 proxySyncFrame:Hide()
 local proxySyncUntil = 0
+local proxySyncDelayRemaining = 0
 
 local function RequestProxyAnchorSync(duration)
     local now = GetTime()
@@ -220,14 +221,20 @@ local function RequestProxyAnchorSync(duration)
         proxySyncUntil = untilTime
     end
     _nextProxySyncTime = 0
+    proxySyncDelayRemaining = 0
     proxySyncFrame:Show()
 end
 
-proxySyncFrame:SetScript("OnUpdate", function(self)
+proxySyncFrame:SetScript("OnUpdate", function(self, elapsed)
     if GetTime() > proxySyncUntil then
         self:Hide()
         return
     end
+    proxySyncDelayRemaining = proxySyncDelayRemaining - (elapsed or 0)
+    if proxySyncDelayRemaining > 0 then
+        return
+    end
+    proxySyncDelayRemaining = PROXY_SYNC_THROTTLE
     SyncProxyAnchors()
 end)
 
