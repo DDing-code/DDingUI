@@ -1693,14 +1693,10 @@ function GroupSystem:Enable()
             hooksecurefunc(DDingUI.Movers, "HideMovers", function()
                 if CDMHookEngine and GroupSystem.enabled then
                     CDMHookEngine:DisableEditModeClicks()
-                    -- [REPARENT] 편집모드 퇴장 → 즉시 재스캔 + 재배치
-                    C_Timer.After(0.05, function()
-                        if GroupSystem.enabled then
-                            DoFullUpdate()
-                        end
-                    end)
-                    -- [REPARENT] 안정화 패스: CDM이 지연 Layout 하는 경우 대비
-                    C_Timer.After(0.5, function()
+                    GroupSystem._editModeRefreshToken = (GroupSystem._editModeRefreshToken or 0) + 1
+                    local token = GroupSystem._editModeRefreshToken
+                    C_Timer.After(0.1, function()
+                        if token ~= GroupSystem._editModeRefreshToken then return end
                         if GroupSystem.enabled then
                             DoFullUpdate()
                         end
@@ -1720,8 +1716,10 @@ function GroupSystem:Enable()
         specFrame:RegisterEvent("PLAYER_LEVEL_UP")
         specFrame:SetScript("OnEvent", function(_, event)
             if not GroupSystem.enabled then return end
-            -- CDM이 뷰어를 재생성할 시간 대기 (FrameController보다 약간 뒤)
+            GroupSystem._specRefreshToken = (GroupSystem._specRefreshToken or 0) + 1
+            local token = GroupSystem._specRefreshToken
             C_Timer.After(2.0, function()
+                if token ~= GroupSystem._specRefreshToken then return end
                 if not GroupSystem.enabled then return end
                 -- 그룹 프레임 앵커 재적용 → _G[attachTo]로 새 뷰어 resolve
                 GroupSystem:Refresh()
@@ -1729,11 +1727,6 @@ function GroupSystem:Enable()
                 if DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
                     DDingUI.Movers:ReloadMappedModulePositions()
                 end
-            end)
-            -- 안정화 패스
-            C_Timer.After(4.0, function()
-                if not GroupSystem.enabled then return end
-                GroupSystem:Refresh()
             end)
         end)
         self._specChangeFrame = specFrame
