@@ -10,11 +10,74 @@ local math_min = math.min
 local GetTime = GetTime
 local UnitPower = UnitPower
 local UnitPowerMax = UnitPowerMax
+local wipe = wipe
 
 -- Get ResourceBars module
 local ResourceBars = DDingUI.ResourceBars
 if not ResourceBars then
     error("DDingUI: ResourceBars module not initialized! Load ResourceDetection.lua first.")
+end
+
+local function CancelPrimaryAnchorRetryTimers(bar)
+    if not bar then
+        return
+    end
+
+    if bar._anchorRetryTimers then
+        for _, timer in pairs(bar._anchorRetryTimers) do
+            if timer and not timer:IsCancelled() then
+                timer:Cancel()
+            end
+        end
+        wipe(bar._anchorRetryTimers)
+    end
+    bar._anchorRetryScheduled = nil
+end
+
+local function SchedulePrimaryAnchorRetry(bar, longTail)
+    if not bar or bar._anchorRetryScheduled then
+        return
+    end
+
+    bar._anchorRetryScheduled = true
+    bar._anchorRetryTimers = bar._anchorRetryTimers or {}
+    wipe(bar._anchorRetryTimers)
+
+    local timers = bar._anchorRetryTimers
+    local function Queue(index, delay, final, callback)
+        timers[index] = C_Timer.NewTimer(delay, function()
+            timers[index] = nil
+            if final then
+                bar._anchorRetryScheduled = nil
+            end
+            if callback then
+                callback()
+            else
+                ResourceBars:UpdatePowerBar()
+            end
+        end)
+    end
+
+    if longTail then
+        Queue(1, 0.2)
+        Queue(2, 0.5)
+        Queue(3, 1.0)
+        Queue(4, 2.0)
+        Queue(5, 4.0, true)
+        return
+    end
+
+    Queue(1, 0.2)
+    Queue(2, 0.5)
+    Queue(3, 1.0)
+    Queue(4, 2.0, true, function()
+        local cfg = DDingUI.db.profile.powerBar
+        local originalAnchor = DDingUI:ResolveAnchorFrame(cfg.attachTo)
+        if originalAnchor and originalAnchor:IsShown() then
+            bar._anchorRetryCount = 0
+            ResourceBars:UpdatePowerBar()
+        end
+    end)
 end
 
 -- Get functions from ResourceDetection
@@ -218,6 +281,7 @@ function ResourceBars:UpdatePowerBar()
     local cfg = DDingUI.db.profile.powerBar
     if not cfg.enabled then
         if DDingUI.powerBar then
+            CancelPrimaryAnchorRetryTimers(DDingUI.powerBar)
             DDingUI.powerBar:Hide()
             DDingUI.powerBar:SetScript("OnUpdate", nil)
             -- [FIX] Explicitly hide sub-elements to prevent background leak
@@ -249,19 +313,7 @@ function ResourceBars:UpdatePowerBar()
             end
             -- 바를 숨기지 않음 — 이전 위치에서 계속 표시
             -- 앵커 복구 시 자동 재시도 (더 긴 간격 포함)
-            if not bar._anchorRetryScheduled then
-                bar._anchorRetryScheduled = true
-                C_Timer.After(0.2, function() ResourceBars:UpdatePowerBar() end)
-                C_Timer.After(0.5, function() ResourceBars:UpdatePowerBar() end)
-                C_Timer.After(1.0, function()
-                    ResourceBars:UpdatePowerBar()
-                end)
-                C_Timer.After(2.0, function() ResourceBars:UpdatePowerBar() end)
-                C_Timer.After(4.0, function()
-                    bar._anchorRetryScheduled = nil
-                    ResourceBars:UpdatePowerBar()
-                end)
-            end
+            SchedulePrimaryAnchorRetry(bar, true)
             return
         end
 
@@ -274,30 +326,11 @@ function ResourceBars:UpdatePowerBar()
             bar:SetParent(UIParent)
         end
 
-        if not bar._anchorRetryScheduled then
-            bar._anchorRetryScheduled = true
-            C_Timer.After(0.2, function() ResourceBars:UpdatePowerBar() end)
-            C_Timer.After(0.5, function() ResourceBars:UpdatePowerBar() end)
-            C_Timer.After(1.0, function()
-                bar._anchorRetryScheduled = nil
-                local originalAnchor = DDingUI:ResolveAnchorFrame(cfg.attachTo)
-                if originalAnchor and originalAnchor:IsShown() then
-                    bar._anchorRetryCount = 0
-                end
-                ResourceBars:UpdatePowerBar()
-            end)
-            C_Timer.After(2.0, function()
-                local originalAnchor = DDingUI:ResolveAnchorFrame(cfg.attachTo)
-                if originalAnchor and originalAnchor:IsShown() then
-                    bar._anchorRetryCount = 0
-                    ResourceBars:UpdatePowerBar()
-                end
-            end)
-        end
+        SchedulePrimaryAnchorRetry(bar, false)
     else
         -- 앵커 찾으면 카운터 리셋
         bar._anchorRetryCount = 0
-        bar._anchorRetryScheduled = nil
+        CancelPrimaryAnchorRetryTimers(bar)
 
         -- [FIX] SetParent(anchor) 제거 — 엘레베이터 현상 근본 원인
         -- 스펙 변경 시 그룹 프레임이 재생성되면 부모가 바뀌면서 오프셋이 누적됨
