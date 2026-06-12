@@ -1942,10 +1942,12 @@ function GroupSystem:Refresh()
 
     -- [FIX] _forceFullSetup으로 아이콘 re-skin 후 AssistHighlight glow가 Clear됨
     -- Refresh 완료 후 보조 강조 효과 재적용
-    if DDingUI.AssistHighlight and DDingUI.AssistHighlight.UpdateAllHighlights then
-        C_Timer.After(0.1, function()
+    if DDingUI.AssistHighlight then
+        if DDingUI.AssistHighlight.QueueAllHighlightRefresh then
+            DDingUI.AssistHighlight:QueueAllHighlightRefresh()
+        elseif DDingUI.AssistHighlight.UpdateAllHighlights then
             DDingUI.AssistHighlight:UpdateAllHighlights()
-        end)
+        end
     end
 end
 

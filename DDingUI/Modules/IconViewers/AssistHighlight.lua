@@ -688,6 +688,10 @@ QueueAllHighlightRefresh = function(useCurrentSuggestion, refreshRotationCache)
     EnsureHighlightDispatch()
 end
 
+function AssistHighlight:QueueAllHighlightRefresh(useCurrentSuggestion, refreshRotationCache)
+    QueueAllHighlightRefresh(useCurrentSuggestion, refreshRotationCache)
+end
+
 local function QueueGroupHighlightRefresh()
     if pendingGroupHighlightRefresh then return end
     pendingGroupHighlightRefresh = true
