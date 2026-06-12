@@ -2369,35 +2369,8 @@ local function UpdateItemIcon(iconFrame, iconData)
     iconFrame.icon:SetDesaturated(false)
     iconFrame.icon:SetDesaturation(desatVal)
 
-    -- OnUpdate 루프: isOnRealCD (safe boolean)으로만 진입 판단 — desatVal 비교 금지
-    if itemCombatLocked then
-        if iconFrame._cdmDesatUpdater then
-            iconFrame._cdmDesatUpdater:Hide()
-        end
-    elseif itemIsOnRealCD then
-        if not iconFrame._cdmDesatUpdater then
-            iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
-            iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
-                local stillOnRealCD = false
-                pcall(function()
-                    local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
-                    if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
-                        stillOnRealCD = true
-                    end
-                end)
-                if stillOnRealCD and self.durObj then
-                    self.targetIcon:SetDesaturation(EvalDesatFromDurObj(self.durObj, false))
-                else
-                    self.targetIcon:SetDesaturation(0)
-                    self:Hide()
-                end
-            end)
-        end
-        iconFrame._cdmDesatUpdater.spellID = desatSpellID
-        iconFrame._cdmDesatUpdater.durObj = desatDurationObject
-        iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
-        iconFrame._cdmDesatUpdater:Show()
-    elseif iconFrame._cdmDesatUpdater then
+    -- Cooldown events/watchers refresh desaturation; avoid per-icon frame polling.
+    if iconFrame._cdmDesatUpdater then
         iconFrame._cdmDesatUpdater:Hide()
     end
 
@@ -2558,31 +2531,8 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     end
     iconFrame.icon:SetDesaturation(desatValue)
 
-    -- OnUpdate 루프: isOnRealCD (safe boolean)만으로 진입 결정 — desatValue 비교 금지
-    if usable and allowDesat and desatDurObj and isOnRealCD then
-        if not iconFrame._cdmDesatUpdater then
-            iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
-            iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
-                local stillOnRealCD = false
-                pcall(function()
-                    local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
-                    if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
-                        stillOnRealCD = true
-                    end
-                end)
-                if stillOnRealCD and self.durObj then
-                    self.targetIcon:SetDesaturation(EvalDesatFromDurObj(self.durObj, false))
-                else
-                    self.targetIcon:SetDesaturation(0)
-                    self:Hide()
-                end
-            end)
-        end
-        iconFrame._cdmDesatUpdater.spellID = spellID
-        iconFrame._cdmDesatUpdater.durObj = desatDurObj
-        iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
-        iconFrame._cdmDesatUpdater:Show()
-    elseif iconFrame._cdmDesatUpdater then
+    -- Cooldown events/watchers refresh desaturation; avoid per-icon frame polling.
+    if iconFrame._cdmDesatUpdater then
         iconFrame._cdmDesatUpdater:Hide()
     end
 
