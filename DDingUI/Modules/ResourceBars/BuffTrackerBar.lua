@@ -933,10 +933,13 @@ local buffTrackerTicker
 local StartBuffTrackerTicker
 local StopBuffTrackerTicker
 local buffTrackerEventFrame
+local buffTrackerDispatchFrame
 local buffTrackerEventsRegistered = false
 local buffTrackerRegisteredEventKey = nil
 local buffTrackerUpdatePending = false
+local buffTrackerUpdateDelayRemaining = 0
 local QueueBuffTrackerUpdate
+local IsBuffTrackerRuntimeEnabled
 local SetBuffTrackerEventsEnabled
 local trackedAuraSpellSet = {}
 local trackedAuraInstanceSet = {}
@@ -1333,8 +1336,32 @@ end
 
 -- Event frame for combat log tracking
 buffTrackerEventFrame = CreateFrame("Frame")
+buffTrackerDispatchFrame = CreateFrame("Frame")
+buffTrackerDispatchFrame:Hide()
+buffTrackerDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+    if not buffTrackerUpdatePending then
+        self:Hide()
+        return
+    end
 
-local function IsBuffTrackerRuntimeEnabled()
+    buffTrackerUpdateDelayRemaining = (buffTrackerUpdateDelayRemaining or 0) - (elapsed or 0)
+    if buffTrackerUpdateDelayRemaining > 0 then
+        return
+    end
+
+    self:Hide()
+    buffTrackerUpdatePending = false
+    buffTrackerUpdateDelayRemaining = 0
+
+    if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
+        ResourceBars:UpdateBuffTrackerBar()
+    else
+        if StopBuffTrackerTicker then StopBuffTrackerTicker() end
+        if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
+    end
+end)
+
+IsBuffTrackerRuntimeEnabled = function()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     return rootCfg and rootCfg.enabled
 end
@@ -1439,6 +1466,9 @@ end
 
 QueueBuffTrackerUpdate = function(reason, delay)
     if not IsBuffTrackerRuntimeEnabled() and not isInPreviewMode and not isInMoverMode then
+        buffTrackerUpdatePending = false
+        buffTrackerUpdateDelayRemaining = 0
+        if buffTrackerDispatchFrame then buffTrackerDispatchFrame:Hide() end
         if StopBuffTrackerTicker then StopBuffTrackerTicker() end
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
         return
@@ -1446,15 +1476,8 @@ QueueBuffTrackerUpdate = function(reason, delay)
     if buffTrackerUpdatePending then return end
 
     buffTrackerUpdatePending = true
-    C_Timer.After(delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03), function()
-        buffTrackerUpdatePending = false
-        if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
-            ResourceBars:UpdateBuffTrackerBar()
-        else
-            if StopBuffTrackerTicker then StopBuffTrackerTicker() end
-            if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
-        end
-    end)
+    buffTrackerUpdateDelayRemaining = delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03)
+    buffTrackerDispatchFrame:Show()
 end
 
 local playerInCombat = false
