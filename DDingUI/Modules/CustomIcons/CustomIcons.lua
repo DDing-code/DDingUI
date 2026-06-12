@@ -3663,6 +3663,11 @@ local function HandleCustomTimedAuraEvent(event, ...)
 end
 
 local function HasItemCooldownIcon()
+    local watcher = runtime.cooldownWatcher
+    if watcher and watcher.activeTargetCount then
+        return watcher.activeTargetCount > 0
+    end
+
     local db = GetDynamicDB()
     for _, iconData in pairs((db and db.iconData) or {}) do
         if iconData.type == "item" or iconData.type == "slot" or iconData.type == "trinketProc" then
@@ -3673,6 +3678,11 @@ local function HasItemCooldownIcon()
 end
 
 function runtime.HasSpellCooldownIcon()
+    local watcher = runtime.cooldownWatcher
+    if watcher and watcher.spellTargetCount then
+        return watcher.spellTargetCount > 0
+    end
+
     local db = GetDynamicDB()
     for _, iconData in pairs((db and db.iconData) or {}) do
         if iconData.type == "spell" or iconData.type == "racial" then
@@ -4866,6 +4876,7 @@ function runtime.RegisterCustomCooldownWatches()
     runtime.ClearCustomCooldownTable(watcher.itemTargets)
     runtime.ClearCustomCooldownTable(watcher.slotTargets)
     watcher.activeTargetCount = 0
+    watcher.spellTargetCount = 0
 
     for iconKey, frame in pairs(runtime.iconFrames) do
         local iconData = frame and db.iconData and db.iconData[iconKey]
@@ -4877,6 +4888,8 @@ function runtime.RegisterCustomCooldownWatches()
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
             elseif iconData.type == "trinketProc" and (not iconData.settings or iconData.settings.showItemCooldown ~= false) then
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
+            elseif iconData.type == "spell" or iconData.type == "racial" then
+                watcher.spellTargetCount = watcher.spellTargetCount + 1
             end
         end
     end
