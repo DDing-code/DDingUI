@@ -28,6 +28,8 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Stopped the tracked buff bar expiration ticker unless manual tracked entries need expiration checks.
 - Preserved concurrent custom icon update filters instead of promoting mixed event batches to full icon refreshes.
 - Coalesced GroupSystem hook refresh callbacks into one deferred full group render per frame.
+- Deferred dynamic bridge layout hashing until the scheduled refresh executes, avoiding repeated source/icon scans during notification bursts.
+- Throttled dynamic bridge aura-hide scans so combat aura bursts are merged before scanning CDM buff frames.
 - Limited proxy anchor synchronization and keybind text updates to event-driven refresh windows instead of continuous per-frame polling.
 - Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
@@ -37,6 +39,8 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - 수동 추적 항목의 만료 체크가 필요할 때만 추적 버프 바 만료 ticker를 켜도록 줄였습니다.
 - 동시에 들어온 커스텀 아이콘 갱신 필터를 보존해 혼합 이벤트가 불필요한 전체 아이콘 갱신으로 커지지 않게 했습니다.
 - GroupSystem HookEngine 갱신 콜백을 한 프레임에 한 번의 전체 그룹 렌더로 병합했습니다.
+- 동적 브리지 레이아웃 해시 계산을 예약된 갱신 실행 시점으로 미뤄 알림이 몰릴 때 source/icon 스캔이 반복되지 않게 했습니다.
+- 동적 브리지 오라 숨김 스캔을 throttle 처리해 전투 중 오라 이벤트가 몰릴 때 CDM 버프 프레임 스캔을 병합했습니다.
 - 커스텀 버프, 지속시간 오라, 종족 특성, 사용 아이템, 물약, 생명석, 장신구 아이콘이 전투 중 갱신 후에도 지속시간 스와이프, 텍스처, 쿨다운 상태, 글로우 상태, 텍스트 설정을 유지하도록 안정화했습니다.
 - 복사한 프로필이나 새로 만든 프로필에서도 커스텀 오라 초기화와 실제 오라 연결이 정상적으로 동작하도록 개선했습니다.
 - 레이아웃 재구성 디바운스, 아이콘 유형별 갱신 필터, 쿨다운 대상 수 캐시, 전투 중 불필요한 전체 재스캔 회피로 커스텀 아이콘 갱신 부담을 줄였습니다.
