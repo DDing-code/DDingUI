@@ -1139,8 +1139,66 @@ end
 -- [REPARENT] 뷰어 설정을 100% 반영하기 위해 ViewerLayout과 동일 로직 복제
 -- ============================================================
 
-local function BuildPlacementHash(combinedList)
+local function ResolveGroupOffsetsForGroup(groupName, groupSettings)
+    local resolvedGroupOffsets = groupSettings and groupSettings.groupOffsets
+    local viewerName = GROUP_VIEWER_MAP[groupName]
+    if viewerName then
+        local profile = DDingUI.db and DDingUI.db.profile
+        local vs = profile and profile.viewers and profile.viewers[viewerName]
+        if vs and vs.groupOffsets then
+            resolvedGroupOffsets = vs.groupOffsets
+        end
+    end
+    return resolvedGroupOffsets
+end
+
+local function AppendPlacementSettingsToken(parts, groupName, groupSettings, groupOffsets)
+    if not groupSettings then return end
+
+    parts[#parts + 1] = "group:" .. tostring(groupName or "")
+    parts[#parts + 1] = table_concat({
+        "layout",
+        tostring(groupSettings.iconSize or ""),
+        tostring(groupSettings.aspectRatioCrop or ""),
+        tostring(groupSettings.spacing or ""),
+        tostring(groupSettings.direction or ""),
+        tostring(groupSettings.growDirection or ""),
+        tostring(groupSettings.rowLimit or ""),
+        tostring(groupSettings.zoom or ""),
+    }, ":")
+
+    local rowSizes = groupSettings.rowIconSizes
+    if type(rowSizes) == "table" then
+        for i = 1, #rowSizes do
+            parts[#parts + 1] = "row:" .. tostring(i) .. ":" .. tostring(rowSizes[i] or "")
+        end
+    end
+
+    local groupState = "solo"
+    if IsInRaid and IsInRaid() then
+        groupState = "raid"
+    elseif IsInGroup and IsInGroup() then
+        groupState = "party"
+    end
+    parts[#parts + 1] = "state:" .. groupState
+
+    if type(groupOffsets) == "table" then
+        local activeOffset = groupOffsets[groupState]
+        parts[#parts + 1] = "offset:" .. tostring(activeOffset and activeOffset.x or 0) .. ":" .. tostring(activeOffset and activeOffset.y or 0)
+    end
+
+    local attachTo = groupSettings.attachTo
+    if attachTo and attachTo ~= "" and attachTo ~= "UIParent" then
+        local anchorFrame = _G and _G[attachTo]
+        local anchorW = anchorFrame and anchorFrame.GetWidth and anchorFrame:GetWidth() or 0
+        local anchorH = anchorFrame and anchorFrame.GetHeight and anchorFrame:GetHeight() or 0
+        parts[#parts + 1] = "anchor:" .. tostring(attachTo) .. ":" .. tostring(math_floor((anchorW or 0) + 0.5)) .. ":" .. tostring(math_floor((anchorH or 0) + 0.5))
+    end
+end
+
+local function BuildPlacementHash(combinedList, groupName, groupSettings, groupOffsets)
     local parts = {}
+    AppendPlacementSettingsToken(parts, groupName, groupSettings, groupOffsets)
     for i, entry in ipairs(combinedList or {}) do
         local token = entry._ddOrderToken
             or (entry.isDynamic and BuildDynamicOrderToken(entry.iconKey or entry.cooldownID))
@@ -1911,8 +1969,10 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     end
 
     ApplyGroupIconOrder(groupSettings, combinedList)
-    local combinedHash = BuildPlacementHash(combinedList)
-    if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
+    local viewerName = GROUP_VIEWER_MAP[groupName]
+    local resolvedGroupOffsets = ResolveGroupOffsetsForGroup(groupName, groupSettings)
+    local combinedHash = BuildPlacementHash(combinedList, groupName, groupSettings, resolvedGroupOffsets)
+    if frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
         RestoreActivePlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
         if #combinedList > 0 and not frame:IsShown() then
             frame:Show()
@@ -1955,9 +2015,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         end
     end
     wipe(frame._managedIcons)
-
-    -- [FIX] groupSettings가 단일 소스 — Config UI가 gs.groups[name]에 기록
-    local viewerName = GROUP_VIEWER_MAP[groupName]
 
     -- 아이콘 크기: groupSettings에서 직접 계산 (viewer settings 무시)
     local baseIconW, baseIconH = ComputeIconDimensions(groupSettings)
@@ -2228,14 +2285,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     -- Config UI가 gs.groups[name]에 기록한 값을 직접 사용
     -- [FIX] groupOffsets: ViewerOptions SaveGroupOffset은 viewers[viewerKey]에 저장하므로
     -- 실시간 반영을 위해 viewers DB를 직접 읽음. 비-CDM 그룹은 groupSettings에서 읽음.
-    local resolvedGroupOffsets = groupSettings.groupOffsets
-    if viewerName then
-        local profile = DDingUI.db and DDingUI.db.profile
-        local vs = profile and profile.viewers and profile.viewers[viewerName]
-        if vs and vs.groupOffsets then
-            resolvedGroupOffsets = vs.groupOffsets
-        end
-    end
     local layoutSettings = {
         iconSize = groupSettings.iconSize or 32,
         aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
