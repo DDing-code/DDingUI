@@ -321,6 +321,7 @@ end
 
 local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     if not FrameController.initialized then return end
+    local refreshedGroupSystem = false
     FrameController:RefreshViewerRefs()
     ResetGroupViewerHiddenFlags()
     if forceFrameControl then
@@ -339,6 +340,7 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
         else
             DDingUI.GroupSystem:Refresh()
         end
+        refreshedGroupSystem = true
     end
     if forceFrameControl and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged then
         DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -346,9 +348,11 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     if reloadMapped and DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
         DDingUI.Movers:ReloadMappedModulePositions()
     end
-    MarkDirty()
-    if not state.pollingActive then
-        EnablePolling()
+    if not refreshedGroupSystem then
+        MarkDirty()
+        if not state.pollingActive then
+            EnablePolling()
+        end
     end
 end
 
