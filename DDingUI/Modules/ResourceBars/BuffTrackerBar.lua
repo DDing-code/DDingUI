@@ -895,6 +895,106 @@ local buffTrackerEventsRegistered = false
 local buffTrackerUpdatePending = false
 local QueueBuffTrackerUpdate
 local SetBuffTrackerEventsEnabled
+local trackedAuraSpellSet = {}
+local trackedAuraInstanceSet = {}
+local trackedAuraHasUnknown = false
+local trackedAuraFilterDirty = true
+
+local function MarkTrackedAuraFilterDirty()
+    trackedAuraFilterDirty = true
+end
+
+local function AddTrackedAuraSpell(spellID)
+    spellID = tonumber(spellID) or 0
+    if spellID <= 0 then
+        return false
+    end
+
+    trackedAuraSpellSet[spellID] = true
+    local aura = nil
+    pcall(function()
+        aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+    end)
+    if aura and aura.auraInstanceID and not IsSecretValue(aura.auraInstanceID) then
+        trackedAuraInstanceSet[aura.auraInstanceID] = true
+    end
+    return true
+end
+
+local function RebuildTrackedAuraFilter(trackedBuffs)
+    wipe(trackedAuraSpellSet)
+    wipe(trackedAuraInstanceSet)
+    trackedAuraHasUnknown = false
+
+    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
+    for _, buff in ipairs(trackedBuffs) do
+        if buff and buff.enabled ~= false and not buff.isGroup and buff.trackingMode ~= "manual" then
+            local added = false
+            added = AddTrackedAuraSpell(buff.spellID) or added
+            if not added then
+                local cooldownID = tonumber(buff.cooldownID) or 0
+                if cooldownID > 0 then
+                    added = AddTrackedAuraSpell(GetSpellIDFromCooldownID(cooldownID)) or added
+                    added = AddTrackedAuraSpell(cooldownID) or added
+                end
+            end
+            if not added then
+                trackedAuraHasUnknown = true
+            end
+        end
+    end
+
+    trackedAuraFilterDirty = false
+end
+
+local function UnitAuraUpdateTouchesTrackedBuff(info)
+    if not info or info.isFullUpdate then
+        return true
+    end
+
+    if trackedAuraFilterDirty then
+        RebuildTrackedAuraFilter()
+    end
+
+    if trackedAuraHasUnknown then
+        return true
+    end
+
+    if next(trackedAuraSpellSet) == nil and next(trackedAuraInstanceSet) == nil then
+        return false
+    end
+
+    if info.addedAuras then
+        for _, aura in ipairs(info.addedAuras) do
+            local spellID = aura and aura.spellId
+            if spellID and not IsSecretValue(spellID) and trackedAuraSpellSet[spellID] then
+                if aura.auraInstanceID and not IsSecretValue(aura.auraInstanceID) then
+                    trackedAuraInstanceSet[aura.auraInstanceID] = true
+                end
+                return true
+            end
+        end
+    end
+
+    if info.updatedAuraInstanceIDs then
+        for _, auraID in ipairs(info.updatedAuraInstanceIDs) do
+            if auraID and not IsSecretValue(auraID) and trackedAuraInstanceSet[auraID] then
+                return true
+            end
+        end
+    end
+
+    if info.removedAuraInstanceIDs then
+        for _, auraID in ipairs(info.removedAuraInstanceIDs) do
+            if auraID and not IsSecretValue(auraID) and trackedAuraInstanceSet[auraID] then
+                trackedAuraInstanceSet[auraID] = nil
+                return true
+            end
+        end
+    end
+
+    return false
+end
 
 -- 모든 bar 프레임의 위치/스타일 캐시를 초기화
 -- 전문화 변경 시 이전 전문화의 앵커 정보가 남아있으면 위치가 틀어짐
@@ -1193,7 +1293,13 @@ SetBuffTrackerEventsEnabled = function(enabled)
 
     buffTrackerEventFrame:UnregisterAllEvents()
     buffTrackerEventsRegistered = enabled
-    if not enabled then return end
+    if not enabled then
+        MarkTrackedAuraFilterDirty()
+        wipe(trackedAuraSpellSet)
+        wipe(trackedAuraInstanceSet)
+        trackedAuraHasUnknown = false
+        return
+    end
 
     buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -1277,6 +1383,9 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_AURA" then
         local unit, unitAuraUpdateInfo = ...
         if unit == "player" then
+            if not UnitAuraUpdateTouchesTrackedBuff(unitAuraUpdateInfo) then
+                return
+            end
             -- 버프 갱신 감지: updatedAuraInstanceIDs를 저장해서 UpdateSingleTrackedBuffRing에서 처리
             if unitAuraUpdateInfo and unitAuraUpdateInfo.updatedAuraInstanceIDs then
                 -- 글로벌 변수에 저장 (UpdateSingleTrackedBuffRing에서 확인)
@@ -1324,6 +1433,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         -- 런타임 상태 초기화 (이전 전문화의 오래된 이벤트 데이터 정리)
         ResourceBars._pendingAuraUpdates = nil
         ResourceBars._spellCastRefresh = nil
+        MarkTrackedAuraFilterDirty()
 
         -- 3단계 재시도 (CDM CDM 패턴)
         -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
@@ -2816,6 +2926,7 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- ============================================================
     local trackedBuffs = GetTrackedBuffs()
     local useTrackedBuffSystem = (#trackedBuffs > 0)
+    RebuildTrackedAuraFilter(trackedBuffs)
 
     if BUFF_TRACKER_DEBUG then
         print("[BuffTracker] useTrackedBuffSystem=" .. tostring(useTrackedBuffSystem) .. ", count=" .. #trackedBuffs)
