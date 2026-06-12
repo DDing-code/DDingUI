@@ -3725,7 +3725,6 @@ local function EnsureEventFrame()
     -- Register for events that should trigger icon updates
     runtime.eventFrame:RegisterEvent("BAG_UPDATE")                    -- Bag contents change
     runtime.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")            -- Coalesced bag count changes
-    runtime.eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")           -- Item cooldown changes
     runtime.eventFrame:RegisterEvent("ITEM_COUNT_CHANGED")             -- Item counts change
     runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")          -- Spell cooldowns change
     runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")           -- Spell charges change
@@ -3809,25 +3808,28 @@ local function EnsureEventFrame()
             and not customTimedChanged then
             return
         end
-        local isItemCooldownEvent = event == "UNIT_SPELLCAST_SUCCEEDED"
-            or event == "BAG_UPDATE_COOLDOWN"
-            or event == "SPELL_UPDATE_COOLDOWN"
-            or event == "SPELL_UPDATE_CHARGES"
-            or event == "ACTIONBAR_UPDATE_COOLDOWN"
-            or event == "ARENA_COOLDOWNS_UPDATE"
-            or event == "PVP_MATCH_STATE_CHANGED"
-            or event == "SPELL_UPDATE_USABLE"
-            or event == "ITEM_COUNT_CHANGED"
-            or event == "BAG_UPDATE_DELAYED"
         local isSpellCooldownEvent = event == "SPELL_UPDATE_COOLDOWN"
             or event == "SPELL_UPDATE_CHARGES"
             or event == "ACTIONBAR_UPDATE_COOLDOWN"
             or event == "SPELL_UPDATE_USABLE"
-        local hasItemCooldownIcon = isItemCooldownEvent and HasItemCooldownIcon()
+        local isItemCooldownEvent = event == "BAG_UPDATE_COOLDOWN"
+            or event == "ARENA_COOLDOWNS_UPDATE"
+            or event == "PVP_MATCH_STATE_CHANGED"
+        local isItemCountEvent = event == "ITEM_COUNT_CHANGED"
+            or event == "BAG_UPDATE_DELAYED"
+        local hasItemCooldownIcon = (isItemCooldownEvent
+            or isItemCountEvent
+            or event == "UNIT_SPELLCAST_SUCCEEDED")
+            and HasItemCooldownIcon()
+        local itemCombatLockoutChanged = false
         if hasItemCooldownIcon and succeededSpellID then
-            MarkItemCombatLockoutFromSpell(succeededSpellID)
+            itemCombatLockoutChanged = MarkItemCombatLockoutFromSpell(succeededSpellID)
         end
-        if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon and not isRacialSpellcast then
+        if event == "UNIT_SPELLCAST_SUCCEEDED"
+            and not customTimedChanged
+            and not itemCombatLockoutChanged
+            and not isRacialSpellcast
+        then
             return
         end
 
@@ -3837,9 +3839,6 @@ local function EnsureEventFrame()
             or event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
             or event == "BAG_UPDATE"
-            or event == "BAG_UPDATE_COOLDOWN"
-            or event == "ARENA_COOLDOWNS_UPDATE"
-            or event == "PVP_MATCH_STATE_CHANGED"
             or event == "BAG_UPDATE_DELAYED"
             or event == "ITEM_COUNT_CHANGED"
         then
@@ -3849,11 +3848,11 @@ local function EnsureEventFrame()
         end
 
         if hasItemCooldownIcon then
-            if event == "BAG_UPDATE_COOLDOWN" and runtime.QueueEvaluateCustomCooldownWatches then
+            if isItemCooldownEvent and runtime.QueueEvaluateCustomCooldownWatches then
                 runtime.QueueEvaluateCustomCooldownWatches()
-            elseif isSpellCooldownEvent then
-                if runtime.HasSpellCooldownIcon and runtime.HasSpellCooldownIcon() then
-                    UpdateAllIcons(nil, "spellCooldown")
+            elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+                if itemCombatLockoutChanged then
+                    RefreshItemCooldownIcons(nil)
                 end
             else
                 RefreshItemCooldownIcons(needsLayoutNotify)
@@ -3874,10 +3873,10 @@ local function EnsureEventFrame()
             if runtime.HasSpellCooldownIcon and runtime.HasSpellCooldownIcon() then
                 updateFilter = "spellCooldown"
             end
-        elseif isItemCooldownEvent
-            or event == "UNIT_INVENTORY_CHANGED"
+        elseif event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
             or event == "BAG_UPDATE"
+            or isItemCountEvent
         then
             updateFilter = "cooldown"
         end
