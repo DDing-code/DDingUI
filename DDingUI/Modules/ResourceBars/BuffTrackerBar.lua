@@ -2933,6 +2933,20 @@ function ResourceBars:UpdateBuffTrackerBar()
         print("[BuffTracker] useTrackedBuffSystem=" .. tostring(useTrackedBuffSystem) .. ", count=" .. #trackedBuffs)
     end
 
+    if not useTrackedBuffSystem then
+        HideAllTrackedBuffBars()
+        HideAllTrackedBuffIcons()
+        HideAllTrackedBuffTexts()
+        if DDingUI.buffTrackerBar then
+            DDingUI.buffTrackerBar:Hide()
+        end
+        StopBuffTrackerTicker()
+        if SetBuffTrackerEventsEnabled then
+            SetBuffTrackerEventsEnabled(false)
+        end
+        return
+    end
+
     -- Start ticker if not running
     if SetBuffTrackerEventsEnabled then
         SetBuffTrackerEventsEnabled(true)
@@ -5694,6 +5708,19 @@ end
 function ResourceBars:InitializeBuffTracker()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not rootCfg or not rootCfg.enabled then
+        if SetBuffTrackerEventsEnabled then
+            SetBuffTrackerEventsEnabled(false)
+        end
+        StopBuffTrackerTicker()
+        buffTrackerInitialized = true
+        return
+    end
+
+    local trackedBuffs = GetTrackedBuffs()
+    if #trackedBuffs == 0 then
+        HideAllTrackedBuffBars()
+        HideAllTrackedBuffIcons()
+        HideAllTrackedBuffTexts()
         if SetBuffTrackerEventsEnabled then
             SetBuffTrackerEventsEnabled(false)
         end
