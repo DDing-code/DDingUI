@@ -46,6 +46,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Made soul/metamorphosis secondary resource settle updates cancel previous pending timers so repeated aura changes do not stack duplicate resource refreshes.
 - Made secondary resource-bar anchor retry updates cancel stale pending timers when the anchor is restored or the bar is disabled, reducing transition-time refresh bursts.
 - Made primary resource-bar anchor retry updates cancel stale pending timers when the anchor is restored or the bar is disabled, reducing transition-time refresh bursts.
+- Coalesced resource-bar viewer show/hide and loading/level transition refreshes so stale delayed bar updates are canceled during transition bursts.
 - Filtered custom aura UNIT_AURA refreshes through cached spell and aura instance targets, then queued only the affected icon keys when possible so unrelated combat aura changes no longer trigger broad custom icon rescans.
 - Debounced icon customization ready-glow event handling so cooldown, charge, aura, and specialization event bursts update hooked icons once through a dispatch frame.
 - Coalesced CDM frame-controller dirty marking so repeated hook callbacks keep the existing queued reconcile instead of forcing the next update time back to immediate.
@@ -62,6 +63,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - 영혼 조각/탈태 보조 자원 settle 갱신도 이전 대기 타이머를 취소하도록 바꿔 반복 오라 변경 중 중복 갱신이 쌓이지 않게 했습니다.
 - 보조 자원바 앵커 재시도 갱신이 앵커 복구나 바 비활성화 시 남은 대기 타이머를 취소하도록 바꿔 전환 구간의 갱신 burst를 줄였습니다.
 - 주 자원바 앵커 재시도 갱신도 앵커 복구나 바 비활성화 시 남은 대기 타이머를 취소하도록 바꿔 전환 구간의 갱신 burst를 줄였습니다.
+- 리소스바의 뷰어 표시/숨김과 로딩/레벨 전환 후속 갱신을 합쳐 전환 burst 중 오래된 지연 바 갱신이 남아 실행되지 않게 했습니다.
 - 전투 시작만으로 CDM 프레임 컨트롤러가 전체 재스캔을 돌리지 않게 하고, PvP/지역 이벤트에서 실제 뷰어 상태 변화가 없으면 전환 복구를 건너뛰어 전투 시작과 인스턴스 전환 시 스터터링을 줄였습니다.
 - 리소스 바의 전문화, 특성, trait 갱신 burst를 한 번으로 합치고 중복 플레이어 파워 갱신 리스너를 제거해 전투와 전환 이벤트 중 리소스 바 중복 작업을 줄였습니다.
 - 아이콘 뷰어 전환 갱신 타이머를 토큰 기반으로 바꿔 전문화, 로딩 화면, 월드 진입 이벤트가 반복될 때 오래된 지연 갱신 묶음이 뷰어 재스캔과 재고정을 누적 실행하지 않게 했습니다.

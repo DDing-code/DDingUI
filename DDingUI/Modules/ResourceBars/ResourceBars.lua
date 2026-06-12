@@ -96,6 +96,12 @@ local soulMetaAuraInstanceID = nil
 local specChangeTimers = {}
 local shapeshiftSettleTimers = {}
 local soulMetaSettleTimers = {}
+local viewerSettleTimers = {}
+local transitionRefreshTimers = {}
+local VIEWER_SHOW_SETTLE_DELAYS = { 0.1, 0.3 }
+local VIEWER_HIDE_SETTLE_DELAYS = { 0.05 }
+local LEVEL_REFRESH_DELAYS = { 0.3, 1.5 }
+local LOADING_REFRESH_DELAYS = { 0.5, 2.0 }
 
 local MAELSTROM_WEAPON_SPELL_ID = 344179
 local SOUL_META_SPELL_ID = 1217607
@@ -107,6 +113,16 @@ local function CancelTimerList(timers)
         end
     end
     wipe(timers)
+end
+
+local function ScheduleTimerList(timers, delays, callback)
+    CancelTimerList(timers)
+    for index, delay in ipairs(delays) do
+        timers[index] = C_Timer.NewTimer(delay, function()
+            timers[index] = nil
+            callback(index)
+        end)
+    end
 end
 
 local function IsSafeNumber(value)
@@ -464,6 +480,14 @@ function ResourceBars:RefreshAll()
     end
 end
 
+local function UpdateBarsForViewerSettle(includeBuffTracker)
+    ResourceBars:UpdatePowerBar()
+    ResourceBars:UpdateSecondaryPowerBar()
+    if includeBuffTracker and ResourceBars.UpdateBuffTrackerBar then
+        ResourceBars:UpdateBuffTrackerBar()
+    end
+end
+
 -- EVENT HANDLERS
 
 -- Helper function to hook viewer OnShow (called from Initialize and OnSpecChanged)
@@ -484,14 +508,8 @@ local function HookViewerOnShow()
             if not IsHooked(viewer, "resourceBarWatching") then
                 SetHooked(viewer, "resourceBarWatching")
                 viewer:HookScript("OnShow", function()
-                    -- Multiple delayed updates to ensure bar shows after viewer stabilizes
-                    C_Timer.After(0.1, function()
-                        ResourceBars:UpdatePowerBar()
-                        ResourceBars:UpdateSecondaryPowerBar()
-                    end)
-                    C_Timer.After(0.3, function()
-                        ResourceBars:UpdatePowerBar()
-                        ResourceBars:UpdateSecondaryPowerBar()
+                    ScheduleTimerList(viewerSettleTimers, VIEWER_SHOW_SETTLE_DELAYS, function()
+                        UpdateBarsForViewerSettle(false)
                     end)
                 end)
                 -- OnHide 훅 추가: viewer가 숨겨지면 자원바를 UIParent로 폴백
@@ -502,13 +520,8 @@ local function HookViewerOnShow()
                         gracePeriodUntil = math.max(gracePeriodUntil, GetTime() + GRACE_PERIOD_DURATION)
                     end
 
-                    -- 즉시 업데이트하여 자원바가 UIParent로 폴백되도록 함
-                    C_Timer.After(0.05, function()
-                        ResourceBars:UpdatePowerBar()
-                        ResourceBars:UpdateSecondaryPowerBar()
-                        if ResourceBars.UpdateBuffTrackerBar then
-                            ResourceBars:UpdateBuffTrackerBar()
-                        end
+                    ScheduleTimerList(viewerSettleTimers, VIEWER_HIDE_SETTLE_DELAYS, function()
+                        UpdateBarsForViewerSettle(true)
                     end)
                 end)
             end
@@ -628,12 +641,10 @@ function ResourceBars:Initialize()
         gracePeriodUntil = GetTime() + GRACE_PERIOD_DURATION
         InvalidateBarCaches()
 
-        C_Timer.After(0.3, function()
-            ResourceBars:RefreshAll()
-        end)
-        -- CDM 뷰어 복구 대기 후 최종 업데이트 + 새 뷰어 훅 재설치
-        C_Timer.After(1.5, function()
-            HookViewerOnShow()
+        ScheduleTimerList(transitionRefreshTimers, LEVEL_REFRESH_DELAYS, function(index)
+            if index > 1 then
+                HookViewerOnShow()
+            end
             ResourceBars:RefreshAll()
         end)
     end)
@@ -645,11 +656,7 @@ function ResourceBars:Initialize()
     DDingUI:RegisterEvent("LOADING_SCREEN_DISABLED", function()
         gracePeriodUntil = GetTime() + GRACE_PERIOD_DURATION
         InvalidateBarCaches()
-        C_Timer.After(0.5, function()
-            HookViewerOnShow()
-            ResourceBars:RefreshAll()
-        end)
-        C_Timer.After(2.0, function()
+        ScheduleTimerList(transitionRefreshTimers, LOADING_REFRESH_DELAYS, function()
             HookViewerOnShow()
             ResourceBars:RefreshAll()
         end)
