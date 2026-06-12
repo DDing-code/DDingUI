@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local ResourceBars
 local LSM = LibStub("LibSharedMedia-3.0")
 
 -- Local API caching for hot paths
@@ -20,6 +21,68 @@ local _readyList = {}
 local _cdList = {}
 local _readyLookup = {}
 local _cdLookup = {}
+
+local function CancelSecondaryAnchorRetryTimers(bar)
+    if not bar then
+        return
+    end
+
+    if bar._anchorRetryTimers then
+        for _, timer in pairs(bar._anchorRetryTimers) do
+            if timer and not timer:IsCancelled() then
+                timer:Cancel()
+            end
+        end
+        wipe(bar._anchorRetryTimers)
+    end
+    bar._anchorRetryScheduled = nil
+end
+
+local function ScheduleSecondaryAnchorRetry(bar, longTail)
+    if not bar or bar._anchorRetryScheduled then
+        return
+    end
+
+    bar._anchorRetryScheduled = true
+    bar._anchorRetryTimers = bar._anchorRetryTimers or {}
+    wipe(bar._anchorRetryTimers)
+
+    local timers = bar._anchorRetryTimers
+    local function Queue(index, delay, final, callback)
+        timers[index] = C_Timer.NewTimer(delay, function()
+            timers[index] = nil
+            if final then
+                bar._anchorRetryScheduled = nil
+            end
+            if callback then
+                callback()
+            else
+                ResourceBars:UpdateSecondaryPowerBar()
+            end
+        end)
+    end
+
+    if longTail then
+        Queue(1, 0.2)
+        Queue(2, 0.5)
+        Queue(3, 1.0)
+        Queue(4, 2.0)
+        Queue(5, 4.0, true)
+        return
+    end
+
+    Queue(1, 0.2)
+    Queue(2, 0.5)
+    Queue(3, 1.0)
+    Queue(4, 2.0, true, function()
+        local cfg = DDingUI.db.profile.secondaryPowerBar
+        local originalAnchor = DDingUI:ResolveAnchorFrame(cfg.attachTo)
+        if originalAnchor and originalAnchor:IsShown() then
+            bar._anchorRetryCount = 0
+            ResourceBars:UpdateSecondaryPowerBar()
+        end
+    end)
+end
 
 -- Marker color overlay helper: clip frame + overlay StatusBar (secret value safe)
 -- Also handles max color overlay (no numeric comparison needed)
@@ -104,7 +167,7 @@ local function UpdateMarkerColorOverlays(bar, cfg, current, max, interpolation)
 end
 
 -- Get ResourceBars module
-local ResourceBars = DDingUI.ResourceBars
+ResourceBars = DDingUI.ResourceBars
 if not ResourceBars then
     error("DDingUI: ResourceBars module not initialized! Load ResourceDetection.lua first.")
 end
@@ -799,6 +862,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
     local cfg = DDingUI.db.profile.secondaryPowerBar
     if not cfg.enabled then
         if DDingUI.secondaryPowerBar then
+            CancelSecondaryAnchorRetryTimers(DDingUI.secondaryPowerBar)
             DDingUI.secondaryPowerBar:Hide()
             -- [FIX] Explicitly hide sub-elements to prevent background leak
             if DDingUI.secondaryPowerBar.Background then DDingUI.secondaryPowerBar.Background:Hide() end
@@ -854,19 +918,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
                 bar:SetParent(UIParent)
             end
             -- 바를 숨기지 않음 — 이전 위치에서 계속 표시
-            if not bar._anchorRetryScheduled then
-                bar._anchorRetryScheduled = true
-                C_Timer.After(0.2, function() ResourceBars:UpdateSecondaryPowerBar() end)
-                C_Timer.After(0.5, function() ResourceBars:UpdateSecondaryPowerBar() end)
-                C_Timer.After(1.0, function()
-                    ResourceBars:UpdateSecondaryPowerBar()
-                end)
-                C_Timer.After(2.0, function() ResourceBars:UpdateSecondaryPowerBar() end)
-                C_Timer.After(4.0, function()
-                    bar._anchorRetryScheduled = nil
-                    ResourceBars:UpdateSecondaryPowerBar()
-                end)
-            end
+            ScheduleSecondaryAnchorRetry(bar, true)
             return
         end
 
@@ -879,30 +931,11 @@ function ResourceBars:UpdateSecondaryPowerBar()
             bar:SetParent(UIParent)
         end
 
-        if not bar._anchorRetryScheduled then
-            bar._anchorRetryScheduled = true
-            C_Timer.After(0.2, function() ResourceBars:UpdateSecondaryPowerBar() end)
-            C_Timer.After(0.5, function() ResourceBars:UpdateSecondaryPowerBar() end)
-            C_Timer.After(1.0, function()
-                bar._anchorRetryScheduled = nil
-                local originalAnchor = DDingUI:ResolveAnchorFrame(cfg.attachTo)
-                if originalAnchor and originalAnchor:IsShown() then
-                    bar._anchorRetryCount = 0
-                end
-                ResourceBars:UpdateSecondaryPowerBar()
-            end)
-            C_Timer.After(2.0, function()
-                local originalAnchor = DDingUI:ResolveAnchorFrame(cfg.attachTo)
-                if originalAnchor and originalAnchor:IsShown() then
-                    bar._anchorRetryCount = 0
-                    ResourceBars:UpdateSecondaryPowerBar()
-                end
-            end)
-        end
+        ScheduleSecondaryAnchorRetry(bar, false)
     else
         -- 앵커 찾으면 카운터 리셋
         bar._anchorRetryCount = 0
-        bar._anchorRetryScheduled = nil
+        CancelSecondaryAnchorRetryTimers(bar)
 
         -- [FIX] SetParent(anchor) 제거 — 엘레베이터 현상 근본 원인
         -- 스펙 변경 시 그룹 프레임이 재생성되면 부모가 바뀌면서 오프셋이 누적됨
