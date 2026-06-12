@@ -31,12 +31,14 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Deferred dynamic bridge layout hashing until the scheduled refresh executes, avoiding repeated source/icon scans during notification bursts.
 - Throttled dynamic bridge aura-hide scans so combat aura bursts are merged before scanning CDM buff frames.
 - Debounced icon customization ready-glow event handling so cooldown, charge, aura, and specialization event bursts update hooked icons once through a dispatch frame.
+- Coalesced CDM frame-controller dirty marking so repeated hook callbacks keep the existing queued reconcile instead of forcing the next update time back to immediate.
 - Limited proxy anchor synchronization and keybind text updates to event-driven refresh windows instead of continuous per-frame polling.
 - Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
 
 ### Korean Patch Notes
 - 아이콘 커스터마이징 준비 글로우 이벤트 처리를 디바운스해 쿨다운, 충전, 오라, 전문화 이벤트가 몰릴 때 훅된 아이콘을 디스패치 프레임에서 한 번만 갱신하도록 했습니다.
+- CDM 프레임 컨트롤러 dirty 표시를 병합해 반복 hook 콜백이 기존 예약된 재조정을 유지하고 다음 갱신 시간을 계속 즉시로 되돌리지 않도록 했습니다.
 - 활성 추적 항목이 필요로 할 때만 추적 버프 바의 오라, 주문 시전, 전투 이벤트를 등록해 대기 중 이벤트 유입을 줄였습니다.
 - 수동 추적 항목의 만료 체크가 필요할 때만 추적 버프 바 만료 ticker를 켜도록 줄였습니다.
 - 동시에 들어온 커스텀 아이콘 갱신 필터를 보존해 혼합 이벤트가 불필요한 전체 아이콘 갱신으로 커지지 않게 했습니다.

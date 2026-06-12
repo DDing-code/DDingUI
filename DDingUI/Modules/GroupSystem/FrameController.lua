@@ -203,9 +203,14 @@ local function MarkDirty()
     if state.isProcessing then
         state.pendingReconcile = true
         state.lastActivityTime = now
-        state.nextUpdateTime = 0
         return
     end
+
+    if state.dirty or state.pendingReconcile then
+        state.lastActivityTime = now
+        return
+    end
+
     state.dirty = true
     state.burstTicksRemaining = CONFIG.BURST_TICKS
     state.lastActivityTime = now
