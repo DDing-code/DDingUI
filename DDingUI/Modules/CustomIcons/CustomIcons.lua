@@ -4947,7 +4947,11 @@ function runtime.FlushCustomCooldownIconRefresh()
         end
     end
 
+    local changedIconKeys = notify and not refreshAll and {}
     for iconKey in pairs(keys) do
+        if changedIconKeys then
+            changedIconKeys[iconKey] = true
+        end
         if runtime.UpdateDynamicIcon then
             pcall(runtime.UpdateDynamicIcon, iconKey)
         end
@@ -4955,7 +4959,7 @@ function runtime.FlushCustomCooldownIconRefresh()
     end
 
     if notify and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-        DDingUI.DynamicIconBridge:NotifyIconsChanged(notify == true or notify == "force")
+        DDingUI.DynamicIconBridge:NotifyIconsChanged(notify == true or notify == "force", changedIconKeys)
     end
 end
 

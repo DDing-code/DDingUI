@@ -785,7 +785,7 @@ end
 
 -- [FIX] zoom + 종횡비 크롭을 결합한 TexCoord 적용
 -- CustomIcons의 ApplyAspectRatioCrop과 동일한 로직
-local function BuildDynamicLayoutStateHash()
+local function BuildDynamicLayoutStateHash(sourceFilter)
     local db = GetDynamicDB()
     if not db then return "" end
     local inCombat = InCombatLockdown and InCombatLockdown()
@@ -799,7 +799,7 @@ local function BuildDynamicLayoutStateHash()
     if type(groups) == "table" then
         for _, groupSettings in pairs(groups) do
             local sourceKey = groupSettings and groupSettings.enabled and groupSettings.sourceGroupKey
-            if sourceKey and not sourceSeen[sourceKey] then
+            if sourceKey and (not sourceFilter or sourceFilter[sourceKey]) and not sourceSeen[sourceKey] then
                 sourceSeen[sourceKey] = true
                 sourceKeys[#sourceKeys + 1] = sourceKey
             end
@@ -871,6 +871,72 @@ local function BuildDynamicLayoutStateHash()
 
     table_sort(parts)
     return table_concat(parts, ";"), sourceHashes
+end
+
+local function BuildCombinedHashFromSourceHashes(sourceHashes)
+    local parts = {}
+    for sourceKey, sourceHash in pairs(sourceHashes or {}) do
+        if sourceHash and sourceHash ~= "" then
+            for entry in string.gmatch(sourceHash, "([^;]+)") do
+                parts[#parts + 1] = tostring(sourceKey) .. ":" .. entry
+            end
+        end
+    end
+    table_sort(parts)
+    return table_concat(parts, ";")
+end
+
+local function MergeSourceKeySet(target, source)
+    if not source then return target end
+    target = target or {}
+    for sourceKey in pairs(source) do
+        target[sourceKey] = true
+    end
+    return target
+end
+
+local function GetSourceKeysForIconKeys(iconKeys)
+    if type(iconKeys) ~= "table" then return nil end
+    local db = GetDynamicDB()
+    if not db then return {} end
+
+    local result = {}
+    local groupSystem = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
+    local linkedSources = {}
+    local hasLinkedSource = false
+    local groups = groupSystem and groupSystem.groups
+    if type(groups) == "table" then
+        for _, groupSettings in pairs(groups) do
+            local sourceKey = groupSettings and groupSettings.enabled and groupSettings.sourceGroupKey
+            if sourceKey then
+                linkedSources[sourceKey] = true
+                hasLinkedSource = true
+            end
+        end
+    end
+    if not hasLinkedSource then return result end
+
+    if linkedSources.ungrouped then
+        for iconKey in pairs(iconKeys) do
+            if db.ungrouped and db.ungrouped[iconKey] then
+                result.ungrouped = true
+                break
+            end
+        end
+    end
+
+    for groupKey, group in pairs(db.groups or {}) do
+        if linkedSources[groupKey] and group and group.icons then
+            for _, iconKey in ipairs(group.icons) do
+                if iconKeys[iconKey] then
+                    result[groupKey] = true
+                    break
+                end
+            end
+        end
+    end
+
+    return result
 end
 
 function DynamicIconBridge.ApplyTexCoordCrop(texture, zoom, aspectRatio)
@@ -1440,40 +1506,74 @@ end
 -- CustomIcons의 이벤트 핸들러 후에 GroupSystem도 업데이트하도록 훅
 -- GroupInit.DoFullUpdate가 이미 주기적으로 호출되므로,
 -- 추가 트리거는 CustomIcons 아이콘 추가/삭제 시에만 필요
-function DynamicIconBridge:NotifyIconsChanged(forceLayout)
+function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     if not initialized then return end
     if not layoutSuppressed then return end
 
     self:RefreshAuraEventRegistration()
 
     local inCombat = InCombatLockdown and InCombatLockdown()
+    local changedSourceKeys = (not forceLayout) and GetSourceKeysForIconKeys(changedIconKeys) or nil
 
     -- DoFullUpdate 트리거 (디바운스)
     if self._updatePending then
         self._pendingForceLayout = self._pendingForceLayout or forceLayout
+        if forceLayout or not changedSourceKeys then
+            self._pendingChangedSourcesKnown = false
+            self._pendingChangedSourceKeys = nil
+        elseif self._pendingChangedSourcesKnown then
+            self._pendingChangedSourceKeys = MergeSourceKeySet(self._pendingChangedSourceKeys, changedSourceKeys)
+        end
         return
     end
     self._updatePending = true
     self._pendingForceLayout = forceLayout and true or false
+    self._pendingChangedSourcesKnown = changedSourceKeys ~= nil
+    self._pendingChangedSourceKeys = changedSourceKeys
 
     C_Timer.After(inCombat and 0.3 or 0.16, function()
         local pendingForce = self._pendingForceLayout
+        local pendingSourcesKnown = self._pendingChangedSourcesKnown
+        local pendingSourceKeys = self._pendingChangedSourceKeys
         self._updatePending = false
         self._pendingForceLayout = false
+        self._pendingChangedSourcesKnown = false
+        self._pendingChangedSourceKeys = nil
         if not initialized then return end
 
-        local currentHash, sourceHashes = BuildDynamicLayoutStateHash()
-        self._lastQueuedLayoutStateHash = currentHash
         local previousHash = self._lastAppliedLayoutStateHash
         local previousSourceHashes = self._lastAppliedSourceLayoutStateHashes
+        local targetedSources = pendingSourcesKnown and not pendingForce and previousHash and type(previousSourceHashes) == "table"
+        local currentHash, sourceHashes = BuildDynamicLayoutStateHash(targetedSources and pendingSourceKeys or nil)
         if not pendingForce then
-            if currentHash == previousHash then
+            if targetedSources then
+                local changedSources
+                local mergedSourceHashes = {}
+                for sourceKey, hash in pairs(previousSourceHashes) do
+                    mergedSourceHashes[sourceKey] = hash
+                end
+                for sourceKey in pairs(pendingSourceKeys or {}) do
+                    local hash = sourceHashes and sourceHashes[sourceKey] or ""
+                    if previousSourceHashes[sourceKey] ~= hash then
+                        changedSources = changedSources or {}
+                        changedSources[sourceKey] = true
+                        mergedSourceHashes[sourceKey] = hash
+                    end
+                end
+                if not changedSources then
+                    return
+                end
+                sourceHashes = mergedSourceHashes
+                currentHash = BuildCombinedHashFromSourceHashes(sourceHashes)
+            elseif currentHash == previousHash then
                 return
             end
             self._lastAppliedLayoutStateHash = currentHash
+            self._lastQueuedLayoutStateHash = currentHash
             self._lastAppliedSourceLayoutStateHashes = sourceHashes
         else
             self._lastAppliedLayoutStateHash = currentHash
+            self._lastQueuedLayoutStateHash = currentHash
             self._lastAppliedSourceLayoutStateHashes = sourceHashes
         end
 
