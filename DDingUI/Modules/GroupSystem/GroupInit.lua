@@ -1683,23 +1683,31 @@ function GroupSystem:Enable()
     if DDingUI.IconViewers and DDingUI.IconViewers.SkinAllIconsInViewer and not self._skinHooked then
         self._skinHooked = true
         local pendingSkinRefresh = false
+        local skinRefreshDelay = 0
+        local skinRefreshFrame = CreateFrame("Frame")
+        skinRefreshFrame:Hide()
+        skinRefreshFrame:SetScript("OnUpdate", function(frame, elapsed)
+            skinRefreshDelay = skinRefreshDelay - (elapsed or 0)
+            if skinRefreshDelay > 0 then
+                return
+            end
+
+            frame:Hide()
+            pendingSkinRefresh = false
+            if GroupSystem.enabled then
+                local fh = DDingUI.FlightHide
+                if fh and (fh.isActive or fh._restoring) then
+                    GroupSystem:RefreshLayout()
+                else
+                    GroupSystem:Refresh()
+                end
+            end
+        end)
         hooksecurefunc(DDingUI.IconViewers, "SkinAllIconsInViewer", function()
             if not GroupSystem.enabled or pendingSkinRefresh then return end
             pendingSkinRefresh = true
-            C_Timer.After(0.1, function()
-                pendingSkinRefresh = false
-                if GroupSystem.enabled then
-                    -- [FIX] FlightHide 복원 중에는 앵커 재적용 없이 레이아웃만 갱신
-                    -- Refresh()는 모든 그룹 프레임의 앵커를 DB 값으로 리셋하므로
-                    -- Mover로 이동한 위치가 초기화되는 문제 발생
-                    local fh = DDingUI.FlightHide
-                    if fh and (fh.isActive or fh._restoring) then
-                        GroupSystem:RefreshLayout()
-                    else
-                        GroupSystem:Refresh()
-                    end
-                end
-            end)
+            skinRefreshDelay = 0.1
+            skinRefreshFrame:Show()
         end)
     end
 
