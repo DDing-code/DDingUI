@@ -233,6 +233,43 @@ local function QueueBuffIconReshow()
     visibilityDispatchFrame:Show()
 end
 
+local forceReconcilePending = false
+local forceReconcileDelay = 0
+local forceReconcileDispatchFrame = CreateFrame("Frame")
+forceReconcileDispatchFrame:Hide()
+forceReconcileDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+    forceReconcileDelay = forceReconcileDelay - (elapsed or 0)
+    if forceReconcileDelay > 0 then
+        return
+    end
+
+    self:Hide()
+    forceReconcilePending = false
+    forceReconcileDelay = 0
+    if not initialized or IsInBlizzardEditMode() then
+        return
+    end
+
+    local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
+    if fc and fc.ForceReconcile then
+        fc:ForceReconcile()
+    end
+end)
+
+local function QueueForceReconcile(delay)
+    delay = delay or 0
+    if forceReconcilePending then
+        if delay < forceReconcileDelay then
+            forceReconcileDelay = delay
+        end
+        return
+    end
+
+    forceReconcilePending = true
+    forceReconcileDelay = delay
+    forceReconcileDispatchFrame:Show()
+end
+
 -- ============================================================
 -- 뷰어 훅 설치 (hooksecurefunc — 절대 함수 교체 안 함) -- [REPARENT]
 -- ============================================================
@@ -390,14 +427,7 @@ function ContainerSync:SyncViewer(viewerName)
     -- 미관리 아이콘이 있으면 FrameController에게 재스캔 요청
     local managed, total = CountManagedIcons(viewerName)
     if managed > 0 and managed < total then
-        local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
-        if fc and fc.ForceReconcile then
-            C_Timer.After(0.3, function()
-                if initialized and not IsInBlizzardEditMode() then
-                    fc:ForceReconcile()
-                end
-            end)
-        end
+        QueueForceReconcile(0.3)
     end
 end
 
@@ -447,14 +477,7 @@ if EditModeManagerFrame then
         if ShouldSkipBlizzardEditModeSideEffects() then return end
         -- Edit Mode 퇴장 → FrameController 재스캔 + 뷰어 동기화
         -- [REPARENT] 편집모드 중 CDM이 아이콘을 재배치했을 수 있으므로 ForceReconcile
-        local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
-        if fc and fc.ForceReconcile then
-            C_Timer.After(0.2, function()
-                if initialized and not IsInBlizzardEditMode() then
-                    fc:ForceReconcile()
-                end
-            end)
-        end
+        QueueForceReconcile(0.2)
         C_Timer.After(0.5, function()
             if initialized and not IsInBlizzardEditMode() then
                 ContainerSync:SyncAll()
