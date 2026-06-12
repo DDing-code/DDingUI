@@ -90,7 +90,6 @@ local EASES = {
     outBack = M.EaseOutBack,
     pulse = M.EasePulse,
     smooth = M.EaseInOutCubic,
-    ellesmere = M.EaseInOutCubic,
 }
 
 function M.GetEase(ease)
