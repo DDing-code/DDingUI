@@ -5572,16 +5572,10 @@ function ResourceBars:InitializeBuffTracker()
     StartBuffTrackerTicker()
 
     -- Initial update (여러 번) + 마지막에 초기화 완료 플래그 설정
-    local initDelays = { 0.1, 0.5, 1.0, 2.0 }
     ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5, 3.0 })
-    for i, delay in ipairs(initDelays) do
-        C_Timer.After(delay, function()
-            QueueBuffTrackerUpdate("initial", 0)
-            if i == #initDelays then
-                buffTrackerInitialized = true
-            end
-        end)
-    end
+    startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(3.05, function()
+        buffTrackerInitialized = true
+    end)
 end
 
 -- Enter mover mode for tracked buff bars (shows all bars regardless of hideWhenZero)
