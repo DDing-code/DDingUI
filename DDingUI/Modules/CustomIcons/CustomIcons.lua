@@ -4865,7 +4865,12 @@ end
 function runtime.RefreshCustomCooldownWatcherEvent()
     local watcher = runtime.cooldownWatcher
     if not watcher or not watcher.eventFrame then return end
-    if watcher.activeTargetCount and watcher.activeTargetCount > 0 then
+    local shouldRegister = watcher.activeTargetCount and watcher.activeTargetCount > 0
+    if watcher.cooldownEventRegistered == shouldRegister then
+        return
+    end
+    watcher.cooldownEventRegistered = shouldRegister
+    if shouldRegister then
         watcher.eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
     else
         watcher.eventFrame:UnregisterEvent("BAG_UPDATE_COOLDOWN")
@@ -4884,6 +4889,18 @@ function runtime.RefreshCustomIconEventRegistration()
     local hasBloodlustEvents = (timedCounts[2825] or 0) > 0
     local hasTimeSpiralEvents = (timedCounts[374968] or 0) > 0
     local hasSpellcastTimedEvents = cache and cache.spellcast and next(cache.spellcast) ~= nil
+    local eventKey = table.concat({
+        hasItemEvents and "I" or "-",
+        hasSpellEvents and "S" or "-",
+        (hasAuraScanEvents or hasBloodlustEvents) and "A" or "-",
+        (hasItemEvents or hasSpellEvents or hasSpellcastTimedEvents) and "C" or "-",
+        hasTimeSpiralEvents and "T" or "-",
+        hasTimedAuraEvents and "D" or "-",
+    }, "")
+    if runtime.customIconEventKey == eventKey then
+        return
+    end
+    runtime.customIconEventKey = eventKey
 
     if hasItemEvents then
         runtime.eventFrame:RegisterEvent("BAG_UPDATE")
