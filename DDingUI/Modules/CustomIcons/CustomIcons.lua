@@ -205,6 +205,12 @@ local runtime = {
         attempts = 0,
         timer = nil,
     },
+    timedAuraLinkCache = {
+        counts = {},
+        keys = {},
+        spellcast = {},
+    },
+    timedAuraLinkCacheDirty = true,
     cooldownWatcher = {
         itemTargets = {},
         slotTargets = {},
@@ -1222,6 +1228,58 @@ local function IsEventDrivenCustomTimedAuraConfig(config)
     return config.trigger == "bloodlust" or config.trigger == "timespiral"
 end
 
+function CustomIcons:MarkTimedAuraLinkCacheDirty()
+    runtime.timedAuraLinkCacheDirty = true
+end
+
+function CustomIcons:RebuildTimedAuraLinkCache()
+    local cache = runtime.timedAuraLinkCache
+    cache.counts = cache.counts or {}
+    cache.keys = cache.keys or {}
+    cache.spellcast = cache.spellcast or {}
+    wipe(cache.counts)
+    wipe(cache.keys)
+    wipe(cache.spellcast)
+
+    local db = GetDynamicDB()
+    for iconKey, iconData in pairs((db and db.iconData) or {}) do
+        local config = GetCustomTimedAuraConfig(iconData)
+        local stateID = config and config.stateID
+        if stateID then
+            cache.counts[stateID] = (cache.counts[stateID] or 0) + 1
+            cache.keys[stateID] = cache.keys[stateID] or {}
+            cache.keys[stateID][iconKey] = true
+
+            if config.trigger == "spellcast" then
+                local iconSpellID = tonumber(iconData.id)
+                local function addSpellcastTarget(triggerID)
+                    if not triggerID then return end
+                    cache.spellcast[triggerID] = cache.spellcast[triggerID] or {}
+                    cache.spellcast[triggerID][#cache.spellcast[triggerID] + 1] = {
+                        stateID = stateID,
+                        iconSpellID = iconSpellID,
+                        config = config,
+                    }
+                end
+                addSpellcastTarget(iconSpellID)
+                if stateID ~= iconSpellID then
+                    addSpellcastTarget(stateID)
+                end
+            end
+        end
+    end
+
+    runtime.timedAuraLinkCacheDirty = false
+    return cache
+end
+
+function CustomIcons:GetTimedAuraLinkCache()
+    if runtime.timedAuraLinkCacheDirty then
+        return self:RebuildTimedAuraLinkCache()
+    end
+    return runtime.timedAuraLinkCache
+end
+
 local function BuildTimedAuraData(spellID, state)
     return {
         spellId = spellID,
@@ -1474,10 +1532,14 @@ MarkCustomTimedAuraExpired = function(spellID)
     local iconDataByKey = db and db.iconData
     if not iconDataByKey then return end
 
-    for iconKey, frame in pairs(runtime.iconFrames) do
+    local cache = CustomIcons:GetTimedAuraLinkCache()
+    local iconKeys = cache and cache.keys and cache.keys[spellID]
+    if not iconKeys then return end
+
+    for iconKey in pairs(iconKeys) do
+        local frame = runtime.iconFrames[iconKey]
         local iconData = iconDataByKey[iconKey]
-        local config = GetCustomTimedAuraConfig(iconData)
-        if config and config.stateID == spellID and frame then
+        if iconData and frame then
             frame._ddTimedAuraActiveUntil = nil
             frame._ddAuraActiveUntil = nil
             frame._ddProcActiveUntil = nil
@@ -1565,53 +1627,52 @@ MarkCustomTimedAuraActive = function(spellID, state)
     local hasMatchingIcon = false
     local needsLayout = false
     local now = GetTime and GetTime() or 0
-    for iconKey, iconData in pairs(iconDataByKey) do
-        local config = GetCustomTimedAuraConfig(iconData)
-        if config and config.stateID == spellID then
+    local cache = CustomIcons:GetTimedAuraLinkCache()
+    local iconKeys = cache and cache.keys and cache.keys[spellID]
+    if not iconKeys then return false, false, false end
+
+    for iconKey in pairs(iconKeys) do
+        local iconData = iconDataByKey[iconKey]
+        if iconData then
             hasMatchingIcon = true
-            local frame = runtime.iconFrames[iconKey]
-            if not frame and CustomIcons.EnsureDynamicIconFrame then
-                frame = CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
-            end
-            if frame then
-                matchedFrame = true
-                if not frame._ddIsManaged or not (frame.IsShown and frame:IsShown()) then
-                    needsLayout = true
-                end
-                frame._ddTimedAuraActiveUntil = state and state.expirationTime or nil
-                frame._ddLastAuraActiveAt = now
-                frame._ddLastDynamicActiveAt = now
-                frame._wasVisibleInGroup = true
-                frame._auraWasActive = true
-                frame._ddManagedAuraExpired = nil
-                if state and state.iconTexture then
-                    SetStableIconTexture(frame, state.iconTexture, true)
-                end
-                local settings = iconData.settings or {}
-                ApplyCustomTimedAuraCooldownFrame(frame, state, settings.showCooldown ~= false)
-                CustomIcons.RestoreActiveIconVisual(frame)
-                CustomIcons.ApplyManagedGroupTextOptions(frame)
-            else
+        end
+        local frame = iconData and runtime.iconFrames[iconKey]
+        if iconData and not frame and CustomIcons.EnsureDynamicIconFrame then
+            frame = CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
+        end
+        if iconData and frame then
+            matchedFrame = true
+            if not frame._ddIsManaged or not (frame.IsShown and frame:IsShown()) then
                 needsLayout = true
             end
+            frame._ddTimedAuraActiveUntil = state and state.expirationTime or nil
+            frame._ddLastAuraActiveAt = now
+            frame._ddLastDynamicActiveAt = now
+            frame._wasVisibleInGroup = true
+            frame._auraWasActive = true
+            frame._ddManagedAuraExpired = nil
+            if state and state.iconTexture then
+                SetStableIconTexture(frame, state.iconTexture, true)
+            end
+            local settings = iconData.settings or {}
+            ApplyCustomTimedAuraCooldownFrame(frame, state, settings.showCooldown ~= false)
+            CustomIcons.RestoreActiveIconVisual(frame)
+            CustomIcons.ApplyManagedGroupTextOptions(frame)
+        elseif iconData then
+            needsLayout = true
         end
     end
     return matchedFrame, hasMatchingIcon, needsLayout
 end
 
 local function CountCustomTimedAuraLinks(spellID)
-    local db = GetDynamicDB()
-    local iconDataByKey = db and db.iconData
-    if not iconDataByKey then return 0, 0 end
-
-    local iconCount, frameCount = 0, 0
-    for iconKey, iconData in pairs(iconDataByKey) do
-        local config = GetCustomTimedAuraConfig(iconData)
-        if config and config.stateID == spellID then
-            iconCount = iconCount + 1
-            if runtime.iconFrames[iconKey] then
-                frameCount = frameCount + 1
-            end
+    local cache = CustomIcons:GetTimedAuraLinkCache()
+    local iconKeys = cache and cache.keys and cache.keys[spellID]
+    local iconCount = cache and cache.counts and cache.counts[spellID] or 0
+    local frameCount = 0
+    if iconKeys then
+        for iconKey in pairs(iconKeys) do
+            if runtime.iconFrames[iconKey] then frameCount = frameCount + 1 end
         end
     end
     return iconCount, frameCount
@@ -3516,23 +3577,16 @@ local function HandleCustomTimedAuraEvent(event, ...)
         if unit ~= "player" then return false end
         spellID = SafeNumber(spellID)
         local changed = false
-        local activated = {}
-        local db = GetDynamicDB()
-        local iconDataByKey = db and db.iconData
-        if spellID and type(iconDataByKey) == "table" then
-            for _, iconData in pairs(iconDataByKey) do
-                if type(iconData) == "table" and iconData.type == "aura" then
-                    local config = GetCustomTimedAuraConfig(iconData)
-                    local iconSpellID = SafeNumber(iconData.id)
-                    local stateID = config and SafeNumber(config.stateID)
-                    if config and config.trigger == "spellcast"
-                        and (iconSpellID == spellID or stateID == spellID)
-                        and not activated[stateID or spellID]
-                    then
-                        activated[stateID or spellID] = true
-                        local _, didChange = ActivateCustomTimedAura(stateID or spellID, config, nil, iconSpellID or spellID)
-                        changed = didChange or changed
-                    end
+        local cache = CustomIcons:GetTimedAuraLinkCache()
+        local entries = spellID and cache and cache.spellcast and cache.spellcast[spellID]
+        if entries then
+            local activated = {}
+            for _, entry in ipairs(entries) do
+                local stateID = entry and SafeNumber(entry.stateID)
+                if stateID and not activated[stateID] then
+                    activated[stateID] = true
+                    local _, didChange = ActivateCustomTimedAura(stateID, entry.config, nil, entry.iconSpellID or spellID)
+                    changed = didChange or changed
                 end
             end
         end
@@ -3542,6 +3596,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
     if event == "UNIT_AURA" then
         local unit, updateInfo = ...
         if unit ~= "player" then return false end
+        if CountCustomTimedAuraLinks(2825) <= 0 then return false end
         return ScanBloodlustTimedAura(updateInfo)
     end
 
@@ -3613,6 +3668,11 @@ function runtime.HasSpellCooldownIcon()
 end
 
 function runtime.HasUnitAuraScanIcon()
+    local watcher = runtime.cooldownWatcher
+    if watcher and watcher.auraScanTargetCount ~= nil then
+        return watcher.auraScanTargetCount > 0
+    end
+
     local db = GetDynamicDB()
     for _, iconData in pairs((db and db.iconData) or {}) do
         if type(iconData) == "table" then
@@ -4813,6 +4873,7 @@ function runtime.RegisterCustomCooldownWatches()
     watcher.activeTargetCount = 0
     watcher.itemEventTargetCount = 0
     watcher.spellTargetCount = 0
+    watcher.auraScanTargetCount = 0
 
     for iconKey, frame in pairs(runtime.iconFrames) do
         local iconData = frame and db.iconData and db.iconData[iconKey]
@@ -4820,6 +4881,9 @@ function runtime.RegisterCustomCooldownWatches()
             local iconType = iconData.type
             if iconType == "item" or iconType == "slot" or iconType == "trinketProc" then
                 watcher.itemEventTargetCount = watcher.itemEventTargetCount + 1
+            end
+            if iconType == "trinketProc" or (iconType == "aura" and not GetCustomTimedAuraConfig(iconData)) then
+                watcher.auraScanTargetCount = watcher.auraScanTargetCount + 1
             end
             if iconType == "item" then
                 runtime.AddCustomCooldownTarget(watcher.itemTargets, iconData.id, iconKey)
@@ -5197,6 +5261,10 @@ local function LayoutGroup(groupKey, iconKeys)
 end
 
 local function RefreshAllLayouts()
+    if CustomIcons.MarkTimedAuraLinkCacheDirty then
+        CustomIcons:MarkTimedAuraLinkCacheDirty()
+    end
+
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
         if runtime.refreshAllLayoutsPending then return end
         runtime.refreshAllLayoutsPending = true
@@ -5321,6 +5389,7 @@ end
 function CustomIcons:LoadDynamicIcons()
     EnsureEventFrame()
     local db = GetDynamicDB()
+    self:MarkTimedAuraLinkCacheDirty()
 
     -- 프로필 변경 시 기존 프레임 정리: db에 없는 아이콘 제거
     for iconKey, frame in pairs(runtime.iconFrames) do
@@ -5736,6 +5805,7 @@ end
 
 function CustomIcons:AddDynamicIcon(iconData)
     local db = GetDynamicDB()
+    self:MarkTimedAuraLinkCacheDirty()
     local iconKey = iconData.key
     if not iconKey or db.iconData[iconKey] then
         iconKey = BuildUniqueDBKey("icon_", db.iconData)
@@ -5780,6 +5850,7 @@ end
 
 function CustomIcons:RemoveDynamicIcon(iconKey)
     local db = GetDynamicDB()
+    self:MarkTimedAuraLinkCacheDirty()
     db.iconData[iconKey] = nil
     db.ungrouped[iconKey] = nil
     if db.ungroupedPositions then
