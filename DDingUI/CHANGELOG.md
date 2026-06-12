@@ -41,6 +41,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Tokenized icon viewer transition refresh timers so repeated specialization, loading-screen, and world-entry events cancel stale delayed refresh batches instead of stacking viewer rescans and reanchors.
 - Coalesced assisted highlight and keybind refresh bursts into one dispatch pass, reducing repeated full viewer scans during talent, spell, action-bar, and layout events.
 - Replaced fallback buff-icon centering polling with event-driven queued centering so visible buff icons are not re-collected and resorted continuously during play.
+- Coalesced proc-glow reapply work from alert, skin, and viewer-rescan bursts into one pending dispatch pass, reducing timer churn and repeated glow restarts.
 - Filtered custom aura UNIT_AURA refreshes through cached spell and aura instance targets, then queued only the affected icon keys when possible so unrelated combat aura changes no longer trigger broad custom icon rescans.
 - Debounced icon customization ready-glow event handling so cooldown, charge, aura, and specialization event bursts update hooked icons once through a dispatch frame.
 - Coalesced CDM frame-controller dirty marking so repeated hook callbacks keep the existing queued reconcile instead of forcing the next update time back to immediate.
@@ -52,6 +53,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 ### Korean Patch Notes
 - 지원 강조와 단축키 텍스트 갱신을 한 번의 디스패치 처리로 합쳐 특성, 주문, 액션바, 레이아웃 이벤트가 몰릴 때 전체 뷰어 재스캔이 반복되지 않도록 줄였습니다.
 - 강화효과 아이콘 중앙 정렬 fallback을 상시 폴링 대신 이벤트 기반 큐 처리로 바꿔, 플레이 중 보이는 강화효과 아이콘을 계속 재수집하고 재정렬하지 않도록 줄였습니다.
+- 발동 글로우 재적용 작업을 알림, 스킨, 뷰어 재스캔 이벤트마다 타이머로 쌓지 않고 한 번의 pending 디스패치로 합쳐 타이머 생성과 반복 글로우 재시작을 줄였습니다.
 - 전투 시작만으로 CDM 프레임 컨트롤러가 전체 재스캔을 돌리지 않게 하고, PvP/지역 이벤트에서 실제 뷰어 상태 변화가 없으면 전환 복구를 건너뛰어 전투 시작과 인스턴스 전환 시 스터터링을 줄였습니다.
 - 리소스 바의 전문화, 특성, trait 갱신 burst를 한 번으로 합치고 중복 플레이어 파워 갱신 리스너를 제거해 전투와 전환 이벤트 중 리소스 바 중복 작업을 줄였습니다.
 - 아이콘 뷰어 전환 갱신 타이머를 토큰 기반으로 바꿔 전문화, 로딩 화면, 월드 진입 이벤트가 반복될 때 오래된 지연 갱신 묶음이 뷰어 재스캔과 재고정을 누적 실행하지 않게 했습니다.
