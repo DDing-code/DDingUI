@@ -183,6 +183,7 @@ local state = {
     scanHoldStartedAt = 0,
     lastAcceptedScanCount = 0,
     lastPvPInstance = nil,
+    transitionRecoveryToken = 0,
     -- 통계
     reconcileCount = 0,
 }
@@ -347,10 +348,20 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
 end
 
 local function ScheduleViewerTransitionRecovery(reloadMapped, forceFrameControl, longTail)
-    local delays = longTail and { 0.05, 0.2, 1.0, 3.0, 5.0 } or { 0.2, 1.0, 3.0 }
-    for _, delay in pairs(delays) do
-        C_Timer.After(delay, function()
-            RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
+    state.transitionRecoveryToken = (state.transitionRecoveryToken or 0) + 1
+    local token = state.transitionRecoveryToken
+
+    C_Timer.After(longTail and 0.2 or 0.1, function()
+        if token ~= state.transitionRecoveryToken then return end
+        RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
+    end)
+
+    if longTail then
+        C_Timer.After(3.0, function()
+            if token ~= state.transitionRecoveryToken then return end
+            if state.dirty or state.pendingReconcile or state.specChangeDetected or state.talentChangeDetected then
+                RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
+            end
         end)
     end
 end
@@ -361,7 +372,6 @@ local function RunPvPTransitionRecovery(event)
     state.lastPvPInstance = inPvP
 
     if changed or event == "PVP_MATCH_STATE_CHANGED" then
-        RunViewerTransitionRecovery(true, true)
         ScheduleViewerTransitionRecovery(true, true, true)
     else
         ScheduleViewerTransitionRecovery(true, false)
@@ -2181,58 +2191,9 @@ function FrameController:Initialize()
         elseif event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
             state.specChangeDetected = true
             state.specChangeVersion = state.specChangeVersion + 1
-            local specVersion = state.specChangeVersion
-            wipe(iconSpellNameMap) -- 캐시 초기화
+            wipe(iconSpellNameMap)
             ScheduleReconcile(CONFIG.DEBOUNCE_SPEC)
-
-            -- [FIX] CDM이 뷰어를 재생성할 시간 대기 후 참조 갱신 + 앵커 재적용
-            C_Timer.After(1.5, function()
-                if not FrameController.initialized then return end
-                if specVersion ~= state.specChangeVersion then return end
-                FrameController:RefreshViewerRefs()
-
-                -- [FIX] _viewerHidden 강제 리셋
-                -- CDM 뷰어 재생성 시 기존 OnHide 훅으로 _viewerHidden=true가 남아
-                -- LayoutGroup이 영구 차단되는 것을 방지
-                local gr = DDingUI.GroupRenderer
-                if gr and gr.groupFrames then
-                    for _, frame in pairs(gr.groupFrames) do
-                        if frame._viewerHidden then
-                            frame._viewerHidden = false
-                        end
-                    end
-                end
-
-                -- GroupSystem 앵커 재적용 (그룹 프레임 → 뷰어 앵커 갱신)
-                if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
-                    DDingUI.GroupSystem:Refresh()
-                end
-                -- 매핑 모듈 위치 재적용 (시전바 등 → 그룹 프레임 앵커 갱신)
-                if DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
-                    DDingUI.Movers:ReloadMappedModulePositions()
-                end
-            end)
-            -- 안정화 패스: CDM Layout이 지연될 수 있으므로
-            C_Timer.After(3.0, function()
-                if not FrameController.initialized then return end
-                if specVersion ~= state.specChangeVersion then return end
-                FrameController:RefreshViewerRefs()
-
-                -- [FIX] 안정화 패스에서도 _viewerHidden 리셋
-                local gr = DDingUI.GroupRenderer
-                if gr and gr.groupFrames then
-                    for _, frame in pairs(gr.groupFrames) do
-                        if frame._viewerHidden then
-                            frame._viewerHidden = false
-                        end
-                    end
-                end
-
-                -- [FIX] 안정화 패스에서도 Refresh 호출
-                if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
-                    DDingUI.GroupSystem:Refresh()
-                end
-            end)
+            ScheduleViewerTransitionRecovery(true, true, true)
 
         elseif event == "TRAIT_CONFIG_UPDATED" then
             -- 전문화 변경 중이면 무시 (SPEC이 처리)
@@ -2276,6 +2237,7 @@ function FrameController:Shutdown()
     state.specChangeDetected = false
     state.talentChangeDetected = false
     state.isProcessing = false
+    state.transitionRecoveryToken = (state.transitionRecoveryToken or 0) + 1
     state.reconcileCount = 0
 
     -- 편집모드 해제
