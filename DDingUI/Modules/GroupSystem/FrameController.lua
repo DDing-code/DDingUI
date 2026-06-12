@@ -699,18 +699,12 @@ if not FrameController._activeStateHooked then
             -- CDM이 active → true, inactive → false
             -- IsShown()이 아닌 CDM 내부 상태를 반영
             frame._ddCDMActive = ShouldIncludeCooldownViewerFrame(frame, "BuffIconCooldownViewer")
-            if FrameController.initialized then
-                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
-            end
         end)
     end
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
             frame._ddCDMActive = true
-            if FrameController.initialized then
-                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
-            end
         end)
     end
 end
@@ -728,6 +722,7 @@ if not FrameController._poolReleaseHooked then
     -- 상태 변경 없음: Reconcile이 매번 전체 재배치
     FrameController._installPoolHooks = function(viewer, globalName)
         if not viewer or not viewer.itemFramePool then return end
+        if viewer._fcPoolHooked then return end
         if viewer._ddPoolHooked then return end
         viewer._ddPoolHooked = true
         -- Pool.Release: dirty만 표시 (Reconcile 즉시 트리거 안 함 → Layout 완료 후 Reconcile)
