@@ -1347,9 +1347,6 @@ local function NotifyCustomTimedAuraChanged(forceLayout)
     if UpdateAllIcons then
         UpdateAllIcons(mode, "aura")
     end
-    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-        DDingUI.DynamicIconBridge:NotifyIconsChanged(mode == true or mode == "force")
-    end
 end
 
 function CustomIcons.ApplyManagedGroupTextOptions(frame)
@@ -1705,12 +1702,8 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
     C_Timer.After((expirationTime - now) + 0.05, function()
         local current = runtime.customTimedAuras and runtime.customTimedAuras[spellID]
         if current and current.token == token then
-            DeactivateCustomTimedAura(spellID)
-            if UpdateAllIcons then
-                UpdateAllIcons(true, "aura")
-            end
-            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+            if DeactivateCustomTimedAura(spellID) then
+                NotifyCustomTimedAuraChanged(true)
             end
         end
     end)
