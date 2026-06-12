@@ -93,9 +93,21 @@ local specialResourceEventFrame = nil
 local specialResourceMode = nil
 local maelstromAuraInstanceID = nil
 local soulMetaAuraInstanceID = nil
+local specChangeTimers = {}
+local shapeshiftSettleTimers = {}
+local soulMetaSettleTimers = {}
 
 local MAELSTROM_WEAPON_SPELL_ID = 344179
 local SOUL_META_SPELL_ID = 1217607
+
+local function CancelTimerList(timers)
+    for _, timer in pairs(timers) do
+        if timer and not timer:IsCancelled() then
+            timer:Cancel()
+        end
+    end
+    wipe(timers)
+end
 
 local function IsSafeNumber(value)
     if type(value) ~= "number" then
@@ -289,10 +301,15 @@ local function ScheduleSoulMetaSettle()
     gracePeriodUntil = GetTime() + GRACE_PERIOD_DURATION
     StartSoulFragmentTicker()
     ResourceBars:UpdateSecondaryPowerBar()
-    C_Timer.After(0.3, function() ResourceBars:UpdateSecondaryPowerBar() end)
-    C_Timer.After(0.7, function() ResourceBars:UpdateSecondaryPowerBar() end)
-    C_Timer.After(1.5, function() ResourceBars:UpdateSecondaryPowerBar() end)
-    C_Timer.After(GRACE_PERIOD_DURATION + 0.5, function() ResourceBars:UpdateSecondaryPowerBar() end)
+
+    CancelTimerList(soulMetaSettleTimers)
+    local function DoSettleUpdate()
+        ResourceBars:UpdateSecondaryPowerBar()
+    end
+    soulMetaSettleTimers[1] = C_Timer.NewTimer(0.3, DoSettleUpdate)
+    soulMetaSettleTimers[2] = C_Timer.NewTimer(0.7, DoSettleUpdate)
+    soulMetaSettleTimers[3] = C_Timer.NewTimer(1.5, DoSettleUpdate)
+    soulMetaSettleTimers[4] = C_Timer.NewTimer(GRACE_PERIOD_DURATION + 0.5, DoSettleUpdate)
 end
 
 local function OnSpecialResourceEvent(_, event, unit, info)
@@ -505,18 +522,7 @@ local function HookViewerOnShow()
 end
 
 -- [FIX] 이전 spec 변경 타이머 취소용
-local specChangeTimers = {}
 local specChangeQueued = false
-local shapeshiftSettleTimers = {}
-
-local function CancelTimerList(timers)
-    for _, timer in pairs(timers) do
-        if timer and not timer:IsCancelled() then
-            timer:Cancel()
-        end
-    end
-    wipe(timers)
-end
 
 local function QueueSpecChangedRefresh()
     if specChangeQueued then
