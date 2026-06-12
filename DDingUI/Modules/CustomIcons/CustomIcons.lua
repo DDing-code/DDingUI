@@ -3966,8 +3966,6 @@ local function EnsureEventFrame()
         end
         local isSpellCooldownEvent = event == "SPELL_UPDATE_COOLDOWN"
             or event == "SPELL_UPDATE_CHARGES"
-            or event == "ACTIONBAR_UPDATE_COOLDOWN"
-            or event == "SPELL_UPDATE_USABLE"
         local isItemCooldownEvent = event == "BAG_UPDATE_COOLDOWN"
             or event == "ARENA_COOLDOWNS_UPDATE"
             or event == "PVP_MATCH_STATE_CHANGED"
@@ -4910,13 +4908,9 @@ function runtime.RefreshCustomIconEventRegistration()
     if hasSpellEvents then
         runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
         runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-        runtime.eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")
-        runtime.eventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
     else
         runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
         runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_CHARGES")
-        runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_USABLE")
-        runtime.eventFrame:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
     end
 
     if hasAuraScanEvents or hasBloodlustEvents then
