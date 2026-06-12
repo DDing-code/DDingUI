@@ -1218,6 +1218,7 @@ local _visibleBuffIcons = {}
 
 local centerBuffsFrame = CreateFrame("Frame")
 local centerBuffsActive = false
+local centerBuffsQueued = false
 local centerBuffEventFrame
 local centerBuffAuraRegistered = false
 
@@ -1242,6 +1243,7 @@ local function DisableCenterBuffs()
     if centerBuffsActive then
         centerBuffsActive = false
         centerBuffsFrame:SetScript("OnUpdate", nil)
+        centerBuffsQueued = false
     end
     if centerBuffEventFrame and centerBuffAuraRegistered then
         centerBuffEventFrame:UnregisterEvent("UNIT_AURA")
@@ -1250,6 +1252,23 @@ local function DisableCenterBuffs()
 end
 
 local CenterBuffIcons
+local function FlushQueuedCenterBuffs(self)
+    self:SetScript("OnUpdate", nil)
+    centerBuffsQueued = false
+    if centerBuffsActive then
+        CenterBuffIcons()
+    end
+end
+
+local function QueueCenterBuffs(force)
+    if not centerBuffsActive or centerBuffsQueued then return end
+    if force then
+        nextCenterBuffsUpdate = 0
+    end
+    centerBuffsQueued = true
+    centerBuffsFrame:SetScript("OnUpdate", FlushQueuedCenterBuffs)
+end
+
 local function EnableCenterBuffs()
     if not ShouldRunCenterBuffs() then
         DisableCenterBuffs()
@@ -1261,8 +1280,8 @@ local function EnableCenterBuffs()
     end
     if not centerBuffsActive then
         centerBuffsActive = true
-        centerBuffsFrame:SetScript("OnUpdate", CenterBuffIcons)
     end
+    QueueCenterBuffs(true)
 end
 
 CenterBuffIcons = function()
@@ -1487,8 +1506,7 @@ do
                 end
                 -- BuffIcon은 센터링도 필요
                 if viewerName == "BuffIconCooldownViewer" then
-                    nextCenterBuffsUpdate = 0
-                    CenterBuffIcons()
+                    QueueCenterBuffs(true)
                 end
                 -- ResourceBars 동기화 (뷰어 크기 변경 시 바 너비 업데이트)
                 if DDingUI.ResourceBars and DDingUI.ResourceBars.UpdatePowerBar then
@@ -1528,8 +1546,7 @@ do
         end
 
         -- 센터링 즉시 실행
-        nextCenterBuffsUpdate = 0
-        CenterBuffIcons()
+        QueueCenterBuffs(true)
 
         -- ResourceBars 동기화
         if DDingUI.ResourceBars and DDingUI.ResourceBars.UpdatePowerBar then
@@ -1580,12 +1597,10 @@ do
 
         if event == "PLAYER_ENTERING_WORLD" then
             after(0.1, function()
-                nextCenterBuffsUpdate = 0
-                CenterBuffIcons()
+                QueueCenterBuffs(true)
             end)
             after(0.5, function()
-                nextCenterBuffsUpdate = 0
-                CenterBuffIcons()
+                QueueCenterBuffs(true)
             end)
             after(1.0, OnMajorStateChange)
             return
@@ -1611,8 +1626,11 @@ end
 local function CenterBuffIconsImmediate()
     local now = GetTime()
     if now < nextCenterBuffsUpdate then return end  -- [PERF] 이미 최근에 실행됨 → 스킵 (OnUpdate가 잡아줌)
-    nextCenterBuffsUpdate = 0
-    CenterBuffIcons()
+    if not centerBuffsActive then
+        EnableCenterBuffs()
+        return
+    end
+    QueueCenterBuffs(true)
 end
 
 -- UNIT_AURA 이벤트로 반응 — [PERF] debounce로 버스트 방지
