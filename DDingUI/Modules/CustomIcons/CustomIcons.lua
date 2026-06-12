@@ -1360,32 +1360,6 @@ function CustomIcons.ApplyManagedGroupTextOptions(frame)
         frame._ddGroupName or (container and container._groupName),
         frame._groupSettings or (container and container._groupSettings)
     )
-    if frame._ddManagedTextRetryPending then return end
-    frame._ddManagedTextRetryPending = true
-    local retryDelays = { 0, 0.05, 0.2 }
-    local remainingRetries = #retryDelays
-    for _, delay in ipairs(retryDelays) do
-        C_Timer.After(delay, function()
-            if frame and frame._ddManagedTextRetryPending then
-                if frame._ddIsManaged then
-                    local retryRenderer = DDingUI.GroupRenderer
-                    if retryRenderer and retryRenderer.ApplyDynamicIconTextOptions then
-                        local retryContainer = frame._ddContainerRef
-                        frame._ddDynamicTextRetryCount = nil
-                        retryRenderer:ApplyDynamicIconTextOptions(
-                            frame,
-                            frame._ddGroupName or (retryContainer and retryContainer._groupName),
-                            frame._groupSettings or (retryContainer and retryContainer._groupSettings)
-                        )
-                    end
-                end
-                remainingRetries = remainingRetries - 1
-                if remainingRetries <= 0 then
-                    frame._ddManagedTextRetryPending = nil
-                end
-            end
-        end)
-    end
 end
 
 function CustomIcons.RestoreActiveIconVisual(frame)
