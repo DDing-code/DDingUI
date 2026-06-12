@@ -1118,8 +1118,61 @@ local function InvalidateAllFrameCaches()
             bar._lastHeight = nil
             bar._lastWidth = nil
             bar._lastBarStyle = nil
+            if bar.TextValue then bar.TextValue._ddBuffTextStyleDirty = true end
+            if bar.DurationText then bar.DurationText._ddBuffTextStyleDirty = true end
         end
     end
+end
+
+local function ApplyBuffTextStyleIfChanged(fontString, relativeFrame, fontPath, fontSize, fontFlags, justify, offsetX, offsetY, r, g, b, a)
+    if not fontString then return end
+
+    fontFlags = fontFlags or ""
+    justify = justify or "CENTER"
+    r = r or 1
+    g = g or 1
+    b = b or 1
+    a = a or 1
+
+    local cachedColor = fontString._ddBuffTextColor
+    local styleChanged = fontString._ddBuffTextStyleDirty
+        or fontString._ddBuffTextFontPath ~= fontPath
+        or fontString._ddBuffTextFontSize ~= fontSize
+        or fontString._ddBuffTextFontFlags ~= fontFlags
+        or fontString._ddBuffTextJustify ~= justify
+        or fontString._ddBuffTextRelativeFrame ~= relativeFrame
+        or fontString._ddBuffTextOffsetX ~= offsetX
+        or fontString._ddBuffTextOffsetY ~= offsetY
+        or not cachedColor
+        or cachedColor.r ~= r
+        or cachedColor.g ~= g
+        or cachedColor.b ~= b
+        or cachedColor.a ~= a
+
+    if not styleChanged then return end
+
+    fontString:SetFont(fontPath, fontSize, fontFlags)
+    fontString:SetShadowOffset(0, 0)
+    fontString:SetJustifyH(justify)
+    fontString:ClearAllPoints()
+    fontString:SetPoint(justify, relativeFrame, justify, offsetX, offsetY)
+    fontString:SetTextColor(r, g, b, a)
+
+    fontString._ddBuffTextStyleDirty = nil
+    fontString._ddBuffTextFontPath = fontPath
+    fontString._ddBuffTextFontSize = fontSize
+    fontString._ddBuffTextFontFlags = fontFlags
+    fontString._ddBuffTextJustify = justify
+    fontString._ddBuffTextRelativeFrame = relativeFrame
+    fontString._ddBuffTextOffsetX = offsetX
+    fontString._ddBuffTextOffsetY = offsetY
+
+    cachedColor = cachedColor or {}
+    cachedColor.r = r
+    cachedColor.g = g
+    cachedColor.b = b
+    cachedColor.a = a
+    fontString._ddBuffTextColor = cachedColor
 end
 
 local function RunBuffTrackerStartupRefresh(reason)
@@ -4363,23 +4416,25 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- 중첩 텍스트 설정 (barFillMode와 무관하게 표시 가능)
     bar.TextValue:SetText(displayStacks)  -- Use display value (sample in preview mode)
     local stacksFont = settings.textFont or globalCfg.textFont
-    bar.TextValue:SetFont(DDingUI:GetFont(stacksFont), textSize, "OUTLINE")
-    bar.TextValue:SetShadowOffset(0, 0)
-    bar.TextValue:SetJustifyH(textAlign)
-    bar.TextValue:ClearAllPoints()
-    bar.TextValue:SetPoint(textAlign, bar.TextFrame, textAlign, DDingUI:Scale(textX), DDingUI:Scale(textY))
-    bar.TextValue:SetTextColor(textColor[1] or 1, textColor[2] or 1, textColor[3] or 1, textColor[4] or 1)
+    ApplyBuffTextStyleIfChanged(
+        bar.TextValue,
+        bar.TextFrame,
+        DDingUI:GetFont(stacksFont),
+        textSize,
+        "OUTLINE",
+        textAlign,
+        DDingUI:Scale(textX),
+        DDingUI:Scale(textY),
+        textColor[1] or 1,
+        textColor[2] or 1,
+        textColor[3] or 1,
+        textColor[4] or 1
+    )
     bar.TextValue:SetShown(showStacksText)
 
     -- 지속시간 텍스트 설정 (barFillMode와 무관하게 표시 가능)
     if showDurationText then
         local durationFont = settings.durationTextFont or settings.textFont or globalCfg.textFont
-        bar.DurationText:SetFont(DDingUI:GetFont(durationFont), durationTextSize, "OUTLINE")
-        bar.DurationText:SetShadowOffset(0, 0)
-        bar.DurationText:SetJustifyH(durationTextAlign)
-        bar.DurationText:ClearAllPoints()
-        bar.DurationText:SetPoint(durationTextAlign, bar.TextFrame, durationTextAlign, DDingUI:Scale(durationTextX), DDingUI:Scale(durationTextY))
-
         -- 초기 색상 설정: 경고 임계값 이하면 경고 색상, 아니면 일반 색상
         local initialColor = durationTextColor
         if durationWarningEnabled and hasData then
@@ -4398,7 +4453,20 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 initialColor = durationWarningColor
             end
         end
-        bar.DurationText:SetTextColor(initialColor[1] or 1, initialColor[2] or 1, initialColor[3] or 1, initialColor[4] or 1)
+        ApplyBuffTextStyleIfChanged(
+            bar.DurationText,
+            bar.TextFrame,
+            DDingUI:GetFont(durationFont),
+            durationTextSize,
+            "OUTLINE",
+            durationTextAlign,
+            DDingUI:Scale(durationTextX),
+            DDingUI:Scale(durationTextY),
+            initialColor[1] or 1,
+            initialColor[2] or 1,
+            initialColor[3] or 1,
+            initialColor[4] or 1
+        )
 
         -- Preview/Mover mode: show duration text
         if not hasData then
