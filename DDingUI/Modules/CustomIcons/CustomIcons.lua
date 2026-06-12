@@ -214,10 +214,13 @@ local runtime = {
     cooldownWatcher = {
         itemTargets = {},
         slotTargets = {},
+        auraSpellTargets = {},
+        auraInstanceTargets = {},
         itemStates = {},
         slotStates = {},
         pendingIconKeys = {},
         activeTargetCount = 0,
+        auraUnknownTargetCount = 0,
         evaluatePending = false,
         refreshPending = false,
         refreshAll = false,
@@ -1877,12 +1880,14 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
             if iconFrame then
                 iconFrame._ddTimedAuraActiveUntil = GetAuraNumberFieldSafe(timedAura, "expirationTime")
                 iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(timedAura) or GetAuraNumberFieldSafe(timedAura, "spellId") or iconData.id
+                iconFrame._cachedAuraInstanceID = SafeNumber(GetAuraFieldSafe(timedAura, "auraInstanceID"))
             end
             return timedAura
         end
         if iconFrame then
             iconFrame._ddTimedAuraActiveUntil = nil
             iconFrame._ddAuraActiveUntil = nil
+            iconFrame._cachedAuraInstanceID = nil
             iconFrame._auraWasActive = false
             iconFrame._ddManagedAuraExpired = true
         end
@@ -1898,6 +1903,7 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
         if auraData then
             if iconFrame then
                 iconFrame._cachedAuraSpellID = GetAuraSpellIDSafe(auraData) or spellID
+                iconFrame._cachedAuraInstanceID = SafeNumber(GetAuraFieldSafe(auraData, "auraInstanceID"))
                 local expirationTime = GetAuraNumberFieldSafe(auraData, "expirationTime")
                 if expirationTime and expirationTime > 0 then
                     iconFrame._ddAuraActiveUntil = expirationTime
@@ -1925,6 +1931,7 @@ local function ResolvePlayerAuraForIcon(iconFrame, iconData)
                     local auraSpellID = GetAuraSpellIDSafe(aura)
                     if iconFrame and auraSpellID then
                         iconFrame._cachedAuraSpellID = auraSpellID
+                        iconFrame._cachedAuraInstanceID = SafeNumber(GetAuraFieldSafe(aura, "auraInstanceID"))
                         local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
                         if expirationTime and expirationTime > 0 then
                             iconFrame._ddAuraActiveUntil = expirationTime
@@ -2662,10 +2669,17 @@ local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
         if auraData then
             local now = GetTime and GetTime() or 0
             iconFrame._ddLastProcActiveAt = now
+            local auraSpellID = GetAuraSpellIDSafe(auraData)
+            if auraSpellID then
+                iconFrame._cachedBuffSpellID = auraSpellID
+            end
+            iconFrame._cachedProcAuraInstanceID = SafeNumber(GetAuraFieldSafe(auraData, "auraInstanceID"))
             local duration = GetAuraNumberFieldSafe(auraData, "duration")
             iconFrame._ddProcActiveUntil = GetAuraNumberFieldSafe(auraData, "expirationTime")
                 or (duration and (now + duration))
                 or (now + 0.75)
+        else
+            iconFrame._cachedProcAuraInstanceID = nil
         end
     end
     return auraData, procSpellID, itemID
@@ -3120,6 +3134,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddAuraActiveUntil = auraExpirationTime
     elseif not auraData then
         iconFrame._ddAuraActiveUntil = nil
+        iconFrame._cachedAuraInstanceID = nil
     end
 
     local auraTexture = auraData and (GetAuraFieldSafe(auraData, "icon") or GetAuraFieldSafe(auraData, "iconID"))
@@ -3704,6 +3719,92 @@ function runtime.HasUnitAuraScanIcon()
     return false
 end
 
+function runtime.UnitAuraUpdateTouchesCustomIcon(updateInfo)
+    local watcher = runtime.cooldownWatcher
+    if not watcher or (watcher.auraScanTargetCount or 0) <= 0 then
+        return false
+    end
+    if not updateInfo then
+        return true
+    end
+    local fullUpdate = false
+    pcall(function()
+        fullUpdate = updateInfo.isFullUpdate == true
+    end)
+    if fullUpdate then
+        return true
+    end
+    if (watcher.auraUnknownTargetCount or 0) > 0 then
+        return true
+    end
+
+    local spellTargets = watcher.auraSpellTargets
+    local instanceTargets = watcher.auraInstanceTargets
+    if not spellTargets or not instanceTargets then
+        return true
+    end
+
+    local touched = false
+    local function markAura(aura)
+        if touched or not aura then return end
+        local spellID = GetAuraSpellIDSafe(aura)
+        if spellID and spellTargets[spellID] then
+            local instanceID = SafeNumber(GetAuraFieldSafe(aura, "auraInstanceID"))
+            if instanceID then
+                instanceTargets[instanceID] = true
+            end
+            touched = true
+        end
+    end
+
+    local okAdded = pcall(function()
+        local added = updateInfo.addedAuras
+        if type(added) == "table" then
+            for _, aura in ipairs(added) do
+                markAura(aura)
+                if touched then break end
+            end
+        end
+    end)
+    if not okAdded or touched then
+        return true
+    end
+
+    local okUpdated = pcall(function()
+        local updated = updateInfo.updatedAuraInstanceIDs
+        if type(updated) == "table" then
+            for _, instanceID in ipairs(updated) do
+                local safeID = SafeNumber(instanceID)
+                if safeID and instanceTargets[safeID] then
+                    touched = true
+                    break
+                end
+            end
+        end
+    end)
+    if not okUpdated or touched then
+        return true
+    end
+
+    local okRemoved = pcall(function()
+        local removed = updateInfo.removedAuraInstanceIDs
+        if type(removed) == "table" then
+            for _, instanceID in ipairs(removed) do
+                local safeID = SafeNumber(instanceID)
+                if safeID and instanceTargets[safeID] then
+                    instanceTargets[safeID] = nil
+                    touched = true
+                    break
+                end
+            end
+        end
+    end)
+    if not okRemoved then
+        return true
+    end
+    return touched
+end
+
 local function RefreshItemCooldownIcons(needsLayoutNotify)
     if runtime.QueueCustomCooldownIconRefresh then
         runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify)
@@ -3767,9 +3868,10 @@ local function EnsureEventFrame()
         local customTimedChanged = HandleCustomTimedAuraEvent(event, ...)
         local succeededSpellID = event == "UNIT_SPELLCAST_SUCCEEDED" and SafeNumber(select(3, ...)) or nil
         local isRacialSpellcast = succeededSpellID and succeededSpellID == GetPlayerRacialSpellID()
+        local auraUpdateInfo = event == "UNIT_AURA" and select(2, ...) or nil
         local requiresAuraScan = event == "UNIT_AURA"
-            and runtime.HasUnitAuraScanIcon
-            and runtime.HasUnitAuraScanIcon()
+            and runtime.UnitAuraUpdateTouchesCustomIcon
+            and runtime.UnitAuraUpdateTouchesCustomIcon(auraUpdateInfo)
         if event == "UNIT_SPELLCAST_SENT" then return end
         if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
             or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
@@ -4916,10 +5018,15 @@ function runtime.RegisterCustomCooldownWatches()
     local db = GetDynamicDB()
     runtime.ClearCustomCooldownTable(watcher.itemTargets)
     runtime.ClearCustomCooldownTable(watcher.slotTargets)
+    watcher.auraSpellTargets = watcher.auraSpellTargets or {}
+    watcher.auraInstanceTargets = watcher.auraInstanceTargets or {}
+    runtime.ClearCustomCooldownTable(watcher.auraSpellTargets)
+    runtime.ClearCustomCooldownTable(watcher.auraInstanceTargets)
     watcher.activeTargetCount = 0
     watcher.itemEventTargetCount = 0
     watcher.spellTargetCount = 0
     watcher.auraScanTargetCount = 0
+    watcher.auraUnknownTargetCount = 0
 
     for iconKey, frame in pairs(runtime.iconFrames) do
         local iconData = frame and db.iconData and db.iconData[iconKey]
@@ -4928,8 +5035,56 @@ function runtime.RegisterCustomCooldownWatches()
             if iconType == "item" or iconType == "slot" or iconType == "trinketProc" then
                 watcher.itemEventTargetCount = watcher.itemEventTargetCount + 1
             end
-            if iconType == "trinketProc" or (iconType == "aura" and not GetCustomTimedAuraConfig(iconData)) then
+            if iconType == "trinketProc" then
                 watcher.auraScanTargetCount = watcher.auraScanTargetCount + 1
+                local hasTarget = false
+                local settings = iconData.settings or {}
+                local procSpellID = SafeNumber(settings.procSpellID)
+                if not procSpellID then
+                    local itemID = CustomIcons.GetEquippedSlotItemID(frame, iconData.slotID)
+                    if itemID then
+                        pcall(function()
+                            local _, itemSpellID = C_Item.GetItemSpell(itemID)
+                            procSpellID = SafeNumber(itemSpellID)
+                        end)
+                    end
+                end
+                local cachedSpellID = SafeNumber(frame._cachedBuffSpellID)
+                if procSpellID then
+                    watcher.auraSpellTargets[procSpellID] = true
+                    hasTarget = true
+                end
+                if cachedSpellID then
+                    watcher.auraSpellTargets[cachedSpellID] = true
+                    hasTarget = true
+                end
+                local instanceID = SafeNumber(frame._cachedProcAuraInstanceID)
+                if instanceID then
+                    watcher.auraInstanceTargets[instanceID] = true
+                    hasTarget = true
+                end
+                if not hasTarget then
+                    watcher.auraUnknownTargetCount = watcher.auraUnknownTargetCount + 1
+                end
+            elseif iconType == "aura" and not GetCustomTimedAuraConfig(iconData) then
+                watcher.auraScanTargetCount = watcher.auraScanTargetCount + 1
+                local hasTarget = false
+                local candidates = BuildAuraCandidateIDs(frame, iconData)
+                for _, spellID in ipairs(candidates) do
+                    local safeID = SafeNumber(spellID)
+                    if safeID then
+                        watcher.auraSpellTargets[safeID] = true
+                        hasTarget = true
+                    end
+                end
+                local instanceID = SafeNumber(frame._cachedAuraInstanceID)
+                if instanceID then
+                    watcher.auraInstanceTargets[instanceID] = true
+                    hasTarget = true
+                end
+                if not hasTarget then
+                    watcher.auraUnknownTargetCount = watcher.auraUnknownTargetCount + 1
+                end
             end
             if iconType == "item" then
                 runtime.AddCustomCooldownTarget(watcher.itemTargets, iconData.id, iconKey)
