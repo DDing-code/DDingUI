@@ -378,8 +378,6 @@ local function RunPvPTransitionRecovery(event)
 
     if changed or event == "PVP_MATCH_STATE_CHANGED" then
         ScheduleViewerTransitionRecovery(true, true, true)
-    else
-        ScheduleViewerTransitionRecovery(true, false)
     end
 end
 
@@ -2152,7 +2150,6 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
     eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- [FIX] 전투 진입 시 즉시 재스캔
     -- [CDM 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
     eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
     eventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
@@ -2179,16 +2176,7 @@ function FrameController:Initialize()
             return
         end
 
-        if event == "PLAYER_REGEN_DISABLED" then
-            -- [FIX] 전투 진입 시 CDM이 아이콘을 Show하므로 burst 재시작
-            -- 첫 전투 시 강화효과 정렬 지연 방지
-            MarkDirty()
-            if not state.pollingActive then
-                EnablePolling()
-            end
-            return
-
-        elseif event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
+        if event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
             state.specChangeDetected = true
             state.specChangeVersion = state.specChangeVersion + 1
             wipe(iconSpellNameMap)
