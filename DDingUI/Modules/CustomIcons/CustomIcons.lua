@@ -200,6 +200,11 @@ local runtime = {
     specReloadToken = 0,
     customTimedAuras = {}, -- [spellID] = { startTime, duration, expirationTime, token, iconTexture }
     itemCombatLockouts = {},
+    loadRetry = {
+        keys = {},
+        attempts = 0,
+        timer = nil,
+    },
     cooldownWatcher = {
         itemTargets = {},
         slotTargets = {},
@@ -5421,44 +5426,68 @@ function CustomIcons:LoadDynamicIcons()
     -- Initial update to ensure icons show correct state
     UpdateAllIcons(nil, "all")
 
-    -- [FIX] 프레임 생성 실패한 아이콘 재시도 (아이템/스펠 캐시 로드 대기)
+    -- 프레임 생성 실패한 아이콘은 단일 예약 큐로 합쳐 재시도한다.
     if #pendingKeys > 0 then
-        local attempts = 0
-        local maxAttempts = 5
-        local retryTimer
-        retryTimer = C_Timer.NewTicker(1.0, function()
-            attempts = attempts + 1
-            local stillPending = {}
-            for _, iconKey in ipairs(pendingKeys) do
-                if not runtime.iconFrames[iconKey] then
-                    local iconData = db.iconData[iconKey]
-                    if iconData then
-                        local groupKey = FindIconGroup(iconKey, db)
-                        local settings
-                        if groupKey == "ungrouped" or db.ungrouped[iconKey] then
-                            settings = db.ungroupedPositions and db.ungroupedPositions[iconKey]
-                            groupKey = iconKey
-                        else
-                            settings = GetGroupSettings(groupKey)
-                        end
-                        local parent = EnsureGroupFrame(groupKey, settings)
-                        local frame = CreateDynamicIcon(iconKey, iconData, parent)
-                        if frame then
-                            runtime.iconFrames[iconKey] = frame
-                        else
-                            stillPending[#stillPending + 1] = iconKey
+        local retry = runtime.loadRetry
+        for _, iconKey in ipairs(pendingKeys) do
+            retry.keys[iconKey] = true
+        end
+        retry.attempts = 0
+
+        if not retry.timer then
+            local function RunPendingLoadRetry()
+                retry.timer = nil
+                retry.attempts = (retry.attempts or 0) + 1
+
+                local retryDB = GetDynamicDB()
+                local loadedAny = false
+                for iconKey in pairs(retry.keys) do
+                    if runtime.iconFrames[iconKey] then
+                        retry.keys[iconKey] = nil
+                    else
+                        local iconData = retryDB.iconData[iconKey]
+                        if not iconData then
+                            retry.keys[iconKey] = nil
+                        elseif IsIconLoadable(iconData) then
+                            local groupKey = FindIconGroup(iconKey, retryDB)
+                            local settings
+                            if groupKey == "ungrouped" or retryDB.ungrouped[iconKey] then
+                                retryDB.ungroupedPositions = retryDB.ungroupedPositions or {}
+                                retryDB.ungroupedPositions[iconKey] = retryDB.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+                                settings = retryDB.ungroupedPositions[iconKey]
+                                groupKey = iconKey
+                            else
+                                settings = GetGroupSettings(groupKey)
+                            end
+                            local parent = EnsureGroupFrame(groupKey, settings)
+                            local frame = CreateDynamicIcon(iconKey, iconData, parent)
+                            if frame then
+                                frame._ddDeferredLoadRelease = nil
+                                runtime.iconFrames[iconKey] = frame
+                                retry.keys[iconKey] = nil
+                                loadedAny = true
+                            end
                         end
                     end
                 end
+
+                if loadedAny then
+                    RefreshAllLayouts()
+                    UpdateAllIcons(nil, "all")
+                end
+
+                if next(retry.keys) and retry.attempts < 5 then
+                    retry.timer = C_Timer.NewTimer(1.0, RunPendingLoadRetry)
+                else
+                    for iconKey in pairs(retry.keys) do
+                        retry.keys[iconKey] = nil
+                    end
+                    retry.attempts = 0
+                end
             end
-            pendingKeys = stillPending
-            if #pendingKeys == 0 or attempts >= maxAttempts then
-                if retryTimer then retryTimer:Cancel() end
-                -- 새로 생성된 프레임이 있으면 레이아웃 갱신 + GroupSystem 알림
-                RefreshAllLayouts()
-                UpdateAllIcons(nil, "all")
-            end
-        end)
+
+            retry.timer = C_Timer.NewTimer(1.0, RunPendingLoadRetry)
+        end
     end
 end
 

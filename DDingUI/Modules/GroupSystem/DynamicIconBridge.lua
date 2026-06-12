@@ -1382,14 +1382,14 @@ function DynamicIconBridge:Initialize()
     end
     self:RefreshAuraEventRegistration()
 
-    -- 즉시 초기 스캔
+    -- 즉시 초기 스캔 후, 뷰어 준비 지연에 대비한 후속 스캔은 하나만 유지한다.
     ScanAndHideCDMBuffs()
 
-    -- CDM 뷰어가 아직 준비 안 됐을 수 있으므로 폴백
-    C_Timer.After(0.5, function()
-        if initialized then ScanAndHideCDMBuffs() end
-    end)
-    C_Timer.After(2.0, function()
+    if self._startupAuraScanTimer then
+        self._startupAuraScanTimer:Cancel()
+    end
+    self._startupAuraScanTimer = C_Timer.NewTimer(1.0, function()
+        self._startupAuraScanTimer = nil
         if initialized then ScanAndHideCDMBuffs() end
     end)
 end
@@ -1397,6 +1397,10 @@ end
 function DynamicIconBridge:Shutdown()
     if not initialized then return end
     initialized = false
+    if self._startupAuraScanTimer then
+        self._startupAuraScanTimer:Cancel()
+        self._startupAuraScanTimer = nil
+    end
 
     -- CDM 프레임 숨김 해제
     for frame in pairs(hiddenCDMFrames) do
