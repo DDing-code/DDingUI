@@ -50,7 +50,7 @@ local previewState = {}  -- { [barIndex] = { stacks = N, duration = N, lastUpdat
 local previewTicker = nil
 local PREVIEW_STACK_INTERVAL = 1.5  -- Change stacks every 1.5 seconds
 local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
-local DURATION_UPDATE_INTERVAL = 0.05
+local DURATION_UPDATE_INTERVAL = 0.1
 
 -- Get preview values for a bar
 local function GetPreviewValues(barIndex, maxStacks, maxDuration, barFillMode)
@@ -378,6 +378,46 @@ local function FormatDuration(value, decimals)
         return string.format("%." .. decimals .. "f", num)
     end
     return tostring(value)
+end
+
+local function GetCachedAuraRemaining(data)
+    if not data then return nil end
+    local expiresAt = data.expiresAt
+    if issecretvalue and issecretvalue(expiresAt) then return nil end
+    if type(expiresAt) == "number" and expiresAt > 0 then
+        return math_max(0, expiresAt - GetTime())
+    end
+    return nil
+end
+
+local function ApplyDurationWarningText(fontString, remaining, data)
+    if not fontString or not data or not data.warningEnabled or remaining == nil then return end
+    if remaining <= (data.warningThreshold or 0) then
+        local wc = data.warningColor or {}
+        fontString:SetTextColor(wc[1] or 1, wc[2] or 0.2, wc[3] or 0.2, wc[4] or 1)
+    else
+        local nc = data.normalColor or {}
+        fontString:SetTextColor(nc[1] or 1, nc[2] or 1, nc[3] or 1, nc[4] or 1)
+    end
+end
+
+local function SetCachedDurationText(fontString, remaining, data)
+    if not fontString or remaining == nil then return end
+    fontString:SetText(FormatDuration(remaining, data and data.durationDecimals or 1))
+    ApplyDurationWarningText(fontString, remaining, data)
+end
+
+local function GetAuraExpirationTime(unit, auraInstanceID)
+    if not unit or not auraInstanceID then return nil end
+    local expiresAt = nil
+    pcall(function()
+        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
+        local expirationTime = auraData and auraData.expirationTime
+        if expirationTime and not (issecretvalue and issecretvalue(expirationTime)) and type(expirationTime) == "number" and expirationTime > 0 then
+            expiresAt = expirationTime
+        end
+    end)
+    return expiresAt
 end
 
 -- ============================================================
@@ -3482,6 +3522,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             bar._durationData = {
                 unit = unit,
                 auraID = auraInstanceID,
+                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 maxDuration = effectiveMaxDuration,
                 showDurationText = showDurationText,
                 stacksMode = false,  -- Duration 모드: 바 값 업데이트 함
@@ -3584,6 +3625,17 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     end
 
                     -- Auto 모드: auraID 기반 duration 계산
+                    local cachedRemaining = GetCachedAuraRemaining(data)
+                    if cachedRemaining then
+                        if not data.stacksMode then
+                            self:SetValue(cachedRemaining)
+                        end
+                        if bar.DurationText and data.showDurationText then
+                            SetCachedDurationText(bar.DurationText, cachedRemaining, data)
+                        end
+                        return
+                    end
+
                     if not data.auraID then return end
 
                     pcall(function()
@@ -3663,6 +3715,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             bar._durationData = {
                 unit = unit,
                 auraID = auraInstanceID,
+                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 maxDuration = stackDuration,
                 showDurationText = showDurationText,
                 stacksMode = true,  -- 스택 모드 플래그 (바 값 업데이트 안 함)
@@ -3699,6 +3752,17 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
                     local data = bar._durationData
                     if not data or not data.auraID then return end
+
+                    local cachedRemaining = GetCachedAuraRemaining(data)
+                    if cachedRemaining then
+                        if not data.stacksMode then
+                            self:SetValue(cachedRemaining)
+                        end
+                        if bar.DurationText and data.showDurationText then
+                            SetCachedDurationText(bar.DurationText, cachedRemaining, data)
+                        end
+                        return
+                    end
 
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -4449,6 +4513,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         bar._durationData = {
             unit = unit,
             auraID = auraInstanceID,
+            expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
             maxDuration = stackDuration,
             showDurationText = ringShowText,
             durationDecimals = settings.ringDurationDecimals or 1,
@@ -4460,9 +4525,9 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         -- 텍스트 업데이트용 OnUpdate (progress는 CooldownFrame이 처리)
         if ringShowText and not bar._hasRingTextUpdate then
             bar:SetScript("OnUpdate", function(self, elapsed)
-                -- 0.05초 쓰로틀 (텍스트 업데이트는 20fps면 충분)
+                -- Duration text throttle
                 self._textElapsed = (self._textElapsed or 0) + elapsed
-                if self._textElapsed < 0.05 then return end
+                if self._textElapsed < DURATION_UPDATE_INTERVAL then return end
                 self._textElapsed = 0
 
                 local data = bar._durationData
@@ -4470,6 +4535,11 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
                 -- 텍스트 표시: secret value로 직접 설정
                 if bar.TextValue then
+                    local cachedRemaining = GetCachedAuraRemaining(data)
+                    if cachedRemaining then
+                        bar.TextValue:SetText(FormatDuration(cachedRemaining, data.durationDecimals))
+                        return
+                    end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
                         if durObj then
@@ -4551,11 +4621,17 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             if not bar.TextFrame._hasDurationUpdate then
                 bar.TextFrame:SetScript("OnUpdate", function(self, elapsed)
                     self._dtElapsed = (self._dtElapsed or 0) + elapsed
-                    if self._dtElapsed < 0.05 then return end
+                    if self._dtElapsed < DURATION_UPDATE_INTERVAL then return end
                     self._dtElapsed = 0
 
                     local data = self._dtData
                     if not data or not data.showDurationText then return end
+
+                    local cachedRemaining = GetCachedAuraRemaining(data)
+                    if cachedRemaining then
+                        SetCachedDurationText(bar.DurationText, cachedRemaining, data)
+                        return
+                    end
 
                     pcall(function()
                         if data.auraID then
@@ -4593,13 +4669,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                 bar.TextFrame._hasDurationUpdate = true
             end
             -- Duration data
-            local expiresAt = nil
-            if auraInstanceID then
-                pcall(function()
-                    local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                    if aData and aData.expirationTime then expiresAt = aData.expirationTime end
-                end)
-            end
+            local expiresAt = GetAuraExpirationTime(unit, auraInstanceID)
             bar.TextFrame._dtData = {
                 showDurationText = true,
                 unit = unit,
@@ -4622,7 +4692,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             if not bar.TextFrame._hasDurationUpdate then
                 bar.TextFrame:SetScript("OnUpdate", function(self, elapsed)
                     self._dtElapsed = (self._dtElapsed or 0) + elapsed
-                    if self._dtElapsed < 0.05 then return end
+                    if self._dtElapsed < DURATION_UPDATE_INTERVAL then return end
                     self._dtElapsed = 0
 
                     local data = self._dtData
@@ -5068,6 +5138,12 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                     end
 
                     -- Auto 모드
+                    local cachedRemaining = GetCachedAuraRemaining(data)
+                    if cachedRemaining then
+                        SetCachedDurationText(icon.DurationText, cachedRemaining, data)
+                        return
+                    end
+
                     if not data.auraID then return end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -5096,6 +5172,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             -- _durationData 설정
             icon._durationData = {
                 auraID = auraInstanceID,
+                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 unit = unit,
                 barIndex = barIndex,
                 showDurationText = true,
@@ -5616,6 +5693,12 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                     end
 
                     -- Auto 모드
+                    local cachedRemaining = GetCachedAuraRemaining(data)
+                    if cachedRemaining then
+                        SetCachedDurationText(textFrame.DurationText, cachedRemaining, data)
+                        return
+                    end
+
                     if not data.auraID then return end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -5644,6 +5727,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             -- _durationData 설정
             textFrame._durationData = {
                 auraID = auraInstanceID,
+                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 unit = unit,
                 barIndex = barIndex,
                 showDurationText = true,

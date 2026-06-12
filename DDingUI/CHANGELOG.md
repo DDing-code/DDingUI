@@ -14,6 +14,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Improved CDM group rendering performance by skipping unchanged group layouts, limiting dynamic aura bridge scans, and avoiding repeated frame reconciliation after stable updates.
 - Registered spell, item, and duplicate-aura watcher events only while tracked entries exist, reducing idle runtime work.
 - Reduced tracked buff bar work by merging duplicate UNIT_AURA and duration updates, trimming startup refreshes, and stopping the tracker when no entries are active.
+- Reduced tracked buff duration text overhead by caching aura expiration times during tracker updates and using that cached state for bar, icon, ring, and text refresh ticks before falling back to aura duration queries.
 - Removed redundant fallback viewer polling and per-icon glow/desaturation polling that could contribute to stutter or glow flicker.
 - Debounced custom icon reloads, icon customization rehooks, and viewer transition recovery so talent changes, loading screens, PvP transitions, and zone changes do not stack repeated full refresh passes.
 - Routed timed-aura layout changes through the existing icon update queue and removed duplicate managed-text retry timers.
@@ -38,6 +39,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
 
 ### Korean Patch Notes
+- 추적 중인 버프 바, 아이콘, 원형, 텍스트의 지속시간 갱신이 오라 만료 시간 캐시를 먼저 사용하도록 개선해 전투 중 반복 오라 조회와 텍스트 갱신 부담을 줄였습니다.
 - 아이콘 커스터마이징 준비 글로우 이벤트 처리를 디바운스해 쿨다운, 충전, 오라, 전문화 이벤트가 몰릴 때 훅된 아이콘을 디스패치 프레임에서 한 번만 갱신하도록 했습니다.
 - CDM 프레임 컨트롤러 dirty 표시를 병합해 반복 hook 콜백이 기존 예약된 재조정을 유지하고 다음 갱신 시간을 계속 즉시로 되돌리지 않도록 했습니다.
 - 프레임 컨트롤러 hook 경로에서 중복 BuffIcon 및 pool refresh 예약을 제거하되 상태 추적과 복구 hook은 유지했습니다.
