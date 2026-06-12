@@ -809,6 +809,7 @@ local function BuildDynamicLayoutStateHash()
     table_sort(sourceKeys, function(a, b) return tostring(a) < tostring(b) end)
 
     local parts = {}
+    local sourceHashes = {}
     for _, sourceKey in ipairs(sourceKeys) do
         local keys = {}
         if sourceKey == "ungrouped" then
@@ -826,6 +827,7 @@ local function BuildDynamicLayoutStateHash()
         end
 
         local isBuffContext = IsBuffSourceGroup(sourceKey, db)
+        local sourceParts = {}
         for _, iconKey in ipairs(keys) do
             local iconData = db.iconData and db.iconData[iconKey]
             local frame = iconFrames and iconFrames[iconKey]
@@ -857,14 +859,18 @@ local function BuildDynamicLayoutStateHash()
                 end
 
                 if token then
-                    parts[#parts + 1] = tostring(sourceKey) .. ":" .. tostring(iconKey) .. ":" .. (inCombat and "c" or token)
+                    local entry = tostring(iconKey) .. ":" .. (inCombat and "c" or token)
+                    sourceParts[#sourceParts + 1] = entry
+                    parts[#parts + 1] = tostring(sourceKey) .. ":" .. entry
                 end
             end
         end
+        table_sort(sourceParts)
+        sourceHashes[sourceKey] = table_concat(sourceParts, ";")
     end
 
     table_sort(parts)
-    return table_concat(parts, ";")
+    return table_concat(parts, ";"), sourceHashes
 end
 
 function DynamicIconBridge.ApplyTexCoordCrop(texture, zoom, aspectRatio)
@@ -1456,19 +1462,41 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
         self._pendingForceLayout = false
         if not initialized then return end
 
-        local currentHash = BuildDynamicLayoutStateHash()
+        local currentHash, sourceHashes = BuildDynamicLayoutStateHash()
         self._lastQueuedLayoutStateHash = currentHash
+        local previousHash = self._lastAppliedLayoutStateHash
+        local previousSourceHashes = self._lastAppliedSourceLayoutStateHashes
         if not pendingForce then
-            if currentHash == self._lastAppliedLayoutStateHash then
+            if currentHash == previousHash then
                 return
             end
             self._lastAppliedLayoutStateHash = currentHash
+            self._lastAppliedSourceLayoutStateHashes = sourceHashes
         else
             self._lastAppliedLayoutStateHash = currentHash
+            self._lastAppliedSourceLayoutStateHashes = sourceHashes
         end
 
         -- GroupInit의 DoFullUpdate 호출
         local gs = DDingUI.GroupSystem
+        if not pendingForce and previousHash and type(sourceHashes) == "table" and type(previousSourceHashes) == "table" then
+            local changedSources
+            for sourceKey, hash in pairs(sourceHashes) do
+                if previousSourceHashes[sourceKey] ~= hash then
+                    changedSources = changedSources or {}
+                    changedSources[sourceKey] = true
+                end
+            end
+            for sourceKey in pairs(previousSourceHashes) do
+                if sourceHashes[sourceKey] == nil then
+                    changedSources = changedSources or {}
+                    changedSources[sourceKey] = true
+                end
+            end
+            if changedSources and gs and gs.UpdateDynamicSourceGroups and gs:UpdateDynamicSourceGroups(changedSources) then
+                return
+            end
+        end
         if gs and gs.DoFullUpdate then
             gs:DoFullUpdate()
         end

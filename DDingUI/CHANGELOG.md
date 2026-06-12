@@ -32,6 +32,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Deferred dynamic bridge layout hashing until the scheduled refresh executes, avoiding repeated source/icon scans during notification bursts.
 - Throttled dynamic bridge aura-hide scans so combat aura bursts are merged before scanning CDM buff frames.
 - Coalesced dynamic bridge buff-frame suppression scans from viewer layout hooks and aura events into one pending pass, reducing repeated pool scans during layout bursts.
+- Limited dynamic bridge refreshes to source-linked groups when only specific custom icon sources changed, avoiding unnecessary full GroupSystem renders during combat icon state changes.
 - Filtered custom aura UNIT_AURA refreshes through cached spell and aura instance targets, then queued only the affected icon keys when possible so unrelated combat aura changes no longer trigger broad custom icon rescans.
 - Debounced icon customization ready-glow event handling so cooldown, charge, aura, and specialization event bursts update hooked icons once through a dispatch frame.
 - Coalesced CDM frame-controller dirty marking so repeated hook callbacks keep the existing queued reconcile instead of forcing the next update time back to immediate.
@@ -43,6 +44,7 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 ### Korean Patch Notes
 - 커스텀 오라 UNIT_AURA 갱신을 캐시된 주문/오라 인스턴스 대상 기준으로 걸러, 가능한 경우 영향받은 아이콘 키만 갱신하게 해서 무관한 전투 오라 변화가 커스텀 아이콘 전체 재스캔으로 이어지지 않게 했습니다.
 - 동적 브리지의 버프 프레임 억제 스캔을 viewer 레이아웃 hook과 오라 이벤트에서 하나의 pending pass로 병합해 레이아웃 burst 중 반복 pool 스캔을 줄였습니다.
+- 특정 커스텀 아이콘 source만 바뀐 경우 동적 브리지 갱신을 해당 source에 연결된 그룹으로 제한해, 전투 중 아이콘 상태 변화가 불필요한 전체 GroupSystem 렌더로 번지지 않게 했습니다.
 - 추적 중인 버프 바, 아이콘, 원형, 텍스트의 지속시간 갱신이 오라 만료 시간 캐시를 먼저 사용하도록 개선해 전투 중 반복 오라 조회와 텍스트 갱신 부담을 줄였습니다.
 - 아이콘 커스터마이징 준비 글로우 이벤트 처리를 디바운스해 쿨다운, 충전, 오라, 전문화 이벤트가 몰릴 때 훅된 아이콘을 디스패치 프레임에서 한 번만 갱신하도록 했습니다.
 - CDM 프레임 컨트롤러 dirty 표시를 병합해 반복 hook 콜백이 기존 예약된 재조정을 유지하고 다음 갱신 시간을 계속 즉시로 되돌리지 않도록 했습니다.

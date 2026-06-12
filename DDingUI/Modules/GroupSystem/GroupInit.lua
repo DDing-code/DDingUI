@@ -669,6 +669,31 @@ function GroupSystem:DoFullUpdate()
     DoFullUpdate()
 end
 
+function GroupSystem:UpdateDynamicSourceGroups(sourceKeys)
+    if not GroupSystem.enabled or type(sourceKeys) ~= "table" then return false end
+
+    local gs = GetSettings()
+    if not gs or not gs.groups then return false end
+
+    SyncDynamicGroups(gs)
+    local classified = GroupManager:ClassifyAll()
+    local updated = false
+
+    for groupName, groupSettings in pairs(gs.groups) do
+        local sourceKey = groupSettings and groupSettings.enabled and groupSettings.sourceGroupKey
+        if sourceKey and sourceKeys[sourceKey] then
+            if groupSettings.groupType == "dynamic" then
+                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+            else
+                GroupRenderer:UpdateGroup(groupName, classified[groupName] or {}, groupSettings)
+            end
+            updated = true
+        end
+    end
+
+    return updated
+end
+
 -- [DYNAMIC] Config UI에서 호출: CustomIcons 그룹 동기화
 function GroupSystem:SyncDynamicGroups()
     local gs = GetSettings()
