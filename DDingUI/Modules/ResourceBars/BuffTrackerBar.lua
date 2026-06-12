@@ -1018,8 +1018,10 @@ local function RunBuffTrackerStartupRefresh(reason)
     local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not cfg or not cfg.enabled then return end
 
-    if not buffTrackerTicker then
-        StartBuffTrackerTicker()
+    local trackedBuffs = GetTrackedBuffs and GetTrackedBuffs() or nil
+    if not trackedBuffs or #trackedBuffs == 0 then
+        if StopBuffTrackerTicker then StopBuffTrackerTicker() end
+        return
     end
 
     local CDMScanner = DDingUI.CDMScanner
