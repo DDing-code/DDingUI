@@ -48,6 +48,10 @@ local function IsCooldownIconFrame(frame)
     return frame and (frame.icon or frame.Icon) and frame.Cooldown
 end
 
+local function ShouldRunViewerFallback()
+    return not (DDingUI.GroupSystem and DDingUI.GroupSystem.enabled)
+end
+
 function IconViewers:ApplyViewerSkin(viewer)
     if not viewer or not viewer.GetName then return end
     -- [FIX] CMC IsReady 패턴: 뷰어 초기화 미완료 시 스킵
@@ -231,6 +235,7 @@ function IconViewers:HookViewers()
                     vs.auraHook = CreateFrame("Frame")
                     vs.auraHook:RegisterUnitEvent("UNIT_AURA", "player")
                     vs.auraHook:SetScript("OnEvent", function(_, _, unit)
+                        if not ShouldRunViewerFallback() then return end
                         if unit == "player" and viewer:IsShown() and not vs.rescanDirty then
                             vs.rescanDirty = true
                             -- [CDM 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
@@ -257,6 +262,7 @@ function IconViewers:HookViewers()
                     vs.cooldownHook:RegisterEvent("BAG_UPDATE_COOLDOWN")
                     vs.cooldownHook:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
                     vs.cooldownHook:SetScript("OnEvent", function(self)
+                        if not ShouldRunViewerFallback() then return end
                         if viewer:IsShown() and not vs.rescanDirty then
                             vs.rescanDirty = true
                             -- [CDM 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
