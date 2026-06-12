@@ -506,6 +506,18 @@ end
 
 -- [FIX] 이전 spec 변경 타이머 취소용
 local specChangeTimers = {}
+local specChangeQueued = false
+
+local function QueueSpecChangedRefresh()
+    if specChangeQueued then
+        return
+    end
+    specChangeQueued = true
+    C_Timer.After(0.05, function()
+        specChangeQueued = false
+        ResourceBars:OnSpecChanged()
+    end)
+end
 
 function ResourceBars:OnSpecChanged()
     -- DDingUI-style Grace Period approach:
@@ -582,14 +594,14 @@ end
 function ResourceBars:Initialize()
     -- Register additional events
     DDingUI:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
-        ResourceBars:OnSpecChanged()
+        QueueSpecChangedRefresh()
     end)
     -- Talent changes can affect CDM viewer layouts, which affects auto-width
     DDingUI:RegisterEvent("PLAYER_TALENT_UPDATE", function()
-        ResourceBars:OnSpecChanged()
+        QueueSpecChangedRefresh()
     end)
     DDingUI:RegisterEvent("TRAIT_CONFIG_UPDATED", function()
-        ResourceBars:OnSpecChanged()
+        QueueSpecChangedRefresh()
     end)
     DDingUI:RegisterEvent("UPDATE_SHAPESHIFT_FORM", function()
         ResourceBars:OnShapeshiftChanged()
@@ -649,7 +661,6 @@ function ResourceBars:Initialize()
     -- POWER UPDATES (RegisterUnitEvent으로 플레이어만 필터링)
     local powerEventFrame = CreateFrame("Frame")
     powerEventFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
-    powerEventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
     powerEventFrame:RegisterUnitEvent("UNIT_MAXPOWER", "player")
     powerEventFrame:SetScript("OnEvent", function(_, event, unit)
         ResourceBars:OnUnitPower(_, unit)
