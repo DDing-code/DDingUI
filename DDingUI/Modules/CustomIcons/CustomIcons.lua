@@ -1412,9 +1412,19 @@ end
 local MarkCustomTimedAuraExpired
 local MarkCustomTimedAuraActive
 
-local function NotifyCustomTimedAuraChanged(forceLayout)
+local function NotifyCustomTimedAuraChanged(spellID, forceLayout)
     local mode = forceLayout or "force"
-    if UpdateAllIcons then
+    local cache = CustomIcons.GetTimedAuraLinkCache and CustomIcons:GetTimedAuraLinkCache()
+    local iconKeys = cache and cache.keys and cache.keys[spellID]
+    if iconKeys and next(iconKeys) and runtime.QueueCustomCooldownIconRefresh then
+        local changedKeys = runtime.timedAuraChangedIconKeys or {}
+        runtime.timedAuraChangedIconKeys = changedKeys
+        wipe(changedKeys)
+        for iconKey in pairs(iconKeys) do
+            changedKeys[iconKey] = true
+        end
+        runtime.QueueCustomCooldownIconRefresh(mode, changedKeys)
+    elseif UpdateAllIcons then
         UpdateAllIcons(mode, "aura")
     end
 end
@@ -1732,7 +1742,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
     end
     if changed or needsLayout then
         RecordCustomTimedAuraLink(spellID, matchedFrame, hasMatchingIcon)
-        NotifyCustomTimedAuraChanged("force")
+        NotifyCustomTimedAuraChanged(spellID, "force")
         if hasMatchingIcon and not matchedFrame and CustomIcons and CustomIcons.LoadDynamicIcons then
             C_Timer.After(0, function()
                 if CustomIcons and CustomIcons.LoadDynamicIcons then
@@ -1741,7 +1751,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
                 if MarkCustomTimedAuraActive then
                     MarkCustomTimedAuraActive(spellID, state)
                 end
-                NotifyCustomTimedAuraChanged("force")
+                NotifyCustomTimedAuraChanged(spellID, "force")
             end)
         end
     end
@@ -1750,7 +1760,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         local current = runtime.customTimedAuras and runtime.customTimedAuras[spellID]
         if current and current.token == token then
             if DeactivateCustomTimedAura(spellID) then
-                NotifyCustomTimedAuraChanged(true)
+                NotifyCustomTimedAuraChanged(spellID, true)
             end
         end
     end)
