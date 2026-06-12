@@ -971,12 +971,32 @@ local function AddTrackedAuraSpell(spellID)
     return true
 end
 
-local function RebuildTrackedAuraFilter(trackedBuffs)
+function ResourceBars:BuildTrackedAuraFilterSignature(trackedBuffs)
+    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
+    local parts = {}
+    for index, buff in ipairs(trackedBuffs) do
+        if buff then
+            parts[#parts + 1] = table.concat({
+                tostring(index),
+                tostring(buff.enabled ~= false),
+                tostring(buff.isGroup == true),
+                tostring(buff.trackingMode or ""),
+                tostring(buff.cooldownID or ""),
+                tostring(buff.spellID or ""),
+                tostring(buff.name or ""),
+            }, ":")
+        end
+    end
+    return table.concat(parts, ";")
+end
+
+local function RebuildTrackedAuraFilter(trackedBuffs, signature)
     wipe(trackedAuraSpellSet)
     wipe(trackedAuraInstanceSet)
     trackedAuraHasUnknown = false
 
     trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
+    ResourceBars._trackedAuraFilterSignature = signature or ResourceBars:BuildTrackedAuraFilterSignature(trackedBuffs)
     for _, buff in ipairs(trackedBuffs) do
         if buff and buff.enabled ~= false and not buff.isGroup and buff.trackingMode ~= "manual" then
             local added = false
@@ -3078,7 +3098,10 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- ============================================================
     local trackedBuffs = GetTrackedBuffs()
     local useTrackedBuffSystem = (#trackedBuffs > 0)
-    RebuildTrackedAuraFilter(trackedBuffs)
+    local auraFilterSignature = ResourceBars:BuildTrackedAuraFilterSignature(trackedBuffs)
+    if trackedAuraFilterDirty or ResourceBars._trackedAuraFilterSignature ~= auraFilterSignature then
+        RebuildTrackedAuraFilter(trackedBuffs, auraFilterSignature)
+    end
 
     if BUFF_TRACKER_DEBUG then
         print("[BuffTracker] useTrackedBuffSystem=" .. tostring(useTrackedBuffSystem) .. ", count=" .. #trackedBuffs)
