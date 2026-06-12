@@ -197,7 +197,7 @@ local runtime = {
     textureCache = {},  -- [stable identity] = resolved texture
     dragState = {},
     pendingSpecReload = false,
-    specReloadToken = 0,
+    specReloadScheduled = false,
     customTimedAuras = {}, -- [spellID] = { startTime, duration, expirationTime, token, iconTexture }
     itemCombatLockouts = {},
     loadRetry = {
@@ -3570,6 +3570,10 @@ end
 
 local function RunScheduledSpecReload()
     runtime.pendingSpecReload = false
+    runtime.specReloadScheduled = false
+    if runtime.specReloadDispatchFrame then
+        runtime.specReloadDispatchFrame:Hide()
+    end
     for _, frame in pairs(runtime.iconFrames or {}) do
         if frame then frame._cachedBuffSpellID = nil end
     end
@@ -3584,6 +3588,7 @@ end
 local function ScheduleSpecReload(delay)
     if InCombatLockdown and InCombatLockdown() then
         runtime.pendingSpecReload = true
+        runtime.specReloadScheduled = false
         if not runtime.deferredSpecReloadFrame then
             runtime.deferredSpecReloadFrame = CreateFrame("Frame")
             runtime.deferredSpecReloadFrame:SetScript("OnEvent", function(self)
@@ -3598,18 +3603,35 @@ local function ScheduleSpecReload(delay)
         return
     end
 
-    if runtime.pendingSpecReload then return end
+    if runtime.pendingSpecReload and runtime.specReloadScheduled then return end
     runtime.pendingSpecReload = true
-    runtime.specReloadToken = (runtime.specReloadToken or 0) + 1
-    local token = runtime.specReloadToken
-    C_Timer.After(delay or 0.1, function()
-        if token ~= runtime.specReloadToken then return end
-        RunScheduledSpecReload()
-    end)
-    C_Timer.After(3.0, function()
-        if token ~= runtime.specReloadToken or not runtime.pendingSpecReload then return end
-        RunScheduledSpecReload()
-    end)
+    runtime.specReloadScheduled = true
+    runtime.specReloadDelayRemaining = delay or 0.1
+    runtime.specReloadBackstopRemaining = 3.0
+    if not runtime.specReloadDispatchFrame then
+        runtime.specReloadDispatchFrame = CreateFrame("Frame")
+        runtime.specReloadDispatchFrame:Hide()
+        runtime.specReloadDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+            if not runtime.pendingSpecReload or not runtime.specReloadScheduled then
+                self:Hide()
+                return
+            end
+
+            elapsed = elapsed or 0
+            runtime.specReloadDelayRemaining = (runtime.specReloadDelayRemaining or 0) - elapsed
+            runtime.specReloadBackstopRemaining = (runtime.specReloadBackstopRemaining or 0) - elapsed
+
+            if runtime.specReloadDelayRemaining <= 0 then
+                RunScheduledSpecReload()
+                return
+            end
+
+            if runtime.specReloadBackstopRemaining <= 0 and runtime.pendingSpecReload then
+                RunScheduledSpecReload()
+            end
+        end)
+    end
+    runtime.specReloadDispatchFrame:Show()
 end
 
 local function HandleCustomTimedAuraEvent(event, ...)
