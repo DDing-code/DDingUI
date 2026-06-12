@@ -1288,7 +1288,7 @@ function DynamicIconBridge:RefreshAuraEventRegistration()
     local suppressed = self:GetSuppressedSpellIDs()
     local hasSuppressed = next(suppressed) ~= nil
     if hasSuppressed then
-        frame:RegisterEvent("UNIT_AURA")
+        frame:RegisterUnitEvent("UNIT_AURA", "player")
         frame:RegisterEvent("PLAYER_REGEN_ENABLED")
     else
         frame:UnregisterEvent("UNIT_AURA")
