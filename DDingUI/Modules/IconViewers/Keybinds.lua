@@ -566,12 +566,9 @@ local function GetOrCreateKeybindText(icon, viewerSettingName)
     end
 
     local settings = GetKeybindSettings(viewerSettingName)
-    -- Parent to UIParent instead of icon to avoid Blizzard's EditMode child iteration
-    -- which causes "EnableSpellRangeCheck" errors when it encounters non-icon frames
-    keybindFrames[icon] = CreateFrame("Frame", nil, UIParent)
-    keybindFrames[icon]:SetFrameStrata(icon:GetFrameStrata()) -- [12.0.1] match icon strata
+    keybindFrames[icon] = CreateFrame("Frame", nil, icon)
     keybindFrames[icon]:SetFrameLevel(icon:GetFrameLevel() + 12) -- [12.0.1] above all overlays
-    keybindFrames[icon]:SetAllPoints(icon)  -- Follow icon position
+    keybindFrames[icon]:SetAllPoints(icon)
     local keybindText = keybindFrames[icon]:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
     keybindText:SetPoint(settings.anchor, icon, settings.anchor, settings.offsetX, settings.offsetY)
     keybindText:SetTextColor(unpack(settings.fontColor))
@@ -580,22 +577,6 @@ local function GetOrCreateKeybindText(icon, viewerSettingName)
     keybindText:SetDrawLayer("OVERLAY", 7)
 
     keybindFrames[icon].text = keybindText
-
-    -- Sync visibility and alpha with icon (alpha follows parent chain,
-    -- so FlightHide fading the viewer will also fade keybind text)
-    keybindFrames[icon]:SetScript("OnUpdate", function(self)
-        self:SetShown(icon:IsShown())
-        self:SetAlpha(icon:GetEffectiveAlpha())
-        -- [12.0.1] keep strata/level in sync if icon changes dynamically
-        local iconStrata = icon:GetFrameStrata()
-        if self:GetFrameStrata() ~= iconStrata then
-            self:SetFrameStrata(iconStrata)
-        end
-        local targetLevel = icon:GetFrameLevel() + 12
-        if self:GetFrameLevel() ~= targetLevel then
-            self:SetFrameLevel(targetLevel)
-        end
-    end)
 
     return keybindFrames[icon].text
 end
@@ -607,6 +588,16 @@ local function ApplyKeybindTextSettings(icon, viewerSettingName)
 
     local settings = GetKeybindSettings(viewerSettingName)
     local keybindText = GetOrCreateKeybindText(icon, viewerSettingName)
+    local keybindFrame = keybindFrames[icon]
+
+    if keybindFrame then
+        if keybindFrame:GetParent() ~= icon then
+            keybindFrame:SetParent(icon)
+            keybindFrame:ClearAllPoints()
+            keybindFrame:SetAllPoints(icon)
+        end
+        keybindFrame:SetFrameLevel(icon:GetFrameLevel() + 12)
+    end
 
     keybindFrames[icon]:Show()
     keybindText:ClearAllPoints()
