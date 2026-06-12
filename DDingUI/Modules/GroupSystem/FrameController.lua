@@ -80,7 +80,6 @@ local CONFIG = {
     BURST_THROTTLE    = 0.05,   -- ~20fps (30fps → 20fps)
     WATCHDOG_THROTTLE = 0.25,   -- 4fps (안정화 후 느린 스캔)
     BURST_TICKS       = 8,      -- 15틱 → 8틱 (0.4초 burst)
-    IDLE_TIMEOUT      = 1.0,    -- 2초 → 1초 (idle 후 OnUpdate 비활성화)
 }
 
 -- ============================================================
@@ -261,11 +260,10 @@ EnablePolling = function()
             state.burstTicksRemaining = state.burstTicksRemaining - 1
         end
 
-        -- idle 체크 — 일정 시간 변경 없으면 비활성화
+        -- idle 체크 — 안정 스캔 후 변경 대기 상태가 아니면 즉시 비활성화
         if not state.dirty
             and not state.pendingReconcile
             and state.burstTicksRemaining <= 0
-            and (now - state.lastActivityTime) >= CONFIG.IDLE_TIMEOUT
         then
             FrameController:DisablePolling()
         end
@@ -1246,8 +1244,9 @@ function FrameController:Reconcile()
     state.talentChangeDetected = false
     state.isProcessing = false
     state.dirty = false -- [CDM] 이번 스캔 완료 → dirty 해제
+    state.burstTicksRemaining = 0
     state.reconcileCount = state.reconcileCount + 1
-    -- OnUpdate 폴링이 watchdog(250ms)으로 자동 재스캔 → 수동 followup 불필요
+    -- 이후 변경은 훅/이벤트가 다시 dirty를 켜서 처리한다.
 end
 
 -- ============================================================
