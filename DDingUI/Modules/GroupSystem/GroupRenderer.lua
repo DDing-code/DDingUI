@@ -237,6 +237,86 @@ local GROUP_VIEWER_MAP = {
     ["Utility"]   = "UtilityCooldownViewer",
 }
 
+local hideLayoutPendingContainers = {}
+local hideLayoutDispatchFrame = CreateFrame("Frame")
+local hideLayoutDispatchDelay = 0
+
+hideLayoutDispatchFrame:Hide()
+
+local function FlushContainerHideLayouts()
+    for p in pairs(hideLayoutPendingContainers) do
+        hideLayoutPendingContainers[p] = nil
+        p._ddLayoutPending = nil
+
+        if p and p._isDDContainer and not InCombatLockdown() then
+            local gn = p._groupName
+            local cachedGS = p._groupSettings
+            if gn and cachedGS then
+                local vn2 = GROUP_VIEWER_MAP[gn]
+                local ls = {
+                    iconSize = cachedGS.iconSize or 32,
+                    aspectRatioCrop = cachedGS.aspectRatioCrop or 1.0,
+                    spacing = cachedGS.spacing or 2,
+                    primaryDirection = cachedGS.direction or "RIGHT",
+                    secondaryDirection = cachedGS.growDirection,
+                    rowLimit = cachedGS.rowLimit or 0,
+                    rowIconSizes = cachedGS.rowIconSizes,
+                }
+                GroupRenderer:LayoutGroup(p, ls, vn2)
+            end
+
+            local anyVis = false
+            for i = 1, (p._iconCount or 0) do
+                local ic = p._managedIcons[i]
+                if ic and ic:IsShown() then
+                    anyVis = true
+                    break
+                end
+            end
+
+            local holdHiddenCDM = false
+            local holdFC = GetFC()
+            if holdFC and holdFC.IsScanHoldActive and holdFC:IsScanHoldActive() then
+                holdHiddenCDM = true
+            end
+
+            if not anyVis and not holdHiddenCDM then
+                p:Hide()
+                if DDingUI.ContainerSync then
+                    DDingUI.ContainerSync:SyncAll()
+                end
+            end
+        end
+    end
+end
+
+hideLayoutDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+    hideLayoutDispatchDelay = hideLayoutDispatchDelay - elapsed
+    if hideLayoutDispatchDelay > 0 then
+        return
+    end
+
+    self:Hide()
+    hideLayoutDispatchDelay = 0
+    FlushContainerHideLayouts()
+end)
+
+local function QueueContainerHideLayout(container)
+    if not (container and container._isDDContainer and container._groupName) then
+        return
+    end
+    if container._ddLayoutPending then
+        return
+    end
+
+    container._ddLayoutPending = true
+    hideLayoutPendingContainers[container] = true
+    if not hideLayoutDispatchFrame:IsShown() then
+        hideLayoutDispatchDelay = 0.03
+    end
+    hideLayoutDispatchFrame:Show()
+end
+
 local function GroupUsesDurationText(groupName, groupSettings)
     return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
 end
@@ -2234,47 +2314,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     if not gn then return end
 
                     -- 디바운스: 0.03초 후 한 번만 레이아웃
-                    if not p._ddLayoutPending then
-                        p._ddLayoutPending = true
-                        C_Timer.After(0.03, function()
-                            p._ddLayoutPending = nil
-                            if not (p and p._isDDContainer) then return end
-                            if InCombatLockdown() then return end -- [FIX] 전투 중 SetSize 보호
-
-                            -- [FIX] 캐시된 groupSettings 사용 (viewer settings 대신)
-                            local cachedGS = p._groupSettings
-                            if cachedGS then
-                                local vn2 = GROUP_VIEWER_MAP[gn]
-                                local ls = {
-                                    iconSize = cachedGS.iconSize or 32,
-                                    aspectRatioCrop = cachedGS.aspectRatioCrop or 1.0,
-                                    spacing = cachedGS.spacing or 2,
-                                    primaryDirection = cachedGS.direction or "RIGHT",
-                                    secondaryDirection = cachedGS.growDirection,
-                                    rowLimit = cachedGS.rowLimit or 0,
-                                    rowIconSizes = cachedGS.rowIconSizes,
-                                }
-                                GroupRenderer:LayoutGroup(p, ls, vn2)
-                            end
-                            -- 모든 아이콘이 숨겨졌으면 그룹 프레임도 숨기기
-                            local anyVis = false
-                            for i = 1, (p._iconCount or 0) do
-                                local ic = p._managedIcons[i]
-                                if ic and ic:IsShown() then anyVis = true; break end
-                            end
-                            local holdHiddenCDM = false
-                            local holdFC = GetFC()
-                            if holdFC and holdFC.IsScanHoldActive and holdFC:IsScanHoldActive() then
-                                holdHiddenCDM = true
-                            end
-                            if not anyVis and not holdHiddenCDM then
-                                p:Hide()
-                                if DDingUI.ContainerSync then
-                                    DDingUI.ContainerSync:SyncAll()
-                                end
-                            end
-                        end)
-                    end
+                    QueueContainerHideLayout(p)
                 end)
             end
         end
