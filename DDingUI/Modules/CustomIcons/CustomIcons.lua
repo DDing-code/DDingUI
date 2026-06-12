@@ -5105,6 +5105,68 @@ function runtime.AddCustomFallbackItemTargets(settings, iconKey)
     end
 end
 
+function runtime.BuildCustomCooldownWatchSignature(db)
+    db = db or GetDynamicDB()
+    if not db or type(runtime.iconFrames) ~= "table" then return "" end
+
+    local parts = {}
+    for iconKey, frame in pairs(runtime.iconFrames) do
+        local iconData = frame and db.iconData and db.iconData[iconKey]
+        if iconData then
+            local iconType = iconData.type or ""
+            local settings = iconData.settings or {}
+            local base = tostring(iconKey) .. ":" .. tostring(iconType)
+            if iconType == "item" then
+                parts[#parts + 1] = table.concat({
+                    base,
+                    tostring(iconData.id or ""),
+                    tostring(settings.fallbackItems or ""),
+                }, ":")
+            elseif iconType == "slot" then
+                parts[#parts + 1] = base .. ":" .. tostring(iconData.slotID or "")
+            elseif iconType == "trinketProc" then
+                local procSpellID = SafeNumber(settings.procSpellID)
+                if not procSpellID then
+                    local itemID = CustomIcons.GetEquippedSlotItemID(frame, iconData.slotID)
+                    if itemID then
+                        pcall(function()
+                            local _, itemSpellID = C_Item.GetItemSpell(itemID)
+                            procSpellID = SafeNumber(itemSpellID)
+                        end)
+                    end
+                end
+                parts[#parts + 1] = table.concat({
+                    base,
+                    tostring(iconData.slotID or ""),
+                    tostring(settings.showItemCooldown ~= false),
+                    tostring(procSpellID or ""),
+                    tostring(SafeNumber(frame._cachedBuffSpellID) or ""),
+                    tostring(SafeNumber(frame._cachedProcAuraInstanceID) or ""),
+                }, ":")
+            elseif iconType == "aura" then
+                if not GetCustomTimedAuraConfig(iconData) then
+                    local candidates = BuildAuraCandidateIDs(frame, iconData)
+                    table.sort(candidates)
+                    local candidateParts = {}
+                    for index, candidateID in ipairs(candidates) do
+                        candidateParts[index] = tostring(candidateID)
+                    end
+                    parts[#parts + 1] = table.concat({
+                        base,
+                        tostring(iconData.id or ""),
+                        table.concat(candidateParts, ","),
+                        tostring(SafeNumber(frame._cachedAuraInstanceID) or ""),
+                    }, ":")
+                end
+            elseif iconType == "spell" or iconType == "racial" then
+                parts[#parts + 1] = base .. ":" .. tostring(iconData.id or "")
+            end
+        end
+    end
+    table.sort(parts)
+    return table.concat(parts, ";")
+end
+
 function runtime.PrimeCustomCooldownWatcherStates()
     local watcher = runtime.cooldownWatcher
     runtime.ClearCustomCooldownTable(watcher.itemStates)
@@ -5123,6 +5185,14 @@ function runtime.RegisterCustomCooldownWatches()
     local watcher = runtime.EnsureCustomCooldownWatcher()
     if not watcher then return end
     local db = GetDynamicDB()
+    local watchSignature = runtime.BuildCustomCooldownWatchSignature(db)
+    if watcher.watchSignature == watchSignature then
+        runtime.RefreshCustomIconEventRegistration()
+        runtime.RefreshCustomCooldownWatcherEvent()
+        return
+    end
+
+    watcher.watchSignature = watchSignature
     runtime.ClearCustomCooldownTable(watcher.itemTargets)
     runtime.ClearCustomCooldownTable(watcher.slotTargets)
     watcher.auraSpellTargets = watcher.auraSpellTargets or {}
