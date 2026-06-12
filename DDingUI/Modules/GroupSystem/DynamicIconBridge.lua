@@ -74,6 +74,100 @@ local hiddenCDMFrames = {}  -- [frame] = cooldownID (CDM 숨김 추적)
 local SUPPRESSED_SPELL_CACHE_TTL = 0.15
 local suppressedSpellCache = nil
 local suppressedSpellCacheAt = 0
+local BuildDynamicLayoutStateHash
+local BuildCombinedHashFromSourceHashes
+
+local function ExecutePendingIconsChanged(bridge)
+    local pendingForce = bridge._pendingForceLayout
+    local pendingSourcesKnown = bridge._pendingChangedSourcesKnown
+    local pendingSourceKeys = bridge._pendingChangedSourceKeys
+    bridge._updatePending = false
+    bridge._pendingForceLayout = false
+    bridge._pendingChangedSourcesKnown = false
+    bridge._pendingChangedSourceKeys = nil
+    bridge._updateDelayRemaining = 0
+    if not initialized then return end
+
+    local previousHash = bridge._lastAppliedLayoutStateHash
+    local previousSourceHashes = bridge._lastAppliedSourceLayoutStateHashes
+    local targetedSources = pendingSourcesKnown and not pendingForce and previousHash and type(previousSourceHashes) == "table"
+    local currentHash, sourceHashes = BuildDynamicLayoutStateHash(targetedSources and pendingSourceKeys or nil)
+    if not pendingForce then
+        if targetedSources then
+            local changedSources
+            local mergedSourceHashes = {}
+            for sourceKey, hash in pairs(previousSourceHashes) do
+                mergedSourceHashes[sourceKey] = hash
+            end
+            for sourceKey in pairs(pendingSourceKeys or {}) do
+                local hash = sourceHashes and sourceHashes[sourceKey] or ""
+                if previousSourceHashes[sourceKey] ~= hash then
+                    changedSources = changedSources or {}
+                    changedSources[sourceKey] = true
+                    mergedSourceHashes[sourceKey] = hash
+                end
+            end
+            if not changedSources then
+                return
+            end
+            sourceHashes = mergedSourceHashes
+            currentHash = BuildCombinedHashFromSourceHashes(sourceHashes)
+        elseif currentHash == previousHash then
+            return
+        end
+        bridge._lastAppliedLayoutStateHash = currentHash
+        bridge._lastQueuedLayoutStateHash = currentHash
+        bridge._lastAppliedSourceLayoutStateHashes = sourceHashes
+    else
+        bridge._lastAppliedLayoutStateHash = currentHash
+        bridge._lastQueuedLayoutStateHash = currentHash
+        bridge._lastAppliedSourceLayoutStateHashes = sourceHashes
+    end
+
+    local gs = DDingUI.GroupSystem
+    if not pendingForce and previousHash and type(sourceHashes) == "table" and type(previousSourceHashes) == "table" then
+        local changedSources
+        for sourceKey, hash in pairs(sourceHashes) do
+            if previousSourceHashes[sourceKey] ~= hash then
+                changedSources = changedSources or {}
+                changedSources[sourceKey] = true
+            end
+        end
+        for sourceKey in pairs(previousSourceHashes) do
+            if sourceHashes[sourceKey] == nil then
+                changedSources = changedSources or {}
+                changedSources[sourceKey] = true
+            end
+        end
+        if changedSources and gs and gs.UpdateDynamicSourceGroups and gs:UpdateDynamicSourceGroups(changedSources) then
+            return
+        end
+    end
+    if gs and gs.DoFullUpdate then
+        gs:DoFullUpdate()
+    end
+end
+
+local function EnsureIconsChangedDispatchFrame(bridge)
+    if bridge._iconsChangedDispatchFrame then return end
+    local frame = CreateFrame("Frame")
+    frame:Hide()
+    frame._bridge = bridge
+    frame:SetScript("OnUpdate", function(dispatchFrame, elapsed)
+        local owner = dispatchFrame._bridge
+        if not owner or not owner._updatePending then
+            dispatchFrame:Hide()
+            return
+        end
+        owner._updateDelayRemaining = (owner._updateDelayRemaining or 0) - (elapsed or 0)
+        if owner._updateDelayRemaining > 0 then
+            return
+        end
+        dispatchFrame:Hide()
+        ExecutePendingIconsChanged(owner)
+    end)
+    bridge._iconsChangedDispatchFrame = frame
+end
 
 local function InvalidateSuppressedSpellCache()
     suppressedSpellCache = nil
@@ -785,7 +879,7 @@ end
 
 -- [FIX] zoom + 종횡비 크롭을 결합한 TexCoord 적용
 -- CustomIcons의 ApplyAspectRatioCrop과 동일한 로직
-local function BuildDynamicLayoutStateHash(sourceFilter)
+BuildDynamicLayoutStateHash = function(sourceFilter)
     local db = GetDynamicDB()
     if not db then return "" end
     local inCombat = InCombatLockdown and InCombatLockdown()
@@ -873,7 +967,7 @@ local function BuildDynamicLayoutStateHash(sourceFilter)
     return table_concat(parts, ";"), sourceHashes
 end
 
-local function BuildCombinedHashFromSourceHashes(sourceHashes)
+BuildCombinedHashFromSourceHashes = function(sourceHashes)
     local parts = {}
     for sourceKey, sourceHash in pairs(sourceHashes or {}) do
         if sourceHash and sourceHash ~= "" then
@@ -1485,6 +1579,14 @@ function DynamicIconBridge:Shutdown()
         self._startupAuraScanTimer:Cancel()
         self._startupAuraScanTimer = nil
     end
+    if self._iconsChangedDispatchFrame then
+        self._iconsChangedDispatchFrame:Hide()
+    end
+    self._updatePending = false
+    self._pendingForceLayout = false
+    self._pendingChangedSourcesKnown = false
+    self._pendingChangedSourceKeys = nil
+    self._updateDelayRemaining = 0
 
     -- CDM 프레임 숨김 해제
     for frame in pairs(hiddenCDMFrames) do
@@ -1530,75 +1632,7 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     self._pendingForceLayout = forceLayout and true or false
     self._pendingChangedSourcesKnown = changedSourceKeys ~= nil
     self._pendingChangedSourceKeys = changedSourceKeys
-
-    C_Timer.After(inCombat and 0.3 or 0.16, function()
-        local pendingForce = self._pendingForceLayout
-        local pendingSourcesKnown = self._pendingChangedSourcesKnown
-        local pendingSourceKeys = self._pendingChangedSourceKeys
-        self._updatePending = false
-        self._pendingForceLayout = false
-        self._pendingChangedSourcesKnown = false
-        self._pendingChangedSourceKeys = nil
-        if not initialized then return end
-
-        local previousHash = self._lastAppliedLayoutStateHash
-        local previousSourceHashes = self._lastAppliedSourceLayoutStateHashes
-        local targetedSources = pendingSourcesKnown and not pendingForce and previousHash and type(previousSourceHashes) == "table"
-        local currentHash, sourceHashes = BuildDynamicLayoutStateHash(targetedSources and pendingSourceKeys or nil)
-        if not pendingForce then
-            if targetedSources then
-                local changedSources
-                local mergedSourceHashes = {}
-                for sourceKey, hash in pairs(previousSourceHashes) do
-                    mergedSourceHashes[sourceKey] = hash
-                end
-                for sourceKey in pairs(pendingSourceKeys or {}) do
-                    local hash = sourceHashes and sourceHashes[sourceKey] or ""
-                    if previousSourceHashes[sourceKey] ~= hash then
-                        changedSources = changedSources or {}
-                        changedSources[sourceKey] = true
-                        mergedSourceHashes[sourceKey] = hash
-                    end
-                end
-                if not changedSources then
-                    return
-                end
-                sourceHashes = mergedSourceHashes
-                currentHash = BuildCombinedHashFromSourceHashes(sourceHashes)
-            elseif currentHash == previousHash then
-                return
-            end
-            self._lastAppliedLayoutStateHash = currentHash
-            self._lastQueuedLayoutStateHash = currentHash
-            self._lastAppliedSourceLayoutStateHashes = sourceHashes
-        else
-            self._lastAppliedLayoutStateHash = currentHash
-            self._lastQueuedLayoutStateHash = currentHash
-            self._lastAppliedSourceLayoutStateHashes = sourceHashes
-        end
-
-        -- GroupInit의 DoFullUpdate 호출
-        local gs = DDingUI.GroupSystem
-        if not pendingForce and previousHash and type(sourceHashes) == "table" and type(previousSourceHashes) == "table" then
-            local changedSources
-            for sourceKey, hash in pairs(sourceHashes) do
-                if previousSourceHashes[sourceKey] ~= hash then
-                    changedSources = changedSources or {}
-                    changedSources[sourceKey] = true
-                end
-            end
-            for sourceKey in pairs(previousSourceHashes) do
-                if sourceHashes[sourceKey] == nil then
-                    changedSources = changedSources or {}
-                    changedSources[sourceKey] = true
-                end
-            end
-            if changedSources and gs and gs.UpdateDynamicSourceGroups and gs:UpdateDynamicSourceGroups(changedSources) then
-                return
-            end
-        end
-        if gs and gs.DoFullUpdate then
-            gs:DoFullUpdate()
-        end
-    end)
+    self._updateDelayRemaining = inCombat and 0.3 or 0.16
+    EnsureIconsChangedDispatchFrame(self)
+    self._iconsChangedDispatchFrame:Show()
 end
