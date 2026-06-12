@@ -3670,6 +3670,21 @@ local function HasItemCooldownIcon()
     return false
 end
 
+function runtime.HasUnitAuraScanIcon()
+    local db = GetDynamicDB()
+    for _, iconData in pairs((db and db.iconData) or {}) do
+        if type(iconData) == "table" then
+            if iconData.type == "trinketProc" then
+                return true
+            end
+            if iconData.type == "aura" and not GetCustomTimedAuraConfig(iconData) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function RefreshItemCooldownIcons(needsLayoutNotify)
     if runtime.QueueCustomCooldownIconRefresh then
         runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify)
@@ -3763,6 +3778,9 @@ local function EnsureEventFrame()
         local customTimedChanged = HandleCustomTimedAuraEvent(event, ...)
         local succeededSpellID = event == "UNIT_SPELLCAST_SUCCEEDED" and SafeNumber(select(3, ...)) or nil
         local isRacialSpellcast = succeededSpellID and succeededSpellID == GetPlayerRacialSpellID()
+        local requiresAuraScan = event == "UNIT_AURA"
+            and runtime.HasUnitAuraScanIcon
+            and runtime.HasUnitAuraScanIcon()
         if event == "UNIT_SPELLCAST_SENT" then return end
         if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
             or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
@@ -3799,7 +3817,7 @@ local function EnsureEventFrame()
             or event == "ITEM_COUNT_CHANGED"
         then
             needsLayoutNotify = "force"
-        elseif event == "UNIT_AURA" then
+        elseif event == "UNIT_AURA" and requiresAuraScan then
             needsLayoutNotify = "aura"
         end
 
@@ -3819,7 +3837,7 @@ local function EnsureEventFrame()
         end
 
         local updateFilter = nil
-        if customTimedChanged or event == "UNIT_AURA" then
+        if customTimedChanged or (event == "UNIT_AURA" and requiresAuraScan) then
             updateFilter = "aura"
         elseif isItemCooldownEvent
             or event == "UNIT_INVENTORY_CHANGED"
@@ -3827,6 +3845,9 @@ local function EnsureEventFrame()
             or event == "BAG_UPDATE"
         then
             updateFilter = "cooldown"
+        end
+        if not updateFilter and not needsLayoutNotify then
+            return
         end
         UpdateAllIcons(needsLayoutNotify, updateFilter)
     end)
