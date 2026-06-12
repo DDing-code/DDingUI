@@ -1497,6 +1497,11 @@ function DynamicIconBridge:RefreshAuraEventRegistration()
 
     local suppressed = self:GetSuppressedSpellIDs()
     local hasSuppressed = next(suppressed) ~= nil
+    if self._auraEventsRegistered == hasSuppressed then
+        return
+    end
+
+    self._auraEventsRegistered = hasSuppressed
     if hasSuppressed then
         frame:RegisterUnitEvent("UNIT_AURA", "player")
         frame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1606,6 +1611,9 @@ function DynamicIconBridge:Shutdown()
     if self._hideScanDispatchFrame then
         self._hideScanDispatchFrame:Hide()
     end
+    if self._auraEventFrame then
+        self._auraEventFrame:UnregisterAllEvents()
+    end
     self._updatePending = false
     self._pendingForceLayout = false
     self._pendingChangedSourcesKnown = false
@@ -1614,6 +1622,7 @@ function DynamicIconBridge:Shutdown()
     self._pendingHideScan = false
     self._pendingScanNotify = false
     self._hideScanDelayRemaining = 0
+    self._auraEventsRegistered = nil
 
     -- CDM 프레임 숨김 해제
     for frame in pairs(hiddenCDMFrames) do
@@ -1639,7 +1648,9 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     if not initialized then return end
     if not layoutSuppressed then return end
 
-    self:RefreshAuraEventRegistration()
+    if forceLayout then
+        self:RefreshAuraEventRegistration()
+    end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
     local changedSourceKeys = (not forceLayout) and GetSourceKeysForIconKeys(changedIconKeys) or nil
