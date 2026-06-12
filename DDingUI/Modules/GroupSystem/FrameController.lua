@@ -927,6 +927,7 @@ function FrameController:ScanCDMViewers()
     local activeFrameCount = 0
     local hiddenFrameCount = 0
     local unsafeKeyCount = 0
+    local spellNameChanged = false
 
     -- [REPARENT] DDingUI 프로필 참조 — 뷰어 활성화 상태 확인
     local profile = DDingUI.db and DDingUI.db.profile
@@ -1044,6 +1045,9 @@ function FrameController:ScanCDMViewers()
                         -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
                         local name = self:GetSpellName(icon)
                         if name then
+                            if iconSpellNameMap[cooldownID] ~= name then
+                                spellNameChanged = true
+                            end
                             iconSpellNameMap[cooldownID] = name
                         end
 
@@ -1139,7 +1143,17 @@ function FrameController:ScanCDMViewers()
         state.scanHoldActive = true
         state.scanHoldStartedAt = GetTime and GetTime() or 0
         DLog("ScanHold: prev=" .. previousCount .. " next=" .. nextCount .. " active=" .. activeFrameCount .. " hidden=" .. hiddenFrameCount .. " unsafe=" .. unsafeKeyCount)
-        return false
+        return false, false
+    end
+
+    local mapChanged = spellNameChanged or previousCount ~= nextCount
+    if not mapChanged then
+        for cooldownID, icon in pairs(nextIdIconMap) do
+            if idIconMap[cooldownID] ~= icon or iconSourceMap[cooldownID] ~= nextIconSourceMap[cooldownID] then
+                mapChanged = true
+                break
+            end
+        end
     end
 
     wipe(idIconMap)
@@ -1163,10 +1177,8 @@ function FrameController:ScanCDMViewers()
         DLog("ScanDone: idIconMap=" .. count .. " entries")
     end
 
-    -- [CDM REACTIVE] 고아 정리 없음.
-    -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
-    -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
-    return true
+    -- Reconcile마다 풀을 스캔하되, 후속 렌더는 맵/이름 변경 시에만 실행한다.
+    return true, mapChanged
 end
 
 -- 하위 호환 별칭
@@ -1208,7 +1220,10 @@ function FrameController:Reconcile()
     end
 
     -- 1. CDM 뷰어 스캔 (맵 재구축)
-    local scanAccepted = self:ScanCDMViewers()
+    local forceNotify = state.specChangeDetected
+        or state.talentChangeDetected
+        or (state.reconcileCount or 0) == 0
+    local scanAccepted, scanChanged = self:ScanCDMViewers()
     if scanAccepted == false then
         state.isProcessing = false
         state.dirty = true
@@ -1217,9 +1232,11 @@ function FrameController:Reconcile()
 
     -- 2. 콜백 알림 (GroupInit → DoFullUpdate)
     -- [PERF] scanCompleted 플래그: NotifyUpdate → DoFullUpdate에서 ScanCDMViewers 이중 호출 방지
-    state.scanCompleted = true
-    self:NotifyUpdate()
-    state.scanCompleted = false
+    if forceNotify or scanChanged then
+        state.scanCompleted = true
+        self:NotifyUpdate()
+        state.scanCompleted = false
+    end
 
     -- 3. [COOLDOWN TIMER] 만료 감지는 SetupFrameInContainer에서 alpha=0으로 처리
     -- CDM pool sync 불필요 — 매 Reconcile 틱마다 cooldown 시간 체크
