@@ -1371,12 +1371,25 @@ local function BuildBuffTrackerEventKey(needs)
         .. (needs.hasManualTracking and "M" or "-")
 end
 
+local function BuffTrackerHasManualExpiration(trackedBuffs)
+    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
+    for barIndex, buff in ipairs(trackedBuffs) do
+        if buff and buff.enabled ~= false and buff.trackingMode == "manual" and buff.settings then
+            local _, expiresAt = GetManualStacks(barIndex)
+            if expiresAt and expiresAt > 0 then
+                return true
+            end
+        end
+    end
+    return manualExpiresAt and manualExpiresAt > 0 or false
+end
+
 local function BuffTrackerNeedsExpirationTicker(trackedBuffs, rootCfg, specCfg)
     if isInPreviewMode or isInMoverMode then
         return false
     end
     local needs = GetBuffTrackerEventNeeds(trackedBuffs, rootCfg, specCfg)
-    return needs and needs.hasTracked and needs.hasManualTracking
+    return needs and needs.hasTracked and needs.hasManualTracking and BuffTrackerHasManualExpiration(trackedBuffs)
 end
 
 SetBuffTrackerEventsEnabled = function(enabled, trackedBuffs, rootCfg, specCfg)
@@ -2013,6 +2026,9 @@ StartBuffTrackerTicker = function()
         local needsUpdate = CheckExpirations()
         if needsUpdate or isInPreviewMode or isInMoverMode then
             QueueBuffTrackerUpdate("ticker", 0)
+        end
+        if not BuffTrackerHasManualExpiration() and not isInPreviewMode and not isInMoverMode then
+            StopBuffTrackerTicker()
         end
     end)
 end
