@@ -88,6 +88,10 @@ local function ExecutePendingIconsChanged(bridge)
     bridge._updateDelayRemaining = 0
     if not initialized then return end
 
+    if pendingForce then
+        bridge:RefreshAuraEventRegistration()
+    end
+
     local previousHash = bridge._lastAppliedLayoutStateHash
     local previousSourceHashes = bridge._lastAppliedSourceLayoutStateHashes
     local targetedSources = pendingSourcesKnown and not pendingForce and previousHash and type(previousSourceHashes) == "table"
@@ -1647,10 +1651,6 @@ end
 function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     if not initialized then return end
     if not layoutSuppressed then return end
-
-    if forceLayout then
-        self:RefreshAuraEventRegistration()
-    end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
     local changedSourceKeys = (not forceLayout) and GetSourceKeysForIconKeys(changedIconKeys) or nil
