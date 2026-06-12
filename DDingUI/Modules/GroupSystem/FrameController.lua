@@ -200,10 +200,16 @@ local pollingFrame = CreateFrame("Frame")
 
 -- dirty 마킹 — 모든 CDM 훅에서 이것만 호출
 local function MarkDirty()
-    if state.isProcessing then return end
+    local now = GetTime()
+    if state.isProcessing then
+        state.pendingReconcile = true
+        state.lastActivityTime = now
+        state.nextUpdateTime = 0
+        return
+    end
     state.dirty = true
     state.burstTicksRemaining = CONFIG.BURST_TICKS
-    state.lastActivityTime = GetTime()
+    state.lastActivityTime = now
     state.nextUpdateTime = 0
 end
 
@@ -237,15 +243,17 @@ EnablePolling = function()
         local now = GetTime()
         if now < state.nextUpdateTime then return end
 
-        -- throttle: dirty/burst면 빠르게, 아니면 느리게
-        local throttle = (state.dirty or state.burstTicksRemaining > 0)
+        local needsReconcile = state.dirty or state.pendingReconcile
+
+        -- throttle: pending 갱신이 있으면 빠르게, 아니면 느리게
+        local throttle = needsReconcile
             and CONFIG.BURST_THROTTLE
             or CONFIG.WATCHDOG_THROTTLE
         state.nextUpdateTime = now + throttle
 
         -- Reconcile 실행 — 전투 중에도 실행 (개별 아이콘 Show/Hide는 무명 프레임이라 안전)
         -- 명명된 컨테이너 프레임(DDingUI_Group_*)의 Show/Hide/SetSize는 GroupRenderer에서 개별 가드
-        if not state.isProcessing then
+        if needsReconcile and not state.isProcessing then
             FrameController:Reconcile()
         end
 
@@ -256,6 +264,7 @@ EnablePolling = function()
 
         -- idle 체크 — 일정 시간 변경 없으면 비활성화
         if not state.dirty
+            and not state.pendingReconcile
             and state.burstTicksRemaining <= 0
             and (now - state.lastActivityTime) >= CONFIG.IDLE_TIMEOUT
         then
@@ -438,13 +447,14 @@ function FrameController:RefreshViewerRefs()
                 -- 새 뷰어에 Layout/Show/Hide 훅 설치
                 if not hookedViewerLayout[currentViewer] then
                     hookedViewerLayout[currentViewer] = true
-                    -- [CDM ForceReanchor] 동기 Reconcile 핸들러
-                    -- CDM 이벤트 완료 후 즉시 전체 재배치
+                    -- [CDM ForceReanchor] Layout 완료 후 갱신 예약
+                    -- 같은 프레임의 중복 전체 스캔을 피하고 다음 tick에서 한 번만 처리
                     local function PostLayoutHandler()
                         if not FrameController.initialized then return end
                         if state.isProcessing then return end
-                        DLog("PostLayoutHandler →", viewerGlobalName)
-                        FrameController:Reconcile()
+                        DLog("PostLayoutHandler")
+                        MarkDirty()
+                        if not state.pollingActive then EnablePolling() end
                     end
                     -- [1] UpdateLayout/Layout 훅 (CDM Main.lua:225)
                     if currentViewer.UpdateLayout then
