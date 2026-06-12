@@ -296,13 +296,22 @@ local QueueReadyGlowRefresh
 local readyGlowEventFrame
 local readyGlowEventsRegistered = false
 
+local function HasReadyGlowSettings()
+    local db = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.iconCustomization
+    local spells = db and db.spells
+    if not spells then return false end
+    for _, custom in pairs(spells) do
+        if custom and custom.readyGlow == true then
+            return true
+        end
+    end
+    return false
+end
+
 local function EnsureReadyGlowEvents()
     if not readyGlowEventFrame then
         readyGlowEventFrame = CreateFrame("Frame")
-        readyGlowEventFrame:SetScript("OnEvent", function(_, event, unit)
-            if event == "UNIT_AURA" and unit ~= "player" then
-                return
-            end
+        readyGlowEventFrame:SetScript("OnEvent", function(_, event)
             if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
                 if QueueReadyGlowRefresh then
                     QueueReadyGlowRefresh(true)
@@ -315,8 +324,16 @@ local function EnsureReadyGlowEvents()
         end)
     end
 
+    if not HasReadyGlowSettings() then
+        if readyGlowEventsRegistered then
+            readyGlowEventFrame:UnregisterAllEvents()
+            readyGlowEventsRegistered = false
+        end
+        return false
+    end
+
     if readyGlowEventsRegistered then
-        return
+        return true
     end
 
     readyGlowEventsRegistered = true
@@ -324,7 +341,7 @@ local function EnsureReadyGlowEvents()
     readyGlowEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
     readyGlowEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     readyGlowEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-    readyGlowEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    return true
 end
 
 
@@ -1184,6 +1201,7 @@ function IconCustomization:BuildIconCustomizationUI(parentFrame)
                 uiState.selectedSpellID = nil
                 uiState.selectedKey = nil
                 uiState.selectedViewerType = nil
+                EnsureReadyGlowEvents()
                 RefreshAllReadyGlows()
                 RefreshGUI()
             end)
@@ -1216,6 +1234,7 @@ function IconCustomization:BuildIconCustomizationUI(parentFrame)
                             end
                             db.spells[spellKey] = nil
                         end
+                        EnsureReadyGlowEvents()
                         -- Refresh (뷰어별)
                         RefreshAllReadyGlows(false, uiState.selectedSpellID, uiState.selectedViewerType)
                     end,
