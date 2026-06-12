@@ -52,6 +52,23 @@ local function ShouldRunViewerFallback()
     return not (DDingUI.GroupSystem and DDingUI.GroupSystem.enabled)
 end
 
+local function SetViewerFallbackEvents(frame, viewerName, enabled)
+    if not frame then return end
+    frame:UnregisterAllEvents()
+    if not enabled then
+        frame:SetScript("OnUpdate", nil)
+        return
+    end
+
+    if viewerName == "BuffIconCooldownViewer" then
+        frame:RegisterUnitEvent("UNIT_AURA", "player")
+    else
+        frame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        frame:RegisterEvent("BAG_UPDATE_COOLDOWN")
+        frame:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
+    end
+end
+
 function IconViewers:ApplyViewerSkin(viewer)
     if not viewer or not viewer.GetName then return end
     -- [FIX] CMC IsReady 패턴: 뷰어 초기화 미완료 시 스킵
@@ -201,6 +218,15 @@ end
 function IconViewers:HookViewers()
     for _, name in ipairs(viewers) do
         local viewer = _G[name]
+        if viewer and GetViewerState(viewer).hooked then
+            local vs = GetViewerState(viewer)
+            if vs.auraHook then
+                SetViewerFallbackEvents(vs.auraHook, name, ShouldRunViewerFallback())
+            end
+            if vs.cooldownHook then
+                SetViewerFallbackEvents(vs.cooldownHook, name, ShouldRunViewerFallback())
+            end
+        end
         if viewer and not GetViewerState(viewer).hooked then
             GetViewerState(viewer).hooked = true
 
@@ -233,9 +259,11 @@ function IconViewers:HookViewers()
                 local vs = GetViewerState(viewer)
                 if not vs.auraHook then
                     vs.auraHook = CreateFrame("Frame")
-                    vs.auraHook:RegisterUnitEvent("UNIT_AURA", "player")
-                    vs.auraHook:SetScript("OnEvent", function(_, _, unit)
-                        if not ShouldRunViewerFallback() then return end
+                    vs.auraHook:SetScript("OnEvent", function(self, _, unit)
+                        if not ShouldRunViewerFallback() then
+                            SetViewerFallbackEvents(self, name, false)
+                            return
+                        end
                         if unit == "player" and viewer:IsShown() and not vs.rescanDirty then
                             vs.rescanDirty = true
                             -- [CDM 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
@@ -254,15 +282,16 @@ function IconViewers:HookViewers()
                     end)
                 end
                 -- [P0] 뷰어 HookScript OnUpdate 제거 — ProcessPendingIcons는 이벤트 핸들러 내 통합 처리
+                SetViewerFallbackEvents(vs.auraHook, name, ShouldRunViewerFallback())
             else
                 local vs = GetViewerState(viewer)
                 if not vs.cooldownHook then
                     vs.cooldownHook = CreateFrame("Frame")
-                    vs.cooldownHook:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-                    vs.cooldownHook:RegisterEvent("BAG_UPDATE_COOLDOWN")
-                    vs.cooldownHook:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
                     vs.cooldownHook:SetScript("OnEvent", function(self)
-                        if not ShouldRunViewerFallback() then return end
+                        if not ShouldRunViewerFallback() then
+                            SetViewerFallbackEvents(self, name, false)
+                            return
+                        end
                         if viewer:IsShown() and not vs.rescanDirty then
                             vs.rescanDirty = true
                             -- [CDM 패턴] 클로저 생성 없이 OnUpdate 프로세서 활성화
@@ -281,6 +310,11 @@ function IconViewers:HookViewers()
                     end)
                 end
                 -- [P0] 뷰어 HookScript OnUpdate 제거 — ProcessPendingIcons는 이벤트 핸들러 내 통합 처리
+            end
+
+            local activeState = GetViewerState(viewer)
+            if activeState.cooldownHook then
+                SetViewerFallbackEvents(activeState.cooldownHook, name, ShouldRunViewerFallback())
             end
 
             self:ApplyViewerSkin(viewer)
