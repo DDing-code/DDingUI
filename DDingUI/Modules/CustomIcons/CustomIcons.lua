@@ -3673,13 +3673,6 @@ local function EnsureEventFrame()
     end
 
     -- Register for events that should trigger icon updates
-    runtime.eventFrame:RegisterEvent("BAG_UPDATE")                    -- Bag contents change
-    runtime.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")            -- Coalesced bag count changes
-    runtime.eventFrame:RegisterEvent("ITEM_COUNT_CHANGED")             -- Item counts change
-    runtime.eventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
-    runtime.eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
-    runtime.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")         -- Equipment changes
-    runtime.eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")       -- Equipment changes (alternative event)
     runtime.eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")  -- Spec change
     runtime.eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")   -- Talent group/spec change (alternative event)
     runtime.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")           -- Talent changes for Time Spiral glow filters
@@ -3687,7 +3680,6 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterEvent("SPELLS_CHANGED")                -- Spellbook changes (often after spec change)
     runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")        -- Trinket proc/custom buff tracking
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
-    runtime.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")           -- Clear healthstone-style combat lockouts
     runtime.eventFrame:RegisterEvent("PLAYER_DEAD")
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
@@ -4658,6 +4650,45 @@ function runtime.RefreshCustomCooldownWatcherEvent()
     end
 end
 
+function runtime.RefreshCustomIconEventRegistration()
+    if not runtime.eventFrame then return end
+    local watcher = runtime.cooldownWatcher
+    local hasItemEvents = watcher and (watcher.itemEventTargetCount or 0) > 0
+    local hasSpellEvents = watcher and (watcher.spellTargetCount or 0) > 0
+
+    if hasItemEvents then
+        runtime.eventFrame:RegisterEvent("BAG_UPDATE")
+        runtime.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        runtime.eventFrame:RegisterEvent("ITEM_COUNT_CHANGED")
+        runtime.eventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
+        runtime.eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
+        runtime.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+        runtime.eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        runtime.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    else
+        runtime.eventFrame:UnregisterEvent("BAG_UPDATE")
+        runtime.eventFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
+        runtime.eventFrame:UnregisterEvent("ITEM_COUNT_CHANGED")
+        runtime.eventFrame:UnregisterEvent("ARENA_COOLDOWNS_UPDATE")
+        runtime.eventFrame:UnregisterEvent("PVP_MATCH_STATE_CHANGED")
+        runtime.eventFrame:UnregisterEvent("UNIT_INVENTORY_CHANGED")
+        runtime.eventFrame:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        runtime.eventFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    end
+
+    if hasSpellEvents then
+        runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+        runtime.eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")
+        runtime.eventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    else
+        runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+        runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_CHARGES")
+        runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_USABLE")
+        runtime.eventFrame:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    end
+end
+
 function runtime.EvaluateCustomCooldownWatches()
     local watcher = runtime.cooldownWatcher
     if not watcher or (watcher.activeTargetCount or 0) <= 0 then return end
@@ -4821,19 +4852,24 @@ function runtime.RegisterCustomCooldownWatches()
     runtime.ClearCustomCooldownTable(watcher.itemTargets)
     runtime.ClearCustomCooldownTable(watcher.slotTargets)
     watcher.activeTargetCount = 0
+    watcher.itemEventTargetCount = 0
     watcher.spellTargetCount = 0
 
     for iconKey, frame in pairs(runtime.iconFrames) do
         local iconData = frame and db.iconData and db.iconData[iconKey]
         if iconData then
-            if iconData.type == "item" then
+            local iconType = iconData.type
+            if iconType == "item" or iconType == "slot" or iconType == "trinketProc" then
+                watcher.itemEventTargetCount = watcher.itemEventTargetCount + 1
+            end
+            if iconType == "item" then
                 runtime.AddCustomCooldownTarget(watcher.itemTargets, iconData.id, iconKey)
                 runtime.AddCustomFallbackItemTargets(iconData.settings, iconKey)
-            elseif iconData.type == "slot" then
+            elseif iconType == "slot" then
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
-            elseif iconData.type == "trinketProc" and (not iconData.settings or iconData.settings.showItemCooldown ~= false) then
+            elseif iconType == "trinketProc" and (not iconData.settings or iconData.settings.showItemCooldown ~= false) then
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
-            elseif iconData.type == "spell" or iconData.type == "racial" then
+            elseif iconType == "spell" or iconType == "racial" then
                 watcher.spellTargetCount = watcher.spellTargetCount + 1
             end
         end
@@ -4846,20 +4882,7 @@ function runtime.RegisterCustomCooldownWatches()
         watcher.activeTargetCount = watcher.activeTargetCount + 1
     end
 
-    if runtime.eventFrame then
-        if (watcher.spellTargetCount or 0) > 0 then
-            runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-            runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-            runtime.eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")
-            runtime.eventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
-        else
-            runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
-            runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_CHARGES")
-            runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_USABLE")
-            runtime.eventFrame:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
-        end
-    end
-
+    runtime.RefreshCustomIconEventRegistration()
     runtime.PrimeCustomCooldownWatcherStates()
     runtime.RefreshCustomCooldownWatcherEvent()
 end
