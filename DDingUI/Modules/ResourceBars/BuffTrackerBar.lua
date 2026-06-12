@@ -947,26 +947,50 @@ local IsBuffTrackerRuntimeEnabled
 local SetBuffTrackerEventsEnabled
 local trackedAuraSpellSet = {}
 local trackedAuraInstanceSet = {}
+local trackedAuraSpellIndexSet = {}
+local trackedAuraInstanceIndexSet = {}
+local trackedAuraTouchedIndexSet = {}
 local trackedAuraHasUnknown = false
 local trackedAuraFilterDirty = true
+local buffTrackerUpdateFull = false
+local buffTrackerTargetedIndices = {}
 
 local function MarkTrackedAuraFilterDirty()
     trackedAuraFilterDirty = true
 end
 
-local function AddTrackedAuraSpell(spellID)
+local function AddTrackedAuraIndex(map, id, barIndex)
+    if not id or not barIndex then return end
+    map[id] = map[id] or {}
+    map[id][barIndex] = true
+end
+
+local function CopyTrackedAuraIndices(id, sourceMap, targetMap)
+    local source = id and sourceMap and sourceMap[id]
+    if type(source) ~= "table" then return false end
+    local copied = false
+    for barIndex in pairs(source) do
+        targetMap[barIndex] = true
+        copied = true
+    end
+    return copied
+end
+
+local function AddTrackedAuraSpell(spellID, barIndex)
     spellID = tonumber(spellID) or 0
     if spellID <= 0 then
         return false
     end
 
     trackedAuraSpellSet[spellID] = true
+    AddTrackedAuraIndex(trackedAuraSpellIndexSet, spellID, barIndex)
     local aura = nil
     pcall(function()
         aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
     end)
     if aura and aura.auraInstanceID and not IsSecretValue(aura.auraInstanceID) then
         trackedAuraInstanceSet[aura.auraInstanceID] = true
+        AddTrackedAuraIndex(trackedAuraInstanceIndexSet, aura.auraInstanceID, barIndex)
     end
     return true
 end
@@ -993,19 +1017,21 @@ end
 local function RebuildTrackedAuraFilter(trackedBuffs, signature)
     wipe(trackedAuraSpellSet)
     wipe(trackedAuraInstanceSet)
+    wipe(trackedAuraSpellIndexSet)
+    wipe(trackedAuraInstanceIndexSet)
     trackedAuraHasUnknown = false
 
     trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
     ResourceBars._trackedAuraFilterSignature = signature or ResourceBars:BuildTrackedAuraFilterSignature(trackedBuffs)
-    for _, buff in ipairs(trackedBuffs) do
+    for barIndex, buff in ipairs(trackedBuffs) do
         if buff and buff.enabled ~= false and not buff.isGroup and buff.trackingMode ~= "manual" then
             local added = false
-            added = AddTrackedAuraSpell(buff.spellID) or added
+            added = AddTrackedAuraSpell(buff.spellID, barIndex) or added
             if not added then
                 local cooldownID = tonumber(buff.cooldownID) or 0
                 if cooldownID > 0 then
-                    added = AddTrackedAuraSpell(GetSpellIDFromCooldownID(cooldownID)) or added
-                    added = AddTrackedAuraSpell(cooldownID) or added
+                    added = AddTrackedAuraSpell(GetSpellIDFromCooldownID(cooldownID), barIndex) or added
+                    added = AddTrackedAuraSpell(cooldownID, barIndex) or added
                 end
             end
             if not added then
@@ -1034,14 +1060,24 @@ local function UnitAuraUpdateTouchesTrackedBuff(info)
         return false
     end
 
+    wipe(trackedAuraTouchedIndexSet)
+
     if info.addedAuras then
         for _, aura in ipairs(info.addedAuras) do
             local spellID = aura and aura.spellId
             if spellID and not IsSecretValue(spellID) and trackedAuraSpellSet[spellID] then
+                CopyTrackedAuraIndices(spellID, trackedAuraSpellIndexSet, trackedAuraTouchedIndexSet)
                 if aura.auraInstanceID and not IsSecretValue(aura.auraInstanceID) then
                     trackedAuraInstanceSet[aura.auraInstanceID] = true
+                    local indices = trackedAuraSpellIndexSet[spellID]
+                    if type(indices) == "table" then
+                        trackedAuraInstanceIndexSet[aura.auraInstanceID] = trackedAuraInstanceIndexSet[aura.auraInstanceID] or {}
+                        for barIndex in pairs(indices) do
+                            trackedAuraInstanceIndexSet[aura.auraInstanceID][barIndex] = true
+                        end
+                    end
                 end
-                return true
+                return true, next(trackedAuraTouchedIndexSet) and trackedAuraTouchedIndexSet or nil
             end
         end
     end
@@ -1049,7 +1085,8 @@ local function UnitAuraUpdateTouchesTrackedBuff(info)
     if info.updatedAuraInstanceIDs then
         for _, auraID in ipairs(info.updatedAuraInstanceIDs) do
             if auraID and not IsSecretValue(auraID) and trackedAuraInstanceSet[auraID] then
-                return true
+                CopyTrackedAuraIndices(auraID, trackedAuraInstanceIndexSet, trackedAuraTouchedIndexSet)
+                return true, next(trackedAuraTouchedIndexSet) and trackedAuraTouchedIndexSet or nil
             end
         end
     end
@@ -1057,8 +1094,10 @@ local function UnitAuraUpdateTouchesTrackedBuff(info)
     if info.removedAuraInstanceIDs then
         for _, auraID in ipairs(info.removedAuraInstanceIDs) do
             if auraID and not IsSecretValue(auraID) and trackedAuraInstanceSet[auraID] then
+                CopyTrackedAuraIndices(auraID, trackedAuraInstanceIndexSet, trackedAuraTouchedIndexSet)
                 trackedAuraInstanceSet[auraID] = nil
-                return true
+                trackedAuraInstanceIndexSet[auraID] = nil
+                return true, next(trackedAuraTouchedIndexSet) and trackedAuraTouchedIndexSet or nil
             end
         end
     end
@@ -1370,15 +1409,23 @@ buffTrackerDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
     end
 
     self:Hide()
+    local runFullUpdate = buffTrackerUpdateFull
+    local runTargetedUpdate = not runFullUpdate and next(buffTrackerTargetedIndices) ~= nil
     buffTrackerUpdatePending = false
     buffTrackerUpdateDelayRemaining = 0
+    buffTrackerUpdateFull = false
 
     if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
-        ResourceBars:UpdateBuffTrackerBar()
+        if runTargetedUpdate and ResourceBars.UpdateBuffTrackerBarIndices then
+            ResourceBars:UpdateBuffTrackerBarIndices(buffTrackerTargetedIndices)
+        else
+            ResourceBars:UpdateBuffTrackerBar()
+        end
     else
         if StopBuffTrackerTicker then StopBuffTrackerTicker() end
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
     end
+    wipe(buffTrackerTargetedIndices)
 end)
 
 buffTrackerStartupFrame = CreateFrame("Frame")
@@ -1518,16 +1565,33 @@ SetBuffTrackerEventsEnabled = function(enabled, trackedBuffs, rootCfg, specCfg)
     end
 end
 
-QueueBuffTrackerUpdate = function(reason, delay)
+QueueBuffTrackerUpdate = function(reason, delay, trackedIndices)
     if not IsBuffTrackerRuntimeEnabled() and not isInPreviewMode and not isInMoverMode then
         buffTrackerUpdatePending = false
         buffTrackerUpdateDelayRemaining = 0
+        buffTrackerUpdateFull = false
+        wipe(buffTrackerTargetedIndices)
         if buffTrackerDispatchFrame then buffTrackerDispatchFrame:Hide() end
         if StopBuffTrackerTicker then StopBuffTrackerTicker() end
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
         return
     end
-    if buffTrackerUpdatePending then return end
+    local hasTargetedIndices = type(trackedIndices) == "table" and next(trackedIndices) ~= nil
+    if hasTargetedIndices and not buffTrackerUpdateFull then
+        for barIndex in pairs(trackedIndices) do
+            buffTrackerTargetedIndices[barIndex] = true
+        end
+    else
+        buffTrackerUpdateFull = true
+        wipe(buffTrackerTargetedIndices)
+    end
+    if buffTrackerUpdatePending then
+        local nextDelay = delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03)
+        if nextDelay < (buffTrackerUpdateDelayRemaining or 0) then
+            buffTrackerUpdateDelayRemaining = nextDelay
+        end
+        return
+    end
 
     buffTrackerUpdatePending = true
     buffTrackerUpdateDelayRemaining = delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03)
@@ -1572,7 +1636,8 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_AURA" then
         local unit, unitAuraUpdateInfo = ...
         if unit == "player" then
-            if not UnitAuraUpdateTouchesTrackedBuff(unitAuraUpdateInfo) then
+            local touchesTracked, trackedIndices = UnitAuraUpdateTouchesTrackedBuff(unitAuraUpdateInfo)
+            if not touchesTracked then
                 return
             end
             -- 버프 갱신 감지: updatedAuraInstanceIDs를 저장해서 UpdateSingleTrackedBuffRing에서 처리
@@ -1583,7 +1648,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                     ResourceBars._pendingAuraUpdates[updatedAuraID] = GetTime()
                 end
             end
-            QueueBuffTrackerUpdate("unit-aura")
+            QueueBuffTrackerUpdate("unit-aura", nil, trackedIndices)
         end
         return
     end
@@ -3065,6 +3130,120 @@ local function CheckActivationCondition(trackedBuff)
     end
 
     return true
+end
+
+function ResourceBars:BuildTrackedBuffGroupChildSet(trackedBuffs)
+    local groupChildSet = {}
+    for _, buff in ipairs(trackedBuffs or {}) do
+        if buff and buff.isGroup and buff.controlledChildren then
+            for _, childIdx in ipairs(buff.controlledChildren) do
+                groupChildSet[childIdx] = true
+            end
+        end
+    end
+    return groupChildSet
+end
+
+function ResourceBars:UpdateTrackedBuffIndex(barIndex, trackedBuff, cfg, groupChildSet)
+    if not trackedBuff then return end
+    if trackedBuff.enabled == false or not CheckActivationCondition(trackedBuff)
+       or trackedBuff.isGroup
+       or (groupChildSet and groupChildSet[barIndex]) then
+        local bar = barFrames[barIndex]
+        DDingUI:SafeHide(bar)
+        local icon = iconFrames[barIndex]
+        if icon then
+            DDingUI:SafeHide(icon)
+            StopAllAnimations(icon)
+            icon._currentAnimation = nil
+        end
+        local textFrame = textFrames[barIndex]
+        DDingUI:SafeHide(textFrame)
+        return
+    end
+
+    local displayType = trackedBuff.displayType or "bar"
+    local function HideOtherDisplays(exceptType)
+        if exceptType ~= "bar" then
+            DDingUI:SafeHide(barFrames[barIndex])
+        end
+        if exceptType ~= "icon" then
+            local icon = iconFrames[barIndex]
+            if icon then
+                DDingUI:SafeHide(icon)
+                StopAllAnimations(icon)
+                icon._currentAnimation = nil
+            end
+        end
+        if exceptType ~= "text" then
+            DDingUI:SafeHide(textFrames[barIndex])
+        end
+    end
+
+    if displayType == "bar" then
+        self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
+        HideOtherDisplays("bar")
+    elseif displayType == "ring" then
+        self:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, cfg)
+        HideOtherDisplays("bar")
+    elseif displayType == "icon" then
+        self:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, cfg)
+        HideOtherDisplays("icon")
+    elseif displayType == "sound" then
+        self:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, cfg)
+        HideOtherDisplays("sound")
+    elseif displayType == "text" then
+        self:UpdateSingleTrackedBuffText(barIndex, trackedBuff, cfg)
+        HideOtherDisplays("text")
+    elseif displayType == "trigger" then
+        HideOtherDisplays("trigger")
+        local cooldownID = tonumber(trackedBuff.cooldownID) or 0
+        local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, nil, false, nil, trackedBuff.spellID, trackedBuff.name)
+        local hasData = auraInstanceID ~= nil
+        local dummyFrame = barFrames[barIndex] or {}
+        local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
+        if alertResult then
+            ApplyAlertActions(alertResult, trackedBuff, dummyFrame)
+        else
+            local alerts = trackedBuff.settings and trackedBuff.settings.alerts
+            if alerts and alerts.actions then
+                for _, action in ipairs(alerts.actions) do
+                    if action.type == "color" then
+                        local ct = action.colorTarget or "self"
+                        if ct == "bar" and DDingUI.powerBar then
+                            DDingUI.powerBar._ddingColorOverride = nil
+                        elseif ct == "secondary_bar" and DDingUI.secondaryPowerBar then
+                            DDingUI.secondaryPowerBar._ddingColorOverride = nil
+                        end
+                    end
+                end
+            end
+        end
+    else
+        self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
+        HideOtherDisplays("bar")
+    end
+end
+
+function ResourceBars:UpdateBuffTrackerBarIndices(indices)
+    local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+    if not rootCfg or not rootCfg.enabled then
+        self:UpdateBuffTrackerBar()
+        return
+    end
+
+    local cfg, _ = GetFullSpecConfig()
+    if not cfg then cfg = rootCfg end
+    local trackedBuffs = GetTrackedBuffs()
+    if #trackedBuffs == 0 or trackedAuraFilterDirty then
+        self:UpdateBuffTrackerBar()
+        return
+    end
+
+    local groupChildSet = self:BuildTrackedBuffGroupChildSet(trackedBuffs)
+    for barIndex in pairs(indices or {}) do
+        self:UpdateTrackedBuffIndex(barIndex, trackedBuffs[barIndex], cfg, groupChildSet)
+    end
 end
 
 function ResourceBars:UpdateBuffTrackerBar()
