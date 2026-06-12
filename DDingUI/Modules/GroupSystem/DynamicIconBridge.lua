@@ -1429,11 +1429,6 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     self:RefreshAuraEventRegistration()
 
     local inCombat = InCombatLockdown and InCombatLockdown()
-    local stateHash = BuildDynamicLayoutStateHash()
-    if not forceLayout and self._lastQueuedLayoutStateHash == stateHash then
-        return
-    end
-    self._lastQueuedLayoutStateHash = stateHash
 
     -- DoFullUpdate 트리거 (디바운스)
     if self._updatePending then
@@ -1449,16 +1444,15 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
         self._pendingForceLayout = false
         if not initialized then return end
 
+        local currentHash = BuildDynamicLayoutStateHash()
+        self._lastQueuedLayoutStateHash = currentHash
         if not pendingForce then
-            local currentHash = BuildDynamicLayoutStateHash()
             if currentHash == self._lastAppliedLayoutStateHash then
-                self._lastQueuedLayoutStateHash = currentHash
                 return
             end
-            self._lastQueuedLayoutStateHash = currentHash
             self._lastAppliedLayoutStateHash = currentHash
         else
-            self._lastAppliedLayoutStateHash = self._lastQueuedLayoutStateHash
+            self._lastAppliedLayoutStateHash = currentHash
         end
 
         -- GroupInit의 DoFullUpdate 호출
