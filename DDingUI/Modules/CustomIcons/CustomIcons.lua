@@ -1448,9 +1448,15 @@ function CustomIcons.RestoreActiveIconVisual(frame)
         pcall(frame.Show, frame)
     end
     local fh = DDingUI.FlightHide
-    if frame.SetAlpha and not (fh and fh.isActive) then
-        pcall(frame.SetAlpha, frame, 1)
-        frame._ddLastGroupAlpha = 1
+    if frame.SetAlpha then
+        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+            local alpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
+            pcall(frame.SetAlpha, frame, alpha)
+            frame._ddLastGroupAlpha = alpha
+        else
+            pcall(frame.SetAlpha, frame, 1)
+            frame._ddLastGroupAlpha = 1
+        end
     end
     local icon = frame.icon or frame.Icon
     if icon then
@@ -3215,6 +3221,10 @@ local function UpdateAuraIcon(iconFrame, iconData)
         if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
             managedAlpha = iconFrame._groupSettings.groupAlpha
         end
+        local fh = DDingUI.FlightHide
+        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+            managedAlpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
+        end
         if iconFrame.SetAlpha then
             iconFrame:SetAlpha(managedAlpha)
             iconFrame._ddLastGroupAlpha = managedAlpha
@@ -4665,11 +4675,21 @@ local function AcquireDynamicIconFrame(name, parent)
         frame:SetParent(parent)
         frame:SetSize(40, 40)
         frame:SetScale(1)
-        frame:SetAlpha(1)
+        local fh = DDingUI.FlightHide
+        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+            frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+        else
+            frame:SetAlpha(1)
+        end
         frame:EnableMouse(true)
         return frame
     end
-    return CreateBaseIcon(name, parent)
+    frame = CreateBaseIcon(name, parent)
+    local fh = DDingUI.FlightHide
+    if frame and fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+        frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+    end
+    return frame
 end
 
 local function ReleaseDynamicIconFrame(iconKey, frame)

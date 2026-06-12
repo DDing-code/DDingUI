@@ -652,9 +652,13 @@ local function RestoreStaleBuffFrame(icon)
     if not icon then return end
     icon._ddCDMStaleBuff = nil
     local fh = DDingUI.FlightHide
-    if icon.SetAlpha and not (fh and fh.isActive) then
-        pcall(icon.SetAlpha, icon, 1)
-        icon._ddLastGroupAlpha = 1
+    local alpha = 1
+    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+        alpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
+    end
+    if icon.SetAlpha then
+        pcall(icon.SetAlpha, icon, alpha)
+        icon._ddLastGroupAlpha = alpha
     end
     local texture = icon.icon or icon.Icon
     if texture and texture.SetAlpha then
@@ -1025,7 +1029,12 @@ function FrameController:ScanCDMViewers()
                             -- 이전 _ddSuppressed가 고착되지 않도록 안전하게 해제
                             if not ok1 and not ok2 and icon._ddSuppressed then
                                 icon._ddSuppressed = false
-                                icon:SetAlpha(1)
+                                local fh = DDingUI.FlightHide
+                                if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+                                    icon:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+                                else
+                                    icon:SetAlpha(1)
+                                end
                             end
                             if isSuppressed then
                                 -- SetAlpha(0) + SetAlpha 훅으로 숨김 (Hide 대신 → OnHide 미발동)
@@ -1044,7 +1053,12 @@ function FrameController:ScanCDMViewers()
                             elseif icon._ddSuppressed then
                                 -- 억제 해제: 더 이상 suppressed 아닌 아이콘 복원
                                 icon._ddSuppressed = false
-                                icon:SetAlpha(1)
+                                local fh = DDingUI.FlightHide
+                                if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+                                    icon:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+                                else
+                                    icon:SetAlpha(1)
+                                end
                             end
                         end
                     end
@@ -1084,7 +1098,9 @@ function FrameController:ScanCDMViewers()
                                     )
                                     if self:GetAlpha() < 0.01 then
                                         local fh = DDingUI.FlightHide
-                                        if not (fh and fh.isActive) then
+                                        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+                                            self:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+                                        else
                                             self:SetAlpha(1)
                                         end
                                     end
@@ -1421,8 +1437,8 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
 
     -- [FIX] FlightHide 활성 중이면 새 아이콘도 알파 0 적용
     local fh = DDingUI.FlightHide
-    if fh and fh.isActive then
-        frame:SetAlpha(0)
+    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+        frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
     elseif frame:GetAlpha() < 0.01 then
         -- 고아 정리 등으로 alpha=0이면 즉시 복원
         frame:SetAlpha(1)
@@ -1571,7 +1587,9 @@ function FrameController:InstallFrameHooks(frame)
                 )
                 if self:GetAlpha() < 0.01 then
                     local fh = DDingUI.FlightHide
-                    if not (fh and fh.isActive) then
+                    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+                        self:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+                    else
                         self:SetAlpha(1)
                         DLog("  → alpha restored to 1")
                     end
@@ -1809,8 +1827,13 @@ local function InstallCDMHooks()
                     -- if frame._ddTargetPoint then ... end
                 end
                 -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
-                if frame:GetAlpha() < 0.01 and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
-                    frame:SetAlpha(1)
+                if frame:GetAlpha() < 0.01 then
+                    local fh = DDingUI.FlightHide
+                    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+                        frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+                    else
+                        frame:SetAlpha(1)
+                    end
                 end
             else
                 -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
@@ -1838,8 +1861,13 @@ local function InstallCDMHooks()
                     -- if frame._ddTargetPoint then ... end
                 end
                 -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
-                if frame:GetAlpha() < 0.01 and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
-                    frame:SetAlpha(1)
+                if frame:GetAlpha() < 0.01 then
+                    local fh = DDingUI.FlightHide
+                    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+                        frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+                    else
+                        frame:SetAlpha(1)
+                    end
                 end
             else
                 -- [CDM 패턴 C] 비관리 아이콘: provisional reparent

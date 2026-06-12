@@ -1450,6 +1450,14 @@ do
         end
     end
 
+    function FlightHide:GetCurrentAlpha()
+        return currentAlpha
+    end
+
+    function FlightHide:IsFadedOrFading()
+        return currentAlpha < 1 or targetAlpha < 1 or self.isActive or self._hiding
+    end
+
     function FlightHide:ForceShow()
         wasHidden = false
         targetAlpha = 1
