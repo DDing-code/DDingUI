@@ -678,8 +678,14 @@ function GroupSystem:SyncDynamicGroups()
 end
 
 -- CDMHookEngine 콜백
+local hookEngineUpdatePending = false
 local function OnHookEngineUpdate(updateType)
-    DoFullUpdate()
+    if hookEngineUpdatePending then return end
+    hookEngineUpdatePending = true
+    C_Timer.After(0, function()
+        hookEngineUpdatePending = false
+        DoFullUpdate()
+    end)
 end
 
 -- ============================================================
