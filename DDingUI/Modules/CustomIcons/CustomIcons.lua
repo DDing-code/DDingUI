@@ -3407,6 +3407,7 @@ end
 
 local function ExecuteUpdateAllIcons(filter)
     local layoutStateChanged = false
+    local layoutChangedIconKeys = nil
     if CustomIcons.ClearExpiredCustomTimedAuras and CustomIcons.ClearExpiredCustomTimedAuras() then
         layoutStateChanged = true
     end
@@ -3480,6 +3481,8 @@ local function ExecuteUpdateAllIcons(filter)
                     local afterLayoutState = GetDynamicLayoutStateToken(frame, iconData)
                     if beforeLayoutState and afterLayoutState and beforeLayoutState ~= afterLayoutState then
                         layoutStateChanged = true
+                        layoutChangedIconKeys = layoutChangedIconKeys or {}
+                        layoutChangedIconKeys[iconKey] = true
                     end
                 end)
                 if okUpdate then
@@ -3491,7 +3494,7 @@ local function ExecuteUpdateAllIcons(filter)
         end
     end
 
-    return layoutStateChanged
+    return layoutStateChanged, layoutChangedIconKeys
 end
 
 runtime.iconUpdateDispatchFrame = runtime.iconUpdateDispatchFrame or CreateFrame("Frame")
@@ -3520,11 +3523,11 @@ runtime.iconUpdateDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
     runtime.pendingIconUpdateFilter = nil
     runtime.pendingIconUpdateFilters = nil
     runtime.lastIconUpdateAt = now
-    local layoutStateChanged = ExecuteUpdateAllIcons(updateFilter)
+    local layoutStateChanged, layoutChangedIconKeys = ExecuteUpdateAllIcons(updateFilter)
     if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
         local forceLayout = notifyLayout == true or notifyLayout == "force"
         if forceLayout or layoutStateChanged then
-            DDingUI.DynamicIconBridge:NotifyIconsChanged(forceLayout)
+            DDingUI.DynamicIconBridge:NotifyIconsChanged(forceLayout, layoutChangedIconKeys)
         end
     end
 end)
