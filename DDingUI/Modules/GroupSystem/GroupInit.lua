@@ -586,6 +586,7 @@ local function DoFullUpdate()
 
     -- 1. CDMHookEngine 맵 → 그룹별 분류
     local classified = GroupManager:ClassifyAll()
+    GroupSystem._lastClassifiedGroups = classified
 
     -- 2. 렌더링 (CDM 프레임 re-parent)
     -- [FIX] CDM + dynamic 병합: UpdateGroup이 두 타입 모두 처리
@@ -676,7 +677,11 @@ function GroupSystem:UpdateDynamicSourceGroups(sourceKeys)
     if not gs or not gs.groups then return false end
 
     SyncDynamicGroups(gs)
-    local classified = GroupManager:ClassifyAll()
+    local classified = GroupSystem._lastClassifiedGroups
+    if not classified then
+        classified = GroupManager:ClassifyAll()
+        GroupSystem._lastClassifiedGroups = classified
+    end
     local updated = false
 
     for groupName, groupSettings in pairs(gs.groups) do
@@ -705,6 +710,7 @@ end
 -- CDMHookEngine 콜백
 local hookEngineUpdatePending = false
 local function OnHookEngineUpdate(updateType)
+    GroupSystem._lastClassifiedGroups = nil
     if hookEngineUpdatePending then return end
     hookEngineUpdatePending = true
     C_Timer.After(0, function()
