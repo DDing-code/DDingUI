@@ -888,6 +888,7 @@ local SPEC_CHANGE_GRACE_DURATION = 2.0  -- 초: CDM 데이터 로딩 대기
 local buffTrackerInitialized = false
 local loadingScreenActive = false
 local startupRefreshTimers = {}
+local startupRefreshToken = 0
 local buffTrackerTicker
 local StartBuffTrackerTicker
 local StopBuffTrackerTicker
@@ -1024,11 +1025,6 @@ local function RunBuffTrackerStartupRefresh(reason)
         return
     end
 
-    local CDMScanner = DDingUI.CDMScanner
-    if CDMScanner and CDMScanner.ScanAll then
-        pcall(CDMScanner.ScanAll)
-    end
-
     InvalidateAllFrameCaches()
     if QueueBuffTrackerUpdate then
         QueueBuffTrackerUpdate(reason, 0)
@@ -1038,8 +1034,6 @@ local function RunBuffTrackerStartupRefresh(reason)
 end
 
 local function ScheduleBuffTrackerStartupRefresh(reason, delays)
-    delays = delays or { 0.05, 0.5, 1.5, 3.0 }
-
     for _, timer in ipairs(startupRefreshTimers) do
         if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
             timer:Cancel()
@@ -1047,9 +1041,24 @@ local function ScheduleBuffTrackerStartupRefresh(reason, delays)
     end
     wipe(startupRefreshTimers)
 
-    for _, delay in ipairs(delays) do
-        startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(delay, function()
-            RunBuffTrackerStartupRefresh(reason)
+    startupRefreshToken = startupRefreshToken + 1
+    local token = startupRefreshToken
+    local firstDelay = delays and delays[1] or 0.1
+    local backstopDelay = delays and delays[#delays] or 3.0
+
+    startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(firstDelay, function()
+        if token ~= startupRefreshToken then return end
+        RunBuffTrackerStartupRefresh(reason)
+        buffTrackerInitialized = true
+    end)
+
+    if backstopDelay and backstopDelay > firstDelay then
+        startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(backstopDelay, function()
+            if token ~= startupRefreshToken then return end
+            if buffTrackerUpdatePending or not buffTrackerInitialized then
+                RunBuffTrackerStartupRefresh(reason)
+                buffTrackerInitialized = true
+            end
         end)
     end
 end
@@ -1347,18 +1356,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     end
     if event == "LOADING_SCREEN_DISABLED" then
         loadingScreenActive = false
-        -- 로딩 완료 후 안정적 업데이트 (프록시 앵커 위치 복원 + CDM 뷰어 안정화 대기)
-        C_Timer.After(0.5, function()
-            local CDMScanner = DDingUI.CDMScanner
-            if CDMScanner then
-                pcall(CDMScanner.ScanAll)
-            end
-            QueueBuffTrackerUpdate("loading", 0)
-        end)
-        -- [FIX] 1.5초 후 최종 업데이트 (CDMScanner 완전 안정화)
-        C_Timer.After(1.5, function()
-            QueueBuffTrackerUpdate("loading-final", 0)
-        end)
+        ScheduleBuffTrackerStartupRefresh("loading", { 0.2, 1.5 })
         return
     end
 
@@ -1438,23 +1436,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         ResourceBars._spellCastRefresh = nil
         MarkTrackedAuraFilterDirty()
 
-        -- 3단계 재시도 (CDM CDM 패턴)
-        -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
-        C_Timer.After(0.5, function()
-            QueueBuffTrackerUpdate("spec-1", 0)
-        end)
-        -- Phase 2 (1.5초): CDM 데이터 안정화 후 ScanAll + 업데이트
-        C_Timer.After(1.5, function()
-            local CDMScanner = DDingUI.CDMScanner
-            if CDMScanner then
-                pcall(CDMScanner.ScanAll)
-            end
-            QueueBuffTrackerUpdate("spec-2", 0)
-        end)
-        -- Phase 3 (Grace Period 종료 후): 최종 정리 업데이트
-        C_Timer.After(SPEC_CHANGE_GRACE_DURATION + 0.5, function()
-            QueueBuffTrackerUpdate("spec-3", 0)
-        end)
+        ScheduleBuffTrackerStartupRefresh("spec", { 0.2, SPEC_CHANGE_GRACE_DURATION + 0.5 })
         return
     end
 
@@ -1906,6 +1888,7 @@ StopBuffTrackerTicker = function()
         buffTrackerTicker:Cancel()
         buffTrackerTicker = nil
     end
+    startupRefreshToken = startupRefreshToken + 1
     for _, timer in ipairs(startupRefreshTimers) do
         if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
             timer:Cancel()
@@ -5736,11 +5719,8 @@ function ResourceBars:InitializeBuffTracker()
     end
     StartBuffTrackerTicker()
 
-    -- Initial update (여러 번) + 마지막에 초기화 완료 플래그 설정
+    -- Initial update + settle/backstop handled by ScheduleBuffTrackerStartupRefresh
     ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5, 3.0 })
-    startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(3.05, function()
-        buffTrackerInitialized = true
-    end)
 end
 
 -- Enter mover mode for tracked buff bars (shows all bars regardless of hideWhenZero)
