@@ -3702,19 +3702,13 @@ local function EnsureEventFrame()
         runtime.EnsureCustomCooldownWatcher()
     end
 
-    -- Register for events that should trigger icon updates
+    -- Register stable lifecycle events here; target-driven combat events are toggled by watcher registration.
     runtime.eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")  -- Spec change
     runtime.eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")   -- Talent group/spec change (alternative event)
     runtime.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")           -- Talent changes for Time Spiral glow filters
     runtime.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")           -- Talent changes for Time Spiral glow filters
     runtime.eventFrame:RegisterEvent("SPELLS_CHANGED")                -- Spellbook changes (often after spec change)
-    runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")        -- Trinket proc/custom buff tracking
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
-    runtime.eventFrame:RegisterEvent("PLAYER_DEAD")
-    runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
-    runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
-    runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
     RebuildTimeSpiralGlowFilters()
 
     runtime.eventFrame:SetScript("OnEvent", function(self, event, ...)
@@ -4674,6 +4668,13 @@ function runtime.RefreshCustomIconEventRegistration()
     local watcher = runtime.cooldownWatcher
     local hasItemEvents = watcher and (watcher.itemEventTargetCount or 0) > 0
     local hasSpellEvents = watcher and (watcher.spellTargetCount or 0) > 0
+    local hasAuraScanEvents = watcher and (watcher.auraScanTargetCount or 0) > 0
+    local cache = CustomIcons:GetTimedAuraLinkCache()
+    local timedCounts = cache and cache.counts or {}
+    local hasTimedAuraEvents = next(timedCounts) ~= nil
+    local hasBloodlustEvents = (timedCounts[2825] or 0) > 0
+    local hasTimeSpiralEvents = (timedCounts[374968] or 0) > 0
+    local hasSpellcastTimedEvents = cache and cache.spellcast and next(cache.spellcast) ~= nil
 
     if hasItemEvents then
         runtime.eventFrame:RegisterEvent("BAG_UPDATE")
@@ -4705,6 +4706,34 @@ function runtime.RefreshCustomIconEventRegistration()
         runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_CHARGES")
         runtime.eventFrame:UnregisterEvent("SPELL_UPDATE_USABLE")
         runtime.eventFrame:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    end
+
+    if hasAuraScanEvents or hasBloodlustEvents then
+        runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    else
+        runtime.eventFrame:UnregisterEvent("UNIT_AURA")
+    end
+
+    if hasItemEvents or hasSpellEvents or hasSpellcastTimedEvents then
+        runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    else
+        runtime.eventFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    end
+
+    if hasTimeSpiralEvents then
+        runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+        runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+        runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+    else
+        runtime.eventFrame:UnregisterEvent("UNIT_SPELLCAST_SENT")
+        runtime.eventFrame:UnregisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+        runtime.eventFrame:UnregisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+    end
+
+    if hasTimedAuraEvents then
+        runtime.eventFrame:RegisterEvent("PLAYER_DEAD")
+    else
+        runtime.eventFrame:UnregisterEvent("PLAYER_DEAD")
     end
 end
 
