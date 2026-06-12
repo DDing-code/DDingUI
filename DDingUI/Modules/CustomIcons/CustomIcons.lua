@@ -3871,13 +3871,35 @@ local function EnsureEventFrame()
     runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
     RebuildTimeSpiralGlowFilters()
 
+    runtime.specEventDispatchFrame = runtime.specEventDispatchFrame or CreateFrame("Frame")
+    runtime.specEventDispatchFrame:Hide()
+    runtime.specEventDispatchFrame:SetScript("OnUpdate", function(self)
+        self:Hide()
+        runtime.specEventReloadPending = false
+        local delay = runtime.specEventReloadDelay
+        runtime.specEventReloadDelay = nil
+        RebuildTimeSpiralGlowFilters()
+        ScheduleSpecReload(delay)
+    end)
+
+    local function QueueSpecEventReload(delay)
+        if runtime.specEventReloadPending then
+            if delay and (not runtime.specEventReloadDelay or delay > runtime.specEventReloadDelay) then
+                runtime.specEventReloadDelay = delay
+            end
+            return
+        end
+        runtime.specEventReloadPending = true
+        runtime.specEventReloadDelay = delay
+        runtime.specEventDispatchFrame:Show()
+    end
+
     runtime.eventFrame:SetScript("OnEvent", function(self, event, ...)
         local arg1 = ...
 
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
-            RebuildTimeSpiralGlowFilters()
-            ScheduleSpecReload(0.2)
+            QueueSpecEventReload(0.2)
             return
         end
 
@@ -3902,8 +3924,7 @@ local function EnsureEventFrame()
             or event == "TRAIT_CONFIG_UPDATED"
             or event == "SPELLS_CHANGED"
         then
-            RebuildTimeSpiralGlowFilters()
-            ScheduleSpecReload()
+            QueueSpecEventReload()
             return
         end
 
