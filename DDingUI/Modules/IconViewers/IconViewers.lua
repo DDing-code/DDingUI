@@ -52,10 +52,16 @@ local function ShouldRunViewerFallback()
     return not (DDingUI.GroupSystem and DDingUI.GroupSystem.enabled)
 end
 
+local function IsViewerEnabled(viewerName)
+    local db = DDingUI.db and DDingUI.db.profile
+    local settings = db and db.viewers and db.viewers[viewerName]
+    return settings and settings.enabled ~= false
+end
+
 local function SetViewerFallbackEvents(frame, viewerName, enabled)
     if not frame then return end
     frame:UnregisterAllEvents()
-    if not enabled then
+    if not enabled or not IsViewerEnabled(viewerName) then
         frame:SetScript("OnUpdate", nil)
         return
     end
