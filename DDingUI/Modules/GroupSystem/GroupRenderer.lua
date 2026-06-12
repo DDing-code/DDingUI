@@ -1621,7 +1621,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
     -- → 뷰어 마이그레이션을 건너뛰고 저장된 groupSettings 위치 사용
 
     -- [FIX] 핵심 3대 그룹은 프록시 앵커가 마스터 → 프록시 위치에서 초기 좌표 설정
-    -- SyncProxyAnchors OnUpdate에서 매 프레임 프록시→그룹 동기화하므로
+    -- Proxy anchor sync runs in short bursts after layout/state changes.
     -- 여기서는 프록시가 있으면 프록시에 맞추고, 없으면 settings 폴백
     local CORE_PROXY = {
         ["Cooldowns"] = "DDingUI_Anchor_Cooldowns",

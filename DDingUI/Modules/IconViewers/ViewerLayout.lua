@@ -210,12 +210,36 @@ end
 CreateProxyAnchors()
 
 local proxySyncFrame = CreateFrame("Frame")
-proxySyncFrame:SetScript("OnUpdate", SyncProxyAnchors)
+proxySyncFrame:Hide()
+local proxySyncUntil = 0
+
+local function RequestProxyAnchorSync(duration)
+    local now = GetTime()
+    local untilTime = now + (duration or 0.35)
+    if untilTime > proxySyncUntil then
+        proxySyncUntil = untilTime
+    end
+    _nextProxySyncTime = 0
+    proxySyncFrame:Show()
+end
+
+proxySyncFrame:SetScript("OnUpdate", function(self)
+    if GetTime() > proxySyncUntil then
+        self:Hide()
+        return
+    end
+    SyncProxyAnchors()
+end)
+
+RequestProxyAnchorSync(2.0)
 
 -- Export
 DDingUI.ProxyAnchors = proxyFrames
 DDingUI.PROXY_MAP = PROXY_MAP
 DDingUI.PROXY_TO_VIEWER = PROXY_TO_VIEWER
+DDingUI.RequestProxyAnchorSync = function(_, duration)
+    RequestProxyAnchorSync(duration)
+end
 
 -- 프록시 크기 캐시 무효화 (프로필/전문화 전환 시 호출)
 -- _lastSyncW/H를 nil로 리셋 → 다음 SyncProxyAnchors에서 강제 갱신
@@ -225,6 +249,23 @@ function DDingUI:InvalidateProxySizeCache()
         proxy._lastSyncH = nil
     end
     _nextProxySyncTime = 0
+    RequestProxyAnchorSync(0.75)
+end
+
+do
+    local eventFrame = CreateFrame("Frame")
+    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    eventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+    eventFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
+    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    eventFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_ENTERING_WORLD" or event == "LOADING_SCREEN_DISABLED" then
+            RequestProxyAnchorSync(2.0)
+        else
+            RequestProxyAnchorSync(0.75)
+        end
+    end)
 end
 
 local ceil = math.ceil
