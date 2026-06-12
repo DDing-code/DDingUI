@@ -1208,7 +1208,12 @@ function FrameController:Reconcile()
     end
 
     -- 1. CDM 뷰어 스캔 (맵 재구축)
-    self:ScanCDMViewers()
+    local scanAccepted = self:ScanCDMViewers()
+    if scanAccepted == false then
+        state.isProcessing = false
+        state.dirty = true
+        return
+    end
 
     -- 2. 콜백 알림 (GroupInit → DoFullUpdate)
     -- [PERF] scanCompleted 플래그: NotifyUpdate → DoFullUpdate에서 ScanCDMViewers 이중 호출 방지
