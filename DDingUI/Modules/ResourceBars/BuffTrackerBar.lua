@@ -1175,6 +1175,49 @@ local function ApplyBuffTextStyleIfChanged(fontString, relativeFrame, fontPath, 
     fontString._ddBuffTextColor = cachedColor
 end
 
+local function HideBuffTrackerTicksFrom(bar, firstIndex)
+    if not bar or not bar.ticks then return end
+    firstIndex = firstIndex or 1
+
+    for i = firstIndex, #bar.ticks do
+        local tick = bar.ticks[i]
+        if tick and tick._ddBuffTickShown ~= false then
+            tick:Hide()
+            tick._ddBuffTickShown = false
+        end
+    end
+    bar._ddBuffVisibleTickCount = firstIndex - 1
+end
+
+local function ApplyBuffTrackerTickIfChanged(tick, relativeFrame, point, relativePoint, offsetX, offsetY, width, height)
+    if not tick then return end
+
+    if tick._ddBuffTickPoint ~= point
+        or tick._ddBuffTickRelativeFrame ~= relativeFrame
+        or tick._ddBuffTickRelativePoint ~= relativePoint
+        or tick._ddBuffTickOffsetX ~= offsetX
+        or tick._ddBuffTickOffsetY ~= offsetY then
+        tick:ClearAllPoints()
+        tick:SetPoint(point, relativeFrame, relativePoint, offsetX, offsetY)
+        tick._ddBuffTickPoint = point
+        tick._ddBuffTickRelativeFrame = relativeFrame
+        tick._ddBuffTickRelativePoint = relativePoint
+        tick._ddBuffTickOffsetX = offsetX
+        tick._ddBuffTickOffsetY = offsetY
+    end
+
+    if tick._ddBuffTickWidth ~= width or tick._ddBuffTickHeight ~= height then
+        tick:SetSize(width, height)
+        tick._ddBuffTickWidth = width
+        tick._ddBuffTickHeight = height
+    end
+
+    if tick._ddBuffTickShown ~= true then
+        tick:Show()
+        tick._ddBuffTickShown = true
+    end
+end
+
 local function RunBuffTrackerStartupRefresh(reason)
     local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not cfg or not cfg.enabled then return end
@@ -2105,14 +2148,12 @@ end
 -- cfgTickWidth: 구분선 두께 (개별 버프 설정)
 -- barOrientation: "HORIZONTAL" or "VERTICAL" (바 방향)
 function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, durationTickPositions, showTicks, cfgTickWidth, barOrientation)
-    -- Hide all ticks first
-    for _, tick in ipairs(bar.ticks) do
-        tick:Hide()
-    end
-
     local width = bar:GetWidth()
     local height = bar:GetHeight()
-    if width <= 0 or height <= 0 then return end
+    if width <= 0 or height <= 0 then
+        HideBuffTrackerTicksFrom(bar, 1)
+        return
+    end
 
     cfgTickWidth = cfgTickWidth or 2
     local tickWidth = math.max(1, DDingUI:Scale(cfgTickWidth))
@@ -2124,6 +2165,7 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
     if barFillMode == "duration" then
         -- Duration 모드: durationTickPositions 사용
         if not durationTickPositions or #durationTickPositions == 0 then
+            HideBuffTrackerTicksFrom(bar, 1)
             return  -- 설정된 tick이 없으면 표시 안 함
         end
 
@@ -2135,20 +2177,17 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
                 bar.ticks[i] = tick
             end
 
-            tick:ClearAllPoints()
             if isVertical then
                 -- Vertical: position along Y axis (bottom to top)
                 local y = position * height
-                tick:SetPoint("BOTTOM", bar.TickFrame, "BOTTOM", 0, y)
-                tick:SetSize(width, tickWidth)
+                ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "BOTTOM", "BOTTOM", 0, y, width, tickWidth)
             else
                 -- Horizontal: position along X axis (left to right)
                 local x = position * width
-                tick:SetPoint("LEFT", bar.TickFrame, "LEFT", x, 0)
-                tick:SetSize(tickWidth, height)
+                ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "LEFT", "LEFT", x, 0, tickWidth, height)
             end
-            tick:Show()
         end
+        HideBuffTrackerTicksFrom(bar, #durationTickPositions + 1)
         return
     end
 
@@ -2156,6 +2195,7 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
     -- STACKS MODE: 스택 기반 tick (기본)
     -- ============================================================
     if showTicks == false or not max or max <= 1 then
+        HideBuffTrackerTicksFrom(bar, 1)
         return
     end
 
@@ -2169,20 +2209,17 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
             bar.ticks[i] = tick
         end
 
-        tick:ClearAllPoints()
         if isVertical then
             -- Vertical: position along Y axis (bottom to top)
             local y = (i / max) * height
-            tick:SetPoint("BOTTOM", bar.TickFrame, "BOTTOM", 0, y)
-            tick:SetSize(width, tickWidth)
+            ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "BOTTOM", "BOTTOM", 0, y, width, tickWidth)
         else
             -- Horizontal: position along X axis (left to right)
             local x = (i / max) * width
-            tick:SetPoint("LEFT", bar.TickFrame, "LEFT", x, 0)
-            tick:SetSize(tickWidth, height)
+            ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "LEFT", "LEFT", x, 0, tickWidth, height)
         end
-        tick:Show()
     end
+    HideBuffTrackerTicksFrom(bar, needed + 1)
 end
 
 -- Ticker for buff updates
@@ -4495,9 +4532,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         self:UpdateBuffTrackerBarTicks(bar, displayCurrent, max, barFillMode, durationTickPositions, showTicks, tickWidth, barOrientation)
     else
         -- Hide all ticks for ring/circular styles
-        for _, tick in ipairs(bar.ticks or {}) do
-            tick:Hide()
-        end
+        HideBuffTrackerTicksFrom(bar, 1)
     end
 
     bar:Show()
@@ -5091,11 +5126,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     end
 
     -- Hide ticks for ring mode
-    if bar.ticks then
-        for _, tick in pairs(bar.ticks) do
-            tick:Hide()
-        end
-    end
+    HideBuffTrackerTicksFrom(bar, 1)
 
     bar:Show()
 end
