@@ -1175,7 +1175,56 @@ local nextCenterBuffsUpdate = 0
 -- Reusable tables (avoid per-frame GC pressure)
 local _visibleBuffIcons = {}
 
-local function CenterBuffIcons()
+local centerBuffsFrame = CreateFrame("Frame")
+local centerBuffsActive = false
+local centerBuffEventFrame
+local centerBuffAuraRegistered = false
+
+local function GetBuffViewerSettings()
+    return DDingUI.db
+        and DDingUI.db.profile
+        and DDingUI.db.profile.viewers
+        and DDingUI.db.profile.viewers["BuffIconCooldownViewer"]
+end
+
+local function ShouldRunCenterBuffs()
+    if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then return false end
+    local viewer = _G["BuffIconCooldownViewer"]
+    if not viewer or not viewer:IsShown() then return false end
+    local settings = GetBuffViewerSettings()
+    if settings and settings.enabled == false then return false end
+    if settings and settings.centerBuffs == false then return false end
+    return true
+end
+
+local function DisableCenterBuffs()
+    if centerBuffsActive then
+        centerBuffsActive = false
+        centerBuffsFrame:SetScript("OnUpdate", nil)
+    end
+    if centerBuffEventFrame and centerBuffAuraRegistered then
+        centerBuffEventFrame:UnregisterEvent("UNIT_AURA")
+        centerBuffAuraRegistered = false
+    end
+end
+
+local CenterBuffIcons
+local function EnableCenterBuffs()
+    if not ShouldRunCenterBuffs() then
+        DisableCenterBuffs()
+        return
+    end
+    if centerBuffEventFrame and not centerBuffAuraRegistered then
+        centerBuffEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+        centerBuffAuraRegistered = true
+    end
+    if not centerBuffsActive then
+        centerBuffsActive = true
+        centerBuffsFrame:SetScript("OnUpdate", CenterBuffIcons)
+    end
+end
+
+CenterBuffIcons = function()
     -- [FIX] 뷰어가 초기화 미완료 상태면 스킵 (CMC IsReady 패턴)
     local bv = _G["BuffIconCooldownViewer"]
     if not IsViewerReady(bv) then return end
@@ -1195,6 +1244,11 @@ local function CenterBuffIcons()
 
     local BuffIconCooldownViewer = bv
 
+    if not ShouldRunCenterBuffs() then
+        DisableCenterBuffs()
+        return
+    end
+
     -- [REPARENT] GroupSystem이 활성 상태면 CenterBuffIcons 완전 스킵
     -- GroupRenderer가 모든 레이아웃을 담당 — CenterBuffIcons와 충돌 방지
     -- ContainerSync._isViewerHidden만 체크하면 managed < total일 때 여전히 실행되어
@@ -1205,9 +1259,7 @@ local function CenterBuffIcons()
         if DDingUI.ContainerSync._isViewerHidden("BuffIconCooldownViewer") then return end
     end
 
-    local settings = DDingUI.db and DDingUI.db.profile.viewers["BuffIconCooldownViewer"]
-    if settings and settings.enabled == false then return end
-    if settings and settings.centerBuffs == false then return end
+    local settings = GetBuffViewerSettings()
 
     -- 아이콘 수집 (reuse table) -- [PERF] O(n²) select(i, GetChildren()) → O(n) 변환
     local visibleCount = 0
@@ -1280,23 +1332,6 @@ local function CenterBuffIcons()
     end
 
     return visibleCount
-end
-
--- Conditional OnUpdate: only run when viewer is visible
-local centerBuffsFrame = CreateFrame("Frame")
-local centerBuffsActive = false
-
-local function EnableCenterBuffs()
-    if not centerBuffsActive then
-        centerBuffsActive = true
-        centerBuffsFrame:SetScript("OnUpdate", CenterBuffIcons)
-    end
-end
-local function DisableCenterBuffs()
-    if centerBuffsActive then
-        centerBuffsActive = false
-        centerBuffsFrame:SetScript("OnUpdate", nil)
-    end
 end
 
 -- ============================================
@@ -1529,9 +1564,8 @@ end
 
 -- UNIT_AURA 이벤트로 반응 — [PERF] debounce로 버스트 방지
 local _centerBuffAuraPending = false
-local buffEventFrame = CreateFrame("Frame")
-buffEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
-buffEventFrame:SetScript("OnEvent", function(_, event, unit)
+centerBuffEventFrame = CreateFrame("Frame")
+centerBuffEventFrame:SetScript("OnEvent", function(_, event, unit)
     if unit == "player" and not _centerBuffAuraPending then
         _centerBuffAuraPending = true
         C_Timer.After(0.05, function()  -- [PERF] 0→0.05s debounce (50ms 내 중복 UNIT_AURA 병합)
@@ -1540,6 +1574,7 @@ buffEventFrame:SetScript("OnEvent", function(_, event, unit)
         end)
     end
 end)
+EnableCenterBuffs()
 
 -- Export for external control
 IconViewers.CenterBuffIcons = CenterBuffIcons
