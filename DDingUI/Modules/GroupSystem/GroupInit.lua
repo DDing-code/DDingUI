@@ -709,14 +709,20 @@ end
 
 -- CDMHookEngine 콜백
 local hookEngineUpdatePending = false
+local hookEngineUpdateFrame = CreateFrame("Frame")
+hookEngineUpdateFrame:Hide()
+hookEngineUpdateFrame:SetScript("OnUpdate", function(self)
+    self:Hide()
+    if not hookEngineUpdatePending then return end
+    hookEngineUpdatePending = false
+    DoFullUpdate()
+end)
+
 local function OnHookEngineUpdate(updateType)
     GroupSystem._lastClassifiedGroups = nil
     if hookEngineUpdatePending then return end
     hookEngineUpdatePending = true
-    C_Timer.After(0, function()
-        hookEngineUpdatePending = false
-        DoFullUpdate()
-    end)
+    hookEngineUpdateFrame:Show()
 end
 
 -- ============================================================
