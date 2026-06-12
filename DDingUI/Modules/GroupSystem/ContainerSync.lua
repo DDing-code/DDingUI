@@ -192,6 +192,47 @@ local function ScheduleSnapBack(viewerName)
     snapDispatchFrame:Show()
 end
 
+local visibilitySyncPending = {}
+local buffIconReshowPending = false
+local visibilityDispatchFrame = CreateFrame("Frame")
+visibilityDispatchFrame:Hide()
+visibilityDispatchFrame:SetScript("OnUpdate", function(self)
+    self:Hide()
+
+    if buffIconReshowPending then
+        buffIconReshowPending = false
+        local v = _G["BuffIconCooldownViewer"]
+        if v and not v:IsShown() and not InCombatLockdown() then
+            pushing = true
+            v:Show()
+            pushing = false
+        end
+    end
+
+    local renderer = DDingUI.GroupRenderer
+    local sync = renderer and renderer.SyncViewerVisibility
+    if not initialized or not sync then
+        wipe(visibilitySyncPending)
+        return
+    end
+
+    for pendingViewerName in pairs(visibilitySyncPending) do
+        visibilitySyncPending[pendingViewerName] = nil
+        sync(renderer, pendingViewerName)
+    end
+end)
+
+local function QueueViewerVisibilitySync(viewerName)
+    if not viewerName then return end
+    visibilitySyncPending[viewerName] = true
+    visibilityDispatchFrame:Show()
+end
+
+local function QueueBuffIconReshow()
+    buffIconReshowPending = true
+    visibilityDispatchFrame:Show()
+end
+
 -- ============================================================
 -- 뷰어 훅 설치 (hooksecurefunc — 절대 함수 교체 안 함) -- [REPARENT]
 -- ============================================================
@@ -287,11 +328,7 @@ local function SetupViewerHooks(viewerName)
     viewer:HookScript("OnShow", function()
         if pushing then return end
         if IsInBlizzardEditMode() then return end
-        C_Timer.After(0, function()
-            if initialized and DDingUI.GroupRenderer and DDingUI.GroupRenderer.SyncViewerVisibility then
-                DDingUI.GroupRenderer:SyncViewerVisibility(viewerName)
-            end
-        end)
+        QueueViewerVisibilitySync(viewerName)
     end)
 
     viewer:HookScript("OnHide", function()
@@ -300,21 +337,10 @@ local function SetupViewerHooks(viewerName)
         -- [CDM] BuffIcon: CDM이 Hide해도 즉시 재Show → CDM Layout 사이클 유지
         -- CDM은 VIEWER를 숨기지만, 개별 프레임은 정상적으로 Show/Hide 관리
         if viewerName == "BuffIconCooldownViewer" then
-            C_Timer.After(0, function()
-                local v = _G["BuffIconCooldownViewer"]
-                if v and not v:IsShown() and not InCombatLockdown() then
-                    pushing = true
-                    v:Show()
-                    pushing = false
-                end
-            end)
+            QueueBuffIconReshow()
             return
         end
-        C_Timer.After(0, function()
-            if initialized and DDingUI.GroupRenderer and DDingUI.GroupRenderer.SyncViewerVisibility then
-                DDingUI.GroupRenderer:SyncViewerVisibility(viewerName)
-            end
-        end)
+        QueueViewerVisibilitySync(viewerName)
     end)
 end
 
