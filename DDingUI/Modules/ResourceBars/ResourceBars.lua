@@ -507,6 +507,16 @@ end
 -- [FIX] 이전 spec 변경 타이머 취소용
 local specChangeTimers = {}
 local specChangeQueued = false
+local shapeshiftSettleTimers = {}
+
+local function CancelTimerList(timers)
+    for _, timer in pairs(timers) do
+        if timer and not timer:IsCancelled() then
+            timer:Cancel()
+        end
+    end
+    wipe(timers)
+end
 
 local function QueueSpecChangedRefresh()
     if specChangeQueued then
@@ -546,12 +556,7 @@ function ResourceBars:OnSpecChanged()
     end
 
     -- [FIX] 이전 spec 변경 타이머 취소 — 연속 변경 시 중복 업데이트 방지
-    for _, timer in pairs(specChangeTimers) do
-        if timer and not timer:IsCancelled() then
-            timer:Cancel()
-        end
-    end
-    wipe(specChangeTimers)
+    CancelTimerList(specChangeTimers)
 
     -- 3. Progressive updates (6→4회로 단축, 이전 타이머 취소)
     specChangeTimers[1] = C_Timer.NewTimer(0.3, DoUpdate)
@@ -574,18 +579,18 @@ function ResourceBars:OnShapeshiftChanged()
     self:UpdateSecondaryPowerBar()
     RefreshSpecialResourceTracking()
 
-    -- Delayed updates to catch late resource changes after transformation
-    C_Timer.After(0.2, function()
-        self:UpdatePowerBar()
-        self:UpdateSecondaryPowerBar()
-    end)
-    C_Timer.After(0.5, function()
-        self:UpdatePowerBar()
-        self:UpdateSecondaryPowerBar()
-    end)
-    -- Clear form change flag after transition settles
-    C_Timer.After(1.0, function()
+    CancelTimerList(shapeshiftSettleTimers)
+
+    local function DoSettleUpdate()
+        ResourceBars:UpdatePowerBar()
+        ResourceBars:UpdateSecondaryPowerBar()
+    end
+
+    shapeshiftSettleTimers[1] = C_Timer.NewTimer(0.2, DoSettleUpdate)
+    shapeshiftSettleTimers[2] = C_Timer.NewTimer(0.5, DoSettleUpdate)
+    shapeshiftSettleTimers[3] = C_Timer.NewTimer(1.0, function()
         ResourceBars._shapeshiftInProgress = nil
+        shapeshiftSettleTimers[3] = nil
     end)
 end
 
