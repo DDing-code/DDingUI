@@ -393,6 +393,40 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
     local iconTexture = icon.icon or icon.Icon
     local textAnchorFrame = iconTexture or icon
 
+    local countText = GetIconCountText(icon)
+    local countAnchor = ResolveGroupTextSetting(groupName, groupSettings, "chargeTextAnchor") or "BOTTOMRIGHT"
+    if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
+    local cox = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetX")) or 0
+    local coy = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetY")) or 0
+    local countSize = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextSize"))
+    local countFont = ResolveGroupTextSetting(groupName, groupSettings, "countTextFont")
+    local countColor = ResolveGroupTextSetting(groupName, groupSettings, "countTextColor")
+    local cr, cg, cb, ca = ResolveRGBA(countColor)
+
+    local cooldown = GetIconCooldownFrame(icon)
+    local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
+    local ox = tonumber(oxRaw) or 0
+    local oy = tonumber(oyRaw) or 0
+    if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
+    local textSize = tonumber(textSizeRaw)
+    local tr, tg, tb, ta = ResolveRGBA(textColor)
+
+    local styleToken = table_concat({
+        tostring(groupName or ""),
+        countText and "c1" or "c0",
+        tostring(countAnchor or ""), tostring(cox), tostring(coy),
+        tostring(countSize or ""), tostring(countFont or ""),
+        tostring(cr), tostring(cg), tostring(cb), tostring(ca),
+        cooldown and "d1" or "d0",
+        tostring(cdAnchor or ""), tostring(ox), tostring(oy),
+        tostring(textSize or ""), tostring(textFont or ""),
+        tostring(tr), tostring(tg), tostring(tb), tostring(ta),
+        groupSettings.hideDurationText and "h1" or "h0",
+    }, ":")
+    if icon._ddDynamicTextStyleToken == styleToken and icon._ddDynamicTextStyleApplied then
+        return
+    end
+
     local function ScheduleTextRetry()
         if icon._ddDynamicTextRetryPending then return end
         local retryCount = tonumber(icon._ddDynamicTextRetryCount) or 0
@@ -412,35 +446,21 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
         end)
     end
 
-    local countText = GetIconCountText(icon)
     if countText then
-        local countAnchor = ResolveGroupTextSetting(groupName, groupSettings, "chargeTextAnchor") or "BOTTOMRIGHT"
-        if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
-        local cox = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetX")) or 0
-        local coy = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetY")) or 0
         countText:ClearAllPoints()
         countText:SetPoint(countAnchor, textAnchorFrame, countAnchor, cox, coy)
 
-        local cSize = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextSize"))
-        if cSize and cSize > 0 then
-            local cFont = DDingUI:GetFont(ResolveGroupTextSetting(groupName, groupSettings, "countTextFont"))
-            countText:SetFont(cFont, cSize, "OUTLINE")
+        if countSize and countSize > 0 then
+            local cFont = DDingUI:GetFont(countFont)
+            countText:SetFont(cFont, countSize, "OUTLINE")
         end
 
-        local countColor = ResolveGroupTextSetting(groupName, groupSettings, "countTextColor")
         if type(countColor) == "table" then
-            countText:SetTextColor(ResolveRGBA(countColor))
+            countText:SetTextColor(cr, cg, cb, ca)
         end
     end
 
-    local cooldown = GetIconCooldownFrame(icon)
     if cooldown then
-        local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
-        local ox = tonumber(oxRaw) or 0
-        local oy = tonumber(oyRaw) or 0
-        if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
-
-        local textSize = tonumber(textSizeRaw)
         if textSize and textSize > 0 and cooldown.SetCountdownFont then
             local font = DDingUI:GetFont(textFont)
             if font then
@@ -478,14 +498,19 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
                     cdText:SetFont(font, textSize, "OUTLINE")
                 end
                 if type(textColor) == "table" then
-                    cdText:SetTextColor(ResolveRGBA(textColor))
+                    cdText:SetTextColor(tr, tg, tb, ta)
                 end
             end
         end)
         if not foundCooldownText then
             ScheduleTextRetry()
+            icon._ddDynamicTextStyleApplied = nil
+            return
         end
     end
+
+    icon._ddDynamicTextStyleToken = styleToken
+    icon._ddDynamicTextStyleApplied = true
 end
 
 function GroupRenderer:ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
