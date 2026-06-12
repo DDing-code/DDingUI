@@ -59,8 +59,10 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Moved dynamic icon bridge refresh debounce from per-burst timers to a reusable dispatch frame while preserving source-targeted group updates.
 - Reused a single dispatch frame for dynamic icon aura-hide scans so repeated player aura bursts do not create new scan timers.
 - Coalesced buff bar viewer refreshes from bar-content hooks and player aura events through one reusable dispatch frame.
+- Replaced per-icon ready-glow hide timers with a shared dispatch queue to reduce timer churn during cooldown and aura bursts.
 
 ### Korean Patch Notes
+- 쿨다운과 오라 이벤트가 몰릴 때 ready glow 숨김 지연이 아이콘마다 새 타이머를 만들지 않도록 공유 dispatch 큐로 합쳤습니다.
 - 버프바 뷰어의 바 콘텐츠 hook과 플레이어 오라 이벤트에서 들어오는 refresh를 하나의 재사용 dispatch 프레임으로 합쳐 중복 타이머 생성을 줄였습니다.
 - 플레이어 오라 이벤트가 반복될 때 동적 아이콘 aura-hide 스캔이 새 타이머를 계속 만들지 않도록 단일 dispatch 프레임을 재사용하게 했습니다.
 - 동적 아이콘 브리지 갱신 디바운스를 매번 새 타이머로 예약하지 않고 재사용 dispatch 프레임으로 처리하면서, 변경된 source 그룹만 갱신하는 경로는 유지했습니다.

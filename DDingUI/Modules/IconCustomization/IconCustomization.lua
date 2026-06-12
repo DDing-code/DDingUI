@@ -498,7 +498,58 @@ local function IsSpellOnCooldown(iconFrame)
 end
 
 -- Update glow state for an icon frame
-local function UpdateReadyGlow(iconFrame, isTimerFiring)
+local UpdateReadyGlow
+local READY_GLOW_HIDE_DELAY = 0.1
+local readyGlowHideQueue = setmetatable({}, { __mode = "k" })
+local readyGlowHideDispatchFrame
+
+local function EnsureReadyGlowHideDispatchFrame()
+    if readyGlowHideDispatchFrame then return end
+    readyGlowHideDispatchFrame = CreateFrame("Frame")
+    readyGlowHideDispatchFrame:Hide()
+    readyGlowHideDispatchFrame:SetScript("OnUpdate", function(self)
+        local now = GetTime and GetTime() or 0
+
+        for iconFrame, iconData in pairs(readyGlowHideQueue) do
+            local dueAt = iconData and iconData._readyGlowHideDueAt
+            if not iconData or not iconData._readyGlowHideQueued or not dueAt then
+                readyGlowHideQueue[iconFrame] = nil
+            elseif dueAt <= now then
+                readyGlowHideQueue[iconFrame] = nil
+                iconData._readyGlowHideQueued = nil
+                iconData._readyGlowHideDueAt = nil
+                if iconFrame and not iconFrame:IsForbidden() and UpdateReadyGlow then
+                    UpdateReadyGlow(iconFrame, true)
+                end
+            end
+        end
+
+        if not next(readyGlowHideQueue) then
+            self:Hide()
+        end
+    end)
+end
+
+local function QueueReadyGlowHide(iconFrame, iconData)
+    if not iconFrame or not iconData then return end
+    iconData._readyGlowHideQueued = true
+    iconData._readyGlowHideDueAt = (GetTime and GetTime() or 0) + READY_GLOW_HIDE_DELAY
+    readyGlowHideQueue[iconFrame] = iconData
+    EnsureReadyGlowHideDispatchFrame()
+    readyGlowHideDispatchFrame:Show()
+end
+
+local function CancelReadyGlowHide(iconFrame, iconData)
+    if iconFrame then
+        readyGlowHideQueue[iconFrame] = nil
+    end
+    if iconData then
+        iconData._readyGlowHideQueued = nil
+        iconData._readyGlowHideDueAt = nil
+    end
+end
+
+UpdateReadyGlow = function(iconFrame, isTimerFiring)
     if not iconFrame then return end
 
     local iconData = GetFrameData(iconFrame)
@@ -511,13 +562,8 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
             if isTimerFiring then
                 HideReadyGlow(iconFrame)
                 iconData.cachedSpellID = nil
-            elseif not iconData._readyGlowHideTimer then
-                iconData._readyGlowHideTimer = C_Timer.NewTimer(0.1, function()
-                    iconData._readyGlowHideTimer = nil
-                    if iconFrame and not iconFrame:IsForbidden() then
-                        UpdateReadyGlow(iconFrame, true)
-                    end
-                end)
+            elseif not iconData._readyGlowHideQueued then
+                QueueReadyGlowHide(iconFrame, iconData)
             end
         else
             iconData.cachedSpellID = nil
@@ -527,6 +573,7 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
 
     if spellID ~= iconData.cachedSpellID then
         -- Spell changed on this frame
+        CancelReadyGlowHide(iconFrame, iconData)
         if iconData.readyGlowActive then
             HideReadyGlow(iconFrame)
         end
@@ -543,13 +590,8 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
         if iconData.readyGlowActive then
             if isTimerFiring then
                 HideReadyGlow(iconFrame)
-            elseif not iconData._readyGlowHideTimer then
-                iconData._readyGlowHideTimer = C_Timer.NewTimer(0.1, function()
-                    iconData._readyGlowHideTimer = nil
-                    if iconFrame and not iconFrame:IsForbidden() then
-                        UpdateReadyGlow(iconFrame, true)
-                    end
-                end)
+            elseif not iconData._readyGlowHideQueued then
+                QueueReadyGlowHide(iconFrame, iconData)
             end
         end
         return
@@ -578,10 +620,7 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
 
     -- Only update if state actually changed (prevent flashing)
     if shouldGlow then
-        if iconData._readyGlowHideTimer then
-            iconData._readyGlowHideTimer:Cancel()
-            iconData._readyGlowHideTimer = nil
-        end
+        CancelReadyGlowHide(iconFrame, iconData)
         if not iconData.readyGlowActive then
             ShowReadyGlow(iconFrame, spellID, viewerType)
         end
@@ -589,13 +628,8 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
         if iconData.readyGlowActive then
             if isTimerFiring then
                 HideReadyGlow(iconFrame)
-            elseif not iconData._readyGlowHideTimer then
-                iconData._readyGlowHideTimer = C_Timer.NewTimer(0.1, function()
-                    iconData._readyGlowHideTimer = nil
-                    if iconFrame and not iconFrame:IsForbidden() then
-                        UpdateReadyGlow(iconFrame, true)
-                    end
-                end)
+            elseif not iconData._readyGlowHideQueued then
+                QueueReadyGlowHide(iconFrame, iconData)
             end
         end
     end
