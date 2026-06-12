@@ -1566,32 +1566,44 @@ do
         end
     end
 
+    local majorStateToken = 0
+    local function ScheduleMajorStateRefresh(event)
+        majorStateToken = majorStateToken + 1
+        local token = majorStateToken
+
+        local function after(delay, fn)
+            C_Timer.After(delay, function()
+                if token ~= majorStateToken then return end
+                fn()
+            end)
+        end
+
+        if event == "PLAYER_ENTERING_WORLD" then
+            after(0.1, function()
+                nextCenterBuffsUpdate = 0
+                CenterBuffIcons()
+            end)
+            after(0.5, function()
+                nextCenterBuffsUpdate = 0
+                CenterBuffIcons()
+            end)
+            after(1.0, OnMajorStateChange)
+            return
+        end
+
+        after(0.3, OnMajorStateChange)
+        after(1.0, OnMajorStateChange)
+        after(2.5, OnMajorStateChange)
+        after(4.0, CheckAndRecoverUnpopulatedFrames)
+    end
+
     local viewerRefreshFrame = CreateFrame("Frame")
     viewerRefreshFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
     viewerRefreshFrame:RegisterEvent("PLAYER_LEVEL_UP")
     viewerRefreshFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     viewerRefreshFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     viewerRefreshFrame:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_ENTERING_WORLD" then
-            -- [FIX] 리로드 직후 강화효과 위치 즉시 보정 (CDM RunVisualSetup 패턴)
-            -- IsViewerReady 가드를 우회하여 빠르게 CenterBuffIcons 실행
-            C_Timer.After(0.1, function()
-                nextCenterBuffsUpdate = 0
-                CenterBuffIcons()
-            end)
-            C_Timer.After(0.5, function()
-                nextCenterBuffsUpdate = 0
-                CenterBuffIcons()
-            end)
-            C_Timer.After(1.0, OnMajorStateChange)
-            return
-        end
-        -- 뷰어 재생성 대기 후 재설치 시도 (여러 시점에서)
-        C_Timer.After(0.3, OnMajorStateChange)
-        C_Timer.After(1.0, OnMajorStateChange)
-        C_Timer.After(2.5, OnMajorStateChange)
-        -- [CDM 패턴] 4초 후 빈 프레임 체크 → 미복구 아이콘 강제 재시도
-        C_Timer.After(4.0, CheckAndRecoverUnpopulatedFrames)
+        ScheduleMajorStateRefresh(event)
     end)
 end
 
