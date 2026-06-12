@@ -617,6 +617,7 @@ end
 
 -- ─── 메인 OnUpdate 루프 ───
 local evaluationFrame = CreateFrame("Frame", "DDingUI_ConditionalActionsFrame", UIParent)
+local ConditionalActionsOnUpdate
 
 local function GetTrackedBuffs()
     if not DDingUI.db then return {} end
@@ -632,14 +633,42 @@ local function GetTrackedBuffs()
     return {}
 end
 
-evaluationFrame:SetScript("OnUpdate", function(self, elapsed)
+local function HasEnabledConditionalActions(trackedBuffs)
+    if not trackedBuffs or #trackedBuffs == 0 then return false end
+    for _, group in ipairs(trackedBuffs) do
+        local ca = group
+            and group.isGroup
+            and group.groupSettings
+            and group.groupSettings.conditionalActions
+        if ca and ca.enabled then
+            if (ca.sets and #ca.sets > 0) or (ca.triggers and #ca.triggers > 0) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function RefreshEvaluationState(trackedBuffs)
+    trackedBuffs = trackedBuffs or GetTrackedBuffs()
+    evalElapsed = 0
+    if HasEnabledConditionalActions(trackedBuffs) then
+        evaluationFrame:SetScript("OnUpdate", ConditionalActionsOnUpdate)
+    else
+        evaluationFrame:SetScript("OnUpdate", nil)
+    end
+end
+
+ConditionalActionsOnUpdate = function(self, elapsed)
     evalElapsed = evalElapsed + elapsed
     if evalElapsed < EVAL_INTERVAL then return end
     evalElapsed = 0
 
     local trackedBuffs = GetTrackedBuffs()
-    if not trackedBuffs or #trackedBuffs == 0 then return end
-
+    if not HasEnabledConditionalActions(trackedBuffs) then
+        RefreshEvaluationState(trackedBuffs)
+        return
+    end
 
     for i, group in ipairs(trackedBuffs) do
         if group.isGroup and group.groupSettings
@@ -677,6 +706,19 @@ evaluationFrame:SetScript("OnUpdate", function(self, elapsed)
             end
         end
     end
+end
+
+evaluationFrame:SetScript("OnUpdate", ConditionalActionsOnUpdate)
+
+local conditionalEventFrame = CreateFrame("Frame")
+conditionalEventFrame:RegisterEvent("PLAYER_LOGIN")
+conditionalEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+conditionalEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+conditionalEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+conditionalEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+conditionalEventFrame:SetScript("OnEvent", function(_, event, unit)
+    if event == "PLAYER_SPECIALIZATION_CHANGED" and unit and unit ~= "player" then return end
+    RefreshEvaluationState()
 end)
 
 -- ─── Public API ───
@@ -689,6 +731,9 @@ DDingUI.ConditionalActions = {
     HideIconGlow = HideIconGlow,
     ShowAlertText = ShowAlertText,
     ResolveBarFrame = ResolveBarFrame,
+    RefreshEnabled = function(_, trackedBuffs)
+        RefreshEvaluationState(trackedBuffs)
+    end,
     -- 조건 목록 (GUI용)
     CONDITIONS = {
         { id = "active",          name = L["Active"] or "Active",                   needsValue = false },
