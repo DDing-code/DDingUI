@@ -993,12 +993,14 @@ local function MergeSourceKeySet(target, source)
     return target
 end
 
-local function GetSourceKeysForIconKeys(iconKeys)
-    if type(iconKeys) ~= "table" then return nil end
-    local db = GetDynamicDB()
-    if not db then return {} end
+local function InvalidateIconSourceMapCache()
+    DynamicIconBridge._iconSourceMap = nil
+    DynamicIconBridge._iconSourceMapHasLinked = nil
+end
 
-    local result = {}
+local function BuildIconSourceMapCache()
+    local db = GetDynamicDB()
+    local iconSourceMap = {}
     local groupSystem = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
     local linkedSources = {}
     local hasLinkedSource = false
@@ -1012,25 +1014,45 @@ local function GetSourceKeysForIconKeys(iconKeys)
             end
         end
     end
-    if not hasLinkedSource then return result end
 
-    if linkedSources.ungrouped then
-        for iconKey in pairs(iconKeys) do
-            if db.ungrouped and db.ungrouped[iconKey] then
-                result.ungrouped = true
-                break
+    if db and hasLinkedSource then
+        if linkedSources.ungrouped then
+            for iconKey in pairs(db.ungrouped or {}) do
+                iconSourceMap[iconKey] = iconSourceMap[iconKey] or {}
+                iconSourceMap[iconKey].ungrouped = true
+            end
+        end
+
+        for groupKey, group in pairs(db.groups or {}) do
+            if linkedSources[groupKey] and group and group.icons then
+                for _, iconKey in ipairs(group.icons) do
+                    iconSourceMap[iconKey] = iconSourceMap[iconKey] or {}
+                    iconSourceMap[iconKey][groupKey] = true
+                end
             end
         end
     end
 
-    for groupKey, group in pairs(db.groups or {}) do
-        if linkedSources[groupKey] and group and group.icons then
-            for _, iconKey in ipairs(group.icons) do
-                if iconKeys[iconKey] then
-                    result[groupKey] = true
-                    break
-                end
-            end
+    DynamicIconBridge._iconSourceMap = iconSourceMap
+    DynamicIconBridge._iconSourceMapHasLinked = hasLinkedSource
+    return iconSourceMap, hasLinkedSource
+end
+
+local function GetSourceKeysForIconKeys(iconKeys)
+    if type(iconKeys) ~= "table" then return nil end
+
+    local result = {}
+    local iconSourceMap = DynamicIconBridge._iconSourceMap
+    local hasLinkedSource = DynamicIconBridge._iconSourceMapHasLinked
+    if not iconSourceMap then
+        iconSourceMap, hasLinkedSource = BuildIconSourceMapCache()
+    end
+    if not hasLinkedSource then return result end
+
+    for iconKey in pairs(iconKeys) do
+        local sources = iconSourceMap[iconKey]
+        if sources then
+            MergeSourceKeySet(result, sources)
         end
     end
 
@@ -1627,6 +1649,7 @@ function DynamicIconBridge:Shutdown()
     self._pendingScanNotify = false
     self._hideScanDelayRemaining = 0
     self._auraEventsRegistered = nil
+    InvalidateIconSourceMapCache()
 
     -- CDM 프레임 숨김 해제
     for frame in pairs(hiddenCDMFrames) do
@@ -1651,6 +1674,10 @@ end
 function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     if not initialized then return end
     if not layoutSuppressed then return end
+
+    if forceLayout then
+        InvalidateIconSourceMapCache()
+    end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
     local changedSourceKeys = (not forceLayout) and GetSourceKeysForIconKeys(changedIconKeys) or nil
