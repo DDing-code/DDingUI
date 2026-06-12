@@ -1541,9 +1541,8 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     -- Handle talent change events (always check, regardless of tracking mode)
     if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" then
         -- Talent changed - update bar to reflect new talent conditions
-        C_Timer.After(0.1, function()
-            QueueBuffTrackerUpdate("talent", 0)
-        end)
+        MarkTrackedAuraFilterDirty()
+        QueueBuffTrackerUpdate("talent", 0.1)
         return
     end
 
