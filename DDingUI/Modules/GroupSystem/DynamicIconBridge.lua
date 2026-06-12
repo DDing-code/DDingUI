@@ -76,6 +76,7 @@ local suppressedSpellCache = nil
 local suppressedSpellCacheAt = 0
 local BuildDynamicLayoutStateHash
 local BuildCombinedHashFromSourceHashes
+local singleIconChangedKeys = {}
 
 local function ExecutePendingIconsChanged(bridge)
     local pendingForce = bridge._pendingForceLayout
@@ -705,7 +706,13 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
                     C_Timer.After(COMBAT_ICON_GRACE_SECONDS + 0.05, function()
                         frame._ddGraceNotifyPending = nil
                         if initialized and layoutSuppressed then
-                            DynamicIconBridge:NotifyIconsChanged()
+                            if frame._iconKey then
+                                wipe(singleIconChangedKeys)
+                                singleIconChangedKeys[frame._iconKey] = true
+                                DynamicIconBridge:NotifyIconsChanged(false, singleIconChangedKeys)
+                            else
+                                DynamicIconBridge:NotifyIconsChanged()
+                            end
                         end
                     end)
                 end
