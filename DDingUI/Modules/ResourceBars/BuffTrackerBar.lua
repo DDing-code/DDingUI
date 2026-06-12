@@ -50,6 +50,7 @@ local previewState = {}  -- { [barIndex] = { stacks = N, duration = N, lastUpdat
 local previewTicker = nil
 local PREVIEW_STACK_INTERVAL = 1.5  -- Change stacks every 1.5 seconds
 local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
+local DURATION_UPDATE_INTERVAL = 0.05
 
 -- Get preview values for a bar
 local function GetPreviewValues(barIndex, maxStacks, maxDuration, barFillMode)
@@ -3468,6 +3469,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             -- OnUpdate 핸들러 설정 (매 프레임 폴링)
             if not bar._hasDurationUpdate then
                 bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
+                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
+                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
+                    self._durationElapsed = 0
+
                     local data = bar._durationData
                     if not data then return end
 
@@ -3628,6 +3633,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
             if not bar._hasDurationUpdate then
                 bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
+                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
+                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
+                    self._durationElapsed = 0
+
                     local data = bar._durationData
                     if not data or not data.auraID then return end
 
@@ -4972,6 +4981,10 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not icon._hasDurationUpdate then
                 icon:SetScript("OnUpdate", function(self, elapsed)
+                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
+                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
+                    self._durationElapsed = 0
+
                     local data = icon._durationData
                     if not data then return end
 
@@ -5038,6 +5051,10 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             -- Manual 모드에서 활성화 중
             if not icon._hasDurationUpdate then
                 icon:SetScript("OnUpdate", function(self, elapsed)
+                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
+                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
+                    self._durationElapsed = 0
+
                     local data = icon._durationData
                     if not data or not data.isManualMode then return end
                     local _, expiresAt = GetManualStacks(data.barIndex)
@@ -5512,6 +5529,10 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not textFrame._hasDurationUpdate then
                 textFrame:SetScript("OnUpdate", function(self, elapsed)
+                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
+                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
+                    self._durationElapsed = 0
+
                     local data = textFrame._durationData
                     if not data then return end
 
@@ -5578,6 +5599,10 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             -- Manual 모드에서 활성화 중
             if not textFrame._hasDurationUpdate then
                 textFrame:SetScript("OnUpdate", function(self, elapsed)
+                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
+                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
+                    self._durationElapsed = 0
+
                     local data = textFrame._durationData
                     if not data or not data.isManualMode then return end
                     local _, expiresAt = GetManualStacks(data.barIndex)
