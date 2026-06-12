@@ -3424,6 +3424,8 @@ local function ExecuteUpdateAllIcons(filter)
                 typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc"
             elseif filter == "cooldown" then
                 typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc" or iconType == "spell" or iconType == "racial"
+            elseif filter == "spellCooldown" then
+                typeMatches = iconType == "spell" or iconType == "racial"
             end
             if iconData and typeMatches and (frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or frame._ddIsManaged) then
                 local okUpdate, err = pcall(function()
@@ -3670,6 +3672,16 @@ local function HasItemCooldownIcon()
     return false
 end
 
+function runtime.HasSpellCooldownIcon()
+    local db = GetDynamicDB()
+    for _, iconData in pairs((db and db.iconData) or {}) do
+        if iconData.type == "spell" or iconData.type == "racial" then
+            return true
+        end
+    end
+    return false
+end
+
 function runtime.HasUnitAuraScanIcon()
     local db = GetDynamicDB()
     for _, iconData in pairs((db and db.iconData) or {}) do
@@ -3790,12 +3802,17 @@ local function EnsureEventFrame()
         local isItemCooldownEvent = event == "UNIT_SPELLCAST_SUCCEEDED"
             or event == "BAG_UPDATE_COOLDOWN"
             or event == "SPELL_UPDATE_COOLDOWN"
+            or event == "SPELL_UPDATE_CHARGES"
             or event == "ACTIONBAR_UPDATE_COOLDOWN"
             or event == "ARENA_COOLDOWNS_UPDATE"
             or event == "PVP_MATCH_STATE_CHANGED"
             or event == "SPELL_UPDATE_USABLE"
             or event == "ITEM_COUNT_CHANGED"
             or event == "BAG_UPDATE_DELAYED"
+        local isSpellCooldownEvent = event == "SPELL_UPDATE_COOLDOWN"
+            or event == "SPELL_UPDATE_CHARGES"
+            or event == "ACTIONBAR_UPDATE_COOLDOWN"
+            or event == "SPELL_UPDATE_USABLE"
         local hasItemCooldownIcon = isItemCooldownEvent and HasItemCooldownIcon()
         if hasItemCooldownIcon and succeededSpellID then
             MarkItemCombatLockoutFromSpell(succeededSpellID)
@@ -3824,14 +3841,18 @@ local function EnsureEventFrame()
         if hasItemCooldownIcon then
             if event == "BAG_UPDATE_COOLDOWN" and runtime.QueueEvaluateCustomCooldownWatches then
                 runtime.QueueEvaluateCustomCooldownWatches()
+            elseif isSpellCooldownEvent then
+                if runtime.HasSpellCooldownIcon and runtime.HasSpellCooldownIcon() then
+                    UpdateAllIcons(nil, "spellCooldown")
+                end
             else
                 RefreshItemCooldownIcons(needsLayoutNotify)
             end
             if customTimedChanged then
                 UpdateAllIcons(needsLayoutNotify, "aura")
             end
-            if isRacialSpellcast or event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
-                UpdateAllIcons(nil, "cooldown")
+            if isRacialSpellcast then
+                UpdateAllIcons(nil, "spellCooldown")
             end
             return
         end
@@ -3839,6 +3860,10 @@ local function EnsureEventFrame()
         local updateFilter = nil
         if customTimedChanged or (event == "UNIT_AURA" and requiresAuraScan) then
             updateFilter = "aura"
+        elseif isSpellCooldownEvent then
+            if runtime.HasSpellCooldownIcon and runtime.HasSpellCooldownIcon() then
+                updateFilter = "spellCooldown"
+            end
         elseif isItemCooldownEvent
             or event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
