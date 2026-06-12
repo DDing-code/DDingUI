@@ -15,6 +15,9 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Registered spell, item, and duplicate-aura watcher events only while tracked entries exist, reducing idle runtime work.
 - Reduced tracked buff bar work by merging duplicate UNIT_AURA and duration updates, trimming startup refreshes, and stopping the tracker when no entries are active.
 - Removed redundant fallback viewer polling and per-icon glow/desaturation polling that could contribute to stutter or glow flicker.
+- Debounced custom icon reloads, icon customization rehooks, and viewer transition recovery so talent changes, loading screens, PvP transitions, and zone changes do not stack repeated full refresh passes.
+- Routed timed-aura layout changes through the existing icon update queue and removed duplicate managed-text retry timers.
+- Narrowed inactive viewer fallback listeners and player aura listeners, and skipped idle buff tracker startup work when no tracked entries exist.
 - Limited proxy anchor synchronization and keybind text updates to event-driven refresh windows instead of continuous per-frame polling.
 - Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
@@ -27,6 +30,9 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - 추적 대상이 있을 때만 주문, 아이템, 중복 오라 watcher 이벤트를 등록해 대기 상태의 런타임 작업을 줄였습니다.
 - 중복 UNIT_AURA와 지속시간 갱신을 병합하고, 시작 시 불필요한 갱신을 줄이며, 추적 항목이 없으면 트래커를 멈추도록 추적 버프 바 작업량을 줄였습니다.
 - 스터터나 글로우 깜빡임을 유발할 수 있는 fallback 뷰어 폴링과 아이콘별 글로우/비활성화 폴링을 제거했습니다.
+- 커스텀 아이콘 재로드, 아이콘 커스터마이징 재훅, 뷰어 전환 복구를 디바운스해 특성 변경, 로딩 화면, PvP 전환, 지역 변경 때 반복 전체 갱신이 겹치지 않게 했습니다.
+- 지속시간 오라의 레이아웃 변경을 기존 아이콘 갱신 큐로 통합하고, 관리 아이콘 텍스트 재시도 타이머 중복을 제거했습니다.
+- 비활성 뷰어 fallback 리스너와 플레이어 오라 리스너 범위를 줄이고, 추적 항목이 없을 때는 버프 트래커 시작 작업을 건너뛰도록 했습니다.
 - 프록시 앵커 동기화와 키바인드 텍스트 갱신을 지속적인 매 프레임 폴링 대신 이벤트 기반 갱신 구간에서만 실행하도록 제한했습니다.
 - 설정창이 닫힐 때 동적 아이콘 갱신 poller, 추가 팝업, 드래그 고스트, 툴팁 같은 옵션 패널 임시 작업을 정리하도록 개선했습니다.
 - 보호 값이나 secret 값이 섞인 상황에서도 CDM 렌더링이 깨지지 않도록 숫자 변환과 관리 아이콘 상태 확인을 더 안전하게 처리했습니다.
