@@ -537,15 +537,27 @@ end
 -- [FIX] 이전 spec 변경 타이머 취소용
 local specChangeQueued = false
 
+local specChangeDispatchDelay = 0
+local specChangeDispatchFrame = CreateFrame("Frame")
+specChangeDispatchFrame:Hide()
+specChangeDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+    specChangeDispatchDelay = specChangeDispatchDelay - (elapsed or 0)
+    if specChangeDispatchDelay > 0 then
+        return
+    end
+
+    self:Hide()
+    specChangeQueued = false
+    ResourceBars:OnSpecChanged()
+end)
+
 local function QueueSpecChangedRefresh()
     if specChangeQueued then
         return
     end
     specChangeQueued = true
-    C_Timer.After(0.05, function()
-        specChangeQueued = false
-        ResourceBars:OnSpecChanged()
-    end)
+    specChangeDispatchDelay = 0.05
+    specChangeDispatchFrame:Show()
 end
 
 function ResourceBars:OnSpecChanged()
