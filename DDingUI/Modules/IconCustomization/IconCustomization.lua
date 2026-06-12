@@ -292,6 +292,40 @@ local uiState = {
 
 -- Track hooked frames for event-driven updates
 local hookedFrames = {} -- [iconFrame] = true
+local QueueReadyGlowRefresh
+local readyGlowEventFrame
+local readyGlowEventsRegistered = false
+
+local function EnsureReadyGlowEvents()
+    if not readyGlowEventFrame then
+        readyGlowEventFrame = CreateFrame("Frame")
+        readyGlowEventFrame:SetScript("OnEvent", function(_, event, unit)
+            if event == "UNIT_AURA" and unit ~= "player" then
+                return
+            end
+            if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
+                if QueueReadyGlowRefresh then
+                    QueueReadyGlowRefresh(true)
+                end
+                return
+            end
+            if QueueReadyGlowRefresh then
+                QueueReadyGlowRefresh(false)
+            end
+        end)
+    end
+
+    if readyGlowEventsRegistered then
+        return
+    end
+
+    readyGlowEventsRegistered = true
+    readyGlowEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    readyGlowEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+    readyGlowEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    readyGlowEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    readyGlowEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+end
 
 
 -- READY STATE GLOW FUNCTIONS
@@ -597,6 +631,7 @@ local function HookCooldownFrame(iconFrame)
 
     -- Track frame for event-driven updates
     hookedFrames[iconFrame] = true
+    EnsureReadyGlowEvents()
 
     -- Hook OnHide for instant glow when cooldown completes (for "ready" trigger)
     if not IsHooked(iconFrame.Cooldown, "readyGlowOnHideHooked") then
@@ -739,6 +774,63 @@ local function ScheduleReadyGlowRehook(delay)
         if token ~= readyGlowRehookToken or not pendingReadyGlowRehook then return end
         RehookAllViewerReadyGlows()
     end)
+end
+
+local readyGlowDispatchFrame = CreateFrame("Frame")
+readyGlowDispatchFrame:Hide()
+local readyGlowDispatchPending = false
+local readyGlowQueuedReset = false
+
+local function ResetReadyGlowFrames()
+    for frame in pairs(hookedFrames) do
+        if frame and not frame:IsForbidden() then
+            local fd = FrameData[frame]
+            if fd then
+                fd.cachedSpellID = nil
+                fd.viewerType = nil
+            end
+            HideReadyGlow(frame)
+        end
+    end
+    ScheduleReadyGlowRehook(0.5)
+end
+
+local function DispatchReadyGlowRefresh()
+    readyGlowDispatchPending = false
+    if not next(hookedFrames) then
+        readyGlowQueuedReset = false
+        return
+    end
+
+    if readyGlowQueuedReset then
+        readyGlowQueuedReset = false
+        ResetReadyGlowFrames()
+        return
+    end
+
+    RefreshAllReadyGlows()
+end
+
+readyGlowDispatchFrame:SetScript("OnUpdate", function(self)
+    self:Hide()
+    DispatchReadyGlowRefresh()
+end)
+
+QueueReadyGlowRefresh = function(resetFrames)
+    if not next(hookedFrames) then
+        return
+    end
+
+    if resetFrames then
+        readyGlowQueuedReset = true
+    end
+
+    if readyGlowDispatchPending then
+        return
+    end
+
+    readyGlowDispatchPending = true
+    readyGlowDispatchFrame:Show()
 end
 
 -- Build the Icon Customization UI
@@ -1294,75 +1386,6 @@ function IconCustomization:Initialize()
         end
     end)
     
-    -- Register events to refresh glow when cooldowns/buffs update
-    if not self.__eventFrame then
-        self.__eventFrame = CreateFrame("Frame")
-        self.__eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-        self.__eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-        self.__eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-        self.__eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-        self.__eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
-        self.__eventFrame:SetScript("OnEvent", function(self, event, unit)
-            do
-                if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
-                    for frame in pairs(hookedFrames) do
-                        if frame and not frame:IsForbidden() then
-                            local fd = FrameData[frame]
-                            if fd then
-                                fd.cachedSpellID = nil
-                                fd.viewerType = nil
-                            end
-                            HideReadyGlow(frame)
-                        end
-                    end
-                    ScheduleReadyGlowRehook(0.5)
-                    return
-                end
-
-                RefreshAllReadyGlows()
-                return
-            end
-            if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "TRAIT_CONFIG_UPDATED" then
-                -- Clear all cached spellIDs (frames are reused for different spells)
-                for frame, _ in pairs(hookedFrames) do
-                    if frame and not frame:IsForbidden() then
-                        local fd = FrameData[frame]
-                        if fd then
-                            fd.cachedSpellID = nil
-                            fd.viewerType = nil
-                        end
-                        HideReadyGlow(frame)
-                    end
-                end
-                -- [FIX] 다단계 재시도: CDM 뷰어 재생성 대기
-                local function RehookAllViewers()
-                    local viewers = DDingUI.viewers or {
-                        "EssentialCooldownViewer",
-                        "UtilityCooldownViewer",
-                        "BuffIconCooldownViewer",
-                    }
-                    for _, viewerName in ipairs(viewers) do
-                        local viewer = _G[viewerName]
-                        -- [REPARENT] itemFramePool:EnumerateActive()로 전환
-                        if viewer and viewer.itemFramePool then
-                            for child in viewer.itemFramePool:EnumerateActive() do
-                                if child and child.cooldownID and child.Cooldown then
-                                    -- Re-read spellID from frame
-                                    local fd = FrameData[child]
-                                    if fd then fd.cachedSpellID = nil end
-                                    IconCustomization:HookIconFrame(child)
-                                end
-                            end
-                        end
-                    end
-                    RefreshAllReadyGlows()
-                end
-                ScheduleReadyGlowRehook(0.5)
-                return
-            end
-            RefreshAllReadyGlows()
-        end)
-    end
 end
 
 -- Initialize on load
