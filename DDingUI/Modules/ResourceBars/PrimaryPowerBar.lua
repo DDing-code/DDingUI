@@ -308,26 +308,11 @@ function ResourceBars:UpdatePowerBar()
         end
     end
 
-    -- Setup/teardown OnUpdate ticker for faster updates
-    if cfg.fasterUpdates then
-        local updateFrequency = cfg.updateFrequency or 0.1
-        -- 주파수 변경 시에만 함수 재생성 (매 호출마다 새 함수 객체 생성 방지)
-        if not bar._onUpdateFunc or bar._onUpdateFreq ~= updateFrequency then
-            bar._onUpdateFreq = updateFrequency
-            bar._onUpdateFunc = function(frame, elapsed)
-                frame._updateElapsed = (frame._updateElapsed or 0) + elapsed
-                if frame._updateElapsed >= (frame._onUpdateFreq or 0.1) then
-                    frame._updateElapsed = 0
-                    ResourceBars:UpdatePowerBar()
-                end
-            end
-            bar:SetScript("OnUpdate", bar._onUpdateFunc)
-        end
-    else
-        if bar._onUpdateFunc then
-            bar:SetScript("OnUpdate", nil)
-            bar._onUpdateFunc = nil
-        end
+    if bar._onUpdateFunc then
+        bar:SetScript("OnUpdate", nil)
+        bar._onUpdateFunc = nil
+        bar._onUpdateFreq = nil
+        bar._updateElapsed = nil
     end
 
     local resource = GetPrimaryResource()
@@ -805,4 +790,3 @@ DDingUI.UpdatePowerBar = function(self) return ResourceBars:UpdatePowerBar() end
 DDingUI.UpdatePowerBarTicks = function(self, bar, resource, max) return ResourceBars:UpdatePowerBarTicks(bar, resource, max) end
 
 -- Debug command for threshold
-

@@ -784,22 +784,14 @@ function ResourceBars:UpdateSecondaryPowerBarTicks(bar, resource, max)
     end
 end
 
--- Ticker for faster updates (separate from bar frame so it runs even when bar is hidden)
+-- Legacy generic ticker cleanup. Resource-specific tickers live in ResourceBars.lua.
 local secondaryPowerTicker = nil
 local secondaryPowerTickerFrame = nil
 
-local function SetupSecondaryPowerTicker(cfg)
-    -- Cancel existing ticker
+local function StopSecondaryPowerTicker()
     if secondaryPowerTicker then
         secondaryPowerTicker:Cancel()
         secondaryPowerTicker = nil
-    end
-
-    if cfg.fasterUpdates and cfg.enabled then
-        local updateFrequency = cfg.updateFrequency or 0.1
-        secondaryPowerTicker = C_Timer.NewTicker(updateFrequency, function()
-            ResourceBars:UpdateSecondaryPowerBar()
-        end)
     end
 end
 
@@ -814,21 +806,11 @@ function ResourceBars:UpdateSecondaryPowerBar()
             if DDingUI.secondaryPowerBar.TextFrame then DDingUI.secondaryPowerBar.TextFrame:Hide() end
             if DDingUI.secondaryPowerBar.RuneTimerTextFrame then DDingUI.secondaryPowerBar.RuneTimerTextFrame:Hide() end
         end
-        -- Stop ticker when disabled
-        if secondaryPowerTicker then
-            secondaryPowerTicker:Cancel()
-            secondaryPowerTicker = nil
-        end
+        StopSecondaryPowerTicker()
         return
     end
 
-    -- Setup ticker for faster updates (only if not already running)
-    if cfg.fasterUpdates and not secondaryPowerTicker then
-        SetupSecondaryPowerTicker(cfg)
-    elseif not cfg.fasterUpdates and secondaryPowerTicker then
-        secondaryPowerTicker:Cancel()
-        secondaryPowerTicker = nil
-    end
+    StopSecondaryPowerTicker()
 
     local bar = self:GetSecondaryPowerBar()
 
@@ -1524,4 +1506,3 @@ DDingUI.UpdateFragmentedPowerDisplay = function(self, bar, resource) return Reso
 DDingUI.UpdateChargedPowerSegments = function(self, bar, resource, max) return ResourceBars:UpdateChargedPowerSegments(bar, resource, max) end
 DDingUI.UpdatePerPointColorSegments = function(self, bar, resource, max, current) return ResourceBars:UpdatePerPointColorSegments(bar, resource, max, current) end
 DDingUI.UpdateOverflowColorSegments = function(self, bar, resource, max, current) return ResourceBars:UpdateOverflowColorSegments(bar, resource, max, current) end
-
