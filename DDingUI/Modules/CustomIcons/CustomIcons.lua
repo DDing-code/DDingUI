@@ -216,6 +216,10 @@ local runtime = {
         slotTargets = {},
         auraSpellTargets = {},
         auraInstanceTargets = {},
+        auraSpellIconTargets = {},
+        auraInstanceIconTargets = {},
+        auraUnknownIconKeys = {},
+        touchedAuraIconKeys = {},
         itemStates = {},
         slotStates = {},
         pendingIconKeys = {},
@@ -3740,19 +3744,36 @@ function runtime.UnitAuraUpdateTouchesCustomIcon(updateInfo)
 
     local spellTargets = watcher.auraSpellTargets
     local instanceTargets = watcher.auraInstanceTargets
-    if not spellTargets or not instanceTargets then
+    local spellIconTargets = watcher.auraSpellIconTargets
+    local instanceIconTargets = watcher.auraInstanceIconTargets
+    local touchedKeys = watcher.touchedAuraIconKeys
+    if not spellTargets or not instanceTargets or not spellIconTargets or not instanceIconTargets or not touchedKeys then
         return true
     end
+    runtime.ClearCustomCooldownTable(touchedKeys)
 
     local touched = false
+    local function addIconKeys(iconKeys)
+        if type(iconKeys) ~= "table" then return end
+        for iconKey in pairs(iconKeys) do
+            touchedKeys[iconKey] = true
+        end
+    end
+
     local function markAura(aura)
         if touched or not aura then return end
         local spellID = GetAuraSpellIDSafe(aura)
-        if spellID and spellTargets[spellID] then
+        local iconKeys = spellID and spellIconTargets[spellID]
+        if spellID and spellTargets[spellID] and iconKeys then
             local instanceID = SafeNumber(GetAuraFieldSafe(aura, "auraInstanceID"))
             if instanceID then
                 instanceTargets[instanceID] = true
+                instanceIconTargets[instanceID] = instanceIconTargets[instanceID] or {}
+                for iconKey in pairs(iconKeys) do
+                    instanceIconTargets[instanceID][iconKey] = true
+                end
             end
+            addIconKeys(iconKeys)
             touched = true
         end
     end
@@ -3767,7 +3788,7 @@ function runtime.UnitAuraUpdateTouchesCustomIcon(updateInfo)
         end
     end)
     if not okAdded or touched then
-        return true
+        return true, touched and touchedKeys or nil
     end
 
     local okUpdated = pcall(function()
@@ -3775,7 +3796,9 @@ function runtime.UnitAuraUpdateTouchesCustomIcon(updateInfo)
         if type(updated) == "table" then
             for _, instanceID in ipairs(updated) do
                 local safeID = SafeNumber(instanceID)
-                if safeID and instanceTargets[safeID] then
+                local iconKeys = safeID and instanceIconTargets[safeID]
+                if safeID and instanceTargets[safeID] and iconKeys then
+                    addIconKeys(iconKeys)
                     touched = true
                     break
                 end
@@ -3783,7 +3806,7 @@ function runtime.UnitAuraUpdateTouchesCustomIcon(updateInfo)
         end
     end)
     if not okUpdated or touched then
-        return true
+        return true, touched and touchedKeys or nil
     end
 
     local okRemoved = pcall(function()
@@ -3791,8 +3814,11 @@ function runtime.UnitAuraUpdateTouchesCustomIcon(updateInfo)
         if type(removed) == "table" then
             for _, instanceID in ipairs(removed) do
                 local safeID = SafeNumber(instanceID)
-                if safeID and instanceTargets[safeID] then
+                local iconKeys = safeID and instanceIconTargets[safeID]
+                if safeID and instanceTargets[safeID] and iconKeys then
+                    addIconKeys(iconKeys)
                     instanceTargets[safeID] = nil
+                    instanceIconTargets[safeID] = nil
                     touched = true
                     break
                 end
@@ -3802,7 +3828,7 @@ function runtime.UnitAuraUpdateTouchesCustomIcon(updateInfo)
     if not okRemoved then
         return true
     end
-    return touched
+    return touched, touched and touchedKeys or nil
 end
 
 local function RefreshItemCooldownIcons(needsLayoutNotify)
@@ -3869,9 +3895,10 @@ local function EnsureEventFrame()
         local succeededSpellID = event == "UNIT_SPELLCAST_SUCCEEDED" and SafeNumber(select(3, ...)) or nil
         local isRacialSpellcast = succeededSpellID and succeededSpellID == GetPlayerRacialSpellID()
         local auraUpdateInfo = event == "UNIT_AURA" and select(2, ...) or nil
-        local requiresAuraScan = event == "UNIT_AURA"
-            and runtime.UnitAuraUpdateTouchesCustomIcon
-            and runtime.UnitAuraUpdateTouchesCustomIcon(auraUpdateInfo)
+        local requiresAuraScan, auraIconKeys = false, nil
+        if event == "UNIT_AURA" and runtime.UnitAuraUpdateTouchesCustomIcon then
+            requiresAuraScan, auraIconKeys = runtime.UnitAuraUpdateTouchesCustomIcon(auraUpdateInfo)
+        end
         if event == "UNIT_SPELLCAST_SENT" then return end
         if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
             or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
@@ -3937,7 +3964,13 @@ local function EnsureEventFrame()
         end
 
         local updateFilter = nil
-        if customTimedChanged or (event == "UNIT_AURA" and requiresAuraScan) then
+        if customTimedChanged then
+            updateFilter = "aura"
+        elseif event == "UNIT_AURA" and requiresAuraScan then
+            if auraIconKeys and runtime.QueueCustomCooldownIconRefresh then
+                runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify, auraIconKeys)
+                return
+            end
             updateFilter = "aura"
         elseif isSpellCooldownEvent then
             if runtime.HasSpellCooldownIcon and runtime.HasSpellCooldownIcon() then
@@ -5020,8 +5053,16 @@ function runtime.RegisterCustomCooldownWatches()
     runtime.ClearCustomCooldownTable(watcher.slotTargets)
     watcher.auraSpellTargets = watcher.auraSpellTargets or {}
     watcher.auraInstanceTargets = watcher.auraInstanceTargets or {}
+    watcher.auraSpellIconTargets = watcher.auraSpellIconTargets or {}
+    watcher.auraInstanceIconTargets = watcher.auraInstanceIconTargets or {}
+    watcher.auraUnknownIconKeys = watcher.auraUnknownIconKeys or {}
+    watcher.touchedAuraIconKeys = watcher.touchedAuraIconKeys or {}
     runtime.ClearCustomCooldownTable(watcher.auraSpellTargets)
     runtime.ClearCustomCooldownTable(watcher.auraInstanceTargets)
+    runtime.ClearCustomCooldownTable(watcher.auraSpellIconTargets)
+    runtime.ClearCustomCooldownTable(watcher.auraInstanceIconTargets)
+    runtime.ClearCustomCooldownTable(watcher.auraUnknownIconKeys)
+    runtime.ClearCustomCooldownTable(watcher.touchedAuraIconKeys)
     watcher.activeTargetCount = 0
     watcher.itemEventTargetCount = 0
     watcher.spellTargetCount = 0
@@ -5052,18 +5093,22 @@ function runtime.RegisterCustomCooldownWatches()
                 local cachedSpellID = SafeNumber(frame._cachedBuffSpellID)
                 if procSpellID then
                     watcher.auraSpellTargets[procSpellID] = true
+                    runtime.AddCustomCooldownTarget(watcher.auraSpellIconTargets, procSpellID, iconKey)
                     hasTarget = true
                 end
                 if cachedSpellID then
                     watcher.auraSpellTargets[cachedSpellID] = true
+                    runtime.AddCustomCooldownTarget(watcher.auraSpellIconTargets, cachedSpellID, iconKey)
                     hasTarget = true
                 end
                 local instanceID = SafeNumber(frame._cachedProcAuraInstanceID)
                 if instanceID then
                     watcher.auraInstanceTargets[instanceID] = true
+                    runtime.AddCustomCooldownTarget(watcher.auraInstanceIconTargets, instanceID, iconKey)
                     hasTarget = true
                 end
                 if not hasTarget then
+                    watcher.auraUnknownIconKeys[iconKey] = true
                     watcher.auraUnknownTargetCount = watcher.auraUnknownTargetCount + 1
                 end
             elseif iconType == "aura" and not GetCustomTimedAuraConfig(iconData) then
@@ -5074,15 +5119,18 @@ function runtime.RegisterCustomCooldownWatches()
                     local safeID = SafeNumber(spellID)
                     if safeID then
                         watcher.auraSpellTargets[safeID] = true
+                        runtime.AddCustomCooldownTarget(watcher.auraSpellIconTargets, safeID, iconKey)
                         hasTarget = true
                     end
                 end
                 local instanceID = SafeNumber(frame._cachedAuraInstanceID)
                 if instanceID then
                     watcher.auraInstanceTargets[instanceID] = true
+                    runtime.AddCustomCooldownTarget(watcher.auraInstanceIconTargets, instanceID, iconKey)
                     hasTarget = true
                 end
                 if not hasTarget then
+                    watcher.auraUnknownIconKeys[iconKey] = true
                     watcher.auraUnknownTargetCount = watcher.auraUnknownTargetCount + 1
                 end
             end
