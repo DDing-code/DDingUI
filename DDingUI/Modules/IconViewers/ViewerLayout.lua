@@ -1635,14 +1635,29 @@ end
 
 -- UNIT_AURA 이벤트로 반응 — [PERF] debounce로 버스트 방지
 local _centerBuffAuraPending = false
+local _centerBuffAuraDelayRemaining = 0
+local function FlushCenterBuffAuraDebounce(self, elapsed)
+    if not _centerBuffAuraPending then
+        self:SetScript("OnUpdate", nil)
+        return
+    end
+
+    _centerBuffAuraDelayRemaining = _centerBuffAuraDelayRemaining - (elapsed or 0)
+    if _centerBuffAuraDelayRemaining > 0 then
+        return
+    end
+
+    self:SetScript("OnUpdate", nil)
+    _centerBuffAuraPending = false
+    _centerBuffAuraDelayRemaining = 0
+    CenterBuffIconsImmediate()
+end
 centerBuffEventFrame = CreateFrame("Frame")
-centerBuffEventFrame:SetScript("OnEvent", function(_, event, unit)
+centerBuffEventFrame:SetScript("OnEvent", function(self, event, unit)
     if unit == "player" and not _centerBuffAuraPending then
         _centerBuffAuraPending = true
-        C_Timer.After(0.05, function()  -- [PERF] 0→0.05s debounce (50ms 내 중복 UNIT_AURA 병합)
-            _centerBuffAuraPending = false
-            CenterBuffIconsImmediate()
-        end)
+        _centerBuffAuraDelayRemaining = 0.05
+        self:SetScript("OnUpdate", FlushCenterBuffAuraDebounce)
     end
 end)
 EnableCenterBuffs()
