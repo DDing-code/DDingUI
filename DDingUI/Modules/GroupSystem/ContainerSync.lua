@@ -164,29 +164,32 @@ end
 -- Snap-back: Blizzard가 뷰어를 변경하면 다시 은닉 -- [REPARENT]
 -- ============================================================
 
+local snapDispatchFrame = CreateFrame("Frame")
+snapDispatchFrame:Hide()
+snapDispatchFrame:SetScript("OnUpdate", function(self)
+    self:Hide()
+    if not initialized or IsInBlizzardEditMode() or ShouldKeepDefaultViewersVisible() then
+        wipe(snapPending)
+        return
+    end
+
+    for viewerName in pairs(snapPending) do
+        snapPending[viewerName] = nil
+
+        local state = viewerState[viewerName]
+        if state and state.hidden then
+            local viewer = _G[viewerName]
+            if viewer and viewer:GetAlpha() > 0.01 then
+                HideViewer(viewerName)
+            end
+        end
+    end
+end)
+
 local function ScheduleSnapBack(viewerName)
     if snapPending[viewerName] then return end
     snapPending[viewerName] = true
-
-    C_Timer.After(0, function()
-        snapPending[viewerName] = false
-
-        if not initialized then return end
-        if IsInBlizzardEditMode() then return end
-        if ShouldKeepDefaultViewersVisible() then return end
-        -- [REFACTOR] InCombatLockdown 제거: SetAlpha는 보호 함수가 아님
-
-        local state = viewerState[viewerName]
-        if not state or not state.hidden then return end
-
-        local viewer = _G[viewerName]
-        if not viewer then return end
-
-        -- [REFACTOR] alpha 확인 (크기/위치는 안 건드리므로)
-        if viewer:GetAlpha() > 0.01 then
-            HideViewer(viewerName)
-        end
-    end)
+    snapDispatchFrame:Show()
 end
 
 -- ============================================================
