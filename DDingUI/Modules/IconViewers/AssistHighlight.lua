@@ -674,6 +674,7 @@ local function EnsureHighlightDispatch()
 end
 
 QueueAllHighlightRefresh = function(useCurrentSuggestion, refreshRotationCache)
+    if not isEnabled then return end
     if useCurrentSuggestion then
         if not pendingAllHighlightRefresh then
             pendingAllUseCurrentSuggestion = true
@@ -693,12 +694,14 @@ function AssistHighlight:QueueAllHighlightRefresh(useCurrentSuggestion, refreshR
 end
 
 local function QueueGroupHighlightRefresh()
+    if not isEnabled then return end
     if pendingGroupHighlightRefresh then return end
     pendingGroupHighlightRefresh = true
     EnsureHighlightDispatch()
 end
 
 local function QueueViewerHighlightRefresh(viewerName)
+    if not isEnabled then return end
     if not viewerName or pendingViewerHighlightRefreshes[viewerName] then return end
     pendingViewerHighlightRefreshes[viewerName] = true
     EnsureHighlightDispatch()
