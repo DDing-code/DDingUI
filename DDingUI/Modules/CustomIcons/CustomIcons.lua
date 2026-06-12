@@ -3494,6 +3494,41 @@ local function ExecuteUpdateAllIcons(filter)
     return layoutStateChanged
 end
 
+runtime.iconUpdateDispatchFrame = runtime.iconUpdateDispatchFrame or CreateFrame("Frame")
+runtime.iconUpdateDispatchFrame:Hide()
+runtime.iconUpdateDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+    if not _pendingIconUpdate then
+        self:Hide()
+        return
+    end
+
+    runtime.iconUpdateDelayRemaining = (runtime.iconUpdateDelayRemaining or 0) - (elapsed or 0)
+    if runtime.iconUpdateDelayRemaining > 0 then
+        return
+    end
+
+    self:Hide()
+    _pendingIconUpdate = false
+    runtime.iconUpdateDelayRemaining = 0
+    local now = GetTime and GetTime() or 0
+    local notifyLayout = _pendingIconLayoutNotify
+    _pendingIconLayoutNotify = false
+    local updateFilter = runtime.pendingIconUpdateFilter
+    if updateFilter ~= "all" and runtime.pendingIconUpdateFilters then
+        updateFilter = runtime.pendingIconUpdateFilters
+    end
+    runtime.pendingIconUpdateFilter = nil
+    runtime.pendingIconUpdateFilters = nil
+    runtime.lastIconUpdateAt = now
+    local layoutStateChanged = ExecuteUpdateAllIcons(updateFilter)
+    if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+        local forceLayout = notifyLayout == true or notifyLayout == "force"
+        if forceLayout or layoutStateChanged then
+            DDingUI.DynamicIconBridge:NotifyIconsChanged(forceLayout)
+        end
+    end
+end)
+
 -- [CDM 패턴] 공개 진입점 — 이벤트 핸들러는 이 함수만 호출
 -- 같은 틱 내 다수 호출을 1회로 병합, 다음 프레임에 실행
 UpdateAllIcons = function(needsLayoutNotify, filter)
@@ -3511,7 +3546,6 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
     if _pendingIconUpdate then return end
     _pendingIconUpdate = true
     _iconUpdateSeq = _iconUpdateSeq + 1
-    local capturedSeq = _iconUpdateSeq
     local now = GetTime and GetTime() or 0
     local inCombat = InCombatLockdown and InCombatLockdown()
     local minInterval = inCombat and 0.08 or 0.02
@@ -3520,26 +3554,8 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
     end
     local elapsed = now - (runtime.lastIconUpdateAt or 0)
     local delay = elapsed >= minInterval and 0 or (minInterval - elapsed)
-    C_Timer.After(delay, function()
-        if capturedSeq ~= _iconUpdateSeq then return end  -- 더 최신 요청이 있으면 스킵
-        _pendingIconUpdate = false
-        local notifyLayout = _pendingIconLayoutNotify
-        _pendingIconLayoutNotify = false
-        local updateFilter = runtime.pendingIconUpdateFilter
-        if updateFilter ~= "all" and runtime.pendingIconUpdateFilters then
-            updateFilter = runtime.pendingIconUpdateFilters
-        end
-        runtime.pendingIconUpdateFilter = nil
-        runtime.pendingIconUpdateFilters = nil
-        runtime.lastIconUpdateAt = GetTime and GetTime() or now
-        local layoutStateChanged = ExecuteUpdateAllIcons(updateFilter)
-        if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-            local forceLayout = notifyLayout == true or notifyLayout == "force"
-            if forceLayout or layoutStateChanged then
-                DDingUI.DynamicIconBridge:NotifyIconsChanged(forceLayout)
-            end
-        end
-    end)
+    runtime.iconUpdateDelayRemaining = delay
+    runtime.iconUpdateDispatchFrame:Show()
 end
 
 local function HandleCooldownDone(cooldownFrame)
