@@ -1010,6 +1010,12 @@ function BuffBar:Initialize()
             end
 
             if unit and unit ~= "player" then return end
+            local settings = GetSettings()
+            if not settings or settings.enabled == false then return end
+            if InCombatLockdown() then
+                BuffBar.__refreshQueued = true
+                return
+            end
             QueueBuffBarRefresh(0.05, true, true)
         end)
         self.__eventFrame = f
