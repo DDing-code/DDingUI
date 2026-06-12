@@ -197,6 +197,7 @@ local runtime = {
     textureCache = {},  -- [stable identity] = resolved texture
     dragState = {},
     pendingSpecReload = false,
+    specReloadToken = 0,
     customTimedAuras = {}, -- [spellID] = { startTime, duration, expirationTime, token, iconTexture }
     itemCombatLockouts = {},
     cooldownWatcher = {
@@ -3482,14 +3483,26 @@ local function HandleCooldownDone(cooldownFrame)
     UpdateAllIcons(nil, "cooldown")
 end
 
-local function ScheduleSpecReload()
+local function RunScheduledSpecReload()
+    runtime.pendingSpecReload = false
+    for _, frame in pairs(runtime.iconFrames or {}) do
+        if frame then frame._cachedBuffSpellID = nil end
+    end
+    if CustomIcons and CustomIcons.LoadDynamicIcons then
+        CustomIcons:LoadDynamicIcons()
+    else
+        if RefreshAllLayouts then RefreshAllLayouts() end
+        UpdateAllIcons(nil, "all")
+    end
+end
+
+local function ScheduleSpecReload(delay)
     if InCombatLockdown and InCombatLockdown() then
         runtime.pendingSpecReload = true
         if not runtime.deferredSpecReloadFrame then
             runtime.deferredSpecReloadFrame = CreateFrame("Frame")
             runtime.deferredSpecReloadFrame:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                runtime.pendingSpecReload = false
                 ScheduleSpecReload()
             end)
         end
@@ -3502,30 +3515,15 @@ local function ScheduleSpecReload()
 
     if runtime.pendingSpecReload then return end
     runtime.pendingSpecReload = true
-
-    -- [FIX] 다단계 재시도: CDM 뷰어 재생성 대기
-    -- Phase 1 (0.3s): 빠른 초기 갱신
-    C_Timer.After(0.3, function()
-        runtime.pendingSpecReload = false
-        -- trinket proc 캐시 무효화
-        for _, frame in pairs(runtime.iconFrames or {}) do
-            if frame then frame._cachedBuffSpellID = nil end
-        end
-        if CustomIcons and CustomIcons.LoadDynamicIcons then
-            CustomIcons:LoadDynamicIcons()
-        else
-            if RefreshAllLayouts then RefreshAllLayouts() end
-            UpdateAllIcons(nil, "all")
-        end
+    runtime.specReloadToken = (runtime.specReloadToken or 0) + 1
+    local token = runtime.specReloadToken
+    C_Timer.After(delay or 0.1, function()
+        if token ~= runtime.specReloadToken then return end
+        RunScheduledSpecReload()
     end)
-    -- Phase 2 (1.5s): CDM 안정화 후 최종 갱신
-    C_Timer.After(1.5, function()
-        if CustomIcons and CustomIcons.LoadDynamicIcons then
-            CustomIcons:LoadDynamicIcons()
-        else
-            if RefreshAllLayouts then RefreshAllLayouts() end
-            UpdateAllIcons(nil, "all")
-        end
+    C_Timer.After(3.0, function()
+        if token ~= runtime.specReloadToken or not runtime.pendingSpecReload then return end
+        RunScheduledSpecReload()
     end)
 end
 
@@ -3693,18 +3691,7 @@ local function EnsureEventFrame()
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
             RebuildTimeSpiralGlowFilters()
-            local function refreshInstanceIcons()
-                UpdateAllIcons("force", "all")
-                if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-                    DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
-                end
-            end
-            C_Timer.After(0.2, refreshInstanceIcons)
-            C_Timer.After(1.0, refreshInstanceIcons)
-            C_Timer.After(3.0, refreshInstanceIcons)
-            -- Force reload layout after loading screen to catch delayed cache/spellbook states
-            C_Timer.After(1.0, function() ScheduleSpecReload() end)
-            C_Timer.After(3.0, function() ScheduleSpecReload() end)
+            ScheduleSpecReload(0.2)
             return
         end
 
