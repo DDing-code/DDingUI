@@ -1428,6 +1428,35 @@ local function ScanAndHideCDMBuffs()
     end
 end
 
+local function EnsureHideScanDispatchFrame()
+    if DynamicIconBridge._hideScanDispatchFrame then return end
+    local frame = CreateFrame("Frame")
+    frame:Hide()
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        if not DynamicIconBridge._pendingHideScan then
+            self:Hide()
+            return
+        end
+        DynamicIconBridge._hideScanDelayRemaining = (DynamicIconBridge._hideScanDelayRemaining or 0) - (elapsed or 0)
+        if DynamicIconBridge._hideScanDelayRemaining > 0 then
+            return
+        end
+
+        self:Hide()
+        DynamicIconBridge._pendingHideScan = false
+        DynamicIconBridge._hideScanDelayRemaining = 0
+        local shouldNotify = DynamicIconBridge._pendingScanNotify
+        DynamicIconBridge._pendingScanNotify = false
+        if not initialized then return end
+
+        ScanAndHideCDMBuffs()
+        if shouldNotify then
+            DynamicIconBridge:NotifyIconsChanged(true)
+        end
+    end)
+    DynamicIconBridge._hideScanDispatchFrame = frame
+end
+
 local function QueueScanAndHideCDMBuffs(notifyAfterScan, delay)
     DynamicIconBridge._pendingScanNotify = DynamicIconBridge._pendingScanNotify or notifyAfterScan
     if DynamicIconBridge._pendingHideScan then return end
@@ -1438,17 +1467,9 @@ local function QueueScanAndHideCDMBuffs(notifyAfterScan, delay)
         scanDelay = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03
     end
 
-    C_Timer.After(scanDelay, function()
-        DynamicIconBridge._pendingHideScan = false
-        local shouldNotify = DynamicIconBridge._pendingScanNotify
-        DynamicIconBridge._pendingScanNotify = false
-        if not initialized then return end
-
-        ScanAndHideCDMBuffs()
-        if shouldNotify then
-            DynamicIconBridge:NotifyIconsChanged(true)
-        end
-    end)
+    DynamicIconBridge._hideScanDelayRemaining = scanDelay
+    EnsureHideScanDispatchFrame()
+    DynamicIconBridge._hideScanDispatchFrame:Show()
 end
 
 local function UnitAuraUpdateTouchesSuppressed(updateInfo)
@@ -1582,11 +1603,17 @@ function DynamicIconBridge:Shutdown()
     if self._iconsChangedDispatchFrame then
         self._iconsChangedDispatchFrame:Hide()
     end
+    if self._hideScanDispatchFrame then
+        self._hideScanDispatchFrame:Hide()
+    end
     self._updatePending = false
     self._pendingForceLayout = false
     self._pendingChangedSourcesKnown = false
     self._pendingChangedSourceKeys = nil
     self._updateDelayRemaining = 0
+    self._pendingHideScan = false
+    self._pendingScanNotify = false
+    self._hideScanDelayRemaining = 0
 
     -- CDM 프레임 숨김 해제
     for frame in pairs(hiddenCDMFrames) do

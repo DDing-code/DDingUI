@@ -57,8 +57,10 @@ _Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
 - Moved custom icon update bursts from per-burst timers to a reusable dispatch frame, reducing timer churn during combat icon events.
 - Moved dynamic icon bridge refresh debounce from per-burst timers to a reusable dispatch frame while preserving source-targeted group updates.
+- Reused a single dispatch frame for dynamic icon aura-hide scans so repeated player aura bursts do not create new scan timers.
 
 ### Korean Patch Notes
+- 플레이어 오라 이벤트가 반복될 때 동적 아이콘 aura-hide 스캔이 새 타이머를 계속 만들지 않도록 단일 dispatch 프레임을 재사용하게 했습니다.
 - 동적 아이콘 브리지 갱신 디바운스를 매번 새 타이머로 예약하지 않고 재사용 dispatch 프레임으로 처리하면서, 변경된 source 그룹만 갱신하는 경로는 유지했습니다.
 - 커스텀 아이콘 갱신 burst를 매번 새 타이머로 예약하지 않고 재사용 dispatch 프레임으로 처리해 전투 중 아이콘 이벤트의 타이머 생성 부담을 줄였습니다.
 - 지원 강조와 단축키 텍스트 갱신을 한 번의 디스패치 처리로 합쳐 특성, 주문, 액션바, 레이아웃 이벤트가 몰릴 때 전체 뷰어 재스캔이 반복되지 않도록 줄였습니다.
