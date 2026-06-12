@@ -1262,6 +1262,29 @@ local function ScanAndHideCDMBuffs()
     end
 end
 
+local function QueueScanAndHideCDMBuffs(notifyAfterScan, delay)
+    DynamicIconBridge._pendingScanNotify = DynamicIconBridge._pendingScanNotify or notifyAfterScan
+    if DynamicIconBridge._pendingHideScan then return end
+
+    DynamicIconBridge._pendingHideScan = true
+    local scanDelay = delay
+    if scanDelay == nil then
+        scanDelay = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03
+    end
+
+    C_Timer.After(scanDelay, function()
+        DynamicIconBridge._pendingHideScan = false
+        local shouldNotify = DynamicIconBridge._pendingScanNotify
+        DynamicIconBridge._pendingScanNotify = false
+        if not initialized then return end
+
+        ScanAndHideCDMBuffs()
+        if shouldNotify then
+            DynamicIconBridge:NotifyIconsChanged(true)
+        end
+    end)
+end
+
 local function UnitAuraUpdateTouchesSuppressed(updateInfo)
     if not updateInfo or updateInfo.isFullUpdate then return true end
 
@@ -1344,12 +1367,12 @@ function DynamicIconBridge:Initialize()
     if viewer then
         if viewer.Layout then
             hooksecurefunc(viewer, "Layout", function()
-                if initialized then ScanAndHideCDMBuffs() end
+                if initialized then QueueScanAndHideCDMBuffs(false) end
             end)
         end
         if viewer.UpdateLayout then
             hooksecurefunc(viewer, "UpdateLayout", function()
-                if initialized then ScanAndHideCDMBuffs() end
+                if initialized then QueueScanAndHideCDMBuffs(false) end
             end)
         end
     end
@@ -1359,7 +1382,6 @@ function DynamicIconBridge:Initialize()
     -- 현재: dirty 플래그만 세팅 → FrameController Reconcile 틱에서 1회 실행
     -- 이유: BuffFrameManager/CustomIcons도 같은 UNIT_AURA를 처리하므로 3중 즉시 실행 불필요
     if not self._auraEventFrame then
-        self._auraDirty = false
         self._auraEventFrame = CreateFrame("Frame")
         self._auraEventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo)
             if event == "UNIT_AURA" and unit ~= "player" then return end
@@ -1367,17 +1389,7 @@ function DynamicIconBridge:Initialize()
             if event == "UNIT_AURA" and not UnitAuraUpdateTouchesSuppressed(updateInfo) then return end
             -- [PERF] dirty 플래그만 세팅 — CDM 억제는 Layout 훅에서 처리
             -- NotifyIconsChanged는 이미 0.2초 디바운스가 있으므로 즉시 호출해도 안전
-            if not self._auraDirty then
-                self._auraDirty = true
-                C_Timer.After((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03, function()
-                    self._auraDirty = false
-                    if not initialized then return end
-                    ScanAndHideCDMBuffs()
-                    if event == "PLAYER_REGEN_ENABLED" then
-                        self:NotifyIconsChanged(true)
-                    end
-                end)
-            end
+            QueueScanAndHideCDMBuffs(event == "PLAYER_REGEN_ENABLED")
         end)
     end
     self:RefreshAuraEventRegistration()
