@@ -1259,6 +1259,25 @@ local function ScanAndHideCDMBuffs()
     end
 end
 
+local function UnitAuraUpdateTouchesSuppressed(updateInfo)
+    if not updateInfo or updateInfo.isFullUpdate then return true end
+
+    local suppressed = DynamicIconBridge:GetSuppressedSpellIDs()
+    if not next(suppressed) then return false end
+
+    local addedAuras = updateInfo.addedAuras
+    if type(addedAuras) ~= "table" then return false end
+
+    for _, aura in ipairs(addedAuras) do
+        local spellID = SafeNumber(SafeTableField(aura, "spellId"))
+        if spellID and suppressed[spellID] then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- cooldownID가 억제 대상인지 확인 (HideCDMFrame 재활용 체크용)
 function DynamicIconBridge:ShouldSuppressCooldownID(cooldownID)
     local suppressed = self:GetSuppressedSpellIDs()
@@ -1323,9 +1342,10 @@ function DynamicIconBridge:Initialize()
         self._auraEventFrame = CreateFrame("Frame")
         self._auraEventFrame:RegisterEvent("UNIT_AURA")
         self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-        self._auraEventFrame:SetScript("OnEvent", function(_, event, unit)
+        self._auraEventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo)
             if event == "UNIT_AURA" and unit ~= "player" then return end
             if not initialized then return end
+            if event == "UNIT_AURA" and not UnitAuraUpdateTouchesSuppressed(updateInfo) then return end
             -- [PERF] dirty 플래그만 세팅 — CDM 억제는 Layout 훅에서 처리
             -- NotifyIconsChanged는 이미 0.2초 디바운스가 있으므로 즉시 호출해도 안전
             if not self._auraDirty then
