@@ -5537,18 +5537,35 @@ local function RefreshAllLayouts()
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
         if runtime.refreshAllLayoutsPending then return end
         runtime.refreshAllLayoutsPending = true
-        C_Timer.After((InCombatLockdown and InCombatLockdown()) and 0.12 or 0.04, function()
-            runtime.refreshAllLayoutsPending = nil
-            if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
-                DDingUI.SpecProfiles:MarkDirty()
-            end
-            if runtime.RegisterCustomCooldownWatches then
-                runtime.RegisterCustomCooldownWatches()
-            end
-            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
-            end
-        end)
+        runtime.refreshAllLayoutsDelayRemaining = (InCombatLockdown and InCombatLockdown()) and 0.12 or 0.04
+        if not runtime.refreshAllLayoutsDispatchFrame then
+            runtime.refreshAllLayoutsDispatchFrame = CreateFrame("Frame")
+            runtime.refreshAllLayoutsDispatchFrame:Hide()
+            runtime.refreshAllLayoutsDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+                runtime.refreshAllLayoutsDelayRemaining = (runtime.refreshAllLayoutsDelayRemaining or 0) - (elapsed or 0)
+                if runtime.refreshAllLayoutsDelayRemaining > 0 then
+                    return
+                end
+
+                self:Hide()
+                runtime.refreshAllLayoutsDelayRemaining = 0
+                if not runtime.refreshAllLayoutsPending then
+                    return
+                end
+
+                runtime.refreshAllLayoutsPending = nil
+                if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                    DDingUI.SpecProfiles:MarkDirty()
+                end
+                if runtime.RegisterCustomCooldownWatches then
+                    runtime.RegisterCustomCooldownWatches()
+                end
+                if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+                    DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+                end
+            end)
+        end
+        runtime.refreshAllLayoutsDispatchFrame:Show()
         return
     end
 
