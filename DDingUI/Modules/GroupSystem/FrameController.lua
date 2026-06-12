@@ -77,7 +77,6 @@ local CONFIG = {
     SCAN_PARTIAL_GRACE = 1,    -- 렉/전환 중 부분 스캔 보호
     -- [CDM 패턴] OnUpdate 폴링 제어
     -- [FIX CDM] burst 감소: 스와이프·색상 깜빡임 작업량 절감 (30fps → 20fps)
-    -- SPELL_UPDATE_COOLDOWN 이벤트가 쿨다운 변화를 직접 트리거하므로 폴링 의존도 감소
     BURST_THROTTLE    = 0.05,   -- ~20fps (30fps → 20fps)
     WATCHDOG_THROTTLE = 0.25,   -- 4fps (안정화 후 느린 스캔)
     BURST_TICKS       = 8,      -- 15틱 → 8틱 (0.4초 burst)
@@ -390,31 +389,6 @@ local function ForceImmediateReconcile()
         EnablePolling()
     end
 end
-
--- ============================================================
--- [FIX CDM] 쿨다운 변화 이벤트 기반 트리거 (CDM TrackerSpellCooldownWatcher 패턴)
--- SPELL_UPDATE_COOLDOWN/CHARGES는 GCD마다 발생하지만, MarkDirty()는 idempotent이므로 안전
--- 폴링에만 의존하던 쿨다운 스와이프 갱신을 이벤트 기반으로 보완
--- ============================================================
-do
-    local cdEventFrame = CreateFrame("Frame")
-    cdEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-    cdEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-    cdEventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
-    cdEventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
-    cdEventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
-    cdEventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
-    cdEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    cdEventFrame:SetScript("OnEvent", function()
-        if FrameController.initialized then
-            MarkDirty()
-            if not state.pollingActive then
-                EnablePolling()
-            end
-        end
-    end)
-end
-
 
 local function FindViewers()
     local found = 0
