@@ -2036,6 +2036,42 @@ end
 -- 초기화 (PLAYER_ENTERING_WORLD)
 -- ============================================================
 
+local startupHideToken = 0
+local startupHideDelays = { 0, 0.05, 0.2, 0.5, 1.0, 2.0, 3.0 }
+local startupHideViewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
+
+local function HidePendingDefaultViewers()
+    for _, viewerName in pairs(startupHideViewers) do
+        local viewer = _G[viewerName]
+        if viewer and viewer.GetAlpha and viewer:GetAlpha() > 0.01 then
+            viewer:SetAlpha(0)
+        end
+    end
+
+    local ci = DDingUI.CustomIcons
+    if ci and ci.GetGroupFrames then
+        local gf = ci:GetGroupFrames()
+        if gf then
+            for _, cont in pairs(gf) do
+                if cont.GetAlpha and cont:GetAlpha() > 0.01 then
+                    cont:SetAlpha(0)
+                end
+            end
+        end
+    end
+end
+
+local function ScheduleStartupHidePasses()
+    startupHideToken = startupHideToken + 1
+    local token = startupHideToken
+    for _, delay in ipairs(startupHideDelays) do
+        C_Timer.After(delay, function()
+            if token ~= startupHideToken then return end
+            HidePendingDefaultViewers()
+        end)
+    end
+end
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloadingUI)
@@ -2049,35 +2085,8 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
             if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.SuppressCustomIconsLayout then
                 DDingUI.DynamicIconBridge:SuppressCustomIconsLayout()
             end
-            
-            local enforceTicks = 0
-            local enforceFrame = CreateFrame("Frame")
-            enforceFrame:SetScript("OnUpdate", function(self, elapsed)
-                enforceTicks = enforceTicks + elapsed
-                if enforceTicks > 4.0 then
-                    self:SetScript("OnUpdate", nil)
-                    return
-                end
-                for _, viewerName in pairs({"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer"}) do
-                    local viewer = _G[viewerName]
-                    if viewer and viewer.GetAlpha and viewer:GetAlpha() > 0.01 then
-                        viewer:SetAlpha(0)
-                    end
-                end
-                
-                -- [FIX] CustomIcons native 컨테이너도 숨김 강제 적용
-                local ci = DDingUI.CustomIcons
-                if ci and ci.GetGroupFrames then
-                    local gf = ci:GetGroupFrames()
-                    if gf then
-                        for _, cont in pairs(gf) do
-                            if cont.GetAlpha and cont:GetAlpha() > 0.01 then
-                                cont:SetAlpha(0)
-                            end
-                        end
-                    end
-                end
-            end)
+
+            ScheduleStartupHidePasses()
         end
 
         -- DDingUI DB가 준비될 때까지 대기
