@@ -927,13 +927,17 @@ local specChangeGraceUntil = 0
 local SPEC_CHANGE_GRACE_DURATION = 2.0  -- 초: CDM 데이터 로딩 대기
 local buffTrackerInitialized = false
 local loadingScreenActive = false
-local startupRefreshTimers = {}
-local startupRefreshToken = 0
+local startupRefreshPending = false
+local startupRefreshReason = nil
+local startupRefreshFirstRemaining = 0
+local startupRefreshBackstopRemaining = nil
+local startupRefreshFirstRan = false
 local buffTrackerTicker
 local StartBuffTrackerTicker
 local StopBuffTrackerTicker
 local buffTrackerEventFrame
 local buffTrackerDispatchFrame
+local buffTrackerStartupFrame
 local buffTrackerEventsRegistered = false
 local buffTrackerRegisteredEventKey = nil
 local buffTrackerUpdatePending = false
@@ -1077,33 +1081,29 @@ local function RunBuffTrackerStartupRefresh(reason)
     end
 end
 
-local function ScheduleBuffTrackerStartupRefresh(reason, delays)
-    for _, timer in ipairs(startupRefreshTimers) do
-        if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
-            timer:Cancel()
-        end
+local function ClearBuffTrackerStartupRefresh()
+    startupRefreshPending = false
+    startupRefreshReason = nil
+    startupRefreshFirstRemaining = 0
+    startupRefreshBackstopRemaining = nil
+    startupRefreshFirstRan = false
+    if buffTrackerStartupFrame then
+        buffTrackerStartupFrame:Hide()
     end
-    wipe(startupRefreshTimers)
+end
 
-    startupRefreshToken = startupRefreshToken + 1
-    local token = startupRefreshToken
+local function ScheduleBuffTrackerStartupRefresh(reason, delays)
     local firstDelay = delays and delays[1] or 0.1
     local backstopDelay = delays and delays[#delays] or 3.0
 
-    startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(firstDelay, function()
-        if token ~= startupRefreshToken then return end
-        RunBuffTrackerStartupRefresh(reason)
-        buffTrackerInitialized = true
-    end)
+    startupRefreshPending = true
+    startupRefreshReason = reason
+    startupRefreshFirstRemaining = firstDelay
+    startupRefreshBackstopRemaining = (backstopDelay and backstopDelay > firstDelay) and backstopDelay or nil
+    startupRefreshFirstRan = false
 
-    if backstopDelay and backstopDelay > firstDelay then
-        startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(backstopDelay, function()
-            if token ~= startupRefreshToken then return end
-            if buffTrackerUpdatePending or not buffTrackerInitialized then
-                RunBuffTrackerStartupRefresh(reason)
-                buffTrackerInitialized = true
-            end
-        end)
+    if buffTrackerStartupFrame then
+        buffTrackerStartupFrame:Show()
     end
 end
 
@@ -1358,6 +1358,40 @@ buffTrackerDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
     else
         if StopBuffTrackerTicker then StopBuffTrackerTicker() end
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
+    end
+end)
+
+buffTrackerStartupFrame = CreateFrame("Frame")
+buffTrackerStartupFrame:Hide()
+buffTrackerStartupFrame:SetScript("OnUpdate", function(self, elapsed)
+    if not startupRefreshPending then
+        self:Hide()
+        return
+    end
+
+    elapsed = elapsed or 0
+    startupRefreshFirstRemaining = (startupRefreshFirstRemaining or 0) - elapsed
+    if startupRefreshBackstopRemaining then
+        startupRefreshBackstopRemaining = startupRefreshBackstopRemaining - elapsed
+    end
+
+    if not startupRefreshFirstRan and startupRefreshFirstRemaining <= 0 then
+        startupRefreshFirstRan = true
+        RunBuffTrackerStartupRefresh(startupRefreshReason)
+        buffTrackerInitialized = true
+    end
+
+    if startupRefreshBackstopRemaining and startupRefreshBackstopRemaining <= 0 then
+        if buffTrackerUpdatePending or not buffTrackerInitialized then
+            RunBuffTrackerStartupRefresh(startupRefreshReason)
+            buffTrackerInitialized = true
+        end
+        ClearBuffTrackerStartupRefresh()
+        return
+    end
+
+    if startupRefreshFirstRan and not startupRefreshBackstopRemaining then
+        ClearBuffTrackerStartupRefresh()
     end
 end)
 
@@ -2024,13 +2058,7 @@ StopBuffTrackerTicker = function(cancelStartupTimers)
     if cancelStartupTimers == false then
         return
     end
-    startupRefreshToken = startupRefreshToken + 1
-    for _, timer in ipairs(startupRefreshTimers) do
-        if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
-            timer:Cancel()
-        end
-    end
-    wipe(startupRefreshTimers)
+    ClearBuffTrackerStartupRefresh()
 end
 
 StartBuffTrackerTicker = function()
