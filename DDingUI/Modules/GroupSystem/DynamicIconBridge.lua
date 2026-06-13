@@ -74,124 +74,10 @@ local hiddenCDMFrames = {}  -- [frame] = cooldownID (CDM 숨김 추적)
 local SUPPRESSED_SPELL_CACHE_TTL = 0.15
 local suppressedSpellCache = nil
 local suppressedSpellCacheAt = 0
-local BuildDynamicLayoutStateHash
-local BuildCombinedHashFromSourceHashes
-local singleIconChangedKeys = {}
-
-local function GetIconsChangedDelay(forceLayout, inCombat)
-    if forceLayout then
-        return inCombat and 0.04 or 0
-    end
-    return inCombat and 0.3 or 0.16
-end
-
-local function ExecutePendingIconsChanged(bridge)
-    local pendingForce = bridge._pendingForceLayout
-    local pendingSourcesKnown = bridge._pendingChangedSourcesKnown
-    local pendingSourceKeys = bridge._pendingChangedSourceKeys
-    bridge._updatePending = false
-    bridge._pendingForceLayout = false
-    bridge._pendingChangedSourcesKnown = false
-    bridge._pendingChangedSourceKeys = nil
-    bridge._updateDelayRemaining = 0
-    if not initialized then return end
-
-    if pendingForce then
-        bridge:RefreshAuraEventRegistration()
-    end
-
-    local previousHash = bridge._lastAppliedLayoutStateHash
-    local previousSourceHashes = bridge._lastAppliedSourceLayoutStateHashes
-    local targetedSources = pendingSourcesKnown and previousHash and type(previousSourceHashes) == "table"
-    local currentHash, sourceHashes = BuildDynamicLayoutStateHash(targetedSources and pendingSourceKeys or nil)
-    local targetedChangedSources
-    if targetedSources then
-        local mergedSourceHashes = {}
-        for sourceKey, hash in pairs(previousSourceHashes) do
-            mergedSourceHashes[sourceKey] = hash
-        end
-        for sourceKey in pairs(pendingSourceKeys or {}) do
-            local hash = sourceHashes and sourceHashes[sourceKey] or ""
-            if pendingForce or previousSourceHashes[sourceKey] ~= hash then
-                targetedChangedSources = targetedChangedSources or {}
-                targetedChangedSources[sourceKey] = true
-                mergedSourceHashes[sourceKey] = hash
-            end
-        end
-        if not targetedChangedSources then
-            return
-        end
-        sourceHashes = mergedSourceHashes
-        currentHash = BuildCombinedHashFromSourceHashes(sourceHashes)
-    elseif not pendingForce and currentHash == previousHash then
-        return
-    end
-
-    if not pendingForce or targetedSources then
-        bridge._lastAppliedLayoutStateHash = currentHash
-        bridge._lastQueuedLayoutStateHash = currentHash
-        bridge._lastAppliedSourceLayoutStateHashes = sourceHashes
-    else
-        bridge._lastAppliedLayoutStateHash = currentHash
-        bridge._lastQueuedLayoutStateHash = currentHash
-        bridge._lastAppliedSourceLayoutStateHashes = sourceHashes
-    end
-
-    local gs = DDingUI.GroupSystem
-    if targetedChangedSources then
-        if gs and gs.UpdateDynamicSourceGroups and gs:UpdateDynamicSourceGroups(targetedChangedSources) then
-            return
-        end
-    elseif not pendingForce and previousHash and type(sourceHashes) == "table" and type(previousSourceHashes) == "table" then
-        local changedSources
-        for sourceKey, hash in pairs(sourceHashes) do
-            if previousSourceHashes[sourceKey] ~= hash then
-                changedSources = changedSources or {}
-                changedSources[sourceKey] = true
-            end
-        end
-        for sourceKey in pairs(previousSourceHashes) do
-            if sourceHashes[sourceKey] == nil then
-                changedSources = changedSources or {}
-                changedSources[sourceKey] = true
-            end
-        end
-        if changedSources and gs and gs.UpdateDynamicSourceGroups and gs:UpdateDynamicSourceGroups(changedSources) then
-            return
-        end
-    end
-    if gs and gs.DoFullUpdate then
-        gs:DoFullUpdate()
-    end
-end
-
-local function EnsureIconsChangedDispatchFrame(bridge)
-    if bridge._iconsChangedDispatchFrame then return end
-    local frame = CreateFrame("Frame")
-    frame:Hide()
-    frame._bridge = bridge
-    frame:SetScript("OnUpdate", function(dispatchFrame, elapsed)
-        local owner = dispatchFrame._bridge
-        if not owner or not owner._updatePending then
-            dispatchFrame:Hide()
-            return
-        end
-        owner._updateDelayRemaining = (owner._updateDelayRemaining or 0) - (elapsed or 0)
-        if owner._updateDelayRemaining > 0 then
-            return
-        end
-        dispatchFrame:Hide()
-        ExecutePendingIconsChanged(owner)
-    end)
-    bridge._iconsChangedDispatchFrame = frame
-end
 
 local function InvalidateSuppressedSpellCache()
     suppressedSpellCache = nil
     suppressedSpellCacheAt = 0
-    if DynamicIconBridge.RefreshAuraEventRegistration then
-        DynamicIconBridge:RefreshAuraEventRegistration()
-    end
 end
 
 local function SafeNumber(value)
@@ -713,13 +599,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
                     C_Timer.After(COMBAT_ICON_GRACE_SECONDS + 0.05, function()
                         frame._ddGraceNotifyPending = nil
                         if initialized and layoutSuppressed then
-                            if frame._iconKey then
-                                wipe(singleIconChangedKeys)
-                                singleIconChangedKeys[frame._iconKey] = true
-                                DynamicIconBridge:NotifyIconsChanged(false, singleIconChangedKeys)
-                            else
-                                DynamicIconBridge:NotifyIconsChanged()
-                            end
+                            DynamicIconBridge:NotifyIconsChanged()
                         end
                     end)
                 end
@@ -902,7 +782,7 @@ end
 
 -- [FIX] zoom + 종횡비 크롭을 결합한 TexCoord 적용
 -- CustomIcons의 ApplyAspectRatioCrop과 동일한 로직
-BuildDynamicLayoutStateHash = function(sourceFilter)
+local function BuildDynamicLayoutStateHash()
     local db = GetDynamicDB()
     if not db then return "" end
     local inCombat = InCombatLockdown and InCombatLockdown()
@@ -916,7 +796,7 @@ BuildDynamicLayoutStateHash = function(sourceFilter)
     if type(groups) == "table" then
         for _, groupSettings in pairs(groups) do
             local sourceKey = groupSettings and groupSettings.enabled and groupSettings.sourceGroupKey
-            if sourceKey and (not sourceFilter or sourceFilter[sourceKey]) and not sourceSeen[sourceKey] then
+            if sourceKey and not sourceSeen[sourceKey] then
                 sourceSeen[sourceKey] = true
                 sourceKeys[#sourceKeys + 1] = sourceKey
             end
@@ -926,7 +806,6 @@ BuildDynamicLayoutStateHash = function(sourceFilter)
     table_sort(sourceKeys, function(a, b) return tostring(a) < tostring(b) end)
 
     local parts = {}
-    local sourceHashes = {}
     for _, sourceKey in ipairs(sourceKeys) do
         local keys = {}
         if sourceKey == "ungrouped" then
@@ -944,7 +823,6 @@ BuildDynamicLayoutStateHash = function(sourceFilter)
         end
 
         local isBuffContext = IsBuffSourceGroup(sourceKey, db)
-        local sourceParts = {}
         for _, iconKey in ipairs(keys) do
             local iconData = db.iconData and db.iconData[iconKey]
             local frame = iconFrames and iconFrames[iconKey]
@@ -976,106 +854,14 @@ BuildDynamicLayoutStateHash = function(sourceFilter)
                 end
 
                 if token then
-                    local entry = tostring(iconKey) .. ":" .. (inCombat and "c" or token)
-                    sourceParts[#sourceParts + 1] = entry
-                    parts[#parts + 1] = tostring(sourceKey) .. ":" .. entry
+                    parts[#parts + 1] = tostring(sourceKey) .. ":" .. tostring(iconKey) .. ":" .. (inCombat and "c" or token)
                 end
             end
         end
-        table_sort(sourceParts)
-        sourceHashes[sourceKey] = table_concat(sourceParts, ";")
     end
 
-    table_sort(parts)
-    return table_concat(parts, ";"), sourceHashes
-end
-
-BuildCombinedHashFromSourceHashes = function(sourceHashes)
-    local parts = {}
-    for sourceKey, sourceHash in pairs(sourceHashes or {}) do
-        if sourceHash and sourceHash ~= "" then
-            for entry in string.gmatch(sourceHash, "([^;]+)") do
-                parts[#parts + 1] = tostring(sourceKey) .. ":" .. entry
-            end
-        end
-    end
     table_sort(parts)
     return table_concat(parts, ";")
-end
-
-local function MergeSourceKeySet(target, source)
-    if not source then return target end
-    target = target or {}
-    for sourceKey in pairs(source) do
-        target[sourceKey] = true
-    end
-    return target
-end
-
-local function InvalidateIconSourceMapCache()
-    DynamicIconBridge._iconSourceMap = nil
-    DynamicIconBridge._iconSourceMapHasLinked = nil
-end
-
-local function BuildIconSourceMapCache()
-    local db = GetDynamicDB()
-    local iconSourceMap = {}
-    local groupSystem = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
-    local linkedSources = {}
-    local hasLinkedSource = false
-    local groups = groupSystem and groupSystem.groups
-    if type(groups) == "table" then
-        for _, groupSettings in pairs(groups) do
-            local sourceKey = groupSettings and groupSettings.enabled and groupSettings.sourceGroupKey
-            if sourceKey then
-                linkedSources[sourceKey] = true
-                hasLinkedSource = true
-            end
-        end
-    end
-
-    if db and hasLinkedSource then
-        if linkedSources.ungrouped then
-            for iconKey in pairs(db.ungrouped or {}) do
-                iconSourceMap[iconKey] = iconSourceMap[iconKey] or {}
-                iconSourceMap[iconKey].ungrouped = true
-            end
-        end
-
-        for groupKey, group in pairs(db.groups or {}) do
-            if linkedSources[groupKey] and group and group.icons then
-                for _, iconKey in ipairs(group.icons) do
-                    iconSourceMap[iconKey] = iconSourceMap[iconKey] or {}
-                    iconSourceMap[iconKey][groupKey] = true
-                end
-            end
-        end
-    end
-
-    DynamicIconBridge._iconSourceMap = iconSourceMap
-    DynamicIconBridge._iconSourceMapHasLinked = hasLinkedSource
-    return iconSourceMap, hasLinkedSource
-end
-
-local function GetSourceKeysForIconKeys(iconKeys)
-    if type(iconKeys) ~= "table" then return nil end
-
-    local result = {}
-    local iconSourceMap = DynamicIconBridge._iconSourceMap
-    local hasLinkedSource = DynamicIconBridge._iconSourceMapHasLinked
-    if not iconSourceMap then
-        iconSourceMap, hasLinkedSource = BuildIconSourceMapCache()
-    end
-    if not hasLinkedSource then return result end
-
-    for iconKey in pairs(iconKeys) do
-        local sources = iconSourceMap[iconKey]
-        if sources then
-            MergeSourceKeySet(result, sources)
-        end
-    end
-
-    return result
 end
 
 function DynamicIconBridge.ApplyTexCoordCrop(texture, zoom, aspectRatio)
@@ -1473,92 +1259,6 @@ local function ScanAndHideCDMBuffs()
     end
 end
 
-local function EnsureHideScanDispatchFrame()
-    if DynamicIconBridge._hideScanDispatchFrame then return end
-    local frame = CreateFrame("Frame")
-    frame:Hide()
-    frame:SetScript("OnUpdate", function(self, elapsed)
-        if not DynamicIconBridge._pendingHideScan then
-            self:Hide()
-            return
-        end
-        DynamicIconBridge._hideScanDelayRemaining = (DynamicIconBridge._hideScanDelayRemaining or 0) - (elapsed or 0)
-        if DynamicIconBridge._hideScanDelayRemaining > 0 then
-            return
-        end
-
-        self:Hide()
-        DynamicIconBridge._pendingHideScan = false
-        DynamicIconBridge._hideScanDelayRemaining = 0
-        local shouldNotify = DynamicIconBridge._pendingScanNotify
-        DynamicIconBridge._pendingScanNotify = false
-        if not initialized then return end
-
-        ScanAndHideCDMBuffs()
-        if shouldNotify then
-            DynamicIconBridge:NotifyIconsChanged(true)
-        end
-    end)
-    DynamicIconBridge._hideScanDispatchFrame = frame
-end
-
-local function QueueScanAndHideCDMBuffs(notifyAfterScan, delay)
-    DynamicIconBridge._pendingScanNotify = DynamicIconBridge._pendingScanNotify or notifyAfterScan
-    if DynamicIconBridge._pendingHideScan then return end
-
-    DynamicIconBridge._pendingHideScan = true
-    local scanDelay = delay
-    if scanDelay == nil then
-        scanDelay = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03
-    end
-
-    DynamicIconBridge._hideScanDelayRemaining = scanDelay
-    EnsureHideScanDispatchFrame()
-    DynamicIconBridge._hideScanDispatchFrame:Show()
-end
-
-local function UnitAuraUpdateTouchesSuppressed(updateInfo)
-    if not updateInfo or updateInfo.isFullUpdate then return true end
-
-    local suppressed = DynamicIconBridge:GetSuppressedSpellIDs()
-    if not next(suppressed) then return false end
-
-    local addedAuras = updateInfo.addedAuras
-    if type(addedAuras) ~= "table" then return false end
-
-    for _, aura in ipairs(addedAuras) do
-        local spellID = SafeNumber(SafeTableField(aura, "spellId"))
-        if spellID and suppressed[spellID] then
-            return true
-        end
-    end
-
-    return false
-end
-
-function DynamicIconBridge:RefreshAuraEventRegistration()
-    local frame = self._auraEventFrame
-    if not frame then return end
-
-    local suppressed = self:GetSuppressedSpellIDs()
-    local hasSuppressed = next(suppressed) ~= nil
-    if self._auraEventsRegistered == hasSuppressed then
-        return
-    end
-
-    self._auraEventsRegistered = hasSuppressed
-    if hasSuppressed then
-        frame:RegisterUnitEvent("UNIT_AURA", "player")
-        frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    else
-        frame:UnregisterEvent("UNIT_AURA")
-        frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-        for hiddenFrame in pairs(hiddenCDMFrames) do
-            UnhideCDMFrame(hiddenFrame)
-        end
-    end
-end
-
 -- cooldownID가 억제 대상인지 확인 (HideCDMFrame 재활용 체크용)
 function DynamicIconBridge:ShouldSuppressCooldownID(cooldownID)
     local suppressed = self:GetSuppressedSpellIDs()
@@ -1604,12 +1304,12 @@ function DynamicIconBridge:Initialize()
     if viewer then
         if viewer.Layout then
             hooksecurefunc(viewer, "Layout", function()
-                if initialized then QueueScanAndHideCDMBuffs(false) end
+                if initialized then ScanAndHideCDMBuffs() end
             end)
         end
         if viewer.UpdateLayout then
             hooksecurefunc(viewer, "UpdateLayout", function()
-                if initialized then QueueScanAndHideCDMBuffs(false) end
+                if initialized then ScanAndHideCDMBuffs() end
             end)
         end
     end
@@ -1619,26 +1319,35 @@ function DynamicIconBridge:Initialize()
     -- 현재: dirty 플래그만 세팅 → FrameController Reconcile 틱에서 1회 실행
     -- 이유: BuffFrameManager/CustomIcons도 같은 UNIT_AURA를 처리하므로 3중 즉시 실행 불필요
     if not self._auraEventFrame then
+        self._auraDirty = false
         self._auraEventFrame = CreateFrame("Frame")
-        self._auraEventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo)
+        self._auraEventFrame:RegisterEvent("UNIT_AURA")
+        self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        self._auraEventFrame:SetScript("OnEvent", function(_, event, unit)
             if event == "UNIT_AURA" and unit ~= "player" then return end
             if not initialized then return end
-            if event == "UNIT_AURA" and not UnitAuraUpdateTouchesSuppressed(updateInfo) then return end
             -- [PERF] dirty 플래그만 세팅 — CDM 억제는 Layout 훅에서 처리
             -- NotifyIconsChanged는 이미 0.2초 디바운스가 있으므로 즉시 호출해도 안전
-            QueueScanAndHideCDMBuffs(event == "PLAYER_REGEN_ENABLED")
+            if not self._auraDirty then
+                self._auraDirty = true
+                C_Timer.After(0, function()
+                    self._auraDirty = false
+                    if not initialized then return end
+                    ScanAndHideCDMBuffs()
+                    self:NotifyIconsChanged(event == "UNIT_AURA" or event == "PLAYER_REGEN_ENABLED")
+                end)
+            end
         end)
     end
-    self:RefreshAuraEventRegistration()
 
-    -- 즉시 초기 스캔 후, 뷰어 준비 지연에 대비한 후속 스캔은 하나만 유지한다.
+    -- 즉시 초기 스캔
     ScanAndHideCDMBuffs()
 
-    if self._startupAuraScanTimer then
-        self._startupAuraScanTimer:Cancel()
-    end
-    self._startupAuraScanTimer = C_Timer.NewTimer(1.0, function()
-        self._startupAuraScanTimer = nil
+    -- CDM 뷰어가 아직 준비 안 됐을 수 있으므로 폴백
+    C_Timer.After(0.5, function()
+        if initialized then ScanAndHideCDMBuffs() end
+    end)
+    C_Timer.After(2.0, function()
         if initialized then ScanAndHideCDMBuffs() end
     end)
 end
@@ -1646,29 +1355,6 @@ end
 function DynamicIconBridge:Shutdown()
     if not initialized then return end
     initialized = false
-    if self._startupAuraScanTimer then
-        self._startupAuraScanTimer:Cancel()
-        self._startupAuraScanTimer = nil
-    end
-    if self._iconsChangedDispatchFrame then
-        self._iconsChangedDispatchFrame:Hide()
-    end
-    if self._hideScanDispatchFrame then
-        self._hideScanDispatchFrame:Hide()
-    end
-    if self._auraEventFrame then
-        self._auraEventFrame:UnregisterAllEvents()
-    end
-    self._updatePending = false
-    self._pendingForceLayout = false
-    self._pendingChangedSourcesKnown = false
-    self._pendingChangedSourceKeys = nil
-    self._updateDelayRemaining = 0
-    self._pendingHideScan = false
-    self._pendingScanNotify = false
-    self._hideScanDelayRemaining = 0
-    self._auraEventsRegistered = nil
-    InvalidateIconSourceMapCache()
 
     -- CDM 프레임 숨김 해제
     for frame in pairs(hiddenCDMFrames) do
@@ -1690,43 +1376,47 @@ end
 -- CustomIcons의 이벤트 핸들러 후에 GroupSystem도 업데이트하도록 훅
 -- GroupInit.DoFullUpdate가 이미 주기적으로 호출되므로,
 -- 추가 트리거는 CustomIcons 아이콘 추가/삭제 시에만 필요
-function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
+function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     if not initialized then return end
     if not layoutSuppressed then return end
 
-    if forceLayout then
-        InvalidateIconSourceMapCache()
-    end
-
     local inCombat = InCombatLockdown and InCombatLockdown()
-    local changedSourceKeys = GetSourceKeysForIconKeys(changedIconKeys)
+    local stateHash = BuildDynamicLayoutStateHash()
+    if not forceLayout and self._lastQueuedLayoutStateHash == stateHash then
+        return
+    end
+    self._lastQueuedLayoutStateHash = stateHash
 
     -- DoFullUpdate 트리거 (디바운스)
     if self._updatePending then
         self._pendingForceLayout = self._pendingForceLayout or forceLayout
-        if forceLayout then
-            local delay = GetIconsChangedDelay(true, inCombat)
-            local currentDelay = tonumber(self._updateDelayRemaining) or 0
-            if currentDelay <= 0 or currentDelay > delay then
-                self._updateDelayRemaining = delay
-            end
-            if self._iconsChangedDispatchFrame then
-                self._iconsChangedDispatchFrame:Show()
-            end
-        end
-        if not changedSourceKeys then
-            self._pendingChangedSourcesKnown = false
-            self._pendingChangedSourceKeys = nil
-        elseif self._pendingChangedSourcesKnown then
-            self._pendingChangedSourceKeys = MergeSourceKeySet(self._pendingChangedSourceKeys, changedSourceKeys)
-        end
         return
     end
     self._updatePending = true
     self._pendingForceLayout = forceLayout and true or false
-    self._pendingChangedSourcesKnown = changedSourceKeys ~= nil
-    self._pendingChangedSourceKeys = changedSourceKeys
-    self._updateDelayRemaining = GetIconsChangedDelay(forceLayout, inCombat)
-    EnsureIconsChangedDispatchFrame(self)
-    self._iconsChangedDispatchFrame:Show()
+
+    C_Timer.After(inCombat and 0.3 or 0.16, function()
+        local pendingForce = self._pendingForceLayout
+        self._updatePending = false
+        self._pendingForceLayout = false
+        if not initialized then return end
+
+        if not pendingForce then
+            local currentHash = BuildDynamicLayoutStateHash()
+            if currentHash == self._lastAppliedLayoutStateHash then
+                self._lastQueuedLayoutStateHash = currentHash
+                return
+            end
+            self._lastQueuedLayoutStateHash = currentHash
+            self._lastAppliedLayoutStateHash = currentHash
+        else
+            self._lastAppliedLayoutStateHash = self._lastQueuedLayoutStateHash
+        end
+
+        -- GroupInit의 DoFullUpdate 호출
+        local gs = DDingUI.GroupSystem
+        if gs and gs.DoFullUpdate then
+            gs:DoFullUpdate()
+        end
+    end)
 end

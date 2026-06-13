@@ -19,13 +19,12 @@ local activeOverlaySpells = {}  -- [spellID] = true
 local viewerNameCache = setmetatable({}, { __mode = "k" })   -- replaces iconFrame._DDingUIViewerName
 local glowActiveCache = setmetatable({}, { __mode = "k" })   -- replaces iconFrame._DDingUICustomGlowActive
 local procActiveCache = setmetatable({}, { __mode = "k" })   -- replaces button._DDingUIProcActive
-local pendingGlowIcons = setmetatable({}, { __mode = "k" })
-local pendingGlowViewers = setmetatable({}, { __mode = "k" })
-local glowDispatchFrame = CreateFrame("Frame")
-glowDispatchFrame:Hide()
 
 -- Glow key for LibCustomGlow
 local GLOW_KEY = "_DDingUICustomGlow"
+
+-- Glow persistence timers: re-apply glow if removed externally
+local glowPersistenceTimers = {}  -- [icon] = ticker
 
 -- LibCustomGlow glow types
 ProcGlow.LibCustomGlowTypes = {
@@ -217,7 +216,7 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
     activeGlowingIcons[iconFrame] = true
 end
 
--- Start glow on an icon
+-- Start glow on an icon with persistence timer
 local function StartGlow(iconFrame)
     local glowSettings = GetProcGlowSettings(iconFrame)
     if not glowSettings then return end
@@ -234,11 +233,45 @@ local function StartGlow(iconFrame)
     -- Apply the glow
     ApplyGlowEffect(iconFrame)
 
+    -- Cancel existing persistence timer
+    if glowPersistenceTimers[iconFrame] then
+        glowPersistenceTimers[iconFrame]:Cancel()
+        glowPersistenceTimers[iconFrame] = nil
+    end
+
+    -- Start persistence timer: checks every 0.3s if glow was removed externally
+    glowPersistenceTimers[iconFrame] = C_Timer.NewTicker(0.3, function()
+        if not activeGlowingIcons[iconFrame] then
+            if glowPersistenceTimers[iconFrame] then
+                glowPersistenceTimers[iconFrame]:Cancel()
+                glowPersistenceTimers[iconFrame] = nil
+            end
+            return
+        end
+
+        if not iconFrame:IsShown() then return end
+
+        local gs = GetProcGlowSettings(iconFrame)
+        if not gs then return end
+        local gt = gs.glowType or "Pixel Glow"
+        if not IsGlowFramePresent(iconFrame, gt) then
+            ApplyGlowEffect(iconFrame)
+            if gt ~= "Blizzard Glow" then
+                HideBlizzardGlow(iconFrame)
+            end
+        end
+    end)
 end
 
 -- Stop glow on an icon
 local function StopGlow(iconFrame)
     if not glowActiveCache[iconFrame] then return end
+
+    -- Cancel persistence timer first
+    if glowPersistenceTimers[iconFrame] then
+        glowPersistenceTimers[iconFrame]:Cancel()
+        glowPersistenceTimers[iconFrame] = nil
+    end
 
     SL.HidePixelGlow(iconFrame, GLOW_KEY)
     SL.HideAutocastGlow(iconFrame, GLOW_KEY)
@@ -291,39 +324,6 @@ local function ReapplyGlowsAfterRescan(viewer)
     end
 end
 
-local function FlushPendingGlowUpdates(self)
-    self:Hide()
-
-    for viewer in pairs(pendingGlowViewers) do
-        pendingGlowViewers[viewer] = nil
-        if viewer and viewer.IsShown and viewer:IsShown() then
-            ReapplyGlowsAfterRescan(viewer)
-        end
-    end
-
-    for icon in pairs(pendingGlowIcons) do
-        pendingGlowIcons[icon] = nil
-        if icon and procActiveCache[icon] and icon.IsShown and icon:IsShown() then
-            ApplyGlowEffect(icon)
-            HideBlizzardGlow(icon)
-        end
-    end
-end
-
-glowDispatchFrame:SetScript("OnUpdate", FlushPendingGlowUpdates)
-
-local function QueueGlowViewer(viewer)
-    if not viewer then return end
-    pendingGlowViewers[viewer] = true
-    glowDispatchFrame:Show()
-end
-
-local function QueueGlowIcon(icon)
-    if not icon then return end
-    pendingGlowIcons[icon] = true
-    glowDispatchFrame:Show()
-end
-
 -- Scan all viewers for icons that already have active SpellActivationAlert
 local function ScanExistingOverlays()
     for _, name in ipairs(viewerNames) do
@@ -368,7 +368,12 @@ local function SetupGlowHooks()
                         activeGlowingIcons[button] = true
                     else
                         HideBlizzardGlow(button)
-                        QueueGlowIcon(button)
+                        C_Timer.After(0, function()
+                            if procActiveCache[button] then
+                                StartGlow(button)
+                                HideBlizzardGlow(button)
+                            end
+                        end)
                     end
                     -- Track by spellID for rescan survival
                     if spellID then
@@ -396,7 +401,12 @@ local function SetupGlowHooks()
     local IconViewers = DDingUI.IconViewers
     if IconViewers and IconViewers.RescanViewer then
         hooksecurefunc(IconViewers, "RescanViewer", function(_, viewer)
-            QueueGlowViewer(viewer)
+            -- Delay slightly to let SkinIcon and layout changes settle
+            C_Timer.After(0.15, function()
+                if viewer and viewer.IsShown and viewer:IsShown() then
+                    ReapplyGlowsAfterRescan(viewer)
+                end
+            end)
         end)
     end
 
@@ -404,7 +414,12 @@ local function SetupGlowHooks()
     if IconViewers and IconViewers.SkinIcon then
         hooksecurefunc(IconViewers, "SkinIcon", function(_, icon)
             if icon and procActiveCache[icon] then
-                QueueGlowIcon(icon)
+                C_Timer.After(0.02, function()
+                    if procActiveCache[icon] and icon:IsShown() then
+                        ApplyGlowEffect(icon)
+                        HideBlizzardGlow(icon)
+                    end
+                end)
             end
         end)
     end

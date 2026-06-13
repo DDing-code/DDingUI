@@ -164,110 +164,29 @@ end
 -- Snap-back: Blizzard가 뷰어를 변경하면 다시 은닉 -- [REPARENT]
 -- ============================================================
 
-local snapDispatchFrame = CreateFrame("Frame")
-snapDispatchFrame:Hide()
-snapDispatchFrame:SetScript("OnUpdate", function(self)
-    self:Hide()
-    if not initialized or IsInBlizzardEditMode() or ShouldKeepDefaultViewersVisible() then
-        wipe(snapPending)
-        return
-    end
-
-    for viewerName in pairs(snapPending) do
-        snapPending[viewerName] = nil
-
-        local state = viewerState[viewerName]
-        if state and state.hidden then
-            local viewer = _G[viewerName]
-            if viewer and viewer:GetAlpha() > 0.01 then
-                HideViewer(viewerName)
-            end
-        end
-    end
-end)
-
 local function ScheduleSnapBack(viewerName)
     if snapPending[viewerName] then return end
     snapPending[viewerName] = true
-    snapDispatchFrame:Show()
-end
 
-local visibilitySyncPending = {}
-local buffIconReshowPending = false
-local visibilityDispatchFrame = CreateFrame("Frame")
-visibilityDispatchFrame:Hide()
-visibilityDispatchFrame:SetScript("OnUpdate", function(self)
-    self:Hide()
+    C_Timer.After(0, function()
+        snapPending[viewerName] = false
 
-    if buffIconReshowPending then
-        buffIconReshowPending = false
-        local v = _G["BuffIconCooldownViewer"]
-        if v and not v:IsShown() and not InCombatLockdown() then
-            pushing = true
-            v:Show()
-            pushing = false
+        if not initialized then return end
+        if IsInBlizzardEditMode() then return end
+        if ShouldKeepDefaultViewersVisible() then return end
+        -- [REFACTOR] InCombatLockdown 제거: SetAlpha는 보호 함수가 아님
+
+        local state = viewerState[viewerName]
+        if not state or not state.hidden then return end
+
+        local viewer = _G[viewerName]
+        if not viewer then return end
+
+        -- [REFACTOR] alpha 확인 (크기/위치는 안 건드리므로)
+        if viewer:GetAlpha() > 0.01 then
+            HideViewer(viewerName)
         end
-    end
-
-    local renderer = DDingUI.GroupRenderer
-    local sync = renderer and renderer.SyncViewerVisibility
-    if not initialized or not sync then
-        wipe(visibilitySyncPending)
-        return
-    end
-
-    for pendingViewerName in pairs(visibilitySyncPending) do
-        visibilitySyncPending[pendingViewerName] = nil
-        sync(renderer, pendingViewerName)
-    end
-end)
-
-local function QueueViewerVisibilitySync(viewerName)
-    if not viewerName then return end
-    visibilitySyncPending[viewerName] = true
-    visibilityDispatchFrame:Show()
-end
-
-local function QueueBuffIconReshow()
-    buffIconReshowPending = true
-    visibilityDispatchFrame:Show()
-end
-
-local forceReconcilePending = false
-local forceReconcileDelay = 0
-local forceReconcileDispatchFrame = CreateFrame("Frame")
-forceReconcileDispatchFrame:Hide()
-forceReconcileDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
-    forceReconcileDelay = forceReconcileDelay - (elapsed or 0)
-    if forceReconcileDelay > 0 then
-        return
-    end
-
-    self:Hide()
-    forceReconcilePending = false
-    forceReconcileDelay = 0
-    if not initialized or IsInBlizzardEditMode() then
-        return
-    end
-
-    local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
-    if fc and fc.ForceReconcile then
-        fc:ForceReconcile()
-    end
-end)
-
-local function QueueForceReconcile(delay)
-    delay = delay or 0
-    if forceReconcilePending then
-        if delay < forceReconcileDelay then
-            forceReconcileDelay = delay
-        end
-        return
-    end
-
-    forceReconcilePending = true
-    forceReconcileDelay = delay
-    forceReconcileDispatchFrame:Show()
+    end)
 end
 
 -- ============================================================
@@ -365,7 +284,11 @@ local function SetupViewerHooks(viewerName)
     viewer:HookScript("OnShow", function()
         if pushing then return end
         if IsInBlizzardEditMode() then return end
-        QueueViewerVisibilitySync(viewerName)
+        C_Timer.After(0, function()
+            if initialized and DDingUI.GroupRenderer and DDingUI.GroupRenderer.SyncViewerVisibility then
+                DDingUI.GroupRenderer:SyncViewerVisibility(viewerName)
+            end
+        end)
     end)
 
     viewer:HookScript("OnHide", function()
@@ -374,10 +297,21 @@ local function SetupViewerHooks(viewerName)
         -- [CDM] BuffIcon: CDM이 Hide해도 즉시 재Show → CDM Layout 사이클 유지
         -- CDM은 VIEWER를 숨기지만, 개별 프레임은 정상적으로 Show/Hide 관리
         if viewerName == "BuffIconCooldownViewer" then
-            QueueBuffIconReshow()
+            C_Timer.After(0, function()
+                local v = _G["BuffIconCooldownViewer"]
+                if v and not v:IsShown() and not InCombatLockdown() then
+                    pushing = true
+                    v:Show()
+                    pushing = false
+                end
+            end)
             return
         end
-        QueueViewerVisibilitySync(viewerName)
+        C_Timer.After(0, function()
+            if initialized and DDingUI.GroupRenderer and DDingUI.GroupRenderer.SyncViewerVisibility then
+                DDingUI.GroupRenderer:SyncViewerVisibility(viewerName)
+            end
+        end)
     end)
 end
 
@@ -427,7 +361,14 @@ function ContainerSync:SyncViewer(viewerName)
     -- 미관리 아이콘이 있으면 FrameController에게 재스캔 요청
     local managed, total = CountManagedIcons(viewerName)
     if managed > 0 and managed < total then
-        QueueForceReconcile(0.3)
+        local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
+        if fc and fc.ForceReconcile then
+            C_Timer.After(0.3, function()
+                if initialized and not IsInBlizzardEditMode() then
+                    fc:ForceReconcile()
+                end
+            end)
+        end
     end
 end
 
@@ -477,7 +418,14 @@ if EditModeManagerFrame then
         if ShouldSkipBlizzardEditModeSideEffects() then return end
         -- Edit Mode 퇴장 → FrameController 재스캔 + 뷰어 동기화
         -- [REPARENT] 편집모드 중 CDM이 아이콘을 재배치했을 수 있으므로 ForceReconcile
-        QueueForceReconcile(0.2)
+        local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
+        if fc and fc.ForceReconcile then
+            C_Timer.After(0.2, function()
+                if initialized and not IsInBlizzardEditMode() then
+                    fc:ForceReconcile()
+                end
+            end)
+        end
         C_Timer.After(0.5, function()
             if initialized and not IsInBlizzardEditMode() then
                 ContainerSync:SyncAll()

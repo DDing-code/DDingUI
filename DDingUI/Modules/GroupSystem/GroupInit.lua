@@ -586,7 +586,6 @@ local function DoFullUpdate()
 
     -- 1. CDMHookEngine 맵 → 그룹별 분류
     local classified = GroupManager:ClassifyAll()
-    GroupSystem._lastClassifiedGroups = classified
 
     -- 2. 렌더링 (CDM 프레임 re-parent)
     -- [FIX] CDM + dynamic 병합: UpdateGroup이 두 타입 모두 처리
@@ -670,35 +669,6 @@ function GroupSystem:DoFullUpdate()
     DoFullUpdate()
 end
 
-function GroupSystem:UpdateDynamicSourceGroups(sourceKeys)
-    if not GroupSystem.enabled or type(sourceKeys) ~= "table" then return false end
-
-    local gs = GetSettings()
-    if not gs or not gs.groups then return false end
-
-    SyncDynamicGroups(gs)
-    local classified = GroupSystem._lastClassifiedGroups
-    if not classified then
-        classified = GroupManager:ClassifyAll()
-        GroupSystem._lastClassifiedGroups = classified
-    end
-    local updated = false
-
-    for groupName, groupSettings in pairs(gs.groups) do
-        local sourceKey = groupSettings and groupSettings.enabled and groupSettings.sourceGroupKey
-        if sourceKey and sourceKeys[sourceKey] then
-            if groupSettings.groupType == "dynamic" then
-                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
-            else
-                GroupRenderer:UpdateGroup(groupName, classified[groupName] or {}, groupSettings)
-            end
-            updated = true
-        end
-    end
-
-    return updated
-end
-
 -- [DYNAMIC] Config UI에서 호출: CustomIcons 그룹 동기화
 function GroupSystem:SyncDynamicGroups()
     local gs = GetSettings()
@@ -708,21 +678,8 @@ function GroupSystem:SyncDynamicGroups()
 end
 
 -- CDMHookEngine 콜백
-local hookEngineUpdatePending = false
-local hookEngineUpdateFrame = CreateFrame("Frame")
-hookEngineUpdateFrame:Hide()
-hookEngineUpdateFrame:SetScript("OnUpdate", function(self)
-    self:Hide()
-    if not hookEngineUpdatePending then return end
-    hookEngineUpdatePending = false
-    DoFullUpdate()
-end)
-
 local function OnHookEngineUpdate(updateType)
-    GroupSystem._lastClassifiedGroups = nil
-    if hookEngineUpdatePending then return end
-    hookEngineUpdatePending = true
-    hookEngineUpdateFrame:Show()
+    DoFullUpdate()
 end
 
 -- ============================================================
@@ -1683,31 +1640,23 @@ function GroupSystem:Enable()
     if DDingUI.IconViewers and DDingUI.IconViewers.SkinAllIconsInViewer and not self._skinHooked then
         self._skinHooked = true
         local pendingSkinRefresh = false
-        local skinRefreshDelay = 0
-        local skinRefreshFrame = CreateFrame("Frame")
-        skinRefreshFrame:Hide()
-        skinRefreshFrame:SetScript("OnUpdate", function(frame, elapsed)
-            skinRefreshDelay = skinRefreshDelay - (elapsed or 0)
-            if skinRefreshDelay > 0 then
-                return
-            end
-
-            frame:Hide()
-            pendingSkinRefresh = false
-            if GroupSystem.enabled then
-                local fh = DDingUI.FlightHide
-                if fh and (fh.isActive or fh._restoring) then
-                    GroupSystem:RefreshLayout()
-                else
-                    GroupSystem:Refresh()
-                end
-            end
-        end)
         hooksecurefunc(DDingUI.IconViewers, "SkinAllIconsInViewer", function()
             if not GroupSystem.enabled or pendingSkinRefresh then return end
             pendingSkinRefresh = true
-            skinRefreshDelay = 0.1
-            skinRefreshFrame:Show()
+            C_Timer.After(0.1, function()
+                pendingSkinRefresh = false
+                if GroupSystem.enabled then
+                    -- [FIX] FlightHide 복원 중에는 앵커 재적용 없이 레이아웃만 갱신
+                    -- Refresh()는 모든 그룹 프레임의 앵커를 DB 값으로 리셋하므로
+                    -- Mover로 이동한 위치가 초기화되는 문제 발생
+                    local fh = DDingUI.FlightHide
+                    if fh and (fh.isActive or fh._restoring) then
+                        GroupSystem:RefreshLayout()
+                    else
+                        GroupSystem:Refresh()
+                    end
+                end
+            end)
         end)
     end
 
@@ -1744,10 +1693,14 @@ function GroupSystem:Enable()
             hooksecurefunc(DDingUI.Movers, "HideMovers", function()
                 if CDMHookEngine and GroupSystem.enabled then
                     CDMHookEngine:DisableEditModeClicks()
-                    GroupSystem._editModeRefreshToken = (GroupSystem._editModeRefreshToken or 0) + 1
-                    local token = GroupSystem._editModeRefreshToken
-                    C_Timer.After(0.1, function()
-                        if token ~= GroupSystem._editModeRefreshToken then return end
+                    -- [REPARENT] 편집모드 퇴장 → 즉시 재스캔 + 재배치
+                    C_Timer.After(0.05, function()
+                        if GroupSystem.enabled then
+                            DoFullUpdate()
+                        end
+                    end)
+                    -- [REPARENT] 안정화 패스: CDM이 지연 Layout 하는 경우 대비
+                    C_Timer.After(0.5, function()
                         if GroupSystem.enabled then
                             DoFullUpdate()
                         end
@@ -1767,10 +1720,8 @@ function GroupSystem:Enable()
         specFrame:RegisterEvent("PLAYER_LEVEL_UP")
         specFrame:SetScript("OnEvent", function(_, event)
             if not GroupSystem.enabled then return end
-            GroupSystem._specRefreshToken = (GroupSystem._specRefreshToken or 0) + 1
-            local token = GroupSystem._specRefreshToken
+            -- CDM이 뷰어를 재생성할 시간 대기 (FrameController보다 약간 뒤)
             C_Timer.After(2.0, function()
-                if token ~= GroupSystem._specRefreshToken then return end
                 if not GroupSystem.enabled then return end
                 -- 그룹 프레임 앵커 재적용 → _G[attachTo]로 새 뷰어 resolve
                 GroupSystem:Refresh()
@@ -1778,6 +1729,11 @@ function GroupSystem:Enable()
                 if DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
                     DDingUI.Movers:ReloadMappedModulePositions()
                 end
+            end)
+            -- 안정화 패스
+            C_Timer.After(4.0, function()
+                if not GroupSystem.enabled then return end
+                GroupSystem:Refresh()
             end)
         end)
         self._specChangeFrame = specFrame
@@ -1956,12 +1912,10 @@ function GroupSystem:Refresh()
 
     -- [FIX] _forceFullSetup으로 아이콘 re-skin 후 AssistHighlight glow가 Clear됨
     -- Refresh 완료 후 보조 강조 효과 재적용
-    if DDingUI.AssistHighlight then
-        if DDingUI.AssistHighlight.QueueAllHighlightRefresh then
-            DDingUI.AssistHighlight:QueueAllHighlightRefresh()
-        elseif DDingUI.AssistHighlight.UpdateAllHighlights then
+    if DDingUI.AssistHighlight and DDingUI.AssistHighlight.UpdateAllHighlights then
+        C_Timer.After(0.1, function()
             DDingUI.AssistHighlight:UpdateAllHighlights()
-        end
+        end)
     end
 end
 
@@ -2082,42 +2036,6 @@ end
 -- 초기화 (PLAYER_ENTERING_WORLD)
 -- ============================================================
 
-local startupHideToken = 0
-local startupHideDelays = { 0, 0.05, 0.2, 0.5, 1.0, 2.0, 3.0 }
-local startupHideViewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
-
-local function HidePendingDefaultViewers()
-    for _, viewerName in pairs(startupHideViewers) do
-        local viewer = _G[viewerName]
-        if viewer and viewer.GetAlpha and viewer:GetAlpha() > 0.01 then
-            viewer:SetAlpha(0)
-        end
-    end
-
-    local ci = DDingUI.CustomIcons
-    if ci and ci.GetGroupFrames then
-        local gf = ci:GetGroupFrames()
-        if gf then
-            for _, cont in pairs(gf) do
-                if cont.GetAlpha and cont:GetAlpha() > 0.01 then
-                    cont:SetAlpha(0)
-                end
-            end
-        end
-    end
-end
-
-local function ScheduleStartupHidePasses()
-    startupHideToken = startupHideToken + 1
-    local token = startupHideToken
-    for _, delay in ipairs(startupHideDelays) do
-        C_Timer.After(delay, function()
-            if token ~= startupHideToken then return end
-            HidePendingDefaultViewers()
-        end)
-    end
-end
-
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloadingUI)
@@ -2131,8 +2049,35 @@ initFrame:SetScript("OnEvent", function(self, event, isInitialLogin, isReloading
             if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.SuppressCustomIconsLayout then
                 DDingUI.DynamicIconBridge:SuppressCustomIconsLayout()
             end
-
-            ScheduleStartupHidePasses()
+            
+            local enforceTicks = 0
+            local enforceFrame = CreateFrame("Frame")
+            enforceFrame:SetScript("OnUpdate", function(self, elapsed)
+                enforceTicks = enforceTicks + elapsed
+                if enforceTicks > 4.0 then
+                    self:SetScript("OnUpdate", nil)
+                    return
+                end
+                for _, viewerName in pairs({"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer"}) do
+                    local viewer = _G[viewerName]
+                    if viewer and viewer.GetAlpha and viewer:GetAlpha() > 0.01 then
+                        viewer:SetAlpha(0)
+                    end
+                end
+                
+                -- [FIX] CustomIcons native 컨테이너도 숨김 강제 적용
+                local ci = DDingUI.CustomIcons
+                if ci and ci.GetGroupFrames then
+                    local gf = ci:GetGroupFrames()
+                    if gf then
+                        for _, cont in pairs(gf) do
+                            if cont.GetAlpha and cont:GetAlpha() > 0.01 then
+                                cont:SetAlpha(0)
+                            end
+                        end
+                    end
+                end
+            end)
         end
 
         -- DDingUI DB가 준비될 때까지 대기

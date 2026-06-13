@@ -672,11 +672,12 @@ eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterUnitEvent("UNIT_AURA", "player")  -- 플레이어만
 
 -- [FIX] CDM 패턴: OnUpdate 기반 dirty flag — C_Timer 객체 생성 없이 배치 처리
 local scanDirty = false
 local scanDelayElapsed = 0
-local SCAN_DELAY_THRESHOLD = 0.1
+local SCAN_DELAY_THRESHOLD = 0.1 -- UNIT_AURA 배치 처리 딜레이 (0.1초)
 
 local function OnUpdateScanProcessor(self, elapsed)
     scanDelayElapsed = scanDelayElapsed + elapsed
@@ -727,6 +728,12 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         return
     elseif event == "PLAYER_ENTERING_WORLD" then
         ScheduleRetryScans({ 0.5, 1.5, 3.0 })
+        return
+    elseif event == "UNIT_AURA" then
+        -- [FIX] dirty flag만 설정 → OnUpdate에서 배치 처리 (C_Timer 객체 생성 없음)
+        if not isInCombat then
+            MarkScanDirty(0.1)
+        end
         return
     end
 

@@ -4,120 +4,28 @@
 
 ## v1.2.10
 
-_Release date: 2026-06-13_
-_Scope: Git changes from commit cf9fc64 (v1.2.9 release) through this release._
+_Release date: 2026-06-05_
+_Scope: Git changes from v1.2.9 through this release._
 
 ### English Patch Notes
-- Stabilized custom buff, timed-aura, racial, item, potion, healthstone, and trinket icons so active effects keep duration swipes, textures, cooldown state, glow state, and text settings through combat refreshes.
-- Restored reliable custom aura profile initialization and live-aura linking for copied or newly created profiles.
-- Reduced custom icon refresh pressure by debouncing layout rebuilds, filtering icon updates by type, caching cooldown target counts, and avoiding unnecessary full rescans during combat.
-- Improved CDM group rendering performance by skipping unchanged group layouts, limiting dynamic aura bridge scans, and avoiding repeated frame reconciliation after stable updates.
-- Registered spell, item, and duplicate-aura watcher events only while tracked entries exist, reducing idle runtime work.
-- Reduced tracked buff bar work by merging duplicate UNIT_AURA and duration updates, trimming startup refreshes, and stopping the tracker when no entries are active.
-- Reduced tracked buff duration text overhead by caching aura expiration times during tracker updates and using that cached state for bar, icon, ring, and text refresh ticks before falling back to aura duration queries.
-- Removed redundant fallback viewer polling and per-icon glow/desaturation polling that could contribute to stutter or glow flicker.
-- Debounced custom icon reloads, icon customization rehooks, and viewer transition recovery so talent changes, loading screens, PvP transitions, and zone changes do not stack repeated full refresh passes.
-- Routed timed-aura layout changes through the existing icon update queue and removed duplicate managed-text retry timers.
-- Narrowed inactive viewer fallback listeners and player aura listeners, and skipped idle buff tracker startup work when no tracked entries exist.
-- Reduced tracked buff bar startup, loading-screen, and specialization-change work to tokenized settle/backstop refreshes instead of multiple delayed full passes.
-- Replaced startup default-viewer hiding OnUpdate polling with a small number of scheduled hide passes.
-- Debounced group transition refreshes after edit-mode exit and specialization changes to avoid stacking redundant full group renders.
-- Coalesced dynamic icon cache-load retries into one pending queue and reduced startup aura suppression rechecks to a single cancelable follow-up scan.
-- Indexed timed-aura spellcast targets and player-aura scan targets so frequent combat events avoid repeated full custom icon database walks.
-- Registered custom icon aura, spellcast, glow, and death events only while matching tracked icons exist, reducing idle combat event traffic.
-- Registered tracked buff bar aura, spellcast, and combat events only when active tracked entries need them, reducing idle event traffic.
-- Stopped the tracked buff bar expiration ticker unless manual tracked entries need expiration checks.
-- Kept the tracked buff bar expiration ticker stopped until a manual tracked stack actually has an expiration time, reducing idle timer work for manual tracking profiles.
-- Preserved concurrent custom icon update filters instead of promoting mixed event batches to full icon refreshes.
-- Coalesced GroupSystem hook refresh callbacks into one deferred full group render per frame.
-- Deferred dynamic bridge layout hashing until the scheduled refresh executes, avoiding repeated source/icon scans during notification bursts.
-- Throttled dynamic bridge aura-hide scans so combat aura bursts are merged before scanning CDM buff frames.
-- Coalesced dynamic bridge buff-frame suppression scans from viewer layout hooks and aura events into one pending pass, reducing repeated pool scans during layout bursts.
-- Limited dynamic bridge refreshes to source-linked groups when only specific custom icon sources changed, avoiding unnecessary full GroupSystem renders during combat icon state changes.
-- Reused the latest CDM group classification for source-targeted dynamic icon refreshes, avoiding another full classification pass when only custom icon state changed.
-- Passed changed custom icon keys into dynamic bridge refreshes so source-targeted updates can hash only affected sources instead of rescanning every linked custom icon source.
-- Stopped combat-start CDM frame-controller rescans and skipped viewer transition recovery when PvP or zone events did not actually change viewer state, reducing pull and instance-transition stutter.
-- Coalesced resource bar specialization, talent, and trait refresh bursts and removed the redundant player power update listener, reducing duplicate resource bar work during combat and transition events.
-- Tokenized icon viewer transition refresh timers so repeated specialization, loading-screen, and world-entry events cancel stale delayed refresh batches instead of stacking viewer rescans and reanchors.
-- Coalesced assisted highlight and keybind refresh bursts into one dispatch pass, reducing repeated full viewer scans during talent, spell, action-bar, and layout events.
-- Replaced fallback buff-icon centering polling with event-driven queued centering so visible buff icons are not re-collected and resorted continuously during play.
-- Coalesced proc-glow reapply work from alert, skin, and viewer-rescan bursts into one pending dispatch pass, reducing timer churn and repeated glow restarts.
-- Made shapeshift, vehicle, and override resource-bar settle updates cancel previous pending timers so rapid state changes do not stack duplicate resource refreshes.
-- Made soul/metamorphosis secondary resource settle updates cancel previous pending timers so repeated aura changes do not stack duplicate resource refreshes.
-- Made secondary resource-bar anchor retry updates cancel stale pending timers when the anchor is restored or the bar is disabled, reducing transition-time refresh bursts.
-- Made primary resource-bar anchor retry updates cancel stale pending timers when the anchor is restored or the bar is disabled, reducing transition-time refresh bursts.
-- Coalesced resource-bar viewer show/hide and loading/level transition refreshes so stale delayed bar updates are canceled during transition bursts.
-- Replaced tracked buff bar queued refresh timers with a reusable dispatch frame, reducing timer churn during aura, combat, and manual-stack event bursts.
-- Filtered custom aura UNIT_AURA refreshes through cached spell and aura instance targets, then queued only the affected icon keys when possible so unrelated combat aura changes no longer trigger broad custom icon rescans.
-- Debounced icon customization ready-glow event handling so cooldown, charge, aura, and specialization event bursts update hooked icons once through a dispatch frame.
-- Coalesced CDM frame-controller dirty marking so repeated hook callbacks keep the existing queued reconcile instead of forcing the next update time back to immediate.
-- Removed duplicate BuffIcon and pool refresh scheduling from frame-controller hook paths while keeping state tracking and recovery hooks intact.
-- Limited proxy anchor synchronization and keybind text updates to event-driven refresh windows instead of continuous per-frame polling.
-- Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
+- Stabilized custom buff and timed-aura icons so active effects keep their duration swipe, texture, glow state, and text settings through combat refreshes.
+- Improved custom item, potion, healthstone, trinket, and racial cooldown refreshes so item fast-path updates no longer skip related aura or spell cooldown updates.
+- Reduced custom icon refresh pressure by debouncing layout rebuilds, filtering icon updates by type, and avoiding unnecessary full rescans during combat.
+- Improved CDM group recovery for profile changes and source-group initialization so copied or newly created profiles retain usable source groups.
 - Hardened CDM rendering against protected or secret values, including safer numeric conversion and managed icon state checks.
-- Moved custom icon update bursts from per-burst timers to a reusable dispatch frame, reducing timer churn during combat icon events.
-- Moved dynamic icon bridge refresh debounce from per-burst timers to a reusable dispatch frame while preserving source-targeted group updates.
-- Reused a single dispatch frame for dynamic icon aura-hide scans so repeated player aura bursts do not create new scan timers.
-- Coalesced buff bar viewer refreshes from bar-content hooks and player aura events through one reusable dispatch frame.
-- Replaced per-icon ready-glow hide timers with a shared dispatch queue to reduce timer churn during cooldown and aura bursts.
-- Moved custom icon layout refresh debounce in bridge mode from short timers to a reusable dispatch frame.
-- Replaced buff icon centering aura debounce timers with the existing event frame dispatch path.
+- Improved tracked buff bar performance by registering events only while the feature is active, merging duplicate updates, and cleaning startup timers when disabled.
+- Cleaned up options-panel runtime work when the settings window closes, including dynamic icon refresh pollers, add popups, drag ghosts, and tooltips.
+- Reduced aura glow flicker by preserving recent glow state briefly while managed icons are refreshing.
 
 ### Korean Patch Notes
-- 강화효과 아이콘 중앙 정렬의 오라 debounce가 새 타이머를 만들지 않고 기존 이벤트 프레임의 dispatch 경로를 쓰도록 바꿨습니다.
-- 브리지 모드의 커스텀 아이콘 레이아웃 refresh 디바운스를 짧은 타이머 대신 재사용 dispatch 프레임으로 처리하게 했습니다.
-- 쿨다운과 오라 이벤트가 몰릴 때 ready glow 숨김 지연이 아이콘마다 새 타이머를 만들지 않도록 공유 dispatch 큐로 합쳤습니다.
-- 버프바 뷰어의 바 콘텐츠 hook과 플레이어 오라 이벤트에서 들어오는 refresh를 하나의 재사용 dispatch 프레임으로 합쳐 중복 타이머 생성을 줄였습니다.
-- 플레이어 오라 이벤트가 반복될 때 동적 아이콘 aura-hide 스캔이 새 타이머를 계속 만들지 않도록 단일 dispatch 프레임을 재사용하게 했습니다.
-- 동적 아이콘 브리지 갱신 디바운스를 매번 새 타이머로 예약하지 않고 재사용 dispatch 프레임으로 처리하면서, 변경된 source 그룹만 갱신하는 경로는 유지했습니다.
-- 커스텀 아이콘 갱신 burst를 매번 새 타이머로 예약하지 않고 재사용 dispatch 프레임으로 처리해 전투 중 아이콘 이벤트의 타이머 생성 부담을 줄였습니다.
-- 지원 강조와 단축키 텍스트 갱신을 한 번의 디스패치 처리로 합쳐 특성, 주문, 액션바, 레이아웃 이벤트가 몰릴 때 전체 뷰어 재스캔이 반복되지 않도록 줄였습니다.
-- 강화효과 아이콘 중앙 정렬 fallback을 상시 폴링 대신 이벤트 기반 큐 처리로 바꿔, 플레이 중 보이는 강화효과 아이콘을 계속 재수집하고 재정렬하지 않도록 줄였습니다.
-- 발동 글로우 재적용 작업을 알림, 스킨, 뷰어 재스캔 이벤트마다 타이머로 쌓지 않고 한 번의 pending 디스패치로 합쳐 타이머 생성과 반복 글로우 재시작을 줄였습니다.
-- 변신, 차량, 오버라이드 상태 전환 중 리소스 바 settle 갱신이 반복될 때 이전 대기 타이머를 취소하도록 바꿔 중복 리소스 갱신이 쌓이지 않게 했습니다.
-- 영혼 조각/탈태 보조 자원 settle 갱신도 이전 대기 타이머를 취소하도록 바꿔 반복 오라 변경 중 중복 갱신이 쌓이지 않게 했습니다.
-- 보조 자원바 앵커 재시도 갱신이 앵커 복구나 바 비활성화 시 남은 대기 타이머를 취소하도록 바꿔 전환 구간의 갱신 burst를 줄였습니다.
-- 주 자원바 앵커 재시도 갱신도 앵커 복구나 바 비활성화 시 남은 대기 타이머를 취소하도록 바꿔 전환 구간의 갱신 burst를 줄였습니다.
-- 리소스바의 뷰어 표시/숨김과 로딩/레벨 전환 후속 갱신을 합쳐 전환 burst 중 오래된 지연 바 갱신이 남아 실행되지 않게 했습니다.
-- 추적 버프 바의 큐 갱신 타이머를 재사용 dispatch 프레임으로 바꿔 오라, 전투, 수동 스택 이벤트가 몰릴 때 타이머 생성 부담을 줄였습니다.
-- 전투 시작만으로 CDM 프레임 컨트롤러가 전체 재스캔을 돌리지 않게 하고, PvP/지역 이벤트에서 실제 뷰어 상태 변화가 없으면 전환 복구를 건너뛰어 전투 시작과 인스턴스 전환 시 스터터링을 줄였습니다.
-- 리소스 바의 전문화, 특성, trait 갱신 burst를 한 번으로 합치고 중복 플레이어 파워 갱신 리스너를 제거해 전투와 전환 이벤트 중 리소스 바 중복 작업을 줄였습니다.
-- 아이콘 뷰어 전환 갱신 타이머를 토큰 기반으로 바꿔 전문화, 로딩 화면, 월드 진입 이벤트가 반복될 때 오래된 지연 갱신 묶음이 뷰어 재스캔과 재고정을 누적 실행하지 않게 했습니다.
-- 커스텀 오라 UNIT_AURA 갱신을 캐시된 주문/오라 인스턴스 대상 기준으로 걸러, 가능한 경우 영향받은 아이콘 키만 갱신하게 해서 무관한 전투 오라 변화가 커스텀 아이콘 전체 재스캔으로 이어지지 않게 했습니다.
-- 동적 브리지의 버프 프레임 억제 스캔을 viewer 레이아웃 hook과 오라 이벤트에서 하나의 pending pass로 병합해 레이아웃 burst 중 반복 pool 스캔을 줄였습니다.
-- 특정 커스텀 아이콘 source만 바뀐 경우 동적 브리지 갱신을 해당 source에 연결된 그룹으로 제한해, 전투 중 아이콘 상태 변화가 불필요한 전체 GroupSystem 렌더로 번지지 않게 했습니다.
-- 커스텀 아이콘 상태만 바뀐 source 대상 갱신에서는 최신 CDM 그룹 분류 캐시를 재사용해, 불필요한 전체 분류 패스를 한 번 더 수행하지 않게 했습니다.
-- 변경된 커스텀 아이콘 키를 동적 브리지 갱신에 전달해 source 대상 갱신이 모든 연결 source를 다시 스캔하지 않고 영향받은 source만 hash 계산하도록 줄였습니다.
-- 추적 중인 버프 바, 아이콘, 원형, 텍스트의 지속시간 갱신이 오라 만료 시간 캐시를 먼저 사용하도록 개선해 전투 중 반복 오라 조회와 텍스트 갱신 부담을 줄였습니다.
-- 아이콘 커스터마이징 준비 글로우 이벤트 처리를 디바운스해 쿨다운, 충전, 오라, 전문화 이벤트가 몰릴 때 훅된 아이콘을 디스패치 프레임에서 한 번만 갱신하도록 했습니다.
-- CDM 프레임 컨트롤러 dirty 표시를 병합해 반복 hook 콜백이 기존 예약된 재조정을 유지하고 다음 갱신 시간을 계속 즉시로 되돌리지 않도록 했습니다.
-- 프레임 컨트롤러 hook 경로에서 중복 BuffIcon 및 pool refresh 예약을 제거하되 상태 추적과 복구 hook은 유지했습니다.
-- 활성 추적 항목이 필요로 할 때만 추적 버프 바의 오라, 주문 시전, 전투 이벤트를 등록해 대기 중 이벤트 유입을 줄였습니다.
-- 수동 추적 항목의 만료 체크가 필요할 때만 추적 버프 바 만료 ticker를 켜도록 줄였습니다.
-- 수동 추적 프로필에서도 실제 만료 시간이 잡힌 스택이 있을 때만 추적 버프 바 만료 ticker를 유지해 idle timer 작업을 줄였습니다.
-- 동시에 들어온 커스텀 아이콘 갱신 필터를 보존해 혼합 이벤트가 불필요한 전체 아이콘 갱신으로 커지지 않게 했습니다.
-- GroupSystem HookEngine 갱신 콜백을 한 프레임에 한 번의 전체 그룹 렌더로 병합했습니다.
-- 동적 브리지 레이아웃 해시 계산을 예약된 갱신 실행 시점으로 미뤄 알림이 몰릴 때 source/icon 스캔이 반복되지 않게 했습니다.
-- 동적 브리지 오라 숨김 스캔을 throttle 처리해 전투 중 오라 이벤트가 몰릴 때 CDM 버프 프레임 스캔을 병합했습니다.
-- 커스텀 버프, 지속시간 오라, 종족 특성, 사용 아이템, 물약, 생명석, 장신구 아이콘이 전투 중 갱신 후에도 지속시간 스와이프, 텍스처, 쿨다운 상태, 글로우 상태, 텍스트 설정을 유지하도록 안정화했습니다.
-- 복사한 프로필이나 새로 만든 프로필에서도 커스텀 오라 초기화와 실제 오라 연결이 정상적으로 동작하도록 개선했습니다.
-- 레이아웃 재구성 디바운스, 아이콘 유형별 갱신 필터, 쿨다운 대상 수 캐시, 전투 중 불필요한 전체 재스캔 회피로 커스텀 아이콘 갱신 부담을 줄였습니다.
-- 변경 없는 그룹 레이아웃을 건너뛰고, 동적 오라 브리지 스캔을 제한하며, 안정 상태 이후 반복 프레임 재조정을 멈춰 CDM 그룹 렌더링 성능을 개선했습니다.
-- 추적 대상이 있을 때만 주문, 아이템, 중복 오라 watcher 이벤트를 등록해 대기 상태의 런타임 작업을 줄였습니다.
-- 중복 UNIT_AURA와 지속시간 갱신을 병합하고, 시작 시 불필요한 갱신을 줄이며, 추적 항목이 없으면 트래커를 멈추도록 추적 버프 바 작업량을 줄였습니다.
-- 스터터나 글로우 깜빡임을 유발할 수 있는 fallback 뷰어 폴링과 아이콘별 글로우/비활성화 폴링을 제거했습니다.
-- 커스텀 아이콘 재로드, 아이콘 커스터마이징 재훅, 뷰어 전환 복구를 디바운스해 특성 변경, 로딩 화면, PvP 전환, 지역 변경 때 반복 전체 갱신이 겹치지 않게 했습니다.
-- 지속시간 오라의 레이아웃 변경을 기존 아이콘 갱신 큐로 통합하고, 관리 아이콘 텍스트 재시도 타이머 중복을 제거했습니다.
-- 비활성 뷰어 fallback 리스너와 플레이어 오라 리스너 범위를 줄이고, 추적 항목이 없을 때는 버프 트래커 시작 작업을 건너뛰도록 했습니다.
-- 추적 버프 바의 시작, 로딩 화면, 전문화 변경 작업을 여러 지연 전체 갱신 대신 토큰 기반 settle/backstop 갱신으로 줄였습니다.
-- 시작 시 기본 뷰어 숨김 처리를 매 프레임 OnUpdate 폴링 대신 소수의 예약 패스로 교체했습니다.
-- 편집모드 종료와 전문화 변경 뒤 그룹 전환 갱신을 디바운스해 불필요한 전체 그룹 렌더링이 겹치지 않게 했습니다.
-- 동적 아이콘 캐시 로드 재시도를 하나의 pending 큐로 합치고, 시작 시 오라 억제 재확인을 취소 가능한 후속 스캔 1회로 줄였습니다.
-- 지속시간 오라 주문 시전 대상과 플레이어 오라 스캔 대상을 인덱싱해 잦은 전투 이벤트에서 커스텀 아이콘 DB 전체 순회를 반복하지 않도록 했습니다.
-- 일치하는 추적 아이콘이 있을 때만 커스텀 아이콘 오라, 주문 시전, 글로우, 사망 이벤트를 등록해 대기 중 전투 이벤트 유입을 줄였습니다.
-- 프록시 앵커 동기화와 키바인드 텍스트 갱신을 지속적인 매 프레임 폴링 대신 이벤트 기반 갱신 구간에서만 실행하도록 제한했습니다.
-- 설정창이 닫힐 때 동적 아이콘 갱신 poller, 추가 팝업, 드래그 고스트, 툴팁 같은 옵션 패널 임시 작업을 정리하도록 개선했습니다.
-- 보호 값이나 secret 값이 섞인 상황에서도 CDM 렌더링이 깨지지 않도록 숫자 변환과 관리 아이콘 상태 확인을 더 안전하게 처리했습니다.
+- 커스텀 강화효과와 시간제 오라 아이콘이 전투 중 갱신되어도 지속시간 스와이프, 텍스처, 글로우 상태, 텍스트 설정을 유지하도록 안정화했습니다.
+- 커스텀 사용 아이템, 물약, 생명석, 장신구, 종족 특성 쿨다운 갱신을 개선해 item 빠른 갱신 경로가 관련 오라나 주문 쿨다운 갱신을 건너뛰지 않도록 했습니다.
+- 레이아웃 재구성 디바운스, 아이콘 타입별 갱신 필터, 전투 중 불필요한 전체 재스캔 회피로 커스텀 아이콘 갱신 부담을 줄였습니다.
+- 프로필 변경과 소스 그룹 초기화 시 CDM 그룹 복구를 개선해 복사되거나 새로 만든 프로필에서도 사용할 수 있는 소스 그룹이 유지되도록 했습니다.
+- 보호된 값이나 secret 값이 섞인 상황에서도 CDM 렌더링이 깨지지 않도록 숫자 변환과 관리 아이콘 상태 확인을 더 안전하게 처리했습니다.
+- 추적중인 버프 바가 활성화된 동안에만 이벤트를 등록하고, 중복 업데이트를 합치며, 비활성화 시 시작 타이머를 정리하도록 성능을 개선했습니다.
+- 설정창을 닫을 때 동적 아이콘 갱신 poller, 추가 팝업, 드래그 고스트, 툴팁 같은 옵션 패널 런타임 작업을 정리하도록 했습니다.
+- 관리 아이콘 갱신 중 최근 글로우 상태를 짧게 보존해 오라 글로우 깜빡임을 줄였습니다.
 
 ---
 

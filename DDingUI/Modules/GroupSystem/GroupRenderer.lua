@@ -237,86 +237,6 @@ local GROUP_VIEWER_MAP = {
     ["Utility"]   = "UtilityCooldownViewer",
 }
 
-local hideLayoutPendingContainers = {}
-local hideLayoutDispatchFrame = CreateFrame("Frame")
-local hideLayoutDispatchDelay = 0
-
-hideLayoutDispatchFrame:Hide()
-
-local function FlushContainerHideLayouts()
-    for p in pairs(hideLayoutPendingContainers) do
-        hideLayoutPendingContainers[p] = nil
-        p._ddLayoutPending = nil
-
-        if p and p._isDDContainer and not InCombatLockdown() then
-            local gn = p._groupName
-            local cachedGS = p._groupSettings
-            if gn and cachedGS then
-                local vn2 = GROUP_VIEWER_MAP[gn]
-                local ls = {
-                    iconSize = cachedGS.iconSize or 32,
-                    aspectRatioCrop = cachedGS.aspectRatioCrop or 1.0,
-                    spacing = cachedGS.spacing or 2,
-                    primaryDirection = cachedGS.direction or "RIGHT",
-                    secondaryDirection = cachedGS.growDirection,
-                    rowLimit = cachedGS.rowLimit or 0,
-                    rowIconSizes = cachedGS.rowIconSizes,
-                }
-                GroupRenderer:LayoutGroup(p, ls, vn2)
-            end
-
-            local anyVis = false
-            for i = 1, (p._iconCount or 0) do
-                local ic = p._managedIcons[i]
-                if ic and ic:IsShown() then
-                    anyVis = true
-                    break
-                end
-            end
-
-            local holdHiddenCDM = false
-            local holdFC = GetFC()
-            if holdFC and holdFC.IsScanHoldActive and holdFC:IsScanHoldActive() then
-                holdHiddenCDM = true
-            end
-
-            if not anyVis and not holdHiddenCDM then
-                p:Hide()
-                if DDingUI.ContainerSync then
-                    DDingUI.ContainerSync:SyncAll()
-                end
-            end
-        end
-    end
-end
-
-hideLayoutDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
-    hideLayoutDispatchDelay = hideLayoutDispatchDelay - elapsed
-    if hideLayoutDispatchDelay > 0 then
-        return
-    end
-
-    self:Hide()
-    hideLayoutDispatchDelay = 0
-    FlushContainerHideLayouts()
-end)
-
-local function QueueContainerHideLayout(container)
-    if not (container and container._isDDContainer and container._groupName) then
-        return
-    end
-    if container._ddLayoutPending then
-        return
-    end
-
-    container._ddLayoutPending = true
-    hideLayoutPendingContainers[container] = true
-    if not hideLayoutDispatchFrame:IsShown() then
-        hideLayoutDispatchDelay = 0.03
-    end
-    hideLayoutDispatchFrame:Show()
-end
-
 local function GroupUsesDurationText(groupName, groupSettings)
     return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
 end
@@ -393,40 +313,6 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
     local iconTexture = icon.icon or icon.Icon
     local textAnchorFrame = iconTexture or icon
 
-    local countText = GetIconCountText(icon)
-    local countAnchor = ResolveGroupTextSetting(groupName, groupSettings, "chargeTextAnchor") or "BOTTOMRIGHT"
-    if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
-    local cox = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetX")) or 0
-    local coy = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetY")) or 0
-    local countSize = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextSize"))
-    local countFont = ResolveGroupTextSetting(groupName, groupSettings, "countTextFont")
-    local countColor = ResolveGroupTextSetting(groupName, groupSettings, "countTextColor")
-    local cr, cg, cb, ca = ResolveRGBA(countColor)
-
-    local cooldown = GetIconCooldownFrame(icon)
-    local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
-    local ox = tonumber(oxRaw) or 0
-    local oy = tonumber(oyRaw) or 0
-    if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
-    local textSize = tonumber(textSizeRaw)
-    local tr, tg, tb, ta = ResolveRGBA(textColor)
-
-    local styleToken = table_concat({
-        tostring(groupName or ""),
-        countText and "c1" or "c0",
-        tostring(countAnchor or ""), tostring(cox), tostring(coy),
-        tostring(countSize or ""), tostring(countFont or ""),
-        tostring(cr), tostring(cg), tostring(cb), tostring(ca),
-        cooldown and "d1" or "d0",
-        tostring(cdAnchor or ""), tostring(ox), tostring(oy),
-        tostring(textSize or ""), tostring(textFont or ""),
-        tostring(tr), tostring(tg), tostring(tb), tostring(ta),
-        groupSettings.hideDurationText and "h1" or "h0",
-    }, ":")
-    if icon._ddDynamicTextStyleToken == styleToken and icon._ddDynamicTextStyleApplied then
-        return
-    end
-
     local function ScheduleTextRetry()
         if icon._ddDynamicTextRetryPending then return end
         local retryCount = tonumber(icon._ddDynamicTextRetryCount) or 0
@@ -446,21 +332,35 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
         end)
     end
 
+    local countText = GetIconCountText(icon)
     if countText then
+        local countAnchor = ResolveGroupTextSetting(groupName, groupSettings, "chargeTextAnchor") or "BOTTOMRIGHT"
+        if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
+        local cox = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetX")) or 0
+        local coy = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetY")) or 0
         countText:ClearAllPoints()
         countText:SetPoint(countAnchor, textAnchorFrame, countAnchor, cox, coy)
 
-        if countSize and countSize > 0 then
-            local cFont = DDingUI:GetFont(countFont)
-            countText:SetFont(cFont, countSize, "OUTLINE")
+        local cSize = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextSize"))
+        if cSize and cSize > 0 then
+            local cFont = DDingUI:GetFont(ResolveGroupTextSetting(groupName, groupSettings, "countTextFont"))
+            countText:SetFont(cFont, cSize, "OUTLINE")
         end
 
+        local countColor = ResolveGroupTextSetting(groupName, groupSettings, "countTextColor")
         if type(countColor) == "table" then
-            countText:SetTextColor(cr, cg, cb, ca)
+            countText:SetTextColor(ResolveRGBA(countColor))
         end
     end
 
+    local cooldown = GetIconCooldownFrame(icon)
     if cooldown then
+        local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
+        local ox = tonumber(oxRaw) or 0
+        local oy = tonumber(oyRaw) or 0
+        if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
+
+        local textSize = tonumber(textSizeRaw)
         if textSize and textSize > 0 and cooldown.SetCountdownFont then
             local font = DDingUI:GetFont(textFont)
             if font then
@@ -498,19 +398,14 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
                     cdText:SetFont(font, textSize, "OUTLINE")
                 end
                 if type(textColor) == "table" then
-                    cdText:SetTextColor(tr, tg, tb, ta)
+                    cdText:SetTextColor(ResolveRGBA(textColor))
                 end
             end
         end)
         if not foundCooldownText then
             ScheduleTextRetry()
-            icon._ddDynamicTextStyleApplied = nil
-            return
         end
     end
-
-    icon._ddDynamicTextStyleToken = styleToken
-    icon._ddDynamicTextStyleApplied = true
 end
 
 function GroupRenderer:ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
@@ -1244,66 +1139,8 @@ end
 -- [REPARENT] 뷰어 설정을 100% 반영하기 위해 ViewerLayout과 동일 로직 복제
 -- ============================================================
 
-local function ResolveGroupOffsetsForGroup(groupName, groupSettings)
-    local resolvedGroupOffsets = groupSettings and groupSettings.groupOffsets
-    local viewerName = GROUP_VIEWER_MAP[groupName]
-    if viewerName then
-        local profile = DDingUI.db and DDingUI.db.profile
-        local vs = profile and profile.viewers and profile.viewers[viewerName]
-        if vs and vs.groupOffsets then
-            resolvedGroupOffsets = vs.groupOffsets
-        end
-    end
-    return resolvedGroupOffsets
-end
-
-local function AppendPlacementSettingsToken(parts, groupName, groupSettings, groupOffsets)
-    if not groupSettings then return end
-
-    parts[#parts + 1] = "group:" .. tostring(groupName or "")
-    parts[#parts + 1] = table_concat({
-        "layout",
-        tostring(groupSettings.iconSize or ""),
-        tostring(groupSettings.aspectRatioCrop or ""),
-        tostring(groupSettings.spacing or ""),
-        tostring(groupSettings.direction or ""),
-        tostring(groupSettings.growDirection or ""),
-        tostring(groupSettings.rowLimit or ""),
-        tostring(groupSettings.zoom or ""),
-    }, ":")
-
-    local rowSizes = groupSettings.rowIconSizes
-    if type(rowSizes) == "table" then
-        for i = 1, #rowSizes do
-            parts[#parts + 1] = "row:" .. tostring(i) .. ":" .. tostring(rowSizes[i] or "")
-        end
-    end
-
-    local groupState = "solo"
-    if IsInRaid and IsInRaid() then
-        groupState = "raid"
-    elseif IsInGroup and IsInGroup() then
-        groupState = "party"
-    end
-    parts[#parts + 1] = "state:" .. groupState
-
-    if type(groupOffsets) == "table" then
-        local activeOffset = groupOffsets[groupState]
-        parts[#parts + 1] = "offset:" .. tostring(activeOffset and activeOffset.x or 0) .. ":" .. tostring(activeOffset and activeOffset.y or 0)
-    end
-
-    local attachTo = groupSettings.attachTo
-    if attachTo and attachTo ~= "" and attachTo ~= "UIParent" then
-        local anchorFrame = _G and _G[attachTo]
-        local anchorW = anchorFrame and anchorFrame.GetWidth and anchorFrame:GetWidth() or 0
-        local anchorH = anchorFrame and anchorFrame.GetHeight and anchorFrame:GetHeight() or 0
-        parts[#parts + 1] = "anchor:" .. tostring(attachTo) .. ":" .. tostring(math_floor((anchorW or 0) + 0.5)) .. ":" .. tostring(math_floor((anchorH or 0) + 0.5))
-    end
-end
-
-local function BuildPlacementHash(combinedList, groupName, groupSettings, groupOffsets)
+local function BuildPlacementHash(combinedList)
     local parts = {}
-    AppendPlacementSettingsToken(parts, groupName, groupSettings, groupOffsets)
     for i, entry in ipairs(combinedList or {}) do
         local token = entry._ddOrderToken
             or (entry.isDynamic and BuildDynamicOrderToken(entry.iconKey or entry.cooldownID))
@@ -1316,18 +1153,6 @@ local function BuildPlacementHash(combinedList, groupName, groupSettings, groupO
             visible = "0"
         end
         parts[#parts + 1] = tostring(token) .. ":" .. visible
-    end
-    return table_concat(parts, ";")
-end
-
-local function BuildPlacementSequence(combinedList)
-    local parts = {}
-    for i, entry in ipairs(combinedList or {}) do
-        local token = entry._ddOrderToken
-            or (entry.isDynamic and BuildDynamicOrderToken(entry.iconKey or entry.cooldownID))
-            or BuildCDMOrderToken(entry)
-            or tostring(i)
-        parts[#parts + 1] = tostring(token)
     end
     return table_concat(parts, ";")
 end
@@ -1738,7 +1563,7 @@ function GroupRenderer:CreateGroupFrame(groupName, groupSettings)
     -- → 뷰어 마이그레이션을 건너뛰고 저장된 groupSettings 위치 사용
 
     -- [FIX] 핵심 3대 그룹은 프록시 앵커가 마스터 → 프록시 위치에서 초기 좌표 설정
-    -- Proxy anchor sync runs in short bursts after layout/state changes.
+    -- SyncProxyAnchors OnUpdate에서 매 프레임 프록시→그룹 동기화하므로
     -- 여기서는 프록시가 있으면 프록시에 맞추고, 없으면 settings 폴백
     local CORE_PROXY = {
         ["Cooldowns"] = "DDingUI_Anchor_Cooldowns",
@@ -2086,12 +1911,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     end
 
     ApplyGroupIconOrder(groupSettings, combinedList)
-    local viewerName = GROUP_VIEWER_MAP[groupName]
-    local resolvedGroupOffsets = ResolveGroupOffsetsForGroup(groupName, groupSettings)
-    local placementSequence = BuildPlacementSequence(combinedList)
-    local listChanged = frame._lastPlacementSequence and frame._lastPlacementSequence ~= placementSequence
-    local combinedHash = BuildPlacementHash(combinedList, groupName, groupSettings, resolvedGroupOffsets)
-    if frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
+    local combinedHash = BuildPlacementHash(combinedList)
+    if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
         RestoreActivePlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
         if #combinedList > 0 and not frame:IsShown() then
             frame:Show()
@@ -2134,6 +1955,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         end
     end
     wipe(frame._managedIcons)
+
+    -- [FIX] groupSettings가 단일 소스 — Config UI가 gs.groups[name]에 기록
+    local viewerName = GROUP_VIEWER_MAP[groupName]
 
     -- 아이콘 크기: groupSettings에서 직접 계산 (viewer settings 무시)
     local baseIconW, baseIconH = ComputeIconDimensions(groupSettings)
@@ -2353,7 +2177,47 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     if not gn then return end
 
                     -- 디바운스: 0.03초 후 한 번만 레이아웃
-                    QueueContainerHideLayout(p)
+                    if not p._ddLayoutPending then
+                        p._ddLayoutPending = true
+                        C_Timer.After(0.03, function()
+                            p._ddLayoutPending = nil
+                            if not (p and p._isDDContainer) then return end
+                            if InCombatLockdown() then return end -- [FIX] 전투 중 SetSize 보호
+
+                            -- [FIX] 캐시된 groupSettings 사용 (viewer settings 대신)
+                            local cachedGS = p._groupSettings
+                            if cachedGS then
+                                local vn2 = GROUP_VIEWER_MAP[gn]
+                                local ls = {
+                                    iconSize = cachedGS.iconSize or 32,
+                                    aspectRatioCrop = cachedGS.aspectRatioCrop or 1.0,
+                                    spacing = cachedGS.spacing or 2,
+                                    primaryDirection = cachedGS.direction or "RIGHT",
+                                    secondaryDirection = cachedGS.growDirection,
+                                    rowLimit = cachedGS.rowLimit or 0,
+                                    rowIconSizes = cachedGS.rowIconSizes,
+                                }
+                                GroupRenderer:LayoutGroup(p, ls, vn2)
+                            end
+                            -- 모든 아이콘이 숨겨졌으면 그룹 프레임도 숨기기
+                            local anyVis = false
+                            for i = 1, (p._iconCount or 0) do
+                                local ic = p._managedIcons[i]
+                                if ic and ic:IsShown() then anyVis = true; break end
+                            end
+                            local holdHiddenCDM = false
+                            local holdFC = GetFC()
+                            if holdFC and holdFC.IsScanHoldActive and holdFC:IsScanHoldActive() then
+                                holdHiddenCDM = true
+                            end
+                            if not anyVis and not holdHiddenCDM then
+                                p:Hide()
+                                if DDingUI.ContainerSync then
+                                    DDingUI.ContainerSync:SyncAll()
+                                end
+                            end
+                        end)
+                    end
                 end)
             end
         end
@@ -2364,6 +2228,14 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     -- Config UI가 gs.groups[name]에 기록한 값을 직접 사용
     -- [FIX] groupOffsets: ViewerOptions SaveGroupOffset은 viewers[viewerKey]에 저장하므로
     -- 실시간 반영을 위해 viewers DB를 직접 읽음. 비-CDM 그룹은 groupSettings에서 읽음.
+    local resolvedGroupOffsets = groupSettings.groupOffsets
+    if viewerName then
+        local profile = DDingUI.db and DDingUI.db.profile
+        local vs = profile and profile.viewers and profile.viewers[viewerName]
+        if vs and vs.groupOffsets then
+            resolvedGroupOffsets = vs.groupOffsets
+        end
+    end
     local layoutSettings = {
         iconSize = groupSettings.iconSize or 32,
         aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
@@ -2373,12 +2245,10 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         rowLimit = groupSettings.rowLimit or 0,
         rowIconSizes = groupSettings.rowIconSizes,
         groupOffsets = resolvedGroupOffsets,
-        instantIconLayout = hasDynamicIcons and listChanged,
     }
 
     -- 2단계: LayoutGroup (최종 크기/위치 결정 — rowIconSizes 반영)
     self:LayoutGroup(frame, layoutSettings, viewerName)
-    frame._lastPlacementSequence = placementSequence
 
     if idx > 0 then
         -- [FIX] CDM 뷰어의 IsShown() 반영 (전투 외 버프 숨김 등)
@@ -2552,7 +2422,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
 
     local motionSettings
     local isBuffMotionGroup = (viewerName == "BuffIconCooldownViewer") or (viewerSettings.groupCategory == "buff")
-    if isBuffMotionGroup and viewerSettings.iconMotion ~= false and not viewerSettings.instantIconLayout then
+    if isBuffMotionGroup and viewerSettings.iconMotion ~= false then
         motionSettings = {
             enabled = true,
             duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION,
@@ -2773,7 +2643,6 @@ function GroupRenderer:ReleaseGroupIcons(frame)
     wipe(frame._managedIcons)
     frame._iconCount = 0
     frame._lastCombinedLayoutHash = nil
-    frame._lastPlacementSequence = nil
     frame._lastDynHash = nil
 end
 

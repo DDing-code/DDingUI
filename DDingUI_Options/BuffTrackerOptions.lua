@@ -474,9 +474,6 @@ end
 -- Refresh options panel to reflect changes (always preserves tab position)
 -- NOTE: This function must be defined before AddTrackedBuff/RemoveTrackedBuff
 local function RefreshOptions()
-    if DDingUI.ConditionalActions and DDingUI.ConditionalActions.RefreshEnabled then
-        DDingUI.ConditionalActions:RefreshEnabled()
-    end
     -- C_Timer.After(0): 현재 OnClick 핸들러 완료 후 다음 프레임에서 재렌더
     -- (클릭된 버튼이 ClearTabContent로 파괴되면서 UI 스택 꼬이는 문제 방지)
     C_Timer.After(0, function()

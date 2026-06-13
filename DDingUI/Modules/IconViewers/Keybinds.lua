@@ -47,8 +47,6 @@ local PrintDebug = function(...)
     end
 end
 local isModuleKeybindsEnabled = false
-local QueueKeybindRefresh
-local QueueViewerKeybindRefresh
 local hookedViewers = {} -- [FIX] 뷰어별 hook 등록 추적 (areHooksInitialized 대체)
 
 local NUM_ACTIONBAR_BUTTONS = 12
@@ -568,9 +566,12 @@ local function GetOrCreateKeybindText(icon, viewerSettingName)
     end
 
     local settings = GetKeybindSettings(viewerSettingName)
-    keybindFrames[icon] = CreateFrame("Frame", nil, icon)
+    -- Parent to UIParent instead of icon to avoid Blizzard's EditMode child iteration
+    -- which causes "EnableSpellRangeCheck" errors when it encounters non-icon frames
+    keybindFrames[icon] = CreateFrame("Frame", nil, UIParent)
+    keybindFrames[icon]:SetFrameStrata(icon:GetFrameStrata()) -- [12.0.1] match icon strata
     keybindFrames[icon]:SetFrameLevel(icon:GetFrameLevel() + 12) -- [12.0.1] above all overlays
-    keybindFrames[icon]:SetAllPoints(icon)
+    keybindFrames[icon]:SetAllPoints(icon)  -- Follow icon position
     local keybindText = keybindFrames[icon]:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
     keybindText:SetPoint(settings.anchor, icon, settings.anchor, settings.offsetX, settings.offsetY)
     keybindText:SetTextColor(unpack(settings.fontColor))
@@ -579,6 +580,22 @@ local function GetOrCreateKeybindText(icon, viewerSettingName)
     keybindText:SetDrawLayer("OVERLAY", 7)
 
     keybindFrames[icon].text = keybindText
+
+    -- Sync visibility and alpha with icon (alpha follows parent chain,
+    -- so FlightHide fading the viewer will also fade keybind text)
+    keybindFrames[icon]:SetScript("OnUpdate", function(self)
+        self:SetShown(icon:IsShown())
+        self:SetAlpha(icon:GetEffectiveAlpha())
+        -- [12.0.1] keep strata/level in sync if icon changes dynamically
+        local iconStrata = icon:GetFrameStrata()
+        if self:GetFrameStrata() ~= iconStrata then
+            self:SetFrameStrata(iconStrata)
+        end
+        local targetLevel = icon:GetFrameLevel() + 12
+        if self:GetFrameLevel() ~= targetLevel then
+            self:SetFrameLevel(targetLevel)
+        end
+    end)
 
     return keybindFrames[icon].text
 end
@@ -590,16 +607,6 @@ local function ApplyKeybindTextSettings(icon, viewerSettingName)
 
     local settings = GetKeybindSettings(viewerSettingName)
     local keybindText = GetOrCreateKeybindText(icon, viewerSettingName)
-    local keybindFrame = keybindFrames[icon]
-
-    if keybindFrame then
-        if keybindFrame:GetParent() ~= icon then
-            keybindFrame:SetParent(icon)
-            keybindFrame:ClearAllPoints()
-            keybindFrame:SetAllPoints(icon)
-        end
-        keybindFrame:SetFrameLevel(icon:GetFrameLevel() + 12)
-    end
 
     keybindFrames[icon]:Show()
     keybindText:ClearAllPoints()
@@ -764,12 +771,8 @@ local function BuildIconSpellCacheForViewer(viewerName)
         hooksecurefunc(viewerFrame, "RefreshLayout", function()
             if not isModuleKeybindsEnabled then return end
             PrintDebug("[DDingUI Keybinds] RefreshLayout called for viewer:", viewerName)
-            if QueueViewerKeybindRefresh then
-                QueueViewerKeybindRefresh(viewerName)
-            else
-                BuildIconSpellCacheForViewer(viewerName)
-                Keybinds:UpdateViewerKeybinds(viewerName)
-            end
+            BuildIconSpellCacheForViewer(viewerName)
+            Keybinds:UpdateViewerKeybinds(viewerName)
         end)
         PrintDebug("[DDingUI Keybinds] Lazy-hooked RefreshLayout for:", viewerName)
     end
@@ -935,68 +938,6 @@ function Keybinds:ApplyKeybindSettings(viewerName)
 end
 
 local eventFrame = CreateFrame("Frame")
-local pendingKeybindRefresh = false
-local pendingViewerKeybindRefreshes = {}
-local delayedKeybindRefreshToken = 0
-
-local function FlushQueuedKeybindRefresh(self)
-    self:SetScript("OnUpdate", nil)
-
-    if not isModuleKeybindsEnabled then
-        pendingKeybindRefresh = false
-        wipe(pendingViewerKeybindRefreshes)
-        return
-    end
-
-    if pendingKeybindRefresh then
-        pendingKeybindRefresh = false
-        wipe(pendingViewerKeybindRefreshes)
-        BuildAllIconSpellCaches()
-        Keybinds:UpdateAllKeybinds()
-        return
-    end
-
-    for viewerName in pairs(pendingViewerKeybindRefreshes) do
-        pendingViewerKeybindRefreshes[viewerName] = nil
-        BuildIconSpellCacheForViewer(viewerName)
-        Keybinds:UpdateViewerKeybinds(viewerName)
-    end
-end
-
-local function EnsureKeybindDispatch()
-    eventFrame:SetScript("OnUpdate", FlushQueuedKeybindRefresh)
-end
-
-QueueKeybindRefresh = function(invalidateBindings, invalidateKeybinds, invalidateState, followupDelay)
-    if invalidateBindings then
-        bindingCacheValid = false
-    end
-    if invalidateKeybinds then
-        keybindCacheValid = false
-    end
-    if invalidateState then
-        cachedStateData.valid = false
-    end
-
-    pendingKeybindRefresh = true
-    EnsureKeybindDispatch()
-
-    if followupDelay then
-        delayedKeybindRefreshToken = delayedKeybindRefreshToken + 1
-        local token = delayedKeybindRefreshToken
-        C_Timer.After(followupDelay, function()
-            if token == delayedKeybindRefreshToken then
-                QueueKeybindRefresh(invalidateBindings, invalidateKeybinds, invalidateState)
-            end
-        end)
-    end
-end
-
-QueueViewerKeybindRefresh = function(viewerName)
-    if not viewerName then return end
-    pendingViewerKeybindRefreshes[viewerName] = true
-    EnsureKeybindDispatch()
-end
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if not isModuleKeybindsEnabled then
@@ -1005,11 +946,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 
     if event == "EDIT_MODE_LAYOUTS_UPDATED" then
         PrintDebug("[DDingUI Keybinds] EditMode layout changed - rebuilding cache")
-        QueueKeybindRefresh(true, true, true)
+        BuildAllIconSpellCaches()
+        Keybinds:UpdateAllKeybinds()
     elseif event == "UPDATE_BINDINGS" then
-        QueueKeybindRefresh(true, true, false)
+        bindingCacheValid = false
+        keybindCacheValid = false
+        BuildAllIconSpellCaches()
+        Keybinds:UpdateAllKeybinds()
     elseif event == "PLAYER_ENTERING_WORLD" then
-        QueueKeybindRefresh(true, true, true)
+        BuildAllIconSpellCaches()
+        Keybinds:UpdateAllKeybinds()
         PrintDebug(
             "[DDingUI Keybinds] PLAYER_ENTERING_WORLD - LoadOrBuild result:",
             "inLockdown:",
@@ -1020,14 +966,24 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         or event == "UPDATE_BONUS_ACTIONBAR"
         or event == "PLAYER_MOUNT_DISPLAY_CHANGED"
     then
-        QueueKeybindRefresh(false, true, true, event == "UPDATE_BONUS_ACTIONBAR" and 0.1 or nil)
+        keybindCacheValid = false
+        cachedStateData.valid = false
+        BuildAllIconSpellCaches()
+        Keybinds:UpdateAllKeybinds()
     elseif
         event == "PLAYER_TALENT_UPDATE"
         or event == "SPELLS_CHANGED"
         or event == "PLAYER_SPECIALIZATION_CHANGED"
+        or event == "PLAYER_REGEN_DISABLED"
         or event == "ACTIONBAR_HIDEGRID" -- eg. Dropping a spell on action bar
     then
-        QueueKeybindRefresh(true, true, true)
+        C_Timer.After(0, function()
+            bindingCacheValid = false
+            keybindCacheValid = false
+            cachedStateData.valid = false
+            BuildAllIconSpellCaches()
+            Keybinds:UpdateAllKeybinds()
+        end)
     end
 end)
 
@@ -1037,9 +993,6 @@ function Keybinds:Shutdown()
     isModuleKeybindsEnabled = false
 
     eventFrame:UnregisterAllEvents()
-    eventFrame:SetScript("OnUpdate", nil)
-    pendingKeybindRefresh = false
-    wipe(pendingViewerKeybindRefreshes)
 
     wipe(bindingKeyCache)
     bindingCacheValid = false
@@ -1091,6 +1044,7 @@ function Keybinds:Enable()
     eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
     eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     eventFrame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
+    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     eventFrame:RegisterEvent("ACTIONBAR_HIDEGRID")
 
     -- [FIX] hook 등록은 BuildIconSpellCacheForViewer에서 lazy로 처리

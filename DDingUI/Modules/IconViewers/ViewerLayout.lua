@@ -210,43 +210,12 @@ end
 CreateProxyAnchors()
 
 local proxySyncFrame = CreateFrame("Frame")
-proxySyncFrame:Hide()
-local proxySyncUntil = 0
-local proxySyncDelayRemaining = 0
-
-local function RequestProxyAnchorSync(duration)
-    local now = GetTime()
-    local untilTime = now + (duration or 0.35)
-    if untilTime > proxySyncUntil then
-        proxySyncUntil = untilTime
-    end
-    _nextProxySyncTime = 0
-    proxySyncDelayRemaining = 0
-    proxySyncFrame:Show()
-end
-
-proxySyncFrame:SetScript("OnUpdate", function(self, elapsed)
-    if GetTime() > proxySyncUntil then
-        self:Hide()
-        return
-    end
-    proxySyncDelayRemaining = proxySyncDelayRemaining - (elapsed or 0)
-    if proxySyncDelayRemaining > 0 then
-        return
-    end
-    proxySyncDelayRemaining = PROXY_SYNC_THROTTLE
-    SyncProxyAnchors()
-end)
-
-RequestProxyAnchorSync(2.0)
+proxySyncFrame:SetScript("OnUpdate", SyncProxyAnchors)
 
 -- Export
 DDingUI.ProxyAnchors = proxyFrames
 DDingUI.PROXY_MAP = PROXY_MAP
 DDingUI.PROXY_TO_VIEWER = PROXY_TO_VIEWER
-DDingUI.RequestProxyAnchorSync = function(_, duration)
-    RequestProxyAnchorSync(duration)
-end
 
 -- 프록시 크기 캐시 무효화 (프로필/전문화 전환 시 호출)
 -- _lastSyncW/H를 nil로 리셋 → 다음 SyncProxyAnchors에서 강제 갱신
@@ -256,23 +225,6 @@ function DDingUI:InvalidateProxySizeCache()
         proxy._lastSyncH = nil
     end
     _nextProxySyncTime = 0
-    RequestProxyAnchorSync(0.75)
-end
-
-do
-    local eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    eventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
-    eventFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
-    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-    eventFrame:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_ENTERING_WORLD" or event == "LOADING_SCREEN_DISABLED" then
-            RequestProxyAnchorSync(2.0)
-        else
-            RequestProxyAnchorSync(0.75)
-        end
-    end)
 end
 
 local ceil = math.ceil
@@ -1223,75 +1175,7 @@ local nextCenterBuffsUpdate = 0
 -- Reusable tables (avoid per-frame GC pressure)
 local _visibleBuffIcons = {}
 
-local centerBuffsFrame = CreateFrame("Frame")
-local centerBuffsActive = false
-local centerBuffsQueued = false
-local centerBuffEventFrame
-local centerBuffAuraRegistered = false
-
-local function GetBuffViewerSettings()
-    return DDingUI.db
-        and DDingUI.db.profile
-        and DDingUI.db.profile.viewers
-        and DDingUI.db.profile.viewers["BuffIconCooldownViewer"]
-end
-
-local function ShouldRunCenterBuffs()
-    if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then return false end
-    local viewer = _G["BuffIconCooldownViewer"]
-    if not viewer or not viewer:IsShown() then return false end
-    local settings = GetBuffViewerSettings()
-    if settings and settings.enabled == false then return false end
-    if settings and settings.centerBuffs == false then return false end
-    return true
-end
-
-local function DisableCenterBuffs()
-    if centerBuffsActive then
-        centerBuffsActive = false
-        centerBuffsFrame:SetScript("OnUpdate", nil)
-        centerBuffsQueued = false
-    end
-    if centerBuffEventFrame and centerBuffAuraRegistered then
-        centerBuffEventFrame:UnregisterEvent("UNIT_AURA")
-        centerBuffAuraRegistered = false
-    end
-end
-
-local CenterBuffIcons
-local function FlushQueuedCenterBuffs(self)
-    self:SetScript("OnUpdate", nil)
-    centerBuffsQueued = false
-    if centerBuffsActive then
-        CenterBuffIcons()
-    end
-end
-
-local function QueueCenterBuffs(force)
-    if not centerBuffsActive or centerBuffsQueued then return end
-    if force then
-        nextCenterBuffsUpdate = 0
-    end
-    centerBuffsQueued = true
-    centerBuffsFrame:SetScript("OnUpdate", FlushQueuedCenterBuffs)
-end
-
-local function EnableCenterBuffs()
-    if not ShouldRunCenterBuffs() then
-        DisableCenterBuffs()
-        return
-    end
-    if centerBuffEventFrame and not centerBuffAuraRegistered then
-        centerBuffEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
-        centerBuffAuraRegistered = true
-    end
-    if not centerBuffsActive then
-        centerBuffsActive = true
-    end
-    QueueCenterBuffs(true)
-end
-
-CenterBuffIcons = function()
+local function CenterBuffIcons()
     -- [FIX] 뷰어가 초기화 미완료 상태면 스킵 (CMC IsReady 패턴)
     local bv = _G["BuffIconCooldownViewer"]
     if not IsViewerReady(bv) then return end
@@ -1311,11 +1195,6 @@ CenterBuffIcons = function()
 
     local BuffIconCooldownViewer = bv
 
-    if not ShouldRunCenterBuffs() then
-        DisableCenterBuffs()
-        return
-    end
-
     -- [REPARENT] GroupSystem이 활성 상태면 CenterBuffIcons 완전 스킵
     -- GroupRenderer가 모든 레이아웃을 담당 — CenterBuffIcons와 충돌 방지
     -- ContainerSync._isViewerHidden만 체크하면 managed < total일 때 여전히 실행되어
@@ -1326,7 +1205,9 @@ CenterBuffIcons = function()
         if DDingUI.ContainerSync._isViewerHidden("BuffIconCooldownViewer") then return end
     end
 
-    local settings = GetBuffViewerSettings()
+    local settings = DDingUI.db and DDingUI.db.profile.viewers["BuffIconCooldownViewer"]
+    if settings and settings.enabled == false then return end
+    if settings and settings.centerBuffs == false then return end
 
     -- 아이콘 수집 (reuse table) -- [PERF] O(n²) select(i, GetChildren()) → O(n) 변환
     local visibleCount = 0
@@ -1399,6 +1280,23 @@ CenterBuffIcons = function()
     end
 
     return visibleCount
+end
+
+-- Conditional OnUpdate: only run when viewer is visible
+local centerBuffsFrame = CreateFrame("Frame")
+local centerBuffsActive = false
+
+local function EnableCenterBuffs()
+    if not centerBuffsActive then
+        centerBuffsActive = true
+        centerBuffsFrame:SetScript("OnUpdate", CenterBuffIcons)
+    end
+end
+local function DisableCenterBuffs()
+    if centerBuffsActive then
+        centerBuffsActive = false
+        centerBuffsFrame:SetScript("OnUpdate", nil)
+    end
 end
 
 -- ============================================
@@ -1513,7 +1411,8 @@ do
                 end
                 -- BuffIcon은 센터링도 필요
                 if viewerName == "BuffIconCooldownViewer" then
-                    QueueCenterBuffs(true)
+                    nextCenterBuffsUpdate = 0
+                    CenterBuffIcons()
                 end
                 -- ResourceBars 동기화 (뷰어 크기 변경 시 바 너비 업데이트)
                 if DDingUI.ResourceBars and DDingUI.ResourceBars.UpdatePowerBar then
@@ -1553,7 +1452,8 @@ do
         end
 
         -- 센터링 즉시 실행
-        QueueCenterBuffs(true)
+        nextCenterBuffsUpdate = 0
+        CenterBuffIcons()
 
         -- ResourceBars 동기화
         if DDingUI.ResourceBars and DDingUI.ResourceBars.UpdatePowerBar then
@@ -1590,42 +1490,32 @@ do
         end
     end
 
-    local majorStateToken = 0
-    local function ScheduleMajorStateRefresh(event)
-        majorStateToken = majorStateToken + 1
-        local token = majorStateToken
-
-        local function after(delay, fn)
-            C_Timer.After(delay, function()
-                if token ~= majorStateToken then return end
-                fn()
-            end)
-        end
-
-        if event == "PLAYER_ENTERING_WORLD" then
-            after(0.1, function()
-                QueueCenterBuffs(true)
-            end)
-            after(0.5, function()
-                QueueCenterBuffs(true)
-            end)
-            after(1.0, OnMajorStateChange)
-            return
-        end
-
-        after(0.3, OnMajorStateChange)
-        after(1.0, OnMajorStateChange)
-        after(2.5, OnMajorStateChange)
-        after(4.0, CheckAndRecoverUnpopulatedFrames)
-    end
-
     local viewerRefreshFrame = CreateFrame("Frame")
     viewerRefreshFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
     viewerRefreshFrame:RegisterEvent("PLAYER_LEVEL_UP")
     viewerRefreshFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     viewerRefreshFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     viewerRefreshFrame:SetScript("OnEvent", function(_, event)
-        ScheduleMajorStateRefresh(event)
+        if event == "PLAYER_ENTERING_WORLD" then
+            -- [FIX] 리로드 직후 강화효과 위치 즉시 보정 (CDM RunVisualSetup 패턴)
+            -- IsViewerReady 가드를 우회하여 빠르게 CenterBuffIcons 실행
+            C_Timer.After(0.1, function()
+                nextCenterBuffsUpdate = 0
+                CenterBuffIcons()
+            end)
+            C_Timer.After(0.5, function()
+                nextCenterBuffsUpdate = 0
+                CenterBuffIcons()
+            end)
+            C_Timer.After(1.0, OnMajorStateChange)
+            return
+        end
+        -- 뷰어 재생성 대기 후 재설치 시도 (여러 시점에서)
+        C_Timer.After(0.3, OnMajorStateChange)
+        C_Timer.After(1.0, OnMajorStateChange)
+        C_Timer.After(2.5, OnMajorStateChange)
+        -- [CDM 패턴] 4초 후 빈 프레임 체크 → 미복구 아이콘 강제 재시도
+        C_Timer.After(4.0, CheckAndRecoverUnpopulatedFrames)
     end)
 end
 
@@ -1633,41 +1523,23 @@ end
 local function CenterBuffIconsImmediate()
     local now = GetTime()
     if now < nextCenterBuffsUpdate then return end  -- [PERF] 이미 최근에 실행됨 → 스킵 (OnUpdate가 잡아줌)
-    if not centerBuffsActive then
-        EnableCenterBuffs()
-        return
-    end
-    QueueCenterBuffs(true)
+    nextCenterBuffsUpdate = 0
+    CenterBuffIcons()
 end
 
 -- UNIT_AURA 이벤트로 반응 — [PERF] debounce로 버스트 방지
 local _centerBuffAuraPending = false
-local _centerBuffAuraDelayRemaining = 0
-local function FlushCenterBuffAuraDebounce(self, elapsed)
-    if not _centerBuffAuraPending then
-        self:SetScript("OnUpdate", nil)
-        return
-    end
-
-    _centerBuffAuraDelayRemaining = _centerBuffAuraDelayRemaining - (elapsed or 0)
-    if _centerBuffAuraDelayRemaining > 0 then
-        return
-    end
-
-    self:SetScript("OnUpdate", nil)
-    _centerBuffAuraPending = false
-    _centerBuffAuraDelayRemaining = 0
-    CenterBuffIconsImmediate()
-end
-centerBuffEventFrame = CreateFrame("Frame")
-centerBuffEventFrame:SetScript("OnEvent", function(self, event, unit)
+local buffEventFrame = CreateFrame("Frame")
+buffEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+buffEventFrame:SetScript("OnEvent", function(_, event, unit)
     if unit == "player" and not _centerBuffAuraPending then
         _centerBuffAuraPending = true
-        _centerBuffAuraDelayRemaining = 0.05
-        self:SetScript("OnUpdate", FlushCenterBuffAuraDebounce)
+        C_Timer.After(0.05, function()  -- [PERF] 0→0.05s debounce (50ms 내 중복 UNIT_AURA 병합)
+            _centerBuffAuraPending = false
+            CenterBuffIconsImmediate()
+        end)
     end
 end)
-EnableCenterBuffs()
 
 -- Export for external control
 IconViewers.CenterBuffIcons = CenterBuffIcons

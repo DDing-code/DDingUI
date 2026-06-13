@@ -33,7 +33,6 @@ local rotationSpellsCacheValid = false
 local currentSuggestedSpellID = nil
 local isEnabled = false
 local hooksInitialized = false
-local QueueAllHighlightRefresh
 
 local function GetGroupSystemGroups()
     local db = DDingUI.db and DDingUI.db.profile
@@ -223,20 +222,6 @@ local function GetCurrentSuggestedSpellID()
         return C_AssistedCombat.GetNextCastSpell()
     end
     return nil
-end
-
-local function RefreshIfSuggestionChanged(spellID)
-    local nextSpellID = spellID
-    if nextSpellID == nil then
-        nextSpellID = GetCurrentSuggestedSpellID()
-    end
-    if nextSpellID == currentSuggestedSpellID then return end
-    currentSuggestedSpellID = nextSpellID
-    if QueueAllHighlightRefresh then
-        QueueAllHighlightRefresh(true)
-    else
-        AssistHighlight:UpdateAllHighlights(true)
-    end
 end
 
 local function SpellMatchesSuggested(rawSpellID, overrideSpellID, linkedSpellIDs)
@@ -565,10 +550,8 @@ function AssistHighlight:UpdateViewerHighlights(viewerName)
     end
 end
 
-function AssistHighlight:UpdateAllHighlights(useCurrentSuggestion)
-    if not useCurrentSuggestion then
-        currentSuggestedSpellID = GetCurrentSuggestedSpellID()
-    end
+function AssistHighlight:UpdateAllHighlights()
+    currentSuggestedSpellID = GetCurrentSuggestedSpellID()
     for _, vName in ipairs(viewerNames) do
         self:UpdateViewerHighlights(vName)
     end
@@ -615,112 +598,25 @@ end
 -- ============================================================
 
 local eventFrame = CreateFrame("Frame")
-local pendingAllHighlightRefresh = false
-local pendingAllUseCurrentSuggestion = false
-local pendingRotationCacheRefresh = false
-local pendingGroupHighlightRefresh = false
-local pendingViewerHighlightRefreshes = {}
-
-local function FlushPendingHighlightRefresh(self)
-    self:SetScript("OnUpdate", nil)
-
-    if not isEnabled then
-        pendingAllHighlightRefresh = false
-        pendingAllUseCurrentSuggestion = false
-        pendingRotationCacheRefresh = false
-        pendingGroupHighlightRefresh = false
-        wipe(pendingViewerHighlightRefreshes)
-        return
-    end
-
-    if pendingAllHighlightRefresh then
-        local useCurrentSuggestion = pendingAllUseCurrentSuggestion
-        local refreshRotationCache = pendingRotationCacheRefresh
-        pendingAllHighlightRefresh = false
-        pendingAllUseCurrentSuggestion = false
-        pendingRotationCacheRefresh = false
-        pendingGroupHighlightRefresh = false
-        wipe(pendingViewerHighlightRefreshes)
-
-        if refreshRotationCache then
-            rotationSpellsCacheValid = false
-            UpdateRotationSpellsCache()
-        end
-        AssistHighlight:UpdateAllHighlights(useCurrentSuggestion)
-        return
-    end
-
-    if pendingRotationCacheRefresh then
-        pendingRotationCacheRefresh = false
-        rotationSpellsCacheValid = false
-        UpdateRotationSpellsCache()
-    end
-
-    if pendingGroupHighlightRefresh then
-        pendingGroupHighlightRefresh = false
-        ForEachGroupName(function(gName)
-            AssistHighlight:UpdateViewerHighlights(gName)
-        end)
-    end
-
-    for viewerName in pairs(pendingViewerHighlightRefreshes) do
-        pendingViewerHighlightRefreshes[viewerName] = nil
-        AssistHighlight:UpdateViewerHighlights(viewerName)
-    end
-end
-
-local function EnsureHighlightDispatch()
-    eventFrame:SetScript("OnUpdate", FlushPendingHighlightRefresh)
-end
-
-QueueAllHighlightRefresh = function(useCurrentSuggestion, refreshRotationCache)
-    if not isEnabled then return end
-    if useCurrentSuggestion then
-        if not pendingAllHighlightRefresh then
-            pendingAllUseCurrentSuggestion = true
-        end
-    else
-        pendingAllUseCurrentSuggestion = false
-    end
-    if refreshRotationCache then
-        pendingRotationCacheRefresh = true
-    end
-    pendingAllHighlightRefresh = true
-    EnsureHighlightDispatch()
-end
-
-function AssistHighlight:QueueAllHighlightRefresh(useCurrentSuggestion, refreshRotationCache)
-    QueueAllHighlightRefresh(useCurrentSuggestion, refreshRotationCache)
-end
-
-local function QueueGroupHighlightRefresh()
-    if not isEnabled then return end
-    if pendingGroupHighlightRefresh then return end
-    pendingGroupHighlightRefresh = true
-    EnsureHighlightDispatch()
-end
-
-local function QueueViewerHighlightRefresh(viewerName)
-    if not isEnabled then return end
-    if not viewerName or pendingViewerHighlightRefreshes[viewerName] then return end
-    pendingViewerHighlightRefreshes[viewerName] = true
-    EnsureHighlightDispatch()
-end
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if not isEnabled then return end
 
     if event == "PLAYER_ENTERING_WORLD" then
-        QueueAllHighlightRefresh(false, true)
+        rotationSpellsCacheValid = false
+        UpdateRotationSpellsCache()
+        AssistHighlight:UpdateAllHighlights()
     elseif event == "PLAYER_TALENT_UPDATE"
         or event == "SPELLS_CHANGED"
         or event == "PLAYER_SPECIALIZATION_CHANGED"
         or event == "UPDATE_SHAPESHIFT_FORM"
         or event == "TRAIT_CONFIG_UPDATED"
     then
-        QueueAllHighlightRefresh(false, true)
+        rotationSpellsCacheValid = false
+        UpdateRotationSpellsCache()
+        AssistHighlight:UpdateAllHighlights()
     elseif event == "EDIT_MODE_LAYOUTS_UPDATED" then
-        QueueAllHighlightRefresh(false)
+        AssistHighlight:UpdateAllHighlights()
     end
 end)
 
@@ -730,10 +626,10 @@ local function SetupHooks()
 
     -- Hook AssistedCombatManager for suggestion updates (if available)
     if AssistedCombatManager and AssistedCombatManager.UpdateAllAssistedHighlightFramesForSpell then
-        hooksecurefunc(AssistedCombatManager, "UpdateAllAssistedHighlightFramesForSpell", function(_, spellID)
+        hooksecurefunc(AssistedCombatManager, "UpdateAllAssistedHighlightFramesForSpell", function()
             if not isEnabled then return end
             if not IsEnabledForAnyViewer() then return end
-            RefreshIfSuggestionChanged(spellID)
+            AssistHighlight:UpdateAllHighlights()
         end)
     end
 
@@ -743,13 +639,30 @@ local function SetupHooks()
         EventRegistry:RegisterCallback("AssistedCombatManager.OnAssistedHighlightSpellChange", function()
             if not isEnabled then return end
             if not IsEnabledForAnyViewer() then return end
-            RefreshIfSuggestionChanged()
+            AssistHighlight:UpdateAllHighlights()
         end, "DDingUI_AssistHighlight")
         EventRegistry:RegisterCallback("AssistedCombatManager.OnSetUseAssistedHighlight", function()
             if not isEnabled then return end
-            RefreshIfSuggestionChanged()
+            AssistHighlight:UpdateAllHighlights()
         end, "DDingUI_AssistHighlight_CVar")
     end
+
+    local POLL_THROTTLE = 0.066  -- ~15fps
+    local nextPollTime = 0
+    eventFrame:SetScript("OnUpdate", function(_, elapsed)
+        if not isEnabled then return end
+        if not ((C_AssistedCombat and C_AssistedCombat.GetNextCastSpell) or AssistedCombatManager) then return end
+
+        local now = GetTime()
+        if now < nextPollTime then return end
+        nextPollTime = now + POLL_THROTTLE
+
+        local newSuggested = GetCurrentSuggestedSpellID()
+        if newSuggested ~= currentSuggestedSpellID then
+            currentSuggestedSpellID = newSuggested
+            AssistHighlight:UpdateAllHighlights()
+        end
+    end)
 
     -- Hook viewer RefreshLayout for icon changes
     for _, vName in ipairs(viewerNames) do
@@ -759,7 +672,9 @@ local function SetupHooks()
                 if not isEnabled then return end
                 local settings = GetAssistSettings(vName)
                 if not settings then return end
-                QueueViewerHighlightRefresh(vName, 0.05)
+                C_Timer.After(0.05, function()
+                    AssistHighlight:UpdateViewerHighlights(vName)
+                end)
             end)
         end
     end
@@ -768,7 +683,11 @@ local function SetupHooks()
     if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
         hooksecurefunc(DDingUI.GroupSystem, "RefreshLayout", function()
             if not isEnabled then return end
-            QueueGroupHighlightRefresh(0.05)
+            C_Timer.After(0.05, function()
+                ForEachGroupName(function(gName)
+                    AssistHighlight:UpdateViewerHighlights(gName)
+                end)
+            end)
         end)
     end
 
@@ -776,7 +695,11 @@ local function SetupHooks()
     if DDingUI.CustomIcons and DDingUI.CustomIcons.UpdateAllIcons then
         hooksecurefunc(DDingUI.CustomIcons, "UpdateAllIcons", function()
             if not isEnabled then return end
-            QueueGroupHighlightRefresh(0.15)
+            C_Timer.After(0.15, function()
+                ForEachGroupName(function(gName)
+                    AssistHighlight:UpdateViewerHighlights(gName)
+                end)
+            end)
         end)
     end
 
@@ -785,9 +708,14 @@ local function SetupHooks()
     if IconViewers and IconViewers.RescanViewer then
         hooksecurefunc(IconViewers, "RescanViewer", function(_, viewer)
             if not isEnabled then return end
-            if viewer and viewer.IsShown and viewer:IsShown() then
-                QueueViewerHighlightRefresh(viewer:GetName(), 0.15)
-            end
+            C_Timer.After(0.15, function()
+                if viewer and viewer.IsShown and viewer:IsShown() then
+                    local vName = viewer:GetName()
+                    if vName then
+                        AssistHighlight:UpdateViewerHighlights(vName)
+                    end
+                end
+            end)
         end)
     end
 end
@@ -823,12 +751,12 @@ function AssistHighlight:Disable()
     isEnabled = false
 
     eventFrame:UnregisterAllEvents()
-    pendingAllHighlightRefresh = false
-    pendingAllUseCurrentSuggestion = false
-    pendingRotationCacheRefresh = false
-    pendingGroupHighlightRefresh = false
-    wipe(pendingViewerHighlightRefreshes)
+    local pollingScript = eventFrame:GetScript("OnUpdate")
     eventFrame:SetScript("OnUpdate", nil)  -- [FIX] OnUpdate 폴링 정리
+
+    if pollingScript then
+        eventFrame:SetScript("OnUpdate", pollingScript)
+    end
 
     wipe(rotationSpellsCache)
     rotationSpellsCacheValid = false

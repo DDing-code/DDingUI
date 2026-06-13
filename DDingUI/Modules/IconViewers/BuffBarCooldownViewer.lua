@@ -415,56 +415,14 @@ local function ResetViewerLayoutState(viewer)
     end
 end
 
-local function EnsureBuffBarRefreshDispatchFrame()
-    if BuffBar.__barContentRefreshDispatchFrame then return end
-    local frame = CreateFrame("Frame")
-    frame:Hide()
-    frame:SetScript("OnUpdate", function(self, elapsed)
-        if not BuffBar.__barContentRefreshQueued then
-            self:Hide()
-            return
-        end
-
-        BuffBar.__barContentRefreshDelayRemaining = (BuffBar.__barContentRefreshDelayRemaining or 0) - (elapsed or 0)
-        if BuffBar.__barContentRefreshDelayRemaining > 0 then
-            return
-        end
-
-        self:Hide()
-        BuffBar.__barContentRefreshQueued = nil
-        BuffBar.__barContentRefreshDelayRemaining = 0
-        local resetLayout = BuffBar.__barContentRefreshResetLayout
-        local safeCall = BuffBar.__barContentRefreshSafeCall
-        BuffBar.__barContentRefreshResetLayout = nil
-        BuffBar.__barContentRefreshSafeCall = nil
-
-        if resetLayout then
-            ResetViewerLayoutState(_G["BuffBarCooldownViewer"])
-        end
-        if safeCall then
-            pcall(function()
-                BuffBar:Refresh()
-            end)
-        else
-            BuffBar:Refresh()
-        end
-    end)
-    BuffBar.__barContentRefreshDispatchFrame = frame
-end
-
-local function QueueBuffBarRefresh(delay, resetLayout, safeCall)
-    BuffBar.__barContentRefreshResetLayout = BuffBar.__barContentRefreshResetLayout or resetLayout
-    BuffBar.__barContentRefreshSafeCall = BuffBar.__barContentRefreshSafeCall or safeCall
-    delay = delay or 0.01
-    if BuffBar.__barContentRefreshQueued then
-        BuffBar.__barContentRefreshDelayRemaining = math.min(BuffBar.__barContentRefreshDelayRemaining or delay, delay)
-        return
-    end
+local function QueueBuffBarRefresh(delay)
+    if BuffBar.__barContentRefreshQueued then return end
 
     BuffBar.__barContentRefreshQueued = true
-    BuffBar.__barContentRefreshDelayRemaining = delay
-    EnsureBuffBarRefreshDispatchFrame()
-    BuffBar.__barContentRefreshDispatchFrame:Show()
+    C_Timer.After(delay or 0.01, function()
+        BuffBar.__barContentRefreshQueued = nil
+        BuffBar:Refresh()
+    end)
 end
 
 local function GetIconPosition(settings)
@@ -971,12 +929,27 @@ local function TryHookViewer()
     viewer:HookScript("OnSizeChanged", function()
         local state = GetFrameState(viewer)
         if state.barLayoutInProgress then return end
-        QueueBuffBarRefresh(0.05, true, true)
+        if state.sizeChangedTimer then
+            state.sizeChangedTimer:Cancel()
+        end
+        state.sizeChangedTimer = C_Timer.NewTimer(0.05, function()
+            state.sizeChangedTimer = nil
+            ResetViewerLayoutState(viewer)
+            BuffBar:Refresh()
+        end)
     end)
 
     if viewer.Bar and viewer.Bar.HookScript then
         viewer.Bar:HookScript("OnSizeChanged", function()
-            QueueBuffBarRefresh(0.05, true, true)
+            local state = GetFrameState(viewer)
+            if state.barSizeChangedTimer then
+                state.barSizeChangedTimer:Cancel()
+            end
+            state.barSizeChangedTimer = C_Timer.NewTimer(0.05, function()
+                state.barSizeChangedTimer = nil
+                ResetViewerLayoutState(viewer)
+                BuffBar:Refresh()
+            end)
         end)
     end
 
@@ -1000,23 +973,35 @@ function BuffBar:Initialize()
         local f = CreateFrame("Frame")
         f:RegisterUnitEvent("UNIT_AURA", "player")
         f:RegisterEvent("PLAYER_REGEN_ENABLED")
+        local throttle = 0
         f:SetScript("OnEvent", function(_, event, unit)
             if event == "PLAYER_REGEN_ENABLED" then
                 if BuffBar.__refreshQueued then
                     BuffBar.__refreshQueued = nil
-                    QueueBuffBarRefresh(0.1, false, true)
+                    C_Timer.After(0.1, function()
+                        pcall(function()
+                            BuffBar:Refresh()
+                        end)
+                    end)
                 end
                 return
             end
 
             if unit and unit ~= "player" then return end
-            local settings = GetSettings()
-            if not settings or settings.enabled == false then return end
-            if InCombatLockdown() then
-                BuffBar.__refreshQueued = true
+            throttle = throttle + 1
+            if throttle > 1 then
                 return
             end
-            QueueBuffBarRefresh(0.05, true, true)
+            C_Timer.After(0.05, function()
+                throttle = 0
+                local viewer = _G["BuffBarCooldownViewer"]
+                if viewer then
+                    ResetViewerLayoutState(viewer)
+                end
+                pcall(function()
+                    BuffBar:Refresh()
+                end)
+            end)
         end)
         self.__eventFrame = f
     end

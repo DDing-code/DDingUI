@@ -88,58 +88,6 @@ local GetSecondaryResource = ResourceBars.GetSecondaryResource
 
 local runeUpdateTicker = nil
 local soulFragmentTicker = nil
-local staggerUpdateTicker = nil
-local specialResourceEventFrame = nil
-local specialResourceMode = nil
-local maelstromAuraInstanceID = nil
-local soulMetaAuraInstanceID = nil
-local specChangeTimers = {}
-local shapeshiftSettleTimers = {}
-local soulMetaSettleTimers = {}
-local viewerSettleTimers = {}
-local transitionRefreshTimers = {}
-local VIEWER_SHOW_SETTLE_DELAYS = { 0.1, 0.3 }
-local VIEWER_HIDE_SETTLE_DELAYS = { 0.05 }
-local LEVEL_REFRESH_DELAYS = { 0.3, 1.5 }
-local LOADING_REFRESH_DELAYS = { 0.5, 2.0 }
-
-local MAELSTROM_WEAPON_SPELL_ID = 344179
-local SOUL_META_SPELL_ID = 1217607
-
-local function CancelTimerList(timers)
-    for _, timer in pairs(timers) do
-        if timer and not timer:IsCancelled() then
-            timer:Cancel()
-        end
-    end
-    wipe(timers)
-end
-
-local function ScheduleTimerList(timers, delays, callback)
-    CancelTimerList(timers)
-    for index, delay in ipairs(delays) do
-        timers[index] = C_Timer.NewTimer(delay, function()
-            timers[index] = nil
-            callback(index)
-        end)
-    end
-end
-
-local function IsSafeNumber(value)
-    if type(value) ~= "number" then
-        return false
-    end
-    if type(canaccessvalue) == "function" then
-        local ok, accessible = pcall(canaccessvalue, value)
-        return ok and accessible
-    end
-    return true
-end
-
-local function GetCurrentSpecID()
-    local spec = GetSpecialization and GetSpecialization()
-    return spec and GetSpecializationInfo and GetSpecializationInfo(spec)
-end
 
 local function StopSoulFragmentTicker()
     if soulFragmentTicker then
@@ -180,38 +128,6 @@ local function StopRuneUpdateTicker()
     end
 end
 
-local function StopStaggerUpdateTicker()
-    if staggerUpdateTicker then
-        staggerUpdateTicker:Cancel()
-        staggerUpdateTicker = nil
-    end
-end
-
-local function HasActiveStagger()
-    local stagger = UnitStagger and (UnitStagger("player") or 0) or 0
-    return IsSafeNumber(stagger) and stagger > 0
-end
-
-local function StartStaggerUpdateTicker()
-    if staggerUpdateTicker then return end
-    staggerUpdateTicker = C_Timer.NewTicker(0.1, function()
-        local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.secondaryPowerBar
-        if cfg and cfg.enabled == false then
-            StopStaggerUpdateTicker()
-            return
-        end
-
-        if GetSecondaryResource and GetSecondaryResource() == "STAGGER" then
-            ResourceBars:UpdateSecondaryPowerBar()
-            if not InCombatLockdown() and not HasActiveStagger() then
-                StopStaggerUpdateTicker()
-            end
-        else
-            StopStaggerUpdateTicker()
-        end
-    end)
-end
-
 local function AreRunesRecharging()
     if type(GetRuneCooldown) ~= "function" then
         return false
@@ -250,178 +166,6 @@ local function StartRuneUpdateTicker()
             StopRuneUpdateTicker()
         end
     end)
-end
-
-local function SeedMaelstromAura()
-    local aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and C_UnitAuras.GetPlayerAuraBySpellID(MAELSTROM_WEAPON_SPELL_ID)
-    maelstromAuraInstanceID = aura and aura.auraInstanceID or nil
-end
-
-local function SeedSoulMetaAura()
-    local aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and C_UnitAuras.GetPlayerAuraBySpellID(SOUL_META_SPELL_ID)
-    soulMetaAuraInstanceID = aura and aura.auraInstanceID or nil
-end
-
-local function AuraUpdateHasSpell(info, spellID, trackedInstanceID)
-    if not info or info.isFullUpdate then
-        return true
-    end
-
-    if info.addedAuras then
-        for _, aura in ipairs(info.addedAuras) do
-            if IsSafeNumber(aura.spellId) and aura.spellId == spellID then
-                return true
-            end
-        end
-    end
-
-    if trackedInstanceID and info.updatedAuraInstanceIDs then
-        for _, id in ipairs(info.updatedAuraInstanceIDs) do
-            if id == trackedInstanceID then
-                return true
-            end
-        end
-    end
-
-    if trackedInstanceID and info.removedAuraInstanceIDs then
-        for _, id in ipairs(info.removedAuraInstanceIDs) do
-            if id == trackedInstanceID then
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
-local function OnStaggerResourceEvent()
-    if GetSecondaryResource and GetSecondaryResource() ~= "STAGGER" then
-        StopStaggerUpdateTicker()
-        return
-    end
-
-    local now = GetTime()
-    if now - lastSecondaryUpdate >= UPDATE_THROTTLE then
-        lastSecondaryUpdate = now
-        ResourceBars:UpdateSecondaryPowerBar()
-    end
-
-    if InCombatLockdown() or HasActiveStagger() then
-        StartStaggerUpdateTicker()
-    else
-        StopStaggerUpdateTicker()
-    end
-end
-
-local function ScheduleSoulMetaSettle()
-    gracePeriodUntil = GetTime() + GRACE_PERIOD_DURATION
-    StartSoulFragmentTicker()
-    ResourceBars:UpdateSecondaryPowerBar()
-
-    CancelTimerList(soulMetaSettleTimers)
-    local function DoSettleUpdate()
-        ResourceBars:UpdateSecondaryPowerBar()
-    end
-    soulMetaSettleTimers[1] = C_Timer.NewTimer(0.3, DoSettleUpdate)
-    soulMetaSettleTimers[2] = C_Timer.NewTimer(0.7, DoSettleUpdate)
-    soulMetaSettleTimers[3] = C_Timer.NewTimer(1.5, DoSettleUpdate)
-    soulMetaSettleTimers[4] = C_Timer.NewTimer(GRACE_PERIOD_DURATION + 0.5, DoSettleUpdate)
-end
-
-local function OnSpecialResourceEvent(_, event, unit, info)
-    if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
-        OnStaggerResourceEvent()
-        return
-    end
-    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
-        if unit == "player" then
-            OnStaggerResourceEvent()
-        end
-        return
-    end
-    if event ~= "UNIT_AURA" or unit ~= "player" then
-        return
-    end
-
-    local resource = GetSecondaryResource and GetSecondaryResource()
-    if resource == "MAELSTROM_WEAPON" then
-        if not AuraUpdateHasSpell(info, MAELSTROM_WEAPON_SPELL_ID, maelstromAuraInstanceID) then
-            return
-        end
-        SeedMaelstromAura()
-        ResourceBars:UpdateSecondaryPowerBar()
-        return
-    end
-
-    if resource == "SOUL" then
-        if not AuraUpdateHasSpell(info, SOUL_META_SPELL_ID, soulMetaAuraInstanceID) then
-            return
-        end
-        local wasInMeta = soulMetaAuraInstanceID ~= nil
-        SeedSoulMetaAura()
-        if wasInMeta and not soulMetaAuraInstanceID then
-            ScheduleSoulMetaSettle()
-        else
-            StartSoulFragmentTicker()
-            ResourceBars:UpdateSecondaryPowerBar()
-        end
-    end
-end
-
-local function SetSpecialResourceMode(mode)
-    if specialResourceMode == mode then
-        return
-    end
-
-    if not specialResourceEventFrame then
-        specialResourceEventFrame = CreateFrame("Frame")
-        specialResourceEventFrame:SetScript("OnEvent", OnSpecialResourceEvent)
-    end
-
-    specialResourceEventFrame:UnregisterAllEvents()
-    specialResourceMode = mode
-
-    if mode == "stagger" then
-        specialResourceEventFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
-        specialResourceEventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
-        specialResourceEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-        specialResourceEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    elseif mode == "maelstrom" or mode == "soul" then
-        specialResourceEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
-    end
-end
-
-local function RefreshSpecialResourceTracking()
-    local resource = GetSecondaryResource and GetSecondaryResource()
-    local specID = GetCurrentSpecID()
-
-    if resource == Enum.PowerType.Runes and AreRunesRecharging() then
-        StartRuneUpdateTicker()
-    else
-        StopRuneUpdateTicker()
-    end
-
-    if resource == "SOUL" then
-        SeedSoulMetaAura()
-        StartSoulFragmentTicker()
-    else
-        StopSoulFragmentTicker()
-        soulMetaAuraInstanceID = nil
-    end
-
-    if resource == "STAGGER" and specID == 268 then
-        SetSpecialResourceMode("stagger")
-        OnStaggerResourceEvent()
-    elseif resource == "MAELSTROM_WEAPON" and specID == 263 then
-        SetSpecialResourceMode("maelstrom")
-        SeedMaelstromAura()
-    elseif resource == "SOUL" then
-        SetSpecialResourceMode("soul")
-    else
-        SetSpecialResourceMode(nil)
-        StopStaggerUpdateTicker()
-        maelstromAuraInstanceID = nil
-    end
 end
 
 -- EVENT HANDLER
@@ -480,14 +224,6 @@ function ResourceBars:RefreshAll()
     end
 end
 
-local function UpdateBarsForViewerSettle(includeBuffTracker)
-    ResourceBars:UpdatePowerBar()
-    ResourceBars:UpdateSecondaryPowerBar()
-    if includeBuffTracker and ResourceBars.UpdateBuffTrackerBar then
-        ResourceBars:UpdateBuffTrackerBar()
-    end
-end
-
 -- EVENT HANDLERS
 
 -- Helper function to hook viewer OnShow (called from Initialize and OnSpecChanged)
@@ -508,8 +244,14 @@ local function HookViewerOnShow()
             if not IsHooked(viewer, "resourceBarWatching") then
                 SetHooked(viewer, "resourceBarWatching")
                 viewer:HookScript("OnShow", function()
-                    ScheduleTimerList(viewerSettleTimers, VIEWER_SHOW_SETTLE_DELAYS, function()
-                        UpdateBarsForViewerSettle(false)
+                    -- Multiple delayed updates to ensure bar shows after viewer stabilizes
+                    C_Timer.After(0.1, function()
+                        ResourceBars:UpdatePowerBar()
+                        ResourceBars:UpdateSecondaryPowerBar()
+                    end)
+                    C_Timer.After(0.3, function()
+                        ResourceBars:UpdatePowerBar()
+                        ResourceBars:UpdateSecondaryPowerBar()
                     end)
                 end)
                 -- OnHide 훅 추가: viewer가 숨겨지면 자원바를 UIParent로 폴백
@@ -520,8 +262,13 @@ local function HookViewerOnShow()
                         gracePeriodUntil = math.max(gracePeriodUntil, GetTime() + GRACE_PERIOD_DURATION)
                     end
 
-                    ScheduleTimerList(viewerSettleTimers, VIEWER_HIDE_SETTLE_DELAYS, function()
-                        UpdateBarsForViewerSettle(true)
+                    -- 즉시 업데이트하여 자원바가 UIParent로 폴백되도록 함
+                    C_Timer.After(0.05, function()
+                        ResourceBars:UpdatePowerBar()
+                        ResourceBars:UpdateSecondaryPowerBar()
+                        if ResourceBars.UpdateBuffTrackerBar then
+                            ResourceBars:UpdateBuffTrackerBar()
+                        end
                     end)
                 end)
             end
@@ -535,30 +282,7 @@ local function HookViewerOnShow()
 end
 
 -- [FIX] 이전 spec 변경 타이머 취소용
-local specChangeQueued = false
-
-local specChangeDispatchDelay = 0
-local specChangeDispatchFrame = CreateFrame("Frame")
-specChangeDispatchFrame:Hide()
-specChangeDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
-    specChangeDispatchDelay = specChangeDispatchDelay - (elapsed or 0)
-    if specChangeDispatchDelay > 0 then
-        return
-    end
-
-    self:Hide()
-    specChangeQueued = false
-    ResourceBars:OnSpecChanged()
-end)
-
-local function QueueSpecChangedRefresh()
-    if specChangeQueued then
-        return
-    end
-    specChangeQueued = true
-    specChangeDispatchDelay = 0.05
-    specChangeDispatchFrame:Show()
-end
+local specChangeTimers = {}
 
 function ResourceBars:OnSpecChanged()
     -- DDingUI-style Grace Period approach:
@@ -583,11 +307,29 @@ function ResourceBars:OnSpecChanged()
         self:UpdatePowerBar()
         self:UpdateSecondaryPowerBar()
 
-        RefreshSpecialResourceTracking()
+        local resource = GetSecondaryResource()
+        if resource == Enum.PowerType.Runes and AreRunesRecharging() then
+            StartRuneUpdateTicker()
+        else
+            StopRuneUpdateTicker()
+        end
+
+        -- Manage Soul Fragment ticker for Demon Hunters
+        local playerClass = select(2, UnitClass("player"))
+        if playerClass == "DEMONHUNTER" and resource == "SOUL" then
+            StartSoulFragmentTicker()
+        else
+            StopSoulFragmentTicker()
+        end
     end
 
     -- [FIX] 이전 spec 변경 타이머 취소 — 연속 변경 시 중복 업데이트 방지
-    CancelTimerList(specChangeTimers)
+    for _, timer in pairs(specChangeTimers) do
+        if timer and not timer:IsCancelled() then
+            timer:Cancel()
+        end
+    end
+    wipe(specChangeTimers)
 
     -- 3. Progressive updates (6→4회로 단축, 이전 타이머 취소)
     specChangeTimers[1] = C_Timer.NewTimer(0.3, DoUpdate)
@@ -608,20 +350,19 @@ function ResourceBars:OnShapeshiftChanged()
     lastSecondaryUpdate = now
     self:UpdatePowerBar()
     self:UpdateSecondaryPowerBar()
-    RefreshSpecialResourceTracking()
 
-    CancelTimerList(shapeshiftSettleTimers)
-
-    local function DoSettleUpdate()
-        ResourceBars:UpdatePowerBar()
-        ResourceBars:UpdateSecondaryPowerBar()
-    end
-
-    shapeshiftSettleTimers[1] = C_Timer.NewTimer(0.2, DoSettleUpdate)
-    shapeshiftSettleTimers[2] = C_Timer.NewTimer(0.5, DoSettleUpdate)
-    shapeshiftSettleTimers[3] = C_Timer.NewTimer(1.0, function()
+    -- Delayed updates to catch late resource changes after transformation
+    C_Timer.After(0.2, function()
+        self:UpdatePowerBar()
+        self:UpdateSecondaryPowerBar()
+    end)
+    C_Timer.After(0.5, function()
+        self:UpdatePowerBar()
+        self:UpdateSecondaryPowerBar()
+    end)
+    -- Clear form change flag after transition settles
+    C_Timer.After(1.0, function()
         ResourceBars._shapeshiftInProgress = nil
-        shapeshiftSettleTimers[3] = nil
     end)
 end
 
@@ -630,14 +371,14 @@ end
 function ResourceBars:Initialize()
     -- Register additional events
     DDingUI:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
-        QueueSpecChangedRefresh()
+        ResourceBars:OnSpecChanged()
     end)
     -- Talent changes can affect CDM viewer layouts, which affects auto-width
     DDingUI:RegisterEvent("PLAYER_TALENT_UPDATE", function()
-        QueueSpecChangedRefresh()
+        ResourceBars:OnSpecChanged()
     end)
     DDingUI:RegisterEvent("TRAIT_CONFIG_UPDATED", function()
-        QueueSpecChangedRefresh()
+        ResourceBars:OnSpecChanged()
     end)
     DDingUI:RegisterEvent("UPDATE_SHAPESHIFT_FORM", function()
         ResourceBars:OnShapeshiftChanged()
@@ -653,10 +394,12 @@ function ResourceBars:Initialize()
         gracePeriodUntil = GetTime() + GRACE_PERIOD_DURATION
         InvalidateBarCaches()
 
-        ScheduleTimerList(transitionRefreshTimers, LEVEL_REFRESH_DELAYS, function(index)
-            if index > 1 then
-                HookViewerOnShow()
-            end
+        C_Timer.After(0.3, function()
+            ResourceBars:RefreshAll()
+        end)
+        -- CDM 뷰어 복구 대기 후 최종 업데이트 + 새 뷰어 훅 재설치
+        C_Timer.After(1.5, function()
+            HookViewerOnShow()
             ResourceBars:RefreshAll()
         end)
     end)
@@ -668,7 +411,11 @@ function ResourceBars:Initialize()
     DDingUI:RegisterEvent("LOADING_SCREEN_DISABLED", function()
         gracePeriodUntil = GetTime() + GRACE_PERIOD_DURATION
         InvalidateBarCaches()
-        ScheduleTimerList(transitionRefreshTimers, LOADING_REFRESH_DELAYS, function()
+        C_Timer.After(0.5, function()
+            HookViewerOnShow()
+            ResourceBars:RefreshAll()
+        end)
+        C_Timer.After(2.0, function()
             HookViewerOnShow()
             ResourceBars:RefreshAll()
         end)
@@ -688,9 +435,63 @@ function ResourceBars:Initialize()
         ResourceBars:OnShapeshiftChanged()
     end)
 
+    -- Track Demon Hunter Metamorphosis state
+    local wasInMetamorphosis = false
+
+    -- UNIT_AURA for buff-based transformations (Demon Hunter Metamorphosis, etc.)
+    -- RegisterUnitEvent으로 플레이어만 필터링 (레이드에서 ~95% 이벤트 감소)
+    local metaAuraFrame = CreateFrame("Frame")
+    metaAuraFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    metaAuraFrame:SetScript("OnEvent", function(_, event, unit)
+        local playerClass = select(2, UnitClass("player"))
+        if playerClass == "DEMONHUNTER" then
+            -- Check if Metamorphosis is active (Havoc: 162264, Vengeance: 187827, Feast: 1217605)
+            local hasMeta = C_UnitAuras.GetPlayerAuraBySpellID(162264) or C_UnitAuras.GetPlayerAuraBySpellID(187827) or C_UnitAuras.GetPlayerAuraBySpellID(1217605)
+            local isInMeta = hasMeta ~= nil
+
+            -- Only trigger delayed updates when Metamorphosis ENDS
+            if wasInMetamorphosis and not isInMeta then
+                -- Metamorphosis just ended, DemonHunterSoulFragmentsBar takes time to reappear
+                -- Set grace period to prevent bar from hiding (same as spec change)
+                gracePeriodUntil = GetTime() + GRACE_PERIOD_DURATION
+
+                -- Ensure Soul Fragment ticker is running
+                StartSoulFragmentTicker()
+
+                -- Immediate update
+                ResourceBars:UpdateSecondaryPowerBar()
+
+                -- Multiple delayed updates to catch DemonHunterSoulFragmentsBar reappearing
+                C_Timer.After(0.3, function()
+                    ResourceBars:UpdateSecondaryPowerBar()
+                end)
+                C_Timer.After(0.7, function()
+                    ResourceBars:UpdateSecondaryPowerBar()
+                end)
+                C_Timer.After(1.5, function()
+                    ResourceBars:UpdateSecondaryPowerBar()
+                end)
+                -- Final update after grace period
+                C_Timer.After(GRACE_PERIOD_DURATION + 0.5, function()
+                    ResourceBars:UpdateSecondaryPowerBar()
+                end)
+            end
+
+            wasInMetamorphosis = isInMeta
+
+            -- Normal update
+            local now = GetTime()
+            if now - lastSecondaryUpdate >= UPDATE_THROTTLE then
+                lastSecondaryUpdate = now
+                ResourceBars:UpdateSecondaryPowerBar()
+            end
+        end
+    end)
+
     -- POWER UPDATES (RegisterUnitEvent으로 플레이어만 필터링)
     local powerEventFrame = CreateFrame("Frame")
     powerEventFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+    powerEventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
     powerEventFrame:RegisterUnitEvent("UNIT_MAXPOWER", "player")
     powerEventFrame:SetScript("OnEvent", function(_, event, unit)
         ResourceBars:OnUnitPower(_, unit)
@@ -705,7 +506,18 @@ function ResourceBars:Initialize()
         ResourceBars:OnRuneEvent()
     end)
 
-    RefreshSpecialResourceTracking()
+    local resource = GetSecondaryResource()
+    if resource == Enum.PowerType.Runes and AreRunesRecharging() then
+        StartRuneUpdateTicker()
+    else
+        StopRuneUpdateTicker()
+    end
+
+    -- Start Soul Fragment ticker for Demon Hunters (SOUL is not a real PowerType, no UNIT_POWER events)
+    local playerClass = select(2, UnitClass("player"))
+    if playerClass == "DEMONHUNTER" and resource == "SOUL" then
+        StartSoulFragmentTicker()
+    end
 
     -- Initial update (delayed to ensure anchor frames are ready)
     C_Timer.After(0.1, function()
@@ -735,3 +547,4 @@ end
 DDingUI.OnUnitPower = function(self, _, unit) return ResourceBars:OnUnitPower(_, unit) end
 DDingUI.OnSpecChanged = function(self) return ResourceBars:OnSpecChanged() end
 DDingUI.OnShapeshiftChanged = function(self) return ResourceBars:OnShapeshiftChanged() end
+

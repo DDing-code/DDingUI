@@ -401,7 +401,7 @@ function BuffFrameManager:Initialize()
 
     -- UNIT_AURA 이벤트 등록
     local eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    eventFrame:RegisterEvent("UNIT_AURA")
     eventFrame:SetScript("OnEvent", function(self, event, unit)
         if unit ~= "player" then return end
         -- 독립 프레임 상태만 갱신

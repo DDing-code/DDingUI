@@ -50,7 +50,6 @@ local previewState = {}  -- { [barIndex] = { stacks = N, duration = N, lastUpdat
 local previewTicker = nil
 local PREVIEW_STACK_INTERVAL = 1.5  -- Change stacks every 1.5 seconds
 local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
-local DURATION_UPDATE_INTERVAL = 0.1
 
 -- Get preview values for a bar
 local function GetPreviewValues(barIndex, maxStacks, maxDuration, barFillMode)
@@ -378,101 +377,6 @@ local function FormatDuration(value, decimals)
         return string.format("%." .. decimals .. "f", num)
     end
     return tostring(value)
-end
-
-local function GetCachedAuraRemaining(data)
-    if not data then return nil end
-    local expiresAt = data.expiresAt
-    if issecretvalue and issecretvalue(expiresAt) then return nil end
-    if type(expiresAt) == "number" and expiresAt > 0 then
-        return math_max(0, expiresAt - GetTime())
-    end
-    return nil
-end
-
-local function ApplyDurationWarningText(fontString, remaining, data)
-    if not fontString or not data or not data.warningEnabled or remaining == nil then return end
-    if remaining <= (data.warningThreshold or 0) then
-        local wc = data.warningColor or {}
-        fontString:SetTextColor(wc[1] or 1, wc[2] or 0.2, wc[3] or 0.2, wc[4] or 1)
-    else
-        local nc = data.normalColor or {}
-        fontString:SetTextColor(nc[1] or 1, nc[2] or 1, nc[3] or 1, nc[4] or 1)
-    end
-end
-
-local function SetCachedDurationText(fontString, remaining, data)
-    if not fontString or remaining == nil then return end
-    fontString:SetText(FormatDuration(remaining, data and data.durationDecimals or 1))
-    ApplyDurationWarningText(fontString, remaining, data)
-end
-
-local durationUpdateObjects = {}
-local durationUpdateDriver = CreateFrame("Frame")
-durationUpdateDriver:Hide()
-durationUpdateDriver:SetScript("OnUpdate", function(self, elapsed)
-    self._elapsed = (self._elapsed or 0) + (elapsed or 0)
-    if self._elapsed < DURATION_UPDATE_INTERVAL then return end
-    self._elapsed = 0
-
-    local hasWork = false
-    for frame, owner in pairs(durationUpdateObjects) do
-        local updateFunc = frame and frame._buffTrackerDurationUpdate
-        if owner and owner._hasDurationUpdate and updateFunc then
-            hasWork = true
-            updateFunc(frame, DURATION_UPDATE_INTERVAL)
-        else
-            durationUpdateObjects[frame] = nil
-            if frame then
-                frame._buffTrackerDurationUpdate = nil
-            end
-        end
-    end
-
-    if not hasWork then
-        self._elapsed = 0
-        self:Hide()
-    end
-end)
-
-local function SetTrackedDurationOnUpdate(owner, frame, updateFunc)
-    if not owner or not frame or not updateFunc then return end
-    owner._hasDurationUpdate = true
-    owner._durationUpdateFrame = frame
-    frame:SetScript("OnUpdate", nil)
-    frame._buffTrackerDurationUpdate = updateFunc
-    durationUpdateObjects[frame] = owner
-    durationUpdateDriver:Show()
-end
-
-local function ClearTrackedDurationOnUpdate(owner, frame)
-    local target = (owner and owner._durationUpdateFrame) or frame or owner
-    if target then
-        durationUpdateObjects[target] = nil
-        target._buffTrackerDurationUpdate = nil
-        target:SetScript("OnUpdate", nil)
-    end
-    if owner then
-        owner._hasDurationUpdate = nil
-        owner._durationUpdateFrame = nil
-    end
-    if next(durationUpdateObjects) == nil then
-        durationUpdateDriver._elapsed = 0
-        durationUpdateDriver:Hide()
-    end
-end
-
-local function GetAuraExpirationTime(unit, auraInstanceID)
-    if not unit or not auraInstanceID then return nil end
-    local expiresAt = nil
-    pcall(function()
-        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-        local expirationTime = auraData and auraData.expirationTime
-        if expirationTime and not (issecretvalue and issecretvalue(expirationTime)) and type(expirationTime) == "number" and expirationTime > 0 then
-            expiresAt = expirationTime
-        end
-    end)
-    return expiresAt
 end
 
 -- ============================================================
@@ -982,183 +886,15 @@ local specChangeGraceUntil = 0
 local SPEC_CHANGE_GRACE_DURATION = 2.0  -- 초: CDM 데이터 로딩 대기
 local buffTrackerInitialized = false
 local loadingScreenActive = false
-local startupRefreshPending = false
-local startupRefreshReason = nil
-local startupRefreshFirstRemaining = 0
-local startupRefreshBackstopRemaining = nil
-local startupRefreshFirstRan = false
+local startupRefreshTimers = {}
 local buffTrackerTicker
 local StartBuffTrackerTicker
 local StopBuffTrackerTicker
 local buffTrackerEventFrame
-local buffTrackerDispatchFrame
-local buffTrackerStartupFrame
 local buffTrackerEventsRegistered = false
-local buffTrackerRegisteredEventKey = nil
 local buffTrackerUpdatePending = false
-local buffTrackerUpdateDelayRemaining = 0
 local QueueBuffTrackerUpdate
-local IsBuffTrackerRuntimeEnabled
 local SetBuffTrackerEventsEnabled
-local trackedAuraSpellSet = {}
-local trackedAuraInstanceSet = {}
-local trackedAuraSpellIndexSet = {}
-local trackedAuraInstanceIndexSet = {}
-local trackedAuraTouchedIndexSet = {}
-local trackedAuraHasUnknown = false
-local trackedAuraFilterDirty = true
-local buffTrackerUpdateFull = false
-local buffTrackerTargetedIndices = {}
-
-local function MarkTrackedAuraFilterDirty()
-    trackedAuraFilterDirty = true
-end
-
-local function AddTrackedAuraIndex(map, id, barIndex)
-    if not id or not barIndex then return end
-    map[id] = map[id] or {}
-    map[id][barIndex] = true
-end
-
-local function CopyTrackedAuraIndices(id, sourceMap, targetMap)
-    local source = id and sourceMap and sourceMap[id]
-    if type(source) ~= "table" then return false end
-    local copied = false
-    for barIndex in pairs(source) do
-        targetMap[barIndex] = true
-        copied = true
-    end
-    return copied
-end
-
-local function AddTrackedAuraSpell(spellID, barIndex)
-    spellID = tonumber(spellID) or 0
-    if spellID <= 0 then
-        return false
-    end
-
-    trackedAuraSpellSet[spellID] = true
-    AddTrackedAuraIndex(trackedAuraSpellIndexSet, spellID, barIndex)
-    local aura = nil
-    pcall(function()
-        aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-    end)
-    if aura and aura.auraInstanceID and not IsSecretValue(aura.auraInstanceID) then
-        trackedAuraInstanceSet[aura.auraInstanceID] = true
-        AddTrackedAuraIndex(trackedAuraInstanceIndexSet, aura.auraInstanceID, barIndex)
-    end
-    return true
-end
-
-function ResourceBars:BuildTrackedAuraFilterSignature(trackedBuffs)
-    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
-    local parts = {}
-    for index, buff in ipairs(trackedBuffs) do
-        if buff then
-            parts[#parts + 1] = table.concat({
-                tostring(index),
-                tostring(buff.enabled ~= false),
-                tostring(buff.isGroup == true),
-                tostring(buff.trackingMode or ""),
-                tostring(buff.cooldownID or ""),
-                tostring(buff.spellID or ""),
-                tostring(buff.name or ""),
-            }, ":")
-        end
-    end
-    return table.concat(parts, ";")
-end
-
-local function RebuildTrackedAuraFilter(trackedBuffs, signature)
-    wipe(trackedAuraSpellSet)
-    wipe(trackedAuraInstanceSet)
-    wipe(trackedAuraSpellIndexSet)
-    wipe(trackedAuraInstanceIndexSet)
-    trackedAuraHasUnknown = false
-
-    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
-    ResourceBars._trackedAuraFilterSignature = signature or ResourceBars:BuildTrackedAuraFilterSignature(trackedBuffs)
-    for barIndex, buff in ipairs(trackedBuffs) do
-        if buff and buff.enabled ~= false and not buff.isGroup and buff.trackingMode ~= "manual" then
-            local added = false
-            added = AddTrackedAuraSpell(buff.spellID, barIndex) or added
-            if not added then
-                local cooldownID = tonumber(buff.cooldownID) or 0
-                if cooldownID > 0 then
-                    added = AddTrackedAuraSpell(GetSpellIDFromCooldownID(cooldownID), barIndex) or added
-                    added = AddTrackedAuraSpell(cooldownID, barIndex) or added
-                end
-            end
-            if not added then
-                trackedAuraHasUnknown = true
-            end
-        end
-    end
-
-    trackedAuraFilterDirty = false
-end
-
-local function UnitAuraUpdateTouchesTrackedBuff(info)
-    if not info or info.isFullUpdate then
-        return true
-    end
-
-    if trackedAuraFilterDirty then
-        RebuildTrackedAuraFilter()
-    end
-
-    if trackedAuraHasUnknown then
-        return true
-    end
-
-    if next(trackedAuraSpellSet) == nil and next(trackedAuraInstanceSet) == nil then
-        return false
-    end
-
-    wipe(trackedAuraTouchedIndexSet)
-
-    if info.addedAuras then
-        for _, aura in ipairs(info.addedAuras) do
-            local spellID = aura and aura.spellId
-            if spellID and not IsSecretValue(spellID) and trackedAuraSpellSet[spellID] then
-                CopyTrackedAuraIndices(spellID, trackedAuraSpellIndexSet, trackedAuraTouchedIndexSet)
-                if aura.auraInstanceID and not IsSecretValue(aura.auraInstanceID) then
-                    trackedAuraInstanceSet[aura.auraInstanceID] = true
-                    local indices = trackedAuraSpellIndexSet[spellID]
-                    if type(indices) == "table" then
-                        trackedAuraInstanceIndexSet[aura.auraInstanceID] = trackedAuraInstanceIndexSet[aura.auraInstanceID] or {}
-                        for barIndex in pairs(indices) do
-                            trackedAuraInstanceIndexSet[aura.auraInstanceID][barIndex] = true
-                        end
-                    end
-                end
-                return true, next(trackedAuraTouchedIndexSet) and trackedAuraTouchedIndexSet or nil
-            end
-        end
-    end
-
-    if info.updatedAuraInstanceIDs then
-        for _, auraID in ipairs(info.updatedAuraInstanceIDs) do
-            if auraID and not IsSecretValue(auraID) and trackedAuraInstanceSet[auraID] then
-                CopyTrackedAuraIndices(auraID, trackedAuraInstanceIndexSet, trackedAuraTouchedIndexSet)
-                return true, next(trackedAuraTouchedIndexSet) and trackedAuraTouchedIndexSet or nil
-            end
-        end
-    end
-
-    if info.removedAuraInstanceIDs then
-        for _, auraID in ipairs(info.removedAuraInstanceIDs) do
-            if auraID and not IsSecretValue(auraID) and trackedAuraInstanceSet[auraID] then
-                CopyTrackedAuraIndices(auraID, trackedAuraInstanceIndexSet, trackedAuraTouchedIndexSet)
-                trackedAuraInstanceSet[auraID] = nil
-                trackedAuraInstanceIndexSet[auraID] = nil
-                return true, next(trackedAuraTouchedIndexSet) and trackedAuraTouchedIndexSet or nil
-            end
-        end
-    end
-
-    return false
-end
 
 -- 모든 bar 프레임의 위치/스타일 캐시를 초기화
 -- 전문화 변경 시 이전 전문화의 앵커 정보가 남아있으면 위치가 틀어짐
@@ -1173,103 +909,7 @@ local function InvalidateAllFrameCaches()
             bar._lastHeight = nil
             bar._lastWidth = nil
             bar._lastBarStyle = nil
-            if bar.TextValue then bar.TextValue._ddBuffTextStyleDirty = true end
-            if bar.DurationText then bar.DurationText._ddBuffTextStyleDirty = true end
         end
-    end
-end
-
-local function ApplyBuffTextStyleIfChanged(fontString, relativeFrame, fontPath, fontSize, fontFlags, justify, offsetX, offsetY, r, g, b, a)
-    if not fontString then return end
-
-    fontFlags = fontFlags or ""
-    justify = justify or "CENTER"
-    r = r or 1
-    g = g or 1
-    b = b or 1
-    a = a or 1
-
-    local cachedColor = fontString._ddBuffTextColor
-    local styleChanged = fontString._ddBuffTextStyleDirty
-        or fontString._ddBuffTextFontPath ~= fontPath
-        or fontString._ddBuffTextFontSize ~= fontSize
-        or fontString._ddBuffTextFontFlags ~= fontFlags
-        or fontString._ddBuffTextJustify ~= justify
-        or fontString._ddBuffTextRelativeFrame ~= relativeFrame
-        or fontString._ddBuffTextOffsetX ~= offsetX
-        or fontString._ddBuffTextOffsetY ~= offsetY
-        or not cachedColor
-        or cachedColor.r ~= r
-        or cachedColor.g ~= g
-        or cachedColor.b ~= b
-        or cachedColor.a ~= a
-
-    if not styleChanged then return end
-
-    fontString:SetFont(fontPath, fontSize, fontFlags)
-    fontString:SetShadowOffset(0, 0)
-    fontString:SetJustifyH(justify)
-    fontString:ClearAllPoints()
-    fontString:SetPoint(justify, relativeFrame, justify, offsetX, offsetY)
-    fontString:SetTextColor(r, g, b, a)
-
-    fontString._ddBuffTextStyleDirty = nil
-    fontString._ddBuffTextFontPath = fontPath
-    fontString._ddBuffTextFontSize = fontSize
-    fontString._ddBuffTextFontFlags = fontFlags
-    fontString._ddBuffTextJustify = justify
-    fontString._ddBuffTextRelativeFrame = relativeFrame
-    fontString._ddBuffTextOffsetX = offsetX
-    fontString._ddBuffTextOffsetY = offsetY
-
-    cachedColor = cachedColor or {}
-    cachedColor.r = r
-    cachedColor.g = g
-    cachedColor.b = b
-    cachedColor.a = a
-    fontString._ddBuffTextColor = cachedColor
-end
-
-local function HideBuffTrackerTicksFrom(bar, firstIndex)
-    if not bar or not bar.ticks then return end
-    firstIndex = firstIndex or 1
-
-    for i = firstIndex, #bar.ticks do
-        local tick = bar.ticks[i]
-        if tick and tick._ddBuffTickShown ~= false then
-            tick:Hide()
-            tick._ddBuffTickShown = false
-        end
-    end
-    bar._ddBuffVisibleTickCount = firstIndex - 1
-end
-
-local function ApplyBuffTrackerTickIfChanged(tick, relativeFrame, point, relativePoint, offsetX, offsetY, width, height)
-    if not tick then return end
-
-    if tick._ddBuffTickPoint ~= point
-        or tick._ddBuffTickRelativeFrame ~= relativeFrame
-        or tick._ddBuffTickRelativePoint ~= relativePoint
-        or tick._ddBuffTickOffsetX ~= offsetX
-        or tick._ddBuffTickOffsetY ~= offsetY then
-        tick:ClearAllPoints()
-        tick:SetPoint(point, relativeFrame, relativePoint, offsetX, offsetY)
-        tick._ddBuffTickPoint = point
-        tick._ddBuffTickRelativeFrame = relativeFrame
-        tick._ddBuffTickRelativePoint = relativePoint
-        tick._ddBuffTickOffsetX = offsetX
-        tick._ddBuffTickOffsetY = offsetY
-    end
-
-    if tick._ddBuffTickWidth ~= width or tick._ddBuffTickHeight ~= height then
-        tick:SetSize(width, height)
-        tick._ddBuffTickWidth = width
-        tick._ddBuffTickHeight = height
-    end
-
-    if tick._ddBuffTickShown ~= true then
-        tick:Show()
-        tick._ddBuffTickShown = true
     end
 end
 
@@ -1277,10 +917,13 @@ local function RunBuffTrackerStartupRefresh(reason)
     local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not cfg or not cfg.enabled then return end
 
-    local trackedBuffs = GetTrackedBuffs and GetTrackedBuffs() or nil
-    if not trackedBuffs or #trackedBuffs == 0 then
-        if StopBuffTrackerTicker then StopBuffTrackerTicker() end
-        return
+    if not buffTrackerTicker then
+        StartBuffTrackerTicker()
+    end
+
+    local CDMScanner = DDingUI.CDMScanner
+    if CDMScanner and CDMScanner.ScanAll then
+        pcall(CDMScanner.ScanAll)
     end
 
     InvalidateAllFrameCaches()
@@ -1291,29 +934,20 @@ local function RunBuffTrackerStartupRefresh(reason)
     end
 end
 
-local function ClearBuffTrackerStartupRefresh()
-    startupRefreshPending = false
-    startupRefreshReason = nil
-    startupRefreshFirstRemaining = 0
-    startupRefreshBackstopRemaining = nil
-    startupRefreshFirstRan = false
-    if buffTrackerStartupFrame then
-        buffTrackerStartupFrame:Hide()
-    end
-end
-
 local function ScheduleBuffTrackerStartupRefresh(reason, delays)
-    local firstDelay = delays and delays[1] or 0.1
-    local backstopDelay = delays and delays[#delays] or 3.0
+    delays = delays or { 0.05, 0.5, 1.5, 3.0 }
 
-    startupRefreshPending = true
-    startupRefreshReason = reason
-    startupRefreshFirstRemaining = firstDelay
-    startupRefreshBackstopRemaining = (backstopDelay and backstopDelay > firstDelay) and backstopDelay or nil
-    startupRefreshFirstRan = false
+    for _, timer in ipairs(startupRefreshTimers) do
+        if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
+            timer:Cancel()
+        end
+    end
+    wipe(startupRefreshTimers)
 
-    if buffTrackerStartupFrame then
-        buffTrackerStartupFrame:Show()
+    for _, delay in ipairs(delays) do
+        startupRefreshTimers[#startupRefreshTimers + 1] = C_Timer.NewTimer(delay, function()
+            RunBuffTrackerStartupRefresh(reason)
+        end)
     end
 end
 
@@ -1546,207 +1180,52 @@ end
 
 -- Event frame for combat log tracking
 buffTrackerEventFrame = CreateFrame("Frame")
-buffTrackerDispatchFrame = CreateFrame("Frame")
-buffTrackerDispatchFrame:Hide()
-buffTrackerDispatchFrame:SetScript("OnUpdate", function(self, elapsed)
-    if not buffTrackerUpdatePending then
-        self:Hide()
-        return
-    end
 
-    buffTrackerUpdateDelayRemaining = (buffTrackerUpdateDelayRemaining or 0) - (elapsed or 0)
-    if buffTrackerUpdateDelayRemaining > 0 then
-        return
-    end
-
-    self:Hide()
-    local runFullUpdate = buffTrackerUpdateFull
-    local runTargetedUpdate = not runFullUpdate and next(buffTrackerTargetedIndices) ~= nil
-    buffTrackerUpdatePending = false
-    buffTrackerUpdateDelayRemaining = 0
-    buffTrackerUpdateFull = false
-
-    if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
-        if runTargetedUpdate and ResourceBars.UpdateBuffTrackerBarIndices then
-            ResourceBars:UpdateBuffTrackerBarIndices(buffTrackerTargetedIndices)
-        else
-            ResourceBars:UpdateBuffTrackerBar()
-        end
-    else
-        if StopBuffTrackerTicker then StopBuffTrackerTicker() end
-        if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
-    end
-    wipe(buffTrackerTargetedIndices)
-end)
-
-buffTrackerStartupFrame = CreateFrame("Frame")
-buffTrackerStartupFrame:Hide()
-buffTrackerStartupFrame:SetScript("OnUpdate", function(self, elapsed)
-    if not startupRefreshPending then
-        self:Hide()
-        return
-    end
-
-    elapsed = elapsed or 0
-    startupRefreshFirstRemaining = (startupRefreshFirstRemaining or 0) - elapsed
-    if startupRefreshBackstopRemaining then
-        startupRefreshBackstopRemaining = startupRefreshBackstopRemaining - elapsed
-    end
-
-    if not startupRefreshFirstRan and startupRefreshFirstRemaining <= 0 then
-        startupRefreshFirstRan = true
-        RunBuffTrackerStartupRefresh(startupRefreshReason)
-        buffTrackerInitialized = true
-    end
-
-    if startupRefreshBackstopRemaining and startupRefreshBackstopRemaining <= 0 then
-        if buffTrackerUpdatePending or not buffTrackerInitialized then
-            RunBuffTrackerStartupRefresh(startupRefreshReason)
-            buffTrackerInitialized = true
-        end
-        ClearBuffTrackerStartupRefresh()
-        return
-    end
-
-    if startupRefreshFirstRan and not startupRefreshBackstopRemaining then
-        ClearBuffTrackerStartupRefresh()
-    end
-end)
-
-IsBuffTrackerRuntimeEnabled = function()
+local function IsBuffTrackerRuntimeEnabled()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     return rootCfg and rootCfg.enabled
 end
 
-local function GetBuffTrackerEventNeeds(trackedBuffs, rootCfg, specCfg)
-    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
-    specCfg = specCfg or select(1, GetFullSpecConfig()) or rootCfg
-
-    local hasTracked = false
-    local hasAuraTracking = false
-    local hasManualTracking = specCfg and specCfg.trackingMode == "manual"
-
-    for _, buff in ipairs(trackedBuffs) do
-        if buff and buff.enabled ~= false then
-            hasTracked = true
-            if buff.trackingMode == "manual" then
-                hasManualTracking = true
-            elseif not buff.isGroup then
-                hasAuraTracking = true
-            end
-        end
-    end
-
-    return {
-        hasTracked = hasTracked,
-        hasAuraTracking = hasAuraTracking,
-        hasManualTracking = hasManualTracking,
-    }
-end
-
-local function BuildBuffTrackerEventKey(needs)
-    if not needs or not needs.hasTracked then return "off" end
-    return (needs.hasAuraTracking and "A" or "-")
-        .. (needs.hasManualTracking and "M" or "-")
-end
-
-local function BuffTrackerHasManualExpiration(trackedBuffs)
-    trackedBuffs = trackedBuffs or (GetTrackedBuffs and GetTrackedBuffs()) or {}
-    for barIndex, buff in ipairs(trackedBuffs) do
-        if buff and buff.enabled ~= false and buff.trackingMode == "manual" and buff.settings then
-            local _, expiresAt = GetManualStacks(barIndex)
-            if expiresAt and expiresAt > 0 then
-                return true
-            end
-        end
-    end
-    return manualExpiresAt and manualExpiresAt > 0 or false
-end
-
-local function BuffTrackerNeedsExpirationTicker(trackedBuffs, rootCfg, specCfg)
-    if isInPreviewMode or isInMoverMode then
-        return false
-    end
-    local needs = GetBuffTrackerEventNeeds(trackedBuffs, rootCfg, specCfg)
-    return needs and needs.hasTracked and needs.hasManualTracking and BuffTrackerHasManualExpiration(trackedBuffs)
-end
-
-SetBuffTrackerEventsEnabled = function(enabled, trackedBuffs, rootCfg, specCfg)
+SetBuffTrackerEventsEnabled = function(enabled)
     if not buffTrackerEventFrame then return end
     enabled = enabled and true or false
-
-    local needs = nil
-    local eventKey = "off"
-    if enabled then
-        needs = GetBuffTrackerEventNeeds(trackedBuffs, rootCfg, specCfg)
-        if not needs.hasTracked then
-            enabled = false
-        end
-        eventKey = BuildBuffTrackerEventKey(needs)
-    end
-
-    if buffTrackerEventsRegistered == enabled and buffTrackerRegisteredEventKey == eventKey then return end
+    if buffTrackerEventsRegistered == enabled then return end
 
     buffTrackerEventFrame:UnregisterAllEvents()
     buffTrackerEventsRegistered = enabled
-    buffTrackerRegisteredEventKey = eventKey
-    if not enabled then
-        MarkTrackedAuraFilterDirty()
-        wipe(trackedAuraSpellSet)
-        wipe(trackedAuraInstanceSet)
-        trackedAuraHasUnknown = false
-        return
-    end
+    if not enabled then return end
 
+    buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     buffTrackerEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    buffTrackerEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
     buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
     buffTrackerEventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     buffTrackerEventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-
-    if needs and needs.hasAuraTracking then
-        buffTrackerEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
-    end
-    if needs and needs.hasManualTracking then
-        buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    end
 end
 
-QueueBuffTrackerUpdate = function(reason, delay, trackedIndices)
+QueueBuffTrackerUpdate = function(reason, delay)
     if not IsBuffTrackerRuntimeEnabled() and not isInPreviewMode and not isInMoverMode then
-        buffTrackerUpdatePending = false
-        buffTrackerUpdateDelayRemaining = 0
-        buffTrackerUpdateFull = false
-        wipe(buffTrackerTargetedIndices)
-        if buffTrackerDispatchFrame then buffTrackerDispatchFrame:Hide() end
         if StopBuffTrackerTicker then StopBuffTrackerTicker() end
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
         return
     end
-    local hasTargetedIndices = type(trackedIndices) == "table" and next(trackedIndices) ~= nil
-    if hasTargetedIndices and not buffTrackerUpdateFull then
-        for barIndex in pairs(trackedIndices) do
-            buffTrackerTargetedIndices[barIndex] = true
-        end
-    else
-        buffTrackerUpdateFull = true
-        wipe(buffTrackerTargetedIndices)
-    end
-    if buffTrackerUpdatePending then
-        local nextDelay = delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03)
-        if nextDelay < (buffTrackerUpdateDelayRemaining or 0) then
-            buffTrackerUpdateDelayRemaining = nextDelay
-        end
-        return
-    end
+    if buffTrackerUpdatePending then return end
 
     buffTrackerUpdatePending = true
-    buffTrackerUpdateDelayRemaining = delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03)
-    buffTrackerDispatchFrame:Show()
+    C_Timer.After(delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03), function()
+        buffTrackerUpdatePending = false
+        if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
+            ResourceBars:UpdateBuffTrackerBar()
+        else
+            if StopBuffTrackerTicker then StopBuffTrackerTicker() end
+            if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
+        end
+    end)
 end
 
 local playerInCombat = false
@@ -1759,7 +1238,18 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     end
     if event == "LOADING_SCREEN_DISABLED" then
         loadingScreenActive = false
-        ScheduleBuffTrackerStartupRefresh("loading", { 0.2, 1.5 })
+        -- 로딩 완료 후 안정적 업데이트 (프록시 앵커 위치 복원 + CDM 뷰어 안정화 대기)
+        C_Timer.After(0.5, function()
+            local CDMScanner = DDingUI.CDMScanner
+            if CDMScanner then
+                pcall(CDMScanner.ScanAll)
+            end
+            QueueBuffTrackerUpdate("loading", 0)
+        end)
+        -- [FIX] 1.5초 후 최종 업데이트 (CDMScanner 완전 안정화)
+        C_Timer.After(1.5, function()
+            QueueBuffTrackerUpdate("loading-final", 0)
+        end)
         return
     end
 
@@ -1787,10 +1277,6 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_AURA" then
         local unit, unitAuraUpdateInfo = ...
         if unit == "player" then
-            local touchesTracked, trackedIndices = UnitAuraUpdateTouchesTrackedBuff(unitAuraUpdateInfo)
-            if not touchesTracked then
-                return
-            end
             -- 버프 갱신 감지: updatedAuraInstanceIDs를 저장해서 UpdateSingleTrackedBuffRing에서 처리
             if unitAuraUpdateInfo and unitAuraUpdateInfo.updatedAuraInstanceIDs then
                 -- 글로벌 변수에 저장 (UpdateSingleTrackedBuffRing에서 확인)
@@ -1799,7 +1285,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                     ResourceBars._pendingAuraUpdates[updatedAuraID] = GetTime()
                 end
             end
-            QueueBuffTrackerUpdate("unit-aura", nil, trackedIndices)
+            QueueBuffTrackerUpdate("unit-aura")
         end
         return
     end
@@ -1811,8 +1297,9 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     -- Handle talent change events (always check, regardless of tracking mode)
     if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" then
         -- Talent changed - update bar to reflect new talent conditions
-        MarkTrackedAuraFilterDirty()
-        QueueBuffTrackerUpdate("talent", 0.1)
+        C_Timer.After(0.1, function()
+            QueueBuffTrackerUpdate("talent", 0)
+        end)
         return
     end
 
@@ -1837,9 +1324,24 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         -- 런타임 상태 초기화 (이전 전문화의 오래된 이벤트 데이터 정리)
         ResourceBars._pendingAuraUpdates = nil
         ResourceBars._spellCastRefresh = nil
-        MarkTrackedAuraFilterDirty()
 
-        ScheduleBuffTrackerStartupRefresh("spec", { 0.2, SPEC_CHANGE_GRACE_DURATION + 0.5 })
+        -- 3단계 재시도 (CDM CDM 패턴)
+        -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
+        C_Timer.After(0.5, function()
+            QueueBuffTrackerUpdate("spec-1", 0)
+        end)
+        -- Phase 2 (1.5초): CDM 데이터 안정화 후 ScanAll + 업데이트
+        C_Timer.After(1.5, function()
+            local CDMScanner = DDingUI.CDMScanner
+            if CDMScanner then
+                pcall(CDMScanner.ScanAll)
+            end
+            QueueBuffTrackerUpdate("spec-2", 0)
+        end)
+        -- Phase 3 (Grace Period 종료 후): 최종 정리 업데이트
+        C_Timer.After(SPEC_CHANGE_GRACE_DURATION + 0.5, function()
+            QueueBuffTrackerUpdate("spec-3", 0)
+        end)
         return
     end
 
@@ -2032,7 +1534,7 @@ end)
 -- Check expiration in OnUpdate
 -- [PERF] 별도 OnUpdate 대신 buffTrackerTicker 내에서 만료 체크 통합
 -- expirationCheckFrame 제거 → StartBuffTrackerTicker의 0.1s 틱에서 처리
-local function CheckExpirations(trackedBuffs)
+local function CheckExpirations()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     if not rootCfg or not rootCfg.enabled then return false end
 
@@ -2040,7 +1542,7 @@ local function CheckExpirations(trackedBuffs)
     local needsUpdate = false
 
     -- Per-buff manual expiration check
-    trackedBuffs = trackedBuffs or GetTrackedBuffs()
+    local trackedBuffs = GetTrackedBuffs()
     for barIndex, buff in ipairs(trackedBuffs) do
         if buff.trackingMode == "manual" and buff.settings then
             local stacks, expiresAt = GetManualStacks(barIndex)
@@ -2203,12 +1705,14 @@ end
 -- cfgTickWidth: 구분선 두께 (개별 버프 설정)
 -- barOrientation: "HORIZONTAL" or "VERTICAL" (바 방향)
 function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, durationTickPositions, showTicks, cfgTickWidth, barOrientation)
+    -- Hide all ticks first
+    for _, tick in ipairs(bar.ticks) do
+        tick:Hide()
+    end
+
     local width = bar:GetWidth()
     local height = bar:GetHeight()
-    if width <= 0 or height <= 0 then
-        HideBuffTrackerTicksFrom(bar, 1)
-        return
-    end
+    if width <= 0 or height <= 0 then return end
 
     cfgTickWidth = cfgTickWidth or 2
     local tickWidth = math.max(1, DDingUI:Scale(cfgTickWidth))
@@ -2220,7 +1724,6 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
     if barFillMode == "duration" then
         -- Duration 모드: durationTickPositions 사용
         if not durationTickPositions or #durationTickPositions == 0 then
-            HideBuffTrackerTicksFrom(bar, 1)
             return  -- 설정된 tick이 없으면 표시 안 함
         end
 
@@ -2232,17 +1735,20 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
                 bar.ticks[i] = tick
             end
 
+            tick:ClearAllPoints()
             if isVertical then
                 -- Vertical: position along Y axis (bottom to top)
                 local y = position * height
-                ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "BOTTOM", "BOTTOM", 0, y, width, tickWidth)
+                tick:SetPoint("BOTTOM", bar.TickFrame, "BOTTOM", 0, y)
+                tick:SetSize(width, tickWidth)
             else
                 -- Horizontal: position along X axis (left to right)
                 local x = position * width
-                ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "LEFT", "LEFT", x, 0, tickWidth, height)
+                tick:SetPoint("LEFT", bar.TickFrame, "LEFT", x, 0)
+                tick:SetSize(tickWidth, height)
             end
+            tick:Show()
         end
-        HideBuffTrackerTicksFrom(bar, #durationTickPositions + 1)
         return
     end
 
@@ -2250,7 +1756,6 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
     -- STACKS MODE: 스택 기반 tick (기본)
     -- ============================================================
     if showTicks == false or not max or max <= 1 then
-        HideBuffTrackerTicksFrom(bar, 1)
         return
     end
 
@@ -2264,31 +1769,36 @@ function ResourceBars:UpdateBuffTrackerBarTicks(bar, current, max, barFillMode, 
             bar.ticks[i] = tick
         end
 
+        tick:ClearAllPoints()
         if isVertical then
             -- Vertical: position along Y axis (bottom to top)
             local y = (i / max) * height
-            ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "BOTTOM", "BOTTOM", 0, y, width, tickWidth)
+            tick:SetPoint("BOTTOM", bar.TickFrame, "BOTTOM", 0, y)
+            tick:SetSize(width, tickWidth)
         else
             -- Horizontal: position along X axis (left to right)
             local x = (i / max) * width
-            ApplyBuffTrackerTickIfChanged(tick, bar.TickFrame, "LEFT", "LEFT", x, 0, tickWidth, height)
+            tick:SetPoint("LEFT", bar.TickFrame, "LEFT", x, 0)
+            tick:SetSize(tickWidth, height)
         end
+        tick:Show()
     end
-    HideBuffTrackerTicksFrom(bar, needed + 1)
 end
 
 -- Ticker for buff updates
 buffTrackerTicker = nil
 
-StopBuffTrackerTicker = function(cancelStartupTimers)
+StopBuffTrackerTicker = function()
     if buffTrackerTicker then
         buffTrackerTicker:Cancel()
         buffTrackerTicker = nil
     end
-    if cancelStartupTimers == false then
-        return
+    for _, timer in ipairs(startupRefreshTimers) do
+        if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
+            timer:Cancel()
+        end
     end
-    ClearBuffTrackerStartupRefresh()
+    wipe(startupRefreshTimers)
 end
 
 StartBuffTrackerTicker = function()
@@ -2303,13 +1813,9 @@ StartBuffTrackerTicker = function()
         end
 
         -- [PERF] 만료 체크 통합 (별도 OnUpdate 제거됨)
-        local trackedBuffs = GetTrackedBuffs()
-        local needsUpdate = CheckExpirations(trackedBuffs)
+        local needsUpdate = CheckExpirations()
         if needsUpdate or isInPreviewMode or isInMoverMode then
             QueueBuffTrackerUpdate("ticker", 0)
-        end
-        if not BuffTrackerHasManualExpiration(trackedBuffs) and not isInPreviewMode and not isInMoverMode then
-            StopBuffTrackerTicker()
         end
     end)
 end
@@ -2548,7 +2054,8 @@ SlashCmdList["BTTEST"] = function()
         bar:Show()
         print("  - Bar at CENTER, 200x10, value 5/10")
     else
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00Buff Tracker Test Mode: OFF|r") -- [STYLE]
+        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00Buff Tracker Test Mode: OFF|r (ticker resumed)") -- [STYLE]
+        StartBuffTrackerTicker()
         ResourceBars:UpdateBuffTrackerBar()
     end
 end
@@ -2887,8 +2394,11 @@ HideAllTrackedBuffIcons = function()
             StopAllAnimations(icon)
             icon._currentAnimation = nil
             -- Clean up duration text OnUpdate -- [12.0.1]
-            ClearTrackedDurationOnUpdate(icon, icon)
-            icon._durationData = nil
+            if icon._hasDurationUpdate then
+                icon:SetScript("OnUpdate", nil)
+                icon._hasDurationUpdate = nil
+                icon._durationData = nil
+            end
         end
     end
 end
@@ -3188,8 +2698,11 @@ HideAllTrackedBuffTexts = function()
             StopTextAnimations(frame)
             frame._currentAnimation = nil
             -- Clean up duration text OnUpdate -- [12.0.1]
-            ClearTrackedDurationOnUpdate(frame, frame)
-            frame._durationData = nil
+            if frame._hasDurationUpdate then
+                frame:SetScript("OnUpdate", nil)
+                frame._hasDurationUpdate = nil
+                frame._durationData = nil
+            end
         end
     end
 end
@@ -3207,8 +2720,9 @@ HideAllTrackedBuffBars = function()
             if bar.RingProgress then bar.RingProgress:Hide() end
             if bar.RingBorder then bar.RingBorder:Hide() end
             -- Ring DurationText OnUpdate 정리 (TextFrame 사용) -- [12.0.1]
-            if bar.TextFrame then
-                ClearTrackedDurationOnUpdate(bar.TextFrame, bar.TextFrame)
+            if bar.TextFrame and bar.TextFrame._hasDurationUpdate then
+                bar.TextFrame:SetScript("OnUpdate", nil)
+                bar.TextFrame._hasDurationUpdate = nil
                 bar.TextFrame._dtData = nil
             end
             -- Ring 자체 OnUpdate 정리
@@ -3271,120 +2785,6 @@ local function CheckActivationCondition(trackedBuff)
     return true
 end
 
-function ResourceBars:BuildTrackedBuffGroupChildSet(trackedBuffs)
-    local groupChildSet = {}
-    for _, buff in ipairs(trackedBuffs or {}) do
-        if buff and buff.isGroup and buff.controlledChildren then
-            for _, childIdx in ipairs(buff.controlledChildren) do
-                groupChildSet[childIdx] = true
-            end
-        end
-    end
-    return groupChildSet
-end
-
-function ResourceBars:UpdateTrackedBuffIndex(barIndex, trackedBuff, cfg, groupChildSet)
-    if not trackedBuff then return end
-    if trackedBuff.enabled == false or not CheckActivationCondition(trackedBuff)
-       or trackedBuff.isGroup
-       or (groupChildSet and groupChildSet[barIndex]) then
-        local bar = barFrames[barIndex]
-        DDingUI:SafeHide(bar)
-        local icon = iconFrames[barIndex]
-        if icon then
-            DDingUI:SafeHide(icon)
-            StopAllAnimations(icon)
-            icon._currentAnimation = nil
-        end
-        local textFrame = textFrames[barIndex]
-        DDingUI:SafeHide(textFrame)
-        return
-    end
-
-    local displayType = trackedBuff.displayType or "bar"
-    local function HideOtherDisplays(exceptType)
-        if exceptType ~= "bar" then
-            DDingUI:SafeHide(barFrames[barIndex])
-        end
-        if exceptType ~= "icon" then
-            local icon = iconFrames[barIndex]
-            if icon then
-                DDingUI:SafeHide(icon)
-                StopAllAnimations(icon)
-                icon._currentAnimation = nil
-            end
-        end
-        if exceptType ~= "text" then
-            DDingUI:SafeHide(textFrames[barIndex])
-        end
-    end
-
-    if displayType == "bar" then
-        self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
-        HideOtherDisplays("bar")
-    elseif displayType == "ring" then
-        self:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, cfg)
-        HideOtherDisplays("bar")
-    elseif displayType == "icon" then
-        self:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, cfg)
-        HideOtherDisplays("icon")
-    elseif displayType == "sound" then
-        self:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, cfg)
-        HideOtherDisplays("sound")
-    elseif displayType == "text" then
-        self:UpdateSingleTrackedBuffText(barIndex, trackedBuff, cfg)
-        HideOtherDisplays("text")
-    elseif displayType == "trigger" then
-        HideOtherDisplays("trigger")
-        local cooldownID = tonumber(trackedBuff.cooldownID) or 0
-        local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, nil, false, nil, trackedBuff.spellID, trackedBuff.name)
-        local hasData = auraInstanceID ~= nil
-        local dummyFrame = barFrames[barIndex] or {}
-        local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-        if alertResult then
-            ApplyAlertActions(alertResult, trackedBuff, dummyFrame)
-        else
-            local alerts = trackedBuff.settings and trackedBuff.settings.alerts
-            if alerts and alerts.actions then
-                for _, action in ipairs(alerts.actions) do
-                    if action.type == "color" then
-                        local ct = action.colorTarget or "self"
-                        if ct == "bar" and DDingUI.powerBar then
-                            DDingUI.powerBar._ddingColorOverride = nil
-                        elseif ct == "secondary_bar" and DDingUI.secondaryPowerBar then
-                            DDingUI.secondaryPowerBar._ddingColorOverride = nil
-                        end
-                    end
-                end
-            end
-        end
-    else
-        self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
-        HideOtherDisplays("bar")
-    end
-end
-
-function ResourceBars:UpdateBuffTrackerBarIndices(indices)
-    local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
-    if not rootCfg or not rootCfg.enabled then
-        self:UpdateBuffTrackerBar()
-        return
-    end
-
-    local cfg, _ = GetFullSpecConfig()
-    if not cfg then cfg = rootCfg end
-    local trackedBuffs = GetTrackedBuffs()
-    if #trackedBuffs == 0 or trackedAuraFilterDirty then
-        self:UpdateBuffTrackerBar()
-        return
-    end
-
-    local groupChildSet = self:BuildTrackedBuffGroupChildSet(trackedBuffs)
-    for barIndex in pairs(indices or {}) do
-        self:UpdateTrackedBuffIndex(barIndex, trackedBuffs[barIndex], cfg, groupChildSet)
-    end
-end
-
 function ResourceBars:UpdateBuffTrackerBar()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     local cfg, _ = GetFullSpecConfig()
@@ -3416,36 +2816,17 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- ============================================================
     local trackedBuffs = GetTrackedBuffs()
     local useTrackedBuffSystem = (#trackedBuffs > 0)
-    local auraFilterSignature = ResourceBars:BuildTrackedAuraFilterSignature(trackedBuffs)
-    if trackedAuraFilterDirty or ResourceBars._trackedAuraFilterSignature ~= auraFilterSignature then
-        RebuildTrackedAuraFilter(trackedBuffs, auraFilterSignature)
-    end
 
     if BUFF_TRACKER_DEBUG then
         print("[BuffTracker] useTrackedBuffSystem=" .. tostring(useTrackedBuffSystem) .. ", count=" .. #trackedBuffs)
     end
 
-    if not useTrackedBuffSystem then
-        HideAllTrackedBuffBars()
-        HideAllTrackedBuffIcons()
-        HideAllTrackedBuffTexts()
-        if DDingUI.buffTrackerBar then
-            DDingUI.buffTrackerBar:Hide()
-        end
-        StopBuffTrackerTicker()
-        if SetBuffTrackerEventsEnabled then
-            SetBuffTrackerEventsEnabled(false)
-        end
-        return
-    end
-
+    -- Start ticker if not running
     if SetBuffTrackerEventsEnabled then
-        SetBuffTrackerEventsEnabled(true, trackedBuffs, rootCfg, cfg)
+        SetBuffTrackerEventsEnabled(true)
     end
-    if BuffTrackerNeedsExpirationTicker(trackedBuffs, rootCfg, cfg) then
+    if not buffTrackerTicker then
         StartBuffTrackerTicker()
-    else
-        StopBuffTrackerTicker(false)
     end
 
     -- Use new multi-bar system if we have tracked buffs
@@ -3929,7 +3310,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             bar._durationData = {
                 unit = unit,
                 auraID = auraInstanceID,
-                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 maxDuration = effectiveMaxDuration,
                 showDurationText = showDurationText,
                 stacksMode = false,  -- Duration 모드: 바 값 업데이트 함
@@ -3976,11 +3356,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
             -- OnUpdate 핸들러 설정 (매 프레임 폴링)
             if not bar._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(bar, bar.StatusBar, function(self, elapsed)
-                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
-                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
-                    self._durationElapsed = 0
-
+                bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
                     local data = bar._durationData
                     if not data then return end
 
@@ -4032,17 +3408,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     end
 
                     -- Auto 모드: auraID 기반 duration 계산
-                    local cachedRemaining = GetCachedAuraRemaining(data)
-                    if cachedRemaining then
-                        if not data.stacksMode then
-                            self:SetValue(cachedRemaining)
-                        end
-                        if bar.DurationText and data.showDurationText then
-                            SetCachedDurationText(bar.DurationText, cachedRemaining, data)
-                        end
-                        return
-                    end
-
                     if not data.auraID then return end
 
                     pcall(function()
@@ -4075,6 +3440,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                         end
                     end)
                 end)
+                bar._hasDurationUpdate = true
             end
 
             -- 초기값 설정 (Manual 모드)
@@ -4093,7 +3459,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             end
         else
             -- Duration 모드지만 버프 없음: OnUpdate 제거하고 0으로 설정
-            ClearTrackedDurationOnUpdate(bar, bar.StatusBar)
+            if bar._hasDurationUpdate then
+                bar.StatusBar:SetScript("OnUpdate", nil)
+                bar._hasDurationUpdate = false
+            end
             bar._durationData = nil
             bar._auraActivatedTime = nil  -- 수동 지속시간 계산: 활성화 시점 초기화
             bar.StatusBar:SetMinMaxValues(0, max)
@@ -4118,7 +3487,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             bar._durationData = {
                 unit = unit,
                 auraID = auraInstanceID,
-                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 maxDuration = stackDuration,
                 showDurationText = showDurationText,
                 stacksMode = true,  -- 스택 모드 플래그 (바 값 업데이트 안 함)
@@ -4148,24 +3516,9 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             end
 
             if not bar._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(bar, bar.StatusBar, function(self, elapsed)
-                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
-                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
-                    self._durationElapsed = 0
-
+                bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
                     local data = bar._durationData
                     if not data or not data.auraID then return end
-
-                    local cachedRemaining = GetCachedAuraRemaining(data)
-                    if cachedRemaining then
-                        if not data.stacksMode then
-                            self:SetValue(cachedRemaining)
-                        end
-                        if bar.DurationText and data.showDurationText then
-                            SetCachedDurationText(bar.DurationText, cachedRemaining, data)
-                        end
-                        return
-                    end
 
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -4199,10 +3552,14 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                         end
                     end)
                 end)
+                bar._hasDurationUpdate = true
             end
         else
             -- Duration OnUpdate 제거
-            ClearTrackedDurationOnUpdate(bar, bar.StatusBar)
+            if bar._hasDurationUpdate then
+                bar.StatusBar:SetScript("OnUpdate", nil)
+                bar._hasDurationUpdate = false
+            end
             bar._durationData = nil
         end
     end
@@ -4493,25 +3850,23 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- 중첩 텍스트 설정 (barFillMode와 무관하게 표시 가능)
     bar.TextValue:SetText(displayStacks)  -- Use display value (sample in preview mode)
     local stacksFont = settings.textFont or globalCfg.textFont
-    ApplyBuffTextStyleIfChanged(
-        bar.TextValue,
-        bar.TextFrame,
-        DDingUI:GetFont(stacksFont),
-        textSize,
-        "OUTLINE",
-        textAlign,
-        DDingUI:Scale(textX),
-        DDingUI:Scale(textY),
-        textColor[1] or 1,
-        textColor[2] or 1,
-        textColor[3] or 1,
-        textColor[4] or 1
-    )
+    bar.TextValue:SetFont(DDingUI:GetFont(stacksFont), textSize, "OUTLINE")
+    bar.TextValue:SetShadowOffset(0, 0)
+    bar.TextValue:SetJustifyH(textAlign)
+    bar.TextValue:ClearAllPoints()
+    bar.TextValue:SetPoint(textAlign, bar.TextFrame, textAlign, DDingUI:Scale(textX), DDingUI:Scale(textY))
+    bar.TextValue:SetTextColor(textColor[1] or 1, textColor[2] or 1, textColor[3] or 1, textColor[4] or 1)
     bar.TextValue:SetShown(showStacksText)
 
     -- 지속시간 텍스트 설정 (barFillMode와 무관하게 표시 가능)
     if showDurationText then
         local durationFont = settings.durationTextFont or settings.textFont or globalCfg.textFont
+        bar.DurationText:SetFont(DDingUI:GetFont(durationFont), durationTextSize, "OUTLINE")
+        bar.DurationText:SetShadowOffset(0, 0)
+        bar.DurationText:SetJustifyH(durationTextAlign)
+        bar.DurationText:ClearAllPoints()
+        bar.DurationText:SetPoint(durationTextAlign, bar.TextFrame, durationTextAlign, DDingUI:Scale(durationTextX), DDingUI:Scale(durationTextY))
+
         -- 초기 색상 설정: 경고 임계값 이하면 경고 색상, 아니면 일반 색상
         local initialColor = durationTextColor
         if durationWarningEnabled and hasData then
@@ -4530,20 +3885,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 initialColor = durationWarningColor
             end
         end
-        ApplyBuffTextStyleIfChanged(
-            bar.DurationText,
-            bar.TextFrame,
-            DDingUI:GetFont(durationFont),
-            durationTextSize,
-            "OUTLINE",
-            durationTextAlign,
-            DDingUI:Scale(durationTextX),
-            DDingUI:Scale(durationTextY),
-            initialColor[1] or 1,
-            initialColor[2] or 1,
-            initialColor[3] or 1,
-            initialColor[4] or 1
-        )
+        bar.DurationText:SetTextColor(initialColor[1] or 1, initialColor[2] or 1, initialColor[3] or 1, initialColor[4] or 1)
 
         -- Preview/Mover mode: show duration text
         if not hasData then
@@ -4572,7 +3914,9 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         self:UpdateBuffTrackerBarTicks(bar, displayCurrent, max, barFillMode, durationTickPositions, showTicks, tickWidth, barOrientation)
     else
         -- Hide all ticks for ring/circular styles
-        HideBuffTrackerTicksFrom(bar, 1)
+        for _, tick in ipairs(bar.ticks or {}) do
+            tick:Hide()
+        end
     end
 
     bar:Show()
@@ -4925,7 +4269,6 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         bar._durationData = {
             unit = unit,
             auraID = auraInstanceID,
-            expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
             maxDuration = stackDuration,
             showDurationText = ringShowText,
             durationDecimals = settings.ringDurationDecimals or 1,
@@ -4937,9 +4280,9 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         -- 텍스트 업데이트용 OnUpdate (progress는 CooldownFrame이 처리)
         if ringShowText and not bar._hasRingTextUpdate then
             bar:SetScript("OnUpdate", function(self, elapsed)
-                -- Duration text throttle
+                -- 0.05초 쓰로틀 (텍스트 업데이트는 20fps면 충분)
                 self._textElapsed = (self._textElapsed or 0) + elapsed
-                if self._textElapsed < DURATION_UPDATE_INTERVAL then return end
+                if self._textElapsed < 0.05 then return end
                 self._textElapsed = 0
 
                 local data = bar._durationData
@@ -4947,11 +4290,6 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
                 -- 텍스트 표시: secret value로 직접 설정
                 if bar.TextValue then
-                    local cachedRemaining = GetCachedAuraRemaining(data)
-                    if cachedRemaining then
-                        bar.TextValue:SetText(FormatDuration(cachedRemaining, data.durationDecimals))
-                        return
-                    end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
                         if durObj then
@@ -5031,19 +4369,13 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         if hasData and not isManualMode then
             -- AUTO 모드: aura duration 실시간 업데이트 (TextFrame OnUpdate 사용 → ring OnUpdate와 분리)
             if not bar.TextFrame._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(bar.TextFrame, bar.TextFrame, function(self, elapsed)
+                bar.TextFrame:SetScript("OnUpdate", function(self, elapsed)
                     self._dtElapsed = (self._dtElapsed or 0) + elapsed
-                    if self._dtElapsed < DURATION_UPDATE_INTERVAL then return end
+                    if self._dtElapsed < 0.05 then return end
                     self._dtElapsed = 0
 
                     local data = self._dtData
                     if not data or not data.showDurationText then return end
-
-                    local cachedRemaining = GetCachedAuraRemaining(data)
-                    if cachedRemaining then
-                        SetCachedDurationText(bar.DurationText, cachedRemaining, data)
-                        return
-                    end
 
                     pcall(function()
                         if data.auraID then
@@ -5078,9 +4410,16 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                         end
                     end)
                 end)
+                bar.TextFrame._hasDurationUpdate = true
             end
             -- Duration data
-            local expiresAt = GetAuraExpirationTime(unit, auraInstanceID)
+            local expiresAt = nil
+            if auraInstanceID then
+                pcall(function()
+                    local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
+                    if aData and aData.expirationTime then expiresAt = aData.expirationTime end
+                end)
+            end
             bar.TextFrame._dtData = {
                 showDurationText = true,
                 unit = unit,
@@ -5101,9 +4440,9 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         elseif hasData and isManualMode then
             -- MANUAL 모드: manualExpiresAt 기반
             if not bar.TextFrame._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(bar.TextFrame, bar.TextFrame, function(self, elapsed)
+                bar.TextFrame:SetScript("OnUpdate", function(self, elapsed)
                     self._dtElapsed = (self._dtElapsed or 0) + elapsed
-                    if self._dtElapsed < DURATION_UPDATE_INTERVAL then return end
+                    if self._dtElapsed < 0.05 then return end
                     self._dtElapsed = 0
 
                     local data = self._dtData
@@ -5124,6 +4463,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                         end
                     end
                 end)
+                bar.TextFrame._hasDurationUpdate = true
             end
             bar.TextFrame._dtData = {
                 barIndex = barIndex,
@@ -5145,22 +4485,30 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             -- 버프 없음: 숨기기 + OnUpdate 제거
             bar.DurationText:SetText("")
             bar.DurationText:Hide()
-            ClearTrackedDurationOnUpdate(bar.TextFrame, bar.TextFrame)
-            bar.TextFrame._dtData = nil
+            if bar.TextFrame._hasDurationUpdate then
+                bar.TextFrame:SetScript("OnUpdate", nil)
+                bar.TextFrame._hasDurationUpdate = nil
+                bar.TextFrame._dtData = nil
+            end
         end
     else
         -- Duration text 비활성화
         if bar.DurationText then
             bar.DurationText:Hide()
         end
-        if bar.TextFrame then
-            ClearTrackedDurationOnUpdate(bar.TextFrame, bar.TextFrame)
+        if bar.TextFrame and bar.TextFrame._hasDurationUpdate then
+            bar.TextFrame:SetScript("OnUpdate", nil)
+            bar.TextFrame._hasDurationUpdate = nil
             bar.TextFrame._dtData = nil
         end
     end
 
     -- Hide ticks for ring mode
-    HideBuffTrackerTicksFrom(bar, 1)
+    if bar.ticks then
+        for _, tick in pairs(bar.ticks) do
+            tick:Hide()
+        end
+    end
 
     bar:Show()
 end
@@ -5512,11 +4860,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         if hasData and auraInstanceID then
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not icon._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(icon, icon, function(self, elapsed)
-                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
-                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
-                    self._durationElapsed = 0
-
+                icon:SetScript("OnUpdate", function(self, elapsed)
                     local data = icon._durationData
                     if not data then return end
 
@@ -5540,12 +4884,6 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                     end
 
                     -- Auto 모드
-                    local cachedRemaining = GetCachedAuraRemaining(data)
-                    if cachedRemaining then
-                        SetCachedDurationText(icon.DurationText, cachedRemaining, data)
-                        return
-                    end
-
                     if not data.auraID then return end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -5568,12 +4906,12 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                         end
                     end)
                 end)
+                icon._hasDurationUpdate = true
             end
 
             -- _durationData 설정
             icon._durationData = {
                 auraID = auraInstanceID,
-                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 unit = unit,
                 barIndex = barIndex,
                 showDurationText = true,
@@ -5588,11 +4926,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         elseif isManualMode and (manualStackCount or 0) > 0 then
             -- Manual 모드에서 활성화 중
             if not icon._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(icon, icon, function(self, elapsed)
-                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
-                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
-                    self._durationElapsed = 0
-
+                icon:SetScript("OnUpdate", function(self, elapsed)
                     local data = icon._durationData
                     if not data or not data.isManualMode then return end
                     local _, expiresAt = GetManualStacks(data.barIndex)
@@ -5610,6 +4944,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                         end
                     end
                 end)
+                icon._hasDurationUpdate = true
             end
             icon._durationData = {
                 barIndex = barIndex,
@@ -5630,16 +4965,22 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             -- 버프 없음: 숨기기 + OnUpdate 제거
             icon.DurationText:SetText("")
             icon.DurationText:Hide()
-            ClearTrackedDurationOnUpdate(icon, icon)
-            icon._durationData = nil
+            if icon._hasDurationUpdate then
+                icon:SetScript("OnUpdate", nil)
+                icon._hasDurationUpdate = nil
+                icon._durationData = nil
+            end
         end
     else
         -- Duration text 비활성화
         if icon.DurationText then
             icon.DurationText:Hide()
         end
-        ClearTrackedDurationOnUpdate(icon, icon)
-        icon._durationData = nil
+        if icon._hasDurationUpdate then
+            icon:SetScript("OnUpdate", nil)
+            icon._hasDurationUpdate = nil
+            icon._durationData = nil
+        end
         -- 네이티브 카운트다운 복원
         icon.Cooldown:SetHideCountdownNumbers(false)
     end
@@ -6059,11 +5400,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         if hasData and auraInstanceID then
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not textFrame._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(textFrame, textFrame, function(self, elapsed)
-                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
-                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
-                    self._durationElapsed = 0
-
+                textFrame:SetScript("OnUpdate", function(self, elapsed)
                     local data = textFrame._durationData
                     if not data then return end
 
@@ -6087,12 +5424,6 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                     end
 
                     -- Auto 모드
-                    local cachedRemaining = GetCachedAuraRemaining(data)
-                    if cachedRemaining then
-                        SetCachedDurationText(textFrame.DurationText, cachedRemaining, data)
-                        return
-                    end
-
                     if not data.auraID then return end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -6115,12 +5446,12 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                         end
                     end)
                 end)
+                textFrame._hasDurationUpdate = true
             end
 
             -- _durationData 설정
             textFrame._durationData = {
                 auraID = auraInstanceID,
-                expiresAt = GetAuraExpirationTime(unit, auraInstanceID),
                 unit = unit,
                 barIndex = barIndex,
                 showDurationText = true,
@@ -6135,11 +5466,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         elseif isManualMode and (manualStackCount or 0) > 0 then
             -- Manual 모드에서 활성화 중
             if not textFrame._hasDurationUpdate then
-                SetTrackedDurationOnUpdate(textFrame, textFrame, function(self, elapsed)
-                    self._durationElapsed = (self._durationElapsed or 0) + elapsed
-                    if self._durationElapsed < DURATION_UPDATE_INTERVAL then return end
-                    self._durationElapsed = 0
-
+                textFrame:SetScript("OnUpdate", function(self, elapsed)
                     local data = textFrame._durationData
                     if not data or not data.isManualMode then return end
                     local _, expiresAt = GetManualStacks(data.barIndex)
@@ -6157,6 +5484,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                         end
                     end
                 end)
+                textFrame._hasDurationUpdate = true
             end
             textFrame._durationData = {
                 barIndex = barIndex,
@@ -6175,15 +5503,21 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         else
             textFrame.DurationText:SetText("")
             textFrame.DurationText:Hide()
-            ClearTrackedDurationOnUpdate(textFrame, textFrame)
-            textFrame._durationData = nil
+            if textFrame._hasDurationUpdate then
+                textFrame:SetScript("OnUpdate", nil)
+                textFrame._hasDurationUpdate = nil
+                textFrame._durationData = nil
+            end
         end
     else
         if textFrame.DurationText then
             textFrame.DurationText:Hide()
         end
-        ClearTrackedDurationOnUpdate(textFrame, textFrame)
-        textFrame._durationData = nil
+        if textFrame._hasDurationUpdate then
+            textFrame:SetScript("OnUpdate", nil)
+            textFrame._hasDurationUpdate = nil
+            textFrame._durationData = nil
+        end
     end
 
     textFrame:Show()
@@ -6232,30 +5566,22 @@ function ResourceBars:InitializeBuffTracker()
         return
     end
 
-    local trackedBuffs = GetTrackedBuffs()
-    if #trackedBuffs == 0 then
-        HideAllTrackedBuffBars()
-        HideAllTrackedBuffIcons()
-        HideAllTrackedBuffTexts()
-        if SetBuffTrackerEventsEnabled then
-            SetBuffTrackerEventsEnabled(false)
-        end
-        StopBuffTrackerTicker()
-        buffTrackerInitialized = true
-        return
-    end
-
     if SetBuffTrackerEventsEnabled then
-        SetBuffTrackerEventsEnabled(true, trackedBuffs, rootCfg)
+        SetBuffTrackerEventsEnabled(true)
     end
-    if BuffTrackerNeedsExpirationTicker(trackedBuffs, rootCfg, rootCfg) then
-        StartBuffTrackerTicker()
-    else
-        StopBuffTrackerTicker(false)
-    end
+    StartBuffTrackerTicker()
 
-    -- Initial update + settle/backstop handled by ScheduleBuffTrackerStartupRefresh
+    -- Initial update (여러 번) + 마지막에 초기화 완료 플래그 설정
+    local initDelays = { 0.1, 0.5, 1.0, 2.0 }
     ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5, 3.0 })
+    for i, delay in ipairs(initDelays) do
+        C_Timer.After(delay, function()
+            QueueBuffTrackerUpdate("initial", 0)
+            if i == #initDelays then
+                buffTrackerInitialized = true
+            end
+        end)
+    end
 end
 
 -- Enter mover mode for tracked buff bars (shows all bars regardless of hideWhenZero)

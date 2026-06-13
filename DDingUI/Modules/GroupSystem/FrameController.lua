@@ -77,9 +77,11 @@ local CONFIG = {
     SCAN_PARTIAL_GRACE = 1,    -- 렉/전환 중 부분 스캔 보호
     -- [CDM 패턴] OnUpdate 폴링 제어
     -- [FIX CDM] burst 감소: 스와이프·색상 깜빡임 작업량 절감 (30fps → 20fps)
+    -- SPELL_UPDATE_COOLDOWN 이벤트가 쿨다운 변화를 직접 트리거하므로 폴링 의존도 감소
     BURST_THROTTLE    = 0.05,   -- ~20fps (30fps → 20fps)
     WATCHDOG_THROTTLE = 0.25,   -- 4fps (안정화 후 느린 스캔)
     BURST_TICKS       = 8,      -- 15틱 → 8틱 (0.4초 burst)
+    IDLE_TIMEOUT      = 1.0,    -- 2초 → 1초 (idle 후 OnUpdate 비활성화)
 }
 
 -- ============================================================
@@ -183,7 +185,6 @@ local state = {
     scanHoldStartedAt = 0,
     lastAcceptedScanCount = 0,
     lastPvPInstance = nil,
-    transitionRecoveryToken = 0,
     -- 통계
     reconcileCount = 0,
 }
@@ -199,21 +200,10 @@ local pollingFrame = CreateFrame("Frame")
 
 -- dirty 마킹 — 모든 CDM 훅에서 이것만 호출
 local function MarkDirty()
-    local now = GetTime()
-    if state.isProcessing then
-        state.pendingReconcile = true
-        state.lastActivityTime = now
-        return
-    end
-
-    if state.dirty or state.pendingReconcile then
-        state.lastActivityTime = now
-        return
-    end
-
+    if state.isProcessing then return end
     state.dirty = true
     state.burstTicksRemaining = CONFIG.BURST_TICKS
-    state.lastActivityTime = now
+    state.lastActivityTime = GetTime()
     state.nextUpdateTime = 0
 end
 
@@ -247,17 +237,15 @@ EnablePolling = function()
         local now = GetTime()
         if now < state.nextUpdateTime then return end
 
-        local needsReconcile = state.dirty or state.pendingReconcile
-
-        -- throttle: pending 갱신이 있으면 빠르게, 아니면 느리게
-        local throttle = needsReconcile
+        -- throttle: dirty/burst면 빠르게, 아니면 느리게
+        local throttle = (state.dirty or state.burstTicksRemaining > 0)
             and CONFIG.BURST_THROTTLE
             or CONFIG.WATCHDOG_THROTTLE
         state.nextUpdateTime = now + throttle
 
         -- Reconcile 실행 — 전투 중에도 실행 (개별 아이콘 Show/Hide는 무명 프레임이라 안전)
         -- 명명된 컨테이너 프레임(DDingUI_Group_*)의 Show/Hide/SetSize는 GroupRenderer에서 개별 가드
-        if needsReconcile and not state.isProcessing then
+        if not state.isProcessing then
             FrameController:Reconcile()
         end
 
@@ -266,10 +254,10 @@ EnablePolling = function()
             state.burstTicksRemaining = state.burstTicksRemaining - 1
         end
 
-        -- idle 체크 — 안정 스캔 후 변경 대기 상태가 아니면 즉시 비활성화
+        -- idle 체크 — 일정 시간 변경 없으면 비활성화
         if not state.dirty
-            and not state.pendingReconcile
             and state.burstTicksRemaining <= 0
+            and (now - state.lastActivityTime) >= CONFIG.IDLE_TIMEOUT
         then
             FrameController:DisablePolling()
         end
@@ -321,7 +309,6 @@ end
 
 local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     if not FrameController.initialized then return end
-    local refreshedGroupSystem = false
     FrameController:RefreshViewerRefs()
     ResetGroupViewerHiddenFlags()
     if forceFrameControl then
@@ -340,7 +327,6 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
         else
             DDingUI.GroupSystem:Refresh()
         end
-        refreshedGroupSystem = true
     end
     if forceFrameControl and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged then
         DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -348,29 +334,17 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     if reloadMapped and DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
         DDingUI.Movers:ReloadMappedModulePositions()
     end
-    if not refreshedGroupSystem then
-        MarkDirty()
-        if not state.pollingActive then
-            EnablePolling()
-        end
+    MarkDirty()
+    if not state.pollingActive then
+        EnablePolling()
     end
 end
 
 local function ScheduleViewerTransitionRecovery(reloadMapped, forceFrameControl, longTail)
-    state.transitionRecoveryToken = (state.transitionRecoveryToken or 0) + 1
-    local token = state.transitionRecoveryToken
-
-    C_Timer.After(longTail and 0.2 or 0.1, function()
-        if token ~= state.transitionRecoveryToken then return end
-        RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
-    end)
-
-    if longTail then
-        C_Timer.After(3.0, function()
-            if token ~= state.transitionRecoveryToken then return end
-            if state.dirty or state.pendingReconcile or state.specChangeDetected or state.talentChangeDetected then
-                RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
-            end
+    local delays = longTail and { 0.05, 0.2, 1.0, 3.0, 5.0 } or { 0.2, 1.0, 3.0 }
+    for _, delay in pairs(delays) do
+        C_Timer.After(delay, function()
+            RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
         end)
     end
 end
@@ -381,7 +355,10 @@ local function RunPvPTransitionRecovery(event)
     state.lastPvPInstance = inPvP
 
     if changed or event == "PVP_MATCH_STATE_CHANGED" then
+        RunViewerTransitionRecovery(true, true)
         ScheduleViewerTransitionRecovery(true, true, true)
+    else
+        ScheduleViewerTransitionRecovery(true, false)
     end
 end
 
@@ -404,6 +381,31 @@ local function ForceImmediateReconcile()
         EnablePolling()
     end
 end
+
+-- ============================================================
+-- [FIX CDM] 쿨다운 변화 이벤트 기반 트리거 (CDM TrackerSpellCooldownWatcher 패턴)
+-- SPELL_UPDATE_COOLDOWN/CHARGES는 GCD마다 발생하지만, MarkDirty()는 idempotent이므로 안전
+-- 폴링에만 의존하던 쿨다운 스와이프 갱신을 이벤트 기반으로 보완
+-- ============================================================
+do
+    local cdEventFrame = CreateFrame("Frame")
+    cdEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    cdEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+    cdEventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
+    cdEventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    cdEventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
+    cdEventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
+    cdEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    cdEventFrame:SetScript("OnEvent", function()
+        if FrameController.initialized then
+            MarkDirty()
+            if not state.pollingActive then
+                EnablePolling()
+            end
+        end
+    end)
+end
+
 
 local function FindViewers()
     local found = 0
@@ -436,14 +438,13 @@ function FrameController:RefreshViewerRefs()
                 -- 새 뷰어에 Layout/Show/Hide 훅 설치
                 if not hookedViewerLayout[currentViewer] then
                     hookedViewerLayout[currentViewer] = true
-                    -- [CDM ForceReanchor] Layout 완료 후 갱신 예약
-                    -- 같은 프레임의 중복 전체 스캔을 피하고 다음 tick에서 한 번만 처리
+                    -- [CDM ForceReanchor] 동기 Reconcile 핸들러
+                    -- CDM 이벤트 완료 후 즉시 전체 재배치
                     local function PostLayoutHandler()
                         if not FrameController.initialized then return end
                         if state.isProcessing then return end
-                        DLog("PostLayoutHandler")
-                        MarkDirty()
-                        if not state.pollingActive then EnablePolling() end
+                        DLog("PostLayoutHandler →", viewerGlobalName)
+                        FrameController:Reconcile()
                     end
                     -- [1] UpdateLayout/Layout 훅 (CDM Main.lua:225)
                     if currentViewer.UpdateLayout then
@@ -701,12 +702,18 @@ if not FrameController._activeStateHooked then
             -- CDM이 active → true, inactive → false
             -- IsShown()이 아닌 CDM 내부 상태를 반영
             frame._ddCDMActive = ShouldIncludeCooldownViewerFrame(frame, "BuffIconCooldownViewer")
+            if FrameController.initialized then
+                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+            end
         end)
     end
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
             frame._ddCDMActive = true
+            if FrameController.initialized then
+                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
+            end
         end)
     end
 end
@@ -724,7 +731,6 @@ if not FrameController._poolReleaseHooked then
     -- 상태 변경 없음: Reconcile이 매번 전체 재배치
     FrameController._installPoolHooks = function(viewer, globalName)
         if not viewer or not viewer.itemFramePool then return end
-        if viewer._fcPoolHooked then return end
         if viewer._ddPoolHooked then return end
         viewer._ddPoolHooked = true
         -- Pool.Release: dirty만 표시 (Reconcile 즉시 트리거 안 함 → Layout 완료 후 Reconcile)
@@ -937,7 +943,6 @@ function FrameController:ScanCDMViewers()
     local activeFrameCount = 0
     local hiddenFrameCount = 0
     local unsafeKeyCount = 0
-    local spellNameChanged = false
 
     -- [REPARENT] DDingUI 프로필 참조 — 뷰어 활성화 상태 확인
     local profile = DDingUI.db and DDingUI.db.profile
@@ -1055,9 +1060,6 @@ function FrameController:ScanCDMViewers()
                         -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
                         local name = self:GetSpellName(icon)
                         if name then
-                            if iconSpellNameMap[cooldownID] ~= name then
-                                spellNameChanged = true
-                            end
                             iconSpellNameMap[cooldownID] = name
                         end
 
@@ -1153,17 +1155,7 @@ function FrameController:ScanCDMViewers()
         state.scanHoldActive = true
         state.scanHoldStartedAt = GetTime and GetTime() or 0
         DLog("ScanHold: prev=" .. previousCount .. " next=" .. nextCount .. " active=" .. activeFrameCount .. " hidden=" .. hiddenFrameCount .. " unsafe=" .. unsafeKeyCount)
-        return false, false
-    end
-
-    local mapChanged = spellNameChanged or previousCount ~= nextCount
-    if not mapChanged then
-        for cooldownID, icon in pairs(nextIdIconMap) do
-            if idIconMap[cooldownID] ~= icon or iconSourceMap[cooldownID] ~= nextIconSourceMap[cooldownID] then
-                mapChanged = true
-                break
-            end
-        end
+        return false
     end
 
     wipe(idIconMap)
@@ -1187,8 +1179,10 @@ function FrameController:ScanCDMViewers()
         DLog("ScanDone: idIconMap=" .. count .. " entries")
     end
 
-    -- Reconcile마다 풀을 스캔하되, 후속 렌더는 맵/이름 변경 시에만 실행한다.
-    return true, mapChanged
+    -- [CDM REACTIVE] 고아 정리 없음.
+    -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
+    -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
+    return true
 end
 
 -- 하위 호환 별칭
@@ -1230,23 +1224,13 @@ function FrameController:Reconcile()
     end
 
     -- 1. CDM 뷰어 스캔 (맵 재구축)
-    local forceNotify = state.specChangeDetected
-        or state.talentChangeDetected
-        or (state.reconcileCount or 0) == 0
-    local scanAccepted, scanChanged = self:ScanCDMViewers()
-    if scanAccepted == false then
-        state.isProcessing = false
-        state.dirty = true
-        return
-    end
+    self:ScanCDMViewers()
 
     -- 2. 콜백 알림 (GroupInit → DoFullUpdate)
     -- [PERF] scanCompleted 플래그: NotifyUpdate → DoFullUpdate에서 ScanCDMViewers 이중 호출 방지
-    if forceNotify or scanChanged then
-        state.scanCompleted = true
-        self:NotifyUpdate()
-        state.scanCompleted = false
-    end
+    state.scanCompleted = true
+    self:NotifyUpdate()
+    state.scanCompleted = false
 
     -- 3. [COOLDOWN TIMER] 만료 감지는 SetupFrameInContainer에서 alpha=0으로 처리
     -- CDM pool sync 불필요 — 매 Reconcile 틱마다 cooldown 시간 체크
@@ -1256,9 +1240,8 @@ function FrameController:Reconcile()
     state.talentChangeDetected = false
     state.isProcessing = false
     state.dirty = false -- [CDM] 이번 스캔 완료 → dirty 해제
-    state.burstTicksRemaining = 0
     state.reconcileCount = state.reconcileCount + 1
-    -- 이후 변경은 훅/이벤트가 다시 dirty를 켜서 처리한다.
+    -- OnUpdate 폴링이 watchdog(250ms)으로 자동 재스캔 → 수동 followup 불필요
 end
 
 -- ============================================================
@@ -2154,6 +2137,7 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
     eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- [FIX] 전투 진입 시 즉시 재스캔
     -- [CDM 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
     eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
     eventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
@@ -2180,12 +2164,70 @@ function FrameController:Initialize()
             return
         end
 
-        if event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
+        if event == "PLAYER_REGEN_DISABLED" then
+            -- [FIX] 전투 진입 시 CDM이 아이콘을 Show하므로 burst 재시작
+            -- 첫 전투 시 강화효과 정렬 지연 방지
+            MarkDirty()
+            if not state.pollingActive then
+                EnablePolling()
+            end
+            return
+
+        elseif event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
             state.specChangeDetected = true
             state.specChangeVersion = state.specChangeVersion + 1
-            wipe(iconSpellNameMap)
+            local specVersion = state.specChangeVersion
+            wipe(iconSpellNameMap) -- 캐시 초기화
             ScheduleReconcile(CONFIG.DEBOUNCE_SPEC)
-            ScheduleViewerTransitionRecovery(true, true, true)
+
+            -- [FIX] CDM이 뷰어를 재생성할 시간 대기 후 참조 갱신 + 앵커 재적용
+            C_Timer.After(1.5, function()
+                if not FrameController.initialized then return end
+                if specVersion ~= state.specChangeVersion then return end
+                FrameController:RefreshViewerRefs()
+
+                -- [FIX] _viewerHidden 강제 리셋
+                -- CDM 뷰어 재생성 시 기존 OnHide 훅으로 _viewerHidden=true가 남아
+                -- LayoutGroup이 영구 차단되는 것을 방지
+                local gr = DDingUI.GroupRenderer
+                if gr and gr.groupFrames then
+                    for _, frame in pairs(gr.groupFrames) do
+                        if frame._viewerHidden then
+                            frame._viewerHidden = false
+                        end
+                    end
+                end
+
+                -- GroupSystem 앵커 재적용 (그룹 프레임 → 뷰어 앵커 갱신)
+                if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
+                    DDingUI.GroupSystem:Refresh()
+                end
+                -- 매핑 모듈 위치 재적용 (시전바 등 → 그룹 프레임 앵커 갱신)
+                if DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
+                    DDingUI.Movers:ReloadMappedModulePositions()
+                end
+            end)
+            -- 안정화 패스: CDM Layout이 지연될 수 있으므로
+            C_Timer.After(3.0, function()
+                if not FrameController.initialized then return end
+                if specVersion ~= state.specChangeVersion then return end
+                FrameController:RefreshViewerRefs()
+
+                -- [FIX] 안정화 패스에서도 _viewerHidden 리셋
+                local gr = DDingUI.GroupRenderer
+                if gr and gr.groupFrames then
+                    for _, frame in pairs(gr.groupFrames) do
+                        if frame._viewerHidden then
+                            frame._viewerHidden = false
+                        end
+                    end
+                end
+
+                -- [FIX] 안정화 패스에서도 Refresh 호출
+                if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
+                    DDingUI.GroupSystem:Refresh()
+                end
+            end)
 
         elseif event == "TRAIT_CONFIG_UPDATED" then
             -- 전문화 변경 중이면 무시 (SPEC이 처리)
@@ -2229,7 +2271,6 @@ function FrameController:Shutdown()
     state.specChangeDetected = false
     state.talentChangeDetected = false
     state.isProcessing = false
-    state.transitionRecoveryToken = (state.transitionRecoveryToken or 0) + 1
     state.reconcileCount = 0
 
     -- 편집모드 해제
