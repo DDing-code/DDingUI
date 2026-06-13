@@ -3785,14 +3785,20 @@ local function EnsureEventFrame()
             or event == "SPELL_UPDATE_USABLE"
             or event == "ITEM_COUNT_CHANGED"
             or event == "BAG_UPDATE_DELAYED"
+        local isCooldownInventoryEvent = event == "UNIT_INVENTORY_CHANGED"
+            or event == "PLAYER_EQUIPMENT_CHANGED"
+            or event == "BAG_UPDATE"
         local hasItemCooldownIcon, hasSpellCooldownIcon = false, false
-        if isItemCooldownEvent then
+        if isItemCooldownEvent or isCooldownInventoryEvent then
             hasItemCooldownIcon, hasSpellCooldownIcon = HasItemCooldownIcon()
         end
         if hasItemCooldownIcon and succeededSpellID then
             MarkItemCombatLockoutFromSpell(succeededSpellID)
         end
         if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon and not isRacialSpellcast then
+            return
+        end
+        if (isItemCooldownEvent or isCooldownInventoryEvent) and not customTimedChanged and not hasItemCooldownIcon and not hasSpellCooldownIcon then
             return
         end
 
