@@ -105,7 +105,7 @@ local function ExecutePendingIconsChanged(bridge)
         end
         for sourceKey in pairs(pendingSourceKeys or {}) do
             local hash = sourceHashes and sourceHashes[sourceKey] or ""
-            if previousSourceHashes[sourceKey] ~= hash then
+            if pendingForce or previousSourceHashes[sourceKey] ~= hash then
                 targetedChangedSources = targetedChangedSources or {}
                 targetedChangedSources[sourceKey] = true
                 mergedSourceHashes[sourceKey] = hash
