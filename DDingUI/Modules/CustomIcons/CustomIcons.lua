@@ -1450,7 +1450,9 @@ function CustomIcons.RestoreActiveIconVisual(frame)
     local fh = DDingUI.FlightHide
     if frame.SetAlpha then
         if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-            local alpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
+            local parent = frame.GetParent and frame:GetParent()
+            local alpha = (parent and parent._groupKey and not frame._ddIsManaged) and 1
+                or ((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
             pcall(frame.SetAlpha, frame, alpha)
             frame._ddLastGroupAlpha = alpha
         else
@@ -3223,7 +3225,10 @@ local function UpdateAuraIcon(iconFrame, iconData)
         end
         local fh = DDingUI.FlightHide
         if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-            managedAlpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
+            local parent = iconFrame.GetParent and iconFrame:GetParent()
+            if not (parent and parent._groupKey and not iconFrame._ddIsManaged) then
+                managedAlpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
+            end
         end
         if iconFrame.SetAlpha then
             iconFrame:SetAlpha(managedAlpha)
@@ -4676,7 +4681,7 @@ local function AcquireDynamicIconFrame(name, parent)
         frame:SetSize(40, 40)
         frame:SetScale(1)
         local fh = DDingUI.FlightHide
-        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() and not (parent and parent._groupKey) then
             frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
         else
             frame:SetAlpha(1)
@@ -4686,7 +4691,7 @@ local function AcquireDynamicIconFrame(name, parent)
     end
     frame = CreateBaseIcon(name, parent)
     local fh = DDingUI.FlightHide
-    if frame and fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+    if frame and fh and fh.IsFadedOrFading and fh:IsFadedOrFading() and not (parent and parent._groupKey) then
         frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
     end
     return frame
@@ -5725,8 +5730,9 @@ local function LayoutGroup(groupKey, iconKeys)
             iconFrame:SetPoint(startAnchor, container, startAnchor, (pos.x or 0) + dx, (pos.y or 0) + dy)
             iconFrame:Show()
             if flightAlpha ~= nil then
-                iconFrame:SetAlpha(flightAlpha)
-                iconFrame._ddLastGroupAlpha = flightAlpha
+                local childAlpha = groupSettings.groupAlpha or 1
+                iconFrame:SetAlpha(childAlpha)
+                iconFrame._ddLastGroupAlpha = childAlpha
             end
         end
     end
