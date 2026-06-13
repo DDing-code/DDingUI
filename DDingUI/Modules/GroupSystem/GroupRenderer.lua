@@ -1320,6 +1320,18 @@ local function BuildPlacementHash(combinedList, groupName, groupSettings, groupO
     return table_concat(parts, ";")
 end
 
+local function BuildPlacementSequence(combinedList)
+    local parts = {}
+    for i, entry in ipairs(combinedList or {}) do
+        local token = entry._ddOrderToken
+            or (entry.isDynamic and BuildDynamicOrderToken(entry.iconKey or entry.cooldownID))
+            or BuildCDMOrderToken(entry)
+            or tostring(i)
+        parts[#parts + 1] = tostring(token)
+    end
+    return table_concat(parts, ";")
+end
+
 local function PixelSnap(val)
     return math_floor(val + 0.5)
 end
@@ -2076,6 +2088,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     ApplyGroupIconOrder(groupSettings, combinedList)
     local viewerName = GROUP_VIEWER_MAP[groupName]
     local resolvedGroupOffsets = ResolveGroupOffsetsForGroup(groupName, groupSettings)
+    local placementSequence = BuildPlacementSequence(combinedList)
+    local listChanged = frame._lastPlacementSequence and frame._lastPlacementSequence ~= placementSequence
     local combinedHash = BuildPlacementHash(combinedList, groupName, groupSettings, resolvedGroupOffsets)
     if frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
         RestoreActivePlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
@@ -2359,10 +2373,12 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         rowLimit = groupSettings.rowLimit or 0,
         rowIconSizes = groupSettings.rowIconSizes,
         groupOffsets = resolvedGroupOffsets,
+        instantIconLayout = hasDynamicIcons and listChanged,
     }
 
     -- 2단계: LayoutGroup (최종 크기/위치 결정 — rowIconSizes 반영)
     self:LayoutGroup(frame, layoutSettings, viewerName)
+    frame._lastPlacementSequence = placementSequence
 
     if idx > 0 then
         -- [FIX] CDM 뷰어의 IsShown() 반영 (전투 외 버프 숨김 등)
@@ -2536,7 +2552,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
 
     local motionSettings
     local isBuffMotionGroup = (viewerName == "BuffIconCooldownViewer") or (viewerSettings.groupCategory == "buff")
-    if isBuffMotionGroup and viewerSettings.iconMotion ~= false then
+    if isBuffMotionGroup and viewerSettings.iconMotion ~= false and not viewerSettings.instantIconLayout then
         motionSettings = {
             enabled = true,
             duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION,
@@ -2757,6 +2773,7 @@ function GroupRenderer:ReleaseGroupIcons(frame)
     wipe(frame._managedIcons)
     frame._iconCount = 0
     frame._lastCombinedLayoutHash = nil
+    frame._lastPlacementSequence = nil
     frame._lastDynHash = nil
 end
 
