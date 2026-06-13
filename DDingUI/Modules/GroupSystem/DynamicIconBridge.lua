@@ -1334,7 +1334,7 @@ function DynamicIconBridge:Initialize()
                     self._auraDirty = false
                     if not initialized then return end
                     ScanAndHideCDMBuffs()
-                    self:NotifyIconsChanged(event == "UNIT_AURA" or event == "PLAYER_REGEN_ENABLED")
+                    self:NotifyIconsChanged(false)
                 end)
             end
         end)
