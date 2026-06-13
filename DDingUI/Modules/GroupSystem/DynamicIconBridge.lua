@@ -78,6 +78,13 @@ local BuildDynamicLayoutStateHash
 local BuildCombinedHashFromSourceHashes
 local singleIconChangedKeys = {}
 
+local function GetIconsChangedDelay(forceLayout, inCombat)
+    if forceLayout then
+        return inCombat and 0.04 or 0
+    end
+    return inCombat and 0.3 or 0.16
+end
+
 local function ExecutePendingIconsChanged(bridge)
     local pendingForce = bridge._pendingForceLayout
     local pendingSourcesKnown = bridge._pendingChangedSourcesKnown
@@ -1697,6 +1704,16 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     -- DoFullUpdate 트리거 (디바운스)
     if self._updatePending then
         self._pendingForceLayout = self._pendingForceLayout or forceLayout
+        if forceLayout then
+            local delay = GetIconsChangedDelay(true, inCombat)
+            local currentDelay = tonumber(self._updateDelayRemaining) or 0
+            if currentDelay <= 0 or currentDelay > delay then
+                self._updateDelayRemaining = delay
+            end
+            if self._iconsChangedDispatchFrame then
+                self._iconsChangedDispatchFrame:Show()
+            end
+        end
         if not changedSourceKeys then
             self._pendingChangedSourcesKnown = false
             self._pendingChangedSourceKeys = nil
@@ -1709,7 +1726,7 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout, changedIconKeys)
     self._pendingForceLayout = forceLayout and true or false
     self._pendingChangedSourcesKnown = changedSourceKeys ~= nil
     self._pendingChangedSourceKeys = changedSourceKeys
-    self._updateDelayRemaining = inCombat and 0.3 or 0.16
+    self._updateDelayRemaining = GetIconsChangedDelay(forceLayout, inCombat)
     EnsureIconsChangedDispatchFrame(self)
     self._iconsChangedDispatchFrame:Show()
 end
