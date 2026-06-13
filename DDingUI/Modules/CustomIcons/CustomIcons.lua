@@ -3662,12 +3662,19 @@ end
 
 local function HasItemCooldownIcon()
     local db = GetDynamicDB()
+    local hasItemCooldownIcon = false
+    local hasSpellCooldownIcon = false
     for _, iconData in pairs((db and db.iconData) or {}) do
         if iconData.type == "item" or iconData.type == "slot" or iconData.type == "trinketProc" then
-            return true
+            hasItemCooldownIcon = true
+        elseif iconData.type == "spell" or iconData.type == "racial" then
+            hasSpellCooldownIcon = true
+        end
+        if hasItemCooldownIcon and hasSpellCooldownIcon then
+            return true, true
         end
     end
-    return false
+    return hasItemCooldownIcon, hasSpellCooldownIcon
 end
 
 local function RefreshItemCooldownIcons(needsLayoutNotify)
@@ -3778,7 +3785,10 @@ local function EnsureEventFrame()
             or event == "SPELL_UPDATE_USABLE"
             or event == "ITEM_COUNT_CHANGED"
             or event == "BAG_UPDATE_DELAYED"
-        local hasItemCooldownIcon = isItemCooldownEvent and HasItemCooldownIcon()
+        local hasItemCooldownIcon, hasSpellCooldownIcon = false, false
+        if isItemCooldownEvent then
+            hasItemCooldownIcon, hasSpellCooldownIcon = HasItemCooldownIcon()
+        end
         if hasItemCooldownIcon and succeededSpellID then
             MarkItemCombatLockoutFromSpell(succeededSpellID)
         end
@@ -3812,7 +3822,7 @@ local function EnsureEventFrame()
             if customTimedChanged then
                 UpdateAllIcons(needsLayoutNotify, "aura")
             end
-            if isRacialSpellcast or event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
+            if isRacialSpellcast or ((event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE") and hasSpellCooldownIcon) then
                 UpdateAllIcons(nil, "cooldown")
             end
             return
