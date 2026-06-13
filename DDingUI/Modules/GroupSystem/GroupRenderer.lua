@@ -744,18 +744,14 @@ ResetPostCombatDynamicIconState = function()
     end
 
     for _, frame in pairs(frames) do
-        local flightBlocked = fh and fh.IsFadedOrFading and fh:IsFadedOrFading()
         local groupAlpha = frame and frame._groupSettings and frame._groupSettings.groupAlpha or 1
-        if flightBlocked and fh.GetCurrentAlpha then
-            groupAlpha = fh:GetCurrentAlpha()
-        end
         if frame and frame._ddDeferredReleaseIcons then
             for iconKey, icon in pairs(frame._ddDeferredReleaseIcons) do
                 if icon then
                     local iconData = GetDynamicIconData(iconKey)
                     if iconData and iconData.type == "aura" then
                         if IsDynamicAuraActive(icon, iconData) then
-                            RestoreDynamicIconAfterCombat(icon, frame, groupAlpha, flightBlocked)
+                            RestoreDynamicIconAfterCombat(icon, frame, groupAlpha, fh and fh.isActive)
                         else
                             HideInactiveDynamicAura(icon)
                         end
@@ -781,11 +777,11 @@ ResetPostCombatDynamicIconState = function()
                     local iconData = GetDynamicIconData(icon._ddIconKey)
                     if iconData and iconData.type == "aura" and icon._ddManagedAuraExpired then
                         if IsDynamicAuraActive(icon, iconData) then
-                            RestoreDynamicIconAfterCombat(icon, frame, groupAlpha, flightBlocked)
+                            RestoreDynamicIconAfterCombat(icon, frame, groupAlpha, fh and fh.isActive)
                         else
                             HideInactiveDynamicAura(icon)
                         end
-                    elseif not flightBlocked then
+                    elseif not (fh and fh.isActive) then
                         if icon.Show and frame:IsShown() then pcall(icon.Show, icon) end
                         SetAlphaIfNeeded(icon, groupAlpha, "_ddLastGroupAlpha")
                         RestoreIconTextureOpacity(icon)
@@ -2419,11 +2415,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     -- [12.0.1] 그룹 아이콘 투명도 적용
     -- [FIX] FlightHide 활성 또는 페이드 중이면 alpha=0 유지 (Reconcile이 덮어쓰는 것 방지)
     local fh = DDingUI.FlightHide
-    local flightHiding = fh and fh.IsFadedOrFading and fh:IsFadedOrFading()
-    local groupAlpha = groupSettings.groupAlpha or 1.0
-    if flightHiding and fh.GetCurrentAlpha then
-        groupAlpha = fh:GetCurrentAlpha()
-    end
+    local flightHiding = fh and (fh.isActive or fh._hiding)
+    local groupAlpha = flightHiding and 0 or (groupSettings.groupAlpha or 1.0)
 
     -- [FIX CDM] 컨테이너 프레임 alpha: 변경 시에만 SetAlpha (매 틱 호출 방지)
     SetAlphaIfNeeded(frame, groupAlpha, "_ddLastFrameAlpha")

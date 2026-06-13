@@ -1290,33 +1290,11 @@ do
         return _cachedMoverFrames
     end
 
-    local function GetFrameParent(frame)
-        if not (frame and frame.GetParent) then return nil end
-        return frame:GetParent()
-    end
-
-    local function SetFlightAlpha(frame, alpha)
-        if not (frame and frame.SetAlpha) then return end
-        frame:SetAlpha(alpha)
-        frame._ddFlightHideAlpha = alpha
-    end
-
-    local function RestoreInheritedAlpha(frame)
-        if not (frame and frame.SetAlpha) then return end
-        if frame._ddFlightHideAlpha ~= nil and frame._ddFlightHideAlpha ~= 1 then
-            frame:SetAlpha(1)
-            frame._ddFlightHideAlpha = 1
-        end
-    end
-
     local function ApplyAlpha(alpha)
         local owned = GetOwnedFrames()
         for frame in pairs(owned) do
-            local parent = GetFrameParent(frame)
-            if parent and owned[parent] then
-                RestoreInheritedAlpha(frame)
-            else
-                SetFlightAlpha(frame, alpha)
+            if frame.SetAlpha then
+                frame:SetAlpha(alpha)
             end
         end
     end
@@ -1332,14 +1310,10 @@ do
             if key ~= "BuffIconCooldownViewer" then
                 local viewer = _G[key]
                 if viewer then
-                    SetFlightAlpha(viewer, alpha)
+                    viewer:SetAlpha(alpha)
                     local vf = viewer.viewerFrame
                     if vf and vf.SetAlpha then
-                        if GetFrameParent(vf) == viewer then
-                            RestoreInheritedAlpha(vf)
-                        else
-                            SetFlightAlpha(vf, alpha)
-                        end
+                        vf:SetAlpha(alpha)
                     end
                     count = count + 1
                 end
@@ -1353,7 +1327,9 @@ do
             local FC = DDingUI.FrameController
             local activeMap = FC and FC.GetIdIconMap and FC:GetIdIconMap()
             for _, container in pairs(GR.groupFrames) do
-                SetFlightAlpha(container, alpha)
+                if container and container.SetAlpha then
+                    container:SetAlpha(alpha)
+                end
                 -- reparent된 아이콘은 컨테이너 자식이 아니므로 개별 알파 적용
                 if container._managedIcons then
                     for i = 1, (container._iconCount or 0) do
@@ -1362,11 +1338,7 @@ do
                             -- [FIX] idIconMap에 없는 아이콘(비활성 버프)은 alpha 복원 안 함
                             local cdID = ic._ddLastCooldownID or ic.cooldownID
                             if not activeMap or not cdID or activeMap[cdID] then
-                                if GetFrameParent(ic) == container then
-                                    RestoreInheritedAlpha(ic)
-                                else
-                                    SetFlightAlpha(ic, alpha)
-                                end
+                                ic:SetAlpha(alpha)
                             end
                         end
                     end
@@ -1378,21 +1350,17 @@ do
         local ci = DDingUI.CustomIcons
         if ci and ci.GetRuntimeFrames then
             local rt = ci:GetRuntimeFrames()
-            local customContainers = rt and rt.groupFrames
             if rt and rt.groupFrames then
                 for _, container in pairs(rt.groupFrames) do
-                    SetFlightAlpha(container, alpha)
+                    if container and container.SetAlpha then
+                        container:SetAlpha(alpha)
+                    end
                 end
             end
             if rt.iconFrames then
                 for _, iconFrame in pairs(rt.iconFrames) do
                     if iconFrame and iconFrame.SetAlpha then
-                        local parent = GetFrameParent(iconFrame)
-                        if parent and customContainers and parent._groupKey and customContainers[parent._groupKey] == parent then
-                            RestoreInheritedAlpha(iconFrame)
-                        else
-                            SetFlightAlpha(iconFrame, alpha)
-                        end
+                        iconFrame:SetAlpha(alpha)
                     end
                 end
             end
@@ -1480,14 +1448,6 @@ do
         if flightHideFrame then
             flightHideFrame:SetScript("OnUpdate", FlightHideOnUpdate)
         end
-    end
-
-    function FlightHide:GetCurrentAlpha()
-        return currentAlpha
-    end
-
-    function FlightHide:IsFadedOrFading()
-        return currentAlpha < 1 or targetAlpha < 1 or self.isActive or self._hiding
     end
 
     function FlightHide:ForceShow()

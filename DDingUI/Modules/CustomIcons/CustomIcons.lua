@@ -1448,17 +1448,9 @@ function CustomIcons.RestoreActiveIconVisual(frame)
         pcall(frame.Show, frame)
     end
     local fh = DDingUI.FlightHide
-    if frame.SetAlpha then
-        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-            local parent = frame.GetParent and frame:GetParent()
-            local alpha = (parent and parent._groupKey and not frame._ddIsManaged) and 1
-                or ((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
-            pcall(frame.SetAlpha, frame, alpha)
-            frame._ddLastGroupAlpha = alpha
-        else
-            pcall(frame.SetAlpha, frame, 1)
-            frame._ddLastGroupAlpha = 1
-        end
+    if frame.SetAlpha and not (fh and fh.isActive) then
+        pcall(frame.SetAlpha, frame, 1)
+        frame._ddLastGroupAlpha = 1
     end
     local icon = frame.icon or frame.Icon
     if icon then
@@ -3223,13 +3215,6 @@ local function UpdateAuraIcon(iconFrame, iconData)
         if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
             managedAlpha = iconFrame._groupSettings.groupAlpha
         end
-        local fh = DDingUI.FlightHide
-        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-            local parent = iconFrame.GetParent and iconFrame:GetParent()
-            if not (parent and parent._groupKey and not iconFrame._ddIsManaged) then
-                managedAlpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
-            end
-        end
         if iconFrame.SetAlpha then
             iconFrame:SetAlpha(managedAlpha)
             iconFrame._ddLastGroupAlpha = managedAlpha
@@ -4680,21 +4665,11 @@ local function AcquireDynamicIconFrame(name, parent)
         frame:SetParent(parent)
         frame:SetSize(40, 40)
         frame:SetScale(1)
-        local fh = DDingUI.FlightHide
-        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() and not (parent and parent._groupKey) then
-            frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
-        else
-            frame:SetAlpha(1)
-        end
+        frame:SetAlpha(1)
         frame:EnableMouse(true)
         return frame
     end
-    frame = CreateBaseIcon(name, parent)
-    local fh = DDingUI.FlightHide
-    if frame and fh and fh.IsFadedOrFading and fh:IsFadedOrFading() and not (parent and parent._groupKey) then
-        frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
-    end
-    return frame
+    return CreateBaseIcon(name, parent)
 end
 
 local function ReleaseDynamicIconFrame(iconKey, frame)
@@ -5583,17 +5558,8 @@ local function LayoutGroup(groupKey, iconKeys)
         return
     end
 
-    local fh = DDingUI.FlightHide
-    local flightAlpha
-    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-        flightAlpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
-    end
-
     local container = EnsureGroupFrame(groupKey, settings)
     container:Show()
-    if flightAlpha ~= nil then
-        container:SetAlpha(flightAlpha)
-    end
 
     local spacing = settings.spacing or 5
     local maxPerRow = settings.maxIconsPerRow
@@ -5729,11 +5695,6 @@ local function LayoutGroup(groupKey, iconKeys)
             iconFrame:SetParent(container)
             iconFrame:SetPoint(startAnchor, container, startAnchor, (pos.x or 0) + dx, (pos.y or 0) + dy)
             iconFrame:Show()
-            if flightAlpha ~= nil then
-                local childAlpha = groupSettings.groupAlpha or 1
-                iconFrame:SetAlpha(childAlpha)
-                iconFrame._ddLastGroupAlpha = childAlpha
-            end
         end
     end
 
@@ -5748,9 +5709,6 @@ local function LayoutGroup(groupKey, iconKeys)
         local anchorPoint = settings.anchorTo or containerPoint
         container:ClearAllPoints()
         container:SetPoint(containerPoint, anchorFrame, anchorPoint, settings.position.x or 0, settings.position.y or 0)
-    end
-    if flightAlpha ~= nil then
-        container:SetAlpha(flightAlpha)
     end
 end
 

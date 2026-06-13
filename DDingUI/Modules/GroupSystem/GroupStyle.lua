@@ -13,11 +13,9 @@ function GroupStyle:ApplyToGroup(icons, settings)
     local viewers = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.viewers
     
     for _, icon in ipairs(icons) do
+        -- 1. Base Alpha (Flight Hide logic etc)
         local alpha = 1.0
-        local fh = DDingUI.FlightHide
-        if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-            alpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0.0
-        elseif fh and fh.isActive then
+        if DDingUI.FlightHide and DDingUI.FlightHide.isActive then
             alpha = 0.0
         end
         icon:SetAlpha(alpha)

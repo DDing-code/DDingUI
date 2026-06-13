@@ -1239,8 +1239,8 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
 
     -- [FIX] FlightHide 활성 중이면 새 아이콘도 알파 0 적용
     local fh = DDingUI.FlightHide
-    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-        frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
+    if fh and fh.isActive then
+        frame:SetAlpha(0)
     end
 
     managedFrames[iconKey] = true
@@ -1370,12 +1370,7 @@ local function HideCDMFrame(frame, cooldownID)
                             self._ddDynBridgeHiddenCdID = nil
                             hiddenCDMFrames[self] = nil
                             self._ddAlphaGuard = true
-                            local fh = DDingUI.FlightHide
-                            if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-                                self:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
-                            else
-                                self:SetAlpha(1)
-                            end
+                            self:SetAlpha(1)
                             self._ddAlphaGuard = nil
                             if self.EnableMouse then pcall(self.EnableMouse, self, true) end
                             return
@@ -1432,12 +1427,7 @@ local function UnhideCDMFrame(frame)
     hiddenCDMFrames[frame] = nil
     -- [PHASE3] 알파/마우스 복원 (guard로 SetAlpha hook 우회)
     frame._ddAlphaGuard = true
-    local fh = DDingUI.FlightHide
-    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
-        frame:SetAlpha((fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0)
-    else
-        frame:SetAlpha(1)
-    end
+    frame:SetAlpha(1)
     frame._ddAlphaGuard = nil
     if frame.EnableMouse then pcall(frame.EnableMouse, frame, true) end
 end
