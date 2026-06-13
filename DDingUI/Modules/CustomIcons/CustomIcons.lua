@@ -5578,8 +5578,17 @@ local function LayoutGroup(groupKey, iconKeys)
         return
     end
 
+    local fh = DDingUI.FlightHide
+    local flightAlpha
+    if fh and fh.IsFadedOrFading and fh:IsFadedOrFading() then
+        flightAlpha = (fh.GetCurrentAlpha and fh:GetCurrentAlpha()) or 0
+    end
+
     local container = EnsureGroupFrame(groupKey, settings)
     container:Show()
+    if flightAlpha ~= nil then
+        container:SetAlpha(flightAlpha)
+    end
 
     local spacing = settings.spacing or 5
     local maxPerRow = settings.maxIconsPerRow
@@ -5715,6 +5724,10 @@ local function LayoutGroup(groupKey, iconKeys)
             iconFrame:SetParent(container)
             iconFrame:SetPoint(startAnchor, container, startAnchor, (pos.x or 0) + dx, (pos.y or 0) + dy)
             iconFrame:Show()
+            if flightAlpha ~= nil then
+                iconFrame:SetAlpha(flightAlpha)
+                iconFrame._ddLastGroupAlpha = flightAlpha
+            end
         end
     end
 
@@ -5729,6 +5742,9 @@ local function LayoutGroup(groupKey, iconKeys)
         local anchorPoint = settings.anchorTo or containerPoint
         container:ClearAllPoints()
         container:SetPoint(containerPoint, anchorFrame, anchorPoint, settings.position.x or 0, settings.position.y or 0)
+    end
+    if flightAlpha ~= nil then
+        container:SetAlpha(flightAlpha)
     end
 end
 

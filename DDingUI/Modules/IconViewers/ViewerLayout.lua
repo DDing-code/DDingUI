@@ -874,7 +874,8 @@ function IconViewers:ApplyViewerLayout(viewer)
     -- Skip during EditMode to prevent overriding Blizzard nudge/snap positioning
     if IsInEditMode() then return end
     -- FlightHide: skip layout during flight
-    if DDingUI.FlightHide and DDingUI.FlightHide.isActive then return end
+    local fh = DDingUI.FlightHide
+    if fh and ((fh.IsFadedOrFading and fh:IsFadedOrFading()) or fh.isActive) then return end
     -- [REPARENT] GroupSystem이 활성 상태면 ViewerLayout 완전 스킵
     -- GroupRenderer가 모든 레이아웃을 담당 — ViewerLayout과 충돌 방지
     if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then return end
@@ -1031,7 +1032,8 @@ function IconViewers:RescanViewer(viewer)
     -- Skip during EditMode to prevent overriding Blizzard nudge/snap positioning
     if IsInEditMode() then return end
     -- FlightHide: skip rescan during flight
-    if DDingUI.FlightHide and DDingUI.FlightHide.isActive then return end
+    local fh = DDingUI.FlightHide
+    if fh and ((fh.IsFadedOrFading and fh:IsFadedOrFading()) or fh.isActive) then return end
     -- [REPARENT] GroupSystem이 활성 상태면 RescanViewer 완전 스킵
     if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then return end
     -- (fallback) ContainerSync로 은닉된 뷰어는 스킵

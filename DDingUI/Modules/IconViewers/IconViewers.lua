@@ -79,8 +79,9 @@ function IconViewers:ApplyViewerSkin(viewer)
     if not viewer or not viewer.GetName then return end
     -- [FIX] CMC IsReady 패턴: 뷰어 초기화 미완료 시 스킵
     if self.IsViewerReady and not self.IsViewerReady(viewer) then return end
-    -- FlightHide: skip all viewer processing during flight
-    if DDingUI.FlightHide and DDingUI.FlightHide.isActive then return end
+    -- FlightHide: skip all viewer processing during fade and hidden states
+    local fh = DDingUI.FlightHide
+    if fh and ((fh.IsFadedOrFading and fh:IsFadedOrFading()) or fh.isActive) then return end
     local name     = viewer:GetName()
     local settings = DDingUI.db.profile.viewers[name]
     if not settings or not settings.enabled then return end
@@ -110,8 +111,9 @@ end
 function IconViewers:ProcessPendingIcons()
     if not DDingUI.__cdmPendingIcons then return end
     if InCombatLockdown() then return end
-    -- FlightHide: skip pending icon processing during flight
-    if DDingUI.FlightHide and DDingUI.FlightHide.isActive then return end
+    -- FlightHide: skip pending icon processing during fade and hidden states
+    local fh = DDingUI.FlightHide
+    if fh and ((fh.IsFadedOrFading and fh:IsFadedOrFading()) or fh.isActive) then return end
     -- Skip during EditMode to avoid triggering Blizzard secret value errors
     if EditModeManagerFrame then
         local inEditMode = false
