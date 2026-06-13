@@ -3785,11 +3785,14 @@ local function EnsureEventFrame()
             or event == "SPELL_UPDATE_USABLE"
             or event == "ITEM_COUNT_CHANGED"
             or event == "BAG_UPDATE_DELAYED"
+        local isSpellCooldownEvent = event == "SPELL_UPDATE_COOLDOWN"
+            or event == "SPELL_UPDATE_CHARGES"
+            or event == "SPELL_UPDATE_USABLE"
         local isCooldownInventoryEvent = event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
             or event == "BAG_UPDATE"
         local hasItemCooldownIcon, hasSpellCooldownIcon = false, false
-        if isItemCooldownEvent or isCooldownInventoryEvent then
+        if isItemCooldownEvent or isSpellCooldownEvent or isCooldownInventoryEvent then
             hasItemCooldownIcon, hasSpellCooldownIcon = HasItemCooldownIcon()
         end
         if hasItemCooldownIcon and succeededSpellID then
@@ -3798,7 +3801,7 @@ local function EnsureEventFrame()
         if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon and not isRacialSpellcast then
             return
         end
-        if (isItemCooldownEvent or isCooldownInventoryEvent) and not customTimedChanged and not hasItemCooldownIcon and not hasSpellCooldownIcon then
+        if (isItemCooldownEvent or isSpellCooldownEvent or isCooldownInventoryEvent) and not customTimedChanged and not hasItemCooldownIcon and not hasSpellCooldownIcon then
             return
         end
 
@@ -3819,7 +3822,7 @@ local function EnsureEventFrame()
             needsLayoutNotify = "aura"
         end
 
-        if hasItemCooldownIcon then
+        if hasItemCooldownIcon and (isItemCooldownEvent or isCooldownInventoryEvent) then
             if event == "BAG_UPDATE_COOLDOWN" and runtime.QueueEvaluateCustomCooldownWatches then
                 runtime.QueueEvaluateCustomCooldownWatches()
             else
@@ -3828,7 +3831,7 @@ local function EnsureEventFrame()
             if customTimedChanged then
                 UpdateAllIcons(needsLayoutNotify, "aura")
             end
-            if isRacialSpellcast or ((event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE") and hasSpellCooldownIcon) then
+            if isRacialSpellcast or (isSpellCooldownEvent and hasSpellCooldownIcon) then
                 UpdateAllIcons(nil, "cooldown")
             end
             return
@@ -3837,7 +3840,8 @@ local function EnsureEventFrame()
         local updateFilter = nil
         if customTimedChanged or event == "UNIT_AURA" then
             updateFilter = "aura"
-        elseif isItemCooldownEvent
+        elseif (isSpellCooldownEvent and hasSpellCooldownIcon)
+            or isItemCooldownEvent
             or event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
             or event == "BAG_UPDATE"
