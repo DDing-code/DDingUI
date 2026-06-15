@@ -5,14 +5,15 @@ DDingUI.SpecProfiles = DDingUI.SpecProfiles or {}
 local SP = DDingUI.SpecProfiles
 
 -- Per-specialization full-profile snapshots.
--- v7 is intentionally non-destructive: it only repairs stale CDM source links.
-local SPEC_DATA_VERSION = 7
+-- v8 keeps dynamic icon data profile-wide instead of storing it per specialization.
+local SPEC_DATA_VERSION = 8
 
 local EXCLUDE_KEYS = {
     specData = true,
     specDataVersion = true,
     profileVersion = true,
     pendingMoverMigration = true,
+    dynamicIcons = true,
 }
 
 local PRESERVE_MISSING_TOP_LEVEL_KEYS = {
@@ -24,6 +25,15 @@ local CORE_CDM_GROUPS = {
     Buffs = true,
     Utility = true,
 }
+
+local function HasTableEntries(tbl)
+    return type(tbl) == "table" and next(tbl) ~= nil
+end
+
+local function HasDynamicIconPayload(db)
+    return type(db) == "table"
+        and (HasTableEntries(db.groups) or HasTableEntries(db.iconData) or HasTableEntries(db.ungrouped))
+end
 
 local function GetCurrentSpecID()
     local specIndex = GetSpecialization()
@@ -82,6 +92,18 @@ local function MergeSnapshot(dest, source)
     end
 end
 
+local function MergeMissingStoredValues(dest, source)
+    dest = type(dest) == "table" and dest or {}
+    if type(source) == "table" then
+        for k, v in pairs(source) do
+            if dest[k] == nil then
+                dest[k] = DeepCopy(v)
+            end
+        end
+    end
+    return dest
+end
+
 local function ApplySnapshot(dest, source, isTopLevel)
     if type(dest) ~= "table" or type(source) ~= "table" then return end
 
@@ -134,31 +156,44 @@ end
 
 local function ResetIconGroupsForFreshSpec(profile)
     if not profile then return end
+    profile.dynamicIcons = profile.dynamicIcons or {}
+    profile.dynamicIcons.groups = profile.dynamicIcons.groups or {}
+    profile.dynamicIcons.iconData = profile.dynamicIcons.iconData or {}
+    profile.dynamicIcons.ungrouped = profile.dynamicIcons.ungrouped or {}
+    profile.dynamicIcons.ungroupedPositions = profile.dynamicIcons.ungroupedPositions or {}
+    RepairStaleHybridSources(profile)
+end
 
-    profile.dynamicIcons = {
-        enabled = true,
-        groups = {},
-        iconData = {},
-        ungrouped = {},
-        ungroupedPositions = {},
-    }
+local function PromoteSnapshotDynamicIcons(profile)
+    if not profile or type(profile.specData) ~= "table" then return end
 
-    local gs = profile.groupSystem
-    local groups = gs and gs.groups
-    if not groups then return end
-
-    local toRemove
-    for groupName, group in pairs(groups) do
-        if group and group.groupType == "dynamic" then
-            if not toRemove then toRemove = {} end
-            toRemove[#toRemove + 1] = groupName
-        elseif group and group.sourceGroupKey then
-            group.sourceGroupKey = nil
-        end
+    local root = profile.dynamicIcons
+    if type(root) ~= "table" then
+        root = {
+            enabled = true,
+            groups = {},
+            iconData = {},
+            ungrouped = {},
+            ungroupedPositions = {},
+        }
+        profile.dynamicIcons = root
     end
-    if toRemove then
-        for _, groupName in ipairs(toRemove) do
-            groups[groupName] = nil
+
+    root.groups = root.groups or {}
+    root.iconData = root.iconData or {}
+    root.ungrouped = root.ungrouped or {}
+    root.ungroupedPositions = root.ungroupedPositions or {}
+
+    for _, snapshot in pairs(profile.specData) do
+        local snapDyn = type(snapshot) == "table" and snapshot.dynamicIcons
+        if HasDynamicIconPayload(snapDyn) then
+            root.groups = MergeMissingStoredValues(root.groups, snapDyn.groups)
+            root.iconData = MergeMissingStoredValues(root.iconData, snapDyn.iconData)
+            root.ungrouped = MergeMissingStoredValues(root.ungrouped, snapDyn.ungrouped)
+            root.ungroupedPositions = MergeMissingStoredValues(root.ungroupedPositions, snapDyn.ungroupedPositions)
+            if root.enabled == nil then
+                root.enabled = snapDyn.enabled ~= false
+            end
         end
     end
 end
@@ -177,8 +212,10 @@ local function MigrateSpecData()
     if ver >= SPEC_DATA_VERSION then return end
 
     if profile.specData then
+        PromoteSnapshotDynamicIcons(profile)
         for _, snapshot in pairs(profile.specData) do
             RepairStaleHybridSources(snapshot)
+            snapshot.dynamicIcons = nil
         end
     end
     RepairStaleHybridSources(profile)
@@ -204,14 +241,11 @@ function SP:LoadSpec(specID)
     local snapshot = specData and specData[specID]
     if not snapshot then return false end
 
-    local snapshotHasDynamicIcons = type(snapshot.dynamicIcons) == "table"
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     if defaults then
         snapshot = FullSnapshot(snapshot, defaults, true)
     end
-    if not snapshotHasDynamicIcons then
-        snapshot.dynamicIcons = nil
-    end
+    snapshot.dynamicIcons = nil
 
     ApplySnapshot(DDingUI.db.profile, snapshot, true)
     RepairStaleHybridSources(DDingUI.db.profile)
