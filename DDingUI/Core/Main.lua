@@ -1865,7 +1865,9 @@ function DDingUI:StartFramePicker(callback)
                     print(CDM_PREFIX .. (L["Frame selected:"] or "선택된 프레임:") .. " |cFFFFFF00" .. frameName .. "|r") -- [STYLE]
                     -- [REFACTOR] AceGUI → StyleLib: 설정 UI 새로고침
                     C_Timer.After(0.1, function()
-                        DDingUI:RefreshConfigGUI()
+                        if DDingUI.RefreshConfigGUI then
+                            DDingUI:RefreshConfigGUI()
+                        end
                     end)
                     return
                 end
