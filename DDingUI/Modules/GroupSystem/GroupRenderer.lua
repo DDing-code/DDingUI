@@ -1422,7 +1422,9 @@ local function LayoutHorizontal(icons, container, primary, secondary, spacing, r
 
     -- Row 1을 기준점으로 anchorY 계산 (DOWN이면 위에서, UP이면 아래에서 시작)
     local anchorY
-    if rowDirection == -1 then
+    if motionSettings and motionSettings.pinWrappedRowsToAnchor then
+        anchorY = 0
+    elseif rowDirection == -1 then
         anchorY = (totalHeight / 2) - (rowMeta[1].iconHeight / 2)
     else
         anchorY = -(totalHeight / 2) + (rowMeta[1].iconHeight / 2)
@@ -2422,11 +2424,14 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
 
     local motionSettings
     local isBuffMotionGroup = (viewerName == "BuffIconCooldownViewer") or (viewerSettings.groupCategory == "buff")
-    if isBuffMotionGroup and viewerSettings.iconMotion ~= false then
+    if isBuffMotionGroup then
         motionSettings = {
-            enabled = true,
-            duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION,
+            pinWrappedRowsToAnchor = true,
         }
+        if viewerSettings.iconMotion ~= false then
+            motionSettings.enabled = true
+            motionSettings.duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION
+        end
     end
 
     -- ViewerLayout과 동일하게 방향/행제한 resolve
