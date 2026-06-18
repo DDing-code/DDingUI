@@ -3,7 +3,7 @@
 ## Notes: Modular utility addon (Talent Background, LFG Alert, etc.)
 ## Notes-koKR: 모듈형 유틸리티 애드온 (특성창 배경, 파티 신청 알림 등)
 ## Author: DDing
-## Version: 1.2.3
+## Version: 1.2.6
 ## IconTexture: Interface\AddOns\DDingUI_Toolkit\logo
 ## SavedVariables: DDingUIToolkitDB
 ## OptionalDeps: DDingUI_Controller

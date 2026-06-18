@@ -2,6 +2,31 @@
 
 ---
 
+## v1.2.11
+
+_Release date: 2026-06-18_
+_Scope: Git changes from v1.2.10 through this release._
+
+### English Patch Notes
+- Reduced combat-time refresh pressure by routing custom icon, dynamic icon, resource bar, and buff tracker updates through narrower queued refresh paths.
+- Reduced unnecessary full scans and layout rebuilds by filtering cooldown, aura, item, spell, and viewer transition events before they reach CDM group rendering.
+- Improved custom aura and timed aura stability so active icon, duration, text, glow, and cooldown updates are targeted to the changed sources instead of broad rescans.
+- Restored stable flight and hidden-state fade behavior so alpha changes are not stacked or replayed during layout and icon refreshes.
+- Fixed buff-group wrapping so multi-row buff layouts stay pinned to the correct edge for the selected wrap direction.
+- Hardened frame picker and options refresh paths against missing config callbacks.
+- Updated TOC interface metadata for the current game client patch.
+
+### Korean Patch Notes
+- 커스텀 아이콘, 동적 아이콘, 자원 바, 버프 추적 갱신을 더 좁은 대기열 경로로 보내 전투 중 갱신 부담을 줄였습니다.
+- 쿨다운, 오라, 아이템, 주문, 뷰어 전환 이벤트를 CDM 그룹 렌더링 전에 필터링해 불필요한 전체 스캔과 레이아웃 재구성을 줄였습니다.
+- 커스텀 오라와 시간제 오라가 활성 아이콘, 지속시간, 텍스트, 글로우, 쿨다운 갱신을 변경된 대상에만 적용하도록 안정성을 높였습니다.
+- 비행 및 숨김 상태 페이드가 레이아웃/아이콘 갱신 중 중첩되거나 반복 재생되지 않도록 안정적인 동작을 복원했습니다.
+- 강화효과 그룹이 여러 줄로 줄바꿈될 때 선택한 줄바꿈 방향에 맞는 기준 edge에 고정되도록 수정했습니다.
+- 프레임 선택기와 설정창 갱신 경로에서 설정 콜백이 없을 때 오류가 나지 않도록 보강했습니다.
+- 현재 게임 클라이언트 패치에 맞춰 TOC 인터페이스 메타데이터를 갱신했습니다.
+
+---
+
 ## v1.2.10
 
 _Release date: 2026-06-05_
