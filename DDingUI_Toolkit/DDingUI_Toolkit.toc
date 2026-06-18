@@ -1,4 +1,4 @@
-## Interface: 120001
+## Interface: 120007
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r
 ## Notes: Modular utility addon (Talent Background, LFG Alert, etc.)
 ## Notes-koKR: 모듈형 유틸리티 애드온 (특성창 배경, 파티 신청 알림 등)

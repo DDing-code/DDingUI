@@ -1,4 +1,4 @@
-## Interface: 120005, 110207
+## Interface: 120007, 110207
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fOptions|r
 ## Notes: DDingUI CooldownManager - Options UI (Load on Demand)
 ## Author: DDing

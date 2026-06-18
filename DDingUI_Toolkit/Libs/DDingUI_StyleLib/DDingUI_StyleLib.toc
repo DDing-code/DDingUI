@@ -1,4 +1,4 @@
-## Interface: 120001
+## Interface: 120007
 ## Title: DDingUI_StyleLib
 ## Notes: Shared UI Style Library for DDingUI addon series
 ## Author: DDing
