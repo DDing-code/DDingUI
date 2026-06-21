@@ -1053,6 +1053,34 @@ local function RestoreActiveDynamicEntries(list, groupName, groupSettings, group
     end
 end
 
+local function EntryRequiresFreshLayout(entry, frame, layoutHash)
+    if not entry or not frame then return false end
+    local icon = entry.icon or entry.frame
+    if not icon or icon._ddingHidden then return false end
+
+    local isDynamicEntry = entry.isDynamic or entry.iconKey ~= nil
+    if isDynamicEntry then
+        if entry.combatVisible == false or icon._ddCombatVisible == false or icon._ddManagedAuraExpired then
+            return false
+        end
+    elseif entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(icon) then
+        return false
+    end
+
+    if icon._ddContainerRef ~= frame then return true end
+    if icon._ddLastGroupLayoutHash ~= layoutHash then return true end
+    return false
+end
+
+local function ListRequiresFreshLayout(list, frame, layoutHash)
+    for _, entry in ipairs(list or {}) do
+        if EntryRequiresFreshLayout(entry, frame, layoutHash) then
+            return true
+        end
+    end
+    return false
+end
+
 local function ApplyGroupIconOrder(groupSettings, combinedList)
     local iconOrder = groupSettings and groupSettings.iconOrder
     if type(iconOrder) ~= "table" or #iconOrder == 0 then return end
@@ -1914,7 +1942,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     ApplyGroupIconOrder(groupSettings, combinedList)
     local combinedHash = BuildPlacementHash(combinedList)
-    if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup then
+    local needsFreshLayout = ListRequiresFreshLayout(combinedList, frame, combinedHash)
+    if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup and not needsFreshLayout then
         RestoreActivePlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
         if #combinedList > 0 and not frame:IsShown() then
             frame:Show()
@@ -2340,6 +2369,7 @@ end
 
 function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     if not frame or not frame._managedIcons then return end
+    local layoutHash = frame._lastCombinedLayoutHash or frame._lastDynHash
 
     -- [FIX] CDM 뷰어가 숨겨진 상태 → LayoutGroup 스킵
     -- 아이콘만 Hide하고 프레임 크기는 변경하지 않으면
@@ -2470,6 +2500,15 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     end
 
     -- 컨테이너 크기 설정
+    if layoutHash then
+        for i = 1, count do
+            local icon = icons[i]
+            if icon then
+                icon._ddLastGroupLayoutHash = layoutHash
+            end
+        end
+    end
+
     local snappedW = math_max(PixelSnap(totalW), 1)
     local snappedH = math_max(PixelSnap(totalH), 1)
 
@@ -2851,7 +2890,8 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
     end
     if frame._lastDynHash and frame._lastDynHash == newKeyHash
        and not GroupRenderer._forceFullSetup
-       and not hasDeferredRelease then
+       and not hasDeferredRelease
+       and not ListRequiresFreshLayout(activeIcons, frame, newKeyHash) then
         RestoreActiveDynamicEntries(activeIcons, groupName, groupSettings, groupSettings.groupAlpha or 1)
         if #activeIcons > 0 and not frame:IsShown() then
             frame:Show()
