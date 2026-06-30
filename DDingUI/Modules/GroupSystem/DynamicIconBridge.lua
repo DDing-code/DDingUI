@@ -107,6 +107,11 @@ local function InvalidateSuppressedSpellCache()
     suppressedSpellCacheAt = 0
 end
 
+local function IsFlightHideAlphaLocked()
+    local fh = DDingUI.FlightHide
+    return fh and (fh.isActive or fh._hiding)
+end
+
 local function SafeNumber(value)
     if value == nil then return nil end
     if issecretvalue then
@@ -831,7 +836,7 @@ end
 -- CustomIcons의 ApplyAspectRatioCrop과 동일한 로직
 local function BuildDynamicLayoutStateHash()
     local db = GetDynamicDB()
-    if not db then return "" end
+    if not db then return "", {} end
     local inCombat = InCombatLockdown and InCombatLockdown()
     local iconFrames = GetIconFrames()
     local now = GetTime and GetTime() or 0
@@ -860,6 +865,7 @@ local function BuildDynamicLayoutStateHash()
     table_sort(sourceKeys, function(a, b) return tostring(a) < tostring(b) end)
 
     local parts = {}
+    local sourceParts = {}
     for _, sourceKey in ipairs(sourceKeys) do
         local keys = {}
         if sourceKey == "ungrouped" then
@@ -911,14 +917,57 @@ local function BuildDynamicLayoutStateHash()
                     token = "g"
                 end
                 if token then
-                    parts[#parts + 1] = tostring(sourceKey) .. ":" .. tostring(iconKey) .. ":" .. (inCombat and "c" or token)
+                    local part = tostring(sourceKey) .. ":" .. tostring(iconKey) .. ":" .. (inCombat and "c" or token)
+                    parts[#parts + 1] = part
+                    local sourcePartList = sourceParts[sourceKey]
+                    if not sourcePartList then
+                        sourcePartList = {}
+                        sourceParts[sourceKey] = sourcePartList
+                    end
+                    sourcePartList[#sourcePartList + 1] = part
                 end
             end
         end
     end
 
     table_sort(parts)
-    return table_concat(parts, ";")
+    local sourceHashes = {}
+    for sourceKey, sourcePartList in pairs(sourceParts) do
+        table_sort(sourcePartList)
+        sourceHashes[sourceKey] = table_concat(sourcePartList, ";")
+    end
+    return table_concat(parts, ";"), sourceHashes
+end
+
+local function BuildDirtySourceKeys(previousHashes, nextHashes)
+    if type(previousHashes) ~= "table" or type(nextHashes) ~= "table" then
+        return nil
+    end
+
+    local dirty
+    for sourceKey, hash in pairs(nextHashes) do
+        if previousHashes[sourceKey] ~= hash then
+            dirty = dirty or {}
+            dirty[sourceKey] = true
+        end
+    end
+    for sourceKey in pairs(previousHashes) do
+        if nextHashes[sourceKey] == nil then
+            dirty = dirty or {}
+            dirty[sourceKey] = true
+        end
+    end
+    return dirty
+end
+
+local function MergeSourceKeys(target, source)
+    if source == true or target == true then return true end
+    if type(source) ~= "table" then return target end
+    target = type(target) == "table" and target or {}
+    for sourceKey in pairs(source) do
+        target[sourceKey] = true
+    end
+    return target
 end
 
 function DynamicIconBridge.ApplyTexCoordCrop(texture, zoom, aspectRatio)
@@ -990,7 +1039,7 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     local expiredManagedAura = iconData and iconData.type == "aura" and frame._ddManagedAuraExpired
     if not (iconData and iconData.type == "aura") then
         frame._ddManagedAuraExpired = nil
-        if frame.icon and frame.icon.SetAlpha then
+        if frame.icon and frame.icon.SetAlpha and not IsFlightHideAlphaLocked() then
             frame.icon:SetAlpha(1)
         end
     end
@@ -1224,9 +1273,11 @@ local function HideCDMFrame(frame, cooldownID)
                             self._ddDynBridgeHidden = nil
                             self._ddDynBridgeHiddenCdID = nil
                             hiddenCDMFrames[self] = nil
-                            self._ddAlphaGuard = true
-                            self:SetAlpha(1)
-                            self._ddAlphaGuard = nil
+                            if not IsFlightHideAlphaLocked() then
+                                self._ddAlphaGuard = true
+                                self:SetAlpha(1)
+                                self._ddAlphaGuard = nil
+                            end
                             if self.EnableMouse then pcall(self.EnableMouse, self, true) end
                             return
                         else
@@ -1281,9 +1332,11 @@ local function UnhideCDMFrame(frame)
     frame._ddDynBridgeHiddenCdID = nil
     hiddenCDMFrames[frame] = nil
     -- [PHASE3] 알파/마우스 복원 (guard로 SetAlpha hook 우회)
-    frame._ddAlphaGuard = true
-    frame:SetAlpha(1)
-    frame._ddAlphaGuard = nil
+    if not IsFlightHideAlphaLocked() then
+        frame._ddAlphaGuard = true
+        frame:SetAlpha(1)
+        frame._ddAlphaGuard = nil
+    end
     if frame.EnableMouse then pcall(frame.EnableMouse, frame, true) end
 end
 
@@ -1446,19 +1499,23 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     if forceLayout then
         InvalidateGroupLayoutCaches()
     end
-    local stateHash = BuildDynamicLayoutStateHash()
+    local stateHash, sourceHashes = BuildDynamicLayoutStateHash()
     if not forceLayout and self._lastQueuedLayoutStateHash == stateHash then
         return
     end
+    local dirtySourceKeys = forceLayout and true or BuildDirtySourceKeys(self._lastQueuedSourceHashes or self._lastAppliedSourceHashes, sourceHashes)
     self._lastQueuedLayoutStateHash = stateHash
+    self._lastQueuedSourceHashes = sourceHashes
 
     -- DoFullUpdate 트리거 (디바운스)
     if self._updatePending then
         self._pendingForceLayout = self._pendingForceLayout or forceLayout
+        self._pendingSourceKeys = MergeSourceKeys(self._pendingSourceKeys, dirtySourceKeys)
         return
     end
     self._updatePending = true
     self._pendingForceLayout = forceLayout and true or false
+    self._pendingSourceKeys = dirtySourceKeys
 
     self._updateDueAt = (GetTime and GetTime() or 0) + (inCombat and 0.3 or 0.16)
     if not self._updateDispatchFrame then
@@ -1471,26 +1528,34 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
             end
             self._updateDispatchFrame:Hide()
         local pendingForce = self._pendingForceLayout
+        local pendingSourceKeys = self._pendingSourceKeys
         self._updatePending = false
         self._pendingForceLayout = false
+        self._pendingSourceKeys = nil
         if not initialized then return end
 
         if not pendingForce then
-            local currentHash = BuildDynamicLayoutStateHash()
+            local currentHash, currentSourceHashes = BuildDynamicLayoutStateHash()
             if currentHash == self._lastAppliedLayoutStateHash then
                 self._lastQueuedLayoutStateHash = currentHash
+                self._lastQueuedSourceHashes = currentSourceHashes
                 return
             end
+            pendingSourceKeys = MergeSourceKeys(pendingSourceKeys, BuildDirtySourceKeys(self._lastAppliedSourceHashes, currentSourceHashes))
             self._lastQueuedLayoutStateHash = currentHash
+            self._lastQueuedSourceHashes = currentSourceHashes
             self._lastAppliedLayoutStateHash = currentHash
+            self._lastAppliedSourceHashes = currentSourceHashes
         else
             self._lastAppliedLayoutStateHash = self._lastQueuedLayoutStateHash
+            self._lastAppliedSourceHashes = self._lastQueuedSourceHashes
+            pendingSourceKeys = true
         end
 
         -- GroupInit의 DoFullUpdate 호출
         local gs = DDingUI.GroupSystem
         if gs and gs.RequestDynamicUpdate then
-            gs:RequestDynamicUpdate()
+            gs:RequestDynamicUpdate(pendingSourceKeys)
         elseif gs and gs.RequestFullUpdate then
             gs:RequestFullUpdate()
         elseif gs and gs.DoFullUpdate then

@@ -29,7 +29,23 @@ local _dynamicUpdateDispatchFrame
 local _dynamicUpdatePending = false
 local _dynamicUpdateRunning = false
 local _lastDynamicUpdateAt = 0
+local _dynamicUpdateSourceKeys
 local _lastClassifiedGroups
+
+local function MergeDynamicUpdateSourceKeys(sourceKeys)
+    if sourceKeys == true or _dynamicUpdateSourceKeys == true then
+        _dynamicUpdateSourceKeys = true
+        return
+    end
+    if type(sourceKeys) ~= "table" then
+        _dynamicUpdateSourceKeys = true
+        return
+    end
+    _dynamicUpdateSourceKeys = type(_dynamicUpdateSourceKeys) == "table" and _dynamicUpdateSourceKeys or {}
+    for sourceKey in pairs(sourceKeys) do
+        _dynamicUpdateSourceKeys[sourceKey] = true
+    end
+end
 
 local function RequestFullUpdate()
     if not GroupSystem.enabled then return end
@@ -75,9 +91,10 @@ local function RequestFullUpdate()
     _fullUpdateDispatchFrame:Show()
 end
 
-local function RequestDynamicUpdate()
+local function RequestDynamicUpdate(sourceKeys)
     if not GroupSystem.enabled then return end
     if _fullUpdatePending or _fullUpdateRunning then return end
+    MergeDynamicUpdateSourceKeys(sourceKeys)
     _dynamicUpdatePending = true
 
     if not _dynamicUpdateDispatchFrame then
@@ -102,8 +119,10 @@ local function RequestDynamicUpdate()
             end
 
             _dynamicUpdatePending = false
+            local sourceKeys = _dynamicUpdateSourceKeys
+            _dynamicUpdateSourceKeys = nil
             _dynamicUpdateRunning = true
-            DoDynamicUpdate()
+            DoDynamicUpdate(sourceKeys)
             _dynamicUpdateRunning = false
             _lastDynamicUpdateAt = GetTime and GetTime() or now
 
@@ -780,7 +799,7 @@ DoFullUpdate = function()
 end
 
 -- DoFullUpdate를 외부에서 호출 가능하도록 노출 (DynamicIconBridge 등)
-DoDynamicUpdate = function()
+DoDynamicUpdate = function(sourceKeys)
     if not GroupSystem.enabled then return end
     if not _lastClassifiedGroups then
         RequestFullUpdate()
@@ -789,21 +808,26 @@ DoDynamicUpdate = function()
 
     local gs = GetSettings()
     if not gs or not gs.groups then return end
+    local limited = type(sourceKeys) == "table"
 
     SyncDynamicGroups(gs)
 
     local touched = false
     for groupName, groupSettings in pairs(gs.groups) do
         if groupSettings.sourceGroupKey then
-            if groupSettings.groupType == "dynamic" then
-                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
-            else
-                GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
+            if not limited or sourceKeys[groupSettings.sourceGroupKey] then
+                if groupSettings.groupType == "dynamic" then
+                    GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+                else
+                    GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
+                end
+                touched = true
             end
-            touched = true
         elseif groupSettings.groupType == "dynamic" then
-            GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
-            touched = true
+            if not limited or sourceKeys[groupName] then
+                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+                touched = true
+            end
         end
     end
 
@@ -825,8 +849,8 @@ function GroupSystem:RequestFullUpdate()
     RequestFullUpdate()
 end
 
-function GroupSystem:RequestDynamicUpdate()
-    RequestDynamicUpdate()
+function GroupSystem:RequestDynamicUpdate(sourceKeys)
+    RequestDynamicUpdate(sourceKeys)
 end
 
 -- [DYNAMIC] Config UI에서 호출: CustomIcons 그룹 동기화

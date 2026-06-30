@@ -453,6 +453,10 @@ end
 local function SetAlphaIfNeeded(obj, alpha, cacheField)
     if not (obj and obj.SetAlpha) then return end
     alpha = tonumber(alpha) or 1
+    local fh = DDingUI.FlightHide
+    if alpha > 0 and fh and (fh.isActive or fh._hiding) then
+        return
+    end
     local actual = GetObjectAlpha(obj)
     local cached = cacheField and obj[cacheField]
     if cached ~= alpha or not actual or math_abs(actual - alpha) > ALPHA_EPSILON then
@@ -470,6 +474,10 @@ local function RestoreIconTextureOpacity(icon)
 
     if texture.Show then
         pcall(texture.Show, texture)
+    end
+    local fh = DDingUI.FlightHide
+    if fh and (fh.isActive or fh._hiding) then
+        return
     end
     SetAlphaIfNeeded(texture, 1, "_ddLastTextureAlpha")
 
