@@ -579,9 +579,9 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     local now = GetTime and GetTime() or 0
     local isBuffContext = IsBuffSourceGroup(sourceGroupKey, db)
     local showInactiveGray = groupSettings
-        and groupSettings.groupType == "dynamic"
         and groupSettings.groupCategory == "buff"
         and groupSettings.showInactiveIcons == true
+        and isBuffContext
 
     for iconKey in pairs(targetKeys) do
         local frame = iconFrames[iconKey]
@@ -636,15 +636,25 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 end
             end
 
+            local isCooldownTrinket = iconData.type == "trinketProc"
+                and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
+            local isAuraIcon = iconData.type == "aura"
+            local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
+            local includeActiveStateGray = groupSettings
+                and groupSettings.hideActiveState == true
+                and isBuffContext
+                and isActive
+                and isEffectIcon
             local includeInactiveGray = showInactiveGray and not (isActive or keepVisible or keepManaged)
-            if not (isActive or keepVisible or keepManaged or includeInactiveGray) then
+            local forceGray = includeInactiveGray or includeActiveStateGray
+            if not (isActive or keepVisible or keepManaged or forceGray) then
             -- [FIX] 비활성 전환: hysteresis 플래그 해제
                 if not inCombat then
                     frame._wasVisibleInGroup = nil
                     frame._ddLastDynamicActiveAt = nil
                 end
         else
-            if includeInactiveGray then
+            if forceGray then
                 frame._ddCombatKeepAlive = nil
                 frame._ddCombatVisible = true
             end
@@ -654,8 +664,8 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 iconData = iconData,
                 active = isActive,
                 combatKeepAlive = keepVisible and not isActive,
-                combatVisible = includeInactiveGray or keepVisible,
-                inactiveGray = includeInactiveGray,
+                combatVisible = forceGray or keepVisible,
+                inactiveGray = forceGray,
             }
             -- [FIX] 활성 상태 기록: 다음 틱에서 일시적 nil 반환 시 유지
             if isActive or keepVisible then

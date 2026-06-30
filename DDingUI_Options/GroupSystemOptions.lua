@@ -4820,7 +4820,7 @@ local function CreateGroupOptions(groupName, order)
         aspectRatio = GS_Range(groupName, "aspectRatioCrop", L["Aspect Ratio"] or "종횡비", 7, 1.0, 0.5, 2.5, 0.01, -- [12.0.1]
             { desc = L["Control the icon aspect ratio. 1.0 = square, >1.0 = wider, <1.0 = taller"] or "아이콘 종횡비. 1.0=정사각형, >1.0=가로형, <1.0=세로형" }),
         groupAlpha = GS_Range(groupName, "groupAlpha", L["Opacity"] or "투명도", 8, 1.0, 0, 1.0, 0.05, { isPercent = true }),
-        showInactiveIcons = (not isCDM and category == "buff") and GS_Toggle(groupName, "showInactiveIcons", L["Show Inactive Icons"] or "비활성 아이콘 표시", 8.5, false) or nil,
+        showInactiveIcons = (category == "buff") and GS_Toggle(groupName, "showInactiveIcons", L["Show Inactive Icons"] or "비활성 아이콘 표시", 8.5, false) or nil,
         layoutHeader = { type = "header", name = L["Layout"] or "레이아웃", order = 10 },
         direction = GS_Select(groupName, "direction", L["Growth Direction"] or "성장 방향", 11, "RIGHT", DIRECTION_VALUES),
         growDirection = GS_Select(groupName, "growDirection", L["Wrap Direction"] or "줄바꿈 방향", 12, "DOWN", DIRECTION_VALUES),

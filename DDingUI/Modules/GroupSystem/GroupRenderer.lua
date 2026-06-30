@@ -483,14 +483,25 @@ end
 
 local function SetDynamicIconInactiveGray(icon, inactiveGray)
     if not icon then return end
+    local wasForcedGray = icon._ddForcedInactiveGray == true
     icon._ddInactiveGray = inactiveGray and true or nil
 
     local texture = icon.icon or icon.Icon
     if texture then
         if texture.Show then pcall(texture.Show, texture) end
-        if texture.SetDesaturated then pcall(texture.SetDesaturated, texture, inactiveGray and true or false) end
-        if texture.SetDesaturation then pcall(texture.SetDesaturation, texture, inactiveGray and 1 or 0) end
-        SetAlphaIfNeeded(texture, inactiveGray and 0.48 or 1, "_ddLastTextureAlpha")
+        if inactiveGray then
+            icon._ddForcedInactiveGray = true
+            if texture.SetDesaturated then pcall(texture.SetDesaturated, texture, true) end
+            if texture.SetDesaturation then pcall(texture.SetDesaturation, texture, 1) end
+            SetAlphaIfNeeded(texture, 0.48, "_ddLastTextureAlpha")
+        elseif wasForcedGray then
+            icon._ddForcedInactiveGray = nil
+            if texture.SetDesaturated then pcall(texture.SetDesaturated, texture, false) end
+            if texture.SetDesaturation then pcall(texture.SetDesaturation, texture, 0) end
+            SetAlphaIfNeeded(texture, 1, "_ddLastTextureAlpha")
+        else
+            icon._ddForcedInactiveGray = nil
+        end
     end
 
     if not inactiveGray then return end
