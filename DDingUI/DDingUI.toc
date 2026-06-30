@@ -102,6 +102,7 @@ Modules\IconViewers\AssistHighlight.lua
 Modules\IconViewers\Keybinds.lua
 
 # CustomIcons (Dynamic Icons)
+Modules\CustomIcons\RacialCooldowns.lua
 Modules\CustomIcons\CustomIcons.lua
 
 # IconCustomization

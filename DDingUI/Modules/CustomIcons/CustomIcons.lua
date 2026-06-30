@@ -91,100 +91,18 @@ local SPEC_LIST = {
 }
 
 -- [RACIALS] 종족 특성 매핑 (자동 감지용)
-local RACIAL_SPELLS = {
-    Orc         = { 20572, 33697, 33702 }, -- Blood Fury
-    Tauren      = { 20549 }, -- War Stomp
-    NightElf    = { 58984 }, -- Shadowmeld
-    Human       = { 59752 }, -- Will to Survive
-    Dwarf       = { 20594 }, -- Stoneform
-    Scourge     = { 7744 },  -- Will of the Forsaken
-    Troll       = { 26297 }, -- Berserking
-    BloodElf    = { 202719, 50613, 25046, 69179, 80483, 155145, 129597, 232633, 28730 }, -- Arcane Torrent variants
-    Gnome       = { 20589 }, -- Escape Artist
-    Draenei     = { 28880 }, -- Gift of the Naaru
-    Worgen      = { 68992 }, -- Darkflight
-    Goblin      = { 69070 }, -- Rocket Jump
-    Pandaren    = { 107079 }, -- Quaking Palm
-    VoidElf     = { 256948 }, -- Spatial Rift
-    LightforgedDraenei = { 255647 }, -- Light's Judgment
-    DarkIronDwarf  = { 265221 }, -- Fireblood
-    KulTiran    = { 287712 }, -- Haymaker
-    Mechagnome  = { 312924 }, -- Hyper Organic Light Originator
-    Nightborne  = { 260364 }, -- Arcane Pulse
-    HighmountainTauren = { 255654 }, -- Bull Rush
-    MagharOrc   = { 274738 }, -- Ancestral Call
-    ZandalariTroll = { 291944 }, -- Regeneratin'
-    Vulpera     = { 312411 }, -- Bag of Tricks
-    Dracthyr    = { 357214, 368970 }, -- Wing Buffet, Tail Swipe
-    EarthenDwarf = { 436344 },
-    Haranir     = { 1287685 },
-}
-
-local function IsSpellInPlayerBook(spellID)
-    if not spellID then return false end
-
-    -- Use the new Dragonflight API that checks if spell is actually known for current spec
-    -- Includes handling of spell overrides/replacements
-    if C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.FindBaseSpellByID and C_SpellBook.FindSpellOverrideByID and Enum and Enum.SpellBookSpellBank then
-        local bank = Enum.SpellBookSpellBank.Player
-
-        -- Direct check first
-        local ok, result = pcall(C_SpellBook.IsSpellKnown, spellID, bank)
-        if ok and result then
-            return true
-        end
-
-        -- Check base spell if this might be an override
-        ok, result = pcall(C_SpellBook.FindBaseSpellByID, spellID)
-        if ok and result and result ~= spellID then
-            ok, result = pcall(C_SpellBook.IsSpellKnown, result, bank)
-            if ok and result then
-                return true
-            end
-        end
-
-        -- Check override spell if this might be a base
-        ok, result = pcall(C_SpellBook.FindSpellOverrideByID, spellID)
-        if ok and result and result ~= spellID then
-            ok, result = pcall(C_SpellBook.IsSpellKnown, result, bank)
-            if ok and result then
-                return true
-            end
-        end
-
-        return false
-    end
-
-    -- Fallback to old API for backward compatibility
-    if C_SpellBook and C_SpellBook.IsSpellInSpellBook then
-        local ok, result = pcall(C_SpellBook.IsSpellInSpellBook, spellID)
-        if ok then
-            return result == true
-        end
-    end
-
-    -- Fallback: assume available if API missing/failed
-    return true
-end
-
 function CustomIcons:GetPlayerRacialSpellID()
-    local _, raceKey = UnitRace("player")
-    local raceFile = (raceKey or ""):gsub("%s", ""):gsub("^%l", string.upper)
-    local spellList = RACIAL_SPELLS[raceFile]
-
-    if type(spellList) == "table" then
-        for _, spellID in ipairs(spellList) do
-            if IsSpellInPlayerBook(spellID) then
-                return spellID
-            end
-        end
-        return spellList[1] -- fallback
-    end
-    return spellList
+    local racials = DDingUI.CustomIconRacials
+    return racials and racials:GetSpellID() or nil
 end
 
 local function GetPlayerRacialSpellID()
     return CustomIcons:GetPlayerRacialSpellID()
+end
+
+local function IsFlightHideAlphaLocked()
+    local fh = DDingUI.FlightHide
+    return fh and (fh.isActive or fh._hiding)
 end
 
 -- [REFACTOR] CreateBackdrop은 GUI.lua로 이동됨 → EnsureGUILoaded()에서 lazy-load
@@ -879,7 +797,8 @@ local function EnsureStoredIconTexture(iconData)
         local itemID = iconData.slotID and CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
         texture = ResolveItemTexture(itemID, iconData.slotID)
     elseif iconData.type == "racial" then
-        texture = FALLBACK_RACIAL_ICON
+        local racials = DDingUI.CustomIconRacials
+        texture = racials and racials:GetTexture(FALLBACK_RACIAL_ICON) or FALLBACK_RACIAL_ICON
     end
 
     if texture and not IsQuestionTexture(texture) then
@@ -1395,15 +1314,15 @@ function CustomIcons.RestoreActiveIconVisual(frame)
     if frame.Show then
         pcall(frame.Show, frame)
     end
-    local fh = DDingUI.FlightHide
-    if frame.SetAlpha and not (fh and fh.isActive) then
+    local alphaLocked = IsFlightHideAlphaLocked()
+    if frame.SetAlpha and not alphaLocked then
         pcall(frame.SetAlpha, frame, 1)
         frame._ddLastGroupAlpha = 1
     end
     local icon = frame.icon or frame.Icon
     if icon then
         if icon.Show then pcall(icon.Show, icon) end
-        if icon.SetAlpha then pcall(icon.SetAlpha, icon, 1) end
+        if icon.SetAlpha and not alphaLocked then pcall(icon.SetAlpha, icon, 1) end
         if icon.SetDesaturated then pcall(icon.SetDesaturated, icon, false) end
         if icon.SetDesaturation then pcall(icon.SetDesaturation, icon, 0) end
     end
@@ -2401,7 +2320,9 @@ local function UpdateItemIcon(iconFrame, iconData)
         iconFrame._cdmDesatUpdater:Hide()
     end
 
-    iconFrame.icon:SetAlpha(1.0)
+    if not IsFlightHideAlphaLocked() then
+        iconFrame.icon:SetAlpha(1.0)
+    end
 end
 
 local function UpdateSpellIconFrame(iconFrame, iconData)
@@ -2586,7 +2507,27 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         iconFrame._cdmDesatUpdater:Hide()
     end
 
-    iconFrame.icon:SetAlpha(1.0)
+    if not IsFlightHideAlphaLocked() then
+        iconFrame.icon:SetAlpha(1.0)
+    end
+end
+
+local function UpdateRacialIconFrame(iconFrame, iconData)
+    if not iconFrame or not iconData then return end
+    local racialID = GetPlayerRacialSpellID()
+    if not racialID then return end
+
+    iconData.settings = iconData.settings or {}
+    local racials = DDingUI.CustomIconRacials
+    local texture = racials and racials:GetTexture(FALLBACK_RACIAL_ICON)
+    if texture then
+        iconData.settings.iconTexture = texture
+    end
+
+    iconFrame._type = "racial"
+    iconFrame._racialSpellID = racialID
+    iconFrame._fallbackTexture = texture or FALLBACK_RACIAL_ICON
+    UpdateSpellIconFrame(iconFrame, { id = racialID, settings = iconData.settings })
 end
 
 local function UpdateSlotIcon(iconFrame, iconData)
@@ -3202,13 +3143,16 @@ local function UpdateAuraIcon(iconFrame, iconData)
         if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
             managedAlpha = iconFrame._groupSettings.groupAlpha
         end
-        if iconFrame.SetAlpha then
+        local alphaLocked = IsFlightHideAlphaLocked()
+        if iconFrame.SetAlpha and not alphaLocked then
             iconFrame:SetAlpha(managedAlpha)
             iconFrame._ddLastGroupAlpha = managedAlpha
         end
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
-        iconFrame.icon:SetAlpha(1.0)
+        if not alphaLocked then
+            iconFrame.icon:SetAlpha(1.0)
+        end
         iconFrame:Show()
     else
         -- 비활성: 쿨다운 클리어 + 숨김
@@ -3235,7 +3179,9 @@ local function UpdateAuraIcon(iconFrame, iconData)
                 DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
             end
         else
-            iconFrame.icon:SetAlpha(1.0)
+            if not IsFlightHideAlphaLocked() then
+                iconFrame.icon:SetAlpha(1.0)
+            end
         end
         -- [FIX] managed 프레임은 GroupRenderer가 Show/Hide 관리
         if not iconFrame._ddIsManaged then
@@ -3445,10 +3391,7 @@ local function ExecuteUpdateAllIcons(filter)
                     elseif iconData.type == "spell" then
                         UpdateSpellIconFrame(frame, iconData)
                     elseif iconData.type == "racial" then
-                        local racialID = GetPlayerRacialSpellID()
-                        if racialID then
-                            UpdateSpellIconFrame(frame, {id = racialID, settings = iconData.settings})
-                        end
+                        UpdateRacialIconFrame(frame, iconData)
                     elseif iconData.type == "slot" then
                         UpdateSlotIcon(frame, iconData)
                     elseif iconData.type == "trinketProc" then
@@ -3712,6 +3655,13 @@ local function RefreshItemCooldownIcons(needsLayoutNotify)
     end
 end
 
+local function ClearRacialCooldownCache()
+    local racials = DDingUI.CustomIconRacials
+    if racials and racials.ClearCache then
+        racials:ClearCache()
+    end
+end
+
 local function EnsureEventFrame()
     if runtime.eventFrame then return end
     runtime.eventFrame = CreateFrame("Frame")
@@ -3752,6 +3702,7 @@ local function EnsureEventFrame()
 
         if event == "PLAYER_ENTERING_WORLD" then
             runtime.loginTime = runtime.loginTime or GetTime()
+            ClearRacialCooldownCache()
             RebuildTimeSpiralGlowFilters()
             local function refreshInstanceIcons()
                 UpdateAllIcons("force", "all")
@@ -3789,6 +3740,7 @@ local function EnsureEventFrame()
             or event == "TRAIT_CONFIG_UPDATED"
             or event == "SPELLS_CHANGED"
         then
+            ClearRacialCooldownCache()
             RebuildTimeSpiralGlowFilters()
             ScheduleSpecReload()
             return
@@ -4590,10 +4542,12 @@ local function CreateDynamicIcon(iconKey, iconData, parent)
         local racialID = GetPlayerRacialSpellID()
         if not racialID then return nil end
         -- 임시 테이블로 CreateSpellIcon을 호출하여 데이터 오염 방지
-        local frame = CreateSpellIcon(iconKey, {id = racialID}, parent)
+        local frame = CreateSpellIcon(iconKey, {id = racialID, settings = iconData.settings}, parent)
         if frame then
             frame._type = "racial"
+            frame._racialSpellID = racialID
             frame._fallbackTexture = FALLBACK_RACIAL_ICON
+            UpdateRacialIconFrame(frame, iconData)
         end
         return frame
     end
@@ -4613,10 +4567,7 @@ local function UpdateDynamicIcon(iconKey)
     elseif iconData.type == "spell" then
         UpdateSpellIconFrame(frame, iconData)
     elseif iconData.type == "racial" then
-        local racialID = GetPlayerRacialSpellID()
-        if racialID then
-            UpdateSpellIconFrame(frame, {id = racialID, settings = iconData.settings})
-        end
+        UpdateRacialIconFrame(frame, iconData)
     elseif iconData.type == "slot" then
         UpdateSlotIcon(frame, iconData)
     elseif iconData.type == "trinketProc" then
