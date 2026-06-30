@@ -1460,7 +1460,16 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     self._updatePending = true
     self._pendingForceLayout = forceLayout and true or false
 
-    C_Timer.After(inCombat and 0.3 or 0.16, function()
+    self._updateDueAt = (GetTime and GetTime() or 0) + (inCombat and 0.3 or 0.16)
+    if not self._updateDispatchFrame then
+        self._updateDispatchFrame = CreateFrame("Frame")
+        self._updateDispatchFrame:Hide()
+        self._updateDispatchFrame:SetScript("OnUpdate", function()
+            local now = GetTime and GetTime() or 0
+            if (self._updateDueAt or 0) > now then
+                return
+            end
+            self._updateDispatchFrame:Hide()
         local pendingForce = self._pendingForceLayout
         self._updatePending = false
         self._pendingForceLayout = false
@@ -1487,5 +1496,8 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
         elseif gs and gs.DoFullUpdate then
             gs:DoFullUpdate()
         end
-    end)
+        end)
+    end
+
+    self._updateDispatchFrame:Show()
 end
