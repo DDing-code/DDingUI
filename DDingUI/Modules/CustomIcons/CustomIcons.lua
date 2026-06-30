@@ -3414,6 +3414,7 @@ local function ExecuteUpdateAllIcons(filter)
     end
 
     local db = GetDynamicDB()
+    local cooldownOnly = filter == "cooldown"
     for iconKey, frame in pairs(runtime.iconFrames) do
         if frame then
             local iconData = db and db.iconData and db.iconData[iconKey]
@@ -3430,7 +3431,7 @@ local function ExecuteUpdateAllIcons(filter)
                 local okUpdate, err = pcall(function()
                     local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
 
-                    if not frame._ddIsManaged then
+                    if not frame._ddIsManaged and not cooldownOnly then
                         ApplyIconSettings(frame, iconData, frame._groupSettings)
                     else
                         if frame.count and not frame._fontInitialized then
