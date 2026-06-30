@@ -1480,7 +1480,9 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
 
         -- GroupInit의 DoFullUpdate 호출
         local gs = DDingUI.GroupSystem
-        if gs and gs.DoFullUpdate then
+        if gs and gs.RequestFullUpdate then
+            gs:RequestFullUpdate()
+        elseif gs and gs.DoFullUpdate then
             gs:DoFullUpdate()
         end
     end)

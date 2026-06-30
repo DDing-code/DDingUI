@@ -350,7 +350,9 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
         end
     end
     if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
-        if forceFrameControl and DDingUI.GroupSystem.DoFullUpdate then
+        if forceFrameControl and DDingUI.GroupSystem.RequestFullUpdate then
+            DDingUI.GroupSystem:RequestFullUpdate()
+        elseif forceFrameControl and DDingUI.GroupSystem.DoFullUpdate then
             DDingUI.GroupSystem:DoFullUpdate()
         else
             DDingUI.GroupSystem:Refresh()

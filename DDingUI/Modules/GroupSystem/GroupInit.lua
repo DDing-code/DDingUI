@@ -19,6 +19,52 @@ local DynamicIconBridge  -- [DYNAMIC] CustomIcons 통합 어댑터
 GroupSystem.initialized = false
 GroupSystem.enabled = false
 
+local DoFullUpdate
+local _fullUpdateDispatchFrame
+local _fullUpdatePending = false
+local _fullUpdateRunning = false
+local _lastFullUpdateAt = 0
+
+local function RequestFullUpdate()
+    if not GroupSystem.enabled then return end
+    _fullUpdatePending = true
+
+    if not _fullUpdateDispatchFrame then
+        _fullUpdateDispatchFrame = CreateFrame("Frame")
+        _fullUpdateDispatchFrame:Hide()
+        _fullUpdateDispatchFrame:SetScript("OnUpdate", function(self)
+            if not _fullUpdatePending then
+                self:Hide()
+                return
+            end
+
+            local now = GetTime and GetTime() or 0
+            local minInterval = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0
+            if minInterval > 0 and _lastFullUpdateAt > 0 and (now - _lastFullUpdateAt) < minInterval then
+                return
+            end
+
+            self:Hide()
+            if _fullUpdateRunning then
+                self:Show()
+                return
+            end
+
+            _fullUpdatePending = false
+            _fullUpdateRunning = true
+            DoFullUpdate()
+            _fullUpdateRunning = false
+            _lastFullUpdateAt = GetTime and GetTime() or now
+
+            if _fullUpdatePending then
+                self:Show()
+            end
+        end)
+    end
+
+    _fullUpdateDispatchFrame:Show()
+end
+
 -- [FIX] 전투 중 ClearAllPoints() 호출 방지 (ADDON_ACTION_BLOCKED 해결)
 -- Refresh/RefreshLayout이 전투 중 호출되면 전투 종료 후 자동 실행
 local _pendingRefresh = false      -- Refresh 대기
@@ -571,7 +617,7 @@ end
 -- [REFACTOR] AuraEngine → CDMHookEngine 맵 기반
 -- ============================================================
 
-local function DoFullUpdate()
+DoFullUpdate = function()
     if not GroupSystem.enabled then return end
 
     local gs = GetSettings()
@@ -686,6 +732,10 @@ function GroupSystem:DoFullUpdate()
     DoFullUpdate()
 end
 
+function GroupSystem:RequestFullUpdate()
+    RequestFullUpdate()
+end
+
 -- [DYNAMIC] Config UI에서 호출: CustomIcons 그룹 동기화
 function GroupSystem:SyncDynamicGroups()
     local gs = GetSettings()
@@ -696,7 +746,7 @@ end
 
 -- CDMHookEngine 콜백
 local function OnHookEngineUpdate(updateType)
-    DoFullUpdate()
+    RequestFullUpdate()
 end
 
 -- ============================================================
