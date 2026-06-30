@@ -3365,10 +3365,11 @@ end
 -- ------------------------
 
 -- [CDM 패턴] 디바운스 상태 — 같은 틱에 여러 이벤트가 동시에 UpdateAllIcons를
--- 호출해도 실제 실행은 다음 프레임에 단 1회만 수행 (C_Timer.After(0) 배치 처리)
+-- 호출해도 실제 실행은 재사용 디스패치 프레임에서 단 1회만 수행
 local _pendingIconUpdate = false
-local _iconUpdateSeq = 0
 local _pendingIconLayoutNotify = false
+local _iconUpdateDispatchFrame
+local _iconUpdateDueAt = 0
 
 local function GetDynamicLayoutStateToken(frame, iconData)
     if not frame or not iconData then return nil end
@@ -3475,6 +3476,47 @@ end
 
 -- [CDM 패턴] 공개 진입점 — 이벤트 핸들러는 이 함수만 호출
 -- 같은 틱 내 다수 호출을 1회로 병합, 다음 프레임에 실행
+local function RunPendingIconUpdate(now)
+    _pendingIconUpdate = false
+    local notifyLayout = _pendingIconLayoutNotify
+    _pendingIconLayoutNotify = false
+    local updateFilter = runtime.pendingIconUpdateFilter
+    runtime.pendingIconUpdateFilter = nil
+    runtime.lastIconUpdateAt = GetTime and GetTime() or now
+    local layoutStateChanged = ExecuteUpdateAllIcons(updateFilter)
+    if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+        local forceLayout = notifyLayout == true or notifyLayout == "force"
+        if forceLayout or layoutStateChanged then
+            DDingUI.DynamicIconBridge:NotifyIconsChanged(forceLayout)
+        end
+    end
+end
+
+local function GetIconUpdateDispatchFrame()
+    if not _iconUpdateDispatchFrame then
+        _iconUpdateDispatchFrame = CreateFrame("Frame")
+        _iconUpdateDispatchFrame:Hide()
+        _iconUpdateDispatchFrame:SetScript("OnUpdate", function(self)
+            if not _pendingIconUpdate then
+                self:Hide()
+                return
+            end
+
+            local now = GetTime and GetTime() or 0
+            if _iconUpdateDueAt > now then
+                return
+            end
+
+            self:Hide()
+            RunPendingIconUpdate(now)
+            if _pendingIconUpdate then
+                self:Show()
+            end
+        end)
+    end
+    return _iconUpdateDispatchFrame
+end
+
 UpdateAllIcons = function(needsLayoutNotify, filter)
     if needsLayoutNotify then
         QueueIconLayoutNotify(needsLayoutNotify)
@@ -3492,8 +3534,6 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
     end
     if _pendingIconUpdate then return end
     _pendingIconUpdate = true
-    _iconUpdateSeq = _iconUpdateSeq + 1
-    local capturedSeq = _iconUpdateSeq
     local now = GetTime and GetTime() or 0
     local inCombat = InCombatLockdown and InCombatLockdown()
     local minInterval = inCombat and 0.08 or 0.02
@@ -3502,22 +3542,8 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
     end
     local elapsed = now - (runtime.lastIconUpdateAt or 0)
     local delay = elapsed >= minInterval and 0 or (minInterval - elapsed)
-    C_Timer.After(delay, function()
-        if capturedSeq ~= _iconUpdateSeq then return end  -- 더 최신 요청이 있으면 스킵
-        _pendingIconUpdate = false
-        local notifyLayout = _pendingIconLayoutNotify
-        _pendingIconLayoutNotify = false
-        local updateFilter = runtime.pendingIconUpdateFilter
-        runtime.pendingIconUpdateFilter = nil
-        runtime.lastIconUpdateAt = GetTime and GetTime() or now
-        local layoutStateChanged = ExecuteUpdateAllIcons(updateFilter)
-        if notifyLayout and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-            local forceLayout = notifyLayout == true or notifyLayout == "force"
-            if forceLayout or layoutStateChanged then
-                DDingUI.DynamicIconBridge:NotifyIconsChanged(forceLayout)
-            end
-        end
-    end)
+    _iconUpdateDueAt = now + delay
+    GetIconUpdateDispatchFrame():Show()
 end
 
 local function HandleCooldownDone(cooldownFrame)
@@ -5216,22 +5242,52 @@ local function LayoutGroup(groupKey, iconKeys)
     end
 end
 
+local _layoutRefreshDispatchFrame
+local _layoutRefreshDueAt = 0
+
+local function RunBridgeLayoutRefresh()
+    runtime.refreshAllLayoutsPending = nil
+    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+        DDingUI.SpecProfiles:MarkDirty()
+    end
+    if runtime.RegisterCustomCooldownWatches then
+        runtime.RegisterCustomCooldownWatches()
+    end
+    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
+        DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+    end
+end
+
+local function QueueBridgeLayoutRefresh(delay)
+    if runtime.refreshAllLayoutsPending then return end
+    runtime.refreshAllLayoutsPending = true
+    _layoutRefreshDueAt = (GetTime and GetTime() or 0) + (delay or 0)
+
+    if not _layoutRefreshDispatchFrame then
+        _layoutRefreshDispatchFrame = CreateFrame("Frame")
+        _layoutRefreshDispatchFrame:Hide()
+        _layoutRefreshDispatchFrame:SetScript("OnUpdate", function(self)
+            if not runtime.refreshAllLayoutsPending then
+                self:Hide()
+                return
+            end
+
+            local now = GetTime and GetTime() or 0
+            if _layoutRefreshDueAt > now then
+                return
+            end
+
+            self:Hide()
+            RunBridgeLayoutRefresh()
+        end)
+    end
+
+    _layoutRefreshDispatchFrame:Show()
+end
+
 local function RefreshAllLayouts()
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-        if runtime.refreshAllLayoutsPending then return end
-        runtime.refreshAllLayoutsPending = true
-        C_Timer.After((InCombatLockdown and InCombatLockdown()) and 0.12 or 0.04, function()
-            runtime.refreshAllLayoutsPending = nil
-            if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
-                DDingUI.SpecProfiles:MarkDirty()
-            end
-            if runtime.RegisterCustomCooldownWatches then
-                runtime.RegisterCustomCooldownWatches()
-            end
-            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
-            end
-        end)
+        QueueBridgeLayoutRefresh((InCombatLockdown and InCombatLockdown()) and 0.12 or 0.04)
         return
     end
 
