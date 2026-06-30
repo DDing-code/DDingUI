@@ -50,6 +50,16 @@ local previewState = {}  -- { [barIndex] = { stacks = N, duration = N, lastUpdat
 local previewTicker = nil
 local PREVIEW_STACK_INTERVAL = 1.5  -- Change stacks every 1.5 seconds
 local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
+local DURATION_UPDATE_INTERVAL = 0.08
+
+local function ShouldRunDurationUpdate(frame, elapsed)
+    frame._ddDurationUpdateElapsed = (frame._ddDurationUpdateElapsed or 0) + (elapsed or 0)
+    if frame._ddDurationUpdateElapsed < DURATION_UPDATE_INTERVAL then
+        return false
+    end
+    frame._ddDurationUpdateElapsed = 0
+    return true
+end
 
 -- Get preview values for a bar
 local function GetPreviewValues(barIndex, maxStacks, maxDuration, barFillMode)
@@ -3375,6 +3385,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
                     local data = bar._durationData
                     if not data then return end
+                    if not ShouldRunDurationUpdate(self, elapsed) then return end
 
                     -- Manual 모드: manualExpiresAt 기반 duration 계산
                     if data.isManualMode then
@@ -3535,6 +3546,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
                     local data = bar._durationData
                     if not data or not data.auraID then return end
+                    if not ShouldRunDurationUpdate(self, elapsed) then return end
 
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -4879,6 +4891,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                 icon:SetScript("OnUpdate", function(self, elapsed)
                     local data = icon._durationData
                     if not data then return end
+                    if not ShouldRunDurationUpdate(self, elapsed) then return end
 
                     -- Manual 모드
                     if data.isManualMode then
@@ -4945,6 +4958,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                 icon:SetScript("OnUpdate", function(self, elapsed)
                     local data = icon._durationData
                     if not data or not data.isManualMode then return end
+                    if not ShouldRunDurationUpdate(self, elapsed) then return end
                     local _, expiresAt = GetManualStacks(data.barIndex)
                     if expiresAt then
                         local remaining = math_max(0, expiresAt - GetTime())
@@ -5419,6 +5433,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                 textFrame:SetScript("OnUpdate", function(self, elapsed)
                     local data = textFrame._durationData
                     if not data then return end
+                    if not ShouldRunDurationUpdate(self, elapsed) then return end
 
                     -- Manual 모드
                     if data.isManualMode then
@@ -5485,6 +5500,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                 textFrame:SetScript("OnUpdate", function(self, elapsed)
                     local data = textFrame._durationData
                     if not data or not data.isManualMode then return end
+                    if not ShouldRunDurationUpdate(self, elapsed) then return end
                     local _, expiresAt = GetManualStacks(data.barIndex)
                     if expiresAt then
                         local remaining = math_max(0, expiresAt - GetTime())
