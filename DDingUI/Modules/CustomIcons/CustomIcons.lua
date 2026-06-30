@@ -27,6 +27,7 @@ local function EnsureGUILoaded()
 end
 
 local LSM = LibStub("LibSharedMedia-3.0", true)
+local CID = DDingUI.CustomIconData or {}
 
 -- [REFACTOR] 공통 TextureBorder 유틸리티 (Toolkit.lua) — CustomIcons는 안쪽 보더(inset=true)
 local _CreateTextureBorder = DDingUI.CreateTextureBorder
@@ -47,48 +48,6 @@ local RefreshAllLayouts
 local UpdateAllIcons
 local uiState
 
-local SPEC_LIST = {
-    {id=62, name="Arcane", classID=8, icon=135932},
-    {id=63, name="Fire", classID=8, icon=135810},
-    {id=64, name="Frost", classID=8, icon=135846},
-    {id=65, name="Holy", classID=2, icon=135920},
-    {id=66, name="Protection", classID=2, icon=236264},
-    {id=70, name="Retribution", classID=2, icon=135873},
-    {id=71, name="Arms", classID=1, icon=132355},
-    {id=72, name="Fury", classID=1, icon=132347},
-    {id=73, name="Protection", classID=1, icon=132341},
-    {id=102, name="Balance", classID=11, icon=136096},
-    {id=103, name="Feral", classID=11, icon=132115},
-    {id=104, name="Guardian", classID=11, icon=132276},
-    {id=105, name="Restoration", classID=11, icon=136041},
-    {id=250, name="Blood", classID=6, icon=135770},
-    {id=251, name="Frost", classID=6, icon=135773},
-    {id=252, name="Unholy", classID=6, icon=135775},
-    {id=253, name="Beast Mastery", classID=3, icon=461112},
-    {id=254, name="Marksmanship", classID=3, icon=236179},
-    {id=255, name="Survival", classID=3, icon=461113},
-    {id=256, name="Discipline", classID=5, icon=135940},
-    {id=257, name="Holy", classID=5, icon=237542},
-    {id=258, name="Shadow", classID=5, icon=136207},
-    {id=259, name="Assassination", classID=4, icon=236270},
-    {id=260, name="Outlaw", classID=4, icon=236286},
-    {id=261, name="Subtlety", classID=4, icon=132320},
-    {id=262, name="Elemental", classID=7, icon=136048},
-    {id=263, name="Enhancement", classID=7, icon=237581},
-    {id=264, name="Restoration", classID=7, icon=136052},
-    {id=265, name="Affliction", classID=9, icon=136145},
-    {id=266, name="Demonology", classID=9, icon=136172},
-    {id=267, name="Destruction", classID=9, icon=136186},
-    {id=268, name="Brewmaster", classID=10, icon=608951},
-    {id=269, name="Windwalker", classID=10, icon=608953},
-    {id=270, name="Mistweaver", classID=10, icon=608952},
-    {id=577, name="Havoc", classID=12, icon=1247264},
-    {id=581, name="Vengeance", classID=12, icon=1247265},
-    {id=1480, name="Devourer", classID=12, icon=7455385},
-    {id=1467, name="Devastation", classID=13, icon=4511811},
-    {id=1468, name="Preservation", classID=13, icon=4511812},
-    {id=1473, name="Augmentation", classID=13, icon=5198700},
-}
 
 -- [RACIALS] 종족 특성 매핑 (자동 감지용)
 function CustomIcons:GetPlayerRacialSpellID()
@@ -511,116 +470,30 @@ end
 
 -- [CDM CDM 방식] 아이템 → 스펠 쿨다운 매핑
 -- 아이템 쿨다운 API가 전투 중 늦게 갱신될 때 스펠 쿨다운으로 폴백
-local ITEM_SPELL_MAP = {
-    [5512]   = 6262,    -- Healthstone
-    [224464] = 452930,  -- Demonic Healthstone
-    [255327] = 336126,  -- PvP medallion
-    [255616] = 336126,  -- PvP medallion
-    [241304] = 1234768, -- Silvermoon Health Potion R2
-    [241305] = 1234768, -- Silvermoon Health Potion R1
-    [241308] = 1236616, -- Light's Potential R2
-    [241309] = 1236616, -- Light's Potential R1
-    [245898] = 1236616, -- Light's Potential alt
-    [245897] = 1236616, -- Light's Potential alt
-    [241288] = 1236994, -- Potion of Recklessness R2
-    [241289] = 1236994, -- Potion of Recklessness R1
-    [245902] = 1236994, -- Potion of Recklessness alt
-    [245903] = 1236994, -- Potion of Recklessness alt
-    [241300] = 1234770, -- Lightfused Mana Potion R2
-    [241301] = 1234770, -- Lightfused Mana Potion R1
-    [245917] = 1234770, -- Lightfused Mana Potion alt
-    [245916] = 1234770, -- Lightfused Mana Potion alt
-    [211878] = 431416,  -- Algari Healing Potion R1
-    [211879] = 431416,  -- Algari Healing Potion R2
-    [211880] = 431416,  -- Algari Healing Potion R3
-}
-local ITEM_COMBAT_LOCKOUT_ITEMS = {
-    [5512] = true,
-    [224464] = true,
-}
-local ITEM_COMBAT_LOCKOUT_SPELLS = {
-    [6262] = true,
-    [452930] = true,
-}
-local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local FALLBACK_SPELL_ICON = "Interface\\Icons\\Spell_Holy_PowerWordShield"
-local FALLBACK_ITEM_ICON = "Interface\\Icons\\INV_Potion_93"
-local FALLBACK_SLOT_ICON = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
-local FALLBACK_RACIAL_ICON = "Interface\\Icons\\Spell_magic_polymorphrabbit"
-local CUSTOM_ICON_EFFECT_GRACE_SECONDS = 1.5
-local CUSTOM_AURA_ICON_TEXTURES = {
-    [1236616] = 7548911, -- Light's Potential
-    [1236994] = 7548916, -- Potion of Recklessness
-    [1239479] = "Interface\\Icons\\INV_12_Profession_Alchemy_VoidPotion_Blue", -- Potion of Devoured Dreams
-    [374968] = 4622479, -- Time Spiral
-    [2825] = "Interface\\Icons\\Spell_Nature_BloodLust", -- Bloodlust
-}
-local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
-    [1236616] = 241308, -- Light's Potential
-    [1236994] = 241288, -- Potion of Recklessness
-    [1239479] = 241294, -- Potion of Devoured Dreams
-}
 
 local function IsQuestionTexture(texture)
     if texture == 0 or texture == "" then return true end
     if type(texture) == "string" then
         return texture:gsub("/", "\\"):lower():find("inv_misc_questionmark", 1, true) ~= nil
     end
-    return texture == 134400 or texture == QUESTION_MARK_ICON or texture == 0 or texture == ""
+    return texture == 134400 or texture == CID.QUESTION_MARK_ICON or texture == 0 or texture == ""
 end
 
 local function NonQuestionTexture(texture, fallback)
     if texture and not IsQuestionTexture(texture) then return texture end
     if fallback and not IsQuestionTexture(fallback) then return fallback end
-    return FALLBACK_SPELL_ICON
+    return CID.FALLBACK_SPELL_ICON
 end
 
 local function GetCustomAuraPresetIconTexture(spellID)
-    local texture = CUSTOM_AURA_ICON_TEXTURES[tonumber(spellID)]
+    local texture = CID.CUSTOM_AURA_ICON_TEXTURES and CID.CUSTOM_AURA_ICON_TEXTURES[tonumber(spellID)]
     if texture and not IsQuestionTexture(texture) then return texture end
     return nil
 end
 
-local BLOODLUST_AURA_IDS = {
-    2825, 32182, 80353, 90355, 160452, 264667, 390386,
-    146555, 178207, 230935, 256740, 292686, 309658, 381301, 444257,
-}
-local BLOODLUST_DEBUFFS = {
-    [57723]  = 32182,  -- Exhaustion -> Heroism
-    [57724]  = 2825,   -- Sated -> Bloodlust
-    [80354]  = 80353,  -- Temporal Displacement -> Time Warp
-    [95809]  = 90355,  -- Insanity -> Ancient Hysteria
-    [160455] = 264667, -- Fatigued -> Primal Rage
-    [264689] = 264667, -- Fatigued -> Primal Rage
-    [390435] = 390386, -- Exhaustion -> Fury of the Aspects
-}
 local bloodlustDebuffInstanceID
-local CUSTOM_TIMED_AURA_CONFIGS = {
-    [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
-    [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
-    [1239479] = { duration = 10, trigger = "spellcast" },   -- Potion of Devoured Dreams
-    [374968]  = { duration = 10, trigger = "timespiral" },  -- Time Spiral
-    [2825]    = { duration = 40, trigger = "bloodlust" },   -- Bloodlust family
-}
-local TIME_SPIRAL_TRIGGERS = {
-    [48265] = true, [195072] = true, [189110] = true, [1850] = true,
-    [252216] = true, [358267] = true, [186257] = true, [1953] = true,
-    [212653] = true, [361138] = true, [119085] = true, [190784] = true,
-    [73325] = true, [2983] = true, [192063] = true, [58875] = true,
-    [79206] = true, [48020] = true, [6544] = true,
-}
-local TIME_SPIRAL_GLOW_FILTERS = {
-    { talentID = 427640, spells = { 198793, 370965, 195072 } }, -- Inertia -> Vengeful Retreat, The Hunt, Fel Rush
-    { talentID = 427794, spells = { 195072 } },                 -- Dash of Chaos -> Fel Rush
-    { talentID = 385899, spells = { 385899 } },                 -- Soulburn
-}
-local TIME_SPIRAL_GLOW_SUPPRESS_SECONDS = 1.5
 local timeSpiralGlowSuppressSpells = {}
 local timeSpiralSuppressGlowUntil = 0
-local AURA_EQUIVALENT_IDS = {}
-for _, spellID in ipairs(BLOODLUST_AURA_IDS) do
-    AURA_EQUIVALENT_IDS[spellID] = BLOODLUST_AURA_IDS
-end
 
 local function GetTimedAuraDebugKey(spellIDOrKey)
     if type(spellIDOrKey) == "string" then
@@ -655,7 +528,7 @@ local function RebuildTimeSpiralGlowFilters()
         timeSpiralGlowSuppressSpells[spellID] = nil
     end
 
-    for _, entry in ipairs(TIME_SPIRAL_GLOW_FILTERS) do
+    for _, entry in ipairs(CID.TIME_SPIRAL_GLOW_FILTERS or {}) do
         local hasTalent = false
         if IsPlayerSpell then
             pcall(function()
@@ -687,7 +560,7 @@ local function SetStableIconTexture(iconFrame, texture, allowFallback)
     elseif iconFrame._lastResolvedTexture then
         iconFrame.icon:SetTexture(iconFrame._lastResolvedTexture)
     elseif allowFallback then
-        iconFrame.icon:SetTexture(iconFrame._fallbackTexture or FALLBACK_SPELL_ICON)
+        iconFrame.icon:SetTexture(iconFrame._fallbackTexture or CID.FALLBACK_SPELL_ICON)
     end
 end
 
@@ -734,7 +607,7 @@ local function ResolveSpellTexture(spellID, fallbackTexture)
         end
     end
     if not tex then
-        local fallbackItemID = CUSTOM_AURA_ICON_ITEM_FALLBACKS[tonumber(spellID)]
+        local fallbackItemID = CID.CUSTOM_AURA_ICON_ITEM_FALLBACKS and CID.CUSTOM_AURA_ICON_ITEM_FALLBACKS[tonumber(spellID)]
         if fallbackItemID then
             tex = ResolveItemTexture(fallbackItemID)
         end
@@ -798,7 +671,7 @@ local function EnsureStoredIconTexture(iconData)
         texture = ResolveItemTexture(itemID, iconData.slotID)
     elseif iconData.type == "racial" then
         local racials = DDingUI.CustomIconRacials
-        texture = racials and racials:GetTexture(FALLBACK_RACIAL_ICON) or FALLBACK_RACIAL_ICON
+        texture = racials and racials:GetTexture(CID.FALLBACK_RACIAL_ICON) or CID.FALLBACK_RACIAL_ICON
     end
 
     if texture and not IsQuestionTexture(texture) then
@@ -957,11 +830,11 @@ NormalizePresetIconDB = function(db)
         if type(iconData) ~= "table" or iconData.type ~= "aura" then return nil end
         local spellID = tonumber(iconData.id)
         if not spellID then return nil end
-        if AURA_EQUIVALENT_IDS[spellID] then
+        if CID.AURA_EQUIVALENT_IDS and CID.AURA_EQUIVALENT_IDS[spellID] then
             spellID = 2825
         end
         local settings = type(iconData.settings) == "table" and iconData.settings or nil
-        if not CUSTOM_TIMED_AURA_CONFIGS[spellID]
+        if not (CID.CUSTOM_TIMED_AURA_CONFIGS and CID.CUSTOM_TIMED_AURA_CONFIGS[spellID])
             and not (settings and settings.customAuraDuration)
             and not GetLinkedGroupName(iconKey, iconData)
         then
@@ -1089,7 +962,7 @@ local function BuildAuraCandidateIDs(iconFrame, iconData)
     AddAuraCandidate(candidates, seen, iconFrame and iconFrame._cachedAuraSpellID)
     AddAuraCandidate(candidates, seen, spellID)
 
-    local equivalentIDs = spellID and AURA_EQUIVALENT_IDS[spellID]
+    local equivalentIDs = spellID and CID.AURA_EQUIVALENT_IDS and CID.AURA_EQUIVALENT_IDS[spellID]
     if equivalentIDs then
         AddAuraCandidatesFromValue(candidates, seen, equivalentIDs)
     end
@@ -1113,11 +986,11 @@ local function GetCustomTimedAuraConfig(iconData)
     if not spellID then return nil end
 
     local stateID = spellID
-    if AURA_EQUIVALENT_IDS[spellID] then
+    if CID.AURA_EQUIVALENT_IDS and CID.AURA_EQUIVALENT_IDS[spellID] then
         stateID = 2825
     end
 
-    local preset = CUSTOM_TIMED_AURA_CONFIGS[stateID]
+    local preset = CID.CUSTOM_TIMED_AURA_CONFIGS and CID.CUSTOM_TIMED_AURA_CONFIGS[stateID]
     local settings = iconData.settings or {}
     local duration = tonumber((preset and preset.duration) or settings.customAuraDuration)
     if not duration or duration <= 0 then return nil end
@@ -1241,13 +1114,13 @@ local function HasRecentEffectState(iconFrame, now)
     if not iconFrame then return false end
     now = now or (GetTime and GetTime()) or 0
     local lastActive = MaxSafeNumber(iconFrame._ddLastDynamicActiveAt, iconFrame._ddLastAuraActiveAt, iconFrame._ddLastProcActiveAt)
-    return lastActive and (now - lastActive) <= CUSTOM_ICON_EFFECT_GRACE_SECONDS
+    return lastActive and (now - lastActive) <= (CID.CUSTOM_ICON_EFFECT_GRACE_SECONDS or 1.5)
 end
 
 local function ScheduleEffectGraceUpdate(iconFrame)
     if not iconFrame or iconFrame._ddEffectGraceUpdatePending then return end
     iconFrame._ddEffectGraceUpdatePending = true
-    C_Timer.After(CUSTOM_ICON_EFFECT_GRACE_SECONDS + 0.05, function()
+    C_Timer.After((CID.CUSTOM_ICON_EFFECT_GRACE_SECONDS or 1.5) + 0.05, function()
         if iconFrame then
             iconFrame._ddEffectGraceUpdatePending = nil
         end
@@ -1637,7 +1510,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
 end
 
 local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWithinWindow)
-    local config = CUSTOM_TIMED_AURA_CONFIGS[2825]
+    local config = CID.CUSTOM_TIMED_AURA_CONFIGS and CID.CUSTOM_TIMED_AURA_CONFIGS[2825]
     if not config then return false end
     local iconCount = CountCustomTimedAuraLinks(2825)
     if iconCount <= 0 then return false end
@@ -1675,7 +1548,7 @@ end
 local function SeedBloodlustTimedAura(requireWithinWindow)
     bloodlustDebuffInstanceID = nil
     local sawCandidate = false
-    for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
+    for debuffID, lustBuffID in pairs(CID.BLOODLUST_DEBUFFS or {}) do
         local auraData
         pcall(function()
             auraData = C_UnitAuras.GetPlayerAuraBySpellID(debuffID)
@@ -1709,7 +1582,7 @@ local function ScanBloodlustTimedAura(updateInfo)
     if updateInfo.addedAuras then
         for _, aura in ipairs(updateInfo.addedAuras) do
             local sid = GetAuraSpellIDSafe(aura)
-            local lustBuffID = sid and BLOODLUST_DEBUFFS[sid]
+            local lustBuffID = sid and CID.BLOODLUST_DEBUFFS and CID.BLOODLUST_DEBUFFS[sid]
             if lustBuffID then
                 RecordTimedAuraDebug(2825, "unitAuraMatch", tostring(sid) .. "->" .. tostring(lustBuffID))
             end
@@ -1848,7 +1721,7 @@ end
 local function ResolveUsableItemSpellID(iconFrame, itemID, settings)
     if not itemID then return nil end
 
-    local itemSpellID = ITEM_SPELL_MAP[itemID] or (settings and settings.itemSpellID)
+    local itemSpellID = (CID.ITEM_SPELL_MAP and CID.ITEM_SPELL_MAP[itemID]) or (settings and settings.itemSpellID)
     if itemSpellID then return itemSpellID end
 
     if iconFrame and iconFrame._cachedSpellItemID == itemID then
@@ -1992,10 +1865,10 @@ local function ResolveItemCooldownSpan(iconFrame, prefix, itemID, slotID, spellI
 end
 
 local function SetItemCombatLockout(itemID, active)
-    if not ITEM_COMBAT_LOCKOUT_ITEMS[itemID] then return end
+    if not (CID.ITEM_COMBAT_LOCKOUT_ITEMS and CID.ITEM_COMBAT_LOCKOUT_ITEMS[itemID]) then return end
     runtime.itemCombatLockouts = runtime.itemCombatLockouts or {}
     if active then
-        for lockedItemID in pairs(ITEM_COMBAT_LOCKOUT_ITEMS) do
+        for lockedItemID in pairs(CID.ITEM_COMBAT_LOCKOUT_ITEMS or {}) do
             runtime.itemCombatLockouts[lockedItemID] = true
         end
     else
@@ -2013,11 +1886,11 @@ end
 
 local function MarkItemCombatLockoutFromSpell(spellID)
     spellID = SafeNumber(spellID)
-    if not spellID or not ITEM_COMBAT_LOCKOUT_SPELLS[spellID] then return false end
+    if not spellID or not (CID.ITEM_COMBAT_LOCKOUT_SPELLS and CID.ITEM_COMBAT_LOCKOUT_SPELLS[spellID]) then return false end
     if not InCombatLockdown or not InCombatLockdown() then return false end
 
-    for itemID, mappedSpellID in pairs(ITEM_SPELL_MAP) do
-        if mappedSpellID == spellID and ITEM_COMBAT_LOCKOUT_ITEMS[itemID] then
+    for itemID, mappedSpellID in pairs(CID.ITEM_SPELL_MAP or {}) do
+        if mappedSpellID == spellID and CID.ITEM_COMBAT_LOCKOUT_ITEMS and CID.ITEM_COMBAT_LOCKOUT_ITEMS[itemID] then
             SetItemCombatLockout(itemID, true)
             return true
         end
@@ -2161,7 +2034,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
-    if ITEM_COMBAT_LOCKOUT_ITEMS[activeItemID] and InCombatLockdown and InCombatLockdown() then
+    if CID.ITEM_COMBAT_LOCKOUT_ITEMS and CID.ITEM_COMBAT_LOCKOUT_ITEMS[activeItemID] and InCombatLockdown and InCombatLockdown() then
         local currentCount = SafeNumber(itemCount)
         if previousCombatCount and currentCount and currentCount < previousCombatCount then
             SetItemCombatLockout(activeItemID, true)
@@ -2338,7 +2211,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
 
     iconFrame._textureCacheKey = "spell:" .. tostring(spellID)
     -- 텍스처동적 갱신 (오버라이드/누락 초기로드 대응)
-    iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
+    iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or CID.FALLBACK_SPELL_ICON
     SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
 
     local allowDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
@@ -2519,14 +2392,14 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
 
     iconData.settings = iconData.settings or {}
     local racials = DDingUI.CustomIconRacials
-    local texture = racials and racials:GetTexture(FALLBACK_RACIAL_ICON)
+    local texture = racials and racials:GetTexture(CID.FALLBACK_RACIAL_ICON)
     if texture then
         iconData.settings.iconTexture = texture
     end
 
     iconFrame._type = "racial"
     iconFrame._racialSpellID = racialID
-    iconFrame._fallbackTexture = texture or FALLBACK_RACIAL_ICON
+    iconFrame._fallbackTexture = texture or CID.FALLBACK_RACIAL_ICON
     UpdateSpellIconFrame(iconFrame, { id = racialID, settings = iconData.settings })
 end
 
@@ -3024,7 +2897,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
     local allowDesat = not (settings.desaturateOnCooldown == false)
     local timedOnly = IsEventDrivenCustomTimedAuraConfig(GetCustomTimedAuraConfig(iconData))
     iconFrame._textureCacheKey = "aura:" .. tostring(spellID)
-    iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
+    iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or CID.FALLBACK_SPELL_ICON
     if not timedOnly then
         SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
     end
@@ -3554,7 +3427,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
         spellID = SafeNumber(spellID)
         if spellID and timeSpiralGlowSuppressSpells[spellID] then
             RecordTimedAuraDebug(374968, "suppressArmed", tostring(spellID))
-            timeSpiralSuppressGlowUntil = GetTime() + TIME_SPIRAL_GLOW_SUPPRESS_SECONDS
+            timeSpiralSuppressGlowUntil = GetTime() + (CID.TIME_SPIRAL_GLOW_SUPPRESS_SECONDS or 1.5)
         end
         return false
     end
@@ -3595,7 +3468,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
 
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
         local spellID = SafeNumber(...)
-        if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
+        if spellID and CID.TIME_SPIRAL_TRIGGERS and CID.TIME_SPIRAL_TRIGGERS[spellID] then
             RecordTimedAuraDebug(374968, "glowShow", tostring(spellID))
             if GetTime() < timeSpiralSuppressGlowUntil then
                 RecordTimedAuraDebug(374968, "suppressed", tostring(spellID))
@@ -3604,7 +3477,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
             local iconCount = CountCustomTimedAuraLinks(374968)
             local active = runtime.customTimedAuras[374968]
             if iconCount <= 0 or (active and active.expirationTime and active.expirationTime > GetTime()) then return false end
-            local _, changed = ActivateCustomTimedAura(374968, CUSTOM_TIMED_AURA_CONFIGS[374968])
+            local _, changed = ActivateCustomTimedAura(374968, CID.CUSTOM_TIMED_AURA_CONFIGS and CID.CUSTOM_TIMED_AURA_CONFIGS[374968])
             return changed
         end
         return false
@@ -3612,7 +3485,7 @@ local function HandleCustomTimedAuraEvent(event, ...)
 
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
         local spellID = SafeNumber(...)
-        if spellID and TIME_SPIRAL_TRIGGERS[spellID] then
+        if spellID and CID.TIME_SPIRAL_TRIGGERS and CID.TIME_SPIRAL_TRIGGERS[spellID] then
             RecordTimedAuraDebug(374968, "glowHide", tostring(spellID))
             return DeactivateCustomTimedAura(374968)
         end
@@ -4171,7 +4044,7 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
 
     local y = 0
     lc.specs = lc.specs or {}
-    for _, spec in ipairs(SPEC_LIST) do
+    for _, spec in ipairs(CID.SPEC_LIST or {}) do
         local row = CreateFrame("Frame", nil, specChild)
         row:SetSize(280, 26)
         row:SetPoint("TOPLEFT", specChild, "TOPLEFT", 0, -y)
@@ -4453,7 +4326,7 @@ local function CreateItemIcon(iconKey, iconData, parent)
     frame._itemID = itemID
     frame._iconKey = iconKey
     frame._textureCacheKey = "item:" .. tostring(itemID)
-    frame._fallbackTexture = FALLBACK_ITEM_ICON
+    frame._fallbackTexture = CID.FALLBACK_ITEM_ICON
     SetStableIconTexture(frame, ResolveItemTexture(itemID), true)
     return frame
 end
@@ -4476,7 +4349,7 @@ local function CreateSpellIcon(iconKey, iconData, parent)
     frame._spellID = spellID
     frame._iconKey = iconKey
     frame._textureCacheKey = "spell:" .. tostring(spellID)
-    frame._fallbackTexture = GetStoredIconTexture(iconData) or FALLBACK_SPELL_ICON
+    frame._fallbackTexture = GetStoredIconTexture(iconData) or CID.FALLBACK_SPELL_ICON
     SetStableIconTexture(frame, ResolveSpellTexture(spellID, frame._fallbackTexture), true)
     return frame
 end
@@ -4491,7 +4364,7 @@ local function CreateSlotIcon(iconKey, iconData, parent)
     frame._slotID = slotID
     frame._iconKey = iconKey
     frame._textureCacheKey = (iconData.type or "slot") .. ":" .. tostring(slotID)
-    frame._fallbackTexture = FALLBACK_SLOT_ICON
+    frame._fallbackTexture = CID.FALLBACK_SLOT_ICON
 
     -- [FIX] 텍스처 항상 설정 — GetItemInfo 캐시 미스 시에도 아이콘 보이도록
     local itemID = CustomIcons.GetEquippedSlotItemID(frame, slotID)
@@ -4520,7 +4393,7 @@ local function CreateAuraIcon(iconKey, iconData, parent)
     frame._spellID = spellID
     frame._iconKey = iconKey
     frame._textureCacheKey = "aura:" .. tostring(spellID)
-    frame._fallbackTexture = GetStoredIconTexture(iconData) or FALLBACK_SPELL_ICON
+    frame._fallbackTexture = GetStoredIconTexture(iconData) or CID.FALLBACK_SPELL_ICON
 
     -- 텍스처: C_Spell.GetSpellTexture → GetSpellInfo.iconID 폴백
     SetStableIconTexture(frame, ResolveSpellTexture(spellID, frame._fallbackTexture), true)
@@ -4546,7 +4419,7 @@ local function CreateDynamicIcon(iconKey, iconData, parent)
         if frame then
             frame._type = "racial"
             frame._racialSpellID = racialID
-            frame._fallbackTexture = FALLBACK_RACIAL_ICON
+            frame._fallbackTexture = CID.FALLBACK_RACIAL_ICON
             UpdateRacialIconFrame(frame, iconData)
         end
         return frame
@@ -5697,13 +5570,13 @@ function CustomIcons:AddIconToCDMGroup(groupName, iconData, displayName)
     if iconData.type == "aura" and iconData.id then
         local db = GetDynamicDB()
         local newID = tonumber(iconData.id)
-        if newID and AURA_EQUIVALENT_IDS[newID] then
+        if newID and CID.AURA_EQUIVALENT_IDS and CID.AURA_EQUIVALENT_IDS[newID] then
             newID = 2825
         end
         for existingKey, existingData in pairs((db and db.iconData) or {}) do
             if type(existingData) == "table" and existingData.type == "aura" then
                 local existingID = tonumber(existingData.id)
-                if existingID and AURA_EQUIVALENT_IDS[existingID] then
+                if existingID and CID.AURA_EQUIVALENT_IDS and CID.AURA_EQUIVALENT_IDS[existingID] then
                     existingID = 2825
                 end
                 local existingSettings = existingData.settings
@@ -6212,14 +6085,14 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
 
     if iconData.type == "item" then
         local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(iconData.id)
-        node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iconData.id) or FALLBACK_ITEM_ICON))
+        node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iconData.id) or CID.FALLBACK_ITEM_ICON))
     elseif iconData.type == "spell" or iconData.type == "aura" then
         local stored = GetStoredIconTexture(iconData)
-        node.iconTex:SetTexture(NonQuestionTexture(ResolveSpellTexture(iconData.id, stored), stored or FALLBACK_SPELL_ICON))
+        node.iconTex:SetTexture(NonQuestionTexture(ResolveSpellTexture(iconData.id, stored), stored or CID.FALLBACK_SPELL_ICON))
     elseif iconData.type == "slot" or iconData.type == "trinketProc" then
         local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
         local _, _, _, _, _, _, _, _, _, tex = iid and GetItemInfo(iid)
-        node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iid, iconData.slotID) or FALLBACK_SLOT_ICON))
+        node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iid, iconData.slotID) or CID.FALLBACK_SLOT_ICON))
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()
         if racialID then
@@ -6231,12 +6104,12 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
             end
             local info = C_Spell.GetSpellInfo(racialID)
             local tex = (info and info.iconID) or C_Spell.GetSpellTexture(racialID)
-            node.iconTex:SetTexture(NonQuestionTexture(tex, FALLBACK_RACIAL_ICON))
+            node.iconTex:SetTexture(NonQuestionTexture(tex, CID.FALLBACK_RACIAL_ICON))
         else
-            node.iconTex:SetTexture(FALLBACK_RACIAL_ICON)
+            node.iconTex:SetTexture(CID.FALLBACK_RACIAL_ICON)
         end
     else
-        node.iconTex:SetTexture(FALLBACK_SPELL_ICON)
+        node.iconTex:SetTexture(CID.FALLBACK_SPELL_ICON)
     end
 
     local globalFont = DDingUI:GetGlobalFont() or "Fonts\\2002.TTF"
