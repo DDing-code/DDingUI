@@ -197,6 +197,7 @@ local DYNAMIC_GROUP_DEFAULTS = {
     rowLimit = 12,
     swipeColor = { 0, 0, 0, 0.8 },
     swipeReverse = true,
+    showInactiveIcons = false,
     iconMotion = true,
     iconMotionDuration = 0.18,
     anchorPoint = "CENTER",
@@ -2269,7 +2270,7 @@ SlashCmdList["DDGS"] = function(msg)
             if gs and gs.groups then
                 for gn, gset in pairs(gs.groups) do
                     if gset.groupType == "dynamic" and gset.sourceGroupKey then
-                        local activeIcons = bridge:GetActiveIconsForGroup(gset.sourceGroupKey)
+                        local activeIcons = bridge:GetActiveIconsForGroup(gset.sourceGroupKey, gset)
                         p("  GetActiveIcons[" .. gn .. " -> " .. gset.sourceGroupKey .. "]: " .. #activeIcons .. " icons")
                         for _, entry in ipairs(activeIcons) do
                             local f = entry.frame

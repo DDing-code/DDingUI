@@ -533,7 +533,7 @@ end
 -- GroupSystem에서 호출: 특정 CustomIcons 그룹의 활성 아이콘 목록 반환
 -- sourceGroupKey: CustomIcons의 그룹 키 ("group_xxx" 또는 "ungrouped")
 -- 반환: { {iconKey=string, frame=Frame, iconData=table}, ... }
-function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
+function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     -- [FIX] 미초기화 시 자동 초기화 시도
     if not initialized then
         self:Initialize()
@@ -578,6 +578,10 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
     local inCombat = InCombatLockdown and InCombatLockdown()
     local now = GetTime and GetTime() or 0
     local isBuffContext = IsBuffSourceGroup(sourceGroupKey, db)
+    local showInactiveGray = groupSettings
+        and groupSettings.groupType == "dynamic"
+        and groupSettings.groupCategory == "buff"
+        and groupSettings.showInactiveIcons == true
 
     for iconKey in pairs(targetKeys) do
         local frame = iconFrames[iconKey]
@@ -632,20 +636,26 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey)
                 end
             end
 
-            if not (isActive or keepVisible or keepManaged) then
+            local includeInactiveGray = showInactiveGray and not (isActive or keepVisible or keepManaged)
+            if not (isActive or keepVisible or keepManaged or includeInactiveGray) then
             -- [FIX] 비활성 전환: hysteresis 플래그 해제
                 if not inCombat then
                     frame._wasVisibleInGroup = nil
                     frame._ddLastDynamicActiveAt = nil
                 end
         else
+            if includeInactiveGray then
+                frame._ddCombatKeepAlive = nil
+                frame._ddCombatVisible = true
+            end
             result[#result + 1] = {
                 iconKey = iconKey,
                 frame = frame,
                 iconData = iconData,
                 active = isActive,
                 combatKeepAlive = keepVisible and not isActive,
-                combatVisible = keepVisible,
+                combatVisible = includeInactiveGray or keepVisible,
+                inactiveGray = includeInactiveGray,
             }
             -- [FIX] 활성 상태 기록: 다음 틱에서 일시적 nil 반환 시 유지
             if isActive or keepVisible then

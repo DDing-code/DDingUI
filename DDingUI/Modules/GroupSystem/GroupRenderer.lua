@@ -481,6 +481,63 @@ local function RestoreIconTextureOpacity(icon)
     end
 end
 
+local function SetDynamicIconInactiveGray(icon, inactiveGray)
+    if not icon then return end
+    icon._ddInactiveGray = inactiveGray and true or nil
+
+    local texture = icon.icon or icon.Icon
+    if texture then
+        if texture.Show then pcall(texture.Show, texture) end
+        if texture.SetDesaturated then pcall(texture.SetDesaturated, texture, inactiveGray and true or false) end
+        if texture.SetDesaturation then pcall(texture.SetDesaturation, texture, inactiveGray and 1 or 0) end
+        SetAlphaIfNeeded(texture, inactiveGray and 0.48 or 1, "_ddLastTextureAlpha")
+    end
+
+    if not inactiveGray then return end
+
+    local function ClearCooldown(cooldown)
+        if not cooldown then return end
+        if cooldown.Clear then pcall(cooldown.Clear, cooldown) end
+        if cooldown.SetHideCountdownNumbers then pcall(cooldown.SetHideCountdownNumbers, cooldown, true) end
+        cooldown.noCooldownCount = true
+        if cooldown.Hide then pcall(cooldown.Hide, cooldown) end
+    end
+
+    ClearCooldown(icon.cooldown)
+    if icon.Cooldown and icon.Cooldown ~= icon.cooldown then
+        ClearCooldown(icon.Cooldown)
+    end
+    ClearCooldown(icon.cooldownProbe)
+    ClearCooldown(icon.cooldownChargeProbe)
+
+    local countText = GetIconCountText(icon)
+    if countText then
+        if countText.SetText then pcall(countText.SetText, countText, "") end
+        if countText.Hide then pcall(countText.Hide, countText) end
+    end
+
+    local SL = _G.DDingUI_StyleLib
+    if SL then
+        if SL.HidePixelGlow then
+            pcall(SL.HidePixelGlow, icon, "_DDingUIAssistGlow")
+            pcall(SL.HidePixelGlow, icon, "_DDingUICustomGlow")
+        end
+        if SL.HideAutocastGlow then
+            pcall(SL.HideAutocastGlow, icon, "_DDingUIAssistGlow")
+            pcall(SL.HideAutocastGlow, icon, "_DDingUICustomGlow")
+        end
+        if SL.HideButtonGlow then
+            pcall(SL.HideButtonGlow, icon)
+        end
+    end
+
+    local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+    if LCG and LCG.ProcGlow_Stop then
+        pcall(LCG.ProcGlow_Stop, icon, "_DDingUIAssistGlow")
+        pcall(LCG.ProcGlow_Stop, icon, "_DDingUICustomGlow")
+    end
+end
+
 local function HideDynamicIconBorderLayers(icon)
     if not icon then return end
     if icon.border then
@@ -588,6 +645,7 @@ local function BuildDynamicPlacement(entry)
         active = entry.active ~= false,
         combatKeepAlive = entry.combatKeepAlive and true or false,
         combatVisible = entry.combatVisible ~= false,
+        inactiveGray = entry.inactiveGray and true or false,
         _ddOrderToken = BuildDynamicOrderToken(entry.iconKey),
     }
 end
@@ -641,6 +699,7 @@ ResetPostCombatDynamicIconState = function()
         if visualBlocked then return end
         if icon.Show and (not frame or frame:IsShown()) then pcall(icon.Show, icon) end
         SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
+        SetDynamicIconInactiveGray(icon, false)
         RestoreIconTextureOpacity(icon)
     end
 
@@ -1006,9 +1065,21 @@ local function ShouldKeepDynamicIconInCombat(icon)
     return true
 end
 
-local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible)
+local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible, inactiveGray)
     if not icon then return end
     ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
+    if inactiveGray then
+        icon._ddManagedAuraExpired = nil
+        icon._ddCombatVisible = true
+        icon._ddCombatKeepAlive = nil
+        icon._ddCombatMissingSince = nil
+        if icon.Show then
+            icon:Show()
+        end
+        SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
+        SetDynamicIconInactiveGray(icon, true)
+        return
+    end
     if icon._ddManagedAuraExpired then
         icon._ddCombatVisible = false
         icon._ddCombatKeepAlive = nil
@@ -1044,6 +1115,7 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
     end
     local iconAlpha = combatVisible == false and 0 or (groupAlpha or 1)
     SetAlphaIfNeeded(icon, iconAlpha, "_ddLastGroupAlpha")
+    SetDynamicIconInactiveGray(icon, false)
     if iconAlpha > 0 then
         RestoreIconTextureOpacity(icon)
     end
@@ -1054,7 +1126,7 @@ local function RestorePlacementVisibility(entry, groupName, groupSettings, group
     local icon = entry.icon or entry.frame
     if not icon then return end
     if entry.isDynamic then
-        RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, entry.combatVisible)
+        RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, entry.combatVisible, entry.inactiveGray)
         return
     end
     if entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(icon) then
@@ -1079,7 +1151,7 @@ end
 local function RestoreActiveDynamicEntries(list, groupName, groupSettings, groupAlpha)
     for _, entry in ipairs(list or {}) do
         if entry then
-            RestoreDynamicIconVisibility(entry.frame, groupName, groupSettings, groupAlpha, entry.combatVisible)
+            RestoreDynamicIconVisibility(entry.frame, groupName, groupSettings, groupAlpha, entry.combatVisible, entry.inactiveGray)
         end
     end
 end
@@ -1091,7 +1163,7 @@ local function EntryRequiresFreshLayout(entry, frame, layoutHash)
 
     local isDynamicEntry = entry.isDynamic or entry.iconKey ~= nil
     if isDynamicEntry then
-        if entry.combatVisible == false or icon._ddCombatVisible == false or icon._ddManagedAuraExpired then
+        if not entry.inactiveGray and (entry.combatVisible == false or icon._ddCombatVisible == false or icon._ddManagedAuraExpired) then
             return false
         end
     elseif entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(icon) then
@@ -1226,6 +1298,7 @@ local function BuildGroupRenderSettingsHash(groupSettings)
     AddHashValue(parts, "borderSize", groupSettings.borderSize)
     AddHashColor(parts, "borderColor", groupSettings.borderColor)
     AddHashValue(parts, "groupAlpha", groupSettings.groupAlpha)
+    AddHashValue(parts, "showInactiveIcons", groupSettings.showInactiveIcons)
     AddHashValue(parts, "cooldownShadowOffsetX", groupSettings.cooldownShadowOffsetX)
     AddHashValue(parts, "cooldownShadowOffsetY", groupSettings.cooldownShadowOffsetY)
     AddHashValue(parts, "groupCategory", groupSettings.groupCategory)
@@ -1322,7 +1395,9 @@ local function BuildPlacementHash(combinedList, groupSettings)
             or BuildCDMOrderToken(entry)
             or tostring(i)
         local visible = "1"
-        if entry.isDynamic and entry.combatVisible == false then
+        if entry.isDynamic and entry.inactiveGray then
+            visible = "g"
+        elseif entry.isDynamic and entry.combatVisible == false then
             visible = "0"
         elseif entry.isCDM and (entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)) then
             visible = "0"
@@ -1984,7 +2059,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     local dynamicIcons = {}
     local bridge = DDingUI.DynamicIconBridge
     if bridge and groupSettings.sourceGroupKey then
-        dynamicIcons = bridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey) or {}
+        dynamicIcons = bridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey, groupSettings) or {}
     end
     local ci = DDingUI.CustomIcons
     if ci and ci.GetActiveCustomTimedAuraEntriesForCDMGroup then
@@ -2173,6 +2248,10 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     TagDynamicIconForGroup(icon, groupName, groupSettings)
                     icon._ddCombatKeepAlive = entry.combatKeepAlive and true or nil
                     icon._ddCombatVisible = entry.combatVisible ~= false
+                    icon._ddInactiveGray = entry.inactiveGray and true or nil
+                    if entry.inactiveGray then
+                        icon._ddManagedAuraExpired = nil
+                    end
                     local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame and not GroupRenderer._forceFullSetup
                     if not alreadyManaged then
                         bridge:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID, groupSettings.zoom, groupSettings.aspectRatioCrop)
@@ -2216,7 +2295,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         if #borders >= 4 then
                             local bc = groupSettings.borderColor or { 0, 0, 0, 1 }
                             local br, bg, bb, ba = bc[1] or 0, bc[2] or 0, bc[3] or 0, bc[4] or 1
-                            local shouldShow = edgeSize > 0 and not icon._ddManagedAuraExpired and entry.combatVisible ~= false
+                            local shouldShow = edgeSize > 0 and (entry.inactiveGray or not icon._ddManagedAuraExpired) and entry.combatVisible ~= false
                             borders[1]:SetHeight(edgeSize); borders[2]:SetHeight(edgeSize)
                             borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
                             for _, borderTex in ipairs(borders) do
@@ -2507,7 +2586,10 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     iconAlpha = 0
                 end
                 SetAlphaIfNeeded(ic, iconAlpha, "_ddLastGroupAlpha")
-                if iconAlpha > 0 then
+                if ic._ddInactiveGray and iconAlpha > 0 then
+                    SetDynamicIconInactiveGray(ic, true)
+                elseif iconAlpha > 0 then
+                    SetDynamicIconInactiveGray(ic, false)
                     RestoreIconTextureOpacity(ic)
                 end
             end
@@ -2986,7 +3068,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
         frame:Hide()
         return
     end
-    local activeIcons = bridge:GetActiveIconsForGroup(sourceKey)
+    local activeIcons = bridge:GetActiveIconsForGroup(sourceKey, groupSettings)
     local inCombat = InCombatLockdown and InCombatLockdown()
     local now = GetTime and GetTime() or 0
     if inCombat and frame._managedIcons then
@@ -3033,7 +3115,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
     -- → 아이콘 추가/제거/전문화 변경 시에만 재실행
     local newKeyHash = "settings:" .. BuildGroupRenderSettingsHash(groupSettings) .. ";"
     for _, entry in ipairs(activeIcons) do
-        local visibleToken = (inCombat and ":c") or (entry.combatVisible == false and ":0" or ":1")
+        local visibleToken = entry.inactiveGray and ":g" or ((inCombat and ":c") or (entry.combatVisible == false and ":0" or ":1"))
         newKeyHash = newKeyHash .. (entry.iconKey or "") .. visibleToken .. ";"
     end
     local hasDeferredRelease = false
@@ -3121,6 +3203,10 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
             TagDynamicIconForGroup(icon, groupName, groupSettings)
             icon._ddCombatKeepAlive = entry.combatKeepAlive and true or nil
             icon._ddCombatVisible = entry.combatVisible ~= false
+            icon._ddInactiveGray = entry.inactiveGray and true or nil
+            if entry.inactiveGray then
+                icon._ddManagedAuraExpired = nil
+            end
 
             local iw, ih = baseIconW, baseIconH
             local iconData = entry.iconData
@@ -3171,7 +3257,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                     borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
                     for _, borderTex in ipairs(borders) do
                         borderTex:SetColorTexture(br, bg, bb, ba)
-                        borderTex:SetShown(edgeSize > 0 and not icon._ddManagedAuraExpired and entry.combatVisible ~= false)
+                        borderTex:SetShown(edgeSize > 0 and (entry.inactiveGray or not icon._ddManagedAuraExpired) and entry.combatVisible ~= false)
                     end
                 end
             end
@@ -3261,7 +3347,10 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
                 iconAlpha = 0
             end
             SetAlphaIfNeeded(icon, iconAlpha, "_ddLastGroupAlpha")
-            if iconAlpha > 0 then
+            if entry.inactiveGray and iconAlpha > 0 then
+                SetDynamicIconInactiveGray(icon, true)
+            elseif iconAlpha > 0 then
+                SetDynamicIconInactiveGray(icon, false)
                 RestoreIconTextureOpacity(icon)
             end
         end

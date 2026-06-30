@@ -1000,6 +1000,7 @@ function GroupManager:CreateGroup(name, settings)
         rowLimit = 8,
         swipeColor = { 0, 0, 0, 0.8 },
         swipeReverse = true,
+        showInactiveIcons = false,
         iconMotion = true,
         iconMotionDuration = 0.18,
         anchorPoint = "CENTER",
