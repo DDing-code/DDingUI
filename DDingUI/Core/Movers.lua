@@ -583,11 +583,7 @@ local function OnDragStop(mover)
         mover._tempGridShown = nil
     end
 
-    -- 버프 트래커는 9-point 재계산 전에 현재 위치로 저장 (center 변경 방지)
     local isBuffTracker = string.match(mover.name, "^DDingUI_BuffTracker%w+_%d+$")
-    if isBuffTracker then
-        Movers:SaveMoverPosition(mover.name)
-    end
 
     -- [FIX] 드래그 종료 시 앵커 계산
     -- 1. 다른 프레임에 스냅됐으면 → 스냅 방향에 따라 앵커/기준점 자동 결정
@@ -821,8 +817,9 @@ local function OnDragStop(mover)
     end
     mover._dragStartPoint = nil
 
-    -- Save position (버프 트래커가 아닌 경우)
-    if not isBuffTracker then
+    if isBuffTracker then
+        Movers:SaveMoverPosition(mover.name)
+    else
         Movers:SaveMoverPosition(mover.name)
         Movers:UpdateParentPosition(mover.name)
     end
@@ -1132,6 +1129,7 @@ function Movers:SaveMoverPosition(name)
                                  or trackedBuffs[idx].settings.attachTo
                                  or (DDingUI.db.profile.buffTrackerBar and DDingUI.db.profile.buffTrackerBar.attachTo)
                                  or "DDingUI_Anchor_Cooldowns" -- [PROXY] 프록시 앵커 폴백
+                attachTo = ATTACH_TO_PROXY[attachTo] or attachTo
                 local anchorFrame = DDingUI:ResolveAnchorFrame(attachTo)
 
                 -- displayType에 따라 적절한 anchorPoint 가져오기
@@ -1401,6 +1399,7 @@ function Movers:LoadMoverPosition(name)
                 end
 
                 attachTo = settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns" -- [PROXY] 프록시 앵커 폴백
+                attachTo = ATTACH_TO_PROXY[attachTo] or attachTo
                 local anchorFrame = DDingUI:ResolveAnchorFrame(attachTo)
 
                 if offsetX ~= nil and offsetY ~= nil then

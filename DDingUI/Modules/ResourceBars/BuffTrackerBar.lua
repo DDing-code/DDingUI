@@ -115,6 +115,22 @@ local PixelSnap = DDingUI.PixelSnapLocal or function(value)
     return math.max(0, math.floor((value or 0) + 0.5))
 end
 
+local TRACKER_ANCHOR_PROXY = {
+    EssentialCooldownViewer = "DDingUI_Anchor_Cooldowns",
+    UtilityCooldownViewer = "DDingUI_Anchor_Utility",
+    BuffIconCooldownViewer = "DDingUI_Anchor_Buffs",
+    DDingUI_Group_Cooldowns = "DDingUI_Anchor_Cooldowns",
+    DDingUI_Group_Utility = "DDingUI_Anchor_Utility",
+    DDingUI_Group_Buffs = "DDingUI_Anchor_Buffs",
+}
+
+local function NormalizeTrackerAnchorName(anchorName)
+    if not anchorName or anchorName == "" then
+        return "UIParent"
+    end
+    return TRACKER_ANCHOR_PROXY[anchorName] or anchorName
+end
+
 -- ============================================================
 -- ADVANCED ANIMATION SYSTEM (StyleLib v2 GlowEffects)
 -- ============================================================
@@ -1577,7 +1593,7 @@ function ResourceBars:GetBuffTrackerBar()
 
     local cfg, _ = GetFullSpecConfig()
     if not cfg then cfg = DDingUI.db.profile.buffTrackerBar end
-    local anchor = DDingUI:ResolveAnchorFrame(cfg.attachTo)
+    local anchor = DDingUI:ResolveAnchorFrame(NormalizeTrackerAnchorName(cfg.attachTo))
     if not anchor then
         anchor = UIParent
     end
@@ -3023,7 +3039,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     local hideFromCDM = settings.hideFromCDM or false  -- CDM에서 숨기기
 
     -- Per-bar position settings (with stacking fallback)
-    local attachTo = settings.attachTo or globalCfg.attachTo or "DDingUI_Group_Cooldowns"
+    local attachTo = NormalizeTrackerAnchorName(settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
     local anchorPoint = settings.anchorPoint or globalCfg.anchorPoint or "BOTTOM"
     local baseOffsetX = settings.offsetX or globalCfg.offsetX or 0
     local baseOffsetY = settings.offsetY
@@ -3962,7 +3978,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local alwaysShowInCombat = settings.alwaysShowInCombat or false
 
     -- Attach frame settings
-    local attachTo = settings.attachTo or globalCfg.attachTo or "DDingUI_Group_Cooldowns"
+    local attachTo = NormalizeTrackerAnchorName(settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
     local anchorPoint = settings.ringAnchorPoint or "CENTER"
 
     -- Per-buff frame strata (개별 설정 > 전체 설정 > 기본값)
@@ -4528,7 +4544,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
 
     -- Icon settings
     local iconSize = settings.iconSize or 32
-    local iconAttachTo = settings.iconAttachTo or globalCfg.attachTo or "DDingUI_Group_Cooldowns"
+    local iconAttachTo = NormalizeTrackerAnchorName(settings.iconAttachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
     local iconAnchorPoint = settings.iconAnchorPoint or globalCfg.anchorPoint or "CENTER"
     local iconOffsetX = settings.iconOffsetX
     local iconOffsetY = settings.iconOffsetY
@@ -5154,7 +5170,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     local textDisplayMode = settings.textDisplayMode or "stacks"
     local customText = settings.customText or ""
     local textAnchor = settings.textAnchor or "CENTER"
-    local textAnchorTo = settings.textAnchorTo or globalCfg.attachTo or "DDingUI_Group_Cooldowns"
+    local textAnchorTo = NormalizeTrackerAnchorName(settings.textAnchorTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
     local textAnchorPoint = settings.textAnchorPoint or "CENTER"
     local textOffsetX = settings.textModeOffsetX or 0
     local textOffsetY = settings.textModeOffsetY or 50
