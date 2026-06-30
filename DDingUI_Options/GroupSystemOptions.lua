@@ -2377,6 +2377,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             ghost:SetParent(parent)
             ghost._ddAnchorFrame = parent
             ghost:SetFrameLevel((parent:GetFrameLevel() or 1) + 200)
+            ghost:SetScript("OnUpdate", PositionGhostAtCursor)
             return ghost
         end
 
@@ -3636,6 +3637,9 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if groupAlpha < 0.2 then groupAlpha = 0.2 end
     local drag = {}
     local slotFrames = {}
+    local insertLine
+    local assignDropOverlay
+    local ClearDragFeedback
 
     local assignedPreviewHeight = math.ceil(layout.height + padY * 2)
     local unassignedTileSize, unassignedGap = 34, 6
@@ -3653,8 +3657,21 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local staleGhost = DDingUI._assignedIconRuntimeGhost
     if staleGhost then staleGhost:Hide() end
     preview:SetScript("OnHide", function()
+        preview:SetScript("OnUpdate", nil)
+        parent:SetScript("OnUpdate", nil)
+        drag.active = false
+        drag.kind = nil
+        drag.fromIdx = nil
+        drag.mode = nil
+        drag.targetIdx = nil
+        drag.insertIdx = nil
+        drag.unassignedRow = nil
+        if ClearDragFeedback then ClearDragFeedback() end
+        if insertLine then insertLine:Hide() end
+        if assignDropOverlay then assignDropOverlay:Hide() end
         local ghost = DDingUI._assignedIconRuntimeGhost
         if ghost and ghost:GetParent() == preview then
+            ghost:SetScript("OnUpdate", nil)
             ghost:Hide()
         end
         HideGroupIconAddPopup()
@@ -3742,6 +3759,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             ghost._ddAnchorFrame = preview
             ghost:SetFrameLevel((preview:GetFrameLevel() or 1) + 200)
             ghost:SetScale(1)
+            ghost:SetScript("OnUpdate", PositionRuntimeGhostAtCursor)
             return ghost
         end
 
@@ -3786,7 +3804,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return left, left + (slot._w or 0), top, top - (slot._h or 0)
     end
 
-    local insertLine = CreateFrame("Frame", nil, preview)
+    insertLine = CreateFrame("Frame", nil, preview)
     insertLine:SetFrameLevel(preview:GetFrameLevel() + 100)
     insertLine.glow = insertLine:CreateTexture(nil, "BACKGROUND")
     insertLine.glow:SetAllPoints()
@@ -3795,7 +3813,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     insertLine.core:SetColorTexture(insertR, insertG, insertB, 0.96)
     insertLine:Hide()
 
-    local assignDropOverlay = CreateFrame("Frame", nil, preview)
+    assignDropOverlay = CreateFrame("Frame", nil, preview)
     assignDropOverlay:SetAllPoints(preview)
     assignDropOverlay:SetFrameLevel(preview:GetFrameLevel() + 90)
     assignDropOverlay.bg = assignDropOverlay:CreateTexture(nil, "BACKGROUND")
@@ -3850,7 +3868,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return allDone
     end
 
-    local function ClearDragFeedback()
+    ClearDragFeedback = function()
         insertLine:Hide()
         assignDropOverlay:Hide()
         for _, slot in ipairs(slotFrames) do
