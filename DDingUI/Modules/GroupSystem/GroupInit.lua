@@ -1832,7 +1832,7 @@ function GroupSystem:Enable()
             C_Timer.After(0.2, function()
                 pendingRoster = false
                 if GroupSystem.enabled then
-                    DoFullUpdate()
+                    RequestFullUpdate()
                 end
             end)
         end)
@@ -1856,13 +1856,13 @@ function GroupSystem:Enable()
                     -- [REPARENT] 편집모드 퇴장 → 즉시 재스캔 + 재배치
                     C_Timer.After(0.05, function()
                         if GroupSystem.enabled then
-                            DoFullUpdate()
+                            RequestFullUpdate()
                         end
                     end)
                     -- [REPARENT] 안정화 패스: CDM이 지연 Layout 하는 경우 대비
                     C_Timer.After(0.5, function()
                         if GroupSystem.enabled then
-                            DoFullUpdate()
+                            RequestFullUpdate()
                         end
                     end)
                 end
