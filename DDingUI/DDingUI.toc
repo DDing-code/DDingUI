@@ -38,12 +38,7 @@ Libs\DDingUI_StyleLib\ProceduralGlow.lua
 # Media & utility libraries
 Libs\LibSharedMedia-3.0\lib.xml
 Libs\LibDeflate\LibDeflate.lua
-# Libs\LibDataBroker-1.1.lua
-# Libs\LibDBIcon-1.0\lib.xml
-# Libs\LibSerialize\lib.xml
 Libs\TaintLess\TaintLess.xml
-# Libs\LibDualSpec-1.0\LibDualSpec-1.0.lua
-# Libs\LibButtonGlow-1.0\LibButtonGlow-1.0.lua
 
 # Ace3 libraries
 Libs\AceAddon-3.0\AceAddon-3.0.xml
@@ -54,8 +49,6 @@ Libs\AceHook-3.0\AceHook-3.0.xml
 Libs\AceLocale-3.0\AceLocale-3.0.xml
 Libs\AceSerializer-3.0\AceSerializer-3.0.xml
 # Legacy option helpers are intentionally not loaded in runtime.
-# Libs\AceDBOptions-3.0\AceDBOptions-3.0.xml
-# Libs\AceConfig-3.0\AceConfig-3.0.xml
 
 # Localization files (order matters: language files first, then Locale.lua)
 Locales\enUS.lua

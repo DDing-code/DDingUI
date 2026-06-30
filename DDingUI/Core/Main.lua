@@ -17,7 +17,6 @@ local L = ns.L or LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME, true)
 local AceSerializer = LibStub("AceSerializer-3.0", true)
 local LibDeflate    = LibStub("LibDeflate", true)
 -- AceDBOptions removed to prevent conflicts with ElvUI
-local LibDualSpec   = LibStub("LibDualSpec-1.0", true)
 
 local SL_Main = _G.DDingUI_StyleLib -- [12.0.1]
 local WHITE8 = (SL_Main and SL_Main.Textures and SL_Main.Textures.flat) or "Interface\\Buttons\\WHITE8X8" -- [12.0.1]
