@@ -66,7 +66,6 @@ Locales\Locale.lua
 Core\Main.lua
 Core\Defaults.lua
 Core\Media.lua
-# Core\GUI.lua — [LoD] DDingUI_Options에서 로드
 Core\CDMScanner.lua
 Core\ConditionalActions.lua
 Core\Movers.lua
@@ -84,20 +83,6 @@ Utils\PixelPerfect.lua
 
 # Core addon files (continued)
 Core\SpecProfiles.lua
-
-# Config files — [LoD] DDingUI_Options에서 로드
-# Config\ConfigHelpers.lua
-# Config\ViewerOptions.lua
-# Config\ResourceBarOptions.lua
-# Config\CustomIconOptions.lua
-# Config\IconCustomizationOptions.lua
-# Config\CastBarOptions.lua
-# Config\BuffDebuffFramesOptions.lua
-# Config\BuffBarOptions.lua
-# Config\BuffTrackerOptions.lua
-# Config\ProfileOptions.lua
-# Config\GroupSystemOptions.lua
-# Config.lua
 
 # AutoUIScale
 Modules\AutoUIScale\AutoUIScale.lua
