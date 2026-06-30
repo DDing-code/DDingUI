@@ -1580,16 +1580,25 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
     local fromX = icon._ddCurrentX
     local fromY = icon._ddCurrentY
     local fromContainer = icon._ddCurrentContainer
+    local hasCurrentPosition = fromContainer ~= nil and fromX ~= nil and fromY ~= nil
     local activeMotion = icon._ddPositionMotion
     if activeMotion then
         fromX = icon._ddCurrentX or activeMotion.fromX
         fromY = icon._ddCurrentY or activeMotion.fromY
         fromContainer = activeMotion.container
+        hasCurrentPosition = fromContainer ~= nil and fromX ~= nil and fromY ~= nil
     end
     if fromContainer ~= container then
-        fromX = icon._ddTargetX
-        fromY = icon._ddTargetY
-        fromContainer = icon._ddContainerRef
+        if hasCurrentPosition then
+            fromX = icon._ddTargetX
+            fromY = icon._ddTargetY
+            fromContainer = icon._ddContainerRef
+            hasCurrentPosition = fromContainer ~= nil and fromX ~= nil and fromY ~= nil
+        else
+            fromX = nil
+            fromY = nil
+            fromContainer = nil
+        end
     end
 
     icon._ddTargetPoint = "CENTER"
@@ -1598,6 +1607,7 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
     icon._ddTargetY = y
 
     local canAnimate = motionSettings and motionSettings.enabled
+        and hasCurrentPosition
         and fromContainer == container
         and fromX ~= nil and fromY ~= nil
         and (math_abs(fromX - x) > ICON_MOTION_MIN_DELTA or math_abs(fromY - y) > ICON_MOTION_MIN_DELTA)
