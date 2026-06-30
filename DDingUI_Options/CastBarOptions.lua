@@ -231,6 +231,18 @@ local function CreateCastBarOptions()
                             DDingUI:UpdateCastBarLayout()
                         end,
                     },
+                    showIcon = {
+                        type = "toggle",
+                        name = L["Show Cast Icon"],
+                        desc = L["Hide the spell icon if you prefer a bar-only look"],
+                        order = 20.6,
+                        width = "normal",
+                        get = function() return DDingUI.db.profile.castBar.showIcon ~= false end,
+                        set = function(_, val)
+                            DDingUI.db.profile.castBar.showIcon = val
+                            DDingUI:UpdateCastBarLayout()
+                        end,
+                    },
                     texture = {
                         type = "select",
                         name = L["Texture"],
@@ -495,18 +507,6 @@ local function CreateCastBarOptions()
                         get = function() return DDingUI.db.profile.castBar.timeTextOffsetY or 0 end,
                         set = function(_, val)
                             DDingUI.db.profile.castBar.timeTextOffsetY = val
-                            DDingUI:UpdateCastBarLayout()
-                        end,
-                    },
-                    showIcon = {
-                        type = "toggle",
-                        name = L["Show Cast Icon"],
-                        desc = L["Hide the spell icon if you prefer a bar-only look"],
-                        order = 27,
-                        width = "normal",
-                        get = function() return DDingUI.db.profile.castBar.showIcon ~= false end,
-                        set = function(_, val)
-                            DDingUI.db.profile.castBar.showIcon = val
                             DDingUI:UpdateCastBarLayout()
                         end,
                     },

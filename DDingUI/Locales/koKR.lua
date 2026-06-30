@@ -1864,4 +1864,4 @@ L["Add Racial"] = "종족 특성 추가"
 
 -- Hide Active State (Visual Effect)
 L["Hide Active State"] = "지속 효과 숨기기"
-L["Hide active buff/aura overlay when the effect is active. The icon remains visible but the active state animation (glow, swipe color) is suppressed."] = "효과가 활성화되었을 때 활성 상태 오버레이(글로우, 스와이프 색상)를 숨깁니다. 아이콘은 보이지만 활성 표시만 비활성화됩니다."
+L["Hide active buff/aura overlay when the effect is active. The icon remains visible but the active state animation (glow, swipe color) is suppressed."] = "효과가 활성화되었을 때 활성 상태 오버레이를 숨기고 아이콘을 회색으로 표시합니다."

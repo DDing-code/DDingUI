@@ -123,6 +123,35 @@ local function CopyColor(color)
     }
 end
 
+local function SetHideActiveStateGray(icon, active)
+    if not icon then return end
+    local pid = GetIconData(icon)
+    local texture = icon.icon or icon.Icon
+
+    if active then
+        pid.hideActiveStateGray = true
+    elseif not pid.hideActiveStateGray then
+        return
+    else
+        pid.hideActiveStateGray = nil
+    end
+
+    if not texture then return end
+    if texture.SetDesaturated then
+        pcall(texture.SetDesaturated, texture, active and true or false)
+    end
+    if texture.SetDesaturation then
+        pcall(texture.SetDesaturation, texture, active and 1 or 0)
+    end
+    if texture.SetVertexColor then
+        if active then
+            pcall(texture.SetVertexColor, texture, 0.58, 0.58, 0.58, 1)
+        else
+            pcall(texture.SetVertexColor, texture, 1, 1, 1, 1)
+        end
+    end
+end
+
 local function SyncAuraGlowHost(icon, pid)
     if not icon or not pid then return nil end
 
@@ -724,6 +753,11 @@ function IconViewers:SkinIcon(icon, settings)
                 end
                 local prevAura = pid.isAuraSwipe
                 pid.isAuraSwipe = isAuraSwipe
+                if s and s.hideActiveState then
+                    SetHideActiveStateGray(parentIcon, isAuraSwipe)
+                else
+                    SetHideActiveStateGray(parentIcon, false)
+                end
                 if isAuraSwipe and s and s.auraGlow then
                     pid._glowRemoveTimer = nil
                     pid.auraGlowLastSeen = GetTime and GetTime() or 0
@@ -759,6 +793,7 @@ function IconViewers:SkinIcon(icon, settings)
                     -- (CDM CDM "hideActive" port: SetReverse(false) + normal swipe color)
                     -- The icon shows its regular CD timer instead of the active-state yellow overlay
                     if s.hideActiveState then
+                        SetHideActiveStateGray(parentIcon, true)
                         -- Switch from reversed (aura) to forward (cooldown) direction
                         if self.SetReverse then self:SetReverse(false) end
                         -- Override yellow aura color → normal cooldown swipe color
@@ -847,7 +882,11 @@ function IconViewers:SkinIcon(icon, settings)
                     isActive = parentIcon.wasSetFromAura == true
                         or parentIcon.auraInstanceID ~= nil
                 end)
-                if not isActive then return end
+                if not isActive then
+                    SetHideActiveStateGray(parentIcon, false)
+                    return
+                end
+                SetHideActiveStateGray(parentIcon, true)
                 -- Get spellID from CDM frame
                 local spellID = nil
                 pcall(function()
@@ -1021,6 +1060,7 @@ function IconViewers:SkinIcon(icon, settings)
                 end
             end
             if isActive then
+                SetHideActiveStateGray(icon, true)
                 -- Visual: normal cooldown appearance
                 icon.Cooldown:SetReverse(false)
                 cdd.bypassColorHook = true
@@ -1053,7 +1093,11 @@ function IconViewers:SkinIcon(icon, settings)
                         cdd.bypassColorHook = nil
                     end
                 end)
+            else
+                SetHideActiveStateGray(icon, false)
             end
+        else
+            SetHideActiveStateGray(icon, false)
         end
 
         -- Check current swipe color to detect if aura is active and apply auraSwipeColor immediately
