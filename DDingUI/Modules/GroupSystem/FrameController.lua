@@ -370,12 +370,30 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     end
 end
 
+local transitionRecoveryPending = {}
+
 local function ScheduleViewerTransitionRecovery(reloadMapped, forceFrameControl, longTail)
     local delays = longTail and { 0.05, 0.2, 1.0, 3.0, 5.0 } or { 0.2, 1.0, 3.0 }
     for _, delay in pairs(delays) do
-        C_Timer.After(delay, function()
-            RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
-        end)
+        local key = tostring(delay)
+        local pending = transitionRecoveryPending[key]
+        if pending then
+            pending.reloadMapped = pending.reloadMapped or reloadMapped
+            pending.forceFrameControl = pending.forceFrameControl or forceFrameControl
+        else
+            pending = {
+                reloadMapped = reloadMapped and true or false,
+                forceFrameControl = forceFrameControl and true or false,
+            }
+            transitionRecoveryPending[key] = pending
+            C_Timer.After(delay, function()
+                local current = transitionRecoveryPending[key]
+                transitionRecoveryPending[key] = nil
+                if current then
+                    RunViewerTransitionRecovery(current.reloadMapped, current.forceFrameControl)
+                end
+            end)
+        end
     end
 end
 
