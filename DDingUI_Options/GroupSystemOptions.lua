@@ -384,6 +384,8 @@ local function GetGS()
     return DDingUI.db.profile.groupSystem
 end
 
+local SoftRefreshGroupSystemOptions
+
 local function RefreshGroupSystem()
     InvalidateCDMIconEntryCache()
 
@@ -418,6 +420,13 @@ local function RefreshGroupSystem()
     -- 누락 시 캐릭 전환/리로드에서 LoadSpec이 스냅샷(구 값)으로 덮어씀
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
         DDingUI.SpecProfiles:MarkDirty()
+    end
+    if SoftRefreshGroupSystemOptions then
+        local configFrame = _G["DDingUI_ConfigFrame"]
+        local currentTab = configFrame and configFrame.currentTab or ""
+        if configFrame and configFrame:IsShown() and currentTab:match("^groupSystem") then
+            SoftRefreshGroupSystemOptions(0.03)
+        end
     end
 end
 
@@ -531,8 +540,10 @@ end
 -- 1. RefreshLayout: 게임 아이콘 레이아웃 즉시 갱신 (겹침 방지)
 -- 2. SoftRefresh: 그룹 설정 페이지는 서브탭이 없어서 FullRefresh → SetContent
 --    (전체 재빌드 = 창 닫힘). SoftRefresh는 콘텐츠만 재렌더링 (창 유지)
-local function SoftRefreshGroupSystemOptions(delay)
+local groupOptionsSoftRefreshTimer = nil
+SoftRefreshGroupSystemOptions = function(delay)
     local function refreshGUI()
+        groupOptionsSoftRefreshTimer = nil
         local configFrame = _G["DDingUI_ConfigFrame"]
         if not configFrame or not configFrame:IsShown() then return end
         -- 옵션 테이블 재생성 (RefreshConfigGUI의 soft 경로와 동일)
@@ -562,7 +573,11 @@ local function SoftRefreshGroupSystemOptions(delay)
         end
     end
 
-    C_Timer.After(delay or 0, refreshGUI)
+    if groupOptionsSoftRefreshTimer then
+        groupOptionsSoftRefreshTimer:Cancel()
+        groupOptionsSoftRefreshTimer = nil
+    end
+    groupOptionsSoftRefreshTimer = C_Timer.NewTimer(delay or 0, refreshGUI)
 end
 
 local function SoftRefreshDynamicIcons()

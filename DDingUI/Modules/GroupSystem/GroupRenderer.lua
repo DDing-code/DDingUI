@@ -1200,8 +1200,122 @@ end
 -- [REPARENT] 뷰어 설정을 100% 반영하기 위해 ViewerLayout과 동일 로직 복제
 -- ============================================================
 
-local function BuildPlacementHash(combinedList)
+local function AddHashValue(parts, key, value)
+    if value == nil then return end
+    parts[#parts + 1] = tostring(key) .. "=" .. tostring(value)
+end
+
+local function AddHashColor(parts, key, color)
+    if type(color) ~= "table" then return end
+    AddHashValue(parts, key .. "1", color[1] or color.r)
+    AddHashValue(parts, key .. "2", color[2] or color.g)
+    AddHashValue(parts, key .. "3", color[3] or color.b)
+    AddHashValue(parts, key .. "4", color[4] or color.a)
+end
+
+local function BuildGroupRenderSettingsHash(groupSettings)
+    if type(groupSettings) ~= "table" then return "" end
     local parts = {}
+    AddHashValue(parts, "iconSize", groupSettings.iconSize)
+    AddHashValue(parts, "aspectRatioCrop", groupSettings.aspectRatioCrop)
+    AddHashValue(parts, "spacing", groupSettings.spacing)
+    AddHashValue(parts, "direction", groupSettings.direction)
+    AddHashValue(parts, "growDirection", groupSettings.growDirection)
+    AddHashValue(parts, "rowLimit", groupSettings.rowLimit)
+    AddHashValue(parts, "zoom", groupSettings.zoom)
+    AddHashValue(parts, "borderSize", groupSettings.borderSize)
+    AddHashColor(parts, "borderColor", groupSettings.borderColor)
+    AddHashValue(parts, "groupAlpha", groupSettings.groupAlpha)
+    AddHashValue(parts, "cooldownShadowOffsetX", groupSettings.cooldownShadowOffsetX)
+    AddHashValue(parts, "cooldownShadowOffsetY", groupSettings.cooldownShadowOffsetY)
+    AddHashValue(parts, "groupCategory", groupSettings.groupCategory)
+    AddHashValue(parts, "iconMotion", groupSettings.iconMotion)
+    AddHashValue(parts, "iconMotionDuration", groupSettings.iconMotionDuration)
+    AddHashValue(parts, "disableSwipeAnimation", groupSettings.disableSwipeAnimation)
+    AddHashValue(parts, "swipeReverse", groupSettings.swipeReverse)
+    AddHashColor(parts, "swipeColor", groupSettings.swipeColor)
+    AddHashValue(parts, "hideActiveState", groupSettings.hideActiveState)
+    AddHashValue(parts, "auraGlow", groupSettings.auraGlow)
+    AddHashValue(parts, "auraGlowType", groupSettings.auraGlowType)
+    AddHashValue(parts, "auraGlowPixelLines", groupSettings.auraGlowPixelLines)
+    AddHashValue(parts, "auraGlowPixelFrequency", groupSettings.auraGlowPixelFrequency)
+    AddHashValue(parts, "auraGlowPixelThickness", groupSettings.auraGlowPixelThickness)
+    AddHashValue(parts, "auraGlowPixelLength", groupSettings.auraGlowPixelLength)
+    AddHashValue(parts, "auraGlowAutocastParticles", groupSettings.auraGlowAutocastParticles)
+    AddHashValue(parts, "auraGlowAutocastFrequency", groupSettings.auraGlowAutocastFrequency)
+    AddHashValue(parts, "auraGlowAutocastScale", groupSettings.auraGlowAutocastScale)
+    AddHashValue(parts, "auraGlowButtonFrequency", groupSettings.auraGlowButtonFrequency)
+    AddHashColor(parts, "auraGlowColor", groupSettings.auraGlowColor)
+    AddHashValue(parts, "procGlowEnabled", groupSettings.procGlowEnabled)
+    AddHashValue(parts, "procGlowType", groupSettings.procGlowType)
+    AddHashValue(parts, "procGlowPixelLines", groupSettings.procGlowPixelLines)
+    AddHashValue(parts, "procGlowPixelFrequency", groupSettings.procGlowPixelFrequency)
+    AddHashValue(parts, "procGlowPixelThickness", groupSettings.procGlowPixelThickness)
+    AddHashValue(parts, "procGlowPixelLength", groupSettings.procGlowPixelLength)
+    AddHashValue(parts, "procGlowAutocastParticles", groupSettings.procGlowAutocastParticles)
+    AddHashValue(parts, "procGlowAutocastFrequency", groupSettings.procGlowAutocastFrequency)
+    AddHashValue(parts, "procGlowAutocastScale", groupSettings.procGlowAutocastScale)
+    AddHashValue(parts, "procGlowButtonFrequency", groupSettings.procGlowButtonFrequency)
+    AddHashColor(parts, "procGlowColor", groupSettings.procGlowColor)
+    AddHashValue(parts, "assistHighlightEnabled", groupSettings.assistHighlightEnabled)
+    AddHashValue(parts, "assistHighlightType", groupSettings.assistHighlightType)
+    AddHashValue(parts, "assistFlipbookScale", groupSettings.assistFlipbookScale)
+    AddHashValue(parts, "assistGlowType", groupSettings.assistGlowType)
+    AddHashValue(parts, "assistGlowLines", groupSettings.assistGlowLines)
+    AddHashValue(parts, "assistGlowFrequency", groupSettings.assistGlowFrequency)
+    AddHashValue(parts, "assistGlowThickness", groupSettings.assistGlowThickness)
+    AddHashValue(parts, "assistHighlightPixelLength", groupSettings.assistHighlightPixelLength)
+    AddHashColor(parts, "assistGlowColor", groupSettings.assistGlowColor)
+    AddHashValue(parts, "disableEdgeGlow", groupSettings.disableEdgeGlow)
+    AddHashValue(parts, "disableBlingAnimation", groupSettings.disableBlingAnimation)
+    AddHashValue(parts, "countTextFont", groupSettings.countTextFont)
+    AddHashValue(parts, "countTextSize", groupSettings.countTextSize)
+    AddHashColor(parts, "countTextColor", groupSettings.countTextColor)
+    AddHashValue(parts, "chargeTextAnchor", groupSettings.chargeTextAnchor)
+    AddHashValue(parts, "countTextOffsetX", groupSettings.countTextOffsetX)
+    AddHashValue(parts, "countTextOffsetY", groupSettings.countTextOffsetY)
+    AddHashValue(parts, "cooldownFont", groupSettings.cooldownFont)
+    AddHashValue(parts, "cooldownFontSize", groupSettings.cooldownFontSize)
+    AddHashColor(parts, "cooldownTextColor", groupSettings.cooldownTextColor)
+    AddHashValue(parts, "cooldownTextAnchor", groupSettings.cooldownTextAnchor)
+    AddHashValue(parts, "cooldownTextOffsetX", groupSettings.cooldownTextOffsetX)
+    AddHashValue(parts, "cooldownTextOffsetY", groupSettings.cooldownTextOffsetY)
+    AddHashValue(parts, "cooldownTextFormat", groupSettings.cooldownTextFormat)
+    AddHashValue(parts, "hideDurationText", groupSettings.hideDurationText)
+    AddHashValue(parts, "durationTextFont", groupSettings.durationTextFont)
+    AddHashValue(parts, "durationTextSize", groupSettings.durationTextSize)
+    AddHashColor(parts, "durationTextColor", groupSettings.durationTextColor)
+    AddHashValue(parts, "durationTextAnchor", groupSettings.durationTextAnchor)
+    AddHashValue(parts, "durationTextOffsetX", groupSettings.durationTextOffsetX)
+    AddHashValue(parts, "durationTextOffsetY", groupSettings.durationTextOffsetY)
+
+    if type(groupSettings.rowIconSizes) == "table" then
+        for i = 1, 8 do
+            AddHashValue(parts, "rowIconSize" .. i, groupSettings.rowIconSizes[i])
+        end
+    end
+    if type(groupSettings.groupOffsets) == "table" then
+        local party = groupSettings.groupOffsets.party
+        local raid = groupSettings.groupOffsets.raid
+        if type(party) == "table" then
+            AddHashValue(parts, "partyX", party.x)
+            AddHashValue(parts, "partyY", party.y)
+        end
+        if type(raid) == "table" then
+            AddHashValue(parts, "raidX", raid.x)
+            AddHashValue(parts, "raidY", raid.y)
+        end
+    end
+
+    return table_concat(parts, "|")
+end
+
+local function BuildPlacementHash(combinedList, groupSettings)
+    local parts = {}
+    local settingsHash = BuildGroupRenderSettingsHash(groupSettings)
+    if settingsHash ~= "" then
+        parts[#parts + 1] = "settings:" .. settingsHash
+    end
     for i, entry in ipairs(combinedList or {}) do
         local token = entry._ddOrderToken
             or (entry.isDynamic and BuildDynamicOrderToken(entry.iconKey or entry.cooldownID))
@@ -1976,7 +2090,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     end
 
     ApplyGroupIconOrder(groupSettings, combinedList)
-    local combinedHash = BuildPlacementHash(combinedList)
+    local combinedHash = BuildPlacementHash(combinedList, groupSettings)
     local needsFreshLayout = ListRequiresFreshLayout(combinedList, frame, combinedHash)
     if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup and not needsFreshLayout then
         RestoreActivePlacements(combinedList, groupName, groupSettings, groupSettings.groupAlpha or 1)
@@ -2262,6 +2376,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                                     secondaryDirection = cachedGS.growDirection,
                                     rowLimit = cachedGS.rowLimit or 0,
                                     rowIconSizes = cachedGS.rowIconSizes,
+                                    groupCategory = cachedGS.groupCategory,
+                                    iconMotion = cachedGS.iconMotion,
+                                    iconMotionDuration = cachedGS.iconMotionDuration,
                                 }
                                 GroupRenderer:LayoutGroup(p, ls, vn2)
                             end
@@ -2311,6 +2428,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         rowLimit = groupSettings.rowLimit or 0,
         rowIconSizes = groupSettings.rowIconSizes,
         groupOffsets = resolvedGroupOffsets,
+        groupCategory = groupSettings.groupCategory,
+        iconMotion = groupSettings.iconMotion,
+        iconMotionDuration = groupSettings.iconMotionDuration,
     }
 
     -- 2단계: LayoutGroup (최종 크기/위치 결정 — rowIconSizes 반영)
@@ -2911,7 +3031,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
     -- [FIX] 아이콘 구성이 변경되지 않았으면 전체 레이아웃 스킵 (0x0 플래시 방지)
     -- 매 틱마다 wipe→재배치→LayoutGroup을 실행하면 중간에 크기가 0x0이 되었다가 복구됨
     -- → 아이콘 추가/제거/전문화 변경 시에만 재실행
-    local newKeyHash = ""
+    local newKeyHash = "settings:" .. BuildGroupRenderSettingsHash(groupSettings) .. ";"
     for _, entry in ipairs(activeIcons) do
         local visibleToken = (inCombat and ":c") or (entry.combatVisible == false and ":0" or ":1")
         newKeyHash = newKeyHash .. (entry.iconKey or "") .. visibleToken .. ";"
@@ -3163,6 +3283,11 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
         primaryDirection = groupSettings.direction or "RIGHT",
         secondaryDirection = groupSettings.growDirection or "DOWN",
         rowLimit = groupSettings.rowLimit or 0,
+        rowIconSizes = groupSettings.rowIconSizes,
+        groupOffsets = groupSettings.groupOffsets,
+        groupCategory = groupSettings.groupCategory,
+        iconMotion = groupSettings.iconMotion,
+        iconMotionDuration = groupSettings.iconMotionDuration,
     }
 
     -- LayoutGroup (기존 레이아웃 엔진 재사용)
