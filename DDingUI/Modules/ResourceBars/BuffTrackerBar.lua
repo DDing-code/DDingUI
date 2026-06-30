@@ -61,6 +61,56 @@ local function ShouldRunDurationUpdate(frame, elapsed)
     return true
 end
 
+local durationDriverFrame
+local durationDriverHandlers = {}
+local durationDriverCount = 0
+
+local function EnsureDurationDriver()
+    if durationDriverFrame then return durationDriverFrame end
+    durationDriverFrame = CreateFrame("Frame")
+    durationDriverFrame:Hide()
+    durationDriverFrame:SetScript("OnUpdate", function(self, elapsed)
+        if durationDriverCount <= 0 then
+            self:Hide()
+            return
+        end
+
+        for owner, handler in pairs(durationDriverHandlers) do
+            if owner and handler then
+                if not owner.IsShown or owner:IsShown() then
+                    handler(owner, elapsed)
+                end
+            else
+                durationDriverHandlers[owner] = nil
+            end
+        end
+    end)
+    return durationDriverFrame
+end
+
+local function RegisterDurationUpdate(owner, handler)
+    if not owner or not handler then return end
+    if not durationDriverHandlers[owner] then
+        durationDriverCount = durationDriverCount + 1
+    end
+    durationDriverHandlers[owner] = handler
+    EnsureDurationDriver():Show()
+end
+
+local function UnregisterDurationUpdate(owner)
+    if not owner then return end
+    if durationDriverHandlers[owner] then
+        durationDriverHandlers[owner] = nil
+        durationDriverCount = math_max(0, durationDriverCount - 1)
+    end
+    owner._ddDurationUpdateElapsed = nil
+    owner._dtElapsed = nil
+    owner._textElapsed = nil
+    if durationDriverFrame and durationDriverCount <= 0 then
+        durationDriverFrame:Hide()
+    end
+end
+
 -- Get preview values for a bar
 local function GetPreviewValues(barIndex, maxStacks, maxDuration, barFillMode)
     if not maxStacks or maxStacks < 1 then maxStacks = 1 end
@@ -2446,7 +2496,7 @@ HideAllTrackedBuffIcons = function()
             icon._currentAnimation = nil
             -- Clean up duration text OnUpdate -- [12.0.1]
             if icon._hasDurationUpdate then
-                icon:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(icon)
                 icon._hasDurationUpdate = nil
                 icon._durationData = nil
             end
@@ -2750,7 +2800,7 @@ HideAllTrackedBuffTexts = function()
             frame._currentAnimation = nil
             -- Clean up duration text OnUpdate -- [12.0.1]
             if frame._hasDurationUpdate then
-                frame:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(frame)
                 frame._hasDurationUpdate = nil
                 frame._durationData = nil
             end
@@ -2772,13 +2822,13 @@ HideAllTrackedBuffBars = function()
             if bar.RingBorder then bar.RingBorder:Hide() end
             -- Ring DurationText OnUpdate 정리 (TextFrame 사용) -- [12.0.1]
             if bar.TextFrame and bar.TextFrame._hasDurationUpdate then
-                bar.TextFrame:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(bar.TextFrame)
                 bar.TextFrame._hasDurationUpdate = nil
                 bar.TextFrame._dtData = nil
             end
             -- Ring 자체 OnUpdate 정리
             if bar._hasRingTextUpdate then
-                bar:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(bar)
                 bar._hasRingTextUpdate = false
                 bar._durationData = nil
             end
@@ -3407,7 +3457,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
             -- OnUpdate 핸들러 설정 (매 프레임 폴링)
             if not bar._hasDurationUpdate then
-                bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
                     if not data then return end
                     if not ShouldRunDurationUpdate(self, elapsed) then return end
@@ -3512,7 +3562,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         else
             -- Duration 모드지만 버프 없음: OnUpdate 제거하고 0으로 설정
             if bar._hasDurationUpdate then
-                bar.StatusBar:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(bar.StatusBar)
                 bar._hasDurationUpdate = false
             end
             bar._durationData = nil
@@ -3568,7 +3618,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             end
 
             if not bar._hasDurationUpdate then
-                bar.StatusBar:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
                     if not data or not data.auraID then return end
                     if not ShouldRunDurationUpdate(self, elapsed) then return end
@@ -3610,7 +3660,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         else
             -- Duration OnUpdate 제거
             if bar._hasDurationUpdate then
-                bar.StatusBar:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(bar.StatusBar)
                 bar._hasDurationUpdate = false
             end
             bar._durationData = nil
@@ -4332,7 +4382,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         }
         -- 텍스트 업데이트용 OnUpdate (progress는 CooldownFrame이 처리)
         if ringShowText and not bar._hasRingTextUpdate then
-            bar:SetScript("OnUpdate", function(self, elapsed)
+            RegisterDurationUpdate(bar, function(self, elapsed)
                 -- 0.05초 쓰로틀 (텍스트 업데이트는 20fps면 충분)
                 self._textElapsed = (self._textElapsed or 0) + elapsed
                 if self._textElapsed < 0.05 then return end
@@ -4354,11 +4404,11 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             end)
             bar._hasRingTextUpdate = true
         elseif not ringShowText and bar._hasRingTextUpdate then
-            bar:SetScript("OnUpdate", nil)
+            UnregisterDurationUpdate(bar)
             bar._hasRingTextUpdate = false
         end
     elseif bar._hasRingTextUpdate then
-        bar:SetScript("OnUpdate", nil)
+        UnregisterDurationUpdate(bar)
         bar._hasRingTextUpdate = false
         bar._durationData = nil
     end
@@ -4422,7 +4472,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         if hasData and not isManualMode then
             -- AUTO 모드: aura duration 실시간 업데이트 (TextFrame OnUpdate 사용 → ring OnUpdate와 분리)
             if not bar.TextFrame._hasDurationUpdate then
-                bar.TextFrame:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(bar.TextFrame, function(self, elapsed)
                     self._dtElapsed = (self._dtElapsed or 0) + elapsed
                     if self._dtElapsed < 0.05 then return end
                     self._dtElapsed = 0
@@ -4493,7 +4543,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         elseif hasData and isManualMode then
             -- MANUAL 모드: manualExpiresAt 기반
             if not bar.TextFrame._hasDurationUpdate then
-                bar.TextFrame:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(bar.TextFrame, function(self, elapsed)
                     self._dtElapsed = (self._dtElapsed or 0) + elapsed
                     if self._dtElapsed < 0.05 then return end
                     self._dtElapsed = 0
@@ -4539,7 +4589,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             bar.DurationText:SetText("")
             bar.DurationText:Hide()
             if bar.TextFrame._hasDurationUpdate then
-                bar.TextFrame:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(bar.TextFrame)
                 bar.TextFrame._hasDurationUpdate = nil
                 bar.TextFrame._dtData = nil
             end
@@ -4550,7 +4600,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             bar.DurationText:Hide()
         end
         if bar.TextFrame and bar.TextFrame._hasDurationUpdate then
-            bar.TextFrame:SetScript("OnUpdate", nil)
+            UnregisterDurationUpdate(bar.TextFrame)
             bar.TextFrame._hasDurationUpdate = nil
             bar.TextFrame._dtData = nil
         end
@@ -4913,7 +4963,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         if hasData and auraInstanceID then
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not icon._hasDurationUpdate then
-                icon:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(icon, function(self, elapsed)
                     local data = icon._durationData
                     if not data then return end
                     if not ShouldRunDurationUpdate(self, elapsed) then return end
@@ -4980,7 +5030,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         elseif isManualMode and (manualStackCount or 0) > 0 then
             -- Manual 모드에서 활성화 중
             if not icon._hasDurationUpdate then
-                icon:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(icon, function(self, elapsed)
                     local data = icon._durationData
                     if not data or not data.isManualMode then return end
                     if not ShouldRunDurationUpdate(self, elapsed) then return end
@@ -5021,7 +5071,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             icon.DurationText:SetText("")
             icon.DurationText:Hide()
             if icon._hasDurationUpdate then
-                icon:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(icon)
                 icon._hasDurationUpdate = nil
                 icon._durationData = nil
             end
@@ -5032,7 +5082,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             icon.DurationText:Hide()
         end
         if icon._hasDurationUpdate then
-            icon:SetScript("OnUpdate", nil)
+            UnregisterDurationUpdate(icon)
             icon._hasDurationUpdate = nil
             icon._durationData = nil
         end
@@ -5455,7 +5505,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         if hasData and auraInstanceID then
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not textFrame._hasDurationUpdate then
-                textFrame:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(textFrame, function(self, elapsed)
                     local data = textFrame._durationData
                     if not data then return end
                     if not ShouldRunDurationUpdate(self, elapsed) then return end
@@ -5522,7 +5572,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         elseif isManualMode and (manualStackCount or 0) > 0 then
             -- Manual 모드에서 활성화 중
             if not textFrame._hasDurationUpdate then
-                textFrame:SetScript("OnUpdate", function(self, elapsed)
+                RegisterDurationUpdate(textFrame, function(self, elapsed)
                     local data = textFrame._durationData
                     if not data or not data.isManualMode then return end
                     if not ShouldRunDurationUpdate(self, elapsed) then return end
@@ -5561,7 +5611,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             textFrame.DurationText:SetText("")
             textFrame.DurationText:Hide()
             if textFrame._hasDurationUpdate then
-                textFrame:SetScript("OnUpdate", nil)
+                UnregisterDurationUpdate(textFrame)
                 textFrame._hasDurationUpdate = nil
                 textFrame._durationData = nil
             end
@@ -5571,7 +5621,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             textFrame.DurationText:Hide()
         end
         if textFrame._hasDurationUpdate then
-            textFrame:SetScript("OnUpdate", nil)
+            UnregisterDurationUpdate(textFrame)
             textFrame._hasDurationUpdate = nil
             textFrame._durationData = nil
         end
