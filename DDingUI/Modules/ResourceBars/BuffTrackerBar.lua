@@ -919,6 +919,8 @@ local StopBuffTrackerTicker
 local buffTrackerEventFrame
 local buffTrackerEventsRegistered = false
 local buffTrackerUpdatePending = false
+local buffTrackerUpdateFrame
+local buffTrackerUpdateDueAt = 0
 local QueueBuffTrackerUpdate
 local SetBuffTrackerEventsEnabled
 
@@ -1236,6 +1238,10 @@ end
 
 QueueBuffTrackerUpdate = function(reason, delay)
     if not IsBuffTrackerRuntimeEnabled() and not isInPreviewMode and not isInMoverMode then
+        buffTrackerUpdatePending = false
+        if buffTrackerUpdateFrame then
+            buffTrackerUpdateFrame:Hide()
+        end
         if StopBuffTrackerTicker then StopBuffTrackerTicker() end
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
         return
@@ -1243,15 +1249,34 @@ QueueBuffTrackerUpdate = function(reason, delay)
     if buffTrackerUpdatePending then return end
 
     buffTrackerUpdatePending = true
-    C_Timer.After(delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03), function()
-        buffTrackerUpdatePending = false
-        if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
-            ResourceBars:UpdateBuffTrackerBar()
-        else
-            if StopBuffTrackerTicker then StopBuffTrackerTicker() end
-            if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
-        end
-    end)
+    buffTrackerUpdateDueAt = (GetTime and GetTime() or 0) + (delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03))
+
+    if not buffTrackerUpdateFrame then
+        buffTrackerUpdateFrame = CreateFrame("Frame")
+        buffTrackerUpdateFrame:Hide()
+        buffTrackerUpdateFrame:SetScript("OnUpdate", function(self)
+            if not buffTrackerUpdatePending then
+                self:Hide()
+                return
+            end
+
+            local now = GetTime and GetTime() or 0
+            if buffTrackerUpdateDueAt > now then
+                return
+            end
+
+            self:Hide()
+            buffTrackerUpdatePending = false
+            if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
+                ResourceBars:UpdateBuffTrackerBar()
+            else
+                if StopBuffTrackerTicker then StopBuffTrackerTicker() end
+                if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
+            end
+        end)
+    end
+
+    buffTrackerUpdateFrame:Show()
 end
 
 local playerInCombat = false
