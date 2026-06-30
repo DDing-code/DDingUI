@@ -275,11 +275,27 @@ local function SyncDynamicGroups(gs)
 
     local dynamicGroups = bridge:GetDynamicGroups()
     local dynDB = GetDynamicDB()
+    local ci = DDingUI.CustomIcons
 
     for groupName in pairs(CORE_CDM_GROUPS) do
         local settings = gs.groups and gs.groups[groupName]
         if settings then
             settings.groupType = "cdm"
+            if groupName == "Buffs"
+                and settings.showInactiveIcons == true
+                and not settings.sourceGroupKey
+                and ci and ci.GetOrCreateSourceGroupForCDMGroup
+            then
+                local sourceKey = ci:GetOrCreateSourceGroupForCDMGroup(groupName, settings.name or groupName)
+                if sourceKey then
+                    settings.sourceGroupKey = sourceKey
+                    dynamicGroups = bridge:GetDynamicGroups()
+                    dynDB = GetDynamicDB()
+                    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                        DDingUI.SpecProfiles:MarkDirty()
+                    end
+                end
+            end
             local bestSourceKey = SelectBestLinkedSourceGroup(dynamicGroups, groupName, settings.sourceGroupKey, settings, dynDB)
             if bestSourceKey and settings.sourceGroupKey ~= bestSourceKey then
                 settings.sourceGroupKey = bestSourceKey

@@ -4600,7 +4600,13 @@ local function GS_Toggle(groupName, key, name, order, default)
         end,
         set = function(_, val)
             local gs = GetGS()
-            if gs and gs.groups[groupName] then gs.groups[groupName][key] = val; RefreshGroupSystem() end
+            if gs and gs.groups[groupName] then
+                gs.groups[groupName][key] = val
+                if key == "showInactiveIcons" and val then
+                    EnsureSourceGroup(groupName)
+                end
+                RefreshGroupSystem()
+            end
         end,
     }
 end

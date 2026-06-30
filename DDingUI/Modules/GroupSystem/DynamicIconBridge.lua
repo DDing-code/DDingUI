@@ -838,6 +838,7 @@ local function BuildDynamicLayoutStateHash()
 
     local sourceKeys = {}
     local sourceSeen = {}
+    local sourceShowInactiveGray = {}
     local gs = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
     local groups = gs and gs.groups
     if type(groups) == "table" then
@@ -846,6 +847,12 @@ local function BuildDynamicLayoutStateHash()
             if sourceKey and not sourceSeen[sourceKey] then
                 sourceSeen[sourceKey] = true
                 sourceKeys[#sourceKeys + 1] = sourceKey
+            end
+            if sourceKey
+                and groupSettings.groupCategory == "buff"
+                and groupSettings.showInactiveIcons == true
+            then
+                sourceShowInactiveGray[sourceKey] = true
             end
         end
     end
@@ -900,6 +907,9 @@ local function BuildDynamicLayoutStateHash()
                     token = (ShouldTrackSlot(frame, slotID) or (inCombat and frame._wasVisibleInGroup)) and "1" or nil
                 end
 
+                if not token and sourceShowInactiveGray[sourceKey] and isEffectIcon then
+                    token = "g"
+                end
                 if token then
                     parts[#parts + 1] = tostring(sourceKey) .. ":" .. tostring(iconKey) .. ":" .. (inCombat and "c" or token)
                 end
