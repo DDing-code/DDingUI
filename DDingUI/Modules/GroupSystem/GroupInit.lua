@@ -20,13 +20,23 @@ GroupSystem.initialized = false
 GroupSystem.enabled = false
 
 local DoFullUpdate
+local DoDynamicUpdate
 local _fullUpdateDispatchFrame
 local _fullUpdatePending = false
 local _fullUpdateRunning = false
 local _lastFullUpdateAt = 0
+local _dynamicUpdateDispatchFrame
+local _dynamicUpdatePending = false
+local _dynamicUpdateRunning = false
+local _lastDynamicUpdateAt = 0
+local _lastClassifiedGroups
 
 local function RequestFullUpdate()
     if not GroupSystem.enabled then return end
+    _dynamicUpdatePending = false
+    if _dynamicUpdateDispatchFrame then
+        _dynamicUpdateDispatchFrame:Hide()
+    end
     _fullUpdatePending = true
 
     if not _fullUpdateDispatchFrame then
@@ -63,6 +73,47 @@ local function RequestFullUpdate()
     end
 
     _fullUpdateDispatchFrame:Show()
+end
+
+local function RequestDynamicUpdate()
+    if not GroupSystem.enabled then return end
+    if _fullUpdatePending or _fullUpdateRunning then return end
+    _dynamicUpdatePending = true
+
+    if not _dynamicUpdateDispatchFrame then
+        _dynamicUpdateDispatchFrame = CreateFrame("Frame")
+        _dynamicUpdateDispatchFrame:Hide()
+        _dynamicUpdateDispatchFrame:SetScript("OnUpdate", function(self)
+            if not _dynamicUpdatePending then
+                self:Hide()
+                return
+            end
+
+            local now = GetTime and GetTime() or 0
+            local minInterval = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0
+            if minInterval > 0 and _lastDynamicUpdateAt > 0 and (now - _lastDynamicUpdateAt) < minInterval then
+                return
+            end
+
+            self:Hide()
+            if _dynamicUpdateRunning then
+                self:Show()
+                return
+            end
+
+            _dynamicUpdatePending = false
+            _dynamicUpdateRunning = true
+            DoDynamicUpdate()
+            _dynamicUpdateRunning = false
+            _lastDynamicUpdateAt = GetTime and GetTime() or now
+
+            if _dynamicUpdatePending then
+                self:Show()
+            end
+        end)
+    end
+
+    _dynamicUpdateDispatchFrame:Show()
 end
 
 -- [FIX] 전투 중 ClearAllPoints() 호출 방지 (ADDON_ACTION_BLOCKED 해결)
@@ -649,6 +700,7 @@ DoFullUpdate = function()
 
     -- 1. CDMHookEngine 맵 → 그룹별 분류
     local classified = GroupManager:ClassifyAll()
+    _lastClassifiedGroups = classified
 
     -- 2. 렌더링 (CDM 프레임 re-parent)
     -- [FIX] CDM + dynamic 병합: UpdateGroup이 두 타입 모두 처리
@@ -728,12 +780,53 @@ DoFullUpdate = function()
 end
 
 -- DoFullUpdate를 외부에서 호출 가능하도록 노출 (DynamicIconBridge 등)
+DoDynamicUpdate = function()
+    if not GroupSystem.enabled then return end
+    if not _lastClassifiedGroups then
+        RequestFullUpdate()
+        return
+    end
+
+    local gs = GetSettings()
+    if not gs or not gs.groups then return end
+
+    SyncDynamicGroups(gs)
+
+    local touched = false
+    for groupName, groupSettings in pairs(gs.groups) do
+        if groupSettings.sourceGroupKey then
+            if groupSettings.groupType == "dynamic" then
+                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+            else
+                GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
+            end
+            touched = true
+        elseif groupSettings.groupType == "dynamic" then
+            GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+            touched = true
+        end
+    end
+
+    if not touched then
+        RequestFullUpdate()
+        return
+    end
+
+    if ContainerSync then
+        ContainerSync:SyncAll()
+    end
+end
+
 function GroupSystem:DoFullUpdate()
     DoFullUpdate()
 end
 
 function GroupSystem:RequestFullUpdate()
     RequestFullUpdate()
+end
+
+function GroupSystem:RequestDynamicUpdate()
+    RequestDynamicUpdate()
 end
 
 -- [DYNAMIC] Config UI에서 호출: CustomIcons 그룹 동기화
