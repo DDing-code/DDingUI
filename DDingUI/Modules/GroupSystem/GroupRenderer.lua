@@ -109,6 +109,21 @@ local function StopIconMotion(icon)
     end
 end
 
+local function ResetIconLayoutState(icon, resetTarget)
+    if not icon then return end
+    StopIconMotion(icon)
+    icon._ddLastGroupLayoutHash = nil
+    icon._ddCurrentContainer = nil
+    icon._ddCurrentX = nil
+    icon._ddCurrentY = nil
+    if resetTarget then
+        icon._ddTargetPoint = nil
+        icon._ddTargetRelPoint = nil
+        icon._ddTargetX = nil
+        icon._ddTargetY = nil
+    end
+end
+
 iconMotionDriver:SetScript("OnUpdate", function(_, elapsed)
     if activeIconMotionCount <= 0 then
         iconMotionDriver:Hide()
@@ -230,6 +245,22 @@ GroupRenderer._forceFullSetup = false -- [FIX] Refresh 시 강제 재설정 플�
 -- ============================================================
 -- [REPARENT] 그룹 이름 → 소속 뷰어 매핑
 -- ============================================================
+
+function GroupRenderer:ResetIconLayoutState(icon, resetTarget)
+    ResetIconLayoutState(icon, resetTarget)
+end
+
+function GroupRenderer:InvalidateLayoutCaches()
+    for _, frame in pairs(self.groupFrames or {}) do
+        if frame then
+            frame._lastCombinedLayoutHash = nil
+            frame._lastDynHash = nil
+            for _, icon in pairs(frame._managedIcons or {}) do
+                ResetIconLayoutState(icon, false)
+            end
+        end
+    end
+end
 
 local GROUP_VIEWER_MAP = {
     ["Cooldowns"] = "EssentialCooldownViewer",
@@ -1068,6 +1099,8 @@ local function EntryRequiresFreshLayout(entry, frame, layoutHash)
     end
 
     if icon._ddContainerRef ~= frame then return true end
+    if icon._ddTargetPoint ~= "CENTER" or icon._ddTargetX == nil or icon._ddTargetY == nil then return true end
+    if icon._ddCurrentContainer ~= frame or icon._ddCurrentX == nil or icon._ddCurrentY == nil then return true end
     if icon._ddLastGroupLayoutHash ~= layoutHash then return true end
     return false
 end
@@ -1338,7 +1371,9 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
     -- [REPARENT] GetParent() → _ddContainerRef (parent는 UIParent)
     if icon._ddTargetPoint == "CENTER"
        and icon._ddTargetX == x and icon._ddTargetY == y
-       and icon._ddContainerRef == container then
+       and icon._ddContainerRef == container
+       and icon._ddCurrentContainer == container
+       and icon._ddCurrentX == x and icon._ddCurrentY == y then
         return
     end
 

@@ -88,6 +88,33 @@ local CONFIG = {
 -- 런타임 맵
 -- ============================================================
 
+local function ResetGroupIconLayoutState(frame, resetTarget)
+    if not frame then return end
+    local gr = DDingUI.GroupRenderer
+    if gr and gr.ResetIconLayoutState then
+        gr:ResetIconLayoutState(frame, resetTarget)
+        return
+    end
+    frame._ddLastGroupLayoutHash = nil
+    frame._ddCurrentContainer = nil
+    frame._ddCurrentX = nil
+    frame._ddCurrentY = nil
+    frame._ddPositionMotion = nil
+    if resetTarget then
+        frame._ddTargetPoint = nil
+        frame._ddTargetRelPoint = nil
+        frame._ddTargetX = nil
+        frame._ddTargetY = nil
+    end
+end
+
+local function InvalidateGroupLayoutCaches()
+    local gr = DDingUI.GroupRenderer
+    if gr and gr.InvalidateLayoutCaches then
+        gr:InvalidateLayoutCaches()
+    end
+end
+
 local idIconMap = {}        -- [cooldownID] = CDM icon frame
 local iconSourceMap = {}    -- [cooldownID] = viewerGlobalName
 local iconSpellNameMap = {} -- [cooldownID] = spellName (캐시)
@@ -312,6 +339,7 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     FrameController:RefreshViewerRefs()
     ResetGroupViewerHiddenFlags()
     if forceFrameControl then
+        InvalidateGroupLayoutCaches()
         RestoreGroupFrameState()
     end
     if DDingUI.ContainerSync then
@@ -1331,6 +1359,10 @@ end
 
 function FrameController:SetupFrameInContainer(frame, container, targetW, targetH, cooldownID)
     if not frame or not container then return end
+    local needsLayoutReset = frame._ddContainerRef ~= container or frame._ddLastCooldownID ~= cooldownID
+    if needsLayoutReset then
+        ResetGroupIconLayoutState(frame, true)
+    end
 
     -- 1. 원래 상태 저장 (최초 1회, GroupRenderer SaveOriginalState 패턴)
     if not frame._ddOrigState then
@@ -1424,6 +1456,7 @@ function FrameController:ReleaseFrameFromContainer(frame)
 
     -- 관리 태그 먼저 정리 — HOOK 6 (SetParent snap-back) 방지
     frame._ddIsManaged = nil
+    ResetGroupIconLayoutState(frame, true)
 
     -- [REPARENT] 원래 parent로 복원 (핵심 — CDM 뷰어로 되돌리기)
     if orig.parent then
@@ -2178,6 +2211,7 @@ function FrameController:Initialize()
             state.specChangeVersion = state.specChangeVersion + 1
             local specVersion = state.specChangeVersion
             wipe(iconSpellNameMap) -- 캐시 초기화
+            InvalidateGroupLayoutCaches()
             ScheduleReconcile(CONFIG.DEBOUNCE_SPEC)
 
             -- [FIX] CDM이 뷰어를 재생성할 시간 대기 후 참조 갱신 + 앵커 재적용
@@ -2185,6 +2219,7 @@ function FrameController:Initialize()
                 if not FrameController.initialized then return end
                 if specVersion ~= state.specChangeVersion then return end
                 FrameController:RefreshViewerRefs()
+                InvalidateGroupLayoutCaches()
 
                 -- [FIX] _viewerHidden 강제 리셋
                 -- CDM 뷰어 재생성 시 기존 OnHide 훅으로 _viewerHidden=true가 남아
@@ -2212,6 +2247,7 @@ function FrameController:Initialize()
                 if not FrameController.initialized then return end
                 if specVersion ~= state.specChangeVersion then return end
                 FrameController:RefreshViewerRefs()
+                InvalidateGroupLayoutCaches()
 
                 -- [FIX] 안정화 패스에서도 _viewerHidden 리셋
                 local gr = DDingUI.GroupRenderer
@@ -2234,6 +2270,7 @@ function FrameController:Initialize()
             if state.specChangeDetected then return end
             state.talentChangeDetected = true
             wipe(iconSpellNameMap)
+            InvalidateGroupLayoutCaches()
             ScheduleReconcile(CONFIG.DEBOUNCE_TALENT)
 
         elseif event == "SPELLS_CHANGED" then

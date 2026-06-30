@@ -75,6 +75,33 @@ local SUPPRESSED_SPELL_CACHE_TTL = 0.15
 local suppressedSpellCache = nil
 local suppressedSpellCacheAt = 0
 
+local function ResetGroupIconLayoutState(frame, resetTarget)
+    if not frame then return end
+    local gr = DDingUI.GroupRenderer
+    if gr and gr.ResetIconLayoutState then
+        gr:ResetIconLayoutState(frame, resetTarget)
+        return
+    end
+    frame._ddLastGroupLayoutHash = nil
+    frame._ddCurrentContainer = nil
+    frame._ddCurrentX = nil
+    frame._ddCurrentY = nil
+    frame._ddPositionMotion = nil
+    if resetTarget then
+        frame._ddTargetPoint = nil
+        frame._ddTargetRelPoint = nil
+        frame._ddTargetX = nil
+        frame._ddTargetY = nil
+    end
+end
+
+local function InvalidateGroupLayoutCaches()
+    local gr = DDingUI.GroupRenderer
+    if gr and gr.InvalidateLayoutCaches then
+        gr:InvalidateLayoutCaches()
+    end
+end
+
 local function InvalidateSuppressedSpellCache()
     suppressedSpellCache = nil
     suppressedSpellCacheAt = 0
@@ -898,6 +925,10 @@ end
 
 function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targetH, iconKey, zoom, aspectRatioCrop)
     if not frame or not container then return end
+    local needsLayoutReset = frame._ddContainerRef ~= container or frame._ddIconKey ~= iconKey
+    if needsLayoutReset then
+        ResetGroupIconLayoutState(frame, true)
+    end
     targetW = tonumber(targetW) or 40
     targetH = tonumber(targetH) or targetW
     if targetW < 1 then targetW = 40 end
@@ -1044,6 +1075,7 @@ function DynamicIconBridge:ReleaseFrame(frame, iconKey)
 
     local orig = frame._ddOrigState
     frame._ddIsManaged = nil
+    ResetGroupIconLayoutState(frame, true)
     if orig then
         -- [FIX] 이미 부모가 nil (RemoveGroup에서 정리됨)이면 복원하지 않음 (고스트 프레임 방지)
         if orig.parent and frame:GetParent() ~= nil then
@@ -1381,6 +1413,9 @@ function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     if not layoutSuppressed then return end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
+    if forceLayout then
+        InvalidateGroupLayoutCaches()
+    end
     local stateHash = BuildDynamicLayoutStateHash()
     if not forceLayout and self._lastQueuedLayoutStateHash == stateHash then
         return

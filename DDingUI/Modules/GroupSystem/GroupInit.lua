@@ -1724,6 +1724,9 @@ function GroupSystem:Enable()
             C_Timer.After(2.0, function()
                 if not GroupSystem.enabled then return end
                 -- 그룹 프레임 앵커 재적용 → _G[attachTo]로 새 뷰어 resolve
+                if GroupRenderer and GroupRenderer.InvalidateLayoutCaches then
+                    GroupRenderer:InvalidateLayoutCaches()
+                end
                 GroupSystem:Refresh()
                 -- 매핑 모듈(시전바, 자원바 등) 위치도 재적용
                 if DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
@@ -1733,6 +1736,9 @@ function GroupSystem:Enable()
             -- 안정화 패스
             C_Timer.After(4.0, function()
                 if not GroupSystem.enabled then return end
+                if GroupRenderer and GroupRenderer.InvalidateLayoutCaches then
+                    GroupRenderer:InvalidateLayoutCaches()
+                end
                 GroupSystem:Refresh()
             end)
         end)
