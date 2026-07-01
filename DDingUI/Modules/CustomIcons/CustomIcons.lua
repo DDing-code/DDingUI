@@ -100,6 +100,13 @@ local function GetPlayerRacialSpellID()
     return CustomIcons:GetPlayerRacialSpellID()
 end
 
+function CustomIcons:IsCurrentRacialSpellIcon(iconData)
+    if type(iconData) ~= "table" then return false end
+    local iconSpellID = tonumber(iconData.id)
+    local racialID = tonumber(GetPlayerRacialSpellID())
+    return iconSpellID ~= nil and racialID ~= nil and iconSpellID == racialID
+end
+
 local function IsFlightHideAlphaLocked()
     local fh = DDingUI.FlightHide
     return fh and (fh.isActive or fh._hiding)
@@ -2590,12 +2597,50 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
     iconFrame._type = "racial"
     iconFrame._racialSpellID = racialID
     iconFrame._fallbackTexture = racialSettings.iconTexture or FALLBACK_RACIAL_ICON
-    UpdateSpellIconFrame(iconFrame, { id = racialID, settings = racialSettings })
+    iconFrame._textureCacheKey = "racial:" .. tostring(racialID)
+    SetStableIconTexture(iconFrame, racialSettings.iconTexture, true)
 
-    if racialSettings.iconTexture then
-        iconFrame._textureCacheKey = "racial:" .. tostring(racialID)
-        SetStableIconTexture(iconFrame, racialSettings.iconTexture, true)
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
+    CustomIcons.StopIconDesatUpdater(iconFrame)
+
+    local cdInfo
+    local durObj
+    pcall(function()
+        cdInfo = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(racialID)
+        durObj = C_Spell and C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(racialID)
+    end)
+
+    local onCooldown = cdInfo and cdInfo.isActive == true and cdInfo.isOnGCD ~= true and durObj
+    if iconFrame.cooldown then
+        if iconFrame.cooldown.SetReverse then pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false) end
+        if iconFrame.cooldown.SetDrawEdge then pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false) end
+        if iconFrame.cooldown.SetDrawSwipe then pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true) end
+        if iconFrame.cooldown.SetSwipeColor then pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0.8) end
+
+        if onCooldown then
+            pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durObj)
+            if not managedVisualLocked and racialSettings.showCooldown ~= false then
+                iconFrame.cooldown:Show()
+            end
+        else
+            iconFrame.cooldown:Clear()
+            iconFrame.cooldown:Hide()
+        end
     end
+
+    if iconFrame.cooldownProbe then
+        if onCooldown then
+            pcall(iconFrame.cooldownProbe.SetCooldownFromDurationObject, iconFrame.cooldownProbe, durObj)
+        else
+            iconFrame.cooldownProbe:Clear()
+        end
+    end
+
+    if iconFrame.count then
+        pcall(iconFrame.count.SetText, iconFrame.count, "")
+        iconFrame.count:Hide()
+    end
+
     if iconFrame.icon and not CustomIcons.ManagedVisualLocked(iconFrame) then
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
@@ -3489,7 +3534,11 @@ local function ExecuteUpdateAllIcons(filter)
                     if iconData.type == "item" then
                         UpdateItemIcon(frame, iconData)
                     elseif iconData.type == "spell" then
-                        UpdateSpellIconFrame(frame, iconData)
+                        if CustomIcons:IsCurrentRacialSpellIcon(iconData) then
+                            UpdateRacialIconFrame(frame, iconData)
+                        else
+                            UpdateSpellIconFrame(frame, iconData)
+                        end
                     elseif iconData.type == "racial" then
                         UpdateRacialIconFrame(frame, iconData)
                     elseif iconData.type == "slot" then
@@ -4631,7 +4680,13 @@ local function CreateDynamicIcon(iconKey, iconData, parent)
     if iconData.type == "item" then
         return CreateItemIcon(iconKey, iconData, parent)
     elseif iconData.type == "spell" then
-        return CreateSpellIcon(iconKey, iconData, parent)
+        local frame = CreateSpellIcon(iconKey, iconData, parent)
+        if frame and CustomIcons:IsCurrentRacialSpellIcon(iconData) then
+            frame._type = "racial"
+            frame._racialSpellID = GetPlayerRacialSpellID()
+            UpdateRacialIconFrame(frame, iconData)
+        end
+        return frame
     elseif iconData.type == "slot" then
         return CreateSlotIcon(iconKey, iconData, parent)
     elseif iconData.type == "trinketProc" then
@@ -4665,7 +4720,11 @@ local function UpdateDynamicIcon(iconKey)
     if iconData.type == "item" then
         UpdateItemIcon(frame, iconData)
     elseif iconData.type == "spell" then
-        UpdateSpellIconFrame(frame, iconData)
+        if CustomIcons:IsCurrentRacialSpellIcon(iconData) then
+            UpdateRacialIconFrame(frame, iconData)
+        else
+            UpdateSpellIconFrame(frame, iconData)
+        end
     elseif iconData.type == "racial" then
         UpdateRacialIconFrame(frame, iconData)
     elseif iconData.type == "slot" then

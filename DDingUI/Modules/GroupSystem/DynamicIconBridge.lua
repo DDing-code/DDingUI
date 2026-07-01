@@ -379,6 +379,13 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
         return ShouldTrackSlot(iconFrame, slotID)
     end
 
+    if iconData.type == "spell" then
+        local ci = GetCustomIcons()
+        if ci and ci.IsCurrentRacialSpellIcon and ci:IsCurrentRacialSpellIcon(iconData) then
+            return true
+        end
+    end
+
     if iconData.type == "trinketProc" then
         local settings = iconData.settings or {}
         if settings.showItemCooldown ~= false then
