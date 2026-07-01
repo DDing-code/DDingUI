@@ -2568,17 +2568,38 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
     local racialID = GetPlayerRacialSpellID()
     if not racialID then return end
 
-    iconData.settings = iconData.settings or {}
+    local sourceSettings = iconData.settings
+    if type(sourceSettings) ~= "table" then
+        sourceSettings = {}
+        iconData.settings = sourceSettings
+    end
+
     local racials = DDingUI.CustomIconRacials
     local texture = racials and racials:GetTexture(FALLBACK_RACIAL_ICON)
-    if texture then
-        iconData.settings.iconTexture = texture
+
+    local racialSettings = {}
+    for key, value in pairs(sourceSettings) do
+        racialSettings[key] = value
     end
+    racialSettings.iconTexture = texture or sourceSettings.iconTexture or FALLBACK_RACIAL_ICON
+    racialSettings.fallbackIcon = racialSettings.iconTexture
+    racialSettings.desaturateWhenUnusable = false
+    racialSettings.desaturateOnCooldown = false
+    racialSettings.showCharges = false
 
     iconFrame._type = "racial"
     iconFrame._racialSpellID = racialID
-    iconFrame._fallbackTexture = texture or FALLBACK_RACIAL_ICON
-    UpdateSpellIconFrame(iconFrame, { id = racialID, settings = iconData.settings })
+    iconFrame._fallbackTexture = racialSettings.iconTexture or FALLBACK_RACIAL_ICON
+    UpdateSpellIconFrame(iconFrame, { id = racialID, settings = racialSettings })
+
+    if racialSettings.iconTexture then
+        iconFrame._textureCacheKey = "racial:" .. tostring(racialID)
+        SetStableIconTexture(iconFrame, racialSettings.iconTexture, true)
+    end
+    if iconFrame.icon and not CustomIcons.ManagedVisualLocked(iconFrame) then
+        iconFrame.icon:SetDesaturated(false)
+        iconFrame.icon:SetDesaturation(0)
+    end
 end
 
 local function UpdateSlotIcon(iconFrame, iconData)
