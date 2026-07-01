@@ -2642,8 +2642,13 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
     end
 
     if iconFrame.icon and not CustomIcons.ManagedVisualLocked(iconFrame) then
-        iconFrame.icon:SetDesaturated(false)
-        iconFrame.icon:SetDesaturation(0)
+        if onCooldown then
+            iconFrame.icon:SetDesaturated(true)
+            iconFrame.icon:SetDesaturation(1)
+        else
+            iconFrame.icon:SetDesaturated(false)
+            iconFrame.icon:SetDesaturation(0)
+        end
     end
 end
 
