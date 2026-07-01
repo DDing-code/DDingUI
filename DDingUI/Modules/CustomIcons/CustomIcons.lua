@@ -1309,8 +1309,30 @@ function CustomIcons.ApplyManagedGroupTextOptions(frame)
     end
 end
 
+function CustomIcons.ManagedVisualLocked(frame)
+    if not (frame and frame._ddIsManaged) then return false end
+    return frame._ddInactiveGray == true
+        or frame._ddForcedInactiveGray == true
+        or frame._ddManagedAuraExpired == true
+        or frame._ddCombatVisible == false
+end
+
+function CustomIcons.StopIconDesatUpdater(frame)
+    local updater = frame and frame._cdmDesatUpdater
+    if not updater then return end
+    updater:Hide()
+    updater.ownerFrame = nil
+    updater.spellID = nil
+    updater.durObj = nil
+    updater.targetIcon = nil
+end
+
 function CustomIcons.RestoreActiveIconVisual(frame)
     if not frame then return end
+    if CustomIcons.ManagedVisualLocked(frame) then
+        CustomIcons.StopIconDesatUpdater(frame)
+        return
+    end
     if frame.Show then
         pcall(frame.Show, frame)
     end
@@ -1526,6 +1548,9 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 frame._wasVisibleInGroup = true
                 frame._auraWasActive = true
                 frame._ddManagedAuraExpired = nil
+                frame._ddCombatVisible = nil
+                frame._ddInactiveGray = nil
+                frame._ddForcedInactiveGray = nil
                 if state and state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
@@ -2027,6 +2052,7 @@ end
 
 local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan)
     if not iconFrame or not iconFrame.cooldown or not start or not duration then return false end
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     if iconFrame.cooldown.SetReverse then
         pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false)
     end
@@ -2042,10 +2068,10 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
                 okSet = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, iconFrame[durObjKey])
             end
             if okSet then
-                if iconFrame.cooldown.SetDrawSwipe then
+                if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
                     pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
                 end
-                if iconFrame.cooldown.Show then
+                if not managedVisualLocked and iconFrame.cooldown.Show then
                     pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
                 end
                 return true
@@ -2056,10 +2082,10 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
     if CooldownFrame_Set then
         local okFrameSet = pcall(CooldownFrame_Set, iconFrame.cooldown, start, duration, 1, false)
         if okFrameSet then
-            if iconFrame.cooldown.SetDrawSwipe then
+            if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
                 pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
             end
-            if iconFrame.cooldown.Show then
+            if not managedVisualLocked and iconFrame.cooldown.Show then
                 pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
             end
             return true
@@ -2068,10 +2094,10 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
 
     local ok = pcall(iconFrame.cooldown.SetCooldown, iconFrame.cooldown, start, duration)
     if ok then
-        if iconFrame.cooldown.SetDrawSwipe then
+        if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
             pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
         end
-        if iconFrame.cooldown.Show then
+        if not managedVisualLocked and iconFrame.cooldown.Show then
             pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
         end
     end
@@ -2108,10 +2134,11 @@ end
 
 function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
     if not (iconFrame and iconFrame.cooldown and durationObject) then return false end
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     if iconFrame.cooldown.SetReverse then
         pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false)
     end
-    if iconFrame.cooldown.Show then
+    if not managedVisualLocked and iconFrame.cooldown.Show then
         pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
     end
     local ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject)
@@ -2119,7 +2146,7 @@ function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
         ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject, true)
     end
     if ok then
-        if iconFrame.cooldown.SetDrawSwipe then
+        if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
             pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
         end
         if iconFrame.cooldown.IsShown then
@@ -2133,6 +2160,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
     if not itemID or not iconFrame then return end
     CustomIcons.RestoreActiveIconVisual(iconFrame)
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
 
     local settings = iconData.settings
     local includeCharges = settings and settings.showCharges
@@ -2233,16 +2261,18 @@ local function UpdateItemIcon(iconFrame, iconData)
     end
 
     -- 쿨다운 프레임 Show/Hide
-    if iconData.settings and iconData.settings.showCooldown == false then
-        iconFrame.cooldown:Hide()
-    elseif itemCooldownActive or itemSpellCooldownActive then
-        iconFrame.cooldown:Show()
-    else
-        iconFrame.cooldown:Hide()
+    if not managedVisualLocked then
+        if iconData.settings and iconData.settings.showCooldown == false then
+            iconFrame.cooldown:Hide()
+        elseif itemCooldownActive or itemSpellCooldownActive then
+            iconFrame.cooldown:Show()
+        else
+            iconFrame.cooldown:Hide()
+        end
     end
 
     -- 아이템 카운트 표시
-    if iconFrame.count then
+    if iconFrame.count and not managedVisualLocked then
         pcall(iconFrame.count.SetText, iconFrame.count, itemCount or 0)
         if iconData.settings and iconData.settings.showCharges == false then
             iconFrame.count:Hide()
@@ -2285,18 +2315,24 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
 
-    iconFrame.icon:SetDesaturated(false)
-    iconFrame.icon:SetDesaturation(desatVal)
+    if managedVisualLocked then
+        CustomIcons.StopIconDesatUpdater(iconFrame)
+    else
+        iconFrame.icon:SetDesaturated(false)
+        iconFrame.icon:SetDesaturation(desatVal)
+    end
 
     -- OnUpdate 루프: isOnRealCD (safe boolean)으로만 진입 판단 — desatVal 비교 금지
-    if itemCombatLocked then
-        if iconFrame._cdmDesatUpdater then
-            iconFrame._cdmDesatUpdater:Hide()
-        end
+    if managedVisualLocked or itemCombatLocked then
+        CustomIcons.StopIconDesatUpdater(iconFrame)
     elseif itemIsOnRealCD then
         if not iconFrame._cdmDesatUpdater then
             iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
             iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
+                if CustomIcons.ManagedVisualLocked(self.ownerFrame) then
+                    self:Hide()
+                    return
+                end
                 local stillOnRealCD = false
                 pcall(function()
                     local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
@@ -2312,15 +2348,16 @@ local function UpdateItemIcon(iconFrame, iconData)
                 end
             end)
         end
+        iconFrame._cdmDesatUpdater.ownerFrame = iconFrame
         iconFrame._cdmDesatUpdater.spellID = desatSpellID
         iconFrame._cdmDesatUpdater.durObj = desatDurationObject
         iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
         iconFrame._cdmDesatUpdater:Show()
     elseif iconFrame._cdmDesatUpdater then
-        iconFrame._cdmDesatUpdater:Hide()
+        CustomIcons.StopIconDesatUpdater(iconFrame)
     end
 
-    if not IsFlightHideAlphaLocked() then
+    if not managedVisualLocked and not IsFlightHideAlphaLocked() then
         iconFrame.icon:SetAlpha(1.0)
     end
 end
@@ -2340,6 +2377,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     -- 텍스처동적 갱신 (오버라이드/누락 초기로드 대응)
     iconFrame._fallbackTexture = GetStoredIconTexture(iconData) or iconFrame._fallbackTexture or FALLBACK_SPELL_ICON
     SetStableIconTexture(iconFrame, ResolveSpellTexture(spellID, iconFrame._fallbackTexture), true)
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
 
     local allowDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
@@ -2388,35 +2426,39 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     end
     iconFrame._lastCDState = newCDState
 
-    if iconData.settings and iconData.settings.showCooldown == false then
-        iconFrame.cooldown:Hide()
-    else
-        iconFrame.cooldown:Show()
-        local hideNumbers = iconFrame._groupSettings and iconFrame._groupSettings.hideDurationText
-        if iconFrame.cooldown.SetHideCountdownNumbers then
-            iconFrame.cooldown:SetHideCountdownNumbers(hideNumbers and true or false)
+    if not managedVisualLocked then
+        if iconData.settings and iconData.settings.showCooldown == false then
+            iconFrame.cooldown:Hide()
+        else
+            iconFrame.cooldown:Show()
+            local hideNumbers = iconFrame._groupSettings and iconFrame._groupSettings.hideDurationText
+            if iconFrame.cooldown.SetHideCountdownNumbers then
+                iconFrame.cooldown:SetHideCountdownNumbers(hideNumbers and true or false)
+            end
+            iconFrame.cooldown.noCooldownCount = hideNumbers and true or nil
         end
-        iconFrame.cooldown.noCooldownCount = hideNumbers and true or nil
     end
 
     -- 충전 카운트 표시
     local charges = isChargeSpell and chargeInfo.currentCharges
     local hasChargesText = false
-    if not isChargeSpell or (iconData.settings and iconData.settings.showCharges == false) or charges == nil then
-        pcall(iconFrame.count.SetText, iconFrame.count, "")
-        iconFrame.count:Hide()
-    else
-        hasChargesText = pcall(iconFrame.count.SetText, iconFrame.count, charges)
-        if hasChargesText then
-            iconFrame.count:Show()
-        else
+    if not managedVisualLocked then
+        if not isChargeSpell or (iconData.settings and iconData.settings.showCharges == false) or charges == nil then
             pcall(iconFrame.count.SetText, iconFrame.count, "")
             iconFrame.count:Hide()
+        else
+            hasChargesText = pcall(iconFrame.count.SetText, iconFrame.count, charges)
+            if hasChargesText then
+                iconFrame.count:Show()
+            else
+                pcall(iconFrame.count.SetText, iconFrame.count, "")
+                iconFrame.count:Hide()
+            end
         end
     end
 
     -- [FIX CDM] Swipe/Edge 스타일 (변경 없음)
-    if not (iconData.settings and iconData.settings.showCooldown == false) then
+    if not managedVisualLocked and not (iconData.settings and iconData.settings.showCooldown == false) then
         if isChargeSpell then
             pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0)
             pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, cooldownSet)
@@ -2430,7 +2472,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
                 pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
             end
         end
-    else
+    elseif not managedVisualLocked then
         pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false)
     end
 
@@ -2477,13 +2519,21 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         end
         iconFrame._lastDesatValue = nil  -- unusable 상태 전환 시 캐시 초기화
     end
-    iconFrame.icon:SetDesaturation(desatValue)
+    if managedVisualLocked then
+        CustomIcons.StopIconDesatUpdater(iconFrame)
+    else
+        iconFrame.icon:SetDesaturation(desatValue)
+    end
 
     -- OnUpdate 루프: isOnRealCD (safe boolean)만으로 진입 결정 — desatValue 비교 금지
-    if usable and allowDesat and desatDurObj and isOnRealCD then
+    if not managedVisualLocked and usable and allowDesat and desatDurObj and isOnRealCD then
         if not iconFrame._cdmDesatUpdater then
             iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
             iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
+                if CustomIcons.ManagedVisualLocked(self.ownerFrame) then
+                    self:Hide()
+                    return
+                end
                 local stillOnRealCD = false
                 pcall(function()
                     local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
@@ -2499,15 +2549,16 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
                 end
             end)
         end
+        iconFrame._cdmDesatUpdater.ownerFrame = iconFrame
         iconFrame._cdmDesatUpdater.spellID = spellID
         iconFrame._cdmDesatUpdater.durObj = desatDurObj
         iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
         iconFrame._cdmDesatUpdater:Show()
     elseif iconFrame._cdmDesatUpdater then
-        iconFrame._cdmDesatUpdater:Hide()
+        CustomIcons.StopIconDesatUpdater(iconFrame)
     end
 
-    if not IsFlightHideAlphaLocked() then
+    if not managedVisualLocked and not IsFlightHideAlphaLocked() then
         iconFrame.icon:SetAlpha(1.0)
     end
 end
@@ -2534,6 +2585,7 @@ local function UpdateSlotIcon(iconFrame, iconData)
     local slotID = iconData.slotID
     local itemID = CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
     CustomIcons.RestoreActiveIconVisual(iconFrame)
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
 
     iconFrame._textureCacheKey = "slot:" .. tostring(slotID)
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
@@ -2542,16 +2594,20 @@ local function UpdateSlotIcon(iconFrame, iconData)
     end
 
     local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_slotDurObj", slotID)
-    if iconData.settings and iconData.settings.showCooldown == false then
-        iconFrame.cooldown:Hide()
-    elseif onCooldown then
-        iconFrame.cooldown:Show()
-    else
-        iconFrame.cooldown:Hide()
+    if not managedVisualLocked then
+        if iconData.settings and iconData.settings.showCooldown == false then
+            iconFrame.cooldown:Hide()
+        elseif onCooldown then
+            iconFrame.cooldown:Show()
+        else
+            iconFrame.cooldown:Hide()
+        end
     end
 
     local allowDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
-    iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+    if not managedVisualLocked then
+        iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+    end
 end
 
 local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
@@ -2632,6 +2688,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     local slotID = iconData.slotID
     local itemID = CustomIcons.GetEquippedSlotItemID(iconFrame, slotID)
     CustomIcons.RestoreActiveIconVisual(iconFrame)
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
 
     iconFrame._textureCacheKey = "trinketProc:" .. tostring(slotID)
     -- Update trinket item texture
@@ -2645,7 +2702,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     if settings.showItemCooldown ~= false then
         iconFrame._trinketProcWasActive = false
         iconFrame._ddProcActiveUntil = nil
-        if iconFrame.count then
+        if iconFrame.count and not managedVisualLocked then
             iconFrame.count:Hide()
         end
         if iconFrame.cooldown and iconFrame.cooldown.SetReverse then
@@ -2657,13 +2714,17 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         end
 
         local onCooldown = runtime.ApplyTrinketSlotCooldown(iconFrame, slotID)
-        if settings.showCooldown ~= false and onCooldown then
-            iconFrame.cooldown:Show()
-        else
-            iconFrame.cooldown:Hide()
+        if not managedVisualLocked then
+            if settings.showCooldown ~= false and onCooldown then
+                iconFrame.cooldown:Show()
+            else
+                iconFrame.cooldown:Hide()
+            end
         end
         local allowDesat = not (settings.desaturateOnCooldown == false)
-        iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+        if not managedVisualLocked then
+            iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+        end
         return
     end
 
@@ -2726,6 +2787,11 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     end
 
     if auraData then
+        iconFrame._ddInactiveGray = nil
+        iconFrame._ddForcedInactiveGray = nil
+        iconFrame._ddManagedAuraExpired = nil
+        iconFrame._ddCombatVisible = nil
+        managedVisualLocked = false
         procActive = true
         local now = GetTime and GetTime() or 0
         iconFrame._ddLastProcActiveAt = now
@@ -2791,19 +2857,27 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
 
         if settings.showItemCooldown ~= false then
             local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
-            if settings.showCooldown ~= false and onCooldown then
-                iconFrame.cooldown:Show()
-            else
-                iconFrame.cooldown:Hide()
+            if not managedVisualLocked then
+                if settings.showCooldown ~= false and onCooldown then
+                    iconFrame.cooldown:Show()
+                else
+                    iconFrame.cooldown:Hide()
+                end
             end
             local allowDesat = not (settings.desaturateOnCooldown == false)
-            iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+            if not managedVisualLocked then
+                iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+            end
         else
-            iconFrame.cooldown:Clear()
-            iconFrame.cooldown:Hide()
-            iconFrame.icon:SetDesaturated(false)
+            if not managedVisualLocked then
+                iconFrame.cooldown:Clear()
+                iconFrame.cooldown:Hide()
+                iconFrame.icon:SetDesaturated(false)
+            end
         end
-        iconFrame.count:Hide()
+        if iconFrame.count and not managedVisualLocked then
+            iconFrame.count:Hide()
+        end
     end
 end
 
@@ -3139,6 +3213,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddManagedAuraExpired = nil
         iconFrame._ddCombatVisible = nil
         iconFrame._ddCombatKeepAlive = nil
+        iconFrame._ddInactiveGray = nil
+        iconFrame._ddForcedInactiveGray = nil
         local managedAlpha = 1
         if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
             managedAlpha = iconFrame._groupSettings.groupAlpha
@@ -3282,6 +3358,9 @@ function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, group
                 frame._wasVisibleInGroup = true
                 frame._auraWasActive = true
                 frame._ddManagedAuraExpired = nil
+                frame._ddCombatVisible = nil
+                frame._ddInactiveGray = nil
+                frame._ddForcedInactiveGray = nil
                 if state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
