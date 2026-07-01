@@ -3142,6 +3142,14 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
     -- [FIX] 아이콘 구성이 변경되지 않았으면 전체 레이아웃 스킵 (0x0 플래시 방지)
     -- 매 틱마다 wipe→재배치→LayoutGroup을 실행하면 중간에 크기가 0x0이 되었다가 복구됨
     -- → 아이콘 추가/제거/전문화 변경 시에만 재실행
+    for index, entry in ipairs(activeIcons) do
+        if entry then
+            entry.isDynamic = true
+            entry.sourceIndex = entry.sourceIndex or index
+        end
+    end
+    ApplyGroupIconOrder(groupSettings, activeIcons)
+
     local newKeyHash = "settings:" .. BuildGroupRenderSettingsHash(groupSettings) .. ";"
     for _, entry in ipairs(activeIcons) do
         local visibleToken = entry.inactiveGray and ":g" or ((inCombat and ":c") or (entry.combatVisible == false and ":0" or ":1"))

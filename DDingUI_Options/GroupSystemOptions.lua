@@ -1364,6 +1364,49 @@ local function SnapshotGroupOrderTokens(groupName)
     return tokens, seen
 end
 
+local function SyncDynamicSourceOrderFromTokens(groupSettings, orderedTokens)
+    local sourceKey = groupSettings and groupSettings.sourceGroupKey
+    if not sourceKey or sourceKey == "ungrouped" then return false end
+
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local dynGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    if not dynGroup or type(dynGroup.icons) ~= "table" then return false end
+
+    local existing = {}
+    for _, key in ipairs(dynGroup.icons) do
+        existing[key] = true
+    end
+
+    local wanted, nextIcons = {}, {}
+    for _, token in ipairs(orderedTokens or {}) do
+        local iconKey = type(token) == "string" and token:match("^dyn:(.+)$")
+        if iconKey and existing[iconKey] and not wanted[iconKey] then
+            wanted[iconKey] = true
+            nextIcons[#nextIcons + 1] = iconKey
+        end
+    end
+    for _, iconKey in ipairs(dynGroup.icons) do
+        if not wanted[iconKey] then
+            nextIcons[#nextIcons + 1] = iconKey
+        end
+    end
+
+    local changed = #nextIcons ~= #dynGroup.icons
+    if not changed then
+        for i, iconKey in ipairs(nextIcons) do
+            if dynGroup.icons[i] ~= iconKey then
+                changed = true
+                break
+            end
+        end
+    end
+    if not changed then return false end
+
+    dynGroup.icons = nextIcons
+    SoftRefreshDynamicIcons()
+    return true
+end
+
 local function AppendGroupOrderToken(groupName, beforeTokens, token)
     if not groupName or not token then return false end
     local gs = GetGS()
@@ -1382,6 +1425,7 @@ local function AppendGroupOrderToken(groupName, beforeTokens, token)
     end
 
     groupSettings.iconOrder = ordered
+    SyncDynamicSourceOrderFromTokens(groupSettings, ordered)
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
         DDingUI.SpecProfiles:MarkDirty()
     end
@@ -1426,6 +1470,7 @@ function DDingUI:ReorderGroupSystemIcon(groupKey, sourceToken, targetToken, inse
     if insertIdx > #ordered + 1 then insertIdx = #ordered + 1 end
     table.insert(ordered, insertIdx, moving)
     groupSettings.iconOrder = ordered
+    SyncDynamicSourceOrderFromTokens(groupSettings, ordered)
 
     RefreshGroupSystem()
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
@@ -2180,7 +2225,7 @@ local function BuildAssignedSpellsArgs(groupName)
         elseif row.kind == "dynamic" then
             local capturedSourceKey = groupSettings and groupSettings.sourceGroupKey
             local capturedIconKey = row.iconKey
-            local useGroupOrder = groupSettings and groupSettings.groupType ~= "dynamic"
+            local useGroupOrder = groupSettings ~= nil
             local badge = "CUSTOM"
             if row.iconType == "item" then badge = "ITEM"
             elseif row.iconType == "slot" then badge = "SLOT"
@@ -3029,6 +3074,7 @@ local function AssignedGridCommitGroupOrder(groupName, ordered)
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     if not groupSettings then return false end
     groupSettings.iconOrder = ordered
+    SyncDynamicSourceOrderFromTokens(groupSettings, ordered)
     RefreshGroupSystem()
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
         DDingUI.SpecProfiles:SaveCurrentSpec()

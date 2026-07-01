@@ -557,15 +557,22 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
 
     -- 대상 아이콘 키 수집
     local targetKeys = {}
+    local targetOrder = {}
+    local function AddTargetIconKey(iconKey)
+        if type(iconKey) ~= "string" or iconKey == "" or targetKeys[iconKey] then return end
+        targetKeys[iconKey] = true
+        targetOrder[#targetOrder + 1] = iconKey
+    end
     if sourceGroupKey == "ungrouped" then
         for iconKey in pairs(db.ungrouped or {}) do
-            targetKeys[iconKey] = true
+            AddTargetIconKey(iconKey)
         end
+        table_sort(targetOrder, function(a, b) return tostring(a) < tostring(b) end)
     else
         local group = db.groups and db.groups[sourceGroupKey]
         if group and group.icons then
             for _, iconKey in ipairs(group.icons) do
-                targetKeys[iconKey] = true
+                AddTargetIconKey(iconKey)
             end
         end
     end
@@ -588,7 +595,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
         and groupSettings.showInactiveIcons == true
         and isBuffContext
 
-    for iconKey in pairs(targetKeys) do
+    for sourceIndex, iconKey in ipairs(targetOrder) do
         local frame = iconFrames[iconKey]
         local iconData = db.iconData[iconKey]
         if not frame then
@@ -667,6 +674,8 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 iconKey = iconKey,
                 frame = frame,
                 iconData = iconData,
+                isDynamic = true,
+                sourceIndex = sourceIndex,
                 active = isActive,
                 combatKeepAlive = keepVisible and not isActive,
                 combatVisible = forceGray or keepVisible,
@@ -689,16 +698,20 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
         if group and group.icons then
             local orderMap = {}
             for i, k in ipairs(group.icons) do
-                orderMap[k] = i
+                if type(k) == "string" and not orderMap[k] then
+                    orderMap[k] = i
+                end
             end
-            table.sort(result, function(a, b)
-                return (orderMap[a.iconKey] or 9999) < (orderMap[b.iconKey] or 9999)
+            table_sort(result, function(a, b)
+                local aOrder = orderMap[a.iconKey] or a.sourceIndex or 999999
+                local bOrder = orderMap[b.iconKey] or b.sourceIndex or 999999
+                if aOrder ~= bOrder then return aOrder < bOrder end
+                return tostring(a.iconKey or "") < tostring(b.iconKey or "")
             end)
         end
     else
-        -- ungrouped: iconKey 알파벳 순
-        table.sort(result, function(a, b)
-            return a.iconKey < b.iconKey
+        table_sort(result, function(a, b)
+            return tostring(a.iconKey or "") < tostring(b.iconKey or "")
         end)
     end
 
