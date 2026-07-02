@@ -373,7 +373,7 @@ end
 local transitionRecoveryPending = {}
 
 local function ScheduleViewerTransitionRecovery(reloadMapped, forceFrameControl, longTail)
-    local delays = longTail and { 0.05, 0.2, 1.0, 3.0, 5.0 } or { 0.2, 1.0, 3.0 }
+    local delays = longTail and { 0.05, 0.5, 2.0 } or { 0.2, 1.0 }
     for _, delay in pairs(delays) do
         local key = tostring(delay)
         local pending = transitionRecoveryPending[key]
@@ -2262,29 +2262,6 @@ function FrameController:Initialize()
                     DDingUI.Movers:ReloadMappedModulePositions()
                 end
             end)
-            -- 안정화 패스: CDM Layout이 지연될 수 있으므로
-            C_Timer.After(3.0, function()
-                if not FrameController.initialized then return end
-                if specVersion ~= state.specChangeVersion then return end
-                FrameController:RefreshViewerRefs()
-                InvalidateGroupLayoutCaches(true)
-
-                -- [FIX] 안정화 패스에서도 _viewerHidden 리셋
-                local gr = DDingUI.GroupRenderer
-                if gr and gr.groupFrames then
-                    for _, frame in pairs(gr.groupFrames) do
-                        if frame._viewerHidden then
-                            frame._viewerHidden = false
-                        end
-                    end
-                end
-
-                -- [FIX] 안정화 패스에서도 Refresh 호출
-                if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
-                    DDingUI.GroupSystem:Refresh()
-                end
-            end)
-
         elseif event == "TRAIT_CONFIG_UPDATED" then
             -- 전문화 변경 중이면 무시 (SPEC이 처리)
             if state.specChangeDetected then return end

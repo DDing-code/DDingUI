@@ -3703,7 +3703,6 @@ local function ScheduleSpecReload()
             if RefreshAllLayouts then RefreshAllLayouts() end
             UpdateAllIcons(nil, "all")
         end
-        ForceManagedGroupLayoutRefresh()
     end)
     -- Phase 2 (1.5s): CDM 안정화 후 최종 갱신
     C_Timer.After(1.5, function()
@@ -3882,10 +3881,8 @@ local function EnsureEventFrame()
             end
             C_Timer.After(0.2, refreshInstanceIcons)
             C_Timer.After(1.0, refreshInstanceIcons)
-            C_Timer.After(3.0, refreshInstanceIcons)
             -- Force reload layout after loading screen to catch delayed cache/spellbook states
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
-            C_Timer.After(3.0, function() ScheduleSpecReload() end)
             return
         end
 

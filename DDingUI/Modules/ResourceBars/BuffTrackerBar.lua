@@ -958,8 +958,6 @@ local GetTrackedBuffs  -- Used in expiration check before definition
 -- ============================================================
 -- STABILITY: Grace Period + Loading Screen + Cache Invalidation
 -- ============================================================
-local specChangeGraceUntil = 0
-local SPEC_CHANGE_GRACE_DURATION = 2.0  -- 초: CDM 데이터 로딩 대기
 local buffTrackerInitialized = false
 local loadingScreenActive = false
 local startupRefreshTimers = {}
@@ -1013,7 +1011,7 @@ local function RunBuffTrackerStartupRefresh(reason)
 end
 
 local function ScheduleBuffTrackerStartupRefresh(reason, delays)
-    delays = delays or { 0.05, 0.5, 1.5, 3.0 }
+    delays = delays or { 0.05, 0.5, 1.5 }
 
     for _, timer in ipairs(startupRefreshTimers) do
         if timer and timer.Cancel and (not timer.IsCancelled or not timer:IsCancelled()) then
@@ -1296,10 +1294,20 @@ QueueBuffTrackerUpdate = function(reason, delay)
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
         return
     end
-    if buffTrackerUpdatePending then return end
+    local now = GetTime and GetTime() or 0
+    local dueAt = now + (delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03))
+    if buffTrackerUpdatePending then
+        if dueAt < buffTrackerUpdateDueAt then
+            buffTrackerUpdateDueAt = dueAt
+        end
+        if buffTrackerUpdateFrame then
+            buffTrackerUpdateFrame:Show()
+        end
+        return
+    end
 
     buffTrackerUpdatePending = true
-    buffTrackerUpdateDueAt = (GetTime and GetTime() or 0) + (delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03))
+    buffTrackerUpdateDueAt = dueAt
 
     if not buffTrackerUpdateFrame then
         buffTrackerUpdateFrame = CreateFrame("Frame")
@@ -1358,7 +1366,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     if not rootCfg or not rootCfg.enabled then return end
 
     if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
-        ScheduleBuffTrackerStartupRefresh(event, { 0.05, 0.5, 1.5, 3.0 })
+        ScheduleBuffTrackerStartupRefresh(event, { 0.05, 0.5, 1.5 })
         return
     end
 
@@ -1410,9 +1418,6 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         manualStacks = 0
         manualExpiresAt = nil
 
-        -- Grace Period 설정 (CDM 데이터 로딩 대기)
-        specChangeGraceUntil = GetTime() + SPEC_CHANGE_GRACE_DURATION
-
         -- 전문화 변경 시 프레임 초기화 + 위치 캐시 무효화
         HideAllTrackedBuffBars()
         HideAllTrackedBuffIcons()
@@ -1426,7 +1431,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         ResourceBars._pendingAuraUpdates = nil
         ResourceBars._spellCastRefresh = nil
 
-        -- 3단계 재시도 (CDM CDM 패턴)
+        -- 2단계 재시도
         -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
         C_Timer.After(0.5, function()
             QueueBuffTrackerUpdate("spec-1", 0)
@@ -1438,10 +1443,6 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
                 pcall(CDMScanner.ScanAll)
             end
             QueueBuffTrackerUpdate("spec-2", 0)
-        end)
-        -- Phase 3 (Grace Period 종료 후): 최종 정리 업데이트
-        C_Timer.After(SPEC_CHANGE_GRACE_DURATION + 0.5, function()
-            QueueBuffTrackerUpdate("spec-3", 0)
         end)
         return
     end
@@ -5678,17 +5679,10 @@ function ResourceBars:InitializeBuffTracker()
     end
     StartBuffTrackerTicker()
 
-    -- Initial update (여러 번) + 마지막에 초기화 완료 플래그 설정
-    local initDelays = { 0.1, 0.5, 1.0, 2.0 }
-    ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5, 3.0 })
-    for i, delay in ipairs(initDelays) do
-        C_Timer.After(delay, function()
-            QueueBuffTrackerUpdate("initial", 0)
-            if i == #initDelays then
-                buffTrackerInitialized = true
-            end
-        end)
-    end
+    ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5 })
+    C_Timer.After(1.6, function()
+        buffTrackerInitialized = true
+    end)
 end
 
 -- Enter mover mode for tracked buff bars (shows all bars regardless of hideWhenZero)

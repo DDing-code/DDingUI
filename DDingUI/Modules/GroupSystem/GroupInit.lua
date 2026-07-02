@@ -1911,10 +1911,8 @@ function GroupSystem:Enable()
             if specFrame._pendingLayoutRefresh then return end
             specFrame._pendingLayoutRefresh = true
 
-            local function RefreshSpecLayout(reloadMapped, clearPending)
-                if clearPending then
-                    specFrame._pendingLayoutRefresh = nil
-                end
+            local function RefreshSpecLayout(reloadMapped)
+                specFrame._pendingLayoutRefresh = nil
                 if not GroupSystem.enabled then return end
                 if GroupRenderer and GroupRenderer.InvalidateLayoutCaches then
                     GroupRenderer:InvalidateLayoutCaches(true)
@@ -1927,11 +1925,7 @@ function GroupSystem:Enable()
 
             -- CDM이 뷰어를 재생성할 시간 대기 (FrameController보다 약간 뒤)
             C_Timer.After(0.5, function()
-                RefreshSpecLayout(true, false)
-            end)
-            -- 안정화 패스
-            C_Timer.After(2.0, function()
-                RefreshSpecLayout(false, true)
+                RefreshSpecLayout(true)
             end)
         end)
         self._specChangeFrame = specFrame
