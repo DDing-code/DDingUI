@@ -1901,29 +1901,37 @@ function GroupSystem:Enable()
         self._specChangeHooked = true
         local specFrame = CreateFrame("Frame")
         specFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
+        specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+        specFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+        specFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
         specFrame:RegisterEvent("PLAYER_LEVEL_UP")
-        specFrame:SetScript("OnEvent", function(_, event)
+        specFrame:SetScript("OnEvent", function(_, event, unit)
+            if event == "PLAYER_SPECIALIZATION_CHANGED" and unit and unit ~= "player" then return end
             if not GroupSystem.enabled then return end
-            -- CDM이 뷰어를 재생성할 시간 대기 (FrameController보다 약간 뒤)
-            C_Timer.After(2.0, function()
+            if specFrame._pendingLayoutRefresh then return end
+            specFrame._pendingLayoutRefresh = true
+
+            local function RefreshSpecLayout(reloadMapped, clearPending)
+                if clearPending then
+                    specFrame._pendingLayoutRefresh = nil
+                end
                 if not GroupSystem.enabled then return end
-                -- 그룹 프레임 앵커 재적용 → _G[attachTo]로 새 뷰어 resolve
                 if GroupRenderer and GroupRenderer.InvalidateLayoutCaches then
-                    GroupRenderer:InvalidateLayoutCaches()
+                    GroupRenderer:InvalidateLayoutCaches(true)
                 end
                 GroupSystem:Refresh()
-                -- 매핑 모듈(시전바, 자원바 등) 위치도 재적용
-                if DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
+                if reloadMapped and DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
                     DDingUI.Movers:ReloadMappedModulePositions()
                 end
+            end
+
+            -- CDM이 뷰어를 재생성할 시간 대기 (FrameController보다 약간 뒤)
+            C_Timer.After(0.5, function()
+                RefreshSpecLayout(true, false)
             end)
             -- 안정화 패스
-            C_Timer.After(4.0, function()
-                if not GroupSystem.enabled then return end
-                if GroupRenderer and GroupRenderer.InvalidateLayoutCaches then
-                    GroupRenderer:InvalidateLayoutCaches()
-                end
-                GroupSystem:Refresh()
+            C_Timer.After(2.0, function()
+                RefreshSpecLayout(false, true)
             end)
         end)
         self._specChangeFrame = specFrame

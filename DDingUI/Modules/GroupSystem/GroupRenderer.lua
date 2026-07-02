@@ -250,13 +250,13 @@ function GroupRenderer:ResetIconLayoutState(icon, resetTarget)
     ResetIconLayoutState(icon, resetTarget)
 end
 
-function GroupRenderer:InvalidateLayoutCaches()
+function GroupRenderer:InvalidateLayoutCaches(resetTargets)
     for _, frame in pairs(self.groupFrames or {}) do
         if frame then
             frame._lastCombinedLayoutHash = nil
             frame._lastDynHash = nil
             for _, icon in pairs(frame._managedIcons or {}) do
-                ResetIconLayoutState(icon, false)
+                ResetIconLayoutState(icon, resetTargets == true)
             end
         end
     end

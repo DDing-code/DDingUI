@@ -3654,6 +3654,20 @@ local function HandleCooldownDone(cooldownFrame)
     UpdateAllIcons(nil, "cooldown")
 end
 
+local function ForceManagedGroupLayoutRefresh()
+    local gr = DDingUI and DDingUI.GroupRenderer
+    if gr and gr.InvalidateLayoutCaches then
+        gr:InvalidateLayoutCaches(true)
+    end
+
+    local bridge = DDingUI and DDingUI.DynamicIconBridge
+    if bridge and bridge.NotifyIconsChanged then
+        bridge:NotifyIconsChanged(true)
+    elseif DDingUI and DDingUI.GroupSystem and DDingUI.GroupSystem.RequestFullUpdate then
+        DDingUI.GroupSystem:RequestFullUpdate()
+    end
+end
+
 local function ScheduleSpecReload()
     if InCombatLockdown and InCombatLockdown() then
         runtime.pendingSpecReload = true
@@ -3689,6 +3703,7 @@ local function ScheduleSpecReload()
             if RefreshAllLayouts then RefreshAllLayouts() end
             UpdateAllIcons(nil, "all")
         end
+        ForceManagedGroupLayoutRefresh()
     end)
     -- Phase 2 (1.5s): CDM 안정화 후 최종 갱신
     C_Timer.After(1.5, function()
@@ -3698,6 +3713,7 @@ local function ScheduleSpecReload()
             if RefreshAllLayouts then RefreshAllLayouts() end
             UpdateAllIcons(nil, "all")
         end
+        ForceManagedGroupLayoutRefresh()
     end)
 end
 

@@ -108,10 +108,10 @@ local function ResetGroupIconLayoutState(frame, resetTarget)
     end
 end
 
-local function InvalidateGroupLayoutCaches()
+local function InvalidateGroupLayoutCaches(resetTargets)
     local gr = DDingUI.GroupRenderer
     if gr and gr.InvalidateLayoutCaches then
-        gr:InvalidateLayoutCaches()
+        gr:InvalidateLayoutCaches(resetTargets == true)
     end
 end
 
@@ -339,7 +339,7 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     FrameController:RefreshViewerRefs()
     ResetGroupViewerHiddenFlags()
     if forceFrameControl then
-        InvalidateGroupLayoutCaches()
+        InvalidateGroupLayoutCaches(true)
         RestoreGroupFrameState()
     end
     if DDingUI.ContainerSync then
@@ -2231,7 +2231,7 @@ function FrameController:Initialize()
             state.specChangeVersion = state.specChangeVersion + 1
             local specVersion = state.specChangeVersion
             wipe(iconSpellNameMap) -- 캐시 초기화
-            InvalidateGroupLayoutCaches()
+            InvalidateGroupLayoutCaches(true)
             ScheduleReconcile(CONFIG.DEBOUNCE_SPEC)
 
             -- [FIX] CDM이 뷰어를 재생성할 시간 대기 후 참조 갱신 + 앵커 재적용
@@ -2239,7 +2239,7 @@ function FrameController:Initialize()
                 if not FrameController.initialized then return end
                 if specVersion ~= state.specChangeVersion then return end
                 FrameController:RefreshViewerRefs()
-                InvalidateGroupLayoutCaches()
+                InvalidateGroupLayoutCaches(true)
 
                 -- [FIX] _viewerHidden 강제 리셋
                 -- CDM 뷰어 재생성 시 기존 OnHide 훅으로 _viewerHidden=true가 남아
@@ -2267,7 +2267,7 @@ function FrameController:Initialize()
                 if not FrameController.initialized then return end
                 if specVersion ~= state.specChangeVersion then return end
                 FrameController:RefreshViewerRefs()
-                InvalidateGroupLayoutCaches()
+                InvalidateGroupLayoutCaches(true)
 
                 -- [FIX] 안정화 패스에서도 _viewerHidden 리셋
                 local gr = DDingUI.GroupRenderer
@@ -2290,7 +2290,7 @@ function FrameController:Initialize()
             if state.specChangeDetected then return end
             state.talentChangeDetected = true
             wipe(iconSpellNameMap)
-            InvalidateGroupLayoutCaches()
+            InvalidateGroupLayoutCaches(true)
             ScheduleReconcile(CONFIG.DEBOUNCE_TALENT)
 
         elseif event == "SPELLS_CHANGED" then
