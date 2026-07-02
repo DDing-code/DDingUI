@@ -2,6 +2,31 @@
 
 ---
 
+## v1.2.12
+
+_Release date: 2026-07-02_
+_Scope: Git changes from v1.2.11 through this release._
+
+### English Patch Notes
+- Improved CDM buff and custom group layout recovery after specialization, talent, and spell-list changes so newly restored icons no longer keep stale center positions until reload.
+- Stabilized custom icon rendering for inactive, hidden-active, racial, managed, and cooldown states so grayscale, text placement, glow state, and cooldown visuals remain consistent through refreshes.
+- Improved custom group previews and icon motion so runtime groups and settings previews react more consistently to layout changes.
+- Added support for showing inactive custom buff icons as gray icons when the group option is enabled.
+- Reduced tracked buff bar movement and duration update overhead by queuing updates, throttling duration polling, and merging duplicate startup/spec refreshes.
+- Reduced CDM refresh pressure by queuing repeated group refreshes, narrowing dynamic group updates, skipping unnecessary style passes, reusing dispatch frames, and trimming redundant recovery timers.
+- Cleaned up unloaded runtime option, backup, and embedded library sources to reduce addon load and maintenance overhead.
+
+### Korean Patch Notes
+- 전문화, 특성, 주문 목록 변경 후 CDM 강화효과와 커스텀 그룹 레이아웃이 복구될 때 새로 돌아온 아이콘이 /reload 전까지 중앙 위치에 남는 문제를 개선했습니다.
+- 비활성, 지속 효과 숨김, 종족 특성, 관리 아이콘, 쿨다운 상태의 커스텀 아이콘 렌더링을 안정화해 회색 처리, 텍스트 위치, 글로우 상태, 쿨다운 표시가 갱신 중에도 일관되게 유지되도록 했습니다.
+- 커스텀 그룹 미리보기와 아이콘 이동 애니메이션이 레이아웃 변경을 더 일관되게 반영하도록 개선했습니다.
+- 그룹 옵션이 켜져 있을 때 비활성 커스텀 강화효과를 회색 아이콘으로 표시하는 기능을 추가했습니다.
+- 추적중인 버프 바의 위치 변경과 지속시간 갱신 부담을 줄이기 위해 업데이트를 대기열로 합치고, 지속시간 폴링과 시작/전문화 갱신 중복을 줄였습니다.
+- 반복 그룹 갱신 대기열, 동적 그룹 부분 갱신, 불필요한 스타일 패스 생략, dispatch 프레임 재사용, 중복 복구 타이머 축소로 CDM 갱신 부담을 줄였습니다.
+- 로드되지 않는 옵션 런타임, 백업, 내장 라이브러리 소스를 정리해 애드온 로드와 유지보수 부담을 줄였습니다.
+
+---
+
 ## v1.2.11
 
 _Release date: 2026-06-18_
