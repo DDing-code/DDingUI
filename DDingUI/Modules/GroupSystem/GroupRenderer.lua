@@ -644,6 +644,25 @@ function GroupRenderer:HideHiddenSourceBuffIcon(icon)
     end
 end
 
+local function SetManagedIconLayoutVisible(icon, visible)
+    if icon then
+        icon._ddLayoutVisible = visible and true or false
+    end
+end
+
+local function ShouldLayoutManagedIcon(icon)
+    if not icon or icon._ddingHidden or icon._ddSuppressed then return false end
+    if icon._ddLayoutVisible ~= nil then
+        return icon._ddLayoutVisible == true
+    end
+    if icon._ddIconKey then
+        if icon._ddManagedAuraExpired then return false end
+        if icon._ddCombatKeepAlive and icon._ddCombatVisible == false then return false end
+    end
+    if GroupRenderer:IsHiddenSourceBuffIcon(icon) then return false end
+    return icon:IsShown()
+end
+
 local function BuildCDMPlacement(entry)
     if not entry or not entry.icon then return nil end
     entry.isCDM = true
@@ -1088,6 +1107,7 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
     if not icon then return end
     ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
     if inactiveGray then
+        SetManagedIconLayoutVisible(icon, true)
         icon._ddManagedAuraExpired = nil
         icon._ddCombatVisible = true
         icon._ddCombatKeepAlive = nil
@@ -1100,6 +1120,7 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
         return
     end
     if icon._ddManagedAuraExpired then
+        SetManagedIconLayoutVisible(icon, false)
         icon._ddCombatVisible = false
         icon._ddCombatKeepAlive = nil
         if icon.icon and icon.icon.SetAlpha then
@@ -1132,6 +1153,7 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
         icon._ddCombatVisible = nil
         icon._ddCombatMissingSince = nil
     end
+    SetManagedIconLayoutVisible(icon, combatVisible ~= false)
     local iconAlpha = combatVisible == false and 0 or (groupAlpha or 1)
     SetAlphaIfNeeded(icon, iconAlpha, "_ddLastGroupAlpha")
     SetDynamicIconInactiveGray(icon, false)
@@ -1149,9 +1171,11 @@ local function RestorePlacementVisibility(entry, groupName, groupSettings, group
         return
     end
     if entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(icon) then
+        SetManagedIconLayoutVisible(icon, false)
         GroupRenderer:HideHiddenSourceBuffIcon(icon)
         return
     end
+    SetManagedIconLayoutVisible(icon, not icon._ddingHidden and not icon._ddSuppressed)
     if icon.Show and not icon._ddingHidden then
         icon:Show()
     end
@@ -2207,6 +2231,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] then
+            SetManagedIconLayoutVisible(icon, false)
             GRLog("cleanup:", tostring(icon.cooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
             if icon._ddIconKey then
                 -- 동적 아이콘: DDingUI가 소유 → 직접 Hide + Release
@@ -2281,6 +2306,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     if entry.inactiveGray then
                         icon._ddManagedAuraExpired = nil
                     end
+                    SetManagedIconLayoutVisible(icon, entry.inactiveGray or (entry.combatVisible ~= false and not icon._ddManagedAuraExpired))
                     local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame and not GroupRenderer._forceFullSetup
                     if not alreadyManaged then
                         bridge:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID, groupSettings.zoom, groupSettings.aspectRatioCrop)
@@ -2435,6 +2461,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 else
                     icon._ddLastCooldownID = entry.cooldownID
                 end
+                SetManagedIconLayoutVisible(icon, sourceVisible and not icon._ddSuppressed and not icon._ddingHidden)
                 idx = idx + 1
                 frame._managedIcons[idx] = icon
                 if not sourceVisible then
@@ -2662,7 +2689,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     local count = 0
     for i = 1, (frame._iconCount or 0) do
         local icon = allIcons[i]
-        if icon and icon:IsShown() and not icon._ddingHidden then
+        if ShouldLayoutManagedIcon(icon) then
             count = count + 1
             icons[count] = icon
         end
@@ -2931,6 +2958,7 @@ function GroupRenderer:ReleaseGroupIcons(frame)
 
     for _, icon in pairs(frame._managedIcons) do
         if icon then
+            icon._ddLayoutVisible = nil
             if icon._ddIconKey then
                 -- [FIX] 동적 아이콘: bridge로 해제 + 숨기기
                 if icon.Hide then icon:Hide() end
@@ -3191,6 +3219,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
     if frame._managedIcons then
         for _, icon in pairs(frame._managedIcons) do
             if icon and icon._ddIconKey and not newSet[icon._ddIconKey] then
+                SetManagedIconLayoutVisible(icon, false)
                 if inCombat then
                     frame._ddDeferredReleaseIcons[icon._ddIconKey] = icon
                     local iconData = GetDynamicIconData(icon._ddIconKey)
@@ -3244,6 +3273,7 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
             if entry.inactiveGray then
                 icon._ddManagedAuraExpired = nil
             end
+            SetManagedIconLayoutVisible(icon, entry.inactiveGray or (entry.combatVisible ~= false and not icon._ddManagedAuraExpired))
 
             local iw, ih = baseIconW, baseIconH
             local iconData = entry.iconData
