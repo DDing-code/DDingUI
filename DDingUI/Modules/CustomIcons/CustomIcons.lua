@@ -1440,6 +1440,29 @@ function CustomIcons.ClearExpiredCustomTimedAuras()
     return changed
 end
 
+local function ResetAuraCooldownSpanCache(frame)
+    if not frame then return end
+    frame._ddAuraCooldownMode = nil
+    frame._ddAuraCooldownStart = nil
+    frame._ddAuraCooldownDuration = nil
+end
+
+local function ShouldApplyAuraCooldownSpan(frame, startTime, duration, mode)
+    if not frame then return false end
+    if frame._ddAuraCooldownMode == mode
+        and frame._ddAuraCooldownStart
+        and frame._ddAuraCooldownDuration
+        and math.abs(frame._ddAuraCooldownStart - startTime) <= 0.05
+        and math.abs(frame._ddAuraCooldownDuration - duration) <= 0.05
+    then
+        return false
+    end
+    frame._ddAuraCooldownMode = mode
+    frame._ddAuraCooldownStart = startTime
+    frame._ddAuraCooldownDuration = duration
+    return true
+end
+
 MarkCustomTimedAuraExpired = function(spellID)
     local db = GetDynamicDB()
     local iconDataByKey = db and db.iconData
@@ -1458,6 +1481,7 @@ MarkCustomTimedAuraExpired = function(spellID)
             frame._wasVisibleInGroup = nil
             frame._auraWasActive = false
             frame._trinketProcWasActive = false
+            ResetAuraCooldownSpanCache(frame)
             if frame.cooldown then
                 if frame.cooldown.SetScript then
                     pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", nil)
@@ -1488,23 +1512,25 @@ local function ApplyCustomTimedAuraCooldownFrame(frame, state, showCooldown)
     local duration = tonumber(state.duration)
     if not startTime or not duration or duration <= 0 then return end
 
-    if frame.cooldown.SetReverse then
-        pcall(frame.cooldown.SetReverse, frame.cooldown, true)
-    end
+    if ShouldApplyAuraCooldownSpan(frame, startTime, duration, "timed") then
+        if frame.cooldown.SetReverse then
+            pcall(frame.cooldown.SetReverse, frame.cooldown, true)
+        end
 
-    if C_DurationUtil and C_DurationUtil.CreateDuration and frame.cooldown.SetCooldownFromDurationObject then
-        frame._customTimedAuraDuration = frame._customTimedAuraDuration or C_DurationUtil.CreateDuration()
-        local okObj = pcall(frame._customTimedAuraDuration.SetTimeFromStart, frame._customTimedAuraDuration, startTime, duration)
-        if okObj then
-            local okSet = pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._customTimedAuraDuration)
-            if not okSet then
-                pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._customTimedAuraDuration, true)
+        if C_DurationUtil and C_DurationUtil.CreateDuration and frame.cooldown.SetCooldownFromDurationObject then
+            frame._customTimedAuraDuration = frame._customTimedAuraDuration or C_DurationUtil.CreateDuration()
+            local okObj = pcall(frame._customTimedAuraDuration.SetTimeFromStart, frame._customTimedAuraDuration, startTime, duration)
+            if okObj then
+                local okSet = pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._customTimedAuraDuration)
+                if not okSet then
+                    pcall(frame.cooldown.SetCooldownFromDurationObject, frame.cooldown, frame._customTimedAuraDuration, true)
+                end
+            else
+                pcall(frame.cooldown.SetCooldown, frame.cooldown, startTime, duration)
             end
         else
             pcall(frame.cooldown.SetCooldown, frame.cooldown, startTime, duration)
         end
-    else
-        pcall(frame.cooldown.SetCooldown, frame.cooldown, startTime, duration)
     end
 
     local hideNumbers = frame._groupSettings and frame._groupSettings.hideDurationText
@@ -3245,25 +3271,29 @@ local function UpdateAuraIcon(iconFrame, iconData)
 
     if auraData then
         -- [FIX] 버프 스와이프 방향: fill-up (CDM 패턴)
-        iconFrame.cooldown:SetReverse(true)
-
         -- 활성: duration 쿨다운 + 스택 표시
         pcall(function()
             local auraDuration = GetAuraNumberFieldSafe(auraData, "duration")
             local auraExpiration = GetAuraNumberFieldSafe(auraData, "expirationTime")
             if auraDuration and auraDuration > 0 and auraExpiration then
                 local startTime = GetAuraNumberFieldSafe(auraData, "startTime") or (auraExpiration - auraDuration)
-                if GetAuraFieldSafe(auraData, "__ddinguiTimedAura")
-                    and C_DurationUtil and C_DurationUtil.CreateDuration
-                    and iconFrame.cooldown.SetCooldownFromDurationObject
-                then
-                    iconFrame._customTimedAuraDuration = iconFrame._customTimedAuraDuration or C_DurationUtil.CreateDuration()
-                    iconFrame._customTimedAuraDuration:SetTimeFromStart(startTime, auraDuration)
-                    iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._customTimedAuraDuration)
-                else
-                    iconFrame.cooldown:SetCooldown(startTime, auraDuration)
+                local isTimedAura = GetAuraFieldSafe(auraData, "__ddinguiTimedAura")
+                local cooldownMode = isTimedAura and "timedAura" or "aura"
+                if ShouldApplyAuraCooldownSpan(iconFrame, startTime, auraDuration, cooldownMode) then
+                    iconFrame.cooldown:SetReverse(true)
+                    if isTimedAura
+                        and C_DurationUtil and C_DurationUtil.CreateDuration
+                        and iconFrame.cooldown.SetCooldownFromDurationObject
+                    then
+                        iconFrame._customTimedAuraDuration = iconFrame._customTimedAuraDuration or C_DurationUtil.CreateDuration()
+                        iconFrame._customTimedAuraDuration:SetTimeFromStart(startTime, auraDuration)
+                        iconFrame.cooldown:SetCooldownFromDurationObject(iconFrame._customTimedAuraDuration)
+                    else
+                        iconFrame.cooldown:SetCooldown(startTime, auraDuration)
+                    end
                 end
             else
+                ResetAuraCooldownSpanCache(iconFrame)
                 iconFrame.cooldown:Clear()
             end
         end)
@@ -3306,6 +3336,7 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame.cooldown:Clear()
         iconFrame.cooldown:Hide()
         iconFrame.count:Hide()
+        ResetAuraCooldownSpanCache(iconFrame)
         iconFrame._ddTimedAuraActiveUntil = nil
         iconFrame._ddAuraActiveUntil = nil
         iconFrame._ddLastDynamicActiveAt = nil

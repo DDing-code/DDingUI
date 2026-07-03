@@ -13,6 +13,7 @@ local cdData = IconViewers._cdData
 local texData = IconViewers._texData
 
 local AURA_GLOW_KEY = "_DDingUIAuraGlow"
+local AURA_SWIPE_GRACE = 0.25
 
 local function GetIconData(frame)
     local d = iconData[frame]
@@ -748,7 +749,13 @@ function IconViewers:SkinIcon(icon, settings)
                 local isAuraSwipe = IsAuraSwipeColor(r, g, b)
                 local pid = iconData[parentIcon]
                 if not pid then pid = {}; iconData[parentIcon] = pid end
+                local now = GetTime and GetTime() or 0
                 if not isAuraSwipe and IconHasAuraState(parentIcon, self) then
+                    isAuraSwipe = true
+                end
+                if isAuraSwipe then
+                    pid.auraSwipeLastSeen = now
+                elseif pid.auraSwipeLastSeen and (now - pid.auraSwipeLastSeen) <= AURA_SWIPE_GRACE then
                     isAuraSwipe = true
                 end
                 local prevAura = pid.isAuraSwipe
@@ -760,7 +767,7 @@ function IconViewers:SkinIcon(icon, settings)
                 end
                 if isAuraSwipe and s and s.auraGlow then
                     pid._glowRemoveTimer = nil
-                    pid.auraGlowLastSeen = GetTime and GetTime() or 0
+                    pid.auraGlowLastSeen = now
                 end
                 -- [PERF] 상태 변경 없으면 heavy 로직 전부 스킵 (매 프레임 → 전환 시에만)
                 if isAuraSwipe == prevAura and not (isAuraSwipe and s and s.auraGlow and not pid.auraGlowActive) then return end
