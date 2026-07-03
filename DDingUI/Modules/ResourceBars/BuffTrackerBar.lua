@@ -51,10 +51,12 @@ local previewTicker = nil
 local PREVIEW_STACK_INTERVAL = 1.5  -- Change stacks every 1.5 seconds
 local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
 local DURATION_UPDATE_INTERVAL = 0.08
+local PROGRESS_UPDATE_INTERVAL = 1 / 30
 
-local function ShouldRunDurationUpdate(frame, elapsed)
+local function ShouldRunDurationUpdate(frame, elapsed, interval)
+    local updateInterval = interval or frame._ddDurationUpdateInterval or DURATION_UPDATE_INTERVAL
     frame._ddDurationUpdateElapsed = (frame._ddDurationUpdateElapsed or 0) + (elapsed or 0)
-    if frame._ddDurationUpdateElapsed < DURATION_UPDATE_INTERVAL then
+    if frame._ddDurationUpdateElapsed < updateInterval then
         return false
     end
     frame._ddDurationUpdateElapsed = 0
@@ -3428,6 +3430,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 barIndex = barIndex,
                 -- 수동 지속시간 계산
                 useManualDuration = useManualDuration,
+                progressUpdateInterval = PROGRESS_UPDATE_INTERVAL,
             }
 
             -- 수동 지속시간: 버프 활성화 시점 기록
@@ -3461,7 +3464,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
                     if not data then return end
-                    if not ShouldRunDurationUpdate(self, elapsed) then return end
+                    if not ShouldRunDurationUpdate(self, elapsed, data.progressUpdateInterval) then return end
 
                     -- Manual 모드: manualExpiresAt 기반 duration 계산
                     if data.isManualMode then
@@ -3600,6 +3603,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 warningThreshold = durationWarningThreshold,
                 warningColor = durationWarningColor,
                 normalColor = durationTextColor,
+                progressUpdateInterval = DURATION_UPDATE_INTERVAL,
             }
 
             -- Circular/Square/Donut/Ring 스타일: Cooldown 프레임 초기화 (스택 모드에서도)
@@ -3622,7 +3626,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
                     if not data or not data.auraID then return end
-                    if not ShouldRunDurationUpdate(self, elapsed) then return end
+                    if not ShouldRunDurationUpdate(self, elapsed, data.progressUpdateInterval) then return end
 
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
