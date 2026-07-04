@@ -51,10 +51,14 @@ local previewTicker = nil
 local PREVIEW_STACK_INTERVAL = 1.5  -- Change stacks every 1.5 seconds
 local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
 local DURATION_UPDATE_INTERVAL = 0.08
-local PROGRESS_UPDATE_INTERVAL = 1 / 60
+local PROGRESS_UPDATE_INTERVAL = 0
 
 local function ShouldRunDurationUpdate(frame, elapsed, interval)
     local updateInterval = interval or frame._ddDurationUpdateInterval or DURATION_UPDATE_INTERVAL
+    if updateInterval <= 0 then
+        frame._ddDurationUpdateElapsed = nil
+        return true
+    end
     frame._ddDurationUpdateElapsed = (frame._ddDurationUpdateElapsed or 0) + (elapsed or 0)
     if frame._ddDurationUpdateElapsed < updateInterval then
         return false
