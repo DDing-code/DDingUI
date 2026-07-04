@@ -2259,7 +2259,16 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     local bridge = DDingUI.DynamicIconBridge
                     if bridge then bridge:ReleaseFrame(icon, icon._ddIconKey) end
                 end
-            elseif not inCombat and fc then
+            elseif inCombat then
+                ResetIconLayoutState(icon, false)
+                if icon.SetAlpha then
+                    pcall(icon.SetAlpha, icon, 0)
+                    icon._ddLastGroupAlpha = 0
+                end
+                if icon.Hide then
+                    pcall(icon.Hide, icon)
+                end
+            elseif fc then
                 icon._ddLayoutVisible = nil
                 fc:ReleaseFrameFromContainer(icon)
             end

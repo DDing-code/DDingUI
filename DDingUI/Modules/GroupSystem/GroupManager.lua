@@ -93,7 +93,6 @@ end
 
 local RemoveTokenFromList
 local InsertCDMTokenByDefaultOrder
-local lastCDMTokenSets = {}
 
 local function BuildOrderMap(groupSettings)
     local map = {}
@@ -161,44 +160,6 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
     for _, entry in ipairs(iconList) do
         entry._ddGroupOrderToken = BuildEntryOrderToken(entry)
     end
-
-    local defaultEntries = {}
-    for _, entry in ipairs(iconList) do
-        if IsCDMOrderToken(entry and entry._ddGroupOrderToken) then
-            defaultEntries[#defaultEntries + 1] = entry
-        end
-    end
-    table.sort(defaultEntries, CompareByCurrentLayout)
-
-    local currentDefaultTokens, currentTokenSet = {}, {}
-    for _, entry in ipairs(defaultEntries) do
-        local token = entry._ddGroupOrderToken
-        if token and not currentTokenSet[token] then
-            currentDefaultTokens[#currentDefaultTokens + 1] = token
-            currentTokenSet[token] = true
-        end
-    end
-
-    local previousTokenSet = lastCDMTokenSets[groupName]
-    local order = groupSettings and groupSettings.iconOrder
-    if previousTokenSet and type(order) == "table" and InsertCDMTokenByDefaultOrder and RemoveTokenFromList then
-        local changed = false
-        for _, token in ipairs(currentDefaultTokens) do
-            if not previousTokenSet[token] and orderMap[token] then
-                RemoveTokenFromList(order, token)
-                local seen = {}
-                for _, existing in ipairs(order) do
-                    if type(existing) == "string" then seen[existing] = true end
-                end
-                InsertCDMTokenByDefaultOrder(order, seen, currentDefaultTokens, token)
-                changed = true
-            end
-        end
-        if changed then
-            orderMap = BuildOrderMap(groupSettings)
-        end
-    end
-    lastCDMTokenSets[groupName] = currentTokenSet
 
     local function ExplicitRank(entry)
         local token = entry and entry._ddGroupOrderToken
