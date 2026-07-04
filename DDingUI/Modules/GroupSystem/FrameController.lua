@@ -1379,7 +1379,7 @@ end
 
 function FrameController:SetupFrameInContainer(frame, container, targetW, targetH, cooldownID)
     if not frame or not container then return end
-    local needsLayoutReset = frame._ddContainerRef ~= container or frame._ddLastCooldownID ~= cooldownID
+    local needsLayoutReset = frame._ddContainerRef ~= container or frame._ddLayoutCooldownID ~= cooldownID
     if needsLayoutReset then
         ResetGroupIconLayoutState(frame, true)
     end
@@ -1425,6 +1425,7 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
 
     -- 6. 관리 태그
     frame._ddLastCooldownID = cooldownID
+    frame._ddLayoutCooldownID = cooldownID
     frame._ddIsManaged = true
 
     -- 7. 초기 위치 설정 — 앵커 없는 상태 방지 + HOOK snap-back 타겟 보장
@@ -1501,6 +1502,7 @@ function FrameController:ReleaseFrameFromContainer(frame)
     frame._ddTargetHeight = nil
     frame._ddContainerRef = nil  -- [REPARENT]
     frame._ddLastCooldownID = nil
+    frame._ddLayoutCooldownID = nil
     frame._ddOrigState = nil
 
     -- 포인트는 복원하지 않음 — CDM Layout()이 TriggerCDMRelayout 시 재배치할 것
@@ -1729,6 +1731,14 @@ local function InstallCDMHooks()
             -- cooldownID 실제 변경 시에만 처리
             local prevCdID = itemFrame._ddLastCooldownID
             if prevCdID and prevCdID == cooldownID then return end
+            if itemFrame._ddIsManaged then
+                ResetGroupIconLayoutState(itemFrame, false)
+                local container = itemFrame._ddContainerRef
+                if container then
+                    container._lastCombinedLayoutHash = nil
+                    container._lastDynHash = nil
+                end
+            end
             itemFrame._ddLastCooldownID = cooldownID
 
             ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)

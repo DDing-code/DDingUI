@@ -2230,7 +2230,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     frame._lastCombinedLayoutHash = combinedHash
 
     for _, icon in pairs(frame._managedIcons) do
-        if icon and not newSet[icon] then
+        if icon and not newSet[icon] and icon._ddContainerRef == frame then
             SetManagedIconLayoutVisible(icon, false)
             GRLog("cleanup:", tostring(icon.cooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
             if icon._ddIconKey then
@@ -2259,8 +2259,11 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     local bridge = DDingUI.DynamicIconBridge
                     if bridge then bridge:ReleaseFrame(icon, icon._ddIconKey) end
                 end
+            elseif not inCombat and fc then
+                icon._ddLayoutVisible = nil
+                fc:ReleaseFrameFromContainer(icon)
             end
-            -- [CDM PATTERN] CDM 아이콘: cleanup 안 함!
+            -- CDM icons that leave this group are released outside combat.
         end
     end
     wipe(frame._managedIcons)
@@ -2446,6 +2449,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             elseif fc then
                 -- [CDM 아이콘 스키닝]
                 local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
+                    and icon._ddLayoutCooldownID == entry.cooldownID
                     and not GroupRenderer._forceFullSetup
                 if not alreadyManaged then
                     GRLog("SetupFrame:", tostring(entry.cooldownID), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
@@ -2460,6 +2464,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     end
                 else
                     icon._ddLastCooldownID = entry.cooldownID
+                    icon._ddLayoutCooldownID = entry.cooldownID
                 end
                 SetManagedIconLayoutVisible(icon, sourceVisible and not icon._ddSuppressed and not icon._ddingHidden)
                 idx = idx + 1
