@@ -51,7 +51,7 @@ local previewTicker = nil
 local PREVIEW_STACK_INTERVAL = 1.5  -- Change stacks every 1.5 seconds
 local PREVIEW_DURATION_TICK = 0.1   -- Update duration every 0.1 seconds
 local DURATION_UPDATE_INTERVAL = 0.08
-local PROGRESS_UPDATE_INTERVAL = 1 / 30
+local PROGRESS_UPDATE_INTERVAL = 1 / 60
 
 local function ShouldRunDurationUpdate(frame, elapsed, interval)
     local updateInterval = interval or frame._ddDurationUpdateInterval or DURATION_UPDATE_INTERVAL
@@ -60,6 +60,15 @@ local function ShouldRunDurationUpdate(frame, elapsed, interval)
         return false
     end
     frame._ddDurationUpdateElapsed = 0
+    return true
+end
+
+local function ShouldRunDurationTextUpdate(frame, elapsed)
+    frame._ddDurationTextElapsed = (frame._ddDurationTextElapsed or 0) + (elapsed or 0)
+    if frame._ddDurationTextElapsed < DURATION_UPDATE_INTERVAL then
+        return false
+    end
+    frame._ddDurationTextElapsed = 0
     return true
 end
 
@@ -106,6 +115,7 @@ local function UnregisterDurationUpdate(owner)
         durationDriverCount = math_max(0, durationDriverCount - 1)
     end
     owner._ddDurationUpdateElapsed = nil
+    owner._ddDurationTextElapsed = nil
     owner._dtElapsed = nil
     owner._textElapsed = nil
     if durationDriverFrame and durationDriverCount <= 0 then
@@ -3474,7 +3484,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                             if not data.stacksMode then
                                 self:SetValue(remaining)
                             end
-                            if bar.DurationText and data.showDurationText then
+                            if bar.DurationText and data.showDurationText and ShouldRunDurationTextUpdate(self, elapsed) then
                                 bar.DurationText:SetText(FormatDuration(remaining, data.durationDecimals))
                                 if data.warningEnabled then
                                     if remaining <= data.warningThreshold then
@@ -3498,7 +3508,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                         if not data.stacksMode then
                             self:SetValue(remaining)
                         end
-                        if bar.DurationText and data.showDurationText then
+                        if bar.DurationText and data.showDurationText and ShouldRunDurationTextUpdate(self, elapsed) then
                             bar.DurationText:SetText(FormatDuration(remaining, data.durationDecimals))
                             if data.warningEnabled then
                                 if remaining <= data.warningThreshold then
@@ -3525,7 +3535,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                                 self:SetValue(remaining)
                             end
 
-                            if bar.DurationText and data.showDurationText then
+                            if bar.DurationText and data.showDurationText and ShouldRunDurationTextUpdate(self, elapsed) then
                                 -- SetFormattedText로 secret value도 소수점 설정 적용
                                 local fmt = GetDecimalFmt(data.durationDecimals or 1)
                                 bar.DurationText:SetFormattedText(fmt, remaining)
