@@ -86,6 +86,11 @@ local function SafeNumber(value)
 end
 
 local pvpIconOrderCache = {}
+local copiedBuffConversionLastRun = 0
+local copiedBuffConversionInterval = 0.75
+local cdmBuffMatchContext
+local cdmBuffMatchContextAt = 0
+local cdmBuffMatchContextTTL = 0.5
 
 local function IsPvPInstance()
     return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
@@ -743,6 +748,119 @@ local function CooldownInfoMatchesCandidates(info, ids, names)
     return preferredName and names[preferredName] == true
 end
 
+local function AddCDMBuffMatchName(context, spellName)
+    local normalized = GetNormalizedBuffSpellName(spellName)
+    if not normalized then return end
+    local cleanName = spellName:match("^buff_(.+)") or spellName
+    context.names[cleanName] = normalized
+end
+
+local function AddCDMBuffMatchID(context, spellID, normalizedSpellName)
+    spellID = SafeNumber(spellID)
+    if not spellID or not normalizedSpellName then return end
+    context.ids[spellID] = normalizedSpellName
+end
+
+local function AddCooldownInfoToBuffMatchContext(context, info, normalizedSpellName)
+    if type(info) ~= "table" then return end
+    local preferredName = GetSpellNameFromID(GetCooldownInfoPreferredSpellID(info))
+    if preferredName then
+        AddCDMBuffMatchName(context, preferredName)
+        normalizedSpellName = normalizedSpellName or GetNormalizedBuffSpellName(preferredName)
+    end
+    AddCDMBuffMatchID(context, info.overrideTooltipSpellID, normalizedSpellName)
+    AddCDMBuffMatchID(context, info.overrideSpellID, normalizedSpellName)
+    AddCDMBuffMatchID(context, info.spellID, normalizedSpellName)
+    if type(info.linkedSpellIDs) == "table" then
+        for _, linkedID in ipairs(info.linkedSpellIDs) do
+            AddCDMBuffMatchID(context, linkedID, normalizedSpellName)
+        end
+    end
+end
+
+local function BuildCDMBuffMatchContext()
+    local context = { ids = {}, names = {} }
+    local cdm = DDingUI.CDMHookEngine or DDingUI.FrameController
+    if not cdm then return context end
+
+    local map
+    local okMap = pcall(function()
+        if cdm.GetIdIconMap then
+            map = cdm:GetIdIconMap()
+        elseif cdm.GetIconMap then
+            map = cdm:GetIconMap()
+        end
+    end)
+    if not okMap or type(map) ~= "table" then return context end
+
+    for cooldownID, icon in pairs(map) do
+        local viewerName, defaultGroup, spellName
+        pcall(function()
+            if cdm.GetIconSource then viewerName = cdm:GetIconSource(cooldownID) end
+        end)
+        pcall(function()
+            if cdm.GetDefaultGroupForViewer then defaultGroup = cdm:GetDefaultGroupForViewer(viewerName) end
+        end)
+        if defaultGroup == "Buffs" or viewerName == "BuffIconCooldownViewer" then
+            pcall(function()
+                if cdm.GetSpellNameForID then spellName = cdm:GetSpellNameForID(cooldownID) end
+            end)
+            if not spellName and icon then
+                pcall(function()
+                    if cdm.GetSpellName then spellName = cdm:GetSpellName(icon) end
+                end)
+            end
+            local normalizedSpellName = GetNormalizedBuffSpellName(spellName)
+            if spellName then
+                AddCDMBuffMatchName(context, spellName)
+            end
+            AddCDMBuffMatchID(context, cooldownID, normalizedSpellName)
+            if icon then
+                pcall(function()
+                    AddCDMBuffMatchID(context, icon.auraSpellID, normalizedSpellName)
+                end)
+                pcall(function()
+                    AddCooldownInfoToBuffMatchContext(context, icon.cooldownInfo, normalizedSpellName)
+                end)
+            end
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                local okInfo, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
+                if okInfo then
+                    AddCooldownInfoToBuffMatchContext(context, info, normalizedSpellName)
+                end
+            end
+        end
+    end
+
+    return context
+end
+
+local function GetCDMBuffMatchContext()
+    local now = GetTime and GetTime() or 0
+    if cdmBuffMatchContext and (now - cdmBuffMatchContextAt) < cdmBuffMatchContextTTL then
+        return cdmBuffMatchContext
+    end
+    cdmBuffMatchContext = BuildCDMBuffMatchContext()
+    cdmBuffMatchContextAt = now
+    return cdmBuffMatchContext
+end
+
+local function FindInCDMBuffMatchContext(iconData, context)
+    if not context then return nil end
+    local ids, names = BuildDynamicIconCandidateSets(iconData)
+    for name in pairs(names) do
+        if context.names[name] then
+            return context.names[name]
+        end
+    end
+    for spellID in pairs(ids) do
+        if context.ids[spellID] then
+            return context.ids[spellID]
+        end
+    end
+    return nil
+end
+
 local function FindMatchingCooldownViewerBuffSpellName(iconData)
     if not (C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return nil end
     if not (Enum and Enum.CooldownViewerCategory) then return nil end
@@ -841,13 +959,19 @@ local function ConvertCopiedBuffDynamicIcons(gs)
     if not iconDataDB or not ci or not ci.RemoveDynamicIcon then return false end
 
     local converted = {}
+    local matchContext
     for groupName, groupSettings in pairs(gs.groups) do
         if groupSettings and IsBuffGroup(groupName, groupSettings) then
             local sourceKey = groupSettings.sourceGroupKey
             local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
             if dynGroup and dynGroup.icons then
                 for _, iconKey in ipairs(dynGroup.icons) do
-                    local spellName = GetCDMBuffSpellNameForDynamicIcon(iconDataDB[iconKey])
+                    local iconData = iconDataDB[iconKey]
+                    local spellName = GetCopiedCDMBuffSpellName(iconData)
+                    if not spellName then
+                        matchContext = matchContext or GetCDMBuffMatchContext()
+                        spellName = FindInCDMBuffMatchContext(iconData, matchContext)
+                    end
                     if spellName then
                         converted[#converted + 1] = {
                             groupName = groupName,
@@ -1179,7 +1303,12 @@ function GroupManager:PruneInvalidAssignments()
     local gs = GetGroupSystemSettings()
     if not gs or not gs.groups then return false end
 
-    local converted = ConvertCopiedBuffDynamicIcons(gs)
+    local converted = false
+    local now = GetTime and GetTime() or 0
+    if (now - copiedBuffConversionLastRun) >= copiedBuffConversionInterval then
+        copiedBuffConversionLastRun = now
+        converted = ConvertCopiedBuffDynamicIcons(gs)
+    end
     if not gs.spellAssignments then return converted == true end
     local toRemove
     for spellName, groupName in pairs(gs.spellAssignments) do
