@@ -1152,9 +1152,19 @@ function Movers:SaveMoverPosition(name)
                     end
                 end
 
+                local forceUIParentCenter = (anchorFrame == UIParent or attachTo == "UIParent" or attachTo == "")
+                if forceUIParentCenter then
+                    attachTo = "UIParent"
+                    anchorFrame = UIParent
+                    anchorPoint = "CENTER"
+                end
+
                 local relX, relY = 0, 0
                 -- [FIX] 무버의 실제 selfPoint 기준으로 좌표 계산 (CENTER 하드코딩 제거)
                 local moverSelfPoint = select(1, holder.mover:GetPoint(1)) or "CENTER"
+                if forceUIParentCenter then
+                    moverSelfPoint = "CENTER"
+                end
                 local moverRefX, moverRefY = GetPointPosition(holder.mover, moverSelfPoint)
                 if not moverRefX then
                     moverRefX, moverRefY = holder.mover:GetCenter()
@@ -1181,9 +1191,11 @@ function Movers:SaveMoverPosition(name)
                     if displayType == "ring" then
                         trackedBuffs[idx].settings.ringOffsetX = relX
                         trackedBuffs[idx].settings.ringOffsetY = relY
+                        trackedBuffs[idx].settings.ringSelfPoint = moverSelfPoint
                     else
                         trackedBuffs[idx].settings.offsetX = relX
                         trackedBuffs[idx].settings.offsetY = relY
+                        trackedBuffs[idx].settings.selfPoint = moverSelfPoint
                     end
                 elseif buffTrackerType == "Icon" then
                     trackedBuffs[idx].settings.iconOffsetX = relX
@@ -2069,6 +2081,15 @@ end
 
 function Movers:HideMovers()
     self.ConfigMode = false
+
+    for name, holder in pairs(self.CreatedMovers) do
+        if string.match(name, "^DDingUI_BuffTracker") and holder.mover then
+            local currentPoint = GetPoint(holder.mover)
+            if holder.mover._startPoint and holder.mover._startPoint ~= currentPoint then
+                self:SaveMoverPosition(name)
+            end
+        end
+    end
 
     -- 버프 트래커 mover 모드 종료
     if DDingUI.ExitBuffTrackerMoverMode then

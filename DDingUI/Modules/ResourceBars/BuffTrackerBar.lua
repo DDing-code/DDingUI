@@ -42,6 +42,10 @@ local ShowTextureBorder = DDingUI.ShowTextureBorder
 local isInMoverMode = false
 local moverPositionSynced = false  -- true after initial position sync in mover mode
 
+local function ShouldApplyTrackerFramePosition()
+    return not isInMoverMode or not moverPositionSynced
+end
+
 -- Preview mode flag (shows bars in options panel for configuration)
 local isInPreviewMode = false
 
@@ -3744,7 +3748,11 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- Mover 모드일 때는 위치 설정 건너뛰기 (사용자가 드래그로 조절 중)
     -- 단, 초기 진입 시(moverPositionSynced=false)에는 최신 설정으로 위치 동기화
     local selfPoint = settings.selfPoint or (globalCfg and globalCfg.selfPoint) or "CENTER" -- [FIX: selfPoint support]
-    if not isInMoverMode or not moverPositionSynced then
+    if anchor == UIParent then
+        anchorPoint = "CENTER"
+        selfPoint = "CENTER"
+    end
+    if ShouldApplyTrackerFramePosition() then
         if bar._lastAnchor ~= anchor or bar._lastAnchorPoint ~= anchorPoint or bar._lastOffsetX ~= desiredX or bar._lastOffsetY ~= desiredY or bar._lastSelfPoint ~= selfPoint then
             bar:ClearAllPoints()
             bar:SetPoint(selfPoint, anchor, anchorPoint, desiredX, desiredY)
@@ -4269,8 +4277,12 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     -- 기준점 기준 앵커 = 크기 변경 시 기준점 고정 -- [FIX: selfPoint support]
     -- Mover 모드일 때는 위치 설정 건너뛰기 (사용자가 드래그로 조절 중)
     -- 단, 초기 진입 시(moverPositionSynced=false)에는 최신 설정으로 위치 동기화
-    local selfPoint = (globalCfg and globalCfg.selfPoint) or "CENTER"
-    if not isInMoverMode or not moverPositionSynced then
+    local selfPoint = settings.ringSelfPoint or (globalCfg and globalCfg.selfPoint) or "CENTER"
+    if anchor == UIParent then
+        anchorPoint = "CENTER"
+        selfPoint = "CENTER"
+    end
+    if ShouldApplyTrackerFramePosition() then
         bar:ClearAllPoints()
         bar:SetPoint(selfPoint, anchor, anchorPoint, desiredX, desiredY)
     end
@@ -4850,8 +4862,13 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     if not anchor then
         anchor = UIParent
     end
-    icon:ClearAllPoints()
-    icon:SetPoint("CENTER", anchor, iconAnchorPoint, DDingUI:Scale(iconOffsetX), DDingUI:Scale(iconOffsetY))
+    if anchor == UIParent then
+        iconAnchorPoint = "CENTER"
+    end
+    if ShouldApplyTrackerFramePosition() then
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", anchor, iconAnchorPoint, DDingUI:Scale(iconOffsetX), DDingUI:Scale(iconOffsetY))
+    end
 
     -- Set icon texture
     local iconTexture
@@ -5438,8 +5455,14 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     if not anchor then
         anchor = UIParent
     end
-    textFrame:ClearAllPoints()
-    textFrame:SetPoint(textAnchor, anchor, textAnchorPoint, DDingUI:Scale(textOffsetX), DDingUI:Scale(textOffsetY))
+    if anchor == UIParent then
+        textAnchor = "CENTER"
+        textAnchorPoint = "CENTER"
+    end
+    if ShouldApplyTrackerFramePosition() then
+        textFrame:ClearAllPoints()
+        textFrame:SetPoint(textAnchor, anchor, textAnchorPoint, DDingUI:Scale(textOffsetX), DDingUI:Scale(textOffsetY))
+    end
 
     -- Set font
     local fontPath = textFont and LSM:Fetch("font", textFont) or STANDARD_TEXT_FONT
