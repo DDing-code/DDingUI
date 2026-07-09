@@ -5789,6 +5789,13 @@ DDingUI.GetTrackedBuffIcons = function(self) return iconFrames end  -- Multi-ico
 DDingUI.GetTrackedBuffTexts = function(self) return textFrames end  -- Multi-text access for debugging
 DDingUI.GetSoundTrackers = function(self) return soundTrackers end  -- Sound tracker access for debugging
 DDingUI.InitializeTrackedBuffBarsForMover = function(self) return ResourceBars:InitializeTrackedBuffBarsForMover() end
+DDingUI.SyncBuffTrackerMoverPositions = function(self)
+    moverPositionSynced = false
+    ResourceBars:UpdateBuffTrackerBar()
+    if isInMoverMode then
+        moverPositionSynced = true
+    end
+end
 DDingUI.ExitBuffTrackerMoverMode = function(self) return ResourceBars:ExitMoverMode() end
 DDingUI.EnableBuffTrackerPreview = function(self) return ResourceBars:EnablePreviewMode() end
 DDingUI.DisableBuffTrackerPreview = function(self) return ResourceBars:DisablePreviewMode() end

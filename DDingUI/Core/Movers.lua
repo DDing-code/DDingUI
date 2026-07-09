@@ -178,6 +178,98 @@ local function SetPoint(obj, pointString)
     obj:SetPoint(point, anchor, relativePoint, x, y)
 end
 
+local function IsBuffTrackerMoverName(name)
+    return type(name) == "string" and string.match(name, "^DDingUI_BuffTracker%w+_%d+$") ~= nil
+end
+
+local function GetBuffTrackerMoverRecord(name)
+    local trackerType, trackerIndex = string.match(name or "", "^DDingUI_BuffTracker(%w+)_(%d+)$")
+    local idx = tonumber(trackerIndex)
+    if not trackerType or not idx or not DDingUI.db then return nil end
+
+    local profile = DDingUI.db.profile or {}
+    local rootCfg = profile.buffTrackerBar or {}
+    local specIndex = GetSpecialization and GetSpecialization()
+    local specID = specIndex and GetSpecializationInfo(specIndex) or nil
+    local globalStore = DDingUI.db.global and DDingUI.db.global.trackedBuffsPerSpec
+    local trackedBuffs = specID and globalStore and globalStore[specID] or rootCfg.trackedBuffs
+    local trackedBuff = trackedBuffs and trackedBuffs[idx]
+    if not trackedBuff then return nil end
+
+    trackedBuff.settings = trackedBuff.settings or {}
+    return trackerType, idx, trackedBuff, trackedBuff.settings, rootCfg
+end
+
+local function GetBuffTrackerMoverPointInfo(name)
+    local trackerType, _, trackedBuff, settings, rootCfg = GetBuffTrackerMoverRecord(name)
+    if not trackerType then return nil end
+
+    local displayType = trackedBuff.displayType or "bar"
+    local attachTo = settings.attachTo or rootCfg.attachTo or "DDingUI_Anchor_Cooldowns"
+    local anchorPoint
+    local selfPoint
+
+    if trackerType == "Bar" then
+        if displayType == "ring" then
+            anchorPoint = settings.ringAnchorPoint or "CENTER"
+            selfPoint = settings.ringSelfPoint or rootCfg.selfPoint or "CENTER"
+        else
+            anchorPoint = settings.anchorPoint or rootCfg.anchorPoint or "BOTTOM"
+            selfPoint = settings.selfPoint or rootCfg.selfPoint or "CENTER"
+        end
+    elseif trackerType == "Icon" then
+        attachTo = settings.iconAttachTo or attachTo
+        anchorPoint = settings.iconAnchorPoint or rootCfg.anchorPoint or "CENTER"
+        selfPoint = "CENTER"
+    elseif trackerType == "Text" then
+        attachTo = settings.textAnchorTo or attachTo
+        anchorPoint = settings.textAnchorPoint or settings.textModeAnchorPoint or "CENTER"
+        selfPoint = settings.textAnchor or "CENTER"
+    else
+        anchorPoint = "CENTER"
+        selfPoint = "CENTER"
+    end
+
+    attachTo = ATTACH_TO_PROXY[attachTo] or attachTo or "UIParent"
+    if attachTo == "" then attachTo = "UIParent" end
+    if attachTo == "UIParent" then
+        anchorPoint = "CENTER"
+        selfPoint = "CENTER"
+    end
+
+    return attachTo, anchorPoint, selfPoint, trackerType, trackedBuff, settings, rootCfg
+end
+
+local function SetMoverPointPreservingScreen(mover, selfPoint, anchorFrame, anchorPoint)
+    if not mover then return end
+    anchorFrame = anchorFrame or UIParent
+    selfPoint = selfPoint or "CENTER"
+    anchorPoint = anchorPoint or "CENTER"
+    if anchorFrame == UIParent then
+        selfPoint = "CENTER"
+        anchorPoint = "CENTER"
+    end
+
+    local selfX, selfY = GetPointPosition(mover, selfPoint)
+    if not selfX then
+        selfX, selfY = mover:GetCenter()
+    end
+
+    local anchorX, anchorY = GetPointPosition(anchorFrame, anchorPoint)
+    if not anchorX then
+        anchorFrame = UIParent
+        selfPoint = "CENTER"
+        anchorPoint = "CENTER"
+        anchorX, anchorY = UIParent:GetCenter()
+    end
+
+    if not selfX or not anchorX then return end
+
+    mover:ClearAllPoints()
+    mover:SetPoint(selfPoint, anchorFrame, anchorPoint, Round(selfX - anchorX), Round(selfY - anchorY))
+    return selfPoint, anchorPoint
+end
+
 --------------------------------------------------------------------------------
 -- Undo/Redo Functions (GetPoint/SetPoint 정의 이후에 배치)
 --------------------------------------------------------------------------------
@@ -591,6 +683,24 @@ local function OnDragStop(mover)
     local holder = Movers.CreatedMovers[mover.name]
     local mapping = holder and MoverToModuleMapping[mover.name]
     local cfg = mapping and DDingUI.db and ResolvePath(DDingUI.db.profile, mapping.path)
+
+    if isBuffTracker then
+        local attachTo, anchorPoint, selfPoint = GetBuffTrackerMoverPointInfo(mover.name)
+        local anchorFrame = DDingUI:ResolveAnchorFrame(attachTo or "UIParent")
+        SetMoverPointPreservingScreen(mover, selfPoint, anchorFrame, anchorPoint)
+
+        local newPoint = GetPoint(mover)
+        if mover._dragStartPoint and mover._dragStartPoint ~= newPoint then
+            Movers:PushUndo(mover.name, mover._dragStartPoint)
+        end
+        mover._dragStartPoint = nil
+        Movers:SaveMoverPosition(mover.name)
+
+        if Movers.NudgeFrame and Movers.NudgeFrame:IsShown() then
+            Movers.NudgeFrame:UpdateInfo()
+        end
+        return
+    end
 
     -- ============================================================
     -- 스냅 감지: 인접한 다른 mover와의 엣지 관계 분석
@@ -1124,9 +1234,11 @@ function Movers:SaveMoverPosition(name)
 
                 -- anchor 프레임 기준 상대 좌표 계산 -- [FIX: anchor sync]
                 -- 모버의 실제 앵커 상태를 우선 사용 (넛지 패널에서 변경 시 반영)
-                local _, moverRelTo, moverRelPoint = holder.mover:GetPoint(1)
-                local attachTo = (moverRelTo and moverRelTo:GetName())
-                                 or trackedBuffs[idx].settings.attachTo
+                local settings = trackedBuffs[idx].settings
+                local savedAttachTo, savedAnchorPoint, savedSelfPoint = GetBuffTrackerMoverPointInfo(name)
+                local attachTo = holder.mover._ddExplicitAnchorName
+                                 or savedAttachTo
+                                 or settings.attachTo
                                  or (DDingUI.db.profile.buffTrackerBar and DDingUI.db.profile.buffTrackerBar.attachTo)
                                  or "DDingUI_Anchor_Cooldowns" -- [PROXY] 프록시 앵커 폴백
                 attachTo = ATTACH_TO_PROXY[attachTo] or attachTo
@@ -1136,21 +1248,7 @@ function Movers:SaveMoverPosition(name)
                 -- 모버의 실제 앵커 포인트를 우선 사용 -- [FIX: anchor sync]
                 local globalCfg = DDingUI.db.profile.buffTrackerBar or {}
                 local displayType = trackedBuffs[idx].displayType or "bar"
-                local anchorPoint = moverRelPoint
-                if not anchorPoint then
-                    if displayType == "ring" then
-                        anchorPoint = trackedBuffs[idx].settings.ringAnchorPoint or "CENTER"
-                    elseif buffTrackerType == "Icon" then
-                        anchorPoint = trackedBuffs[idx].settings.iconAnchorPoint or
-                                      globalCfg.anchorPoint or "BOTTOM"
-                    elseif buffTrackerType == "Text" then
-                        anchorPoint = trackedBuffs[idx].settings.textModeAnchorPoint or
-                                      globalCfg.anchorPoint or "BOTTOM"
-                    else
-                        anchorPoint = trackedBuffs[idx].settings.anchorPoint or
-                                      globalCfg.anchorPoint or "BOTTOM"
-                    end
-                end
+                local anchorPoint = holder.mover._ddExplicitAnchorPoint or savedAnchorPoint or "CENTER"
 
                 local forceUIParentCenter = (anchorFrame == UIParent or attachTo == "UIParent" or attachTo == "")
                 if forceUIParentCenter then
@@ -1161,7 +1259,7 @@ function Movers:SaveMoverPosition(name)
 
                 local relX, relY = 0, 0
                 -- [FIX] 무버의 실제 selfPoint 기준으로 좌표 계산 (CENTER 하드코딩 제거)
-                local moverSelfPoint = select(1, holder.mover:GetPoint(1)) or "CENTER"
+                local moverSelfPoint = holder.mover._ddExplicitSelfPoint or savedSelfPoint or select(1, holder.mover:GetPoint(1)) or "CENTER"
                 if forceUIParentCenter then
                     moverSelfPoint = "CENTER"
                 elseif buffTrackerType == "Icon" then
@@ -1223,9 +1321,14 @@ function Movers:SaveMoverPosition(name)
                 end
 
                 -- 버프 트래커 업데이트
-                if DDingUI.UpdateBuffTrackerBar then
+                if DDingUI.SyncBuffTrackerMoverPositions then
+                    DDingUI:SyncBuffTrackerMoverPositions()
+                elseif DDingUI.UpdateBuffTrackerBar then
                     DDingUI:UpdateBuffTrackerBar()
                 end
+                holder.mover._ddExplicitAnchorName = nil
+                holder.mover._ddExplicitAnchorPoint = nil
+                holder.mover._ddExplicitSelfPoint = nil
                 if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
                     DDingUI.SpecProfiles:SaveCurrentSpec()
                 elseif DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
@@ -1413,11 +1516,11 @@ function Movers:LoadMoverPosition(name)
                 elseif buffTrackerType == "Icon" then
                     offsetX = settings.iconOffsetX
                     offsetY = settings.iconOffsetY
-                    anchorPoint = settings.iconAnchorPoint or globalCfg.anchorPoint or "BOTTOM"
+                    anchorPoint = settings.iconAnchorPoint or globalCfg.anchorPoint or "CENTER"
                 elseif buffTrackerType == "Text" then
                     offsetX = settings.textModeOffsetX
                     offsetY = settings.textModeOffsetY
-                    anchorPoint = settings.textAnchorPoint or settings.textModeAnchorPoint or globalCfg.anchorPoint or "BOTTOM"
+                    anchorPoint = settings.textAnchorPoint or settings.textModeAnchorPoint or "CENTER"
                 end
 
                 local defaultAttachTo = settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns"
@@ -1452,7 +1555,6 @@ function Movers:LoadMoverPosition(name)
                     end
                     holder.mover:ClearAllPoints()
                     holder.mover:SetPoint(selfPoint, anchorFrame, anchorPoint, DDingUI:Scale(offsetX), DDingUI:Scale(offsetY))
-                    self:UpdateParentPosition(name)
                     return
                 end
             end
@@ -3045,22 +3147,35 @@ function Movers:CreateNudgeFrame()
 
             local oldPoint = GetPoint(mover)
             local selfPt, af, relPt, x, y = mover:GetPoint(1)
+            local isBuffTracker = IsBuffTrackerMoverName(mover.name)
 
             if button == "LeftButton" then
                 -- Change Anchor Point
                 nudge._anchorPointCurrent = apName
-                mover:ClearAllPoints()
-                mover:SetPoint(selfPt or "CENTER", af or UIParent, apName, x or 0, y or 0)
+                if isBuffTracker then
+                    mover._ddExplicitAnchorPoint = apName
+                    SetMoverPointPreservingScreen(mover, selfPt or "CENTER", af or UIParent, apName)
+                else
+                    mover:ClearAllPoints()
+                    mover:SetPoint(selfPt or "CENTER", af or UIParent, apName, x or 0, y or 0)
+                end
             elseif button == "RightButton" then
                 -- Change Self Point
                 nudge._selfPointCurrent = apName
-                mover:ClearAllPoints()
-                mover:SetPoint(apName, af or UIParent, relPt or "CENTER", x or 0, y or 0)
+                if isBuffTracker then
+                    mover._ddExplicitSelfPoint = apName
+                    SetMoverPointPreservingScreen(mover, apName, af or UIParent, relPt or "CENTER")
+                else
+                    mover:ClearAllPoints()
+                    mover:SetPoint(apName, af or UIParent, relPt or "CENTER", x or 0, y or 0)
+                end
             end
 
             Movers:PushUndo(mover.name, oldPoint)
             Movers:SaveMoverPosition(mover.name)
-            Movers:UpdateParentPosition(mover.name)
+            if not isBuffTracker then
+                Movers:UpdateParentPosition(mover.name)
+            end
             UpdateAnchorDots()
             nudge:UpdateInfo()
         end)
@@ -3126,13 +3241,28 @@ function Movers:CreateNudgeFrame()
 
             local oldPointStr = GetPoint(mv)
             local selfPt, _, relPoint, px, py = mv:GetPoint(1)
+            local isBuffTracker = IsBuffTrackerMoverName(mv.name)
 
-            mv:ClearAllPoints()
-            mv:SetPoint(selfPt or "CENTER", targetFrame, relPoint or "CENTER", 0, 0)
+            if isBuffTracker then
+                local anchorPoint = relPoint or "CENTER"
+                selfPt = selfPt or "CENTER"
+                if targetFrame == UIParent then
+                    selfPt = "CENTER"
+                    anchorPoint = "CENTER"
+                end
+                mv._ddExplicitAnchorName = val
+                mv._ddExplicitAnchorPoint = anchorPoint
+                SetMoverPointPreservingScreen(mv, selfPt, targetFrame, anchorPoint)
+            else
+                mv:ClearAllPoints()
+                mv:SetPoint(selfPt or "CENTER", targetFrame, relPoint or "CENTER", 0, 0)
+            end
 
             Movers:PushUndo(mv.name, oldPointStr)
             Movers:SaveMoverPosition(mv.name)
-            Movers:UpdateParentPosition(mv.name)
+            if not isBuffTracker then
+                Movers:UpdateParentPosition(mv.name)
+            end
 
             local mapping = MoverToModuleMapping[mv.name]
             if mapping and DDingUI.db then
@@ -3189,13 +3319,27 @@ function Movers:CreateNudgeFrame()
 
             local oldPointStr = GetPoint(mv)
             local selfPt, _, relPoint, px, py = mv:GetPoint(1)
+            local isBuffTracker = IsBuffTrackerMoverName(mv.name)
             selfPt = selfPt or "CENTER"
-            mv:ClearAllPoints()
-            mv:SetPoint(selfPt, targetFrame, relPoint or "CENTER", 0, 0)
+            if isBuffTracker then
+                local anchorPoint = relPoint or "CENTER"
+                if targetFrame == UIParent then
+                    selfPt = "CENTER"
+                    anchorPoint = "CENTER"
+                end
+                mv._ddExplicitAnchorName = frameName
+                mv._ddExplicitAnchorPoint = anchorPoint
+                SetMoverPointPreservingScreen(mv, selfPt, targetFrame, anchorPoint)
+            else
+                mv:ClearAllPoints()
+                mv:SetPoint(selfPt, targetFrame, relPoint or "CENTER", 0, 0)
+            end
 
             Movers:PushUndo(mv.name, oldPointStr)
             Movers:SaveMoverPosition(mv.name)
-            Movers:UpdateParentPosition(mv.name)
+            if not isBuffTracker then
+                Movers:UpdateParentPosition(mv.name)
+            end
 
             local mapping = MoverToModuleMapping[mv.name]
             local anchorCfg = mapping and DDingUI.db and ResolvePath(DDingUI.db.profile, mapping.path)
@@ -3762,7 +3906,9 @@ function Movers:NudgeMover(dx, dy)
     self:PushUndo(mover.name, oldPoint)
 
     self:SaveMoverPosition(mover.name)
-    self:UpdateParentPosition(mover.name)
+    if not IsBuffTrackerMoverName(mover.name) then
+        self:UpdateParentPosition(mover.name)
+    end
 
     if self.NudgeFrame then
         self.NudgeFrame:UpdateInfo()
