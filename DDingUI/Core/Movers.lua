@@ -1164,6 +1164,8 @@ function Movers:SaveMoverPosition(name)
                 local moverSelfPoint = select(1, holder.mover:GetPoint(1)) or "CENTER"
                 if forceUIParentCenter then
                     moverSelfPoint = "CENTER"
+                elseif buffTrackerType == "Icon" then
+                    moverSelfPoint = "CENTER"
                 end
                 local moverRefX, moverRefY = GetPointPosition(holder.mover, moverSelfPoint)
                 if not moverRefX then
@@ -1200,9 +1202,12 @@ function Movers:SaveMoverPosition(name)
                 elseif buffTrackerType == "Icon" then
                     trackedBuffs[idx].settings.iconOffsetX = relX
                     trackedBuffs[idx].settings.iconOffsetY = relY
+                    trackedBuffs[idx].settings.iconAttachTo = attachTo
                 elseif buffTrackerType == "Text" then
                     trackedBuffs[idx].settings.textModeOffsetX = relX
                     trackedBuffs[idx].settings.textModeOffsetY = relY
+                    trackedBuffs[idx].settings.textAnchor = moverSelfPoint
+                    trackedBuffs[idx].settings.textAnchorTo = attachTo
                 end
 
                 -- 앵커 포인트/프레임 변경도 설정에 동기화 -- [FIX: anchor sync]
@@ -1212,7 +1217,7 @@ function Movers:SaveMoverPosition(name)
                 elseif buffTrackerType == "Icon" then
                     trackedBuffs[idx].settings.iconAnchorPoint = anchorPoint
                 elseif buffTrackerType == "Text" then
-                    trackedBuffs[idx].settings.textModeAnchorPoint = anchorPoint
+                    trackedBuffs[idx].settings.textAnchorPoint = anchorPoint
                 else
                     trackedBuffs[idx].settings.anchorPoint = anchorPoint
                 end
@@ -1220,6 +1225,11 @@ function Movers:SaveMoverPosition(name)
                 -- 버프 트래커 업데이트
                 if DDingUI.UpdateBuffTrackerBar then
                     DDingUI:UpdateBuffTrackerBar()
+                end
+                if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
+                    DDingUI.SpecProfiles:SaveCurrentSpec()
+                elseif DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                    DDingUI.SpecProfiles:MarkDirty()
                 end
                 return
             end
@@ -1407,10 +1417,17 @@ function Movers:LoadMoverPosition(name)
                 elseif buffTrackerType == "Text" then
                     offsetX = settings.textModeOffsetX
                     offsetY = settings.textModeOffsetY
-                    anchorPoint = settings.textModeAnchorPoint or globalCfg.anchorPoint or "BOTTOM"
+                    anchorPoint = settings.textAnchorPoint or settings.textModeAnchorPoint or globalCfg.anchorPoint or "BOTTOM"
                 end
 
-                attachTo = settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns" -- [PROXY] 프록시 앵커 폴백
+                local defaultAttachTo = settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns"
+                if buffTrackerType == "Icon" then
+                    attachTo = settings.iconAttachTo or defaultAttachTo
+                elseif buffTrackerType == "Text" then
+                    attachTo = settings.textAnchorTo or defaultAttachTo
+                else
+                    attachTo = defaultAttachTo
+                end
                 attachTo = ATTACH_TO_PROXY[attachTo] or attachTo
                 local anchorFrame = DDingUI:ResolveAnchorFrame(attachTo)
 
@@ -1423,6 +1440,8 @@ function Movers:LoadMoverPosition(name)
                         else
                             selfPoint = settings.selfPoint or (globalCfg and globalCfg.selfPoint) or "CENTER"
                         end
+                    elseif buffTrackerType == "Text" then
+                        selfPoint = settings.textAnchor or "CENTER"
                     else
                         selfPoint = "CENTER"
                     end
@@ -3974,9 +3993,12 @@ function Movers:RegisterStandardFrames()
         { global = "DDingUIPowerBar", ref = "powerBar", key = "DDingUI_PowerBar", display = L["Primary Resource"] or "Primary Resource" },
         { global = "DDingUISecondaryPowerBar", ref = "secondaryPowerBar", key = "DDingUI_SecondaryPowerBar", display = L["Secondary Resource"] or "Secondary Resource" },
         { global = "DDingUICastBar", ref = "castBar", key = "DDingUI_PlayerCastBar", display = L["Player Cast Bar"] or "Player Cast Bar" },
-        { global = "DDingUIBuffTrackerBar", ref = "buffTrackerBar", key = "DDingUI_BuffTrackerBar", display = L["Buff Tracker Bar"] or "Buff Tracker Bar" },
         { global = "BuffBarCooldownViewer", ref = nil, key = "DDingUI_BuffBarViewer", display = L["Buff Bar"] or "Tracked Bars", beforeRegister = SeedBuffBarViewerMoverConfig },
     }
+
+    if self.CreatedMovers["DDingUI_BuffTrackerBar"] then
+        self:UnregisterMover("DDingUI_BuffTrackerBar")
+    end
 
     for _, info in ipairs(standardFrames) do
         local frame = _G[info.global] or (info.ref and DDingUI[info.ref])
