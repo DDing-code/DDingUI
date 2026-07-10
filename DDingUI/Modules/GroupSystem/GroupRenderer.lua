@@ -99,6 +99,26 @@ local function ApplyIconPositionNow(icon, container, x, y)
     icon._ddCurrentY = y
 end
 
+local function IconAnchorMatches(icon, container, x, y)
+    if not icon or not icon.GetNumPoints or icon:GetNumPoints() ~= 1 then
+        return false
+    end
+
+    local point, relativeTo, relativePoint, currentX, currentY = icon:GetPoint(1)
+    if point ~= "CENTER" or relativeTo ~= container or relativePoint ~= "CENTER" then
+        return false
+    end
+    if issecretvalue and (issecretvalue(currentX) or issecretvalue(currentY)) then
+        return false
+    end
+    if type(currentX) ~= "number" or type(currentY) ~= "number" then
+        return false
+    end
+
+    return math_abs(currentX - x) <= ICON_MOTION_MIN_DELTA
+        and math_abs(currentY - y) <= ICON_MOTION_MIN_DELTA
+end
+
 local function StopIconMotion(icon)
     if not icon or not icon._ddPositionMotion then return end
     activeIconMotions[icon] = nil
@@ -134,6 +154,10 @@ iconMotionDriver:SetScript("OnUpdate", function(_, elapsed)
         if not icon:IsShown() or icon._ddingHidden then
             activeIconMotions[icon] = nil
             icon._ddPositionMotion = nil
+            icon._ddLastGroupLayoutHash = nil
+            icon._ddCurrentContainer = nil
+            icon._ddCurrentX = nil
+            icon._ddCurrentY = nil
             activeIconMotionCount = math_max(activeIconMotionCount - 1, 0)
         else
             motion.elapsed = motion.elapsed + elapsed
@@ -1215,7 +1239,16 @@ local function EntryRequiresFreshLayout(entry, frame, layoutHash)
 
     if icon._ddContainerRef ~= frame then return true end
     if icon._ddTargetPoint ~= "CENTER" or icon._ddTargetX == nil or icon._ddTargetY == nil then return true end
-    if icon._ddCurrentContainer ~= frame or icon._ddCurrentX == nil or icon._ddCurrentY == nil then return true end
+    local motion = icon._ddPositionMotion
+    if motion then
+        if motion.container ~= frame or motion.toX ~= icon._ddTargetX or motion.toY ~= icon._ddTargetY then
+            return true
+        end
+    else
+        if icon._ddCurrentContainer ~= frame or icon._ddCurrentX == nil or icon._ddCurrentY == nil then return true end
+        if icon._ddCurrentX ~= icon._ddTargetX or icon._ddCurrentY ~= icon._ddTargetY then return true end
+        if not IconAnchorMatches(icon, frame, icon._ddTargetX, icon._ddTargetY) then return true end
+    end
     if icon._ddLastGroupLayoutHash ~= layoutHash then return true end
     return false
 end
@@ -1605,7 +1638,8 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
        and icon._ddTargetX == x and icon._ddTargetY == y
        and icon._ddContainerRef == container
        and icon._ddCurrentContainer == container
-       and icon._ddCurrentX == x and icon._ddCurrentY == y then
+       and icon._ddCurrentX == x and icon._ddCurrentY == y
+       and IconAnchorMatches(icon, container, x, y) then
         return
     end
 
