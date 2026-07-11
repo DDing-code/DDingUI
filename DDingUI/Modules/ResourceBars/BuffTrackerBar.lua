@@ -5790,6 +5790,13 @@ DDingUI.GetTrackedBuffTexts = function(self) return textFrames end  -- Multi-tex
 DDingUI.GetSoundTrackers = function(self) return soundTrackers end  -- Sound tracker access for debugging
 DDingUI.InitializeTrackedBuffBarsForMover = function(self) return ResourceBars:InitializeTrackedBuffBarsForMover() end
 DDingUI.SyncBuffTrackerMoverPositions = function(self)
+    for _, frame in pairs(barFrames) do
+        frame._lastAnchor = nil
+        frame._lastAnchorPoint = nil
+        frame._lastOffsetX = nil
+        frame._lastOffsetY = nil
+        frame._lastSelfPoint = nil
+    end
     moverPositionSynced = false
     ResourceBars:UpdateBuffTrackerBar()
     if isInMoverMode then

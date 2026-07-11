@@ -1236,53 +1236,36 @@ function Movers:SaveMoverPosition(name)
                 -- 모버의 실제 앵커 상태를 우선 사용 (넛지 패널에서 변경 시 반영)
                 local settings = trackedBuffs[idx].settings
                 local savedAttachTo, savedAnchorPoint, savedSelfPoint = GetBuffTrackerMoverPointInfo(name)
+                local moverPoint, moverRelTo, moverRelPoint, moverX, moverY = holder.mover:GetPoint(1)
+                local moverAnchorName = moverRelTo and moverRelTo:GetName()
                 local attachTo = holder.mover._ddExplicitAnchorName
+                                 or moverAnchorName
                                  or savedAttachTo
                                  or settings.attachTo
                                  or (DDingUI.db.profile.buffTrackerBar and DDingUI.db.profile.buffTrackerBar.attachTo)
                                  or "DDingUI_Anchor_Cooldowns" -- [PROXY] 프록시 앵커 폴백
                 attachTo = ATTACH_TO_PROXY[attachTo] or attachTo
-                local anchorFrame = DDingUI:ResolveAnchorFrame(attachTo)
 
                 -- displayType에 따라 적절한 anchorPoint 가져오기
                 -- 모버의 실제 앵커 포인트를 우선 사용 -- [FIX: anchor sync]
-                local globalCfg = DDingUI.db.profile.buffTrackerBar or {}
                 local displayType = trackedBuffs[idx].displayType or "bar"
-                local anchorPoint = holder.mover._ddExplicitAnchorPoint or savedAnchorPoint or "CENTER"
+                local anchorPoint = holder.mover._ddExplicitAnchorPoint or moverRelPoint or savedAnchorPoint or "CENTER"
 
-                local forceUIParentCenter = (anchorFrame == UIParent or attachTo == "UIParent" or attachTo == "")
+                local forceUIParentCenter = (attachTo == "UIParent" or attachTo == "")
                 if forceUIParentCenter then
                     attachTo = "UIParent"
-                    anchorFrame = UIParent
                     anchorPoint = "CENTER"
                 end
 
-                local relX, relY = 0, 0
-                -- [FIX] 무버의 실제 selfPoint 기준으로 좌표 계산 (CENTER 하드코딩 제거)
-                local moverSelfPoint = holder.mover._ddExplicitSelfPoint or savedSelfPoint or select(1, holder.mover:GetPoint(1)) or "CENTER"
+                -- DragStop/anchor controls already reconnect the mover to its final anchor.
+                -- Persist that exact point instead of deriving it again from screen geometry.
+                local relX = tonumber(moverX) or 0
+                local relY = tonumber(moverY) or 0
+                local moverSelfPoint = holder.mover._ddExplicitSelfPoint or moverPoint or savedSelfPoint or "CENTER"
                 if forceUIParentCenter then
                     moverSelfPoint = "CENTER"
                 elseif buffTrackerType == "Icon" then
                     moverSelfPoint = "CENTER"
-                end
-                local moverRefX, moverRefY = GetPointPosition(holder.mover, moverSelfPoint)
-                if not moverRefX then
-                    moverRefX, moverRefY = holder.mover:GetCenter()
-                end
-                if anchorFrame and anchorFrame:IsShown() and moverRefX then
-                    -- anchor의 anchorPoint 위치 계산 (CENTER가 아닌 실제 사용되는 anchorPoint)
-                    local anchorPointX, anchorPointY = GetPointPosition(anchorFrame, anchorPoint)
-                    if anchorPointX then
-                        relX = moverRefX - anchorPointX
-                        relY = moverRefY - anchorPointY
-                    end
-                elseif moverRefX then
-                    -- anchor가 없으면 UIParent 중심 기준
-                    local uiCenterX, uiCenterY = UIParent:GetCenter()
-                    if uiCenterX then
-                        relX = moverRefX - uiCenterX
-                        relY = moverRefY - uiCenterY
-                    end
                 end
 
                 -- 타입별로 다른 설정 키 사용 (anchor 기준 상대 좌표 relX, relY 사용)
