@@ -2294,6 +2294,47 @@ GetTrackedBuffs = function()
     return globalStore[specID]
 end
 
+local function IsMatchingTrackedFrameType(frameType, displayType)
+    if frameType == "Bar" then
+        return displayType == "bar" or displayType == "ring"
+    elseif frameType == "Icon" then
+        return displayType == "icon"
+    elseif frameType == "Text" then
+        return displayType == "text"
+    end
+    return false
+end
+
+local function ResolveTrackedAnchorName(anchorName, ownerIndex, ownerType)
+    local normalized = NormalizeTrackerAnchorName(anchorName)
+    local targetType, targetIndexText = string.match(normalized, "^DDingUIBuffTracker(%a+)(%d+)$")
+    if not targetType then return normalized end
+
+    local targetIndex = tonumber(targetIndexText)
+    local trackedBuffs = GetTrackedBuffs()
+    local target = targetIndex and trackedBuffs[targetIndex]
+    if not target or target.enabled == false then return "UIParent" end
+    if targetType == ownerType and targetIndex == ownerIndex then return "UIParent" end
+
+    local targetDisplayType = target.displayType or "bar"
+    if not IsMatchingTrackedFrameType(targetType, targetDisplayType) then
+        return "UIParent"
+    end
+
+    local targetSettings = target.settings or {}
+    local targetAnchor = targetSettings.attachTo
+    if targetType == "Icon" then
+        targetAnchor = targetSettings.iconAttachTo or targetAnchor
+    elseif targetType == "Text" then
+        targetAnchor = targetSettings.textAnchorTo or targetAnchor
+    end
+    targetAnchor = NormalizeTrackerAnchorName(targetAnchor)
+
+    local ownerFrameName = ADDON_NAME .. "BuffTracker" .. ownerType .. ownerIndex
+    if targetAnchor == ownerFrameName then return "UIParent" end
+    return normalized
+end
+
 -- ============================================================
 -- MULTI-BAR SYSTEM -- 각 tracked buff마다 독립적인 바 프레임 생성
 -- ============================================================
@@ -3145,7 +3186,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     local hideFromCDM = settings.hideFromCDM or false  -- CDM에서 숨기기
 
     -- Per-bar position settings (with stacking fallback)
-    local attachTo = NormalizeTrackerAnchorName(settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
+    local attachTo = ResolveTrackedAnchorName(settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns", barIndex, "Bar")
     local anchorPoint = settings.anchorPoint or globalCfg.anchorPoint or "BOTTOM"
     local baseOffsetX = settings.offsetX or globalCfg.offsetX or 0
     local baseOffsetY = settings.offsetY
@@ -4092,7 +4133,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local alwaysShowInCombat = settings.alwaysShowInCombat or false
 
     -- Attach frame settings
-    local attachTo = NormalizeTrackerAnchorName(settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
+    local attachTo = ResolveTrackedAnchorName(settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns", barIndex, "Bar")
     local anchorPoint = settings.ringAnchorPoint or "CENTER"
 
     -- Per-buff frame strata (개별 설정 > 전체 설정 > 기본값)
@@ -4662,7 +4703,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
 
     -- Icon settings
     local iconSize = settings.iconSize or 32
-    local iconAttachTo = NormalizeTrackerAnchorName(settings.iconAttachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
+    local iconAttachTo = ResolveTrackedAnchorName(settings.iconAttachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns", barIndex, "Icon")
     local iconAnchorPoint = settings.iconAnchorPoint or globalCfg.anchorPoint or "CENTER"
     local iconOffsetX = settings.iconOffsetX
     local iconOffsetY = settings.iconOffsetY
@@ -5295,7 +5336,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     local textDisplayMode = settings.textDisplayMode or "stacks"
     local customText = settings.customText or ""
     local textAnchor = settings.textAnchor or "CENTER"
-    local textAnchorTo = NormalizeTrackerAnchorName(settings.textAnchorTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns")
+    local textAnchorTo = ResolveTrackedAnchorName(settings.textAnchorTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns", barIndex, "Text")
     local textAnchorPoint = settings.textAnchorPoint or "CENTER"
     local textOffsetX = settings.textModeOffsetX or 0
     local textOffsetY = settings.textModeOffsetY or 50

@@ -197,11 +197,47 @@ local function GetBuffTrackerMoverRecord(name)
     if not trackedBuff then return nil end
 
     trackedBuff.settings = trackedBuff.settings or {}
-    return trackerType, idx, trackedBuff, trackedBuff.settings, rootCfg
+    return trackerType, idx, trackedBuff, trackedBuff.settings, rootCfg, trackedBuffs
+end
+
+local function IsMatchingBuffTrackerFrameType(frameType, displayType)
+    if frameType == "Bar" then
+        return displayType == "bar" or displayType == "ring"
+    elseif frameType == "Icon" then
+        return displayType == "icon"
+    elseif frameType == "Text" then
+        return displayType == "text"
+    end
+    return false
+end
+
+local function IsValidBuffTrackerAnchor(anchorName, ownerType, ownerIndex, trackedBuffs)
+    local targetType, targetIndexText = string.match(anchorName or "", "^DDingUIBuffTracker(%a+)(%d+)$")
+    if not targetType then return true end
+
+    local targetIndex = tonumber(targetIndexText)
+    local target = targetIndex and trackedBuffs and trackedBuffs[targetIndex]
+    if not target or target.enabled == false then return false end
+    if targetType == ownerType and targetIndex == ownerIndex then return false end
+
+    local targetDisplayType = target.displayType or "bar"
+    if not IsMatchingBuffTrackerFrameType(targetType, targetDisplayType) then return false end
+
+    local targetSettings = target.settings or {}
+    local targetAnchor = targetSettings.attachTo
+    if targetType == "Icon" then
+        targetAnchor = targetSettings.iconAttachTo or targetAnchor
+    elseif targetType == "Text" then
+        targetAnchor = targetSettings.textAnchorTo or targetAnchor
+    end
+    targetAnchor = ATTACH_TO_PROXY[targetAnchor] or targetAnchor
+
+    local ownerFrameName = "DDingUIBuffTracker" .. ownerType .. ownerIndex
+    return targetAnchor ~= ownerFrameName
 end
 
 local function GetBuffTrackerMoverPointInfo(name)
-    local trackerType, _, trackedBuff, settings, rootCfg = GetBuffTrackerMoverRecord(name)
+    local trackerType, trackerIndex, trackedBuff, settings, rootCfg, trackedBuffs = GetBuffTrackerMoverRecord(name)
     if not trackerType then return nil end
 
     local displayType = trackedBuff.displayType or "bar"
@@ -232,6 +268,9 @@ local function GetBuffTrackerMoverPointInfo(name)
 
     attachTo = ATTACH_TO_PROXY[attachTo] or attachTo or "UIParent"
     if attachTo == "" then attachTo = "UIParent" end
+    if not IsValidBuffTrackerAnchor(attachTo, trackerType, trackerIndex, trackedBuffs) then
+        attachTo = "UIParent"
+    end
     if attachTo == "UIParent" then
         anchorPoint = "CENTER"
         selfPoint = "CENTER"
@@ -685,9 +724,12 @@ local function OnDragStop(mover)
     local cfg = mapping and DDingUI.db and ResolvePath(DDingUI.db.profile, mapping.path)
 
     if isBuffTracker then
-        local attachTo, anchorPoint, selfPoint = GetBuffTrackerMoverPointInfo(mover.name)
-        local anchorFrame = DDingUI:ResolveAnchorFrame(attachTo or "UIParent")
-        SetMoverPointPreservingScreen(mover, selfPoint, anchorFrame, anchorPoint)
+        -- A free drag is an absolute placement. Dynamic tracker anchors can be
+        -- hidden or reused when the active specialization changes.
+        SetMoverPointPreservingScreen(mover, "CENTER", UIParent, "CENTER")
+        mover._ddExplicitAnchorName = "UIParent"
+        mover._ddExplicitAnchorPoint = "CENTER"
+        mover._ddExplicitSelfPoint = "CENTER"
 
         local newPoint = GetPoint(mover)
         if mover._dragStartPoint and mover._dragStartPoint ~= newPoint then
