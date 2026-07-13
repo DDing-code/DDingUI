@@ -1485,6 +1485,7 @@ function DDingUI:ResetGroupSystemIconOrder(groupName)
     if not groupSettings then return false end
 
     groupSettings.iconOrder = nil
+    groupSettings._cdmStableOrder = nil
     InvalidateCDMIconEntryCache()
     RefreshGroupSystem()
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
@@ -5220,11 +5221,6 @@ local function CreateGroupOptions(groupName, order)
         desc = L["Clear the manual icon order for this group and fall back to Blizzard's current CDM order."] or "이 그룹의 수동 아이콘 순서를 지우고 현재 블리자드 CDM 기본 순서로 되돌립니다.",
         order = -29,
         width = "normal",
-        disabled = function()
-            local gsNow = GetGS()
-            local iconOrder = gsNow and gsNow.groups and gsNow.groups[groupName] and gsNow.groups[groupName].iconOrder
-            return type(iconOrder) ~= "table" or next(iconOrder) == nil
-        end,
         func = function()
             if DDingUI.ResetGroupSystemIconOrder and DDingUI:ResetGroupSystemIconOrder(groupName) then
                 SoftRefreshGroupSystemOptions(0)
@@ -5263,11 +5259,6 @@ local function CreateGroupOptions(groupName, order)
                 desc = L["Clear the manual icon order for this group and fall back to Blizzard's current CDM order."] or "이 그룹의 수동 아이콘 순서를 지우고 현재 블리자드 CDM 기본 순서로 되돌립니다.",
                 order = 12,
                 width = "normal",
-                disabled = function()
-                    local gsNow = GetGS()
-                    local iconOrder = gsNow and gsNow.groups and gsNow.groups[groupName] and gsNow.groups[groupName].iconOrder
-                    return type(iconOrder) ~= "table" or next(iconOrder) == nil
-                end,
                 func = function()
                     if DDingUI.ResetGroupSystemIconOrder and DDingUI:ResetGroupSystemIconOrder(groupName) then
                         SoftRefreshGroupSystemOptions(0)

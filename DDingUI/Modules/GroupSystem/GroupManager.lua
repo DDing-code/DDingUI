@@ -158,12 +158,99 @@ local function CompareByCurrentLayout(a, b)
     return tostring(a and a._ddGroupOrderToken or "") < tostring(b and b._ddGroupOrderToken or "")
 end
 
+local function BuildCurrentCDMTokenOrder(iconList)
+    local entries = {}
+    for _, entry in ipairs(iconList or {}) do
+        if IsCDMOrderToken(entry and entry._ddGroupOrderToken) then
+            entries[#entries + 1] = entry
+        end
+    end
+    table.sort(entries, CompareByCurrentLayout)
+
+    local tokens, seen = {}, {}
+    for _, entry in ipairs(entries) do
+        local token = entry._ddGroupOrderToken
+        if token and not seen[token] then
+            tokens[#tokens + 1] = token
+            seen[token] = true
+        end
+    end
+    return tokens
+end
+
+local function SyncStableCDMOrder(groupSettings, iconList)
+    if not groupSettings then return nil end
+
+    local stableOrder = groupSettings._cdmStableOrder
+    if type(stableOrder) ~= "table" then
+        stableOrder = {}
+        local manualOrder = type(groupSettings.iconOrder) == "table" and groupSettings.iconOrder or {}
+        for _, token in ipairs(manualOrder) do
+            if IsCDMOrderToken(token) then
+                stableOrder[#stableOrder + 1] = token
+            end
+        end
+        groupSettings._cdmStableOrder = stableOrder
+    end
+
+    local seen, orderMap = {}, {}
+    for index, token in ipairs(stableOrder) do
+        if IsCDMOrderToken(token) and not orderMap[token] then
+            seen[token] = true
+            orderMap[token] = index
+        end
+    end
+
+    local hasMissingToken = false
+    for _, entry in ipairs(iconList or {}) do
+        local token = entry and entry._ddGroupOrderToken
+        if IsCDMOrderToken(token) and not seen[token] then
+            hasMissingToken = true
+            break
+        end
+    end
+    if not hasMissingToken then return orderMap end
+
+    local currentOrder = BuildCurrentCDMTokenOrder(iconList)
+    for _, token in ipairs(currentOrder) do
+        if not seen[token] then
+            if InsertCDMTokenByDefaultOrder then
+                InsertCDMTokenByDefaultOrder(stableOrder, seen, currentOrder, token)
+            else
+                stableOrder[#stableOrder + 1] = token
+                seen[token] = true
+            end
+        end
+    end
+
+    wipe(orderMap)
+    for index, token in ipairs(stableOrder) do
+        if IsCDMOrderToken(token) and not orderMap[token] then
+            orderMap[token] = index
+        end
+    end
+    return orderMap
+end
+
 local function SortIconListForGroup(groupName, iconList, groupSettings)
     if type(iconList) ~= "table" then return end
 
     local orderMap = BuildOrderMap(groupSettings)
     for _, entry in ipairs(iconList) do
         entry._ddGroupOrderToken = BuildEntryOrderToken(entry)
+    end
+    local stableOrderMap = SyncStableCDMOrder(groupSettings, iconList)
+
+    local function StableOrderForEntry(entry)
+        local token = entry and entry._ddGroupOrderToken
+        return (token and stableOrderMap and stableOrderMap[token]) or SafeLayoutIndexForEntry(entry)
+    end
+
+    local function CompareByStableOrder(a, b)
+        local aOrder = StableOrderForEntry(a)
+        local bOrder = StableOrderForEntry(b)
+        if aOrder ~= bOrder then return aOrder < bOrder end
+        return CompareByCurrentLayout(a, b)
     end
 
     local function ExplicitRank(entry)
@@ -177,7 +264,7 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
         local rank = ExplicitRank(entry)
         if rank and IsCDMOrderToken(token) then
             cdmAnchors[#cdmAnchors + 1] = {
-                layout = SafeLayoutIndexForEntry(entry),
+                layout = StableOrderForEntry(entry),
                 rank = rank,
             }
         end
@@ -190,7 +277,7 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
         local token = entry and entry._ddGroupOrderToken
         if not token or orderMap[token] or not IsCDMOrderToken(token) then return nil end
 
-        local layout = SafeLayoutIndexForEntry(entry)
+        local layout = StableOrderForEntry(entry)
         local prevAnchor, nextAnchor
         for _, anchor in ipairs(cdmAnchors) do
             if anchor.layout < layout then
@@ -222,11 +309,11 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
             local aRank = ExplicitRank(a) or ImplicitCDMRank(a)
             local bRank = ExplicitRank(b) or ImplicitCDMRank(b)
             if aRank or bRank then
-                aRank = aRank or 100000000 + SafeLayoutIndexForEntry(a)
-                bRank = bRank or 100000000 + SafeLayoutIndexForEntry(b)
+                aRank = aRank or 100000000 + StableOrderForEntry(a)
+                bRank = bRank or 100000000 + StableOrderForEntry(b)
                 if aRank ~= bRank then return aRank < bRank end
             end
-            return CompareByCurrentLayout(a, b)
+            return CompareByStableOrder(a, b)
         end)
         return
     end
@@ -235,11 +322,11 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
         local aRank = ExplicitRank(a) or ImplicitCDMRank(a)
         local bRank = ExplicitRank(b) or ImplicitCDMRank(b)
         if aRank or bRank then
-            aRank = aRank or 100000000 + SafeLayoutIndexForEntry(a)
-            bRank = bRank or 100000000 + SafeLayoutIndexForEntry(b)
+            aRank = aRank or 100000000 + StableOrderForEntry(a)
+            bRank = bRank or 100000000 + StableOrderForEntry(b)
             if aRank ~= bRank then return aRank < bRank end
         end
-        return CompareByCurrentLayout(a, b)
+        return CompareByStableOrder(a, b)
     end)
 
     local cache = pvpIconOrderCache[groupName]
@@ -286,19 +373,19 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
         local aRank = ExplicitRank(a)
         local bRank = ExplicitRank(b)
         if aRank or bRank then
-            aRank = aRank or 100000000 + (cache.ranks[a and a._ddGroupOrderToken] or SafeLayoutIndexForEntry(a))
-            bRank = bRank or 100000000 + (cache.ranks[b and b._ddGroupOrderToken] or SafeLayoutIndexForEntry(b))
+            aRank = aRank or 100000000 + (cache.ranks[a and a._ddGroupOrderToken] or StableOrderForEntry(a))
+            bRank = bRank or 100000000 + (cache.ranks[b and b._ddGroupOrderToken] or StableOrderForEntry(b))
             if aRank ~= bRank then return aRank < bRank end
         end
 
         local aCached = cache.ranks[a and a._ddGroupOrderToken]
         local bCached = cache.ranks[b and b._ddGroupOrderToken]
         if aCached or bCached then
-            aCached = aCached or 100000000 + SafeLayoutIndexForEntry(a)
-            bCached = bCached or 100000000 + SafeLayoutIndexForEntry(b)
+            aCached = aCached or 100000000 + StableOrderForEntry(a)
+            bCached = bCached or 100000000 + StableOrderForEntry(b)
             if aCached ~= bCached then return aCached < bCached end
         end
-        return CompareByCurrentLayout(a, b)
+        return CompareByStableOrder(a, b)
     end)
 end
 
