@@ -2712,19 +2712,13 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     if not frame or not frame._managedIcons then return end
     local layoutHash = frame._lastCombinedLayoutHash or frame._lastDynHash
 
-    -- [FIX] CDM 뷰어가 숨겨진 상태 → LayoutGroup 스킵
-    -- 아이콘만 Hide하고 프레임 크기는 변경하지 않으면
-    -- 앵커된 다른 그룹의 위치가 유지됨 (엘레베이터 방지)
-    --
-    -- [FIX] _viewerHidden 고착 방지: 뷰어 재생성 시 OnShow 훅이 새 객체에
-    -- 미설치되어 플래그가 true로 고착될 수 있음. 실제 뷰어 상태를 확인하여 보정.
+    -- 뷰어 전환 중 추가된 아이콘도 숨김 상태에서 슬롯과 목표 좌표를 계산한다.
+    -- 표시 여부와 레이아웃 계산을 분리해야 새 아이콘이 초기 CENTER 좌표에 남지 않는다.
     if frame._viewerHidden then
         local actualViewer = viewerName and _G[viewerName]
         if actualViewer and actualViewer:IsShown() then
             -- 뷰어가 실제로 보이는데 플래그가 true → 고착 상태 → 해제
             frame._viewerHidden = false
-        else
-            return
         end
     end
 
