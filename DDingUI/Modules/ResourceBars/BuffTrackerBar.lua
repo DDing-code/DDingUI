@@ -46,6 +46,17 @@ local function ShouldApplyTrackerFramePosition()
     return not isInMoverMode or not moverPositionSynced
 end
 
+local function TrackerFramePointMatches(frame, selfPoint, anchor, anchorPoint, offsetX, offsetY)
+    if not frame or not frame.GetNumPoints or frame:GetNumPoints() ~= 1 then return false end
+
+    local point, relativeTo, relativePoint, currentX, currentY = frame:GetPoint(1)
+    if point ~= selfPoint or relativeTo ~= anchor or relativePoint ~= anchorPoint then return false end
+    if issecretvalue and (issecretvalue(currentX) or issecretvalue(currentY)) then return false end
+    if type(currentX) ~= "number" or type(currentY) ~= "number" then return false end
+
+    return math.abs(currentX - offsetX) <= 0.01 and math.abs(currentY - offsetY) <= 0.01
+end
+
 -- Preview mode flag (shows bars in options panel for configuration)
 local isInPreviewMode = false
 
@@ -3731,6 +3742,36 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         end
     end
 
+    -- Get anchor (개별 버프 설정 사용)
+    local anchor = DDingUI:ResolveAnchorFrame(attachTo)
+    -- 앵커가 없으면 UIParent로 폴백
+    if not anchor then
+        anchor = UIParent
+    end
+
+    -- Apply saved placement even while inactive. Otherwise the hidden frame can
+    -- retain a stale point and jump back when the tracked effect activates.
+    local desiredX = DDingUI:Scale(offsetX)
+    local desiredY = DDingUI:Scale(offsetY)
+    local selfPoint = settings.selfPoint or (globalCfg and globalCfg.selfPoint) or "CENTER"
+    if anchor == UIParent then
+        anchorPoint = "CENTER"
+        selfPoint = "CENTER"
+    end
+    if ShouldApplyTrackerFramePosition() then
+        if bar._lastAnchor ~= anchor or bar._lastAnchorPoint ~= anchorPoint or bar._lastOffsetX ~= desiredX
+           or bar._lastOffsetY ~= desiredY or bar._lastSelfPoint ~= selfPoint
+           or not TrackerFramePointMatches(bar, selfPoint, anchor, anchorPoint, desiredX, desiredY) then
+            bar:ClearAllPoints()
+            bar:SetPoint(selfPoint, anchor, anchorPoint, desiredX, desiredY)
+            bar._lastAnchor = anchor
+            bar._lastAnchorPoint = anchorPoint
+            bar._lastOffsetX = desiredX
+            bar._lastOffsetY = desiredY
+            bar._lastSelfPoint = selfPoint
+        end
+    end
+
     -- onlyInCombat: 전투 중에만 표시 (비전투 시 숨기기)
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
     local onlyInCombat = settings.onlyInCombat or false
@@ -3751,13 +3792,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             bar:Hide()
             return
         end
-    end
-
-    -- Get anchor (개별 버프 설정 사용)
-    local anchor = DDingUI:ResolveAnchorFrame(attachTo)
-    -- 앵커가 없으면 UIParent로 폴백
-    if not anchor then
-        anchor = UIParent
     end
 
     -- Calculate width
@@ -3781,29 +3815,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         barWidth = 200
     end
 
-    -- Update position (DDingUI:Scale 사용 - v1.1.5.5와 일관성)
-    local desiredX = DDingUI:Scale(offsetX)
-    local desiredY = DDingUI:Scale(offsetY)
     local desiredHeight = DDingUI:Scale(height)
-
-    -- Mover 모드일 때는 위치 설정 건너뛰기 (사용자가 드래그로 조절 중)
-    -- 단, 초기 진입 시(moverPositionSynced=false)에는 최신 설정으로 위치 동기화
-    local selfPoint = settings.selfPoint or (globalCfg and globalCfg.selfPoint) or "CENTER" -- [FIX: selfPoint support]
-    if anchor == UIParent then
-        anchorPoint = "CENTER"
-        selfPoint = "CENTER"
-    end
-    if ShouldApplyTrackerFramePosition() then
-        if bar._lastAnchor ~= anchor or bar._lastAnchorPoint ~= anchorPoint or bar._lastOffsetX ~= desiredX or bar._lastOffsetY ~= desiredY or bar._lastSelfPoint ~= selfPoint then
-            bar:ClearAllPoints()
-            bar:SetPoint(selfPoint, anchor, anchorPoint, desiredX, desiredY)
-            bar._lastAnchor = anchor
-            bar._lastAnchorPoint = anchorPoint
-            bar._lastOffsetX = desiredX
-            bar._lastOffsetY = desiredY
-            bar._lastSelfPoint = selfPoint
-        end
-    end
 
     -- Circular/Square/Donut/Ring style: width = height (정사각형)
     local isCircularStyle = (barStyle == "circular" or barStyle == "square" or barStyle == "donut")
