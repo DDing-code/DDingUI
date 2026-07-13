@@ -1466,19 +1466,22 @@ local function BuildPlacementHash(combinedList, groupSettings)
         parts[#parts + 1] = "settings:" .. settingsHash
     end
     for i, entry in ipairs(combinedList or {}) do
+        local icon = entry.icon or entry.frame
         local token = entry._ddOrderToken
             or (entry.isDynamic and BuildDynamicOrderToken(entry.iconKey or entry.cooldownID))
             or BuildCDMOrderToken(entry)
             or tostring(i)
         local visible = "1"
-        if entry.isDynamic and entry.inactiveGray then
+        if icon and (icon._ddingHidden or icon._ddSuppressed) then
+            visible = "0"
+        elseif entry.isDynamic and entry.inactiveGray then
             visible = "g"
         elseif entry.isDynamic and entry.combatVisible == false then
             visible = "0"
         elseif entry.isCDM and (entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)) then
             visible = "0"
         end
-        parts[#parts + 1] = tostring(token) .. ":" .. visible
+        parts[#parts + 1] = tostring(token) .. "@" .. tostring(icon or i) .. ":" .. visible
     end
     return table_concat(parts, ";")
 end
