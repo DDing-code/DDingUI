@@ -9,7 +9,9 @@ local BuffBar = IconViewers.BuffBarCooldownViewer
 
 local C_Timer = _G.C_Timer
 local UIParent = _G.UIParent
+local issecretvalue = _G.issecretvalue
 local WHITE8 = "Interface\\Buttons\\WHITE8X8"
+local POSITION_FRAME_NAME = "DDingUI_BuffBarViewerAnchor"
 
 -- Use shared PixelSnap from Toolkit
 local PixelSnap = DDingUI.PixelSnapLocal or function(value)
@@ -60,6 +62,34 @@ local function GetSettings()
     return DDingUI.db.profile.buffBarViewer
 end
 
+local function EnsurePositionFrame(viewer, settings)
+    local frame = _G[POSITION_FRAME_NAME]
+    if not frame then
+        frame = CreateFrame("Frame", POSITION_FRAME_NAME, UIParent)
+        frame:SetFrameStrata("MEDIUM")
+        frame:SetSize(200, 16)
+    end
+
+    if not frame:GetPoint(1) then
+        local viewerX, viewerY = viewer and viewer:GetCenter()
+        local parentX, parentY = UIParent:GetCenter()
+        frame:SetPoint(
+            "CENTER",
+            UIParent,
+            "CENTER",
+            viewerX and parentX and (viewerX - parentX) or 0,
+            viewerY and parentY and (viewerY - parentY) or 0
+        )
+    end
+
+    local fallbackHeight = settings and settings.height or 16
+    if frame:GetWidth() <= 0 or frame:GetHeight() <= 0 then
+        frame:SetSize(200, math.max(1, DDingUI:Scale(fallbackHeight)))
+    end
+    frame:Show()
+    return frame
+end
+
 local function GetCurrentSpecID()
     local specIndex = GetSpecialization and GetSpecialization()
     if specIndex then
@@ -94,13 +124,41 @@ local function SetBarColor(settings, barIndex, color)
     end
 end
 
+local nextBarSortOrdinal = 0
+
+local function GetUsableNumber(value)
+    if type(value) ~= "number" then return nil end
+    if issecretvalue and issecretvalue(value) then return nil end
+    return value
+end
+
+local function GetBarSortOrdinal(child)
+    local state = GetFrameState(child)
+    if not state.barSortOrdinal then
+        nextBarSortOrdinal = nextBarSortOrdinal + 1
+        state.barSortOrdinal = nextBarSortOrdinal
+    end
+    return state.barSortOrdinal
+end
+
 local function GetBarIndex(child)
-    local idx = 0
-    pcall(function()
-        if child.layoutIndex and type(child.layoutIndex) == "number" then idx = child.layoutIndex end
+    local ok, value = pcall(function()
+        return child.layoutIndex
     end)
-    if idx == 0 then idx = child.orderIndex or (child.GetID and child:GetID()) or 1 end
-    return idx
+    local idx = ok and GetUsableNumber(value)
+
+    if not idx then
+        ok, value = pcall(function()
+            return child.orderIndex
+        end)
+        idx = ok and GetUsableNumber(value)
+    end
+    if not idx and child.GetID then
+        ok, value = pcall(child.GetID, child)
+        idx = ok and GetUsableNumber(value)
+    end
+
+    return idx or GetBarSortOrdinal(child), GetBarSortOrdinal(child)
 end
 
 local function CollectBarFrames(viewer)
@@ -161,14 +219,20 @@ local function ResolvePositionAnchor(settings)
     return _G[frameName] or UIParent
 end
 
-local function ApplyViewerPosition(viewer, settings)
-    if not viewer or not settings then return end
+local function PositionMatches(frame, selfPoint, anchor, anchorPoint, offsetX, offsetY)
+    local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
+    if point ~= selfPoint or (relativeTo or UIParent) ~= anchor or relativePoint ~= anchorPoint then
+        return false
+    end
+    return math.abs((x or 0) - offsetX) < 0.01 and math.abs((y or 0) - offsetY) < 0.01
+end
+
+local function ApplyViewerPosition(positionFrame, settings)
+    if not positionFrame or not settings then return end
     if DDingUI.Movers and DDingUI.Movers.ConfigMode then return end
 
     local anchor = ResolvePositionAnchor(settings)
     if not anchor then return end
-    if InCombatLockdown() and viewer.IsProtected and viewer:IsProtected() then return end
-
     local selfPoint = settings.selfPoint or "CENTER"
     local anchorPoint = settings.anchorPoint or "CENTER"
     if anchor == UIParent then
@@ -178,17 +242,18 @@ local function ApplyViewerPosition(viewer, settings)
 
     local offsetX = DDingUI:Scale(settings.offsetX or settings.anchorOffsetX or 0)
     local offsetY = DDingUI:Scale(settings.offsetY or settings.anchorOffsetY or 0)
-    local state = GetFrameState(viewer)
+    local state = GetFrameState(positionFrame)
     local layoutKey = tostring(selfPoint) .. ":" .. tostring(anchor:GetName() or "UIParent")
         .. ":" .. tostring(anchorPoint) .. ":" .. tostring(offsetX) .. ":" .. tostring(offsetY)
 
-    if state.lastViewerPositionKey == layoutKey then
+    if state.lastViewerPositionKey == layoutKey
+        and PositionMatches(positionFrame, selfPoint, anchor, anchorPoint, offsetX, offsetY) then
         return
     end
     state.lastViewerPositionKey = layoutKey
 
-    viewer:ClearAllPoints()
-    viewer:SetPoint(selfPoint, anchor, anchorPoint, offsetX, offsetY)
+    positionFrame:ClearAllPoints()
+    positionFrame:SetPoint(selfPoint, anchor, anchorPoint, offsetX, offsetY)
 end
 
 local function ComputeBarWidth(settings, viewer, iconTotal, spacing, barBorder)
@@ -425,6 +490,87 @@ local function QueueBuffBarRefresh(delay)
     end)
 end
 
+local function QueueBuffBarLayout()
+    if BuffBar.__layoutQueued then return end
+
+    BuffBar.__layoutQueued = true
+    C_Timer.After(0, function()
+        BuffBar.__layoutQueued = nil
+        local viewer = _G["BuffBarCooldownViewer"]
+        local settings = GetSettings()
+        if not viewer or not settings or settings.enabled == false then return end
+
+        local positionFrame = EnsurePositionFrame(viewer, settings)
+        ApplyViewerPosition(positionFrame, settings)
+        if BuffBar.ApplyViewerLayout then
+            BuffBar:ApplyViewerLayout(viewer, settings, true)
+        end
+    end)
+end
+
+local function RestoreBarLayoutPoint(child)
+    local state = GetFrameState(child)
+    local anchor = state and state.layoutAnchor
+    if not state or not anchor or state.settingLayoutPoint then return end
+    if InCombatLockdown() and child.IsProtected and child:IsProtected() then return end
+
+    state.settingLayoutPoint = true
+    child:ClearAllPoints()
+    child:SetPoint(anchor[1], anchor[2], anchor[3], anchor[4], anchor[5])
+    state.settingLayoutPoint = nil
+end
+
+local function InstallBarLayoutHooks(child, childState)
+    if not child or not childState or not hooksecurefunc then return end
+
+    if not childState.layoutPointHooked then
+        local ok = pcall(hooksecurefunc, child, "SetPoint", function(self, _, relativeTo)
+            local state = GetFrameState(self)
+            local anchor = state and state.layoutAnchor
+            if state and not state.settingLayoutPoint and anchor and relativeTo ~= anchor[2] then
+                RestoreBarLayoutPoint(self)
+            end
+        end)
+        if ok then
+            childState.layoutPointHooked = true
+        end
+    end
+
+    if not childState.activeStateHooked and child.OnActiveStateChanged then
+        local ok = pcall(hooksecurefunc, child, "OnActiveStateChanged", function()
+            QueueBuffBarLayout()
+        end)
+        if ok then
+            childState.activeStateHooked = true
+        end
+    end
+end
+
+local function SetBarLayoutPoint(child, point, relativeTo, relativePoint, x, y)
+    local state = GetFrameState(child)
+    if not state then return end
+
+    x, y = x or 0, y or 0
+    local anchor = state.layoutAnchor
+    local changed = not anchor
+        or anchor[1] ~= point
+        or anchor[2] ~= relativeTo
+        or anchor[3] ~= relativePoint
+        or anchor[4] ~= x
+        or anchor[5] ~= y
+    if not anchor then
+        anchor = {}
+        state.layoutAnchor = anchor
+    end
+    anchor[1], anchor[2], anchor[3] = point, relativeTo, relativePoint
+    anchor[4], anchor[5] = x, y
+
+    InstallBarLayoutHooks(child, state)
+    if changed then
+        RestoreBarLayoutPoint(child)
+    end
+end
+
 local function GetIconPosition(settings)
     if settings.hideIcon then
         return "HIDDEN"
@@ -486,6 +632,7 @@ local function StyleBarChild(child, settings, viewer)
         childState.lastSettings = settings
     end
     InstallBarContentHook(child, childState)
+    InstallBarLayoutHooks(child, childState)
     local barState = GetFrameState(bar)
     local iconFrame = child.Icon or child.IconFrame or child.IconButton
     local applicationsFS = GetApplicationsFont(iconFrame)
@@ -789,92 +936,97 @@ local function StyleBarChild(child, settings, viewer)
     end
 end
 
-function BuffBar:ApplyViewerStyle(viewer, settings)
-    if not viewer or not settings then return end
-
-    local viewerState = GetFrameState(viewer)
-
-    -- Apply grow direction (BOTTOM = bars grow upward, TOP = bars grow downward)
-    local growDirection = settings.growDirection or "BOTTOM"
-
-    local children = CollectBarFrames(viewer)
-    if #children > 0 then
-        local visibleChildren = {}
-        for _, child in ipairs(children) do
-            if child:IsShown() then
-                table.insert(visibleChildren, child)
+local function SortBarFrames(frames)
+    if #frames > 1 then
+        table.sort(frames, function(a, b)
+            local aIndex, aOrdinal = GetBarIndex(a)
+            local bIndex, bOrdinal = GetBarIndex(b)
+            if aIndex == bIndex then
+                return aOrdinal < bOrdinal
             end
-        end
-
-        table.sort(children, function(a, b)
-            return GetBarIndex(a) < GetBarIndex(b)
+            return aIndex < bIndex
         end)
-
-        table.sort(visibleChildren, function(a, b)
-            return GetBarIndex(a) < GetBarIndex(b)
-        end)
-
-        -- Apply individual bar styles (all bars including hidden)
-        for _, child in ipairs(children) do
-            StyleBarChild(child, settings, viewer)
-        end
-
-        local spacing = PixelSnap(DDingUI:Scale(settings.barSpacing ~= nil and settings.barSpacing or 2))
-        local iconPosition = GetIconPosition(settings)
-        local iconGap = settings.iconGap or 0
-
-        -- Reposition only VISIBLE bars based on grow direction
-        local layoutKey = growDirection .. "_" .. #visibleChildren
-            .. "_h" .. tostring(settings.height or 16)
-            .. "_s" .. tostring(spacing)
-            .. "_i" .. tostring(iconPosition)
-            .. "_g" .. tostring(iconGap)
-        for _, child in ipairs(visibleChildren) do
-            layoutKey = layoutKey .. "_" .. tostring(GetBarIndex(child))
-        end
-
-        if viewerState.lastBarLayoutKey == layoutKey then
-            return -- Layout unchanged, skip repositioning to avoid ping-pong
-        end
-        viewerState.lastBarLayoutKey = layoutKey
-
-        if #visibleChildren > 0 then
-            local xOffset = 0
-
-            -- Suppress OnSizeChanged feedback during repositioning
-            viewerState.barLayoutInProgress = true
-
-            for i, child in ipairs(visibleChildren) do
-                pcall(function()
-                    child:ClearAllPoints()
-                    if growDirection == "TOP" then
-                        if i == 1 then
-                            child:SetPoint("TOP", viewer, "TOP", xOffset, 0)
-                        else
-                            child:SetPoint("TOP", visibleChildren[i-1], "BOTTOM", 0, -spacing)
-                        end
-                    else
-                        if i == 1 then
-                            child:SetPoint("BOTTOM", viewer, "BOTTOM", xOffset, 0)
-                        else
-                            child:SetPoint("BOTTOM", visibleChildren[i-1], "TOP", 0, spacing)
-                        end
-                    end
-                end)
-            end
-
-            viewerState.barLayoutInProgress = nil
-        end
     end
 end
 
+function BuffBar:ApplyViewerLayout(viewer, settings, force)
+    if not viewer or not settings then return end
+
+    local children = CollectBarFrames(viewer)
+    local visibleChildren = {}
+    for _, child in ipairs(children) do
+        local childState = GetFrameState(child)
+        InstallBarLayoutHooks(child, childState)
+        if child:IsShown() then
+            visibleChildren[#visibleChildren + 1] = child
+        end
+    end
+    SortBarFrames(visibleChildren)
+
+    local positionFrame = EnsurePositionFrame(viewer, settings)
+    ApplyViewerPosition(positionFrame, settings)
+
+    local viewerState = GetFrameState(viewer)
+    local growDirection = settings.growDirection or "BOTTOM"
+    local spacing = PixelSnap(DDingUI:Scale(settings.barSpacing ~= nil and settings.barSpacing or 2))
+    local layoutKey = growDirection .. "_" .. #visibleChildren
+        .. "_h" .. tostring(settings.height or 16)
+        .. "_s" .. tostring(spacing)
+        .. "_i" .. tostring(GetIconPosition(settings))
+        .. "_g" .. tostring(settings.iconGap or 0)
+    for _, child in ipairs(visibleChildren) do
+        layoutKey = layoutKey .. "_" .. tostring(GetBarIndex(child))
+    end
+
+    if not force and viewerState.lastBarLayoutKey == layoutKey then return end
+    viewerState.lastBarLayoutKey = layoutKey
+
+    local originWidth = math.max(1, positionFrame:GetWidth() or 1)
+    local originHeight = math.max(1, DDingUI:Scale(settings.height or 16))
+    for index, child in ipairs(visibleChildren) do
+        local width = child:GetWidth() or 0
+        local height = child:GetHeight() or originHeight
+        originWidth = math.max(originWidth, width)
+        if index == 1 then
+            originHeight = math.max(1, height)
+        end
+    end
+    positionFrame:SetSize(originWidth, originHeight)
+
+    viewerState.barLayoutInProgress = true
+    local offset = 0
+    for _, child in ipairs(visibleChildren) do
+        pcall(function()
+            if growDirection == "TOP" then
+                SetBarLayoutPoint(child, "TOP", positionFrame, "TOP", 0, -offset)
+            else
+                SetBarLayoutPoint(child, "BOTTOM", positionFrame, "BOTTOM", 0, offset)
+            end
+        end)
+        offset = offset + math.max(1, child:GetHeight() or originHeight) + spacing
+    end
+    viewerState.barLayoutInProgress = nil
+end
+
+function BuffBar:ApplyViewerStyle(viewer, settings)
+    if not viewer or not settings then return end
+
+    local children = CollectBarFrames(viewer)
+    SortBarFrames(children)
+    for _, child in ipairs(children) do
+        StyleBarChild(child, settings, viewer)
+    end
+    self:ApplyViewerLayout(viewer, settings, false)
+end
+
 function BuffBar:Refresh()
-    -- CRITICAL: Skip refresh during combat to prevent taint propagation
-    -- (Custom anchor is maintained by hooksecurefunc on SetPoint instead)
+    -- Full restyling remains out of combat. The lightweight layout path keeps
+    -- active bars attached to the DDingUI position frame during combat.
     if InCombatLockdown() then
         if not BuffBar.__refreshQueued then
             BuffBar.__refreshQueued = true
         end
+        QueueBuffBarLayout()
         return
     end
 
@@ -902,9 +1054,8 @@ function BuffBar:Refresh()
 
     viewer:Show()
 
-    -- Position is managed by DDingUI's own mover mode. anchorFrame is only
-    -- used as the auto-width reference for ComputeBarWidth.
-    ApplyViewerPosition(viewer, settings)
+    local positionFrame = EnsurePositionFrame(viewer, settings)
+    ApplyViewerPosition(positionFrame, settings)
 
     self:ApplyViewerStyle(viewer, settings)
     BuffBar.__refreshInProgress = nil
@@ -924,8 +1075,24 @@ local function TryHookViewer()
     viewerState.buffBarHooked = true
 
     viewer:HookScript("OnShow", function()
+        QueueBuffBarLayout()
         BuffBar:Refresh()
     end)
+
+    if viewer.OnAcquireItemFrame then
+        pcall(hooksecurefunc, viewer, "OnAcquireItemFrame", function(_, child)
+            InstallBarLayoutHooks(child, GetFrameState(child))
+            QueueBuffBarLayout()
+        end)
+    end
+
+    if viewer.RefreshLayout then
+        pcall(hooksecurefunc, viewer, "RefreshLayout", function()
+            ResetViewerLayoutState(viewer)
+            QueueBuffBarLayout()
+        end)
+    end
+
     viewer:HookScript("OnSizeChanged", function()
         local state = GetFrameState(viewer)
         if state.barLayoutInProgress then return end
@@ -961,6 +1128,11 @@ function BuffBar:Initialize()
     if self.__initialized then return end
     self.__initialized = true
 
+    local viewer = _G["BuffBarCooldownViewer"]
+    if viewer then
+        EnsurePositionFrame(viewer, GetSettings())
+    end
+
     local hooked = TryHookViewer()
     if not hooked then
         C_Timer.After(0.25, TryHookViewer)
@@ -973,8 +1145,14 @@ function BuffBar:Initialize()
         local f = CreateFrame("Frame")
         f:RegisterUnitEvent("UNIT_AURA", "player")
         f:RegisterEvent("PLAYER_REGEN_ENABLED")
+        f:RegisterEvent("PLAYER_REGEN_DISABLED")
         local throttle = 0
         f:SetScript("OnEvent", function(_, event, unit)
+            if event == "PLAYER_REGEN_DISABLED" then
+                QueueBuffBarLayout()
+                return
+            end
+
             if event == "PLAYER_REGEN_ENABLED" then
                 if BuffBar.__refreshQueued then
                     BuffBar.__refreshQueued = nil
@@ -988,6 +1166,7 @@ function BuffBar:Initialize()
             end
 
             if unit and unit ~= "player" then return end
+            QueueBuffBarLayout()
             throttle = throttle + 1
             if throttle > 1 then
                 return
@@ -1108,6 +1287,20 @@ function BuffBar:Initialize()
 end
 
 -- Convenience export for external calls
+function BuffBar:GetMoverFrame()
+    local viewer = _G["BuffBarCooldownViewer"]
+    local settings = GetSettings()
+    if not settings then return nil end
+
+    local frame = EnsurePositionFrame(viewer, settings)
+    ApplyViewerPosition(frame, settings)
+    return frame
+end
+
+DDingUI.GetBuffBarMoverFrame = function()
+    return BuffBar:GetMoverFrame()
+end
+
 DDingUI.RefreshBuffBarCooldownViewer = function(self)
     return BuffBar:Refresh()
 end

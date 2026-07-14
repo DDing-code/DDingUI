@@ -4164,7 +4164,14 @@ function Movers:RegisterStandardFrames()
         { global = "DDingUIPowerBar", ref = "powerBar", key = "DDingUI_PowerBar", display = L["Primary Resource"] or "Primary Resource" },
         { global = "DDingUISecondaryPowerBar", ref = "secondaryPowerBar", key = "DDingUI_SecondaryPowerBar", display = L["Secondary Resource"] or "Secondary Resource" },
         { global = "DDingUICastBar", ref = "castBar", key = "DDingUI_PlayerCastBar", display = L["Player Cast Bar"] or "Player Cast Bar" },
-        { global = "BuffBarCooldownViewer", ref = nil, key = "DDingUI_BuffBarViewer", display = L["Buff Bar"] or "Tracked Bars", beforeRegister = SeedBuffBarViewerMoverConfig },
+        {
+            getFrame = function()
+                return DDingUI.GetBuffBarMoverFrame and DDingUI:GetBuffBarMoverFrame()
+            end,
+            key = "DDingUI_BuffBarViewer",
+            display = L["Buff Bar"] or "Tracked Bars",
+            beforeRegister = SeedBuffBarViewerMoverConfig,
+        },
     }
 
     if self.CreatedMovers["DDingUI_BuffTrackerBar"] then
@@ -4172,7 +4179,9 @@ function Movers:RegisterStandardFrames()
     end
 
     for _, info in ipairs(standardFrames) do
-        local frame = _G[info.global] or (info.ref and DDingUI[info.ref])
+        local frame = info.getFrame and info.getFrame()
+            or (info.global and _G[info.global])
+            or (info.ref and DDingUI[info.ref])
         if frame then
             if info.beforeRegister then
                 info.beforeRegister(frame)
