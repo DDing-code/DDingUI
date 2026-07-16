@@ -742,6 +742,16 @@ end
 -- → _ddCDMActive 플래그로 CDM의 진짜 상태를 추적
 -- ============================================================
 
+local function ReadBuffFrameActiveState(frame)
+    if not frame then return false end
+    local active
+    local ok = pcall(function() active = frame.isActive end)
+    if ok and not (issecretvalue and issecretvalue(active)) and type(active) == "boolean" then
+        return active
+    end
+    return frame.IsShown and frame:IsShown() or false
+end
+
 if not FrameController._activeStateHooked then
     FrameController._activeStateHooked = true
     FrameController._diagCounters = { activeStateChanged = 0, cooldownIDSet = 0, poolRelease = 0 }
@@ -750,7 +760,7 @@ if not FrameController._activeStateHooked then
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             -- CDM이 active → true, inactive → false
             -- IsShown()이 아닌 CDM 내부 상태를 반영
-            frame._ddCDMActive = ShouldIncludeCooldownViewerFrame(frame, "BuffIconCooldownViewer")
+            frame._ddCDMActive = ReadBuffFrameActiveState(frame)
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -996,6 +1006,16 @@ function FrameController:ScanCDMViewers()
     -- [REPARENT] DDingUI 프로필 참조 — 뷰어 활성화 상태 확인
     local profile = DDingUI.db and DDingUI.db.profile
     local viewerProfiles = profile and profile.viewers
+    local groupSettings = profile and profile.groupSystem and profile.groupSystem.groups
+    local retainInactiveBuffFrames = false
+    for groupName, settings in pairs(groupSettings or {}) do
+        if settings and settings.enabled ~= false and settings.showInactiveIcons == true
+            and (groupName == "Buffs" or settings.groupCategory == "buff")
+        then
+            retainInactiveBuffFrames = true
+            break
+        end
+    end
     local bridge = DDingUI.DynamicIconBridge
     local suppressed = bridge and bridge.GetSuppressedSpellIDs and bridge:GetSuppressedSpellIDs()
 
@@ -1034,6 +1054,17 @@ function FrameController:ScanCDMViewers()
                     icon._ddSourceViewer = globalName
                     icon._ddCDMViewerShown = sourceShown and true or false
                     local shouldInclude = ShouldIncludeCooldownViewerFrame(icon, globalName)
+                    local knownBuffActive = icon._ddCDMActive
+                    if knownBuffActive == nil and globalName == "BuffIconCooldownViewer" then
+                        knownBuffActive = ReadBuffFrameActiveState(icon)
+                    end
+                    local inactiveGrayCandidate = globalName == "BuffIconCooldownViewer"
+                        and retainInactiveBuffFrames
+                        and knownBuffActive == false
+                    icon._ddCDMInactiveGrayCandidate = inactiveGrayCandidate and true or nil
+                    if inactiveGrayCandidate then
+                        shouldInclude = true
+                    end
                     if globalName == "BuffIconCooldownViewer" then
                         if shouldInclude and sourceShown then
                             RestoreStaleBuffFrame(icon)

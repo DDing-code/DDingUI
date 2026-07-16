@@ -536,14 +536,30 @@ local function SetDynamicIconInactiveGray(icon, inactiveGray)
         end
     end
 
-    if not inactiveGray then return end
-
     local function ClearCooldown(cooldown)
         if not cooldown then return end
         if cooldown.Clear then pcall(cooldown.Clear, cooldown) end
         if cooldown.SetHideCountdownNumbers then pcall(cooldown.SetHideCountdownNumbers, cooldown, true) end
         cooldown.noCooldownCount = true
         if cooldown.Hide then pcall(cooldown.Hide, cooldown) end
+    end
+
+    local function RestoreCooldown(cooldown)
+        if not cooldown then return end
+        cooldown.noCooldownCount = nil
+        if cooldown.Show then pcall(cooldown.Show, cooldown) end
+    end
+
+    if not inactiveGray then
+        if wasForcedGray then
+            RestoreCooldown(icon.cooldown)
+            if icon.Cooldown and icon.Cooldown ~= icon.cooldown then
+                RestoreCooldown(icon.Cooldown)
+            end
+            local countText = GetIconCountText(icon)
+            if countText and countText.Show then pcall(countText.Show, countText) end
+        end
+        return
     end
 
     ClearCooldown(icon.cooldown)
@@ -651,6 +667,7 @@ function GroupRenderer:IsHiddenSourceBuffIcon(icon)
     return icon
         and icon._ddSourceViewer == "BuffIconCooldownViewer"
         and icon._ddCDMViewerShown == false
+        and icon._ddInactiveGray ~= true
 end
 
 function GroupRenderer:CanShowManagedIcon(icon)
@@ -687,11 +704,16 @@ local function ShouldLayoutManagedIcon(icon)
     return icon:IsShown()
 end
 
-local function BuildCDMPlacement(entry)
+local function BuildCDMPlacement(entry, groupSettings)
     if not entry or not entry.icon then return nil end
     entry.isCDM = true
     entry.isDynamic = nil
-    entry.sourceVisible = not GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)
+    entry.inactiveGray = groupSettings
+        and groupSettings.showInactiveIcons == true
+        and entry.icon._ddCDMInactiveGrayCandidate == true
+        or false
+    entry.icon._ddInactiveGray = entry.inactiveGray and true or nil
+    entry.sourceVisible = entry.inactiveGray or not GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)
     entry._ddOrderToken = BuildCDMOrderToken(entry)
     return entry
 end
@@ -1199,13 +1221,16 @@ local function RestorePlacementVisibility(entry, groupName, groupSettings, group
         GroupRenderer:HideHiddenSourceBuffIcon(icon)
         return
     end
+    SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
     SetManagedIconLayoutVisible(icon, not icon._ddingHidden and not icon._ddSuppressed)
     if icon.Show and not icon._ddingHidden then
         icon:Show()
     end
     if not icon._ddingHidden then
         SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
-        RestoreIconTextureOpacity(icon)
+        if not entry.inactiveGray then
+            RestoreIconTextureOpacity(icon)
+        end
     end
 end
 
@@ -1474,7 +1499,7 @@ local function BuildPlacementHash(combinedList, groupSettings)
         local visible = "1"
         if icon and (icon._ddingHidden or icon._ddSuppressed) then
             visible = "0"
-        elseif entry.isDynamic and entry.inactiveGray then
+        elseif entry.inactiveGray then
             visible = "g"
         elseif entry.isDynamic and entry.combatVisible == false then
             visible = "0"
@@ -2179,7 +2204,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     -- CDM icons stay in their source group; dynamic icons are additions.
     -- 1. CDM icons
     for _, entry in ipairs(iconList) do
-        local placement = BuildCDMPlacement(entry)
+        local placement = BuildCDMPlacement(entry, groupSettings)
         if placement then
             newSet[placement.icon] = true
             combinedList[#combinedList + 1] = placement
@@ -2269,6 +2294,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] and icon._ddContainerRef == frame then
             SetManagedIconLayoutVisible(icon, false)
+            SetDynamicIconInactiveGray(icon, false)
             GRLog("cleanup:", tostring(icon.cooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
             if icon._ddIconKey then
                 -- 동적 아이콘: DDingUI가 소유 → 직접 Hide + Release
@@ -2352,6 +2378,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     icon._ddCombatKeepAlive = entry.combatKeepAlive and true or nil
                     icon._ddCombatVisible = entry.combatVisible ~= false
                     icon._ddInactiveGray = entry.inactiveGray and true or nil
+                    SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
                     if entry.inactiveGray then
                         icon._ddManagedAuraExpired = nil
                     end
@@ -2494,6 +2521,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 end
             elseif fc then
                 -- [CDM 아이콘 스키닝]
+                SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
                 local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
                     and icon._ddLayoutCooldownID == entry.cooldownID
                     and not GroupRenderer._forceFullSetup

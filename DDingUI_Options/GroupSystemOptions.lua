@@ -4668,9 +4668,9 @@ local function GS_Select(groupName, key, name, order, default, values)
     }
 end
 
-local function GS_Toggle(groupName, key, name, order, default)
+local function GS_Toggle(groupName, key, name, order, default, desc)
     return {
-        type = "toggle", name = name, order = order, width = "full",
+        type = "toggle", name = name, desc = desc, order = order, width = "full",
         get = function()
             local gs = GetGS(); local g = gs and gs.groups[groupName]
             if g and g[key] ~= nil then return g[key] end
@@ -4904,7 +4904,14 @@ local function CreateGroupOptions(groupName, order)
         aspectRatio = GS_Range(groupName, "aspectRatioCrop", L["Aspect Ratio"] or "종횡비", 7, 1.0, 0.5, 2.5, 0.01, -- [12.0.1]
             { desc = L["Control the icon aspect ratio. 1.0 = square, >1.0 = wider, <1.0 = taller"] or "아이콘 종횡비. 1.0=정사각형, >1.0=가로형, <1.0=세로형" }),
         groupAlpha = GS_Range(groupName, "groupAlpha", L["Opacity"] or "투명도", 8, 1.0, 0, 1.0, 0.05, { isPercent = true }),
-        showInactiveIcons = (category == "buff") and GS_Toggle(groupName, "showInactiveIcons", L["Show Inactive Icons"] or "비활성 아이콘 표시", 8.5, false) or nil,
+        showInactiveIcons = (category == "buff") and GS_Toggle(
+            groupName,
+            "showInactiveIcons",
+            L["Show Inactive Icons"] or "비활성 아이콘 표시",
+            8.5,
+            false,
+            L["Keep inactive buff icons visible in grayscale."] or "비활성 강화효과 아이콘을 회색으로 계속 표시합니다."
+        ) or nil,
         layoutHeader = { type = "header", name = L["Layout"] or "레이아웃", order = 10 },
         direction = GS_Select(groupName, "direction", L["Growth Direction"] or "성장 방향", 11, "RIGHT", DIRECTION_VALUES),
         growDirection = GS_Select(groupName, "growDirection", L["Wrap Direction"] or "줄바꿈 방향", 12, "DOWN", DIRECTION_VALUES),
