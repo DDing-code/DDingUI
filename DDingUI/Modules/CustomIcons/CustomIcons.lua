@@ -2916,19 +2916,6 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
             end
         end
 
-        -- [FIX] 글로우를 아이콘 외부로 확장하여 스와이프와 겹치지 않는 테두리로 사용
-        -- 스와이프는 아이콘 내부에만 그려지므로, 외곽으로 벗어난 글로우는 항상 보임
-        -- xOffset/yOffset으로 아이콘 경계 밖 8px 추가 확장
-        local LCG = LibStub("LibCustomGlow-1.0", true)
-        if LCG and LCG.ProcGlow_Start then
-            LCG.ProcGlow_Start(iconFrame, {
-                color = {0.95, 0.95, 0.32, 1},
-                startAnim = true,
-                xOffset = 8,
-                yOffset = 8,
-            })
-        end
-
         -- Proc stacks
         if settings.showProcStacks ~= false then
             local stacks = GetAuraNumberFieldSafe(auraData, "applications") or 0
