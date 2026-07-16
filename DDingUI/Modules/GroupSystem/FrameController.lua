@@ -2072,6 +2072,8 @@ function FrameController:EnableEditModeClicks()
                             if not FrameController._editMode then return end
                             if button == "LeftButton" and IsControlKeyDown() then
                                 FrameController:ShowGroupAssignPopup(self)
+                            elseif button == "RightButton" then
+                                FrameController:ShowGroupAssignPopup(self)
                             end
                         end)
                     end
@@ -2126,16 +2128,32 @@ function FrameController:ShowGroupAssignPopup(icon)
             isTitle = true,
             notCheckable = true,
         },
-        {
-            text = L["Auto (Default)"] or "자동 (기본)",
-            notCheckable = true,
-            func = function()
-                GroupManager:UnassignSpell(spellName)
-                if DDingUI.GroupSystem then
-                    DDingUI.GroupSystem:Refresh()
-                end
-            end,
-        },
+    }
+
+    local customizer = DDingUI.IconCustomization
+    if customizer and customizer.GetIconContext and customizer.BuildContextMenuItems then
+        local spellID, viewerType = customizer:GetIconContext(icon)
+        local items = customizer:BuildContextMenuItems(spellID, viewerType)
+        for _, item in ipairs(items or {}) do
+            if item._ddChecked then
+                item.text = "|cff55ff88*|r " .. (item.text or "")
+            end
+            menuList[#menuList + 1] = item
+        end
+        if items and #items > 0 then
+            menuList[#menuList + 1] = { isSeparator = true }
+        end
+    end
+
+    menuList[#menuList + 1] = {
+        text = L["Auto (Default)"] or "자동 (기본)",
+        notCheckable = true,
+        func = function()
+            GroupManager:UnassignSpell(spellName)
+            if DDingUI.GroupSystem then
+                DDingUI.GroupSystem:Refresh()
+            end
+        end,
     }
 
     for _, group in ipairs(groups) do
@@ -2151,7 +2169,7 @@ function FrameController:ShowGroupAssignPopup(icon)
         })
     end
 
-    EasyMenu(menuList, menuFrame, "cursor", 0, 0, "MENU")
+    EasyMenu(menuList, menuFrame, icon, 0, 0, "MENU")
 end
 
 -- ============================================================

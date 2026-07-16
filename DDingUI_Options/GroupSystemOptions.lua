@@ -2138,18 +2138,24 @@ local function BuildAssignedSpellsArgs(groupName)
             local capturedEntry = row.entry
             local capturedIconTex = iconTex
             local capturedDisplayName = row.displayName or capturedSpell
+            local capturedViewerName = capturedEntry and capturedEntry.viewerName or GROUP_VIEWER_MAP[groupName]
+            local capturedViewerType = capturedViewerName == "EssentialCooldownViewer" and "Essential"
+                or capturedViewerName == "UtilityCooldownViewer" and "Utility"
+                or capturedViewerName == "BuffIconCooldownViewer" and "Buff"
             args["cdma_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedSpell or "Unknown"),
                 desc = capturedCanRemove
-                    and ((rawget(L, "Drag to reorder | Right-click to unassign") or "드래그: 순서 변경 | 우클릭: 할당 해제") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r")
-                    or ((rawget(L, "Default CDM icon. Drag to reorder.") or "기본 CDM 아이콘입니다. 드래그로 순서를 변경하세요.") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r"),
+                    and ((rawget(L, "Drag to reorder | Right-click for options | Middle-click to unassign") or "드래그: 순서 변경 | 우클릭: 옵션 | 가운데 클릭: 할당 해제") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r")
+                    or ((rawget(L, "Drag to reorder | Right-click for options") or "드래그: 순서 변경 | 우클릭: 옵션") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r"),
                 order = 11 + (count * 0.01),
                 _gridKind = "cdm",
                 _gridBadge = capturedIsManual and "CDM+" or "CDM",
                 _gridIconTex = iconTex,
                 _gridDisplayName = row.displayName or capturedSpell or "Unknown",
                 _gridCanRemove = capturedCanRemove == true,
+                _gridSpellID = ResolveEntrySpellID(capturedEntry, capturedSpell),
+                _gridViewerType = capturedViewerType,
                 _dragData = {
                     groupKey = MakeGroupOrderDragKey(groupName),
                     iconKey = capturedToken,
@@ -2182,7 +2188,7 @@ local function BuildAssignedSpellsArgs(groupName)
             args["dyna_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedIconKey or "Unknown"),
-                desc = (rawget(L, "Drag to reorder | Right-click to remove") or "드래그: 순서 변경 | 우클릭: 삭제"),
+                desc = (rawget(L, "Drag to reorder | Right-click for options | Middle-click to remove") or "드래그: 순서 변경 | 우클릭: 옵션 | 가운데 클릭: 삭제"),
                 order = 11 + (count * 0.01),
                 _gridKind = "dynamic",
                 _gridBadge = badge,
@@ -3704,6 +3710,46 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         SoftRefreshGroupSystemOptions(0.05)
     end
 
+    local function ShowAssignedIconContextMenu(owner, opt)
+        if not owner or not opt then return end
+        local menuList = {
+            {
+                text = opt._gridDisplayName or (rawget(L, "Icon Customization") or "Icon Customization"),
+                isTitle = true,
+                notCheckable = true,
+            },
+        }
+
+        local customizer = DDingUI.IconCustomization
+        if customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
+            local items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType)
+            for _, item in ipairs(items or {}) do
+                if item._ddChecked then
+                    item.text = "|cff55ff88*|r " .. (item.text or "")
+                end
+                menuList[#menuList + 1] = item
+            end
+        end
+
+        if opt._gridCanRemove then
+            menuList[#menuList + 1] = { isSeparator = true }
+            menuList[#menuList + 1] = {
+                text = opt._gridKind == "cdm"
+                    and (rawget(L, "Unassign") or "Unassign")
+                    or (_G.REMOVE or "Remove"),
+                notCheckable = true,
+                func = function()
+                    CallOptionFunc(opt)
+                    RefreshAfterCommit()
+                end,
+            }
+        end
+
+        DDingUI._assignedIconContextMenuFrame = DDingUI._assignedIconContextMenuFrame
+            or CreateFrame("Frame", "DDingUI_AssignedIconContextMenu", UIParent)
+        EasyMenu(menuList, DDingUI._assignedIconContextMenuFrame, owner, 0, 0, "MENU")
+    end
+
     local function OrderedDragValues()
         local values, sourceGroupKey
         for _, row in ipairs(rows) do
@@ -4309,8 +4355,11 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                     self._ddSuppressClick = nil
                     return
                 end
-                if (button == "RightButton" or button == "MiddleButton") and opt and opt._gridCanRemove then
+                if button == "RightButton" and opt then
+                    ShowAssignedIconContextMenu(self, opt)
+                elseif button == "MiddleButton" and opt and opt._gridCanRemove then
                     CallOptionFunc(opt)
+                    RefreshAfterCommit()
                 end
             end)
             slot:SetScript("OnMouseDown", function(self, button)

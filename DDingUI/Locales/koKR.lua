@@ -1493,6 +1493,11 @@ L["Line Thickness"] = "라인 두께"
 L["Glow Trigger"] = "발동 조건"
 L["When Ready (Cooldown)"] = "준비 완료 시 (쿨다운)"
 L["When Active (Buff)"] = "활성화 시 (버프)"
+L["More Settings..."] = "세부 설정..."
+L["Unassign"] = "할당 해제"
+L["Drag to reorder | Right-click for options"] = "드래그: 순서 변경 | 우클릭: 옵션"
+L["Drag to reorder | Right-click for options | Middle-click to unassign"] = "드래그: 순서 변경 | 우클릭: 옵션 | 가운데 클릭: 할당 해제"
+L["Drag to reorder | Right-click for options | Middle-click to remove"] = "드래그: 순서 변경 | 우클릭: 옵션 | 가운데 클릭: 삭제"
 
 -- ============================================================
 -- BUFF TRACKER - BAR ORIENTATION & RING STYLE (v1.1.6)

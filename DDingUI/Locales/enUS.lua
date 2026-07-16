@@ -1227,6 +1227,11 @@ L["Line Thickness"] = "Line Thickness"
 L["Glow Trigger"] = "Glow Trigger"
 L["When Ready (Cooldown)"] = "When Ready (Cooldown)"
 L["When Active (Buff)"] = "When Active (Buff)"
+L["More Settings..."] = "More Settings..."
+L["Unassign"] = "Unassign"
+L["Drag to reorder | Right-click for options"] = "Drag to reorder | Right-click for options"
+L["Drag to reorder | Right-click for options | Middle-click to unassign"] = "Drag to reorder | Right-click for options | Middle-click to unassign"
+L["Drag to reorder | Right-click for options | Middle-click to remove"] = "Drag to reorder | Right-click for options | Middle-click to remove"
 
 -- ============================================================
 -- BUFF TRACKER - BAR ORIENTATION & RING STYLE (v1.1.6)

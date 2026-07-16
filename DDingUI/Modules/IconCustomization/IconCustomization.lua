@@ -701,6 +701,189 @@ local function RefreshAllReadyGlows(forceRefresh, targetSpellID, targetViewerTyp
     end
 end
 
+function IconCustomization:GetIconContext(iconFrame)
+    local spellID = GetSpellIDFromIcon(iconFrame)
+    if issecretvalue and issecretvalue(spellID) then
+        return nil, nil
+    end
+    if spellID == nil then
+        return nil, nil
+    end
+
+    spellID = tonumber(spellID)
+    if not spellID or spellID <= 0 then
+        return nil, nil
+    end
+
+    return spellID, GetViewerType(iconFrame)
+end
+
+function IconCustomization:OpenSpellEditor(spellID, viewerType)
+    if issecretvalue and issecretvalue(spellID) then return end
+    if spellID == nil then return end
+    spellID = tonumber(spellID)
+    if not spellID or spellID <= 0 or not viewerType then return end
+
+    uiState.selectedSpellID = spellID
+    uiState.selectedViewerType = viewerType
+    uiState.selectedKey = tostring(spellID) .. "_" .. viewerType
+    uiState.scannedIcons = ScanAllViewerIcons()
+
+    if not DDingUI._optionsLoaded and DDingUI.OpenConfig then
+        DDingUI:OpenConfig()
+    end
+    if DDingUI.OpenConfigGUI then
+        DDingUI:OpenConfigGUI(nil, "iconCustomization")
+    end
+end
+
+function IconCustomization:BuildContextMenuItems(spellID, viewerType)
+    if issecretvalue and issecretvalue(spellID) then return nil end
+    if spellID == nil then return nil end
+    spellID = tonumber(spellID)
+    if not spellID or spellID <= 0 or not viewerType then return nil end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    if not profile then return nil end
+    profile.iconCustomization = profile.iconCustomization or {}
+    profile.iconCustomization.spells = profile.iconCustomization.spells or {}
+
+    local spells = profile.iconCustomization.spells
+    local spellKey = tostring(spellID) .. "_" .. viewerType
+    local defaultTrigger = viewerType == "Buff" and "active" or "ready"
+
+    local function Current()
+        return spells[spellKey] or {}
+    end
+
+    local function Mark(selected, text)
+        return (selected and "|cff55ff88*|r " or "    ") .. text
+    end
+
+    local function Apply(key, value)
+        spells[spellKey] = spells[spellKey] or {}
+        spells[spellKey][key] = value
+        RefreshAllReadyGlows(true, spellID, viewerType)
+        RefreshGUI()
+    end
+
+    local function ChoiceMenu(key, values, fallback)
+        local items = {}
+        local selected = Current()[key] or fallback
+        for _, value in ipairs(values) do
+            local capturedValue = value[1]
+            items[#items + 1] = {
+                text = Mark(selected == capturedValue, value[2]),
+                notCheckable = true,
+                func = function() Apply(key, capturedValue) end,
+            }
+        end
+        return items
+    end
+
+    local custom = Current()
+    return {
+        {
+            text = L["Ready State Glow"] or "State Glow",
+            notCheckable = true,
+            func = function()
+                if Current().readyGlow == true then
+                    spells[spellKey] = nil
+                else
+                    spells[spellKey] = spells[spellKey] or {}
+                    spells[spellKey].readyGlow = true
+                    FindAndHookIconForSpell(spellID)
+                end
+                RefreshAllReadyGlows(true, spellID, viewerType)
+                RefreshGUI()
+            end,
+            _ddChecked = custom.readyGlow == true,
+        },
+        {
+            text = L["Glow Trigger"] or "Glow Trigger",
+            hasArrow = true,
+            notCheckable = true,
+            menuList = ChoiceMenu("glowTrigger", {
+                {"ready", L["When Ready (Cooldown)"] or "When Ready (Cooldown)"},
+                {"active", L["When Active (Buff)"] or "When Active (Buff)"},
+            }, defaultTrigger),
+        },
+        {
+            text = L["Glow Type"] or "Glow Type",
+            hasArrow = true,
+            notCheckable = true,
+            menuList = ChoiceMenu("glowType", {
+                {"button", L["Action Button Glow"] or "Action Button Glow"},
+                {"pixel", L["Pixel Glow"] or "Pixel Glow"},
+                {"autocast", L["Autocast Shine"] or "Autocast Shine"},
+                {"proc", L["Proc Effect"] or "Proc Effect"},
+            }, "button"),
+        },
+        {
+            text = L["Glow Color"] or "Glow Color",
+            notCheckable = true,
+            func = function()
+                local old = Current().glowColor
+                local previous = old and {r = old.r, g = old.g, b = old.b} or nil
+                local color = old or {r = 1, g = 0.85, b = 0.1}
+                if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then return end
+                ColorPickerFrame:SetupColorPickerAndShow({
+                    r = color.r or 1,
+                    g = color.g or 0.85,
+                    b = color.b or 0.1,
+                    hasOpacity = false,
+                    swatchFunc = function()
+                        local r, g, b = ColorPickerFrame:GetColorRGB()
+                        Apply("glowColor", {r = r, g = g, b = b})
+                    end,
+                    cancelFunc = function()
+                        Apply("glowColor", previous)
+                    end,
+                })
+            end,
+        },
+        {
+            text = L["Glow Frequency"] or "Glow Frequency",
+            hasArrow = true,
+            notCheckable = true,
+            menuList = ChoiceMenu("glowSpeed", {
+                {0.10, "0.10"}, {0.20, "0.20"}, {0.25, "0.25"},
+                {0.50, "0.50"}, {1.00, "1.00"},
+            }, 0.25),
+        },
+        {
+            text = L["Line Amount"] or "Line Amount",
+            hasArrow = true,
+            notCheckable = true,
+            menuList = ChoiceMenu("glowLines", {
+                {4, "4"}, {8, "8"}, {12, "12"}, {16, "16"},
+            }, 8),
+        },
+        {
+            text = L["Line Thickness"] or "Line Thickness",
+            hasArrow = true,
+            notCheckable = true,
+            menuList = ChoiceMenu("glowThickness", {
+                {1, "1"}, {2, "2"}, {3, "3"}, {4, "4"}, {6, "6"},
+            }, 2),
+        },
+        {
+            text = L["More Settings..."] or "More Settings...",
+            notCheckable = true,
+            func = function() self:OpenSpellEditor(spellID, viewerType) end,
+        },
+        {
+            text = L["Reset Icon"] or "Reset Icon",
+            notCheckable = true,
+            func = function()
+                spells[spellKey] = nil
+                RefreshAllReadyGlows(true, spellID, viewerType)
+                RefreshGUI()
+            end,
+        },
+    }
+end
+
 -- Build the Icon Customization UI
 function IconCustomization:BuildIconCustomizationUI(parentFrame)
     if not parentFrame then return end
