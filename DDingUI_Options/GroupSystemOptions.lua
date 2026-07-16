@@ -970,95 +970,148 @@ local function GetCDMIconEntries()
     CDMHookEngine:RebuildMaps()
     local iconMap = CDMHookEngine:GetIconMap()
     local result = {}
-    local seenCooldownIDs = {} -- 중복 방지
+    local seenCooldownIDs = {}
+    local hiddenBuffCooldownIDs = {}
+    local hiddenBuffSpellNames = {}
+    local trackedBuffCatalog
 
-    for cooldownID, icon in pairs(iconMap) do
-        seenCooldownIDs[cooldownID] = true
-        local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
-        local tex = nil
-        local ok, texResult = pcall(function()
-            if icon.Icon and icon.Icon.GetTexture then
-                return icon.Icon:GetTexture()
-            end
-        end)
-        -- [FIX] secret number 방어: GetTexture()가 secret value 반환 가능
-        if ok and texResult then
-            local isSafe = not (issecretvalue and issecretvalue(texResult))
-            if isSafe and texResult ~= 0 and texResult ~= "" then
-                tex = texResult
-            end
-        end
-
-        -- [FIX] 실제 spellID 조회 — cooldownID와 spellID가 다를 수 있음
-        local realSpellID = 0
-        local iconSpellID = nil
-        local spellCandidates = GetCooldownInfoSpellCandidates(nil, cooldownID)
-        pcall(function()
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-                if info then
-                    -- 표시용 스펠 우선순위: overrideTooltipSpellID > overrideSpellID > spellID > linkedSpellIDs
-                    spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
-                    iconSpellID = spellCandidates and spellCandidates[1]
-                    realSpellID = iconSpellID or 0
-                end
-            end
-        end)
-        tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
-
-        result[#result + 1] = {
-            cooldownID = cooldownID,
-            spellID = (realSpellID and realSpellID > 0) and realSpellID or cooldownID,
-            iconSpellID = iconSpellID,
-            name = spellName or "Unknown",
-            icon = tex,
-            viewerName = CDMHookEngine:GetIconSource(cooldownID) or "",
-            layoutIndex = SafeCDMLayoutIndex(icon, #result + 1),
-        }
-    end
-
-    -- The public category catalog includes inactive and item-provided buff slots.
-    -- Reading the frame pool only returns objects Blizzard happened to allocate.
-    local trackedBuffCategory = Enum and Enum.CooldownViewerCategory
-        and Enum.CooldownViewerCategory.TrackedBuff
-    if trackedBuffCategory and C_CooldownViewer
-        and C_CooldownViewer.GetCooldownViewerCategorySet
-        and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    then
-        local okSet, cooldownIDs = pcall(
-            C_CooldownViewer.GetCooldownViewerCategorySet,
-            trackedBuffCategory,
-            true
-        )
-        if okSet and type(cooldownIDs) == "table" then
-            for categoryIndex, rawCooldownID in ipairs(cooldownIDs) do
-                local cooldownID = SafeOptionID(rawCooldownID)
-                if cooldownID and not seenCooldownIDs[cooldownID] then
-                    local okInfo, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
-                    if okInfo and type(info) == "table" then
-                        local spellID = SafeOptionID(info.overrideTooltipSpellID)
-                            or SafeOptionID(info.overrideSpellID)
-                            or SafeOptionID(info.spellID)
-                        local spellName
-                        if spellID and C_Spell and C_Spell.GetSpellName then
-                            local okName, name = pcall(C_Spell.GetSpellName, spellID)
-                            spellName = SafeOptionValue(okName and name)
-                        end
-
-                        if spellID and type(spellName) == "string" and spellName ~= "" then
-                            local spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
-                            result[#result + 1] = {
+    local categories = Enum and Enum.CooldownViewerCategory
+    local trackedBuffCategory = categories and categories.TrackedBuff
+    local hiddenAuraCategory = categories and categories.HiddenAura
+    local settings = _G.CooldownViewerSettings
+    if trackedBuffCategory and settings and type(settings.GetDataProvider) == "function" then
+        local okProvider, provider = pcall(settings.GetDataProvider, settings)
+        if okProvider and type(provider) == "table"
+            and type(provider.GetOrderedCooldownIDs) == "function"
+            and type(provider.GetCooldownInfoForID) == "function"
+        then
+            local okOrdered, orderedCooldownIDs = pcall(provider.GetOrderedCooldownIDs, provider)
+            if okOrdered and type(orderedCooldownIDs) == "table" then
+                trackedBuffCatalog = {}
+                for orderIndex, rawCooldownID in ipairs(orderedCooldownIDs) do
+                    local cooldownID = SafeOptionID(rawCooldownID)
+                    if cooldownID then
+                        local okInfo, providerInfo = pcall(provider.GetCooldownInfoForID, provider, cooldownID)
+                        local category = okInfo and type(providerInfo) == "table"
+                            and SafeOptionValue(providerInfo.category)
+                        if category == trackedBuffCategory then
+                            trackedBuffCatalog[#trackedBuffCatalog + 1] = {
                                 cooldownID = cooldownID,
-                                spellID = spellID,
-                                iconSpellID = spellID,
-                                name = spellName,
-                                icon = ResolveSpellTextureFromCandidates(spellCandidates, nil),
-                                viewerName = "BuffIconCooldownViewer",
-                                layoutIndex = categoryIndex,
+                                orderIndex = orderIndex,
+                                providerInfo = providerInfo,
                             }
-                            seenCooldownIDs[cooldownID] = true
+                        elseif hiddenAuraCategory and category == hiddenAuraCategory then
+                            hiddenBuffCooldownIDs[cooldownID] = true
+
+                            local cooldownInfo = providerInfo
+                            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                                local okCooldownInfo, resolvedInfo = pcall(
+                                    C_CooldownViewer.GetCooldownViewerCooldownInfo,
+                                    cooldownID
+                                )
+                                if okCooldownInfo and type(resolvedInfo) == "table" then
+                                    cooldownInfo = resolvedInfo
+                                end
+                            end
+                            if type(cooldownInfo) == "table" and C_Spell and C_Spell.GetSpellName then
+                                for _, spellID in ipairs(GetCooldownInfoSpellCandidates(cooldownInfo, cooldownID)) do
+                                    local okName, spellName = pcall(C_Spell.GetSpellName, spellID)
+                                    spellName = SafeOptionValue(okName and spellName)
+                                    if type(spellName) == "string" and spellName ~= "" then
+                                        hiddenBuffSpellNames["buff_" .. spellName] = true
+                                    end
+                                end
+                            end
                         end
                     end
+                end
+            end
+        end
+    end
+    result._hiddenBuffSpellNames = hiddenBuffSpellNames
+
+    for rawCooldownID, icon in pairs(iconMap) do
+        local cooldownID = SafeOptionID(rawCooldownID)
+        if cooldownID and not hiddenBuffCooldownIDs[cooldownID] then
+            seenCooldownIDs[cooldownID] = true
+            local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
+            local tex = nil
+            local ok, texResult = pcall(function()
+                if icon.Icon and icon.Icon.GetTexture then
+                    return icon.Icon:GetTexture()
+                end
+            end)
+            -- [FIX] secret number 방어: GetTexture()가 secret value 반환 가능
+            if ok and texResult then
+                local isSafe = not (issecretvalue and issecretvalue(texResult))
+                if isSafe and texResult ~= 0 and texResult ~= "" then
+                    tex = texResult
+                end
+            end
+
+            -- [FIX] 실제 spellID 조회 — cooldownID와 spellID가 다를 수 있음
+            local realSpellID = 0
+            local iconSpellID = nil
+            local spellCandidates = GetCooldownInfoSpellCandidates(nil, cooldownID)
+            pcall(function()
+                if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
+                    if info then
+                        -- 표시용 스펠 우선순위: overrideTooltipSpellID > overrideSpellID > spellID > linkedSpellIDs
+                        spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
+                        iconSpellID = spellCandidates and spellCandidates[1]
+                        realSpellID = iconSpellID or 0
+                    end
+                end
+            end)
+            tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
+
+            result[#result + 1] = {
+                cooldownID = cooldownID,
+                spellID = (realSpellID and realSpellID > 0) and realSpellID or cooldownID,
+                iconSpellID = iconSpellID,
+                name = spellName or "Unknown",
+                icon = tex,
+                viewerName = CDMHookEngine:GetIconSource(cooldownID) or "",
+                layoutIndex = SafeCDMLayoutIndex(icon, #result + 1),
+            }
+        end
+    end
+
+    -- The settings provider reflects the current arrangement. The static
+    -- category API also returns entries moved to Not Displayed.
+    for _, catalogEntry in ipairs(trackedBuffCatalog or {}) do
+        local cooldownID = catalogEntry.cooldownID
+        if not seenCooldownIDs[cooldownID] then
+            local info = catalogEntry.providerInfo
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                local okInfo, resolvedInfo = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
+                if okInfo and type(resolvedInfo) == "table" then
+                    info = resolvedInfo
+                end
+            end
+            if type(info) == "table" then
+                local spellID = SafeOptionID(info.overrideTooltipSpellID)
+                    or SafeOptionID(info.overrideSpellID)
+                    or SafeOptionID(info.spellID)
+                local spellName
+                if spellID and C_Spell and C_Spell.GetSpellName then
+                    local okName, name = pcall(C_Spell.GetSpellName, spellID)
+                    spellName = SafeOptionValue(okName and name)
+                end
+
+                if spellID and type(spellName) == "string" and spellName ~= "" then
+                    local spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
+                    result[#result + 1] = {
+                        cooldownID = cooldownID,
+                        spellID = spellID,
+                        iconSpellID = spellID,
+                        name = spellName,
+                        icon = ResolveSpellTextureFromCandidates(spellCandidates, nil),
+                        viewerName = "BuffIconCooldownViewer",
+                        layoutIndex = catalogEntry.orderIndex,
+                    }
+                    seenCooldownIDs[cooldownID] = true
                 end
             end
         end
@@ -1587,10 +1640,12 @@ local function BuildUnassignedSpellRows(groupName)
     end
 
     local targetViewer = GROUP_VIEWER_MAP[groupName]
+    local cdmEntries = GetCDMIconEntries()
+    local hiddenBuffSpellNames = cdmEntries._hiddenBuffSpellNames or {}
     local seen = {}
     local unassigned = isBuffPoolGroup and GetUnassignedBuffSpells(gs, false)
     local unassignedChanged = false
-    for idx, entry in ipairs(GetCDMIconEntries()) do
+    for idx, entry in ipairs(cdmEntries) do
         local viewerName = entry and entry.viewerName
         if viewerName and viewerSet[viewerName] then
             local spellName = GetGSSpellName(entry)
@@ -1648,7 +1703,7 @@ local function BuildUnassignedSpellRows(groupName)
 
     if unassigned then
         for spellName, meta in pairs(unassigned) do
-            if meta and not seen[spellName] then
+            if meta and not seen[spellName] and not hiddenBuffSpellNames[spellName] then
                 seen[spellName] = true
                 local metaTable = type(meta) == "table" and meta or nil
                 local storedSpellID = metaTable and SafeOptionID(metaTable.spellID)
@@ -3266,6 +3321,28 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows)
 
     if isBuff then
         local bloodlustAliases = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
+        local function AddTrinketBuff(slotID, labelKey, fallbackLabel)
+            local itemID = SafeOptionID(GetInventoryItemID("player", slotID))
+            local itemName
+            if itemID and GetItemInfo then
+                local okName, name = pcall(GetItemInfo, itemID)
+                itemName = SafeOptionValue(okName and name)
+            end
+            items[#items + 1] = {
+                label = itemName or rawget(L, labelKey) or fallbackLabel,
+                icon = itemID and SafeItemIcon(itemID, DEFAULT_TRINKET_ICON_TEXTURE)
+                    or DEFAULT_TRINKET_ICON_TEXTURE,
+                action = function()
+                    return AddDynamicPayloadToGroup(
+                        groupName,
+                        { type = "trinketProc", slotID = slotID },
+                        { showItemCooldown = false }
+                    )
+                end,
+            }
+        end
+        AddTrinketBuff(13, "Trinket Buff Slot 1", "Trinket Buff Slot 1")
+        AddTrinketBuff(14, "Trinket Buff Slot 2", "Trinket Buff Slot 2")
         items[#items + 1] = {
             label = rawget(L, "Light's Potential") or "Light's Potential",
             icon = SafeSpellTexture(1236616),
