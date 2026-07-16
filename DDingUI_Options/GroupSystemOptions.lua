@@ -970,16 +970,12 @@ local function GetCDMIconEntries()
     CDMHookEngine:RebuildMaps()
     local iconMap = CDMHookEngine:GetIconMap()
     local result = {}
-    local seenCooldownIDs = {}
     local hiddenBuffCooldownIDs = {}
-    local hiddenBuffSpellNames = {}
-    local trackedBuffCatalog
 
     local categories = Enum and Enum.CooldownViewerCategory
-    local trackedBuffCategory = categories and categories.TrackedBuff
     local hiddenAuraCategory = categories and categories.HiddenAura
     local settings = _G.CooldownViewerSettings
-    if trackedBuffCategory and settings and type(settings.GetDataProvider) == "function" then
+    if hiddenAuraCategory and settings and type(settings.GetDataProvider) == "function" then
         local okProvider, provider = pcall(settings.GetDataProvider, settings)
         if okProvider and type(provider) == "table"
             and type(provider.GetOrderedCooldownIDs) == "function"
@@ -987,53 +983,24 @@ local function GetCDMIconEntries()
         then
             local okOrdered, orderedCooldownIDs = pcall(provider.GetOrderedCooldownIDs, provider)
             if okOrdered and type(orderedCooldownIDs) == "table" then
-                trackedBuffCatalog = {}
-                for orderIndex, rawCooldownID in ipairs(orderedCooldownIDs) do
+                for _, rawCooldownID in ipairs(orderedCooldownIDs) do
                     local cooldownID = SafeOptionID(rawCooldownID)
                     if cooldownID then
                         local okInfo, providerInfo = pcall(provider.GetCooldownInfoForID, provider, cooldownID)
                         local category = okInfo and type(providerInfo) == "table"
                             and SafeOptionValue(providerInfo.category)
-                        if category == trackedBuffCategory then
-                            trackedBuffCatalog[#trackedBuffCatalog + 1] = {
-                                cooldownID = cooldownID,
-                                orderIndex = orderIndex,
-                                providerInfo = providerInfo,
-                            }
-                        elseif hiddenAuraCategory and category == hiddenAuraCategory then
+                        if category == hiddenAuraCategory then
                             hiddenBuffCooldownIDs[cooldownID] = true
-
-                            local cooldownInfo = providerInfo
-                            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                                local okCooldownInfo, resolvedInfo = pcall(
-                                    C_CooldownViewer.GetCooldownViewerCooldownInfo,
-                                    cooldownID
-                                )
-                                if okCooldownInfo and type(resolvedInfo) == "table" then
-                                    cooldownInfo = resolvedInfo
-                                end
-                            end
-                            if type(cooldownInfo) == "table" and C_Spell and C_Spell.GetSpellName then
-                                for _, spellID in ipairs(GetCooldownInfoSpellCandidates(cooldownInfo, cooldownID)) do
-                                    local okName, spellName = pcall(C_Spell.GetSpellName, spellID)
-                                    spellName = SafeOptionValue(okName and spellName)
-                                    if type(spellName) == "string" and spellName ~= "" then
-                                        hiddenBuffSpellNames["buff_" .. spellName] = true
-                                    end
-                                end
-                            end
                         end
                     end
                 end
             end
         end
     end
-    result._hiddenBuffSpellNames = hiddenBuffSpellNames
 
     for rawCooldownID, icon in pairs(iconMap) do
         local cooldownID = SafeOptionID(rawCooldownID)
         if cooldownID and not hiddenBuffCooldownIDs[cooldownID] then
-            seenCooldownIDs[cooldownID] = true
             local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
             local tex = nil
             local ok, texResult = pcall(function()
@@ -1075,45 +1042,6 @@ local function GetCDMIconEntries()
                 viewerName = CDMHookEngine:GetIconSource(cooldownID) or "",
                 layoutIndex = SafeCDMLayoutIndex(icon, #result + 1),
             }
-        end
-    end
-
-    -- The settings provider reflects the current arrangement. The static
-    -- category API also returns entries moved to Not Displayed.
-    for _, catalogEntry in ipairs(trackedBuffCatalog or {}) do
-        local cooldownID = catalogEntry.cooldownID
-        if not seenCooldownIDs[cooldownID] then
-            local info = catalogEntry.providerInfo
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                local okInfo, resolvedInfo = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
-                if okInfo and type(resolvedInfo) == "table" then
-                    info = resolvedInfo
-                end
-            end
-            if type(info) == "table" then
-                local spellID = SafeOptionID(info.overrideTooltipSpellID)
-                    or SafeOptionID(info.overrideSpellID)
-                    or SafeOptionID(info.spellID)
-                local spellName
-                if spellID and C_Spell and C_Spell.GetSpellName then
-                    local okName, name = pcall(C_Spell.GetSpellName, spellID)
-                    spellName = SafeOptionValue(okName and name)
-                end
-
-                if spellID and type(spellName) == "string" and spellName ~= "" then
-                    local spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
-                    result[#result + 1] = {
-                        cooldownID = cooldownID,
-                        spellID = spellID,
-                        iconSpellID = spellID,
-                        name = spellName,
-                        icon = ResolveSpellTextureFromCandidates(spellCandidates, nil),
-                        viewerName = "BuffIconCooldownViewer",
-                        layoutIndex = catalogEntry.orderIndex,
-                    }
-                    seenCooldownIDs[cooldownID] = true
-                end
-            end
         end
     end
 
@@ -1641,7 +1569,6 @@ local function BuildUnassignedSpellRows(groupName)
 
     local targetViewer = GROUP_VIEWER_MAP[groupName]
     local cdmEntries = GetCDMIconEntries()
-    local hiddenBuffSpellNames = cdmEntries._hiddenBuffSpellNames or {}
     local seen = {}
     local unassigned = isBuffPoolGroup and GetUnassignedBuffSpells(gs, false)
     local unassignedChanged = false
@@ -1703,8 +1630,7 @@ local function BuildUnassignedSpellRows(groupName)
 
     if unassigned then
         for spellName, meta in pairs(unassigned) do
-            if meta and not seen[spellName] and not hiddenBuffSpellNames[spellName] then
-                seen[spellName] = true
+            if meta and not seen[spellName] then
                 local metaTable = type(meta) == "table" and meta or nil
                 local storedSpellID = metaTable and SafeOptionID(metaTable.spellID)
                 local spellID = storedSpellID or (not metaTable and ResolveBuffSpellIDFromName(spellName))
@@ -1715,22 +1641,6 @@ local function BuildUnassignedSpellRows(groupName)
                     -- Legacy rows without an ID cannot be connected to a native CDM slot.
                     unassigned[spellName] = nil
                     unassignedChanged = true
-                else
-                    local iconTex = metaTable and SafeOptionTexture(metaTable.icon) or nil
-                    if not iconTex or IsQuestionTexture(iconTex) then
-                        iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex or DEFAULT_BUFF_ICON_TEXTURE)
-                    end
-                    rows[#rows + 1] = {
-                        spellName = spellName,
-                        spellID = spellID,
-                        iconType = "aura",
-                        iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),
-                        displayName = (metaTable and metaTable.displayName) or GetBuffSpellRawName(spellName) or spellName,
-                        assignedGroup = nil,
-                        isDynamicTarget = false,
-                        isBuffShared = true,
-                        fallbackOrder = 20000 + #rows,
-                    }
                 end
             end
         end
