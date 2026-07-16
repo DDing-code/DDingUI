@@ -2,6 +2,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
+local SL = _G.DDingUI_StyleLib
 
 -- [CONFIRM] 그룹 삭제 확인 팝업
 StaticPopupDialogs["DDINGUI_DELETE_GROUP"] = {
@@ -3716,38 +3717,34 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             {
                 text = opt._gridDisplayName or (rawget(L, "Icon Customization") or "Icon Customization"),
                 isTitle = true,
-                notCheckable = true,
             },
         }
 
-        local customizer = DDingUI.IconCustomization
-        if customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
-            local items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType)
-            for _, item in ipairs(items or {}) do
-                if item._ddChecked then
-                    item.text = "|cff55ff88*|r " .. (item.text or "")
-                end
-                menuList[#menuList + 1] = item
-            end
-        end
-
         if opt._gridCanRemove then
-            menuList[#menuList + 1] = { isSeparator = true }
             menuList[#menuList + 1] = {
                 text = opt._gridKind == "cdm"
                     and (rawget(L, "Unassign") or "Unassign")
                     or (_G.REMOVE or "Remove"),
-                notCheckable = true,
+                color = "dim",
                 func = function()
                     CallOptionFunc(opt)
                     RefreshAfterCommit()
                 end,
             }
+            menuList[#menuList + 1] = { isSeparator = true }
         end
 
-        DDingUI._assignedIconContextMenuFrame = DDingUI._assignedIconContextMenuFrame
-            or CreateFrame("Frame", "DDingUI_AssignedIconContextMenu", UIParent)
-        EasyMenu(menuList, DDingUI._assignedIconContextMenuFrame, owner, 0, 0, "MENU")
+        local customizer = DDingUI.IconCustomization
+        if customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
+            local items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType)
+            for _, item in ipairs(items or {}) do
+                menuList[#menuList + 1] = item
+            end
+        end
+
+        if SL and SL.ShowCascadingMenu then
+            SL.ShowCascadingMenu(owner, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
+        end
     end
 
     local function OrderedDragValues()

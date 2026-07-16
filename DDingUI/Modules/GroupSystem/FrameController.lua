@@ -4,6 +4,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
+local SL = _G.DDingUI_StyleLib
 
 local FrameController = {}
 DDingUI.FrameController = FrameController
@@ -2108,8 +2109,6 @@ end
 -- 그룹 선택 팝업 (EasyMenu)
 -- ============================================================
 
-local menuFrame = CreateFrame("Frame", "DDingUI_GroupAssignMenu", UIParent)
-
 function FrameController:ShowGroupAssignPopup(icon)
     if not icon or not icon.cooldownID then return end
 
@@ -2126,50 +2125,46 @@ function FrameController:ShowGroupAssignPopup(icon)
         {
             text = spellName,
             isTitle = true,
-            notCheckable = true,
         },
     }
+
+    local assignmentItems = {
+        {
+            text = L["Auto (Default)"] or "자동 (기본)",
+            func = function()
+                GroupManager:UnassignSpell(spellName)
+                if DDingUI.GroupSystem then DDingUI.GroupSystem:Refresh() end
+            end,
+        },
+    }
+    for _, group in ipairs(groups) do
+        local groupName = group.name
+        assignmentItems[#assignmentItems + 1] = {
+            text = groupName,
+            func = function()
+                GroupManager:AssignSpell(spellName, groupName)
+                if DDingUI.GroupSystem then DDingUI.GroupSystem:Refresh() end
+            end,
+        }
+    end
+    menuList[#menuList + 1] = {
+        text = L["Group Assignment"] or "Group Assignment",
+        menuList = assignmentItems,
+    }
+    menuList[#menuList + 1] = { isSeparator = true }
 
     local customizer = DDingUI.IconCustomization
     if customizer and customizer.GetIconContext and customizer.BuildContextMenuItems then
         local spellID, viewerType = customizer:GetIconContext(icon)
         local items = customizer:BuildContextMenuItems(spellID, viewerType)
         for _, item in ipairs(items or {}) do
-            if item._ddChecked then
-                item.text = "|cff55ff88*|r " .. (item.text or "")
-            end
             menuList[#menuList + 1] = item
         end
-        if items and #items > 0 then
-            menuList[#menuList + 1] = { isSeparator = true }
-        end
     end
 
-    menuList[#menuList + 1] = {
-        text = L["Auto (Default)"] or "자동 (기본)",
-        notCheckable = true,
-        func = function()
-            GroupManager:UnassignSpell(spellName)
-            if DDingUI.GroupSystem then
-                DDingUI.GroupSystem:Refresh()
-            end
-        end,
-    }
-
-    for _, group in ipairs(groups) do
-        tinsert(menuList, {
-            text = group.name,
-            notCheckable = true,
-            func = function()
-                GroupManager:AssignSpell(spellName, group.name)
-                if DDingUI.GroupSystem then
-                    DDingUI.GroupSystem:Refresh()
-                end
-            end,
-        })
+    if SL and SL.ShowCascadingMenu then
+        SL.ShowCascadingMenu(icon, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
     end
-
-    EasyMenu(menuList, menuFrame, icon, 0, 0, "MENU")
 end
 
 -- ============================================================

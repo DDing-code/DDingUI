@@ -756,10 +756,6 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
         return spells[spellKey] or {}
     end
 
-    local function Mark(selected, text)
-        return (selected and "|cff55ff88*|r " or "    ") .. text
-    end
-
     local function Apply(key, value)
         spells[spellKey] = spells[spellKey] or {}
         spells[spellKey][key] = value
@@ -773,8 +769,8 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
         for _, value in ipairs(values) do
             local capturedValue = value[1]
             items[#items + 1] = {
-                text = Mark(selected == capturedValue, value[2]),
-                notCheckable = true,
+                text = value[2],
+                checked = selected == capturedValue,
                 func = function() Apply(key, capturedValue) end,
             }
         end
@@ -782,36 +778,56 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
     end
 
     local custom = Current()
+    local trigger = custom.glowTrigger or defaultTrigger
+    local glowType = custom.glowType or "button"
+    local triggerLabels = {
+        ready = L["Ready"] or "Ready",
+        active = L["Active"] or "Active",
+    }
+    local glowTypeLabels = {
+        button = L["Action Button Glow"] or "Action Button Glow",
+        pixel = L["Pixel Glow"] or "Pixel Glow",
+        autocast = L["Autocast Shine"] or "Autocast Shine",
+        proc = L["Proc Effect"] or "Proc Effect",
+    }
+    local function SetGlowState(nextTrigger)
+        if not nextTrigger then
+            spells[spellKey] = nil
+        else
+            spells[spellKey] = spells[spellKey] or {}
+            spells[spellKey].readyGlow = true
+            spells[spellKey].glowTrigger = nextTrigger
+            FindAndHookIconForSpell(spellID)
+        end
+        RefreshAllReadyGlows(true, spellID, viewerType)
+        RefreshGUI()
+    end
+
     return {
         {
-            text = L["Ready State Glow"] or "State Glow",
-            notCheckable = true,
-            func = function()
-                if Current().readyGlow == true then
-                    spells[spellKey] = nil
-                else
-                    spells[spellKey] = spells[spellKey] or {}
-                    spells[spellKey].readyGlow = true
-                    FindAndHookIconForSpell(spellID)
-                end
-                RefreshAllReadyGlows(true, spellID, viewerType)
-                RefreshGUI()
-            end,
-            _ddChecked = custom.readyGlow == true,
-        },
-        {
-            text = L["Glow Trigger"] or "Glow Trigger",
-            hasArrow = true,
-            notCheckable = true,
-            menuList = ChoiceMenu("glowTrigger", {
-                {"ready", L["When Ready (Cooldown)"] or "When Ready (Cooldown)"},
-                {"active", L["When Active (Buff)"] or "When Active (Buff)"},
-            }, defaultTrigger),
+            text = L["State Glow"] or "State Glow",
+            rightText = custom.readyGlow == true and triggerLabels[trigger] or (L["Off"] or "Off"),
+            menuList = {
+                {
+                    text = L["Off"] or "Off",
+                    checked = custom.readyGlow ~= true,
+                    func = function() SetGlowState(nil) end,
+                },
+                {
+                    text = L["When Ready (Cooldown)"] or "When Ready (Cooldown)",
+                    checked = custom.readyGlow == true and trigger == "ready",
+                    func = function() SetGlowState("ready") end,
+                },
+                {
+                    text = L["When Active (Buff)"] or "When Active (Buff)",
+                    checked = custom.readyGlow == true and trigger == "active",
+                    func = function() SetGlowState("active") end,
+                },
+            },
         },
         {
             text = L["Glow Type"] or "Glow Type",
-            hasArrow = true,
-            notCheckable = true,
+            rightText = glowTypeLabels[glowType],
             menuList = ChoiceMenu("glowType", {
                 {"button", L["Action Button Glow"] or "Action Button Glow"},
                 {"pixel", L["Pixel Glow"] or "Pixel Glow"},
@@ -821,7 +837,7 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
         },
         {
             text = L["Glow Color"] or "Glow Color",
-            notCheckable = true,
+            swatch = custom.glowColor or {r = 1, g = 0.85, b = 0.1},
             func = function()
                 local old = Current().glowColor
                 local previous = old and {r = old.r, g = old.g, b = old.b} or nil
@@ -843,38 +859,41 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
             end,
         },
         {
-            text = L["Glow Frequency"] or "Glow Frequency",
-            hasArrow = true,
-            notCheckable = true,
-            menuList = ChoiceMenu("glowSpeed", {
-                {0.10, "0.10"}, {0.20, "0.20"}, {0.25, "0.25"},
-                {0.50, "0.50"}, {1.00, "1.00"},
-            }, 0.25),
+            text = L["Pixel Glow Settings"] or "Pixel Glow Settings",
+            rightText = glowType == "pixel" and string.format("%d / %d", custom.glowLines or 8, custom.glowThickness or 2) or nil,
+            menuList = {
+                {
+                    text = L["Glow Frequency"] or "Glow Frequency",
+                    rightText = string.format("%.2f", custom.glowSpeed or 0.25),
+                    menuList = ChoiceMenu("glowSpeed", {
+                        {0.10, "0.10"}, {0.20, "0.20"}, {0.25, "0.25"},
+                        {0.50, "0.50"}, {1.00, "1.00"},
+                    }, 0.25),
+                },
+                {
+                    text = L["Line Amount"] or "Line Amount",
+                    rightText = tostring(custom.glowLines or 8),
+                    menuList = ChoiceMenu("glowLines", {
+                        {4, "4"}, {8, "8"}, {12, "12"}, {16, "16"},
+                    }, 8),
+                },
+                {
+                    text = L["Line Thickness"] or "Line Thickness",
+                    rightText = tostring(custom.glowThickness or 2),
+                    menuList = ChoiceMenu("glowThickness", {
+                        {1, "1"}, {2, "2"}, {3, "3"}, {4, "4"}, {6, "6"},
+                    }, 2),
+                },
+            },
         },
-        {
-            text = L["Line Amount"] or "Line Amount",
-            hasArrow = true,
-            notCheckable = true,
-            menuList = ChoiceMenu("glowLines", {
-                {4, "4"}, {8, "8"}, {12, "12"}, {16, "16"},
-            }, 8),
-        },
-        {
-            text = L["Line Thickness"] or "Line Thickness",
-            hasArrow = true,
-            notCheckable = true,
-            menuList = ChoiceMenu("glowThickness", {
-                {1, "1"}, {2, "2"}, {3, "3"}, {4, "4"}, {6, "6"},
-            }, 2),
-        },
+        { isSeparator = true },
         {
             text = L["More Settings..."] or "More Settings...",
-            notCheckable = true,
             func = function() self:OpenSpellEditor(spellID, viewerType) end,
         },
         {
             text = L["Reset Icon"] or "Reset Icon",
-            notCheckable = true,
+            color = "dim",
             func = function()
                 spells[spellKey] = nil
                 RefreshAllReadyGlows(true, spellID, viewerType)
