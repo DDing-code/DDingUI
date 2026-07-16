@@ -713,7 +713,8 @@ local function StoreUnassignedBuffSpellMetadata(spellName, entry, iconTex, displ
     local unassigned = GetUnassignedBuffSpells(gs, true)
     if not unassigned then return end
 
-    local spellID = entry and SafeOptionID(entry.spellID) or ResolveBuffSpellIDFromName(spellName)
+    local spellID = entry and (SafeOptionID(entry.iconSpellID) or SafeOptionID(entry.spellID))
+        or ResolveBuffSpellIDFromName(spellName)
     local icon = iconTex or ResolveCDMEntryIconTexture(entry, spellName, entry and entry.icon)
     unassigned[spellName] = {
         spellID = spellID,
@@ -1016,89 +1017,48 @@ local function GetCDMIconEntries()
         }
     end
 
-    -- [FIX] BuffIconCooldownViewer: 비활성 풀 프레임도 스캔 (카탈로그에 모든 버프 표시)
-    -- CDM 풀의 inactiveObjects (ObjectPoolMixin 내부) 또는 뷰어 자식 프레임 스캔
-    local buffViewer = _G["BuffIconCooldownViewer"]
-    if buffViewer and buffViewer.itemFramePool then
-        local inactiveFrames = {}
-        -- ObjectPoolMixin 내부 테이블 접근 시도
-        local pool = buffViewer.itemFramePool
-        if pool.inactiveObjects then
-            for icon in pairs(pool.inactiveObjects) do
-                inactiveFrames[#inactiveFrames + 1] = icon
-            end
-        elseif pool.EnumerateInactive then
-            for icon in pool:EnumerateInactive() do
-                inactiveFrames[#inactiveFrames + 1] = icon
-            end
-        end
-        -- fallback: 뷰어 자식 프레임 중 비활성 프레임
-        if #inactiveFrames == 0 and buffViewer.GetChildren then
-            local children = { buffViewer:GetChildren() }
-            for _, child in ipairs(children) do
-                if child.cooldownID and not seenCooldownIDs[child.cooldownID] then
-                    inactiveFrames[#inactiveFrames + 1] = child
-                end
-            end
-        end
+    -- The public category catalog includes inactive and item-provided buff slots.
+    -- Reading the frame pool only returns objects Blizzard happened to allocate.
+    local trackedBuffCategory = Enum and Enum.CooldownViewerCategory
+        and Enum.CooldownViewerCategory.TrackedBuff
+    if trackedBuffCategory and C_CooldownViewer
+        and C_CooldownViewer.GetCooldownViewerCategorySet
+        and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    then
+        local okSet, cooldownIDs = pcall(
+            C_CooldownViewer.GetCooldownViewerCategorySet,
+            trackedBuffCategory,
+            true
+        )
+        if okSet and type(cooldownIDs) == "table" then
+            for categoryIndex, rawCooldownID in ipairs(cooldownIDs) do
+                local cooldownID = SafeOptionID(rawCooldownID)
+                if cooldownID and not seenCooldownIDs[cooldownID] then
+                    local okInfo, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
+                    if okInfo and type(info) == "table" then
+                        local spellID = SafeOptionID(info.overrideTooltipSpellID)
+                            or SafeOptionID(info.overrideSpellID)
+                            or SafeOptionID(info.spellID)
+                        local spellName
+                        if spellID and C_Spell and C_Spell.GetSpellName then
+                            local okName, name = pcall(C_Spell.GetSpellName, spellID)
+                            spellName = SafeOptionValue(okName and name)
+                        end
 
-        for _, icon in ipairs(inactiveFrames) do
-            if icon.cooldownID and not seenCooldownIDs[icon.cooldownID] then
-                seenCooldownIDs[icon.cooldownID] = true
-                local spellName = nil
-                local tex = nil
-                local realSpellID = 0
-                local iconSpellID = nil
-                local spellCandidates = GetCooldownInfoSpellCandidates(nil, icon.cooldownID)
-
-                -- C_CooldownViewer API로 정보 수집
-                pcall(function()
-                    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
-                        if info then
-                            spellCandidates = GetCooldownInfoSpellCandidates(info, icon.cooldownID)
-                            iconSpellID = spellCandidates and spellCandidates[1]
-                            realSpellID = iconSpellID or 0
-                            -- spellID로 이름/아이콘 조회
-                            local sid = realSpellID > 0 and realSpellID or info.spellID
-                            if sid and sid > 0 and C_Spell then
-                                local nameResult = C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
-                                if nameResult and not (issecretvalue and issecretvalue(nameResult)) then
-                                    spellName = "buff_" .. nameResult
-                                end
-                                local texResult = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
-                                if texResult and not (issecretvalue and issecretvalue(texResult)) then
-                                    tex = texResult
-                                end
-                            end
+                        if spellID and type(spellName) == "string" and spellName ~= "" then
+                            local spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
+                            result[#result + 1] = {
+                                cooldownID = cooldownID,
+                                spellID = spellID,
+                                iconSpellID = spellID,
+                                name = spellName,
+                                icon = ResolveSpellTextureFromCandidates(spellCandidates, nil),
+                                viewerName = "BuffIconCooldownViewer",
+                                layoutIndex = categoryIndex,
+                            }
+                            seenCooldownIDs[cooldownID] = true
                         end
                     end
-                end)
-
-                -- 아이콘 텍스처 fallback
-                tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
-
-                if not tex or IsQuestionTexture(tex) then
-                    pcall(function()
-                        if icon.Icon and icon.Icon.GetTexture then
-                            local t = icon.Icon:GetTexture()
-                            if t and not (issecretvalue and issecretvalue(t)) and t ~= 0 and t ~= "" then
-                                tex = t
-                            end
-                        end
-                    end)
-                end
-
-                if spellName then
-                    result[#result + 1] = {
-                        cooldownID = icon.cooldownID,
-                        spellID = (realSpellID and realSpellID > 0) and realSpellID or icon.cooldownID,
-                        iconSpellID = iconSpellID,
-                        name = spellName,
-                        icon = tex,
-                        viewerName = "BuffIconCooldownViewer",
-                        layoutIndex = SafeCDMLayoutIndex(icon, #result + 1),
-                    }
                 end
             end
         end
@@ -1628,6 +1588,8 @@ local function BuildUnassignedSpellRows(groupName)
 
     local targetViewer = GROUP_VIEWER_MAP[groupName]
     local seen = {}
+    local unassigned = isBuffPoolGroup and GetUnassignedBuffSpells(gs, false)
+    local unassignedChanged = false
     for idx, entry in ipairs(GetCDMIconEntries()) do
         local viewerName = entry and entry.viewerName
         if viewerName and viewerSet[viewerName] then
@@ -1644,6 +1606,17 @@ local function BuildUnassignedSpellRows(groupName)
                 local dynamicBuffOwner = isBuffEntry and FindBuffDynamicSpellOwner(gs, spellID, nil)
                 local sharedBuffUnassigned = isBuffEntry and IsBuffSpellUnassigned(gs, spellName)
                 local include
+
+                local storedMeta = unassigned and unassigned[spellName]
+                if isBuffEntry and spellID and type(storedMeta) == "table"
+                    and not SafeOptionID(storedMeta.spellID)
+                then
+                    storedMeta.spellID = spellID
+                    storedMeta.icon = ResolveCDMEntryIconTexture(entry, spellName, entry.icon)
+                    storedMeta.displayName = storedMeta.displayName
+                        or ((entry.name or spellName):gsub("^buff_", ""))
+                    unassignedChanged = true
+                end
 
                 if isCustomPresetBuff then
                     include = false
@@ -1673,16 +1646,20 @@ local function BuildUnassignedSpellRows(groupName)
         end
     end
 
-    local unassigned = isBuffPoolGroup and GetUnassignedBuffSpells(gs, false)
     if unassigned then
         for spellName, meta in pairs(unassigned) do
             if meta and not seen[spellName] then
                 seen[spellName] = true
                 local metaTable = type(meta) == "table" and meta or nil
-                local spellID = metaTable and SafeOptionID(metaTable.spellID) or ResolveBuffSpellIDFromName(spellName)
+                local storedSpellID = metaTable and SafeOptionID(metaTable.spellID)
+                local spellID = storedSpellID or (not metaTable and ResolveBuffSpellIDFromName(spellName))
                 if IsCustomAuraPresetSpell(spellName, spellID) then
                     unassigned[spellName] = nil
-                    MarkSpecProfileDirty()
+                    unassignedChanged = true
+                elseif not spellID then
+                    -- Legacy rows without an ID cannot be connected to a native CDM slot.
+                    unassigned[spellName] = nil
+                    unassignedChanged = true
                 else
                     local iconTex = metaTable and SafeOptionTexture(metaTable.icon) or nil
                     if not iconTex or IsQuestionTexture(iconTex) then
@@ -1702,6 +1679,9 @@ local function BuildUnassignedSpellRows(groupName)
                 end
             end
         end
+    end
+    if unassignedChanged then
+        MarkSpecProfileDirty()
     end
 
     table.sort(rows, function(a, b)
