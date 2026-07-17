@@ -119,6 +119,9 @@ end
 local idIconMap = {}        -- [cooldownID] = CDM icon frame
 local iconSourceMap = {}    -- [cooldownID] = viewerGlobalName
 local iconSpellNameMap = {} -- [cooldownID] = spellName (캐시)
+local trackedBuffSpellNames = {}
+local trackedBuffSpellOrder = {}
+local trackedBuffSpellTextures = {}
 local viewerRefs = {}       -- [globalName] = viewer frame reference
 
 -- ============================================================
@@ -742,16 +745,6 @@ end
 -- → _ddCDMActive 플래그로 CDM의 진짜 상태를 추적
 -- ============================================================
 
-local function ReadBuffFrameActiveState(frame)
-    if not frame then return false end
-    local active
-    local ok = pcall(function() active = frame.isActive end)
-    if ok and not (issecretvalue and issecretvalue(active)) and type(active) == "boolean" then
-        return active
-    end
-    return frame.IsShown and frame:IsShown() or false
-end
-
 if not FrameController._activeStateHooked then
     FrameController._activeStateHooked = true
     FrameController._diagCounters = { activeStateChanged = 0, cooldownIDSet = 0, poolRelease = 0 }
@@ -760,7 +753,7 @@ if not FrameController._activeStateHooked then
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             -- CDM이 active → true, inactive → false
             -- IsShown()이 아닌 CDM 내부 상태를 반영
-            frame._ddCDMActive = ReadBuffFrameActiveState(frame)
+            frame._ddCDMActive = ShouldIncludeCooldownViewerFrame(frame, "BuffIconCooldownViewer")
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -998,6 +991,9 @@ function FrameController:ScanCDMViewers()
 
     local nextIdIconMap = {}
     local nextIconSourceMap = {}
+    local nextTrackedBuffSpellNames = {}
+    local nextTrackedBuffSpellOrder = {}
+    local nextTrackedBuffSpellTextures = {}
     local scannedViewers = 0
     local activeFrameCount = 0
     local hiddenFrameCount = 0
@@ -1006,16 +1002,6 @@ function FrameController:ScanCDMViewers()
     -- [REPARENT] DDingUI 프로필 참조 — 뷰어 활성화 상태 확인
     local profile = DDingUI.db and DDingUI.db.profile
     local viewerProfiles = profile and profile.viewers
-    local groupSettings = profile and profile.groupSystem and profile.groupSystem.groups
-    local retainInactiveBuffFrames = false
-    for groupName, settings in pairs(groupSettings or {}) do
-        if settings and settings.enabled ~= false and settings.showInactiveIcons == true
-            and (groupName == "Buffs" or settings.groupCategory == "buff")
-        then
-            retainInactiveBuffFrames = true
-            break
-        end
-    end
     local bridge = DDingUI.DynamicIconBridge
     local suppressed = bridge and bridge.GetSuppressedSpellIDs and bridge:GetSuppressedSpellIDs()
 
@@ -1053,18 +1039,25 @@ function FrameController:ScanCDMViewers()
                     local sourceShown = icon.IsShown and icon:IsShown() or false
                     icon._ddSourceViewer = globalName
                     icon._ddCDMViewerShown = sourceShown and true or false
+                    local trackedBuffName
+                    if globalName == "BuffIconCooldownViewer" then
+                        local spellID = self:GetSpellIDForIcon(icon)
+                        if spellID and C_Spell and C_Spell.GetSpellInfo then
+                            local spellInfo = C_Spell.GetSpellInfo(spellID)
+                            if spellInfo and spellInfo.name then
+                                trackedBuffName = "buff_" .. spellInfo.name
+                                nextTrackedBuffSpellNames[trackedBuffName] = true
+                                nextTrackedBuffSpellTextures[trackedBuffName] = spellInfo.iconID
+                                local layoutIndex = icon.layoutIndex
+                                if not (issecretvalue and issecretvalue(layoutIndex))
+                                    and type(layoutIndex) == "number"
+                                then
+                                    nextTrackedBuffSpellOrder[trackedBuffName] = layoutIndex
+                                end
+                            end
+                        end
+                    end
                     local shouldInclude = ShouldIncludeCooldownViewerFrame(icon, globalName)
-                    local knownBuffActive = icon._ddCDMActive
-                    if knownBuffActive == nil and globalName == "BuffIconCooldownViewer" then
-                        knownBuffActive = ReadBuffFrameActiveState(icon)
-                    end
-                    local inactiveGrayCandidate = globalName == "BuffIconCooldownViewer"
-                        and retainInactiveBuffFrames
-                        and knownBuffActive == false
-                    icon._ddCDMInactiveGrayCandidate = inactiveGrayCandidate and true or nil
-                    if inactiveGrayCandidate then
-                        shouldInclude = true
-                    end
                     if globalName == "BuffIconCooldownViewer" then
                         if shouldInclude and sourceShown then
                             RestoreStaleBuffFrame(icon)
@@ -1138,14 +1131,13 @@ function FrameController:ScanCDMViewers()
                         nextIconSourceMap[cooldownID] = globalName
 
                         -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
-                        local name = self:GetSpellName(icon)
+                        local name = trackedBuffName or self:GetSpellName(icon)
                         if name then
                             iconSpellNameMap[cooldownID] = name
                         end
 
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
-                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = true
                                 end
@@ -1175,7 +1167,6 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
-                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = false
                                 end
@@ -1188,7 +1179,6 @@ function FrameController:ScanCDMViewers()
                         -- 숨겨진 아이콘에도 OnShow/OnHide 훅 설치
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
-                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = true
                                 end
@@ -1199,7 +1189,6 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
-                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = false
                                 end
@@ -1244,11 +1233,19 @@ function FrameController:ScanCDMViewers()
 
     wipe(idIconMap)
     wipe(iconSourceMap)
+    wipe(trackedBuffSpellNames)
+    wipe(trackedBuffSpellOrder)
+    wipe(trackedBuffSpellTextures)
     for cooldownID, icon in pairs(nextIdIconMap) do
         idIconMap[cooldownID] = icon
     end
     for cooldownID, sourceName in pairs(nextIconSourceMap) do
         iconSourceMap[cooldownID] = sourceName
+    end
+    for spellName in pairs(nextTrackedBuffSpellNames) do
+        trackedBuffSpellNames[spellName] = true
+        trackedBuffSpellOrder[spellName] = nextTrackedBuffSpellOrder[spellName]
+        trackedBuffSpellTextures[spellName] = nextTrackedBuffSpellTextures[spellName]
     end
 
     state.emptyScanStreak = 0
@@ -2030,6 +2027,18 @@ end
 
 function FrameController:GetSpellNameForID(cooldownID)
     return iconSpellNameMap[cooldownID]
+end
+
+function FrameController:GetTrackedBuffSpellNames()
+    return trackedBuffSpellNames
+end
+
+function FrameController:GetTrackedBuffSpellOrder()
+    return trackedBuffSpellOrder
+end
+
+function FrameController:GetTrackedBuffSpellTextures()
+    return trackedBuffSpellTextures
 end
 
 function FrameController:GetDefaultGroupForViewer(globalName)

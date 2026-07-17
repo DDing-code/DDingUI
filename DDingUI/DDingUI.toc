@@ -115,6 +115,7 @@ Modules\BuffDebuffFrames\BuffDebuffFrames.lua
 Modules\GroupSystem\FrameController.lua
 Modules\GroupSystem\ContainerSync.lua
 Modules\GroupSystem\GroupManager.lua
+Modules\GroupSystem\BuffGroupPlaceholders.lua
 Modules\GroupSystem\GroupRenderer.lua
 Modules\GroupSystem\GroupStyle.lua
 Modules\GroupSystem\DynamicIconBridge.lua

@@ -519,76 +519,6 @@ local function SetDynamicIconInactiveGray(icon, inactiveGray)
     icon._ddInactiveGray = inactiveGray and true or nil
 
     local texture = icon.icon or icon.Icon
-    if texture and not icon._ddInactiveGrayHooksInstalled then
-        icon._ddInactiveGrayHooksInstalled = true
-
-        if texture.SetDesaturated then
-            hooksecurefunc(texture, "SetDesaturated", function(self, value)
-                if issecretvalue and issecretvalue(value) then return end
-                if icon._ddInactiveGray and value ~= true and not self._ddGrayStateGuard then
-                    self._ddGrayStateGuard = true
-                    self:SetDesaturated(true)
-                    self._ddGrayStateGuard = nil
-                end
-            end)
-        end
-        if texture.SetDesaturation then
-            hooksecurefunc(texture, "SetDesaturation", function(self, value)
-                if issecretvalue and issecretvalue(value) then return end
-                if icon._ddInactiveGray and value ~= 1 and not self._ddGrayStateGuard then
-                    self._ddGrayStateGuard = true
-                    self:SetDesaturation(1)
-                    self._ddGrayStateGuard = nil
-                end
-            end)
-        end
-        if texture.SetAlpha then
-            hooksecurefunc(texture, "SetAlpha", function(self, alpha)
-                if not icon._ddInactiveGray or self._ddGrayAlphaGuard then return end
-                local fh = DDingUI.FlightHide
-                if fh and (fh.isActive or fh._hiding) then return end
-                if issecretvalue and issecretvalue(alpha) then return end
-                if type(alpha) == "number" and math_abs(alpha - 0.48) > ALPHA_EPSILON then
-                    self._ddGrayAlphaGuard = true
-                    self:SetAlpha(0.48)
-                    self._ddGrayAlphaGuard = nil
-                end
-            end)
-        end
-        if texture.SetVertexColor then
-            hooksecurefunc(texture, "SetVertexColor", function(self, r, g, b, a)
-                if not icon._ddInactiveGray or self._ddGrayColorGuard then return end
-                self._ddGrayColorGuard = true
-                self:SetVertexColor(1, 1, 1, 1)
-                self._ddGrayColorGuard = nil
-            end)
-        end
-
-        icon:HookScript("OnHide", function(self)
-            if not self._ddInactiveGray or not self._ddIsManaged or self._ddingHidden or self._ddSuppressed then return end
-            local fh = DDingUI.FlightHide
-            if fh and (fh.isActive or fh._hiding) then return end
-            local container = self._ddContainerRef
-            if container and container:IsShown() then
-                self:Show()
-            end
-        end)
-        if icon.SetAlpha then
-            hooksecurefunc(icon, "SetAlpha", function(self, alpha)
-                if not self._ddInactiveGray or self._ddGrayFrameAlphaGuard then return end
-                local fh = DDingUI.FlightHide
-                if fh and (fh.isActive or fh._hiding) then return end
-                if issecretvalue and issecretvalue(alpha) then return end
-                local target = self._ddInactiveGrayFrameAlpha or 1
-                if type(alpha) == "number" and math_abs(alpha - target) > ALPHA_EPSILON then
-                    self._ddGrayFrameAlphaGuard = true
-                    self:SetAlpha(target)
-                    self._ddGrayFrameAlphaGuard = nil
-                end
-            end)
-        end
-    end
-
     if texture then
         if texture.Show then pcall(texture.Show, texture) end
         if inactiveGray then
@@ -737,7 +667,6 @@ function GroupRenderer:IsHiddenSourceBuffIcon(icon)
     return icon
         and icon._ddSourceViewer == "BuffIconCooldownViewer"
         and icon._ddCDMViewerShown == false
-        and icon._ddInactiveGray ~= true
 end
 
 function GroupRenderer:CanShowManagedIcon(icon)
@@ -774,16 +703,13 @@ local function ShouldLayoutManagedIcon(icon)
     return icon:IsShown()
 end
 
-local function BuildCDMPlacement(entry, groupSettings)
+local function BuildCDMPlacement(entry)
     if not entry or not entry.icon then return nil end
     entry.isCDM = true
     entry.isDynamic = nil
-    entry.inactiveGray = groupSettings
-        and groupSettings.showInactiveIcons == true
-        and entry.icon._ddCDMInactiveGrayCandidate == true
-        or false
-    entry.icon._ddInactiveGray = entry.inactiveGray and true or nil
-    entry.sourceVisible = entry.inactiveGray or not GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)
+    entry.inactiveGray = false
+    entry.icon._ddInactiveGray = nil
+    entry.sourceVisible = not GroupRenderer:IsHiddenSourceBuffIcon(entry.icon)
     entry._ddOrderToken = BuildCDMOrderToken(entry)
     return entry
 end
@@ -2270,12 +2196,25 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
     local newSet = {}
     local combinedList = {}
+    local activeCDMTokens = {}
 
     -- CDM icons stay in their source group; dynamic icons are additions.
     -- 1. CDM icons
     for _, entry in ipairs(iconList) do
-        local placement = BuildCDMPlacement(entry, groupSettings)
+        local placement = BuildCDMPlacement(entry)
         if placement then
+            newSet[placement.icon] = true
+            combinedList[#combinedList + 1] = placement
+            if placement._ddOrderToken then
+                activeCDMTokens[placement._ddOrderToken] = true
+            end
+        end
+    end
+
+    local placeholders = DDingUI.BuffGroupPlaceholders
+    if placeholders then
+        local placeholderEntries = placeholders:BuildPlacements(groupName, groupSettings, activeCDMTokens)
+        for _, placement in ipairs(placeholderEntries or {}) do
             newSet[placement.icon] = true
             combinedList[#combinedList + 1] = placement
         end
@@ -2366,7 +2305,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             SetManagedIconLayoutVisible(icon, false)
             SetDynamicIconInactiveGray(icon, false)
             GRLog("cleanup:", tostring(icon.cooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
-            if icon._ddIconKey then
+            if icon._ddIsPlaceholder then
+                if placeholders then placeholders:DeactivateFrame(icon) end
+            elseif icon._ddIconKey then
                 -- 동적 아이콘: DDingUI가 소유 → 직접 Hide + Release
                 if inCombat then
                     frame._ddDeferredReleaseIcons[icon._ddIconKey] = icon
@@ -2437,7 +2378,26 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
         if icon then
             local sourceVisible = entry.sourceVisible ~= false and not GroupRenderer:IsHiddenSourceBuffIcon(icon)
-            if entry.isDynamic then
+            if entry.isPlaceholder then
+                icon:SetParent(UIParent)
+                icon._ddContainerRef = frame
+                icon._ddIsManaged = true
+                icon._ddLayoutVisible = true
+                icon:SetScale(1)
+                icon:SetSize(baseIconW, baseIconH)
+                local placeholderBridge = DDingUI.DynamicIconBridge
+                if placeholderBridge and placeholderBridge.ApplyTexCoordCrop then
+                    placeholderBridge.ApplyTexCoordCrop(icon.icon, groupSettings.zoom or 0.08, groupSettings.aspectRatioCrop or 1.0)
+                end
+                if placeholders then
+                    placeholders:ApplyStyle(icon, groupSettings)
+                end
+                SetDynamicIconInactiveGray(icon, true)
+                SetAlphaIfNeeded(icon, groupSettings.groupAlpha or 1, "_ddLastGroupAlpha")
+                idx = idx + 1
+                frame._managedIcons[idx] = icon
+                icon:Show()
+            elseif entry.isDynamic then
                 if frame._ddDeferredReleaseIcons then
                     frame._ddDeferredReleaseIcons[entry.iconKey or entry.cooldownID] = nil
                 end
@@ -2790,7 +2750,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 elseif GroupRenderer:IsHiddenSourceBuffIcon(ic) then
                     iconAlpha = 0
                 end
-                ic._ddInactiveGrayFrameAlpha = ic._ddInactiveGray and iconAlpha or nil
                 SetAlphaIfNeeded(ic, iconAlpha, "_ddLastGroupAlpha")
                 if ic._ddInactiveGray and iconAlpha > 0 then
                     SetDynamicIconInactiveGray(ic, true)
@@ -3103,7 +3062,10 @@ function GroupRenderer:ReleaseGroupIcons(frame)
     for _, icon in pairs(frame._managedIcons) do
         if icon then
             icon._ddLayoutVisible = nil
-            if icon._ddIconKey then
+            if icon._ddIsPlaceholder then
+                local placeholders = DDingUI.BuffGroupPlaceholders
+                if placeholders then placeholders:DeactivateFrame(icon) end
+            elseif icon._ddIconKey then
                 -- [FIX] 동적 아이콘: bridge로 해제 + 숨기기
                 if icon.Hide then icon:Hide() end
                 iconsToHide[#iconsToHide + 1] = icon
@@ -3140,6 +3102,9 @@ end
 
 function GroupRenderer:DestroyAllGroups()
     self:RestoreAllIcons()
+    if DDingUI.BuffGroupPlaceholders then
+        DDingUI.BuffGroupPlaceholders:ReleaseAll()
+    end
 
     for groupName, frame in pairs(self.groupFrames) do
         frame:Hide()
@@ -3160,6 +3125,9 @@ end
 function GroupRenderer:DestroyGroup(groupName)
     local frame = self.groupFrames[groupName]
     if not frame then return end
+    if DDingUI.BuffGroupPlaceholders then
+        DDingUI.BuffGroupPlaceholders:ReleaseGroup(groupName)
+    end
 
     -- [FIX] 동적/CDM 아이콘을 개별적으로 확인하여 모두 안전하게 해제
     self:ReleaseGroupIcons(frame)
@@ -3249,6 +3217,9 @@ function GroupRenderer:UpdateDynamicGroup(groupName, groupSettings, frame)
         if not frame then
             frame = self:CreateGroupFrame(groupName, groupSettings)
         end
+    end
+    if DDingUI.BuffGroupPlaceholders then
+        DDingUI.BuffGroupPlaceholders:ReleaseGroup(groupName)
     end
 
     if not groupSettings or not groupSettings.enabled then

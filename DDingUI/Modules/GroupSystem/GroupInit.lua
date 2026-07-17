@@ -756,7 +756,11 @@ DoFullUpdate = function()
         for groupName, groupSettings in pairs(gs.groups) do
             if groupSettings.groupType == "dynamic" and groupSettings.enabled
                and not processedDynamicGroups[groupName] then
-                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+                if groupSettings.showInactiveIcons == true and groupSettings.groupCategory == "buff" then
+                    GroupRenderer:UpdateGroup(groupName, {}, groupSettings)
+                else
+                    GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+                end
             end
         end
     end
@@ -817,7 +821,11 @@ DoDynamicUpdate = function(sourceKeys)
         if groupSettings.sourceGroupKey then
             if not limited or sourceKeys[groupSettings.sourceGroupKey] then
                 if groupSettings.groupType == "dynamic" then
-                    GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+                    if groupSettings.showInactiveIcons == true and groupSettings.groupCategory == "buff" then
+                        GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
+                    else
+                        GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+                    end
                 else
                     GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
                 end
