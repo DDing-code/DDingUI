@@ -519,6 +519,76 @@ local function SetDynamicIconInactiveGray(icon, inactiveGray)
     icon._ddInactiveGray = inactiveGray and true or nil
 
     local texture = icon.icon or icon.Icon
+    if texture and not icon._ddInactiveGrayHooksInstalled then
+        icon._ddInactiveGrayHooksInstalled = true
+
+        if texture.SetDesaturated then
+            hooksecurefunc(texture, "SetDesaturated", function(self, value)
+                if issecretvalue and issecretvalue(value) then return end
+                if icon._ddInactiveGray and value ~= true and not self._ddGrayStateGuard then
+                    self._ddGrayStateGuard = true
+                    self:SetDesaturated(true)
+                    self._ddGrayStateGuard = nil
+                end
+            end)
+        end
+        if texture.SetDesaturation then
+            hooksecurefunc(texture, "SetDesaturation", function(self, value)
+                if issecretvalue and issecretvalue(value) then return end
+                if icon._ddInactiveGray and value ~= 1 and not self._ddGrayStateGuard then
+                    self._ddGrayStateGuard = true
+                    self:SetDesaturation(1)
+                    self._ddGrayStateGuard = nil
+                end
+            end)
+        end
+        if texture.SetAlpha then
+            hooksecurefunc(texture, "SetAlpha", function(self, alpha)
+                if not icon._ddInactiveGray or self._ddGrayAlphaGuard then return end
+                local fh = DDingUI.FlightHide
+                if fh and (fh.isActive or fh._hiding) then return end
+                if issecretvalue and issecretvalue(alpha) then return end
+                if type(alpha) == "number" and math_abs(alpha - 0.48) > ALPHA_EPSILON then
+                    self._ddGrayAlphaGuard = true
+                    self:SetAlpha(0.48)
+                    self._ddGrayAlphaGuard = nil
+                end
+            end)
+        end
+        if texture.SetVertexColor then
+            hooksecurefunc(texture, "SetVertexColor", function(self, r, g, b, a)
+                if not icon._ddInactiveGray or self._ddGrayColorGuard then return end
+                self._ddGrayColorGuard = true
+                self:SetVertexColor(1, 1, 1, 1)
+                self._ddGrayColorGuard = nil
+            end)
+        end
+
+        icon:HookScript("OnHide", function(self)
+            if not self._ddInactiveGray or not self._ddIsManaged or self._ddingHidden or self._ddSuppressed then return end
+            local fh = DDingUI.FlightHide
+            if fh and (fh.isActive or fh._hiding) then return end
+            local container = self._ddContainerRef
+            if container and container:IsShown() then
+                self:Show()
+            end
+        end)
+        if icon.SetAlpha then
+            hooksecurefunc(icon, "SetAlpha", function(self, alpha)
+                if not self._ddInactiveGray or self._ddGrayFrameAlphaGuard then return end
+                local fh = DDingUI.FlightHide
+                if fh and (fh.isActive or fh._hiding) then return end
+                if issecretvalue and issecretvalue(alpha) then return end
+                local target = self._ddInactiveGrayFrameAlpha or 1
+                if type(alpha) == "number" and math_abs(alpha - target) > ALPHA_EPSILON then
+                    self._ddGrayFrameAlphaGuard = true
+                    self:SetAlpha(target)
+                    self._ddGrayFrameAlphaGuard = nil
+                end
+            end)
+        end
+    end
+
     if texture then
         if texture.Show then pcall(texture.Show, texture) end
         if inactiveGray then
@@ -2720,6 +2790,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 elseif GroupRenderer:IsHiddenSourceBuffIcon(ic) then
                     iconAlpha = 0
                 end
+                ic._ddInactiveGrayFrameAlpha = ic._ddInactiveGray and iconAlpha or nil
                 SetAlphaIfNeeded(ic, iconAlpha, "_ddLastGroupAlpha")
                 if ic._ddInactiveGray and iconAlpha > 0 then
                     SetDynamicIconInactiveGray(ic, true)

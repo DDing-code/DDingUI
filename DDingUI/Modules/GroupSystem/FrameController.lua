@@ -1145,6 +1145,7 @@ function FrameController:ScanCDMViewers()
 
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
+                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = true
                                 end
@@ -1174,6 +1175,7 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
+                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = false
                                 end
@@ -1186,6 +1188,7 @@ function FrameController:ScanCDMViewers()
                         -- 숨겨진 아이콘에도 OnShow/OnHide 훅 설치
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
+                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = true
                                 end
@@ -1196,6 +1199,7 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
+                                if self._ddInactiveGray then return end
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = false
                                 end
