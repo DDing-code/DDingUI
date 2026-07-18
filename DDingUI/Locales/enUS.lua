@@ -7,6 +7,8 @@ local L = LibStub("AceLocale-3.0"):NewLocale("DDingUI", "enUS", true)
 
 if not L then return end
 
+L["Add Trinket Buff"] = "Add Trinket Buff"
+
 -- ============================================================
 -- GENERAL
 -- ============================================================

@@ -2113,6 +2113,8 @@ local function BuildAssignedSpellsArgs(groupName)
                             iconKey = iconKey,
                             iconIdx = iconIdx,
                             iconType = iconData.type,
+                            itemID = iconData.type == "item" and iconData.id or nil,
+                            slotID = iconData.slotID,
                             displayName = displayName,
                             iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),
                             fallbackOrder = 10000 + iconIdx,
@@ -2196,6 +2198,10 @@ local function BuildAssignedSpellsArgs(groupName)
                 _gridIconTex = iconTex,
                 _gridDisplayName = row.displayName or capturedIconKey or "Unknown",
                 _gridCanRemove = true,
+                _gridDynamicIconKey = capturedIconKey,
+                _gridDynamicIconType = row.iconType,
+                _gridItemID = row.itemID,
+                _gridSlotID = row.slotID,
                 _dragData = {
                     groupKey = useGroupOrder and MakeGroupOrderDragKey(groupName) or capturedSourceKey,
                     iconKey = useGroupOrder and row.token or capturedIconKey,
@@ -3217,6 +3223,79 @@ local function AddRacialIconToGroup(groupName)
     return AddDynamicPayloadToGroup(groupName, { type = "racial", id = "racial" })
 end
 
+function DDingUI:ResolveGridTrinketItemID(opt)
+    if not opt then return nil end
+    local itemID = SafeOptionID(opt._gridItemID)
+    if itemID then return itemID end
+    local slotID = SafeOptionID(opt._gridSlotID)
+    if slotID == 13 or slotID == 14 then
+        return SafeOptionID(GetInventoryItemID("player", slotID))
+    end
+    return nil
+end
+
+function DDingUI:GroupHasTrinketEffect(groupName, effectKey)
+    if not groupName or not effectKey then return false end
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local sourceKey = groupSettings and groupSettings.sourceGroupKey
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local group = sourceKey and dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    for _, iconKey in ipairs((group and group.icons) or {}) do
+        local iconData = dynDB.iconData and dynDB.iconData[iconKey]
+        local settings = iconData and iconData.settings
+        if settings and settings.trinketEffectKey == effectKey then return true end
+    end
+    return false
+end
+
+function DDingUI:AddTrinketEffectsToGroup(groupName, itemID)
+    local registry = DDingUI.TrinketEffects
+    if not registry or not registry.BuildAuraPayloads then return false end
+    local changed = false
+    for _, payload in ipairs(registry:BuildAuraPayloads(itemID)) do
+        local effectKey = payload.settings and payload.settings.trinketEffectKey
+        if not self:GroupHasTrinketEffect(groupName, effectKey) then
+            changed = AddDynamicPayloadToGroup(groupName, payload, payload.settings) or changed
+        end
+    end
+    return changed
+end
+
+function DDingUI:BuildTrinketEffectGroupMenu(opt, refreshFunc)
+    local itemID = self:ResolveGridTrinketItemID(opt)
+    local registry = DDingUI.TrinketEffects
+    if not itemID or not registry or not registry.GetEffectsForItem then return nil end
+    if #(registry:GetEffectsForItem(itemID) or {}) == 0 then return nil end
+
+    local gs = GetGS()
+    local groups = {}
+    for groupName, settings in pairs((gs and gs.groups) or {}) do
+        if IsBuffGroup(groupName, settings) then
+            groups[#groups + 1] = { name = groupName, order = tonumber(settings.order) or 999 }
+        end
+    end
+    table.sort(groups, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return a.name < b.name
+    end)
+    if #groups == 0 then return nil end
+
+    local menu = {}
+    for _, entry in ipairs(groups) do
+        local groupName = entry.name
+        menu[#menu + 1] = {
+            text = groupName,
+            func = function()
+                if self:AddTrinketEffectsToGroup(groupName, itemID) and refreshFunc then
+                    refreshFunc()
+                end
+            end,
+        }
+    end
+    return menu
+end
+
 local function AddUnassignedRowToGroup(groupName, row)
     if not row then return false end
     local beforeTokens = SnapshotGroupOrderTokens(groupName)
@@ -3730,6 +3809,15 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                     CallOptionFunc(opt)
                     RefreshAfterCommit()
                 end,
+            }
+            menuList[#menuList + 1] = { isSeparator = true }
+        end
+
+        local trinketTargets = DDingUI:BuildTrinketEffectGroupMenu(opt, RefreshAfterCommit)
+        if trinketTargets then
+            menuList[#menuList + 1] = {
+                text = rawget(L, "Add Trinket Buff") or "Add Trinket Buff",
+                menuList = trinketTargets,
             }
             menuList[#menuList + 1] = { isSeparator = true }
         end

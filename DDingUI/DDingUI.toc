@@ -97,6 +97,7 @@ Modules\IconViewers\Keybinds.lua
 # CustomIcons (Dynamic Icons)
 Modules\CustomIcons\RacialCooldowns.lua
 Modules\CustomIcons\CustomIcons.lua
+Modules\CustomIcons\TrinketEffects.lua
 
 # IconCustomization
 Modules\IconCustomization\IconCustomization.lua

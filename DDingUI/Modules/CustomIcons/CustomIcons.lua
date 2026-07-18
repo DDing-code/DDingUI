@@ -756,6 +756,9 @@ local function ResolveSpellTexture(spellID, fallbackTexture)
 end
 
 function CustomIcons.ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
+    if config and config.trigger == "trinket_effect" and config.iconTexture then
+        return config.iconTexture
+    end
     local stateID = tonumber(spellID)
     local displayID = tonumber(iconSpellID)
     if displayID and displayID ~= stateID then
@@ -1119,13 +1122,13 @@ local function GetCustomTimedAuraConfig(iconData)
     local spellID = tonumber(iconData.id)
     if not spellID then return nil end
 
-    local stateID = spellID
+    local settings = iconData.settings or {}
+    local stateID = tonumber(settings.customAuraStateID) or spellID
     if AURA_EQUIVALENT_IDS[spellID] then
         stateID = 2825
     end
 
     local preset = CUSTOM_TIMED_AURA_CONFIGS[stateID]
-    local settings = iconData.settings or {}
     local duration = tonumber((preset and preset.duration) or settings.customAuraDuration)
     if not duration or duration <= 0 then return nil end
 
@@ -1139,7 +1142,9 @@ end
 
 local function IsEventDrivenCustomTimedAuraConfig(config)
     if not config then return false end
-    return config.trigger == "bloodlust" or config.trigger == "timespiral"
+    return config.trigger == "bloodlust"
+        or config.trigger == "timespiral"
+        or config.trigger == "trinket_effect"
 end
 
 local function BuildTimedAuraData(spellID, state)
@@ -1148,7 +1153,7 @@ local function BuildTimedAuraData(spellID, state)
         startTime = state.startTime,
         duration = state.duration,
         expirationTime = state.expirationTime,
-        applications = 0,
+        applications = tonumber(state.stacks) or 0,
         icon = state.iconTexture,
         __ddinguiTimedAura = true,
     }
@@ -1628,7 +1633,7 @@ local function RecordCustomTimedAuraLink(spellID, matchedFrame, hasMatchingIcon)
     bucket.frameCount = frameCount
 end
 
-local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
+local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID, stateOptions)
     spellID = tonumber(spellID)
     if not spellID or not config then return nil, false end
 
@@ -1648,6 +1653,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         or math.abs((old.startTime or 0) - started) > 0.05
         or math.abs((old.expirationTime or 0) - expirationTime) > 0.05
         or (iconTexture and old.iconTexture ~= iconTexture)
+        or (tonumber(old and old.stacks) or 0) ~= (tonumber(stateOptions and stateOptions.stacks) or 0)
 
     local token = {}
     local state = {
@@ -1656,6 +1662,7 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID)
         expirationTime = expirationTime,
         token = token,
         iconTexture = iconTexture,
+        stacks = tonumber(stateOptions and stateOptions.stacks) or 0,
     }
     runtime.customTimedAuras[spellID] = state
     local matchedFrame, hasMatchingIcon, needsLayout
@@ -3362,6 +3369,25 @@ end
 
 function CustomIcons:GetActiveCustomTimedAuraForIcon(iconData)
     return GetActiveCustomTimedAura(iconData)
+end
+
+function CustomIcons:ActivateExternalTimedAura(stateID, duration, iconTexture, stacks, startTime)
+    stateID = tonumber(stateID)
+    duration = tonumber(duration)
+    if not stateID or not duration or duration <= 0 then return false end
+    local _, changed = ActivateCustomTimedAura(stateID, {
+        stateID = stateID,
+        duration = duration,
+        trigger = "trinket_effect",
+        iconTexture = iconTexture,
+    }, startTime, stateID, { stacks = stacks })
+    return changed == true
+end
+
+function CustomIcons:DeactivateExternalTimedAura(stateID)
+    stateID = tonumber(stateID)
+    if not stateID then return false end
+    return DeactivateCustomTimedAura(stateID)
 end
 
 function CustomIcons:IsCustomTimedAuraIcon(iconData)
