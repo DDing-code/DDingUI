@@ -12,7 +12,6 @@ ConfigHelpers.lua
 ViewerOptions.lua
 ResourceBarOptions.lua
 CustomIconOptions.lua
-IconCustomizationOptions.lua
 CastBarOptions.lua
 BuffDebuffFramesOptions.lua
 BuffBarOptions.lua

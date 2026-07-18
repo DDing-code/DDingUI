@@ -6,7 +6,6 @@ local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 local ViewerOptions = ns.CreateViewerOptions
 local ResourceBarOptions = ns.CreateResourceBarOptions
 local CustomIconOptions = ns.CreateCustomIconOptions
-local IconCustomizationOptions = ns.CreateIconCustomizationOptions
 local CastBarOptions = ns.CreateCastBarOptions
 local BuffDebuffFramesOptions = ns.CreateBuffDebuffFramesOptions
 local BuffBarOptions = ns.CreateBuffBarOptions
@@ -256,11 +255,6 @@ function DDingUI:SetupOptions()
     if CustomIconOptions then
         options.args.customIcons = CustomIconOptions(3)
         options.args.customIcons.hidden = true
-    end
-
-    -- Icon Customization
-    if IconCustomizationOptions then
-        options.args.iconCustomization = IconCustomizationOptions(4)
     end
 
     -- Cast Bars

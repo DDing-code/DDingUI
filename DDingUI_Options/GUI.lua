@@ -39,7 +39,6 @@ end
 -- false = expanded by default
 local CollapsedGroups = {
     ["customIcons.header.header"] = false,           -- 동적아이콘
-    ["iconCustomization.header.header"] = false,     -- 아이콘 커스터마이징
 }
 
 -- [FIX] 드래그&드롭 순서 변경 상태
@@ -5228,18 +5227,6 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     DDingUI.CustomIcons:BuildDynamicIconsUI(dynFrame)
                     widget = dynFrame
                     widgetHeight = 750  -- 고정 높이 사용
-                end
-            elseif option.type == "iconCustomization" then
-                if DDingUI and DDingUI.IconCustomization and DDingUI.IconCustomization.BuildIconCustomizationUI then
-                    local iconFrame = CreateFrame("Frame", nil, contentFrame, "BackdropTemplate")
-                    iconFrame:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -yOffset)
-                    iconFrame:SetPoint("RIGHT", contentFrame, "RIGHT", 0, 0)
-                    -- Set initial width for proper layout calculation
-                    iconFrame:SetWidth(contentFrame:GetWidth() or 900)
-                    DDingUI.IconCustomization:BuildIconCustomizationUI(iconFrame)
-                    widget = iconFrame
-                    -- Get height after BuildIconCustomizationUI sets it
-                    widgetHeight = iconFrame:GetHeight() or 400
                 end
             elseif option.type == "groupAssignGrid" then
                 -- [REFACTOR] 인라인 그룹 아이콘 할당 그리드

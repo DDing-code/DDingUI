@@ -888,10 +888,6 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
         },
         { isSeparator = true },
         {
-            text = L["More Settings..."] or "More Settings...",
-            func = function() self:OpenSpellEditor(spellID, viewerType) end,
-        },
-        {
             text = L["Reset Icon"] or "Reset Icon",
             color = "dim",
             func = function()
