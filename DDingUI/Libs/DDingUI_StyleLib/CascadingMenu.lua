@@ -57,7 +57,7 @@ local function CreateMenuItem(parent)
     item.arrow = item:CreateFontString(nil, "OVERLAY")
     item.arrow:SetFont(Lib:GetFont("primary"), Lib:GetFontSize("small"), "")
     item.arrow:SetPoint("RIGHT", -6, 0)
-    item.arrow:SetText("▸")
+    item.arrow:SetText("")
     item.arrow:SetTextColor(Lib.GetColor("dim"))
     item.arrow:Hide()
 
@@ -256,9 +256,7 @@ local function LayoutMenu(menu, menuList)
             item._menuList = entry.menuList
 
             -- 서브메뉴 화살표
-            if entry.menuList then
-                item.arrow:Show()
-            end
+            item.arrow:Hide()
 
 
             if entry.rightText then
