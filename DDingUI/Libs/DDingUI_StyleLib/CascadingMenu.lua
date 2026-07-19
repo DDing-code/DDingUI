@@ -53,11 +53,12 @@ local function CreateMenuItem(parent)
     item.valueText:SetTextColor(Lib.GetColor("dim"))
     item.valueText:Hide()
 
-    -- 서브메뉴 화살표
+    -- Submenus open on hover; keep the marker empty so custom fonts cannot
+    -- render a missing-glyph replacement character here.
     item.arrow = item:CreateFontString(nil, "OVERLAY")
     item.arrow:SetFont(Lib:GetFont("primary"), Lib:GetFontSize("small"), "")
     item.arrow:SetPoint("RIGHT", -6, 0)
-    item.arrow:SetText(">")
+    item.arrow:SetText("")
     item.arrow:SetTextColor(Lib.GetColor("dim"))
     item.arrow:Hide()
 
@@ -255,13 +256,10 @@ local function LayoutMenu(menu, menuList)
             item._value = entry.value
             item._menuList = entry.menuList
 
-            -- 서브메뉴 화살표
-            item.arrow:SetText(">")
-            if entry.menuList then
-                item.arrow:Show()
-            else
-                item.arrow:Hide()
-            end
+            -- Submenu markers are intentionally hidden. The menu still opens
+            -- through the item's existing hover handler.
+            item.arrow:SetText("")
+            item.arrow:Hide()
 
 
             if entry.rightText then
