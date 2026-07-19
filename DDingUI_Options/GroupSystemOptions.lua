@@ -2070,20 +2070,27 @@ local function BuildAssignedSpellsArgs(groupName)
                         elseif iconData.type == "spell" or iconData.type == "aura" then
                             local spellID = iconData.id or 0
                             if type(spellID) == "string" then spellID = tonumber(spellID) or spellID end
+                            iconTex = iconData.settings
+                                and (iconData.settings.iconTexture or iconData.settings.fallbackIcon or iconData.settings.icon)
+                                or iconTex
 
                             local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
                             if spellInfo then
                                 displayName = spellInfo.name or displayName
-                                iconTex = spellInfo.iconID or iconTex
+                                if not iconTex or IsQuestionTexture(iconTex) then
+                                    iconTex = spellInfo.iconID or iconTex
+                                end
                             elseif C_Spell then
                                 -- fallback: 개별 API
                                 local name = C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
                                 local icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
                                 if name then displayName = name end
-                                if icon then iconTex = icon end
+                                if icon and (not iconTex or IsQuestionTexture(iconTex)) then iconTex = icon end
                             end
 
-                            iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex)
+                            if not iconTex or IsQuestionTexture(iconTex) then
+                                iconTex = ResolveSpellTextureFromCandidates({ spellID }, iconTex)
+                            end
 
                             if IsQuestionTexture(iconTex) then
                                 displayName = "Invalid Spell: " .. tostring(spellID)
