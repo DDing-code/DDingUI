@@ -2195,6 +2195,16 @@ function FrameController:ShowGroupAssignPopup(icon)
         text = L["Group Assignment"] or "Group Assignment",
         menuList = assignmentItems,
     }
+    menuList[#menuList + 1] = { isSeparator = true }
+
+    local customizer = DDingUI.IconCustomization
+    if customizer and customizer.GetIconContext and customizer.BuildContextMenuItems then
+        local spellID, viewerType = customizer:GetIconContext(icon)
+        local items = customizer:BuildContextMenuItems(spellID, viewerType)
+        for _, item in ipairs(items or {}) do
+            menuList[#menuList + 1] = item
+        end
+    end
 
     if SL and SL.ShowCascadingMenu then
         SL.ShowCascadingMenu(icon, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
