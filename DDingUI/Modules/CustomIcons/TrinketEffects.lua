@@ -180,6 +180,30 @@ function TrinketEffects:GetEffectsForItem(itemID)
     return itemID and specsByItem[itemID] or nil
 end
 
+function TrinketEffects:GetActiveEffectForItem(itemID)
+    local now = GetTime()
+    local best
+    for _, spec in ipairs(self:GetEffectsForItem(itemID) or {}) do
+        local state = states[spec.key]
+        local expirationTime = state and tonumber(state.expiresAt)
+        if expirationTime and expirationTime > now
+            and (not best or expirationTime > best.expirationTime)
+        then
+            local startTime = tonumber(state.startedAt) or now
+            best = {
+                key = spec.key,
+                spellID = spec.displaySpellID or spec.spellID,
+                iconTexture = ResolveIcon(spec, state.triggerSpellID),
+                startTime = startTime,
+                duration = expirationTime - startTime,
+                expirationTime = expirationTime,
+                stacks = tonumber(state.stacks) or 0,
+            }
+        end
+    end
+    return best
+end
+
 function TrinketEffects:BuildAuraPayloads(itemID)
     local result = {}
     for _, spec in ipairs(self:GetEffectsForItem(itemID) or {}) do

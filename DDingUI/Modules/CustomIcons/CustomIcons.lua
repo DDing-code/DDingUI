@@ -1558,6 +1558,134 @@ local function ApplyCustomTimedAuraCooldownFrame(frame, state, showCooldown)
     end
 end
 
+function CustomIcons:StopTrackedTrinketEffectGlow(frame)
+    if not frame or not frame._ddTrinketEffectGlowActive then return end
+    local key = "_DDingUITrinketEffectGlow"
+    if SL then
+        if SL.HidePixelGlow then SL.HidePixelGlow(frame, key) end
+        if SL.HideAutocastGlow then SL.HideAutocastGlow(frame, key) end
+        if SL.HideButtonGlow then SL.HideButtonGlow(frame, key) end
+    end
+    local glow = LibStub and LibStub("LibCustomGlow-1.0", true)
+    if glow and glow.ProcGlow_Stop then
+        glow.ProcGlow_Stop(frame, key)
+    end
+    if frame._ddTrinketEffectGlowType == "Blizzard Glow" and ActionButton_HideOverlayGlow then
+        ActionButton_HideOverlayGlow(frame)
+    end
+    frame._ddTrinketEffectGlowActive = nil
+    frame._ddTrinketEffectGlowType = nil
+    frame._ddTrinketEffectGlowSignature = nil
+end
+
+function CustomIcons:SetTrackedTrinketEffectGlow(frame, active)
+    local settings = frame and frame._groupSettings or {}
+    if not active or settings.procGlowEnabled == false or CustomIcons.ManagedVisualLocked(frame) then
+        self:StopTrackedTrinketEffectGlow(frame)
+        return
+    end
+
+    local glowType = settings.procGlowType or "Pixel Glow"
+    local color = settings.procGlowColor or { 0.95, 0.95, 0.32, 1 }
+    local signature = table.concat({
+        glowType,
+        tostring(color[1] or color.r or 0.95),
+        tostring(color[2] or color.g or 0.95),
+        tostring(color[3] or color.b or 0.32),
+        tostring(color[4] or color.a or 1),
+        tostring(settings.procGlowPixelLines or 5),
+        tostring(settings.procGlowPixelFrequency or 0.25),
+        tostring(settings.procGlowPixelLength or 8),
+        tostring(settings.procGlowPixelThickness or 1),
+    }, ":")
+    if frame._ddTrinketEffectGlowActive and frame._ddTrinketEffectGlowSignature == signature then
+        return
+    end
+
+    self:StopTrackedTrinketEffectGlow(frame)
+    local key = "_DDingUITrinketEffectGlow"
+    if glowType == "Blizzard Glow" then
+        if ActionButton_ShowOverlayGlow then ActionButton_ShowOverlayGlow(frame) end
+    elseif glowType == "Autocast Shine" and SL and SL.ShowAutocastGlow then
+        SL.ShowAutocastGlow(
+            frame,
+            color,
+            math.floor(settings.procGlowAutocastParticles or 8),
+            settings.procGlowAutocastFrequency or 0.25,
+            settings.procGlowAutocastScale or 1,
+            0,
+            0,
+            key
+        )
+    elseif glowType == "Action Button Glow" and SL and SL.ShowButtonGlow then
+        SL.ShowButtonGlow(frame, color, settings.procGlowButtonFrequency or 0.25, key)
+    elseif glowType == "Proc Glow" then
+        local glow = LibStub and LibStub("LibCustomGlow-1.0", true)
+        if glow and glow.ProcGlow_Start then
+            glow.ProcGlow_Start(frame, {
+                color = color,
+                startAnim = false,
+                xOffset = 0,
+                yOffset = 0,
+                key = key,
+            })
+        end
+    elseif SL and SL.ShowPixelGlow then
+        SL.ShowPixelGlow(
+            frame,
+            color,
+            math.floor(settings.procGlowPixelLines or 5),
+            settings.procGlowPixelFrequency or 0.25,
+            settings.procGlowPixelLength or 8,
+            settings.procGlowPixelThickness or 1,
+            -1,
+            -1,
+            false,
+            key
+        )
+        glowType = "Pixel Glow"
+    end
+
+    frame._ddTrinketEffectGlowActive = true
+    frame._ddTrinketEffectGlowType = glowType
+    frame._ddTrinketEffectGlowSignature = signature
+end
+
+function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
+    local settings = iconData and iconData.settings
+    local registry = DDingUI.TrinketEffects
+    if not settings or settings.trackTrinketEffect ~= true
+        or not registry or not registry.GetActiveEffectForItem
+    then
+        self:StopTrackedTrinketEffectGlow(iconFrame)
+        return false
+    end
+
+    local state = registry:GetActiveEffectForItem(itemID)
+    if not state or CustomIcons.ManagedVisualLocked(iconFrame) then
+        self:StopTrackedTrinketEffectGlow(iconFrame)
+        return false
+    end
+
+    CustomIcons.StopIconDesatUpdater(iconFrame)
+    if iconFrame.icon then
+        iconFrame.icon:SetDesaturated(false)
+        iconFrame.icon:SetDesaturation(0)
+    end
+    ApplyCustomTimedAuraCooldownFrame(iconFrame, state, settings.showCooldown ~= false)
+    if iconFrame.count then
+        if state.stacks and state.stacks > 1 then
+            iconFrame.count:SetText(state.stacks)
+            iconFrame.count:Show()
+        else
+            iconFrame.count:SetText("")
+            iconFrame.count:Hide()
+        end
+    end
+    self:SetTrackedTrinketEffectGlow(iconFrame, true)
+    return true
+end
+
 MarkCustomTimedAuraActive = function(spellID, state)
     local db = GetDynamicDB()
     local iconDataByKey = db and db.iconData
@@ -2246,6 +2374,9 @@ local function UpdateItemIcon(iconFrame, iconData)
 
     -- [CDM] Item cooldown uses item cooldown first, then mapped spell duration.
     EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
+    if CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, activeItemID) then
+        return
+    end
 
     local itemSpellID = ResolveUsableItemSpellID(iconFrame, activeItemID, settings)
     local desatDurationObject = nil
@@ -2695,6 +2826,9 @@ local function UpdateSlotIcon(iconFrame, iconData)
     SetStableIconTexture(iconFrame, ResolveItemTexture(itemID, slotID), true)
     if itemID then
         EnsureCooldownSpanOwner(iconFrame, "_ddSlotCooldown", itemID)
+    end
+    if CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID) then
+        return
     end
 
     local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_slotDurObj", slotID)
@@ -4548,6 +4682,7 @@ local function ResetDynamicIconFrame(frame)
             SL.HideButtonGlow(frame)
         end
     end
+    CustomIcons:StopTrackedTrinketEffectGlow(frame)
     local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
     if LCG and LCG.ProcGlow_Stop then
         LCG.ProcGlow_Stop(frame, "_DDingUIAssistGlow")

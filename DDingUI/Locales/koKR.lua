@@ -7,7 +7,8 @@ local L = LibStub("AceLocale-3.0"):NewLocale("DDingUI", "koKR")
 
 if not L then return end
 
-L["Add Trinket Buff"] = "장신구 강화효과 추가"
+L["Add Trinket Buff"] = "강화효과 추가"
+L["Remove Trinket Buff"] = "강화효과 제거"
 
 -- ============================================================
 -- GENERAL
