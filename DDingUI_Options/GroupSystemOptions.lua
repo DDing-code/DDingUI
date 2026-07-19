@@ -2056,16 +2056,19 @@ local function BuildAssignedSpellsArgs(groupName)
 
                             displayName = name or ((L["Item"] or "Item") .. " " .. itemID)
                             iconTex = icon or iconTex
-                        elseif iconData.type == "trinketProc" then
+                        elseif iconData.type == "slot" or iconData.type == "trinketProc" then
                             local slotID = iconData.slotID or 13
                             local itemID = GetInventoryItemID("player", slotID)
                             if itemID then
                                 local itemIDNum, itemType, itemSubType, itemEquipLoc, icon = C_Item.GetItemInfoInstant(itemID)
                                 local name = GetItemInfo(itemID)
                                 displayName = name or ("장신구 슬롯 " .. slotID)
-                                iconTex = icon or iconTex
+                                iconTex = GetInventoryItemTexture("player", slotID)
+                                    or icon
+                                    or (iconData.settings and iconData.settings.iconTexture)
                             else
                                 displayName = "장신구 슬롯 " .. slotID
+                                iconTex = DEFAULT_TRINKET_ICON_TEXTURE
                             end
                         elseif iconData.type == "spell" or iconData.type == "aura" then
                             local spellID = iconData.id or 0
@@ -2120,7 +2123,10 @@ local function BuildAssignedSpellsArgs(groupName)
                             iconKey = iconKey,
                             iconIdx = iconIdx,
                             iconType = iconData.type,
-                            itemID = iconData.type == "item" and iconData.id or nil,
+                            itemID = iconData.type == "item" and iconData.id
+                                or ((iconData.type == "slot" or iconData.type == "trinketProc")
+                                    and GetInventoryItemID("player", iconData.slotID or 13))
+                                or nil,
                             slotID = iconData.slotID,
                             displayName = displayName,
                             iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),

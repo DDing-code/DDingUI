@@ -1,5 +1,5 @@
 local _, ns = ...
-local DDingUI = ns and ns.DDingUI
+local DDingUI = ns and (ns.Addon or ns.DDingUI)
 if not DDingUI then return end
 
 local TrinketEffects = {}
