@@ -216,6 +216,7 @@ local state = {
     scanHoldStartedAt = 0,
     lastAcceptedScanCount = 0,
     lastPvPInstance = nil,
+    acquireSerial = 0,
     -- 통계
     reconcileCount = 0,
 }
@@ -231,7 +232,11 @@ local pollingFrame = CreateFrame("Frame")
 
 -- dirty 마킹 — 모든 CDM 훅에서 이것만 호출
 local function MarkDirty()
-    if state.isProcessing then return end
+    if state.isProcessing then
+        state.pendingReconcile = true
+        state.lastActivityTime = GetTime()
+        return
+    end
     state.dirty = true
     state.burstTicksRemaining = CONFIG.BURST_TICKS
     state.lastActivityTime = GetTime()
@@ -269,7 +274,7 @@ EnablePolling = function()
         if now < state.nextUpdateTime then return end
 
         -- throttle: dirty/burst면 빠르게, 아니면 느리게
-        local throttle = (state.dirty or state.burstTicksRemaining > 0)
+        local throttle = (state.dirty or state.pendingReconcile or state.burstTicksRemaining > 0)
             and CONFIG.BURST_THROTTLE
             or CONFIG.WATCHDOG_THROTTLE
         state.nextUpdateTime = now + throttle
@@ -287,6 +292,7 @@ EnablePolling = function()
 
         -- idle 체크 — 일정 시간 변경 없으면 비활성화
         if not state.dirty
+            and not state.pendingReconcile
             and state.burstTicksRemaining <= 0
             and (now - state.lastActivityTime) >= CONFIG.IDLE_TIMEOUT
         then
@@ -486,6 +492,10 @@ function FrameController:RefreshViewerRefs()
                 -- 새 뷰어 감지 → 참조 갱신
                 viewerRefs[def.globalName] = currentViewer
                 changed = true
+
+                if self._installPoolHooks then
+                    self._installPoolHooks(currentViewer, def.globalName)
+                end
 
                 -- 새 뷰어에 Layout/Show/Hide 훅 설치
                 if not hookedViewerLayout[currentViewer] then
@@ -736,6 +746,24 @@ local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
     end
 
     return false
+end
+
+local function ShouldReplaceCooldownFrame(existing, candidate)
+    if not existing then return true end
+
+    local existingShown = existing.IsShown and existing:IsShown() or false
+    local candidateShown = candidate.IsShown and candidate:IsShown() or false
+    if existingShown ~= candidateShown then
+        return candidateShown
+    end
+
+    local existingSerial = existing._ddAcquireSerial or 0
+    local candidateSerial = candidate._ddAcquireSerial or 0
+    if existingSerial ~= candidateSerial then
+        return candidateSerial > existingSerial
+    end
+
+    return existing._ddIsManaged == true and candidate._ddIsManaged ~= true
 end
 
 -- ============================================================
@@ -1127,13 +1155,16 @@ function FrameController:ScanCDMViewers()
                         end
                     end
                     if shouldInclude and keySafe then
-                        nextIdIconMap[cooldownID] = icon
-                        nextIconSourceMap[cooldownID] = globalName
+                        local existing = nextIdIconMap[cooldownID]
+                        if ShouldReplaceCooldownFrame(existing, icon) then
+                            nextIdIconMap[cooldownID] = icon
+                            nextIconSourceMap[cooldownID] = globalName
 
-                        -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
-                        local name = trackedBuffName or self:GetSpellName(icon)
-                        if name then
-                            iconSpellNameMap[cooldownID] = name
+                            -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
+                            local name = trackedBuffName or self:GetSpellName(icon)
+                            if name then
+                                iconSpellNameMap[cooldownID] = name
+                            end
                         end
 
                         if not icon._fcShowHideHooked then
@@ -1305,7 +1336,19 @@ function FrameController:Reconcile()
     end
 
     -- 1. CDM 뷰어 스캔 (맵 재구축)
-    self:ScanCDMViewers()
+    -- 전환 중 보류된 스캔은 기존 맵을 유지한 채 다음 틱에서 다시 시도한다.
+    local scanAccepted = self:ScanCDMViewers()
+    if scanAccepted == false then
+        state.isProcessing = false
+        state.dirty = true
+        state.burstTicksRemaining = CONFIG.BURST_TICKS
+        state.lastActivityTime = GetTime()
+        state.nextUpdateTime = 0
+        if not state.pollingActive then
+            EnablePolling()
+        end
+        return false
+    end
 
     -- 2. 콜백 알림 (GroupInit → DoFullUpdate)
     -- [PERF] scanCompleted 플래그: NotifyUpdate → DoFullUpdate에서 ScanCDMViewers 이중 호출 방지
@@ -1317,12 +1360,21 @@ function FrameController:Reconcile()
     -- CDM pool sync 불필요 — 매 Reconcile 틱마다 cooldown 시간 체크
 
     -- 4. 상태 플래그 리셋
+    local needsFollowup = state.pendingReconcile
     state.specChangeDetected = false
     state.talentChangeDetected = false
     state.isProcessing = false
-    state.dirty = false -- [CDM] 이번 스캔 완료 → dirty 해제
+    state.dirty = needsFollowup
+    if needsFollowup then
+        state.burstTicksRemaining = CONFIG.BURST_TICKS
+        state.lastActivityTime = GetTime()
+        state.nextUpdateTime = 0
+    end
     state.reconcileCount = state.reconcileCount + 1
-    -- OnUpdate 폴링이 watchdog(250ms)으로 자동 재스캔 → 수동 followup 불필요
+    if needsFollowup and not state.pollingActive then
+        EnablePolling()
+    end
+    return true
 end
 
 -- ============================================================
@@ -1702,6 +1754,11 @@ local function InstallCDMHooks()
 
             -- [FIX] EditMode의 테스트 프레임은 무시하여 Taint 및 에러 방지
             if frame and frame.isEditing then return end
+
+            if frame then
+                state.acquireSerial = state.acquireSerial + 1
+                frame._ddAcquireSerial = state.acquireSerial
+            end
 
             -- [CDM 패턴] acquire 시 scale 강제 1 (CDM이 변경할 수 있음)
             if frame and frame.SetScale then
