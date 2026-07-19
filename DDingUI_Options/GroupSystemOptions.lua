@@ -3826,15 +3826,10 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 text = rawget(L, "Add Trinket Buff") or "Add Trinket Buff",
                 menuList = trinketTargets,
             }
-            menuList[#menuList + 1] = { isSeparator = true }
         end
 
-        local customizer = DDingUI.IconCustomization
-        if customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
-            local items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType)
-            for _, item in ipairs(items or {}) do
-                menuList[#menuList + 1] = item
-            end
+        while menuList[#menuList] and menuList[#menuList].isSeparator do
+            table.remove(menuList)
         end
 
         if SL and SL.ShowCascadingMenu then
