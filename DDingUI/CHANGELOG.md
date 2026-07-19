@@ -2,6 +2,29 @@
 
 ---
 
+## v1.2.13
+
+_Release date: 2026-07-19_
+_Scope: Git changes from v1.2.12 through this release._
+
+### English Patch Notes
+- Stabilized CDM buff collection and layout after specialization, talent, and spell-list changes so rebuilt or reused icons rejoin their group instead of remaining centered, overlapping, or missing until reload.
+- Preserved returning spell order and invalidated stale layout slots when the active buff list changes, while smoothing custom aura progress and cooldown swipe updates.
+- Improved tracked buff bars with display-rate progress, persistent edit-mode anchors and drag positions, and stable placement through activation, combat, and reloads.
+- Added inactive buff placeholders with gray icon rendering, and limited the buff catalog to current CDM entries while filtering hidden or unavailable effects.
+- Added event-driven trinket effect tracking with resolved effect icons, slot-icon duration display, and per-icon glow controls without forcing automatic proc glow.
+- Simplified icon context menus by consolidating customization and glow controls and removing unsupported or duplicate menu paths.
+
+### Korean Patch Notes
+- 전문화, 특성, 주문 목록 변경 후 재생성되거나 재사용된 CDM 강화효과가 그룹에서 빠져 중앙에 남거나 겹치거나 재접속 전까지 사라지는 문제를 수정했습니다.
+- 활성 강화효과 목록이 바뀔 때 돌아온 주문의 순서를 유지하고 오래된 레이아웃 슬롯을 초기화했으며, 커스텀 오라 진행률과 쿨다운 스와이프 갱신을 부드럽게 개선했습니다.
+- 추적중인 버프 바의 진행률을 화면 갱신 주기에 맞추고, 편집모드 앵커와 드래그 위치가 활성화, 전투, 리로드 후에도 유지되도록 안정화했습니다.
+- 비활성 강화효과를 회색으로 표시하는 자리표시 아이콘을 추가하고, 숨겨졌거나 사용할 수 없는 효과를 제외해 현재 CDM 항목만 강화효과 카탈로그에 표시하도록 정리했습니다.
+- 이벤트 기반 장신구 효과 추적, 효과 아이콘 판별, 장신구 슬롯 아이콘의 지속시간 표시와 아이콘별 글로우 옵션을 추가했으며 자동 발동 글로우는 강제하지 않도록 했습니다.
+- 아이콘 커스터마이징과 글로우 설정을 우클릭 메뉴에 통합하고 지원하지 않거나 중복된 메뉴 경로를 정리했습니다.
+
+---
+
 ## v1.2.12
 
 _Release date: 2026-07-02_
