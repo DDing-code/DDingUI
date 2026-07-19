@@ -193,6 +193,7 @@ function TrinketEffects:BuildAuraPayloads(itemID)
                     customAuraDuration = spec.duration,
                     customAuraTrigger = "trinket_effect",
                     iconTexture = ResolveIcon(spec),
+                    fallbackIcon = ResolveIcon(spec),
                     trinketEffectKey = spec.key,
                     trinketItemID = spec.itemID,
                 },
@@ -200,6 +201,45 @@ function TrinketEffects:BuildAuraPayloads(itemID)
         end
     end
     return result
+end
+
+local function NormalizeSavedEffectIcons()
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynamicIcons = profile and profile.dynamicIcons
+    local changed = false
+    for _, iconData in pairs((dynamicIcons and dynamicIcons.iconData) or {}) do
+        local settings = iconData and iconData.settings
+        local spec = settings and specsByKey[settings.trinketEffectKey]
+        if iconData and iconData.type == "aura" and spec then
+            local stateID = spec.displaySpellID or spec.spellID
+            local texture = ResolveIcon(spec)
+            if stateID and iconData.id ~= stateID then
+                iconData.id = stateID
+                changed = true
+            end
+            if texture and settings.iconTexture ~= texture then
+                settings.iconTexture = texture
+                changed = true
+            end
+            if texture and settings.fallbackIcon ~= texture then
+                settings.fallbackIcon = texture
+                changed = true
+            end
+            if settings.customAuraStateID ~= stateID
+                or settings.customAuraDuration ~= spec.duration
+                or settings.customAuraTrigger ~= "trinket_effect"
+            then
+                settings.customAuraStateID = stateID
+                settings.customAuraDuration = spec.duration
+                settings.customAuraTrigger = "trinket_effect"
+                changed = true
+            end
+        end
+    end
+
+    if changed and DDingUI.CustomIcons and DDingUI.CustomIcons.LoadDynamicIcons then
+        DDingUI.CustomIcons:LoadDynamicIcons()
+    end
 end
 
 local function PurgeUnequippedStates()
@@ -220,8 +260,13 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
+    if event == "PLAYER_ENTERING_WORLD" then
+        C_Timer.After(0, NormalizeSavedEffectIcons)
+        return
+    end
     if event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then
         C_Timer.After(0, PurgeUnequippedStates)
         return
@@ -244,3 +289,5 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     if spec.trigger ~= expected then return end
     Trigger(spec, spellID or baseSpellID)
 end)
+
+C_Timer.After(0, NormalizeSavedEffectIcons)
