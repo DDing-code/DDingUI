@@ -1219,6 +1219,7 @@ L["Click to select • Blue border = Customized"] = "Click to select • Blue bo
 L["Editing: %s"] = "Editing: %s"
 L["Deselect"] = "Deselect"
 L["Reset Icon"] = "Reset Icon"
+L["Reset Glow"] = "Reset Glow"
 L["Ready State Glow"] = "State Glow"
 L["Glow Type"] = "Glow Type"
 L["Action Button Glow"] = "Action Button Glow"

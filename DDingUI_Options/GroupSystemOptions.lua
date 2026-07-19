@@ -3895,7 +3895,14 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         end
 
         local customizer = DDingUI.IconCustomization
-        if customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
+        if customizer and customizer.BuildDynamicContextMenuItems and opt._gridKind == "dynamic" and opt._gridDynamicIconKey then
+            local items = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
+                SoftRefreshGroupSystemOptions(0.05)
+            end)
+            for _, item in ipairs(items or {}) do
+                menuList[#menuList + 1] = item
+            end
+        elseif customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
             local items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType)
             for _, item in ipairs(items or {}) do
                 menuList[#menuList + 1] = item

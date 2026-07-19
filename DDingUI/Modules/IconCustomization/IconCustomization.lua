@@ -302,7 +302,7 @@ local function StopAllGlows(frame, key)
     local glowKey = key or "DDingUI_ReadyGlow"
     pcall(SL.HidePixelGlow, frame, glowKey)
     pcall(SL.HideAutocastGlow, frame, glowKey)
-    pcall(SL.HideButtonGlow, frame)
+    pcall(SL.HideButtonGlow, frame, glowKey)
     local LCG = LibStub("LibCustomGlow-1.0", true)
     if LCG and LCG.ProcGlow_Stop then pcall(LCG.ProcGlow_Stop, frame, glowKey) end
 end
@@ -404,7 +404,7 @@ local function ShowReadyGlow(frame, spellID, viewerType)
             })
         end
     else -- button (default)
-        pcall(SL.ShowButtonGlow, frame, color, glowSpeed)
+        pcall(SL.ShowButtonGlow, frame, color, glowSpeed, "DDingUI_ReadyGlow")
     end
 
     -- [FIX] 텍스트가 글로우 뒤로 가지 않도록 프레임 레벨 조정
@@ -737,32 +737,7 @@ function IconCustomization:OpenSpellEditor(spellID, viewerType)
     end
 end
 
-function IconCustomization:BuildContextMenuItems(spellID, viewerType)
-    if issecretvalue and issecretvalue(spellID) then return nil end
-    if spellID == nil then return nil end
-    spellID = tonumber(spellID)
-    if not spellID or spellID <= 0 or not viewerType then return nil end
-
-    local profile = DDingUI.db and DDingUI.db.profile
-    if not profile then return nil end
-    profile.iconCustomization = profile.iconCustomization or {}
-    profile.iconCustomization.spells = profile.iconCustomization.spells or {}
-
-    local spells = profile.iconCustomization.spells
-    local spellKey = tostring(spellID) .. "_" .. viewerType
-    local defaultTrigger = viewerType == "Buff" and "active" or "ready"
-
-    local function Current()
-        return spells[spellKey] or {}
-    end
-
-    local function Apply(key, value)
-        spells[spellKey] = spells[spellKey] or {}
-        spells[spellKey][key] = value
-        RefreshAllReadyGlows(true, spellID, viewerType)
-        RefreshGUI()
-    end
-
+local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow, defaultTrigger, resetLabel)
     local function ChoiceMenu(key, values, fallback)
         local items = {}
         local selected = Current()[key] or fallback
@@ -790,19 +765,6 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
         autocast = L["Autocast Shine"] or "Autocast Shine",
         proc = L["Proc Effect"] or "Proc Effect",
     }
-    local function SetGlowState(nextTrigger)
-        if not nextTrigger then
-            spells[spellKey] = nil
-        else
-            spells[spellKey] = spells[spellKey] or {}
-            spells[spellKey].readyGlow = true
-            spells[spellKey].glowTrigger = nextTrigger
-            FindAndHookIconForSpell(spellID)
-        end
-        RefreshAllReadyGlows(true, spellID, viewerType)
-        RefreshGUI()
-    end
-
     return {
         {
             text = L["State Glow"] or "State Glow",
@@ -888,15 +850,186 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
         },
         { isSeparator = true },
         {
-            text = L["Reset Icon"] or "Reset Icon",
+            text = resetLabel,
             color = "dim",
-            func = function()
-                spells[spellKey] = nil
-                RefreshAllReadyGlows(true, spellID, viewerType)
-                RefreshGUI()
-            end,
+            func = ResetGlow,
         },
     }
+end
+
+function IconCustomization:BuildContextMenuItems(spellID, viewerType)
+    if issecretvalue and issecretvalue(spellID) then return nil end
+    if spellID == nil then return nil end
+    spellID = tonumber(spellID)
+    if not spellID or spellID <= 0 or not viewerType then return nil end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    if not profile then return nil end
+    profile.iconCustomization = profile.iconCustomization or {}
+    profile.iconCustomization.spells = profile.iconCustomization.spells or {}
+
+    local spells = profile.iconCustomization.spells
+    local spellKey = tostring(spellID) .. "_" .. viewerType
+    local defaultTrigger = viewerType == "Buff" and "active" or "ready"
+
+    local function Current()
+        return spells[spellKey] or {}
+    end
+
+    local function Refresh()
+        RefreshAllReadyGlows(true, spellID, viewerType)
+        RefreshGUI()
+    end
+
+    local function Apply(key, value)
+        spells[spellKey] = spells[spellKey] or {}
+        spells[spellKey][key] = value
+        Refresh()
+    end
+
+    local function SetGlowState(nextTrigger)
+        if not nextTrigger then
+            spells[spellKey] = nil
+        else
+            spells[spellKey] = spells[spellKey] or {}
+            spells[spellKey].readyGlow = true
+            spells[spellKey].glowTrigger = nextTrigger
+            FindAndHookIconForSpell(spellID)
+        end
+        Refresh()
+    end
+
+    local function ResetGlow()
+        spells[spellKey] = nil
+        Refresh()
+    end
+
+    return BuildGlowContextMenuItems(
+        Current,
+        Apply,
+        SetGlowState,
+        ResetGlow,
+        defaultTrigger,
+        L["Reset Icon"] or "Reset Icon"
+    )
+end
+
+function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc)
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynamicIcons = profile and profile.dynamicIcons
+    local iconData = iconKey and dynamicIcons and dynamicIcons.iconData and dynamicIcons.iconData[iconKey]
+    if not iconData then return nil end
+    iconData.settings = iconData.settings or {}
+
+    local defaultTrigger = (iconData.type == "aura" or iconData.type == "trinketProc") and "active" or "ready"
+    local function Current()
+        return iconData.settings.customStateGlow or {}
+    end
+
+    local function Refresh()
+        if DDingUI.CustomIcons and DDingUI.CustomIcons.RefreshDynamicIcon then
+            DDingUI.CustomIcons:RefreshDynamicIcon(iconKey)
+        end
+        if refreshFunc then refreshFunc() end
+        RefreshGUI()
+    end
+
+    local function Apply(key, value)
+        iconData.settings.customStateGlow = iconData.settings.customStateGlow or {}
+        iconData.settings.customStateGlow[key] = value
+        Refresh()
+    end
+
+    local function SetGlowState(nextTrigger)
+        if not nextTrigger then
+            iconData.settings.customStateGlow = nil
+        else
+            iconData.settings.customStateGlow = iconData.settings.customStateGlow or {}
+            iconData.settings.customStateGlow.readyGlow = true
+            iconData.settings.customStateGlow.glowTrigger = nextTrigger
+        end
+        Refresh()
+    end
+
+    local function ResetGlow()
+        iconData.settings.customStateGlow = nil
+        Refresh()
+    end
+
+    return BuildGlowContextMenuItems(
+        Current,
+        Apply,
+        SetGlowState,
+        ResetGlow,
+        defaultTrigger,
+        L["Reset Glow"] or "Reset Glow"
+    )
+end
+
+function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
+    if not frame then return end
+    local frameData = GetFrameData(frame)
+    local key = "DDingUI_DynamicStateGlow"
+    if not settings or settings.readyGlow ~= true or shouldGlow ~= true then
+        if frameData.dynamicGlowActive then
+            StopAllGlows(frame, key)
+            frameData.dynamicGlowActive = nil
+            frameData.dynamicGlowSignature = nil
+        end
+        return
+    end
+
+    local glowType = settings.glowType or "button"
+    local glowColor = settings.glowColor or { r = 1, g = 0.85, b = 0.1 }
+    local signature = table.concat({
+        glowType,
+        tostring(glowColor.r or glowColor[1] or 1),
+        tostring(glowColor.g or glowColor[2] or 0.85),
+        tostring(glowColor.b or glowColor[3] or 0.1),
+        tostring(settings.glowSpeed or 0.25),
+        tostring(settings.glowLines or 8),
+        tostring(settings.glowThickness or 2),
+    }, ":")
+    if frameData.dynamicGlowActive and frameData.dynamicGlowSignature == signature then return end
+
+    StopAllGlows(frame, key)
+    local color = {
+        glowColor.r or glowColor[1] or 1,
+        glowColor.g or glowColor[2] or 0.85,
+        glowColor.b or glowColor[3] or 0.1,
+        1,
+    }
+    if glowType == "pixel" then
+        pcall(SL.ShowPixelGlow, frame, color, math.floor(settings.glowLines or 8), settings.glowSpeed or 0.25, nil, settings.glowThickness or 2, 0, 0, true, key)
+    elseif glowType == "autocast" then
+        pcall(SL.ShowAutocastGlow, frame, color, 4, settings.glowSpeed or 0.25, 1, 0, 0, key)
+    elseif glowType == "proc" then
+        local glow = LibStub("LibCustomGlow-1.0", true)
+        if glow and glow.ProcGlow_Start then
+            pcall(glow.ProcGlow_Start, frame, {
+                color = color,
+                startAnim = false,
+                xOffset = 0,
+                yOffset = 0,
+                key = key,
+            })
+        end
+    else
+        pcall(SL.ShowButtonGlow, frame, color, settings.glowSpeed or 0.25, key)
+    end
+    RaiseTextAboveGlow(frame)
+    frameData.dynamicGlowActive = true
+    frameData.dynamicGlowSignature = signature
+end
+
+function IconCustomization:ClearDynamicIconGlow(frame)
+    if not frame then return end
+    local frameData = GetFrameData(frame)
+    if frameData.dynamicGlowActive then
+        StopAllGlows(frame, "DDingUI_DynamicStateGlow")
+    end
+    frameData.dynamicGlowActive = nil
+    frameData.dynamicGlowSignature = nil
 end
 
 -- Build the Icon Customization UI

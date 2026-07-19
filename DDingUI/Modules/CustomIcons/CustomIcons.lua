@@ -1652,6 +1652,9 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active)
 end
 
 function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
+    if iconFrame then
+        iconFrame._ddCustomIconActive = false
+    end
     local settings = iconData and iconData.settings
     local registry = DDingUI.TrinketEffects
     if not settings or settings.trackTrinketEffect ~= true
@@ -1668,6 +1671,8 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
     end
 
     CustomIcons.StopIconDesatUpdater(iconFrame)
+    iconFrame._ddCustomIconActive = true
+    iconFrame._ddCustomIconReady = false
     if iconFrame.icon then
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
@@ -1684,6 +1689,23 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
     end
     self:SetTrackedTrinketEffectGlow(iconFrame, true)
     return true
+end
+
+function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
+    local customizer = DDingUI.IconCustomization
+    if not customizer or not customizer.UpdateDynamicIconGlow then return end
+    local settings = iconData and iconData.settings and iconData.settings.customStateGlow
+    local trigger = settings and settings.glowTrigger
+    if not trigger then
+        trigger = iconData and (iconData.type == "aura" or iconData.type == "trinketProc") and "active" or "ready"
+    end
+    local shouldGlow
+    if trigger == "active" then
+        shouldGlow = frame._ddCustomIconActive == true
+    else
+        shouldGlow = frame._ddCustomIconReady == true
+    end
+    customizer:UpdateDynamicIconGlow(frame, settings, shouldGlow)
 end
 
 MarkCustomTimedAuraActive = function(spellID, state)
@@ -2531,6 +2553,11 @@ local function UpdateItemIcon(iconFrame, iconData)
     if not managedVisualLocked and not IsFlightHideAlphaLocked() then
         iconFrame.icon:SetAlpha(1.0)
     end
+    iconFrame._ddCustomIconActive = false
+    iconFrame._ddCustomIconReady = not itemCombatLocked
+        and not itemCooldownActive
+        and not itemSpellCooldownActive
+        and not showEmptyItem
 end
 
 local function UpdateSpellIconFrame(iconFrame, iconData)
@@ -2732,6 +2759,8 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     if not managedVisualLocked and not IsFlightHideAlphaLocked() then
         iconFrame.icon:SetAlpha(1.0)
     end
+    iconFrame._ddCustomIconActive = false
+    iconFrame._ddCustomIconReady = usable and not isOnRealCD
 end
 
 local function UpdateRacialIconFrame(iconFrame, iconData)
@@ -2814,6 +2843,8 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
             iconFrame.icon:SetDesaturation(0)
         end
     end
+    iconFrame._ddCustomIconActive = false
+    iconFrame._ddCustomIconReady = not onCooldown
 end
 
 local function UpdateSlotIcon(iconFrame, iconData)
@@ -2846,6 +2877,8 @@ local function UpdateSlotIcon(iconFrame, iconData)
     if not managedVisualLocked then
         iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
     end
+    iconFrame._ddCustomIconActive = false
+    iconFrame._ddCustomIconReady = itemID ~= nil and not onCooldown
 end
 
 local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
@@ -2963,6 +2996,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         if not managedVisualLocked then
             iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
         end
+        iconFrame._ddCustomIconActive = false
+        iconFrame._ddCustomIconReady = not onCooldown
         return
     end
 
@@ -3104,6 +3139,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
             iconFrame.count:Hide()
         end
     end
+    iconFrame._ddCustomIconActive = procActive == true
+    iconFrame._ddCustomIconReady = procActive ~= true
 end
 
 local function SafeSetBackdrop(frame, backdropInfo, borderColor)
@@ -3390,6 +3427,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
     end
 
     local isActive = (auraData ~= nil)
+    iconFrame._ddCustomIconActive = isActive
+    iconFrame._ddCustomIconReady = not isActive
     local wasActive = iconFrame._auraWasActive
     local stateChanged = isActive ~= wasActive
 
@@ -3731,6 +3770,7 @@ local function ExecuteUpdateAllIcons(filter)
                     elseif iconData.type == "aura" then
                         UpdateAuraIcon(frame, iconData)
                     end
+                    CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
                     ReapplyManagedGroupText(frame)
 
                     local afterLayoutState = GetDynamicLayoutStateToken(frame, iconData)
@@ -4683,6 +4723,9 @@ local function ResetDynamicIconFrame(frame)
         end
     end
     CustomIcons:StopTrackedTrinketEffectGlow(frame)
+    if DDingUI.IconCustomization and DDingUI.IconCustomization.ClearDynamicIconGlow then
+        DDingUI.IconCustomization:ClearDynamicIconGlow(frame)
+    end
     local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
     if LCG and LCG.ProcGlow_Stop then
         LCG.ProcGlow_Stop(frame, "_DDingUIAssistGlow")
@@ -4757,6 +4800,8 @@ local function ResetDynamicIconFrame(frame)
     frame._ddSourceViewer = nil
     frame._DDingUIAssistViewerName = nil
     frame._DDingUIAssistGlowActive = nil
+    frame._ddCustomIconActive = nil
+    frame._ddCustomIconReady = nil
 end
 
 local function AcquireDynamicIconFrame(name, parent)
@@ -4931,12 +4976,19 @@ local function UpdateDynamicIcon(iconKey)
     elseif iconData.type == "aura" then
         UpdateAuraIcon(frame, iconData)
     end
+    CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
     if frame._ddIsManaged then
         CustomIcons.ApplyManagedGroupTextOptions(frame)
     end
 end
 
 runtime.UpdateDynamicIcon = UpdateDynamicIcon
+
+function CustomIcons:RefreshDynamicIcon(iconKey)
+    if iconKey and runtime.UpdateDynamicIcon then
+        runtime.UpdateDynamicIcon(iconKey)
+    end
+end
 
 function runtime.ClearCustomCooldownTable(tbl)
     if not tbl then return end
