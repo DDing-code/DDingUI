@@ -1065,6 +1065,14 @@ function FrameController:ScanCDMViewers()
                     end
                     activeFrameCount = activeFrameCount + 1
                     local sourceShown = icon.IsShown and icon:IsShown() or false
+                    if globalName == "BuffIconCooldownViewer"
+                        and not icon._ddCDMStaleBuff
+                        and (icon._ddCDMActive == true or icon.cooldownInfo ~= nil)
+                    then
+                        -- A managed frame can be hidden temporarily while the group is rebuilt.
+                        -- Keep CDM-active buffs in the layout instead of treating our Hide() as source state.
+                        sourceShown = true
+                    end
                     icon._ddSourceViewer = globalName
                     icon._ddCDMViewerShown = sourceShown and true or false
                     local trackedBuffName
@@ -1199,7 +1207,8 @@ function FrameController:ScanCDMViewers()
                             end)
                             icon:HookScript("OnHide", function(self)
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
-                                    self._ddCDMViewerShown = false
+                                    self._ddCDMViewerShown = not self._ddCDMStaleBuff
+                                        and (self._ddCDMActive == true or self.cooldownInfo ~= nil)
                                 end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
@@ -1221,7 +1230,8 @@ function FrameController:ScanCDMViewers()
                             end)
                             icon:HookScript("OnHide", function(self)
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
-                                    self._ddCDMViewerShown = false
+                                    self._ddCDMViewerShown = not self._ddCDMStaleBuff
+                                        and (self._ddCDMActive == true or self.cooldownInfo ~= nil)
                                 end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
