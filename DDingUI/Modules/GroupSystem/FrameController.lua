@@ -748,6 +748,24 @@ local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
     return false
 end
 
+local function ReadBuffFrameActiveState(frame)
+    if not frame then return nil end
+
+    local active
+    if frame.IsActive then
+        active = frame:IsActive()
+    else
+        active = frame.isActive
+    end
+    if issecretvalue and issecretvalue(active) then
+        return nil
+    end
+    if type(active) == "boolean" then
+        return active
+    end
+    return nil
+end
+
 local function ShouldReplaceCooldownFrame(existing, candidate)
     if not existing then return true end
 
@@ -779,9 +797,10 @@ if not FrameController._activeStateHooked then
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnActiveStateChanged then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
-            -- CDM이 active → true, inactive → false
-            -- IsShown()이 아닌 CDM 내부 상태를 반영
-            frame._ddCDMActive = ShouldIncludeCooldownViewerFrame(frame, "BuffIconCooldownViewer")
+            local active = ReadBuffFrameActiveState(frame)
+            if active ~= nil then
+                frame._ddCDMActive = active
+            end
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -790,7 +809,8 @@ if not FrameController._activeStateHooked then
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
-            frame._ddCDMActive = true
+            local active = ReadBuffFrameActiveState(frame)
+            frame._ddCDMActive = active
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -1067,7 +1087,7 @@ function FrameController:ScanCDMViewers()
                     local sourceShown = icon.IsShown and icon:IsShown() or false
                     if globalName == "BuffIconCooldownViewer"
                         and not icon._ddCDMStaleBuff
-                        and (icon._ddCDMActive == true or icon.cooldownInfo ~= nil)
+                        and icon._ddCDMActive == true
                     then
                         -- A managed frame can be hidden temporarily while the group is rebuilt.
                         -- Keep CDM-active buffs in the layout instead of treating our Hide() as source state.
@@ -1208,7 +1228,7 @@ function FrameController:ScanCDMViewers()
                             icon:HookScript("OnHide", function(self)
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = not self._ddCDMStaleBuff
-                                        and (self._ddCDMActive == true or self.cooldownInfo ~= nil)
+                                        and self._ddCDMActive == true
                                 end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
@@ -1231,7 +1251,7 @@ function FrameController:ScanCDMViewers()
                             icon:HookScript("OnHide", function(self)
                                 if self._ddSourceViewer == "BuffIconCooldownViewer" then
                                     self._ddCDMViewerShown = not self._ddCDMStaleBuff
-                                        and (self._ddCDMActive == true or self.cooldownInfo ~= nil)
+                                        and self._ddCDMActive == true
                                 end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
