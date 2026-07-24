@@ -4,12 +4,15 @@ local DDingUI = ns.Addon
 DDingUI.SpecProfiles = DDingUI.SpecProfiles or {}
 local SP = DDingUI.SpecProfiles
 
--- Per-specialization full-profile snapshots.
--- v7 is intentionally non-destructive: it only repairs stale CDM source links.
-local SPEC_DATA_VERSION = 7
+-- Per-specialization profile snapshots.
+-- v11 stores one shared baseline plus per-specialization changes.
+local SPEC_DATA_VERSION = 11
+local SPEC_DELTA_FORMAT = 1
+local SPEC_DELETE_KEY = "__ddinguiSpecDelete"
 
 local EXCLUDE_KEYS = {
     specData = true,
+    specDataBase = true,
     specDataVersion = true,
     profileVersion = true,
     pendingMoverMigration = true,
@@ -82,6 +85,88 @@ local function MergeSnapshot(dest, source)
     end
 end
 
+local function BuildDelta(target, baseline)
+    if type(target) ~= type(baseline) then
+        return DeepCopy(target), true
+    end
+    if type(target) ~= "table" then
+        if target ~= baseline then return target, true end
+        return nil, false
+    end
+
+    local delta = {}
+    local changed = false
+    for k, value in pairs(target) do
+        local child, childChanged = BuildDelta(value, baseline[k])
+        if childChanged then
+            delta[k] = child
+            changed = true
+        end
+    end
+    for k in pairs(baseline) do
+        if target[k] == nil then
+            delta[k] = { [SPEC_DELETE_KEY] = true }
+            changed = true
+        end
+    end
+    return delta, changed
+end
+
+local function IsDeleteMarker(value)
+    return type(value) == "table"
+        and value[SPEC_DELETE_KEY] == true
+        and next(value, SPEC_DELETE_KEY) == nil
+end
+
+local function ApplyDelta(dest, delta)
+    if type(dest) ~= "table" or type(delta) ~= "table" then return end
+
+    for k, value in pairs(delta) do
+        if IsDeleteMarker(value) then
+            dest[k] = nil
+        elseif type(value) == "table" and type(dest[k]) == "table" then
+            ApplyDelta(dest[k], value)
+        else
+            dest[k] = DeepCopy(value)
+        end
+    end
+end
+
+local function IsDeltaSnapshot(snapshot)
+    return type(snapshot) == "table"
+        and snapshot.__format == SPEC_DELTA_FORMAT
+        and type(snapshot.changes) == "table"
+end
+
+local function ExpandStoredSpec(profile, snapshot)
+    local defaults = DDingUI.defaults and DDingUI.defaults.profile
+    if IsDeltaSnapshot(snapshot) and type(profile.specDataBase) == "table" then
+        local expanded = FullSnapshot(profile.specDataBase, defaults, true)
+        ApplyDelta(expanded, snapshot.changes)
+        return FullSnapshot(expanded, defaults, true)
+    end
+    return FullSnapshot(snapshot, defaults, true)
+end
+
+local function StoreSpecDelta(profile, specID, snapshot, hasDynamicIcons)
+    if not profile or not specID or type(snapshot) ~= "table" then return nil end
+
+    local defaults = DDingUI.defaults and DDingUI.defaults.profile
+    if type(profile.specDataBase) ~= "table" then
+        profile.specDataBase = FullSnapshot(profile, defaults, true)
+    end
+
+    local changes = BuildDelta(snapshot, profile.specDataBase)
+    local stored = {
+        __format = SPEC_DELTA_FORMAT,
+        changes = changes,
+        hasDynamicIcons = hasDynamicIcons ~= false,
+    }
+    profile.specData = profile.specData or {}
+    profile.specData[specID] = stored
+    return stored
+end
+
 local function ApplySnapshot(dest, source, isTopLevel)
     if type(dest) ~= "table" or type(source) ~= "table" then return end
 
@@ -132,6 +217,26 @@ local function RepairStaleHybridSources(profile)
     end
 end
 
+local function CompactStoredSpec(profile, specID)
+    local specData = profile and profile.specData
+    local stored = specData and specData[specID]
+    if type(stored) ~= "table" then return nil end
+
+    local hasDynamicIcons = IsDeltaSnapshot(stored)
+        and stored.hasDynamicIcons ~= false
+        or type(stored.dynamicIcons) == "table"
+    local snapshot = ExpandStoredSpec(profile, stored)
+
+    local customIcons = DDingUI.CustomIcons
+    if customIcons and customIcons.NormalizeStoredProfile then
+        customIcons:NormalizeStoredProfile(snapshot)
+    end
+    RepairStaleHybridSources(snapshot)
+
+    StoreSpecDelta(profile, specID, snapshot, hasDynamicIcons)
+    return snapshot, hasDynamicIcons
+end
+
 local function ResetIconGroupsForFreshSpec(profile)
     if not profile then return end
 
@@ -174,16 +279,41 @@ local function MigrateSpecData()
 
     local profile = DDingUI.db.profile
     local ver = profile.specDataVersion or 0
-    if ver >= SPEC_DATA_VERSION then return end
+    if ver >= SPEC_DATA_VERSION and type(profile.specDataBase) == "table" then return end
 
-    if profile.specData then
-        for _, snapshot in pairs(profile.specData) do
-            RepairStaleHybridSources(snapshot)
-        end
-    end
     RepairStaleHybridSources(profile)
+    local defaults = DDingUI.defaults and DDingUI.defaults.profile
+    profile.specDataBase = FullSnapshot(profile, defaults, true)
+    local customIcons = DDingUI.CustomIcons
+    if customIcons and customIcons.NormalizeStoredProfile then
+        customIcons:NormalizeStoredProfile(profile.specDataBase)
+    end
+    RepairStaleHybridSources(profile.specDataBase)
 
-    profile.specDataVersion = SPEC_DATA_VERSION
+    local queue = {}
+    for specID in pairs(profile.specData or {}) do
+        queue[#queue + 1] = specID
+    end
+    table.sort(queue, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+
+    local profileRef = profile
+    local index = 1
+    local function CompactNext()
+        if not DDingUI.db or DDingUI.db.profile ~= profileRef then return end
+
+        local specID = queue[index]
+        if not specID then
+            profileRef.specDataVersion = SPEC_DATA_VERSION
+            return
+        end
+
+        CompactStoredSpec(profileRef, specID)
+        index = index + 1
+        C_Timer.After(0, CompactNext)
+    end
+    CompactNext()
 end
 
 SP.lastSpecID = nil
@@ -195,7 +325,8 @@ function SP:SaveCurrentSpec()
 
     DDingUI.db.profile.specData = DDingUI.db.profile.specData or {}
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
-    DDingUI.db.profile.specData[specID] = FullSnapshot(DDingUI.db.profile, defaults, true)
+    local snapshot = FullSnapshot(DDingUI.db.profile, defaults, true)
+    StoreSpecDelta(DDingUI.db.profile, specID, snapshot, type(snapshot.dynamicIcons) == "table")
 end
 
 function SP:LoadSpec(specID)
@@ -204,20 +335,10 @@ function SP:LoadSpec(specID)
     local snapshot = specData and specData[specID]
     if not snapshot then return false end
 
-    local customIcons = DDingUI.CustomIcons
-    if customIcons and customIcons.NormalizeStoredProfile then
-        customIcons:NormalizeStoredProfile(snapshot)
-    end
-    RepairStaleHybridSources(snapshot)
-
-    local snapshotHasDynamicIcons = type(snapshot.dynamicIcons) == "table"
-    local defaults = DDingUI.defaults and DDingUI.defaults.profile
-    if defaults then
-        snapshot = FullSnapshot(snapshot, defaults, true)
-    end
-    if not snapshotHasDynamicIcons then
-        snapshot.dynamicIcons = nil
-    end
+    local storedHasDynamicIcons
+    snapshot, storedHasDynamicIcons = CompactStoredSpec(DDingUI.db.profile, specID)
+    if not snapshot then return false end
+    if not storedHasDynamicIcons then snapshot.dynamicIcons = nil end
 
     ApplySnapshot(DDingUI.db.profile, snapshot, true)
     RepairStaleHybridSources(DDingUI.db.profile)
@@ -686,6 +807,11 @@ function SP:CopyModulesFromSpec(sourceSpecID, moduleKeys)
 
     local snapshot = specData[sourceSpecID]
     if not snapshot then return false end
+
+    local storedHasDynamicIcons
+    snapshot, storedHasDynamicIcons = CompactStoredSpec(DDingUI.db.profile, sourceSpecID)
+    if not snapshot then return false end
+    if not storedHasDynamicIcons then snapshot.dynamicIcons = nil end
 
     local copiedAny = false
     for _, moduleKey in ipairs(moduleKeys) do
