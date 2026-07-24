@@ -2,6 +2,29 @@
 
 ---
 
+## v1.2.14
+
+_Release date: 2026-07-25_
+_Scope: Git changes from v1.2.13 through this release._
+
+### English Patch Notes
+- Fixed buff-group recovery after talent and specialization changes so active buffs remain in layout, inactive entries stay excluded, and reused frames no longer retain stale position or visual state.
+- Rebuilt changed buff frames and normalized specialization icon snapshots so returning or newly available effects rejoin the intended order instead of appearing centered, overlapping, or missing until reload.
+- Reduced specialization profile storage by sharing a base snapshot and saving per-specialization differences, while retaining automatic compatibility with existing SavedVariables.
+- Reduced repeated runtime work by coalescing same-frame custom icon, dynamic group, resource bar, and tracked buff updates and avoiding redundant full refresh chains.
+- Moved the custom icon editor and Options-only localization to the LoadOnDemand settings addon, reducing code and translation data loaded during normal gameplay.
+- Consolidated repeated Options controls and removed an unused embedded library to reduce maintenance and startup overhead without changing existing settings.
+
+### Korean Patch Notes
+- 특성 및 전문화 변경 후 강화효과 그룹을 복구할 때 활성 강화효과는 레이아웃에 유지하고 비활성 항목은 제외하며, 재사용 프레임에 이전 위치나 시각 상태가 남지 않도록 수정했습니다.
+- 변경된 강화효과 프레임을 다시 구성하고 전문화별 아이콘 스냅샷을 정리해 돌아오거나 새로 활성화된 효과가 중앙에 겹치거나 누락되지 않고 의도한 순서에 합류하도록 개선했습니다.
+- 공통 기본 스냅샷과 전문화별 차이만 저장하도록 전문화 프로필 저장 구조를 압축했으며, 기존 SavedVariables는 자동 호환되도록 유지했습니다.
+- 같은 프레임에 발생하는 커스텀 아이콘, 동적 그룹, 자원 바, 추적중인 막대 갱신을 합치고 중복 전체 갱신 연쇄를 줄여 런타임 부담을 낮췄습니다.
+- 커스텀 아이콘 편집기와 Options 전용 번역을 LoadOnDemand 설정 애드온으로 이동해 일반 플레이 중 로드되는 코드와 번역 데이터를 줄였습니다.
+- 반복되는 Options 컨트롤을 통합하고 사용하지 않는 내장 라이브러리를 제거해 기존 설정 동작을 유지하면서 시작 및 유지보수 부담을 줄였습니다.
+
+---
+
 ## v1.2.13
 
 _Release date: 2026-07-19_

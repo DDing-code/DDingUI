@@ -2,7 +2,7 @@
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fCooldownManager|r
 ## Notes: Lightweight Resource Bar & Cooldown Manager
 ## Author: DDing
-## Version: 1.2.13
+## Version: 1.2.14
 ## SavedVariables: DDingUIDB
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, DDingUI_Controller
 ## IconTexture: Interface\AddOns\DDingUI\Media\logo.tga
