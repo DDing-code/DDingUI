@@ -9,6 +9,7 @@
 OptionsLoader.lua
 GUI.lua
 ConfigHelpers.lua
+DynamicIconsUI.lua
 ViewerOptions.lua
 ResourceBarOptions.lua
 CustomIconOptions.lua
