@@ -204,6 +204,12 @@ function SP:LoadSpec(specID)
     local snapshot = specData and specData[specID]
     if not snapshot then return false end
 
+    local customIcons = DDingUI.CustomIcons
+    if customIcons and customIcons.NormalizeStoredProfile then
+        customIcons:NormalizeStoredProfile(snapshot)
+    end
+    RepairStaleHybridSources(snapshot)
+
     local snapshotHasDynamicIcons = type(snapshot.dynamicIcons) == "table"
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     if defaults then

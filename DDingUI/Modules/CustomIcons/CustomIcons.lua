@@ -832,12 +832,13 @@ NormalizePresetIconData = function(iconData)
     return false
 end
 
-NormalizePresetIconDB = function(db)
+NormalizePresetIconDB = function(db, ownerProfile, updateRuntime)
     local iconDataDB = db and db.iconData
     if type(iconDataDB) ~= "table" then return false end
 
     local changed = false
     for _, iconData in pairs(iconDataDB) do
+        EnsureIconSettings(iconData)
         if NormalizePresetIconData(iconData) then
             changed = true
         end
@@ -847,7 +848,12 @@ NormalizePresetIconDB = function(db)
     db.ungrouped = type(db.ungrouped) == "table" and db.ungrouped or {}
     db.ungroupedPositions = type(db.ungroupedPositions) == "table" and db.ungroupedPositions or {}
 
-    local profile = DDingUI.db and DDingUI.db.profile
+    local activeProfile = DDingUI.db and DDingUI.db.profile
+    local profile = ownerProfile or activeProfile
+    local touchRuntime = updateRuntime
+    if touchRuntime == nil then
+        touchRuntime = profile == activeProfile
+    end
     local gsGroups = profile and profile.groupSystem and profile.groupSystem.groups
     local referencedSourceGroups = {}
     local cdmSourceGroups = {}
@@ -1058,16 +1064,96 @@ NormalizePresetIconDB = function(db)
                 end
             end
         end
-        local frame = runtime.iconFrames and runtime.iconFrames[iconKey]
-        if frame and frame.Hide then
-            frame:Hide()
-        end
-        if runtime.iconFrames then
-            runtime.iconFrames[iconKey] = nil
+        if touchRuntime then
+            local frame = runtime.iconFrames and runtime.iconFrames[iconKey]
+            if frame and frame.Hide then
+                frame:Hide()
+            end
+            if runtime.iconFrames then
+                runtime.iconFrames[iconKey] = nil
+            end
         end
         changed = true
     end
 
+    return changed
+end
+
+function CustomIcons:NormalizeStoredProfile(profile)
+    if type(profile) ~= "table" then return false end
+
+    local db = rawget(profile, "dynamicIcons")
+    if type(db) ~= "table" then return false end
+
+    db.groups = type(db.groups) == "table" and db.groups or {}
+    db.iconData = type(db.iconData) == "table" and db.iconData or {}
+    db.ungrouped = type(db.ungrouped) == "table" and db.ungrouped or {}
+    db.ungroupedPositions = type(db.ungroupedPositions) == "table" and db.ungroupedPositions or {}
+
+    local changed = false
+    local groupSystem = rawget(profile, "groupSystem")
+    local gsGroups = type(groupSystem) == "table" and groupSystem.groups
+    if type(gsGroups) == "table" then
+        for _, groupName in ipairs({ "Cooldowns", "Buffs", "Utility" }) do
+            local groupSettings = gsGroups[groupName]
+            if type(groupSettings) == "table" then
+                groupSettings.groupType = "cdm"
+
+                local preferredKey = groupSettings.sourceGroupKey
+                local preferredGroup = preferredKey and db.groups[preferredKey]
+                if preferredGroup and preferredGroup.linkedCDMGroup == nil then
+                    preferredGroup.linkedCDMGroup = groupName
+                    changed = true
+                end
+
+                if not preferredGroup or preferredGroup.linkedCDMGroup ~= groupName then
+                    local orderSet = {}
+                    for _, token in ipairs(groupSettings.iconOrder or {}) do
+                        if type(token) == "string" then
+                            local iconKey = token:match("^dyn:(.+)$")
+                            if iconKey then
+                                orderSet[iconKey] = true
+                            end
+                        end
+                    end
+
+                    local bestKey
+                    local bestMatches = -1
+                    local bestCount = -1
+                    for sourceKey, sourceGroup in pairs(db.groups) do
+                        if type(sourceGroup) == "table" and sourceGroup.linkedCDMGroup == groupName then
+                            local matches = 0
+                            local count = 0
+                            for _, iconKey in ipairs(sourceGroup.icons or {}) do
+                                count = count + 1
+                                if orderSet[iconKey] then
+                                    matches = matches + 1
+                                end
+                            end
+                            if matches > bestMatches
+                                or (matches == bestMatches and count > bestCount)
+                                or (matches == bestMatches and count == bestCount
+                                    and (not bestKey or tostring(sourceKey) < tostring(bestKey)))
+                            then
+                                bestKey = sourceKey
+                                bestMatches = matches
+                                bestCount = count
+                            end
+                        end
+                    end
+
+                    if groupSettings.sourceGroupKey ~= bestKey then
+                        groupSettings.sourceGroupKey = bestKey
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+
+    if NormalizePresetIconDB(db, profile, false) then
+        changed = true
+    end
     return changed
 end
 
