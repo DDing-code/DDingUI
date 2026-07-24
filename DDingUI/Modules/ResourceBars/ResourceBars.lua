@@ -219,8 +219,8 @@ end
 function ResourceBars:RefreshAll()
     self:UpdatePowerBar()
     self:UpdateSecondaryPowerBar()
-    if self.UpdateBuffTrackerBar then
-        self:UpdateBuffTrackerBar()
+    if self.RequestBuffTrackerUpdate then
+        self:RequestBuffTrackerUpdate("resource-refresh", 0)
     end
 end
 
@@ -266,8 +266,8 @@ local function HookViewerOnShow()
                     C_Timer.After(0.05, function()
                         ResourceBars:UpdatePowerBar()
                         ResourceBars:UpdateSecondaryPowerBar()
-                        if ResourceBars.UpdateBuffTrackerBar then
-                            ResourceBars:UpdateBuffTrackerBar()
+                        if ResourceBars.RequestBuffTrackerUpdate then
+                            ResourceBars:RequestBuffTrackerUpdate("viewer-hide", 0)
                         end
                     end)
                 end)
@@ -523,8 +523,8 @@ function ResourceBars:Initialize()
     C_Timer.After(0.1, function()
         ResourceBars:UpdatePowerBar()
         ResourceBars:UpdateSecondaryPowerBar()
-        if ResourceBars.UpdateBuffTrackerBar then
-            ResourceBars:UpdateBuffTrackerBar()
+        if ResourceBars.RequestBuffTrackerUpdate then
+            ResourceBars:RequestBuffTrackerUpdate("resource-init", 0)
         end
     end)
 
@@ -532,8 +532,8 @@ function ResourceBars:Initialize()
     C_Timer.After(0.5, function()
         ResourceBars:UpdatePowerBar()
         ResourceBars:UpdateSecondaryPowerBar()
-        if ResourceBars.UpdateBuffTrackerBar then
-            ResourceBars:UpdateBuffTrackerBar()
+        if ResourceBars.RequestBuffTrackerUpdate then
+            ResourceBars:RequestBuffTrackerUpdate("resource-init-final", 0)
         end
     end)
 
@@ -547,4 +547,3 @@ end
 DDingUI.OnUnitPower = function(self, _, unit) return ResourceBars:OnUnitPower(_, unit) end
 DDingUI.OnSpecChanged = function(self) return ResourceBars:OnSpecChanged() end
 DDingUI.OnShapeshiftChanged = function(self) return ResourceBars:OnShapeshiftChanged() end
-

@@ -1298,9 +1298,6 @@ local function NotifyCustomTimedAuraChanged(forceLayout)
     if UpdateAllIcons then
         UpdateAllIcons(mode, "aura")
     end
-    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-        DDingUI.DynamicIconBridge:NotifyIconsChanged(mode == true or mode == "force")
-    end
 end
 
 function CustomIcons.ApplyManagedGroupTextOptions(frame)
@@ -1862,9 +1859,6 @@ local function ActivateCustomTimedAura(spellID, config, startTime, iconSpellID, 
             DeactivateCustomTimedAura(spellID)
             if UpdateAllIcons then
                 UpdateAllIcons(true, "aura")
-            end
-            if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-                DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
             end
         end
     end)
@@ -4114,9 +4108,6 @@ local function EnsureEventFrame()
             RebuildTimeSpiralGlowFilters()
             local function refreshInstanceIcons()
                 UpdateAllIcons("force", "all")
-                if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
-                    DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
-                end
             end
             C_Timer.After(0.2, refreshInstanceIcons)
             C_Timer.After(1.0, refreshInstanceIcons)
@@ -5929,12 +5920,10 @@ function CustomIcons:AddIconToCDMGroup(groupName, iconData, displayName)
     if groupManager and groupManager.AssignMatchingCDMBuffIcon then
         local assignedSpellName = groupManager:AssignMatchingCDMBuffIcon(iconData, groupName)
         if assignedSpellName then
-            C_Timer.After(0.05, function()
-                local gs = DDingUI.GroupSystem
-                if gs and gs.Refresh then
-                    gs:Refresh()
-                end
-            end)
+            local groupSystem = DDingUI.GroupSystem
+            if groupSystem and groupSystem.RequestFullUpdate then
+                groupSystem:RequestFullUpdate()
+            end
             return assignedSpellName
         end
     end
@@ -5963,12 +5952,6 @@ function CustomIcons:AddIconToCDMGroup(groupName, iconData, displayName)
                     and existingSettings.targetCDMGroup == groupName
                 then
                     self:MoveIconToGroup(existingKey, sourceKey)
-                    C_Timer.After(0.05, function()
-                        local gs = DDingUI.GroupSystem
-                        if gs and gs.Refresh then
-                            gs:Refresh()
-                        end
-                    end)
                     return existingKey, sourceKey
                 end
             end
@@ -5978,12 +5961,6 @@ function CustomIcons:AddIconToCDMGroup(groupName, iconData, displayName)
     local iconKey = self:AddDynamicIcon(iconData)
     if iconKey then
         self:MoveIconToGroup(iconKey, sourceKey)
-        C_Timer.After(0.05, function()
-            local gs = DDingUI.GroupSystem
-            if gs and gs.Refresh then
-                gs:Refresh()
-            end
-        end)
     end
 
     return iconKey, sourceKey
@@ -6013,17 +5990,6 @@ function CustomIcons:AddDynamicIcon(iconData)
         UpdateDynamicIcon(iconKey)
         RefreshAllLayouts()
     end
-
-    -- [FIX] GroupSystem 즉시 갱신 — 디바운스 우회하여 아이콘 바로 표시
-    C_Timer.After(0.1, function()
-        local bridge = DDingUI.DynamicIconBridge
-        if bridge and bridge:IsActive() then
-            local gs = DDingUI.GroupSystem
-            if gs and gs.Refresh then
-                gs:Refresh()
-            end
-        end
-    end)
 
     CustomIcons:RefreshDynamicListUI()
     -- [FIX] SpecProfiles 즉시 저장 — 리로드 시 LoadSpec이 이전 스냅샷으로 복원하여 데이터 손실 방지
@@ -6232,16 +6198,6 @@ function CustomIcons:MoveIconToGroup(iconKey, targetGroup)
     end
 
     RefreshAllLayouts()
-    -- [FIX] GroupSystem 즉시 갱신 — MoveIconToGroup 후 바로 아이콘 표시
-    C_Timer.After(0.1, function()
-        local bridge = DDingUI.DynamicIconBridge
-        if bridge and bridge:IsActive() then
-            local gs = DDingUI.GroupSystem
-            if gs and gs.Refresh then
-                gs:Refresh()
-            end
-        end
-    end)
     CustomIcons:RefreshDynamicListUI()
     -- [FIX] SpecProfiles 즉시 저장 — MoveIconToGroup 후 스냅샷 갱신
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then

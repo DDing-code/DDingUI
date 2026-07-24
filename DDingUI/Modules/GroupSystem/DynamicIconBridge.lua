@@ -1449,28 +1449,28 @@ function DynamicIconBridge:Initialize()
         end
     end
 
-    -- [PERF] UNIT_AURA 이벤트 → CDM 패턴의 dirty-flag 디바운싱
-    -- 이전: 매 UNIT_AURA마다 ScanAndHideCDMBuffs() + NotifyIconsChanged() 즉시 실행
-    -- 현재: dirty 플래그만 세팅 → FrameController Reconcile 틱에서 1회 실행
-    -- 이유: BuffFrameManager/CustomIcons도 같은 UNIT_AURA를 처리하므로 3중 즉시 실행 불필요
+    -- Merge repeated aura events into one reusable next-frame dispatch.
     if not self._auraEventFrame then
         self._auraDirty = false
+        self._auraDispatchFrame = CreateFrame("Frame")
+        self._auraDispatchFrame:Hide()
+        self._auraDispatchFrame:SetScript("OnUpdate", function(frame)
+            frame:Hide()
+            if not self._auraDirty then return end
+            self._auraDirty = false
+            if not initialized then return end
+            ScanAndHideCDMBuffs()
+            self:NotifyIconsChanged(false)
+        end)
         self._auraEventFrame = CreateFrame("Frame")
         self._auraEventFrame:RegisterEvent("UNIT_AURA")
         self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         self._auraEventFrame:SetScript("OnEvent", function(_, event, unit)
             if event == "UNIT_AURA" and unit ~= "player" then return end
             if not initialized then return end
-            -- [PERF] dirty 플래그만 세팅 — CDM 억제는 Layout 훅에서 처리
-            -- NotifyIconsChanged는 이미 0.2초 디바운스가 있으므로 즉시 호출해도 안전
             if not self._auraDirty then
                 self._auraDirty = true
-                C_Timer.After(0, function()
-                    self._auraDirty = false
-                    if not initialized then return end
-                    ScanAndHideCDMBuffs()
-                    self:NotifyIconsChanged(false)
-                end)
+                self._auraDispatchFrame:Show()
             end
         end)
     end
@@ -1490,6 +1490,10 @@ end
 function DynamicIconBridge:Shutdown()
     if not initialized then return end
     initialized = false
+    self._auraDirty = false
+    if self._auraDispatchFrame then
+        self._auraDispatchFrame:Hide()
+    end
 
     -- CDM 프레임 숨김 해제
     for frame in pairs(hiddenCDMFrames) do

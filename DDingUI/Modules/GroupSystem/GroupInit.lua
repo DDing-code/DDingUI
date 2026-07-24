@@ -50,6 +50,7 @@ end
 local function RequestFullUpdate()
     if not GroupSystem.enabled then return end
     _dynamicUpdatePending = false
+    _dynamicUpdateSourceKeys = nil
     if _dynamicUpdateDispatchFrame then
         _dynamicUpdateDispatchFrame:Hide()
     end
@@ -2130,7 +2131,7 @@ function GroupSystem:RefreshLayout()
         _pendingRefreshLayout = true
         return
     end
-    DoFullUpdate()
+    RequestFullUpdate()
 end
 
 -- 그룹 추가 후 새로고침

@@ -188,7 +188,9 @@ local function StartPreviewTicker()
             return
         end
         -- Trigger update
-        ResourceBars:UpdateBuffTrackerBar()
+        if ResourceBars.RequestBuffTrackerUpdate then
+            ResourceBars:RequestBuffTrackerUpdate("preview", 0)
+        end
     end)
 end
 
@@ -1366,6 +1368,10 @@ QueueBuffTrackerUpdate = function(reason, delay)
     end
 
     buffTrackerUpdateFrame:Show()
+end
+
+function ResourceBars:RequestBuffTrackerUpdate(reason, delay)
+    QueueBuffTrackerUpdate(reason or "external", delay)
 end
 
 local playerInCombat = false
@@ -5835,7 +5841,9 @@ end
 
 -- Expose to main addon
 DDingUI.GetBuffTrackerBar = function(self) return ResourceBars:GetBuffTrackerBar() end
-DDingUI.UpdateBuffTrackerBar = function(self) return ResourceBars:UpdateBuffTrackerBar() end
+DDingUI.UpdateBuffTrackerBar = function(self)
+    return ResourceBars:RequestBuffTrackerUpdate("options", 0)
+end
 DDingUI.GetTrackedBuffBars = function(self) return barFrames end  -- Multi-bar access for debugging
 DDingUI._buffTrackerBars = barFrames  -- ConditionalActions ResolveBarFrame 연동
 DDingUI.GetTrackedBuffIcons = function(self) return iconFrames end  -- Multi-icon access for debugging
