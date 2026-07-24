@@ -720,8 +720,15 @@ local function RestoreStaleBuffFrame(icon)
         icon._ddLastGroupAlpha = 1
     end
     local texture = icon.icon or icon.Icon
-    if texture and texture.SetAlpha then
-        pcall(texture.SetAlpha, texture, 1)
+    if texture then
+        if texture.Show then pcall(texture.Show, texture) end
+        if texture.SetAlpha then pcall(texture.SetAlpha, texture, 1) end
+    end
+    if icon.cooldown and icon.cooldown.Show then
+        pcall(icon.cooldown.Show, icon.cooldown)
+    end
+    if icon.Cooldown and icon.Cooldown.Show and icon.Cooldown ~= icon.cooldown then
+        pcall(icon.Cooldown.Show, icon.Cooldown)
     end
 end
 
@@ -735,6 +742,10 @@ local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
             return false
         end
         return true
+    end
+
+    if icon._ddCDMActive ~= nil then
+        return icon._ddCDMActive == true
     end
 
     if icon.IsShown and icon:IsShown() then
@@ -751,12 +762,7 @@ end
 local function ReadBuffFrameActiveState(frame)
     if not frame then return nil end
 
-    local active
-    if frame.IsActive then
-        active = frame:IsActive()
-    else
-        active = frame.isActive
-    end
+    local active = frame.isActive
     if issecretvalue and issecretvalue(active) then
         return nil
     end
@@ -798,6 +804,9 @@ if not FrameController._activeStateHooked then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             local active = ReadBuffFrameActiveState(frame)
+            if active == nil and frame.IsShown then
+                active = frame:IsShown() and true or false
+            end
             if active ~= nil then
                 frame._ddCDMActive = active
             end
@@ -809,8 +818,11 @@ if not FrameController._activeStateHooked then
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
-            local active = ReadBuffFrameActiveState(frame)
-            frame._ddCDMActive = active
+            -- The pool can reuse this frame before the new active state is applied.
+            frame._ddCDMActive = nil
+            if frame._ddCDMStaleBuff then
+                RestoreStaleBuffFrame(frame)
+            end
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -1085,13 +1097,20 @@ function FrameController:ScanCDMViewers()
                     end
                     activeFrameCount = activeFrameCount + 1
                     local sourceShown = icon.IsShown and icon:IsShown() or false
-                    if globalName == "BuffIconCooldownViewer"
-                        and not icon._ddCDMStaleBuff
-                        and icon._ddCDMActive == true
-                    then
-                        -- A managed frame can be hidden temporarily while the group is rebuilt.
-                        -- Keep CDM-active buffs in the layout instead of treating our Hide() as source state.
-                        sourceShown = true
+                    if globalName == "BuffIconCooldownViewer" then
+                        local active = ReadBuffFrameActiveState(icon)
+                        if active ~= nil then
+                            icon._ddCDMActive = active
+                        else
+                            active = icon._ddCDMActive
+                        end
+                        if active ~= nil then
+                            -- The CDM state is authoritative once known. DDingUI can temporarily
+                            -- show or hide a managed frame while the group is being rebuilt.
+                            sourceShown = active == true and not icon._ddCDMStaleBuff
+                        elseif icon._ddCDMStaleBuff then
+                            sourceShown = false
+                        end
                     end
                     icon._ddSourceViewer = globalName
                     icon._ddCDMViewerShown = sourceShown and true or false
