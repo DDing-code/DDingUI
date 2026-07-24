@@ -6,6 +6,10 @@
 ## LoadOnDemand: 1
 ## Dependencies: DDingUI
 
+# Options-only localization
+Locales\enUS.lua
+Locales\koKR.lua
+
 OptionsLoader.lua
 GUI.lua
 ConfigHelpers.lua
