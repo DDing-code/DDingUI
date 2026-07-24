@@ -1348,11 +1348,21 @@ do
     lsFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     lsFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
     lsFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    lsFrame:RegisterEvent("SPELLS_CHANGED")
     lsFrame:SetScript("OnEvent", function(_, event)
         if event == "LOADING_SCREEN_ENABLED" then
             _loadingScreenActive = true
         elseif event == "LOADING_SCREEN_DISABLED" then
             _loadingScreenActive = false
+        elseif event == "SPELLS_CHANGED" then
+            if _pendingSpecChange then
+                local myToken = _pendingSpecChangeToken
+                C_Timer.After(0, function()
+                    if myToken == _pendingSpecChangeToken then
+                        _pendingSpecChange = false
+                    end
+                end)
+            end
         else
             -- 스펙/특성 변경 시 3초간 OnHide 재표시 억제
             -- 블리자드가 뷰어를 재구축하는 동안 Show() 호출 방지
@@ -1495,6 +1505,7 @@ do
     viewerRefreshFrame:RegisterEvent("PLAYER_LEVEL_UP")
     viewerRefreshFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
     viewerRefreshFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    viewerRefreshFrame:RegisterEvent("SPELLS_CHANGED")
     viewerRefreshFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_ENTERING_WORLD" then
             -- [FIX] 리로드 직후 강화효과 위치 즉시 보정 (CDM RunVisualSetup 패턴)
@@ -1508,6 +1519,15 @@ do
                 CenterBuffIcons()
             end)
             C_Timer.After(1.0, OnMajorStateChange)
+            return
+        end
+        if event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
+            return
+        end
+        if event == "SPELLS_CHANGED" then
+            if _pendingSpecChange then
+                C_Timer.After(0, OnMajorStateChange)
+            end
             return
         end
         -- 뷰어 재생성 대기 후 재설치 시도 (여러 시점에서)

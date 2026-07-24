@@ -232,6 +232,7 @@ local pollingFrame = CreateFrame("Frame")
 
 -- dirty 마킹 — 모든 CDM 훅에서 이것만 호출
 local function MarkDirty()
+    if state.specChangeDetected or state.talentChangeDetected then return end
     if state.isProcessing then
         state.pendingReconcile = true
         state.lastActivityTime = GetTime()
@@ -422,10 +423,59 @@ end
 
 -- 하위 호환: ScheduleReconcile → MarkDirty + EnablePolling
 local function ScheduleReconcile(debounceTime)
+    if state.specChangeDetected or state.talentChangeDetected then return end
     MarkDirty()
     if FrameController.initialized and not state.pollingActive then
         EnablePolling()
     end
+end
+
+function FrameController:_FinishPendingSpecChange(version)
+    if version and version ~= state.specChangeVersion then return end
+    if not state.specChangeDetected and not state.talentChangeDetected then return end
+
+    state.specChangeDetected = false
+    state.talentChangeDetected = false
+    state.pendingReconcile = false
+    state.dirty = false
+    state.burstTicksRemaining = 0
+    wipe(iconSpellNameMap)
+
+    local function RefreshCompletedTransition()
+        if not FrameController.initialized then return end
+        if version and version ~= state.specChangeVersion then return end
+        if state.specChangeDetected or state.talentChangeDetected then return end
+
+        FrameController:RefreshViewerRefs()
+        InvalidateGroupLayoutCaches(true)
+        ResetGroupViewerHiddenFlags()
+        MarkDirty()
+        if not state.pollingActive then
+            EnablePolling()
+        end
+    end
+
+    C_Timer.After(0, RefreshCompletedTransition)
+    C_Timer.After(0.1, RefreshCompletedTransition)
+end
+
+function FrameController:_BeginPendingSpecChange(fullChange)
+    state.specChangeVersion = state.specChangeVersion + 1
+    local version = state.specChangeVersion
+
+    if fullChange then
+        state.specChangeDetected = true
+    else
+        state.talentChangeDetected = true
+    end
+
+    state.pendingReconcile = false
+    state.dirty = false
+    state.burstTicksRemaining = 0
+
+    C_Timer.After(3, function()
+        FrameController:_FinishPendingSpecChange(version)
+    end)
 end
 
 -- [FAST REPARENT] OnShow 트리거 → MarkDirty + Burst 폴링 시작
@@ -685,7 +735,6 @@ end
 local function SuppressStaleBuffFrame(icon)
     if not icon then return end
     icon._ddCDMStaleBuff = true
-    icon._ddCDMActive = false
     icon._ddCombatKeepAlive = nil
     icon._ddCombatVisible = false
     HideManagedBorderLayers(icon)
@@ -744,10 +793,6 @@ local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
         return true
     end
 
-    if icon._ddCDMActive ~= nil then
-        return icon._ddCDMActive == true
-    end
-
     if icon.IsShown and icon:IsShown() then
         return true
     end
@@ -772,6 +817,45 @@ local function ReadBuffFrameActiveState(frame)
     return nil
 end
 
+function FrameController:_ResetAcquiredCooldownFrame(frame)
+    if not frame then return end
+
+    local restoreVisuals = frame._ddCDMStaleBuff
+        or frame._ddSuppressed
+        or frame._ddProvisionalHidden
+
+    frame._ddCDMViewerShown = nil
+    frame._ddCDMStaleBuff = nil
+    frame._ddLayoutVisible = nil
+    frame._ddProvisionalHidden = nil
+    frame._ddCombatKeepAlive = nil
+    frame._ddCombatVisible = nil
+    frame._ddLastCooldownID = nil
+    frame._ddLayoutCooldownID = nil
+    frame._ddSuppressed = nil
+    frame._ddingHidden = nil
+
+    frame._ddIsManaged = nil
+    frame._ddContainerRef = nil
+    frame._ddOrigState = nil
+    ResetGroupIconLayoutState(frame, true)
+
+    if restoreVisuals then
+        local texture = frame.icon or frame.Icon
+        if texture and texture.SetAlpha then
+            texture:SetAlpha(1)
+        end
+        local cooldown = frame.Cooldown or frame.cooldown
+        if cooldown and cooldown.SetDrawSwipe then
+            cooldown:SetDrawSwipe(true)
+        end
+        if frame.SetAlpha and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
+            frame:SetAlpha(1)
+            frame._ddLastGroupAlpha = 1
+        end
+    end
+end
+
 local function ShouldReplaceCooldownFrame(existing, candidate)
     if not existing then return true end
 
@@ -794,7 +878,7 @@ end
 -- [CDM] OnActiveStateChanged 훅
 -- CDM이 프레임 active 상태 변경 시 호출
 -- frame:IsShown()은 DDingUI의 Show() 호출로 오염됨
--- → _ddCDMActive 플래그로 CDM의 진짜 상태를 추적
+-- The completed Blizzard frame state is read during the next pool scan.
 -- ============================================================
 
 if not FrameController._activeStateHooked then
@@ -803,13 +887,6 @@ if not FrameController._activeStateHooked then
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnActiveStateChanged then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
-            local active = ReadBuffFrameActiveState(frame)
-            if active == nil and frame.IsShown then
-                active = frame:IsShown() and true or false
-            end
-            if active ~= nil then
-                frame._ddCDMActive = active
-            end
             if FrameController.initialized then
                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
             end
@@ -818,8 +895,6 @@ if not FrameController._activeStateHooked then
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
-            -- The pool can reuse this frame before the new active state is applied.
-            frame._ddCDMActive = nil
             if frame._ddCDMStaleBuff then
                 RestoreStaleBuffFrame(frame)
             end
@@ -884,7 +959,7 @@ SlashCmdList["DDBUFFDIAG"] = function()
         activeCount = activeCount + 1
         local shown = icon:IsShown()
         local managed = icon._ddIsManaged
-        local cdmActive = icon._ddCDMActive
+        local cdmActive = ReadBuffFrameActiveState(icon)
         local parent = icon:GetParent()
         local parentName = parent and (parent:GetName() or "anon") or "nil"
         if shown then shownCount = shownCount + 1 end
@@ -1100,13 +1175,6 @@ function FrameController:ScanCDMViewers()
                     if globalName == "BuffIconCooldownViewer" then
                         local active = ReadBuffFrameActiveState(icon)
                         if active ~= nil then
-                            icon._ddCDMActive = active
-                        else
-                            active = icon._ddCDMActive
-                        end
-                        if active ~= nil then
-                            -- The CDM state is authoritative once known. DDingUI can temporarily
-                            -- show or hide a managed frame while the group is being rebuilt.
                             sourceShown = active == true and not icon._ddCDMStaleBuff
                         elseif icon._ddCDMStaleBuff then
                             sourceShown = false
@@ -1216,9 +1284,6 @@ function FrameController:ScanCDMViewers()
 
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
-                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
-                                    self._ddCDMViewerShown = true
-                                end
                                 if self._ddSuppressed then self:SetAlpha(0); return end
                                 if self._ddCDMStaleBuff then
                                     RestoreStaleBuffFrame(self)
@@ -1245,10 +1310,6 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
-                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
-                                    self._ddCDMViewerShown = not self._ddCDMStaleBuff
-                                        and self._ddCDMActive == true
-                                end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
@@ -1258,9 +1319,6 @@ function FrameController:ScanCDMViewers()
                         -- 숨겨진 아이콘에도 OnShow/OnHide 훅 설치
                         if not icon._fcShowHideHooked then
                             icon:HookScript("OnShow", function(self)
-                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
-                                    self._ddCDMViewerShown = true
-                                end
                                 if self._ddCDMStaleBuff then
                                     RestoreStaleBuffFrame(self)
                                 end
@@ -1268,10 +1326,6 @@ function FrameController:ScanCDMViewers()
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
                             icon:HookScript("OnHide", function(self)
-                                if self._ddSourceViewer == "BuffIconCooldownViewer" then
-                                    self._ddCDMViewerShown = not self._ddCDMStaleBuff
-                                        and self._ddCDMActive == true
-                                end
                                 if not FrameController.initialized then return end
                                 ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
                             end)
@@ -1363,6 +1417,13 @@ function FrameController:Reconcile()
     if not self.initialized then
         state.pendingReconcile = false
         return
+    end
+
+    if state.specChangeDetected or state.talentChangeDetected then
+        state.pendingReconcile = false
+        state.dirty = false
+        state.burstTicksRemaining = 0
+        return false
     end
 
     -- [FIX] 블리자드 편집모드 중 Reconcile 완전 차단
@@ -1781,13 +1842,8 @@ local function InstallCDMHooks()
                 if not FrameController.initialized then return end
 
                 -- 컨텍스트에 따른 디바운스 시간 결정
-                if state.specChangeDetected then
-                    ScheduleReconcile(CONFIG.DEBOUNCE_SPEC)
-                elseif state.talentChangeDetected then
-                    ScheduleReconcile(CONFIG.DEBOUNCE_TALENT)
-                else
-                    ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
-                end
+                if state.specChangeDetected or state.talentChangeDetected then return end
+                ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
             end)
         end
     end
@@ -1807,6 +1863,7 @@ local function InstallCDMHooks()
             if frame then
                 state.acquireSerial = state.acquireSerial + 1
                 frame._ddAcquireSerial = state.acquireSerial
+                FrameController:_ResetAcquiredCooldownFrame(frame)
             end
 
             -- [CDM 패턴] acquire 시 scale 강제 1 (CDM이 변경할 수 있음)
@@ -1924,8 +1981,10 @@ local function InstallCDMHooks()
                 if InCombatLockdown() then return end
                 -- 로딩 화면 중에는 재표시하지 않음
                 if FrameController._loadingScreenActive then return end
+                if state.specChangeDetected or state.talentChangeDetected then return end
                 C_Timer.After(0, function()
                     if InCombatLockdown() then return end
+                    if state.specChangeDetected or state.talentChangeDetected then return end
                     if not self:IsShown() then
                         self:Show()
                     end
@@ -1999,7 +2058,7 @@ local function InstallCDMHooks()
                 end
             else
                 -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
-                ProvisionalReparent(frame)
+                -- Wait for the completed pool scan to assign the final anchor.
             end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
@@ -2170,7 +2229,7 @@ end
 
 -- [FIX] 스펙 변경 진행 중인지 외부 조회 (GroupInit에서 빈 그룹 숨김 방지용)
 function FrameController:IsSpecChangePending()
-    return state.specChangeDetected or false
+    return state.specChangeDetected or state.talentChangeDetected or false
 end
 
 -- [PERF] Reconcile 체인에서 ScanCDMViewers가 이미 완료되었는지 조회
@@ -2400,51 +2459,17 @@ function FrameController:Initialize()
             return
 
         elseif event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_LEVEL_UP" then
-            state.specChangeDetected = true
-            state.specChangeVersion = state.specChangeVersion + 1
-            local specVersion = state.specChangeVersion
-            wipe(iconSpellNameMap) -- 캐시 초기화
-            InvalidateGroupLayoutCaches(true)
-            ScheduleReconcile(CONFIG.DEBOUNCE_SPEC)
-
-            -- [FIX] CDM이 뷰어를 재생성할 시간 대기 후 참조 갱신 + 앵커 재적용
-            C_Timer.After(1.5, function()
-                if not FrameController.initialized then return end
-                if specVersion ~= state.specChangeVersion then return end
-                FrameController:RefreshViewerRefs()
-                InvalidateGroupLayoutCaches(true)
-
-                -- [FIX] _viewerHidden 강제 리셋
-                -- CDM 뷰어 재생성 시 기존 OnHide 훅으로 _viewerHidden=true가 남아
-                -- LayoutGroup이 영구 차단되는 것을 방지
-                local gr = DDingUI.GroupRenderer
-                if gr and gr.groupFrames then
-                    for _, frame in pairs(gr.groupFrames) do
-                        if frame._viewerHidden then
-                            frame._viewerHidden = false
-                        end
-                    end
-                end
-
-                -- GroupSystem 앵커 재적용 (그룹 프레임 → 뷰어 앵커 갱신)
-                if DDingUI.GroupSystem and DDingUI.GroupSystem.enabled then
-                    DDingUI.GroupSystem:Refresh()
-                end
-                -- 매핑 모듈 위치 재적용 (시전바 등 → 그룹 프레임 앵커 갱신)
-                if DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
-                    DDingUI.Movers:ReloadMappedModulePositions()
-                end
-            end)
+            FrameController:_BeginPendingSpecChange(true)
         elseif event == "TRAIT_CONFIG_UPDATED" then
-            -- 전문화 변경 중이면 무시 (SPEC이 처리)
             if state.specChangeDetected then return end
-            state.talentChangeDetected = true
-            wipe(iconSpellNameMap)
-            InvalidateGroupLayoutCaches(true)
-            ScheduleReconcile(CONFIG.DEBOUNCE_TALENT)
+            FrameController:_BeginPendingSpecChange(false)
 
         elseif event == "SPELLS_CHANGED" then
-            ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
+            if state.specChangeDetected or state.talentChangeDetected then
+                FrameController:_FinishPendingSpecChange(state.specChangeVersion)
+            else
+                ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
+            end
         end
     end)
     self._eventFrame = eventFrame
