@@ -302,6 +302,83 @@ function DDingUI:GetBuffTrackerDefaultSpecConfigRef()
     return BuffTrackerDefaultSpecConfig
 end
 
+local OPTION_BUILDER_INTERNAL_KEYS = {
+    default = true,
+    getStore = true,
+    key = true,
+    onChange = true,
+}
+
+local function CopyOptionFields(spec, optionType)
+    local option = { type = optionType }
+    for key, value in pairs(spec) do
+        if not OPTION_BUILDER_INTERNAL_KEYS[key] then
+            option[key] = value
+        end
+    end
+    return option
+end
+
+local function ResolveOptionDefault(defaultValue, store)
+    if type(defaultValue) == "function" then
+        return defaultValue(store)
+    end
+    return defaultValue
+end
+
+local OptionBuilders = {}
+
+function OptionBuilders.BoundValue(optionType, spec)
+    local option = CopyOptionFields(spec, optionType)
+
+    option.get = function()
+        local store = spec.getStore()
+        local value = store and store[spec.key]
+        if value == nil then
+            return ResolveOptionDefault(spec.default, store)
+        end
+        return value
+    end
+
+    option.set = function(_, value)
+        local store = spec.getStore()
+        if not store then return end
+        store[spec.key] = value
+        if spec.onChange then
+            spec.onChange(value, store)
+        end
+    end
+
+    return option
+end
+
+function OptionBuilders.BoundColor(spec)
+    local option = CopyOptionFields(spec, "color")
+
+    option.get = function()
+        local store = spec.getStore()
+        local color = store and store[spec.key]
+        if color == nil then
+            color = ResolveOptionDefault(spec.default, store)
+        end
+        color = color or {}
+        return color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
+    end
+
+    option.set = function(_, red, green, blue, alpha)
+        local store = spec.getStore()
+        if not store then return end
+        store[spec.key] = { red, green, blue, alpha or 1 }
+        if spec.onChange then
+            spec.onChange(store[spec.key], store)
+        end
+    end
+
+    return option
+end
+
+ns.OptionBuilders = OptionBuilders
+
 -- Expose for namespace access
 ns.ConfigHelpers = {
     GetAnchorOptions = function() return DDingUI:GetAnchorOptions() end,

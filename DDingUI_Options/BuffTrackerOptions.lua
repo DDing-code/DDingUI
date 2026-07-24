@@ -5,6 +5,7 @@ local LSM = LibStub("LibSharedMedia-3.0")
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
 local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
 local CDM_PREFIX = (SL and SL.GetChatPrefix and SL.GetChatPrefix("CDM", "CDM")) or "|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " -- [STYLE]
+local OptionBuilders = ns.OptionBuilders
 -- [REFACTOR] AceGUI → StyleLib: AceConfigRegistry, AceConfigDialog 제거
 local buildVersion = select(4, GetBuildInfo())
 
@@ -2593,6 +2594,37 @@ end
 -- TRACKED BUFFS FOLDABLE LIST OPTIONS
 -- ============================================================
 
+local function CreateTrackedSettingOption(optionType, index, settingKey, defaultValue, spec)
+    local afterChange = spec.afterChange
+    spec.afterChange = nil
+    spec.key = settingKey
+    spec.default = defaultValue
+    spec.getStore = function()
+        local buff = GetTrackedBuff(index)
+        return buff and buff.settings
+    end
+    spec.onChange = function(value, settings)
+        DDingUI:UpdateBuffTrackerBar()
+        if afterChange then
+            afterChange(value, settings)
+        end
+    end
+    return OptionBuilders.BoundValue(optionType, spec)
+end
+
+local function CreateTrackedColorOption(index, settingKey, defaultValue, spec)
+    spec.key = settingKey
+    spec.default = defaultValue
+    spec.getStore = function()
+        local buff = GetTrackedBuff(index)
+        return buff and buff.settings
+    end
+    spec.onChange = function()
+        DDingUI:UpdateBuffTrackerBar()
+    end
+    return OptionBuilders.BoundColor(spec)
+end
+
 -- Create a single tracked buff entry options (foldable with detail settings)
 local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     -- baseOrder는 이미 호출 시 index별로 계산되어 전달됨
@@ -3828,70 +3860,33 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     }
 
     -- Icon Offset X
-    options["tracked" .. index .. "_iconOffsetX"] = {
-        type = "range",
+    options["tracked" .. index .. "_iconOffsetX"] = CreateTrackedSettingOption("range", index, "iconOffsetX", 0, {
         name = "    " .. (L["Icon X Offset"] or "Icon X Offset"),
         order = orderBase + 1.6,
         width = 0.7,
         min = -500, max = 500, step = 0.1,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.iconOffsetX or 0
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconOffsetX = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Offset Y
-    options["tracked" .. index .. "_iconOffsetY"] = {
-        type = "range",
+    options["tracked" .. index .. "_iconOffsetY"] = CreateTrackedSettingOption("range", index, "iconOffsetY", 0, {
         name = "    " .. (L["Icon Y Offset"] or "Icon Y Offset"),
         order = orderBase + 1.7,
         width = 0.7,
         min = -500, max = 500, step = 0.1,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.iconOffsetY or 0
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconOffsetY = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Show Icon Border
-    options["tracked" .. index .. "_showIconBorder"] = {
-        type = "toggle",
+    options["tracked" .. index .. "_showIconBorder"] = CreateTrackedSettingOption("toggle", index, "showIconBorder", true, {
         name = "    " .. (L["Show Icon Border"] or "Show Icon Border"),
         order = orderBase + 1.8,
         width = 0.7,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.showIconBorder ~= false
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.showIconBorder = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Border Size
-    options["tracked" .. index .. "_iconBorderSize"] = {
-        type = "range",
+    options["tracked" .. index .. "_iconBorderSize"] = CreateTrackedSettingOption("range", index, "iconBorderSize", 1, {
         name = "    " .. (L["Border Size"] or "Border Size"),
         order = orderBase + 1.801,
         width = 0.7,
@@ -3901,22 +3896,10 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local buff = GetTrackedBuff(index)
             return not (buff and buff.settings and buff.settings.showIconBorder ~= false)
         end,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.iconBorderSize or 1
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconBorderSize = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Border Color
-    options["tracked" .. index .. "_iconBorderColor"] = {
-        type = "color",
+    options["tracked" .. index .. "_iconBorderColor"] = CreateTrackedColorOption(index, "iconBorderColor", { 0, 0, 0, 1 }, {
         name = "    " .. (L["Border Color"] or "Border Color"),
         order = orderBase + 1.802,
         width = 0.7,
@@ -3926,147 +3909,63 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local buff = GetTrackedBuff(index)
             return not (buff and buff.settings and buff.settings.showIconBorder ~= false)
         end,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            local c = buff and buff.settings and buff.settings.iconBorderColor or { 0, 0, 0, 1 }
-            return c[1] or 0, c[2] or 0, c[3] or 0, c[4] or 1
-        end,
-        set = function(_, r, g, b, a)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconBorderColor = { r, g, b, a }
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Zoom (texture crop)
-    options["tracked" .. index .. "_iconZoom"] = {
-        type = "range",
+    options["tracked" .. index .. "_iconZoom"] = CreateTrackedSettingOption("range", index, "iconZoom", 0.08, {
         name = "    " .. (L["Icon Zoom"] or "Icon Zoom"),
         desc = L["Crops the edges of icons (higher = more zoom)"] or "Crops the edges of icons (higher = more zoom)",
         order = orderBase + 1.803,
         width = 0.7,
         min = 0, max = 0.2, step = 0.01,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.iconZoom or 0.08
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconZoom = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Aspect Ratio
-    options["tracked" .. index .. "_iconAspectRatio"] = {
-        type = "range",
+    options["tracked" .. index .. "_iconAspectRatio"] = CreateTrackedSettingOption("range", index, "iconAspectRatio", 1.0, {
         name = "    " .. (L["Aspect Ratio"] or "Aspect Ratio"),
         desc = L["Control the icon aspect ratio. 1.0 = square, >1.0 = wider, <1.0 = taller"] or "Control the icon aspect ratio. 1.0 = square, >1.0 = wider, <1.0 = taller",
         order = orderBase + 1.804,
         width = 0.7,
         min = 0.5, max = 2.0, step = 0.05,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.iconAspectRatio or 1.0
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconAspectRatio = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Always Show In Combat (아이콘 전투중 항상 표시)
-    options["tracked" .. index .. "_iconShowInCombat"] = {
-        type = "toggle",
+    options["tracked" .. index .. "_iconShowInCombat"] = CreateTrackedSettingOption("toggle", index, "showInCombat", false, {
         name = "    " .. (L["Always show in combat"] or "Always show in combat"),
         desc = L["Show during combat even when stacks are 0"] or "Show during combat even when stacks are 0",
         order = orderBase + 1.8041,
         width = 1.0,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.showInCombat
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.showInCombat = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Only In Combat (아이콘 전투 중에만 표시)
-    options["tracked" .. index .. "_iconOnlyInCombat"] = {
-        type = "toggle",
+    options["tracked" .. index .. "_iconOnlyInCombat"] = CreateTrackedSettingOption("toggle", index, "onlyInCombat", false, {
         name = "    " .. (L["Only show in combat"] or "Only show in combat"),
         desc = L["Hide when out of combat"] or "Hide when out of combat",
         order = orderBase + 1.80415,
         width = 1.0,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.onlyInCombat
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.onlyInCombat = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Show Only When Inactive (비활성화 시에만 표시)
-    options["tracked" .. index .. "_showOnlyWhenInactive"] = {
-        type = "toggle",
+    options["tracked" .. index .. "_showOnlyWhenInactive"] = CreateTrackedSettingOption("toggle", index, "showOnlyWhenInactive", false, {
         name = "    " .. (L["Show only when inactive"] or "Show only when inactive"),
         desc = L["Only show icon when buff is NOT active"] or "Only show icon when buff is NOT active",
         order = orderBase + 1.8042,
         width = 1.0,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.showOnlyWhenInactive
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.showOnlyWhenInactive = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Desaturate (when not active)
-    options["tracked" .. index .. "_iconDesaturate"] = {
-        type = "toggle",
+    options["tracked" .. index .. "_iconDesaturate"] = CreateTrackedSettingOption("toggle", index, "iconDesaturate", false, {
         name = "    " .. (L["Desaturate When Inactive"] or "Desaturate When Inactive"),
         desc = L["Desaturate the icon when the buff is not active"] or "Desaturate the icon when the buff is not active",
         order = orderBase + 1.805,
         width = 1.0,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.iconDesaturate or false
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconDesaturate = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Icon Stack Text Header
     options["tracked" .. index .. "_iconStackHeader"] = {
@@ -4079,25 +3978,15 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     }
 
     -- Show Stack Text
-    options["tracked" .. index .. "_iconShowStackText"] = {
-        type = "toggle",
+    options["tracked" .. index .. "_iconShowStackText"] = CreateTrackedSettingOption("toggle", index, "iconShowStackText", true, {
         name = "    " .. (L["Show Stack Text"] or "Show Stack Text"),
         order = orderBase + 1.8061,
         width = 0.7,
         hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.iconShowStackText ~= false
+        afterChange = function()
+            RefreshOptions()
         end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.iconShowStackText = val
-                DDingUI:UpdateBuffTrackerBar()
-                RefreshOptions()  -- 하위 옵션 hidden 상태 즉시 업데이트
-            end
-        end,
-    }
+    })
 
     -- Helper for hiding stack text options when stack text is disabled
     local function hiddenIfStackTextDisabled()
@@ -4529,8 +4418,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     }
 
     -- Text Display Mode
-    options["tracked" .. index .. "_textDisplayMode"] = {
-        type = "select",
+    options["tracked" .. index .. "_textDisplayMode"] = CreateTrackedSettingOption("select", index, "textDisplayMode", "stacks", {
         name = "    " .. (L["Display"] or "Display"),
         order = orderBase + 1.91,
         width = 0.7,
@@ -4541,23 +4429,13 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             name = L["Buff Name"] or "Buff Name",
             custom = L["Custom Text"] or "Custom Text",
         },
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textDisplayMode or "stacks"
+        afterChange = function()
+            RefreshOptions()
         end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textDisplayMode = val
-                DDingUI:UpdateBuffTrackerBar()
-                RefreshOptions()
-            end
-        end,
-    }
+    })
 
     -- Custom Text
-    options["tracked" .. index .. "_customText"] = {
-        type = "input",
+    options["tracked" .. index .. "_customText"] = CreateTrackedSettingOption("input", index, "customText", "", {
         name = "    " .. (L["Custom Text"] or "Custom Text"),
         desc = L["Use %s for stacks, %d for duration"] or "Use %s for stacks, %d for duration",
         order = orderBase + 1.911,
@@ -4567,18 +4445,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local buff = GetTrackedBuff(index)
             return not buff or not buff.settings or buff.settings.textDisplayMode ~= "custom"
         end,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.customText or ""
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.customText = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Attach To
     options["tracked" .. index .. "_textAnchorTo"] = {
@@ -4689,73 +4556,37 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     }
 
     -- Text Size
-    options["tracked" .. index .. "_textModeSize"] = {
-        type = "range",
+    options["tracked" .. index .. "_textModeSize"] = CreateTrackedSettingOption("range", index, "textModeSize", 24, {
         name = "    " .. (L["Font Size"] or "Font Size"),
         order = orderBase + 1.96,
         width = 0.6,
         min = 8, max = 72, step = 1,
         hidden = hiddenIfNotText,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textModeSize or 24
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textModeSize = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Font
-    options["tracked" .. index .. "_textModeFont"] = {
-        type = "select",
+    options["tracked" .. index .. "_textModeFont"] = CreateTrackedSettingOption("select", index, "textModeFont", function()
+        return DDingUI.db.profile.defaultFont or DDingUI.DEFAULT_FONT_NAME
+    end, {
         name = "    " .. (L["Font"] or "Font"),
         order = orderBase + 1.961,
         width = 1.0,
         hidden = hiddenIfNotText,
         dialogControl = "LSM30_Font",
         values = function() return DDingUI:GetFontValues() end,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textModeFont or DDingUI.db.profile.defaultFont or DDingUI.DEFAULT_FONT_NAME
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textModeFont = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Color
-    options["tracked" .. index .. "_textModeColor"] = {
-        type = "color",
+    options["tracked" .. index .. "_textModeColor"] = CreateTrackedColorOption(index, "textModeColor", { 1, 1, 1, 1 }, {
         name = "    " .. (L["Text Color"] or "Text Color"),
         order = orderBase + 1.97,
         width = 0.6,
         hasAlpha = true,
         hidden = hiddenIfNotText,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            local c = buff and buff.settings and buff.settings.textModeColor or { 1, 1, 1, 1 }
-            return c[1], c[2], c[3], c[4] or 1
-        end,
-        set = function(_, r, g, b, a)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textModeColor = { r, g, b, a }
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Outline
-    options["tracked" .. index .. "_textModeOutline"] = {
-        type = "select",
+    options["tracked" .. index .. "_textModeOutline"] = CreateTrackedSettingOption("select", index, "textModeOutline", "OUTLINE", {
         name = "    " .. (L["Outline"] or "Outline"),
         order = orderBase + 1.971,
         width = 0.6,
@@ -4766,22 +4597,10 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             ["THICKOUTLINE"] = L["Thick Outline"] or "Thick Outline",
             ["MONOCHROME"] = L["Monochrome"] or "Monochrome",
         },
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textModeOutline or "OUTLINE"
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textModeOutline = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Animation (expanded with glow types and hover/spin)
-    options["tracked" .. index .. "_textAnimation"] = {
-        type = "select",
+    options["tracked" .. index .. "_textAnimation"] = CreateTrackedSettingOption("select", index, "textAnimation", "none", {
         name = "    " .. (L["Animation"] or "Animation"),
         desc = L["Animation effect when buff is active"] or "Animation effect when buff is active",
         order = orderBase + 1.975,
@@ -4798,19 +4617,10 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             button = L["Button Glow"] or "Button Glow",
             proc = L["Proc Glow"] or "Proc Glow",
         },
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textAnimation or "none"
+        afterChange = function()
+            RefreshOptions()
         end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textAnimation = val
-                DDingUI:UpdateBuffTrackerBar()
-                RefreshOptions()
-            end
-        end,
-    }
+    })
 
     -- Helper: Check if text glow options should be shown
     local function hiddenIfNotTextGlow()
@@ -4821,158 +4631,72 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     end
 
     -- Text Glow Color
-    options["tracked" .. index .. "_textGlowColor"] = {
-        type = "color",
+    options["tracked" .. index .. "_textGlowColor"] = CreateTrackedColorOption(index, "textGlowColor", { 1, 1, 0.3, 1 }, {
         name = "        " .. (L["Glow Color"] or "Glow Color"),
         order = orderBase + 1.9751,
         width = 0.5,
         hasAlpha = true,
         hidden = hiddenIfNotTextGlow,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            local c = buff and buff.settings and buff.settings.textGlowColor or { 1, 1, 0.3, 1 }
-            return c[1], c[2], c[3], c[4] or 1
-        end,
-        set = function(_, r, g, b, a)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textGlowColor = { r, g, b, a }
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Glow Lines/Particles
-    options["tracked" .. index .. "_textGlowLines"] = {
-        type = "range",
+    options["tracked" .. index .. "_textGlowLines"] = CreateTrackedSettingOption("range", index, "textGlowLines", 8, {
         name = "        " .. (L["Lines"] or "Lines"),
         desc = L["Number of glow lines/particles"] or "Number of glow lines/particles",
         order = orderBase + 1.9752,
         width = 0.5,
         min = 1, max = 20, step = 1,
         hidden = hiddenIfNotTextGlow,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textGlowLines or 8
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textGlowLines = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Glow Frequency
-    options["tracked" .. index .. "_textGlowFrequency"] = {
-        type = "range",
+    options["tracked" .. index .. "_textGlowFrequency"] = CreateTrackedSettingOption("range", index, "textGlowFrequency", 0.25, {
         name = "        " .. (L["Speed"] or "Speed"),
         desc = L["Animation speed"] or "Animation speed",
         order = orderBase + 1.9753,
         width = 0.5,
         min = 0.05, max = 1, step = 0.05,
         hidden = hiddenIfNotTextGlow,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textGlowFrequency or 0.25
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textGlowFrequency = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Glow Thickness/Scale
-    options["tracked" .. index .. "_textGlowThickness"] = {
-        type = "range",
+    options["tracked" .. index .. "_textGlowThickness"] = CreateTrackedSettingOption("range", index, "textGlowThickness", 2, {
         name = "        " .. (L["Thickness"] or "Thickness"),
         desc = L["Glow thickness/scale"] or "Glow thickness/scale",
         order = orderBase + 1.9754,
         width = 0.5,
         min = 1, max = 10, step = 1,
         hidden = hiddenIfNotTextGlow,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textGlowThickness or 2
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textGlowThickness = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Glow X Offset
-    options["tracked" .. index .. "_textGlowXOffset"] = {
-        type = "range",
+    options["tracked" .. index .. "_textGlowXOffset"] = CreateTrackedSettingOption("range", index, "textGlowXOffset", 0, {
         name = "        " .. (L["Glow X"] or "Glow X"),
         order = orderBase + 1.9755,
         width = 0.4,
         min = -20, max = 20, step = 0.1,
         hidden = hiddenIfNotTextGlow,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textGlowXOffset or 0
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textGlowXOffset = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Glow Y Offset
-    options["tracked" .. index .. "_textGlowYOffset"] = {
-        type = "range",
+    options["tracked" .. index .. "_textGlowYOffset"] = CreateTrackedSettingOption("range", index, "textGlowYOffset", 0, {
         name = "        " .. (L["Glow Y"] or "Glow Y"),
         order = orderBase + 1.9756,
         width = 0.4,
         min = -20, max = 20, step = 0.1,
         hidden = hiddenIfNotTextGlow,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textGlowYOffset or 0
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textGlowYOffset = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Show Icon with Text
-    options["tracked" .. index .. "_textShowIcon"] = {
-        type = "toggle",
+    options["tracked" .. index .. "_textShowIcon"] = CreateTrackedSettingOption("toggle", index, "textShowIcon", true, {
         name = "    " .. (L["Show Icon"] or "Show Icon"),
         order = orderBase + 1.98,
         width = 0.5,
         hidden = hiddenIfNotText,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textShowIcon ~= false
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textShowIcon = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- Text Icon Size
-    options["tracked" .. index .. "_textIconSize"] = {
-        type = "range",
+    options["tracked" .. index .. "_textIconSize"] = CreateTrackedSettingOption("range", index, "textIconSize", 24, {
         name = "    " .. (L["Icon Size"] or "Icon Size"),
         order = orderBase + 1.99,
         width = 0.6,
@@ -4982,18 +4706,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local buff = GetTrackedBuff(index)
             return not buff or not buff.settings or not buff.settings.textShowIcon
         end,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.textIconSize or 24
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.textIconSize = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+    })
 
     -- ============================================================
     -- BAR MODE OPTIONS (only visible when displayType == "bar")
