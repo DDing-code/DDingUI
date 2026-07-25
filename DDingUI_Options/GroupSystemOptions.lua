@@ -64,6 +64,59 @@ StaticPopupDialogs["DDINGUI_RENAME_GROUP"] = {
     preferredIndex = 3,
 }
 
+local PROTECTED_GROUPS = {
+    Cooldowns = true,
+    Buffs = true,
+    Utility = true,
+}
+
+function DDingUI:RequestDeleteIconGroup(groupName, label)
+    if not groupName or PROTECTED_GROUPS[groupName] then return false end
+
+    local groupSystem = self.db and self.db.profile and self.db.profile.groupSystem
+    if not groupSystem or not groupSystem.groups or not groupSystem.groups[groupName] then
+        return false
+    end
+
+    local dialog = StaticPopup_Show("DDINGUI_DELETE_GROUP", label or groupName)
+    if not dialog then return false end
+
+    dialog.data = {
+        onAccept = function()
+            local currentGroupSystem = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
+            local groupInfo = currentGroupSystem and currentGroupSystem.groups and currentGroupSystem.groups[groupName]
+            if not groupInfo then return end
+
+            local sourceGroupKey = groupInfo.sourceGroupKey
+            if groupInfo.groupType == "dynamic" and sourceGroupKey then
+                local customIcons = DDingUI.CustomIcons
+                if customIcons and customIcons.RemoveGroup then
+                    customIcons:RemoveGroup(sourceGroupKey)
+                end
+                if customIcons and customIcons.GetGroupFrames then
+                    local groupFrames = customIcons:GetGroupFrames()
+                    local container = groupFrames and groupFrames[sourceGroupKey]
+                    if container then
+                        for _, child in ipairs({ container:GetChildren() }) do
+                            child:Hide()
+                        end
+                        container:Hide()
+                    end
+                end
+            end
+
+            if DDingUI.GroupManager then
+                DDingUI.GroupManager:DeleteGroup(groupName)
+            end
+            if DDingUI.GroupSystem then
+                DDingUI.GroupSystem:OnGroupDeleted(groupName, sourceGroupKey)
+            end
+            DDingUI:RefreshConfigGUI(false, "groupSystem")
+        end,
+    }
+    return true
+end
+
 local DIRECTION_VALUES = {
     ["RIGHT"]               = L["Right"] or "오른쪽",
     ["LEFT"]                = L["Left"] or "왼쪽",
@@ -5354,49 +5407,6 @@ local function CreateGroupOptions(groupName, order)
         },
     }
 
-    -- 커스텀 그룹: 삭제 버튼
-    if not isCDM then
-        layoutArgs.deleteHeader = { type = "header", name = L["Delete Group"] or "그룹 삭제", order = 90 }
-        layoutArgs.deleteGroup = {
-            type = "execute", name = L["Delete Group"] or "그룹 삭제",
-            order = 91, width = "full",
-            func = function()
-                local dialog = StaticPopup_Show("DDINGUI_DELETE_GROUP", displayName)
-                if dialog then
-                    dialog.data = {
-                        onAccept = function()
-                            if DDingUI.GroupManager then
-                                -- [FIX] 다이나믹 그룹이면 CustomIcons 원본도 같이 삭제 (고스트 프레임 방지)
-                                local gsCheck = GetGS()
-                                local grpInfo = gsCheck and gsCheck.groups and gsCheck.groups[groupName]
-                                local capturedSourceKey = grpInfo and grpInfo.sourceGroupKey
-                                if grpInfo and grpInfo.groupType == "dynamic" and capturedSourceKey then
-                                    local ci = DDingUI.CustomIcons
-                                    if ci and ci.RemoveGroup then
-                                        ci:RemoveGroup(capturedSourceKey)
-                                    end
-                                    -- [FIX] 네이티브 컨테이너 즉시 숨기기
-                                    if ci and ci.GetGroupFrames then
-                                        local gFrames = ci:GetGroupFrames()
-                                        if gFrames and gFrames[capturedSourceKey] then
-                                            local cont = gFrames[capturedSourceKey]
-                                            for _, child in ipairs({ cont:GetChildren() }) do child:Hide() end
-                                            cont:Hide()
-                                        end
-                                    end
-                                end
-                                DDingUI.GroupManager:DeleteGroup(groupName)
-                                -- [FIX] sourceGroupKey를 전달 (DeleteGroup이 DB에서 이미 삭제했으므로)
-                                if DDingUI.GroupSystem then DDingUI.GroupSystem:OnGroupDeleted(groupName, capturedSourceKey) end
-                                -- [12.0.1] 트리 메뉴 전체 재빌드 → 삭제된 그룹 즉시 반영
-                                DDingUI:RefreshConfigGUI(false, "groupSystem")
-                            end
-                        end,
-                    }
-                end
-            end,
-        }
-    end
     layoutArgs.assignedHeader = {
         type = "header",
         name = L["Assigned Spells"] or "할당된 스펠",

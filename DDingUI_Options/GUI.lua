@@ -7408,30 +7408,49 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             frame.currentPath = lookup.path
             frame.configOptions = options
         end,
-        -- [12.0.1+WA] 우클릭 → 컨텍스트 메뉴 (CDM 그룹 이름 변경 + BT 트래커 조작)
+        -- 그룹 및 추적 항목 우클릭 메뉴
         onRightClick = function(key, text, btn)
-            -- ── CDM 그룹 이름 변경 ──
             local groupName = key:match("^groupSystem%.group_(.+)$")
             if groupName then
                 if CDM_BUILTIN_GROUPS[groupName] then return end
-                StaticPopup_Show("DDINGUI_RENAME_GROUP", nil, nil, {
-                    oldName = groupName,
-                    onAccept = function(newName)
-                        if newName == groupName then return end
-                        if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
-                            if frame.RebuildTreeMenu then
-                                frame:RebuildTreeMenu("groupSystem.group_" .. newName)
+
+                local menuList = {
+                    {
+                        text = L["Rename"] or "이름 변경",
+                        func = function()
+                            StaticPopup_Show("DDINGUI_RENAME_GROUP", nil, nil, {
+                                oldName = groupName,
+                                onAccept = function(newName)
+                                    if newName == groupName then return end
+                                    if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
+                                        if frame.RebuildTreeMenu then
+                                            frame:RebuildTreeMenu("groupSystem.group_" .. newName)
+                                        end
+                                        if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
+                                            DDingUI.GroupSystem:Refresh()
+                                        end
+                                    end
+                                end,
+                            })
+                        end,
+                    },
+                    { isSeparator = true },
+                    {
+                        text = "|cffff4444" .. (L["Delete Group"] or "그룹 삭제") .. "|r",
+                        func = function()
+                            if DDingUI.RequestDeleteIconGroup then
+                                DDingUI:RequestDeleteIconGroup(groupName, text or groupName)
                             end
-                            if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
-                                DDingUI.GroupSystem:Refresh()
-                            end
-                        end
-                    end,
-                })
+                        end,
+                    },
+                }
+                if SL and SL.ShowCascadingMenu then
+                    SL.ShowCascadingMenu(btn, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
+                end
                 return
             end
 
-            -- ── BT 트래커 우클릭: WeakAuras-equivalent context menu ──
+            -- 추적 항목 우클릭 메뉴
             -- 키 = "group_X.buff_N" 또는 "group_X.buff_N.displayTab" 등
             local buffIndex = key:match("%.buff_(%d+)")
             if not buffIndex then return end
