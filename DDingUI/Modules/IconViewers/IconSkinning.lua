@@ -876,19 +876,52 @@ function IconViewers:SkinIcon(icon, settings)
         -- This makes the icon show the real cooldown timer instead of aura remaining time.
         if not cdd.setCooldownHooked then
             cdd.setCooldownHooked = true
-            hooksecurefunc(icon.Cooldown, "SetCooldown", function(self)
+            hooksecurefunc(icon.Cooldown, "SetCooldown", function(self, start, duration)
                 local cd = cdData[self]
                 if not cd then return end
                 if cd.bypassCDHook then return end  -- prevent recursion
                 local s = cd.settings
                 local parentIcon = cd.parentIcon
-                if not s or not parentIcon or not s.hideActiveState then return end
+                if not s or not parentIcon then return end
                 -- Check if frame is in aura state
                 local isActive = false
                 pcall(function()
                     isActive = parentIcon.wasSetFromAura == true
                         or parentIcon.auraInstanceID ~= nil
                 end)
+                local pid = GetIconData(parentIcon)
+                local durationChecked = false
+                local timelessAura = false
+                pcall(function()
+                    if duration ~= nil and not (issecretvalue and issecretvalue(duration)) then
+                        durationChecked = true
+                        timelessAura = duration <= 0
+                    end
+                end)
+
+                if isActive and durationChecked and timelessAura then
+                    pid.timelessAura = true
+                    if not pid.timelessAuraSwipeHidden and self.SetDrawSwipe then
+                        cd.bypassSwipeHook = true
+                        self:SetDrawSwipe(false)
+                        cd.bypassSwipeHook = nil
+                        pid.timelessAuraSwipeHidden = true
+                    end
+                    if s.hideActiveState then
+                        SetHideActiveStateGray(parentIcon, true)
+                    end
+                    return
+                elseif pid.timelessAura then
+                    pid.timelessAura = nil
+                    pid.timelessAuraSwipeHidden = nil
+                    if self.SetDrawSwipe and not s.disableSwipeAnimation and not pid.auraGlowActive then
+                        cd.bypassSwipeHook = true
+                        self:SetDrawSwipe(true)
+                        cd.bypassSwipeHook = nil
+                    end
+                end
+
+                if not s.hideActiveState then return end
                 if not isActive then
                     SetHideActiveStateGray(parentIcon, false)
                     return
@@ -943,8 +976,16 @@ function IconViewers:SkinIcon(icon, settings)
                 local parentIcon = cd.parentIcon
                 if not s or not parentIcon then return end
 
-                -- If auraGlow is active, keep swipe hidden
                 local pid = iconData[parentIcon]
+                if pid and pid.timelessAura and draw then
+                    cd.bypassSwipeHook = true
+                    self:SetDrawSwipe(false)
+                    cd.bypassSwipeHook = nil
+                    pid.timelessAuraSwipeHidden = true
+                    return
+                end
+
+                -- If auraGlow is active, keep swipe hidden
                 if pid and pid.auraGlowActive and draw then
                     cd.bypassSwipeHook = true
                     self:SetDrawSwipe(false)
