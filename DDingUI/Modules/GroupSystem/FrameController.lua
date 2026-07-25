@@ -31,27 +31,14 @@ local C_Timer = C_Timer
 local canaccessvalue = canaccessvalue
 
 -- [CDM 패턴] IsSafeNumber: secret value 안전 검증
-local IsSafeNumber
-if type(issecretvalue) == "function" then
-    IsSafeNumber = function(v)
-        if v == nil or type(v) ~= "number" then return false end
-        local okSecret, secret = pcall(issecretvalue, v)
-        if okSecret and secret then return false end
-        if type(canaccessvalue) == "function" then
-            local okAccess, access = pcall(canaccessvalue, v)
-            if okAccess and not access then return false end
-        end
-        return true
+local function IsSafeNumber(value)
+    if type(canaccessvalue) == "function" and not canaccessvalue(value) then
+        return false
     end
-else
-    IsSafeNumber = function(v)
-        if v == nil or type(v) ~= "number" then return false end
-        if type(canaccessvalue) == "function" then
-            local okAccess, access = pcall(canaccessvalue, v)
-            if okAccess and not access then return false end
-        end
-        return true
+    if type(issecretvalue) == "function" and issecretvalue(value) then
+        return false
     end
+    return type(value) == "number"
 end
 
 -- ============================================================
@@ -76,13 +63,7 @@ local CONFIG = {
     DEBOUNCE_ONSHOW   = 0.05,  -- [FIX] OnShow/OnHide 디바운스 (기존 nil → 즐시 실행 버그 수정)
     SCAN_EMPTY_GRACE  = 2,     -- 일시적인 빈 스캔을 바로 확정하지 않음
     SCAN_PARTIAL_GRACE = 1,    -- 렉/전환 중 부분 스캔 보호
-    -- [CDM 패턴] OnUpdate 폴링 제어
-    -- [FIX CDM] burst 감소: 스와이프·색상 깜빡임 작업량 절감 (30fps → 20fps)
-    -- SPELL_UPDATE_COOLDOWN 이벤트가 쿨다운 변화를 직접 트리거하므로 폴링 의존도 감소
-    BURST_THROTTLE    = 0.05,   -- ~20fps (30fps → 20fps)
-    WATCHDOG_THROTTLE = 0.25,   -- 4fps (안정화 후 느린 스캔)
-    BURST_TICKS       = 8,      -- 15틱 → 8틱 (0.4초 burst)
-    IDLE_TIMEOUT      = 1.0,    -- 2초 → 1초 (idle 후 OnUpdate 비활성화)
+    RETRY_DELAY       = 0.08,
 }
 
 -- ============================================================
@@ -119,6 +100,8 @@ end
 local idIconMap = {}        -- [cooldownID] = CDM icon frame
 local iconSourceMap = {}    -- [cooldownID] = viewerGlobalName
 local iconSpellNameMap = {} -- [cooldownID] = spellName (캐시)
+local iconStateMap = {}     -- [cooldownID] = source visibility
+local iconLayoutIndexMap = {} -- [cooldownID] = accessible layout index
 local trackedBuffSpellNames = {}
 local trackedBuffSpellOrder = {}
 local trackedBuffSpellTextures = {}
@@ -197,12 +180,10 @@ end
 local state = {
     hooksInstalled = false,
     frameHooksInstalled = {},  -- [frameAddress] = true (중복 훅 방지)
-    -- [CDM 패턴] OnUpdate 폴링 상태
-    dirty = false,             -- Reconcile 필요 플래그
-    burstTicksRemaining = 0,   -- burst 모드 남은 틱
-    lastActivityTime = 0,      -- 마지막 활동 시간
-    nextUpdateTime = 0,        -- 다음 OnUpdate 실행 시간
-    pollingActive = false,     -- OnUpdate 활성 여부
+    dirty = false,
+    reconcileDueAt = 0,
+    pollingActive = false,
+    forceNotify = false,
     -- 이벤트 플래그
     specChangeDetected = false,
     talentChangeDetected = false,
@@ -220,28 +201,29 @@ local state = {
     -- 통계
     reconcileCount = 0,
 }
+FrameController._diagCounters = { activeStateChanged = 0, cooldownIDSet = 0, poolRelease = 0 }
 
 -- ============================================================
--- [CDM 패턴] OnUpdate 폴링 시스템
--- CDM의 아이콘 생명주기(acquire→show→layout)가 여러 프레임에 걸쳐
--- 발생하므로, 이벤트 기반 디바운스 대신 폴링으로 상태 확인.
--- Burst(33ms) → Watchdog(250ms) → Idle(자동 비활성화)
+-- Reconcile requests share one frame driver. The driver exists only while
+-- work is pending and runs once after the current CDM update has settled.
 -- ============================================================
 
 local pollingFrame = CreateFrame("Frame")
 
--- dirty 마킹 — 모든 CDM 훅에서 이것만 호출
-local function MarkDirty()
+local function MarkDirty(delay, forceNotify)
     if state.specChangeDetected or state.talentChangeDetected then return end
+    local now = GetTime()
+    local dueAt = now + (type(delay) == "number" and math.max(delay, 0) or CONFIG.DEBOUNCE_NORMAL)
     if state.isProcessing then
         state.pendingReconcile = true
-        state.lastActivityTime = GetTime()
+        state.forceNotify = state.forceNotify or forceNotify == true
         return
     end
     state.dirty = true
-    state.burstTicksRemaining = CONFIG.BURST_TICKS
-    state.lastActivityTime = GetTime()
-    state.nextUpdateTime = 0
+    state.forceNotify = state.forceNotify or forceNotify == true
+    if state.reconcileDueAt == 0 or dueAt < state.reconcileDueAt then
+        state.reconcileDueAt = dueAt
+    end
 end
 
 -- 폴링 활성화 (전방 선언)
@@ -249,56 +231,34 @@ local EnablePolling
 
 -- 폴링 비활성화 (성능 최적화)
 function FrameController:DisablePolling()
-    if not state.pollingActive then return end
+    if state.pollingActive then
+        pollingFrame:SetScript("OnUpdate", nil)
+    end
     state.pollingActive = false
-    pollingFrame:SetScript("OnUpdate", nil)
     state.dirty = false
-    state.burstTicksRemaining = 0
-    state.nextUpdateTime = 0
+    state.reconcileDueAt = 0
+    state.forceNotify = false
 end
 
--- 폴링 활성화
 EnablePolling = function()
-    if state.pollingActive then
-        MarkDirty() -- 이미 활성이면 dirty만 표시
-        return
+    if state.pollingActive then return end
+    if not state.dirty then
+        MarkDirty(0, true)
     end
-    MarkDirty()
     state.pollingActive = true
-    pollingFrame:SetScript("OnUpdate", function(_, elapsed)
+    pollingFrame:SetScript("OnUpdate", function()
         if not FrameController.initialized then
             FrameController:DisablePolling()
             return
         end
 
         local now = GetTime()
-        if now < state.nextUpdateTime then return end
+        if not state.dirty or now < state.reconcileDueAt then return end
 
-        -- throttle: dirty/burst면 빠르게, 아니면 느리게
-        local throttle = (state.dirty or state.pendingReconcile or state.burstTicksRemaining > 0)
-            and CONFIG.BURST_THROTTLE
-            or CONFIG.WATCHDOG_THROTTLE
-        state.nextUpdateTime = now + throttle
-
-        -- Reconcile 실행 — 전투 중에도 실행 (개별 아이콘 Show/Hide는 무명 프레임이라 안전)
-        -- 명명된 컨테이너 프레임(DDingUI_Group_*)의 Show/Hide/SetSize는 GroupRenderer에서 개별 가드
-        if not state.isProcessing then
-            FrameController:Reconcile()
-        end
-
-        -- burst 소모
-        if state.burstTicksRemaining > 0 then
-            state.burstTicksRemaining = state.burstTicksRemaining - 1
-        end
-
-        -- idle 체크 — 일정 시간 변경 없으면 비활성화
-        if not state.dirty
-            and not state.pendingReconcile
-            and state.burstTicksRemaining <= 0
-            and (now - state.lastActivityTime) >= CONFIG.IDLE_TIMEOUT
-        then
-            FrameController:DisablePolling()
-        end
+        state.pollingActive = false
+        pollingFrame:SetScript("OnUpdate", nil)
+        state.reconcileDueAt = 0
+        FrameController:Reconcile()
     end)
 end
 FrameController.EnablePolling = function(self) EnablePolling() end
@@ -375,7 +335,7 @@ local function RunViewerTransitionRecovery(reloadMapped, forceFrameControl)
     if reloadMapped and DDingUI.Movers and DDingUI.Movers.ReloadMappedModulePositions then
         DDingUI.Movers:ReloadMappedModulePositions()
     end
-    MarkDirty()
+    MarkDirty(0, true)
     if not state.pollingActive then
         EnablePolling()
     end
@@ -422,9 +382,9 @@ local function RunPvPTransitionRecovery(event)
 end
 
 -- 하위 호환: ScheduleReconcile → MarkDirty + EnablePolling
-local function ScheduleReconcile(debounceTime)
+local function ScheduleReconcile(debounceTime, forceNotify)
     if state.specChangeDetected or state.talentChangeDetected then return end
-    MarkDirty()
+    MarkDirty(debounceTime, forceNotify)
     if FrameController.initialized and not state.pollingActive then
         EnablePolling()
     end
@@ -438,7 +398,7 @@ function FrameController:_FinishPendingSpecChange(version)
     state.talentChangeDetected = false
     state.pendingReconcile = false
     state.dirty = false
-    state.burstTicksRemaining = 0
+    state.reconcileDueAt = 0
     wipe(iconSpellNameMap)
 
     local function RefreshCompletedTransition()
@@ -449,7 +409,7 @@ function FrameController:_FinishPendingSpecChange(version)
         FrameController:RefreshViewerRefs()
         InvalidateGroupLayoutCaches(true)
         ResetGroupViewerHiddenFlags()
-        MarkDirty()
+        MarkDirty(0, true)
         if not state.pollingActive then
             EnablePolling()
         end
@@ -471,49 +431,18 @@ function FrameController:_BeginPendingSpecChange(fullChange)
 
     state.pendingReconcile = false
     state.dirty = false
-    state.burstTicksRemaining = 0
+    state.reconcileDueAt = 0
+    state.forceNotify = false
 
     C_Timer.After(3, function()
         FrameController:_FinishPendingSpecChange(version)
     end)
 end
 
--- [FAST REPARENT] OnShow 트리거 → MarkDirty + Burst 폴링 시작
--- CDM이 아이콘 상태를 결정한 후 33ms 내 Reconcile 실행
--- 동기 Reconcile이나 C_Timer.After(0)은 CDM 초기화 경쟁을 일으킴
 local function ForceImmediateReconcile()
     if not FrameController.initialized then return end
-    MarkDirty()
-    state.burstTicksRemaining = CONFIG.BURST_TICKS -- burst 모드 시작 (33ms 간격)
-    if not state.pollingActive then
-        EnablePolling()
-    end
+    ScheduleReconcile(0, true)
 end
-
--- ============================================================
--- [FIX CDM] 쿨다운 변화 이벤트 기반 트리거 (CDM TrackerSpellCooldownWatcher 패턴)
--- SPELL_UPDATE_COOLDOWN/CHARGES는 GCD마다 발생하지만, MarkDirty()는 idempotent이므로 안전
--- 폴링에만 의존하던 쿨다운 스와이프 갱신을 이벤트 기반으로 보완
--- ============================================================
-do
-    local cdEventFrame = CreateFrame("Frame")
-    cdEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-    cdEventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-    cdEventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
-    cdEventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
-    cdEventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
-    cdEventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
-    cdEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    cdEventFrame:SetScript("OnEvent", function()
-        if FrameController.initialized then
-            MarkDirty()
-            if not state.pollingActive then
-                EnablePolling()
-            end
-        end
-    end)
-end
-
 
 local function FindViewers()
     local found = 0
@@ -554,9 +483,7 @@ function FrameController:RefreshViewerRefs()
                     -- CDM 이벤트 완료 후 즉시 전체 재배치
                     local function PostLayoutHandler()
                         if not FrameController.initialized then return end
-                        if state.isProcessing then return end
-                        DLog("PostLayoutHandler →", viewerGlobalName)
-                        FrameController:Reconcile()
+                        ScheduleReconcile(0, true)
                     end
                     -- [1] UpdateLayout/Layout 훅 (CDM Main.lua:225)
                     if currentViewer.UpdateLayout then
@@ -865,37 +792,6 @@ local function ShouldReplaceCooldownFrame(existing, candidate)
 end
 
 -- ============================================================
--- [CDM] OnActiveStateChanged 훅
--- CDM이 프레임 active 상태 변경 시 호출
--- frame:IsShown()은 DDingUI의 Show() 호출로 오염됨
--- The completed Blizzard frame state is read during the next pool scan.
--- ============================================================
-
-if not FrameController._activeStateHooked then
-    FrameController._activeStateHooked = true
-    FrameController._diagCounters = { activeStateChanged = 0, cooldownIDSet = 0, poolRelease = 0 }
-    if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnActiveStateChanged then
-        hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
-            FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
-            if FrameController.initialized then
-                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
-            end
-        end)
-    end
-    if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
-        hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
-            FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
-            if frame._ddCDMStaleBuff then
-                RestoreStaleBuffFrame(frame)
-            end
-            if FrameController.initialized then
-                ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
-            end
-        end)
-    end
-end
-
--- ============================================================
 -- [CDM] itemFramePool.Release 훅
 -- CDM이 버프 만료 시 pool에서 Release() 호출
 -- Release된 프레임: EnumerateActive()에서 제거 + Hide() 호출
@@ -1116,6 +1012,9 @@ function FrameController:ScanCDMViewers()
 
     local nextIdIconMap = {}
     local nextIconSourceMap = {}
+    local nextIconSpellNameMap = {}
+    local nextIconStateMap = {}
+    local nextIconLayoutIndexMap = {}
     local nextTrackedBuffSpellNames = {}
     local nextTrackedBuffSpellOrder = {}
     local nextTrackedBuffSpellTextures = {}
@@ -1149,17 +1048,9 @@ function FrameController:ScanCDMViewers()
             end
 
             for icon in viewer.itemFramePool:EnumerateActive() do
-                -- [FIX] isEditing 프레임 무시 (EditMode 종료 시 블리자드 코드 Taint 에러 방지)
-                if icon.cooldownID and not icon.isEditing then
-                    local cooldownID = icon.cooldownID
+                local cooldownID = icon.cooldownID
+                if IsSafeNumber(cooldownID) and not icon.isEditing then
                     local keySafe = true
-                    if issecretvalue then
-                        local okSecret, isSecret = pcall(issecretvalue, cooldownID)
-                        if okSecret and isSecret then
-                            keySafe = false
-                            unsafeKeyCount = unsafeKeyCount + 1
-                        end
-                    end
                     activeFrameCount = activeFrameCount + 1
                     local sourceShown = icon.IsShown and icon:IsShown() or false
                     if globalName == "BuffIconCooldownViewer" then
@@ -1217,26 +1108,11 @@ function FrameController:ScanCDMViewers()
                         -- 매칭 시 _ddIsManaged 설정 → CDM Layout 훅이 자동으로 뷰어에서 분리
                         if suppressed then
                             local isSuppressed = false
-                            -- auraSpellID 우선 (BuffIcon), fallback으로 cooldownID
-                            -- 둘 다 secret value일 수 있으므로 pcall 필수
-                            local ok1 = pcall(function()
-                                if icon.auraSpellID and suppressed[icon.auraSpellID] then
-                                    isSuppressed = true
-                                end
-                            end)
-                            local ok2 = true
-                            if not isSuppressed then
-                                ok2 = pcall(function()
-                                    if icon.cooldownID and suppressed[icon.cooldownID] then
-                                        isSuppressed = true
-                                    end
-                                end)
-                            end
-                            -- [FIX] pcall 실패(secret value) 시: suppress 비교 불가
-                            -- 이전 _ddSuppressed가 고착되지 않도록 안전하게 해제
-                            if not ok1 and not ok2 and icon._ddSuppressed then
-                                icon._ddSuppressed = false
-                                icon:SetAlpha(1)
+                            local auraSpellID = icon.auraSpellID
+                            if IsSafeNumber(auraSpellID) and suppressed[auraSpellID] then
+                                isSuppressed = true
+                            elseif suppressed[cooldownID] then
+                                isSuppressed = true
                             end
                             if isSuppressed then
                                 -- SetAlpha(0) + SetAlpha 훅으로 숨김 (Hide 대신 → OnHide 미발동)
@@ -1264,11 +1140,15 @@ function FrameController:ScanCDMViewers()
                         if ShouldReplaceCooldownFrame(existing, icon) then
                             nextIdIconMap[cooldownID] = icon
                             nextIconSourceMap[cooldownID] = globalName
+                            nextIconStateMap[cooldownID] = sourceShown and true or false
+                            local layoutIndex = icon.layoutIndex
+                            if IsSafeNumber(layoutIndex) then
+                                nextIconLayoutIndexMap[cooldownID] = layoutIndex
+                            end
 
-                            -- [Fix B] 매 Reconcile 틱마다 spellName 갱신 (전투 중 secret value 해제 시 즉시 반영)
                             local name = trackedBuffName or self:GetSpellName(icon)
                             if name then
-                                iconSpellNameMap[cooldownID] = name
+                                nextIconSpellNameMap[cooldownID] = name
                             end
                         end
 
@@ -1355,8 +1235,30 @@ function FrameController:ScanCDMViewers()
         return false
     end
 
+    local changes = { ids = {}, topologyChanged = false }
+    for cooldownID, icon in pairs(idIconMap) do
+        if nextIdIconMap[cooldownID] ~= icon
+            or nextIconSourceMap[cooldownID] ~= iconSourceMap[cooldownID]
+            or nextIconSpellNameMap[cooldownID] ~= iconSpellNameMap[cooldownID]
+            or nextIconStateMap[cooldownID] ~= iconStateMap[cooldownID]
+            or nextIconLayoutIndexMap[cooldownID] ~= iconLayoutIndexMap[cooldownID]
+        then
+            changes.ids[cooldownID] = true
+            changes.topologyChanged = true
+        end
+    end
+    for cooldownID in pairs(nextIdIconMap) do
+        if idIconMap[cooldownID] == nil then
+            changes.ids[cooldownID] = true
+            changes.topologyChanged = true
+        end
+    end
+
     wipe(idIconMap)
     wipe(iconSourceMap)
+    wipe(iconSpellNameMap)
+    wipe(iconStateMap)
+    wipe(iconLayoutIndexMap)
     wipe(trackedBuffSpellNames)
     wipe(trackedBuffSpellOrder)
     wipe(trackedBuffSpellTextures)
@@ -1365,6 +1267,15 @@ function FrameController:ScanCDMViewers()
     end
     for cooldownID, sourceName in pairs(nextIconSourceMap) do
         iconSourceMap[cooldownID] = sourceName
+    end
+    for cooldownID, spellName in pairs(nextIconSpellNameMap) do
+        iconSpellNameMap[cooldownID] = spellName
+    end
+    for cooldownID, visible in pairs(nextIconStateMap) do
+        iconStateMap[cooldownID] = visible
+    end
+    for cooldownID, layoutIndex in pairs(nextIconLayoutIndexMap) do
+        iconLayoutIndexMap[cooldownID] = layoutIndex
     end
     for spellName in pairs(nextTrackedBuffSpellNames) do
         trackedBuffSpellNames[spellName] = true
@@ -1387,7 +1298,7 @@ function FrameController:ScanCDMViewers()
     -- [CDM REACTIVE] 고아 정리 없음.
     -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
     -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
-    return true
+    return true, changes
 end
 
 -- 하위 호환 별칭
@@ -1412,7 +1323,8 @@ function FrameController:Reconcile()
     if state.specChangeDetected or state.talentChangeDetected then
         state.pendingReconcile = false
         state.dirty = false
-        state.burstTicksRemaining = 0
+        state.reconcileDueAt = 0
+        state.forceNotify = false
         return false
     end
 
@@ -1426,6 +1338,9 @@ function FrameController:Reconcile()
 
     state.isProcessing = true
     state.pendingReconcile = false
+    state.dirty = false
+    local forceNotify = state.forceNotify
+    state.forceNotify = false
     local _rc = state.reconcileCount or 0
     DLog("Reconcile #" .. _rc, "talent=" .. tostring(state.talentChangeDetected))
 
@@ -1437,13 +1352,10 @@ function FrameController:Reconcile()
 
     -- 1. CDM 뷰어 스캔 (맵 재구축)
     -- 전환 중 보류된 스캔은 기존 맵을 유지한 채 다음 틱에서 다시 시도한다.
-    local scanAccepted = self:ScanCDMViewers()
+    local scanAccepted, changes = self:ScanCDMViewers()
     if scanAccepted == false then
         state.isProcessing = false
-        state.dirty = true
-        state.burstTicksRemaining = CONFIG.BURST_TICKS
-        state.lastActivityTime = GetTime()
-        state.nextUpdateTime = 0
+        MarkDirty(CONFIG.RETRY_DELAY, forceNotify)
         if not state.pollingActive then
             EnablePolling()
         end
@@ -1453,7 +1365,11 @@ function FrameController:Reconcile()
     -- 2. 콜백 알림 (GroupInit → DoFullUpdate)
     -- [PERF] scanCompleted 플래그: NotifyUpdate → DoFullUpdate에서 ScanCDMViewers 이중 호출 방지
     state.scanCompleted = true
-    self:NotifyUpdate()
+    if forceNotify or (changes and changes.topologyChanged) then
+        changes = changes or { ids = {}, topologyChanged = false }
+        changes.forceLayout = forceNotify == true
+        self:NotifyUpdate(changes)
+    end
     state.scanCompleted = false
 
     -- 3. [COOLDOWN TIMER] 만료 감지는 SetupFrameInContainer에서 alpha=0으로 처리
@@ -1464,11 +1380,9 @@ function FrameController:Reconcile()
     state.specChangeDetected = false
     state.talentChangeDetected = false
     state.isProcessing = false
-    state.dirty = needsFollowup
+    state.dirty = false
     if needsFollowup then
-        state.burstTicksRemaining = CONFIG.BURST_TICKS
-        state.lastActivityTime = GetTime()
-        state.nextUpdateTime = 0
+        MarkDirty(CONFIG.DEBOUNCE_ONSHOW, true)
     end
     state.reconcileCount = state.reconcileCount + 1
     if needsFollowup and not state.pollingActive then
@@ -2027,8 +1941,12 @@ local function InstallCDMHooks()
     -- HOOK C(SetCooldownID)보다 먼저 실행되어 managed 프레임 즉시 snap-back
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
+            FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
             if not FrameController.initialized then return end
             if frame and frame.isEditing then return end
+            if frame and frame._ddCDMStaleBuff then
+                RestoreStaleBuffFrame(frame)
+            end
             if frame and frame.SetScale then frame:SetScale(1) end
             -- managed 프레임 즉시 snap-back
             if frame and frame._ddIsManaged and frame._ddContainerRef then
@@ -2132,27 +2050,11 @@ local function InstallCDMHooks()
     -- [HOOK I] Buff OnActiveStateChanged (CDM 패턴)
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnActiveStateChanged then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
+            FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             if not FrameController.initialized then return end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
         end)
-    end
-
-    -- [HOOK F] itemFramePool Acquire/Release — 풀 레벨 즉시 감지 (CDM 패턴)
-    for globalName, viewer in pairs(viewerRefs) do
-        if viewer.itemFramePool and not viewer._fcPoolHooked then
-            viewer._fcPoolHooked = true
-            hooksecurefunc(viewer.itemFramePool, "Acquire", function()
-                if not FrameController.initialized then return end
-                MarkDirty()
-                if not state.pollingActive then EnablePolling() end
-            end)
-            hooksecurefunc(viewer.itemFramePool, "Release", function()
-                if not FrameController.initialized then return end
-                MarkDirty()
-                if not state.pollingActive then EnablePolling() end
-            end)
-        end
     end
 
     state.hooksInstalled = true
@@ -2167,10 +2069,12 @@ function FrameController:GetIconMap()
 end
 
 function FrameController:GetIconFrame(cooldownID)
+    if not IsSafeNumber(cooldownID) then return nil end
     return idIconMap[cooldownID]
 end
 
 function FrameController:GetIconSource(cooldownID)
+    if not IsSafeNumber(cooldownID) then return nil end
     return iconSourceMap[cooldownID]
 end
 
@@ -2181,6 +2085,7 @@ function FrameController:IsScanHoldActive()
 end
 
 function FrameController:GetSpellNameForID(cooldownID)
+    if not IsSafeNumber(cooldownID) then return nil end
     return iconSpellNameMap[cooldownID]
 end
 
@@ -2236,9 +2141,9 @@ function FrameController:RegisterCallback(func)
     self._callbacks[#self._callbacks + 1] = func
 end
 
-function FrameController:NotifyUpdate()
+function FrameController:NotifyUpdate(changes)
     for _, cb in pairs(self._callbacks) do
-        local ok, err = pcall(cb, "reconcile")
+        local ok, err = pcall(cb, "reconcile", changes)
         if not ok then
             -- 콜백 에러 무시 (안전성)
         end
@@ -2502,6 +2407,8 @@ function FrameController:Shutdown()
     wipe(idIconMap)
     wipe(iconSourceMap)
     wipe(iconSpellNameMap)
+    wipe(iconStateMap)
+    wipe(iconLayoutIndexMap)
     wipe(self._callbacks)
     wipe(self._postCombatQueue)
     -- frameHooksInstalled는 wipe하지 않음 (hooksecurefunc는 제거 불가)
@@ -2515,7 +2422,7 @@ function FrameController:ForceReconcile()
     if not self.initialized then return end
     state.reconcileCount = 0
     self._initTime = GetTime() -- [DIAG] 진단 리셋 (15초간 다시 출력)
-    ScheduleReconcile(0) -- 즉시
+    ScheduleReconcile(0, true)
 end
 
 -- ============================================================
