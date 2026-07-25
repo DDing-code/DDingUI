@@ -69,6 +69,8 @@ local runtime = {
         slotStates = {},
         pendingIconKeys = {},
         activeTargetCount = 0,
+        hasSpellTarget = false,
+        kindsInitialized = false,
         evaluatePending = false,
         refreshPending = false,
         refreshAll = false,
@@ -2530,40 +2532,8 @@ local function UpdateItemIcon(iconFrame, iconData)
         iconFrame.icon:SetDesaturation(desatVal)
     end
 
-    -- OnUpdate 루프: isOnRealCD (safe boolean)으로만 진입 판단 — desatVal 비교 금지
-    if managedVisualLocked or itemCombatLocked then
-        CustomIcons.StopIconDesatUpdater(iconFrame)
-    elseif itemIsOnRealCD then
-        if not iconFrame._cdmDesatUpdater then
-            iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
-            iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
-                if CustomIcons.ManagedVisualLocked(self.ownerFrame) then
-                    self:Hide()
-                    return
-                end
-                local stillOnRealCD = false
-                pcall(function()
-                    local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
-                    if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
-                        stillOnRealCD = true
-                    end
-                end)
-                if stillOnRealCD and self.durObj then
-                    self.targetIcon:SetDesaturation(EvalDesatFromDurObj(self.durObj, false))
-                else
-                    self.targetIcon:SetDesaturation(0)
-                    self:Hide()
-                end
-            end)
-        end
-        iconFrame._cdmDesatUpdater.ownerFrame = iconFrame
-        iconFrame._cdmDesatUpdater.spellID = desatSpellID
-        iconFrame._cdmDesatUpdater.durObj = desatDurationObject
-        iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
-        iconFrame._cdmDesatUpdater:Show()
-    elseif iconFrame._cdmDesatUpdater then
-        CustomIcons.StopIconDesatUpdater(iconFrame)
-    end
+    -- Cooldown events and OnCooldownDone own desaturation state changes.
+    CustomIcons.StopIconDesatUpdater(iconFrame)
 
     if not managedVisualLocked and not IsFlightHideAlphaLocked() then
         iconFrame.icon:SetAlpha(1.0)
@@ -2738,38 +2708,7 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
         iconFrame.icon:SetDesaturation(desatValue)
     end
 
-    -- OnUpdate 루프: isOnRealCD (safe boolean)만으로 진입 결정 — desatValue 비교 금지
-    if not managedVisualLocked and usable and allowDesat and desatDurObj and isOnRealCD then
-        if not iconFrame._cdmDesatUpdater then
-            iconFrame._cdmDesatUpdater = CreateFrame("Frame", nil, iconFrame)
-            iconFrame._cdmDesatUpdater:SetScript("OnUpdate", function(self)
-                if CustomIcons.ManagedVisualLocked(self.ownerFrame) then
-                    self:Hide()
-                    return
-                end
-                local stillOnRealCD = false
-                pcall(function()
-                    local cdInfo = C_Spell.GetSpellCooldown(self.spellID)
-                    if cdInfo and cdInfo.isActive and cdInfo.isOnGCD ~= true then
-                        stillOnRealCD = true
-                    end
-                end)
-                if stillOnRealCD and self.durObj then
-                    self.targetIcon:SetDesaturation(EvalDesatFromDurObj(self.durObj, false))
-                else
-                    self.targetIcon:SetDesaturation(0)
-                    self:Hide()
-                end
-            end)
-        end
-        iconFrame._cdmDesatUpdater.ownerFrame = iconFrame
-        iconFrame._cdmDesatUpdater.spellID = spellID
-        iconFrame._cdmDesatUpdater.durObj = desatDurObj
-        iconFrame._cdmDesatUpdater.targetIcon = iconFrame.icon
-        iconFrame._cdmDesatUpdater:Show()
-    elseif iconFrame._cdmDesatUpdater then
-        CustomIcons.StopIconDesatUpdater(iconFrame)
-    end
+    CustomIcons.StopIconDesatUpdater(iconFrame)
 
     if not managedVisualLocked and not IsFlightHideAlphaLocked() then
         iconFrame.icon:SetAlpha(1.0)
@@ -3696,7 +3635,7 @@ end
 -- 호출해도 실제 실행은 재사용 디스패치 프레임에서 단 1회만 수행
 local _pendingIconUpdate = false
 local _pendingIconLayoutNotify = false
-local _iconUpdateDispatchFrame
+local _iconUpdateDispatchTimer
 local _iconUpdateDueAt = 0
 
 local function GetDynamicLayoutStateToken(frame, iconData)
@@ -3823,29 +3762,63 @@ local function RunPendingIconUpdate(now)
     end
 end
 
-local function GetIconUpdateDispatchFrame()
-    if not _iconUpdateDispatchFrame then
-        _iconUpdateDispatchFrame = CreateFrame("Frame")
-        _iconUpdateDispatchFrame:Hide()
-        _iconUpdateDispatchFrame:SetScript("OnUpdate", function(self)
-            if not _pendingIconUpdate then
-                self:Hide()
-                return
-            end
+local function ScheduleCustomIconWork()
+    if runtime.customIconDispatchRunning then return end
 
-            local now = GetTime and GetTime() or 0
-            if _iconUpdateDueAt > now then
-                return
-            end
-
-            self:Hide()
-            RunPendingIconUpdate(now)
-            if _pendingIconUpdate then
-                self:Show()
-            end
-        end)
+    local now = GetTime and GetTime() or 0
+    local dueAt
+    local watcher = runtime.cooldownWatcher
+    if watcher and (watcher.evaluatePending or watcher.refreshPending) then
+        dueAt = now
     end
-    return _iconUpdateDispatchFrame
+    if _pendingIconUpdate and (not dueAt or _iconUpdateDueAt < dueAt) then
+        dueAt = _iconUpdateDueAt
+    end
+    if runtime.refreshAllLayoutsPending then
+        local layoutDueAt = runtime.layoutRefreshDueAt or now
+        if not dueAt or layoutDueAt < dueAt then
+            dueAt = layoutDueAt
+        end
+    end
+    if not dueAt then return end
+
+    if _iconUpdateDispatchTimer and runtime.customIconDispatchDueAt
+        and runtime.customIconDispatchDueAt <= dueAt
+    then
+        return
+    end
+    if _iconUpdateDispatchTimer then
+        _iconUpdateDispatchTimer:Cancel()
+    end
+
+    runtime.customIconDispatchDueAt = dueAt
+    _iconUpdateDispatchTimer = C_Timer.NewTimer(math.max(0, dueAt - now), function()
+        _iconUpdateDispatchTimer = nil
+        runtime.customIconDispatchDueAt = nil
+        runtime.customIconDispatchRunning = true
+
+        local dispatchNow = GetTime and GetTime() or 0
+        local currentWatcher = runtime.cooldownWatcher
+        if currentWatcher and currentWatcher.evaluatePending and runtime.EvaluateCustomCooldownWatches then
+            currentWatcher.evaluatePending = false
+            runtime.EvaluateCustomCooldownWatches()
+        end
+        if currentWatcher and currentWatcher.refreshPending and runtime.FlushCustomCooldownIconRefresh then
+            runtime.FlushCustomCooldownIconRefresh()
+        end
+        if _pendingIconUpdate and _iconUpdateDueAt <= dispatchNow + 0.001 then
+            RunPendingIconUpdate(dispatchNow)
+        end
+        if runtime.refreshAllLayoutsPending
+            and (runtime.layoutRefreshDueAt or 0) <= dispatchNow + 0.001
+            and runtime.RunBridgeLayoutRefresh
+        then
+            runtime.RunBridgeLayoutRefresh()
+        end
+
+        runtime.customIconDispatchRunning = false
+        ScheduleCustomIconWork()
+    end)
 end
 
 UpdateAllIcons = function(needsLayoutNotify, filter)
@@ -3874,7 +3847,7 @@ UpdateAllIcons = function(needsLayoutNotify, filter)
     local elapsed = now - (runtime.lastIconUpdateAt or 0)
     local delay = elapsed >= minInterval and 0 or (minInterval - elapsed)
     _iconUpdateDueAt = now + delay
-    GetIconUpdateDispatchFrame():Show()
+    ScheduleCustomIconWork()
 end
 
 local function HandleCooldownDone(cooldownFrame)
@@ -4033,6 +4006,11 @@ local function HandleCustomTimedAuraEvent(event, ...)
 end
 
 local function HasItemCooldownIcon()
+    local watcher = runtime.cooldownWatcher
+    if watcher and watcher.kindsInitialized then
+        return (watcher.activeTargetCount or 0) > 0, watcher.hasSpellTarget == true
+    end
+
     local db = GetDynamicDB()
     local hasItemCooldownIcon = false
     local hasSpellCooldownIcon = false
@@ -4067,9 +4045,6 @@ end
 local function EnsureEventFrame()
     if runtime.eventFrame then return end
     runtime.eventFrame = CreateFrame("Frame")
-    if runtime.EnsureCustomCooldownWatcher then
-        runtime.EnsureCustomCooldownWatcher()
-    end
 
     -- Register for events that should trigger icon updates
     runtime.eventFrame:RegisterEvent("BAG_UPDATE")                    -- Bag contents change
@@ -4106,19 +4081,19 @@ local function EnsureEventFrame()
             runtime.loginTime = runtime.loginTime or GetTime()
             ClearRacialCooldownCache()
             RebuildTimeSpiralGlowFilters()
-            local function refreshInstanceIcons()
+            C_Timer.After(0.2, function()
                 UpdateAllIcons("force", "all")
-            end
-            C_Timer.After(0.2, refreshInstanceIcons)
-            C_Timer.After(1.0, refreshInstanceIcons)
-            -- Force reload layout after loading screen to catch delayed cache/spellbook states
+            end)
             C_Timer.After(1.0, function() ScheduleSpecReload() end)
             return
         end
 
         if event == "PLAYER_REGEN_ENABLED" then
             ClearItemCombatLockouts()
-            RefreshItemCooldownIcons("force")
+            if runtime.RequestCustomCooldownWatchRegistration then
+                runtime.RequestCustomCooldownWatchRegistration()
+            end
+            RefreshItemCooldownIcons()
             return
         end
 
@@ -4183,18 +4158,11 @@ local function EnsureEventFrame()
 
         -- Update all icons when relevant events fire.
         local needsLayoutNotify = nil
-        if customTimedChanged
-            or event == "UNIT_INVENTORY_CHANGED"
+        if event == "UNIT_INVENTORY_CHANGED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
-            or event == "BAG_UPDATE"
-            or event == "BAG_UPDATE_COOLDOWN"
-            or event == "ARENA_COOLDOWNS_UPDATE"
-            or event == "PVP_MATCH_STATE_CHANGED"
-            or event == "BAG_UPDATE_DELAYED"
-            or event == "ITEM_COUNT_CHANGED"
         then
             needsLayoutNotify = "force"
-        elseif event == "UNIT_AURA" then
+        elseif customTimedChanged or event == "UNIT_AURA" then
             needsLayoutNotify = "aura"
         end
 
@@ -4887,16 +4855,6 @@ function runtime.ReadCustomSlotCooldown(slotID)
     return startTime, duration, enable
 end
 
-function runtime.RefreshCustomCooldownWatcherEvent()
-    local watcher = runtime.cooldownWatcher
-    if not watcher or not watcher.eventFrame then return end
-    if watcher.activeTargetCount and watcher.activeTargetCount > 0 then
-        watcher.eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
-    else
-        watcher.eventFrame:UnregisterEvent("BAG_UPDATE_COOLDOWN")
-    end
-end
-
 function runtime.EvaluateCustomCooldownWatches()
     local watcher = runtime.cooldownWatcher
     if not watcher or (watcher.activeTargetCount or 0) <= 0 then return end
@@ -4970,29 +4928,6 @@ end
 function runtime.EnsureCustomCooldownWatcher()
     local watcher = runtime.cooldownWatcher
     if not watcher then return nil end
-    if watcher.dispatchFrame and watcher.eventFrame then return watcher end
-
-    watcher.dispatchFrame = watcher.dispatchFrame or CreateFrame("Frame")
-    watcher.dispatchFrame:Hide()
-    watcher.dispatchFrame:SetScript("OnUpdate", function(self)
-        self:Hide()
-        local w = runtime.cooldownWatcher
-        if w.evaluatePending then
-            w.evaluatePending = false
-            runtime.EvaluateCustomCooldownWatches()
-        end
-        if w.refreshPending then
-            runtime.FlushCustomCooldownIconRefresh()
-        end
-    end)
-
-    watcher.eventFrame = watcher.eventFrame or CreateFrame("Frame")
-    watcher.eventFrame:SetScript("OnEvent", function(_, event)
-        if event == "BAG_UPDATE_COOLDOWN" then
-            runtime.QueueEvaluateCustomCooldownWatches()
-        end
-    end)
-    runtime.RefreshCustomCooldownWatcherEvent()
     return watcher
 end
 
@@ -5000,7 +4935,7 @@ function runtime.QueueEvaluateCustomCooldownWatches()
     local watcher = runtime.EnsureCustomCooldownWatcher()
     if not watcher or (watcher.activeTargetCount or 0) <= 0 or watcher.evaluatePending then return end
     watcher.evaluatePending = true
-    watcher.dispatchFrame:Show()
+    ScheduleCustomIconWork()
 end
 
 function runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify, iconKeys)
@@ -5022,7 +4957,7 @@ function runtime.QueueCustomCooldownIconRefresh(needsLayoutNotify, iconKeys)
         watcher.layoutNotify = needsLayoutNotify
     end
     watcher.refreshPending = true
-    watcher.dispatchFrame:Show()
+    ScheduleCustomIconWork()
 end
 
 function runtime.AddCustomCooldownTarget(targets, id, iconKey)
@@ -5060,6 +4995,7 @@ function runtime.RegisterCustomCooldownWatches()
     runtime.ClearCustomCooldownTable(watcher.itemTargets)
     runtime.ClearCustomCooldownTable(watcher.slotTargets)
     watcher.activeTargetCount = 0
+    watcher.hasSpellTarget = false
 
     for iconKey, frame in pairs(runtime.iconFrames) do
         local iconData = frame and db.iconData and db.iconData[iconKey]
@@ -5071,6 +5007,8 @@ function runtime.RegisterCustomCooldownWatches()
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
             elseif iconData.type == "trinketProc" and (not iconData.settings or iconData.settings.showItemCooldown ~= false) then
                 runtime.AddCustomCooldownTarget(watcher.slotTargets, iconData.slotID, iconKey)
+            elseif iconData.type == "spell" or iconData.type == "racial" then
+                watcher.hasSpellTarget = true
             end
         end
     end
@@ -5083,7 +5021,17 @@ function runtime.RegisterCustomCooldownWatches()
     end
 
     runtime.PrimeCustomCooldownWatcherStates()
-    runtime.RefreshCustomCooldownWatcherEvent()
+    watcher.kindsInitialized = true
+end
+
+function runtime.RequestCustomCooldownWatchRegistration()
+    local watcher = runtime.cooldownWatcher
+    if InCombatLockdown and InCombatLockdown() then
+        watcher.registrationPending = true
+        return
+    end
+    watcher.registrationPending = false
+    runtime.RegisterCustomCooldownWatches()
 end
 
 -- ------------------------
@@ -5436,16 +5384,11 @@ local function LayoutGroup(groupKey, iconKeys)
     end
 end
 
-local _layoutRefreshDispatchFrame
-local _layoutRefreshDueAt = 0
-
-local function RunBridgeLayoutRefresh()
+function runtime.RunBridgeLayoutRefresh()
     runtime.refreshAllLayoutsPending = nil
+    runtime.layoutRefreshDueAt = nil
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
         DDingUI.SpecProfiles:MarkDirty()
-    end
-    if runtime.RegisterCustomCooldownWatches then
-        runtime.RegisterCustomCooldownWatches()
     end
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
         DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -5455,31 +5398,14 @@ end
 local function QueueBridgeLayoutRefresh(delay)
     if runtime.refreshAllLayoutsPending then return end
     runtime.refreshAllLayoutsPending = true
-    _layoutRefreshDueAt = (GetTime and GetTime() or 0) + (delay or 0)
-
-    if not _layoutRefreshDispatchFrame then
-        _layoutRefreshDispatchFrame = CreateFrame("Frame")
-        _layoutRefreshDispatchFrame:Hide()
-        _layoutRefreshDispatchFrame:SetScript("OnUpdate", function(self)
-            if not runtime.refreshAllLayoutsPending then
-                self:Hide()
-                return
-            end
-
-            local now = GetTime and GetTime() or 0
-            if _layoutRefreshDueAt > now then
-                return
-            end
-
-            self:Hide()
-            RunBridgeLayoutRefresh()
-        end)
-    end
-
-    _layoutRefreshDispatchFrame:Show()
+    runtime.layoutRefreshDueAt = (GetTime and GetTime() or 0) + (delay or 0)
+    ScheduleCustomIconWork()
 end
 
 local function RefreshAllLayouts()
+    if runtime.RequestCustomCooldownWatchRegistration then
+        runtime.RequestCustomCooldownWatchRegistration()
+    end
     if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
         QueueBridgeLayoutRefresh((InCombatLockdown and InCombatLockdown()) and 0.12 or 0.04)
         return
@@ -5489,10 +5415,6 @@ local function RefreshAllLayouts()
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
         DDingUI.SpecProfiles:MarkDirty()
     end
-    if runtime.RegisterCustomCooldownWatches then
-        runtime.RegisterCustomCooldownWatches()
-    end
-
     local db = GetDynamicDB()
 
     -- Build ungrouped list (one anchor per ungrouped icon)
@@ -5581,8 +5503,8 @@ function CustomIcons:EnsureDynamicIconFrame(iconKey, iconData)
     frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(groupKey, settings))
     if frame then
         runtime.iconFrames[iconKey] = frame
-        if runtime.RegisterCustomCooldownWatches then
-            runtime.RegisterCustomCooldownWatches()
+        if runtime.RequestCustomCooldownWatchRegistration then
+            runtime.RequestCustomCooldownWatchRegistration()
         end
     end
     return frame
@@ -5729,7 +5651,6 @@ function CustomIcons:LoadDynamicIcons()
             pendingKeys = stillPending
             if #pendingKeys == 0 or attempts >= maxAttempts then
                 if retryTimer then retryTimer:Cancel() end
-                -- 새로 생성된 프레임이 있으면 레이아웃 갱신 + GroupSystem 알림
                 RefreshAllLayouts()
                 UpdateAllIcons(nil, "all")
             end
