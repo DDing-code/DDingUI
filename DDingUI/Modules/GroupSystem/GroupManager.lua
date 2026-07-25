@@ -86,13 +86,13 @@ local function SafeNumber(value)
 end
 
 local pvpIconOrderCache = {}
-local copiedBuffConversionLastRun = 0
-local copiedBuffConversionInterval = 0.75
+local copiedBuffConversionSignature
 local cdmBuffMatchContext
 local cdmBuffMatchContextAt = 0
 local cdmBuffMatchContextTTL = 0.5
 local classifiedGroups = {}
 local classificationByID = {}
+local classificationRoutes
 
 local function IsPvPInstance()
     return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
@@ -1102,6 +1102,80 @@ local function ConvertCopiedBuffDynamicIcons(gs)
     return true
 end
 
+local function AppendSignatureValues(parts, value)
+    if type(value) ~= "table" then
+        parts[#parts + 1] = tostring(value or "")
+        return
+    end
+
+    local values = {}
+    for _, entry in pairs(value) do
+        local safeValue = SafeNumber(entry)
+        if safeValue then
+            values[#values + 1] = tostring(safeValue)
+        elseif type(entry) == "string" then
+            values[#values + 1] = entry
+        end
+    end
+    table.sort(values)
+    parts[#parts + 1] = table.concat(values, ",")
+end
+
+local function BuildCopiedBuffConversionSignature(gs)
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynDB = profile and profile.dynamicIcons
+    local iconDataDB = dynDB and dynDB.iconData
+    local dynamicGroups = dynDB and dynDB.groups
+    local parts = {}
+
+    if gs and gs.groups and iconDataDB and dynamicGroups then
+        local groupNames = {}
+        for groupName, groupSettings in pairs(gs.groups) do
+            if groupSettings and IsBuffGroup(groupName, groupSettings) and groupSettings.sourceGroupKey then
+                groupNames[#groupNames + 1] = groupName
+            end
+        end
+        table.sort(groupNames)
+
+        for _, groupName in ipairs(groupNames) do
+            local groupSettings = gs.groups[groupName]
+            local sourceKey = groupSettings.sourceGroupKey
+            local dynGroup = dynamicGroups[sourceKey]
+            parts[#parts + 1] = groupName
+            parts[#parts + 1] = tostring(sourceKey)
+            for _, iconKey in ipairs((dynGroup and dynGroup.icons) or {}) do
+                local iconData = iconDataDB[iconKey]
+                local settings = iconData and iconData.settings
+                parts[#parts + 1] = tostring(iconKey)
+                parts[#parts + 1] = tostring(iconData and iconData.type or "")
+                parts[#parts + 1] = tostring(SafeNumber(iconData and iconData.id) or "")
+                parts[#parts + 1] = tostring(settings and settings.copiedFromCDM == true)
+                parts[#parts + 1] = tostring(settings and settings.sourceSpellName or "")
+                AppendSignatureValues(parts, settings and settings.auraAliases)
+                AppendSignatureValues(parts, settings and settings.fallbackItems)
+            end
+        end
+    end
+
+    local cdm = DDingUI.CDMHookEngine or DDingUI.FrameController
+    local map = cdm and ((cdm.GetIdIconMap and cdm:GetIdIconMap()) or (cdm.GetIconMap and cdm:GetIconMap()))
+    local cooldownIDs = {}
+    if type(map) == "table" then
+        for cooldownID in pairs(map) do
+            local safeCooldownID = SafeNumber(cooldownID)
+            if safeCooldownID then
+                cooldownIDs[#cooldownIDs + 1] = safeCooldownID
+            end
+        end
+    end
+    table.sort(cooldownIDs)
+    for _, cooldownID in ipairs(cooldownIDs) do
+        parts[#parts + 1] = tostring(cooldownID)
+    end
+
+    return table.concat(parts, "\31")
+end
+
 local function NormalizeGroupOrders(gs)
     if not gs or not gs.groups then return nil end
 
@@ -1393,10 +1467,12 @@ function GroupManager:PruneInvalidAssignments()
     if not gs or not gs.groups then return false end
 
     local converted = false
-    local now = GetTime and GetTime() or 0
-    if (now - copiedBuffConversionLastRun) >= copiedBuffConversionInterval then
-        copiedBuffConversionLastRun = now
+    local conversionSignature = BuildCopiedBuffConversionSignature(gs)
+    if conversionSignature ~= copiedBuffConversionSignature then
+        cdmBuffMatchContext = nil
+        cdmBuffMatchContextAt = 0
         converted = ConvertCopiedBuffDynamicIcons(gs)
+        copiedBuffConversionSignature = BuildCopiedBuffConversionSignature(gs)
     end
     if not gs.spellAssignments then return converted == true end
     local toRemove
@@ -1434,6 +1510,41 @@ end
 -- CDM 뷰어 기반 분류 엔진
 -- [REFACTOR] ClassifyAura(auraData) → ClassifyIcon(cooldownID)
 -- ============================================================
+
+local VIEWER_FILTERS = {
+    EssentialCooldownViewer = "COOLDOWN",
+    UtilityCooldownViewer = "UTILITY",
+    BuffIconCooldownViewer = "HELPFUL",
+}
+
+local function BuildClassificationRoutes(gs)
+    local routes = { viewer = {} }
+    local filterGroups = {}
+    local filterOrders = {}
+    local firstOrder = math.huge
+
+    for name, settings in pairs((gs and gs.groups) or {}) do
+        if settings.enabled then
+            local order = tonumber(settings.order) or 999
+            if order < firstOrder then
+                routes.first = name
+                firstOrder = order
+            end
+
+            local filterType = settings.autoFilter
+            if filterType and (not filterOrders[filterType] or order < filterOrders[filterType]) then
+                filterGroups[filterType] = name
+                filterOrders[filterType] = order
+            end
+        end
+    end
+
+    routes.all = filterGroups.ALL
+    for viewerName, filterType in pairs(VIEWER_FILTERS) do
+        routes.viewer[viewerName] = filterGroups[filterType]
+    end
+    return routes
+end
 
 function GroupManager:ClassifyIcon(cooldownID)
     local CDMHookEngine = DDingUI.CDMHookEngine
@@ -1484,6 +1595,7 @@ function GroupManager:ClassifyIcon(cooldownID)
     end
 
     -- 2순위: 뷰어 소스 기반 자동 분류 (기본 그룹)
+    local routes = classificationRoutes or BuildClassificationRoutes(gs)
     local viewerName = CDMHookEngine:GetIconSource(cooldownID)
     if gs.autoClassify then
         local defaultGroup = CDMHookEngine:GetDefaultGroupForViewer(viewerName)
@@ -1495,18 +1607,18 @@ function GroupManager:ClassifyIcon(cooldownID)
 
     -- 3순위: autoFilter 매칭
     if viewerName then
-        local filterGroup = self:FindGroupByViewerFilter(viewerName)
+        local filterGroup = routes.viewer[viewerName]
         local result = resolveCDMGroup(filterGroup, spellName)
         if result then return result end
     end
 
     -- 4순위: autoFilter = "ALL" 그룹
-    local allGroup = self:FindGroupByFilter("ALL")
+    local allGroup = routes.all
     local allResult = resolveCDMGroup(allGroup, spellName)
     if allResult then return allResult end
 
     -- 5순위: 첫 번째 활성 그룹
-    return resolveCDMGroup(self:GetFirstEnabledGroup(), spellName)
+    return resolveCDMGroup(routes.first, spellName)
 end
 
 -- 뷰어 이름 → autoFilter 매칭
@@ -1584,6 +1696,7 @@ function GroupManager:ClassifyAll()
 
     -- 빈 그룹 초기화
     local gs = GetGroupSystemSettings()
+    classificationRoutes = BuildClassificationRoutes(gs)
     if gs and gs.groups then
         for name, settings in pairs(gs.groups) do
             if settings.enabled then
@@ -1645,6 +1758,7 @@ function GroupManager:ClassifyChanged(changedIDs)
 
     local idIconMap = CDMHookEngine:GetIconMap()
     local touchedGroups = {}
+    classificationRoutes = BuildClassificationRoutes(gs)
 
     for cooldownID in pairs(changedIDs) do
         local previous = classificationByID[cooldownID]
@@ -1686,6 +1800,10 @@ function GroupManager:ClassifyChanged(changedIDs)
 end
 
 function GroupManager:InvalidateClassificationCache()
+    classificationRoutes = nil
+    copiedBuffConversionSignature = nil
+    cdmBuffMatchContext = nil
+    cdmBuffMatchContextAt = 0
     wipe(classificationByID)
     for _, iconList in pairs(classifiedGroups) do
         wipe(iconList)
