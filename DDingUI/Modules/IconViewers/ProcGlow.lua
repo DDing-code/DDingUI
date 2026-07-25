@@ -8,7 +8,7 @@ local ProcGlow = DDingUI.ProcGlow
 local SL = _G.DDingUI_StyleLib
 
 -- Track which icons currently have active glows
-local activeGlowingIcons = {}  -- [icon] = true
+local activeGlowingIcons = setmetatable({}, { __mode = "k" })
 
 -- Track by spellID to survive frame recycling/rescan
 local activeOverlaySpells = {}  -- [spellID] = true
@@ -23,8 +23,10 @@ local procActiveCache = setmetatable({}, { __mode = "k" })   -- replaces button.
 -- Glow key for LibCustomGlow
 local GLOW_KEY = "_DDingUICustomGlow"
 
--- Glow persistence timers: re-apply glow if removed externally
-local glowPersistenceTimers = {}  -- [icon] = ticker
+-- One shared driver re-applies glows removed by frame recycling or re-skinning.
+local glowPersistenceDriver
+local glowPersistenceElapsed = 0
+local GLOW_PERSISTENCE_INTERVAL = 0.3
 
 -- LibCustomGlow glow types
 ProcGlow.LibCustomGlowTypes = {
@@ -216,7 +218,49 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
     activeGlowingIcons[iconFrame] = true
 end
 
--- Start glow on an icon with persistence timer
+local function UpdateGlowPersistenceDriver()
+    if next(activeGlowingIcons) then
+        if not glowPersistenceDriver then
+            glowPersistenceDriver = CreateFrame("Frame")
+            glowPersistenceDriver:Hide()
+            glowPersistenceDriver:SetScript("OnUpdate", function(self, elapsed)
+                glowPersistenceElapsed = glowPersistenceElapsed + elapsed
+                if glowPersistenceElapsed < GLOW_PERSISTENCE_INTERVAL then return end
+                glowPersistenceElapsed = 0
+
+                local hasActiveGlow = false
+                for iconFrame in pairs(activeGlowingIcons) do
+                    if not glowActiveCache[iconFrame] then
+                        activeGlowingIcons[iconFrame] = nil
+                    else
+                        hasActiveGlow = true
+                        if iconFrame.IsShown and iconFrame:IsShown() then
+                            local settings = GetProcGlowSettings(iconFrame)
+                            local glowType = settings and (settings.glowType or "Pixel Glow")
+                            if glowType and not IsGlowFramePresent(iconFrame, glowType) then
+                                ApplyGlowEffect(iconFrame)
+                                if glowType ~= "Blizzard Glow" then
+                                    HideBlizzardGlow(iconFrame)
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if not hasActiveGlow then
+                    self:Hide()
+                end
+            end)
+        end
+        glowPersistenceElapsed = 0
+        glowPersistenceDriver:Show()
+    elseif glowPersistenceDriver then
+        glowPersistenceElapsed = 0
+        glowPersistenceDriver:Hide()
+    end
+end
+
+-- Start glow on an icon and keep one shared persistence driver active.
 local function StartGlow(iconFrame)
     local glowSettings = GetProcGlowSettings(iconFrame)
     if not glowSettings then return end
@@ -233,45 +277,12 @@ local function StartGlow(iconFrame)
     -- Apply the glow
     ApplyGlowEffect(iconFrame)
 
-    -- Cancel existing persistence timer
-    if glowPersistenceTimers[iconFrame] then
-        glowPersistenceTimers[iconFrame]:Cancel()
-        glowPersistenceTimers[iconFrame] = nil
-    end
-
-    -- Start persistence timer: checks every 0.3s if glow was removed externally
-    glowPersistenceTimers[iconFrame] = C_Timer.NewTicker(0.3, function()
-        if not activeGlowingIcons[iconFrame] then
-            if glowPersistenceTimers[iconFrame] then
-                glowPersistenceTimers[iconFrame]:Cancel()
-                glowPersistenceTimers[iconFrame] = nil
-            end
-            return
-        end
-
-        if not iconFrame:IsShown() then return end
-
-        local gs = GetProcGlowSettings(iconFrame)
-        if not gs then return end
-        local gt = gs.glowType or "Pixel Glow"
-        if not IsGlowFramePresent(iconFrame, gt) then
-            ApplyGlowEffect(iconFrame)
-            if gt ~= "Blizzard Glow" then
-                HideBlizzardGlow(iconFrame)
-            end
-        end
-    end)
+    UpdateGlowPersistenceDriver()
 end
 
 -- Stop glow on an icon
 local function StopGlow(iconFrame)
-    if not glowActiveCache[iconFrame] then return end
-
-    -- Cancel persistence timer first
-    if glowPersistenceTimers[iconFrame] then
-        glowPersistenceTimers[iconFrame]:Cancel()
-        glowPersistenceTimers[iconFrame] = nil
-    end
+    if not glowActiveCache[iconFrame] and not activeGlowingIcons[iconFrame] then return end
 
     SL.HidePixelGlow(iconFrame, GLOW_KEY)
     SL.HideAutocastGlow(iconFrame, GLOW_KEY)
@@ -284,6 +295,7 @@ local function StopGlow(iconFrame)
 
     glowActiveCache[iconFrame] = nil
     activeGlowingIcons[iconFrame] = nil
+    UpdateGlowPersistenceDriver()
 end
 
 -- Re-apply glows after RescanViewer completes (survives frame recycling/re-skinning)
@@ -360,7 +372,7 @@ local function SetupGlowHooks()
                 local spellID = GetButtonSpellID(button)
                 local glowSettings = GetProcGlowSettings(button)
                 if glowSettings and glowSettings.enabled then
-                    -- BCM pattern: flag immediately, apply glow after Blizzard finishes
+                    -- Flag immediately, then apply after Blizzard finishes its update.
                     procActiveCache[button] = true
                     if glowSettings.glowType == "Blizzard Glow" then
                         -- Let Blizzard's native glow show, just track it
