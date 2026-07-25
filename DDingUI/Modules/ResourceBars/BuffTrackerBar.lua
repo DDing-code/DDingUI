@@ -500,6 +500,12 @@ local function IsSecretValue(value)
     return false
 end
 
+local function IsAccessibleNumber(value)
+    if type(value) ~= "number" then return false end
+    if canaccessvalue and not canaccessvalue(value) then return false end
+    return not IsSecretValue(value)
+end
+
 -- Helper: Get spellID from cooldownID using C_CooldownViewer API (CDM API)
 local function GetSpellIDFromCooldownID(cooldownID)
     if not cooldownID or not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then
@@ -1000,7 +1006,7 @@ local StopBuffTrackerTicker
 local buffTrackerEventFrame
 local buffTrackerEventsRegistered = false
 local buffTrackerUpdatePending = false
-local buffTrackerUpdateFrame
+local buffTrackerUpdateTimer
 local buffTrackerUpdateDueAt = 0
 local QueueBuffTrackerUpdate
 local SetBuffTrackerEventsEnabled
@@ -1318,10 +1324,17 @@ SetBuffTrackerEventsEnabled = function(enabled)
 end
 
 QueueBuffTrackerUpdate = function(reason, delay)
+    if buffTrackerTicker and reason
+        and (string.find(reason, "manual", 1, true) or reason == "combat-end")
+    then
+        buffTrackerTicker:Cancel()
+        buffTrackerTicker = nil
+    end
     if not IsBuffTrackerRuntimeEnabled() and not isInPreviewMode and not isInMoverMode then
         buffTrackerUpdatePending = false
-        if buffTrackerUpdateFrame then
-            buffTrackerUpdateFrame:Hide()
+        if buffTrackerUpdateTimer then
+            buffTrackerUpdateTimer:Cancel()
+            buffTrackerUpdateTimer = nil
         end
         if StopBuffTrackerTicker then StopBuffTrackerTicker() end
         if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
@@ -1330,44 +1343,27 @@ QueueBuffTrackerUpdate = function(reason, delay)
     local now = GetTime and GetTime() or 0
     local dueAt = now + (delay or ((InCombatLockdown and InCombatLockdown()) and 0.08 or 0.03))
     if buffTrackerUpdatePending then
-        if dueAt < buffTrackerUpdateDueAt then
-            buffTrackerUpdateDueAt = dueAt
+        if dueAt >= buffTrackerUpdateDueAt then return end
+        buffTrackerUpdateDueAt = dueAt
+        if buffTrackerUpdateTimer then
+            buffTrackerUpdateTimer:Cancel()
+            buffTrackerUpdateTimer = nil
         end
-        if buffTrackerUpdateFrame then
-            buffTrackerUpdateFrame:Show()
-        end
-        return
+    else
+        buffTrackerUpdatePending = true
+        buffTrackerUpdateDueAt = dueAt
     end
 
-    buffTrackerUpdatePending = true
-    buffTrackerUpdateDueAt = dueAt
-
-    if not buffTrackerUpdateFrame then
-        buffTrackerUpdateFrame = CreateFrame("Frame")
-        buffTrackerUpdateFrame:Hide()
-        buffTrackerUpdateFrame:SetScript("OnUpdate", function(self)
-            if not buffTrackerUpdatePending then
-                self:Hide()
-                return
-            end
-
-            local now = GetTime and GetTime() or 0
-            if buffTrackerUpdateDueAt > now then
-                return
-            end
-
-            self:Hide()
-            buffTrackerUpdatePending = false
-            if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
-                ResourceBars:UpdateBuffTrackerBar()
-            else
-                if StopBuffTrackerTicker then StopBuffTrackerTicker() end
-                if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
-            end
-        end)
-    end
-
-    buffTrackerUpdateFrame:Show()
+    buffTrackerUpdateTimer = C_Timer.NewTimer(math_max(0, buffTrackerUpdateDueAt - now), function()
+        buffTrackerUpdateTimer = nil
+        buffTrackerUpdatePending = false
+        if IsBuffTrackerRuntimeEnabled() or isInPreviewMode or isInMoverMode then
+            ResourceBars:UpdateBuffTrackerBar()
+        else
+            if StopBuffTrackerTicker then StopBuffTrackerTicker() end
+            if SetBuffTrackerEventsEnabled then SetBuffTrackerEventsEnabled(false) end
+        end
+    end)
 end
 
 function ResourceBars:RequestBuffTrackerUpdate(reason, delay)
@@ -1384,18 +1380,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     end
     if event == "LOADING_SCREEN_DISABLED" then
         loadingScreenActive = false
-        -- 로딩 완료 후 안정적 업데이트 (프록시 앵커 위치 복원 + CDM 뷰어 안정화 대기)
-        C_Timer.After(0.5, function()
-            local CDMScanner = DDingUI.CDMScanner
-            if CDMScanner then
-                pcall(CDMScanner.ScanAll)
-            end
-            QueueBuffTrackerUpdate("loading", 0)
-        end)
-        -- [FIX] 1.5초 후 최종 업데이트 (CDMScanner 완전 안정화)
-        C_Timer.After(1.5, function()
-            QueueBuffTrackerUpdate("loading-final", 0)
-        end)
+        ScheduleBuffTrackerStartupRefresh("loading", { 0.5, 1.5 })
         return
     end
 
@@ -1411,7 +1396,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     -- NOTE: return 제거 - 수동 트래킹 로직(line 1164+)도 실행되어야 함
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
-        if unit == "player" and spellID then
+        if unit == "player" and IsAccessibleNumber(spellID) then
             -- 시전된 spellID별로 시간 기록
             ResourceBars._spellCastRefresh = ResourceBars._spellCastRefresh or {}
             ResourceBars._spellCastRefresh[spellID] = GetTime()
@@ -1421,16 +1406,8 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
 
     -- UNIT_AURA: 순정 CDM과 동일하게 버프 변경 시 즉시 업데이트
     if event == "UNIT_AURA" then
-        local unit, unitAuraUpdateInfo = ...
+        local unit = ...
         if unit == "player" then
-            -- 버프 갱신 감지: updatedAuraInstanceIDs를 저장해서 UpdateSingleTrackedBuffRing에서 처리
-            if unitAuraUpdateInfo and unitAuraUpdateInfo.updatedAuraInstanceIDs then
-                -- 글로벌 변수에 저장 (UpdateSingleTrackedBuffRing에서 확인)
-                ResourceBars._pendingAuraUpdates = ResourceBars._pendingAuraUpdates or {}
-                for _, updatedAuraID in ipairs(unitAuraUpdateInfo.updatedAuraInstanceIDs) do
-                    ResourceBars._pendingAuraUpdates[updatedAuraID] = GetTime()
-                end
-            end
             QueueBuffTrackerUpdate("unit-aura")
         end
         return
@@ -1442,10 +1419,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
 
     -- Handle talent change events (always check, regardless of tracking mode)
     if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" then
-        -- Talent changed - update bar to reflect new talent conditions
-        C_Timer.After(0.1, function()
-            QueueBuffTrackerUpdate("talent", 0)
-        end)
+        QueueBuffTrackerUpdate("talent", 0.1)
         return
     end
 
@@ -1462,25 +1436,16 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         ResetAllSoundTrackers()
         wipe(soundTrackers)
         ResetManualStacks()  -- 전문화별 수동 스택 정리
+        if buffTrackerTicker then
+            buffTrackerTicker:Cancel()
+            buffTrackerTicker = nil
+        end
         InvalidateAllFrameCaches()  -- 위치/스타일 캐시 초기화
 
         -- 런타임 상태 초기화 (이전 전문화의 오래된 이벤트 데이터 정리)
-        ResourceBars._pendingAuraUpdates = nil
         ResourceBars._spellCastRefresh = nil
 
-        -- 2단계 재시도
-        -- Phase 1 (0.5초): CDM 프레임 기본 로드 후 업데이트
-        C_Timer.After(0.5, function()
-            QueueBuffTrackerUpdate("spec-1", 0)
-        end)
-        -- Phase 2 (1.5초): CDM 데이터 안정화 후 ScanAll + 업데이트
-        C_Timer.After(1.5, function()
-            local CDMScanner = DDingUI.CDMScanner
-            if CDMScanner then
-                pcall(CDMScanner.ScanAll)
-            end
-            QueueBuffTrackerUpdate("spec-2", 0)
-        end)
+        ScheduleBuffTrackerStartupRefresh("specialization", { 0.5, 1.5 })
         return
     end
 
@@ -1524,7 +1489,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         QueueBuffTrackerUpdate("combat-end")
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, castGUID, spellID = ...
-        if unit ~= "player" then return end
+        if unit ~= "player" or not IsAccessibleNumber(spellID) then return end
 
         -- ============================================================
         -- NEW: Per-buff manual tracking for trackedBuffsPerSpec
@@ -1689,8 +1654,10 @@ local function CheckExpirations()
                 local duration = buff.settings.stackDuration or 30
                 if duration > 0 then
                     ResetManualStacks(barIndex)
-                    needsUpdate = true
+                else
+                    SetManualStacks(barIndex, stacks, nil)
                 end
+                needsUpdate = true
             end
         end
     end
@@ -1701,9 +1668,9 @@ local function CheckExpirations()
         local duration = specCfg and specCfg.stackDuration or 20
         if duration > 0 then
             manualStacks = 0
-            manualExpiresAt = nil
-            needsUpdate = true
         end
+        manualExpiresAt = nil
+        needsUpdate = true
     end
 
     return needsUpdate
@@ -1943,19 +1910,27 @@ end
 StartBuffTrackerTicker = function()
     if buffTrackerTicker then return end
 
-    -- [PERF] 0.1→0.2초 간격 (5fps). expirationCheck도 여기서 통합 처리
-    buffTrackerTicker = C_Timer.NewTicker(0.2, function()
-        local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
-        if not rootCfg or not rootCfg.enabled then
-            StopBuffTrackerTicker()
-            return
-        end
+    local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+    if not rootCfg or not rootCfg.enabled then return end
 
-        -- [PERF] 만료 체크 통합 (별도 OnUpdate 제거됨)
-        local needsUpdate = CheckExpirations()
-        if needsUpdate or isInPreviewMode or isInMoverMode then
-            QueueBuffTrackerUpdate("ticker", 0)
+    local now = GetTime()
+    local nextExpiration = manualExpiresAt
+    for barIndex, buff in ipairs(GetTrackedBuffs()) do
+        if buff.trackingMode == "manual" then
+            local _, expiresAt = GetManualStacks(barIndex)
+            if expiresAt and (not nextExpiration or expiresAt < nextExpiration) then
+                nextExpiration = expiresAt
+            end
         end
+    end
+    if not nextExpiration then return end
+
+    buffTrackerTicker = C_Timer.NewTimer(math_max(0.01, nextExpiration - now), function()
+        buffTrackerTicker = nil
+        if CheckExpirations() then
+            QueueBuffTrackerUpdate("expiration", 0)
+        end
+        StartBuffTrackerTicker()
     end)
 end
 
