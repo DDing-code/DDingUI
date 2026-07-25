@@ -33,6 +33,7 @@ local rotationSpellsCacheValid = false
 local currentSuggestedSpellID = nil
 local isEnabled = false
 local hooksInitialized = false
+local pollingScript
 
 local function GetGroupSystemGroups()
     local db = DDingUI.db and DDingUI.db.profile
@@ -649,7 +650,7 @@ local function SetupHooks()
 
     local POLL_THROTTLE = 0.066  -- ~15fps
     local nextPollTime = 0
-    eventFrame:SetScript("OnUpdate", function(_, elapsed)
+    pollingScript = function()
         if not isEnabled then return end
         if not ((C_AssistedCombat and C_AssistedCombat.GetNextCastSpell) or AssistedCombatManager) then return end
 
@@ -662,7 +663,7 @@ local function SetupHooks()
             currentSuggestedSpellID = newSuggested
             AssistHighlight:UpdateAllHighlights()
         end
-    end)
+    end
 
     -- Hook viewer RefreshLayout for icon changes
     for _, vName in ipairs(viewerNames) do
@@ -740,6 +741,7 @@ function AssistHighlight:Enable()
     eventFrame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
 
     SetupHooks()
+    eventFrame:SetScript("OnUpdate", pollingScript)
 
     rotationSpellsCacheValid = false
     UpdateRotationSpellsCache()
@@ -751,12 +753,7 @@ function AssistHighlight:Disable()
     isEnabled = false
 
     eventFrame:UnregisterAllEvents()
-    local pollingScript = eventFrame:GetScript("OnUpdate")
     eventFrame:SetScript("OnUpdate", nil)  -- [FIX] OnUpdate 폴링 정리
-
-    if pollingScript then
-        eventFrame:SetScript("OnUpdate", pollingScript)
-    end
 
     wipe(rotationSpellsCache)
     rotationSpellsCacheValid = false

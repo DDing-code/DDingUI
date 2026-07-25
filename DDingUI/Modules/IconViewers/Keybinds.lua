@@ -11,6 +11,36 @@ local LSM = LibStub("LibSharedMedia-3.0", true)
 
 -- Weak table to store keybind frames without tainting Blizzard icon frames
 local keybindFrames = setmetatable({}, { __mode = "k" })
+local keybindSyncFrame = CreateFrame("Frame")
+keybindSyncFrame:Hide()
+keybindSyncFrame:SetScript("OnUpdate", function(self)
+    local hasActiveFrames = false
+    for icon, frame in pairs(keybindFrames) do
+        if frame._syncEnabled then
+            hasActiveFrames = true
+            local shown = icon:IsShown()
+            if frame:IsShown() ~= shown then
+                frame:SetShown(shown)
+            end
+            if shown then
+                frame:SetAlpha(icon:GetEffectiveAlpha())
+                local iconStrata = icon:GetFrameStrata()
+                if frame:GetFrameStrata() ~= iconStrata then
+                    frame:SetFrameStrata(iconStrata)
+                end
+                local targetLevel = icon:GetFrameLevel() + 12
+                if frame:GetFrameLevel() ~= targetLevel then
+                    frame:SetFrameLevel(targetLevel)
+                end
+            end
+        elseif frame:IsShown() then
+            frame:Hide()
+        end
+    end
+    if not hasActiveFrames then
+        self:Hide()
+    end
+end)
 
 -- NOTE: keybindCache는 아래 86줄에서 재선언됨 (slot→key + icon→keybind 공용 테이블)
 -- 이 weak table 선언은 더 이상 사용되지 않음 (변수 섀도잉으로 dead code)
@@ -581,22 +611,6 @@ local function GetOrCreateKeybindText(icon, viewerSettingName)
 
     keybindFrames[icon].text = keybindText
 
-    -- Sync visibility and alpha with icon (alpha follows parent chain,
-    -- so FlightHide fading the viewer will also fade keybind text)
-    keybindFrames[icon]:SetScript("OnUpdate", function(self)
-        self:SetShown(icon:IsShown())
-        self:SetAlpha(icon:GetEffectiveAlpha())
-        -- [12.0.1] keep strata/level in sync if icon changes dynamically
-        local iconStrata = icon:GetFrameStrata()
-        if self:GetFrameStrata() ~= iconStrata then
-            self:SetFrameStrata(iconStrata)
-        end
-        local targetLevel = icon:GetFrameLevel() + 12
-        if self:GetFrameLevel() ~= targetLevel then
-            self:SetFrameLevel(targetLevel)
-        end
-    end)
-
     return keybindFrames[icon].text
 end
 
@@ -608,6 +622,8 @@ local function ApplyKeybindTextSettings(icon, viewerSettingName)
     local settings = GetKeybindSettings(viewerSettingName)
     local keybindText = GetOrCreateKeybindText(icon, viewerSettingName)
 
+    keybindFrames[icon]._syncEnabled = true
+    keybindSyncFrame:Show()
     keybindFrames[icon]:Show()
     keybindText:ClearAllPoints()
     keybindText:SetPoint(settings.anchor, icon, settings.anchor, settings.offsetX, settings.offsetY)
@@ -866,6 +882,7 @@ local function UpdateIconKeybind(icon, viewerSettingName)
     local enabledKey = "cooldownManager_showKeybinds_" .. viewerSettingName
     if not DDingUI.db.profile[enabledKey] then
         if keybindFrames[icon] then
+            keybindFrames[icon]._syncEnabled = false
             keybindFrames[icon]:Hide()
             -- 텍스트도 지워서 완전히 숨김
             if keybindFrames[icon].text then
@@ -880,12 +897,15 @@ local function UpdateIconKeybind(icon, viewerSettingName)
 
     if not keybind or keybind == "" then
         if keybindFrames[icon] then
+            keybindFrames[icon]._syncEnabled = false
             keybindFrames[icon]:Hide()
         end
         return
     end
 
     local keybindText = GetOrCreateKeybindText(icon, viewerSettingName)
+    keybindFrames[icon]._syncEnabled = true
+    keybindSyncFrame:Show()
     keybindFrames[icon]:Show()
     keybindText:SetText(keybind)
     keybindText:Show()
@@ -991,6 +1011,7 @@ function Keybinds:Shutdown()
     PrintDebug("[DDingUI Keybinds] Shutting down module")
 
     isModuleKeybindsEnabled = false
+    keybindSyncFrame:Hide()
 
     eventFrame:UnregisterAllEvents()
 
@@ -1009,22 +1030,15 @@ function Keybinds:Shutdown()
         PrintDebug("[DDingUI Keybinds] Wiped DB cache")
     end
 
-    for viewerName, _ in pairs(viewersSettingKey) do
-        local viewerFrame = _G[viewerName]
-        if viewerFrame then
-            local icons = CollectViewerIcons(viewerFrame) -- [FIX] reparent된 아이콘 포함
-            for _, child in ipairs(icons) do
-                if keybindFrames[child] then
-                    keybindFrames[child]:Hide()
-                    -- 텍스트도 지워서 완전히 숨김
-                    if keybindFrames[child].text then
-                        keybindFrames[child].text:SetText("")
-                        keybindFrames[child].text:Hide()
-                    end
-                end
-            end
+    for _, frame in pairs(keybindFrames) do
+        frame._syncEnabled = false
+        frame:Hide()
+        if frame.text then
+            frame.text:SetText("")
+            frame.text:Hide()
         end
     end
+
 end
 
 function Keybinds:Enable()
