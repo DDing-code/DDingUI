@@ -500,40 +500,6 @@ local function IsSecretValue(value)
     return false
 end
 
-function ResourceBars.ApplyBuffTrackerAuraCooldown(owner, cooldown, auraData)
-    if not owner or not cooldown then return end
-
-    local duration = auraData and auraData.duration
-    local expirationTime = auraData and auraData.expirationTime
-    if duration == nil or expirationTime == nil then
-        if owner._ddAuraCooldownMode ~= "empty" then
-            cooldown:Clear()
-            if cooldown.SetDrawSwipe then
-                cooldown:SetDrawSwipe(true)
-            end
-            owner._ddAuraCooldownMode = "empty"
-        end
-        return
-    end
-
-    if not IsSecretValue(duration) and duration <= 0 then
-        if owner._ddAuraCooldownMode ~= "timeless" then
-            cooldown:Clear()
-            if cooldown.SetDrawSwipe then
-                cooldown:SetDrawSwipe(false)
-            end
-            owner._ddAuraCooldownMode = "timeless"
-        end
-        return
-    end
-
-    if owner._ddAuraCooldownMode == "timeless" and cooldown.SetDrawSwipe then
-        cooldown:SetDrawSwipe(true)
-    end
-    owner._ddAuraCooldownMode = "timed"
-    cooldown:SetCooldown(expirationTime - duration, duration)
-end
-
 -- Helper: Get spellID from cooldownID using C_CooldownViewer API (CDM API)
 local function GetSpellIDFromCooldownID(cooldownID)
     if not cooldownID or not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then
@@ -3560,7 +3526,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar._lastCooldownAuraID = auraInstanceID
                 pcall(function()
                     local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                    ResourceBars.ApplyBuffTrackerAuraCooldown(bar, bar.Cooldown, auraData)
+                    if auraData and auraData.expirationTime and auraData.duration then
+                        local startTime = auraData.expirationTime - auraData.duration
+                        bar.Cooldown:SetCooldown(startTime, auraData.duration)
+                    end
                 end)
             end
 
@@ -3722,7 +3691,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar._lastCooldownAuraID = auraInstanceID
                 pcall(function()
                     local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                    ResourceBars.ApplyBuffTrackerAuraCooldown(bar, bar.Cooldown, auraData)
+                    if auraData and auraData.expirationTime and auraData.duration then
+                        local startTime = auraData.expirationTime - auraData.duration
+                        bar.Cooldown:SetCooldown(startTime, auraData.duration)
+                    end
                 end)
             end
 
@@ -3915,9 +3887,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
         -- Use Cooldown for swipe effect over the ring
         if bar.Cooldown then
-            if bar._ddAuraCooldownMode ~= "timeless" then
-                bar.Cooldown:SetDrawSwipe(true)
-            end
+            bar.Cooldown:SetDrawSwipe(true)
             bar.Cooldown:SetSwipeColor(0, 0, 0, 0.6)
             -- ringReverse: true = 반시계 방향 (채움), false = 시계 방향 (비움)
             bar.Cooldown:SetReverse(not ringReverse)
@@ -4046,14 +4016,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             -- 미리보기/이동 모드: 가짜 쿨다운 표시 (60% 진행)
             local fakeDuration = stackDuration or 30
             local fakeStart = GetTime() - (fakeDuration * 0.4)  -- 40% 남음 (60% 진행)
-            if bar._ddAuraCooldownMode == "timeless" and bar.Cooldown.SetDrawSwipe then
-                bar.Cooldown:SetDrawSwipe(true)
-            end
-            bar._ddAuraCooldownMode = "preview"
             bar.Cooldown:SetCooldown(fakeStart, fakeDuration)
         elseif not hasData then
             -- 데이터 없음: 쿨다운 클리어
-            ResourceBars.ApplyBuffTrackerAuraCooldown(bar, bar.Cooldown, nil)
+            bar.Cooldown:Clear()
         end
     end
 
@@ -4433,9 +4399,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     -- 2. 스와이프를 색깔 링으로 설정
     bar.Cooldown:SetSwipeTexture(ringTexture)
     bar.Cooldown:SetSwipeColor(ringColor[1], ringColor[2], ringColor[3], ringColor[4] or 1)
-    if bar._ddAuraCooldownMode ~= "timeless" then
-        bar.Cooldown:SetDrawSwipe(true)
-    end
+    bar.Cooldown:SetDrawSwipe(true)
     bar.Cooldown:SetDrawEdge(false)
     bar.Cooldown:SetDrawBling(false)
     bar.Cooldown:SetHideCountdownNumbers(true)
@@ -4450,18 +4414,10 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             hooksecurefunc(frame.Cooldown, "SetCooldown", function(self, start, duration)
                 if ourCooldown and ourCooldown:IsShown() then
                     pcall(function()
-                        if IsSecretValue(duration) or (duration or 0) > 0 then
-                            if bar._ddAuraCooldownMode == "timeless" and ourCooldown.SetDrawSwipe then
-                                ourCooldown:SetDrawSwipe(true)
-                            end
-                            bar._ddAuraCooldownMode = "timed"
+                        if (duration or 0) > 0 then
                             ourCooldown:SetCooldown(start, duration)
-                        elseif bar._ddAuraCooldownMode ~= "timeless" then
+                        else
                             ourCooldown:Clear()
-                            if ourCooldown.SetDrawSwipe then
-                                ourCooldown:SetDrawSwipe(false)
-                            end
-                            bar._ddAuraCooldownMode = "timeless"
                         end
                     end)
                 end
@@ -4473,27 +4429,23 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         pcall(function()
             local cdmStart, cdmDuration = frame.Cooldown:GetCooldownTimes()
             if cdmStart and cdmDuration and cdmDuration > 0 then
-                if bar._ddAuraCooldownMode == "timeless" and bar.Cooldown.SetDrawSwipe then
-                    bar.Cooldown:SetDrawSwipe(true)
-                end
-                bar._ddAuraCooldownMode = "timed"
                 bar.Cooldown:SetCooldown(cdmStart / 1000, cdmDuration / 1000)
-            elseif bar._ddAuraCooldownMode ~= "timeless" then
+            else
                 bar.Cooldown:Clear()
-                if bar.Cooldown.SetDrawSwipe then
-                    bar.Cooldown:SetDrawSwipe(false)
-                end
-                bar._ddAuraCooldownMode = "timeless"
             end
         end)
     elseif auraInstanceID and unit then
         -- 3b. CDM 없음: C_UnitAuras API fallback
         pcall(function()
             local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-            ResourceBars.ApplyBuffTrackerAuraCooldown(bar, bar.Cooldown, aData)
+            if aData and aData.duration and aData.expirationTime and aData.duration > 0 then
+                bar.Cooldown:SetCooldown(aData.expirationTime - aData.duration, aData.duration)
+            else
+                bar.Cooldown:Clear()
+            end
         end)
     else
-        ResourceBars.ApplyBuffTrackerAuraCooldown(bar, bar.Cooldown, nil)
+        bar.Cooldown:Clear()
     end
 
     -- CircularProgress 숨기기 (stacks 모드 잔재)
@@ -5020,10 +4972,14 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         -- [12.0.1] pcall 보호: secret value 비교(> 0) 제거, nil 체크만 사용
         pcall(function()
             local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-            ResourceBars.ApplyBuffTrackerAuraCooldown(icon, icon.Cooldown, auraData)
+            if auraData and auraData.duration and auraData.expirationTime then
+                icon.Cooldown:SetCooldown(auraData.expirationTime - auraData.duration, auraData.duration)
+            else
+                icon.Cooldown:Clear()
+            end
         end)
     else
-        ResourceBars.ApplyBuffTrackerAuraCooldown(icon, icon.Cooldown, nil)
+        icon.Cooldown:Clear()
         icon._lastAuraInstanceID = nil
     end
 

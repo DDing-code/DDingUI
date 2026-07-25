@@ -1465,12 +1465,6 @@ end
 
 local function ResetAuraCooldownSpanCache(frame)
     if not frame then return end
-    if frame._ddAuraCooldownMode == "timeless"
-        and frame.cooldown
-        and frame.cooldown.SetDrawSwipe
-    then
-        pcall(frame.cooldown.SetDrawSwipe, frame.cooldown, true)
-    end
     frame._ddAuraCooldownMode = nil
     frame._ddAuraCooldownStart = nil
     frame._ddAuraCooldownDuration = nil
@@ -3468,9 +3462,6 @@ local function UpdateAuraIcon(iconFrame, iconData)
                 local isTimedAura = GetAuraFieldSafe(auraData, "__ddinguiTimedAura")
                 local cooldownMode = isTimedAura and "timedAura" or "aura"
                 if ShouldApplyAuraCooldownSpan(iconFrame, startTime, auraDuration, cooldownMode) then
-                    if iconFrame.cooldown.SetDrawSwipe then
-                        iconFrame.cooldown:SetDrawSwipe(true)
-                    end
                     iconFrame.cooldown:SetReverse(true)
                     if isTimedAura
                         and C_DurationUtil and C_DurationUtil.CreateDuration
@@ -3484,15 +3475,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
                     end
                 end
             else
-                if iconFrame._ddAuraCooldownMode ~= "timeless" then
-                    iconFrame._ddAuraCooldownMode = "timeless"
-                    iconFrame._ddAuraCooldownStart = nil
-                    iconFrame._ddAuraCooldownDuration = nil
-                    iconFrame.cooldown:Clear()
-                    if iconFrame.cooldown.SetDrawSwipe then
-                        iconFrame.cooldown:SetDrawSwipe(false)
-                    end
-                end
+                ResetAuraCooldownSpanCache(iconFrame)
+                iconFrame.cooldown:Clear()
             end
         end)
         if settings.showCooldown ~= false then
@@ -4582,7 +4566,6 @@ local function ResetDynamicIconFrame(frame)
         LCG.ProcGlow_Stop(frame, "_DDingUICustomGlow")
     end
 
-    ResetAuraCooldownSpanCache(frame)
     if frame.cooldown then
         frame.cooldown:Clear()
         frame.cooldown:Hide()

@@ -773,12 +773,6 @@ local function RestoreStaleBuffFrame(icon)
         if texture.Show then pcall(texture.Show, texture) end
         if texture.SetAlpha then pcall(texture.SetAlpha, texture, 1) end
     end
-    if icon.cooldown and icon.cooldown.Show then
-        pcall(icon.cooldown.Show, icon.cooldown)
-    end
-    if icon.Cooldown and icon.Cooldown.Show and icon.Cooldown ~= icon.cooldown then
-        pcall(icon.Cooldown.Show, icon.Cooldown)
-    end
 end
 
 local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
@@ -844,10 +838,6 @@ function FrameController:_ResetAcquiredCooldownFrame(frame)
         local texture = frame.icon or frame.Icon
         if texture and texture.SetAlpha then
             texture:SetAlpha(1)
-        end
-        local cooldown = frame.Cooldown or frame.cooldown
-        if cooldown and cooldown.SetDrawSwipe then
-            cooldown:SetDrawSwipe(true)
         end
         if frame.SetAlpha and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
             frame:SetAlpha(1)
