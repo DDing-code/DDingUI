@@ -1366,19 +1366,19 @@ function CustomIcons.RestoreActiveIconVisual(frame)
         return
     end
     if frame.Show then
-        pcall(frame.Show, frame)
+        frame:Show()
     end
     local alphaLocked = IsFlightHideAlphaLocked()
     if frame.SetAlpha and not alphaLocked then
-        pcall(frame.SetAlpha, frame, 1)
+        frame:SetAlpha(1)
         frame._ddLastGroupAlpha = 1
     end
     local icon = frame.icon or frame.Icon
     if icon then
-        if icon.Show then pcall(icon.Show, icon) end
-        if icon.SetAlpha and not alphaLocked then pcall(icon.SetAlpha, icon, 1) end
-        if icon.SetDesaturated then pcall(icon.SetDesaturated, icon, false) end
-        if icon.SetDesaturation then pcall(icon.SetDesaturation, icon, 0) end
+        if icon.Show then icon:Show() end
+        if icon.SetAlpha and not alphaLocked then icon:SetAlpha(1) end
+        if icon.SetDesaturated then icon:SetDesaturated(false) end
+        if icon.SetDesaturation then icon:SetDesaturation(0) end
     end
     frame._ddManagedAuraExpired = nil
     frame._ddCombatKeepAlive = nil
@@ -1390,22 +1390,22 @@ function CustomIcons.HideManagedIconBorderLayers(frame)
     if not frame then return end
     if frame.border then
         if ShowTextureBorder then
-            pcall(ShowTextureBorder, frame.border, false)
+            ShowTextureBorder(frame.border, false)
         end
         if frame.border.SetAlpha then
-            pcall(frame.border.SetAlpha, frame.border, 0)
+            frame.border:SetAlpha(0)
         end
         if frame.border.Hide then
-            pcall(frame.border.Hide, frame.border)
+            frame.border:Hide()
         end
     end
     local borders = frame._ddBorders
     if type(borders) == "table" then
         for _, borderTex in ipairs(borders) do
             if borderTex then
-                if borderTex.SetAlpha then pcall(borderTex.SetAlpha, borderTex, 0) end
-                if borderTex.SetShown then pcall(borderTex.SetShown, borderTex, false) end
-                if borderTex.Hide then pcall(borderTex.Hide, borderTex) end
+                if borderTex.SetAlpha then borderTex:SetAlpha(0) end
+                if borderTex.SetShown then borderTex:SetShown(false) end
+                if borderTex.Hide then borderTex:Hide() end
             end
         end
     end
@@ -1414,30 +1414,30 @@ end
 function CustomIcons.SuppressExpiredIconVisual(frame)
     if not frame then return end
     if frame.SetAlpha then
-        pcall(frame.SetAlpha, frame, 0)
+        frame:SetAlpha(0)
         frame._ddLastGroupAlpha = 0
     end
     local icon = frame.icon or frame.Icon
     if icon and icon.SetAlpha then
-        pcall(icon.SetAlpha, icon, 0)
+        icon:SetAlpha(0)
     end
     if frame.cooldown then
-        if frame.cooldown.Clear then pcall(frame.cooldown.Clear, frame.cooldown) end
-        if frame.cooldown.Hide then pcall(frame.cooldown.Hide, frame.cooldown) end
+        if frame.cooldown.Clear then frame.cooldown:Clear() end
+        if frame.cooldown.Hide then frame.cooldown:Hide() end
     end
     if frame.Cooldown and frame.Cooldown ~= frame.cooldown then
-        if frame.Cooldown.Clear then pcall(frame.Cooldown.Clear, frame.Cooldown) end
-        if frame.Cooldown.Hide then pcall(frame.Cooldown.Hide, frame.Cooldown) end
+        if frame.Cooldown.Clear then frame.Cooldown:Clear() end
+        if frame.Cooldown.Hide then frame.Cooldown:Hide() end
     end
     if frame.count and frame.count.Hide then
-        pcall(frame.count.Hide, frame.count)
+        frame.count:Hide()
     end
     CustomIcons.HideManagedIconBorderLayers(frame)
     frame._ddCombatKeepAlive = nil
     frame._ddCombatVisible = false
     frame._ddCombatMissingSince = nil
     if frame.Hide then
-        pcall(frame.Hide, frame)
+        frame:Hide()
     end
 end
 
@@ -1509,17 +1509,17 @@ MarkCustomTimedAuraExpired = function(spellID)
             ResetAuraCooldownSpanCache(frame)
             if frame.cooldown then
                 if frame.cooldown.SetScript then
-                    pcall(frame.cooldown.SetScript, frame.cooldown, "OnCooldownDone", nil)
+                    frame.cooldown:SetScript("OnCooldownDone", nil)
                 end
                 if frame.cooldown.Clear then
-                    pcall(frame.cooldown.Clear, frame.cooldown)
+                    frame.cooldown:Clear()
                 end
                 if frame.cooldown.Hide then
-                    pcall(frame.cooldown.Hide, frame.cooldown)
+                    frame.cooldown:Hide()
                 end
             end
             if frame.count then
-                pcall(frame.count.Hide, frame.count)
+                frame.count:Hide()
             end
             CustomIcons.SuppressExpiredIconVisual(frame)
             if frame._ddIsManaged then
@@ -1539,7 +1539,7 @@ local function ApplyCustomTimedAuraCooldownFrame(frame, state, showCooldown)
 
     if ShouldApplyAuraCooldownSpan(frame, startTime, duration, "timed") then
         if frame.cooldown.SetReverse then
-            pcall(frame.cooldown.SetReverse, frame.cooldown, true)
+            frame.cooldown:SetReverse(true)
         end
 
         if C_DurationUtil and C_DurationUtil.CreateDuration and frame.cooldown.SetCooldownFromDurationObject then
@@ -1560,20 +1560,20 @@ local function ApplyCustomTimedAuraCooldownFrame(frame, state, showCooldown)
 
     local hideNumbers = frame._groupSettings and frame._groupSettings.hideDurationText
     if frame.cooldown.SetHideCountdownNumbers then
-        pcall(frame.cooldown.SetHideCountdownNumbers, frame.cooldown, hideNumbers and true or false)
+        frame.cooldown:SetHideCountdownNumbers(hideNumbers and true or false)
     end
     frame.cooldown.noCooldownCount = hideNumbers and true or nil
 
     if showCooldown == false then
         if frame.cooldown.Hide then
-            pcall(frame.cooldown.Hide, frame.cooldown)
+            frame.cooldown:Hide()
         end
     else
         if frame.cooldown.SetDrawSwipe then
-            pcall(frame.cooldown.SetDrawSwipe, frame.cooldown, true)
+            frame.cooldown:SetDrawSwipe(true)
         end
         if frame.cooldown.Show then
-            pcall(frame.cooldown.Show, frame.cooldown)
+            frame.cooldown:Show()
         end
     end
 end
@@ -2261,7 +2261,7 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
     if not iconFrame or not iconFrame.cooldown or not start or not duration then return false end
     local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     if iconFrame.cooldown.SetReverse then
-        pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false)
+        iconFrame.cooldown:SetReverse(false)
     end
 
     if C_DurationUtil and C_DurationUtil.CreateDuration then
@@ -2276,10 +2276,10 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
             end
             if okSet then
                 if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
-                    pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+                    iconFrame.cooldown:SetDrawSwipe(true)
                 end
                 if not managedVisualLocked and iconFrame.cooldown.Show then
-                    pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
+                    iconFrame.cooldown:Show()
                 end
                 return true
             end
@@ -2290,10 +2290,10 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
         local okFrameSet = pcall(CooldownFrame_Set, iconFrame.cooldown, start, duration, 1, false)
         if okFrameSet then
             if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
-                pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+                iconFrame.cooldown:SetDrawSwipe(true)
             end
             if not managedVisualLocked and iconFrame.cooldown.Show then
-                pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
+                iconFrame.cooldown:Show()
             end
             return true
         end
@@ -2302,10 +2302,10 @@ local function ApplyCooldownSpan(iconFrame, durObjKey, start, duration, safeSpan
     local ok = pcall(iconFrame.cooldown.SetCooldown, iconFrame.cooldown, start, duration)
     if ok then
         if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
-            pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+            iconFrame.cooldown:SetDrawSwipe(true)
         end
         if not managedVisualLocked and iconFrame.cooldown.Show then
-            pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
+            iconFrame.cooldown:Show()
         end
     end
     return ok == true
@@ -2343,10 +2343,10 @@ function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
     if not (iconFrame and iconFrame.cooldown and durationObject) then return false end
     local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     if iconFrame.cooldown.SetReverse then
-        pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false)
+        iconFrame.cooldown:SetReverse(false)
     end
     if not managedVisualLocked and iconFrame.cooldown.Show then
-        pcall(iconFrame.cooldown.Show, iconFrame.cooldown)
+        iconFrame.cooldown:Show()
     end
     local ok = pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durationObject)
     if not ok then
@@ -2354,7 +2354,7 @@ function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
     end
     if ok then
         if not managedVisualLocked and iconFrame.cooldown.SetDrawSwipe then
-            pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+            iconFrame.cooldown:SetDrawSwipe(true)
         end
         if iconFrame.cooldown.IsShown then
             return iconFrame.cooldown:IsShown()
@@ -2643,20 +2643,20 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
     -- [FIX CDM] Swipe/Edge 스타일 (변경 없음)
     if not managedVisualLocked and not (iconData.settings and iconData.settings.showCooldown == false) then
         if isChargeSpell then
-            pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0)
-            pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, cooldownSet)
+            iconFrame.cooldown:SetSwipeColor(0, 0, 0, 0)
+            iconFrame.cooldown:SetDrawEdge(cooldownSet)
             if iconFrame.cooldown.SetDrawSwipe then
-                pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+                iconFrame.cooldown:SetDrawSwipe(true)
             end
         else
-            pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0.8)
-            pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false)
+            iconFrame.cooldown:SetSwipeColor(0, 0, 0, 0.8)
+            iconFrame.cooldown:SetDrawEdge(false)
             if iconFrame.cooldown.SetDrawSwipe then
-                pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true)
+                iconFrame.cooldown:SetDrawSwipe(true)
             end
         end
     elseif not managedVisualLocked then
-        pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false)
+        iconFrame.cooldown:SetDrawEdge(false)
     end
 
     -- 사용가능 여부
@@ -2759,10 +2759,10 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
 
     local onCooldown = cdInfo and cdInfo.isActive == true and cdInfo.isOnGCD ~= true and durObj
     if iconFrame.cooldown then
-        if iconFrame.cooldown.SetReverse then pcall(iconFrame.cooldown.SetReverse, iconFrame.cooldown, false) end
-        if iconFrame.cooldown.SetDrawEdge then pcall(iconFrame.cooldown.SetDrawEdge, iconFrame.cooldown, false) end
-        if iconFrame.cooldown.SetDrawSwipe then pcall(iconFrame.cooldown.SetDrawSwipe, iconFrame.cooldown, true) end
-        if iconFrame.cooldown.SetSwipeColor then pcall(iconFrame.cooldown.SetSwipeColor, iconFrame.cooldown, 0, 0, 0, 0.8) end
+        if iconFrame.cooldown.SetReverse then iconFrame.cooldown:SetReverse(false) end
+        if iconFrame.cooldown.SetDrawEdge then iconFrame.cooldown:SetDrawEdge(false) end
+        if iconFrame.cooldown.SetDrawSwipe then iconFrame.cooldown:SetDrawSwipe(true) end
+        if iconFrame.cooldown.SetSwipeColor then iconFrame.cooldown:SetSwipeColor(0, 0, 0, 0.8) end
 
         if onCooldown then
             pcall(iconFrame.cooldown.SetCooldownFromDurationObject, iconFrame.cooldown, durObj)
