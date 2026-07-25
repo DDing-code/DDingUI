@@ -140,6 +140,7 @@ local cdmEntryCache
 local cdmEntryCacheTime = 0
 local pendingOptionSpellIconRefresh = {}
 local dynamicIconRefreshPollers = {}
+local assignedIconRuntimePreviews = setmetatable({}, { __mode = "k" })
 
 local function InvalidateCDMIconEntryCache()
     cdmEntryCache = nil
@@ -298,18 +299,19 @@ local function QueueOptionSpellIconRefresh(spellID)
     spellID = SafeOptionID(spellID)
     if not spellID or pendingOptionSpellIconRefresh[spellID] then return end
 
-    pendingOptionSpellIconRefresh[spellID] = true
     if C_Spell and C_Spell.RequestLoadSpellData then
         pcall(C_Spell.RequestLoadSpellData, spellID)
     end
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0.35, function()
+    if C_Timer and C_Timer.NewTimer then
+        local timer
+        timer = C_Timer.NewTimer(0.35, function()
             pendingOptionSpellIconRefresh[spellID] = nil
             InvalidateCDMIconEntryCache()
             if DDingUI.RefreshConfigGUI then
                 DDingUI:RefreshConfigGUI()
             end
         end)
+        pendingOptionSpellIconRefresh[spellID] = timer
     end
 end
 
@@ -3197,23 +3199,59 @@ end
 
 local function ScheduleDynamicIconRefresh(iconKey)
     local attempts = 0
-    local poller
-    poller = C_Timer.NewTicker(0.35, function()
+    local function checkFrame()
         attempts = attempts + 1
         local ci = DDingUI.CustomIcons
         local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
-        if hasFrame or attempts >= 6 then
-            if poller then
-                poller:Cancel()
-                dynamicIconRefreshPollers[poller] = nil
-            end
+        if hasFrame then
+            SoftRefreshDynamicIcons()
+            return
+        end
+        if attempts >= 6 then
             if ci and ci.LoadDynamicIcons then
                 ci:LoadDynamicIcons()
             end
             SoftRefreshDynamicIcons()
+            return
         end
-    end)
-    dynamicIconRefreshPollers[poller] = true
+
+        local timer
+        timer = C_Timer.NewTimer(0.35, function()
+            dynamicIconRefreshPollers[timer] = nil
+            checkFrame()
+        end)
+        dynamicIconRefreshPollers[timer] = true
+    end
+
+    checkFrame()
+end
+
+local function AddDynamicItemToGroup(groupName, itemID, fallbackItems)
+    local customIcons = DDingUI.CustomIcons
+    if not customIcons or not itemID then return nil end
+
+    if C_Item and C_Item.RequestLoadItemDataByID then
+        C_Item.RequestLoadItemDataByID(itemID)
+        for fallbackID in string.gmatch(fallbackItems or "", "(%d+)") do
+            C_Item.RequestLoadItemDataByID(tonumber(fallbackID))
+        end
+    end
+
+    local sourceKey = EnsureSourceGroup(groupName)
+    local iconKey = customIcons:AddDynamicIcon({ type = "item", id = itemID })
+    local db = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local iconData = iconKey and db and db.iconData and db.iconData[iconKey]
+    if iconData and fallbackItems and fallbackItems ~= "" then
+        iconData.settings = iconData.settings or {}
+        iconData.settings.fallbackItems = fallbackItems
+    end
+    if iconKey and sourceKey then
+        customIcons:MoveIconToGroup(iconKey, sourceKey)
+    end
+    if iconKey then
+        ScheduleDynamicIconRefresh(iconKey)
+    end
+    return iconKey
 end
 
 local function MergeDynamicIconSettings(iconKey, settings)
@@ -3581,13 +3619,33 @@ local function HideGroupIconAddPopup()
 end
 
 function DDingUI:CleanupGroupSystemOptionsRuntime()
+    if layoutRefreshTimer then
+        layoutRefreshTimer:Cancel()
+        layoutRefreshTimer = nil
+        if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
+            DDingUI.GroupSystem:RefreshLayout()
+        end
+    end
+    if groupOptionsSoftRefreshTimer then
+        groupOptionsSoftRefreshTimer:Cancel()
+        groupOptionsSoftRefreshTimer = nil
+    end
     for poller in pairs(dynamicIconRefreshPollers) do
         if poller and poller.Cancel then
             poller:Cancel()
         end
         dynamicIconRefreshPollers[poller] = nil
     end
-    wipe(pendingOptionSpellIconRefresh)
+    for spellID, timer in pairs(pendingOptionSpellIconRefresh) do
+        if timer and timer.Cancel then
+            timer:Cancel()
+        end
+        pendingOptionSpellIconRefresh[spellID] = nil
+    end
+    for preview in pairs(assignedIconRuntimePreviews) do
+        preview:SetScript("OnUpdate", nil)
+        assignedIconRuntimePreviews[preview] = nil
+    end
 
     HideGroupIconAddPopup()
 
@@ -3849,6 +3907,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     parent:SetHeight(math.max(34, assignedPreviewHeight))
 
     local preview = CreateFrame("Frame", nil, parent)
+    assignedIconRuntimePreviews[preview] = true
     preview:SetSize(math.max(layout.width + startX + padX, localParentW), assignedPreviewHeight)
     preview:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     if preview.SetClipsChildren then
@@ -5507,21 +5566,7 @@ local function CreateGroupOptions(groupName, order)
 
                             local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, tostring(val))
                             if not iconKey then return false end
-                            -- 프레임 생성 완료까지 폴링 후 갱신
-                            local attempts = 0
-                            local poller = nil
-                            poller = C_Timer.NewTicker(0.5, function()
-                                attempts = attempts + 1
-                                local hasFrame = ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
-                                if hasFrame or attempts >= 6 then
-                                    if poller then
-                                        poller:Cancel()
-                                        dynamicIconRefreshPollers[poller] = nil
-                                    end
-                                    SoftRefreshDynamicIcons()
-                                end
-                            end)
-                            dynamicIconRefreshPollers[poller] = true
+                            ScheduleDynamicIconRefresh(iconKey)
                             return true
                         end
                         return false
@@ -5654,33 +5699,7 @@ local function CreateGroupOptions(groupName, order)
                         UIErrorsFrame:AddMessage(L["Invalid Item ID"] or "잘못된 아이템 ID", 1, 0, 0)
                         return false
                     end
-                    -- [FIX] 아이템 데이터 프리로드 후 추가 (비동기 캐시 미스 방지)
-                    C_Item.RequestLoadItemDataByID(itemID)
-                    C_Timer.After(0.3, function()
-                        if not DDingUI.CustomIcons then return end
-                        local sourceKey = EnsureSourceGroup(groupName)
-                        local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = itemID})
-                        if iconKey and sourceKey then
-                            DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey)
-                        end
-                        -- 프레임 생성 완료까지 폴링 후 GroupSystem 갱신
-                        local attempts = 0
-                        local poller = nil
-                        poller = C_Timer.NewTicker(0.5, function()
-                            attempts = attempts + 1
-                            local ci = DDingUI.CustomIcons
-                            local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
-                            if hasFrame or attempts >= 6 then
-                                if poller then
-                                    poller:Cancel()
-                                    dynamicIconRefreshPollers[poller] = nil
-                                end
-                                SoftRefreshDynamicIcons()
-                            end
-                        end)
-                        dynamicIconRefreshPollers[poller] = true
-                    end)
-                    return true
+                    return AddDynamicItemToGroup(groupName, itemID) ~= nil
                 end,
             } or nil,
             addTrinket1 = showAdvanced and {
@@ -5695,22 +5714,9 @@ local function CreateGroupOptions(groupName, order)
                     if iconKey and sourceKey then
                         DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey)
                     end
-                    -- [FIX] 프레임 생성 완료까지 폴링 후 GroupSystem 갱신
-                    local attempts = 0
-                    local poller = nil
-                    poller = C_Timer.NewTicker(0.5, function()
-                        attempts = attempts + 1
-                        local ci = DDingUI.CustomIcons
-                        local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
-                        if hasFrame or attempts >= 6 then
-                            if poller then
-                                poller:Cancel()
-                                dynamicIconRefreshPollers[poller] = nil
-                            end
-                            SoftRefreshDynamicIcons()
-                        end
-                    end)
-                    dynamicIconRefreshPollers[poller] = true
+                    if iconKey then
+                        ScheduleDynamicIconRefresh(iconKey)
+                    end
                 end,
             } or nil,
             addTrinket2 = showAdvanced and {
@@ -5725,22 +5731,9 @@ local function CreateGroupOptions(groupName, order)
                     if iconKey and sourceKey then
                         DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey)
                     end
-                    -- [FIX] 프레임 생성 완료까지 폴링 후 GroupSystem 갱신
-                    local attempts = 0
-                    local poller = nil
-                    poller = C_Timer.NewTicker(0.5, function()
-                        attempts = attempts + 1
-                        local ci = DDingUI.CustomIcons
-                        local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
-                        if hasFrame or attempts >= 6 then
-                            if poller then
-                                poller:Cancel()
-                                dynamicIconRefreshPollers[poller] = nil
-                            end
-                            SoftRefreshDynamicIcons()
-                        end
-                    end)
-                    dynamicIconRefreshPollers[poller] = true
+                    if iconKey then
+                        ScheduleDynamicIconRefresh(iconKey)
+                    end
                 end,
             } or nil,
             advancedDesc = showAdvanced and {
@@ -5761,24 +5754,7 @@ local function CreateGroupOptions(groupName, order)
                 name = function() local icon = C_Item.GetItemIconByID(241304) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Silvermoon Health Potion"] or "실버문 생명력 물약") end,
                 desc = "Item ID: 241304 (★★) / 241305 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
                 func = function()
-                    if not DDingUI.CustomIcons then return end
-                    local itemID = 241304  -- 항상 R2로 추가
-                    C_Item.RequestLoadItemDataByID(itemID)
-                    C_Item.RequestLoadItemDataByID(241305) -- R1 프리로드
-                    C_Timer.After(0.3, function()
-                        local sourceKey = EnsureSourceGroup(groupName)
-                        local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = itemID})
-                        if iconKey then
-                            -- R1 폴백 설정
-                            local db = DDingUI.db.profile.dynamicIcons
-                            if db and db.iconData and db.iconData[iconKey] then
-                                db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
-                                db.iconData[iconKey].settings.fallbackItems = "241305"
-                            end
-                            if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
-                        end
-                        SoftRefreshDynamicIcons()
-                    end)
+                    AddDynamicItemToGroup(groupName, 241304, "241305")
                 end,
             } or nil,
 
@@ -5788,23 +5764,7 @@ local function CreateGroupOptions(groupName, order)
                 name = function() local icon = C_Item.GetItemIconByID(241300) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Lightfused Mana Potion"] or "빛주입 마나 물약") end,
                 desc = "Item ID: 241300 (★★) / 241301 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
                 func = function()
-                    if not DDingUI.CustomIcons then return end
-                    local itemID = 241300
-                    C_Item.RequestLoadItemDataByID(itemID)
-                    C_Item.RequestLoadItemDataByID(241301)
-                    C_Timer.After(0.3, function()
-                        local sourceKey = EnsureSourceGroup(groupName)
-                        local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = itemID})
-                        if iconKey then
-                            local db = DDingUI.db.profile.dynamicIcons
-                            if db and db.iconData and db.iconData[iconKey] then
-                                db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
-                                db.iconData[iconKey].settings.fallbackItems = "245917,245916,241301"
-                            end
-                            if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
-                        end
-                        SoftRefreshDynamicIcons()
-                    end)
+                    AddDynamicItemToGroup(groupName, 241300, "245917,245916,241301")
                 end,
             } or nil,
 
@@ -5814,23 +5774,7 @@ local function CreateGroupOptions(groupName, order)
                 name = function() local icon = C_Item.GetItemIconByID(241308) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Light's Potential"] or "빛의 잠재력") end,
                 desc = "Item ID: 241308 (★★) / 241309 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
                 func = function()
-                    if not DDingUI.CustomIcons then return end
-                    local itemID = 241308
-                    C_Item.RequestLoadItemDataByID(itemID)
-                    C_Item.RequestLoadItemDataByID(241309)
-                    C_Timer.After(0.3, function()
-                        local sourceKey = EnsureSourceGroup(groupName)
-                        local iconKey = DDingUI.CustomIcons:AddDynamicIcon({type = "item", id = itemID})
-                        if iconKey then
-                            local db = DDingUI.db.profile.dynamicIcons
-                            if db and db.iconData and db.iconData[iconKey] then
-                                db.iconData[iconKey].settings = db.iconData[iconKey].settings or {}
-                                db.iconData[iconKey].settings.fallbackItems = "245898,245897,241309"
-                            end
-                            if sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
-                        end
-                        SoftRefreshDynamicIcons()
-                    end)
+                    AddDynamicItemToGroup(groupName, 241308, "245898,245897,241309")
                 end,
             } or nil,
 

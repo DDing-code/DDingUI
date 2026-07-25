@@ -2560,10 +2560,12 @@ function Widgets.CreateFramePicker(parent, option, yOffset, optionsTable)
     -- 프레임 선택 기능
     local pickerFrame = nil
     pickButton:SetScript("OnClick", function()
-        if pickerFrame then return end
+        if pickerFrame and pickerFrame:IsShown() then return end
+        pickerFrame = nil
 
         -- 풀스크린 투명 프레임 생성
         pickerFrame = CreateFrame("Frame", nil, UIParent)
+        DDingUI._optionsFramePicker = pickerFrame
         pickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
         pickerFrame:SetAllPoints(UIParent)
         pickerFrame:EnableMouse(true)
@@ -2621,6 +2623,7 @@ function Widgets.CreateFramePicker(parent, option, yOffset, optionsTable)
                 end
             end
             pickerFrame:Hide()
+            DDingUI._optionsFramePicker = nil
             pickerFrame = nil
         end)
 
@@ -2629,6 +2632,7 @@ function Widgets.CreateFramePicker(parent, option, yOffset, optionsTable)
             if key == "ESCAPE" then
                 self:SetPropagateKeyboardInput(false)
                 pickerFrame:Hide()
+                DDingUI._optionsFramePicker = nil
                 pickerFrame = nil
             else
                 self:SetPropagateKeyboardInput(true)
@@ -6278,6 +6282,8 @@ end
 
 -- Create main config frame (StyleLib tree-menu layout)
 function DDingUI:CreateConfigFrame()
+    local searchDebounceTimer
+
     -- Always destroy and recreate the frame to ensure we have latest version
     if ConfigFrame then
         ConfigFrame:Hide()
@@ -6345,6 +6351,30 @@ function DDingUI:CreateConfigFrame()
         end
         if DDingUI.CleanupGroupSystemOptionsRuntime then
             DDingUI:CleanupGroupSystemOptionsRuntime()
+        end
+        if DDingUI.CleanupResourceBarOptionsRuntime then
+            DDingUI:CleanupResourceBarOptionsRuntime()
+        end
+        if searchDebounceTimer then
+            searchDebounceTimer:Cancel()
+            searchDebounceTimer = nil
+        end
+        if DragState.ghostFrame then
+            DragState.ghostFrame:Hide()
+        end
+        local framePicker = DDingUI._optionsFramePicker
+        if framePicker then
+            framePicker:SetScript("OnUpdate", nil)
+            framePicker:Hide()
+            DDingUI._optionsFramePicker = nil
+        end
+        local buffContextMenu = _G["DDingUI_BT_ContextMenu"]
+        if buffContextMenu then
+            buffContextMenu:Hide()
+        end
+        local profileConfirm = _G["DDingUI_ProfileConfirmPopup"]
+        if profileConfirm then
+            profileConfirm:Hide()
         end
         -- [12.0.1] cooldownViewerEnabled CVar는 복원하지 않음
         -- DDingUI CDM 기능 사용 시 CDM이 항상 활성화되어야 스캔/추적이 정상 작동
@@ -6839,7 +6869,6 @@ function DDingUI:CreateConfigFrame()
         searchEditBox:ClearFocus()
     end)
 
-    local searchDebounceTimer = nil
     searchEditBox:SetScript("OnTextChanged", function(self, userInput)
         local text = self:GetText() or ""
         searchPlaceholder:SetShown(text == "")

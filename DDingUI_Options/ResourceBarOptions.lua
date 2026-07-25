@@ -16,6 +16,13 @@ local function DebouncedRefresh()
     _markerRefreshTimer = C_Timer.NewTimer(0.5, RefreshOptions)
 end
 
+function DDingUI:CleanupResourceBarOptionsRuntime()
+    if _markerRefreshTimer then
+        _markerRefreshTimer:Cancel()
+        _markerRefreshTimer = nil
+    end
+end
+
 -- Migrate old marker format { {value=60, color={...}, width=2} } → { 60 }
 -- Returns clean numeric array and auto-saves if migration was needed
 local function MigrateMarkers(cfgPath)
@@ -2679,4 +2686,3 @@ local function CreateResourceBarOptions()
 end
 
 ns.CreateResourceBarOptions = CreateResourceBarOptions
-
