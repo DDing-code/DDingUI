@@ -527,8 +527,6 @@ function FrameController:RefreshViewerRefs()
         end
     end
     if changed then
-        -- 맵 재구축 (새 뷰어의 아이콘 풀을 다시 읽어야 함)
-        self:ScanCDMViewers()
         -- ContainerSync도 새 뷰어에 훅 재설치
         local ContainerSync = DDingUI.ContainerSync
         if ContainerSync and ContainerSync.RefreshViewerHooks then

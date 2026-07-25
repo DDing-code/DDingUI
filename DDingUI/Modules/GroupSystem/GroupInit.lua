@@ -21,15 +21,18 @@ GroupSystem.enabled = false
 
 local DoFullUpdate
 local DoDynamicUpdate
-local _fullUpdateDispatchFrame
+local DoCDMUpdate
+local _refreshDispatchFrame
 local _fullUpdatePending = false
 local _fullUpdateRunning = false
-local _lastFullUpdateAt = 0
-local _dynamicUpdateDispatchFrame
 local _dynamicUpdatePending = false
 local _dynamicUpdateRunning = false
-local _lastDynamicUpdateAt = 0
 local _dynamicUpdateSourceKeys
+local _cdmUpdatePending = false
+local _cdmUpdateRunning = false
+local _cdmUpdateIDs = {}
+local _cdmForceLayout = false
+local _lastRefreshAt = 0
 local _lastClassifiedGroups
 
 local function MergeDynamicUpdateSourceKeys(sourceKeys)
@@ -47,93 +50,100 @@ local function MergeDynamicUpdateSourceKeys(sourceKeys)
     end
 end
 
-local function RequestFullUpdate()
-    if not GroupSystem.enabled then return end
-    _dynamicUpdatePending = false
-    _dynamicUpdateSourceKeys = nil
-    if _dynamicUpdateDispatchFrame then
-        _dynamicUpdateDispatchFrame:Hide()
+local function MergeCDMChanges(changes)
+    if type(changes) ~= "table" then
+        _cdmForceLayout = true
+        return
     end
-    _fullUpdatePending = true
+    if changes.forceLayout then
+        _cdmForceLayout = true
+    end
+    if type(changes.ids) == "table" then
+        for cooldownID in pairs(changes.ids) do
+            _cdmUpdateIDs[cooldownID] = true
+        end
+    end
+end
 
-    if not _fullUpdateDispatchFrame then
-        _fullUpdateDispatchFrame = CreateFrame("Frame")
-        _fullUpdateDispatchFrame:Hide()
-        _fullUpdateDispatchFrame:SetScript("OnUpdate", function(self)
-            if not _fullUpdatePending then
-                self:Hide()
-                return
-            end
+local function HasPendingRefresh()
+    return _fullUpdatePending or _cdmUpdatePending or _dynamicUpdatePending
+end
 
-            local now = GetTime and GetTime() or 0
-            local minInterval = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0
-            if minInterval > 0 and _lastFullUpdateAt > 0 and (now - _lastFullUpdateAt) < minInterval then
-                return
-            end
-
+local function EnsureRefreshDispatcher()
+    if _refreshDispatchFrame then return end
+    _refreshDispatchFrame = CreateFrame("Frame")
+    _refreshDispatchFrame:Hide()
+    _refreshDispatchFrame:SetScript("OnUpdate", function(self)
+        if not HasPendingRefresh() then
             self:Hide()
-            if _fullUpdateRunning then
-                self:Show()
-                return
-            end
+            return
+        end
 
+        local now = GetTime and GetTime() or 0
+        local minInterval = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0.05
+        if _lastRefreshAt > 0 and (now - _lastRefreshAt) < minInterval then
+            return
+        end
+
+        self:Hide()
+        if _fullUpdatePending and not _fullUpdateRunning then
             _fullUpdatePending = false
+            _cdmUpdatePending = false
+            wipe(_cdmUpdateIDs)
+            _cdmForceLayout = false
+            _dynamicUpdatePending = false
+            _dynamicUpdateSourceKeys = nil
             _fullUpdateRunning = true
             DoFullUpdate()
             _fullUpdateRunning = false
-            _lastFullUpdateAt = GetTime and GetTime() or now
-
-            if _fullUpdatePending then
-                self:Show()
-            end
-        end)
-    end
-
-    _fullUpdateDispatchFrame:Show()
-end
-
-local function RequestDynamicUpdate(sourceKeys)
-    if not GroupSystem.enabled then return end
-    if _fullUpdatePending or _fullUpdateRunning then return end
-    MergeDynamicUpdateSourceKeys(sourceKeys)
-    _dynamicUpdatePending = true
-
-    if not _dynamicUpdateDispatchFrame then
-        _dynamicUpdateDispatchFrame = CreateFrame("Frame")
-        _dynamicUpdateDispatchFrame:Hide()
-        _dynamicUpdateDispatchFrame:SetScript("OnUpdate", function(self)
-            if not _dynamicUpdatePending then
-                self:Hide()
-                return
-            end
-
-            local now = GetTime and GetTime() or 0
-            local minInterval = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0
-            if minInterval > 0 and _lastDynamicUpdateAt > 0 and (now - _lastDynamicUpdateAt) < minInterval then
-                return
-            end
-
-            self:Hide()
-            if _dynamicUpdateRunning then
-                self:Show()
-                return
-            end
-
+        elseif _cdmUpdatePending and not _cdmUpdateRunning then
+            _cdmUpdatePending = false
+            local changedIDs = _cdmUpdateIDs
+            local forceLayout = _cdmForceLayout
+            _cdmUpdateIDs = {}
+            _cdmForceLayout = false
+            _cdmUpdateRunning = true
+            DoCDMUpdate(changedIDs, forceLayout)
+            _cdmUpdateRunning = false
+        elseif _dynamicUpdatePending and not _dynamicUpdateRunning then
             _dynamicUpdatePending = false
             local sourceKeys = _dynamicUpdateSourceKeys
             _dynamicUpdateSourceKeys = nil
             _dynamicUpdateRunning = true
             DoDynamicUpdate(sourceKeys)
             _dynamicUpdateRunning = false
-            _lastDynamicUpdateAt = GetTime and GetTime() or now
+        end
 
-            if _dynamicUpdatePending then
-                self:Show()
-            end
-        end)
-    end
+        _lastRefreshAt = GetTime and GetTime() or now
+        if HasPendingRefresh() then
+            self:Show()
+        end
+    end)
+end
 
-    _dynamicUpdateDispatchFrame:Show()
+local function WakeRefreshDispatcher()
+    EnsureRefreshDispatcher()
+    _refreshDispatchFrame:Show()
+end
+
+local function RequestFullUpdate()
+    if not GroupSystem.enabled then return end
+    _fullUpdatePending = true
+    WakeRefreshDispatcher()
+end
+
+local function RequestCDMUpdate(changes)
+    if not GroupSystem.enabled or _fullUpdatePending or _fullUpdateRunning then return end
+    MergeCDMChanges(changes)
+    _cdmUpdatePending = true
+    WakeRefreshDispatcher()
+end
+
+local function RequestDynamicUpdate(sourceKeys)
+    if not GroupSystem.enabled or _fullUpdatePending or _fullUpdateRunning then return end
+    MergeDynamicUpdateSourceKeys(sourceKeys)
+    _dynamicUpdatePending = true
+    WakeRefreshDispatcher()
 end
 
 -- [FIX] 전투 중 ClearAllPoints() 호출 방지 (ADDON_ACTION_BLOCKED 해결)
@@ -803,6 +813,44 @@ DoFullUpdate = function()
 
 end
 
+DoCDMUpdate = function(changedIDs, forceLayout)
+    if not GroupSystem.enabled then return end
+    if not _lastClassifiedGroups then
+        RequestFullUpdate()
+        return
+    end
+
+    local gs = GetSettings()
+    if not gs or not gs.groups then return end
+
+    local classified, touchedGroups = _lastClassifiedGroups, {}
+    if type(changedIDs) == "table" and next(changedIDs) then
+        classified, touchedGroups = GroupManager:ClassifyChanged(changedIDs)
+        _lastClassifiedGroups = classified
+    end
+
+    if forceLayout then
+        for groupName, groupSettings in pairs(gs.groups) do
+            if groupSettings.enabled and groupSettings.groupType ~= "dynamic" then
+                touchedGroups[groupName] = true
+            end
+        end
+    end
+
+    local touched = false
+    for groupName in pairs(touchedGroups) do
+        local groupSettings = gs.groups[groupName]
+        if groupSettings and groupSettings.enabled and groupSettings.groupType ~= "dynamic" then
+            GroupRenderer:UpdateGroup(groupName, classified[groupName] or {}, groupSettings)
+            touched = true
+        end
+    end
+
+    if touched and ContainerSync then
+        ContainerSync:SyncAll()
+    end
+end
+
 -- DoFullUpdate를 외부에서 호출 가능하도록 노출 (DynamicIconBridge 등)
 DoDynamicUpdate = function(sourceKeys)
     if not GroupSystem.enabled then return end
@@ -871,8 +919,8 @@ function GroupSystem:SyncDynamicGroups()
 end
 
 -- CDMHookEngine 콜백
-local function OnHookEngineUpdate(updateType)
-    RequestFullUpdate()
+local function OnHookEngineUpdate(updateType, changes)
+    RequestCDMUpdate(changes)
 end
 
 -- ============================================================
@@ -1966,6 +2014,19 @@ function GroupSystem:Disable()
     if not self.enabled then return end
 
     self.enabled = false
+    _fullUpdatePending = false
+    _dynamicUpdatePending = false
+    _dynamicUpdateSourceKeys = nil
+    _cdmUpdatePending = false
+    wipe(_cdmUpdateIDs)
+    _cdmForceLayout = false
+    _lastClassifiedGroups = nil
+    if _refreshDispatchFrame then
+        _refreshDispatchFrame:Hide()
+    end
+    if GroupManager and GroupManager.InvalidateClassificationCache then
+        GroupManager:InvalidateClassificationCache()
+    end
 
     -- CDM 아이콘 원래 상태 복원
     if GroupRenderer then

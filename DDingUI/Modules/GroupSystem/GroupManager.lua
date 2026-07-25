@@ -91,6 +91,8 @@ local copiedBuffConversionInterval = 0.75
 local cdmBuffMatchContext
 local cdmBuffMatchContextAt = 0
 local cdmBuffMatchContextTTL = 0.5
+local classifiedGroups = {}
+local classificationByID = {}
 
 local function IsPvPInstance()
     return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
@@ -1570,18 +1572,22 @@ end
 
 function GroupManager:ClassifyAll()
     local CDMHookEngine = DDingUI.CDMHookEngine
-    if not CDMHookEngine then return {} end
+    if not CDMHookEngine then return classifiedGroups end
 
     local idIconMap = CDMHookEngine:GetIconMap()
-    local result = {} -- [groupName] = { {cooldownID=, icon=, spellName=}... }
     self:PruneInvalidAssignments()
+    wipe(classificationByID)
+    for _, iconList in pairs(classifiedGroups) do
+        wipe(iconList)
+    end
+    wipe(classifiedGroups)
 
     -- 빈 그룹 초기화
     local gs = GetGroupSystemSettings()
     if gs and gs.groups then
         for name, settings in pairs(gs.groups) do
             if settings.enabled then
-                result[name] = {}
+                classifiedGroups[name] = {}
             end
         end
     end
@@ -1589,18 +1595,100 @@ function GroupManager:ClassifyAll()
     -- 각 cooldownID를 그룹에 배치
     for cooldownID, icon in pairs(idIconMap) do
         local groupName = self:ClassifyIcon(cooldownID)
-        if groupName and result[groupName] then
-            result[groupName][#result[groupName] + 1] = {
+        local iconList = groupName and classifiedGroups[groupName]
+        if iconList then
+            local entry = {
                 cooldownID = cooldownID,
                 icon = icon,
                 spellName = CDMHookEngine:GetSpellNameForID(cooldownID),
             }
+            iconList[#iconList + 1] = entry
+            classificationByID[cooldownID] = {
+                groupName = groupName,
+                entry = entry,
+            }
         end
     end
 
-    for groupName, iconList in pairs(result) do
+    for groupName, iconList in pairs(classifiedGroups) do
         SortIconListForGroup(groupName, iconList, gs and gs.groups and gs.groups[groupName])
     end
 
-    return result
+    return classifiedGroups
+end
+
+local function RemoveClassifiedEntry(iconList, target)
+    if not iconList or not target then return end
+    for index = #iconList, 1, -1 do
+        if iconList[index] == target then
+            table.remove(iconList, index)
+            return
+        end
+    end
+end
+
+function GroupManager:ClassifyChanged(changedIDs)
+    if type(changedIDs) ~= "table" then
+        local classified = self:ClassifyAll()
+        local touchedGroups = {}
+        for groupName in pairs(classified) do
+            touchedGroups[groupName] = true
+        end
+        return classified, touchedGroups
+    end
+
+    local CDMHookEngine = DDingUI.CDMHookEngine
+    local gs = GetGroupSystemSettings()
+    if not CDMHookEngine or not gs or not gs.groups then
+        return classifiedGroups, {}
+    end
+
+    local idIconMap = CDMHookEngine:GetIconMap()
+    local touchedGroups = {}
+
+    for cooldownID in pairs(changedIDs) do
+        local previous = classificationByID[cooldownID]
+        if previous then
+            RemoveClassifiedEntry(classifiedGroups[previous.groupName], previous.entry)
+            touchedGroups[previous.groupName] = true
+            classificationByID[cooldownID] = nil
+        end
+
+        local icon = idIconMap[cooldownID]
+        if icon then
+            local groupName = self:ClassifyIcon(cooldownID)
+            if groupName and gs.groups[groupName] and gs.groups[groupName].enabled then
+                local iconList = classifiedGroups[groupName]
+                if not iconList then
+                    iconList = {}
+                    classifiedGroups[groupName] = iconList
+                end
+                local entry = {
+                    cooldownID = cooldownID,
+                    icon = icon,
+                    spellName = CDMHookEngine:GetSpellNameForID(cooldownID),
+                }
+                iconList[#iconList + 1] = entry
+                classificationByID[cooldownID] = {
+                    groupName = groupName,
+                    entry = entry,
+                }
+                touchedGroups[groupName] = true
+            end
+        end
+    end
+
+    for groupName in pairs(touchedGroups) do
+        SortIconListForGroup(groupName, classifiedGroups[groupName], gs.groups[groupName])
+    end
+
+    return classifiedGroups, touchedGroups
+end
+
+function GroupManager:InvalidateClassificationCache()
+    wipe(classificationByID)
+    for _, iconList in pairs(classifiedGroups) do
+        wipe(iconList)
+    end
+    wipe(classifiedGroups)
 end
