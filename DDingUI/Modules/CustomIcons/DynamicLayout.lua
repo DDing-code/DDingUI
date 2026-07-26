@@ -25,7 +25,8 @@ function DynamicLayout.Create(
     ReleaseDynamicIconFrame,
     ScheduleCustomIconWork,
     UpdateAllIcons,
-    EnsureEventFrame
+    EnsureEventFrame,
+    SetCustomIconEventsEnabled
 )
     local RefreshAllLayouts
     local function GetGroupSettings(groupKey)
@@ -416,7 +417,6 @@ function DynamicLayout.Create(
     end
 
     function CustomIcons:LoadDynamicIcons()
-        EnsureEventFrame()
         local db = GetDynamicDB()
 
         -- 프로필 변경 시 기존 프레임 정리: db에 없는 아이콘 제거
@@ -434,6 +434,12 @@ function DynamicLayout.Create(
                 runtime.groupFrames[groupKey] = nil
             end
         end
+
+        if not next(db.iconData) then
+            SetCustomIconEventsEnabled(false)
+            return
+        end
+        EnsureEventFrame()
 
         -- [FIX] 프레임 생성 실패한 아이콘 수집 (아이템 캐시 미준비 등)
         local pendingKeys = {}
@@ -527,8 +533,10 @@ function DynamicLayout.Create(
         if #pendingKeys > 0 then
             local attempts = 0
             local maxAttempts = 5
-            local retryTimer
-            retryTimer = C_Timer.NewTicker(1.0, function()
+            if runtime.loadRetryTicker then
+                runtime.loadRetryTicker:Cancel()
+            end
+            runtime.loadRetryTicker = C_Timer.NewTicker(1.0, function()
                 attempts = attempts + 1
                 local stillPending = {}
                 for _, iconKey in ipairs(pendingKeys) do
@@ -555,11 +563,17 @@ function DynamicLayout.Create(
                 end
                 pendingKeys = stillPending
                 if #pendingKeys == 0 or attempts >= maxAttempts then
-                    if retryTimer then retryTimer:Cancel() end
+                    if runtime.loadRetryTicker then
+                        runtime.loadRetryTicker:Cancel()
+                        runtime.loadRetryTicker = nil
+                    end
                     RefreshAllLayouts()
                     UpdateAllIcons(nil, "all")
                 end
             end)
+        elseif runtime.loadRetryTicker then
+            runtime.loadRetryTicker:Cancel()
+            runtime.loadRetryTicker = nil
         end
     end
 

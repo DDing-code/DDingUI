@@ -3100,36 +3100,66 @@ local function ClearRacialCooldownCache()
     end
 end
 
-local function EnsureEventFrame()
-    if runtime.eventFrame then return end
-    runtime.eventFrame = CreateFrame("Frame")
+local function SetCustomIconEventsEnabled(enabled)
+    local frame = runtime.eventFrame
+    if not enabled then
+        if frame then
+            frame:UnregisterAllEvents()
+        end
+        runtime.customIconEventsRegistered = false
+        if runtime.loadRetryTicker then
+            runtime.loadRetryTicker:Cancel()
+            runtime.loadRetryTicker = nil
+        end
+        if _iconUpdateDispatchTimer then
+            _iconUpdateDispatchTimer:Cancel()
+            _iconUpdateDispatchTimer = nil
+        end
+        runtime.customIconDispatchDueAt = nil
+        runtime.pendingIconUpdateFilter = nil
+        runtime.refreshAllLayoutsPending = false
+        runtime.layoutRefreshDueAt = nil
+        _pendingIconUpdate = false
+        _pendingIconLayoutNotify = false
+        return
+    end
 
-    -- Register for events that should trigger icon updates
-    runtime.eventFrame:RegisterEvent("BAG_UPDATE")                    -- Bag contents change
-    runtime.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")            -- Coalesced bag count changes
-    runtime.eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")           -- Item cooldown changes
-    runtime.eventFrame:RegisterEvent("ITEM_COUNT_CHANGED")             -- Item counts change
-    runtime.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")          -- Spell cooldowns change
-    runtime.eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")           -- Spell charges change
-    runtime.eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")            -- Spells become usable/unusable (often at cooldown end)
-    runtime.eventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")      -- Cooldown updates (reliable at cooldown end)
-    runtime.eventFrame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
-    runtime.eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
-    runtime.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")         -- Equipment changes
-    runtime.eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")       -- Equipment changes (alternative event)
-    runtime.eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")  -- Spec change
-    runtime.eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")   -- Talent group/spec change (alternative event)
-    runtime.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")           -- Talent changes for Time Spiral glow filters
-    runtime.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")           -- Talent changes for Time Spiral glow filters
-    runtime.eventFrame:RegisterEvent("SPELLS_CHANGED")                -- Spellbook changes (often after spec change)
-    runtime.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")        -- Trinket proc/custom buff tracking
-    runtime.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")          -- World load trigger
-    runtime.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")           -- Clear healthstone-style combat lockouts
-    runtime.eventFrame:RegisterEvent("PLAYER_DEAD")
-    runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
-    runtime.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
-    runtime.eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+    if not frame or runtime.customIconEventsRegistered then return end
+    runtime.customIconEventsRegistered = true
+    frame:RegisterEvent("BAG_UPDATE")
+    frame:RegisterEvent("BAG_UPDATE_DELAYED")
+    frame:RegisterEvent("BAG_UPDATE_COOLDOWN")
+    frame:RegisterEvent("ITEM_COUNT_CHANGED")
+    frame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    frame:RegisterEvent("SPELL_UPDATE_CHARGES")
+    frame:RegisterEvent("SPELL_UPDATE_USABLE")
+    frame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    frame:RegisterEvent("ARENA_COOLDOWNS_UPDATE")
+    frame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
+    frame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    frame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+    frame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    frame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    frame:RegisterEvent("SPELLS_CHANGED")
+    frame:RegisterUnitEvent("UNIT_AURA", "player")
+    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    frame:RegisterEvent("PLAYER_DEAD")
+    frame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+    frame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+    frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+end
+
+local function EnsureEventFrame()
+    if runtime.eventFrame then
+        SetCustomIconEventsEnabled(true)
+        return
+    end
+    runtime.eventFrame = CreateFrame("Frame")
+    SetCustomIconEventsEnabled(true)
     RebuildTimeSpiralGlowFilters()
 
     runtime.eventFrame:SetScript("OnEvent", function(self, event, ...)
@@ -3410,7 +3440,8 @@ GetGroupSettings,
         ReleaseDynamicIconFrame,
         ScheduleCustomIconWork,
         UpdateAllIcons,
-        EnsureEventFrame
+        EnsureEventFrame,
+        SetCustomIconEventsEnabled
     )
 
 -- ------------------------
@@ -3639,6 +3670,7 @@ function CustomIcons:AddDynamicIcon(iconData)
     db.ungrouped[iconKey] = true
     db.ungroupedPositions = db.ungroupedPositions or {}
     db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
+    EnsureEventFrame()
 
     -- Build frame — CreateDynamicIcon은 항상 프레임 반환 (CDM 방식)
     local frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(iconKey, db.ungroupedPositions[iconKey]))
@@ -3681,6 +3713,9 @@ function CustomIcons:RemoveDynamicIcon(iconKey)
     CustomIcons:RefreshDynamicListUI()
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
         DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
+    if not next(db.iconData) then
+        SetCustomIconEventsEnabled(false)
     end
 end
 
@@ -3769,6 +3804,9 @@ function CustomIcons:RemoveGroup(groupKey)
     CustomIcons:RefreshDynamicConfigUI()
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
         DDingUI.SpecProfiles:SaveCurrentSpec()
+    end
+    if not next(db.iconData) then
+        SetCustomIconEventsEnabled(false)
     end
 end
 
