@@ -28,5 +28,6 @@ BuffTrackerOptions.lua
 BuffTrackerGroupOptions.lua
 BuffTrackerGlobalOptions.lua
 ProfileOptions.lua
+GroupSystemIconTextures.lua
 GroupSystemOptions.lua
 Config.lua
