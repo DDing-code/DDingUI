@@ -12,6 +12,7 @@ Locales\koKR.lua
 
 OptionsLoader.lua
 GUIWidgets.lua
+GUISearch.lua
 GUI.lua
 GUIStyledWidgets.lua
 BuffTrackerGUI.lua
