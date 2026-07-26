@@ -25,6 +25,7 @@ CastBarOptions.lua
 BuffDebuffFramesOptions.lua
 BuffBarOptions.lua
 BuffTrackerOptions.lua
+BuffTrackerGlobalOptions.lua
 ProfileOptions.lua
 GroupSystemOptions.lua
 Config.lua
