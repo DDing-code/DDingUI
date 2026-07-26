@@ -3664,7 +3664,7 @@ local function QueueBridgeLayoutRefresh(delay)
     ScheduleCustomIconWork()
 end
 
-local function RefreshAllLayouts()
+RefreshAllLayouts = function()
     if runtime.RequestCustomCooldownWatchRegistration then
         runtime.RequestCustomCooldownWatchRegistration()
     end
