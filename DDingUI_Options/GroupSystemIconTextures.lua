@@ -168,7 +168,8 @@ function GroupSystemIconTextures:CreateRuntime(pendingSpellRefresh, invalidateCa
             timer = C_Timer.NewTimer(0.35, function()
                 pendingSpellRefresh[spellID] = nil
                 invalidateCache()
-                if DDingUI.RefreshConfigGUI then
+                local configFrame = _G["DDingUI_ConfigFrame"]
+                if configFrame and configFrame:IsShown() and DDingUI.RefreshConfigGUI then
                     DDingUI:RefreshConfigGUI()
                 end
             end)

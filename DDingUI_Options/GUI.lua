@@ -1703,7 +1703,8 @@ function DDingUI:CreateConfigFrame()
         else
             -- 검색 결과 렌더링 (0.2초 디바운스)
             searchDebounceTimer = C_Timer.NewTimer(0.2, function()
-                if frame.PerformSearch then
+                searchDebounceTimer = nil
+                if frame:IsShown() and frame.PerformSearch then
                     frame:PerformSearch(text)
                 end
             end)

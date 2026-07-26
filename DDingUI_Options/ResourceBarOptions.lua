@@ -13,7 +13,13 @@ end
 local _markerRefreshTimer
 local function DebouncedRefresh()
     if _markerRefreshTimer then _markerRefreshTimer:Cancel() end
-    _markerRefreshTimer = C_Timer.NewTimer(0.5, RefreshOptions)
+    _markerRefreshTimer = C_Timer.NewTimer(0.5, function()
+        _markerRefreshTimer = nil
+        local configFrame = _G["DDingUI_ConfigFrame"]
+        if configFrame and configFrame:IsShown() then
+            RefreshOptions()
+        end
+    end)
 end
 
 function DDingUI:CleanupResourceBarOptionsRuntime()

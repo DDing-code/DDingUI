@@ -2951,6 +2951,8 @@ end
 local function ScheduleDynamicIconRefresh(iconKey)
     local attempts = 0
     local function checkFrame()
+        local configFrame = _G["DDingUI_ConfigFrame"]
+        if not configFrame or not configFrame:IsShown() then return end
         attempts = attempts + 1
         local ci = DDingUI.CustomIcons
         local hasFrame = ci and ci.GetAllIconFrames and ci:GetAllIconFrames()[iconKey]
