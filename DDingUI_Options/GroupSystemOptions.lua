@@ -437,6 +437,20 @@ local function IsBuffGroup(groupName, groupSettings)
     return GROUP_VIEWER_MAP[groupName] == "BuffIconCooldownViewer"
 end
 
+local function UpdateAutomaticGroupCategory(groupName, iconType)
+    if not groupName or CORE_CDM_GROUPS[groupName] then return end
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return end
+
+    local category = iconType == "aura" and "buff" or "skill"
+    if category == "skill" and groupSettings.groupCategory then return end
+    if groupSettings.groupCategory ~= category then
+        groupSettings.groupCategory = category
+        MarkSpecProfileDirty()
+    end
+end
+
 local function IsBuffSpell(spellName, entry)
     if type(spellName) == "string" and spellName:match("^buff_") then return true end
     return entry and entry.viewerName == "BuffIconCooldownViewer"
@@ -2659,6 +2673,7 @@ local function AddDynamicPayloadToGroup(groupName, payload, settings)
     if not iconKey then return false end
     MergeDynamicIconSettings(iconKey, resolvedSettings)
     ci:MoveIconToGroup(iconKey, sourceKey)
+    UpdateAutomaticGroupCategory(groupName, payload.type)
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
     return true
@@ -2684,6 +2699,7 @@ local function AddSpellIDToGroup(groupName, spellID, forcedType, settings)
     local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName)
     if not iconKey then return false end
     MergeDynamicIconSettings(iconKey, BuildDynamicIconSettings(iconType, spellID, nil, settings))
+    UpdateAutomaticGroupCategory(groupName, iconType)
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
     return true
@@ -4537,22 +4553,11 @@ local VIEWER_DETAIL_KEYS = {
     "previewBuffIcons",
 }
 
--- ============================================================
--- [CATEGORY] 4분류: 기본 스킬/기본 버프/커스텀 스킬/커스텀 버프
--- CDM → viewer 기반 옵션, 커스텀 → group settings 기반 옵션
--- ============================================================
-
-local CATEGORY_VALUES = {
-    ["skill"] = L["Skill / Item"] or "스킬 / 아이템",
-    ["buff"]  = L["Buff / Aura"] or "버프 / 오라",
-}
-
--- 그룹 카테고리 판별 (CDM은 뷰어로 자동, 커스텀은 설정값)
--- [FIX] 명시적 카테고리 없으면 nil 반환 (기존 그룹 호환성 보장)
+-- Runtime-only category used by aura-specific rendering and spell catalogs.
 GetGroupCategory = function(groupName)
     local viewerKey = GROUP_VIEWER_MAP[groupName]
     if viewerKey == "BuffIconCooldownViewer" then return "buff" end
-    if viewerKey then return "skill" end -- Essential/Utility
+    if viewerKey then return "skill" end
     local gs = GetGS()
     local grp = gs and gs.groups[groupName]
     return grp and grp.groupCategory or nil
@@ -4881,28 +4886,6 @@ local function CreateGroupOptions(groupName, order)
                 end
             end,
         },
-        -- [FIX] 그룹 분류 드롭다운 (다이나믹 그룹 전용)
-        -- 카테고리에 따라 빠른 할당 카탈로그 필터링 + 아이템/장신구 버튼 표시 제어
-        groupCategory = not isCDM and {
-            type = "select",
-            name = L["Group Category"] or "그룹 분류",
-            desc = L["Select category used by spell and icon add controls"] or "스펠/아이콘 추가에서 사용할 분류를 선택합니다",
-            order = 0.5, width = "full",
-            values = CATEGORY_VALUES,
-            get = function()
-                local gs = GetGS(); local g = gs and gs.groups[groupName]
-                return g and g.groupCategory or "skill"
-            end,
-            set = function(_, val)
-                local gs = GetGS()
-                if gs and gs.groups[groupName] then
-                    gs.groups[groupName].groupCategory = val
-                    RefreshGroupSystem()
-                end
-                -- 빠른 할당/텍스트 탭은 카테고리별로 옵션 구성이 달라져서 즉시 재빌드가 필요
-                SoftRefreshGroupSystemOptions(0)
-            end,
-        } or nil,
         appearanceHeader = { type = "header", name = L["Appearance"] or "외관", order = 1 },
         stylePreset = {
             type = "select",
