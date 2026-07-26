@@ -2221,7 +2221,10 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             end
 
             -- 버프 트래커 미리보기 정리
-            if frame.currentTab and frame.currentTab:match("^buffTracker") and not key:match("^buffTracker") then
+            local leavingTracker = frame.currentTab
+                and (frame.currentTab:match("^buffTracker") or frame.currentTab:match("^groupSystem%.trackedBars"))
+            local enteringTracker = key:match("^buffTracker") or key:match("^groupSystem%.trackedBars")
+            if leavingTracker and not enteringTracker then
                 if DDingUI.DisableBuffTrackerPreview then
                     DDingUI:DisableBuffTrackerPreview()
                 end
@@ -2253,7 +2256,8 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         end,
         -- 그룹 및 추적 항목 우클릭 메뉴
         onRightClick = function(key, text, btn)
-            local groupName = key:match("^groupSystem%.group_(.+)$")
+            local groupName = key:match("^groupSystem%.cdmBars%.group_(.+)$")
+                or key:match("^groupSystem%.group_(.+)$")
             if groupName then
                 if CDM_BUILTIN_GROUPS[groupName] then return end
 
@@ -2267,7 +2271,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                                     if newName == groupName then return end
                                     if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
                                         if frame.RebuildTreeMenu then
-                                            frame:RebuildTreeMenu("groupSystem.group_" .. newName)
+                                            frame:RebuildTreeMenu("groupSystem.cdmBars.group_" .. newName)
                                         end
                                         if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
                                             DDingUI.GroupSystem:Refresh()

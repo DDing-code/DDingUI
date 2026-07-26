@@ -4757,7 +4757,7 @@ local function CreateGroupOptions(groupName, order)
                         if gs and gs.groups[groupName] then
                             gs.groups[groupName].attachTo = frameName or "UIParent"
                             RefreshGroupSystem()
-                            DDingUI:RefreshConfigGUI(false, "groupSystem.group_" .. groupName)
+                            DDingUI:RefreshConfigGUI(false, "groupSystem.cdmBars.group_" .. groupName)
                         end
                     end)
                 end
@@ -4776,7 +4776,7 @@ local function CreateGroupOptions(groupName, order)
                     gs.groups[groupName].offsetX = 0
                     gs.groups[groupName].offsetY = 0
                     RefreshGroupSystem()
-                    DDingUI:RefreshConfigGUI(false, "groupSystem.group_" .. groupName)
+                    DDingUI:RefreshConfigGUI(false, "groupSystem.cdmBars.group_" .. groupName)
                 end
             end,
         },
@@ -5207,15 +5207,6 @@ local function CreateGroupOptions(groupName, order)
     -- Spell management controls now live at the top of the layout tab.
     args.spellManagement = nil
 
-    -- [CDM 통합] 모든 그룹 동일 시각 효과 옵션 (CDM/커스텀 구분 없음)
-    local visualArgs = BuildCustomVisualArgs(groupName)
-    args.visual = {
-        type = "group",
-        name = L["Visual Effects"] or "시각 효과",
-        order = 30,
-        args = visualArgs,
-    }
-
     -- [CDM 통합] 모든 그룹 동일 텍스트 옵션 (CDM/커스텀 구분 없음, 카테고리별 분기)
     local textArgs = BuildCustomTextArgs(groupName, category)
     args.text = {
@@ -5260,90 +5251,106 @@ end
 -- ============================================================
 
 local function BuildGroupSystemOptions(order)
-    -- [DYNAMIC] 빌드 시점에 동적 그룹 동기화 (CustomIcons 그룹 → GroupSystem 그룹)
     if DDingUI.GroupSystem and DDingUI.GroupSystem.SyncDynamicGroups then
         DDingUI.GroupSystem:SyncDynamicGroups()
     end
 
-    local options = {
-        type = "group",
-        name = L["Icon Groups"] or "아이콘 그룹",
-        order = order,
-        childGroups = "tab",
-        args = {
-            -- ========== 시스템 설정 ==========
-            systemSettings = {
-                type = "group",
-                name = L["Settings"] or "설정",
-                order = 0,
-                args = {
-                    -- [DYNAMIC] 활성화 토글 제거 — 아이콘 그룹은 무조건 활성
-
-                    hideDefaultViewers = {
-                        type = "toggle",
-                        name = L["Hide Default Viewers"] or "기본 뷰어 숨기기",
-                        desc = L["Hide WoW default cooldown viewers when group system is active"] or "그룹 시스템 활성 시 WoW 기본 쿨다운 뷰어 숨기기",
-                        order = 3,
-                        width = "full",
-                        get = function()
-                            local gs = GetGS()
-                            return gs and gs.hideDefaultViewers
-                        end,
-                        set = function(_, val)
-                            local gs = GetGS()
-                            if gs then
-                                gs.hideDefaultViewers = val
+    local barArgs = {
+        systemSettings = {
+            type = "group",
+            name = L["Settings"] or "설정",
+            order = 0,
+            args = {
+                hideDefaultViewers = {
+                    type = "toggle",
+                    name = L["Hide Default Viewers"] or "기본 뷰어 숨기기",
+                    desc = L["Hide WoW default cooldown viewers when group system is active"] or "그룹 시스템 활성 시 WoW 기본 쿨다운 뷰어 숨기기",
+                    order = 3,
+                    width = "full",
+                    get = function()
+                        local gs = GetGS()
+                        return gs and gs.hideDefaultViewers
+                    end,
+                    set = function(_, val)
+                        local gs = GetGS()
+                        if gs then
+                            gs.hideDefaultViewers = val
+                            if DDingUI.GroupSystem then
+                                DDingUI.GroupSystem:Toggle()
+                            end
+                        end
+                    end,
+                },
+                addGroupHeader = {
+                    type = "header",
+                    name = L["Add Group"] or "그룹 추가",
+                    order = 10,
+                },
+                newGroupName = {
+                    type = "input",
+                    name = L["New Group Name"] or "새 그룹 이름",
+                    desc = L["Enter group name and click Create"] or "그룹 이름을 입력 후 '생성' 버튼을 누르세요",
+                    order = 11,
+                    width = "double",
+                    get = function() return pendingGroupName or "" end,
+                    set = function(_, val)
+                        pendingGroupName = (val and val ~= "") and val or nil
+                    end,
+                },
+                createGroupBtn = {
+                    type = "execute",
+                    name = L["Create"] or "생성",
+                    order = 12,
+                    width = "half",
+                    disabled = function() return not pendingGroupName or pendingGroupName == "" end,
+                    func = function()
+                        local val = pendingGroupName
+                        pendingGroupName = nil
+                        if val and val ~= "" and DDingUI.GroupManager then
+                            local ok = DDingUI.GroupManager:CreateGroup(val)
+                            if ok then
                                 if DDingUI.GroupSystem then
-                                    DDingUI.GroupSystem:Toggle()
+                                    DDingUI.GroupSystem:OnGroupAdded(val)
                                 end
+                                DDingUI:RefreshConfigGUI(false, "groupSystem.cdmBars.group_" .. val)
                             end
-                        end,
-                    },
-                    -- 새 그룹 추가
-                    addGroupHeader = {
-                        type = "header",
-                        name = L["Add Group"] or "그룹 추가",
-                        order = 10,
-                    },
-                    newGroupName = {
-                        type = "input",
-                        name = L["New Group Name"] or "새 그룹 이름",
-                        desc = (L["Enter group name and click Create"] or "그룹 이름을 입력 후 '생성' 버튼을 누르세요"),
-                        order = 11,
-                        width = "double",
-                        get = function() return pendingGroupName or "" end,
-                        set = function(_, val)
-                            -- [12.0.1] 이름만 저장, 그룹 생성은 버튼에서 처리 (포커스 잃을 때 리프레시 방지)
-                            pendingGroupName = (val and val ~= "") and val or nil
-                        end,
-                    },
-                    createGroupBtn = {
-                        type = "execute",
-                        name = L["Create"] or "생성",
-                        order = 12,
-                        width = "half",
-                        disabled = function() return not pendingGroupName or pendingGroupName == "" end,
-                        func = function()
-                            local val = pendingGroupName
-                            pendingGroupName = nil
-                            if val and val ~= "" and DDingUI.GroupManager then
-                                local ok = DDingUI.GroupManager:CreateGroup(val)
-                                if ok then
-                                    if DDingUI.GroupSystem then
-                                        DDingUI.GroupSystem:OnGroupAdded(val)
-                                    end
-                                    -- [12.0.1] 트리 메뉴 전체 재빌드 → 새 그룹 즉시 반영
-                                    DDingUI:RefreshConfigGUI(false, "groupSystem.group_" .. val)
-                                end
-                            end
-                        end,
-                    },
+                        end
+                    end,
                 },
             },
         },
     }
+    local glowArgs = {}
+    local trackerOptions = ns.CreateBuffTrackerOptions and ns.CreateBuffTrackerOptions(3)
+    if trackerOptions then
+        trackerOptions.name = rawget(L, "Tracked Bars") or "추적 막대"
+        trackerOptions.order = 3
+    end
 
-    -- 그룹별 탭 생성
+    local options = {
+        type = "group",
+        name = rawget(L, "Cooldown Manager") or "쿨다운 관리자",
+        order = order,
+        childGroups = "select",
+        args = {
+            cdmBars = {
+                type = "group",
+                name = rawget(L, "CDM Bars") or "CDM 바",
+                order = 1,
+                childGroups = "select",
+                args = barArgs,
+            },
+            glow = {
+                type = "group",
+                name = rawget(L, "Glow") or "글로우",
+                order = 2,
+                childGroups = "select",
+                args = glowArgs,
+            },
+            trackedBars = trackerOptions,
+        },
+    }
+
     local gs = GetGS()
     if gs and gs.groups then
         local sorted = {}
@@ -5353,7 +5360,14 @@ local function BuildGroupSystemOptions(order)
         table.sort(sorted, function(a, b) return a.order < b.order end)
 
         for i, entry in ipairs(sorted) do
-            options.args["group_" .. entry.name] = CreateGroupOptions(entry.name, i)
+            local groupOption = CreateGroupOptions(entry.name, i)
+            barArgs["group_" .. entry.name] = groupOption
+            glowArgs["group_" .. entry.name] = {
+                type = "group",
+                name = groupOption.name,
+                order = i,
+                args = BuildCustomVisualArgs(entry.name),
+            }
         end
     end
 

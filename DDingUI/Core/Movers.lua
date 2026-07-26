@@ -1916,7 +1916,7 @@ local MOVER_TO_GUI = {
     ["DDingUI_PowerBar"]          = "resourceBars.primary",
     ["DDingUI_SecondaryPowerBar"]  = "resourceBars.secondary",
     ["DDingUI_PlayerCastBar"]     = "castBars",
-    ["DDingUI_BuffTrackerBar"]    = "buffTracker",
+    ["DDingUI_BuffTrackerBar"]    = "groupSystem.trackedBars",
     ["DDingUI_BuffBarViewer"]     = "buffBar",
 }
 
@@ -1928,27 +1928,27 @@ function Movers:GetGUIKeyFromMoverName(moverName)
         return MOVER_TO_GUI[moverName]
     end
 
-    -- GroupSystem 그룹: DDingUI_Group_Cooldowns → groupSystem.group_Cooldowns
+    -- GroupSystem groups
     local groupName = moverName:match("^DDingUI_Group_(.+)$")
     if groupName then
-        return "groupSystem.group_" .. groupName
+        return "groupSystem.cdmBars.group_" .. groupName
     end
 
-    -- 동적 아이콘 그룹: DDingUI_DynGroup_X → groupSystem.group_X (GroupSystem이 통합 관리)
+    -- Dynamic icon groups
     local dynGroupName = moverName:match("^DDingUI_DynGroup_(.+)$")
     if dynGroupName then
-        return "groupSystem.group_" .. dynGroupName
+        return "groupSystem.cdmBars.group_" .. dynGroupName
     end
 
-    -- CDM 프록시 앵커: DDingUI_Anchor_Cooldowns → groupSystem.group_Cooldowns
+    -- CDM proxy anchors
     local anchorGroupName = moverName:match("^DDingUI_Anchor_(.+)$")
     if anchorGroupName then
-        return "groupSystem.group_" .. anchorGroupName
+        return "groupSystem.cdmBars.group_" .. anchorGroupName
     end
 
-    -- BuffTracker 개별 바: DDingUI_BuffTracker_N → buffTracker
+    -- Tracked bars
     if moverName:match("^DDingUI_BuffTracker_") then
-        return "buffTracker"
+        return "groupSystem.trackedBars"
     end
 
     return nil

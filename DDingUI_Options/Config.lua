@@ -272,12 +272,7 @@ function DDingUI:SetupOptions()
         options.args.buffBar = BuffBarOptions(7)
     end
 
-    -- Buff Tracker
-    if BuffTrackerOptions then
-        options.args.buffTracker = BuffTrackerOptions(8)
-    end
-
-    -- [DYNAMIC] 아이콘 그룹 (통합 메뉴 — 항상 최상단)
+    -- Cooldown Manager workspace (CDM bars, glow, and tracked bars)
     if GroupSystemOptions then
         options.args.groupSystem = GroupSystemOptions(1)
     end
