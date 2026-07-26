@@ -95,6 +95,7 @@ Modules\IconViewers\Keybinds.lua
 
 # CustomIcons (Dynamic Icons)
 Modules\CustomIcons\RacialCooldowns.lua
+Modules\CustomIcons\RuntimeValues.lua
 Modules\CustomIcons\LayoutPolicy.lua
 Modules\CustomIcons\IconStyle.lua
 Modules\CustomIcons\CustomIcons.lua
