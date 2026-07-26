@@ -2793,6 +2793,9 @@ function DDingUI:SetGridTrinketEffectTracked(opt, enabled)
     local value = enabled == true
     if iconData.settings.trackTrinketEffect == value then return false end
     iconData.settings.trackTrinketEffect = value
+    if registry.RefreshEventRegistration then
+        registry:RefreshEventRegistration()
+    end
     ScheduleDynamicIconRefresh(iconKey)
     return true
 end

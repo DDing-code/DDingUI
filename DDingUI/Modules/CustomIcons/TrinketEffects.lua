@@ -9,6 +9,8 @@ local specsByKey = {}
 local specsBySpell = {}
 local specsByItem = {}
 local states = {}
+local eventFrame
+local effectEventsRegistered = false
 
 local function IsPublicNumber(value)
     if type(value) ~= "number" then return false end
@@ -280,15 +282,44 @@ local function PurgeUnequippedStates()
     end
 end
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+local function HasTrackedEffectIcons()
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynamicIcons = profile and profile.dynamicIcons
+    for _, iconData in pairs((dynamicIcons and dynamicIcons.iconData) or {}) do
+        local settings = iconData and iconData.settings
+        if settings and (
+            settings.trackTrinketEffect == true
+            or specsByKey[settings.trinketEffectKey] ~= nil
+        ) then
+            return true
+        end
+    end
+    return false
+end
+
+function TrinketEffects:RefreshEventRegistration()
+    local enabled = HasTrackedEffectIcons()
+    if enabled == effectEventsRegistered then return end
+    effectEventsRegistered = enabled
+    if enabled then
+        eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    else
+        eventFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+        eventFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    end
+end
+
+eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
-        C_Timer.After(0, NormalizeSavedEffectIcons)
+        C_Timer.After(0, function()
+            NormalizeSavedEffectIcons()
+            TrinketEffects:RefreshEventRegistration()
+        end)
         return
     end
     if event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then
@@ -314,4 +345,18 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     Trigger(spec, spellID or baseSpellID)
 end)
 
-C_Timer.After(0, NormalizeSavedEffectIcons)
+local function RefreshEffectEvents()
+    TrinketEffects:RefreshEventRegistration()
+end
+
+if DDingUI.CustomIcons and hooksecurefunc then
+    hooksecurefunc(DDingUI.CustomIcons, "AddDynamicIcon", RefreshEffectEvents)
+    hooksecurefunc(DDingUI.CustomIcons, "RemoveDynamicIcon", RefreshEffectEvents)
+    hooksecurefunc(DDingUI.CustomIcons, "RemoveGroup", RefreshEffectEvents)
+    hooksecurefunc(DDingUI.CustomIcons, "LoadDynamicIcons", RefreshEffectEvents)
+end
+
+C_Timer.After(0, function()
+    NormalizeSavedEffectIcons()
+    TrinketEffects:RefreshEventRegistration()
+end)
