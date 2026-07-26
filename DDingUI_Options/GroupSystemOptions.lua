@@ -2835,6 +2835,15 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows)
     local isBuff = IsBuffGroup(groupName, groupSettings)
     local items = {}
 
+    if groupName ~= "Buffs" and gs and gs.groups and gs.groups.Buffs then
+        items[#items + 1] = {
+            label = rawget(L, "Add to Buffs CDM") or "Add to Buffs CDM",
+            icon = DEFAULT_BUFF_ICON_TEXTURE,
+            submenu = BuildGroupAddPopupItems("Buffs", BuildUnassignedSpellRows("Buffs")),
+        }
+        items[#items + 1] = { separator = true }
+    end
+
     if isBuff then
         local bloodlustAliases = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
         local function AddTrinketBuff(slotID, labelKey, fallbackLabel)
