@@ -741,7 +741,7 @@ DoFullUpdate = function()
         if groupSettings and groupSettings.enabled then
             GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             processedGroups[groupName] = true
-            -- dynamic 그룹이 CDM 경로에서 처리됨 → UpdateDynamicGroup에서 스킵
+            -- dynamic 그룹이 CDM 경로에서 처리됐으면 아래 보충 패스를 건너뛴다.
             if groupSettings.groupType == "dynamic" then
                 processedDynamicGroups[groupName] = true
             end
@@ -767,11 +767,7 @@ DoFullUpdate = function()
         for groupName, groupSettings in pairs(gs.groups) do
             if groupSettings.groupType == "dynamic" and groupSettings.enabled
                and not processedDynamicGroups[groupName] then
-                if groupSettings.showInactiveIcons == true and groupSettings.groupCategory == "buff" then
-                    GroupRenderer:UpdateGroup(groupName, {}, groupSettings)
-                else
-                    GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
-                end
+                GroupRenderer:UpdateGroup(groupName, classified[groupName] or {}, groupSettings)
             end
         end
     end
@@ -870,11 +866,7 @@ DoDynamicUpdate = function(sourceKeys)
         if groupSettings.sourceGroupKey then
             if not limited or sourceKeys[groupSettings.sourceGroupKey] then
                 if groupSettings.groupType == "dynamic" then
-                    if groupSettings.showInactiveIcons == true and groupSettings.groupCategory == "buff" then
-                        GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
-                    else
-                        GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
-                    end
+                    GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
                 else
                     GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
                 end
@@ -882,7 +874,7 @@ DoDynamicUpdate = function(sourceKeys)
             end
         elseif groupSettings.groupType == "dynamic" then
             if not limited or sourceKeys[groupName] then
-                GroupRenderer:UpdateDynamicGroup(groupName, groupSettings)
+                GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
                 touched = true
             end
         end
