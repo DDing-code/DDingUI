@@ -3356,25 +3356,44 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
     if not parent or not groupName then return end
 
     local rows = BuildUnassignedSpellRows(groupName) or {}
+    local skillRows, buffRows = {}, {}
+    local seenSkills, seenBuffs = {}, {}
+    for index, row in ipairs(rows) do
+        local isBuff = row.isBuffShared == true or IsBuffSpell(row.spellName, row.entry)
+        local sectionRows = isBuff and buffRows or skillRows
+        local sectionSeen = isBuff and seenBuffs or seenSkills
+        local spellID = SafeOptionID(row.spellID)
+        local identity
+        if spellID then
+            identity = "spell:" .. spellID
+        elseif type(row.spellName) == "string" then
+            identity = "name:" .. row.spellName
+        else
+            identity = "row:" .. index
+        end
+        if not sectionSeen[identity] then
+            sectionSeen[identity] = true
+            sectionRows[#sectionRows + 1] = row
+        end
+    end
+
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
 
     local tileSize, gap, pad = 38, 6, 8
     local cols = math.max(1, math.floor((width - pad * 2 + gap) / (tileSize + gap)))
-    local rowCount = math.max(1, math.ceil(#rows / cols))
-    parent:SetHeight(28 + rowCount * (tileSize + gap) - gap + pad)
 
     local title = parent:CreateFontString(nil, "OVERLAY")
     title:SetPoint("TOPLEFT", parent, "TOPLEFT", pad, -2)
     title:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 12, "")
-    title:SetText(rawget(L, "Unassigned Spells") or "할당되지 않은 스펠")
+    title:SetText(rawget(L, "Unassigned Catalog") or "Unassigned Catalog")
     title:SetTextColor(1, 0.55, 0.18, 1)
 
-    if #rows == 0 then
+    if #skillRows == 0 and #buffRows == 0 then
         local empty = parent:CreateFontString(nil, "OVERLAY")
         empty:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
         empty:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 11, "")
-        empty:SetText(rawget(L, "No unassigned spells") or "할당되지 않은 스펠이 없습니다.")
+        empty:SetText(rawget(L, "No unassigned spells") or "No unassigned spells.")
         empty:SetTextColor(0.55, 0.55, 0.55, 1)
         parent:SetHeight(58)
         return
@@ -3385,12 +3404,12 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
         SoftRefreshGroupSystemOptions(0.05)
     end
 
-    for index, row in ipairs(rows) do
+    local function CreateCatalogButton(row, index, gridTop, sectionLabel, accentR, accentG, accentB)
         local col = (index - 1) % cols
         local line = math.floor((index - 1) / cols)
         local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
         button:SetSize(tileSize, tileSize)
-        button:SetPoint("TOPLEFT", parent, "TOPLEFT", pad + col * (tileSize + gap), -(28 + line * (tileSize + gap)))
+        button:SetPoint("TOPLEFT", parent, "TOPLEFT", pad + col * (tileSize + gap), -(gridTop + line * (tileSize + gap)))
         button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
         button:SetBackdropColor(0.02, 0.025, 0.03, 0.78)
         button:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
@@ -3402,9 +3421,10 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
         AssignedGridApplyTexCoord(icon, AssignedGridPreviewSettings(groupName))
 
         button:SetScript("OnEnter", function(self)
-            self:SetBackdropBorderColor(0.3, 0.85, 1, 1)
+            self:SetBackdropBorderColor(accentR, accentG, accentB, 1)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText(row.displayName or row.spellName or "Unknown", 1, 1, 1, 1, true)
+            GameTooltip:AddLine(sectionLabel, accentR, accentG, accentB, true)
             GameTooltip:AddLine(rawget(L, "Left-click to edit | Right-click to add") or "좌클릭: 편집 | 우클릭: 현재 그룹에 추가", 0.35, 1, 0.45, true)
             GameTooltip:Show()
         end)
@@ -3420,6 +3440,48 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
             end
         end)
     end
+
+    local sections = {}
+    if #skillRows > 0 then
+        sections[#sections + 1] = {
+            label = rawget(L, "Skills") or "Skills",
+            rows = skillRows,
+            color = { 0.3, 0.85, 1 },
+        }
+    end
+    if #buffRows > 0 then
+        sections[#sections + 1] = {
+            label = rawget(L, "Buff Effects") or "Buff Effects",
+            rows = buffRows,
+            color = { 1, 0.65, 0.18 },
+        }
+    end
+
+    local yOffset = 26
+    for _, section in ipairs(sections) do
+        local heading = parent:CreateFontString(nil, "OVERLAY")
+        heading:SetPoint("TOPLEFT", parent, "TOPLEFT", pad, -yOffset)
+        heading:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 11, "")
+        heading:SetText(section.label)
+        heading:SetTextColor(section.color[1], section.color[2], section.color[3], 1)
+
+        local gridTop = yOffset + 18
+        for index, row in ipairs(section.rows) do
+            CreateCatalogButton(
+                row,
+                index,
+                gridTop,
+                section.label,
+                section.color[1],
+                section.color[2],
+                section.color[3]
+            )
+        end
+
+        local sectionRowCount = math.ceil(#section.rows / cols)
+        yOffset = gridTop + sectionRowCount * (tileSize + gap) - gap + 14
+    end
+    parent:SetHeight(yOffset + pad)
 end
 
 local function CopyGlowSettings(settings)
