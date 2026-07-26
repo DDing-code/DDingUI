@@ -31,6 +31,27 @@ regenFrame:SetScript("OnEvent", function()
     -- [FIX] pending Show/Hide 처리 (전투 중 named 프레임 Show/Hide 불가 → 전투 종료 시 실행)
     if GroupRenderer.groupFrames then
         for _, frame in pairs(GroupRenderer.groupFrames) do
+            if frame._pendingLayoutW and frame._pendingLayoutH then
+                frame:SetSize(frame._pendingLayoutW, frame._pendingLayoutH)
+                frame._pendingLayoutW = nil
+                frame._pendingLayoutH = nil
+            end
+            if frame._pendingProxySync then
+                local proxy = frame._pendingProxySync
+                local finalW = frame._pendingProxyW
+                local finalH = frame._pendingProxyH
+                local snappedW = frame._pendingProxyIconW
+                frame._pendingProxySync = nil
+                frame._pendingProxyW = nil
+                frame._pendingProxyH = nil
+                frame._pendingProxyIconW = nil
+                if proxy and finalW and finalH then
+                    proxy:SetSize(finalW, finalH)
+                    proxy.__cdmIconWidth = snappedW
+                    proxy._lastSyncW = math.floor(finalW + 0.5)
+                    proxy._lastSyncH = math.floor(finalH + 0.5)
+                end
+            end
             if frame._pendingCombatShow then
                 frame._pendingCombatShow = nil
                 frame:Show()
@@ -2756,7 +2777,8 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
             phantomH = frame._lastLayoutH
         end
         if InCombatLockdown() and frame:GetName() then
-            frame._pendingLayoutSize = { phantomW, phantomH }
+            frame._pendingLayoutW = phantomW
+            frame._pendingLayoutH = phantomH
         else
             frame:SetSize(phantomW, phantomH)
         end
@@ -2880,21 +2902,8 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     -- [FIX] 전투 중 SetSize 보호 함수 에러 방지
     -- 명명된 프레임(DDingUI_Group_*)은 전투 중 SetSize 불가 → defer
     if InCombatLockdown() and frame:GetName() then
-        frame._pendingLayoutSize = { finalW, finalH }
-        -- 전투 종료 후 재적용
-        if not GroupRenderer._combatDeferFrame then
-            GroupRenderer._combatDeferFrame = CreateFrame("Frame")
-            GroupRenderer._combatDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-            GroupRenderer._combatDeferFrame:SetScript("OnEvent", function()
-                for _, gf in pairs(GroupRenderer.groupFrames or {}) do
-                    if gf._pendingLayoutSize then
-                        local pw, ph = gf._pendingLayoutSize[1], gf._pendingLayoutSize[2]
-                        gf:SetSize(pw, ph)
-                        gf._pendingLayoutSize = nil
-                    end
-                end
-            end)
-        end
+        frame._pendingLayoutW = finalW
+        frame._pendingLayoutH = finalH
     else
         frame:SetSize(finalW, finalH)
     end
@@ -2915,15 +2924,10 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         -- [FIX] Reconcile → LayoutGroup 경로가 tainted 일 수 있음
         -- 전투 중 SetSize 호출 시 ADDON_ACTION_BLOCKED 방지
         if InCombatLockdown() then
-            -- 전투 종료 후 지연 동기화
-            C_Timer.After(0.5, function()
-                if proxy and not InCombatLockdown() then
-                    proxy:SetSize(finalW, finalH)
-                    proxy.__cdmIconWidth = snappedW
-                    proxy._lastSyncW = math.floor(finalW + 0.5)
-                    proxy._lastSyncH = math.floor(finalH + 0.5)
-                end
-            end)
+            frame._pendingProxySync = proxy
+            frame._pendingProxyW = finalW
+            frame._pendingProxyH = finalH
+            frame._pendingProxyIconW = snappedW
         else
             proxy:SetSize(finalW, finalH)
             proxy.__cdmIconWidth = snappedW
