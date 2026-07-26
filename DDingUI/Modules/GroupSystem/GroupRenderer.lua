@@ -1613,7 +1613,7 @@ local function NormalizeDirectionToken(token)
 end
 
 -- ViewerLayout.ResolveDirections 동일
-local function ResolveDirections(viewerName, settings)
+local function ResolveDirections(viewerName, settings, rowLimitOverride)
     local primary = NormalizeDirectionToken(settings.primaryDirection)
     local secondary = NormalizeDirectionToken(settings.secondaryDirection)
 
@@ -1653,7 +1653,10 @@ local function ResolveDirections(viewerName, settings)
         rule = DIRECTION_RULES[primary]
     end
 
-    local rowLimit = settings.rowLimit or 0
+    local rowLimit = rowLimitOverride
+    if rowLimit == nil then
+        rowLimit = settings.rowLimit or 0
+    end
     if rowLimit < 0 then rowLimit = 0 end
     rowLimit = math_floor(rowLimit + 0.0001)
 
@@ -2754,10 +2757,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         local phantomRows = (viewerName == "BuffIconCooldownViewer") and 1 or 2
         -- [FIX] ResolveDirections는 rowLimit=0이면 secondary를 nil로 버림
         -- phantom은 2줄 기준이므로, rowLimit을 강제로 2로 설정하여 유저의 secondary 설정을 보존
-        local phantomResolveSettings = {}
-        for k, v in pairs(viewerSettings) do phantomResolveSettings[k] = v end
-        phantomResolveSettings.rowLimit = 2
-        phantomPrimary, phantomSecondary, _, phantomLayoutType = ResolveDirections(viewerName, phantomResolveSettings)
+        phantomPrimary, phantomSecondary, _, phantomLayoutType = ResolveDirections(viewerName, viewerSettings, 2)
         if phantomLayoutType == "VERTICAL" then
             phantomW = phantomRows * phantomIconW + (phantomRows - 1) * phantomSpacing
             phantomH = phantomRowLimit * phantomIconH + (phantomRowLimit - 1) * phantomSpacing
