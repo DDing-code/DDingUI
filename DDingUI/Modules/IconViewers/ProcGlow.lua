@@ -40,11 +40,18 @@ ProcGlow.LibCustomGlowTypes = {
 -- Get spellID from a CDM button frame
 local function GetButtonSpellID(button)
     if not button then return nil end
-    if button.spellID then return button.spellID end
-    if button.cooldownID then return button.cooldownID end
+    local spellID = button.spellID
+    if issecretvalue and issecretvalue(spellID) then spellID = nil end
+    if type(spellID) == "number" and spellID > 0 then return spellID end
+    local cooldownID = button.cooldownID
+    if issecretvalue and issecretvalue(cooldownID) then cooldownID = nil end
+    if type(cooldownID) == "number" and cooldownID > 0 then return cooldownID end
     if button.GetSpellID and type(button.GetSpellID) == "function" then
         local ok, sid = pcall(button.GetSpellID, button)
-        if ok and sid and sid > 0 then return sid end
+        if issecretvalue and issecretvalue(sid) then sid = nil end
+        if ok and type(sid) == "number" and sid > 0 then
+            return sid
+        end
     end
     return nil
 end
@@ -91,8 +98,69 @@ local function IsCooldownIconFrame(frame)
 end
 
 -- Get proc glow settings for a specific icon (reads from its viewer's settings)
+local function GetPerIconProcCustomization(iconFrame)
+    local customizer = DDingUI.IconCustomization
+    if not (iconFrame and customizer and customizer.GetIconContext and customizer.GetSpellSettings) then
+        return nil
+    end
+    local spellID, viewerType = customizer:GetIconContext(iconFrame)
+    if not spellID or not viewerType then return nil end
+    return customizer:GetSpellSettings(spellID, viewerType)
+end
+
+local function NormalizePerIconProcSettings(custom)
+    local typeMap = {
+        pixel = "Pixel Glow",
+        autocast = "Autocast Shine",
+        button = "Action Button Glow",
+        proc = "Proc Glow",
+    }
+    local color = {}
+    if custom.glowColorMode == "class" then
+        local _, class = UnitClass("player")
+        local classColor = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+        if classColor then
+            color = { r = classColor.r, g = classColor.g, b = classColor.b }
+        end
+    elseif custom.glowColorMode == "custom"
+        or (custom.glowColorMode == nil and custom.glowColor)
+    then
+        color = custom.glowColor or {}
+    end
+    return {
+        enabled = true,
+        glowType = typeMap[custom.glowType or "button"] or "Action Button Glow",
+        loopColor = {
+            color.r or color[1] or 1,
+            color.g or color[2] or 0.85,
+            color.b or color[3] or 0.1,
+            1,
+        },
+        lcgLines = math.floor(custom.glowLines or 8),
+        lcgFrequency = custom.glowSpeed or 0.25,
+        lcgThickness = custom.glowThickness or 2,
+        autocastFrequency = custom.glowSpeed or 0.25,
+        buttonGlowFrequency = custom.glowSpeed or 0.25,
+    }
+end
+
+local function GetPerIconProcMode(iconFrame)
+    local custom = GetPerIconProcCustomization(iconFrame)
+    return custom and custom.procGlowMode or nil
+end
+
 local function GetProcGlowSettings(iconFrame)
-    local viewers = DDingUI.db.profile.viewers
+    if iconFrame then
+        local custom = GetPerIconProcCustomization(iconFrame)
+        if custom and custom.procGlowMode == "off" then
+            return nil
+        elseif custom and custom.procGlowMode == "on" then
+            return NormalizePerIconProcSettings(custom)
+        end
+    end
+
+    local profile = DDingUI.db and DDingUI.db.profile
+    local viewers = profile and profile.viewers
     if not viewers then return nil end
 
     -- If icon provided, get its specific viewer's settings
@@ -307,23 +375,26 @@ local function ReapplyGlowsAfterRescan(viewer)
 
     for _, child in ipairs({ container:GetChildren() }) do
         if child and child:IsShown() and IsCooldownIconFrame(child) then
-            local glowSettings = GetProcGlowSettings(child)
-            if not glowSettings or not glowSettings.enabled then
-                -- Settings disabled for this viewer, stop any active glow
-                if glowActiveCache[child] then
-                    StopGlow(child)
-                end
+            if GetPerIconProcMode(child) == "off" then
+                if glowActiveCache[child] then StopGlow(child) end
+                HideBlizzardGlow(child)
             else
-                local spellID = GetButtonSpellID(child)
-                if spellID and activeOverlaySpells[spellID] then
-                    local gt = glowSettings.glowType or "Pixel Glow"
-                    if not glowActiveCache[child] then
-                        if gt ~= "Blizzard Glow" then
-                            HideBlizzardGlow(child)
-                        end
-                        StartGlow(child)
-                    else
-                        if not IsGlowFramePresent(child, gt) then
+                local glowSettings = GetProcGlowSettings(child)
+                if not glowSettings or not glowSettings.enabled then
+                    -- Settings disabled for this viewer, stop any active glow
+                    if glowActiveCache[child] then
+                        StopGlow(child)
+                    end
+                else
+                    local spellID = GetButtonSpellID(child)
+                    if spellID and activeOverlaySpells[spellID] then
+                        local gt = glowSettings.glowType or "Pixel Glow"
+                        if not glowActiveCache[child] then
+                            if gt ~= "Blizzard Glow" then
+                                HideBlizzardGlow(child)
+                            end
+                            StartGlow(child)
+                        elseif not IsGlowFramePresent(child, gt) then
                             ApplyGlowEffect(child)
                             if gt ~= "Blizzard Glow" then
                                 HideBlizzardGlow(child)
@@ -345,6 +416,9 @@ local function ScanExistingOverlays()
             if container and container.GetChildren then
                 for _, child in ipairs({ container:GetChildren() }) do
                     if child and child:IsShown() and IsCooldownIconFrame(child) then
+                        if GetPerIconProcMode(child) == "off" then
+                            HideBlizzardGlow(child)
+                        end
                         local glowSettings = GetProcGlowSettings(child)
                         if glowSettings and glowSettings.enabled then
                             if child.SpellActivationAlert and child.SpellActivationAlert:IsShown() then
@@ -370,6 +444,11 @@ local function SetupGlowHooks()
             hooksecurefunc(ActionButtonSpellAlertManager, "ShowAlert", function(_, button)
                 if not IsCooldownViewerIcon(button) then return end
                 local spellID = GetButtonSpellID(button)
+                if GetPerIconProcMode(button) == "off" then
+                    procActiveCache[button] = true
+                    HideBlizzardGlow(button)
+                    return
+                end
                 local glowSettings = GetProcGlowSettings(button)
                 if glowSettings and glowSettings.enabled then
                     -- Flag immediately, then apply after Blizzard finishes its update.
@@ -481,11 +560,28 @@ function ProcGlow:RefreshAll()
             end
         end
     end
+    for icon, active in pairs(procActiveCache) do
+        if active and icon and icon.IsShown and icon:IsShown() then
+            local glowSettings = GetProcGlowSettings(icon)
+            if glowSettings and glowSettings.enabled then
+                StartGlow(icon)
+                HideBlizzardGlow(icon)
+            elseif GetPerIconProcMode(icon) ~= "off" and ActionButton_ShowOverlayGlow then
+                ActionButton_ShowOverlayGlow(icon)
+            end
+        end
+    end
+    ScanExistingOverlays()
 end
 
 -- Re-apply glow after SkinIcon changes (aspect ratio, etc.)
 function ProcGlow:UpdateButtonGlow(icon)
     if not icon then return end
+    if GetPerIconProcMode(icon) == "off" then
+        StopGlow(icon)
+        HideBlizzardGlow(icon)
+        return
+    end
     if procActiveCache[icon] or activeGlowingIcons[icon] then
         ApplyGlowEffect(icon)
         HideBlizzardGlow(icon)

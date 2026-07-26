@@ -1058,15 +1058,28 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
     local customizer = DDingUI.IconCustomization
     if not customizer or not customizer.UpdateDynamicIconGlow then return end
     local settings = iconData and iconData.settings and iconData.settings.customStateGlow
-    local trigger = settings and settings.glowTrigger
-    if not trigger then
-        trigger = iconData and (iconData.type == "aura" or iconData.type == "trinketProc") and "active" or "ready"
+    local active = frame._ddCustomIconActive == true
+    local ready = frame._ddCustomIconReady == true
+    local shouldGlow = false
+    if settings then
+        if settings.activeGlow == true and active then
+            shouldGlow = true
+        elseif settings.maxChargesGlow == true and frame._ddCustomIconAtMaxCharges == true then
+            shouldGlow = true
+        elseif settings.cooldownReadyGlow == true and ready then
+            shouldGlow = true
+        elseif settings.readyGlow == true then
+            local trigger = settings.glowTrigger
+                or (iconData and (iconData.type == "aura" or iconData.type == "trinketProc") and "active" or "ready")
+            if trigger == "active" then
+                shouldGlow = active
+            else
+                shouldGlow = ready
+            end
+        end
     end
-    local shouldGlow
-    if trigger == "active" then
-        shouldGlow = frame._ddCustomIconActive == true
-    else
-        shouldGlow = frame._ddCustomIconReady == true
+    if customizer.ApplyDynamicIconState then
+        customizer:ApplyDynamicIconState(frame, iconData and iconData.settings, active, ready)
     end
     customizer:UpdateDynamicIconGlow(frame, settings, shouldGlow)
 end
@@ -1863,7 +1876,12 @@ local function UpdateSpellIconFrame(iconFrame, iconData)
 
     local CCD = C_Spell.GetSpellChargeDuration(spellID)
     local SCD = C_Spell.GetSpellCooldownDuration(spellID)
-    local isChargeSpell = chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1
+    local maxCharges = chargeInfo and chargeInfo.maxCharges
+    if issecretvalue and issecretvalue(maxCharges) then maxCharges = nil end
+    local isChargeSpell = type(maxCharges) == "number" and maxCharges > 1
+    local chargeRecharging = chargeInfo and chargeInfo.isActive
+    if issecretvalue and issecretvalue(chargeRecharging) then chargeRecharging = nil end
+    iconFrame._ddCustomIconAtMaxCharges = isChargeSpell and chargeRecharging == false or false
 
     local isOnGCD = false
     if SCD then
@@ -2794,6 +2812,7 @@ local function ExecuteUpdateAllIcons(filter)
                             frame._fontInitialized = true
                         end
                     end
+                    frame._ddCustomIconAtMaxCharges = false
                     if iconData.type == "item" then
                         UpdateItemIcon(frame, iconData)
                     elseif iconData.type == "spell" then

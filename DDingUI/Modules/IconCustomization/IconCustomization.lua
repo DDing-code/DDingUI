@@ -2,6 +2,7 @@ local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
+local LSM = LibStub("LibSharedMedia-3.0", true)
 local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
 
 DDingUI.IconCustomization = DDingUI.IconCustomization or {}
@@ -129,6 +130,9 @@ local function GetSpellIDFromIcon(iconFrame)
             spellID = iconFrame:GetSpellId()
         end
     end)
+    if issecretvalue and issecretvalue(spellID) then
+        return nil
+    end
     return spellID
 end
 
@@ -145,6 +149,9 @@ local function GetViewerType(iconFrame)
 
     -- 방법 1: FrameController iconSourceMap (가장 신뢰 — reparent 무관)
     local cooldownID = iconFrame.cooldownID
+    if issecretvalue and issecretvalue(cooldownID) then
+        cooldownID = nil
+    end
     if cooldownID then
         local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
         if fc and fc.GetIconSource then
@@ -435,15 +442,48 @@ do
     end
 end
 
+local function GetPlayerClassColor()
+    local _, class = UnitClass("player")
+    local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+    if color then
+        return { color.r or 1, color.g or 1, color.b or 1, 0.8 }
+    end
+    return { 1, 0.776, 0.376, 0.8 }
+end
+
+local function NormalizeColor(color, fallback)
+    fallback = fallback or { 1, 0.776, 0.376, 0.8 }
+    if type(color) ~= "table" then
+        return { fallback[1], fallback[2], fallback[3], fallback[4] }
+    end
+    return {
+        color.r or color[1] or fallback[1],
+        color.g or color[2] or fallback[2],
+        color.b or color[3] or fallback[3],
+        color.a or color[4] or fallback[4],
+    }
+end
+
+local function ResolveActiveSwipeColor(custom)
+    if custom.activeSwipeMode == "class" then
+        return GetPlayerClassColor()
+    end
+    if custom.activeSwipeMode == "custom" then
+        return NormalizeColor(custom.activeSwipeColor)
+    end
+    return nil
+end
+
 local function BuildEffectiveSkinSettings(icon, settings)
     local custom = ResolveIconCustomization(icon)
     if not custom then return settings end
     local activeStateMode = custom.activeStateMode
+    local activeSwipeMode = custom.activeSwipeMode
     local cooldownSwipeMode = custom.cooldownSwipeMode
     local cooldownEdgeMode = custom.cooldownEdgeMode
     local cooldownFinishMode = custom.cooldownFinishMode
     local activeDurationMode = custom.activeDurationMode
-    if activeStateMode == nil and cooldownSwipeMode == nil
+    if activeStateMode == nil and activeSwipeMode == nil and cooldownSwipeMode == nil
         and cooldownEdgeMode == nil and cooldownFinishMode == nil
         and activeDurationMode == nil
     then
@@ -455,10 +495,13 @@ local function BuildEffectiveSkinSettings(icon, settings)
         effective[key] = value
     end
 
-    if activeStateMode == "show" then
-        effective.hideActiveState = false
-    elseif activeStateMode == "hide" then
+    if activeSwipeMode == "hidden" or activeStateMode == "hide" then
         effective.hideActiveState = true
+    elseif activeSwipeMode == "class" or activeSwipeMode == "custom" then
+        effective.hideActiveState = false
+        effective.auraSwipeColor = ResolveActiveSwipeColor(custom)
+    elseif activeStateMode == "show" then
+        effective.hideActiveState = false
     end
 
     if cooldownSwipeMode == "normal" then
@@ -551,18 +594,22 @@ local function StopAllGlows(frame, key)
     if LCG and LCG.ProcGlow_Stop then pcall(LCG.ProcGlow_Stop, frame, glowKey) end
 end
 
--- Check if glow should be shown for a spell
--- viewerType: "Essential"/"Utility"/"Buff" — 뷰어별 독립 체크
-local function ShouldShowReadyGlow(spellID, viewerType)
-    if not spellID then return false end
-
-    local custom = GetSpellCustomization(spellID, viewerType)
-    -- STRICT CHECK: readyGlow must be explicitly boolean true
-    if not custom or custom.readyGlow ~= true then
-        return false
-    end
-
-    return true
+local function NeedsRuntimeHook(custom)
+    if type(custom) ~= "table" then return false end
+    return custom.readyGlow == true
+        or custom.activeGlow == true
+        or custom.maxChargesGlow == true
+        or custom.cooldownReadyGlow == true
+        or custom.nonActiveMode ~= nil
+        or custom.cooldownStateEffect ~= nil
+        or custom.chargeCountMode ~= nil
+        or custom.chargeHideSwipe == true
+        or custom.chargeHideEdge == true
+        or custom.chargeHideDuration == true
+        or custom.activeBorderEnabled == true
+        or custom.buffGainSound ~= nil
+        or custom.buffLossSound ~= nil
+        or custom.cooldownReadySound ~= nil
 end
 
 -- [FIX] 글로우 적용 후 텍스트 프레임 레벨을 글로우 위로 올림
@@ -619,20 +666,38 @@ local function ShowReadyGlow(frame, spellID, viewerType)
 
     -- Get customization settings (뷰어별)
     local custom = GetSpellCustomization(spellID, viewerType)
-    if not custom or custom.readyGlow ~= true then
+    if not custom or not (
+        custom.readyGlow == true
+        or custom.activeGlow == true
+        or custom.maxChargesGlow == true
+        or custom.cooldownReadyGlow == true
+    ) then
         frameData.readyGlowActive = false
         return
     end
 
     -- Get glow settings with defaults
     local glowType = custom.glowType or "button"
-    local glowColor = custom.glowColor or {r = 1, g = 0.85, b = 0.1}
+    local glowColor
+    if custom.glowColorMode == "class" then
+        glowColor = GetPlayerClassColor()
+    elseif custom.glowColorMode == "custom"
+        or (custom.glowColorMode == nil and custom.glowColor)
+    then
+        glowColor = custom.glowColor
+    end
+    glowColor = glowColor or {r = 1, g = 0.85, b = 0.1}
     local glowSpeed = custom.glowSpeed or 0.25
     local glowLines = math.floor(custom.glowLines or 8)  -- must be integer
     local glowThickness = custom.glowThickness or 2
 
     -- Convert color to table format
-    local color = {glowColor.r or 1, glowColor.g or 0.85, glowColor.b or 0.1, 1}
+    local color = {
+        glowColor.r or glowColor[1] or 1,
+        glowColor.g or glowColor[2] or 0.85,
+        glowColor.b or glowColor[3] or 0.1,
+        1,
+    }
 
     -- Start appropriate glow type
     if glowType == "pixel" then
@@ -699,12 +764,242 @@ local function IsSpellOnCooldown(iconFrame)
     
     -- Logic: If cooldown is visible AND it's NOT just GCD, then it's on cooldown
     -- If isOnGCD is true, treat as ready (not on cooldown)
-    if cooldownVisible and cooldownInfo and not cooldownInfo.isOnGCD then
-        return true
+    if cooldownVisible and cooldownInfo then
+        local isOnGCD = cooldownInfo.isOnGCD
+        if issecretvalue and issecretvalue(isOnGCD) then
+            return false
+        end
+        return isOnGCD ~= true
     end
     
     -- If cooldown is NOT visible, or if it's just GCD, treat as ready (not on cooldown)
     return false
+end
+
+local function ReadCleanBoolean(value)
+    if issecretvalue and issecretvalue(value) then return nil end
+    if type(value) == "boolean" then return value end
+    return nil
+end
+
+local function ReadCleanNumber(value)
+    if issecretvalue and issecretvalue(value) then return nil end
+    if type(value) == "number" then return value end
+    return nil
+end
+
+local function IsIconActiveState(iconFrame, viewerType)
+    if not iconFrame then return false end
+    local active = ReadCleanBoolean(iconFrame.isActive)
+    if active ~= nil then return active end
+    if iconFrame.wasSetFromAura == true or iconFrame.auraInstanceID ~= nil then
+        return true
+    end
+    if viewerType == "Buff" then
+        return IsBuffActiveForIcon(iconFrame)
+    end
+    return false
+end
+
+local function GetChargeState(spellID)
+    if not spellID or not C_Spell or not C_Spell.GetSpellCharges then
+        return false, false
+    end
+    local chargeInfo = C_Spell.GetSpellCharges(spellID)
+    if not chargeInfo then return false, false end
+    local maxCharges = ReadCleanNumber(chargeInfo.maxCharges)
+    if not maxCharges or maxCharges <= 1 then return false, false end
+    local recharging = ReadCleanBoolean(chargeInfo.isActive)
+    return true, recharging == false
+end
+
+local function SetVisualAlpha(iconFrame, alpha)
+    local regions = {
+        iconFrame and (iconFrame.Icon or iconFrame.icon),
+        iconFrame and iconFrame.Cooldown,
+        iconFrame and iconFrame.ChargeCount,
+        iconFrame and iconFrame.Applications,
+    }
+    for _, region in ipairs(regions) do
+        if region and region.SetAlpha then
+            region:SetAlpha(alpha)
+        end
+    end
+end
+
+local function SetIconDesaturated(iconFrame, enabled)
+    local texture = iconFrame and (iconFrame.Icon or iconFrame.icon)
+    if not texture then return end
+    if texture.SetDesaturated then
+        texture:SetDesaturated(enabled and true or false)
+    elseif texture.SetDesaturation then
+        texture:SetDesaturation(enabled and 1 or 0)
+    end
+end
+
+local function GetIconBorderTextures(iconFrame)
+    if not iconFrame then return nil end
+    if type(iconFrame._ddBorders) == "table" then
+        return iconFrame._ddBorders
+    end
+    local border = iconFrame.border
+    if border and type(border.__dduiBorders) == "table" then
+        return border.__dduiBorders
+    end
+    local viewerData = DDingUI.IconViewers and DDingUI.IconViewers._iconData
+    local data = viewerData and viewerData[iconFrame]
+    return data and data.borders or nil
+end
+
+local function GetDefaultBorderColor(iconFrame)
+    local settings = iconFrame and iconFrame._groupSettings
+    if not settings and iconFrame and iconFrame._ddContainerRef then
+        settings = iconFrame._ddContainerRef._groupSettings
+    end
+    if not settings and iconFrame then
+        local viewerName = iconFrame._ddSourceViewer
+        local profile = DDingUI.db and DDingUI.db.profile
+        settings = viewerName and profile and profile.viewers and profile.viewers[viewerName]
+    end
+    return NormalizeColor(settings and settings.borderColor, { 0, 0, 0, 1 })
+end
+
+local function ApplyActiveBorder(iconFrame, custom, active)
+    local data = GetFrameData(iconFrame)
+    local enabled = custom and custom.activeBorderEnabled == true
+    if not enabled and not data.activeBorderApplied then return end
+
+    local borders = GetIconBorderTextures(iconFrame)
+    if type(borders) ~= "table" then return end
+    local color = enabled and active
+        and NormalizeColor(custom.activeBorderColor, { 1, 0.776, 0.376, 1 })
+        or GetDefaultBorderColor(iconFrame)
+    for _, border in ipairs(borders) do
+        if border and border.SetColorTexture then
+            border:SetColorTexture(color[1], color[2], color[3], color[4])
+        end
+    end
+    data.activeBorderApplied = enabled and active or nil
+end
+
+local function ApplyNativeStateAppearance(iconFrame, custom, active, onCooldown, isCharge)
+    if not iconFrame then return end
+    local data = GetFrameData(iconFrame)
+
+    local nonActiveMode = custom and custom.nonActiveMode
+    local texture = iconFrame.Icon or iconFrame.icon
+    if nonActiveMode == "desaturate" then
+        if texture and texture.GetDesaturation
+            and (not data.nonActiveModeApplied or data.dynamicIcon == true)
+        then
+            data.nonActiveBaseDesaturation = texture:GetDesaturation()
+        end
+        SetIconDesaturated(iconFrame, not active)
+        data.nonActiveModeApplied = true
+    elseif nonActiveMode == "fullColor" then
+        if texture and texture.GetDesaturation
+            and (not data.nonActiveModeApplied or data.dynamicIcon == true)
+        then
+            data.nonActiveBaseDesaturation = texture:GetDesaturation()
+        end
+        SetIconDesaturated(iconFrame, false)
+        data.nonActiveModeApplied = true
+    elseif data.nonActiveModeApplied then
+        if texture and texture.SetDesaturation then
+            texture:SetDesaturation(data.nonActiveBaseDesaturation or 0)
+        else
+            SetIconDesaturated(iconFrame, false)
+        end
+        data.nonActiveBaseDesaturation = nil
+        data.nonActiveModeApplied = nil
+    end
+
+    local effect = custom and custom.cooldownStateEffect
+    local visualAlpha = 1
+    if effect == "lowerAlphaOnCD" and onCooldown then
+        visualAlpha = tonumber(custom.cooldownStateAlpha) or 0.5
+    elseif effect == "hiddenOnCD" and onCooldown then
+        visualAlpha = 0
+    elseif effect == "hiddenReady" and not onCooldown then
+        visualAlpha = 0
+    end
+    if effect or data.cooldownStateAlphaApplied then
+        SetVisualAlpha(iconFrame, visualAlpha)
+        data.cooldownStateAlphaApplied = effect and true or nil
+    end
+
+    ApplyActiveBorder(iconFrame, custom, active)
+
+    local cooldown = iconFrame.Cooldown
+    if cooldown and (
+        isCharge
+        or data.chargeHideSwipeApplied
+        or data.chargeHideEdgeApplied
+        or data.chargeHideDurationApplied
+    ) then
+        local base = iconFrame._groupSettings
+            or (iconFrame._ddContainerRef and iconFrame._ddContainerRef._groupSettings)
+            or {}
+        if cooldown.SetDrawSwipe
+            and ((custom and custom.chargeHideSwipe == true) or data.chargeHideSwipeApplied)
+        then
+            local hidden = custom and custom.chargeHideSwipe == true
+            cooldown:SetDrawSwipe(not hidden and base.disableSwipeAnimation ~= true)
+            data.chargeHideSwipeApplied = hidden or nil
+        end
+        if cooldown.SetDrawEdge
+            and ((custom and custom.chargeHideEdge == true) or data.chargeHideEdgeApplied)
+        then
+            local hidden = custom and custom.chargeHideEdge == true
+            cooldown:SetDrawEdge(not hidden and base.disableEdgeGlow ~= true)
+            data.chargeHideEdgeApplied = hidden or nil
+        end
+        if cooldown.SetHideCountdownNumbers
+            and ((custom and custom.chargeHideDuration == true) or data.chargeHideDurationApplied)
+        then
+            local hidden = custom and custom.chargeHideDuration == true
+            cooldown:SetHideCountdownNumbers(hidden or base.hideDurationText == true)
+            data.chargeHideDurationApplied = hidden or nil
+        end
+    end
+    local chargeCount = iconFrame.ChargeCount
+    if chargeCount then
+        local chargeCountMode = custom and custom.chargeCountMode
+        if chargeCountMode == "hide" then
+            chargeCount:Hide()
+            data.chargeCountModeApplied = true
+        elseif chargeCountMode == "show" then
+            chargeCount:Show()
+            data.chargeCountModeApplied = true
+        elseif data.chargeCountModeApplied then
+            chargeCount:Show()
+            data.chargeCountModeApplied = nil
+        end
+    end
+end
+
+local function PlayConfiguredSound(soundKey)
+    if not soundKey or soundKey == "none" or not LSM then return end
+    local path = LSM:Fetch("sound", soundKey, true)
+    if path then
+        PlaySoundFile(path, "Master")
+    end
+end
+
+local function UpdateNativeStateSounds(iconFrame, custom, active, onCooldown)
+    local data = GetFrameData(iconFrame)
+    if data.lastSoundActive ~= nil and active ~= data.lastSoundActive then
+        local soundKey
+        if custom then
+            soundKey = active and custom.buffGainSound or custom.buffLossSound
+        end
+        PlayConfiguredSound(soundKey)
+    end
+    if data.lastSoundOnCooldown == true and onCooldown == false then
+        PlayConfiguredSound(custom and custom.cooldownReadySound)
+    end
+    data.lastSoundActive = active
+    data.lastSoundOnCooldown = onCooldown
 end
 
 -- Update glow state for an icon frame
@@ -740,6 +1035,9 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
         if iconData.readyGlowActive then
             HideReadyGlow(iconFrame)
         end
+        ApplyNativeStateAppearance(iconFrame, nil, false, false, true)
+        iconData.lastSoundActive = nil
+        iconData.lastSoundOnCooldown = nil
         iconData.cachedSpellID = spellID
     end
 
@@ -749,41 +1047,40 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
     end
     local viewerType = iconData.viewerType or nil -- false → nil
 
-    if not ShouldShowReadyGlow(spellID, viewerType) then
-        if iconData.readyGlowActive then
-            if isTimerFiring then
-                HideReadyGlow(iconFrame)
-            elseif not iconData._readyGlowHideTimer then
-                iconData._readyGlowHideTimer = C_Timer.NewTimer(0.1, function()
-                    iconData._readyGlowHideTimer = nil
-                    if iconFrame and not iconFrame:IsForbidden() then
-                        UpdateReadyGlow(iconFrame, true)
-                    end
-                end)
-            end
-        end
-        return
-    end
-
-    -- Get customization to check glowTrigger setting (뷰어별)
+    -- Get customization and evaluate all event-driven visual states.
     local custom = GetSpellCustomization(spellID, viewerType)
-
-    -- Determine glowTrigger: use saved value, or default based on viewer type
-    local glowTrigger = custom and custom.glowTrigger
-    if not glowTrigger then
-        -- Default: Buff viewer → "active", others → "ready"
-        glowTrigger = (iconData.viewerType == "Buff") and "active" or "ready"
+    local active = IsIconActiveState(iconFrame, viewerType)
+    local onCooldown = IsSpellOnCooldown(iconFrame)
+    local isCharge, atMaxCharges = false, false
+    if custom and (
+        custom.maxChargesGlow == true
+        or custom.chargeCountMode ~= nil
+        or custom.chargeHideSwipe == true
+        or custom.chargeHideEdge == true
+        or custom.chargeHideDuration == true
+    ) then
+        isCharge, atMaxCharges = GetChargeState(spellID)
     end
+    ApplyNativeStateAppearance(iconFrame, custom, active, onCooldown, isCharge)
+    UpdateNativeStateSounds(iconFrame, custom, active, onCooldown)
 
     local shouldGlow = false
-
-    if glowTrigger == "active" then
-        -- For "active" trigger: Show glow when buff IS active
-        -- Uses IsShown() instead of spellID lookup - SECRET-SAFE during combat!
-        shouldGlow = IsBuffActiveForIcon(iconFrame)
-    else
-        -- For "ready" trigger (default): Show glow when NOT on cooldown
-        shouldGlow = not IsSpellOnCooldown(iconFrame)
+    if custom then
+        if custom.activeGlow == true and active then
+            shouldGlow = true
+        elseif custom.maxChargesGlow == true and atMaxCharges then
+            shouldGlow = true
+        elseif custom.cooldownReadyGlow == true and not onCooldown then
+            shouldGlow = true
+        elseif custom.readyGlow == true then
+            local legacyTrigger = custom.glowTrigger
+                or (iconData.viewerType == "Buff" and "active" or "ready")
+            if legacyTrigger == "active" then
+                shouldGlow = active
+            else
+                shouldGlow = not onCooldown
+            end
+        end
     end
 
     -- Only update if state actually changed (prevent flashing)
@@ -896,7 +1193,7 @@ local function FindAndHookIconForSpell(targetSpellID)
         local viewer = _G[viewerName]
         if viewer and viewer.itemFramePool then
             for child in viewer.itemFramePool:EnumerateActive() do
-                if child and child.cooldownID and child.Cooldown then
+                if child and child.Cooldown then
                     local spellID = GetSpellIDFromIcon(child)
                     if spellID and spellID == targetSpellID then
                         -- Hook this frame if not already hooked
@@ -932,10 +1229,7 @@ local function RefreshAllReadyGlows(forceRefresh, targetSpellID, targetViewerTyp
             else
                 if forceRefresh and frameData.readyGlowActive then
                     HideReadyGlow(frame)
-                    if freshID and ShouldShowReadyGlow(freshID, viewerType) then
-                        -- 바로 재적용
-                        ShowReadyGlow(frame, freshID, viewerType)
-                    end
+                    UpdateReadyGlow(frame)
                 else
                     -- UpdateReadyGlow 내부에 디바운스 및 spellID 캐싱 로직이 완성되어 있으므로 위임
                     UpdateReadyGlow(frame)
@@ -981,7 +1275,7 @@ function IconCustomization:OpenSpellEditor(spellID, viewerType)
     end
 end
 
-local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow, defaultTrigger, resetLabel, includeReset)
+local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow, defaultTrigger, resetLabel, includeReset, capabilities)
     local function ChoiceMenu(key, values, fallback)
         local items = {}
         local selected = Current()[key] or fallback
@@ -996,42 +1290,78 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
         return items
     end
 
+    capabilities = capabilities or {}
     local custom = Current()
-    local trigger = custom.glowTrigger or defaultTrigger
     local glowType = custom.glowType or "button"
-    local triggerLabels = {
-        ready = L["Ready"] or "Ready",
-        active = L["Active"] or "Active",
-    }
     local glowTypeLabels = {
         button = L["Action Button Glow"] or "Action Button Glow",
         pixel = L["Pixel Glow"] or "Pixel Glow",
         autocast = L["Autocast Shine"] or "Autocast Shine",
         proc = L["Proc Effect"] or "Proc Effect",
     }
-    local items = {
-        {
-            text = L["State Glow"] or "State Glow",
-            rightText = custom.readyGlow == true and triggerLabels[trigger] or (L["Off"] or "Off"),
+    local glowColorMode = custom.glowColorMode
+        or (custom.glowColor and "custom" or "default")
+    local glowColorModeLabels = {
+        default = L["Default"] or "Default",
+        class = L["Class Color"] or "Class Color",
+        custom = L["Custom"] or "Custom",
+    }
+    local legacyTrigger = custom.readyGlow == true and (custom.glowTrigger or defaultTrigger) or nil
+    local items = {}
+    if capabilities.proc then
+        local procMode = custom.procGlowMode or "inherit"
+        items[#items + 1] = {
+            text = L["Proc Glow"] or "Proc Glow",
+            rightText = procMode == "on" and (L["On"] or "On")
+                or procMode == "off" and (L["Off"] or "Off")
+                or (L["Default"] or "Default"),
             menuList = {
                 {
+                    text = L["Default"] or "Default",
+                    checked = procMode == "inherit",
+                    func = function() SetGlowState("proc", nil) end,
+                },
+                {
+                    text = L["On"] or "On",
+                    checked = procMode == "on",
+                    func = function() SetGlowState("proc", "on") end,
+                },
+                {
                     text = L["Off"] or "Off",
-                    checked = custom.readyGlow ~= true,
-                    func = function() SetGlowState(nil) end,
-                },
-                {
-                    text = L["When Ready (Cooldown)"] or "When Ready (Cooldown)",
-                    checked = custom.readyGlow == true and trigger == "ready",
-                    func = function() SetGlowState("ready") end,
-                },
-                {
-                    text = L["When Active (Buff)"] or "When Active (Buff)",
-                    checked = custom.readyGlow == true and trigger == "active",
-                    func = function() SetGlowState("active") end,
+                    checked = procMode == "off",
+                    func = function() SetGlowState("proc", "off") end,
                 },
             },
-        },
-        {
+        }
+    end
+    if capabilities.active then
+        local enabled = custom.activeGlow == true or legacyTrigger == "active"
+        items[#items + 1] = {
+            text = L["Active State Glow"] or "Active State Glow",
+            checked = enabled,
+            func = function() SetGlowState("active", not enabled) end,
+        }
+    end
+    if capabilities.maxCharges then
+        local enabled = custom.maxChargesGlow == true
+        items[#items + 1] = {
+            text = L["Max Charges Glow"] or "Max Charges Glow",
+            checked = enabled,
+            func = function() SetGlowState("maxCharges", not enabled) end,
+        }
+    end
+    if capabilities.ready then
+        local enabled = custom.cooldownReadyGlow == true or legacyTrigger == "ready"
+        items[#items + 1] = {
+            text = L["Cooldown Ready Glow"] or "Cooldown Ready Glow",
+            checked = enabled,
+            func = function() SetGlowState("ready", not enabled) end,
+        }
+    end
+    if #items > 0 then
+        items[#items + 1] = { isSeparator = true }
+    end
+    items[#items + 1] = {
             text = L["Glow Type"] or "Glow Type",
             rightText = glowTypeLabels[glowType],
             menuList = ChoiceMenu("glowType", {
@@ -1040,9 +1370,18 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                 {"autocast", L["Autocast Shine"] or "Autocast Shine"},
                 {"proc", L["Proc Effect"] or "Proc Effect"},
             }, "button"),
-        },
-        {
-            text = L["Glow Color"] or "Glow Color",
+        }
+    items[#items + 1] = {
+            text = L["Glow Color Mode"] or "Glow Color Mode",
+            rightText = glowColorModeLabels[glowColorMode],
+            menuList = ChoiceMenu("glowColorMode", {
+                { "default", L["Default"] or "Default" },
+                { "class", L["Class Color"] or "Class Color" },
+                { "custom", L["Custom"] or "Custom" },
+            }, glowColorMode),
+        }
+    items[#items + 1] = {
+            text = L["Custom Glow Color"] or "Custom Glow Color",
             swatch = custom.glowColor or {r = 1, g = 0.85, b = 0.1},
             func = function()
                 local old = Current().glowColor
@@ -1056,6 +1395,7 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                     hasOpacity = false,
                     swatchFunc = function()
                         local r, g, b = ColorPickerFrame:GetColorRGB()
+                        Apply("glowColorMode", "custom")
                         Apply("glowColor", {r = r, g = g, b = b})
                     end,
                     cancelFunc = function()
@@ -1063,8 +1403,8 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                     end,
                 })
             end,
-        },
-        {
+        }
+    items[#items + 1] = {
             text = L["Pixel Glow Settings"] or "Pixel Glow Settings",
             rightText = glowType == "pixel" and string.format("%d / %d", custom.glowLines or 8, custom.glowThickness or 2) or nil,
             menuList = {
@@ -1091,8 +1431,7 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                     }, 2),
                 },
             },
-        },
-    }
+        }
     if includeReset ~= false then
         items[#items + 1] = { isSeparator = true }
         items[#items + 1] = {
@@ -1184,6 +1523,199 @@ local function BuildThresholdContextMenuItem(Current, ApplySetting)
     }
 end
 
+local function OpenMenuColorPicker(Current, ApplySetting, key, fallback)
+    if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then return end
+    local previous = NormalizeColor(Current()[key], fallback)
+    ColorPickerFrame:SetupColorPickerAndShow({
+        r = previous[1],
+        g = previous[2],
+        b = previous[3],
+        hasOpacity = false,
+        swatchFunc = function()
+            local r, g, b = ColorPickerFrame:GetColorRGB()
+            ApplySetting(key, { r = r, g = g, b = b, a = previous[4] })
+        end,
+        cancelFunc = function()
+            ApplySetting(key, {
+                r = previous[1],
+                g = previous[2],
+                b = previous[3],
+                a = previous[4],
+            })
+        end,
+    })
+end
+
+local function BuildSoundContextMenuItem(label, key, Current, ApplySetting)
+    local selected = Current()[key] or "none"
+    local soundNames = {}
+    if LSM and LSM.HashTable then
+        for name in pairs(LSM:HashTable("sound") or {}) do
+            soundNames[#soundNames + 1] = name
+        end
+        table.sort(soundNames)
+    end
+
+    local choices = {
+        {
+            text = L["None"] or "None",
+            checked = selected == "none",
+            func = function() ApplySetting(key, nil) end,
+        },
+    }
+    local pageSize = 16
+    for first = 1, #soundNames, pageSize do
+        local last = math.min(first + pageSize - 1, #soundNames)
+        local page = {}
+        for index = first, last do
+            local soundName = soundNames[index]
+            page[#page + 1] = {
+                text = soundName,
+                checked = selected == soundName,
+                func = function()
+                    ApplySetting(key, soundName)
+                    PlayConfiguredSound(soundName)
+                end,
+            }
+        end
+        choices[#choices + 1] = {
+            text = string.format("%d-%d", first, last),
+            menuList = page,
+        }
+    end
+
+    return {
+        text = label,
+        rightText = selected ~= "none" and selected or (L["None"] or "None"),
+        menuList = choices,
+    }
+end
+
+local function BuildStateEffectMenuItems(Current, ApplySetting, includeCharges)
+    local settings = Current()
+    local items = {
+        {
+            text = L["Non Active State"] or "Non Active State",
+            rightText = settings.nonActiveMode == "desaturate" and (L["Desaturate"] or "Desaturate")
+                or settings.nonActiveMode == "fullColor" and (L["Full Color"] or "Full Color")
+                or (L["Default"] or "Default"),
+            menuList = {
+                {
+                    text = L["Default"] or "Default",
+                    checked = settings.nonActiveMode == nil,
+                    func = function() ApplySetting("nonActiveMode", nil) end,
+                },
+                {
+                    text = L["Desaturate When Not Active"] or "Desaturate When Not Active",
+                    checked = settings.nonActiveMode == "desaturate",
+                    func = function() ApplySetting("nonActiveMode", "desaturate") end,
+                },
+                {
+                    text = L["Full Color"] or "Full Color",
+                    checked = settings.nonActiveMode == "fullColor",
+                    func = function() ApplySetting("nonActiveMode", "fullColor") end,
+                },
+            },
+        },
+        {
+            text = L["Cooldown State Effect"] or "Cooldown State Effect",
+            rightText = settings.cooldownStateEffect == "lowerAlphaOnCD"
+                    and (L["Lower Alpha on Cooldown"] or "Lower Alpha on Cooldown")
+                or settings.cooldownStateEffect == "hiddenOnCD"
+                    and (L["Hidden on Cooldown"] or "Hidden on Cooldown")
+                or settings.cooldownStateEffect == "hiddenReady"
+                    and (L["Hidden When Ready"] or "Hidden When Ready")
+                or (L["None"] or "None"),
+            menuList = {
+                {
+                    text = L["None"] or "None",
+                    checked = settings.cooldownStateEffect == nil,
+                    func = function() ApplySetting("cooldownStateEffect", nil) end,
+                },
+                {
+                    text = L["Lower Alpha on Cooldown"] or "Lower Alpha on Cooldown",
+                    checked = settings.cooldownStateEffect == "lowerAlphaOnCD",
+                    func = function() ApplySetting("cooldownStateEffect", "lowerAlphaOnCD") end,
+                },
+                {
+                    text = L["Hidden on Cooldown"] or "Hidden on Cooldown",
+                    checked = settings.cooldownStateEffect == "hiddenOnCD",
+                    func = function() ApplySetting("cooldownStateEffect", "hiddenOnCD") end,
+                },
+                {
+                    text = L["Hidden When Ready"] or "Hidden When Ready",
+                    checked = settings.cooldownStateEffect == "hiddenReady",
+                    func = function() ApplySetting("cooldownStateEffect", "hiddenReady") end,
+                },
+            },
+        },
+        {
+            text = L["Cooldown State Opacity"] or "Cooldown State Opacity",
+            rightText = string.format("%d%%", math.floor((tonumber(settings.cooldownStateAlpha) or 0.5) * 100 + 0.5)),
+            menuList = {},
+        },
+    }
+    for _, alpha in ipairs({ 0.25, 0.4, 0.5, 0.6, 0.75 }) do
+        local capturedAlpha = alpha
+        items[3].menuList[#items[3].menuList + 1] = {
+            text = string.format("%d%%", math.floor(capturedAlpha * 100 + 0.5)),
+            checked = (tonumber(settings.cooldownStateAlpha) or 0.5) == capturedAlpha,
+            func = function() ApplySetting("cooldownStateAlpha", capturedAlpha) end,
+        }
+    end
+
+    if includeCharges then
+        local chargeMenu = {
+            {
+                text = L["Charge Count"] or "Charge Count",
+                rightText = settings.chargeCountMode == "show" and (L["Show"] or "Show")
+                    or settings.chargeCountMode == "hide" and (L["Hide"] or "Hide")
+                    or (L["Default"] or "Default"),
+                menuList = {
+                    {
+                        text = L["Default"] or "Default",
+                        checked = settings.chargeCountMode == nil,
+                        func = function() ApplySetting("chargeCountMode", nil) end,
+                    },
+                    {
+                        text = L["Show"] or "Show",
+                        checked = settings.chargeCountMode == "show",
+                        func = function() ApplySetting("chargeCountMode", "show") end,
+                    },
+                    {
+                        text = L["Hide"] or "Hide",
+                        checked = settings.chargeCountMode == "hide",
+                        func = function() ApplySetting("chargeCountMode", "hide") end,
+                    },
+                },
+            },
+        }
+        for _, option in ipairs({
+            { "chargeHideSwipe", L["Hide Recharge Swipe"] or "Hide Recharge Swipe" },
+            { "chargeHideEdge", L["Hide Recharge Edge"] or "Hide Recharge Edge" },
+            { "chargeHideDuration", L["Hide Duration With Charges"] or "Hide Duration With Charges" },
+        }) do
+            local capturedKey = option[1]
+            local label = option[2]
+            chargeMenu[#chargeMenu + 1] = {
+                text = label,
+                checked = settings[capturedKey] == true,
+                func = function()
+                    ApplySetting(
+                        capturedKey,
+                        settings[capturedKey] ~= true and true or nil
+                    )
+                end,
+            }
+        end
+        items[#items + 1] = {
+            text = L["Charge Display"] or "Charge Display",
+            menuList = chargeMenu,
+        }
+    end
+    return items
+end
+
 function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettingsChanged, glowOnly)
     if issecretvalue and issecretvalue(spellID) then return nil end
     if spellID == nil then return nil end
@@ -1226,21 +1758,25 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
         RefreshGlow()
     end
 
-    local function SetGlowState(nextTrigger)
-        if not nextTrigger then
-            local custom = spells[spellKey]
-            if custom then
-                custom.readyGlow = nil
-                custom.glowTrigger = nil
-            end
+    local function SetGlowState(state, value)
+        spells[spellKey] = spells[spellKey] or {}
+        local custom = spells[spellKey]
+        if state == "proc" then
+            custom.procGlowMode = value
         else
-            spells[spellKey] = spells[spellKey] or {}
-            spells[spellKey].readyGlow = true
-            spells[spellKey].glowTrigger = nextTrigger
-            FindAndHookIconForSpell(spellID)
+            local key = state == "active" and "activeGlow"
+                or state == "maxCharges" and "maxChargesGlow"
+                or "cooldownReadyGlow"
+            custom[key] = value == true and true or nil
+            custom.readyGlow = nil
+            custom.glowTrigger = nil
         end
         Compact()
         NotifyChanged()
+        FindAndHookIconForSpell(spellID)
+        if DDingUI.ProcGlow and DDingUI.ProcGlow.RefreshAll then
+            DDingUI.ProcGlow:RefreshAll()
+        end
         RefreshGlow()
     end
 
@@ -1250,13 +1786,21 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
             custom.readyGlow = nil
             custom.glowTrigger = nil
             custom.glowType = nil
+            custom.glowColorMode = nil
             custom.glowColor = nil
             custom.glowSpeed = nil
             custom.glowLines = nil
             custom.glowThickness = nil
+            custom.procGlowMode = nil
+            custom.activeGlow = nil
+            custom.maxChargesGlow = nil
+            custom.cooldownReadyGlow = nil
         end
         Compact()
         NotifyChanged()
+        if DDingUI.ProcGlow and DDingUI.ProcGlow.RefreshAll then
+            DDingUI.ProcGlow:RefreshAll()
+        end
         RefreshGlow()
     end
 
@@ -1272,6 +1816,7 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
         spells[spellKey][key] = value
         Compact()
         NotifyChanged()
+        FindAndHookIconForSpell(spellID)
         RefreshVisual()
     end
 
@@ -1290,7 +1835,13 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
             ResetGlow,
             defaultTrigger,
             L["Reset Glow"] or "Reset Glow",
-            true
+            true,
+            {
+                proc = viewerType ~= "Buff",
+                active = true,
+                maxCharges = viewerType ~= "Buff",
+                ready = viewerType ~= "Buff",
+            }
         )
     end
     local menuItems = {}
@@ -1325,9 +1876,50 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
     menuItems[#menuItems + 1] = { isSeparator = true }
     menuItems[#menuItems + 1] = VisualChoice(
         L["Active State"] or "Active State",
-        "activeStateMode",
-        inheritShowHide
+        "activeSwipeMode",
+        {
+            { "inherit", L["Default"] or "Default" },
+            { "custom", L["Swipe Color"] or "Swipe Color" },
+            { "class", L["Class Color"] or "Class Color" },
+            { "hidden", L["Hide Active State"] or "Hide Active State" },
+        }
     )
+    menuItems[#menuItems + 1] = {
+        text = L["Active Swipe Color"] or "Active Swipe Color",
+        swatch = Current().activeSwipeColor or { r = 1, g = 0.776, b = 0.376, a = 0.8 },
+        func = function()
+            ApplyVisual("activeSwipeMode", "custom")
+            OpenMenuColorPicker(
+                Current,
+                ApplyVisual,
+                "activeSwipeColor",
+                { 1, 0.776, 0.376, 0.8 }
+            )
+        end,
+    }
+    menuItems[#menuItems + 1] = {
+        text = L["Active Border"] or "Active Border",
+        checked = Current().activeBorderEnabled == true,
+        func = function()
+            ApplyVisual(
+                "activeBorderEnabled",
+                Current().activeBorderEnabled ~= true and true or nil
+            )
+        end,
+    }
+    menuItems[#menuItems + 1] = {
+        text = L["Active Border Color"] or "Active Border Color",
+        swatch = Current().activeBorderColor or { r = 1, g = 0.776, b = 0.376, a = 1 },
+        func = function()
+            ApplyVisual("activeBorderEnabled", true)
+            OpenMenuColorPicker(
+                Current,
+                ApplyVisual,
+                "activeBorderColor",
+                { 1, 0.776, 0.376, 1 }
+            )
+        end,
+    }
     if viewerType == "Buff" then
         menuItems[#menuItems + 1] = VisualChoice(
             L["Always Show Buff"] or "Always Show Buff",
@@ -1347,6 +1939,11 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
                 { "off", L["Full Color"] or "Full Color" },
             }
         )
+    end
+    if viewerType ~= "Buff" then
+        for _, item in ipairs(BuildStateEffectMenuItems(Current, ApplyVisual, true)) do
+            menuItems[#menuItems + 1] = item
+        end
     end
     menuItems[#menuItems + 1] = VisualChoice(
         L["Cooldown Swipe"] or "Cooldown Swipe",
@@ -1374,6 +1971,27 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
         inheritShowHide
     )
     menuItems[#menuItems + 1] = BuildThresholdContextMenuItem(Current, ApplyVisual)
+    if viewerType == "Buff" then
+        menuItems[#menuItems + 1] = BuildSoundContextMenuItem(
+            L["Audio on Buff Gain"] or "Audio on Buff Gain",
+            "buffGainSound",
+            Current,
+            ApplyVisual
+        )
+        menuItems[#menuItems + 1] = BuildSoundContextMenuItem(
+            L["Audio on Buff Loss"] or "Audio on Buff Loss",
+            "buffLossSound",
+            Current,
+            ApplyVisual
+        )
+    else
+        menuItems[#menuItems + 1] = BuildSoundContextMenuItem(
+            L["Audio Effect on Cooldown Ready"] or "Audio Effect on Cooldown Ready",
+            "cooldownReadySound",
+            Current,
+            ApplyVisual
+        )
+    end
     menuItems[#menuItems + 1] = { isSeparator = true }
     menuItems[#menuItems + 1] = {
         text = L["Reset Icon"] or "Reset Icon",
@@ -1410,13 +2028,17 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         Refresh()
     end
 
-    local function SetGlowState(nextTrigger)
-        if not nextTrigger then
+    local function SetGlowState(state, value)
+        iconData.settings.customStateGlow = iconData.settings.customStateGlow or {}
+        local custom = iconData.settings.customStateGlow
+        local key = state == "active" and "activeGlow"
+            or state == "maxCharges" and "maxChargesGlow"
+            or "cooldownReadyGlow"
+        custom[key] = value == true and true or nil
+        custom.readyGlow = nil
+        custom.glowTrigger = nil
+        if next(custom) == nil then
             iconData.settings.customStateGlow = nil
-        else
-            iconData.settings.customStateGlow = iconData.settings.customStateGlow or {}
-            iconData.settings.customStateGlow.readyGlow = true
-            iconData.settings.customStateGlow.glowTrigger = nextTrigger
         end
         if onSettingsChanged then onSettingsChanged(iconData.settings.customStateGlow) end
         Refresh()
@@ -1436,7 +2058,12 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             ResetGlow,
             defaultTrigger,
             L["Reset Glow"] or "Reset Glow",
-            true
+            true,
+            {
+                active = iconData.type == "aura" or iconData.type == "trinketProc",
+                maxCharges = iconData.type == "spell",
+                ready = iconData.type ~= "aura",
+            }
         )
     end
     local menuItems = {}
@@ -1527,6 +2154,54 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     if iconData.type == "aura" or iconData.type == "trinketProc" then
         stateItems[#stateItems + 1] = { isSeparator = true }
         stateItems[#stateItems + 1] = StateChoice(
+            L["Active State"] or "Active State",
+            "activeSwipeMode",
+            {
+                { "inherit", L["Default"] or "Default" },
+                { "custom", L["Swipe Color"] or "Swipe Color" },
+                { "class", L["Class Color"] or "Class Color" },
+                { "hidden", L["Hide Active State"] or "Hide Active State" },
+            }
+        )
+        stateItems[#stateItems + 1] = {
+            text = L["Active Swipe Color"] or "Active Swipe Color",
+            swatch = iconData.settings.activeSwipeColor
+                or { r = 1, g = 0.776, b = 0.376, a = 0.8 },
+            func = function()
+                ApplyStateSetting("activeSwipeMode", "custom")
+                OpenMenuColorPicker(
+                    function() return iconData.settings end,
+                    ApplyStateSetting,
+                    "activeSwipeColor",
+                    { 1, 0.776, 0.376, 0.8 }
+                )
+            end,
+        }
+        stateItems[#stateItems + 1] = {
+            text = L["Active Border"] or "Active Border",
+            checked = iconData.settings.activeBorderEnabled == true,
+            func = function()
+                ApplyStateSetting(
+                    "activeBorderEnabled",
+                    iconData.settings.activeBorderEnabled ~= true and true or nil
+                )
+            end,
+        }
+        stateItems[#stateItems + 1] = {
+            text = L["Active Border Color"] or "Active Border Color",
+            swatch = iconData.settings.activeBorderColor
+                or { r = 1, g = 0.776, b = 0.376, a = 1 },
+            func = function()
+                ApplyStateSetting("activeBorderEnabled", true)
+                OpenMenuColorPicker(
+                    function() return iconData.settings end,
+                    ApplyStateSetting,
+                    "activeBorderColor",
+                    { 1, 0.776, 0.376, 1 }
+                )
+            end,
+        }
+        stateItems[#stateItems + 1] = StateChoice(
             L["Always Show Buff"] or "Always Show Buff",
             "alwaysShow",
             {
@@ -1544,6 +2219,14 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
                 { "off", L["Full Color"] or "Full Color" },
             }
         )
+    else
+        for _, item in ipairs(BuildStateEffectMenuItems(
+            function() return iconData.settings end,
+            ApplyStateSetting,
+            false
+        )) do
+            stateItems[#stateItems + 1] = item
+        end
     end
 
     for _, item in ipairs(stateItems) do
@@ -1553,6 +2236,27 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         function() return iconData.settings end,
         ApplyStateSetting
     )
+    if iconData.type == "aura" or iconData.type == "trinketProc" then
+        menuItems[#menuItems + 1] = BuildSoundContextMenuItem(
+            L["Audio on Buff Gain"] or "Audio on Buff Gain",
+            "buffGainSound",
+            function() return iconData.settings end,
+            ApplyStateSetting
+        )
+        menuItems[#menuItems + 1] = BuildSoundContextMenuItem(
+            L["Audio on Buff Loss"] or "Audio on Buff Loss",
+            "buffLossSound",
+            function() return iconData.settings end,
+            ApplyStateSetting
+        )
+    else
+        menuItems[#menuItems + 1] = BuildSoundContextMenuItem(
+            L["Audio Effect on Cooldown Ready"] or "Audio Effect on Cooldown Ready",
+            "cooldownReadySound",
+            function() return iconData.settings end,
+            ApplyStateSetting
+        )
+    end
     return menuItems
 end
 
@@ -1569,7 +2273,13 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
     if not frame then return end
     local frameData = GetFrameData(frame)
     local key = "DDingUI_DynamicStateGlow"
-    if not settings or settings.readyGlow ~= true or shouldGlow ~= true then
+    local configured = settings and (
+        settings.readyGlow == true
+        or settings.activeGlow == true
+        or settings.maxChargesGlow == true
+        or settings.cooldownReadyGlow == true
+    )
+    if not configured or shouldGlow ~= true then
         if frameData.dynamicGlowActive then
             StopAllGlows(frame, key)
             frameData.dynamicGlowActive = nil
@@ -1579,7 +2289,15 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
     end
 
     local glowType = settings.glowType or "button"
-    local glowColor = settings.glowColor or { r = 1, g = 0.85, b = 0.1 }
+    local glowColor
+    if settings.glowColorMode == "class" then
+        glowColor = GetPlayerClassColor()
+    elseif settings.glowColorMode == "custom"
+        or (settings.glowColorMode == nil and settings.glowColor)
+    then
+        glowColor = settings.glowColor
+    end
+    glowColor = glowColor or { r = 1, g = 0.85, b = 0.1 }
     local signature = table.concat({
         glowType,
         tostring(glowColor.r or glowColor[1] or 1),
@@ -2124,9 +2842,33 @@ function IconCustomization:ApplySpellCustomization(iconFrame, spellID)
     local custom = GetSpellCustomization(spellID, viewerType)
     if not custom or not IsSpellCustomized(spellID, viewerType) then return end
 
-    -- Hook cooldown frame for ready glow
-    if custom.readyGlow == true then
+    if NeedsRuntimeHook(custom) then
         HookCooldownFrame(iconFrame)
+        UpdateReadyGlow(iconFrame)
+    end
+end
+
+function IconCustomization:ApplyDynamicIconState(frame, settings, active, ready)
+    if not frame or type(settings) ~= "table" then return end
+    GetFrameData(frame).dynamicIcon = true
+    local onCooldown = active ~= true and ready ~= true
+    ApplyNativeStateAppearance(frame, settings, active == true, onCooldown, false)
+    UpdateNativeStateSounds(frame, settings, active == true, onCooldown)
+
+    local cooldown = frame.cooldown or frame.Cooldown
+    local mode = settings.activeSwipeMode
+    if cooldown and active == true then
+        if mode == "hidden" then
+            if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(false) end
+        elseif mode == "class" or mode == "custom" then
+            local color = mode == "class"
+                and GetPlayerClassColor()
+                or NormalizeColor(settings.activeSwipeColor)
+            if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(true) end
+            if cooldown.SetSwipeColor then
+                cooldown:SetSwipeColor(color[1], color[2], color[3], color[4])
+            end
+        end
     end
 end
 
@@ -2138,8 +2880,9 @@ function IconCustomization:HookIconFrame(iconFrame)
 
     local viewerType = GetViewerType(iconFrame)
     local custom = GetSpellCustomization(spellID, viewerType)
-    if custom.readyGlow == true then
+    if NeedsRuntimeHook(custom) then
         HookCooldownFrame(iconFrame)
+        UpdateReadyGlow(iconFrame)
     end
 end
 
@@ -2182,7 +2925,7 @@ function IconCustomization:Initialize()
             -- [REPARENT] itemFramePool:EnumerateActive()로 전환
             if viewer and viewer.itemFramePool then
                 for child in viewer.itemFramePool:EnumerateActive() do
-                    if child and child.cooldownID and child.Cooldown then
+                    if child and child.Cooldown then
                         IconCustomization:HookIconFrame(child)
                     end
                 end
@@ -2204,9 +2947,12 @@ function IconCustomization:Initialize()
                 for frame, _ in pairs(hookedFrames) do
                     if frame and not frame:IsForbidden() then
                         local fd = FrameData[frame]
+                        ApplyNativeStateAppearance(frame, nil, false, false, true)
                         if fd then
                             fd.cachedSpellID = nil
                             fd.viewerType = nil
+                            fd.lastSoundActive = nil
+                            fd.lastSoundOnCooldown = nil
                         end
                         HideReadyGlow(frame)
                     end
@@ -2223,7 +2969,7 @@ function IconCustomization:Initialize()
                         -- [REPARENT] itemFramePool:EnumerateActive()로 전환
                         if viewer and viewer.itemFramePool then
                             for child in viewer.itemFramePool:EnumerateActive() do
-                                if child and child.cooldownID and child.Cooldown then
+                                if child and child.Cooldown then
                                     -- Re-read spellID from frame
                                     local fd = FrameData[child]
                                     if fd then fd.cachedSpellID = nil end
@@ -2279,7 +3025,7 @@ SlashCmdList["DDINGUIDEBUG"] = function(msg)
     print("  Active icon count: " .. #children)
 
     for i, child in ipairs(children) do
-        if child and child.cooldownID and child.Cooldown then
+        if child and child.Cooldown then
             local spellID = GetSpellIDFromIcon(child)
             local viewerType = GetViewerType(child)
             local buffActive = IsBuffActiveForIcon(child)  -- Uses IsShown(), SECRET-SAFE

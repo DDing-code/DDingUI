@@ -3487,18 +3487,59 @@ end
 local function CopyGlowSettings(settings)
     if type(settings) ~= "table" then return nil end
     local copy = {}
-    for key, value in pairs(settings) do
-        if type(value) == "table" then
-            local child = {}
-            for childKey, childValue in pairs(value) do
-                child[childKey] = childValue
+    local glowKeys = {
+        readyGlow = true,
+        glowTrigger = true,
+        procGlowMode = true,
+        activeGlow = true,
+        maxChargesGlow = true,
+        cooldownReadyGlow = true,
+        glowType = true,
+        glowColorMode = true,
+        glowColor = true,
+        glowSpeed = true,
+        glowLines = true,
+        glowThickness = true,
+    }
+    for key in pairs(glowKeys) do
+        local value = settings[key]
+        if value ~= nil then
+            if type(value) == "table" then
+                local child = {}
+                for childKey, childValue in pairs(value) do
+                    child[childKey] = childValue
+                end
+                copy[key] = child
+            else
+                copy[key] = value
             end
-            copy[key] = child
-        else
-            copy[key] = value
         end
     end
     return copy
+end
+
+local function MergeGlowSettings(target, settings)
+    if type(target) ~= "table" then target = {} end
+    for _, key in ipairs({
+        "readyGlow",
+        "glowTrigger",
+        "procGlowMode",
+        "activeGlow",
+        "maxChargesGlow",
+        "cooldownReadyGlow",
+        "glowType",
+        "glowColorMode",
+        "glowColor",
+        "glowSpeed",
+        "glowLines",
+        "glowThickness",
+    }) do
+        target[key] = nil
+    end
+    for key, value in pairs(settings or {}) do
+        target[key] = type(value) == "table" and CopyGlowSettings({ [key] = value })[key] or value
+    end
+    return target
 end
 
 local function CollectGroupGlowSpellKeys(groupName, includeAllGroups)
@@ -3551,7 +3592,10 @@ local function ApplyGlowSettingsToProfile(profile, scope, groupName, settings, s
     profile.iconCustomization = profile.iconCustomization or {}
     profile.iconCustomization.spells = profile.iconCustomization.spells or {}
     for spellKey in pairs(spellKeys or {}) do
-        profile.iconCustomization.spells[spellKey] = CopyGlowSettings(copied)
+        profile.iconCustomization.spells[spellKey] = MergeGlowSettings(
+            profile.iconCustomization.spells[spellKey],
+            copied
+        )
         changed = true
     end
     return changed
