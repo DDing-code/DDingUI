@@ -2222,7 +2222,7 @@ local function AssignedGridPreviewSettings(groupName)
     return groupSettings or {}
 end
 
-local function AssignedGridBuildLayout(settings, count)
+local function AssignedGridBuildLayout(settings, count, overflowCount)
     local layout = {
         slots = {},
         width = 1,
@@ -2238,7 +2238,27 @@ local function AssignedGridBuildLayout(settings, count)
     layout.rowLimit = rowLimit
     layout.layoutType = layoutType
 
-    local spacing = layout.spacing
+    local overflowScale = 1
+    local measuredCount = overflowCount or count
+    if settings and settings.overflowMode == "shrink" and rowLimit > 0 and measuredCount > rowLimit then
+        local baseSize = math.max(1, AssignedGridNumber(settings.iconSize, 32))
+        local minScale = math.min(1, 16 / baseSize)
+        overflowScale = math.max(minScale, rowLimit / measuredCount)
+        rowLimit = 0
+        layout.rowLimit = 0
+    end
+
+    local spacing = AssignedGridPixelSnap(layout.spacing * overflowScale)
+    layout.spacing = spacing
+
+    local function GetPreviewDimensions(line)
+        local width, height = AssignedGridIconDimensions(settings, line)
+        if overflowScale < 1 then
+            width = math.max(1, AssignedGridPixelSnap(width * overflowScale))
+            height = math.max(1, AssignedGridPixelSnap(height * overflowScale))
+        end
+        return width, height
+    end
 
     if layoutType == "VERTICAL" then
         local iconsPerColumn = rowLimit > 0 and math.max(1, rowLimit) or count
@@ -2247,7 +2267,7 @@ local function AssignedGridBuildLayout(settings, count)
         local totalW, maxH = 0, 0
 
         for column = 1, numColumns do
-            local iconW, iconH = AssignedGridIconDimensions(settings, column)
+            local iconW, iconH = GetPreviewDimensions(column)
             local startIndex = (column - 1) * iconsPerColumn + 1
             local endIndex = math.min(column * iconsPerColumn, count)
             local columnCount = endIndex - startIndex + 1
@@ -2316,7 +2336,7 @@ local function AssignedGridBuildLayout(settings, count)
     local maxW, totalH = 0, 0
 
     for row = 1, numRows do
-        local iconW, iconH = AssignedGridIconDimensions(settings, row)
+        local iconW, iconH = GetPreviewDimensions(row)
         local startIndex = (row - 1) * iconsPerRow + 1
         local endIndex = math.min(row * iconsPerRow, count)
         local rowCount = endIndex - startIndex + 1
@@ -3216,7 +3236,7 @@ end
 function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
     local rows = GetAssignedGridRows(groupName)
     local settings = AssignedGridPreviewSettings(groupName)
-    local layout = AssignedGridBuildLayout(settings, #rows + 1)
+    local layout = AssignedGridBuildLayout(settings, #rows + 1, #rows)
     width = tonumber(width) or 760
 
     return math.max(34, (layout.height or 1) + 18)
@@ -3394,7 +3414,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
     local settings = AssignedGridPreviewSettings(groupName)
     local count = #rows
-    local layout = AssignedGridBuildLayout(settings, count + 1)
+    local layout = AssignedGridBuildLayout(settings, count + 1, count)
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
 
@@ -4513,6 +4533,7 @@ end
 
 -- [CDM 통합] 그룹 설정 읽기/쓰기 — 모든 그룹 동일 (groupSettings가 단일 소스)
 local function GS_Range(groupName, key, name, order, default, min, max, step, extra)
+    local marksCustomStyle = extra and extra.marksCustomStyle
     local opt = {
         type = "range", name = name, order = order, width = "full",
         min = min, max = max, step = step,
@@ -4522,11 +4543,20 @@ local function GS_Range(groupName, key, name, order, default, min, max, step, ex
         end,
         set = function(_, val)
             local gs = GetGS()
-            if gs and gs.groups[groupName] then gs.groups[groupName][key] = val end
+            if gs and gs.groups[groupName] then
+                gs.groups[groupName][key] = val
+                if marksCustomStyle then
+                    gs.groups[groupName].stylePreset = "custom"
+                end
+            end
             RefreshGroupSystem()
         end,
     }
-    if extra then for k, v in pairs(extra) do opt[k] = v end end
+    if extra then
+        for k, v in pairs(extra) do
+            if k ~= "marksCustomStyle" then opt[k] = v end
+        end
+    end
     return opt
 end
 
@@ -4578,6 +4608,66 @@ local function GS_Toggle(groupName, key, name, order, default, desc)
             end
         end,
     }
+end
+
+local STYLE_PRESETS = {
+    compact = {
+        iconSize = 28,
+        spacing = 1,
+        borderSize = 1,
+        zoom = 0.08,
+        aspectRatioCrop = 1,
+    },
+    standard = {
+        iconSize = 36,
+        spacing = 2,
+        borderSize = 1,
+        zoom = 0.08,
+        aspectRatioCrop = 1,
+    },
+    large = {
+        iconSize = 46,
+        spacing = 3,
+        borderSize = 1,
+        zoom = 0.06,
+        aspectRatioCrop = 1,
+    },
+}
+
+local STYLE_PRESET_VALUES = {
+    custom = L["Custom"] or "사용자 지정",
+    compact = L["Compact"] or "컴팩트",
+    standard = L["Standard"] or "표준",
+    large = L["Large"] or "크게",
+}
+
+local OVERFLOW_VALUES = {
+    wrap = L["Wrap"] or "줄바꿈",
+    hide = L["Hide Extra Icons"] or "초과 아이콘 숨기기",
+    shrink = L["Shrink to Fit"] or "한 줄에 맞게 축소",
+}
+
+local STATE_FILTER_VALUES = {
+    automatic = L["Normal"] or "기본",
+    active = L["Active Only"] or "활성 상태만",
+    inactive = L["Inactive Only"] or "비활성 상태만",
+}
+
+local function ApplyGroupStylePreset(groupName, presetKey)
+    local gs = GetGS()
+    local group = gs and gs.groups and gs.groups[groupName]
+    if not group then return end
+
+    group.stylePreset = presetKey
+    local preset = STYLE_PRESETS[presetKey]
+    if preset then
+        for key, value in pairs(preset) do
+            group[key] = value
+        end
+    end
+
+    RefreshGroupSystem()
+    SoftRefreshGroupSystemOptions(0)
 end
 
 local ANCHOR_POINTS = {
@@ -4787,13 +4877,32 @@ local function CreateGroupOptions(groupName, order)
             end,
         } or nil,
         appearanceHeader = { type = "header", name = L["Appearance"] or "외관", order = 1 },
-        iconSize = GS_Range(groupName, "iconSize", L["Icon Size"] or "아이콘 크기", 2, 32, 16, 80, 1),
-        spacing = GS_Range(groupName, "spacing", L["Spacing"] or "간격", 3, 2, 0, 20, 1),
-        borderSize = GS_Range(groupName, "borderSize", L["Border Size"] or "테두리 크기", 4, 1, 0, 5, 1),
+        stylePreset = {
+            type = "select",
+            name = L["Style Preset"] or "스타일 프리셋",
+            desc = L["Apply a consistent icon size, spacing, border, crop, and zoom preset."] or "아이콘 크기, 간격, 테두리, 크롭, 줌을 한 번에 적용합니다.",
+            order = 1.5,
+            width = "full",
+            values = STYLE_PRESET_VALUES,
+            get = function()
+                local gs = GetGS()
+                local group = gs and gs.groups and gs.groups[groupName]
+                return group and group.stylePreset or "custom"
+            end,
+            set = function(_, value)
+                ApplyGroupStylePreset(groupName, value)
+            end,
+        },
+        iconSize = GS_Range(groupName, "iconSize", L["Icon Size"] or "아이콘 크기", 2, 32, 16, 80, 1, { marksCustomStyle = true }),
+        spacing = GS_Range(groupName, "spacing", L["Spacing"] or "간격", 3, 2, 0, 20, 1, { marksCustomStyle = true }),
+        borderSize = GS_Range(groupName, "borderSize", L["Border Size"] or "테두리 크기", 4, 1, 0, 5, 1, { marksCustomStyle = true }),
         borderColor = GS_Color(groupName, "borderColor", L["Border Color"] or "테두리 색상", 5, {0,0,0,1}),
-        zoom = GS_Range(groupName, "zoom", L["Zoom"] or "줌", 6, 0.08, 0, 0.3, 0.01, { isPercent = true }),
+        zoom = GS_Range(groupName, "zoom", L["Zoom"] or "줌", 6, 0.08, 0, 0.3, 0.01, { isPercent = true, marksCustomStyle = true }),
         aspectRatio = GS_Range(groupName, "aspectRatioCrop", L["Aspect Ratio"] or "종횡비", 7, 1.0, 0.5, 2.5, 0.01, -- [12.0.1]
-            { desc = L["Control the icon aspect ratio. 1.0 = square, >1.0 = wider, <1.0 = taller"] or "아이콘 종횡비. 1.0=정사각형, >1.0=가로형, <1.0=세로형" }),
+            {
+                desc = L["Control the icon aspect ratio. 1.0 = square, >1.0 = wider, <1.0 = taller"] or "아이콘 종횡비. 1.0=정사각형, >1.0=가로형, <1.0=세로형",
+                marksCustomStyle = true,
+            }),
         groupAlpha = GS_Range(groupName, "groupAlpha", L["Opacity"] or "투명도", 8, 1.0, 0, 1.0, 0.05, { isPercent = true }),
         showInactiveIcons = (category == "buff") and GS_Toggle(
             groupName,
@@ -4807,6 +4916,31 @@ local function CreateGroupOptions(groupName, order)
         direction = GS_Select(groupName, "direction", L["Growth Direction"] or "성장 방향", 11, "RIGHT", DIRECTION_VALUES),
         growDirection = GS_Select(groupName, "growDirection", L["Wrap Direction"] or "줄바꿈 방향", 12, "DOWN", DIRECTION_VALUES),
         rowLimit = GS_Range(groupName, "rowLimit", L["Icons Per Row"] or "줄당 아이콘 수", 13, 8, 1, 20, 1),
+        overflowMode = GS_Select(groupName, "overflowMode", L["Overflow"] or "오버플로", 13.01, "wrap", OVERFLOW_VALUES),
+        stateFilter = (category == "buff") and {
+            type = "select",
+            name = L["State Filter"] or "상태 필터",
+            desc = L["Choose which known aura states participate in this group's layout. Unknown protected states remain visible."] or "확인 가능한 강화효과 상태만 필터링합니다. 보호된 상태처럼 확인할 수 없는 아이콘은 계속 표시합니다.",
+            order = 13.02,
+            width = "full",
+            values = STATE_FILTER_VALUES,
+            get = function()
+                local gs = GetGS()
+                local group = gs and gs.groups and gs.groups[groupName]
+                return group and group.stateFilter or "automatic"
+            end,
+            set = function(_, value)
+                local gs = GetGS()
+                local group = gs and gs.groups and gs.groups[groupName]
+                if not group then return end
+                group.stateFilter = value
+                if value == "inactive" and group.showInactiveIcons ~= true then
+                    group.showInactiveIcons = true
+                    EnsureSourceGroup(groupName)
+                end
+                RefreshGroupSystem()
+            end,
+        } or nil,
         rowIconSize1 = {
             type = "range", name = L["Row 1 Icon Size"] or "1번 줄 아이콘 크기",
             desc = L["Override the icon size for the first row. Set to 0 to use the base Icon Size value."] or "1번 줄에만 적용될 아이콘 크기를 덮어씁니다. 0으로 설정하면 기본 아이콘 크기를 사용합니다.",

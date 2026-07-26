@@ -726,6 +726,65 @@ local function ShouldLayoutManagedIcon(icon)
     return icon:IsShown()
 end
 
+local function IsSecretValue(value)
+    return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
+local function ReadSafeBoolean(value)
+    if not IsSecretValue(value) and type(value) == "boolean" then
+        return value
+    end
+    return nil
+end
+
+local function ReadManagedIconActiveState(icon)
+    if not icon then return nil end
+    if icon._ddInactiveGray == true then return false end
+
+    local active = ReadSafeBoolean(icon._ddCustomIconActive)
+    if active ~= nil then return active end
+    active = ReadSafeBoolean(icon._auraWasActive)
+    if active ~= nil then return active end
+    active = ReadSafeBoolean(icon._ddCDMActive)
+    if active ~= nil then return active end
+    return ReadSafeBoolean(icon.isActive)
+end
+
+local function MatchesManagedIconState(icon, stateFilter)
+    if stateFilter ~= "active" and stateFilter ~= "inactive" then return true end
+    local active = ReadManagedIconActiveState(icon)
+    if active == nil then return true end
+    return (stateFilter == "active" and active) or (stateFilter == "inactive" and not active)
+end
+
+local function CanRestoreLayoutFilteredIcon(icon)
+    if not icon or icon._ddingHidden or icon._ddSuppressed then return false end
+    if icon._ddLayoutVisible == false then return false end
+    if icon._ddIconKey and (icon._ddManagedAuraExpired or (icon._ddCombatKeepAlive and icon._ddCombatVisible == false)) then
+        return false
+    end
+    return not GroupRenderer:IsHiddenSourceBuffIcon(icon)
+end
+
+local function RestoreLayoutFilteredIcon(icon)
+    if not icon then return end
+    local wasFiltered = icon._ddStateFiltered or icon._ddOverflowFiltered
+    if wasFiltered and InCombatLockdown() and icon.IsProtected and icon:IsProtected() then return end
+    icon._ddStateFiltered = nil
+    icon._ddOverflowFiltered = nil
+    if wasFiltered and CanRestoreLayoutFilteredIcon(icon) and icon.Show then
+        icon:Show()
+    end
+end
+
+local function HideLayoutFilteredIcon(icon, flag)
+    if not icon then return false end
+    if InCombatLockdown() and icon.IsProtected and icon:IsProtected() then return false end
+    icon[flag] = true
+    if icon.Hide then icon:Hide() end
+    return true
+end
+
 local function BuildCDMPlacement(entry)
     if not entry or not entry.icon then return nil end
     entry.isCDM = true
@@ -1411,6 +1470,8 @@ local function BuildGroupRenderSettingsHash(groupSettings)
     AddHashValue(parts, "direction", groupSettings.direction)
     AddHashValue(parts, "growDirection", groupSettings.growDirection)
     AddHashValue(parts, "rowLimit", groupSettings.rowLimit)
+    AddHashValue(parts, "overflowMode", groupSettings.overflowMode)
+    AddHashValue(parts, "stateFilter", groupSettings.stateFilter)
     AddHashValue(parts, "zoom", groupSettings.zoom)
     AddHashValue(parts, "borderSize", groupSettings.borderSize)
     AddHashColor(parts, "borderColor", groupSettings.borderColor)
@@ -2541,6 +2602,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 icon._ddLayoutHooked = true
                 icon:HookScript("OnHide", function(self)
                     if not self._ddIsManaged then return end
+                    if self._ddStateFiltered or self._ddOverflowFiltered then return end
                     -- [REPARENT] _ddContainerRef 사용 (parent는 UIParent)
                     local p = self._ddContainerRef
                     if not (p and p._isDDContainer and p._groupName) then return end
@@ -2566,6 +2628,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                                     primaryDirection = cachedGS.direction or "RIGHT",
                                     secondaryDirection = cachedGS.growDirection,
                                     rowLimit = cachedGS.rowLimit or 0,
+                                    overflowMode = cachedGS.overflowMode or "wrap",
+                                    stateFilter = cachedGS.stateFilter or "automatic",
                                     rowIconSizes = cachedGS.rowIconSizes,
                                     groupCategory = cachedGS.groupCategory,
                                     iconMotion = cachedGS.iconMotion,
@@ -2617,6 +2681,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         primaryDirection = groupSettings.direction or "RIGHT",
         secondaryDirection = groupSettings.growDirection,
         rowLimit = groupSettings.rowLimit or 0,
+        overflowMode = groupSettings.overflowMode or "wrap",
+        stateFilter = groupSettings.stateFilter or "automatic",
         rowIconSizes = groupSettings.rowIconSizes,
         groupOffsets = resolvedGroupOffsets,
         groupCategory = groupSettings.groupCategory,
@@ -2721,6 +2787,7 @@ end
 function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     if not frame or not frame._managedIcons then return end
     local layoutHash = frame._lastCombinedLayoutHash or frame._lastDynHash
+    viewerSettings = viewerSettings or { iconSize = 32, spacing = 2, primaryDirection = "CENTERED_HORIZONTAL" }
 
     -- 뷰어 전환 중 추가된 아이콘도 숨김 상태에서 슬롯과 목표 좌표를 계산한다.
     -- 표시 여부와 레이아웃 계산을 분리해야 새 아이콘이 초기 CENTER 좌표에 남지 않는다.
@@ -2741,10 +2808,35 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     local count = 0
     for i = 1, (frame._iconCount or 0) do
         local icon = allIcons[i]
+        RestoreLayoutFilteredIcon(icon)
         if ShouldLayoutManagedIcon(icon) then
-            count = count + 1
-            icons[count] = icon
+            if MatchesManagedIconState(icon, viewerSettings.stateFilter) then
+                count = count + 1
+                icons[count] = icon
+            else
+                if not HideLayoutFilteredIcon(icon, "_ddStateFiltered") then
+                    count = count + 1
+                    icons[count] = icon
+                end
+            end
         end
+    end
+
+    local overflowMode = viewerSettings.overflowMode or "wrap"
+    local overflowLimit = math_floor((tonumber(viewerSettings.rowLimit) or 0) + 0.0001)
+    if overflowMode == "hide" and overflowLimit > 0 and count > overflowLimit then
+        local kept = overflowLimit
+        for i = overflowLimit + 1, count do
+            local icon = icons[i]
+            if HideLayoutFilteredIcon(icon, "_ddOverflowFiltered") then
+                icons[i] = nil
+            else
+                kept = kept + 1
+                icons[kept] = icon
+                if kept ~= i then icons[i] = nil end
+            end
+        end
+        count = kept
     end
     -- [FIX] 가상 최소 크기 계산 (핵심 3대 그룹만: Cooldowns, Buffs, Utility)
     -- 다이나믹 그룹은 다른 모듈이 앵커되지 않으므로 phantom 불필요
@@ -2790,11 +2882,6 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         return
     end
 
-    -- 뷰어 설정이 없으면 최소 fallback (UpdateGroup에서 이미 처리하지만 안전)
-    if not viewerSettings then
-        viewerSettings = { iconSize = 32, spacing = 2, primaryDirection = "CENTERED_HORIZONTAL" }
-    end
-
     local motionSettings
     local isBuffMotionGroup = (viewerName == "BuffIconCooldownViewer") or (viewerSettings.groupCategory == "buff")
     if isBuffMotionGroup then
@@ -2809,11 +2896,18 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
 
     -- ViewerLayout과 동일하게 방향/행제한 resolve
     local primary, secondary, rowLimit, layoutType = ResolveDirections(viewerName, viewerSettings)
+    local overflowScale = 1
+    if overflowMode == "shrink" and rowLimit > 0 and count > rowLimit then
+        local baseSize = math_max(1, tonumber(viewerSettings.iconSize) or 32)
+        local minScale = math_min(1, 16 / baseSize)
+        overflowScale = math_max(minScale, rowLimit / count)
+        rowLimit = 0
+    end
 
     -- [12.0.1] rowLimit 오버라이드 제거: 뷰어 설정의 rowLimit을 그대로 사용
     -- 기본값 0(=단일행)이므로, 유저가 명시적으로 설정한 값(예: 9)이 존중됨
 
-    local spacing = ComputeSpacing(viewerSettings)
+    local spacing = PixelSnap(ComputeSpacing(viewerSettings) * overflowScale)
 
     -- 행/열별 아이콘 크기 (rowIconSizes 지원)
     local rowDimensions = {}
@@ -2821,6 +2915,10 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         if not rowDimensions[rowIndex] then
             local overrideSize = GetRowIconSize(viewerSettings, rowIndex)
             local w, h = ComputeIconDimensions(viewerSettings, overrideSize)
+            if overflowScale < 1 then
+                w = math_max(1, PixelSnap(w * overflowScale))
+                h = math_max(1, PixelSnap(h * overflowScale))
+            end
             rowDimensions[rowIndex] = { width = w, height = h }
         end
         return rowDimensions[rowIndex].width, rowDimensions[rowIndex].height
