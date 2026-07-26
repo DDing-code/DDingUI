@@ -11,6 +11,8 @@ local specsByItem = {}
 local states = {}
 local eventFrame
 local effectEventsRegistered = false
+local normalizeQueued = false
+local purgeQueued = false
 
 local function IsPublicNumber(value)
     if type(value) ~= "number" then return false end
@@ -310,20 +312,36 @@ function TrinketEffects:RefreshEventRegistration()
     end
 end
 
+local function QueueNormalizeSavedEffects()
+    if normalizeQueued then return end
+    normalizeQueued = true
+    C_Timer.After(0, function()
+        normalizeQueued = false
+        NormalizeSavedEffectIcons()
+        TrinketEffects:RefreshEventRegistration()
+    end)
+end
+
+local function QueuePurgeUnequippedStates()
+    if purgeQueued then return end
+    purgeQueued = true
+    C_Timer.After(0, function()
+        purgeQueued = false
+        PurgeUnequippedStates()
+    end)
+end
+
 eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
-        C_Timer.After(0, function()
-            NormalizeSavedEffectIcons()
-            TrinketEffects:RefreshEventRegistration()
-        end)
+        QueueNormalizeSavedEffects()
         return
     end
     if event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then
-        C_Timer.After(0, PurgeUnequippedStates)
+        QueuePurgeUnequippedStates()
         return
     end
     local spellID, baseSpellID
@@ -356,7 +374,4 @@ if DDingUI.CustomIcons and hooksecurefunc then
     hooksecurefunc(DDingUI.CustomIcons, "LoadDynamicIcons", RefreshEffectEvents)
 end
 
-C_Timer.After(0, function()
-    NormalizeSavedEffectIcons()
-    TrinketEffects:RefreshEventRegistration()
-end)
+QueueNormalizeSavedEffects()
