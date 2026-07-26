@@ -1266,7 +1266,7 @@ function GroupManager:CreateGroup(name, settings)
     -- 삭제 기록에서 제거 (사용자가 다시 만든 것)
     if gs.deletedGroups then gs.deletedGroups[name] = nil end
 
-    -- [FIX] 생성 즉시 CustomIcons 그룹 연결 (sourceGroupKey가 없으면 UpdateDynamicGroup이 hide 처리)
+    -- 생성 즉시 CustomIcons 소스 그룹을 연결한다.
     -- CDM CDM처럼: 그룹 생성 시점에 모든 필요한 데이터를 즉시 준비
     local ci = DDingUI.CustomIcons
     if ci and ci.CreateDynamicGroup and not defaults.sourceGroupKey then
