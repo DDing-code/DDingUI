@@ -1175,10 +1175,12 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
     local trackedStacks = GetBuffStacks(frame, unit)
 
     -- GetPlayerAuraBySpellID: 항상 plain 값 반환, 최우선 소스
+    local foundResolvedAura = false
     if resolvedSpellID and resolvedSpellID > 0 then
         pcall(function()
             local directAura = C_UnitAuras.GetPlayerAuraBySpellID(resolvedSpellID)
             if directAura then
+                foundResolvedAura = true
                 trackedStacks = directAura.applications or 1
                 auraInstanceID = directAura.auraInstanceID
                 unit = "player"
@@ -1187,21 +1189,15 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
     end
 
     -- cooldownID가 resolvedSpellID와 다르면 추가 시도
-    if cooldownID > 0 and cooldownID ~= resolvedSpellID then
-        local alreadyFound = false
+    if not foundResolvedAura and cooldownID > 0 and cooldownID ~= resolvedSpellID then
         pcall(function()
-            alreadyFound = C_UnitAuras.GetPlayerAuraBySpellID(resolvedSpellID) ~= nil
+            local directAura = C_UnitAuras.GetPlayerAuraBySpellID(cooldownID)
+            if directAura then
+                trackedStacks = directAura.applications or 1
+                auraInstanceID = directAura.auraInstanceID
+                unit = "player"
+            end
         end)
-        if not alreadyFound then
-            pcall(function()
-                local directAura = C_UnitAuras.GetPlayerAuraBySpellID(cooldownID)
-                if directAura then
-                    trackedStacks = directAura.applications or 1
-                    auraInstanceID = directAura.auraInstanceID
-                    unit = "player"
-                end
-            end)
-        end
     end
 
     -- [FIX] spellID/cooldownID로 못 찾으면 spellName 기반 전역 aura 검색
