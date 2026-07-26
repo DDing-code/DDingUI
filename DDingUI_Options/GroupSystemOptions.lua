@@ -2829,20 +2829,11 @@ local function AddUnassignedRowToGroup(groupName, row)
     return false
 end
 
-local function BuildGroupAddPopupItems(groupName, unassignedRows)
+local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
-    local isBuff = IsBuffGroup(groupName, groupSettings)
+    local isBuff = addMode == "buff" or IsBuffGroup(groupName, groupSettings)
     local items = {}
-
-    if groupName ~= "Buffs" and gs and gs.groups and gs.groups.Buffs then
-        items[#items + 1] = {
-            label = rawget(L, "Add to Buffs CDM") or "Add to Buffs CDM",
-            icon = DEFAULT_BUFF_ICON_TEXTURE,
-            submenu = BuildGroupAddPopupItems("Buffs", BuildUnassignedSpellRows("Buffs")),
-        }
-        items[#items + 1] = { separator = true }
-    end
 
     if isBuff then
         local bloodlustAliases = { 2825, 32182, 80353, 90355, 160452, 264667, 390386 }
@@ -3155,7 +3146,7 @@ local function ShowGroupAddSubmenu(ownerRow, items, gf, accentR, accentG, accent
     ResetPopupRows(submenu, #items + 1)
 end
 
-function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRows, onDone)
+function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRows, onDone, addMode)
     if not owner or not groupName then return end
     local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
     local accentR, accentG, accentB = 1, 0.35, 0.12
@@ -3193,13 +3184,14 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
 
     local rowW, rowH, pad = 248, 30, 8
     local inputH = 30
-    local items = BuildGroupAddPopupItems(groupName, unassignedRows)
+    local items = BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
     local height = pad * 2 + inputH + 4 + (#items * rowH)
     popup:SetSize(rowW + pad * 2, math.max(72, height))
 
     local function SubmitCustomSpell()
         local text = popup.edit:GetText()
-        if AddSpellIDToGroup(groupName, tonumber(text)) then
+        local forcedType = addMode == "buff" and "aura" or nil
+        if AddSpellIDToGroup(groupName, tonumber(text), forcedType) then
             HideGroupIconAddPopup()
             popup.edit:SetText("")
             if onDone then onDone() end
@@ -3213,7 +3205,9 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
     popup.edit:SetSize(rowW - 34, 24)
     popup.edit:SetText("")
     popup.edit.placeholder:SetFont(gf, 11, "")
-    popup.edit.placeholder:SetText(rawget(L, "Custom Spell ID") or "Custom Spell ID")
+    popup.edit.placeholder:SetText(addMode == "buff"
+        and (rawget(L, "Custom Aura ID") or "Custom Aura ID")
+        or (rawget(L, "Custom Spell ID") or "Custom Spell ID"))
     popup.edit:SetScript("OnTextChanged", function(self)
         if (self:GetText() or "") == "" then
             self.placeholder:Show()
@@ -3261,10 +3255,10 @@ end
 function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
     local rows = GetAssignedGridRows(groupName)
     local settings = AssignedGridPreviewSettings(groupName)
-    local layout = AssignedGridBuildLayout(settings, #rows + 1, #rows)
+    local layout = AssignedGridBuildLayout(settings, #rows, #rows)
     width = tonumber(width) or 760
 
-    return math.max(34, (layout.height or 1) + 18)
+    return math.max(72, (layout.height or 1) + 52)
 end
 
 local function ShowUnassignedIconEditMenu(owner, row)
@@ -3466,9 +3460,12 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
     local settings = AssignedGridPreviewSettings(groupName)
     local count = #rows
-    local layout = AssignedGridBuildLayout(settings, count + 1, count)
+    local layout = AssignedGridBuildLayout(settings, count, count)
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local isBuffTargetGroup = IsBuffGroup(groupName, groupSettings)
 
     -- Keep the preview in the option frame's own scale. Counter-scaling it against
     -- UIParent makes WoW's mouse hit regions drift inside a scaled options window.
@@ -3492,7 +3489,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local unassignedCols = math.max(1, math.floor((width - 16 + unassignedGap) / (unassignedTileSize + unassignedGap)))
     local unassignedGridHeight = (#unassignedRows > 0) and (math.ceil(#unassignedRows / unassignedCols) * (unassignedTileSize + unassignedGap) - unassignedGap) or 0
 
-    parent:SetHeight(math.max(34, assignedPreviewHeight))
+    local addToolbarHeight = 40
+    parent:SetHeight(math.max(72, assignedPreviewHeight + addToolbarHeight))
 
     local preview = CreateFrame("Frame", nil, parent)
     assignedIconRuntimePreviews[preview] = true
@@ -4357,39 +4355,88 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         end
     end
 
-    local addPos = layout.slots[count + 1]
-    if addPos then
-        local addSlot = CreateFrame("Button", nil, preview, "BackdropTemplate")
-        addSlot:SetSize(addPos.w, addPos.h)
-        addSlot:SetPoint("TOPLEFT", preview, "TOPLEFT", startX + addPos.x, -(startY + addPos.y))
-        addSlot:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-        addSlot:SetBackdropColor(0.05, 0.035, 0.04, 0.86)
-        addSlot:SetBackdropBorderColor(1, 0.35, 0.12, 0.46)
-        addSlot:RegisterForClicks("LeftButtonUp")
+    local buttonHeight, buttonGap = 26, 6
+    local skillButtonWidth, buffButtonWidth = 142, 126
+    local toolbarWidth = isBuffTargetGroup and buffButtonWidth
+        or (skillButtonWidth + buttonGap + buffButtonWidth)
+    local toolbarX = math.floor((width - toolbarWidth) * 0.5 + 0.5)
+    local toolbarY = assignedPreviewHeight + 6
 
-        local plus = addSlot:CreateFontString(nil, "OVERLAY")
-        plus:SetPoint("CENTER", addSlot, "CENTER", 0, 0)
-        plus:SetFont(gf, math.max(16, math.floor(math.min(addPos.w, addPos.h) * 0.58)), "")
-        plus:SetText("+")
-        plus:SetTextColor(1, 0.35, 0.12, 0.95)
+    local function CreateAddButton(label, x, buttonWidth, addMode, r, g, b)
+        local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+        button:SetSize(buttonWidth, buttonHeight)
+        button:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -toolbarY)
+        button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        button:SetBackdropColor(0.035, 0.045, 0.052, 0.94)
+        button:SetBackdropBorderColor(r, g, b, 0.55)
+        button:RegisterForClicks("LeftButtonUp")
 
-        addSlot:SetScript("OnEnter", function(self)
-            self:SetBackdropBorderColor(1, 0.35, 0.12, 1)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetText(rawget(L, "Add Spell or Item") or "Add Spell or Item", 1, 1, 1, 1, true)
-            GameTooltip:Show()
+        local text = button:CreateFontString(nil, "OVERLAY")
+        text:SetPoint("CENTER")
+        text:SetFont(gf, 11, "")
+        text:SetText("+  " .. label)
+        text:SetTextColor(0.88, 0.9, 0.92, 1)
+
+        button:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(r, g, b, 1)
+            text:SetTextColor(1, 1, 1, 1)
         end)
-        addSlot:SetScript("OnLeave", function(self)
-            self:SetBackdropBorderColor(1, 0.35, 0.12, 0.46)
-            GameTooltip:Hide()
+        button:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(r, g, b, 0.55)
+            text:SetTextColor(0.88, 0.9, 0.92, 1)
         end)
-        addSlot:SetScript("OnClick", function(self)
-            if DDingUI._groupIconAddPopup and DDingUI._groupIconAddPopup:IsShown() and DDingUI._groupIconAddPopup._owner == self then
+        button:SetScript("OnClick", function(self)
+            if DDingUI._groupIconAddPopup and DDingUI._groupIconAddPopup:IsShown()
+                and DDingUI._groupIconAddPopup._owner == self
+            then
                 HideGroupIconAddPopup()
                 return
             end
-            DDingUI:ShowGroupIconAddPopup(self, groupName, settings, unassignedRows, RefreshAfterCommit)
+            local popupRows = unassignedRows
+            if addMode == "buff" and not isBuffTargetGroup then
+                popupRows = BuildUnassignedSpellRows("Buffs") or {}
+            end
+            DDingUI:ShowGroupIconAddPopup(
+                self,
+                groupName,
+                settings,
+                popupRows,
+                RefreshAfterCommit,
+                addMode
+            )
         end)
+        return button
+    end
+
+    if isBuffTargetGroup then
+        CreateAddButton(
+            rawget(L, "Add Buff Effect") or "Add Buff",
+            toolbarX,
+            buffButtonWidth,
+            "buff",
+            1,
+            0.7,
+            0.18
+        )
+    else
+        CreateAddButton(
+            rawget(L, "Add Skill or Item") or "Add Skill or Item",
+            toolbarX,
+            skillButtonWidth,
+            nil,
+            accentR,
+            accentG,
+            accentB
+        )
+        CreateAddButton(
+            rawget(L, "Add Buff Effect") or "Add Buff",
+            toolbarX + skillButtonWidth + buttonGap,
+            buffButtonWidth,
+            "buff",
+            1,
+            0.7,
+            0.18
+        )
     end
 
     if false and #unassignedRows > 0 then
