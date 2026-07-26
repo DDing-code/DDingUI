@@ -23,6 +23,9 @@ end
 local regenFrame = CreateFrame("Frame")
 regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 regenFrame:SetScript("OnEvent", function()
+    local groupSystem = DDingUI.GroupSystem
+    if not (groupSystem and groupSystem.enabled) then return end
+
     if ResetPostCombatDynamicIconState then
         ResetPostCombatDynamicIconState()
         C_Timer.After(0.05, ResetPostCombatDynamicIconState)
@@ -70,11 +73,10 @@ regenFrame:SetScript("OnEvent", function()
             fc:ForceReconcile()
         end)
     end
-    local gs = DDingUI.GroupSystem
-    if gs and gs.enabled and gs.Refresh then
+    if groupSystem.Refresh then
         C_Timer.After(0.05, function()
-            if gs.enabled then
-                pcall(gs.Refresh, gs)
+            if groupSystem.enabled then
+                pcall(groupSystem.Refresh, groupSystem)
             end
         end)
     end
