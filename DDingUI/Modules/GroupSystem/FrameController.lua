@@ -1235,11 +1235,17 @@ function FrameController:ScanCDMViewers()
 
     local changes = { ids = {}, topologyChanged = false }
     for cooldownID, icon in pairs(idIconMap) do
+        local placementDrifted = icon
+            and icon._ddIsManaged
+            and icon._ddContainerRef
+            and icon.GetParent
+            and icon:GetParent() ~= UIParent
         if nextIdIconMap[cooldownID] ~= icon
             or nextIconSourceMap[cooldownID] ~= iconSourceMap[cooldownID]
             or nextIconSpellNameMap[cooldownID] ~= iconSpellNameMap[cooldownID]
             or nextIconStateMap[cooldownID] ~= iconStateMap[cooldownID]
             or nextIconLayoutIndexMap[cooldownID] ~= iconLayoutIndexMap[cooldownID]
+            or placementDrifted
         then
             changes.ids[cooldownID] = true
             changes.topologyChanged = true
