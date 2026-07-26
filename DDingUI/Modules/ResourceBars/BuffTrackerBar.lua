@@ -2802,6 +2802,23 @@ local function StopTextAnimations(frame)
     StopAllAnimations(frame)
 end
 
+local function HideOtherTrackedBuffDisplays(barIndex, exceptType)
+    if exceptType ~= "bar" then
+        DDingUI:SafeHide(barFrames[barIndex])
+    end
+    if exceptType ~= "icon" then
+        local icon = iconFrames[barIndex]
+        if icon then
+            DDingUI:SafeHide(icon)
+            StopAllAnimations(icon)
+            icon._currentAnimation = nil
+        end
+    end
+    if exceptType ~= "text" then
+        DDingUI:SafeHide(textFrames[barIndex])
+    end
+end
+
 -- Create a text frame for a specific tracked buff index
 local function CreateTrackedBuffText(barIndex)
     local globalCfg = DDingUI.db.profile.buffTrackerBar
@@ -3016,50 +3033,29 @@ function ResourceBars:UpdateBuffTrackerBar()
             else
                 local displayType = trackedBuff.displayType or "bar"
 
-                -- Helper to hide all display elements for this index (SafeHide for performance)
-                local function HideOtherDisplays(exceptType)
-                    -- Hide bar if not bar mode
-                    if exceptType ~= "bar" then
-                        DDingUI:SafeHide(barFrames[barIndex])
-                    end
-                    -- Hide icon if not icon mode
-                    if exceptType ~= "icon" then
-                        local icon = iconFrames[barIndex]
-                        if icon then
-                            DDingUI:SafeHide(icon)
-                            StopAllAnimations(icon)
-                            icon._currentAnimation = nil
-                        end
-                    end
-                    -- Hide text if not text mode
-                    if exceptType ~= "text" then
-                        DDingUI:SafeHide(textFrames[barIndex])
-                    end
-                end
-
                 if displayType == "bar" then
                     -- Bar mode: update bar, hide others
                     self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
-                    HideOtherDisplays("bar")
+                    HideOtherTrackedBuffDisplays(barIndex, "bar")
                 elseif displayType == "ring" then
                     -- Ring mode: update ring (reuses bar frame with ring style)
                     self:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, cfg)
-                    HideOtherDisplays("bar")  -- Ring uses bar frame
+                    HideOtherTrackedBuffDisplays(barIndex, "bar")  -- Ring uses bar frame
                 elseif displayType == "icon" then
                     -- Icon mode: update icon, hide others
                     self:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, cfg)
-                    HideOtherDisplays("icon")
+                    HideOtherTrackedBuffDisplays(barIndex, "icon")
                 elseif displayType == "sound" then
                     -- Sound mode: only play sound, no visual display
                     self:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, cfg)
-                    HideOtherDisplays("sound")  -- Hide all visuals
+                    HideOtherTrackedBuffDisplays(barIndex, "sound")  -- Hide all visuals
                 elseif displayType == "text" then
                     -- Text mode: update text, hide others
                     self:UpdateSingleTrackedBuffText(barIndex, trackedBuff, cfg)
-                    HideOtherDisplays("text")
+                    HideOtherTrackedBuffDisplays(barIndex, "text")
                 elseif displayType == "trigger" then
                     -- Trigger mode: no visual, only alert evaluation
-                    HideOtherDisplays("trigger")  -- Hide ALL visuals
+                    HideOtherTrackedBuffDisplays(barIndex, "trigger")  -- Hide ALL visuals
                     -- 알림 평가를 위한 아우라 상태 확인
                     local cooldownID = tonumber(trackedBuff.cooldownID) or 0
                     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, nil, false, nil, trackedBuff.spellID, trackedBuff.name)
@@ -3088,7 +3084,7 @@ function ResourceBars:UpdateBuffTrackerBar()
                 else
                     -- Fallback to bar mode
                     self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
-                    HideOtherDisplays("bar")
+                    HideOtherTrackedBuffDisplays(barIndex, "bar")
                 end
             end
         end
