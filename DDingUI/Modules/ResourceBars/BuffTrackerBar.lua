@@ -1005,6 +1005,7 @@ local StartBuffTrackerTicker
 local StopBuffTrackerTicker
 local buffTrackerEventFrame
 local buffTrackerEventsRegistered = false
+local buffTrackerManualEventsRegistered = false
 local buffTrackerUpdatePending = false
 local buffTrackerUpdateTimer
 local buffTrackerUpdateDueAt = 0
@@ -1301,18 +1302,44 @@ local function IsBuffTrackerRuntimeEnabled()
     return rootCfg and rootCfg.enabled
 end
 
-SetBuffTrackerEventsEnabled = function(enabled)
+local function HasManualBuffTracking(specCfg, trackedBuffs)
+    local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
+    if not rootCfg or not rootCfg.enabled then return false end
+
+    specCfg = specCfg or GetFullSpecConfig()
+    if specCfg and specCfg.trackingMode == "manual" then
+        return true
+    end
+
+    trackedBuffs = trackedBuffs or GetTrackedBuffs()
+    for _, buff in ipairs(trackedBuffs) do
+        if buff.trackingMode == "manual" then
+            return true
+        end
+    end
+    return false
+end
+
+SetBuffTrackerEventsEnabled = function(enabled, specCfg, trackedBuffs)
     if not buffTrackerEventFrame then return end
     enabled = enabled and true or false
-    if buffTrackerEventsRegistered == enabled then return end
+    local manualEventsEnabled = enabled and HasManualBuffTracking(specCfg, trackedBuffs) or false
+    if buffTrackerEventsRegistered == enabled
+        and buffTrackerManualEventsRegistered == manualEventsEnabled
+    then
+        return
+    end
 
     buffTrackerEventFrame:UnregisterAllEvents()
     buffTrackerEventsRegistered = enabled
+    buffTrackerManualEventsRegistered = manualEventsEnabled
     if not enabled then return end
 
-    buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    if manualEventsEnabled then
+        buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    end
     buffTrackerEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     buffTrackerEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
@@ -1392,18 +1419,6 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    -- UNIT_SPELLCAST_SUCCEEDED: 스킬 시전 성공 시 갱신 플래그
-    -- NOTE: return 제거 - 수동 트래킹 로직(line 1164+)도 실행되어야 함
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local unit, _, spellID = ...
-        if unit == "player" and IsAccessibleNumber(spellID) then
-            -- 시전된 spellID별로 시간 기록
-            ResourceBars._spellCastRefresh = ResourceBars._spellCastRefresh or {}
-            ResourceBars._spellCastRefresh[spellID] = GetTime()
-        end
-        -- return 제거: 아래 수동 트래킹 로직 실행 필요
-    end
-
     -- UNIT_AURA: 순정 CDM과 동일하게 버프 변경 시 즉시 업데이트
     if event == "UNIT_AURA" then
         local unit = ...
@@ -1442,25 +1457,11 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         end
         InvalidateAllFrameCaches()  -- 위치/스타일 캐시 초기화
 
-        -- 런타임 상태 초기화 (이전 전문화의 오래된 이벤트 데이터 정리)
-        ResourceBars._spellCastRefresh = nil
-
         ScheduleBuffTrackerStartupRefresh("specialization", { 0.5, 1.5 })
         return
     end
 
-    -- Check if any manual tracking is enabled (global or per-buff)
-    local hasAnyManualTracking = specCfg.trackingMode == "manual"
-    if not hasAnyManualTracking then
-        local trackedBuffs = GetTrackedBuffs()
-        for _, buff in ipairs(trackedBuffs) do
-            if buff.trackingMode == "manual" then
-                hasAnyManualTracking = true
-                break
-            end
-        end
-    end
-    if not hasAnyManualTracking then return end
+    if not buffTrackerManualEventsRegistered then return end
 
     if event == "PLAYER_REGEN_DISABLED" then
         playerInCombat = true
@@ -2978,7 +2979,7 @@ function ResourceBars:UpdateBuffTrackerBar()
 
     -- Start ticker if not running
     if SetBuffTrackerEventsEnabled then
-        SetBuffTrackerEventsEnabled(true)
+        SetBuffTrackerEventsEnabled(true, cfg, trackedBuffs)
     end
     if not buffTrackerTicker then
         StartBuffTrackerTicker()
