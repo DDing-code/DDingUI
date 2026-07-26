@@ -45,6 +45,19 @@ local ScoreDynamicPayload = DDingUI.CustomIconProfileRecovery.ScoreDynamicPayloa
 local FindFallbackDynamicProfile = DDingUI.CustomIconProfileRecovery.FindFallbackDynamicProfile
 local BuildUniqueDBKey = DDingUI.CustomIconProfileRecovery.BuildUniqueDBKey
 
+local IconTextures = DDingUI.CustomIconTextures
+local FALLBACK_SPELL_ICON = IconTextures.fallbackSpellIcon
+local FALLBACK_ITEM_ICON = IconTextures.fallbackItemIcon
+local FALLBACK_SLOT_ICON = IconTextures.fallbackSlotIcon
+local FALLBACK_RACIAL_ICON = IconTextures.fallbackRacialIcon
+local IsQuestionTexture = IconTextures.IsQuestionTexture
+local NonQuestionTexture = IconTextures.NonQuestionTexture
+local GetCustomAuraPresetIconTexture = IconTextures.GetCustomAuraPresetIconTexture
+local ResolveItemTexture = IconTextures.ResolveItemTexture
+local ResolveSpellTexture = IconTextures.ResolveSpellTexture
+local GetStoredIconTexture = IconTextures.GetStoredIconTexture
+local EnsureStoredIconTexture = IconTextures.EnsureStoredIconTexture
+
 -- Forward declarations
 local RefreshAllLayouts
 local UpdateAllIcons
@@ -256,44 +269,7 @@ local ITEM_COMBAT_LOCKOUT_SPELLS = {
     [6262] = true,
     [452930] = true,
 }
-local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local FALLBACK_SPELL_ICON = "Interface\\Icons\\Spell_Holy_PowerWordShield"
-local FALLBACK_ITEM_ICON = "Interface\\Icons\\INV_Potion_93"
-local FALLBACK_SLOT_ICON = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
-local FALLBACK_RACIAL_ICON = "Interface\\Icons\\Spell_magic_polymorphrabbit"
 local CUSTOM_ICON_EFFECT_GRACE_SECONDS = 1.5
-local CUSTOM_AURA_ICON_TEXTURES = {
-    [1236616] = 7548911, -- Light's Potential
-    [1236994] = 7548916, -- Potion of Recklessness
-    [1239479] = "Interface\\Icons\\INV_12_Profession_Alchemy_VoidPotion_Blue", -- Potion of Devoured Dreams
-    [374968] = 4622479, -- Time Spiral
-    [2825] = "Interface\\Icons\\Spell_Nature_BloodLust", -- Bloodlust
-}
-local CUSTOM_AURA_ICON_ITEM_FALLBACKS = {
-    [1236616] = 241308, -- Light's Potential
-    [1236994] = 241288, -- Potion of Recklessness
-    [1239479] = 241294, -- Potion of Devoured Dreams
-}
-
-local function IsQuestionTexture(texture)
-    if texture == 0 or texture == "" then return true end
-    if type(texture) == "string" then
-        return texture:gsub("/", "\\"):lower():find("inv_misc_questionmark", 1, true) ~= nil
-    end
-    return texture == 134400 or texture == QUESTION_MARK_ICON or texture == 0 or texture == ""
-end
-
-local function NonQuestionTexture(texture, fallback)
-    if texture and not IsQuestionTexture(texture) then return texture end
-    if fallback and not IsQuestionTexture(fallback) then return fallback end
-    return FALLBACK_SPELL_ICON
-end
-
-local function GetCustomAuraPresetIconTexture(spellID)
-    local texture = CUSTOM_AURA_ICON_TEXTURES[tonumber(spellID)]
-    if texture and not IsQuestionTexture(texture) then return texture end
-    return nil
-end
 
 local BLOODLUST_AURA_IDS = {
     2825, 32182, 80353, 90355, 160452, 264667, 390386,
@@ -405,63 +381,6 @@ local function SetStableIconTexture(iconFrame, texture, allowFallback)
     end
 end
 
-local function ResolveItemTexture(itemID, slotID)
-    local tex = nil
-    if slotID then
-        tex = GetInventoryItemTexture("player", slotID)
-        if IsQuestionTexture(tex) then
-            tex = nil
-        end
-    end
-    if not tex and itemID and C_Item and C_Item.GetItemIconByID then
-        tex = C_Item.GetItemIconByID(itemID)
-        if IsQuestionTexture(tex) then
-            tex = nil
-        end
-    end
-    if not tex and itemID then
-        local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
-        tex = itemTexture
-        if IsQuestionTexture(tex) then
-            tex = nil
-        end
-    end
-    if not tex and itemID and C_Item and C_Item.RequestLoadItemDataByID then
-        C_Item.RequestLoadItemDataByID(itemID)
-    end
-    return tex
-end
-
-local function ResolveSpellTexture(spellID, fallbackTexture)
-    local tex = GetCustomAuraPresetIconTexture(spellID)
-    if tex then return tex end
-
-    tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
-    if IsQuestionTexture(tex) then
-        tex = nil
-    end
-    if not tex and C_Spell and C_Spell.GetSpellInfo then
-        local info = C_Spell.GetSpellInfo(spellID)
-        tex = info and info.iconID
-        if IsQuestionTexture(tex) then
-            tex = nil
-        end
-    end
-    if not tex then
-        local fallbackItemID = CUSTOM_AURA_ICON_ITEM_FALLBACKS[tonumber(spellID)]
-        if fallbackItemID then
-            tex = ResolveItemTexture(fallbackItemID)
-        end
-    end
-    if not tex and fallbackTexture and not IsQuestionTexture(fallbackTexture) then
-        tex = fallbackTexture
-    end
-    if not tex and C_Spell and C_Spell.RequestLoadSpellData then
-        C_Spell.RequestLoadSpellData(spellID)
-    end
-    return tex
-end
-
 function CustomIcons.ResolveCustomTimedAuraStateTexture(spellID, config, iconSpellID)
     if config and config.trigger == "trinket_effect" and config.iconTexture then
         return config.iconTexture
@@ -475,54 +394,6 @@ function CustomIcons.ResolveCustomTimedAuraStateTexture(spellID, config, iconSpe
         end
     end
     return ResolveSpellTexture(displayID or stateID, config and config.iconTexture)
-end
-
-local function GetStoredIconTexture(iconData)
-    if iconData and (iconData.type == "spell" or iconData.type == "aura") then
-        local preset = GetCustomAuraPresetIconTexture(iconData.id)
-        if preset then return preset end
-    end
-
-    local settings = iconData and iconData.settings
-    if type(settings) ~= "table" then return nil end
-    local texture = settings.iconTexture or settings.fallbackIcon or settings.icon
-    if texture and not IsQuestionTexture(texture) then return texture end
-    return nil
-end
-
-local function EnsureStoredIconTexture(iconData)
-    if not iconData then return nil end
-    iconData.settings = iconData.settings or {}
-    if iconData.type == "spell" or iconData.type == "aura" then
-        local preset = GetCustomAuraPresetIconTexture(iconData.id)
-        if preset then
-            iconData.settings.iconTexture = preset
-            iconData.settings.auraIcon = preset
-            return preset
-        end
-    end
-
-    local stored = GetStoredIconTexture(iconData)
-    if stored then return stored end
-
-    local texture
-    if iconData.type == "item" then
-        texture = ResolveItemTexture(iconData.id)
-    elseif iconData.type == "spell" or iconData.type == "aura" then
-        texture = ResolveSpellTexture(iconData.id)
-    elseif iconData.type == "slot" or iconData.type == "trinketProc" then
-        local itemID = iconData.slotID and CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
-        texture = ResolveItemTexture(itemID, iconData.slotID)
-    elseif iconData.type == "racial" then
-        local racials = DDingUI.CustomIconRacials
-        texture = racials and racials:GetTexture(FALLBACK_RACIAL_ICON) or FALLBACK_RACIAL_ICON
-    end
-
-    if texture and not IsQuestionTexture(texture) then
-        iconData.settings.iconTexture = texture
-        return texture
-    end
-    return nil
 end
 
 NormalizePresetIconData = function(iconData)
