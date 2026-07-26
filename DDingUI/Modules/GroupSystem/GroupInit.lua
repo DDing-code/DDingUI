@@ -150,9 +150,11 @@ end
 -- Refresh/RefreshLayout이 전투 중 호출되면 전투 종료 후 자동 실행
 local _pendingRefresh = false      -- Refresh 대기
 local _pendingRefreshLayout = false -- RefreshLayout 대기
+local _combatDeferArmed = false
 local _combatDeferFrame = CreateFrame("Frame")
-_combatDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 _combatDeferFrame:SetScript("OnEvent", function()
+    _combatDeferFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    _combatDeferArmed = false
     if _pendingRefresh then
         _pendingRefresh = false
         _pendingRefreshLayout = false  -- Refresh가 RefreshLayout을 포함
@@ -166,6 +168,12 @@ _combatDeferFrame:SetScript("OnEvent", function()
         end
     end
 end)
+
+local function ArmCombatDeferFrame()
+    if _combatDeferArmed then return end
+    _combatDeferArmed = true
+    _combatDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
 
 -- ============================================================
 -- 프로필 접근
@@ -1897,7 +1905,6 @@ function GroupSystem:Enable()
     if not self._rosterHooked then
         self._rosterHooked = true
         local rosterFrame = CreateFrame("Frame")
-        rosterFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
         local pendingRoster = false
         rosterFrame:SetScript("OnEvent", function()
             if not GroupSystem.enabled or pendingRoster then return end
@@ -1911,6 +1918,7 @@ function GroupSystem:Enable()
         end)
         self._rosterFrame = rosterFrame
     end
+    self._rosterFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 
     -- 편집모드 연동 (ShowMovers/HideMovers 훅)
     if DDingUI.Movers and not self._moversHooked then
@@ -1949,11 +1957,6 @@ function GroupSystem:Enable()
     if not self._specChangeHooked then
         self._specChangeHooked = true
         local specFrame = CreateFrame("Frame")
-        specFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
-        specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-        specFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-        specFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-        specFrame:RegisterEvent("PLAYER_LEVEL_UP")
         specFrame:SetScript("OnEvent", function(_, event, unit)
             if event == "PLAYER_SPECIALIZATION_CHANGED" and unit and unit ~= "player" then return end
             if not GroupSystem.enabled then return end
@@ -1979,6 +1982,11 @@ function GroupSystem:Enable()
         end)
         self._specChangeFrame = specFrame
     end
+    self._specChangeFrame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
+    self._specChangeFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    self._specChangeFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    self._specChangeFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    self._specChangeFrame:RegisterEvent("PLAYER_LEVEL_UP")
 
     -- 초기 업데이트 (CDM이 Layout 완료 후)
     C_Timer.After(0.5, function()
@@ -2013,8 +2021,14 @@ function GroupSystem:Disable()
     wipe(_cdmUpdateIDs)
     _cdmForceLayout = false
     _lastClassifiedGroups = nil
+    _pendingRefresh = false
+    _pendingRefreshLayout = false
     if _refreshDispatchFrame then
         _refreshDispatchFrame:Hide()
+    end
+    if _combatDeferArmed then
+        _combatDeferArmed = false
+        _combatDeferFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
     end
     if GroupManager and GroupManager.InvalidateClassificationCache then
         GroupManager:InvalidateClassificationCache()
@@ -2029,6 +2043,9 @@ function GroupSystem:Disable()
     -- [REPARENT] GROUP_ROSTER_UPDATE 이벤트 해제
     if self._rosterFrame then
         self._rosterFrame:UnregisterAllEvents()
+    end
+    if self._specChangeFrame then
+        self._specChangeFrame:UnregisterAllEvents()
     end
 
     -- [DYNAMIC] DynamicIconBridge 종료 (CustomIcons 레이아웃 복원)
@@ -2073,6 +2090,7 @@ function GroupSystem:Refresh()
     -- [FIX] 전투 중에는 ClearAllPoints 등 보호된 함수 호출 불가 → 전투 종료 후 실행
     if InCombatLockdown() then
         _pendingRefresh = true
+        ArmCombatDeferFrame()
         return
     end
 
@@ -2182,6 +2200,7 @@ function GroupSystem:RefreshLayout()
     -- [FIX] 전투 중 보호된 프레임 조작 방지
     if InCombatLockdown() then
         _pendingRefreshLayout = true
+        ArmCombatDeferFrame()
         return
     end
     RequestFullUpdate()
