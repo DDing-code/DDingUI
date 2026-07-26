@@ -36,6 +36,15 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
     path = path or {}
     parentFrame = parentFrame or contentFrame:GetParent():GetParent()
 
+    if parentFrame and parentFrame.contentArea and not contentFrame._preserveGroupStickyPreview then
+        local stickyPreview = parentFrame.contentArea._groupStickyPreview
+        if stickyPreview then
+            stickyPreview:Hide()
+            stickyPreview:SetParent(nil)
+            parentFrame.contentArea._groupStickyPreview = nil
+        end
+    end
+
     -- Buff Tracker 커스텀 패널 숨기기 (다른 탭으로 이동 시)
     -- NOTE: btPanel 내부의 tabChild에서 RenderOptions를 호출할 때는 숨기지 않음
     if parentFrame and parentFrame.contentArea and parentFrame.contentArea._btPanel then
@@ -103,6 +112,30 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         -- Get the parent frame's content area and scroll frame to make tabs sticky
         local parentContentArea = parentFrame and parentFrame.contentArea
         local parentScrollFrame = parentFrame and parentFrame.scrollFrame
+        local stickyPreview
+        local stickyPreviewHeight = 0
+
+        if options.stickyGroupPreview and parentContentArea and parentScrollFrame
+            and DDingUI.BuildGroupAssignedIconGridUI
+        then
+            stickyPreview = CreateFrame("Frame", nil, parentContentArea, "BackdropTemplate")
+            stickyPreview:SetFrameStrata("DIALOG")
+            stickyPreview:SetFrameLevel((parentScrollFrame:GetFrameLevel() or 1) + 9)
+            stickyPreview:SetPoint("TOPLEFT", parentScrollFrame, "TOPLEFT", 0, 0)
+            stickyPreview:SetPoint("TOPRIGHT", parentScrollFrame, "TOPRIGHT", 0, 0)
+            CreateBackdrop(stickyPreview, {THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.98}, {0, 0, 0, 1})
+
+            local previewWidth = math.max(240, (parentScrollFrame:GetWidth() or contentFrame:GetWidth() or 760) - 20)
+            local previewHolder = CreateFrame("Frame", nil, stickyPreview)
+            previewHolder:SetPoint("TOPLEFT", stickyPreview, "TOPLEFT", 10, -6)
+            previewHolder:SetWidth(previewWidth)
+            DDingUI:BuildGroupAssignedIconGridUI(previewHolder, options.stickyGroupPreview)
+
+            stickyPreviewHeight = math.max(48, (previewHolder:GetHeight() or 36) + 12)
+            stickyPreview:SetHeight(stickyPreviewHeight)
+            stickyPreview._previewHolder = previewHolder
+            parentContentArea._groupStickyPreview = stickyPreview
+        end
 
         -- Check if we're in a nested tab situation (sub-sub tabs)
         -- Look for parent sub tab containers to calculate offset
@@ -138,7 +171,10 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         CreateBackdrop(subTabContainer, bgMediumTransparent, {0, 0, 0, 1})  -- UF 통일
 
         if parentContentArea and parentScrollFrame then
-            if parentSubTabContainer then
+            if stickyPreview then
+                subTabContainer:SetPoint("TOPLEFT", stickyPreview, "BOTTOMLEFT", 0, 0)
+                subTabContainer:SetPoint("TOPRIGHT", stickyPreview, "BOTTOMRIGHT", 0, 0)
+            elseif parentSubTabContainer then
                 -- Nested tabs: position below parent sub tab container
                 subTabContainer:SetPoint("TOPLEFT", parentSubTabContainer, "BOTTOMLEFT", 0, 0)
                 subTabContainer:SetPoint("TOPRIGHT", parentSubTabContainer, "BOTTOMRIGHT", 0, 0)
@@ -161,19 +197,21 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         local subContentArea = CreateFrame("Frame", nil, contentFrame)
         -- Position normally - content starts at top, tab container overlays it
         local tabContainerHeight = 35
+        local fixedHeaderHeight = tabContainerHeight + stickyPreviewHeight
         subContentArea:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -1)
         subContentArea:SetPoint("BOTTOMRIGHT", contentFrame, "BOTTOMRIGHT", 0, 0)
 
         -- Store tab container height for height calculations
-        contentFrame._subTabContainerHeight = tabContainerHeight
+        contentFrame._subTabContainerHeight = fixedHeaderHeight
         -- Store cumulative height for nested tabs
-        contentFrame._cumulativeTabHeight = cumulativeTabHeight + tabContainerHeight
+        contentFrame._cumulativeTabHeight = cumulativeTabHeight + fixedHeaderHeight
 
         local subScrollChild = CreateFrame("Frame", nil, subContentArea)
         -- Position normally - content will start below tab container via yOffset
         subScrollChild:SetPoint("TOPLEFT", subContentArea, "TOPLEFT", 10, -10)
         subScrollChild:SetPoint("RIGHT", subContentArea, "RIGHT", -10, 0)
         subScrollChild.widgets = {}
+        subScrollChild._preserveGroupStickyPreview = stickyPreview ~= nil
         -- Store tab container height so RenderOptions can account for it
         subScrollChild._tabContainerHeight = contentFrame._cumulativeTabHeight or (contentFrame._subTabContainerHeight or 35)
 
@@ -425,6 +463,17 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     DDingUI:BuildGroupAssignedIconGridUI(gridFrame, groupName)
                     widget = gridFrame
                     widgetHeight = gridFrame:GetHeight() or 80
+                end
+            elseif option.type == "groupUnassignedIconGrid" then
+                local groupName = option.groupName
+                if groupName and DDingUI.BuildGroupUnassignedIconGridUI then
+                    local gridFrame = CreateFrame("Frame", nil, contentFrame, "BackdropTemplate")
+                    gridFrame:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -yOffset)
+                    gridFrame:SetPoint("RIGHT", contentFrame, "RIGHT", 0, 0)
+                    gridFrame:SetWidth(contentFrame:GetWidth() or 760)
+                    DDingUI:BuildGroupUnassignedIconGridUI(gridFrame, groupName)
+                    widget = gridFrame
+                    widgetHeight = gridFrame:GetHeight() or 60
                 end
             elseif option.type == "spellSearch" then
                 -- [REFACTOR] 실시간 Spell ID 검증 위젯 (CDM 패턴 이식)

@@ -3220,6 +3220,74 @@ function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
     return math.max(34, (layout.height or 1) + 18)
 end
 
+function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
+    if not parent or not groupName then return end
+
+    local rows = BuildUnassignedSpellRows(groupName) or {}
+    local width = parent:GetWidth()
+    if not width or width < 240 then width = 760 end
+
+    local tileSize, gap, pad = 38, 6, 8
+    local cols = math.max(1, math.floor((width - pad * 2 + gap) / (tileSize + gap)))
+    local rowCount = math.max(1, math.ceil(#rows / cols))
+    parent:SetHeight(28 + rowCount * (tileSize + gap) - gap + pad)
+
+    local title = parent:CreateFontString(nil, "OVERLAY")
+    title:SetPoint("TOPLEFT", parent, "TOPLEFT", pad, -2)
+    title:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 12, "")
+    title:SetText(rawget(L, "Unassigned Spells") or "할당되지 않은 스펠")
+    title:SetTextColor(1, 0.55, 0.18, 1)
+
+    if #rows == 0 then
+        local empty = parent:CreateFontString(nil, "OVERLAY")
+        empty:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
+        empty:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 11, "")
+        empty:SetText(rawget(L, "No unassigned spells") or "할당되지 않은 스펠이 없습니다.")
+        empty:SetTextColor(0.55, 0.55, 0.55, 1)
+        parent:SetHeight(58)
+        return
+    end
+
+    local function RefreshAfterAssign()
+        RefreshGroupSystem()
+        SoftRefreshGroupSystemOptions(0.05)
+    end
+
+    for index, row in ipairs(rows) do
+        local col = (index - 1) % cols
+        local line = math.floor((index - 1) / cols)
+        local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+        button:SetSize(tileSize, tileSize)
+        button:SetPoint("TOPLEFT", parent, "TOPLEFT", pad + col * (tileSize + gap), -(28 + line * (tileSize + gap)))
+        button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        button:SetBackdropColor(0.02, 0.025, 0.03, 0.78)
+        button:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+        button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+        local icon = button:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints()
+        icon:SetTexture(NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE))
+        AssignedGridApplyTexCoord(icon, AssignedGridPreviewSettings(groupName))
+
+        button:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(0.3, 0.85, 1, 1)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(row.displayName or row.spellName or "Unknown", 1, 1, 1, 1, true)
+            GameTooltip:AddLine(rawget(L, "Click to assign") or "클릭하여 현재 그룹에 할당", 0.35, 1, 0.45, true)
+            GameTooltip:Show()
+        end)
+        button:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+            GameTooltip:Hide()
+        end)
+        button:SetScript("OnClick", function()
+            if AssignUnassignedSpellRow(groupName, row) then
+                RefreshAfterAssign()
+            end
+        end)
+    end
+end
+
 function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if not parent then return end
 
@@ -4816,11 +4884,6 @@ local function CreateGroupOptions(groupName, order)
         },
     }
 
-    layoutArgs.assignedHeader = {
-        type = "header",
-        name = L["Assigned Spells"] or "할당된 스펠",
-        order = -30,
-    }
     layoutArgs.restoreBlizzardOrder = isCDM and {
         type = "execute",
         name = L["Restore Blizzard CDM Order"] or "블리자드 CDM 기본 순서로 복원",
@@ -4833,8 +4896,8 @@ local function CreateGroupOptions(groupName, order)
             end
         end,
     } or nil
-    layoutArgs.assignedIconGrid = {
-        type = "groupAssignedIconGrid",
+    layoutArgs.unassignedIconGrid = {
+        type = "groupUnassignedIconGrid",
         groupName = groupName,
         order = -28,
         width = "full",
@@ -5242,6 +5305,7 @@ local function CreateGroupOptions(groupName, order)
         name = displayName,
         order = order,
         childGroups = "tab",
+        stickyGroupPreview = groupName,
         args = args,
     }
 end
