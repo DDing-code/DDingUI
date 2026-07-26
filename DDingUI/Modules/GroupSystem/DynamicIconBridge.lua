@@ -592,7 +592,6 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
 
     -- 활성 아이콘 필터링
     local result = {}
-    local result = {}
     local activeSet = {}
     local inCombat = InCombatLockdown and InCombatLockdown()
     local now = GetTime and GetTime() or 0
@@ -723,7 +722,6 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     end
 
     -- 같은 CustomIcons 그룹 안에서 같은 spell/aura가 중복 생성되어도 하나만 렌더링
-    local seenIdentity = {}
     local seenIdentity = {}
     local deduped = {}
     for _, entry in ipairs(result) do
@@ -1436,7 +1434,8 @@ function DynamicIconBridge:Initialize()
     -- [FIX] CDM BuffViewer Layout 훅 — CDM이 아이콘을 Show하면 즉시 숨김
     -- BuffFrameManager.Initialize 패턴: Layout/UpdateLayout 훅으로 타이밍 갭 제거
     local viewer = _G["BuffIconCooldownViewer"]
-    if viewer then
+    if viewer and not self._viewerLayoutHooked then
+        self._viewerLayoutHooked = true
         if viewer.Layout then
             hooksecurefunc(viewer, "Layout", function()
                 if initialized then ScanAndHideCDMBuffs() end
@@ -1463,8 +1462,6 @@ function DynamicIconBridge:Initialize()
             self:NotifyIconsChanged(false)
         end)
         self._auraEventFrame = CreateFrame("Frame")
-        self._auraEventFrame:RegisterEvent("UNIT_AURA")
-        self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         self._auraEventFrame:SetScript("OnEvent", function(_, event, unit)
             if event == "UNIT_AURA" and unit ~= "player" then return end
             if not initialized then return end
@@ -1474,6 +1471,8 @@ function DynamicIconBridge:Initialize()
             end
         end)
     end
+    self._auraEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    self._auraEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 
     -- 즉시 초기 스캔
     ScanAndHideCDMBuffs()
@@ -1493,6 +1492,15 @@ function DynamicIconBridge:Shutdown()
     self._auraDirty = false
     if self._auraDispatchFrame then
         self._auraDispatchFrame:Hide()
+    end
+    if self._auraEventFrame then
+        self._auraEventFrame:UnregisterAllEvents()
+    end
+    self._updatePending = false
+    self._pendingForceLayout = false
+    self._pendingSourceKeys = nil
+    if self._updateDispatchFrame then
+        self._updateDispatchFrame:Hide()
     end
 
     -- CDM 프레임 숨김 해제
