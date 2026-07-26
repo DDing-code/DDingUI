@@ -1336,8 +1336,10 @@ end
 -- [REFACTOR] 인라인 그리드 업데이트 (groupName 인자로 받음)
 local function GetSpellCandidateViewers(groupName, groupSettings)
     local targetViewer = GROUP_VIEWER_MAP[groupName]
-    if targetViewer then
+    if targetViewer == "BuffIconCooldownViewer" then
         return { targetViewer }
+    elseif targetViewer then
+        return { "EssentialCooldownViewer", "UtilityCooldownViewer" }
     end
 
     local category = GetGroupCategory and GetGroupCategory(groupName)
@@ -1475,6 +1477,55 @@ local function AssignUnassignedSpellRow(groupName, row)
     local GroupMgr = DDingUI.GroupManager
     if not GroupMgr or not GroupMgr.AssignSpell then return false end
     return GroupMgr:AssignSpell(row.spellName, groupName) == true
+end
+
+local function BuildBuffCandidateRows(groupName)
+    local rows = {}
+    local seen = {}
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local sourceKey = groupSettings and groupSettings.sourceGroupKey
+
+    for _, row in ipairs(BuildUnassignedSpellRows("Buffs") or {}) do
+        local spellID = SafeOptionID(row.spellID)
+        if spellID and not seen[spellID] then
+            seen[spellID] = true
+            row.addAsAura = true
+            rows[#rows + 1] = row
+        end
+    end
+
+    for index, entry in ipairs(GetCDMIconEntries()) do
+        if entry and entry.viewerName == "BuffIconCooldownViewer" then
+            local spellName = GetGSSpellName(entry)
+            local spellID = SafeOptionID(ResolveEntrySpellID(entry, spellName))
+            local alreadyAdded = spellID and sourceKey
+                and FindDynamicIconInSourceGroup(sourceKey, "aura", spellID)
+            if spellID and spellName and not seen[spellID] and not alreadyAdded
+                and not IsCustomAuraPresetSpell(spellName, spellID)
+            then
+                seen[spellID] = true
+                rows[#rows + 1] = {
+                    entry = entry,
+                    spellName = spellName,
+                    spellID = spellID,
+                    iconType = "aura",
+                    iconTex = ResolveCDMEntryIconTexture(entry, spellName, entry.icon),
+                    displayName = ((entry.name or spellName):gsub("^buff_", "")),
+                    fallbackOrder = tonumber(entry.layoutIndex) or index,
+                    addAsAura = true,
+                }
+            end
+        end
+    end
+
+    table.sort(rows, function(a, b)
+        local aOrder = a.fallbackOrder or 0
+        local bOrder = b.fallbackOrder or 0
+        if aOrder ~= bOrder then return aOrder < bOrder end
+        return tostring(a.displayName or a.spellName or "") < tostring(b.displayName or b.spellName or "")
+    end)
+    return rows
 end
 
 local function UpdateGroupAssignGrid(parent, groupName)
@@ -2966,20 +3017,35 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
     end
 
     if unassignedRows and #unassignedRows > 0 then
-        items[#items + 1] = { separator = true, label = rawget(L, "Unassigned Spells") or "Unassigned Spells" }
-        local maxRows = math.min(#unassignedRows, 14)
-        for i = 1, maxRows do
-            local row = unassignedRows[i]
+        local pageSize = 14
+        local pageCount = math.ceil(#unassignedRows / pageSize)
+        local sectionLabel = addMode == "buff"
+            and (rawget(L, "Available Buffs") or "Available Buffs")
+            or (rawget(L, "Unassigned Spells") or "Unassigned Spells")
+        items[#items + 1] = { separator = true }
+        for page = 1, pageCount do
+            local pageItems = {}
+            local firstIndex = (page - 1) * pageSize + 1
+            local lastIndex = math.min(page * pageSize, #unassignedRows)
+            for index = firstIndex, lastIndex do
+                local row = unassignedRows[index]
+                pageItems[#pageItems + 1] = {
+                    label = row.displayName or row.spellName or "Unknown",
+                    icon = NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE),
+                    action = function()
+                        if row.addAsAura and row.spellID then
+                            return AddSpellIDToGroup(groupName, row.spellID, "aura")
+                        end
+                        return AddUnassignedRowToGroup(groupName, row)
+                    end,
+                }
+            end
             items[#items + 1] = {
-                label = row.displayName or row.spellName or "Unknown",
-                icon = NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE),
-                action = function() return AddUnassignedRowToGroup(groupName, row) end,
-            }
-        end
-        if #unassignedRows > maxRows then
-            items[#items + 1] = {
-                label = string.format("+%d more", #unassignedRows - maxRows),
-                disabled = true,
+                label = pageCount > 1
+                    and string.format("%s %d/%d", sectionLabel, page, pageCount)
+                    or sectionLabel,
+                icon = pageItems[1] and pageItems[1].icon or DEFAULT_BUFF_ICON_TEXTURE,
+                submenu = pageItems,
             }
         end
     end
@@ -3581,14 +3647,10 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return #menu > 0 and menu or nil
     end
 
-    local function ShowAssignedIconEditMenu(owner, opt)
-        if not owner or not opt then return end
+    local function BuildAssignedIconSettingsItems(opt)
+        if not opt then return {} end
         local scope = DDingUI._groupIconApplyScope or "icon"
-        local menuList = {
-            {
-                text = opt._gridDisplayName or (rawget(L, "Edit Icon") or "아이콘 편집"),
-                isTitle = true,
-            },
+        local items = {
             {
                 text = rawget(L, "Apply Scope") or "적용 범위",
                 menuList = {
@@ -3616,20 +3678,33 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         local onSettingsChanged = function(settings)
             ApplyAssignedIconGlowScope(groupName, settings)
         end
-        local items
+        local customItems
         if customizer and customizer.BuildDynamicContextMenuItems
             and opt._gridKind == "dynamic" and opt._gridDynamicIconKey
         then
-            items = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
+            customItems = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
                 SoftRefreshGroupSystemOptions(0.05)
             end, onSettingsChanged)
         elseif customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
-            items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType, onSettingsChanged)
+            customItems = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType, onSettingsChanged)
         end
-        for _, item in ipairs(items or {}) do
+        for _, item in ipairs(customItems or {}) do
+            items[#items + 1] = item
+        end
+        return items
+    end
+
+    local function ShowAssignedIconEditMenu(owner, opt)
+        if not owner or not opt then return end
+        local menuList = {
+            {
+                text = opt._gridDisplayName or (rawget(L, "Edit Icon") or "아이콘 편집"),
+                isTitle = true,
+            },
+        }
+        for _, item in ipairs(BuildAssignedIconSettingsItems(opt)) do
             menuList[#menuList + 1] = item
         end
-
         if SL and SL.ShowCascadingMenu then
             SL.ShowCascadingMenu(owner, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
         end
@@ -3642,13 +3717,11 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 text = opt._gridDisplayName or (rawget(L, "Manage Icon") or "아이콘 관리"),
                 isTitle = true,
             },
-            {
-                text = rawget(L, "Add Spell or Item") or "스펠·아이템 추가",
-                func = function()
-                    DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRows, RefreshAfterCommit)
-                end,
-            },
         }
+        for _, item in ipairs(BuildAssignedIconSettingsItems(opt)) do
+            menuList[#menuList + 1] = item
+        end
+        menuList[#menuList + 1] = { isSeparator = true }
 
         local moveMenu = BuildMoveMenu(opt)
         if moveMenu then
@@ -4394,7 +4467,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             end
             local popupRows = unassignedRows
             if addMode == "buff" and not isBuffTargetGroup then
-                popupRows = BuildUnassignedSpellRows("Buffs") or {}
+                popupRows = BuildBuffCandidateRows(groupName)
             end
             DDingUI:ShowGroupIconAddPopup(
                 self,

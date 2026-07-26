@@ -1126,3 +1126,4 @@ L["Left-click to edit | Right-click to add"] = "Left-click to edit | Right-click
 L["Add Skill or Item"] = "Add Skill or Item"
 L["Add Buff Effect"] = "Add Buff"
 L["Custom Aura ID"] = "Custom Aura ID"
+L["Available Buffs"] = "Available Buffs"

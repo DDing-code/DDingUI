@@ -962,7 +962,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         Refresh()
     end
 
-    return BuildGlowContextMenuItems(
+    local menuItems = BuildGlowContextMenuItems(
         Current,
         Apply,
         SetGlowState,
@@ -970,6 +970,65 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         defaultTrigger,
         L["Reset Glow"] or "Reset Glow"
     )
+
+    local function ToggleSetting(key, defaultValue)
+        local current = iconData.settings[key]
+        if current == nil then current = defaultValue end
+        iconData.settings[key] = not current
+        Refresh()
+    end
+
+    local stateItems = {
+        {
+            text = L["Show Cooldown Swipe"] or "Show Cooldown Swipe",
+            checked = iconData.settings.showCooldown ~= false,
+            func = function() ToggleSetting("showCooldown", true) end,
+        },
+    }
+    if iconData.type == "spell" or iconData.type == "racial" then
+        stateItems[#stateItems + 1] = {
+            text = L["Show Charges"] or "Show Charges",
+            checked = iconData.settings.showCharges ~= false,
+            func = function() ToggleSetting("showCharges", true) end,
+        }
+    end
+    if iconData.type ~= "aura" then
+        stateItems[#stateItems + 1] = {
+            text = L["Desaturate on Cooldown"] or "Desaturate on Cooldown",
+            checked = iconData.settings.desaturateOnCooldown ~= false,
+            func = function() ToggleSetting("desaturateOnCooldown", true) end,
+        }
+        stateItems[#stateItems + 1] = {
+            text = L["Desaturate When Unusable"] or "Desaturate When Unusable",
+            checked = iconData.settings.desaturateWhenUnusable ~= false,
+            func = function() ToggleSetting("desaturateWhenUnusable", true) end,
+        }
+    end
+    if iconData.type == "trinketProc" then
+        stateItems[#stateItems + 1] = { isSeparator = true }
+        stateItems[#stateItems + 1] = {
+            text = L["Show Proc Duration"] or "Show Proc Duration",
+            checked = iconData.settings.showProcDuration ~= false,
+            func = function() ToggleSetting("showProcDuration", true) end,
+        }
+        stateItems[#stateItems + 1] = {
+            text = L["Show Proc Stacks"] or "Show Proc Stacks",
+            checked = iconData.settings.showProcStacks ~= false,
+            func = function() ToggleSetting("showProcStacks", true) end,
+        }
+        stateItems[#stateItems + 1] = {
+            text = L["Show Item Cooldown"] or "Show Item Cooldown",
+            checked = iconData.settings.showItemCooldown ~= false,
+            func = function() ToggleSetting("showItemCooldown", true) end,
+        }
+    end
+
+    menuItems[#menuItems + 1] = { isSeparator = true }
+    menuItems[#menuItems + 1] = {
+        text = L["Icon State"] or "Icon State",
+        menuList = stateItems,
+    }
+    return menuItems
 end
 
 function IconCustomization:RefreshAllGlows()

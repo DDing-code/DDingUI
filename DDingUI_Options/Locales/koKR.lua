@@ -1082,3 +1082,4 @@ L["Left-click to edit | Right-click to add"] = "좌클릭: 편집 | 우클릭: �
 L["Add Skill or Item"] = "스킬·아이템 추가"
 L["Add Buff Effect"] = "강화효과 추가"
 L["Custom Aura ID"] = "강화효과 스펠 ID"
+L["Available Buffs"] = "추가할 강화효과"
