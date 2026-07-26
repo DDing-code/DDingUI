@@ -916,22 +916,19 @@ local ITEM_EFFECT_IDS = {
 
 local function AddNormalizedID(set, value)
     local id = SafeNumber(value)
-    if not id then return end
-    local ok = pcall(function()
-        if id <= 0 then return end
-        set[id] = true
-        local effectID = ITEM_EFFECT_IDS[id]
-        if effectID then
-            set[effectID] = true
+    if not id or id <= 0 then return end
+
+    set[id] = true
+    local effectID = ITEM_EFFECT_IDS[id]
+    if effectID then
+        set[effectID] = true
+    end
+    if BLOODLUST_GROUP_IDS[id] then
+        set[2825] = true
+        for aliasID in pairs(BLOODLUST_GROUP_IDS) do
+            set[aliasID] = true
         end
-        if BLOODLUST_GROUP_IDS[id] then
-            set[2825] = true
-            for aliasID in pairs(BLOODLUST_GROUP_IDS) do
-                set[aliasID] = true
-            end
-        end
-    end)
-    if not ok then return end
+    end
 end
 
 local function AddIDsFromValue(set, value)
