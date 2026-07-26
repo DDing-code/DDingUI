@@ -162,6 +162,7 @@ local SafeOptionValue = iconTextureRuntime.SafeOptionValue
 local SafeOptionID = iconTextureRuntime.SafeOptionID
 local IsQuestionTexture = iconTextureRuntime.IsQuestionTexture
 local NonQuestionTexture = iconTextureRuntime.NonQuestionTexture
+local ResolveCustomAuraPresetSpellID = iconTextureRuntime.ResolveCustomAuraPresetIDForTexture
 local NormalizeCustomAuraPresetDynamicIcons = iconTextureRuntime.NormalizeCustomAuraPresetDynamicIcons
 
 local SafeOptionSpellTexture = iconTextureRuntime.SafeOptionSpellTexture
@@ -467,29 +468,6 @@ local function ResolveBuffSpellIDFromName(spellName)
     if not rawName or not C_Spell or not C_Spell.GetSpellInfo then return nil end
     local ok, info = pcall(C_Spell.GetSpellInfo, rawName)
     return ok and info and SafeOptionID(info.spellID) or nil
-end
-
-local CUSTOM_AURA_PRESET_FALLBACK_NAMES = CUSTOM_AURA_PRESET_NAME_IDS
-
-local function ResolveCustomAuraPresetSpellID(spellName, spellID)
-    spellID = SafeOptionID(spellID)
-    if spellID and CUSTOM_AURA_PRESET_SPELL_IDS[spellID] then return spellID end
-
-    local rawName = GetBuffSpellRawName(spellName) or spellName
-    if type(rawName) ~= "string" or rawName == "" then return nil end
-
-    local fallbackID = CUSTOM_AURA_PRESET_FALLBACK_NAMES[rawName] or CUSTOM_AURA_PRESET_FALLBACK_NAMES[spellName]
-    if fallbackID then return fallbackID end
-
-    if C_Spell and C_Spell.GetSpellInfo then
-        for presetID in pairs(CUSTOM_AURA_PRESET_SPELL_IDS) do
-            local ok, info = pcall(C_Spell.GetSpellInfo, presetID)
-            if ok and info and info.name and (info.name == rawName or info.name == spellName) then
-                return presetID
-            end
-        end
-    end
-    return nil
 end
 
 local function IsCustomAuraPresetSpell(spellName, spellID)

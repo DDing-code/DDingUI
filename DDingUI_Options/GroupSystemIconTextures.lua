@@ -108,6 +108,15 @@ function GroupSystemIconTextures:CreateRuntime(pendingSpellRefresh, invalidateCa
             local rawName = spellName:gsub("^buff_", "")
             local mapped = CUSTOM_AURA_PRESET_NAME_IDS[rawName] or CUSTOM_AURA_PRESET_NAME_IDS[spellName]
             if mapped then return mapped end
+
+            if C_Spell and C_Spell.GetSpellInfo then
+                for presetID in pairs(CUSTOM_AURA_PRESET_SPELL_IDS) do
+                    local ok, info = pcall(C_Spell.GetSpellInfo, presetID)
+                    if ok and info and info.name and (info.name == rawName or info.name == spellName) then
+                        return presetID
+                    end
+                end
+            end
         end
         return nil
     end
