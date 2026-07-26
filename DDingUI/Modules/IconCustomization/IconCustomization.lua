@@ -857,7 +857,7 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
     }
 end
 
-function IconCustomization:BuildContextMenuItems(spellID, viewerType)
+function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettingsChanged)
     if issecretvalue and issecretvalue(spellID) then return nil end
     if spellID == nil then return nil end
     spellID = tonumber(spellID)
@@ -884,6 +884,7 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
     local function Apply(key, value)
         spells[spellKey] = spells[spellKey] or {}
         spells[spellKey][key] = value
+        if onSettingsChanged then onSettingsChanged(spells[spellKey]) end
         Refresh()
     end
 
@@ -896,11 +897,13 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
             spells[spellKey].glowTrigger = nextTrigger
             FindAndHookIconForSpell(spellID)
         end
+        if onSettingsChanged then onSettingsChanged(spells[spellKey]) end
         Refresh()
     end
 
     local function ResetGlow()
         spells[spellKey] = nil
+        if onSettingsChanged then onSettingsChanged(nil) end
         Refresh()
     end
 
@@ -914,7 +917,7 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType)
     )
 end
 
-function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc)
+function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, onSettingsChanged)
     local profile = DDingUI.db and DDingUI.db.profile
     local dynamicIcons = profile and profile.dynamicIcons
     local iconData = iconKey and dynamicIcons and dynamicIcons.iconData and dynamicIcons.iconData[iconKey]
@@ -937,6 +940,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc)
     local function Apply(key, value)
         iconData.settings.customStateGlow = iconData.settings.customStateGlow or {}
         iconData.settings.customStateGlow[key] = value
+        if onSettingsChanged then onSettingsChanged(iconData.settings.customStateGlow) end
         Refresh()
     end
 
@@ -948,11 +952,13 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc)
             iconData.settings.customStateGlow.readyGlow = true
             iconData.settings.customStateGlow.glowTrigger = nextTrigger
         end
+        if onSettingsChanged then onSettingsChanged(iconData.settings.customStateGlow) end
         Refresh()
     end
 
     local function ResetGlow()
         iconData.settings.customStateGlow = nil
+        if onSettingsChanged then onSettingsChanged(nil) end
         Refresh()
     end
 
@@ -964,6 +970,15 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc)
         defaultTrigger,
         L["Reset Glow"] or "Reset Glow"
     )
+end
+
+function IconCustomization:RefreshAllGlows()
+    RefreshAllReadyGlows(true)
+    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged then
+        DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+    elseif DDingUI.GroupSystem and DDingUI.GroupSystem.RequestFullUpdate then
+        DDingUI.GroupSystem:RequestFullUpdate()
+    end
 end
 
 function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)

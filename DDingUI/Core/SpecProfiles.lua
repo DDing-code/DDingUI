@@ -329,6 +329,22 @@ function SP:SaveCurrentSpec()
     StoreSpecDelta(DDingUI.db.profile, specID, snapshot, type(snapshot.dynamicIcons) == "table")
 end
 
+function SP:MutateStoredSpecs(mutator)
+    if type(mutator) ~= "function" or not DDingUI.db or not DDingUI.db.profile then return false end
+
+    self:SaveCurrentSpec()
+    local profile = DDingUI.db.profile
+    local changed = false
+    for specID, stored in pairs(profile.specData or {}) do
+        local snapshot = ExpandStoredSpec(profile, stored)
+        if snapshot and mutator(snapshot, specID) then
+            StoreSpecDelta(profile, specID, snapshot, type(snapshot.dynamicIcons) == "table")
+            changed = true
+        end
+    end
+    return changed
+end
+
 function SP:LoadSpec(specID)
     if not specID or not DDingUI.db or not DDingUI.db.profile then return false end
     local specData = DDingUI.db.profile.specData

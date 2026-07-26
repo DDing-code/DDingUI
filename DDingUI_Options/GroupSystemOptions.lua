@@ -1945,9 +1945,8 @@ local function BuildAssignedSpellsArgs(groupName)
             args["cdma_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedSpell or "Unknown"),
-                desc = capturedCanRemove
-                    and ((rawget(L, "Drag to reorder | Right-click for options | Middle-click to unassign") or "드래그: 순서 변경 | 우클릭: 옵션 | 가운데 클릭: 할당 해제") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r")
-                    or ((rawget(L, "Drag to reorder | Right-click for options") or "드래그: 순서 변경 | 우클릭: 옵션") .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r"),
+                desc = (rawget(L, "Click to edit | Drag to reorder | Right-click to manage") or "클릭: 편집 | 드래그: 순서 변경 | 우클릭: 관리")
+                    .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r",
                 order = 11 + (count * 0.01),
                 _gridKind = "cdm",
                 _gridBadge = capturedIsManual and "CDM+" or "CDM",
@@ -1955,7 +1954,9 @@ local function BuildAssignedSpellsArgs(groupName)
                 _gridDisplayName = row.displayName or capturedSpell or "Unknown",
                 _gridCanRemove = capturedCanRemove == true,
                 _gridSpellID = ResolveEntrySpellID(capturedEntry, capturedSpell),
+                _gridSpellName = capturedSpell,
                 _gridViewerType = capturedViewerType,
+                _gridGroupName = groupName,
                 _dragData = {
                     groupKey = MakeGroupOrderDragKey(groupName),
                     iconKey = capturedToken,
@@ -1988,7 +1989,8 @@ local function BuildAssignedSpellsArgs(groupName)
             args["dyna_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedIconKey or "Unknown"),
-                desc = (rawget(L, "Drag to reorder | Right-click for options | Middle-click to remove") or "드래그: 순서 변경 | 우클릭: 옵션 | 가운데 클릭: 삭제"),
+                desc = rawget(L, "Click to edit | Drag to reorder | Right-click to manage")
+                    or "클릭: 편집 | 드래그: 순서 변경 | 우클릭: 관리",
                 order = 11 + (count * 0.01),
                 _gridKind = "dynamic",
                 _gridBadge = badge,
@@ -3288,6 +3290,102 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
     end
 end
 
+local function CopyGlowSettings(settings)
+    if type(settings) ~= "table" then return nil end
+    local copy = {}
+    for key, value in pairs(settings) do
+        if type(value) == "table" then
+            local child = {}
+            for childKey, childValue in pairs(value) do
+                child[childKey] = childValue
+            end
+            copy[key] = child
+        else
+            copy[key] = value
+        end
+    end
+    return copy
+end
+
+local function CollectGroupGlowSpellKeys(groupName, includeAllGroups)
+    local keys = {}
+    local gs = GetGS()
+    for name in pairs((gs and gs.groups) or {}) do
+        if includeAllGroups or name == groupName then
+            for _, row in ipairs(GetAssignedGridRows(name) or {}) do
+                local opt = row.option
+                if opt and opt._gridKind == "cdm" and opt._gridSpellID and opt._gridViewerType then
+                    keys[tostring(opt._gridSpellID) .. "_" .. opt._gridViewerType] = true
+                end
+            end
+        end
+    end
+    return keys
+end
+
+local function ApplyGlowSettingsToProfile(profile, scope, groupName, settings, spellKeys)
+    if type(profile) ~= "table" then return false end
+    local changed = false
+    local copied = CopyGlowSettings(settings)
+    local dynDB = profile.dynamicIcons
+    local gs = profile.groupSystem
+
+    if dynDB and dynDB.iconData then
+        local targetDynamicKeys
+        if scope == "group" then
+            local groupSettings = gs and gs.groups and gs.groups[groupName]
+            local sourceKey = groupSettings and groupSettings.sourceGroupKey
+            local sourceGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
+            targetDynamicKeys = sourceGroup and sourceGroup.icons
+        elseif scope == "all" then
+            targetDynamicKeys = {}
+            for iconKey in pairs(dynDB.iconData) do
+                targetDynamicKeys[#targetDynamicKeys + 1] = iconKey
+            end
+        end
+
+        for _, iconKey in ipairs(targetDynamicKeys or {}) do
+            local iconData = dynDB.iconData[iconKey]
+            if iconData then
+                iconData.settings = iconData.settings or {}
+                iconData.settings.customStateGlow = CopyGlowSettings(copied)
+                changed = true
+            end
+        end
+    end
+
+    profile.iconCustomization = profile.iconCustomization or {}
+    profile.iconCustomization.spells = profile.iconCustomization.spells or {}
+    for spellKey in pairs(spellKeys or {}) do
+        profile.iconCustomization.spells[spellKey] = CopyGlowSettings(copied)
+        changed = true
+    end
+    return changed
+end
+
+local function ApplyAssignedIconGlowScope(groupName, settings)
+    local scope = DDingUI._groupIconApplyScope or "icon"
+    if scope == "icon" then return end
+
+    local includeAll = scope == "all"
+    local spellKeys = CollectGroupGlowSpellKeys(groupName, includeAll)
+    local profile = DDingUI.db and DDingUI.db.profile
+    ApplyGlowSettingsToProfile(profile, includeAll and "all" or "group", groupName, settings, spellKeys)
+
+    if includeAll and DDingUI.SpecProfiles and DDingUI.SpecProfiles.MutateStoredSpecs then
+        DDingUI.SpecProfiles:MutateStoredSpecs(function(snapshot)
+            return ApplyGlowSettingsToProfile(snapshot, "all", groupName, settings, spellKeys)
+        end)
+    elseif DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+        DDingUI.SpecProfiles:MarkDirty()
+    end
+
+    local customizer = DDingUI.IconCustomization
+    if customizer and customizer.RefreshAllGlows then
+        customizer:RefreshAllGlows()
+    end
+end
+
 function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if not parent then return end
 
@@ -3367,34 +3465,134 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         SoftRefreshGroupSystemOptions(0.05)
     end
 
+    local function MoveAssignedIcon(opt, targetGroupName)
+        if not opt or not targetGroupName or targetGroupName == groupName then return false end
+        if opt._gridKind == "dynamic" and opt._gridDynamicIconKey then
+            local targetSourceKey = EnsureSourceGroup(targetGroupName)
+            if targetSourceKey and DDingUI.CustomIcons and DDingUI.CustomIcons.MoveIconToGroup then
+                DDingUI.CustomIcons:MoveIconToGroup(opt._gridDynamicIconKey, targetSourceKey)
+                return true
+            end
+        elseif opt._gridKind == "cdm" and opt._gridSpellName and DDingUI.GroupManager then
+            return DDingUI.GroupManager:AssignSpell(opt._gridSpellName, targetGroupName) == true
+        end
+        return false
+    end
+
+    local function BuildMoveMenu(opt)
+        local gs = GetGS()
+        local targets = {}
+        for targetName, targetSettings in pairs((gs and gs.groups) or {}) do
+            local compatible = opt._gridKind == "dynamic" or targetSettings.groupType ~= "dynamic"
+            if targetName ~= groupName and compatible and targetSettings.enabled ~= false then
+                targets[#targets + 1] = {
+                    name = targetName,
+                    label = GROUP_DISPLAY_NAMES[targetName] or targetSettings.name or targetName,
+                    order = targetSettings.order or 999,
+                }
+            end
+        end
+        table.sort(targets, function(a, b)
+            if a.order ~= b.order then return a.order < b.order end
+            return tostring(a.label) < tostring(b.label)
+        end)
+
+        local menu = {}
+        for _, target in ipairs(targets) do
+            menu[#menu + 1] = {
+                text = target.label,
+                func = function()
+                    if MoveAssignedIcon(opt, target.name) then
+                        RefreshAfterCommit()
+                    end
+                end,
+            }
+        end
+        return #menu > 0 and menu or nil
+    end
+
+    local function ShowAssignedIconEditMenu(owner, opt)
+        if not owner or not opt then return end
+        local scope = DDingUI._groupIconApplyScope or "icon"
+        local menuList = {
+            {
+                text = opt._gridDisplayName or (rawget(L, "Edit Icon") or "아이콘 편집"),
+                isTitle = true,
+            },
+            {
+                text = rawget(L, "Apply Scope") or "적용 범위",
+                menuList = {
+                    {
+                        text = rawget(L, "This Icon") or "이 아이콘",
+                        checked = scope == "icon",
+                        func = function() DDingUI._groupIconApplyScope = "icon" end,
+                    },
+                    {
+                        text = rawget(L, "This Group") or "이 그룹",
+                        checked = scope == "group",
+                        func = function() DDingUI._groupIconApplyScope = "group" end,
+                    },
+                    {
+                        text = rawget(L, "All Groups and Specs") or "모든 그룹·전문화",
+                        checked = scope == "all",
+                        func = function() DDingUI._groupIconApplyScope = "all" end,
+                    },
+                },
+            },
+            { isSeparator = true },
+        }
+
+        local customizer = DDingUI.IconCustomization
+        local onSettingsChanged = function(settings)
+            ApplyAssignedIconGlowScope(groupName, settings)
+        end
+        local items
+        if customizer and customizer.BuildDynamicContextMenuItems
+            and opt._gridKind == "dynamic" and opt._gridDynamicIconKey
+        then
+            items = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
+                SoftRefreshGroupSystemOptions(0.05)
+            end, onSettingsChanged)
+        elseif customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
+            items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType, onSettingsChanged)
+        end
+        for _, item in ipairs(items or {}) do
+            menuList[#menuList + 1] = item
+        end
+
+        if SL and SL.ShowCascadingMenu then
+            SL.ShowCascadingMenu(owner, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
+        end
+    end
+
     local function ShowAssignedIconContextMenu(owner, opt)
         if not owner or not opt then return end
         local menuList = {
             {
-                text = opt._gridDisplayName or (rawget(L, "Icon Customization") or "Icon Customization"),
+                text = opt._gridDisplayName or (rawget(L, "Manage Icon") or "아이콘 관리"),
                 isTitle = true,
+            },
+            {
+                text = rawget(L, "Add Spell or Item") or "스펠·아이템 추가",
+                func = function()
+                    DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRows, RefreshAfterCommit)
+                end,
             },
         }
 
-        if opt._gridCanRemove then
+        local moveMenu = BuildMoveMenu(opt)
+        if moveMenu then
             menuList[#menuList + 1] = {
-                text = opt._gridKind == "cdm"
-                    and (rawget(L, "Unassign") or "Unassign")
-                    or (_G.REMOVE or "Remove"),
-                color = "dim",
-                func = function()
-                    CallOptionFunc(opt)
-                    RefreshAfterCommit()
-                end,
+                text = rawget(L, "Move To") or "다른 그룹으로 이동",
+                menuList = moveMenu,
             }
-            menuList[#menuList + 1] = { isSeparator = true }
         end
 
         local gs = GetGS()
-        local currentGroupSettings = gs and gs.groups and gs.groups[opt._gridGroupName]
+        local currentGroupSettings = gs and gs.groups and gs.groups[groupName]
         local attachToExistingIcon = opt._gridKind == "dynamic"
             and (opt._gridDynamicIconType == "slot" or opt._gridDynamicIconType == "item")
-            and not IsBuffGroup(opt._gridGroupName, currentGroupSettings)
+            and not IsBuffGroup(groupName, currentGroupSettings)
         local itemID = DDingUI:ResolveGridTrinketItemID(opt)
         local registry = DDingUI.TrinketEffects
         local hasRegisteredEffect = itemID and registry and registry.GetEffectsForItem
@@ -3404,39 +3602,36 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             local tracked = DDingUI:IsGridTrinketEffectTracked(opt)
             menuList[#menuList + 1] = {
                 text = tracked
-                    and (rawget(L, "Remove Trinket Buff") or "Remove Buff")
-                    or (rawget(L, "Add Trinket Buff") or "Add Buff"),
+                    and (rawget(L, "Remove Trinket Buff") or "강화효과 제거")
+                    or (rawget(L, "Add Trinket Buff") or "강화효과 추가"),
                 func = function()
                     if DDingUI:SetGridTrinketEffectTracked(opt, not tracked) then
                         RefreshAfterCommit()
                     end
                 end,
             }
-            menuList[#menuList + 1] = { isSeparator = true }
         else
             local trinketTargets = DDingUI:BuildTrinketEffectGroupMenu(opt, RefreshAfterCommit)
             if trinketTargets then
                 menuList[#menuList + 1] = {
-                    text = rawget(L, "Add Trinket Buff") or "Add Buff",
+                    text = rawget(L, "Add Trinket Buff") or "강화효과 추가",
                     menuList = trinketTargets,
                 }
-                menuList[#menuList + 1] = { isSeparator = true }
             end
         end
 
-        local customizer = DDingUI.IconCustomization
-        if customizer and customizer.BuildDynamicContextMenuItems and opt._gridKind == "dynamic" and opt._gridDynamicIconKey then
-            local items = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
-                SoftRefreshGroupSystemOptions(0.05)
-            end)
-            for _, item in ipairs(items or {}) do
-                menuList[#menuList + 1] = item
-            end
-        elseif customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
-            local items = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType)
-            for _, item in ipairs(items or {}) do
-                menuList[#menuList + 1] = item
-            end
+        if opt._gridCanRemove then
+            menuList[#menuList + 1] = { isSeparator = true }
+            menuList[#menuList + 1] = {
+                text = opt._gridKind == "cdm"
+                    and (rawget(L, "Unassign") or "할당 해제")
+                    or (_G.DELETE or "삭제"),
+                color = "red",
+                func = function()
+                    CallOptionFunc(opt)
+                    RefreshAfterCommit()
+                end,
+            }
         end
 
         if SL and SL.ShowCascadingMenu then
@@ -4006,7 +4201,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             slot._data = opt and opt._dragData
             slot._baseAlpha = groupAlpha
             slot:SetAlpha(groupAlpha)
-            slot:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+            slot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             slot:SetHitRectInsets(-3, -3, -3, -3)
             PositionSlot(slot)
 
@@ -4051,9 +4246,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 end
                 if button == "RightButton" and opt then
                     ShowAssignedIconContextMenu(self, opt)
-                elseif button == "MiddleButton" and opt and opt._gridCanRemove then
-                    CallOptionFunc(opt)
-                    RefreshAfterCommit()
+                elseif button == "LeftButton" and opt then
+                    ShowAssignedIconEditMenu(self, opt)
                 end
             end)
             slot:SetScript("OnMouseDown", function(self, button)
