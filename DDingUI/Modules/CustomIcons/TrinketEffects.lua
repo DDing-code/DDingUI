@@ -306,9 +306,11 @@ function TrinketEffects:RefreshEventRegistration()
     if enabled then
         eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
         eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        eventFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
     else
-        eventFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
-        eventFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+        eventFrame:UnregisterAllEvents()
     end
 end
 
@@ -332,9 +334,6 @@ local function QueuePurgeUnequippedStates()
 end
 
 eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         QueueNormalizeSavedEffects()
