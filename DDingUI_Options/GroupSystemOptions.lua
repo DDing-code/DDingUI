@@ -3242,6 +3242,31 @@ function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
     return math.max(34, (layout.height or 1) + 18)
 end
 
+local function ShowUnassignedIconEditMenu(owner, row)
+    if not owner or not row then return end
+    local viewerName = row.entry and row.entry.viewerName
+    local viewerType = viewerName == "EssentialCooldownViewer" and "Essential"
+        or viewerName == "UtilityCooldownViewer" and "Utility"
+        or viewerName == "BuffIconCooldownViewer" and "Buff"
+    local customizer = DDingUI.IconCustomization
+    local items = customizer and customizer.BuildContextMenuItems
+        and row.spellID and viewerType
+        and customizer:BuildContextMenuItems(row.spellID, viewerType)
+        or {}
+    local menuList = {
+        {
+            text = row.displayName or row.spellName or (rawget(L, "Edit Icon") or "아이콘 편집"),
+            isTitle = true,
+        },
+    }
+    for _, item in ipairs(items) do
+        menuList[#menuList + 1] = item
+    end
+    if SL and SL.ShowCascadingMenu then
+        SL.ShowCascadingMenu(owner, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
+    end
+end
+
 function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
     if not parent or not groupName then return end
 
@@ -3295,15 +3320,17 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
             self:SetBackdropBorderColor(0.3, 0.85, 1, 1)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText(row.displayName or row.spellName or "Unknown", 1, 1, 1, 1, true)
-            GameTooltip:AddLine(rawget(L, "Click to assign") or "클릭하여 현재 그룹에 할당", 0.35, 1, 0.45, true)
+            GameTooltip:AddLine(rawget(L, "Left-click to edit | Right-click to add") or "좌클릭: 편집 | 우클릭: 현재 그룹에 추가", 0.35, 1, 0.45, true)
             GameTooltip:Show()
         end)
         button:SetScript("OnLeave", function(self)
             self:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
             GameTooltip:Hide()
         end)
-        button:SetScript("OnClick", function()
-            if AssignUnassignedSpellRow(groupName, row) then
+        button:SetScript("OnClick", function(self, mouseButton)
+            if mouseButton == "LeftButton" then
+                ShowUnassignedIconEditMenu(self, row)
+            elseif mouseButton == "RightButton" and AssignUnassignedSpellRow(groupName, row) then
                 RefreshAfterAssign()
             end
         end)
