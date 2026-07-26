@@ -279,7 +279,115 @@ end
 -- Check if a spell is customized
 local function IsSpellCustomized(spellID, viewerType)
     local custom = GetSpellCustomization(spellID, viewerType)
-    return custom.readyGlow ~= nil
+    return type(custom) == "table" and next(custom) ~= nil
+end
+
+local function BuildEffectiveSkinSettings(icon, settings)
+    local spellID = GetSpellIDFromIcon(icon)
+    if issecretvalue and issecretvalue(spellID) then return settings end
+    spellID = tonumber(spellID)
+    if not spellID or spellID <= 0 then return settings end
+
+    local viewerType
+    local sourceViewer = icon and icon._ddSourceViewer
+    if sourceViewer == "EssentialCooldownViewer" then
+        viewerType = "Essential"
+    elseif sourceViewer == "UtilityCooldownViewer" then
+        viewerType = "Utility"
+    elseif sourceViewer == "BuffIconCooldownViewer" then
+        viewerType = "Buff"
+    elseif not InCombatLockdown() then
+        viewerType = GetViewerType(icon)
+    end
+    if not viewerType then return settings end
+
+    local custom = GetSpellCustomization(spellID, viewerType)
+    local activeStateMode = custom.activeStateMode
+    local cooldownSwipeMode = custom.cooldownSwipeMode
+    local cooldownEdgeMode = custom.cooldownEdgeMode
+    local cooldownFinishMode = custom.cooldownFinishMode
+    local activeDurationMode = custom.activeDurationMode
+    if activeStateMode == nil and cooldownSwipeMode == nil
+        and cooldownEdgeMode == nil and cooldownFinishMode == nil
+        and activeDurationMode == nil
+    then
+        return settings
+    end
+
+    local effective = {}
+    for key, value in pairs(settings or {}) do
+        effective[key] = value
+    end
+
+    if activeStateMode == "show" then
+        effective.hideActiveState = false
+    elseif activeStateMode == "hide" then
+        effective.hideActiveState = true
+    end
+
+    if cooldownSwipeMode == "normal" then
+        effective.disableSwipeAnimation = false
+        effective.swipeReverse = false
+    elseif cooldownSwipeMode == "reverse" then
+        effective.disableSwipeAnimation = false
+        effective.swipeReverse = true
+    elseif cooldownSwipeMode == "hidden" then
+        effective.disableSwipeAnimation = true
+    end
+
+    if cooldownEdgeMode == "show" then
+        effective.disableEdgeGlow = false
+    elseif cooldownEdgeMode == "hide" then
+        effective.disableEdgeGlow = true
+    end
+
+    if cooldownFinishMode == "show" then
+        effective.disableBlingAnimation = false
+    elseif cooldownFinishMode == "hide" then
+        effective.disableBlingAnimation = true
+    end
+
+    if activeDurationMode == "show" then
+        effective.hideDurationText = false
+    elseif activeDurationMode == "hide" then
+        effective.hideDurationText = true
+    end
+
+    effective._ddIconCooldownSwipeMode = cooldownSwipeMode
+    effective._ddIconCooldownEdgeMode = cooldownEdgeMode
+    effective._ddIconCooldownFinishMode = cooldownFinishMode
+    return effective
+end
+
+local function ApplyExplicitSkinVisibility(icon, settings)
+    local cooldown = icon and icon.Cooldown
+    if not cooldown or not settings then return end
+
+    local data = GetFrameData(icon)
+    local swipeMode = settings._ddIconCooldownSwipeMode
+    if cooldown.SetDrawSwipe
+        and ((swipeMode == "normal" or swipeMode == "reverse")
+            or (data.iconCooldownSwipeMode and not swipeMode and settings.disableSwipeAnimation ~= true))
+    then
+        cooldown:SetDrawSwipe(true)
+    end
+    local edgeMode = settings._ddIconCooldownEdgeMode
+    if cooldown.SetDrawEdge
+        and (edgeMode == "show"
+            or (data.iconCooldownEdgeMode and not edgeMode and settings.disableEdgeGlow ~= true))
+    then
+        cooldown:SetDrawEdge(true)
+    end
+    local finishMode = settings._ddIconCooldownFinishMode
+    if cooldown.SetDrawBling
+        and (finishMode == "show"
+            or (data.iconCooldownFinishMode and not finishMode and settings.disableBlingAnimation ~= true))
+    then
+        cooldown:SetDrawBling(true)
+    end
+    data.iconCooldownSwipeMode = swipeMode
+    data.iconCooldownEdgeMode = edgeMode
+    data.iconCooldownFinishMode = finishMode
 end
 
 -- UI state
@@ -737,7 +845,7 @@ function IconCustomization:OpenSpellEditor(spellID, viewerType)
     end
 end
 
-local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow, defaultTrigger, resetLabel)
+local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow, defaultTrigger, resetLabel, includeReset)
     local function ChoiceMenu(key, values, fallback)
         local items = {}
         local selected = Current()[key] or fallback
@@ -765,7 +873,7 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
         autocast = L["Autocast Shine"] or "Autocast Shine",
         proc = L["Proc Effect"] or "Proc Effect",
     }
-    return {
+    local items = {
         {
             text = L["State Glow"] or "State Glow",
             rightText = custom.readyGlow == true and triggerLabels[trigger] or (L["Off"] or "Off"),
@@ -848,16 +956,19 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                 },
             },
         },
-        { isSeparator = true },
-        {
+    }
+    if includeReset ~= false then
+        items[#items + 1] = { isSeparator = true }
+        items[#items + 1] = {
             text = resetLabel,
             color = "dim",
             func = ResetGlow,
-        },
-    }
+        }
+    end
+    return items
 end
 
-function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettingsChanged)
+function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettingsChanged, glowOnly)
     if issecretvalue and issecretvalue(spellID) then return nil end
     if spellID == nil then return nil end
     spellID = tonumber(spellID)
@@ -876,48 +987,164 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
         return spells[spellKey] or {}
     end
 
-    local function Refresh()
+    local function RefreshGlow()
         RefreshAllReadyGlows(true, spellID, viewerType)
         RefreshGUI()
+    end
+
+    local function NotifyChanged()
+        if onSettingsChanged then onSettingsChanged(spells[spellKey]) end
+    end
+
+    local function Compact()
+        if spells[spellKey] and next(spells[spellKey]) == nil then
+            spells[spellKey] = nil
+        end
     end
 
     local function Apply(key, value)
         spells[spellKey] = spells[spellKey] or {}
         spells[spellKey][key] = value
-        if onSettingsChanged then onSettingsChanged(spells[spellKey]) end
-        Refresh()
+        Compact()
+        NotifyChanged()
+        RefreshGlow()
     end
 
     local function SetGlowState(nextTrigger)
         if not nextTrigger then
-            spells[spellKey] = nil
+            local custom = spells[spellKey]
+            if custom then
+                custom.readyGlow = nil
+                custom.glowTrigger = nil
+            end
         else
             spells[spellKey] = spells[spellKey] or {}
             spells[spellKey].readyGlow = true
             spells[spellKey].glowTrigger = nextTrigger
             FindAndHookIconForSpell(spellID)
         end
-        if onSettingsChanged then onSettingsChanged(spells[spellKey]) end
-        Refresh()
+        Compact()
+        NotifyChanged()
+        RefreshGlow()
     end
 
     local function ResetGlow()
-        spells[spellKey] = nil
-        if onSettingsChanged then onSettingsChanged(nil) end
-        Refresh()
+        local custom = spells[spellKey]
+        if custom then
+            custom.readyGlow = nil
+            custom.glowTrigger = nil
+            custom.glowType = nil
+            custom.glowColor = nil
+            custom.glowSpeed = nil
+            custom.glowLines = nil
+            custom.glowThickness = nil
+        end
+        Compact()
+        NotifyChanged()
+        RefreshGlow()
     end
 
-    return BuildGlowContextMenuItems(
+    local function RefreshVisual()
+        if DDingUI.GroupSystem and DDingUI.GroupSystem.RequestFullUpdate then
+            DDingUI.GroupSystem:RequestFullUpdate()
+        end
+        RefreshGUI()
+    end
+
+    local function ApplyVisual(key, value)
+        spells[spellKey] = spells[spellKey] or {}
+        spells[spellKey][key] = value
+        Compact()
+        NotifyChanged()
+        RefreshVisual()
+    end
+
+    local function ResetIcon()
+        spells[spellKey] = nil
+        NotifyChanged()
+        RefreshAllReadyGlows(true, spellID, viewerType)
+        RefreshVisual()
+    end
+
+    local menuItems = BuildGlowContextMenuItems(
         Current,
         Apply,
         SetGlowState,
         ResetGlow,
         defaultTrigger,
-        L["Reset Icon"] or "Reset Icon"
+        L["Reset Glow"] or "Reset Glow",
+        glowOnly == true
     )
+    if glowOnly then return menuItems end
+
+    local function VisualChoice(label, key, choices)
+        local selected = Current()[key] or "inherit"
+        local labels = {}
+        local items = {}
+        for _, choice in ipairs(choices) do
+            local value = choice[1]
+            labels[value] = choice[2]
+            items[#items + 1] = {
+                text = choice[2],
+                checked = selected == value,
+                func = function()
+                    ApplyVisual(key, value == "inherit" and nil or value)
+                end,
+            }
+        end
+        return {
+            text = label,
+            rightText = labels[selected],
+            menuList = items,
+        }
+    end
+
+    local inheritShowHide = {
+        { "inherit", L["Default"] or "Default" },
+        { "show", L["Show"] or "Show" },
+        { "hide", L["Hide"] or "Hide" },
+    }
+    menuItems[#menuItems + 1] = { isSeparator = true }
+    menuItems[#menuItems + 1] = VisualChoice(
+        L["Active State"] or "Active State",
+        "activeStateMode",
+        inheritShowHide
+    )
+    menuItems[#menuItems + 1] = VisualChoice(
+        L["Cooldown Swipe"] or "Cooldown Swipe",
+        "cooldownSwipeMode",
+        {
+            { "inherit", L["Default"] or "Default" },
+            { "normal", L["Normal"] or "Normal" },
+            { "reverse", L["Reverse"] or "Reverse" },
+            { "hidden", L["Hidden"] or "Hidden" },
+        }
+    )
+    menuItems[#menuItems + 1] = VisualChoice(
+        L["Cooldown Edge"] or "Cooldown Edge",
+        "cooldownEdgeMode",
+        inheritShowHide
+    )
+    menuItems[#menuItems + 1] = VisualChoice(
+        L["Cooldown Finish Flash"] or "Cooldown Finish Flash",
+        "cooldownFinishMode",
+        inheritShowHide
+    )
+    menuItems[#menuItems + 1] = VisualChoice(
+        L["Active Duration Text"] or "Active Duration Text",
+        "activeDurationMode",
+        inheritShowHide
+    )
+    menuItems[#menuItems + 1] = { isSeparator = true }
+    menuItems[#menuItems + 1] = {
+        text = L["Reset Icon"] or "Reset Icon",
+        color = "dim",
+        func = ResetIcon,
+    }
+    return menuItems
 end
 
-function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, onSettingsChanged)
+function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, onSettingsChanged, glowOnly)
     local profile = DDingUI.db and DDingUI.db.profile
     local dynamicIcons = profile and profile.dynamicIcons
     local iconData = iconKey and dynamicIcons and dynamicIcons.iconData and dynamicIcons.iconData[iconKey]
@@ -968,8 +1195,10 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         SetGlowState,
         ResetGlow,
         defaultTrigger,
-        L["Reset Glow"] or "Reset Glow"
+        L["Reset Glow"] or "Reset Glow",
+        glowOnly == true
     )
+    if glowOnly then return menuItems end
 
     local function ToggleSetting(key, defaultValue)
         local current = iconData.settings[key]
@@ -1027,6 +1256,12 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     menuItems[#menuItems + 1] = {
         text = L["Icon State"] or "Icon State",
         menuList = stateItems,
+    }
+    menuItems[#menuItems + 1] = { isSeparator = true }
+    menuItems[#menuItems + 1] = {
+        text = L["Reset Glow"] or "Reset Glow",
+        color = "dim",
+        func = ResetGlow,
     }
     return menuItems
 end
@@ -1627,7 +1862,9 @@ function IconCustomization:Initialize()
     if DDingUI.IconViewers and DDingUI.IconViewers.SkinIcon then
         local originalSkinIcon = DDingUI.IconViewers.SkinIcon
         function DDingUI.IconViewers:SkinIcon(icon, settings)
-            local result = originalSkinIcon(self, icon, settings)
+            local effectiveSettings = BuildEffectiveSkinSettings(icon, settings)
+            local result = originalSkinIcon(self, icon, effectiveSettings)
+            ApplyExplicitSkinVisibility(icon, effectiveSettings)
             
             -- Hook the icon for ready glow if it has customization
             if icon and (icon.icon or icon.Icon) and icon.Cooldown then

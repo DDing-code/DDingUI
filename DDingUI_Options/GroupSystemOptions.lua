@@ -3336,7 +3336,7 @@ local function ShowUnassignedIconEditMenu(owner, row)
     local customizer = DDingUI.IconCustomization
     local items = customizer and customizer.BuildContextMenuItems
         and row.spellID and viewerType
-        and customizer:BuildContextMenuItems(row.spellID, viewerType)
+        and customizer:BuildContextMenuItems(row.spellID, viewerType, nil, true)
         or {}
     local menuList = {
         {
@@ -3709,7 +3709,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return #menu > 0 and menu or nil
     end
 
-    local function BuildAssignedIconSettingsItems(opt)
+    local function BuildAssignedIconSettingsItems(opt, glowOnly)
         if not opt then return {} end
         local scope = DDingUI._groupIconApplyScope or "icon"
         local items = {
@@ -3746,9 +3746,14 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         then
             customItems = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
                 SoftRefreshGroupSystemOptions(0.05)
-            end, onSettingsChanged)
+            end, onSettingsChanged, glowOnly)
         elseif customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
-            customItems = customizer:BuildContextMenuItems(opt._gridSpellID, opt._gridViewerType, onSettingsChanged)
+            customItems = customizer:BuildContextMenuItems(
+                opt._gridSpellID,
+                opt._gridViewerType,
+                onSettingsChanged,
+                glowOnly
+            )
         end
         for _, item in ipairs(customItems or {}) do
             items[#items + 1] = item
@@ -3756,7 +3761,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return items
     end
 
-    local function ShowAssignedIconEditMenu(owner, opt)
+    local function ShowAssignedIconGlowMenu(owner, opt)
         if not owner or not opt then return end
         local menuList = {
             {
@@ -3764,7 +3769,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 isTitle = true,
             },
         }
-        for _, item in ipairs(BuildAssignedIconSettingsItems(opt)) do
+        for _, item in ipairs(BuildAssignedIconSettingsItems(opt, true)) do
             menuList[#menuList + 1] = item
         end
         if SL and SL.ShowCascadingMenu then
@@ -4384,6 +4389,14 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if desc and desc ~= "" then
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
         end
+        GameTooltip:AddLine(
+            rawget(L, "Drag to reorder | Left-click for glow | Right-click for options")
+                or "Drag to reorder | Left-click for glow | Right-click for options",
+            0.35,
+            1,
+            0.45,
+            true
+        )
         GameTooltip:Show()
     end
 
@@ -4452,7 +4465,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 if button == "RightButton" and opt then
                     ShowAssignedIconContextMenu(self, opt)
                 elseif button == "LeftButton" and opt then
-                    ShowAssignedIconEditMenu(self, opt)
+                    ShowAssignedIconGlowMenu(self, opt)
                 end
             end)
             slot:SetScript("OnMouseDown", function(self, button)
