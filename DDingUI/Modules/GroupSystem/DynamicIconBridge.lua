@@ -978,16 +978,6 @@ local function BuildDirtySourceKeys(previousHashes, nextHashes)
     return dirty
 end
 
-local function MergeSourceKeys(target, source)
-    if source == true or target == true then return true end
-    if type(source) ~= "table" then return target end
-    target = type(target) == "table" and target or {}
-    for sourceKey in pairs(source) do
-        target[sourceKey] = true
-    end
-    return target
-end
-
 function DynamicIconBridge.ApplyTexCoordCrop(texture, zoom, aspectRatio)
     if not texture or not texture.SetTexCoord then return end
     zoom = zoom or 0.08
@@ -1424,9 +1414,8 @@ function DynamicIconBridge:Initialize()
 
     initialized = true
     self._initRetries = nil
-    self._lastQueuedLayoutStateHash = nil
     self._lastAppliedLayoutStateHash = nil
-    self._pendingForceLayout = false
+    self._lastAppliedSourceHashes = nil
 
     -- 레이아웃 억제 시작
     self:SuppressCustomIconsLayout()
@@ -1448,27 +1437,13 @@ function DynamicIconBridge:Initialize()
         end
     end
 
-    -- Merge repeated aura events into one reusable next-frame dispatch.
     if not self._auraEventFrame then
-        self._auraDirty = false
-        self._auraDispatchFrame = CreateFrame("Frame")
-        self._auraDispatchFrame:Hide()
-        self._auraDispatchFrame:SetScript("OnUpdate", function(frame)
-            frame:Hide()
-            if not self._auraDirty then return end
-            self._auraDirty = false
-            if not initialized then return end
-            ScanAndHideCDMBuffs()
-            self:NotifyIconsChanged(false)
-        end)
         self._auraEventFrame = CreateFrame("Frame")
         self._auraEventFrame:SetScript("OnEvent", function(_, event, unit)
             if event == "UNIT_AURA" and unit ~= "player" then return end
             if not initialized then return end
-            if not self._auraDirty then
-                self._auraDirty = true
-                self._auraDispatchFrame:Show()
-            end
+            ScanAndHideCDMBuffs()
+            self:NotifyIconsChanged(false)
         end)
     end
     self._auraEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
@@ -1489,18 +1464,8 @@ end
 function DynamicIconBridge:Shutdown()
     if not initialized then return end
     initialized = false
-    self._auraDirty = false
-    if self._auraDispatchFrame then
-        self._auraDispatchFrame:Hide()
-    end
     if self._auraEventFrame then
         self._auraEventFrame:UnregisterAllEvents()
-    end
-    self._updatePending = false
-    self._pendingForceLayout = false
-    self._pendingSourceKeys = nil
-    if self._updateDispatchFrame then
-        self._updateDispatchFrame:Hide()
     end
 
     -- CDM 프레임 숨김 해제
@@ -1520,81 +1485,37 @@ end
 -- GroupSystem 업데이트 트리거 (CustomIcons 이벤트 → GroupSystem 재레이아웃)
 -- ============================================================
 
--- CustomIcons의 이벤트 핸들러 후에 GroupSystem도 업데이트하도록 훅
--- GroupInit.DoFullUpdate가 이미 주기적으로 호출되므로,
--- 추가 트리거는 CustomIcons 아이콘 추가/삭제 시에만 필요
+-- CustomIcons changes only mark the shared GroupSystem queue dirty.
+-- State hashing and source selection run once when the queue consumes the mark.
 function DynamicIconBridge:NotifyIconsChanged(forceLayout)
     if not initialized then return end
     if not layoutSuppressed then return end
 
-    local inCombat = InCombatLockdown and InCombatLockdown()
     if forceLayout then
         InvalidateGroupLayoutCaches()
     end
+    local gs = DDingUI.GroupSystem
+    if gs and gs.RequestDynamicUpdate then
+        local delay = (InCombatLockdown and InCombatLockdown()) and 0.3 or 0.16
+        gs:RequestDynamicUpdate(forceLayout and true or nil, delay, true)
+    elseif gs and gs.RequestFullUpdate then
+        gs:RequestFullUpdate()
+    elseif gs and gs.DoFullUpdate then
+        gs:DoFullUpdate()
+    end
+end
+
+function DynamicIconBridge:CollectDirtySourceKeys()
+    if not initialized or not layoutSuppressed then return false end
+    ScanAndHideCDMBuffs()
+
     local stateHash, sourceHashes = BuildDynamicLayoutStateHash()
-    if not forceLayout and self._lastQueuedLayoutStateHash == stateHash then
-        return
-    end
-    local dirtySourceKeys = forceLayout and true or BuildDirtySourceKeys(self._lastQueuedSourceHashes or self._lastAppliedSourceHashes, sourceHashes)
-    self._lastQueuedLayoutStateHash = stateHash
-    self._lastQueuedSourceHashes = sourceHashes
-
-    -- DoFullUpdate 트리거 (디바운스)
-    if self._updatePending then
-        self._pendingForceLayout = self._pendingForceLayout or forceLayout
-        self._pendingSourceKeys = MergeSourceKeys(self._pendingSourceKeys, dirtySourceKeys)
-        return
-    end
-    self._updatePending = true
-    self._pendingForceLayout = forceLayout and true or false
-    self._pendingSourceKeys = dirtySourceKeys
-
-    self._updateDueAt = (GetTime and GetTime() or 0) + (inCombat and 0.3 or 0.16)
-    if not self._updateDispatchFrame then
-        self._updateDispatchFrame = CreateFrame("Frame")
-        self._updateDispatchFrame:Hide()
-        self._updateDispatchFrame:SetScript("OnUpdate", function()
-            local now = GetTime and GetTime() or 0
-            if (self._updateDueAt or 0) > now then
-                return
-            end
-            self._updateDispatchFrame:Hide()
-        local pendingForce = self._pendingForceLayout
-        local pendingSourceKeys = self._pendingSourceKeys
-        self._updatePending = false
-        self._pendingForceLayout = false
-        self._pendingSourceKeys = nil
-        if not initialized then return end
-
-        if not pendingForce then
-            local currentHash, currentSourceHashes = BuildDynamicLayoutStateHash()
-            if currentHash == self._lastAppliedLayoutStateHash then
-                self._lastQueuedLayoutStateHash = currentHash
-                self._lastQueuedSourceHashes = currentSourceHashes
-                return
-            end
-            pendingSourceKeys = MergeSourceKeys(pendingSourceKeys, BuildDirtySourceKeys(self._lastAppliedSourceHashes, currentSourceHashes))
-            self._lastQueuedLayoutStateHash = currentHash
-            self._lastQueuedSourceHashes = currentSourceHashes
-            self._lastAppliedLayoutStateHash = currentHash
-            self._lastAppliedSourceHashes = currentSourceHashes
-        else
-            self._lastAppliedLayoutStateHash = self._lastQueuedLayoutStateHash
-            self._lastAppliedSourceHashes = self._lastQueuedSourceHashes
-            pendingSourceKeys = true
-        end
-
-        -- GroupInit의 DoFullUpdate 호출
-        local gs = DDingUI.GroupSystem
-        if gs and gs.RequestDynamicUpdate then
-            gs:RequestDynamicUpdate(pendingSourceKeys)
-        elseif gs and gs.RequestFullUpdate then
-            gs:RequestFullUpdate()
-        elseif gs and gs.DoFullUpdate then
-            gs:DoFullUpdate()
-        end
-        end)
+    if stateHash == self._lastAppliedLayoutStateHash then
+        return false
     end
 
-    self._updateDispatchFrame:Show()
+    local sourceKeys = BuildDirtySourceKeys(self._lastAppliedSourceHashes, sourceHashes)
+    self._lastAppliedLayoutStateHash = stateHash
+    self._lastAppliedSourceHashes = sourceHashes
+    return sourceKeys or true
 end

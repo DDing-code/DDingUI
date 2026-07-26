@@ -129,6 +129,7 @@ Modules\GroupSystem\BuffGroupPlaceholders.lua
 Modules\GroupSystem\GroupRenderer.lua
 Modules\GroupSystem\GroupStyle.lua
 Modules\GroupSystem\DynamicIconBridge.lua
+Modules\GroupSystem\DirtyQueue.lua
 Modules\GroupSystem\GroupInit.lua
 
 # Alerts (module removed)

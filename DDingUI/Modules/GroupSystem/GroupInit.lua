@@ -14,6 +14,7 @@ local GroupManager
 local GroupRenderer
 local ContainerSync  -- [REPARENT] CDM 뷰어 은닉/복원 모듈
 local DynamicIconBridge  -- [DYNAMIC] CustomIcons 통합 어댑터
+local DirtyQueue
 
 -- State
 GroupSystem.initialized = false
@@ -22,128 +23,26 @@ GroupSystem.enabled = false
 local DoFullUpdate
 local DoDynamicUpdate
 local DoCDMUpdate
-local _refreshDispatchFrame
-local _fullUpdatePending = false
-local _fullUpdateRunning = false
-local _dynamicUpdatePending = false
-local _dynamicUpdateRunning = false
-local _dynamicUpdateSourceKeys
-local _cdmUpdatePending = false
-local _cdmUpdateRunning = false
-local _cdmUpdateIDs = {}
-local _cdmForceLayout = false
-local _lastRefreshAt = 0
+local DoPartialUpdate
+local ExecuteRefresh
 local _lastClassifiedGroups
 
-local function MergeDynamicUpdateSourceKeys(sourceKeys)
-    if sourceKeys == true or _dynamicUpdateSourceKeys == true then
-        _dynamicUpdateSourceKeys = true
-        return
-    end
-    if type(sourceKeys) ~= "table" then
-        _dynamicUpdateSourceKeys = true
-        return
-    end
-    _dynamicUpdateSourceKeys = type(_dynamicUpdateSourceKeys) == "table" and _dynamicUpdateSourceKeys or {}
-    for sourceKey in pairs(sourceKeys) do
-        _dynamicUpdateSourceKeys[sourceKey] = true
+local function RequestFullUpdate(delay, fullRefresh)
+    if GroupSystem.enabled and DirtyQueue then
+        DirtyQueue:MarkFull(delay, fullRefresh)
     end
 end
 
-local function MergeCDMChanges(changes)
-    if type(changes) ~= "table" then
-        _cdmForceLayout = true
-        return
-    end
-    if changes.forceLayout then
-        _cdmForceLayout = true
-    end
-    if type(changes.ids) == "table" then
-        for cooldownID in pairs(changes.ids) do
-            _cdmUpdateIDs[cooldownID] = true
-        end
+local function RequestCDMUpdate(changes, delay)
+    if GroupSystem.enabled and DirtyQueue then
+        DirtyQueue:MarkCDM(changes, delay)
     end
 end
 
-local function HasPendingRefresh()
-    return _fullUpdatePending or _cdmUpdatePending or _dynamicUpdatePending
-end
-
-local function EnsureRefreshDispatcher()
-    if _refreshDispatchFrame then return end
-    _refreshDispatchFrame = CreateFrame("Frame")
-    _refreshDispatchFrame:Hide()
-    _refreshDispatchFrame:SetScript("OnUpdate", function(self)
-        if not HasPendingRefresh() then
-            self:Hide()
-            return
-        end
-
-        local now = GetTime and GetTime() or 0
-        local minInterval = (InCombatLockdown and InCombatLockdown()) and 0.08 or 0.05
-        if _lastRefreshAt > 0 and (now - _lastRefreshAt) < minInterval then
-            return
-        end
-
-        self:Hide()
-        if _fullUpdatePending and not _fullUpdateRunning then
-            _fullUpdatePending = false
-            _cdmUpdatePending = false
-            wipe(_cdmUpdateIDs)
-            _cdmForceLayout = false
-            _dynamicUpdatePending = false
-            _dynamicUpdateSourceKeys = nil
-            _fullUpdateRunning = true
-            DoFullUpdate()
-            _fullUpdateRunning = false
-        elseif _cdmUpdatePending and not _cdmUpdateRunning then
-            _cdmUpdatePending = false
-            local changedIDs = _cdmUpdateIDs
-            local forceLayout = _cdmForceLayout
-            _cdmUpdateIDs = {}
-            _cdmForceLayout = false
-            _cdmUpdateRunning = true
-            DoCDMUpdate(changedIDs, forceLayout)
-            _cdmUpdateRunning = false
-        elseif _dynamicUpdatePending and not _dynamicUpdateRunning then
-            _dynamicUpdatePending = false
-            local sourceKeys = _dynamicUpdateSourceKeys
-            _dynamicUpdateSourceKeys = nil
-            _dynamicUpdateRunning = true
-            DoDynamicUpdate(sourceKeys)
-            _dynamicUpdateRunning = false
-        end
-
-        _lastRefreshAt = GetTime and GetTime() or now
-        if HasPendingRefresh() then
-            self:Show()
-        end
-    end)
-end
-
-local function WakeRefreshDispatcher()
-    EnsureRefreshDispatcher()
-    _refreshDispatchFrame:Show()
-end
-
-local function RequestFullUpdate()
-    if not GroupSystem.enabled then return end
-    _fullUpdatePending = true
-    WakeRefreshDispatcher()
-end
-
-local function RequestCDMUpdate(changes)
-    if not GroupSystem.enabled or _fullUpdatePending or _fullUpdateRunning then return end
-    MergeCDMChanges(changes)
-    _cdmUpdatePending = true
-    WakeRefreshDispatcher()
-end
-
-local function RequestDynamicUpdate(sourceKeys)
-    if not GroupSystem.enabled or _fullUpdatePending or _fullUpdateRunning then return end
-    MergeDynamicUpdateSourceKeys(sourceKeys)
-    _dynamicUpdatePending = true
-    WakeRefreshDispatcher()
+local function RequestDynamicUpdate(sourceKeys, delay, probe)
+    if GroupSystem.enabled and DirtyQueue then
+        DirtyQueue:MarkDynamic(sourceKeys, delay, probe)
+    end
 end
 
 -- [FIX] 전투 중 ClearAllPoints() 호출 방지 (ADDON_ACTION_BLOCKED 해결)
@@ -820,7 +719,7 @@ DoFullUpdate = function()
 
 end
 
-DoCDMUpdate = function(changedIDs, forceLayout)
+DoPartialUpdate = function(changedIDs, forceLayout, sourceKeys, includeCDM, includeDynamic)
     if not GroupSystem.enabled then return end
     if not _lastClassifiedGroups then
         RequestFullUpdate()
@@ -831,23 +730,48 @@ DoCDMUpdate = function(changedIDs, forceLayout)
     if not gs or not gs.groups then return end
 
     local classified, touchedGroups = _lastClassifiedGroups, {}
-    if type(changedIDs) == "table" and next(changedIDs) then
-        classified, touchedGroups = GroupManager:ClassifyChanged(changedIDs)
-        _lastClassifiedGroups = classified
+    if includeDynamic then
+        SyncDynamicGroups(gs)
     end
-
-    if forceLayout then
-        for groupName, groupSettings in pairs(gs.groups) do
-            if groupSettings.enabled and groupSettings.groupType ~= "dynamic" then
-                touchedGroups[groupName] = true
+    if includeCDM then
+        if type(changedIDs) == "table" and next(changedIDs) then
+            classified, touchedGroups = GroupManager:ClassifyChanged(changedIDs)
+            _lastClassifiedGroups = classified
+        end
+        if forceLayout then
+            for groupName, groupSettings in pairs(gs.groups) do
+                if groupSettings.enabled and groupSettings.groupType ~= "dynamic" then
+                    touchedGroups[groupName] = true
+                end
             end
         end
+    end
+
+    local dynamicTouched = false
+    if includeDynamic then
+        local limited = type(sourceKeys) == "table"
+        for groupName, groupSettings in pairs(gs.groups) do
+            local matchesSource = groupSettings.sourceGroupKey
+                and (not limited or sourceKeys[groupSettings.sourceGroupKey])
+            local matchesDynamicGroup = not groupSettings.sourceGroupKey
+                and groupSettings.groupType == "dynamic"
+                and (not limited or sourceKeys[groupName])
+            if matchesSource or matchesDynamicGroup then
+                touchedGroups[groupName] = true
+                dynamicTouched = true
+            end
+        end
+    end
+
+    if includeDynamic and not dynamicTouched then
+        RequestFullUpdate()
+        return
     end
 
     local touched = false
     for groupName in pairs(touchedGroups) do
         local groupSettings = gs.groups[groupName]
-        if groupSettings and groupSettings.enabled and groupSettings.groupType ~= "dynamic" then
+        if groupSettings and groupSettings.enabled then
             GroupRenderer:UpdateGroup(groupName, classified[groupName] or {}, groupSettings)
             touched = true
         end
@@ -858,46 +782,60 @@ DoCDMUpdate = function(changedIDs, forceLayout)
     end
 end
 
+DoCDMUpdate = function(changedIDs, forceLayout)
+    DoPartialUpdate(changedIDs, forceLayout, nil, true, false)
+end
+
 -- DoFullUpdate를 외부에서 호출 가능하도록 노출 (DynamicIconBridge 등)
 DoDynamicUpdate = function(sourceKeys)
-    if not GroupSystem.enabled then return end
-    if not _lastClassifiedGroups then
-        RequestFullUpdate()
+    DoPartialUpdate(nil, false, sourceKeys, false, true)
+end
+
+local function MergeDirtySources(primary, secondary)
+    if primary == true or secondary == true then return true end
+    if type(primary) ~= "table" and type(secondary) ~= "table" then return nil end
+    local merged = {}
+    if type(primary) == "table" then
+        for sourceKey in pairs(primary) do merged[sourceKey] = true end
+    end
+    if type(secondary) == "table" then
+        for sourceKey in pairs(secondary) do merged[sourceKey] = true end
+    end
+    return merged
+end
+
+local function FlushDirtyBatch(batch)
+    if not GroupSystem.enabled or type(batch) ~= "table" then return end
+    if batch.full then
+        if batch.fullRefresh and ExecuteRefresh then
+            ExecuteRefresh()
+        else
+            DoFullUpdate()
+        end
         return
     end
 
-    local gs = GetSettings()
-    if not gs or not gs.groups then return end
-    local limited = type(sourceKeys) == "table"
-
-    SyncDynamicGroups(gs)
-
-    local touched = false
-    for groupName, groupSettings in pairs(gs.groups) do
-        if groupSettings.sourceGroupKey then
-            if not limited or sourceKeys[groupSettings.sourceGroupKey] then
-                if groupSettings.groupType == "dynamic" then
-                    GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
-                else
-                    GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
-                end
-                touched = true
-            end
-        elseif groupSettings.groupType == "dynamic" then
-            if not limited or sourceKeys[groupName] then
-                GroupRenderer:UpdateGroup(groupName, _lastClassifiedGroups[groupName] or {}, groupSettings)
-                touched = true
+    local hasDynamic = batch.dynamicSources ~= nil or batch.dynamicProbe
+    local sourceKeys = batch.dynamicSources
+    if hasDynamic then
+        if batch.dynamicProbe and DynamicIconBridge and DynamicIconBridge.CollectDirtySourceKeys then
+            local probedSources = DynamicIconBridge:CollectDirtySourceKeys()
+            if probedSources ~= false then
+                sourceKeys = MergeDirtySources(sourceKeys, probedSources)
+            elseif sourceKeys == nil then
+                hasDynamic = false
             end
         end
     end
 
-    if not touched then
-        RequestFullUpdate()
-        return
-    end
-
-    if ContainerSync then
-        ContainerSync:SyncAll()
+    if batch.cdmIDs or hasDynamic then
+        DoPartialUpdate(
+            batch.cdmIDs,
+            batch.cdmForceLayout,
+            sourceKeys,
+            batch.cdmIDs ~= nil,
+            hasDynamic
+        )
     end
 end
 
@@ -909,8 +847,8 @@ function GroupSystem:RequestFullUpdate()
     RequestFullUpdate()
 end
 
-function GroupSystem:RequestDynamicUpdate(sourceKeys)
-    RequestDynamicUpdate(sourceKeys)
+function GroupSystem:RequestDynamicUpdate(sourceKeys, delay, probe)
+    RequestDynamicUpdate(sourceKeys, delay, probe)
 end
 
 -- [DYNAMIC] Config UI에서 호출: CustomIcons 그룹 동기화
@@ -1754,8 +1692,9 @@ function GroupSystem:Enable()
     GroupRenderer = DDingUI.GroupRenderer
     ContainerSync = DDingUI.ContainerSync  -- [REPARENT]
     DynamicIconBridge = DDingUI.DynamicIconBridge  -- [DYNAMIC]
+    DirtyQueue = DDingUI.GroupDirtyQueue
 
-    if not CDMHookEngine or not GroupManager or not GroupRenderer then
+    if not CDMHookEngine or not GroupManager or not GroupRenderer or not DirtyQueue then
         return
     end
 
@@ -1772,6 +1711,8 @@ function GroupSystem:Enable()
     end
 
     self.enabled = true
+    DirtyQueue:SetHandler(FlushDirtyBatch)
+    DirtyQueue:SetEnabled(true)
     -- [FIX/v1.2.3] 블리자드 편집모드 뷰어 위치 → 그룹 위치 동기화
     -- _moverSaved가 없는 그룹만 캡처 (수동 위치 조정된 그룹은 건드리지 않음)
     local _viewerCaptured = {}
@@ -2023,18 +1964,10 @@ function GroupSystem:Disable()
     if not self.enabled then return end
 
     self.enabled = false
-    _fullUpdatePending = false
-    _dynamicUpdatePending = false
-    _dynamicUpdateSourceKeys = nil
-    _cdmUpdatePending = false
-    wipe(_cdmUpdateIDs)
-    _cdmForceLayout = false
+    if DirtyQueue then DirtyQueue:SetEnabled(false) end
     _lastClassifiedGroups = nil
     _pendingRefresh = false
     _pendingRefreshLayout = false
-    if _refreshDispatchFrame then
-        _refreshDispatchFrame:Hide()
-    end
     if _combatDeferArmed then
         _combatDeferArmed = false
         _combatDeferFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
@@ -2095,6 +2028,16 @@ end
 
 function GroupSystem:Refresh()
     if not self.enabled then return end
+    if InCombatLockdown() then
+        _pendingRefresh = true
+        ArmCombatDeferFrame()
+        return
+    end
+    RequestFullUpdate(0, true)
+end
+
+ExecuteRefresh = function()
+    if not GroupSystem.enabled then return end
 
     -- [FIX] 전투 중에는 ClearAllPoints 등 보호된 함수 호출 불가 → 전투 종료 후 실행
     if InCombatLockdown() then
@@ -2226,7 +2169,7 @@ function GroupSystem:OnGroupAdded(groupName)
 
     GroupRenderer:CreateGroupFrame(groupName, groupSettings)
     RegisterGroupMovers()
-    DoFullUpdate()
+    RequestFullUpdate()
 end
 
 -- 그룹 삭제 후 정리
@@ -2272,7 +2215,7 @@ function GroupSystem:OnGroupDeleted(groupName, passedSourceKey)
     if not self.enabled then return end
 
     -- 삭제된 그룹의 아이콘을 다른 그룹으로 재분류
-    DoFullUpdate()
+    RequestFullUpdate()
     -- DoFullUpdate 내부에서 ContainerSync:SyncAll() 이미 호출됨
 
     -- CDM 원래 Layout 트리거 (미관리 아이콘 복원)
