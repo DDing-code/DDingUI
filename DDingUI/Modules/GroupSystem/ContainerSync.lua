@@ -294,6 +294,9 @@ local function SetupViewerHooks(viewerName)
     viewer:HookScript("OnHide", function()
         if pushing then return end
         if IsInBlizzardEditMode() then return end
+        -- CDM can transiently hide a viewer while rebuilding it in combat.
+        -- Managed icons are reparented and must keep their current visibility.
+        if InCombatLockdown() then return end
         -- [CDM] BuffIcon: CDM이 Hide해도 즉시 재Show → CDM Layout 사이클 유지
         -- CDM은 VIEWER를 숨기지만, 개별 프레임은 정상적으로 Show/Hide 관리
         if viewerName == "BuffIconCooldownViewer" then
@@ -446,6 +449,10 @@ combatFrame:SetScript("OnEvent", function()
     C_Timer.After(0.1, function()
         if initialized then
             ContainerSync:SyncAll()
+            local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
+            if fc and fc.ForceReconcile then
+                fc:ForceReconcile()
+            end
         end
     end)
 end)

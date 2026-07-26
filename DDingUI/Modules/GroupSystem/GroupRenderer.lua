@@ -2686,14 +2686,16 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         -- 뷰어가 CDM에 의해 숨겨진 상태면 CDM 아이콘만 숨김.
         -- 물약/장신구 같은 동적 아이콘이 있으면 기본 CDM 그룹에서도 독립적으로 표시한다.
         local sourceViewer = viewerName and _G[viewerName]
-        if sourceViewer and not sourceViewer:IsShown() and not hasDynamicIcons then
+        local sourceViewerHidden = sourceViewer and not sourceViewer:IsShown()
+        local preserveCombatVisibility = sourceViewerHidden and InCombatLockdown()
+        if sourceViewerHidden and not preserveCombatVisibility and not hasDynamicIcons then
             -- [FIX] 프레임 자체는 숨기지 않음 — 앵커 체인 보존
             for i = 1, idx do
                 local ic = frame._managedIcons[i]
                 if ic then ic:Hide() end
             end
         else
-            if sourceViewer and not sourceViewer:IsShown() and hasDynamicIcons then
+            if sourceViewerHidden and not preserveCombatVisibility and hasDynamicIcons then
                 for i = 1, idx do
                     local ic = frame._managedIcons[i]
                     if ic then
