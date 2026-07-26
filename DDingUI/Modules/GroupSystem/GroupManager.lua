@@ -1546,13 +1546,14 @@ local function BuildClassificationRoutes(gs)
     return routes
 end
 
-function GroupManager:ClassifyIcon(cooldownID)
-    local CDMHookEngine = DDingUI.CDMHookEngine
-    if not CDMHookEngine then return nil end
+local function ResolveCDMGroup(gs, groupName, spellKey)
+    if not groupName then return nil end
+    local group = gs.groups[groupName]
+    if not CanAssignCDMSpellToGroup(spellKey, groupName, group) then return nil end
+    return groupName
+end
 
-    local gs = GetGroupSystemSettings()
-    if not gs then return nil end
-
+local function ClassifyIconWithContext(cooldownID, CDMHookEngine, gs, routes)
     local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
 
     -- [Fix C] 캐시 미스 시 아이콘에서 직접 추출 (전투 중 secret value 해제 즉시 반영)
@@ -1572,53 +1573,60 @@ function GroupManager:ClassifyIcon(cooldownID)
     -- DynamicIconBridge가 CustomIcons 프레임을 직접 제공하므로
     -- CDM 아이콘을 커스텀 그룹으로 분류하면 중복 발생 (CDM 프레임 + CustomIcons 프레임)
 
-    -- CDM 원본은 일반 그룹으로 분류하되, 강화효과 CDM 스펠만 커스텀 buff 그룹에 재배치할 수 있다.
-    local function resolveCDMGroup(groupName, spellKey)
-        if not groupName then return nil end
-        local g = gs.groups[groupName]
-        if not CanAssignCDMSpellToGroup(spellKey, groupName, g) then return nil end
-        return groupName
-    end
-
     -- 1순위: 수동 할당 (spellName 기반)
     -- 일반 dynamic 그룹은 CustomIcons 전용으로 유지한다. buff 그룹만 CDM 원본 재배치를 허용한다.
     if spellName and gs.spellAssignments and gs.spellAssignments[spellName] then
-        local assigned = resolveCDMGroup(gs.spellAssignments[spellName], spellName)
+        local assigned = ResolveCDMGroup(gs, gs.spellAssignments[spellName], spellName)
         if assigned and gs.groups[assigned] and gs.groups[assigned].enabled then
-            return assigned
+            return assigned, spellName
         end
     end
 
     local unassignedBuffs = IsBuffSpellKey(spellName) and GetUnassignedBuffSpells(gs, false)
     if unassignedBuffs and unassignedBuffs[spellName] then
-        return nil
+        return nil, spellName
     end
 
     -- 2순위: 뷰어 소스 기반 자동 분류 (기본 그룹)
-    local routes = classificationRoutes or BuildClassificationRoutes(gs)
     local viewerName = CDMHookEngine:GetIconSource(cooldownID)
     if gs.autoClassify then
         local defaultGroup = CDMHookEngine:GetDefaultGroupForViewer(viewerName)
         if defaultGroup and gs.groups[defaultGroup] and gs.groups[defaultGroup].enabled then
-            local result = resolveCDMGroup(defaultGroup, spellName)
-            if result then return result end
+            local result = ResolveCDMGroup(gs, defaultGroup, spellName)
+            if result then return result, spellName end
         end
     end
 
     -- 3순위: autoFilter 매칭
     if viewerName then
         local filterGroup = routes.viewer[viewerName]
-        local result = resolveCDMGroup(filterGroup, spellName)
-        if result then return result end
+        local result = ResolveCDMGroup(gs, filterGroup, spellName)
+        if result then return result, spellName end
     end
 
     -- 4순위: autoFilter = "ALL" 그룹
     local allGroup = routes.all
-    local allResult = resolveCDMGroup(allGroup, spellName)
-    if allResult then return allResult end
+    local allResult = ResolveCDMGroup(gs, allGroup, spellName)
+    if allResult then return allResult, spellName end
 
     -- 5순위: 첫 번째 활성 그룹
-    return resolveCDMGroup(routes.first, spellName)
+    return ResolveCDMGroup(gs, routes.first, spellName), spellName
+end
+
+function GroupManager:ClassifyIcon(cooldownID)
+    local CDMHookEngine = DDingUI.CDMHookEngine
+    if not CDMHookEngine then return nil end
+
+    local gs = GetGroupSystemSettings()
+    if not gs then return nil end
+
+    local groupName = ClassifyIconWithContext(
+        cooldownID,
+        CDMHookEngine,
+        gs,
+        classificationRoutes or BuildClassificationRoutes(gs)
+    )
+    return groupName
 end
 
 -- 뷰어 이름 → autoFilter 매칭
@@ -1696,6 +1704,7 @@ function GroupManager:ClassifyAll()
 
     -- 빈 그룹 초기화
     local gs = GetGroupSystemSettings()
+    if not gs then return classifiedGroups end
     classificationRoutes = BuildClassificationRoutes(gs)
     if gs and gs.groups then
         for name, settings in pairs(gs.groups) do
@@ -1707,13 +1716,13 @@ function GroupManager:ClassifyAll()
 
     -- 각 cooldownID를 그룹에 배치
     for cooldownID, icon in pairs(idIconMap) do
-        local groupName = self:ClassifyIcon(cooldownID)
+        local groupName, spellName = ClassifyIconWithContext(cooldownID, CDMHookEngine, gs, classificationRoutes)
         local iconList = groupName and classifiedGroups[groupName]
         if iconList then
             local entry = {
                 cooldownID = cooldownID,
                 icon = icon,
-                spellName = CDMHookEngine:GetSpellNameForID(cooldownID),
+                spellName = spellName,
             }
             iconList[#iconList + 1] = entry
             classificationByID[cooldownID] = {
@@ -1770,7 +1779,7 @@ function GroupManager:ClassifyChanged(changedIDs)
 
         local icon = idIconMap[cooldownID]
         if icon then
-            local groupName = self:ClassifyIcon(cooldownID)
+            local groupName, spellName = ClassifyIconWithContext(cooldownID, CDMHookEngine, gs, classificationRoutes)
             if groupName and gs.groups[groupName] and gs.groups[groupName].enabled then
                 local iconList = classifiedGroups[groupName]
                 if not iconList then
@@ -1780,7 +1789,7 @@ function GroupManager:ClassifyChanged(changedIDs)
                 local entry = {
                     cooldownID = cooldownID,
                     icon = icon,
-                    spellName = CDMHookEngine:GetSpellNameForID(cooldownID),
+                    spellName = spellName,
                 }
                 iconList[#iconList + 1] = entry
                 classificationByID[cooldownID] = {
