@@ -3009,6 +3009,10 @@ function DDingUI:CleanupGroupSystemOptionsRuntime()
     end
     for preview in pairs(assignedIconRuntimePreviews) do
         preview:SetScript("OnUpdate", nil)
+        local parent = preview:GetParent()
+        if parent then
+            parent:SetScript("OnUpdate", nil)
+        end
         assignedIconRuntimePreviews[preview] = nil
     end
 
