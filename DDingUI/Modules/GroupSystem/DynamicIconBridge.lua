@@ -75,6 +75,22 @@ local SUPPRESSED_SPELL_CACHE_TTL = 0.15
 local suppressedSpellCache = nil
 local suppressedSpellCacheAt = 0
 
+local function ResolveInactiveBuffDisplay(iconData, groupDefault)
+    local settings = iconData and iconData.settings or {}
+    local visible = groupDefault == true
+    if settings.alwaysShow == "on" then
+        visible = true
+    elseif settings.alwaysShow == "off" then
+        visible = false
+    end
+
+    local desaturated = settings.desatInactive ~= "off"
+    if settings.desatInactive == "on" then
+        desaturated = true
+    end
+    return visible, desaturated
+end
+
 local function ResetGroupIconLayoutState(frame, resetTarget)
     if not frame then return end
     local gr = DDingUI.GroupRenderer
@@ -596,7 +612,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     local inCombat = InCombatLockdown and InCombatLockdown()
     local now = GetTime and GetTime() or 0
     local isBuffContext = IsBuffSourceGroup(sourceGroupKey, db)
-    local showInactiveGray = groupSettings
+    local showInactiveByDefault = groupSettings
         and groupSettings.groupCategory == "buff"
         and groupSettings.showInactiveIcons == true
         and isBuffContext
@@ -658,14 +674,15 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
             local isAuraIcon = iconData.type == "aura"
             local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
+            local showInactive, desaturateInactive = ResolveInactiveBuffDisplay(iconData, showInactiveByDefault)
             local includeActiveStateGray = groupSettings
                 and groupSettings.hideActiveState == true
                 and isBuffContext
                 and isActive
                 and isEffectIcon
-            local includeInactiveGray = showInactiveGray and not (isActive or keepVisible or keepManaged)
-            local forceGray = includeInactiveGray or includeActiveStateGray
-            if not (isActive or keepVisible or keepManaged or forceGray) then
+            local includeInactive = showInactive and isEffectIcon and not (isActive or keepVisible or keepManaged)
+            local forceGray = (includeInactive and desaturateInactive) or includeActiveStateGray
+            if not (isActive or keepVisible or keepManaged or includeInactive or includeActiveStateGray) then
             -- [FIX] 비활성 전환: hysteresis 플래그 해제
                 if not inCombat then
                     frame._wasVisibleInGroup = nil
@@ -684,8 +701,9 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 sourceIndex = sourceIndex,
                 active = isActive,
                 combatKeepAlive = keepVisible and not isActive,
-                combatVisible = forceGray or keepVisible,
+                combatVisible = includeInactive or includeActiveStateGray or keepVisible,
                 inactiveGray = forceGray,
+                inactivePlaceholder = includeInactive,
             }
             -- [FIX] 활성 상태 기록: 다음 틱에서 일시적 nil 반환 시 유지
             if isActive or keepVisible then
@@ -931,8 +949,14 @@ local function BuildDynamicLayoutStateHash()
                     token = (ShouldTrackSlot(frame, slotID) or (inCombat and frame._wasVisibleInGroup)) and "1" or nil
                 end
 
-                if not token and sourceShowInactiveGray[sourceKey] and isEffectIcon then
-                    token = "g"
+                if not token and isEffectIcon then
+                    local showInactive, desaturateInactive = ResolveInactiveBuffDisplay(
+                        iconData,
+                        sourceShowInactiveGray[sourceKey]
+                    )
+                    if showInactive then
+                        token = desaturateInactive and "g" or "i"
+                    end
                 end
                 if token then
                     local part = tostring(sourceKey) .. ":" .. tostring(iconKey) .. ":" .. (inCombat and "c" or token)

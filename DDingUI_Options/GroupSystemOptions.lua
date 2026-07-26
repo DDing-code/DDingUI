@@ -3425,7 +3425,7 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText(row.displayName or row.spellName or "Unknown", 1, 1, 1, 1, true)
             GameTooltip:AddLine(sectionLabel, accentR, accentG, accentB, true)
-            GameTooltip:AddLine(rawget(L, "Left-click to edit | Right-click to add") or "좌클릭: 편집 | 우클릭: 현재 그룹에 추가", 0.35, 1, 0.45, true)
+            GameTooltip:AddLine(rawget(L, "Left-click for glow | Right-click to add") or "좌클릭: 글로우 | 우클릭: 현재 그룹에 추가", 0.35, 1, 0.45, true)
             GameTooltip:Show()
         end)
         button:SetScript("OnLeave", function(self)
@@ -3711,9 +3711,10 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
 
     local function BuildAssignedIconSettingsItems(opt, glowOnly)
         if not opt then return {} end
-        local scope = DDingUI._groupIconApplyScope or "icon"
-        local items = {
-            {
+        local items = {}
+        if glowOnly then
+            local scope = DDingUI._groupIconApplyScope or "icon"
+            items[#items + 1] = {
                 text = rawget(L, "Apply Scope") or "적용 범위",
                 menuList = {
                     {
@@ -3732,14 +3733,14 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                         func = function() DDingUI._groupIconApplyScope = "all" end,
                     },
                 },
-            },
-            { isSeparator = true },
-        }
+            }
+            items[#items + 1] = { isSeparator = true }
+        end
 
         local customizer = DDingUI.IconCustomization
-        local onSettingsChanged = function(settings)
+        local onSettingsChanged = glowOnly and function(settings)
             ApplyAssignedIconGlowScope(groupName, settings)
-        end
+        end or nil
         local customItems
         if customizer and customizer.BuildDynamicContextMenuItems
             and opt._gridKind == "dynamic" and opt._gridDynamicIconKey

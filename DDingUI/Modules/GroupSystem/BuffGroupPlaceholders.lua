@@ -18,6 +18,64 @@ local function GetSpellNameFromToken(token)
     return name:gsub("^buff_", "")
 end
 
+local function ResolveSpellID(token, spellName)
+    local controller = DDingUI.CDMHookEngine or DDingUI.FrameController
+    local spellIDs = controller and controller.GetTrackedBuffSpellIDs
+        and controller:GetTrackedBuffSpellIDs()
+    local key = type(token) == "string" and token:match("^cdm:(.+)$")
+    local trackedID = key and type(spellIDs) == "table" and spellIDs[key]
+    if not (issecretvalue and issecretvalue(trackedID)) then
+        trackedID = tonumber(trackedID)
+        if trackedID and trackedID > 0 then return trackedID end
+    end
+
+    if not spellName or spellName == "" or not C_Spell or not C_Spell.GetSpellInfo then
+        return nil
+    end
+    local info = C_Spell.GetSpellInfo(spellName)
+    local spellID = info and info.spellID
+    if issecretvalue and issecretvalue(spellID) then return nil end
+    spellID = tonumber(spellID)
+    return spellID and spellID > 0 and spellID or nil
+end
+
+local function ResolveInactiveDisplay(token, settings)
+    local visible = settings.showInactiveIcons == true
+    local desaturated = true
+    local customizer = DDingUI.IconCustomization
+    if customizer and customizer.GetSpellSettings then
+        local spellID = ResolveSpellID(token, GetSpellNameFromToken(token))
+        local custom = spellID and customizer:GetSpellSettings(spellID, "Buff")
+        if custom then
+            if custom.alwaysShow == "on" then
+                visible = true
+            elseif custom.alwaysShow == "off" then
+                visible = false
+            end
+            if custom.desatInactive == "off" then
+                desaturated = false
+            elseif custom.desatInactive == "on" then
+                desaturated = true
+            end
+        end
+    end
+    return visible, desaturated
+end
+
+local function HasForcedInactiveBuff()
+    local profile = DDingUI.db and DDingUI.db.profile
+    local iconCustomization = profile and profile.iconCustomization
+    local spells = iconCustomization and iconCustomization.spells
+    for key, settings in pairs(spells or {}) do
+        if type(key) == "string" and key:match("_Buff$")
+            and type(settings) == "table" and settings.alwaysShow == "on"
+        then
+            return true
+        end
+    end
+    return false
+end
+
 local function ResolveSpellTexture(token, spellName)
     local controller = DDingUI.CDMHookEngine or DDingUI.FrameController
     local textures = controller and controller.GetTrackedBuffSpellTextures
@@ -43,7 +101,7 @@ local function CreatePlaceholder(groupName, token, texture)
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints()
     icon:SetTexture(texture)
-    icon:SetDesaturation(1)
+    icon:SetDesaturation(0)
     icon:SetAlpha(1)
 
     frame.Icon = icon
@@ -116,7 +174,9 @@ end
 
 function Placeholders:BuildPlacements(groupName, settings, activeTokens)
     local state = groups[groupName]
-    if not settings or settings.showInactiveIcons ~= true or not IsBuffGroup(groupName, settings) then
+    if not settings or not IsBuffGroup(groupName, settings)
+        or (settings.showInactiveIcons ~= true and not HasForcedInactiveBuff())
+    then
         if state then
             for _, frame in pairs(state) do
                 frame._ddLayoutVisible = false
@@ -140,23 +200,27 @@ function Placeholders:BuildPlacements(groupName, settings, activeTokens)
 
     for _, token in ipairs(tokens) do
         if not (activeTokens and activeTokens[token]) then
+            local visible, desaturated = ResolveInactiveDisplay(token, settings)
             local frame = state[token]
-            if not frame then
+            if visible and not frame then
                 local texture = ResolveSpellTexture(token, GetSpellNameFromToken(token))
                 if texture then
                     frame = CreatePlaceholder(groupName, token, texture)
                     state[token] = frame
                 end
             end
-            if frame then
+            if visible and frame then
                 frame._ddLayoutVisible = true
                 placements[#placements + 1] = {
                     isPlaceholder = true,
-                    inactiveGray = true,
+                    inactiveGray = desaturated,
                     icon = frame,
                     sourceVisible = true,
                     _ddOrderToken = token,
                 }
+            elseif frame then
+                frame._ddLayoutVisible = false
+                frame:Hide()
             end
         end
     end

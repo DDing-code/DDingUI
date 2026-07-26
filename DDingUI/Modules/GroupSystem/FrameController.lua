@@ -105,6 +105,7 @@ local iconLayoutIndexMap = {} -- [cooldownID] = accessible layout index
 local trackedBuffSpellNames = {}
 local trackedBuffSpellOrder = {}
 local trackedBuffSpellTextures = {}
+local trackedBuffSpellIDs = {}
 local viewerRefs = {}       -- [globalName] = viewer frame reference
 
 -- ============================================================
@@ -1016,6 +1017,7 @@ function FrameController:ScanCDMViewers()
     local nextTrackedBuffSpellNames = {}
     local nextTrackedBuffSpellOrder = {}
     local nextTrackedBuffSpellTextures = {}
+    local nextTrackedBuffSpellIDs = {}
     local scannedViewers = 0
     local activeFrameCount = 0
     local hiddenFrameCount = 0
@@ -1070,6 +1072,7 @@ function FrameController:ScanCDMViewers()
                                 trackedBuffName = "buff_" .. spellInfo.name
                                 nextTrackedBuffSpellNames[trackedBuffName] = true
                                 nextTrackedBuffSpellTextures[trackedBuffName] = spellInfo.iconID
+                                nextTrackedBuffSpellIDs[trackedBuffName] = spellID
                                 local layoutIndex = icon.layoutIndex
                                 if not (issecretvalue and issecretvalue(layoutIndex))
                                     and type(layoutIndex) == "number"
@@ -1266,6 +1269,7 @@ function FrameController:ScanCDMViewers()
     wipe(trackedBuffSpellNames)
     wipe(trackedBuffSpellOrder)
     wipe(trackedBuffSpellTextures)
+    wipe(trackedBuffSpellIDs)
     for cooldownID, icon in pairs(nextIdIconMap) do
         idIconMap[cooldownID] = icon
     end
@@ -1285,6 +1289,7 @@ function FrameController:ScanCDMViewers()
         trackedBuffSpellNames[spellName] = true
         trackedBuffSpellOrder[spellName] = nextTrackedBuffSpellOrder[spellName]
         trackedBuffSpellTextures[spellName] = nextTrackedBuffSpellTextures[spellName]
+        trackedBuffSpellIDs[spellName] = nextTrackedBuffSpellIDs[spellName]
     end
 
     state.emptyScanStreak = 0
@@ -2103,6 +2108,10 @@ end
 
 function FrameController:GetTrackedBuffSpellTextures()
     return trackedBuffSpellTextures
+end
+
+function FrameController:GetTrackedBuffSpellIDs()
+    return trackedBuffSpellIDs
 end
 
 function FrameController:GetDefaultGroupForViewer(globalName)

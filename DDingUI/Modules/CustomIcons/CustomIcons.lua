@@ -727,11 +727,38 @@ end
 
 function CustomIcons.SuppressExpiredIconVisual(frame)
     if not frame then return end
+    local icon = frame.icon or frame.Icon
+    if frame._ddInactivePlaceholder or frame._ddInactiveGray then
+        if frame.cooldown then
+            if frame.cooldown.Clear then frame.cooldown:Clear() end
+            if frame.cooldown.Hide then frame.cooldown:Hide() end
+        end
+        if frame.Cooldown and frame.Cooldown ~= frame.cooldown then
+            if frame.Cooldown.Clear then frame.Cooldown:Clear() end
+            if frame.Cooldown.Hide then frame.Cooldown:Hide() end
+        end
+        if frame.count and frame.count.Hide then frame.count:Hide() end
+        frame._ddManagedAuraExpired = nil
+        frame._ddCombatVisible = true
+        frame._ddCombatKeepAlive = nil
+        if frame.Show then frame:Show() end
+        if frame.SetAlpha then
+            local groupAlpha = frame._groupSettings and frame._groupSettings.groupAlpha or 1
+            frame:SetAlpha(groupAlpha)
+            frame._ddLastGroupAlpha = groupAlpha
+        end
+        if icon then
+            if icon.Show then icon:Show() end
+            if icon.SetAlpha then icon:SetAlpha(frame._ddInactiveGray and 0.48 or 1) end
+            if icon.SetDesaturated then icon:SetDesaturated(frame._ddInactiveGray == true) end
+            if icon.SetDesaturation then icon:SetDesaturation(frame._ddInactiveGray and 1 or 0) end
+        end
+        return true
+    end
     if frame.SetAlpha then
         frame:SetAlpha(0)
         frame._ddLastGroupAlpha = 0
     end
-    local icon = frame.icon or frame.Icon
     if icon and icon.SetAlpha then
         icon:SetAlpha(0)
     end
@@ -835,9 +862,11 @@ MarkCustomTimedAuraExpired = function(spellID)
             if frame.count then
                 frame.count:Hide()
             end
-            CustomIcons.SuppressExpiredIconVisual(frame)
+            local keptPlaceholder = CustomIcons.SuppressExpiredIconVisual(frame)
             if frame._ddIsManaged then
-                frame._ddManagedAuraExpired = true
+                if not keptPlaceholder then
+                    frame._ddManagedAuraExpired = true
+                end
             elseif frame.Hide then
                 frame:Hide()
             end

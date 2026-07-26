@@ -808,6 +808,7 @@ local function BuildDynamicPlacement(entry)
         combatKeepAlive = entry.combatKeepAlive and true or false,
         combatVisible = entry.combatVisible ~= false,
         inactiveGray = entry.inactiveGray and true or false,
+        inactivePlaceholder = entry.inactivePlaceholder and true or false,
         _ddOrderToken = BuildDynamicOrderToken(entry.iconKey),
     }
 end
@@ -1224,10 +1225,11 @@ local function ShouldKeepDynamicIconInCombat(icon)
     return true
 end
 
-local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible, inactiveGray)
+local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible, inactiveGray, inactivePlaceholder)
     if not icon then return end
+    icon._ddInactivePlaceholder = inactivePlaceholder and true or nil
     ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
-    if inactiveGray then
+    if inactivePlaceholder or inactiveGray then
         SetManagedIconLayoutVisible(icon, true)
         icon._ddManagedAuraExpired = nil
         icon._ddCombatVisible = true
@@ -1237,7 +1239,7 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
             icon:Show()
         end
         SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
-        SetDynamicIconInactiveGray(icon, true)
+        SetDynamicIconInactiveGray(icon, inactiveGray == true)
         return
     end
     if icon._ddManagedAuraExpired then
@@ -1288,7 +1290,15 @@ local function RestorePlacementVisibility(entry, groupName, groupSettings, group
     local icon = entry.icon or entry.frame
     if not icon then return end
     if entry.isDynamic then
-        RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, entry.combatVisible, entry.inactiveGray)
+        RestoreDynamicIconVisibility(
+            icon,
+            groupName,
+            groupSettings,
+            groupAlpha,
+            entry.combatVisible,
+            entry.inactiveGray,
+            entry.inactivePlaceholder
+        )
         return
     end
     if entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(icon) then
@@ -1318,7 +1328,15 @@ end
 local function RestoreActiveDynamicEntries(list, groupName, groupSettings, groupAlpha)
     for _, entry in ipairs(list or {}) do
         if entry then
-            RestoreDynamicIconVisibility(entry.frame, groupName, groupSettings, groupAlpha, entry.combatVisible, entry.inactiveGray)
+            RestoreDynamicIconVisibility(
+                entry.frame,
+                groupName,
+                groupSettings,
+                groupAlpha,
+                entry.combatVisible,
+                entry.inactiveGray,
+                entry.inactivePlaceholder
+            )
         end
     end
 end
@@ -1330,7 +1348,9 @@ local function EntryRequiresFreshLayout(entry, frame, layoutHash)
 
     local isDynamicEntry = entry.isDynamic or entry.iconKey ~= nil
     if isDynamicEntry then
-        if not entry.inactiveGray and (entry.combatVisible == false or icon._ddCombatVisible == false or icon._ddManagedAuraExpired) then
+        if not entry.inactivePlaceholder and not entry.inactiveGray
+            and (entry.combatVisible == false or icon._ddCombatVisible == false or icon._ddManagedAuraExpired)
+        then
             return false
         end
     elseif entry.sourceVisible == false or GroupRenderer:IsHiddenSourceBuffIcon(icon) then
@@ -1576,6 +1596,8 @@ local function BuildPlacementHash(combinedList, groupSettings)
         local visible = "1"
         if icon and (icon._ddingHidden or icon._ddSuppressed) then
             visible = "0"
+        elseif entry.inactivePlaceholder then
+            visible = entry.inactiveGray and "g" or "i"
         elseif entry.inactiveGray then
             visible = "g"
         elseif entry.isDynamic and entry.combatVisible == false then
@@ -2388,6 +2410,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         if icon and not newSet[icon] and icon._ddContainerRef == frame then
             SetManagedIconLayoutVisible(icon, false)
             SetDynamicIconInactiveGray(icon, false)
+            icon._ddInactivePlaceholder = nil
             GRLog("cleanup:", tostring(icon.cooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
             if icon._ddIsPlaceholder then
                 if placeholders then placeholders:DeactivateFrame(icon) end
@@ -2476,7 +2499,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 if placeholders then
                     placeholders:ApplyStyle(icon, groupSettings)
                 end
-                SetDynamicIconInactiveGray(icon, true)
+                SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
                 SetAlphaIfNeeded(icon, groupSettings.groupAlpha or 1, "_ddLastGroupAlpha")
                 idx = idx + 1
                 frame._managedIcons[idx] = icon
@@ -2492,11 +2515,16 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     icon._ddCombatKeepAlive = entry.combatKeepAlive and true or nil
                     icon._ddCombatVisible = entry.combatVisible ~= false
                     icon._ddInactiveGray = entry.inactiveGray and true or nil
+                    icon._ddInactivePlaceholder = entry.inactivePlaceholder and true or nil
                     SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
-                    if entry.inactiveGray then
+                    if entry.inactivePlaceholder or entry.inactiveGray then
                         icon._ddManagedAuraExpired = nil
                     end
-                    SetManagedIconLayoutVisible(icon, entry.inactiveGray or (entry.combatVisible ~= false and not icon._ddManagedAuraExpired))
+                    SetManagedIconLayoutVisible(
+                        icon,
+                        entry.inactivePlaceholder or entry.inactiveGray
+                            or (entry.combatVisible ~= false and not icon._ddManagedAuraExpired)
+                    )
                     local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame and not GroupRenderer._forceFullSetup
                     if not alreadyManaged then
                         bridge:SetupFrameInContainer(icon, frame, baseIconW, baseIconH, entry.cooldownID, groupSettings.zoom, groupSettings.aspectRatioCrop)
@@ -2540,7 +2568,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         if #borders >= 4 then
                             local bc = groupSettings.borderColor or { 0, 0, 0, 1 }
                             local br, bg, bb, ba = bc[1] or 0, bc[2] or 0, bc[3] or 0, bc[4] or 1
-                            local shouldShow = edgeSize > 0 and (entry.inactiveGray or not icon._ddManagedAuraExpired) and entry.combatVisible ~= false
+                            local shouldShow = edgeSize > 0
+                                and (entry.inactivePlaceholder or entry.inactiveGray or not icon._ddManagedAuraExpired)
+                                and entry.combatVisible ~= false
                             borders[1]:SetHeight(edgeSize); borders[2]:SetHeight(edgeSize)
                             borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
                             for _, borderTex in ipairs(borders) do
@@ -3089,6 +3119,7 @@ function GroupRenderer:ReleaseGroupIcons(frame)
     for _, icon in pairs(frame._managedIcons) do
         if icon then
             icon._ddLayoutVisible = nil
+            icon._ddInactivePlaceholder = nil
             if icon._ddIsPlaceholder then
                 local placeholders = DDingUI.BuffGroupPlaceholders
                 if placeholders then placeholders:DeactivateFrame(icon) end

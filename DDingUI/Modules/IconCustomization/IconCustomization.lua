@@ -264,7 +264,8 @@ end
 -- Get customization settings for a spell
 -- viewerType: "Essential"/"Utility"/"Buff" — 뷰어별 독립 커스터마이징
 local function GetSpellCustomization(spellID, viewerType)
-    local db = DDingUI.db.profile.iconCustomization or {}
+    local profile = DDingUI.db and DDingUI.db.profile
+    local db = profile and profile.iconCustomization or {}
     db.spells = db.spells or {}
     if viewerType then
         local compositeKey = tostring(spellID) .. "_" .. viewerType
@@ -276,17 +277,24 @@ local function GetSpellCustomization(spellID, viewerType)
     return db.spells[tostring(spellID)] or {}
 end
 
+function IconCustomization:GetSpellSettings(spellID, viewerType)
+    if issecretvalue and issecretvalue(spellID) then return nil end
+    spellID = tonumber(spellID)
+    if not spellID or spellID <= 0 then return nil end
+    return GetSpellCustomization(spellID, viewerType)
+end
+
 -- Check if a spell is customized
 local function IsSpellCustomized(spellID, viewerType)
     local custom = GetSpellCustomization(spellID, viewerType)
     return type(custom) == "table" and next(custom) ~= nil
 end
 
-local function BuildEffectiveSkinSettings(icon, settings)
+local function ResolveIconCustomization(icon)
     local spellID = GetSpellIDFromIcon(icon)
-    if issecretvalue and issecretvalue(spellID) then return settings end
+    if issecretvalue and issecretvalue(spellID) then return nil end
     spellID = tonumber(spellID)
-    if not spellID or spellID <= 0 then return settings end
+    if not spellID or spellID <= 0 then return nil end
 
     local viewerType
     local sourceViewer = icon and icon._ddSourceViewer
@@ -299,9 +307,137 @@ local function BuildEffectiveSkinSettings(icon, settings)
     elseif not InCombatLockdown() then
         viewerType = GetViewerType(icon)
     end
-    if not viewerType then return settings end
+    if not viewerType then return nil end
+    return GetSpellCustomization(spellID, viewerType)
+end
 
-    local custom = GetSpellCustomization(spellID, viewerType)
+do
+    local formatterCache = {}
+    local formatterCount = 0
+    local formatterUnavailable = false
+    local attachedFormatters = setmetatable({}, { __mode = "k" })
+
+    local function BuildThresholdFormatter(seconds, decimals, useColor, r, g, b)
+        if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+            and Enum and Enum.NumericRuleFormatRounding and CreateColor)
+        then
+            return nil
+        end
+
+        local roundingUp = Enum.NumericRuleFormatRounding.Up
+        local roundingNearest = Enum.NumericRuleFormatRounding.Nearest
+        local function Colorize(format)
+            if not useColor then return format end
+            return CreateColor(r, g, b, 1):WrapTextInColorCode(format)
+        end
+
+        local breakpoints = {}
+        if decimals then
+            breakpoints[#breakpoints + 1] = {
+                threshold = 0,
+                format = Colorize("%.1f"),
+                rounding = roundingNearest,
+            }
+        else
+            breakpoints[#breakpoints + 1] = {
+                threshold = 0,
+                format = Colorize("%d"),
+                rounding = roundingUp,
+                step = 1,
+            }
+        end
+        breakpoints[#breakpoints + 1] = {
+            threshold = seconds,
+            format = "%d",
+            rounding = roundingUp,
+            step = 1,
+        }
+        breakpoints[#breakpoints + 1] = {
+            threshold = 59.0001,
+            format = "%d:%02d",
+            rounding = roundingUp,
+            step = 1,
+            components = { { div = 60 }, { mod = 60 } },
+        }
+        breakpoints[#breakpoints + 1] = {
+            threshold = 3599.0001,
+            format = "%dh",
+            rounding = roundingUp,
+            step = 1,
+            components = { { div = 3600 } },
+        }
+        breakpoints[#breakpoints + 1] = {
+            threshold = 86399.0001,
+            format = "%dd",
+            rounding = roundingUp,
+            step = 1,
+            components = { { div = 86400 } },
+        }
+
+        local formatter = C_StringUtil.CreateNumericRuleFormatter()
+        local ok = pcall(formatter.SetBreakpoints, formatter, breakpoints)
+        return ok and formatter or nil
+    end
+
+    local function GetThresholdFormatter(settings)
+        if not settings then return nil end
+        local seconds = tonumber(settings.thresholdSeconds) or 0
+        if seconds <= 0 then return nil end
+        seconds = math.min(59, math.floor(seconds + 0.5))
+
+        local decimals = settings.thresholdDecimals == true
+        local useColor = settings.thresholdColorEnabled == true
+        if not decimals and not useColor then return nil end
+
+        local color = settings.thresholdColor or {}
+        local r = color.r or color[1] or 1
+        local g = color.g or color[2] or 0.2
+        local b = color.b or color[3] or 0.2
+        local signature = string.format(
+            "%d|%d|%d|%.3f|%.3f|%.3f",
+            seconds,
+            decimals and 1 or 0,
+            useColor and 1 or 0,
+            r,
+            g,
+            b
+        )
+
+        local formatter = formatterCache[signature]
+        if formatter == nil and not formatterUnavailable then
+            if formatterCount >= 64 then
+                formatterCache = {}
+                formatterCount = 0
+            end
+            formatter = BuildThresholdFormatter(seconds, decimals, useColor, r, g, b)
+            if formatter then
+                formatterCache[signature] = formatter
+                formatterCount = formatterCount + 1
+            else
+                formatterUnavailable = true
+            end
+        end
+        return formatter
+    end
+
+    function IconCustomization:ApplyThresholdFormatter(cooldown, settings)
+        if not (cooldown and cooldown.SetCountdownFormatter) then return end
+        local formatter = GetThresholdFormatter(settings)
+        if formatter then
+            if attachedFormatters[cooldown] ~= formatter then
+                attachedFormatters[cooldown] = formatter
+                cooldown:SetCountdownFormatter(formatter)
+            end
+        elseif attachedFormatters[cooldown] then
+            attachedFormatters[cooldown] = nil
+            cooldown:SetCountdownFormatter(nil)
+        end
+    end
+end
+
+local function BuildEffectiveSkinSettings(icon, settings)
+    local custom = ResolveIconCustomization(icon)
+    if not custom then return settings end
     local activeStateMode = custom.activeStateMode
     local cooldownSwipeMode = custom.cooldownSwipeMode
     local cooldownEdgeMode = custom.cooldownEdgeMode
@@ -968,6 +1104,86 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
     return items
 end
 
+local function BuildThresholdContextMenuItem(Current, ApplySetting)
+    local settings = Current()
+    local seconds = tonumber(settings.thresholdSeconds) or 0
+    local color = settings.thresholdColor or { r = 1, g = 0.2, b = 0.2 }
+    local secondChoices = {
+        { 0, L["Off"] or "Off" },
+        { 3, "3s" },
+        { 5, "5s" },
+        { 10, "10s" },
+        { 15, "15s" },
+        { 20, "20s" },
+        { 30, "30s" },
+        { 45, "45s" },
+        { 59, "59s" },
+    }
+    local secondItems = {}
+    for _, choice in ipairs(secondChoices) do
+        local value = choice[1]
+        secondItems[#secondItems + 1] = {
+            text = choice[2],
+            checked = seconds == value,
+            func = function()
+                ApplySetting("thresholdSeconds", value > 0 and value or nil)
+            end,
+        }
+    end
+
+    return {
+        text = L["Threshold Text"] or "Threshold Text",
+        rightText = seconds > 0 and string.format("%ds", seconds) or (L["Off"] or "Off"),
+        menuList = {
+            {
+                text = L["Threshold Seconds"] or "Threshold Seconds",
+                rightText = seconds > 0 and string.format("%ds", seconds) or (L["Off"] or "Off"),
+                menuList = secondItems,
+            },
+            {
+                text = L["Threshold Decimals"] or "Threshold Decimals",
+                checked = settings.thresholdDecimals == true,
+                func = function()
+                    ApplySetting("thresholdDecimals", settings.thresholdDecimals ~= true and true or nil)
+                end,
+            },
+            {
+                text = L["Threshold Color"] or "Threshold Color",
+                checked = settings.thresholdColorEnabled == true,
+                func = function()
+                    ApplySetting("thresholdColorEnabled", settings.thresholdColorEnabled ~= true and true or nil)
+                end,
+            },
+            {
+                text = L["Threshold Text Color"] or "Threshold Text Color",
+                swatch = color,
+                func = function()
+                    if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then return end
+                    local current = Current().thresholdColor or { r = 1, g = 0.2, b = 0.2 }
+                    local previous = {
+                        r = current.r or current[1] or 1,
+                        g = current.g or current[2] or 0.2,
+                        b = current.b or current[3] or 0.2,
+                    }
+                    ColorPickerFrame:SetupColorPickerAndShow({
+                        r = previous.r,
+                        g = previous.g,
+                        b = previous.b,
+                        hasOpacity = false,
+                        swatchFunc = function()
+                            local r, g, b = ColorPickerFrame:GetColorRGB()
+                            ApplySetting("thresholdColor", { r = r, g = g, b = b })
+                        end,
+                        cancelFunc = function()
+                            ApplySetting("thresholdColor", previous)
+                        end,
+                    })
+                end,
+            },
+        },
+    }
+end
+
 function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettingsChanged, glowOnly)
     if issecretvalue and issecretvalue(spellID) then return nil end
     if spellID == nil then return nil end
@@ -1066,16 +1282,18 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
         RefreshVisual()
     end
 
-    local menuItems = BuildGlowContextMenuItems(
-        Current,
-        Apply,
-        SetGlowState,
-        ResetGlow,
-        defaultTrigger,
-        L["Reset Glow"] or "Reset Glow",
-        glowOnly == true
-    )
-    if glowOnly then return menuItems end
+    if glowOnly then
+        return BuildGlowContextMenuItems(
+            Current,
+            Apply,
+            SetGlowState,
+            ResetGlow,
+            defaultTrigger,
+            L["Reset Glow"] or "Reset Glow",
+            true
+        )
+    end
+    local menuItems = {}
 
     local function VisualChoice(label, key, choices)
         local selected = Current()[key] or "inherit"
@@ -1110,6 +1328,26 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
         "activeStateMode",
         inheritShowHide
     )
+    if viewerType == "Buff" then
+        menuItems[#menuItems + 1] = VisualChoice(
+            L["Always Show Buff"] or "Always Show Buff",
+            "alwaysShow",
+            {
+                { "inherit", L["Default"] or "Default" },
+                { "on", L["Show"] or "Show" },
+                { "off", L["Hide"] or "Hide" },
+            }
+        )
+        menuItems[#menuItems + 1] = VisualChoice(
+            L["Desaturate Inactive"] or "Desaturate Inactive",
+            "desatInactive",
+            {
+                { "inherit", L["Default"] or "Default" },
+                { "on", L["Desaturate"] or "Desaturate" },
+                { "off", L["Full Color"] or "Full Color" },
+            }
+        )
+    end
     menuItems[#menuItems + 1] = VisualChoice(
         L["Cooldown Swipe"] or "Cooldown Swipe",
         "cooldownSwipeMode",
@@ -1135,6 +1373,7 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
         "activeDurationMode",
         inheritShowHide
     )
+    menuItems[#menuItems + 1] = BuildThresholdContextMenuItem(Current, ApplyVisual)
     menuItems[#menuItems + 1] = { isSeparator = true }
     menuItems[#menuItems + 1] = {
         text = L["Reset Icon"] or "Reset Icon",
@@ -1189,22 +1428,56 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         Refresh()
     end
 
-    local menuItems = BuildGlowContextMenuItems(
-        Current,
-        Apply,
-        SetGlowState,
-        ResetGlow,
-        defaultTrigger,
-        L["Reset Glow"] or "Reset Glow",
-        glowOnly == true
-    )
-    if glowOnly then return menuItems end
+    if glowOnly then
+        return BuildGlowContextMenuItems(
+            Current,
+            Apply,
+            SetGlowState,
+            ResetGlow,
+            defaultTrigger,
+            L["Reset Glow"] or "Reset Glow",
+            true
+        )
+    end
+    local menuItems = {}
 
     local function ToggleSetting(key, defaultValue)
         local current = iconData.settings[key]
         if current == nil then current = defaultValue end
         iconData.settings[key] = not current
         Refresh()
+    end
+
+    local function ApplyStateSetting(key, value)
+        iconData.settings[key] = value
+        Refresh()
+        if (key == "alwaysShow" or key == "desatInactive")
+            and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged
+        then
+            DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+        end
+    end
+
+    local function StateChoice(label, key, choices)
+        local selected = iconData.settings[key] or "inherit"
+        local labels = {}
+        local items = {}
+        for _, choice in ipairs(choices) do
+            local value = choice[1]
+            labels[value] = choice[2]
+            items[#items + 1] = {
+                text = choice[2],
+                checked = selected == value,
+                func = function()
+                    ApplyStateSetting(key, value == "inherit" and nil or value)
+                end,
+            }
+        end
+        return {
+            text = label,
+            rightText = labels[selected],
+            menuList = items,
+        }
     end
 
     local stateItems = {
@@ -1251,18 +1524,35 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             func = function() ToggleSetting("showItemCooldown", true) end,
         }
     end
+    if iconData.type == "aura" or iconData.type == "trinketProc" then
+        stateItems[#stateItems + 1] = { isSeparator = true }
+        stateItems[#stateItems + 1] = StateChoice(
+            L["Always Show Buff"] or "Always Show Buff",
+            "alwaysShow",
+            {
+                { "inherit", L["Default"] or "Default" },
+                { "on", L["Show"] or "Show" },
+                { "off", L["Hide"] or "Hide" },
+            }
+        )
+        stateItems[#stateItems + 1] = StateChoice(
+            L["Desaturate Inactive"] or "Desaturate Inactive",
+            "desatInactive",
+            {
+                { "inherit", L["Default"] or "Default" },
+                { "on", L["Desaturate"] or "Desaturate" },
+                { "off", L["Full Color"] or "Full Color" },
+            }
+        )
+    end
 
-    menuItems[#menuItems + 1] = { isSeparator = true }
-    menuItems[#menuItems + 1] = {
-        text = L["Icon State"] or "Icon State",
-        menuList = stateItems,
-    }
-    menuItems[#menuItems + 1] = { isSeparator = true }
-    menuItems[#menuItems + 1] = {
-        text = L["Reset Glow"] or "Reset Glow",
-        color = "dim",
-        func = ResetGlow,
-    }
+    for _, item in ipairs(stateItems) do
+        menuItems[#menuItems + 1] = item
+    end
+    menuItems[#menuItems + 1] = BuildThresholdContextMenuItem(
+        function() return iconData.settings end,
+        ApplyStateSetting
+    )
     return menuItems
 end
 
@@ -1865,6 +2155,10 @@ function IconCustomization:Initialize()
             local effectiveSettings = BuildEffectiveSkinSettings(icon, settings)
             local result = originalSkinIcon(self, icon, effectiveSettings)
             ApplyExplicitSkinVisibility(icon, effectiveSettings)
+            IconCustomization:ApplyThresholdFormatter(
+                icon and (icon.Cooldown or icon.cooldown),
+                ResolveIconCustomization(icon)
+            )
             
             -- Hook the icon for ready glow if it has customization
             if icon and (icon.icon or icon.Icon) and icon.Cooldown then

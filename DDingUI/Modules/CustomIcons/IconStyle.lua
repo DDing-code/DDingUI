@@ -316,8 +316,11 @@ local function ApplyIconSettings(iconFrame, iconData, groupSettings)
         end
         ApplyCooldownTextStyle(iconFrame.cooldown, iconData)
     end
-    -- Note: Cooldown text color is not directly controllable with standard WoW cooldown frames.
-    -- The color setting is saved but may not be applied depending on WoW API limitations.
+    local customizer = DDingUI.IconCustomization
+    if customizer and customizer.ApplyThresholdFormatter then
+        customizer:ApplyThresholdFormatter(iconFrame.cooldown or iconFrame.Cooldown, settings)
+    end
+    -- Base countdown styling remains owned by the cooldown widget.
 end
 
 -- ------------------------
