@@ -1267,9 +1267,9 @@ SetBuffTrackerEventsEnabled = function(enabled, specCfg, trackedBuffs)
 
     if manualEventsEnabled then
         buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-        buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     end
+    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    buffTrackerEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     buffTrackerEventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     buffTrackerEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
@@ -1391,34 +1391,33 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    if not buffTrackerManualEventsRegistered then return end
-
     if event == "PLAYER_REGEN_DISABLED" then
         playerInCombat = true
         QueueBuffTrackerUpdate("combat-start")
+        return
     elseif event == "PLAYER_REGEN_ENABLED" then
         playerInCombat = false
 
-        -- ============================================================
-        -- NEW: Per-buff manual tracking reset on combat end
-        -- ============================================================
-        local trackedBuffs = GetTrackedBuffs()
-        for barIndex, buff in ipairs(trackedBuffs) do
-            if buff.trackingMode == "manual" and buff.settings then
-                if buff.settings.resetOnCombatEnd then
-                    ResetManualStacks(barIndex)
+        if buffTrackerManualEventsRegistered then
+            local trackedBuffs = GetTrackedBuffs()
+            for barIndex, buff in ipairs(trackedBuffs) do
+                if buff.trackingMode == "manual" and buff.settings then
+                    if buff.settings.resetOnCombatEnd then
+                        ResetManualStacks(barIndex)
+                    end
                 end
+            end
+
+            if specCfg.resetOnCombatEnd then
+                manualStacks = 0
+                manualExpiresAt = nil
             end
         end
 
-        -- LEGACY: Reset stacks when leaving combat (optional)
-        if specCfg.resetOnCombatEnd then
-            manualStacks = 0
-            manualExpiresAt = nil
-        end
-
         QueueBuffTrackerUpdate("combat-end")
+        return
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        if not buffTrackerManualEventsRegistered then return end
         local unit, castGUID, spellID = ...
         if unit ~= "player" or not IsAccessibleNumber(spellID) then return end
 
@@ -2485,6 +2484,10 @@ HideAllTrackedBuffIcons = function()
                 icon._hasDurationUpdate = nil
                 icon._durationData = nil
             end
+            if icon._alertEvaluationTimer then
+                icon._alertEvaluationTimer:Cancel()
+                icon._alertEvaluationTimer = nil
+            end
         end
     end
 end
@@ -2565,8 +2568,26 @@ local function EvaluateComparison(current, op, target)
     return ok and result or false
 end
 
--- Evaluate all triggers for a tracked buff, return per-trigger results + combined result
--- [12.0.1] stacks 트리거 제거: 전투 중 applications가 secret number라 비교 불가 (WoW 12.0+)
+local function GetAlertAuraTiming(hasData, auraInstanceID, unit)
+    if not hasData or not auraInstanceID then return nil, nil end
+
+    local remaining, duration
+    pcall(function()
+        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit or "player", auraInstanceID)
+        if not auraData then return end
+
+        if IsAccessibleNumber(auraData.expirationTime) then
+            remaining = math_max(0, auraData.expirationTime - GetTime())
+        end
+        if IsAccessibleNumber(auraData.duration) then
+            duration = auraData.duration
+        end
+    end)
+
+    return remaining, duration
+end
+
+-- Evaluate all triggers for a tracked buff, return per-trigger results + combined result.
 local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
     local settings = trackedBuff and trackedBuff.settings
     if not settings or not settings.alerts or not settings.alerts.enabled then
@@ -2578,6 +2599,25 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     if #triggers == 0 then return nil end
 
     local triggerResults = {}
+    local auraTimingLoaded = false
+    local auraRemaining, auraDuration
+    local nextEvaluationDelay
+
+    local function LoadAuraTiming()
+        if not auraTimingLoaded then
+            auraRemaining, auraDuration = GetAlertAuraTiming(hasData, auraInstanceID, unit)
+            auraTimingLoaded = true
+        end
+        return auraRemaining, auraDuration
+    end
+
+    local function TrackThresholdDelay(delay)
+        if IsAccessibleNumber(delay) and delay > 0.02
+            and (not nextEvaluationDelay or delay < nextEvaluationDelay)
+        then
+            nextEvaluationDelay = delay
+        end
+    end
 
     for i, trigger in ipairs(triggers) do
         local result = false
@@ -2586,17 +2626,32 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
             result = EvaluateComparison(hasData, trigger.op, trigger.value)
 
         elseif trigger.type == "duration" then
-            if hasData and auraInstanceID then
-                pcall(function()
-                    local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                    if auraData and auraData.expirationTime then
-                        local remaining = auraData.expirationTime - GetTime()
-                        if remaining > 0 then
-                            result = EvaluateComparison(remaining, trigger.op, trigger.value)
-                        end
-                    end
-                end)
+            local remaining = LoadAuraTiming()
+            local threshold = tonumber(trigger.value)
+            if remaining and threshold then
+                result = EvaluateComparison(remaining, trigger.op, threshold)
+                TrackThresholdDelay(remaining - threshold)
             end
+
+        elseif trigger.type == "duration_percent" then
+            local remaining, duration = LoadAuraTiming()
+            local threshold = tonumber(trigger.value)
+            if remaining and duration and duration > 0 and threshold then
+                local percent = (remaining / duration) * 100
+                result = EvaluateComparison(percent, trigger.op, threshold)
+                TrackThresholdDelay(remaining - (duration * threshold / 100))
+            end
+
+        elseif trigger.type == "stacks" then
+            if IsAccessibleNumber(trackedStacks) then
+                result = EvaluateComparison(trackedStacks, trigger.op, trigger.value)
+            end
+
+        elseif trigger.type == "combat" then
+            local inCombat = (InCombatLockdown and InCombatLockdown())
+                or (UnitAffectingCombat and UnitAffectingCombat("player"))
+                or false
+            result = EvaluateComparison(inCombat, trigger.op, trigger.value)
         end
 
         triggerResults[i] = result
@@ -2619,19 +2674,25 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     return {
         combined = combined,
         triggers = triggerResults,
+        nextEvaluationDelay = nextEvaluationDelay,
     }
 end
 
 -- Apply alert actions (color override, sound) based on evaluation result
 local function ApplyAlertActions(alertResult, trackedBuff, frame)
-    if not alertResult then return end
+    if not frame then return end
 
-    local alerts = trackedBuff.settings.alerts
+    frame._alertColorOverride = nil
+    frame._alertIconColorOverride = nil
+    frame._alertBorderColorOverride = nil
+    frame._alertDesaturateOverride = nil
+    frame._alertGlowOverride = nil
+
+    local settings = trackedBuff and trackedBuff.settings
+    local alerts = settings and settings.alerts
+    if not alerts then return end
     local actions = alerts.actions or {}
     if #actions == 0 then return end
-
-    -- Reset color override
-    frame._alertColorOverride = nil
 
     -- Initialize tracking tables
     if not frame._alertSoundLastPlay then
@@ -2646,9 +2707,9 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
     for actionIdx, action in ipairs(actions) do
         -- Determine if this action's condition is met
         local shouldFire = false
-        if action.condition == "any" then
+        if alertResult and action.condition == "any" then
             shouldFire = alertResult.combined
-        else
+        elseif alertResult then
             local triggerNum = tonumber((action.condition or ""):match("trigger(%d+)"))
             if triggerNum and alertResult.triggers[triggerNum] then
                 shouldFire = true
@@ -2669,6 +2730,10 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
                     if DDingUI.secondaryPowerBar then
                         DDingUI.secondaryPowerBar._ddingColorOverride = action.color
                     end
+                elseif colorTarget == "icon" then
+                    frame._alertIconColorOverride = action.color
+                elseif colorTarget == "border" then
+                    frame._alertBorderColorOverride = action.color
                 else
                     -- self/group: 트래커 자체 색상 변경
                     frame._alertColorOverride = action.color
@@ -2684,7 +2749,16 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
                         DDingUI.secondaryPowerBar._ddingColorOverride = nil
                     end
                 end
-                -- self는 함수 상단에서 이미 frame._alertColorOverride = nil
+            end
+
+        elseif action.type == "glow" then
+            if shouldFire then
+                frame._alertGlowOverride = action
+            end
+
+        elseif action.type == "desaturate" then
+            if shouldFire then
+                frame._alertDesaturateOverride = true
             end
 
         elseif action.type == "sound" then
@@ -2715,6 +2789,25 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
     end
 end
 
+local function ScheduleAlertEvaluation(frame, alertResult)
+    if not frame or not frame.GetObjectType then return end
+
+    if frame._alertEvaluationTimer then
+        frame._alertEvaluationTimer:Cancel()
+        frame._alertEvaluationTimer = nil
+    end
+
+    local delay = alertResult and alertResult.nextEvaluationDelay
+    if not delay or delay <= 0.02 then return end
+
+    frame._alertEvaluationTimer = C_Timer.NewTimer(delay + 0.03, function()
+        frame._alertEvaluationTimer = nil
+        if QueueBuffTrackerUpdate then
+            QueueBuffTrackerUpdate("alert-threshold", 0)
+        end
+    end)
+end
+
 -- ============================================================
 -- TEXT FRAME SYSTEM
 -- 텍스트 모드용 프레임 (스택/지속시간/이름 텍스트 표시)
@@ -2734,7 +2827,12 @@ end
 
 local function HideOtherTrackedBuffDisplays(barIndex, exceptType)
     if exceptType ~= "bar" then
-        DDingUI:SafeHide(barFrames[barIndex])
+        local bar = barFrames[barIndex]
+        DDingUI:SafeHide(bar)
+        if bar and bar._alertEvaluationTimer then
+            bar._alertEvaluationTimer:Cancel()
+            bar._alertEvaluationTimer = nil
+        end
     end
     if exceptType ~= "icon" then
         local icon = iconFrames[barIndex]
@@ -2742,10 +2840,19 @@ local function HideOtherTrackedBuffDisplays(barIndex, exceptType)
             DDingUI:SafeHide(icon)
             StopAllAnimations(icon)
             icon._currentAnimation = nil
+            if icon._alertEvaluationTimer then
+                icon._alertEvaluationTimer:Cancel()
+                icon._alertEvaluationTimer = nil
+            end
         end
     end
     if exceptType ~= "text" then
-        DDingUI:SafeHide(textFrames[barIndex])
+        local textFrame = textFrames[barIndex]
+        DDingUI:SafeHide(textFrame)
+        if textFrame and textFrame._alertEvaluationTimer then
+            textFrame._alertEvaluationTimer:Cancel()
+            textFrame._alertEvaluationTimer = nil
+        end
     end
 end
 
@@ -2806,6 +2913,10 @@ HideAllTrackedBuffTexts = function()
                 frame._hasDurationUpdate = nil
                 frame._durationData = nil
             end
+            if frame._alertEvaluationTimer then
+                frame._alertEvaluationTimer:Cancel()
+                frame._alertEvaluationTimer = nil
+            end
         end
     end
 end
@@ -2833,6 +2944,10 @@ HideAllTrackedBuffBars = function()
                 UnregisterDurationUpdate(bar)
                 bar._hasRingTextUpdate = false
                 bar._durationData = nil
+            end
+            if bar._alertEvaluationTimer then
+                bar._alertEvaluationTimer:Cancel()
+                bar._alertEvaluationTimer = nil
             end
         end
     end
@@ -2993,24 +3108,7 @@ function ResourceBars:UpdateBuffTrackerBar()
                     -- 알림 평가: colorTarget에 따라 외부 바에도 색상 적용됨
                     local dummyFrame = barFrames[barIndex] or {}
                     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-                    if alertResult then
-                        ApplyAlertActions(alertResult, trackedBuff, dummyFrame)
-                    else
-                        -- 조건 미충족 시: 외부 바 색상 초기화
-                        local alerts = trackedBuff.settings and trackedBuff.settings.alerts
-                        if alerts and alerts.actions then
-                            for _, action in ipairs(alerts.actions) do
-                                if action.type == "color" then
-                                    local ct = action.colorTarget or "self"
-                                    if ct == "bar" and DDingUI.powerBar then
-                                        DDingUI.powerBar._ddingColorOverride = nil
-                                    elseif ct == "secondary_bar" and DDingUI.secondaryPowerBar then
-                                        DDingUI.secondaryPowerBar._ddingColorOverride = nil
-                                    end
-                                end
-                            end
-                        end
-                    end
+                    ApplyAlertActions(alertResult, trackedBuff, dummyFrame)
                 else
                     -- Fallback to bar mode
                     self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
@@ -3312,13 +3410,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- ============================================================
     -- [12.0.1] 알림 평가 (plain 캐싱 → secret 시 캐시 사용)
     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-    if alertResult then
-        ApplyAlertActions(alertResult, trackedBuff, bar)
-        if bar._alertColorOverride then
-            barColor = bar._alertColorOverride
-        end
-    else
-        bar._alertColorOverride = nil
+    ApplyAlertActions(alertResult, trackedBuff, bar)
+    ScheduleAlertEvaluation(bar, alertResult)
+    if bar._alertColorOverride then
+        barColor = bar._alertColorOverride
     end
 
     -- ============================================================
@@ -4690,13 +4785,12 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     -- [12.0.1] alert 비교 전에 StackText에 stacks를 미리 기록
     -- [12.0.1] 알림 평가 (plain 캐싱 → secret 시 캐시 사용)
     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-    if alertResult then
-        ApplyAlertActions(alertResult, trackedBuff, icon)
-        if icon._alertColorOverride then
-            iconBorderColor = icon._alertColorOverride
-        end
-    else
-        icon._alertColorOverride = nil
+    ApplyAlertActions(alertResult, trackedBuff, icon)
+    ScheduleAlertEvaluation(icon, alertResult)
+    if icon._alertBorderColorOverride then
+        iconBorderColor = icon._alertBorderColorOverride
+    elseif icon._alertColorOverride then
+        iconBorderColor = icon._alertColorOverride
     end
 
     -- CDM에서 숨기기 (추적 중인 버프를 CDM에서 숨김 - 중복 방지)
@@ -4792,6 +4886,10 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     end
 
     local showOnlyWhenInactive = settings.showOnlyWhenInactive or false
+    local conditionalVisualActive = icon._alertGlowOverride
+        or icon._alertIconColorOverride
+        or icon._alertBorderColorOverride
+        or icon._alertDesaturateOverride
 
     -- 비활성화 시에만 표시 모드
     if showOnlyWhenInactive then
@@ -4804,7 +4902,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     else
         -- 기존 로직: hideWhenZero + showInCombat
         if hideWhenZero and not hasData and not isInMoverMode and not isInPreviewMode then
-            if not (showInCombat and inCombat) then
+            if not (showInCombat and inCombat) and not conditionalVisualActive then
                 icon:Hide()
                 StopAllAnimations(icon)
                 icon._currentAnimation = nil
@@ -4846,8 +4944,18 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     local zoomVal = iconZoom or 0
     icon.Texture:SetTexCoord(zoomVal, 1 - zoomVal, zoomVal, 1 - zoomVal)
 
+    local iconTint = icon._alertIconColorOverride or { 1, 1, 1, 1 }
+    icon.Texture:SetVertexColor(
+        iconTint[1] or 1,
+        iconTint[2] or 1,
+        iconTint[3] or 1,
+        iconTint[4] or 1
+    )
+
     -- Apply desaturation based on buff status (skip in preview/mover mode)
-    if iconDesaturate and not hasData and not isInPreviewMode and not isInMoverMode then
+    if icon._alertDesaturateOverride ~= nil then
+        icon.Texture:SetDesaturated(icon._alertDesaturateOverride)
+    elseif iconDesaturate and not hasData and not isInPreviewMode and not isInMoverMode then
         icon.Texture:SetDesaturated(true)
     else
         icon.Texture:SetDesaturated(false)
@@ -5089,10 +5197,13 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
 
     -- Handle animation using advanced animation system
     local glowWhenInactive = settings.glowWhenInactive or false
+    local alertGlow = icon._alertGlowOverride
 
     -- 글로우 조건 결정
     local shouldGlow
-    if glowWhenInactive then
+    if alertGlow then
+        shouldGlow = true
+    elseif glowWhenInactive then
         -- 비활성화 시 글로우 (조건 반전)
         shouldGlow = not hasData or (isInPreviewMode or isInMoverMode)
     else
@@ -5101,20 +5212,47 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     end
 
     if shouldGlow then
-        -- Build glow settings from per-buff settings
-        local glowSettings = {
-            color = settings.glowColor or {1, 0.9, 0.5, 1},
-            lines = settings.glowLines or 8,
-            frequency = settings.glowFrequency or 0.25,
-            thickness = settings.glowThickness or 2,
-            xOffset = settings.glowXOffset or 0,
-            yOffset = settings.glowYOffset or 0,
-        }
+        local desiredAnimation = alertGlow and (alertGlow.glowType or "pixel") or iconAnimation
+        local glowSettings
+        if alertGlow then
+            glowSettings = {
+                color = alertGlow.glowColor or { 1, 0.82, 0.1, 1 },
+                lines = alertGlow.glowLines or 8,
+                frequency = alertGlow.glowFrequency or 0.25,
+                thickness = alertGlow.glowThickness or 2,
+                xOffset = alertGlow.glowXOffset or 0,
+                yOffset = alertGlow.glowYOffset or 0,
+            }
+        else
+            glowSettings = {
+                color = settings.glowColor or {1, 0.9, 0.5, 1},
+                lines = settings.glowLines or 8,
+                frequency = settings.glowFrequency or 0.25,
+                thickness = settings.glowThickness or 2,
+                xOffset = settings.glowXOffset or 0,
+                yOffset = settings.glowYOffset or 0,
+            }
+        end
+
+        local glowColor = glowSettings.color or {}
+        local glowSignature = table.concat({
+            desiredAnimation,
+            glowColor[1] or 1,
+            glowColor[2] or 1,
+            glowColor[3] or 1,
+            glowColor[4] or 1,
+            glowSettings.lines or 8,
+            glowSettings.frequency or 0.25,
+            glowSettings.thickness or 2,
+            glowSettings.xOffset or 0,
+            glowSettings.yOffset or 0,
+        }, ":")
 
         -- Track previous animation to avoid redundant calls
-        if icon._currentAnimation ~= iconAnimation then
-            ApplyIconAnimation(icon, iconAnimation, glowSettings)
-            icon._currentAnimation = iconAnimation
+        if icon._currentAnimation ~= desiredAnimation or icon._currentAnimationSignature ~= glowSignature then
+            ApplyIconAnimation(icon, desiredAnimation, glowSettings)
+            icon._currentAnimation = desiredAnimation
+            icon._currentAnimationSignature = glowSignature
         end
     else
         -- Stop all animations
@@ -5122,6 +5260,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             StopAllAnimations(icon)
             icon._currentAnimation = nil
         end
+        icon._currentAnimationSignature = nil
     end
 
     icon:Show()
@@ -5305,13 +5444,10 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- [12.0.1] alert 비교 전에 Text에 stacks를 미리 기록
     -- [12.0.1] 알림 평가 (plain 캐싱 → secret 시 캐시 사용)
     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-    if alertResult then
-        ApplyAlertActions(alertResult, trackedBuff, textFrame)
-        if textFrame._alertColorOverride then
-            textColor = textFrame._alertColorOverride
-        end
-    else
-        textFrame._alertColorOverride = nil
+    ApplyAlertActions(alertResult, trackedBuff, textFrame)
+    ScheduleAlertEvaluation(textFrame, alertResult)
+    if textFrame._alertColorOverride then
+        textColor = textFrame._alertColorOverride
     end
 
     -- CDM에서 숨기기 (추적 중인 버프를 CDM에서 숨김 - 중복 방지)

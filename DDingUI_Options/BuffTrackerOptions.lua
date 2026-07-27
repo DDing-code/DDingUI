@@ -5837,8 +5837,10 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             hidden = hiddenIfTriggerNotExists,
             values = {
                 duration = L["Duration"] or "Duration",
+                duration_percent = L["Remaining Percent"] or "Remaining Percent",
                 stacks = L["Stacks"] or "Stacks",
                 active = L["Active"] or "Active",
+                combat = L["Combat State"] or "Combat State",
             },
             get = function()
                 local buff = GetTrackedBuff(index)
@@ -5855,9 +5857,15 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                     elseif val == "duration" then
                         alerts.triggers[trigIdx].value = 5
                         alerts.triggers[trigIdx].op = "<="
+                    elseif val == "duration_percent" then
+                        alerts.triggers[trigIdx].value = 30
+                        alerts.triggers[trigIdx].op = "<="
                     elseif val == "stacks" then
                         alerts.triggers[trigIdx].value = 3
                         alerts.triggers[trigIdx].op = "<="
+                    elseif val == "combat" then
+                        alerts.triggers[trigIdx].value = true
+                        alerts.triggers[trigIdx].op = "=="
                     end
                     DDingUI:UpdateBuffTrackerBar()
                     RefreshOptions()
@@ -5875,7 +5883,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             values = function()
                 local buff = GetTrackedBuff(index)
                 local t = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.triggers and buff.settings.alerts.triggers[trigIdx]
-                if t and t.type == "active" then
+                if t and (t.type == "active" or t.type == "combat") then
                     return { ["=="] = "=", ["!="] = "!=" }
                 end
                 return { ["<="] = "<=", [">="] = ">=", ["=="] = "=", ["!="] = "!=", ["<"] = "<", [">"] = ">" }
@@ -5900,12 +5908,12 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             name = "",
             order = trigOrderBase + 0.02,
             width = 0.4,
-            min = 0, max = 60, step = 1,
+            min = 0, max = 100, step = 1,
             hidden = function()
                 if hiddenIfTriggerNotExists() then return true end
                 local buff = GetTrackedBuff(index)
                 local t = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.triggers and buff.settings.alerts.triggers[trigIdx]
-                return t and t.type == "active"
+                return t and (t.type == "active" or t.type == "combat")
             end,
             get = function()
                 local buff = GetTrackedBuff(index)
@@ -5931,9 +5939,22 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 if hiddenIfTriggerNotExists() then return true end
                 local buff = GetTrackedBuff(index)
                 local t = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.triggers and buff.settings.alerts.triggers[trigIdx]
-                return not t or t.type ~= "active"
+                return not t or (t.type ~= "active" and t.type ~= "combat")
             end,
-            values = { ["true"] = L["Active"] or "Active", ["false"] = L["Inactive"] or "Inactive" },
+            values = function()
+                local buff = GetTrackedBuff(index)
+                local t = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.triggers and buff.settings.alerts.triggers[trigIdx]
+                if t and t.type == "combat" then
+                    return {
+                        ["true"] = L["In Combat"] or "In Combat",
+                        ["false"] = L["Out of Combat"] or "Out of Combat",
+                    }
+                end
+                return {
+                    ["true"] = L["Active"] or "Active",
+                    ["false"] = L["Inactive"] or "Inactive",
+                }
+            end,
             get = function()
                 local buff = GetTrackedBuff(index)
                 local t = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.triggers and buff.settings.alerts.triggers[trigIdx]
@@ -6000,6 +6021,8 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     -- Action type display names
     local actionTypeDisplayNames = {
         color = L["Color"] or "Color",
+        glow = L["Glow"] or "Glow",
+        desaturate = L["Desaturate"] or "Desaturate",
         sound = L["Sound"] or "Sound",
     }
 
@@ -6024,6 +6047,8 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             order = 1, width = 0.4,
             values = {
                 color = L["Color"] or "Color",
+                glow = L["Glow"] or "Glow",
+                desaturate = L["Desaturate"] or "Desaturate",
                 sound = L["Sound"] or "Sound",
             },
             get = function()
@@ -6037,6 +6062,16 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                     alerts.actions[actIdx].type = val
                     if val == "color" then
                         alerts.actions[actIdx].color = alerts.actions[actIdx].color or { 1, 0, 0, 1 }
+                        local buff = GetTrackedBuff(index)
+                        alerts.actions[actIdx].colorTarget = alerts.actions[actIdx].colorTarget
+                            or (buff and buff.displayType == "icon" and "icon")
+                            or "self"
+                    elseif val == "glow" then
+                        alerts.actions[actIdx].glowType = alerts.actions[actIdx].glowType or "pixel"
+                        alerts.actions[actIdx].glowColor = alerts.actions[actIdx].glowColor or { 1, 0.82, 0.1, 1 }
+                        alerts.actions[actIdx].glowLines = alerts.actions[actIdx].glowLines or 8
+                        alerts.actions[actIdx].glowFrequency = alerts.actions[actIdx].glowFrequency or 0.25
+                        alerts.actions[actIdx].glowThickness = alerts.actions[actIdx].glowThickness or 2
                     elseif val == "sound" then
                         alerts.actions[actIdx].soundFile = alerts.actions[actIdx].soundFile or "None"
                         alerts.actions[actIdx].soundCustomPath = alerts.actions[actIdx].soundCustomPath or ""
@@ -6117,6 +6152,8 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             values = {
                 self = L["Tracker (Self)"] or "해당 트래커",
                 group = L["Group"] or "같은 그룹 트래커",
+                icon = L["Icon Tint"] or "Icon Tint",
+                border = L["Border Color"] or "Border Color",
                 bar = L["Resource Bar"] or "자원바",
                 secondary_bar = L["Secondary Bar"] or "보조 자원바",
             },
@@ -6131,6 +6168,143 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                     alerts.actions[actIdx].colorTarget = val
                     DDingUI:UpdateBuffTrackerBar()
                 end
+            end,
+        }
+
+        actionArgs["glowType"] = {
+            type = "select",
+            name = L["Glow Type"] or "Glow Type",
+            order = 3, width = 0.45,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "glow"
+            end,
+            values = {
+                pixel = L["Pixel Glow"] or "Pixel Glow",
+                autocast = L["Autocast Shine"] or "Autocast Shine",
+                button = L["Action Button Glow"] or "Action Button Glow",
+                proc = L["Proc Glow"] or "Proc Glow",
+            },
+            get = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return a and a.glowType or "pixel"
+            end,
+            set = function(_, val)
+                local alerts = EnsureAlerts(index)
+                if alerts and alerts.actions[actIdx] then
+                    alerts.actions[actIdx].glowType = val
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end,
+        }
+
+        actionArgs["glowColor"] = {
+            type = "color",
+            name = L["Glow Color"] or "Glow Color",
+            order = 3.1, width = 0.25,
+            hasAlpha = true,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "glow"
+            end,
+            get = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                local c = a and a.glowColor or { 1, 0.82, 0.1, 1 }
+                return c[1] or 1, c[2] or 0.82, c[3] or 0.1, c[4] or 1
+            end,
+            set = function(_, r, g, b, a)
+                local alerts = EnsureAlerts(index)
+                if alerts and alerts.actions[actIdx] then
+                    alerts.actions[actIdx].glowColor = { r, g, b, a }
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end,
+        }
+
+        actionArgs["glowLines"] = {
+            type = "range",
+            name = L["Pixel Glow Lines"] or "Lines",
+            order = 3.2, width = 0.45,
+            min = 1, max = 30, step = 1,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "glow" or (a.glowType ~= "pixel" and a.glowType ~= "autocast")
+            end,
+            get = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return a and a.glowLines or 8
+            end,
+            set = function(_, val)
+                local alerts = EnsureAlerts(index)
+                if alerts and alerts.actions[actIdx] then
+                    alerts.actions[actIdx].glowLines = val
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end,
+        }
+
+        actionArgs["glowFrequency"] = {
+            type = "range",
+            name = L["Pixel Glow Speed"] or "Speed",
+            order = 3.3, width = 0.45,
+            min = 0.05, max = 2, step = 0.05,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "glow"
+            end,
+            get = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return a and a.glowFrequency or 0.25
+            end,
+            set = function(_, val)
+                local alerts = EnsureAlerts(index)
+                if alerts and alerts.actions[actIdx] then
+                    alerts.actions[actIdx].glowFrequency = val
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end,
+        }
+
+        actionArgs["glowThickness"] = {
+            type = "range",
+            name = L["Pixel Glow Thickness"] or "Thickness",
+            order = 3.4, width = 0.45,
+            min = 0.5, max = 8, step = 0.5,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "glow" or a.glowType ~= "pixel"
+            end,
+            get = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return a and a.glowThickness or 2
+            end,
+            set = function(_, val)
+                local alerts = EnsureAlerts(index)
+                if alerts and alerts.actions[actIdx] then
+                    alerts.actions[actIdx].glowThickness = val
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end,
+        }
+
+        actionArgs["desaturateInfo"] = {
+            type = "description",
+            name = L["Desaturate the icon while the condition is met."] or "Desaturate the icon while the condition is met.",
+            order = 3, width = "full",
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return not a or a.type ~= "desaturate"
             end,
         }
 
@@ -6343,7 +6517,14 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         func = function()
             local alerts = EnsureAlerts(index)
             if alerts then
-                table.insert(alerts.actions, { type = "color", condition = "any", color = { 1, 0, 0, 1 } })
+                local buff = GetTrackedBuff(index)
+                local colorTarget = buff and buff.displayType == "icon" and "icon" or "self"
+                table.insert(alerts.actions, {
+                    type = "color",
+                    condition = "any",
+                    color = { 1, 0, 0, 1 },
+                    colorTarget = colorTarget,
+                })
                 DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()
             end
