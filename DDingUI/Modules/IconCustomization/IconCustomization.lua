@@ -1500,6 +1500,9 @@ local function BuildThresholdContextMenuItem(Current, ApplySetting)
             {
                 text = L["Threshold Text Color"] or "Threshold Text Color",
                 swatch = color,
+                setColor = function(r, g, b)
+                    ApplySetting("thresholdColor", { r = r, g = g, b = b })
+                end,
                 func = function()
                     if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then return end
                     local current = Current().thresholdColor or { r = 1, g = 0.2, b = 0.2 }
@@ -1891,6 +1894,16 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
     menuItems[#menuItems + 1] = {
         text = L["Active Swipe Color"] or "Active Swipe Color",
         swatch = Current().activeSwipeColor or { r = 1, g = 0.776, b = 0.376, a = 0.8 },
+        setColor = function(r, g, b)
+            local current = Current().activeSwipeColor or {}
+            ApplyVisual("activeSwipeMode", "custom")
+            ApplyVisual("activeSwipeColor", {
+                r = r,
+                g = g,
+                b = b,
+                a = current.a or current[4] or 0.8,
+            })
+        end,
         func = function()
             ApplyVisual("activeSwipeMode", "custom")
             OpenMenuColorPicker(
@@ -1914,6 +1927,10 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
     menuItems[#menuItems + 1] = {
         text = L["Active Border Color"] or "Active Border Color",
         swatch = Current().activeBorderColor or { r = 1, g = 0.776, b = 0.376, a = 1 },
+        setColor = function(r, g, b)
+            ApplyVisual("activeBorderEnabled", true)
+            ApplyVisual("activeBorderColor", { r = r, g = g, b = b, a = 1 })
+        end,
         func = function()
             ApplyVisual("activeBorderEnabled", true)
             OpenMenuColorPicker(
@@ -2000,6 +2017,7 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
     menuItems[#menuItems + 1] = {
         text = L["Reset Icon"] or "Reset Icon",
         color = "dim",
+        isIconReset = true,
         func = ResetIcon,
     }
     return menuItems
@@ -2174,6 +2192,16 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             text = L["Active Swipe Color"] or "Active Swipe Color",
             swatch = iconData.settings.activeSwipeColor
                 or { r = 1, g = 0.776, b = 0.376, a = 0.8 },
+            setColor = function(r, g, b)
+                local current = iconData.settings.activeSwipeColor or {}
+                ApplyStateSetting("activeSwipeMode", "custom")
+                ApplyStateSetting("activeSwipeColor", {
+                    r = r,
+                    g = g,
+                    b = b,
+                    a = current.a or current[4] or 0.8,
+                })
+            end,
             func = function()
                 ApplyStateSetting("activeSwipeMode", "custom")
                 OpenMenuColorPicker(
@@ -2198,6 +2226,10 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             text = L["Active Border Color"] or "Active Border Color",
             swatch = iconData.settings.activeBorderColor
                 or { r = 1, g = 0.776, b = 0.376, a = 1 },
+            setColor = function(r, g, b)
+                ApplyStateSetting("activeBorderEnabled", true)
+                ApplyStateSetting("activeBorderColor", { r = r, g = g, b = b, a = 1 })
+            end,
             func = function()
                 ApplyStateSetting("activeBorderEnabled", true)
                 OpenMenuColorPicker(

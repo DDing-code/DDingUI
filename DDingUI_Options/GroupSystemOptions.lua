@@ -3781,6 +3781,143 @@ function DDingUI:BuildAssignedIconSettingsItems(groupName, opt, glowOnly)
     return items
 end
 
+function DDingUI:ResetDynamicAssignedIconSettings(opt)
+    local iconKey = opt and opt._gridDynamicIconKey
+    local profile = self.db and self.db.profile
+    local dynamicIcons = profile and profile.dynamicIcons
+    local iconData = iconKey and dynamicIcons and dynamicIcons.iconData and dynamicIcons.iconData[iconKey]
+    if not iconData then return false end
+
+    iconData.settings = iconData.settings or {}
+    for _, key in ipairs({
+        "customStateGlow",
+        "showCooldown",
+        "showCharges",
+        "showGCDSwipe",
+        "desaturateOnCooldown",
+        "desaturateWhenUnusable",
+        "showProcDuration",
+        "showProcStacks",
+        "showItemCooldown",
+        "activeSwipeMode",
+        "activeSwipeColor",
+        "activeBorderEnabled",
+        "activeBorderColor",
+        "alwaysShow",
+        "desatInactive",
+        "nonActiveMode",
+        "cooldownStateEffect",
+        "cooldownStateAlpha",
+        "cooldownSwipeMode",
+        "cooldownEdgeMode",
+        "cooldownFinishMode",
+        "activeDurationMode",
+        "chargeCountMode",
+        "chargeHideSwipe",
+        "chargeHideEdge",
+        "chargeHideDuration",
+        "thresholdSeconds",
+        "thresholdDecimals",
+        "thresholdColorEnabled",
+        "thresholdColor",
+        "buffGainSound",
+        "buffLossSound",
+        "cooldownReadySound",
+    }) do
+        iconData.settings[key] = nil
+    end
+
+    if self.CustomIcons and self.CustomIcons.RefreshDynamicIcon then
+        self.CustomIcons:RefreshDynamicIcon(iconKey)
+    end
+    if self.IconCustomization and self.IconCustomization.RefreshAllGlows then
+        self.IconCustomization:RefreshAllGlows()
+    end
+    return true
+end
+
+function DDingUI:BuildAssignedIconLinkedEffectItems(groupName, opt, refreshFunc)
+    if not opt then return {} end
+    local items = {}
+    local gs = GetGS()
+    local currentGroupSettings = gs and gs.groups and gs.groups[groupName]
+    local attachToExistingIcon = opt._gridKind == "dynamic"
+        and (opt._gridDynamicIconType == "slot" or opt._gridDynamicIconType == "item")
+        and not IsBuffGroup(groupName, currentGroupSettings)
+    local itemID = self:ResolveGridTrinketItemID(opt)
+    local registry = self.TrinketEffects
+    local hasRegisteredEffect = itemID and registry and registry.GetEffectsForItem
+        and #(registry:GetEffectsForItem(itemID) or {}) > 0
+
+    if attachToExistingIcon and hasRegisteredEffect then
+        local tracked = self:IsGridTrinketEffectTracked(opt)
+        items[#items + 1] = {
+            text = tracked
+                and (rawget(L, "Remove Trinket Buff") or "Remove Trinket Buff")
+                or (rawget(L, "Add Trinket Buff") or "Add Trinket Buff"),
+            checked = tracked == true,
+            func = function()
+                if self:SetGridTrinketEffectTracked(opt, not tracked) and refreshFunc then
+                    refreshFunc()
+                end
+            end,
+        }
+    else
+        local trinketTargets = self:BuildTrinketEffectGroupMenu(opt, refreshFunc)
+        if trinketTargets then
+            items[#items + 1] = {
+                text = rawget(L, "Add Trinket Buff") or "Add Trinket Buff",
+                menuList = trinketTargets,
+            }
+        end
+    end
+
+    local activeEffectOverlay = self.CustomIconActiveEffectOverlay
+    local activeEffectItemID = opt._gridDynamicIconType == "item" and SafeOptionID(opt._gridItemID)
+    if activeEffectItemID and activeEffectOverlay
+        and activeEffectOverlay:IsConsumableItem(activeEffectItemID)
+    then
+        local activeEffectDuration = activeEffectOverlay:GetDuration(opt._gridDynamicIconKey)
+        if activeEffectDuration then
+            items[#items + 1] = {
+                text = string.format(
+                    rawget(L, "Active Effect Overlay (%s sec)") or "Active Effect Overlay (%s sec)",
+                    tostring(activeEffectDuration)
+                ),
+                menuList = {
+                    {
+                        text = rawget(L, "Change Active Effect Duration") or "Change Active Effect Duration",
+                        func = function()
+                            self:ShowGridActiveEffectDurationPopup(
+                                opt,
+                                activeEffectDuration,
+                                refreshFunc
+                            )
+                        end,
+                    },
+                    {
+                        text = rawget(L, "Remove Active Effect Overlay") or "Remove Active Effect Overlay",
+                        color = "red",
+                        func = function()
+                            if activeEffectOverlay:SetDuration(opt._gridDynamicIconKey, nil) and refreshFunc then
+                                refreshFunc()
+                            end
+                        end,
+                    },
+                },
+            }
+        else
+            items[#items + 1] = {
+                text = rawget(L, "Add Active Effect Overlay") or "Add Active Effect Overlay",
+                func = function()
+                    self:ShowGridActiveEffectDurationPopup(opt, nil, refreshFunc)
+                end,
+            }
+        end
+    end
+    return items
+end
+
 function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if not parent then return end
 
@@ -3918,10 +4055,32 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 isTitle = true,
             },
         }
-        for _, item in ipairs(DDingUI:BuildAssignedIconSettingsItems(groupName, opt)) do
-            menuList[#menuList + 1] = item
+
+        local resetItem
+        if opt._gridKind == "cdm" then
+            for _, item in ipairs(DDingUI:BuildAssignedIconSettingsItems(groupName, opt)) do
+                if item.isIconReset then
+                    resetItem = item
+                    break
+                end
+            end
+        elseif opt._gridKind == "dynamic" then
+            resetItem = {
+                text = rawget(L, "Reset Icon") or "Reset Icon",
+                func = function()
+                    DDingUI:ResetDynamicAssignedIconSettings(opt)
+                end,
+            }
         end
-        menuList[#menuList + 1] = { isSeparator = true }
+        if resetItem then
+            menuList[#menuList + 1] = {
+                text = rawget(L, "Reset Icon") or "Reset Icon",
+                func = function()
+                    resetItem.func()
+                    RefreshAfterCommit()
+                end,
+            }
+        end
 
         local moveMenu = BuildMoveMenu(opt)
         if moveMenu then
@@ -3929,82 +4088,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 text = rawget(L, "Move To") or "다른 그룹으로 이동",
                 menuList = moveMenu,
             }
-        end
-
-        local gs = GetGS()
-        local currentGroupSettings = gs and gs.groups and gs.groups[groupName]
-        local attachToExistingIcon = opt._gridKind == "dynamic"
-            and (opt._gridDynamicIconType == "slot" or opt._gridDynamicIconType == "item")
-            and not IsBuffGroup(groupName, currentGroupSettings)
-        local itemID = DDingUI:ResolveGridTrinketItemID(opt)
-        local registry = DDingUI.TrinketEffects
-        local hasRegisteredEffect = itemID and registry and registry.GetEffectsForItem
-            and #(registry:GetEffectsForItem(itemID) or {}) > 0
-
-        if attachToExistingIcon and hasRegisteredEffect then
-            local tracked = DDingUI:IsGridTrinketEffectTracked(opt)
-            menuList[#menuList + 1] = {
-                text = tracked
-                    and (rawget(L, "Remove Trinket Buff") or "강화효과 제거")
-                    or (rawget(L, "Add Trinket Buff") or "강화효과 추가"),
-                func = function()
-                    if DDingUI:SetGridTrinketEffectTracked(opt, not tracked) then
-                        RefreshAfterCommit()
-                    end
-                end,
-            }
-        else
-            local trinketTargets = DDingUI:BuildTrinketEffectGroupMenu(opt, RefreshAfterCommit)
-            if trinketTargets then
-                menuList[#menuList + 1] = {
-                    text = rawget(L, "Add Trinket Buff") or "강화효과 추가",
-                    menuList = trinketTargets,
-                }
-            end
-        end
-
-        local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
-        local activeEffectItemID = opt._gridDynamicIconType == "item" and SafeOptionID(opt._gridItemID)
-        if activeEffectItemID and activeEffectOverlay
-            and activeEffectOverlay:IsConsumableItem(activeEffectItemID)
-        then
-            local activeEffectDuration = activeEffectOverlay:GetDuration(opt._gridDynamicIconKey)
-            if activeEffectDuration then
-                menuList[#menuList + 1] = {
-                    text = string.format(
-                        rawget(L, "Active Effect Overlay (%s sec)") or "Active Effect Overlay (%s sec)",
-                        tostring(activeEffectDuration)
-                    ),
-                    menuList = {
-                        {
-                            text = rawget(L, "Change Active Effect Duration") or "Change Duration",
-                            func = function()
-                                DDingUI:ShowGridActiveEffectDurationPopup(
-                                    opt,
-                                    activeEffectDuration,
-                                    RefreshAfterCommit
-                                )
-                            end,
-                        },
-                        {
-                            text = rawget(L, "Remove Active Effect Overlay") or "Remove Active Effect Overlay",
-                            color = "red",
-                            func = function()
-                                if activeEffectOverlay:SetDuration(opt._gridDynamicIconKey, nil) then
-                                    RefreshAfterCommit()
-                                end
-                            end,
-                        },
-                    },
-                }
-            else
-                menuList[#menuList + 1] = {
-                    text = rawget(L, "Add Active Effect Overlay") or "Add Active Effect Overlay",
-                    func = function()
-                        DDingUI:ShowGridActiveEffectDurationPopup(opt, nil, RefreshAfterCommit)
-                    end,
-                }
-            end
         end
 
         if opt._gridCanRemove then
@@ -4567,8 +4650,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
         end
         GameTooltip:AddLine(
-            rawget(L, "Click for details | Drag to reorder | Right-click for options")
-                or "Click for details | Drag to reorder | Right-click for options",
+            rawget(L, "Click for details | Drag to reorder | Right-click to manage")
+                or "Click for details | Drag to reorder | Right-click to manage",
             0.35,
             1,
             0.45,
@@ -4878,6 +4961,14 @@ function DDingUI:BuildGroupIconDetailArgs(groupName)
         SoftRefreshGroupSystemOptions(0)
     end
 
+    local function RefreshCommittedDetails()
+        RefreshGroupSystem()
+        if self.GroupSystem and self.GroupSystem.RefreshLayout then
+            self.GroupSystem:RefreshLayout()
+        end
+        RefreshDetails()
+    end
+
     local function RunMenuAction(item)
         if item and type(item.func) == "function" then
             item.func()
@@ -4998,7 +5089,48 @@ function DDingUI:BuildGroupIconDetailArgs(groupName)
             order = -10,
         },
     }
-    local converted = ConvertMenuItems(self:BuildAssignedIconSettingsItems(groupName, opt, true), "detail")
+    local glowItems = self:BuildAssignedIconSettingsItems(groupName, opt, true)
+    local visualItems = self:BuildAssignedIconSettingsItems(groupName, opt)
+    local linkedItems = self:BuildAssignedIconLinkedEffectItems(groupName, opt, RefreshCommittedDetails)
+    local detailTree = {}
+
+    local glowSection = {}
+    if glowItems[1] and glowItems[1].menuList then
+        glowSection[#glowSection + 1] = glowItems[1]
+    end
+    for index = 2, #glowItems do
+        if not glowItems[index].isSeparator then
+            glowSection[#glowSection + 1] = glowItems[index]
+        end
+    end
+    if #glowSection > 0 then
+        detailTree[#detailTree + 1] = {
+            text = rawget(L, "Icon Glow Settings") or "Icon Glow Settings",
+            menuList = glowSection,
+        }
+    end
+
+    local visualSection = {}
+    for _, item in ipairs(visualItems) do
+        if not item.isSeparator and not item.isIconReset then
+            visualSection[#visualSection + 1] = item
+        end
+    end
+    if #visualSection > 0 then
+        detailTree[#detailTree + 1] = {
+            text = rawget(L, "State and Display") or "State and Display",
+            menuList = visualSection,
+        }
+    end
+
+    if #linkedItems > 0 then
+        detailTree[#detailTree + 1] = {
+            text = rawget(L, "Linked Effects") or "Linked Effects",
+            menuList = linkedItems,
+        }
+    end
+
+    local converted = ConvertMenuItems(detailTree, "detail")
     for key, option in pairs(converted) do
         args[key] = option
     end
