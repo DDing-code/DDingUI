@@ -52,9 +52,7 @@ local function IsBuffGroup(groupName, groupSettings)
 end
 
 local function CanAssignCDMSpellToGroup(spellName, groupName, groupSettings)
-    if not groupSettings then return false end
-    if groupSettings.groupType ~= "dynamic" then return true end
-    return IsBuffSpellKey(spellName) and IsBuffGroup(groupName, groupSettings)
+    return groupSettings ~= nil
 end
 
 local function GetUnassignedBuffSpells(gs, create)
@@ -1577,7 +1575,7 @@ local function ClassifyIconWithContext(cooldownID, CDMHookEngine, gs, routes)
     -- CDM 아이콘을 커스텀 그룹으로 분류하면 중복 발생 (CDM 프레임 + CustomIcons 프레임)
 
     -- 1순위: 수동 할당 (spellName 기반)
-    -- 일반 dynamic 그룹은 CustomIcons 전용으로 유지한다. buff 그룹만 CDM 원본 재배치를 허용한다.
+    -- 수동 할당은 그룹 유형과 관계없이 CDM 원본 프레임을 해당 그룹으로 재배치한다.
     if spellName and gs.spellAssignments and gs.spellAssignments[spellName] then
         local assigned = ResolveCDMGroup(gs, gs.spellAssignments[spellName], spellName)
         if assigned and gs.groups[assigned] and gs.groups[assigned].enabled then

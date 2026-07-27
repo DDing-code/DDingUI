@@ -346,12 +346,7 @@ local function GetUsableSpellAssignment(gs, spellName)
     if not assigned then return nil end
 
     local assignedGroup = gs.groups and gs.groups[assigned]
-    local isBuffSpell = type(spellName) == "string" and spellName:match("^buff_") ~= nil
-    local isDynamicBuffGroup = assignedGroup
-        and assignedGroup.groupType == "dynamic"
-        and isBuffSpell
-        and (assigned == "Buffs" or assignedGroup.groupCategory == "buff")
-    if not assignedGroup or (assignedGroup.groupType == "dynamic" and not isDynamicBuffGroup) then
+    if not assignedGroup then
         gs.spellAssignments[spellName] = nil
         MarkSpecProfileDirty()
         return nil
@@ -4019,8 +4014,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         local gs = GetGS()
         local targets = {}
         for targetName, targetSettings in pairs((gs and gs.groups) or {}) do
-            local compatible = opt._gridKind == "dynamic" or targetSettings.groupType ~= "dynamic"
-            if targetName ~= groupName and compatible and targetSettings.enabled ~= false then
+            if targetName ~= groupName and targetSettings.enabled ~= false then
                 targets[#targets + 1] = {
                     name = targetName,
                     label = GROUP_DISPLAY_NAMES[targetName] or targetSettings.name or targetName,
