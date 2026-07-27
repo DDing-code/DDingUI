@@ -29,6 +29,7 @@ local ResourceBars = DDingUI.ResourceBars
 if not ResourceBars then
     error("DDingUI: ResourceBars module not initialized! Load ResourceDetection.lua first.")
 end
+local ConditionalVisuals = DDingUI.BuffTrackerConditionalVisuals
 
 local buildVersion = ResourceBars.buildVersion
 
@@ -1379,6 +1380,9 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         HideAllTrackedBuffIcons()
         HideAllTrackedBuffTexts()
         ResetAllSoundTrackers()
+        if ConditionalVisuals then
+            ConditionalVisuals:Clear()
+        end
         wipe(soundTrackers)
         ResetManualStacks()  -- 전문화별 수동 스택 정리
         if buffTrackerTicker then
@@ -2550,6 +2554,17 @@ end
 -- 트리거-액션 기반 유연한 알림 시스템
 -- ============================================================
 
+local alertRuntimeOwners = setmetatable({}, { __mode = "k" })
+
+local function GetAlertRuntimeOwner(trackedBuff)
+    local owner = alertRuntimeOwners[trackedBuff]
+    if not owner then
+        owner = {}
+        alertRuntimeOwners[trackedBuff] = owner
+    end
+    return owner
+end
+
 local function EvaluateComparison(current, op, target)
     if current == nil or target == nil then return false end
     -- [FIX] WoW taint protection: CDM/aura API values may be secret numbers
@@ -2679,7 +2694,7 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
 end
 
 -- Apply alert actions (color override, sound) based on evaluation result
-local function ApplyAlertActions(alertResult, trackedBuff, frame)
+local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
     if not frame then return end
 
     frame._alertColorOverride = nil
@@ -2716,10 +2731,54 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
             end
         end
 
+        local visualTarget = action.visualTarget or "self"
+        local colorTarget = action.colorTarget or "self"
+        local isExternalVisual = visualTarget ~= "self"
+            and ConditionalVisuals
+            and (
+                action.type == "glow"
+                or action.type == "desaturate"
+                or (action.type == "color" and (colorTarget == "icon" or colorTarget == "border"))
+            )
+
+        if isExternalVisual then
+            local claim
+            if shouldFire then
+                if action.type == "color" then
+                    claim = {
+                        type = "color",
+                        property = colorTarget,
+                        color = action.color,
+                        thickness = action.borderThickness,
+                    }
+                elseif action.type == "glow" then
+                    claim = {
+                        type = "glow",
+                        color = action.glowColor,
+                        glowType = action.glowType,
+                        lines = action.glowLines,
+                        frequency = action.glowFrequency,
+                        thickness = action.glowThickness,
+                    }
+                elseif action.type == "desaturate" then
+                    claim = { type = "desaturate" }
+                end
+            end
+            ConditionalVisuals:SetClaim(
+                sourceIndex,
+                actionIdx,
+                visualTarget,
+                claim,
+                action.type,
+                colorTarget
+            )
+        end
+
         if action.type == "color" then
             -- Color override: apply based on colorTarget
-            local colorTarget = action.colorTarget or "self"
-            if shouldFire and action.color then
+            if isExternalVisual then
+                -- Applied by the external target visual manager.
+            elseif shouldFire and action.color then
                 if colorTarget == "bar" then
                     -- PrimaryPowerBar 색상 변경
                     if DDingUI.powerBar then
@@ -2752,12 +2811,12 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
             end
 
         elseif action.type == "glow" then
-            if shouldFire then
+            if shouldFire and not isExternalVisual then
                 frame._alertGlowOverride = action
             end
 
         elseif action.type == "desaturate" then
-            if shouldFire then
+            if shouldFire and not isExternalVisual then
                 frame._alertDesaturateOverride = true
             end
 
@@ -2790,7 +2849,7 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame)
 end
 
 local function ScheduleAlertEvaluation(frame, alertResult)
-    if not frame or not frame.GetObjectType then return end
+    if not frame then return end
 
     if frame._alertEvaluationTimer then
         frame._alertEvaluationTimer:Cancel()
@@ -3023,6 +3082,9 @@ function ResourceBars:UpdateBuffTrackerBar()
         if SetBuffTrackerEventsEnabled then
             SetBuffTrackerEventsEnabled(false)
         end
+        if ConditionalVisuals then
+            ConditionalVisuals:Clear()
+        end
         return
     end
 
@@ -3034,6 +3096,9 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- ============================================================
     local trackedBuffs = GetTrackedBuffs()
     local useTrackedBuffSystem = (#trackedBuffs > 0)
+    if ConditionalVisuals then
+        ConditionalVisuals:BeginPass()
+    end
 
     if BUFF_TRACKER_DEBUG then
         print("[BuffTracker] useTrackedBuffSystem=" .. tostring(useTrackedBuffSystem) .. ", count=" .. #trackedBuffs)
@@ -3106,9 +3171,10 @@ function ResourceBars:UpdateBuffTrackerBar()
                     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, nil, false, nil, trackedBuff.spellID, trackedBuff.name)
                     local hasData = auraInstanceID ~= nil
                     -- 알림 평가: colorTarget에 따라 외부 바에도 색상 적용됨
-                    local dummyFrame = barFrames[barIndex] or {}
+                    local dummyFrame = barFrames[barIndex] or GetAlertRuntimeOwner(trackedBuff)
                     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-                    ApplyAlertActions(alertResult, trackedBuff, dummyFrame)
+                    ApplyAlertActions(alertResult, trackedBuff, dummyFrame, barIndex)
+                    ScheduleAlertEvaluation(dummyFrame, alertResult)
                 else
                     -- Fallback to bar mode
                     self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
@@ -3142,6 +3208,9 @@ function ResourceBars:UpdateBuffTrackerBar()
         if DDingUI.buffTrackerBar then
             DDingUI.buffTrackerBar:Hide()
         end
+        if ConditionalVisuals then
+            ConditionalVisuals:CommitPass()
+        end
         return
     end
 
@@ -3149,6 +3218,9 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- Hide legacy bar if no tracked buffs configured
     if DDingUI.buffTrackerBar then
         DDingUI.buffTrackerBar:Hide()
+    end
+    if ConditionalVisuals then
+        ConditionalVisuals:CommitPass()
     end
 end
 
@@ -3410,7 +3482,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- ============================================================
     -- [12.0.1] 알림 평가 (plain 캐싱 → secret 시 캐시 사용)
     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-    ApplyAlertActions(alertResult, trackedBuff, bar)
+    ApplyAlertActions(alertResult, trackedBuff, bar, barIndex)
     ScheduleAlertEvaluation(bar, alertResult)
     if bar._alertColorOverride then
         barColor = bar._alertColorOverride
@@ -4785,7 +4857,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     -- [12.0.1] alert 비교 전에 StackText에 stacks를 미리 기록
     -- [12.0.1] 알림 평가 (plain 캐싱 → secret 시 캐시 사용)
     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-    ApplyAlertActions(alertResult, trackedBuff, icon)
+    ApplyAlertActions(alertResult, trackedBuff, icon, barIndex)
     ScheduleAlertEvaluation(icon, alertResult)
     if icon._alertBorderColorOverride then
         iconBorderColor = icon._alertBorderColorOverride
@@ -5444,7 +5516,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- [12.0.1] alert 비교 전에 Text에 stacks를 미리 기록
     -- [12.0.1] 알림 평가 (plain 캐싱 → secret 시 캐시 사용)
     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-    ApplyAlertActions(alertResult, trackedBuff, textFrame)
+    ApplyAlertActions(alertResult, trackedBuff, textFrame, barIndex)
     ScheduleAlertEvaluation(textFrame, alertResult)
     if textFrame._alertColorOverride then
         textColor = textFrame._alertColorOverride

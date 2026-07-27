@@ -1375,6 +1375,69 @@ local function GetTrackedBuff(index)
     return trackedBuffs[index]
 end
 
+local function BuildConditionalIconTargets(currentTarget)
+    local values = {
+        self = L["This Custom Aura"] or "This Custom Aura",
+    }
+    local sorting = { "self" }
+    local scanner = DDingUI.CDMScanner
+    local entries = scanner and scanner.GetAllEntries and scanner.GetAllEntries() or {}
+
+    for _, entry in ipairs(entries) do
+        local cooldownID = tonumber(entry.cooldownID)
+        local targetFrame = entry.iconFrame or (entry.category ~= "TrackedBar" and entry.frame)
+        if cooldownID and cooldownID > 0 and targetFrame then
+            local key = "cdm:" .. cooldownID
+            local name = entry.name or (L["Unknown"] or "Unknown")
+            local category = entry.categoryName or entry.category
+            values[key] = category and (name .. " - " .. category) or name
+            sorting[#sorting + 1] = key
+        end
+    end
+
+    local customIcons = DDingUI.CustomIcons
+    local customFrames = customIcons and customIcons.GetAllIconFrames and customIcons:GetAllIconFrames() or {}
+    local dynamicDB = customIcons and customIcons.GetDynamicDB and customIcons.GetDynamicDB()
+    local customTargets = {}
+    for iconKey, frame in pairs(customFrames) do
+        local iconData = dynamicDB and dynamicDB.iconData and dynamicDB.iconData[iconKey]
+        if frame and iconData then
+            local name
+            local numericID = tonumber(iconData.id)
+            if numericID and (iconData.type == "spell" or iconData.type == "aura")
+                and C_Spell and C_Spell.GetSpellName
+            then
+                name = C_Spell.GetSpellName(numericID)
+            elseif numericID and iconData.type == "item" and C_Item and C_Item.GetItemNameByID then
+                name = C_Item.GetItemNameByID(numericID)
+            end
+            if name and issecretvalue and issecretvalue(name) then
+                name = nil
+            end
+            name = name or iconData.name
+                or ((iconData.type or "icon") .. " " .. tostring(iconData.id or iconData.slotID or iconKey))
+
+            local key = "custom:" .. iconKey
+            customTargets[#customTargets + 1] = {
+                key = key,
+                label = name .. " - " .. (L["Custom Icon"] or "Custom Icon"),
+            }
+        end
+    end
+    table.sort(customTargets, function(a, b) return a.label < b.label end)
+    for _, target in ipairs(customTargets) do
+        values[target.key] = target.label
+        sorting[#sorting + 1] = target.key
+    end
+
+    if currentTarget and currentTarget ~= "self" and not values[currentTarget] then
+        values[currentTarget] = (L["Unavailable Icon"] or "Unavailable Icon") .. " (" .. currentTarget .. ")"
+        sorting[#sorting + 1] = currentTarget
+    end
+
+    return values, sorting
+end
+
 -- Use shared helper from ConfigHelpers (with fallback)
 local function GetViewerOptions()
     if DDingUI.GetViewerOptions then
@@ -6060,12 +6123,16 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 local alerts = EnsureAlerts(index)
                 if alerts and alerts.actions[actIdx] then
                     alerts.actions[actIdx].type = val
+                    if val == "color" or val == "glow" or val == "desaturate" then
+                        alerts.actions[actIdx].visualTarget = alerts.actions[actIdx].visualTarget or "self"
+                    end
                     if val == "color" then
                         alerts.actions[actIdx].color = alerts.actions[actIdx].color or { 1, 0, 0, 1 }
                         local buff = GetTrackedBuff(index)
                         alerts.actions[actIdx].colorTarget = alerts.actions[actIdx].colorTarget
                             or (buff and buff.displayType == "icon" and "icon")
                             or "self"
+                        alerts.actions[actIdx].visualTarget = alerts.actions[actIdx].visualTarget or "self"
                     elseif val == "glow" then
                         alerts.actions[actIdx].glowType = alerts.actions[actIdx].glowType or "pixel"
                         alerts.actions[actIdx].glowColor = alerts.actions[actIdx].glowColor or { 1, 0.82, 0.1, 1 }
@@ -6108,6 +6175,46 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 local alerts = EnsureAlerts(index)
                 if alerts and alerts.actions[actIdx] then
                     alerts.actions[actIdx].condition = val
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end,
+        }
+
+        actionArgs["visualTarget"] = {
+            type = "select",
+            name = L["Target Icon"] or "Target Icon",
+            order = 2.1, width = 0.8,
+            hidden = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                if not a or a.type == "sound" then return true end
+                if a.type == "color" then
+                    local colorTarget = a.colorTarget or "self"
+                    return colorTarget ~= "icon" and colorTarget ~= "border"
+                end
+                return a.type ~= "glow" and a.type ~= "desaturate"
+            end,
+            values = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                local values = BuildConditionalIconTargets(a and a.visualTarget)
+                return values
+            end,
+            sorting = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                local _, sorting = BuildConditionalIconTargets(a and a.visualTarget)
+                return sorting
+            end,
+            get = function()
+                local buff = GetTrackedBuff(index)
+                local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]
+                return a and a.visualTarget or "self"
+            end,
+            set = function(_, val)
+                local alerts = EnsureAlerts(index)
+                if alerts and alerts.actions[actIdx] then
+                    alerts.actions[actIdx].visualTarget = val
                     DDingUI:UpdateBuffTrackerBar()
                 end
             end,
@@ -6524,6 +6631,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                     condition = "any",
                     color = { 1, 0, 0, 1 },
                     colorTarget = colorTarget,
+                    visualTarget = "self",
                 })
                 DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()

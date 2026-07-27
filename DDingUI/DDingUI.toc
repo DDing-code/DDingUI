@@ -115,6 +115,7 @@ Modules\ResourceBars\ResourceDetection.lua
 Modules\ResourceBars\PrimaryPowerBar.lua
 Modules\ResourceBars\SecondaryPowerBar.lua
 Modules\ResourceBars\BuffTrackerDurationDriver.lua
+Modules\ResourceBars\BuffTrackerConditionalVisuals.lua
 Modules\ResourceBars\BuffTrackerBar.lua
 Modules\ResourceBars\ResourceBars.lua
 
