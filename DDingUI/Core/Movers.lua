@@ -1916,7 +1916,7 @@ local MOVER_TO_GUI = {
     ["DDingUI_PowerBar"]          = "resourceBars.primary",
     ["DDingUI_SecondaryPowerBar"]  = "resourceBars.secondary",
     ["DDingUI_PlayerCastBar"]     = "castBars",
-    ["DDingUI_BuffTrackerBar"]    = "groupSystem.trackedBars",
+    ["DDingUI_BuffTrackerBar"]    = "buffTracker",
     ["DDingUI_BuffBarViewer"]     = "buffBar",
 }
 
@@ -1931,24 +1931,24 @@ function Movers:GetGUIKeyFromMoverName(moverName)
     -- GroupSystem groups
     local groupName = moverName:match("^DDingUI_Group_(.+)$")
     if groupName then
-        return "groupSystem.cdmBars.group_" .. groupName
+        return "groupSystem.group_" .. groupName
     end
 
     -- Dynamic icon groups
     local dynGroupName = moverName:match("^DDingUI_DynGroup_(.+)$")
     if dynGroupName then
-        return "groupSystem.cdmBars.group_" .. dynGroupName
+        return "groupSystem.group_" .. dynGroupName
     end
 
     -- CDM proxy anchors
     local anchorGroupName = moverName:match("^DDingUI_Anchor_(.+)$")
     if anchorGroupName then
-        return "groupSystem.cdmBars.group_" .. anchorGroupName
+        return "groupSystem.group_" .. anchorGroupName
     end
 
-    -- Tracked bars
-    if moverName:match("^DDingUI_BuffTracker_") then
-        return "groupSystem.trackedBars"
+    -- Custom aura frames
+    if moverName:match("^DDingUI_BuffTracker") then
+        return "buffTracker"
     end
 
     return nil

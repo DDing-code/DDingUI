@@ -5412,7 +5412,7 @@ local function CreateGroupOptions(groupName, order)
                         if gs and gs.groups[groupName] then
                             gs.groups[groupName].attachTo = frameName or "UIParent"
                             RefreshGroupSystem()
-                            DDingUI:RefreshConfigGUI(false, "groupSystem.cdmBars.group_" .. groupName)
+                            DDingUI:RefreshConfigGUI(false, "groupSystem.group_" .. groupName)
                         end
                     end)
                 end
@@ -5431,7 +5431,7 @@ local function CreateGroupOptions(groupName, order)
                     gs.groups[groupName].offsetX = 0
                     gs.groups[groupName].offsetY = 0
                     RefreshGroupSystem()
-                    DDingUI:RefreshConfigGUI(false, "groupSystem.cdmBars.group_" .. groupName)
+                    DDingUI:RefreshConfigGUI(false, "groupSystem.group_" .. groupName)
                 end
             end,
         },
@@ -5489,6 +5489,23 @@ local function CreateGroupOptions(groupName, order)
         order = -28,
         width = "full",
     }
+
+    local offsetArgs = {}
+    local offsetKeys = {
+        "anchorSettingsHeader",
+        "selfPoint",
+        "anchorPoint",
+        "attachTo",
+        "anchorPick",
+        "anchorClear",
+        "offsetX",
+        "offsetY",
+        "anchorNote",
+    }
+    for _, key in ipairs(offsetKeys) do
+        offsetArgs[key] = layoutArgs[key]
+        layoutArgs[key] = nil
+    end
 
     args.layout = {
         type = "group",
@@ -5862,30 +5879,36 @@ local function CreateGroupOptions(groupName, order)
     args.text = {
         type = "group",
         name = L["Text"] or "텍스트",
-        order = 40,
+        order = 20,
         args = textArgs,
     }
 
-    -- ========== 5. 뷰어 오프셋 (CDM 그룹 전용) ==========
+    -- Viewer-specific party and raid offsets share the group offset tab.
     if isCDM and viewerKey and ns.CreateSingleViewerOptions then
         local vo = ns.CreateSingleViewerOptions(viewerKey, displayName, 1)
         if vo and vo.args then
-            local viewerDetailArgs = {}
-            viewerDetailArgs.sec02_offsetHeader = { type = "header", name = L["Group Offsets"] or "그룹 오프셋 (파티/레이드)", order = 1 }
-            viewerDetailArgs.groupOffsetDesc = CopyVO(vo.args, "groupOffsetDesc", 2)
-            viewerDetailArgs.partyOffsetX    = CopyVO(vo.args, "partyOffsetX", 3)
-            viewerDetailArgs.partyOffsetY    = CopyVO(vo.args, "partyOffsetY", 4)
-            viewerDetailArgs.raidOffsetX     = CopyVO(vo.args, "raidOffsetX", 5)
-            viewerDetailArgs.raidOffsetY     = CopyVO(vo.args, "raidOffsetY", 6)
-
-            args.viewer = {
-                type = "group",
-                name = L["Group Offsets"] or "오프셋",
-                order = 50,
-                args = viewerDetailArgs,
-            }
+            offsetArgs.sec02_offsetHeader = { type = "header", name = L["Group Offsets"] or "그룹 오프셋 (파티/레이드)", order = 1 }
+            offsetArgs.groupOffsetDesc = CopyVO(vo.args, "groupOffsetDesc", 2)
+            offsetArgs.partyOffsetX    = CopyVO(vo.args, "partyOffsetX", 3)
+            offsetArgs.partyOffsetY    = CopyVO(vo.args, "partyOffsetY", 4)
+            offsetArgs.raidOffsetX     = CopyVO(vo.args, "raidOffsetX", 5)
+            offsetArgs.raidOffsetY     = CopyVO(vo.args, "raidOffsetY", 6)
         end
     end
+
+    args.offsets = {
+        type = "group",
+        name = L["Offsets"] or "Offsets",
+        order = 30,
+        args = offsetArgs,
+    }
+
+    args.glow = {
+        type = "group",
+        name = L["Glow"] or "Glow",
+        order = 40,
+        args = BuildCustomVisualArgs(groupName),
+    }
 
     return {
         type = "group",
@@ -5963,7 +5986,7 @@ local function BuildGroupSystemOptions(order)
                                 if DDingUI.GroupSystem then
                                     DDingUI.GroupSystem:OnGroupAdded(val)
                                 end
-                                DDingUI:RefreshConfigGUI(false, "groupSystem.cdmBars.group_" .. val)
+                                DDingUI:RefreshConfigGUI(false, "groupSystem.group_" .. val)
                             end
                         end
                     end,
@@ -5971,35 +5994,12 @@ local function BuildGroupSystemOptions(order)
             },
         },
     }
-    local glowArgs = {}
-    local trackerOptions = ns.CreateBuffTrackerOptions and ns.CreateBuffTrackerOptions(3)
-    if trackerOptions then
-        trackerOptions.name = rawget(L, "Tracked Bars") or "추적 막대"
-        trackerOptions.order = 3
-    end
-
     local options = {
         type = "group",
-        name = rawget(L, "Cooldown Manager") or "쿨다운 관리자",
+        name = rawget(L, "CDM Bars") or "CDM Bars",
         order = order,
         childGroups = "select",
-        args = {
-            cdmBars = {
-                type = "group",
-                name = rawget(L, "CDM Bars") or "CDM 바",
-                order = 1,
-                childGroups = "select",
-                args = barArgs,
-            },
-            glow = {
-                type = "group",
-                name = rawget(L, "Glow") or "글로우",
-                order = 2,
-                childGroups = "select",
-                args = glowArgs,
-            },
-            trackedBars = trackerOptions,
-        },
+        args = barArgs,
     }
 
     local gs = GetGS()
@@ -6013,12 +6013,6 @@ local function BuildGroupSystemOptions(order)
         for i, entry in ipairs(sorted) do
             local groupOption = CreateGroupOptions(entry.name, i)
             barArgs["group_" .. entry.name] = groupOption
-            glowArgs["group_" .. entry.name] = {
-                type = "group",
-                name = groupOption.name,
-                order = i,
-                args = BuildCustomVisualArgs(entry.name),
-            }
         end
     end
 

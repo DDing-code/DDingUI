@@ -248,7 +248,7 @@ function DDingUI:SetupOptions()
 
     -- Resource Bars
     if ResourceBarOptions then
-        options.args.resourceBars = ResourceBarOptions(2)
+        options.args.resourceBars = ResourceBarOptions(3)
     end
 
     -- Custom Icons (Dynamic Icons) — 아이콘 그룹에 통합됨
@@ -272,9 +272,14 @@ function DDingUI:SetupOptions()
         options.args.buffBar = BuffBarOptions(7)
     end
 
-    -- Cooldown Manager workspace (CDM bars, glow, and tracked bars)
+    -- CDM bars
     if GroupSystemOptions then
         options.args.groupSystem = GroupSystemOptions(1)
+    end
+
+    -- Custom aura
+    if BuffTrackerOptions then
+        options.args.buffTracker = BuffTrackerOptions(2)
     end
 
     -- Profiles (using custom ProfileOptions.lua to avoid ElvUI conflicts)
