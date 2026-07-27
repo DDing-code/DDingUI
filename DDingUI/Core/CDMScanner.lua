@@ -297,6 +297,9 @@ function CDMScanner.ScanAll()
                                 cooldownID = cdID,
                                 spellID = spellID or 0,
                                 displaySpellID = displaySpellID or 0,  -- override/linked 포함
+                                overrideSpellID = overrideSpellID,
+                                overrideTooltipSpellID = overrideTooltipSpellID,
+                                linkedSpellIDs = linkedSpellIDs,
                                 name = name or "Unknown",
                                 icon = icon or 134400,
                                 category = viewerInfo.category,

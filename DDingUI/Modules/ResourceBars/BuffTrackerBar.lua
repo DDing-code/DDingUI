@@ -1081,6 +1081,60 @@ local function FindAuraGloballyByName(name)
     return nil, nil
 end
 
+local function TryTrackedPlayerAura(spellID)
+    if not IsAccessibleNumber(spellID) or spellID <= 0 then return nil, nil end
+    local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+    return aura, aura and spellID or nil
+end
+
+local function FindTrackedPlayerAura(cooldownID, savedSpellID)
+    local aura, matchedSpellID = TryTrackedPlayerAura(savedSpellID)
+    if aura then return aura, matchedSpellID end
+
+    local scanner = DDingUI.CDMScanner
+    local entry = scanner and scanner.GetEntry and scanner.GetEntry(cooldownID)
+    if entry then
+        aura, matchedSpellID = TryTrackedPlayerAura(entry.overrideTooltipSpellID)
+        if aura then return aura, matchedSpellID end
+        aura, matchedSpellID = TryTrackedPlayerAura(entry.overrideSpellID)
+        if aura then return aura, matchedSpellID end
+        aura, matchedSpellID = TryTrackedPlayerAura(entry.displaySpellID)
+        if aura then return aura, matchedSpellID end
+
+        local linkedSpellIDs = entry.linkedSpellIDs
+        if type(linkedSpellIDs) == "table" then
+            for index = 1, #linkedSpellIDs do
+                aura, matchedSpellID = TryTrackedPlayerAura(linkedSpellIDs[index])
+                if aura then return aura, matchedSpellID end
+            end
+        end
+
+        aura, matchedSpellID = TryTrackedPlayerAura(entry.spellID)
+        if aura then return aura, matchedSpellID end
+    elseif cooldownID > 0 and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
+        if ok and info then
+            aura, matchedSpellID = TryTrackedPlayerAura(info.overrideTooltipSpellID)
+            if aura then return aura, matchedSpellID end
+            aura, matchedSpellID = TryTrackedPlayerAura(info.overrideSpellID)
+            if aura then return aura, matchedSpellID end
+
+            local linkedSpellIDs = info.linkedSpellIDs
+            if type(linkedSpellIDs) == "table" then
+                for index = 1, #linkedSpellIDs do
+                    aura, matchedSpellID = TryTrackedPlayerAura(linkedSpellIDs[index])
+                    if aura then return aura, matchedSpellID end
+                end
+            end
+
+            aura, matchedSpellID = TryTrackedPlayerAura(info.spellID)
+            if aura then return aura, matchedSpellID end
+        end
+    end
+
+    return TryTrackedPlayerAura(cooldownID)
+end
+
 -- [12.0.1] 원래 스택 읽기 코드 복원
 -- secret number여도 화면 표시(SetText)는 정상 작동함
 -- 알림 비교만 EvaluateAlerts에서 별도 처리
@@ -1095,44 +1149,18 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
     local unit = frame and frame.auraDataUnit or "player"
     local auraInstanceID = frame and frame.auraInstanceID
 
-    -- [REFACTOR] cooldownID → 실제 spellID 변환 (폴백용)
-    local resolvedSpellID = spellID
-    if (not resolvedSpellID or resolvedSpellID <= 0) and cooldownID and cooldownID > 0 then
-        resolvedSpellID = GetSpellIDFromCooldownID(cooldownID)
-    end
-    if not resolvedSpellID or resolvedSpellID <= 0 then
-        resolvedSpellID = cooldownID
-    end
-
     -- [v1.2.3 복원] 구버전과 동일: GetBuffStacks → GetPlayerAuraBySpellID
     -- frame.auraInstanceID가 nil이면 GetBuffStacks는 0 반환 (= 만료됨)
     -- lastKnownAuraIDs 캐시 제거 — 만료된 aura 유령 데이터의 원인
     local trackedStacks = GetBuffStacks(frame, unit)
 
-    -- GetPlayerAuraBySpellID: 항상 plain 값 반환, 최우선 소스
-    local foundResolvedAura = false
-    if resolvedSpellID and resolvedSpellID > 0 then
-        pcall(function()
-            local directAura = C_UnitAuras.GetPlayerAuraBySpellID(resolvedSpellID)
-            if directAura then
-                foundResolvedAura = true
-                trackedStacks = directAura.applications or 1
-                auraInstanceID = directAura.auraInstanceID
-                unit = "player"
-            end
-        end)
-    end
-
-    -- cooldownID가 resolvedSpellID와 다르면 추가 시도
-    if not foundResolvedAura and cooldownID > 0 and cooldownID ~= resolvedSpellID then
-        pcall(function()
-            local directAura = C_UnitAuras.GetPlayerAuraBySpellID(cooldownID)
-            if directAura then
-                trackedStacks = directAura.applications or 1
-                auraInstanceID = directAura.auraInstanceID
-                unit = "player"
-            end
-        end)
+    -- Tracked Bar frames can be recycled when the aura activates in combat.
+    -- Resolve the live aura from every spell ID attached to the cooldown entry.
+    local directAura, resolvedSpellID = FindTrackedPlayerAura(cooldownID, spellID)
+    if directAura then
+        trackedStacks = directAura.applications or 1
+        auraInstanceID = directAura.auraInstanceID
+        unit = "player"
     end
 
     -- [FIX] spellID/cooldownID로 못 찾으면 spellName 기반 전역 aura 검색
