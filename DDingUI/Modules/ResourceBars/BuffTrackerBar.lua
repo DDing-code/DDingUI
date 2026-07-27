@@ -2325,6 +2325,12 @@ local function CreateTrackedBuffBar(barIndex)
     bar.StatusBar:SetMinMaxValues(0, 1)
     bar.StatusBar:SetValue(1)
 
+    bar._alertStackColorOverlay = CreateFrame("StatusBar", nil, bar.StatusBar)
+    bar._alertStackColorOverlay:SetAllPoints(bar.StatusBar:GetStatusBarTexture())
+    bar._alertStackColorOverlay:SetStatusBarTexture(tex)
+    bar._alertStackColorOverlay:SetFrameLevel(bar.StatusBar:GetFrameLevel() + 1)
+    bar._alertStackColorOverlay:Hide()
+
     -- COOLDOWN FRAME (for circular/square/donut style)
     bar.Cooldown = CreateFrame("Cooldown", nil, bar, "CooldownFrameTemplate")
     bar.Cooldown:SetAllPoints()
@@ -2642,6 +2648,7 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     if #triggers == 0 then return nil end
 
     local triggerResults = {}
+    local restrictedStackTriggers
     local auraTimingLoaded = false
     local auraRemaining, auraDuration
     local nextEvaluationDelay
@@ -2688,6 +2695,9 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
         elseif trigger.type == "stacks" then
             if IsAccessibleNumber(trackedStacks) then
                 result = EvaluateComparison(trackedStacks, trigger.op, trigger.value)
+            elseif type(trackedStacks) == "number" then
+                restrictedStackTriggers = restrictedStackTriggers or {}
+                restrictedStackTriggers[i] = true
             end
 
         elseif trigger.type == "combat" then
@@ -2717,6 +2727,8 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     return {
         combined = combined,
         triggers = triggerResults,
+        restrictedStackTriggers = restrictedStackTriggers,
+        restrictedStackValue = restrictedStackTriggers and trackedStacks or nil,
         nextEvaluationDelay = nextEvaluationDelay,
     }
 end
@@ -2730,6 +2742,7 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
     frame._alertBorderColorOverride = nil
     frame._alertDesaturateOverride = nil
     frame._alertGlowOverride = nil
+    frame._alertRestrictedStackColor = nil
 
     local settings = trackedBuff and trackedBuff.settings
     local alerts = settings and settings.alerts
@@ -2761,6 +2774,18 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
 
         local visualTarget = action.visualTarget or "self"
         local colorTarget = action.colorTarget or "self"
+        local restrictedStackTrigger
+        if alertResult and alertResult.restrictedStackTriggers then
+            local triggerNum
+            if action.condition == "any" and #alerts.triggers == 1 then
+                triggerNum = 1
+            else
+                triggerNum = tonumber((action.condition or ""):match("trigger(%d+)"))
+            end
+            if triggerNum and alertResult.restrictedStackTriggers[triggerNum] then
+                restrictedStackTrigger = alerts.triggers[triggerNum]
+            end
+        end
         local isExternalVisual = visualTarget ~= "self"
             and ConditionalVisuals
             and (
@@ -2825,6 +2850,19 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
                     -- self/group: 트래커 자체 색상 변경
                     frame._alertColorOverride = action.color
                 end
+            elseif restrictedStackTrigger and action.color
+                and visualTarget == "self"
+                and (colorTarget == "self" or colorTarget == "group")
+            then
+                local threshold = tonumber(restrictedStackTrigger.value)
+                if threshold then
+                    frame._alertRestrictedStackColor = {
+                        value = alertResult.restrictedStackValue,
+                        op = restrictedStackTrigger.op,
+                        threshold = threshold,
+                        color = action.color,
+                    }
+                end
             else
                 -- 조건 미충족 시 색상 초기화
                 if colorTarget == "bar" then
@@ -2874,6 +2912,56 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
             frame._alertPrevState[stateKey] = shouldFire
         end
     end
+end
+
+local function ApplyRestrictedStackColor(bar, baseColor, texture, orientation, reverseFill, enabled)
+    local overlay = bar._alertStackColorOverlay
+    local rule = enabled and bar._alertRestrictedStackColor
+    if not rule or not overlay then
+        if overlay then overlay:Hide() end
+        return
+    end
+
+    local switchAt
+    local actionColorBelow
+    if rule.op == "<=" then
+        switchAt = rule.threshold + 1
+        actionColorBelow = true
+    elseif rule.op == "<" then
+        switchAt = rule.threshold
+        actionColorBelow = true
+    elseif rule.op == ">=" then
+        switchAt = rule.threshold
+        actionColorBelow = false
+    elseif rule.op == ">" then
+        switchAt = rule.threshold + 1
+        actionColorBelow = false
+    else
+        if overlay then overlay:Hide() end
+        return
+    end
+
+    local actionColor = rule.color
+    local overlayColor = actionColorBelow and baseColor or actionColor
+    local barBaseColor = actionColorBelow and actionColor or baseColor
+    bar.StatusBar:SetStatusBarColor(
+        barBaseColor[1],
+        barBaseColor[2],
+        barBaseColor[3],
+        barBaseColor[4] or 1
+    )
+    overlay:SetStatusBarTexture(texture)
+    overlay:SetOrientation(orientation)
+    overlay:SetReverseFill(reverseFill)
+    overlay:SetMinMaxValues(switchAt - 1, switchAt)
+    overlay:SetStatusBarColor(
+        overlayColor[1],
+        overlayColor[2],
+        overlayColor[3],
+        overlayColor[4] or 1
+    )
+    overlay:SetValue(rule.value)
+    overlay:Show()
 end
 
 local function ScheduleAlertEvaluation(frame, alertResult)
@@ -4121,16 +4209,32 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     end
 
     -- Set bar color
-    bar.StatusBar:SetStatusBarColor(barColor[1], barColor[2], barColor[3], barColor[4] or 1)
-
-    -- [ConditionalActions] 조건부 동작 색상 오버라이드
+    local appliedBarColor = barColor
     if bar._ddingColorOverride then
-        local oc = bar._ddingColorOverride
-        bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+        appliedBarColor = bar._ddingColorOverride
         if bar.RingProgress then
-            bar.RingProgress:SetVertexColor(oc[1], oc[2], oc[3], oc[4] or 1)
+            bar.RingProgress:SetVertexColor(
+                appliedBarColor[1],
+                appliedBarColor[2],
+                appliedBarColor[3],
+                appliedBarColor[4] or 1
+            )
         end
     end
+    bar.StatusBar:SetStatusBarColor(
+        appliedBarColor[1],
+        appliedBarColor[2],
+        appliedBarColor[3],
+        appliedBarColor[4] or 1
+    )
+    ApplyRestrictedStackColor(
+        bar,
+        appliedBarColor,
+        tex,
+        barOrientation,
+        barReverseFill,
+        not isCircularStyle and not isRingStyle
+    )
 
     -- Text display (개별 버프 설정 사용)
     -- 중첩 텍스트 설정 (barFillMode와 무관하게 표시 가능)
