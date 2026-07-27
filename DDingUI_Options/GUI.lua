@@ -150,13 +150,13 @@ local function CreateSectionMenu(parent, menuData, opts)
         row._active = active
         row.activeBar:SetShown(active)
         if active then
-            row.background:SetColorTexture(0.16, 0.16, 0.18, 0.96)
+            row.background:SetColorTexture(0.105, 0.105, 0.115, 0.96)
             row.icon:SetVertexColor(1, 0.43, 0.08, 1)
             row.label:SetTextColor(1, 1, 1, 1)
         else
             row.background:SetColorTexture(0, 0, 0, 0)
-            row.icon:SetVertexColor(0.5, 0.5, 0.54, 1)
-            row.label:SetTextColor(0.7, 0.7, 0.74, 1)
+            row.icon:SetVertexColor(0.72, 0.72, 0.75, 1)
+            row.label:SetTextColor(0.84, 0.84, 0.87, 1)
         end
     end
 
@@ -178,21 +178,21 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.activeBar:SetColorTexture(1, 0.36, 0.06, 1)
 
         row.icon = row:CreateTexture(nil, "ARTWORK")
-        row.icon:SetSize(22, 22)
-        row.icon:SetPoint("LEFT", row, "LEFT", 20, 0)
+        row.icon:SetSize(30, 30)
+        row.icon:SetPoint("LEFT", row, "LEFT", 24, 0)
         row.icon:SetTexCoord(0, 1, 0, 1)
 
         row.label = row:CreateFontString(nil, "OVERLAY")
         row.label:SetFont(globalFontPath, 13, "")
-        row.label:SetPoint("LEFT", row.icon, "RIGHT", 14, 0)
+        row.label:SetPoint("LEFT", row.icon, "RIGHT", 20, 0)
         row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
         row.label:SetJustifyH("LEFT")
 
         row.divider = row:CreateTexture(nil, "BORDER")
-        row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 16, 0)
-        row.divider:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -12, 0)
+        row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+        row.divider:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
         row.divider:SetHeight(1)
-        row.divider:SetColorTexture(0.24, 0.24, 0.27, 0.35)
+        row.divider:SetColorTexture(0.24, 0.24, 0.27, 0.5)
 
         row:SetScript("OnEnter", function(self)
             if not self._active then
@@ -219,7 +219,7 @@ local function CreateSectionMenu(parent, menuData, opts)
         for index, item in ipairs(data or {}) do
             local row = AcquireRow(index)
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -8 - ((index - 1) * 54))
+            row:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -((index - 1) * 54))
             row:SetPoint("RIGHT", self, "RIGHT", 0, 0)
             row._key = item.key
             row.icon:SetTexture(item.icon)
