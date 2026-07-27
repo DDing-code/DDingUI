@@ -212,6 +212,9 @@ function FrameLifecycle.Create(
         frame.Applications = countLayer
         countLayer.Applications = count
         frame.border = border
+        if DDingUI.CustomIconActiveEffectOverlay then
+            DDingUI.CustomIconActiveEffectOverlay:PrepareFrame(frame)
+        end
 
         frame:EnableMouse(true)
         return frame
@@ -254,6 +257,9 @@ function FrameLifecycle.Create(
         CustomIcons:StopTrackedTrinketEffectGlow(frame)
         if DDingUI.IconCustomization and DDingUI.IconCustomization.ClearDynamicIconGlow then
             DDingUI.IconCustomization:ClearDynamicIconGlow(frame)
+        end
+        if DDingUI.CustomIconActiveEffectOverlay then
+            DDingUI.CustomIconActiveEffectOverlay:ResetFrame(frame)
         end
         local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
         if LCG and LCG.ProcGlow_Stop then
@@ -375,6 +381,9 @@ function FrameLifecycle.Create(
         frame._textureCacheKey = "item:" .. tostring(itemID)
         frame._fallbackTexture = FALLBACK_ITEM_ICON
         SetStableIconTexture(frame, ResolveItemTexture(itemID), true)
+        if DDingUI.CustomIconActiveEffectOverlay then
+            DDingUI.CustomIconActiveEffectOverlay:MarkDirty()
+        end
         return frame
     end
 
@@ -505,9 +514,15 @@ function FrameLifecycle.Create(
         elseif iconData.type == "aura" then
             UpdateAuraIcon(frame, iconData)
         end
+        if DDingUI.CustomIconActiveEffectOverlay then
+            DDingUI.CustomIconActiveEffectOverlay:ApplyFrame(frame, iconData)
+        end
         CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
         if frame._ddIsManaged then
             CustomIcons.ApplyManagedGroupTextOptions(frame)
+        end
+        if DDingUI.CustomIconActiveEffectOverlay then
+            DDingUI.CustomIconActiveEffectOverlay:SyncTextStyle(frame, iconData)
         end
     end
 

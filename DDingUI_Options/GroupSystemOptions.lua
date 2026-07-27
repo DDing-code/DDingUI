@@ -64,6 +64,43 @@ StaticPopupDialogs["DDINGUI_RENAME_GROUP"] = {
     preferredIndex = 3,
 }
 
+function DDingUI.AcceptActiveEffectDurationDialog(dialog)
+    local editBox = dialog and (dialog.editBox or dialog.EditBox)
+    local seconds = editBox and tonumber(editBox:GetText())
+    if seconds and seconds > 0 and dialog.data and dialog.data.onAccept then
+        dialog.data.onAccept(seconds)
+    end
+end
+
+StaticPopupDialogs["DDINGUI_ACTIVE_EFFECT_DURATION"] = {
+    text = rawget(L, "Enter active effect duration (seconds):") or "Enter active effect duration (seconds):",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    hasEditBox = true,
+    editBoxWidth = 120,
+    OnShow = function(self)
+        local editBox = self.editBox or self.EditBox
+        if editBox then
+            editBox:SetText(tostring((self.data and self.data.duration) or 30))
+            editBox:HighlightText()
+            editBox:SetFocus()
+        end
+    end,
+    OnAccept = DDingUI.AcceptActiveEffectDurationDialog,
+    EditBoxOnEnterPressed = function(self)
+        local dialog = self:GetParent()
+        DDingUI.AcceptActiveEffectDurationDialog(dialog)
+        dialog:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
 local PROTECTED_GROUPS = {
     Cooldowns = true,
     Buffs = true,
@@ -2867,6 +2904,30 @@ function DDingUI:SetGridTrinketEffectTracked(opt, enabled)
     return true
 end
 
+function DDingUI:ShowGridActiveEffectDurationPopup(opt, duration, onDone)
+    local iconKey = opt and opt._gridDynamicIconKey
+    local itemID = opt and SafeOptionID(opt._gridItemID)
+    local overlay = DDingUI.CustomIconActiveEffectOverlay
+    if not iconKey or not itemID or not overlay or not overlay:IsConsumableItem(itemID) then return false end
+
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local iconData = dynDB and dynDB.iconData and dynDB.iconData[iconKey]
+    if not iconData then return false end
+    local defaultDuration = duration or overlay:GetDefaultDuration(itemID, iconData.settings)
+    local dialogData = {
+        duration = defaultDuration,
+        onAccept = function(seconds)
+            if overlay:SetDuration(iconKey, seconds) and onDone then
+                onDone()
+            end
+        end,
+    }
+    local dialog = StaticPopup_Show("DDINGUI_ACTIVE_EFFECT_DURATION", nil, nil, dialogData)
+    if not dialog then return false end
+    dialog.data = dialogData
+    return true
+end
+
 local function AddUnassignedRowToGroup(groupName, row)
     if not row then return false end
     local beforeTokens = SnapshotGroupOrderTokens(groupName)
@@ -2995,7 +3056,7 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
                     label = rawget(L, "Invisibility Potion") or "Invisibility Potion",
                     icon = SafeItemIcon(241302),
                     action = function()
-                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241302 })
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241302 }, { fallbackItems = "241303" })
                     end,
                 },
                 {
@@ -3871,6 +3932,50 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 menuList[#menuList + 1] = {
                     text = rawget(L, "Add Trinket Buff") or "강화효과 추가",
                     menuList = trinketTargets,
+                }
+            end
+        end
+
+        local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
+        local activeEffectItemID = opt._gridDynamicIconType == "item" and SafeOptionID(opt._gridItemID)
+        if activeEffectItemID and activeEffectOverlay
+            and activeEffectOverlay:IsConsumableItem(activeEffectItemID)
+        then
+            local activeEffectDuration = activeEffectOverlay:GetDuration(opt._gridDynamicIconKey)
+            if activeEffectDuration then
+                menuList[#menuList + 1] = {
+                    text = string.format(
+                        rawget(L, "Active Effect Overlay (%s sec)") or "Active Effect Overlay (%s sec)",
+                        tostring(activeEffectDuration)
+                    ),
+                    menuList = {
+                        {
+                            text = rawget(L, "Change Active Effect Duration") or "Change Duration",
+                            func = function()
+                                DDingUI:ShowGridActiveEffectDurationPopup(
+                                    opt,
+                                    activeEffectDuration,
+                                    RefreshAfterCommit
+                                )
+                            end,
+                        },
+                        {
+                            text = rawget(L, "Remove Active Effect Overlay") or "Remove Active Effect Overlay",
+                            color = "red",
+                            func = function()
+                                if activeEffectOverlay:SetDuration(opt._gridDynamicIconKey, nil) then
+                                    RefreshAfterCommit()
+                                end
+                            end,
+                        },
+                    },
+                }
+            else
+                menuList[#menuList + 1] = {
+                    text = rawget(L, "Add Active Effect Overlay") or "Add Active Effect Overlay",
+                    func = function()
+                        DDingUI:ShowGridActiveEffectDurationPopup(opt, nil, RefreshAfterCommit)
+                    end,
                 }
             end
         end

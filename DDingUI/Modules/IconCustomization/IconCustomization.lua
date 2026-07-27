@@ -2008,7 +2008,10 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     if not iconData then return nil end
     iconData.settings = iconData.settings or {}
 
-    local defaultTrigger = (iconData.type == "aura" or iconData.type == "trinketProc") and "active" or "ready"
+    local supportsActiveState = iconData.type == "aura"
+        or iconData.type == "trinketProc"
+        or (iconData.type == "item" and tonumber(iconData.settings.activeEffectDuration) ~= nil)
+    local defaultTrigger = supportsActiveState and "active" or "ready"
     local function Current()
         return iconData.settings.customStateGlow or {}
     end
@@ -2060,7 +2063,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             L["Reset Glow"] or "Reset Glow",
             true,
             {
-                active = iconData.type == "aura" or iconData.type == "trinketProc",
+                active = supportsActiveState,
                 maxCharges = iconData.type == "spell",
                 ready = iconData.type ~= "aura",
             }
@@ -2151,7 +2154,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             func = function() ToggleSetting("showItemCooldown", true) end,
         }
     end
-    if iconData.type == "aura" or iconData.type == "trinketProc" then
+    if supportsActiveState then
         stateItems[#stateItems + 1] = { isSeparator = true }
         stateItems[#stateItems + 1] = StateChoice(
             L["Active State"] or "Active State",

@@ -627,6 +627,9 @@ function CustomIcons.ApplyManagedGroupTextOptions(frame)
         frame._ddGroupName or (container and container._groupName),
         frame._groupSettings or (container and container._groupSettings)
     )
+    if DDingUI.CustomIconActiveEffectOverlay then
+        DDingUI.CustomIconActiveEffectOverlay:SyncTextStyle(frame)
+    end
     if frame._ddManagedTextRetryPending then return end
     frame._ddManagedTextRetryPending = true
     local retryDelays = { 0, 0.05, 0.2 }
@@ -644,6 +647,9 @@ function CustomIcons.ApplyManagedGroupTextOptions(frame)
                             frame._ddGroupName or (retryContainer and retryContainer._groupName),
                             frame._groupSettings or (retryContainer and retryContainer._groupSettings)
                         )
+                        if DDingUI.CustomIconActiveEffectOverlay then
+                            DDingUI.CustomIconActiveEffectOverlay:SyncTextStyle(frame)
+                        end
                     end
                 end
                 remainingRetries = remainingRetries - 1
@@ -1070,7 +1076,14 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
             shouldGlow = true
         elseif settings.readyGlow == true then
             local trigger = settings.glowTrigger
-                or (iconData and (iconData.type == "aura" or iconData.type == "trinketProc") and "active" or "ready")
+                or (iconData
+                    and (iconData.type == "aura"
+                        or iconData.type == "trinketProc"
+                        or (iconData.type == "item"
+                            and iconData.settings
+                            and tonumber(iconData.settings.activeEffectDuration)))
+                    and "active"
+                    or "ready")
             if trigger == "active" then
                 shouldGlow = active
             else
@@ -3256,6 +3269,9 @@ local function EnsureEventFrame()
 
         local customTimedChanged = HandleCustomTimedAuraEvent(event, ...)
         local succeededSpellID = event == "UNIT_SPELLCAST_SUCCEEDED" and SafeNumber(select(3, ...)) or nil
+        local activeEffectChanged = succeededSpellID
+            and DDingUI.CustomIconActiveEffectOverlay
+            and DDingUI.CustomIconActiveEffectOverlay:HandleSpellcast(succeededSpellID)
         local isRacialSpellcast = succeededSpellID and succeededSpellID == GetPlayerRacialSpellID()
         if event == "UNIT_SPELLCAST_SENT" then return end
         if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
@@ -3285,10 +3301,20 @@ local function EnsureEventFrame()
         if hasItemCooldownIcon and succeededSpellID then
             MarkItemCombatLockoutFromSpell(succeededSpellID)
         end
-        if event == "UNIT_SPELLCAST_SUCCEEDED" and not customTimedChanged and not hasItemCooldownIcon and not isRacialSpellcast then
+        if event == "UNIT_SPELLCAST_SUCCEEDED"
+            and not customTimedChanged
+            and not activeEffectChanged
+            and not hasItemCooldownIcon
+            and not isRacialSpellcast
+        then
             return
         end
-        if (isItemCooldownEvent or isSpellCooldownEvent or isCooldownInventoryEvent) and not customTimedChanged and not hasItemCooldownIcon and not hasSpellCooldownIcon then
+        if (isItemCooldownEvent or isSpellCooldownEvent or isCooldownInventoryEvent)
+            and not customTimedChanged
+            and not activeEffectChanged
+            and not hasItemCooldownIcon
+            and not hasSpellCooldownIcon
+        then
             return
         end
 
@@ -3738,6 +3764,9 @@ end
 
 function CustomIcons:RemoveDynamicIcon(iconKey)
     local db = GetDynamicDB()
+    if DDingUI.CustomIconActiveEffectOverlay then
+        DDingUI.CustomIconActiveEffectOverlay:ClearIcon(iconKey)
+    end
     db.iconData[iconKey] = nil
     db.ungrouped[iconKey] = nil
     if db.ungroupedPositions then

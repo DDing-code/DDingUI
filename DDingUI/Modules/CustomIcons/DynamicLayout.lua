@@ -418,6 +418,9 @@ function DynamicLayout.Create(
 
     function CustomIcons:LoadDynamicIcons()
         local db = GetDynamicDB()
+        if DDingUI.CustomIconActiveEffectOverlay then
+            DDingUI.CustomIconActiveEffectOverlay:MarkDirty()
+        end
 
         -- 프로필 변경 시 기존 프레임 정리: db에 없는 아이콘 제거
         for iconKey, frame in pairs(runtime.iconFrames) do

@@ -101,6 +101,7 @@ Modules\CustomIcons\ProfileNormalization.lua
 Modules\CustomIcons\RuntimeValues.lua
 Modules\CustomIcons\LayoutPolicy.lua
 Modules\CustomIcons\IconStyle.lua
+Modules\CustomIcons\ActiveEffectOverlay.lua
 Modules\CustomIcons\FrameLifecycle.lua
 Modules\CustomIcons\CooldownWatcher.lua
 Modules\CustomIcons\DynamicLayout.lua

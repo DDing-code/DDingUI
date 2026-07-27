@@ -856,3 +856,8 @@ L["Enter mover mode first (/ddmove)"] = "Enter mover mode first (/ddmove)"
 -- Activation Condition
 
 -- CDM visual effects
+L["Add Active Effect Overlay"] = "Add Active Effect Overlay"
+L["Active Effect Overlay (%s sec)"] = "Active Effect Overlay (%s sec)"
+L["Change Active Effect Duration"] = "Change Duration"
+L["Remove Active Effect Overlay"] = "Remove Active Effect Overlay"
+L["Enter active effect duration (seconds):"] = "Enter active effect duration (seconds):"

@@ -895,3 +895,8 @@ L["Cast Bar"] = "시전 바"
 -- Quick Add (GroupSystemOptions.lua)
 
 -- Hide Active State (Visual Effect)
+L["Add Active Effect Overlay"] = "활성효과 오버레이 추가"
+L["Active Effect Overlay (%s sec)"] = "활성효과 오버레이 (%s초)"
+L["Change Active Effect Duration"] = "지속시간 변경"
+L["Remove Active Effect Overlay"] = "활성효과 오버레이 제거"
+L["Enter active effect duration (seconds):"] = "활성효과 지속시간(초)을 입력하세요:"
