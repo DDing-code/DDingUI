@@ -29,12 +29,12 @@ local RenderSearchResults = DDingUI.GUISearch.RenderSearchResults
 local RenderOptions
 
 local SECTION_MENU_DEFS = {
-    { key = "general",      label = "General Settings", icon = "Interface\\Icons\\INV_Misc_Gear_01" },
-    { key = "groupSystem",  label = "CDM Bars",         icon = "Interface\\Icons\\Spell_Holy_BorrowedTime" },
-    { key = "buffTracker",  label = "Buff Tracker",     icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
-    { key = "resourceBars", label = "Resource Bars",    icon = "Interface\\Icons\\INV_Misc_Gem_Crystal_01" },
-    { key = "castBars",     label = "Cast Bars",        icon = "Interface\\Icons\\Spell_Holy_MindSooth" },
-    { key = "buffBar",      label = "Tracked Bars",     icon = "Interface\\Icons\\INV_Misc_Note_05" },
+    { key = "general",      label = "General Settings", icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\General.tga" },
+    { key = "groupSystem",  label = "CDM Bars",         icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\CooldownBars.tga" },
+    { key = "buffTracker",  label = "Buff Tracker",     icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\CustomAura.tga" },
+    { key = "resourceBars", label = "Resource Bars",    icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\ResourceBars.tga" },
+    { key = "castBars",     label = "Cast Bars",        icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\CastBars.tga" },
+    { key = "buffBar",      label = "Tracked Bars",     icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\TrackedBars.tga" },
 }
 
 local function IsOptionVisible(option)
@@ -180,8 +180,7 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(22, 22)
         row.icon:SetPoint("LEFT", row, "LEFT", 20, 0)
-        row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        row.icon:SetDesaturated(true)
+        row.icon:SetTexCoord(0, 1, 0, 1)
 
         row.label = row:CreateFontString(nil, "OVERLAY")
         row.label:SetFont(globalFontPath, 13, "")
