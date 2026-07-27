@@ -1924,8 +1924,9 @@ function DDingUI:CreateConfigFrame()
         local currentPath = lookup.path
 
         -- Store active sub-tab
-        local activeSubTabKey = nil
-        if self.scrollChild and self.scrollChild.subTabButtons then
+        local activeSubTabKey = self._requestedSubTabKey
+        self._requestedSubTabKey = nil
+        if not activeSubTabKey and self.scrollChild and self.scrollChild.subTabButtons then
             if currentOption and currentOption.args then
                 local sortedTabs = {}
                 for key, option in pairs(currentOption.args) do

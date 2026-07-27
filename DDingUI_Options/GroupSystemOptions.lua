@@ -2047,8 +2047,7 @@ local function BuildAssignedSpellsArgs(groupName)
             args["cdma_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedSpell or "Unknown"),
-                desc = (rawget(L, "Click to edit | Drag to reorder | Right-click to manage") or "클릭: 편집 | 드래그: 순서 변경 | 우클릭: 관리")
-                    .. "\n|cffaaaaaa" .. (capturedSpell or "") .. "|r",
+                desc = capturedSpell and ("|cffaaaaaa" .. capturedSpell .. "|r") or nil,
                 order = 11 + (count * 0.01),
                 _gridKind = "cdm",
                 _gridBadge = capturedIsManual and "CDM+" or "CDM",
@@ -2091,8 +2090,7 @@ local function BuildAssignedSpellsArgs(groupName)
             args["dyna_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedIconKey or "Unknown"),
-                desc = rawget(L, "Click to edit | Drag to reorder | Right-click to manage")
-                    or "클릭: 편집 | 드래그: 순서 변경 | 우클릭: 관리",
+                desc = nil,
                 order = 11 + (count * 0.01),
                 _gridKind = "dynamic",
                 _gridBadge = badge,
@@ -3685,6 +3683,104 @@ local function ApplyAssignedIconGlowScope(groupName, settings)
     end
 end
 
+function DDingUI:GetGroupIconDetailKey(opt)
+    if not opt then return nil end
+    if opt._gridKind == "dynamic" and opt._gridDynamicIconKey then
+        return "dynamic:" .. tostring(opt._gridDynamicIconKey)
+    end
+    if opt._gridKind == "cdm" then
+        return table.concat({
+            "cdm",
+            tostring(opt._gridViewerType or ""),
+            tostring(opt._gridSpellID or opt._gridSpellName or ""),
+        }, ":")
+    end
+    return nil
+end
+
+function DDingUI:SetGroupIconDetailSelection(groupName, opt)
+    local key = self:GetGroupIconDetailKey(opt)
+    if not groupName or not key then return false end
+    self._groupIconDetailSelection = {
+        groupName = groupName,
+        key = key,
+    }
+    return true
+end
+
+function DDingUI:GetGroupIconDetailSelection(groupName)
+    local selection = self._groupIconDetailSelection
+    if not selection or selection.groupName ~= groupName then return nil end
+    local rows = GetAssignedGridRows(groupName)
+    for _, row in ipairs(rows or {}) do
+        local opt = row.option
+        if self:GetGroupIconDetailKey(opt) == selection.key then
+            return opt
+        end
+    end
+    return nil
+end
+
+function DDingUI:IsGroupIconDetailSelected(groupName, opt)
+    local selection = self._groupIconDetailSelection
+    return selection ~= nil
+        and selection.groupName == groupName
+        and selection.key == self:GetGroupIconDetailKey(opt)
+end
+
+function DDingUI:BuildAssignedIconSettingsItems(groupName, opt, glowOnly)
+    if not opt then return {} end
+    local items = {}
+    if glowOnly then
+        local scope = self._groupIconApplyScope or "icon"
+        items[#items + 1] = {
+            text = rawget(L, "Apply Scope") or "Apply Scope",
+            menuList = {
+                {
+                    text = rawget(L, "This Icon") or "This Icon",
+                    checked = scope == "icon",
+                    func = function() self._groupIconApplyScope = "icon" end,
+                },
+                {
+                    text = rawget(L, "This Group") or "This Group",
+                    checked = scope == "group",
+                    func = function() self._groupIconApplyScope = "group" end,
+                },
+                {
+                    text = rawget(L, "All Groups and Specs") or "All Groups and Specializations",
+                    checked = scope == "all",
+                    func = function() self._groupIconApplyScope = "all" end,
+                },
+            },
+        }
+        items[#items + 1] = { isSeparator = true }
+    end
+
+    local customizer = self.IconCustomization
+    local onSettingsChanged = glowOnly and function(settings)
+        ApplyAssignedIconGlowScope(groupName, settings)
+    end or nil
+    local customItems
+    if customizer and customizer.BuildDynamicContextMenuItems
+        and opt._gridKind == "dynamic" and opt._gridDynamicIconKey
+    then
+        customItems = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
+            SoftRefreshGroupSystemOptions(0.05)
+        end, onSettingsChanged, glowOnly)
+    elseif customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
+        customItems = customizer:BuildContextMenuItems(
+            opt._gridSpellID,
+            opt._gridViewerType,
+            onSettingsChanged,
+            glowOnly
+        )
+    end
+    for _, item in ipairs(customItems or {}) do
+        items[#items + 1] = item
+    end
+    return items
+end
+
 function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     if not parent then return end
 
@@ -3814,75 +3910,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return #menu > 0 and menu or nil
     end
 
-    local function BuildAssignedIconSettingsItems(opt, glowOnly)
-        if not opt then return {} end
-        local items = {}
-        if glowOnly then
-            local scope = DDingUI._groupIconApplyScope or "icon"
-            items[#items + 1] = {
-                text = rawget(L, "Apply Scope") or "적용 범위",
-                menuList = {
-                    {
-                        text = rawget(L, "This Icon") or "이 아이콘",
-                        checked = scope == "icon",
-                        func = function() DDingUI._groupIconApplyScope = "icon" end,
-                    },
-                    {
-                        text = rawget(L, "This Group") or "이 그룹",
-                        checked = scope == "group",
-                        func = function() DDingUI._groupIconApplyScope = "group" end,
-                    },
-                    {
-                        text = rawget(L, "All Groups and Specs") or "모든 그룹·전문화",
-                        checked = scope == "all",
-                        func = function() DDingUI._groupIconApplyScope = "all" end,
-                    },
-                },
-            }
-            items[#items + 1] = { isSeparator = true }
-        end
-
-        local customizer = DDingUI.IconCustomization
-        local onSettingsChanged = glowOnly and function(settings)
-            ApplyAssignedIconGlowScope(groupName, settings)
-        end or nil
-        local customItems
-        if customizer and customizer.BuildDynamicContextMenuItems
-            and opt._gridKind == "dynamic" and opt._gridDynamicIconKey
-        then
-            customItems = customizer:BuildDynamicContextMenuItems(opt._gridDynamicIconKey, function()
-                SoftRefreshGroupSystemOptions(0.05)
-            end, onSettingsChanged, glowOnly)
-        elseif customizer and customizer.BuildContextMenuItems and opt._gridSpellID and opt._gridViewerType then
-            customItems = customizer:BuildContextMenuItems(
-                opt._gridSpellID,
-                opt._gridViewerType,
-                onSettingsChanged,
-                glowOnly
-            )
-        end
-        for _, item in ipairs(customItems or {}) do
-            items[#items + 1] = item
-        end
-        return items
-    end
-
-    local function ShowAssignedIconGlowMenu(owner, opt)
-        if not owner or not opt then return end
-        local menuList = {
-            {
-                text = opt._gridDisplayName or (rawget(L, "Edit Icon") or "아이콘 편집"),
-                isTitle = true,
-            },
-        }
-        for _, item in ipairs(BuildAssignedIconSettingsItems(opt, true)) do
-            menuList[#menuList + 1] = item
-        end
-        if SL and SL.ShowCascadingMenu then
-            SL.ShowCascadingMenu(owner, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
-        end
-    end
-
     local function ShowAssignedIconContextMenu(owner, opt)
         if not owner or not opt then return end
         local menuList = {
@@ -3891,7 +3918,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 isTitle = true,
             },
         }
-        for _, item in ipairs(BuildAssignedIconSettingsItems(opt)) do
+        for _, item in ipairs(DDingUI:BuildAssignedIconSettingsItems(groupName, opt)) do
             menuList[#menuList + 1] = item
         end
         menuList[#menuList + 1] = { isSeparator = true }
@@ -4540,8 +4567,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
         end
         GameTooltip:AddLine(
-            rawget(L, "Drag to reorder | Left-click for glow | Right-click for options")
-                or "Drag to reorder | Left-click for glow | Right-click for options",
+            rawget(L, "Click for details | Drag to reorder | Right-click for options")
+                or "Click for details | Drag to reorder | Right-click for options",
             0.35,
             1,
             0.45,
@@ -4588,6 +4615,11 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             slot._hoverEdges = AssignedGridCreateEdges(slot, "OVERLAY", 4)
             AssignedGridSetEdges(slot._hoverEdges, accentR, accentG, accentB, 1, 2)
             for i = 1, 4 do slot._hoverEdges[i]:Hide() end
+            slot._selectionEdges = AssignedGridCreateEdges(slot, "OVERLAY", 5)
+            AssignedGridSetEdges(slot._selectionEdges, 1, 0.48, 0.08, 1, 2)
+            if not DDingUI:IsGroupIconDetailSelected(groupName, opt) then
+                for i = 1, 4 do slot._selectionEdges[i]:Hide() end
+            end
 
             local orderText = slot:CreateFontString(nil, "OVERLAY")
             orderText:SetFont(gf, math.max(8, math.min(11, math.floor(pos.h * 0.28))), "OUTLINE")
@@ -4615,7 +4647,12 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 if button == "RightButton" and opt then
                     ShowAssignedIconContextMenu(self, opt)
                 elseif button == "LeftButton" and opt then
-                    ShowAssignedIconGlowMenu(self, opt)
+                    if DDingUI:SetGroupIconDetailSelection(groupName, opt) then
+                        if _G["DDingUI_ConfigFrame"] then
+                            _G["DDingUI_ConfigFrame"]._requestedSubTabKey = "iconDetails"
+                        end
+                        SoftRefreshGroupSystemOptions(0)
+                    end
                 end
             end)
             slot:SetScript("OnMouseDown", function(self, button)
@@ -4822,6 +4859,158 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             end)
         end
     end
+end
+
+function DDingUI:BuildGroupIconDetailArgs(groupName)
+    local opt = self:GetGroupIconDetailSelection(groupName)
+    if not opt then
+        return {
+            empty = {
+                type = "description",
+                name = rawget(L, "Select an icon from the preview to edit its details.")
+                    or "Select an icon from the preview to edit its details.",
+                order = 1,
+            },
+        }
+    end
+
+    local function RefreshDetails()
+        SoftRefreshGroupSystemOptions(0)
+    end
+
+    local function RunMenuAction(item)
+        if item and type(item.func) == "function" then
+            item.func()
+        end
+        RefreshDetails()
+    end
+
+    local function IsChoiceList(menuList)
+        local found = false
+        for _, choice in ipairs(menuList or {}) do
+            if not choice.isSeparator then
+                if choice.menuList or type(choice.func) ~= "function" or choice.checked == nil then
+                    return false
+                end
+                found = true
+            end
+        end
+        return found
+    end
+
+    local function ConvertMenuItems(menuItems, prefix)
+        local args = {}
+        local order = 0
+        for index, item in ipairs(menuItems or {}) do
+            if not item.isSeparator and not item.isTitle and item.text then
+                order = order + 1
+                local key = tostring(prefix or "item") .. "_" .. tostring(index)
+                local capturedItem = item
+
+                if item.menuList and IsChoiceList(item.menuList) then
+                    local values = {}
+                    for choiceIndex, choice in ipairs(item.menuList) do
+                        if not choice.isSeparator then
+                            values[tostring(choiceIndex)] = choice.text
+                        end
+                    end
+                    args[key] = {
+                        type = "select",
+                        name = item.text,
+                        order = order,
+                        width = "full",
+                        values = values,
+                        get = function()
+                            for choiceIndex, choice in ipairs(capturedItem.menuList or {}) do
+                                local checked = type(choice.checked) == "function" and choice.checked() or choice.checked
+                                if checked then return tostring(choiceIndex) end
+                            end
+                            return "1"
+                        end,
+                        set = function(_, value)
+                            local choice = capturedItem.menuList and capturedItem.menuList[tonumber(value)]
+                            RunMenuAction(choice)
+                        end,
+                    }
+                elseif item.menuList then
+                    args[key] = {
+                        type = "group",
+                        name = item.text,
+                        order = order,
+                        inline = true,
+                        args = ConvertMenuItems(item.menuList, key),
+                    }
+                elseif item.swatch and item.setColor then
+                    args[key] = {
+                        type = "color",
+                        name = item.text,
+                        order = order,
+                        width = "full",
+                        get = function()
+                            local color = capturedItem.swatch or {}
+                            return color.r or color[1] or 1,
+                                color.g or color[2] or 1,
+                                color.b or color[3] or 1,
+                                color.a or color[4] or 1
+                        end,
+                        set = function(_, r, g, b, a)
+                            capturedItem.setColor(r, g, b, a)
+                            RefreshDetails()
+                        end,
+                    }
+                elseif item.checked ~= nil and type(item.func) == "function" then
+                    args[key] = {
+                        type = "toggle",
+                        name = item.text,
+                        order = order,
+                        width = "full",
+                        get = function()
+                            return type(capturedItem.checked) == "function"
+                                and capturedItem.checked()
+                                or capturedItem.checked == true
+                        end,
+                        set = function()
+                            RunMenuAction(capturedItem)
+                        end,
+                    }
+                elseif type(item.func) == "function" then
+                    args[key] = {
+                        type = "execute",
+                        name = item.text,
+                        order = order,
+                        width = "full",
+                        func = function()
+                            RunMenuAction(capturedItem)
+                        end,
+                    }
+                end
+            end
+        end
+        return args
+    end
+
+    local iconTexture = GetGridOptionIcon(opt)
+    local displayName = opt._gridDisplayName or GetGridOptionName(opt)
+    local args = {
+        selected = {
+            type = "description",
+            name = string.format("|T%s:26:26:0:0|t  |cffffa300%s|r", tostring(iconTexture), tostring(displayName)),
+            order = -10,
+        },
+    }
+    local converted = ConvertMenuItems(self:BuildAssignedIconSettingsItems(groupName, opt, true), "detail")
+    for key, option in pairs(converted) do
+        args[key] = option
+    end
+    if not next(converted) then
+        args.unavailable = {
+            type = "description",
+            name = rawget(L, "No detailed settings are available for this icon.")
+                or "No detailed settings are available for this icon.",
+            order = 1,
+        }
+    end
+    return args
 end
 
 -- 스펠 이름/ID → GroupManager 할당용 이름 변환
@@ -5617,6 +5806,13 @@ local function CreateGroupOptions(groupName, order)
         name = L["Layout"] or "배치",
         order = 10,
         args = layoutArgs,
+    }
+
+    args.iconDetails = {
+        type = "group",
+        name = rawget(L, "Icon Details") or "Icon Details",
+        order = 15,
+        args = DDingUI:BuildGroupIconDetailArgs(groupName),
     }
 
     -- ========== 2. 스펠 관리 ==========

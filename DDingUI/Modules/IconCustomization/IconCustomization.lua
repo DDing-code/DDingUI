@@ -1383,6 +1383,10 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
     items[#items + 1] = {
             text = L["Custom Glow Color"] or "Custom Glow Color",
             swatch = custom.glowColor or {r = 1, g = 0.85, b = 0.1},
+            setColor = function(r, g, b)
+                Apply("glowColorMode", "custom")
+                Apply("glowColor", {r = r, g = g, b = b})
+            end,
             func = function()
                 local old = Current().glowColor
                 local previous = old and {r = old.r, g = old.g, b = old.b} or nil
