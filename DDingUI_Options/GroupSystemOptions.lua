@@ -5886,7 +5886,12 @@ local function CreateGroupOptions(groupName, order)
     -- Viewer-specific party and raid offsets share the group offset tab.
     if isCDM and viewerKey and ns.CreateSingleViewerOptions then
         local vo = ns.CreateSingleViewerOptions(viewerKey, displayName, 1)
-        if vo and vo.args then
+        if vo and vo.args and (
+            vo.args.partyOffsetX
+            or vo.args.partyOffsetY
+            or vo.args.raidOffsetX
+            or vo.args.raidOffsetY
+        ) then
             offsetArgs.sec02_offsetHeader = { type = "header", name = L["Group Offsets"] or "그룹 오프셋 (파티/레이드)", order = 1 }
             offsetArgs.groupOffsetDesc = CopyVO(vo.args, "groupOffsetDesc", 2)
             offsetArgs.partyOffsetX    = CopyVO(vo.args, "partyOffsetX", 3)
