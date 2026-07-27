@@ -4726,7 +4726,10 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 elseif button == "LeftButton" and opt then
                     if DDingUI:SetGroupIconDetailSelection(groupName, opt) then
                         if _G["DDingUI_ConfigFrame"] then
-                            _G["DDingUI_ConfigFrame"]._requestedSubTabKey = "iconDetails"
+                            _G["DDingUI_ConfigFrame"]._requestedSubTabPath = {
+                                "group_" .. groupName,
+                                "iconDetails",
+                            }
                         end
                         SoftRefreshGroupSystemOptions(0)
                     end
@@ -6430,7 +6433,7 @@ local function BuildGroupSystemOptions(order)
         type = "group",
         name = rawget(L, "CDM Bars") or "CDM Bars",
         order = order,
-        childGroups = "select",
+        childGroups = "tab",
         args = barArgs,
     }
 

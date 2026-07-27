@@ -28,6 +28,234 @@ local RenderSearchResults = DDingUI.GUISearch.RenderSearchResults
 
 local RenderOptions
 
+local SECTION_MENU_DEFS = {
+    { key = "general",      label = "General Settings", icon = "Interface\\Icons\\INV_Misc_Gear_01" },
+    { key = "groupSystem",  label = "CDM Bars",         icon = "Interface\\Icons\\Spell_Holy_BorrowedTime" },
+    { key = "buffTracker",  label = "Buff Tracker",     icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
+    { key = "resourceBars", label = "Resource Bars",    icon = "Interface\\Icons\\INV_Misc_Gem_Crystal_01" },
+    { key = "castBars",     label = "Cast Bars",        icon = "Interface\\Icons\\Spell_Holy_MindSooth" },
+    { key = "buffBar",      label = "Tracked Bars",     icon = "Interface\\Icons\\INV_Misc_Note_05" },
+}
+
+local function IsOptionVisible(option)
+    if not option then return false end
+    if type(option.hidden) == "function" then
+        local ok, hidden = pcall(option.hidden)
+        return not (ok and hidden)
+    end
+    return option.hidden ~= true
+end
+
+local function ResolveSectionTarget(targetKey, frame)
+    if type(targetKey) ~= "string" or targetKey == "" then return nil, nil end
+
+    local parts = {}
+    for part in targetKey:gmatch("[^.]+") do
+        parts[#parts + 1] = part
+    end
+    local rootKey = parts[1]
+
+    if rootKey == "uiScale" or rootKey == "display" or rootKey == "profiles" then
+        table.insert(parts, 1, "general")
+        rootKey = "general"
+    elseif rootKey == "viewers" or rootKey == "customIcons" or rootKey == "iconCustomization" then
+        rootKey = "groupSystem"
+        parts = { rootKey }
+    end
+
+    if rootKey == "groupSystem" and frame and frame._optionLookup then
+        local groupSystem = frame._optionLookup.groupSystem
+        local groupArgs = groupSystem and groupSystem.option and groupSystem.option.args
+        local remainder = targetKey:match("^groupSystem%.(.+)$")
+        local bestMatch
+        if remainder and groupArgs then
+            for key in pairs(groupArgs) do
+                if remainder == key or remainder:sub(1, #key + 1) == key .. "." then
+                    if not bestMatch or #key > #bestMatch then
+                        bestMatch = key
+                    end
+                end
+            end
+        end
+        if bestMatch then
+            parts = { "groupSystem", bestMatch }
+            local suffix = remainder:sub(#bestMatch + 2)
+            for part in suffix:gmatch("[^.]+") do
+                parts[#parts + 1] = part
+            end
+        end
+    end
+
+    local subPath = {}
+    for i = 2, #parts do
+        subPath[#subPath + 1] = parts[i]
+    end
+    return rootKey, (#subPath > 0) and subPath or nil
+end
+
+local function BuildSectionMenuData(options, frame)
+    local args = options and options.args or {}
+    local generalArgs = {}
+    for _, key in ipairs({ "uiScale", "display", "profiles" }) do
+        if IsOptionVisible(args[key]) then
+            generalArgs[key] = args[key]
+        end
+    end
+
+    local sectionOptions = {
+        general = {
+            type = "group",
+            name = L["General Settings"] or "General Settings",
+            childGroups = "tab",
+            args = generalArgs,
+        },
+        groupSystem = args.groupSystem,
+        buffTracker = args.buffTracker,
+        resourceBars = args.resourceBars,
+        castBars = args.castBars,
+        buffBar = args.buffBar,
+    }
+
+    frame._optionLookup = {}
+    local menuData = {}
+    for _, definition in ipairs(SECTION_MENU_DEFS) do
+        local option = sectionOptions[definition.key]
+        if IsOptionVisible(option) then
+            local text = L[definition.label] or definition.label
+            menuData[#menuData + 1] = {
+                key = definition.key,
+                text = text,
+                icon = definition.icon,
+            }
+            frame._optionLookup[definition.key] = {
+                option = option,
+                path = { definition.key },
+            }
+        end
+    end
+    return menuData
+end
+
+local function CreateSectionMenu(parent, menuData, opts)
+    opts = opts or {}
+    local menu = CreateFrame("Frame", nil, parent)
+    menu:SetAllPoints()
+    menu.rows = {}
+    menu.rowsByKey = {}
+    menu.selectedKey = nil
+    menu.onSelect = opts.onSelect
+
+    local function ApplyRowState(row)
+        local active = row._key == menu.selectedKey
+        row._active = active
+        row.activeBar:SetShown(active)
+        if active then
+            row.background:SetColorTexture(0.16, 0.16, 0.18, 0.96)
+            row.icon:SetVertexColor(1, 0.43, 0.08, 1)
+            row.label:SetTextColor(1, 1, 1, 1)
+        else
+            row.background:SetColorTexture(0, 0, 0, 0)
+            row.icon:SetVertexColor(0.5, 0.5, 0.54, 1)
+            row.label:SetTextColor(0.7, 0.7, 0.74, 1)
+        end
+    end
+
+    local function AcquireRow(index)
+        local row = menu.rows[index]
+        if row then return row end
+
+        row = CreateFrame("Button", nil, menu)
+        row:SetHeight(54)
+        row:RegisterForClicks("LeftButtonUp")
+
+        row.background = row:CreateTexture(nil, "BACKGROUND")
+        row.background:SetAllPoints()
+
+        row.activeBar = row:CreateTexture(nil, "ARTWORK")
+        row.activeBar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        row.activeBar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+        row.activeBar:SetWidth(3)
+        row.activeBar:SetColorTexture(1, 0.36, 0.06, 1)
+
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(22, 22)
+        row.icon:SetPoint("LEFT", row, "LEFT", 20, 0)
+        row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        row.icon:SetDesaturated(true)
+
+        row.label = row:CreateFontString(nil, "OVERLAY")
+        row.label:SetFont(globalFontPath, 13, "")
+        row.label:SetPoint("LEFT", row.icon, "RIGHT", 14, 0)
+        row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+        row.label:SetJustifyH("LEFT")
+
+        row.divider = row:CreateTexture(nil, "BORDER")
+        row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 16, 0)
+        row.divider:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -12, 0)
+        row.divider:SetHeight(1)
+        row.divider:SetColorTexture(0.24, 0.24, 0.27, 0.35)
+
+        row:SetScript("OnEnter", function(self)
+            if not self._active then
+                self.background:SetColorTexture(0.12, 0.12, 0.14, 0.72)
+                self.label:SetTextColor(0.88, 0.88, 0.9, 1)
+            end
+        end)
+        row:SetScript("OnLeave", function(self)
+            ApplyRowState(self)
+        end)
+        row:SetScript("OnClick", function(self)
+            menu:SetSelected(self._key)
+            if menu.onSelect then
+                menu.onSelect(self._key, true)
+            end
+        end)
+
+        menu.rows[index] = row
+        return row
+    end
+
+    function menu:SetMenuData(data)
+        self.rowsByKey = {}
+        for index, item in ipairs(data or {}) do
+            local row = AcquireRow(index)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -8 - ((index - 1) * 54))
+            row:SetPoint("RIGHT", self, "RIGHT", 0, 0)
+            row._key = item.key
+            row.icon:SetTexture(item.icon)
+            row.label:SetText(item.text or item.key)
+            row:Show()
+            self.rowsByKey[item.key] = row
+        end
+        for index = #(data or {}) + 1, #self.rows do
+            self.rows[index]:Hide()
+        end
+        if self.selectedKey and not self.rowsByKey[self.selectedKey] then
+            self.selectedKey = nil
+        end
+        for _, row in ipairs(self.rows) do
+            if row:IsShown() then ApplyRowState(row) end
+        end
+    end
+
+    function menu:SetSelected(key)
+        if not self.rowsByKey[key] then return false end
+        self.selectedKey = key
+        for _, row in ipairs(self.rows) do
+            if row:IsShown() then ApplyRowState(row) end
+        end
+        return true
+    end
+
+    function menu:GetSelected()
+        return self.selectedKey
+    end
+
+    menu:SetMenuData(menuData)
+    return menu
+end
+
 -- ============================================================
 -- [REFACTOR] WeakAuras-style Buff Tracker Panel
 -- contentArea 안에 좌측 리스트 + 우측 탭 split-view를 임베딩
@@ -244,12 +472,15 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
             end
 
             local subTabBtn = CreateTabButton(subTabContainer, displayName, function(btn)
+                if parentFrame then
+                    parentFrame._requestedSubTabPath = nil
+                end
                 for _, t in ipairs(subTabButtons) do
                     t:SetActive(false)
                 end
                 btn:SetActive(true)
 
-                RenderOptions(subScrollChild, item.option, path, parentFrame)
+                RenderOptions(subScrollChild, item.option, {unpack(path), item.key}, parentFrame)
 
                 -- Update content frame height after rendering sub-tab content
                 -- Use multiple delays to ensure content has finished rendering
@@ -300,8 +531,30 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         end
 
         if #subTabButtons > 0 then
-            subTabButtons[1]:SetActive(true)
-            RenderOptions(subScrollChild, sortedTabs[1].option, path, parentFrame)
+            local initialTabIndex = 1
+            local requestedPath = parentFrame and parentFrame._requestedSubTabPath
+            local requestedKey = requestedPath and requestedPath[1]
+            local requestedKeyMatched = false
+            if requestedKey then
+                for index, item in ipairs(sortedTabs) do
+                    if item.key == requestedKey then
+                        initialTabIndex = index
+                        requestedKeyMatched = true
+                        table.remove(requestedPath, 1)
+                        if #requestedPath == 0 then
+                            parentFrame._requestedSubTabPath = nil
+                        end
+                        break
+                    end
+                end
+                if not requestedKeyMatched then
+                    parentFrame._requestedSubTabPath = nil
+                end
+            end
+
+            local initialTab = sortedTabs[initialTabIndex]
+            subTabButtons[initialTabIndex]:SetActive(true)
+            RenderOptions(subScrollChild, initialTab.option, {unpack(path), initialTab.key}, parentFrame)
 
             -- Update content frame height after initial render
             -- Use multiple delays to ensure content has finished rendering
@@ -1181,11 +1434,11 @@ function DDingUI:CreateConfigFrame()
     local version = C_AddOns.GetAddOnMetadata("DDingUI", "Version") or "1.0"
 
     local panel = SL.CreateSettingsPanel("CDM", "DDingUI CDM", version, {
-        width = 920,
-        height = 620,
+        width = 980,
+        height = 640,
         minWidth = 600,
         minHeight = 400,
-        menuWidth = 200,
+        menuWidth = 240,
     })
 
     local frame = panel.frame
@@ -1924,6 +2177,7 @@ function DDingUI:CreateConfigFrame()
         local currentPath = lookup.path
 
         -- Store active sub-tab
+        local hasRequestedSubTabPath = self._requestedSubTabPath and #self._requestedSubTabPath > 0
         local activeSubTabKey = self._requestedSubTabKey
         self._requestedSubTabKey = nil
         if not activeSubTabKey and self.scrollChild and self.scrollChild.subTabButtons then
@@ -1944,11 +2198,37 @@ function DDingUI:CreateConfigFrame()
             end
         end
 
+        if not hasRequestedSubTabPath and activeSubTabKey then
+            local restorePath = { activeSubTabKey }
+            local activeOption = currentOption and currentOption.args and currentOption.args[activeSubTabKey]
+            local nestedFrame = self.scrollChild and self.scrollChild.subScrollChild
+            if activeOption and activeOption.args and nestedFrame and nestedFrame.subTabButtons then
+                local nestedTabs = {}
+                for key, option in pairs(activeOption.args) do
+                    if option.type == "group" or (option.type ~= "group" and option.type ~= "header" and option.type ~= "description") then
+                        nestedTabs[#nestedTabs + 1] = {
+                            key = key,
+                            order = option.order or 999,
+                        }
+                    end
+                end
+                table.sort(nestedTabs, function(a, b) return a.order < b.order end)
+                for index, button in ipairs(nestedFrame.subTabButtons) do
+                    if button.active and nestedTabs[index] then
+                        restorePath[#restorePath + 1] = nestedTabs[index].key
+                        break
+                    end
+                end
+            end
+            self._requestedSubTabPath = restorePath
+            hasRequestedSubTabPath = true
+        end
+
         -- Re-render
         RenderOptions(self.scrollChild, currentOption, currentPath, self)
 
         -- Restore sub-tab
-        if activeSubTabKey and self.scrollChild.subTabButtons then
+        if activeSubTabKey and self.scrollChild.subTabButtons and not hasRequestedSubTabPath then
             if currentOption and currentOption.args then
                 local sortedTabs = {}
                 for key, option in pairs(currentOption.args) do
@@ -2020,6 +2300,33 @@ function DDingUI:CreateConfigFrame()
         end
 
         -- [FIX] 서브탭이 활성 상태이면 서브탭 콘텐츠만 다시 그림 (깜빡임 방지)
+        if activeSubTabKey and lookup.option and lookup.option.childGroups == "tab" then
+            local restorePath = { activeSubTabKey }
+            local activeOption = lookup.option.args and lookup.option.args[activeSubTabKey]
+            local nestedFrame = self.scrollChild and self.scrollChild.subScrollChild
+            if activeOption and activeOption.args and nestedFrame and nestedFrame.subTabButtons then
+                local nestedTabs = {}
+                for key, option in pairs(activeOption.args) do
+                    if option.type == "group" or (option.type ~= "group" and option.type ~= "header" and option.type ~= "description") then
+                        nestedTabs[#nestedTabs + 1] = {
+                            key = key,
+                            order = option.order or 999,
+                        }
+                    end
+                end
+                table.sort(nestedTabs, function(a, b) return a.order < b.order end)
+                for index, button in ipairs(nestedFrame.subTabButtons) do
+                    if button.active and nestedTabs[index] then
+                        restorePath[#restorePath + 1] = nestedTabs[index].key
+                        break
+                    end
+                end
+            end
+            self._requestedSubTabPath = restorePath
+            self:SetContent(lookup.option, lookup.path)
+            return
+        end
+
         if activeSubTabKey and self.scrollChild and self.scrollChild.subScrollChild then
             local currentOption = lookup.option
             local subOption = currentOption and currentOption.args and currentOption.args[activeSubTabKey]
@@ -2228,7 +2535,15 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     -- ============================================
     -- 기본 선택 키 결정
     -- ============================================
-    local defaultKey = nil
+    menuData = BuildSectionMenuData(options, frame)
+    local resolvedDefaultKey, requestedSubTabPath = ResolveSectionTarget(tabKey, frame)
+    if not resolvedDefaultKey or not frame._optionLookup[resolvedDefaultKey] then
+        resolvedDefaultKey = menuData[1] and menuData[1].key or nil
+        requestedSubTabPath = nil
+    end
+    frame._requestedSubTabPath = requestedSubTabPath
+
+    local defaultKey = resolvedDefaultKey
     if tabKey then
         -- 정확히 일치하는 키 확인
         if frame._optionLookup[tabKey] then
@@ -2256,9 +2571,12 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     -- [12.0.1] 기본 CDM 그룹 (이름 변경 불가)
     local CDM_BUILTIN_GROUPS = { ["Cooldowns"] = true, ["Buffs"] = true, ["Utility"] = true }
 
-    local tree = SL.CreateTreeMenu(frame.treeFrame, "CDM", menuData, {
+    local tree = CreateSectionMenu(frame.treeFrame, menuData, {
         defaultKey = defaultKey,
-        onSelect = function(key)
+        onSelect = function(key, fromUser)
+            if fromUser then
+                frame._requestedSubTabPath = nil
+            end
             -- 검색 모드에서 트리 메뉴 클릭 시 → 검색 해제 후 해당 페이지 이동
             if frame._searchMode then
                 frame._searchMode = false
@@ -2588,7 +2906,21 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         end,
     })
     frame.treeMenu = tree
+    if defaultKey then
+        tree:SetSelected(defaultKey)
+    end
     frame._fullMenuData = menuData
+
+    function frame:NavigateToSection(targetKey)
+        local rootKey, subTabPath = ResolveSectionTarget(targetKey, self)
+        if not rootKey or not self._optionLookup[rootKey] then return false end
+        self._requestedSubTabPath = subTabPath
+        tree:SetSelected(rootKey)
+        if tree.onSelect then
+            tree.onSelect(rootKey, false)
+        end
+        return true
+    end
 
     -- [12.0.1] 트리 메뉴 재빌드 (그룹 생성/삭제/이름변경 후 호출)
     frame.RebuildTreeMenu = function(self, selectKey)
@@ -2696,24 +3028,22 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             end
         end
 
+        newMenuData = BuildSectionMenuData(options, self)
         menuData = newMenuData
         self._fullMenuData = newMenuData
-        tree:SetMenuData(newMenuData, false)
+        tree:SetMenuData(newMenuData)
 
         -- 선택 복원
         local targetKey = selectKey or self.currentTab
-        if targetKey and self._optionLookup[targetKey] then
-            tree:SetSelected(targetKey)
-            if tree.onSelect then tree.onSelect(targetKey) end
-        elseif #newMenuData > 0 then
-            local firstKey
-            if newMenuData[1].children and #newMenuData[1].children > 0 then
-                firstKey = newMenuData[1].children[1].key
-            else
-                firstKey = newMenuData[1].key
-            end
-            tree:SetSelected(firstKey)
-            if tree.onSelect then tree.onSelect(firstKey) end
+        local rootKey, subTabPath = ResolveSectionTarget(targetKey, self)
+        if not rootKey or not self._optionLookup[rootKey] then
+            rootKey = newMenuData[1] and newMenuData[1].key or nil
+            subTabPath = nil
+        end
+        if rootKey then
+            self._requestedSubTabPath = subTabPath
+            tree:SetSelected(rootKey)
+            if tree.onSelect then tree.onSelect(rootKey, false) end
         end
     end
 
@@ -2722,23 +3052,33 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     -- ============================================
     local function OptionContainsText(key, query)
         local lookup = frame._optionLookup[key]
-        if not lookup or not lookup.option or not lookup.option.args then return false end
-        for _, arg in pairs(lookup.option.args) do
-            local name = arg.name
+        if not lookup or not lookup.option then return false end
+
+        local function Contains(option)
+            if not option then return false end
+            local name = option.name
             if type(name) == "function" then
-                local ok, val = pcall(name)
-                name = ok and val or nil
+                local ok, value = pcall(name)
+                name = ok and value or nil
             end
             if type(name) == "string" and name:lower():find(query, 1, true) then
                 return true
             end
+            for _, child in pairs(option.args or {}) do
+                if Contains(child) then return true end
+            end
+            return false
         end
-        return false
+
+        return Contains(lookup.option)
     end
 
     function frame:FilterTree(searchText)
         if not searchText or searchText == "" then
             tree:SetMenuData(self._fullMenuData)
+            if self.currentTab then
+                tree:SetSelected(self.currentTab)
+            end
             return
         end
         local query = searchText:lower()

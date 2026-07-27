@@ -301,7 +301,9 @@ local function RenderSearchResults(contentFrame, results, parentFrame)
             end
 
             -- 3) 해당 트리 메뉴 항목으로 직접 이동
-            if group.treeKey and parentFrame._optionLookup then
+            if group.treeKey and parentFrame.NavigateToSection then
+                parentFrame:NavigateToSection(group.treeKey)
+            elseif group.treeKey and parentFrame._optionLookup then
                 local lookup = parentFrame._optionLookup[group.treeKey]
                 if lookup then
                     if parentFrame.treeMenu then
