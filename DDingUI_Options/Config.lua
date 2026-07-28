@@ -248,7 +248,12 @@ function DDingUI:SetupOptions()
 
     -- Resource Bars
     if ResourceBarOptions then
-        options.args.resourceBars = ResourceBarOptions(3)
+        options.args.resourceBars = {
+            type = "group",
+            name = L["Resource Bars"] or "Resource Bars",
+            order = 4,
+            _lazyBuilder = ResourceBarOptions,
+        }
     end
 
     -- Custom Icons (Dynamic Icons) — 아이콘 그룹에 통합됨

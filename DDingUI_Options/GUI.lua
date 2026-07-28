@@ -28,6 +28,25 @@ local RenderSearchResults = DDingUI.GUISearch.RenderSearchResults
 
 local RenderOptions
 
+local function MaterializeLazyOption(option)
+    if type(option) ~= "table" then return option end
+
+    local builder = rawget(option, "_lazyBuilder")
+    if type(builder) ~= "function" then return option end
+
+    local built = builder()
+    if type(built) ~= "table" then return option end
+
+    option._lazyBuilder = nil
+    for key in pairs(option) do
+        option[key] = nil
+    end
+    for key, value in pairs(built) do
+        option[key] = value
+    end
+    return option
+end
+
 local SECTION_MENU_DEFS = {
     { key = "general",      label = "General Settings", icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\General.tga" },
     { key = "groupSystem",  label = "CDM Bars",         icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\CooldownBars.tga" },
@@ -358,6 +377,7 @@ end
 -- contentArea 안에 좌측 리스트 + 우측 탭 split-view를 임베딩
 -- ============================================================
 RenderOptions = function(contentFrame, options, path, parentFrame)
+    options = MaterializeLazyOption(options)
     path = path or {}
     parentFrame = parentFrame or contentFrame:GetParent():GetParent()
 
@@ -3216,14 +3236,19 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     -- ============================================
     -- 검색 인덱스 빌드
     -- ============================================
-    frame._searchIndex = BuildSearchIndex(options)
+    frame._searchIndex = nil
     frame._searchMode = false
 
     -- ============================================
-    -- DanderS 검색: PerformSearch / ClearSearch
+    -- Search actions
     -- ============================================
     function frame:PerformSearch(query)
-        if not self._searchIndex then return end
+        if not self._searchIndex then
+            for _, option in pairs(options.args or {}) do
+                MaterializeLazyOption(option)
+            end
+            self._searchIndex = BuildSearchIndex(options)
+        end
 
         local queryLower = query:lower()
         local results = {}

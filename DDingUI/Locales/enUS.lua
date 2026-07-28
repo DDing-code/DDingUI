@@ -3,7 +3,9 @@
     Base locale for all English strings
 --]]
 
-local L = LibStub("AceLocale-3.0"):NewLocale("DDingUI", "enUS", true)
+-- External debug tools probe tables for helper methods such as ToDebugString.
+-- Silent fallback keeps those probes from being reported as missing translations.
+local L = LibStub("AceLocale-3.0"):NewLocale("DDingUI", "enUS", true, true)
 
 if not L then return end
 
