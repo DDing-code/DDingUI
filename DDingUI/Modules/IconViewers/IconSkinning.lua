@@ -733,6 +733,9 @@ function IconViewers:SkinIcon(icon, settings)
         local cdd = GetCdData(icon.Cooldown)
         cdd.settings = settings
         cdd.parentIcon = icon
+        if not settings.hideActiveState then
+            SetHideActiveStateGray(icon, false)
+        end
 
         -- Hook SetSwipeColor to detect aura swipe (yellow color) and customize it
         -- CDM uses yellow/gold color for aura duration display

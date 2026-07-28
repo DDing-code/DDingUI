@@ -319,6 +319,23 @@ local function GroupUsesDurationText(groupName, groupSettings)
     return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
 end
 
+local function ResolveCDMSkinSettings(groupName, groupSettings, sourceViewer)
+    if sourceViewer ~= "BuffIconCooldownViewer"
+        or GroupUsesDurationText(groupName, groupSettings)
+        or not groupSettings
+        or groupSettings.hideActiveState ~= true
+    then
+        return groupSettings
+    end
+
+    local settings = {}
+    for key, value in pairs(groupSettings) do
+        settings[key] = value
+    end
+    settings.hideActiveState = false
+    return settings
+end
+
 local function ResolveGroupTextSetting(groupName, groupSettings, primaryKey, fallbackKey)
     if groupSettings then
         if primaryKey and groupSettings[primaryKey] ~= nil then
@@ -2602,7 +2619,12 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                         if srcViewer then
                             icon._ddSourceViewer = srcViewer
                         end
-                        pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettingsForGroup)
+                        local iconSkinSettings = ResolveCDMSkinSettings(
+                            groupName,
+                            skinSettingsForGroup,
+                            srcViewer
+                        )
+                        pcall(IconViewers.SkinIcon, IconViewers, icon, iconSkinSettings)
                     end
                 else
                     icon._ddLastCooldownID = entry.cooldownID
