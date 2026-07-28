@@ -1558,6 +1558,58 @@ local function BuildBuffCandidateRows(groupName)
     return rows
 end
 
+local function BuildSkillCandidateRows(groupName)
+    local rows = {}
+    local seen = {}
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    if not groupSettings then return rows end
+
+    local isDynamicGroup = groupSettings.groupType == "dynamic"
+    local sourceKey = isDynamicGroup and EnsureSourceGroup(groupName) or nil
+    local targetViewer = GROUP_VIEWER_MAP[groupName]
+
+    for index, entry in ipairs(GetCDMIconEntries()) do
+        local viewerName = entry and entry.viewerName
+        if viewerName == "EssentialCooldownViewer" or viewerName == "UtilityCooldownViewer" then
+            local spellName = GetGSSpellName(entry)
+            local spellID = SafeOptionID(ResolveEntrySpellID(entry, spellName))
+            local assignedGroup = spellName and GetUsableSpellAssignment(gs, spellName)
+            local defaultAssigned = not assignedGroup and targetViewer == viewerName
+            local alreadyAdded = assignedGroup == groupName or defaultAssigned
+            if isDynamicGroup and spellID and sourceKey then
+                alreadyAdded = alreadyAdded
+                    or FindDynamicIconInSourceGroup(sourceKey, "spell", spellID) ~= nil
+            end
+
+            if spellName and not seen[spellName] and not alreadyAdded
+                and (not isDynamicGroup or spellID)
+            then
+                seen[spellName] = true
+                rows[#rows + 1] = {
+                    entry = entry,
+                    spellName = spellName,
+                    spellID = spellID,
+                    iconType = "spell",
+                    iconTex = ResolveCDMEntryIconTexture(entry, spellName, entry.icon),
+                    displayName = entry.name or spellName,
+                    assignedGroup = assignedGroup,
+                    isDynamicTarget = isDynamicGroup,
+                    fallbackOrder = tonumber(entry.layoutIndex) or index,
+                }
+            end
+        end
+    end
+
+    table.sort(rows, function(a, b)
+        local aOrder = a.fallbackOrder or 0
+        local bOrder = b.fallbackOrder or 0
+        if aOrder ~= bOrder then return aOrder < bOrder end
+        return tostring(a.displayName or a.spellName or "") < tostring(b.displayName or b.spellName or "")
+    end)
+    return rows
+end
+
 local function UpdateGroupAssignGrid(parent, groupName)
     if not parent or not parent._grids then return end
 
@@ -2933,9 +2985,7 @@ local function AddUnassignedRowToGroup(groupName, row)
 end
 
 local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
-    local gs = GetGS()
-    local groupSettings = gs and gs.groups and gs.groups[groupName]
-    local isBuff = addMode == "buff" or IsBuffGroup(groupName, groupSettings)
+    local isBuff = addMode == "buff"
     local items = {}
 
     if isBuff then
@@ -3305,7 +3355,9 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
 
     local function SubmitCustomSpell()
         local text = popup.edit:GetText()
-        local forcedType = addMode == "buff" and "aura" or nil
+        local forcedType = addMode == "buff" and "aura"
+            or addMode == "skill" and "spell"
+            or nil
         if AddSpellIDToGroup(groupName, tonumber(text), forcedType) then
             HideGroupIconAddPopup()
             popup.edit:SetText("")
@@ -3919,10 +3971,6 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local layout = AssignedGridBuildLayout(settings, count, count)
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
-    local gs = GetGS()
-    local groupSettings = gs and gs.groups and gs.groups[groupName]
-    local isBuffTargetGroup = IsBuffGroup(groupName, groupSettings)
-
     -- Keep the preview in the option frame's own scale. Counter-scaling it against
     -- UIParent makes WoW's mouse hit regions drift inside a scaled options window.
     local localParentW = width
@@ -4767,8 +4815,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
 
     local buttonHeight, buttonGap = 26, 6
     local skillButtonWidth, buffButtonWidth = 142, 126
-    local toolbarWidth = isBuffTargetGroup and buffButtonWidth
-        or (skillButtonWidth + buttonGap + buffButtonWidth)
+    local toolbarWidth = skillButtonWidth + buttonGap + buffButtonWidth
     local toolbarX = math.floor((width - toolbarWidth) * 0.5 + 0.5)
     local toolbarY = assignedPreviewHeight + 6
 
@@ -4802,10 +4849,9 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 HideGroupIconAddPopup()
                 return
             end
-            local popupRows = unassignedRows
-            if addMode == "buff" and not isBuffTargetGroup then
-                popupRows = BuildBuffCandidateRows(groupName)
-            end
+            local popupRows = addMode == "buff"
+                and BuildBuffCandidateRows(groupName)
+                or BuildSkillCandidateRows(groupName)
             DDingUI:ShowGroupIconAddPopup(
                 self,
                 groupName,
@@ -4818,36 +4864,24 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         return button
     end
 
-    if isBuffTargetGroup then
-        CreateAddButton(
-            rawget(L, "Add Buff Effect") or "Add Buff",
-            toolbarX,
-            buffButtonWidth,
-            "buff",
-            1,
-            0.7,
-            0.18
-        )
-    else
-        CreateAddButton(
-            rawget(L, "Add Skill or Item") or "Add Skill or Item",
-            toolbarX,
-            skillButtonWidth,
-            nil,
-            accentR,
-            accentG,
-            accentB
-        )
-        CreateAddButton(
-            rawget(L, "Add Buff Effect") or "Add Buff",
-            toolbarX + skillButtonWidth + buttonGap,
-            buffButtonWidth,
-            "buff",
-            1,
-            0.7,
-            0.18
-        )
-    end
+    CreateAddButton(
+        rawget(L, "Add Skill or Item") or "Add Skill or Item",
+        toolbarX,
+        skillButtonWidth,
+        "skill",
+        accentR,
+        accentG,
+        accentB
+    )
+    CreateAddButton(
+        rawget(L, "Add Buff Effect") or "Add Buff",
+        toolbarX + skillButtonWidth + buttonGap,
+        buffButtonWidth,
+        "buff",
+        1,
+        0.7,
+        0.18
+    )
 
     if false and #unassignedRows > 0 then
         local sectionY = assignedPreviewHeight + 12
