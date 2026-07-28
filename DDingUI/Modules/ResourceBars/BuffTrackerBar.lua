@@ -441,6 +441,15 @@ local function IsAccessibleNumber(value)
     return not IsSecretValue(value)
 end
 
+local function HasTrackedAuraData(trackedStacks, auraInstanceID)
+    if auraInstanceID ~= nil then return true end
+    if trackedStacks == nil then return false end
+    if IsAccessibleNumber(trackedStacks) then
+        return trackedStacks > 0
+    end
+    return IsSecretValue(trackedStacks)
+end
+
 -- Helper: Get spellID from cooldownID using C_CooldownViewer API (CDM API)
 local function GetSpellIDFromCooldownID(cooldownID)
     if not cooldownID or not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then
@@ -3504,7 +3513,7 @@ function ResourceBars:UpdateBuffTrackerBar()
                     -- 알림 평가를 위한 아우라 상태 확인
                     local cooldownID = tonumber(trackedBuff.cooldownID) or 0
                     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, nil, false, nil, trackedBuff.spellID, trackedBuff.name)
-                    local hasData = auraInstanceID ~= nil
+                    local hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
                     -- 알림 평가: colorTarget에 따라 외부 바에도 색상 적용됨
                     local dummyFrame = barFrames[barIndex] or GetAlertRuntimeOwner(trackedBuff)
                     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
@@ -3806,13 +3815,13 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
 
-    -- hasData: frame과 auraInstanceID 존재 여부 (for auto mode)
-    -- For manual mode, hasData is true if we have stacks > 0
+    -- Auto mode may expose active stacks before an accessible auraInstanceID.
+    -- Manual mode remains active only while its stored stack count is positive.
     local hasData
     if isManualMode then
         hasData = (manualStackCount or 0) > 0
     else
-        hasData = auraInstanceID ~= nil
+        hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     end
 
     -- [12.0.1] 디버그: hasData 판단 결과
@@ -4626,12 +4635,10 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         if manualExpiresAt and manualExpiresAt > 0 then
             remainingDuration = math.max(0, manualExpiresAt - GetTime())
         end
-        local stackOK, stackPositive = pcall(function() return trackedStacks ~= nil and trackedStacks ~= 0 and trackedStacks > 0 end)
-        hasData = stackOK and stackPositive or (trackedStacks ~= nil and not stackOK)
+        hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     else
         current = trackedStacks or 0
-        local stackOK, stackPositive = pcall(function() return trackedStacks ~= nil and trackedStacks ~= 0 and trackedStacks > 0 end)
-        hasData = stackOK and stackPositive or (trackedStacks ~= nil and not stackOK) or (auraInstanceID ~= nil)
+        hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     end
     -- Duration 데이터 가져오기
         if hasData and auraInstanceID then
@@ -5212,12 +5219,12 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
 
-    -- hasData for auto mode is based on auraInstanceID, for manual mode on stacks > 0
+    -- Auto mode accepts either an aura instance or an active stack value.
     local hasData
     if isManualMode then
         hasData = (manualStackCount or 0) > 0
     else
-        hasData = auraInstanceID ~= nil
+        hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     end
 
     -- ============================================================
@@ -5746,14 +5753,14 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     local frame = CDMScanner and CDMScanner.FindFrameByCooldownID(cooldownID)
 
     -- [12.0.1] Taint-safe stacks resolution
-    local _, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
+    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
 
-    -- hasData for auto mode is based on auraInstanceID, for manual mode on stacks > 0
+    -- Auto mode accepts either an aura instance or an active stack value.
     local hasData
     if isManualMode then
         hasData = (manualStackCount or 0) > 0
     else
-        hasData = auraInstanceID ~= nil
+        hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     end
 
     local now = GetTime()
@@ -5871,12 +5878,12 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
 
-    -- hasData for auto mode is based on auraInstanceID, for manual mode on stacks > 0
+    -- Auto mode accepts either an aura instance or an active stack value.
     local hasData
     if isManualMode then
         hasData = (manualStackCount or 0) > 0
     else
-        hasData = auraInstanceID ~= nil
+        hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     end
 
     -- ============================================================
