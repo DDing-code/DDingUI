@@ -510,6 +510,13 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
         return
     end
 
+    frame._ddInactiveGray = nil
+    frame._ddForcedInactiveGray = nil
+    frame._ddManagedAuraExpired = nil
+    frame._ddCombatVisible = nil
+    if DDingUI.CustomIcons and DDingUI.CustomIcons.RestoreActiveIconVisual then
+        DDingUI.CustomIcons.RestoreActiveIconVisual(frame)
+    end
     frame._ddCustomIconActive = true
     frame._ddCustomIconReady = false
     SyncFrameLevels(frame, overlay)

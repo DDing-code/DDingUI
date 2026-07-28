@@ -930,68 +930,102 @@ end
 function CustomIcons:StopTrackedTrinketEffectGlow(frame)
     if not frame or not frame._ddTrinketEffectGlowActive then return end
     local key = "_DDingUITrinketEffectGlow"
+    local target = frame._ddTrinketEffectGlowTarget or frame
     if SL then
-        if SL.HidePixelGlow then SL.HidePixelGlow(frame, key) end
-        if SL.HideAutocastGlow then SL.HideAutocastGlow(frame, key) end
-        if SL.HideButtonGlow then SL.HideButtonGlow(frame, key) end
+        if SL.HidePixelGlow then SL.HidePixelGlow(target, key) end
+        if SL.HideAutocastGlow then SL.HideAutocastGlow(target, key) end
+        if SL.HideButtonGlow then SL.HideButtonGlow(target, key) end
     end
     local glow = LibStub and LibStub("LibCustomGlow-1.0", true)
     if glow and glow.ProcGlow_Stop then
-        glow.ProcGlow_Stop(frame, key)
+        glow.ProcGlow_Stop(target, key)
     end
     if frame._ddTrinketEffectGlowType == "Blizzard Glow" and ActionButton_HideOverlayGlow then
-        ActionButton_HideOverlayGlow(frame)
+        ActionButton_HideOverlayGlow(target)
     end
     frame._ddTrinketEffectGlowActive = nil
     frame._ddTrinketEffectGlowType = nil
     frame._ddTrinketEffectGlowSignature = nil
+    frame._ddTrinketEffectGlowTarget = nil
 end
 
 function CustomIcons:SetTrackedTrinketEffectGlow(frame, active)
     local settings = frame and frame._groupSettings or {}
-    if not active or settings.procGlowEnabled == false or CustomIcons.ManagedVisualLocked(frame) then
+    local useAuraGlow = settings.auraGlow == true
+    local glowEnabled = useAuraGlow or settings.procGlowEnabled ~= false
+    if not active or not glowEnabled or settings.hideActiveState == true
+        or CustomIcons.ManagedVisualLocked(frame)
+    then
         self:StopTrackedTrinketEffectGlow(frame)
         return
     end
 
-    local glowType = settings.procGlowType or "Pixel Glow"
-    local color = settings.procGlowColor or { 0.95, 0.95, 0.32, 1 }
+    local glowType = useAuraGlow and (settings.auraGlowType or "Pixel Glow")
+        or (settings.procGlowType or "Pixel Glow")
+    local color = useAuraGlow and (settings.auraGlowColor or { 0.95, 0.95, 0.32, 1 })
+        or (settings.procGlowColor or { 0.95, 0.95, 0.32, 1 })
+    local pixelLines = useAuraGlow and (settings.auraGlowPixelLines or 8)
+        or (settings.procGlowPixelLines or 5)
+    local pixelFrequency = useAuraGlow and (settings.auraGlowPixelFrequency or 0.25)
+        or (settings.procGlowPixelFrequency or 0.25)
+    local pixelLength = useAuraGlow and settings.auraGlowPixelLength
+        or (settings.procGlowPixelLength or 8)
+    local pixelThickness = useAuraGlow and (settings.auraGlowPixelThickness or 2)
+        or (settings.procGlowPixelThickness or 1)
+    local autocastParticles = useAuraGlow and (settings.auraGlowAutocastParticles or 8)
+        or (settings.procGlowAutocastParticles or 8)
+    local autocastFrequency = useAuraGlow and (settings.auraGlowAutocastFrequency or 0.25)
+        or (settings.procGlowAutocastFrequency or 0.25)
+    local autocastScale = useAuraGlow and (settings.auraGlowAutocastScale or 1)
+        or (settings.procGlowAutocastScale or 1)
+    local buttonFrequency = useAuraGlow and (settings.auraGlowButtonFrequency or 0.25)
+        or (settings.procGlowButtonFrequency or 0.25)
+    local activeOverlay = frame._ddActiveEffectOverlay
+    local target = activeOverlay and activeOverlay.token and activeOverlay.frame or frame
     local signature = table.concat({
+        useAuraGlow and "aura" or "proc",
         glowType,
         tostring(color[1] or color.r or 0.95),
         tostring(color[2] or color.g or 0.95),
         tostring(color[3] or color.b or 0.32),
         tostring(color[4] or color.a or 1),
-        tostring(settings.procGlowPixelLines or 5),
-        tostring(settings.procGlowPixelFrequency or 0.25),
-        tostring(settings.procGlowPixelLength or 8),
-        tostring(settings.procGlowPixelThickness or 1),
+        tostring(pixelLines),
+        tostring(pixelFrequency),
+        tostring(pixelLength),
+        tostring(pixelThickness),
+        tostring(autocastParticles),
+        tostring(autocastFrequency),
+        tostring(autocastScale),
+        tostring(buttonFrequency),
     }, ":")
-    if frame._ddTrinketEffectGlowActive and frame._ddTrinketEffectGlowSignature == signature then
+    if frame._ddTrinketEffectGlowActive
+        and frame._ddTrinketEffectGlowSignature == signature
+        and frame._ddTrinketEffectGlowTarget == target
+    then
         return
     end
 
     self:StopTrackedTrinketEffectGlow(frame)
     local key = "_DDingUITrinketEffectGlow"
     if glowType == "Blizzard Glow" then
-        if ActionButton_ShowOverlayGlow then ActionButton_ShowOverlayGlow(frame) end
+        if ActionButton_ShowOverlayGlow then ActionButton_ShowOverlayGlow(target) end
     elseif glowType == "Autocast Shine" and SL and SL.ShowAutocastGlow then
         SL.ShowAutocastGlow(
-            frame,
+            target,
             color,
-            math.floor(settings.procGlowAutocastParticles or 8),
-            settings.procGlowAutocastFrequency or 0.25,
-            settings.procGlowAutocastScale or 1,
+            math.floor(autocastParticles),
+            autocastFrequency,
+            autocastScale,
             0,
             0,
             key
         )
     elseif glowType == "Action Button Glow" and SL and SL.ShowButtonGlow then
-        SL.ShowButtonGlow(frame, color, settings.procGlowButtonFrequency or 0.25, key)
+        SL.ShowButtonGlow(target, color, buttonFrequency, key)
     elseif glowType == "Proc Glow" then
         local glow = LibStub and LibStub("LibCustomGlow-1.0", true)
         if glow and glow.ProcGlow_Start then
-            glow.ProcGlow_Start(frame, {
+            glow.ProcGlow_Start(target, {
                 color = color,
                 startAnim = false,
                 xOffset = 0,
@@ -1001,12 +1035,12 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active)
         end
     elseif SL and SL.ShowPixelGlow then
         SL.ShowPixelGlow(
-            frame,
+            target,
             color,
-            math.floor(settings.procGlowPixelLines or 5),
-            settings.procGlowPixelFrequency or 0.25,
-            settings.procGlowPixelLength or 8,
-            settings.procGlowPixelThickness or 1,
+            math.floor(pixelLines),
+            pixelFrequency,
+            pixelLength,
+            pixelThickness,
             -1,
             -1,
             false,
@@ -1018,12 +1052,13 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active)
     frame._ddTrinketEffectGlowActive = true
     frame._ddTrinketEffectGlowType = glowType
     frame._ddTrinketEffectGlowSignature = signature
+    frame._ddTrinketEffectGlowTarget = target
 end
 
 function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     local custom = iconData and iconData.settings and iconData.settings.customStateGlow
     local mode = custom and custom.procGlowMode
-    if mode == "on" or mode == "off" then
+    if mode == "on" or mode == "off" or (custom and custom.activeGlow == true) then
         self:StopTrackedTrinketEffectGlow(frame)
         return
     end
@@ -1045,11 +1080,16 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
     end
 
     local state = registry:GetActiveEffectForItem(itemID)
-    if not state or CustomIcons.ManagedVisualLocked(iconFrame) then
+    if not state then
         self:StopTrackedTrinketEffectGlow(iconFrame)
         return false
     end
 
+    iconFrame._ddInactiveGray = nil
+    iconFrame._ddForcedInactiveGray = nil
+    iconFrame._ddManagedAuraExpired = nil
+    iconFrame._ddCombatVisible = nil
+    CustomIcons.RestoreActiveIconVisual(iconFrame)
     CustomIcons.StopIconDesatUpdater(iconFrame)
     iconFrame._ddCustomIconActive = true
     iconFrame._ddCustomIconProcActive = true
@@ -2434,6 +2474,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         end
     end
     iconFrame._ddCustomIconActive = procActive == true
+    iconFrame._ddCustomIconProcActive = procActive == true
     iconFrame._ddCustomIconReady = procActive ~= true
 end
 
