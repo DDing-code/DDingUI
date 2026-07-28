@@ -1133,6 +1133,7 @@ L["Enter spell ID to check. Leave empty to use cooldownID."] = "Enter spell ID t
 L["Talent Node ID"] = "Talent Node ID"
 L["Enter talent node ID. The talent name will be shown for verification."] = "Enter talent node ID. The talent name will be shown for verification."
 L["Max Duration (sec)"] = "Max Duration (sec)"
+L["Buff Total Duration (sec)"] = "Buff Total Duration (sec)"
 L["Maximum duration for manual countdown. Used by duration triggers and ring/bar fill."] = "Maximum duration for manual countdown. Used by duration triggers and ring/bar fill."
 L["Hide Active State"] = "Hide Active State"
 L["Hide active buff/aura overlay when the effect is active. The icon remains visible but the active state animation (glow, swipe color) is suppressed."] = "Hide the active buff/aura overlay and show the icon in gray while the effect is active."

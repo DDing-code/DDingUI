@@ -1083,6 +1083,7 @@ L["Enter spell ID to check. Leave empty to use cooldownID."] = "확인할 스킬
 L["Talent Node ID"] = "특성 노드 ID"
 L["Enter talent node ID. The talent name will be shown for verification."] = "특성 노드 ID를 입력하세요. 확인을 위해 특성 이름이 표시됩니다."
 L["Max Duration (sec)"] = "최대 지속시간 (초)"
+L["Buff Total Duration (sec)"] = "전체 강화효과 지속시간 (초)"
 L["Maximum duration for manual countdown. Used by duration triggers and ring/bar fill."] = "수동 카운트다운의 최대 지속시간. 지속시간 트리거 및 링/바 채움에 사용됩니다."
 L["Quick Add Consumables"] = "소모품 빠른 추가"
 L["Silvermoon Health Potion"] = "실버문 생명력 물약"
