@@ -3288,6 +3288,33 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         hidden = hiddenIfNotIcon,
     })
 
+    options["tracked" .. index .. "_showInactiveIcon"] = {
+        type = "toggle",
+        name = "    " .. L["Show Inactive Icon"],
+        desc = L["Keep this icon visible while its aura is inactive."],
+        order = orderBase + 1.80405,
+        width = 1.0,
+        hidden = hiddenIfNotIcon,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            if not buff or not buff.settings then return false end
+            return buff.settings.hideWhenZero == false
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            local buff = trackedBuffs[index]
+            if not buff or not buff.settings then return end
+
+            buff.settings.hideWhenZero = not val
+            if not val then
+                buff.settings.showInCombat = false
+                buff.settings.showOnlyWhenInactive = false
+            end
+            DDingUI:UpdateBuffTrackerBar()
+            RefreshOptions()
+        end,
+    }
+
     -- Icon Always Show In Combat (아이콘 전투중 항상 표시)
     options["tracked" .. index .. "_iconShowInCombat"] = CreateTrackedSettingOption("toggle", index, "showInCombat", false, {
         name = "    " .. (L["Always show in combat"] or "Always show in combat"),
@@ -4187,7 +4214,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         hidden = function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
-            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring" and buff.displayType ~= "icon")
+            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring")
         end,
         get = function()
             local buff = GetTrackedBuff(index)

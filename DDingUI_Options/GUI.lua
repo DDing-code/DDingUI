@@ -396,7 +396,8 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
     -- NOTE: btPanel 내부의 tabChild에서 RenderOptions를 호출할 때는 숨기지 않음
     if parentFrame and parentFrame.contentArea and parentFrame.contentArea._btPanel then
         local btPanel = parentFrame.contentArea._btPanel
-        local isInsideBtPanel = btPanel.tabChild and (contentFrame == btPanel.tabChild)
+        local isInsideBtPanel = btPanel.tabChild
+            and (contentFrame == btPanel.tabChild or contentFrame._insideBuffTrackerPanel)
         if not isInsideBtPanel then
             btPanel:Hide()
             -- 스크롤 UI 복원
@@ -457,8 +458,10 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
     if options.childGroups == "tab" then
         -- Get the parent frame's content area and scroll frame to make tabs sticky
-        local parentContentArea = parentFrame and parentFrame.contentArea
-        local parentScrollFrame = parentFrame and parentFrame.scrollFrame
+        local parentContentArea = contentFrame._nestedTabContentArea
+            or (parentFrame and parentFrame.contentArea)
+        local parentScrollFrame = contentFrame.scrollFrame
+            or (parentFrame and parentFrame.scrollFrame)
         local stickyPreview
         local stickyPreviewHeight = 0
         local cumulativeTabHeight = 0
@@ -561,6 +564,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         subScrollChild:SetPoint("TOPLEFT", subContentArea, "TOPLEFT", 10, -10)
         subScrollChild:SetPoint("RIGHT", subContentArea, "RIGHT", -10, 0)
         subScrollChild.widgets = {}
+        subScrollChild._insideBuffTrackerPanel = contentFrame._insideBuffTrackerPanel
         subScrollChild._preserveGroupStickyPreview = stickyPreview ~= nil
         -- Store tab container height so RenderOptions can account for it
         subScrollChild._tabContainerHeight = contentFrame._cumulativeTabHeight or (contentFrame._subTabContainerHeight or 35)
@@ -597,6 +601,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 if parentFrame then
                     parentFrame._requestedSubTabPath = nil
                 end
+                contentFrame._activeSubTabKey = item.key
                 for _, t in ipairs(subTabButtons) do
                     t:SetActive(false)
                 end
@@ -697,6 +702,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
             end
 
             local initialTab = sortedTabs[initialTabIndex]
+            contentFrame._activeSubTabKey = initialTab.key
             subTabButtons[initialTabIndex]:SetActive(true)
             RenderOptions(subScrollChild, initialTab.option, {unpack(path), initialTab.key}, parentFrame)
 

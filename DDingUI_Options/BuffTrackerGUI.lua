@@ -273,11 +273,26 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     if w then w:Hide(); w:SetParent(nil) end
                 end
             end
+            tabChild.subScrollChild:Hide()
+            tabChild.subScrollChild:SetParent(nil)
             tabChild.subScrollChild = nil
+        end
+        if tabChild.subTabButtons then
+            for _, button in ipairs(tabChild.subTabButtons) do
+                button:Hide()
+                button:SetParent(nil)
+            end
+            tabChild.subTabButtons = nil
         end
         if tabChild.subTabContainer then
             tabChild.subTabContainer:Hide()
+            tabChild.subTabContainer:SetParent(nil)
             tabChild.subTabContainer = nil
+        end
+        if tabChild.subContentArea then
+            tabChild.subContentArea:Hide()
+            tabChild.subContentArea:SetParent(nil)
+            tabChild.subContentArea = nil
         end
         tabChild:SetHeight(1)
         tabScrollFrame:SetVerticalScroll(0)
@@ -1590,9 +1605,81 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         if dType == "icon" then
             tabDefs[#tabDefs + 1] = {
                 name = L["Icon"] or "Icon",
-                filter = function(key, order)
-                    return order >= 1.1 and order < 1.81
-                end,
+                childGroups = "tab",
+                sections = {
+                    {
+                        key = "visibility",
+                        name = L["Visibility"],
+                        filter = function(key)
+                            return key:find("_showInactiveIcon", 1, true)
+                                or key:find("_iconShowInCombat", 1, true)
+                                or key:find("_iconOnlyInCombat", 1, true)
+                                or key:find("_showOnlyWhenInactive", 1, true)
+                                or key:find("_iconDesaturate", 1, true)
+                        end,
+                    },
+                    {
+                        key = "appearance",
+                        name = L["Appearance"] or "Appearance",
+                        filter = function(key)
+                            return key:find("_iconSource", 1, true)
+                                or key:find("_customIconID", 1, true)
+                                or key:find("_iconSize", 1, true)
+                                or key:find("_showIconBorder", 1, true)
+                                or key:find("_iconBorderSize", 1, true)
+                                or key:find("_iconBorderColor", 1, true)
+                                or key:find("_iconZoom", 1, true)
+                                or key:find("_iconAspectRatio", 1, true)
+                        end,
+                    },
+                    {
+                        key = "position",
+                        name = L["Position"] or "Position",
+                        filter = function(key)
+                            return key:find("_iconAttachTo", 1, true)
+                                or key:find("_iconAnchorPoint", 1, true)
+                                or key:find("_iconSelfPoint", 1, true)
+                                or key:find("_iconOffsetX", 1, true)
+                                or key:find("_iconOffsetY", 1, true)
+                        end,
+                    },
+                    {
+                        key = "stackText",
+                        name = L["Stack Text"],
+                        filter = function(key)
+                            return key:find("_iconStack", 1, true) ~= nil
+                        end,
+                    },
+                    {
+                        key = "durationText",
+                        name = L["Duration Text"] or "Duration Text",
+                        filter = function(key)
+                            return key:find("_showDurationText", 1, true)
+                                or key:find("_durationTextFont", 1, true)
+                                or key:find("_durationTextSize", 1, true)
+                                or key:find("_durationTextAlign", 1, true)
+                                or key:find("_durationTextX", 1, true)
+                                or key:find("_durationTextY", 1, true)
+                                or key:find("_durationTextColor", 1, true)
+                                or key:find("_durationDecimals", 1, true)
+                                or key:find("_durationWarning", 1, true)
+                        end,
+                    },
+                    {
+                        key = "effects",
+                        name = L["Effects"],
+                        filter = function(key)
+                            return key:find("_iconAnimation", 1, true)
+                                or key:find("_glowWhenInactive", 1, true)
+                                or key:find("_glowColor", 1, true)
+                                or key:find("_glowLines", 1, true)
+                                or key:find("_glowFrequency", 1, true)
+                                or key:find("_glowThickness", 1, true)
+                                or key:find("_glowXOffset", 1, true)
+                                or key:find("_glowYOffset", 1, true)
+                        end,
+                    },
+                },
             }
         elseif dType == "sound" then
             tabDefs[#tabDefs + 1] = {
@@ -1691,14 +1778,13 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
 
         -- ─── 각 탭의 옵션 분류 ───
         local tabGroups = {}
-        for i, def in ipairs(tabDefs) do
+        local function CollectOptions(filter)
             local args = {}
             local hasVisible = false
             for key, opt in pairs(allOpts) do
                 local oOrder = opt.order or 999
-                if def.filter(key, oOrder) then
+                if filter(key, oOrder) then
                     args[key] = opt
-                    -- hidden 체크 (함수이면 호출)
                     local isHidden = false
                     if type(opt.hidden) == "function" then
                         local ok, result = pcall(opt.hidden)
@@ -1709,7 +1795,35 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     if not isHidden then hasVisible = true end
                 end
             end
-            tabGroups[i] = { name = def.name, args = args, hasVisible = hasVisible }
+            return args, hasVisible
+        end
+
+        for i, def in ipairs(tabDefs) do
+            if def.sections then
+                local sectionGroups = {}
+                local hasVisible = false
+                for sectionOrder, section in ipairs(def.sections) do
+                    local sectionArgs, sectionVisible = CollectOptions(section.filter)
+                    if next(sectionArgs) then
+                        sectionGroups[section.key] = {
+                            type = "group",
+                            name = section.name,
+                            order = sectionOrder,
+                            args = sectionArgs,
+                        }
+                        if sectionVisible then hasVisible = true end
+                    end
+                end
+                tabGroups[i] = {
+                    name = def.name,
+                    args = sectionGroups,
+                    hasVisible = hasVisible,
+                    childGroups = def.childGroups,
+                }
+            else
+                local args, hasVisible = CollectOptions(def.filter)
+                tabGroups[i] = { name = def.name, args = args, hasVisible = hasVisible }
+            end
         end
 
         -- ─── 탭 버튼 생성 ───
@@ -1819,7 +1933,20 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         self.selectedTab = btnIdx
 
         -- 탭 콘텐츠 렌더링
-        local pageOpts = { type = "group", name = tabGroup.name, args = tabGroup.args }
+        tabChild.scrollFrame = tabScrollFrame
+        tabChild._nestedTabContentArea = rightPanel
+        tabChild._insideBuffTrackerPanel = true
+        if tabGroup.childGroups == "tab" and tabChild._activeSubTabKey then
+            parentFrame._requestedSubTabPath = { tabChild._activeSubTabKey }
+        else
+            parentFrame._requestedSubTabPath = nil
+        end
+        local pageOpts = {
+            type = "group",
+            name = tabGroup.name,
+            args = tabGroup.args,
+            childGroups = tabGroup.childGroups,
+        }
         RenderOptions(tabChild, pageOpts, {}, parentFrame)
 
         -- 높이 갱신
