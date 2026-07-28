@@ -4986,6 +4986,24 @@ function DDingUI:BuildGroupIconDetailArgs(groupName)
         return found
     end
 
+    local function FlattenMenuChoices(menuList, result)
+        result = result or {}
+        for _, choice in ipairs(menuList or {}) do
+            if not choice.isSeparator and not choice.isTitle then
+                if choice.menuList then
+                    if not FlattenMenuChoices(choice.menuList, result) then
+                        return nil
+                    end
+                elseif choice.text and type(choice.func) == "function" and choice.checked ~= nil then
+                    result[#result + 1] = choice
+                else
+                    return nil
+                end
+            end
+        end
+        return result
+    end
+
     local function ConvertMenuItems(menuItems, prefix)
         local args = {}
         local order = 0
@@ -4994,10 +5012,14 @@ function DDingUI:BuildGroupIconDetailArgs(groupName)
                 order = order + 1
                 local key = tostring(prefix or "item") .. "_" .. tostring(index)
                 local capturedItem = item
+                local choiceList = item.menuList and (
+                    item.flattenChoices and FlattenMenuChoices(item.menuList)
+                    or (IsChoiceList(item.menuList) and item.menuList)
+                )
 
-                if item.menuList and IsChoiceList(item.menuList) then
+                if choiceList then
                     local values = {}
-                    for choiceIndex, choice in ipairs(item.menuList) do
+                    for choiceIndex, choice in ipairs(choiceList) do
                         if not choice.isSeparator then
                             values[tostring(choiceIndex)] = choice.text
                         end
@@ -5008,26 +5030,36 @@ function DDingUI:BuildGroupIconDetailArgs(groupName)
                         order = order,
                         width = "full",
                         values = values,
+                        sorting = function()
+                            local keys = {}
+                            for choiceIndex = 1, #choiceList do
+                                keys[choiceIndex] = tostring(choiceIndex)
+                            end
+                            return keys
+                        end,
                         get = function()
-                            for choiceIndex, choice in ipairs(capturedItem.menuList or {}) do
+                            for choiceIndex, choice in ipairs(choiceList) do
                                 local checked = type(choice.checked) == "function" and choice.checked() or choice.checked
                                 if checked then return tostring(choiceIndex) end
                             end
                             return "1"
                         end,
                         set = function(_, value)
-                            local choice = capturedItem.menuList and capturedItem.menuList[tonumber(value)]
+                            local choice = choiceList[tonumber(value)]
                             RunMenuAction(choice)
                         end,
                     }
                 elseif item.menuList then
-                    args[key] = {
-                        type = "group",
+                    args[key .. "_header"] = {
+                        type = "header",
                         name = item.text,
                         order = order,
-                        inline = true,
-                        args = ConvertMenuItems(item.menuList, key),
                     }
+                    local childArgs = ConvertMenuItems(item.menuList, key)
+                    for childKey, childOption in pairs(childArgs) do
+                        childOption.order = order + ((tonumber(childOption.order) or 0) / 100)
+                        args[childKey] = childOption
+                    end
                 elseif item.swatch and item.setColor then
                     args[key] = {
                         type = "color",

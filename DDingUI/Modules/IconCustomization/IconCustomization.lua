@@ -1558,7 +1558,9 @@ local function BuildSoundContextMenuItem(label, key, Current, ApplySetting)
     local soundNames = {}
     if LSM and LSM.HashTable then
         for name in pairs(LSM:HashTable("sound") or {}) do
-            soundNames[#soundNames + 1] = name
+            if name ~= "None" and name ~= "none" then
+                soundNames[#soundNames + 1] = name
+            end
         end
         table.sort(soundNames)
     end
@@ -1595,6 +1597,7 @@ local function BuildSoundContextMenuItem(label, key, Current, ApplySetting)
         text = label,
         rightText = selected ~= "none" and selected or (L["None"] or "None"),
         menuList = choices,
+        flattenChoices = true,
     }
 end
 
