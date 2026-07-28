@@ -1522,7 +1522,6 @@ local function BuildBuffCandidateRows(groupName)
         local spellID = SafeOptionID(row.spellID)
         if spellID and not seen[spellID] then
             seen[spellID] = true
-            row.addAsAura = true
             rows[#rows + 1] = row
         end
     end
@@ -1545,7 +1544,6 @@ local function BuildBuffCandidateRows(groupName)
                     iconTex = ResolveCDMEntryIconTexture(entry, spellName, entry.icon),
                     displayName = ((entry.name or spellName):gsub("^buff_", "")),
                     fallbackOrder = tonumber(entry.layoutIndex) or index,
-                    addAsAura = true,
                 }
             end
         end
@@ -3087,9 +3085,6 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
                     label = row.displayName or row.spellName or "Unknown",
                     icon = NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE),
                     action = function()
-                        if row.addAsAura and row.spellID then
-                            return AddSpellIDToGroup(groupName, row.spellID, "aura")
-                        end
                         return AddUnassignedRowToGroup(groupName, row)
                     end,
                 }

@@ -51,6 +51,11 @@ local function IsBuffGroup(groupName, groupSettings)
     return groupSettings and groupSettings.groupCategory == "buff"
 end
 
+local function ShouldConvertCopiedBuffIcons(groupName, groupSettings)
+    return groupSettings
+        and (IsBuffGroup(groupName, groupSettings) or groupSettings.groupType ~= "dynamic")
+end
+
 local function CanAssignCDMSpellToGroup(spellName, groupName, groupSettings)
     return groupSettings ~= nil
 end
@@ -1048,16 +1053,16 @@ local function ConvertCopiedBuffDynamicIcons(gs)
     local converted = {}
     local matchContext
     for groupName, groupSettings in pairs(gs.groups) do
-        if groupSettings and IsBuffGroup(groupName, groupSettings) then
+        if ShouldConvertCopiedBuffIcons(groupName, groupSettings) then
             local sourceKey = groupSettings.sourceGroupKey
             local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
             if dynGroup and dynGroup.icons then
                 for _, iconKey in ipairs(dynGroup.icons) do
                     local iconData = iconDataDB[iconKey]
-                    local spellName = GetCopiedCDMBuffSpellName(iconData)
-                    if not spellName then
-                        matchContext = matchContext or GetCDMBuffMatchContext()
-                        spellName = FindInCDMBuffMatchContext(iconData, matchContext)
+                    matchContext = matchContext or GetCDMBuffMatchContext()
+                    local spellName = FindInCDMBuffMatchContext(iconData, matchContext)
+                    if not spellName and IsBuffGroup(groupName, groupSettings) then
+                        spellName = GetCopiedCDMBuffSpellName(iconData)
                     end
                     if spellName then
                         converted[#converted + 1] = {
@@ -1129,7 +1134,7 @@ local function BuildCopiedBuffConversionSignature(gs)
     if gs and gs.groups and iconDataDB and dynamicGroups then
         local groupNames = {}
         for groupName, groupSettings in pairs(gs.groups) do
-            if groupSettings and IsBuffGroup(groupName, groupSettings) and groupSettings.sourceGroupKey then
+            if ShouldConvertCopiedBuffIcons(groupName, groupSettings) and groupSettings.sourceGroupKey then
                 groupNames[#groupNames + 1] = groupName
             end
         end
