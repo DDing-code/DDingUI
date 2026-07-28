@@ -470,6 +470,40 @@ local function SafeColor(c, fallbackR, fallbackG, fallbackB, fallbackA)
     return fallbackR or 0, fallbackG or 0, fallbackB or 0, fallbackA or 1
 end
 
+local function ReconcileAuraVisualSettings(icon, cooldown, cdd, settings)
+    local pid = iconData[icon]
+    if not pid then return end
+
+    local hostShown = pid.auraGlowHost
+        and pid.auraGlowHost.IsShown
+        and pid.auraGlowHost:IsShown()
+    local hadAuraGlow = pid.auraGlowActive or pid.auraGlowWanted or hostShown
+    if not hadAuraGlow then return end
+
+    local hasAura = pid.isAuraSwipe == true or IconHasAuraState(icon, cooldown)
+    if settings.auraGlow and hasAura then
+        ShowAuraGlow(icon, pid, settings)
+        return
+    end
+
+    StopAuraGlow(icon, pid)
+    if not hasAura or settings.hideActiveState then return end
+
+    if cooldown.SetDrawSwipe then
+        cdd.bypassSwipeHook = true
+        cooldown:SetDrawSwipe(true)
+        cdd.bypassSwipeHook = nil
+    end
+
+    if cooldown.SetSwipeColor then
+        local color = settings.auraSwipeColor or pid.nativeAuraSwipeColor
+        local r, g, b, a = SafeColor(color, 1, 1, 0.5, 0.8)
+        cdd.bypassColorHook = true
+        cooldown:SetSwipeColor(r, g, b, a)
+        cdd.bypassColorHook = nil
+    end
+end
+
 function IconViewers:SkinIcon(icon, settings)
     -- Skip skinning during EditMode to avoid triggering Blizzard secret value errors
     -- Check both IsShown() and editModeActive for complete protection
@@ -731,6 +765,7 @@ function IconViewers:SkinIcon(icon, settings)
 
         -- Store settings reference in weak table for hooks to access
         local cdd = GetCdData(icon.Cooldown)
+        ReconcileAuraVisualSettings(icon, icon.Cooldown, cdd, settings)
         cdd.settings = settings
         cdd.parentIcon = icon
         if not settings.hideActiveState then
@@ -753,6 +788,9 @@ function IconViewers:SkinIcon(icon, settings)
                 local pid = iconData[parentIcon]
                 if not pid then pid = {}; iconData[parentIcon] = pid end
                 local now = GetTime and GetTime() or 0
+                if isAuraSwipe then
+                    pid.nativeAuraSwipeColor = { r, g, b, a or 1 }
+                end
                 if not isAuraSwipe and IconHasAuraState(parentIcon, self) then
                     isAuraSwipe = true
                 end
