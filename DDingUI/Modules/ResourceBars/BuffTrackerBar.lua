@@ -2558,6 +2558,7 @@ local function GetSoundTracker(barIndex)
             lastPlayTime = 0,
             wasActive = false,
             lastIntervalPlay = 0,
+            endBeforePlayed = false,
         }
     end
     return soundTrackers[barIndex]
@@ -2594,6 +2595,8 @@ ResetAllSoundTrackers = function()
             tracker.wasActive = false
             tracker.lastPlayTime = 0
             tracker.lastIntervalPlay = 0
+            tracker.buffStartTime = nil
+            tracker.endBeforePlayed = false
         end
     end
 end
@@ -4664,7 +4667,11 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local dynamicDuration = settings.dynamicDuration or false
     local hideWhenZero = settings.hideWhenZero
     if hideWhenZero == nil then hideWhenZero = true end
-    local alwaysShowInCombat = settings.alwaysShowInCombat or false
+    local showInCombat = settings.showInCombat
+    if showInCombat == nil then
+        showInCombat = settings.alwaysShowInCombat or false
+    end
+    local onlyInCombat = settings.onlyInCombat or false
 
     -- Attach frame settings
     local attachTo = ResolveTrackedAnchorName(settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns", barIndex, "Bar")
@@ -4780,11 +4787,16 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     end
 
     -- Visibility check (include preview/mover mode - uses file-local isInPreviewMode, isInMoverMode)
-    local inCombat = UnitAffectingCombat("player")
+    local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
     local shouldShow = hasData or isInPreviewMode or isInMoverMode
 
+    if onlyInCombat and not inCombat and not isInPreviewMode and not isInMoverMode then
+        bar:Hide()
+        return
+    end
+
     if not shouldShow and hideWhenZero then
-        if not (alwaysShowInCombat and inCombat) then
+        if not (showInCombat and inCombat) then
             bar:Hide()
             return
         end
@@ -5822,9 +5834,9 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     -- MANUAL TRACKING MODE: Use spell-cast-based stacks instead of aura
     -- ============================================================
     local isManualMode = trackedBuff.trackingMode == "manual"
-    local manualStackCount = nil
+    local manualStackCount, manualExpiresAt = nil, nil
     if isManualMode then
-        manualStackCount = GetManualStacks(barIndex)
+        manualStackCount, manualExpiresAt = GetManualStacks(barIndex)
     end
 
     -- Get tracking data
@@ -5843,6 +5855,9 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     end
 
     local now = GetTime()
+    if hasData and not tracker.wasActive then
+        tracker.endBeforePlayed = false
+    end
 
     -- Handle sound triggers
     if soundTrigger == "start" then
@@ -5871,16 +5886,22 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
         end
     elseif soundTrigger == "endBefore" then
         -- Play X seconds before buff ends (requires duration tracking)
-        if hasData and auraInstanceID then
+        if hasData and not tracker.endBeforePlayed and isManualMode and manualExpiresAt then
+            local timeLeft = manualExpiresAt - now
+            if timeLeft > 0 and timeLeft <= soundEndBefore then
+                PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
+                tracker.lastPlayTime = now
+                tracker.endBeforePlayed = true
+            end
+        elseif hasData and not tracker.endBeforePlayed and auraInstanceID then
             pcall(function()
                 local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                 if auraData and auraData.expirationTime then
                     local timeLeft = auraData.expirationTime - now
                     if timeLeft > 0 and timeLeft <= soundEndBefore then
-                        if now - tracker.lastPlayTime > 1 then  -- Prevent spam
-                            PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
-                            tracker.lastPlayTime = now
-                        end
+                        PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
+                        tracker.lastPlayTime = now
+                        tracker.endBeforePlayed = true
                     end
                 end
             end)
@@ -5897,6 +5918,10 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
         end
     end
 
+    if not hasData then
+        tracker.buffStartTime = nil
+        tracker.endBeforePlayed = false
+    end
     tracker.wasActive = hasData
 
     if BUFF_TRACKER_DEBUG then
