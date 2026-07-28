@@ -2085,12 +2085,7 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
 
     local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     CustomIcons.StopIconDesatUpdater(iconFrame)
-    local racialAuraActive = false
-    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-        pcall(function()
-            racialAuraActive = C_UnitAuras.GetPlayerAuraBySpellID(racialID) ~= nil
-        end)
-    end
+    local racialAuraActive = racials and racials:IsAuraActive(racialID) or false
 
     local cdInfo
     local durObj

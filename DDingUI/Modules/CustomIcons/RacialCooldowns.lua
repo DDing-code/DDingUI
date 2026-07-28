@@ -4,8 +4,14 @@ local DDingUI = ns.Addon
 local RacialCooldowns = {}
 DDingUI.CustomIconRacials = RacialCooldowns
 
+local ORC_RACIAL_SPELLS = { 20572, 33697, 33702 }
+local DRAENEI_RACIAL_SPELLS = {
+    28880, 59543, 59545, 121093, 59544,
+    370626, 59547, 59548, 59542, 416250,
+}
+
 local RACIAL_SPELLS = {
-    Orc = { 20572, 33697, 33702 },
+    Orc = ORC_RACIAL_SPELLS,
     Tauren = { 20549 },
     NightElf = { 58984 },
     Human = { 59752 },
@@ -14,7 +20,7 @@ local RACIAL_SPELLS = {
     Troll = { 26297 },
     BloodElf = { 202719, 50613, 25046, 69179, 80483, 155145, 129597, 232633, 28730 },
     Gnome = { 20589 },
-    Draenei = { 28880 },
+    Draenei = DRAENEI_RACIAL_SPELLS,
     Worgen = { 68992 },
     Goblin = { 69070 },
     Pandaren = { 107079 },
@@ -31,6 +37,20 @@ local RACIAL_SPELLS = {
     Dracthyr = { 357214, 368970 },
     EarthenDwarf = { 436344 },
     Haranir = { 1287685 },
+}
+
+-- Some racial abilities apply a separate aura spell instead of their cast spell.
+local RACIAL_AURA_SPELLS = {
+    Orc = ORC_RACIAL_SPELLS,
+    NightElf = { 58984 },
+    Dwarf = { 65116, 20594 },
+    Troll = { 26297 },
+    Draenei = DRAENEI_RACIAL_SPELLS,
+    Worgen = { 68992 },
+    VoidElf = { 256948 },
+    DarkIronDwarf = { 273104, 265226, 265221 },
+    MagharOrc = { 274739, 274740, 274741, 274742, 274738 },
+    ZandalariTroll = { 291944 },
 }
 
 local cacheRaceKey
@@ -110,11 +130,31 @@ local function ResolveSpellTexture(spellID)
     return texture
 end
 
+local function HasPlayerAura(spellID)
+    return spellID
+        and C_UnitAuras
+        and C_UnitAuras.GetPlayerAuraBySpellID
+        and C_UnitAuras.GetPlayerAuraBySpellID(spellID) ~= nil
+end
+
 function RacialCooldowns:ClearCache()
     cacheRaceKey = nil
     cacheSpecID = nil
     cacheSpellID = nil
     cacheTexture = nil
+end
+
+function RacialCooldowns:IsAuraActive(spellID)
+    local auraSpellIDs = RACIAL_AURA_SPELLS[GetRaceKey()]
+    if auraSpellIDs then
+        for _, auraSpellID in ipairs(auraSpellIDs) do
+            if HasPlayerAura(auraSpellID) then
+                return true
+            end
+        end
+    end
+
+    return HasPlayerAura(spellID)
 end
 
 function RacialCooldowns:GetSpellID()
