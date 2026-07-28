@@ -2607,6 +2607,7 @@ end
 -- ============================================================
 
 local alertRuntimeOwners = setmetatable({}, { __mode = "k" })
+local groupAlertColorOverrides = {}
 
 local function GetAlertRuntimeOwner(trackedBuff)
     local owner = alertRuntimeOwners[trackedBuff]
@@ -2615,6 +2616,40 @@ local function GetAlertRuntimeOwner(trackedBuff)
         alertRuntimeOwners[trackedBuff] = owner
     end
     return owner
+end
+
+local function HasGroupColorAction(trackedBuff)
+    local alerts = trackedBuff
+        and trackedBuff.settings
+        and trackedBuff.settings.alerts
+    if not alerts or not alerts.enabled then return false end
+
+    for _, action in ipairs(alerts.actions or {}) do
+        if action.type == "color" and action.colorTarget == "group" then
+            return true
+        end
+    end
+    return false
+end
+
+local function SetGroupAlertColorOverride(trackedBuff, sourceIndex, actionIndex, color)
+    local groupIndex = tonumber(trackedBuff and trackedBuff.parentGroup)
+    if not groupIndex or not color then return end
+
+    local priority = (tonumber(sourceIndex) or 0) * 100 + (tonumber(actionIndex) or 0)
+    local current = groupAlertColorOverrides[groupIndex]
+    if not current or priority >= current.priority then
+        groupAlertColorOverrides[groupIndex] = {
+            color = color,
+            priority = priority,
+        }
+    end
+end
+
+local function GetGroupAlertColorOverride(trackedBuff)
+    local groupIndex = tonumber(trackedBuff and trackedBuff.parentGroup)
+    local override = groupIndex and groupAlertColorOverrides[groupIndex]
+    return override and override.color or nil
 end
 
 local function EvaluateComparison(current, op, target)
@@ -2860,12 +2895,19 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
                     if DDingUI.secondaryPowerBar then
                         DDingUI.secondaryPowerBar._ddingColorOverride = action.color
                     end
+                elseif colorTarget == "group" then
+                    SetGroupAlertColorOverride(
+                        trackedBuff,
+                        sourceIndex,
+                        actionIdx,
+                        action.color
+                    )
                 elseif colorTarget == "icon" then
                     frame._alertIconColorOverride = action.color
                 elseif colorTarget == "border" then
                     frame._alertBorderColorOverride = action.color
                 else
-                    -- self/group: 트래커 자체 색상 변경
+                    -- Tracker itself
                     frame._alertColorOverride = action.color
                 end
             elseif restrictedStackTrigger and action.color
@@ -3449,6 +3491,7 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- ============================================================
     local trackedBuffs = GetTrackedBuffs()
     local useTrackedBuffSystem = (#trackedBuffs > 0)
+    wipe(groupAlertColorOverrides)
     if ConditionalVisuals then
         ConditionalVisuals:BeginPass()
     end
@@ -3469,6 +3512,8 @@ function ResourceBars:UpdateBuffTrackerBar()
     if useTrackedBuffSystem then
         local groupChildOwners = {}
         local activeGroups = {}
+        local updateOrder = {}
+        local groupColorSources = {}
         for groupIndex, buff in ipairs(trackedBuffs) do
             if buff.isGroup then
                 activeGroups[groupIndex] = groupRuntime:IsActive(buff)
@@ -3478,10 +3523,20 @@ function ResourceBars:UpdateBuffTrackerBar()
                     end
                 end
             end
+            if HasGroupColorAction(buff) then
+                groupColorSources[groupIndex] = true
+                updateOrder[#updateOrder + 1] = groupIndex
+            end
+        end
+        for trackerIndex in ipairs(trackedBuffs) do
+            if not groupColorSources[trackerIndex] then
+                updateOrder[#updateOrder + 1] = trackerIndex
+            end
         end
 
-        -- Update each tracked buff based on its display type
-        for barIndex, trackedBuff in ipairs(trackedBuffs) do
+        -- Group-wide color sources run first so every child sees the same state.
+        for _, barIndex in ipairs(updateOrder) do
+            local trackedBuff = trackedBuffs[barIndex]
             local ownerGroup = groupChildOwners[barIndex]
             if trackedBuff.isGroup
                or trackedBuff.enabled == false
@@ -3852,6 +3907,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     ScheduleAlertEvaluation(bar, alertResult)
     if bar._alertColorOverride then
         barColor = bar._alertColorOverride
+    else
+        barColor = GetGroupAlertColorOverride(trackedBuff) or barColor
     end
 
     -- ============================================================
@@ -4644,6 +4701,14 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         current = trackedStacks or 0
         hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     end
+
+    local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
+    ApplyAlertActions(alertResult, trackedBuff, bar, barIndex)
+    ScheduleAlertEvaluation(bar, alertResult)
+    ringColor = bar._alertColorOverride
+        or GetGroupAlertColorOverride(trackedBuff)
+        or ringColor
+
     -- Duration 데이터 가져오기
         if hasData and auraInstanceID then
             pcall(function()
@@ -5243,6 +5308,8 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         iconBorderColor = icon._alertBorderColorOverride
     elseif icon._alertColorOverride then
         iconBorderColor = icon._alertColorOverride
+    else
+        iconBorderColor = GetGroupAlertColorOverride(trackedBuff) or iconBorderColor
     end
 
     -- CDM에서 숨기기 (추적 중인 버프를 CDM에서 숨김 - 중복 방지)
@@ -5900,6 +5967,8 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     ScheduleAlertEvaluation(textFrame, alertResult)
     if textFrame._alertColorOverride then
         textColor = textFrame._alertColorOverride
+    else
+        textColor = GetGroupAlertColorOverride(trackedBuff) or textColor
     end
 
     -- CDM에서 숨기기 (추적 중인 버프를 CDM에서 숨김 - 중복 방지)
