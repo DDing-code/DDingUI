@@ -3358,7 +3358,11 @@ function groupRuntime:Layout(groupIndex, group, trackedBuffs)
     end
 
     groupFrame:SetFrameStrata(settings.frameStrata or "MEDIUM")
-    groupFrame:SetSize(math_max(width, DDingUI:Scale(160)), math_max(height, DDingUI:Scale(24)))
+    if #children == 0 then
+        width = DDingUI:Scale(160)
+        height = DDingUI:Scale(24)
+    end
+    groupFrame:SetSize(math_max(width, 1), math_max(height, 1))
 
     if ShouldApplyTrackerFramePosition() or groupFrame:GetNumPoints() == 0 then
         local attachTo = NormalizeTrackerAnchorName(settings.attachTo or "UIParent")

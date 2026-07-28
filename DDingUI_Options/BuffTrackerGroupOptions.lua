@@ -108,9 +108,28 @@ function DDingUI.CreateGroupOptions(groupIdx)
                 opts["DDingUI_Player"] = L["Player Frame (Custom)"] or "Player Frame (Custom)"
             end
             opts["PlayerFrame"] = L["Default Player Frame"] or "Default Player Frame"
+
+            if DDingUI.GetViewerOptions then
+                local viewerOptions = DDingUI:GetViewerOptions()
+                for key, label in pairs(viewerOptions or {}) do
+                    opts[key] = label
+                end
+            end
+
+            local current = group.groupSettings and group.groupSettings.attachTo
+            if current and current ~= "" and not opts[current] then
+                local knownLabels = {
+                    DDingUI_Group_Cooldowns = L["Essential Cooldowns"] or "Essential Cooldowns",
+                    DDingUI_Group_Buffs = L["Buff Icons"] or "Buff Icons",
+                    DDingUI_Group_Utility = L["Utility Cooldowns"] or "Utility Cooldowns",
+                }
+                opts[current] = knownLabels[current] or current
+            end
             return opts
         end,
-        get = function() return gs.attachTo or "UIParent" end,
+        get = function()
+            return (group.groupSettings and group.groupSettings.attachTo) or "UIParent"
+        end,
         set = function(_, val)
             group.groupSettings.attachTo = val
             DDingUI:UpdateBuffTrackerBar()
