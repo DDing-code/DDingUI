@@ -255,6 +255,60 @@ local function CreateSectionMenu(parent, menuData, opts)
     return menu
 end
 
+local function CleanupNestedOptionFrames(contentFrame, parentFrame)
+    if not contentFrame then return end
+
+    if contentFrame.subScrollChild then
+        CleanupNestedOptionFrames(contentFrame.subScrollChild, parentFrame)
+    end
+
+    if contentFrame._stickyPreview then
+        local stickyPreview = contentFrame._stickyPreview
+        stickyPreview:Hide()
+        stickyPreview:SetParent(nil)
+        if parentFrame and parentFrame.contentArea
+            and parentFrame.contentArea._groupStickyPreview == stickyPreview
+        then
+            parentFrame.contentArea._groupStickyPreview = nil
+        end
+        contentFrame._stickyPreview = nil
+    end
+
+    if contentFrame.subTabButtons then
+        for _, button in ipairs(contentFrame.subTabButtons) do
+            if button then
+                button:Hide()
+                button:SetParent(nil)
+            end
+        end
+        contentFrame.subTabButtons = nil
+    end
+
+    if contentFrame.subTabContainer then
+        contentFrame.subTabContainer:Hide()
+        contentFrame.subTabContainer:SetParent(nil)
+        contentFrame.subTabContainer = nil
+    end
+    if contentFrame.subContentArea then
+        contentFrame.subContentArea:Hide()
+        contentFrame.subContentArea:SetParent(nil)
+        contentFrame.subContentArea = nil
+    end
+
+    if contentFrame.widgets then
+        for index = #contentFrame.widgets, 1, -1 do
+            local widget = contentFrame.widgets[index]
+            if widget then
+                widget:Hide()
+                widget:SetParent(nil)
+            end
+        end
+    end
+    contentFrame.widgets = {}
+    contentFrame.subScrollChild = nil
+    contentFrame._updateSubTabHeight = nil
+end
+
 -- ============================================================
 -- [REFACTOR] WeakAuras-style Buff Tracker Panel
 -- contentArea 안에 좌측 리스트 + 우측 탭 split-view를 임베딩
@@ -262,6 +316,8 @@ end
 RenderOptions = function(contentFrame, options, path, parentFrame)
     path = path or {}
     parentFrame = parentFrame or contentFrame:GetParent():GetParent()
+
+    CleanupNestedOptionFrames(contentFrame, parentFrame)
 
     if parentFrame and parentFrame.contentArea and not contentFrame._preserveGroupStickyPreview then
         local stickyPreview = parentFrame.contentArea._groupStickyPreview
@@ -341,6 +397,24 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         local parentScrollFrame = parentFrame and parentFrame.scrollFrame
         local stickyPreview
         local stickyPreviewHeight = 0
+        local cumulativeTabHeight = 0
+        local parentSubTabContainer
+
+        local parentContainer = contentFrame:GetParent()
+        if parentContainer then
+            local grandParentFrame = parentContainer:GetParent()
+            if grandParentFrame and grandParentFrame.subTabContainer then
+                parentSubTabContainer = grandParentFrame.subTabContainer
+                cumulativeTabHeight = grandParentFrame._cumulativeTabHeight
+                    or grandParentFrame._subTabContainerHeight
+                    or 35
+            elseif parentContainer.subTabContainer then
+                parentSubTabContainer = parentContainer.subTabContainer
+                cumulativeTabHeight = parentContainer._cumulativeTabHeight
+                    or parentContainer._subTabContainerHeight
+                    or 35
+            end
+        end
 
         if options.stickyGroupPreview and parentContentArea and parentScrollFrame
             and DDingUI.BuildGroupAssignedIconGridUI
@@ -348,8 +422,13 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
             stickyPreview = CreateFrame("Frame", nil, parentContentArea, "BackdropTemplate")
             stickyPreview:SetFrameStrata("DIALOG")
             stickyPreview:SetFrameLevel((parentScrollFrame:GetFrameLevel() or 1) + 9)
-            stickyPreview:SetPoint("TOPLEFT", parentScrollFrame, "TOPLEFT", 0, 0)
-            stickyPreview:SetPoint("TOPRIGHT", parentScrollFrame, "TOPRIGHT", 0, 0)
+            if parentSubTabContainer then
+                stickyPreview:SetPoint("TOPLEFT", parentSubTabContainer, "BOTTOMLEFT", 0, 0)
+                stickyPreview:SetPoint("TOPRIGHT", parentSubTabContainer, "BOTTOMRIGHT", 0, 0)
+            else
+                stickyPreview:SetPoint("TOPLEFT", parentScrollFrame, "TOPLEFT", 0, 0)
+                stickyPreview:SetPoint("TOPRIGHT", parentScrollFrame, "TOPRIGHT", 0, 0)
+            end
             CreateBackdrop(stickyPreview, {THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.98}, {0, 0, 0, 1})
 
             local previewWidth = math.max(240, (parentScrollFrame:GetWidth() or contentFrame:GetWidth() or 760) - 20)
@@ -362,27 +441,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
             stickyPreview:SetHeight(stickyPreviewHeight)
             stickyPreview._previewHolder = previewHolder
             parentContentArea._groupStickyPreview = stickyPreview
-        end
-
-        -- Check if we're in a nested tab situation (sub-sub tabs)
-        -- Look for parent sub tab containers to calculate offset
-        local cumulativeTabHeight = 0
-        local parentSubTabContainer = nil
-
-        -- When nested, contentFrame is a subScrollChild, whose parent is subContentArea,
-        -- whose parent is the parent contentFrame that has the subTabContainer
-        local parentContainer = contentFrame:GetParent()
-        if parentContainer then
-            local grandParentFrame = parentContainer:GetParent()
-            if grandParentFrame and grandParentFrame.subTabContainer then
-                -- Found parent sub tab container
-                parentSubTabContainer = grandParentFrame.subTabContainer
-                cumulativeTabHeight = cumulativeTabHeight + (grandParentFrame._subTabContainerHeight or 35)
-            elseif parentContainer.subTabContainer then
-                -- Parent frame itself has sub tab container
-                parentSubTabContainer = parentContainer.subTabContainer
-                cumulativeTabHeight = cumulativeTabHeight + (parentContainer._subTabContainerHeight or 35)
-            end
+            contentFrame._stickyPreview = stickyPreview
         end
 
         -- Create sub tab container as child of contentArea (not scrollChild) so it stays fixed
