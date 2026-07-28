@@ -5536,15 +5536,13 @@ function DDingUI:BuildGroupGlowArgs(groupName)
         args["icon_" .. tostring(key)] = option
     end
 
-    args.groupDefaultsHeader = {
-        type = "header",
+    args.groupDefaults = {
+        type = "group",
         name = rawget(L, "Group Default Glow") or "Group Default Glow",
         order = 100,
+        inline = true,
+        args = BuildCustomVisualArgs(groupName),
     }
-    for key, option in pairs(BuildCustomVisualArgs(groupName)) do
-        option.order = (tonumber(option.order) or 0) + 100
-        args["group_" .. tostring(key)] = option
-    end
     return args
 end
 

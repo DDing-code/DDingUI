@@ -659,25 +659,23 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         contentFrame._updateSubTabHeight = function()
             if subScrollChild then
                 local subContentHeight = subScrollChild:GetHeight() or 100
-                local tabContainerHeight = contentFrame._subTabContainerHeight or 35
-                -- Content frame needs to be tall enough for tab container + content + padding
-                -- Add extra bottom padding (50px) to ensure all content is scrollable
-                local bottomPadding = 50
-                local totalHeight = subContentHeight + tabContainerHeight + bottomPadding
+                -- RenderOptions already includes sticky headers and bottom padding.
+                local totalHeight = math.max(1, subContentHeight + 10)
+                local scrollFrame = contentFrame.scrollFrame or parentScrollFrame
+                contentFrame:SetHeight(totalHeight)
 
-                if contentFrame.scrollFrame then
-                    contentFrame:SetHeight(totalHeight)
-                    -- Force scroll bar update after height change
-                    if contentFrame.scrollFrame.ScrollBar and contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition then
-                        C_Timer.After(0.02, contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition)
+                if scrollFrame then
+                    local maxScroll = math.max(0, totalHeight - (scrollFrame:GetHeight() or 0))
+                    if (scrollFrame:GetVerticalScroll() or 0) > maxScroll then
+                        scrollFrame:SetVerticalScroll(maxScroll)
                     end
-                elseif contentFrame:GetParent() and contentFrame:GetParent():GetObjectType() == "ScrollFrame" then
-                    contentFrame:SetHeight(totalHeight)
-                else
-                    contentFrame:SetHeight(totalHeight)
+                    if scrollFrame.ScrollBar and scrollFrame.ScrollBar.UpdateThumbPosition then
+                        C_Timer.After(0.02, scrollFrame.ScrollBar.UpdateThumbPosition)
+                    end
                 end
             end
         end
+        subScrollChild._updateParentTabHeight = contentFrame._updateSubTabHeight
 
         if #subTabButtons > 0 then
             local initialTabIndex = 1
@@ -1135,10 +1133,12 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                         C_Timer.After(0, function()
                             -- 범용: contentFrame의 보이는 위젯 위치 재배치
                             if contentFrame and contentFrame.widgets then
-                                local newY = 0
+                                local newY = 15 + (contentFrame._tabContainerHeight or 0)
                                 local spacing = 15
+                                local seen = {}
                                 for _, w in ipairs(contentFrame.widgets) do
-                                    if w:IsShown() then
+                                    if not seen[w] and w:GetParent() == contentFrame and w:IsShown() then
+                                        seen[w] = true
                                         w:ClearAllPoints()
                                         w:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, -newY)
                                         w:SetPoint("RIGHT", contentFrame, "RIGHT", -10, 0)
@@ -1148,6 +1148,9 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                                 end
                                 local totalH = newY + 50
                                 contentFrame:SetHeight(totalH)
+                                if contentFrame._updateParentTabHeight then
+                                    contentFrame._updateParentTabHeight()
+                                end
                                 -- 스크롤바 업데이트
                                 if contentFrame.scrollFrame and contentFrame.scrollFrame.ScrollBar
                                    and contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition then
@@ -1429,10 +1432,12 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     C_Timer.After(0, function()
                         -- 범용: contentFrame의 보이는 위젯 위치 재배치
                         if contentFrame and contentFrame.widgets then
-                            local newY = 0
+                            local newY = 15 + (contentFrame._tabContainerHeight or 0)
                             local spacing = 15
+                            local seen = {}
                             for _, w in ipairs(contentFrame.widgets) do
-                                if w:IsShown() then
+                                if not seen[w] and w:GetParent() == contentFrame and w:IsShown() then
+                                    seen[w] = true
                                     w:ClearAllPoints()
                                     w:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, -newY)
                                     w:SetPoint("RIGHT", contentFrame, "RIGHT", -10, 0)
@@ -1442,6 +1447,9 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                             end
                             local totalH = newY + 50
                             contentFrame:SetHeight(totalH)
+                            if contentFrame._updateParentTabHeight then
+                                contentFrame._updateParentTabHeight()
+                            end
                             if contentFrame.scrollFrame and contentFrame.scrollFrame.ScrollBar
                                and contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition then
                                 pcall(contentFrame.scrollFrame.ScrollBar.UpdateThumbPosition)
