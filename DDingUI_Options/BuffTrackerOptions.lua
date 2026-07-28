@@ -4555,23 +4555,15 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             return false
         end,
         values = function()
-            local buff = GetTrackedBuff(index)
-            if buff and buff.trackingMode == "manual" then
-                return {
-                    stacks = L["Stacks"] or "Stacks",
-                    duration = L["Duration"] or "Duration",
-                }
-            end
             return {
+                stacks = L["Stacks"] or "Stacks",
                 duration = L["Duration"] or "Duration",
             }
         end,
         get = function()
             local buff = GetTrackedBuff(index)
-            if buff and buff.trackingMode == "manual" then
-                return buff.settings and buff.settings.barFillMode or "stacks"
-            end
-            return "duration"
+            local defaultMode = buff and buff.trackingMode == "manual" and "stacks" or "duration"
+            return buff and buff.settings and buff.settings.barFillMode or defaultMode
         end,
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()

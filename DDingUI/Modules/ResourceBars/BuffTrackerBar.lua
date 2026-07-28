@@ -3696,9 +3696,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     local durationWarningThreshold = settings.durationWarningThreshold or 5
     local durationWarningColor = settings.durationWarningColor or { 1, 0.2, 0.2, 1 }
     local barFillMode = settings.barFillMode or "duration"
-    if trackedBuff.trackingMode ~= "manual" then
-        barFillMode = "duration"
-    end
     local dynamicDuration = settings.dynamicDuration or false  -- Auto mode: read duration from CDM
     local stackDuration = settings.stackDuration or 30  -- max duration for duration mode
     local barStyle = settings.barStyle or "bar"  -- "bar", "circular", "square", "donut"
