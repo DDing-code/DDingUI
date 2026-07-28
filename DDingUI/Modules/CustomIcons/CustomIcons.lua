@@ -2085,6 +2085,12 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
 
     local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     CustomIcons.StopIconDesatUpdater(iconFrame)
+    local racialAuraActive = false
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        pcall(function()
+            racialAuraActive = C_UnitAuras.GetPlayerAuraBySpellID(racialID) ~= nil
+        end)
+    end
 
     local cdInfo
     local durObj
@@ -2134,7 +2140,8 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
         end
     end
     iconFrame._ddCustomIconActive = false
-    iconFrame._ddCustomIconProcActive = (runtime.racialProcGlowOverlayActive == true)
+    iconFrame._ddCustomIconProcActive = racialAuraActive
+        or (runtime.racialProcGlowOverlayActive == true)
         or ((runtime.racialProcGlowUntil or 0) > GetTime())
     iconFrame._ddCustomIconReady = not onCooldown
 end
@@ -2823,7 +2830,10 @@ local function ExecuteUpdateAllIcons(filter)
             local iconType = iconData and iconData.type
             local typeMatches = true
             if filter == "aura" then
-                typeMatches = iconType == "aura" or iconType == "trinketProc"
+                typeMatches = iconType == "aura"
+                    or iconType == "trinketProc"
+                    or iconType == "racial"
+                    or (iconType == "spell" and CustomIcons:IsCurrentRacialSpellIcon(iconData))
             elseif filter == "item" then
                 typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc"
             elseif filter == "cooldown" then
@@ -2843,6 +2853,7 @@ local function ExecuteUpdateAllIcons(filter)
                         end
                     end
                     frame._ddCustomIconAtMaxCharges = false
+                    frame._ddCustomIconProcActive = false
                     if iconData.type == "item" then
                         UpdateItemIcon(frame, iconData)
                     elseif iconData.type == "spell" then
@@ -2860,6 +2871,14 @@ local function ExecuteUpdateAllIcons(filter)
                     elseif iconData.type == "aura" then
                         UpdateAuraIcon(frame, iconData)
                     end
+                    if DDingUI.CustomIconActiveEffectOverlay then
+                        DDingUI.CustomIconActiveEffectOverlay:ApplyFrame(frame, iconData)
+                        if iconData.type == "item" then
+                            frame._ddCustomIconProcActive = frame._ddCustomIconProcActive == true
+                                or DDingUI.CustomIconActiveEffectOverlay:IsProcActive(iconData)
+                        end
+                    end
+                    CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
                     CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
                     ReapplyManagedGroupText(frame)
 
