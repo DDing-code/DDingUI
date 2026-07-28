@@ -16,8 +16,16 @@ local function GetViewerOptions()
     }
 end
 
+local function CollectOptions(source, keys)
+    local options = {}
+    for _, key in ipairs(keys) do
+        options[key] = source[key]
+    end
+    return options
+end
+
 local function CreateCastBarOptions()
-    return {
+    local options = {
         type = "group",
         name = L["Player Cast Bar"] or "플레이어 시전바",
         order = 5,
@@ -1789,6 +1797,105 @@ local function CreateCastBarOptions()
             --]] -- End Target/Focus/Boss cast bar options
         },
     }
+
+    local flatArgs = options.args
+    options.childGroups = "tab"
+    options.args = {
+        general = {
+            type = "group",
+            name = L["General"],
+            order = 1,
+            args = CollectOptions(flatArgs, {
+                "header",
+                "enabled",
+                "testCast",
+            }),
+        },
+        position = {
+            type = "group",
+            name = L["Position & Size"],
+            order = 2,
+            args = CollectOptions(flatArgs, {
+                "positionHeader",
+                "attachTo",
+                "pickFrame",
+                "anchorPoint",
+                "selfPoint",
+                "frameStrata",
+                "height",
+                "width",
+                "offsetY",
+                "offsetX",
+            }),
+        },
+        appearance = {
+            type = "group",
+            name = L["Appearance"],
+            order = 3,
+            args = CollectOptions(flatArgs, {
+                "appearanceHeader",
+                "showSpark",
+                "showIcon",
+                "texture",
+                "useClassColor",
+                "barColor",
+                "bgColor",
+                "interruptedColor",
+                "interruptedFadeEnabled",
+                "interruptedFadeDuration",
+            }),
+        },
+        text = {
+            type = "group",
+            name = L["Text Settings"],
+            order = 4,
+            args = CollectOptions(flatArgs, {
+                "textHeader",
+                "showSpellText",
+                "spellTextFont",
+                "spellTextSize",
+                "spellTextOffsetX",
+                "spellTextOffsetY",
+                "blankText1",
+                "showTimeText",
+                "timeTextFormat",
+                "timeTextFont",
+                "timeTextSize",
+                "timeTextOffsetX",
+                "timeTextOffsetY",
+            }),
+        },
+        channelTicks = {
+            type = "group",
+            name = L["Channel Tick Settings"],
+            order = 5,
+            args = CollectOptions(flatArgs, {
+                "channelTicksHeader",
+                "showChannelTicks",
+                "showChannelTickMarks",
+                "channelTickColor",
+                "showChannelLastTick",
+                "channelLastTickColor",
+            }),
+        },
+        empowered = {
+            type = "group",
+            name = L["Empowered Cast Settings"],
+            order = 6,
+            args = CollectOptions(flatArgs, {
+                "empoweredHeader",
+                "showEmpoweredTicks",
+                "showEmpoweredStageColors",
+                "empoweredStage1Color",
+                "empoweredStage2Color",
+                "empoweredStage3Color",
+                "empoweredStage4Color",
+                "empoweredStage5Color",
+            }),
+        },
+    }
+
+    return options
 end
 
 ns.CreateCastBarOptions = CreateCastBarOptions
