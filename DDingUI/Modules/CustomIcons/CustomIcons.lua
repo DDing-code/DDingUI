@@ -1020,9 +1020,20 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active)
     frame._ddTrinketEffectGlowSignature = signature
 end
 
+function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
+    local custom = iconData and iconData.settings and iconData.settings.customStateGlow
+    local mode = custom and custom.procGlowMode
+    if mode == "on" or mode == "off" then
+        self:StopTrackedTrinketEffectGlow(frame)
+        return
+    end
+    self:SetTrackedTrinketEffectGlow(frame, frame and frame._ddCustomIconProcActive == true)
+end
+
 function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
     if iconFrame then
         iconFrame._ddCustomIconActive = false
+        iconFrame._ddCustomIconProcActive = false
     end
     local settings = iconData and iconData.settings
     local registry = DDingUI.TrinketEffects
@@ -1041,6 +1052,7 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
 
     CustomIcons.StopIconDesatUpdater(iconFrame)
     iconFrame._ddCustomIconActive = true
+    iconFrame._ddCustomIconProcActive = true
     iconFrame._ddCustomIconReady = false
     if iconFrame.icon then
         iconFrame.icon:SetDesaturated(false)
@@ -1056,7 +1068,7 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
             iconFrame.count:Hide()
         end
     end
-    self:SetTrackedTrinketEffectGlow(iconFrame, true)
+    self:UpdateDynamicIconProcGlow(iconFrame, iconData)
     return true
 end
 
@@ -1065,10 +1077,13 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
     if not customizer or not customizer.UpdateDynamicIconGlow then return end
     local settings = iconData and iconData.settings and iconData.settings.customStateGlow
     local active = frame._ddCustomIconActive == true
+    local procActive = frame._ddCustomIconProcActive == true
     local ready = frame._ddCustomIconReady == true
     local shouldGlow = false
     if settings then
-        if settings.activeGlow == true and active then
+        if settings.procGlowMode == "on" and procActive then
+            shouldGlow = true
+        elseif settings.activeGlow == true and active then
             shouldGlow = true
         elseif settings.maxChargesGlow == true and frame._ddCustomIconAtMaxCharges == true then
             shouldGlow = true
@@ -2119,6 +2134,8 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
         end
     end
     iconFrame._ddCustomIconActive = false
+    iconFrame._ddCustomIconProcActive = (runtime.racialProcGlowOverlayActive == true)
+        or ((runtime.racialProcGlowUntil or 0) > GetTime())
     iconFrame._ddCustomIconReady = not onCooldown
 end
 
@@ -3273,10 +3290,32 @@ local function EnsureEventFrame()
             and DDingUI.CustomIconActiveEffectOverlay
             and DDingUI.CustomIconActiveEffectOverlay:HandleSpellcast(succeededSpellID)
         local isRacialSpellcast = succeededSpellID and succeededSpellID == GetPlayerRacialSpellID()
+        local racialOverlayChanged = false
+        if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
+            or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE"
+        then
+            local overlaySpellID = SafeNumber(...)
+            if overlaySpellID and overlaySpellID == GetPlayerRacialSpellID() then
+                runtime.racialProcGlowOverlayActive = event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
+                racialOverlayChanged = true
+            end
+        elseif isRacialSpellcast then
+            runtime.racialProcGlowToken = (runtime.racialProcGlowToken or 0) + 1
+            local token = runtime.racialProcGlowToken
+            runtime.racialProcGlowUntil = GetTime() + 1.25
+            C_Timer.After(1.3, function()
+                if runtime.racialProcGlowToken == token then
+                    runtime.racialProcGlowUntil = nil
+                    UpdateAllIcons(nil, "cooldown")
+                end
+            end)
+        end
         if event == "UNIT_SPELLCAST_SENT" then return end
         if (event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
             or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
-            and not customTimedChanged then
+            and not customTimedChanged
+            and not racialOverlayChanged
+        then
             return
         end
         local isItemCooldownEvent = event == "UNIT_SPELLCAST_SUCCEEDED"

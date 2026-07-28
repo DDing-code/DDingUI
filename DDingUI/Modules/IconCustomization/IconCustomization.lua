@@ -2036,6 +2036,17 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     local supportsActiveState = iconData.type == "aura"
         or iconData.type == "trinketProc"
         or (iconData.type == "item" and tonumber(iconData.settings.activeEffectDuration) ~= nil)
+    local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
+    local isRacialIcon = iconData.type == "racial"
+        or (DDingUI.CustomIcons
+            and DDingUI.CustomIcons.IsCurrentRacialSpellIcon
+            and DDingUI.CustomIcons:IsCurrentRacialSpellIcon(iconData))
+    local supportsProcState = isRacialIcon
+        or iconData.type == "trinketProc"
+        or iconData.type == "slot"
+        or (iconData.type == "item"
+            and activeEffectOverlay
+            and activeEffectOverlay:SupportsProcGlow(iconData.id, iconData.settings))
     local defaultTrigger = supportsActiveState and "active" or "ready"
     local function Current()
         return iconData.settings.customStateGlow or {}
@@ -2059,10 +2070,14 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     local function SetGlowState(state, value)
         iconData.settings.customStateGlow = iconData.settings.customStateGlow or {}
         local custom = iconData.settings.customStateGlow
-        local key = state == "active" and "activeGlow"
-            or state == "maxCharges" and "maxChargesGlow"
-            or "cooldownReadyGlow"
-        custom[key] = value == true and true or nil
+        if state == "proc" then
+            custom.procGlowMode = value
+        else
+            local key = state == "active" and "activeGlow"
+                or state == "maxCharges" and "maxChargesGlow"
+                or "cooldownReadyGlow"
+            custom[key] = value == true and true or nil
+        end
         custom.readyGlow = nil
         custom.glowTrigger = nil
         if next(custom) == nil then
@@ -2088,6 +2103,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             L["Reset Glow"] or "Reset Glow",
             true,
             {
+                proc = supportsProcState,
                 active = supportsActiveState,
                 maxCharges = iconData.type == "spell",
                 ready = iconData.type ~= "aura",
@@ -2317,6 +2333,7 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
     local key = "DDingUI_DynamicStateGlow"
     local configured = settings and (
         settings.readyGlow == true
+        or settings.procGlowMode == "on"
         or settings.activeGlow == true
         or settings.maxChargesGlow == true
         or settings.cooldownReadyGlow == true

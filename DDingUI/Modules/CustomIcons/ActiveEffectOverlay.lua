@@ -16,14 +16,14 @@ local INVISIBILITY_SPELLS = {
     [1236551] = true,
 }
 local KNOWN_ITEMS = {
-    [241308] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS },
-    [241309] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS },
-    [245897] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS },
-    [245898] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS },
-    [241288] = { duration = 30, spells = RECKLESSNESS_SPELLS },
-    [241289] = { duration = 30, spells = RECKLESSNESS_SPELLS },
-    [245902] = { duration = 30, spells = RECKLESSNESS_SPELLS },
-    [245903] = { duration = 30, spells = RECKLESSNESS_SPELLS },
+    [241308] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS, procGlow = true },
+    [241309] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS, procGlow = true },
+    [245897] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS, procGlow = true },
+    [245898] = { duration = 30, spells = LIGHTS_POTENTIAL_SPELLS, procGlow = true },
+    [241288] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
+    [241289] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
+    [245902] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
+    [245903] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
     [241302] = { duration = 18, spells = INVISIBILITY_SPELLS },
     [241303] = { duration = 18, spells = INVISIBILITY_SPELLS },
 }
@@ -98,6 +98,19 @@ local function ForEachItemID(iconData, callback)
     end
 end
 
+local function GetKnownEffect(iconData)
+    local effect
+    ForEachItemID(iconData, function(itemID)
+        effect = effect or KNOWN_ITEMS[itemID]
+    end)
+    return effect
+end
+
+local function GetProcDuration(iconData)
+    local effect = GetKnownEffect(iconData)
+    return effect and effect.procGlow == true and effect.duration or nil
+end
+
 local function AddTrigger(spellID, iconKey)
     if not IsPublicNumber(spellID) or not iconKey then return false end
     local icons = triggerMap[spellID]
@@ -150,7 +163,7 @@ local function BuildTriggerMap()
     end
 
     for iconKey, iconData in pairs(iconDataByKey) do
-        if GetConfiguredDuration(iconData) then
+        if GetConfiguredDuration(iconData) or GetProcDuration(iconData) then
             local added = false
             ForEachItemID(iconData, function(itemID)
                 added = AddItemTriggers(iconKey, itemID) or added
@@ -168,12 +181,12 @@ local function ResolvePendingItemSpells()
     for iconKey in pairs(unresolvedIcons) do
         local iconData = GetIconData(iconKey)
         local added = false
-        if GetConfiguredDuration(iconData) then
+        if GetConfiguredDuration(iconData) or GetProcDuration(iconData) then
             ForEachItemID(iconData, function(itemID)
                 added = AddItemTriggers(iconKey, itemID) or added
             end)
         end
-        if added or not GetConfiguredDuration(iconData) then
+        if added or (not GetConfiguredDuration(iconData) and not GetProcDuration(iconData)) then
             unresolvedIcons[iconKey] = nil
         end
     end
@@ -312,7 +325,7 @@ end
 
 local function StartWindow(iconKey)
     local iconData = GetIconData(iconKey)
-    local duration = GetConfiguredDuration(iconData)
+    local duration = GetConfiguredDuration(iconData) or GetProcDuration(iconData)
     if not duration then return false end
 
     nextToken = nextToken + 1
@@ -348,6 +361,16 @@ function ActiveEffectOverlay:IsConsumableItem(itemID)
     if not IsPublicNumber(classID) then return false end
     local consumableClass = Enum and Enum.ItemClass and Enum.ItemClass.Consumable or 0
     return classID == consumableClass
+end
+
+function ActiveEffectOverlay:SupportsProcGlow(itemID, settings)
+    return GetProcDuration({ id = itemID, settings = settings }) ~= nil
+end
+
+function ActiveEffectOverlay:IsProcActive(iconData)
+    if type(iconData) ~= "table" then return false end
+    local state = states[iconData.key]
+    return state ~= nil and state.expirationTime > GetTime()
 end
 
 function ActiveEffectOverlay:GetDefaultDuration(itemID, settings)

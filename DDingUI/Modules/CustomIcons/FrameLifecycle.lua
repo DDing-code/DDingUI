@@ -497,6 +497,7 @@ function FrameLifecycle.Create(
 
         -- Group settings are stored on the frame during LayoutGroup
         ApplyIconSettings(frame, iconData, frame._groupSettings)
+        frame._ddCustomIconProcActive = false
         if iconData.type == "item" then
             UpdateItemIcon(frame, iconData)
         elseif iconData.type == "spell" then
@@ -516,7 +517,12 @@ function FrameLifecycle.Create(
         end
         if DDingUI.CustomIconActiveEffectOverlay then
             DDingUI.CustomIconActiveEffectOverlay:ApplyFrame(frame, iconData)
+            if iconData.type == "item" then
+                frame._ddCustomIconProcActive = frame._ddCustomIconProcActive == true
+                    or DDingUI.CustomIconActiveEffectOverlay:IsProcActive(iconData)
+            end
         end
+        CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
         CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
         if frame._ddIsManaged then
             CustomIcons.ApplyManagedGroupTextOptions(frame)
