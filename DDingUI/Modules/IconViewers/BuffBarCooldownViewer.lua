@@ -1019,6 +1019,33 @@ function BuffBar:ApplyViewerStyle(viewer, settings)
     self:ApplyViewerLayout(viewer, settings, false)
 end
 
+local function RestoreBlizzardViewerLayout(viewer)
+    if not viewer then return end
+
+    local positionFrame = _G[POSITION_FRAME_NAME]
+    if positionFrame then
+        positionFrame:Hide()
+    end
+
+    local viewerState = GetFrameState(viewer)
+    if viewerState then
+        viewerState.lastBarLayoutKey = nil
+    end
+
+    for _, child in ipairs(CollectBarFrames(viewer)) do
+        local childState = GetFrameState(child)
+        if childState then
+            childState.layoutAnchor = nil
+            childState.lastSettings = nil
+        end
+    end
+
+    viewer:Show()
+    if viewer.RefreshLayout then
+        viewer:RefreshLayout()
+    end
+end
+
 function BuffBar:Refresh()
     -- Full restyling remains out of combat. The lightweight layout path keeps
     -- active bars attached to the DDingUI position frame during combat.
@@ -1047,7 +1074,7 @@ function BuffBar:Refresh()
     end
 
     if settings.enabled == false then
-        viewer:Hide()
+        RestoreBlizzardViewerLayout(viewer)
         BuffBar.__refreshInProgress = nil
         return
     end

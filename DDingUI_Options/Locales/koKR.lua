@@ -606,7 +606,7 @@ L["Build custom spell, item, and equipment-slot trackers. Use the UI below to ad
 L["Cooldowns"] = "쿨다운"
 L["Edit Mode"] = "편집 모드"
 L["Toggle draggable movers for all CDM frames"] = "모든 CDM 프레임의 이동 앵커 표시/숨기기" -- [12.0.1]
-L["Show/hide the buff bar viewer"] = "버프 바 뷰어 표시/숨기기"
+L["Show/hide the buff bar viewer"] = "DDingUI 스타일과 위치 설정을 적용합니다. 끄면 블리자드 기본 추적 막대로 복원됩니다."
 L["Bar Size"] = "바 크기"
 L["Height of each buff bar in pixels"] = "각 버프 바의 높이 (픽셀)"
 L["Texture used for the bar fill"] = "바 채우기에 사용할 텍스쳐"
