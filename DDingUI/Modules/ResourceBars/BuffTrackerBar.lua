@@ -3571,7 +3571,18 @@ function ResourceBars:UpdateBuffTrackerBar()
                     HideOtherTrackedBuffDisplays(barIndex, "trigger")  -- Hide ALL visuals
                     -- 알림 평가를 위한 아우라 상태 확인
                     local cooldownID = tonumber(trackedBuff.cooldownID) or 0
-                    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, nil, false, nil, trackedBuff.spellID, trackedBuff.name)
+                    local scanner = DDingUI.CDMScanner
+                    local triggerFrame = scanner
+                        and scanner.FindFrameByCooldownID
+                        and scanner.FindFrameByCooldownID(cooldownID)
+                    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+                        cooldownID,
+                        triggerFrame,
+                        false,
+                        nil,
+                        trackedBuff.spellID,
+                        trackedBuff.name
+                    )
                     local hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
                     -- 알림 평가: colorTarget에 따라 외부 바에도 색상 적용됨
                     local dummyFrame = barFrames[barIndex] or GetAlertRuntimeOwner(trackedBuff)
