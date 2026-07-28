@@ -3897,6 +3897,36 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         end,
     }
 
+    options["tracked" .. index .. "_textSelfPoint"] = {
+        type = "select",
+        name = "    " .. (L["Self Point"] or "Self Point"),
+        order = orderBase + 1.935,
+        width = 0.7,
+        hidden = hiddenIfNotText,
+        values = {
+            ["TOPLEFT"] = L["Top Left"] or "Top Left",
+            ["TOP"] = L["Top"] or "Top",
+            ["TOPRIGHT"] = L["Top Right"] or "Top Right",
+            ["LEFT"] = L["Left"] or "Left",
+            ["CENTER"] = L["Center"] or "Center",
+            ["RIGHT"] = L["Right"] or "Right",
+            ["BOTTOMLEFT"] = L["Bottom Left"] or "Bottom Left",
+            ["BOTTOM"] = L["Bottom"] or "Bottom",
+            ["BOTTOMRIGHT"] = L["Bottom Right"] or "Bottom Right",
+        },
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.textAnchor or "CENTER"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.textAnchor = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
     -- Text Offset X
     options["tracked" .. index .. "_textModeOffsetX"] = {
         type = "range",
@@ -4214,7 +4244,8 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         hidden = function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
-            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring")
+            return not buff
+                or (buff.displayType ~= "bar" and buff.displayType ~= "ring" and buff.displayType ~= "text")
         end,
         get = function()
             local buff = GetTrackedBuff(index)
@@ -4250,7 +4281,8 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         hidden = function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
-            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring")
+            return not buff
+                or (buff.displayType ~= "bar" and buff.displayType ~= "ring" and buff.displayType ~= "text")
         end,
         get = function()
             local buff = GetTrackedBuff(index)
@@ -4491,9 +4523,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         order = orderBase + 4.55,
         width = 0.7,
         hidden = function()
-            if hiddenIfCollapsed() then return true end
-            local buff = GetTrackedBuff(index)
-            return not buff or (buff.displayType ~= "bar" and buff.displayType ~= "ring")
+            return hiddenIfNotBar()
         end,
         get = function()
             local buff = GetTrackedBuff(index)
@@ -4524,12 +4554,24 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             if buff and buff.trigger and buff.trigger.type == "spell" then return true end
             return false
         end,
-        values = {
-            duration = L["Duration"] or "Duration",
-        },
+        values = function()
+            local buff = GetTrackedBuff(index)
+            if buff and buff.trackingMode == "manual" then
+                return {
+                    stacks = L["Stacks"] or "Stacks",
+                    duration = L["Duration"] or "Duration",
+                }
+            end
+            return {
+                duration = L["Duration"] or "Duration",
+            }
+        end,
         get = function()
             local buff = GetTrackedBuff(index)
-            return "duration"  -- 항상 duration (stacks는 시크릿밸류 이슈로 삭제됨)
+            if buff and buff.trackingMode == "manual" then
+                return buff.settings and buff.settings.barFillMode or "stacks"
+            end
+            return "duration"
         end,
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()
@@ -4616,6 +4658,30 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] and trackedBuffs[index].settings then
                 trackedBuffs[index].settings.barColor = {r, g, b, a}
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    options["tracked" .. index .. "_barBgColor"] = {
+        type = "color",
+        name = "    " .. (L["Background Color"] or "Background Color"),
+        order = orderBase + 4.81,
+        width = 0.5,
+        hasAlpha = true,
+        hidden = hiddenIfNotBar,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local color = buff and buff.settings and buff.settings.bgColor
+            if color then
+                return color[1] or 0.15, color[2] or 0.15, color[3] or 0.15, color[4] or 1
+            end
+            return 0.15, 0.15, 0.15, 1
+        end,
+        set = function(_, r, g, b, a)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.bgColor = { r, g, b, a }
                 DDingUI:UpdateBuffTrackerBar()
             end
         end,
@@ -5665,6 +5731,82 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         end,
     }
 
+    options["tracked" .. index .. "_ringTextFont"] = {
+        type = "select",
+        name = "    " .. (L["Font"] or "Font"),
+        order = orderBase + 6.56,
+        width = 1.0,
+        dialogControl = "LSM30_Font",
+        values = function() return DDingUI:GetFontValues() end,
+        hidden = function()
+            if hiddenIfNotRing() then return true end
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.ringShowText == false
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.ringTextFont
+                or DDingUI.db.profile.defaultFont
+                or DDingUI.DEFAULT_FONT_NAME
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.ringTextFont = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    options["tracked" .. index .. "_ringTextColor"] = {
+        type = "color",
+        name = "    " .. (L["Text Color"] or "Text Color"),
+        order = orderBase + 6.57,
+        width = 0.6,
+        hasAlpha = true,
+        hidden = function()
+            if hiddenIfNotRing() then return true end
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.ringShowText == false
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local color = buff and buff.settings and buff.settings.ringTextColor or { 1, 1, 1, 1 }
+            return color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
+        end,
+        set = function(_, r, g, b, a)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.ringTextColor = { r, g, b, a }
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    options["tracked" .. index .. "_ringDurationDecimals"] = {
+        type = "range",
+        name = "    " .. (L["Decimal Places"] or "Decimal Places"),
+        order = orderBase + 6.58,
+        width = 0.6,
+        min = 0, max = 2, step = 1,
+        hidden = function()
+            if hiddenIfNotRing() then return true end
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.ringShowText == false
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.ringDurationDecimals or 1
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.ringDurationDecimals = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
     -- Ring Position Header
     options["tracked" .. index .. "_ringPosHeader"] = {
         type = "description",
@@ -5673,6 +5815,120 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         width = "full",
         fontSize = "small",
         hidden = hiddenIfNotRing,
+    }
+
+    options["tracked" .. index .. "_ringAttachTo"] = {
+        type = "select",
+        name = "    " .. (L["Attach To"] or "Attach To"),
+        order = orderBase + 6.61,
+        width = 0.8,
+        hidden = hiddenIfNotRing,
+        values = function()
+            local frames = {
+                ["UIParent"] = "UIParent",
+                ["PlayerFrame"] = "PlayerFrame",
+            }
+            if DDingUI.GetViewerOptions then
+                for key, value in pairs(DDingUI:GetViewerOptions()) do
+                    frames[key] = value
+                end
+            end
+            local buff = GetTrackedBuff(index)
+            local current = buff and buff.settings and buff.settings.attachTo
+            if current and not frames[current] then
+                frames[current] = current .. " (Custom)"
+            end
+            return frames
+        end,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.attachTo or defaultSpecConfig.attachTo
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.attachTo = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    options["tracked" .. index .. "_ringPickFrame"] = {
+        type = "execute",
+        name = L["Pick"] or "Pick",
+        order = orderBase + 6.62,
+        width = 0.4,
+        hidden = hiddenIfNotRing,
+        func = function()
+            DDingUI:StartFramePicker(function(frameName)
+                if not frameName then return end
+                local trackedBuffs = GetTrackedBuffs()
+                if trackedBuffs[index] and trackedBuffs[index].settings then
+                    trackedBuffs[index].settings.attachTo = frameName
+                    DDingUI:UpdateBuffTrackerBar()
+                end
+            end)
+        end,
+    }
+
+    options["tracked" .. index .. "_ringAnchorPoint"] = {
+        type = "select",
+        name = "    " .. (L["Anchor Point"] or "Anchor Point"),
+        order = orderBase + 6.63,
+        width = 0.7,
+        hidden = hiddenIfNotRing,
+        values = {
+            ["TOPLEFT"] = L["Top Left"] or "Top Left",
+            ["TOP"] = L["Top"] or "Top",
+            ["TOPRIGHT"] = L["Top Right"] or "Top Right",
+            ["LEFT"] = L["Left"] or "Left",
+            ["CENTER"] = L["Center"] or "Center",
+            ["RIGHT"] = L["Right"] or "Right",
+            ["BOTTOMLEFT"] = L["Bottom Left"] or "Bottom Left",
+            ["BOTTOM"] = L["Bottom"] or "Bottom",
+            ["BOTTOMRIGHT"] = L["Bottom Right"] or "Bottom Right",
+        },
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.ringAnchorPoint or "CENTER"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.ringAnchorPoint = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
+    }
+
+    options["tracked" .. index .. "_ringSelfPoint"] = {
+        type = "select",
+        name = "    " .. (L["Self Point"] or "Self Point"),
+        order = orderBase + 6.64,
+        width = 0.7,
+        hidden = hiddenIfNotRing,
+        values = {
+            ["TOPLEFT"] = L["Top Left"] or "Top Left",
+            ["TOP"] = L["Top"] or "Top",
+            ["TOPRIGHT"] = L["Top Right"] or "Top Right",
+            ["LEFT"] = L["Left"] or "Left",
+            ["CENTER"] = L["Center"] or "Center",
+            ["RIGHT"] = L["Right"] or "Right",
+            ["BOTTOMLEFT"] = L["Bottom Left"] or "Bottom Left",
+            ["BOTTOM"] = L["Bottom"] or "Bottom",
+            ["BOTTOMRIGHT"] = L["Bottom Right"] or "Bottom Right",
+        },
+        get = function()
+            local buff = GetTrackedBuff(index)
+            return buff and buff.settings and buff.settings.ringSelfPoint or "CENTER"
+        end,
+        set = function(_, val)
+            local trackedBuffs = GetTrackedBuffs()
+            if trackedBuffs[index] and trackedBuffs[index].settings then
+                trackedBuffs[index].settings.ringSelfPoint = val
+                DDingUI:UpdateBuffTrackerBar()
+            end
+        end,
     }
 
     -- Ring Offset X

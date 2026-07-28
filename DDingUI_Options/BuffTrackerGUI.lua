@@ -1584,6 +1584,15 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         -- 각 탭은 { name, filter } 형태
         -- filter(key, order) → true면 해당 탭에 포함
         local tabDefs = {}
+        local function KeyHasAny(key, ...)
+            for i = 1, select("#", ...) do
+                local fragment = select(i, ...)
+                if key:find(fragment, 1, true) then
+                    return true
+                end
+            end
+            return false
+        end
 
         -- 1. 기본 설정 (모든 displayType에 공통)
         tabDefs[#tabDefs + 1] = {
@@ -1594,7 +1603,8 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 if key:find("_spellFillDirection", 1, true) or key:find("_spellRechargeColor", 1, true)
                    or key:find("_spellFullChargeColor", 1, true) or key:find("_spellReadyStyle", 1, true)
                    or key:find("_spellReadyColor", 1, true) or key:find("_spellColorCurve", 1, true)
-                   or key:find("_spellShowReadyText", 1, true) or key:find("_spellHeader", 1, true) then
+                   or key:find("_spellShowReadyText", 1, true) or key:find("_spellHeader", 1, true)
+                   or key:find("_barFillMode", 1, true) then
                     return false
                 end
                 return order >= 0 and order < 1.1
@@ -1684,87 +1694,294 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         elseif dType == "sound" then
             tabDefs[#tabDefs + 1] = {
                 name = L["Sound"] or "Sound",
-                filter = function(key, order)
-                    return order >= 1.81 and order < 1.9
-                end,
+                childGroups = "tab",
+                sections = {
+                    {
+                        key = "playback",
+                        name = L["Playback"],
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_soundFile",
+                                "_soundCustomPath",
+                                "_testSound",
+                                "_soundChannel"
+                            )
+                        end,
+                    },
+                    {
+                        key = "trigger",
+                        name = L["Trigger"] or "Trigger",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_soundTrigger",
+                                "_soundStartDelay",
+                                "_soundEndBefore",
+                                "_soundInterval"
+                            )
+                        end,
+                    },
+                },
             }
         elseif dType == "text" then
             tabDefs[#tabDefs + 1] = {
                 name = L["Text"] or "Text",
-                filter = function(key, order)
-                    return order >= 1.9 and order < 2
-                end,
+                childGroups = "tab",
+                sections = {
+                    {
+                        key = "visibility",
+                        name = L["Visibility"],
+                        filter = function(key)
+                            return KeyHasAny(key, "_hideWhenZero", "_showInCombat", "_onlyInCombat")
+                        end,
+                    },
+                    {
+                        key = "content",
+                        name = L["Content"],
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_textDisplayMode",
+                                "_customText",
+                                "_textShowIcon",
+                                "_textIconSize"
+                            )
+                        end,
+                    },
+                    {
+                        key = "appearance",
+                        name = L["Appearance"] or "Appearance",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_textModeSize",
+                                "_textModeFont",
+                                "_textModeColor",
+                                "_textModeOutline"
+                            )
+                        end,
+                    },
+                    {
+                        key = "position",
+                        name = L["Position"] or "Position",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_textAnchorTo",
+                                "_textAnchorPoint",
+                                "_textSelfPoint",
+                                "_textModeOffsetX",
+                                "_textModeOffsetY"
+                            )
+                        end,
+                    },
+                    {
+                        key = "durationText",
+                        name = L["Duration Text"] or "Duration Text",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_showDurationText",
+                                "_durationTextFont",
+                                "_durationTextSize",
+                                "_durationTextAlign",
+                                "_durationTextX",
+                                "_durationTextY",
+                                "_durationTextColor",
+                                "_durationDecimals",
+                                "_durationWarning"
+                            )
+                        end,
+                    },
+                    {
+                        key = "effects",
+                        name = L["Effects"],
+                        filter = function(key)
+                            return key:find("_textAnimation", 1, true)
+                                or key:find("_textGlow", 1, true)
+                        end,
+                    },
+                },
             }
         elseif dType == "ring" then
             tabDefs[#tabDefs + 1] = {
                 name = L["Ring"] or "Ring",
-                filter = function(key, order)
-                    -- 링 설정: ring prefix (Pos, Offset 포함)
-                    return key:find("_ring") ~= nil
-                end,
+                childGroups = "tab",
+                sections = {
+                    {
+                        key = "visibility",
+                        name = L["Visibility"],
+                        filter = function(key)
+                            return KeyHasAny(key, "_hideWhenZero", "_showInCombat", "_onlyInCombat")
+                        end,
+                    },
+                    {
+                        key = "appearance",
+                        name = L["Appearance"] or "Appearance",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_ringSize",
+                                "_ringThickness",
+                                "_ringReverse",
+                                "_ringColor",
+                                "_ringBgColor",
+                                "_ringBorderSize",
+                                "_ringBorderColor"
+                            )
+                        end,
+                    },
+                    {
+                        key = "position",
+                        name = L["Position"] or "Position",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_ringAttachTo",
+                                "_ringPickFrame",
+                                "_ringAnchorPoint",
+                                "_ringSelfPoint",
+                                "_ringOffsetX",
+                                "_ringOffsetY"
+                            )
+                        end,
+                    },
+                    {
+                        key = "centerText",
+                        name = L["Center Text"],
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_ringShowText",
+                                "_ringTextSize",
+                                "_ringTextFont",
+                                "_ringTextColor",
+                                "_ringDurationDecimals"
+                            )
+                        end,
+                    },
+                    {
+                        key = "durationText",
+                        name = L["Duration Text"] or "Duration Text",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_showDurationText",
+                                "_durationTextFont",
+                                "_durationTextSize",
+                                "_durationTextAlign",
+                                "_durationTextX",
+                                "_durationTextY",
+                                "_durationTextColor",
+                                "_durationDecimals",
+                                "_durationWarning"
+                            )
+                        end,
+                    },
+                },
             }
         elseif dType == "bar" then
-            -- 바 관련 스펠 옵션 키 (General에서 Bar로 이동)
-            local spellBarKeys = {
-                _spellFillDirection = true,
-                _spellRechargeColor = true,
-                _spellFullChargeColor = true,
-                _spellReadyStyle = true,
-                _spellReadyColor = true,
-                _spellColorCurve = true,
-            }
-            -- 텍스트 관련 스펠 옵션 키 (General에서 Text로 이동)
-            local spellTextKeys = {
-                _spellShowReadyText = true,
-            }
-            -- 스펠 헤더 키
-            local spellHeaderKey = "_spellHeader"
-
-            -- 스펠 키 매칭 함수 (key suffix 기반)
-            local function isSpellBarKey(key)
-                for suffix in pairs(spellBarKeys) do
-                    if key:find(suffix, 1, true) then return true end
-                end
-                return false
-            end
-            local function isSpellTextKey(key)
-                for suffix in pairs(spellTextKeys) do
-                    if key:find(suffix, 1, true) then return true end
-                end
-                return false
-            end
-            local function isSpellHeaderKey(key)
-                return key:find(spellHeaderKey, 1, true) ~= nil
-            end
-
-            -- 외관 탭 (바 색상/채움/텍스쳐/테두리 + 스펠 색상/외관 옵션)
             tabDefs[#tabDefs + 1] = {
-                name = L["Appearance"] or "Appearance",
-                filter = function(key, order)
-                    -- order 2~4.99 (기존 bar settings) + spell bar/color 키
-                    if isSpellBarKey(key) or isSpellHeaderKey(key) then return true end
-                    if order >= 2 and order < 5 then return true end
-                    -- order 5.65~5.94: barOrientation, reverseFill, border, texture
-                    if order >= 5.65 and order < 5.95 then return true end
-                    return false
-                end,
-            }
-            -- 위치/크기 탭
-            tabDefs[#tabDefs + 1] = {
-                name = L["Position"] or "Position",
-                filter = function(key, order)
-                    -- order 5.0~5.64: attachTo, anchorPoint, selfPoint, offset, width, height
-                    return order >= 5 and order < 5.65
-                end,
-            }
-            -- 텍스트 탭 (기존 Appearance → Text 이름 변경 + spell text 옵션 포함)
-            tabDefs[#tabDefs + 1] = {
-                name = L["Text"] or "Text",
-                filter = function(key, order)
-                    -- order 5.95~7.99: tick, stacks text, duration text, border, texture + spell text keys
-                    if isSpellTextKey(key) then return true end
-                    return order >= 5.95 and order < 8
-                end,
+                name = L["Bar"] or "Bar",
+                childGroups = "tab",
+                sections = {
+                    {
+                        key = "visibility",
+                        name = L["Visibility"],
+                        filter = function(key)
+                            return KeyHasAny(key, "_hideWhenZero", "_showInCombat", "_onlyInCombat")
+                        end,
+                    },
+                    {
+                        key = "appearance",
+                        name = L["Appearance"] or "Appearance",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_barFillMode",
+                                "_barColor",
+                                "_barBgColor",
+                                "_smoothProgress",
+                                "_barOrientation",
+                                "_barReverseFill",
+                                "_borderSize",
+                                "_borderColor",
+                                "_texture",
+                                "_spellFillDirection",
+                                "_spellRechargeColor",
+                                "_spellFullChargeColor",
+                                "_spellReadyStyle",
+                                "_spellReadyColor",
+                                "_spellColorCurve"
+                            )
+                        end,
+                    },
+                    {
+                        key = "position",
+                        name = L["Position"] or "Position",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_attachTo",
+                                "_pickFrame",
+                                "_anchorPoint",
+                                "_selfPoint",
+                                "_offsetX",
+                                "_offsetY",
+                                "_width",
+                                "_height"
+                            )
+                        end,
+                    },
+                    {
+                        key = "stackText",
+                        name = L["Stack Text"],
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_showStacksText",
+                                "_textFont",
+                                "_textSize",
+                                "_textAlign",
+                                "_textX",
+                                "_textY",
+                                "_textColor",
+                                "_spellShowReadyText"
+                            )
+                        end,
+                    },
+                    {
+                        key = "durationText",
+                        name = L["Duration Text"] or "Duration Text",
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_showDurationText",
+                                "_durationTextFont",
+                                "_durationTextSize",
+                                "_durationTextAlign",
+                                "_durationTextX",
+                                "_durationTextY",
+                                "_durationTextColor",
+                                "_durationDecimals",
+                                "_durationWarning"
+                            )
+                        end,
+                    },
+                    {
+                        key = "ticks",
+                        name = L["Ticks"],
+                        filter = function(key)
+                            return KeyHasAny(
+                                key,
+                                "_durationTickPositions",
+                                "_showTicks",
+                                "_tickWidth"
+                            )
+                        end,
+                    },
+                },
             }
         end
 
@@ -1804,7 +2021,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 local hasVisible = false
                 for sectionOrder, section in ipairs(def.sections) do
                     local sectionArgs, sectionVisible = CollectOptions(section.filter)
-                    if next(sectionArgs) then
+                    if sectionVisible and next(sectionArgs) then
                         sectionGroups[section.key] = {
                             type = "group",
                             name = section.name,
@@ -1833,7 +2050,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
 
         for i, tg in ipairs(tabGroups) do
             -- 빈 탭은 건너뛰기
-            if tg.hasVisible or next(tg.args) then
+            if tg.hasVisible then
                 visibleTabIdx = visibleTabIdx + 1
                 local btnIdx = visibleTabIdx
                 local tb = self.tabButtons[btnIdx]
@@ -1894,7 +2111,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         if self.selectedTab and self.tabButtons[self.selectedTab] and self.tabButtons[self.selectedTab]:IsShown() then
             -- 이전 탭 복원 시도
             for i, tg in ipairs(tabGroups) do
-                if tg.hasVisible or next(tg.args) then
+                if tg.hasVisible then
                     local tb = self.tabButtons[self.selectedTab]
                     if tb and tb._label and tb._label:GetText() == tg.name then
                         btPanel:ShowTab(tg, self.selectedTab)

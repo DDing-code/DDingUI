@@ -3695,7 +3695,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     local durationWarningEnabled = settings.durationWarningEnabled or false
     local durationWarningThreshold = settings.durationWarningThreshold or 5
     local durationWarningColor = settings.durationWarningColor or { 1, 0.2, 0.2, 1 }
-    local barFillMode = settings.barFillMode or "stacks"  -- "stacks" or "duration"
+    local barFillMode = settings.barFillMode or "duration"
+    if trackedBuff.trackingMode ~= "manual" then
+        barFillMode = "duration"
+    end
     local dynamicDuration = settings.dynamicDuration or false  -- Auto mode: read duration from CDM
     local stackDuration = settings.stackDuration or 30  -- max duration for duration mode
     local barStyle = settings.barStyle or "bar"  -- "bar", "circular", "square", "donut"
@@ -4660,6 +4663,8 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local ringBorderColor = settings.ringBorderColor or { 0, 0, 0, 1 }
     local ringShowText = settings.ringShowText ~= false
     local ringTextSize = settings.ringTextSize or 12
+    local ringTextFont = settings.ringTextFont or globalCfg.textFont
+    local ringTextColor = settings.ringTextColor or { 1, 1, 1, 1 }
     local ringOffsetX = settings.ringOffsetX or 0
     local ringOffsetY = settings.ringOffsetY or 0
     local maxStacks = settings.maxStacks or 1
@@ -5042,7 +5047,13 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         bar.TextValue:ClearAllPoints()
         bar.TextValue:SetPoint("CENTER", bar, "CENTER", 0, 0)
         if ringShowText then
-            bar.TextValue:SetFont(DDingUI:GetFont(globalCfg.textFont), ringTextSize, "OUTLINE")
+            bar.TextValue:SetFont(DDingUI:GetFont(ringTextFont), ringTextSize, "OUTLINE")
+            bar.TextValue:SetTextColor(
+                ringTextColor[1] or 1,
+                ringTextColor[2] or 1,
+                ringTextColor[3] or 1,
+                ringTextColor[4] or 1
+            )
             if ringFillMode == "duration" then
                 -- Duration 모드: 초기값 설정 (OnUpdate에서 실시간 업데이트)
                 -- remainingDuration이 secret이면 건너뛰고 OnUpdate에 위임
