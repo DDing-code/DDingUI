@@ -5366,9 +5366,6 @@ local function GS_Toggle(groupName, key, name, order, default, desc)
             local gs = GetGS()
             if gs and gs.groups[groupName] then
                 gs.groups[groupName][key] = val
-                if key == "showInactiveIcons" and val then
-                    EnsureSourceGroup(groupName)
-                end
                 RefreshGroupSystem()
             end
         end,
@@ -5647,14 +5644,6 @@ local function CreateGroupOptions(groupName, order)
                 marksCustomStyle = true,
             }),
         groupAlpha = GS_Range(groupName, "groupAlpha", L["Opacity"] or "투명도", 8, 1.0, 0, 1.0, 0.05, { isPercent = true }),
-        showInactiveIcons = (category == "buff") and GS_Toggle(
-            groupName,
-            "showInactiveIcons",
-            L["Show Inactive Icons"] or "비활성 아이콘 표시",
-            8.5,
-            false,
-            L["Keep inactive buff icons visible in grayscale."] or "비활성 강화효과 아이콘을 회색으로 계속 표시합니다."
-        ) or nil,
         layoutHeader = { type = "header", name = L["Layout"] or "레이아웃", order = 10 },
         direction = GS_Select(groupName, "direction", L["Growth Direction"] or "성장 방향", 11, "RIGHT", DIRECTION_VALUES),
         growDirection = GS_Select(groupName, "growDirection", L["Wrap Direction"] or "줄바꿈 방향", 12, "DOWN", DIRECTION_VALUES),
@@ -5677,10 +5666,6 @@ local function CreateGroupOptions(groupName, order)
                 local group = gs and gs.groups and gs.groups[groupName]
                 if not group then return end
                 group.stateFilter = value
-                if value == "inactive" and group.showInactiveIcons ~= true then
-                    group.showInactiveIcons = true
-                    EnsureSourceGroup(groupName)
-                end
                 RefreshGroupSystem()
             end,
         } or nil,

@@ -7,10 +7,6 @@ DDingUI.BuffGroupPlaceholders = Placeholders
 
 local groups = {}
 
-local function IsBuffGroup(groupName, settings)
-    return groupName == "Buffs" or (settings and settings.groupCategory == "buff")
-end
-
 local function GetSpellNameFromToken(token)
     if type(token) ~= "string" then return nil end
     local name = token:match("^cdm:(.+)$")
@@ -39,8 +35,8 @@ local function ResolveSpellID(token, spellName)
     return spellID and spellID > 0 and spellID or nil
 end
 
-local function ResolveInactiveDisplay(token, settings)
-    local visible = settings.showInactiveIcons == true
+local function ResolveInactiveDisplay(token)
+    local visible = false
     local desaturated = true
     local customizer = DDingUI.IconCustomization
     if customizer and customizer.GetSpellSettings then
@@ -172,11 +168,91 @@ local function CollectConfiguredTokens(groupName, settings)
     return tokens, seen
 end
 
+local function EnableDynamicInactiveIcons(settings)
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynamicIcons = profile and profile.dynamicIcons
+    local sourceGroup = settings and settings.sourceGroupKey
+        and dynamicIcons and dynamicIcons.groups and dynamicIcons.groups[settings.sourceGroupKey]
+    local iconDataDB = dynamicIcons and dynamicIcons.iconData
+    if not sourceGroup or type(sourceGroup.icons) ~= "table" or type(iconDataDB) ~= "table" then
+        return false
+    end
+
+    local changed = false
+    for _, iconKey in ipairs(sourceGroup.icons) do
+        local iconData = iconDataDB[iconKey]
+        local iconSettings = iconData and iconData.settings
+        local isEffect = iconData and (iconData.type == "aura"
+            or (iconData.type == "trinketProc"
+                and iconSettings and iconSettings.showItemCooldown == false))
+        if isEffect then
+            iconData.settings = iconSettings or {}
+            if iconData.settings.alwaysShow == nil then
+                iconData.settings.alwaysShow = "on"
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+
+local function EnableNativeInactiveIcons(groupName, settings)
+    local profile = DDingUI.db and DDingUI.db.profile
+    if not profile then return false end
+    profile.iconCustomization = profile.iconCustomization or {}
+    profile.iconCustomization.spells = profile.iconCustomization.spells or {}
+
+    local spells = profile.iconCustomization.spells
+    local tokens = CollectConfiguredTokens(groupName, settings)
+    local changed = false
+    for _, token in ipairs(tokens) do
+        local spellID = ResolveSpellID(token, GetSpellNameFromToken(token))
+        if spellID then
+            local baseKey = tostring(spellID)
+            local spellKey = baseKey .. "_Buff"
+            local custom = spells[spellKey]
+            if type(custom) ~= "table" then
+                custom = {}
+                local fallback = spells[baseKey]
+                if type(fallback) == "table" then
+                    for key, value in pairs(fallback) do
+                        custom[key] = value
+                    end
+                end
+                spells[spellKey] = custom
+            end
+            if custom.alwaysShow == nil then
+                custom.alwaysShow = "on"
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+
+function Placeholders:MigrateLegacyGroupSettings(groupSystem)
+    local changed = false
+    for groupName, settings in pairs(groupSystem and groupSystem.groups or {}) do
+        if type(settings) == "table" and rawget(settings, "showInactiveIcons") == true
+            and settings._inactiveIconSettingsMigV1 ~= true
+        then
+            changed = EnableDynamicInactiveIcons(settings) or changed
+            changed = EnableNativeInactiveIcons(groupName, settings) or changed
+            settings.showInactiveIcons = nil
+            settings._inactiveIconSettingsMigV1 = true
+            changed = true
+        end
+    end
+
+    if changed and DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+        DDingUI.SpecProfiles:MarkDirty()
+    end
+    return changed
+end
+
 function Placeholders:BuildPlacements(groupName, settings, activeTokens)
     local state = groups[groupName]
-    if not settings or not IsBuffGroup(groupName, settings)
-        or (settings.showInactiveIcons ~= true and not HasForcedInactiveBuff())
-    then
+    if not settings or not HasForcedInactiveBuff() then
         if state then
             for _, frame in pairs(state) do
                 frame._ddLayoutVisible = false
@@ -200,7 +276,7 @@ function Placeholders:BuildPlacements(groupName, settings, activeTokens)
 
     for _, token in ipairs(tokens) do
         if not (activeTokens and activeTokens[token]) then
-            local visible, desaturated = ResolveInactiveDisplay(token, settings)
+            local visible, desaturated = ResolveInactiveDisplay(token)
             local frame = state[token]
             if visible and not frame then
                 local texture = ResolveSpellTexture(token, GetSpellNameFromToken(token))

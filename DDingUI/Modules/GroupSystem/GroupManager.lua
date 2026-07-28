@@ -1254,7 +1254,6 @@ function GroupManager:CreateGroup(name, settings)
         stylePreset = "custom",
         swipeColor = { 0, 0, 0, 0.8 },
         swipeReverse = true,
-        showInactiveIcons = false,
         iconMotion = true,
         iconMotionDuration = 0.18,
         anchorPoint = "CENTER",

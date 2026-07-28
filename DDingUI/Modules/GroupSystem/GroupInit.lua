@@ -234,7 +234,6 @@ local DYNAMIC_GROUP_DEFAULTS = {
     stylePreset = "custom",
     swipeColor = { 0, 0, 0, 0.8 },
     swipeReverse = true,
-    showInactiveIcons = false,
     iconMotion = true,
     iconMotionDuration = 0.18,
     anchorPoint = "CENTER",
@@ -312,27 +311,10 @@ local function SyncDynamicGroups(gs)
 
     local dynamicGroups = bridge:GetDynamicGroups()
     local dynDB = GetDynamicDB()
-    local ci = DDingUI.CustomIcons
-
     for groupName in pairs(CORE_CDM_GROUPS) do
         local settings = gs.groups and gs.groups[groupName]
         if settings then
             settings.groupType = "cdm"
-            if groupName == "Buffs"
-                and settings.showInactiveIcons == true
-                and not settings.sourceGroupKey
-                and ci and ci.GetOrCreateSourceGroupForCDMGroup
-            then
-                local sourceKey = ci:GetOrCreateSourceGroupForCDMGroup(groupName, settings.name or groupName)
-                if sourceKey then
-                    settings.sourceGroupKey = sourceKey
-                    dynamicGroups = bridge:GetDynamicGroups()
-                    dynDB = GetDynamicDB()
-                    if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
-                        DDingUI.SpecProfiles:MarkDirty()
-                    end
-                end
-            end
             local bestSourceKey = SelectBestLinkedSourceGroup(dynamicGroups, groupName, settings.sourceGroupKey, settings, dynDB)
             if bestSourceKey and settings.sourceGroupKey ~= bestSourceKey then
                 settings.sourceGroupKey = bestSourceKey
@@ -637,6 +619,10 @@ DoFullUpdate = function()
     -- CDM groups can include CustomIcons through sourceGroupKey. Reconcile the
     -- mapping before rendering so custom buff icons are merged in this update.
     SyncDynamicGroups(gs)
+    local placeholders = DDingUI.BuffGroupPlaceholders
+    if placeholders and placeholders.MigrateLegacyGroupSettings then
+        placeholders:MigrateLegacyGroupSettings(gs)
+    end
 
     -- 1. CDMHookEngine 맵 → 그룹별 분류
     local classified = GroupManager:ClassifyAll()

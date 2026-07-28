@@ -75,9 +75,9 @@ local SUPPRESSED_SPELL_CACHE_TTL = 0.15
 local suppressedSpellCache = nil
 local suppressedSpellCacheAt = 0
 
-local function ResolveInactiveBuffDisplay(iconData, groupDefault)
+local function ResolveInactiveBuffDisplay(iconData)
     local settings = iconData and iconData.settings or {}
-    local visible = groupDefault == true
+    local visible = false
     if settings.alwaysShow == "on" then
         visible = true
     elseif settings.alwaysShow == "off" then
@@ -612,11 +612,6 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     local inCombat = InCombatLockdown and InCombatLockdown()
     local now = GetTime and GetTime() or 0
     local isBuffContext = IsBuffSourceGroup(sourceGroupKey, db)
-    local showInactiveByDefault = groupSettings
-        and groupSettings.groupCategory == "buff"
-        and groupSettings.showInactiveIcons == true
-        and isBuffContext
-
     for sourceIndex, iconKey in ipairs(targetOrder) do
         local frame = iconFrames[iconKey]
         local iconData = db.iconData[iconKey]
@@ -674,7 +669,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
             local isAuraIcon = iconData.type == "aura"
             local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
-            local showInactive, desaturateInactive = ResolveInactiveBuffDisplay(iconData, showInactiveByDefault)
+            local showInactive, desaturateInactive = ResolveInactiveBuffDisplay(iconData)
             local includeActiveStateGray = groupSettings
                 and groupSettings.hideActiveState == true
                 and isBuffContext
@@ -879,7 +874,6 @@ local function BuildDynamicLayoutStateHash()
 
     local sourceKeys = {}
     local sourceSeen = {}
-    local sourceShowInactiveGray = {}
     local gs = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.groupSystem
     local groups = gs and gs.groups
     if type(groups) == "table" then
@@ -888,12 +882,6 @@ local function BuildDynamicLayoutStateHash()
             if sourceKey and not sourceSeen[sourceKey] then
                 sourceSeen[sourceKey] = true
                 sourceKeys[#sourceKeys + 1] = sourceKey
-            end
-            if sourceKey
-                and groupSettings.groupCategory == "buff"
-                and groupSettings.showInactiveIcons == true
-            then
-                sourceShowInactiveGray[sourceKey] = true
             end
         end
     end
@@ -950,10 +938,7 @@ local function BuildDynamicLayoutStateHash()
                 end
 
                 if not token and isEffectIcon then
-                    local showInactive, desaturateInactive = ResolveInactiveBuffDisplay(
-                        iconData,
-                        sourceShowInactiveGray[sourceKey]
-                    )
+                    local showInactive, desaturateInactive = ResolveInactiveBuffDisplay(iconData)
                     if showInactive then
                         token = desaturateInactive and "g" or "i"
                     end
