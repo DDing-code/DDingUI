@@ -255,6 +255,50 @@ local function CreateSectionMenu(parent, menuData, opts)
     return menu
 end
 
+local CDM_BUILTIN_GROUPS = {
+    Cooldowns = true,
+    Buffs = true,
+    Utility = true,
+}
+
+local function ShowCDMGroupContextMenu(configFrame, groupName, displayName, owner)
+    if not groupName or CDM_BUILTIN_GROUPS[groupName] then return false end
+    if not SL or not SL.ShowCascadingMenu then return false end
+
+    local menuItems = {
+        {
+            text = L["Rename"] or "이름 변경",
+            func = function()
+                StaticPopup_Show("DDINGUI_RENAME_GROUP", nil, nil, {
+                    oldName = groupName,
+                    onAccept = function(newName)
+                        if newName == groupName then return end
+                        if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
+                            if configFrame and configFrame.RebuildTreeMenu then
+                                configFrame:RebuildTreeMenu("groupSystem.group_" .. newName)
+                            end
+                            if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
+                                DDingUI.GroupSystem:Refresh()
+                            end
+                        end
+                    end,
+                })
+            end,
+        },
+        { isSeparator = true },
+        {
+            text = "|cffff4444" .. (L["Delete Group"] or "그룹 삭제") .. "|r",
+            func = function()
+                if DDingUI.RequestDeleteIconGroup then
+                    DDingUI:RequestDeleteIconGroup(groupName, displayName or groupName)
+                end
+            end,
+        },
+    }
+    SL.ShowCascadingMenu(owner, menuItems, "TOPLEFT", "BOTTOMLEFT", 0, -2)
+    return true
+end
+
 local function CleanupNestedOptionFrames(contentFrame, parentFrame)
     if not contentFrame then return end
 
@@ -547,6 +591,28 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     C_Timer.After(0.1, contentFrame._updateSubTabHeight)
                 end
             end)
+            local groupName = #path == 1
+                and path[1] == "groupSystem"
+                and item.key:match("^group_(.+)$")
+                or nil
+            if groupName and not CDM_BUILTIN_GROUPS[groupName] then
+                local capturedGroupName = groupName
+                local capturedDisplayName = displayName
+                local leftClick = subTabBtn:GetScript("OnClick")
+                subTabBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+                subTabBtn:SetScript("OnClick", function(self, button)
+                    if button == "RightButton" then
+                        ShowCDMGroupContextMenu(
+                            parentFrame,
+                            capturedGroupName,
+                            capturedDisplayName,
+                            self
+                        )
+                        return
+                    end
+                    if leftClick then leftClick(self, button) end
+                end)
+            end
             subTabBtn:SetPoint("LEFT", subTabContainer, "LEFT", tabX, 0)
 
             local textWidth = subTabBtn.label:GetStringWidth()
@@ -2626,9 +2692,6 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     -- ============================================
     -- 트리 메뉴 생성
     -- ============================================
-    -- [12.0.1] 기본 CDM 그룹 (이름 변경 불가)
-    local CDM_BUILTIN_GROUPS = { ["Cooldowns"] = true, ["Buffs"] = true, ["Utility"] = true }
-
     local tree = CreateSectionMenu(frame.treeFrame, menuData, {
         defaultKey = defaultKey,
         onSelect = function(key, fromUser)
@@ -2683,41 +2746,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         onRightClick = function(key, text, btn)
             local groupName = key:match("^groupSystem%.group_(.+)$")
             if groupName then
-                if CDM_BUILTIN_GROUPS[groupName] then return end
-
-                local menuList = {
-                    {
-                        text = L["Rename"] or "이름 변경",
-                        func = function()
-                            StaticPopup_Show("DDINGUI_RENAME_GROUP", nil, nil, {
-                                oldName = groupName,
-                                onAccept = function(newName)
-                                    if newName == groupName then return end
-                                    if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
-                                        if frame.RebuildTreeMenu then
-                                            frame:RebuildTreeMenu("groupSystem.group_" .. newName)
-                                        end
-                                        if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
-                                            DDingUI.GroupSystem:Refresh()
-                                        end
-                                    end
-                                end,
-                            })
-                        end,
-                    },
-                    { isSeparator = true },
-                    {
-                        text = "|cffff4444" .. (L["Delete Group"] or "그룹 삭제") .. "|r",
-                        func = function()
-                            if DDingUI.RequestDeleteIconGroup then
-                                DDingUI:RequestDeleteIconGroup(groupName, text or groupName)
-                            end
-                        end,
-                    },
-                }
-                if SL and SL.ShowCascadingMenu then
-                    SL.ShowCascadingMenu(btn, menuList, "TOPLEFT", "BOTTOMLEFT", 0, -2)
-                end
+                ShowCDMGroupContextMenu(frame, groupName, text, btn)
                 return
             end
 
