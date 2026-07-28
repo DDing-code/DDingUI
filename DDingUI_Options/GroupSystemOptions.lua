@@ -5536,13 +5536,24 @@ function DDingUI:BuildGroupGlowArgs(groupName)
         args["icon_" .. tostring(key)] = option
     end
 
-    args.groupDefaults = {
-        type = "group",
+    args.groupDefaultsHeader = {
+        type = "header",
         name = rawget(L, "Group Default Glow") or "Group Default Glow",
         order = 100,
-        inline = true,
-        args = BuildCustomVisualArgs(groupName),
     }
+    local visualArgs = BuildCustomVisualArgs(groupName)
+    for index, key in ipairs({
+        "auraGlow",
+        "procGlowEnabled",
+        "hideActiveState",
+        "hideActiveStateDesc",
+    }) do
+        local option = visualArgs[key]
+        if option then
+            option.order = 100 + index
+            args["group_" .. key] = option
+        end
+    end
     return args
 end
 
