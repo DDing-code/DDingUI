@@ -1030,23 +1030,21 @@ end
 
 -- GetBuffStacks 함수 -- [FIX] secret value 방어 강화
 local function GetBuffStacks(frame, unit)
-    if not frame then return 0 end
+    if not frame then return 0, nil end
     -- [FIX] auraInstanceID 존재 여부를 secret value 안전하게 확인
     local rawAuraID = frame.auraInstanceID
-    if rawAuraID == nil then return 0 end
+    if rawAuraID == nil then return 0, nil end
 
     unit = unit or "player"
-    local ok, result = pcall(function()
+    local ok, result, activeAuraInstanceID = pcall(function()
         local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, rawAuraID)
-        if not auraData then return 0 end
+        if not auraData then return 0, nil end
         -- secret value든 숫자든 그대로 반환 (SetText/SetValue가 처리)
-        return auraData.applications or 1
+        return auraData.applications or 1, rawAuraID
     end)
-    if ok then return result or 0 end
-    return 0
+    if ok then return result or 0, activeAuraInstanceID end
+    return 0, nil
 end
-
-local lastKnownAuraIDs = {}
 
 -- Global Aura search fallback
 -- Finds auras across player/target regardless of whether it's helpful or harmful
@@ -1164,12 +1162,11 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
     end
 
     local unit = frame and frame.auraDataUnit or "player"
-    local auraInstanceID = frame and frame.auraInstanceID
 
     -- [v1.2.3 복원] 구버전과 동일: GetBuffStacks → GetPlayerAuraBySpellID
     -- frame.auraInstanceID가 nil이면 GetBuffStacks는 0 반환 (= 만료됨)
     -- lastKnownAuraIDs 캐시 제거 — 만료된 aura 유령 데이터의 원인
-    local trackedStacks = GetBuffStacks(frame, unit)
+    local trackedStacks, auraInstanceID = GetBuffStacks(frame, unit)
 
     -- Tracked Bar frames can be recycled when the aura activates in combat.
     -- Resolve the live aura from every spell ID attached to the cooldown entry.
