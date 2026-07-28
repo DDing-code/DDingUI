@@ -4970,7 +4970,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     end
 end
 
-function DDingUI:BuildGroupIconDetailArgs(groupName)
+function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
+    sectionMode = sectionMode or "detail"
     local opt = self:GetGroupIconDetailSelection(groupName)
     if not opt then
         return {
@@ -5147,25 +5148,30 @@ function DDingUI:BuildGroupIconDetailArgs(groupName)
             order = -10,
         },
     }
-    local glowItems = self:BuildAssignedIconSettingsItems(groupName, opt, true)
-    local visualItems = self:BuildAssignedIconSettingsItems(groupName, opt)
-    local linkedItems = self:BuildAssignedIconLinkedEffectItems(groupName, opt, RefreshCommittedDetails)
+    local glowOnly = sectionMode == "glow"
+    local glowItems = glowOnly and self:BuildAssignedIconSettingsItems(groupName, opt, true) or {}
+    local visualItems = not glowOnly and self:BuildAssignedIconSettingsItems(groupName, opt) or {}
+    local linkedItems = not glowOnly
+        and self:BuildAssignedIconLinkedEffectItems(groupName, opt, RefreshCommittedDetails)
+        or {}
     local detailTree = {}
 
-    local glowSection = {}
-    if glowItems[1] and glowItems[1].menuList then
-        glowSection[#glowSection + 1] = glowItems[1]
-    end
-    for index = 2, #glowItems do
-        if not glowItems[index].isSeparator then
-            glowSection[#glowSection + 1] = glowItems[index]
+    if glowOnly then
+        local glowSection = {}
+        if glowItems[1] and glowItems[1].menuList then
+            glowSection[#glowSection + 1] = glowItems[1]
         end
-    end
-    if #glowSection > 0 then
-        detailTree[#detailTree + 1] = {
-            text = rawget(L, "Icon Glow Settings") or "Icon Glow Settings",
-            menuList = glowSection,
-        }
+        for index = 2, #glowItems do
+            if not glowItems[index].isSeparator then
+                glowSection[#glowSection + 1] = glowItems[index]
+            end
+        end
+        if #glowSection > 0 then
+            detailTree[#detailTree + 1] = {
+                text = rawget(L, "Icon Glow Settings") or "Icon Glow Settings",
+                menuList = glowSection,
+            }
+        end
     end
 
     local visualSection = {}
@@ -6388,7 +6394,21 @@ local function CreateGroupOptions(groupName, order)
         type = "group",
         name = L["Glow"] or "Glow",
         order = 40,
-        args = BuildCustomVisualArgs(groupName),
+        childGroups = "tab",
+        args = {
+            iconGlow = {
+                type = "group",
+                name = rawget(L, "Icon Glow") or "Icon Glow",
+                order = 10,
+                args = DDingUI:BuildGroupIconDetailArgs(groupName, "glow"),
+            },
+            groupGlow = {
+                type = "group",
+                name = rawget(L, "Group Default Glow") or "Group Default Glow",
+                order = 20,
+                args = BuildCustomVisualArgs(groupName),
+            },
+        },
     }
 
     return {
