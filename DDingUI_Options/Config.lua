@@ -51,23 +51,23 @@ function DDingUI:SetupOptions()
                 get = function()
                     local savedScale = DDingUI.db.profile.general.uiScale
                     if savedScale and type(savedScale) == "number" then
-                        return string.format("%.8f", savedScale)
+                        return string.format("%.2f", savedScale)
                     end
 
                     local cvarValue = GetCVar("uiscale")
                     if cvarValue then
                         local scale = tonumber(cvarValue)
                         if scale then
-                            return string.format("%.8f", scale)
+                            return string.format("%.2f", scale)
                         end
                     end
 
                     local currentScale = UIParent:GetScale()
                     if currentScale then
-                        return string.format("%.8f", currentScale)
+                        return string.format("%.2f", currentScale)
                     end
 
-                    return "1.00000000"
+                    return "1.00"
                 end,
                 set = function(_, val)
                     local numValue = tonumber(val)
@@ -101,7 +101,7 @@ function DDingUI:SetupOptions()
 
                         if DDingUI.AutoUIScale and DDingUI.AutoUIScale.SetUIScale then
                             DDingUI.AutoUIScale:SetUIScale(savedScale)
-                            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " " .. string.format("%.8f", savedScale) .. "|r") -- [STYLE]
+                            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " " .. string.format("%.2f", savedScale) .. "|r") -- [STYLE]
                         end
 
                         -- [REFACTOR] AceGUI → StyleLib
@@ -131,7 +131,7 @@ function DDingUI:SetupOptions()
 
                     if DDingUI.AutoUIScale and DDingUI.AutoUIScale.SetUIScale then
                         DDingUI.AutoUIScale:SetUIScale(scale1080p)
-                        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " 0.711111 (1080p)|r") -- [STYLE]
+                        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " 0.71 (1080p)|r") -- [STYLE]
                     end
 
                     -- [REFACTOR] AceGUI → StyleLib
@@ -151,7 +151,7 @@ function DDingUI:SetupOptions()
 
                     if DDingUI.AutoUIScale and DDingUI.AutoUIScale.SetUIScale then
                         DDingUI.AutoUIScale:SetUIScale(scale1440p)
-                        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " 0.53333333 (1440p)|r") -- [STYLE]
+                        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " 0.53 (1440p)|r") -- [STYLE]
                     end
 
                     -- [REFACTOR] AceGUI → StyleLib
