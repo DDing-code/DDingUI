@@ -5144,7 +5144,7 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
     local args = {
         selected = {
             type = "description",
-            name = string.format("|T%s:26:26:0:0|t  |cffffa300%s|r", tostring(iconTexture), tostring(displayName)),
+            name = string.format("|T%s:18:18:0:0|t  |cffffa300%s|r", tostring(iconTexture), tostring(displayName)),
             order = -10,
         },
     }
@@ -5526,6 +5526,26 @@ local function BuildCustomVisualArgs(groupName)
         disableEdgeGlow = GS_Toggle(groupName, "disableEdgeGlow", L["Disable Edge Glow"] or "엣지 글로우 비활성화", 26, false),
         disableBlingAnimation = GS_Toggle(groupName, "disableBlingAnimation", L["Disable Bling Animation"] or "블링 애니메이션 비활성화", 27, false),
     }
+end
+
+function DDingUI:BuildGroupGlowArgs(groupName)
+    local args = {}
+    local iconArgs = self:BuildGroupIconDetailArgs(groupName, "glow")
+    for key, option in pairs(iconArgs) do
+        option.order = (tonumber(option.order) or 0) + 10
+        args["icon_" .. tostring(key)] = option
+    end
+
+    args.groupDefaultsHeader = {
+        type = "header",
+        name = rawget(L, "Group Default Glow") or "Group Default Glow",
+        order = 100,
+    }
+    for key, option in pairs(BuildCustomVisualArgs(groupName)) do
+        option.order = (tonumber(option.order) or 0) + 100
+        args["group_" .. tostring(key)] = option
+    end
+    return args
 end
 
 local function GS_Font(groupName, key, name, order, default)
@@ -6394,21 +6414,7 @@ local function CreateGroupOptions(groupName, order)
         type = "group",
         name = L["Glow"] or "Glow",
         order = 40,
-        childGroups = "tab",
-        args = {
-            iconGlow = {
-                type = "group",
-                name = rawget(L, "Icon Glow") or "Icon Glow",
-                order = 10,
-                args = DDingUI:BuildGroupIconDetailArgs(groupName, "glow"),
-            },
-            groupGlow = {
-                type = "group",
-                name = rawget(L, "Group Default Glow") or "Group Default Glow",
-                order = 20,
-                args = BuildCustomVisualArgs(groupName),
-            },
-        },
+        args = DDingUI:BuildGroupGlowArgs(groupName),
     }
 
     return {
