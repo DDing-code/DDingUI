@@ -2036,8 +2036,15 @@ function Movers:ShowMovers()
 
     -- 버프 트래커 프레임이 완전히 생성된 후 mover 등록 (즉시 + 지연)
     self:RegisterBuffTrackerFrames()
+    if self.NudgeFrame and self.NudgeFrame.UpdateSelection then
+        self.NudgeFrame:UpdateSelection()
+    end
     C_Timer.After(0.1, function()
+        if not self.ConfigMode then return end
         self:RegisterBuffTrackerFrames()
+        if self.NudgeFrame and self.NudgeFrame.UpdateSelection then
+            self.NudgeFrame:UpdateSelection()
+        end
     end)
 
     -- [FIX] 편집모드 진입 시 숨김/알파0/크기<10 그룹 프레임 강제 표시
