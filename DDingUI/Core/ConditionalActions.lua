@@ -10,6 +10,14 @@ local L = ns.L or {}
 local EVAL_INTERVAL = 0.1  -- 평가 주기 (초)
 local evalElapsed = 0
 
+local function FindTrackedBuffByUID(trackedBuffs, uid)
+    if not uid then return nil end
+    for _, buff in ipairs(trackedBuffs or {}) do
+        if buff.uid == uid then return buff end
+    end
+    return nil
+end
+
 -- 동작 대상 프레임 해석
 local function ResolveBarFrame(target, group, trackedBuffs)
     if target == "PrimaryPowerBar" then
@@ -31,6 +39,15 @@ local function ResolveBarFrame(target, group, trackedBuffs)
         end
     end
 
+    local trackerUID = target and target:match("^bt_uid_(.+)$")
+    if trackerUID and DDingUI._buffTrackerBars then
+        for trackerIdx, buff in ipairs(trackedBuffs or {}) do
+            if buff.uid == trackerUID then
+                return DDingUI._buffTrackerBars[trackerIdx]
+            end
+        end
+    end
+
     return nil
 end
 
@@ -42,9 +59,11 @@ local function GetTriggerState(trigger, group, trackedBuffs)
         local children = group.controlledChildren or {}
         local childIdx = children[trigger.childIndex]
         buff = childIdx and trackedBuffs[childIdx]
+    elseif trigger.source == "tracker" then
+        buff = FindTrackedBuffByUID(trackedBuffs, trigger.trackerUID)
     elseif trigger.source == "spell" then
         for _, b in ipairs(trackedBuffs) do
-            if b.spellID == trigger.spellID then
+            if b.spellID == trigger.spellID or b.cooldownID == trigger.spellID then
                 buff = b
                 break
             end
@@ -242,7 +261,8 @@ local function EvaluateSetTriggers(set, group, trackedBuffs)
         local cond = trigger.condition or "active"
         if (cond == "duration_gte" or cond == "duration_lte") and trigger.maxDuration and trigger.maxDuration > 0 then
             -- 버프 활성화 시점 추적 키
-            local trackKey = "_auraStart_" .. (trigger.source or "") .. "_" .. tostring(trigger.childIndex or trigger.spellID or 0)
+            local sourceKey = trigger.trackerUID or trigger.childIndex or trigger.spellID or 0
+            local trackKey = "_auraStart_" .. (trigger.source or "") .. "_" .. tostring(sourceKey)
             if hasAura then
                 if not set[trackKey] then
                     set[trackKey] = GetTime()  -- 버프 활성화 시점 기록
@@ -519,7 +539,10 @@ local function ExecuteActions(actions, shouldFire, group, trackedBuffs)
         -- ─── 아이콘 글로우 ───
         elseif action.type == "icon_glow" then
             local cdID
-            if action.childIndex then
+            if action.trackerUID then
+                local buff = FindTrackedBuffByUID(trackedBuffs, action.trackerUID)
+                cdID = buff and buff.cooldownID
+            elseif action.childIndex then
                 local children = group.controlledChildren or {}
                 local childIdx = children[action.childIndex]
                 local buff = childIdx and trackedBuffs[childIdx]
@@ -544,7 +567,10 @@ local function ExecuteActions(actions, shouldFire, group, trackedBuffs)
         -- ─── 아이콘 텍스처 변경 ───
         elseif action.type == "icon_change" then
             local cdID
-            if action.childIndex then
+            if action.trackerUID then
+                local buff = FindTrackedBuffByUID(trackedBuffs, action.trackerUID)
+                cdID = buff and buff.cooldownID
+            elseif action.childIndex then
                 local children = group.controlledChildren or {}
                 local childIdx = children[action.childIndex]
                 local buff = childIdx and trackedBuffs[childIdx]

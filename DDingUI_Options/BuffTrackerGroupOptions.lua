@@ -11,6 +11,9 @@ local RefreshOptions = context.RefreshOptions
 
 -- Create group settings options (for right panel when group is selected)
 function DDingUI.CreateGroupOptions(groupIdx)
+    if DDingUI.EnsureTrackedBuffUIDs then
+        DDingUI.EnsureTrackedBuffUIDs()
+    end
     local trackedBuffs = GetTrackedBuffs()
     local group = trackedBuffs[groupIdx]
     if not group or not group.isGroup then return {} end
@@ -285,17 +288,91 @@ function DDingUI.CreateGroupOptions(groupIdx)
     if not ca.sets then ca.sets = {} end
 
     -- 공용 드롭다운 데이터
-    local childValues = {}
-    for ci, childIdx in ipairs(children) do
-        local child = allTrackedBuffs[childIdx]
-        if child then
-            local n = child.name or "?"
-            if child.spellID and child.spellID > 0 then
-                local sn = C_Spell.GetSpellName(child.spellID)
-                if sn then n = sn end
+    local sourceValues = {}
+    local sourceTrackers = {}
+    local sourceKeysByUID = {}
+    local sourceUIDsByKey = {}
+    local sourceLabelsByUID = {}
+    local firstSourceKey
+    for trackerIdx, tracker in ipairs(allTrackedBuffs) do
+        if not tracker.isGroup and tracker.uid then
+            local name = tracker.name or "?"
+            if tracker.spellID and tracker.spellID > 0 then
+                local spellName = C_Spell.GetSpellName(tracker.spellID)
+                if spellName then name = spellName end
             end
-            childValues[ci] = ci .. ". " .. n
+            local sourceKey = string.format("%06d:%s", trackerIdx, tracker.uid)
+            sourceValues[sourceKey] = trackerIdx .. ". " .. name
+            sourceTrackers[tracker.uid] = tracker
+            sourceKeysByUID[tracker.uid] = sourceKey
+            sourceUIDsByKey[sourceKey] = tracker.uid
+            sourceLabelsByUID[tracker.uid] = trackerIdx .. ". " .. name
+            firstSourceKey = firstSourceKey or sourceKey
         end
+    end
+
+    local function ResolveTriggerSourceKey(trigger)
+        local uid
+        if trigger.source == "tracker" and trigger.trackerUID
+            and sourceTrackers[trigger.trackerUID]
+        then
+            uid = trigger.trackerUID
+        end
+
+        if not uid and (trigger.source == "child" or not trigger.source) then
+            local childIdx = children[trigger.childIndex or 1]
+            local child = childIdx and allTrackedBuffs[childIdx]
+            uid = child and child.uid
+        elseif not uid and trigger.source == "spell" and trigger.spellID then
+            for trackerUID, tracker in pairs(sourceTrackers) do
+                if tracker.spellID == trigger.spellID or tracker.cooldownID == trigger.spellID then
+                    uid = trackerUID
+                    break
+                end
+            end
+        end
+
+        local sourceKey = uid and sourceKeysByUID[uid] or firstSourceKey
+        if sourceKey and not uid then
+            uid = sourceUIDsByKey[sourceKey]
+            trigger.source = "tracker"
+            trigger.trackerUID = uid
+            trigger.childIndex = nil
+            trigger.spellID = nil
+        end
+        return sourceKey
+    end
+
+    local function ResolveTriggerTracker(trigger)
+        local sourceKey = ResolveTriggerSourceKey(trigger)
+        local uid = sourceKey and sourceUIDsByKey[sourceKey]
+        return uid and sourceTrackers[uid] or nil
+    end
+
+    local function ResolveActionTargetKey(action)
+        local uid = action.trackerUID
+        if not (uid and sourceTrackers[uid]) and action.childIndex then
+            local childIdx = children[action.childIndex]
+            local child = childIdx and allTrackedBuffs[childIdx]
+            uid = child and child.uid
+        end
+        if not (uid and sourceTrackers[uid]) and action.spellID then
+            for trackerUID, tracker in pairs(sourceTrackers) do
+                if tracker.spellID == action.spellID or tracker.cooldownID == action.spellID then
+                    uid = trackerUID
+                    break
+                end
+            end
+        end
+
+        local sourceKey = uid and sourceKeysByUID[uid] or firstSourceKey
+        local resolvedUID = uid or (sourceKey and sourceUIDsByKey[sourceKey])
+        if sourceKey and resolvedUID and action.trackerUID ~= resolvedUID then
+            action.trackerUID = resolvedUID
+            action.childIndex = nil
+            action.spellID = nil
+        end
+        return sourceKey
     end
 
     local conditionValues = {}
@@ -322,17 +399,9 @@ function DDingUI.CreateGroupOptions(groupIdx)
             barTargetValues[bt.id] = bt.name
         end
     end
-    -- BuffTracker 바 대상 추가: 자식 바들
-    for ci, childIdx in ipairs(children) do
-        local child = allTrackedBuffs[childIdx]
-        if child then
-            local n = child.name or "?"
-            if child.spellID and child.spellID > 0 then
-                local sn = C_Spell.GetSpellName(child.spellID)
-                if sn then n = sn end
-            end
-            barTargetValues["bt_child_" .. ci] = "TrackerBar: " .. n
-        end
+    -- BuffTracker 바 대상 추가
+    for uid, label in pairs(sourceLabelsByUID) do
+        barTargetValues["bt_uid_" .. uid] = "TrackerBar: " .. label
     end
 
     -- 헤더
@@ -381,9 +450,16 @@ function DDingUI.CreateGroupOptions(groupIdx)
                 type = "select",
                 name = "#" .. ti .. " " .. (L["Source"] or "Source"),
                 order = tOrder, width = "half",
-                values = childValues,
-                get = function() return trigger.childIndex or 1 end,
-                set = function(_, val) trigger.childIndex = val; trigger.source = "child" end,
+                values = sourceValues,
+                get = function() return ResolveTriggerSourceKey(trigger) end,
+                set = function(_, val)
+                    local uid = sourceUIDsByKey[val]
+                    if not uid then return end
+                    trigger.source = "tracker"
+                    trigger.trackerUID = uid
+                    trigger.childIndex = nil
+                    trigger.spellID = nil
+                end,
             }
             setArgs["t" .. ti .. "_cond"] = {
                 type = "select",
@@ -396,9 +472,7 @@ function DDingUI.CreateGroupOptions(groupIdx)
                     -- [FIX] duration 조건 선택 시 maxDuration 자동 채우기 (툴팁에서 추출)
                     if (val == "duration_gte" or val == "duration_lte") and not trigger.maxDuration then
                         local targetSpellID = nil
-                        -- 트리거 대상 버프의 spellID 찾기
-                        local childIdx = children[trigger.childIndex or 1]
-                        local buff = childIdx and allTrackedBuffs[childIdx]
+                        local buff = ResolveTriggerTracker(trigger)
                         if buff then
                             targetSpellID = buff.spellID
                             if (not targetSpellID or targetSpellID == 0) and buff.cooldownID and buff.cooldownID > 0 then
@@ -520,7 +594,19 @@ function DDingUI.CreateGroupOptions(groupIdx)
                 name = L["Target Bar"] or "Target Bar",
                 order = aOrder + 0.02, width = "normal",
                 values = barTargetValues,
-                get = function() return action.target or "PrimaryPowerBar" end,
+                get = function()
+                    local target = action.target or "PrimaryPowerBar"
+                    local childPosition = target:match("^bt_child_(%d+)$")
+                    if childPosition then
+                        local childIdx = children[tonumber(childPosition)]
+                        local child = childIdx and allTrackedBuffs[childIdx]
+                        if child and child.uid then
+                            target = "bt_uid_" .. child.uid
+                            action.target = target
+                        end
+                    end
+                    return target
+                end,
                 set = function(_, val) action.target = val end,
                 hidden = function()
                     return action.type ~= "bar_color" and action.type ~= "bar_glow"
@@ -545,9 +631,15 @@ function DDingUI.CreateGroupOptions(groupIdx)
                 type = "select",
                 name = L["Target Child"] or "Target Child",
                 order = aOrder + 0.04, width = "normal",
-                values = childValues,
-                get = function() return action.childIndex or 1 end,
-                set = function(_, val) action.childIndex = val end,
+                values = sourceValues,
+                get = function() return ResolveActionTargetKey(action) end,
+                set = function(_, val)
+                    local uid = sourceUIDsByKey[val]
+                    if not uid then return end
+                    action.trackerUID = uid
+                    action.childIndex = nil
+                    action.spellID = nil
+                end,
                 hidden = function()
                     return action.type ~= "icon_glow" and action.type ~= "icon_change"
                 end,
