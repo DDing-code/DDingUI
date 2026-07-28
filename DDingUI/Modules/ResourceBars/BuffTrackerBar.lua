@@ -927,6 +927,7 @@ local ResetAllSoundTrackers
 local soundTrackers = {}  -- forward-declared; 실제 사용은 line 2138+
 local barFrames = {}      -- forward-declared; 실제 사용은 line 1921+
 local iconFrames = {}     -- forward-declared; 실제 사용은 line 2064+
+local groupRuntime = { frames = {} }
 local GetTrackedBuffs  -- Used in expiration check before definition
 
 -- ============================================================
@@ -961,6 +962,13 @@ local function InvalidateAllFrameCaches()
             bar._lastWidth = nil
             bar._lastBarStyle = nil
         end
+    end
+    for _, frame in pairs(groupRuntime.frames) do
+        frame._lastAnchor = nil
+        frame._lastAnchorPoint = nil
+        frame._lastOffsetX = nil
+        frame._lastOffsetY = nil
+        frame._lastSelfPoint = nil
     end
 end
 
@@ -1407,6 +1415,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         HideAllTrackedBuffBars()
         HideAllTrackedBuffIcons()
         HideAllTrackedBuffTexts()
+        groupRuntime:HideAll()
         ResetAllSoundTrackers()
         if ConditionalVisuals then
             ConditionalVisuals:Clear()
@@ -3178,6 +3187,219 @@ local function CheckActivationCondition(trackedBuff)
     return true
 end
 
+function groupRuntime:GetFrame(groupIndex)
+    local frame = self.frames[groupIndex]
+    if frame then return frame end
+
+    frame = CreateFrame("Frame", ADDON_NAME .. "BuffTrackerGroup" .. groupIndex, UIParent)
+    frame:SetSize(160, 24)
+    frame:SetFrameStrata("MEDIUM")
+    frame:EnableMouse(false)
+    frame:EnableMouseWheel(false)
+    if frame.SetMouseMotionEnabled then
+        frame:SetMouseMotionEnabled(false)
+    end
+    frame.groupIndex = groupIndex
+    frame:Hide()
+    self.frames[groupIndex] = frame
+    return frame
+end
+
+function groupRuntime:GetDisplayFrame(trackerIndex, trackedBuff)
+    local displayType = trackedBuff and trackedBuff.displayType or "bar"
+    if displayType == "bar" or displayType == "ring" then
+        return barFrames[trackerIndex]
+    elseif displayType == "icon" then
+        return iconFrames[trackerIndex]
+    elseif displayType == "text" then
+        return textFrames[trackerIndex]
+    end
+    return nil
+end
+
+function groupRuntime:HideDisplay(trackerIndex)
+    local bar = barFrames[trackerIndex]
+    DDingUI:SafeHide(bar)
+
+    local icon = iconFrames[trackerIndex]
+    if icon then
+        DDingUI:SafeHide(icon)
+        StopAllAnimations(icon)
+        icon._currentAnimation = nil
+    end
+
+    local textFrame = textFrames[trackerIndex]
+    if textFrame then
+        DDingUI:SafeHide(textFrame)
+        StopTextAnimations(textFrame)
+        textFrame._currentAnimation = nil
+    end
+end
+
+function groupRuntime:HideAll()
+    for _, frame in pairs(self.frames) do
+        frame:Hide()
+    end
+end
+
+function groupRuntime:IsActive(group)
+    if not group or not group.isGroup then return false end
+    if isInMoverMode or isInPreviewMode then return true end
+    if group.disabled or group.enabled == false then return false end
+    if not CheckActivationCondition(group) then return false end
+
+    local settings = group.groupSettings or {}
+    if settings.loadCombatOnly
+       and not (InCombatLockdown() or UnitAffectingCombat("player")) then
+        return false
+    end
+
+    local loadSpec = settings.loadSpec
+    if type(loadSpec) == "table" and next(loadSpec) then
+        local specIndex = GetSpecialization and GetSpecialization()
+        local specID = specIndex and GetSpecializationInfo(specIndex)
+        local matched = loadSpec[specIndex] or (specID and loadSpec[specID])
+        if not matched then
+            for _, value in pairs(loadSpec) do
+                if value == specIndex or value == specID then
+                    matched = true
+                    break
+                end
+            end
+        end
+        if not matched then return false end
+    end
+
+    local requestedType = settings.loadInstanceType or "all"
+    if requestedType ~= "all" then
+        local inInstance, instanceType = IsInInstance()
+        if requestedType == "world" then
+            if inInstance then return false end
+        elseif requestedType == "dungeon" then
+            if instanceType ~= "party" and instanceType ~= "scenario" then return false end
+        elseif requestedType == "raid" then
+            if instanceType ~= "raid" then return false end
+        elseif requestedType == "arena" then
+            if instanceType ~= "arena" and instanceType ~= "pvp" then return false end
+        end
+    end
+
+    return true
+end
+
+function groupRuntime:Layout(groupIndex, group, trackedBuffs)
+    local groupFrame = self:GetFrame(groupIndex)
+    local settings = group.groupSettings or {}
+    local children = {}
+
+    for order, childIndex in ipairs(group.controlledChildren or {}) do
+        local child = trackedBuffs[childIndex]
+        local frame = child and self:GetDisplayFrame(childIndex, child)
+        if frame and frame:IsShown() then
+            children[#children + 1] = {
+                order = order,
+                config = child,
+                frame = frame,
+            }
+        end
+    end
+
+    local sortMode = settings.sortMode or "none"
+    if sortMode == "priority" then
+        table.sort(children, function(a, b)
+            local ap = tonumber((a.config.settings or {}).priority or a.config.priority) or 0
+            local bp = tonumber((b.config.settings or {}).priority or b.config.priority) or 0
+            if ap == bp then return a.order < b.order end
+            return ap > bp
+        end)
+    elseif sortMode == "name" then
+        table.sort(children, function(a, b)
+            local an = tostring(a.config.name or a.config.spellName or "")
+            local bn = tostring(b.config.name or b.config.spellName or "")
+            if an == bn then return a.order < b.order end
+            return an < bn
+        end)
+    end
+
+    local direction = settings.growthDirection or "DOWN"
+    local spacing = DDingUI:Scale(settings.growthSpacing or 2)
+    local width, height = 0, 0
+    for _, child in ipairs(children) do
+        local childWidth = math_max(1, child.frame:GetWidth() or 1)
+        local childHeight = math_max(1, child.frame:GetHeight() or 1)
+        if direction == "LEFT" or direction == "RIGHT" then
+            width = width + childWidth
+            height = math_max(height, childHeight)
+        else
+            width = math_max(width, childWidth)
+            height = height + childHeight
+        end
+    end
+    if #children > 1 then
+        if direction == "LEFT" or direction == "RIGHT" then
+            width = width + spacing * (#children - 1)
+        else
+            height = height + spacing * (#children - 1)
+        end
+    end
+
+    if #children == 0 and not isInMoverMode and not isInPreviewMode then
+        groupFrame:Hide()
+        return
+    end
+
+    groupFrame:SetFrameStrata(settings.frameStrata or "MEDIUM")
+    groupFrame:SetSize(math_max(width, DDingUI:Scale(160)), math_max(height, DDingUI:Scale(24)))
+
+    if ShouldApplyTrackerFramePosition() or groupFrame:GetNumPoints() == 0 then
+        local attachTo = NormalizeTrackerAnchorName(settings.attachTo or "UIParent")
+        local anchorFrame = DDingUI:ResolveAnchorFrame(attachTo)
+        local anchorPoint = settings.anchorPoint or "CENTER"
+        local selfPoint = settings.selfPoint or "CENTER"
+        local offsetX = DDingUI:Scale(settings.offsetX or 0)
+        local offsetY = DDingUI:Scale(settings.offsetY or 0)
+
+        if not TrackerFramePointMatches(groupFrame, selfPoint, anchorFrame, anchorPoint, offsetX, offsetY) then
+            groupFrame:ClearAllPoints()
+            groupFrame:SetPoint(selfPoint, anchorFrame, anchorPoint, offsetX, offsetY)
+        end
+    end
+
+    local previous
+    for _, child in ipairs(children) do
+        local frame = child.frame
+        frame:ClearAllPoints()
+        if direction == "UP" then
+            if previous then
+                frame:SetPoint("BOTTOMLEFT", previous, "TOPLEFT", 0, spacing)
+            else
+                frame:SetPoint("BOTTOMLEFT", groupFrame, "BOTTOMLEFT", 0, 0)
+            end
+        elseif direction == "LEFT" then
+            if previous then
+                frame:SetPoint("RIGHT", previous, "LEFT", -spacing, 0)
+            else
+                frame:SetPoint("RIGHT", groupFrame, "RIGHT", 0, 0)
+            end
+        elseif direction == "RIGHT" then
+            if previous then
+                frame:SetPoint("LEFT", previous, "RIGHT", spacing, 0)
+            else
+                frame:SetPoint("LEFT", groupFrame, "LEFT", 0, 0)
+            end
+        else
+            if previous then
+                frame:SetPoint("TOPLEFT", previous, "BOTTOMLEFT", 0, -spacing)
+            else
+                frame:SetPoint("TOPLEFT", groupFrame, "TOPLEFT", 0, 0)
+            end
+        end
+        previous = frame
+    end
+
+    groupFrame:Show()
+end
+
 function ResourceBars:UpdateBuffTrackerBar()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     local cfg, _ = GetFullSpecConfig()
@@ -3191,6 +3413,8 @@ function ResourceBars:UpdateBuffTrackerBar()
     if not rootCfg or not rootCfg.enabled then
         HideAllTrackedBuffBars()
         HideAllTrackedBuffIcons()
+        HideAllTrackedBuffTexts()
+        groupRuntime:HideAll()
         if DDingUI.buffTrackerBar then
             DDingUI.buffTrackerBar:Hide()
         end
@@ -3230,32 +3454,27 @@ function ResourceBars:UpdateBuffTrackerBar()
 
     -- Use new multi-bar system if we have tracked buffs
     if useTrackedBuffSystem then
-        -- 그룹 자식 인덱스 세트 구축 (트리거 전용 → 독립 렌더링 안 함)
-        local groupChildSet = {}
-        for _, buff in ipairs(trackedBuffs) do
-            if buff.isGroup and buff.controlledChildren then
-                for _, childIdx in ipairs(buff.controlledChildren) do
-                    groupChildSet[childIdx] = true
+        local groupChildOwners = {}
+        local activeGroups = {}
+        for groupIndex, buff in ipairs(trackedBuffs) do
+            if buff.isGroup then
+                activeGroups[groupIndex] = groupRuntime:IsActive(buff)
+                for _, childIdx in ipairs(buff.controlledChildren or {}) do
+                    if trackedBuffs[childIdx] and not trackedBuffs[childIdx].isGroup then
+                        groupChildOwners[childIdx] = groupIndex
+                    end
                 end
             end
         end
 
         -- Update each tracked buff based on its display type
         for barIndex, trackedBuff in ipairs(trackedBuffs) do
-            -- Skip disabled buffs, group headers, and group children (trigger-only)
-            if trackedBuff.enabled == false or not CheckActivationCondition(trackedBuff)
-               or trackedBuff.isGroup
-               or groupChildSet[barIndex] then
-                local bar = barFrames[barIndex]
-                DDingUI:SafeHide(bar)
-                local icon = iconFrames[barIndex]
-                if icon then
-                    DDingUI:SafeHide(icon)
-                    StopAllAnimations(icon)
-                    icon._currentAnimation = nil
-                end
-                local textFrame = textFrames[barIndex]
-                DDingUI:SafeHide(textFrame)
+            local ownerGroup = groupChildOwners[barIndex]
+            if trackedBuff.isGroup
+               or trackedBuff.enabled == false
+               or not CheckActivationCondition(trackedBuff)
+               or (ownerGroup and not activeGroups[ownerGroup]) then
+                groupRuntime:HideDisplay(barIndex)
             else
                 local displayType = trackedBuff.displayType or "bar"
 
@@ -3299,6 +3518,23 @@ function ResourceBars:UpdateBuffTrackerBar()
             end
         end
 
+        for groupIndex, group in ipairs(trackedBuffs) do
+            if group.isGroup then
+                if activeGroups[groupIndex] then
+                    groupRuntime:Layout(groupIndex, group, trackedBuffs)
+                else
+                    local groupFrame = groupRuntime.frames[groupIndex]
+                    if groupFrame then groupFrame:Hide() end
+                end
+            end
+        end
+        for groupIndex, groupFrame in pairs(groupRuntime.frames) do
+            local group = trackedBuffs[groupIndex]
+            if not group or not group.isGroup then
+                groupFrame:Hide()
+            end
+        end
+
         -- Hide excess frames (if buffs were removed, SafeHide for performance)
         for barIndex, bar in pairs(barFrames) do
             if barIndex > #trackedBuffs then
@@ -3335,6 +3571,7 @@ function ResourceBars:UpdateBuffTrackerBar()
     if DDingUI.buffTrackerBar then
         DDingUI.buffTrackerBar:Hide()
     end
+    groupRuntime:HideAll()
     if ConditionalVisuals then
         ConditionalVisuals:CommitPass()
     end
@@ -6090,10 +6327,19 @@ DDingUI.GetTrackedBuffBars = function(self) return barFrames end  -- Multi-bar a
 DDingUI._buffTrackerBars = barFrames  -- ConditionalActions ResolveBarFrame 연동
 DDingUI.GetTrackedBuffIcons = function(self) return iconFrames end  -- Multi-icon access for debugging
 DDingUI.GetTrackedBuffTexts = function(self) return textFrames end  -- Multi-text access for debugging
+DDingUI.GetTrackedBuffGroups = function(self) return groupRuntime.frames end
+DDingUI.GetTrackedBuffConfigs = function(self) return GetTrackedBuffs() end
 DDingUI.GetSoundTrackers = function(self) return soundTrackers end  -- Sound tracker access for debugging
 DDingUI.InitializeTrackedBuffBarsForMover = function(self) return ResourceBars:InitializeTrackedBuffBarsForMover() end
 DDingUI.SyncBuffTrackerMoverPositions = function(self)
     for _, frame in pairs(barFrames) do
+        frame._lastAnchor = nil
+        frame._lastAnchorPoint = nil
+        frame._lastOffsetX = nil
+        frame._lastOffsetY = nil
+        frame._lastSelfPoint = nil
+    end
+    for _, frame in pairs(groupRuntime.frames) do
         frame._lastAnchor = nil
         frame._lastAnchorPoint = nil
         frame._lastOffsetX = nil
@@ -6222,6 +6468,8 @@ SlashCmdList["BTRESET"] = function(msg)
     -- Hide all bars and icons
     HideAllTrackedBuffBars()
     HideAllTrackedBuffIcons()
+    HideAllTrackedBuffTexts()
+    groupRuntime:HideAll()
 
     -- Refresh
     ResourceBars:UpdateBuffTrackerBar()

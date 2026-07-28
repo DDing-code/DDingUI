@@ -196,6 +196,11 @@ local function GetBuffTrackerMoverRecord(name)
     local trackedBuff = trackedBuffs and trackedBuffs[idx]
     if not trackedBuff then return nil end
 
+    if trackerType == "Group" and trackedBuff.isGroup then
+        trackedBuff.groupSettings = trackedBuff.groupSettings or {}
+        return trackerType, idx, trackedBuff, trackedBuff.groupSettings, rootCfg, trackedBuffs
+    end
+
     trackedBuff.settings = trackedBuff.settings or {}
     return trackerType, idx, trackedBuff, trackedBuff.settings, rootCfg, trackedBuffs
 end
@@ -207,6 +212,8 @@ local function IsMatchingBuffTrackerFrameType(frameType, displayType)
         return displayType == "icon"
     elseif frameType == "Text" then
         return displayType == "text"
+    elseif frameType == "Group" then
+        return displayType == "group"
     end
     return false
 end
@@ -245,7 +252,11 @@ local function GetBuffTrackerMoverPointInfo(name)
     local anchorPoint
     local selfPoint
 
-    if trackerType == "Bar" then
+    if trackerType == "Group" then
+        attachTo = settings.attachTo or "UIParent"
+        anchorPoint = settings.anchorPoint or "CENTER"
+        selfPoint = settings.selfPoint or "CENTER"
+    elseif trackerType == "Bar" then
         if displayType == "ring" then
             anchorPoint = settings.ringAnchorPoint or "CENTER"
             selfPoint = settings.ringSelfPoint or rootCfg.selfPoint or "CENTER"
@@ -1270,13 +1281,18 @@ function Movers:SaveMoverPosition(name)
             end
 
             if trackedBuffs and trackedBuffs[idx] then
-                if not trackedBuffs[idx].settings then
-                    trackedBuffs[idx].settings = {}
+                local trackedBuff = trackedBuffs[idx]
+                local settings
+                if buffTrackerType == "Group" and trackedBuff.isGroup then
+                    trackedBuff.groupSettings = trackedBuff.groupSettings or {}
+                    settings = trackedBuff.groupSettings
+                else
+                    trackedBuff.settings = trackedBuff.settings or {}
+                    settings = trackedBuff.settings
                 end
 
                 -- anchor 프레임 기준 상대 좌표 계산 -- [FIX: anchor sync]
                 -- 모버의 실제 앵커 상태를 우선 사용 (넛지 패널에서 변경 시 반영)
-                local settings = trackedBuffs[idx].settings
                 local savedAttachTo, savedAnchorPoint, savedSelfPoint = GetBuffTrackerMoverPointInfo(name)
                 local moverPoint, moverRelTo, moverRelPoint, moverX, moverY = holder.mover:GetPoint(1)
                 local moverAnchorName = moverRelTo and moverRelTo:GetName()
@@ -1331,18 +1347,22 @@ function Movers:SaveMoverPosition(name)
                     trackedBuffs[idx].settings.textModeOffsetY = relY
                     trackedBuffs[idx].settings.textAnchor = moverSelfPoint
                     trackedBuffs[idx].settings.textAnchorTo = attachTo
+                elseif buffTrackerType == "Group" then
+                    settings.offsetX = relX
+                    settings.offsetY = relY
+                    settings.selfPoint = moverSelfPoint
                 end
 
                 -- 앵커 포인트/프레임 변경도 설정에 동기화 -- [FIX: anchor sync]
-                trackedBuffs[idx].settings.attachTo = attachTo
+                settings.attachTo = attachTo
                 if displayType == "ring" then
-                    trackedBuffs[idx].settings.ringAnchorPoint = anchorPoint
+                    settings.ringAnchorPoint = anchorPoint
                 elseif buffTrackerType == "Icon" then
-                    trackedBuffs[idx].settings.iconAnchorPoint = anchorPoint
+                    settings.iconAnchorPoint = anchorPoint
                 elseif buffTrackerType == "Text" then
-                    trackedBuffs[idx].settings.textAnchorPoint = anchorPoint
+                    settings.textAnchorPoint = anchorPoint
                 else
-                    trackedBuffs[idx].settings.anchorPoint = anchorPoint
+                    settings.anchorPoint = anchorPoint
                 end
 
                 -- 버프 트래커 업데이트
@@ -1519,8 +1539,16 @@ function Movers:LoadMoverPosition(name)
                 trackedBuffs = DDingUI.db.profile.buffTrackerBar.trackedBuffs
             end
 
-            if trackedBuffs and trackedBuffs[idx] and trackedBuffs[idx].settings then
-                local settings = trackedBuffs[idx].settings
+            if trackedBuffs and trackedBuffs[idx] then
+                local trackedBuff = trackedBuffs[idx]
+                local settings
+                if buffTrackerType == "Group" and trackedBuff.isGroup then
+                    trackedBuff.groupSettings = trackedBuff.groupSettings or {}
+                    settings = trackedBuff.groupSettings
+                else
+                    trackedBuff.settings = trackedBuff.settings or {}
+                    settings = trackedBuff.settings
+                end
 
                 local globalCfg = DDingUI.db.profile.buffTrackerBar or {}
                 local displayType = trackedBuffs[idx].displayType or "bar"
@@ -1546,6 +1574,10 @@ function Movers:LoadMoverPosition(name)
                     offsetX = settings.textModeOffsetX
                     offsetY = settings.textModeOffsetY
                     anchorPoint = settings.textAnchorPoint or settings.textModeAnchorPoint or "CENTER"
+                elseif buffTrackerType == "Group" then
+                    offsetX = settings.offsetX
+                    offsetY = settings.offsetY
+                    anchorPoint = settings.anchorPoint or "CENTER"
                 end
 
                 local defaultAttachTo = settings.attachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns"
@@ -1570,6 +1602,8 @@ function Movers:LoadMoverPosition(name)
                         end
                     elseif buffTrackerType == "Text" then
                         selfPoint = settings.textAnchor or "CENTER"
+                    elseif buffTrackerType == "Group" then
+                        selfPoint = settings.selfPoint or "CENTER"
                     else
                         selfPoint = "CENTER"
                     end
@@ -4225,6 +4259,15 @@ end
 function Movers:RegisterBuffTrackerFrames()
     -- [FIX] 활성(표시된) 프레임만 등록, stale mover 정리
     local activeKeys = {}
+    local trackedBuffs = DDingUI.GetTrackedBuffConfigs and DDingUI:GetTrackedBuffConfigs() or {}
+    local groupedChildren = {}
+    for _, trackedBuff in ipairs(trackedBuffs) do
+        if trackedBuff.isGroup then
+            for _, childIndex in ipairs(trackedBuff.controlledChildren or {}) do
+                groupedChildren[childIndex] = true
+            end
+        end
+    end
 
     -- 기존 BuffTracker mover 업데이트 또는 새로 등록
     local function RegisterOrUpdateMover(frame, key, displayName)
@@ -4260,25 +4303,41 @@ function Movers:RegisterBuffTrackerFrames()
     -- 바 프레임 등록
     local barFrames = DDingUI.GetTrackedBuffBars and DDingUI:GetTrackedBuffBars() or {}
     for idx, bar in pairs(barFrames) do
-        local key = "DDingUI_BuffTrackerBar_" .. idx
-        local displayName = (L["Buff Tracker Bar"] or "Buff Tracker Bar") .. " #" .. idx
-        RegisterOrUpdateMover(bar, key, displayName)
+        if not groupedChildren[idx] then
+            local key = "DDingUI_BuffTrackerBar_" .. idx
+            local displayName = (L["Buff Tracker Bar"] or "Buff Tracker Bar") .. " #" .. idx
+            RegisterOrUpdateMover(bar, key, displayName)
+        end
     end
 
     -- 아이콘 프레임 등록
     local iconFrames = DDingUI.GetTrackedBuffIcons and DDingUI:GetTrackedBuffIcons() or {}
     for idx, icon in pairs(iconFrames) do
-        local key = "DDingUI_BuffTrackerIcon_" .. idx
-        local displayName = (L["Buff Tracker Icon"] or "Buff Tracker Icon") .. " #" .. idx
-        RegisterOrUpdateMover(icon, key, displayName)
+        if not groupedChildren[idx] then
+            local key = "DDingUI_BuffTrackerIcon_" .. idx
+            local displayName = (L["Buff Tracker Icon"] or "Buff Tracker Icon") .. " #" .. idx
+            RegisterOrUpdateMover(icon, key, displayName)
+        end
     end
 
     -- 텍스트 프레임 등록
     local textFrames = DDingUI.GetTrackedBuffTexts and DDingUI:GetTrackedBuffTexts() or {}
     for idx, textFrame in pairs(textFrames) do
-        local key = "DDingUI_BuffTrackerText_" .. idx
-        local displayName = (L["Buff Tracker Text"] or "Buff Tracker Text") .. " #" .. idx
-        RegisterOrUpdateMover(textFrame, key, displayName)
+        if not groupedChildren[idx] then
+            local key = "DDingUI_BuffTrackerText_" .. idx
+            local displayName = (L["Buff Tracker Text"] or "Buff Tracker Text") .. " #" .. idx
+            RegisterOrUpdateMover(textFrame, key, displayName)
+        end
+    end
+
+    local groupFrames = DDingUI.GetTrackedBuffGroups and DDingUI:GetTrackedBuffGroups() or {}
+    for idx, groupFrame in pairs(groupFrames) do
+        local group = trackedBuffs[idx]
+        if group and group.isGroup then
+            local key = "DDingUI_BuffTrackerGroup_" .. idx
+            local displayName = group.name or ("Group #" .. idx)
+            RegisterOrUpdateMover(groupFrame, key, displayName)
+        end
     end
 
     -- [FIX] stale BuffTracker mover 정리 (삭제된 추적기의 excess mover 제거)
