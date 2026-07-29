@@ -2,6 +2,35 @@
 
 ---
 
+## v1.3.1
+
+_Release date: 2026-07-29_
+_Scope: Git changes from v1.2.14 through this release._
+
+### English Patch Notes
+- Reworked the CDM settings workflow with section-based navigation, pinned live previews, separate skill and buff catalogs, clearer add controls, per-icon detail settings, and streamlined group and icon context actions.
+- Expanded CDM group management with mixed skill and buff assignment, movement between native and custom groups, group rename and delete actions, inactive-state controls, and more consistent legacy-group behavior.
+- Added conditional custom aura actions that can recolor or glow a tracker, icon, or group from another tracked effect, while fixing grouped tracker rendering, stack-based bars, child ordering, and edit-mode bounds.
+- Improved item, potion, trinket, and racial effect visuals with active overlays, aura and proc glows, racial buff variants, stable glow persistence, inherited thickness, and restored action-button glow behavior.
+- Fixed assigned buffs and custom icons losing active state, duration, position, or ownership after combat, talent changes, specialization changes, group moves, and deferred layout updates.
+- Prevented timeless effects from repeatedly refreshing cooldown swipes and reduced stale aura, hidden trigger, inactive placeholder, and reused-frame visual artifacts.
+- Reduced gameplay overhead by consolidating CustomIcons and GroupSystem work into dirty queues, coalescing structural and trinket updates, suspending inactive event handlers, caching classification, and stopping hidden Options refresh work.
+- Split large runtime and Options modules into focused components while preserving existing profiles, icon assignments, and SavedVariables compatibility.
+- Improved tracked bars with anchor and offset controls, reliable restoration of the default viewer when disabled, stack support, persistent ordering, clearer width behavior, and completed Korean terminology and translations.
+
+### Korean Patch Notes
+- CDM 설정 화면을 섹션형 탐색, 상단 고정 실시간 미리보기, 스킬·강화효과 카탈로그 분리, 명확한 추가 버튼, 아이콘별 상세 설정, 간소화된 그룹·아이콘 메뉴 구조로 개편했습니다.
+- 기본 그룹과 커스텀 그룹 사이의 스킬·강화효과 혼합 할당 및 이동, 그룹 이름 변경·삭제, 비활성 상태 표시 설정을 추가하고 이전 버전 그룹의 동작을 통일했습니다.
+- 다른 추적 효과의 상태에 따라 특정 추적기·아이콘·그룹의 색상이나 글로우를 변경하는 커스텀 오라 조건 동작을 추가하고, 그룹 렌더링·중첩 바·하위 항목 순서·편집모드 영역을 수정했습니다.
+- 아이템·물약·장신구·종족 특성에 활성 효과 오버레이와 오라·발동 글로우를 추가하고, 종족별 버프 변형 감지, 글로우 유지, 두께 상속, 액션 버튼 글로우를 안정화했습니다.
+- 전투, 특성·전문화 변경, 그룹 이동, 지연된 레이아웃 갱신 후 할당된 강화효과와 커스텀 아이콘의 활성 상태·지속시간·위치·소유권이 사라지거나 어긋나는 문제를 수정했습니다.
+- 지속시간이 무한인 효과의 스와이프가 반복 갱신되는 문제와 오래된 오라 상태, 숨겨진 트리거, 비활성 아이콘, 재사용 프레임에 남는 시각 효과를 수정했습니다.
+- CustomIcons와 GroupSystem 갱신을 단일 변경 대기열로 통합하고 구조·장신구 갱신 병합, 비활성 이벤트 중지, 분류 캐시, 닫힌 설정창 작업 중지로 실전 플레이 부하를 줄였습니다.
+- 대형 런타임 및 설정 모듈을 역할별 파일로 분리하면서 기존 프로필, 아이콘 할당, SavedVariables 호환성을 유지했습니다.
+- 추적중인 막대에 앵커·오프셋 설정, 비활성화 시 기본 뷰어 복원, 중첩 표시, 순서 저장을 보강하고 너비 동작 설명과 한국어 용어·번역을 정리했습니다.
+
+---
+
 ## v1.2.14
 
 _Release date: 2026-07-25_
