@@ -988,6 +988,7 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
 
     local glowType
     local color
+    local useBlizzardColor
     local pixelLines
     local pixelFrequency
     local pixelLength
@@ -1000,25 +1001,28 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
     local pixelYOffset
     local pixelBorder
     if useIconGlow then
-        local customType = iconGlow.glowColorMode == "blizzard"
-            and "blizzard" or iconGlow.glowType or "button"
+        useBlizzardColor = iconGlow.glowColorMode == "blizzard"
+            or iconGlow.glowType == "blizzard"
+        local customType = iconGlow.glowType == "blizzard"
+            and "proc" or iconGlow.glowType or "button"
         glowType = customType == "pixel" and "Pixel Glow"
             or customType == "autocast" and "Autocast Shine"
             or customType == "proc" and "Proc Glow"
-            or customType == "blizzard" and "Blizzard Glow"
             or "Action Button Glow"
-        if iconGlow.glowColorMode == "class" then
+        if not useBlizzardColor and iconGlow.glowColorMode == "class" then
             local _, classFile = UnitClass("player")
             local classColor = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
             if classColor then
                 color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
             end
-        elseif iconGlow.glowColorMode == "custom"
+        elseif not useBlizzardColor and (iconGlow.glowColorMode == "custom"
             or (iconGlow.glowColorMode == nil and iconGlow.glowColor)
-        then
+        ) then
             color = iconGlow.glowColor
         end
-        color = color or { 1, 0.85, 0.1, 1 }
+        if not useBlizzardColor then
+            color = color or { 1, 0.85, 0.1, 1 }
+        end
         pixelLines = iconGlow.glowLines or 8
         pixelFrequency = iconGlow.glowSpeed or 0.25
         pixelThickness = iconGlow.glowThickness or 2
@@ -1032,8 +1036,17 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
     else
         glowType = useAuraGlow and (settings.auraGlowType or "Pixel Glow")
             or (settings.procGlowType or "Pixel Glow")
+        useBlizzardColor = (useAuraGlow and settings.auraGlowColorMode == "blizzard")
+            or (not useAuraGlow and settings.procGlowColorMode == "blizzard")
+            or glowType == "Blizzard Glow"
+        if glowType == "Blizzard Glow" then
+            glowType = "Proc Glow"
+        end
         color = useAuraGlow and (settings.auraGlowColor or { 0.95, 0.95, 0.32, 1 })
             or (settings.procGlowColor or { 0.95, 0.95, 0.32, 1 })
+        if useBlizzardColor then
+            color = nil
+        end
         pixelLines = useAuraGlow and (settings.auraGlowPixelLines or 8)
             or (settings.procGlowPixelLines or 5)
         pixelFrequency = useAuraGlow and (settings.auraGlowPixelFrequency or 0.25)
@@ -1054,25 +1067,35 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
         pixelYOffset = -1
         pixelBorder = false
         if type(inheritedStyle) == "table" then
-            local customType = inheritedStyle.glowColorMode == "blizzard"
-                and "blizzard" or inheritedStyle.glowType
+            if inheritedStyle.glowColorMode ~= nil
+                or inheritedStyle.glowType == "blizzard"
+            then
+                useBlizzardColor = inheritedStyle.glowColorMode == "blizzard"
+                    or inheritedStyle.glowType == "blizzard"
+            end
+            local customType = inheritedStyle.glowType == "blizzard"
+                and "proc" or inheritedStyle.glowType
             if customType then
                 glowType = customType == "pixel" and "Pixel Glow"
                     or customType == "autocast" and "Autocast Shine"
                     or customType == "proc" and "Proc Glow"
-                    or customType == "blizzard" and "Blizzard Glow"
                     or "Action Button Glow"
             end
-            if inheritedStyle.glowColorMode == "class" then
+            if not useBlizzardColor and inheritedStyle.glowColorMode == "class" then
                 local _, classFile = UnitClass("player")
                 local classColor = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
                 if classColor then
                     color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
                 end
-            elseif inheritedStyle.glowColorMode == "custom"
+            elseif not useBlizzardColor and (inheritedStyle.glowColorMode == "custom"
                 or (inheritedStyle.glowColorMode == nil and inheritedStyle.glowColor)
-            then
+            ) then
                 color = inheritedStyle.glowColor or color
+            end
+            if useBlizzardColor then
+                color = nil
+            elseif not color then
+                color = { 0.95, 0.95, 0.32, 1 }
             end
             pixelLines = inheritedStyle.glowLines or pixelLines
             pixelFrequency = inheritedStyle.glowSpeed or pixelFrequency
@@ -1089,10 +1112,11 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
     local signature = table.concat({
         useIconGlow and "icon" or useAuraGlow and "aura" or "proc",
         glowType,
-        tostring(color[1] or color.r or 0.95),
-        tostring(color[2] or color.g or 0.95),
-        tostring(color[3] or color.b or 0.32),
-        tostring(color[4] or color.a or 1),
+        useBlizzardColor and "blizzard" or "tinted",
+        tostring(color and (color[1] or color.r) or 0.95),
+        tostring(color and (color[2] or color.g) or 0.95),
+        tostring(color and (color[3] or color.b) or 0.32),
+        tostring(color and (color[4] or color.a) or 1),
         tostring(pixelLines),
         tostring(pixelFrequency),
         tostring(pixelLength),
@@ -1114,13 +1138,7 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
 
     self:StopTrackedTrinketEffectGlow(frame)
     local key = "_DDingUITrinketEffectGlow"
-    if glowType == "Blizzard Glow" then
-        if DDingUI.ProcGlow and DDingUI.ProcGlow.ShowDefaultOverlayGlow then
-            DDingUI.ProcGlow:ShowDefaultOverlayGlow(target, key)
-        elseif ActionButton_ShowOverlayGlow then
-            ActionButton_ShowOverlayGlow(target)
-        end
-    elseif glowType == "Autocast Shine" and SL and SL.ShowAutocastGlow then
+    if glowType == "Autocast Shine" and SL and SL.ShowAutocastGlow then
         SL.ShowAutocastGlow(
             target,
             color,
@@ -1129,7 +1147,8 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
             autocastScale,
             0,
             0,
-            key
+            key,
+            useBlizzardColor
         )
     elseif glowType == "Action Button Glow" and SL and SL.ShowButtonGlow then
         SL.ShowButtonGlow(target, color, buttonFrequency, key)
@@ -1155,7 +1174,8 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
             pixelXOffset,
             pixelYOffset,
             pixelBorder,
-            key
+            key,
+            useBlizzardColor
         )
         glowType = "Pixel Glow"
     end

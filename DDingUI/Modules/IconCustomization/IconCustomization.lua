@@ -685,25 +685,30 @@ local function ShowReadyGlow(frame, spellID, viewerType)
     end
 
     -- Get glow settings with defaults
-    local glowType = custom.glowColorMode == "blizzard"
-        and "blizzard" or custom.glowType or "button"
+    local useBlizzardColor = custom.glowColorMode == "blizzard"
+        or custom.glowType == "blizzard"
+    local glowType = custom.glowType == "blizzard"
+        and "proc" or custom.glowType or "button"
     local glowColor
-    if custom.glowColorMode == "class" then
+    if not useBlizzardColor and custom.glowColorMode == "class" then
         glowColor = GetPlayerClassColor()
-    elseif custom.glowColorMode == "custom"
+    elseif not useBlizzardColor and (custom.glowColorMode == "custom"
         or (custom.glowColorMode == nil and custom.glowColor)
-    then
+    ) then
         glowColor = custom.glowColor
     end
-    glowColor = glowColor or {r = 1, g = 0.85, b = 0.1}
+    if not useBlizzardColor then
+        glowColor = glowColor or {r = 1, g = 0.85, b = 0.1}
+    end
     local glowSpeed = custom.glowSpeed or 0.25
     local glowLines = math.floor(custom.glowLines or 8)  -- must be integer
     local glowThickness = custom.glowThickness or 2
     local signature = table.concat({
         glowType,
-        tostring(glowColor.r or glowColor[1] or 1),
-        tostring(glowColor.g or glowColor[2] or 0.85),
-        tostring(glowColor.b or glowColor[3] or 0.1),
+        useBlizzardColor and "blizzard" or "tinted",
+        tostring(glowColor and (glowColor.r or glowColor[1]) or 1),
+        tostring(glowColor and (glowColor.g or glowColor[2]) or 0.85),
+        tostring(glowColor and (glowColor.b or glowColor[3]) or 0.1),
         tostring(glowSpeed),
         tostring(glowLines),
         tostring(glowThickness),
@@ -718,24 +723,18 @@ local function ShowReadyGlow(frame, spellID, viewerType)
     StopAllGlows(frame, "DDingUI_ReadyGlow")
 
     -- Convert color to table format
-    local color = {
+    local color = not useBlizzardColor and {
         glowColor.r or glowColor[1] or 1,
         glowColor.g or glowColor[2] or 0.85,
         glowColor.b or glowColor[3] or 0.1,
         1,
-    }
+    } or nil
 
     -- Start appropriate glow type
-    if glowType == "blizzard" then
-        if DDingUI.ProcGlow and DDingUI.ProcGlow.ShowDefaultOverlayGlow then
-            DDingUI.ProcGlow:ShowDefaultOverlayGlow(frame, "DDingUI_ReadyGlow")
-        elseif ActionButton_ShowOverlayGlow then
-            ActionButton_ShowOverlayGlow(frame)
-        end
-    elseif glowType == "pixel" then
-        pcall(SL.ShowPixelGlow, frame, color, glowLines, glowSpeed, nil, glowThickness, 0, 0, true, "DDingUI_ReadyGlow")
+    if glowType == "pixel" then
+        pcall(SL.ShowPixelGlow, frame, color, glowLines, glowSpeed, nil, glowThickness, 0, 0, true, "DDingUI_ReadyGlow", useBlizzardColor)
     elseif glowType == "autocast" then
-        pcall(SL.ShowAutocastGlow, frame, color, 4, glowSpeed, 1.0, 0, 0, "DDingUI_ReadyGlow")
+        pcall(SL.ShowAutocastGlow, frame, color, 4, glowSpeed, 1.0, 0, 0, "DDingUI_ReadyGlow", useBlizzardColor)
     elseif glowType == "proc" then
         local LCG = LibStub("LibCustomGlow-1.0", true)
         if LCG and LCG.ProcGlow_Start then
@@ -1320,7 +1319,9 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
     local function ChoiceMenu(key, values, fallback)
         local items = {}
         local selected = Current()[key] or fallback
-        if key == "glowType" and Current().glowColorMode == "blizzard" then
+        if key == "glowType" and selected == "blizzard" then
+            selected = "proc"
+        elseif key == "glowColorMode" and Current().glowType == "blizzard" then
             selected = "blizzard"
         end
         for _, value in ipairs(values) do
@@ -1329,10 +1330,12 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                 text = value[2],
                 checked = selected == capturedValue,
                 func = function()
-                    if key == "glowType" and capturedValue ~= "blizzard"
-                        and Current().glowColorMode == "blizzard"
-                    then
-                        Apply("glowColorMode", "default")
+                    if Current().glowType == "blizzard" then
+                        if key == "glowType" then
+                            Apply("glowColorMode", "blizzard")
+                        elseif key == "glowColorMode" then
+                            Apply("glowType", "proc")
+                        end
                     end
                     Apply(key, capturedValue)
                 end,
@@ -1343,16 +1346,16 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
 
     capabilities = capabilities or {}
     local custom = Current()
-    local glowType = custom.glowColorMode == "blizzard"
-        and "blizzard" or custom.glowType or "button"
+    local glowType = custom.glowType == "blizzard"
+        and "proc" or custom.glowType or "button"
     local glowTypeLabels = {
         button = L["Action Button Glow"] or "Action Button Glow",
         pixel = L["Pixel Glow"] or "Pixel Glow",
         autocast = L["Autocast Shine"] or "Autocast Shine",
         proc = L["Proc Effect"] or "Proc Effect",
-        blizzard = L["Blizzard Glow"] or "Blizzard Glow",
     }
-    local glowColorMode = custom.glowColorMode
+    local glowColorMode = custom.glowType == "blizzard" and "blizzard"
+        or custom.glowColorMode
         or (custom.glowColor and "custom" or "default")
     local glowColorModeLabels = {
         default = L["Default"] or "Default",
@@ -1423,7 +1426,6 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                 {"pixel", L["Pixel Glow"] or "Pixel Glow"},
                 {"autocast", L["Autocast Shine"] or "Autocast Shine"},
                 {"proc", L["Proc Effect"] or "Proc Effect"},
-                {"blizzard", L["Blizzard Glow"] or "Blizzard Glow"},
             }, "button"),
         }
     items[#items + 1] = {
@@ -2447,22 +2449,27 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
         return
     end
 
-    local glowType = settings.glowColorMode == "blizzard"
-        and "blizzard" or settings.glowType or "button"
+    local useBlizzardColor = settings.glowColorMode == "blizzard"
+        or settings.glowType == "blizzard"
+    local glowType = settings.glowType == "blizzard"
+        and "proc" or settings.glowType or "button"
     local glowColor
-    if settings.glowColorMode == "class" then
+    if not useBlizzardColor and settings.glowColorMode == "class" then
         glowColor = GetPlayerClassColor()
-    elseif settings.glowColorMode == "custom"
+    elseif not useBlizzardColor and (settings.glowColorMode == "custom"
         or (settings.glowColorMode == nil and settings.glowColor)
-    then
+    ) then
         glowColor = settings.glowColor
     end
-    glowColor = glowColor or { r = 1, g = 0.85, b = 0.1 }
+    if not useBlizzardColor then
+        glowColor = glowColor or { r = 1, g = 0.85, b = 0.1 }
+    end
     local signature = table.concat({
         glowType,
-        tostring(glowColor.r or glowColor[1] or 1),
-        tostring(glowColor.g or glowColor[2] or 0.85),
-        tostring(glowColor.b or glowColor[3] or 0.1),
+        useBlizzardColor and "blizzard" or "tinted",
+        tostring(glowColor and (glowColor.r or glowColor[1]) or 1),
+        tostring(glowColor and (glowColor.g or glowColor[2]) or 0.85),
+        tostring(glowColor and (glowColor.b or glowColor[3]) or 0.1),
         tostring(settings.glowSpeed or 0.25),
         tostring(settings.glowLines or 8),
         tostring(settings.glowThickness or 2),
@@ -2473,22 +2480,16 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
         ActionButton_HideOverlayGlow(frame)
     end
     StopAllGlows(frame, key)
-    local color = {
+    local color = not useBlizzardColor and {
         glowColor.r or glowColor[1] or 1,
         glowColor.g or glowColor[2] or 0.85,
         glowColor.b or glowColor[3] or 0.1,
         1,
-    }
-    if glowType == "blizzard" then
-        if DDingUI.ProcGlow and DDingUI.ProcGlow.ShowDefaultOverlayGlow then
-            DDingUI.ProcGlow:ShowDefaultOverlayGlow(frame, key)
-        elseif ActionButton_ShowOverlayGlow then
-            ActionButton_ShowOverlayGlow(frame)
-        end
-    elseif glowType == "pixel" then
-        pcall(SL.ShowPixelGlow, frame, color, math.floor(settings.glowLines or 8), settings.glowSpeed or 0.25, nil, settings.glowThickness or 2, 0, 0, true, key)
+    } or nil
+    if glowType == "pixel" then
+        pcall(SL.ShowPixelGlow, frame, color, math.floor(settings.glowLines or 8), settings.glowSpeed or 0.25, nil, settings.glowThickness or 2, 0, 0, true, key, useBlizzardColor)
     elseif glowType == "autocast" then
-        pcall(SL.ShowAutocastGlow, frame, color, 4, settings.glowSpeed or 0.25, 1, 0, 0, key)
+        pcall(SL.ShowAutocastGlow, frame, color, 4, settings.glowSpeed or 0.25, 1, 0, 0, key, useBlizzardColor)
     elseif glowType == "proc" then
         local glow = LibStub("LibCustomGlow-1.0", true)
         if glow and glow.ProcGlow_Start then

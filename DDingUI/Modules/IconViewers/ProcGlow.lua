@@ -34,7 +34,6 @@ ProcGlow.LibCustomGlowTypes = {
     "Autocast Shine",
     "Action Button Glow",
     "Proc Glow",
-    "Blizzard Glow",
 }
 
 -- Get spellID from a CDM button frame
@@ -114,31 +113,33 @@ local function NormalizePerIconProcSettings(custom)
         autocast = "Autocast Shine",
         button = "Action Button Glow",
         proc = "Proc Glow",
-        blizzard = "Blizzard Glow",
     }
-    local effectiveType = custom.glowColorMode == "blizzard"
-        and "blizzard" or custom.glowType or "button"
+    local useBlizzardColor = custom.glowColorMode == "blizzard"
+        or custom.glowType == "blizzard"
+    local effectiveType = custom.glowType == "blizzard"
+        and "proc" or custom.glowType or "button"
     local color = {}
-    if custom.glowColorMode == "class" then
+    if not useBlizzardColor and custom.glowColorMode == "class" then
         local _, class = UnitClass("player")
         local classColor = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
         if classColor then
             color = { r = classColor.r, g = classColor.g, b = classColor.b }
         end
-    elseif custom.glowColorMode == "custom"
+    elseif not useBlizzardColor and (custom.glowColorMode == "custom"
         or (custom.glowColorMode == nil and custom.glowColor)
-    then
+    ) then
         color = custom.glowColor or {}
     end
     return {
         enabled = true,
         glowType = typeMap[effectiveType] or "Action Button Glow",
-        loopColor = {
+        useBlizzardColor = useBlizzardColor,
+        loopColor = not useBlizzardColor and {
             color.r or color[1] or 1,
             color.g or color[2] or 0.85,
             color.b or color[3] or 0.1,
             1,
-        },
+        } or nil,
         lcgLines = math.floor(custom.glowLines or 8),
         lcgFrequency = custom.glowSpeed or 0.25,
         lcgThickness = custom.glowThickness or 2,
@@ -225,6 +226,11 @@ function ProcGlow:ShowDefaultOverlayGlow(iconFrame, key)
     return false
 end
 
+local function GetEffectiveGlowType(settings)
+    local glowType = settings and settings.glowType or "Pixel Glow"
+    return glowType == "Blizzard Glow" and "Proc Glow" or glowType
+end
+
 -- Check if LCG glow frame actually exists AND is visible on the icon
 local function IsGlowFramePresent(iconFrame, glowType)
     local glowFrame
@@ -259,9 +265,14 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
     local glowSettings = GetProcGlowSettings(iconFrame)
     if not glowSettings then return end
 
-    local glowType = glowSettings.glowType or "Pixel Glow"
-    local color = glowSettings.loopColor or {0.95, 0.95, 0.32, 1}
-    if not color[4] then color[4] = 1 end
+    local useBlizzardColor = glowSettings.useBlizzardColor == true
+        or glowSettings.glowColorMode == "blizzard"
+        or glowSettings.glowType == "Blizzard Glow"
+    local glowType = GetEffectiveGlowType(glowSettings)
+    local color = not useBlizzardColor
+        and (glowSettings.loopColor or {0.95, 0.95, 0.32, 1})
+        or nil
+    if color and not color[4] then color[4] = 1 end
 
     -- Skip if glow is already active and correct type (prevents flickering from repeated calls)
     if not forceRestart and glowActiveCache[iconFrame] and IsGlowFramePresent(iconFrame, glowType) then
@@ -278,31 +289,27 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
         ActionButton_HideOverlayGlow(iconFrame)
     end
 
-    if glowType == "Blizzard Glow" then
-        ProcGlow:ShowDefaultOverlayGlow(iconFrame, GLOW_KEY)
-    else
-        if glowType == "Pixel Glow" then
-            local lines = math.floor(glowSettings.lcgLines or 5)
-            local frequency = glowSettings.lcgFrequency or 0.25
-            local length = glowSettings.lcgLength or 8
-            local thickness = glowSettings.lcgThickness or 1
-            SL.ShowPixelGlow(iconFrame, color, lines, frequency, length, thickness, -1, -1, false, GLOW_KEY)
-        elseif glowType == "Autocast Shine" then
-            local particles = math.floor(glowSettings.autocastParticles or 8)
-            local frequency = glowSettings.autocastFrequency or 0.25
-            local scale = glowSettings.autocastScale or 1.0
-            SL.ShowAutocastGlow(iconFrame, color, particles, frequency, scale, 0, 0, GLOW_KEY)
-        elseif glowType == "Action Button Glow" then
-            local frequency = glowSettings.buttonGlowFrequency or 0.25
-            SL.ShowButtonGlow(iconFrame, color, frequency, GLOW_KEY)
-        elseif glowType == "Proc Glow" then
-            local LCG = LibStub("LibCustomGlow-1.0", true)
-            if LCG and LCG.ProcGlow_Start then
-                LCG.ProcGlow_Start(iconFrame, {
-                    color = color, startAnim = false,
-                    xOffset = 0, yOffset = 0, key = GLOW_KEY
-                })
-            end
+    if glowType == "Pixel Glow" then
+        local lines = math.floor(glowSettings.lcgLines or 5)
+        local frequency = glowSettings.lcgFrequency or 0.25
+        local length = glowSettings.lcgLength or 8
+        local thickness = glowSettings.lcgThickness or 1
+        SL.ShowPixelGlow(iconFrame, color, lines, frequency, length, thickness, -1, -1, false, GLOW_KEY, useBlizzardColor)
+    elseif glowType == "Autocast Shine" then
+        local particles = math.floor(glowSettings.autocastParticles or 8)
+        local frequency = glowSettings.autocastFrequency or 0.25
+        local scale = glowSettings.autocastScale or 1.0
+        SL.ShowAutocastGlow(iconFrame, color, particles, frequency, scale, 0, 0, GLOW_KEY, useBlizzardColor)
+    elseif glowType == "Action Button Glow" then
+        local frequency = glowSettings.buttonGlowFrequency or 0.25
+        SL.ShowButtonGlow(iconFrame, color, frequency, GLOW_KEY)
+    elseif glowType == "Proc Glow" then
+        local LCG = LibStub("LibCustomGlow-1.0", true)
+        if LCG and LCG.ProcGlow_Start then
+            LCG.ProcGlow_Start(iconFrame, {
+                color = color, startAnim = false,
+                xOffset = 0, yOffset = 0, key = GLOW_KEY
+            })
         end
     end
 
@@ -329,12 +336,10 @@ local function UpdateGlowPersistenceDriver()
                         hasActiveGlow = true
                         if iconFrame.IsShown and iconFrame:IsShown() then
                             local settings = GetProcGlowSettings(iconFrame)
-                            local glowType = settings and (settings.glowType or "Pixel Glow")
+                            local glowType = settings and GetEffectiveGlowType(settings)
                             if glowType and not IsGlowFramePresent(iconFrame, glowType) then
                                 ApplyGlowEffect(iconFrame)
-                                if glowType ~= "Blizzard Glow" then
-                                    HideBlizzardGlow(iconFrame)
-                                end
+                                HideBlizzardGlow(iconFrame)
                             end
                         end
                     end
@@ -358,7 +363,7 @@ local function StartGlow(iconFrame)
     local glowSettings = GetProcGlowSettings(iconFrame)
     if not glowSettings then return end
 
-    local glowType = glowSettings.glowType or "Pixel Glow"
+    local glowType = GetEffectiveGlowType(glowSettings)
 
     -- If flag says active, verify the LCG glow frame actually exists
     if glowActiveCache[iconFrame] then
@@ -413,17 +418,13 @@ local function ReapplyGlowsAfterRescan(viewer)
                 else
                     local spellID = GetButtonSpellID(child)
                     if spellID and activeOverlaySpells[spellID] then
-                        local gt = glowSettings.glowType or "Pixel Glow"
+                        local gt = GetEffectiveGlowType(glowSettings)
                         if not glowActiveCache[child] then
-                            if gt ~= "Blizzard Glow" then
-                                HideBlizzardGlow(child)
-                            end
+                            HideBlizzardGlow(child)
                             StartGlow(child)
                         elseif not IsGlowFramePresent(child, gt) then
                             ApplyGlowEffect(child)
-                            if gt ~= "Blizzard Glow" then
-                                HideBlizzardGlow(child)
-                            end
+                            HideBlizzardGlow(child)
                         end
                     end
                 end
@@ -448,13 +449,8 @@ local function ScanExistingOverlays()
                         if glowSettings and glowSettings.enabled then
                             if child.SpellActivationAlert and child.SpellActivationAlert:IsShown() then
                                 local spellID = GetButtonSpellID(child)
-                                if glowSettings.glowType == "Blizzard Glow" then
-                                    glowActiveCache[child] = true
-                                    activeGlowingIcons[child] = true
-                                else
-                                    HideBlizzardGlow(child)
-                                    StartGlow(child)
-                                end
+                                HideBlizzardGlow(child)
+                                StartGlow(child)
                                 if spellID then
                                     activeOverlaySpells[spellID] = true
                                 end
@@ -483,19 +479,13 @@ local function SetupGlowHooks()
                 if glowSettings and glowSettings.enabled then
                     -- Flag immediately, then apply after Blizzard finishes its update.
                     procActiveCache[button] = true
-                    if glowSettings.glowType == "Blizzard Glow" then
-                        -- Let Blizzard's native glow show, just track it
-                        glowActiveCache[button] = true
-                        activeGlowingIcons[button] = true
-                    else
-                        HideBlizzardGlow(button)
-                        C_Timer.After(0, function()
-                            if procActiveCache[button] then
-                                StartGlow(button)
-                                HideBlizzardGlow(button)
-                            end
-                        end)
-                    end
+                    HideBlizzardGlow(button)
+                    C_Timer.After(0, function()
+                        if procActiveCache[button] then
+                            StartGlow(button)
+                            HideBlizzardGlow(button)
+                        end
+                    end)
                     -- Track by spellID for rescan survival
                     if spellID then
                         activeOverlaySpells[spellID] = true
@@ -538,9 +528,7 @@ local function SetupGlowHooks()
                 C_Timer.After(0.02, function()
                     if procActiveCache[icon] and icon:IsShown() then
                         local glowType = ApplyGlowEffect(icon)
-                        if glowType ~= "Blizzard Glow" then
-                            HideBlizzardGlow(icon)
-                        end
+                        if glowType then HideBlizzardGlow(icon) end
                     end
                 end)
             end
@@ -597,9 +585,7 @@ function ProcGlow:RefreshAll()
             local glowSettings = GetProcGlowSettings(icon)
             if glowSettings and glowSettings.enabled then
                 StartGlow(icon)
-                if glowSettings.glowType ~= "Blizzard Glow" then
-                    HideBlizzardGlow(icon)
-                end
+                HideBlizzardGlow(icon)
             elseif GetPerIconProcMode(icon) ~= "off" and ActionButton_ShowOverlayGlow then
                 ActionButton_ShowOverlayGlow(icon)
             end
@@ -618,9 +604,7 @@ function ProcGlow:UpdateButtonGlow(icon)
     end
     if procActiveCache[icon] or activeGlowingIcons[icon] then
         local glowType = ApplyGlowEffect(icon)
-        if glowType ~= "Blizzard Glow" then
-            HideBlizzardGlow(icon)
-        end
+        if glowType then HideBlizzardGlow(icon) end
     end
 end
 
