@@ -67,16 +67,15 @@ end
 --- @param frame Frame
 --- @param color table|string|nil
 --- @param frequency number|nil
---- @param key string|nil
-function Lib.ShowButtonGlow(frame, color, frequency, key)
+function Lib.ShowButtonGlow(frame, color, frequency)
     if type(color) == "string" then
         color = Lib.GetColorTable(color)
     end
-    LCG.ButtonGlow_Start(frame, color, frequency, key)
+    LCG.ButtonGlow_Start(frame, color, frequency)
 end
 
-function Lib.HideButtonGlow(frame, key)
-    LCG.ButtonGlow_Stop(frame, key)
+function Lib.HideButtonGlow(frame)
+    LCG.ButtonGlow_Stop(frame)
 end
 
 ---------------------------------------------------------------------
