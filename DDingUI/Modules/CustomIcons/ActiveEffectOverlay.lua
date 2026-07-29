@@ -479,7 +479,7 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
     if not frame then return end
     self:PrepareFrame(frame)
     local overlay = frame._ddActiveEffectOverlay
-    local duration = GetConfiguredDuration(iconData)
+    local duration = GetConfiguredDuration(iconData) or GetProcDuration(iconData)
     if not duration then
         if overlay.token then
             overlay.token = nil

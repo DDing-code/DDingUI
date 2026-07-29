@@ -949,41 +949,80 @@ function CustomIcons:StopTrackedTrinketEffectGlow(frame)
     frame._ddTrinketEffectGlowTarget = nil
 end
 
-function CustomIcons:SetTrackedTrinketEffectGlow(frame, active)
+function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
     local settings = frame and frame._groupSettings or {}
-    local useAuraGlow = settings.auraGlow == true
-    local glowEnabled = useAuraGlow or settings.procGlowEnabled ~= false
-    if not active or not glowEnabled or settings.hideActiveState == true
-        or CustomIcons.ManagedVisualLocked(frame)
+    local useIconGlow = type(iconGlow) == "table"
+    local useAuraGlow = not useIconGlow and settings.auraGlow == true
+    local glowEnabled = useIconGlow or useAuraGlow or settings.procGlowEnabled ~= false
+    if not active or not glowEnabled
+        or (not useIconGlow and settings.hideActiveState == true)
+        or (not useIconGlow and CustomIcons.ManagedVisualLocked(frame))
     then
         self:StopTrackedTrinketEffectGlow(frame)
         return
     end
 
-    local glowType = useAuraGlow and (settings.auraGlowType or "Pixel Glow")
-        or (settings.procGlowType or "Pixel Glow")
-    local color = useAuraGlow and (settings.auraGlowColor or { 0.95, 0.95, 0.32, 1 })
-        or (settings.procGlowColor or { 0.95, 0.95, 0.32, 1 })
-    local pixelLines = useAuraGlow and (settings.auraGlowPixelLines or 8)
-        or (settings.procGlowPixelLines or 5)
-    local pixelFrequency = useAuraGlow and (settings.auraGlowPixelFrequency or 0.25)
-        or (settings.procGlowPixelFrequency or 0.25)
-    local pixelLength = useAuraGlow and settings.auraGlowPixelLength
-        or (settings.procGlowPixelLength or 8)
-    local pixelThickness = useAuraGlow and (settings.auraGlowPixelThickness or 2)
-        or (settings.procGlowPixelThickness or 1)
-    local autocastParticles = useAuraGlow and (settings.auraGlowAutocastParticles or 8)
-        or (settings.procGlowAutocastParticles or 8)
-    local autocastFrequency = useAuraGlow and (settings.auraGlowAutocastFrequency or 0.25)
-        or (settings.procGlowAutocastFrequency or 0.25)
-    local autocastScale = useAuraGlow and (settings.auraGlowAutocastScale or 1)
-        or (settings.procGlowAutocastScale or 1)
-    local buttonFrequency = useAuraGlow and (settings.auraGlowButtonFrequency or 0.25)
-        or (settings.procGlowButtonFrequency or 0.25)
+    local glowType
+    local color
+    local pixelLines
+    local pixelFrequency
+    local pixelLength
+    local pixelThickness
+    local autocastParticles
+    local autocastFrequency
+    local autocastScale
+    local buttonFrequency
+    if useIconGlow then
+        local customType = iconGlow.glowType or "button"
+        glowType = customType == "pixel" and "Pixel Glow"
+            or customType == "autocast" and "Autocast Shine"
+            or customType == "proc" and "Proc Glow"
+            or "Action Button Glow"
+        if iconGlow.glowColorMode == "class" then
+            local _, classFile = UnitClass("player")
+            local classColor = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+            if classColor then
+                color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
+            end
+        elseif iconGlow.glowColorMode == "custom"
+            or (iconGlow.glowColorMode == nil and iconGlow.glowColor)
+        then
+            color = iconGlow.glowColor
+        end
+        color = color or { 1, 0.85, 0.1, 1 }
+        pixelLines = iconGlow.glowLines or 8
+        pixelFrequency = iconGlow.glowSpeed or 0.25
+        pixelThickness = iconGlow.glowThickness or 2
+        autocastParticles = 4
+        autocastFrequency = iconGlow.glowSpeed or 0.25
+        autocastScale = 1
+        buttonFrequency = iconGlow.glowSpeed or 0.25
+    else
+        glowType = useAuraGlow and (settings.auraGlowType or "Pixel Glow")
+            or (settings.procGlowType or "Pixel Glow")
+        color = useAuraGlow and (settings.auraGlowColor or { 0.95, 0.95, 0.32, 1 })
+            or (settings.procGlowColor or { 0.95, 0.95, 0.32, 1 })
+        pixelLines = useAuraGlow and (settings.auraGlowPixelLines or 8)
+            or (settings.procGlowPixelLines or 5)
+        pixelFrequency = useAuraGlow and (settings.auraGlowPixelFrequency or 0.25)
+            or (settings.procGlowPixelFrequency or 0.25)
+        pixelLength = useAuraGlow and settings.auraGlowPixelLength
+            or (settings.procGlowPixelLength or 8)
+        pixelThickness = useAuraGlow and (settings.auraGlowPixelThickness or 2)
+            or (settings.procGlowPixelThickness or 1)
+        autocastParticles = useAuraGlow and (settings.auraGlowAutocastParticles or 8)
+            or (settings.procGlowAutocastParticles or 8)
+        autocastFrequency = useAuraGlow and (settings.auraGlowAutocastFrequency or 0.25)
+            or (settings.procGlowAutocastFrequency or 0.25)
+        autocastScale = useAuraGlow and (settings.auraGlowAutocastScale or 1)
+            or (settings.procGlowAutocastScale or 1)
+        buttonFrequency = useAuraGlow and (settings.auraGlowButtonFrequency or 0.25)
+            or (settings.procGlowButtonFrequency or 0.25)
+    end
     local activeOverlay = frame._ddActiveEffectOverlay
     local target = activeOverlay and activeOverlay.token and activeOverlay.frame or frame
     local signature = table.concat({
-        useAuraGlow and "aura" or "proc",
+        useIconGlow and "icon" or useAuraGlow and "aura" or "proc",
         glowType,
         tostring(color[1] or color.r or 0.95),
         tostring(color[2] or color.g or 0.95),
@@ -1058,7 +1097,11 @@ end
 function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     local custom = iconData and iconData.settings and iconData.settings.customStateGlow
     local mode = custom and custom.procGlowMode
-    if mode == "on" or mode == "off" or (custom and custom.activeGlow == true) then
+    if mode == "on" then
+        self:SetTrackedTrinketEffectGlow(frame, frame and frame._ddCustomIconProcActive == true, custom)
+        return
+    end
+    if mode == "off" or (custom and custom.activeGlow == true) then
         self:StopTrackedTrinketEffectGlow(frame)
         return
     end
@@ -1122,7 +1165,7 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
     local shouldGlow = false
     if settings then
         if settings.procGlowMode == "on" and procActive then
-            shouldGlow = true
+            shouldGlow = false
         elseif settings.activeGlow == true and active then
             shouldGlow = true
         elseif settings.maxChargesGlow == true and frame._ddCustomIconAtMaxCharges == true then
@@ -2126,6 +2169,17 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
     local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     CustomIcons.StopIconDesatUpdater(iconFrame)
     local racialAuraActive = racials and racials:IsAuraActive(racialID) or false
+    local racialProcActive = racialAuraActive
+        or (runtime.racialProcGlowOverlayActive == true)
+        or ((runtime.racialProcGlowUntil or 0) > GetTime())
+    if racialProcActive then
+        iconFrame._ddInactiveGray = nil
+        iconFrame._ddForcedInactiveGray = nil
+        iconFrame._ddManagedAuraExpired = nil
+        iconFrame._ddCombatVisible = nil
+        managedVisualLocked = false
+        CustomIcons.RestoreActiveIconVisual(iconFrame)
+    end
 
     local cdInfo
     local durObj
@@ -2175,9 +2229,7 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
         end
     end
     iconFrame._ddCustomIconActive = false
-    iconFrame._ddCustomIconProcActive = racialAuraActive
-        or (runtime.racialProcGlowOverlayActive == true)
-        or ((runtime.racialProcGlowUntil or 0) > GetTime())
+    iconFrame._ddCustomIconProcActive = racialProcActive
     iconFrame._ddCustomIconReady = not onCooldown
 end
 
