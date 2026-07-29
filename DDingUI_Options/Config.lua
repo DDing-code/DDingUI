@@ -302,7 +302,7 @@ function DDingUI:SetupOptions()
     options.args.version = {
         type = "description",
         name = function()
-            return "|cff00ff00DDingUI v" .. (C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "1.0") .. "|r"
+            return "|cff00ff00DDingUI v" .. (DDingUI.VERSION or C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "1.0") .. "|r"
         end,
         order = 201,
     }

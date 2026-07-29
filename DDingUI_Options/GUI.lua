@@ -1589,7 +1589,7 @@ function DDingUI:CreateConfigFrame()
     -- ============================================
     -- StyleLib 패널 뼈대 생성
     -- ============================================
-    local version = C_AddOns.GetAddOnMetadata("DDingUI", "Version") or "1.0"
+    local version = DDingUI.VERSION or C_AddOns.GetAddOnMetadata("DDingUI", "Version") or "1.0"
 
     local panel = SL.CreateSettingsPanel("CDM", "DDingUI CDM", version, {
         width = 980,
