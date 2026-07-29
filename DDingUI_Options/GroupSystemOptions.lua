@@ -3799,9 +3799,23 @@ function DDingUI:BuildAssignedIconSettingsItems(groupName, opt, glowOnly)
     end
 
     local customizer = self.IconCustomization
-    local onSettingsChanged = glowOnly and function(settings)
-        ApplyAssignedIconGlowScope(groupName, settings)
-    end or nil
+    local onSettingsChanged
+    if glowOnly then
+        onSettingsChanged = function(settings)
+            ApplyAssignedIconGlowScope(groupName, settings)
+        end
+    elseif opt._gridKind == "cdm" and opt._gridViewerType == "Buff" then
+        onSettingsChanged = function(settings)
+            if type(settings) ~= "table" or settings.alwaysShow ~= "on" then return end
+            local token = opt._dragData and opt._dragData.iconKey
+                or MakeCDMOrderToken(opt._gridSpellName)
+            if not token then return end
+            local ordered, seen = SnapshotGroupOrderTokens(groupName)
+            if not seen[token] then
+                AppendGroupOrderToken(groupName, ordered, token)
+            end
+        end
+    end
     local customItems
     if customizer and customizer.BuildDynamicContextMenuItems
         and opt._gridKind == "dynamic" and opt._gridDynamicIconKey

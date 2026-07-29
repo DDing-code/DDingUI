@@ -122,8 +122,11 @@ end
 local function CollectConfiguredTokens(groupName, settings)
     local tokens, seen = {}, {}
     local function Add(token)
+        local forcedVisible = type(token) == "string"
+            and token:match("^cdm:")
+            and ResolveInactiveDisplay(token)
         if type(token) == "string" and token:match("^cdm:")
-            and IsCurrentlyTracked(token) and not seen[token]
+            and (IsCurrentlyTracked(token) or forcedVisible) and not seen[token]
         then
             seen[token] = true
             tokens[#tokens + 1] = token
