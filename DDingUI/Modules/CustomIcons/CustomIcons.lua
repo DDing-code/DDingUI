@@ -976,7 +976,8 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
     local pixelYOffset
     local pixelBorder
     if useIconGlow then
-        local customType = iconGlow.glowType or "button"
+        local customType = iconGlow.glowColorMode == "blizzard"
+            and "blizzard" or iconGlow.glowType or "button"
         glowType = customType == "pixel" and "Pixel Glow"
             or customType == "autocast" and "Autocast Shine"
             or customType == "proc" and "Proc Glow"
@@ -988,8 +989,6 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
             if classColor then
                 color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
             end
-        elseif iconGlow.glowColorMode == "blizzard" then
-            color = { 1, 0.82, 0, 1 }
         elseif iconGlow.glowColorMode == "custom"
             or (iconGlow.glowColorMode == nil and iconGlow.glowColor)
         then
@@ -1031,7 +1030,8 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
         pixelYOffset = -1
         pixelBorder = false
         if type(inheritedStyle) == "table" then
-            local customType = inheritedStyle.glowType
+            local customType = inheritedStyle.glowColorMode == "blizzard"
+                and "blizzard" or inheritedStyle.glowType
             if customType then
                 glowType = customType == "pixel" and "Pixel Glow"
                     or customType == "autocast" and "Autocast Shine"
@@ -1045,8 +1045,6 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
                 if classColor then
                     color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
                 end
-            elseif inheritedStyle.glowColorMode == "blizzard" then
-                color = { 1, 0.82, 0, 1 }
             elseif inheritedStyle.glowColorMode == "custom"
                 or (inheritedStyle.glowColorMode == nil and inheritedStyle.glowColor)
             then

@@ -116,6 +116,8 @@ local function NormalizePerIconProcSettings(custom)
         proc = "Proc Glow",
         blizzard = "Blizzard Glow",
     }
+    local effectiveType = custom.glowColorMode == "blizzard"
+        and "blizzard" or custom.glowType or "button"
     local color = {}
     if custom.glowColorMode == "class" then
         local _, class = UnitClass("player")
@@ -123,8 +125,6 @@ local function NormalizePerIconProcSettings(custom)
         if classColor then
             color = { r = classColor.r, g = classColor.g, b = classColor.b }
         end
-    elseif custom.glowColorMode == "blizzard" then
-        color = { r = 1, g = 0.82, b = 0 }
     elseif custom.glowColorMode == "custom"
         or (custom.glowColorMode == nil and custom.glowColor)
     then
@@ -132,7 +132,7 @@ local function NormalizePerIconProcSettings(custom)
     end
     return {
         enabled = true,
-        glowType = typeMap[custom.glowType or "button"] or "Action Button Glow",
+        glowType = typeMap[effectiveType] or "Action Button Glow",
         loopColor = {
             color.r or color[1] or 1,
             color.g or color[2] or 0.85,

@@ -685,12 +685,11 @@ local function ShowReadyGlow(frame, spellID, viewerType)
     end
 
     -- Get glow settings with defaults
-    local glowType = custom.glowType or "button"
+    local glowType = custom.glowColorMode == "blizzard"
+        and "blizzard" or custom.glowType or "button"
     local glowColor
     if custom.glowColorMode == "class" then
         glowColor = GetPlayerClassColor()
-    elseif custom.glowColorMode == "blizzard" then
-        glowColor = { r = 1, g = 0.82, b = 0 }
     elseif custom.glowColorMode == "custom"
         or (custom.glowColorMode == nil and custom.glowColor)
     then
@@ -1319,12 +1318,22 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
     local function ChoiceMenu(key, values, fallback)
         local items = {}
         local selected = Current()[key] or fallback
+        if key == "glowType" and Current().glowColorMode == "blizzard" then
+            selected = "blizzard"
+        end
         for _, value in ipairs(values) do
             local capturedValue = value[1]
             items[#items + 1] = {
                 text = value[2],
                 checked = selected == capturedValue,
-                func = function() Apply(key, capturedValue) end,
+                func = function()
+                    if key == "glowType" and capturedValue ~= "blizzard"
+                        and Current().glowColorMode == "blizzard"
+                    then
+                        Apply("glowColorMode", "default")
+                    end
+                    Apply(key, capturedValue)
+                end,
             }
         end
         return items
@@ -1332,7 +1341,8 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
 
     capabilities = capabilities or {}
     local custom = Current()
-    local glowType = custom.glowType or "button"
+    local glowType = custom.glowColorMode == "blizzard"
+        and "blizzard" or custom.glowType or "button"
     local glowTypeLabels = {
         button = L["Action Button Glow"] or "Action Button Glow",
         pixel = L["Pixel Glow"] or "Pixel Glow",
@@ -2407,12 +2417,11 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
         return
     end
 
-    local glowType = settings.glowType or "button"
+    local glowType = settings.glowColorMode == "blizzard"
+        and "blizzard" or settings.glowType or "button"
     local glowColor
     if settings.glowColorMode == "class" then
         glowColor = GetPlayerClassColor()
-    elseif settings.glowColorMode == "blizzard" then
-        glowColor = { r = 1, g = 0.82, b = 0 }
     elseif settings.glowColorMode == "custom"
         or (settings.glowColorMode == nil and settings.glowColor)
     then
