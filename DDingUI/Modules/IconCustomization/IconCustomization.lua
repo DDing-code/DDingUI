@@ -2013,26 +2013,28 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
             menuItems[#menuItems + 1] = item
         end
     end
-    menuItems[#menuItems + 1] = VisualChoice(
-        L["Cooldown Swipe"] or "Cooldown Swipe",
-        "cooldownSwipeMode",
-        {
-            { "inherit", L["Default"] or "Default" },
-            { "normal", L["Normal"] or "Normal" },
-            { "reverse", L["Reverse"] or "Reverse" },
-            { "hidden", L["Hidden"] or "Hidden" },
-        }
-    )
-    menuItems[#menuItems + 1] = VisualChoice(
-        L["Cooldown Edge"] or "Cooldown Edge",
-        "cooldownEdgeMode",
-        inheritShowHide
-    )
-    menuItems[#menuItems + 1] = VisualChoice(
-        L["Cooldown Finish Flash"] or "Cooldown Finish Flash",
-        "cooldownFinishMode",
-        inheritShowHide
-    )
+    if viewerType ~= "Buff" then
+        menuItems[#menuItems + 1] = VisualChoice(
+            L["Cooldown Swipe"] or "Cooldown Swipe",
+            "cooldownSwipeMode",
+            {
+                { "inherit", L["Default"] or "Default" },
+                { "normal", L["Normal"] or "Normal" },
+                { "reverse", L["Reverse"] or "Reverse" },
+                { "hidden", L["Hidden"] or "Hidden" },
+            }
+        )
+        menuItems[#menuItems + 1] = VisualChoice(
+            L["Cooldown Edge"] or "Cooldown Edge",
+            "cooldownEdgeMode",
+            inheritShowHide
+        )
+        menuItems[#menuItems + 1] = VisualChoice(
+            L["Cooldown Finish Flash"] or "Cooldown Finish Flash",
+            "cooldownFinishMode",
+            inheritShowHide
+        )
+    end
     menuItems[#menuItems + 1] = VisualChoice(
         L["Active Duration Text"] or "Active Duration Text",
         "activeDurationMode",
@@ -2195,13 +2197,14 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         }
     end
 
-    local stateItems = {
-        {
+    local stateItems = {}
+    if iconData.type ~= "aura" then
+        stateItems[#stateItems + 1] = {
             text = L["Show Cooldown Swipe"] or "Show Cooldown Swipe",
             checked = iconData.settings.showCooldown ~= false,
             func = function() ToggleSetting("showCooldown", true) end,
-        },
-    }
+        }
+    end
     if iconData.type == "spell" or iconData.type == "racial" then
         stateItems[#stateItems + 1] = {
             text = L["Show Charges"] or "Show Charges",

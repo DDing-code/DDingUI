@@ -5182,8 +5182,20 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
         end
     end
     if #visualSection > 0 then
+        local sectionLabel = rawget(L, "State and Display") or "State and Display"
+        if opt._gridViewerType == "Buff"
+            or opt._gridDynamicIconType == "aura"
+            or opt._gridDynamicIconType == "trinketProc"
+        then
+            sectionLabel = rawget(L, "Buff Icon Settings") or "Buff Icon Settings"
+        elseif opt._gridViewerType == "Essential"
+            or opt._gridViewerType == "Utility"
+            or opt._gridDynamicIconType
+        then
+            sectionLabel = rawget(L, "Skill Icon Settings") or "Skill Icon Settings"
+        end
         detailTree[#detailTree + 1] = {
-            text = rawget(L, "State and Display") or "State and Display",
+            text = sectionLabel,
             menuList = visualSection,
         }
     end
