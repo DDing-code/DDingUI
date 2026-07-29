@@ -553,10 +553,19 @@ local function RestoreIconTextureOpacity(icon)
     end
 end
 
-local function SetDynamicIconInactiveGray(icon, inactiveGray)
+local function SetDynamicIconInactiveGray(icon, inactiveGray, inactiveAlpha)
     if not icon then return end
     local wasForcedGray = icon._ddForcedInactiveGray == true
+    local wasInactive = icon._ddInactiveAlpha ~= nil
+    local resolvedAlpha
+    if inactiveAlpha ~= nil then
+        resolvedAlpha = tonumber(inactiveAlpha) or 0.5
+        resolvedAlpha = math.max(0.05, math.min(1, resolvedAlpha))
+    elseif inactiveGray then
+        resolvedAlpha = 0.5
+    end
     icon._ddInactiveGray = inactiveGray and true or nil
+    icon._ddInactiveAlpha = resolvedAlpha
 
     local texture = icon.icon or icon.Icon
     if texture then
@@ -565,14 +574,17 @@ local function SetDynamicIconInactiveGray(icon, inactiveGray)
             icon._ddForcedInactiveGray = true
             if texture.SetDesaturated then pcall(texture.SetDesaturated, texture, true) end
             if texture.SetDesaturation then pcall(texture.SetDesaturation, texture, 1) end
-            SetAlphaIfNeeded(texture, 0.48, "_ddLastTextureAlpha")
         elseif wasForcedGray then
             icon._ddForcedInactiveGray = nil
             if texture.SetDesaturated then pcall(texture.SetDesaturated, texture, false) end
             if texture.SetDesaturation then pcall(texture.SetDesaturation, texture, 0) end
-            SetAlphaIfNeeded(texture, 1, "_ddLastTextureAlpha")
         else
             icon._ddForcedInactiveGray = nil
+        end
+        if resolvedAlpha then
+            SetAlphaIfNeeded(texture, resolvedAlpha, "_ddLastTextureAlpha")
+        elseif wasInactive or wasForcedGray then
+            SetAlphaIfNeeded(texture, 1, "_ddLastTextureAlpha")
         end
     end
 
@@ -590,8 +602,8 @@ local function SetDynamicIconInactiveGray(icon, inactiveGray)
         if cooldown.Show then pcall(cooldown.Show, cooldown) end
     end
 
-    if not inactiveGray then
-        if wasForcedGray then
+    if not resolvedAlpha then
+        if wasInactive or wasForcedGray then
             RestoreCooldown(icon.cooldown)
             if icon.Cooldown and icon.Cooldown ~= icon.cooldown then
                 RestoreCooldown(icon.Cooldown)
@@ -826,6 +838,7 @@ local function BuildDynamicPlacement(entry)
         combatVisible = entry.combatVisible ~= false,
         inactiveGray = entry.inactiveGray and true or false,
         inactivePlaceholder = entry.inactivePlaceholder and true or false,
+        inactiveAlpha = entry.inactiveAlpha,
         _ddOrderToken = BuildDynamicOrderToken(entry.iconKey),
     }
 end
@@ -1242,7 +1255,7 @@ local function ShouldKeepDynamicIconInCombat(icon)
     return true
 end
 
-local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible, inactiveGray, inactivePlaceholder)
+local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible, inactiveGray, inactivePlaceholder, inactiveAlpha)
     if not icon then return end
     icon._ddInactivePlaceholder = inactivePlaceholder and true or nil
     ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
@@ -1256,7 +1269,7 @@ local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, grou
             icon:Show()
         end
         SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
-        SetDynamicIconInactiveGray(icon, inactiveGray == true)
+        SetDynamicIconInactiveGray(icon, inactiveGray == true, inactiveAlpha)
         return
     end
     if icon._ddManagedAuraExpired then
@@ -1314,7 +1327,8 @@ local function RestorePlacementVisibility(entry, groupName, groupSettings, group
             groupAlpha,
             entry.combatVisible,
             entry.inactiveGray,
-            entry.inactivePlaceholder
+            entry.inactivePlaceholder,
+            entry.inactiveAlpha
         )
         return
     end
@@ -1323,14 +1337,14 @@ local function RestorePlacementVisibility(entry, groupName, groupSettings, group
         GroupRenderer:HideHiddenSourceBuffIcon(icon)
         return
     end
-    SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
+    SetDynamicIconInactiveGray(icon, entry.inactiveGray == true, entry.inactiveAlpha)
     SetManagedIconLayoutVisible(icon, not icon._ddingHidden and not icon._ddSuppressed)
     if icon.Show and not icon._ddingHidden then
         icon:Show()
     end
     if not icon._ddingHidden then
         SetAlphaIfNeeded(icon, groupAlpha or 1, "_ddLastGroupAlpha")
-        if not entry.inactiveGray then
+        if not entry.inactiveAlpha then
             RestoreIconTextureOpacity(icon)
         end
     end
@@ -1352,7 +1366,8 @@ local function RestoreActiveDynamicEntries(list, groupName, groupSettings, group
                 groupAlpha,
                 entry.combatVisible,
                 entry.inactiveGray,
-                entry.inactivePlaceholder
+                entry.inactivePlaceholder,
+                entry.inactiveAlpha
             )
         end
     end
@@ -2515,7 +2530,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 if placeholders then
                     placeholders:ApplyStyle(icon, groupSettings)
                 end
-                SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
+                SetDynamicIconInactiveGray(icon, entry.inactiveGray == true, entry.inactiveAlpha)
                 SetAlphaIfNeeded(icon, groupSettings.groupAlpha or 1, "_ddLastGroupAlpha")
                 idx = idx + 1
                 frame._managedIcons[idx] = icon
@@ -2532,7 +2547,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     icon._ddCombatVisible = entry.combatVisible ~= false
                     icon._ddInactiveGray = entry.inactiveGray and true or nil
                     icon._ddInactivePlaceholder = entry.inactivePlaceholder and true or nil
-                    SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
+                    SetDynamicIconInactiveGray(icon, entry.inactiveGray == true, entry.inactiveAlpha)
                     if entry.inactivePlaceholder or entry.inactiveGray then
                         icon._ddManagedAuraExpired = nil
                     end
@@ -2605,7 +2620,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                 end
             elseif fc then
                 -- [CDM 아이콘 스키닝]
-                SetDynamicIconInactiveGray(icon, entry.inactiveGray == true)
+                SetDynamicIconInactiveGray(icon, entry.inactiveGray == true, entry.inactiveAlpha)
                 local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame
                     and icon._ddLayoutCooldownID == entry.cooldownID
                     and not GroupRenderer._forceFullSetup
@@ -2817,8 +2832,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     iconAlpha = 0
                 end
                 SetAlphaIfNeeded(ic, iconAlpha, "_ddLastGroupAlpha")
-                if ic._ddInactiveGray and iconAlpha > 0 then
-                    SetDynamicIconInactiveGray(ic, true)
+                if ic._ddInactiveAlpha and iconAlpha > 0 then
+                    SetDynamicIconInactiveGray(ic, ic._ddInactiveGray == true, ic._ddInactiveAlpha)
                 elseif iconAlpha > 0 then
                     SetDynamicIconInactiveGray(ic, false)
                     RestoreIconTextureOpacity(ic)

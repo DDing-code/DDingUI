@@ -339,6 +339,10 @@ function FrameLifecycle.Create(
         frame._ddCustomIconActive = nil
         frame._ddCustomIconReady = nil
         frame._ddItemCountEmpty = nil
+        frame._ddInactiveGray = nil
+        frame._ddForcedInactiveGray = nil
+        frame._ddInactiveAlpha = nil
+        frame._ddInactivePlaceholder = nil
         frame._ddNeedsInitialUpdate = nil
     end
 

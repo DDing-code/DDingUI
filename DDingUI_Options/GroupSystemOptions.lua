@@ -3862,6 +3862,7 @@ function DDingUI:ResetDynamicAssignedIconSettings(opt)
         "activeBorderColor",
         "alwaysShow",
         "desatInactive",
+        "inactiveAlpha",
         "nonActiveMode",
         "cooldownStateEffect",
         "cooldownStateAlpha",
@@ -5120,6 +5121,26 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
                         end,
                         set = function(_, r, g, b, a)
                             capturedItem.setColor(r, g, b, a)
+                            RefreshDetails()
+                        end,
+                    }
+                elseif item.range and type(item.getValue) == "function"
+                    and type(item.setValue) == "function"
+                then
+                    args[key] = {
+                        type = "range",
+                        name = item.text,
+                        order = order,
+                        width = "full",
+                        min = tonumber(item.min) or 0,
+                        max = tonumber(item.max) or 1,
+                        step = tonumber(item.step) or 0.05,
+                        isPercent = item.isPercent == true,
+                        get = function()
+                            return tonumber(capturedItem.getValue()) or 0
+                        end,
+                        set = function(_, value)
+                            capturedItem.setValue(value)
                             RefreshDetails()
                         end,
                     }

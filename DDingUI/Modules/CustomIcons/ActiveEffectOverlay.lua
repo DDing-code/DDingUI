@@ -512,6 +512,8 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
 
     frame._ddInactiveGray = nil
     frame._ddForcedInactiveGray = nil
+    frame._ddInactiveAlpha = nil
+    frame._ddInactivePlaceholder = nil
     frame._ddManagedAuraExpired = nil
     frame._ddCombatVisible = nil
     if DDingUI.CustomIcons and DDingUI.CustomIcons.RestoreActiveIconVisual then

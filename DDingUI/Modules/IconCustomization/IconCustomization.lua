@@ -2019,6 +2019,20 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
                 { "off", L["Full Color"] or "Full Color" },
             }
         )
+        menuItems[#menuItems + 1] = {
+            text = L["Inactive Opacity"] or "Inactive Opacity",
+            range = true,
+            min = 0.05,
+            max = 1,
+            step = 0.05,
+            isPercent = true,
+            getValue = function()
+                return tonumber(Current().inactiveAlpha) or 0.5
+            end,
+            setValue = function(value)
+                ApplyVisual("inactiveAlpha", tonumber(value) or 0.5)
+            end,
+        }
     end
     if viewerType ~= "Buff" then
         for _, item in ipairs(BuildStateEffectMenuItems(Current, ApplyVisual, true)) do
@@ -2180,7 +2194,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     local function ApplyStateSetting(key, value)
         iconData.settings[key] = value
         Refresh()
-        if (key == "alwaysShow" or key == "desatInactive" or key == "hideWhenEmpty")
+        if (key == "alwaysShow" or key == "desatInactive" or key == "inactiveAlpha" or key == "hideWhenEmpty")
             and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged
         then
             DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -2345,6 +2359,20 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
                 { "off", L["Full Color"] or "Full Color" },
             }
         )
+        stateItems[#stateItems + 1] = {
+            text = L["Inactive Opacity"] or "Inactive Opacity",
+            range = true,
+            min = 0.05,
+            max = 1,
+            step = 0.05,
+            isPercent = true,
+            getValue = function()
+                return tonumber(iconData.settings.inactiveAlpha) or 0.5
+            end,
+            setValue = function(value)
+                ApplyStateSetting("inactiveAlpha", tonumber(value) or 0.5)
+            end,
+        }
     else
         for _, item in ipairs(BuildStateEffectMenuItems(
             function() return iconData.settings end,

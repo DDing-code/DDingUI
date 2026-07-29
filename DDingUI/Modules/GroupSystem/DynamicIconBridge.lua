@@ -88,7 +88,9 @@ local function ResolveInactiveBuffDisplay(iconData)
     if settings.desatInactive == "on" then
         desaturated = true
     end
-    return visible, desaturated
+    local alpha = tonumber(settings.inactiveAlpha) or 0.5
+    alpha = math.max(0.05, math.min(1, alpha))
+    return visible, desaturated, alpha
 end
 
 local function ResetGroupIconLayoutState(frame, resetTarget)
@@ -683,7 +685,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
             local isAuraIcon = iconData.type == "aura"
             local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
-            local showInactive, desaturateInactive = ResolveInactiveBuffDisplay(iconData)
+            local showInactive, desaturateInactive, inactiveAlpha = ResolveInactiveBuffDisplay(iconData)
             local includeActiveStateGray = groupSettings
                 and groupSettings.hideActiveState == true
                 and isBuffContext
@@ -713,6 +715,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 combatVisible = includeInactive or includeActiveStateGray or keepVisible,
                 inactiveGray = forceGray,
                 inactivePlaceholder = includeInactive,
+                inactiveAlpha = includeInactive and inactiveAlpha or nil,
             }
             -- [FIX] 활성 상태 기록: 다음 틱에서 일시적 nil 반환 시 유지
             if isActive or keepVisible then
@@ -1216,6 +1219,10 @@ function DynamicIconBridge:ReleaseFrame(frame, iconKey)
     frame._ddAuraActiveUntil = nil
     frame._ddProcActiveUntil = nil
     frame._ddManagedAuraExpired = nil
+    frame._ddInactiveGray = nil
+    frame._ddForcedInactiveGray = nil
+    frame._ddInactiveAlpha = nil
+    frame._ddInactivePlaceholder = nil
     if frame.cooldown then
         frame.cooldown._ddGroupName = nil
         frame.cooldown._ddSourceViewer = nil

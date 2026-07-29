@@ -665,8 +665,28 @@ function CustomIcons.ManagedVisualLocked(frame)
     if not (frame and frame._ddIsManaged) then return false end
     return frame._ddInactiveGray == true
         or frame._ddForcedInactiveGray == true
+        or frame._ddInactiveAlpha ~= nil
+        or frame._ddInactivePlaceholder == true
         or frame._ddManagedAuraExpired == true
         or frame._ddCombatVisible == false
+end
+
+function CustomIcons.PrepareInactivePlaceholder(frame, iconData)
+    local settings = iconData and iconData.settings
+    if not frame or not settings or settings.alwaysShow ~= "on" then return false end
+
+    local alpha = tonumber(settings.inactiveAlpha) or 0.5
+    alpha = math.max(0.05, math.min(1, alpha))
+    local desaturated = settings.desatInactive ~= "off"
+
+    frame._ddInactivePlaceholder = true
+    frame._ddInactiveGray = desaturated and true or nil
+    frame._ddForcedInactiveGray = desaturated and true or nil
+    frame._ddInactiveAlpha = alpha
+    frame._ddManagedAuraExpired = nil
+    frame._ddCombatVisible = true
+    frame._ddCombatKeepAlive = nil
+    return true
 end
 
 function CustomIcons.StopIconDesatUpdater(frame)
@@ -755,7 +775,10 @@ function CustomIcons.SuppressExpiredIconVisual(frame)
         end
         if icon then
             if icon.Show then icon:Show() end
-            if icon.SetAlpha then icon:SetAlpha(frame._ddInactiveGray and 0.48 or 1) end
+            if icon.SetAlpha then
+                local inactiveAlpha = tonumber(frame._ddInactiveAlpha) or 0.5
+                icon:SetAlpha(math.max(0.05, math.min(1, inactiveAlpha)))
+            end
             if icon.SetDesaturated then icon:SetDesaturated(frame._ddInactiveGray == true) end
             if icon.SetDesaturation then icon:SetDesaturation(frame._ddInactiveGray and 1 or 0) end
         end
@@ -868,6 +891,7 @@ MarkCustomTimedAuraExpired = function(spellID)
             if frame.count then
                 frame.count:Hide()
             end
+            CustomIcons.PrepareInactivePlaceholder(frame, iconData)
             local keptPlaceholder = CustomIcons.SuppressExpiredIconVisual(frame)
             if frame._ddIsManaged then
                 if not keptPlaceholder then
@@ -1157,6 +1181,8 @@ function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     if procActive then
         frame._ddInactiveGray = nil
         frame._ddForcedInactiveGray = nil
+        frame._ddInactiveAlpha = nil
+        frame._ddInactivePlaceholder = nil
         frame._ddManagedAuraExpired = nil
         frame._ddCombatVisible = nil
         self.RestoreActiveIconVisual(frame)
@@ -1192,6 +1218,8 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
 
     iconFrame._ddInactiveGray = nil
     iconFrame._ddForcedInactiveGray = nil
+    iconFrame._ddInactiveAlpha = nil
+    iconFrame._ddInactivePlaceholder = nil
     iconFrame._ddManagedAuraExpired = nil
     iconFrame._ddCombatVisible = nil
     CustomIcons.RestoreActiveIconVisual(iconFrame)
@@ -1287,6 +1315,8 @@ MarkCustomTimedAuraActive = function(spellID, state)
                 frame._ddCombatVisible = nil
                 frame._ddInactiveGray = nil
                 frame._ddForcedInactiveGray = nil
+                frame._ddInactiveAlpha = nil
+                frame._ddInactivePlaceholder = nil
                 if state and state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end
@@ -2237,6 +2267,8 @@ local function UpdateRacialIconFrame(iconFrame, iconData)
     if racialProcActive then
         iconFrame._ddInactiveGray = nil
         iconFrame._ddForcedInactiveGray = nil
+        iconFrame._ddInactiveAlpha = nil
+        iconFrame._ddInactivePlaceholder = nil
         iconFrame._ddManagedAuraExpired = nil
         iconFrame._ddCombatVisible = nil
         managedVisualLocked = false
@@ -2510,6 +2542,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     if auraData then
         iconFrame._ddInactiveGray = nil
         iconFrame._ddForcedInactiveGray = nil
+        iconFrame._ddInactiveAlpha = nil
+        iconFrame._ddInactivePlaceholder = nil
         iconFrame._ddManagedAuraExpired = nil
         iconFrame._ddCombatVisible = nil
         managedVisualLocked = false
@@ -2729,6 +2763,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
         iconFrame._ddCombatKeepAlive = nil
         iconFrame._ddInactiveGray = nil
         iconFrame._ddForcedInactiveGray = nil
+        iconFrame._ddInactiveAlpha = nil
+        iconFrame._ddInactivePlaceholder = nil
         local managedAlpha = 1
         if iconFrame._groupSettings and iconFrame._groupSettings.groupAlpha ~= nil then
             managedAlpha = iconFrame._groupSettings.groupAlpha
@@ -2764,7 +2800,8 @@ local function UpdateAuraIcon(iconFrame, iconData)
             iconFrame.icon:SetDesaturated(false)
         end
         if iconFrame._ddIsManaged then
-            iconFrame._ddManagedAuraExpired = true
+            local keepInactive = CustomIcons.PrepareInactivePlaceholder(iconFrame, iconData)
+            iconFrame._ddManagedAuraExpired = keepInactive and nil or true
             CustomIcons.SuppressExpiredIconVisual(iconFrame)
             if stateChanged and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge:IsActive() then
                 DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -2895,6 +2932,8 @@ function CustomIcons:GetActiveCustomTimedAuraEntriesForCDMGroup(groupName, group
                 frame._ddCombatVisible = nil
                 frame._ddInactiveGray = nil
                 frame._ddForcedInactiveGray = nil
+                frame._ddInactiveAlpha = nil
+                frame._ddInactivePlaceholder = nil
                 if state.iconTexture then
                     SetStableIconTexture(frame, state.iconTexture, true)
                 end

@@ -38,6 +38,7 @@ end
 local function ResolveInactiveDisplay(token)
     local visible = false
     local desaturated = true
+    local alpha = 0.5
     local customizer = DDingUI.IconCustomization
     if customizer and customizer.GetSpellSettings then
         local spellID = ResolveSpellID(token, GetSpellNameFromToken(token))
@@ -53,9 +54,11 @@ local function ResolveInactiveDisplay(token)
             elseif custom.desatInactive == "on" then
                 desaturated = true
             end
+            alpha = tonumber(custom.inactiveAlpha) or alpha
         end
     end
-    return visible, desaturated
+    alpha = math.max(0.05, math.min(1, alpha))
+    return visible, desaturated, alpha
 end
 
 local function HasForcedInactiveBuff()
@@ -278,29 +281,33 @@ function Placeholders:BuildPlacements(groupName, settings, activeTokens)
     end
 
     for _, token in ipairs(tokens) do
-        if not (activeTokens and activeTokens[token]) then
-            local visible, desaturated = ResolveInactiveDisplay(token)
-            local frame = state[token]
-            if visible and not frame then
-                local texture = ResolveSpellTexture(token, GetSpellNameFromToken(token))
-                if texture then
-                    frame = CreatePlaceholder(groupName, token, texture)
-                    state[token] = frame
-                end
+        local visible, desaturated, inactiveAlpha = ResolveInactiveDisplay(token)
+        local frame = state[token]
+        if visible and not frame then
+            local texture = ResolveSpellTexture(token, GetSpellNameFromToken(token))
+            if texture then
+                frame = CreatePlaceholder(groupName, token, texture)
+                state[token] = frame
             end
-            if visible and frame then
-                frame._ddLayoutVisible = true
-                placements[#placements + 1] = {
-                    isPlaceholder = true,
-                    inactiveGray = desaturated,
-                    icon = frame,
-                    sourceVisible = true,
-                    _ddOrderToken = token,
-                }
-            elseif frame then
+        end
+        if activeTokens and activeTokens[token] then
+            if frame then
                 frame._ddLayoutVisible = false
                 frame:Hide()
             end
+        elseif visible and frame then
+            frame._ddLayoutVisible = true
+            placements[#placements + 1] = {
+                isPlaceholder = true,
+                inactiveGray = desaturated,
+                inactiveAlpha = inactiveAlpha,
+                icon = frame,
+                sourceVisible = true,
+                _ddOrderToken = token,
+            }
+        elseif frame then
+            frame._ddLayoutVisible = false
+            frame:Hide()
         end
     end
     return placements
