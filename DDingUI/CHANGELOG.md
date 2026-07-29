@@ -2,6 +2,19 @@
 
 ---
 
+## v1.3.1.1
+
+_Release date: 2026-07-29_
+_Scope: Git changes from v1.3.1 through this release._
+
+### English Patch Notes
+- Added a per-icon consumable option that hides the icon when none of the configured items are available, while keeping it visible in edit mode and updating the CDM layout when inventory counts change.
+
+### Korean Patch Notes
+- 설정된 소모품을 보유하지 않았을 때 해당 아이콘을 숨기는 개별 옵션을 추가했습니다. 편집모드에서는 아이콘을 계속 표시하며, 재고 수량이 바뀌면 CDM 레이아웃에 즉시 반영됩니다.
+
+---
+
 ## v1.3.1
 
 _Release date: 2026-07-29_
