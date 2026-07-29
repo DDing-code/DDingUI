@@ -337,6 +337,7 @@ function FrameLifecycle.Create(
         frame._DDingUIAssistGlowActive = nil
         frame._ddCustomIconActive = nil
         frame._ddCustomIconReady = nil
+        frame._ddItemCountEmpty = nil
     end
 
     local function AcquireDynamicIconFrame(name, parent)

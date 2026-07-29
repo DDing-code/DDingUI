@@ -3835,6 +3835,7 @@ function DDingUI:ResetDynamicAssignedIconSettings(opt)
         "customStateGlow",
         "showCooldown",
         "showCharges",
+        "hideWhenEmpty",
         "showGCDSwipe",
         "desaturateOnCooldown",
         "desaturateWhenUnusable",

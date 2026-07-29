@@ -1870,6 +1870,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         end
     end
     iconFrame._ddCombatItemCount = SafeNumber(itemCount)
+    iconFrame._ddItemCountEmpty = itemCount == nil or itemCount == 0
 
     iconFrame._textureCacheKey = activeItemID and ("item:" .. tostring(activeItemID)) or iconFrame._textureCacheKey
     local itemTexture = ResolveItemTexture(activeItemID)
@@ -1962,7 +1963,7 @@ local function UpdateItemIcon(iconFrame, iconData)
     local allowCooldownDesat = not (iconData.settings and iconData.settings.desaturateOnCooldown == false)
     local allowUnusableDesat = not (iconData.settings and iconData.settings.desaturateWhenUnusable == false)
 
-    local showEmptyItem = (itemCount == 0 or itemCount == nil)
+    local showEmptyItem = iconFrame._ddItemCountEmpty == true
     local desatVal = 0
 
     -- [FIX] OnUpdate 진입 조건: cdInfo.isActive (safe boolean) 사용 — secret number 비교 금지
@@ -2923,6 +2924,10 @@ local _iconUpdateDueAt = 0
 
 local function GetDynamicLayoutStateToken(frame, iconData)
     if not frame or not iconData then return nil end
+    if iconData.type == "item" then
+        local hideWhenEmpty = iconData.settings and iconData.settings.hideWhenEmpty == true
+        return hideWhenEmpty and frame._ddItemCountEmpty == true and "hidden" or "visible"
+    end
     if iconData.type ~= "aura" and iconData.type ~= "trinketProc" then return nil end
     local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
     if expiredManagedAura then return "inactive" end
@@ -3523,6 +3528,11 @@ local function EnsureEventFrame()
             or event == "PLAYER_EQUIPMENT_CHANGED"
         then
             needsLayoutNotify = "force"
+        elseif event == "ITEM_COUNT_CHANGED"
+            or event == "BAG_UPDATE"
+            or event == "BAG_UPDATE_DELAYED"
+        then
+            needsLayoutNotify = "item"
         elseif customTimedChanged or event == "UNIT_AURA" then
             needsLayoutNotify = "aura"
         end

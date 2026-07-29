@@ -2122,7 +2122,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     local function ApplyStateSetting(key, value)
         iconData.settings[key] = value
         Refresh()
-        if (key == "alwaysShow" or key == "desatInactive")
+        if (key == "alwaysShow" or key == "desatInactive" or key == "hideWhenEmpty")
             and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged
         then
             DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -2163,6 +2163,15 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
             text = L["Show Charges"] or "Show Charges",
             checked = iconData.settings.showCharges ~= false,
             func = function() ToggleSetting("showCharges", true) end,
+        }
+    end
+    if iconData.type == "item" then
+        stateItems[#stateItems + 1] = {
+            text = L["Hide When Empty"] or "Hide When Empty",
+            checked = iconData.settings.hideWhenEmpty == true,
+            func = function()
+                ApplyStateSetting("hideWhenEmpty", iconData.settings.hideWhenEmpty ~= true and true or nil)
+            end,
         }
     end
     if iconData.type ~= "aura" then

@@ -385,8 +385,17 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
     local now = GetTime and GetTime() or 0
     local inCombat = InCombatLockdown and InCombatLockdown()
 
-    -- item/racial 타입: 등록 후 항상 활성 (쿨다운 상태만 변함)
-    if iconData.type == "item" or iconData.type == "racial" then
+    if iconData.type == "item" then
+        if iconData.settings and iconData.settings.hideWhenEmpty == true
+            and iconFrame._ddItemCountEmpty == true
+        then
+            return false
+        end
+        return true
+    end
+
+    -- racial 타입: 등록 후 항상 활성 (쿨다운 상태만 변함)
+    if iconData.type == "racial" then
         return true
     end
 
@@ -633,12 +642,17 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
             end
             local keepVisible = false
             local keepManaged = false
+            local hideEmptyItem = not isEditMode
+                and iconData.type == "item"
+                and iconData.settings
+                and iconData.settings.hideWhenEmpty == true
+                and frame._ddItemCountEmpty == true
 
             if isActive then
                 frame._ddLastDynamicActiveAt = now
                 frame._wasVisibleInGroup = true
                 keepVisible = true
-            elseif inCombat then
+            elseif inCombat and not hideEmptyItem then
                 local isCooldownTrinket = iconData.type == "trinketProc"
                     and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
                 local isAuraIcon = iconData.type == "aura"
