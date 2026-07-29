@@ -235,10 +235,6 @@ local function ApplyViewerPosition(positionFrame, settings)
     if not anchor then return end
     local selfPoint = settings.selfPoint or "CENTER"
     local anchorPoint = settings.anchorPoint or "CENTER"
-    if anchor == UIParent then
-        selfPoint = "CENTER"
-        anchorPoint = "CENTER"
-    end
 
     local offsetX = DDingUI:Scale(settings.offsetX or settings.anchorOffsetX or 0)
     local offsetY = DDingUI:Scale(settings.offsetY or settings.anchorOffsetY or 0)

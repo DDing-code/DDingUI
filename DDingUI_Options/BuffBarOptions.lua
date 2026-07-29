@@ -108,56 +108,104 @@ local function BuildBuffBarOptions(order)
                     -- disableDynamicLayout removed: grow direction now always works
                     -- without forcing viewer anchor position
 
-                    -- Width Reference Frame
+                    -- Anchor Settings
                     anchorHeader = {
                         type = "header",
-                        name = "폭 기준 프레임",
+                        name = L["Anchor Settings"] or "Anchor Settings",
                         order = 14,
                     },
-                    anchorDesc = {
-                        type = "description",
-                        name = "바 너비 자동 계산(너비=0)의 기준이 되는 프레임입니다. 비워두면 Essential 뷰어 기준. 위치는 WoW 편집 모드(EditMode)에서 조절하세요.",
+                    attachTo = {
+                        type = "select",
+                        name = L["Attach To"] or "Attach To",
                         order = 14.1,
-                    },
-                    anchorFrame = {
-                        type = "input",
-                        name = "기준 프레임",
-                        desc = "폭 자동 계산의 기준 프레임 이름 (예: DDingUI_Anchor_Cooldowns)",
-                        order = 14.2,
                         width = "double",
+                        values = function()
+                            local options = DDingUI.GetExtendedViewerOptions
+                                and DDingUI:GetExtendedViewerOptions()
+                                or { UIParent = "UIParent" }
+                            local current = DDingUI.db.profile.buffBarViewer.attachTo
+                            if current and current ~= "" and not options[current] then
+                                options[current] = current
+                            end
+                            return options
+                        end,
                         get = function()
-                            return DDingUI.db.profile.buffBarViewer.anchorFrame or ""
+                            return DDingUI.db.profile.buffBarViewer.attachTo or "UIParent"
                         end,
                         set = function(_, val)
-                            DDingUI.db.profile.buffBarViewer.anchorFrame = val or ""
+                            DDingUI.db.profile.buffBarViewer.attachTo = val or "UIParent"
                             RefreshBuffBar()
                         end,
                     },
                     anchorPick = {
                         type = "execute",
-                        name = "프레임 선택 (마우스 클릭)",
-                        desc = "화면에서 마우스로 기준 프레임을 직접 선택합니다.",
-                        order = 14.3,
-                        width = "full",
+                        name = L["Pick Frame (Mouse)"] or "Pick Frame (Mouse)",
+                        order = 14.2,
+                        width = "normal",
                         func = function()
                             if DDingUI.StartFramePicker then
                                 DDingUI:StartFramePicker(function(frameName)
-                                    DDingUI.db.profile.buffBarViewer.anchorFrame = frameName or ""
-                                    RefreshBuffBar()
+                                    if frameName then
+                                        DDingUI.db.profile.buffBarViewer.attachTo = frameName
+                                        RefreshBuffBar()
+                                    end
                                 end)
-                            else
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff8800프레임 선택기를 사용할 수 없습니다.|r") -- [STYLE]
                             end
                         end,
                     },
-                    anchorClear = {
-                        type = "execute",
-                        name = "초기화",
-                        desc = "기준 프레임을 제거하고 Essential 뷰어 기준으로 되돌립니다.",
+                    anchorPoint = {
+                        type = "select",
+                        name = L["Anchor Point"] or "Anchor Point",
+                        order = 14.3,
+                        width = "normal",
+                        values = GetAnchorOptions(),
+                        get = function()
+                            return DDingUI.db.profile.buffBarViewer.anchorPoint or "CENTER"
+                        end,
+                        set = function(_, val)
+                            DDingUI.db.profile.buffBarViewer.anchorPoint = val
+                            RefreshBuffBar()
+                        end,
+                    },
+                    selfPoint = {
+                        type = "select",
+                        name = L["Self Point"] or "Self Point",
                         order = 14.4,
                         width = "normal",
-                        func = function()
-                            DDingUI.db.profile.buffBarViewer.anchorFrame = ""
+                        values = GetAnchorOptions(),
+                        get = function()
+                            return DDingUI.db.profile.buffBarViewer.selfPoint or "CENTER"
+                        end,
+                        set = function(_, val)
+                            DDingUI.db.profile.buffBarViewer.selfPoint = val
+                            RefreshBuffBar()
+                        end,
+                    },
+                    offsetX = {
+                        type = "range",
+                        name = L["X Offset"] or "X Offset",
+                        order = 14.5,
+                        width = "normal",
+                        min = -1000, max = 1000, step = 1,
+                        get = function()
+                            return DDingUI.db.profile.buffBarViewer.offsetX or 0
+                        end,
+                        set = function(_, val)
+                            DDingUI.db.profile.buffBarViewer.offsetX = val
+                            RefreshBuffBar()
+                        end,
+                    },
+                    offsetY = {
+                        type = "range",
+                        name = L["Y Offset"] or "Y Offset",
+                        order = 14.6,
+                        width = "normal",
+                        min = -1000, max = 1000, step = 1,
+                        get = function()
+                            return DDingUI.db.profile.buffBarViewer.offsetY or 0
+                        end,
+                        set = function(_, val)
+                            DDingUI.db.profile.buffBarViewer.offsetY = val
                             RefreshBuffBar()
                         end,
                     },
