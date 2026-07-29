@@ -7,7 +7,7 @@ local DDingUI = LibStub("AceAddon-3.0"):NewAddon(
 )
 
 ns.Addon = DDingUI
-DDingUI.VERSION = "1.3.1.1"
+DDingUI.VERSION = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "unknown"
 ns.VERSION = DDingUI.VERSION
 
 -- [LoD] DDingUI_Options이 네임스페이스에 접근할 수 있도록 공유
