@@ -736,38 +736,6 @@ local function BuildBuffBarOptions(order)
                 },
             },
 
-            -- Per-Spec Colors Tab
-            colorsTab = {
-                type = "group",
-                name = L["Per-Spec Colors"],
-                order = 6,
-                args = {
-                    colorsHeader = {
-                        type = "header",
-                        name = L["Per-Specialization Bar Colors"],
-                        order = 1,
-                    },
-                    colorsDesc = {
-                        type = "description",
-                        name = L["Set different bar colors for each specialization. These are saved per-spec automatically when you change the color in Blizzard's Cooldown Viewer Settings."],
-                        order = 2,
-                    },
-                    resetColors = {
-                        type = "execute",
-                        name = L["Reset All Colors"],
-                        desc = L["Reset all per-spec and per-bar colors to the default"],
-                        order = 3,
-                        width = "full",
-                        confirm = true,
-                        confirmText = L["Are you sure you want to reset all bar colors?"],
-                        func = function()
-                            DDingUI.db.profile.buffBarViewer.barColors = {}
-                            DDingUI.db.profile.buffBarViewer.barColorsBySpec = {}
-                            RefreshBuffBar()
-                        end,
-                    },
-                },
-            },
         },
     }
 
