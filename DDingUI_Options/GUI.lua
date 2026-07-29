@@ -2164,6 +2164,10 @@ function DDingUI:CreateConfigFrame()
                 frame:ClearSearch()
             end
         else
+            -- 디바운스 대기 중에도 기존 중첩 탭이 화면에 남지 않도록 즉시 정리
+            if frame.BeginSearch then
+                frame:BeginSearch()
+            end
             -- 검색 결과 렌더링 (0.2초 디바운스)
             searchDebounceTimer = C_Timer.NewTimer(0.2, function()
                 searchDebounceTimer = nil
@@ -3259,6 +3263,38 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     -- ============================================
     -- Search actions
     -- ============================================
+    function frame:BeginSearch()
+        if self._searchMode then return end
+
+        self._preSearchTab = self.currentTab
+        self._preSearchPath = self.currentPath
+        self._searchMode = true
+
+        CleanupNestedOptionFrames(self.scrollChild, self)
+
+        local contentArea = self.contentArea
+        if contentArea then
+            local stickyPreview = contentArea._groupStickyPreview
+            if stickyPreview then
+                stickyPreview:Hide()
+                stickyPreview:SetParent(nil)
+                contentArea._groupStickyPreview = nil
+            end
+
+            local buffTrackerPanel = contentArea._btPanel
+            if buffTrackerPanel then
+                buffTrackerPanel:Hide()
+            end
+        end
+
+        if self.scrollFrame then
+            self.scrollFrame:Show()
+        end
+        if self.scrollBar then
+            self.scrollBar:Show()
+        end
+    end
+
     function frame:PerformSearch(query)
         if not self._searchIndex then
             for _, option in pairs(options.args or {}) do
@@ -3277,12 +3313,8 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             end
         end
 
-        -- 검색 모드 진입 (첫 진입 시 현재 상태 저장)
-        if not self._searchMode then
-            self._preSearchTab = self.currentTab
-            self._preSearchPath = self.currentPath
-            self._searchMode = true
-        end
+        -- 검색 모드 진입과 기존 중첩 탭 정리
+        self:BeginSearch()
 
         -- 스크롤 초기화
         self.scrollFrame:SetVerticalScroll(0)
