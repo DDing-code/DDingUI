@@ -972,6 +972,9 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
     local autocastFrequency
     local autocastScale
     local buttonFrequency
+    local pixelXOffset
+    local pixelYOffset
+    local pixelBorder
     if useIconGlow then
         local customType = iconGlow.glowType or "button"
         glowType = customType == "pixel" and "Pixel Glow"
@@ -997,6 +1000,9 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
         autocastFrequency = iconGlow.glowSpeed or 0.25
         autocastScale = 1
         buttonFrequency = iconGlow.glowSpeed or 0.25
+        pixelXOffset = 0
+        pixelYOffset = 0
+        pixelBorder = true
     else
         glowType = useAuraGlow and (settings.auraGlowType or "Pixel Glow")
             or (settings.procGlowType or "Pixel Glow")
@@ -1018,6 +1024,9 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
             or (settings.procGlowAutocastScale or 1)
         buttonFrequency = useAuraGlow and (settings.auraGlowButtonFrequency or 0.25)
             or (settings.procGlowButtonFrequency or 0.25)
+        pixelXOffset = -1
+        pixelYOffset = -1
+        pixelBorder = false
     end
     local activeOverlay = frame._ddActiveEffectOverlay
     local target = activeOverlay and activeOverlay.token and activeOverlay.frame or frame
@@ -1036,6 +1045,9 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
         tostring(autocastFrequency),
         tostring(autocastScale),
         tostring(buttonFrequency),
+        tostring(pixelXOffset),
+        tostring(pixelYOffset),
+        tostring(pixelBorder),
     }, ":")
     if frame._ddTrinketEffectGlowActive
         and frame._ddTrinketEffectGlowSignature == signature
@@ -1080,9 +1092,9 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
             pixelFrequency,
             pixelLength,
             pixelThickness,
-            -1,
-            -1,
-            false,
+            pixelXOffset,
+            pixelYOffset,
+            pixelBorder,
             key
         )
         glowType = "Pixel Glow"
