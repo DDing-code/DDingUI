@@ -949,7 +949,7 @@ function CustomIcons:StopTrackedTrinketEffectGlow(frame)
     frame._ddTrinketEffectGlowTarget = nil
 end
 
-function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
+function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheritedStyle)
     local settings = frame and frame._groupSettings or {}
     local useIconGlow = type(iconGlow) == "table"
     local useAuraGlow = not useIconGlow and settings.auraGlow == true
@@ -1027,6 +1027,34 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow)
         pixelXOffset = -1
         pixelYOffset = -1
         pixelBorder = false
+        if type(inheritedStyle) == "table" then
+            local customType = inheritedStyle.glowType
+            if customType then
+                glowType = customType == "pixel" and "Pixel Glow"
+                    or customType == "autocast" and "Autocast Shine"
+                    or customType == "proc" and "Proc Glow"
+                    or "Action Button Glow"
+            end
+            if inheritedStyle.glowColorMode == "class" then
+                local _, classFile = UnitClass("player")
+                local classColor = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                if classColor then
+                    color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
+                end
+            elseif inheritedStyle.glowColorMode == "custom"
+                or (inheritedStyle.glowColorMode == nil and inheritedStyle.glowColor)
+            then
+                color = inheritedStyle.glowColor or color
+            end
+            pixelLines = inheritedStyle.glowLines or pixelLines
+            pixelFrequency = inheritedStyle.glowSpeed or pixelFrequency
+            pixelThickness = inheritedStyle.glowThickness or pixelThickness
+            autocastFrequency = inheritedStyle.glowSpeed or autocastFrequency
+            buttonFrequency = inheritedStyle.glowSpeed or buttonFrequency
+            pixelXOffset = 0
+            pixelYOffset = 0
+            pixelBorder = true
+        end
     end
     local activeOverlay = frame._ddActiveEffectOverlay
     local target = activeOverlay and activeOverlay.token and activeOverlay.frame or frame
@@ -1109,6 +1137,14 @@ end
 function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     local custom = iconData and iconData.settings and iconData.settings.customStateGlow
     local mode = custom and custom.procGlowMode
+    local hasStyleOverride = custom and (
+        custom.glowType ~= nil
+        or custom.glowColorMode ~= nil
+        or custom.glowColor ~= nil
+        or custom.glowLines ~= nil
+        or custom.glowSpeed ~= nil
+        or custom.glowThickness ~= nil
+    )
     local procActive = frame and frame._ddCustomIconProcActive == true
     if procActive then
         frame._ddInactiveGray = nil
@@ -1125,7 +1161,7 @@ function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
         self:StopTrackedTrinketEffectGlow(frame)
         return
     end
-    self:SetTrackedTrinketEffectGlow(frame, procActive)
+    self:SetTrackedTrinketEffectGlow(frame, procActive, nil, hasStyleOverride and custom or nil)
 end
 
 function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
