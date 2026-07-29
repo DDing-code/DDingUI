@@ -186,15 +186,28 @@ local function CollectBarFrames(viewer)
 end
 
 local function GetAnchorFrame(settings)
-    -- Custom anchor: return custom target if set
     if settings then
-        local frameName = settings.anchorFrame
+        -- Width 0 follows the same frame used for positioning.
+        local frameName = settings.attachTo
         if frameName and frameName ~= "" then
-            local target = _G[frameName]
-            if target then return target end
+            local target = DDingUI.ResolveAnchorFrame
+                and DDingUI:ResolveAnchorFrame(frameName)
+                or _G[frameName]
+            if target and target ~= UIParent then return target end
+        end
+
+        -- SavedVariables compatibility for profiles created before attachTo.
+        if not frameName or frameName == "" then
+            local legacyFrameName = settings.anchorFrame
+            if legacyFrameName and legacyFrameName ~= "" then
+                local target = DDingUI.ResolveAnchorFrame
+                    and DDingUI:ResolveAnchorFrame(legacyFrameName)
+                    or _G[legacyFrameName]
+                if target and target ~= UIParent then return target end
+            end
         end
     end
-    -- Default: EssentialCooldownViewer
+
     local anchor = _G["EssentialCooldownViewer"]
     if anchor then
         return anchor
