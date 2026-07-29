@@ -959,7 +959,7 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Toggles
         GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
-            name = "쿨다운 표시",
+            name = "재사용 대기시간 표시",
             get = function() return batchEditState.showCooldown end,
             set = function(_, val) batchEditState.showCooldown = val end,
             width = "full",
@@ -975,7 +975,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 32
 
         GUIRefs.Widgets.CreateToggle(uiFrames.configParent, {
-            name = "쿨다운 시 흑백",
+            name = "재사용 대기시간 중 흑백",
             get = function() return batchEditState.desaturateOnCooldown end,
             set = function(_, val) batchEditState.desaturateOnCooldown = val end,
             width = "full",

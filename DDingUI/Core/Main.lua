@@ -1033,8 +1033,8 @@ do
 
         -- 경고 메시지
         local list = table.concat(found, ", ")
-        print(CDM_PREFIX .. "|cffff6600" .. list .. "|r 이(가) 쿨다운 뷰어에 스킨을 적용 중입니다.") -- [STYLE]
-        print(CDM_PREFIX .. "|cffaaaaaaDDingUI 스킨을 우선 적용합니다. 문제가 지속되면 해당 애드온의 쿨다운 매니저 스킨을 비활성화해 주세요.|r") -- [STYLE]
+        print(CDM_PREFIX .. "|cffff6600" .. list .. "|r 이(가) 재사용 대기시간 뷰어에 스킨을 적용 중입니다.") -- [STYLE]
+        print(CDM_PREFIX .. "|cffaaaaaaDDingUI 스킨을 우선 적용합니다. 문제가 지속되면 해당 애드온의 재사용 대기시간 매니저 스킨을 비활성화해 주세요.|r") -- [STYLE]
 
         -- 다른 애드온이 스킨 적용 후 DDingUI 스킨 강제 재적용
         if self.IconViewers and self.IconViewers.ForceReskinAll then

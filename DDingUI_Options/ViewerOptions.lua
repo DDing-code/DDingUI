@@ -95,7 +95,7 @@ local VIEWER_GROUP_MAP = {
 local FILTER_VALUES = {
     ["HELPFUL"]  = L["Buffs"] or "버프",
     ["HARMFUL"]  = L["Debuffs"] or "디버프",
-    ["COOLDOWN"] = L["Cooldowns"] or "쿨다운",
+    ["COOLDOWN"] = L["Cooldowns"] or "재사용 대기시간",
     ["UTILITY"]  = L["Utility"] or "유틸리티",
     ["ALL"]      = L["All"] or "전체",
 }
@@ -160,7 +160,7 @@ local function CreateViewerOptions(viewerKey, displayName, order)
             groupSystemEnabled = {
                 type = "toggle",
                 name = L["Enable Group System"] or "그룹 시스템 활성화",
-                desc = L["Replace default cooldown viewers with custom group-based system"] or "기본 쿨다운 뷰어를 커스텀 그룹 시스템으로 대체",
+                desc = L["Replace default cooldown viewers with custom group-based system"] or "기본 재사용 대기시간 뷰어를 커스텀 그룹 시스템으로 대체",
                 order = 4.1,
                 width = "full",
                 get = function()

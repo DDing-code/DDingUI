@@ -5473,7 +5473,7 @@ local function BuildCustomVisualArgs(groupName)
 
     return {
         -- 쿨다운 스와이프
-        swipeHeader = { type = "header", name = L["Cooldown Swipe"] or "쿨다운 스와이프", order = 1 },
+        swipeHeader = { type = "header", name = L["Cooldown Swipe"] or "재사용 대기시간 스와이프", order = 1 },
         swipeReverse = GS_Toggle(groupName, "swipeReverse", L["Reverse Swipe"] or "스와이프 반전", 2, true),
         swipeColor = GS_Color(groupName, "swipeColor", L["Swipe Color"] or "스와이프 색상", 3, {0,0,0,0.8}),
         disableSwipeAnimation = GS_Toggle(groupName, "disableSwipeAnimation", L["Disable Swipe Animation"] or "스와이프 애니메이션 비활성화", 4, false),
@@ -5585,7 +5585,7 @@ local function BuildCustomTextArgs(groupName, category)
         countTextOffsetX = GS_Range(groupName, "countTextOffsetX", L["X Offset"] or "X 오프셋", 5, 0, -20, 20, 1),
         countTextOffsetY = GS_Range(groupName, "countTextOffsetY", L["Y Offset"] or "Y 오프셋", 6, 0, -20, 20, 1),
         -- 쿨다운 텍스트
-        cooldownTextHeader = { type = "header", name = L["Cooldown Text"] or "쿨다운 텍스트", order = 10 },
+        cooldownTextHeader = { type = "header", name = L["Cooldown Text"] or "재사용 대기시간 텍스트", order = 10 },
         cooldownFont = GS_Font(groupName, "cooldownFont", L["Font"] or "폰트", 10.5, "2002"),
         cooldownFontSize = GS_Range(groupName, "cooldownFontSize", L["Font Size"] or "글꼴 크기", 11, 14, 6, 32, 1),
         cooldownTextColor = GS_Color(groupName, "cooldownTextColor", L["Font Color"] or "글꼴 색상", 12, {1, 1, 1, 1}),
@@ -6233,7 +6233,7 @@ local function CreateGroupOptions(groupName, order)
             addTrinket1 = showAdvanced and {
                 type = "execute",
                 name = L["Add Trinket 1 (Slot 13)"] or "장신구 1 추가 (슬롯 13)",
-                desc = L["Automatically track trinket in slot 13 (proc detection + item cooldown)"] or "슬롯 13 장신구 자동 추적 (발동 감지 + 아이템 쿨다운)",
+                desc = L["Automatically track trinket in slot 13 (proc detection + item cooldown)"] or "슬롯 13 장신구 자동 추적 (발동 감지 + 아이템 재사용 대기시간)",
                 order = 42, width = "normal",
                 func = function()
                     if not DDingUI.CustomIcons then return end
@@ -6250,7 +6250,7 @@ local function CreateGroupOptions(groupName, order)
             addTrinket2 = showAdvanced and {
                 type = "execute",
                 name = L["Add Trinket 2 (Slot 14)"] or "장신구 2 추가 (슬롯 14)",
-                desc = L["Automatically track trinket in slot 14 (proc detection + item cooldown)"] or "슬롯 14 장신구 자동 추적 (발동 감지 + 아이템 쿨다운)",
+                desc = L["Automatically track trinket in slot 14 (proc detection + item cooldown)"] or "슬롯 14 장신구 자동 추적 (발동 감지 + 아이템 재사용 대기시간)",
                 order = 43, width = "normal",
                 func = function()
                     if not DDingUI.CustomIcons then return end
@@ -6266,7 +6266,7 @@ local function CreateGroupOptions(groupName, order)
             } or nil,
             advancedDesc = showAdvanced and {
                 type = "description", order = 44,
-                name = "|cff888888" .. (L["Trinkets auto-detect proc buffs and show item cooldown. Fallback items can be configured per-icon in Dynamic Icons tab."] or "장신구는 발동 버프를 자동 감지하고 아이템 쿨다운을 표시합니다. 폴백 아이템은 동적 아이콘 탭에서 아이콘별로 설정 가능합니다.") .. "|r",
+                name = "|cff888888" .. (L["Trinkets auto-detect proc buffs and show item cooldown. Fallback items can be configured per-icon in Dynamic Icons tab."] or "장신구는 발동 버프를 자동 감지하고 아이템 재사용 대기시간을 표시합니다. 폴백 아이템은 동적 아이콘 탭에서 아이콘별로 설정 가능합니다.") .. "|r",
             } or nil,
 
             -- ===========================================
@@ -6454,7 +6454,7 @@ local function BuildGroupSystemOptions(order)
                 hideDefaultViewers = {
                     type = "toggle",
                     name = L["Hide Default Viewers"] or "기본 뷰어 숨기기",
-                    desc = L["Hide WoW default cooldown viewers when group system is active"] or "그룹 시스템 활성 시 WoW 기본 쿨다운 뷰어 숨기기",
+                    desc = L["Hide WoW default cooldown viewers when group system is active"] or "그룹 시스템 활성 시 WoW 기본 재사용 대기시간 뷰어 숨기기",
                     order = 3,
                     width = "full",
                     get = function()

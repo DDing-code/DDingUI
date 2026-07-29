@@ -83,7 +83,7 @@ end
 local lockNoticeShown = false
 local function ShowLockNotice()
     if not lockNoticeShown then
-        print("|cffffa300DDingUI|r: 쿨다운 뷰어는 DDingUI 편집모드(/dcm)로 관리됩니다.")
+        print("|cffffa300DDingUI|r: 재사용 대기시간 뷰어는 DDingUI 편집모드(/dcm)로 관리됩니다.")
         lockNoticeShown = true
     end
 end
