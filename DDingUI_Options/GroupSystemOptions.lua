@@ -1508,7 +1508,13 @@ local function AssignUnassignedSpellRow(groupName, row)
 
     local GroupMgr = DDingUI.GroupManager
     if not GroupMgr or not GroupMgr.AssignSpell then return false end
-    return GroupMgr:AssignSpell(row.spellName, groupName) == true
+    local assigned = GroupMgr:AssignSpell(row.spellName, groupName) == true
+    if assigned and (row.isBuffShared == true or row.iconType == "aura"
+        or IsBuffSpell(row.spellName, row.entry))
+    then
+        UpdateAutomaticGroupCategory(groupName, "aura")
+    end
+    return assigned
 end
 
 local function BuildBuffCandidateRows(groupName)
@@ -1517,11 +1523,14 @@ local function BuildBuffCandidateRows(groupName)
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     local sourceKey = groupSettings and groupSettings.sourceGroupKey
+    local targetViewer = GROUP_VIEWER_MAP[groupName]
 
     for _, row in ipairs(BuildUnassignedSpellRows("Buffs") or {}) do
         local spellID = SafeOptionID(row.spellID)
         if spellID and not seen[spellID] then
             seen[spellID] = true
+            row.isDynamicTarget = false
+            row.isBuffShared = true
             rows[#rows + 1] = row
         end
     end
@@ -1530,8 +1539,12 @@ local function BuildBuffCandidateRows(groupName)
         if entry and entry.viewerName == "BuffIconCooldownViewer" then
             local spellName = GetGSSpellName(entry)
             local spellID = SafeOptionID(ResolveEntrySpellID(entry, spellName))
-            local alreadyAdded = spellID and sourceKey
-                and FindDynamicIconInSourceGroup(sourceKey, "aura", spellID)
+            local assignedGroup = spellName and GetUsableSpellAssignment(gs, spellName)
+            local defaultAssigned = not assignedGroup
+                and targetViewer == "BuffIconCooldownViewer"
+            local alreadyAdded = assignedGroup == groupName or defaultAssigned
+                or (spellID and sourceKey
+                    and FindDynamicIconInSourceGroup(sourceKey, "aura", spellID))
             if spellID and spellName and not seen[spellID] and not alreadyAdded
                 and not IsCustomAuraPresetSpell(spellName, spellID)
             then
@@ -1543,6 +1556,8 @@ local function BuildBuffCandidateRows(groupName)
                     iconType = "aura",
                     iconTex = ResolveCDMEntryIconTexture(entry, spellName, entry.icon),
                     displayName = ((entry.name or spellName):gsub("^buff_", "")),
+                    assignedGroup = assignedGroup,
+                    isBuffShared = true,
                     fallbackOrder = tonumber(entry.layoutIndex) or index,
                 }
             end
@@ -3456,27 +3471,10 @@ end
 function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
     if not parent or not groupName then return end
 
-    local rows = BuildUnassignedSpellRows(groupName) or {}
-    local skillRows, buffRows = {}, {}
-    local seenSkills, seenBuffs = {}, {}
-    for index, row in ipairs(rows) do
-        local isBuff = row.isBuffShared == true or IsBuffSpell(row.spellName, row.entry)
-        local sectionRows = isBuff and buffRows or skillRows
-        local sectionSeen = isBuff and seenBuffs or seenSkills
-        local spellID = SafeOptionID(row.spellID)
-        local identity
-        if spellID then
-            identity = "spell:" .. spellID
-        elseif type(row.spellName) == "string" then
-            identity = "name:" .. row.spellName
-        else
-            identity = "row:" .. index
-        end
-        if not sectionSeen[identity] then
-            sectionSeen[identity] = true
-            sectionRows[#sectionRows + 1] = row
-        end
-    end
+    -- Candidate builders intentionally ignore the target group's current content
+    -- category so a newly created group exposes both catalog sections immediately.
+    local skillRows = BuildSkillCandidateRows(groupName) or {}
+    local buffRows = BuildBuffCandidateRows(groupName) or {}
 
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
