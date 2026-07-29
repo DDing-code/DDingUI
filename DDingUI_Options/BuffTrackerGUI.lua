@@ -899,6 +899,24 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     btPanel._dropTarget = nil
                     if target and target.index and target.index ~= fromIdx then
                         local toIdx = target.index
+                        local sourceEntry = tb[fromIdx]
+                        local targetEntry = tb[toIdx]
+                        if not fromIsGroup
+                            and sourceEntry
+                            and targetEntry
+                            and sourceEntry.parentGroup
+                            and sourceEntry.parentGroup == targetEntry.parentGroup
+                            and DDingUI.ReorderTrackedBuffInGroup
+                            and DDingUI.ReorderTrackedBuffInGroup(
+                                fromIdx,
+                                toIdx,
+                                target.pos == "after"
+                            )
+                        then
+                            DDingUI:UpdateBuffTrackerBar()
+                            btPanel:RefreshList()
+                            return
+                        end
                         -- 배열에서 순서 변경
                         if fromIdx ~= toIdx and tb[fromIdx] then
                             -- 이동 전: 각 엔트리에 원래 인덱스 태그

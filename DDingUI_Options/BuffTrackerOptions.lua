@@ -500,10 +500,64 @@ local function RefreshOptions()
     end)
 end
 
+function DDingUI.ReorderTrackedBuffInGroup(index, targetIndex, placeAfter)
+    local trackedBuffs = GetTrackedBuffs()
+    local entry = trackedBuffs and trackedBuffs[index]
+    local target = trackedBuffs and trackedBuffs[targetIndex]
+    if not entry or not target or not entry.parentGroup
+        or entry.parentGroup ~= target.parentGroup
+    then
+        return false
+    end
+
+    local group = trackedBuffs[entry.parentGroup]
+    local children = group and group.controlledChildren
+    if not children then return false end
+
+    local fromPosition, targetPosition
+    for position, childIndex in ipairs(children) do
+        if childIndex == index then fromPosition = position end
+        if childIndex == targetIndex then targetPosition = position end
+    end
+    if not fromPosition or not targetPosition or fromPosition == targetPosition then
+        return false
+    end
+
+    table.remove(children, fromPosition)
+    if fromPosition < targetPosition then
+        targetPosition = targetPosition - 1
+    end
+    local insertPosition = targetPosition + (placeAfter and 1 or 0)
+    insertPosition = math.max(1, math.min(insertPosition, #children + 1))
+    table.insert(children, insertPosition, index)
+    return true
+end
+
 -- Move tracked buff up (-1) or down (+1) in the list
 function DDingUI.MoveTrackedBuff(index, direction)
     local trackedBuffs = GetTrackedBuffs()
     if not trackedBuffs or not trackedBuffs[index] then return end
+
+    local entry = trackedBuffs[index]
+    if entry.parentGroup then
+        local group = trackedBuffs[entry.parentGroup]
+        local children = group and group.controlledChildren
+        if not children then return end
+        for position, childIndex in ipairs(children) do
+            if childIndex == index then
+                local targetIndex = children[position + direction]
+                if targetIndex then
+                    return DDingUI.ReorderTrackedBuffInGroup(
+                        index,
+                        targetIndex,
+                        direction > 0
+                    )
+                end
+                return false
+            end
+        end
+        return false
+    end
 
     local newIndex = index + direction
     if newIndex < 1 or newIndex > #trackedBuffs then return end
@@ -572,6 +626,7 @@ function DDingUI.MoveTrackedBuff(index, direction)
     for i = 1, #trackedBuffs do
         trackedBuffs[i]._origIdx = nil
     end
+    return true
 end
 
 -- Duplicate tracked buff (deep copy)
