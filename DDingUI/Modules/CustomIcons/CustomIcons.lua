@@ -1097,15 +1097,23 @@ end
 function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     local custom = iconData and iconData.settings and iconData.settings.customStateGlow
     local mode = custom and custom.procGlowMode
+    local procActive = frame and frame._ddCustomIconProcActive == true
+    if procActive then
+        frame._ddInactiveGray = nil
+        frame._ddForcedInactiveGray = nil
+        frame._ddManagedAuraExpired = nil
+        frame._ddCombatVisible = nil
+        self.RestoreActiveIconVisual(frame)
+    end
     if mode == "on" then
-        self:SetTrackedTrinketEffectGlow(frame, frame and frame._ddCustomIconProcActive == true, custom)
+        self:SetTrackedTrinketEffectGlow(frame, procActive, custom)
         return
     end
     if mode == "off" or (custom and custom.activeGlow == true) then
         self:StopTrackedTrinketEffectGlow(frame)
         return
     end
-    self:SetTrackedTrinketEffectGlow(frame, frame and frame._ddCustomIconProcActive == true)
+    self:SetTrackedTrinketEffectGlow(frame, procActive)
 end
 
 function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
@@ -1118,13 +1126,11 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
     if not settings or settings.trackTrinketEffect ~= true
         or not registry or not registry.GetActiveEffectForItem
     then
-        self:StopTrackedTrinketEffectGlow(iconFrame)
         return false
     end
 
     local state = registry:GetActiveEffectForItem(itemID)
     if not state then
-        self:StopTrackedTrinketEffectGlow(iconFrame)
         return false
     end
 
@@ -1151,7 +1157,6 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
             iconFrame.count:Hide()
         end
     end
-    self:UpdateDynamicIconProcGlow(iconFrame, iconData)
     return true
 end
 
