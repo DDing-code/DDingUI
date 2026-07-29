@@ -162,6 +162,14 @@ local DIRECTION_VALUES = {
     ["CENTERED_HORIZONTAL"] = L["Centered Horizontal"] or "가운데 정렬(가로)",
 }
 
+local ICON_TRANSITION_DIRECTION_VALUES = {
+    ["NONE"]  = L["No Direction"] or "방향 없음",
+    ["RIGHT"] = L["Right"] or "오른쪽",
+    ["LEFT"]  = L["Left"] or "왼쪽",
+    ["UP"]    = L["Up"] or "위",
+    ["DOWN"]  = L["Down"] or "아래",
+}
+
 local FILTER_VALUES = {
     ["HELPFUL"]  = L["Buffs"] or "버프",
     ["HARMFUL"]  = L["Debuffs"] or "디버프",
@@ -5236,6 +5244,7 @@ local VIEWER_VISUAL_KEYS = {
     "assistGlowLines", "assistGlowFrequency", "assistGlowThickness", "assistHighlightPixelLength",
     -- 이동 애니메이션
     "motionHeader", "iconMotion", "iconMotionDuration",
+    "iconFadeInDirection", "iconFadeOutDirection",
     -- 엣지/블링 애니메이션
     "disableEdgeGlow", "disableBlingAnimation",
 }
@@ -5492,31 +5501,45 @@ end
 
 local function BuildGroupAnimationArgs(groupName)
     local visualArgs = BuildCustomVisualArgs(groupName)
+    visualArgs.motionHeader.order = 1
+    visualArgs.iconMotion.order = 2
+    visualArgs.iconMotionDuration.order = 3
+
+    local transitionDisabled = function()
+        local gs = GetGS()
+        local group = gs and gs.groups and gs.groups[groupName]
+        return group and group.iconMotion == false
+    end
+    local fadeInDirection = GS_Select(
+        groupName,
+        "iconFadeInDirection",
+        L["Fade In Direction"] or "페이드인 방향",
+        11,
+        "NONE",
+        ICON_TRANSITION_DIRECTION_VALUES
+    )
+    fadeInDirection.disabled = transitionDisabled
+    local fadeOutDirection = GS_Select(
+        groupName,
+        "iconFadeOutDirection",
+        L["Fade Out Direction"] or "페이드아웃 방향",
+        12,
+        "NONE",
+        ICON_TRANSITION_DIRECTION_VALUES
+    )
+    fadeOutDirection.disabled = transitionDisabled
+
     return {
         motionHeader = visualArgs.motionHeader,
         iconMotion = visualArgs.iconMotion,
         iconMotionDuration = visualArgs.iconMotionDuration,
-        directionHeader = {
+        transitionHeader = {
             type = "header",
-            name = L["Direction"] or "방향",
+            name = L["Icon Transitions"] or "아이콘 전환",
             order = 10,
         },
-        direction = GS_Select(
-            groupName,
-            "direction",
-            L["Growth Direction"] or "성장 방향",
-            11,
-            "RIGHT",
-            DIRECTION_VALUES
-        ),
-        growDirection = GS_Select(
-            groupName,
-            "growDirection",
-            L["Wrap Direction"] or "줄바꿈 방향",
-            12,
-            "DOWN",
-            DIRECTION_VALUES
-        ),
+        fadeInDirection = fadeInDirection,
+        fadeOutDirection = fadeOutDirection,
     }
 end
 

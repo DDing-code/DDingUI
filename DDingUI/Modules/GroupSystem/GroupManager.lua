@@ -1247,6 +1247,8 @@ function GroupManager:CreateGroup(name, settings)
         swipeReverse = true,
         iconMotion = true,
         iconMotionDuration = 0.18,
+        iconFadeInDirection = "NONE",
+        iconFadeOutDirection = "NONE",
         anchorPoint = "CENTER",
         offsetX = 0,
         offsetY = 0,

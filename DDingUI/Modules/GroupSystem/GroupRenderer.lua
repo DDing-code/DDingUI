@@ -122,6 +122,14 @@ local function ApplyIconPositionNow(icon, container, x, y)
     icon._ddCurrentY = y
 end
 
+local function ApplyMotionAlpha(icon, alpha, persist)
+    if not (icon and icon.SetAlpha) then return end
+    pcall(icon.SetAlpha, icon, alpha)
+    if persist then
+        icon._ddLastGroupAlpha = alpha
+    end
+end
+
 local function IconAnchorMatches(icon, container, x, y)
     if not icon or not icon.GetNumPoints or icon:GetNumPoints() ~= 1 then
         return false
@@ -144,12 +152,28 @@ end
 
 local function StopIconMotion(icon)
     if not icon or not icon._ddPositionMotion then return end
+    local motion = icon._ddPositionMotion
     activeIconMotions[icon] = nil
     icon._ddPositionMotion = nil
     activeIconMotionCount = math_max(activeIconMotionCount - 1, 0)
+    if motion.fromAlpha ~= nil and motion.toAlpha ~= nil then
+        ApplyMotionAlpha(icon, motion.toAlpha, motion.persistFinalAlpha)
+    end
+    if motion.onFinish then
+        pcall(motion.onFinish, icon)
+    end
     if activeIconMotionCount == 0 then
         iconMotionDriver:Hide()
     end
+end
+
+local function StartIconMotion(icon, motion)
+    if not icon._ddPositionMotion then
+        activeIconMotionCount = activeIconMotionCount + 1
+    end
+    icon._ddPositionMotion = motion
+    activeIconMotions[icon] = motion
+    iconMotionDriver:Show()
 end
 
 local function ResetIconLayoutState(icon, resetTarget)
@@ -182,19 +206,32 @@ iconMotionDriver:SetScript("OnUpdate", function(_, elapsed)
             icon._ddCurrentX = nil
             icon._ddCurrentY = nil
             activeIconMotionCount = math_max(activeIconMotionCount - 1, 0)
+            if motion.onFinish then
+                pcall(motion.onFinish, icon)
+            end
         else
             motion.elapsed = motion.elapsed + elapsed
             local t = motion.elapsed / motion.duration
             if t >= 1 then
                 ApplyIconPositionNow(icon, motion.container, motion.toX, motion.toY)
+                if motion.fromAlpha ~= nil and motion.toAlpha ~= nil then
+                    ApplyMotionAlpha(icon, motion.toAlpha, motion.persistFinalAlpha)
+                end
                 activeIconMotions[icon] = nil
                 icon._ddPositionMotion = nil
                 activeIconMotionCount = math_max(activeIconMotionCount - 1, 0)
+                if motion.onFinish then
+                    pcall(motion.onFinish, icon)
+                end
             else
                 local eased = EaseOutCubic(t)
                 local x = motion.fromX + (motion.toX - motion.fromX) * eased
                 local y = motion.fromY + (motion.toY - motion.fromY) * eased
                 ApplyIconPositionNow(icon, motion.container, x, y)
+                if motion.fromAlpha ~= nil and motion.toAlpha ~= nil then
+                    local alpha = motion.fromAlpha + (motion.toAlpha - motion.fromAlpha) * eased
+                    ApplyMotionAlpha(icon, alpha, false)
+                end
             end
         end
     end
@@ -521,6 +558,12 @@ end
 local function SetAlphaIfNeeded(obj, alpha, cacheField)
     if not (obj and obj.SetAlpha) then return end
     alpha = tonumber(alpha) or 1
+    local motion = obj._ddPositionMotion
+    if cacheField == "_ddLastGroupAlpha" and motion and motion.fromAlpha ~= nil then
+        motion.toAlpha = alpha
+        obj[cacheField] = alpha
+        return
+    end
     local fh = DDingUI.FlightHide
     if alpha > 0 and fh and (fh.isActive or fh._hiding) then
         return
@@ -1534,6 +1577,8 @@ local function BuildGroupRenderSettingsHash(groupSettings)
     AddHashValue(parts, "cooldownShadowOffsetY", groupSettings.cooldownShadowOffsetY)
     AddHashValue(parts, "iconMotion", groupSettings.iconMotion)
     AddHashValue(parts, "iconMotionDuration", groupSettings.iconMotionDuration)
+    AddHashValue(parts, "iconFadeInDirection", groupSettings.iconFadeInDirection)
+    AddHashValue(parts, "iconFadeOutDirection", groupSettings.iconFadeOutDirection)
     AddHashValue(parts, "disableSwipeAnimation", groupSettings.disableSwipeAnimation)
     AddHashValue(parts, "swipeReverse", groupSettings.swipeReverse)
     AddHashColor(parts, "swipeColor", groupSettings.swipeColor)
@@ -1793,6 +1838,25 @@ end
 -- FrameController 훅을 우회하면서 타겟 값도 동시 갱신
 -- ============================================================
 
+local function GetTransitionOffset(direction, distance)
+    if direction == "LEFT" then return -distance, 0 end
+    if direction == "RIGHT" then return distance, 0 end
+    if direction == "UP" then return 0, distance end
+    if direction == "DOWN" then return 0, -distance end
+    return 0, 0
+end
+
+local function CanRunIconTransition(enabled, direction)
+    if not enabled then return false end
+    if direction ~= "LEFT" and direction ~= "RIGHT"
+        and direction ~= "UP" and direction ~= "DOWN"
+    then
+        return false
+    end
+    local flightHide = DDingUI.FlightHide
+    return not (flightHide and (flightHide.isActive or flightHide._hiding))
+end
+
 local function SetIconPosition(icon, container, x, y, motionSettings)
     -- 위치 동일하면 skip → ClearAllPoints 깜빡임 방지
     -- [REPARENT] GetParent() → _ddContainerRef (parent는 UIParent)
@@ -1834,34 +1898,73 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
     icon._ddTargetX = x
     icon._ddTargetY = y
 
-    local canAnimate = motionSettings and motionSettings.enabled
+    local duration = motionSettings and tonumber(motionSettings.duration) or ICON_MOTION_DEFAULT_DURATION
+    local shouldFadeIn = not hasCurrentPosition or icon._ddTransitionHidden
+    if shouldFadeIn
+        and duration > 0.01
+        and CanRunIconTransition(
+            motionSettings and motionSettings.enabled,
+            motionSettings and motionSettings.fadeInDirection
+        )
+    then
+        icon._ddTransitionHidden = nil
+        local distance = math_max(
+            tonumber(icon._ddTargetWidth) or (icon.GetWidth and icon:GetWidth()) or 1,
+            tonumber(icon._ddTargetHeight) or (icon.GetHeight and icon:GetHeight()) or 1,
+            1
+        )
+        local offsetX, offsetY = GetTransitionOffset(motionSettings.fadeInDirection, distance)
+        local targetAlpha = tonumber(icon._ddLastGroupAlpha) or GetObjectAlpha(icon) or 1
+        ApplyIconPositionNow(icon, container, x + offsetX, y + offsetY)
+        ApplyMotionAlpha(icon, 0, false)
+        if icon.Show then icon:Show() end
+        StartIconMotion(icon, {
+            container = container,
+            fromX = x + offsetX,
+            fromY = y + offsetY,
+            toX = x,
+            toY = y,
+            fromAlpha = 0,
+            toAlpha = targetAlpha,
+            persistFinalAlpha = true,
+            elapsed = 0,
+            duration = duration,
+        })
+        return
+    end
+    icon._ddTransitionHidden = nil
+
+    local canAnimate = motionSettings and motionSettings.positionEnabled
         and hasCurrentPosition
         and fromContainer == container
         and fromX ~= nil and fromY ~= nil
         and (math_abs(fromX - x) > ICON_MOTION_MIN_DELTA or math_abs(fromY - y) > ICON_MOTION_MIN_DELTA)
 
     if canAnimate then
-        local duration = tonumber(motionSettings.duration) or ICON_MOTION_DEFAULT_DURATION
         if duration <= 0.01 then
             StopIconMotion(icon)
             ApplyIconPositionNow(icon, container, x, y)
             return
         end
 
-        if not icon._ddPositionMotion then
-            activeIconMotionCount = activeIconMotionCount + 1
+        local fromAlpha
+        local toAlpha
+        if activeMotion and activeMotion.fromAlpha ~= nil then
+            fromAlpha = GetObjectAlpha(icon) or activeMotion.fromAlpha
+            toAlpha = activeMotion.toAlpha
         end
-        icon._ddPositionMotion = {
+        StartIconMotion(icon, {
             container = container,
             fromX = fromX,
             fromY = fromY,
             toX = x,
             toY = y,
+            fromAlpha = fromAlpha,
+            toAlpha = toAlpha,
+            persistFinalAlpha = activeMotion and activeMotion.persistFinalAlpha,
             elapsed = 0,
             duration = duration,
-        }
-        activeIconMotions[icon] = icon._ddPositionMotion
-        iconMotionDriver:Show()
+        })
     else
         StopIconMotion(icon)
         ApplyIconPositionNow(icon, container, x, y)
@@ -1879,6 +1982,103 @@ local function SetIconSize(icon, w, h)
     icon._ddSettingSize = true
     icon:SetSize(w, h)
     icon._ddSettingSize = false
+end
+
+local function ReleaseTransitionGhost(ghost)
+    if not ghost then return end
+    ghost:Hide()
+    ghost:ClearAllPoints()
+    ghost._ddCurrentContainer = nil
+    ghost._ddCurrentX = nil
+    ghost._ddCurrentY = nil
+    ghost._ddTargetX = nil
+    ghost._ddTargetY = nil
+    if ghost.icon then
+        ghost.icon:SetTexture(nil)
+        ghost.icon:SetTexCoord(0, 1, 0, 1)
+        ghost.icon:SetVertexColor(1, 1, 1, 1)
+        ghost.icon:SetDesaturated(false)
+    end
+    GroupRenderer._transitionGhostPool[#GroupRenderer._transitionGhostPool + 1] = ghost
+end
+
+function GroupRenderer:StartIconExitTransition(icon, container, groupSettings)
+    local direction = groupSettings and groupSettings.iconFadeOutDirection
+    if not CanRunIconTransition(groupSettings and groupSettings.iconMotion ~= false, direction) then
+        return
+    end
+    if not (icon and container) or icon._ddingHidden or icon._ddSuppressed then return end
+
+    local x = tonumber(icon._ddCurrentX) or tonumber(icon._ddTargetX)
+    local y = tonumber(icon._ddCurrentY) or tonumber(icon._ddTargetY)
+    if not x or not y then return end
+
+    local alpha = GetObjectAlpha(icon) or tonumber(icon._ddLastGroupAlpha) or 1
+    if alpha <= ALPHA_EPSILON then return end
+
+    local sourceTexture = icon.icon or icon.Icon
+    if not sourceTexture then return end
+
+    self._transitionGhostPool = self._transitionGhostPool or {}
+    local ghost = table.remove(self._transitionGhostPool)
+    if not ghost then
+        ghost = CreateFrame("Frame", nil, UIParent)
+        ghost.icon = ghost:CreateTexture(nil, "ARTWORK")
+        ghost.icon:SetAllPoints()
+    end
+
+    local width = math_max(tonumber(icon._ddTargetWidth) or (icon.GetWidth and icon:GetWidth()) or 1, 1)
+    local height = math_max(tonumber(icon._ddTargetHeight) or (icon.GetHeight and icon:GetHeight()) or 1, 1)
+    ghost:SetSize(width, height)
+    ghost:SetAlpha(alpha)
+    if container.GetFrameStrata and ghost.SetFrameStrata then
+        pcall(ghost.SetFrameStrata, ghost, container:GetFrameStrata())
+    end
+    if icon.GetFrameLevel and ghost.SetFrameLevel then
+        pcall(ghost.SetFrameLevel, ghost, icon:GetFrameLevel())
+    end
+
+    local copied = pcall(function()
+        local atlas = sourceTexture.GetAtlas and sourceTexture:GetAtlas()
+        if type(atlas) == "string" and atlas ~= "" then
+            ghost.icon:SetAtlas(atlas)
+        else
+            ghost.icon:SetTexture(sourceTexture:GetTexture())
+        end
+        if sourceTexture.GetTexCoord then
+            ghost.icon:SetTexCoord(sourceTexture:GetTexCoord())
+        end
+        if sourceTexture.GetVertexColor then
+            ghost.icon:SetVertexColor(sourceTexture:GetVertexColor())
+        end
+        if sourceTexture.GetAlpha then
+            ghost.icon:SetAlpha(sourceTexture:GetAlpha())
+        end
+        if sourceTexture.IsDesaturated then
+            ghost.icon:SetDesaturated(sourceTexture:IsDesaturated())
+        end
+    end)
+    if not copied then
+        ReleaseTransitionGhost(ghost)
+        return
+    end
+
+    local distance = math_max(width, height)
+    local offsetX, offsetY = GetTransitionOffset(direction, distance)
+    ApplyIconPositionNow(ghost, container, x, y)
+    ghost:Show()
+    StartIconMotion(ghost, {
+        container = container,
+        fromX = x,
+        fromY = y,
+        toX = x + offsetX,
+        toY = y + offsetY,
+        fromAlpha = alpha,
+        toAlpha = 0,
+        elapsed = 0,
+        duration = math_max(tonumber(groupSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION, 0.01),
+        onFinish = ReleaseTransitionGhost,
+    })
 end
 
 -- ============================================================
@@ -2440,6 +2640,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] and icon._ddContainerRef == frame then
+            GroupRenderer:StartIconExitTransition(icon, frame, groupSettings)
+            StopIconMotion(icon)
+            icon._ddTransitionHidden = true
             SetManagedIconLayoutVisible(icon, false)
             SetDynamicIconInactiveGray(icon, false)
             icon._ddInactivePlaceholder = nil
@@ -2517,6 +2720,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
 
         if icon then
             local sourceVisible = entry.sourceVisible ~= false and not GroupRenderer:IsHiddenSourceBuffIcon(icon)
+            local wasLayoutVisible = icon._ddLayoutVisible ~= false
             if entry.isPlaceholder then
                 icon:SetParent(UIParent)
                 icon._ddContainerRef = frame
@@ -2552,10 +2756,16 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     if entry.inactivePlaceholder or entry.inactiveGray then
                         icon._ddManagedAuraExpired = nil
                     end
+                    local dynamicLayoutVisible = entry.inactivePlaceholder or entry.inactiveGray
+                        or (entry.combatVisible ~= false and not icon._ddManagedAuraExpired)
+                    if wasLayoutVisible and not dynamicLayoutVisible then
+                        GroupRenderer:StartIconExitTransition(icon, frame, groupSettings)
+                        StopIconMotion(icon)
+                        icon._ddTransitionHidden = true
+                    end
                     SetManagedIconLayoutVisible(
                         icon,
-                        entry.inactivePlaceholder or entry.inactiveGray
-                            or (entry.combatVisible ~= false and not icon._ddManagedAuraExpired)
+                        dynamicLayoutVisible
                     )
                     local alreadyManaged = icon._ddIsManaged and icon._ddContainerRef == frame and not GroupRenderer._forceFullSetup
                     if not alreadyManaged then
@@ -2645,7 +2855,13 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                     icon._ddLastCooldownID = entry.cooldownID
                     icon._ddLayoutCooldownID = entry.cooldownID
                 end
-                SetManagedIconLayoutVisible(icon, sourceVisible and not icon._ddSuppressed and not icon._ddingHidden)
+                local cdmLayoutVisible = sourceVisible and not icon._ddSuppressed and not icon._ddingHidden
+                if wasLayoutVisible and not cdmLayoutVisible then
+                    GroupRenderer:StartIconExitTransition(icon, frame, groupSettings)
+                    StopIconMotion(icon)
+                    icon._ddTransitionHidden = true
+                end
+                SetManagedIconLayoutVisible(icon, cdmLayoutVisible)
                 idx = idx + 1
                 frame._managedIcons[idx] = icon
                 if not sourceVisible then
@@ -2700,6 +2916,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                                     rowIconSizes = cachedGS.rowIconSizes,
                                     iconMotion = cachedGS.iconMotion,
                                     iconMotionDuration = cachedGS.iconMotionDuration,
+                                    iconFadeInDirection = cachedGS.iconFadeInDirection,
+                                    iconFadeOutDirection = cachedGS.iconFadeOutDirection,
                                 }
                                 GroupRenderer:LayoutGroup(p, ls, vn2)
                             end
@@ -2753,6 +2971,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         groupOffsets = resolvedGroupOffsets,
         iconMotion = groupSettings.iconMotion,
         iconMotionDuration = groupSettings.iconMotionDuration,
+        iconFadeInDirection = groupSettings.iconFadeInDirection,
+        iconFadeOutDirection = groupSettings.iconFadeOutDirection,
     }
 
     -- 2단계: LayoutGroup (최종 크기/위치 결정 — rowIconSizes 반영)
@@ -2947,17 +3167,17 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         return
     end
 
-    local motionSettings
-    local isNativeSkillViewer = viewerName == "EssentialCooldownViewer"
-        or viewerName == "UtilityCooldownViewer"
-    if not isNativeSkillViewer then
-        motionSettings = {
-            pinWrappedRowsToAnchor = viewerName == "BuffIconCooldownViewer",
-        }
-        if viewerSettings.iconMotion ~= false then
-            motionSettings.enabled = true
-            motionSettings.duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION
-        end
+    local motionSettings = {
+        pinWrappedRowsToAnchor = viewerName == "BuffIconCooldownViewer",
+        fadeInDirection = viewerSettings.iconFadeInDirection or "NONE",
+        fadeOutDirection = viewerSettings.iconFadeOutDirection or "NONE",
+    }
+    if viewerSettings.iconMotion ~= false then
+        local isNativeSkillViewer = viewerName == "EssentialCooldownViewer"
+            or viewerName == "UtilityCooldownViewer"
+        motionSettings.enabled = true
+        motionSettings.positionEnabled = not isNativeSkillViewer
+        motionSettings.duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION
     end
 
     -- ViewerLayout과 동일하게 방향/행제한 resolve

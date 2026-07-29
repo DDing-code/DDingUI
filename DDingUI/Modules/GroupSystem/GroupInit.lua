@@ -236,6 +236,8 @@ local DYNAMIC_GROUP_DEFAULTS = {
     swipeReverse = true,
     iconMotion = true,
     iconMotionDuration = 0.18,
+    iconFadeInDirection = "NONE",
+    iconFadeOutDirection = "NONE",
     anchorPoint = "CENTER",
     attachTo = "UIParent", -- [FIX] 앵커 프레임 저장용
     offsetX = 0,
@@ -970,6 +972,8 @@ local function EnsureCoreCDMGroupSchema(gs)
             stylePreset = "custom",
             iconMotion = true,
             iconMotionDuration = 0.18,
+            iconFadeInDirection = "NONE",
+            iconFadeOutDirection = "NONE",
             anchorPoint = "CENTER",
             selfPoint = "CENTER",
             attachTo = "UIParent",
@@ -1376,6 +1380,8 @@ local function MigrateToViewerGroups(gs)
                 stylePreset = "custom",
                 iconMotion = true,
                 iconMotionDuration = 0.18,
+                iconFadeInDirection = "NONE",
+                iconFadeOutDirection = "NONE",
                 anchorPoint = "CENTER",
                 offsetX = 0,
                 offsetY = def.offsetY or 0,  -- [FIX] v1.2.3 마이그레이션: 뷰어 위치 못 읽으면 폴백 오프셋 사용
