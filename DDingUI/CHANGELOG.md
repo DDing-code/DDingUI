@@ -9,9 +9,11 @@ _Scope: Git changes from v1.3.1 through this release._
 
 ### English Patch Notes
 - Added a per-icon consumable option that hides the icon when none of the configured items are available, while keeping it visible in edit mode and updating the CDM layout when inventory counts change.
+- Fixed automatic tracked-bar width so a width of 0 follows the currently selected position anchor, including custom aura frames, instead of a retired width-source setting.
 
 ### Korean Patch Notes
 - 설정된 소모품을 보유하지 않았을 때 해당 아이콘을 숨기는 개별 옵션을 추가했습니다. 편집모드에서는 아이콘을 계속 표시하며, 재고 수량이 바뀌면 CDM 레이아웃에 즉시 반영됩니다.
+- 추적중인 막대의 너비를 0으로 설정하면 폐기된 별도 폭 기준 설정이 아니라 현재 선택한 위치 앵커를 따르도록 수정했습니다. 커스텀 오라 프레임을 앵커로 지정한 경우도 동일하게 적용됩니다.
 
 ---
 

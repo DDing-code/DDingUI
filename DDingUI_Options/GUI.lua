@@ -1672,6 +1672,9 @@ function DDingUI:CreateConfigFrame()
     if titleBar.titleText then
         titleBar.titleText:SetText(SL.CreateAddonTitle("CDM", "CDM")) -- [STYLE]
     end
+    if titleBar.verText then
+        titleBar.verText:SetText("v" .. tostring(version))
+    end
 
     local closeBtn = titleBar.closeBtn
 
