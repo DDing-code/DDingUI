@@ -1091,7 +1091,11 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
     self:StopTrackedTrinketEffectGlow(frame)
     local key = "_DDingUITrinketEffectGlow"
     if glowType == "Blizzard Glow" then
-        if ActionButton_ShowOverlayGlow then ActionButton_ShowOverlayGlow(target) end
+        if DDingUI.ProcGlow and DDingUI.ProcGlow.ShowDefaultOverlayGlow then
+            DDingUI.ProcGlow:ShowDefaultOverlayGlow(target, key)
+        elseif ActionButton_ShowOverlayGlow then
+            ActionButton_ShowOverlayGlow(target)
+        end
     elseif glowType == "Autocast Shine" and SL and SL.ShowAutocastGlow then
         SL.ShowAutocastGlow(
             target,

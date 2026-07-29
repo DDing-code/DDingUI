@@ -727,7 +727,9 @@ local function ShowReadyGlow(frame, spellID, viewerType)
 
     -- Start appropriate glow type
     if glowType == "blizzard" then
-        if ActionButton_ShowOverlayGlow then
+        if DDingUI.ProcGlow and DDingUI.ProcGlow.ShowDefaultOverlayGlow then
+            DDingUI.ProcGlow:ShowDefaultOverlayGlow(frame, "DDingUI_ReadyGlow")
+        elseif ActionButton_ShowOverlayGlow then
             ActionButton_ShowOverlayGlow(frame)
         end
     elseif glowType == "pixel" then
@@ -2450,7 +2452,9 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
         1,
     }
     if glowType == "blizzard" then
-        if ActionButton_ShowOverlayGlow then
+        if DDingUI.ProcGlow and DDingUI.ProcGlow.ShowDefaultOverlayGlow then
+            DDingUI.ProcGlow:ShowDefaultOverlayGlow(frame, key)
+        elseif ActionButton_ShowOverlayGlow then
             ActionButton_ShowOverlayGlow(frame)
         end
     elseif glowType == "pixel" then

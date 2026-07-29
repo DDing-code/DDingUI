@@ -205,6 +205,26 @@ local function HideBlizzardGlow(iconFrame)
     if iconFrame.Glow then iconFrame.Glow:Hide() end
 end
 
+function ProcGlow:ShowDefaultOverlayGlow(iconFrame, key)
+    if not iconFrame then return false end
+    local glow = LibStub("LibCustomGlow-1.0", true)
+    if glow and glow.ProcGlow_Start then
+        glow.ProcGlow_Start(iconFrame, {
+            color = nil,
+            startAnim = true,
+            xOffset = 0,
+            yOffset = 0,
+            key = key or GLOW_KEY,
+        })
+        return true
+    end
+    if ActionButton_ShowOverlayGlow then
+        ActionButton_ShowOverlayGlow(iconFrame)
+        return true
+    end
+    return false
+end
+
 -- Check if LCG glow frame actually exists AND is visible on the icon
 local function IsGlowFramePresent(iconFrame, glowType)
     local glowFrame
@@ -217,6 +237,10 @@ local function IsGlowFramePresent(iconFrame, glowType)
     elseif glowType == "Proc Glow" then
         glowFrame = iconFrame["_ProcGlow" .. GLOW_KEY]
     elseif glowType == "Blizzard Glow" then
+        glowFrame = iconFrame["_ProcGlow" .. GLOW_KEY]
+        if glowFrame and glowFrame.IsShown and glowFrame:IsShown() then
+            return true
+        end
         -- Check Blizzard's native overlay glow
         if iconFrame.overlay and iconFrame.overlay.IsShown and iconFrame.overlay:IsShown() then
             return true
@@ -241,7 +265,7 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
 
     -- Skip if glow is already active and correct type (prevents flickering from repeated calls)
     if not forceRestart and glowActiveCache[iconFrame] and IsGlowFramePresent(iconFrame, glowType) then
-        return
+        return glowType
     end
 
     -- Stop any existing glows first
@@ -255,10 +279,7 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
     end
 
     if glowType == "Blizzard Glow" then
-        -- Use WoW's native overlay glow
-        if ActionButton_ShowOverlayGlow then
-            ActionButton_ShowOverlayGlow(iconFrame)
-        end
+        ProcGlow:ShowDefaultOverlayGlow(iconFrame, GLOW_KEY)
     else
         if glowType == "Pixel Glow" then
             local lines = math.floor(glowSettings.lcgLines or 5)
@@ -287,6 +308,7 @@ local function ApplyGlowEffect(iconFrame, forceRestart)
 
     glowActiveCache[iconFrame] = true
     activeGlowingIcons[iconFrame] = true
+    return glowType
 end
 
 local function UpdateGlowPersistenceDriver()
@@ -426,8 +448,13 @@ local function ScanExistingOverlays()
                         if glowSettings and glowSettings.enabled then
                             if child.SpellActivationAlert and child.SpellActivationAlert:IsShown() then
                                 local spellID = GetButtonSpellID(child)
-                                HideBlizzardGlow(child)
-                                StartGlow(child)
+                                if glowSettings.glowType == "Blizzard Glow" then
+                                    glowActiveCache[child] = true
+                                    activeGlowingIcons[child] = true
+                                else
+                                    HideBlizzardGlow(child)
+                                    StartGlow(child)
+                                end
                                 if spellID then
                                     activeOverlaySpells[spellID] = true
                                 end
@@ -510,8 +537,10 @@ local function SetupGlowHooks()
             if icon and procActiveCache[icon] then
                 C_Timer.After(0.02, function()
                     if procActiveCache[icon] and icon:IsShown() then
-                        ApplyGlowEffect(icon)
-                        HideBlizzardGlow(icon)
+                        local glowType = ApplyGlowEffect(icon)
+                        if glowType ~= "Blizzard Glow" then
+                            HideBlizzardGlow(icon)
+                        end
                     end
                 end)
             end
@@ -568,7 +597,9 @@ function ProcGlow:RefreshAll()
             local glowSettings = GetProcGlowSettings(icon)
             if glowSettings and glowSettings.enabled then
                 StartGlow(icon)
-                HideBlizzardGlow(icon)
+                if glowSettings.glowType ~= "Blizzard Glow" then
+                    HideBlizzardGlow(icon)
+                end
             elseif GetPerIconProcMode(icon) ~= "off" and ActionButton_ShowOverlayGlow then
                 ActionButton_ShowOverlayGlow(icon)
             end
@@ -586,8 +617,10 @@ function ProcGlow:UpdateButtonGlow(icon)
         return
     end
     if procActiveCache[icon] or activeGlowingIcons[icon] then
-        ApplyGlowEffect(icon)
-        HideBlizzardGlow(icon)
+        local glowType = ApplyGlowEffect(icon)
+        if glowType ~= "Blizzard Glow" then
+            HideBlizzardGlow(icon)
+        end
     end
 end
 
