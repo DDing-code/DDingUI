@@ -980,6 +980,7 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
         glowType = customType == "pixel" and "Pixel Glow"
             or customType == "autocast" and "Autocast Shine"
             or customType == "proc" and "Proc Glow"
+            or customType == "blizzard" and "Blizzard Glow"
             or "Action Button Glow"
         if iconGlow.glowColorMode == "class" then
             local _, classFile = UnitClass("player")
@@ -987,6 +988,8 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
             if classColor then
                 color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
             end
+        elseif iconGlow.glowColorMode == "blizzard" then
+            color = { 1, 0.82, 0, 1 }
         elseif iconGlow.glowColorMode == "custom"
             or (iconGlow.glowColorMode == nil and iconGlow.glowColor)
         then
@@ -1033,6 +1036,7 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
                 glowType = customType == "pixel" and "Pixel Glow"
                     or customType == "autocast" and "Autocast Shine"
                     or customType == "proc" and "Proc Glow"
+                    or customType == "blizzard" and "Blizzard Glow"
                     or "Action Button Glow"
             end
             if inheritedStyle.glowColorMode == "class" then
@@ -1041,6 +1045,8 @@ function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheri
                 if classColor then
                     color = { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
                 end
+            elseif inheritedStyle.glowColorMode == "blizzard" then
+                color = { 1, 0.82, 0, 1 }
             elseif inheritedStyle.glowColorMode == "custom"
                 or (inheritedStyle.glowColorMode == nil and inheritedStyle.glowColor)
             then

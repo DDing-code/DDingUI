@@ -114,6 +114,7 @@ local function NormalizePerIconProcSettings(custom)
         autocast = "Autocast Shine",
         button = "Action Button Glow",
         proc = "Proc Glow",
+        blizzard = "Blizzard Glow",
     }
     local color = {}
     if custom.glowColorMode == "class" then
@@ -122,6 +123,8 @@ local function NormalizePerIconProcSettings(custom)
         if classColor then
             color = { r = classColor.r, g = classColor.g, b = classColor.b }
         end
+    elseif custom.glowColorMode == "blizzard" then
+        color = { r = 1, g = 0.82, b = 0 }
     elseif custom.glowColorMode == "custom"
         or (custom.glowColorMode == nil and custom.glowColor)
     then

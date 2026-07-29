@@ -654,13 +654,15 @@ end
 local function ShowReadyGlow(frame, spellID, viewerType)
     if not frame then return end
 
-    -- Stop any existing glow first
-    StopAllGlows(frame, "DDingUI_ReadyGlow")
-
     local frameData = GetFrameData(frame)
-
     if not spellID then
+        if frameData.readyGlowType == "blizzard" and ActionButton_HideOverlayGlow then
+            ActionButton_HideOverlayGlow(frame)
+        end
+        StopAllGlows(frame, "DDingUI_ReadyGlow")
         frameData.readyGlowActive = false
+        frameData.readyGlowType = nil
+        frameData.readyGlowSignature = nil
         return
     end
 
@@ -672,7 +674,13 @@ local function ShowReadyGlow(frame, spellID, viewerType)
         or custom.maxChargesGlow == true
         or custom.cooldownReadyGlow == true
     ) then
+        if frameData.readyGlowType == "blizzard" and ActionButton_HideOverlayGlow then
+            ActionButton_HideOverlayGlow(frame)
+        end
+        StopAllGlows(frame, "DDingUI_ReadyGlow")
         frameData.readyGlowActive = false
+        frameData.readyGlowType = nil
+        frameData.readyGlowSignature = nil
         return
     end
 
@@ -681,6 +689,8 @@ local function ShowReadyGlow(frame, spellID, viewerType)
     local glowColor
     if custom.glowColorMode == "class" then
         glowColor = GetPlayerClassColor()
+    elseif custom.glowColorMode == "blizzard" then
+        glowColor = { r = 1, g = 0.82, b = 0 }
     elseif custom.glowColorMode == "custom"
         or (custom.glowColorMode == nil and custom.glowColor)
     then
@@ -690,6 +700,23 @@ local function ShowReadyGlow(frame, spellID, viewerType)
     local glowSpeed = custom.glowSpeed or 0.25
     local glowLines = math.floor(custom.glowLines or 8)  -- must be integer
     local glowThickness = custom.glowThickness or 2
+    local signature = table.concat({
+        glowType,
+        tostring(glowColor.r or glowColor[1] or 1),
+        tostring(glowColor.g or glowColor[2] or 0.85),
+        tostring(glowColor.b or glowColor[3] or 0.1),
+        tostring(glowSpeed),
+        tostring(glowLines),
+        tostring(glowThickness),
+    }, ":")
+    if frameData.readyGlowActive and frameData.readyGlowSignature == signature then
+        return
+    end
+
+    if frameData.readyGlowType == "blizzard" and ActionButton_HideOverlayGlow then
+        ActionButton_HideOverlayGlow(frame)
+    end
+    StopAllGlows(frame, "DDingUI_ReadyGlow")
 
     -- Convert color to table format
     local color = {
@@ -700,7 +727,11 @@ local function ShowReadyGlow(frame, spellID, viewerType)
     }
 
     -- Start appropriate glow type
-    if glowType == "pixel" then
+    if glowType == "blizzard" then
+        if ActionButton_ShowOverlayGlow then
+            ActionButton_ShowOverlayGlow(frame)
+        end
+    elseif glowType == "pixel" then
         pcall(SL.ShowPixelGlow, frame, color, glowLines, glowSpeed, nil, glowThickness, 0, 0, true, "DDingUI_ReadyGlow")
     elseif glowType == "autocast" then
         pcall(SL.ShowAutocastGlow, frame, color, 4, glowSpeed, 1.0, 0, 0, "DDingUI_ReadyGlow")
@@ -720,11 +751,18 @@ local function ShowReadyGlow(frame, spellID, viewerType)
     RaiseTextAboveGlow(frame)
 
     frameData.readyGlowActive = true
+    frameData.readyGlowType = glowType
+    frameData.readyGlowSignature = signature
 end
 
 -- Hide ready glow
 local function HideReadyGlow(frame)
     if not frame then return end
+
+    local frameData = GetFrameData(frame)
+    if frameData.readyGlowType == "blizzard" and ActionButton_HideOverlayGlow then
+        ActionButton_HideOverlayGlow(frame)
+    end
 
     -- Stop all glow types
     StopAllGlows(frame, "DDingUI_ReadyGlow")
@@ -735,7 +773,9 @@ local function HideReadyGlow(frame)
         frame._ButtonGlow:Hide()
     end
 
-    GetFrameData(frame).readyGlowActive = false
+    frameData.readyGlowActive = false
+    frameData.readyGlowType = nil
+    frameData.readyGlowSignature = nil
 end
 
 -- Check if spell is on cooldown (ignores GCD) - SECRET-SAFE for combat
@@ -1298,11 +1338,13 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
         pixel = L["Pixel Glow"] or "Pixel Glow",
         autocast = L["Autocast Shine"] or "Autocast Shine",
         proc = L["Proc Effect"] or "Proc Effect",
+        blizzard = L["Blizzard Glow"] or "Blizzard Glow",
     }
     local glowColorMode = custom.glowColorMode
         or (custom.glowColor and "custom" or "default")
     local glowColorModeLabels = {
         default = L["Default"] or "Default",
+        blizzard = L["Keep Blizzard Default Glow Color"] or "Keep Blizzard Default Glow Color",
         class = L["Class Color"] or "Class Color",
         custom = L["Custom"] or "Custom",
     }
@@ -1369,6 +1411,7 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
                 {"pixel", L["Pixel Glow"] or "Pixel Glow"},
                 {"autocast", L["Autocast Shine"] or "Autocast Shine"},
                 {"proc", L["Proc Effect"] or "Proc Effect"},
+                {"blizzard", L["Blizzard Glow"] or "Blizzard Glow"},
             }, "button"),
         }
     items[#items + 1] = {
@@ -1376,6 +1419,7 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
             rightText = glowColorModeLabels[glowColorMode],
             menuList = ChoiceMenu("glowColorMode", {
                 { "default", L["Default"] or "Default" },
+                { "blizzard", L["Keep Blizzard Default Glow Color"] or "Keep Blizzard Default Glow Color" },
                 { "class", L["Class Color"] or "Class Color" },
                 { "custom", L["Custom"] or "Custom" },
             }, glowColorMode),
@@ -2349,9 +2393,13 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
     )
     if not configured or shouldGlow ~= true then
         if frameData.dynamicGlowActive then
+            if frameData.dynamicGlowType == "blizzard" and ActionButton_HideOverlayGlow then
+                ActionButton_HideOverlayGlow(frame)
+            end
             StopAllGlows(frame, key)
             frameData.dynamicGlowActive = nil
             frameData.dynamicGlowSignature = nil
+            frameData.dynamicGlowType = nil
         end
         return
     end
@@ -2360,6 +2408,8 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
     local glowColor
     if settings.glowColorMode == "class" then
         glowColor = GetPlayerClassColor()
+    elseif settings.glowColorMode == "blizzard" then
+        glowColor = { r = 1, g = 0.82, b = 0 }
     elseif settings.glowColorMode == "custom"
         or (settings.glowColorMode == nil and settings.glowColor)
     then
@@ -2377,6 +2427,9 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
     }, ":")
     if frameData.dynamicGlowActive and frameData.dynamicGlowSignature == signature then return end
 
+    if frameData.dynamicGlowType == "blizzard" and ActionButton_HideOverlayGlow then
+        ActionButton_HideOverlayGlow(frame)
+    end
     StopAllGlows(frame, key)
     local color = {
         glowColor.r or glowColor[1] or 1,
@@ -2384,7 +2437,11 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
         glowColor.b or glowColor[3] or 0.1,
         1,
     }
-    if glowType == "pixel" then
+    if glowType == "blizzard" then
+        if ActionButton_ShowOverlayGlow then
+            ActionButton_ShowOverlayGlow(frame)
+        end
+    elseif glowType == "pixel" then
         pcall(SL.ShowPixelGlow, frame, color, math.floor(settings.glowLines or 8), settings.glowSpeed or 0.25, nil, settings.glowThickness or 2, 0, 0, true, key)
     elseif glowType == "autocast" then
         pcall(SL.ShowAutocastGlow, frame, color, 4, settings.glowSpeed or 0.25, 1, 0, 0, key)
@@ -2405,16 +2462,21 @@ function IconCustomization:UpdateDynamicIconGlow(frame, settings, shouldGlow)
     RaiseTextAboveGlow(frame)
     frameData.dynamicGlowActive = true
     frameData.dynamicGlowSignature = signature
+    frameData.dynamicGlowType = glowType
 end
 
 function IconCustomization:ClearDynamicIconGlow(frame)
     if not frame then return end
     local frameData = GetFrameData(frame)
     if frameData.dynamicGlowActive then
+        if frameData.dynamicGlowType == "blizzard" and ActionButton_HideOverlayGlow then
+            ActionButton_HideOverlayGlow(frame)
+        end
         StopAllGlows(frame, "DDingUI_DynamicStateGlow")
     end
     frameData.dynamicGlowActive = nil
     frameData.dynamicGlowSignature = nil
+    frameData.dynamicGlowType = nil
 end
 
 -- Build the Icon Customization UI
