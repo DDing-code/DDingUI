@@ -5529,6 +5529,71 @@ local function BuildCustomVisualArgs(groupName)
     }
 end
 
+local function BuildGroupAnimationArgs(groupName)
+    local visualArgs = BuildCustomVisualArgs(groupName)
+    return {
+        motionHeader = visualArgs.motionHeader,
+        iconMotion = visualArgs.iconMotion,
+        iconMotionDuration = visualArgs.iconMotionDuration,
+        directionHeader = {
+            type = "header",
+            name = L["Direction"] or "방향",
+            order = 10,
+        },
+        direction = GS_Select(
+            groupName,
+            "direction",
+            L["Growth Direction"] or "성장 방향",
+            11,
+            "RIGHT",
+            DIRECTION_VALUES
+        ),
+        growDirection = GS_Select(
+            groupName,
+            "growDirection",
+            L["Wrap Direction"] or "줄바꿈 방향",
+            12,
+            "DOWN",
+            DIRECTION_VALUES
+        ),
+    }
+end
+
+local function BuildGroupSwipeArgs(groupName)
+    local visualArgs = BuildCustomVisualArgs(groupName)
+    local isBuffGroup = GetGroupCategory(groupName) == "buff"
+
+    visualArgs.swipeHeader.order = 1
+    visualArgs.disableSwipeAnimation.order = 2
+    visualArgs.swipeReverse.order = 3
+    visualArgs.swipeColor.order = 4
+    visualArgs.animHeader.order = 10
+    visualArgs.disableEdgeGlow.order = 11
+    visualArgs.disableBlingAnimation.order = 12
+
+    return {
+        swipeHeader = visualArgs.swipeHeader,
+        disableSwipeAnimation = visualArgs.disableSwipeAnimation,
+        swipeReverse = visualArgs.swipeReverse,
+        swipeColor = visualArgs.swipeColor,
+        auraSwipeHeader = isBuffGroup and {
+            type = "header",
+            name = L["Aura Swipe"] or "오라 스와이프",
+            order = 5,
+        } or nil,
+        auraSwipeColor = isBuffGroup and GS_Color(
+            groupName,
+            "auraSwipeColor",
+            L["Aura Swipe Color"] or "오라 스와이프 색상",
+            6,
+            {1, 0.776, 0.376, 0.8}
+        ) or nil,
+        animHeader = visualArgs.animHeader,
+        disableEdgeGlow = visualArgs.disableEdgeGlow,
+        disableBlingAnimation = visualArgs.disableBlingAnimation,
+    }
+end
+
 function DDingUI:BuildGroupGlowArgs(groupName)
     local args = {}
     local iconArgs = self:BuildGroupIconDetailArgs(groupName, "glow")
@@ -6395,6 +6460,22 @@ local function CreateGroupOptions(groupName, order)
         args = textArgs,
     }
 
+    if category == "buff" then
+        args.animation = {
+            type = "group",
+            name = L["Animation"] or "애니메이션",
+            order = 25,
+            args = BuildGroupAnimationArgs(groupName),
+        }
+    end
+
+    args.swipe = {
+        type = "group",
+        name = L["Swipe Settings"] or "스와이프",
+        order = 30,
+        args = BuildGroupSwipeArgs(groupName),
+    }
+
     -- Viewer-specific party and raid offsets share the group offset tab.
     if isCDM and viewerKey and ns.CreateSingleViewerOptions then
         local vo = ns.CreateSingleViewerOptions(viewerKey, displayName, 1)
@@ -6416,14 +6497,14 @@ local function CreateGroupOptions(groupName, order)
     args.offsets = {
         type = "group",
         name = L["Offsets"] or "Offsets",
-        order = 30,
+        order = 40,
         args = offsetArgs,
     }
 
     args.glow = {
         type = "group",
         name = L["Glow"] or "Glow",
-        order = 40,
+        order = 50,
         args = DDingUI:BuildGroupGlowArgs(groupName),
     }
 
