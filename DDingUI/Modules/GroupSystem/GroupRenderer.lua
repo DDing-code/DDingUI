@@ -315,13 +315,15 @@ local GROUP_VIEWER_MAP = {
     ["Utility"]   = "UtilityCooldownViewer",
 }
 
-local function GroupUsesDurationText(groupName, groupSettings)
-    return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
+local function IconUsesDurationText(groupName, sourceViewer, icon)
+    return groupName == "Buffs"
+        or sourceViewer == "BuffIconCooldownViewer"
+        or (icon and icon._type == "aura")
 end
 
 local function ResolveCDMSkinSettings(groupName, groupSettings, sourceViewer)
     if sourceViewer ~= "BuffIconCooldownViewer"
-        or GroupUsesDurationText(groupName, groupSettings)
+        or groupName == "Buffs"
         or not groupSettings
         or groupSettings.hideActiveState ~= true
     then
@@ -361,7 +363,7 @@ local function ResolveGroupTextSetting(groupName, groupSettings, primaryKey, fal
     return nil
 end
 
-local function ResolveCooldownTextStyle(groupName, groupSettings)
+local function ResolveCooldownTextStyle(groupName, groupSettings, useDurationText)
     if not groupSettings then
         return ResolveGroupTextSetting(groupName, nil, "cooldownTextAnchor"),
             ResolveGroupTextSetting(groupName, nil, "cooldownTextOffsetX"),
@@ -371,7 +373,7 @@ local function ResolveCooldownTextStyle(groupName, groupSettings)
             ResolveGroupTextSetting(groupName, nil, "cooldownTextColor")
     end
 
-    if GroupUsesDurationText(groupName, groupSettings) then
+    if useDurationText then
         return ResolveGroupTextSetting(groupName, groupSettings, "durationTextAnchor", "cooldownTextAnchor"),
             ResolveGroupTextSetting(groupName, groupSettings, "durationTextOffsetX", "cooldownTextOffsetX"),
             ResolveGroupTextSetting(groupName, groupSettings, "durationTextOffsetY", "cooldownTextOffsetY"),
@@ -450,7 +452,9 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
 
     local cooldown = GetIconCooldownFrame(icon)
     if cooldown then
-        local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor = ResolveCooldownTextStyle(groupName, groupSettings)
+        local useDurationText = IconUsesDurationText(groupName, icon._ddSourceViewer, icon)
+        local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor =
+            ResolveCooldownTextStyle(groupName, groupSettings, useDurationText)
         local ox = tonumber(oxRaw) or 0
         local oy = tonumber(oyRaw) or 0
         if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
@@ -1144,14 +1148,12 @@ local function MarkIDs(target, source)
     end
 end
 
-local function FilterGroupedBuffDynamicEntries(dynamicIcons, iconList, groupName, groupSettings)
+local function FilterDuplicateDynamicEntries(dynamicIcons, iconList)
     if type(dynamicIcons) ~= "table" or #dynamicIcons == 0 then return dynamicIcons end
 
     local cdmIDs = {}
-    if GroupUsesDurationText(groupName, groupSettings) then
-        for _, entry in ipairs(iconList or {}) do
-            AddCDMEntryIDs(cdmIDs, entry)
-        end
+    for _, entry in ipairs(iconList or {}) do
+        AddCDMEntryIDs(cdmIDs, entry)
     end
 
     local seenIDs = {}
@@ -1530,7 +1532,6 @@ local function BuildGroupRenderSettingsHash(groupSettings)
     AddHashValue(parts, "groupAlpha", groupSettings.groupAlpha)
     AddHashValue(parts, "cooldownShadowOffsetX", groupSettings.cooldownShadowOffsetX)
     AddHashValue(parts, "cooldownShadowOffsetY", groupSettings.cooldownShadowOffsetY)
-    AddHashValue(parts, "groupCategory", groupSettings.groupCategory)
     AddHashValue(parts, "iconMotion", groupSettings.iconMotion)
     AddHashValue(parts, "iconMotionDuration", groupSettings.iconMotionDuration)
     AddHashValue(parts, "disableSwipeAnimation", groupSettings.disableSwipeAnimation)
@@ -2327,7 +2328,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             end
         end
     end
-    dynamicIcons = FilterGroupedBuffDynamicEntries(dynamicIcons, iconList, groupName, groupSettings)
+    dynamicIcons = FilterDuplicateDynamicEntries(dynamicIcons, iconList)
     local hasDynamicIcons = false
 
     -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
@@ -2697,7 +2698,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                                     overflowMode = cachedGS.overflowMode or "wrap",
                                     stateFilter = cachedGS.stateFilter or "automatic",
                                     rowIconSizes = cachedGS.rowIconSizes,
-                                    groupCategory = cachedGS.groupCategory,
                                     iconMotion = cachedGS.iconMotion,
                                     iconMotionDuration = cachedGS.iconMotionDuration,
                                 }
@@ -2751,7 +2751,6 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         stateFilter = groupSettings.stateFilter or "automatic",
         rowIconSizes = groupSettings.rowIconSizes,
         groupOffsets = resolvedGroupOffsets,
-        groupCategory = groupSettings.groupCategory,
         iconMotion = groupSettings.iconMotion,
         iconMotionDuration = groupSettings.iconMotionDuration,
     }
@@ -2948,16 +2947,12 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         return
     end
 
-    local motionSettings
-    local isBuffMotionGroup = (viewerName == "BuffIconCooldownViewer") or (viewerSettings.groupCategory == "buff")
-    if isBuffMotionGroup then
-        motionSettings = {
-            pinWrappedRowsToAnchor = true,
-        }
-        if viewerSettings.iconMotion ~= false then
-            motionSettings.enabled = true
-            motionSettings.duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION
-        end
+    local motionSettings = {
+        pinWrappedRowsToAnchor = true,
+    }
+    if viewerSettings.iconMotion ~= false then
+        motionSettings.enabled = true
+        motionSettings.duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION
     end
 
     -- ViewerLayout과 동일하게 방향/행제한 resolve

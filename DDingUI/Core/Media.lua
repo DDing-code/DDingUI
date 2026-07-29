@@ -378,21 +378,28 @@ function DDingUI:ApplyGlobalFont()
 
     local function BuildManagedSource(iconFrame, groupName)
         local iconKey = GetManagedIconKey(iconFrame)
+        local sourceViewer
+        pcall(function()
+            sourceViewer = iconFrame and iconFrame._ddSourceViewer
+        end)
         if iconKey and groupName then
             return "customIcon:" .. tostring(iconKey) .. ":group:" .. tostring(groupName)
         elseif iconKey then
             return "customIcon:" .. tostring(iconKey)
         elseif groupName then
-            return "group:" .. tostring(groupName)
+            local suffix = sourceViewer == "BuffIconCooldownViewer" and ":buff" or ""
+            return "group:" .. tostring(groupName) .. suffix
         end
         return nil
     end
 
-    local function ShouldUseDurationText(groupName, groupSettings)
-        return groupName == "Buffs" or (groupSettings and groupSettings.groupCategory == "buff")
+    local function ShouldUseDurationText(groupName, iconData, sourceViewer)
+        return groupName == "Buffs"
+            or (iconData and iconData.type == "aura")
+            or sourceViewer == "BuffIconCooldownViewer"
     end
 
-    local function ResolveGroupCooldownSettings(groupName, iconData)
+    local function ResolveGroupCooldownSettings(groupName, iconData, sourceViewer)
         if not groupName or not self.db or not self.db.profile then return nil end
 
         local profile = self.db.profile
@@ -411,7 +418,7 @@ function DDingUI:ApplyGlobalFont()
         local fontName = nil
         local textFormat = "auto"
 
-        if ShouldUseDurationText(groupName, groupSettings) then
+        if ShouldUseDurationText(groupName, iconData, sourceViewer) then
             fontSize = (groupSettings and groupSettings.durationTextSize)
                 or (viewerSettings and viewerSettings.durationTextSize)
                 or (groupSettings and groupSettings.cooldownFontSize)
@@ -619,9 +626,12 @@ function DDingUI:ApplyGlobalFont()
                     end
                 end
 
-                local sourceGroup = source:match("^group:(.+)$")
+                local sourceGroup = source:match("^group:(.+):buff$")
+                local sourceViewer = sourceGroup and "BuffIconCooldownViewer" or nil
+                sourceGroup = sourceGroup or source:match("^group:(.+)$")
                 if sourceGroup then
-                    local gFontSize, gTextColor, gShadowX, gShadowY, gFontName, gTextFormat = ResolveGroupCooldownSettings(sourceGroup)
+                    local gFontSize, gTextColor, gShadowX, gShadowY, gFontName, gTextFormat =
+                        ResolveGroupCooldownSettings(sourceGroup, nil, sourceViewer)
                     if gFontSize then
                         return gFontSize, gTextColor, gShadowX, gShadowY, gFontName, gTextFormat
                     end
@@ -1150,9 +1160,12 @@ function DDingUI:ApplyGlobalFont()
                         end
                     end
 
-                    local sourceGroup = source:match("^group:(.+)$")
+                    local sourceGroup = source:match("^group:(.+):buff$")
+                    local sourceViewer = sourceGroup and "BuffIconCooldownViewer" or nil
+                    sourceGroup = sourceGroup or source:match("^group:(.+)$")
                     if sourceGroup then
-                        local gFontSize, gTextColor, gShadowX, gShadowY, gFontName = ResolveGroupCooldownSettings(sourceGroup)
+                        local gFontSize, gTextColor, gShadowX, gShadowY, gFontName =
+                            ResolveGroupCooldownSettings(sourceGroup, nil, sourceViewer)
                         if gFontSize then
                             return gFontSize, gTextColor, gShadowX, gShadowY, gFontName
                         end

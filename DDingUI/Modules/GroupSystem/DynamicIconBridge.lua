@@ -268,35 +268,6 @@ end
 -- ============================================================
 
 -- ShouldIconSpawn 간이 버전 (CustomIcons의 로직 참조)
-local function IsBuffSourceGroup(sourceGroupKey, db)
-    if not sourceGroupKey then return false end
-
-    local sourceGroup = db and db.groups and db.groups[sourceGroupKey]
-    if sourceGroup and sourceGroup.linkedCDMGroup == "Buffs" then
-        return true
-    end
-
-    local profile = DDingUI.db and DDingUI.db.profile
-    local gsGroups = profile and profile.groupSystem and profile.groupSystem.groups
-    if type(gsGroups) ~= "table" then return false end
-
-    for groupName, groupSettings in pairs(gsGroups) do
-        if groupSettings and groupSettings.sourceGroupKey == sourceGroupKey then
-            if groupName == "Buffs" then return true end
-            if groupSettings.groupCategory == "buff" then return true end
-            if GROUP_VIEWER_MAP[groupName] == "BuffIconCooldownViewer" then return true end
-        end
-    end
-
-    return false
-end
-
-local function IsBuffGroup(groupName, groupSettings)
-    if groupName == "Buffs" then return true end
-    if groupSettings and groupSettings.groupCategory == "buff" then return true end
-    return GROUP_VIEWER_MAP[groupName] == "BuffIconCooldownViewer"
-end
-
 local function AddSuppressedSpellName(suppressed, spellName)
     if type(spellName) ~= "string" then return end
     local rawName = spellName:gsub("^buff_", "")
@@ -381,7 +352,7 @@ local function AddTrackedBuffSuppressions(suppressed)
     end
 end
 
-local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
+local function IsIconActive(iconKey, iconData, iconFrame)
     if not iconData then return false end
     if not iconFrame then return false end
     local now = GetTime and GetTime() or 0
@@ -420,7 +391,7 @@ local function IsIconActive(iconKey, iconData, iconFrame, isBuffContext)
             if ShouldTrackSlot(iconFrame, slotID) then return true end
         end
 
-        if not isBuffContext then
+        if settings.showItemCooldown ~= false then
             local slotID = iconData.slotID
             return ShouldTrackSlot(iconFrame, slotID)
         end
@@ -622,7 +593,6 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     local activeSet = {}
     local inCombat = InCombatLockdown and InCombatLockdown()
     local now = GetTime and GetTime() or 0
-    local isBuffContext = IsBuffSourceGroup(sourceGroupKey, db)
     for sourceIndex, iconKey in ipairs(targetOrder) do
         local frame = iconFrames[iconKey]
         local iconData = db.iconData[iconKey]
@@ -633,7 +603,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
         else
             local isActive = isEditMode
             if not isActive then
-                local okActive, activeResult = pcall(IsIconActive, iconKey, iconData, frame, isBuffContext)
+                local okActive, activeResult = pcall(IsIconActive, iconKey, iconData, frame)
                 if okActive then
                     isActive = activeResult == true
                     frame._ddLastDynamicError = nil
@@ -658,7 +628,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 local isCooldownTrinket = iconData.type == "trinketProc"
                     and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
                 local isAuraIcon = iconData.type == "aura"
-                local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
+                local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and not isCooldownTrinket)
                 local liveEffect = isEffectIcon and not isAuraIcon and FrameHasLiveEffect(frame, now)
                 local expiredManagedAura = isEffectIcon and iconData.type == "aura" and frame._ddManagedAuraExpired
                 local recentEffect = isEffectIcon and not isAuraIcon and not expiredManagedAura and FrameHadRecentEffect(frame, now)
@@ -684,11 +654,10 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
             local isCooldownTrinket = iconData.type == "trinketProc"
                 and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
             local isAuraIcon = iconData.type == "aura"
-            local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
+            local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and not isCooldownTrinket)
             local showInactive, desaturateInactive, inactiveAlpha = ResolveInactiveBuffDisplay(iconData)
             local includeActiveStateGray = groupSettings
                 and groupSettings.hideActiveState == true
-                and isBuffContext
                 and isActive
                 and isEffectIcon
             local includeInactive = showInactive and isEffectIcon and not (isActive or keepVisible or keepManaged)
@@ -811,8 +780,7 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
     for groupName, groupSettings in pairs(gs.groups) do
         local shouldSuppressDuplicates = groupSettings.enabled
             and groupSettings.sourceGroupKey
-            and (IsBuffGroup(groupName, groupSettings)
-                or (groupSettings.groupType ~= "dynamic" and groupSettings.suppressCDMDuplicates == true))
+            and groupSettings.suppressCDMDuplicates == true
 
         if shouldSuppressDuplicates then
             local srcKey = groupSettings.sourceGroupKey
@@ -822,9 +790,7 @@ function DynamicIconBridge:GetSuppressedSpellIDs()
                     local iconData = db.iconData[iconKey]
                     if iconData then
                         if iconData.id and (iconData.type == "spell" or iconData.type == "aura") then
-                            if not (IsBuffGroup(groupName, groupSettings) and iconData.type == "aura") then
-                                suppressed[iconData.id] = true
-                            end
+                            suppressed[iconData.id] = true
                         elseif iconData.type == "trinketProc" and iconData.settings then
                             local procSpellID = tonumber(iconData.settings.procSpellID)
                             if procSpellID and procSpellID > 0 then
@@ -923,7 +889,6 @@ local function BuildDynamicLayoutStateHash()
             end
         end
 
-        local isBuffContext = IsBuffSourceGroup(sourceKey, db)
         for _, iconKey in ipairs(keys) do
             local iconData = db.iconData and db.iconData[iconKey]
             local frame = iconFrames and iconFrames[iconKey]
@@ -931,7 +896,7 @@ local function BuildDynamicLayoutStateHash()
                 local token = "1"
                 local isCooldownTrinket = iconData.type == "trinketProc"
                     and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
-                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and isBuffContext and not isCooldownTrinket)
+                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and not isCooldownTrinket)
 
                 if isEffectIcon then
                     local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired

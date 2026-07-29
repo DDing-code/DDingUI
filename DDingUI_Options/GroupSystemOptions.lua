@@ -446,9 +446,6 @@ local MAX_GRID_ICONS = 32
 
 -- [REFACTOR] 팝업 다이얼로그 제거 → 인라인 그리드로 전환
 
--- [FIX] 전방 선언: GetGroupCategory는 line ~980에서 구현되지만 BuildGroupAssignGridUI에서 먼저 사용
-local GetGroupCategory
-
 -- [FIX] 그룹 이름 → 소속 CDM 뷰어 매핑 (필터링용)
 local GROUP_VIEWER_MAP = {
     ["Cooldowns"] = "EssentialCooldownViewer",
@@ -462,26 +459,6 @@ local GROUP_DISPLAY_NAMES = {
     ["Buffs"]     = L["Buffs Group"] or "강화 효과",
     ["Utility"]   = L["Utility Cooldowns"] or "보조 능력",
 }
-
-local function IsBuffGroup(groupName, groupSettings)
-    if groupName == "Buffs" then return true end
-    if groupSettings and groupSettings.groupCategory == "buff" then return true end
-    return GROUP_VIEWER_MAP[groupName] == "BuffIconCooldownViewer"
-end
-
-local function UpdateAutomaticGroupCategory(groupName, iconType)
-    if not groupName or CORE_CDM_GROUPS[groupName] then return end
-    local gs = GetGS()
-    local groupSettings = gs and gs.groups and gs.groups[groupName]
-    if not groupSettings then return end
-
-    local category = iconType == "aura" and "buff" or "skill"
-    if category == "skill" and groupSettings.groupCategory then return end
-    if groupSettings.groupCategory ~= category then
-        groupSettings.groupCategory = category
-        MarkSpecProfileDirty()
-    end
-end
 
 local function IsBuffSpell(spellName, entry)
     if type(spellName) == "string" and spellName:match("^buff_") then return true end
@@ -564,13 +541,13 @@ local function FindBuffDynamicSpellOwner(gs, spellID, exceptGroup)
     if not iconDataDB then return nil end
 
     for groupName, groupSettings in pairs(gs.groups or {}) do
-        if groupName ~= exceptGroup and groupSettings and IsBuffGroup(groupName, groupSettings) then
+        if groupName ~= exceptGroup and groupSettings then
             local sourceKey = groupSettings.sourceGroupKey
             local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
             if dynGroup and dynGroup.icons then
                 for _, iconKey in ipairs(dynGroup.icons) do
                     local iconData = iconDataDB[iconKey]
-                    if iconData and (iconData.type == "spell" or iconData.type == "aura") then
+                    if iconData and iconData.type == "aura" then
                         local existingID = tonumber(iconData.id)
                         if existingID and existingID == spellID then
                             return groupName, iconKey
@@ -627,14 +604,14 @@ local function RemoveBuffDynamicSpellCopies(spellID, exceptGroup)
 
     local removed = false
     for groupName, groupSettings in pairs(gs.groups or {}) do
-        if groupName ~= exceptGroup and groupSettings and IsBuffGroup(groupName, groupSettings) then
+        if groupName ~= exceptGroup and groupSettings then
             local sourceKey = groupSettings.sourceGroupKey
             local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
             if dynGroup and dynGroup.icons then
                 local toRemove = {}
                 for _, iconKey in ipairs(dynGroup.icons) do
                     local iconData = iconDataDB[iconKey]
-                    if iconData and (iconData.type == "spell" or iconData.type == "aura") then
+                    if iconData and iconData.type == "aura" then
                         local existingID = tonumber(iconData.id)
                         if existingID and existingID == spellID then
                             toRemove[#toRemove + 1] = iconKey
@@ -722,7 +699,7 @@ end
 
 local function ConvertCopiedBuffDynamicIconsToAssignments(groupName, groupSettings)
     if DDingUI._convertingCopiedBuffIcons then return false end
-    if not groupName or not groupSettings or not IsBuffGroup(groupName, groupSettings) then return false end
+    if not groupName or not groupSettings or not groupSettings.sourceGroupKey then return false end
 
     local sourceKey = groupSettings.sourceGroupKey
     local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
@@ -1021,8 +998,7 @@ local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames)
     local rows = {}
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
-    local isBuffTargetGroup = IsBuffGroup(groupName, groupSettings)
-    if not groupSettings or (groupSettings.groupType == "dynamic" and not isBuffTargetGroup) then return rows end
+    if not groupSettings then return rows end
 
     local targetViewer = GROUP_VIEWER_MAP[groupName]
     local assignments = gs and gs.spellAssignments or {}
@@ -1322,8 +1298,8 @@ local function AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellNam
     if not sourceKey then return nil, nil, false end
 
     local gs = GetGS()
-    local groupSettings = gs and gs.groups and gs.groups[groupName]
-    local isBuffTarget = IsBuffGroup(groupName, groupSettings) and IsBuffSpell(spellName, { viewerName = iconType == "aura" and "BuffIconCooldownViewer" or nil })
+    local isBuffTarget = iconType == "aura"
+        and IsBuffSpell(spellName, { viewerName = "BuffIconCooldownViewer" })
     if isBuffTarget then
         RemoveBuffDynamicSpellCopies(spellID, groupName)
         ClearBuffSpellUnassigned(spellName)
@@ -1366,20 +1342,7 @@ local function ClearDynamicSpellAssignment(groupName, spellName)
 end
 
 -- [REFACTOR] 인라인 그리드 업데이트 (groupName 인자로 받음)
-local function GetSpellCandidateViewers(groupName, groupSettings)
-    local targetViewer = GROUP_VIEWER_MAP[groupName]
-    if targetViewer == "BuffIconCooldownViewer" then
-        return { targetViewer }
-    elseif targetViewer then
-        return { "EssentialCooldownViewer", "UtilityCooldownViewer" }
-    end
-
-    local category = GetGroupCategory and GetGroupCategory(groupName)
-    if category == "buff" then
-        return { "BuffIconCooldownViewer" }
-    elseif category == "skill" then
-        return { "EssentialCooldownViewer", "UtilityCooldownViewer" }
-    end
+local function GetSpellCandidateViewers()
     return { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
 end
 
@@ -1392,9 +1355,8 @@ local function BuildUnassignedSpellRows(groupName)
     ConvertCopiedBuffDynamicIconsToAssignments(groupName, groupSettings)
 
     local isDynamicGroup = groupSettings.groupType == "dynamic"
-    local isBuffPoolGroup = IsBuffGroup(groupName, groupSettings)
     local sourceKey = isDynamicGroup and EnsureSourceGroup(groupName) or nil
-    local viewers = GetSpellCandidateViewers(groupName, groupSettings)
+    local viewers = GetSpellCandidateViewers()
     local viewerSet = {}
     for _, viewerKey in ipairs(viewers) do
         viewerSet[viewerKey] = true
@@ -1403,7 +1365,7 @@ local function BuildUnassignedSpellRows(groupName)
     local targetViewer = GROUP_VIEWER_MAP[groupName]
     local cdmEntries = GetCDMIconEntries()
     local seen = {}
-    local unassigned = isBuffPoolGroup and GetUnassignedBuffSpells(gs, false)
+    local unassigned = GetUnassignedBuffSpells(gs, false)
     local unassignedChanged = false
     for idx, entry in ipairs(cdmEntries) do
         local viewerName = entry and entry.viewerName
@@ -1416,7 +1378,7 @@ local function BuildUnassignedSpellRows(groupName)
                 local belongsToGroup = assigned == groupName or defaultAssigned
                 local iconType = GetDynamicIconTypeForEntry(entry, spellName)
                 local spellID = ResolveEntrySpellID(entry, spellName)
-                local isBuffEntry = isBuffPoolGroup and IsBuffSpell(spellName, entry)
+                local isBuffEntry = IsBuffSpell(spellName, entry)
                 local isCustomPresetBuff = isBuffEntry and IsCustomAuraPresetSpell(spellName, spellID)
                 local dynamicBuffOwner = isBuffEntry and FindBuffDynamicSpellOwner(gs, spellID, nil)
                 local sharedBuffUnassigned = isBuffEntry and IsBuffSpellUnassigned(gs, spellName)
@@ -1509,11 +1471,6 @@ local function AssignUnassignedSpellRow(groupName, row)
     local GroupMgr = DDingUI.GroupManager
     if not GroupMgr or not GroupMgr.AssignSpell then return false end
     local assigned = GroupMgr:AssignSpell(row.spellName, groupName) == true
-    if assigned and (row.isBuffShared == true or row.iconType == "aura"
-        or IsBuffSpell(row.spellName, row.entry))
-    then
-        UpdateAutomaticGroupCategory(groupName, "aura")
-    end
     return assigned
 end
 
@@ -1527,7 +1484,7 @@ local function BuildBuffCandidateRows(groupName)
 
     for _, row in ipairs(BuildUnassignedSpellRows("Buffs") or {}) do
         local spellID = SafeOptionID(row.spellID)
-        if spellID and not seen[spellID] then
+        if row.iconType == "aura" and spellID and not seen[spellID] then
             seen[spellID] = true
             row.isDynamicTarget = false
             row.isBuffShared = true
@@ -1724,27 +1681,7 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
     local currentY = -18
 
     local allEntries = GetCDMIconEntries()
-    local targetViewer = GROUP_VIEWER_MAP[groupName]
-    local viewersToRender = {}
-    if targetViewer then
-        -- CDM 기본 그룹: 해당 뷰어만
-        table.insert(viewersToRender, { key = targetViewer, name = "" })
-    else
-        -- [FIX] 다이나믹 그룹: 카테고리별 카탈로그 필터링
-        -- 카테고리 미설정(nil) 시 모든 뷰어 표시 (기존 그룹 호환성)
-        local category = GetGroupCategory(groupName)
-        if category == "buff" then
-            -- 버프/오라 카테고리: BuffIcon 뷰어만 표시
-            table.insert(viewersToRender, { key = "BuffIconCooldownViewer", name = L["Buffs Group"] or "강화 효과" })
-        elseif category == "skill" then
-            -- 스킬/아이템 카테고리: Essential + Utility 뷰어
-            table.insert(viewersToRender, { key = "EssentialCooldownViewer", name = L["Essential Cooldowns"] or "핵심 능력" })
-            table.insert(viewersToRender, { key = "UtilityCooldownViewer", name = L["Utility Cooldowns"] or "보조 능력" })
-        else
-            -- 카테고리 미설정: 전체 표시
-            viewersToRender = QUICK_ASSIGN_CATEGORIES
-        end
-    end
+    local viewersToRender = QUICK_ASSIGN_CATEGORIES
 
     for idx, vInfo in ipairs(viewersToRender) do
         -- 해당 뷰어의 엔트리 필터링
@@ -2178,7 +2115,7 @@ local function BuildAssignedSpellsArgs(groupName)
                         local copiedBuffSpellName = GetCopiedCDMBuffSpellName(iconDataCur)
                         local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconDataCur.id)
                         if spellInfo and spellInfo.name then
-                            if IsBuffGroup(groupName, groupSettings) and copiedBuffSpellName then
+                            if copiedBuffSpellName then
                                 spellNameForUnassigned = copiedBuffSpellName
                                 spellIDForUnassigned = tonumber(iconDataCur.id)
                             end
@@ -2819,7 +2756,6 @@ local function AddDynamicPayloadToGroup(groupName, payload, settings)
     if not iconKey then return false end
     MergeDynamicIconSettings(iconKey, resolvedSettings)
     ci:MoveIconToGroup(iconKey, sourceKey)
-    UpdateAutomaticGroupCategory(groupName, payload.type)
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
     return true
@@ -2833,9 +2769,7 @@ local function AddSpellIDToGroup(groupName, spellID, forcedType, settings)
     local name = info and info.name
     if not name or name == "" then return false end
 
-    local gs = GetGS()
-    local groupSettings = gs and gs.groups and gs.groups[groupName]
-    local iconType = forcedType or (IsBuffGroup(groupName, groupSettings) and "aura" or "spell")
+    local iconType = forcedType or "spell"
     local spellName = name
     if iconType == "aura" and spellName:sub(1, 5) ~= "buff_" then
         spellName = "buff_" .. spellName
@@ -2845,7 +2779,6 @@ local function AddSpellIDToGroup(groupName, spellID, forcedType, settings)
     local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName)
     if not iconKey then return false end
     MergeDynamicIconSettings(iconKey, BuildDynamicIconSettings(iconType, spellID, nil, settings))
-    UpdateAutomaticGroupCategory(groupName, iconType)
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
     return true
@@ -2903,9 +2836,7 @@ function DDingUI:BuildTrinketEffectGroupMenu(opt, refreshFunc)
     local gs = GetGS()
     local groups = {}
     for groupName, settings in pairs((gs and gs.groups) or {}) do
-        if IsBuffGroup(groupName, settings) then
-            groups[#groups + 1] = { name = groupName, order = tonumber(settings.order) or 999 }
-        end
+        groups[#groups + 1] = { name = groupName, order = tonumber(settings.order) or 999 }
     end
     table.sort(groups, function(a, b)
         if a.order ~= b.order then return a.order < b.order end
@@ -3895,11 +3826,8 @@ end
 function DDingUI:BuildAssignedIconLinkedEffectItems(groupName, opt, refreshFunc)
     if not opt then return {} end
     local items = {}
-    local gs = GetGS()
-    local currentGroupSettings = gs and gs.groups and gs.groups[groupName]
     local attachToExistingIcon = opt._gridKind == "dynamic"
         and (opt._gridDynamicIconType == "slot" or opt._gridDynamicIconType == "item")
-        and not IsBuffGroup(groupName, currentGroupSettings)
     local itemID = self:ResolveGridTrinketItemID(opt)
     local registry = self.TrinketEffects
     local hasRegisteredEffect = itemID and registry and registry.GetEffectsForItem
@@ -5338,16 +5266,6 @@ local VIEWER_DETAIL_KEYS = {
     "previewBuffIcons",
 }
 
--- Runtime-only category used by aura-specific rendering and spell catalogs.
-GetGroupCategory = function(groupName)
-    local viewerKey = GROUP_VIEWER_MAP[groupName]
-    if viewerKey == "BuffIconCooldownViewer" then return "buff" end
-    if viewerKey then return "skill" end
-    local gs = GetGS()
-    local grp = gs and gs.groups[groupName]
-    return grp and grp.groupCategory or nil
-end
-
 -- [CDM 통합] 그룹 설정 읽기/쓰기 — 모든 그룹 동일 (groupSettings가 단일 소스)
 local function GS_Range(groupName, key, name, order, default, min, max, step, extra)
     local marksCustomStyle = extra and extra.marksCustomStyle
@@ -5515,8 +5433,6 @@ end
 
 -- [CATEGORY] 커스텀 그룹용 시각 효과 옵션 빌드
 local function BuildCustomVisualArgs(groupName)
-    local isBuffGroup = GetGroupCategory(groupName) == "buff"
-
     return {
         -- 쿨다운 스와이프
         swipeHeader = { type = "header", name = L["Cooldown Swipe"] or "재사용 대기시간 스와이프", order = 1 },
@@ -5558,15 +5474,15 @@ local function BuildCustomVisualArgs(groupName)
         assistGlowThickness = GS_Range(groupName, "assistGlowThickness", L["Pixel Glow Thickness"] or "두께", 20.8, 1, 0.5, 5, 0.5),
         assistHighlightPixelLength = GS_Range(groupName, "assistHighlightPixelLength", L["Pixel Glow Length"] or "길이", 20.9, 8, 1, 10, 1),
         -- 이동 애니메이션
-        motionHeader = isBuffGroup and { type = "header", name = L["Movement Animation"] or "이동 애니메이션", order = 24 } or nil,
-        iconMotion = isBuffGroup and GS_Toggle(groupName, "iconMotion", L["Enable Movement Animation"] or "이동 애니메이션 사용", 24.1, true) or nil,
-        iconMotionDuration = isBuffGroup and GS_Range(groupName, "iconMotionDuration", L["Motion Duration"] or "모션 시간", 24.2, 0.18, 0.05, 0.5, 0.01, {
+        motionHeader = { type = "header", name = L["Movement Animation"] or "이동 애니메이션", order = 24 },
+        iconMotion = GS_Toggle(groupName, "iconMotion", L["Enable Movement Animation"] or "이동 애니메이션 사용", 24.1, true),
+        iconMotionDuration = GS_Range(groupName, "iconMotionDuration", L["Motion Duration"] or "모션 시간", 24.2, 0.18, 0.05, 0.5, 0.01, {
             disabled = function()
                 local gs = GetGS()
                 local g = gs and gs.groups[groupName]
                 return g and g.iconMotion == false
             end,
-        }) or nil,
+        }),
         -- 애니메이션
         animHeader = { type = "header", name = L["Animation"] or "애니메이션", order = 25 },
         disableEdgeGlow = GS_Toggle(groupName, "disableEdgeGlow", L["Disable Edge Glow"] or "엣지 글로우 비활성화", 26, false),
@@ -5606,7 +5522,6 @@ end
 
 local function BuildGroupSwipeArgs(groupName)
     local visualArgs = BuildCustomVisualArgs(groupName)
-    local isBuffGroup = GetGroupCategory(groupName) == "buff"
 
     visualArgs.swipeHeader.order = 1
     visualArgs.disableSwipeAnimation.order = 2
@@ -5621,18 +5536,18 @@ local function BuildGroupSwipeArgs(groupName)
         disableSwipeAnimation = visualArgs.disableSwipeAnimation,
         swipeReverse = visualArgs.swipeReverse,
         swipeColor = visualArgs.swipeColor,
-        auraSwipeHeader = isBuffGroup and {
+        auraSwipeHeader = {
             type = "header",
             name = L["Aura Swipe"] or "오라 스와이프",
             order = 5,
-        } or nil,
-        auraSwipeColor = isBuffGroup and GS_Color(
+        },
+        auraSwipeColor = GS_Color(
             groupName,
             "auraSwipeColor",
             L["Aura Swipe Color"] or "오라 스와이프 색상",
             6,
             {1, 0.776, 0.376, 0.8}
-        ) or nil,
+        ),
         animHeader = visualArgs.animHeader,
         disableEdgeGlow = visualArgs.disableEdgeGlow,
         disableBlingAnimation = visualArgs.disableBlingAnimation,
@@ -5706,8 +5621,8 @@ local function GS_Font(groupName, key, name, order)
     }
 end
 
--- [CATEGORY] 커스텀 그룹용 텍스트 옵션 빌드 (카테고리별 분기)
-local function BuildCustomTextArgs(groupName, category)
+-- Text options shared by every group.
+local function BuildCustomTextArgs(groupName)
     local args = {
         -- 충전/스택 텍스트
         chargeTextHeader = { type = "header", name = L["Stack Text"] or "중첩 텍스트", order = 1 },
@@ -5728,16 +5643,13 @@ local function BuildCustomTextArgs(groupName, category)
         -- [5TAB] 그림자는 시각 효과 탭으로 이동됨
     }
 
-    -- 버프 카테고리: 지속시간 텍스트 추가
-    if category == "buff" then
-        args.durationHeader = { type = "header", name = L["Duration Text"] or "지속시간 텍스트", order = 30 }
-        args.durationTextFont = GS_Font(groupName, "durationTextFont", L["Font"] or "폰트", 30.5)
-        args.durationTextSize = GS_Range(groupName, "durationTextSize", L["Font Size"] or "글꼴 크기", 31, 12, 6, 32, 1)
-        args.durationTextColor = GS_Color(groupName, "durationTextColor", L["Font Color"] or "글꼴 색상", 32, {1, 1, 1, 1})
-        args.durationTextAnchor = GS_Select(groupName, "durationTextAnchor", L["Anchor"] or "앵커", 33, "TOP", ANCHOR_POINTS)
-        args.durationTextOffsetX = GS_Range(groupName, "durationTextOffsetX", L["X Offset"] or "X 오프셋", 34, 0, -20, 20, 1)
-        args.durationTextOffsetY = GS_Range(groupName, "durationTextOffsetY", L["Y Offset"] or "Y 오프셋", 35, 0, -20, 20, 1)
-    end
+    args.durationHeader = { type = "header", name = L["Duration Text"] or "지속시간 텍스트", order = 30 }
+    args.durationTextFont = GS_Font(groupName, "durationTextFont", L["Font"] or "폰트", 30.5)
+    args.durationTextSize = GS_Range(groupName, "durationTextSize", L["Font Size"] or "글꼴 크기", 31, 12, 6, 32, 1)
+    args.durationTextColor = GS_Color(groupName, "durationTextColor", L["Font Color"] or "글꼴 색상", 32, {1, 1, 1, 1})
+    args.durationTextAnchor = GS_Select(groupName, "durationTextAnchor", L["Anchor"] or "앵커", 33, "TOP", ANCHOR_POINTS)
+    args.durationTextOffsetX = GS_Range(groupName, "durationTextOffsetX", L["X Offset"] or "X 오프셋", 34, 0, -20, 20, 1)
+    args.durationTextOffsetY = GS_Range(groupName, "durationTextOffsetY", L["Y Offset"] or "Y 오프셋", 35, 0, -20, 20, 1)
 
     return args
 end
@@ -5751,7 +5663,6 @@ local function CreateGroupOptions(groupName, order)
         or groupName
 
     local viewerKey = GROUP_VIEWER_MAP[groupName]
-    local category = GetGroupCategory(groupName)
 
     -- [CDM 통합] CDM/커스텀 구분 없이 동일 옵션 빌더 사용
 
@@ -5817,7 +5728,7 @@ local function CreateGroupOptions(groupName, order)
         growDirection = GS_Select(groupName, "growDirection", L["Wrap Direction"] or "줄바꿈 방향", 12, "DOWN", DIRECTION_VALUES),
         rowLimit = GS_Range(groupName, "rowLimit", L["Icons Per Row"] or "줄당 아이콘 수", 13, 8, 1, 20, 1),
         overflowMode = GS_Select(groupName, "overflowMode", L["Overflow"] or "오버플로", 13.01, "wrap", OVERFLOW_VALUES),
-        stateFilter = (category == "buff") and {
+        stateFilter = {
             type = "select",
             name = L["State Filter"] or "상태 필터",
             desc = L["Choose which known aura states participate in this group's layout. Unknown protected states remain visible."] or "확인 가능한 강화효과 상태만 필터링합니다. 보호된 상태처럼 확인할 수 없는 아이콘은 계속 표시합니다.",
@@ -5836,7 +5747,7 @@ local function CreateGroupOptions(groupName, order)
                 group.stateFilter = value
                 RefreshGroupSystem()
             end,
-        } or nil,
+        },
         rowIconSize1 = {
             type = "range", name = L["Row 1 Icon Size"] or "1번 줄 아이콘 크기",
             desc = L["Override the icon size for the first row. Set to 0 to use the base Icon Size value."] or "1번 줄에만 적용될 아이콘 크기를 덮어씁니다. 0으로 설정하면 기본 아이콘 크기를 사용합니다.",
@@ -6159,11 +6070,8 @@ local function CreateGroupOptions(groupName, order)
     }
 
     -- ========== 2. 스펠 관리 ==========
-    -- [FIX] CDM 기본 그룹에서도 아이템/장신구/종족특성 프리셋 표시
-    -- 이전: (not isCDM) and (category ~= "buff") → CDM 그룹에서 모든 프리셋 숨김
-    -- 현재: buff 카테고리만 제외 (CDM Buffs 그룹은 버프 전용이므로 아이템 추가 불필요)
     local showInlineAddOptions = false
-    local showAdvanced = showInlineAddOptions and (category ~= "buff")
+    local showAdvanced = showInlineAddOptions
     args.spellManagement = {
         type = "group",
         name = L["Spell Management"] or "스펠 관리",
@@ -6215,15 +6123,7 @@ local function CreateGroupOptions(groupName, order)
                         local ci = DDingUI.CustomIcons
                         if ci and ci.AddDynamicIcon then
                             -- [FIX] buff_ 접두사 처리: 버프 뷰어 그룹이면 aura 타입 (커스텀 그룹 호환)
-                            local isBuffGrp = false
-                            local targetViewer = GROUP_VIEWER_MAP[groupName]
-                            if targetViewer then
-                                isBuffGrp = (targetViewer == "BuffIconCooldownViewer")
-                            else
-                                local category = GetGroupCategory(groupName)
-                                isBuffGrp = (category == "buff")
-                            end
-                            local iconType = isBuffGrp and "aura" or "spell"
+                            local iconType = "spell"
 
                             local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, tostring(val))
                             if not iconKey then return false end
@@ -6239,11 +6139,11 @@ local function CreateGroupOptions(groupName, order)
             -- [QUICK-ADD] 커스텀 강화효과 빠른 추가 (버프 그룹 전용)
             -- [FIX] CDM 기본그룹은 AssignSpell 경로, 커스텀 그룹은 CustomIcons 경로
             -- ===========================================
-            customBuffHeader = (showInlineAddOptions and category == "buff") and {
+            customBuffHeader = showInlineAddOptions and {
                 type = "header", name = "커스텀 강화효과 빠른 추가", order = 25,
             } or nil,
 
-            addLightsPotential = (showInlineAddOptions and category == "buff") and {
+            addLightsPotential = showInlineAddOptions and {
                 type = "execute", order = 25.1, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1236616) end)
@@ -6260,7 +6160,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addRecklessness = (showInlineAddOptions and category == "buff") and {
+            addRecklessness = showInlineAddOptions and {
                 type = "execute", order = 25.2, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1236994) end)
@@ -6277,7 +6177,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addDevouredDreams = (showInlineAddOptions and category == "buff") and {
+            addDevouredDreams = showInlineAddOptions and {
                 type = "execute", order = 25.3, width = "normal",
                 name = function()
                     local ok, tex = pcall(function() return C_Spell.GetSpellTexture(1239479) end)
@@ -6294,7 +6194,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addTimeSpiral = (showInlineAddOptions and category == "buff") and {
+            addTimeSpiral = showInlineAddOptions and {
                 type = "execute", order = 25.4, width = "normal",
                 name = function()
                     local icon = SafeSpellTexture(374968)
@@ -6310,7 +6210,7 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addBloodlust = (showInlineAddOptions and category == "buff") and {
+            addBloodlust = showInlineAddOptions and {
                 type = "execute", order = 25.5, width = "normal",
                 name = function()
                     local icon = SafeSpellTexture(2825)
@@ -6345,7 +6245,7 @@ local function CreateGroupOptions(groupName, order)
                 order = 31,
                 groupName = groupName,
             } or nil,
-            -- [12.0.1] 추가 옵션: 아이템/장신구 추가 (커스텀/동적 그룹 전용 + skill 카테고리만)
+            -- Additional item and trinket controls for custom groups.
             advancedHeader = showAdvanced and { type = "header", name = L["Advanced Add"] or "추가 옵션 (아이템/장신구)", order = 40 } or nil,
             addItemID = showAdvanced and {
                 type = "spellSearch",
@@ -6518,8 +6418,8 @@ local function CreateGroupOptions(groupName, order)
     -- Spell management controls now live at the top of the layout tab.
     args.spellManagement = nil
 
-    -- [CDM 통합] 모든 그룹 동일 텍스트 옵션 (CDM/커스텀 구분 없음, 카테고리별 분기)
-    local textArgs = BuildCustomTextArgs(groupName, category)
+    -- Runtime selects the relevant text style per icon.
+    local textArgs = BuildCustomTextArgs(groupName)
     args.text = {
         type = "group",
         name = L["Text"] or "텍스트",
@@ -6527,14 +6427,12 @@ local function CreateGroupOptions(groupName, order)
         args = textArgs,
     }
 
-    if category == "buff" then
-        args.animation = {
-            type = "group",
-            name = L["Animation"] or "애니메이션",
-            order = 25,
-            args = BuildGroupAnimationArgs(groupName),
-        }
-    end
+    args.animation = {
+        type = "group",
+        name = L["Animation"] or "애니메이션",
+        order = 25,
+        args = BuildGroupAnimationArgs(groupName),
+    }
 
     args.swipe = {
         type = "group",

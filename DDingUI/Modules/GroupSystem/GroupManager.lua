@@ -46,14 +46,8 @@ local function IsBuffSpellKey(spellName)
     return type(spellName) == "string" and spellName:match("^buff_") ~= nil
 end
 
-local function IsBuffGroup(groupName, groupSettings)
-    if groupName == "Buffs" then return true end
-    return groupSettings and groupSettings.groupCategory == "buff"
-end
-
-local function ShouldConvertCopiedBuffIcons(groupName, groupSettings)
-    return groupSettings
-        and (IsBuffGroup(groupName, groupSettings) or groupSettings.groupType ~= "dynamic")
+local function ShouldConvertCopiedBuffIcons(groupSettings)
+    return groupSettings and groupSettings.sourceGroupKey ~= nil
 end
 
 local function CanAssignCDMSpellToGroup(spellName, groupName, groupSettings)
@@ -1053,18 +1047,16 @@ local function ConvertCopiedBuffDynamicIcons(gs)
     local converted = {}
     local matchContext
     for groupName, groupSettings in pairs(gs.groups) do
-        if ShouldConvertCopiedBuffIcons(groupName, groupSettings) then
+        if ShouldConvertCopiedBuffIcons(groupSettings) then
             local sourceKey = groupSettings.sourceGroupKey
             local dynGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
             if dynGroup and dynGroup.icons then
                 for _, iconKey in ipairs(dynGroup.icons) do
                     local iconData = iconDataDB[iconKey]
-                    matchContext = matchContext or GetCDMBuffMatchContext()
-                    local spellName = FindInCDMBuffMatchContext(iconData, matchContext)
-                    if not spellName and IsBuffGroup(groupName, groupSettings) then
-                        spellName = GetCopiedCDMBuffSpellName(iconData)
-                    end
-                    if spellName then
+                    local copiedSpellName = GetCopiedCDMBuffSpellName(iconData)
+                    if copiedSpellName then
+                        matchContext = matchContext or GetCDMBuffMatchContext()
+                        local spellName = FindInCDMBuffMatchContext(iconData, matchContext) or copiedSpellName
                         converted[#converted + 1] = {
                             groupName = groupName,
                             groupSettings = groupSettings,
@@ -1134,7 +1126,7 @@ local function BuildCopiedBuffConversionSignature(gs)
     if gs and gs.groups and iconDataDB and dynamicGroups then
         local groupNames = {}
         for groupName, groupSettings in pairs(gs.groups) do
-            if ShouldConvertCopiedBuffIcons(groupName, groupSettings) and groupSettings.sourceGroupKey then
+            if ShouldConvertCopiedBuffIcons(groupSettings) and groupSettings.sourceGroupKey then
                 groupNames[#groupNames + 1] = groupName
             end
         end
@@ -1237,7 +1229,6 @@ function GroupManager:CreateGroup(name, settings)
     local defaults = {
         order = maxOrder + 1,
         groupType = "dynamic",
-        groupCategory = "skill", -- "skill" | "buff" (사용자 변경 가능)
         autoFilter = "ALL",
         enabled = true,
         iconSize = 32,
@@ -1413,7 +1404,7 @@ end
 function GroupManager:AssignMatchingCDMBuffIcon(iconData, groupName)
     local gs = GetGroupSystemSettings()
     local group = gs and gs.groups and gs.groups[groupName]
-    if not IsBuffGroup(groupName, group) then return nil end
+    if not group then return nil end
 
     local spellName = GetCDMBuffSpellNameForDynamicIcon(iconData)
     if not spellName then return nil end

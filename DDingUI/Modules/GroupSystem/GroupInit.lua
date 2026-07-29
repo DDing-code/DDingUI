@@ -896,7 +896,7 @@ local GROUP_VIEWER_MAP = {
     ["Utility"]   = "UtilityCooldownViewer",
 }
 
-local CURRENT_CDM_GROUP_SCHEMA_VERSION = 2  -- v1.2.7+ update guard
+local CURRENT_CDM_GROUP_SCHEMA_VERSION = 3
 local CURRENT_GROUP_SYSTEM_VERSION = 1  -- 1.2.4
 
 local function CopyArray(value)
@@ -953,7 +953,6 @@ local function EnsureCoreCDMGroupSchema(gs)
             changed = true
         end
 
-        local category = groupName == "Buffs" and "buff" or "skill"
         if ApplyMissingGroupDefaults(group, {
             order = def.order,
             enabled = true,
@@ -985,16 +984,19 @@ local function EnsureCoreCDMGroupSchema(gs)
             group.groupType = "cdm"
             changed = true
         end
-        if group.groupCategory ~= category then
-            group.groupCategory = category
-            changed = true
-        end
         if group.autoFilter ~= def.autoFilter then
             group.autoFilter = def.autoFilter
             changed = true
         end
         if gs.deletedGroups[groupName] then
             gs.deletedGroups[groupName] = nil
+            changed = true
+        end
+    end
+
+    for _, group in pairs(gs.groups) do
+        if type(group) == "table" and group.groupCategory ~= nil then
+            group.groupCategory = nil
             changed = true
         end
     end
