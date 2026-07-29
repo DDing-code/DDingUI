@@ -4688,8 +4688,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
         end
         GameTooltip:AddLine(
-            rawget(L, "Click for details | Drag to reorder | Right-click to manage")
-                or "Click for details | Drag to reorder | Right-click to manage",
+            rawget(L, "Click for individual settings | Drag to reorder | Right-click to manage")
+                or "Click for individual settings | Drag to reorder | Right-click to manage",
             0.35,
             1,
             0.45,
@@ -4978,8 +4978,8 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
         return {
             empty = {
                 type = "description",
-                name = rawget(L, "Select an icon from the preview to edit its details.")
-                    or "Select an icon from the preview to edit its details.",
+                name = rawget(L, "Select an icon from the preview to edit its individual settings.")
+                    or "Select an icon from the preview to edit its individual settings.",
                 order = 1,
             },
         }
@@ -5202,8 +5202,8 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
     if not next(converted) then
         args.unavailable = {
             type = "description",
-            name = rawget(L, "No detailed settings are available for this icon.")
-                or "No detailed settings are available for this icon.",
+            name = rawget(L, "No individual settings are available for this icon.")
+                or "No individual settings are available for this icon.",
             order = 1,
         }
     end
@@ -5623,18 +5623,40 @@ function DDingUI:BuildGroupGlowArgs(groupName)
     return args
 end
 
-local function GS_Font(groupName, key, name, order, default)
+local GROUP_FONT_DEFAULT_KEY = "__default"
+
+local function GetGroupFontValues()
+    local values = {
+        [GROUP_FONT_DEFAULT_KEY] = L["Default"] or "Default",
+    }
+    local fonts = AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font
+    if fonts then
+        for key, value in pairs(fonts) do
+            values[key] = value
+        end
+    end
+    return values
+end
+
+local function GS_Font(groupName, key, name, order)
     return {
         type = "select", dialogControl = "LSM30_Font",
         name = name, order = order, width = "full",
-        values = AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font or {},
+        values = GetGroupFontValues,
         get = function()
             local gs = GetGS(); local g = gs and gs.groups[groupName]
-            return g and g[key] or default
+            local value = g and g[key]
+            if value == nil or value == "" then
+                return GROUP_FONT_DEFAULT_KEY
+            end
+            return value
         end,
         set = function(_, val)
             local gs = GetGS()
-            if gs and gs.groups[groupName] then gs.groups[groupName][key] = val; RefreshGroupSystem() end
+            if gs and gs.groups[groupName] then
+                gs.groups[groupName][key] = val == GROUP_FONT_DEFAULT_KEY and nil or val
+                RefreshGroupSystem()
+            end
         end,
     }
 end
@@ -5644,7 +5666,7 @@ local function BuildCustomTextArgs(groupName, category)
     local args = {
         -- 충전/스택 텍스트
         chargeTextHeader = { type = "header", name = L["Stack Text"] or "중첩 텍스트", order = 1 },
-        countTextFont = GS_Font(groupName, "countTextFont", L["Font"] or "폰트", 1.5, "2002"),
+        countTextFont = GS_Font(groupName, "countTextFont", L["Font"] or "폰트", 1.5),
         countTextSize = GS_Range(groupName, "countTextSize", L["Font Size"] or "글꼴 크기", 2, 14, 6, 32, 1),
         countTextColor = GS_Color(groupName, "countTextColor", L["Font Color"] or "글꼴 색상", 3, {1, 0.82, 0, 1}),
         countTextAnchor = GS_Select(groupName, "chargeTextAnchor", L["Anchor"] or "앵커", 4, "BOTTOMRIGHT", ANCHOR_POINTS),
@@ -5652,7 +5674,7 @@ local function BuildCustomTextArgs(groupName, category)
         countTextOffsetY = GS_Range(groupName, "countTextOffsetY", L["Y Offset"] or "Y 오프셋", 6, 0, -20, 20, 1),
         -- 쿨다운 텍스트
         cooldownTextHeader = { type = "header", name = L["Cooldown Text"] or "재사용 대기시간 텍스트", order = 10 },
-        cooldownFont = GS_Font(groupName, "cooldownFont", L["Font"] or "폰트", 10.5, "2002"),
+        cooldownFont = GS_Font(groupName, "cooldownFont", L["Font"] or "폰트", 10.5),
         cooldownFontSize = GS_Range(groupName, "cooldownFontSize", L["Font Size"] or "글꼴 크기", 11, 14, 6, 32, 1),
         cooldownTextColor = GS_Color(groupName, "cooldownTextColor", L["Font Color"] or "글꼴 색상", 12, {1, 1, 1, 1}),
         cooldownTextAnchor = GS_Select(groupName, "cooldownTextAnchor", L["Anchor"] or "앵커", 13, "CENTER", ANCHOR_POINTS),
@@ -5664,7 +5686,7 @@ local function BuildCustomTextArgs(groupName, category)
     -- 버프 카테고리: 지속시간 텍스트 추가
     if category == "buff" then
         args.durationHeader = { type = "header", name = L["Duration Text"] or "지속시간 텍스트", order = 30 }
-        args.durationTextFont = GS_Font(groupName, "durationTextFont", L["Font"] or "폰트", 30.5, "2002")
+        args.durationTextFont = GS_Font(groupName, "durationTextFont", L["Font"] or "폰트", 30.5)
         args.durationTextSize = GS_Range(groupName, "durationTextSize", L["Font Size"] or "글꼴 크기", 31, 12, 6, 32, 1)
         args.durationTextColor = GS_Color(groupName, "durationTextColor", L["Font Color"] or "글꼴 색상", 32, {1, 1, 1, 1})
         args.durationTextAnchor = GS_Select(groupName, "durationTextAnchor", L["Anchor"] or "앵커", 33, "TOP", ANCHOR_POINTS)
@@ -6086,7 +6108,7 @@ local function CreateGroupOptions(groupName, order)
 
     args.iconDetails = {
         type = "group",
-        name = rawget(L, "Icon Details") or "Icon Details",
+        name = rawget(L, "Individual Settings") or "Individual Settings",
         order = 15,
         args = DDingUI:BuildGroupIconDetailArgs(groupName),
     }
