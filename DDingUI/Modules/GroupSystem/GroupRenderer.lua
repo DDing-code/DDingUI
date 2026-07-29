@@ -2947,12 +2947,17 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         return
     end
 
-    local motionSettings = {
-        pinWrappedRowsToAnchor = true,
-    }
-    if viewerSettings.iconMotion ~= false then
-        motionSettings.enabled = true
-        motionSettings.duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION
+    local motionSettings
+    local isNativeSkillViewer = viewerName == "EssentialCooldownViewer"
+        or viewerName == "UtilityCooldownViewer"
+    if not isNativeSkillViewer then
+        motionSettings = {
+            pinWrappedRowsToAnchor = viewerName == "BuffIconCooldownViewer",
+        }
+        if viewerSettings.iconMotion ~= false then
+            motionSettings.enabled = true
+            motionSettings.duration = tonumber(viewerSettings.iconMotionDuration) or ICON_MOTION_DEFAULT_DURATION
+        end
     end
 
     -- ViewerLayout과 동일하게 방향/행제한 resolve
