@@ -144,6 +144,7 @@ function FrameLifecycle.Create(
     local function CreateBaseIcon(name, parent)
         local frame = CreateFrame("Button", name, parent, "BackdropTemplate")
         frame:SetSize(40, 40)
+        frame:Hide()
 
         -- [FIX] ARTWORK 레이어 사용: BackdropTemplate의 backdrop이 BACKGROUND 레이어를 차지하므로
         -- BACKGROUND에 icon을 만들면 backdrop에 가려져 투명하게 보임
@@ -338,6 +339,7 @@ function FrameLifecycle.Create(
         frame._ddCustomIconActive = nil
         frame._ddCustomIconReady = nil
         frame._ddItemCountEmpty = nil
+        frame._ddNeedsInitialUpdate = nil
     end
 
     local function AcquireDynamicIconFrame(name, parent)
@@ -349,9 +351,13 @@ function FrameLifecycle.Create(
             frame:SetScale(1)
             frame:SetAlpha(1)
             frame:EnableMouse(true)
-            return frame
+        else
+            frame = CreateBaseIcon(name, parent)
         end
-        return CreateBaseIcon(name, parent)
+        frame:Hide()
+        frame:ClearAllPoints()
+        frame._ddNeedsInitialUpdate = true
+        return frame
     end
 
     local function ReleaseDynamicIconFrame(iconKey, frame)

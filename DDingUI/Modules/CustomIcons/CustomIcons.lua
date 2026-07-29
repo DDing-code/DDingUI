@@ -2993,7 +2993,7 @@ local function ExecuteUpdateAllIcons(filter)
             elseif filter == "cooldown" then
                 typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc" or iconType == "spell" or iconType == "racial"
             end
-            if iconData and typeMatches and (frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or frame._ddIsManaged) then
+            if iconData and typeMatches and (frame._ddNeedsInitialUpdate or frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or frame._ddIsManaged) then
                 local okUpdate, err = pcall(function()
                     local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
 
@@ -3043,6 +3043,7 @@ local function ExecuteUpdateAllIcons(filter)
                 end)
                 if okUpdate then
                     frame._ddLastUpdateError = nil
+                    frame._ddNeedsInitialUpdate = nil
                 else
                     frame._ddLastUpdateError = tostring(err)
                 end
