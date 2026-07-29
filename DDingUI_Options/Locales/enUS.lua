@@ -473,6 +473,8 @@ L["Customize individual spell icons from your cooldown viewers. Click to select 
 L["Dynamic Icons"] = "Dynamic Icons"
 L["Cooldown Manager"] = "Cooldown Manager"
 L["Show/hide the buff bar viewer"] = "Apply DDingUI styling and positioning. When disabled, Blizzard's tracked bars are restored."
+L["Buff Bar"] = "Buff Bar"
+L["Settings"] = "Settings"
 L["Bar Size"] = "Bar Size"
 L["Height of each buff bar in pixels"] = "Height of each buff bar in pixels"
 L["Texture used for the bar fill"] = "Texture used for the bar fill"
