@@ -2835,6 +2835,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
                             borders[3]:SetWidth(edgeSize); borders[4]:SetWidth(edgeSize)
                             for _, borderTex in ipairs(borders) do
                                 borderTex:SetColorTexture(br, bg, bb, ba)
+                                borderTex:SetAlpha(shouldShow and 1 or 0)
                                 borderTex:SetShown(shouldShow)
                             end
                         end
