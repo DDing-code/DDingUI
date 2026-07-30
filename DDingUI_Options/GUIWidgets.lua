@@ -160,8 +160,10 @@ local function StyleFontString(fontString)
     local globalFontPath = DDingUI:GetGlobalFont()
     local currentFont, size, flags = fontString:GetFont()
 
-    -- Preserve size, default to 12 if not found
-    size = size or 12
+    -- Template-less FontStrings can report an invalid transient height.
+    if type(size) ~= "number" or size <= 0 or size > 96 then
+        size = 12
+    end
 
     -- UF 통일: 그림자 적용 (1, -1)
     flags = ""
@@ -1017,7 +1019,7 @@ local function CreateCustomDropdown(parent, width)
         searchIcon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
         searchIcon:SetVertexColor(SL.GetColor("dim"))
 
-        noSearchResults = listFrame:CreateFontString(nil, "OVERLAY")
+        noSearchResults = listFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         StyleFontString(noSearchResults)
         noSearchResults:SetPoint("TOP", searchEdit, "BOTTOM", 0, -11)
         noSearchResults:SetText(rawget(L, "No search results") or "No search results")
