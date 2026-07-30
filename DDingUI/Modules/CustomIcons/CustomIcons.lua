@@ -3297,6 +3297,20 @@ local function HandleCustomTimedAuraEvent(event, ...)
         spellID = SafeNumber(spellID)
         local changed = false
         local activated = {}
+        if spellID and AURA_EQUIVALENT_IDS[spellID] == BLOODLUST_AURA_IDS then
+            local config = CUSTOM_TIMED_AURA_CONFIGS[2825]
+            local active = runtime.customTimedAuras[2825]
+            if config
+                and CountCustomTimedAuraLinks(2825) > 0
+                and not (active and active.expirationTime and active.expirationTime > GetTime())
+            then
+                RecordTimedAuraDebug(2825, "spellcast", tostring(spellID))
+                local _, didChange = ActivateCustomTimedAura(2825, config, nil, spellID)
+                changed = didChange or changed
+            elseif active and active.expirationTime and active.expirationTime > GetTime() then
+                RecordTimedAuraDebug(2825, "alreadyActive", "spellcast")
+            end
+        end
         local db = GetDynamicDB()
         local iconDataByKey = db and db.iconData
         if spellID and type(iconDataByKey) == "table" then
