@@ -1109,11 +1109,13 @@ function FrameController:ScanCDMViewers()
                         -- 매칭 시 _ddIsManaged 설정 → CDM Layout 훅이 자동으로 뷰어에서 분리
                         if suppressed then
                             local isSuppressed = false
-                            local auraSpellID = icon.auraSpellID
-                            if IsSafeNumber(auraSpellID) and suppressed[auraSpellID] then
-                                isSuppressed = true
-                            elseif suppressed[cooldownID] then
-                                isSuppressed = true
+                            if globalName == "BuffIconCooldownViewer" then
+                                local auraSpellID = icon.auraSpellID
+                                if IsSafeNumber(auraSpellID) and suppressed[auraSpellID] then
+                                    isSuppressed = true
+                                elseif suppressed[cooldownID] then
+                                    isSuppressed = true
+                                end
                             end
                             if isSuppressed then
                                 -- SetAlpha(0) + SetAlpha 훅으로 숨김 (Hide 대신 → OnHide 미발동)
