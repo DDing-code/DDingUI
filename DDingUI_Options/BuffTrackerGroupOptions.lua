@@ -3,6 +3,7 @@ local DDingUI = ns.Addon
 if not DDingUI then return end
 
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
+local LSM = LibStub("LibSharedMedia-3.0")
 local context = ns.BuffTrackerGroupOptionsContext
 if not context then return end
 
@@ -594,6 +595,18 @@ function DDingUI.CreateGroupOptions(groupIdx)
                 order = aOrder + 0.052, width = "double",
                 get = function() return action.soundFile or "" end,
                 set = function(_, val) action.soundFile = val end,
+                hidden = function() return action.type ~= "play_sound" end,
+            }
+            setArgs[p .. "soundPreview"] = {
+                type = "execute",
+                name = rawget(L, "Preview Sound") or "Preview sound",
+                order = aOrder + 0.0525, width = "half",
+                func = function()
+                    local sound = action.soundFile
+                    if not sound or sound == "" then return end
+                    local path = LSM:Fetch("sound", sound, true) or sound
+                    PlaySoundFile(path, action.channel or "Master")
+                end,
                 hidden = function() return action.type ~= "play_sound" end,
             }
             setArgs[p .. "soundChannel"] = {

@@ -1613,6 +1613,7 @@ end
 
 local function BuildSoundContextMenuItem(label, key, Current, ApplySetting)
     local selected = Current()[key] or "none"
+    if selected == "None" then selected = "none" end
     local soundNames = {}
     if LSM and LSM.HashTable then
         for name in pairs(LSM:HashTable("sound") or {}) do
@@ -1623,12 +1624,21 @@ local function BuildSoundContextMenuItem(label, key, Current, ApplySetting)
         table.sort(soundNames)
     end
 
-    local choices = {
-        {
-            text = L["None"] or "None",
-            checked = selected == "none",
-            func = function() ApplySetting(key, nil) end,
-        },
+    local choices = {}
+    if selected ~= "none" then
+        choices[#choices + 1] = {
+            text = "▶ " .. (rawget(L, "Preview Sound") or "Preview sound"),
+            checked = false,
+            func = function()
+                PlayConfiguredSound(selected)
+            end,
+        }
+        choices[#choices + 1] = { isSeparator = true }
+    end
+    choices[#choices + 1] = {
+        text = L["None"] or "None",
+        checked = selected == "none",
+        func = function() ApplySetting(key, nil) end,
     }
     local pageSize = 16
     for first = 1, #soundNames, pageSize do

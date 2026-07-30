@@ -3614,6 +3614,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     -- Sound File (SharedMedia) - LSM:List returns sorted list
     options["tracked" .. index .. "_soundFile"] = {
         type = "select",
+        dialogControl = "LSM30_Sound",
         name = "    " .. (L["Sound"] or "Sound"),
         desc = L["Select a sound to play"] or "Select a sound to play",
         order = orderBase + 1.82,
@@ -6084,6 +6085,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     -- Bar Texture (bar mode only) - LSM:List returns sorted list
     options["tracked" .. index .. "_texture"] = {
         type = "select",
+        dialogControl = "LSM30_Statusbar",
         name = "    " .. (L["Texture"] or "Texture"),
         order = orderBase + 5.91,
         width = 1.0,
@@ -6748,6 +6750,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         -- Sound file select (sound action only)
         actionArgs["soundFile"] = {
             type = "select",
+            dialogControl = "LSM30_Sound",
             name = L["Sound File"] or "Sound File",
             order = 3, width = 0.5,
             hidden = function()

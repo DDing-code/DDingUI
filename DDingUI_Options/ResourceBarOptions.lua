@@ -1147,6 +1147,7 @@ local function CreateResourceBarOptions()
                     },
                     bgTexture = {
                         type = "select",
+                        dialogControl = "LSM30_Statusbar",
                         name = L["Background Texture"] or "배경 텍스쳐",
                         desc = L["Texture for the background of the bar (leave empty for solid color)"] or "바 배경 텍스쳐 (비워두면 단색)",
                         order = 21.5,

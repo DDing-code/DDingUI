@@ -1,6 +1,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
+local LSM = LibStub("LibSharedMedia-3.0")
 
 -- [FIX] WoW 12.0: EasyMenu 제거됨 → MenuUtil 기반 polyfill
 if not EasyMenu and MenuUtil and MenuUtil.CreateContextMenu then
@@ -603,6 +604,70 @@ end
 -- ============================================
 local activeDropdown = nil  -- 현재 열린 드롭다운 트래킹
 
+local function IsMediaFilePath(value)
+    if type(value) ~= "string" then return false end
+    local lower = value:lower()
+    return lower:match("^interface\\")
+        or lower:match("^fonts\\")
+        or lower:match("%.ogg$")
+        or lower:match("%.mp3$")
+        or lower:match("%.wav$")
+        or lower:match("%.ttf$")
+        or lower:match("%.otf$")
+        or lower:match("%.tga$")
+        or lower:match("%.blp$")
+end
+
+local function ResolveOptionMediaType(option, values)
+    local dialogControl = type(option.dialogControl) == "string"
+        and option.dialogControl:lower()
+        or ""
+    if dialogControl:find("font", 1, true) then
+        return "font"
+    elseif dialogControl:find("statusbar", 1, true) then
+        return "statusbar"
+    elseif dialogControl:find("background", 1, true) then
+        return "background"
+    elseif dialogControl:find("border", 1, true) then
+        return "border"
+    elseif dialogControl:find("sound", 1, true) then
+        return "sound"
+    end
+
+    local mediaLists = _G.AceGUIWidgetLSMlists
+    if mediaLists then
+        for _, mediaType in ipairs({ "font", "statusbar", "background", "border", "sound" }) do
+            if values == mediaLists[mediaType] then
+                return mediaType
+            end
+        end
+    end
+    return option.mediaType
+end
+
+local function ResolveMediaPath(mediaType, key, value)
+    if not mediaType or key == nil or key == "" or key == "None" or key == "none" then
+        return nil
+    end
+    local path = LSM and LSM:Fetch(mediaType, key, true)
+    if path then
+        return path
+    end
+    if IsMediaFilePath(value) then
+        return value
+    end
+    return nil
+end
+
+local function IsTextureMedia(mediaType)
+    return mediaType == "statusbar" or mediaType == "background" or mediaType == "border"
+end
+
+local function PlayMediaPreview(path)
+    if not path then return end
+    PlaySoundFile(path, "Master")
+end
+
 local function CreateCustomDropdown(parent, width)
     width = width or 150
     local maxVisibleItems = 10
@@ -630,6 +695,9 @@ local function CreateCustomDropdown(parent, width)
     selectedText:SetTextColor(SL.GetColor("text"))
     selectedText:SetText("Select...")
     dropdown.selectedText = selectedText
+    local selectedFontPath, selectedFontSize, selectedFontFlags = selectedText:GetFont()
+
+    local selectedMediaPreview
 
     -- 화살표 아이콘
     local arrow = dropdown:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -638,6 +706,8 @@ local function CreateCustomDropdown(parent, width)
     arrow:SetText("▼")
     arrow:SetTextColor(SL.GetColor("dim"))
     dropdown.arrow = arrow
+
+    local soundPreviewButton
 
     -- 드롭다운 리스트 프레임
     local listFrame = CreateFrame("Frame", nil, dropdown, "BackdropTemplate")
@@ -711,6 +781,80 @@ local function CreateCustomDropdown(parent, width)
     dropdown.items = {}
     dropdown.currentValue = nil
     dropdown.onValueChanged = nil
+    dropdown.mediaType = nil
+    dropdown.values = nil
+
+    local function EnsureSelectedMediaPreview()
+        if selectedMediaPreview then return selectedMediaPreview end
+        selectedMediaPreview = dropdown:CreateTexture(nil, "ARTWORK")
+        selectedMediaPreview:SetSize(58, 12)
+        selectedMediaPreview:SetPoint("LEFT", dropdown, "LEFT", 7, 0)
+        dropdown.selectedMediaPreview = selectedMediaPreview
+        return selectedMediaPreview
+    end
+
+    local function EnsureSoundPreviewButton()
+        if soundPreviewButton then return soundPreviewButton end
+        soundPreviewButton = CreateFrame("Button", nil, dropdown)
+        soundPreviewButton:SetSize(18, 18)
+        soundPreviewButton:SetPoint("RIGHT", dropdown, "RIGHT", -18, 0)
+        soundPreviewButton.text = soundPreviewButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        StyleFontString(soundPreviewButton.text)
+        soundPreviewButton.text:SetPoint("CENTER", 0, 0)
+        soundPreviewButton.text:SetText("▶")
+        soundPreviewButton.text:SetTextColor(SL.GetColor("dim"))
+        soundPreviewButton:SetScript("OnEnter", function(self)
+            self.text:SetTextColor(SL.GetColor("accent"))
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(rawget(L, "Preview Sound") or "Preview sound")
+            GameTooltip:Show()
+        end)
+        soundPreviewButton:SetScript("OnLeave", function(self)
+            self.text:SetTextColor(SL.GetColor("dim"))
+            GameTooltip:Hide()
+        end)
+        soundPreviewButton:SetScript("OnClick", function()
+            local values = dropdown.values
+            local value = values and values[dropdown.currentValue]
+            PlayMediaPreview(ResolveMediaPath("sound", dropdown.currentValue, value))
+        end)
+        dropdown.soundPreviewButton = soundPreviewButton
+        return soundPreviewButton
+    end
+
+    local function ResetSelectedTextFont()
+        if selectedFontPath then
+            selectedText:SetFont(selectedFontPath, selectedFontSize or 11, selectedFontFlags or "")
+        end
+    end
+
+    local function UpdateSelectedMedia(key, value)
+        if selectedMediaPreview then selectedMediaPreview:Hide() end
+        if soundPreviewButton then soundPreviewButton:Hide() end
+        selectedText:ClearAllPoints()
+        selectedText:SetPoint("LEFT", dropdown, "LEFT", 8, 0)
+        selectedText:SetPoint("RIGHT", dropdown, "RIGHT", -20, 0)
+        ResetSelectedTextFont()
+
+        local mediaType = dropdown.mediaType
+        local path = ResolveMediaPath(mediaType, key, value)
+        if IsTextureMedia(mediaType) and path then
+            selectedMediaPreview = EnsureSelectedMediaPreview()
+            selectedMediaPreview:SetTexture(path)
+            selectedMediaPreview:Show()
+            selectedText:ClearAllPoints()
+            selectedText:SetPoint("LEFT", selectedMediaPreview, "RIGHT", 7, 0)
+            selectedText:SetPoint("RIGHT", dropdown, "RIGHT", -20, 0)
+        elseif mediaType == "font" and path then
+            selectedText:SetFont(path, selectedFontSize or 11, selectedFontFlags or "")
+        elseif mediaType == "sound" and path then
+            soundPreviewButton = EnsureSoundPreviewButton()
+            soundPreviewButton:Show()
+            selectedText:ClearAllPoints()
+            selectedText:SetPoint("LEFT", dropdown, "LEFT", 8, 0)
+            selectedText:SetPoint("RIGHT", dropdown, "RIGHT", -40, 0)
+        end
+    end
 
     -- 스크롤바 위치 업데이트 함수
     local function UpdateScrollbarThumb()
@@ -888,7 +1032,9 @@ local function CreateCustomDropdown(parent, width)
     end)
 
     -- 옵션 설정 함수
-    function dropdown:SetOptions(values, currentKey)
+    function dropdown:SetOptions(values, currentKey, mediaType)
+        self.values = values
+        self.mediaType = mediaType
         -- 기존 아이템을 풀에 보관 (메모리 누수 방지)
         if not self._itemPool then self._itemPool = {} end
         for _, item in ipairs(self.items) do
@@ -900,12 +1046,6 @@ local function CreateCustomDropdown(parent, width)
 
         local yOffset = 2
         local itemCount = 0
-
-        -- Helper to detect if value is a file path (LSM returns paths as values)
-        local function isFilePath(str)
-            if type(str) ~= "string" then return false end
-            return str:match("^Interface\\") or str:match("%.ogg$") or str:match("%.mp3$") or str:match("%.ttf$") or str:match("%.tga$") or str:match("%.blp$")
-        end
 
         -- 키를 정렬해서 ABC 순으로 표시
         local sortedKeys = {}
@@ -920,11 +1060,13 @@ local function CreateCustomDropdown(parent, width)
             local value = values[key]
             -- For LSM HashTables, value is a path - use key (name) as display text
             -- For normal selects, value is the display text
-            local displayText = isFilePath(value) and tostring(key) or value
+            local displayText = IsMediaFilePath(value) and tostring(key) or value
+            displayText = tostring(displayText or key)
             itemCount = itemCount + 1
             local item = self._itemPool and tremove(self._itemPool) or CreateFrame("Button", nil, scrollChild, "BackdropTemplate")
             item:SetParent(scrollChild)
-            item:SetHeight(itemHeight)
+            local rowHeight = mediaType and 24 or itemHeight
+            item:SetHeight(rowHeight)
             item:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 2, -yOffset)
             item:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -2, -yOffset)
 
@@ -933,18 +1075,21 @@ local function CreateCustomDropdown(parent, width)
             })
 
             -- 왼쪽 액센트 바 (선택 표시용) - 보라→파랑 그라데이션
-            local accentBar = item:CreateTexture(nil, "ARTWORK")
-            accentBar:SetWidth(2)
-            accentBar:SetPoint("TOPLEFT", item, "TOPLEFT", 0, 0)
-            accentBar:SetPoint("BOTTOMLEFT", item, "BOTTOMLEFT", 0, 0)
-            accentBar:SetColorTexture(1, 1, 1, 1)
-            local _acR, _acG, _acB = SL.GetColor("accent")
-            local _abR, _abG, _abB = SL.GetColor("accentGradEnd")
-            accentBar:SetGradient("VERTICAL",
-                CreateColor(_abR, _abG, _abB, 1),  -- 파랑 (하)
-                CreateColor(_acR, _acG, _acB, 1)    -- 보라 (상)
-            )
-            item.accentBar = accentBar
+            local accentBar = item.accentBar
+            if not accentBar then
+                accentBar = item:CreateTexture(nil, "ARTWORK")
+                accentBar:SetWidth(2)
+                accentBar:SetPoint("TOPLEFT", item, "TOPLEFT", 0, 0)
+                accentBar:SetPoint("BOTTOMLEFT", item, "BOTTOMLEFT", 0, 0)
+                accentBar:SetColorTexture(1, 1, 1, 1)
+                local _acR, _acG, _acB = SL.GetColor("accent")
+                local _abR, _abG, _abB = SL.GetColor("accentGradEnd")
+                accentBar:SetGradient("VERTICAL",
+                    CreateColor(_abR, _abG, _abB, 1),
+                    CreateColor(_acR, _acG, _acB, 1)
+                )
+                item.accentBar = accentBar
+            end
 
             local isSelected = (key == currentKey)
             if isSelected then
@@ -955,12 +1100,75 @@ local function CreateCustomDropdown(parent, width)
                 accentBar:Hide()
             end
 
-            local itemText = item:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            StyleFontString(itemText)
-            itemText:SetPoint("LEFT", item, "LEFT", 10, 0)  -- 왼쪽 여백 늘림 (액센트 바 공간)
+            local itemText = item.text
+            if not itemText then
+                itemText = item:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                StyleFontString(itemText)
+                item._defaultFontPath, item._defaultFontSize, item._defaultFontFlags = itemText:GetFont()
+                item.text = itemText
+            end
+            itemText:ClearAllPoints()
+            itemText:SetPoint("LEFT", item, "LEFT", 10, 0)
             itemText:SetPoint("RIGHT", item, "RIGHT", -6, 0)
             itemText:SetJustifyH("LEFT")
             itemText:SetText(displayText)
+            if item._defaultFontPath then
+                itemText:SetFont(item._defaultFontPath, item._defaultFontSize or 11, item._defaultFontFlags or "")
+            end
+
+            local mediaPreview = item.mediaPreview
+            if mediaPreview then mediaPreview:Hide() end
+
+            local previewButton = item.previewButton
+            if previewButton then previewButton:Hide() end
+
+            local mediaPath = ResolveMediaPath(mediaType, key, value)
+            item.mediaPath = mediaPath
+            if IsTextureMedia(mediaType) and mediaPath then
+                if not mediaPreview then
+                    mediaPreview = item:CreateTexture(nil, "ARTWORK")
+                    mediaPreview:SetSize(64, 12)
+                    item.mediaPreview = mediaPreview
+                end
+                mediaPreview:ClearAllPoints()
+                mediaPreview:SetPoint("LEFT", item, "LEFT", 10, 0)
+                mediaPreview:SetTexture(mediaPath)
+                mediaPreview:Show()
+                itemText:ClearAllPoints()
+                itemText:SetPoint("LEFT", mediaPreview, "RIGHT", 8, 0)
+                itemText:SetPoint("RIGHT", item, "RIGHT", -6, 0)
+            elseif mediaType == "font" and mediaPath then
+                itemText:SetFont(mediaPath, 12, "")
+            elseif mediaType == "sound" and mediaPath then
+                if not previewButton then
+                    previewButton = CreateFrame("Button", nil, item)
+                    previewButton:SetSize(20, 20)
+                    previewButton:SetPoint("RIGHT", item, "RIGHT", -2, 0)
+                    previewButton.text = previewButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    StyleFontString(previewButton.text)
+                    previewButton.text:SetPoint("CENTER")
+                    previewButton.text:SetText("▶")
+                    previewButton:SetScript("OnEnter", function(self)
+                        self.text:SetTextColor(SL.GetColor("accent"))
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(rawget(L, "Preview Sound") or "Preview sound")
+                        GameTooltip:Show()
+                    end)
+                    previewButton:SetScript("OnLeave", function(self)
+                        self.text:SetTextColor(SL.GetColor("dim"))
+                        GameTooltip:Hide()
+                    end)
+                    previewButton:SetScript("OnClick", function(self)
+                        PlayMediaPreview(self:GetParent().mediaPath)
+                    end)
+                    item.previewButton = previewButton
+                end
+                previewButton.text:SetTextColor(SL.GetColor("dim"))
+                previewButton:Show()
+                itemText:ClearAllPoints()
+                itemText:SetPoint("LEFT", item, "LEFT", 10, 0)
+                itemText:SetPoint("RIGHT", item, "RIGHT", -28, 0)
+            end
 
             if isSelected then
                 itemText:SetTextColor(SL.GetColor("text"))
@@ -970,7 +1178,6 @@ local function CreateCustomDropdown(parent, width)
 
             item.key = key
             item.displayText = displayText
-            item.text = itemText
 
             -- 호버 효과 - 배경만 살짝 밝게
             item:SetScript("OnEnter", function(self)
@@ -993,6 +1200,7 @@ local function CreateCustomDropdown(parent, width)
             item:SetScript("OnClick", function(self)
                 dropdown.currentValue = self.key
                 selectedText:SetText(self.displayText)
+                UpdateSelectedMedia(self.key, values[self.key])
                 listFrame:Hide()
                 if activeDropdown == dropdown then
                     activeDropdown = nil
@@ -1016,7 +1224,7 @@ local function CreateCustomDropdown(parent, width)
             end)
 
             table.insert(self.items, item)
-            yOffset = yOffset + itemHeight
+            yOffset = yOffset + rowHeight
         end
 
         -- 스크롤 자식 높이 설정
@@ -1024,15 +1232,18 @@ local function CreateCustomDropdown(parent, width)
 
         -- 리스트 높이 설정 (최대 maxVisibleItems개)
         local visibleItems = math.min(itemCount, maxVisibleItems)
-        local listHeight = visibleItems * itemHeight + 6
+        local listHeight = visibleItems * (mediaType and 24 or itemHeight) + 6
         listFrame:SetHeight(listHeight)
 
         -- 현재 값 설정
-        if currentKey and values[currentKey] then
+        if currentKey ~= nil and values[currentKey] ~= nil then
             self.currentValue = currentKey
             -- LSM HashTable의 경우 경로가 아닌 이름(key)을 표시
-            local displayText = isFilePath(values[currentKey]) and tostring(currentKey) or values[currentKey]
+            local displayText = IsMediaFilePath(values[currentKey]) and tostring(currentKey) or values[currentKey]
             selectedText:SetText(displayText)
+            UpdateSelectedMedia(currentKey, values[currentKey])
+        else
+            UpdateSelectedMedia(nil, nil)
         end
 
         -- 스크롤바 업데이트 (딜레이)
@@ -1056,6 +1267,7 @@ local function CreateCustomDropdown(parent, width)
         if displayText then
             selectedText:SetText(displayText)
         end
+        UpdateSelectedMedia(key, self.values and self.values[key])
     end
 
     return dropdown
@@ -1745,7 +1957,7 @@ function Widgets.CreateSelect(parent, option, yOffset, optionsTable, optionKey, 
     local currentValue = ResolveMethod(option.get, info)
 
     -- 커스텀 드롭다운에 옵션 설정
-    dropdown:SetOptions(values, currentValue)
+    dropdown:SetOptions(values, currentValue, ResolveOptionMediaType(option, values))
 
     -- 값 변경 콜백 설정
     dropdown.onValueChanged = function(key)
