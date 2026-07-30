@@ -3805,18 +3805,13 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     entry.barFrame._ddingHidden = true
                     entry.barFrame._ddingCooldownID = cooldownID
                 end
-                -- entry.frame도 항상 숨기기 (stale reference 방지)
-                if entry.frame and entry.frame.SetAlpha then
-                    entry.frame:SetAlpha(0)
-                    entry.frame._ddingHidden = true
-                    entry.frame._ddingCooldownID = cooldownID
+                if entry.frame and entry.isAura ~= true
+                    and entry.frame._ddingHidden and entry.frame.SetAlpha
+                then
+                    entry.frame:SetAlpha(1)
+                    entry.frame._ddingHidden = nil
+                    entry.frame._ddingCooldownID = nil
                 end
-            end
-            -- FindFrameByCooldownID로 찾은 frame도 직접 숨기기 (entry 참조와 다를 수 있음)
-            if frame and frame.SetAlpha then
-                frame:SetAlpha(0)
-                frame._ddingHidden = true
-                frame._ddingCooldownID = cooldownID
             end
             -- [12.0.1+FIX] CDM 뷰어 자식 프레임 직접 검색 (항상 커버: 재활용 프레임 방지)
             local viewers = { _G["BuffIconCooldownViewer"], _G["BuffBarCooldownViewer"] }
@@ -5356,16 +5351,13 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                     entry.barFrame._ddingHidden = true
                     entry.barFrame._ddingCooldownID = cooldownID
                 end
-                if entry.frame and entry.frame.SetAlpha then
-                    entry.frame:SetAlpha(0)
-                    entry.frame._ddingHidden = true
-                    entry.frame._ddingCooldownID = cooldownID
+                if entry.frame and entry.isAura ~= true
+                    and entry.frame._ddingHidden and entry.frame.SetAlpha
+                then
+                    entry.frame:SetAlpha(1)
+                    entry.frame._ddingHidden = nil
+                    entry.frame._ddingCooldownID = nil
                 end
-            end
-            if frame and frame.SetAlpha then
-                frame:SetAlpha(0)
-                frame._ddingHidden = true
-                frame._ddingCooldownID = cooldownID
             end
             -- [12.0.1+FIX] CDM 뷰어 자식 프레임 직접 검색 (항상 커버: 재활용 프레임 방지)
             local viewers = { _G["BuffIconCooldownViewer"], _G["BuffBarCooldownViewer"] }
@@ -6028,16 +6020,13 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                     entry.barFrame._ddingHidden = true
                     entry.barFrame._ddingCooldownID = cooldownID
                 end
-                if entry.frame and entry.frame.SetAlpha then
-                    entry.frame:SetAlpha(0)
-                    entry.frame._ddingHidden = true
-                    entry.frame._ddingCooldownID = cooldownID
+                if entry.frame and entry.isAura ~= true
+                    and entry.frame._ddingHidden and entry.frame.SetAlpha
+                then
+                    entry.frame:SetAlpha(1)
+                    entry.frame._ddingHidden = nil
+                    entry.frame._ddingCooldownID = nil
                 end
-            end
-            if frame and frame.SetAlpha then
-                frame:SetAlpha(0)
-                frame._ddingHidden = true
-                frame._ddingCooldownID = cooldownID
             end
             -- [12.0.1+FIX] CDM 뷰어 자식 프레임 직접 검색 (항상 커버: 재활용 프레임 방지)
             local viewers = { _G["BuffIconCooldownViewer"], _G["BuffBarCooldownViewer"] }
