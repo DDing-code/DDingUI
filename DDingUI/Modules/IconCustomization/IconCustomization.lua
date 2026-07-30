@@ -1666,6 +1666,7 @@ local function BuildSoundContextMenuItem(label, key, Current, ApplySetting)
         rightText = selected ~= "none" and selected or (L["None"] or "None"),
         menuList = choices,
         flattenChoices = true,
+        searchable = true,
     }
 end
 

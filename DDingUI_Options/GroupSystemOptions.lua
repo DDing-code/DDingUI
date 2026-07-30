@@ -5013,6 +5013,7 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
                         name = item.text,
                         order = order,
                         width = "full",
+                        searchable = capturedItem.searchable == true,
                         values = values,
                         sorting = function()
                             local keys = {}

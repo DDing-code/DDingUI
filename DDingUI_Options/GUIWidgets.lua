@@ -783,6 +783,10 @@ local function CreateCustomDropdown(parent, width)
     dropdown.onValueChanged = nil
     dropdown.mediaType = nil
     dropdown.values = nil
+    dropdown.searchable = false
+    local searchEdit
+    local searchPlaceholder
+    local noSearchResults
 
     local function EnsureSelectedMediaPreview()
         if selectedMediaPreview then return selectedMediaPreview end
@@ -976,6 +980,152 @@ local function CreateCustomDropdown(parent, width)
 
     dropdown.UpdateScrollbarThumb = UpdateScrollbarThumb
 
+    local SEARCH_HEIGHT = 24
+    local SEARCH_INSET = SEARCH_HEIGHT + 8
+
+    local function EnsureSearchBox()
+        if searchEdit then return searchEdit end
+
+        searchEdit = CreateFrame("EditBox", nil, listFrame, "BackdropTemplate")
+        searchEdit:SetHeight(SEARCH_HEIGHT)
+        searchEdit:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 4, -4)
+        searchEdit:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT", -4, -4)
+        searchEdit:SetFrameLevel(listFrame:GetFrameLevel() + 5)
+        searchEdit:SetBackdrop({
+            bgFile = FLAT,
+            edgeFile = FLAT,
+            edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 },
+        })
+        searchEdit:SetBackdropColor(0, 0, 0, 0.45)
+        searchEdit:SetBackdropBorderColor(SL.GetColor("border"))
+        searchEdit:SetAutoFocus(false)
+        searchEdit:SetMaxLetters(60)
+        searchEdit:SetTextInsets(7, 24, 0, 0)
+        searchEdit:SetTextColor(SL.GetColor("text"))
+        searchEdit:SetJustifyH("LEFT")
+        local searchFont = DDingUI:GetGlobalFont() or globalFontPath
+        searchEdit:SetFont(searchFont, 11, "")
+
+        searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
+        searchPlaceholder:SetFont(searchFont, 11, "")
+        searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 7, 0)
+        searchPlaceholder:SetText(rawget(L, "Search...") or "Search...")
+        searchPlaceholder:SetTextColor(SL.GetColor("dim"))
+
+        local searchIcon = searchEdit:CreateTexture(nil, "OVERLAY")
+        searchIcon:SetSize(13, 13)
+        searchIcon:SetPoint("RIGHT", searchEdit, "RIGHT", -7, 0)
+        searchIcon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+        searchIcon:SetVertexColor(SL.GetColor("dim"))
+
+        noSearchResults = listFrame:CreateFontString(nil, "OVERLAY")
+        StyleFontString(noSearchResults)
+        noSearchResults:SetPoint("TOP", searchEdit, "BOTTOM", 0, -11)
+        noSearchResults:SetText(rawget(L, "No search results") or "No search results")
+        noSearchResults:SetTextColor(SL.GetColor("dim"))
+        noSearchResults:Hide()
+
+        searchEdit:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(SL.GetColor("accent"))
+        end)
+        searchEdit:SetScript("OnLeave", function(self)
+            if not self:HasFocus() then
+                self:SetBackdropBorderColor(SL.GetColor("border"))
+            end
+        end)
+        searchEdit:SetScript("OnEditFocusGained", function(self)
+            self:SetBackdropBorderColor(SL.GetColor("accent"))
+        end)
+        searchEdit:SetScript("OnEditFocusLost", function(self)
+            self:SetBackdropBorderColor(SL.GetColor("border"))
+        end)
+        searchEdit:SetScript("OnEscapePressed", function(self)
+            if self:GetText() ~= "" then
+                self:SetText("")
+            else
+                self:ClearFocus()
+            end
+        end)
+        searchEdit:SetScript("OnEnterPressed", function()
+            for _, item in ipairs(dropdown.items) do
+                if item:IsShown() then
+                    item:Click()
+                    return
+                end
+            end
+        end)
+        searchEdit:SetScript("OnTextChanged", function(self)
+            if searchPlaceholder then
+                searchPlaceholder:SetShown(self:GetText() == "")
+            end
+            if dropdown.ApplyFilter then
+                dropdown:ApplyFilter(self:GetText())
+            end
+        end)
+        dropdown.searchEdit = searchEdit
+        return searchEdit
+    end
+
+    local function ConfigureSearch(enabled)
+        dropdown.searchable = enabled == true
+
+        scrollFrame:ClearAllPoints()
+        scrollbarTrack:ClearAllPoints()
+        if dropdown.searchable then
+            EnsureSearchBox():Show()
+            scrollFrame:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 2, -SEARCH_INSET)
+            scrollbarTrack:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT", -2, -SEARCH_INSET)
+        else
+            if searchEdit then
+                searchEdit:ClearFocus()
+                searchEdit:Hide()
+            end
+            if noSearchResults then noSearchResults:Hide() end
+            scrollFrame:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 2, -2)
+            scrollbarTrack:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT", -2, -2)
+        end
+        scrollFrame:SetPoint("BOTTOMRIGHT", listFrame, "BOTTOMRIGHT", -2 - scrollbarWidth - 2, 2)
+        scrollbarTrack:SetPoint("BOTTOMRIGHT", listFrame, "BOTTOMRIGHT", -2, 2)
+    end
+
+    function dropdown:ApplyFilter(rawQuery)
+        local query = tostring(rawQuery or ""):lower()
+        query = query:match("^%s*(.-)%s*$") or ""
+        local yOffset = 2
+        local visibleCount = 0
+
+        for _, item in ipairs(self.items) do
+            local matches = query == ""
+                or (item.searchText and item.searchText:find(query, 1, true) ~= nil)
+            item:ClearAllPoints()
+            if matches then
+                item:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 2, -yOffset)
+                item:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -2, -yOffset)
+                item:Show()
+                yOffset = yOffset + item:GetHeight()
+                visibleCount = visibleCount + 1
+            else
+                item:Hide()
+            end
+        end
+
+        scrollChild:SetHeight(math.max(1, yOffset + 2))
+        local visibleRows = math.min(visibleCount, maxVisibleItems)
+        local rowHeight = self.mediaType and 24 or itemHeight
+        local emptyRows = self.searchable and visibleCount == 0 and 1 or 0
+        local listHeight = (self.searchable and SEARCH_INSET or 0)
+            + math.max(visibleRows, emptyRows) * rowHeight
+            + 6
+        listFrame:SetHeight(math.max(6, listHeight))
+        if noSearchResults then
+            noSearchResults:SetShown(self.searchable and visibleCount == 0)
+        end
+
+        scrollFrame:SetVerticalScroll(0)
+        UpdateScrollbarThumb()
+    end
+
     -- 호버 효과
     dropdown:EnableMouse(true)
     dropdown:SetScript("OnEnter", function(self)
@@ -1009,11 +1159,24 @@ local function CreateCustomDropdown(parent, width)
     listFrame:SetScript("OnHide", function()
         dropdown:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
         arrow:SetTextColor(SL.GetColor("dim"))
+        if searchEdit then searchEdit:ClearFocus() end
     end)
 
     -- 외부 클릭 시 닫기
     listFrame:SetScript("OnShow", function(self)
         scrollFrame:SetVerticalScroll(0)
+        if dropdown.searchable and searchEdit then
+            if searchEdit:GetText() ~= "" then
+                searchEdit:SetText("")
+            elseif dropdown.ApplyFilter then
+                dropdown:ApplyFilter("")
+            end
+            C_Timer.After(0, function()
+                if self:IsShown() and searchEdit:IsShown() then
+                    searchEdit:SetFocus()
+                end
+            end)
+        end
         C_Timer.After(0.01, function()
             if dropdown.UpdateScrollbarThumb then
                 dropdown.UpdateScrollbarThumb()
@@ -1032,9 +1195,11 @@ local function CreateCustomDropdown(parent, width)
     end)
 
     -- 옵션 설정 함수
-    function dropdown:SetOptions(values, currentKey, mediaType)
+    function dropdown:SetOptions(values, currentKey, mediaType, searchable)
         self.values = values
         self.mediaType = mediaType
+        self.currentValue = currentKey
+        ConfigureSearch(mediaType ~= nil or searchable == true)
         -- 기존 아이템을 풀에 보관 (메모리 누수 방지)
         if not self._itemPool then self._itemPool = {} end
         for _, item in ipairs(self.items) do
@@ -1043,9 +1208,6 @@ local function CreateCustomDropdown(parent, width)
             tinsert(self._itemPool, item)
         end
         wipe(self.items)
-
-        local yOffset = 2
-        local itemCount = 0
 
         -- 키를 정렬해서 ABC 순으로 표시
         local sortedKeys = {}
@@ -1062,13 +1224,10 @@ local function CreateCustomDropdown(parent, width)
             -- For normal selects, value is the display text
             local displayText = IsMediaFilePath(value) and tostring(key) or value
             displayText = tostring(displayText or key)
-            itemCount = itemCount + 1
             local item = self._itemPool and tremove(self._itemPool) or CreateFrame("Button", nil, scrollChild, "BackdropTemplate")
             item:SetParent(scrollChild)
             local rowHeight = mediaType and 24 or itemHeight
             item:SetHeight(rowHeight)
-            item:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 2, -yOffset)
-            item:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -2, -yOffset)
 
             item:SetBackdrop({
                 bgFile = FLAT,
@@ -1178,6 +1337,7 @@ local function CreateCustomDropdown(parent, width)
 
             item.key = key
             item.displayText = displayText
+            item.searchText = (displayText .. " " .. tostring(key)):lower()
 
             -- 호버 효과 - 배경만 살짝 밝게
             item:SetScript("OnEnter", function(self)
@@ -1224,16 +1384,9 @@ local function CreateCustomDropdown(parent, width)
             end)
 
             table.insert(self.items, item)
-            yOffset = yOffset + rowHeight
         end
 
-        -- 스크롤 자식 높이 설정
-        scrollChild:SetHeight(yOffset + 2)
-
-        -- 리스트 높이 설정 (최대 maxVisibleItems개)
-        local visibleItems = math.min(itemCount, maxVisibleItems)
-        local listHeight = visibleItems * (mediaType and 24 or itemHeight) + 6
-        listFrame:SetHeight(listHeight)
+        self:ApplyFilter(self.searchable and searchEdit and searchEdit:GetText() or "")
 
         -- 현재 값 설정
         if currentKey ~= nil and values[currentKey] ~= nil then
@@ -1957,7 +2110,12 @@ function Widgets.CreateSelect(parent, option, yOffset, optionsTable, optionKey, 
     local currentValue = ResolveMethod(option.get, info)
 
     -- 커스텀 드롭다운에 옵션 설정
-    dropdown:SetOptions(values, currentValue, ResolveOptionMediaType(option, values))
+    dropdown:SetOptions(
+        values,
+        currentValue,
+        ResolveOptionMediaType(option, values),
+        option.searchable == true
+    )
 
     -- 값 변경 콜백 설정
     dropdown.onValueChanged = function(key)
