@@ -1860,7 +1860,8 @@ end
 local function SetIconPosition(icon, container, x, y, motionSettings)
     -- 위치 동일하면 skip → ClearAllPoints 깜빡임 방지
     -- [REPARENT] GetParent() → _ddContainerRef (parent는 UIParent)
-    if icon._ddTargetPoint == "CENTER"
+    if not icon._ddTransitionEntering and not icon._ddTransitionHidden
+       and icon._ddTargetPoint == "CENTER"
        and icon._ddTargetX == x and icon._ddTargetY == y
        and icon._ddContainerRef == container
        and icon._ddCurrentContainer == container
@@ -1899,7 +1900,7 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
     icon._ddTargetY = y
 
     local duration = motionSettings and tonumber(motionSettings.duration) or ICON_MOTION_DEFAULT_DURATION
-    local shouldFadeIn = not hasCurrentPosition or icon._ddTransitionHidden
+    local shouldFadeIn = icon._ddTransitionEntering or icon._ddTransitionHidden
     if shouldFadeIn
         and duration > 0.01
         and CanRunIconTransition(
@@ -1907,6 +1908,7 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
             motionSettings and motionSettings.fadeInDirection
         )
     then
+        icon._ddTransitionEntering = nil
         icon._ddTransitionHidden = nil
         local distance = math_max(
             tonumber(icon._ddTargetWidth) or (icon.GetWidth and icon:GetWidth()) or 1,
@@ -1932,6 +1934,7 @@ local function SetIconPosition(icon, container, x, y, motionSettings)
         })
         return
     end
+    icon._ddTransitionEntering = nil
     icon._ddTransitionHidden = nil
 
     local canAnimate = motionSettings and motionSettings.positionEnabled
@@ -2535,6 +2538,12 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     local newSet = {}
     local combinedList = {}
     local activeCDMTokens = {}
+    local previousManagedSet = {}
+    for _, managedIcon in pairs(frame._managedIcons or {}) do
+        if managedIcon then
+            previousManagedSet[managedIcon] = true
+        end
+    end
 
     -- CDM icons stay in their source group; dynamic icons are additions.
     -- 1. CDM icons
@@ -2614,6 +2623,15 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             end
         end
     end
+
+    -- Membership changes drive entry fades; cache invalidation and stack updates do not.
+    for _, entry in ipairs(combinedList) do
+        local icon = entry and entry.icon
+        if icon and not previousManagedSet[icon] then
+            icon._ddTransitionEntering = true
+        end
+    end
+
     if not inCombat and frame._ddDeferredReleaseIcons then
         for iconKey, icon in pairs(frame._ddDeferredReleaseIcons) do
             if icon and not newSet[icon] then
