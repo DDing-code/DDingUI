@@ -1208,7 +1208,7 @@ function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
         self.RestoreActiveIconVisual(frame)
     end
     if mode == "on" then
-        self:SetTrackedTrinketEffectGlow(frame, procActive, custom)
+        self:StopTrackedTrinketEffectGlow(frame)
         return
     end
     if mode == "off" or (custom and custom.activeGlow == true) then
@@ -1274,7 +1274,7 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
     local shouldGlow = false
     if settings then
         if settings.procGlowMode == "on" and procActive then
-            shouldGlow = false
+            shouldGlow = true
         elseif settings.activeGlow == true and active then
             shouldGlow = true
         elseif settings.maxChargesGlow == true and frame._ddCustomIconAtMaxCharges == true then
@@ -2847,6 +2847,17 @@ function CustomIcons:GetActiveCustomTimedAuraForIcon(iconData)
     return GetActiveCustomTimedAura(iconData)
 end
 
+function CustomIcons:RefreshTrackedTrinketEffectIcons()
+    local db = GetDynamicDB()
+    for iconKey, iconData in pairs((db and db.iconData) or {}) do
+        if iconData and iconData.settings and iconData.settings.trackTrinketEffect == true
+            and runtime.UpdateDynamicIcon
+        then
+            runtime.UpdateDynamicIcon(iconKey)
+        end
+    end
+end
+
 function CustomIcons:ActivateExternalTimedAura(stateID, duration, iconTexture, stacks, startTime)
     stateID = tonumber(stateID)
     duration = tonumber(duration)
@@ -2857,13 +2868,20 @@ function CustomIcons:ActivateExternalTimedAura(stateID, duration, iconTexture, s
         trigger = "trinket_effect",
         iconTexture = iconTexture,
     }, startTime, stateID, { stacks = stacks })
+    if changed then
+        self:RefreshTrackedTrinketEffectIcons()
+    end
     return changed == true
 end
 
 function CustomIcons:DeactivateExternalTimedAura(stateID)
     stateID = tonumber(stateID)
     if not stateID then return false end
-    return DeactivateCustomTimedAura(stateID)
+    local changed = DeactivateCustomTimedAura(stateID)
+    if changed then
+        self:RefreshTrackedTrinketEffectIcons()
+    end
+    return changed
 end
 
 function CustomIcons:IsCustomTimedAuraIcon(iconData)
