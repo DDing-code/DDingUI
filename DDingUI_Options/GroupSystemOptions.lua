@@ -3743,14 +3743,17 @@ function DDingUI:BuildAssignedIconSettingsItems(groupName, opt, glowOnly)
         end
     elseif opt._gridKind == "cdm" and opt._gridViewerType == "Buff" then
         onSettingsChanged = function(settings)
-            if type(settings) ~= "table" or settings.alwaysShow ~= "on" then return end
-            local token = opt._dragData and opt._dragData.iconKey
-                or MakeCDMOrderToken(opt._gridSpellName)
-            if not token then return end
-            local ordered, seen = SnapshotGroupOrderTokens(groupName)
-            if not seen[token] then
-                AppendGroupOrderToken(groupName, ordered, token)
+            if type(settings) == "table" and settings.alwaysShow == "on" then
+                local token = opt._dragData and opt._dragData.iconKey
+                    or MakeCDMOrderToken(opt._gridSpellName)
+                if token then
+                    local ordered, seen = SnapshotGroupOrderTokens(groupName)
+                    if not seen[token] then
+                        AppendGroupOrderToken(groupName, ordered, token)
+                    end
+                end
             end
+            RefreshGroupSystem()
         end
     end
     local customItems

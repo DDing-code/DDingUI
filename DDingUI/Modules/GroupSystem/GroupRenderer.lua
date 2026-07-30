@@ -2552,7 +2552,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
         if placement then
             newSet[placement.icon] = true
             combinedList[#combinedList + 1] = placement
-            if placement._ddOrderToken then
+            if placement._ddOrderToken and placement.sourceVisible ~= false then
                 activeCDMTokens[placement._ddOrderToken] = true
             end
         end
