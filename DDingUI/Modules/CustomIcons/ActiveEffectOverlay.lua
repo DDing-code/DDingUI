@@ -117,6 +117,15 @@ local function GetActiveEffectDuration(iconData)
     return GetConfiguredDuration(iconData) or GetProcDuration(iconData)
 end
 
+local function GetDisplayMode(iconData)
+    local settings = type(iconData) == "table" and iconData.settings
+    local mode = type(settings) == "table" and settings.activeEffectDisplayMode
+    if mode == "swipe" or mode == "glow" or mode == "hidden" then
+        return mode
+    end
+    return "both"
+end
+
 local function AddTrigger(spellID, iconKey)
     if not IsPublicNumber(spellID) or not iconKey then return false end
     local icons = triggerMap[spellID]
@@ -377,6 +386,16 @@ function ActiveEffectOverlay:SupportsActiveEffect(itemID, settings)
     return GetActiveEffectDuration({ type = "item", id = itemID, settings = settings }) ~= nil
 end
 
+function ActiveEffectOverlay:ShouldShowSwipe(iconData)
+    local mode = GetDisplayMode(iconData)
+    return mode == "both" or mode == "swipe"
+end
+
+function ActiveEffectOverlay:ShouldShowGlow(iconData)
+    local mode = GetDisplayMode(iconData)
+    return mode == "both" or mode == "glow"
+end
+
 function ActiveEffectOverlay:IsProcActive(iconData)
     if type(iconData) ~= "table" then return false end
     local state = states[iconData.key]
@@ -533,11 +552,19 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
     frame._ddCustomIconReady = false
     SyncFrameLevels(frame, overlay)
     CopyIconTexture(frame, overlay)
-    local r, g, b, a = ResolveColor(settings)
+    local displayMode = GetDisplayMode(iconData)
+    local r, g, b, a
+    if self:ShouldShowSwipe(iconData) then
+        r, g, b, a = ResolveColor(settings)
+    end
     if r then
         overlay.cooldown:SetDrawSwipe(true)
         overlay.cooldown:SetSwipeColor(r, g, b, a)
+    else
+        overlay.cooldown:SetDrawSwipe(false)
     end
+    overlay.icon:SetAlpha(r and 1 or 0)
+    overlay.cooldown:SetAlpha(r and 1 or 0)
     if overlay.token ~= state.token then
         overlay.token = state.token
         overlay.cooldown:SetCooldown(state.startTime, state.duration)
@@ -557,7 +584,7 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
             end
         end)
     end
-    overlay.frame:SetAlpha(r and 1 or 0)
+    overlay.frame:SetAlpha(displayMode == "hidden" and 0 or 1)
 end
 
 function ActiveEffectOverlay:SyncTextStyle(frame, iconData)

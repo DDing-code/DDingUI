@@ -2108,11 +2108,12 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     iconData.settings = iconData.settings or {}
 
     local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
+    local isItemActiveEffect = iconData.type == "item"
+        and activeEffectOverlay
+        and activeEffectOverlay:SupportsActiveEffect(iconData.id, iconData.settings)
     local supportsActiveState = iconData.type == "aura"
         or iconData.type == "trinketProc"
-        or (iconData.type == "item"
-            and activeEffectOverlay
-            and activeEffectOverlay:SupportsActiveEffect(iconData.id, iconData.settings))
+        or isItemActiveEffect
     local isRacialIcon = iconData.type == "racial"
         or (DDingUI.CustomIcons
             and DDingUI.CustomIcons.IsCurrentRacialSpellIcon
@@ -2197,6 +2198,15 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
 
     local function ApplyStateSetting(key, value)
         iconData.settings[key] = value
+        if key == "activeEffectDisplayMode" and (value == "both" or value == "glow") then
+            local custom = iconData.settings.customStateGlow
+            if type(custom) == "table" and custom.procGlowMode == "off" then
+                custom.procGlowMode = nil
+                if next(custom) == nil then
+                    iconData.settings.customStateGlow = nil
+                end
+            end
+        end
         Refresh()
         if (key == "alwaysShow" or key == "desatInactive" or key == "inactiveAlpha" or key == "hideWhenEmpty")
             and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged
@@ -2283,8 +2293,23 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     end
     if supportsActiveState then
         stateItems[#stateItems + 1] = { isSeparator = true }
+        if isItemActiveEffect then
+            stateItems[#stateItems + 1] = StateChoice(
+                L["Active Effect Display"] or "Active Effect Display",
+                "activeEffectDisplayMode",
+                {
+                    { "inherit", L["Default"] or "Default" },
+                    { "both", L["Swipe and Glow"] or "Swipe and Glow" },
+                    { "swipe", L["Swipe Only"] or "Swipe Only" },
+                    { "glow", L["Glow Only"] or "Glow Only" },
+                    { "hidden", L["Hide Active Effect"] or "Hide Active Effect" },
+                }
+            )
+        end
         stateItems[#stateItems + 1] = StateChoice(
-            L["Active State"] or "Active State",
+            isItemActiveEffect
+                and (L["Active Swipe"] or "Active Swipe")
+                or (L["Active State"] or "Active State"),
             "activeSwipeMode",
             {
                 { "inherit", L["Default"] or "Default" },

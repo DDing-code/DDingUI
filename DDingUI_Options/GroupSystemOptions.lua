@@ -3796,6 +3796,7 @@ function DDingUI:ResetDynamicAssignedIconSettings(opt)
         "showProcDuration",
         "showProcStacks",
         "showItemCooldown",
+        "activeEffectDisplayMode",
         "activeSwipeMode",
         "activeSwipeColor",
         "activeBorderEnabled",

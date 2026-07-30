@@ -973,13 +973,13 @@ function CustomIcons:StopTrackedTrinketEffectGlow(frame)
     frame._ddTrinketEffectGlowTarget = nil
 end
 
-function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheritedStyle)
+function CustomIcons:SetTrackedTrinketEffectGlow(frame, active, iconGlow, inheritedStyle, forceGlow)
     local settings = frame and frame._groupSettings or {}
     local useIconGlow = type(iconGlow) == "table"
     local useAuraGlow = not useIconGlow and settings.auraGlow == true
-    local glowEnabled = useIconGlow or useAuraGlow or settings.procGlowEnabled ~= false
+    local glowEnabled = forceGlow or useIconGlow or useAuraGlow or settings.procGlowEnabled ~= false
     if not active or not glowEnabled
-        or (not useIconGlow and settings.hideActiveState == true)
+        or (not forceGlow and not useIconGlow and settings.hideActiveState == true)
         or (not useIconGlow and CustomIcons.ManagedVisualLocked(frame))
     then
         self:StopTrackedTrinketEffectGlow(frame)
@@ -1189,6 +1189,20 @@ end
 function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     local custom = iconData and iconData.settings and iconData.settings.customStateGlow
     local mode = custom and custom.procGlowMode
+    local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
+    local isItemActiveEffect = iconData and iconData.type == "item"
+        and activeEffectOverlay
+        and activeEffectOverlay.SupportsActiveEffect
+        and activeEffectOverlay:SupportsActiveEffect(iconData.id, iconData.settings)
+    if isItemActiveEffect
+        and activeEffectOverlay.ShouldShowGlow
+        and not activeEffectOverlay:ShouldShowGlow(iconData)
+    then
+        self:StopTrackedTrinketEffectGlow(frame)
+        return
+    end
+    local displayMode = isItemActiveEffect and iconData.settings.activeEffectDisplayMode
+    local forceGlow = displayMode == "both" or displayMode == "glow"
     local hasStyleOverride = custom and (
         custom.glowType ~= nil
         or custom.glowColorMode ~= nil
@@ -1207,6 +1221,12 @@ function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
         frame._ddCombatVisible = nil
         self.RestoreActiveIconVisual(frame)
     end
+    if isItemActiveEffect and custom
+        and (mode == "on" or custom.activeGlow == true)
+    then
+        self:SetTrackedTrinketEffectGlow(frame, procActive, custom, nil, forceGlow)
+        return
+    end
     if mode == "on" then
         self:StopTrackedTrinketEffectGlow(frame)
         return
@@ -1215,7 +1235,13 @@ function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
         self:StopTrackedTrinketEffectGlow(frame)
         return
     end
-    self:SetTrackedTrinketEffectGlow(frame, procActive, nil, hasStyleOverride and custom or nil)
+    self:SetTrackedTrinketEffectGlow(
+        frame,
+        procActive,
+        nil,
+        hasStyleOverride and custom or nil,
+        forceGlow
+    )
 end
 
 function CustomIcons:ApplyActiveTrinketEffectState(iconFrame, state, settings)
@@ -1275,15 +1301,20 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
     local customizer = DDingUI.IconCustomization
     if not customizer or not customizer.UpdateDynamicIconGlow then return end
     local settings = iconData and iconData.settings and iconData.settings.customStateGlow
+    local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
+    local isItemActiveEffect = iconData and iconData.type == "item"
+        and activeEffectOverlay
+        and activeEffectOverlay.SupportsActiveEffect
+        and activeEffectOverlay:SupportsActiveEffect(iconData.id, iconData.settings)
     local active = frame._ddCustomIconActive == true
     local procActive = frame._ddCustomIconProcActive == true
     local ready = frame._ddCustomIconReady == true
     local shouldGlow = false
     if settings then
         if settings.procGlowMode == "on" and procActive then
-            shouldGlow = true
+            shouldGlow = not isItemActiveEffect
         elseif settings.activeGlow == true and active then
-            shouldGlow = true
+            shouldGlow = not isItemActiveEffect
         elseif settings.maxChargesGlow == true and frame._ddCustomIconAtMaxCharges == true then
             shouldGlow = true
         elseif settings.cooldownReadyGlow == true and ready then
