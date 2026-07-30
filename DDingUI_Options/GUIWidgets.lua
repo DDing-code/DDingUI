@@ -849,8 +849,6 @@ local function CreateCustomDropdown(parent, width)
             selectedText:ClearAllPoints()
             selectedText:SetPoint("LEFT", selectedMediaPreview, "RIGHT", 7, 0)
             selectedText:SetPoint("RIGHT", dropdown, "RIGHT", -20, 0)
-        elseif mediaType == "font" and path then
-            selectedText:SetFont(path, selectedFontSize or 11, selectedFontFlags or "")
         elseif mediaType == "sound" and path then
             soundPreviewButton = EnsureSoundPreviewButton()
             soundPreviewButton:Show()
@@ -1278,6 +1276,9 @@ local function CreateCustomDropdown(parent, width)
             local mediaPreview = item.mediaPreview
             if mediaPreview then mediaPreview:Hide() end
 
+            local fontPreview = item.fontPreview
+            if fontPreview then fontPreview:Hide() end
+
             local previewButton = item.previewButton
             if previewButton then previewButton:Hide() end
 
@@ -1296,8 +1297,39 @@ local function CreateCustomDropdown(parent, width)
                 itemText:ClearAllPoints()
                 itemText:SetPoint("LEFT", mediaPreview, "RIGHT", 8, 0)
                 itemText:SetPoint("RIGHT", item, "RIGHT", -6, 0)
-            elseif mediaType == "font" and mediaPath then
-                itemText:SetFont(mediaPath, 12, "")
+            elseif mediaType == "font" then
+                if not fontPreview then
+                    fontPreview = item:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    StyleFontString(fontPreview)
+                    fontPreview:SetJustifyH("RIGHT")
+                    fontPreview:SetWordWrap(false)
+                    fontPreview:SetWidth(68)
+                    item.fontPreview = fontPreview
+                    item._fontPreviewFallbackPath, item._fontPreviewFallbackSize,
+                        item._fontPreviewFallbackFlags = fontPreview:GetFont()
+                end
+                fontPreview:ClearAllPoints()
+                fontPreview:SetPoint("RIGHT", item, "RIGHT", -6, 0)
+                local fontApplied = mediaPath and fontPreview:SetFont(mediaPath, 13, "")
+                if fontApplied then
+                    fontPreview:SetText("Ag 123")
+                    fontPreview:SetTextColor(SL.GetColor("text"))
+                else
+                    local fallbackPath = item._fontPreviewFallbackPath
+                    if fallbackPath then
+                        fontPreview:SetFont(
+                            fallbackPath,
+                            item._fontPreviewFallbackSize or 11,
+                            item._fontPreviewFallbackFlags or ""
+                        )
+                    end
+                    fontPreview:SetText("--")
+                    fontPreview:SetTextColor(SL.GetColor("dim"))
+                end
+                fontPreview:Show()
+                itemText:ClearAllPoints()
+                itemText:SetPoint("LEFT", item, "LEFT", 10, 0)
+                itemText:SetPoint("RIGHT", fontPreview, "LEFT", -8, 0)
             elseif mediaType == "sound" and mediaPath then
                 if not previewButton then
                     previewButton = CreateFrame("Button", nil, item)
