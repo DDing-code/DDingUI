@@ -407,6 +407,10 @@ function ActiveEffectOverlay:IsProcActive(iconData)
     return state ~= nil and state.expirationTime > GetTime()
 end
 
+function ActiveEffectOverlay:ShouldSuppressBaseCooldown(iconData)
+    return GetDisplayMode(iconData) ~= "hidden" and self:IsProcActive(iconData)
+end
+
 function ActiveEffectOverlay:GetDefaultDuration(itemID, settings)
     local duration
     ForEachItemID({ id = itemID, settings = settings }, function(candidateID)
@@ -558,6 +562,10 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
     SyncFrameLevels(frame, overlay)
     CopyIconTexture(frame, overlay)
     local displayMode = GetDisplayMode(iconData)
+    local baseCooldown = frame.cooldown or frame.Cooldown
+    if displayMode ~= "hidden" and baseCooldown and baseCooldown.Hide then
+        baseCooldown:Hide()
+    end
     local showDuration = self:ShouldShowDuration(iconData)
     local r, g, b, a
     if self:ShouldShowSwipe(iconData) then

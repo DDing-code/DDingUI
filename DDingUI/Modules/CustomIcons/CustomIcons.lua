@@ -1932,6 +1932,10 @@ local function UpdateItemIcon(iconFrame, iconData)
     if not itemID or not iconFrame then return end
     CustomIcons.RestoreActiveIconVisual(iconFrame)
     local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
+    local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
+    local activeEffectOwnsCooldown = activeEffectOverlay
+        and activeEffectOverlay.ShouldSuppressBaseCooldown
+        and activeEffectOverlay:ShouldSuppressBaseCooldown(iconData)
 
     local settings = iconData.settings
     local includeCharges = settings and settings.showCharges
@@ -2037,7 +2041,9 @@ local function UpdateItemIcon(iconFrame, iconData)
 
     -- 쿨다운 프레임 Show/Hide
     if not managedVisualLocked then
-        if iconData.settings and iconData.settings.showCooldown == false then
+        if activeEffectOwnsCooldown then
+            iconFrame.cooldown:Hide()
+        elseif iconData.settings and iconData.settings.showCooldown == false then
             iconFrame.cooldown:Hide()
         elseif itemCooldownActive or itemSpellCooldownActive then
             iconFrame.cooldown:Show()
@@ -2066,7 +2072,9 @@ local function UpdateItemIcon(iconFrame, iconData)
     -- [FIX] OnUpdate 진입 조건: cdInfo.isActive (safe boolean) 사용 — secret number 비교 금지
     local itemIsOnRealCD = false
 
-    if itemCombatLocked then
+    if activeEffectOwnsCooldown then
+        desatVal = 0
+    elseif itemCombatLocked then
         if iconFrame.cooldown then
             iconFrame.cooldown:Clear()
         end
@@ -2104,7 +2112,8 @@ local function UpdateItemIcon(iconFrame, iconData)
         iconFrame.icon:SetAlpha(1.0)
     end
     iconFrame._ddCustomIconActive = false
-    iconFrame._ddCustomIconReady = not itemCombatLocked
+    iconFrame._ddCustomIconReady = not activeEffectOwnsCooldown
+        and not itemCombatLocked
         and not itemCooldownActive
         and not itemSpellCooldownActive
         and not showEmptyItem
