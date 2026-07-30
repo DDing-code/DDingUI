@@ -289,6 +289,9 @@ local function HasTrackedEffectIcons()
     local dynamicIcons = profile and profile.dynamicIcons
     for _, iconData in pairs((dynamicIcons and dynamicIcons.iconData) or {}) do
         local settings = iconData and iconData.settings
+        if iconData and iconData.type == "trinketProc" then
+            return true
+        end
         if settings and (
             settings.trackTrinketEffect == true
             or specsByKey[settings.trinketEffectKey] ~= nil

@@ -1218,24 +1218,9 @@ function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     self:SetTrackedTrinketEffectGlow(frame, procActive, nil, hasStyleOverride and custom or nil)
 end
 
-function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
-    if iconFrame then
-        iconFrame._ddCustomIconActive = false
-        iconFrame._ddCustomIconProcActive = false
-    end
-    local settings = iconData and iconData.settings
-    local registry = DDingUI.TrinketEffects
-    if not settings or settings.trackTrinketEffect ~= true
-        or not registry or not registry.GetActiveEffectForItem
-    then
-        return false
-    end
-
-    local state = registry:GetActiveEffectForItem(itemID)
-    if not state then
-        return false
-    end
-
+function CustomIcons:ApplyActiveTrinketEffectState(iconFrame, state, settings)
+    if not iconFrame or not state then return false end
+    settings = settings or {}
     iconFrame._ddInactiveGray = nil
     iconFrame._ddForcedInactiveGray = nil
     iconFrame._ddInactiveAlpha = nil
@@ -1251,9 +1236,11 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
         iconFrame.icon:SetDesaturated(false)
         iconFrame.icon:SetDesaturation(0)
     end
-    ApplyCustomTimedAuraCooldownFrame(iconFrame, state, settings.showCooldown ~= false)
+    local showDuration = settings.showCooldown ~= false
+        and settings.showProcDuration ~= false
+    ApplyCustomTimedAuraCooldownFrame(iconFrame, state, showDuration)
     if iconFrame.count then
-        if state.stacks and state.stacks > 1 then
+        if settings.showProcStacks ~= false and state.stacks and state.stacks > 1 then
             iconFrame.count:SetText(state.stacks)
             iconFrame.count:Show()
         else
@@ -1262,6 +1249,26 @@ function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
         end
     end
     return true
+end
+
+function CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, itemID)
+    if iconFrame then
+        iconFrame._ddCustomIconActive = false
+        iconFrame._ddCustomIconProcActive = false
+    end
+    local settings = iconData and iconData.settings
+    local registry = DDingUI.TrinketEffects
+    if not settings or settings.trackTrinketEffect ~= true
+        or not registry or not registry.GetActiveEffectForItem
+    then
+        return false
+    end
+
+    return self:ApplyActiveTrinketEffectState(
+        iconFrame,
+        registry:GetActiveEffectForItem(itemID),
+        settings
+    )
 end
 
 function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
@@ -2469,96 +2476,15 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     end
 
     local settings = iconData.settings or {}
-
-    if settings.showItemCooldown ~= false then
-        iconFrame._trinketProcWasActive = false
-        iconFrame._ddProcActiveUntil = nil
-        if iconFrame.count and not managedVisualLocked then
-            iconFrame.count:Hide()
-        end
-        if iconFrame.cooldown and iconFrame.cooldown.SetReverse then
-            iconFrame.cooldown:SetReverse(false)
-        end
-        local LCG = LibStub("LibCustomGlow-1.0", true)
-        if LCG and LCG.ProcGlow_Stop then
-            LCG.ProcGlow_Stop(iconFrame)
-        end
-
-        local onCooldown = runtime.ApplyTrinketSlotCooldown(iconFrame, slotID)
-        if not managedVisualLocked then
-            if settings.showCooldown ~= false and onCooldown then
-                iconFrame.cooldown:Show()
-            else
-                iconFrame.cooldown:Hide()
-            end
-        end
-        local allowDesat = not (settings.desaturateOnCooldown == false)
-        if not managedVisualLocked then
-            iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
-        end
-        iconFrame._ddCustomIconActive = false
-        iconFrame._ddCustomIconReady = not onCooldown
+    local registry = DDingUI.TrinketEffects
+    local trackedState = registry and registry.GetActiveEffectForItem
+        and registry:GetActiveEffectForItem(itemID)
+    if CustomIcons:ApplyActiveTrinketEffectState(iconFrame, trackedState, settings) then
         return
     end
 
-    -- Determine proc spell ID (auto-detect or manual override)
-    local procSpellID = settings.procSpellID
-
-    -- [12.0.1] Secret value safe comparison (procSpellID > 0 can error with secret values)
-    local hasProcID = false
-    pcall(function() hasProcID = procSpellID and procSpellID > 0 end)
-
-    if not hasProcID then
-        pcall(function()
-            local spellName, spellID = C_Item.GetItemSpell(itemID)
-            procSpellID = spellID
-        end)
-        pcall(function() hasProcID = procSpellID and procSpellID > 0 end)
-    end
-
-    -- [REFACTOR] 3-method buff detection for on-use trinket compatibility
-    -- Method A: Direct spell ID → Method B: Cached buff ID → Method C: Name scan
-    local procActive = false
-    local auraData = nil
-
-    if hasProcID then
-        -- Method A: Direct spell ID lookup (O(1), handles most trinkets)
-        pcall(function()
-            auraData = C_UnitAuras.GetPlayerAuraBySpellID(procSpellID)
-        end)
-
-        -- Method B: Cached buff spell ID from previous successful name scan (O(1))
-        if not auraData and iconFrame._cachedBuffSpellID then
-            pcall(function()
-                auraData = C_UnitAuras.GetPlayerAuraBySpellID(iconFrame._cachedBuffSpellID)
-            end)
-            if not auraData then
-                iconFrame._cachedBuffSpellID = nil  -- cache invalidation
-            end
-        end
-
-        -- Method C: Spell name scan (on-use trinkets where cast spell ID ≠ buff spell ID)
-        if not auraData then
-            pcall(function()
-                local spellInfo = C_Spell.GetSpellInfo(procSpellID)
-                if spellInfo and spellInfo.name then
-                    AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
-                        local auraName = GetAuraFieldSafe(a, "name")
-                        if auraName == spellInfo.name then
-                            auraData = a
-                            -- Cache actual buff spell ID for fast future lookups
-                            local auraSpellID = GetAuraSpellIDSafe(a)
-                            if auraSpellID and auraSpellID ~= procSpellID then
-                                iconFrame._cachedBuffSpellID = auraSpellID
-                            end
-                            return true  -- stop iteration
-                        end
-                    end)
-                end
-            end)
-        end
-    end
-
+    local auraData = ResolveTrinketProcAuraForIcon(iconFrame, iconData)
+    local procActive = auraData ~= nil
     if auraData then
         iconFrame._ddInactiveGray = nil
         iconFrame._ddForcedInactiveGray = nil
@@ -2610,6 +2536,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     -- 2. Proc not active → show item cooldown as fallback
     if not procActive then
         -- [Visuals: Reset]
+        iconFrame._ddProcActiveUntil = nil
         iconFrame.cooldown:SetReverse(false)
         local LCG = LibStub("LibCustomGlow-1.0", true)
         if LCG and LCG.ProcGlow_Stop then
@@ -2850,9 +2777,11 @@ end
 function CustomIcons:RefreshTrackedTrinketEffectIcons()
     local db = GetDynamicDB()
     for iconKey, iconData in pairs((db and db.iconData) or {}) do
-        if iconData and iconData.settings and iconData.settings.trackTrinketEffect == true
-            and runtime.UpdateDynamicIcon
-        then
+        local tracksEffect = iconData and (
+            iconData.type == "trinketProc"
+            or (iconData.settings and iconData.settings.trackTrinketEffect == true)
+        )
+        if tracksEffect and runtime.UpdateDynamicIcon then
             runtime.UpdateDynamicIcon(iconKey)
         end
     end
