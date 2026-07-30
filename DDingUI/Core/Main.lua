@@ -994,7 +994,7 @@ function DDingUI:OnEnable()
             OnCancel = function()
                 -- 마이그레이션 건너뛰기: profileVersion만 설정
                 local addonVersion = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("DDingUI", "Version")
-                DDingUI.db.profile.profileVersion = DDingUI.VERSION or addonVersion or "1.3.2"
+                DDingUI.db.profile.profileVersion = DDingUI.VERSION or addonVersion or "1.3.3"
                 print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffaaaaaaa마이그레이션을 건너뛰었습니다. 설정 > 프로필에서 수동으로 변경할 수 있습니다.|r")
             end,
         }

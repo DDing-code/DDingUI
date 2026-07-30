@@ -2,6 +2,25 @@
 
 ---
 
+## v1.3.3
+
+_Release date: 2026-07-31_
+_Scope: Git changes from v1.3.2 through this release._
+
+### English Patch Notes
+- Restored group border styling for timed custom buff icons so active effects inherit the configured border size, color, and opacity.
+- Separated consumable active-duration visuals from item cooldown visuals. Active swipes, glow, icon color, and duration text now remain authoritative until the effect expires, after which cooldown swipe and desaturation take over without overlapping timers.
+- Limited the custom aura "Hide from CDM" option to buff viewers only. Essential and utility skill icons that share the same cooldown or spell ID remain visible, and previously suppressed skill frames are restored automatically.
+- Added immediate tracking for player-cast Bloodlust and Heroism variants while retaining debuff-based detection for effects cast by other players. Follow-up aura events no longer restart the timer or replace the selected icon.
+
+### Korean Patch Notes
+- 시간제 커스텀 강화효과 아이콘에 그룹 테두리 설정이 다시 적용되도록 수정하여 활성 효과가 설정된 테두리 크기, 색상, 투명도를 상속합니다.
+- 소모품 활성 지속시간 시각효과와 아이템 재사용 대기시간 시각효과를 분리했습니다. 활성 효과가 끝날 때까지 활성 스와이프, 글로우, 아이콘 색상, 지속시간 텍스트가 우선 적용되며, 종료 후 재사용 대기시간 스와이프와 회색 처리가 겹침 없이 이어집니다.
+- 커스텀 오라의 `CDM에서 숨기기` 기능이 강화효과 뷰어에만 적용되도록 제한했습니다. 같은 재사용 대기시간 또는 주문 ID를 공유하는 핵심·보조 능력 아이콘은 계속 표시되며, 이전에 잘못 숨겨진 스킬 프레임도 자동으로 복원됩니다.
+- 플레이어가 직접 시전한 피의 욕망과 영웅심 계열 효과를 즉시 추적하도록 보강했습니다. 다른 플레이어가 사용한 효과의 디버프 기반 감지는 유지하며, 후속 오라 이벤트가 지속시간을 다시 시작하거나 선택된 아이콘을 교체하지 않습니다.
+
+---
+
 ## v1.3.2
 
 _Release date: 2026-07-30_
