@@ -2209,7 +2209,9 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
 
     local function ApplyStateSetting(key, value)
         iconData.settings[key] = value
-        if key == "activeEffectDisplayMode" and (value == "both" or value == "glow") then
+        if key == "activeEffectDisplayMode"
+            and (value == "both" or value == "glow" or value == "glow_duration")
+        then
             local custom = iconData.settings.customStateGlow
             if type(custom) == "table" and custom.procGlowMode == "off" then
                 custom.procGlowMode = nil
@@ -2313,6 +2315,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
                     { "both", L["Swipe and Glow"] or "Swipe and Glow" },
                     { "swipe", L["Swipe Only"] or "Swipe Only" },
                     { "glow", L["Glow Only"] or "Glow Only" },
+                    { "glow_duration", L["Glow and Duration"] or "Glow and Duration" },
                     { "hidden", L["Hide Active Effect"] or "Hide Active Effect" },
                 }
             )

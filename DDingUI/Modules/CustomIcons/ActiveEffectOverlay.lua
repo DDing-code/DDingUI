@@ -120,7 +120,7 @@ end
 local function GetDisplayMode(iconData)
     local settings = type(iconData) == "table" and iconData.settings
     local mode = type(settings) == "table" and settings.activeEffectDisplayMode
-    if mode == "swipe" or mode == "glow" or mode == "hidden" then
+    if mode == "swipe" or mode == "glow" or mode == "glow_duration" or mode == "hidden" then
         return mode
     end
     return "both"
@@ -393,7 +393,12 @@ end
 
 function ActiveEffectOverlay:ShouldShowGlow(iconData)
     local mode = GetDisplayMode(iconData)
-    return mode == "both" or mode == "glow"
+    return mode == "both" or mode == "glow" or mode == "glow_duration"
+end
+
+function ActiveEffectOverlay:ShouldShowDuration(iconData)
+    local mode = GetDisplayMode(iconData)
+    return mode == "both" or mode == "swipe" or mode == "glow_duration"
 end
 
 function ActiveEffectOverlay:IsProcActive(iconData)
@@ -553,6 +558,7 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
     SyncFrameLevels(frame, overlay)
     CopyIconTexture(frame, overlay)
     local displayMode = GetDisplayMode(iconData)
+    local showDuration = self:ShouldShowDuration(iconData)
     local r, g, b, a
     if self:ShouldShowSwipe(iconData) then
         r, g, b, a = ResolveColor(settings)
@@ -564,7 +570,7 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
         overlay.cooldown:SetDrawSwipe(false)
     end
     overlay.icon:SetAlpha(r and 1 or 0)
-    overlay.cooldown:SetAlpha(r and 1 or 0)
+    overlay.cooldown:SetAlpha((r or showDuration) and 1 or 0)
     if overlay.token ~= state.token then
         overlay.token = state.token
         overlay.cooldown:SetCooldown(state.startTime, state.duration)

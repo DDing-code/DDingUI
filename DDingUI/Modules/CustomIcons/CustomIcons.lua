@@ -1203,6 +1203,7 @@ function CustomIcons:UpdateDynamicIconProcGlow(frame, iconData)
     end
     local displayMode = isItemActiveEffect and iconData.settings.activeEffectDisplayMode
     local forceGlow = displayMode == "both" or displayMode == "glow"
+        or displayMode == "glow_duration"
     local hasStyleOverride = custom and (
         custom.glowType ~= nil
         or custom.glowColorMode ~= nil
