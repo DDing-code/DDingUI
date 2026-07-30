@@ -2,6 +2,33 @@
 
 ---
 
+## v1.3.2
+
+_Release date: 2026-07-30_
+_Scope: Git changes from v1.3.1.1 through this release._
+
+### English Patch Notes
+- Reworked CDM group and per-icon settings with mixed skill and buff assignment, restored animation and group-wide swipe controls, inherited text defaults, type-specific icon options, and cleaner nested-tab behavior during searches.
+- Improved buff-group layout stability with restored native anchors, reliable catalogs for newly created groups, persistent inactive placeholders, directional transitions, and animations limited to icons that actually changed.
+- Expanded active-state visuals with native and custom glow color modes, reliable overlay colors, consistent glow styling, per-icon trinket and consumable proc glows, stack text, and smoother inactive-state transitions.
+- Added potion active-effect tracking with configurable durations and independent display modes for swipe and glow, including a glow-plus-duration mode that keeps the timer visible without drawing a swipe.
+- Fixed empty item initialization, inactive buff visibility, legacy group restrictions, and stale visual state when icons move between groups or active effects start and end.
+- Added searchable SharedMedia selectors with live texture and font samples, speaker-button sound previews, keyboard selection, menus that extend beyond the settings scroll area, and safe fallbacks for missing glyphs or invalid font metadata.
+- Fixed automatic tracked-bar width so width 0 follows the selected position anchor, including custom aura anchors.
+- Made TOC metadata the single runtime version source so the addon list and settings window remain synchronized.
+
+### Korean Patch Notes
+- CDM 그룹 및 아이콘별 설정을 개편하여 스킬과 강화효과를 같은 그룹에 할당할 수 있게 했으며, 애니메이션과 그룹 전체 스와이프 설정, 상속형 텍스트 기본값, 아이콘 유형별 설정, 검색 중 하위 탭 잔상 정리를 복원·개선했습니다.
+- 기본 앵커 복원, 새 그룹의 강화효과 카탈로그 보강, 비활성 아이콘 자리 유지, 방향성 전환 효과, 실제로 변경된 아이콘만 재생되는 애니메이션을 적용하여 강화효과 그룹 정렬을 안정화했습니다.
+- 블리자드 기본 및 사용자 색상 글로우, 안정적인 오버레이 색상, 일관된 글로우 스타일, 장신구·소모품별 발동 글로우와 중첩 텍스트, 부드러운 비활성 전환을 추가했습니다.
+- 물약 활성효과 추적과 지속시간 설정을 추가하고 스와이프·글로우 표시 방식을 분리했습니다. 스와이프 없이 글로우와 지속시간만 표시하는 모드도 선택할 수 있습니다.
+- 아이템 초기화 시 빈 아이콘, 비활성 강화효과 표시, 이전 그룹의 유형 제한, 그룹 이동 및 활성효과 시작·종료 후 남는 시각 상태를 수정했습니다.
+- 텍스처·폰트 실시간 미리보기, 스피커 버튼 사운드 미리듣기, 검색 및 키보드 선택을 지원하는 미디어 목록을 추가했습니다. 드롭다운이 설정창 스크롤 영역 밖까지 정상적으로 펼쳐지며, 글리프 누락 및 비정상 글꼴 정보에서도 목록이 사라지거나 오류가 발생하지 않습니다.
+- 추적중인 막대 너비를 0으로 설정했을 때 커스텀 오라를 포함한 현재 위치 앵커의 너비를 정확히 따르도록 수정했습니다.
+- TOC 메타데이터를 런타임 버전의 단일 기준으로 사용하여 애드온 목록과 설정창의 버전이 항상 일치하도록 했습니다.
+
+---
+
 ## v1.3.1.1
 
 _Release date: 2026-07-29_
