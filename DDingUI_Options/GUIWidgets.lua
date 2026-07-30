@@ -670,6 +670,12 @@ local function PlayMediaPreview(path)
     PlaySoundFile(path, "Master")
 end
 
+local function StyleSoundPreviewButton(button)
+    if not button then return end
+    button:SetNormalAtlas("common-icon-sound")
+    button:SetPushedAtlas("common-icon-sound-pressed")
+end
+
 local function CreateCustomDropdown(parent, width)
     width = width or 150
     local maxVisibleItems = 10
@@ -712,11 +718,13 @@ local function CreateCustomDropdown(parent, width)
     local soundPreviewButton
 
     -- 드롭다운 리스트 프레임
-    local listFrame = CreateFrame("Frame", nil, dropdown, "BackdropTemplate")
+    local listFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     listFrame:SetWidth(width)
     listFrame:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 0, -2)
-    listFrame:SetFrameStrata("TOOLTIP")
-    listFrame:SetFrameLevel(1000)
+    listFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+    listFrame:SetFrameLevel(300)
+    listFrame:SetClampedToScreen(true)
+    listFrame:SetToplevel(true)
     listFrame:SetBackdrop({
         bgFile = FLAT,
         edgeFile = FLAT,
@@ -804,19 +812,13 @@ local function CreateCustomDropdown(parent, width)
         soundPreviewButton = CreateFrame("Button", nil, dropdown)
         soundPreviewButton:SetSize(18, 18)
         soundPreviewButton:SetPoint("RIGHT", dropdown, "RIGHT", -18, 0)
-        soundPreviewButton.text = soundPreviewButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        StyleFontString(soundPreviewButton.text)
-        soundPreviewButton.text:SetPoint("CENTER", 0, 0)
-        soundPreviewButton.text:SetText("▶")
-        soundPreviewButton.text:SetTextColor(SL.GetColor("dim"))
+        StyleSoundPreviewButton(soundPreviewButton)
         soundPreviewButton:SetScript("OnEnter", function(self)
-            self.text:SetTextColor(SL.GetColor("accent"))
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText(rawget(L, "Preview Sound") or "Preview sound")
             GameTooltip:Show()
         end)
         soundPreviewButton:SetScript("OnLeave", function(self)
-            self.text:SetTextColor(SL.GetColor("dim"))
             GameTooltip:Hide()
         end)
         soundPreviewButton:SetScript("OnClick", function()
@@ -1161,9 +1163,20 @@ local function CreateCustomDropdown(parent, width)
         arrow:SetTextColor(SL.GetColor("dim"))
         if searchEdit then searchEdit:ClearFocus() end
     end)
+    dropdown:HookScript("OnHide", function()
+        listFrame:Hide()
+        if activeDropdown == dropdown then
+            activeDropdown = nil
+        end
+    end)
 
     -- 외부 클릭 시 닫기
     listFrame:SetScript("OnShow", function(self)
+        local uiScale = UIParent:GetEffectiveScale()
+        local dropdownScale = dropdown:GetEffectiveScale()
+        if uiScale and uiScale > 0 and dropdownScale and dropdownScale > 0 then
+            self:SetScale(dropdownScale / uiScale)
+        end
         scrollFrame:SetVerticalScroll(0)
         if dropdown.searchable and searchEdit then
             if searchEdit:GetText() ~= "" then
@@ -1337,18 +1350,14 @@ local function CreateCustomDropdown(parent, width)
                     previewButton = CreateFrame("Button", nil, item)
                     previewButton:SetSize(20, 20)
                     previewButton:SetPoint("RIGHT", item, "RIGHT", -2, 0)
-                    previewButton.text = previewButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                    StyleFontString(previewButton.text)
-                    previewButton.text:SetPoint("CENTER")
-                    previewButton.text:SetText("▶")
+                    previewButton:SetFrameLevel(item:GetFrameLevel() + 2)
+                    StyleSoundPreviewButton(previewButton)
                     previewButton:SetScript("OnEnter", function(self)
-                        self.text:SetTextColor(SL.GetColor("accent"))
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                         GameTooltip:SetText(rawget(L, "Preview Sound") or "Preview sound")
                         GameTooltip:Show()
                     end)
                     previewButton:SetScript("OnLeave", function(self)
-                        self.text:SetTextColor(SL.GetColor("dim"))
                         GameTooltip:Hide()
                     end)
                     previewButton:SetScript("OnClick", function(self)
@@ -1356,7 +1365,6 @@ local function CreateCustomDropdown(parent, width)
                     end)
                     item.previewButton = previewButton
                 end
-                previewButton.text:SetTextColor(SL.GetColor("dim"))
                 previewButton:Show()
                 itemText:ClearAllPoints()
                 itemText:SetPoint("LEFT", item, "LEFT", 10, 0)
