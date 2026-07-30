@@ -2107,10 +2107,12 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
     if not iconData then return nil end
     iconData.settings = iconData.settings or {}
 
+    local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
     local supportsActiveState = iconData.type == "aura"
         or iconData.type == "trinketProc"
-        or (iconData.type == "item" and tonumber(iconData.settings.activeEffectDuration) ~= nil)
-    local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
+        or (iconData.type == "item"
+            and activeEffectOverlay
+            and activeEffectOverlay:SupportsActiveEffect(iconData.id, iconData.settings))
     local isRacialIcon = iconData.type == "racial"
         or (DDingUI.CustomIcons
             and DDingUI.CustomIcons.IsCurrentRacialSpellIcon

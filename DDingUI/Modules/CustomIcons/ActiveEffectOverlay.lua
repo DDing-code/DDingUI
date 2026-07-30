@@ -8,6 +8,7 @@ DDingUI.CustomIconActiveEffectOverlay = ActiveEffectOverlay
 local GOLD = { 1, 0.776, 0.376, 0.7 }
 local LIGHTS_POTENTIAL_SPELLS = { [1236616] = true }
 local RECKLESSNESS_SPELLS = { [1236994] = true }
+local DEVOURED_DREAMS_SPELLS = { [1239479] = true }
 local INVISIBILITY_SPELLS = {
     [371125] = true,
     [431424] = true,
@@ -24,6 +25,7 @@ local KNOWN_ITEMS = {
     [241289] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
     [245902] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
     [245903] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
+    [241294] = { duration = 10, spells = DEVOURED_DREAMS_SPELLS, procGlow = true },
     [241302] = { duration = 18, spells = INVISIBILITY_SPELLS },
     [241303] = { duration = 18, spells = INVISIBILITY_SPELLS },
 }
@@ -111,6 +113,10 @@ local function GetProcDuration(iconData)
     return effect and effect.procGlow == true and effect.duration or nil
 end
 
+local function GetActiveEffectDuration(iconData)
+    return GetConfiguredDuration(iconData) or GetProcDuration(iconData)
+end
+
 local function AddTrigger(spellID, iconKey)
     if not IsPublicNumber(spellID) or not iconKey then return false end
     local icons = triggerMap[spellID]
@@ -163,7 +169,7 @@ local function BuildTriggerMap()
     end
 
     for iconKey, iconData in pairs(iconDataByKey) do
-        if GetConfiguredDuration(iconData) or GetProcDuration(iconData) then
+        if GetActiveEffectDuration(iconData) then
             local added = false
             ForEachItemID(iconData, function(itemID)
                 added = AddItemTriggers(iconKey, itemID) or added
@@ -181,12 +187,12 @@ local function ResolvePendingItemSpells()
     for iconKey in pairs(unresolvedIcons) do
         local iconData = GetIconData(iconKey)
         local added = false
-        if GetConfiguredDuration(iconData) or GetProcDuration(iconData) then
+        if GetActiveEffectDuration(iconData) then
             ForEachItemID(iconData, function(itemID)
                 added = AddItemTriggers(iconKey, itemID) or added
             end)
         end
-        if added or (not GetConfiguredDuration(iconData) and not GetProcDuration(iconData)) then
+        if added or not GetActiveEffectDuration(iconData) then
             unresolvedIcons[iconKey] = nil
         end
     end
@@ -325,7 +331,7 @@ end
 
 local function StartWindow(iconKey)
     local iconData = GetIconData(iconKey)
-    local duration = GetConfiguredDuration(iconData) or GetProcDuration(iconData)
+    local duration = GetActiveEffectDuration(iconData)
     if not duration then return false end
 
     nextToken = nextToken + 1
@@ -365,6 +371,10 @@ end
 
 function ActiveEffectOverlay:SupportsProcGlow(itemID, settings)
     return GetProcDuration({ id = itemID, settings = settings }) ~= nil
+end
+
+function ActiveEffectOverlay:SupportsActiveEffect(itemID, settings)
+    return GetActiveEffectDuration({ type = "item", id = itemID, settings = settings }) ~= nil
 end
 
 function ActiveEffectOverlay:IsProcActive(iconData)
@@ -479,7 +489,7 @@ function ActiveEffectOverlay:ApplyFrame(frame, iconData)
     if not frame then return end
     self:PrepareFrame(frame)
     local overlay = frame._ddActiveEffectOverlay
-    local duration = GetConfiguredDuration(iconData)
+    local duration = GetActiveEffectDuration(iconData)
     if not duration then
         if overlay.token then
             overlay.token = nil
