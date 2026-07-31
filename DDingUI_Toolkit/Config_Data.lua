@@ -118,6 +118,7 @@ ns.ConfigModuleMap = {
     durability      = "DurabilityCheck",
 
     keystonetracker = "KeystoneTracker",
+    focusinterrupt  = "FocusInterrupt",
 
 
     autorepair      = "AutoRepair",
@@ -150,6 +151,7 @@ function ns:InitConfigTree()
         { text = L["TAB_DURABILITY"],       key = "durability" },
 
         { text = L["TAB_KEYSTONETRACKER"],  key = "keystonetracker" },
+        { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
         { text = L["TAB_SKYRIDINGTRACKER"], key = "skyridingtracker" },
 
         { text = L["TAB_AUTOREPAIR"],       key = "autorepair" },
@@ -858,6 +860,51 @@ function ns:InitConfigTree()
         },
     }
 
+    local function RefreshFocusInterrupt()
+        local mod = (ns.modules and ns.modules["FocusInterrupt"]) or ns.FocusInterrupt
+        if mod and mod.QueueStyleRefresh then
+            mod:QueueStyleRefresh()
+        elseif mod and mod.UpdateStyle then
+            mod:UpdateStyle()
+        end
+    end
+
+    local focusTextPositions = {
+        { text = L["ALIGN_LEFT"], value = "LEFT" },
+        { text = L["ALIGN_CENTER"], value = "CENTER" },
+        { text = L["ALIGN_RIGHT"], value = "RIGHT" },
+        { text = L["FOCUSINTERRUPT_POSITION_ABOVE_LEFT"], value = "ABOVE_LEFT" },
+        { text = L["FOCUSINTERRUPT_POSITION_ABOVE_CENTER"], value = "ABOVE_CENTER" },
+        { text = L["FOCUSINTERRUPT_POSITION_ABOVE_RIGHT"], value = "ABOVE_RIGHT" },
+        { text = L["FOCUSINTERRUPT_POSITION_BELOW_LEFT"], value = "BELOW_LEFT" },
+        { text = L["FOCUSINTERRUPT_POSITION_BELOW_CENTER"], value = "BELOW_CENTER" },
+        { text = L["FOCUSINTERRUPT_POSITION_BELOW_RIGHT"], value = "BELOW_RIGHT" },
+    }
+    local focusSidePositions = {
+        { text = L["ALIGN_LEFT"], value = "LEFT" },
+        { text = L["ALIGN_RIGHT"], value = "RIGHT" },
+        { text = L["POS_TOP"], value = "TOP" },
+        { text = L["POS_BOTTOM"], value = "BOTTOM" },
+    }
+    local focusFontOutlines = {
+        { text = L["FOCUSINTERRUPT_OUTLINE_NONE"], value = "" },
+        { text = L["FOCUSINTERRUPT_OUTLINE_NORMAL"], value = "OUTLINE" },
+        { text = L["FOCUSINTERRUPT_OUTLINE_THICK"], value = "THICKOUTLINE" },
+        { text = L["FOCUSINTERRUPT_OUTLINE_MONOCHROME"], value = "MONOCHROME" },
+        { text = L["FOCUSINTERRUPT_OUTLINE_MONOCHROME_OUTLINE"], value = "MONOCHROME,OUTLINE" },
+    }
+    local focusFrameStrata = {
+        { text = L["FOCUSINTERRUPT_STRATA_LOW"], value = "LOW" },
+        { text = L["FOCUSINTERRUPT_STRATA_MEDIUM"], value = "MEDIUM" },
+        { text = L["FOCUSINTERRUPT_STRATA_HIGH"], value = "HIGH" },
+        { text = L["FOCUSINTERRUPT_STRATA_DIALOG"], value = "DIALOG" },
+    }
+    local focusTimeFormats = {
+        { text = L["FOCUSINTERRUPT_TIME_REMAINING_TOTAL"], value = "REMAINING_TOTAL" },
+        { text = L["FOCUSINTERRUPT_TIME_REMAINING"], value = "REMAINING" },
+        { text = L["FOCUSINTERRUPT_TIME_TOTAL"], value = "TOTAL" },
+    }
+
     -----------------------------------------------
     -- FocusInterrupt
     -----------------------------------------------
@@ -868,37 +915,96 @@ function ns:InitConfigTree()
         settings = {
             { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
             { type = "toggle", key = "profile.modules.FocusInterrupt", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            -- 활성화
+
             { type = "header", label = L["DISPLAY_SETTINGS"] },
+            { type = "toggle", key = "profile.FocusInterrupt.showTarget", label = L["FOCUSINTERRUPT_SHOW_TARGET_BAR"], onChange = RefreshFocusInterrupt },
+            { type = "toggle", key = "profile.FocusInterrupt.showFocus", label = L["FOCUSINTERRUPT_SHOW_FOCUS_BAR"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.interruptedHoldTime", label = L["FOCUSINTERRUPT_INTERRUPTED_HOLD_TIME"], min = 0, max = 5, step = 0.1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.updateRate", label = L["CASTINGALERT_UPDATE_RATE"], min = 0.02, max = 0.5, step = 0.01, onChange = RefreshFocusInterrupt },
 
-            -- 시전바 설정
             { type = "header", label = L["FOCUSINTERRUPT_BAR_SETTINGS"] },
-            { type = "slider",    key = "profile.FocusInterrupt.barWidth",  label = L["FOCUSINTERRUPT_BAR_WIDTH"],  min = 100, max = 500, step = 5 },
-            { type = "slider",    key = "profile.FocusInterrupt.barHeight", label = L["FOCUSINTERRUPT_BAR_HEIGHT"], min = 15,  max = 60,  step = 1 },
-            { type = "slider",    key = "profile.FocusInterrupt.bgAlpha",   label = L["BACKGROUND_ALPHA"],          min = 0,   max = 1,   step = 0.1 },
-            { type = "slider",    key = "profile.FocusInterrupt.fontSize",  label = L["FONT_SIZE"],                 min = 8,   max = 24,  step = 1 },
-            { type = "slider",    key = "profile.FocusInterrupt.scale",     label = L["SCALE"],                     min = 0.5, max = 2.0, step = 0.1 },
-            { type = "statusbar", key = "profile.FocusInterrupt.texture",   label = L["FOCUSINTERRUPT_TEXTURE"] },
+            { type = "slider", key = "profile.FocusInterrupt.barWidth", label = L["FOCUSINTERRUPT_BAR_WIDTH"], min = 80, max = 600, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.barHeight", label = L["FOCUSINTERRUPT_BAR_HEIGHT"], min = 8, max = 80, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.targetScale", label = L["FOCUSINTERRUPT_TARGET_SCALE"], min = 0.5, max = 3, step = 0.05, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.focusScale", label = L["FOCUSINTERRUPT_FOCUS_SCALE"], min = 0.5, max = 3, step = 0.05, onChange = RefreshFocusInterrupt },
+            { type = "statusbar", key = "profile.FocusInterrupt.texture", label = L["FOCUSINTERRUPT_TEXTURE"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.barAlpha", label = L["FOCUSINTERRUPT_BAR_ALPHA"], min = 0, max = 1, step = 0.05, onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.backgroundColor", label = L["FOCUSINTERRUPT_BACKGROUND_COLOR"], hasAlpha = false, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.bgAlpha", label = L["BACKGROUND_ALPHA"], min = 0, max = 1, step = 0.05, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.barBorderSize", label = L["FOCUSINTERRUPT_BAR_BORDER_SIZE"], min = 0, max = 12, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.frameStrata", label = L["FOCUSINTERRUPT_FRAME_STRATA"], options = focusFrameStrata, onChange = RefreshFocusInterrupt },
 
-            -- 차단 설정
-            { type = "header", label = L["FOCUSINTERRUPT_INT_SETTINGS"] },
-            { type = "toggle", key = "profile.FocusInterrupt.notInterruptibleHide", label = L["FOCUSINTERRUPT_NOTINT_HIDE"] },
-            { type = "toggle", key = "profile.FocusInterrupt.cooldownHide",         label = L["FOCUSINTERRUPT_CD_HIDE"] },
-            { type = "toggle", key = "profile.FocusInterrupt.showKickIcon",         label = L["FOCUSINTERRUPT_SHOW_KICK_ICON"] },
-            { type = "toggle", key = "profile.FocusInterrupt.showInterrupter",      label = L["FOCUSINTERRUPT_SHOW_INTERRUPTER"] },
-            { type = "toggle", key = "profile.FocusInterrupt.showTarget",           label = L["FOCUSINTERRUPT_SHOW_TARGET"] },
-            { type = "toggle", key = "profile.FocusInterrupt.showTime",             label = L["FOCUSINTERRUPT_SHOW_TIME"] },
-            { type = "toggle", key = "profile.FocusInterrupt.mute",                 label = L["FOCUSINTERRUPT_MUTE"] },
-            { type = "sound",  key = "profile.FocusInterrupt.soundFile",            label = L["LFGALERT_SOUND_FILE"], defaultLabel = L["FOCUSINTERRUPT_DEFAULT_SOUND"], customPathKey = "profile.FocusInterrupt.soundCustomPath" },
-            { type = "slider", key = "profile.FocusInterrupt.interruptedFadeTime",  label = L["FOCUSINTERRUPT_FADE_TIME"],     min = 0,  max = 2,  step = 0.25 },
-            { type = "slider", key = "profile.FocusInterrupt.kickIconSize",         label = L["FOCUSINTERRUPT_KICK_ICON_SIZE"],min = 15, max = 60, step = 1 },
+            { type = "header", label = L["FOCUSINTERRUPT_SPELL_TEXT_SETTINGS"] },
+            { type = "toggle", key = "profile.FocusInterrupt.showSpellName", label = L["FOCUSINTERRUPT_SHOW_SPELL_TEXT"], onChange = RefreshFocusInterrupt },
+            { type = "font", key = "profile.FocusInterrupt.spellNameFont", label = L["FONT"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.spellNameFontSize", label = L["FONT_SIZE"], min = 6, max = 48, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.spellNameOutline", label = L["FOCUSINTERRUPT_FONT_OUTLINE"], options = focusFontOutlines, onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.spellNameColor", label = L["TEXT_COLOR"], hasAlpha = true, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.spellNamePosition", label = L["FOCUSINTERRUPT_TEXT_POSITION"], options = focusTextPositions, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.spellNameOffsetX", label = L["X_OFFSET"], min = -200, max = 200, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.spellNameOffsetY", label = L["Y_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
 
-            -- 색상 설정
+            { type = "header", label = L["FOCUSINTERRUPT_TIME_TEXT_SETTINGS"] },
+            { type = "toggle", key = "profile.FocusInterrupt.showTimeText", label = L["FOCUSINTERRUPT_SHOW_TIME_TEXT"], onChange = RefreshFocusInterrupt },
+            { type = "font", key = "profile.FocusInterrupt.timeTextFont", label = L["FONT"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.timeTextFontSize", label = L["FONT_SIZE"], min = 6, max = 48, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.timeTextOutline", label = L["FOCUSINTERRUPT_FONT_OUTLINE"], options = focusFontOutlines, onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.timeTextColor", label = L["TEXT_COLOR"], hasAlpha = true, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.timeTextPosition", label = L["FOCUSINTERRUPT_TEXT_POSITION"], options = focusTextPositions, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.timeTextOffsetX", label = L["X_OFFSET"], min = -200, max = 200, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.timeTextOffsetY", label = L["Y_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.timeTextFormat", label = L["FOCUSINTERRUPT_TIME_FORMAT"], options = focusTimeFormats, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.timeTextDecimals", label = L["FOCUSINTERRUPT_TIME_DECIMALS"], min = 0, max = 2, step = 1, onChange = RefreshFocusInterrupt },
+
+            { type = "header", label = L["FOCUSINTERRUPT_TARGET_TEXT_SETTINGS"] },
+            { type = "toggle", key = "profile.FocusInterrupt.showTargetText", label = L["FOCUSINTERRUPT_SHOW_TARGET_TEXT"], onChange = RefreshFocusInterrupt },
+            { type = "font", key = "profile.FocusInterrupt.targetTextFont", label = L["FONT"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.targetTextFontSize", label = L["FONT_SIZE"], min = 6, max = 48, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.targetTextOutline", label = L["FOCUSINTERRUPT_FONT_OUTLINE"], options = focusFontOutlines, onChange = RefreshFocusInterrupt },
+            { type = "toggle", key = "profile.FocusInterrupt.targetTextUseClassColor", label = L["FOCUSINTERRUPT_TARGET_CLASS_COLOR"], onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.targetTextColor", label = L["TEXT_COLOR"], hasAlpha = true, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.targetTextPosition", label = L["FOCUSINTERRUPT_TARGET_TEXT_POSITION"], options = focusTextPositions, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.targetTextOffsetX", label = L["X_OFFSET"], min = -200, max = 200, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.targetTextOffsetY", label = L["Y_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+
+            { type = "header", label = L["FOCUSINTERRUPT_ICON_SETTINGS"] },
+            { type = "toggle", key = "profile.FocusInterrupt.showIcon", label = L["SHOW_ICON"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.iconWidth", label = L["WIDTH"], min = 8, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.iconHeight", label = L["HEIGHT"], min = 8, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.iconPosition", label = L["FOCUSINTERRUPT_ICON_POSITION"], options = focusSidePositions, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.iconOffsetX", label = L["X_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.iconOffsetY", label = L["Y_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.iconZoom", label = L["FOCUSINTERRUPT_ICON_ZOOM"], min = 0, max = 0.45, step = 0.01, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.iconBorderSize", label = L["FOCUSINTERRUPT_ICON_BORDER_SIZE"], min = 0, max = 12, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.iconBorderColor", label = L["FOCUSINTERRUPT_ICON_BORDER_COLOR"], hasAlpha = true, onChange = RefreshFocusInterrupt },
+
+            { type = "header", label = L["FOCUSINTERRUPT_INDICATOR_SETTINGS"] },
+            { type = "toggle", key = "profile.FocusInterrupt.showRaidMarker", label = L["FOCUSINTERRUPT_SHOW_RAID_MARKER"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.raidMarkerSize", label = L["FOCUSINTERRUPT_RAID_MARKER_SIZE"], min = 6, max = 64, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.raidMarkerPosition", label = L["FOCUSINTERRUPT_RAID_MARKER_POSITION"], options = focusSidePositions, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.raidMarkerOffsetX", label = L["X_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.raidMarkerOffsetY", label = L["Y_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "toggle", key = "profile.FocusInterrupt.showTargetIndicator", label = L["FOCUSINTERRUPT_SHOW_TARGET_INDICATOR"], onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.targetIndicatorSize", label = L["FOCUSINTERRUPT_TARGET_INDICATOR_SIZE"], min = 8, max = 64, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.targetIndicatorColor", label = L["FOCUSINTERRUPT_TARGET_INDICATOR_COLOR"], hasAlpha = true, onChange = RefreshFocusInterrupt },
+            { type = "dropdown", key = "profile.FocusInterrupt.targetIndicatorPosition", label = L["FOCUSINTERRUPT_TARGET_INDICATOR_POSITION"], options = focusSidePositions, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.targetIndicatorOffsetX", label = L["X_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.targetIndicatorOffsetY", label = L["Y_OFFSET"], min = -100, max = 100, step = 1, onChange = RefreshFocusInterrupt },
+
             { type = "header", label = L["FOCUSINTERRUPT_COLOR_SETTINGS"] },
-            { type = "color", key = "profile.FocusInterrupt.interruptibleColor",    label = L["FOCUSINTERRUPT_INTERRUPTIBLE_COLOR"], hasAlpha = false },
-            { type = "color", key = "profile.FocusInterrupt.notInterruptibleColor", label = L["FOCUSINTERRUPT_NOTINT_COLOR"],       hasAlpha = false },
-            { type = "color", key = "profile.FocusInterrupt.cooldownColor",         label = L["FOCUSINTERRUPT_CD_COLOR"],           hasAlpha = false },
-            { type = "color", key = "profile.FocusInterrupt.interruptedColor",      label = L["FOCUSINTERRUPT_INTERRUPTED_COLOR"],  hasAlpha = false },
+            { type = "color", key = "profile.FocusInterrupt.interruptibleColor", label = L["FOCUSINTERRUPT_INTERRUPTIBLE_COLOR"], hasAlpha = false, onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.notInterruptibleColor", label = L["FOCUSINTERRUPT_NOTINT_COLOR"], hasAlpha = false, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.notInterruptibleAlpha", label = L["FOCUSINTERRUPT_NOTINT_ALPHA"], min = 0, max = 1, step = 0.05, onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.interruptedColor", label = L["FOCUSINTERRUPT_INTERRUPTED_COLOR"], hasAlpha = false, onChange = RefreshFocusInterrupt },
+            { type = "toggle", key = "profile.FocusInterrupt.showImportantAlert", label = L["FOCUSINTERRUPT_SHOW_IMPORTANT_ALERT"], onChange = RefreshFocusInterrupt },
+            { type = "color", key = "profile.FocusInterrupt.importantAlertColor", label = L["FOCUSINTERRUPT_IMPORTANT_ALERT_COLOR"], hasAlpha = true, onChange = RefreshFocusInterrupt },
+            { type = "slider", key = "profile.FocusInterrupt.importantAlertAlpha", label = L["FOCUSINTERRUPT_IMPORTANT_ALERT_ALPHA"], min = 0, max = 1, step = 0.05, onChange = RefreshFocusInterrupt },
+
+            { type = "header", label = L["FOCUSINTERRUPT_SOUND_SETTINGS"] },
+            { type = "toggle", key = "profile.FocusInterrupt.focusSoundEnabled", label = L["FOCUSINTERRUPT_FOCUS_SOUND_ENABLED"] },
+            { type = "slider", key = "profile.FocusInterrupt.focusSoundCooldown", label = L["FOCUSINTERRUPT_SOUND_COOLDOWN"], min = 0, max = 10, step = 0.5 },
+            { type = "sound", key = "profile.FocusInterrupt.focusSoundFile", label = L["LFGALERT_SOUND_FILE"], defaultLabel = L["FOCUSINTERRUPT_DEFAULT_SOUND"], customPathKey = "profile.FocusInterrupt.focusSoundCustomPath" },
+            { type = "dropdown", key = "profile.FocusInterrupt.focusSoundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
 
             -- 버튼
             { type = "separator" },

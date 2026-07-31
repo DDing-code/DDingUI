@@ -104,6 +104,9 @@ Modules\KeystoneTracker\KeystoneTracker.lua
 
 
 
+# Modules - FocusInterrupt
+Modules\FocusInterrupt\FocusInterrupt.lua
+
 # Modules - AutoRepair
 Modules\AutoRepair\AutoRepair.lua
 

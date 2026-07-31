@@ -879,19 +879,30 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
     end
 
     local bodyTop = yOff - tabAreaHeight - 12
+    local function EnsureSectionBody(index)
+        if bodies[index] then return bodies[index] end
+        local body = CreateFrame("Frame", nil, container)
+        body:SetPoint("TOPLEFT", container, "TOPLEFT", 0, bodyTop)
+        body:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, bodyTop)
+        RenderSettingsPanel(body, { settings = sections[index].settings })
+        body:Hide()
+        bodies[index] = body
+        return body
+    end
+
     local function ActivateSection(index)
         selectedIndex = index
         panelSectionState[panelKey] = sections[index].id
         for tabIndex, tab in ipairs(tabs) do
             tab:SetSelected(tabIndex == index)
         end
-        for bodyIndex, body in ipairs(bodies) do
+        local selectedBody = EnsureSectionBody(index)
+        for bodyIndex, body in pairs(bodies) do
             body:SetShown(bodyIndex == index)
         end
 
-        local body = bodies[index]
         local contentHeight = math.abs(bodyTop)
-            + (body and body._contentHeight or 0)
+            + (selectedBody._contentHeight or 0)
             + pad
         container._contentHeight = contentHeight
         container:SetHeight(contentHeight)
@@ -916,15 +927,6 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
             yOff - row * (32 + gap)
         )
         tabs[index] = tab
-    end
-
-    for index, section in ipairs(sections) do
-        local body = CreateFrame("Frame", nil, container)
-        body:SetPoint("TOPLEFT", container, "TOPLEFT", 0, bodyTop)
-        body:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, bodyTop)
-        RenderSettingsPanel(body, { settings = section.settings })
-        body:SetShown(index == selectedIndex)
-        bodies[index] = body
     end
 
     container._sectionTabs = tabs
