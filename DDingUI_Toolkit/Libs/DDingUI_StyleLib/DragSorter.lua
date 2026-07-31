@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: DragSorter
--- 드래그로 순서 변경 (inspired by AbstractFramework)
+-- Drag-to-reorder helpers
 -- 버프 트래커, 아이콘 그룹 등에서 사용
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"

@@ -205,7 +205,7 @@ function M.StopAll(target)
 end
 
 ------------------------------------------------------
--- Colour and interface motion presets
+-- Colour and motion presets
 ------------------------------------------------------
 local function ReadRGBA(color, fallback)
     fallback = fallback or { 1, 1, 1, 1 }
@@ -356,8 +356,8 @@ function M.Hover(frame, opts)
     return state
 end
 
---- Short button hover interpolation for background, border, and label.
-function M.InterfaceButton(frame, opts)
+--- Smooth button hover: short in/out colour interpolation for bg, border, and label.
+function M.ButtonHover(frame, opts)
     if not frame then return nil end
     opts = opts or {}
 
@@ -392,7 +392,7 @@ function M.InterfaceButton(frame, opts)
     })
 end
 
---- Red-to-normal validation flash for invalid input feedback.
+--- Red-to-normal validation flash for popup input feedback.
 function M.ValidationFlash(frame, opts)
     if not frame then return nil end
     opts = opts or {}
@@ -701,7 +701,10 @@ Lib.FadeOut = M.FadeOut
 Lib.ImpactPop = M.ImpactPop
 Lib.EdgeFlash = M.EdgeFlash
 Lib.AttachHoverMotion = M.Hover
-Lib.InterfaceButtonMotion = M.InterfaceButton
+Lib.ButtonHoverMotion = M.ButtonHover
+-- Compatibility for controls created before the shared preset was renamed.
+M.InterfaceButton = M.ButtonHover
+Lib.InterfaceButtonMotion = M.ButtonHover
 Lib.PanelOpen = M.PanelOpen
 Lib.PanelClose = M.PanelClose
 Lib.ValidationFlash = M.ValidationFlash

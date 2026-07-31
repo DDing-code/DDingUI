@@ -9,6 +9,12 @@ if not Controls then return end
 
 local C = Lib.Colors
 local F = Lib.Font
+local T = Lib.Tokens or {}
+local DD = T.DD or {
+    BG_R = 0.075, BG_G = 0.113, BG_B = 0.141, BG_A = 0.80,
+    BRD_A = 0.20, ITEM_HL_A = 0.08, ITEM_SEL_A = 0.12,
+    MAX_H = 200, ITEM_H = 22,
+}
 local SOLID = Lib.Textures and Lib.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 local ADDON_KEY = "MJToolkit"
 
@@ -144,7 +150,11 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
     local button = CreateFrame("Button", nil, row, "BackdropTemplate")
     button:SetSize(width, 24)
     button:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    Controls.ApplyBackdrop(button, C.bg.input, C.border.default)
+    Controls.ApplyBackdrop(
+        button,
+        { DD.BG_R, DD.BG_G, DD.BG_B, DD.BG_A },
+        { 1, 1, 1, DD.BRD_A }
+    )
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     local selectedText = Controls.MakeFont(button, F.normal, C.text.normal, opts.placeholder or "Select...")
@@ -189,7 +199,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
     scroll:EnableMouseWheel(true)
 
     local scrollbar = CreateFrame("Frame", nil, list)
-    scrollbar:SetWidth(7)
+    scrollbar:SetWidth(T.SCROLLBAR_W or 6)
     scrollbar:SetPoint("RIGHT", list, "RIGHT", -3, 0)
     local scrollbarBG = scrollbar:CreateTexture(nil, "BACKGROUND")
     scrollbarBG:SetAllPoints()
@@ -222,8 +232,8 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
         row.searchable = row.mediaType ~= nil or #row.items > (opts.searchThreshold or 7)
     end
 
-    local rowHeight = row.mediaType and 26 or 24
-    local maxVisible = opts.maxVisible or 10
+    local rowHeight = row.mediaType and 26 or math.max(22, DD.ITEM_H)
+    local maxVisible = opts.maxVisible or math.max(5, math.floor((DD.MAX_H or 200) / rowHeight))
 
     local function ResetSelectedFont()
         if defaultFontPath then
@@ -329,10 +339,10 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
             local keyboard = item and row.filtered[row.keyboardIndex] == item
             optionRow.accent:SetShown(selected)
             if selected then
-                optionRow.background:SetColorTexture(0.18, 0.18, 0.22, 0.95)
+                optionRow.background:SetColorTexture(r, g, b, math.max(DD.ITEM_SEL_A or 0.12, 0.14))
                 optionRow.text:SetTextColor(1, 1, 1, 1)
             elseif keyboard then
-                optionRow.background:SetColorTexture(0.20, 0.20, 0.22, 0.88)
+                optionRow.background:SetColorTexture(1, 1, 1, math.max(DD.ITEM_HL_A or 0.08, 0.10))
                 optionRow.text:SetTextColor(1, 1, 1, 1)
             else
                 optionRow.background:SetColorTexture(0, 0, 0, 0)
@@ -383,7 +393,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
 
         optionRow:SetScript("OnEnter", function(self)
             if self.item and not self.item.disabled and self.item.value ~= row.currentValue then
-                self.background:SetColorTexture(0.20, 0.20, 0.22, 0.82)
+                self.background:SetColorTexture(1, 1, 1, DD.ITEM_HL_A or 0.08)
                 self.text:SetTextColor(1, 1, 1, 1)
             end
             if self.item and self.item.tooltip then

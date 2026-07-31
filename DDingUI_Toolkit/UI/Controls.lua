@@ -5,6 +5,8 @@ local Lib = LibStub("DDingUI-StyleLib-1.0")
 local C = Lib.Colors
 local F = Lib.Font
 local Motion = Lib.Motion
+local T = Lib.Tokens or {}
+local PP = Lib.PP
 local SOLID = Lib.Textures and Lib.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 local ADDON_KEY = "MJToolkit"
 
@@ -29,6 +31,15 @@ local function ApplyBackdrop(frame, background, border)
     })
     frame:SetBackdropColor(UnpackColor(background or C.bg.input))
     frame:SetBackdropBorderColor(UnpackColor(border or C.border.default))
+end
+
+local function DisablePixelSnap(texture)
+    if PP and PP.DisablePixelSnap then
+        PP.DisablePixelSnap(texture)
+    elseif texture and texture.SetSnapToPixelGrid then
+        texture:SetSnapToPixelGrid(false)
+        texture:SetTexelSnappingBias(0)
+    end
 end
 
 local function MakeFont(parent, size, color, text)
@@ -89,6 +100,7 @@ function Controls.CreateSeparator(parent, opts)
     line:SetHeight(1)
     line:SetWidth(opts.width or parent:GetWidth() or 300)
     line:SetColorTexture(UnpackColor(opts.color or C.border.separator))
+    DisablePixelSnap(line)
     return line
 end
 
@@ -107,11 +119,13 @@ function Controls.CreateSectionHeader(parent, addonKey, text, opts)
     line:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 3)
     line:SetHeight(1)
     line:SetColorTexture(r, g, b, 0.55)
+    DisablePixelSnap(line)
 
     local cap = row:CreateTexture(nil, "OVERLAY")
     cap:SetPoint("BOTTOMLEFT", line, "BOTTOMLEFT", 0, 0)
     cap:SetSize(54, 1)
     cap:SetColorTexture(r, g, b, 1)
+    DisablePixelSnap(cap)
 
     row.label = label
     return row
@@ -120,9 +134,14 @@ end
 function Controls.CreateButton(parent, addonKey, text, onClick, opts)
     opts = opts or {}
     local r, g, b = Accent()
+    local buttonColors = T.MakeButtonColors and T.MakeButtonColors({ r, g, b, 1 })
     local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
     button:SetSize(opts.width or 160, opts.height or 28)
-    ApplyBackdrop(button, C.bg.input, C.border.default)
+    ApplyBackdrop(
+        button,
+        buttonColors and { buttonColors[1], buttonColors[2], buttonColors[3], buttonColors[4] } or C.bg.input,
+        buttonColors and { buttonColors[9], buttonColors[10], buttonColors[11], buttonColors[12] } or C.border.default
+    )
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     local label = MakeFont(button, F.normal, C.text.normal, text)
@@ -130,11 +149,12 @@ function Controls.CreateButton(parent, addonKey, text, onClick, opts)
     button.label = label
 
     local hoverMotion
-    if Motion and Motion.InterfaceButton then
-        hoverMotion = Motion.InterfaceButton(button, {
-            normalBg = C.bg.input,
+    local buttonHover = Motion and (Motion.ButtonHover or Motion.InterfaceButton)
+    if buttonHover then
+        hoverMotion = buttonHover(button, {
+            normalBg = buttonColors and { buttonColors[1], buttonColors[2], buttonColors[3], buttonColors[4] } or C.bg.input,
             hoverBg = C.bg.hover,
-            normalBorder = C.border.default,
+            normalBorder = buttonColors and { buttonColors[9], buttonColors[10], buttonColors[11], buttonColors[12] } or C.border.default,
             hoverBorder = { r, g, b, 0.85 },
             text = label,
             normalText = C.text.normal,
@@ -190,6 +210,10 @@ end
 function Controls.CreateCheckbox(parent, addonKey, labelText, default, opts)
     opts = opts or {}
     local r, g, b = Accent()
+    local CB = T.CB or {
+        BOX_R = 0.075, BOX_G = 0.113, BOX_B = 0.141,
+        BRD_A = 0.25, ACT_BRD_A = 0.70, SIZE = 14, CHECK_INSET = 2,
+    }
     local row = CreateFrame("Button", nil, parent)
     row:SetSize(560, opts.height or 28)
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -201,14 +225,15 @@ function Controls.CreateCheckbox(parent, addonKey, labelText, default, opts)
     label:SetWordWrap(false)
 
     local box = CreateFrame("Frame", nil, row, "BackdropTemplate")
-    box:SetSize(17, 17)
+    box:SetSize(CB.SIZE, CB.SIZE)
     box:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    ApplyBackdrop(box, C.bg.input, C.border.default)
+    ApplyBackdrop(box, { CB.BOX_R, CB.BOX_G, CB.BOX_B, 1 }, { 1, 1, 1, CB.BRD_A })
 
     local fill = box:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
-    fill:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
+    fill:SetPoint("TOPLEFT", box, "TOPLEFT", CB.CHECK_INSET, -CB.CHECK_INSET)
+    fill:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -CB.CHECK_INSET, CB.CHECK_INSET)
     fill:SetColorTexture(r, g, b, 1)
+    DisablePixelSnap(fill)
 
     local check = MakeFont(box, 12, C.text.highlight, "")
     check:SetPoint("CENTER", box, "CENTER", 0, 0)
@@ -219,7 +244,7 @@ function Controls.CreateCheckbox(parent, addonKey, labelText, default, opts)
         fill:SetShown(row.checked)
         check:SetText(row.checked and "" or "")
         box:SetBackdropBorderColor(UnpackColor(
-            row.checked and { r, g, b, 0.9 } or C.border.default
+            row.checked and { r, g, b, CB.ACT_BRD_A } or { 1, 1, 1, CB.BRD_A }
         ))
     end
 
@@ -356,6 +381,10 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
     step = math.max(0.0001, tonumber(step) or 1)
 
     local r, g, b = Accent()
+    local SL = T.SL or {
+        TRACK_R = 0.08, TRACK_G = 0.10, TRACK_B = 0.12,
+        TRACK_A = 0.95, TRACK_H = 4, FILL_A = 0.75, THUMB_SZ = 12,
+    }
     local row = CreateRow(parent, labelText, opts.height or 36)
 
     local valueBox = CreateFrame("EditBox", nil, row, "BackdropTemplate")
@@ -369,15 +398,16 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
     valueBox:SetAutoFocus(false)
 
     local track = CreateFrame("Frame", nil, row, "BackdropTemplate")
-    track:SetHeight(4)
+    track:SetHeight(SL.TRACK_H)
     track:SetPoint("LEFT", row, "CENTER", 12, 0)
     track:SetPoint("RIGHT", valueBox, "LEFT", -18, 0)
-    ApplyBackdrop(track, C.bg.widget, { 0, 0, 0, 0 })
+    ApplyBackdrop(track, { SL.TRACK_R, SL.TRACK_G, SL.TRACK_B, SL.TRACK_A }, { 0, 0, 0, 0 })
 
     local fill = track:CreateTexture(nil, "ARTWORK")
     fill:SetPoint("LEFT", track, "LEFT", 0, 0)
-    fill:SetHeight(4)
-    fill:SetColorTexture(r, g, b, 0.9)
+    fill:SetHeight(SL.TRACK_H)
+    fill:SetColorTexture(r, g, b, SL.FILL_A)
+    DisablePixelSnap(fill)
 
     local slider = CreateFrame("Slider", nil, row)
     slider:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 6)
@@ -389,8 +419,9 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
     slider:EnableMouseWheel(true)
 
     local thumb = slider:CreateTexture(nil, "OVERLAY")
-    thumb:SetSize(9, 13)
+    thumb:SetSize(math.max(8, SL.THUMB_SZ - 3), SL.THUMB_SZ + 1)
     thumb:SetColorTexture(r, g, b, 1)
+    DisablePixelSnap(thumb)
     slider:SetThumbTexture(thumb)
 
     local decimals = DecimalPlaces(step)

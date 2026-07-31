@@ -24,11 +24,13 @@ if not LCG then return end
 --- @param yOffset number|nil
 --- @param border boolean|nil  테두리 안쪽에 표시할지 (기본 false)
 --- @param key string|nil  글로우 식별 키 (기본 nil)
-function Lib.ShowPixelGlow(frame, color, lineCount, frequency, length, thickness, xOffset, yOffset, border, key)
+function Lib.ShowPixelGlow(frame, color, lineCount, frequency, length, thickness, xOffset, yOffset, border, key, preserveDefaultColor)
     if type(color) == "string" then
         color = Lib.GetColorTable(color)
     end
-    color = color or Lib.GetColorTable("accent")
+    if not preserveDefaultColor then
+        color = color or Lib.GetColorTable("accent")
+    end
     LCG.PixelGlow_Start(frame, color, lineCount or 8, frequency or 0.25, length, thickness or 2, xOffset or 0, yOffset or 0, border, key)
 end
 
@@ -48,11 +50,13 @@ end
 --- @param xOffset number|nil
 --- @param yOffset number|nil
 --- @param key string|nil
-function Lib.ShowAutocastGlow(frame, color, particleCount, frequency, scale, xOffset, yOffset, key)
+function Lib.ShowAutocastGlow(frame, color, particleCount, frequency, scale, xOffset, yOffset, key, preserveDefaultColor)
     if type(color) == "string" then
         color = Lib.GetColorTable(color)
     end
-    color = color or Lib.GetColorTable("accent")
+    if not preserveDefaultColor then
+        color = color or Lib.GetColorTable("accent")
+    end
     LCG.AutoCastGlow_Start(frame, color, particleCount or 4, frequency or 0.125, scale or 1, xOffset or 0, yOffset or 0, key)
 end
 

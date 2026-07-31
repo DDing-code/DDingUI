@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: CascadingMenu
--- 우클릭 컨텍스트 메뉴 (inspired by AbstractFramework)
+-- 우클릭 컨텍스트 메뉴
 -- 계단식 서브메뉴 지원
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"
@@ -46,7 +46,15 @@ local function CreateMenuItem(parent)
     item.text:SetJustifyH("LEFT")
     item.text:SetWordWrap(false)
 
-    -- 서브메뉴 화살표
+    item.valueText = item:CreateFontString(nil, "OVERLAY")
+    item.valueText:SetFont(Lib:GetFont("primary"), Lib:GetFontSize("small"), "")
+    item.valueText:SetPoint("RIGHT", -20, 0)
+    item.valueText:SetJustifyH("RIGHT")
+    item.valueText:SetTextColor(Lib.GetColor("dim"))
+    item.valueText:Hide()
+
+    -- Submenus open on hover; keep the marker empty so custom fonts cannot
+    -- render a missing-glyph replacement character here.
     item.arrow = item:CreateFontString(nil, "OVERLAY")
     item.arrow:SetFont(Lib:GetFont("primary"), Lib:GetFontSize("small"), "")
     item.arrow:SetPoint("RIGHT", -6, 0)
@@ -66,6 +74,11 @@ local function CreateMenuItem(parent)
     item.icon:SetSize(16, 16)
     item.icon:SetPoint("LEFT", 6, 0)
     item.icon:Hide()
+
+    item.swatch = item:CreateTexture(nil, "ARTWORK")
+    item.swatch:SetSize(12, 12)
+    item.swatch:SetPoint("RIGHT", -20, 0)
+    item.swatch:Hide()
 
     -- Hover 효과
     item:SetScript("OnEnter", function(self)
@@ -160,6 +173,9 @@ local function ResetMenuFrame(menu)
         item.arrow:Hide()
         item.check:Hide()
         item.icon:Hide()
+        item.valueText:Hide()
+        item.valueText:SetText("")
+        item.swatch:Hide()
     end
     for _, sep in ipairs(menu._separators) do
         sep:Hide()
@@ -210,8 +226,13 @@ local function LayoutMenu(menu, menuList)
             -- 텍스트
             item.text:SetText(entry.text or "")
             item.text:SetPoint("LEFT", textLeftOffset, 0)
+            item.text:SetPoint("RIGHT", entry.menuList and -72 or -20, 0)
             tempFS:SetText(entry.text or "")
             local textWidth = tempFS:GetStringWidth() + textLeftOffset + 24
+            if entry.rightText then
+                tempFS:SetText(entry.rightText)
+                textWidth = textWidth + tempFS:GetStringWidth() + 24
+            end
             if textWidth > maxWidth then maxWidth = textWidth end
 
             -- 색상
@@ -225,13 +246,27 @@ local function LayoutMenu(menu, menuList)
                 item._disabled = false
             end
 
+            if entry.isTitle then
+                item.text:SetTextColor(Lib.GetColor("highlight"))
+                item._disabled = true
+            end
+
             -- 콜백
             item._func = entry.func
             item._value = entry.value
             item._menuList = entry.menuList
 
+            -- Submenu markers are intentionally hidden. The menu still opens
+            -- through the item's existing hover handler.
             item.arrow:SetText("")
             item.arrow:Hide()
+
+
+            if entry.rightText then
+                item.valueText:SetText(entry.rightText)
+                item.valueText:SetPoint("RIGHT", entry.menuList and -20 or -8, 0)
+                item.valueText:Show()
+            end
 
             -- 체크마크
             if entry.checked then
@@ -248,6 +283,15 @@ local function LayoutMenu(menu, menuList)
                     item.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 end
                 item.icon:Show()
+            end
+
+
+            if entry.swatch then
+                local c = entry.swatch
+                item.swatch:SetColorTexture(c.r or c[1] or 1, c.g or c[2] or 1, c.b or c[3] or 1, c.a or c[4] or 1)
+                item.swatch:SetPoint("RIGHT", entry.menuList and -20 or -8, 0)
+                item.swatch:Show()
+                item.text:SetPoint("RIGHT", -40, 0)
             end
 
             item:SetPoint("TOPLEFT", menu, "TOPLEFT", MENU_PADDING, yOffset)

@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: ObjectPool
--- 위젯 재활용 풀 (inspired by AbstractFramework)
+-- Reusable widget pool
 -- Scroll, Dropdown 등에서 동적 위젯 재사용
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"

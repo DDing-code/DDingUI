@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: ColorNames
--- 이름 기반 색상 조회 (inspired by AbstractFramework)
+-- Named color lookup
 -- 기존 Colors.lua의 테이블 구조와 호환되며 이름으로 빠르게 접근
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"

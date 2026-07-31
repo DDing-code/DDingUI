@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: Animation
--- 애니메이션 헬퍼 (inspired by AbstractFramework)
+-- Shared animation helpers
 -- FadeIn/Out, SlideIn/Out, Pulse, Flash
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"

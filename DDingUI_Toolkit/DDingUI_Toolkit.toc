@@ -25,15 +25,20 @@ Libs\DDingUI_StyleLib\Motion.lua
 Libs\DDingUI_StyleLib\TableUtils.lua
 Libs\DDingUI_StyleLib\Delay.lua
 Libs\DDingUI_StyleLib\ColorNames.lua
+Libs\DDingUI_StyleLib\DesignTokens.lua
 Libs\DDingUI_StyleLib\PixelUtil.lua
 Libs\DDingUI_StyleLib\ObjectPool.lua
 Libs\DDingUI_StyleLib\Animation.lua
+Libs\DDingUI_StyleLib\WidgetRefresh.lua
 # StyleLib v2 Widgets
+Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 Libs\DDingUI_StyleLib\GlowEffects.lua
 Libs\DDingUI_StyleLib\CascadingMenu.lua
 Libs\DDingUI_StyleLib\DragSorter.lua
+Libs\DDingUI_StyleLib\DualRow.lua
 # StyleLib Widgets
 Libs\DDingUI_StyleLib\Widgets.lua
+Libs\DDingUI_StyleLib\ProceduralGlow.lua
 
 # Localization
 Locales\enUS.lua

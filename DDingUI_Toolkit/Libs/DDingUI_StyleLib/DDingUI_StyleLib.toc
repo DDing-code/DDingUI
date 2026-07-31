@@ -10,4 +10,17 @@ Core.lua
 Colors.lua
 Gradient.lua
 Motion.lua
+TableUtils.lua
+Delay.lua
+ColorNames.lua
+DesignTokens.lua
+PixelUtil.lua
+ObjectPool.lua
+Animation.lua
+WidgetRefresh.lua
+GlowEffects.lua
+CascadingMenu.lua
+DragSorter.lua
+DualRow.lua
 Widgets.lua
+ProceduralGlow.lua

@@ -1,6 +1,6 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: TableUtils
--- 테이블 유틸리티 (inspired by AbstractFramework)
+-- Shared table utilities
 ------------------------------------------------------
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
