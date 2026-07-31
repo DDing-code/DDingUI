@@ -50,6 +50,7 @@ Media\SharedMedia.lua
 
 # Core
 Core\Database.lua
+Core\Profiles.lua
 Core\Core.lua
 Core\SlashCommands.lua
 Core\MinimapButton.lua
@@ -60,6 +61,7 @@ Config_Data.lua
 UI\Controls.lua
 UI\Dropdown.lua
 UI\Workspace.lua
+UI\HomePanels.lua
 Config_UI.lua
 
 # UI

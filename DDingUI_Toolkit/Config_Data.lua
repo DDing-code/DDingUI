@@ -163,6 +163,18 @@ function ns:InitConfigTree()
     tree.panels = {}
 
     -----------------------------------------------
+    -- Dashboard
+    -----------------------------------------------
+    tree.panels["overview"] = {
+        title = L["WORKSPACE_DASHBOARD"],
+        desc = L["WORKSPACE_OVERVIEW_DESC"],
+        customRender = true,
+        render = function(container)
+            ns.ToolkitHomePanels:RenderDashboard(container)
+        end,
+    }
+
+    -----------------------------------------------
     -- General
     -----------------------------------------------
     tree.panels["general"] = {
@@ -176,6 +188,15 @@ function ns:InitConfigTree()
             { type = "text", label = L["VERSION"] .. ": " .. (C_AddOns.GetAddOnMetadata(addonName, "Version") or "?") }, -- [12.0.1] GetAddOnMetadata 폴백 제거
             { type = "text", label = L["AUTHOR"] .. ": DDing" },
         },
+    }
+
+    tree.panels["profile"] = {
+        title = L["WORKSPACE_PROFILE"],
+        desc = L["PROFILE_PANEL_DESC"],
+        customRender = true,
+        render = function(container)
+            ns.ToolkitHomePanels:RenderProfile(container)
+        end,
     }
 
     -----------------------------------------------

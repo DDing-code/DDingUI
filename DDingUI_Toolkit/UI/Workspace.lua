@@ -94,7 +94,7 @@ local CATEGORY_DEFS = {
         key = "profile",
         label = L["WORKSPACE_PROFILE"],
         icon = ICON_ROOT .. "Profile.tga",
-        panels = { "general" },
+        panels = { "profile" },
         bottom = true,
     },
 }

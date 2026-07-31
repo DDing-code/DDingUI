@@ -1031,7 +1031,9 @@ local function ShowPanel(key)
 
             -- customRender + moduleEnableKey: 모듈 활성화 토글 삽입 -- [REFACTOR]
             local customStartY = -S.contentPad
-            if panelDef.moduleEnableKey then
+            if panelDef.render then
+                panelDef.render(c, key)
+            elseif panelDef.moduleEnableKey then
                 local isEnabled = ns:GetDBValue(panelDef.moduleEnableKey)
                 if isEnabled == nil then isEnabled = true end
                 if not settingsPanel.workspace then
@@ -1088,6 +1090,9 @@ local function ShowPanel(key)
 
     local c = panelContainers[key]
     c:Show()
+    if c._refresh then
+        c:_refresh()
+    end
     settingsPanel.contentChild:SetHeight(c._contentHeight or 600)
 end
 
