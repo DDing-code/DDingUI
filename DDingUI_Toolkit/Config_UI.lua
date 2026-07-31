@@ -28,6 +28,30 @@ ns.ConfigUI = ConfigUI
 local settingsPanel     -- Lib.CreateSettingsPanel 결과
 local panelContainers = {} -- key → Frame
 local activePanel       -- 현재 선택된 패널 키
+local panelSectionState = {}
+local activeDetailPreview
+local detailPreviewRefreshTimer
+
+local function QueueDetailPreviewRefresh()
+    if not activeDetailPreview or not activeDetailPreview.module then return end
+    if detailPreviewRefreshTimer then
+        detailPreviewRefreshTimer:Cancel()
+    end
+
+    local state = activeDetailPreview
+    detailPreviewRefreshTimer = C_Timer.NewTimer(0.06, function()
+        detailPreviewRefreshTimer = nil
+        if activeDetailPreview ~= state then return end
+
+        local module = state.module
+        if module.RefreshEditPreview then
+            module:RefreshEditPreview()
+        elseif module.ExitEditPreview and module.EnterEditPreview then
+            module:ExitEditPreview()
+            module:EnterEditPreview()
+        end
+    end)
+end
 
 ------------------------------------------------------
 -- ReloadUI 팝업
@@ -77,6 +101,7 @@ local function SetValue(setting, value)
     if setting.invert then value = not value end
     ns:SetDBValue(setting.key, value)
     if setting.onChange then setting.onChange(value) end
+    QueueDetailPreviewRefresh()
     if setting.reloadRequired then
         StaticPopup_Show("DDINGTOOLKIT_RELOAD_CONFIRM")
     end
@@ -140,6 +165,7 @@ local function CreateSoundWidget(parent, setting)
             ns:SetDBValue(setting.key, value)
             if value and value ~= "" then PlaySoundFile(value, "Master") end
             if setting.onChange then setting.onChange(value) end
+            QueueDetailPreviewRefresh()
         end,
     })
     dropdown:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
@@ -210,6 +236,7 @@ local function CreateFontDropdown(parent, setting)
         onChange = function(value)
             ns:SetDBValue(setting.key, value)
             if setting.onChange then setting.onChange(value) end
+            QueueDetailPreviewRefresh()
         end,
     })
 end
@@ -240,6 +267,7 @@ local function CreateStatusBarDropdown(parent, setting)
         onChange = function(value)
             ns:SetDBValue(setting.key, value)
             if setting.onChange then setting.onChange(value) end
+            QueueDetailPreviewRefresh()
         end,
     })
 end
@@ -271,6 +299,7 @@ local function CreateColorButton(parent, setting)
             if setting.onChange then
                 setting.onChange(ns:GetDBValue(setting.key))
             end
+            QueueDetailPreviewRefresh()
         end,
     })
     if setting.compactWidth then
@@ -293,7 +322,9 @@ end
 
 local function CreateModuleOverlay(container, yStart)
     if container._moduleOverlay then
+        container._moduleOverlay:ClearAllPoints()
         container._moduleOverlay:SetPoint("TOPLEFT", container, "TOPLEFT", 0, yStart)
+        container._moduleOverlay:SetPoint("BOTTOMRIGHT")
         return container._moduleOverlay
     end
     local overlay = CreateFrame("Frame", nil, container)
@@ -312,10 +343,226 @@ local function CreateModuleOverlay(container, yStart)
     return overlay
 end
 
+local function SetButtonText(button, text)
+    if not button then return end
+    if button.label then
+        button.label:SetText(text)
+    elseif button.SetText then
+        button:SetText(text)
+    end
+end
+
+local function GetPanelModule(panelKey)
+    local moduleName = ns.ConfigModuleMap and ns.ConfigModuleMap[panelKey]
+    local module = moduleName and ns.modules and ns.modules[moduleName]
+    return moduleName, module
+end
+
+local function StopDetailPreview()
+    if detailPreviewRefreshTimer then
+        detailPreviewRefreshTimer:Cancel()
+        detailPreviewRefreshTimer = nil
+    end
+
+    local state = activeDetailPreview
+    if not state then return end
+
+    if state.module and state.module.ExitEditPreview then
+        state.module:ExitEditPreview()
+    end
+    SetButtonText(state.button, LT("DETAIL_PREVIEW_START", "Start preview"))
+    activeDetailPreview = nil
+end
+
+local function ToggleDetailPreview(panelKey, button)
+    if activeDetailPreview and activeDetailPreview.panelKey == panelKey then
+        StopDetailPreview()
+        return
+    end
+
+    StopDetailPreview()
+
+    local _, module = GetPanelModule(panelKey)
+    if not module then return end
+
+    if module.EnterEditPreview and module.ExitEditPreview then
+        module:EnterEditPreview()
+        activeDetailPreview = {
+            panelKey = panelKey,
+            module = module,
+            button = button,
+        }
+        SetButtonText(button, LT("DETAIL_PREVIEW_STOP", "Stop preview"))
+    elseif module.TriggerAlert then
+        module:TriggerAlert(true)
+    elseif module.TestAlert then
+        module:TestAlert()
+    end
+end
+
+local function ModuleSupportsPreview(panelKey)
+    local _, module = GetPanelModule(panelKey)
+    if not module then return false end
+    return (module.EnterEditPreview and module.ExitEditPreview)
+        or module.TriggerAlert
+        or module.TestAlert
+end
+
+local function CreateDetailPreview(parent, panelKey)
+    if not ModuleSupportsPreview(panelKey) then return nil end
+
+    local preview = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    preview:SetHeight(76)
+    preview:SetBackdrop({
+        bgFile = SOLID,
+        edgeFile = SOLID,
+        edgeSize = 1,
+    })
+    preview:SetBackdropColor(0.055, 0.058, 0.065, 0.96)
+    preview:SetBackdropBorderColor(0.22, 0.23, 0.26, 0.9)
+
+    local accent = { Lib.GetAccent(ADDON_KEY) }
+    local marker = preview:CreateTexture(nil, "ARTWORK")
+    marker:SetPoint("TOPLEFT", preview, "TOPLEFT", 0, 0)
+    marker:SetPoint("BOTTOMLEFT", preview, "BOTTOMLEFT", 0, 0)
+    marker:SetWidth(3)
+    marker:SetColorTexture(accent[1], accent[2], accent[3], 1)
+
+    local title = preview:CreateFontString(nil, "OVERLAY")
+    title:SetFont(F.path, F.normal, "")
+    title:SetTextColor(u(C.text.highlight))
+    title:SetPoint("TOPLEFT", preview, "TOPLEFT", 16, -14)
+    title:SetText(LT("DETAIL_PREVIEW_TITLE", "Live preview"))
+
+    local desc = preview:CreateFontString(nil, "OVERLAY")
+    desc:SetFont(F.path, F.small, "")
+    desc:SetTextColor(u(C.text.dim))
+    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -7)
+    desc:SetPoint("RIGHT", preview, "RIGHT", -170, 0)
+    desc:SetJustifyH("LEFT")
+    desc:SetText(LT("DETAIL_PREVIEW_DESC", "Show the real element while adjusting its settings."))
+
+    local previewButton
+    previewButton = Widgets.CreateButton(preview, ADDON_KEY,
+        activeDetailPreview and activeDetailPreview.panelKey == panelKey
+            and LT("DETAIL_PREVIEW_STOP", "Stop preview")
+            or LT("DETAIL_PREVIEW_START", "Start preview"),
+        function()
+            ToggleDetailPreview(panelKey, previewButton)
+        end,
+        { width = 132, height = 28 }
+    )
+    previewButton:SetPoint("RIGHT", preview, "RIGHT", -14, 0)
+    preview.previewButton = previewButton
+
+    return preview
+end
+
+local function IsRedundantPreviewButton(setting, panelKey)
+    if setting.type ~= "button" or not ModuleSupportsPreview(panelKey) then
+        return false
+    end
+
+    local label = setting.label
+    return label == rawget(L, "TEST_ALERT")
+        or label == rawget(L, "TEST_ON_OFF")
+end
+
+local function BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
+    local sections = {}
+    local current
+
+    local function EnsureSection(label)
+        if current then return current end
+        current = {
+            id = "general",
+            label = label or LT("DETAIL_SECTION_GENERAL", "General"),
+            settings = {},
+        }
+        sections[#sections + 1] = current
+        return current
+    end
+
+    for _, setting in ipairs(panelDef.settings or {}) do
+        local skipWorkspaceSetting = usesWorkspaceHeader
+            and (setting.isModuleToggle or (setting.type == "header" and setting.isFirst))
+
+        if not skipWorkspaceSetting and not IsRedundantPreviewButton(setting, panelKey) then
+            if setting.type == "header" then
+                current = {
+                    id = "section_" .. tostring(#sections + 1),
+                    label = setting.label or LT("DETAIL_SECTION_GENERAL", "General"),
+                    settings = {},
+                }
+                sections[#sections + 1] = current
+            else
+                local section = EnsureSection()
+                section.settings[#section.settings + 1] = setting
+            end
+        end
+    end
+
+    for index = #sections, 1, -1 do
+        if #sections[index].settings == 0 then
+            table.remove(sections, index)
+        end
+    end
+    return sections
+end
+
+local function CreateSectionTab(parent, label, onClick)
+    local tab = CreateFrame("Button", nil, parent)
+    tab:SetHeight(32)
+    tab:RegisterForClicks("LeftButtonUp")
+
+    tab.bg = tab:CreateTexture(nil, "BACKGROUND")
+    tab.bg:SetAllPoints()
+    tab.bg:SetColorTexture(0.09, 0.092, 0.105, 0.72)
+
+    tab.label = tab:CreateFontString(nil, "OVERLAY")
+    tab.label:SetFont(F.path, F.small, "")
+    tab.label:SetPoint("LEFT", tab, "LEFT", 10, 0)
+    tab.label:SetPoint("RIGHT", tab, "RIGHT", -10, 0)
+    tab.label:SetJustifyH("CENTER")
+    tab.label:SetWordWrap(false)
+    tab.label:SetText(label or "")
+
+    tab.underline = tab:CreateTexture(nil, "ARTWORK")
+    tab.underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 8, 0)
+    tab.underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", -8, 0)
+    tab.underline:SetHeight(2)
+
+    local accent = { Lib.GetAccent(ADDON_KEY) }
+    function tab:SetSelected(selected)
+        self.selected = selected
+        self.underline:SetShown(selected)
+        if selected then
+            self.bg:SetColorTexture(0.14, 0.14, 0.16, 0.98)
+            self.label:SetTextColor(accent[1], accent[2], accent[3], 1)
+            self.underline:SetColorTexture(accent[1], accent[2], accent[3], 1)
+        else
+            self.bg:SetColorTexture(0.09, 0.092, 0.105, 0.72)
+            self.label:SetTextColor(u(C.text.normal))
+        end
+    end
+
+    tab:SetScript("OnEnter", function(self)
+        if not self.selected then
+            self.bg:SetColorTexture(0.13, 0.13, 0.15, 0.9)
+            self.label:SetTextColor(u(C.text.highlight))
+        end
+    end)
+    tab:SetScript("OnLeave", function(self)
+        self:SetSelected(self.selected)
+    end)
+    tab:SetScript("OnClick", onClick)
+    return tab
+end
+
 ------------------------------------------------------
 -- 패널 렌더러
 ------------------------------------------------------
-local function RenderPanel(container, panelDef)
+local function RenderSettingsPanel(container, panelDef)
     local yOff = -S.contentPad
     local pad  = S.contentPad
     local moduleToggleEndY = nil  -- 모듈 활성화 토글 아래 Y 오프셋 추적
@@ -405,6 +652,7 @@ local function RenderPanel(container, panelDef)
                     onChange = function(value)
                         ns:SetDBValue(s.key, value)
                         if s.onChange then s.onChange(value) end
+                        QueueDetailPreviewRefresh()
                     end,
                 })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -422,6 +670,7 @@ local function RenderPanel(container, panelDef)
                 onChange = function(value)
                     ns:SetDBValue(s.key, value)
                     if s.onChange then s.onChange(value) end
+                    QueueDetailPreviewRefresh()
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -438,6 +687,7 @@ local function RenderPanel(container, panelDef)
                 onChange = function(text)
                     ns:SetDBValue(s.key, text or "")
                     if s.onChange then s.onChange(text) end
+                    QueueDetailPreviewRefresh()
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -561,6 +811,140 @@ local function RenderPanel(container, panelDef)
     end
 end
 
+local function RenderSectionedPanel(container, panelDef, panelKey)
+    local usesWorkspaceHeader = settingsPanel and settingsPanel.workspace and panelDef.moduleEnableKey
+    local sections = BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
+    if #sections < 2 then
+        local preview = CreateDetailPreview(container, panelKey)
+        if not preview then
+            RenderSettingsPanel(container, panelDef)
+            return
+        end
+
+        local pad = S.contentPad
+        preview:SetPoint("TOPLEFT", container, "TOPLEFT", pad, -pad)
+        preview:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, -pad)
+
+        local body = CreateFrame("Frame", nil, container)
+        local bodyTop = -pad - preview:GetHeight() - 14
+        body:SetPoint("TOPLEFT", container, "TOPLEFT", 0, bodyTop)
+        body:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, bodyTop)
+        RenderSettingsPanel(body, {
+            settings = sections[1] and sections[1].settings or panelDef.settings,
+        })
+
+        container._contentHeight = math.abs(bodyTop) + (body._contentHeight or 0) + pad
+        container:SetHeight(container._contentHeight)
+        CreateModuleOverlay(container, 0)
+        UpdateModuleOverlay(container, ns:GetDBValue(panelDef.moduleEnableKey) ~= false)
+        return
+    end
+
+    local pad = S.contentPad
+    local yOff = -pad
+    local preview = CreateDetailPreview(container, panelKey)
+    if preview then
+        preview:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
+        preview:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
+        yOff = yOff - preview:GetHeight() - 14
+    end
+
+    local sectionTitle = MakeTextFrame(
+        container,
+        LT("DETAIL_SECTION_TITLE", "Settings"),
+        C.text.highlight,
+        F.normal
+    )
+    sectionTitle:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
+    sectionTitle:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
+    yOff = yOff - 24
+
+    local availableWidth = math.max((container:GetWidth() or 720) - pad * 2, 480)
+    local columnCount = math.min(#sections, 4)
+    if #sections == 5 then columnCount = 3 end
+    local gap = 6
+    local tabWidth = math.floor((availableWidth - (columnCount - 1) * gap) / columnCount)
+    local rowCount = math.ceil(#sections / columnCount)
+    local tabAreaHeight = rowCount * 32 + (rowCount - 1) * gap
+    local tabs = {}
+    local bodies = {}
+
+    local selectedId = panelSectionState[panelKey]
+    local selectedIndex = 1
+    for index, section in ipairs(sections) do
+        if section.id == selectedId then
+            selectedIndex = index
+            break
+        end
+    end
+
+    local bodyTop = yOff - tabAreaHeight - 12
+    local function ActivateSection(index)
+        selectedIndex = index
+        panelSectionState[panelKey] = sections[index].id
+        for tabIndex, tab in ipairs(tabs) do
+            tab:SetSelected(tabIndex == index)
+        end
+        for bodyIndex, body in ipairs(bodies) do
+            body:SetShown(bodyIndex == index)
+        end
+
+        local body = bodies[index]
+        local contentHeight = math.abs(bodyTop)
+            + (body and body._contentHeight or 0)
+            + pad
+        container._contentHeight = contentHeight
+        container:SetHeight(contentHeight)
+        if settingsPanel and settingsPanel.contentChild and activePanel == panelKey then
+            settingsPanel.contentChild:SetHeight(contentHeight)
+        end
+    end
+
+    for index, section in ipairs(sections) do
+        local sectionIndex = index
+        local row = math.floor((index - 1) / columnCount)
+        local column = (index - 1) % columnCount
+        local tab = CreateSectionTab(container, section.label, function()
+            ActivateSection(sectionIndex)
+        end)
+        tab:SetWidth(tabWidth)
+        tab:SetPoint(
+            "TOPLEFT",
+            container,
+            "TOPLEFT",
+            pad + column * (tabWidth + gap),
+            yOff - row * (32 + gap)
+        )
+        tabs[index] = tab
+    end
+
+    for index, section in ipairs(sections) do
+        local body = CreateFrame("Frame", nil, container)
+        body:SetPoint("TOPLEFT", container, "TOPLEFT", 0, bodyTop)
+        body:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, bodyTop)
+        RenderSettingsPanel(body, { settings = section.settings })
+        body:SetShown(index == selectedIndex)
+        bodies[index] = body
+    end
+
+    container._sectionTabs = tabs
+    container._sectionBodies = bodies
+    ActivateSection(selectedIndex)
+
+    if panelDef.moduleEnableKey then
+        CreateModuleOverlay(container, 0)
+        UpdateModuleOverlay(container, ns:GetDBValue(panelDef.moduleEnableKey) ~= false)
+    end
+end
+
+local function RenderPanel(container, panelDef, panelKey)
+    if panelKey and panelDef.moduleEnableKey and not panelDef.disableSectionLayout then
+        RenderSectionedPanel(container, panelDef, panelKey)
+    else
+        RenderSettingsPanel(container, panelDef)
+    end
+end
+
 ------------------------------------------------------
 -- 패널 전환
 ------------------------------------------------------
@@ -602,6 +986,9 @@ end
 
 local function ShowPanel(key)
     if not settingsPanel then return end
+    if activePanel and activePanel ~= key then
+        StopDetailPreview()
+    end
     activePanel = key
 
     local tree = ns.ConfigTree
@@ -693,7 +1080,7 @@ local function ShowPanel(key)
                 end
             end
         else
-            RenderPanel(c, panelDef)
+            RenderPanel(c, panelDef, key)
         end
     end
 
@@ -710,15 +1097,13 @@ function ConfigUI:RefreshCurrentPanel()
     local c = panelContainers[activePanel]
     if not c then return end
 
-    -- 오버레이 참조 보존 후 자식 숨기기 -- [REFACTOR]
-    local savedOverlay = c._moduleOverlay
-    c._moduleOverlay = nil
+    -- Existing frames are reusable; do not allocate another overlay on refresh.
     for _, child in ipairs({ c:GetChildren() }) do child:Hide() end
 
     -- 재렌더
     local panelDef = ns.ConfigTree and ns.ConfigTree.panels[activePanel]
     if panelDef and not panelDef.customRender then
-        RenderPanel(c, panelDef)
+        RenderPanel(c, panelDef, activePanel)
     end
     settingsPanel.contentChild:SetHeight(c._contentHeight or 600)
 end
@@ -1171,6 +1556,7 @@ function ConfigUI:Initialize()
         ShowPanel(key)
     end)
     settingsPanel.frame:HookScript("OnHide", function()
+        StopDetailPreview()
         if Widgets.CloseDropdowns then
             Widgets.CloseDropdowns()
         end

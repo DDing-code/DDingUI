@@ -764,6 +764,30 @@ function ItemLevel:Refresh()
             end
         end
     end
+
+    local unit = InspectFrame and InspectFrame:IsShown() and InspectFrame.unit
+    if unit then
+        EnsureInspectAverage()
+        if avgInspectFS then
+            local ok, avg = pcall(C_PaperDollInfo.GetInspectItemLevel, unit)
+            if not ok or (issecretvalue and issecretvalue(avg)) then
+                avg = 0
+            end
+            avgInspectFS:SetFont(
+                STANDARD_TEXT_FONT,
+                self.db.inspAvgSize or 17,
+                self.db.inspIlvlFlags or "OUTLINE"
+            )
+            avgInspectFS:SetText(string.format("%.2f", tonumber(avg) or 0))
+            avgInspectFS:Show()
+        end
+        for _, slotName in ipairs(SlotNames) do
+            local button = _G["Inspect" .. slotName]
+            if button then
+                UpdateInspectSlot(button, unit)
+            end
+        end
+    end
 end
 
 -- 모듈 등록

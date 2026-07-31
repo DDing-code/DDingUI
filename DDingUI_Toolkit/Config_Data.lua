@@ -361,6 +361,11 @@ function ns:InitConfigTree()
     -----------------------------------------------
     -- ItemLevel
     -----------------------------------------------
+    local function RefreshItemLevel()
+        local mod = ns.modules and ns.modules["ItemLevel"]
+        if mod and mod.Refresh then mod:Refresh() end
+    end
+
     tree.panels["itemlevel"] = {
         title = L["ITEMLEVEL_TITLE"],
         desc  = L["ITEMLEVEL_DESC"],
@@ -370,24 +375,47 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.modules.ItemLevel", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
             -- 표시 설정
             { type = "header", label = L["ITEMLEVEL_DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.ItemLevel.showItemLevel",    label = L["ITEMLEVEL_SHOW_ILVL"] },
-            { type = "toggle", key = "profile.ItemLevel.showEnchant",      label = L["ITEMLEVEL_SHOW_ENCHANT"] },
-            { type = "toggle", key = "profile.ItemLevel.showGems",         label = L["ITEMLEVEL_SHOW_GEMS"] },
-            { type = "toggle", key = "profile.ItemLevel.showAverageIlvl",  label = L["ITEMLEVEL_SHOW_AVG"] },
-            { type = "toggle", key = "profile.ItemLevel.showEnhancedStats",label = L["ITEMLEVEL_SHOW_ENHANCED"] },
+            { type = "toggle", key = "profile.ItemLevel.showItemLevel",    label = L["ITEMLEVEL_SHOW_ILVL"], onChange = RefreshItemLevel },
+            { type = "toggle", key = "profile.ItemLevel.showEnchant",      label = L["ITEMLEVEL_SHOW_ENCHANT"], onChange = RefreshItemLevel },
+            { type = "toggle", key = "profile.ItemLevel.showGems",         label = L["ITEMLEVEL_SHOW_GEMS"], onChange = RefreshItemLevel },
+            { type = "toggle", key = "profile.ItemLevel.showAverageIlvl",  label = L["ITEMLEVEL_SHOW_AVG"], onChange = RefreshItemLevel },
+            { type = "toggle", key = "profile.ItemLevel.showEnhancedStats",label = L["ITEMLEVEL_SHOW_ENHANCED"], onChange = RefreshItemLevel },
 
             -- 본인 캐릭터
             { type = "header", label = L["ITEMLEVEL_SELF_SETTINGS"] },
-            { type = "slider", key = "profile.ItemLevel.selfIlvlSize",    label = L["ITEMLEVEL_SELF_ILVL_SIZE"],    min = 8, max = 20, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.selfEnchantSize", label = L["ITEMLEVEL_SELF_ENCHANT_SIZE"], min = 8, max = 16, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.selfGemSize",     label = L["ITEMLEVEL_SELF_GEM_SIZE"],     min = 10, max = 24, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.selfAvgSize",     label = L["ITEMLEVEL_SELF_AVG_SIZE"],     min = 12, max = 24, step = 1 },
+            { type = "slider", key = "profile.ItemLevel.selfIlvlSize",    label = L["ITEMLEVEL_SELF_ILVL_SIZE"],    min = 8, max = 20, step = 1, onChange = RefreshItemLevel },
+            { type = "dropdown", key = "profile.ItemLevel.selfIlvlFlags", label = L["ITEMLEVEL_ILVL_OUTLINE"], options = {
+                { text = L["FONT_OUTLINE_NONE"], value = "" },
+                { text = L["FONT_OUTLINE_NORMAL"], value = "OUTLINE" },
+                { text = L["FONT_OUTLINE_THICK"], value = "THICKOUTLINE" },
+              }, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.selfEnchantSize", label = L["ITEMLEVEL_SELF_ENCHANT_SIZE"], min = 8, max = 16, step = 1, onChange = RefreshItemLevel },
+            { type = "dropdown", key = "profile.ItemLevel.selfEnchantFlags", label = L["ITEMLEVEL_ENCHANT_OUTLINE"], options = {
+                { text = L["FONT_OUTLINE_NONE"], value = "" },
+                { text = L["FONT_OUTLINE_NORMAL"], value = "OUTLINE" },
+                { text = L["FONT_OUTLINE_THICK"], value = "THICKOUTLINE" },
+              }, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.selfGemSize",     label = L["ITEMLEVEL_SELF_GEM_SIZE"],     min = 10, max = 24, step = 1, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.selfGemSpacing",  label = L["ITEMLEVEL_GEM_SPACING"],       min = -8, max = 12, step = 1, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.selfAvgSize",     label = L["ITEMLEVEL_SELF_AVG_SIZE"],     min = 12, max = 24, step = 1, onChange = RefreshItemLevel },
 
             -- 살펴보기
             { type = "header", label = L["ITEMLEVEL_INSPECT_SETTINGS"] },
-            { type = "slider", key = "profile.ItemLevel.inspIlvlSize",    label = L["ITEMLEVEL_INSPECT_ILVL_SIZE"],    min = 8, max = 20, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.inspEnchantSize", label = L["ITEMLEVEL_INSPECT_ENCHANT_SIZE"], min = 8, max = 16, step = 1 },
-            { type = "slider", key = "profile.ItemLevel.inspGemSize",     label = L["ITEMLEVEL_INSPECT_GEM_SIZE"],     min = 10, max = 24, step = 1 },
+            { type = "slider", key = "profile.ItemLevel.inspIlvlSize",    label = L["ITEMLEVEL_INSPECT_ILVL_SIZE"],    min = 8, max = 20, step = 1, onChange = RefreshItemLevel },
+            { type = "dropdown", key = "profile.ItemLevel.inspIlvlFlags", label = L["ITEMLEVEL_ILVL_OUTLINE"], options = {
+                { text = L["FONT_OUTLINE_NONE"], value = "" },
+                { text = L["FONT_OUTLINE_NORMAL"], value = "OUTLINE" },
+                { text = L["FONT_OUTLINE_THICK"], value = "THICKOUTLINE" },
+              }, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.inspEnchantSize", label = L["ITEMLEVEL_INSPECT_ENCHANT_SIZE"], min = 8, max = 16, step = 1, onChange = RefreshItemLevel },
+            { type = "dropdown", key = "profile.ItemLevel.inspEnchantFlags", label = L["ITEMLEVEL_ENCHANT_OUTLINE"], options = {
+                { text = L["FONT_OUTLINE_NONE"], value = "" },
+                { text = L["FONT_OUTLINE_NORMAL"], value = "OUTLINE" },
+                { text = L["FONT_OUTLINE_THICK"], value = "THICKOUTLINE" },
+              }, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.inspGemSize",     label = L["ITEMLEVEL_INSPECT_GEM_SIZE"],     min = 10, max = 24, step = 1, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.inspGemSpacing",  label = L["ITEMLEVEL_GEM_SPACING"],           min = -8, max = 12, step = 1, onChange = RefreshItemLevel },
+            { type = "slider", key = "profile.ItemLevel.inspAvgSize",     label = L["ITEMLEVEL_INSPECT_AVG_SIZE"],      min = 12, max = 24, step = 1, onChange = RefreshItemLevel },
 
             -- 리셋
             { type = "separator" },
@@ -589,6 +617,8 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.modules.MythicPlusHelper", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
             { type = "header", label = L["DISPLAY_SETTINGS"] },
             { type = "toggle", key = "profile.MythicPlusHelper.enabled",       label = L["MYTHICPLUS_ENABLE_OVERLAY"] },
+            { type = "toggle", key = "profile.MythicPlusHelper.showTeleports", label = L["MYTHICPLUS_SHOW_TELEPORTS"] },
+            { type = "toggle", key = "profile.MythicPlusHelper.showScore",     label = L["MYTHICPLUS_SHOW_SCORE"] },
             { type = "slider", key = "profile.MythicPlusHelper.scale",         label = L["SCALE"], min = 0.5, max = 2.0, step = 0.1 },
 
             { type = "separator" },
@@ -655,11 +685,13 @@ function ns:InitConfigTree()
             { type = "header", label = L["DURABILITY_ALERT_SETTINGS"] },
             { type = "toggle", key = "profile.DurabilityCheck.soundEnabled", label = L["DURABILITY_SOUND_DESC"] },
             { type = "sound",  key = "profile.DurabilityCheck.soundFile",    label = L["LFGALERT_SOUND_FILE"], customPathKey = "profile.DurabilityCheck.soundCustomPath" },
+            { type = "dropdown", key = "profile.DurabilityCheck.soundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
             { type = "toggle", key = "profile.DurabilityCheck.locked",       label = L["POSITION_LOCKED"] },
 
             -- 화면 설정
             { type = "header", label = L["DURABILITY_SCREEN_SETTINGS"] },
             { type = "slider", key = "profile.DurabilityCheck.scale",       label = L["SCALE"],        min = 0.5, max = 2.0, step = 0.1 },
+            { type = "font", key = "profile.DurabilityCheck.font",          label = L["FONT"] },
             { type = "slider", key = "profile.DurabilityCheck.titleSize",   label = L["TITLE_SIZE"],   min = 14, max = 48, step = 2 },
             { type = "slider", key = "profile.DurabilityCheck.percentSize", label = L["PERCENT_SIZE"], min = 20, max = 72, step = 2 },
 
@@ -932,6 +964,12 @@ function ns:InitConfigTree()
             -- 텍스처
             { type = "header", label = L["TEXTURE"] },
             { type = "statusbar", key = "profile.SkyridingTracker.barTexture", label = L["TEXTURE"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["SkyridingTracker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.SkyridingTracker.borderSize", label = L["SKYRIDINGTRACKER_BORDER"], min = 0, max = 8, step = 1,
               onChange = function()
                 local mod = ns.modules and ns.modules["SkyridingTracker"]
                 if mod and mod.ApplySettings then mod:ApplySettings() end
