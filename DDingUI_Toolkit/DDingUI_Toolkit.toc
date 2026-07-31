@@ -48,6 +48,7 @@ Core\Database.lua
 Core\Core.lua
 Core\SlashCommands.lua
 Core\MinimapButton.lua
+Core\Movers.lua
 
 # Config (DDingUI_StyleLib based)
 Config_Data.lua

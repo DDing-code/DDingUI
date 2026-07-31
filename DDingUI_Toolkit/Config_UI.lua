@@ -45,6 +45,12 @@ StaticPopupDialogs["DDINGTOOLKIT_RELOAD_CONFIRM"] = {
 ------------------------------------------------------
 local function u(t) return unpack(t) end
 
+local function LT(key, fallback)
+    local value = L and rawget(L, key)
+    if type(value) == "string" and value ~= "" then return value end
+    return fallback
+end
+
 local function EnableRightClickMouselook(frame)
     if ns.EnableRightClickMouselook then
         ns:EnableRightClickMouselook(frame)
@@ -1108,6 +1114,36 @@ function ConfigUI:Initialize()
     searchBox:SetPoint("RIGHT", settingsPanel.titleBar.closeBtn, "LEFT", -10, 0)
     settingsPanel.searchBox = searchBox
 
+    local editModeButton = Widgets.CreateButton(
+        settingsPanel.titleBar,
+        ADDON_KEY,
+        LT("EDIT_MODE", "Edit Mode"),
+        function()
+            settingsPanel.frame:Hide()
+            C_Timer.After(0, function()
+                if ns.ToolkitMovers and ns.ToolkitMovers.ToggleConfigMode then
+                    ns.ToolkitMovers:ToggleConfigMode()
+                end
+            end)
+        end,
+        {
+            width = 104,
+            height = 24,
+            tooltip = LT("EDIT_MODE_DESC", "Move and align Toolkit frames."),
+        }
+    )
+    editModeButton:SetPoint("RIGHT", searchBox, "LEFT", -8, 0)
+    settingsPanel.editModeButton = editModeButton
+
+    local function RefreshEditModeButton(active)
+        if not editModeButton or not editModeButton.label then return end
+        editModeButton.label:SetText(active and LT("EDIT_MODE_ACTIVE", "Editing") or LT("EDIT_MODE", "Edit Mode"))
+        editModeButton:SetAlpha(active and 1 or 0.92)
+    end
+    if ns.ToolkitMovers and ns.ToolkitMovers.RegisterStateCallback then
+        ns.ToolkitMovers:RegisterStateCallback(RefreshEditModeButton)
+    end
+
     -- 검색 박스 연결: 트리 필터 + 콘텐츠 검색
     searchBox:SetOnTextChanged(function(text)
         FilterTreeMenu(text)
@@ -1131,6 +1167,7 @@ function ConfigUI:Initialize()
     -- OnShow → 활성 패널 표시
     settingsPanel.frame:HookScript("OnShow", function()
         local key = treeMenu:GetSelected() or (settingsPanel.workspace and "overview" or "general")
+        RefreshEditModeButton(ns.ToolkitMovers and ns.ToolkitMovers:IsActive())
         ShowPanel(key)
     end)
     settingsPanel.frame:HookScript("OnHide", function()
@@ -1157,6 +1194,9 @@ end
 -- Public API
 ------------------------------------------------------
 function ConfigUI:Show()
+    if ns.ToolkitMovers and ns.ToolkitMovers.IsActive and ns.ToolkitMovers:IsActive() then
+        ns.ToolkitMovers:ToggleConfigMode()
+    end
     local p = self:Initialize()
     if p then p.frame:Show() end
 end
