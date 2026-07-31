@@ -22,6 +22,9 @@ local TOP_HEIGHT = 42
 local DETAIL_HEADER_HEIGHT = 86
 local PRIMARY_ROW_HEIGHT = 56
 local MODULE_ROW_HEIGHT = 48
+local RESIZE_GRIP_SIZE = 32
+local RESIZE_GRIP_MARGIN = 4
+local RESIZE_GRIP_CLEARANCE = RESIZE_GRIP_SIZE + (RESIZE_GRIP_MARGIN * 2)
 
 local ICON_ROOT = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\Navigation\\"
 
@@ -261,7 +264,7 @@ local function CreateScrollArea(parent)
     local track = CreateFrame("Frame", nil, parent)
     track:SetWidth(5)
     track:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -3, -4)
-    track:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -3, 4)
+    track:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -3, RESIZE_GRIP_CLEARANCE)
 
     local thumb = CreateFrame("Button", nil, track)
     thumb:SetWidth(4)
@@ -340,8 +343,8 @@ end
 
 local function CreateResizeGrip(frame)
     local grip = CreateFrame("Button", nil, frame)
-    grip:SetSize(32, 32)
-    grip:SetPoint("BOTTOMRIGHT", -4, 4)
+    grip:SetSize(RESIZE_GRIP_SIZE, RESIZE_GRIP_SIZE)
+    grip:SetPoint("BOTTOMRIGHT", -RESIZE_GRIP_MARGIN, RESIZE_GRIP_MARGIN)
     grip:SetFrameLevel(frame:GetFrameLevel() + 80)
     grip:EnableMouse(true)
     grip:SetHitRectInsets(-4, -4, -4, -4)
