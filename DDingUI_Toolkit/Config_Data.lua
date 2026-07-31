@@ -113,6 +113,7 @@ ns.ConfigModuleMap = {
     notepad         = "Notepad",
 
     partytracker    = "PartyTracker",
+    deathreleaseguard = "DeathReleaseGuard",
     mythicplus      = "MythicPlusHelper",
     goldsplit       = "GoldSplit",
     durability      = "DurabilityCheck",
@@ -146,6 +147,7 @@ function ns:InitConfigTree()
         { text = L["TAB_NOTEPAD"],          key = "notepad" },
 
         { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
+        { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
         { text = L["TAB_MYTHICPLUS"],       key = "mythicplus" },
         { text = L["TAB_GOLDSPLIT"],        key = "goldsplit" },
         { text = L["TAB_DURABILITY"],       key = "durability" },
@@ -625,6 +627,52 @@ function ns:InitConfigTree()
             -- 정보 텍스트
             { type = "header", label = L["PARTYTRACKER_INFO_TITLE"] },
             { type = "text",   label = L["PARTYTRACKER_INFO_TEXT"] },
+        },
+    }
+
+    -----------------------------------------------
+    -- DeathReleaseGuard
+    -----------------------------------------------
+    tree.panels["deathreleaseguard"] = {
+        title = L["DEATH_RELEASE_GUARD_TITLE"],
+        desc = L["DEATH_RELEASE_GUARD_DESC"],
+        moduleEnableKey = "profile.modules.DeathReleaseGuard",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            {
+                type = "toggle",
+                key = "profile.modules.DeathReleaseGuard",
+                label = L["MODULE_ENABLED"],
+                reloadRequired = true,
+                isModuleToggle = true,
+            },
+            { type = "header", label = L["DEATH_RELEASE_GUARD_SETTINGS"] },
+            {
+                type = "toggle",
+                key = "profile.DeathReleaseGuard.enabled",
+                label = L["DEATH_RELEASE_GUARD_ENABLE"],
+                onChange = function()
+                    local mod = ns.modules and ns.modules["DeathReleaseGuard"]
+                    if mod and mod.RefreshSettings then
+                        mod:RefreshSettings()
+                    end
+                end,
+            },
+            {
+                type = "slider",
+                key = "profile.DeathReleaseGuard.holdDuration",
+                label = L["DEATH_RELEASE_GUARD_HOLD_DURATION"],
+                min = 0.5,
+                max = 5,
+                step = 0.1,
+                onChange = function()
+                    local mod = ns.modules and ns.modules["DeathReleaseGuard"]
+                    if mod and mod.RefreshSettings then
+                        mod:RefreshSettings()
+                    end
+                end,
+            },
+            { type = "text", label = L["DEATH_RELEASE_GUARD_RAID_ONLY"] },
         },
     }
 

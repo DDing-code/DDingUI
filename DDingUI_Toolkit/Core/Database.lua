@@ -19,6 +19,7 @@ ns.defaults = {
             Notepad = true,
             CombatTimer = true,
             PartyTracker = true,
+            DeathReleaseGuard = true,
             MythicPlusHelper = true,
             GoldSplit = true,
             DurabilityCheck = true,
@@ -367,6 +368,12 @@ ns.defaults = {
             interruptedColor      = { 1, 0, 0 },
             targetPosition = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -100 },
             focusPosition  = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 50 },
+        },
+
+        -- Raid release protection
+        DeathReleaseGuard = {
+            enabled = true,
+            holdDuration = 1.5,
         },
 
         -- AutoRepair (자동수리) 설정

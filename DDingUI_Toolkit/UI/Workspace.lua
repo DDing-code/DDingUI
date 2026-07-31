@@ -67,6 +67,7 @@ local CATEGORY_DEFS = {
             "partyfullalert",
             "mailalert",
             "deathalert",
+            "deathreleaseguard",
             "durability",
         },
     },

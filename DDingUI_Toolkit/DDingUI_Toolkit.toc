@@ -100,6 +100,7 @@ Modules\GoldSplit\GoldSplit.lua
 
 # Modules - DurabilityCheck
 Modules\DurabilityCheck\DurabilityCheck.lua
+Modules\DeathReleaseGuard\DeathReleaseGuard.lua
 
 # Modules - KeystoneTracker
 Modules\KeystoneTracker\KeystoneTracker.lua
