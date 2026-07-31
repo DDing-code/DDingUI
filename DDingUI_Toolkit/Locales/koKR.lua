@@ -53,6 +53,25 @@ L["TAB_FOCUSINTERRUPT"] = "주시 차단"
 L["TAB_SKYRIDINGTRACKER"] = "활공 트래커"
 
 
+-- Workspace
+L["WORKSPACE_DASHBOARD"] = "대시보드"
+L["WORKSPACE_COMBAT"] = "전투 도구"
+L["WORKSPACE_PARTY_RAID"] = "파티 · 공격대"
+L["WORKSPACE_ALERTS"] = "알림"
+L["WORKSPACE_DISPLAY"] = "화면 · 표시"
+L["WORKSPACE_UTILITY"] = "편의 기능"
+L["WORKSPACE_PROFILE"] = "프로필"
+L["WORKSPACE_ACTIVE"] = "활성화"
+L["WORKSPACE_FILTER"] = "필터 검색..."
+L["WORKSPACE_SEARCH_RESULTS"] = "검색 결과"
+L["WORKSPACE_OVERVIEW_DESC"] = "Toolkit의 기능을 카테고리별로 탐색하고 필요한 모듈만 활성화할 수 있습니다."
+L["WORKSPACE_QUICK_START"] = "빠른 시작"
+L["WORKSPACE_QUICK_START_DESC"] = "왼쪽에서 작업 영역을 선택한 뒤 가운데 목록에서 설정할 모듈을 고르세요."
+L["WORKSPACE_SETTINGS_GUIDE"] = "설정 안내"
+L["WORKSPACE_SETTINGS_GUIDE_DESC"] = "모듈 목록과 상세 화면의 활성화 스위치는 같은 설정을 사용합니다. 활성 상태 변경 후 재시작이 필요한 모듈은 확인 창이 표시됩니다."
+L["DROPDOWN_NO_RESULTS"] = "검색 결과가 없습니다."
+L["DROPDOWN_PREVIEW"] = "미리듣기"
+
 -- ==========================================
 -- General Panel
 -- ==========================================

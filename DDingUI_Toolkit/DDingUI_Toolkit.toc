@@ -20,6 +20,7 @@ Libs\AceLocale-3.0\AceLocale-3.0.xml
 Libs\DDingUI_StyleLib\Core.lua
 Libs\DDingUI_StyleLib\Colors.lua
 Libs\DDingUI_StyleLib\Gradient.lua
+Libs\DDingUI_StyleLib\Motion.lua
 # StyleLib v2 Foundation
 Libs\DDingUI_StyleLib\TableUtils.lua
 Libs\DDingUI_StyleLib\Delay.lua
@@ -50,6 +51,9 @@ Core\MinimapButton.lua
 
 # Config (DDingUI_StyleLib based)
 Config_Data.lua
+UI\Controls.lua
+UI\Dropdown.lua
+UI\Workspace.lua
 Config_UI.lua
 
 # UI

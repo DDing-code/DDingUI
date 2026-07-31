@@ -9,12 +9,72 @@ if not Lib then return end
 local C    = Lib.Colors
 local S    = Lib.Spacing
 local F    = Lib.Font
+local Motion = Lib.Motion
 local SOLID = "Interface\\Buttons\\WHITE8x8"
 
 ------------------------------------------------------
 -- Internal helpers
 ------------------------------------------------------
 local function u(tbl) return unpack(tbl) end
+
+local rightMouseLookActive = false
+local rightMouseLookWatcher
+
+local function StopRightButtonMouselook()
+    if not rightMouseLookActive then return end
+    rightMouseLookActive = false
+    if rightMouseLookWatcher then
+        rightMouseLookWatcher:Hide()
+    end
+    if MouselookStop then
+        pcall(MouselookStop)
+    end
+end
+
+local function EnsureRightMouseLookWatcher()
+    if rightMouseLookWatcher then return rightMouseLookWatcher end
+
+    rightMouseLookWatcher = CreateFrame("Frame")
+    rightMouseLookWatcher:Hide()
+    rightMouseLookWatcher:SetScript("OnUpdate", function()
+        if IsMouseButtonDown and IsMouseButtonDown("RightButton") then return end
+        StopRightButtonMouselook()
+    end)
+    return rightMouseLookWatcher
+end
+
+local function StartRightButtonMouselook()
+    if IsMouseButtonDown and not IsMouseButtonDown("RightButton") then return end
+    if not MouselookStart then return end
+
+    local ok = pcall(MouselookStart)
+    if ok then
+        rightMouseLookActive = true
+        EnsureRightMouseLookWatcher():Show()
+    end
+end
+
+local function EnableRightClickMouselook(frame)
+    if not frame or frame._ddingRightClickMouselook then return end
+    frame._ddingRightClickMouselook = true
+    if frame.EnableMouse then
+        frame:EnableMouse(true)
+    end
+    frame:HookScript("OnMouseDown", function(_, button)
+        if button == "RightButton" then
+            StartRightButtonMouselook()
+        end
+    end)
+    frame:HookScript("OnMouseUp", function(_, button)
+        if button == "RightButton" then
+            StopRightButtonMouselook()
+        end
+    end)
+end
+
+Lib.StartRightButtonMouselook = StartRightButtonMouselook
+Lib.StopRightButtonMouselook = StopRightButtonMouselook
+Lib.EnableRightClickMouselook = EnableRightClickMouselook
 
 local function ApplyBackdrop(frame, bgColor, borderColor)
     frame:SetBackdrop({
@@ -121,12 +181,12 @@ end
 ------------------------------------------------------
 -- CreateButton
 ------------------------------------------------------
---- Standard button with hover & click flash.
+--- Standard button with smooth hover and click feedback.
 --- @param parent Frame
 --- @param addonName string
 --- @param text string
 --- @param onClick function(self)
---- @param opts table|nil { width, height, disabled }
+--- @param opts table|nil { width, height, disabled, hoverMotion, motion, flash }
 --- @return Frame
 function Lib.CreateButton(parent, addonName, text, onClick, opts)
     opts = opts or {}
@@ -141,20 +201,64 @@ function Lib.CreateButton(parent, addonName, text, onClick, opts)
     label:SetText(text)
     btn.label = label
 
-    -- hover
-    btn:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(u(C.bg.hover))
-    end)
-    btn:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(u(C.bg.input))
-    end)
+    local hoverMotion
+    if Motion and opts.hoverMotion ~= false then
+        hoverMotion = Motion.InterfaceButton(btn, {
+            normalBg = opts.normalBg or C.bg.input,
+            hoverBg = opts.hoverBg or C.bg.hover,
+            normalBorder = opts.normalBorder or C.border.default,
+            hoverBorder = opts.hoverBorder or { from[1], from[2], from[3], opts.hoverBorderAlpha or 0.65 },
+            text = label,
+            normalText = opts.normalText or C.text.normal,
+            hoverText = opts.hoverText or C.text.highlight,
+            duration = opts.hoverDuration or 0.10,
+            bind = true,
+        })
+    else
+        btn:SetScript("OnEnter", function(self)
+            self:SetBackdropColor(u(C.bg.hover))
+        end)
+        btn:SetScript("OnLeave", function(self)
+            self:SetBackdropColor(u(C.bg.input))
+        end)
+    end
 
     -- click flash
-    btn:SetScript("OnMouseDown", function(self)
+    btn:SetScript("OnMouseDown", function(self, button)
+        if button == "RightButton" then
+            StartRightButtonMouselook()
+            return
+        end
+        if Motion and hoverMotion then Motion.Stop(self, "buttonHover") end
         self:SetBackdropColor(from[1], from[2], from[3], 0.6)
+        if Motion and opts.motion == true then
+            self._ddslMotionBaseScale = self._ddslMotionBaseScale or self:GetScale() or 1
+            Motion.Press(self, { baseScale = self._ddslMotionBaseScale })
+        end
     end)
-    btn:SetScript("OnMouseUp", function(self)
-        self:SetBackdropColor(u(C.bg.input))
+    btn:SetScript("OnMouseUp", function(self, button)
+        if button == "RightButton" then
+            StopRightButtonMouselook()
+            return
+        end
+        if hoverMotion then
+            hoverMotion:SetTarget((self.IsMouseOver and self:IsMouseOver()) and 1 or 0)
+        else
+            self:SetBackdropColor(u(C.bg.input))
+        end
+        if Motion then
+            if opts.motion == true then
+                self._ddslMotionBaseScale = self._ddslMotionBaseScale or self:GetScale() or 1
+                Motion.Release(self, { baseScale = self._ddslMotionBaseScale })
+            end
+            if opts.flash ~= false then
+                Motion.EdgeFlash(self, from[1], from[2], from[3], {
+                    thickness = opts.flashThickness or 2,
+                    alpha = opts.flashAlpha or 0.75,
+                    duration = opts.flashDuration or 0.28,
+                })
+            end
+        end
     end)
 
     if onClick then btn:SetScript("OnClick", onClick) end
@@ -418,7 +522,16 @@ function Lib.CreateDropdown(parent, addonName, label, options, default, opts)
     local items = {}
     for _, o in ipairs(options) do
         if type(o) == "table" then
-            items[#items + 1] = { text = o.text or o[1], value = o.value or o[2] or o[1] }
+            local text = o.text or o.label or o[1]
+            local value
+            if o.value ~= nil then
+                value = o.value
+            elseif o[2] ~= nil then
+                value = o[2]
+            else
+                value = o[1] or text
+            end
+            items[#items + 1] = { text = tostring(text or value or ""), value = value }
         else
             items[#items + 1] = { text = tostring(o), value = o }
         end
@@ -437,6 +550,8 @@ function Lib.CreateDropdown(parent, addonName, label, options, default, opts)
     btn:SetSize(width, 24)
     btn:SetPoint("LEFT", lbl, "RIGHT", S.labelGap, 0)
     ApplyBackdrop(btn, C.bg.input, C.border.default)
+    btn:RegisterForClicks("LeftButtonUp")
+    EnableRightClickMouselook(btn)
 
     local selectedText = MakeFont(btn, F.normal, nil, C.text.normal)
     selectedText:SetPoint("LEFT", 6, 0)
@@ -474,9 +589,13 @@ function Lib.CreateDropdown(parent, addonName, label, options, default, opts)
     if #items == 0 then
         -- 빈 드롭다운 열지 않음
         btn:SetScript("OnClick", function() end)
-        dropdown.btn = btn
-        dropdown.SetOptions = function() end
-        return dropdown
+        container.button = btn
+        container.label = lbl
+        container.SetOptions = function() end
+        function container:SetValue() end
+        function container:GetValue() return self._value end
+        function container:GetText() return self._text end
+        return container
     end
     local totalH = #items * 22 + 2
     local visibleH = math.min(totalH, MAX_VISIBLE * 22 + 2)
@@ -526,6 +645,8 @@ function Lib.CreateDropdown(parent, addonName, label, options, default, opts)
         local row = CreateFrame("Button", nil, rowParent)
         row:SetSize(width - 2, 22)
         row:SetPoint("TOPLEFT", rowParent, "TOPLEFT", needsScroll and 0 or 1, -(needsScroll and ((i - 1) * 22) or (1 + (i - 1) * 22)))
+        row:RegisterForClicks("LeftButtonUp")
+        EnableRightClickMouselook(row)
 
         local rowBG = SolidBG(row, { 0, 0, 0, 0 })
         local rowText = MakeFont(row, F.normal, nil, C.text.normal)
@@ -756,7 +877,13 @@ function Lib.CreateTitleBar(parent, addonName, title, version, opts)
         closeText:SetTextColor(u(C.text.dim))
     end)
     closeBtn:SetScript("OnClick", function()
-        parent:Hide()
+        if parent.HideAnimated then
+            parent:HideAnimated()
+        elseif Motion then
+            Motion.PanelClose(parent)
+        else
+            parent:Hide()
+        end
     end)
 
     bar.accentLine = accentLine
@@ -882,6 +1009,16 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
                 end
             end)
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp") -- [12.0.1] 우클릭 지원
+            btn:SetScript("OnMouseDown", function(_, button)
+                if button == "RightButton" and not tree.onRightClick then
+                    StartRightButtonMouselook()
+                end
+            end)
+            btn:SetScript("OnMouseUp", function(_, button)
+                if button == "RightButton" and not tree.onRightClick then
+                    StopRightButtonMouselook()
+                end
+            end)
             btn:SetScript("OnClick", function(self, button)
                 if button == "RightButton" then
                     if tree.onRightClick then
@@ -969,7 +1106,11 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     local panelName = "DDingUI_" .. addonName .. "_Panel"
     local existingFrame = _G[panelName]
     if existingFrame then
-        existingFrame:Show()
+        if existingFrame.ShowAnimated then
+            existingFrame:ShowAnimated()
+        else
+            existingFrame:Show()
+        end
         return existingFrame._panelResult or { frame = existingFrame }
     end
     local frame = CreateFrame("Frame", panelName, UIParent, "BackdropTemplate")
@@ -977,6 +1118,29 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     ApplyBackdrop(frame, C.bg.main, { 0, 0, 0, 1 })
+    frame._ddslMotionBaseScale = frame:GetScale() or 1
+
+    local function MotionOpts(motionOpts)
+        motionOpts = motionOpts or {}
+        motionOpts.baseScale = motionOpts.baseScale or frame._ddslMotionBaseScale
+        return motionOpts
+    end
+
+    function frame:ShowAnimated(motionOpts)
+        if Motion then
+            Motion.PanelOpen(self, MotionOpts(motionOpts))
+        else
+            self:Show()
+        end
+    end
+
+    function frame:HideAnimated(motionOpts)
+        if Motion then
+            Motion.PanelClose(self, MotionOpts(motionOpts))
+        else
+            self:Hide()
+        end
+    end
 
     -- draggable
     frame:SetMovable(true)
@@ -992,6 +1156,7 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     grip:SetPoint("BOTTOMRIGHT", -5, 5)
     grip:SetFrameLevel(frame:GetFrameLevel() + 20)
     grip:RegisterForDrag("LeftButton")
+    EnableRightClickMouselook(grip)
     grip:SetScript("OnDragStart", function() frame:StartSizing("BOTTOMRIGHT") end)
     grip:SetScript("OnDragStop",  function() frame:StopMovingOrSizing() end)
 
@@ -1019,6 +1184,7 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     local titleBar = Lib.CreateTitleBar(frame, addonName, title, version)
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
+    EnableRightClickMouselook(titleBar)
     titleBar:SetScript("OnDragStart", function() frame:StartMoving() end)
     titleBar:SetScript("OnDragStop",  function() frame:StopMovingOrSizing() end)
 
@@ -1034,13 +1200,17 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     treeFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -35)
     treeFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
     treeFrame:SetWidth(menuW)
+    EnableRightClickMouselook(treeFrame)
 
     -- content area (right, scrollable)
     local contentFrame = CreateFrame("Frame", nil, frame)
     contentFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", menuW + 1, -35)
     contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 5)
+    EnableRightClickMouselook(contentFrame)
 
     local contentScroll, contentChild = CreateScrollFrame(contentFrame)
+    EnableRightClickMouselook(contentScroll)
+    EnableRightClickMouselook(frame)
 
     -- hide by default; caller shows when ready
     frame:Hide()
@@ -1049,6 +1219,7 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
         frame        = frame,
         titleBar     = titleBar,
         treeFrame    = treeFrame,
+        contentFrame = contentFrame,
         contentScroll = contentScroll,
         contentChild = contentChild,
         divider      = divider,

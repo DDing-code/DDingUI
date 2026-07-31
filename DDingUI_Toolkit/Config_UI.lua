@@ -11,6 +11,7 @@ local Lib = LibStub("DDingUI-StyleLib-1.0")
 local C    = Lib.Colors
 local S    = Lib.Spacing
 local F    = Lib.Font
+local Widgets = ns.ToolkitControls or Lib
 
 local ADDON_KEY = "MJToolkit"  -- StyleLib 악센트 프리셋 키
 local SOLID     = Lib.Textures and Lib.Textures.flat or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
@@ -43,6 +44,12 @@ StaticPopupDialogs["DDINGTOOLKIT_RELOAD_CONFIRM"] = {
 -- 유틸리티
 ------------------------------------------------------
 local function u(t) return unpack(t) end
+
+local function EnableRightClickMouselook(frame)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(frame)
+    end
+end
 
 local function ResolveOptions(options)
     if type(options) == "table" then return options end
@@ -80,7 +87,7 @@ local function MakeTextFrame(parent, text, color, size)
     fs:SetWordWrap(true)
     fs:SetText(text or "")
     fs:SetPoint("TOPLEFT")
-    fs:SetPoint("RIGHT")
+    fs:SetPoint("TOPRIGHT")
     f.text = fs
     -- 높이를 텍스트에 맞춤 (딜레이)
     f:SetScript("OnShow", function(self)
@@ -101,7 +108,7 @@ end
 local function CreateSoundWidget(parent, setting)
     -- 컨테이너 (드롭다운 + 커스텀 경로 + 테스트 버튼)
     local container = CreateFrame("Frame", nil, parent)
-    container:SetSize(500, 72)
+    container:SetSize(560, setting.customPathKey and 68 or 30)
 
     -- 1) LSM 사운드 드롭다운
     local options = {}
@@ -118,8 +125,11 @@ local function CreateSoundWidget(parent, setting)
         end
     end
     local current = ns:GetDBValue(setting.key)
-    local dropdown = Lib.CreateDropdown(container, ADDON_KEY, setting.label or "", options, current, {
-        width = 200,
+    local dropdown = Widgets.CreateDropdown(container, ADDON_KEY, setting.label or "", options, current, {
+        width = 220,
+        mediaType = "sound",
+        searchable = true,
+        tooltip = setting.desc,
         onChange = function(value)
             ns:SetDBValue(setting.key, value)
             if value and value ~= "" then PlaySoundFile(value, "Master") end
@@ -127,51 +137,37 @@ local function CreateSoundWidget(parent, setting)
         end,
     })
     dropdown:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+    dropdown:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
 
     -- 2) 커스텀 경로 EditBox -- [12.0.1]
     local customKey = setting.customPathKey
     if customKey then
-        local customLabel = container:CreateFontString(nil, "OVERLAY")
-        customLabel:SetFont(F.path, F.small, "")
-        customLabel:SetTextColor(u(C.text.dim))
-        customLabel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -28)
-        customLabel:SetText(L and L["SOUND_CUSTOM_PATH"] or "커스텀 경로 (mp3/ogg/wav)")
+        local customInput = Widgets.CreateInputField(
+            container,
+            ADDON_KEY,
+            L and L["SOUND_CUSTOM_PATH"] or "Custom path",
+            ns:GetDBValue(customKey) or "",
+            {
+                inputWidth = 230,
+                maxLetters = 256,
+                onChange = function(value)
+                    ns:SetDBValue(customKey, value)
+                end,
+            }
+        )
+        customInput:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -36)
+        customInput:SetPoint("TOPRIGHT", container, "TOPRIGHT", -82, -36)
 
-        local editBox = CreateFrame("EditBox", nil, container, "BackdropTemplate")
-        editBox:SetSize(280, 22)
-        editBox:SetPoint("TOPLEFT", customLabel, "BOTTOMLEFT", 0, -3)
-        editBox:SetBackdrop({
-            bgFile = SOLID, edgeFile = SOLID, edgeSize = 1,
-            insets = { left = 4, right = 4, top = 2, bottom = 2 },
-        })
-        local inputBg = C.bg.input or { 0.08, 0.08, 0.08, 0.9 }
-        editBox:SetBackdropColor(inputBg[1], inputBg[2], inputBg[3], inputBg[4] or 0.9)
-        editBox:SetBackdropBorderColor(u(C.border.default))
-        editBox:SetFont(F.path, F.small, "")
-        editBox:SetTextColor(u(C.text.normal))
-        editBox:SetAutoFocus(false)
-        editBox:SetMaxLetters(256)
-        editBox:SetText(ns:GetDBValue(customKey) or "")
-
-        editBox:SetScript("OnEnterPressed", function(self)
-            local val = self:GetText()
-            ns:SetDBValue(customKey, val)
-            self:ClearFocus()
-        end)
-        editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-
-        -- 테스트 버튼 -- [12.0.1]
-        local testBtn = Lib.CreateButton(container, ADDON_KEY, L and L["SOUND_TEST"] or "테스트", function()
+        local testBtn = Widgets.CreateButton(container, ADDON_KEY, L and L["SOUND_TEST"] or "Test", function()
             local customPath = ns:GetDBValue(customKey)
             local soundFile = ns:GetDBValue(setting.key)
-            -- 현재 채널 키 추출 (soundFile → soundChannel 패턴)
             local channelKey = setting.key:gsub("soundFile$", "soundChannel")
             local channel = ns:GetDBValue(channelKey) or "Master"
             ns:PlaySound(soundFile, channel, customPath)
-        end, { width = 70 })
-        testBtn:SetPoint("LEFT", editBox, "RIGHT", 6, 0)
+        end, { width = 72, height = 24 })
+        testBtn:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, -39)
 
-        container:SetHeight(72)
+        container:SetHeight(68)
     end
 
     return container
@@ -200,8 +196,11 @@ local function CreateFontDropdown(parent, setting)
         options[1] = { text = "Default", value = F.default or "Fonts\\FRIZQT__.TTF" } -- [12.0.1]
     end
     local current = ns:GetDBValue(setting.key)
-    return Lib.CreateDropdown(parent, ADDON_KEY, setting.label or "", options, current, {
-        width = 200,
+    return Widgets.CreateDropdown(parent, ADDON_KEY, setting.label or "", options, current, {
+        width = 220,
+        mediaType = "font",
+        searchable = true,
+        tooltip = setting.desc,
         onChange = function(value)
             ns:SetDBValue(setting.key, value)
             if setting.onChange then setting.onChange(value) end
@@ -227,8 +226,11 @@ local function CreateStatusBarDropdown(parent, setting)
         options[1] = { text = "Default", value = "Interface\\TargetingFrame\\UI-StatusBar" }
     end
     local current = ns:GetDBValue(setting.key)
-    return Lib.CreateDropdown(parent, ADDON_KEY, setting.label or "", options, current, {
-        width = 200,
+    return Widgets.CreateDropdown(parent, ADDON_KEY, setting.label or "", options, current, {
+        width = 220,
+        mediaType = "statusbar",
+        searchable = true,
+        tooltip = setting.desc,
         onChange = function(value)
             ns:SetDBValue(setting.key, value)
             if setting.onChange then setting.onChange(value) end
@@ -240,103 +242,35 @@ end
 -- 위젯: Color 버튼
 ------------------------------------------------------
 local function CreateColorButton(parent, setting)
-    local container = CreateFrame("Frame", nil, parent)
-    container:SetSize(280, 22)
-
-    local label = container:CreateFontString(nil, "OVERLAY")
-    label:SetFont(F.path, F.normal, "")
-    label:SetTextColor(u(C.text.normal))
-    label:SetPoint("LEFT", 0, 0)
-    label:SetText(setting.label or "")
-
-    local swatch = CreateFrame("Button", nil, container, "BackdropTemplate")
-    swatch:SetSize(22, 14)
-    swatch:SetPoint("LEFT", label, "RIGHT", S.labelGap, 0)
-    swatch:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-    swatch:SetBackdropBorderColor(u(C.border.default))
-
     local function ReadColor()
         local c = ns:GetDBValue(setting.key)
-        if not c then return 1, 1, 1, 1 end
+        if not c then return { 1, 1, 1, 1 } end
         if setting.colorFormat == "rgb_object" then
-            return c.r or 1, c.g or 1, c.b or 1, 1
+            return { c.r or 1, c.g or 1, c.b or 1, 1 }
         end
-        return c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1
+        return { c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1 }
     end
 
-    local function UpdateSwatch()
-        local r, g, b = ReadColor()
-        swatch:SetBackdropColor(r, g, b, 1)
-    end
-    UpdateSwatch()
-
-    local function SaveColor(r, g, b, a)
-        if setting.colorFormat == "rgb_object" then
-            ns:SetDBValue(setting.key, { r = r, g = g, b = b })
-        elseif setting.hasAlpha then
-            ns:SetDBValue(setting.key, { r, g, b, a })
-        else
-            ns:SetDBValue(setting.key, { r, g, b })
-        end
-        UpdateSwatch()
-        if setting.onChange then setting.onChange(ns:GetDBValue(setting.key)) end
-    end
-
-    swatch:SetScript("OnClick", function()
-        local r, g, b, a = ReadColor()
-        local prevColor = ns:GetDBValue(setting.key)
-
-        local function OnChanged()
-            local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-            local na = a
-            if setting.hasAlpha then
-                if ColorPickerFrame.GetColorAlpha then
-                    na = ColorPickerFrame:GetColorAlpha()
-                elseif OpacitySliderFrame then
-                    na = 1 - OpacitySliderFrame:GetValue()
-                end
+    local widget = Widgets.CreateColor(parent, ADDON_KEY, setting.label or "", ReadColor(), {
+        hasAlpha = setting.hasAlpha,
+        tooltip = setting.desc,
+        onChange = function(r, g, b, a)
+            if setting.colorFormat == "rgb_object" then
+                ns:SetDBValue(setting.key, { r = r, g = g, b = b })
+            elseif setting.hasAlpha then
+                ns:SetDBValue(setting.key, { r, g, b, a })
+            else
+                ns:SetDBValue(setting.key, { r, g, b })
             end
-            SaveColor(nr, ng, nb, na)
-        end
-
-        -- Retail 10.2.5+ API
-        if ColorPickerFrame.SetupColorPickerAndShow then
-            ColorPickerFrame:SetupColorPickerAndShow({
-                r = r, g = g, b = b,
-                opacity = setting.hasAlpha and (1 - a) or nil,
-                hasOpacity = setting.hasAlpha or false,
-                swatchFunc = OnChanged,
-                opacityFunc = setting.hasAlpha and OnChanged or nil,
-                cancelFunc = function()
-                    ns:SetDBValue(setting.key, prevColor)
-                    UpdateSwatch()
-                end,
-            })
-        else
-            ColorPickerFrame:SetColorRGB(r, g, b)
-            ColorPickerFrame.hasOpacity = setting.hasAlpha
-            ColorPickerFrame.opacity = setting.hasAlpha and (1 - a) or nil
-            ColorPickerFrame.func = OnChanged
-            ColorPickerFrame.opacityFunc = setting.hasAlpha and OnChanged or nil
-            ColorPickerFrame.cancelFunc = function()
-                ns:SetDBValue(setting.key, prevColor)
-                UpdateSwatch()
+            if setting.onChange then
+                setting.onChange(ns:GetDBValue(setting.key))
             end
-            ColorPickerFrame:Hide(); ColorPickerFrame:Show()
-        end
-    end)
-
-    -- hover
-    swatch:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(u(C.border.active))
-    end)
-    swatch:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(u(C.border.default))
-    end)
-
-    container.swatch = swatch
-    container.Refresh = UpdateSwatch
-    return container
+        end,
+    })
+    if setting.compactWidth then
+        widget:SetWidth(setting.compactWidth)
+    end
+    return widget
 end
 
 ------------------------------------------------------
@@ -364,6 +298,7 @@ local function CreateModuleOverlay(container, yStart)
     overlay:SetScript("OnMouseDown", function() end)
     overlay:SetScript("OnMouseUp", function() end)
     overlay:SetScript("OnMouseWheel", function() end)
+    EnableRightClickMouselook(overlay)
     local tex = overlay:CreateTexture(nil, "OVERLAY")
     tex:SetAllPoints()
     tex:SetColorTexture(0, 0, 0, 0.45)
@@ -378,12 +313,13 @@ local function RenderPanel(container, panelDef)
     local yOff = -S.contentPad
     local pad  = S.contentPad
     local moduleToggleEndY = nil  -- 모듈 활성화 토글 아래 Y 오프셋 추적
+    local usesWorkspaceHeader = settingsPanel and settingsPanel.workspace and panelDef.moduleEnableKey
 
     -- 설명 텍스트
-    if panelDef.desc then
+    if panelDef.desc and not (settingsPanel and settingsPanel.workspace) then
         local df = MakeTextFrame(container, panelDef.desc, C.text.dim, F.small)
         df:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
-        df:SetPoint("RIGHT", container, "RIGHT", -pad, 0)
+        df:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
         -- 동적 텍스트 높이 계산
         local availW = (container:GetWidth() or 590) - pad * 2
         if availW < 100 then availW = 560 end
@@ -397,25 +333,29 @@ local function RenderPanel(container, panelDef)
     for _, s in ipairs(settings) do
         local w  -- 생성된 위젯
 
+        -- 새 작업공간에서는 모듈 활성화를 우측 헤더에서 제어한다.
+        if usesWorkspaceHeader and (s.isModuleToggle or (s.type == "header" and s.isFirst)) then
+            -- Header-owned setting.
+
         -- header -----------------------------------------------
-        if s.type == "header" then
-            w = Lib.CreateSectionHeader(container, ADDON_KEY, s.label, { isFirst = s.isFirst })
+        elseif s.type == "header" then
+            w = Widgets.CreateSectionHeader(container, ADDON_KEY, s.label, { isFirst = s.isFirst })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
-            w:SetPoint("RIGHT", container, "RIGHT", -pad, 0)
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
             yOff = yOff - w:GetHeight()
 
         -- separator --------------------------------------------
         elseif s.type == "separator" then
-            local sep = Lib.CreateSeparator(container)
+            local sep = Widgets.CreateSeparator(container)
             sep:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            sep:SetPoint("RIGHT", container, "RIGHT", -pad, 0)
+            sep:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap * 2 - 1
 
         -- text (정적 텍스트) -----------------------------------
         elseif s.type == "text" then
             local tf = MakeTextFrame(container, s.label, C.text.dim, F.small)
             tf:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            tf:SetPoint("RIGHT", container, "RIGHT", -pad, 0)
+            tf:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             -- 동적 텍스트 높이 계산
             local availW = (container:GetWidth() or 590) - pad * 2
             if availW < 100 then availW = 560 end
@@ -434,13 +374,17 @@ local function RenderPanel(container, panelDef)
                     UpdateModuleOverlay(container, checked)
                 end
             else
-                onChangeFn = function(checked) SetValue(s, checked) end
+                onChangeFn = function(checked)
+                    SetValue(s, checked)
+                end
             end
-            w = Lib.CreateCheckbox(container, ADDON_KEY, s.label or "", val, {
+            w = Widgets.CreateCheckbox(container, ADDON_KEY, s.label or "", val, {
+                tooltip = s.desc,
                 onChange = onChangeFn,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 20
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
             -- 모듈 토글 위치 추적 -- [REFACTOR]
             if s.isModuleToggle and panelDef.moduleEnableKey then
                 moduleToggleEndY = yOff
@@ -449,73 +393,96 @@ local function RenderPanel(container, panelDef)
         -- slider -----------------------------------------------
         elseif s.type == "slider" then
             local val = ns:GetDBValue(s.key) or s.min
-            w = Lib.CreateSlider(container, ADDON_KEY, s.label or "",
+            w = Widgets.CreateSlider(container, ADDON_KEY, s.label or "",
                 s.min, s.max, s.step, val, {
-                    width = 300,
+                    tooltip = s.desc,
                     onChange = function(value)
                         ns:SetDBValue(s.key, value)
                         if s.onChange then s.onChange(value) end
                     end,
                 })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 52
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- dropdown ---------------------------------------------
         elseif s.type == "dropdown" then
             local opts = ResolveOptions(s.options)
             local val  = ns:GetDBValue(s.key)
-            w = Lib.CreateDropdown(container, ADDON_KEY, s.label or "", opts, val, {
-                width = 160,
+            w = Widgets.CreateDropdown(container, ADDON_KEY, s.label or "", opts, val, {
+                width = 220,
+                searchable = s.searchable,
+                tooltip = s.desc,
                 onChange = function(value)
                     ns:SetDBValue(s.key, value)
                     if s.onChange then s.onChange(value) end
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 24
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
+
+        -- input ------------------------------------------------
+        elseif s.type == "input" then
+            local val = ns:GetDBValue(s.key) or ""
+            w = Widgets.CreateInputField(container, ADDON_KEY, s.label or "", val, {
+                inputWidth = s.inputWidth or 220,
+                numeric = s.numeric,
+                tooltip = s.desc,
+                onChange = function(text)
+                    ns:SetDBValue(s.key, text or "")
+                    if s.onChange then s.onChange(text) end
+                end,
+            })
+            w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- button -----------------------------------------------
         elseif s.type == "button" then
-            w = Lib.CreateButton(container, ADDON_KEY, s.label or "", function(self)
+            w = Widgets.CreateButton(container, ADDON_KEY, s.label or "", function(self)
                 if s.onClick then s.onClick() end
                 -- refreshPanel 플래그: 버튼 클릭 후 패널 갱신
                 if s.refreshPanel and activePanel then
                     ConfigUI:RefreshCurrentPanel()
                 end
-            end, { width = s.width or 160 })
+            end, { width = s.width or 160, tooltip = s.desc })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 24
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- color ------------------------------------------------
         elseif s.type == "color" then
             w = CreateColorButton(container, s)
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 22
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- sound (LSM + 커스텀 경로) -- [12.0.1] -----------------
         elseif s.type == "sound" then
             w = CreateSoundDropdown(container, s)
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            local soundHeight = s.customPathKey and 72 or 24
-            yOff = yOff - S.controlGap - soundHeight
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- font (LSM) -------------------------------------------
         elseif s.type == "font" then
             w = CreateFontDropdown(container, s)
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 24
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- statusbar (LSM) --------------------------------------
         elseif s.type == "statusbar" then
             w = CreateStatusBarDropdown(container, s)
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 24
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- custom: colorArray (CursorTrail 색상 그리드) -----------
         elseif s.type == "custom" and s.customType == "colorArray" then
             local maxColors = s.maxColors or 10
             local colsPerRow = 2
-            local btnW, btnH, btnGap = 140, 22, 6
+            local btnW, btnH, btnGap = 180, 30, 8
             local gridFrame = CreateFrame("Frame", nil, container)
             gridFrame:SetSize(colsPerRow * (btnW + btnGap), math.ceil(maxColors / colsPerRow) * (btnH + btnGap))
             gridFrame:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -526,6 +493,7 @@ local function RenderPanel(container, panelDef)
                 local colorSetting = {
                     key = s.colorsKey .. "." .. i,
                     label = string.format(L["CURSORTRAIL_COLOR_N"] or "Color %d", i),
+                    compactWidth = btnW,
                     hasAlpha = true,
                     colorFormat = nil, -- array {r,g,b,a}
                     onChange = function()
@@ -543,8 +511,9 @@ local function RenderPanel(container, panelDef)
         elseif s.type == "custom" and s.customType == "cursortrail_presets" then
             local presetList = ns.CursorTrailPresetList or {}
             local val = ns:GetDBValue("profile.CursorTrail.preset") or "custom"
-            w = Lib.CreateDropdown(container, ADDON_KEY, L["PRESET"] or "Preset", presetList, val, {
-                width = 200,
+            w = Widgets.CreateDropdown(container, ADDON_KEY, L["PRESET"] or "Preset", presetList, val, {
+                width = 220,
+                searchable = true,
                 onChange = function(value)
                     ns:SetDBValue("profile.CursorTrail.preset", value)
                     if value ~= "custom" then
@@ -560,7 +529,8 @@ local function RenderPanel(container, panelDef)
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            yOff = yOff - S.controlGap - 24
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
 
         -- custom: 기타 미구현 ----------------------------------
         elseif s.type == "custom" then
@@ -568,7 +538,7 @@ local function RenderPanel(container, panelDef)
                 "|cFF666666[Custom: " .. (s.customType or "?") .. "]|r",
                 C.text.disabled, F.small)
             cf:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
-            cf:SetPoint("RIGHT", container, "RIGHT", -pad, 0)
+            cf:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap - 20
         end
     end
@@ -578,8 +548,8 @@ local function RenderPanel(container, panelDef)
     container:SetHeight(container._contentHeight)
 
     -- 모듈 비활성화 오버레이 생성 -- [REFACTOR]
-    if panelDef.moduleEnableKey and moduleToggleEndY then
-        CreateModuleOverlay(container, moduleToggleEndY)
+    if panelDef.moduleEnableKey and (moduleToggleEndY or usesWorkspaceHeader) then
+        CreateModuleOverlay(container, moduleToggleEndY or 0)
         local isEnabled = ns:GetDBValue(panelDef.moduleEnableKey)
         UpdateModuleOverlay(container, isEnabled ~= false)
     end
@@ -588,12 +558,61 @@ end
 ------------------------------------------------------
 -- 패널 전환
 ------------------------------------------------------
+local function SetPanelModuleEnabled(panelKey, enabled)
+    local panelDef = ns.ConfigTree and ns.ConfigTree.panels and ns.ConfigTree.panels[panelKey]
+    if not panelDef or not panelDef.moduleEnableKey then return end
+
+    local oldValue = ns:GetDBValue(panelDef.moduleEnableKey)
+    local normalized = enabled ~= false
+    if (oldValue ~= false) == normalized then
+        if settingsPanel and settingsPanel.workspace then
+            settingsPanel.workspace:RefreshModuleStates()
+        end
+        return
+    end
+
+    ns:SetDBValue(panelDef.moduleEnableKey, normalized)
+
+    local reloadRequired = true
+    for _, setting in ipairs(panelDef.settings or {}) do
+        if setting.isModuleToggle then
+            if setting.onChange then setting.onChange(normalized) end
+            reloadRequired = setting.reloadRequired == true
+            break
+        end
+    end
+
+    local container = panelContainers[panelKey]
+    if container and container._moduleOverlay then
+        UpdateModuleOverlay(container, normalized)
+    end
+    if settingsPanel and settingsPanel.workspace then
+        settingsPanel.workspace:RefreshModuleStates()
+    end
+    if reloadRequired then
+        StaticPopup_Show("DDINGTOOLKIT_RELOAD_CONFIRM")
+    end
+end
+
 local function ShowPanel(key)
     if not settingsPanel then return end
     activePanel = key
 
     local tree = ns.ConfigTree
     if not tree or not tree.panels[key] then return end
+    local panelDef = tree.panels[key]
+
+    if settingsPanel.workspace then
+        settingsPanel.workspace:SetPanelMeta(key)
+    end
+    if settingsPanel.contentScroll then
+        local smooth = settingsPanel.contentScroll._smoothController
+        if smooth and smooth.Reset then
+            smooth:Reset(0)
+        else
+            settingsPanel.contentScroll:SetVerticalScroll(0)
+        end
+    end
 
     -- 모든 컨테이너 숨기기
     for _, c in pairs(panelContainers) do c:Hide() end
@@ -602,41 +621,39 @@ local function ShowPanel(key)
     if not panelContainers[key] then
         local c = CreateFrame("Frame", nil, settingsPanel.contentChild)
         c:SetPoint("TOPLEFT")
-        c:SetPoint("RIGHT")
+        c:SetPoint("TOPRIGHT")
         panelContainers[key] = c
-
-        local panelDef = tree.panels[key]
 
         if panelDef.customRender then
             -- customRender: 콘텐츠 영역 크기 직접 계산하여 컨테이너에 설정
-            local panelW = settingsPanel.frame:GetWidth()
-            local panelH = settingsPanel.frame:GetHeight()
+            local panelW = settingsPanel.contentFrame:GetWidth()
+            local panelH = settingsPanel.contentFrame:GetHeight()
             if panelW < 100 then panelW = 920 end
             if panelH < 100 then panelH = 620 end
-            local menuW = 200
-            local contentW = panelW - menuW - 30
-            local contentH = panelH - 60
+            local contentW = panelW - 24
+            local contentH = panelH - 24
             c:SetSize(contentW, contentH)
 
             -- customRender + moduleEnableKey: 모듈 활성화 토글 삽입 -- [REFACTOR]
             local customStartY = -S.contentPad
             if panelDef.moduleEnableKey then
-                local hdr = Lib.CreateSectionHeader(c, ADDON_KEY, L["MODULE_ENABLED"], { isFirst = true })
-                hdr:SetPoint("TOPLEFT", c, "TOPLEFT", S.contentPad, customStartY)
-                hdr:SetPoint("RIGHT", c, "RIGHT", -S.contentPad, 0)
-                customStartY = customStartY - hdr:GetHeight()
-
                 local isEnabled = ns:GetDBValue(panelDef.moduleEnableKey)
                 if isEnabled == nil then isEnabled = true end
-                local chk = Lib.CreateCheckbox(c, ADDON_KEY, L["MODULE_ENABLED"], isEnabled ~= false, {
-                    onChange = function(checked)
-                        ns:SetDBValue(panelDef.moduleEnableKey, checked)
-                        UpdateModuleOverlay(c, checked)
-                        StaticPopup_Show("DDINGTOOLKIT_RELOAD_CONFIRM")
-                    end,
-                })
-                chk:SetPoint("TOPLEFT", c, "TOPLEFT", S.contentPad, customStartY - S.controlGap)
-                customStartY = customStartY - S.controlGap - 20
+                if not settingsPanel.workspace then
+                    local hdr = Widgets.CreateSectionHeader(c, ADDON_KEY, L["MODULE_ENABLED"], { isFirst = true })
+                    hdr:SetPoint("TOPLEFT", c, "TOPLEFT", S.contentPad, customStartY)
+                    hdr:SetPoint("TOPRIGHT", c, "TOPRIGHT", -S.contentPad, customStartY)
+                    customStartY = customStartY - hdr:GetHeight()
+
+                    local chk = Widgets.CreateCheckbox(c, ADDON_KEY, L["MODULE_ENABLED"], isEnabled ~= false, {
+                        onChange = function(checked)
+                            SetPanelModuleEnabled(key, checked)
+                        end,
+                    })
+                    chk:SetPoint("TOPLEFT", c, "TOPLEFT", S.contentPad, customStartY - S.controlGap)
+                    chk:SetPoint("TOPRIGHT", c, "TOPRIGHT", -S.contentPad, customStartY - S.controlGap)
+                    customStartY = customStartY - S.controlGap - chk:GetHeight()
+                end
 
                 -- 커스텀 컨텐츠용 서브 컨테이너
                 local sub = CreateFrame("Frame", nil, c)
@@ -645,7 +662,7 @@ local function ShowPanel(key)
                 c._customSubFrame = sub
 
                 -- 오버레이
-                CreateModuleOverlay(c, customStartY)
+                CreateModuleOverlay(c, settingsPanel.workspace and 0 or customStartY)
                 UpdateModuleOverlay(c, isEnabled ~= false)
 
                 -- customRender: 모듈에게 서브 컨테이너 위임
@@ -712,7 +729,7 @@ local fullMenuData = nil  -- 트리 필터링용 원본 저장
 
 -- 검색 가능한 위젯 타입
 local SEARCHABLE_TYPES = {
-    toggle = true, slider = true, dropdown = true,
+            toggle = true, slider = true, dropdown = true, input = true,
     sound = true, font = true, statusbar = true,
     color = true, button = true, separator = true,
 }
@@ -725,10 +742,16 @@ local function BuildSearchIndex()
     local index = {}
     local menuLookup = {}  -- key → 메뉴 텍스트
 
-    -- 메뉴 텍스트 매핑 테이블
-    for _, item in ipairs(tree.menu) do
-        menuLookup[item.key] = item.text
+    -- 메뉴 텍스트 매핑 테이블 (children 재귀 탐색)
+    local function buildMenuLookup(items)
+        for _, item in ipairs(items) do
+            menuLookup[item.key] = item.text
+            if item.children then
+                buildMenuLookup(item.children)
+            end
+        end
     end
+    buildMenuLookup(tree.menu)
 
     for key, panelDef in pairs(tree.panels) do
         local panelTitle = menuLookup[key] or panelDef.title or key
@@ -772,7 +795,7 @@ local function RenderSearchResults(contentChild, results)
     -- 헤더
     local headerFrame = CreateFrame("Frame", nil, contentChild)
     headerFrame:SetPoint("TOPLEFT", contentChild, "TOPLEFT", 10, -yOffset)
-    headerFrame:SetPoint("RIGHT", contentChild, "RIGHT", -10, 0)
+    headerFrame:SetPoint("TOPRIGHT", contentChild, "TOPRIGHT", -10, -yOffset)
     headerFrame:SetHeight(28)
     searchWidgets[#searchWidgets + 1] = headerFrame
 
@@ -878,7 +901,7 @@ local function RenderSearchResults(contentChild, results)
             local itemBtn = CreateFrame("Button", nil, contentChild)
             itemBtn:SetHeight(22)
             itemBtn:SetPoint("TOPLEFT", contentChild, "TOPLEFT", 26, -yOffset)
-            itemBtn:SetPoint("RIGHT", contentChild, "RIGHT", -10, 0)
+            itemBtn:SetPoint("TOPRIGHT", contentChild, "TOPRIGHT", -10, -yOffset)
             searchWidgets[#searchWidgets + 1] = itemBtn
 
             local bullet = itemBtn:CreateFontString(nil, "OVERLAY")
@@ -961,9 +984,15 @@ local function ClearSearchFromToolkit()
 end
 
 -- 트리 메뉴 필터링 (TreeMenu에 Filter() 없으므로 SetMenuData 사용)
+-- [REFACTOR] children 계층 구조 지원
 local function FilterTreeMenu(searchText)
     if not settingsPanel or not settingsPanel.treeMenu then return end
     if not fullMenuData then return end
+
+    if settingsPanel.workspace then
+        settingsPanel.workspace:FilterModules(searchText or "")
+        return
+    end
 
     if not searchText or searchText == "" then
         settingsPanel.treeMenu:SetMenuData(fullMenuData)
@@ -971,28 +1000,44 @@ local function FilterTreeMenu(searchText)
     end
 
     local queryLower = searchText:lower()
-    local filtered = {}
 
-    for _, item in ipairs(fullMenuData) do
+    -- 항목이 검색어에 매치하는지 확인
+    local function ItemMatches(item)
         local text = (item.text or ""):lower()
+        if text:find(queryLower, 1, true) then return true end
         local panelDef = ns.ConfigTree and ns.ConfigTree.panels[item.key]
-        local contentMatch = false
-
-        -- 설정 항목 내 검색
         if panelDef and panelDef.settings then
             for _, s in ipairs(panelDef.settings) do
                 if s.label and s.label:lower():find(queryLower, 1, true) then
-                    contentMatch = true
-                    break
+                    return true
                 end
             end
         end
-
-        if text:find(queryLower, 1, true) or contentMatch then
-            filtered[#filtered + 1] = { text = item.text, key = item.key }
-        end
+        return false
     end
 
+    -- 재귀 필터링
+    local function FilterItems(items)
+        local result = {}
+        for _, item in ipairs(items) do
+            if item.children then
+                local filteredChildren = FilterItems(item.children)
+                if #filteredChildren > 0 or ItemMatches(item) then
+                    result[#result + 1] = {
+                        text = item.text, key = item.key,
+                        children = #filteredChildren > 0 and filteredChildren or item.children,
+                    }
+                end
+            else
+                if ItemMatches(item) then
+                    result[#result + 1] = { text = item.text, key = item.key }
+                end
+            end
+        end
+        return result
+    end
+
+    local filtered = FilterItems(fullMenuData)
     settingsPanel.treeMenu:SetMenuData(filtered, true)
 end
 
@@ -1013,25 +1058,53 @@ function ConfigUI:Initialize()
     -- 메인 패널
     local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0" -- [12.0.1] GetAddOnMetadata 폴백 제거
 
-    settingsPanel = Lib.CreateSettingsPanel(ADDON_KEY, "DDingUI Toolkit", version, {
-        width = 920, height = 620, menuWidth = 200,
-    })
+    if ns.ToolkitWorkspace and ns.ToolkitWorkspace.Create then
+        settingsPanel = ns.ToolkitWorkspace:Create("DDingUI Toolkit", version, {
+            width = 1180,
+            height = 720,
+            minWidth = 930,
+            minHeight = 580,
+            onSelect = function(key)
+                if settingsPanel and settingsPanel.searchBox
+                    and settingsPanel.searchBox:GetText() ~= ""
+                then
+                    settingsPanel.searchBox:SetText("")
+                end
+                ShowPanel(key)
+            end,
+            onModuleToggle = function(key, enabled)
+                SetPanelModuleEnabled(key, enabled)
+            end,
+        })
+    else
+        settingsPanel = Lib.CreateSettingsPanel(ADDON_KEY, "DDingUI Toolkit", version, {
+            width = 920, height = 620, menuWidth = 200,
+        })
+    end
+    EnableRightClickMouselook(settingsPanel.frame)
+    EnableRightClickMouselook(settingsPanel.titleBar)
+    EnableRightClickMouselook(settingsPanel.treeFrame)
+    EnableRightClickMouselook(settingsPanel.contentFrame)
+    EnableRightClickMouselook(settingsPanel.contentScroll)
 
     -- 트리 메뉴
     local tree = ns.ConfigTree
     local from = Lib.GetAccent(ADDON_KEY)
-    local treeMenu = Lib.CreateTreeMenu(settingsPanel.treeFrame, ADDON_KEY, tree.menu, {
-        defaultKey = "general",
-        selectedColor = { from[1], from[2], from[3], 0.3 },
-        onSelect = function(key) ShowPanel(key) end,
-    })
+    local treeMenu = settingsPanel.treeMenu
+    if not treeMenu then
+        treeMenu = Lib.CreateTreeMenu(settingsPanel.treeFrame, ADDON_KEY, tree.menu, {
+            defaultKey = "general",
+            selectedColor = { from[1], from[2], from[3], 0.3 },
+            onSelect = function(key) ShowPanel(key) end,
+        })
+    end
     settingsPanel.treeMenu = treeMenu
 
     -- 원본 메뉴 데이터 저장 (검색 필터 해제 시 복원용)
     fullMenuData = tree.menu
 
     -- 검색 박스 (타이틀바 우측, 닫기 버튼 좌측)
-    local searchBox = Lib.CreateSearchBox(settingsPanel.titleBar, 200)
+    local searchBox = Widgets.CreateSearchBox(settingsPanel.titleBar, 200)
     searchBox:SetPoint("RIGHT", settingsPanel.titleBar.closeBtn, "LEFT", -10, 0)
     settingsPanel.searchBox = searchBox
 
@@ -1057,8 +1130,24 @@ function ConfigUI:Initialize()
 
     -- OnShow → 활성 패널 표시
     settingsPanel.frame:HookScript("OnShow", function()
-        local key = treeMenu:GetSelected() or "general"
+        local key = treeMenu:GetSelected() or (settingsPanel.workspace and "overview" or "general")
         ShowPanel(key)
+    end)
+    settingsPanel.frame:HookScript("OnHide", function()
+        if Widgets.CloseDropdowns then
+            Widgets.CloseDropdowns()
+        end
+        if searchDebounceTimer then
+            searchDebounceTimer:Cancel()
+            searchDebounceTimer = nil
+        end
+        searchModeActive = false
+        preSearchPanel = nil
+        ClearSearchWidgets()
+        if searchBox:GetText() ~= "" then
+            searchBox:SetText("")
+        end
+        searchBox.editBox:ClearFocus()
     end)
 
     return settingsPanel

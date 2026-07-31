@@ -51,6 +51,25 @@ L["TAB_KEYSTONETRACKER"] = "Key Tracker"
 L["TAB_CASTINGALERT"] = "Cast Alert"
 L["TAB_FOCUSINTERRUPT"] = "Focus Interrupt"
 
+-- Workspace
+L["WORKSPACE_DASHBOARD"] = "Dashboard"
+L["WORKSPACE_COMBAT"] = "Combat Tools"
+L["WORKSPACE_PARTY_RAID"] = "Party & Raid"
+L["WORKSPACE_ALERTS"] = "Alerts"
+L["WORKSPACE_DISPLAY"] = "Display"
+L["WORKSPACE_UTILITY"] = "Utilities"
+L["WORKSPACE_PROFILE"] = "Profile"
+L["WORKSPACE_ACTIVE"] = "Enabled"
+L["WORKSPACE_FILTER"] = "Filter..."
+L["WORKSPACE_SEARCH_RESULTS"] = "Search Results"
+L["WORKSPACE_OVERVIEW_DESC"] = "Browse Toolkit features by category and enable only the modules you need."
+L["WORKSPACE_QUICK_START"] = "Quick Start"
+L["WORKSPACE_QUICK_START_DESC"] = "Choose a workspace on the left, then select a module from the middle column."
+L["WORKSPACE_SETTINGS_GUIDE"] = "Settings Guide"
+L["WORKSPACE_SETTINGS_GUIDE_DESC"] = "The module-list and detail-header switches control the same setting. Modules that require a restart will show a confirmation dialog."
+L["DROPDOWN_NO_RESULTS"] = "No matching options."
+L["DROPDOWN_PREVIEW"] = "Preview"
+
 -- ==========================================
 -- General Panel
 -- ==========================================

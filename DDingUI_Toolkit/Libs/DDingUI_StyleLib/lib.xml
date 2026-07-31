@@ -3,6 +3,7 @@
     <Script file="Core.lua"/>
     <Script file="Colors.lua"/>
     <Script file="Gradient.lua"/>
+    <Script file="Motion.lua"/>
 
     <!-- v2 Foundation (AF 패턴 차용) -->
     <Script file="TableUtils.lua"/>
