@@ -56,7 +56,7 @@ local function SetTooltip(frame, text)
     if not frame or not text or text == "" then return end
     frame:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text, 1, 1, 1, true)
+        GameTooltip:SetText(text, 1, 1, 1, 1, true)
         GameTooltip:Show()
     end)
     frame:HookScript("OnLeave", function()

@@ -398,7 +398,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
             end
             if self.item and self.item.tooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetText(self.item.tooltip, 1, 1, 1, true)
+                GameTooltip:SetText(self.item.tooltip, 1, 1, 1, 1, true)
                 GameTooltip:Show()
             end
         end)
