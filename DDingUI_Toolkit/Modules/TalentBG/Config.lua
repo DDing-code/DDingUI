@@ -326,16 +326,53 @@ local function OnConfigReady()
         preview:SetPoint("TOPLEFT", container, "TOPLEFT", rightX, -10)
         container.preview = preview
 
-        -- 파일명 추가 섹션 (프리뷰 아래 배치)
+        -- 사용자 폴더 및 파일명 추가 섹션
         local addSectionY = -(10 + previewH + 12)
+        local baseLabel
+        local folderInput
+        folderInput = (ns.ToolkitControls or Lib).CreateInputField(
+            container,
+            ADDON_KEY,
+            L["TALENTBG_CUSTOM_FOLDER"] or "Background Folder",
+            Presets and Presets:GetFolderName() or "DDingUI_Backgrounds",
+            {
+                inputWidth = rightW - 150,
+                maxLetters = 96,
+                onEnter = function(value)
+                    if not Presets then return end
+
+                    local oldBase = Presets:GetBasePath()
+                    local folderName, changed = Presets:SetFolderName(value)
+                    local newBase = Presets:GetBasePath()
+                    local eb = folderInput.editBox or folderInput
+                    if eb.SetText then eb:SetText(folderName) end
+                    if baseLabel then
+                        baseLabel:SetText("|cFF888888" .. newBase .. "|r")
+                    end
+
+                    if changed then
+                        self:MigrateBackgroundBase(oldBase, newBase)
+                        container:RefreshGrid()
+                        self:ApplyBackground()
+                        print(CHAT_PREFIX .. string.format(
+                            L["TALENTBG_FOLDER_CHANGED"] or "Background folder: %s",
+                            newBase
+                        ))
+                    end
+                end,
+            }
+        )
+        folderInput:SetWidth(rightW)
+        folderInput:SetPoint("TOPLEFT", container, "TOPLEFT", rightX, addSectionY)
+
         local addLabel = container:CreateFontString(nil, "OVERLAY")
         addLabel:SetFont(F.path, F.normal, "")
-        addLabel:SetPoint("TOPLEFT", container, "TOPLEFT", rightX, addSectionY)
+        addLabel:SetPoint("TOPLEFT", folderInput, "BOTTOMLEFT", 0, -10)
         addLabel:SetText(L["TALENTBG_ADD_BG"] or "Add Custom Background")
         addLabel:SetTextColor(u(C.text.normal))
 
         local basePath = Presets and Presets:GetBasePath() or ""
-        local baseLabel = container:CreateFontString(nil, "OVERLAY")
+        baseLabel = container:CreateFontString(nil, "OVERLAY")
         baseLabel:SetFont(F.path, F.small, "")
         baseLabel:SetPoint("TOPLEFT", addLabel, "BOTTOMLEFT", 0, -4)
         baseLabel:SetText("|cFF888888" .. basePath .. "|r")

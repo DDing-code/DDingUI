@@ -8,7 +8,50 @@ local addonName, ns = ...
 -- 프리셋 관리
 ns.TalentBG_Presets = {}
 
-local basePath = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\Backgrounds\\"
+local INTERFACE_ROOT = "Interface\\"
+local DEFAULT_FOLDER = "DDingUI_Backgrounds"
+local LEGACY_BASE_PATH = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\Backgrounds\\"
+
+local function NormalizeFolderName(folderName)
+    folderName = tostring(folderName or "")
+    folderName = folderName:gsub("/", "\\")
+    folderName = folderName:gsub("^%s+", ""):gsub("%s+$", "")
+    folderName = folderName:gsub("^Interface\\+", "")
+    folderName = folderName:gsub("^\\+", ""):gsub("\\+$", "")
+    folderName = folderName:gsub("\\+", "\\")
+    folderName = folderName:gsub("[<>:\"|%?%*]", "")
+
+    if folderName == "" or folderName:find("..", 1, true) then
+        return DEFAULT_FOLDER
+    end
+    return folderName
+end
+
+local function NormalizeFileName(fileName)
+    fileName = tostring(fileName or "")
+    fileName = fileName:gsub("/", "\\")
+    fileName = fileName:match("([^\\]+)$") or fileName
+    fileName = fileName:gsub("^%s+", ""):gsub("%s+$", "")
+    fileName = fileName:gsub("%.[Tt][Gg][Aa]$", "")
+    fileName = fileName:gsub("%.[Bb][Ll][Pp]$", "")
+    fileName = fileName:gsub("[<>:\"|%?%*]", "")
+    return fileName
+end
+
+function ns.TalentBG_Presets:GetFolderName()
+    local db = ns.db and ns.db.global and ns.db.global.TalentBG
+    return NormalizeFolderName(db and db.customFolder)
+end
+
+function ns.TalentBG_Presets:SetFolderName(folderName)
+    local db = ns.db and ns.db.global and ns.db.global.TalentBG
+    if not db then return DEFAULT_FOLDER, false end
+
+    local normalized = NormalizeFolderName(folderName)
+    local changed = normalized ~= self:GetFolderName()
+    db.customFolder = normalized
+    return normalized, changed
+end
 
 -- 프리셋 목록 가져오기
 function ns.TalentBG_Presets:GetPresets()
@@ -21,7 +64,7 @@ function ns.TalentBG_Presets:GetPresets()
             if fileName and fileName ~= "" and not addedPaths[fileName] then
                 table.insert(presets, {
                     name = fileName,
-                    path = basePath .. fileName,
+                    path = self:GetBasePath() .. fileName,
                     category = "custom",
                 })
                 addedPaths[fileName] = true
@@ -38,8 +81,8 @@ function ns.TalentBG_Presets:AddCustomTexture(fileName)
         return false
     end
 
-    -- 확장자 제거
-    fileName = fileName:gsub("%.tga$", ""):gsub("%.blp$", "")
+    fileName = NormalizeFileName(fileName)
+    if fileName == "" then return false end
 
     if not ns.db or not ns.db.global or not ns.db.global.TalentBG then return false end
     if not ns.db.global.TalentBG.customPaths then
@@ -48,7 +91,7 @@ function ns.TalentBG_Presets:AddCustomTexture(fileName)
 
     -- 중복 확인
     for _, path in ipairs(ns.db.global.TalentBG.customPaths) do
-        if path == fileName then
+        if path:lower() == fileName:lower() then
             return false
         end
     end
@@ -64,7 +107,7 @@ function ns.TalentBG_Presets:RemoveCustomTexture(fileName)
     end
 
     for i, path in ipairs(ns.db.global.TalentBG.customPaths) do
-        if path == fileName then
+        if path:lower() == tostring(fileName):lower() then
             table.remove(ns.db.global.TalentBG.customPaths, i)
             return true
         end
@@ -75,5 +118,9 @@ end
 
 -- 기본 경로 가져오기
 function ns.TalentBG_Presets:GetBasePath()
-    return basePath
+    return INTERFACE_ROOT .. self:GetFolderName() .. "\\"
+end
+
+function ns.TalentBG_Presets:GetLegacyBasePath()
+    return LEGACY_BASE_PATH
 end

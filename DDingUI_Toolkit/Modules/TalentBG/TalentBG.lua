@@ -19,6 +19,35 @@ function TalentBG:OnInitialize()
     self.profileDB = ns.db.profile.TalentBG
     self.charDB = ns.db.char.TalentBG
     self.globalDB = ns.db.global.TalentBG
+
+    local presets = ns.TalentBG_Presets
+    if presets then
+        self:MigrateBackgroundBase(presets:GetLegacyBasePath(), presets:GetBasePath())
+    end
+end
+
+local function ReplacePathBase(path, oldBase, newBase)
+    if type(path) ~= "string" or path == "" then return path end
+    if path:sub(1, #oldBase):lower() ~= oldBase:lower() then return path end
+    return newBase .. path:sub(#oldBase + 1)
+end
+
+function TalentBG:MigrateBackgroundBase(oldBase, newBase)
+    if not oldBase or not newBase or oldBase == newBase then return end
+
+    self.profileDB.globalBackground = ReplacePathBase(
+        self.profileDB.globalBackground,
+        oldBase,
+        newBase
+    )
+
+    for _, settings in pairs(self.charDB.specSettings or {}) do
+        settings.background = ReplacePathBase(settings.background, oldBase, newBase)
+    end
+
+    for _, settings in pairs(self.globalDB.classSettings or {}) do
+        settings.background = ReplacePathBase(settings.background, oldBase, newBase)
+    end
 end
 
 -- 활성화

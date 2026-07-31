@@ -442,6 +442,7 @@ ns.defaults = {
         TalentBG = {
             classSettings = {},  -- [classID] = { background = "" }
             customPaths = {},    -- 사용자 추가 배경 파일명 목록
+            customFolder = "DDingUI_Backgrounds",
         },
     },
 }
