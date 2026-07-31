@@ -262,6 +262,7 @@ local editPreviewCombat = false
 local nudgeFrame  = nil
 local eventFrame  = nil
 local modulePreviewActive = {}
+local modulePreviewInitialized = {}
 local forcedPreviewTargets = {}
 local stateCallbacks = {}
 
@@ -679,6 +680,12 @@ local function SetModulePreview(moduleName, active)
     if not mod then return end
 
     if active then
+        if not mod.enabled and not modulePreviewInitialized[moduleName] then
+            if mod.OnInitialize then
+                mod:OnInitialize()
+            end
+            modulePreviewInitialized[moduleName] = true
+        end
         if modulePreviewActive[moduleName] then
             if mod.RefreshEditPreview then
                 mod:RefreshEditPreview(GetPreviewContext())
