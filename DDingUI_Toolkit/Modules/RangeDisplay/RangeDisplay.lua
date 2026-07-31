@@ -217,6 +217,7 @@ function RangeDisplay:ApplySettings()
         frame:SetFrameStrata(self.db.frameStrata or "MEDIUM")
         frame.text:SetFont(font, fontSize, outline)
         frame.bg:SetVertexColor(0.015, 0.02, 0.035, bgAlpha)
+        frame.accent:SetShown(self.db.showAccentLine ~= false)
         frame:EnableMouse(not self.db.locked)
         frame:RegisterForDrag("LeftButton")
         frame._colorKey = nil
