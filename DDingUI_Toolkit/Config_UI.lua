@@ -421,7 +421,7 @@ local function CreateDetailPreview(parent, panelKey)
     preview:SetBackdropColor(0.055, 0.058, 0.065, 0.96)
     preview:SetBackdropBorderColor(0.22, 0.23, 0.26, 0.9)
 
-    local accent = { Lib.GetAccent(ADDON_KEY) }
+    local accent = Lib.GetAccent(ADDON_KEY)
     local marker = preview:CreateTexture(nil, "ARTWORK")
     marker:SetPoint("TOPLEFT", preview, "TOPLEFT", 0, 0)
     marker:SetPoint("BOTTOMLEFT", preview, "BOTTOMLEFT", 0, 0)
@@ -532,7 +532,7 @@ local function CreateSectionTab(parent, label, onClick)
     tab.underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", -8, 0)
     tab.underline:SetHeight(2)
 
-    local accent = { Lib.GetAccent(ADDON_KEY) }
+    local accent = Lib.GetAccent(ADDON_KEY)
     function tab:SetSelected(selected)
         self.selected = selected
         self.underline:SetShown(selected)
