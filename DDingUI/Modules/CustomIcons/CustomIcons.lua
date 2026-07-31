@@ -182,7 +182,7 @@ function CustomIcons:RecoverDynamicIcons(includeDeepSnapshots)
     db._recoveredFromSpec = sourceKey
     db._recoveredIconCount = CountTableEntries(source.iconData)
     db._recoveredGroupCount = CountTableEntries(source.groups)
-    NormalizePresetIconDB(db)
+    NormalizePresetIconDB(db, nil, nil, true)
 
     return db, profileName, sourceKey, CountTableEntries(db.groups), CountTableEntries(db.iconData)
 end
@@ -476,7 +476,7 @@ function CustomIcons:NormalizeStoredProfile(profile)
         end
     end
 
-    if NormalizePresetIconDB(db, profile, false) then
+    if NormalizePresetIconDB(db, profile, false, true) then
         changed = true
     end
     return changed

@@ -13,6 +13,7 @@ function ProfileNormalization.Create(
 )
     local NormalizePresetIconData
     local NormalizePresetIconDB
+    local normalizedDBs = setmetatable({}, { __mode = "k" })
 
     NormalizePresetIconData = function(iconData)
         if type(iconData) ~= "table" or not (iconData.type == "spell" or iconData.type == "aura") then return false end
@@ -28,9 +29,10 @@ function ProfileNormalization.Create(
         return false
     end
 
-    NormalizePresetIconDB = function(db, ownerProfile, updateRuntime)
+    NormalizePresetIconDB = function(db, ownerProfile, updateRuntime, force)
         local iconDataDB = db and db.iconData
         if type(iconDataDB) ~= "table" then return false end
+        if not force and normalizedDBs[db] then return false end
 
         local changed = false
         for _, iconData in pairs(iconDataDB) do
@@ -78,7 +80,6 @@ function ProfileNormalization.Create(
             end
         end
 
-        local memberships = {}
         for groupKey, group in pairs(db.groups) do
             local icons = type(group) == "table" and group.icons
             if type(icons) == "table" then
@@ -90,8 +91,6 @@ function ProfileNormalization.Create(
                         changed = true
                     else
                         seenInGroup[iconKey] = true
-                        memberships[iconKey] = memberships[iconKey] or {}
-                        memberships[iconKey][groupKey] = true
                     end
                 end
             end
@@ -140,7 +139,7 @@ function ProfileNormalization.Create(
             end
         end
 
-        memberships = {}
+        local memberships = {}
         for groupKey, group in pairs(db.groups) do
             local icons = type(group) == "table" and group.icons
             if type(icons) == "table" then
@@ -272,6 +271,7 @@ function ProfileNormalization.Create(
             changed = true
         end
 
+        normalizedDBs[db] = true
         return changed
     end
 
