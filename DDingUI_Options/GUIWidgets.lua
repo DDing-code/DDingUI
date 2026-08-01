@@ -1152,6 +1152,9 @@ local function CreateCustomDropdown(parent, width)
             if activeDropdown and activeDropdown ~= self and activeDropdown.listFrame then
                 activeDropdown.listFrame:Hide()
             end
+            if self._itemsDirty then
+                self:SetOptions(self.values, self.currentValue, self.mediaType, self.searchable, true)
+            end
             activeDropdown = self
             listFrame:Show()
         end
@@ -1172,6 +1175,15 @@ local function CreateCustomDropdown(parent, width)
 
     -- 외부 클릭 시 닫기
     listFrame:SetScript("OnShow", function(self)
+        if dropdown._itemsDirty then
+            dropdown:SetOptions(
+                dropdown.values,
+                dropdown.currentValue,
+                dropdown.mediaType,
+                dropdown.searchable,
+                true
+            )
+        end
         local uiScale = UIParent:GetEffectiveScale()
         local dropdownScale = dropdown:GetEffectiveScale()
         if uiScale and uiScale > 0 and dropdownScale and dropdownScale > 0 then
@@ -1208,11 +1220,15 @@ local function CreateCustomDropdown(parent, width)
     end)
 
     -- 옵션 설정 함수
-    function dropdown:SetOptions(values, currentKey, mediaType, searchable)
+    function dropdown:SetOptions(values, currentKey, mediaType, searchable, buildItems)
+        values = type(values) == "table" and values or {}
         self.values = values
         self.mediaType = mediaType
         self.currentValue = currentKey
-        ConfigureSearch(mediaType ~= nil or searchable == true)
+        self.searchable = mediaType ~= nil or searchable == true
+        if buildItems then
+            ConfigureSearch(self.searchable)
+        end
         -- 기존 아이템을 풀에 보관 (메모리 누수 방지)
         if not self._itemPool then self._itemPool = {} end
         for _, item in ipairs(self.items) do
@@ -1221,6 +1237,19 @@ local function CreateCustomDropdown(parent, width)
             tinsert(self._itemPool, item)
         end
         wipe(self.items)
+
+        if not buildItems then
+            self._itemsDirty = true
+            if currentKey ~= nil and values[currentKey] ~= nil then
+                local displayText = IsMediaFilePath(values[currentKey]) and tostring(currentKey) or values[currentKey]
+                selectedText:SetText(displayText)
+                UpdateSelectedMedia(currentKey, values[currentKey])
+            else
+                UpdateSelectedMedia(nil, nil)
+            end
+            return
+        end
+        self._itemsDirty = false
 
         -- 키를 정렬해서 ABC 순으로 표시
         local sortedKeys = {}
@@ -1237,14 +1266,18 @@ local function CreateCustomDropdown(parent, width)
             -- For normal selects, value is the display text
             local displayText = IsMediaFilePath(value) and tostring(key) or value
             displayText = tostring(displayText or key)
-            local item = self._itemPool and tremove(self._itemPool) or CreateFrame("Button", nil, scrollChild, "BackdropTemplate")
+            local item = self._itemPool and tremove(self._itemPool) or CreateFrame("Button", nil, scrollChild)
             item:SetParent(scrollChild)
             local rowHeight = mediaType and 24 or itemHeight
             item:SetHeight(rowHeight)
 
-            item:SetBackdrop({
-                bgFile = FLAT,
-            })
+            local itemBackground = item.background
+            if not itemBackground then
+                itemBackground = item:CreateTexture(nil, "BACKGROUND")
+                itemBackground:SetAllPoints()
+                itemBackground:SetColorTexture(0, 0, 0, 0)
+                item.background = itemBackground
+            end
 
             -- 왼쪽 액센트 바 (선택 표시용) - 보라→파랑 그라데이션
             local accentBar = item.accentBar
@@ -1265,10 +1298,10 @@ local function CreateCustomDropdown(parent, width)
 
             local isSelected = (key == currentKey)
             if isSelected then
-                item:SetBackdropColor(SL.GetColor("selected"))
+                itemBackground:SetColorTexture(SL.GetColor("selected"))
                 accentBar:Show()
             else
-                item:SetBackdropColor(0, 0, 0, 0)
+                itemBackground:SetColorTexture(0, 0, 0, 0)
                 accentBar:Hide()
             end
 
@@ -1384,16 +1417,16 @@ local function CreateCustomDropdown(parent, width)
             -- 호버 효과 - 배경만 살짝 밝게
             item:SetScript("OnEnter", function(self)
                 if self.key ~= dropdown.currentValue then
-                    self:SetBackdropColor(SL.GetColor("hover"))
+                    self.background:SetColorTexture(SL.GetColor("hover"))
                     self.text:SetTextColor(SL.GetColor("text"))
                 end
             end)
             item:SetScript("OnLeave", function(self)
                 if self.key == dropdown.currentValue then
-                    self:SetBackdropColor(SL.GetColor("selected"))
+                    self.background:SetColorTexture(SL.GetColor("selected"))
                     self.text:SetTextColor(SL.GetColor("text"))
                 else
-                    self:SetBackdropColor(0, 0, 0, 0)
+                    self.background:SetColorTexture(0, 0, 0, 0)
                     self.text:SetTextColor(SL.GetColor("dim"))
                 end
             end)
@@ -1414,11 +1447,11 @@ local function CreateCustomDropdown(parent, width)
 
                 for _, itm in ipairs(dropdown.items) do
                     if itm.key == self.key then
-                        itm:SetBackdropColor(SL.GetColor("selected"))
+                        itm.background:SetColorTexture(SL.GetColor("selected"))
                         itm.text:SetTextColor(SL.GetColor("text"))
                         itm.accentBar:Show()
                     else
-                        itm:SetBackdropColor(0, 0, 0, 0)
+                        itm.background:SetColorTexture(0, 0, 0, 0)
                         itm.text:SetTextColor(SL.GetColor("dim"))
                         itm.accentBar:Hide()
                     end
