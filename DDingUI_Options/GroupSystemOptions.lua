@@ -643,6 +643,7 @@ local function GetCopiedCDMBuffSpellName(iconData)
         if type(settings) == "table" and (settings.customAuraDuration or settings.customAuraTrigger) then return nil end
         if IsCustomAuraPresetSpell(nil, iconData.id) then return nil end
     end
+    if settings and settings.customID == true then return nil end
     if not settings or settings.copiedFromCDM ~= true then return nil end
 
     if type(settings.sourceSpellName) == "string" and settings.sourceSpellName:match("^buff_") then
@@ -1301,7 +1302,7 @@ local function PruneDuplicateDynamicSpellIcons(sourceKey)
     DDingUI._pruningDynamicSpellIcons = nil
 end
 
-local function AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName)
+local function AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName, copiedFromCDM)
     local sourceKey = EnsureSourceGroup(groupName)
     if not sourceKey then return nil, nil, false end
 
@@ -1325,13 +1326,19 @@ local function AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellNam
     local ci = DDingUI.CustomIcons
     if not ci or not ci.AddDynamicIcon then return nil, sourceKey, false end
 
+    local iconSettings = {
+        sourceSpellName = spellName,
+    }
+    if copiedFromCDM then
+        iconSettings.copiedFromCDM = true
+    else
+        iconSettings.customID = true
+    end
+
     local iconKey = ci:AddDynamicIcon({
         type = iconType,
         id = spellID,
-        settings = {
-            sourceSpellName = spellName,
-            copiedFromCDM = true,
-        },
+        settings = iconSettings,
     })
     if iconKey then
         ci:MoveIconToGroup(iconKey, sourceKey)
@@ -1467,7 +1474,7 @@ local function AssignUnassignedSpellRow(groupName, row)
     if row.isDynamicTarget then
         local spellID = row.spellID
         if not spellID or spellID <= 0 then return false end
-        local iconKey = AddOrReuseDynamicSpellIcon(groupName, row.iconType or "spell", spellID, row.spellName)
+        local iconKey = AddOrReuseDynamicSpellIcon(groupName, row.iconType or "spell", spellID, row.spellName, true)
         if iconKey then
             ClearDynamicSpellAssignment(groupName, row.spellName)
             ClearBuffSpellUnassigned(row.spellName)
@@ -1810,7 +1817,7 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                         local iconType = GetDynamicIconTypeForEntry(self.entry, self.spellName)
                         local spellID = ResolveEntrySpellID(self.entry, self.spellName)
                         if spellID and spellID > 0 then
-                            local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, self.spellName)
+                            local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, self.spellName, true)
                             if iconKey then
                                 ClearDynamicSpellAssignment(groupName, self.spellName)
                                 SoftRefreshDynamicIcons()
@@ -2783,13 +2790,44 @@ local function AddSpellIDToGroup(groupName, spellID, forcedType, settings)
         spellName = "buff_" .. spellName
     end
 
+    local customSettings = CopyDynamicIconSettings(settings)
+    customSettings.customID = true
+    customSettings.copiedFromCDM = false
+
     local beforeTokens = SnapshotGroupOrderTokens(groupName)
-    local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName)
+    local iconKey = AddOrReuseDynamicSpellIcon(groupName, iconType, spellID, spellName, false)
     if not iconKey then return false end
-    MergeDynamicIconSettings(iconKey, BuildDynamicIconSettings(iconType, spellID, nil, settings))
+    MergeDynamicIconSettings(iconKey, BuildDynamicIconSettings(iconType, spellID, nil, customSettings))
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
     return true
+end
+
+local function AddItemIDToGroup(groupName, itemID)
+    itemID = tonumber(itemID)
+    if not groupName or not itemID or itemID < 100 then return false, "invalid" end
+    itemID = math.floor(itemID)
+
+    local itemName = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)
+    if not itemName then
+        if C_Item and C_Item.RequestLoadItemDataByID then
+            C_Item.RequestLoadItemDataByID(itemID)
+        end
+        return false, "loading"
+    end
+
+    local sourceKey = EnsureSourceGroup(groupName)
+    if not sourceKey then return false, "invalid" end
+    if FindDynamicIconInSourceGroup(sourceKey, "item", itemID) then
+        return false, "exists"
+    end
+
+    local added = AddDynamicPayloadToGroup(groupName, {
+        type = "item",
+        id = itemID,
+        settings = { customID = true },
+    })
+    return added, added and nil or "invalid"
 end
 
 local function AddRacialIconToGroup(groupName)
@@ -3292,6 +3330,14 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
         popup.addButton.text:SetFont(gf, 16, "")
         popup.addButton.text:SetText("+")
         popup.addButton.text:SetTextColor(accentR, accentG, accentB, 1)
+        popup.spellTypeButton = CreateFrame("Button", nil, popup, "BackdropTemplate")
+        popup.itemTypeButton = CreateFrame("Button", nil, popup, "BackdropTemplate")
+        for _, button in ipairs({ popup.spellTypeButton, popup.itemTypeButton }) do
+            button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+            button.text = button:CreateFontString(nil, "OVERLAY")
+            button.text:SetPoint("CENTER")
+            button.text:SetFont(gf, 11, "")
+        end
         self._groupIconAddPopup = popup
     end
 
@@ -3302,33 +3348,84 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
     popup._owner = owner
 
     local rowW, rowH, pad = 248, 30, 8
-    local inputH = 30
+    local showTypeSelector = addMode ~= "buff"
+    local inputH = showTypeSelector and 58 or 30
     local items = BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
     local height = pad * 2 + inputH + 4 + (#items * rowH)
     popup:SetSize(rowW + pad * 2, math.max(72, height))
 
-    local function SubmitCustomSpell()
+    local function RefreshInputType()
+        local inputType = popup._inputType or "spell"
+        local spellSelected = inputType == "spell"
+        popup.spellTypeButton:SetBackdropColor(spellSelected and accentR or 0.04, spellSelected and accentG or 0.065, spellSelected and accentB or 0.075, spellSelected and 0.2 or 0.9)
+        popup.spellTypeButton:SetBackdropBorderColor(accentR, accentG, accentB, spellSelected and 0.9 or 0.22)
+        popup.itemTypeButton:SetBackdropColor(not spellSelected and accentR or 0.04, not spellSelected and accentG or 0.065, not spellSelected and accentB or 0.075, not spellSelected and 0.2 or 0.9)
+        popup.itemTypeButton:SetBackdropBorderColor(accentR, accentG, accentB, not spellSelected and 0.9 or 0.22)
+        popup.spellTypeButton.text:SetTextColor(spellSelected and 1 or 0.65, spellSelected and 0.62 or 0.65, spellSelected and 0.25 or 0.65, 1)
+        popup.itemTypeButton.text:SetTextColor(not spellSelected and 1 or 0.65, not spellSelected and 0.62 or 0.65, not spellSelected and 0.25 or 0.65, 1)
+        popup.edit.placeholder:SetText(inputType == "item"
+            and (rawget(L, "Custom Item ID") or "Custom Item ID")
+            or addMode == "buff"
+                and (rawget(L, "Custom Aura ID") or "Custom Aura ID")
+                or (rawget(L, "Custom Spell ID") or "Custom Spell ID"))
+    end
+
+    local function SubmitCustomID()
         local text = popup.edit:GetText()
-        local forcedType = addMode == "buff" and "aura"
-            or addMode == "skill" and "spell"
-            or nil
-        if AddSpellIDToGroup(groupName, tonumber(text), forcedType) then
+        local added, reason
+        if popup._inputType == "item" then
+            added, reason = AddItemIDToGroup(groupName, text)
+        else
+            local forcedType = addMode == "buff" and "aura" or "spell"
+            added = AddSpellIDToGroup(groupName, text, forcedType)
+        end
+        if added then
             HideGroupIconAddPopup()
             popup.edit:SetText("")
             if onDone then onDone() end
+        elseif reason == "loading" then
+            UIErrorsFrame:AddMessage(rawget(L, "Loading item data, try again") or "Loading item data, try again", 1, 0.65, 0.15)
+        elseif reason == "exists" then
+            UIErrorsFrame:AddMessage(rawget(L, "Item already tracked") or "Item already tracked", 1, 0.65, 0.15)
+        elseif popup._inputType == "item" then
+            UIErrorsFrame:AddMessage(rawget(L, "Invalid Item ID") or "Invalid Item ID", 1, 0.15, 0.1)
         else
             UIErrorsFrame:AddMessage(rawget(L, "Invalid Spell") or "Invalid Spell", 1, 0.15, 0.1)
         end
     end
 
+    popup._inputType = addMode == "buff" and "aura" or "spell"
+    popup.spellTypeButton:SetShown(showTypeSelector)
+    popup.itemTypeButton:SetShown(showTypeSelector)
+    if showTypeSelector then
+        popup.spellTypeButton:ClearAllPoints()
+        popup.spellTypeButton:SetPoint("TOPLEFT", popup, "TOPLEFT", pad, -pad)
+        popup.spellTypeButton:SetSize((rowW - 4) / 2, 22)
+        popup.spellTypeButton.text:SetText(rawget(L, "Spell") or "Spell")
+        popup.itemTypeButton:ClearAllPoints()
+        popup.itemTypeButton:SetPoint("LEFT", popup.spellTypeButton, "RIGHT", 4, 0)
+        popup.itemTypeButton:SetSize((rowW - 4) / 2, 22)
+        popup.itemTypeButton.text:SetText(rawget(L, "Item") or "Item")
+        popup.spellTypeButton:SetScript("OnClick", function()
+            popup._inputType = "spell"
+            popup.edit:SetText("")
+            RefreshInputType()
+            popup.edit:SetFocus()
+        end)
+        popup.itemTypeButton:SetScript("OnClick", function()
+            popup._inputType = "item"
+            popup.edit:SetText("")
+            RefreshInputType()
+            popup.edit:SetFocus()
+        end)
+    end
+
     popup.edit:ClearAllPoints()
-    popup.edit:SetPoint("TOPLEFT", popup, "TOPLEFT", pad + 2, -pad - 2)
+    popup.edit:SetPoint("TOPLEFT", popup, "TOPLEFT", pad + 2, showTypeSelector and -(pad + 28) or -pad - 2)
     popup.edit:SetSize(rowW - 34, 24)
     popup.edit:SetText("")
     popup.edit.placeholder:SetFont(gf, 11, "")
-    popup.edit.placeholder:SetText(addMode == "buff"
-        and (rawget(L, "Custom Aura ID") or "Custom Aura ID")
-        or (rawget(L, "Custom Spell ID") or "Custom Spell ID"))
+    RefreshInputType()
     popup.edit:SetScript("OnTextChanged", function(self)
         if (self:GetText() or "") == "" then
             self.placeholder:Show()
@@ -3336,14 +3433,14 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
             self.placeholder:Hide()
         end
     end)
-    popup.edit:SetScript("OnEnterPressed", SubmitCustomSpell)
+    popup.edit:SetScript("OnEnterPressed", SubmitCustomID)
     popup.edit:SetScript("OnEscapePressed", HideGroupIconAddPopup)
     popup.edit.placeholder:Show()
 
     popup.addButton:ClearAllPoints()
     popup.addButton:SetPoint("LEFT", popup.edit, "RIGHT", 6, 0)
     popup.addButton:SetSize(26, 22)
-    popup.addButton:SetScript("OnClick", SubmitCustomSpell)
+    popup.addButton:SetScript("OnClick", SubmitCustomID)
 
     for i, item in ipairs(items) do
         local row = AcquirePopupRow(popup, i, rowW, rowH)

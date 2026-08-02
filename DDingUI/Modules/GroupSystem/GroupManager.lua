@@ -651,6 +651,7 @@ end
 local function GetCopiedCDMBuffSpellName(iconData)
     if not iconData or (iconData.type ~= "spell" and iconData.type ~= "aura") then return nil end
     local settings = iconData.settings
+    if settings and settings.customID == true then return nil end
     if not settings or settings.copiedFromCDM ~= true then return nil end
 
     if IsBuffSpellKey(settings.sourceSpellName) then
