@@ -1479,6 +1479,25 @@ function ConfigUI:Initialize()
             width = 920, height = 620, menuWidth = 200,
         })
     end
+    if settingsPanel.titleBar then
+        if settingsPanel.titleBar.titleText then
+            settingsPanel.titleBar.titleText:SetText("")
+            settingsPanel.titleBar.titleText:Hide()
+        end
+        if not settingsPanel.titleBar.brandLogo then
+            settingsPanel.titleBar.brandLogo = settingsPanel.titleBar:CreateTexture(nil, "ARTWORK")
+        end
+        settingsPanel.titleBar.brandLogo:ClearAllPoints()
+        settingsPanel.titleBar.brandLogo:SetPoint("LEFT", settingsPanel.titleBar, "LEFT", 10, 0)
+        settingsPanel.titleBar.brandLogo:SetSize(144, 36)
+        settingsPanel.titleBar.brandLogo:SetTexture("Interface\\AddOns\\DDingUI_Toolkit\\Media\\logo_wordmark.tga")
+        settingsPanel.titleBar.brandLogo:SetTexCoord(0, 1, 0, 1)
+        settingsPanel.titleBar.brandLogo:Show()
+        if settingsPanel.titleBar.verText then
+            settingsPanel.titleBar.verText:ClearAllPoints()
+            settingsPanel.titleBar.verText:SetPoint("LEFT", settingsPanel.titleBar.brandLogo, "RIGHT", 5, -1)
+        end
+    end
     EnableRightClickMouselook(settingsPanel.frame)
     EnableRightClickMouselook(settingsPanel.titleBar)
     EnableRightClickMouselook(settingsPanel.treeFrame)
