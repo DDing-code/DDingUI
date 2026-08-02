@@ -4601,7 +4601,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar.DurationText:SetText("")
             end
         else
-            bar.DurationText:SetText("")  -- OnUpdate에서 업데이트
+            -- The duration driver owns active text updates; clearing here makes it flicker on aura refreshes.
         end
         bar.DurationText:Show()
     else
