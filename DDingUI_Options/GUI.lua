@@ -1670,9 +1670,21 @@ function DDingUI:CreateConfigFrame()
 
     -- 타이틀 텍스트 (UF 통일: 글자별 그라디언트)
     if titleBar.titleText then
-        titleBar.titleText:SetText(SL.CreateAddonTitle("CDM", "CDM")) -- [STYLE]
+        titleBar.titleText:SetText("")
+        titleBar.titleText:Hide()
     end
+    if not titleBar.brandLogo then
+        titleBar.brandLogo = titleBar:CreateTexture(nil, "ARTWORK")
+    end
+    titleBar.brandLogo:ClearAllPoints()
+    titleBar.brandLogo:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
+    titleBar.brandLogo:SetSize(128, 32)
+    titleBar.brandLogo:SetTexture("Interface\\AddOns\\DDingUI\\Media\\logo_wordmark.tga")
+    titleBar.brandLogo:SetTexCoord(0, 1, 0, 1)
+    titleBar.brandLogo:Show()
     if titleBar.verText then
+        titleBar.verText:ClearAllPoints()
+        titleBar.verText:SetPoint("LEFT", titleBar.brandLogo, "RIGHT", 4, -1)
         titleBar.verText:SetText("v" .. tostring(version))
     end
 
