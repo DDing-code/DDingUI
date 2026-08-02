@@ -2,6 +2,27 @@
 
 ---
 
+## v1.3.4
+
+_Release date: 2026-08-03_
+_Scope: Git changes from v1.3.3 through this release._
+
+### English Patch Notes
+- Reduced recurring CustomIcons profile-normalization work and deferred heavy dropdown row creation until needed, improving settings-window startup and scrolling responsiveness.
+- Stabilized custom aura bar duration text so frequent state updates no longer restart its transition and cause visible flickering.
+- Completed English and Korean localization for the skill, item, and buff add catalogs and their related controls.
+- Restored custom spell, item, and buff ID additions. User-added IDs now remain independent from native CDM entries, custom spells can render outside the current spellbook, custom buffs are no longer converted into missing native frames, and custom items validate cache state and duplicates before being added.
+- Added an explicit spell/item selector to the custom ID popup and restyled the ID field with the same square input design used throughout the settings window.
+
+### Korean Patch Notes
+- 반복되는 CustomIcons 프로필 정규화 작업을 캐시하고 무거운 드롭다운 행을 필요할 때만 생성하도록 변경하여 설정창 시작 속도와 스크롤 반응성을 개선했습니다.
+- 잦은 상태 갱신이 커스텀 오라 바의 지속시간 텍스트 전환을 다시 시작해 깜빡이던 현상을 수정했습니다.
+- 스킬, 아이템, 강화효과 추가 카탈로그와 관련 조작부의 영문 및 한글 번역을 보완했습니다.
+- 사용자 지정 주문, 아이템, 강화효과 ID 추가 기능을 복구했습니다. 직접 추가한 ID는 기본 CDM 항목과 독립적으로 유지되며, 현재 주문책 밖의 사용자 지정 주문도 표시되고, 사용자 지정 강화효과가 존재하지 않는 기본 프레임으로 변환되지 않으며, 사용자 지정 아이템은 캐시 상태와 중복 여부를 확인한 뒤 추가됩니다.
+- 사용자 지정 ID 팝업에 주문/아이템 선택을 추가하고 ID 입력칸을 설정창의 다른 입력칸과 동일한 사각형 디자인으로 통일했습니다.
+
+---
+
 ## v1.3.3
 
 _Release date: 2026-07-31_
