@@ -36,6 +36,8 @@ local CUSTOM_AURA_PRESET_SPELL_IDS = {
     [1236994] = true,
     [1239479] = true,
     [374968] = true,
+    [29166] = true,
+    [406732] = true,
 }
 for _, spellID in ipairs(BLOODLUST_ALIAS_SPELL_IDS) do
     CUSTOM_AURA_PRESET_SPELL_IDS[spellID] = true
@@ -47,6 +49,10 @@ local CUSTOM_AURA_PRESET_FALLBACK_NAMES = {
     ["Devoured Dreams"] = true,
     ["Potion of Devoured Dreams"] = true,
     ["Time Spiral"] = true,
+    ["Innervate"] = true,
+    ["Spatial Paradox"] = true,
+    ["정신 자극"] = true,
+    ["공간의 역설"] = true,
     ["Bloodlust"] = true,
     ["Bloodlust / Heroism"] = true,
     ["Heroism"] = true,

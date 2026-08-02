@@ -3022,6 +3022,28 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
             action = function() return AddSpellIDToGroup(groupName, 1239479, "aura", { customAuraDuration = 10, customAuraTrigger = "spellcast" }) end,
         }
         items[#items + 1] = {
+            label = rawget(L, "Innervate") or "Innervate",
+            icon = SafeSpellTexture(29166),
+            action = function()
+                return AddSpellIDToGroup(groupName, 29166, "aura", {
+                    customAuraDuration = 7.8,
+                    customAuraTrigger = "innervate",
+                    iconTexture = SafeSpellTexture(29166),
+                })
+            end,
+        }
+        items[#items + 1] = {
+            label = rawget(L, "Spatial Paradox") or "Spatial Paradox",
+            icon = SafeSpellTexture(406732),
+            action = function()
+                return AddSpellIDToGroup(groupName, 406732, "aura", {
+                    customAuraDuration = 10,
+                    customAuraTrigger = "spatial_paradox",
+                    iconTexture = SafeSpellTexture(406732),
+                })
+            end,
+        }
+        items[#items + 1] = {
             label = rawget(L, "Time Spiral") or "Time Spiral",
             icon = SafeSpellTexture(374968),
             action = function() return AddSpellIDToGroup(groupName, 374968, "aura", { customAuraDuration = 10, customAuraTrigger = "timespiral" }) end,
@@ -6330,8 +6352,46 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
 
-            addTimeSpiral = showInlineAddOptions and {
+            addInnervate = showInlineAddOptions and {
                 type = "execute", order = 25.4, width = "normal",
+                name = function()
+                    return "|T" .. SafeSpellTexture(29166) .. ":16:16:0:0|t " .. (rawget(L, "Innervate") or "Innervate")
+                end,
+                desc = "Spell ID: 29166",
+                func = function()
+                    if not DDingUI.CustomIcons then return end
+                    local sourceKey = EnsureSourceGroup(groupName)
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({ type = "aura", id = 29166, settings = {
+                        customAuraDuration = 7.8,
+                        customAuraTrigger = "innervate",
+                        iconTexture = SafeSpellTexture(29166),
+                    }})
+                    if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
+                    SoftRefreshDynamicIcons()
+                end,
+            } or nil,
+
+            addSpatialParadox = showInlineAddOptions and {
+                type = "execute", order = 25.5, width = "normal",
+                name = function()
+                    return "|T" .. SafeSpellTexture(406732) .. ":16:16:0:0|t " .. (rawget(L, "Spatial Paradox") or "Spatial Paradox")
+                end,
+                desc = "Spell ID: 406732",
+                func = function()
+                    if not DDingUI.CustomIcons then return end
+                    local sourceKey = EnsureSourceGroup(groupName)
+                    local iconKey = DDingUI.CustomIcons:AddDynamicIcon({ type = "aura", id = 406732, settings = {
+                        customAuraDuration = 10,
+                        customAuraTrigger = "spatial_paradox",
+                        iconTexture = SafeSpellTexture(406732),
+                    }})
+                    if iconKey and sourceKey then DDingUI.CustomIcons:MoveIconToGroup(iconKey, sourceKey) end
+                    SoftRefreshDynamicIcons()
+                end,
+            } or nil,
+
+            addTimeSpiral = showInlineAddOptions and {
+                type = "execute", order = 25.6, width = "normal",
                 name = function()
                     local icon = SafeSpellTexture(374968)
                     return "|T" .. icon .. ":16:16:0:0|t 시간의 와류"
@@ -6347,7 +6407,7 @@ local function CreateGroupOptions(groupName, order)
             } or nil,
 
             addBloodlust = showInlineAddOptions and {
-                type = "execute", order = 25.5, width = "normal",
+                type = "execute", order = 25.7, width = "normal",
                 name = function()
                     local icon = SafeSpellTexture(2825)
                     return "|T" .. icon .. ":16:16:0:0|t 피의 욕망 / 영웅심"

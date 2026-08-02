@@ -106,6 +106,7 @@ Modules\CustomIcons\FrameLifecycle.lua
 Modules\CustomIcons\CooldownWatcher.lua
 Modules\CustomIcons\DynamicLayout.lua
 Modules\CustomIcons\CustomIcons.lua
+Modules\CustomIcons\ExternalBuffDetection.lua
 Modules\CustomIcons\TrinketEffects.lua
 
 # IconCustomization

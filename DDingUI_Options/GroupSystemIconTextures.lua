@@ -19,12 +19,15 @@ local CUSTOM_AURA_ICON_TEXTURES = {
     [1239479] = "Interface\\Icons\\INV_12_Profession_Alchemy_VoidPotion_Blue",
     [374968] = 4622479,
     [2825] = "Interface\\Icons\\Spell_Nature_BloodLust",
+    [29166] = "Interface\\Icons\\Spell_Nature_Lightning",
 }
 local CUSTOM_AURA_PRESET_SPELL_IDS = {
     [1236616] = true,
     [1236994] = true,
     [1239479] = true,
     [374968] = true,
+    [29166] = true,
+    [406732] = true,
 }
 for _, spellID in ipairs({ 2825, 32182, 80353, 90355, 160452, 264667, 390386 }) do
     CUSTOM_AURA_PRESET_SPELL_IDS[spellID] = true
@@ -35,6 +38,10 @@ local CUSTOM_AURA_PRESET_NAME_IDS = {
     ["Devoured Dreams"] = 1239479,
     ["Potion of Devoured Dreams"] = 1239479,
     ["Time Spiral"] = 374968,
+    ["Innervate"] = 29166,
+    ["Spatial Paradox"] = 406732,
+    ["정신 자극"] = 29166,
+    ["공간의 역설"] = 406732,
     ["Bloodlust"] = 2825,
     ["Bloodlust / Heroism"] = 2825,
     ["Heroism"] = 32182,
@@ -97,6 +104,12 @@ function GroupSystemIconTextures:CreateRuntime(pendingSpellRefresh, invalidateCa
         spellID = SafeOptionID(spellID)
         local presetTex = spellID and SafeOptionTexture(CUSTOM_AURA_ICON_TEXTURES[spellID])
         if presetTex and not IsQuestionTexture(presetTex) then return presetTex end
+
+        if spellID and C_Spell and C_Spell.GetSpellTexture then
+            local ok, texture = pcall(C_Spell.GetSpellTexture, spellID)
+            texture = SafeOptionTexture(ok and texture)
+            if texture and not IsQuestionTexture(texture) then return texture end
+        end
         return nil
     end
 

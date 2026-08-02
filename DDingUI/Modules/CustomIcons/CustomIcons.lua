@@ -289,6 +289,8 @@ local CUSTOM_TIMED_AURA_CONFIGS = {
     [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
     [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
     [1239479] = { duration = 10, trigger = "spellcast" },   -- Potion of Devoured Dreams
+    [29166]   = { duration = 7.8, trigger = "innervate" },  -- Innervate
+    [406732]  = { duration = 10, trigger = "spatial_paradox" }, -- Spatial Paradox
     [374968]  = { duration = 10, trigger = "timespiral" },  -- Time Spiral
     [2825]    = { duration = 40, trigger = "bloodlust" },   -- Bloodlust family
 }
@@ -556,6 +558,8 @@ local function IsEventDrivenCustomTimedAuraConfig(config)
     return config.trigger == "bloodlust"
         or config.trigger == "timespiral"
         or config.trigger == "trinket_effect"
+        or config.trigger == "innervate"
+        or config.trigger == "spatial_paradox"
 end
 
 local function BuildTimedAuraData(spellID, state)
