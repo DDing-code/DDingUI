@@ -3086,7 +3086,7 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
             for index = firstIndex, lastIndex do
                 local row = unassignedRows[index]
                 pageItems[#pageItems + 1] = {
-                    label = row.displayName or row.spellName or "Unknown",
+                    label = row.displayName or row.spellName or (rawget(L, "Unknown") or "Unknown"),
                     icon = NonQuestionTexture(row.iconTex, DEFAULT_BUFF_ICON_TEXTURE),
                     action = function()
                         return AddUnassignedRowToGroup(groupName, row)
