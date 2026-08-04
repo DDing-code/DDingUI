@@ -582,8 +582,14 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     else
         local group = db.groups and db.groups[sourceGroupKey]
         if group and group.icons then
-            for _, iconKey in ipairs(group.icons) do
-                AddTargetIconKey(iconKey)
+            local maxIndex = 0
+            for index in pairs(group.icons) do
+                if type(index) == "number" and index >= 1 and index % 1 == 0 and index > maxIndex then
+                    maxIndex = index
+                end
+            end
+            for index = 1, maxIndex do
+                AddTargetIconKey(group.icons[index])
             end
         end
     end

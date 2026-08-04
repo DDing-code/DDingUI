@@ -15,6 +15,45 @@ function ProfileNormalization.Create(
     local NormalizePresetIconDB
     local normalizedDBs = setmetatable({}, { __mode = "k" })
 
+    local function CompactGroupIconList(icons, iconDataDB)
+        if type(icons) ~= "table" then return false end
+
+        local indexed = {}
+        local changed = false
+        for index, iconKey in pairs(icons) do
+            if type(index) == "number" and index >= 1 and index % 1 == 0 then
+                indexed[#indexed + 1] = index
+            else
+                changed = true
+            end
+        end
+        table.sort(indexed)
+
+        local compacted = {}
+        local seen = {}
+        for _, index in ipairs(indexed) do
+            local iconKey = icons[index]
+            if type(iconKey) == "string" and iconDataDB[iconKey] and not seen[iconKey] then
+                compacted[#compacted + 1] = iconKey
+                seen[iconKey] = true
+                if index ~= #compacted then
+                    changed = true
+                end
+            else
+                changed = true
+            end
+        end
+
+        if not changed then return false end
+        for key in pairs(icons) do
+            icons[key] = nil
+        end
+        for index, iconKey in ipairs(compacted) do
+            icons[index] = iconKey
+        end
+        return true
+    end
+
     NormalizePresetIconData = function(iconData)
         if type(iconData) ~= "table" or not (iconData.type == "spell" or iconData.type == "aura") then return false end
         local preset = GetCustomAuraPresetIconTexture(iconData.id)
@@ -82,17 +121,8 @@ function ProfileNormalization.Create(
 
         for groupKey, group in pairs(db.groups) do
             local icons = type(group) == "table" and group.icons
-            if type(icons) == "table" then
-                local seenInGroup = {}
-                for i = #icons, 1, -1 do
-                    local iconKey = icons[i]
-                    if type(iconKey) ~= "string" or not iconDataDB[iconKey] or seenInGroup[iconKey] then
-                        table.remove(icons, i)
-                        changed = true
-                    else
-                        seenInGroup[iconKey] = true
-                    end
-                end
+            if CompactGroupIconList(icons, iconDataDB) then
+                changed = true
             end
         end
 

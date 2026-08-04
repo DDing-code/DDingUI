@@ -2854,6 +2854,7 @@ function CustomIcons:DeactivateExternalTimedAura(stateID)
     local changed = DeactivateCustomTimedAura(stateID)
     if changed then
         self:RefreshTrackedTrinketEffectIcons()
+        NotifyCustomTimedAuraChanged("force")
     end
     return changed
 end
@@ -2864,7 +2865,7 @@ end
 
 local function IconListContains(iconList, iconKey)
     if type(iconList) ~= "table" or not iconKey then return false end
-    for _, key in ipairs(iconList) do
+    for _, key in pairs(iconList) do
         if key == iconKey then
             return true
         end
