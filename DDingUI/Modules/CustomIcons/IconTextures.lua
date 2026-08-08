@@ -12,6 +12,7 @@ local FALLBACK_SPELL_ICON = "Interface\\Icons\\Spell_Holy_PowerWordShield"
 local FALLBACK_ITEM_ICON = "Interface\\Icons\\INV_Potion_93"
 local FALLBACK_SLOT_ICON = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
 local FALLBACK_RACIAL_ICON = "Interface\\Icons\\Spell_magic_polymorphrabbit"
+local FALLBACK_TOTEM_ICON = 310731
 local CUSTOM_AURA_ICON_TEXTURES = {
     [1236616] = 7548911, -- Light's Potential
     [1236994] = 7548916, -- Potion of Recklessness
@@ -141,6 +142,8 @@ local function EnsureStoredIconTexture(iconData)
     elseif iconData.type == "racial" then
         local racials = DDingUI.CustomIconRacials
         texture = racials and racials:GetTexture(FALLBACK_RACIAL_ICON) or FALLBACK_RACIAL_ICON
+    elseif iconData.type == "totem" then
+        texture = FALLBACK_TOTEM_ICON
     end
 
     if texture and not IsQuestionTexture(texture) then
@@ -154,6 +157,7 @@ IconTextures.fallbackSpellIcon = FALLBACK_SPELL_ICON
 IconTextures.fallbackItemIcon = FALLBACK_ITEM_ICON
 IconTextures.fallbackSlotIcon = FALLBACK_SLOT_ICON
 IconTextures.fallbackRacialIcon = FALLBACK_RACIAL_ICON
+IconTextures.fallbackTotemIcon = FALLBACK_TOTEM_ICON
 IconTextures.IsQuestionTexture = IsQuestionTexture
 IconTextures.NonQuestionTexture = NonQuestionTexture
 IconTextures.GetCustomAuraPresetIconTexture = GetCustomAuraPresetIconTexture

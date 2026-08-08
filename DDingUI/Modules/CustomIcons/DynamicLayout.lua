@@ -71,6 +71,8 @@ function DynamicLayout.Create(
                     local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID or 13)
                     local itemName = iid and GetItemInfo(iid)
                     return itemName or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
+                elseif iconData.type == "totem" then
+                    return ((L["Totem Slot"] or "Totem Slot") .. " " .. (iconData.totemSlot or ""))
                 end
             end
         end

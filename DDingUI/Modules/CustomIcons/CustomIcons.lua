@@ -1329,6 +1329,7 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
                 or (iconData
                     and (iconData.type == "aura"
                         or iconData.type == "trinketProc"
+                        or iconData.type == "totem"
                         or (iconData.type == "item"
                             and iconData.settings
                             and tonumber(iconData.settings.activeEffectDuration)))
@@ -2988,6 +2989,9 @@ local function GetDynamicLayoutStateToken(frame, iconData)
         local hideWhenEmpty = iconData.settings and iconData.settings.hideWhenEmpty == true
         return hideWhenEmpty and frame._ddItemCountEmpty == true and "hidden" or "visible"
     end
+    if iconData.type == "totem" then
+        return frame._ddTotemActive == true and "active" or "inactive"
+    end
     if iconData.type ~= "aura" and iconData.type ~= "trinketProc" then return nil end
     local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
     if expiredManagedAura then return "inactive" end
@@ -3038,6 +3042,7 @@ local function ExecuteUpdateAllIcons(filter)
             if filter == "aura" then
                 typeMatches = iconType == "aura"
                     or iconType == "trinketProc"
+                    or iconType == "totem"
                     or iconType == "racial"
                     or (iconType == "spell" and CustomIcons:IsCurrentRacialSpellIcon(iconData))
             elseif filter == "item" then
@@ -3045,7 +3050,7 @@ local function ExecuteUpdateAllIcons(filter)
             elseif filter == "cooldown" then
                 typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc" or iconType == "spell" or iconType == "racial"
             end
-            if iconData and typeMatches and (frame._ddNeedsInitialUpdate or frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or frame._ddIsManaged) then
+            if iconData and typeMatches and (frame._ddNeedsInitialUpdate or frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or iconType == "totem" or frame._ddIsManaged) then
                 local okUpdate, err = pcall(function()
                     local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
 
@@ -3076,6 +3081,11 @@ local function ExecuteUpdateAllIcons(filter)
                         UpdateTrinketProcIcon(frame, iconData)
                     elseif iconData.type == "aura" then
                         UpdateAuraIcon(frame, iconData)
+                    elseif iconData.type == "totem" then
+                        local totems = DDingUI.CustomIconTotems
+                        if totems and totems.UpdateFrame then
+                            totems:UpdateFrame(frame, iconData, true)
+                        end
                     end
                     if DDingUI.CustomIconActiveEffectOverlay then
                         DDingUI.CustomIconActiveEffectOverlay:ApplyFrame(frame, iconData)

@@ -230,6 +230,11 @@ function FrameLifecycle.Create(
     local function ResetDynamicIconFrame(frame)
         if not frame then return end
 
+        local totems = DDingUI.CustomIconTotems
+        if frame._type == "totem" and totems and totems.UnregisterFrame then
+            totems:UnregisterFrame(frame)
+        end
+
         local bridge = DDingUI.DynamicIconBridge
         if bridge and bridge.ReleaseFrame and (frame._ddIsManaged or frame._ddIconKey) then
             bridge:ReleaseFrame(frame, frame._ddIconKey or frame._iconKey)
@@ -317,6 +322,7 @@ function FrameLifecycle.Create(
         frame._itemID = nil
         frame._spellID = nil
         frame._slotID = nil
+        frame._totemSlot = nil
         frame._iconKey = nil
         frame._groupSettings = nil
         frame._textureCacheKey = nil
@@ -345,6 +351,7 @@ function FrameLifecycle.Create(
         frame._ddCustomIconActive = nil
         frame._ddCustomIconReady = nil
         frame._ddItemCountEmpty = nil
+        frame._ddTotemActive = nil
         frame._ddInactiveGray = nil
         frame._ddForcedInactiveGray = nil
         frame._ddInactiveAlpha = nil
@@ -473,6 +480,25 @@ function FrameLifecycle.Create(
         return frame
     end
 
+    local function CreateTotemIcon(iconKey, iconData, parent)
+        local slot = tonumber(iconData.totemSlot)
+        if not slot or slot < 1 then return nil end
+
+        local totems = DDingUI.CustomIconTotems
+        local fallback = totems and totems.GetPlaceholderIcon and totems:GetPlaceholderIcon() or 310731
+        local frame = AcquireDynamicIconFrame("DDingUI_DynTotem_" .. iconKey, parent)
+        frame._type = "totem"
+        frame._totemSlot = slot
+        frame._iconKey = iconKey
+        frame._textureCacheKey = "totem:" .. tostring(slot)
+        frame._fallbackTexture = fallback
+        SetStableIconTexture(frame, fallback, true)
+        if totems and totems.RegisterFrame then
+            totems:RegisterFrame(frame, iconData)
+        end
+        return frame
+    end
+
     local function CreateDynamicIcon(iconKey, iconData, parent)
         if iconData.type == "item" then
             return CreateItemIcon(iconKey, iconData, parent)
@@ -490,6 +516,8 @@ function FrameLifecycle.Create(
             return CreateSlotIcon(iconKey, iconData, parent)  -- Reuse slot icon frame
         elseif iconData.type == "aura" then
             return CreateAuraIcon(iconKey, iconData, parent)
+        elseif iconData.type == "totem" then
+            return CreateTotemIcon(iconKey, iconData, parent)
         elseif iconData.type == "racial" then
             local racialID = GetPlayerRacialSpellID()
             if not racialID then return nil end
@@ -531,6 +559,11 @@ function FrameLifecycle.Create(
             UpdateTrinketProcIcon(frame, iconData)
         elseif iconData.type == "aura" then
             UpdateAuraIcon(frame, iconData)
+        elseif iconData.type == "totem" then
+            local totems = DDingUI.CustomIconTotems
+            if totems and totems.UpdateFrame then
+                totems:UpdateFrame(frame, iconData)
+            end
         end
         if DDingUI.CustomIconActiveEffectOverlay then
             DDingUI.CustomIconActiveEffectOverlay:ApplyFrame(frame, iconData)

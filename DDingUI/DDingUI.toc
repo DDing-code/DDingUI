@@ -96,6 +96,7 @@ Modules\IconViewers\Keybinds.lua
 # CustomIcons (Dynamic Icons)
 Modules\CustomIcons\RacialCooldowns.lua
 Modules\CustomIcons\IconTextures.lua
+Modules\CustomIcons\TotemTracker.lua
 Modules\CustomIcons\ProfileRecovery.lua
 Modules\CustomIcons\ProfileNormalization.lua
 Modules\CustomIcons\RuntimeValues.lua

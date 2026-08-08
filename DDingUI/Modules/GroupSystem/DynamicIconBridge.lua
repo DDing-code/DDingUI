@@ -378,6 +378,10 @@ local function IsIconActive(iconKey, iconData, iconFrame)
         return true
     end
 
+    if iconData.type == "totem" then
+        return iconFrame._ddTotemActive == true
+    end
+
     if iconData.type == "slot" then
         local slotID = iconData.slotID
         return ShouldTrackSlot(iconFrame, slotID)
@@ -640,10 +644,12 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
                 local isCooldownTrinket = iconData.type == "trinketProc"
                     and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
                 local isAuraIcon = iconData.type == "aura"
-                local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and not isCooldownTrinket)
-                local liveEffect = isEffectIcon and not isAuraIcon and FrameHasLiveEffect(frame, now)
+                local isTotemIcon = iconData.type == "totem"
+                local isImmediateEffectIcon = isAuraIcon or isTotemIcon
+                local isEffectIcon = isImmediateEffectIcon or (iconData.type == "trinketProc" and not isCooldownTrinket)
+                local liveEffect = isEffectIcon and not isImmediateEffectIcon and FrameHasLiveEffect(frame, now)
                 local expiredManagedAura = isEffectIcon and iconData.type == "aura" and frame._ddManagedAuraExpired
-                local recentEffect = isEffectIcon and not isAuraIcon and not expiredManagedAura and FrameHadRecentEffect(frame, now)
+                local recentEffect = isEffectIcon and not isImmediateEffectIcon and not expiredManagedAura and FrameHadRecentEffect(frame, now)
                 keepManaged = (not isEffectIcon) and (frame._ddIsManaged and frame._ddContainerRef) and true or false
                 local keepHistorical = (not isEffectIcon) and frame._wasVisibleInGroup == true
                 local lastActive = frame._ddLastDynamicActiveAt
@@ -666,7 +672,9 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
             local isCooldownTrinket = iconData.type == "trinketProc"
                 and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
             local isAuraIcon = iconData.type == "aura"
-            local isEffectIcon = isAuraIcon or (iconData.type == "trinketProc" and not isCooldownTrinket)
+            local isEffectIcon = isAuraIcon
+                or iconData.type == "totem"
+                or (iconData.type == "trinketProc" and not isCooldownTrinket)
             local showInactive, desaturateInactive, inactiveAlpha = ResolveInactiveBuffDisplay(iconData)
             local includeActiveStateGray = groupSettings
                 and groupSettings.hideActiveState == true
@@ -908,7 +916,9 @@ local function BuildDynamicLayoutStateHash()
                 local token = "1"
                 local isCooldownTrinket = iconData.type == "trinketProc"
                     and (not iconData.settings or iconData.settings.showItemCooldown ~= false)
-                local isEffectIcon = iconData.type == "aura" or (iconData.type == "trinketProc" and not isCooldownTrinket)
+                local isEffectIcon = iconData.type == "aura"
+                    or iconData.type == "totem"
+                    or (iconData.type == "trinketProc" and not isCooldownTrinket)
 
                 if isEffectIcon then
                     local expiredManagedAura = iconData.type == "aura" and frame._ddManagedAuraExpired
@@ -920,6 +930,8 @@ local function BuildDynamicLayoutStateHash()
                         else
                             active = not expiredManagedAura and frame._auraWasActive == true
                         end
+                    elseif iconData.type == "totem" then
+                        active = frame._ddTotemActive == true
                     else
                         active = frame._trinketProcWasActive == true
                             or FrameHasLiveEffect(frame, now)

@@ -1273,6 +1273,10 @@ local function ShouldKeepDynamicIconInCombat(icon)
         return false
     end
 
+    if iconData.type == "totem" then
+        return icon._ddTotemActive == true
+    end
+
     if iconData.type == "trinketProc" then
         local settings = iconData.settings or {}
         if settings.showItemCooldown ~= false and iconData.slotID and GetInventoryItemID("player", iconData.slotID) then

@@ -2124,6 +2124,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         and activeEffectOverlay:SupportsActiveEffect(iconData.id, iconData.settings)
     local supportsActiveState = iconData.type == "aura"
         or iconData.type == "trinketProc"
+        or iconData.type == "totem"
         or isItemActiveEffect
     local isRacialIcon = iconData.type == "racial"
         or (DDingUI.CustomIcons
@@ -2433,7 +2434,7 @@ function IconCustomization:BuildDynamicContextMenuItems(iconKey, refreshFunc, on
         function() return iconData.settings end,
         ApplyStateSetting
     )
-    if iconData.type == "aura" or iconData.type == "trinketProc" then
+    if iconData.type == "aura" or iconData.type == "trinketProc" or iconData.type == "totem" then
         menuItems[#menuItems + 1] = BuildSoundContextMenuItem(
             L["Audio on Buff Gain"] or "Audio on Buff Gain",
             "buffGainSound",
