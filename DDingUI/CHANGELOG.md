@@ -2,6 +2,25 @@
 
 ---
 
+## v1.3.5
+
+_Release date: 2026-08-08_
+_Scope: Git changes from v1.3.4 through this release._
+
+### English Patch Notes
+- Refreshed the DDingUI symbol and added a matching horizontal wordmark to the settings header.
+- Added built-in tracking for Innervate and Spatial Paradox. These external buffs can now be added from the buff catalog and remain in the configured group order across profile and specialization refreshes.
+- Added totem slot tracking to the buff catalog. Totem entries use the active slot's icon and duration while preserving existing group layout, text, glow, and inactive-state settings.
+- Stabilized totem activation and expiration transitions so rapid aura updates no longer cause repeated state changes, end-of-duration flickering, completion flashes, or brief placeholder-icon exposure.
+- Updated the totem duration swipe so the dark overlay progressively covers the icon as the effect expires.
+
+### Korean Patch Notes
+- DDingUI 심볼을 새 디자인으로 교체하고 설정창 헤더에 동일한 스타일의 가로형 워드마크를 추가했습니다.
+- 정신 자극과 공간의 역설 추적을 추가했습니다. 강화효과 카탈로그에서 해당 효과를 추가할 수 있으며 프로필 및 전문화 갱신 후에도 설정한 그룹 정렬을 유지합니다.
+- 강화효과 카탈로그에 토템 슬롯 추적을 추가했습니다. 활성화된 슬롯의 실제 토템 아이콘과 지속시간을 표시하며 기존 그룹의 레이아웃, 텍스트, 글로우, 비활성 상태 설정을 따릅니다.
+- 토템 활성화 및 만료 전환을 안정화하여 잦은 오라 갱신으로 인한 상태 반복 변경, 종료 직전 깜빡임, 완료 점등 효과, 기본 토템 아이콘의 순간 노출을 방지했습니다.
+- 토템 지속시간이 줄어들수록 검은 스와이프가 아이콘을 점차 덮도록 진행 방향을 수정했습니다.
+
 ## v1.3.4
 
 _Release date: 2026-08-03_
