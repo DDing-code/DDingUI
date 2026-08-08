@@ -33,6 +33,7 @@ end
 local function FeedDurationObject(cooldown, durationObject)
     if not cooldown then return end
     cooldown:SetReverse(false)
+    if cooldown.SetDrawBling then cooldown:SetDrawBling(false) end
     if durationObject then
         cooldown:Show()
         cooldown:SetCooldownFromDurationObject(durationObject, true)
@@ -46,6 +47,7 @@ local function FeedLegacyDuration(frame, slot)
     local haveTotem, _, startTime, duration, icon = GetTotemInfo(slot)
     if haveTotem and duration and duration > 0 then
         frame.cooldownProbe:SetReverse(false)
+        if frame.cooldownProbe.SetDrawBling then frame.cooldownProbe:SetDrawBling(false) end
         frame.cooldownProbe:SetCooldown(startTime, duration)
         if frame.icon then frame.icon:SetTexture(icon) end
         return true
@@ -98,6 +100,7 @@ function TotemTracker:UpdateFrame(frame, iconData, suppressLayoutRefresh, author
         elseif observedActive then
             local _, _, startTime, duration = GetTotemInfo(slot)
             frame.cooldown:SetReverse(false)
+            if frame.cooldown.SetDrawBling then frame.cooldown:SetDrawBling(false) end
             frame.cooldown:SetCooldown(startTime, duration)
         else
             frame.cooldown:Clear()
@@ -113,7 +116,7 @@ function TotemTracker:UpdateFrame(frame, iconData, suppressLayoutRefresh, author
             local _, _, _, _, icon = GetTotemInfo(slot)
             frame.icon:SetTexture(icon)
             frame.icon:SetDesaturation(0)
-        elseif authoritativeState or not stateInitialized then
+        elseif not stateInitialized then
             frame.icon:SetTexture(PLACEHOLDER_ICON)
         end
     end
