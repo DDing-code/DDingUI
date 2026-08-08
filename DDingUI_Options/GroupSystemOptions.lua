@@ -198,6 +198,7 @@ local DEFAULT_SPELL_ICON_TEXTURE = "Interface\\Icons\\Spell_Nature_TimeStop"
 local DEFAULT_ITEM_ICON_TEXTURE = "Interface\\Icons\\INV_Potion_93"
 local DEFAULT_TRINKET_ICON_TEXTURE = "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
 local DEFAULT_RACIAL_ICON_TEXTURE = "Interface\\Icons\\Spell_magic_polymorphrabbit"
+local DEFAULT_TOTEM_ICON_TEXTURE = 310731
 local iconTextureRuntime = DDingUI.GroupSystemIconTextures:CreateRuntime(
     pendingOptionSpellIconRefresh,
     InvalidateCDMIconEntryCache
@@ -2013,6 +2014,12 @@ local function BuildAssignedSpellsArgs(groupName)
                                 displayName = "Racial Trait"
                                 iconTex = DEFAULT_RACIAL_ICON_TEXTURE
                             end
+                        elseif iconData.type == "totem" then
+                            local totemSlot = tonumber(iconData.totemSlot)
+                            displayName = (rawget(L, "Totem Slot") or "Totem Slot")
+                                .. " " .. tostring(totemSlot or "")
+                            iconTex = iconData.settings and iconData.settings.iconTexture
+                                or DEFAULT_TOTEM_ICON_TEXTURE
                         end
 
                         rows[#rows + 1] = {
@@ -2026,6 +2033,7 @@ local function BuildAssignedSpellsArgs(groupName)
                                     and GetInventoryItemID("player", iconData.slotID or 13))
                                 or nil,
                             slotID = iconData.slotID,
+                            totemSlot = iconData.totemSlot,
                             displayName = displayName,
                             iconTex = NonQuestionTexture(iconTex, DEFAULT_BUFF_ICON_TEXTURE),
                             fallbackOrder = 10000 + iconIdx,
@@ -2098,7 +2106,8 @@ local function BuildAssignedSpellsArgs(groupName)
             elseif row.iconType == "trinketProc" then badge = "PROC"
             elseif row.iconType == "aura" then badge = "AURA"
             elseif row.iconType == "spell" then badge = "SPELL"
-            elseif row.iconType == "racial" then badge = "RACE" end
+            elseif row.iconType == "racial" then badge = "RACE"
+            elseif row.iconType == "totem" then badge = "TOTEM" end
             args["dyna_" .. count] = {
                 type = "execute",
                 name = arrowPrefix .. iconStr .. (row.displayName or capturedIconKey or "Unknown"),
@@ -2113,6 +2122,7 @@ local function BuildAssignedSpellsArgs(groupName)
                 _gridDynamicIconType = row.iconType,
                 _gridItemID = row.itemID,
                 _gridSlotID = row.slotID,
+                _gridTotemSlot = row.totemSlot,
                 _gridGroupName = groupName,
                 _dragData = {
                     groupKey = useGroupOrder and MakeGroupOrderDragKey(groupName) or capturedSourceKey,
@@ -2655,6 +2665,8 @@ local function ResolveDynamicIconTexture(iconType, id, slotID, fallback)
         return NonQuestionTexture(fallback, DEFAULT_TRINKET_ICON_TEXTURE)
     elseif iconType == "racial" then
         return NonQuestionTexture(fallback, DEFAULT_RACIAL_ICON_TEXTURE)
+    elseif iconType == "totem" then
+        return NonQuestionTexture(fallback, DEFAULT_TOTEM_ICON_TEXTURE)
     elseif iconType == "spell" then
         return ResolveSpellTextureFromCandidates({ id }, fallback or DEFAULT_SPELL_ICON_TEXTURE)
     elseif iconType == "aura" then
@@ -2774,6 +2786,43 @@ local function AddDynamicPayloadToGroup(groupName, payload, settings)
     AppendGroupOrderToken(groupName, beforeTokens, MakeDynamicOrderToken(iconKey))
     ScheduleDynamicIconRefresh(iconKey)
     return true
+end
+
+function DDingUI:AddTotemSlotToGroup(groupName, slot)
+    slot = tonumber(slot)
+    if not groupName or not slot or slot < 1 then return false end
+
+    local sourceKey = EnsureSourceGroup(groupName)
+    local dynDB = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.dynamicIcons
+    local sourceGroup = sourceKey and dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    for _, iconKey in ipairs((sourceGroup and sourceGroup.icons) or {}) do
+        local iconData = dynDB.iconData and dynDB.iconData[iconKey]
+        if iconData and iconData.type == "totem" and tonumber(iconData.totemSlot) == slot then
+            return false
+        end
+    end
+
+    return AddDynamicPayloadToGroup(groupName, {
+        type = "totem",
+        totemSlot = slot,
+        settings = {
+            iconTexture = DEFAULT_TOTEM_ICON_TEXTURE,
+            alwaysShow = "off",
+            desatInactive = "on",
+            inactiveAlpha = 0.5,
+        },
+    })
+end
+
+function DDingUI:AddAllTotemSlotsToGroup(groupName)
+    local tracker = DDingUI.CustomIconTotems
+    local count = tracker and tracker.GetNumSlots and tracker:GetNumSlots()
+        or ((GetNumTotemSlots and GetNumTotemSlots()) or 0)
+    local changed = false
+    for slot = 1, count do
+        changed = self:AddTotemSlotToGroup(groupName, slot) or changed
+    end
+    return changed
 end
 
 local function AddSpellIDToGroup(groupName, spellID, forcedType, settings)
@@ -3059,6 +3108,31 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
                 })
             end,
         }
+        local totemTracker = DDingUI.CustomIconTotems
+        local totemSlotCount = totemTracker and totemTracker.GetNumSlots and totemTracker:GetNumSlots()
+            or ((GetNumTotemSlots and GetNumTotemSlots()) or 0)
+        if totemSlotCount > 0 then
+            local totemItems = {
+                {
+                    label = rawget(L, "Add All Totem Slots") or "Add All Totem Slots",
+                    icon = DEFAULT_TOTEM_ICON_TEXTURE,
+                    action = function() return DDingUI:AddAllTotemSlotsToGroup(groupName) end,
+                },
+            }
+            for slot = 1, totemSlotCount do
+                local capturedSlot = slot
+                totemItems[#totemItems + 1] = {
+                    label = (rawget(L, "Totem Slot") or "Totem Slot") .. " " .. capturedSlot,
+                    icon = DEFAULT_TOTEM_ICON_TEXTURE,
+                    action = function() return DDingUI:AddTotemSlotToGroup(groupName, capturedSlot) end,
+                }
+            end
+            items[#items + 1] = {
+                label = rawget(L, "Totem Slots") or "Totem Slots",
+                icon = DEFAULT_TOTEM_ICON_TEXTURE,
+                submenu = totemItems,
+            }
+        end
     else
         items[#items + 1] = {
             label = rawget(L, "Trinket Slot 1") or "Trinket Slot 1",
@@ -5290,6 +5364,7 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
         if opt._gridViewerType == "Buff"
             or opt._gridDynamicIconType == "aura"
             or opt._gridDynamicIconType == "trinketProc"
+            or opt._gridDynamicIconType == "totem"
         then
             sectionLabel = rawget(L, "Buff Icon Settings") or "Buff Icon Settings"
         elseif opt._gridViewerType == "Essential"

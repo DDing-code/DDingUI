@@ -189,6 +189,7 @@ local function EnableDynamicInactiveIcons(settings)
         local iconData = iconDataDB[iconKey]
         local iconSettings = iconData and iconData.settings
         local isEffect = iconData and (iconData.type == "aura"
+            or iconData.type == "totem"
             or (iconData.type == "trinketProc"
                 and iconSettings and iconSettings.showItemCooldown == false))
         if isEffect then
