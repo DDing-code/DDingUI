@@ -3042,7 +3042,6 @@ local function ExecuteUpdateAllIcons(filter)
             if filter == "aura" then
                 typeMatches = iconType == "aura"
                     or iconType == "trinketProc"
-                    or iconType == "totem"
                     or iconType == "racial"
                     or (iconType == "spell" and CustomIcons:IsCurrentRacialSpellIcon(iconData))
             elseif filter == "item" then
@@ -3084,7 +3083,7 @@ local function ExecuteUpdateAllIcons(filter)
                     elseif iconData.type == "totem" then
                         local totems = DDingUI.CustomIconTotems
                         if totems and totems.UpdateFrame then
-                            totems:UpdateFrame(frame, iconData, true)
+                            totems:UpdateFrame(frame, iconData, true, false)
                         end
                     end
                     if DDingUI.CustomIconActiveEffectOverlay then

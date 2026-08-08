@@ -280,6 +280,7 @@ function FrameLifecycle.Create(
         end
 
         if frame.cooldown then
+            frame.cooldown:SetScript("OnCooldownDone", HandleCooldownDone)
             frame.cooldown:Clear()
             frame.cooldown:Hide()
             frame.cooldown:SetDrawEdge(false)
@@ -289,10 +290,12 @@ function FrameLifecycle.Create(
             frame.cooldown.noCooldownCount = nil
         end
         if frame.cooldownProbe then
+            frame.cooldownProbe:SetScript("OnCooldownDone", HandleCooldownDone)
             frame.cooldownProbe:Clear()
             frame.cooldownProbe:Hide()
         end
         if frame.cooldownChargeProbe then
+            frame.cooldownChargeProbe:SetScript("OnCooldownDone", HandleCooldownDone)
             frame.cooldownChargeProbe:Clear()
             frame.cooldownChargeProbe:Hide()
         end
@@ -352,6 +355,7 @@ function FrameLifecycle.Create(
         frame._ddCustomIconReady = nil
         frame._ddItemCountEmpty = nil
         frame._ddTotemActive = nil
+        frame._ddTotemStateInitialized = nil
         frame._ddInactiveGray = nil
         frame._ddForcedInactiveGray = nil
         frame._ddInactiveAlpha = nil
@@ -493,6 +497,9 @@ function FrameLifecycle.Create(
         frame._textureCacheKey = "totem:" .. tostring(slot)
         frame._fallbackTexture = fallback
         SetStableIconTexture(frame, fallback, true)
+        frame.cooldown:SetScript("OnCooldownDone", nil)
+        frame.cooldownProbe:SetScript("OnCooldownDone", nil)
+        frame.cooldownChargeProbe:SetScript("OnCooldownDone", nil)
         if totems and totems.RegisterFrame then
             totems:RegisterFrame(frame, iconData)
         end
@@ -562,7 +569,7 @@ function FrameLifecycle.Create(
         elseif iconData.type == "totem" then
             local totems = DDingUI.CustomIconTotems
             if totems and totems.UpdateFrame then
-                totems:UpdateFrame(frame, iconData)
+                totems:UpdateFrame(frame, iconData, true, false)
             end
         end
         if DDingUI.CustomIconActiveEffectOverlay then

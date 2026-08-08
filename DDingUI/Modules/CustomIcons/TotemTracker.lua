@@ -68,26 +68,32 @@ function TotemTracker:GetPlaceholderIcon()
     return PLACEHOLDER_ICON
 end
 
-function TotemTracker:UpdateFrame(frame, iconData, suppressLayoutRefresh)
+function TotemTracker:UpdateFrame(frame, iconData, suppressLayoutRefresh, authoritativeState)
     local slot = GetSlot(iconData, frame)
     if not frame or not slot or slot < 1 then return false end
 
     local previousActive = frame._ddTotemActive == true
-    local active = false
+    local stateInitialized = frame._ddTotemStateInitialized == true
+    local observedActive = false
     local durationObject
 
     if GetTotemDuration then
         durationObject = GetTotemDuration(slot)
         FeedDurationObject(frame.cooldownProbe, durationObject)
-        active = frame.cooldownProbe and frame.cooldownProbe:IsShown() and true or false
+        observedActive = frame.cooldownProbe and frame.cooldownProbe:IsShown() and true or false
     elseif GetTotemInfo and frame.cooldownProbe then
-        active = FeedLegacyDuration(frame, slot)
+        observedActive = FeedLegacyDuration(frame, slot)
+    end
+
+    local active = observedActive
+    if stateInitialized and not authoritativeState then
+        active = previousActive
     end
 
     if frame.cooldown then
         if GetTotemDuration then
             FeedDurationObject(frame.cooldown, durationObject)
-        elseif active then
+        elseif observedActive then
             local _, _, startTime, duration = GetTotemInfo(slot)
             frame.cooldown:SetCooldown(startTime, duration)
         else
@@ -100,16 +106,17 @@ function TotemTracker:UpdateFrame(frame, iconData, suppressLayoutRefresh)
     end
 
     if frame.icon then
-        if active and GetTotemInfo then
+        if observedActive and GetTotemInfo then
             local _, _, _, _, icon = GetTotemInfo(slot)
             frame.icon:SetTexture(icon)
             frame.icon:SetDesaturation(0)
-        else
+        elseif authoritativeState or not stateInitialized then
             frame.icon:SetTexture(PLACEHOLDER_ICON)
         end
     end
 
     frame._ddTotemActive = active
+    frame._ddTotemStateInitialized = true
     frame._ddCustomIconActive = active
     frame._ddCustomIconReady = not active
     frame._ddCustomIconProcActive = false
@@ -145,7 +152,7 @@ function TotemTracker:RegisterFrame(frame, iconData)
     if trackedCount == 1 then
         SetEventsEnabled(true)
     end
-    self:UpdateFrame(frame, iconData, true)
+    self:UpdateFrame(frame, iconData, true, true)
 end
 
 function TotemTracker:UnregisterFrame(frame)
@@ -161,6 +168,7 @@ function TotemTracker:UnregisterFrame(frame)
     end
     frame._totemSlot = nil
     frame._ddTotemActive = nil
+    frame._ddTotemStateInitialized = nil
     if trackedCount == 0 then
         SetEventsEnabled(false)
     end
@@ -174,7 +182,7 @@ function TotemTracker:RefreshSlot(slot)
     local stateChanged = false
     for frame, iconData in pairs(frames) do
         local previousActive = frame._ddTotemActive == true
-        self:UpdateFrame(frame, iconData, true)
+        self:UpdateFrame(frame, iconData, true, true)
         if previousActive ~= (frame._ddTotemActive == true) then
             stateChanged = true
         end
@@ -189,7 +197,7 @@ function TotemTracker:RefreshAll()
     for _, frames in pairs(framesBySlot) do
         for frame, iconData in pairs(frames) do
             local previousActive = frame._ddTotemActive == true
-            self:UpdateFrame(frame, iconData, true)
+            self:UpdateFrame(frame, iconData, true, true)
             if previousActive ~= (frame._ddTotemActive == true) then
                 stateChanged = true
             end
