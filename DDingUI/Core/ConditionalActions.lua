@@ -10,6 +10,29 @@ local L = ns.L or {}
 local EVAL_INTERVAL = 0.1  -- 평가 주기 (초)
 local evalElapsed = 0
 
+local function IsSecretValue(value)
+    if type(issecretvalue) ~= "function" then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret == true
+end
+
+local function ReadSafeNumber(value)
+    if value == nil or IsSecretValue(value) then return nil end
+    if type(value) == "number" then
+        return value == value and value or nil
+    end
+    if type(value) ~= "string" then return nil end
+    local number = tonumber(value)
+    if IsSecretValue(number) then return nil end
+    if type(number) ~= "number" or number ~= number then return nil end
+    return number
+end
+
+local function ReadSafeBoolean(value)
+    if IsSecretValue(value) or type(value) ~= "boolean" then return nil end
+    return value
+end
+
 -- 동작 대상 프레임 해석
 local function ResolveBarFrame(target, group, trackedBuffs)
     if target == "PrimaryPowerBar" then
@@ -40,31 +63,39 @@ local function GetTriggerState(trigger, group, trackedBuffs)
     local buff
     if trigger.source == "child" then
         local children = group.controlledChildren or {}
-        local childIdx = children[trigger.childIndex]
+        local childIndex = ReadSafeNumber(trigger.childIndex)
+        local childIdx = childIndex and children[childIndex]
         buff = childIdx and trackedBuffs[childIdx]
     elseif trigger.source == "spell" then
-        for _, b in ipairs(trackedBuffs) do
-            if b.spellID == trigger.spellID then
-                buff = b
-                break
+        local sourceSpellID = ReadSafeNumber(trigger.spellID)
+        if sourceSpellID then
+            for _, b in ipairs(trackedBuffs) do
+                local trackedSpellID = ReadSafeNumber(b.spellID)
+                if trackedSpellID and trackedSpellID == sourceSpellID then
+                    buff = b
+                    break
+                end
             end
         end
     end
     if not buff then return 0, 1, 0, false, false, false end
 
     local stacks = 0
-    local maxStacks = (buff.settings and buff.settings.maxStacks) or 1
+    local maxStacks = ReadSafeNumber(buff.settings and buff.settings.maxStacks) or 1
     local duration = 0
     local hasAura = false
     local cooldownReady = false
     local cooldownActive = false
 
     -- 실제 사용할 spellID 결정 (displaySpellID > trigger.spellID > cooldownID > spellID)
-    local effectiveSpellID = buff.spellID
-    if buff.trigger and buff.trigger.spellID and buff.trigger.spellID > 0 then
-        effectiveSpellID = buff.trigger.spellID
+    local baseSpellID = ReadSafeNumber(buff.spellID)
+    local triggerSpellID = ReadSafeNumber(buff.trigger and buff.trigger.spellID)
+    local cooldownID = ReadSafeNumber(buff.cooldownID)
+    local effectiveSpellID = baseSpellID
+    if triggerSpellID and triggerSpellID > 0 then
+        effectiveSpellID = triggerSpellID
     end
-    if buff.cooldownID and buff.cooldownID > 0 then
+    if cooldownID and cooldownID > 0 then
         -- cooldownID가 effectiveSpellID와 다르면 둘 다 시도
     end
 
@@ -74,12 +105,12 @@ local function GetTriggerState(trigger, group, trackedBuffs)
     if effectiveSpellID and effectiveSpellID > 0 then
         spellIDsToCheck[#spellIDsToCheck + 1] = effectiveSpellID
     end
-    if buff.spellID and buff.spellID > 0 and buff.spellID ~= effectiveSpellID then
-        spellIDsToCheck[#spellIDsToCheck + 1] = buff.spellID
+    if baseSpellID and baseSpellID > 0 and baseSpellID ~= effectiveSpellID then
+        spellIDsToCheck[#spellIDsToCheck + 1] = baseSpellID
     end
-    if buff.cooldownID and buff.cooldownID > 0 
-       and buff.cooldownID ~= effectiveSpellID and buff.cooldownID ~= buff.spellID then
-        spellIDsToCheck[#spellIDsToCheck + 1] = buff.cooldownID
+    if cooldownID and cooldownID > 0
+       and cooldownID ~= effectiveSpellID and cooldownID ~= baseSpellID then
+        spellIDsToCheck[#spellIDsToCheck + 1] = cooldownID
     end
 
     for _, sid in ipairs(spellIDsToCheck) do
@@ -89,28 +120,30 @@ local function GetTriggerState(trigger, group, trackedBuffs)
             if auraData then
                 hasAura = true
                 -- duration: expirationTime은 secret-safe
-                if auraData.expirationTime then
-                    local remaining = auraData.expirationTime - GetTime()
-                    if type(remaining) == "number" and remaining > 0 then
-                        duration = remaining
-                    end
+                duration = nil
+                local expirationTime = ReadSafeNumber(auraData.expirationTime)
+                if expirationTime then
+                    local remaining = expirationTime - GetTime()
+                    duration = remaining > 0 and remaining or 0
+                elseif ReadSafeNumber(auraData.duration) == 0 then
+                    duration = 0
                 end
             end
         end)
     end
 
     -- ─── 2) 쿨다운 상태 (secret-safe) ───
-    local cdSpellID = effectiveSpellID or buff.spellID
+    local cdSpellID = effectiveSpellID or baseSpellID
     if cdSpellID and cdSpellID > 0 then
         -- charge 기반 스펠 먼저 확인
         pcall(function()
             local chargeInfo = C_Spell.GetSpellCharges(cdSpellID)
             if chargeInfo then
-                local ok, charges = pcall(tonumber, chargeInfo.currentCharges)
-                local ok2, maxCharges = pcall(tonumber, chargeInfo.maxCharges)
-                if ok and charges then
+                local charges = ReadSafeNumber(chargeInfo.currentCharges)
+                local maxCharges = ReadSafeNumber(chargeInfo.maxCharges)
+                if charges then
                     stacks = charges  -- charge를 stacks로 매핑
-                    if ok2 and maxCharges then
+                    if maxCharges then
                         maxStacks = maxCharges
                     end
                     -- charge가 만들어 주는 상태
@@ -130,10 +163,10 @@ local function GetTriggerState(trigger, group, trackedBuffs)
             pcall(function()
                 local cdInfo = C_Spell.GetSpellCooldown(cdSpellID)
                 if cdInfo then
-                    -- startTime과 duration을 tonumber로 안전 변환
-                    local okS, startTime = pcall(tonumber, cdInfo.startTime)
-                    local okD, dur = pcall(tonumber, cdInfo.duration)
-                    if okS and okD and startTime and dur then
+                    -- 전투 중 읽을 수 있는 재사용 대기시간 값만 사용
+                    local startTime = ReadSafeNumber(cdInfo.startTime)
+                    local dur = ReadSafeNumber(cdInfo.duration)
+                    if startTime and dur then
                         -- GCD (duration <= 1.5) 무시 — 실제 쿨다운만 체크
                         if dur > 1.5 then
                             cooldownActive = true
@@ -152,7 +185,8 @@ local function GetTriggerState(trigger, group, trackedBuffs)
                     else
                         -- tonumber 실패 = secret value → IsSpellUsable로 판정
                         local okU, usable = pcall(C_Spell.IsSpellUsable, cdSpellID)
-                        if okU then
+                        usable = okU and ReadSafeBoolean(usable) or nil
+                        if usable ~= nil then
                             if usable then
                                 cooldownReady = true
                                 cooldownActive = false
@@ -169,23 +203,17 @@ local function GetTriggerState(trigger, group, trackedBuffs)
 
     -- ─── 3) CDMScanner 보조 (stacks 보강) ───
     local CDMScanner = DDingUI.CDMScanner
-    local cdID = buff.cooldownID
-    if cdID and CDMScanner and stacks == 0 then
-        pcall(function()
-            local entry = CDMScanner.GetEntry(cdID)
-            if entry and entry.iconFrame then
-                local stackText = entry.iconFrame.Count or entry.iconFrame.count
-                if stackText and stackText.GetText then
-                    local text = stackText:GetText()
-                    if text and text ~= "" then
-                        local n = tonumber(text)
-                        if n and n > 0 then
-                            stacks = n
-                        end
-                    end
-                end
-            end
-        end)
+    local cdID = cooldownID
+    if cdID and CDMScanner and CDMScanner.GetStacksByCooldownID and stacks == 0 then
+        local ok, scannedStacks, scannerHasAura = pcall(CDMScanner.GetStacksByCooldownID, cdID)
+        local safeStacks = ok and ReadSafeNumber(scannedStacks) or nil
+        if safeStacks and safeStacks > 0 then
+            stacks = safeStacks
+        end
+        scannerHasAura = ok and ReadSafeBoolean(scannerHasAura) or nil
+        if scannerHasAura == true then
+            hasAura = true
+        end
     end
 
     -- ─── 4) spell 모드에서 hasAura 판정 보강 ───
@@ -202,9 +230,9 @@ end
 
 -- secret value 안전 비교 함수
 local function SafeCompare(a, b, op)
-    -- issecretvalue가 있으면 비교 불가 → 항상 false
-    if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then return false end
-    if type(a) ~= "number" or type(b) ~= "number" then return false end
+    a = ReadSafeNumber(a)
+    b = ReadSafeNumber(b)
+    if not a or not b then return false end
     if op == "gte" then return a >= b
     elseif op == "lte" then return a <= b
     elseif op == "eq" then return a == b
@@ -240,15 +268,17 @@ local function EvaluateSetTriggers(set, group, trackedBuffs)
         -- duration 조건에 maxDuration 설정이 있으면 수동 계산
         -- API에서 duration을 못 읽거나 (secret value) 수동 계산을 원할 때 사용
         local cond = trigger.condition or "active"
-        if (cond == "duration_gte" or cond == "duration_lte") and trigger.maxDuration and trigger.maxDuration > 0 then
+        local maxDuration = ReadSafeNumber(trigger.maxDuration)
+        if (cond == "duration_gte" or cond == "duration_lte") and maxDuration and maxDuration > 0 then
             -- 버프 활성화 시점 추적 키
-            local trackKey = "_auraStart_" .. (trigger.source or "") .. "_" .. tostring(trigger.childIndex or trigger.spellID or 0)
+            local sourceIndex = ReadSafeNumber(trigger.childIndex) or ReadSafeNumber(trigger.spellID) or 0
+            local trackKey = "_auraStart_" .. (trigger.source or "") .. "_" .. tostring(sourceIndex)
             if hasAura then
                 if not set[trackKey] then
                     set[trackKey] = GetTime()  -- 버프 활성화 시점 기록
                 end
                 local elapsed = GetTime() - set[trackKey]
-                duration = math.max(0, trigger.maxDuration - elapsed)
+                duration = math.max(0, maxDuration - elapsed)
             else
                 set[trackKey] = nil  -- 버프 비활성화 시 시점 초기화
                 duration = 0
