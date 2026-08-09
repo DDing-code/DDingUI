@@ -244,14 +244,17 @@ local DYNAMIC_GROUP_DEFAULTS = {
     offsetY = -120,
 }
 
-local function BuildDynamicIconOrderSet(groupSettings)
+local function BuildDynamicIconOrderSet(groupSettings, dynDB)
     local order = groupSettings and groupSettings.iconOrder
     if type(order) ~= "table" then return nil, 0 end
 
     local set, count = {}, 0
     for _, token in ipairs(order) do
         if type(token) == "string" then
-            local iconKey = token:match("^dyn:(.+)$")
+            local identity = DDingUI.CustomIconIdentity
+            local iconKey = identity and identity.ResolveOrderToken
+                and identity:ResolveOrderToken(dynDB, token)
+                or token:match("^dyn:(.+)$")
             if iconKey and not set[iconKey] then
                 set[iconKey] = true
                 count = count + 1
@@ -278,7 +281,7 @@ end
 local function SelectBestLinkedSourceGroup(dynamicGroups, groupName, preferredKey, groupSettings, dynDB)
     if type(dynamicGroups) ~= "table" or not groupName then return nil end
 
-    local orderSet = BuildDynamicIconOrderSet(groupSettings)
+    local orderSet = BuildDynamicIconOrderSet(groupSettings, dynDB)
     local bestKey, bestCount, bestOrderMatches
     local function Consider(sourceKey, info)
         if not sourceKey or not info or info.linkedCDMGroup ~= groupName then return end

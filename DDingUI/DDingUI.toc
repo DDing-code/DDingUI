@@ -98,6 +98,7 @@ Modules\CustomIcons\RacialCooldowns.lua
 Modules\CustomIcons\IconTextures.lua
 Modules\CustomIcons\TotemTracker.lua
 Modules\CustomIcons\ProfileRecovery.lua
+Modules\CustomIcons\IconIdentity.lua
 Modules\CustomIcons\ProfileNormalization.lua
 Modules\CustomIcons\RuntimeValues.lua
 Modules\CustomIcons\LayoutPolicy.lua

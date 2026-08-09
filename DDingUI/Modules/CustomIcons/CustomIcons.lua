@@ -437,7 +437,10 @@ function CustomIcons:NormalizeStoredProfile(profile)
                     local orderSet = {}
                     for _, token in ipairs(groupSettings.iconOrder or {}) do
                         if type(token) == "string" then
-                            local iconKey = token:match("^dyn:(.+)$")
+                            local identity = DDingUI.CustomIconIdentity
+                            local iconKey = identity and identity.ResolveOrderToken
+                                and identity:ResolveOrderToken(db, token)
+                                or token:match("^dyn:(.+)$")
                             if iconKey then
                                 orderSet[iconKey] = true
                             end
@@ -2877,9 +2880,13 @@ end
 local function GroupOrderContainsDynamicIcon(groupSettings, iconKey)
     local order = groupSettings and groupSettings.iconOrder
     if type(order) ~= "table" or not iconKey then return false end
-    local token = "dyn:" .. tostring(iconKey)
+    local db = GetDynamicDB()
+    local identity = DDingUI.CustomIconIdentity
+    local token = identity and identity.BuildOrderToken
+        and identity:BuildOrderToken(db, iconKey)
+        or ("dyn:" .. tostring(iconKey))
     for _, value in ipairs(order) do
-        if value == token then
+        if value == token or value == ("dyn:" .. tostring(iconKey)) then
             return true
         end
     end
@@ -3830,14 +3837,17 @@ local function GetDynamicGroupIconCount(group)
     return group and group.icons and #group.icons or 0
 end
 
-local function BuildDynamicIconOrderSet(groupSettings)
+local function BuildDynamicIconOrderSet(groupSettings, db)
     local order = groupSettings and groupSettings.iconOrder
     if type(order) ~= "table" then return nil, 0 end
 
     local set, count = {}, 0
     for _, token in ipairs(order) do
         if type(token) == "string" then
-            local iconKey = token:match("^dyn:(.+)$")
+            local identity = DDingUI.CustomIconIdentity
+            local iconKey = identity and identity.ResolveOrderToken
+                and identity:ResolveOrderToken(db, token)
+                or token:match("^dyn:(.+)$")
             if iconKey and not set[iconKey] then
                 set[iconKey] = true
                 count = count + 1
@@ -3865,7 +3875,7 @@ local function FindBestSourceGroupForCDMGroup(db, groupName, groupSettings)
     if not (db and db.groups and groupName) then return nil end
 
     local preferredKey = groupSettings and groupSettings.sourceGroupKey
-    local orderSet = BuildDynamicIconOrderSet(groupSettings)
+    local orderSet = BuildDynamicIconOrderSet(groupSettings, db)
     local bestKey, bestGroup, bestCount, bestOrderMatches
     local function Consider(sourceKey, sourceGroup)
         if not sourceKey or not sourceGroup or sourceGroup.linkedCDMGroup ~= groupName then return end
@@ -4028,6 +4038,10 @@ function CustomIcons:AddDynamicIcon(iconData)
         iconKey = BuildUniqueDBKey("icon_", db.iconData)
     end
     iconData.key = iconKey
+    local iconIdentity = DDingUI.CustomIconIdentity
+    if iconIdentity and iconIdentity.EnsureIcon then
+        iconIdentity:EnsureIcon(db, iconKey, iconData, true)
+    end
     EnsureIconSettings(iconData)
     EnsureLoadConditions(iconData)
     EnsureStoredIconTexture(iconData)
@@ -4057,6 +4071,11 @@ end
 
 function CustomIcons:RemoveDynamicIcon(iconKey)
     local db = GetDynamicDB()
+    local profile = DDingUI.db and DDingUI.db.profile
+    local iconIdentity = DDingUI.CustomIconIdentity
+    if iconIdentity and iconIdentity.RemoveOrderTokens then
+        iconIdentity:RemoveOrderTokens(profile, iconKey)
+    end
     if DDingUI.CustomIconActiveEffectOverlay then
         DDingUI.CustomIconActiveEffectOverlay:ClearIcon(iconKey)
     end

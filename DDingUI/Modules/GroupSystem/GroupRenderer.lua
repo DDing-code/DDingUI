@@ -759,6 +759,12 @@ end
 
 local function BuildDynamicOrderToken(iconKey)
     if not iconKey then return nil end
+    local profile = DDingUI.db and DDingUI.db.profile
+    local db = profile and profile.dynamicIcons
+    local identity = DDingUI.CustomIconIdentity
+    if identity and identity.BuildOrderToken then
+        return identity:BuildOrderToken(db, iconKey)
+    end
     return "dyn:" .. tostring(iconKey)
 end
 

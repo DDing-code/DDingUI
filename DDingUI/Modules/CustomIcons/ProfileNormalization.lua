@@ -87,6 +87,12 @@ function ProfileNormalization.Create(
 
         local activeProfile = DDingUI.db and DDingUI.db.profile
         local profile = ownerProfile or activeProfile
+        local iconIdentity = DDingUI.CustomIconIdentity
+        if iconIdentity and iconIdentity.NormalizeProfile
+            and iconIdentity:NormalizeProfile(profile)
+        then
+            changed = true
+        end
         local touchRuntime = updateRuntime
         if touchRuntime == nil then
             touchRuntime = profile == activeProfile
@@ -109,7 +115,9 @@ function ProfileNormalization.Create(
                 if type(iconOrder) == "table" then
                     for _, token in ipairs(iconOrder) do
                         if type(token) == "string" then
-                            local iconKey = token:match("^dyn:(.+)$")
+                            local iconKey = iconIdentity and iconIdentity.ResolveOrderToken
+                                and iconIdentity:ResolveOrderToken(db, token)
+                                or token:match("^dyn:(.+)$")
                             if iconKey then
                                 orderPreferred[iconKey] = true
                             end
@@ -139,7 +147,9 @@ function ProfileNormalization.Create(
         local function AddOrderToken(groupSettings, iconKey)
             if type(groupSettings) ~= "table" or not iconKey then return false end
             groupSettings.iconOrder = type(groupSettings.iconOrder) == "table" and groupSettings.iconOrder or {}
-            local token = "dyn:" .. tostring(iconKey)
+            local token = iconIdentity and iconIdentity.BuildOrderToken
+                and iconIdentity:BuildOrderToken(db, iconKey)
+                or ("dyn:" .. tostring(iconKey))
             for _, existingToken in ipairs(groupSettings.iconOrder) do
                 if existingToken == token then return false end
             end
@@ -256,13 +266,15 @@ function ProfileNormalization.Create(
 
         local function RemoveOrderToken(iconKey)
             if type(gsGroups) ~= "table" then return false end
-            local token = "dyn:" .. tostring(iconKey)
+            local legacyToken = "dyn:" .. tostring(iconKey)
+            local stableToken = iconIdentity and iconIdentity.BuildOrderToken
+                and iconIdentity:BuildOrderToken(db, iconKey)
             local removed = false
             for _, groupSettings in pairs(gsGroups) do
                 local iconOrder = type(groupSettings) == "table" and groupSettings.iconOrder
                 if type(iconOrder) == "table" then
                     for i = #iconOrder, 1, -1 do
-                        if iconOrder[i] == token then
+                        if iconOrder[i] == legacyToken or (stableToken and iconOrder[i] == stableToken) then
                             table.remove(iconOrder, i)
                             removed = true
                         end
@@ -273,12 +285,12 @@ function ProfileNormalization.Create(
         end
 
         for iconKey in pairs(removeKeys) do
-            iconDataDB[iconKey] = nil
-            db.ungrouped[iconKey] = nil
-            db.ungroupedPositions[iconKey] = nil
             if RemoveOrderToken(iconKey) then
                 changed = true
             end
+            iconDataDB[iconKey] = nil
+            db.ungrouped[iconKey] = nil
+            db.ungroupedPositions[iconKey] = nil
             for _, group in pairs(db.groups) do
                 local icons = type(group) == "table" and group.icons
                 if type(icons) == "table" then

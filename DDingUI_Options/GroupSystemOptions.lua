@@ -735,6 +735,11 @@ local function ConvertCopiedBuffDynamicIconsToAssignments(groupName, groupSettin
     local changed = false
     for _, entry in ipairs(toRemove) do
         if GroupMgr:AssignSpell(entry.spellName, groupName) then
+            local identity = DDingUI.CustomIconIdentity
+            local dynamicToken = identity and identity.BuildOrderToken
+                and identity:BuildOrderToken(dynDB, entry.iconKey)
+                or ("dyn:" .. tostring(entry.iconKey))
+            ReplaceGroupOrderToken(groupSettings, dynamicToken, "cdm:" .. tostring(entry.spellName))
             ReplaceGroupOrderToken(groupSettings, "dyn:" .. tostring(entry.iconKey), "cdm:" .. tostring(entry.spellName))
             changed = true
         end
@@ -919,6 +924,12 @@ end
 
 local function MakeDynamicOrderToken(iconKey)
     if not iconKey or iconKey == "" then return nil end
+    local profile = DDingUI.db and DDingUI.db.profile
+    local db = profile and profile.dynamicIcons
+    local identity = DDingUI.CustomIconIdentity
+    if identity and identity.BuildOrderToken then
+        return identity:BuildOrderToken(db, iconKey)
+    end
     return "dyn:" .. tostring(iconKey)
 end
 
@@ -1110,15 +1121,54 @@ local function CollectGroupOrderRows(groupName)
     return rows
 end
 
-local function SnapshotGroupOrderTokens(groupName)
-    local tokens, seen = {}, {}
-    for _, row in ipairs(CollectGroupOrderRows(groupName) or {}) do
-        local token = row and row.token
-        if token and not seen[token] then
-            tokens[#tokens + 1] = token
-            seen[token] = true
+local function MergeVisibleOrderIntoLedger(existingOrder, visibleOrder)
+    local visible, visibleSet = {}, {}
+    for _, token in ipairs(visibleOrder or {}) do
+        if token and not visibleSet[token] then
+            visible[#visible + 1] = token
+            visibleSet[token] = true
         end
     end
+
+    local merged, seen = {}, {}
+    local visibleIndex = 1
+    for _, token in ipairs(existingOrder or {}) do
+        if token and not seen[token] then
+            local nextToken = token
+            if visibleSet[token] then
+                nextToken = visible[visibleIndex]
+                visibleIndex = visibleIndex + 1
+            end
+            if nextToken and not seen[nextToken] then
+                merged[#merged + 1] = nextToken
+                seen[nextToken] = true
+            end
+        end
+    end
+    while visibleIndex <= #visible do
+        local token = visible[visibleIndex]
+        if not seen[token] then
+            merged[#merged + 1] = token
+            seen[token] = true
+        end
+        visibleIndex = visibleIndex + 1
+    end
+    return merged
+end
+
+local function SnapshotGroupOrderTokens(groupName)
+    local current = {}
+    for _, row in ipairs(CollectGroupOrderRows(groupName) or {}) do
+        local token = row and row.token
+        if token then
+            current[#current + 1] = token
+        end
+    end
+    local gs = GetGS()
+    local groupSettings = gs and gs.groups and gs.groups[groupName]
+    local tokens = MergeVisibleOrderIntoLedger(groupSettings and groupSettings.iconOrder, current)
+    local seen = {}
+    for _, token in ipairs(tokens) do seen[token] = true end
     return tokens, seen
 end
 
@@ -1135,9 +1185,12 @@ local function SyncDynamicSourceOrderFromTokens(groupSettings, orderedTokens)
         existing[key] = true
     end
 
+    local identity = DDingUI.CustomIconIdentity
     local wanted, nextIcons = {}, {}
     for _, token in ipairs(orderedTokens or {}) do
-        local iconKey = type(token) == "string" and token:match("^dyn:(.+)$")
+        local iconKey = identity and identity.ResolveOrderToken
+            and identity:ResolveOrderToken(dynDB, token, existing)
+            or (type(token) == "string" and token:match("^dyn:(.+)$"))
         if iconKey and existing[iconKey] and not wanted[iconKey] then
             wanted[iconKey] = true
             nextIcons[#nextIcons + 1] = iconKey
@@ -1200,20 +1253,13 @@ function DDingUI:ReorderGroupSystemIcon(groupKey, sourceToken, targetToken, inse
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     if not groupSettings then return false end
 
-    local rows = CollectGroupOrderRows(groupName)
-    if #rows == 0 then return false end
+    local ordered = SnapshotGroupOrderTokens(groupName)
+    if #ordered == 0 then return false end
 
-    local ordered = {}
     local srcIdx, dstIdx
-    local seen = {}
-    for _, row in ipairs(rows) do
-        local token = row.token
-        if token and not seen[token] then
-            ordered[#ordered + 1] = token
-            seen[token] = true
-            if token == sourceToken then srcIdx = #ordered end
-            if token == targetToken then dstIdx = #ordered end
-        end
+    for index, token in ipairs(ordered) do
+        if token == sourceToken then srcIdx = index end
+        if token == targetToken then dstIdx = index end
     end
 
     if not srcIdx or not dstIdx or srcIdx == dstIdx then return false end
@@ -2586,8 +2632,9 @@ local function AssignedGridCommitGroupOrder(groupName, ordered)
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     if not groupSettings then return false end
-    groupSettings.iconOrder = ordered
-    SyncDynamicSourceOrderFromTokens(groupSettings, ordered)
+    local merged = MergeVisibleOrderIntoLedger(groupSettings.iconOrder, ordered)
+    groupSettings.iconOrder = merged
+    SyncDynamicSourceOrderFromTokens(groupSettings, merged)
     RefreshGroupSystem()
     if DDingUI.SpecProfiles and DDingUI.SpecProfiles.SaveCurrentSpec then
         DDingUI.SpecProfiles:SaveCurrentSpec()

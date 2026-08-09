@@ -5,8 +5,8 @@ DDingUI.SpecProfiles = DDingUI.SpecProfiles or {}
 local SP = DDingUI.SpecProfiles
 
 -- Per-specialization profile snapshots.
--- v11 stores one shared baseline plus per-specialization changes.
-local SPEC_DATA_VERSION = 11
+-- v12 adds stable dynamic-icon identities to specialization snapshots.
+local SPEC_DATA_VERSION = 12
 local SPEC_DELTA_FORMAT = 1
 local SPEC_DELETE_KEY = "__ddinguiSpecDelete"
 
@@ -280,15 +280,16 @@ local function MigrateSpecData()
     local profile = DDingUI.db.profile
     local ver = profile.specDataVersion or 0
     if ver >= SPEC_DATA_VERSION and type(profile.specDataBase) == "table" then return end
+    if SP._migrationProfile == profile then return end
 
     RepairStaleHybridSources(profile)
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
-    profile.specDataBase = FullSnapshot(profile, defaults, true)
+    local nextBaseline = FullSnapshot(profile, defaults, true)
     local customIcons = DDingUI.CustomIcons
     if customIcons and customIcons.NormalizeStoredProfile then
-        customIcons:NormalizeStoredProfile(profile.specDataBase)
+        customIcons:NormalizeStoredProfile(nextBaseline)
     end
-    RepairStaleHybridSources(profile.specDataBase)
+    RepairStaleHybridSources(nextBaseline)
 
     local queue = {}
     for specID in pairs(profile.specData or {}) do
@@ -299,21 +300,74 @@ local function MigrateSpecData()
     end)
 
     local profileRef = profile
+    local expandedSpecs = {}
+    SP._migrationProfile = profileRef
     local index = 1
-    local function CompactNext()
-        if not DDingUI.db or DDingUI.db.profile ~= profileRef then return end
+    local function AbortMigration()
+        if SP._migrationProfile == profileRef then
+            SP._migrationProfile = nil
+        end
+    end
+
+    local function StoreNext()
+        if not DDingUI.db or DDingUI.db.profile ~= profileRef then
+            AbortMigration()
+            return
+        end
 
         local specID = queue[index]
         if not specID then
             profileRef.specDataVersion = SPEC_DATA_VERSION
+            SP._migrationProfile = nil
+            SP:SaveCurrentSpec()
             return
         end
 
-        CompactStoredSpec(profileRef, specID)
+        local expanded = expandedSpecs[specID]
+        if expanded and expanded.snapshot then
+            StoreSpecDelta(profileRef, specID, expanded.snapshot, expanded.hasDynamicIcons)
+        end
         index = index + 1
-        C_Timer.After(0, CompactNext)
+        C_Timer.After(0, StoreNext)
     end
-    CompactNext()
+
+    local function ExpandNext()
+        if not DDingUI.db or DDingUI.db.profile ~= profileRef then
+            AbortMigration()
+            return
+        end
+
+        local specID = queue[index]
+        if not specID then
+            profileRef.specDataBase = nextBaseline
+            profileRef.specData = profileRef.specData or {}
+            index = 1
+            C_Timer.After(0, StoreNext)
+            return
+        end
+
+        local stored = profileRef.specData and profileRef.specData[specID]
+        local hasDynamicIcons = IsDeltaSnapshot(stored)
+            and stored.hasDynamicIcons ~= false
+            or (type(stored) == "table" and type(stored.dynamicIcons) == "table")
+        local snapshot = ExpandStoredSpec(profileRef, stored)
+        if not snapshot then
+            AbortMigration()
+            return
+        end
+        if customIcons and customIcons.NormalizeStoredProfile then
+            customIcons:NormalizeStoredProfile(snapshot)
+        end
+        RepairStaleHybridSources(snapshot)
+        expandedSpecs[specID] = {
+            snapshot = snapshot,
+            hasDynamicIcons = hasDynamicIcons,
+        }
+
+        index = index + 1
+        C_Timer.After(0, ExpandNext)
+    end
+    ExpandNext()
 end
 
 SP.lastSpecID = nil
@@ -326,6 +380,10 @@ function SP:SaveCurrentSpec()
     DDingUI.db.profile.specData = DDingUI.db.profile.specData or {}
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     local snapshot = FullSnapshot(DDingUI.db.profile, defaults, true)
+    local customIcons = DDingUI.CustomIcons
+    if customIcons and customIcons.NormalizeStoredProfile then
+        customIcons:NormalizeStoredProfile(snapshot)
+    end
     StoreSpecDelta(DDingUI.db.profile, specID, snapshot, type(snapshot.dynamicIcons) == "table")
 end
 
