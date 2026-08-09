@@ -6,7 +6,7 @@ Engine[1] = DUI
 Engine[2] = {}
 _G[AddOnName] = Engine
 
-DUI.title = "|cffffffffDDing|r|cffffa300UI|r"
+DUI.title = "|cffffffffDDing|r|cffff4444UI|r"
 DUI.name = "DDingUI"
 DUI.version = C_AddOns.GetAddOnMetadata(AddOnName, "Version")
 DUI.profileName = "DDingUI"
@@ -117,10 +117,15 @@ function DUI:Initialize()
     end
 end
 
+function DUI:PrintVersion()
+    self:Print(format("DDingUI Profile 버전: |cffffffff%s|r", self.version or "알 수 없음"))
+end
+
 function DUI:HandleCommand(input)
     input = strtrim(input):lower()
 
     if input == "install" or input == "" then
+        self:PrintVersion()
         self:ShowInstaller()
     elseif input == "load" then
         self:LoadProfiles()

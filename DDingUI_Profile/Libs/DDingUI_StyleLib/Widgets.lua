@@ -9,6 +9,7 @@ if not Lib then return end
 local C    = Lib.Colors
 local S    = Lib.Spacing
 local F    = Lib.Font
+local Motion = Lib.Motion
 local SOLID = "Interface\\Buttons\\WHITE8x8"
 
 ------------------------------------------------------
@@ -121,12 +122,12 @@ end
 ------------------------------------------------------
 -- CreateButton
 ------------------------------------------------------
---- Standard button with hover & click flash.
+--- Standard button with smooth Ellesmere-style hover & click flash.
 --- @param parent Frame
 --- @param addonName string
 --- @param text string
 --- @param onClick function(self)
---- @param opts table|nil { width, height, disabled }
+--- @param opts table|nil { width, height, disabled, hoverMotion, motion, flash }
 --- @return Frame
 function Lib.CreateButton(parent, addonName, text, onClick, opts)
     opts = opts or {}
@@ -141,20 +142,57 @@ function Lib.CreateButton(parent, addonName, text, onClick, opts)
     label:SetText(text)
     btn.label = label
 
-    -- hover
-    btn:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(u(C.bg.hover))
-    end)
-    btn:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(u(C.bg.input))
-    end)
+    -- Ellesmere-style hover: short colour interpolation instead of a hard snap.
+    local hoverMotion
+    if Motion and opts.hoverMotion ~= false then
+        hoverMotion = Motion.EllesmereButton(btn, {
+            normalBg = opts.normalBg or C.bg.input,
+            hoverBg = opts.hoverBg or C.bg.hover,
+            normalBorder = opts.normalBorder or C.border.default,
+            hoverBorder = opts.hoverBorder or { from[1], from[2], from[3], opts.hoverBorderAlpha or 0.65 },
+            text = label,
+            normalText = opts.normalText or C.text.normal,
+            hoverText = opts.hoverText or C.text.highlight,
+            duration = opts.hoverDuration or 0.10,
+            bind = true,
+        })
+    else
+        btn:SetScript("OnEnter", function(self)
+            self:SetBackdropColor(u(C.bg.hover))
+        end)
+        btn:SetScript("OnLeave", function(self)
+            self:SetBackdropColor(u(C.bg.input))
+        end)
+    end
 
     -- click flash
     btn:SetScript("OnMouseDown", function(self)
+        if Motion and hoverMotion then Motion.Stop(self, "buttonHover") end
         self:SetBackdropColor(from[1], from[2], from[3], 0.6)
+        if Motion and opts.motion == true then
+            self._ddslMotionBaseScale = self._ddslMotionBaseScale or self:GetScale() or 1
+            Motion.Press(self, { baseScale = self._ddslMotionBaseScale })
+        end
     end)
     btn:SetScript("OnMouseUp", function(self)
-        self:SetBackdropColor(u(C.bg.input))
+        if hoverMotion then
+            hoverMotion:SetTarget((self.IsMouseOver and self:IsMouseOver()) and 1 or 0)
+        else
+            self:SetBackdropColor(u(C.bg.input))
+        end
+        if Motion then
+            if opts.motion == true then
+                self._ddslMotionBaseScale = self._ddslMotionBaseScale or self:GetScale() or 1
+                Motion.Release(self, { baseScale = self._ddslMotionBaseScale })
+            end
+            if opts.flash ~= false then
+                Motion.EdgeFlash(self, from[1], from[2], from[3], {
+                    thickness = opts.flashThickness or 2,
+                    alpha = opts.flashAlpha or 0.75,
+                    duration = opts.flashDuration or 0.28,
+                })
+            end
+        end
     end)
 
     if onClick then btn:SetScript("OnClick", onClick) end
@@ -309,7 +347,7 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
     local width = opts.width or 200
 
     local container = CreateFrame("Frame", nil, parent)
-    container:SetSize(width, 48)
+    container:SetSize(width, 52)
 
     -- label
     local lbl = MakeFont(container, F.normal, nil, C.text.normal)
@@ -318,19 +356,19 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
 
     -- track background
     local track = CreateFrame("Frame", nil, container, "BackdropTemplate")
-    track:SetHeight(4)
+    track:SetHeight(6)
     track:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -8)
-    track:SetPoint("RIGHT", container, "RIGHT", 0, 0)
+    track:SetPoint("RIGHT", container, "RIGHT", -64, 0)
     ApplyBackdrop(track, C.bg.input, nil)
     track:SetBackdropBorderColor(0, 0, 0, 0) -- no border on track
 
     -- clamp default to valid range
     local clamped = math.max(min, math.min(max, tonumber(default) or min))
 
-    -- slider (overlays track)
+    -- slider (overlays track, expanded hit area for easier clicking)
     local slider = CreateFrame("Slider", nil, container, "BackdropTemplate")
-    slider:SetPoint("TOPLEFT", track)
-    slider:SetPoint("BOTTOMRIGHT", track)
+    slider:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 10)
+    slider:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, -10)
     slider:SetMinMaxValues(min, max)
     slider:SetValueStep(step)
     slider:SetObeyStepOnDrag(true)
@@ -338,10 +376,11 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
     slider:SetOrientation("HORIZONTAL")
     slider:SetBackdrop(nil)
     slider:EnableMouseWheel(true)
+    slider:SetHitRectInsets(0, 0, 0, 0)
 
     -- thumb
     local thumb = slider:CreateTexture(nil, "OVERLAY")
-    thumb:SetSize(8, 8)
+    thumb:SetSize(16, 16)
     thumb:SetColorTexture(from[1], from[2], from[3], 1)
     slider:SetThumbTexture(thumb)
 
@@ -354,15 +393,16 @@ function Lib.CreateSlider(parent, addonName, label, min, max, step, default, opt
     maxLabel:SetPoint("TOPRIGHT", track, "BOTTOMRIGHT", 0, -2)
     maxLabel:SetText(tostring(max))
 
-    -- editable value box (centered below track)
+    -- editable value box (right side of track, larger for easier clicking)
     local valBox = CreateFrame("EditBox", nil, container, "BackdropTemplate")
-    valBox:SetSize(48, 18)
-    valBox:SetPoint("TOP", track, "BOTTOM", 0, -2)
-    valBox:SetFont(F.path, F.small, "")
+    valBox:SetSize(56, 22)
+    valBox:SetPoint("LEFT", track, "RIGHT", 6, 0)
+    valBox:SetFont(F.path, F.normal, "")
     valBox:SetTextColor(u(C.text.highlight))
     valBox:SetJustifyH("CENTER")
     valBox:SetAutoFocus(false)
     valBox:SetNumeric(false) -- allow decimals as text
+    valBox:SetTextInsets(4, 4, 0, 0)
     ApplyBackdrop(valBox, C.bg.input, C.border.default)
 
     -- format helper (reused for initial display and OnValueChanged)
@@ -756,7 +796,13 @@ function Lib.CreateTitleBar(parent, addonName, title, version, opts)
         closeText:SetTextColor(u(C.text.dim))
     end)
     closeBtn:SetScript("OnClick", function()
-        parent:Hide()
+        if parent.HideAnimated then
+            parent:HideAnimated()
+        elseif Motion then
+            Motion.EllesmereClose(parent)
+        else
+            parent:Hide()
+        end
     end)
 
     bar.accentLine = accentLine
@@ -779,6 +825,8 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
     opts = opts or {}
     local from = Lib.GetAccent(addonName)
     local ITEM_H = 22
+    local ITEM_H_ICON = 26        -- icon이 있는 항목은 약간 더 높게
+    local ICON_SIZE = 20           -- 스펠 아이콘 크기
     local INDENT = 16
     -- UF 통일: 선택 상태 색상 커스터마이즈 (기본: C.bg.selected)
     local selColor = opts.selectedColor or C.bg.selected
@@ -804,6 +852,10 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
             result[#result + 1] = {
                 text = item.text, key = item.key,
                 level = level, hasChildren = hasKids,
+                icon = item.icon,              -- 스펠 아이콘 텍스처 ID
+                iconCoords = item.iconCoords,  -- 선택적 텍스처 좌표
+                desc = item.desc,              -- tooltip 설명
+                disabled = item.disabled,      -- 비활성 상태
             }
             if hasKids and expanded[item.key] then
                 Flatten(item.children, result, level + 1)
@@ -817,7 +869,9 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
         -- hide all
         for _, b in ipairs(tree._buttons) do b:Hide() end
 
+        local yOffset = 0
         for i, item in ipairs(visible) do
+            local rowH = item.icon and ITEM_H_ICON or ITEM_H
             local btn = tree._buttons[i]
             if not btn then
                 btn = CreateFrame("Button", nil, child)
@@ -833,26 +887,53 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
                 btn._stripe:SetPoint("BOTTOMLEFT", 0, 0)
                 btn._stripe:SetColorTexture(from[1], from[2], from[3], 1)
                 btn._stripe:Hide()
+                -- 스펠 아이콘 텍스처 (Phase 1 WA-style)
+                btn._spellIcon = btn:CreateTexture(nil, "ARTWORK")
+                btn._spellIcon:SetSize(ICON_SIZE, ICON_SIZE)
+                btn._spellIcon:Hide()
                 tree._buttons[i] = btn
             end
 
+            btn:SetHeight(rowH)
             btn:Show()
             btn:ClearAllPoints()
-            btn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -((i - 1) * (ITEM_H + S.treeItemGap)))
+            btn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -yOffset)
             btn:SetPoint("RIGHT", child, "RIGHT", 0, 0)
+            yOffset = yOffset + rowH + S.treeItemGap
 
             local indent = item.level * INDENT + 4
+            local textLeft  -- 텍스트 시작 X 좌표
+
             btn._icon:ClearAllPoints()
             btn._icon:SetPoint("LEFT", indent, 0)
             if item.hasChildren then
                 btn._icon:SetText(expanded[item.key] and "\226\150\188" or "\226\150\182") -- ▼ or ▶
                 btn._icon:Show()
-                btn._text:ClearAllPoints()
-                btn._text:SetPoint("LEFT", indent + 14, 0)
+                textLeft = indent + 14
             else
                 btn._icon:Hide()
+                textLeft = indent + (item.level > 0 and 14 or 0)
+            end
+
+            -- 스펠 아이콘 표시
+            if item.icon then
+                btn._spellIcon:ClearAllPoints()
+                btn._spellIcon:SetPoint("LEFT", textLeft, 0)
+                btn._spellIcon:SetTexture(item.icon)
+                if item.iconCoords then
+                    btn._spellIcon:SetTexCoord(unpack(item.iconCoords))
+                else
+                    btn._spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                end
+                btn._spellIcon:Show()
                 btn._text:ClearAllPoints()
-                btn._text:SetPoint("LEFT", indent + (item.level > 0 and 14 or 0), 0)
+                btn._text:SetPoint("LEFT", btn._spellIcon, "RIGHT", 4, 0)
+                btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+            else
+                btn._spellIcon:Hide()
+                btn._text:ClearAllPoints()
+                btn._text:SetPoint("LEFT", textLeft, 0)
+                btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
             end
 
             btn._text:SetText(item.text)
@@ -871,15 +952,47 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
             -- hover
             local key = item.key
             local hasKids = item.hasChildren
+            local itemDesc = item.desc
+            local itemDisabled = item.disabled
+
+            -- 비활성 트래커 시각적 표시
+            if itemDisabled and key ~= selectedKey then
+                btn._text:SetTextColor(0.45, 0.45, 0.45, 0.7)
+                if btn._spellIcon:IsShown() then
+                    btn._spellIcon:SetDesaturated(true)
+                    btn._spellIcon:SetAlpha(0.5)
+                end
+            else
+                if btn._spellIcon:IsShown() then
+                    btn._spellIcon:SetDesaturated(false)
+                    btn._spellIcon:SetAlpha(1.0)
+                end
+            end
+
             btn:SetScript("OnEnter", function(self)
                 if key ~= selectedKey then
                     self._bg:SetColorTexture(u(C.bg.hover))
+                end
+                -- Tooltip (WeakAuras-style)
+                if itemDesc then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 4, 0)
+                    GameTooltip:ClearLines()
+                    GameTooltip:AddLine(item.text or "", 1, 0.82, 0)
+                    for line in itemDesc:gmatch("[^\n]+") do
+                        GameTooltip:AddLine(line, 1, 1, 1, true)
+                    end
+                    if itemDisabled then
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine("|cffff4444비활성|r", 1, 0.3, 0.3)
+                    end
+                    GameTooltip:Show()
                 end
             end)
             btn:SetScript("OnLeave", function(self)
                 if key ~= selectedKey then
                     self._bg:SetColorTexture(0, 0, 0, 0)
                 end
+                GameTooltip:Hide()
             end)
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp") -- [12.0.1] 우클릭 지원
             btn:SetScript("OnClick", function(self, button)
@@ -899,8 +1012,7 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
         end
 
         -- update scroll child height
-        local total = #visible * (ITEM_H + S.treeItemGap)
-        child:SetHeight(math.max(total, tree:GetHeight()))
+        child:SetHeight(math.max(yOffset, tree:GetHeight()))
     end
 
     function tree:SetMenuData(data, expandAll)
@@ -969,7 +1081,11 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     local panelName = "DDingUI_" .. addonName .. "_Panel"
     local existingFrame = _G[panelName]
     if existingFrame then
-        existingFrame:Show()
+        if existingFrame.ShowAnimated then
+            existingFrame:ShowAnimated()
+        else
+            existingFrame:Show()
+        end
         return existingFrame._panelResult or { frame = existingFrame }
     end
     local frame = CreateFrame("Frame", panelName, UIParent, "BackdropTemplate")
@@ -977,6 +1093,29 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     ApplyBackdrop(frame, C.bg.main, { 0, 0, 0, 1 })
+    frame._ddslMotionBaseScale = frame:GetScale() or 1
+
+    local function MotionOpts(motionOpts)
+        motionOpts = motionOpts or {}
+        motionOpts.baseScale = motionOpts.baseScale or frame._ddslMotionBaseScale
+        return motionOpts
+    end
+
+    function frame:ShowAnimated(motionOpts)
+        if Motion then
+            Motion.EllesmereOpen(self, MotionOpts(motionOpts))
+        else
+            self:Show()
+        end
+    end
+
+    function frame:HideAnimated(motionOpts)
+        if Motion then
+            Motion.EllesmereClose(self, MotionOpts(motionOpts))
+        else
+            self:Hide()
+        end
+    end
 
     -- draggable
     frame:SetMovable(true)

@@ -1,5 +1,15 @@
 local DUI = unpack(DDingUI_Profile)
 
+local ACTIVE_PROFILE_ADDONS = {
+    BigWigs = true,
+    DDingUI = true,
+    DDingUI_CDM = true,
+    DDingUI_Toolkit = true,
+    EllesmereUI = true,
+    WarpDeplete = true,
+    Platynator = true,
+}
+
 function DUI:IsAddOnEnabled(addon)
     return C_AddOns.IsAddOnLoaded(addon)
 end
@@ -44,9 +54,8 @@ function DUI:LoadProfiles()
     local SE = self:GetModule("Setup")
 
     for addon in pairs(self.db.global.profiles) do
-        if addon == "Blizzard_EditMode" then
-            -- 전문화별 레이아웃은 현재 전문화로 적용
-            SE:Setup(addon)
+        if not ACTIVE_PROFILE_ADDONS[addon] then
+            SE.RemoveFromDatabase(addon)
         elseif self:IsAddOnEnabled(addon) then
             SE:Setup(addon)
         end
