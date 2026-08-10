@@ -429,6 +429,10 @@ SoftRefreshGroupSystemOptions = function(delay)
     groupOptionsSoftRefreshTimer = C_Timer.NewTimer(delay or 0, refreshGUI)
 end
 
+function DDingUI:SoftRefreshGroupSystemOptions(delay)
+    SoftRefreshGroupSystemOptions(delay)
+end
+
 local function SoftRefreshDynamicIcons()
     InvalidateCDMIconEntryCache()
 
@@ -3914,6 +3918,20 @@ local function ApplyAssignedIconGlowScope(groupName, settings)
     end
 end
 
+function DDingUI:EnsureGroupBuffIconOrder(groupName, opt)
+    if not groupName or not opt or opt._gridKind ~= "cdm" or opt._gridViewerType ~= "Buff" then
+        return false
+    end
+    local token = opt._dragData and opt._dragData.iconKey
+        or MakeCDMOrderToken(opt._gridSpellName)
+    if not token then return false end
+    local ordered, seen = SnapshotGroupOrderTokens(groupName)
+    if not seen[token] then
+        AppendGroupOrderToken(groupName, ordered, token)
+    end
+    return true
+end
+
 function DDingUI:GetGroupIconDetailKey(opt)
     if not opt then return nil end
     if opt._gridKind == "dynamic" and opt._gridDynamicIconKey then
@@ -6546,6 +6564,15 @@ local function CreateGroupOptions(groupName, order)
         name = L["Layout"] or "배치",
         order = 10,
         args = layoutArgs,
+    }
+
+    args.stateStudio = {
+        type = "group",
+        name = rawget(L, "State Studio") or "State Studio",
+        order = 14,
+        args = DDingUI.BuildGroupStateStudioArgs
+            and DDingUI:BuildGroupStateStudioArgs(groupName)
+            or {},
     }
 
     args.iconDetails = {

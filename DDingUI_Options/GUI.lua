@@ -876,6 +876,17 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     widget = gridFrame
                     widgetHeight = gridFrame:GetHeight() or 60
                 end
+            elseif option.type == "groupStateStudio" then
+                local groupName = option.groupName
+                if groupName and DDingUI.BuildGroupStateStudioUI then
+                    local studioFrame = CreateFrame("Frame", nil, contentFrame)
+                    studioFrame:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -yOffset)
+                    studioFrame:SetPoint("RIGHT", contentFrame, "RIGHT", 0, 0)
+                    studioFrame:SetWidth(contentFrame:GetWidth() or 760)
+                    DDingUI:BuildGroupStateStudioUI(studioFrame, groupName)
+                    widget = studioFrame
+                    widgetHeight = studioFrame:GetHeight() or 206
+                end
             elseif option.type == "spellSearch" then
                 -- [REFACTOR] 실시간 Spell ID 검증 위젯 (CDM 패턴 이식)
                 local _GUI = DDingUI.GUI -- 런타임 참조 (local 정의가 파일 후반부)
