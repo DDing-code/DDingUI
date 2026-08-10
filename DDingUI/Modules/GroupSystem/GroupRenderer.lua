@@ -791,7 +791,15 @@ end
 
 local function SetManagedIconLayoutVisible(icon, visible)
     if icon then
-        icon._ddLayoutVisible = visible and true or false
+        local nextVisible = visible and true or false
+        local changed = icon._ddLayoutVisible ~= nextVisible
+        icon._ddLayoutVisible = nextVisible
+        if changed then
+            local diagnostics = DDingUI.IconDiagnostics
+            if diagnostics and diagnostics.RecordLayoutTransition then
+                diagnostics:RecordLayoutTransition(icon, nextVisible)
+            end
+        end
     end
 end
 

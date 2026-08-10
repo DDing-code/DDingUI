@@ -2120,6 +2120,7 @@ local function BuildAssignedSpellsArgs(groupName)
                 _gridIconTex = iconTex,
                 _gridDisplayName = row.displayName or capturedSpell or "Unknown",
                 _gridCanRemove = capturedCanRemove == true,
+                _gridCooldownID = capturedEntry and capturedEntry.cooldownID,
                 _gridSpellID = ResolveEntrySpellID(capturedEntry, capturedSpell),
                 _gridSpellName = capturedSpell,
                 _gridViewerType = capturedViewerType,
@@ -3958,6 +3959,211 @@ function DDingUI:IsGroupIconDetailSelected(groupName, opt)
         and selection.key == self:GetGroupIconDetailKey(opt)
 end
 
+function DDingUI:BuildGroupIconDiagnosticsArgs(groupName)
+    local function T(key, fallback)
+        return rawget(L, key) or fallback or key
+    end
+
+    local opt = self:GetGroupIconDetailSelection(groupName)
+    if not opt then
+        return {
+            empty = {
+                type = "description",
+                name = T(
+                    "Select an icon from the preview to inspect why it is shown.",
+                    "Select an icon from the preview to inspect why it is shown."
+                ),
+                order = 1,
+            },
+        }
+    end
+
+    local diagnostics = self.IconDiagnostics
+    if not (diagnostics and diagnostics.Inspect) then
+        return {
+            unavailable = {
+                type = "description",
+                name = T("Icon diagnostics are unavailable.", "Icon diagnostics are unavailable."),
+                order = 1,
+            },
+        }
+    end
+
+    local snapshot = diagnostics:Inspect({
+        kind = opt._gridKind,
+        iconKey = opt._gridDynamicIconKey,
+        iconType = opt._gridDynamicIconType,
+        cooldownID = opt._gridCooldownID,
+        spellID = opt._gridSpellID,
+        spellName = opt._gridSpellName,
+        viewerType = opt._gridViewerType,
+        itemID = opt._gridItemID,
+        slotID = opt._gridSlotID,
+        totemSlot = opt._gridTotemSlot,
+        groupName = groupName,
+        displayName = opt._gridDisplayName,
+    })
+
+    local function Value(value)
+        if value == nil or value == "" then return T("Not available", "Not available") end
+        return tostring(value)
+    end
+
+    local function BooleanValue(value)
+        if value == nil then return T("Unknown", "Unknown") end
+        return value and T("Yes", "Yes") or T("No", "No")
+    end
+
+    local function AddLine(lines, label, value)
+        lines[#lines + 1] = "|cffb8bcc8" .. label .. ":|r " .. Value(value)
+    end
+
+    local reasonLabels = {
+        eligible = T("Eligible and visible", "Eligible and visible"),
+        inactive_gray = T("Shown as an inactive gray icon", "Shown as an inactive gray icon"),
+        inactive_placeholder = T("Shown as an inactive placeholder", "Shown as an inactive placeholder"),
+        group_disabled = T("The group is disabled", "The group is disabled"),
+        frame_missing = T("No runtime frame exists", "No runtime frame exists"),
+        hidden_by_tracker = T("Hidden by another tracker", "Hidden by another tracker"),
+        suppressed = T("Suppressed by icon rules", "Suppressed by icon rules"),
+        state_filter = T("Excluded by the group state filter", "Excluded by the group state filter"),
+        overflow_filter = T("Excluded by the group overflow limit", "Excluded by the group overflow limit"),
+        aura_expired = T("The tracked aura expired", "The tracked aura expired"),
+        combat_inactive = T("No active combat state was detected", "No active combat state was detected"),
+        source_hidden = T("The source CDM icon is hidden", "The source CDM icon is hidden"),
+        layout_excluded = T("Excluded from the current layout", "Excluded from the current layout"),
+        group_frame_hidden = T("The group frame is hidden", "The group frame is hidden"),
+        alpha_zero = T("The effective alpha is zero", "The effective alpha is zero"),
+        frame_hidden = T("The icon frame is hidden", "The icon frame is hidden"),
+        layout_included = T("Added to the current layout", "Added to the current layout"),
+        combat_keep_alive = T("Retained by combat-safe layout", "Retained by combat-safe layout"),
+        filter_cleared = T("Layout filter cleared", "Layout filter cleared"),
+    }
+
+    local identityLines = {}
+    AddLine(identityLines, T("Icon Type", "Icon Type"), snapshot.identity.iconType or snapshot.kind)
+    AddLine(identityLines, T("Group", "Group"), snapshot.groupName)
+    AddLine(identityLines, T("Specialization ID", "Specialization ID"), snapshot.specID)
+    AddLine(identityLines, T("Icon Key", "Icon Key"), snapshot.identity.iconKey)
+    AddLine(identityLines, T("Persistent ID", "Persistent ID"), snapshot.identity.persistentID)
+    AddLine(identityLines, T("Spell / Item ID", "Spell / Item ID"), snapshot.identity.spellOrItemID)
+    AddLine(identityLines, T("Cooldown ID", "Cooldown ID"), snapshot.identity.cooldownID)
+    AddLine(identityLines, T("Viewer Type", "Viewer Type"), snapshot.identity.viewerType)
+    AddLine(identityLines, T("Inventory Slot", "Inventory Slot"), snapshot.identity.slotID)
+    AddLine(identityLines, T("Totem Slot", "Totem Slot"), snapshot.identity.totemSlot)
+
+    local state = snapshot.state or {}
+    local runtimeLines = {}
+    AddLine(runtimeLines, T("Runtime Frame", "Runtime Frame"), BooleanValue(snapshot.frameFound))
+    AddLine(runtimeLines, T("Frame Shown", "Frame Shown"), BooleanValue(state.frameShown))
+    AddLine(runtimeLines, T("Group Frame Shown", "Group Frame Shown"), BooleanValue(state.containerShown))
+    AddLine(runtimeLines, T("Layout Included", "Layout Included"), BooleanValue(state.layoutVisible))
+    AddLine(runtimeLines, T("Active", "Active"), BooleanValue(state.active))
+    AddLine(runtimeLines, T("Ready", "Ready"), BooleanValue(state.ready))
+    AddLine(runtimeLines, T("Proc Active", "Proc Active"), BooleanValue(state.procActive))
+    AddLine(runtimeLines, T("Glow Visible", "Glow Visible"), BooleanValue(state.glowVisible))
+    AddLine(runtimeLines, T("Inactive Gray", "Inactive Gray"), BooleanValue(state.inactiveGray))
+    AddLine(runtimeLines, T("Hidden", "Hidden"), BooleanValue(state.hidden))
+    AddLine(runtimeLines, T("Suppressed", "Suppressed"), BooleanValue(state.suppressed))
+    AddLine(runtimeLines, T("State Filtered", "State Filtered"), BooleanValue(state.stateFiltered))
+    AddLine(runtimeLines, T("Overflow Filtered", "Overflow Filtered"), BooleanValue(state.overflowFiltered))
+    AddLine(runtimeLines, T("Alpha", "Alpha"), state.alpha and string.format("%.2f", state.alpha))
+    AddLine(runtimeLines, T("Current Runtime Group", "Current Runtime Group"), state.currentGroup)
+
+    local settingLines = {}
+    AddLine(settingLines, T("Settings Source", "Settings Source"),
+        snapshot.settings.individualOverrideCount > 0
+            and T("Individual override and group defaults", "Individual override and group defaults")
+            or T("Group defaults", "Group defaults"))
+    AddLine(settingLines, T("Individual Override Count", "Individual Override Count"),
+        snapshot.settings.individualOverrideCount)
+    AddLine(settingLines, T("Saved Order Position", "Saved Order Position"), snapshot.settings.orderIndex)
+    AddLine(settingLines, T("Assigned Group", "Assigned Group"), snapshot.assignedGroup)
+    AddLine(settingLines, T("Source Group Key", "Source Group Key"), snapshot.sourceGroupKey)
+    AddLine(settingLines, T("Dynamic Group Memberships", "Dynamic Group Memberships"),
+        snapshot.settings.membershipCount)
+    if snapshot.settings.membershipNames and #snapshot.settings.membershipNames > 0 then
+        AddLine(settingLines, T("Member Of", "Member Of"), table.concat(snapshot.settings.membershipNames, ", "))
+    end
+
+    local conflictLines = {}
+    if snapshot.conflicts.duplicateIdentityCount > 0 then
+        AddLine(conflictLines, T("Duplicate Persistent IDs", "Duplicate Persistent IDs"),
+            snapshot.conflicts.duplicateIdentityCount)
+    end
+    if snapshot.conflicts.multipleMemberships then
+        AddLine(conflictLines, T("Multiple Source Groups", "Multiple Source Groups"),
+            snapshot.settings.membershipCount)
+    end
+    if #conflictLines == 0 then
+        conflictLines[1] = "|cff72d690" .. T("No identity or membership conflicts detected.",
+            "No identity or membership conflicts detected.") .. "|r"
+    end
+
+    local historyLines = {}
+    for index = #(snapshot.history or {}), 1, -1 do
+        local event = snapshot.history[index]
+        local elapsed = math.max(0, (snapshot.now or 0) - (event.time or 0))
+        local eventReason = reasonLabels[event.reason] or Value(event.reason)
+        historyLines[#historyLines + 1] = string.format(
+            "|cff8e96a8%.1fs|r  %s%s",
+            elapsed,
+            eventReason,
+            event.groupName and ("  |cff72798a[" .. event.groupName .. "]|r") or ""
+        )
+    end
+    if #historyLines == 0 then
+        historyLines[1] = T(
+            "No layout state changes have been recorded since reload.",
+            "No layout state changes have been recorded since reload."
+        )
+    end
+
+    local decision = snapshot.decision or {}
+    local decisionColor = decision.visible and "|cff72d690" or "|cffff8a65"
+    local decisionText = reasonLabels[decision.reason] or Value(decision.reason)
+
+    return {
+        selected = {
+            type = "header",
+            name = (opt._gridIconTex and ("|T" .. opt._gridIconTex .. ":18:18:0:0:64:64:5:59:5:59|t ") or "")
+                .. Value(snapshot.displayName),
+            order = 1,
+        },
+        decisionHeader = {
+            type = "header",
+            name = T("Current Decision", "Current Decision"),
+            order = 10,
+        },
+        decision = {
+            type = "description",
+            name = decisionColor .. decisionText .. "|r",
+            order = 11,
+        },
+        identityHeader = {
+            type = "header",
+            name = T("Identity and Tracking Source", "Identity and Tracking Source"),
+            order = 20,
+        },
+        identity = { type = "description", name = table.concat(identityLines, "\n"), order = 21 },
+        runtimeHeader = { type = "header", name = T("Runtime State", "Runtime State"), order = 30 },
+        runtime = { type = "description", name = table.concat(runtimeLines, "\n"), order = 31 },
+        settingsHeader = { type = "header", name = T("Settings Resolution", "Settings Resolution"), order = 40 },
+        settings = { type = "description", name = table.concat(settingLines, "\n"), order = 41 },
+        conflictsHeader = { type = "header", name = T("Conflicts", "Conflicts"), order = 50 },
+        conflicts = { type = "description", name = table.concat(conflictLines, "\n"), order = 51 },
+        historyHeader = { type = "header", name = T("Recent State Changes", "Recent State Changes"), order = 60 },
+        history = { type = "description", name = table.concat(historyLines, "\n"), order = 61 },
+        refresh = {
+            type = "execute",
+            name = T("Refresh Diagnostics", "Refresh Diagnostics"),
+            order = 70,
+            width = "normal",
+            func = function() SoftRefreshGroupSystemOptions(0) end,
+        },
+    }
+end
+
 function DDingUI:BuildAssignedIconSettingsItems(groupName, opt, glowOnly)
     if not opt then return {} end
     local items = {}
@@ -4892,8 +5098,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
         end
         GameTooltip:AddLine(
-            rawget(L, "Click for individual settings | Drag to reorder | Right-click to manage")
-                or "Click for individual settings | Drag to reorder | Right-click to manage",
+            rawget(L, "Click for individual settings | Alt-click for display reason | Drag to reorder | Right-click to manage")
+                or "Click for individual settings | Alt-click for display reason | Drag to reorder | Right-click to manage",
             0.35,
             1,
             0.45,
@@ -4976,7 +5182,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                         if _G["DDingUI_ConfigFrame"] then
                             _G["DDingUI_ConfigFrame"]._requestedSubTabPath = {
                                 "group_" .. groupName,
-                                "iconDetails",
+                                IsAltKeyDown and IsAltKeyDown() and "iconDiagnostics" or "iconDetails",
                             }
                         end
                         SoftRefreshGroupSystemOptions(0)
@@ -6347,6 +6553,13 @@ local function CreateGroupOptions(groupName, order)
         name = rawget(L, "Individual Settings") or "Individual Settings",
         order = 15,
         args = DDingUI:BuildGroupIconDetailArgs(groupName),
+    }
+
+    args.iconDiagnostics = {
+        type = "group",
+        name = rawget(L, "Display Reason") or "Display Reason",
+        order = 16,
+        args = DDingUI:BuildGroupIconDiagnosticsArgs(groupName),
     }
 
     -- ========== 2. 스펠 관리 ==========
