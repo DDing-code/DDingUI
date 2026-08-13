@@ -146,10 +146,14 @@ function DDingUI:ApplySelectionAlphaToFrame(frame)
 end
 
 function DDingUI:ApplySelectionAlphaToAllFrames()
-    local frame = EnumerateFrames()
-    while frame do
+    local manager = _G.EditModeManagerFrame
+    local registeredFrames = manager and manager.registeredSystemFrames
+    if type(registeredFrames) ~= "table" then
+        return
+    end
+
+    for _, frame in pairs(registeredFrames) do
         self:ApplySelectionAlphaToFrame(frame)
-        frame = EnumerateFrames(frame)
     end
 end
 
@@ -182,21 +186,15 @@ function DDingUI:InitializeSelectionAlphaController()
         waiter:SetScript("OnEvent", function(self, _, addonName)
             if addonName == "Blizzard_EditMode" or addonName == ADDON_NAME then
                 if TryHookSelectionMixin() then
+                    DDingUI:ApplySelectionAlphaToAllFrames()
                     self:UnregisterEvent("ADDON_LOADED")
                     self:SetScript("OnEvent", nil)
                 end
             end
         end)
+    else
+        self:ApplySelectionAlphaToAllFrames()
     end
-
-    self:ApplySelectionAlphaToAllFrames()
-    C_Timer.After(0.5, function()
-        DDingUI:ApplySelectionAlphaToAllFrames()
-    end)
-
-    -- [P0] C_Timer.NewTicker 제거 — 게임 내내 1초마다 editModeActive 체크하던 비용 제거
-    -- EditModeSelectionFrameBaseMixin.OnShow/OnLoad 훅(상단)이 동일 역할 수행
-    -- 초기 1회 적용은 위 C_Timer.After(0.5, ...) 로 충분
 
 end
 

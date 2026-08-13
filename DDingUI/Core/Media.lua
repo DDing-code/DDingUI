@@ -64,6 +64,81 @@ function DDingUI:GetTexture(overrideTexture)
     return self:GetGlobalTexture()
 end
 
+local COOLDOWN_VIEWER_NAMES = {
+    "EssentialCooldownViewer",
+    "UtilityCooldownViewer",
+    "BuffIconCooldownViewer",
+    "BuffBarCooldownViewer",
+}
+
+local function ForEachOwnedCooldownFrame(callback)
+    local seen = {}
+
+    local function VisitCooldown(frame)
+        if not frame or seen[frame] or not frame.GetObjectType then
+            return
+        end
+        if frame.IsForbidden and frame:IsForbidden() then
+            return
+        end
+        if frame:GetObjectType() ~= "Cooldown" then
+            return
+        end
+
+        seen[frame] = true
+        callback(frame)
+    end
+
+    local function VisitIcon(icon)
+        if not icon then
+            return
+        end
+
+        VisitCooldown(icon.Cooldown)
+        VisitCooldown(icon.cooldown)
+        if icon.Icon and icon.Icon ~= icon then
+            VisitCooldown(icon.Icon.Cooldown)
+            VisitCooldown(icon.Icon.cooldown)
+        end
+    end
+
+    for _, viewerName in ipairs(COOLDOWN_VIEWER_NAMES) do
+        local viewer = _G[viewerName]
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for icon in pool:EnumerateActive() do
+                VisitIcon(icon)
+            end
+        end
+    end
+
+    local controller = DDingUI.FrameController
+    local iconMap = controller and controller.GetIconMap and controller:GetIconMap()
+    if type(iconMap) == "table" then
+        for _, icon in pairs(iconMap) do
+            VisitIcon(icon)
+        end
+    end
+
+    local customIcons = DDingUI.CustomIcons
+    local customFrames = customIcons and customIcons.GetAllIconFrames and customIcons:GetAllIconFrames()
+    if type(customFrames) == "table" then
+        for _, icon in pairs(customFrames) do
+            VisitIcon(icon)
+        end
+    end
+
+    local targetFrame = _G.DDingUI_Target
+    if targetFrame then
+        for _, icon in ipairs(targetFrame.buffIcons or {}) do
+            VisitIcon(icon)
+        end
+        for _, icon in ipairs(targetFrame.debuffIcons or {}) do
+            VisitIcon(icon)
+        end
+    end
+end
+
 function DDingUI:ApplyGlobalFont()
     local fontPath = self:GetGlobalFont()
     if not fontPath then return end
@@ -939,15 +1014,11 @@ function DDingUI:ApplyGlobalFont()
 
         local function ApplyFontToExistingCooldowns()
             local currentFontPath = self:GetGlobalFont()
-            if currentFontPath and EnumerateFrames then
-                local frame = EnumerateFrames()
-                while frame do
-                    if SafeGetObjectType(frame) == "Cooldown" then
-                        SafeClearCooldownFontCache(frame)
-                        ApplyCooldownFont(frame)
-                    end
-                    frame = EnumerateFrames(frame)
-                end
+            if currentFontPath then
+                ForEachOwnedCooldownFrame(function(frame)
+                    SafeClearCooldownFontCache(frame)
+                    ApplyCooldownFont(frame)
+                end)
             end
         end
 
@@ -1241,33 +1312,26 @@ function DDingUI:ApplyGlobalFont()
             end
 
             local function ApplyFontToExistingCooldowns()
-                if EnumerateFrames then
-                    local frame = EnumerateFrames()
-                    while frame do
-                        if SafeGetObjectType(frame) == "Cooldown" then
-                            -- Only apply to DDingUI frames
-                            local source = IdentifyCooldownSource(frame)
-                            if source then
-                                SafeClearCooldownFontCache(frame)
-                                local fontString = GetCooldownFontString(frame)
-                                if fontString then
-                                    local fontSize, textColor, shadowOffsetX, shadowOffsetY, fontName = GetCooldownSettings(source)
-                                    local fontPath = self:GetFont(fontName)
+                ForEachOwnedCooldownFrame(function(frame)
+                    local source = IdentifyCooldownSource(frame)
+                    if source then
+                        SafeClearCooldownFontCache(frame)
+                        local fontString = GetCooldownFontString(frame)
+                        if fontString then
+                            local fontSize, textColor, shadowOffsetX, shadowOffsetY, fontName = GetCooldownSettings(source)
+                            local fontPath = self:GetFont(fontName)
 
-                                    local _, existingSize, flags = fontString:GetFont()
-                                    if flags then
-                                        fontString:SetFont(fontPath, fontSize, flags)
-                                    else
-                                        fontString:SetFont(fontPath, fontSize)
-                                    end
-                                    SafeSetTextColor(fontString, textColor)
-                                    fontString:SetShadowOffset(shadowOffsetX, shadowOffsetY)
-                                end
+                            local _, existingSize, flags = fontString:GetFont()
+                            if flags then
+                                fontString:SetFont(fontPath, fontSize, flags)
+                            else
+                                fontString:SetFont(fontPath, fontSize)
                             end
+                            SafeSetTextColor(fontString, textColor)
+                            fontString:SetShadowOffset(shadowOffsetX, shadowOffsetY)
                         end
-                        frame = EnumerateFrames(frame)
                     end
-                end
+                end)
             end
             ApplyFontToExistingCooldowns()
         end
