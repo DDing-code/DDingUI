@@ -276,14 +276,16 @@ function GroupSystemIconTextures:CreateRuntime(pendingSpellRefresh, invalidateCa
         if entry then
             AddOptionSpellCandidate(candidates, seen, entry.iconSpellID)
             AddOptionSpellCandidate(candidates, seen, entry.spellID)
-            if entry.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, entry.cooldownID)
-                if ok and info then
+            local cooldownID = SafeOptionID(entry.cooldownID)
+            if cooldownID then
+                local compat = DDingUI.CDMCompat
+                local info = compat and compat:GetCooldownInfo(cooldownID)
+                if info then
                     for _, id in ipairs(GetCooldownInfoSpellCandidates(info, entry.cooldownID)) do
                         AddOptionSpellCandidate(candidates, seen, id)
                     end
                 else
-                    AddOptionSpellCandidate(candidates, seen, entry.cooldownID)
+                    AddOptionSpellCandidate(candidates, seen, cooldownID)
                 end
             end
         end

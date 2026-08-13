@@ -3,6 +3,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
+local CDMCompat = DDingUI.CDMCompat
 
 DDingUI.Keybinds = DDingUI.Keybinds or {}
 local Keybinds = DDingUI.Keybinds
@@ -679,27 +680,10 @@ local function ExtractSpellIDFromIcon(icon)
     -- Skip during combat to prevent Blizzard CooldownViewer taint
     if InCombatLockdown() then return nil end
 
-    -- 방법 1: cooldownID → C_CooldownViewer API (Essential에서 잘 작동)
-    local success, spellID = pcall(function()
-        if icon.cooldownID and type(icon.cooldownID) == "number" then
-            local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
-            if info and info.spellID then
-                if issecretvalue and issecretvalue(info.spellID) then
-                    return nil
-                end
-                return info.spellID
-            end
-        end
-        return nil
-    end)
-    if success and spellID then
-        if issecretvalue and issecretvalue(spellID) then
-            return nil
-        end
-        return spellID
+    if CDMCompat then
+        return CDMCompat:ResolveFrameSpellID(icon)
     end
 
-    -- 방법 2: icon:GetSpellID() + canaccessvalue (CDMHookEngine 패턴)
     if icon.GetSpellID and type(icon.GetSpellID) == "function" then
         local ok, sid = pcall(icon.GetSpellID, icon)
         if ok and sid and _canaccessvalue(sid) then
@@ -912,6 +896,7 @@ local function UpdateIconKeybind(icon, viewerSettingName)
 end
 
 function Keybinds:UpdateViewerKeybinds(viewerName)
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     local viewerFrame = _G[viewerName]
     if not viewerFrame then
         return
@@ -931,6 +916,7 @@ function Keybinds:UpdateViewerKeybinds(viewerName)
 end
 
 function Keybinds:UpdateAllKeybinds()
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     for viewerName, _ in pairs(viewersSettingKey) do
         self:UpdateViewerKeybinds(viewerName)
         self:ApplyKeybindSettings(viewerName)
@@ -938,6 +924,7 @@ function Keybinds:UpdateAllKeybinds()
 end
 
 function Keybinds:ApplyKeybindSettings(viewerName)
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     local viewerFrame = _G[viewerName]
     if not viewerFrame then
         return

@@ -4,6 +4,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
+local CDMCompat = DDingUI.CDMCompat
 
 local GroupRenderer = {}
 DDingUI.GroupRenderer = GroupRenderer
@@ -1148,26 +1149,13 @@ local function AddCDMEntryIDs(set, entry)
 
     local icon = entry.icon
     if icon then
-        local okAura, auraSpellID = pcall(function() return icon.auraSpellID end)
-        if okAura then AddNormalizedID(set, auraSpellID) end
-
-        local okGetAura, getAuraSpellID = pcall(function()
-            return icon.GetAuraSpellID and icon:GetAuraSpellID()
-        end)
-        if okGetAura then AddNormalizedID(set, getAuraSpellID) end
-
-        local okInfo, cooldownInfo = pcall(function() return icon.cooldownInfo end)
-        if okInfo then AddCooldownInfoIDs(set, cooldownInfo) end
-
-        local okGetInfo, getInfo = pcall(function()
-            return icon.GetCooldownInfo and icon:GetCooldownInfo()
-        end)
-        if okGetInfo then AddCooldownInfoIDs(set, getInfo) end
+        AddNormalizedID(set, CDMCompat and CDMCompat:ResolveFrameSpellID(icon))
+        AddCooldownInfoIDs(set, CDMCompat and CDMCompat:GetFrameCooldownInfo(icon))
     end
 
-    if entry.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, entry.cooldownID)
-        if ok then AddCooldownInfoIDs(set, info) end
+    local cooldownID = SafeTokenValue(entry.cooldownID)
+    if cooldownID and CDMCompat then
+        AddCooldownInfoIDs(set, CDMCompat:GetCooldownInfo(cooldownID))
     end
 end
 
@@ -2507,6 +2495,7 @@ end
 -- ============================================================
 
 function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     local frame = self.groupFrames[groupName]
     if not frame then
         frame = self:CreateGroupFrame(groupName, groupSettings)
@@ -2620,7 +2609,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
     if scanHolding and frame._managedIcons then
         for _, icon in pairs(frame._managedIcons) do
             if icon and not icon._ddIconKey and icon._ddIsManaged and not newSet[icon] then
-                local cooldownID = icon._ddLastCooldownID or icon.cooldownID
+                local cooldownID = CDMCompat and CDMCompat:GetFrameCooldownID(icon)
+                    or SafeTokenValue(icon._ddLastCooldownID)
                 local spellName
                 if fc and fc.GetSpellNameForID and cooldownID then
                     pcall(function()
@@ -2682,7 +2672,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
             SetManagedIconLayoutVisible(icon, false)
             SetDynamicIconInactiveGray(icon, false)
             icon._ddInactivePlaceholder = nil
-            GRLog("cleanup:", tostring(icon.cooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
+            local cleanupCooldownID = CDMCompat and CDMCompat:GetFrameCooldownID(icon)
+                or SafeTokenValue(icon._ddLastCooldownID)
+            GRLog("cleanup:", tostring(cleanupCooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
             if icon._ddIsPlaceholder then
                 if placeholders then placeholders:DeactivateFrame(icon) end
             elseif icon._ddIconKey then

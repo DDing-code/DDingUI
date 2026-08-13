@@ -3,12 +3,13 @@
 -- Scans Cooldown Manager (CDM) frames to build an aura catalog
 --
 -- Key features:
--- 1. Multiple cooldownID sources (frame.cooldownID, cooldownInfo, Icon)
--- 2. C_CooldownViewer.GetCooldownViewerCooldownInfo for verification
+-- 1. Public category metadata plus active pool frames
+-- 2. Stable cooldown and spell identity through the compatibility cache
 -- 3. C_Spell API for name and icon retrieval
 -- ============================================================
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local CDMCompat = DDingUI.CDMCompat
 
 -- Module initialization
 DDingUI.CDMScanner = DDingUI.CDMScanner or {}
@@ -33,22 +34,29 @@ local math_floor = math.floor
 
 -- [FIX] secret value / NaN / 음수 / 소수점 방어
 local function IsSafeNumber(val)
-    if val == nil then return false end
+    if CDMCompat then return CDMCompat:IsPublicNumber(val) end
     if issecretvalue and issecretvalue(val) then return false end
     return type(val) == "number" and val == val -- NaN 체크: NaN ~= NaN
 end
 
 local function IsUsableID(id)
+    if CDMCompat then return CDMCompat:IsUsableID(id) end
     if not IsSafeNumber(id) then return false end
     return id > 0 and id == math_floor(id)
 end
 
+local function IsSafeTexture(value)
+    if CDMCompat and not CDMCompat:IsPublicValue(value) then return false end
+    if not CDMCompat and issecretvalue and issecretvalue(value) then return false end
+    local valueType = type(value)
+    return (valueType == "number" and value > 0)
+        or (valueType == "string" and value ~= "")
+end
+
 -- [FIX] DDingUI HasAuraInstanceID 패턴: secret value 안전 체크
 local function HasAuraInstanceID(value)
-    if value == nil then return false end
     if issecretvalue and issecretvalue(value) then return true end
-    if type(value) == "number" and value == 0 then return false end
-    return true
+    return type(value) == "number" and value ~= 0
 end
 
 -- Master catalog: { cooldownID = { name, icon, spellID, category, frame, ... } }
@@ -114,6 +122,80 @@ local CATEGORY_NAMES = {
     ["TrackedBuff+Bar"] = "강화 (Buffs + Bars)",
 }
 
+local function NormalizeCategoryName(category)
+    if category == "Utility" then return "Utility" end
+    if category == "TrackedBar" then return "TrackedBar" end
+    if category == "TrackedBuff" or category == "GroupBuff"
+        or category == "SpecAgnosticTracked" or category == "EquipSlotTracked"
+    then
+        return "TrackedBuff"
+    end
+    return "Essential"
+end
+
+local function GetSpellDisplay(spellID)
+    if not IsUsableID(spellID) or not C_Spell then return nil, nil end
+    local name
+    local icon
+    if C_Spell.GetSpellName then
+        local ok, value = pcall(C_Spell.GetSpellName, spellID)
+        if ok and type(value) == "string" then name = value end
+    end
+    if C_Spell.GetSpellTexture then
+        local ok, value = pcall(C_Spell.GetSpellTexture, spellID)
+        if ok and not (issecretvalue and issecretvalue(value)) then
+            local valueType = type(value)
+            if (valueType == "number" and value > 0) or (valueType == "string" and value ~= "") then
+                icon = value
+            end
+        end
+    end
+    return name, icon
+end
+
+local function AddStaticCatalogEntry(cooldownID, info, categoryDef)
+    if not IsUsableID(cooldownID) or type(info) ~= "table" then return end
+    local category = NormalizeCategoryName(categoryDef and categoryDef.name or "Essential")
+    local displaySpellID = CDMCompat and CDMCompat:ResolveInfoSpellID(info) or info.overrideSpellID or info.spellID
+    local name, icon = GetSpellDisplay(displaySpellID)
+    local existing = masterCatalog[cooldownID]
+    if existing then
+        if existing.category == "TrackedBuff" and category == "TrackedBar" then
+            existing.category = "TrackedBuff+Bar"
+            existing.categoryName = CATEGORY_NAMES["TrackedBuff+Bar"]
+            existing.isTrackedBar = true
+        elseif existing.category == "TrackedBar" and category == "TrackedBuff" then
+            existing.category = "TrackedBuff+Bar"
+            existing.categoryName = CATEGORY_NAMES["TrackedBuff+Bar"]
+            existing.isTrackedBuff = true
+        end
+        return
+    end
+
+    masterCatalog[cooldownID] = {
+        cooldownID = cooldownID,
+        spellID = IsUsableID(info.spellID) and info.spellID or displaySpellID or 0,
+        displaySpellID = displaySpellID or 0,
+        overrideSpellID = info.overrideSpellID,
+        overrideTooltipSpellID = info.overrideTooltipSpellID,
+        linkedSpellIDs = info.linkedSpellIDs,
+        name = name or "Unknown",
+        icon = icon or 134400,
+        category = category,
+        categoryName = CATEGORY_NAMES[category] or category,
+        viewerType = (category == "Essential" or category == "Utility") and "cooldown" or "aura",
+        viewerName = categoryDef and categoryDef.viewerName,
+        isAura = category == "TrackedBuff" or category == "TrackedBar",
+        isTrackedBuff = category == "TrackedBuff",
+        isTrackedBar = category == "TrackedBar",
+        hasAura = info.hasAura,
+        selfAura = info.selfAura,
+        charges = info.charges,
+        flags = info.flags,
+        isKnown = info.isKnown,
+    }
+end
+
 -- ============================================================
 -- CDM AVAILABILITY CHECK
 -- ============================================================
@@ -134,57 +216,59 @@ function CDMScanner.ScanAll()
     if InCombatLockdown() then
         return false, "Combat lockdown"
     end
+    if CDMCompat and CDMCompat:IsSettingsOpen() then
+        return false, "Cooldown viewer settings open"
+    end
 
-    wipe(masterCatalog)
-    wipe(frameToCooldownID)
-    wipe(frameByLayoutKey)
-    catalogVersion = catalogVersion + 1  -- [FIX] 정렬 캐시 무효화
+    local previousCatalog = masterCatalog
+    local previousFrameToCooldownID = frameToCooldownID
+    local previousFrameByLayoutKey = frameByLayoutKey
+    masterCatalog = {}
+    frameToCooldownID = setmetatable({}, { __mode = "k" })
+    frameByLayoutKey = {}
     local totalCount = 0
+
+    if CDMCompat then
+        for _, categoryDef in ipairs(CDMCompat:GetCategoryDefinitions()) do
+            local cooldownIDs = CDMCompat:GetCategorySet(categoryDef.category, true)
+            if type(cooldownIDs) == "table" then
+                for _, cooldownID in ipairs(cooldownIDs) do
+                    local info = CDMCompat:GetCooldownInfo(cooldownID)
+                    AddStaticCatalogEntry(cooldownID, info, categoryDef)
+                end
+            end
+        end
+    end
 
     for _, viewerInfo in ipairs(CDM_VIEWERS) do
         local viewer = _G[viewerInfo.name]
         if viewer then
+            if CDMCompat then CDMCompat:TrackViewerPool(viewer) end
             local children = {}
             if viewer.itemFramePool then
                 for frame in viewer.itemFramePool:EnumerateActive() do
                     table.insert(children, frame)
                 end
-            else
-                children = { viewer:GetChildren() }
             end
 
-            -- Sort by X position for consistent slot indexing
+            -- Stable viewer order without reading protected screen coordinates.
             table.sort(children, function(a, b)
-                local ax = a:GetLeft() or 0
-                local bx = b:GetLeft() or 0
-                return ax < bx
+                local ai = IsSafeNumber(a.layoutIndex) and a.layoutIndex or 999999
+                local bi = IsSafeNumber(b.layoutIndex) and b.layoutIndex or 999999
+                return ai < bi
             end)
 
             local slotIndex = 0
             for _, frame in ipairs(children) do
-                -- Try multiple sources for cooldownID (use pcall to avoid secret value errors)
-                local cdID
-                pcall(function()
-                    cdID = frame.cooldownID
-                    -- Fallback 1: Check cooldownInfo table
-                    if not cdID and frame.cooldownInfo then
-                        cdID = frame.cooldownInfo.cooldownID
-                    end
-                    -- Fallback 2: For bar frames, check nested Icon frame
-                    if not cdID and frame.Icon and frame.Icon.cooldownID then
-                        cdID = frame.Icon.cooldownID
-                    end
-                end)
+                local cdID = CDMCompat and CDMCompat:GetFrameCooldownID(frame)
+                    or GetCachedCooldownID(frame)
 
                 -- Process if we found a cooldownID
                 if IsUsableID(cdID) then
-                    -- Verify with CDM API that this cooldown actually exists (use pcall for safety)
-                    local info
-                    pcall(function()
-                        if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                            info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-                        end
-                    end)
+                    local info = CDMCompat and CDMCompat:GetFrameCooldownInfo(frame)
+                    if not info and CDMCompat then
+                        info = CDMCompat:GetCooldownInfo(cdID)
+                    end
 
                     -- Skip frames with no CDM info
                     if info then
@@ -192,14 +276,14 @@ function CDMScanner.ScanAll()
 
                         -- Get spell info from API
                         local spellID, name, icon
-                        local baseSpellID = info.spellID or 0
+                        local baseSpellID = IsUsableID(info.spellID) and info.spellID or 0
                         local overrideSpellID = info.overrideSpellID
                         local overrideTooltipSpellID = info.overrideTooltipSpellID
                         local linkedSpellIDs = info.linkedSpellIDs
                         local firstLinkedSpellID = linkedSpellIDs and linkedSpellIDs[1]
 
-                        -- Priority: first linkedSpellID > overrideSpellID > baseSpellID
-                        local displaySpellID = firstLinkedSpellID or overrideSpellID or baseSpellID
+                        local displaySpellID = CDMCompat and CDMCompat:ResolveFrameSpellID(frame)
+                            or overrideSpellID or firstLinkedSpellID or baseSpellID
 
                         spellID = baseSpellID
                         pcall(function() name = displaySpellID and C_Spell.GetSpellName(displaySpellID) end)
@@ -208,7 +292,7 @@ function CDMScanner.ScanAll()
                         local function SafeGetSpellTexture(sid)
                             if not sid or sid == 0 then return nil end
                             local ok, tex = pcall(C_Spell.GetSpellTexture, sid)
-                            if ok and tex and tex ~= 0 and tex ~= "" then return tex end
+                            if ok and IsSafeTexture(tex) then return tex end
                             return nil
                         end
 
@@ -218,14 +302,14 @@ function CDMScanner.ScanAll()
                                 -- Try GetTexture first
                                 if frame.Icon.GetTexture then
                                     local tex = frame.Icon:GetTexture()
-                                    if tex and not issecretvalue(tex) and tex ~= 0 and tex ~= "" then
+                                    if IsSafeTexture(tex) then
                                         icon = tex
                                     end
                                 end
                                 -- Try GetTextureFileID
                                 if not icon and frame.Icon.GetTextureFileID then
                                     local texID = frame.Icon:GetTextureFileID()
-                                    if texID and not issecretvalue(texID) and texID > 0 then
+                                    if IsSafeTexture(texID) then
                                         icon = texID
                                     end
                                 end
@@ -233,13 +317,13 @@ function CDMScanner.ScanAll()
                                 if not icon and frame.Icon.Icon then
                                     if frame.Icon.Icon.GetTexture then
                                         local tex = frame.Icon.Icon:GetTexture()
-                                        if tex and not issecretvalue(tex) and tex ~= 0 and tex ~= "" then
+                                        if IsSafeTexture(tex) then
                                             icon = tex
                                         end
                                     end
                                     if not icon and frame.Icon.Icon.GetTextureFileID then
                                         local texID = frame.Icon.Icon:GetTextureFileID()
-                                        if texID and not issecretvalue(texID) and texID > 0 then
+                                        if IsSafeTexture(texID) then
                                             icon = texID
                                         end
                                     end
@@ -291,6 +375,18 @@ function CDMScanner.ScanAll()
                                 existing.isTrackedBuff = true
                                 existing.iconFrame = frame
                             end
+                            existing.frame = existing.frame or frame
+                            if viewerInfo.category == "TrackedBuff" then existing.iconFrame = frame end
+                            if viewerInfo.category == "TrackedBar" then existing.barFrame = frame end
+                            existing.slotIndex = slotIndex
+                            existing.viewerName = existing.viewerName or viewerInfo.name
+                            existing.hasAuraInstance = HasAuraInstanceID(frame.auraInstanceID)
+                            existing.auraDataUnit = frame.auraDataUnit or "player"
+                            if existing.name == "Unknown" and name then existing.name = name end
+                            if (not existing.icon or existing.icon == 134400) and icon then existing.icon = icon end
+                            if displaySpellID and displaySpellID > 0 then
+                                existing.displaySpellID = displaySpellID
+                            end
                         else
                             -- Create new entry
                             masterCatalog[cdID] = {
@@ -323,7 +419,6 @@ function CDMScanner.ScanAll()
                                 hasAuraInstance = HasAuraInstanceID(frame.auraInstanceID),
                                 auraDataUnit = frame.auraDataUnit or "player",
                             }
-                            totalCount = totalCount + 1
                         end
 
                         -- Store slot index on frame
@@ -334,7 +429,7 @@ function CDMScanner.ScanAll()
                         CacheCooldownID(frame, cdID)
 
                         -- Cache layout key -> frame mapping for reverse lookup
-                        local layoutKey = frame.layoutIndex or slotIndex
+                        local layoutKey = IsSafeNumber(frame.layoutIndex) and frame.layoutIndex or slotIndex
                         CacheFrameByLayoutKey(viewerInfo.name, layoutKey, frame)
                     end -- end if info
                 end -- end if cdID
@@ -348,9 +443,19 @@ function CDMScanner.ScanAll()
     local trackedBuffs = 0
     local trackedBars = 0
     for _, entry in pairs(masterCatalog) do
+        totalCount = totalCount + 1
         if entry.isTrackedBuff then trackedBuffs = trackedBuffs + 1 end
         if entry.isTrackedBar then trackedBars = trackedBars + 1 end
     end
+
+    if totalCount == 0 then
+        masterCatalog = previousCatalog
+        frameToCooldownID = previousFrameToCooldownID
+        frameByLayoutKey = previousFrameByLayoutKey
+        return false, "Cooldown viewer data not ready"
+    end
+
+    catalogVersion = catalogVersion + 1
 
     return true, totalCount, trackedBuffs, trackedBars
 end
@@ -427,6 +532,7 @@ end
 
 -- Get entry by cooldownID
 function CDMScanner.GetEntry(cooldownID)
+    if not IsUsableID(cooldownID) then return nil end
     return masterCatalog[cooldownID]
 end
 
@@ -455,7 +561,7 @@ end
 
 -- Find CDM frame by cooldownID
 function CDMScanner.FindFrameByCooldownID(cooldownID)
-    if not cooldownID or cooldownID == 0 then return nil end
+    if not IsUsableID(cooldownID) then return nil end
 
     -- Primary: Check masterCatalog (populated during scan)
     local entry = masterCatalog[cooldownID]
@@ -488,22 +594,12 @@ function CDMScanner.FindFrameByCooldownID(cooldownID)
                 for f in viewer.itemFramePool:EnumerateActive() do
                     table.insert(children, f)
                 end
-            else
-                children = { viewer:GetChildren() }
             end
 
             for _, frame in ipairs(children) do
-                local cdID
-                pcall(function()
-                    cdID = frame.cooldownID
-                    if not cdID and frame.cooldownInfo then
-                        cdID = frame.cooldownInfo.cooldownID
-                    end
-                    if not cdID and frame.Icon and frame.Icon.cooldownID then
-                        cdID = frame.Icon.cooldownID
-                    end
-                end)
-                if cdID == cooldownID then
+                local cdID = CDMCompat and CDMCompat:GetFrameCooldownID(frame)
+                    or GetCachedCooldownID(frame)
+                if IsUsableID(cdID) and cdID == cooldownID then
                     -- Cache for future lookups
                     CacheCooldownID(frame, cdID)
                     return frame
@@ -517,6 +613,7 @@ end
 
 -- Find frame by layoutIndex (BetterCooldownManager pattern - TAINT-SAFE)
 function CDMScanner.FindFrameByLayoutIndex(viewerName, layoutIndex)
+    if type(viewerName) ~= "string" or not IsSafeNumber(layoutIndex) then return nil, nil end
     -- First try cached lookup (SAFE - no cooldownID access)
     local frame = GetFrameByLayoutKey(viewerName, layoutIndex)
     if frame then
@@ -532,12 +629,11 @@ function CDMScanner.FindFrameByLayoutIndex(viewerName, layoutIndex)
         for f in viewer.itemFramePool:EnumerateActive() do
             table.insert(children, f)
         end
-    else
-        children = { viewer:GetChildren() }
     end
 
     for _, childFrame in ipairs(children) do
-        if childFrame.layoutIndex == layoutIndex then
+        local childLayoutIndex = childFrame.layoutIndex
+        if IsSafeNumber(childLayoutIndex) and childLayoutIndex == layoutIndex then
             -- Cache for future lookups
             CacheFrameByLayoutKey(viewerName, layoutIndex, childFrame)
             local cooldownID = GetCachedCooldownID(childFrame)
@@ -590,16 +686,12 @@ function CDMScanner.GetStacksFromFrame(frame)
 
     -- Use CACHED cooldownID instead of accessing frame.cooldownID directly
     local cooldownID = GetCachedCooldownID(frame)
+        or (CDMCompat and CDMCompat:GetFrameCooldownID(frame))
     local hasAura = false
 
     -- If no cached cooldownID and outside combat, try to get and cache it
-    if not cooldownID and not InCombatLockdown() then
-        pcall(function()
-            cooldownID = frame.cooldownID
-            if not cooldownID and frame.cooldownInfo then
-                cooldownID = frame.cooldownInfo.cooldownID
-            end
-        end)
+    if not cooldownID and not InCombatLockdown() and CDMCompat then
+        cooldownID = CDMCompat:GetFrameCooldownID(frame)
         if IsUsableID(cooldownID) then
             CacheCooldownID(frame, cooldownID)
         else
@@ -609,12 +701,8 @@ function CDMScanner.GetStacksFromFrame(frame)
 
     -- Try C_CooldownViewer API for hasAura (uses cached cooldownID - SAFE)
     if cooldownID then
-        local ok, info = pcall(function()
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                return C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-            end
-        end)
-        if ok and info and info.hasAura then
+        local info = CDMCompat and CDMCompat:GetCooldownInfo(cooldownID)
+        if info and info.hasAura then
             hasAura = true
         end
     end
@@ -632,7 +720,9 @@ function CDMScanner.GetStacksFromFrame(frame)
     if frame.Count then
         pcall(function()
             local countText = frame.Count:GetText()
-            if countText and not (issecretvalue and issecretvalue(countText)) and countText ~= "" then
+            if not (issecretvalue and issecretvalue(countText))
+                and type(countText) == "string" and countText ~= ""
+            then
                 stacks = tonumber(countText) or 0
             end
         end)
@@ -642,7 +732,9 @@ function CDMScanner.GetStacksFromFrame(frame)
     if stacks == 0 and frame.Icon and frame.Icon.Count then
         pcall(function()
             local countText = frame.Icon.Count:GetText()
-            if countText and not (issecretvalue and issecretvalue(countText)) and countText ~= "" then
+            if not (issecretvalue and issecretvalue(countText))
+                and type(countText) == "string" and countText ~= ""
+            then
                 stacks = tonumber(countText) or 0
             end
         end)
@@ -675,12 +767,15 @@ eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterUnitEvent("UNIT_AURA", "player")  -- 플레이어만
+eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+pcall(eventFrame.RegisterEvent, eventFrame, "COOLDOWN_VIEWER_DATA_LOADED")
+pcall(eventFrame.RegisterEvent, eventFrame, "COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED")
+pcall(eventFrame.RegisterEvent, eventFrame, "COOLDOWN_VIEWER_TABLE_HOTFIXED")
 
 -- [FIX] CDM 패턴: OnUpdate 기반 dirty flag — C_Timer 객체 생성 없이 배치 처리
 local scanDirty = false
 local scanDelayElapsed = 0
-local SCAN_DELAY_THRESHOLD = 0.1 -- UNIT_AURA 배치 처리 딜레이 (0.1초)
+local SCAN_DELAY_THRESHOLD = 0.1
 
 local function OnUpdateScanProcessor(self, elapsed)
     scanDelayElapsed = scanDelayElapsed + elapsed
@@ -732,15 +827,21 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "PLAYER_ENTERING_WORLD" then
         ScheduleRetryScans({ 0.5, 1.5, 3.0 })
         return
-    elseif event == "UNIT_AURA" then
-        -- [FIX] dirty flag만 설정 → OnUpdate에서 배치 처리 (C_Timer 객체 생성 없음)
-        if not isInCombat then
-            MarkScanDirty(0.1)
-        end
+    elseif event == "COOLDOWN_VIEWER_DATA_LOADED"
+        or event == "COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED"
+        or event == "COOLDOWN_VIEWER_TABLE_HOTFIXED"
+    then
+        if CDMCompat then CDMCompat:Invalidate() end
+        MarkScanDirty(0)
+        return
+    elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+        if CDMCompat then CDMCompat:Invalidate() end
+        MarkScanDirty(0.2)
         return
     end
 
     -- Rescan after spec/talent change
+    if CDMCompat then CDMCompat:Invalidate() end
     ScheduleRetryScans({ 0.5, 1.5, 3.0, 5.0 })
 end)
 
@@ -887,13 +988,7 @@ SlashCmdList["DDINGCDM"] = function(msg)
             local stacks, hasAura = CDMScanner.GetStacksFromFrame(frame)
             print("  GetStacksFromFrame: stacks=" .. stacks .. ", hasAura=" .. tostring(hasAura))
         end
-        -- Also try C_CooldownViewer API (use pcall to avoid secret value errors)
-        local info
-        pcall(function()
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-            end
-        end)
+        local info = CDMCompat and CDMCompat:GetCooldownInfo(cdID, true)
         if info then
             print("  C_CooldownViewer info:")
             pcall(function()

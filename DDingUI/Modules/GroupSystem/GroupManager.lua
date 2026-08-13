@@ -3,6 +3,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
+local CDMCompat = DDingUI.CDMCompat
 
 local GroupManager = {}
 DDingUI.GroupManager = GroupManager
@@ -79,12 +80,12 @@ local function IsCDMOrderToken(token)
 end
 
 local function SafeNumber(value)
-    if value == nil then return nil end
+    if CDMCompat and not CDMCompat:IsPublicValue(value) then return nil end
+    if issecretvalue and issecretvalue(value) then return nil end
     local ok, result = pcall(function()
-        if issecretvalue and issecretvalue(value) then return nil end
         return tonumber(value)
     end)
-    if ok then return result end
+    if ok and result == result then return result end
     return nil
 end
 
@@ -143,7 +144,12 @@ local function SafeLayoutIndexForEntry(entry)
     if icon then
         local layoutIndex = SafeNumber(icon.layoutIndex)
         if layoutIndex then return layoutIndex end
-        local iconCooldownID = SafeNumber(icon.cooldownID)
+        local iconCooldownID
+        if CDMCompat then
+            iconCooldownID = CDMCompat:GetFrameCooldownID(icon)
+        else
+            iconCooldownID = SafeNumber(icon.cooldownID)
+        end
         if iconCooldownID then return iconCooldownID end
     end
     local cooldownID = SafeNumber(entry.cooldownID)
@@ -761,10 +767,10 @@ end
 local function IconMatchesCandidateIDs(icon, cooldownID, ids)
     if MatchesCandidateID(ids, cooldownID) then return true end
     if icon then
-        local okAura, auraSpellID = pcall(function() return icon.auraSpellID end)
-        if okAura and MatchesCandidateID(ids, auraSpellID) then return true end
-        local okInfo, cooldownInfo = pcall(function() return icon.cooldownInfo end)
-        if okInfo and type(cooldownInfo) == "table" then
+        local resolvedSpellID = CDMCompat and CDMCompat:ResolveFrameSpellID(icon)
+        if MatchesCandidateID(ids, resolvedSpellID) then return true end
+        local cooldownInfo = CDMCompat and CDMCompat:GetFrameCooldownInfo(icon)
+        if type(cooldownInfo) == "table" then
             if MatchesCandidateID(ids, cooldownInfo.overrideTooltipSpellID)
                 or MatchesCandidateID(ids, cooldownInfo.overrideSpellID)
                 or MatchesCandidateID(ids, cooldownInfo.spellID)
@@ -778,9 +784,9 @@ local function IconMatchesCandidateIDs(icon, cooldownID, ids)
             end
         end
     end
-    if cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
-        if ok and type(info) == "table" then
+    if cooldownID and CDMCompat then
+        local info = CDMCompat:GetCooldownInfo(cooldownID)
+        if type(info) == "table" then
             if MatchesCandidateID(ids, info.overrideTooltipSpellID)
                 or MatchesCandidateID(ids, info.overrideSpellID)
                 or MatchesCandidateID(ids, info.spellID)
@@ -819,26 +825,9 @@ end
 
 local function GetCooldownInfoPreferredSpellID(info)
     if type(info) ~= "table" then return nil end
-    return SafeNumber(info.overrideTooltipSpellID)
-        or SafeNumber(info.overrideSpellID)
+    return SafeNumber(info.overrideSpellID)
+        or (CDMCompat and SafeNumber(CDMCompat:ResolveInfoSpellID(info)))
         or SafeNumber(info.spellID)
-end
-
-local function CooldownInfoMatchesCandidates(info, ids, names)
-    if type(info) ~= "table" then return false end
-    if MatchesCandidateID(ids, info.overrideTooltipSpellID)
-        or MatchesCandidateID(ids, info.overrideSpellID)
-        or MatchesCandidateID(ids, info.spellID)
-    then
-        return true
-    end
-    if type(info.linkedSpellIDs) == "table" then
-        for _, linkedID in ipairs(info.linkedSpellIDs) do
-            if MatchesCandidateID(ids, linkedID) then return true end
-        end
-    end
-    local preferredName = GetSpellNameFromID(GetCooldownInfoPreferredSpellID(info))
-    return preferredName and names[preferredName] == true
 end
 
 local function AddCDMBuffMatchName(context, spellName)
@@ -909,18 +898,13 @@ local function BuildCDMBuffMatchContext()
             end
             AddCDMBuffMatchID(context, cooldownID, normalizedSpellName)
             if icon then
-                pcall(function()
-                    AddCDMBuffMatchID(context, icon.auraSpellID, normalizedSpellName)
-                end)
-                pcall(function()
-                    AddCooldownInfoToBuffMatchContext(context, icon.cooldownInfo, normalizedSpellName)
-                end)
-            end
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                local okInfo, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
-                if okInfo then
-                    AddCooldownInfoToBuffMatchContext(context, info, normalizedSpellName)
+                if CDMCompat then
+                    AddCDMBuffMatchID(context, CDMCompat:ResolveFrameSpellID(icon), normalizedSpellName)
+                    AddCooldownInfoToBuffMatchContext(context, CDMCompat:GetFrameCooldownInfo(icon), normalizedSpellName)
                 end
+            end
+            if CDMCompat then
+                AddCooldownInfoToBuffMatchContext(context, CDMCompat:GetCooldownInfo(cooldownID), normalizedSpellName)
             end
         end
     end
@@ -954,38 +938,37 @@ local function FindInCDMBuffMatchContext(iconData, context)
     return nil
 end
 
-local function FindMatchingCooldownViewerBuffSpellName(iconData)
-    if not (C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return nil end
-    if not (Enum and Enum.CooldownViewerCategory) then return nil end
+local staticCDMMatchContext
+local staticCDMMatchContextGeneration = -1
 
-    local ids, names = BuildDynamicIconCandidateSets(iconData)
-    if not next(ids) and not next(names) then return nil end
+local function GetStaticCDMMatchContext()
+    local generation = CDMCompat and CDMCompat:GetGeneration() or 0
+    if staticCDMMatchContext and staticCDMMatchContextGeneration == generation then
+        return staticCDMMatchContext
+    end
 
-    local categories = Enum.CooldownViewerCategory
-    local categoryNames = { "TrackedBuff", "Essential", "Utility", "TrackedBar" }
-    local seenCooldownIDs = {}
-
-    for _, categoryName in ipairs(categoryNames) do
-        local categoryID = categories[categoryName]
-        if categoryID then
-            local okSet, cooldownIDs = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, categoryID, true)
-            if okSet and type(cooldownIDs) == "table" then
-                for _, cooldownID in ipairs(cooldownIDs) do
-                    local safeCooldownID = SafeNumber(cooldownID)
-                    if safeCooldownID and not seenCooldownIDs[safeCooldownID] then
-                        seenCooldownIDs[safeCooldownID] = true
-                        local okInfo, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, safeCooldownID)
-                        if okInfo and CooldownInfoMatchesCandidates(info, ids, names) then
-                            local spellName = GetSpellNameFromID(GetCooldownInfoPreferredSpellID(info)) or GetFirstCandidateName(names)
-                            return GetNormalizedBuffSpellName(spellName)
-                        end
-                    end
-                end
+    local context = { ids = {}, names = {} }
+    if CDMCompat then
+        for _, categoryDef in ipairs(CDMCompat:GetCategoryDefinitions()) do
+            local cooldownIDs = CDMCompat:GetCategorySet(categoryDef.category, true)
+            for _, cooldownID in ipairs(cooldownIDs or {}) do
+                local info = CDMCompat:GetCooldownInfo(cooldownID)
+                local spellName = GetSpellNameFromID(GetCooldownInfoPreferredSpellID(info))
+                local normalizedSpellName = GetNormalizedBuffSpellName(spellName)
+                if spellName then AddCDMBuffMatchName(context, spellName) end
+                AddCDMBuffMatchID(context, cooldownID, normalizedSpellName)
+                AddCooldownInfoToBuffMatchContext(context, info, normalizedSpellName)
             end
         end
     end
 
-    return nil
+    staticCDMMatchContext = context
+    staticCDMMatchContextGeneration = generation
+    return context
+end
+
+local function FindMatchingCooldownViewerBuffSpellName(iconData)
+    return FindInCDMBuffMatchContext(iconData, GetStaticCDMMatchContext())
 end
 
 local function FindMatchingCDMBuffSpellName(iconData)

@@ -1335,7 +1335,11 @@ do
                         local ic = container._managedIcons[i]
                         if ic and ic._ddIsManaged and ic.SetAlpha then
                             -- [FIX] idIconMap에 없는 아이콘(비활성 버프)은 alpha 복원 안 함
-                            local cdID = ic._ddLastCooldownID or ic.cooldownID
+                            local compat = DDingUI.CDMCompat
+                            local cdID = ic._ddLastCooldownID
+                            if compat and not compat:IsUsableID(cdID) then
+                                cdID = compat:GetFrameCooldownID(ic)
+                            end
                             if not activeMap or not cdID or activeMap[cdID] then
                                 ic:SetAlpha(alpha)
                             end

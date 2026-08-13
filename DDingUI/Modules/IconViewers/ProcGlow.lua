@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local CDMCompat = DDingUI.CDMCompat
 
 DDingUI.ProcGlow = DDingUI.ProcGlow or {}
 local ProcGlow = DDingUI.ProcGlow
@@ -40,11 +41,11 @@ ProcGlow.LibCustomGlowTypes = {
 local function GetButtonSpellID(button)
     if not button then return nil end
     local spellID = button.spellID
-    if issecretvalue and issecretvalue(spellID) then spellID = nil end
-    if type(spellID) == "number" and spellID > 0 then return spellID end
-    local cooldownID = button.cooldownID
-    if issecretvalue and issecretvalue(cooldownID) then cooldownID = nil end
-    if type(cooldownID) == "number" and cooldownID > 0 then return cooldownID end
+    if CDMCompat and CDMCompat:IsUsableID(spellID) then return spellID end
+    if CDMCompat then
+        local resolvedSpellID = CDMCompat:ResolveFrameSpellID(button)
+        if resolvedSpellID then return resolvedSpellID end
+    end
     if button.GetSpellID and type(button.GetSpellID) == "function" then
         local ok, sid = pcall(button.GetSpellID, button)
         if issecretvalue and issecretvalue(sid) then sid = nil end

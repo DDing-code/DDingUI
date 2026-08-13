@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local CDMCompat = DDingUI.CDMCompat
 local LSM = LibStub("LibSharedMedia-3.0")
 
 -- 핫패스 글로벌 → 로컬 캐싱 (성능 최적화)
@@ -442,40 +443,97 @@ local function IsAccessibleNumber(value)
 end
 
 local function HasTrackedAuraData(trackedStacks, auraInstanceID)
-    if auraInstanceID ~= nil then return true end
-    if trackedStacks == nil then return false end
+    if IsSecretValue(auraInstanceID) then return true end
+    if type(auraInstanceID) == "number" and auraInstanceID ~= 0 then return true end
+    if IsSecretValue(trackedStacks) then return true end
+    if type(trackedStacks) ~= "number" then return false end
     if IsAccessibleNumber(trackedStacks) then
         return trackedStacks > 0
     end
-    return IsSecretValue(trackedStacks)
+    return false
 end
 
 -- Helper: Get spellID from cooldownID using C_CooldownViewer API (CDM API)
 local function GetSpellIDFromCooldownID(cooldownID)
-    if not cooldownID or not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        return nil
+    if not CDMCompat then return nil end
+    return CDMCompat:ResolveInfoSpellID(CDMCompat:GetCooldownInfo(cooldownID))
+end
+
+local CDM_AURA_VIEWERS = {
+    "BuffIconCooldownViewer",
+    "BuffBarCooldownViewer",
+}
+
+function ResourceBars:SetTrackedBuffHiddenInCDM(cooldownID, shouldHide, knownFrame)
+    if not CDMCompat or not CDMCompat:IsUsableID(cooldownID) then
+        return knownFrame
+    end
+    if CDMCompat:IsSettingsOpen() then
+        return knownFrame
     end
 
-    local info
-    pcall(function()
-        info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-    end)
+    local matchedFrame = knownFrame
+    local visited = {}
 
-    if not info then return nil end
+    local function SetFrameHidden(frame, forceMatch)
+        if not frame or visited[frame] or not frame.SetAlpha then return end
 
-    -- Priority: linkedSpellIDs[1] > overrideSpellID > spellID (CDM API)
-    local spellID = nil
-    pcall(function()
-        if info.linkedSpellIDs and info.linkedSpellIDs[1] then
-            spellID = info.linkedSpellIDs[1]
-        elseif info.overrideSpellID and info.overrideSpellID > 0 then
-            spellID = info.overrideSpellID
-        elseif info.spellID and info.spellID > 0 then
-            spellID = info.spellID
+        local cachedID = frame._ddingCooldownID
+        local frameID = CDMCompat:GetFrameCooldownID(frame)
+        local cachedMatch = CDMCompat:IsUsableID(cachedID) and cachedID == cooldownID
+        local frameMatch = CDMCompat:IsUsableID(frameID) and frameID == cooldownID
+        if CDMCompat:IsUsableID(frameID) and not frameMatch then
+            if cachedMatch and frame._ddingHidden then
+                frame:SetAlpha(1)
+                frame._ddingHidden = nil
+                frame._ddingCooldownID = nil
+            end
+            return
         end
-    end)
+        if not frameMatch and not cachedMatch and not forceMatch then return end
 
-    return spellID
+        visited[frame] = true
+        matchedFrame = matchedFrame or frame
+        if shouldHide then
+            if not frame._ddingHidden or not cachedMatch then
+                frame:SetAlpha(0)
+            end
+            frame._ddingHidden = true
+            frame._ddingCooldownID = cooldownID
+        elseif frame._ddingHidden then
+            frame:SetAlpha(1)
+            frame._ddingHidden = nil
+            frame._ddingCooldownID = nil
+        end
+    end
+
+    local scanner = DDingUI.CDMScanner
+    local entry = scanner and scanner.GetEntry and scanner.GetEntry(cooldownID)
+    if entry then
+        SetFrameHidden(entry.iconFrame, true)
+        SetFrameHidden(entry.barFrame, true)
+        if entry.frame and entry.isAura ~= true and entry.frame._ddingHidden then
+            entry.frame:SetAlpha(1)
+            entry.frame._ddingHidden = nil
+            entry.frame._ddingCooldownID = nil
+        elseif entry.isAura == true then
+            SetFrameHidden(entry.frame, true)
+        end
+    end
+
+    SetFrameHidden(knownFrame, false)
+
+    for _, viewerName in ipairs(CDM_AURA_VIEWERS) do
+        local viewer = _G[viewerName]
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for frame in pool:EnumerateActive() do
+                SetFrameHidden(frame, false)
+            end
+        end
+    end
+
+    return matchedFrame
 end
 
 -- Helper: Get max charges from spell (CDM API with secret value handling)
@@ -584,21 +642,10 @@ function ResourceBars.AutoDetectAuraValues(cooldownID, fallbackSpellID)
                 local children = {}
                 if viewer.itemFramePool then
                     for f in viewer.itemFramePool:EnumerateActive() do table.insert(children, f) end
-                else
-                    children = { viewer:GetChildren() }
                 end
                 for _, child in ipairs(children) do
-                    local cdID
-                    pcall(function()
-                        cdID = child.cooldownID
-                        if not cdID and child.cooldownInfo then
-                            cdID = child.cooldownInfo.cooldownID
-                        end
-                        if not cdID and child.Icon and child.Icon.cooldownID then
-                            cdID = child.Icon.cooldownID
-                        end
-                    end)
-                    if cdID == cooldownID then
+                    local cdID = CDMCompat and CDMCompat:GetFrameCooldownID(child)
+                    if CDMCompat and CDMCompat:IsUsableID(cdID) and cdID == cooldownID then
                         frame = child
                         break
                     end
@@ -639,30 +686,14 @@ function ResourceBars.AutoDetectAuraValues(cooldownID, fallbackSpellID)
     local auraInstanceID
     if frame then
         local rawAuraID = frame.auraInstanceID
-        if rawAuraID ~= nil and not IsSecretValue(rawAuraID) then
+        if IsSecretValue(rawAuraID) then
             auraInstanceID = rawAuraID
-        elseif rawAuraID ~= nil then
-            -- secret value이지만 존재함 → pcall로 안전하게 전달
+        elseif type(rawAuraID) == "number" and rawAuraID ~= 0 then
             auraInstanceID = rawAuraID
         end
     end
 
-    -- 5. C_CooldownViewer API에서 추가 정보 가져오기
-    if not detectedMaxStacks then
-        pcall(function()
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-                if info then
-                    -- charges는 최대 충전/스택 수를 나타낼 수 있음
-                    if info.charges and not IsSecretValue(info.charges) and info.charges > 0 then
-                        detectedMaxStacks = info.charges
-                    end
-                end
-            end
-        end)
-    end
-
-    -- 6. AuraData에서 정보 가져오기 (GetAuraDataAutoUnit 방식)
+    -- 5. AuraData에서 정보 가져오기 (GetAuraDataAutoUnit 방식)
     if auraInstanceID then
         -- player 먼저 시도, 없으면 target 시도 (CDM 방식)
         local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID("player", auraInstanceID)
@@ -722,23 +753,18 @@ function ResourceBars.ScanAvailableBuffs()
 
     -- Helper: Add buff to list
     local function AddBuff(cooldownID, source)
-        if not cooldownID or seenCooldownIDs[cooldownID] then return end
+        if not CDMCompat or not CDMCompat:IsUsableID(cooldownID) or seenCooldownIDs[cooldownID] then return end
 
         -- Get spell info from CDM API
         local spellID, spellName, iconTexture
-        pcall(function()
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-                if info then
-                    -- Priority: linkedSpellIDs[1] > overrideSpellID > spellID
-                    spellID = (info.linkedSpellIDs and info.linkedSpellIDs[1]) or info.overrideSpellID or info.spellID
-                    if spellID and spellID > 0 then
-                        spellName = C_Spell.GetSpellName(spellID)
-                        iconTexture = C_Spell.GetSpellTexture(spellID)
-                    end
-                end
-            end
-        end)
+        local info = CDMCompat:GetCooldownInfo(cooldownID)
+        spellID = CDMCompat:ResolveInfoSpellID(info)
+        if spellID then
+            pcall(function()
+                spellName = C_Spell.GetSpellName(spellID)
+                iconTexture = C_Spell.GetSpellTexture(spellID)
+            end)
+        end
 
         if not spellName then return end
 
@@ -778,14 +804,9 @@ function ResourceBars.ScanAvailableBuffs()
         local children = {}
         if buffViewer.itemFramePool then
             for f in buffViewer.itemFramePool:EnumerateActive() do table.insert(children, f) end
-        else
-            children = { buffViewer:GetChildren() }
         end
         for _, child in ipairs(children) do
-            local cdID
-            pcall(function()
-                cdID = child.cooldownID or (child.cooldownInfo and child.cooldownInfo.cooldownID)
-            end)
+            local cdID = CDMCompat and CDMCompat:GetFrameCooldownID(child)
             if cdID then
                 AddBuff(cdID, "BuffIcon")
             end
@@ -798,32 +819,20 @@ function ResourceBars.ScanAvailableBuffs()
         local children = {}
         if buffBarViewer.itemFramePool then
             for f in buffBarViewer.itemFramePool:EnumerateActive() do table.insert(children, f) end
-        else
-            children = { buffBarViewer:GetChildren() }
         end
         for _, child in ipairs(children) do
-            local cdID
-            pcall(function()
-                cdID = child.cooldownID or (child.cooldownInfo and child.cooldownInfo.cooldownID)
-            end)
+            local cdID = CDMCompat and CDMCompat:GetFrameCooldownID(child)
             if cdID then
                 AddBuff(cdID, "BuffBar")
             end
         end
     end
 
-    -- SOURCE 3: CDM Category Sets (Essential=0, Utility=1)
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-        for category = 0, 1 do
-            local cooldownIDs
-            pcall(function()
-                cooldownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(category, false)
-            end)
-            if cooldownIDs then
-                local categoryName = category == 0 and "Essential" or "Utility"
-                for _, cdID in ipairs(cooldownIDs) do
-                    AddBuff(cdID, categoryName)
-                end
+    -- SOURCE 3: static category sets, including inactive tracked entries.
+    if CDMCompat then
+        for _, categoryDef in ipairs(CDMCompat:GetCategoryDefinitions()) do
+            for _, cdID in ipairs(CDMCompat:GetCategorySet(categoryDef.category, false) or {}) do
+                AddBuff(cdID, categoryDef.name)
             end
         end
     end
@@ -1126,9 +1135,9 @@ local function FindTrackedPlayerAura(cooldownID, savedSpellID)
 
         aura, matchedSpellID = TryTrackedPlayerAura(entry.spellID)
         if aura then return aura, matchedSpellID end
-    elseif cooldownID > 0 and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
-        if ok and info then
+    elseif cooldownID > 0 and CDMCompat then
+        local info = CDMCompat:GetCooldownInfo(cooldownID)
+        if info then
             aura, matchedSpellID = TryTrackedPlayerAura(info.overrideTooltipSpellID)
             if aura then return aura, matchedSpellID end
             aura, matchedSpellID = TryTrackedPlayerAura(info.overrideSpellID)
@@ -3763,110 +3772,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     local CDMScanner = DDingUI.CDMScanner
     local frame = CDMScanner and CDMScanner.FindFrameByCooldownID(cooldownID)
 
-    -- [12.0.1] CDMScanner 못 찾으면 직접 CDM 뷰어 자식 프레임 검색 (전투 중에도 캐시 기반)
-    if not frame and hideFromCDM and cooldownID > 0 then
-        pcall(function()
-            local viewers = { _G["BuffIconCooldownViewer"], _G["BuffBarCooldownViewer"] }
-            for _, viewer in ipairs(viewers) do
-                if viewer then
-                    local children = {}
-                    if viewer.itemFramePool then
-                        for f in viewer.itemFramePool:EnumerateActive() do table.insert(children, f) end
-                    else
-                        children = { viewer:GetChildren() }
-                    end
-                    for _, child in ipairs(children) do
-                        -- _ddingHidden으로 이전에 숨긴 프레임 재활용
-                        if child._ddingHidden and child._ddingCooldownID == cooldownID then
-                            frame = child
-                            break
-                        end
-                    end
-                    if frame then break end
-                end
-            end
-        end)
-    end
-
-    -- CDM에서 숨기기 (추적 중인 버프를 CDM에서 숨김 - 중복 방지)
-    -- [12.0.1] entry + frame 모두 숨김, CDMScanner 없이도 직접 뷰어 검색
-    if hideFromCDM then
-        pcall(function()
-            local entry = CDMScanner and CDMScanner.GetEntry(cooldownID)
-            -- entry가 있으면 iconFrame, barFrame 모두 숨기기
-            if entry then
-                if entry.iconFrame and entry.iconFrame.SetAlpha then
-                    entry.iconFrame:SetAlpha(0)
-                    entry.iconFrame._ddingHidden = true
-                    entry.iconFrame._ddingCooldownID = cooldownID
-                end
-                if entry.barFrame and entry.barFrame.SetAlpha then
-                    entry.barFrame:SetAlpha(0)
-                    entry.barFrame._ddingHidden = true
-                    entry.barFrame._ddingCooldownID = cooldownID
-                end
-                if entry.frame and entry.isAura ~= true
-                    and entry.frame._ddingHidden and entry.frame.SetAlpha
-                then
-                    entry.frame:SetAlpha(1)
-                    entry.frame._ddingHidden = nil
-                    entry.frame._ddingCooldownID = nil
-                end
-            end
-            -- [12.0.1+FIX] CDM 뷰어 자식 프레임 직접 검색 (항상 커버: 재활용 프레임 방지)
-            local viewers = { _G["BuffIconCooldownViewer"], _G["BuffBarCooldownViewer"] }
-            for _, viewer in ipairs(viewers) do
-                if viewer then
-                    local children = {}
-                    if viewer.itemFramePool then
-                        for f in viewer.itemFramePool:EnumerateActive() do table.insert(children, f) end
-                    else
-                        children = { viewer:GetChildren() }
-                    end
-                    for _, child in ipairs(children) do
-                        local cdID = child._ddingCooldownID
-                        if not cdID then
-                            -- 비전투 시에만 cooldownID 접근 (taint 방지)
-                            if not InCombatLockdown() then
-                                pcall(function()
-                                    cdID = child.cooldownID
-                                    if cdID then child._ddingCooldownID = cdID end
-                                end)
-                            end
-                        end
-                        if cdID == cooldownID and child.SetAlpha then
-                            child:SetAlpha(0)
-                            child._ddingHidden = true
-                            child._ddingCooldownID = cooldownID
-                        end
-                    end
-                end
-            end
-        end)
-    elseif not hideFromCDM then
-        -- CDM 숨기기 해제: 이전에 숨긴 프레임 복원
-        pcall(function()
-            local entry = CDMScanner and CDMScanner.GetEntry(cooldownID)
-            if entry then
-                if entry.iconFrame and entry.iconFrame._ddingHidden and entry.iconFrame.SetAlpha then
-                    entry.iconFrame:SetAlpha(1)
-                    entry.iconFrame._ddingHidden = nil
-                end
-                if entry.barFrame and entry.barFrame._ddingHidden and entry.barFrame.SetAlpha then
-                    entry.barFrame:SetAlpha(1)
-                    entry.barFrame._ddingHidden = nil
-                end
-                if entry.frame and entry.frame._ddingHidden and entry.frame.SetAlpha then
-                    entry.frame:SetAlpha(1)
-                    entry.frame._ddingHidden = nil
-                end
-            end
-            if frame and frame._ddingHidden and frame.SetAlpha then
-                frame:SetAlpha(1)
-                frame._ddingHidden = nil
-            end
-        end)
-    end
+    frame = self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame) or frame
 
     -- ============================================================
     -- MANUAL TRACKING MODE: Use spell-cast-based stacks instead of aura
@@ -5335,82 +5241,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         iconBorderColor = GetGroupAlertColorOverride(trackedBuff) or iconBorderColor
     end
 
-    -- CDM에서 숨기기 (추적 중인 버프를 CDM에서 숨김 - 중복 방지)
-    -- [12.0.1] entry + frame 모두 숨김, CDMScanner 없이도 직접 뷰어 검색
-    if hideFromCDM then
-        pcall(function()
-            local entry = CDMScanner and CDMScanner.GetEntry(cooldownID)
-            if entry then
-                if entry.iconFrame and entry.iconFrame.SetAlpha then
-                    entry.iconFrame:SetAlpha(0)
-                    entry.iconFrame._ddingHidden = true
-                    entry.iconFrame._ddingCooldownID = cooldownID
-                end
-                if entry.barFrame and entry.barFrame.SetAlpha then
-                    entry.barFrame:SetAlpha(0)
-                    entry.barFrame._ddingHidden = true
-                    entry.barFrame._ddingCooldownID = cooldownID
-                end
-                if entry.frame and entry.isAura ~= true
-                    and entry.frame._ddingHidden and entry.frame.SetAlpha
-                then
-                    entry.frame:SetAlpha(1)
-                    entry.frame._ddingHidden = nil
-                    entry.frame._ddingCooldownID = nil
-                end
-            end
-            -- [12.0.1+FIX] CDM 뷰어 자식 프레임 직접 검색 (항상 커버: 재활용 프레임 방지)
-            local viewers = { _G["BuffIconCooldownViewer"], _G["BuffBarCooldownViewer"] }
-            for _, viewer in ipairs(viewers) do
-                if viewer then
-                    local children = {}
-                    if viewer.itemFramePool then
-                        for f in viewer.itemFramePool:EnumerateActive() do table.insert(children, f) end
-                    else
-                        children = { viewer:GetChildren() }
-                    end
-                    for _, child in ipairs(children) do
-                        local cdID = child._ddingCooldownID
-                        if not cdID then
-                            if not InCombatLockdown() then
-                                pcall(function()
-                                    cdID = child.cooldownID
-                                    if cdID then child._ddingCooldownID = cdID end
-                                end)
-                            end
-                        end
-                        if cdID == cooldownID and child.SetAlpha then
-                            child:SetAlpha(0)
-                            child._ddingHidden = true
-                            child._ddingCooldownID = cooldownID
-                        end
-                    end
-                end
-            end
-        end)
-    elseif not hideFromCDM then
-        pcall(function()
-            local entry = CDMScanner and CDMScanner.GetEntry(cooldownID)
-            if entry then
-                if entry.iconFrame and entry.iconFrame._ddingHidden and entry.iconFrame.SetAlpha then
-                    entry.iconFrame:SetAlpha(1)
-                    entry.iconFrame._ddingHidden = nil
-                end
-                if entry.barFrame and entry.barFrame._ddingHidden and entry.barFrame.SetAlpha then
-                    entry.barFrame:SetAlpha(1)
-                    entry.barFrame._ddingHidden = nil
-                end
-                if entry.frame and entry.frame._ddingHidden and entry.frame.SetAlpha then
-                    entry.frame:SetAlpha(1)
-                    entry.frame._ddingHidden = nil
-                end
-            end
-            if frame and frame._ddingHidden and frame.SetAlpha then
-                frame:SetAlpha(1)
-                frame._ddingHidden = nil
-            end
-        end)
-    end
+    self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame)
 
     -- Hide/show logic (skip in mover/preview mode)
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
@@ -6004,82 +5835,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         textColor = GetGroupAlertColorOverride(trackedBuff) or textColor
     end
 
-    -- CDM에서 숨기기 (추적 중인 버프를 CDM에서 숨김 - 중복 방지)
-    -- [12.0.1] entry + frame 모두 숨김, CDMScanner 없이도 직접 뷰어 검색
-    if hideFromCDM then
-        pcall(function()
-            local entry = CDMScanner and CDMScanner.GetEntry(cooldownID)
-            if entry then
-                if entry.iconFrame and entry.iconFrame.SetAlpha then
-                    entry.iconFrame:SetAlpha(0)
-                    entry.iconFrame._ddingHidden = true
-                    entry.iconFrame._ddingCooldownID = cooldownID
-                end
-                if entry.barFrame and entry.barFrame.SetAlpha then
-                    entry.barFrame:SetAlpha(0)
-                    entry.barFrame._ddingHidden = true
-                    entry.barFrame._ddingCooldownID = cooldownID
-                end
-                if entry.frame and entry.isAura ~= true
-                    and entry.frame._ddingHidden and entry.frame.SetAlpha
-                then
-                    entry.frame:SetAlpha(1)
-                    entry.frame._ddingHidden = nil
-                    entry.frame._ddingCooldownID = nil
-                end
-            end
-            -- [12.0.1+FIX] CDM 뷰어 자식 프레임 직접 검색 (항상 커버: 재활용 프레임 방지)
-            local viewers = { _G["BuffIconCooldownViewer"], _G["BuffBarCooldownViewer"] }
-            for _, viewer in ipairs(viewers) do
-                if viewer then
-                    local children = {}
-                    if viewer.itemFramePool then
-                        for f in viewer.itemFramePool:EnumerateActive() do table.insert(children, f) end
-                    else
-                        children = { viewer:GetChildren() }
-                    end
-                    for _, child in ipairs(children) do
-                        local cdID = child._ddingCooldownID
-                        if not cdID then
-                            if not InCombatLockdown() then
-                                pcall(function()
-                                    cdID = child.cooldownID
-                                    if cdID then child._ddingCooldownID = cdID end
-                                end)
-                            end
-                        end
-                        if cdID == cooldownID and child.SetAlpha then
-                            child:SetAlpha(0)
-                            child._ddingHidden = true
-                            child._ddingCooldownID = cooldownID
-                        end
-                    end
-                end
-            end
-        end)
-    elseif not hideFromCDM then
-        pcall(function()
-            local entry = CDMScanner and CDMScanner.GetEntry(cooldownID)
-            if entry then
-                if entry.iconFrame and entry.iconFrame._ddingHidden and entry.iconFrame.SetAlpha then
-                    entry.iconFrame:SetAlpha(1)
-                    entry.iconFrame._ddingHidden = nil
-                end
-                if entry.barFrame and entry.barFrame._ddingHidden and entry.barFrame.SetAlpha then
-                    entry.barFrame:SetAlpha(1)
-                    entry.barFrame._ddingHidden = nil
-                end
-                if entry.frame and entry.frame._ddingHidden and entry.frame.SetAlpha then
-                    entry.frame:SetAlpha(1)
-                    entry.frame._ddingHidden = nil
-                end
-            end
-            if frame and frame._ddingHidden and frame.SetAlpha then
-                frame:SetAlpha(1)
-                frame._ddingHidden = nil
-            end
-        end)
-    end
+    self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame)
 
     -- onlyInCombat: 전투 중에만 표시
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")

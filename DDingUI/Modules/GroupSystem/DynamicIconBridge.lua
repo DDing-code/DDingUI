@@ -4,6 +4,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
+local CDMCompat = DDingUI.CDMCompat
 
 local DynamicIconBridge = {}
 DDingUI.DynamicIconBridge = DynamicIconBridge
@@ -300,21 +301,18 @@ local function AddSuppressedCooldownInfo(suppressed, cooldownID)
     if not id or id <= 0 then return end
     AddSuppressedID(suppressed, id)
 
-    if not (C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return end
-    local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, id)
-    if not ok or type(info) ~= "table" then return end
+    local info = CDMCompat and CDMCompat:GetCooldownInfo(id)
+    if type(info) ~= "table" then return end
 
     AddSuppressedID(suppressed, SafeTableField(info, "spellID"))
     AddSuppressedID(suppressed, SafeTableField(info, "overrideSpellID"))
     AddSuppressedID(suppressed, SafeTableField(info, "overrideTooltipSpellID"))
 
-    local linkedIDs = SafeTableField(info, "linkedSpellIDs")
+    local linkedIDs = info.linkedSpellIDs
     if type(linkedIDs) == "table" then
-        pcall(function()
-            for _, linkedID in pairs(linkedIDs) do
-                AddSuppressedID(suppressed, linkedID)
-            end
-        end)
+        for _, linkedID in ipairs(linkedIDs) do
+            AddSuppressedID(suppressed, linkedID)
+        end
     end
 end
 
@@ -1276,6 +1274,7 @@ end
 
 local function HideCDMFrame(frame, cooldownID)
     if not frame then return end
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     if frame._ddDynBridgeHidden then return end  -- 이미 숨김
 
     frame._ddDynBridgeHidden = true
@@ -1291,10 +1290,11 @@ local function HideCDMFrame(frame, cooldownID)
     -- Show hook: CDM이 Show() 호출하면 즉시 다시 SetAlpha(0)
     if not frame._ddDynBridgeShowHooked then
         hooksecurefunc(frame, "Show", function(self)
+            if CDMCompat and CDMCompat:IsSettingsOpen() then return end
             if self._ddDynBridgeHidden then
                 -- 프레임 재활용 감지: cooldownID 변경 시 새 ID가 억제 대상인지 확인
                 if self._ddDynBridgeHiddenCdID then
-                    local currentID = self.cooldownID
+                    local currentID = CDMCompat and CDMCompat:GetFrameCooldownID(self)
                     if currentID and currentID ~= self._ddDynBridgeHiddenCdID then
                         if not DynamicIconBridge:ShouldSuppressCooldownID(currentID) then
                             self._ddDynBridgeHidden = nil
@@ -1325,6 +1325,7 @@ local function HideCDMFrame(frame, cooldownID)
     -- SetShown hook
     if not frame._ddDynBridgeSetShownHooked then
         hooksecurefunc(frame, "SetShown", function(self, shown)
+            if CDMCompat and CDMCompat:IsSettingsOpen() then return end
             -- [FIX] secret value 방어: shown 값이 테이블(secret)일 경우 평가 시 에러 발생
             if type(shown) == "table" or (issecretvalue and issecretvalue(shown)) then return end
             if shown and self._ddDynBridgeHidden then
@@ -1340,6 +1341,7 @@ local function HideCDMFrame(frame, cooldownID)
     -- [PHASE3] SetAlpha hook — CDM이 SetAlpha(1) 호출해도 즉시 재숨김
     if not frame._ddDynBridgeAlphaHooked then
         hooksecurefunc(frame, "SetAlpha", function(self, alpha)
+            if CDMCompat and CDMCompat:IsSettingsOpen() then return end
             if self._ddAlphaGuard then return end  -- 재귀 방지
             -- [FIX] secret value 방어: alpha가 숫자가 아니면(secret table) 대조 불가
             if type(alpha) ~= "number" or (issecretvalue and issecretvalue(alpha)) then return end
@@ -1355,6 +1357,7 @@ end
 
 local function UnhideCDMFrame(frame)
     if not frame then return end
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     frame._ddDynBridgeHidden = nil
     frame._ddDynBridgeHiddenCdID = nil
     hiddenCDMFrames[frame] = nil
@@ -1368,6 +1371,7 @@ local function UnhideCDMFrame(frame)
 end
 
 local function ScanAndHideCDMBuffs()
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     local suppressed = DynamicIconBridge:GetSuppressedSpellIDs()
     if not next(suppressed) then
         for frame in pairs(hiddenCDMFrames) do
@@ -1380,35 +1384,24 @@ local function ScanAndHideCDMBuffs()
     if not viewer or not viewer.itemFramePool then return end
 
     for frame in viewer.itemFramePool:EnumerateActive() do
-        if frame and frame.cooldownID then
-            local shouldSuppress = false
-            pcall(function()
-                if frame.auraSpellID and suppressed[frame.auraSpellID] then
-                    shouldSuppress = true
-                end
-            end)
-            if not shouldSuppress then
-                pcall(function()
-                    if frame.cooldownID and suppressed[frame.cooldownID] then
-                        shouldSuppress = true
-                    end
-                end)
-            end
-            if shouldSuppress then
-                HideCDMFrame(frame, frame.cooldownID)
-            end
+        local cooldownID = CDMCompat and CDMCompat:GetFrameCooldownID(frame)
+        local spellID = CDMCompat and CDMCompat:ResolveFrameSpellID(frame)
+        local shouldSuppress = (cooldownID and suppressed[cooldownID] == true)
+            or (spellID and suppressed[spellID] == true)
+        if shouldSuppress then
+            HideCDMFrame(frame, cooldownID)
+        elseif frame and frame._ddDynBridgeHidden then
+            UnhideCDMFrame(frame)
         end
     end
 end
 
 -- cooldownID가 억제 대상인지 확인 (HideCDMFrame 재활용 체크용)
 function DynamicIconBridge:ShouldSuppressCooldownID(cooldownID)
+    local id = SafeNumber(cooldownID)
+    if not id then return false end
     local suppressed = self:GetSuppressedSpellIDs()
-    local result = false
-    pcall(function()
-        if suppressed[cooldownID] then result = true end
-    end)
-    return result
+    return suppressed[id] == true
 end
 
 -- ============================================================

@@ -763,16 +763,18 @@ end
 
 local function SafeCDMLayoutIndex(icon, fallback)
     if not icon then return fallback or 0 end
+    local compat = DDingUI.CDMCompat
 
     local ok, value = pcall(function()
         local layoutIndex = icon.layoutIndex
-        if layoutIndex == nil then return nil end
-        if issecretvalue and issecretvalue(layoutIndex) then return nil end
+        if compat and not compat:IsPublicNumber(layoutIndex) then return nil end
+        if not compat and issecretvalue and issecretvalue(layoutIndex) then return nil end
         return layoutIndex
     end)
     if ok and type(value) == "number" then return value end
 
     local okID, cooldownID = pcall(function()
+        if compat then return compat:GetFrameCooldownID(icon) end
         local cdID = icon.cooldownID
         if issecretvalue and issecretvalue(cdID) then return nil end
         return cdID
@@ -847,17 +849,13 @@ local function GetCDMIconEntries()
             local realSpellID = 0
             local iconSpellID = nil
             local spellCandidates = GetCooldownInfoSpellCandidates(nil, cooldownID)
-            pcall(function()
-                if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-                    if info then
-                        -- 표시용 스펠 우선순위: overrideTooltipSpellID > overrideSpellID > spellID > linkedSpellIDs
-                        spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
-                        iconSpellID = spellCandidates and spellCandidates[1]
-                        realSpellID = iconSpellID or 0
-                    end
-                end
-            end)
+            local compat = DDingUI.CDMCompat
+            local info = compat and compat:GetCooldownInfo(cooldownID)
+            if info then
+                spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
+                iconSpellID = spellCandidates and spellCandidates[1]
+                realSpellID = iconSpellID or 0
+            end
             tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
 
             result[#result + 1] = {

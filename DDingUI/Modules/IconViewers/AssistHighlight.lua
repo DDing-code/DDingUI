@@ -5,6 +5,7 @@
 
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local CDMCompat = DDingUI.CDMCompat
 
 DDingUI.AssistHighlight = DDingUI.AssistHighlight or {}
 local AssistHighlight = DDingUI.AssistHighlight
@@ -60,11 +61,6 @@ local function ForEachViewerIcon(viewerFrame, callback)
         for icon in viewerFrame.itemFramePool:EnumerateActive() do
             callback(icon)
         end
-    elseif IsCallable(viewerFrame, "GetChildren") then
-        local children = { viewerFrame:GetChildren() }
-        for _, child in ipairs(children) do
-            callback(child)
-        end
     end
 end
 
@@ -96,29 +92,18 @@ local function ExtractSpellIDFromIcon(icon)
             return spellID, nil
         end
     end
-    local cooldownInfo = nil
-    pcall(function()
-        cooldownInfo = icon.GetCooldownInfo and icon:GetCooldownInfo() or icon.cooldownInfo
-    end)
+    local cooldownInfo = CDMCompat and CDMCompat:GetFrameCooldownInfo(icon)
     if cooldownInfo then
-        return cooldownInfo.spellID or cooldownInfo.overrideSpellID or cooldownInfo.linkedSpellID,
+        return CDMCompat:ResolveInfoSpellID(cooldownInfo),
             cooldownInfo.overrideSpellID or cooldownInfo.linkedSpellID,
             cooldownInfo.linkedSpellIDs
-    end
-    if icon.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, icon.cooldownID)
-        if ok and info then
-            return info.spellID or info.overrideSpellID or info.linkedSpellID,
-                info.overrideSpellID or info.linkedSpellID,
-                info.linkedSpellIDs
-        end
     end
     -- [ADD] CustomIcons (GroupSystem) 지원
     if icon._iconData then
         return icon._iconData.id, nil
     end
     -- fallback for some viewers that store spellID directly
-    if icon.spellID then
+    if CDMCompat and CDMCompat:IsUsableID(icon.spellID) then
         return icon.spellID, nil
     end
     return nil
@@ -505,6 +490,7 @@ end
 -- ============================================================
 
 function AssistHighlight:UpdateViewerHighlights(viewerName)
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     local viewerFrame = _G[viewerName]
 
     if viewerFrame then
@@ -552,6 +538,7 @@ function AssistHighlight:UpdateViewerHighlights(viewerName)
 end
 
 function AssistHighlight:UpdateAllHighlights()
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     currentSuggestedSpellID = GetCurrentSuggestedSpellID()
     for _, vName in ipairs(viewerNames) do
         self:UpdateViewerHighlights(vName)

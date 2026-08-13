@@ -4,6 +4,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
+local CDMCompat = DDingUI.CDMCompat
 
 local ContainerSync = {}
 DDingUI.ContainerSync = ContainerSync
@@ -59,6 +60,10 @@ local function ShouldKeepDefaultViewersVisible()
     return DDingUI.IsPvPInstance and DDingUI:IsPvPInstance()
 end
 
+local function IsCooldownViewerSettingsOpen()
+    return CDMCompat and CDMCompat:IsSettingsOpen() or false
+end
+
 -- 뷰어별 관리 아이콘 수 계산 -- [REPARENT]
 -- SetParent 후에도 itemFramePool:EnumerateActive()는 동작 (ObjectPool은 parent 무관)
 local function CountManagedIcons(viewerName)
@@ -106,6 +111,7 @@ end
 -- ============================================================
 
 local function HideViewer(viewerName)
+    if IsCooldownViewerSettingsOpen() then return end
     local viewer = _G[viewerName]
     if not viewer then return end
     if ShouldKeepDefaultViewersVisible() then return end
@@ -132,6 +138,7 @@ local function HideViewer(viewerName)
 end
 
 local function ShowViewer(viewerName)
+    if IsCooldownViewerSettingsOpen() then return end
     local viewer = _G[viewerName]
     if not viewer then return end
     -- [CDM] BuffIcon: 항상 visible — show/hide 관리 안 함
@@ -165,6 +172,7 @@ end
 -- ============================================================
 
 local function ScheduleSnapBack(viewerName)
+    if IsCooldownViewerSettingsOpen() then return end
     if snapPending[viewerName] then return end
     snapPending[viewerName] = true
 
@@ -172,6 +180,7 @@ local function ScheduleSnapBack(viewerName)
         snapPending[viewerName] = false
 
         if not initialized then return end
+        if IsCooldownViewerSettingsOpen() then return end
         if IsInBlizzardEditMode() then return end
         if ShouldKeepDefaultViewersVisible() then return end
         -- [REFACTOR] InCombatLockdown 제거: SetAlpha는 보호 함수가 아님
@@ -204,6 +213,7 @@ local function SetupViewerHooks(viewerName)
 
     -- [HOOK 1] SetSize → 은닉 상태에서 Blizzard가 크기 변경 시 snap-back
     hooksecurefunc(viewer, "SetSize", function()
+        if IsCooldownViewerSettingsOpen() then return end
         if pushing then return end
         if IsInBlizzardEditMode() then return end
         local state = viewerState[viewerName]
@@ -214,6 +224,7 @@ local function SetupViewerHooks(viewerName)
 
     -- [HOOK 2] SetPoint → 은닉 상태에서 Blizzard가 위치 변경 시 snap-back
     hooksecurefunc(viewer, "SetPoint", function()
+        if IsCooldownViewerSettingsOpen() then return end
         if pushing then return end
         if IsInBlizzardEditMode() then return end
         local state = viewerState[viewerName]
@@ -225,6 +236,7 @@ local function SetupViewerHooks(viewerName)
     -- [HOOK 3] RefreshLayout → Layout의 근원 — snap-back
     if viewer.RefreshLayout then
         hooksecurefunc(viewer, "RefreshLayout", function()
+            if IsCooldownViewerSettingsOpen() then return end
             if pushing then return end
             if IsInBlizzardEditMode() then return end
             local state = viewerState[viewerName]
@@ -237,6 +249,7 @@ local function SetupViewerHooks(viewerName)
     -- [HOOK 4] SetIsEditing → Edit Mode 진입/퇴장 대응
     if viewer.SetIsEditing then
         hooksecurefunc(viewer, "SetIsEditing", function(_, editing)
+            if IsCooldownViewerSettingsOpen() then return end
             if pushing then return end
             if not editing then
                 -- Edit Mode 퇴장 → 다시 동기화
@@ -252,6 +265,7 @@ local function SetupViewerHooks(viewerName)
     -- [HOOK 5] SetAlpha → 은닉 상태에서 CDM이 alpha 변경 시 즉시 snap-back
     -- 로그인 직후 CDM이 뷰어 alpha를 1로 리셋 → 아이콘이 CDM 위치에서 잠깐 보이는 문제 방지
     hooksecurefunc(viewer, "SetAlpha", function(_, alpha)
+        if IsCooldownViewerSettingsOpen() then return end
         if pushing then return end
         if IsInBlizzardEditMode() then return end
         if ShouldKeepDefaultViewersVisible() then return end
@@ -269,6 +283,7 @@ local function SetupViewerHooks(viewerName)
     -- [HOOK 6] UpdateShownState → 보이기 상태 변경 대응
     if viewer.UpdateShownState then
         hooksecurefunc(viewer, "UpdateShownState", function()
+            if IsCooldownViewerSettingsOpen() then return end
             if pushing then return end
             if IsInBlizzardEditMode() then return end
             local state = viewerState[viewerName]
@@ -282,9 +297,11 @@ local function SetupViewerHooks(viewerName)
     -- CDM이 뷰어를 Show/Hide하면 (전투 진입/퇴장 등) 그룹 프레임에 전파
     -- ContainerSync는 alpha=0만 사용하므로 CDM의 Show/Hide는 독립적
     viewer:HookScript("OnShow", function()
+        if IsCooldownViewerSettingsOpen() then return end
         if pushing then return end
         if IsInBlizzardEditMode() then return end
         C_Timer.After(0, function()
+            if IsCooldownViewerSettingsOpen() then return end
             if initialized and DDingUI.GroupRenderer and DDingUI.GroupRenderer.SyncViewerVisibility then
                 DDingUI.GroupRenderer:SyncViewerVisibility(viewerName)
             end
@@ -292,6 +309,7 @@ local function SetupViewerHooks(viewerName)
     end)
 
     viewer:HookScript("OnHide", function()
+        if IsCooldownViewerSettingsOpen() then return end
         if pushing then return end
         if IsInBlizzardEditMode() then return end
         -- CDM can transiently hide a viewer while rebuilding it in combat.
@@ -301,6 +319,7 @@ local function SetupViewerHooks(viewerName)
         -- CDM은 VIEWER를 숨기지만, 개별 프레임은 정상적으로 Show/Hide 관리
         if viewerName == "BuffIconCooldownViewer" then
             C_Timer.After(0, function()
+                if IsCooldownViewerSettingsOpen() then return end
                 local v = _G["BuffIconCooldownViewer"]
                 if v and not v:IsShown() and not InCombatLockdown() then
                     pushing = true
@@ -311,6 +330,7 @@ local function SetupViewerHooks(viewerName)
             return
         end
         C_Timer.After(0, function()
+            if IsCooldownViewerSettingsOpen() then return end
             if initialized and DDingUI.GroupRenderer and DDingUI.GroupRenderer.SyncViewerVisibility then
                 DDingUI.GroupRenderer:SyncViewerVisibility(viewerName)
             end
@@ -338,6 +358,7 @@ end
 -- DDingUI에서 비활성화된 뷰어만 원래 상태 유지
 function ContainerSync:SyncViewer(viewerName)
     if not initialized then return end
+    if IsCooldownViewerSettingsOpen() then return end
     if ShouldKeepDefaultViewersVisible() then
         ShowViewer(viewerName)
         return
@@ -378,6 +399,7 @@ end
 -- 전체 동기화
 function ContainerSync:SyncAll()
     if not initialized then return end
+    if IsCooldownViewerSettingsOpen() then return end
     if IsInBlizzardEditMode() then return end
 
     for _, viewerName in pairs(CDM_VIEWER_NAMES) do

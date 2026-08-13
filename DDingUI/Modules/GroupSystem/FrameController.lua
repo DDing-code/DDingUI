@@ -5,6 +5,7 @@ local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
 local SL = _G.DDingUI_StyleLib
+local CDMCompat = DDingUI.CDMCompat
 
 local FrameController = {}
 DDingUI.FrameController = FrameController
@@ -32,6 +33,9 @@ local canaccessvalue = canaccessvalue
 
 -- [CDM 패턴] IsSafeNumber: secret value 안전 검증
 local function IsSafeNumber(value)
+    if CDMCompat then
+        return CDMCompat:IsPublicNumber(value)
+    end
     if type(canaccessvalue) == "function" and not canaccessvalue(value) then
         return false
     end
@@ -39,6 +43,20 @@ local function IsSafeNumber(value)
         return false
     end
     return type(value) == "number"
+end
+
+local function GetSafeFrameCooldownID(frame, fallback)
+    if CDMCompat then
+        local cooldownID = CDMCompat:GetFrameCooldownID(frame)
+        if cooldownID then return cooldownID end
+    elseif frame and IsSafeNumber(frame.cooldownID) then
+        return frame.cooldownID
+    end
+    return IsSafeNumber(fallback) and fallback or nil
+end
+
+local function IsCooldownViewerSettingsOpen()
+    return CDMCompat and CDMCompat:IsSettingsOpen() or false
 end
 
 -- ============================================================
@@ -243,6 +261,7 @@ end
 
 EnablePolling = function()
     if state.pollingActive then return end
+    if IsCooldownViewerSettingsOpen() then return end
     if not state.dirty then
         MarkDirty(0, true)
     end
@@ -421,6 +440,9 @@ function FrameController:_FinishPendingSpecChange(version)
 end
 
 function FrameController:_BeginPendingSpecChange(fullChange)
+    if CDMCompat then
+        CDMCompat:Invalidate()
+    end
     state.specChangeVersion = state.specChangeVersion + 1
     local version = state.specChangeVersion
 
@@ -452,6 +474,7 @@ local function FindViewers()
         local viewer = _G[def.globalName]
         if viewer and viewer.itemFramePool then
             viewerRefs[def.globalName] = viewer
+            if CDMCompat then CDMCompat:TrackViewerPool(viewer) end
             found = found + 1
         end
     end
@@ -467,6 +490,7 @@ function FrameController:RefreshViewerRefs()
     for _, def in pairs(CDM_VIEWERS) do
         local currentViewer = _G[def.globalName]
         if currentViewer and currentViewer.itemFramePool then
+            if CDMCompat then CDMCompat:TrackViewerPool(currentViewer) end
             local oldViewer = viewerRefs[def.globalName]
             if oldViewer ~= currentViewer then
                 -- 새 뷰어 감지 → 참조 갱신
@@ -547,6 +571,9 @@ local function SafeTableField(tbl, key)
 end
 
 local function GetCooldownInfoSpellID(info)
+    if CDMCompat then
+        return CDMCompat:ResolveInfoSpellID(info)
+    end
     if not info then return nil end
     local sid = SafeTableField(info, "overrideTooltipSpellID") or SafeTableField(info, "overrideSpellID") or SafeTableField(info, "spellID")
     local linkedSpellIDs = SafeTableField(info, "linkedSpellIDs")
@@ -589,7 +616,12 @@ local function BuffFrameHasPlayerAura(frame)
     local candidates = {}
     local seen = {}
 
-    if frame.GetAuraSpellID then
+    if CDMCompat then
+        AddAuraCandidate(candidates, seen, CDMCompat:ResolveFrameSpellID(frame))
+        AddCooldownInfoAuraCandidates(candidates, seen, CDMCompat:GetFrameCooldownInfo(frame))
+    end
+
+    if not CDMCompat and frame.GetAuraSpellID then
         local ok, sid = pcall(frame.GetAuraSpellID, frame)
         if ok then AddAuraCandidate(candidates, seen, sid) end
     end
@@ -597,28 +629,6 @@ local function BuffFrameHasPlayerAura(frame)
     local okAura, auraSpellID = pcall(function() return frame.auraSpellID end)
     if okAura then
         AddAuraCandidate(candidates, seen, auraSpellID)
-    end
-
-    local okInfo, info = pcall(function()
-        if frame.GetCooldownInfo then
-            return frame:GetCooldownInfo()
-        end
-        return frame.cooldownInfo
-    end)
-    if okInfo then
-        AddCooldownInfoAuraCandidates(candidates, seen, info)
-    end
-
-    local okCooldownID, cooldownID = pcall(function()
-        return frame.cooldownID
-    end)
-    if okCooldownID and IsSafeNumber(cooldownID)
-        and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    then
-        local okViewerInfo, viewerInfo = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cooldownID)
-        if okViewerInfo then
-            AddCooldownInfoAuraCandidates(candidates, seen, viewerInfo)
-        end
     end
 
     if #candidates == 0 then
@@ -717,7 +727,9 @@ local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
         return true
     end
 
-    if icon.cooldownInfo then
+    if CDMCompat and CDMCompat:GetFrameCooldownInfo(icon) then
+        return true
+    elseif not CDMCompat and icon.cooldownInfo then
         return true
     end
 
@@ -754,6 +766,7 @@ function FrameController:_ResetAcquiredCooldownFrame(frame)
     frame._ddLayoutCooldownID = nil
     frame._ddSuppressed = nil
     frame._ddingHidden = nil
+    frame._ddingCooldownID = nil
 
     frame._ddIsManaged = nil
     frame._ddContainerRef = nil
@@ -807,7 +820,10 @@ if not FrameController._poolReleaseHooked then
         viewer._ddPoolHooked = true
         -- Pool.Release: dirty만 표시 (Reconcile 즉시 트리거 안 함 → Layout 완료 후 Reconcile)
         -- Pool.Release는 CDM Layout 중간에 발생 → 즉시 Reconcile하면 미완성 상태 스캔
-        hooksecurefunc(viewer.itemFramePool, "Release", function()
+        hooksecurefunc(viewer.itemFramePool, "Release", function(_, frame)
+            if CDMCompat then
+                CDMCompat:ForgetFrame(frame)
+            end
             FrameController._diagCounters.poolRelease = FrameController._diagCounters.poolRelease + 1
             if FrameController.initialized then
                 MarkDirty()
@@ -850,28 +866,24 @@ SlashCmdList["DDBUFFDIAG"] = function()
         if shown then shownCount = shownCount + 1 end
         if not shown then hiddenCount = hiddenCount + 1 end
         if managed then managedCount = managedCount + 1 end
-        local cdStr = icon.cooldownID and tostring(icon.cooldownID) or "nil"
+        local cooldownID = GetSafeFrameCooldownID(icon)
+        local cdStr = cooldownID and tostring(cooldownID) or "nil"
         -- 스펠 이름 + 아이콘 알파 + C_UnitAuras 체크
         local spellName = "?"
         local iconAlpha = icon:GetAlpha()
         local auraActive = "?"
         pcall(function()
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo and icon.cooldownID then
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
-                if info then
-                    local sid = info.spellID or (info.linkedSpellIDs and info.linkedSpellIDs[1]) or 0
-                    spellName = C_Spell.GetSpellName(sid) or "?"
-                    -- C_UnitAuras 체크
-                    if sid and sid > 0 then
-                        local aura = C_UnitAuras.GetPlayerAuraBySpellID(sid)
-                        auraActive = aura and "YES" or "no"
-                    end
-                end
+            local info = CDMCompat and CDMCompat:GetCooldownInfo(cooldownID)
+            local sid = CDMCompat and CDMCompat:ResolveInfoSpellID(info)
+            if sid then
+                spellName = C_Spell.GetSpellName(sid) or "?"
+                local aura = C_UnitAuras.GetPlayerAuraBySpellID(sid)
+                auraActive = aura and "YES" or "no"
             end
         end)
         print(string.format("  #%d [%s] layout=%s auraSID=%s cdmA=%s managed=%s alpha=%.1f aura=%s parent=%s",
             activeCount, spellName,
-            tostring(icon.layoutIndex), tostring(icon.auraSpellID ~= nil), tostring(cdmActive), tostring(managed), iconAlpha, auraActive, parentName))
+            tostring(icon.layoutIndex), tostring(FrameController:GetSpellIDForIcon(icon) ~= nil), tostring(cdmActive), tostring(managed), iconAlpha, auraActive, parentName))
     end
     print(string.format("|cffffcc00Summary: Active=%d Shown=%d Hidden=%d Managed=%d|r",
         activeCount, shownCount, hiddenCount, managedCount))
@@ -1006,6 +1018,10 @@ end
 -- ============================================================
 
 function FrameController:ScanCDMViewers()
+    if IsCooldownViewerSettingsOpen() then
+        return false
+    end
+
     local previousCount = 0
     for _ in pairs(idIconMap) do previousCount = previousCount + 1 end
 
@@ -1048,7 +1064,7 @@ function FrameController:ScanCDMViewers()
             end
 
             for icon in viewer.itemFramePool:EnumerateActive() do
-                local cooldownID = icon.cooldownID
+                local cooldownID = GetSafeFrameCooldownID(icon)
                 if IsSafeNumber(cooldownID) and not icon.isEditing then
                     local keySafe = true
                     activeFrameCount = activeFrameCount + 1
@@ -1064,8 +1080,10 @@ function FrameController:ScanCDMViewers()
                     icon._ddSourceViewer = globalName
                     icon._ddCDMViewerShown = sourceShown and true or false
                     local trackedBuffName
+                    local resolvedSpellID
                     if globalName == "BuffIconCooldownViewer" then
                         local spellID = self:GetSpellIDForIcon(icon)
+                        resolvedSpellID = spellID
                         if spellID and C_Spell and C_Spell.GetSpellInfo then
                             local spellInfo = C_Spell.GetSpellInfo(spellID)
                             if spellInfo and spellInfo.name then
@@ -1089,7 +1107,8 @@ function FrameController:ScanCDMViewers()
                         end
                         if not icon._ddStaleBuffAlphaHooked then
                             hooksecurefunc(icon, "SetAlpha", function(self, alpha)
-                                if self._ddCDMStaleBuff and alpha and alpha > 0 then
+                                if IsCooldownViewerSettingsOpen() then return end
+                                if self._ddCDMStaleBuff and IsSafeNumber(alpha) and alpha > 0 then
                                     self:SetAlpha(0)
                                 end
                             end)
@@ -1101,7 +1120,7 @@ function FrameController:ScanCDMViewers()
                     end
                     if not shouldInclude and _debugLog then
                         local pname = icon:GetParent() and icon:GetParent():GetName() or "?"
-                        DLog("  SKIP hidden:", tostring(icon.cooldownID), "managed=" .. tostring(icon._ddIsManaged), "alpha=" .. string.format("%.2f", icon:GetAlpha()), "parent=" .. pname)
+                        DLog("  SKIP hidden:", tostring(GetSafeFrameCooldownID(icon)), "managed=" .. tostring(icon._ddIsManaged), "alpha=" .. string.format("%.2f", icon:GetAlpha()), "parent=" .. pname)
                     end
                     if shouldInclude then
                         -- [FIX] CDM 중복 억제 (DDingUI auraSpellID + CDM 분리 패턴)
@@ -1110,7 +1129,7 @@ function FrameController:ScanCDMViewers()
                         if suppressed then
                             local isSuppressed = false
                             if globalName == "BuffIconCooldownViewer" then
-                                local auraSpellID = icon.auraSpellID
+                                local auraSpellID = resolvedSpellID or self:GetSpellIDForIcon(icon)
                                 if IsSafeNumber(auraSpellID) and suppressed[auraSpellID] then
                                     isSuppressed = true
                                 elseif suppressed[cooldownID] then
@@ -1124,7 +1143,8 @@ function FrameController:ScanCDMViewers()
                                 -- [FIX] SetAlpha 훅: CDM이 SetAlpha(1) 호출해도 즉시 재적용
                                 if not icon._ddSuppressAlphaHooked then
                                     hooksecurefunc(icon, "SetAlpha", function(self, alpha)
-                                        if self._ddSuppressed and alpha and alpha > 0 then
+                                        if IsCooldownViewerSettingsOpen() then return end
+                                        if self._ddSuppressed and IsSafeNumber(alpha) and alpha > 0 then
                                             self:SetAlpha(0)
                                         end
                                     end)
@@ -1209,6 +1229,8 @@ function FrameController:ScanCDMViewers()
                             nextIconSourceMap[cooldownID] = globalName
                         end
                     end
+                else
+                    unsafeKeyCount = unsafeKeyCount + 1
                 end
             end
         end
@@ -1339,6 +1361,12 @@ function FrameController:Reconcile()
         return false
     end
 
+    if IsCooldownViewerSettingsOpen() then
+        state.dirty = true
+        state.reconcileDueAt = 0
+        return false
+    end
+
     -- [FIX] 블리자드 편집모드 중 Reconcile 완전 차단
     -- CDM이 편집모드용 테스트 프레임을 생성/파괴하면서 cooldownID에 secret value 할당
     -- 이 상태에서 ScanCDMViewers가 프레임을 순회하면 Taint 발생
@@ -1409,6 +1437,10 @@ end
 function FrameController:GetSpellIDForIcon(icon)
     if not icon then return nil end
 
+    if CDMCompat then
+        return CDMCompat:ResolveFrameSpellID(icon)
+    end
+
     local sourceName = icon.cooldownID and iconSourceMap[icon.cooldownID]
     local parent = icon.GetParent and icon:GetParent()
     if sourceName == "BuffIconCooldownViewer" or parent == viewerRefs["BuffIconCooldownViewer"] then
@@ -1468,7 +1500,8 @@ function FrameController:GetSpellName(icon)
     -- [REPARENT] 버프 뷰어 소속이면 "buff_" 접두사 (같은 이름 구분)
     -- reparent 후 GetParent()는 DDingUI 컨테이너 → iconSourceMap 사용
     local prefix = ""
-    local sourceName = icon.cooldownID and iconSourceMap[icon.cooldownID]
+    local cooldownID = GetSafeFrameCooldownID(icon)
+    local sourceName = IsSafeNumber(cooldownID) and iconSourceMap[cooldownID]
     if sourceName == "BuffIconCooldownViewer" then
         prefix = "buff_"
     elseif not sourceName then
@@ -1489,6 +1522,7 @@ end
 
 function FrameController:SetupFrameInContainer(frame, container, targetW, targetH, cooldownID)
     if not frame or not container then return end
+    if IsCooldownViewerSettingsOpen() then return end
     local needsLayoutReset = frame._ddContainerRef ~= container or frame._ddLayoutCooldownID ~= cooldownID
     if needsLayoutReset then
         ResetGroupIconLayoutState(frame, true)
@@ -1632,6 +1666,7 @@ function FrameController:InstallFrameHooks(frame)
     -- 드루이드 변신 등으로 CDM이 Layout 후 추가 SetSize 호출 → 종횡비 깨짐 방지
     if not frame._ddSetSizeHooked then
         hooksecurefunc(frame, "SetSize", function(self, w, h)
+            if IsCooldownViewerSettingsOpen() then return end
             if self._ddSettingSize then return end
             if self._ddIsManaged and self._ddTargetWidth then
                 if math_abs(w - self._ddTargetWidth) > 0.5 or math_abs(h - self._ddTargetHeight) > 0.5 then
@@ -1647,6 +1682,7 @@ function FrameController:InstallFrameHooks(frame)
     -- [HOOK] SetScale 스냅백: CDM이 managed 프레임 스케일 변경 시 1로 복원
     if not frame._ddSetScaleHooked then
         hooksecurefunc(frame, "SetScale", function(self, scale)
+            if IsCooldownViewerSettingsOpen() then return end
             if self._ddSettingScale then return end
             if self._ddIsManaged and math_abs(scale - 1) > 0.01 then
                 self._ddSettingScale = true
@@ -1661,6 +1697,7 @@ function FrameController:InstallFrameHooks(frame)
     -- CDM이 ClearAllPoints() + SetPoint(뷰어기준) 호출 → pts=0 순간 발생 → 렌더링 안 됨
     if not frame._ddClearPointsHooked then
         hooksecurefunc(frame, "ClearAllPoints", function(self)
+            if IsCooldownViewerSettingsOpen() then return end
             if self._ddSettingPosition then return end
             if self._ddIsManaged and self._ddTargetPoint and self._ddContainerRef then
                 self._ddSettingPosition = true
@@ -1680,6 +1717,7 @@ function FrameController:InstallFrameHooks(frame)
     -- [HOOK] SetPoint 스냅백: CDM Layout이 뷰어 기준으로 SetPoint → DDingUI 앵커로 복원
     if not frame._ddSetPointHooked then
         hooksecurefunc(frame, "SetPoint", function(self, point, relativeTo, ...)
+            if IsCooldownViewerSettingsOpen() then return end
             if self._ddSettingPosition then return end
             if self._ddIsManaged and self._ddContainerRef then
                 -- CDM이 뷰어 기준으로 SetPoint → DDingUI 컨테이너 기준으로 교체
@@ -1702,7 +1740,8 @@ function FrameController:InstallFrameHooks(frame)
 
     if not frame._fcShowHideHooked then
         frame:HookScript("OnShow", function(self)
-            DLog("OnShow", tostring(self.cooldownID), "managed=" .. tostring(self._ddIsManaged), "sup=" .. tostring(self._ddSuppressed), "pt=" .. tostring(self._ddTargetPoint))
+            DLog("OnShow", tostring(GetSafeFrameCooldownID(self)), "managed=" .. tostring(self._ddIsManaged), "sup=" .. tostring(self._ddSuppressed), "pt=" .. tostring(self._ddTargetPoint))
+            if IsCooldownViewerSettingsOpen() then return end
             if self._ddSuppressed then self:SetAlpha(0); return end
             if not FrameController.initialized then return end
             -- managed 프레임 즉시 복원
@@ -1730,7 +1769,8 @@ function FrameController:InstallFrameHooks(frame)
             ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
         end)
         frame:HookScript("OnHide", function(self)
-            DLog("OnHide", tostring(self.cooldownID), "managed=" .. tostring(self._ddIsManaged))
+            DLog("OnHide", tostring(GetSafeFrameCooldownID(self)), "managed=" .. tostring(self._ddIsManaged))
+            if IsCooldownViewerSettingsOpen() then return end
             if not FrameController.initialized then return end
             ScheduleReconcile(CONFIG.DEBOUNCE_ONSHOW)
         end)
@@ -1749,9 +1789,21 @@ end
 local function InstallCDMHooks()
     if state.hooksInstalled then return end
 
+    local function ResumeAfterSettings()
+        if not FrameController.initialized then return end
+        C_Timer.After(0.1, function()
+            if not FrameController.initialized or IsCooldownViewerSettingsOpen() then return end
+            if CDMCompat then CDMCompat:Invalidate() end
+            FrameController:RefreshViewerRefs()
+            MarkDirty(0, true)
+            if not state.pollingActive then EnablePolling() end
+        end)
+    end
+
     -- [HOOK A] LayoutManager.NotifyListeners — CDM 리빌드 감지 (핵심)
     if CooldownViewerSettings then
-        local layoutMgr = CooldownViewerSettings:GetLayoutManager()
+        local layoutMgr = type(CooldownViewerSettings.GetLayoutManager) == "function"
+            and CooldownViewerSettings:GetLayoutManager()
         if layoutMgr and layoutMgr.NotifyListeners then
             hooksecurefunc(layoutMgr, "NotifyListeners", function()
                 if not FrameController.initialized then return end
@@ -1761,6 +1813,25 @@ local function InstallCDMHooks()
                 ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
             end)
         end
+        if not (EventRegistry and EventRegistry.RegisterCallback)
+            and type(CooldownViewerSettings.HookScript) == "function"
+            and not state.settingsHideHooked
+        then
+            state.settingsHideHooked = true
+            CooldownViewerSettings:HookScript("OnHide", ResumeAfterSettings)
+        end
+    end
+
+    if EventRegistry and EventRegistry.RegisterCallback and not state.settingsRegistryHooked then
+        state.settingsRegistryHooked = true
+        state.settingsCallbackOwner = state.settingsCallbackOwner or {}
+        EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function()
+            if FrameController.initialized then
+                state.dirty = true
+                state.reconcileDueAt = 0
+            end
+        end, state.settingsCallbackOwner)
+        EventRegistry:RegisterCallback("CooldownViewerSettings.OnHide", ResumeAfterSettings, state.settingsCallbackOwner)
     end
 
     -- [HOOK B] CooldownViewerMixin.OnAcquireItemFrame — 새 프레임 생성 감지
@@ -1771,6 +1842,10 @@ local function InstallCDMHooks()
     if CooldownViewerMixin and CooldownViewerMixin.OnAcquireItemFrame then
         hooksecurefunc(CooldownViewerMixin, "OnAcquireItemFrame", function(viewer, frame)
             if not FrameController.initialized then return end
+            if IsCooldownViewerSettingsOpen() then
+                MarkDirty()
+                return
+            end
 
             -- [FIX] EditMode의 테스트 프레임은 무시하여 Taint 및 에러 방지
             if frame and frame.isEditing then return end
@@ -1831,6 +1906,10 @@ local function InstallCDMHooks()
     if CooldownViewerItemDataMixin and CooldownViewerItemDataMixin.SetCooldownID then
         hooksecurefunc(CooldownViewerItemDataMixin, "SetCooldownID", function(itemFrame, cooldownID)
             if not FrameController.initialized then return end
+            if IsCooldownViewerSettingsOpen() then
+                MarkDirty()
+                return
+            end
 
             -- [FIX] EditMode의 테스트 프레임은 무시하여 Taint 에러 방지
             if itemFrame and itemFrame.isEditing then return end
@@ -1840,8 +1919,16 @@ local function InstallCDMHooks()
 
 
             -- cooldownID 실제 변경 시에만 처리
+            if CDMCompat and CDMCompat:IsUsableID(cooldownID) then
+                CDMCompat:RememberFrame(itemFrame, cooldownID)
+            end
+            local safeCooldownID = GetSafeFrameCooldownID(itemFrame, cooldownID)
+            if not IsSafeNumber(safeCooldownID) then
+                ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
+                return
+            end
             local prevCdID = itemFrame._ddLastCooldownID
-            if prevCdID and prevCdID == cooldownID then return end
+            if IsSafeNumber(prevCdID) and prevCdID == safeCooldownID then return end
             if itemFrame._ddIsManaged then
                 ResetGroupIconLayoutState(itemFrame, false)
                 local container = itemFrame._ddContainerRef
@@ -1850,7 +1937,7 @@ local function InstallCDMHooks()
                     container._lastDynHash = nil
                 end
             end
-            itemFrame._ddLastCooldownID = cooldownID
+            itemFrame._ddLastCooldownID = safeCooldownID
 
             ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
         end)
@@ -1862,6 +1949,10 @@ local function InstallCDMHooks()
             hookedViewerLayout[viewer] = true
             hooksecurefunc(viewer, "Layout", function()
                 if FrameController.initialized then
+                    if IsCooldownViewerSettingsOpen() then
+                        MarkDirty()
+                        return
+                    end
                     -- [FIX] Layout 후 managed 아이콘이 viewer 자식으로 복귀했는지 체크
                     -- CDM LayoutMixin이 C++로 위치를 설정하면 hooksecurefunc 우회됨
                     -- 즉시 UIParent로 re-parent하여 다음 Layout에서 영향 안 받게 함
@@ -1894,11 +1985,13 @@ local function InstallCDMHooks()
             -- 스펙 변경/레벨업 등에서 뷰어가 사라지는 것 방지
             viewer:HookScript("OnHide", function(self)
                 if InCombatLockdown() then return end
+                if IsCooldownViewerSettingsOpen() then return end
                 -- 로딩 화면 중에는 재표시하지 않음
                 if FrameController._loadingScreenActive then return end
                 if state.specChangeDetected or state.talentChangeDetected then return end
                 C_Timer.After(0, function()
                     if InCombatLockdown() then return end
+                    if IsCooldownViewerSettingsOpen() then return end
                     if state.specChangeDetected or state.talentChangeDetected then return end
                     if not self:IsShown() then
                         self:Show()
@@ -1914,13 +2007,13 @@ local function InstallCDMHooks()
     -- CDM Layout이 뷰어 내부에 배치하기 전에 reparent 완료
     local function ProvisionalReparent(frame)
         if not frame then return end
+        if IsCooldownViewerSettingsOpen() then return end
         if frame._ddIsManaged then return end  -- 이미 관리 중이면 snap-back으로 처리됨
         if frame.isEditing then return end
 
         -- cooldownID 가져오기
-        local cooldownID = frame.cooldownID
-        if not cooldownID then return end
-        if issecretvalue and issecretvalue(cooldownID) then return end
+        local cooldownID = GetSafeFrameCooldownID(frame)
+        if not IsSafeNumber(cooldownID) then return end
 
         -- ClassifyIcon으로 하이재킹 대상 그룹 판별
         local GroupManager = DDingUI.GroupManager
@@ -1954,7 +2047,9 @@ local function InstallCDMHooks()
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
             if not FrameController.initialized then return end
+            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
+            if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame._ddCDMStaleBuff then
                 RestoreStaleBuffFrame(frame)
             end
@@ -1987,7 +2082,9 @@ local function InstallCDMHooks()
     if CooldownViewerEssentialItemMixin and CooldownViewerEssentialItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerEssentialItemMixin, "OnCooldownIDSet", function(frame)
             if not FrameController.initialized then return end
+            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
+            if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
             if frame and frame._ddIsManaged and frame._ddContainerRef then
                 local parent = frame:GetParent()
@@ -2016,7 +2113,9 @@ local function InstallCDMHooks()
     if CooldownViewerUtilityItemMixin and CooldownViewerUtilityItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerUtilityItemMixin, "OnCooldownIDSet", function(frame)
             if not FrameController.initialized then return end
+            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
+            if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
             if frame and frame._ddIsManaged and frame._ddContainerRef then
                 local parent = frame:GetParent()
@@ -2042,7 +2141,9 @@ local function InstallCDMHooks()
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnCooldownIDSet", function(frame)
             if not FrameController.initialized then return end
+            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
+            if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
@@ -2229,9 +2330,11 @@ end
 -- ============================================================
 
 function FrameController:ShowGroupAssignPopup(icon)
-    if not icon or not icon.cooldownID then return end
+    if not icon then return end
+    local cooldownID = GetSafeFrameCooldownID(icon)
+    if not IsSafeNumber(cooldownID) then return end
 
-    local spellName = self:GetSpellNameForID(icon.cooldownID) or self:GetSpellName(icon)
+    local spellName = self:GetSpellNameForID(cooldownID) or self:GetSpellName(icon)
     if not spellName then return end
 
     local GroupManager = DDingUI.GroupManager
@@ -2329,6 +2432,7 @@ function FrameController:Initialize()
     eventFrame:RegisterEvent("PLAYER_LEVEL_UP")  -- [FIX] 레벨업 시 CDM 뷰어 재생성 감지
     eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     eventFrame:RegisterEvent("SPELLS_CHANGED")
+    eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
     eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -2336,6 +2440,9 @@ function FrameController:Initialize()
     -- [CDM 패턴] LOADING_SCREEN — OnHide 복원에서 로딩 중 재표시 방지
     eventFrame:RegisterEvent("LOADING_SCREEN_ENABLED")
     eventFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+    pcall(eventFrame.RegisterEvent, eventFrame, "COOLDOWN_VIEWER_DATA_LOADED")
+    pcall(eventFrame.RegisterEvent, eventFrame, "COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED")
+    pcall(eventFrame.RegisterEvent, eventFrame, "COOLDOWN_VIEWER_TABLE_HOTFIXED")
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "LOADING_SCREEN_ENABLED" then
             FrameController._loadingScreenActive = true
@@ -2353,6 +2460,16 @@ function FrameController:Initialize()
         end
 
         if not FrameController.initialized then return end
+
+        if event == "COOLDOWN_VIEWER_DATA_LOADED"
+            or event == "COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED"
+            or event == "COOLDOWN_VIEWER_TABLE_HOTFIXED"
+        then
+            if CDMCompat then CDMCompat:Invalidate() end
+            FrameController:RefreshViewerRefs()
+            ScheduleReconcile(0, true)
+            return
+        end
 
         if event == "PLAYER_ENTERING_WORLD" or event == "PVP_MATCH_STATE_CHANGED" or event == "ZONE_CHANGED_NEW_AREA" then
             RunPvPTransitionRecovery(event)
@@ -2374,7 +2491,12 @@ function FrameController:Initialize()
             if state.specChangeDetected then return end
             FrameController:_BeginPendingSpecChange(false)
 
+        elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+            if CDMCompat then CDMCompat:Invalidate() end
+            ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL, true)
+
         elseif event == "SPELLS_CHANGED" then
+            if CDMCompat then CDMCompat:Invalidate() end
             if state.specChangeDetected or state.talentChangeDetected then
                 FrameController:_FinishPendingSpecChange(state.specChangeVersion)
             else
@@ -2475,10 +2597,9 @@ SlashCmdList["DDBUFFDUMP"] = function()
             local liveSID = "?"
             local auraActive = "?"
             pcall(function()
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cid)
+                local info = CDMCompat and CDMCompat:GetCooldownInfo(cid)
                 if info then
-                    local sid = (info.linkedSpellIDs and info.linkedSpellIDs[1])
-                        or info.overrideSpellID or info.spellID
+                    local sid = CDMCompat:ResolveInfoSpellID(info)
                     liveSID = tostring(sid) .. " type=" .. type(sid)
                     if sid and type(sid) == "number" and sid > 0 then
                         local aura = C_UnitAuras.GetPlayerAuraBySpellID(sid)
@@ -2536,22 +2657,22 @@ SlashCmdList["DDBUFFDIAG"] = function()
             for icon in v.itemFramePool:EnumerateActive() do
                 total = total + 1
                 if icon:IsShown() then shown = shown + 1 end
-                pcall(function()
-                    if icon.auraSpellID then hasAura = hasAura + 1 end
-                end)
-                if #samples < 5 and icon.cooldownID then
+                local resolvedSpellID = FrameController:GetSpellIDForIcon(icon)
+                if resolvedSpellID then hasAura = hasAura + 1 end
+                local cooldownID = GetSafeFrameCooldownID(icon)
+                if #samples < 5 and cooldownID then
                     local sid = "?"
                     pcall(function()
-                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
+                        local info = CDMCompat and CDMCompat:GetCooldownInfo(cooldownID)
                         if info then
-                            sid = tostring((info.linkedSpellIDs and info.linkedSpellIDs[1]) or info.spellID or "?")
+                            sid = tostring(CDMCompat:ResolveInfoSpellID(info) or "?")
                             local n = C_Spell.GetSpellName(tonumber(sid) or 0)
                             if n then sid = sid .. "(" .. n .. ")" end
                         end
                     end)
                     samples[#samples+1] = string.format("  CID:%s Shown:%s Aura:%s SID:%s",
-                        tostring(icon.cooldownID), tostring(icon:IsShown()),
-                        tostring(icon.auraSpellID ~= nil), sid)
+                        tostring(cooldownID), tostring(icon:IsShown()),
+                        tostring(resolvedSpellID ~= nil), sid)
                 end
             end
             P(vName, "Total:", total, "Shown:", shown, "HasAura:", hasAura)

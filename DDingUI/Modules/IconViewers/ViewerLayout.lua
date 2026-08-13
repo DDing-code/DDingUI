@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local CDMCompat = DDingUI.CDMCompat
 
 local IconViewers = DDingUI.IconViewers
 if not IconViewers then
@@ -369,20 +370,13 @@ local function IsPlaceholderIcon(iconFrame)
     -- CDM 패턴: cooldownInfo/IsActive/cooldownID 등 복합 체크
     if not iconFrame then return true end
 
-    -- layoutIndex가 존재하면 확실히 활성 아이콘
-    local ok, hasLayout = pcall(function()
-        return iconFrame.layoutIndex ~= nil
-    end)
-    if ok and hasLayout then return false end
-
-    -- layoutIndex가 nil이더라도 다른 방법으로 활성 상태 판단
-    -- cooldownInfo: CDM이 쿨다운 데이터를 할당한 프레임
-    if iconFrame.cooldownInfo then return false end
-    -- cooldownID: CDM이 쿨다운 ID를 할당한 프레임
-    local okID, hasCooldownID = pcall(function()
-        return iconFrame.cooldownID ~= nil
-    end)
-    if okID and hasCooldownID then return false end
+    local layoutIndex = iconFrame.layoutIndex
+    if CDMCompat and CDMCompat:IsPublicValue(layoutIndex) and layoutIndex ~= nil then
+        return false
+    end
+    if CDMCompat and (CDMCompat:GetFrameCooldownID(iconFrame) or CDMCompat:GetFrameCooldownInfo(iconFrame)) then
+        return false
+    end
     -- IsActive: CDM 프레임의 활성 상태 메서드
     if iconFrame.IsActive and type(iconFrame.IsActive) == "function" then
         local okActive, isActive = pcall(iconFrame.IsActive, iconFrame)
@@ -810,6 +804,7 @@ end
 -- ApplyViewerLayout/RescanViewer/CenterBuffIcons 등 모든 뷰어 함수에서 사용
 local function IsViewerReady(viewer)
     if not viewer then return false end
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return false end
     -- IsInitialized가 없는 뷰어는 (이미 초기화된 것으로) 통과
     if viewer.IsInitialized and not viewer:IsInitialized() then return false end
     -- EditMode 레이아웃 적용 중이면 스킵 (secret value / taint 방지)
@@ -1384,10 +1379,12 @@ local function HookViewerOnHideReshow(viewerName)
     _viewerOnHideHooked[viewer] = true
     viewer:HookScript("OnHide", function()
         if InCombatLockdown() then return end
+        if CDMCompat and CDMCompat:IsSettingsOpen() then return end
         if _loadingScreenActive then return end
         if _pendingSpecChange then return end  -- 스펙/특성 변경 중 재표시 억제
         C_Timer.After(0, function()
             if InCombatLockdown() then return end
+            if CDMCompat and CDMCompat:IsSettingsOpen() then return end
             if _loadingScreenActive then return end
             if _pendingSpecChange then return end
             if not viewer:IsShown() then
@@ -1483,10 +1480,7 @@ do
                 local total, populated = 0, 0
                 for frame in v.itemFramePool:EnumerateActive() do
                     total = total + 1
-                    local hasData = false
-                    pcall(function()
-                        hasData = frame.layoutIndex ~= nil or frame.cooldownID ~= nil
-                    end)
+                    local hasData = not IsPlaceholderIcon(frame)
                     if hasData then populated = populated + 1 end
                 end
                 if total > 0 and populated < total then

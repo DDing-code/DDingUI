@@ -3,6 +3,7 @@ local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
 local LSM = LibStub("LibSharedMedia-3.0", true)
+local CDMCompat = DDingUI.CDMCompat
 local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
 
 DDingUI.IconCustomization = DDingUI.IconCustomization or {}
@@ -112,28 +113,25 @@ end
 -- Helper function to get spell ID from an icon frame
 local function GetSpellIDFromIcon(iconFrame)
     if not iconFrame then return nil end
-    
-    local spellID = nil
-    pcall(function()
-        -- Try cooldownInfo first (Blizzard's cooldown manager format)
-        if iconFrame.cooldownInfo then
-            spellID = iconFrame.cooldownInfo.overrideSpellID or iconFrame.cooldownInfo.spellID
-        end
-        -- Fallback to other common properties
-        if not spellID then
-            spellID = iconFrame.spellID or iconFrame.SpellID
-        end
-        if not spellID and iconFrame.GetSpellID then
-            spellID = iconFrame:GetSpellID()
-        end
-        if not spellID and iconFrame.GetSpellId then
-            spellID = iconFrame:GetSpellId()
-        end
-    end)
-    if issecretvalue and issecretvalue(spellID) then
-        return nil
+
+    if CDMCompat then
+        local spellID = CDMCompat:ResolveFrameSpellID(iconFrame)
+        if spellID then return spellID end
     end
-    return spellID
+
+    local spellID = iconFrame.spellID
+    if not (issecretvalue and issecretvalue(spellID))
+        and type(spellID) == "number" and spellID > 0
+    then
+        return spellID
+    end
+    spellID = iconFrame.SpellID
+    if not (issecretvalue and issecretvalue(spellID))
+        and type(spellID) == "number" and spellID > 0
+    then
+        return spellID
+    end
+    return nil
 end
 
 -- Detect viewer type for an icon frame (returns "Buff", "Essential", "Utility", or nil)
@@ -148,10 +146,7 @@ local function GetViewerType(iconFrame)
     }
 
     -- 방법 1: FrameController iconSourceMap (가장 신뢰 — reparent 무관)
-    local cooldownID = iconFrame.cooldownID
-    if issecretvalue and issecretvalue(cooldownID) then
-        cooldownID = nil
-    end
+    local cooldownID = CDMCompat and CDMCompat:GetFrameCooldownID(iconFrame)
     if cooldownID then
         local fc = DDingUI.FrameController or DDingUI.CDMHookEngine
         if fc and fc.GetIconSource then
@@ -218,20 +213,18 @@ local function ScanViewerIcons(viewerName)
     -- UIParent reparent 후 GetChildren()은 빈 결과 반환 → pool 방식으로 전환
     if viewer.itemFramePool then
         for child in viewer.itemFramePool:EnumerateActive() do
-            if child and child.cooldownID then
-                local spellID = GetSpellIDFromIcon(child)
-                if spellID and not spellMap[spellID] then
-                    spellMap[spellID] = true
+            local spellID = GetSpellIDFromIcon(child)
+            if spellID and not spellMap[spellID] then
+                spellMap[spellID] = true
 
-                    local ok, spellInfo = pcall(C_Spell.GetSpellInfo, spellID)
-                    if ok and spellInfo then
-                        table.insert(icons, {
-                            spellID = spellID,
-                            spellName = spellInfo.name or "Unknown",
-                            iconTexture = spellInfo.iconID or C_Spell.GetSpellTexture(spellID),
-                            viewerName = viewerName,
-                        })
-                    end
+                local ok, spellInfo = pcall(C_Spell.GetSpellInfo, spellID)
+                if ok and spellInfo then
+                    table.insert(icons, {
+                        spellID = spellID,
+                        spellName = spellInfo.name or "Unknown",
+                        iconTexture = spellInfo.iconID or C_Spell.GetSpellTexture(spellID),
+                        viewerName = viewerName,
+                    })
                 end
             end
         end

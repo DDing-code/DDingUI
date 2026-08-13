@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local CDMCompat = DDingUI.CDMCompat
 
 -- Get IconViewers module
 local IconViewers = DDingUI.IconViewers
@@ -25,6 +26,23 @@ local function GetCdData(frame)
     local d = cdData[frame]
     if not d then d = {}; cdData[frame] = d end
     return d
+end
+
+local function HasCDMFrameData(icon)
+    if not icon then return false end
+    local layoutIndex = icon.layoutIndex
+    if CDMCompat and CDMCompat:IsPublicValue(layoutIndex) and layoutIndex ~= nil then
+        return true
+    end
+    if CDMCompat then
+        return CDMCompat:GetFrameCooldownID(icon) ~= nil
+            or CDMCompat:GetFrameCooldownInfo(icon) ~= nil
+    end
+    return false
+end
+
+local function IsCooldownViewerSettingsOpen()
+    return CDMCompat and CDMCompat:IsSettingsOpen() or false
 end
 
 -- Helper Functions
@@ -505,6 +523,7 @@ local function ReconcileAuraVisualSettings(icon, cooldown, cdd, settings)
 end
 
 function IconViewers:SkinIcon(icon, settings)
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     -- Skip skinning during EditMode to avoid triggering Blizzard secret value errors
     -- Check both IsShown() and editModeActive for complete protection
     if EditModeManagerFrame then
@@ -526,13 +545,9 @@ function IconViewers:SkinIcon(icon, settings)
     -- Use pcall to safely check cooldownID without triggering taint
     -- [FIX] _ddIsManaged 프레임은 건너뜀: 버프 갱신 중 cooldownID 일시 nil 가능
     if not icon._ddIsManaged then
-        local success, wasReset = pcall(function()
-            -- [FIX] DynBridge 프레임(_ddIconKey)은 cooldownID 없어도 리셋이 아님
-            if icon._ddIconKey then return false end
-            local id = iconData[icon]
-            return icon.cooldownID == nil and (id and id.skinned)
-        end)
-        if success and wasReset then
+        local id = iconData[icon]
+        local wasReset = not icon._ddIconKey and not HasCDMFrameData(icon) and id and id.skinned
+        if wasReset then
             -- Frame was reset by CDM pool system - hide our borders and reset skinned flag
             local id = iconData[icon]
             if id then
@@ -554,11 +569,7 @@ function IconViewers:SkinIcon(icon, settings)
     if icon._ddIsManaged or icon._ddIconKey then
         isPlaceholder = false
     else
-        pcall(function()
-            if icon.layoutIndex ~= nil then isPlaceholder = false; return end
-            if icon.cooldownInfo then isPlaceholder = false; return end
-            if icon.cooldownID ~= nil then isPlaceholder = false; return end
-        end)
+        isPlaceholder = not HasCDMFrameData(icon)
     end
     if isPlaceholder and icon.IsActive and type(icon.IsActive) == "function" then
         local okA, activeVal = pcall(icon.IsActive, icon)
@@ -675,8 +686,11 @@ function IconViewers:SkinIcon(icon, settings)
         -- AddMaskTexture 훅
         if iconTexture.AddMaskTexture then
             hooksecurefunc(iconTexture, "AddMaskTexture", function(self, mask)
+                if IsCooldownViewerSettingsOpen() then return end
                 if icon._ddIsManaged and mask then
-                    if _texDebug then print("|cffff8888[TEX]|r AddMask", tostring(icon.cooldownID)) end
+                    if _texDebug then
+                        print("|cffff8888[TEX]|r AddMask", tostring(CDMCompat and CDMCompat:GetFrameCooldownID(icon)))
+                    end
                     self:RemoveMaskTexture(mask)
                 end
             end)
@@ -684,6 +698,7 @@ function IconViewers:SkinIcon(icon, settings)
 
         -- SetTexCoord 훅
         hooksecurefunc(iconTexture, "SetTexCoord", function(self)
+            if IsCooldownViewerSettingsOpen() then return end
             if icon._ddIsManaged and icon._ddTexCoord and not icon._ddSettingTexCoord then
                 local tc = icon._ddTexCoord
                 icon._ddSettingTexCoord = true
@@ -694,6 +709,7 @@ function IconViewers:SkinIcon(icon, settings)
 
         -- Hide 훅
         hooksecurefunc(iconTexture, "Hide", function(self)
+            if IsCooldownViewerSettingsOpen() then return end
             if icon._ddIsManaged then
                 self:Show()
             end
@@ -702,7 +718,9 @@ function IconViewers:SkinIcon(icon, settings)
         -- SetShown 훅
         if iconTexture.SetShown then
             hooksecurefunc(iconTexture, "SetShown", function(self, shown)
-                if icon._ddIsManaged and not shown then
+                if IsCooldownViewerSettingsOpen() then return end
+                if CDMCompat and not CDMCompat:IsPublicValue(shown) then return end
+                if icon._ddIsManaged and shown == false then
                     self:Show()
                 end
             end)
@@ -710,20 +728,31 @@ function IconViewers:SkinIcon(icon, settings)
 
         -- SetAlpha 훅 (texture level)
         hooksecurefunc(iconTexture, "SetAlpha", function(self, a)
-            if icon._ddIsManaged and a and a < 0.01 then
+            if IsCooldownViewerSettingsOpen() then return end
+            if CDMCompat and not CDMCompat:IsPublicNumber(a) then return end
+            if icon._ddIsManaged and type(a) == "number" and a < 0.01 then
                 self:SetAlpha(1)
             end
         end)
 
         -- SetVertexColor 훅 (alpha channel로 숨길 수 있음)
         hooksecurefunc(iconTexture, "SetVertexColor", function(self, r, g, b, a)
-            if icon._ddIsManaged and a and a < 0.01 then
+            if IsCooldownViewerSettingsOpen() then return end
+            if CDMCompat and (not CDMCompat:IsPublicNumber(r)
+                or not CDMCompat:IsPublicNumber(g)
+                or not CDMCompat:IsPublicNumber(b)
+                or not CDMCompat:IsPublicNumber(a))
+            then
+                return
+            end
+            if icon._ddIsManaged and type(a) == "number" and a < 0.01 then
                 self:SetVertexColor(r or 1, g or 1, b or 1, 1)
             end
         end)
 
         -- ClearAllPoints 훅 (앵커 제거 → 렌더링 안 됨)
         hooksecurefunc(iconTexture, "ClearAllPoints", function(self)
+            if IsCooldownViewerSettingsOpen() then return end
             if icon._ddIsManaged and not icon._ddSettingSkin then
                 self:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
                 self:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
@@ -1203,6 +1232,7 @@ function IconViewers:SkinIcon(icon, settings)
                         if not region.hookedHideText then
                             region.hookedHideText = true
                             hooksecurefunc(region, "Show", function(self)
+                                if IsCooldownViewerSettingsOpen() then return end
                                 local cd = self:GetParent()
                                 if cd and cd.noCooldownCount then
                                     self:Hide()
@@ -1366,6 +1396,7 @@ function IconViewers:SkinIcon(icon, settings)
 end
 
 function IconViewers:SkinAllIconsInViewer(viewer)
+    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
     if not viewer or not viewer.GetName then return end
 
     local name     = viewer:GetName()
@@ -1382,11 +1413,7 @@ function IconViewers:SkinAllIconsInViewer(viewer)
             local skipIcon = false
             if isBuffViewer then
                 local isPlaceholder = true
-                pcall(function()
-                    if icon.layoutIndex ~= nil then isPlaceholder = false; return end
-                    if icon.cooldownInfo then isPlaceholder = false; return end
-                    if icon.cooldownID ~= nil then isPlaceholder = false; return end
-                end)
+                isPlaceholder = not HasCDMFrameData(icon)
                 if isPlaceholder and icon.IsActive and type(icon.IsActive) == "function" then
                     local okA, activeVal = pcall(icon.IsActive, icon)
                     if okA and not (issecretvalue and issecretvalue(activeVal)) and activeVal then isPlaceholder = false end

@@ -1628,7 +1628,7 @@ function DDingUI:CreateConfigFrame()
     local savedScale = (DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.general and DDingUI.db.profile.general.guiScale) or 1.0
     frame:SetScale(savedScale)
 
-    -- 프레임 닫힐 때 버프 트래커 미리보기 모드 종료 + CooldownViewerSettings 닫기
+    -- 프레임 닫힐 때 설정 전용 미리보기와 타이머 정리
     frame:SetScript("OnHide", function()
         if DDingUI.DisableBuffTrackerPreview then
             DDingUI:DisableBuffTrackerPreview()
@@ -1664,11 +1664,6 @@ function DDingUI:CreateConfigFrame()
         -- DDingUI CDM 기능 사용 시 CDM이 항상 활성화되어야 스캔/추적이 정상 작동
         -- CVar를 "0"으로 되돌리면 viewer 자식 프레임이 소멸 → 재열기 시 스캔 0개 반환
         DDingUI._cdmPrevCooldownViewerEnabled = nil
-        -- [12.0.1] 고급 재사용 대기시간 관리자(CooldownViewerSettings) 같이 닫기
-        local cdmSettings = _G["CooldownViewerSettings"]
-        if cdmSettings and cdmSettings:IsShown() then
-            cdmSettings:Hide()
-        end
     end)
 
     -- UF 통일: 수직 그라데이션 제거 → 플랫 배경 (StyleLib ApplyBackdrop이 이미 적용)
@@ -3421,19 +3416,8 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         end
     end)
 
-    -- [12.0.1] 고급 재사용 대기시간 관리자(CooldownViewerSettings) 자동 열기
-    C_Timer.After(0.15, function()
-        if frame and frame:IsShown() then
-            local cdmSettings = _G["CooldownViewerSettings"]
-            if cdmSettings and cdmSettings.Show then
-                cdmSettings:Show()
-                cdmSettings:Raise()
-            end
-        end
-    end)
-
-    -- [12.0.1] CDM 활성화 후 카탈로그 자동 스캔 (viewer 프레임 재생성 대기 후)
-    C_Timer.After(0.5, function()
+    -- 공개 CDM 카탈로그를 갱신한 뒤 설정 그리드에 반영한다.
+    C_Timer.After(0, function()
         if frame and frame:IsShown() and DDingUI.CDMScanner then
             DDingUI.CDMScanner.ScanAll()
             if DDingUI.UpdateCDMIconGrid then
