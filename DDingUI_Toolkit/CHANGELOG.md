@@ -1,4 +1,24 @@
-# DDingUI Toolkit 1.3.1
+# DDingUI Toolkit Changelog
+
+## 2.1
+
+Release date: 2026-08-14
+
+## English
+
+- Updated addon metadata and runtime version reporting for WoW 12.1.
+- Refreshed the shared DDingUI branding and corrected the wordmark color treatment.
+- Refined the settings workspace, edit mode, and module activation behavior.
+- Expanded combat and raid utilities while improving English and Korean localization coverage.
+
+## 한국어
+
+- WoW 12.1에 맞게 애드온 메타데이터와 런타임 버전 표시를 업데이트했습니다.
+- DDingUI 공통 브랜딩을 새로 적용하고 워드마크 색상 처리를 보정했습니다.
+- 설정 작업공간, 편집 모드 및 모듈 활성화 동작을 개선했습니다.
+- 전투 및 공격대 편의 기능을 확장하고 영문·한글 번역 범위를 보완했습니다.
+
+## 1.3.1
 
 Release date: 2026-07-31
 

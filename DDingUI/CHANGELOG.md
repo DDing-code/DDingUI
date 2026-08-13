@@ -2,6 +2,25 @@
 
 ---
 
+## v2.1
+
+_Release date: 2026-08-14_
+_Scope: Git changes from v1.3.5 through this release._
+
+### English Patch Notes
+- Updated Cooldown Manager integration for the WoW 12.1 viewer-data lifecycle and related hotfix events.
+- Added stable public metadata and frame-identity caching so specialization, talent, equipment, and frame-pool rebuilds preserve configured icons and ordering.
+- Suspended custom frame manipulation while Blizzard Cooldown Manager settings are open, then safely resynchronized after the settings close.
+- Reduced startup stalls by limiting edit-mode selection styling and cooldown-font updates to owned frames.
+- Strengthened secret-value handling and prevented incomplete scans from clearing existing icon catalogs or layouts.
+
+### Korean Patch Notes
+- WoW 12.1의 쿨다운 관리자 뷰어 데이터 생명주기와 관련 핫픽스 이벤트에 맞게 연동 코드를 업데이트했습니다.
+- 공개 메타데이터와 프레임 식별 정보를 안정적으로 캐시하여 전문화, 특성, 장비 및 프레임 풀 갱신 후에도 설정한 아이콘과 순서를 유지합니다.
+- 블리자드 쿨다운 관리자 설정창이 열린 동안 사용자 프레임 조작을 중단하고, 설정창을 닫은 뒤 안전하게 다시 동기화하도록 변경했습니다.
+- 편집 모드 선택 효과와 재사용 대기시간 글꼴 갱신 범위를 DDingUI 소유 프레임으로 제한하여 시작 시 지연을 줄였습니다.
+- 시크릿 값 처리 경로를 강화하고 불완전한 스캔이 기존 아이콘 카탈로그나 레이아웃을 비우지 않도록 보호했습니다.
+
 ## v1.3.5
 
 _Release date: 2026-08-08_
