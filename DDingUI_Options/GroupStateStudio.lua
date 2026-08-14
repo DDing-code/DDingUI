@@ -206,6 +206,19 @@ local function MarkDirty()
     end
 end
 
+local function RefreshStateStudioOptions(groupName, delay)
+    local configFrame = _G["DDingUI_ConfigFrame"]
+    if configFrame and configFrame:IsShown() and groupName then
+        configFrame._requestedSubTabPath = {
+            "group_" .. tostring(groupName),
+            "stateStudio",
+        }
+    end
+    if DDingUI.SoftRefreshGroupSystemOptions then
+        DDingUI:SoftRefreshGroupSystemOptions(delay or 0)
+    end
+end
+
 local function RefreshRuntime(context, changes)
     local layoutChanged = false
     local glowChanged = false
@@ -227,9 +240,7 @@ local function RefreshRuntime(context, changes)
         DDingUI.GroupSystem:RequestFullUpdate()
     end
 
-    if DDingUI.SoftRefreshGroupSystemOptions then
-        DDingUI:SoftRefreshGroupSystemOptions(0.03)
-    end
+    RefreshStateStudioOptions(context.groupName, 0.03)
 end
 
 local function WriteChanges(groupName, changes)
@@ -289,9 +300,7 @@ local function SetSelectedState(groupName, context, state)
     if not context.capabilities[state] then return end
     DDingUI._groupStateStudioSelection = DDingUI._groupStateStudioSelection or {}
     DDingUI._groupStateStudioSelection[GetSelectionKey(groupName, context)] = state
-    if DDingUI.SoftRefreshGroupSystemOptions then
-        DDingUI:SoftRefreshGroupSystemOptions(0)
-    end
+    RefreshStateStudioOptions(groupName, 0)
 end
 
 local function MakeToggle(groupName, label, scope, key, order, defaultValue)
