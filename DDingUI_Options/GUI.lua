@@ -1563,21 +1563,6 @@ end
 -- Settings Search System
 -- ============================================
 
--- Keep the native and DDingUI settings panels mutually exclusive.
-function DDingUI:InstallNativeCooldownSettingsHandoff()
-    if self._nativeCooldownSettingsHandoffInstalled then return end
-    if not EventRegistry or type(EventRegistry.RegisterCallback) ~= "function" then return end
-
-    self._nativeCooldownSettingsHandoffOwner = self._nativeCooldownSettingsHandoffOwner or {}
-    EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function()
-        local configFrame = _G["DDingUI_ConfigFrame"]
-        if configFrame and configFrame:IsShown() then
-            configFrame:Hide()
-        end
-    end, self._nativeCooldownSettingsHandoffOwner)
-    self._nativeCooldownSettingsHandoffInstalled = true
-end
-
 -- Create main config frame (StyleLib tree-menu layout)
 function DDingUI:CreateConfigFrame()
     local searchDebounceTimer
@@ -1678,6 +1663,10 @@ function DDingUI:CreateConfigFrame()
         -- DDingUI CDM 기능 사용 시 CDM이 항상 활성화되어야 스캔/추적이 정상 작동
         -- CVar를 "0"으로 되돌리면 viewer 자식 프레임이 소멸 → 재열기 시 스캔 0개 반환
         DDingUI._cdmPrevCooldownViewerEnabled = nil
+        local nativeSettings = _G["CooldownViewerSettings"]
+        if nativeSettings and nativeSettings:IsShown() then
+            HideUIPanel(nativeSettings)
+        end
     end)
 
     -- UF 통일: 수직 그라데이션 제거 → 플랫 배경 (StyleLib ApplyBackdrop이 이미 적용)
@@ -2591,7 +2580,6 @@ end
 -- ============================================
 function DDingUI:OpenConfigGUI(options, tabKey)
     local frame = self:CreateConfigFrame()
-    self:InstallNativeCooldownSettingsHandoff()
 
     if not options then
         if self.configOptions then
@@ -3413,13 +3401,24 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         end
     end
 
-    local nativeSettings = _G["CooldownViewerSettings"]
-    if nativeSettings and nativeSettings:IsShown() then
-        HideUIPanel(nativeSettings)
-    end
-
     frame:Show()
     frame:Raise()
+
+    C_Timer.After(0.15, function()
+        if not frame or not frame:IsShown() then return end
+
+        local nativeSettings = _G["CooldownViewerSettings"]
+        if not nativeSettings then return end
+
+        if not nativeSettings:IsShown() then
+            if type(nativeSettings.ShowUIPanel) == "function" then
+                nativeSettings:ShowUIPanel()
+            else
+                ShowUIPanel(nativeSettings)
+            end
+        end
+        nativeSettings:Raise()
+    end)
 
     -- 프레임 표시 후 레이아웃 확정 → scrollChild 너비 동기화
     C_Timer.After(0.05, function()
