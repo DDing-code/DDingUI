@@ -2040,16 +2040,27 @@ local function InstallCDMHooks()
         end
     end
 
+    local function RequestTrackedAuraRefresh()
+        local resourceBars = DDingUI.ResourceBars
+        if resourceBars and resourceBars.RequestBuffTrackerUpdate then
+            resourceBars:RequestBuffTrackerUpdate("cdm-aura-state", 0.05)
+        end
+    end
+
     -- [HOOK E] Mixin.OnCooldownIDSet — 아이콘 생성 즉시 감지 (CDM 핵심 패턴)
     -- CDM이 아이콘에 cooldownID를 할당하는 시점 → 가장 빠른 감지 타이밍
     -- HOOK C(SetCooldownID)보다 먼저 실행되어 managed 프레임 즉시 snap-back
     if CooldownViewerBuffIconItemMixin and CooldownViewerBuffIconItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
+            if CDMCompat then
+                CDMCompat:ForgetFrame(frame)
+                CDMCompat:GetFrameCooldownID(frame)
+            end
             if not FrameController.initialized then return end
+            RequestTrackedAuraRefresh()
             if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
-            if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame._ddCDMStaleBuff then
                 RestoreStaleBuffFrame(frame)
             end
@@ -2140,10 +2151,14 @@ local function InstallCDMHooks()
     -- [HOOK G] BuffBar Mixin OnCooldownIDSet (CDM 패턴 — DDingUI 누락 보완)
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnCooldownIDSet", function(frame)
+            if CDMCompat then
+                CDMCompat:ForgetFrame(frame)
+                CDMCompat:GetFrameCooldownID(frame)
+            end
             if not FrameController.initialized then return end
+            RequestTrackedAuraRefresh()
             if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
-            if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
@@ -2154,6 +2169,7 @@ local function InstallCDMHooks()
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnActiveStateChanged then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnActiveStateChanged", function(frame)
             if not FrameController.initialized then return end
+            RequestTrackedAuraRefresh()
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
         end)
@@ -2164,6 +2180,7 @@ local function InstallCDMHooks()
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             if not FrameController.initialized then return end
+            RequestTrackedAuraRefresh()
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
         end)

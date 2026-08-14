@@ -453,6 +453,70 @@ local function HasTrackedAuraData(trackedStacks, auraInstanceID)
     return false
 end
 
+local function HasAuraInstanceID(value)
+    if IsSecretValue(value) then return true end
+    return type(value) == "number" and value ~= 0
+end
+
+local function HasAuraResult(value)
+    if IsSecretValue(value) then return true end
+    return value ~= nil
+end
+
+local function GetAuraInstanceCacheKey(value)
+    if IsSecretValue(value) then return "secret" end
+    if type(value) == "number" and value ~= 0 then return value end
+    return nil
+end
+
+local function IsTrackedAuraFrameActive(frame)
+    if not frame then return false end
+
+    if type(frame.IsActive) == "function" then
+        local ok, result = pcall(frame.IsActive, frame)
+        if ok and not IsSecretValue(result) and type(result) == "boolean" then
+            return result
+        end
+    end
+
+    local active = frame.isActive
+    if not IsSecretValue(active) and active == true then
+        return true
+    end
+
+    local wasSetFromAura = frame.wasSetFromAura
+    if not IsSecretValue(wasSetFromAura) and wasSetFromAura == true then
+        return true
+    end
+
+    return HasAuraInstanceID(frame.auraInstanceID)
+end
+
+local function AcceptTrackedFrame(frame, cooldownID)
+    if not frame then return nil end
+    if not CDMCompat or not CDMCompat.GetFrameCooldownID then return frame end
+
+    local frameCooldownID = CDMCompat:GetFrameCooldownID(frame)
+    if IsAccessibleNumber(frameCooldownID) and frameCooldownID == cooldownID then
+        return frame
+    end
+    return nil
+end
+
+local function ResolveTrackedFrame(cooldownID)
+    local controller = DDingUI.FrameController
+    if controller and controller.GetIconFrame then
+        local frame = AcceptTrackedFrame(controller:GetIconFrame(cooldownID), cooldownID)
+        if frame then return frame end
+    end
+
+    local scanner = DDingUI.CDMScanner
+    if scanner and scanner.FindFrameByCooldownID then
+        return AcceptTrackedFrame(scanner.FindFrameByCooldownID(cooldownID), cooldownID)
+    end
+    return nil
+end
+
 -- Helper: Get spellID from cooldownID using C_CooldownViewer API (CDM API)
 local function GetSpellIDFromCooldownID(cooldownID)
     if not CDMCompat then return nil end
@@ -627,11 +691,7 @@ function ResourceBars.AutoDetectAuraValues(cooldownID, fallbackSpellID)
 
     -- 4. CDM Viewer에서 프레임 찾기
     -- [PERF] GetChildren() 전체 스캔 → CDMScanner 캐시 우선 사용
-    local frame = nil
-    local CDMScanner = DDingUI.CDMScanner or _G.CDMScanner
-    if CDMScanner and CDMScanner.FindFrameByCooldownID then
-        frame = CDMScanner.FindFrameByCooldownID(cooldownID)
-    end
+    local frame = ResolveTrackedFrame(cooldownID)
 
     -- CDMScanner 캐시 미스 시에만 fallback 스캔
     if not frame then
@@ -694,7 +754,7 @@ function ResourceBars.AutoDetectAuraValues(cooldownID, fallbackSpellID)
     end
 
     -- 5. AuraData에서 정보 가져오기 (GetAuraDataAutoUnit 방식)
-    if auraInstanceID then
+    if HasAuraInstanceID(auraInstanceID) then
         -- player 먼저 시도, 없으면 target 시도 (CDM 방식)
         local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID("player", auraInstanceID)
         local unit = "player"
@@ -963,8 +1023,21 @@ local buffTrackerManualEventsRegistered = false
 local buffTrackerUpdatePending = false
 local buffTrackerUpdateTimer
 local buffTrackerUpdateDueAt = 0
+local buffTrackerAuraSettleTimer
+local buffTrackerAuraFinalTimer
 local QueueBuffTrackerUpdate
 local SetBuffTrackerEventsEnabled
+
+local function CancelBuffTrackerAuraSettleTimers()
+    if buffTrackerAuraSettleTimer then
+        buffTrackerAuraSettleTimer:Cancel()
+        buffTrackerAuraSettleTimer = nil
+    end
+    if buffTrackerAuraFinalTimer then
+        buffTrackerAuraFinalTimer:Cancel()
+        buffTrackerAuraFinalTimer = nil
+    end
+end
 
 -- 모든 bar 프레임의 위치/스타일 캐시를 초기화
 -- 전문화 변경 시 이전 전문화의 앵커 정보가 남아있으면 위치가 틀어짐
@@ -1040,19 +1113,34 @@ end
 -- GetBuffStacks 함수 -- [FIX] secret value 방어 강화
 local function GetBuffStacks(frame, unit)
     if not frame then return 0, nil end
-    -- [FIX] auraInstanceID 존재 여부를 secret value 안전하게 확인
-    local rawAuraID = frame.auraInstanceID
-    if rawAuraID == nil then return 0, nil end
+    if not IsTrackedAuraFrameActive(frame) then return 0, nil end
 
+    local rawAuraID = frame.auraInstanceID
     unit = unit or "player"
-    local ok, result, activeAuraInstanceID = pcall(function()
-        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, rawAuraID)
-        if not auraData then return 0, nil end
-        -- secret value든 숫자든 그대로 반환 (SetText/SetValue가 처리)
-        return auraData.applications or 1, rawAuraID
-    end)
-    if ok then return result or 0, activeAuraInstanceID end
-    return 0, nil
+    local stacks = 1
+
+    local scanner = DDingUI.CDMScanner
+    if scanner and scanner.GetStacksFromFrame then
+        local ok, frameStacks = pcall(scanner.GetStacksFromFrame, frame)
+        if ok and IsAccessibleNumber(frameStacks) and frameStacks > 0 then
+            stacks = frameStacks
+        end
+    end
+
+    if HasAuraInstanceID(rawAuraID)
+        and C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID
+    then
+        local ok, auraData = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, rawAuraID)
+        if ok and HasAuraResult(auraData) and not IsSecretValue(auraData) then
+            local applications = auraData.applications
+            if IsAccessibleNumber(applications) and applications > 0 then
+                stacks = applications
+            end
+        end
+        return stacks, rawAuraID
+    end
+
+    return stacks, nil
 end
 
 -- Global Aura search fallback
@@ -1108,51 +1196,51 @@ end
 local function TryTrackedPlayerAura(spellID)
     if not IsAccessibleNumber(spellID) or spellID <= 0 then return nil, nil end
     local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-    return aura, aura and spellID or nil
+    return aura, HasAuraResult(aura) and spellID or nil
 end
 
 local function FindTrackedPlayerAura(cooldownID, savedSpellID)
     local aura, matchedSpellID = TryTrackedPlayerAura(savedSpellID)
-    if aura then return aura, matchedSpellID end
+    if HasAuraResult(aura) then return aura, matchedSpellID end
 
     local scanner = DDingUI.CDMScanner
     local entry = scanner and scanner.GetEntry and scanner.GetEntry(cooldownID)
     if entry then
         aura, matchedSpellID = TryTrackedPlayerAura(entry.overrideTooltipSpellID)
-        if aura then return aura, matchedSpellID end
+        if HasAuraResult(aura) then return aura, matchedSpellID end
         aura, matchedSpellID = TryTrackedPlayerAura(entry.overrideSpellID)
-        if aura then return aura, matchedSpellID end
+        if HasAuraResult(aura) then return aura, matchedSpellID end
         aura, matchedSpellID = TryTrackedPlayerAura(entry.displaySpellID)
-        if aura then return aura, matchedSpellID end
+        if HasAuraResult(aura) then return aura, matchedSpellID end
 
         local linkedSpellIDs = entry.linkedSpellIDs
         if type(linkedSpellIDs) == "table" then
             for index = 1, #linkedSpellIDs do
                 aura, matchedSpellID = TryTrackedPlayerAura(linkedSpellIDs[index])
-                if aura then return aura, matchedSpellID end
+                if HasAuraResult(aura) then return aura, matchedSpellID end
             end
         end
 
         aura, matchedSpellID = TryTrackedPlayerAura(entry.spellID)
-        if aura then return aura, matchedSpellID end
+        if HasAuraResult(aura) then return aura, matchedSpellID end
     elseif cooldownID > 0 and CDMCompat then
         local info = CDMCompat:GetCooldownInfo(cooldownID)
         if info then
             aura, matchedSpellID = TryTrackedPlayerAura(info.overrideTooltipSpellID)
-            if aura then return aura, matchedSpellID end
+            if HasAuraResult(aura) then return aura, matchedSpellID end
             aura, matchedSpellID = TryTrackedPlayerAura(info.overrideSpellID)
-            if aura then return aura, matchedSpellID end
+            if HasAuraResult(aura) then return aura, matchedSpellID end
 
             local linkedSpellIDs = info.linkedSpellIDs
             if type(linkedSpellIDs) == "table" then
                 for index = 1, #linkedSpellIDs do
                     aura, matchedSpellID = TryTrackedPlayerAura(linkedSpellIDs[index])
-                    if aura then return aura, matchedSpellID end
+                    if HasAuraResult(aura) then return aura, matchedSpellID end
                 end
             end
 
             aura, matchedSpellID = TryTrackedPlayerAura(info.spellID)
-            if aura then return aura, matchedSpellID end
+            if HasAuraResult(aura) then return aura, matchedSpellID end
         end
     end
 
@@ -1179,21 +1267,43 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
 
     -- Tracked Bar frames can be recycled when the aura activates in combat.
     -- Resolve the live aura from every spell ID attached to the cooldown entry.
-    local directAura, resolvedSpellID = FindTrackedPlayerAura(cooldownID, spellID)
-    if directAura then
-        trackedStacks = directAura.applications or 1
-        auraInstanceID = directAura.auraInstanceID
-        unit = "player"
+    local resolvedSpellID
+    if not HasTrackedAuraData(trackedStacks, auraInstanceID) then
+        local directAura
+        directAura, resolvedSpellID = FindTrackedPlayerAura(cooldownID, spellID)
+        if HasAuraResult(directAura) then
+            trackedStacks = 1
+            if not IsSecretValue(directAura) then
+                local applications = directAura.applications
+                if IsAccessibleNumber(applications) and applications > 0 then
+                    trackedStacks = applications
+                end
+                local directAuraInstanceID = directAura.auraInstanceID
+                if HasAuraInstanceID(directAuraInstanceID) then
+                    auraInstanceID = directAuraInstanceID
+                end
+            end
+            unit = "player"
+        end
     end
 
     -- [FIX] spellID/cooldownID로 못 찾으면 spellName 기반 전역 aura 검색
     -- (리로드 직후 CDMScanner 미초기화 + spellID=0 대응)
-    if not auraInstanceID and spellName and spellName ~= "" then
+    if not HasTrackedAuraData(trackedStacks, auraInstanceID) and spellName and spellName ~= "" then
         pcall(function()
             local aura, foundUnit = FindAuraGloballyByName(spellName)
-            if aura then
-                trackedStacks = aura.applications or 1
-                auraInstanceID = aura.auraInstanceID
+            if HasAuraResult(aura) then
+                trackedStacks = 1
+                if not IsSecretValue(aura) then
+                    local applications = aura.applications
+                    if IsAccessibleNumber(applications) and applications > 0 then
+                        trackedStacks = applications
+                    end
+                    local foundAuraInstanceID = aura.auraInstanceID
+                    if HasAuraInstanceID(foundAuraInstanceID) then
+                        auraInstanceID = foundAuraInstanceID
+                    end
+                end
                 unit = foundUnit or "player"
             end
         end)
@@ -1315,7 +1425,10 @@ SetBuffTrackerEventsEnabled = function(enabled, specCfg, trackedBuffs)
     buffTrackerEventFrame:UnregisterAllEvents()
     buffTrackerEventsRegistered = enabled
     buffTrackerManualEventsRegistered = manualEventsEnabled
-    if not enabled then return end
+    if not enabled then
+        CancelBuffTrackerAuraSettleTimers()
+        return
+    end
 
     if manualEventsEnabled then
         buffTrackerEventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
@@ -1375,8 +1488,26 @@ QueueBuffTrackerUpdate = function(reason, delay)
     end)
 end
 
+local function QueueBuffTrackerAuraSettleRefresh()
+    if not buffTrackerAuraSettleTimer then
+        buffTrackerAuraSettleTimer = C_Timer.NewTimer(0.2, function()
+            buffTrackerAuraSettleTimer = nil
+            QueueBuffTrackerUpdate("aura-settle", 0)
+        end)
+    end
+    if not buffTrackerAuraFinalTimer then
+        buffTrackerAuraFinalTimer = C_Timer.NewTimer(0.7, function()
+            buffTrackerAuraFinalTimer = nil
+            QueueBuffTrackerUpdate("aura-final", 0)
+        end)
+    end
+end
+
 function ResourceBars:RequestBuffTrackerUpdate(reason, delay)
     QueueBuffTrackerUpdate(reason or "external", delay)
+    if reason == "cdm-aura-state" then
+        QueueBuffTrackerAuraSettleRefresh()
+    end
 end
 
 local playerInCombat = false
@@ -1406,6 +1537,7 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         local unit = ...
         if unit == "player" then
             QueueBuffTrackerUpdate("unit-aura")
+            QueueBuffTrackerAuraSettleRefresh()
         end
         return
     end
@@ -2680,7 +2812,7 @@ local function EvaluateComparison(current, op, target)
 end
 
 local function GetAlertAuraTiming(hasData, auraInstanceID, unit)
-    if not hasData or not auraInstanceID then return nil, nil end
+    if not hasData or not HasAuraInstanceID(auraInstanceID) then return nil, nil end
 
     local remaining, duration
     pcall(function()
@@ -3580,10 +3712,7 @@ function ResourceBars:UpdateBuffTrackerBar()
                     HideOtherTrackedBuffDisplays(barIndex, "trigger")  -- Hide ALL visuals
                     -- 알림 평가를 위한 아우라 상태 확인
                     local cooldownID = tonumber(trackedBuff.cooldownID) or 0
-                    local scanner = DDingUI.CDMScanner
-                    local triggerFrame = scanner
-                        and scanner.FindFrameByCooldownID
-                        and scanner.FindFrameByCooldownID(cooldownID)
+                    local triggerFrame = ResolveTrackedFrame(cooldownID)
                     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
                         cooldownID,
                         triggerFrame,
@@ -3769,8 +3898,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     end
 
     -- CDM 프레임 찾기 (cooldownID가 없을 수도 있음)
-    local CDMScanner = DDingUI.CDMScanner
-    local frame = CDMScanner and CDMScanner.FindFrameByCooldownID(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID)
 
     frame = self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame) or frame
 
@@ -3850,7 +3978,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         end
 
         -- 2. CDM 바에서 못 찾으면 aura 데이터에서 duration 읽기
-        if not detectedDuration and auraInstanceID then
+        if not detectedDuration and HasAuraInstanceID(auraInstanceID) then
             pcall(function()
                 local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                 if auraData and auraData.duration and auraData.duration > 0 then
@@ -3924,10 +4052,11 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             -- Circular/Square/Donut/Ring 스타일: Cooldown 프레임 초기화
             if barStyle == "circular" or barStyle == "square" or barStyle == "donut" or barStyle == "ring" then
                 -- [12.0.1] 버프 갱신 시 Clear 후 재설정
-                if bar._lastCooldownAuraID ~= auraInstanceID then
+                local auraCacheKey = GetAuraInstanceCacheKey(auraInstanceID)
+                if bar._lastCooldownAuraID ~= auraCacheKey then
                     bar.Cooldown:Clear()
                 end
-                bar._lastCooldownAuraID = auraInstanceID
+                bar._lastCooldownAuraID = auraCacheKey
                 pcall(function()
                     local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                     if auraData and auraData.expirationTime and auraData.duration then
@@ -3994,7 +4123,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     end
 
                     -- Auto 모드: auraID 기반 duration 계산
-                    if not data.auraID then return end
+                    if not HasAuraInstanceID(data.auraID) then return end
 
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -4034,7 +4163,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 local remaining = math_max(0, manualExpiresAt - GetTime())
                 bar.StatusBar:SetValue(remaining)
             -- 초기값 설정 (Auto 모드)
-            elseif auraInstanceID then
+            elseif HasAuraInstanceID(auraInstanceID) then
                 pcall(function()
                     local durObj = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
                     if durObj then
@@ -4089,10 +4218,11 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             -- Circular/Square/Donut/Ring 스타일: Cooldown 프레임 초기화 (스택 모드에서도)
             if barStyle == "circular" or barStyle == "square" or barStyle == "donut" or barStyle == "ring" then
                 -- [12.0.1] 버프 갱신 시 Clear 후 재설정
-                if bar._lastCooldownAuraID ~= auraInstanceID then
+                local auraCacheKey = GetAuraInstanceCacheKey(auraInstanceID)
+                if bar._lastCooldownAuraID ~= auraCacheKey then
                     bar.Cooldown:Clear()
                 end
-                bar._lastCooldownAuraID = auraInstanceID
+                bar._lastCooldownAuraID = auraCacheKey
                 pcall(function()
                     local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                     if auraData and auraData.expirationTime and auraData.duration then
@@ -4105,7 +4235,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             if not bar._hasDurationUpdate then
                 RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
-                    if not data or not data.auraID then return end
+                    if not data or not HasAuraInstanceID(data.auraID) then return end
                     if not ShouldRunDurationUpdate(self, elapsed, data.progressUpdateInterval) then return end
 
                     pcall(function()
@@ -4481,7 +4611,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         if durationWarningEnabled and hasData then
             local initialRemaining = nil
             pcall(function()
-                if auraInstanceID then
+                if HasAuraInstanceID(auraInstanceID) then
                     local durObj = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
                     if durObj then
                         initialRemaining = durObj:GetRemainingDuration()
@@ -4596,8 +4726,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local current, total, hasData, actualDuration, remainingDuration = 0, maxStacks, false, stackDuration, 0
 
     -- CDM 프레임 찾기
-    local CDMScanner = DDingUI.CDMScanner
-    local frame = CDMScanner and CDMScanner.FindFrameByCooldownID(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID)
 
     -- Manual mode
     local manualStackCount, manualExpiresAt = nil, nil
@@ -4628,7 +4757,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         or ringColor
 
     -- Duration 데이터 가져오기
-        if hasData and auraInstanceID then
+        if hasData and HasAuraInstanceID(auraInstanceID) then
             pcall(function()
                 local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                 if aData then
@@ -4667,7 +4796,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         end
 
         -- 2. CDM 바에서 못 찾으면 aura 데이터에서 duration 읽기
-        if not detectedDuration and auraInstanceID then
+        if not detectedDuration and HasAuraInstanceID(auraInstanceID) then
             pcall(function()
                 local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                 if auraData and auraData.duration and auraData.duration > 0 then
@@ -4871,7 +5000,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                 bar.Cooldown:Clear()
             end
         end)
-    elseif auraInstanceID and unit then
+    elseif HasAuraInstanceID(auraInstanceID) and unit then
         -- 3b. CDM 없음: C_UnitAuras API fallback
         pcall(function()
             local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
@@ -4916,7 +5045,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                 self._textElapsed = 0
 
                 local data = bar._durationData
-                if not data or not data.auraID then return end
+                if not data or not HasAuraInstanceID(data.auraID) then return end
 
                 -- 텍스트 표시: secret value로 직접 설정
                 if bar.TextValue then
@@ -5014,7 +5143,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                     if not data or not data.showDurationText then return end
 
                     pcall(function()
-                        if data.auraID then
+                        if HasAuraInstanceID(data.auraID) then
                             local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
                             if durObj then
                                 local remaining = durObj:GetRemainingDuration()
@@ -5050,7 +5179,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             end
             -- Duration data
             local expiresAt = nil
-            if auraInstanceID then
+            if HasAuraInstanceID(auraInstanceID) then
                 pcall(function()
                     local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                     if aData and aData.expirationTime then expiresAt = aData.expirationTime end
@@ -5211,8 +5340,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     end
 
     -- Get tracking data
-    local CDMScanner = DDingUI.CDMScanner
-    local frame = CDMScanner and CDMScanner.FindFrameByCooldownID(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID)
 
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
@@ -5342,12 +5470,13 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     end
 
     -- Set cooldown swipe (duration display)
-    if hasData and auraInstanceID then
+    if hasData and HasAuraInstanceID(auraInstanceID) then
         -- [12.0.1] 버프 갱신 시 auraInstanceID 변경 → Clear 후 재설정
-        if icon._lastAuraInstanceID ~= auraInstanceID then
+        local auraCacheKey = GetAuraInstanceCacheKey(auraInstanceID)
+        if icon._lastAuraInstanceID ~= auraCacheKey then
             icon.Cooldown:Clear()
         end
-        icon._lastAuraInstanceID = auraInstanceID
+        icon._lastAuraInstanceID = auraCacheKey
 
         -- [12.0.1] pcall 보호: secret value 비교(> 0) 제거, nil 체크만 사용
         pcall(function()
@@ -5435,7 +5564,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         -- 네이티브 쿨다운 카운트다운 숨기기 (DurationText가 대체)
         icon.Cooldown:SetHideCountdownNumbers(true)
 
-        if hasData and auraInstanceID then
+        if hasData and HasAuraInstanceID(auraInstanceID) then
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not icon._hasDurationUpdate then
                 RegisterDurationUpdate(icon, function(self, elapsed)
@@ -5463,7 +5592,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                     end
 
                     -- Auto 모드
-                    if not data.auraID then return end
+                    if not HasAuraInstanceID(data.auraID) then return end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
                         if durObj then
@@ -5671,8 +5800,7 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     end
 
     -- Get tracking data
-    local CDMScanner = DDingUI.CDMScanner
-    local frame = CDMScanner and CDMScanner.FindFrameByCooldownID(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID)
 
     -- [12.0.1] Taint-safe stacks resolution
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
@@ -5724,7 +5852,7 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
                 tracker.lastPlayTime = now
                 tracker.endBeforePlayed = true
             end
-        elseif hasData and not tracker.endBeforePlayed and auraInstanceID then
+        elseif hasData and not tracker.endBeforePlayed and HasAuraInstanceID(auraInstanceID) then
             pcall(function()
                 local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                 if auraData and auraData.expirationTime then
@@ -5807,8 +5935,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     end
 
     -- Get tracking data
-    local CDMScanner = DDingUI.CDMScanner
-    local frame = CDMScanner and CDMScanner.FindFrameByCooldownID(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID)
 
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
@@ -5899,7 +6026,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             displayText = "0"
         end
     elseif textDisplayMode == "duration" then
-        if hasData and auraInstanceID then
+        if hasData and HasAuraInstanceID(auraInstanceID) then
             pcall(function()
                 local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
                 if auraData and auraData.expirationTime then
@@ -5948,7 +6075,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         textFrame.DurationText:SetFont(dtFontPath, DDingUI:Scale(dtSize), "OUTLINE")
         textFrame.DurationText:SetTextColor(dtColor[1] or 1, dtColor[2] or 1, dtColor[3] or 1, dtColor[4] or 1)
 
-        if hasData and auraInstanceID then
+        if hasData and HasAuraInstanceID(auraInstanceID) then
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not textFrame._hasDurationUpdate then
                 RegisterDurationUpdate(textFrame, function(self, elapsed)
@@ -5976,7 +6103,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                     end
 
                     -- Auto 모드
-                    if not data.auraID then return end
+                    if not HasAuraInstanceID(data.auraID) then return end
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
                         if durObj then
