@@ -18,6 +18,7 @@ _Scope: Git changes from v1.3.5 through this release._
 - Removed the redundant Display Reason workspace and its alternate-click route to simplify icon editing.
 - Kept State Studio on the selected group and tab after changing controls instead of returning to the initial settings page.
 - Applied explicit group size, text, and layout edits immediately while retaining guards against background frame manipulation.
+- Stopped reading protected incremental `UNIT_AURA` fields. Bloodlust detection now coalesces public aura scans and discards secret aura values before comparison.
 
 ### Korean Patch Notes
 - WoW 12.1의 쿨다운 관리자 뷰어 데이터 생명주기와 관련 핫픽스 이벤트에 맞게 연동 코드를 업데이트했습니다.
@@ -30,6 +31,7 @@ _Scope: Git changes from v1.3.5 through this release._
 - 중복되던 표시 이유 작업 화면과 보조 클릭 진입 경로를 제거하여 아이콘 편집 흐름을 단순화했습니다.
 - 상태 스튜디오에서 값을 변경해도 초기 설정 화면으로 돌아가지 않고 선택한 그룹과 탭을 유지합니다.
 - 백그라운드 프레임 조작 보호는 유지하면서 사용자가 변경한 그룹 크기, 텍스트 및 레이아웃 설정은 즉시 반영되도록 수정했습니다.
+- 보호된 `UNIT_AURA` 증분 필드를 읽지 않도록 변경했습니다. 블러드 감지는 공개 오라 조회를 짧은 주기로 통합하고 시크릿 오라 값은 비교 전에 제외합니다.
 
 ## v1.3.5
 
