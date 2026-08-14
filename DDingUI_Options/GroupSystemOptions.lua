@@ -5114,8 +5114,8 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             GameTooltip:AddLine(desc, 0.75, 0.75, 0.75, true)
         end
         GameTooltip:AddLine(
-            rawget(L, "Click for individual settings | Alt-click for display reason | Drag to reorder | Right-click to manage")
-                or "Click for individual settings | Alt-click for display reason | Drag to reorder | Right-click to manage",
+            rawget(L, "Click for individual settings | Drag to reorder | Right-click to manage")
+                or "Click for individual settings | Drag to reorder | Right-click to manage",
             0.35,
             1,
             0.45,
@@ -5198,7 +5198,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                         if _G["DDingUI_ConfigFrame"] then
                             _G["DDingUI_ConfigFrame"]._requestedSubTabPath = {
                                 "group_" .. groupName,
-                                IsAltKeyDown and IsAltKeyDown() and "iconDiagnostics" or "iconDetails",
+                                "iconDetails",
                             }
                         end
                         SoftRefreshGroupSystemOptions(0)
@@ -6578,13 +6578,6 @@ local function CreateGroupOptions(groupName, order)
         name = rawget(L, "Individual Settings") or "Individual Settings",
         order = 15,
         args = DDingUI:BuildGroupIconDetailArgs(groupName),
-    }
-
-    args.iconDiagnostics = {
-        type = "group",
-        name = rawget(L, "Display Reason") or "Display Reason",
-        order = 16,
-        args = DDingUI:BuildGroupIconDiagnosticsArgs(groupName),
     }
 
     -- ========== 2. 스펠 관리 ==========
