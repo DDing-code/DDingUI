@@ -876,67 +876,67 @@ CastBars.CastBar_OnUpdate = CastBar_OnUpdate
 -- Initialize function
 function CastBars:Initialize()
     -- Register player cast bar events
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_START", function(_, unit, castGUID, spellID)
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_START", function(_, unit, castGUID, spellID, castBarID)
         if unit == "player" and self.OnPlayerSpellcastStart then
-            self:OnPlayerSpellcastStart(unit, castGUID, spellID)
+            self:OnPlayerSpellcastStart(unit, castGUID, spellID, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_STOP", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_STOP", function(_, unit, castGUID, spellID, castBarID)
         if unit == "player" and self.OnPlayerSpellcastStop then
-            self:OnPlayerSpellcastStop(unit, castGUID, spellID)
+            self:OnPlayerSpellcastStop(unit, castGUID, spellID, nil, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_FAILED", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_FAILED", function(_, unit, castGUID, spellID, castBarID)
         if unit == "player" and self.OnPlayerSpellcastStop then
-            self:OnPlayerSpellcastStop(unit, castGUID, spellID)
+            self:OnPlayerSpellcastStop(unit, castGUID, spellID, true, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", function(_, unit, castGUID, spellID, interruptedBy, castBarID)
         if unit == "player" and self.OnPlayerSpellcastStop then
-            self:OnPlayerSpellcastStop(unit, castGUID, spellID)
+            self:OnPlayerSpellcastStop(unit, castGUID, spellID, true, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START", function(_, unit, castGUID, spellID, castBarID)
         if unit == "player" and self.OnPlayerSpellcastChannelStart then
-            self:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
+            self:OnPlayerSpellcastChannelStart(unit, castGUID, spellID, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP", function(_, unit, castGUID, spellID, interruptedBy, castBarID)
         if unit == "player" and self.OnPlayerSpellcastStop then
-            self:OnPlayerSpellcastStop(unit, castGUID, spellID)
+            self:OnPlayerSpellcastStop(unit, castGUID, spellID, nil, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", function(_, unit, castGUID, spellID, castBarID)
         if unit == "player" and self.OnPlayerSpellcastChannelUpdate then
-            self:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID)
+            self:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID, castBarID)
         end
     end)
-    
+
     -- Register empowered cast events
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_EMPOWER_START", function(_, unit, castGUID, spellID)
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_EMPOWER_START", function(_, unit, castGUID, spellID, castBarID)
         if unit == "player" and self.OnPlayerSpellcastEmpowerStart then
-            self:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID)
+            self:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", function(_, unit, castGUID, spellID, castBarID)
         if unit == "player" and self.OnPlayerSpellcastEmpowerUpdate then
-            self:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID)
+            self:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID, castBarID)
         end
     end)
-    
-    DDingUI:RegisterEvent("UNIT_SPELLCAST_EMPOWER_STOP", function(_, unit, castGUID, spellID)
+
+    DDingUI:RegisterEvent("UNIT_SPELLCAST_EMPOWER_STOP", function(_, unit, castGUID, spellID, complete, interruptedBy, castBarID)
         if unit == "player" and self.OnPlayerSpellcastEmpowerStop then
-            self:OnPlayerSpellcastEmpowerStop(unit, castGUID, spellID)
+            self:OnPlayerSpellcastEmpowerStop(unit, castGUID, spellID, castBarID)
         end
     end)
-    
+
 end
 
 -- Refresh function

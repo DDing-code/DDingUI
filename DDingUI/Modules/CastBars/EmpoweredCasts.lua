@@ -9,7 +9,7 @@ end
 
 -- EMPOWERED CAST FUNCTIONS
 
--- Empower stage colors matching FeelUI's scheme
+-- Default empower stage colors
 local EmpowerStageColors = {
     [1] = {0.3, 0.75, 1, 1},      -- Light blue / Teal
     [2] = {0.4, 1, 0.4, 1},        -- Light green
@@ -585,7 +585,7 @@ function CastBars:InitializeEmpoweredStages(bar)
     end)
 end
 
-function CastBars:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID)
+function CastBars:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID, eventCastBarID)
     local cfg = DDingUI.db.profile.castBar
     if not cfg or not cfg.enabled then
         return
@@ -662,13 +662,11 @@ function CastBars:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID)
     bar.lastNumStages = nil
     bar.currentEmpoweredStage = nil
 
-    -- Use UnitCastingInfo for empowered casts (like PlayersCastbars does)
-    -- UnitCastingInfo returns: name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId, numStages, isEmpowered, castBarID
-    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitCastingInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, unitSpellID, isEmpowered, numStages, castBarID = UnitChannelInfo("player")
     
-    -- If UnitCastingInfo doesn't have the data, try UnitChannelInfo as fallback
+    -- A normal cast can briefly replace the empowered channel during transition.
     if not name or not startTimeMS or not endTimeMS then
-        name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitChannelInfo("player")
+        name, _, texture, startTimeMS, endTimeMS, isTradeSkill, _, notInterruptible, unitSpellID, castBarID = UnitCastingInfo("player")
     end
     
     -- If still no data, try to get spell info from spellID
@@ -711,12 +709,11 @@ function CastBars:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID)
         end
     end
 
-    -- Empowered casts are NOT channels (like PlayersCastbars does)
     bar.isEmpowered = true
     bar.numStages = numStages or 3  -- Default to 3 stages if not detected
-    bar.castGUID = castGUID
-    bar.castBarID = castBarID  -- Store castBarID for cast tracking
-    bar.isChannel = false  -- Empowered casts are NOT channels (use UnitCastingInfo, not UnitChannelInfo)
+    bar.castGUID = nil
+    bar.castBarID = eventCastBarID or castBarID
+    bar.isChannel = false
 
     bar.icon:SetTexture(texture)
     bar.spellName:SetText(name)
@@ -765,16 +762,15 @@ function CastBars:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID)
     bar:Show()
 end
 
-function CastBars:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID)
+function CastBars:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID, eventCastBarID)
     if not DDingUI.castBar then return end
-    if DDingUI.castBar.castGUID and castGUID and castGUID ~= DDingUI.castBar.castGUID then
+    if eventCastBarID and DDingUI.castBar.castBarID and eventCastBarID ~= DDingUI.castBar.castBarID then
         return
     end
 
     local bar = DDingUI.castBar
     
-    -- Update empowered cast info - use UnitCastingInfo (like PlayersCastbars does)
-    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitCastingInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, unitSpellID, isEmpowered, numStages, castBarID = UnitChannelInfo("player")
     
     if startTimeMS and endTimeMS then
         local newStartTime = startTimeMS / 1000
@@ -801,8 +797,8 @@ function CastBars:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID)
     end
     
     -- Update castBarID
-    if castBarID then
-        bar.castBarID = castBarID
+    if eventCastBarID or castBarID then
+        bar.castBarID = eventCastBarID or castBarID
     end
 
     -- Update stages if number changed
@@ -813,15 +809,15 @@ function CastBars:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID)
     end
 end
 
-function CastBars:OnPlayerSpellcastEmpowerStop(unit, castGUID, spellID)
+function CastBars:OnPlayerSpellcastEmpowerStop(unit, castGUID, spellID, eventCastBarID)
     if not DDingUI.castBar then return end
 
-    if castGUID and DDingUI.castBar.castGUID and castGUID ~= DDingUI.castBar.castGUID then
+    if eventCastBarID and DDingUI.castBar.castBarID and eventCastBarID ~= DDingUI.castBar.castBarID then
         return
     end
 
     -- Check if still casting (empowered cast may transition to regular cast)
-    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitCastingInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, castBarID = UnitCastingInfo("player")
     if name and startTimeMS and endTimeMS then
         -- Still casting, update the bar
         DDingUI.castBar.icon:SetTexture(texture)
@@ -890,7 +886,7 @@ end
 
 -- Expose to main addon for backwards compatibility
 DDingUI.InitializeEmpoweredStages = function(self, bar) return CastBars:InitializeEmpoweredStages(bar) end
-DDingUI.OnPlayerSpellcastEmpowerStart = function(self, unit, castGUID, spellID) return CastBars:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID) end
-DDingUI.OnPlayerSpellcastEmpowerUpdate = function(self, unit, castGUID, spellID) return CastBars:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID) end
-DDingUI.OnPlayerSpellcastEmpowerStop = function(self, unit, castGUID, spellID) return CastBars:OnPlayerSpellcastEmpowerStop(unit, castGUID, spellID) end
+DDingUI.OnPlayerSpellcastEmpowerStart = function(self, unit, castGUID, spellID, castBarID) return CastBars:OnPlayerSpellcastEmpowerStart(unit, castGUID, spellID, castBarID) end
+DDingUI.OnPlayerSpellcastEmpowerUpdate = function(self, unit, castGUID, spellID, castBarID) return CastBars:OnPlayerSpellcastEmpowerUpdate(unit, castGUID, spellID, castBarID) end
+DDingUI.OnPlayerSpellcastEmpowerStop = function(self, unit, castGUID, spellID, castBarID) return CastBars:OnPlayerSpellcastEmpowerStop(unit, castGUID, spellID, castBarID) end
 

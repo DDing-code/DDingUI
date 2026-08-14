@@ -13,6 +13,72 @@ local GetClassColor = CastBars.GetClassColor
 
 -- Weak table to track disabled state without tainting Blizzard frames
 local castBarState = setmetatable({}, { __mode = "k" })
+local defaultCastBarRegenFrame
+local pendingDefaultCastBar
+local pendingDefaultCastBarSuppressed
+
+local function ApplyDefaultCastBarVisibility(frame, suppressed)
+    if not frame then return end
+
+    local state = castBarState[frame]
+    if suppressed then
+        if not state then
+            state = { showCastbar = frame.showCastbar }
+            castBarState[frame] = state
+        end
+
+        if frame.SetAndUpdateShowCastbar then
+            frame:SetAndUpdateShowCastbar(false)
+        else
+            frame.showCastbar = false
+            frame:Hide()
+        end
+        return
+    end
+
+    if not state then return end
+
+    castBarState[frame] = nil
+    local showCastbar = state.showCastbar
+    if showCastbar == nil then
+        showCastbar = true
+    end
+
+    if frame.SetAndUpdateShowCastbar then
+        frame:SetAndUpdateShowCastbar(showCastbar)
+    else
+        frame.showCastbar = showCastbar
+        frame:SetShown(showCastbar)
+    end
+end
+
+local function SetDefaultCastBarSuppressed(frame, suppressed)
+    if InCombatLockdown() then
+        pendingDefaultCastBar = frame
+        pendingDefaultCastBarSuppressed = suppressed
+
+        if not defaultCastBarRegenFrame then
+            defaultCastBarRegenFrame = CreateFrame("Frame")
+            defaultCastBarRegenFrame:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+
+                local pendingFrame = pendingDefaultCastBar
+                local pendingSuppressed = pendingDefaultCastBarSuppressed
+                pendingDefaultCastBar = nil
+                pendingDefaultCastBarSuppressed = nil
+
+                ApplyDefaultCastBarVisibility(pendingFrame, pendingSuppressed)
+            end)
+        end
+
+        defaultCastBarRegenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+
+    pendingDefaultCastBar = nil
+    pendingDefaultCastBarSuppressed = nil
+    ApplyDefaultCastBarVisibility(frame, suppressed)
+end
 
 -- Use shared PixelSnap from Toolkit
 local PixelSnap = DDingUI.PixelSnapLocal or function(value)
@@ -96,146 +162,13 @@ function CastBars:GetCastBar()
     return bar
 end
 
--- Events used by Blizzard's CastingBarFrame
-local CASTBAR_EVENTS = {
-    "UNIT_SPELLCAST_START",
-    "UNIT_SPELLCAST_STOP",
-    "UNIT_SPELLCAST_FAILED",
-    "UNIT_SPELLCAST_INTERRUPTED",
-    "UNIT_SPELLCAST_DELAYED",
-    "UNIT_SPELLCAST_CHANNEL_START",
-    "UNIT_SPELLCAST_CHANNEL_UPDATE",
-    "UNIT_SPELLCAST_CHANNEL_STOP",
-    "UNIT_SPELLCAST_INTERRUPTIBLE",
-    "UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
-    "PLAYER_ENTERING_WORLD",
-    -- Retail 추가 이벤트
-    "UNIT_SPELLCAST_EMPOWER_START",
-    "UNIT_SPELLCAST_EMPOWER_UPDATE",
-    "UNIT_SPELLCAST_EMPOWER_STOP",
-}
-
 function CastBars:UpdateCastBarLayout()
     local cfg = DDingUI.db.profile.castBar
 
-    -- Handle default cast bar visibility using SetUnit (modern approach)
+    -- Keep the native unit token intact; its world-entry handler requires it.
     local defaultCastBar = _G["PlayerCastingBarFrame"] or _G["CastingBarFrame"]
     if defaultCastBar then
-        if cfg.enabled then
-            -- Custom cast bar is enabled, disable the default one
-            if not castBarState[defaultCastBar] then
-                -- Guard against modifying protected frames in combat
-                if InCombatLockdown() then
-                    -- Queue for after combat ends
-                    local regenFrame = CreateFrame("Frame")
-                    regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                    regenFrame:SetScript("OnEvent", function(self)
-                        self:UnregisterAllEvents()
-                        if not castBarState[defaultCastBar] and cfg.enabled then
-                            castBarState[defaultCastBar] = true
-                            if defaultCastBar.SetUnit then
-                                -- [12.0.1] pcall to avoid forbidden table error in StopFinishAnims
-                                local ok = pcall(defaultCastBar.SetUnit, defaultCastBar, nil)
-                                if not ok then
-                                    defaultCastBar:UnregisterAllEvents()
-                                    defaultCastBar:Hide()
-                                end
-                            else
-                                defaultCastBar:UnregisterAllEvents()
-                                defaultCastBar:Hide()
-                            end
-                        end
-                    end)
-                else
-                    castBarState[defaultCastBar] = true
-                    -- Use SetUnit(nil) to properly disable (like oUF does)
-                    if defaultCastBar.SetUnit then
-                        -- [12.0.1] pcall to avoid forbidden table error in StopFinishAnims
-                        local ok = pcall(defaultCastBar.SetUnit, defaultCastBar, nil)
-                        if not ok then
-                            defaultCastBar:UnregisterAllEvents()
-                            defaultCastBar:Hide()
-                        end
-                    else
-                        -- Fallback for older API
-                        defaultCastBar:UnregisterAllEvents()
-                        defaultCastBar:Hide()
-                    end
-                end
-            end
-        else
-            -- Custom cast bar is disabled, always ensure the default one is enabled
-            -- (handles both toggle off and initial load with disabled state)
-            castBarState[defaultCastBar] = nil
-            -- Guard against modifying protected frames in combat
-            if InCombatLockdown() then
-                local regenFrame = CreateFrame("Frame")
-                regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                regenFrame:SetScript("OnEvent", function(self)
-                    self:UnregisterAllEvents()
-                    if not castBarState[defaultCastBar] then
-                        if defaultCastBar.SetUnit then
-                            -- [12.0.1] pcall to avoid forbidden table error in StopFinishAnims
-                            local ok = pcall(defaultCastBar.SetUnit, defaultCastBar, "player", true, true)
-                            if not ok then
-                                for _, event in ipairs(CASTBAR_EVENTS) do
-                                    pcall(function()
-                                        if event == "PLAYER_ENTERING_WORLD" then
-                                            defaultCastBar:RegisterEvent(event)
-                                        else
-                                            defaultCastBar:RegisterUnitEvent(event, "player")
-                                        end
-                                    end)
-                                end
-                                defaultCastBar:Show()
-                            end
-                        else
-                            for _, event in ipairs(CASTBAR_EVENTS) do
-                                pcall(function()
-                                    if event == "PLAYER_ENTERING_WORLD" then
-                                        defaultCastBar:RegisterEvent(event)
-                                    else
-                                        defaultCastBar:RegisterUnitEvent(event, "player")
-                                    end
-                                end)
-                            end
-                        end
-                        defaultCastBar:SetAlpha(1)
-                    end
-                end)
-            else
-                -- Use SetUnit("player") to properly restore/initialize
-                if defaultCastBar.SetUnit then
-                    -- [12.0.1] pcall to avoid forbidden table error in StopFinishAnims
-                    local ok = pcall(defaultCastBar.SetUnit, defaultCastBar, "player", true, true)
-                    if not ok then
-                        for _, event in ipairs(CASTBAR_EVENTS) do
-                            pcall(function()
-                                if event == "PLAYER_ENTERING_WORLD" then
-                                    defaultCastBar:RegisterEvent(event)
-                                else
-                                    defaultCastBar:RegisterUnitEvent(event, "player")
-                                end
-                            end)
-                        end
-                        defaultCastBar:Show()
-                    end
-                else
-                    -- Fallback: re-register events
-                    for _, event in ipairs(CASTBAR_EVENTS) do
-                        pcall(function()
-                            if event == "PLAYER_ENTERING_WORLD" then
-                                defaultCastBar:RegisterEvent(event)
-                            else
-                                defaultCastBar:RegisterUnitEvent(event, "player")
-                            end
-                        end)
-                    end
-                end
-                -- Ensure alpha is restored (some addons may set it to 0)
-                defaultCastBar:SetAlpha(1)
-            end
-        end
+        SetDefaultCastBarSuppressed(defaultCastBar, cfg.enabled == true)
     end
     
     if not DDingUI.castBar then return end
@@ -406,7 +339,7 @@ function CastBars:UpdateCastBarLayout()
     end
 end
 
-function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
+function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID, eventCastBarID)
     local cfg = DDingUI.db.profile.castBar
     if not cfg.enabled then
         if DDingUI.castBar then
@@ -419,9 +352,7 @@ function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
         return
     end
 
-    -- UnitCastingInfo now returns: name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId, numStages, isEmpowered, castBarID
-    -- Regular casts are never empowered - empowered casts come through UnitChannelInfo or UNIT_SPELLCAST_EMPOWER_START
-    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitCastingInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, castBarID = UnitCastingInfo("player")
     if not name or not startTimeMS or not endTimeMS then
         if DDingUI.castBar then DDingUI.castBar:Hide() end
         return
@@ -439,8 +370,8 @@ function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
     self:UpdateCastBarLayout()
 
     bar.isChannel = false
-    bar.castGUID  = castGUID
-    bar.castBarID = castBarID  -- Store castBarID for cast tracking
+    bar.castGUID = nil
+    bar.castBarID = eventCastBarID or castBarID
     
     -- Regular casts are never empowered - don't initialize empowered stages here
     bar.isEmpowered = false
@@ -503,7 +434,7 @@ function CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID)
     bar:Show()
 end
 
-function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
+function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted, eventCastBarID)
     local bar = DDingUI.castBar
     if not bar then return end
 
@@ -512,13 +443,13 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
         return
     end
 
-    if castGUID and bar.castGUID and castGUID ~= bar.castGUID then
+    if eventCastBarID and bar.castBarID and eventCastBarID ~= bar.castBarID then
         return
     end
 
     -- Check if player is still channeling
     if bar.isChannel then
-        local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitChannelInfo("player")
+        local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, unitSpellID, isEmpowered, numStages, castBarID = UnitChannelInfo("player")
         if name and startTimeMS and endTimeMS then
             bar.icon:SetTexture(texture)
             bar.spellName:SetText(name)
@@ -609,7 +540,7 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted)
     bar:SetScript("OnUpdate", nil)
 end
 
-function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
+function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID, eventCastBarID)
     local cfg = DDingUI.db.profile.castBar
     if not cfg.enabled then
         if DDingUI.castBar then
@@ -622,9 +553,8 @@ function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
         return
     end
 
-    -- UnitChannelInfo now returns: name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId, numStages, isEmpowered, castBarID
     -- Check UnitChannelInfo for empowered casts - if EmpowerStages (numStages) is present, it's empowered
-    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitChannelInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, unitSpellID, isEmpowered, numStages, castBarID = UnitChannelInfo("player")
     if not name or not startTimeMS or not endTimeMS then
         if DDingUI.castBar then DDingUI.castBar:Hide() end
         return
@@ -642,11 +572,11 @@ function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
     self:UpdateCastBarLayout()
 
     bar.isChannel = true
-    bar.castGUID  = castGUID
-    bar.castBarID = castBarID  -- Store castBarID for cast tracking
+    bar.castGUID = nil
+    bar.castBarID = eventCastBarID or castBarID
 
     -- Check if this is an empowered channel - if numStages (EmpowerStages) is present, it's empowered
-    -- Following FeelUI's approach: check for EmpowerStages from UnitChannelInfo
+    -- Empower stages are reported by UnitChannelInfo.
     local isEmpoweredCast = (numStages and numStages > 0) or false
     
     bar.isEmpowered = isEmpoweredCast
@@ -712,21 +642,21 @@ function CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID)
     bar:Show()
 end
 
-function CastBars:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID)
+function CastBars:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID, eventCastBarID)
     if not DDingUI.castBar then return end
-    if DDingUI.castBar.castGUID and castGUID and castGUID ~= DDingUI.castBar.castGUID then
+    if eventCastBarID and DDingUI.castBar.castBarID and eventCastBarID ~= DDingUI.castBar.castBarID then
         return
     end
 
-    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, unitSpellID, numStages, isEmpowered, castBarID = UnitChannelInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, unitSpellID, isEmpowered, numStages, castBarID = UnitChannelInfo("player")
     if not name or not startTimeMS or not endTimeMS then
         return
     end
 
     local bar = DDingUI.castBar
     bar.isChannel = true
-    bar.castGUID  = castGUID
-    bar.castBarID = castBarID  -- Update castBarID
+    bar.castGUID = nil
+    bar.castBarID = eventCastBarID or castBarID
     
     -- Update empowered status - check for EmpowerStages (numStages) from UnitChannelInfo
     local isEmpoweredCast = (numStages and numStages > 0) or false
@@ -758,9 +688,9 @@ end
 -- Expose to main addon for backwards compatibility
 DDingUI.GetCastBar = function(self) return CastBars:GetCastBar() end
 DDingUI.UpdateCastBarLayout = function(self) return CastBars:UpdateCastBarLayout() end
-DDingUI.OnPlayerSpellcastStart = function(self, unit, castGUID, spellID) return CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID) end
-DDingUI.OnPlayerSpellcastStop = function(self, unit, castGUID, spellID) return CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID) end
-DDingUI.OnPlayerSpellcastChannelStart = function(self, unit, castGUID, spellID) return CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID) end
-DDingUI.OnPlayerSpellcastChannelUpdate = function(self, unit, castGUID, spellID) return CastBars:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID) end
+DDingUI.OnPlayerSpellcastStart = function(self, unit, castGUID, spellID, castBarID) return CastBars:OnPlayerSpellcastStart(unit, castGUID, spellID, castBarID) end
+DDingUI.OnPlayerSpellcastStop = function(self, unit, castGUID, spellID, wasInterrupted, castBarID) return CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted, castBarID) end
+DDingUI.OnPlayerSpellcastChannelStart = function(self, unit, castGUID, spellID, castBarID) return CastBars:OnPlayerSpellcastChannelStart(unit, castGUID, spellID, castBarID) end
+DDingUI.OnPlayerSpellcastChannelUpdate = function(self, unit, castGUID, spellID, castBarID) return CastBars:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID, castBarID) end
 
 
