@@ -2568,7 +2568,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                         if handled then
                             -- [FIX] RefreshLayout + SoftRefresh (FullRefresh는 서브탭 없으면 창 닫힘)
                             if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
-                                DDingUI.GroupSystem:RefreshLayout()
+                                DDingUI.GroupSystem:RefreshLayout(true)
                             end
                             C_Timer.After(0.1, function()
                                 local cf = _G["DDingUI_ConfigFrame"]

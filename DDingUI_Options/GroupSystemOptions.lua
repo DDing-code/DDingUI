@@ -263,7 +263,7 @@ local function RefreshGroupSystem()
         return
     end
     if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
-        DDingUI.GroupSystem:Refresh()
+        DDingUI.GroupSystem:Refresh(true)
     end
     if DDingUI.AssistHighlight and DDingUI.AssistHighlight.OnSettingChanged then
         DDingUI.AssistHighlight:OnSettingChanged()
@@ -376,7 +376,7 @@ local function RefreshGroupLayout()
     layoutRefreshTimer = C_Timer.NewTimer(0.03, function()
         layoutRefreshTimer = nil
         if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
-            DDingUI.GroupSystem:RefreshLayout()
+            DDingUI.GroupSystem:RefreshLayout(true)
         end
     end)
     -- [FIX] 레이아웃 변경도 SpecProfiles 스냅샷에 반영
@@ -438,7 +438,7 @@ local function SoftRefreshDynamicIcons()
 
     -- 게임 레이아웃 갱신
     if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
-        DDingUI.GroupSystem:RefreshLayout()
+        DDingUI.GroupSystem:RefreshLayout(true)
     end
     -- GUI 목록 갱신 (지연, SoftRefresh로 메뉴 닫히지 않음)
     SoftRefreshGroupSystemOptions(0.1)
@@ -3310,7 +3310,7 @@ function DDingUI:CleanupGroupSystemOptionsRuntime()
         layoutRefreshTimer:Cancel()
         layoutRefreshTimer = nil
         if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
-            DDingUI.GroupSystem:RefreshLayout()
+            DDingUI.GroupSystem:RefreshLayout(true)
         end
     end
     if groupOptionsSoftRefreshTimer then
@@ -4461,7 +4461,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local function RefreshAfterCommit()
         RefreshGroupSystem()
         if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
-            DDingUI.GroupSystem:RefreshLayout()
+            DDingUI.GroupSystem:RefreshLayout(true)
         end
         SoftRefreshGroupSystemOptions(0.05)
     end
@@ -5418,7 +5418,7 @@ function DDingUI:BuildGroupIconDetailArgs(groupName, sectionMode)
     local function RefreshCommittedDetails()
         RefreshGroupSystem()
         if self.GroupSystem and self.GroupSystem.RefreshLayout then
-            self.GroupSystem:RefreshLayout()
+            self.GroupSystem:RefreshLayout(true)
         end
         RefreshDetails()
     end

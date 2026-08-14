@@ -27,9 +27,9 @@ local DoPartialUpdate
 local ExecuteRefresh
 local _lastClassifiedGroups
 
-local function RequestFullUpdate(delay, fullRefresh)
+local function RequestFullUpdate(delay, fullRefresh, allowSettingsOpen)
     if GroupSystem.enabled and DirtyQueue then
-        DirtyQueue:MarkFull(delay, fullRefresh)
+        DirtyQueue:MarkFull(delay, fullRefresh, allowSettingsOpen)
     end
 end
 
@@ -49,21 +49,29 @@ end
 -- Refresh/RefreshLayout이 전투 중 호출되면 전투 종료 후 자동 실행
 local _pendingRefresh = false      -- Refresh 대기
 local _pendingRefreshLayout = false -- RefreshLayout 대기
+local _pendingRefreshAllowSettingsOpen = false
+local _pendingRefreshLayoutAllowSettingsOpen = false
 local _combatDeferArmed = false
 local _combatDeferFrame = CreateFrame("Frame")
 _combatDeferFrame:SetScript("OnEvent", function()
     _combatDeferFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
     _combatDeferArmed = false
     if _pendingRefresh then
+        local allowSettingsOpen = _pendingRefreshAllowSettingsOpen
+            or _pendingRefreshLayoutAllowSettingsOpen
         _pendingRefresh = false
         _pendingRefreshLayout = false  -- Refresh가 RefreshLayout을 포함
+        _pendingRefreshAllowSettingsOpen = false
+        _pendingRefreshLayoutAllowSettingsOpen = false
         if GroupSystem.enabled then
-            GroupSystem:Refresh()
+            GroupSystem:Refresh(allowSettingsOpen)
         end
     elseif _pendingRefreshLayout then
+        local allowSettingsOpen = _pendingRefreshLayoutAllowSettingsOpen
         _pendingRefreshLayout = false
+        _pendingRefreshLayoutAllowSettingsOpen = false
         if GroupSystem.enabled then
-            GroupSystem:RefreshLayout()
+            GroupSystem:RefreshLayout(allowSettingsOpen)
         end
     end
 end)
@@ -595,7 +603,7 @@ end
 -- [REFACTOR] AuraEngine → CDMHookEngine 맵 기반
 -- ============================================================
 
-DoFullUpdate = function()
+DoFullUpdate = function(allowSettingsOpen)
     if not GroupSystem.enabled then return end
 
     local gs = GetSettings()
@@ -640,7 +648,7 @@ DoFullUpdate = function()
     for groupName, iconList in pairs(classified) do
         local groupSettings = gs.groups and gs.groups[groupName]
         if groupSettings and groupSettings.enabled then
-            GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
+            GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSettingsOpen)
             processedGroups[groupName] = true
             -- dynamic 그룹이 CDM 경로에서 처리됐으면 아래 보충 패스를 건너뛴다.
             if groupSettings.groupType == "dynamic" then
@@ -656,7 +664,7 @@ DoFullUpdate = function()
                 and groupSettings.sourceGroupKey
                 and not processedGroups[groupName]
             then
-                GroupRenderer:UpdateGroup(groupName, {}, groupSettings)
+                GroupRenderer:UpdateGroup(groupName, {}, groupSettings, allowSettingsOpen)
                 processedGroups[groupName] = true
             end
         end
@@ -668,7 +676,7 @@ DoFullUpdate = function()
         for groupName, groupSettings in pairs(gs.groups) do
             if groupSettings.groupType == "dynamic" and groupSettings.enabled
                and not processedDynamicGroups[groupName] then
-                GroupRenderer:UpdateGroup(groupName, classified[groupName] or {}, groupSettings)
+                GroupRenderer:UpdateGroup(groupName, classified[groupName] or {}, groupSettings, allowSettingsOpen)
             end
         end
     end
@@ -799,9 +807,9 @@ local function FlushDirtyBatch(batch)
     if not GroupSystem.enabled or type(batch) ~= "table" then return end
     if batch.full then
         if batch.fullRefresh and ExecuteRefresh then
-            ExecuteRefresh()
+            ExecuteRefresh(batch.allowSettingsOpen)
         else
-            DoFullUpdate()
+            DoFullUpdate(batch.allowSettingsOpen)
         end
         return
     end
@@ -830,8 +838,8 @@ local function FlushDirtyBatch(batch)
     end
 end
 
-function GroupSystem:DoFullUpdate()
-    DoFullUpdate()
+function GroupSystem:DoFullUpdate(allowSettingsOpen)
+    DoFullUpdate(allowSettingsOpen)
 end
 
 function GroupSystem:RequestFullUpdate()
@@ -1965,6 +1973,8 @@ function GroupSystem:Disable()
     _lastClassifiedGroups = nil
     _pendingRefresh = false
     _pendingRefreshLayout = false
+    _pendingRefreshAllowSettingsOpen = false
+    _pendingRefreshLayoutAllowSettingsOpen = false
     if _combatDeferArmed then
         _combatDeferArmed = false
         _combatDeferFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
@@ -2023,22 +2033,24 @@ end
 -- 새로고침 (설정 변경 시)
 -- ============================================================
 
-function GroupSystem:Refresh()
+function GroupSystem:Refresh(allowSettingsOpen)
     if not self.enabled then return end
     if InCombatLockdown() then
         _pendingRefresh = true
+        _pendingRefreshAllowSettingsOpen = _pendingRefreshAllowSettingsOpen or allowSettingsOpen == true
         ArmCombatDeferFrame()
         return
     end
-    RequestFullUpdate(0, true)
+    RequestFullUpdate(0, true, allowSettingsOpen)
 end
 
-ExecuteRefresh = function()
+ExecuteRefresh = function(allowSettingsOpen)
     if not GroupSystem.enabled then return end
 
     -- [FIX] 전투 중에는 ClearAllPoints 등 보호된 함수 호출 불가 → 전투 종료 후 실행
     if InCombatLockdown() then
         _pendingRefresh = true
+        _pendingRefreshAllowSettingsOpen = _pendingRefreshAllowSettingsOpen or allowSettingsOpen == true
         ArmCombatDeferFrame()
         return
     end
@@ -2104,7 +2116,7 @@ ExecuteRefresh = function()
 
     -- [FIX] 설정 변경 시 강제 재설정 (SkinIcon + SetupFrameInContainer 재실행)
     GroupRenderer._forceFullSetup = true
-    DoFullUpdate()
+    DoFullUpdate(allowSettingsOpen)
     GroupRenderer._forceFullSetup = false
     -- DoFullUpdate 내부에서 ContainerSync:SyncAll() 이미 호출됨
 
@@ -2143,16 +2155,17 @@ end
 -- [12.0.1] 레이아웃만 갱신 (아이콘 크기/간격/방향 변경 시)
 -- _forceFullSetup 없이 DoFullUpdate → LayoutGroup이 SetIconSize로 아이콘 크기 갱신
 -- SetupFrameInContainer + SkinIcon 스킵 → 깜빡임 없음
-function GroupSystem:RefreshLayout()
+function GroupSystem:RefreshLayout(allowSettingsOpen)
     if not self.enabled then return end
 
     -- [FIX] 전투 중 보호된 프레임 조작 방지
     if InCombatLockdown() then
         _pendingRefreshLayout = true
+        _pendingRefreshLayoutAllowSettingsOpen = _pendingRefreshLayoutAllowSettingsOpen or allowSettingsOpen == true
         ArmCombatDeferFrame()
         return
     end
-    RequestFullUpdate()
+    RequestFullUpdate(0, false, allowSettingsOpen)
 end
 
 -- 그룹 추가 후 새로고침

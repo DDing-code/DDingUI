@@ -107,7 +107,7 @@ end
 
 local function RefreshGroupSystem()
     if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
-        DDingUI.GroupSystem:Refresh()
+        DDingUI.GroupSystem:Refresh(true)
     end
 end
 
@@ -2960,5 +2960,4 @@ end
 -- Export functions
 ns.CreateViewerOptions = BuildViewersOptions
 ns.CreateSingleViewerOptions = CreateViewerOptions  -- [DYNAMIC] 개별 뷰어 옵션 빌더 (GroupSystemOptions에서 재사용)
-
 

@@ -297,7 +297,7 @@ local function ShowCDMGroupContextMenu(configFrame, groupName, displayName, owne
                                 configFrame:RebuildTreeMenu("groupSystem.group_" .. newName)
                             end
                             if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
-                                DDingUI.GroupSystem:Refresh()
+                                DDingUI.GroupSystem:Refresh(true)
                             end
                         end
                     end,

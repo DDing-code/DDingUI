@@ -2494,8 +2494,8 @@ end
 -- [REPARENT] 뷰어 설정 100% 반영 — iconSize, spacing, direction, border 등 전부
 -- ============================================================
 
-function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings)
-    if CDMCompat and CDMCompat:IsSettingsOpen() then return end
+function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSettingsOpen)
+    if CDMCompat and CDMCompat:IsSettingsOpen() and not allowSettingsOpen then return end
     local frame = self.groupFrames[groupName]
     if not frame then
         frame = self:CreateGroupFrame(groupName, groupSettings)

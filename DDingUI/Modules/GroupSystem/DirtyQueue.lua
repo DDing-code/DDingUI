@@ -8,6 +8,7 @@ DDingUI.GroupDirtyQueue = DirtyQueue
 local dirty = {
     full = false,
     fullRefresh = false,
+    allowSettingsOpen = false,
     cdm = false,
     cdmIDs = {},
     cdmForceLayout = false,
@@ -51,6 +52,7 @@ local function ResetDirtyState()
     dirty.full = false
     dirty.fullDueAt = nil
     dirty.fullRefresh = false
+    dirty.allowSettingsOpen = false
     dirty.cdm = false
     dirty.cdmDueAt = nil
     wipe(dirty.cdmIDs)
@@ -77,7 +79,11 @@ local function EnsureDispatchFrame()
 
         local batch
         if dirty.full and (dirty.fullDueAt or 0) <= now then
-            batch = { full = true, fullRefresh = dirty.fullRefresh }
+            batch = {
+                full = true,
+                fullRefresh = dirty.fullRefresh,
+                allowSettingsOpen = dirty.allowSettingsOpen,
+            }
             ResetDirtyState()
         else
             local cdmReady = dirty.cdm and (dirty.cdmDueAt or 0) <= now
@@ -130,13 +136,14 @@ function DirtyQueue:SetEnabled(value)
     end
 end
 
-function DirtyQueue:MarkFull(delay, fullRefresh)
+function DirtyQueue:MarkFull(delay, fullRefresh, allowSettingsOpen)
     if not enabled then return end
     if not dirty.full then
         dirty.full = true
         dirty.fullDueAt = Now() + NormalizeDelay(delay)
     end
     dirty.fullRefresh = dirty.fullRefresh or fullRefresh == true
+    dirty.allowSettingsOpen = dirty.allowSettingsOpen or allowSettingsOpen == true
     dirty.cdm = false
     dirty.cdmDueAt = nil
     wipe(dirty.cdmIDs)
