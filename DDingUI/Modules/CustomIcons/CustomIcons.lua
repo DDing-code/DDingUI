@@ -284,7 +284,7 @@ local BLOODLUST_DEBUFFS = {
     [264689] = 264667, -- Fatigued -> Primal Rage
     [390435] = 390386, -- Exhaustion -> Fury of the Aspects
 }
-local bloodlustDebuffInstanceID
+local bloodlustAuraScanPending = false
 local CUSTOM_TIMED_AURA_CONFIGS = {
     [1236616] = { duration = 30, trigger = "spellcast" },   -- Light's Potential
     [1236994] = { duration = 30, trigger = "spellcast" },   -- Potion of Recklessness
@@ -1502,17 +1502,15 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     local now = GetTime()
     local active = runtime.customTimedAuras[2825]
     if active and active.expirationTime and active.expirationTime > now then
-        bloodlustDebuffInstanceID = GetAuraFieldSafe(aura, "auraInstanceID") or bloodlustDebuffInstanceID
         RecordTimedAuraDebug(2825, "alreadyActive", "debuff")
         return false
     end
 
-    local auraInstanceID = GetAuraFieldSafe(aura, "auraInstanceID")
     local expirationTime = GetAuraNumberFieldSafe(aura, "expirationTime")
     local duration = GetAuraNumberFieldSafe(aura, "duration")
 
-    if not auraInstanceID or not expirationTime then
-        RecordTimedAuraDebug(2825, "debuffSkipped", "missing-instance-or-expiration")
+    if not expirationTime then
+        RecordTimedAuraDebug(2825, "debuffSkipped", "missing-expiration")
         return false
     end
     if not duration or duration <= 0 then
@@ -1525,12 +1523,10 @@ local function ActivateBloodlustTimedAuraFromAura(aura, iconSpellID, requireWith
     end
 
     local _, changed = ActivateCustomTimedAura(2825, config, appliedTime, iconSpellID or 2825)
-    bloodlustDebuffInstanceID = auraInstanceID
     return changed
 end
 
 local function SeedBloodlustTimedAura(requireWithinWindow)
-    bloodlustDebuffInstanceID = nil
     local sawCandidate = false
     for debuffID, lustBuffID in pairs(BLOODLUST_DEBUFFS) do
         local auraData
@@ -1542,7 +1538,6 @@ local function SeedBloodlustTimedAura(requireWithinWindow)
             RecordTimedAuraDebug(2825, "seedMatch", tostring(debuffID) .. "->" .. tostring(lustBuffID))
         end
         if auraData
-            and GetAuraFieldSafe(auraData, "auraInstanceID")
             and GetAuraNumberFieldSafe(auraData, "expirationTime")
             and ActivateBloodlustTimedAuraFromAura(auraData, lustBuffID, requireWithinWindow)
         then
@@ -1556,41 +1551,18 @@ local function SeedBloodlustTimedAura(requireWithinWindow)
     return false
 end
 
-local function ScanBloodlustTimedAura(updateInfo)
-    RecordTimedAuraDebug(2825, "unitAura", (updateInfo and updateInfo.isFullUpdate) and "full" or "partial")
-    if not updateInfo or updateInfo.isFullUpdate then
-        return SeedBloodlustTimedAura(true)
+local function ScanBloodlustTimedAura()
+    if bloodlustAuraScanPending or CountCustomTimedAuraLinks(2825) <= 0 then
+        return false
     end
 
-    local changed = false
-    if updateInfo.addedAuras then
-        for _, aura in ipairs(updateInfo.addedAuras) do
-            local sid = GetAuraSpellIDSafe(aura)
-            local lustBuffID = sid and BLOODLUST_DEBUFFS[sid]
-            if lustBuffID then
-                RecordTimedAuraDebug(2825, "unitAuraMatch", tostring(sid) .. "->" .. tostring(lustBuffID))
-            end
-            if lustBuffID
-                and GetAuraFieldSafe(aura, "auraInstanceID")
-                and GetAuraNumberFieldSafe(aura, "expirationTime")
-                and ActivateBloodlustTimedAuraFromAura(aura, lustBuffID, false)
-            then
-                changed = true
-                break
-            end
-        end
-    end
-
-    if bloodlustDebuffInstanceID and updateInfo.removedAuraInstanceIDs then
-        for _, id in ipairs(updateInfo.removedAuraInstanceIDs) do
-            if id == bloodlustDebuffInstanceID then
-                bloodlustDebuffInstanceID = nil
-                break
-            end
-        end
-    end
-
-    return changed
+    bloodlustAuraScanPending = true
+    RecordTimedAuraDebug(2825, "unitAura", "queued")
+    C_Timer.After(0.05, function()
+        bloodlustAuraScanPending = false
+        SeedBloodlustTimedAura(true)
+    end)
+    return false
 end
 
 local function GetActiveCustomTimedAura(iconData)
@@ -3355,9 +3327,9 @@ local function HandleCustomTimedAuraEvent(event, ...)
     end
 
     if event == "UNIT_AURA" then
-        local unit, updateInfo = ...
+        local unit = ...
         if unit ~= "player" then return false end
-        return ScanBloodlustTimedAura(updateInfo)
+        return ScanBloodlustTimedAura()
     end
 
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then

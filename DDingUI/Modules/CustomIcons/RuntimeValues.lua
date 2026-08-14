@@ -5,63 +5,33 @@ local canaccessvalue = canaccessvalue or function() return true end
 local RuntimeValues = {}
 DDingUI.CustomIconRuntimeValues = RuntimeValues
 
+local function IsSecretValue(value)
+    if issecretvalue and issecretvalue(value) then return true end
+    return canaccessvalue and not canaccessvalue(value) or false
+end
+
 local function GetAuraFieldSafe(aura, key)
     if not aura or not key then return nil end
     local ok, value = pcall(function()
         return aura[key]
     end)
-    if ok then return value end
+    if ok and not IsSecretValue(value) then return value end
+    return nil
+end
+
+local function SafeNumber(value)
+    if IsSecretValue(value) or value == nil then return nil end
+    local valueType = type(value)
+    if valueType == "number" then
+        return value
+    end
+    if valueType == "string" then return tonumber(value) end
     return nil
 end
 
 local function GetAuraSpellIDSafe(aura)
     if not aura then return nil end
-    local ok, spellID = pcall(function()
-        local sid = GetAuraFieldSafe(aura, "spellId")
-        if not sid then return nil end
-        if type(sid) == "number" then
-            if canaccessvalue and not canaccessvalue(sid) then
-                return nil
-            end
-            return sid
-        end
-        return tonumber(sid)
-    end)
-    if ok then
-        local safeOK, value = pcall(function()
-            if spellID == nil then return nil end
-            local spellIDType = type(spellID)
-            if spellIDType == "number" then
-                if canaccessvalue and not canaccessvalue(spellID) then
-                    return nil
-                end
-                return spellID
-            end
-            if spellIDType == "string" then
-                return tonumber(spellID)
-            end
-            return nil
-        end)
-        if safeOK then return value end
-    end
-    return nil
-end
-
-local function SafeNumber(value)
-    if value == nil then return nil end
-    if issecretvalue then
-        local okSecret, secret = pcall(issecretvalue, value)
-        if okSecret and secret then return nil end
-    end
-    local valueType = type(value)
-    if valueType == "number" then
-        if canaccessvalue and not canaccessvalue(value) then
-            return nil
-        end
-        return value
-    end
-    if valueType == "string" then return tonumber(value) end
-    return nil
+    return SafeNumber(GetAuraFieldSafe(aura, "spellId"))
 end
 
 local function GetAuraNumberFieldSafe(aura, key)
