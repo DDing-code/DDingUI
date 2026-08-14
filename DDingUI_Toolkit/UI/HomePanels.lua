@@ -80,7 +80,7 @@ local function GetModuleCounts(panelKeys)
             seen[moduleName] = true
             total = total + 1
             local modules = ns.db and ns.db.profile and ns.db.profile.modules
-            if not modules or modules[moduleName] ~= false then
+            if modules and modules[moduleName] == true then
                 enabled = enabled + 1
             end
         end

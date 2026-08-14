@@ -169,10 +169,14 @@ function PartyTracker:CreateMainFrame()
         self:StopMovingOrSizing()
         local point, _, relativePoint, x, y = self:GetPoint()
         PartyTracker.db.position.point = point
-        PartyTracker.db.position.relativePoint = relativePoint
+        PartyTracker.db.position.relativePoint = relativePoint or point
         PartyTracker.db.position.x = x
         PartyTracker.db.position.y = y
     end)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(frame)
+        frame:EnableMouse(not self.db.locked)
+    end
 
     mainFrame = frame
 
@@ -407,10 +411,14 @@ function PartyTracker:CreateSeparateManaFrame()
         local point, _, relativePoint, x, y = self:GetPoint()
         PartyTracker.db.manaPosition = PartyTracker.db.manaPosition or {}
         PartyTracker.db.manaPosition.point = point
-        PartyTracker.db.manaPosition.relativePoint = relativePoint
+        PartyTracker.db.manaPosition.relativePoint = relativePoint or point
         PartyTracker.db.manaPosition.x = x
         PartyTracker.db.manaPosition.y = y
     end)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(frame)
+        frame:EnableMouse(not self.db.manaLocked)
+    end
 
     -- 크기 적용
     if self.db.manaScale then
@@ -809,7 +817,7 @@ function PartyTracker:UpdateHealerMana()
                 frame.icon:SetDesaturated(false)
                 frame.manaBarBorder:Hide()
             else
-                -- 12.0+ Secret Value 대응 (ArcUI 방식)
+                -- 12.0+ Secret Value 대응 (DDingUI 방식)
                 frame.icon:SetDesaturated(false)
                 frame.mainText:SetText("")
 
@@ -1250,6 +1258,49 @@ SlashCmdList["PT"] = function(msg)
         print(CHAT_PREFIX .. L["PARTYTRACKER_ALL_ENABLED"]) -- [STYLE]
     else
         print(CHAT_PREFIX .. "|cFFFF0000" .. L["PARTYTRACKER_UNKNOWN_CMD"] .. "|r") -- [STYLE]
+    end
+end
+
+-- 편집 모드 연동 (Movers)
+function PartyTracker:EnterEditPreview()
+    if not mainFrame then
+        self:CreateMainFrame()
+    end
+    isTestMode = true
+    mainFrame:Show()
+
+    -- 전투부활 더미 표시
+    if battleResFrame then
+        battleResFrame:Show()
+        battleResFrame.icon:SetDesaturated(false)
+        battleResFrame.chargeText:SetText("2")
+        battleResFrame.chargeText:SetTextColor(0, 1, 0, 1)
+        battleResFrame.mainText:SetText("")
+        battleResFrame.cooldown:SetCooldown(0, 0)
+    end
+
+    -- 블러드 더미 표시
+    if lustFrame then
+        lustFrame:Show()
+        lustFrame.icon:SetDesaturated(false)
+        lustFrame.mainText:SetText("READY")
+        lustFrame.mainText:SetTextColor(0, 1, 0, 1)
+        lustFrame.chargeText:SetText("")
+        lustFrame.cooldown:SetCooldown(0, 0)
+    end
+
+    -- 분리 마나 프레임 생성 (없으면)
+    if self.db.separateManaFrame and not manaFrame then
+        self:CreateSeparateManaFrame()
+    end
+    if manaFrame then manaFrame:Show() end
+end
+
+function PartyTracker:ExitEditPreview()
+    isTestMode = false
+    self:UpdateVisibility()
+    if manaFrame and not self.db.separateManaFrame then
+        manaFrame:Hide()
     end
 end
 

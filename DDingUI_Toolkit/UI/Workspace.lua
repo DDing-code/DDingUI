@@ -56,6 +56,7 @@ local CATEGORY_DEFS = {
             "mythicplus",
             "goldsplit",
             "raidlootpass",
+            "raidbreaktimer",
         },
     },
     {
@@ -626,12 +627,12 @@ function Workspace:Create(title, version, opts)
         local panelDef = GetPanelDef(row.panelKey)
         if panelDef and panelDef.moduleEnableKey then
             local enabled = ns:GetDBValue(panelDef.moduleEnableKey)
-            row.toggle:SetValue(enabled ~= false, true)
+            row.toggle:SetValue(enabled == true, true)
             row.toggle:Show()
             row.status:SetColorTexture(
-                enabled ~= false and 0.28 or 0.48,
-                enabled ~= false and 0.82 or 0.48,
-                enabled ~= false and 0.70 or 0.48,
+                enabled == true and 0.28 or 0.48,
+                enabled == true and 0.82 or 0.48,
+                enabled == true and 0.70 or 0.48,
                 1
             )
         else
@@ -747,7 +748,7 @@ function Workspace:Create(title, version, opts)
         if panelDef and panelDef.moduleEnableKey then
             detailToggleLabel:Show()
             detailToggle:Show()
-            detailToggle:SetValue(ns:GetDBValue(panelDef.moduleEnableKey) ~= false, true)
+            detailToggle:SetValue(ns:GetDBValue(panelDef.moduleEnableKey) == true, true)
         else
             detailToggleLabel:Hide()
             detailToggle:Hide()

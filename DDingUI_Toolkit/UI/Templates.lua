@@ -7,6 +7,12 @@ local addonName, ns = ...
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
 local UI = ns.UI
 
+local function EnableRightClickMouselook(frame)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(frame)
+    end
+end
+
 -- 스타일이 적용된 프레임 생성
 function UI:CreatePanel(parent, width, height, name)
     local frame = CreateFrame("Frame", name, parent, "BackdropTemplate")
@@ -29,6 +35,7 @@ function UI:CreateMainFrame(parent, width, height, name)
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:SetClampedToScreen(true)
+    EnableRightClickMouselook(frame)
     frame:Hide()
 
     return frame
@@ -47,6 +54,7 @@ function UI:CreateTitleBar(parent, title)
     titleBar:RegisterForDrag("LeftButton")
     titleBar:SetScript("OnDragStart", function() parent:StartMoving() end)
     titleBar:SetScript("OnDragStop", function() parent:StopMovingOrSizing() end)
+    EnableRightClickMouselook(titleBar)
 
     -- 타이틀 텍스트 (이름만 그라디언트)
     local titleText = titleBar:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -121,11 +129,23 @@ function UI:CreateButton(parent, width, height, text)
         self:SetBackdropColor(unpack(UI.colors.panel))
     end)
 
-    btn:SetScript("OnMouseDown", function(self)
+    btn:SetScript("OnMouseDown", function(self, button)
+        if button == "RightButton" then
+            if ns.StartRightButtonMouselook then
+                ns:StartRightButtonMouselook()
+            end
+            return
+        end
         self:SetBackdropColor(unpack(UI.colors.accent))
     end)
 
-    btn:SetScript("OnMouseUp", function(self)
+    btn:SetScript("OnMouseUp", function(self, button)
+        if button == "RightButton" then
+            if ns.StopRightButtonMouselook then
+                ns:StopRightButtonMouselook()
+            end
+            return
+        end
         self:SetBackdropColor(unpack(UI.colors.panelLight))
     end)
 

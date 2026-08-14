@@ -388,4 +388,26 @@ function SkyridingTracker:ResetPosition()
     end
 end
 
+-- 편집 모드 연동 (Movers)
+function SkyridingTracker:EnterEditPreview()
+    if not self.frame then self:CreateHUD() end
+    self._editPreview = true
+    self._savedAlpha = self._currentAlpha
+    self._currentAlpha = 1
+    self._targetAlpha = 1
+    self.frame:SetAlpha(1)
+    self.frame:EnableMouse(true)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(self.frame)
+    end
+end
+
+function SkyridingTracker:ExitEditPreview()
+    self._editPreview = false
+    self._currentAlpha = 0
+    self._targetAlpha = 0
+    self.frame:SetAlpha(0)
+    self.frame:EnableMouse(false)
+end
+
 DDingToolKit:RegisterModule("SkyridingTracker", SkyridingTracker)

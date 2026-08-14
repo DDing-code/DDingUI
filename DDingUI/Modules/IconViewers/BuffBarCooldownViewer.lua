@@ -357,7 +357,7 @@ local function ApplyIconBorder(iconFrame, settings)
     local size = settings.iconBorderSize or 0
     local borderSize = DDingUI:ScaleBorder(size)
 
-    -- Use texture-based borders like BetterCooldownManager (no SetBackdrop = no taint)
+    -- Use texture-based borders to avoid SetBackdrop taint.
     local state = GetFrameState(iconFrame)
     state.iconBorders = state.iconBorders or {}
     local borders = state.iconBorders
@@ -740,7 +740,7 @@ local function StyleBarChild(child, settings, viewer)
         end
     end
 
-    -- Use texture-based borders like BetterCooldownManager (no SetBackdrop = no taint)
+    -- Use texture-based borders to avoid SetBackdrop taint.
     local borderSize = DDingUI:ScaleBorder(settings.borderSize or 1)
 
     if not barState then return end

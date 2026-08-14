@@ -10,25 +10,30 @@ local SL = _G.DDingUI_StyleLib -- [12.0.1]
 ns.defaults = {
     profile = {
         -- 모듈 활성화 상태
+        -- 기존 프로필에 없는 모듈은 InitDB에서 비활성화한 뒤 기본값을 병합한다.
         modules = {
             TalentBG = true,
             LFGAlert = true,
+            PartyFullAlert = true,
             MailAlert = true,
             CursorTrail = true,
             ItemLevel = true,
             Notepad = true,
             CombatTimer = true,
+            RaidBreakTimer = false,
+            CharacterPositionMarker = true,
+            RangeDisplay = true,
             PartyTracker = true,
+            DeathAlert = true,
             DeathReleaseGuard = true,
             MythicPlusHelper = true,
             GoldSplit = true,
             DurabilityCheck = true,
 
-            KeystoneTracker = true,
             CastingAlert = true,
             FocusInterrupt = true,
-            BuffChecker = true,
             AutoRepair = true,
+            RaidLootPass = true,
             SkyridingTracker = true,
         },
 
@@ -58,6 +63,28 @@ ns.defaults = {
             alertAnimation = "bounce",
             leaderOnly = false,
             cooldown = 2,
+        },
+
+        -- PartyFullAlert 설정
+        PartyFullAlert = {
+            targetSize = 5,
+            soundEnabled = true,
+            flashEnabled = true,
+            screenAlertEnabled = true,
+            chatAlert = true,
+            soundFile = "",
+            soundCustomPath = "",
+            soundChannel = "Master",
+            alertScale = 1.0,
+            alertDuration = 5,
+            cooldown = 5,
+            pollInterval = 0.4,
+            position = {
+                point = "TOP",
+                relativePoint = "TOP",
+                x = 0,
+                y = -180,
+            },
         },
 
         -- MailAlert 설정
@@ -182,6 +209,106 @@ ns.defaults = {
             },
         },
 
+        -- RaidBreakTimer settings
+        RaidBreakTimer = {
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            fontSize = 72,
+            fontOutline = "THICKOUTLINE",
+            textColor = { 1, 1, 1, 1 },
+            customText = "",
+            textOrder = "TIME_ONLY",
+            textLayer = "FRONT",
+            textOffsetX = 0,
+            textOffsetY = 0,
+            scale = 1.0,
+            showImage = false,
+            imageFolder = "DDingUI_Backgrounds",
+            imageFile = "",
+            imageAnchor = "CENTER",
+            imageWidth = 360,
+            imageHeight = 180,
+            imageAlpha = 0.85,
+            imageOffsetX = 0,
+            imageOffsetY = 0,
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = 100,
+            },
+        },
+
+        -- CharacterPositionMarker (캐릭터 위치 마커) 설정
+        CharacterPositionMarker = {
+            enabled = true,
+            combatOnly = true,
+            instanceOnly = false,
+            rangeCheck = true,
+            meleeDpsOnly = false,
+            rangeSpell = "",
+            rangeModeVersion = 2,
+            shape = "CROSS",
+            size = 64,
+            thickness = 5,
+            centerGap = 18,
+            scale = 0.8,
+            frameStrata = "MEDIUM",
+            visualMode = "SYSTEM",
+            animationEnabled = true,
+            enterAnimationDuration = 0.58,
+            exitAnimationDuration = 0.42,
+            animationStyleVersion = 2,
+            color = { 0.15, 1.00, 0.25, 0.9 },
+            outOfRangeColor = { 1.00, 0.05, 0.05, 0.95 },
+            effectColor = { 0.18, 0.78, 1.00, 0.85 },
+            effectSecondaryColor = { 0.62, 0.24, 1.00, 0.70 },
+            rangeUpdateRate = 0.1,
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = 0,
+            },
+        },
+
+        -- RangeDisplay (대상/주시 사거리 표시) 설정
+        RangeDisplay = {
+            showTarget = true,
+            showFocus = false,
+            combatOnly = false,
+            showUnitLabel = false,
+            showUnknown = false,
+            showAccentLine = true,
+            locked = true,
+            width = 140,
+            height = 32,
+            scale = 1.0,
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            fontSize = 20,
+            fontOutline = "OUTLINE",
+            frameStrata = "MEDIUM",
+            bgAlpha = 0.25,
+            updateRate = 0.2,
+            nearThreshold = 8,
+            farThreshold = 40,
+            nearColor = { 0.25, 1.00, 0.45, 1 },
+            mediumColor = { 1.00, 0.82, 0.20, 1 },
+            farColor = { 1.00, 0.25, 0.20, 1 },
+            unknownColor = { 0.70, 0.75, 0.82, 1 },
+            targetPosition = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = -180,
+            },
+            focusPosition = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = -140,
+            },
+        },
+
         -- PartyTracker 설정 (기본값 비활성화 - SavedVariables 없으면 모두 꺼짐)
         PartyTracker = {
             enabled = false,           -- 모듈 활성화
@@ -247,39 +374,40 @@ ns.defaults = {
             position = nil,  -- 저장된 위치
         },
 
-        -- KeystoneTracker (쐐기돌 추적) 설정
-        KeystoneTracker = {
-            locked = false,
-            showInParty = true,
-            showInRaid = false,
-            scale = 1.0,
-            font = SL and SL.Font.path or "Fonts\\2002.TTF", -- [12.0.1]
-            fontSize = 12,
-            position = {
-                point = "TOPLEFT",
-                relativePoint = "TOPLEFT",
-                x = 50,
-                y = -200,
-            },
-        },
-
         -- CastingAlert (타겟 스펠 알림) 설정
         CastingAlert = {
             enabled = false,
             disableForTank = false, -- 탱커 전문화일 때 비활성화
             showTarget = true,
             onlyTargetingMe = true,
+            hideUntargeted = false,
+            onlyImportant = false,
+            combatOnly = true,
+            ignoreMinor = true,
+            ensureOffscreenNameplates = true,
+            showDuration = true,
+            showSwipe = true,
+            showImportantGlow = true,
+            indicateInterrupts = true,
             maxShow = 10,
             iconSize = 35,
             fontSize = 18,
+            font = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF",
+            iconFontSize = 18,
+            durationTextColor = { 0.35, 1.00, 0.35, 1 },
             dimAlpha = 0.4,
+            spacing = 4,
+            stackDirection = "UP",
             scale = 1.0,
-            updateRate = 0.2,
+            updateRate = 0.05,
+            scanDelay = 0.2,
             soundEnabled = true,
             soundThreshold = 2,
+            soundCooldown = 2,
             soundFile = "",
             soundCustomPath = "",  -- [12.0.1] 커스텀 사운드 경로
-            position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -30 },
+            soundChannel = "Master",
+            iconPosition = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -30 },
         },
 
         -- FocusInterrupt (타겟/포커스 시전바) 설정
@@ -370,6 +498,26 @@ ns.defaults = {
             focusPosition  = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 50 },
         },
 
+        -- DeathAlert (party/raid death alert)
+        DeathAlert = {
+            onlyInstance = false,
+            enableRoleIcon = true,
+            enableWipeDetection = true,
+            enableChatAlert = false,
+            enableSound = true,
+            soundFile = "",
+            tankSound = "",
+            healerSound = "",
+            playerSound = "",
+            enablePlayerSound = false,
+            soundChannel = "Master",
+            messageDuration = 4,
+            fontSize = 24,
+            font = "2002",
+            locked = true,
+            position = nil,
+        },
+
         -- Raid release protection
         DeathReleaseGuard = {
             enabled = true,
@@ -382,25 +530,12 @@ ns.defaults = {
             chatOutput = true,
         },
 
-        -- BuffChecker (버프 체크) 설정
-        BuffChecker = {
-            enabled = false,
-            showFood = false,
-            showFlask = false,
-            showWeapon = false,
-            showRune = false,
-            instanceOnly = true,
-            iconSize = 40,
-            scale = 1.0,
-            locked = false,
-            showText = true,
-            textSize = 10,
-            textFont = SL and SL.Font.path or "Fonts\\2002.TTF", -- [12.0.1]
-            textColor = { r = 1, g = 0.3, b = 0.3 },
-            alignment = "CENTER",
-            position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -200 },
+        -- RaidLootPass (레이드 루팅 자동 포기) 설정
+        RaidLootPass = {
+            enabled = true,
+            chatOutput = true,
         },
-        
+
         -- SkyridingTracker (활공 트래커) 설정
         SkyridingTracker = {
             enabled = true,
@@ -447,6 +582,16 @@ ns.defaults = {
     },
 }
 
+local function DisableNewModulesForExistingProfile(profile, defaultModules)
+    if type(profile) ~= "table" or type(profile.modules) ~= "table" then return end
+
+    for moduleName in pairs(defaultModules) do
+        if profile.modules[moduleName] == nil then
+            profile.modules[moduleName] = false
+        end
+    end
+end
+
 -- 데이터베이스 초기화
 function ns:InitDB()
     if not DDingUIToolkitDB then
@@ -457,6 +602,7 @@ function ns:InitDB()
     if not DDingUIToolkitDB.profile then
         DDingUIToolkitDB.profile = self:DeepCopy(self.defaults.profile)
     else
+        DisableNewModulesForExistingProfile(DDingUIToolkitDB.profile, self.defaults.profile.modules)
         self:MergeDefaults(DDingUIToolkitDB.profile, self.defaults.profile)
     end
 

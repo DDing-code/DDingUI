@@ -181,6 +181,9 @@ function DurabilityCheck:CreateAlertFrame()
             y = y,
         }
     end)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(alertFrame)
+    end
 
     -- 저장된 위치 적용
     self:ApplyPosition()
@@ -284,6 +287,16 @@ function DurabilityCheck:UpdateLock()
     if alertFrame then
         alertFrame:EnableMouse(not self.db.locked)
     end
+end
+
+-- 편집 모드 연동 (Movers)
+function DurabilityCheck:EnterEditPreview()
+    if not alertFrame then self:CreateAlertFrame() end
+    self:CheckDurability(true)  -- 테스트 알림으로 강제 표시
+end
+
+function DurabilityCheck:ExitEditPreview()
+    self:HideAlert()
 end
 
 -- 모듈 등록

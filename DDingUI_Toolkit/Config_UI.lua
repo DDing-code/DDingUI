@@ -807,7 +807,7 @@ local function RenderSettingsPanel(container, panelDef)
     if panelDef.moduleEnableKey and (moduleToggleEndY or usesWorkspaceHeader) then
         CreateModuleOverlay(container, moduleToggleEndY or 0)
         local isEnabled = ns:GetDBValue(panelDef.moduleEnableKey)
-        UpdateModuleOverlay(container, isEnabled ~= false)
+        UpdateModuleOverlay(container, isEnabled == true)
     end
 end
 
@@ -836,7 +836,7 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
         container._contentHeight = math.abs(bodyTop) + (body._contentHeight or 0) + pad
         container:SetHeight(container._contentHeight)
         CreateModuleOverlay(container, 0)
-        UpdateModuleOverlay(container, ns:GetDBValue(panelDef.moduleEnableKey) ~= false)
+        UpdateModuleOverlay(container, ns:GetDBValue(panelDef.moduleEnableKey) == true)
         return
     end
 
@@ -935,7 +935,7 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
 
     if panelDef.moduleEnableKey then
         CreateModuleOverlay(container, 0)
-        UpdateModuleOverlay(container, ns:GetDBValue(panelDef.moduleEnableKey) ~= false)
+        UpdateModuleOverlay(container, ns:GetDBValue(panelDef.moduleEnableKey) == true)
     end
 end
 
@@ -955,8 +955,8 @@ local function SetPanelModuleEnabled(panelKey, enabled)
     if not panelDef or not panelDef.moduleEnableKey then return end
 
     local oldValue = ns:GetDBValue(panelDef.moduleEnableKey)
-    local normalized = enabled ~= false
-    if (oldValue ~= false) == normalized then
+    local normalized = enabled == true
+    if (oldValue == true) == normalized then
         if settingsPanel and settingsPanel.workspace then
             settingsPanel.workspace:RefreshModuleStates()
         end
@@ -1042,7 +1042,7 @@ local function ShowPanel(key)
                     hdr:SetPoint("TOPRIGHT", c, "TOPRIGHT", -S.contentPad, customStartY)
                     customStartY = customStartY - hdr:GetHeight()
 
-                    local chk = Widgets.CreateCheckbox(c, ADDON_KEY, L["MODULE_ENABLED"], isEnabled ~= false, {
+                    local chk = Widgets.CreateCheckbox(c, ADDON_KEY, L["MODULE_ENABLED"], isEnabled == true, {
                         onChange = function(checked)
                             SetPanelModuleEnabled(key, checked)
                         end,
@@ -1060,7 +1060,7 @@ local function ShowPanel(key)
 
                 -- 오버레이
                 CreateModuleOverlay(c, settingsPanel.workspace and 0 or customStartY)
-                UpdateModuleOverlay(c, isEnabled ~= false)
+                UpdateModuleOverlay(c, isEnabled == true)
 
                 -- customRender: 모듈에게 서브 컨테이너 위임
                 local moduleName = ns.ConfigModuleMap[key]

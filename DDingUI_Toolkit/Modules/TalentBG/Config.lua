@@ -9,6 +9,7 @@ local L = ns.L
 
 -- StyleLib 참조
 local Lib = LibStub("DDingUI-StyleLib-1.0")
+local Widgets = ns.ToolkitControls or Lib
 local C    = Lib.Colors
 local F    = Lib.Font
 local ADDON_KEY = "MJToolkit"
@@ -296,9 +297,9 @@ local function OnConfigReady()
             { text = L["TALENTBG_MODE_CLASS"],  value = "class" },
             { text = L["TALENTBG_MODE_GLOBAL"], value = "global" },
         }
-        local modeDD = Lib.CreateDropdown(container, ADDON_KEY, L["TALENTBG_SCOPE"] or "Scope", modeOpts,
+        local modeDD = Widgets.CreateDropdown(container, ADDON_KEY, L["TALENTBG_SCOPE"] or "Scope", modeOpts,
             self.profileDB and self.profileDB.mode or "spec", {
-            width = 200,
+            width = 160,
             onChange = function(value)
                 self:SetMode(value)
                 local bg = self:GetCurrentBackground()
@@ -308,6 +309,7 @@ local function OnConfigReady()
             end,
         })
         modeDD:SetPoint("TOPLEFT", container, "TOPLEFT", 10, -10)
+        modeDD:SetWidth(leftW - 10)
 
         -- 텍스처 그리드
         local grid = CreateTextureGrid(container, leftW - 10, cH - 100)
@@ -377,12 +379,13 @@ local function OnConfigReady()
         baseLabel:SetPoint("TOPLEFT", addLabel, "BOTTOMLEFT", 0, -4)
         baseLabel:SetText("|cFF888888" .. basePath .. "|r")
 
-        local editBox = Lib.CreateInputField(container, ADDON_KEY, "", {
-            width = rightW - 100,
+        local editBox = Widgets.CreateInputField(container, ADDON_KEY, "", "", {
+            inputWidth = rightW - 100,
         })
+        editBox:SetWidth(rightW - 88)
         editBox:SetPoint("TOPLEFT", baseLabel, "BOTTOMLEFT", 0, -8)
 
-        local addBtn = Lib.CreateButton(container, ADDON_KEY, L["ADD"] or "Add", function()
+        local addBtn = Widgets.CreateButton(container, ADDON_KEY, L["ADD"] or "Add", function()
             local eb = editBox.editBox or editBox
             local fn = eb.GetText and eb:GetText() or ""
             if fn == "" then
@@ -400,7 +403,7 @@ local function OnConfigReady()
         addBtn:SetPoint("LEFT", editBox, "RIGHT", 8, 0)
 
         -- 하단 버튼: 적용 + 리셋
-        local applyBtn = Lib.CreateButton(container, ADDON_KEY, L["APPLY"] or "Apply", function()
+        local applyBtn = Widgets.CreateButton(container, ADDON_KEY, L["APPLY"] or "Apply", function()
             if InCombatLockdown() then
                 print(CHAT_PREFIX_ERR .. (L["TALENTBG_NOT_IN_COMBAT"] or "Not in combat")) -- [STYLE]
                 return
@@ -416,7 +419,7 @@ local function OnConfigReady()
         end, { width = 160 })
         applyBtn:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", rightX, 15)
 
-        local resetBtn = Lib.CreateButton(container, ADDON_KEY, L["RESET_TO_DEFAULT"] or "Reset", function()
+        local resetBtn = Widgets.CreateButton(container, ADDON_KEY, L["RESET_TO_DEFAULT"] or "Reset", function()
             if InCombatLockdown() then
                 print(CHAT_PREFIX_ERR .. (L["TALENTBG_NOT_IN_COMBAT"] or "Not in combat")) -- [STYLE]
                 return

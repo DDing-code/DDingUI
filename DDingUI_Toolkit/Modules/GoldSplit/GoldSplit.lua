@@ -127,6 +127,10 @@ function GoldSplit:CreateMainFrame()
         mainFrame:StopMovingOrSizing()
         self:SavePosition()
     end)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(mainFrame)
+        ns:EnableRightClickMouselook(titleBar)
+    end
 
     -- 타이틀 텍스트
     local titleText = titleBar:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -278,6 +282,9 @@ local function CreateStyledPopup(name, width, height, title)
     popup:RegisterForDrag("LeftButton")
     popup:SetScript("OnDragStart", popup.StartMoving)
     popup:SetScript("OnDragStop", popup.StopMovingOrSizing)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(popup)
+    end
 
     -- 타이틀바
     local titleBar = CreateFrame("Frame", nil, popup, "BackdropTemplate")

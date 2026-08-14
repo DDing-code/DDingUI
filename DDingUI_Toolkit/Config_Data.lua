@@ -105,25 +105,31 @@ end
 ------------------------------------------------------
 
 ns.ConfigModuleMap = {
+    -- 전투
+    combattimer     = "CombatTimer",
+    raidbreaktimer  = "RaidBreakTimer",
+    characterpositionmarker = "CharacterPositionMarker",
+    rangedisplay    = "RangeDisplay",
+    castingalert    = "CastingAlert",
+    focusinterrupt  = "FocusInterrupt",
+    partytracker    = "PartyTracker",
+    deathalert      = "DeathAlert",
+    deathreleaseguard = "DeathReleaseGuard",
+    mythicplus      = "MythicPlusHelper",
+
+    -- 유틸리티
     talentbg        = "TalentBG",
     lfgalert        = "LFGAlert",
+    partyfullalert  = "PartyFullAlert",
     mailalert       = "MailAlert",
     cursortrail     = "CursorTrail",
     itemlevel       = "ItemLevel",
     notepad         = "Notepad",
-
-    partytracker    = "PartyTracker",
-    deathreleaseguard = "DeathReleaseGuard",
-    mythicplus      = "MythicPlusHelper",
     goldsplit       = "GoldSplit",
     durability      = "DurabilityCheck",
-
-    keystonetracker = "KeystoneTracker",
-    focusinterrupt  = "FocusInterrupt",
-
-
-    autorepair      = "AutoRepair",
     skyridingtracker = "SkyridingTracker",
+    autorepair      = "AutoRepair",
+    raidlootpass    = "RaidLootPass",
 }
 
 ------------------------------------------------------
@@ -139,24 +145,32 @@ function ns:InitConfigTree()
     -----------------------------------------------
     tree.menu = {
         { text = L["TAB_GENERAL"],          key = "general" },
-        { text = L["TAB_TALENTBG"],         key = "talentbg" },
-        { text = L["TAB_LFGALERT"],         key = "lfgalert" },
-        { text = L["TAB_MAILALERT"],        key = "mailalert" },
-        { text = L["TAB_CURSORTRAIL"],      key = "cursortrail" },
-        { text = L["TAB_ITEMLEVEL"],        key = "itemlevel" },
-        { text = L["TAB_NOTEPAD"],          key = "notepad" },
-
-        { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
-        { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
-        { text = L["TAB_MYTHICPLUS"],       key = "mythicplus" },
-        { text = L["TAB_GOLDSPLIT"],        key = "goldsplit" },
-        { text = L["TAB_DURABILITY"],       key = "durability" },
-
-        { text = L["TAB_KEYSTONETRACKER"],  key = "keystonetracker" },
-        { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
-        { text = L["TAB_SKYRIDINGTRACKER"], key = "skyridingtracker" },
-
-        { text = L["TAB_AUTOREPAIR"],       key = "autorepair" },
+        -- [REFACTOR] 전투/비전투 카테고리 분리
+        { text = L["TAB_CATEGORY_COMBAT"] or "|TInterface\\ICONS\\Ability_DualWield:14:14|t |cffff6b6b전투|r",  key = "cat_combat", children = {
+            { text = L["TAB_COMBATTIMER"],      key = "combattimer" },
+            { text = L["TAB_CHARACTERPOSITIONMARKER"], key = "characterpositionmarker" },
+            { text = L["TAB_RANGEDISPLAY"],     key = "rangedisplay" },
+            { text = L["TAB_CASTINGALERT"],     key = "castingalert" },
+            { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
+            { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
+            { text = L["DEATHALERT_TITLE"] or "DeathAlert", key = "deathalert" },
+            { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
+        }},
+        { text = L["TAB_CATEGORY_UTILITY"] or "|TInterface\\ICONS\\Trade_Engineering:14:14|t |cff6baaff유틸리티|r", key = "cat_utility", children = {
+            { text = L["TAB_TALENTBG"],         key = "talentbg" },
+            { text = L["TAB_LFGALERT"],         key = "lfgalert" },
+            { text = L["TAB_PARTYFULLALERT"],   key = "partyfullalert" },
+            { text = L["TAB_RAIDBREAKTIMER"],   key = "raidbreaktimer" },
+            { text = L["TAB_MAILALERT"],        key = "mailalert" },
+            { text = L["TAB_CURSORTRAIL"],      key = "cursortrail" },
+            { text = L["TAB_ITEMLEVEL"],        key = "itemlevel" },
+            { text = L["TAB_NOTEPAD"],          key = "notepad" },
+            { text = L["TAB_GOLDSPLIT"],        key = "goldsplit" },
+            { text = L["TAB_DURABILITY"],       key = "durability" },
+            { text = L["TAB_SKYRIDINGTRACKER"], key = "skyridingtracker" },
+            { text = L["TAB_AUTOREPAIR"],       key = "autorepair" },
+            { text = L["TAB_RAIDLOOTPASS"],     key = "raidlootpass" },
+        }},
     }
 
     -----------------------------------------------
@@ -174,6 +188,28 @@ function ns:InitConfigTree()
         render = function(container)
             ns.ToolkitHomePanels:RenderDashboard(container)
         end,
+    }
+
+    -----------------------------------------------
+    -- Category: 전투 (Overview)
+    -----------------------------------------------
+    tree.panels["cat_combat"] = {
+        title = L["TAB_CATEGORY_COMBAT"] or "|TInterface\\ICONS\\Ability_DualWield:14:14|t 전투",
+        settings = {
+            { type = "header", label = L["TAB_CATEGORY_COMBAT"] or "전투 모듈", isFirst = true },
+            { type = "text", label = L["CATEGORY_COMBAT_DESC"] or "전투 중 사용되는 유틸리티 모듈입니다.\n좌측 메뉴에서 개별 모듈을 선택하세요." },
+        },
+    }
+
+    -----------------------------------------------
+    -- Category: 유틸리티 (Overview)
+    -----------------------------------------------
+    tree.panels["cat_utility"] = {
+        title = L["TAB_CATEGORY_UTILITY"] or "|TInterface\\ICONS\\Trade_Engineering:14:14|t 유틸리티",
+        settings = {
+            { type = "header", label = L["TAB_CATEGORY_UTILITY"] or "유틸리티 모듈", isFirst = true },
+            { type = "text", label = L["CATEGORY_UTILITY_DESC"] or "비전투 편의 기능 모듈입니다.\n좌측 메뉴에서 개별 모듈을 선택하세요." },
+        },
     }
 
     -----------------------------------------------
@@ -255,6 +291,64 @@ function ns:InitConfigTree()
             { type = "button", label = L["TEST_ALERT"], onClick = function()
                 local mod = ns.modules and ns.modules["LFGAlert"]
                 if mod and mod.TriggerAlert then mod:TriggerAlert(1, true) end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- PartyFullAlert
+    -----------------------------------------------
+    local function RefreshPartyFullAlert()
+        local mod = ns.modules and ns.modules["PartyFullAlert"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    local function RefreshPartyFullAlertPosition()
+        local mod = ns.modules and ns.modules["PartyFullAlert"]
+        if mod and mod.ApplyPosition then mod:ApplyPosition() end
+    end
+
+    tree.panels["partyfullalert"] = {
+        title = L["PARTYFULLALERT_TITLE"],
+        desc = L["PARTYFULLALERT_DESC"],
+        moduleEnableKey = "profile.modules.PartyFullAlert",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.PartyFullAlert", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+
+            { type = "header", label = L["ALERT_METHOD"] },
+            { type = "toggle", key = "profile.PartyFullAlert.soundEnabled", label = L["PARTYFULLALERT_SOUND_ENABLED"] },
+            { type = "toggle", key = "profile.PartyFullAlert.flashEnabled", label = L["PARTYFULLALERT_FLASH_ENABLED"] },
+            { type = "toggle", key = "profile.PartyFullAlert.screenAlertEnabled", label = L["PARTYFULLALERT_SCREEN_ENABLED"] },
+            { type = "toggle", key = "profile.PartyFullAlert.chatAlert", label = L["PARTYFULLALERT_CHAT_ENABLED"] },
+
+            { type = "header", label = L["CONDITIONS"] },
+            { type = "slider", key = "profile.PartyFullAlert.targetSize", label = L["PARTYFULLALERT_TARGET_SIZE"], min = 2, max = 5, step = 1 },
+            { type = "slider", key = "profile.PartyFullAlert.cooldown", label = L["ALERT_COOLDOWN"], min = 0, max = 30, step = 1 },
+            { type = "text", label = L["PARTYFULLALERT_FIVE_PLAYER_ONLY"] },
+
+            { type = "header", label = L["SOUND_SETTINGS"] },
+            { type = "sound", key = "profile.PartyFullAlert.soundFile", label = L["LFGALERT_SOUND_FILE"], defaultLabel = L["PARTYFULLALERT_DEFAULT_SOUND"], customPathKey = "profile.PartyFullAlert.soundCustomPath" },
+            { type = "dropdown", key = "profile.PartyFullAlert.soundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
+
+            { type = "header", label = L["SCREEN_ALERT_SETTINGS"] },
+            { type = "slider", key = "profile.PartyFullAlert.alertScale", label = L["ALERT_SIZE"], min = 0.5, max = 2.0, step = 0.1, onChange = RefreshPartyFullAlert },
+            { type = "slider", key = "profile.PartyFullAlert.alertDuration", label = L["DISPLAY_DURATION"], min = 1, max = 15, step = 1 },
+
+            { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.PartyFullAlert.position.x", label = L["CASTINGALERT_POS_X"], min = -800, max = 800, step = 1, onChange = RefreshPartyFullAlertPosition },
+            { type = "slider", key = "profile.PartyFullAlert.position.y", label = L["CASTINGALERT_POS_Y"], min = -600, max = 600, step = 1, onChange = RefreshPartyFullAlertPosition },
+
+            { type = "separator" },
+            { type = "button", label = L["TEST_ALERT"], onClick = function()
+                local mod = ns.modules and ns.modules["PartyFullAlert"]
+                if mod and mod.TriggerAlert then
+                    mod:TriggerAlert(true, ns:GetDBValue("profile.PartyFullAlert.targetSize") or 5)
+                end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["PartyFullAlert"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
             end },
         },
     }
@@ -526,6 +620,348 @@ function ns:InitConfigTree()
     }
 
     -----------------------------------------------
+    -- RaidBreakTimer
+    -----------------------------------------------
+    local function RefreshRaidBreakTimer()
+        local mod = ns.modules and ns.modules["RaidBreakTimer"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    local function RefreshRaidBreakTimerPosition()
+        local mod = ns.modules and ns.modules["RaidBreakTimer"]
+        if mod and mod.ApplyPosition then mod:ApplyPosition() end
+    end
+
+    tree.panels["raidbreaktimer"] = {
+        title = L["RAIDBREAKTIMER_TITLE"],
+        desc = L["RAIDBREAKTIMER_DESC"],
+        moduleEnableKey = "profile.modules.RaidBreakTimer",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.RaidBreakTimer", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+            { type = "text", label = L["RAIDBREAKTIMER_BIGWIGS_NOTE"] },
+
+            { type = "header", label = L["RAIDBREAKTIMER_TEXT_SETTINGS"] },
+            { type = "input", key = "profile.RaidBreakTimer.customText", label = L["RAIDBREAKTIMER_CUSTOM_TEXT"], inputWidth = 300, onChange = RefreshRaidBreakTimer },
+            { type = "dropdown", key = "profile.RaidBreakTimer.textOrder", label = L["RAIDBREAKTIMER_TEXT_ORDER"], options = {
+                { text = L["RAIDBREAKTIMER_TIME_ONLY"], value = "TIME_ONLY" },
+                { text = L["RAIDBREAKTIMER_TEXT_TIME"], value = "TEXT_TIME" },
+                { text = L["RAIDBREAKTIMER_TIME_TEXT"], value = "TIME_TEXT" },
+              }, onChange = RefreshRaidBreakTimer },
+            { type = "dropdown", key = "profile.RaidBreakTimer.textLayer", label = L["RAIDBREAKTIMER_TEXT_LAYER"], options = {
+                { text = L["RAIDBREAKTIMER_TEXT_LAYER_FRONT"], value = "FRONT" },
+                { text = L["RAIDBREAKTIMER_TEXT_LAYER_BEHIND"], value = "BEHIND" },
+              }, onChange = RefreshRaidBreakTimer },
+            { type = "font", key = "profile.RaidBreakTimer.font", label = L["FONT"], onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.fontSize", label = L["FONT_SIZE"], min = 24, max = 160, step = 1, onChange = RefreshRaidBreakTimer },
+            { type = "dropdown", key = "profile.RaidBreakTimer.fontOutline", label = L["FONT_OUTLINE"], options = {
+                { text = L["FONT_OUTLINE_NONE"], value = "" },
+                { text = L["FONT_OUTLINE_NORMAL"], value = "OUTLINE" },
+                { text = L["FONT_OUTLINE_THICK"], value = "THICKOUTLINE" },
+              }, onChange = RefreshRaidBreakTimer },
+            { type = "color", key = "profile.RaidBreakTimer.textColor", label = L["TEXT_COLOR"], hasAlpha = true, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.textOffsetX", label = L["RAIDBREAKTIMER_TEXT_OFFSET_X"], min = -600, max = 600, step = 1, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.textOffsetY", label = L["RAIDBREAKTIMER_TEXT_OFFSET_Y"], min = -600, max = 600, step = 1, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.scale", label = L["SCALE"], min = 0.5, max = 2.0, step = 0.05, onChange = RefreshRaidBreakTimer },
+
+            { type = "header", label = L["RAIDBREAKTIMER_IMAGE_SETTINGS"] },
+            { type = "toggle", key = "profile.RaidBreakTimer.showImage", label = L["RAIDBREAKTIMER_SHOW_IMAGE"], onChange = RefreshRaidBreakTimer },
+            { type = "input", key = "profile.RaidBreakTimer.imageFolder", label = L["RAIDBREAKTIMER_IMAGE_FOLDER"], inputWidth = 300, onChange = RefreshRaidBreakTimer },
+            { type = "input", key = "profile.RaidBreakTimer.imageFile", label = L["RAIDBREAKTIMER_IMAGE_FILE"], inputWidth = 300, onChange = RefreshRaidBreakTimer },
+            { type = "text", label = L["RAIDBREAKTIMER_IMAGE_PATH_NOTE"] },
+            { type = "dropdown", key = "profile.RaidBreakTimer.imageAnchor", label = L["RAIDBREAKTIMER_IMAGE_ANCHOR"], options = {
+                { text = L["POS_TOPLEFT"], value = "TOPLEFT" },
+                { text = L["POS_TOP"], value = "TOP" },
+                { text = L["POS_TOPRIGHT"], value = "TOPRIGHT" },
+                { text = L["POS_LEFT"], value = "LEFT" },
+                { text = L["POS_CENTER"], value = "CENTER" },
+                { text = L["POS_RIGHT"], value = "RIGHT" },
+                { text = L["POS_BOTTOMLEFT"], value = "BOTTOMLEFT" },
+                { text = L["POS_BOTTOM"], value = "BOTTOM" },
+                { text = L["POS_BOTTOMRIGHT"], value = "BOTTOMRIGHT" },
+              }, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.imageWidth", label = L["RAIDBREAKTIMER_IMAGE_WIDTH"], min = 32, max = 1200, step = 1, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.imageHeight", label = L["RAIDBREAKTIMER_IMAGE_HEIGHT"], min = 32, max = 1200, step = 1, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.imageAlpha", label = L["RAIDBREAKTIMER_IMAGE_ALPHA"], min = 0, max = 1, step = 0.05, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.imageOffsetX", label = L["RAIDBREAKTIMER_IMAGE_OFFSET_X"], min = -600, max = 600, step = 1, onChange = RefreshRaidBreakTimer },
+            { type = "slider", key = "profile.RaidBreakTimer.imageOffsetY", label = L["RAIDBREAKTIMER_IMAGE_OFFSET_Y"], min = -600, max = 600, step = 1, onChange = RefreshRaidBreakTimer },
+
+            { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.RaidBreakTimer.position.x", label = L["CASTINGALERT_POS_X"], min = -800, max = 800, step = 1, onChange = RefreshRaidBreakTimerPosition },
+            { type = "slider", key = "profile.RaidBreakTimer.position.y", label = L["CASTINGALERT_POS_Y"], min = -600, max = 600, step = 1, onChange = RefreshRaidBreakTimerPosition },
+
+            { type = "separator" },
+            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
+                local mod = ns.modules and ns.modules["RaidBreakTimer"]
+                if mod and mod.TestMode then mod:TestMode() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["RaidBreakTimer"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- CharacterPositionMarker
+    -----------------------------------------------
+    tree.panels["characterpositionmarker"] = {
+        title = L["CHARPOSMARKER_TITLE"],
+        desc  = L["CHARPOSMARKER_DESC"],
+        moduleEnableKey = "profile.modules.CharacterPositionMarker",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.CharacterPositionMarker", label = L["MODULE_ENABLED"], isModuleToggle = true,
+              onChange = function(checked)
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if not mod then return end
+                if checked then
+                    if mod.OnInitialize and not mod.initialized then mod:OnInitialize() end
+                    if mod.OnEnable then mod:OnEnable() end
+                    mod.enabled = true
+                else
+                    if mod.OnDisable then mod:OnDisable() end
+                    mod.enabled = false
+                end
+              end,
+            },
+
+            { type = "header", label = L["CHARPOSMARKER_DISPLAY_SETTINGS"] },
+            { type = "toggle", key = "profile.CharacterPositionMarker.enabled", label = L["CHARPOSMARKER_ENABLED"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "dropdown", key = "profile.CharacterPositionMarker.visualMode", label = L["CHARPOSMARKER_VISUAL_MODE"], options = {
+                { text = L["CHARPOSMARKER_VISUAL_SIMPLE"], value = "SIMPLE" },
+                { text = L["CHARPOSMARKER_VISUAL_FANCY"], value = "SYSTEM" },
+              },
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CharacterPositionMarker.combatOnly", label = L["CHARPOSMARKER_COMBAT_ONLY"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CharacterPositionMarker.instanceOnly", label = L["CHARPOSMARKER_INSTANCE_ONLY"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheck", label = L["CHARPOSMARKER_RANGE_CHECK"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CharacterPositionMarker.meleeDpsOnly", label = L["CHARPOSMARKER_MELEE_ONLY"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "input", key = "profile.CharacterPositionMarker.rangeSpell", label = L["CHARPOSMARKER_RANGE_SPELL"], numeric = true, inputWidth = 100,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "dropdown", key = "profile.CharacterPositionMarker.shape", label = L["CHARPOSMARKER_SHAPE"], options = {
+                { text = L["CHARPOSMARKER_SHAPE_RETICLE"], value = "RETICLE" },
+                { text = L["CHARPOSMARKER_SHAPE_CROSS"],   value = "CROSS" },
+                { text = L["CHARPOSMARKER_SHAPE_SQUARE"],  value = "SQUARE" },
+                { text = L["CHARPOSMARKER_SHAPE_DIAMOND"], value = "DIAMOND" },
+                { text = L["CHARPOSMARKER_SHAPE_EMPTY_DIAMOND"], value = "EMPTY_DIAMOND" },
+              },
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.CharacterPositionMarker.size", label = L["CHARPOSMARKER_SIZE"], min = 16, max = 180, step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.CharacterPositionMarker.thickness", label = L["CHARPOSMARKER_THICKNESS"], min = 1, max = 24, step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.CharacterPositionMarker.centerGap", label = L["CHARPOSMARKER_CENTER_GAP"], min = 0, max = 80, step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.CharacterPositionMarker.scale", label = L["SCALE"], min = 0.3, max = 2.0, step = 0.05,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "dropdown", key = "profile.CharacterPositionMarker.frameStrata", label = L["CHARPOSMARKER_FRAME_STRATA"], options = {
+                { text = L["CHARPOSMARKER_STRATA_LOW"],    value = "LOW" },
+                { text = L["CHARPOSMARKER_STRATA_MEDIUM"], value = "MEDIUM" },
+                { text = L["CHARPOSMARKER_STRATA_HIGH"],   value = "HIGH" },
+              },
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "header", label = L["CHARPOSMARKER_ANIMATION_SETTINGS"] },
+            { type = "toggle", key = "profile.CharacterPositionMarker.animationEnabled", label = L["CHARPOSMARKER_ANIMATION_ENABLED"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.CharacterPositionMarker.enterAnimationDuration", label = L["CHARPOSMARKER_ENTER_DURATION"], min = 0.1, max = 1.0, step = 0.05,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.CharacterPositionMarker.exitAnimationDuration", label = L["CHARPOSMARKER_EXIT_DURATION"], min = 0.1, max = 1.0, step = 0.05,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+
+            { type = "header", label = L["COLOR"] },
+            { type = "color", key = "profile.CharacterPositionMarker.color", label = L["CHARPOSMARKER_COLOR"], hasAlpha = true,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "color", key = "profile.CharacterPositionMarker.outOfRangeColor", label = L["CHARPOSMARKER_OUT_OF_RANGE_COLOR"], hasAlpha = true,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "color", key = "profile.CharacterPositionMarker.effectColor", label = L["CHARPOSMARKER_EFFECT_COLOR"], hasAlpha = true,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "color", key = "profile.CharacterPositionMarker.effectSecondaryColor", label = L["CHARPOSMARKER_EFFECT_SECONDARY_COLOR"], hasAlpha = true,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+
+            { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.CharacterPositionMarker.position.x", label = L["CASTINGALERT_POS_X"], min = -800, max = 800, step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplyPosition then mod:ApplyPosition() end
+              end,
+            },
+            { type = "slider", key = "profile.CharacterPositionMarker.position.y", label = L["CASTINGALERT_POS_Y"], min = -600, max = 600, step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplyPosition then mod:ApplyPosition() end
+              end,
+            },
+
+            { type = "separator" },
+            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.TestMode then mod:TestMode() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- RangeDisplay
+    -----------------------------------------------
+    local function RefreshRangeDisplay()
+        local mod = ns.modules and ns.modules["RangeDisplay"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    local function RefreshRangeDisplayPosition()
+        local mod = ns.modules and ns.modules["RangeDisplay"]
+        if mod and mod.ApplyPosition then mod:ApplyPosition() end
+    end
+
+    tree.panels["rangedisplay"] = {
+        title = L["RANGEDISPLAY_TITLE"],
+        desc = L["RANGEDISPLAY_DESC"],
+        moduleEnableKey = "profile.modules.RangeDisplay",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.RangeDisplay", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+
+            { type = "header", label = L["RANGEDISPLAY_DISPLAY_SETTINGS"] },
+            { type = "toggle", key = "profile.RangeDisplay.showTarget", label = L["RANGEDISPLAY_SHOW_TARGET"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.showFocus", label = L["RANGEDISPLAY_SHOW_FOCUS"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.combatOnly", label = L["RANGEDISPLAY_COMBAT_ONLY"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.showUnitLabel", label = L["RANGEDISPLAY_SHOW_LABEL"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.showUnknown", label = L["RANGEDISPLAY_SHOW_UNKNOWN"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.locked", label = L["POSITION_LOCKED"], onChange = RefreshRangeDisplay },
+
+            { type = "header", label = L["RANGEDISPLAY_STYLE_SETTINGS"] },
+            { type = "toggle", key = "profile.RangeDisplay.showAccentLine", label = L["RANGEDISPLAY_SHOW_ACCENT_LINE"], onChange = RefreshRangeDisplay },
+            { type = "slider", key = "profile.RangeDisplay.width", label = L["RANGEDISPLAY_WIDTH"], min = 80, max = 260, step = 1, onChange = RefreshRangeDisplay },
+            { type = "slider", key = "profile.RangeDisplay.height", label = L["RANGEDISPLAY_HEIGHT"], min = 20, max = 64, step = 1, onChange = RefreshRangeDisplay },
+            { type = "slider", key = "profile.RangeDisplay.fontSize", label = L["FONT_SIZE"], min = 8, max = 42, step = 1, onChange = RefreshRangeDisplay },
+            { type = "slider", key = "profile.RangeDisplay.scale", label = L["SCALE"], min = 0.5, max = 2.0, step = 0.05, onChange = RefreshRangeDisplay },
+            { type = "slider", key = "profile.RangeDisplay.bgAlpha", label = L["BACKGROUND_ALPHA"], min = 0, max = 1, step = 0.05, onChange = RefreshRangeDisplay },
+            { type = "slider", key = "profile.RangeDisplay.updateRate", label = L["RANGEDISPLAY_UPDATE_RATE"], min = 0.05, max = 1.0, step = 0.05 },
+            { type = "dropdown", key = "profile.RangeDisplay.frameStrata", label = L["CHARPOSMARKER_FRAME_STRATA"], options = {
+                { text = L["CHARPOSMARKER_STRATA_LOW"], value = "LOW" },
+                { text = L["CHARPOSMARKER_STRATA_MEDIUM"], value = "MEDIUM" },
+                { text = L["CHARPOSMARKER_STRATA_HIGH"], value = "HIGH" },
+              },
+              onChange = RefreshRangeDisplay,
+            },
+
+            { type = "header", label = L["RANGEDISPLAY_RANGE_COLORS"] },
+            { type = "slider", key = "profile.RangeDisplay.nearThreshold", label = L["RANGEDISPLAY_NEAR_THRESHOLD"], min = 5, max = 20, step = 1, onChange = RefreshRangeDisplay },
+            { type = "slider", key = "profile.RangeDisplay.farThreshold", label = L["RANGEDISPLAY_FAR_THRESHOLD"], min = 20, max = 100, step = 1, onChange = RefreshRangeDisplay },
+            { type = "color", key = "profile.RangeDisplay.nearColor", label = L["RANGEDISPLAY_NEAR_COLOR"], hasAlpha = true, onChange = RefreshRangeDisplay },
+            { type = "color", key = "profile.RangeDisplay.mediumColor", label = L["RANGEDISPLAY_MEDIUM_COLOR"], hasAlpha = true, onChange = RefreshRangeDisplay },
+            { type = "color", key = "profile.RangeDisplay.farColor", label = L["RANGEDISPLAY_FAR_COLOR"], hasAlpha = true, onChange = RefreshRangeDisplay },
+            { type = "color", key = "profile.RangeDisplay.unknownColor", label = L["RANGEDISPLAY_UNKNOWN_COLOR"], hasAlpha = true, onChange = RefreshRangeDisplay },
+
+            { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.RangeDisplay.targetPosition.x", label = L["RANGEDISPLAY_TARGET_POS_X"], min = -800, max = 800, step = 1, onChange = RefreshRangeDisplayPosition },
+            { type = "slider", key = "profile.RangeDisplay.targetPosition.y", label = L["RANGEDISPLAY_TARGET_POS_Y"], min = -600, max = 600, step = 1, onChange = RefreshRangeDisplayPosition },
+            { type = "slider", key = "profile.RangeDisplay.focusPosition.x", label = L["RANGEDISPLAY_FOCUS_POS_X"], min = -800, max = 800, step = 1, onChange = RefreshRangeDisplayPosition },
+            { type = "slider", key = "profile.RangeDisplay.focusPosition.y", label = L["RANGEDISPLAY_FOCUS_POS_Y"], min = -600, max = 600, step = 1, onChange = RefreshRangeDisplayPosition },
+
+            { type = "separator" },
+            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
+                local mod = ns.modules and ns.modules["RangeDisplay"]
+                if mod and mod.TestMode then mod:TestMode() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["RangeDisplay"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
     -- PartyTracker
     -----------------------------------------------
     tree.panels["partytracker"] = {
@@ -627,6 +1063,54 @@ function ns:InitConfigTree()
             -- 정보 텍스트
             { type = "header", label = L["PARTYTRACKER_INFO_TITLE"] },
             { type = "text",   label = L["PARTYTRACKER_INFO_TEXT"] },
+        },
+    }
+
+    -----------------------------------------------
+    -- DeathAlert
+    -----------------------------------------------
+    tree.panels["deathalert"] = {
+        title = L["DEATHALERT_TITLE"] or "DeathAlert",
+        desc  = L["DEATHALERT_DESC_FULL"] or "사망 알림 설정",
+        moduleEnableKey = "profile.modules.DeathAlert",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.DeathAlert", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+
+            { type = "header", label = L["DEATHALERT_DISPLAY_SETTINGS"] or "표시 설정" },
+            { type = "toggle", key = "profile.DeathAlert.onlyInstance", label = L["DEATHALERT_ONLY_INSTANCE"] or "인스턴스만" },
+            { type = "toggle", key = "profile.DeathAlert.enableRoleIcon", label = L["DEATHALERT_ENABLE_ROLE_ICON"] or "역할 아이콘 표시" },
+            { type = "toggle", key = "profile.DeathAlert.enableWipeDetection", label = L["DEATHALERT_WIPE_DETECTION"] or "전멸 방지" },
+            { type = "toggle", key = "profile.DeathAlert.enableChatAlert", label = "채팅창 알림 출력" },
+
+            { type = "header", label = L["DEATHALERT_TEXT_SETTINGS"] or "텍스트 설정" },
+            { type = "font",   key = "profile.DeathAlert.font", label = L["FONT"] },
+            { type = "slider", key = "profile.DeathAlert.fontSize", label = L["FONT_SIZE"], min = 12, max = 40, step = 1 },
+            { type = "slider", key = "profile.DeathAlert.messageDuration", label = L["DISPLAY_DURATION"], min = 1, max = 10, step = 1 },
+            { type = "toggle", key = "profile.DeathAlert.locked", label = L["POSITION_LOCKED"], onChange = function()
+                local mod = ns.modules and ns.modules["DeathAlert"]
+                if mod and mod.UpdateVisuals then mod:UpdateVisuals() end
+            end },
+
+            { type = "header", label = L["DEATHALERT_SOUND_SETTINGS"] or "사운드 설정" },
+            { type = "toggle", key = "profile.DeathAlert.enableSound", label = L["MAILALERT_SOUND_ENABLED"] or "사운드 사용" },
+            { type = "sound",  key = "profile.DeathAlert.soundFile", label = L["DEATHALERT_SOUND_MASTER"] or "기본 사운드" },
+            { type = "sound",  key = "profile.DeathAlert.tankSound", label = L["DEATHALERT_SOUND_TANK"] or "탱커 전용" },
+            { type = "sound",  key = "profile.DeathAlert.healerSound", label = L["DEATHALERT_SOUND_HEALER"] or "힐러 전용" },
+            { type = "toggle", key = "profile.DeathAlert.enablePlayerSound", label = L["DEATHALERT_ENABLE_PLAYER_SOUND"] or "본인 전용 사운드 사용" },
+            { type = "sound",  key = "profile.DeathAlert.playerSound", label = L["DEATHALERT_SOUND_PLAYER"] or "본인 사망 사운드" },
+            { type = "dropdown", key = "profile.DeathAlert.soundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
+
+            { type = "separator" },
+            { type = "button", label = L["TEST_ALERT"] or "알림 테스트", onClick = function()
+                local mod = ns.modules and ns.modules["DeathAlert"]
+                if mod and mod.TestMode then mod:TestMode() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                ns:SetDBValue("profile.DeathAlert.position", nil)
+                local mod = ns.modules and ns.modules["DeathAlert"]
+                if mod and mod.UpdateVisuals then mod:UpdateVisuals() end
+            end },
         },
     }
 
@@ -780,100 +1264,6 @@ function ns:InitConfigTree()
     }
 
     -----------------------------------------------
-    -- BuffChecker
-    -----------------------------------------------
-    tree.panels["buffchecker"] = {
-        title = L["BUFFCHECKER_TITLE"],
-        desc  = L["BUFFCHECKER_DESC"],
-        moduleEnableKey = "profile.modules.BuffChecker",
-        settings = {
-            -- 기본
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.BuffChecker", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-
-            -- 체크 항목
-            { type = "header", label = L["BUFFCHECKER_CHECK_ITEMS"] },
-            { type = "toggle", key = "profile.BuffChecker.showFood",   label = L["BUFFCHECKER_CHECK_FOOD"] },
-            { type = "toggle", key = "profile.BuffChecker.showFlask",  label = L["BUFFCHECKER_CHECK_FLASK"] },
-            { type = "toggle", key = "profile.BuffChecker.showWeapon", label = L["BUFFCHECKER_CHECK_WEAPON"] },
-            { type = "toggle", key = "profile.BuffChecker.showRune",   label = L["BUFFCHECKER_CHECK_RUNE"] },
-
-            -- 표시 조건
-            { type = "header", label = L["BUFFCHECKER_DISPLAY_CONDITIONS"] },
-            { type = "toggle", key = "profile.BuffChecker.instanceOnly", label = L["BUFFCHECKER_INSTANCE_ONLY"] },
-            { type = "button", label = L["ALL_CHECK_ON"], onClick = function()
-                ns:SetDBValue("profile.BuffChecker.showFood", true)
-                ns:SetDBValue("profile.BuffChecker.showFlask", true)
-                ns:SetDBValue("profile.BuffChecker.showWeapon", true)
-                ns:SetDBValue("profile.BuffChecker.showRune", true)
-            end },
-            { type = "button", label = L["ALL_CHECK_OFF"], onClick = function()
-                ns:SetDBValue("profile.BuffChecker.showFood", false)
-                ns:SetDBValue("profile.BuffChecker.showFlask", false)
-                ns:SetDBValue("profile.BuffChecker.showWeapon", false)
-                ns:SetDBValue("profile.BuffChecker.showRune", false)
-            end },
-
-            -- 표시 설정
-            { type = "header",   label = L["BUFFCHECKER_DISPLAY_SETTINGS"] },
-            { type = "slider",   key = "profile.BuffChecker.iconSize",   label = L["ICON_SIZE"], min = 20, max = 80, step = 5 },
-            { type = "slider",   key = "profile.BuffChecker.scale",      label = L["SCALE"],     min = 0.5, max = 2.0, step = 0.1 },
-            { type = "dropdown", key = "profile.BuffChecker.alignment",  label = L["TEXT_ALIGN"], options = "alignOptions" },
-            { type = "toggle",   key = "profile.BuffChecker.locked",     label = L["POSITION_LOCKED"] },
-
-            -- 텍스트 설정
-            { type = "header", label = L["BUFFCHECKER_TEXT_SETTINGS"] },
-            { type = "toggle", key = "profile.BuffChecker.showText",  label = L["SHOW_TEXT"] },
-            { type = "slider", key = "profile.BuffChecker.textSize",  label = L["FONT_SIZE"], min = 8, max = 20, step = 1 },
-            { type = "font",   key = "profile.BuffChecker.textFont",  label = L["BUFFCHECKER_TEXT_FONT"] },
-            { type = "color",  key = "profile.BuffChecker.textColor", label = L["TEXT_COLOR"], hasAlpha = false, colorFormat = "rgb_object" },
-
-            -- 버튼
-            { type = "separator" },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["BuffChecker"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
-            end },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["BuffChecker"]
-                if mod and mod.TestMode then mod:TestMode() end
-            end },
-        },
-    }
-
-    -----------------------------------------------
-    -- KeystoneTracker
-    -----------------------------------------------
-    tree.panels["keystonetracker"] = {
-        title = L["KEYSTONETRACKER_TITLE"],
-        desc  = L["KEYSTONETRACKER_DESC"],
-        moduleEnableKey = "profile.modules.KeystoneTracker",
-        settings = {
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.KeystoneTracker", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-            { type = "header", label = L["DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.KeystoneTracker.showInParty", label = L["KEYSTONETRACKER_SHOW_IN_PARTY"] },
-            { type = "toggle", key = "profile.KeystoneTracker.showInRaid",  label = L["KEYSTONETRACKER_SHOW_IN_RAID"] },
-            { type = "toggle", key = "profile.KeystoneTracker.locked",      label = L["POSITION_LOCKED"] },
-            { type = "slider", key = "profile.KeystoneTracker.scale",       label = L["SCALE"],     min = 0.5, max = 2.0, step = 0.1 },
-            { type = "slider", key = "profile.KeystoneTracker.fontSize",    label = L["FONT_SIZE"], min = 8,   max = 20,  step = 1 },
-
-            { type = "separator" },
-            { type = "button", label = L["KEYSTONETRACKER_TOGGLE_WINDOW"], onClick = function()
-                local mod = ns.modules and ns.modules["KeystoneTracker"]
-                if mod and mod.Toggle then mod:Toggle() end
-            end },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["KeystoneTracker"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
-            end },
-
-            { type = "header", label = L["KEYSTONETRACKER_USAGE_TITLE"] },
-            { type = "text",   label = L["KEYSTONETRACKER_USAGE_TEXT"] },
-        },
-    }
-
-    -----------------------------------------------
     -- CastingAlert
     -----------------------------------------------
     tree.panels["castingalert"] = {
@@ -883,38 +1273,172 @@ function ns:InitConfigTree()
         settings = {
             { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
             { type = "toggle", key = "profile.modules.CastingAlert", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+            { type = "toggle", key = "profile.CastingAlert.enabled", label = L["CASTINGALERT_ENABLED"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+
             -- 표시 설정
             { type = "header", label = L["CASTINGALERT_DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.CastingAlert.disableForTank", label = L["CASTINGALERT_DISABLE_FOR_TANK"] },
-            { type = "toggle", key = "profile.CastingAlert.onlyTargetingMe",label = L["CASTINGALERT_ONLY_TARGETING_ME"] },
-            { type = "toggle", key = "profile.CastingAlert.showTarget",     label = L["CASTINGALERT_SHOW_TARGET"] },
-            { type = "slider", key = "profile.CastingAlert.maxShow",        label = L["CASTINGALERT_MAX_SHOW"],   min = 1,   max = 15,  step = 1 },
-            { type = "slider", key = "profile.CastingAlert.iconSize",       label = L["ICON_SIZE"],               min = 20,  max = 80,  step = 1 },
-            { type = "slider", key = "profile.CastingAlert.fontSize",       label = L["FONT_SIZE"],               min = 10,  max = 30,  step = 1 },
-            { type = "slider", key = "profile.CastingAlert.dimAlpha",       label = L["CASTINGALERT_DIM_ALPHA"],  min = 0,   max = 1,   step = 0.1 },
-            { type = "slider", key = "profile.CastingAlert.scale",          label = L["SCALE"],                   min = 0.5, max = 2.0, step = 0.1 },
-            { type = "slider", key = "profile.CastingAlert.updateRate",     label = L["CASTINGALERT_UPDATE_RATE"],min = 0.1, max = 0.5, step = 0.05 },
+            { type = "toggle", key = "profile.CastingAlert.disableForTank", label = L["CASTINGALERT_DISABLE_FOR_TANK"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.ensureOffscreenNameplates", label = L["CASTINGALERT_ENSURE_OFFSCREEN"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.scale",          label = L["SCALE"],                   min = 0.5, max = 2.0, step = 0.1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.updateRate",     label = L["CASTINGALERT_UPDATE_RATE"],min = 0.03, max = 0.5, step = 0.01,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.RestartUpdate then mod:RestartUpdate() end
+              end,
+            },
+            { type = "header", label = L["CASTINGALERT_ICON_SETTINGS"] },
+            { type = "toggle", key = "profile.CastingAlert.showSwipe",       label = L["CASTINGALERT_SHOW_SWIPE"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.showImportantGlow", label = L["CASTINGALERT_IMPORTANT_GLOW"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.indicateInterrupts", label = L["CASTINGALERT_INDICATE_INTERRUPTS"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.maxShow",        label = L["CASTINGALERT_MAX_SHOW"],   min = 1,   max = 15,  step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.iconSize",       label = L["ICON_SIZE"],               min = 20,  max = 80,  step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.iconFontSize",   label = L["CASTINGALERT_ICON_FONT_SIZE"], min = 10, max = 36, step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.dimAlpha",       label = L["CASTINGALERT_DIM_ALPHA"],  min = 0,   max = 1,   step = 0.1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.spacing",        label = L["CASTINGALERT_SPACING"],    min = 0,   max = 30,  step = 1,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "dropdown", key = "profile.CastingAlert.stackDirection", label = L["CASTINGALERT_STACK_DIRECTION"], options = {
+                { text = L["CASTINGALERT_STACK_UP"],      value = "UP" },
+                { text = L["CASTINGALERT_STACK_DOWN"],    value = "DOWN" },
+                { text = L["CASTINGALERT_STACK_LEFT"],    value = "LEFT" },
+                { text = L["CASTINGALERT_STACK_RIGHT"],   value = "RIGHT" },
+                { text = L["CASTINGALERT_STACK_OVERLAP"], value = "OVERLAP" },
+              },
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+
+            -- Filter settings
+            { type = "header", label = L["CASTINGALERT_FILTER_SETTINGS"] },
+            { type = "toggle", key = "profile.CastingAlert.onlyTargetingMe", label = L["CASTINGALERT_ONLY_TARGETING_ME"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.showTarget",      label = L["CASTINGALERT_SHOW_TARGET"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.hideUntargeted",  label = L["CASTINGALERT_HIDE_UNTARGETED"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.onlyImportant",   label = L["CASTINGALERT_ONLY_IMPORTANT"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+
+            -- 텍스트 설정
+            { type = "header", label = L["CASTINGALERT_TEXT_SETTINGS"] },
+            { type = "font", key = "profile.CastingAlert.font", label = L["FONT"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.showDuration", label = L["CASTINGALERT_SHOW_DURATION"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "color", key = "profile.CastingAlert.durationTextColor", label = L["CASTINGALERT_DURATION_TEXT_COLOR"], hasAlpha = true,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+
+            -- 바 설정
 
             -- 위치 설정
             { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
-            { type = "slider", key = "profile.CastingAlert.position.x", label = L["CASTINGALERT_POS_X"], min = -600, max = 600, step = 1,
+            { type = "slider", key = "profile.CastingAlert.iconPosition.x", label = L["CASTINGALERT_ICON_POS_X"], min = -800, max = 800, step = 1,
               onChange = function()
                 local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.UpdatePosition then mod:UpdatePosition() end
+                if mod and mod.UpdateIconPosition then mod:UpdateIconPosition() end
               end,
             },
-            { type = "slider", key = "profile.CastingAlert.position.y", label = L["CASTINGALERT_POS_Y"], min = -400, max = 400, step = 1,
+            { type = "slider", key = "profile.CastingAlert.iconPosition.y", label = L["CASTINGALERT_ICON_POS_Y"], min = -600, max = 600, step = 1,
               onChange = function()
                 local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.UpdatePosition then mod:UpdatePosition() end
+                if mod and mod.UpdateIconPosition then mod:UpdateIconPosition() end
               end,
             },
-
             -- 사운드 설정
             { type = "header", label = L["CASTINGALERT_SOUND_SETTINGS"] },
             { type = "toggle", key = "profile.CastingAlert.soundEnabled",   label = L["CASTINGALERT_SOUND_ENABLED"] },
             { type = "slider", key = "profile.CastingAlert.soundThreshold", label = L["CASTINGALERT_SOUND_THRESHOLD"], min = 1, max = 5, step = 1 },
+            { type = "slider", key = "profile.CastingAlert.soundCooldown",  label = L["CASTINGALERT_SOUND_COOLDOWN"], min = 0, max = 10, step = 0.5 },
             { type = "sound",  key = "profile.CastingAlert.soundFile",      label = L["LFGALERT_SOUND_FILE"], defaultLabel = L["CASTINGALERT_DEFAULT_SOUND"], customPathKey = "profile.CastingAlert.soundCustomPath" },
+            { type = "dropdown", key = "profile.CastingAlert.soundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
 
             -- 버튼
             { type = "separator" },
@@ -1127,8 +1651,8 @@ function ns:InitConfigTree()
             },
             { type = "dropdown", key = "profile.SkyridingTracker.surgePosition", label = L["SKYRIDINGTRACKER_SURGE_POS"],
               options = {
-                  { value = "bottom", label = L["SKYRIDINGTRACKER_SURGE_BOTTOM"] },
-                  { value = "top",    label = L["SKYRIDINGTRACKER_SURGE_TOP"] },
+                  { value = "bottom", text = L["SKYRIDINGTRACKER_SURGE_BOTTOM"] },
+                  { value = "top",    text = L["SKYRIDINGTRACKER_SURGE_TOP"] },
               },
               onChange = function()
                 local mod = ns.modules and ns.modules["SkyridingTracker"]
@@ -1205,6 +1729,29 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.AutoRepair.chatOutput",   label = L["AUTOREPAIR_CHAT_OUTPUT"] },
         },
     }
+
+    -----------------------------------------------
+    -- RaidLootPass
+    -----------------------------------------------
+    tree.panels["raidlootpass"] = {
+        title = L["RAIDLOOTPASS_TITLE"],
+        desc  = L["RAIDLOOTPASS_DESC"],
+        moduleEnableKey = "profile.modules.RaidLootPass",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.RaidLootPass", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+            { type = "header", label = L["RAIDLOOTPASS_TITLE"] },
+            { type = "toggle", key = "profile.RaidLootPass.enabled", label = L["RAIDLOOTPASS_ENABLED"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["RaidLootPass"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.RaidLootPass.chatOutput", label = L["RAIDLOOTPASS_CHAT_OUTPUT"] },
+            { type = "text", label = L["RAIDLOOTPASS_INFO_TEXT"] },
+        },
+    }
+
 
     self.ConfigTree = tree
     return tree

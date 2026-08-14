@@ -81,15 +81,6 @@ local function SlashHandler(msg)
             DDingToolKit:OpenConfig("Notepad")
         end
 
-    elseif command == "keys" or command == "keystone" then
-        -- 쐐기돌 추적 창 열기
-        local keystoneTracker = ns.KeystoneTracker
-        if keystoneTracker and keystoneTracker.Toggle then
-            keystoneTracker:Toggle()
-        else
-            DDingToolKit:OpenConfig("KeystoneTracker")
-        end
-
     elseif command == "tp" or command == "teleport" then
         -- 던전 텔레포트 (신화+ 탭 열기)
         local mythicPlusHelper = ns.MythicPlusHelper
@@ -158,6 +149,14 @@ local function SlashHandler(msg)
         }
         StaticPopup_Show("DDINGTOOLKIT_RESET_CONFIRM")
 
+    elseif command == "move" or command == "unlock" then
+        -- 편집 모드 (Movers) 토글
+        if ns.ToolkitMovers then
+            ns.ToolkitMovers:ToggleConfigMode()
+        else
+            print(CHAT_PREFIX_ERR .. "Movers not loaded.") -- [STYLE]
+        end
+
     else
         -- 도움말
         print(CHAT_PREFIX .. "Commands:") -- [STYLE]
@@ -171,12 +170,12 @@ local function SlashHandler(msg)
         print("  /ddt trail toggle - Toggle cursor trail")
         print("  /ddt ilvl - Open ItemLevel settings")
         print("  /ddt notepad - Open Notepad")
-        print("  /ddt keys - Open Keystone Tracker")
         print("  /ddt tp - Open M+ Teleport window")
         print("  /ddt party - Toggle PartyTracker test mode")
         print("  /ddt enable <module> - Enable module")
         print("  /ddt disable <module> - Disable module")
         print("  /ddt list - List all modules")
+        print("  /ddt move - 편집 모드 토글 (프레임 위치 조정)")
         print("  /ddt reset - Reset all settings")
     end
 end

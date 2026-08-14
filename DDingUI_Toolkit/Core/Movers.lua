@@ -46,6 +46,19 @@ local REG = {
         defaultW = 120, defaultH = 40,
     },
     {
+        name = "RaidBreakTimer",
+        getFrame = function()
+            local mod = ns.RaidBreakTimer or (DDingToolKit.modules and DDingToolKit.modules.RaidBreakTimer)
+            if mod and mod.CreateFrame then mod:CreateFrame() end
+            return _G.DDingToolKit_RaidBreakTimerFrame
+        end,
+        dbPath = "RaidBreakTimer.position",
+        posType = "standard",
+        module = "RaidBreakTimer",
+        previewState = "noncombat",
+        defaultW = 360, defaultH = 160,
+    },
+    {
         name = "CharacterPositionMarker",
         getFrame = function()
             local mod = ns.CharacterPositionMarker or (DDingToolKit.modules and DDingToolKit.modules.CharacterPositionMarker)
@@ -202,6 +215,7 @@ local REG = {
 
 local DEFAULT_POSITIONS = {
     CombatTimer = { x = 0, y = -100 },
+    RaidBreakTimer = { x = 0, y = 100 },
     CharacterPositionMarker = { x = 0, y = 0 },
     RangeDisplay_Target = { x = 0, y = -180 },
     RangeDisplay_Focus = { x = 0, y = -140 },
@@ -221,6 +235,7 @@ local DEFAULT_POSITIONS = {
 local function GetDisplayName(reg)
     local labels = {
         CombatTimer = Locale("TAB_COMBATTIMER", "Combat Timer"),
+        RaidBreakTimer = Locale("TAB_RAIDBREAKTIMER", "Raid Break Timer"),
         CharacterPositionMarker = Locale("TAB_CHARACTERPOSITIONMARKER", "Character Position"),
         RangeDisplay_Target = Locale("TAB_RANGEDISPLAY", "Range Display") .. " - " .. (TARGET or "Target"),
         RangeDisplay_Focus = Locale("TAB_RANGEDISPLAY", "Range Display") .. " - " .. (FOCUS or "Focus"),
@@ -642,7 +657,7 @@ end
 local function IsModuleEnabled(reg)
     if not (ns.db and ns.db.profile and ns.db.profile.modules) then return true end
     local v = ns.db.profile.modules[reg.module]
-    return v ~= false
+    return v == true
 end
 
 local function ShouldShowInPreview(reg)

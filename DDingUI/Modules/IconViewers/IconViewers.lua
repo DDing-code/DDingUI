@@ -132,7 +132,7 @@ function IconViewers:ProcessPendingIcons()
                                 edgeSize = math.floor(edgeSize + 0.5)
                             end
 
-                            -- Create texture-based borders like BetterCooldownManager
+                            -- Create texture-based borders without backdrop mutation.
                             cid.borders = cid.borders or {}
                             local borders = cid.borders
 

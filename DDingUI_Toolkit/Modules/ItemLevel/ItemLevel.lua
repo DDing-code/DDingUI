@@ -520,12 +520,11 @@ end
 -- 4. 강화 수치 (치명타/가속/특화/유연성/생기흡수/광역회피/이동속도)
 --------------------------------------------------------------------------------
 local function OverwriteCritStat(statFrame, unit)
-    if not ItemLevel.enabled then return end
-    if not ItemLevel.db.showEnhancedStats then return end
-    if unit ~= "player" then statFrame:Hide() return end
-
+    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_CRIT_MELEE) or 0
-    local percent = max(GetSpellCritChance(2), GetRangedCritChance(), GetCritChance()) or 0
+    local c1, c2, c3 = GetSpellCritChance(2), GetRangedCritChance(), GetCritChance()
+    if issecretvalue and (issecretvalue(rating) or issecretvalue(c1) or issecretvalue(c2) or issecretvalue(c3)) then return end
+    local percent = max(c1 or 0, c2 or 0, c3 or 0)
     statFrame.Label:SetText(StatLabel("crit"))
     statFrame.Value:SetText(string.format("%s (%.2f%%)", Comma(rating), percent))
     statFrame.tooltip = string.format("%s %s (%.2f%%)", StatLabel("crit"), Comma(rating), percent)
@@ -533,12 +532,10 @@ local function OverwriteCritStat(statFrame, unit)
 end
 
 local function OverwriteHasteStat(statFrame, unit)
-    if not ItemLevel.enabled then return end
-    if not ItemLevel.db.showEnhancedStats then return end
-    if unit ~= "player" then statFrame:Hide() return end
-
+    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_HASTE_MELEE) or 0
     local percent = GetHaste() or 0
+    if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
     statFrame.Label:SetText(StatLabel("haste"))
     statFrame.Value:SetText(string.format("%s (%.2f%%)", Comma(rating), percent))
     statFrame.tooltip = string.format("%s %s (%.2f%%)", StatLabel("haste"), Comma(rating), percent)
@@ -546,12 +543,10 @@ local function OverwriteHasteStat(statFrame, unit)
 end
 
 local function OverwriteMasteryStat(statFrame, unit)
-    if not ItemLevel.enabled then return end
-    if not ItemLevel.db.showEnhancedStats then return end
-    if unit ~= "player" then statFrame:Hide() return end
-
+    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_MASTERY) or 0
     local percent = GetMasteryEffect() or 0
+    if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
     statFrame.Label:SetText(StatLabel("mastery"))
     statFrame.Value:SetText(string.format("%s (%.2f%%)", Comma(rating), percent))
     statFrame.tooltip = string.format("%s %s (%.2f%%)", StatLabel("mastery"), Comma(rating), percent)
@@ -559,13 +554,11 @@ local function OverwriteMasteryStat(statFrame, unit)
 end
 
 local function OverwriteVersStat(statFrame, unit)
-    if not ItemLevel.enabled then return end
-    if not ItemLevel.db.showEnhancedStats then return end
-    if unit ~= "player" then statFrame:Hide() return end
-
+    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_VERSATILITY_DAMAGE_DONE) or 0
     local percentAtk = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
     local percentDR = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_TAKEN) or 0
+    if issecretvalue and (issecretvalue(rating) or issecretvalue(percentAtk) or issecretvalue(percentDR)) then return end
     statFrame.Label:SetText(StatLabel("vers"))
     statFrame.Value:SetText(string.format("%s (%.2f%%, %.2f%%)", Comma(rating), percentAtk, percentDR))
     statFrame.tooltip = string.format("%s %s (%.2f%%, %.2f%%)", StatLabel("vers"), Comma(rating), percentAtk, percentDR)
@@ -573,12 +566,10 @@ local function OverwriteVersStat(statFrame, unit)
 end
 
 local function OverwriteLeechStat(statFrame, unit)
-    if not ItemLevel.enabled then return end
-    if not ItemLevel.db.showEnhancedStats then return end
-    if unit ~= "player" then statFrame:Hide() return end
-
+    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_LIFESTEAL) or 0
     local percent = GetLifesteal() or 0
+    if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
     statFrame.Label:SetText(StatLabel("leech"))
     statFrame.Value:SetText(string.format("%s (%.2f%%)", Comma(rating), percent))
     statFrame.tooltip = string.format("%s %s (%.2f%%)", StatLabel("leech"), Comma(rating), percent)
@@ -586,12 +577,10 @@ local function OverwriteLeechStat(statFrame, unit)
 end
 
 local function OverwriteAvoidanceStat(statFrame, unit)
-    if not ItemLevel.enabled then return end
-    if not ItemLevel.db.showEnhancedStats then return end
-    if unit ~= "player" then statFrame:Hide() return end
-
+    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_AVOIDANCE) or 0
     local percent = GetCombatRatingBonus(CR_AVOIDANCE) or 0
+    if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
     statFrame.Label:SetText(StatLabel("avoidance"))
     statFrame.Value:SetText(string.format("%s (%.2f%%)", Comma(rating), percent))
     statFrame.tooltip = string.format("%s %s (%.2f%%)", StatLabel("avoidance"), Comma(rating), percent)
@@ -599,11 +588,10 @@ local function OverwriteAvoidanceStat(statFrame, unit)
 end
 
 local function OverwriteSpeedStat(statFrame, unit)
-    if not ItemLevel.enabled then return end
-    if not ItemLevel.db.showEnhancedStats then return end
-    if unit ~= "player" then statFrame:Hide() return end
-
-    local percent = (select(2, GetUnitSpeed("player")) or 0) / 7 * 100
+    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    local speed = select(2, GetUnitSpeed("player")) or 0
+    if issecretvalue and issecretvalue(speed) then return end
+    local percent = speed / 7 * 100
     statFrame.Label:SetText(StatLabel("speed"))
     statFrame.Value:SetText(string.format("%.2f%%", percent))
     statFrame.tooltip = string.format("%s %.2f%%", StatLabel("speed"), percent)
@@ -691,22 +679,25 @@ end
 -- INSPECT_READY 이벤트 리스너
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("INSPECT_READY")
-listener:SetScript("OnEvent", function(_, _, guid)
+listener:SetScript("OnEvent", function()
     if not ItemLevel.enabled then return end
 
     local unit = InspectFrame and InspectFrame.unit
-    if unit and UnitGUID(unit) == guid then
-        EnsureInspectAverage()
-        if avgInspectFS then
-            local avg = C_PaperDollInfo.GetInspectItemLevel(unit) or 0
-            avgInspectFS:SetText(string.format("%.2f", avg))
-            avgInspectFS:Show()
+    if not unit then return end
+
+    EnsureInspectAverage()
+    if avgInspectFS then
+        local ok, avg = pcall(C_PaperDollInfo.GetInspectItemLevel, unit)
+        if not ok or (issecretvalue and issecretvalue(avg)) then
+            avg = 0
         end
-        for _, s in ipairs(SlotNames) do
-            local btn = _G["Inspect" .. s]
-            if btn then
-                UpdateInspectSlot(btn, unit)
-            end
+        avgInspectFS:SetText(string.format("%.2f", tonumber(avg) or 0))
+        avgInspectFS:Show()
+    end
+    for _, s in ipairs(SlotNames) do
+        local btn = _G["Inspect" .. s]
+        if btn then
+            UpdateInspectSlot(btn, unit)
         end
     end
 end)

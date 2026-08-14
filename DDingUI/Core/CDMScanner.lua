@@ -65,7 +65,7 @@ local lastScanTime = 0
 local isInCombat = false
 
 -- ============================================================
--- LAYOUTINDEX-BASED CACHING (BetterCooldownManager pattern)
+-- LAYOUTINDEX-BASED CACHING
 -- ============================================================
 -- Cache frame -> cooldownID mappings to avoid runtime cooldownID access
 -- Only populate during ScanAll() (outside combat), use cached values everywhere else
@@ -424,7 +424,7 @@ function CDMScanner.ScanAll()
                         -- Store slot index on frame
                         frame._ddingSlotIndex = slotIndex - 1
 
-                        -- Cache frame -> cooldownID mapping (BetterCooldownManager pattern)
+                        -- Cache frame -> cooldownID mapping.
                         -- This allows safe lookups without accessing frame.cooldownID at runtime
                         CacheCooldownID(frame, cdID)
 
@@ -611,7 +611,7 @@ function CDMScanner.FindFrameByCooldownID(cooldownID)
     return nil
 end
 
--- Find frame by layoutIndex (BetterCooldownManager pattern - TAINT-SAFE)
+-- Find a frame by layoutIndex without touching protected runtime values.
 function CDMScanner.FindFrameByLayoutIndex(viewerName, layoutIndex)
     if type(viewerName) ~= "string" or not IsSafeNumber(layoutIndex) then return nil, nil end
     -- First try cached lookup (SAFE - no cooldownID access)

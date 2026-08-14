@@ -301,5 +301,15 @@ function LFGAlert:AnimateFade()
     frame.fadeIn:Play()
 end
 
+-- 편집 모드 연동 (Movers)
+function LFGAlert:EnterEditPreview()
+    if not self.alertFrame then self:CreateAlertFrame() end
+    self:ShowAlert(3, true)  -- 3명 신청 테스트 알림
+end
+
+function LFGAlert:ExitEditPreview()
+    self:HideAlert()
+end
+
 -- 모듈 등록
 DDingToolKit:RegisterModule("LFGAlert", LFGAlert)

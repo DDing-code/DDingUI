@@ -153,8 +153,6 @@ local function CreateGeneralPanel(parent)
         { name = "MythicPlusHelper", display = L["MODULE_MYTHICPLUS"] },
         { name = "GoldSplit", display = L["MODULE_GOLDSPLIT"] },
         { name = "DurabilityCheck", display = L["MODULE_DURABILITY"] },
-        { name = "KeystoneTracker", display = L["MODULE_KEYSTONETRACKER"] },
-        { name = "BuffChecker", display = L["MODULE_BUFFCHECKER"] },
         { name = "CastingAlert", display = L["MODULE_CASTINGALERT"] },
         { name = "FocusInterrupt", display = L["MODULE_FOCUSINTERRUPT"] },
         { name = "AutoRepair", display = L["MODULE_AUTOREPAIR"] },
@@ -181,7 +179,7 @@ local function CreateGeneralPanel(parent)
             end
         end)
         checkbox:SetPoint("TOPLEFT", xPos, yPos)
-        checkbox:SetChecked(ns.db.profile.modules[mod.name] ~= false)
+        checkbox:SetChecked(ns.db.profile.modules[mod.name] == true)
     end
 
     -- 6줄만큼 yOffset 이동
@@ -343,15 +341,6 @@ local function Initialize()
     -- DurabilityCheck (내구도) 탭
     mainFrame:AddTab("DurabilityCheck", L["TAB_DURABILITY"], function(parent)
         local module = ns.DurabilityCheck
-        if module and module.CreateConfigPanel then
-            return module:CreateConfigPanel(parent)
-        end
-        return UI:CreatePanel(parent, parent:GetWidth() - 20, parent:GetHeight() - 20)
-    end)
-
-    -- BuffChecker (버프체크) 탭
-    mainFrame:AddTab("BuffChecker", L["TAB_BUFFCHECKER"], function(parent)
-        local module = ns.BuffChecker
         if module and module.CreateConfigPanel then
             return module:CreateConfigPanel(parent)
         end

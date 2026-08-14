@@ -25,6 +25,27 @@ function ns.NotSecretValue(val)
     return not issecretvalue or not issecretvalue(val)
 end
 
+function ns:StartRightButtonMouselook()
+    local styleLib = _G.DDingUI_StyleLib
+    if styleLib and styleLib.StartRightButtonMouselook then
+        styleLib.StartRightButtonMouselook()
+    end
+end
+
+function ns:StopRightButtonMouselook()
+    local styleLib = _G.DDingUI_StyleLib
+    if styleLib and styleLib.StopRightButtonMouselook then
+        styleLib.StopRightButtonMouselook()
+    end
+end
+
+function ns:EnableRightClickMouselook(frame)
+    local styleLib = _G.DDingUI_StyleLib
+    if styleLib and styleLib.EnableRightClickMouselook then
+        styleLib.EnableRightClickMouselook(frame)
+    end
+end
+
 -- 모듈 레지스트리
 DDingToolKit.modules = {}
 ns.modules = DDingToolKit.modules  -- [REFACTOR] Config_Data/Config_UI 에서 ns.modules 으로 접근
@@ -54,7 +75,7 @@ function DDingToolKit:OnInitialize()
 
     -- 모듈 초기화 (활성화된 것만)
     for name, module in pairs(self.modules) do
-        if ns.db.profile.modules[name] ~= false then
+        if ns.db.profile.modules[name] == true then
             if module.OnInitialize then
                 module:OnInitialize()
             end
@@ -69,7 +90,7 @@ end
 function DDingToolKit:OnEnable()
     -- 모듈 활성화 (활성화된 것만)
     for name, module in pairs(self.modules) do
-        if ns.db.profile.modules[name] ~= false then
+        if ns.db.profile.modules[name] == true then
             if module.OnEnable then
                 module:OnEnable()
             end

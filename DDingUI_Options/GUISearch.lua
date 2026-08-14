@@ -181,7 +181,7 @@ local function CreateBreadcrumbBadge(parent, breadcrumbText, yOffset, onClick)
     return badge
 end
 
--- Render search results in DanderS style
+-- Render compact search results.
 local function RenderSearchResults(contentFrame, results, parentFrame)
     -- Clean up existing widgets (same pattern as RenderOptions)
     if contentFrame.subScrollChild then

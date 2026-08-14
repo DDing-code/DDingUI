@@ -9,6 +9,14 @@ ns.DeathReleaseGuard = DeathReleaseGuard
 local DEFAULT_HOLD_DURATION = 1.5
 local MAX_ACTIVATION_ATTEMPTS = 12
 local ACTIVATION_RETRY_DELAY = 0.05
+local RESURRECTION_WATCH_INTERVAL = 0.1
+local RESURRECTION_EVENT_GRACE = 0.75
+
+local RESURRECTION_POPUPS = {
+    "RESURRECT",
+    "RESURRECT_NO_SICKNESS",
+    "RESURRECT_NO_TIMER",
+}
 
 local watcher
 local blocker
@@ -16,6 +24,9 @@ local blockerLabel
 local blockerProgress
 local holdStartedAt
 local activationSerial = 0
+local resurrectionTicker
+local resurrectionWatchStartedAt
+local moduleEnabled = false
 
 local function GetSettings()
     local profile = ns.db and ns.db.profile
@@ -31,12 +42,43 @@ local function GetHoldDuration()
     return duration
 end
 
+local function HasVisibleResurrectionPopup()
+    for i = 1, #RESURRECTION_POPUPS do
+        local visible = StaticPopup_Visible(RESURRECTION_POPUPS[i])
+        if visible then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function HasIncomingResurrection()
+    if type(UnitHasIncomingResurrection) ~= "function" then
+        return false
+    end
+
+    local success, incoming = pcall(UnitHasIncomingResurrection, "player")
+    if not success or (issecretvalue and issecretvalue(incoming)) then
+        return false
+    end
+
+    return incoming and true or false
+end
+
+local function HasPendingResurrection()
+    return HasVisibleResurrectionPopup() or HasIncomingResurrection()
+end
+
 local function ShouldProtect()
     local settings = GetSettings()
     if not settings or settings.enabled == false then
         return false
     end
     if not UnitIsDead("player") or UnitIsGhost("player") then
+        return false
+    end
+    if HasPendingResurrection() then
         return false
     end
 
@@ -183,8 +225,46 @@ local function ScheduleProtection()
     end)
 end
 
+local function StopResurrectionWatch()
+    if resurrectionTicker then
+        resurrectionTicker:Cancel()
+        resurrectionTicker = nil
+    end
+    resurrectionWatchStartedAt = nil
+end
+
+local function StartResurrectionWatch()
+    StopResurrectionWatch()
+    StopProtection()
+
+    if not moduleEnabled then return end
+
+    resurrectionWatchStartedAt = GetTime()
+    resurrectionTicker = C_Timer.NewTicker(RESURRECTION_WATCH_INTERVAL, function()
+        if not moduleEnabled then
+            StopResurrectionWatch()
+            return
+        end
+
+        local elapsed = GetTime() - resurrectionWatchStartedAt
+        if elapsed < RESURRECTION_EVENT_GRACE or HasPendingResurrection() then
+            if blocker and blocker:IsShown() then
+                StopProtection()
+            end
+            return
+        end
+
+        StopResurrectionWatch()
+        if ShouldProtect() then
+            ScheduleProtection()
+        end
+    end)
+end
+
 function DeathReleaseGuard:RefreshSettings()
-    if ShouldProtect() then
+    if HasPendingResurrection() then
+        StartResurrectionWatch()
+    elseif ShouldProtect() then
         ScheduleProtection()
     else
         StopProtection()
@@ -195,10 +275,19 @@ function DeathReleaseGuard:OnInitialize()
     watcher = watcher or CreateFrame("Frame")
     watcher:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_DEAD" then
-            ScheduleProtection()
+            StopResurrectionWatch()
+            self:RefreshSettings()
+        elseif event == "RESURRECT_REQUEST" then
+            StartResurrectionWatch()
+        elseif event == "INCOMING_RESURRECT_CHANGED" then
+            if HasPendingResurrection() then
+                StartResurrectionWatch()
+            end
         elseif event == "PLAYER_ENTERING_WORLD" then
+            StopResurrectionWatch()
             self:RefreshSettings()
         else
+            StopResurrectionWatch()
             StopProtection()
         end
     end)
@@ -209,17 +298,22 @@ function DeathReleaseGuard:OnEnable()
         self:OnInitialize()
     end
 
+    moduleEnabled = true
     watcher:RegisterEvent("PLAYER_DEAD")
     watcher:RegisterEvent("PLAYER_ALIVE")
     watcher:RegisterEvent("PLAYER_UNGHOST")
     watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+    watcher:RegisterEvent("RESURRECT_REQUEST")
+    watcher:RegisterEvent("INCOMING_RESURRECT_CHANGED")
     self:RefreshSettings()
 end
 
 function DeathReleaseGuard:OnDisable()
+    moduleEnabled = false
     if watcher then
         watcher:UnregisterAllEvents()
     end
+    StopResurrectionWatch()
     StopProtection()
 end
 
