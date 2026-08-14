@@ -1560,10 +1560,24 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 end
 
 -- ============================================
--- DanderS-style Search System
+-- Settings Search System
 -- ============================================
 
--- Searchable control types
+-- Keep the native and DDingUI settings panels mutually exclusive.
+function DDingUI:InstallNativeCooldownSettingsHandoff()
+    if self._nativeCooldownSettingsHandoffInstalled then return end
+    if not EventRegistry or type(EventRegistry.RegisterCallback) ~= "function" then return end
+
+    self._nativeCooldownSettingsHandoffOwner = self._nativeCooldownSettingsHandoffOwner or {}
+    EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function()
+        local configFrame = _G["DDingUI_ConfigFrame"]
+        if configFrame and configFrame:IsShown() then
+            configFrame:Hide()
+        end
+    end, self._nativeCooldownSettingsHandoffOwner)
+    self._nativeCooldownSettingsHandoffInstalled = true
+end
+
 -- Create main config frame (StyleLib tree-menu layout)
 function DDingUI:CreateConfigFrame()
     local searchDebounceTimer
@@ -2577,6 +2591,7 @@ end
 -- ============================================
 function DDingUI:OpenConfigGUI(options, tabKey)
     local frame = self:CreateConfigFrame()
+    self:InstallNativeCooldownSettingsHandoff()
 
     if not options then
         if self.configOptions then
@@ -3387,7 +3402,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         frame.configOptions = options
     end
 
-    -- [12.0.1] BetterCooldownManager(고급 재사용 대기시간 관리자) 자동 활성화
+    -- Keep the native cooldown viewer enabled while configuring CDM groups.
     do
         local prevVal = C_CVar.GetCVar("cooldownViewerEnabled")
         DDingUI._cdmPrevCooldownViewerEnabled = prevVal
@@ -3396,6 +3411,11 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         if C_AddOns and C_AddOns.IsAddOnLoaded and not C_AddOns.IsAddOnLoaded("Blizzard_CooldownViewer") then
             pcall(C_AddOns.LoadAddOn, "Blizzard_CooldownViewer")
         end
+    end
+
+    local nativeSettings = _G["CooldownViewerSettings"]
+    if nativeSettings and nativeSettings:IsShown() then
+        HideUIPanel(nativeSettings)
     end
 
     frame:Show()
