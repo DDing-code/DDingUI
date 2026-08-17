@@ -503,7 +503,13 @@ local function AcceptTrackedFrame(frame, cooldownID)
     return nil
 end
 
-local function ResolveTrackedFrame(cooldownID)
+local function ResolveTrackedFrame(cooldownID, trackedBuff)
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    if trackedBuff and resolver and resolver.GetFrame then
+        local frame = resolver:GetFrame(trackedBuff)
+        if frame then return frame end
+    end
+
     if CDMCompat and CDMCompat.FindFrameByCooldownID then
         local frame = AcceptTrackedFrame(CDMCompat:FindFrameByCooldownID(cooldownID, true), cooldownID)
         if frame then return frame end
@@ -1574,6 +1580,9 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
         end
         wipe(soundTrackers)
         ResetManualStacks()  -- 전문화별 수동 스택 정리
+        if DDingUI.TrackedAuraFrameResolver then
+            DDingUI.TrackedAuraFrameResolver:Invalidate(true)
+        end
         if buffTrackerTicker then
             buffTrackerTicker:Cancel()
             buffTrackerTicker = nil
@@ -3637,6 +3646,9 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- ============================================================
     local trackedBuffs = GetTrackedBuffs()
     local useTrackedBuffSystem = (#trackedBuffs > 0)
+    if DDingUI.TrackedAuraFrameResolver then
+        DDingUI.TrackedAuraFrameResolver:BeginPass(trackedBuffs)
+    end
     wipe(groupAlertColorOverrides)
     if ConditionalVisuals then
         ConditionalVisuals:BeginPass()
@@ -3717,7 +3729,7 @@ function ResourceBars:UpdateBuffTrackerBar()
                     HideOtherTrackedBuffDisplays(barIndex, "trigger")  -- Hide ALL visuals
                     -- 알림 평가를 위한 아우라 상태 확인
                     local cooldownID = tonumber(trackedBuff.cooldownID) or 0
-                    local triggerFrame = ResolveTrackedFrame(cooldownID)
+                    local triggerFrame = ResolveTrackedFrame(cooldownID, trackedBuff)
                     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
                         cooldownID,
                         triggerFrame,
@@ -3903,7 +3915,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     end
 
     -- CDM 프레임 찾기 (cooldownID가 없을 수도 있음)
-    local frame = ResolveTrackedFrame(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
 
     frame = self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame) or frame
 
@@ -4731,7 +4743,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local current, total, hasData, actualDuration, remainingDuration = 0, maxStacks, false, stackDuration, 0
 
     -- CDM 프레임 찾기
-    local frame = ResolveTrackedFrame(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
 
     -- Manual mode
     local manualStackCount, manualExpiresAt = nil, nil
@@ -5345,7 +5357,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     end
 
     -- Get tracking data
-    local frame = ResolveTrackedFrame(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
 
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
@@ -5805,7 +5817,7 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     end
 
     -- Get tracking data
-    local frame = ResolveTrackedFrame(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
 
     -- [12.0.1] Taint-safe stacks resolution
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
@@ -5940,7 +5952,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     end
 
     -- Get tracking data
-    local frame = ResolveTrackedFrame(cooldownID)
+    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
 
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
     local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
