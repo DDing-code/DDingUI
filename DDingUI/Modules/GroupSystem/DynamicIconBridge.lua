@@ -551,7 +551,7 @@ end
 -- GroupSystem에서 호출: 특정 CustomIcons 그룹의 활성 아이콘 목록 반환
 -- sourceGroupKey: CustomIcons의 그룹 키 ("group_xxx" 또는 "ungrouped")
 -- 반환: { {iconKey=string, frame=Frame, iconData=table}, ... }
-function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
+function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings, groupName)
     -- [FIX] 미초기화 시 자동 초기화 시도
     if not initialized then
         self:Initialize()
@@ -607,10 +607,14 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings)
     local activeSet = {}
     local inCombat = InCombatLockdown and InCombatLockdown()
     local now = GetTime and GetTime() or 0
+    local auraEngine = groupName and DDingUI.CustomIconAuraEngine
     for sourceIndex, iconKey in ipairs(targetOrder) do
         local frame = iconFrames[iconKey]
         local iconData = db.iconData[iconKey]
-        if not frame then
+        local engineOwned = auraEngine and auraEngine:IsOwnedIcon(groupName, iconKey)
+        if engineOwned then
+            -- The aura engine owns visibility, duration and stacks for this entry.
+        elseif not frame then
             -- skip: no frame exists
         elseif not iconData then
             -- skip: no icon data

@@ -2603,6 +2603,10 @@ end
 local function UpdateAuraIcon(iconFrame, iconData)
     local spellID = iconData.id
     if not spellID or not iconFrame then return end
+    local auraEngine = DDingUI.CustomIconAuraEngine
+    if auraEngine and auraEngine:IsIconOwnedAnywhere(iconFrame._iconKey or iconData.key) then
+        return
+    end
 
     local settings = iconData.settings or {}
     local allowDesat = not (settings.desaturateOnCooldown == false)

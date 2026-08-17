@@ -692,6 +692,9 @@ DoFullUpdate = function(allowSettingsOpen)
             staleGroups[#staleGroups + 1] = groupName
         elseif not groupSettings.enabled then
             -- 비활성 그룹: 아이콘 해제 + 숨김
+            if DDingUI.CustomIconAuraEngine then
+                DDingUI.CustomIconAuraEngine:ReleaseGroup(groupName)
+            end
             GroupRenderer:ReleaseGroupIcons(frame)
             frame._lastDynHash = nil
             frame:Hide()
@@ -702,6 +705,9 @@ DoFullUpdate = function(allowSettingsOpen)
             -- [FIX] 활성 그룹이지만 아이콘 0개: 아이콘만 해제, 프레임은 숨기지 않음
             -- 숨기면 이 그룹에 앵커된 시전바/자원바/다른 그룹의 앵커가 끊어져
             -- UIParent로 폴백 → 오프셋 누적(엘레베이터 현상) 발생
+            if DDingUI.CustomIconAuraEngine then
+                DDingUI.CustomIconAuraEngine:ReleaseGroup(groupName)
+            end
             GroupRenderer:ReleaseGroupIcons(frame)
         end
     end

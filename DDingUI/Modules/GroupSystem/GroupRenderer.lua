@@ -2502,7 +2502,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
     end
 
 
+    local auraEngine = DDingUI.CustomIconAuraEngine
     if not groupSettings.enabled then
+        if auraEngine then auraEngine:ReleaseGroup(groupName) end
         self:ReleaseGroupIcons(frame)
         -- [FIX] named 프레임 전투 중 Hide 보호
         if not frame:IsShown() then return end  -- 이미 숨김
@@ -2514,11 +2516,15 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
         return
     end
 
+    local auraEngineActive = auraEngine
+        and auraEngine:SyncGroup(groupName, frame, groupSettings, iconList)
+        or false
+
     -- [FIX] groupType에 상관없이 sourceGroupKey가 있으면 동적 아이콘을 병합하여 하이브리드(CDM+Dynamic) 지원
     local dynamicIcons = {}
     local bridge = DDingUI.DynamicIconBridge
     if bridge and groupSettings.sourceGroupKey then
-        dynamicIcons = bridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey, groupSettings) or {}
+        dynamicIcons = bridge:GetActiveIconsForGroup(groupSettings.sourceGroupKey, groupSettings, groupName) or {}
     end
     local ci = DDingUI.CustomIcons
     if ci and ci.GetActiveCustomTimedAuraEntriesForCDMGroup then
@@ -2539,7 +2545,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
         end
     end
     dynamicIcons = FilterDuplicateDynamicEntries(dynamicIcons, iconList)
-    local hasDynamicIcons = false
+    local hasDynamicIcons = auraEngineActive == true
 
     -- 기존 managed 아이콘 중 이번 리스트에 없는 것만 release
     local newSet = {}
@@ -2660,6 +2666,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
         if #combinedList > 0 and not frame:IsShown() then
             frame:Show()
         end
+        if auraEngine then auraEngine:MarkAnchor(groupName) end
         return
     end
     frame._lastCombinedLayoutHash = combinedHash
@@ -3089,6 +3096,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
             end
         end
     end
+    if auraEngine then auraEngine:MarkAnchor(groupName) end
 end
 
 -- ============================================================
@@ -3193,6 +3201,8 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         frame._lastLayoutW = phantomW
         frame._lastLayoutH = phantomH
         frame.__cdmIconWidth = phantomW
+        local auraEngine = DDingUI.CustomIconAuraEngine
+        if auraEngine and frame._groupName then auraEngine:MarkAnchor(frame._groupName) end
         return
     end
 
@@ -3386,6 +3396,8 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
             end
         end
     end
+    local auraEngine = DDingUI.CustomIconAuraEngine
+    if auraEngine and frame._groupName then auraEngine:MarkAnchor(frame._groupName) end
 end
 
 -- ============================================================
@@ -3445,6 +3457,9 @@ end
 
 function GroupRenderer:DestroyAllGroups()
     self:RestoreAllIcons()
+    if DDingUI.CustomIconAuraEngine then
+        DDingUI.CustomIconAuraEngine:DestroyAll()
+    end
     if DDingUI.BuffGroupPlaceholders then
         DDingUI.BuffGroupPlaceholders:ReleaseAll()
     end
@@ -3467,7 +3482,12 @@ end
 
 function GroupRenderer:DestroyGroup(groupName)
     local frame = self.groupFrames[groupName]
-    if not frame then return end
+    if not frame then
+        if DDingUI.CustomIconAuraEngine then
+            DDingUI.CustomIconAuraEngine:DestroyGroup(groupName)
+        end
+        return
+    end
     if DDingUI.BuffGroupPlaceholders then
         DDingUI.BuffGroupPlaceholders:ReleaseGroup(groupName)
     end
@@ -3487,6 +3507,9 @@ function GroupRenderer:DestroyGroup(groupName)
 
     frame:Hide()
     self.groupFrames[groupName] = nil
+    if DDingUI.CustomIconAuraEngine then
+        DDingUI.CustomIconAuraEngine:DestroyGroup(groupName)
+    end
 end
 
 -- ============================================================

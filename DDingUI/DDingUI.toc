@@ -102,6 +102,7 @@ Modules\CustomIcons\ProfileRecovery.lua
 Modules\CustomIcons\IconIdentity.lua
 Modules\CustomIcons\ProfileNormalization.lua
 Modules\CustomIcons\RuntimeValues.lua
+Modules\CustomIcons\AuraContainerEngine.lua
 Modules\CustomIcons\LayoutPolicy.lua
 Modules\CustomIcons\IconStyle.lua
 Modules\CustomIcons\ActiveEffectOverlay.lua
