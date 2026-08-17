@@ -125,6 +125,7 @@ local trackedBuffSpellOrder = {}
 local trackedBuffSpellTextures = {}
 local trackedBuffSpellIDs = {}
 local viewerRefs = {}       -- [globalName] = viewer frame reference
+local trackedAuraStateHooked = setmetatable({}, { __mode = "k" })
 
 -- ============================================================
 -- State
@@ -1786,6 +1787,36 @@ end
 
 -- [FIX] hookedViewerLayout 재선언 제거 — L200의 선언을 공유하여 훅 중복 방지
 
+function FrameController:_NotifyTrackedAuraState()
+    local resourceBars = DDingUI.ResourceBars
+    if resourceBars and resourceBars.RequestBuffTrackerUpdate then
+        resourceBars:RequestBuffTrackerUpdate("cdm-aura-state", 0.05)
+    end
+end
+
+function FrameController:_TrackAuraFrame(frame, skipIdentity)
+    if not frame then return false end
+    if CDMCompat and not skipIdentity then
+        CDMCompat:GetFrameCooldownID(frame)
+    end
+    if trackedAuraStateHooked[frame] or type(frame.OnActiveStateChanged) ~= "function" then
+        return trackedAuraStateHooked[frame] == true
+    end
+
+    local ok = pcall(hooksecurefunc, frame, "OnActiveStateChanged", function(changedFrame)
+        if CDMCompat then
+            CDMCompat:GetFrameCooldownID(changedFrame)
+        end
+        if FrameController.initialized then
+            FrameController:_NotifyTrackedAuraState()
+        end
+    end)
+    if ok then
+        trackedAuraStateHooked[frame] = true
+    end
+    return ok
+end
+
 local function InstallCDMHooks()
     if state.hooksInstalled then return end
 
@@ -1854,6 +1885,10 @@ local function InstallCDMHooks()
                 state.acquireSerial = state.acquireSerial + 1
                 frame._ddAcquireSerial = state.acquireSerial
                 FrameController:_ResetAcquiredCooldownFrame(frame)
+                if CDMCompat then
+                    CDMCompat:ForgetFrame(frame)
+                end
+                FrameController:_TrackAuraFrame(frame, true)
             end
 
             -- [CDM 패턴] acquire 시 scale 강제 1 (CDM이 변경할 수 있음)
@@ -1921,6 +1956,9 @@ local function InstallCDMHooks()
             -- cooldownID 실제 변경 시에만 처리
             if CDMCompat and CDMCompat:IsUsableID(cooldownID) then
                 CDMCompat:RememberFrame(itemFrame, cooldownID)
+            end
+            if FrameController:_TrackAuraFrame(itemFrame) then
+                FrameController:_NotifyTrackedAuraState()
             end
             local safeCooldownID = GetSafeFrameCooldownID(itemFrame, cooldownID)
             if not IsSafeNumber(safeCooldownID) then
@@ -2040,13 +2078,6 @@ local function InstallCDMHooks()
         end
     end
 
-    local function RequestTrackedAuraRefresh()
-        local resourceBars = DDingUI.ResourceBars
-        if resourceBars and resourceBars.RequestBuffTrackerUpdate then
-            resourceBars:RequestBuffTrackerUpdate("cdm-aura-state", 0.05)
-        end
-    end
-
     -- [HOOK E] Mixin.OnCooldownIDSet — 아이콘 생성 즉시 감지 (CDM 핵심 패턴)
     -- CDM이 아이콘에 cooldownID를 할당하는 시점 → 가장 빠른 감지 타이밍
     -- HOOK C(SetCooldownID)보다 먼저 실행되어 managed 프레임 즉시 snap-back
@@ -2054,11 +2085,11 @@ local function InstallCDMHooks()
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnCooldownIDSet", function(frame)
             FrameController._diagCounters.cooldownIDSet = FrameController._diagCounters.cooldownIDSet + 1
             if CDMCompat then
-                CDMCompat:ForgetFrame(frame)
                 CDMCompat:GetFrameCooldownID(frame)
             end
             if not FrameController.initialized then return end
-            RequestTrackedAuraRefresh()
+            FrameController:_TrackAuraFrame(frame)
+            FrameController:_NotifyTrackedAuraState()
             if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
             if frame and frame._ddCDMStaleBuff then
@@ -2152,11 +2183,11 @@ local function InstallCDMHooks()
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnCooldownIDSet", function(frame)
             if CDMCompat then
-                CDMCompat:ForgetFrame(frame)
                 CDMCompat:GetFrameCooldownID(frame)
             end
             if not FrameController.initialized then return end
-            RequestTrackedAuraRefresh()
+            FrameController:_TrackAuraFrame(frame)
+            FrameController:_NotifyTrackedAuraState()
             if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
             if frame and frame.isEditing then return end
             if frame and frame.SetScale then frame:SetScale(1) end
@@ -2169,7 +2200,7 @@ local function InstallCDMHooks()
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnActiveStateChanged then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnActiveStateChanged", function(frame)
             if not FrameController.initialized then return end
-            RequestTrackedAuraRefresh()
+            FrameController:_NotifyTrackedAuraState()
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
         end)
@@ -2180,10 +2211,20 @@ local function InstallCDMHooks()
         hooksecurefunc(CooldownViewerBuffIconItemMixin, "OnActiveStateChanged", function(frame)
             FrameController._diagCounters.activeStateChanged = FrameController._diagCounters.activeStateChanged + 1
             if not FrameController.initialized then return end
-            RequestTrackedAuraRefresh()
+            FrameController:_NotifyTrackedAuraState()
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
         end)
+    end
+
+    for _, viewerName in ipairs({ "BuffIconCooldownViewer", "BuffBarCooldownViewer" }) do
+        local viewer = _G[viewerName]
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for frame in pool:EnumerateActive() do
+                FrameController:_TrackAuraFrame(frame)
+            end
+        end
     end
 
     state.hooksInstalled = true

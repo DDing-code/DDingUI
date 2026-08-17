@@ -16,6 +16,7 @@ local cooldownInfoCache = {}
 local categorySetCache = {}
 local spellIDCache = {}
 local frameCache = setmetatable({}, { __mode = "k" })
+local framesByCooldownID = {}
 local hookedPools = setmetatable({}, { __mode = "k" })
 local groupBuffItemsCache
 local categoryDefinitionsCache
@@ -265,16 +266,77 @@ function Compat:RememberFrame(frame, cooldownID)
         data = {}
         frameCache[frame] = data
     elseif data.cooldownID ~= cooldownID then
+        local previousFrames = framesByCooldownID[data.cooldownID]
+        if previousFrames then
+            previousFrames[frame] = nil
+            if not next(previousFrames) then
+                framesByCooldownID[data.cooldownID] = nil
+            end
+        end
         data.spellID = nil
     end
     data.cooldownID = cooldownID
+
+    local frames = framesByCooldownID[cooldownID]
+    if not frames then
+        frames = setmetatable({}, { __mode = "k" })
+        framesByCooldownID[cooldownID] = frames
+    end
+    frames[frame] = true
     return cooldownID
 end
 
 function Compat:ForgetFrame(frame)
-    if frame then
-        frameCache[frame] = nil
+    if not frame then return end
+    local data = frameCache[frame]
+    local cooldownID = data and data.cooldownID
+    if cooldownID then
+        local frames = framesByCooldownID[cooldownID]
+        if frames then
+            frames[frame] = nil
+            if not next(frames) then
+                framesByCooldownID[cooldownID] = nil
+            end
+        end
     end
+    frameCache[frame] = nil
+end
+
+function Compat:FindFrameByCooldownID(cooldownID, preferBar)
+    if not self:IsUsableID(cooldownID) then return nil end
+    local frames = framesByCooldownID[cooldownID]
+    if not frames then return nil end
+
+    local activeBar, activeIcon, inactiveBar, inactiveIcon
+    for frame in pairs(frames) do
+        local data = frameCache[frame]
+        if data and data.cooldownID == cooldownID then
+            local isBar = frame.Bar ~= nil
+            local isActive = false
+            if type(frame.IsActive) == "function" then
+                local ok, value = pcall(frame.IsActive, frame)
+                if ok and not IsSecret(value) and type(value) == "boolean" then
+                    isActive = value
+                end
+            end
+
+            if isBar then
+                if isActive then activeBar = frame else inactiveBar = inactiveBar or frame end
+            else
+                if isActive then activeIcon = frame else inactiveIcon = inactiveIcon or frame end
+            end
+        else
+            frames[frame] = nil
+        end
+    end
+
+    if not next(frames) then
+        framesByCooldownID[cooldownID] = nil
+    end
+    if preferBar then
+        return activeBar or activeIcon or inactiveBar or inactiveIcon
+    end
+    return activeIcon or activeBar or inactiveIcon or inactiveBar
 end
 
 function Compat:TrackViewerPool(viewer)

@@ -504,6 +504,11 @@ local function AcceptTrackedFrame(frame, cooldownID)
 end
 
 local function ResolveTrackedFrame(cooldownID)
+    if CDMCompat and CDMCompat.FindFrameByCooldownID then
+        local frame = AcceptTrackedFrame(CDMCompat:FindFrameByCooldownID(cooldownID, true), cooldownID)
+        if frame then return frame end
+    end
+
     local controller = DDingUI.FrameController
     if controller and controller.GetIconFrame then
         local frame = AcceptTrackedFrame(controller:GetIconFrame(cooldownID), cooldownID)
