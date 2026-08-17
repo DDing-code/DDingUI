@@ -23,7 +23,37 @@ local activeFrameSet = setmetatable({}, { __mode = "k" })
 local frameCooldownIDs = setmetatable({}, { __mode = "k" })
 local frameSpellIDs = setmetatable({}, { __mode = "k" })
 local consumedFrames = setmetatable({}, { __mode = "k" })
+local durationFontStrings = setmetatable({}, { __mode = "k" })
 local currentTokens = {}
+
+local function FindDurationFontString(statusBar)
+    if not statusBar then return nil end
+
+    local cached = durationFontStrings[statusBar]
+    if cached ~= nil then return cached or nil end
+
+    local duration = statusBar.Duration
+    if duration and type(duration.GetText) == "function" then
+        durationFontStrings[statusBar] = duration
+        return duration
+    end
+
+    local fontStringIndex = 0
+    local regions = { statusBar:GetRegions() }
+    for index = 1, #regions do
+        local region = regions[index]
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+            fontStringIndex = fontStringIndex + 1
+            if fontStringIndex == 2 then
+                durationFontStrings[statusBar] = region
+                return region
+            end
+        end
+    end
+
+    durationFontStrings[statusBar] = false
+    return nil
+end
 
 local function TrackerCooldownID(tracker)
     local value = tracker and (tracker.cooldownID or (tracker.trigger and tracker.trigger.cooldownID))
@@ -310,6 +340,33 @@ end
 
 function Resolver:GetFrame(tracker)
     return tracker and assignments[tracker] or nil
+end
+
+function Resolver:MirrorProgress(frame, targetStatusBar, targetDurationText, showDurationText)
+    local sourceStatusBar = frame and frame.Bar
+    if not sourceStatusBar
+        or type(sourceStatusBar.GetMinMaxValues) ~= "function"
+        or type(sourceStatusBar.GetValue) ~= "function"
+        or not targetStatusBar
+    then
+        return false, false
+    end
+
+    targetStatusBar:SetMinMaxValues(sourceStatusBar:GetMinMaxValues())
+    targetStatusBar:SetValue(sourceStatusBar:GetValue())
+
+    local textCopied = not showDurationText
+    if showDurationText and targetDurationText then
+        local sourceDurationText = FindDurationFontString(sourceStatusBar)
+        if sourceDurationText then
+            local ok, text = pcall(sourceDurationText.GetText, sourceDurationText)
+            if ok and type(text) ~= "nil" then
+                textCopied = pcall(targetDurationText.SetText, targetDurationText, text)
+            end
+        end
+    end
+
+    return true, textCopied
 end
 
 function Resolver:Invalidate(clearSticky)

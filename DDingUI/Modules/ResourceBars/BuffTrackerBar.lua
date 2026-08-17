@@ -3971,7 +3971,9 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- ============================================================
     -- DYNAMIC DURATION: CDM에서 실시간으로 duration 읽기
     -- ============================================================
-    if dynamicDuration and hasData and not isManualMode then
+    if dynamicDuration and hasData and not isManualMode
+        and not (frame and frame.Bar and frame.Bar.GetMinMaxValues and frame.Bar.GetValue)
+    then
         local detectedDuration = nil
 
         -- 1. CDM 바 프레임에서 GetMinMaxValues()로 읽기
@@ -4056,6 +4058,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 -- 수동 지속시간 계산
                 useManualDuration = useManualDuration,
                 progressUpdateInterval = PROGRESS_UPDATE_INTERVAL,
+                sourceFrame = frame,
             }
 
             -- 수동 지속시간: 버프 활성화 시점 기록
@@ -4140,6 +4143,19 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     end
 
                     -- Auto 모드: auraID 기반 duration 계산
+                    local resolver = DDingUI.TrackedAuraFrameResolver
+                    if data.sourceFrame and resolver and resolver.MirrorProgress then
+                        local progressCopied, textCopied = resolver:MirrorProgress(
+                            data.sourceFrame,
+                            self,
+                            bar.DurationText,
+                            data.showDurationText
+                        )
+                        if progressCopied and (not data.showDurationText or textCopied) then
+                            return
+                        end
+                    end
+
                     if not HasAuraInstanceID(data.auraID) then return end
 
                     pcall(function()
@@ -4179,15 +4195,26 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             if isManualMode and manualExpiresAt then
                 local remaining = math_max(0, manualExpiresAt - GetTime())
                 bar.StatusBar:SetValue(remaining)
-            -- 초기값 설정 (Auto 모드)
-            elseif HasAuraInstanceID(auraInstanceID) then
-                pcall(function()
-                    local durObj = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
-                    if durObj then
-                        local remaining = durObj:GetRemainingDuration()
-                        bar.StatusBar:SetValue(remaining)
-                    end
-                end)
+            else
+                local progressCopied = false
+                local resolver = DDingUI.TrackedAuraFrameResolver
+                if frame and resolver and resolver.MirrorProgress then
+                    progressCopied = resolver:MirrorProgress(
+                        frame,
+                        bar.StatusBar,
+                        bar.DurationText,
+                        showDurationText
+                    )
+                end
+                if not progressCopied and HasAuraInstanceID(auraInstanceID) then
+                    pcall(function()
+                        local durObj = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
+                        if durObj then
+                            local remaining = durObj:GetRemainingDuration()
+                            bar.StatusBar:SetValue(remaining)
+                        end
+                    end)
+                end
             end
         else
             -- Duration 모드지만 버프 없음: OnUpdate 제거하고 0으로 설정
