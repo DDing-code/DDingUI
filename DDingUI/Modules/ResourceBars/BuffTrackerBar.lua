@@ -4520,6 +4520,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
         -- Use Cooldown for swipe effect over the ring
         if bar.Cooldown then
+            local auraContainer = DDingUI.TrackedAuraContainer
+            if auraContainer and auraContainer.ConfigureRingCooldown then
+                auraContainer:ConfigureRingCooldown(bar.Cooldown, bar, ringTexture)
+            end
             bar.Cooldown:SetDrawSwipe(true)
             bar.Cooldown:SetSwipeColor(0, 0, 0, 0.6)
             -- ringReverse: true = 반시계 방향 (채움), false = 시계 방향 (비움)
@@ -4535,6 +4539,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         if bar.RingBorder then bar.RingBorder:Hide() end
 
         if bar.Cooldown then
+            local auraContainer = DDingUI.TrackedAuraContainer
+            if auraContainer and auraContainer.ClearRingCooldownMask then
+                auraContainer:ClearRingCooldownMask(bar.Cooldown)
+            end
             bar.Cooldown:Show()
         end
         if bar.CooldownTexture then
@@ -4562,6 +4570,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         if bar.RingBorder then bar.RingBorder:Hide() end
 
         if bar.Cooldown then
+            local auraContainer = DDingUI.TrackedAuraContainer
+            if auraContainer and auraContainer.ClearRingCooldownMask then
+                auraContainer:ClearRingCooldownMask(bar.Cooldown)
+            end
             bar.Cooldown:Hide()
         end
         if bar.CooldownTexture then
@@ -5118,8 +5130,11 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     bar._ringColorBg:SetVertexColor(ringBgColor[1], ringBgColor[2], ringBgColor[3], ringBgColor[4] or 1)
     bar._ringColorBg:Show()
 
-    -- 2. 스와이프를 색깔 링으로 설정
-    bar.Cooldown:SetSwipeTexture(ringTexture)
+    -- 2. 기본 원형 스와이프를 링 마스크로 제한
+    local auraContainer = DDingUI.TrackedAuraContainer
+    if auraContainer and auraContainer.ConfigureRingCooldown then
+        auraContainer:ConfigureRingCooldown(bar.Cooldown, bar, ringTexture)
+    end
     bar.Cooldown:SetSwipeColor(ringColor[1], ringColor[2], ringColor[3], ringColor[4] or 1)
     bar.Cooldown:SetDrawSwipe(true)
     bar.Cooldown:SetDrawEdge(false)
@@ -5436,7 +5451,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         ringAuraStyle = {
             displayType = "ring",
             mode = "duration",
-            swipeTexture = ringTexture,
+            ringMaskTexture = ringTexture,
             swipeColor = ringColor,
             swipeReverse = not ringReverse,
             showDurationText = ringShowText,

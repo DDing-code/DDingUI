@@ -232,6 +232,7 @@ local function StyleSignature(style)
         tostring(style.iconTexture),
         tostring(style.useAuraIcon),
         tostring(style.swipeTexture),
+        tostring(style.ringMaskTexture),
         ColorPart(style.swipeColor),
         tostring(style.swipeReverse),
         tostring(style.textDisplayMode),
@@ -244,6 +245,48 @@ end
 
 local function ApplyColor(region, color)
     region:SetVertexColor(color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+end
+
+local function ConfigureRingCooldown(cooldown, owner, maskTexture)
+    if not cooldown or not owner or not maskTexture then return end
+
+    local mask = cooldown._ddingRingMask
+    if not mask then
+        mask = owner:CreateMaskTexture()
+        mask:SetAllPoints(cooldown)
+        cooldown._ddingRingMask = mask
+    end
+    if cooldown._ddingRingMaskTexture ~= maskTexture then
+        mask:SetTexture(maskTexture, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        cooldown._ddingRingMaskTexture = maskTexture
+    end
+    if not cooldown._ddingRingMaskAttached then
+        cooldown:AddMaskTexture(mask)
+        cooldown._ddingRingMaskAttached = true
+        mask:Show()
+        cooldown:SetSwipeTexture(SOLID_TEXTURE, 1, 1, 1, 1)
+        if cooldown.SetUseCircularEdge then
+            cooldown:SetUseCircularEdge(true)
+        end
+    end
+end
+
+function Engine:ConfigureRingCooldown(cooldown, owner, maskTexture)
+    ConfigureRingCooldown(cooldown, owner, maskTexture)
+end
+
+function Engine:ClearRingCooldownMask(cooldown)
+    if not cooldown then return end
+    local mask = cooldown._ddingRingMask
+    if not mask or not cooldown._ddingRingMaskAttached then return end
+
+    cooldown:RemoveMaskTexture(mask)
+    mask:Hide()
+    cooldown._ddingRingMaskAttached = nil
+    cooldown:SetSwipeTexture(SOLID_TEXTURE, 1, 1, 1, 1)
+    if cooldown.SetUseCircularEdge then
+        cooldown:SetUseCircularEdge(false)
+    end
 end
 
 local function CreateBorder(button, size, color)
@@ -414,7 +457,11 @@ local function CreateRingInitializer(proxy, desired, style)
         swipe:SetDrawSwipe(true)
         swipe:SetReverse(style.swipeReverse ~= false)
         local swipeColor = style.swipeColor or { 1, 0.8, 0, 1 }
-        swipe:SetSwipeTexture(style.swipeTexture or SOLID_TEXTURE, 1, 1, 1, 1)
+        if style.ringMaskTexture then
+            ConfigureRingCooldown(swipe, button, style.ringMaskTexture)
+        else
+            swipe:SetSwipeTexture(SOLID_TEXTURE, 1, 1, 1, 1)
+        end
         swipe:SetSwipeColor(swipeColor[1] or 1, swipeColor[2] or 0.8, swipeColor[3] or 0, swipeColor[4] or 1)
         swipe:SetHideCountdownNumbers(true)
         swipe:Show()
