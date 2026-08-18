@@ -506,7 +506,9 @@ local function RestoreLegacyDisplay(host)
     if host.StackText then host.StackText:SetAlpha(1) end
     if host.Text then host.Text:SetAlpha(1) end
     if host.Texture then host.Texture:SetAlpha(1) end
+    if host.Icon then host.Icon:SetAlpha(1) end
     if host._ringColorBg then host._ringColorBg:SetAlpha(1) end
+    if host.RingBorder then host.RingBorder:SetAlpha(1) end
 end
 
 local function HideLegacyDisplay(host, style)
@@ -525,6 +527,7 @@ local function HideLegacyDisplay(host, style)
         if host.DurationText then host.DurationText:SetAlpha(0) end
         if type(style) == "table" and not style.preserveInactive then
             if host._ringColorBg then host._ringColorBg:SetAlpha(0) end
+            if host.RingBorder then host.RingBorder:SetAlpha(0) end
         end
     elseif displayType == "icon" then
         if host.Cooldown then host.Cooldown:SetAlpha(0) end
@@ -536,6 +539,9 @@ local function HideLegacyDisplay(host, style)
     elseif displayType == "text" then
         if host.Text then host.Text:SetAlpha(0) end
         if host.DurationText then host.DurationText:SetAlpha(0) end
+        if type(style) == "table" and not style.preserveInactive and host.Icon then
+            host.Icon:SetAlpha(0)
+        end
     end
 end
 
