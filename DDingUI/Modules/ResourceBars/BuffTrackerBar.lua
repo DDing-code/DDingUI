@@ -551,6 +551,7 @@ local cdmVisibility = {
     scans = 0,
     skipped = 0,
     visitedFrames = 0,
+    protectedConditionsSkipped = 0,
 }
 
 local function SetCachedCDMFrameHidden(frame, cooldownID, shouldHide)
@@ -2582,12 +2583,6 @@ local function CreateTrackedBuffBar(barIndex)
     bar.StatusBar:SetMinMaxValues(0, 1)
     bar.StatusBar:SetValue(1)
 
-    bar._alertStackColorOverlay = CreateFrame("StatusBar", nil, bar.StatusBar)
-    bar._alertStackColorOverlay:SetAllPoints(bar.StatusBar:GetStatusBarTexture())
-    bar._alertStackColorOverlay:SetStatusBarTexture(tex)
-    bar._alertStackColorOverlay:SetFrameLevel(bar.StatusBar:GetFrameLevel() + 1)
-    bar._alertStackColorOverlay:Hide()
-
     -- COOLDOWN FRAME (for circular/square/donut style)
     bar.Cooldown = CreateFrame("Cooldown", nil, bar, "CooldownFrameTemplate")
     bar.Cooldown:SetAllPoints()
@@ -2896,39 +2891,33 @@ end
 
 local function EvaluateComparison(current, op, target)
     if current == nil or target == nil then return false end
-    -- [FIX] WoW taint protection: CDM/aura API values may be secret numbers
-    -- tainted by DDingUI execution context during UNIT_AURA handler.
-    -- pcall prevents "attempt to compare secret number value" errors.
-    local ok, result = pcall(function()
-        if op == "<=" then return current <= target
-        elseif op == ">=" then return current >= target
-        elseif op == "==" then return current == target
-        elseif op == "!=" then return current ~= target
-        elseif op == "<"  then return current < target
-        elseif op == ">"  then return current > target
-        end
-        return false
-    end)
-    return ok and result or false
+    if IsSecretValue(current) or IsSecretValue(target) then return false end
+    if type(current) == "number" and not IsAccessibleNumber(current) then return false end
+    if type(target) == "number" and not IsAccessibleNumber(target) then return false end
+
+    if op == "<=" then return current <= target
+    elseif op == ">=" then return current >= target
+    elseif op == "==" then return current == target
+    elseif op == "!=" then return current ~= target
+    elseif op == "<"  then return current < target
+    elseif op == ">"  then return current > target
+    end
+    return false
 end
 
 local function GetAlertAuraTiming(hasData, auraInstanceID, unit)
-    if not hasData or not HasAuraInstanceID(auraInstanceID) then return nil, nil end
+    if not hasData or not HasAuraInstanceID(auraInstanceID) then return nil, nil, false end
+    if IsSecretValue(auraInstanceID) then return nil, nil, true end
 
-    local remaining, duration
-    pcall(function()
-        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit or "player", auraInstanceID)
-        if not auraData then return end
+    local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit or "player", auraInstanceID)
+    if not auraData or IsSecretValue(auraData) then return nil, nil, true end
 
-        if IsAccessibleNumber(auraData.expirationTime) then
-            remaining = math_max(0, auraData.expirationTime - GetTime())
-        end
-        if IsAccessibleNumber(auraData.duration) then
-            duration = auraData.duration
-        end
-    end)
-
-    return remaining, duration
+    local expirationTime = auraData.expirationTime
+    local duration = auraData.duration
+    if not IsAccessibleNumber(expirationTime) or not IsAccessibleNumber(duration) then
+        return nil, nil, true
+    end
+    return math_max(0, expirationTime - GetTime()), duration, false
 end
 
 -- Evaluate all triggers for a tracked buff, return per-trigger results + combined result.
@@ -2943,14 +2932,14 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     if #triggers == 0 then return nil end
 
     local triggerResults = {}
-    local restrictedStackTriggers
+    local protectedTriggers
     local auraTimingLoaded = false
-    local auraRemaining, auraDuration
+    local auraRemaining, auraDuration, auraTimingProtected
     local nextEvaluationDelay
 
     local function LoadAuraTiming()
         if not auraTimingLoaded then
-            auraRemaining, auraDuration = GetAlertAuraTiming(hasData, auraInstanceID, unit)
+            auraRemaining, auraDuration, auraTimingProtected = GetAlertAuraTiming(hasData, auraInstanceID, unit)
             auraTimingLoaded = true
         end
         return auraRemaining, auraDuration
@@ -2976,6 +2965,9 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
             if remaining and threshold then
                 result = EvaluateComparison(remaining, trigger.op, threshold)
                 TrackThresholdDelay(remaining - threshold)
+            elseif auraTimingProtected then
+                protectedTriggers = protectedTriggers or {}
+                protectedTriggers[i] = true
             end
 
         elseif trigger.type == "duration_percent" then
@@ -2985,14 +2977,19 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
                 local percent = (remaining / duration) * 100
                 result = EvaluateComparison(percent, trigger.op, threshold)
                 TrackThresholdDelay(remaining - (duration * threshold / 100))
+            elseif auraTimingProtected then
+                protectedTriggers = protectedTriggers or {}
+                protectedTriggers[i] = true
             end
 
         elseif trigger.type == "stacks" then
             if IsAccessibleNumber(trackedStacks) then
                 result = EvaluateComparison(trackedStacks, trigger.op, trigger.value)
-            elseif type(trackedStacks) == "number" then
-                restrictedStackTriggers = restrictedStackTriggers or {}
-                restrictedStackTriggers[i] = true
+            elseif IsSecretValue(trackedStacks)
+                or (type(trackedStacks) == "number" and not IsAccessibleNumber(trackedStacks))
+            then
+                protectedTriggers = protectedTriggers or {}
+                protectedTriggers[i] = true
             end
 
         elseif trigger.type == "combat" then
@@ -3019,11 +3016,25 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
         end
     end
 
+    local runtimeOwner = GetAlertRuntimeOwner(trackedBuff)
+    local protectedSignature
+    if protectedTriggers then
+        local protectedIndexes = {}
+        for index in pairs(protectedTriggers) do
+            protectedIndexes[#protectedIndexes + 1] = index
+        end
+        table.sort(protectedIndexes)
+        protectedSignature = table.concat(protectedIndexes, ",")
+        if runtimeOwner.protectedTriggerSignature ~= protectedSignature then
+            cdmVisibility.protectedConditionsSkipped = cdmVisibility.protectedConditionsSkipped + #protectedIndexes
+        end
+    end
+    runtimeOwner.protectedTriggerSignature = protectedSignature
+
     return {
         combined = combined,
         triggers = triggerResults,
-        restrictedStackTriggers = restrictedStackTriggers,
-        restrictedStackValue = restrictedStackTriggers and trackedStacks or nil,
+        protectedTriggers = protectedTriggers,
         nextEvaluationDelay = nextEvaluationDelay,
     }
 end
@@ -3037,7 +3048,6 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
     frame._alertBorderColorOverride = nil
     frame._alertDesaturateOverride = nil
     frame._alertGlowOverride = nil
-    frame._alertRestrictedStackColor = nil
 
     local settings = trackedBuff and trackedBuff.settings
     local alerts = settings and settings.alerts
@@ -3069,18 +3079,6 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
 
         local visualTarget = action.visualTarget or "self"
         local colorTarget = action.colorTarget or "self"
-        local restrictedStackTrigger
-        if alertResult and alertResult.restrictedStackTriggers then
-            local triggerNum
-            if action.condition == "any" and #alerts.triggers == 1 then
-                triggerNum = 1
-            else
-                triggerNum = tonumber((action.condition or ""):match("trigger(%d+)"))
-            end
-            if triggerNum and alertResult.restrictedStackTriggers[triggerNum] then
-                restrictedStackTrigger = alerts.triggers[triggerNum]
-            end
-        end
         local isExternalVisual = visualTarget ~= "self"
             and ConditionalVisuals
             and (
@@ -3152,19 +3150,6 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
                     -- Tracker itself
                     frame._alertColorOverride = action.color
                 end
-            elseif restrictedStackTrigger and action.color
-                and visualTarget == "self"
-                and (colorTarget == "self" or colorTarget == "group")
-            then
-                local threshold = tonumber(restrictedStackTrigger.value)
-                if threshold then
-                    frame._alertRestrictedStackColor = {
-                        value = alertResult.restrictedStackValue,
-                        op = restrictedStackTrigger.op,
-                        threshold = threshold,
-                        color = action.color,
-                    }
-                end
             else
                 -- 조건 미충족 시 색상 초기화
                 if colorTarget == "bar" then
@@ -3214,56 +3199,6 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
             frame._alertPrevState[stateKey] = shouldFire
         end
     end
-end
-
-local function ApplyRestrictedStackColor(bar, baseColor, texture, orientation, reverseFill, enabled)
-    local overlay = bar._alertStackColorOverlay
-    local rule = enabled and bar._alertRestrictedStackColor
-    if not rule or not overlay then
-        if overlay then overlay:Hide() end
-        return
-    end
-
-    local switchAt
-    local actionColorBelow
-    if rule.op == "<=" then
-        switchAt = rule.threshold + 1
-        actionColorBelow = true
-    elseif rule.op == "<" then
-        switchAt = rule.threshold
-        actionColorBelow = true
-    elseif rule.op == ">=" then
-        switchAt = rule.threshold
-        actionColorBelow = false
-    elseif rule.op == ">" then
-        switchAt = rule.threshold + 1
-        actionColorBelow = false
-    else
-        if overlay then overlay:Hide() end
-        return
-    end
-
-    local actionColor = rule.color
-    local overlayColor = actionColorBelow and baseColor or actionColor
-    local barBaseColor = actionColorBelow and actionColor or baseColor
-    bar.StatusBar:SetStatusBarColor(
-        barBaseColor[1],
-        barBaseColor[2],
-        barBaseColor[3],
-        barBaseColor[4] or 1
-    )
-    overlay:SetStatusBarTexture(texture)
-    overlay:SetOrientation(orientation)
-    overlay:SetReverseFill(reverseFill)
-    overlay:SetMinMaxValues(switchAt - 1, switchAt)
-    overlay:SetStatusBarColor(
-        overlayColor[1],
-        overlayColor[2],
-        overlayColor[3],
-        overlayColor[4] or 1
-    )
-    overlay:SetValue(rule.value)
-    overlay:Show()
 end
 
 local function ScheduleAlertEvaluation(frame, alertResult)
@@ -4722,14 +4657,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         appliedBarColor[2],
         appliedBarColor[3],
         appliedBarColor[4] or 1
-    )
-    ApplyRestrictedStackColor(
-        bar,
-        appliedBarColor,
-        tex,
-        barOrientation,
-        barReverseFill,
-        not isCircularStyle and not isRingStyle
     )
 
     -- Text display (개별 버프 설정 사용)
@@ -6561,6 +6488,7 @@ SlashCmdList["DDINGBUFF"] = function(msg)
             cdmVisibility.scans = 0
             cdmVisibility.skipped = 0
             cdmVisibility.visitedFrames = 0
+            cdmVisibility.protectedConditionsSkipped = 0
         end
         local data = engine and engine.GetDiagnostics and engine:GetDiagnostics() or {}
         print(string.format(
@@ -6583,10 +6511,11 @@ SlashCmdList["DDINGBUFF"] = function(msg)
             data.failedTrackers or 0
         ))
         print(string.format(
-            "  CDM visibility scans=%d skipped=%d framesVisited=%d dirty=%s",
+            "  CDM visibility scans=%d skipped=%d framesVisited=%d protectedConditions=%d dirty=%s",
             cdmVisibility.scans,
             cdmVisibility.skipped,
             cdmVisibility.visitedFrames,
+            cdmVisibility.protectedConditionsSkipped,
             tostring(cdmVisibility.dirty)
         ))
         if data.lastError then print("  last error: " .. data.lastError) end
