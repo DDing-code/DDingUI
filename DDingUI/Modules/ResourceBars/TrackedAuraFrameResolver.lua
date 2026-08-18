@@ -25,6 +25,18 @@ local frameSpellIDs = setmetatable({}, { __mode = "k" })
 local consumedFrames = setmetatable({}, { __mode = "k" })
 local durationFontStrings = setmetatable({}, { __mode = "k" })
 local currentTokens = {}
+local diagnostics = {
+    passes = 0,
+    emptyPasses = 0,
+    snapshots = 0,
+    framesVisited = 0,
+    records = 0,
+    stickyHits = 0,
+    spellMatches = 0,
+    cooldownMatches = 0,
+    infoMatches = 0,
+    refreshRequests = 0,
+}
 
 local function FindDurationFontString(statusBar)
     if not statusBar then return nil end
@@ -80,6 +92,7 @@ local function TrackerToken(tracker)
 end
 
 local function RequestRuntimeRefresh()
+    diagnostics.refreshRequests = diagnostics.refreshRequests + 1
     local resourceBars = DDingUI.ResourceBars
     if resourceBars and resourceBars.RequestBuffTrackerUpdate then
         resourceBars:RequestBuffTrackerUpdate("tracked-frame", 0)
@@ -184,6 +197,7 @@ local function InfoMatchesSpell(frame, spellID)
 end
 
 local function SnapshotFrames()
+    diagnostics.snapshots = diagnostics.snapshots + 1
     wipe(activeFrames)
     wipe(activeFrameSet)
     wipe(frameCooldownIDs)
@@ -195,6 +209,7 @@ local function SnapshotFrames()
         local pool = viewer and viewer.itemFramePool
         if pool then
             for frame in pool:EnumerateActive() do
+                diagnostics.framesVisited = diagnostics.framesVisited + 1
                 if not activeFrameSet[frame] then
                     activeFrameSet[frame] = true
                     activeFrames[#activeFrames + 1] = frame
@@ -206,7 +221,7 @@ local function SnapshotFrames()
     end
 end
 
-local function Assign(record, frame, remember)
+local function Assign(record, frame, remember, reason)
     record.frame = frame
     consumedFrames[frame] = true
     for _, tracker in ipairs(record.trackers) do
@@ -219,6 +234,15 @@ local function Assign(record, frame, remember)
             or frameCooldownIDs[frame]
             or record.cooldownID
         stickyGenerations[record.token] = frameGenerations[frame] or 0
+    end
+    if reason == "sticky" then
+        diagnostics.stickyHits = diagnostics.stickyHits + 1
+    elseif reason == "spell" then
+        diagnostics.spellMatches = diagnostics.spellMatches + 1
+    elseif reason == "cooldown" then
+        diagnostics.cooldownMatches = diagnostics.cooldownMatches + 1
+    elseif reason == "info" then
+        diagnostics.infoMatches = diagnostics.infoMatches + 1
     end
 end
 
@@ -240,6 +264,7 @@ local function StickyStillMatches(record, frame)
 end
 
 function Resolver:BeginPass(trackers)
+    diagnostics.passes = diagnostics.passes + 1
     local auraContainer = DDingUI.TrackedAuraContainer
     if auraContainer and auraContainer.Sync then
         auraContainer:Sync(trackers)
@@ -284,12 +309,14 @@ function Resolver:BeginPass(trackers)
     end
 
     if #records == 0 then
+        diagnostics.emptyPasses = diagnostics.emptyPasses + 1
         wipe(activeFrames)
         wipe(activeFrameSet)
         wipe(frameCooldownIDs)
         wipe(frameSpellIDs)
         return
     end
+    diagnostics.records = diagnostics.records + #records
 
     SnapshotFrames()
 
@@ -299,7 +326,7 @@ function Resolver:BeginPass(trackers)
             and record.spellID > 0
         local frame = stickyFrames[record.token]
         if frame and not consumedFrames[frame] and StickyStillMatches(record, frame) then
-            Assign(record, frame, false)
+            Assign(record, frame, false, "sticky")
         else
             stickyFrames[record.token] = nil
             stickyCooldownIDs[record.token] = nil
@@ -311,7 +338,7 @@ function Resolver:BeginPass(trackers)
         if not record.frame and record.spellID > 0 then
             for _, frame in ipairs(activeFrames) do
                 if not consumedFrames[frame] and frameSpellIDs[frame] == record.spellID then
-                    Assign(record, frame, true)
+                    Assign(record, frame, true, "spell")
                     break
                 end
             end
@@ -322,7 +349,7 @@ function Resolver:BeginPass(trackers)
         if not record.frame and record.cooldownID > 0 and not record.needsSpellDisambiguation then
             for _, frame in ipairs(activeFrames) do
                 if not consumedFrames[frame] and frameCooldownIDs[frame] == record.cooldownID then
-                    Assign(record, frame, true)
+                    Assign(record, frame, true, "cooldown")
                     break
                 end
             end
@@ -347,7 +374,7 @@ function Resolver:BeginPass(trackers)
                     end
                 end
                 if recordMatches == 1 then
-                    Assign(record, candidate, false)
+                    Assign(record, candidate, false, "info")
                 end
             end
         end
@@ -417,5 +444,23 @@ function Resolver:Invalidate(clearSticky)
         wipe(stickyFrames)
         wipe(stickyCooldownIDs)
         wipe(stickyGenerations)
+    end
+end
+
+function Resolver:GetDiagnostics()
+    local result = {}
+    for key, value in pairs(diagnostics) do
+        result[key] = value
+    end
+    result.averageFramesPerSnapshot = diagnostics.snapshots > 0
+        and diagnostics.framesVisited / diagnostics.snapshots or 0
+    result.averageRecordsPerPass = diagnostics.passes > 0
+        and diagnostics.records / diagnostics.passes or 0
+    return result
+end
+
+function Resolver:ResetDiagnostics()
+    for key in pairs(diagnostics) do
+        diagnostics[key] = 0
     end
 end

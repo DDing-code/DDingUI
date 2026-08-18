@@ -6620,14 +6620,17 @@ SlashCmdList["DDINGBUFF"] = function(msg)
     msg = strtrim(msg or "")
     if msg == "metrics" or msg == "metrics reset" then
         local engine = DDingUI.TrackedAuraContainer
+        local resolver = DDingUI.TrackedAuraFrameResolver
         if msg == "metrics reset" then
             if engine and engine.ResetDiagnostics then engine:ResetDiagnostics() end
+            if resolver and resolver.ResetDiagnostics then resolver:ResetDiagnostics() end
             cdmVisibility.scans = 0
             cdmVisibility.skipped = 0
             cdmVisibility.visitedFrames = 0
             cdmVisibility.protectedConditionsSkipped = 0
         end
         local data = engine and engine.GetDiagnostics and engine:GetDiagnostics() or {}
+        local resolverData = resolver and resolver.GetDiagnostics and resolver:GetDiagnostics() or {}
         print(string.format(
             "|cffffffffDDing|r|cffffa300UI|r: Aura containers active=%d desired=%d builds=%d success=%d failures=%d rebuilds=%d reuses=%d retriesSkipped=%d",
             data.activeBindings or 0,
@@ -6654,6 +6657,18 @@ SlashCmdList["DDINGBUFF"] = function(msg)
             cdmVisibility.visitedFrames,
             cdmVisibility.protectedConditionsSkipped,
             tostring(cdmVisibility.dirty)
+        ))
+        print(string.format(
+            "  legacy resolver passes=%d empty=%d snapshots=%d frames/snapshot=%.2f records/pass=%.2f sticky=%d spell=%d cooldown=%d info=%d",
+            resolverData.passes or 0,
+            resolverData.emptyPasses or 0,
+            resolverData.snapshots or 0,
+            resolverData.averageFramesPerSnapshot or 0,
+            resolverData.averageRecordsPerPass or 0,
+            resolverData.stickyHits or 0,
+            resolverData.spellMatches or 0,
+            resolverData.cooldownMatches or 0,
+            resolverData.infoMatches or 0
         ))
         if data.lastError then print("  last error: " .. data.lastError) end
         return
