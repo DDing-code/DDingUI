@@ -2197,20 +2197,23 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local newSpellID = tonumber(val)
             if not newSpellID or newSpellID <= 0 then return end
 
-            -- Update spellID
-            trackedBuffs[index].spellID = newSpellID
-            if trackedBuffs[index].trigger then
-                trackedBuffs[index].trigger.spellID = newSpellID
+            -- A manually entered spell is independent from the old CDM entry.
+            local trackedBuff = trackedBuffs[index]
+            trackedBuff.spellID = newSpellID
+            trackedBuff.cooldownID = 0
+            if trackedBuff.trigger then
+                trackedBuff.trigger.spellID = newSpellID
+                trackedBuff.trigger.cooldownID = 0
             end
 
             -- Auto-update name and icon from spell info
             local ok, spellName = pcall(C_Spell.GetSpellName, newSpellID)
             if ok and spellName and spellName ~= "" then
-                trackedBuffs[index].name = spellName
+                trackedBuff.name = spellName
             end
             local iconOk, iconTex = pcall(C_Spell.GetSpellTexture, newSpellID)
             if iconOk and iconTex then
-                trackedBuffs[index].icon = iconTex
+                trackedBuff.icon = iconTex
             end
 
             DDingUI:UpdateBuffTrackerBar()

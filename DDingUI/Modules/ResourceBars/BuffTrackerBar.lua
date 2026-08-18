@@ -584,7 +584,7 @@ function ResourceBars:SetTrackedBuffHiddenInCDM(cooldownID, shouldHide, knownFra
 
     local scanner = DDingUI.CDMScanner
     local entry = scanner and scanner.GetEntry and scanner.GetEntry(cooldownID)
-    if entry then
+    if entry and not IsSecretValue(entry) then
         SetFrameHidden(entry.iconFrame, true)
         SetFrameHidden(entry.barFrame, true)
         if entry.frame and entry.isAura ~= true and entry.frame._ddingHidden then
@@ -1225,7 +1225,7 @@ local function FindTrackedPlayerAura(cooldownID, savedSpellID)
         if HasAuraResult(aura) then return aura, matchedSpellID end
 
         local linkedSpellIDs = entry.linkedSpellIDs
-        if type(linkedSpellIDs) == "table" then
+        if type(linkedSpellIDs) == "table" and not IsSecretValue(linkedSpellIDs) then
             for index = 1, #linkedSpellIDs do
                 aura, matchedSpellID = TryTrackedPlayerAura(linkedSpellIDs[index])
                 if HasAuraResult(aura) then return aura, matchedSpellID end
@@ -1236,14 +1236,14 @@ local function FindTrackedPlayerAura(cooldownID, savedSpellID)
         if HasAuraResult(aura) then return aura, matchedSpellID end
     elseif cooldownID > 0 and CDMCompat then
         local info = CDMCompat:GetCooldownInfo(cooldownID)
-        if info then
+        if info and not IsSecretValue(info) then
             aura, matchedSpellID = TryTrackedPlayerAura(info.overrideTooltipSpellID)
             if HasAuraResult(aura) then return aura, matchedSpellID end
             aura, matchedSpellID = TryTrackedPlayerAura(info.overrideSpellID)
             if HasAuraResult(aura) then return aura, matchedSpellID end
 
             local linkedSpellIDs = info.linkedSpellIDs
-            if type(linkedSpellIDs) == "table" then
+            if type(linkedSpellIDs) == "table" and not IsSecretValue(linkedSpellIDs) then
                 for index = 1, #linkedSpellIDs do
                     aura, matchedSpellID = TryTrackedPlayerAura(linkedSpellIDs[index])
                     if HasAuraResult(aura) then return aura, matchedSpellID end
@@ -1256,6 +1256,26 @@ local function FindTrackedPlayerAura(cooldownID, savedSpellID)
     end
 
     return TryTrackedPlayerAura(cooldownID)
+end
+
+local function ReadAuraPresentation(aura)
+    if IsSecretValue(aura) then
+        return 1, nil
+    end
+
+    local stacks = 1
+    local applications = aura.applications
+    if IsSecretValue(applications)
+        or (IsAccessibleNumber(applications) and applications > 0)
+    then
+        stacks = applications
+    end
+
+    local auraInstanceID = aura.auraInstanceID
+    if not HasAuraInstanceID(auraInstanceID) then
+        auraInstanceID = nil
+    end
+    return stacks, auraInstanceID
 end
 
 -- [12.0.1] 원래 스택 읽기 코드 복원
@@ -1283,17 +1303,7 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
         local directAura
         directAura, resolvedSpellID = FindTrackedPlayerAura(cooldownID, spellID)
         if HasAuraResult(directAura) then
-            trackedStacks = 1
-            if not IsSecretValue(directAura) then
-                local applications = directAura.applications
-                if IsAccessibleNumber(applications) and applications > 0 then
-                    trackedStacks = applications
-                end
-                local directAuraInstanceID = directAura.auraInstanceID
-                if HasAuraInstanceID(directAuraInstanceID) then
-                    auraInstanceID = directAuraInstanceID
-                end
-            end
+            trackedStacks, auraInstanceID = ReadAuraPresentation(directAura)
             unit = "player"
         end
     end
@@ -1304,17 +1314,7 @@ local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStack
         pcall(function()
             local aura, foundUnit = FindAuraGloballyByName(spellName)
             if HasAuraResult(aura) then
-                trackedStacks = 1
-                if not IsSecretValue(aura) then
-                    local applications = aura.applications
-                    if IsAccessibleNumber(applications) and applications > 0 then
-                        trackedStacks = applications
-                    end
-                    local foundAuraInstanceID = aura.auraInstanceID
-                    if HasAuraInstanceID(foundAuraInstanceID) then
-                        auraInstanceID = foundAuraInstanceID
-                    end
-                end
+                trackedStacks, auraInstanceID = ReadAuraPresentation(aura)
                 unit = foundUnit or "player"
             end
         end)
@@ -3635,6 +3635,9 @@ function ResourceBars:UpdateBuffTrackerBar()
         if ConditionalVisuals then
             ConditionalVisuals:Clear()
         end
+        if DDingUI.TrackedAuraFrameResolver and DDingUI.TrackedAuraFrameResolver.Suspend then
+            DDingUI.TrackedAuraFrameResolver:Suspend()
+        end
         return
     end
 
@@ -4059,6 +4062,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 useManualDuration = useManualDuration,
                 progressUpdateInterval = PROGRESS_UPDATE_INTERVAL,
                 sourceFrame = frame,
+                tracker = trackedBuff,
             }
 
             -- 수동 지속시간: 버프 활성화 시점 기록
@@ -4144,6 +4148,19 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
                     -- Auto 모드: auraID 기반 duration 계산
                     local resolver = DDingUI.TrackedAuraFrameResolver
+                    if data.tracker and resolver and resolver.MirrorAuraContainer then
+                        local progressCopied, _, textCopied = resolver:MirrorAuraContainer(
+                            data.tracker,
+                            self,
+                            nil,
+                            bar.DurationText,
+                            "duration",
+                            data.showDurationText
+                        )
+                        if progressCopied and (not data.showDurationText or textCopied) then
+                            return
+                        end
+                    end
                     if data.sourceFrame and resolver and resolver.MirrorProgress then
                         local progressCopied, textCopied = resolver:MirrorProgress(
                             data.sourceFrame,
@@ -4198,13 +4215,25 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             else
                 local progressCopied = false
                 local resolver = DDingUI.TrackedAuraFrameResolver
-                if frame and resolver and resolver.MirrorProgress then
-                    progressCopied = resolver:MirrorProgress(
-                        frame,
+                if resolver and resolver.MirrorAuraContainer then
+                    progressCopied = resolver:MirrorAuraContainer(
+                        trackedBuff,
                         bar.StatusBar,
+                        nil,
                         bar.DurationText,
+                        "duration",
                         showDurationText
                     )
+                end
+                if frame and resolver and resolver.MirrorProgress then
+                    if not progressCopied then
+                        progressCopied = resolver:MirrorProgress(
+                            frame,
+                            bar.StatusBar,
+                            bar.DurationText,
+                            showDurationText
+                        )
+                    end
                 end
                 if not progressCopied and HasAuraInstanceID(auraInstanceID) then
                     pcall(function()
@@ -4257,6 +4286,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 warningColor = durationWarningColor,
                 normalColor = durationTextColor,
                 progressUpdateInterval = DURATION_UPDATE_INTERVAL,
+                tracker = trackedBuff,
             }
 
             -- Circular/Square/Donut/Ring 스타일: Cooldown 프레임 초기화 (스택 모드에서도)
@@ -4279,8 +4309,22 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             if not bar._hasDurationUpdate then
                 RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
-                    if not data or not HasAuraInstanceID(data.auraID) then return end
+                    if not data then return end
                     if not ShouldRunDurationUpdate(self, elapsed, data.progressUpdateInterval) then return end
+
+                    local resolver = DDingUI.TrackedAuraFrameResolver
+                    if data.tracker and resolver and resolver.MirrorAuraContainer then
+                        local _, _, textCopied = resolver:MirrorAuraContainer(
+                            data.tracker,
+                            self,
+                            nil,
+                            bar.DurationText,
+                            "stacks",
+                            data.showDurationText
+                        )
+                        if textCopied then return end
+                    end
+                    if not HasAuraInstanceID(data.auraID) then return end
 
                     pcall(function()
                         local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
@@ -4686,6 +4730,20 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         bar.DurationText:Show()
     else
         bar.DurationText:Hide()
+    end
+
+    if not isManualMode and hasData then
+        local resolver = DDingUI.TrackedAuraFrameResolver
+        if resolver and resolver.MirrorAuraContainer then
+            resolver:MirrorAuraContainer(
+                trackedBuff,
+                bar.StatusBar,
+                showStacksText and bar.TextValue or nil,
+                showDurationText and bar.DurationText or nil,
+                barFillMode,
+                showDurationText
+            )
+        end
     end
 
     -- TextFrame은 둘 중 하나라도 표시되면 보이게

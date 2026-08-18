@@ -240,6 +240,11 @@ local function StickyStillMatches(record, frame)
 end
 
 function Resolver:BeginPass(trackers)
+    local auraContainer = DDingUI.TrackedAuraContainer
+    if auraContainer and auraContainer.Sync then
+        auraContainer:Sync(trackers)
+    end
+
     wipe(assignments)
     wipe(consumedFrames)
     wipe(currentTokens)
@@ -367,6 +372,29 @@ function Resolver:MirrorProgress(frame, targetStatusBar, targetDurationText, sho
     end
 
     return true, textCopied
+end
+
+function Resolver:MirrorAuraContainer(tracker, targetStatusBar, targetApplicationText, targetDurationText, mode, showDurationText)
+    local auraContainer = DDingUI.TrackedAuraContainer
+    if not auraContainer or not auraContainer.Mirror then
+        return false, false, false
+    end
+    return auraContainer:Mirror(
+        tracker,
+        targetStatusBar,
+        targetApplicationText,
+        targetDurationText,
+        mode,
+        showDurationText
+    )
+end
+
+function Resolver:Suspend()
+    wipe(assignments)
+    local auraContainer = DDingUI.TrackedAuraContainer
+    if auraContainer and auraContainer.Suspend then
+        auraContainer:Suspend()
+    end
 end
 
 function Resolver:Invalidate(clearSticky)
