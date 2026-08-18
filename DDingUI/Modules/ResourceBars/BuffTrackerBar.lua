@@ -3727,6 +3727,10 @@ function ResourceBars:UpdateBuffTrackerBar()
                or not CheckActivationCondition(trackedBuff)
                or (ownerGroup and not activeGroups[ownerGroup]) then
                 groupRuntime:HideDisplay(barIndex)
+                local auraContainer = DDingUI.TrackedAuraContainer
+                if auraContainer and auraContainer.Detach then
+                    auraContainer:Detach(trackedBuff)
+                end
             else
                 local displayType = trackedBuff.displayType or "bar"
 
@@ -4849,10 +4853,13 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
     -- Get buff data (same as bar mode)
     local isManualMode = trackedBuff.trackingMode == "manual"
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    local containerEligible = not isManualMode and not isInPreviewMode and not isInMoverMode
+    local useLegacyAuraData = not containerEligible or not resolver
+        or not resolver.ShouldReadLegacy or resolver:ShouldReadLegacy(trackedBuff)
     local current, total, hasData, actualDuration, remainingDuration = 0, maxStacks, false, stackDuration, 0
 
-    -- CDM 프레임 찾기
-    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
+    local frame = useLegacyAuraData and ResolveTrackedFrame(cooldownID, trackedBuff) or nil
 
     -- Manual mode
     local manualStackCount, manualExpiresAt = nil, nil
@@ -4861,7 +4868,14 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     end
 
     -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
-    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
+    local trackedStacks, auraInstanceID, unit
+    if useLegacyAuraData then
+        trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+            cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name
+        )
+    else
+        trackedStacks, auraInstanceID, unit = 0, nil, "player"
+    end
     local auraData = nil
 
     if isManualMode then
@@ -4946,9 +4960,12 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
     -- Visibility check (include preview/mover mode - uses file-local isInPreviewMode, isInMoverMode)
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
-    local shouldShow = hasData or isInPreviewMode or isInMoverMode
+    local shouldShow = hasData or isInPreviewMode or isInMoverMode or containerEligible
 
     if onlyInCombat and not inCombat and not isInPreviewMode and not isInMoverMode then
+        if resolver and resolver.AttachAuraContainer then
+            resolver:AttachAuraContainer(trackedBuff, bar, nil)
+        end
         bar:Hide()
         return
     end
@@ -4976,7 +4993,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         end
     end
 
-    if not hasData then
+    if not hasData and not containerEligible then
         bar:Hide()
         return
     end
@@ -5401,6 +5418,30 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         end
     end
 
+    local ringAuraStyle
+    if containerEligible then
+        ringAuraStyle = {
+            displayType = "ring",
+            mode = "duration",
+            swipeTexture = ringTexture,
+            swipeColor = ringColor,
+            swipeReverse = not ringReverse,
+            showDurationText = ringShowText,
+            durationFont = DDingUI:GetFont(ringTextFont),
+            durationFontSize = ringTextSize,
+            durationAlign = "CENTER",
+            durationX = 0,
+            durationY = 0,
+            durationColor = ringTextColor,
+            borderSize = 0,
+            frameStrata = strata,
+            frameLevel = bar:GetFrameLevel(),
+            preserveInactive = not hideWhenZero,
+        }
+    end
+    if resolver and resolver.AttachAuraContainer then
+        resolver:AttachAuraContainer(trackedBuff, bar, ringAuraStyle)
+    end
     bar:Show()
 end
 
@@ -5460,16 +5501,25 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     -- MANUAL TRACKING MODE: Use spell-cast-based stacks instead of aura
     -- ============================================================
     local isManualMode = trackedBuff.trackingMode == "manual"
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    local containerEligible = not isManualMode and not isInPreviewMode and not isInMoverMode
+    local useLegacyAuraData = not containerEligible or not resolver
+        or not resolver.ShouldReadLegacy or resolver:ShouldReadLegacy(trackedBuff)
     local manualStackCount, manualExpiresAtIcon = nil, nil
     if isManualMode then
         manualStackCount, manualExpiresAtIcon = GetManualStacks(barIndex)
     end
 
-    -- Get tracking data
-    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
+    local frame = useLegacyAuraData and ResolveTrackedFrame(cooldownID, trackedBuff) or nil
 
-    -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
-    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
+    local trackedStacks, auraInstanceID, unit
+    if useLegacyAuraData then
+        trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+            cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name
+        )
+    else
+        trackedStacks, auraInstanceID, unit = 0, nil, "player"
+    end
 
     -- Auto mode accepts either an aura instance or an active stack value.
     local hasData
@@ -5503,6 +5553,9 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     -- onlyInCombat: 전투 중에만 표시
     local onlyInCombat = settings.onlyInCombat or false
     if onlyInCombat and not inCombat and not isInMoverMode and not isInPreviewMode then
+        if resolver and resolver.AttachAuraContainer then
+            resolver:AttachAuraContainer(trackedBuff, icon, nil)
+        end
         icon:Hide()
         StopAllAnimations(icon)
         icon._currentAnimation = nil
@@ -5517,7 +5570,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
 
     -- 비활성화 시에만 표시 모드
     if showOnlyWhenInactive then
-        if hasData and not isInMoverMode and not isInPreviewMode then
+        if hasData and not containerEligible and not isInMoverMode and not isInPreviewMode then
             icon:Hide()
             StopAllAnimations(icon)
             icon._currentAnimation = nil
@@ -5525,7 +5578,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         end
     else
         -- 기존 로직: hideWhenZero + showInCombat
-        if hideWhenZero and not hasData and not isInMoverMode and not isInPreviewMode then
+        if hideWhenZero and not hasData and not containerEligible and not isInMoverMode and not isInPreviewMode then
             if not (showInCombat and inCombat) and not conditionalVisualActive then
                 icon:Hide()
                 StopAllAnimations(icon)
@@ -5888,6 +5941,44 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         icon._currentAnimationSignature = nil
     end
 
+    local iconAuraStyle
+    if containerEligible and not showOnlyWhenInactive then
+        local useAuraIcon = not (iconSource == "custom" and customIconID > 0)
+        iconAuraStyle = {
+            displayType = "icon",
+            mode = "duration",
+            useAuraIcon = useAuraIcon,
+            iconTexture = useAuraIcon and nil or iconTexture,
+            iconZoom = iconZoom,
+            swipeTexture = "Interface\\Buttons\\WHITE8x8",
+            swipeColor = { 0, 0, 0, 0.7 },
+            swipeReverse = true,
+            showStacksText = iconShowStackText,
+            stacksFont = iconStackTextFont and LSM:Fetch("font", iconStackTextFont) or STANDARD_TEXT_FONT,
+            stacksFontSize = DDingUI:Scale(iconStackTextSize),
+            stacksAlign = iconStackTextAnchor,
+            stacksJustify = iconStackTextAnchor:find("LEFT") and "LEFT"
+                or (iconStackTextAnchor:find("RIGHT") and "RIGHT" or "CENTER"),
+            stacksX = DDingUI:Scale(iconStackTextOffsetX),
+            stacksY = DDingUI:Scale(iconStackTextOffsetY),
+            stacksColor = iconStackTextColor,
+            showDurationText = showDurationText,
+            durationFont = settings.durationTextFont and LSM:Fetch("font", settings.durationTextFont) or STANDARD_TEXT_FONT,
+            durationFontSize = DDingUI:Scale(settings.durationTextSize or 10),
+            durationAlign = settings.durationTextAlign or "CENTER",
+            durationX = DDingUI:Scale(settings.durationTextX or 0),
+            durationY = DDingUI:Scale(settings.durationTextY or 0),
+            durationColor = settings.durationTextColor or { 1, 1, 1, 1 },
+            borderSize = showIconBorder and DDingUI:Scale(iconBorderSize) or 0,
+            borderColor = iconBorderColor,
+            frameStrata = settings.frameStrata or globalCfg.frameStrata or "MEDIUM",
+            frameLevel = icon:GetFrameLevel(),
+            preserveInactive = not hideWhenZero,
+        }
+    end
+    if resolver and resolver.AttachAuraContainer then
+        resolver:AttachAuraContainer(trackedBuff, icon, iconAuraStyle)
+    end
     icon:Show()
 
     if BUFF_TRACKER_DEBUG then
@@ -6055,16 +6146,25 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- MANUAL TRACKING MODE: Use spell-cast-based stacks instead of aura
     -- ============================================================
     local isManualMode = trackedBuff.trackingMode == "manual"
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    local containerEligible = not isManualMode and not isInPreviewMode and not isInMoverMode
+    local useLegacyAuraData = not containerEligible or not resolver
+        or not resolver.ShouldReadLegacy or resolver:ShouldReadLegacy(trackedBuff)
     local manualStackCount = nil
     if isManualMode then
         manualStackCount = GetManualStacks(barIndex)
     end
 
-    -- Get tracking data
-    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
+    local frame = useLegacyAuraData and ResolveTrackedFrame(cooldownID, trackedBuff) or nil
 
-    -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
-    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
+    local trackedStacks, auraInstanceID, unit
+    if useLegacyAuraData then
+        trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+            cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name
+        )
+    else
+        trackedStacks, auraInstanceID, unit = 0, nil, "player"
+    end
 
     -- Auto mode accepts either an aura instance or an active stack value.
     local hasData
@@ -6094,13 +6194,16 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
     local onlyInCombat = settings.onlyInCombat or false
     if onlyInCombat and not inCombat and not isInMoverMode and not isInPreviewMode then
+        if resolver and resolver.AttachAuraContainer then
+            resolver:AttachAuraContainer(trackedBuff, textFrame, nil)
+        end
         textFrame:Hide()
         return
     end
 
     -- Hide if no data and hideWhenZero (skip in mover/preview mode)
     -- Also skip hiding if showInCombat is enabled and we're in combat
-    if hideWhenZero and not hasData and not isInMoverMode and not isInPreviewMode then
+    if hideWhenZero and not hasData and not containerEligible and not isInMoverMode and not isInPreviewMode then
         if not (showInCombat and inCombat) then
             textFrame:Hide()
             return
@@ -6326,6 +6429,40 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         end
     end
 
+    local textAuraStyle
+    if containerEligible then
+        local staticText = textDisplayMode == "name" and (trackedBuff.name or "Unknown")
+            or (textDisplayMode == "custom" and customText or nil)
+        textAuraStyle = {
+            displayType = "text",
+            mode = textDisplayMode,
+            textDisplayMode = textDisplayMode,
+            staticText = staticText,
+            showIcon = showIcon,
+            iconSize = DDingUI:Scale(iconSize),
+            showStacksText = true,
+            stacksFont = fontPath,
+            stacksFontSize = DDingUI:Scale(textSize),
+            stacksAlign = "LEFT",
+            stacksJustify = "LEFT",
+            stacksX = showIcon and (DDingUI:Scale(iconSize) + 4) or 0,
+            stacksY = 0,
+            stacksColor = textColor,
+            showDurationText = settings.showDurationText or false,
+            durationFont = settings.durationTextFont and LSM:Fetch("font", settings.durationTextFont) or STANDARD_TEXT_FONT,
+            durationFontSize = DDingUI:Scale(settings.durationTextSize or 10),
+            durationAlign = settings.durationTextAlign or "LEFT",
+            durationX = DDingUI:Scale(settings.durationTextX or 4),
+            durationY = DDingUI:Scale(settings.durationTextY or 0),
+            durationColor = settings.durationTextColor or { 1, 1, 1, 1 },
+            frameStrata = settings.frameStrata or globalCfg.frameStrata or "MEDIUM",
+            frameLevel = textFrame:GetFrameLevel(),
+            preserveInactive = not hideWhenZero,
+        }
+    end
+    if resolver and resolver.AttachAuraContainer then
+        resolver:AttachAuraContainer(trackedBuff, textFrame, textAuraStyle)
+    end
     textFrame:Show()
 
     -- Apply animation if enabled and buff is active

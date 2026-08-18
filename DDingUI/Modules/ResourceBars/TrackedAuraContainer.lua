@@ -67,14 +67,30 @@ local function TrackerSpellID(tracker)
     return CleanID(tracker and (tracker.spellID or (tracker.trigger and tracker.trigger.spellID))) or 0
 end
 
-local function IsAuraBar(tracker)
+local function IsSupportedAuraTracker(tracker)
     if type(tracker) ~= "table" or tracker.isGroup or tracker.enabled == false then return false end
-    if (tracker.displayType or "bar") ~= "bar" then return false end
-    if ((tracker.settings or {}).barStyle or "bar") ~= "bar" then return false end
+    local displayType = tracker.displayType or "bar"
+    if displayType ~= "bar" and displayType ~= "ring"
+        and displayType ~= "icon" and displayType ~= "text"
+    then
+        return false
+    end
+    if displayType == "bar" and ((tracker.settings or {}).barStyle or "bar") ~= "bar" then
+        return false
+    end
+    if displayType == "icon" and (tracker.settings or {}).showOnlyWhenInactive then
+        return false
+    end
     if tracker.trackingMode == "manual" or tracker.trackingMode == "spell" then return false end
     if tracker.trigger and tracker.trigger.type == "spell" then return false end
     if tracker.isAura == false then return false end
     return TrackerCooldownID(tracker) > 0 or TrackerSpellID(tracker) > 0
+end
+
+local function RequiresLegacyObservation(tracker)
+    local alerts = tracker and tracker.settings and tracker.settings.alerts
+    return alerts and alerts.enabled == true
+        and (#(alerts.triggers or {}) > 0 or #(alerts.actions or {}) > 0)
 end
 
 local function AddCooldownInfo(include, cooldownID)
@@ -120,7 +136,7 @@ local function ClampInteger(value, minimum, maximum, fallback)
 end
 
 local function BuildDesired(tracker)
-    if not IsAuraBar(tracker) then return nil end
+    if not IsSupportedAuraTracker(tracker) then return nil end
 
     local include = {}
     local cooldownID = TrackerCooldownID(tracker)
@@ -137,7 +153,8 @@ local function BuildDesired(tracker)
         include = include,
         maxApplications = maxApplications,
         durationDecimals = durationDecimals,
-        signature = table.concat(ids, ",") .. ":" .. maxApplications .. ":" .. durationDecimals,
+        signature = table.concat(ids, ",") .. ":" .. maxApplications .. ":" .. durationDecimals
+            .. ":" .. (tracker.displayType or "bar"),
     }
 end
 
@@ -185,6 +202,7 @@ end
 
 local function StyleSignature(style)
     return table.concat({
+        tostring(style.displayType),
         tostring(style.mode),
         tostring(style.texture),
         ColorPart(style.barColor),
@@ -198,6 +216,7 @@ local function StyleSignature(style)
         tostring(style.stacksFont),
         tostring(style.stacksFontSize),
         tostring(style.stacksAlign),
+        tostring(style.stacksJustify),
         tostring(style.stacksX),
         tostring(style.stacksY),
         ColorPart(style.stacksColor),
@@ -209,6 +228,17 @@ local function StyleSignature(style)
         ColorPart(style.durationColor),
         tostring(style.frameStrata),
         tostring(style.frameLevel),
+        tostring(style.iconZoom),
+        tostring(style.iconTexture),
+        tostring(style.useAuraIcon),
+        tostring(style.swipeTexture),
+        ColorPart(style.swipeColor),
+        tostring(style.swipeReverse),
+        tostring(style.textDisplayMode),
+        tostring(style.staticText),
+        tostring(style.showIcon),
+        tostring(style.iconSize),
+        tostring(style.preserveInactive),
     }, "|")
 end
 
@@ -260,10 +290,11 @@ local function CreateBoundText(button, style, prefix)
     local font = style[prefix .. "Font"] or DEFAULT_FONT
     local size = math.max(1, tonumber(style[prefix .. "FontSize"]) or 12)
     local align = style[prefix .. "Align"] or "CENTER"
+    local justify = style[prefix .. "Justify"] or align
     local color = style[prefix .. "Color"] or { 1, 1, 1, 1 }
     fontString:SetFont(font, size, "OUTLINE")
     fontString:SetShadowOffset(0, 0)
-    fontString:SetJustifyH(align)
+    fontString:SetJustifyH(justify)
     fontString:SetPoint(
         align,
         button,
@@ -282,12 +313,16 @@ local function RegisterDurationText(button, fontString, decimals)
     return pcall(button.SetDurationText, button, fontString, {})
 end
 
-local function CreateInitializer(proxy, desired, style)
+local function InitializeButton(button, proxy, style)
+    button:SetAllPoints(proxy)
+    button:SetFrameLevel((style.frameLevel or 1) + 1)
+    if button.SetMouseClickEnabled then button:SetMouseClickEnabled(false) end
+    if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
+end
+
+local function CreateBarInitializer(proxy, desired, style)
     return function(button)
-        button:SetAllPoints(proxy)
-        button:SetFrameLevel((style.frameLevel or 1) + 1)
-        if button.SetMouseClickEnabled then button:SetMouseClickEnabled(false) end
-        if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
+        InitializeButton(button, proxy, style)
 
         local background = button:CreateTexture(nil, "BACKGROUND")
         background:SetAllPoints(button)
@@ -329,6 +364,106 @@ local function CreateInitializer(proxy, desired, style)
     end
 end
 
+local function CreateIconInitializer(proxy, desired, style)
+    return function(button)
+        InitializeButton(button, proxy, style)
+
+        local icon = button:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints(button)
+        local zoom = tonumber(style.iconZoom) or 0
+        icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
+        if style.useAuraIcon == false and style.iconTexture then
+            icon:SetTexture(style.iconTexture)
+        else
+            button:SetIcon(icon)
+        end
+
+        local swipe = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+        swipe:SetAllPoints(button)
+        swipe:SetDrawEdge(false)
+        swipe:SetDrawBling(false)
+        swipe:SetDrawSwipe(true)
+        swipe:SetReverse(style.swipeReverse ~= false)
+        local swipeColor = style.swipeColor or { 0, 0, 0, 0.7 }
+        swipe:SetSwipeTexture(style.swipeTexture or SOLID_TEXTURE, 1, 1, 1, 1)
+        swipe:SetSwipeColor(swipeColor[1] or 0, swipeColor[2] or 0, swipeColor[3] or 0, swipeColor[4] or 0.7)
+        swipe:SetHideCountdownNumbers(style.showDurationText == true)
+        swipe:Show()
+        button:SetDurationCooldown(swipe)
+
+        if style.showStacksText then
+            local applications = CreateBoundText(button, style, "stacks")
+            local formatter = GetFormatter(0)
+            button:SetApplicationCount(applications, formatter and { formatter = formatter } or {})
+        end
+        if style.showDurationText then
+            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
+        end
+        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
+    end
+end
+
+local function CreateRingInitializer(proxy, desired, style)
+    return function(button)
+        InitializeButton(button, proxy, style)
+
+        local swipe = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+        swipe:SetAllPoints(button)
+        swipe:SetDrawEdge(false)
+        swipe:SetDrawBling(false)
+        swipe:SetDrawSwipe(true)
+        swipe:SetReverse(style.swipeReverse ~= false)
+        local swipeColor = style.swipeColor or { 1, 0.8, 0, 1 }
+        swipe:SetSwipeTexture(style.swipeTexture or SOLID_TEXTURE, 1, 1, 1, 1)
+        swipe:SetSwipeColor(swipeColor[1] or 1, swipeColor[2] or 0.8, swipeColor[3] or 0, swipeColor[4] or 1)
+        swipe:SetHideCountdownNumbers(true)
+        swipe:Show()
+        button:SetDurationCooldown(swipe)
+
+        if style.showDurationText then
+            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
+        end
+        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
+    end
+end
+
+local function CreateTextInitializer(proxy, desired, style)
+    return function(button)
+        InitializeButton(button, proxy, style)
+
+        if style.showIcon then
+            local icon = button:CreateTexture(nil, "ARTWORK")
+            icon:SetPoint("LEFT", button, "LEFT", 0, 0)
+            icon:SetSize(style.iconSize or 20, style.iconSize or 20)
+            button:SetIcon(icon)
+        end
+
+        local text = CreateBoundText(button, style, "stacks")
+        if style.textDisplayMode == "duration" then
+            RegisterDurationText(button, text, desired.durationDecimals)
+        elseif style.textDisplayMode == "stacks" then
+            local formatter = GetFormatter(0)
+            button:SetApplicationCount(text, formatter and { formatter = formatter } or {})
+        else
+            text:SetText(style.staticText or "")
+        end
+        if style.showDurationText and style.textDisplayMode ~= "duration" then
+            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
+        end
+    end
+end
+
+local function CreateInitializer(proxy, desired, style)
+    if style.displayType == "icon" then
+        return CreateIconInitializer(proxy, desired, style)
+    elseif style.displayType == "ring" then
+        return CreateRingInitializer(proxy, desired, style)
+    elseif style.displayType == "text" then
+        return CreateTextInitializer(proxy, desired, style)
+    end
+    return CreateBarInitializer(proxy, desired, style)
+end
+
 local function BuildBinding(bar, desired, style, styleSignature)
     if not EnsureContainerAPI() then error("AuraContainer API unavailable") end
 
@@ -358,25 +493,50 @@ local function BuildBinding(bar, desired, style, styleSignature)
     }
 end
 
-local function RestoreLegacyDisplay(bar)
-    if not bar then return end
-    bar._auraContainerOwnsDisplay = nil
-    bar._auraContainerBinding = nil
-    if bar.StatusBar then bar.StatusBar:SetAlpha(1) end
-    if bar.Background then bar.Background:SetAlpha(1) end
-    if bar.Border then bar.Border:SetAlpha(1) end
-    if bar.TextValue then bar.TextValue:SetAlpha(1) end
-    if bar.DurationText then bar.DurationText:SetAlpha(1) end
+local function RestoreLegacyDisplay(host)
+    if not host then return end
+    host._auraContainerOwnsDisplay = nil
+    host._auraContainerBinding = nil
+    if host.StatusBar then host.StatusBar:SetAlpha(1) end
+    if host.Background then host.Background:SetAlpha(1) end
+    if host.Border then host.Border:SetAlpha(1) end
+    if host.TextValue then host.TextValue:SetAlpha(1) end
+    if host.DurationText then host.DurationText:SetAlpha(1) end
+    if host.Cooldown then host.Cooldown:SetAlpha(1) end
+    if host.StackText then host.StackText:SetAlpha(1) end
+    if host.Text then host.Text:SetAlpha(1) end
+    if host.Texture then host.Texture:SetAlpha(1) end
+    if host._ringColorBg then host._ringColorBg:SetAlpha(1) end
 end
 
-local function HideLegacyDisplay(bar)
-    if not bar then return end
-    bar._auraContainerOwnsDisplay = true
-    if bar.StatusBar then bar.StatusBar:SetAlpha(0) end
-    if bar.Background then bar.Background:SetAlpha(0) end
-    if bar.Border then bar.Border:SetAlpha(0) end
-    if bar.TextValue then bar.TextValue:SetAlpha(0) end
-    if bar.DurationText then bar.DurationText:SetAlpha(0) end
+local function HideLegacyDisplay(host, style)
+    if not host then return end
+    local displayType = type(style) == "table" and style.displayType or style
+    host._auraContainerOwnsDisplay = true
+    if displayType == "bar" or displayType == nil then
+        if host.StatusBar then host.StatusBar:SetAlpha(0) end
+        if host.Background then host.Background:SetAlpha(0) end
+        if host.Border then host.Border:SetAlpha(0) end
+        if host.TextValue then host.TextValue:SetAlpha(0) end
+        if host.DurationText then host.DurationText:SetAlpha(0) end
+    elseif displayType == "ring" then
+        if host.Cooldown then host.Cooldown:SetAlpha(0) end
+        if host.TextValue then host.TextValue:SetAlpha(0) end
+        if host.DurationText then host.DurationText:SetAlpha(0) end
+        if type(style) == "table" and not style.preserveInactive then
+            if host._ringColorBg then host._ringColorBg:SetAlpha(0) end
+        end
+    elseif displayType == "icon" then
+        if host.Cooldown then host.Cooldown:SetAlpha(0) end
+        if host.StackText then host.StackText:SetAlpha(0) end
+        if host.DurationText then host.DurationText:SetAlpha(0) end
+        if type(style) == "table" and not style.preserveInactive and host.Texture then
+            host.Texture:SetAlpha(0)
+        end
+    elseif displayType == "text" then
+        if host.Text then host.Text:SetAlpha(0) end
+        if host.DurationText then host.DurationText:SetAlpha(0) end
+    end
 end
 
 local function ParkBinding(binding)
@@ -413,7 +573,7 @@ end
 
 function Engine:Attach(tracker, bar, style)
     local desired = tracker and desiredByTracker[tracker]
-    if suspended or not desired or not bar or type(style) ~= "table" or style.barStyle ~= "bar" then
+    if suspended or not desired or not bar or type(style) ~= "table" then
         self:Detach(tracker, bar)
         return false
     end
@@ -431,7 +591,7 @@ function Engine:Attach(tracker, bar, style)
         binding.proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
         binding.proxy:SetFrameLevel(style.frameLevel or 1)
         binding.proxy:Show()
-        HideLegacyDisplay(bar)
+        HideLegacyDisplay(bar, style)
         bar._auraContainerBinding = binding
         return true
     end
@@ -473,7 +633,7 @@ function Engine:Attach(tracker, bar, style)
     ParkBinding(binding)
     bindingByTracker[tracker] = replacement
     failureByTracker[tracker] = nil
-    HideLegacyDisplay(bar)
+    HideLegacyDisplay(bar, style)
     bar._auraContainerBinding = replacement
     return true
 end
@@ -482,6 +642,7 @@ function Engine:ShouldReadLegacy(tracker)
     if suspended or not tracker or not desiredByTracker[tracker] then
         return true
     end
+    if RequiresLegacyObservation(tracker) then return true end
 
     if bindingByTracker[tracker] then
         return false
