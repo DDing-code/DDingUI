@@ -332,19 +332,38 @@ function Engine:Suspend()
     SetContainerActive(liveContainer, false)
 end
 
-local function CopyStatusBar(source, target)
+local function CopyStatusBar(binding, readableKey, source, target)
     if not source or not target then return false end
-    target:SetMinMaxValues(source:GetMinMaxValues())
-    target:SetValue(source:GetValue())
-    return true
+    if binding[readableKey] == false then return false end
+
+    local rangeOK, minValue, maxValue = pcall(source.GetMinMaxValues, source)
+    if not rangeOK then
+        binding[readableKey] = false
+        return false
+    end
+
+    local valueOK, value = pcall(source.GetValue, source)
+    if not valueOK then
+        binding[readableKey] = false
+        return false
+    end
+
+    local minMaxApplied = pcall(target.SetMinMaxValues, target, minValue, maxValue)
+    local valueApplied = pcall(target.SetValue, target, value)
+    return minMaxApplied and valueApplied
 end
 
-local function CopyText(source, target)
+local function CopyText(binding, readableKey, source, target)
     if not source or not target then return false end
-    local text = source:GetText()
+    if binding[readableKey] == false then return false end
+
+    local readOK, text = pcall(source.GetText, source)
+    if not readOK then
+        binding[readableKey] = false
+        return false
+    end
     if type(text) == "nil" then text = "" end
-    target:SetText(text)
-    return true
+    return pcall(target.SetText, target, text)
 end
 
 function Engine:Mirror(tracker, targetStatusBar, targetApplicationText, targetDurationText, mode, showDurationText)
@@ -354,15 +373,35 @@ function Engine:Mirror(tracker, targetStatusBar, targetApplicationText, targetDu
 
     local progressCopied
     if mode == "duration" then
-        progressCopied = CopyStatusBar(binding.durationBar, targetStatusBar)
+        progressCopied = CopyStatusBar(
+            binding,
+            "durationBarReadable",
+            binding.durationBar,
+            targetStatusBar
+        )
     else
-        progressCopied = CopyStatusBar(binding.applicationBar, targetStatusBar)
+        progressCopied = CopyStatusBar(
+            binding,
+            "applicationBarReadable",
+            binding.applicationBar,
+            targetStatusBar
+        )
     end
 
-    local applicationCopied = CopyText(binding.applicationText, targetApplicationText)
+    local applicationCopied = CopyText(
+        binding,
+        "applicationTextReadable",
+        binding.applicationText,
+        targetApplicationText
+    )
     local durationCopied = not showDurationText
     if showDurationText then
-        durationCopied = CopyText(binding.durationText, targetDurationText)
+        durationCopied = CopyText(
+            binding,
+            "durationTextReadable",
+            binding.durationText,
+            targetDurationText
+        )
     end
     return progressCopied, applicationCopied, durationCopied
 end
