@@ -9,16 +9,11 @@ local SOLID_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
 local RETRY_DELAY = 2
 
-local trackerBindings = setmetatable({}, { __mode = "k" })
-local liveBindings = {}
-local liveContainer
-local buildingContainer
-local liveSignature
-local host
-local suspended = false
-local failedSignature
-local failedAt = 0
+local desiredByTracker = setmetatable({}, { __mode = "k" })
+local bindingByTracker = setmetatable({}, { __mode = "k" })
+local failureByTracker = setmetatable({}, { __mode = "k" })
 local formatterCache = {}
+local suspended = false
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
@@ -39,13 +34,11 @@ local function AddSpellVariants(include, value)
     if not C_Spell then return end
 
     if C_Spell.GetOverrideSpell then
-        local overrideID = C_Spell.GetOverrideSpell(spellID)
-        overrideID = CleanID(overrideID)
+        local overrideID = CleanID(C_Spell.GetOverrideSpell(spellID))
         if overrideID then include[overrideID] = true end
     end
     if C_Spell.GetBaseSpell then
-        local baseID = C_Spell.GetBaseSpell(spellID)
-        baseID = CleanID(baseID)
+        local baseID = CleanID(C_Spell.GetBaseSpell(spellID))
         if baseID then include[baseID] = true end
     end
 end
@@ -109,43 +102,30 @@ local function ClampInteger(value, minimum, maximum, fallback)
     return value
 end
 
-local function CollectDesired(trackers)
-    local desired = {}
-    local signatureParts = {}
+local function BuildDesired(tracker)
+    if not IsAuraBar(tracker) then return nil end
 
-    for _, tracker in ipairs(trackers or {}) do
-        if IsAuraBar(tracker) then
-            local include = {}
-            local cooldownID = TrackerCooldownID(tracker)
-            AddSpellVariants(include, TrackerSpellID(tracker))
-            AddCooldownInfo(include, cooldownID)
-            if not next(include) then
-                AddSpellVariants(include, cooldownID)
-            end
+    local include = {}
+    local cooldownID = TrackerCooldownID(tracker)
+    AddSpellVariants(include, TrackerSpellID(tracker))
+    AddCooldownInfo(include, cooldownID)
+    if not next(include) then AddSpellVariants(include, cooldownID) end
 
-            local ids = SortedIDs(include)
-            if #ids > 0 then
-                local settings = tracker.settings or {}
-                local maxApplications = ClampInteger(settings.maxStacks, 1, 1000, 1)
-                local durationDecimals = ClampInteger(settings.durationDecimals, 0, 2, 1)
-                desired[#desired + 1] = {
-                    tracker = tracker,
-                    include = include,
-                    ids = ids,
-                    maxApplications = maxApplications,
-                    durationDecimals = durationDecimals,
-                }
-                signatureParts[#signatureParts + 1] = table.concat(ids, ",")
-                    .. ":" .. maxApplications
-                    .. ":" .. durationDecimals
-            end
-        end
-    end
+    local ids = SortedIDs(include)
+    if #ids == 0 then return nil end
 
-    return desired, table.concat(signatureParts, ";")
+    local settings = tracker.settings or {}
+    local maxApplications = ClampInteger(settings.maxStacks, 1, 1000, 1)
+    local durationDecimals = ClampInteger(settings.durationDecimals, 0, 2, 1)
+    return {
+        include = include,
+        maxApplications = maxApplications,
+        durationDecimals = durationDecimals,
+        signature = table.concat(ids, ",") .. ":" .. maxApplications .. ":" .. durationDecimals,
+    }
 end
 
-local function GetDurationFormatter(decimals)
+local function GetFormatter(decimals)
     local cached = formatterCache[decimals]
     if cached ~= nil then return cached or nil end
     if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
@@ -156,13 +136,13 @@ local function GetDurationFormatter(decimals)
     end
 
     local formatter = C_StringUtil.CreateNumericRuleFormatter()
-    local format = decimals > 0 and ("%." .. decimals .. "f") or "%d"
-    local rounding = decimals > 0
-        and Enum.NumericRuleFormatRounding.Nearest
-        or Enum.NumericRuleFormatRounding.Up
-    local options = { threshold = 0, format = format, rounding = rounding }
-    if decimals == 0 then options.step = 1 end
-
+    local scale = 10 ^ decimals
+    local options = {
+        threshold = 0,
+        format = decimals > 0 and ("%." .. decimals .. "f") or "%d",
+        step = 1 / scale,
+        rounding = Enum.NumericRuleFormatRounding.Nearest,
+    }
     local ok = pcall(formatter.SetBreakpoints, formatter, { options })
     formatterCache[decimals] = ok and formatter or false
     return ok and formatter or nil
@@ -177,231 +157,291 @@ local function EnsureContainerAPI()
     return C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") == true
 end
 
-local function EnsureHost()
-    if host then return host end
-
-    host = CreateFrame("Frame", nil, UIParent)
-    host:SetSize(1, 1)
-    host:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
-    host:SetFrameStrata("BACKGROUND")
-    host:SetAlpha(0)
-    host:EnableMouse(false)
-    host:Show()
-    return host
+local function ColorPart(color)
+    color = color or {}
+    return table.concat({
+        tostring(color[1] or 1),
+        tostring(color[2] or 1),
+        tostring(color[3] or 1),
+        tostring(color[4] or 1),
+    }, ",")
 end
 
-local function CreateInitializer(binding, desired)
+local function StyleSignature(style)
+    return table.concat({
+        tostring(style.mode),
+        tostring(style.texture),
+        ColorPart(style.barColor),
+        ColorPart(style.bgColor),
+        ColorPart(style.borderColor),
+        tostring(style.borderSize or 0),
+        tostring(style.orientation),
+        tostring(style.reverseFill),
+        tostring(style.showStacksText),
+        tostring(style.showDurationText),
+        tostring(style.stacksFont),
+        tostring(style.stacksFontSize),
+        tostring(style.stacksAlign),
+        tostring(style.stacksX),
+        tostring(style.stacksY),
+        ColorPart(style.stacksColor),
+        tostring(style.durationFont),
+        tostring(style.durationFontSize),
+        tostring(style.durationAlign),
+        tostring(style.durationX),
+        tostring(style.durationY),
+        ColorPart(style.durationColor),
+        tostring(style.frameStrata),
+        tostring(style.frameLevel),
+    }, "|")
+end
+
+local function ApplyColor(region, color)
+    region:SetVertexColor(color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+end
+
+local function CreateBorder(button, size, color)
+    size = tonumber(size) or 0
+    if size <= 0 then return end
+
+    local host = CreateFrame("Frame", nil, button)
+    host:SetAllPoints(button)
+    host:SetFrameLevel(button:GetFrameLevel() + 3)
+    host:EnableMouse(false)
+
+    local top = host:CreateTexture(nil, "OVERLAY")
+    top:SetColorTexture(color[1] or 0, color[2] or 0, color[3] or 0, color[4] or 1)
+    top:SetPoint("TOPLEFT", host, "TOPLEFT")
+    top:SetPoint("TOPRIGHT", host, "TOPRIGHT")
+    top:SetHeight(size)
+
+    local bottom = host:CreateTexture(nil, "OVERLAY")
+    bottom:SetColorTexture(color[1] or 0, color[2] or 0, color[3] or 0, color[4] or 1)
+    bottom:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT")
+    bottom:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT")
+    bottom:SetHeight(size)
+
+    local left = host:CreateTexture(nil, "OVERLAY")
+    left:SetColorTexture(color[1] or 0, color[2] or 0, color[3] or 0, color[4] or 1)
+    left:SetPoint("TOPLEFT", host, "TOPLEFT")
+    left:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT")
+    left:SetWidth(size)
+
+    local right = host:CreateTexture(nil, "OVERLAY")
+    right:SetColorTexture(color[1] or 0, color[2] or 0, color[3] or 0, color[4] or 1)
+    right:SetPoint("TOPRIGHT", host, "TOPRIGHT")
+    right:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT")
+    right:SetWidth(size)
+end
+
+local function CreateBoundText(button, style, prefix)
+    local host = CreateFrame("Frame", nil, button)
+    host:SetAllPoints(button)
+    host:SetFrameLevel(button:GetFrameLevel() + 4)
+    host:EnableMouse(false)
+
+    local fontString = host:CreateFontString(nil, "OVERLAY")
+    local font = style[prefix .. "Font"] or DEFAULT_FONT
+    local size = math.max(1, tonumber(style[prefix .. "FontSize"]) or 12)
+    local align = style[prefix .. "Align"] or "CENTER"
+    local color = style[prefix .. "Color"] or { 1, 1, 1, 1 }
+    fontString:SetFont(font, size, "OUTLINE")
+    fontString:SetShadowOffset(0, 0)
+    fontString:SetJustifyH(align)
+    fontString:SetPoint(
+        align,
+        button,
+        align,
+        tonumber(style[prefix .. "X"]) or 0,
+        tonumber(style[prefix .. "Y"]) or 0
+    )
+    fontString:SetTextColor(color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+    return fontString
+end
+
+local function RegisterDurationText(button, fontString, decimals)
+    local formatter = GetFormatter(decimals)
+    local options = formatter and { textFormatter = formatter } or {}
+    if pcall(button.SetDurationText, button, fontString, options) then return true end
+    return pcall(button.SetDurationText, button, fontString, {})
+end
+
+local function CreateInitializer(proxy, desired, style)
     return function(button)
-        button:SetSize(1, 1)
+        button:SetAllPoints(proxy)
+        button:SetFrameLevel((style.frameLevel or 1) + 1)
         if button.SetMouseClickEnabled then button:SetMouseClickEnabled(false) end
         if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
 
-        local carrier = CreateFrame("Frame", nil, button)
-        carrier:SetAllPoints(button)
-        carrier:EnableMouse(false)
+        local background = button:CreateTexture(nil, "BACKGROUND")
+        background:SetAllPoints(button)
+        local bgColor = style.bgColor or { 0.15, 0.15, 0.15, 1 }
+        background:SetColorTexture(bgColor[1] or 0, bgColor[2] or 0, bgColor[3] or 0, bgColor[4] or 1)
 
-        local applicationBar = CreateFrame("StatusBar", nil, carrier)
-        applicationBar:SetAllPoints(carrier)
-        applicationBar:SetStatusBarTexture(SOLID_TEXTURE)
-
-        local durationBar = CreateFrame("StatusBar", nil, carrier)
-        durationBar:SetAllPoints(carrier)
-        durationBar:SetStatusBarTexture(SOLID_TEXTURE)
-
-        local applicationText = carrier:CreateFontString(nil, "OVERLAY")
-        applicationText:SetFont(DEFAULT_FONT, 12, "")
-        applicationText:SetPoint("CENTER", carrier, "CENTER")
-
-        local durationText = carrier:CreateFontString(nil, "OVERLAY")
-        durationText:SetFont(DEFAULT_FONT, 12, "")
-        durationText:SetPoint("CENTER", carrier, "CENTER")
+        local progress = CreateFrame("StatusBar", nil, button)
+        progress:SetAllPoints(button)
+        progress:SetFrameLevel(button:GetFrameLevel() + 1)
+        progress:SetStatusBarTexture(style.texture or SOLID_TEXTURE)
+        progress:SetOrientation(style.orientation or "HORIZONTAL")
+        progress:SetReverseFill(style.reverseFill == true)
+        ApplyColor(progress:GetStatusBarTexture(), style.barColor or { 1, 0.8, 0, 1 })
 
         local immediate = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
-        local remaining = Enum and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.RemainingTime
-        button:SetApplicationBar(applicationBar, {
-            maxApplications = desired.maxApplications,
-            interpolation = immediate,
-        })
-        local applicationFormatter = GetDurationFormatter(0)
-        button:SetApplicationCount(
-            applicationText,
-            applicationFormatter and { formatter = applicationFormatter } or {}
-        )
-        button:SetDurationBar(durationBar, {
-            interpolation = immediate,
-            direction = remaining,
-        })
+        if style.mode == "stacks" then
+            button:SetApplicationBar(progress, {
+                maxApplications = desired.maxApplications,
+                interpolation = immediate,
+            })
+        else
+            local remaining = Enum and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.RemainingTime
+            button:SetDurationBar(progress, {
+                interpolation = immediate,
+                direction = remaining,
+            })
+        end
 
-        local formatter = GetDurationFormatter(desired.durationDecimals)
-        button:SetDurationText(durationText, formatter and { textFormatter = formatter } or {})
+        if style.showStacksText then
+            local applications = CreateBoundText(button, style, "stacks")
+            local formatter = GetFormatter(0)
+            pcall(button.SetApplicationCount, button, applications, formatter and { formatter = formatter } or {})
+        end
+        if style.showDurationText then
+            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
+        end
 
-        binding.button = button
-        binding.applicationBar = applicationBar
-        binding.applicationText = applicationText
-        binding.durationBar = durationBar
-        binding.durationText = durationText
+        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
     end
 end
 
-local function BuildContainer(desired)
+local function BuildBinding(bar, desired, style, styleSignature)
     if not EnsureContainerAPI() then error("AuraContainer API unavailable") end
 
-    local container = CreateFrame("AuraContainer", nil, EnsureHost(), "CustomAuraContainerTemplate")
-    buildingContainer = container
+    local proxy = CreateFrame("Frame", nil, UIParent)
+    proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
+    proxy:SetFrameLevel(style.frameLevel or 1)
+    proxy:SetAllPoints(bar)
+    proxy:EnableMouse(false)
+    proxy:Show()
+
+    local container = CreateFrame("AuraContainer", nil, proxy, "CustomAuraContainerTemplate")
+    container:SetPoint("CENTER", proxy, "CENTER")
     container:SetSize(1, 1)
-    container:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 0, 0)
-
-    local bindings = {}
-    for index, entry in ipairs(desired) do
-        local binding = {}
-        bindings[index] = binding
-        container:AddAuraSlot("tracked" .. index, "HELPFUL", {
-            candidateFilters = { includeSpellIDs = entry.include },
-            initializeFrame = CreateInitializer(binding, entry),
-        })
-    end
-
+    container:AddAuraSlot("tracked", "HELPFUL", {
+        candidateFilters = { includeSpellIDs = desired.include },
+        initializeFrame = CreateInitializer(proxy, desired, style),
+    })
     container:SetUnit("player")
     container:UpdateAllAuras()
-    buildingContainer = nil
-    return container, bindings
+
+    return {
+        proxy = proxy,
+        container = container,
+        bar = bar,
+        desiredSignature = desired.signature,
+        styleSignature = styleSignature,
+    }
 end
 
-local function SetContainerActive(container, active)
-    if not container then return end
-    if container._ddingTrackedAuraActive == active then return end
-
-    container._ddingTrackedAuraActive = active
-    if container.SetEnabled then container:SetEnabled(active) end
-    container:SetShown(active)
+local function RestoreLegacyDisplay(bar)
+    if not bar then return end
+    bar._auraContainerOwnsDisplay = nil
+    bar._auraContainerBinding = nil
+    if bar.StatusBar then bar.StatusBar:SetAlpha(1) end
+    if bar.TextValue then bar.TextValue:SetAlpha(1) end
+    if bar.DurationText then bar.DurationText:SetAlpha(1) end
 end
 
-local function BindTrackers(desired)
-    wipe(trackerBindings)
-    for index, entry in ipairs(desired) do
-        trackerBindings[entry.tracker] = liveBindings[index]
-    end
+local function HideLegacyDisplay(bar)
+    if not bar then return end
+    bar._auraContainerOwnsDisplay = true
+    if bar.StatusBar then bar.StatusBar:SetAlpha(0) end
+    if bar.TextValue then bar.TextValue:SetAlpha(0) end
+    if bar.DurationText then bar.DurationText:SetAlpha(0) end
+end
+
+local function ParkBinding(binding)
+    if not binding then return end
+    if binding.proxy then binding.proxy:Hide() end
+    RestoreLegacyDisplay(binding.bar)
 end
 
 function Engine:Sync(trackers)
-    local desired, signature = CollectDesired(trackers)
-    if #desired == 0 then
-        wipe(trackerBindings)
-        SetContainerActive(liveContainer, false)
-        suspended = true
-        return
+    local retained = {}
+    for _, tracker in ipairs(trackers or {}) do
+        local desired = BuildDesired(tracker)
+        desiredByTracker[tracker] = desired
+        if desired then retained[tracker] = true end
     end
 
-    if liveContainer and signature == liveSignature then
-        BindTrackers(desired)
-        suspended = false
-        EnsureHost():Show()
-        SetContainerActive(liveContainer, true)
-        return
+    for tracker, binding in pairs(bindingByTracker) do
+        if not retained[tracker] then
+            ParkBinding(binding)
+            bindingByTracker[tracker] = nil
+            desiredByTracker[tracker] = nil
+            failureByTracker[tracker] = nil
+        end
     end
-
-    local now = GetTime()
-    if failedSignature == signature and now - failedAt < RETRY_DELAY then
-        wipe(trackerBindings)
-        return
-    end
-
-    local ok, container, bindings = pcall(BuildContainer, desired)
-    if not ok then
-        SetContainerActive(buildingContainer, false)
-        buildingContainer = nil
-        failedSignature = signature
-        failedAt = now
-        wipe(trackerBindings)
-        return
-    end
-
-    SetContainerActive(liveContainer, false)
-    liveContainer = container
-    liveBindings = bindings
-    liveSignature = signature
-    liveContainer._ddingTrackedAuraActive = true
-    failedSignature = nil
     suspended = false
-    BindTrackers(desired)
+end
+
+function Engine:Attach(tracker, bar, style)
+    local desired = tracker and desiredByTracker[tracker]
+    if suspended or not desired or not bar or type(style) ~= "table" or style.barStyle ~= "bar" then
+        self:Detach(tracker, bar)
+        return false
+    end
+
+    local signature = StyleSignature(style)
+    local binding = bindingByTracker[tracker]
+    if binding and binding.desiredSignature == desired.signature and binding.styleSignature == signature then
+        if binding.bar ~= bar then
+            RestoreLegacyDisplay(binding.bar)
+            binding.bar = bar
+            binding.proxy:ClearAllPoints()
+            binding.proxy:SetAllPoints(bar)
+        end
+        binding.proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
+        binding.proxy:SetFrameLevel(style.frameLevel or 1)
+        binding.proxy:Show()
+        HideLegacyDisplay(bar)
+        bar._auraContainerBinding = binding
+        return true
+    end
+
+    local failure = failureByTracker[tracker]
+    local buildSignature = desired.signature .. "|" .. signature
+    local now = GetTime()
+    if failure and failure.signature == buildSignature and now - failure.time < RETRY_DELAY then
+        ParkBinding(binding)
+        RestoreLegacyDisplay(bar)
+        return false
+    end
+
+    local ok, replacement = pcall(BuildBinding, bar, desired, style, signature)
+    if not ok then
+        failureByTracker[tracker] = { signature = buildSignature, time = now }
+        ParkBinding(binding)
+        RestoreLegacyDisplay(bar)
+        return false
+    end
+
+    ParkBinding(binding)
+    bindingByTracker[tracker] = replacement
+    failureByTracker[tracker] = nil
+    HideLegacyDisplay(bar)
+    bar._auraContainerBinding = replacement
+    return true
+end
+
+function Engine:Detach(tracker, bar)
+    local binding = tracker and bindingByTracker[tracker]
+    if binding then ParkBinding(binding) end
+    RestoreLegacyDisplay(bar)
 end
 
 function Engine:Suspend()
-    wipe(trackerBindings)
     suspended = true
-    SetContainerActive(liveContainer, false)
-end
-
-local function CopyStatusBar(binding, readableKey, source, target)
-    if not source or not target then return false end
-    if binding[readableKey] == false then return false end
-
-    local rangeOK, minValue, maxValue = pcall(source.GetMinMaxValues, source)
-    if not rangeOK then
-        binding[readableKey] = false
-        return false
+    for _, binding in pairs(bindingByTracker) do
+        ParkBinding(binding)
     end
-
-    local valueOK, value = pcall(source.GetValue, source)
-    if not valueOK then
-        binding[readableKey] = false
-        return false
-    end
-
-    local minMaxApplied = pcall(target.SetMinMaxValues, target, minValue, maxValue)
-    local valueApplied = pcall(target.SetValue, target, value)
-    return minMaxApplied and valueApplied
-end
-
-local function CopyText(binding, readableKey, source, target)
-    if not source or not target then return false end
-    if binding[readableKey] == false then return false end
-
-    local readOK, text = pcall(source.GetText, source)
-    if not readOK then
-        binding[readableKey] = false
-        return false
-    end
-    if type(text) == "nil" then text = "" end
-    return pcall(target.SetText, target, text)
-end
-
-function Engine:Mirror(tracker, targetStatusBar, targetApplicationText, targetDurationText, mode, showDurationText)
-    if suspended then return false, false, false end
-    local binding = tracker and trackerBindings[tracker]
-    if not binding then return false, false, false end
-
-    local progressCopied
-    if mode == "duration" then
-        progressCopied = CopyStatusBar(
-            binding,
-            "durationBarReadable",
-            binding.durationBar,
-            targetStatusBar
-        )
-    else
-        progressCopied = CopyStatusBar(
-            binding,
-            "applicationBarReadable",
-            binding.applicationBar,
-            targetStatusBar
-        )
-    end
-
-    local applicationCopied = CopyText(
-        binding,
-        "applicationTextReadable",
-        binding.applicationText,
-        targetApplicationText
-    )
-    local durationCopied = not showDurationText
-    if showDurationText then
-        durationCopied = CopyText(
-            binding,
-            "durationTextReadable",
-            binding.durationText,
-            targetDurationText
-        )
-    end
-    return progressCopied, applicationCopied, durationCopied
 end

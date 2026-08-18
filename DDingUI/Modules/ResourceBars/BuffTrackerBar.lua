@@ -4097,6 +4097,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
                     if not data then return end
+                    if bar._auraContainerOwnsDisplay then return end
                     if not ShouldRunDurationUpdate(self, elapsed, data.progressUpdateInterval) then return end
 
                     -- Manual 모드: manualExpiresAt 기반 duration 계산
@@ -4148,19 +4149,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
                     -- Auto 모드: auraID 기반 duration 계산
                     local resolver = DDingUI.TrackedAuraFrameResolver
-                    if data.tracker and resolver and resolver.MirrorAuraContainer then
-                        local progressCopied, _, textCopied = resolver:MirrorAuraContainer(
-                            data.tracker,
-                            self,
-                            nil,
-                            bar.DurationText,
-                            "duration",
-                            data.showDurationText
-                        )
-                        if progressCopied and (not data.showDurationText or textCopied) then
-                            return
-                        end
-                    end
                     if data.sourceFrame and resolver and resolver.MirrorProgress then
                         local progressCopied, textCopied = resolver:MirrorProgress(
                             data.sourceFrame,
@@ -4215,25 +4203,13 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             else
                 local progressCopied = false
                 local resolver = DDingUI.TrackedAuraFrameResolver
-                if resolver and resolver.MirrorAuraContainer then
-                    progressCopied = resolver:MirrorAuraContainer(
-                        trackedBuff,
+                if frame and resolver and resolver.MirrorProgress then
+                    progressCopied = resolver:MirrorProgress(
+                        frame,
                         bar.StatusBar,
-                        nil,
                         bar.DurationText,
-                        "duration",
                         showDurationText
                     )
-                end
-                if frame and resolver and resolver.MirrorProgress then
-                    if not progressCopied then
-                        progressCopied = resolver:MirrorProgress(
-                            frame,
-                            bar.StatusBar,
-                            bar.DurationText,
-                            showDurationText
-                        )
-                    end
                 end
                 if not progressCopied and HasAuraInstanceID(auraInstanceID) then
                     pcall(function()
@@ -4310,20 +4286,9 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 RegisterDurationUpdate(bar.StatusBar, function(self, elapsed)
                     local data = bar._durationData
                     if not data then return end
+                    if bar._auraContainerOwnsDisplay then return end
                     if not ShouldRunDurationUpdate(self, elapsed, data.progressUpdateInterval) then return end
 
-                    local resolver = DDingUI.TrackedAuraFrameResolver
-                    if data.tracker and resolver and resolver.MirrorAuraContainer then
-                        local _, _, textCopied = resolver:MirrorAuraContainer(
-                            data.tracker,
-                            self,
-                            nil,
-                            bar.DurationText,
-                            "stacks",
-                            data.showDurationText
-                        )
-                        if textCopied then return end
-                    end
                     if not HasAuraInstanceID(data.auraID) then return end
 
                     pcall(function()
@@ -4400,27 +4365,9 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         end
     end
 
-    -- onlyInCombat: 전투 중에만 표시 (비전투 시 숨기기)
+    -- Visibility is applied after the protected aura display is attached.
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
     local onlyInCombat = settings.onlyInCombat or false
-    if onlyInCombat and not inCombat and not isInMoverMode and not isInPreviewMode then
-        bar:Hide()
-        return
-    end
-
-    -- hideWhenZero (skip in mover/preview mode to show all bars)
-    -- Also skip hiding if showInCombat is enabled and we're in combat
-    if hideWhenZero and not hasData and not isInMoverMode and not isInPreviewMode then
-        if not (showInCombat and inCombat) then
-            -- [12.0.1] 디버그: Hide 직전 상태
-            if BUFF_TRACKER_DEBUG then
-                print(string.format("[BT] HIDING bar#%s: hideWhenZero=%s hasData=%s mover=%s preview=%s",
-                    tostring(barIndex), tostring(hideWhenZero), tostring(hasData), tostring(isInMoverMode), tostring(isInPreviewMode)))
-            end
-            bar:Hide()
-            return
-        end
-    end
 
     -- Calculate width
     local barWidth = width
@@ -4732,19 +4679,41 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         bar.DurationText:Hide()
     end
 
-    if not isManualMode and hasData then
-        local resolver = DDingUI.TrackedAuraFrameResolver
-        if resolver and resolver.MirrorAuraContainer then
-            resolver:MirrorAuraContainer(
-                trackedBuff,
-                bar.StatusBar,
-                showStacksText and bar.TextValue or nil,
-                showDurationText and bar.DurationText or nil,
-                barFillMode,
-                showDurationText
-            )
-        end
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    local auraStyle
+    if not isManualMode and not isInPreviewMode and not isInMoverMode
+        and barStyle == "bar" and not (onlyInCombat and not inCombat)
+    then
+        auraStyle = {
+            barStyle = barStyle,
+            mode = barFillMode,
+            texture = tex,
+            barColor = appliedBarColor,
+            bgColor = bgColor,
+            borderColor = borderColor,
+            borderSize = bar._scaledBorder or 0,
+            orientation = barOrientation,
+            reverseFill = barReverseFill,
+            showStacksText = showStacksText,
+            showDurationText = showDurationText,
+            stacksFont = DDingUI:GetFont(stacksFont),
+            stacksFontSize = textSize,
+            stacksAlign = textAlign,
+            stacksX = DDingUI:Scale(textX),
+            stacksY = DDingUI:Scale(textY),
+            stacksColor = textColor,
+            durationFont = DDingUI:GetFont(settings.durationTextFont or settings.textFont or globalCfg.textFont),
+            durationFontSize = durationTextSize,
+            durationAlign = durationTextAlign,
+            durationX = DDingUI:Scale(durationTextX),
+            durationY = DDingUI:Scale(durationTextY),
+            durationColor = durationTextColor,
+            frameStrata = strata,
+            frameLevel = bar:GetFrameLevel(),
+        }
     end
+    local auraAttached = resolver and resolver.AttachAuraContainer
+        and resolver:AttachAuraContainer(trackedBuff, bar, auraStyle) or false
 
     -- TextFrame은 둘 중 하나라도 표시되면 보이게
     bar.TextFrame:SetShown(showStacksText or showDurationText)
@@ -4758,6 +4727,23 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         for _, tick in ipairs(bar.ticks or {}) do
             tick:Hide()
         end
+    end
+
+    if onlyInCombat and not inCombat and not isInMoverMode and not isInPreviewMode then
+        bar:Hide()
+        return
+    end
+
+    if hideWhenZero and not hasData and not isInMoverMode and not isInPreviewMode
+        and not (showInCombat and inCombat)
+    then
+        if BUFF_TRACKER_DEBUG then
+            print(string.format("[BT] HIDING bar#%s: hideWhenZero=%s hasData=%s mover=%s preview=%s engine=%s",
+                tostring(barIndex), tostring(hideWhenZero), tostring(hasData), tostring(isInMoverMode),
+                tostring(isInPreviewMode), tostring(auraAttached)))
+        end
+        bar:Hide()
+        return
     end
 
     bar:Show()

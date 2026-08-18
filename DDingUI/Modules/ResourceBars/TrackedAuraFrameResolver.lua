@@ -357,8 +357,14 @@ function Resolver:MirrorProgress(frame, targetStatusBar, targetDurationText, sho
         return false, false
     end
 
-    targetStatusBar:SetMinMaxValues(sourceStatusBar:GetMinMaxValues())
-    targetStatusBar:SetValue(sourceStatusBar:GetValue())
+    local valuesOK, minValue, maxValue, value = pcall(function()
+        local minimum, maximum = sourceStatusBar:GetMinMaxValues()
+        return minimum, maximum, sourceStatusBar:GetValue()
+    end)
+    if not valuesOK then return false, false end
+
+    targetStatusBar:SetMinMaxValues(minValue, maxValue)
+    targetStatusBar:SetValue(value)
 
     local textCopied = not showDurationText
     if showDurationText and targetDurationText then
@@ -374,19 +380,10 @@ function Resolver:MirrorProgress(frame, targetStatusBar, targetDurationText, sho
     return true, textCopied
 end
 
-function Resolver:MirrorAuraContainer(tracker, targetStatusBar, targetApplicationText, targetDurationText, mode, showDurationText)
+function Resolver:AttachAuraContainer(tracker, bar, style)
     local auraContainer = DDingUI.TrackedAuraContainer
-    if not auraContainer or not auraContainer.Mirror then
-        return false, false, false
-    end
-    return auraContainer:Mirror(
-        tracker,
-        targetStatusBar,
-        targetApplicationText,
-        targetDurationText,
-        mode,
-        showDurationText
-    )
+    if not auraContainer or not auraContainer.Attach then return false end
+    return auraContainer:Attach(tracker, bar, style)
 end
 
 function Resolver:Suspend()
