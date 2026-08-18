@@ -14,6 +14,22 @@ local bindingByTracker = setmetatable({}, { __mode = "k" })
 local failureByTracker = setmetatable({}, { __mode = "k" })
 local formatterCache = {}
 local suspended = false
+local diagnostics = {
+    syncs = 0,
+    desiredTrackers = 0,
+    buildAttempts = 0,
+    buildSuccess = 0,
+    buildFailures = 0,
+    rebuilds = 0,
+    reuses = 0,
+    retrySuppressed = 0,
+    parked = 0,
+    fallbackRequests = 0,
+    totalBuildMs = 0,
+    maxBuildMs = 0,
+    lastBuildMs = 0,
+    lastError = nil,
+}
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
@@ -367,15 +383,22 @@ local function ParkBinding(binding)
     if not binding then return end
     if binding.proxy then binding.proxy:Hide() end
     RestoreLegacyDisplay(binding.bar)
+    diagnostics.parked = diagnostics.parked + 1
 end
 
 function Engine:Sync(trackers)
+    diagnostics.syncs = diagnostics.syncs + 1
     local retained = {}
+    local desiredCount = 0
     for _, tracker in ipairs(trackers or {}) do
         local desired = BuildDesired(tracker)
         desiredByTracker[tracker] = desired
-        if desired then retained[tracker] = true end
+        if desired then
+            retained[tracker] = true
+            desiredCount = desiredCount + 1
+        end
     end
+    diagnostics.desiredTrackers = desiredCount
 
     for tracker, binding in pairs(bindingByTracker) do
         if not retained[tracker] then
@@ -398,6 +421,7 @@ function Engine:Attach(tracker, bar, style)
     local signature = StyleSignature(style)
     local binding = bindingByTracker[tracker]
     if binding and binding.desiredSignature == desired.signature and binding.styleSignature == signature then
+        diagnostics.reuses = diagnostics.reuses + 1
         if binding.bar ~= bar then
             RestoreLegacyDisplay(binding.bar)
             binding.bar = bar
@@ -416,23 +440,36 @@ function Engine:Attach(tracker, bar, style)
     local buildSignature = desired.signature .. "|" .. signature
     local now = GetTime()
     if failure and failure.signature == buildSignature and now - failure.time < RETRY_DELAY then
+        diagnostics.retrySuppressed = diagnostics.retrySuppressed + 1
         ParkBinding(binding)
         RestoreLegacyDisplay(bar)
         return false
     end
 
+    diagnostics.buildAttempts = diagnostics.buildAttempts + 1
+    if binding then diagnostics.rebuilds = diagnostics.rebuilds + 1 end
+    local started = debugprofilestop and debugprofilestop() or nil
     local ok, replacement = pcall(BuildBinding, bar, desired, style, signature)
+    local elapsed = started and (debugprofilestop() - started) or 0
+    diagnostics.lastBuildMs = elapsed
+    diagnostics.totalBuildMs = diagnostics.totalBuildMs + elapsed
+    diagnostics.maxBuildMs = math.max(diagnostics.maxBuildMs, elapsed)
     if not ok then
+        diagnostics.buildFailures = diagnostics.buildFailures + 1
+        diagnostics.lastError = tostring(replacement)
         failureByTracker[tracker] = { signature = buildSignature, time = now }
         ParkBinding(binding)
         RestoreLegacyDisplay(bar)
         local resourceBars = DDingUI.ResourceBars
         if resourceBars and resourceBars.RequestBuffTrackerUpdate then
+            diagnostics.fallbackRequests = diagnostics.fallbackRequests + 1
             resourceBars:RequestBuffTrackerUpdate("aura-container-fallback", 0)
         end
         return false
     end
 
+    diagnostics.buildSuccess = diagnostics.buildSuccess + 1
+    diagnostics.lastError = nil
     ParkBinding(binding)
     bindingByTracker[tracker] = replacement
     failureByTracker[tracker] = nil
@@ -464,5 +501,37 @@ function Engine:Suspend()
     suspended = true
     for _, binding in pairs(bindingByTracker) do
         ParkBinding(binding)
+    end
+end
+
+function Engine:GetDiagnostics()
+    local activeBindings = 0
+    local failedTrackers = 0
+    for _ in pairs(bindingByTracker) do
+        activeBindings = activeBindings + 1
+    end
+    for _ in pairs(failureByTracker) do
+        failedTrackers = failedTrackers + 1
+    end
+
+    local result = {}
+    for key, value in pairs(diagnostics) do
+        result[key] = value
+    end
+    result.activeBindings = activeBindings
+    result.failedTrackers = failedTrackers
+    result.averageBuildMs = diagnostics.buildAttempts > 0
+        and diagnostics.totalBuildMs / diagnostics.buildAttempts or 0
+    result.suspended = suspended
+    return result
+end
+
+function Engine:ResetDiagnostics()
+    for key, value in pairs(diagnostics) do
+        if type(value) == "number" then
+            diagnostics[key] = 0
+        else
+            diagnostics[key] = nil
+        end
     end
 end

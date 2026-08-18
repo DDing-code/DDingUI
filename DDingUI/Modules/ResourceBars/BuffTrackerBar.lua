@@ -6553,6 +6553,46 @@ DDingUI.IsBuffTrackerPreviewEnabled = function(self) return ResourceBars:IsPrevi
 -- Debug command
 SLASH_DDINGBUFF1 = "/ddingbuff"
 SlashCmdList["DDINGBUFF"] = function(msg)
+    msg = strtrim(msg or "")
+    if msg == "metrics" or msg == "metrics reset" then
+        local engine = DDingUI.TrackedAuraContainer
+        if msg == "metrics reset" then
+            if engine and engine.ResetDiagnostics then engine:ResetDiagnostics() end
+            cdmVisibility.scans = 0
+            cdmVisibility.skipped = 0
+            cdmVisibility.visitedFrames = 0
+        end
+        local data = engine and engine.GetDiagnostics and engine:GetDiagnostics() or {}
+        print(string.format(
+            "|cffffffffDDing|r|cffffa300UI|r: Aura containers active=%d desired=%d builds=%d success=%d failures=%d rebuilds=%d reuses=%d retriesSkipped=%d",
+            data.activeBindings or 0,
+            data.desiredTrackers or 0,
+            data.buildAttempts or 0,
+            data.buildSuccess or 0,
+            data.buildFailures or 0,
+            data.rebuilds or 0,
+            data.reuses or 0,
+            data.retrySuppressed or 0
+        ))
+        print(string.format(
+            "  build ms last=%.3f avg=%.3f max=%.3f fallback=%d failedTrackers=%d",
+            data.lastBuildMs or 0,
+            data.averageBuildMs or 0,
+            data.maxBuildMs or 0,
+            data.fallbackRequests or 0,
+            data.failedTrackers or 0
+        ))
+        print(string.format(
+            "  CDM visibility scans=%d skipped=%d framesVisited=%d dirty=%s",
+            cdmVisibility.scans,
+            cdmVisibility.skipped,
+            cdmVisibility.visitedFrames,
+            tostring(cdmVisibility.dirty)
+        ))
+        if data.lastError then print("  last error: " .. data.lastError) end
+        return
+    end
+
     local cdID = tonumber(msg)
     if cdID then
         -- Test specific cooldownID
