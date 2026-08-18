@@ -454,6 +454,13 @@ local function HasTrackedAuraData(trackedStacks, auraInstanceID)
     return false
 end
 
+local function IsProtectedAuraObservation(trackedStacks, auraInstanceID)
+    if IsSecretValue(trackedStacks) or IsSecretValue(auraInstanceID) then return true end
+    if type(trackedStacks) == "number" and not IsAccessibleNumber(trackedStacks) then return true end
+    if type(auraInstanceID) == "number" and not IsAccessibleNumber(auraInstanceID) then return true end
+    return false
+end
+
 local function HasAuraInstanceID(value)
     if IsSecretValue(value) then return true end
     return type(value) == "number" and value ~= 0
@@ -2936,6 +2943,7 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     local auraTimingLoaded = false
     local auraRemaining, auraDuration, auraTimingProtected
     local nextEvaluationDelay
+    local protectedAuraState = IsProtectedAuraObservation(trackedStacks, auraInstanceID)
 
     local function LoadAuraTiming()
         if not auraTimingLoaded then
@@ -2957,7 +2965,12 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
         local result = false
 
         if trigger.type == "active" then
-            result = EvaluateComparison(hasData, trigger.op, trigger.value)
+            if protectedAuraState then
+                protectedTriggers = protectedTriggers or {}
+                protectedTriggers[i] = true
+            else
+                result = EvaluateComparison(hasData, trigger.op, trigger.value)
+            end
 
         elseif trigger.type == "duration" then
             local remaining = LoadAuraTiming()
@@ -6028,6 +6041,14 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
         hasData = (manualStackCount or 0) > 0
     else
         hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
+        if IsProtectedAuraObservation(trackedStacks, auraInstanceID) then
+            if not tracker.protectedObservationReported then
+                cdmVisibility.protectedConditionsSkipped = cdmVisibility.protectedConditionsSkipped + 1
+                tracker.protectedObservationReported = true
+            end
+            return
+        end
+        tracker.protectedObservationReported = nil
     end
 
     local now = GetTime()
