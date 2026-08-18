@@ -2,6 +2,21 @@
 
 ---
 
+## v2.1.1
+
+_Release date: 2026-08-19_
+_Scope: Git changes from v2.1 through this release._
+
+### English Patch Notes
+- Restored Custom Aura bar tracking after the WoW 12.1 protected-aura API changes disrupted stack and duration data access.
+- Moved active-state, stack-count, and remaining-duration rendering to the supported AuraContainer path, allowing Custom Aura bars to update reliably during combat without reading protected values.
+- Stabilized combat refresh and tracked-frame retention, and added safe fallback behavior to prevent forbidden-object errors while preserving existing profiles, layouts, and tracker settings.
+
+### Korean Patch Notes
+- WoW 12.1 보호 오라 API 변경 이후 중첩과 지속시간 정보를 가져오지 못하던 커스텀 오라 바 추적을 복구했습니다.
+- 활성 상태, 중첩 수, 남은 지속시간 표시를 지원되는 AuraContainer 경로로 전환하여 보호된 값을 직접 읽지 않고도 전투 중 커스텀 오라 바가 안정적으로 갱신되도록 변경했습니다.
+- 전투 중 갱신과 추적 프레임 유지를 안정화하고 금지된 객체 접근 오류를 방지하는 안전한 대체 경로를 추가했으며, 기존 프로필·레이아웃·추적 설정 호환성을 유지합니다.
+
 ## v2.1
 
 _Release date: 2026-08-14_
