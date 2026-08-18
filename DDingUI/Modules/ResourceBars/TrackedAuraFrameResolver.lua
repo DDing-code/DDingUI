@@ -248,14 +248,15 @@ function Resolver:BeginPass(trackers)
     wipe(assignments)
     wipe(consumedFrames)
     wipe(currentTokens)
-    SnapshotFrames()
 
     local records = {}
     local recordsByToken = {}
     local cooldownUseCount = {}
 
     for _, tracker in ipairs(trackers or {}) do
-        if IsAuraTracker(tracker) then
+        local shouldReadLegacy = not auraContainer or not auraContainer.ShouldReadLegacy
+            or auraContainer:ShouldReadLegacy(tracker)
+        if IsAuraTracker(tracker) and shouldReadLegacy then
             local token = TrackerToken(tracker)
             local record = recordsByToken[token]
             if not record then
@@ -281,6 +282,16 @@ function Resolver:BeginPass(trackers)
             stickyGenerations[token] = nil
         end
     end
+
+    if #records == 0 then
+        wipe(activeFrames)
+        wipe(activeFrameSet)
+        wipe(frameCooldownIDs)
+        wipe(frameSpellIDs)
+        return
+    end
+
+    SnapshotFrames()
 
     for _, record in ipairs(records) do
         record.needsSpellDisambiguation = record.cooldownID > 0
@@ -384,6 +395,12 @@ function Resolver:AttachAuraContainer(tracker, bar, style)
     local auraContainer = DDingUI.TrackedAuraContainer
     if not auraContainer or not auraContainer.Attach then return false end
     return auraContainer:Attach(tracker, bar, style)
+end
+
+function Resolver:ShouldReadLegacy(tracker)
+    local auraContainer = DDingUI.TrackedAuraContainer
+    if not auraContainer or not auraContainer.ShouldReadLegacy then return true end
+    return auraContainer:ShouldReadLegacy(tracker)
 end
 
 function Resolver:Suspend()

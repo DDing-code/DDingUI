@@ -54,6 +54,7 @@ end
 local function IsAuraBar(tracker)
     if type(tracker) ~= "table" or tracker.isGroup or tracker.enabled == false then return false end
     if (tracker.displayType or "bar") ~= "bar" then return false end
+    if ((tracker.settings or {}).barStyle or "bar") ~= "bar" then return false end
     if tracker.trackingMode == "manual" or tracker.trackingMode == "spell" then return false end
     if tracker.trigger and tracker.trigger.type == "spell" then return false end
     if tracker.isAura == false then return false end
@@ -109,7 +110,6 @@ local function BuildDesired(tracker)
     local cooldownID = TrackerCooldownID(tracker)
     AddSpellVariants(include, TrackerSpellID(tracker))
     AddCooldownInfo(include, cooldownID)
-    if not next(include) then AddSpellVariants(include, cooldownID) end
 
     local ids = SortedIDs(include)
     if #ids == 0 then return nil end
@@ -347,6 +347,8 @@ local function RestoreLegacyDisplay(bar)
     bar._auraContainerOwnsDisplay = nil
     bar._auraContainerBinding = nil
     if bar.StatusBar then bar.StatusBar:SetAlpha(1) end
+    if bar.Background then bar.Background:SetAlpha(1) end
+    if bar.Border then bar.Border:SetAlpha(1) end
     if bar.TextValue then bar.TextValue:SetAlpha(1) end
     if bar.DurationText then bar.DurationText:SetAlpha(1) end
 end
@@ -355,6 +357,8 @@ local function HideLegacyDisplay(bar)
     if not bar then return end
     bar._auraContainerOwnsDisplay = true
     if bar.StatusBar then bar.StatusBar:SetAlpha(0) end
+    if bar.Background then bar.Background:SetAlpha(0) end
+    if bar.Border then bar.Border:SetAlpha(0) end
     if bar.TextValue then bar.TextValue:SetAlpha(0) end
     if bar.DurationText then bar.DurationText:SetAlpha(0) end
 end
@@ -422,6 +426,10 @@ function Engine:Attach(tracker, bar, style)
         failureByTracker[tracker] = { signature = buildSignature, time = now }
         ParkBinding(binding)
         RestoreLegacyDisplay(bar)
+        local resourceBars = DDingUI.ResourceBars
+        if resourceBars and resourceBars.RequestBuffTrackerUpdate then
+            resourceBars:RequestBuffTrackerUpdate("aura-container-fallback", 0)
+        end
         return false
     end
 
@@ -431,6 +439,19 @@ function Engine:Attach(tracker, bar, style)
     HideLegacyDisplay(bar)
     bar._auraContainerBinding = replacement
     return true
+end
+
+function Engine:ShouldReadLegacy(tracker)
+    if suspended or not tracker or not desiredByTracker[tracker] then
+        return true
+    end
+
+    if bindingByTracker[tracker] then
+        return false
+    end
+
+    local failure = failureByTracker[tracker]
+    return failure ~= nil and GetTime() - failure.time < RETRY_DELAY
 end
 
 function Engine:Detach(tracker, bar)

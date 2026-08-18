@@ -43,6 +43,7 @@ local ShowTextureBorder = DDingUI.ShowTextureBorder
 -- Mover mode flag (forces all bars to show regardless of hideWhenZero)
 local isInMoverMode = false
 local moverPositionSynced = false  -- true after initial position sync in mover mode
+local cdmHideState = setmetatable({}, { __mode = "k" })
 
 local function ShouldApplyTrackerFramePosition()
     return not isInMoverMode or not moverPositionSynced
@@ -3917,22 +3918,46 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         bar.TextFrame:SetFrameStrata(strata)
     end
 
-    -- CDM 프레임 찾기 (cooldownID가 없을 수도 있음)
-    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
-
-    frame = self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame) or frame
-
     -- ============================================================
     -- MANUAL TRACKING MODE: Use spell-cast-based stacks instead of aura
     -- ============================================================
     local isManualMode = trackedBuff.trackingMode == "manual"
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    local containerEligible = not isManualMode and barStyle == "bar"
+        and not isInPreviewMode and not isInMoverMode
+    local useLegacyAuraData = not containerEligible or not resolver
+        or not resolver.ShouldReadLegacy
+        or resolver:ShouldReadLegacy(trackedBuff)
+
+    -- The protected aura container owns automatic bar values. CDM frame and
+    -- C_UnitAuras reads remain only as a compatibility fallback after a build failure.
+    local previousHideFromCDM = cdmHideState[trackedBuff]
+    local hideStateChanged = previousHideFromCDM == nil or previousHideFromCDM ~= hideFromCDM
+    local frame
+    if useLegacyAuraData or hideFromCDM or hideStateChanged then
+        frame = ResolveTrackedFrame(cooldownID, trackedBuff)
+        frame = self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame) or frame
+        cdmHideState[trackedBuff] = hideFromCDM
+    end
+
     local manualStackCount, manualExpiresAt = nil, nil
     if isManualMode then
         manualStackCount, manualExpiresAt = GetManualStacks(barIndex)
     end
 
-    -- [12.0.1] Taint-safe stacks resolution (CDMScanner FontString > API > fallback)
-    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
+    local trackedStacks, auraInstanceID, unit
+    if useLegacyAuraData then
+        trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+            cooldownID,
+            frame,
+            isManualMode,
+            manualStackCount,
+            trackedBuff.spellID,
+            trackedBuff.name
+        )
+    else
+        trackedStacks, auraInstanceID, unit = 0, nil, "player"
+    end
 
     -- Auto mode may expose active stacks before an accessible auraInstanceID.
     -- Manual mode remains active only while its stored stack count is positive.
@@ -3944,7 +3969,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     end
 
     -- [12.0.1] 디버그: hasData 판단 결과
-    if BUFF_TRACKER_DEBUG then
+    if BUFF_TRACKER_DEBUG and useLegacyAuraData then
         local apiResult = false
         pcall(function() apiResult = C_UnitAuras.GetPlayerAuraBySpellID(cooldownID) ~= nil end)
         print(string.format("[BT] bar#%s cdID=%s spID=%s frame=%s auraID=%s hasData=%s API=%s",
@@ -4679,7 +4704,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         bar.DurationText:Hide()
     end
 
-    local resolver = DDingUI.TrackedAuraFrameResolver
     local auraStyle
     if not isManualMode and not isInPreviewMode and not isInMoverMode
         and barStyle == "bar" and not (onlyInCombat and not inCombat)
