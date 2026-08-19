@@ -8,10 +8,9 @@ if not Engine then return end
 -- Transitional policy layer for the 12.1 AuraContainer migration.
 --
 -- Once an automatic tracker is successfully owned by AuraContainer, legacy
--- CDM/aura observation should stop unless an enabled alert explicitly needs
--- aura state that cannot yet be expressed through the container binding.
--- Combat-only alert rules do not need aura observation, and action-only/stale
--- alert configs should not keep the legacy resolver alive.
+-- CDM/aura observation must stop. Protected aura values are display-only in
+-- 12.1; alert logic that depends on those values is handled separately by
+-- TrackedAuraProtectedAlerts.lua and must not keep the legacy resolver alive.
 
 local AURA_DEPENDENT_TRIGGER = {
     active = true,
@@ -97,11 +96,15 @@ function Engine:Suspend()
 end
 
 function Engine:ShouldReadLegacy(tracker)
-    if tracker and boundTrackers[tracker] and not RequiresAuraObservation(tracker) then
+    if tracker and boundTrackers[tracker] then
         diagnostics.legacyReadsSuppressed = diagnostics.legacyReadsSuppressed + 1
         return false
     end
     return originalShouldReadLegacy(self, tracker)
+end
+
+function Engine:IsBound(tracker)
+    return tracker ~= nil and boundTrackers[tracker] == true
 end
 
 function Engine:RequiresAuraObservation(tracker)
