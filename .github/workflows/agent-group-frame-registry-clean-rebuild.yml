@@ -68,7 +68,7 @@ jobs:
           from pathlib import Path
           fc = Path('DDingUI/Modules/GroupSystem/FrameController.lua').read_text(encoding='utf-8')
           scan = fc[fc.index('function FrameController:ScanCDMViewers()'):fc.index('-- 하위 호환 별칭')]
-          layout = fc[fc.index('Layout/Show/Hide'):fc.index('Provisional Reparent')]
+          layout = fc[fc.index('-- [HOOK D] 뷰어별 Layout/Show/Hide'):fc.index('-- [CDM 패턴 C] Provisional Reparent')]
           edit = fc[fc.index('function FrameController:EnableEditModeClicks()'):fc.index('function FrameController:ShowGroupAssignPopup(icon)')]
           assert ':EnumerateActive()' not in scan
           assert ':EnumerateActive()' not in layout
