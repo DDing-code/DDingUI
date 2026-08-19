@@ -1,0 +1,149 @@
+name: Agent Group Frame Registry PR
+
+on:
+  pull_request:
+    branches:
+      - agent/aura-style-migration
+
+permissions:
+  contents: write
+
+jobs:
+  transform:
+    if: github.event.pull_request.head.ref == 'agent/group-frame-registry' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/group-frame-registry
+          fetch-depth: 0
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      - name: Transform runtime
+        run: python .github/scripts/transform_group_frame_registry.py
+
+      - name: Parse Lua
+        run: |
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/FrameController.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/GroupRenderer.lua"))'
+
+      - name: Static boundary checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          fc = Path('DDingUI/Modules/GroupSystem/FrameController.lua').read_text(encoding='utf-8')
+          scan = fc[fc.index('function FrameController:ScanCDMViewers()'):fc.index('-- 하위 호환 별칭')]
+          assert 'EnumerateActive' not in scan
+          hook = fc[fc.index('-- [HOOK D] 뷰어별 Layout/Show/Hide'):fc.index('-- [CDM 패턴 C] Provisional Reparent')]
+          assert 'EnumerateActive' not in hook
+          edit = fc[fc.index('function FrameController:EnableEditModeClicks()'):fc.index('-- ============================================================\n-- 그룹 선택 팝업')]
+          assert 'EnumerateActive' not in edit
+          assert 'FrameRegistry:Refresh(viewerRefs)' in scan
+          assert 'FrameRegistry:Acquire(viewer, frame)' in fc
+          assert 'FrameRegistry:ReleaseFrame(frame, globalName)' in fc
+          assert 'FrameRegistry:TrackFrame(itemFrame, safeCooldownID)' in fc
+          assert 'C_UnitAuras.GetPlayerAuraBySpellID' not in fc
+          assert 'SetFrameParentIfNeeded' in fc
+          assert 'frame:SetParent(UIParent)' not in fc
+          assert 'self:SetParent(UIParent)' not in fc
+          assert 'icon:SetParent(UIParent)' not in fc
+          toc = Path('DDingUI/DDingUI.toc').read_text(encoding='utf-8')
+          registry = 'Modules\\GroupSystem\\CDMFrameRegistry.lua'
+          controller = 'Modules\\GroupSystem\\FrameController.lua'
+          assert toc.index(registry) < toc.index(controller)
+          print('static group-system boundary checks: ok')
+          PY
+
+      - name: Registry mock
+        run: |
+          cat > /tmp/test_group_registry.lua <<'LUA'
+          InCombatLockdown = function() return false end
+          issecretvalue = function() return false end
+
+          local function Viewer(name)
+              return { _name = name, GetName = function(self) return self._name end }
+          end
+          local essential = Viewer('EssentialCooldownViewer')
+          local utility = Viewer('UtilityCooldownViewer')
+          local buffIcon = Viewer('BuffIconCooldownViewer')
+          local buffBar = Viewer('BuffBarCooldownViewer')
+          EssentialCooldownViewer = essential
+          UtilityCooldownViewer = utility
+          BuffIconCooldownViewer = buffIcon
+          BuffBarCooldownViewer = buffBar
+
+          local function Frame(parent, id)
+              return { _parent = parent, cooldownID = id, GetParent = function(self) return self._parent end }
+          end
+          local fEssential = Frame(essential, 101)
+          local fBuffOld = Frame(buffIcon, 202)
+          local fBar = Frame(buffBar, 202)
+
+          local compat = {}
+          function compat:IsUsableID(id) return type(id) == 'number' and id > 0 and id == math.floor(id) end
+          function compat:GetFrameCooldownID(frame) return frame.cooldownID end
+          function compat:IsSettingsOpen() return false end
+
+          local entries = {
+              { cooldownID = 101, category = 'Essential', frame = fEssential },
+              { cooldownID = 202, category = 'TrackedBuff+Bar', isTrackedBuff = true, isTrackedBar = true, iconFrame = fBuffOld, barFrame = fBar },
+          }
+          local scanner = { IsPopulated = function() return true end, GetAllEntries = function() return entries end }
+          local addon = { CDMCompat = compat, CDMScanner = scanner }
+          assert(loadfile('DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua'))('DDingUI', { Addon = addon })
+          local R = assert(addon.GroupCDMFrameRegistry)
+
+          assert(R:Bootstrap() == 3)
+          assert(R:GetFrames('EssentialCooldownViewer')[101] == fEssential)
+          assert(R:GetFrames('BuffIconCooldownViewer')[202] == fBuffOld)
+          assert(R:GetFrames('BuffBarCooldownViewer')[202] == fBar)
+
+          local fBuffNew = Frame(buffIcon, nil)
+          assert(R:Acquire(buffIcon, fBuffNew))
+          fBuffNew.cooldownID = 202
+          assert(R:TrackFrame(fBuffNew, 202))
+          assert(R:GetFrames('BuffIconCooldownViewer')[202] == fBuffNew)
+          R:SyncFromScanner()
+          assert(R:GetFrames('BuffIconCooldownViewer')[202] == fBuffNew)
+
+          assert(R:ReleaseFrame(fBuffNew))
+          assert(R:GetFrames('BuffIconCooldownViewer')[202] == nil)
+          R:SyncFromScanner()
+          assert(R:GetFrames('BuffIconCooldownViewer')[202] == fBuffOld)
+
+          assert(R:Acquire(utility, fEssential))
+          assert(R:GetFrames('EssentialCooldownViewer')[101] == nil)
+          fEssential.cooldownID = 303
+          assert(R:TrackFrame(fEssential, 303))
+          assert(R:GetFrames('UtilityCooldownViewer')[303] == fEssential)
+
+          local replacementUtility = Viewer('UtilityCooldownViewer')
+          UtilityCooldownViewer = replacementUtility
+          R:RegisterViewer('UtilityCooldownViewer', replacementUtility)
+          assert(R:GetFrames('UtilityCooldownViewer')[303] == nil)
+
+          local d = R:GetDiagnostics()
+          assert(d.scannerRefreshes >= 2 and d.releases >= 1 and d.viewerResets >= 1)
+          print('group CDM registry mock: ok')
+          LUA
+          lua5.1 /tmp/test_group_registry.lua
+
+      - name: Diff checks
+        run: |
+          git diff --check origin/agent/aura-style-migration...HEAD
+          git diff --stat origin/agent/aura-style-migration...HEAD
+          grep -n "EnumerateActive" DDingUI/Modules/GroupSystem/FrameController.lua || true
+
+      - name: Commit transformed runtime
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DDingUI/Modules/GroupSystem/FrameController.lua DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua
+          git commit -m "refactor(group-system): use reactive CDM frame registry"
+          git push origin HEAD:agent/group-frame-registry
