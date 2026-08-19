@@ -213,6 +213,10 @@ local function TrackScannerFrame(self, viewerName, frame, cooldownID)
     if not frame or not IsUsableID(cooldownID) then return 0 end
     local viewer = _G[viewerName]
     if viewer then self:RegisterViewer(viewerName, viewer) end
+    local existing = EnsureViewerTable(viewerName)[cooldownID]
+    if existing and existing ~= frame then
+        return 0
+    end
     return self:TrackFrame(frame, cooldownID, viewerName) and 1 or 0
 end
 
