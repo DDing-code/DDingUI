@@ -1,0 +1,39 @@
+name: Agent Group Frame Registry Comment Fix
+
+on:
+  pull_request:
+    branches:
+      - agent/aura-style-migration
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.ref == 'agent/group-frame-registry' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/group-frame-registry
+
+      - name: Fix stale ScanCDMViewers comment
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('DDingUI/Modules/GroupSystem/FrameController.lua')
+          raw = p.read_bytes()
+          old = '    -- [CDM REACTIVE] 고아 정리 없음.\r\n    -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.\n    -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.\n'.encode('utf-8')
+          new = '    -- [CDM REACTIVE] 고아 정리 없음.\r\n    -- Reconcile은 reactive registry snapshot으로 idIconMap을 재구축합니다.\n    -- Blizzard pool 열거는 registry bootstrap/진단 경로에만 남깁니다.\n'.encode('utf-8')
+          assert raw.count(old) == 1, raw.count(old)
+          p.write_bytes(raw.replace(old, new, 1))
+          PY
+          git -c core.whitespace=cr-at-eol diff --check
+
+      - name: Commit comment fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DDingUI/Modules/GroupSystem/FrameController.lua
+          git commit -m "docs(group-system): describe registry-backed reconcile"
+          git push origin HEAD:agent/group-frame-registry
