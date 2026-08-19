@@ -11,20 +11,10 @@ local VIEWER_NAMES = {
 }
 
 local assignments = setmetatable({}, { __mode = "k" })
-local stickyFrames = {}
-local stickyCooldownIDs = {}
-local stickyGenerations = {}
-local frameGenerations = setmetatable({}, { __mode = "k" })
 local hookedPools = setmetatable({}, { __mode = "k" })
 local hookedViewers = setmetatable({}, { __mode = "k" })
-
-local activeFrames = {}
-local activeFrameSet = setmetatable({}, { __mode = "k" })
-local frameCooldownIDs = setmetatable({}, { __mode = "k" })
-local frameSpellIDs = setmetatable({}, { __mode = "k" })
-local consumedFrames = setmetatable({}, { __mode = "k" })
 local durationFontStrings = setmetatable({}, { __mode = "k" })
-local currentTokens = {}
+
 local diagnostics = {
     passes = 0,
     emptyPasses = 0,
@@ -36,7 +26,26 @@ local diagnostics = {
     cooldownMatches = 0,
     infoMatches = 0,
     refreshRequests = 0,
+    catalogLookups = 0,
+    catalogSearches = 0,
+    catalogEntriesVisited = 0,
+    catalogMisses = 0,
+    poolFallbackSnapshots = 0,
 }
+
+local function IsSecret(value)
+    return issecretvalue and issecretvalue(value) or false
+end
+
+local function CleanID(value)
+    if IsSecret(value) then return 0 end
+    value = tonumber(value)
+    return value and value > 0 and value or 0
+end
+
+local function SafeEquals(value, expected)
+    return expected > 0 and not IsSecret(value) and value == expected
+end
 
 local function FindDurationFontString(statusBar)
     if not statusBar then return nil end
@@ -68,15 +77,11 @@ local function FindDurationFontString(statusBar)
 end
 
 local function TrackerCooldownID(tracker)
-    local value = tracker and (tracker.cooldownID or (tracker.trigger and tracker.trigger.cooldownID))
-    value = tonumber(value)
-    return value and value > 0 and value or 0
+    return CleanID(tracker and (tracker.cooldownID or (tracker.trigger and tracker.trigger.cooldownID)))
 end
 
 local function TrackerSpellID(tracker)
-    local value = tracker and (tracker.spellID or (tracker.trigger and tracker.trigger.spellID))
-    value = tonumber(value)
-    return value and value > 0 and value or 0
+    return CleanID(tracker and (tracker.spellID or (tracker.trigger and tracker.trigger.spellID)))
 end
 
 local function IsAuraTracker(tracker)
@@ -99,16 +104,6 @@ local function RequestRuntimeRefresh()
     end
 end
 
-local function ReleaseStickyFrame(frame)
-    for token, boundFrame in pairs(stickyFrames) do
-        if boundFrame == frame then
-            stickyFrames[token] = nil
-            stickyCooldownIDs[token] = nil
-            stickyGenerations[token] = nil
-        end
-    end
-end
-
 local function HookViewer(viewer)
     if not viewer then return end
 
@@ -120,9 +115,7 @@ local function HookViewer(viewer)
     local pool = viewer.itemFramePool
     if pool and not hookedPools[pool] and type(pool.Release) == "function" then
         hookedPools[pool] = true
-        hooksecurefunc(pool, "Release", function(_, frame)
-            frameGenerations[frame] = (frameGenerations[frame] or 0) + 1
-            ReleaseStickyFrame(frame)
+        hooksecurefunc(pool, "Release", function()
             RequestRuntimeRefresh()
         end)
     end
@@ -142,9 +135,15 @@ local function HookViewer(viewer)
     end
 end
 
+local function HookKnownViewers()
+    for _, viewerName in ipairs(VIEWER_NAMES) do
+        HookViewer(_G[viewerName])
+    end
+end
+
 local function ReadCurrentCooldownID(frame)
     local compat = DDingUI.CDMCompat
-    if not compat then return nil end
+    if not compat or not frame then return nil end
 
     if type(frame.GetCooldownID) == "function" then
         local ok, value = pcall(frame.GetCooldownID, frame)
@@ -170,38 +169,156 @@ end
 
 local function ReadResolvedSpellID(frame)
     local compat = DDingUI.CDMCompat
-    if not compat or not compat.ResolveFrameSpellID then return nil end
+    if not compat or not compat.ResolveFrameSpellID or not frame then return nil end
     local value = compat:ResolveFrameSpellID(frame)
     return compat:IsUsableID(value) and value or nil
 end
 
 local function InfoMatchesSpell(frame, spellID)
-    if spellID <= 0 then return false end
+    if spellID <= 0 or not frame then return false end
     local compat = DDingUI.CDMCompat
     if not compat or not compat.GetFrameCooldownInfo then return false end
 
     local info = compat:GetFrameCooldownInfo(frame)
-    if type(info) ~= "table" then return false end
-    if info.overrideSpellID == spellID
-        or info.overrideTooltipSpellID == spellID
-        or info.spellID == spellID
-        or info.linkedSpellID == spellID
+    if type(info) ~= "table" or IsSecret(info) then return false end
+    if SafeEquals(info.overrideSpellID, spellID)
+        or SafeEquals(info.overrideTooltipSpellID, spellID)
+        or SafeEquals(info.spellID, spellID)
+        or SafeEquals(info.displaySpellID, spellID)
+        or SafeEquals(info.linkedSpellID, spellID)
     then
         return true
     end
 
-    for _, linkedID in ipairs(info.linkedSpellIDs or {}) do
-        if linkedID == spellID then return true end
+    local linked = info.linkedSpellIDs
+    if type(linked) == "table" and not IsSecret(linked) then
+        for _, linkedID in ipairs(linked) do
+            if SafeEquals(linkedID, spellID) then return true end
+        end
     end
     return false
 end
 
-local function SnapshotFrames()
+local function EntryMatchesSpell(entry, spellID)
+    if type(entry) ~= "table" or spellID <= 0 or IsSecret(entry) then return false end
+
+    if SafeEquals(entry.spellID, spellID)
+        or SafeEquals(entry.displaySpellID, spellID)
+        or SafeEquals(entry.overrideSpellID, spellID)
+        or SafeEquals(entry.overrideTooltipSpellID, spellID)
+        or SafeEquals(entry.linkedSpellID, spellID)
+    then
+        return true
+    end
+
+    local linked = entry.linkedSpellIDs
+    if type(linked) == "table" and not IsSecret(linked) then
+        for _, linkedID in ipairs(linked) do
+            if SafeEquals(linkedID, spellID) then return true end
+        end
+    end
+    return false
+end
+
+local function EntryFrame(entry)
+    if type(entry) ~= "table" then return nil end
+    return entry.barFrame or entry.frame or entry.iconFrame
+end
+
+local function IsTrackedAuraEntry(entry)
+    return type(entry) == "table"
+        and (entry.isTrackedBuff == true
+            or entry.isTrackedBar == true
+            or entry.category == "TrackedBuff+Bar")
+end
+
+local function FrameMatchesRecord(frame, cooldownID, spellID)
+    if not frame then return false end
+
+    if spellID > 0 then
+        local resolvedSpellID = ReadResolvedSpellID(frame)
+        if resolvedSpellID and resolvedSpellID == spellID then
+            return true
+        end
+        return InfoMatchesSpell(frame, spellID)
+    end
+
+    if cooldownID > 0 then
+        local resolvedCooldownID = ReadResolvedCooldownID(frame)
+        return resolvedCooldownID == cooldownID
+    end
+
+    return false
+end
+
+local function FindByCatalog(cooldownID, spellID)
+    local scanner = DDingUI.CDMScanner
+    if not scanner then return nil, false end
+
+    diagnostics.catalogLookups = diagnostics.catalogLookups + 1
+
+    if cooldownID > 0 and scanner.GetEntry then
+        local entry = scanner.GetEntry(cooldownID)
+        local frame = IsTrackedAuraEntry(entry) and EntryFrame(entry) or nil
+        if frame then
+            if spellID <= 0
+                or EntryMatchesSpell(entry, spellID)
+                or FrameMatchesRecord(frame, cooldownID, spellID)
+            then
+                diagnostics.cooldownMatches = diagnostics.cooldownMatches + 1
+                return frame, true
+            end
+        end
+    end
+
+    if spellID <= 0 or not scanner.GetAllEntries then
+        diagnostics.catalogMisses = diagnostics.catalogMisses + 1
+        return nil, scanner.IsPopulated and scanner.IsPopulated() or false
+    end
+
+    local entries = scanner.GetAllEntries()
+    if type(entries) ~= "table" then
+        diagnostics.catalogMisses = diagnostics.catalogMisses + 1
+        return nil, false
+    end
+
     diagnostics.snapshots = diagnostics.snapshots + 1
-    wipe(activeFrames)
-    wipe(activeFrameSet)
-    wipe(frameCooldownIDs)
-    wipe(frameSpellIDs)
+    diagnostics.catalogSearches = diagnostics.catalogSearches + 1
+
+    local candidate
+    local matchCount = 0
+    local seenFrames = setmetatable({}, { __mode = "k" })
+
+    for _, entry in ipairs(entries) do
+        if IsTrackedAuraEntry(entry) then
+            diagnostics.catalogEntriesVisited = diagnostics.catalogEntriesVisited + 1
+            local frame = EntryFrame(entry)
+            if frame and not seenFrames[frame] then
+                seenFrames[frame] = true
+                diagnostics.framesVisited = diagnostics.framesVisited + 1
+                if EntryMatchesSpell(entry, spellID) or FrameMatchesRecord(frame, cooldownID, spellID) then
+                    candidate = frame
+                    matchCount = matchCount + 1
+                    if matchCount > 1 then break end
+                end
+            end
+        end
+    end
+
+    if matchCount == 1 then
+        diagnostics.spellMatches = diagnostics.spellMatches + 1
+        return candidate, true
+    end
+
+    diagnostics.catalogMisses = diagnostics.catalogMisses + 1
+    return nil, scanner.IsPopulated and scanner.IsPopulated() or #entries > 0
+end
+
+local function FindByPoolFallback(cooldownID, spellID)
+    diagnostics.poolFallbackSnapshots = diagnostics.poolFallbackSnapshots + 1
+
+    local candidate
+    local matchCount = 0
 
     for _, viewerName in ipairs(VIEWER_NAMES) do
         local viewer = _G[viewerName]
@@ -210,57 +327,38 @@ local function SnapshotFrames()
         if pool then
             for frame in pool:EnumerateActive() do
                 diagnostics.framesVisited = diagnostics.framesVisited + 1
-                if not activeFrameSet[frame] then
-                    activeFrameSet[frame] = true
-                    activeFrames[#activeFrames + 1] = frame
-                    frameCooldownIDs[frame] = ReadResolvedCooldownID(frame)
-                    frameSpellIDs[frame] = ReadResolvedSpellID(frame)
+                if FrameMatchesRecord(frame, cooldownID, spellID) then
+                    candidate = frame
+                    matchCount = matchCount + 1
+                    if spellID > 0 and ReadResolvedSpellID(frame) == spellID then
+                        diagnostics.spellMatches = diagnostics.spellMatches + 1
+                        return frame
+                    end
+                    if matchCount > 1 then
+                        candidate = nil
+                    end
                 end
             end
         end
     end
-end
 
-local function Assign(record, frame, remember, reason)
-    record.frame = frame
-    consumedFrames[frame] = true
-    for _, tracker in ipairs(record.trackers) do
-        assignments[tracker] = frame
-    end
-
-    if remember then
-        stickyFrames[record.token] = frame
-        stickyCooldownIDs[record.token] = ReadCurrentCooldownID(frame)
-            or frameCooldownIDs[frame]
-            or record.cooldownID
-        stickyGenerations[record.token] = frameGenerations[frame] or 0
-    end
-    if reason == "sticky" then
-        diagnostics.stickyHits = diagnostics.stickyHits + 1
-    elseif reason == "spell" then
-        diagnostics.spellMatches = diagnostics.spellMatches + 1
-    elseif reason == "cooldown" then
-        diagnostics.cooldownMatches = diagnostics.cooldownMatches + 1
-    elseif reason == "info" then
+    if matchCount == 1 and candidate then
         diagnostics.infoMatches = diagnostics.infoMatches + 1
+        return candidate
     end
+    return nil
 end
 
-local function StickyStillMatches(record, frame)
-    if not activeFrameSet[frame] then return false end
-    if (frameGenerations[frame] or 0) ~= (stickyGenerations[record.token] or 0) then return false end
+local function ResolveRecord(record)
+    local frame, catalogReady = FindByCatalog(record.cooldownID, record.spellID)
+    if frame then return frame end
 
-    local currentCooldownID = ReadCurrentCooldownID(frame)
-    local boundCooldownID = stickyCooldownIDs[record.token]
-    if currentCooldownID and boundCooldownID and currentCooldownID ~= boundCooldownID then
-        return false
+    -- Compatibility fallback only while the shared CDM catalog is not ready.
+    -- Once populated, an inactive/missing aura must not trigger direct pool scans.
+    if not catalogReady then
+        return FindByPoolFallback(record.cooldownID, record.spellID)
     end
-
-    local resolvedSpellID = frameSpellIDs[frame]
-    if record.needsSpellDisambiguation and resolvedSpellID then
-        return resolvedSpellID == record.spellID
-    end
-    return true
+    return nil
 end
 
 function Resolver:BeginPass(trackers)
@@ -271,12 +369,10 @@ function Resolver:BeginPass(trackers)
     end
 
     wipe(assignments)
-    wipe(consumedFrames)
-    wipe(currentTokens)
+    HookKnownViewers()
 
     local records = {}
     local recordsByToken = {}
-    local cooldownUseCount = {}
 
     for _, tracker in ipairs(trackers or {}) do
         local shouldReadLegacy = not auraContainer or not auraContainer.ShouldReadLegacy
@@ -286,96 +382,29 @@ function Resolver:BeginPass(trackers)
             local record = recordsByToken[token]
             if not record then
                 record = {
-                    token = token,
                     cooldownID = TrackerCooldownID(tracker),
                     spellID = TrackerSpellID(tracker),
                     trackers = {},
                 }
                 recordsByToken[token] = record
                 records[#records + 1] = record
-                cooldownUseCount[record.cooldownID] = (cooldownUseCount[record.cooldownID] or 0) + 1
             end
             record.trackers[#record.trackers + 1] = tracker
-            currentTokens[token] = true
-        end
-    end
-
-    for token in pairs(stickyFrames) do
-        if not currentTokens[token] then
-            stickyFrames[token] = nil
-            stickyCooldownIDs[token] = nil
-            stickyGenerations[token] = nil
         end
     end
 
     if #records == 0 then
         diagnostics.emptyPasses = diagnostics.emptyPasses + 1
-        wipe(activeFrames)
-        wipe(activeFrameSet)
-        wipe(frameCooldownIDs)
-        wipe(frameSpellIDs)
         return
     end
+
     diagnostics.records = diagnostics.records + #records
 
-    SnapshotFrames()
-
     for _, record in ipairs(records) do
-        record.needsSpellDisambiguation = record.cooldownID > 0
-            and (cooldownUseCount[record.cooldownID] or 0) > 1
-            and record.spellID > 0
-        local frame = stickyFrames[record.token]
-        if frame and not consumedFrames[frame] and StickyStillMatches(record, frame) then
-            Assign(record, frame, false, "sticky")
-        else
-            stickyFrames[record.token] = nil
-            stickyCooldownIDs[record.token] = nil
-            stickyGenerations[record.token] = nil
-        end
-    end
-
-    for _, record in ipairs(records) do
-        if not record.frame and record.spellID > 0 then
-            for _, frame in ipairs(activeFrames) do
-                if not consumedFrames[frame] and frameSpellIDs[frame] == record.spellID then
-                    Assign(record, frame, true, "spell")
-                    break
-                end
-            end
-        end
-    end
-
-    for _, record in ipairs(records) do
-        if not record.frame and record.cooldownID > 0 and not record.needsSpellDisambiguation then
-            for _, frame in ipairs(activeFrames) do
-                if not consumedFrames[frame] and frameCooldownIDs[frame] == record.cooldownID then
-                    Assign(record, frame, true, "cooldown")
-                    break
-                end
-            end
-        end
-    end
-
-    for _, record in ipairs(records) do
-        if not record.frame and record.spellID > 0 then
-            local candidate
-            local matchCount = 0
-            for _, frame in ipairs(activeFrames) do
-                if not consumedFrames[frame] and InfoMatchesSpell(frame, record.spellID) then
-                    candidate = frame
-                    matchCount = matchCount + 1
-                end
-            end
-            if matchCount == 1 then
-                local recordMatches = 0
-                for _, other in ipairs(records) do
-                    if not other.frame and InfoMatchesSpell(candidate, other.spellID) then
-                        recordMatches = recordMatches + 1
-                    end
-                end
-                if recordMatches == 1 then
-                    Assign(record, candidate, false, "info")
-                end
+        local frame = ResolveRecord(record)
+        if frame then
+            for _, tracker in ipairs(record.trackers) do
+                assignments[tracker] = frame
             end
         end
     end
@@ -438,13 +467,8 @@ function Resolver:Suspend()
     end
 end
 
-function Resolver:Invalidate(clearSticky)
+function Resolver:Invalidate()
     wipe(assignments)
-    if clearSticky then
-        wipe(stickyFrames)
-        wipe(stickyCooldownIDs)
-        wipe(stickyGenerations)
-    end
 end
 
 function Resolver:GetDiagnostics()
@@ -456,6 +480,8 @@ function Resolver:GetDiagnostics()
         and diagnostics.framesVisited / diagnostics.snapshots or 0
     result.averageRecordsPerPass = diagnostics.passes > 0
         and diagnostics.records / diagnostics.passes or 0
+    result.averageCatalogEntriesPerSearch = diagnostics.catalogSearches > 0
+        and diagnostics.catalogEntriesVisited / diagnostics.catalogSearches or 0
     return result
 end
 
