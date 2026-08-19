@@ -11,6 +11,11 @@ if not Engine then return end
 -- CDM/aura observation must stop. Protected aura values are display-only in
 -- 12.1; alert logic that depends on those values is handled separately by
 -- TrackedAuraProtectedAlerts.lua and must not keep the legacy resolver alive.
+--
+-- BuffTrackerBar still has legacy host visibility logic that derives hasData
+-- from Lua-readable aura state. For container-owned bar displays, keep the
+-- invisible host frame shown after the legacy update finishes so it remains a
+-- stable anchor/lifecycle owner for the AuraContainer proxy.
 
 local AURA_DEPENDENT_TRIGGER = {
     active = true,
@@ -20,10 +25,13 @@ local AURA_DEPENDENT_TRIGGER = {
 }
 
 local boundTrackers = setmetatable({}, { __mode = "k" })
+local boundHosts = setmetatable({}, { __mode = "k" })
+local visibilityQueued = setmetatable({}, { __mode = "k" })
 local diagnostics = {
     successfulBindings = 0,
     releasedBindings = 0,
     legacyReadsSuppressed = 0,
+    hostVisibilityRestores = 0,
 }
 
 local originalAttach = Engine.Attach
@@ -46,9 +54,39 @@ local function RequiresAuraObservation(tracker)
     return false
 end
 
+local function IsContainerBar(tracker)
+    if type(tracker) ~= "table" then return false end
+    if (tracker.displayType or "bar") ~= "bar" then return false end
+    return ((tracker.settings or {}).barStyle or "bar") == "bar"
+end
+
+local function QueueHostVisibilityRestore(tracker, host)
+    if not IsContainerBar(tracker) or not host then return end
+    if visibilityQueued[tracker] == host then return end
+    if not (C_Timer and C_Timer.After) then return end
+
+    visibilityQueued[tracker] = host
+    C_Timer.After(0, function()
+        if visibilityQueued[tracker] == host then
+            visibilityQueued[tracker] = nil
+        end
+        if not boundTrackers[tracker] or boundHosts[tracker] ~= host then return end
+        if not host._auraContainerOwnsDisplay then return end
+        if type(host.IsShown) ~= "function" or type(host.Show) ~= "function" then return end
+
+        local ok, shown = pcall(host.IsShown, host)
+        if ok and not shown then
+            host:Show()
+            diagnostics.hostVisibilityRestores = diagnostics.hostVisibilityRestores + 1
+        end
+    end)
+end
+
 local function ClearBinding(tracker)
     if tracker and boundTrackers[tracker] then
         boundTrackers[tracker] = nil
+        boundHosts[tracker] = nil
+        visibilityQueued[tracker] = nil
         diagnostics.releasedBindings = diagnostics.releasedBindings + 1
     end
 end
@@ -61,6 +99,8 @@ function Engine:Attach(tracker, bar, style)
                 diagnostics.successfulBindings = diagnostics.successfulBindings + 1
             end
             boundTrackers[tracker] = true
+            boundHosts[tracker] = bar
+            QueueHostVisibilityRestore(tracker, bar)
         else
             ClearBinding(tracker)
         end
@@ -122,6 +162,7 @@ function Engine:GetObservationPolicyDiagnostics()
         successfulBindings = diagnostics.successfulBindings,
         releasedBindings = diagnostics.releasedBindings,
         legacyReadsSuppressed = diagnostics.legacyReadsSuppressed,
+        hostVisibilityRestores = diagnostics.hostVisibilityRestores,
     }
 end
 
@@ -133,6 +174,7 @@ if originalGetDiagnostics then
         result.policySuccessfulBindings = policy.successfulBindings
         result.policyReleasedBindings = policy.releasedBindings
         result.policyLegacyReadsSuppressed = policy.legacyReadsSuppressed
+        result.policyHostVisibilityRestores = policy.hostVisibilityRestores
         return result
     end
 end
@@ -143,5 +185,6 @@ if originalResetDiagnostics then
         diagnostics.successfulBindings = 0
         diagnostics.releasedBindings = 0
         diagnostics.legacyReadsSuppressed = 0
+        diagnostics.hostVisibilityRestores = 0
     end
 end
