@@ -263,6 +263,16 @@ function Engine:IsLegacyFallbackActive(tracker)
     return tracker ~= nil and fallbackTrackers[tracker] == true
 end
 
+-- True while a supported automatic visual tracker is expected to be rendered
+-- exclusively through AuraContainer. This includes the initial pre-bind pass so
+-- alert wrappers do not infer protected aura state before the first Attach().
+function Engine:IsProtectedDisplayPath(tracker)
+    return tracker ~= nil
+        and not policySuspended
+        and IsContainerCandidate(tracker)
+        and fallbackTrackers[tracker] ~= true
+end
+
 function Engine:RequiresAuraObservation(tracker)
     return RequiresAuraObservation(tracker)
 end
