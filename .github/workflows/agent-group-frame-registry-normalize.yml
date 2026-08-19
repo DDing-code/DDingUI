@@ -108,8 +108,8 @@ jobs:
           LUA
           lua5.1 /tmp/registry_freshness.lua
 
-      - name: Diff check
-        run: git diff --check origin/agent/aura-style-migration...HEAD
+      - name: Working tree diff check
+        run: git diff --check
 
       - name: Commit normalized runtime
         run: |
