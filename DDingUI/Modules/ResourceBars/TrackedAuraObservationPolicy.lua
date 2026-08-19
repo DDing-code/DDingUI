@@ -116,6 +116,13 @@ local function StopLegacyDurationDrivers(host)
     if host._hasDurationUpdate then host._hasDurationUpdate = nil end
     if host._hasRingTextUpdate then host._hasRingTextUpdate = false end
 
+    -- Ring/icon legacy cooldowns may have permanent secure hooks from an older
+    -- fallback pass. Hiding the legacy cooldown makes those hooks inert while
+    -- the AuraContainer-owned cooldown on the proxy remains authoritative.
+    if host.Cooldown and type(host.Cooldown.Hide) == "function" then
+        host.Cooldown:Hide()
+    end
+
     if host.TextFrame then
         host.TextFrame._dtData = nil
         if host.TextFrame._hasDurationUpdate then
