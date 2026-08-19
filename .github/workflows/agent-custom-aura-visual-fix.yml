@@ -1,16 +1,16 @@
 name: Agent Custom Aura Visual Fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/custom-aura-visual-fix
+      - agent/group-parent-ownership
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.ref == 'agent/custom-aura-visual-fix' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,7 +97,6 @@ jobs:
             })
         end
     else
-        -- Legacy "glow" and explicit "button" both use button glow.
         if SL.ShowButtonGlow then
             SL.ShowButtonGlow(overlay, color, frequency)
         end
