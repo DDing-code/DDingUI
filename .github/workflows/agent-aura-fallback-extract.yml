@@ -1,0 +1,109 @@
+name: Agent Aura Fallback Extraction
+
+on:
+  push:
+    branches:
+      - agent/aura-fallback-driver
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/aura-fallback-driver
+          fetch-depth: 0
+
+      - name: Extract legacy observation helpers
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("DDingUI/Modules/ResourceBars/BuffTrackerBar.lua")
+          text = path.read_text(encoding="utf-8")
+
+          helper_start = "-- Helper: Check if value is secret (WoW 12.0+ secret value handling)"
+          helper_end = "-- Helper: Get spellID from cooldownID using C_CooldownViewer API (CDM API)"
+          assert text.count(helper_start) == 1, text.count(helper_start)
+          assert text.count(helper_end) == 1, text.count(helper_end)
+
+          helper_replacement = '''-- Legacy fallback observation helpers live in TrackedAuraLegacyFallbackDriver.lua.
+          -- Keep aliases here so the rest of BuffTrackerBar remains presentation/layout code.
+          local LegacyAuraDriver = DDingUI.TrackedAuraLegacyFallbackDriver
+          if not LegacyAuraDriver then
+              error("DDingUI: TrackedAuraLegacyFallbackDriver must load before BuffTrackerBar.lua")
+          end
+
+          local IsSecretValue = LegacyAuraDriver.IsSecretValue
+          local IsAccessibleNumber = LegacyAuraDriver.IsAccessibleNumber
+          local HasTrackedAuraData = LegacyAuraDriver.HasTrackedAuraData
+          local IsProtectedAuraObservation = LegacyAuraDriver.IsProtectedAuraObservation
+          local HasAuraInstanceID = LegacyAuraDriver.HasAuraInstanceID
+          local HasAuraResult = LegacyAuraDriver.HasAuraResult
+          local GetAuraInstanceCacheKey = LegacyAuraDriver.GetAuraInstanceCacheKey
+          local ResolveTrackedFrame = LegacyAuraDriver.ResolveFrame
+
+          '''
+
+          start = text.index(helper_start)
+          end = text.index(helper_end)
+          text = text[:start] + helper_replacement + text[end:]
+
+          stacks_start = "-- ============================================================\n-- CDM STACKS TRACKING\n-- ============================================================"
+          stacks_end = "-- Parse comma-separated spell IDs into a lookup table (legacy support)"
+          assert text.count(stacks_start) == 1, text.count(stacks_start)
+          assert text.count(stacks_end) == 1, text.count(stacks_end)
+
+          stacks_replacement = '''-- ============================================================
+          -- CDM STACKS TRACKING -- compatibility fallback only
+          -- ============================================================
+          local function ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, spellID, spellName)
+              return LegacyAuraDriver.ResolveStacks(
+                  cooldownID,
+                  frame,
+                  isManualMode,
+                  manualStackCount,
+                  spellID,
+                  spellName,
+                  BUFF_TRACKER_DEBUG
+              )
+          end
+
+          '''
+
+          start = text.index(stacks_start)
+          end = text.index(stacks_end)
+          text = text[:start] + stacks_replacement + text[end:]
+
+          # Guard the intended architectural boundary.
+          assert "local function GetBuffStacks(" not in text
+          assert "local function FindTrackedPlayerAura(" not in text
+          assert "local function ReadAuraPresentation(" not in text
+          assert "local function IsTrackedAuraFrameActive(" not in text
+          assert "local function AcceptTrackedFrame(" not in text
+          assert "local function ResolveTrackedStacks(" in text
+          assert "LegacyAuraDriver.ResolveStacks" in text
+          assert "local ResolveTrackedFrame = LegacyAuraDriver.ResolveFrame" in text
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Validate diff
+        run: |
+          git diff --check
+          grep -q 'TrackedAuraLegacyFallbackDriver' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          if grep -q 'local function GetBuffStacks(' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua; then exit 1; fi
+          if grep -q 'local function FindTrackedPlayerAura(' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua; then exit 1; fi
+
+      - name: Commit extraction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          if ! git diff --cached --quiet; then
+            git commit -m "refactor(custom-aura): extract legacy stack observation driver"
+            git push origin HEAD:agent/aura-fallback-driver
+          fi
