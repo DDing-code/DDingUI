@@ -17,6 +17,43 @@ jobs:
         with:
           ref: agent/aura-duration-driver
           fetch-depth: 0
+      - name: Patch extraction helper for assigned duration value
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('tools/agent_duration_extract.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''text, duration_replacements = duration_pattern.subn(duration_repl, text)
+          assert duration_replacements == 8, f'GetAuraDuration replacements: expected 8, got {duration_replacements}'
+          text = text.replace('-- Duration 모드: C_UnitAuras.GetAuraDuration 사용', '-- Duration 모드: legacy duration driver 사용')
+          '''
+          new = '''text, duration_replacements = duration_pattern.subn(duration_repl, text)
+          assert duration_replacements == 7, f'GetAuraDuration local replacements: expected 7, got {duration_replacements}'
+
+          assigned_duration_pattern = re.compile(
+              r'(?P<indent>[ \\t]*)local durObj = C_UnitAuras\\.GetAuraDuration\\((?P<args>[^\\n]+)\\)\\n'
+              r'(?P=indent)if durObj then\\n'
+              r'(?P=indent)    (?P<var>[A-Za-z_][A-Za-z0-9_]*) = durObj:GetRemainingDuration\\(\\)'
+          )
+
+          def assigned_duration_repl(match):
+              indent = match.group('indent')
+              args = match.group('args')
+              var = match.group('var')
+              return (
+                  f'{indent}{var} = LegacyDurationDriver.GetRemainingDuration({args})\\n'
+                  f'{indent}if {var} ~= nil then'
+              )
+
+          text, assigned_duration_replacements = assigned_duration_pattern.subn(assigned_duration_repl, text)
+          assert assigned_duration_replacements == 1, (
+              f'GetAuraDuration assigned replacements: expected 1, got {assigned_duration_replacements}'
+          )
+          text = text.replace('-- Duration 모드: C_UnitAuras.GetAuraDuration 사용', '-- Duration 모드: legacy duration driver 사용')
+          '''
+          if old not in text:
+              raise SystemExit('duration replacement marker not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
       - name: Apply extraction
         run: python tools/agent_duration_extract.py
       - name: Validate syntax and boundary
