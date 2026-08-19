@@ -1,0 +1,201 @@
+name: Agent Aura Style Migration Validation
+
+on:
+  pull_request:
+    branches:
+      - agent/aura-api-boundary
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event.pull_request.head.ref == 'agent/aura-style-migration'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/aura-style-migration
+          fetch-depth: 0
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      - name: Parse migration and aura runtime
+        run: |
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraProfileMigration.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/BuffTrackerBar.lua"))'
+          git diff --check origin/agent/aura-api-boundary...HEAD
+
+      - name: Run migration mock
+        run: |
+          cat > /tmp/test_aura_style_migration.lua <<'LUA'
+          GetSpecialization = function() return 1 end
+          GetSpecializationInfo = function() return 71 end
+          C_Timer = { After = function(_, callback) callback() end }
+
+          local storedSnapshot = {
+              buffTrackerBar = {
+                  height = 22,
+                  trackedBuffs = {
+                      { displayType = "bar", settings = { barStyle = "square" } },
+                  },
+              },
+          }
+
+          local addon = {}
+          addon.SpecProfiles = {
+              Initialize = function(self) self._initialized = true return true end,
+              SaveCurrentSpec = function(self) self._saved = (self._saved or 0) + 1 end,
+              LoadSpec = function() return true end,
+              MarkDirty = function(self) self._dirty = true end,
+              MutateStoredSpecs = function(_, mutator)
+                  return mutator(storedSnapshot, 72) == true
+              end,
+          }
+          addon.ResourceBars = {
+              Initialize = function(self) self._initialized = true return true end,
+          }
+          addon.OnProfileChanged = function(self) self._profileChanged = true end
+          addon.RefreshAll = function(self) self._refreshes = (self._refreshes or 0) + 1 end
+          addon.ImportProfileFromString = function(self)
+              self.db.global.trackedBuffsPerSpec[71] = {
+                  { displayType = "bar", settings = { barStyle = "ring", height = 28 } },
+              }
+              return true, "ok"
+          end
+
+          local root = {
+              height = 16,
+              borderSize = 3,
+              borderColor = { 0.1, 0.2, 0.3, 1 },
+              barColor = { 0.4, 0.5, 0.6, 1 },
+              bgColor = { 0.07, 0.08, 0.09, 1 },
+              attachTo = "LegacyAnchor",
+              anchorPoint = "TOP",
+              selfPoint = "BOTTOM",
+              offsetX = 5,
+              offsetY = 30,
+              growthDirection = "DOWN",
+              growthSpacing = 12,
+              trackedBuffs = {
+                  { displayType = "bar", settings = { barStyle = "donut" } },
+                  { displayType = "bar", trackingMode = "spell", settings = { barStyle = "square" } },
+                  { displayType = "bar", isAura = false, settings = { barStyle = "circular" } },
+                  { displayType = "ring", settings = { barStyle = "ring" } },
+              },
+              trackedBuffsPerSpec = {
+                  [71] = {
+                      { displayType = "bar", settings = { barStyle = "square" } },
+                  },
+              },
+          }
+
+          addon.db = {
+              global = {
+                  trackedBuffsPerSpec = {
+                      [71] = {
+                          {
+                              displayType = "bar",
+                              settings = {
+                                  barStyle = "ring",
+                                  height = 30,
+                                  barColor = { 0.8, 0.3, 0.2, 1 },
+                              },
+                          },
+                          { displayType = "bar", settings = { barStyle = "circular" } },
+                          { displayType = "bar", trackingMode = "manual", settings = { barStyle = "ring" } },
+                      },
+                      [72] = {
+                          { displayType = "bar", settings = { barStyle = "square" } },
+                      },
+                  },
+              },
+              profile = {
+                  buffTrackerBar = root,
+                  specDataBase = {
+                      buffTrackerBar = {
+                          height = 24,
+                          trackedBuffs = {
+                              { displayType = "bar", settings = { barStyle = "ring" } },
+                          },
+                      },
+                  },
+              },
+          }
+
+          local chunk = assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraProfileMigration.lua"))
+          chunk("DDingUI", { Addon = addon })
+          local M = assert(addon.TrackedAuraProfileMigration)
+
+          local changed = M:Run("mock")
+          assert(changed == 6, "expected 6 migrated trackers, got " .. tostring(changed))
+          assert(addon.db.global.trackedAuraSchemaVersion == 1)
+
+          local current = addon.db.global.trackedBuffsPerSpec[71]
+          assert(current[1].displayType == "ring")
+          assert(current[1].settings.barStyle == "bar")
+          assert(current[1].settings.ringSize == 30)
+          assert(current[1].settings.ringColor[1] == 0.8)
+          assert(current[1].settings.ringOffsetX == 5 and current[1].settings.ringOffsetY == 30)
+          current[1].settings.ringColor[1] = 0.11
+          assert(current[1].settings.barColor[1] == 0.8, "migrated colors must be copied")
+
+          assert(current[2].displayType == "icon")
+          assert(current[2].settings.iconSize == 16)
+          assert(current[2].settings.iconOffsetX == 5 and current[2].settings.iconOffsetY == 18)
+          assert(current[2].settings.iconBorderSize == 3)
+
+          assert(current[3].displayType == "bar")
+          assert(current[3].settings.barStyle == "ring", "manual tracker must remain legacy")
+
+          local otherSpec = addon.db.global.trackedBuffsPerSpec[72][1]
+          assert(otherSpec.displayType == "icon")
+          assert(otherSpec.settings.iconSize == 4, "other specs must not inherit current profile defaults")
+
+          assert(root.trackedBuffs[1].displayType == "ring")
+          assert(root.trackedBuffs[1].settings.ringSize == 16)
+          assert(root.trackedBuffs[2].displayType == "bar" and root.trackedBuffs[2].settings.barStyle == "square")
+          assert(root.trackedBuffs[3].displayType == "bar" and root.trackedBuffs[3].settings.barStyle == "circular")
+          assert(root.trackedBuffs[4].displayType == "ring" and root.trackedBuffs[4].settings.barStyle == "ring")
+          assert(root.trackedBuffsPerSpec[71][1].displayType == "icon")
+          assert(addon.db.profile.specDataBase.buffTrackerBar.trackedBuffs[1].displayType == "ring")
+
+          assert(M:Run("idempotent") == 0, "second migration pass must be idempotent")
+
+          M:QueueStoredSpecMigration()
+          assert(storedSnapshot.buffTrackerBar.trackedBuffs[1].displayType == "icon")
+          assert(storedSnapshot.buffTrackerBar.trackedBuffs[1].settings.barStyle == "bar")
+          assert(storedSnapshot.buffTrackerBar.trackedBuffs[1].settings.iconSize == 22)
+
+          local ok, message = addon:ImportProfileFromString("ignored")
+          assert(ok and message == "ok")
+          local imported = addon.db.global.trackedBuffsPerSpec[71][1]
+          assert(imported.displayType == "ring")
+          assert(imported.settings.barStyle == "bar")
+          assert(imported.settings.ringSize == 28)
+
+          addon.db.global.trackedBuffsPerSpec[71] = {
+              { displayType = "bar", settings = { barStyle = "circular" } },
+          }
+          addon.ResourceBars:Initialize()
+          assert(addon.db.global.trackedBuffsPerSpec[71][1].displayType == "icon")
+
+          print("aura style migration mock: ok")
+          LUA
+          lua5.1 /tmp/test_aura_style_migration.lua
+
+      - name: Verify TOC order
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          toc = Path('DDingUI/DDingUI.toc').read_text(encoding='utf-8')
+          resource = 'Modules\\ResourceBars\\ResourceBars.lua'
+          migration = 'Modules\\ResourceBars\\TrackedAuraProfileMigration.lua'
+          assert toc.count(migration) == 1
+          assert toc.index(resource) < toc.index(migration)
+          print('TOC migration order: ok')
+          PY
