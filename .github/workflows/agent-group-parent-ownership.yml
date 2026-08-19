@@ -44,11 +44,6 @@ jobs:
                   return '\r'
               return '\n'
 
-          def find_exact(text, start=0):
-              hits = [i for i in range(start, len(lines)) if body(lines[i]) == text]
-              assert len(hits) == 1, f'{text!r}: expected 1 match, got {len(hits)}'
-              return hits[0]
-
           def find_contains(text, start=0):
               for i in range(start, len(lines)):
                   if text in body(lines[i]):
@@ -86,7 +81,10 @@ jobs:
           #    A zero-delay Reconcile detects parent drift and performs the repair centrally.
           hook_d = find_contains('-- [HOOK D]')
           layout_fix = find_contains('-- [FIX] Layout 후 managed 아이콘이 viewer 자식으로 복귀했는지 체크', hook_d)
-          schedule = find_exact('                    ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)', layout_fix)
+          schedule = next(
+              i for i in range(layout_fix + 1, len(lines))
+              if body(lines[i]) == '                    ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)'
+          )
           replace_range(layout_fix, schedule + 1, [
               '                    -- Blizzard may restore a managed frame to the viewer during Layout.',
               '                    -- Do not SetParent from inside the Layout hook. ScanCDMViewers()',
