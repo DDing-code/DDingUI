@@ -1,0 +1,106 @@
+name: Agent Custom Aura Action Glow
+
+on:
+  pull_request:
+    branches:
+      - agent/custom-aura-visual-fix
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'agent/custom-aura-action-glow' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/custom-aura-action-glow
+          fetch-depth: 0
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+      - name: Patch protected self action glow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua')
+          s = p.read_text(encoding='utf-8')
+
+          marker = '''local function StyleSignature(style)\n'''
+          helper = '''local function ActiveTriggerMeansPresent(trigger)\n    if type(trigger) ~= "table" or trigger.type ~= "active" then return false end\n    local op = trigger.op or "=="\n    local value = trigger.value\n\n    if op == "==" then return value == true end\n    if op == "!=" then return value == false end\n    return false\nend\n\nlocal function ResolveProtectedSelfGlowAction(tracker)\n    local alerts = tracker and tracker.settings and tracker.settings.alerts\n    if type(alerts) ~= "table" or alerts.enabled ~= true then return nil end\n\n    local triggers = alerts.triggers or {}\n    local actions = alerts.actions or {}\n    local selected\n\n    for actionIndex, action in ipairs(actions) do\n        if type(action) == "table" and action.type == "glow"\n            and (action.visualTarget == nil or action.visualTarget == "self")\n        then\n            local triggerIndex = type(action.condition) == "string"\n                and tonumber(action.condition:match("^trigger(%d+)$")) or nil\n            if triggerIndex and ActiveTriggerMeansPresent(triggers[triggerIndex]) then\n                selected = {\n                    actionIndex = actionIndex,\n                    glowType = action.glowType or "pixel",\n                    color = action.glowColor or { 1, 0.82, 0.1, 1 },\n                    lines = action.glowLines or 8,\n                    frequency = action.glowFrequency or 0.25,\n                    thickness = action.glowThickness or 2,\n                    xOffset = action.glowXOffset or 0,\n                    yOffset = action.glowYOffset or 0,\n                }\n            end\n        end\n    end\n\n    return selected\nend\n\nlocal function StyleSignature(style)\n'''
+          assert s.count(marker) == 1
+          s = s.replace(marker, helper, 1)
+
+          old = '''        tostring(style.glowWhenInactive),\n        tostring(style.swipeTexture),'''
+          new = '''        tostring(style.glowWhenInactive),\n        tostring(style.alertGlowType),\n        ColorPart(style.alertGlowColor),\n        tostring(style.alertGlowLines),\n        tostring(style.alertGlowFrequency),\n        tostring(style.alertGlowThickness),\n        tostring(style.alertGlowXOffset),\n        tostring(style.alertGlowYOffset),\n        tostring(style.swipeTexture),'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+
+          old = '''local function StartContainerIconGlow(button, style)\n    if not button or not style or style.glowWhenInactive == true then return end\n\n    local animation = style.iconAnimation or "glow"\n'''
+          new = '''local function StartContainerGlow(button, style)\n    if not button or not style then return end\n\n    local animation = style.alertGlowType\n        or ((style.displayType == "icon" and style.glowWhenInactive ~= true)\n            and (style.iconAnimation or "glow") or "none")\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+
+          old = '''    local color = style.glowColor or { 1, 0.9, 0.5, 1 }\n    local lines = math.floor(tonumber(style.glowLines) or 8)\n    local frequency = tonumber(style.glowFrequency) or 0.25\n    local thickness = tonumber(style.glowThickness) or 2\n    local xOffset = tonumber(style.glowXOffset) or 0\n    local yOffset = tonumber(style.glowYOffset) or 0\n'''
+          new = '''    local color = style.alertGlowColor or style.glowColor or { 1, 0.9, 0.5, 1 }\n    local lines = math.floor(tonumber(style.alertGlowLines or style.glowLines) or 8)\n    local frequency = tonumber(style.alertGlowFrequency or style.glowFrequency) or 0.25\n    local thickness = tonumber(style.alertGlowThickness or style.glowThickness) or 2\n    local xOffset = tonumber(style.alertGlowXOffset or style.glowXOffset) or 0\n    local yOffset = tonumber(style.alertGlowYOffset or style.glowYOffset) or 0\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+
+          s = s.replace('StartContainerIconGlow(button, style)', 'StartContainerGlow(button, style)')
+
+          old = '''        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })\n    end\nend\n\nlocal function CreateIconInitializer'''
+          new = '''        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })\n        StartContainerGlow(button, style)\n    end\nend\n\nlocal function CreateIconInitializer'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+
+          old = '''        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })\n    end\nend\n\nlocal function CreateTextInitializer'''
+          new = '''        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })\n        StartContainerGlow(button, style)\n    end\nend\n\nlocal function CreateTextInitializer'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+
+          old = '''        if style.showDurationText and style.textDisplayMode ~= "duration" then\n            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)\n        end\n    end\nend\n'''
+          new = '''        if style.showDurationText and style.textDisplayMode ~= "duration" then\n            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)\n        end\n        StartContainerGlow(button, style)\n    end\nend\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+
+          marker = '''    if style.displayType == "icon" then\n        local settings = tracker.settings or {}\n        style.iconAnimation = settings.iconAnimation or "glow"\n'''
+          assert s.count(marker) == 1
+          inject = '''    local alertGlow = ResolveProtectedSelfGlowAction(tracker)\n    if alertGlow then\n        style.alertGlowType = alertGlow.glowType\n        style.alertGlowColor = alertGlow.color\n        style.alertGlowLines = alertGlow.lines\n        style.alertGlowFrequency = alertGlow.frequency\n        style.alertGlowThickness = alertGlow.thickness\n        style.alertGlowXOffset = alertGlow.xOffset\n        style.alertGlowYOffset = alertGlow.yOffset\n    end\n\n'''
+          s = s.replace(marker, inject + marker, 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('DDingUI/Modules/ResourceBars/TrackedAuraProtectedAlerts.lua')
+          s = p.read_text(encoding='utf-8')
+          old = '''        if mappedIndex then\n            local safeAction = ShallowCopy(action)\n            safeAction.condition = "trigger" .. mappedIndex\n            safeActions[#safeActions + 1] = safeAction\n        else\n'''
+          new = '''        local protectedSelfGlow = originalIndex\n            and protectedIndexes[1] ~= nil\n            and type(action) == "table"\n            and action.type == "glow"\n            and (action.visualTarget == nil or action.visualTarget == "self")\n            and type(originalTriggers[originalIndex]) == "table"\n            and originalTriggers[originalIndex].type == "active"\n            and (originalTriggers[originalIndex].op or "==") == "=="\n            and originalTriggers[originalIndex].value == true\n\n        if mappedIndex then\n            local safeAction = ShallowCopy(action)\n            safeAction.condition = "trigger" .. mappedIndex\n            safeActions[#safeActions + 1] = safeAction\n        elseif protectedSelfGlow then\n            -- AuraContainer owns this action visually on the actual AuraButton.\n            -- Do not pass it to legacy alert evaluation, but also do not count it\n            -- as an unsupported protected action.\n        else\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Validate
+        run: |
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraProtectedAlerts.lua"))'
+          python - <<'PY'
+          from pathlib import Path
+          c = Path('DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua').read_text(encoding='utf-8')
+          a = Path('DDingUI/Modules/ResourceBars/TrackedAuraProtectedAlerts.lua').read_text(encoding='utf-8')
+          assert 'ResolveProtectedSelfGlowAction' in c
+          assert 'ActiveTriggerMeansPresent' in c
+          assert 'style.alertGlowType' in c
+          assert c.count('StartContainerGlow(button, style)') >= 4
+          assert 'protectedSelfGlow' in a
+          assert 'C_UnitAuras' not in c
+          print('protected self action glow checks: ok')
+          PY
+          git -c core.whitespace=cr-at-eol diff --check
+      - name: Commit runtime fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua DDingUI/Modules/ResourceBars/TrackedAuraProtectedAlerts.lua
+          git commit -m "fix(custom-aura): render protected self glow actions in container"
+          git push origin HEAD:agent/custom-aura-action-glow
