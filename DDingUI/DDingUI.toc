@@ -124,6 +124,7 @@ Modules\ResourceBars\BuffTrackerDurationDriver.lua
 Modules\ResourceBars\BuffTrackerConditionalVisuals.lua
 Modules\ResourceBars\TrackedAuraContainer.lua
 Modules\ResourceBars\TrackedAuraObservationPolicy.lua
+Modules\ResourceBars\TrackedAuraLegacyFallback.lua
 Modules\ResourceBars\TrackedAuraFrameResolver.lua
 Modules\ResourceBars\BuffTrackerBar.lua
 Modules\ResourceBars\TrackedAuraProtectedAlerts.lua
