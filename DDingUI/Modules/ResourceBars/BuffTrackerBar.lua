@@ -445,6 +445,11 @@ local HasAuraResult = LegacyAuraDriver.HasAuraResult
 local GetAuraInstanceCacheKey = LegacyAuraDriver.GetAuraInstanceCacheKey
 local ResolveTrackedFrame = LegacyAuraDriver.ResolveFrame
 
+local LegacyDurationDriver = DDingUI.TrackedAuraLegacyDurationDriver
+if not LegacyDurationDriver then
+    error("DDingUI: TrackedAuraLegacyDurationDriver must load before BuffTrackerBar.lua")
+end
+
 -- Helper: Get spellID from cooldownID using C_CooldownViewer API (CDM API)
 local function GetSpellIDFromCooldownID(cooldownID)
     if not CDMCompat then return nil end
@@ -3745,57 +3750,13 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     end
 
     -- ============================================================
-    -- DYNAMIC DURATION: CDM에서 실시간으로 duration 읽기
+    -- DYNAMIC DURATION: compatibility fallback only
     -- ============================================================
-    if dynamicDuration and hasData and not isManualMode
-        and not (frame and frame.Bar and frame.Bar.GetMinMaxValues and frame.Bar.GetValue)
-    then
-        local detectedDuration = nil
-
-        -- 1. CDM 바 프레임에서 GetMinMaxValues()로 읽기
-        if frame then
-            pcall(function()
-                -- BuffBarCooldownViewer의 바 프레임
-                if frame.Bar and frame.Bar.GetMinMaxValues then
-                    local _, maxVal = frame.Bar:GetMinMaxValues()
-                    if maxVal and maxVal > 0 then
-                        detectedDuration = maxVal
-                    end
-                end
-                -- 또는 frame 자체가 StatusBar일 경우
-                if not detectedDuration and frame.GetMinMaxValues then
-                    local _, maxVal = frame:GetMinMaxValues()
-                    if maxVal and maxVal > 0 then
-                        detectedDuration = maxVal
-                    end
-                end
-            end)
-        end
-
-        -- 2. CDM 바에서 못 찾으면 aura 데이터에서 duration 읽기
-        if not detectedDuration and HasAuraInstanceID(auraInstanceID) then
-            pcall(function()
-                local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                if auraData and auraData.duration and auraData.duration > 0 then
-                    detectedDuration = auraData.duration
-                end
-            end)
-        end
-
-        -- 3. 감지된 duration 사용 (없으면 기본값 유지)
-        if detectedDuration and detectedDuration > 0 then
-            stackDuration = detectedDuration
-            -- 설정에 저장하여 다음 업데이트에서도 사용
-            if settings then
-                settings._detectedDuration = detectedDuration
-            end
-        elseif settings and settings._detectedDuration then
-            -- 이전에 감지된 값 사용
-            stackDuration = settings._detectedDuration
-        end
-    elseif dynamicDuration and settings and settings._detectedDuration then
-        -- 버프 비활성화 상태에서도 이전 감지 값 유지
-        stackDuration = settings._detectedDuration
+    if dynamicDuration then
+        stackDuration = LegacyDurationDriver.ResolveDynamicDuration(
+            frame, unit, auraInstanceID, settings, stackDuration,
+            hasData, isManualMode, true
+        )
     end
 
     local current, max
@@ -3812,7 +3773,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         local useManualDuration = settings.maxDuration and settings.maxDuration > 0
 
         if hasData then
-            -- Duration 모드: C_UnitAuras.GetAuraDuration 사용
+            -- Duration 모드: legacy duration driver 사용
             -- OnUpdate로 지속시간 폴링
             bar._durationData = {
                 unit = unit,
@@ -3846,21 +3807,11 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar._durationData.auraActivatedTime = bar._auraActivatedTime
             end
 
-            -- Circular/Square/Donut/Ring 스타일: Cooldown 프레임 초기화
+            -- Circular/Square/Donut/Ring legacy cooldown initialization
             if barStyle == "circular" or barStyle == "square" or barStyle == "donut" or barStyle == "ring" then
-                -- [12.0.1] 버프 갱신 시 Clear 후 재설정
-                local auraCacheKey = GetAuraInstanceCacheKey(auraInstanceID)
-                if bar._lastCooldownAuraID ~= auraCacheKey then
-                    bar.Cooldown:Clear()
-                end
-                bar._lastCooldownAuraID = auraCacheKey
-                pcall(function()
-                    local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                    if auraData and auraData.expirationTime and auraData.duration then
-                        local startTime = auraData.expirationTime - auraData.duration
-                        bar.Cooldown:SetCooldown(startTime, auraData.duration)
-                    end
-                end)
+                LegacyDurationDriver.SyncAuraCooldown(
+                    bar.Cooldown, bar, "_lastCooldownAuraID", unit, auraInstanceID
+                )
             end
 
             bar.StatusBar:SetMinMaxValues(0, max)
@@ -3921,9 +3872,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     end
 
                     -- Auto 모드: auraID 기반 duration 계산
-                    local resolver = DDingUI.TrackedAuraFrameResolver
-                    if data.sourceFrame and resolver and resolver.MirrorProgress then
-                        local progressCopied, textCopied = resolver:MirrorProgress(
+                    if data.sourceFrame then
+                        local progressCopied, textCopied = LegacyDurationDriver.MirrorProgress(
                             data.sourceFrame,
                             self,
                             bar.DurationText,
@@ -3937,9 +3887,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     if not HasAuraInstanceID(data.auraID) then return end
 
                     pcall(function()
-                        local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
-                        if durObj then
-                            local remaining = durObj:GetRemainingDuration()
+                        local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
+                        if remaining ~= nil then
 
                             if not data.stacksMode then
                                 self:SetValue(remaining)
@@ -3975,9 +3924,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 bar.StatusBar:SetValue(remaining)
             else
                 local progressCopied = false
-                local resolver = DDingUI.TrackedAuraFrameResolver
-                if frame and resolver and resolver.MirrorProgress then
-                    progressCopied = resolver:MirrorProgress(
+                if frame then
+                    progressCopied = LegacyDurationDriver.MirrorProgress(
                         frame,
                         bar.StatusBar,
                         bar.DurationText,
@@ -3986,9 +3934,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 end
                 if not progressCopied and HasAuraInstanceID(auraInstanceID) then
                     pcall(function()
-                        local durObj = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
-                        if durObj then
-                            local remaining = durObj:GetRemainingDuration()
+                        local remaining = LegacyDurationDriver.GetRemainingDuration(unit, auraInstanceID)
+                        if remaining ~= nil then
                             bar.StatusBar:SetValue(remaining)
                         end
                     end)
@@ -4038,21 +3985,11 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 tracker = trackedBuff,
             }
 
-            -- Circular/Square/Donut/Ring 스타일: Cooldown 프레임 초기화 (스택 모드에서도)
+            -- Circular/Square/Donut/Ring legacy cooldown initialization
             if barStyle == "circular" or barStyle == "square" or barStyle == "donut" or barStyle == "ring" then
-                -- [12.0.1] 버프 갱신 시 Clear 후 재설정
-                local auraCacheKey = GetAuraInstanceCacheKey(auraInstanceID)
-                if bar._lastCooldownAuraID ~= auraCacheKey then
-                    bar.Cooldown:Clear()
-                end
-                bar._lastCooldownAuraID = auraCacheKey
-                pcall(function()
-                    local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                    if auraData and auraData.expirationTime and auraData.duration then
-                        local startTime = auraData.expirationTime - auraData.duration
-                        bar.Cooldown:SetCooldown(startTime, auraData.duration)
-                    end
-                end)
+                LegacyDurationDriver.SyncAuraCooldown(
+                    bar.Cooldown, bar, "_lastCooldownAuraID", unit, auraInstanceID
+                )
             end
 
             if not bar._hasDurationUpdate then
@@ -4065,9 +4002,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                     if not HasAuraInstanceID(data.auraID) then return end
 
                     pcall(function()
-                        local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
-                        if durObj then
-                            local remaining = durObj:GetRemainingDuration()
+                        local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
+                        if remaining ~= nil then
 
                             -- 스택 모드가 아닐 때만 바 값 업데이트 (Secret value OK)
                             if not data.stacksMode then
@@ -4424,9 +4360,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             local initialRemaining = nil
             pcall(function()
                 if HasAuraInstanceID(auraInstanceID) then
-                    local durObj = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
-                    if durObj then
-                        initialRemaining = durObj:GetRemainingDuration()
+                    initialRemaining = LegacyDurationDriver.GetRemainingDuration(unit, auraInstanceID)
+                    if initialRemaining ~= nil then
                     end
                 elseif isManualMode and manualExpiresAt then
                     initialRemaining = manualExpiresAt - GetTime()
@@ -4630,66 +4565,21 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         or GetGroupAlertColorOverride(trackedBuff)
         or ringColor
 
-    -- Duration 데이터 가져오기
-        if hasData and HasAuraInstanceID(auraInstanceID) then
-            pcall(function()
-                local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                if aData then
-                    if aData.duration and aData.duration > 0 then
-                        actualDuration = aData.duration
-                    end
-                    if aData.expirationTime and aData.expirationTime > 0 then
-                        remainingDuration = math.max(0, aData.expirationTime - GetTime())
-                    end
-                end
-            end)
-        end
+    -- Duration 데이터 가져오기 -- compatibility fallback only
+    if hasData and HasAuraInstanceID(auraInstanceID) then
+        local legacyDuration, _, legacyRemaining = LegacyDurationDriver.ReadTiming(unit, auraInstanceID)
+        if legacyDuration then actualDuration = legacyDuration end
+        if legacyRemaining then remainingDuration = legacyRemaining end
+    end
 
     -- ============================================================
-    -- DYNAMIC DURATION: CDM에서 실시간으로 duration 읽기 (바와 동일)
+    -- DYNAMIC DURATION: compatibility fallback only
     -- ============================================================
-    if dynamicDuration and hasData and not isManualMode then
-        local detectedDuration = nil
-
-        -- 1. CDM 바 프레임에서 GetMinMaxValues()로 읽기
-        if frame then
-            pcall(function()
-                if frame.Bar and frame.Bar.GetMinMaxValues then
-                    local _, maxVal = frame.Bar:GetMinMaxValues()
-                    if maxVal and maxVal > 0 then
-                        detectedDuration = maxVal
-                    end
-                end
-                if not detectedDuration and frame.GetMinMaxValues then
-                    local _, maxVal = frame:GetMinMaxValues()
-                    if maxVal and maxVal > 0 then
-                        detectedDuration = maxVal
-                    end
-                end
-            end)
-        end
-
-        -- 2. CDM 바에서 못 찾으면 aura 데이터에서 duration 읽기
-        if not detectedDuration and HasAuraInstanceID(auraInstanceID) then
-            pcall(function()
-                local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                if auraData and auraData.duration and auraData.duration > 0 then
-                    detectedDuration = auraData.duration
-                end
-            end)
-        end
-
-        -- 3. 감지된 duration 사용
-        if detectedDuration and detectedDuration > 0 then
-            stackDuration = detectedDuration
-            if settings then
-                settings._detectedDuration = detectedDuration
-            end
-        elseif settings and settings._detectedDuration then
-            stackDuration = settings._detectedDuration
-        end
-    elseif dynamicDuration and settings and settings._detectedDuration then
-        stackDuration = settings._detectedDuration
+    if dynamicDuration then
+        stackDuration = LegacyDurationDriver.ResolveDynamicDuration(
+            frame, unit, auraInstanceID, settings, stackDuration,
+            hasData, isManualMode, false
+        )
     end
 
     -- Visibility check (include preview/mover mode - uses file-local isInPreviewMode, isInMoverMode)
@@ -4824,8 +4714,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     if bar.DonutCenter then bar.DonutCenter:Hide() end
 
     -- ============================================================
-    -- RING PROGRESS (CDM Cooldown 훅 방식)
-    -- CDM의 SetCooldown을 훅해서 우리 링과 동기화
+    -- RING PROGRESS -- compatibility fallback is synchronized by LegacyDurationDriver
     -- ============================================================
 
     -- Duration 모드 (Ring은 항상 duration)
@@ -4853,46 +4742,8 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     bar.Cooldown:SetAllPoints(bar)
     bar.Cooldown:Show()
 
-    if frame and frame.Cooldown then
-        -- 3a. CDM 프레임 있음: SetCooldown 훅
-        if not frame._ddingCooldownHooked then
-            local ourCooldown = bar.Cooldown
-            hooksecurefunc(frame.Cooldown, "SetCooldown", function(self, start, duration)
-                if ourCooldown and ourCooldown:IsShown() then
-                    pcall(function()
-                        if (duration or 0) > 0 then
-                            ourCooldown:SetCooldown(start, duration)
-                        else
-                            ourCooldown:Clear()
-                        end
-                    end)
-                end
-            end)
-            frame._ddingCooldownHooked = true
-        end
+    LegacyDurationDriver.SyncRingCooldown(frame, bar.Cooldown, unit, auraInstanceID)
 
-        -- 4a. 초기 동기화 (CDM)
-        pcall(function()
-            local cdmStart, cdmDuration = frame.Cooldown:GetCooldownTimes()
-            if cdmStart and cdmDuration and cdmDuration > 0 then
-                bar.Cooldown:SetCooldown(cdmStart / 1000, cdmDuration / 1000)
-            else
-                bar.Cooldown:Clear()
-            end
-        end)
-    elseif HasAuraInstanceID(auraInstanceID) and unit then
-        -- 3b. CDM 없음: C_UnitAuras API fallback
-        pcall(function()
-            local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-            if aData and aData.duration and aData.expirationTime and aData.duration > 0 then
-                bar.Cooldown:SetCooldown(aData.expirationTime - aData.duration, aData.duration)
-            else
-                bar.Cooldown:Clear()
-            end
-        end)
-    else
-        bar.Cooldown:Clear()
-    end
 
     -- CircularProgress 숨기기 (stacks 모드 잔재)
     if bar._ringBg then bar._ringBg:Hide() end
@@ -4930,9 +4781,8 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                 -- 텍스트 표시: secret value로 직접 설정
                 if bar.TextValue then
                     pcall(function()
-                        local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
-                        if durObj then
-                            local secretRemaining = durObj:GetRemainingDuration()
+                        local secretRemaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
+                        if secretRemaining ~= nil then
                             bar.TextValue:SetFormattedText("%." .. (data.durationDecimals or 1) .. "f", secretRemaining)
                         end
                     end)
@@ -5024,9 +4874,8 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
                     pcall(function()
                         if HasAuraInstanceID(data.auraID) then
-                            local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
-                            if durObj then
-                                local remaining = durObj:GetRemainingDuration()
+                            local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
+                            if remaining ~= nil then
                                 bar.DurationText:SetFormattedText("%." .. (data.durationDecimals or 1) .. "f", remaining)
                                 -- Warning color
                                 if data.warningEnabled then
@@ -5057,14 +4906,8 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                 end)
                 bar.TextFrame._hasDurationUpdate = true
             end
-            -- Duration data
-            local expiresAt = nil
-            if HasAuraInstanceID(auraInstanceID) then
-                pcall(function()
-                    local aData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                    if aData and aData.expirationTime then expiresAt = aData.expirationTime end
-                end)
-            end
+            -- Duration data -- compatibility fallback only
+            local _, expiresAt = LegacyDurationDriver.ReadTiming(unit, auraInstanceID)
             bar.TextFrame._dtData = {
                 showDurationText = true,
                 unit = unit,
@@ -5385,27 +5228,15 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         ShowTextureBorder(icon.Border, false)
     end
 
-    -- Set cooldown swipe (duration display)
+    -- Set cooldown swipe (legacy compatibility path only)
     if hasData and HasAuraInstanceID(auraInstanceID) then
-        -- [12.0.1] 버프 갱신 시 auraInstanceID 변경 → Clear 후 재설정
-        local auraCacheKey = GetAuraInstanceCacheKey(auraInstanceID)
-        if icon._lastAuraInstanceID ~= auraCacheKey then
-            icon.Cooldown:Clear()
-        end
-        icon._lastAuraInstanceID = auraCacheKey
-
-        -- [12.0.1] pcall 보호: secret value 비교(> 0) 제거, nil 체크만 사용
-        pcall(function()
-            local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-            if auraData and auraData.duration and auraData.expirationTime then
-                icon.Cooldown:SetCooldown(auraData.expirationTime - auraData.duration, auraData.duration)
-            else
-                icon.Cooldown:Clear()
-            end
-        end)
+        LegacyDurationDriver.SyncAuraCooldown(
+            icon.Cooldown, icon, "_lastAuraInstanceID", unit, auraInstanceID
+        )
     else
-        icon.Cooldown:Clear()
-        icon._lastAuraInstanceID = nil
+        LegacyDurationDriver.SyncAuraCooldown(
+            icon.Cooldown, icon, "_lastAuraInstanceID", unit, nil
+        )
     end
 
     -- Set stack text
@@ -5510,9 +5341,8 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                     -- Auto 모드
                     if not HasAuraInstanceID(data.auraID) then return end
                     pcall(function()
-                        local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
-                        if durObj then
-                            local remaining = durObj:GetRemainingDuration()
+                        local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
+                        if remaining ~= nil then
                             local fmt = GetDecimalFmt(data.durationDecimals or 1)
                             icon.DurationText:SetFormattedText(fmt, remaining)
 
@@ -5815,17 +5645,12 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
                 tracker.endBeforePlayed = true
             end
         elseif hasData and not tracker.endBeforePlayed and HasAuraInstanceID(auraInstanceID) then
-            pcall(function()
-                local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                if auraData and auraData.expirationTime then
-                    local timeLeft = auraData.expirationTime - now
-                    if timeLeft > 0 and timeLeft <= soundEndBefore then
-                        PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
-                        tracker.lastPlayTime = now
-                        tracker.endBeforePlayed = true
-                    end
-                end
-            end)
+            local timeLeft = LegacyDurationDriver.GetTimeLeft(unit, auraInstanceID, now)
+            if timeLeft and timeLeft > 0 and timeLeft <= soundEndBefore then
+                PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
+                tracker.lastPlayTime = now
+                tracker.endBeforePlayed = true
+            end
         end
     elseif soundTrigger == "interval" then
         -- Play every X seconds while buff is active
@@ -6001,17 +5826,14 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         end
     elseif textDisplayMode == "duration" then
         if hasData and HasAuraInstanceID(auraInstanceID) then
-            pcall(function()
-                local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID)
-                if auraData and auraData.expirationTime then
-                    local timeLeft = auraData.expirationTime - GetTime()
-                    if timeLeft > 0 then
-                        displayText = string.format("%." .. durationDecimals .. "f", timeLeft)
-                    else
-                        displayText = "0"
-                    end
+            local timeLeft = LegacyDurationDriver.GetTimeLeft(unit, auraInstanceID, GetTime())
+            if timeLeft then
+                if timeLeft > 0 then
+                    displayText = string.format("%." .. durationDecimals .. "f", timeLeft)
+                else
+                    displayText = "0"
                 end
-            end)
+            end
         elseif isInPreviewMode then
             local _, previewDuration = GetPreviewValues(barIndex, 10, 30, "duration")
             displayText = string.format("%." .. durationDecimals .. "f", previewDuration)
@@ -6079,9 +5901,8 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                     -- Auto 모드
                     if not HasAuraInstanceID(data.auraID) then return end
                     pcall(function()
-                        local durObj = C_UnitAuras.GetAuraDuration(data.unit, data.auraID)
-                        if durObj then
-                            local remaining = durObj:GetRemainingDuration()
+                        local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
+                        if remaining ~= nil then
                             local fmt = GetDecimalFmt(data.durationDecimals or 1)
                             textFrame.DurationText:SetFormattedText(fmt, remaining)
 
