@@ -84,6 +84,7 @@ Modules\AutoUIScale\AutoUIScale.lua
 Modules\CastBars\CastBars.lua
 Modules\CastBars\PlayerCastBar.lua
 Modules\CastBars\EmpoweredCasts.lua
+Modules\CastBars\SpellcastIdentityGuard.lua
 
 # IconViewers (Cooldown Manager)
 Modules\IconViewers\IconViewers.lua
