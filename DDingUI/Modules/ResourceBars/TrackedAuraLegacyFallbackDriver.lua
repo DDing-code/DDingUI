@@ -73,6 +73,60 @@ function Driver.GetAuraInstanceCacheKey(value)
     return nil
 end
 
+function Driver.GetPlayerAuraBySpellID(spellID)
+    spellID = tonumber(spellID) or 0
+    if not C_UnitAuras or not C_UnitAuras.GetPlayerAuraBySpellID
+        or not Driver.IsAccessibleNumber(spellID) or spellID <= 0
+    then
+        return nil
+    end
+
+    local auraData
+    local ok = pcall(function()
+        auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+    end)
+    if not ok then return nil end
+    return auraData
+end
+
+function Driver.GetAuraDataByInstance(unit, auraInstanceID)
+    if not C_UnitAuras or not C_UnitAuras.GetAuraDataByAuraInstanceID
+        or not Driver.HasAuraInstanceID(auraInstanceID)
+    then
+        return nil
+    end
+
+    local auraData
+    local ok = pcall(function()
+        auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit or "player", auraInstanceID)
+    end)
+    if not ok then return nil end
+    return auraData
+end
+
+function Driver.GetAuraDataAutoUnit(auraInstanceID)
+    local auraData = Driver.GetAuraDataByInstance("player", auraInstanceID)
+    if Driver.HasAuraResult(auraData) then
+        return auraData, "player"
+    end
+
+    auraData = Driver.GetAuraDataByInstance("target", auraInstanceID)
+    if Driver.HasAuraResult(auraData) then
+        return auraData, "target"
+    end
+    return nil, nil
+end
+
+function Driver.GetAuraDataByIndex(unit, index, filter)
+    if not C_UnitAuras or not C_UnitAuras.GetAuraDataByIndex then return nil end
+    local auraData
+    local ok = pcall(function()
+        auraData = C_UnitAuras.GetAuraDataByIndex(unit, index, filter)
+    end)
+    if not ok then return nil end
+    return auraData
+end
+
 local function IsTrackedAuraFrameActive(frame)
     if not frame then return false end
 
@@ -170,22 +224,22 @@ local function FindAuraGloballyByName(name)
     if not C_UnitAuras or not name or name == "" then return nil, nil end
 
     for i = 1, 255 do
-        local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+        local aura = Driver.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
         if aura.name == name then return aura, "player" end
     end
     for i = 1, 255 do
-        local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HARMFUL")
+        local aura = Driver.GetAuraDataByIndex("player", i, "HARMFUL")
         if not aura then break end
         if aura.name == name then return aura, "player" end
     end
     for i = 1, 255 do
-        local aura = C_UnitAuras.GetAuraDataByIndex("target", i, "PLAYER|HARMFUL")
+        local aura = Driver.GetAuraDataByIndex("target", i, "PLAYER|HARMFUL")
         if not aura then break end
         if aura.name == name then return aura, "target" end
     end
     for i = 1, 255 do
-        local aura = C_UnitAuras.GetAuraDataByIndex("target", i, "PLAYER|HELPFUL")
+        local aura = Driver.GetAuraDataByIndex("target", i, "PLAYER|HELPFUL")
         if not aura then break end
         if aura.name == name then return aura, "target" end
     end
@@ -196,7 +250,7 @@ local function TryTrackedPlayerAura(spellID)
     if not C_UnitAuras or not Driver.IsAccessibleNumber(spellID) or spellID <= 0 then
         return nil, nil
     end
-    local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+    local aura = Driver.GetPlayerAuraBySpellID(spellID)
     return aura, Driver.HasAuraResult(aura) and spellID or nil
 end
 

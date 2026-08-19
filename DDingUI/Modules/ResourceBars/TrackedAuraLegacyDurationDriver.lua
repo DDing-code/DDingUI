@@ -31,23 +31,40 @@ local function IsPositivePlainNumber(value)
     return AuraDriver.IsAccessibleNumber(value) and value > 0
 end
 
+local function IsProtectedNumber(value)
+    if AuraDriver.IsSecretValue(value) then return true end
+    return type(value) == "number" and not AuraDriver.IsAccessibleNumber(value)
+end
+
 function Driver.ReadTiming(unit, auraInstanceID)
     if not AuraDriver.HasAuraInstanceID(auraInstanceID)
         or not C_UnitAuras or not C_UnitAuras.GetAuraDataByAuraInstanceID
     then
-        return nil, nil, nil
+        return nil, nil, nil, false
     end
 
     local duration, expirationTime, remaining
+    local protected = false
     local ok = pcall(function()
-        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit or "player", auraInstanceID)
-        if not auraData or AuraDriver.IsSecretValue(auraData) then return end
-
-        if IsPositivePlainNumber(auraData.duration) then
-            duration = auraData.duration
+        local auraData = AuraDriver.GetAuraDataByInstance(unit or "player", auraInstanceID)
+        if not AuraDriver.HasAuraResult(auraData) then return end
+        if AuraDriver.IsSecretValue(auraData) then
+            protected = true
+            return
         end
-        if IsPositivePlainNumber(auraData.expirationTime) then
-            expirationTime = auraData.expirationTime
+
+        local rawDuration = auraData.duration
+        local rawExpirationTime = auraData.expirationTime
+        if IsProtectedNumber(rawDuration) or IsProtectedNumber(rawExpirationTime) then
+            protected = true
+            return
+        end
+
+        if IsPositivePlainNumber(rawDuration) then
+            duration = rawDuration
+        end
+        if IsPositivePlainNumber(rawExpirationTime) then
+            expirationTime = rawExpirationTime
         end
         if expirationTime then
             remaining = expirationTime - GetTime()
@@ -55,9 +72,9 @@ function Driver.ReadTiming(unit, auraInstanceID)
         end
     end)
     if not ok then
-        return nil, nil, nil
+        return nil, nil, nil, true
     end
-    return duration, expirationTime, remaining
+    return duration, expirationTime, remaining, protected
 end
 
 -- GetAuraDuration may return a protected number. Do not inspect it here; callers

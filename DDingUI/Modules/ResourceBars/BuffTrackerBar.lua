@@ -5,7 +5,6 @@ local LSM = LibStub("LibSharedMedia-3.0")
 
 -- 핫패스 글로벌 → 로컬 캐싱 (성능 최적화)
 local GetTime = GetTime
-local C_UnitAuras = C_UnitAuras
 local C_Timer = C_Timer
 local pcall = pcall
 local ipairs = ipairs
@@ -672,7 +671,7 @@ function ResourceBars.AutoDetectAuraValues(cooldownID, fallbackSpellID)
     local autoDetectDebug = BUFF_TRACKER_DEBUG or IsShiftKeyDown()  -- Shift 누르면 항상 디버그
     if spellID then
         local ok, err = pcall(function()
-            local auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+            local auraData = LegacyAuraDriver.GetPlayerAuraBySpellID(spellID)
             if autoDetectDebug then
                 print("|cff00ccff[BT Debug]|r spellID:", spellID)
                 print("|cff00ccff[BT Debug]|r GetPlayerAuraBySpellID:", auraData and "found" or "nil")
@@ -775,13 +774,8 @@ function ResourceBars.AutoDetectAuraValues(cooldownID, fallbackSpellID)
 
     -- 5. AuraData에서 정보 가져오기 (GetAuraDataAutoUnit 방식)
     if HasAuraInstanceID(auraInstanceID) then
-        -- player 먼저 시도, 없으면 target 시도 (CDM 방식)
-        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID("player", auraInstanceID)
-        local unit = "player"
-        if not auraData then
-            auraData = C_UnitAuras.GetAuraDataByAuraInstanceID("target", auraInstanceID)
-            unit = "target"
-        end
+        -- player 먼저 시도, 없으면 target 시도 (fallback driver owns API access)
+        local auraData, unit = LegacyAuraDriver.GetAuraDataAutoUnit(auraInstanceID)
 
         if auraData then
             -- applications은 현재 스택 수
@@ -1734,18 +1728,6 @@ function ResourceBars:GetBuffTrackerBar()
     return bar
 end
 
--- Get buff data by spell ID (uses GetPlayerAuraBySpellID to avoid secret value errors)
-local function GetBuffData(spellID)
-    if not spellID or spellID == 0 then return nil end
-
-    -- Use GetPlayerAuraBySpellID directly (no secret value comparison)
-    local auraData = nil
-    pcall(function()
-        auraData = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-    end)
-    return auraData
-end
-
 -- barFillMode: "stacks" (기본) or "duration"
 -- durationTickPositions: {0.3, 0.5} 같은 비율 배열 (duration 모드용)
 -- showTicks: 구분선 표시 여부 (개별 버프 설정)
@@ -2056,7 +2038,7 @@ SlashCmdList["BTDEBUG"] = function()
     -- Check buff (for buff mode)
     if specCfg and specCfg.spellID and specCfg.spellID > 0 then
         print("|cffffcc00=== Buff Check (buff mode) ===|r")
-        local auraData = C_UnitAuras.GetPlayerAuraBySpellID(specCfg.spellID)
+        local auraData = LegacyAuraDriver.GetPlayerAuraBySpellID(specCfg.spellID)
         print("  - Aura found: " .. tostring(auraData ~= nil))
         if auraData then
             print("  - Aura name: " .. tostring(auraData.name))
@@ -2069,7 +2051,7 @@ SlashCmdList["BTDEBUG"] = function()
     print("|cffffcc00=== Current Player Buffs ===|r")
     local foundAny = false
     for i = 1, 40 do
-        local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+        local aura = LegacyAuraDriver.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
         -- aura.applications 값은 비교하지 않고 그대로 출력
         print(string.format("  [%s] %s - stacks: %s", tostring(aura.spellId or 0), tostring(aura.name or "?"), tostring(aura.applications)))
@@ -2630,15 +2612,12 @@ local function GetAlertAuraTiming(hasData, auraInstanceID, unit)
     if not hasData or not HasAuraInstanceID(auraInstanceID) then return nil, nil, false end
     if IsSecretValue(auraInstanceID) then return nil, nil, true end
 
-    local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit or "player", auraInstanceID)
-    if not auraData or IsSecretValue(auraData) then return nil, nil, true end
-
-    local expirationTime = auraData.expirationTime
-    local duration = auraData.duration
-    if not IsAccessibleNumber(expirationTime) or not IsAccessibleNumber(duration) then
-        return nil, nil, true
+    local durationValue, _, remaining, protected = LegacyDurationDriver.ReadTiming(unit, auraInstanceID)
+    if protected then return nil, nil, true end
+    if not IsAccessibleNumber(remaining) or not IsAccessibleNumber(durationValue) then
+        return nil, nil, false
     end
-    return math_max(0, expirationTime - GetTime()), duration, false
+    return remaining, durationValue, false
 end
 
 -- Evaluate all triggers for a tracked buff, return per-trigger results + combined result.
@@ -3724,7 +3703,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- [12.0.1] 디버그: hasData 판단 결과
     if BUFF_TRACKER_DEBUG and useLegacyAuraData then
         local apiResult = false
-        pcall(function() apiResult = C_UnitAuras.GetPlayerAuraBySpellID(cooldownID) ~= nil end)
+        pcall(function() apiResult = HasAuraResult(LegacyAuraDriver.GetPlayerAuraBySpellID(cooldownID)) end)
         print(string.format("[BT] bar#%s cdID=%s spID=%s frame=%s auraID=%s hasData=%s API=%s",
             tostring(barIndex),
             tostring(cooldownID or 0),
