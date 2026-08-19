@@ -1,0 +1,29 @@
+name: Agent Duration Audit
+
+on:
+  push:
+    branches:
+      - agent/aura-duration-driver
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit legacy duration calls
+        run: |
+          echo '=== C_UnitAuras.GetAuraDuration ==='
+          grep -n 'C_UnitAuras.GetAuraDuration' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua || true
+          echo '=== GetAuraDataByAuraInstanceID ==='
+          grep -n 'GetAuraDataByAuraInstanceID' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua || true
+          echo '=== GetCooldownTimes ==='
+          grep -n 'GetCooldownTimes' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua || true
+          echo '=== MirrorProgress ==='
+          grep -n 'MirrorProgress' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua || true
+          echo '=== SetCooldown ==='
+          grep -n 'SetCooldown' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua || true
+          echo '=== duration section markers ==='
+          grep -n -E 'DYNAMIC DURATION|DURATION MODE|Duration 데이터|Set cooldown swipe' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua || true
