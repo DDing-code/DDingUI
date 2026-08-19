@@ -1,0 +1,35 @@
+name: Agent Aura Fallback Validation
+
+on:
+  pull_request:
+    branches:
+      - agent/aura-fallback-module
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+      - name: Parse changed Lua modules
+        run: |
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraLegacyFallbackDriver.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/BuffTrackerBar.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraLegacyFallback.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraObservationPolicy.lua"))'
+      - name: Enforce fallback boundary
+        run: |
+          grep -q 'local LegacyAuraDriver = DDingUI.TrackedAuraLegacyFallbackDriver' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          grep -q 'LegacyAuraDriver.ResolveStacks' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          ! grep -q 'local function GetBuffStacks(' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          ! grep -q 'local function FindTrackedPlayerAura(' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          ! grep -q 'local function ReadAuraPresentation(' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          ! grep -q 'local function AcceptTrackedFrame(' DDingUI/Modules/ResourceBars/BuffTrackerBar.lua
+          grep -q 'Modules\\ResourceBars\\TrackedAuraLegacyFallbackDriver.lua' DDingUI/DDingUI.toc
+          git diff --check origin/agent/aura-fallback-module...HEAD
