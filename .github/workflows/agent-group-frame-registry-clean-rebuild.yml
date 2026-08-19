@@ -28,9 +28,9 @@ jobs:
           p = Path('.github/scripts/rebuild_group_frame_controller.py')
           s = p.read_text(encoding='utf-8')
           old1 = "hook_start = unique_index('-- [HOOK D] 뷰어별 Layout/Show/Hide', label='layout hook start')"
-          new1 = "hook_start = next(i for i, line in enumerate(lines) if body(line).startswith('-- [HOOK D] 뷰어별 Layout/Show/Hide'))"
+          new1 = "hook_start = next(i for i, line in enumerate(lines) if '[HOOK D]' in body(line) and 'Layout/Show/Hide' in body(line))"
           old2 = "hook_end = unique_index('-- [CDM 패턴 C] Provisional Reparent', start=hook_start + 1, label='layout hook end')"
-          new2 = "hook_end = next(i for i in range(hook_start + 1, len(lines)) if body(lines[i]).startswith('-- [CDM 패턴 C] Provisional Reparent'))"
+          new2 = "hook_end = next(i for i in range(hook_start + 1, len(lines)) if 'Provisional Reparent' in body(lines[i]))"
           assert s.count(old1) == 1 and s.count(old2) == 1
           p.write_text(s.replace(old1, new1, 1).replace(old2, new2, 1), encoding='utf-8')
           PY
@@ -60,8 +60,8 @@ jobs:
           from pathlib import Path
           fc = Path('DDingUI/Modules/GroupSystem/FrameController.lua').read_text(encoding='utf-8')
           scan = fc[fc.index('function FrameController:ScanCDMViewers()'):fc.index('-- 하위 호환 별칭')]
-          layout = fc[fc.index('-- [HOOK D] 뷰어별 Layout/Show/Hide'):fc.index('-- [CDM 패턴 C] Provisional Reparent')]
-          edit = fc[fc.index('function FrameController:EnableEditModeClicks()'):fc.index('-- ============================================================\n-- 그룹 선택 팝업')]
+          layout = fc[fc.index('Layout/Show/Hide'):fc.index('Provisional Reparent')]
+          edit = fc[fc.index('function FrameController:EnableEditModeClicks()'):fc.index('-- 그룹 선택 팝업')]
           assert ':EnumerateActive()' not in scan
           assert ':EnumerateActive()' not in layout
           assert ':EnumerateActive()' not in edit
