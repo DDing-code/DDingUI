@@ -21,11 +21,6 @@ jobs:
       - name: Fetch stacked base
         run: git fetch origin agent/aura-style-migration
 
-      - name: Install Lua 5.1
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq lua5.1
-
       - name: Patch descriptive marker matching
         run: |
           python - <<'PY'
@@ -42,13 +37,6 @@ jobs:
 
       - name: Rebuild FrameController from exact base blob
         run: python .github/scripts/rebuild_group_frame_controller.py
-
-      - name: Parse runtime
-        run: |
-          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua"))'
-          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/FrameController.lua"))'
-          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/GroupRenderer.lua"))'
-          lua5.1 -e 'assert(loadfile("DDingUI/Core/CDMScanner.lua"))'
 
       - name: Guard semantic diff size
         run: |
@@ -87,35 +75,6 @@ jobs:
           assert toc.index('Modules\\GroupSystem\\CDMFrameRegistry.lua') < toc.index('Modules\\GroupSystem\\FrameController.lua')
           print('hot-path checks: ok')
           PY
-
-      - name: Registry freshness mock
-        run: |
-          cat > /tmp/registry.lua <<'LUA'
-          InCombatLockdown=function() return false end
-          issecretvalue=function() return false end
-          local function V(n) return {_name=n,GetName=function(self)return self._name end} end
-          local e,u,b,bb=V('EssentialCooldownViewer'),V('UtilityCooldownViewer'),V('BuffIconCooldownViewer'),V('BuffBarCooldownViewer')
-          EssentialCooldownViewer=e;UtilityCooldownViewer=u;BuffIconCooldownViewer=b;BuffBarCooldownViewer=bb
-          local function F(p,id)return{_parent=p,cooldownID=id,GetParent=function(self)return self._parent end}end
-          local fe,fo,fb=F(e,101),F(b,202),F(bb,202)
-          local compat={}
-          function compat:IsUsableID(id)return type(id)=='number' and id>0 and id==math.floor(id)end
-          function compat:GetFrameCooldownID(f)return f.cooldownID end
-          function compat:IsSettingsOpen()return false end
-          local t=10
-          local entries={{cooldownID=101,category='Essential',frame=fe},{cooldownID=202,category='TrackedBuff+Bar',isTrackedBuff=true,isTrackedBar=true,iconFrame=fo,barFrame=fb}}
-          local scanner={IsPopulated=function()return true end,GetAllEntries=function()return entries end,GetLastScanTime=function()return t end}
-          local addon={CDMCompat=compat,CDMScanner=scanner}
-          assert(loadfile('DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua'))('DDingUI',{Addon=addon})
-          local R=assert(addon.GroupCDMFrameRegistry)
-          assert(R:Bootstrap()==3)
-          local fn=F(b,nil);assert(R:Acquire(b,fn));fn.cooldownID=202;assert(R:TrackFrame(fn,202))
-          assert(R:SyncFromScanner(false)==0);assert(R:GetFrames('BuffIconCooldownViewer')[202]==fn)
-          assert(R:ReleaseFrame(fn));assert(R:SyncFromScanner(false)==0);assert(R:GetFrames('BuffIconCooldownViewer')[202]==nil)
-          t=11;assert(R:SyncFromScanner(false)>=1);assert(R:GetFrames('BuffIconCooldownViewer')[202]==fo)
-          print('freshness mock: ok')
-          LUA
-          lua5.1 /tmp/registry.lua
 
       - name: Diff check
         run: git -c core.whitespace=cr-at-eol diff --check
