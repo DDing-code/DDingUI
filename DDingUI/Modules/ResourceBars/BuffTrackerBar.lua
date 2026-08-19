@@ -3888,7 +3888,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
                     pcall(function()
                         local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
-                        if remaining ~= nil then
+                        if LegacyDurationDriver.HasRemainingDurationValue(remaining) then
 
                             if not data.stacksMode then
                                 self:SetValue(remaining)
@@ -3935,7 +3935,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
                 if not progressCopied and HasAuraInstanceID(auraInstanceID) then
                     pcall(function()
                         local remaining = LegacyDurationDriver.GetRemainingDuration(unit, auraInstanceID)
-                        if remaining ~= nil then
+                        if LegacyDurationDriver.HasRemainingDurationValue(remaining) then
                             bar.StatusBar:SetValue(remaining)
                         end
                     end)
@@ -4003,7 +4003,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
                     pcall(function()
                         local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
-                        if remaining ~= nil then
+                        if LegacyDurationDriver.HasRemainingDurationValue(remaining) then
 
                             -- 스택 모드가 아닐 때만 바 값 업데이트 (Secret value OK)
                             if not data.stacksMode then
@@ -4361,7 +4361,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             pcall(function()
                 if HasAuraInstanceID(auraInstanceID) then
                     initialRemaining = LegacyDurationDriver.GetRemainingDuration(unit, auraInstanceID)
-                    if initialRemaining ~= nil then
+                    if LegacyDurationDriver.HasRemainingDurationValue(initialRemaining) then
                     end
                 elseif isManualMode and manualExpiresAt then
                     initialRemaining = manualExpiresAt - GetTime()
@@ -4782,7 +4782,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                 if bar.TextValue then
                     pcall(function()
                         local secretRemaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
-                        if secretRemaining ~= nil then
+                        if LegacyDurationDriver.HasRemainingDurationValue(secretRemaining) then
                             bar.TextValue:SetFormattedText("%." .. (data.durationDecimals or 1) .. "f", secretRemaining)
                         end
                     end)
@@ -4875,7 +4875,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
                     pcall(function()
                         if HasAuraInstanceID(data.auraID) then
                             local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
-                            if remaining ~= nil then
+                            if LegacyDurationDriver.HasRemainingDurationValue(remaining) then
                                 bar.DurationText:SetFormattedText("%." .. (data.durationDecimals or 1) .. "f", remaining)
                                 -- Warning color
                                 if data.warningEnabled then
@@ -5342,7 +5342,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
                     if not HasAuraInstanceID(data.auraID) then return end
                     pcall(function()
                         local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
-                        if remaining ~= nil then
+                        if LegacyDurationDriver.HasRemainingDurationValue(remaining) then
                             local fmt = GetDecimalFmt(data.durationDecimals or 1)
                             icon.DurationText:SetFormattedText(fmt, remaining)
 
@@ -5902,7 +5902,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
                     if not HasAuraInstanceID(data.auraID) then return end
                     pcall(function()
                         local remaining = LegacyDurationDriver.GetRemainingDuration(data.unit, data.auraID)
-                        if remaining ~= nil then
+                        if LegacyDurationDriver.HasRemainingDurationValue(remaining) then
                             local fmt = GetDecimalFmt(data.durationDecimals or 1)
                             textFrame.DurationText:SetFormattedText(fmt, remaining)
 

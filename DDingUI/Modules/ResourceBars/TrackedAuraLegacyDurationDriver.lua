@@ -81,6 +81,11 @@ function Driver.GetRemainingDuration(unit, auraInstanceID)
     return remaining
 end
 
+function Driver.HasRemainingDurationValue(value)
+    if AuraDriver.IsSecretValue(value) then return true end
+    return value ~= nil
+end
+
 function Driver.GetTimeLeft(unit, auraInstanceID, now)
     local _, expirationTime = Driver.ReadTiming(unit, auraInstanceID)
     if not expirationTime then return nil end
