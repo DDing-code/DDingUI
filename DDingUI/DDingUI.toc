@@ -131,6 +131,7 @@ Modules\ResourceBars\TrackedAuraLegacyDurationDriver.lua
 Modules\ResourceBars\BuffTrackerBar.lua
 Modules\ResourceBars\TrackedAuraProtectedAlerts.lua
 Modules\ResourceBars\ResourceBars.lua
+Modules\ResourceBars\TrackedAuraProfileMigration.lua
 
 # BuffDebuffFrames
 Modules\BuffDebuffFrames\BuffDebuffFrames.lua
