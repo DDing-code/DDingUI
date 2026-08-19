@@ -1,9 +1,9 @@
 name: Agent Duration Audit
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/aura-duration-driver
+      - agent/aura-fallback-driver
 
 permissions:
   contents: read
