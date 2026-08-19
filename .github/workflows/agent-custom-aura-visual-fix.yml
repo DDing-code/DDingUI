@@ -1,0 +1,226 @@
+name: Agent Custom Aura Visual Fix
+
+on:
+  push:
+    branches:
+      - agent/custom-aura-visual-fix
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/custom-aura-visual-fix
+          fetch-depth: 0
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      - name: Patch AuraContainer-owned icon visuals
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua')
+          s = path.read_text(encoding='utf-8')
+
+          old = '''        tostring(style.iconZoom),
+        tostring(style.iconTexture),
+        tostring(style.useAuraIcon),
+        tostring(style.swipeTexture),'''
+          new = '''        tostring(style.iconZoom),
+        tostring(style.iconTexture),
+        tostring(style.useAuraIcon),
+        tostring(style.iconAnimation),
+        ColorPart(style.glowColor),
+        tostring(style.glowLines),
+        tostring(style.glowFrequency),
+        tostring(style.glowThickness),
+        tostring(style.glowXOffset),
+        tostring(style.glowYOffset),
+        tostring(style.glowWhenInactive),
+        tostring(style.swipeTexture),'''
+          assert s.count(old) == 1, 'style signature marker changed'
+          s = s.replace(old, new, 1)
+
+          marker = '''local function CreateIconInitializer(proxy, desired, style)
+    return function(button)
+'''
+          replacement = '''local function StartContainerIconGlow(button, style)
+    if not button or not style or style.glowWhenInactive == true then return end
+
+    local animation = style.iconAnimation or "glow"
+    if animation == "none" or animation == "hover" or animation == "pulse"
+        or animation == "flash" or animation == "spin"
+    then
+        return
+    end
+
+    local SL = _G.DDingUI_StyleLib
+    if not SL then return end
+
+    local overlay = CreateFrame("Frame", nil, button)
+    overlay:SetAllPoints(button)
+    overlay:SetFrameLevel(button:GetFrameLevel() + 6)
+    overlay:EnableMouse(false)
+    overlay:Show()
+
+    local color = style.glowColor or { 1, 0.9, 0.5, 1 }
+    local lines = math.floor(tonumber(style.glowLines) or 8)
+    local frequency = tonumber(style.glowFrequency) or 0.25
+    local thickness = tonumber(style.glowThickness) or 2
+    local xOffset = tonumber(style.glowXOffset) or 0
+    local yOffset = tonumber(style.glowYOffset) or 0
+
+    if animation == "pixel" or animation == "shine" then
+        if SL.ShowPixelGlow then
+            SL.ShowPixelGlow(overlay, color, lines, frequency, nil, thickness, xOffset, yOffset)
+        end
+    elseif animation == "autocast" then
+        if SL.ShowAutocastGlow then
+            SL.ShowAutocastGlow(overlay, color, lines, frequency, thickness, xOffset, yOffset)
+        end
+    elseif animation == "proc" then
+        local LCG = LibStub("LibCustomGlow-1.0", true)
+        if LCG and LCG.ProcGlow_Start then
+            LCG.ProcGlow_Start(overlay, {
+                color = color,
+                duration = frequency,
+                startAnim = true,
+            })
+        end
+    else
+        -- Legacy "glow" and explicit "button" both use button glow.
+        if SL.ShowButtonGlow then
+            SL.ShowButtonGlow(overlay, color, frequency)
+        end
+    end
+end
+
+local function CreateIconInitializer(proxy, desired, style)
+    return function(button)
+'''
+          assert s.count(marker) == 1, 'icon initializer marker changed'
+          s = s.replace(marker, replacement, 1)
+
+          old = '''        if style.showDurationText then
+            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
+        end
+        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
+    end
+end
+
+local function CreateRingInitializer'''
+          new = '''        if style.showDurationText then
+            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
+        end
+        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
+        StartContainerIconGlow(button, style)
+    end
+end
+
+local function CreateRingInitializer'''
+          assert s.count(old) == 1, 'icon initializer tail changed'
+          s = s.replace(old, new, 1)
+
+          old = '''    if host.Cooldown then host.Cooldown:SetAlpha(1) end
+    if host.StackText then host.StackText:SetAlpha(1) end
+    if host.Text then host.Text:SetAlpha(1) end
+'''
+          new = '''    if host.Cooldown then host.Cooldown:SetAlpha(1) end
+    if host.StackText then host.StackText:SetAlpha(1) end
+    if host.Border then host.Border:SetAlpha(1) end
+    if host.Glow then host.Glow:SetAlpha(1) end
+    if host.Text then host.Text:SetAlpha(1) end
+'''
+          assert s.count(old) == 1, 'legacy restore marker changed'
+          s = s.replace(old, new, 1)
+
+          old = '''    elseif displayType == "icon" then
+        if host.Cooldown then host.Cooldown:SetAlpha(0) end
+        if host.StackText then host.StackText:SetAlpha(0) end
+        if host.DurationText then host.DurationText:SetAlpha(0) end
+        if type(style) == "table" and not style.preserveInactive and host.Texture then
+            host.Texture:SetAlpha(0)
+        end
+'''
+          new = '''    elseif displayType == "icon" then
+        if host.Cooldown then host.Cooldown:SetAlpha(0) end
+        if host.StackText then host.StackText:SetAlpha(0) end
+        if host.DurationText then host.DurationText:SetAlpha(0) end
+        if type(style) == "table" and not style.preserveInactive then
+            if host.Texture then host.Texture:SetAlpha(0) end
+            if host.Border then host.Border:SetAlpha(0) end
+            if host.Glow then host.Glow:SetAlpha(0) end
+        end
+'''
+          assert s.count(old) == 1, 'legacy icon hide marker changed'
+          s = s.replace(old, new, 1)
+
+          marker = '''        self:Detach(tracker, bar)
+        return false
+    end
+
+    local signature = StyleSignature(style)
+'''
+          replacement = '''        self:Detach(tracker, bar)
+        return false
+    end
+
+    -- The legacy icon updater intentionally receives no readable protected
+    -- aura state on the AuraContainer path. Move active icon glow styling into
+    -- the AuraButton creation callback instead of inferring aura activity.
+    if style.displayType == "icon" then
+        local settings = tracker.settings or {}
+        style.iconAnimation = settings.iconAnimation or "glow"
+        style.glowColor = settings.glowColor or { 1, 0.9, 0.5, 1 }
+        style.glowLines = settings.glowLines or 8
+        style.glowFrequency = settings.glowFrequency or 0.25
+        style.glowThickness = settings.glowThickness or 2
+        style.glowXOffset = settings.glowXOffset or 0
+        style.glowYOffset = settings.glowYOffset or 0
+        style.glowWhenInactive = settings.glowWhenInactive == true
+    end
+
+    local signature = StyleSignature(style)
+'''
+          assert s.count(marker) == 1, 'Attach style marker changed'
+          s = s.replace(marker, replacement, 1)
+
+          path.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validate runtime boundary
+        run: |
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/BuffTrackerBar.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/ResourceBars/TrackedAuraProtectedAlerts.lua"))'
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua').read_text(encoding='utf-8')
+          assert 'if host.Border then host.Border:SetAlpha(0) end' in s
+          assert 'if host.Glow then host.Glow:SetAlpha(0) end' in s
+          assert 'StartContainerIconGlow(button, style)' in s
+          assert 'style.iconAnimation = settings.iconAnimation or "glow"' in s
+          assert 'tostring(style.iconAnimation)' in s
+          assert 'C_UnitAuras' not in s
+          assert 'GetAuraDataByAuraInstanceID' not in s
+          assert 'GetAuraDuration' not in s
+          print('custom aura visual boundary: ok')
+          PY
+          git -c core.whitespace=cr-at-eol diff --check
+
+      - name: Commit runtime fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DDingUI/Modules/ResourceBars/TrackedAuraContainer.lua
+          git commit -m "fix(custom-aura): restore container icon glow and border lifecycle"
+          git push origin HEAD:agent/custom-aura-visual-fix
