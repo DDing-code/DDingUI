@@ -21,18 +21,24 @@ jobs:
       - name: Fetch stacked base
         run: git fetch origin agent/aura-style-migration
 
-      - name: Patch descriptive marker matching
+      - name: Patch transformer marker matching
         run: |
           python - <<'PY'
           from pathlib import Path
           p = Path('.github/scripts/rebuild_group_frame_controller.py')
           s = p.read_text(encoding='utf-8')
-          old1 = "hook_start = unique_index('-- [HOOK D] 뷰어별 Layout/Show/Hide', label='layout hook start')"
-          new1 = "hook_start = next(i for i, line in enumerate(lines) if '[HOOK D]' in body(line) and 'Layout/Show/Hide' in body(line))"
-          old2 = "hook_end = unique_index('-- [CDM 패턴 C] Provisional Reparent', start=hook_start + 1, label='layout hook end')"
-          new2 = "hook_end = next(i for i in range(hook_start + 1, len(lines)) if 'Provisional Reparent' in body(lines[i]))"
-          assert s.count(old1) == 1 and s.count(old2) == 1
-          p.write_text(s.replace(old1, new1, 1).replace(old2, new2, 1), encoding='utf-8')
+          replacements = {
+              "hook_start = unique_index('-- [HOOK D] 뷰어별 Layout/Show/Hide', label='layout hook start')":
+                  "hook_start = next(i for i, line in enumerate(lines) if '[HOOK D]' in body(line) and 'Layout/Show/Hide' in body(line))",
+              "hook_end = unique_index('-- [CDM 패턴 C] Provisional Reparent', start=hook_start + 1, label='layout hook end')":
+                  "hook_end = next(i for i in range(hook_start + 1, len(lines)) if 'Provisional Reparent' in body(lines[i]))",
+              "        end_idx = unique_index(marker_first, start=start_idx + 1, label='edit marker')":
+                  "        end_idx = start_idx + 1",
+          }
+          for old, new in replacements.items():
+              assert s.count(old) == 1, old
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
           PY
 
       - name: Rebuild FrameController from exact base blob
