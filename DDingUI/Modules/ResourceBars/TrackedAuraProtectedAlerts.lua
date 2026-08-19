@@ -10,12 +10,10 @@ if not ResourceBars or not Engine or not Engine.IsBound then return end
 -- bind that state to approved visual sinks, but it must not infer the same state
 -- again through legacy CDM/aura reads just to drive arbitrary alert actions.
 --
--- For a container-owned tracker we therefore remove aura-dependent triggers
--- from the alert evaluation view. Explicit actions bound to non-aura triggers
--- (currently combat, plus any future non-aura trigger types) are preserved and
--- their trigger indexes are remapped. Combined `any` actions are suppressed when
--- protected triggers are present because their truth value is no longer fully
--- observable without risking false positives.
+-- Filter the entire protected display path, including the first pre-bind pass.
+-- If AuraContainer later fails, TrackedAuraObservationPolicy marks the tracker as
+-- a legacy fallback and this wrapper automatically stops filtering that pass.
+-- Explicit actions bound to non-aura triggers are preserved and remapped.
 
 local AURA_DEPENDENT_TRIGGER = {
     active = true,
@@ -94,8 +92,15 @@ local function BuildSafeAlerts(tracker, alerts)
     return safeAlerts
 end
 
+local function ShouldFilterProtectedAlerts(tracker)
+    if Engine.IsProtectedDisplayPath then
+        return Engine:IsProtectedDisplayPath(tracker)
+    end
+    return Engine:IsBound(tracker)
+end
+
 local function CallWithProtectedAlertsFiltered(original, self, barIndex, tracker, globalCfg)
-    if not tracker or not Engine:IsBound(tracker) then
+    if not tracker or not ShouldFilterProtectedAlerts(tracker) then
         return original(self, barIndex, tracker, globalCfg)
     end
 
