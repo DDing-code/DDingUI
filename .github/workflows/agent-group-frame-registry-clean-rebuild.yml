@@ -1,0 +1,116 @@
+name: Agent Group Frame Registry Clean Rebuild
+
+on:
+  pull_request:
+    branches:
+      - agent/aura-style-migration
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    if: github.event.pull_request.head.ref == 'agent/group-frame-registry' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/group-frame-registry
+          fetch-depth: 0
+
+      - name: Fetch stacked base
+        run: git fetch origin agent/aura-style-migration
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      - name: Rebuild FrameController from exact base blob
+        run: python .github/scripts/rebuild_group_frame_controller.py
+
+      - name: Parse runtime
+        run: |
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/FrameController.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/GroupRenderer.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Core/CDMScanner.lua"))'
+
+      - name: Guard semantic diff size
+        run: |
+          python - <<'PY'
+          import subprocess
+          out = subprocess.check_output([
+              'git', 'diff', '--numstat', 'origin/agent/aura-style-migration', '--',
+              'DDingUI/Modules/GroupSystem/FrameController.lua'
+          ], text=True).strip()
+          assert out, 'FrameController has no changes'
+          added, deleted, path = out.split('\t')
+          added, deleted = int(added), int(deleted)
+          print(f'FrameController semantic diff: +{added}/-{deleted}')
+          assert added < 200, f'unexpectedly large additions: {added}'
+          assert deleted < 250, f'unexpectedly large deletions: {deleted}'
+          PY
+
+      - name: Static hot-path checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          fc = Path('DDingUI/Modules/GroupSystem/FrameController.lua').read_text(encoding='utf-8')
+          scan = fc[fc.index('function FrameController:ScanCDMViewers()'):fc.index('-- 하위 호환 별칭')]
+          layout = fc[fc.index('-- [HOOK D] 뷰어별 Layout/Show/Hide'):fc.index('-- [CDM 패턴 C] Provisional Reparent')]
+          edit = fc[fc.index('function FrameController:EnableEditModeClicks()'):fc.index('-- ============================================================\n-- 그룹 선택 팝업')]
+          assert ':EnumerateActive()' not in scan
+          assert ':EnumerateActive()' not in layout
+          assert ':EnumerateActive()' not in edit
+          assert 'FrameRegistry:Refresh(viewerRefs)' in scan
+          assert 'FrameRegistry:Acquire(viewer, frame)' in fc
+          assert 'FrameRegistry:ReleaseFrame(frame, globalName)' in fc
+          assert 'FrameRegistry:TrackFrame(itemFrame, safeCooldownID)' in fc
+          assert 'SetFrameParentIfNeeded' in fc
+          assert 'local function BuffFrameHasPlayerAura' not in fc
+          toc = Path('DDingUI/DDingUI.toc').read_text(encoding='utf-8')
+          assert toc.index('Modules\\GroupSystem\\CDMFrameRegistry.lua') < toc.index('Modules\\GroupSystem\\FrameController.lua')
+          print('hot-path checks: ok')
+          PY
+
+      - name: Registry freshness mock
+        run: |
+          cat > /tmp/registry.lua <<'LUA'
+          InCombatLockdown=function() return false end
+          issecretvalue=function() return false end
+          local function V(n) return {_name=n,GetName=function(self)return self._name end} end
+          local e,u,b,bb=V('EssentialCooldownViewer'),V('UtilityCooldownViewer'),V('BuffIconCooldownViewer'),V('BuffBarCooldownViewer')
+          EssentialCooldownViewer=e;UtilityCooldownViewer=u;BuffIconCooldownViewer=b;BuffBarCooldownViewer=bb
+          local function F(p,id)return{_parent=p,cooldownID=id,GetParent=function(self)return self._parent end}end
+          local fe,fo,fb=F(e,101),F(b,202),F(bb,202)
+          local compat={}
+          function compat:IsUsableID(id)return type(id)=='number' and id>0 and id==math.floor(id)end
+          function compat:GetFrameCooldownID(f)return f.cooldownID end
+          function compat:IsSettingsOpen()return false end
+          local t=10
+          local entries={{cooldownID=101,category='Essential',frame=fe},{cooldownID=202,category='TrackedBuff+Bar',isTrackedBuff=true,isTrackedBar=true,iconFrame=fo,barFrame=fb}}
+          local scanner={IsPopulated=function()return true end,GetAllEntries=function()return entries end,GetLastScanTime=function()return t end}
+          local addon={CDMCompat=compat,CDMScanner=scanner}
+          assert(loadfile('DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua'))('DDingUI',{Addon=addon})
+          local R=assert(addon.GroupCDMFrameRegistry)
+          assert(R:Bootstrap()==3)
+          local fn=F(b,nil);assert(R:Acquire(b,fn));fn.cooldownID=202;assert(R:TrackFrame(fn,202))
+          assert(R:SyncFromScanner(false)==0);assert(R:GetFrames('BuffIconCooldownViewer')[202]==fn)
+          assert(R:ReleaseFrame(fn));assert(R:SyncFromScanner(false)==0);assert(R:GetFrames('BuffIconCooldownViewer')[202]==nil)
+          t=11;assert(R:SyncFromScanner(false)>=1);assert(R:GetFrames('BuffIconCooldownViewer')[202]==fo)
+          print('freshness mock: ok')
+          LUA
+          lua5.1 /tmp/registry.lua
+
+      - name: Diff check
+        run: git -c core.whitespace=cr-at-eol diff --check
+
+      - name: Commit clean runtime
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DDingUI/Modules/GroupSystem/FrameController.lua
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "refactor(group-system): clean registry integration diff"
+          git push origin HEAD:agent/group-frame-registry
