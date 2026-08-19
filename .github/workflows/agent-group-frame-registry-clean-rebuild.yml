@@ -34,6 +34,8 @@ jobs:
                   "hook_end = next(i for i in range(hook_start + 1, len(lines)) if 'Provisional Reparent' in body(lines[i]))",
               "        end_idx = unique_index(marker_first, start=start_idx + 1, label='edit marker')":
                   "        end_idx = start_idx + 1",
+              "            if candidate + 1 < len(lines) and body(lines[candidate + 1]) == expected_next:":
+                  "            if candidate + 1 < len(lines) and body(lines[candidate + 1]).startswith(expected_next):",
           }
           for old, new in replacements.items():
               assert s.count(old) == 1, old
@@ -67,7 +69,7 @@ jobs:
           fc = Path('DDingUI/Modules/GroupSystem/FrameController.lua').read_text(encoding='utf-8')
           scan = fc[fc.index('function FrameController:ScanCDMViewers()'):fc.index('-- 하위 호환 별칭')]
           layout = fc[fc.index('Layout/Show/Hide'):fc.index('Provisional Reparent')]
-          edit = fc[fc.index('function FrameController:EnableEditModeClicks()'):fc.index('-- 그룹 선택 팝업')]
+          edit = fc[fc.index('function FrameController:EnableEditModeClicks()'):fc.index('function FrameController:ShowGroupAssignPopup(icon)')]
           assert ':EnumerateActive()' not in scan
           assert ':EnumerateActive()' not in layout
           assert ':EnumerateActive()' not in edit
