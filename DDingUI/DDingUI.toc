@@ -130,6 +130,7 @@ Modules\ResourceBars\TrackedAuraLegacyFallbackDriver.lua
 Modules\ResourceBars\TrackedAuraLegacyDurationDriver.lua
 Modules\ResourceBars\BuffTrackerBar.lua
 Modules\ResourceBars\TrackedAuraProtectedAlerts.lua
+Modules\ResourceBars\TrackedAuraProtectedGlow.lua
 Modules\ResourceBars\ResourceBars.lua
 Modules\ResourceBars\TrackedAuraProfileMigration.lua
 
