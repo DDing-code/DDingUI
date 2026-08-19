@@ -127,6 +127,7 @@ Modules\ResourceBars\TrackedAuraObservationPolicy.lua
 Modules\ResourceBars\TrackedAuraLegacyFallback.lua
 Modules\ResourceBars\TrackedAuraFrameResolver.lua
 Modules\ResourceBars\TrackedAuraLegacyFallbackDriver.lua
+Modules\ResourceBars\TrackedAuraLegacyDurationDriver.lua
 Modules\ResourceBars\BuffTrackerBar.lua
 Modules\ResourceBars\TrackedAuraProtectedAlerts.lua
 Modules\ResourceBars\ResourceBars.lua
