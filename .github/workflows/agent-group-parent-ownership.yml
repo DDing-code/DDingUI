@@ -1,0 +1,239 @@
+name: Agent Group Parent Ownership Refactor
+
+on:
+  pull_request:
+    branches:
+      - agent/group-frame-registry
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: github.event.pull_request.head.ref == 'agent/group-parent-ownership' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/group-parent-ownership
+          fetch-depth: 0
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      - name: Centralize parent ownership mutations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('DDingUI/Modules/GroupSystem/FrameController.lua')
+          with path.open('r', encoding='utf-8', newline='') as f:
+              lines = f.readlines()
+
+          def body(line):
+              return line.rstrip('\r\n')
+
+          def eol(line):
+              if line.endswith('\r\n'):
+                  return '\r\n'
+              if line.endswith('\n'):
+                  return '\n'
+              if line.endswith('\r'):
+                  return '\r'
+              return '\n'
+
+          def find_exact(text, start=0):
+              hits = [i for i in range(start, len(lines)) if body(lines[i]) == text]
+              assert len(hits) == 1, f'{text!r}: expected 1 match, got {len(hits)}'
+              return hits[0]
+
+          def find_contains(text, start=0):
+              for i in range(start, len(lines)):
+                  if text in body(lines[i]):
+                      return i
+              raise AssertionError(f'not found: {text}')
+
+          def replace_range(start, end, new_bodies):
+              ending = eol(lines[start]) if start < len(lines) else '\n'
+              lines[start:end] = [text + ending for text in new_bodies]
+
+          # 1) OnShow anchor recovery may repair points immediately, but parent ownership
+          #    is deferred to the normal Reconcile -> SetupFrameInContainer path.
+          removed_onshow = 0
+          i = 0
+          while i < len(lines):
+              if body(lines[i]).strip() == 'SetFrameParentIfNeeded(self, UIParent)':
+                  del lines[i]
+                  removed_onshow += 1
+                  continue
+              i += 1
+          assert removed_onshow == 2, f'expected 2 OnShow parent repairs, got {removed_onshow}'
+
+          # 2) OnAcquire resets management state first. The old immediate reparent block
+          #    was both redundant and a parent mutation inside Blizzard's acquire stack.
+          start = find_contains('-- 이미 managed 프레임이면 즉시 re-parent')
+          end = find_contains('-- 블리자드 CDM이 프레임을 풀에서 꺼낼 때', start + 1)
+          replace_range(start, end, [
+              '            -- Parent ownership is never changed inside Blizzard acquire hooks.',
+              '            -- Reconcile will classify the frame and SetupFrameInContainer() will',
+              '            -- claim UIParent only after the acquire/layout stack has completed.',
+              '',
+          ])
+
+          # 3) Layout hook no longer walks managed frames to take their parent back inline.
+          #    A zero-delay Reconcile detects parent drift and performs the repair centrally.
+          hook_d = find_contains('-- [HOOK D]')
+          layout_fix = find_contains('-- [FIX] Layout 후 managed 아이콘이 viewer 자식으로 복귀했는지 체크', hook_d)
+          schedule = find_exact('                    ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)', layout_fix)
+          replace_range(layout_fix, schedule + 1, [
+              '                    -- Blizzard may restore a managed frame to the viewer during Layout.',
+              '                    -- Do not SetParent from inside the Layout hook. ScanCDMViewers()',
+              '                    -- records ownership drift and the deferred Reconcile lets',
+              '                    -- SetupFrameInContainer() repair it after Blizzard is finished.',
+              '                    ScheduleReconcile(0, true)',
+          ])
+
+          # 4) Provisional handling must not claim parent/geometry before classification has
+          #    completed. Hide the candidate until Reconcile assigns its final owner instead.
+          provisional = find_contains('-- [CDM 패턴 C] Provisional Reparent')
+          hook_e = find_contains('-- [HOOK E]', provisional + 1)
+          replace_range(provisional, hook_e, [
+              '    -- [CDM OWNERSHIP] Provisional hide — never reparent an unowned Blizzard frame.',
+              '    -- The candidate stays under its Blizzard viewer until Reconcile classifies it.',
+              '    local function ProvisionalHide(frame)',
+              '        if not frame then return end',
+              '        if IsCooldownViewerSettingsOpen() then return end',
+              '        if frame._ddIsManaged or frame.isEditing then return end',
+              '',
+              '        local cooldownID = GetSafeFrameCooldownID(frame)',
+              '        if not IsSafeNumber(cooldownID) then return end',
+              '',
+              '        local GroupManager = DDingUI.GroupManager',
+              '        if not GroupManager then return end',
+              '        local groupName = GroupManager:ClassifyIcon(cooldownID)',
+              '        if not groupName then return end',
+              '',
+              '        frame._ddProvisionalHidden = true',
+              '        if frame.SetAlpha then',
+              '            frame:SetAlpha(0)',
+              '        end',
+              '    end',
+              '',
+          ])
+
+          # Rename the remaining provisional calls/comments.
+          for i, line in enumerate(lines):
+              text = body(line)
+              if 'ProvisionalReparent(frame)' in text:
+                  lines[i] = line.replace('ProvisionalReparent(frame)', 'ProvisionalHide(frame)')
+              elif 'provisional reparent' in text:
+                  lines[i] = line.replace('provisional reparent', 'provisional hide')
+
+          # 5) OnCooldownIDSet managed branches used to SetParent inline. Remove only the
+          #    parent-repair sub-blocks; alpha restoration and provisional handling stay.
+          hook_e = find_contains('-- [HOOK E]')
+          hook_g = find_contains('-- [HOOK G]', hook_e + 1)
+          removed_parent_blocks = 0
+          i = hook_e
+          while i < hook_g:
+              text = body(lines[i])
+              if text.strip() == 'local parent = frame:GetParent()':
+                  indent = text[:len(text) - len(text.lstrip(' '))]
+                  j = i + 1
+                  while j < hook_g and body(lines[j]) != indent + 'end':
+                      j += 1
+                  assert j < hook_g, 'managed parent repair block did not terminate'
+                  ending = eol(lines[i])
+                  lines[i:j + 1] = [indent + '-- Parent repair is deferred to Reconcile -> SetupFrameInContainer().' + ending]
+                  removed_parent_blocks += 1
+                  hook_g = find_contains('-- [HOOK G]', i + 1)
+              i += 1
+          assert removed_parent_blocks == 3, f'expected 3 cooldown parent blocks, got {removed_parent_blocks}'
+
+          # 6) Update stale ownership comments around the two lifecycle mutation points.
+          for i, line in enumerate(lines):
+              text = body(line)
+              if text.strip() == '-- 2. SetParent(UIParent) + 컨테이너 참조 저장 -- [REPARENT]':
+                  ending = eol(line)
+                  lines[i] = text.replace('SetParent(UIParent) + 컨테이너 참조 저장 -- [REPARENT]', 'parent ownership claim + 컨테이너 참조 저장') + ending
+              elif text.strip() == '-- [REPARENT] 원래 parent로 복원 (핵심 — CDM 뷰어로 되돌리기)':
+                  ending = eol(line)
+                  lines[i] = text.replace('-- [REPARENT] 원래 parent로 복원 (핵심 — CDM 뷰어로 되돌리기)', '-- parent ownership release: 원래 Blizzard viewer로 복원') + ending
+              elif text.strip() == '-- 프레임 훅 설치 (Blizzard CDM 탈환 방지)':
+                  ending = eol(line)
+                  lines[i] = text.replace('Blizzard CDM 탈환 방지', 'managed geometry 복원') + ending
+              elif text.strip() == '-- SetParent 후 CDM이 ClearAllPoints/SetScale/SetSize를 호출하면 snap-back':
+                  ending = eol(line)
+                  lines[i] = text.replace('SetParent 후 CDM이', 'CDM이 managed 프레임에') + ending
+
+          with path.open('w', encoding='utf-8', newline='') as f:
+              f.writelines(lines)
+          PY
+
+      - name: Validate Lua syntax
+        run: |
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/FrameController.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/GroupRenderer.lua"))'
+          lua5.1 -e 'assert(loadfile("DDingUI/Modules/GroupSystem/CDMFrameRegistry.lua"))'
+
+      - name: Validate parent ownership boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          fc = Path('DDingUI/Modules/GroupSystem/FrameController.lua').read_text(encoding='utf-8')
+
+          calls = [line.strip() for line in fc.splitlines() if 'SetFrameParentIfNeeded(' in line]
+          assert len(calls) == 3, calls
+          assert calls[0].startswith('local function SetFrameParentIfNeeded')
+          assert calls[1] == 'SetFrameParentIfNeeded(frame, UIParent)'
+          assert calls[2] == 'SetFrameParentIfNeeded(frame, orig.parent)'
+
+          setup = fc[fc.index('function FrameController:SetupFrameInContainer'):fc.index('function FrameController:ReleaseFrameFromContainer')]
+          release = fc[fc.index('function FrameController:ReleaseFrameFromContainer'):fc.index('function FrameController:InstallFrameHooks')]
+          acquire = fc[fc.index('CooldownViewerMixin.OnAcquireItemFrame'):fc.index('-- [HOOK C]')]
+          layout = fc[fc.index('-- [HOOK D]'):fc.index('-- [CDM OWNERSHIP] Provisional hide')]
+          cooldown = fc[fc.index('-- [HOOK E]'):fc.index('-- [HOOK G]')]
+
+          assert 'SetFrameParentIfNeeded(frame, UIParent)' in setup
+          assert 'SetFrameParentIfNeeded(frame, orig.parent)' in release
+          assert 'SetFrameParentIfNeeded' not in acquire
+          assert 'SetFrameParentIfNeeded' not in layout
+          assert 'SetFrameParentIfNeeded' not in cooldown
+          assert 'ProvisionalReparent' not in fc
+          assert 'local function ProvisionalHide(frame)' in fc
+          assert 'ScheduleReconcile(0, true)' in layout
+          assert 'placementDrifted' in fc
+
+          direct = [line.strip() for line in fc.splitlines() if ':SetParent(' in line]
+          assert direct == ['frame:SetParent(parent)'], direct
+          print('parent ownership boundary: ok')
+          PY
+
+      - name: Guard semantic diff size
+        run: |
+          python - <<'PY'
+          import subprocess
+          out = subprocess.check_output([
+              'git', 'diff', '--numstat', 'origin/agent/group-frame-registry', '--',
+              'DDingUI/Modules/GroupSystem/FrameController.lua'
+          ], text=True).strip()
+          assert out, 'FrameController has no changes'
+          added, deleted, _ = out.split('\t')
+          added, deleted = int(added), int(deleted)
+          print(f'FrameController Phase 12 diff: +{added}/-{deleted}')
+          assert added < 90, added
+          assert deleted < 150, deleted
+          PY
+
+      - name: Diff check
+        run: git -c core.whitespace=cr-at-eol diff --check
+
+      - name: Commit runtime refactor
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DDingUI/Modules/GroupSystem/FrameController.lua
+          git commit -m "refactor(group-system): defer Blizzard parent ownership repairs"
+          git push origin HEAD:agent/group-parent-ownership
