@@ -54,7 +54,7 @@ jobs:
           assert 'local function BuffFrameHasPlayerAura' not in fc
           print('semantic boundaries: ok')
           PY
-          git diff --check
+          git -c core.whitespace=cr-at-eol diff --check
 
       - name: Registry freshness smoke
         run: |
