@@ -4361,13 +4361,13 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             pcall(function()
                 if HasAuraInstanceID(auraInstanceID) then
                     initialRemaining = LegacyDurationDriver.GetRemainingDuration(unit, auraInstanceID)
-                    if LegacyDurationDriver.HasRemainingDurationValue(initialRemaining) then
-                    end
                 elseif isManualMode and manualExpiresAt then
                     initialRemaining = manualExpiresAt - GetTime()
                 end
             end)
-            if initialRemaining and initialRemaining <= durationWarningThreshold then
+            if IsAccessibleNumber(initialRemaining)
+                and initialRemaining <= durationWarningThreshold
+            then
                 initialColor = durationWarningColor
             end
         end
