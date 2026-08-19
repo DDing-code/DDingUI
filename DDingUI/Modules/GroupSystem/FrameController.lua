@@ -6,6 +6,10 @@ local DDingUI = ns.Addon
 if not DDingUI then return end
 local SL = _G.DDingUI_StyleLib
 local CDMCompat = DDingUI.CDMCompat
+local FrameRegistry = DDingUI.GroupCDMFrameRegistry
+if not FrameRegistry then
+    error("DDingUI: GroupCDMFrameRegistry must load before FrameController.lua")
+end
 
 local FrameController = {}
 DDingUI.FrameController = FrameController
@@ -221,7 +225,25 @@ local state = {
     -- 통계
     reconcileCount = 0,
 }
-FrameController._diagCounters = { activeStateChanged = 0, cooldownIDSet = 0, poolRelease = 0 }
+FrameController._diagCounters = {
+    activeStateChanged = 0,
+    cooldownIDSet = 0,
+    poolRelease = 0,
+    registryScans = 0,
+    parentChanges = 0,
+    parentNoops = 0,
+}
+
+local function SetFrameParentIfNeeded(frame, parent)
+    if not frame or not parent or not frame.GetParent or not frame.SetParent then return false end
+    if frame:GetParent() == parent then
+        FrameController._diagCounters.parentNoops = FrameController._diagCounters.parentNoops + 1
+        return false
+    end
+    frame:SetParent(parent)
+    FrameController._diagCounters.parentChanges = FrameController._diagCounters.parentChanges + 1
+    return true
+end
 
 -- ============================================================
 -- Reconcile requests share one frame driver. The driver exists only while
@@ -475,6 +497,7 @@ local function FindViewers()
         local viewer = _G[def.globalName]
         if viewer and viewer.itemFramePool then
             viewerRefs[def.globalName] = viewer
+            FrameRegistry:RegisterViewer(def.globalName, viewer)
             if CDMCompat then CDMCompat:TrackViewerPool(viewer) end
             found = found + 1
         end
@@ -491,6 +514,7 @@ function FrameController:RefreshViewerRefs()
     for _, def in pairs(CDM_VIEWERS) do
         local currentViewer = _G[def.globalName]
         if currentViewer and currentViewer.itemFramePool then
+            FrameRegistry:RegisterViewer(def.globalName, currentViewer)
             if CDMCompat then CDMCompat:TrackViewerPool(currentViewer) end
             local oldViewer = viewerRefs[def.globalName]
             if oldViewer ~= currentViewer then
@@ -585,70 +609,6 @@ local function GetCooldownInfoSpellID(info)
         return sid
     end
     return nil
-end
-
-local function AddAuraCandidate(list, seen, value)
-    if IsSafeNumber(value) and value > 0 and not seen[value] then
-        seen[value] = true
-        list[#list + 1] = value
-    end
-end
-
-local function AddLinkedAuraCandidates(list, seen, linkedSpellIDs)
-    if type(linkedSpellIDs) ~= "table" then return end
-    pcall(function()
-        for _, linkedID in ipairs(linkedSpellIDs) do
-            AddAuraCandidate(list, seen, linkedID)
-        end
-    end)
-end
-
-local function AddCooldownInfoAuraCandidates(list, seen, info)
-    if type(info) ~= "table" then return end
-    AddAuraCandidate(list, seen, SafeTableField(info, "overrideTooltipSpellID"))
-    AddAuraCandidate(list, seen, SafeTableField(info, "overrideSpellID"))
-    AddAuraCandidate(list, seen, SafeTableField(info, "spellID"))
-    AddLinkedAuraCandidates(list, seen, SafeTableField(info, "linkedSpellIDs"))
-end
-
-local function BuffFrameHasPlayerAura(frame)
-    if not frame then return nil end
-
-    local candidates = {}
-    local seen = {}
-
-    if CDMCompat then
-        AddAuraCandidate(candidates, seen, CDMCompat:ResolveFrameSpellID(frame))
-        AddCooldownInfoAuraCandidates(candidates, seen, CDMCompat:GetFrameCooldownInfo(frame))
-    end
-
-    if not CDMCompat and frame.GetAuraSpellID then
-        local ok, sid = pcall(frame.GetAuraSpellID, frame)
-        if ok then AddAuraCandidate(candidates, seen, sid) end
-    end
-
-    local okAura, auraSpellID = pcall(function() return frame.auraSpellID end)
-    if okAura then
-        AddAuraCandidate(candidates, seen, auraSpellID)
-    end
-
-    if #candidates == 0 then
-        return nil
-    end
-
-    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-        for _, sid in ipairs(candidates) do
-            local auraData
-            local ok = pcall(function()
-                auraData = C_UnitAuras.GetPlayerAuraBySpellID(sid)
-            end)
-            if ok and auraData then
-                return true
-            end
-        end
-    end
-
-    return false
 end
 
 local function HideManagedBorderLayers(frame)
@@ -822,6 +782,7 @@ if not FrameController._poolReleaseHooked then
         -- Pool.Release: dirty만 표시 (Reconcile 즉시 트리거 안 함 → Layout 완료 후 Reconcile)
         -- Pool.Release는 CDM Layout 중간에 발생 → 즉시 Reconcile하면 미완성 상태 스캔
         hooksecurefunc(viewer.itemFramePool, "Release", function(_, frame)
+            FrameRegistry:ReleaseFrame(frame, globalName)
             if CDMCompat then
                 CDMCompat:ForgetFrame(frame)
             end
@@ -1023,6 +984,9 @@ function FrameController:ScanCDMViewers()
         return false
     end
 
+    FrameRegistry:Refresh(viewerRefs)
+    FrameController._diagCounters.registryScans = FrameController._diagCounters.registryScans + 1
+
     local previousCount = 0
     for _ in pairs(idIconMap) do previousCount = previousCount + 1 end
 
@@ -1057,15 +1021,15 @@ function FrameController:ScanCDMViewers()
 
         -- [FIX] cooldownID + IsShown 체크: CDM이 Hide한 비활성 버프는 분류/렌더링 제외
         -- 단, 숨겨진 아이콘에도 OnShow 훅을 설치하여 CDM이 Show 시 Reconcile 트리거
-        if shouldScan and viewer.itemFramePool then
+        if shouldScan then
             scannedViewers = scannedViewers + 1
             -- [CDM] Buff viewer: pool Release 훅 설치 (최초 1회)
             if FrameController._installPoolHooks then
                 FrameController._installPoolHooks(viewer, globalName)
             end
 
-            for icon in viewer.itemFramePool:EnumerateActive() do
-                local cooldownID = GetSafeFrameCooldownID(icon)
+            for registeredCooldownID, icon in pairs(FrameRegistry:GetFrames(globalName)) do
+                local cooldownID = GetSafeFrameCooldownID(icon, registeredCooldownID)
                 if IsSafeNumber(cooldownID) and not icon.isEditing then
                     local keySafe = true
                     activeFrameCount = activeFrameCount + 1
@@ -1185,7 +1149,7 @@ function FrameController:ScanCDMViewers()
                                 if not FrameController.initialized then return end
                                 -- managed 프레임 즉시 복원 (Essential 뷰어는 Layout 없이 Show만 호출할 수 있음)
                                 if self._ddIsManaged and self._ddTargetPoint then
-                                    self:SetParent(UIParent)
+                                    SetFrameParentIfNeeded(self, UIParent)
                                     self:ClearAllPoints()
                                     self:SetPoint(
                                         self._ddTargetPoint,
@@ -1330,8 +1294,8 @@ function FrameController:ScanCDMViewers()
     end
 
     -- [CDM REACTIVE] 고아 정리 없음.
-    -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
-    -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
+    -- Reconcile은 reactive registry snapshot으로 idIconMap을 재구축합니다.
+    -- Blizzard pool 열거는 registry bootstrap/진단 경로에만 남깁니다.
     return true, changes
 end
 
@@ -1548,7 +1512,7 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
     -- 2. SetParent(UIParent) + 컨테이너 참조 저장 -- [REPARENT]
     -- CDM CDM 패턴: 아이콘을 UIParent 자식으로 두고 컨테이너는 앵커 참조만
     -- → CDM Layout이 뷰어 기준으로 재배치해도 parent 계층에 영향 없음
-    frame:SetParent(UIParent)
+    SetFrameParentIfNeeded(frame, UIParent)
     frame._ddContainerRef = container
     frame:SetFrameStrata("MEDIUM")
     frame:SetFrameLevel(container:GetFrameLevel() + 10)
@@ -1626,7 +1590,7 @@ function FrameController:ReleaseFrameFromContainer(frame)
 
     -- [REPARENT] 원래 parent로 복원 (핵심 — CDM 뷰어로 되돌리기)
     if orig.parent then
-        frame:SetParent(orig.parent)
+        SetFrameParentIfNeeded(frame, orig.parent)
     end
 
     -- 크기/스케일 복원
@@ -1748,7 +1712,7 @@ function FrameController:InstallFrameHooks(frame)
             -- managed 프레임 즉시 복원
             if self._ddIsManaged and self._ddTargetPoint then
                 DLog("  → instant restore to", tostring(self._ddContainerRef and self._ddContainerRef:GetName()))
-                self:SetParent(UIParent)
+                SetFrameParentIfNeeded(self, UIParent)
                 self:ClearAllPoints()
                 self:SetPoint(
                     self._ddTargetPoint,
@@ -1885,6 +1849,7 @@ local function InstallCDMHooks()
                 state.acquireSerial = state.acquireSerial + 1
                 frame._ddAcquireSerial = state.acquireSerial
                 FrameController:_ResetAcquiredCooldownFrame(frame)
+                FrameRegistry:Acquire(viewer, frame)
                 if CDMCompat then
                     CDMCompat:ForgetFrame(frame)
                 end
@@ -1898,7 +1863,7 @@ local function InstallCDMHooks()
 
             -- 이미 managed 프레임이면 즉시 re-parent (CDM이 viewer 자식으로 되돌린 것 복구)
             if frame and frame._ddIsManaged and frame._ddContainerRef then
-                frame:SetParent(UIParent)
+                SetFrameParentIfNeeded(frame, UIParent)
                 frame:SetFrameStrata("MEDIUM")
                 local container = frame._ddContainerRef
                 if container then
@@ -1965,6 +1930,7 @@ local function InstallCDMHooks()
                 ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
                 return
             end
+            FrameRegistry:TrackFrame(itemFrame, safeCooldownID)
             local prevCdID = itemFrame._ddLastCooldownID
             if IsSafeNumber(prevCdID) and prevCdID == safeCooldownID then return end
             if itemFrame._ddIsManaged then
@@ -1995,11 +1961,11 @@ local function InstallCDMHooks()
                     -- CDM LayoutMixin이 C++로 위치를 설정하면 hooksecurefunc 우회됨
                     -- 즉시 UIParent로 re-parent하여 다음 Layout에서 영향 안 받게 함
                     if viewer.itemFramePool then
-                        for icon in viewer.itemFramePool:EnumerateActive() do
+                        for _, icon in pairs(FrameRegistry:GetFrames(FrameRegistry:ResolveViewerName(viewer) or globalName)) do
                             if icon._ddIsManaged and icon._ddContainerRef then
                                 local parent = icon:GetParent()
                                 if parent and parent ~= UIParent then
-                                    icon:SetParent(UIParent)
+                                    SetFrameParentIfNeeded(icon, UIParent)
                                     icon:SetFrameStrata("MEDIUM")
                                     local container = icon._ddContainerRef
                                     if container then
@@ -2064,7 +2030,7 @@ local function InstallCDMHooks()
         local container = GroupRenderer and GroupRenderer.groupFrames and GroupRenderer.groupFrames[groupName]
         if container then
             -- [CDM Phase 2] 중앙에 모이는 팝업 현상 방지를 위해 큐 처리 전까지 우주 밖으로 날려버림 (Provisional Placement)
-            frame:SetParent(UIParent)
+            SetFrameParentIfNeeded(frame, UIParent)
             frame:SetFrameStrata("MEDIUM")
             frame:SetFrameLevel(container:GetFrameLevel() + 10)
             frame._ddSettingPosition = true
@@ -2100,7 +2066,7 @@ local function InstallCDMHooks()
             if frame and frame._ddIsManaged and frame._ddContainerRef then
                 local parent = frame:GetParent()
                 if parent and parent ~= UIParent then
-                    frame:SetParent(UIParent)
+                    SetFrameParentIfNeeded(frame, UIParent)
                     frame:SetFrameStrata("MEDIUM")
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
@@ -2131,7 +2097,7 @@ local function InstallCDMHooks()
             if frame and frame._ddIsManaged and frame._ddContainerRef then
                 local parent = frame:GetParent()
                 if parent and parent ~= UIParent then
-                    frame:SetParent(UIParent)
+                    SetFrameParentIfNeeded(frame, UIParent)
                     frame:SetFrameStrata("MEDIUM")
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
@@ -2162,7 +2128,7 @@ local function InstallCDMHooks()
             if frame and frame._ddIsManaged and frame._ddContainerRef then
                 local parent = frame:GetParent()
                 if parent and parent ~= UIParent then
-                    frame:SetParent(UIParent)
+                    SetFrameParentIfNeeded(frame, UIParent)
                     frame:SetFrameStrata("MEDIUM")
                     if frame._ddContainerRef then
                         frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
@@ -2217,13 +2183,10 @@ local function InstallCDMHooks()
         end)
     end
 
+    FrameRegistry:Bootstrap(viewerRefs)
     for _, viewerName in ipairs({ "BuffIconCooldownViewer", "BuffBarCooldownViewer" }) do
-        local viewer = _G[viewerName]
-        local pool = viewer and viewer.itemFramePool
-        if pool and pool.EnumerateActive then
-            for frame in pool:EnumerateActive() do
-                FrameController:_TrackAuraFrame(frame)
-            end
+        for _, frame in pairs(FrameRegistry:GetFrames(viewerName)) do
+            FrameController:_TrackAuraFrame(frame)
         end
     end
 
@@ -2332,7 +2295,7 @@ function FrameController:EnableEditModeClicks()
     self._editMode = true
     for globalName, viewer in pairs(viewerRefs) do
         if viewer.itemFramePool then
-            for icon in viewer.itemFramePool:EnumerateActive() do
+            for _, icon in pairs(FrameRegistry:GetFrames(globalName)) do
                 -- [FIX] 편집모드 테스트 프레임 스킵
                 if not icon.isEditing then
                     -- [FIX] pcall 래핑 — WoW 12.0+ 보호 함수 Taint 방지
@@ -2366,7 +2329,7 @@ function FrameController:DisableEditModeClicks()
     self._editMode = false
     for globalName, viewer in pairs(viewerRefs) do
         if viewer.itemFramePool then
-            for icon in viewer.itemFramePool:EnumerateActive() do
+            for _, icon in pairs(FrameRegistry:GetFrames(globalName)) do
                 -- [FIX] 편집모드 테스트 프레임 스킵
                 if not icon.isEditing then
                     -- [FIX] pcall 래핑 — WoW 12.0+ 보호 함수 Taint 방지
