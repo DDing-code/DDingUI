@@ -66,6 +66,13 @@ local function SetIfNil(settings, key, value)
     return true
 end
 
+local function GetCurrentSpecID()
+    if not GetSpecialization or not GetSpecializationInfo then return nil end
+    local specIndex = GetSpecialization()
+    if not specIndex then return nil end
+    return tonumber(GetSpecializationInfo(specIndex))
+end
+
 local function LegacyBarPosition(settings, rootCfg, trackerIndex)
     rootCfg = rootCfg or {}
     trackerIndex = tonumber(trackerIndex) or 1
@@ -234,8 +241,14 @@ function Migration:NormalizeGlobalStore()
     local changed = 0
     local store = global.trackedBuffsPerSpec
     if type(store) == "table" then
-        local rootCfg = db.profile and db.profile.buffTrackerBar or nil
-        for _, list in pairs(store) do
+        local currentSpecID = GetCurrentSpecID()
+        local currentRootCfg = db.profile and db.profile.buffTrackerBar or nil
+        for specKey, list in pairs(store) do
+            -- Profile-level visual defaults may differ by specialization. Only
+            -- borrow the currently loaded profile defaults for the matching
+            -- global spec; other specs use legacy hard defaults until their full
+            -- SpecProfiles snapshot is normalized.
+            local rootCfg = currentSpecID and tonumber(specKey) == currentSpecID and currentRootCfg or nil
             changed = changed + NormalizeTrackerList(list, rootCfg)
         end
     end
