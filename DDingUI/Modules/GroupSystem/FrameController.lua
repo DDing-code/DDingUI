@@ -1149,7 +1149,6 @@ function FrameController:ScanCDMViewers()
                                 if not FrameController.initialized then return end
                                 -- managed 프레임 즉시 복원 (Essential 뷰어는 Layout 없이 Show만 호출할 수 있음)
                                 if self._ddIsManaged and self._ddTargetPoint then
-                                    SetFrameParentIfNeeded(self, UIParent)
                                     self:ClearAllPoints()
                                     self:SetPoint(
                                         self._ddTargetPoint,
@@ -1509,7 +1508,7 @@ function FrameController:SetupFrameInContainer(frame, container, targetW, target
         end
     end
 
-    -- 2. SetParent(UIParent) + 컨테이너 참조 저장 -- [REPARENT]
+    -- 2. parent ownership claim + 컨테이너 참조 저장
     -- CDM CDM 패턴: 아이콘을 UIParent 자식으로 두고 컨테이너는 앵커 참조만
     -- → CDM Layout이 뷰어 기준으로 재배치해도 parent 계층에 영향 없음
     SetFrameParentIfNeeded(frame, UIParent)
@@ -1588,7 +1587,7 @@ function FrameController:ReleaseFrameFromContainer(frame)
     frame._ddIsManaged = nil
     ResetGroupIconLayoutState(frame, true)
 
-    -- [REPARENT] 원래 parent로 복원 (핵심 — CDM 뷰어로 되돌리기)
+    -- parent ownership release: 원래 Blizzard viewer로 복원
     if orig.parent then
         SetFrameParentIfNeeded(frame, orig.parent)
     end
@@ -1618,8 +1617,8 @@ function FrameController:ReleaseFrameFromContainer(frame)
 end
 
 -- ============================================================
--- 프레임 훅 설치 (Blizzard CDM 탈환 방지)
--- SetParent 후 CDM이 ClearAllPoints/SetScale/SetSize를 호출하면 snap-back
+-- 프레임 훅 설치 (managed geometry 복원)
+-- CDM이 managed 프레임에 ClearAllPoints/SetScale/SetSize를 호출하면 snap-back
 -- ============================================================
 
 function FrameController:InstallFrameHooks(frame)
@@ -1712,7 +1711,6 @@ function FrameController:InstallFrameHooks(frame)
             -- managed 프레임 즉시 복원
             if self._ddIsManaged and self._ddTargetPoint then
                 DLog("  → instant restore to", tostring(self._ddContainerRef and self._ddContainerRef:GetName()))
-                SetFrameParentIfNeeded(self, UIParent)
                 self:ClearAllPoints()
                 self:SetPoint(
                     self._ddTargetPoint,
@@ -1861,22 +1859,9 @@ local function InstallCDMHooks()
                 frame:SetScale(1)
             end
 
-            -- 이미 managed 프레임이면 즉시 re-parent (CDM이 viewer 자식으로 되돌린 것 복구)
-            if frame and frame._ddIsManaged and frame._ddContainerRef then
-                SetFrameParentIfNeeded(frame, UIParent)
-                frame:SetFrameStrata("MEDIUM")
-                local container = frame._ddContainerRef
-                if container then
-                    frame:SetFrameLevel(container:GetFrameLevel() + 10)
-                end
-
-                -- [CDM Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 주석 처리합니다.
-                -- 대신 MarkDirty()를 통해 큐가 터질 때 Watchdog이 좌표를 갱신하게 둡니다.
-                -- if frame._ddTargetPoint then
-                --     frame:ClearAllPoints()
-                --     frame:SetPoint(...)
-                -- end
-            end
+            -- Parent ownership is never changed inside Blizzard acquire hooks.
+            -- Reconcile will classify the frame and SetupFrameInContainer() will
+            -- claim UIParent only after the acquire/layout stack has completed.
 
             -- 블리자드 CDM이 프레임을 풀에서 꺼낼 때 OnShow/OnHide를 미리 잡아둠
             -- 이렇게 해야 비관리 프레임이 out-of-combat에서 Show될 때 누락되지 않음
@@ -1957,27 +1942,11 @@ local function InstallCDMHooks()
                         MarkDirty()
                         return
                     end
-                    -- [FIX] Layout 후 managed 아이콘이 viewer 자식으로 복귀했는지 체크
-                    -- CDM LayoutMixin이 C++로 위치를 설정하면 hooksecurefunc 우회됨
-                    -- 즉시 UIParent로 re-parent하여 다음 Layout에서 영향 안 받게 함
-                    if viewer.itemFramePool then
-                        for _, icon in pairs(FrameRegistry:GetFrames(FrameRegistry:ResolveViewerName(viewer) or globalName)) do
-                            if icon._ddIsManaged and icon._ddContainerRef then
-                                local parent = icon:GetParent()
-                                if parent and parent ~= UIParent then
-                                    SetFrameParentIfNeeded(icon, UIParent)
-                                    icon:SetFrameStrata("MEDIUM")
-                                    local container = icon._ddContainerRef
-                                    if container then
-                                        icon:SetFrameLevel(container:GetFrameLevel() + 10)
-                                    end
-                                    -- [CDM Phase 1: 스냅백 삭제]
-                                    -- Layout 직후 다시 뺏어오는 행위 삭제. Reconcile 엔진이 일괄 처리합니다.
-                                end
-                            end
-                        end
-                    end
-                    ScheduleReconcile(CONFIG.DEBOUNCE_NORMAL)
+                    -- Blizzard may restore a managed frame to the viewer during Layout.
+                    -- Do not SetParent from inside the Layout hook. ScanCDMViewers()
+                    -- records ownership drift and the deferred Reconcile lets
+                    -- SetupFrameInContainer() repair it after Blizzard is finished.
+                    ScheduleReconcile(0, true)
                 end
             end)
             hooksecurefunc(viewer, "Show", function()
@@ -2005,41 +1974,23 @@ local function InstallCDMHooks()
         end
     end
 
-    -- [CDM 패턴 C] Provisional Reparent — 리로드 직후 비관리 아이콘 즉시 reparent
-    -- OnCooldownIDSet에서 아이콘이 아직 managed가 아니더라도,
-    -- ClassifyIcon으로 하이재킹 대상 판별 → 즉시 SetParent(UIParent) + 그룹 컨테이너 CENTER
-    -- CDM Layout이 뷰어 내부에 배치하기 전에 reparent 완료
-    local function ProvisionalReparent(frame)
+    -- [CDM OWNERSHIP] Provisional hide — never reparent an unowned Blizzard frame.
+    -- The candidate stays under its Blizzard viewer until Reconcile classifies it.
+    local function ProvisionalHide(frame)
         if not frame then return end
         if IsCooldownViewerSettingsOpen() then return end
-        if frame._ddIsManaged then return end  -- 이미 관리 중이면 snap-back으로 처리됨
-        if frame.isEditing then return end
+        if frame._ddIsManaged or frame.isEditing then return end
 
-        -- cooldownID 가져오기
         local cooldownID = GetSafeFrameCooldownID(frame)
         if not IsSafeNumber(cooldownID) then return end
 
-        -- ClassifyIcon으로 하이재킹 대상 그룹 판별
         local GroupManager = DDingUI.GroupManager
         if not GroupManager then return end
         local groupName = GroupManager:ClassifyIcon(cooldownID)
         if not groupName then return end
 
-        -- 그룹 컨테이너가 있으면 즉시 reparent + 임시 위치
-        local GroupRenderer = DDingUI.GroupRenderer
-        local container = GroupRenderer and GroupRenderer.groupFrames and GroupRenderer.groupFrames[groupName]
-        if container then
-            -- [CDM Phase 2] 중앙에 모이는 팝업 현상 방지를 위해 큐 처리 전까지 우주 밖으로 날려버림 (Provisional Placement)
-            SetFrameParentIfNeeded(frame, UIParent)
-            frame:SetFrameStrata("MEDIUM")
-            frame:SetFrameLevel(container:GetFrameLevel() + 10)
-            frame._ddSettingPosition = true
-            frame:ClearAllPoints()
-            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 9999, -9999)
-            frame._ddSettingPosition = false
-        else
-            -- 컨테이너 없으면 alpha=0으로 숨김 (DoFullUpdate에서 복원)
-            frame._ddProvisionalHidden = true
+        frame._ddProvisionalHidden = true
+        if frame.SetAlpha then
             frame:SetAlpha(0)
         end
     end
@@ -2064,22 +2015,13 @@ local function InstallCDMHooks()
             if frame and frame.SetScale then frame:SetScale(1) end
             -- managed 프레임 즉시 snap-back
             if frame and frame._ddIsManaged and frame._ddContainerRef then
-                local parent = frame:GetParent()
-                if parent and parent ~= UIParent then
-                    SetFrameParentIfNeeded(frame, UIParent)
-                    frame:SetFrameStrata("MEDIUM")
-                    if frame._ddContainerRef then
-                        frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
-                    end
-                    -- [CDM Phase 1: 스냅백 훅 삭제] 이전 LayoutGroup 위치로 즉시 복원하던 코드를 제거.
-                    -- if frame._ddTargetPoint then ... end
-                end
+                -- Parent repair is deferred to Reconcile -> SetupFrameInContainer().
                 -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
                 if frame:GetAlpha() < 0.01 and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
                     frame:SetAlpha(1)
                 end
             else
-                -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
+                -- [CDM 패턴 C] 비관리 아이콘: provisional hide
                 -- Wait for the completed pool scan to assign the final anchor.
             end
             MarkDirty()
@@ -2095,23 +2037,14 @@ local function InstallCDMHooks()
             if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
             if frame and frame._ddIsManaged and frame._ddContainerRef then
-                local parent = frame:GetParent()
-                if parent and parent ~= UIParent then
-                    SetFrameParentIfNeeded(frame, UIParent)
-                    frame:SetFrameStrata("MEDIUM")
-                    if frame._ddContainerRef then
-                        frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
-                    end
-                    -- [CDM Phase 1: 스냅백 삭제]
-                    -- if frame._ddTargetPoint then ... end
-                end
+                -- Parent repair is deferred to Reconcile -> SetupFrameInContainer().
                 -- [FIX] 고아 정리 alpha=0 → 관리 상태 복원 시 즉시 alpha=1
                 if frame:GetAlpha() < 0.01 and not (DDingUI.FlightHide and DDingUI.FlightHide.isActive) then
                     frame:SetAlpha(1)
                 end
             else
-                -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
-                ProvisionalReparent(frame)
+                -- [CDM 패턴 C] 비관리 아이콘: provisional hide
+                ProvisionalHide(frame)
             end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
@@ -2126,19 +2059,10 @@ local function InstallCDMHooks()
             if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
             if frame and frame._ddIsManaged and frame._ddContainerRef then
-                local parent = frame:GetParent()
-                if parent and parent ~= UIParent then
-                    SetFrameParentIfNeeded(frame, UIParent)
-                    frame:SetFrameStrata("MEDIUM")
-                    if frame._ddContainerRef then
-                        frame:SetFrameLevel(frame._ddContainerRef:GetFrameLevel() + 10)
-                    end
-                    -- [CDM Phase 1: 스냅백 삭제]
-                    -- if frame._ddTargetPoint then ... end
-                end
+                -- Parent repair is deferred to Reconcile -> SetupFrameInContainer().
             else
-                -- [CDM 패턴 C] 비관리 아이콘: provisional reparent
-                ProvisionalReparent(frame)
+                -- [CDM 패턴 C] 비관리 아이콘: provisional hide
+                ProvisionalHide(frame)
             end
             MarkDirty()
             if not state.pollingActive then EnablePolling() end
