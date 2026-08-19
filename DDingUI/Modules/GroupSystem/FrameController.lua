@@ -1294,8 +1294,8 @@ function FrameController:ScanCDMViewers()
     end
 
     -- [CDM REACTIVE] 고아 정리 없음.
-    -- 매 Reconcile마다 EnumerateActive() → idIconMap 재구축 → 전체 재배치.
-    -- 이전 상태와 비교하지 않으므로 고아 개념 자체가 불필요.
+    -- Reconcile은 reactive registry snapshot으로 idIconMap을 재구축합니다.
+    -- Blizzard pool 열거는 registry bootstrap/진단 경로에만 남깁니다.
     return true, changes
 end
 
