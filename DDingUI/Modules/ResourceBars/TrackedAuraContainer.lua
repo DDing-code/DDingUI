@@ -607,6 +607,7 @@ local function RestoreLegacyDisplay(host)
     if host.StatusBar then host.StatusBar:SetAlpha(1) end
     if host.Background then host.Background:SetAlpha(1) end
     if host.Border then host.Border:SetAlpha(1) end
+    if host.TickFrame then host.TickFrame:SetAlpha(1) end
     if host.TextValue then host.TextValue:SetAlpha(1) end
     if host.DurationText then host.DurationText:SetAlpha(1) end
     if host.Cooldown then host.Cooldown:SetAlpha(1) end
@@ -627,6 +628,7 @@ local function HideLegacyDisplay(host, style)
         if host.StatusBar then host.StatusBar:SetAlpha(0) end
         if host.Background then host.Background:SetAlpha(0) end
         if host.Border then host.Border:SetAlpha(0) end
+        if host.TickFrame then host.TickFrame:SetAlpha(0) end
         if host.TextValue then host.TextValue:SetAlpha(0) end
         if host.DurationText then host.DurationText:SetAlpha(0) end
     elseif displayType == "ring" then
