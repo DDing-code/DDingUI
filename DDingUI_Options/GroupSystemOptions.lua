@@ -935,7 +935,8 @@ local function GetCDMIconEntries()
 
     local function AddCatalogEntry(cooldownID, viewerName, layoutIndex, icon, sourceKind, sourceInfo)
         cooldownID = SafeOptionID(cooldownID)
-        if not cooldownID or (providerExcludedCooldownIDs[cooldownID] and sourceKind ~= "runtime")
+        local isLiveSource = sourceKind == "runtime" or sourceKind == "pool"
+        if not cooldownID or (providerExcludedCooldownIDs[cooldownID] and not isLiveSource)
             or not catalogViewers[viewerName]
         then
             return
@@ -943,7 +944,8 @@ local function GetCDMIconEntries()
 
         local existing = entriesByCooldownID[cooldownID]
         if existing then
-            if icon then existing.isRuntimeActive = true end
+            if sourceKind == "runtime" then existing.isRuntimeActive = true end
+            if sourceKind == "pool" then existing.isPoolActive = true end
             if sourceKind == "provider" then existing.isBlizzardArranged = true end
             if sourceKind == "fallback" then existing.isStaticFallback = true end
             return
@@ -989,7 +991,8 @@ local function GetCDMIconEntries()
             icon = tex,
             viewerName = viewerName,
             layoutIndex = layoutIndex or (#result + 1),
-            isRuntimeActive = icon ~= nil,
+            isRuntimeActive = sourceKind == "runtime",
+            isPoolActive = sourceKind == "pool",
             isBlizzardArranged = sourceKind == "provider",
             isStaticFallback = sourceKind == "fallback",
         }
@@ -1012,6 +1015,36 @@ local function GetCDMIconEntries()
                 "runtime",
                 providerEntry and providerEntry.info
             )
+        end
+    end
+
+    -- The settings window can rebuild a viewer pool before the runtime map is
+    -- reconciled. Merge those live pool frames into the add catalog without
+    -- treating them as already rendered by GroupSystem.
+    for _, viewerName in ipairs({
+        "EssentialCooldownViewer",
+        "UtilityCooldownViewer",
+        "BuffIconCooldownViewer",
+    }) do
+        local viewer = _G[viewerName]
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            pcall(function()
+                for icon in pool:EnumerateActive() do
+                    local cooldownID = compat and compat.GetFrameCooldownID
+                        and compat:GetFrameCooldownID(icon)
+                        or SafeOptionID(icon.cooldownID)
+                    local providerEntry = cooldownID and providerEntries[cooldownID]
+                    AddCatalogEntry(
+                        cooldownID,
+                        viewerName,
+                        SafeCDMLayoutIndex(icon, providerEntry and providerEntry.layoutIndex or #result + 1),
+                        icon,
+                        "pool",
+                        providerEntry and providerEntry.info
+                    )
+                end
+            end)
         end
     end
 
