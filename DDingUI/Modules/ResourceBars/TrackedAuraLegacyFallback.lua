@@ -47,7 +47,6 @@ local function IsContainerCandidate(tracker)
     local displayType = tracker.displayType or "bar"
     if displayType ~= "bar" and displayType ~= "ring"
         and displayType ~= "icon" and displayType ~= "text"
-        and displayType ~= "sound"
     then
         return false
     end

@@ -7,10 +7,9 @@ local Engine = DDingUI.TrackedAuraContainer
 if not ResourceBars or not Engine then return end
 
 -- Protected automatic auras cannot expose their active/stacks/duration state to
--- ordinary addon Lua. Actions that mean exactly "this aura is present" can
--- still be attached to the AuraContainer button itself. Its visibility owns
--- self color, desaturation, glow, and sound transitions without reading aura
--- values back into addon code.
+-- ordinary addon Lua. Visual actions that mean exactly "this aura is present"
+-- can still be attached to the AuraContainer button itself. Its visibility owns
+-- self color, desaturation, and glow without reading aura values back into Lua.
 --
 -- This bridge runs outside TrackedAuraProtectedAlerts so it can inspect the
 -- SavedVariables-backed alert definition before that module temporarily removes
@@ -63,25 +62,13 @@ local function ConditionMeansAuraPresent(alerts, condition)
     return ActiveTriggerMeansAuraPresent(trigger)
 end
 
-local function SoundSignaturePart(actionIndex, action)
-    return table.concat({
-        tostring(actionIndex),
-        tostring(action.soundFile),
-        tostring(action.soundCustomPath),
-        tostring(action.soundChannel),
-        tostring(action.soundMode),
-        tostring(action.soundCooldown),
-    }, ":")
-end
-
 local function ResolveProtectedPresentation(tracker)
     local settings = tracker and tracker.settings
     local alerts = settings and settings.alerts
     if type(alerts) ~= "table" or alerts.enabled ~= true then return nil end
 
     local presentation = {}
-    local soundParts = {}
-    for actionIndex, action in ipairs(alerts.actions or {}) do
+    for _, action in ipairs(alerts.actions or {}) do
         if type(action) == "table" and ConditionMeansAuraPresent(alerts, action.condition) then
             local selfTarget = action.visualTarget == nil or action.visualTarget == "self"
             if action.type == "glow" and selfTarget then
@@ -97,18 +84,11 @@ local function ResolveProtectedPresentation(tracker)
                 end
             elseif action.type == "desaturate" and selfTarget then
                 presentation.desaturate = true
-            elseif action.type == "sound" then
-                presentation.sounds = presentation.sounds or {}
-                presentation.sounds[#presentation.sounds + 1] = action
-                soundParts[#soundParts + 1] = SoundSignaturePart(actionIndex, action)
             end
         end
     end
-    if presentation.sounds then
-        presentation.soundSignature = table.concat(soundParts, "|")
-    end
     if presentation.glow or presentation.selfColor or presentation.iconColor
-        or presentation.borderColor or presentation.desaturate or presentation.sounds
+        or presentation.borderColor or presentation.desaturate
     then
         return presentation
     end

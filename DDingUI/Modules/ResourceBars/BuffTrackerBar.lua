@@ -5576,48 +5576,6 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
         manualStackCount, manualExpiresAt = GetManualStacks(barIndex)
     end
 
-    local resolver = DDingUI.TrackedAuraFrameResolver
-    local containerEligible = not isManualMode
-        and trackedBuff.trackingMode ~= "spell"
-        and not (trackedBuff.trigger and trackedBuff.trigger.type == "spell")
-    if containerEligible and resolver and resolver.AttachAuraContainer then
-        if not tracker.host then
-            tracker.host = CreateFrame("Frame", nil, UIParent)
-            tracker.host:SetSize(1, 1)
-            tracker.host:SetPoint("CENTER", UIParent, "CENTER")
-            tracker.host:SetAlpha(0)
-            tracker.host:Show()
-        end
-
-        local soundPath
-        if IsValidSoundPath(soundCustomPath) then
-            soundPath = soundCustomPath
-        elseif soundFile and soundFile ~= "None" and soundFile ~= "" then
-            soundPath = LSM:Fetch("sound", soundFile)
-        end
-
-        local soundDuration = tonumber(settings._detectedDuration)
-            or tonumber(settings.maxDuration)
-            or tonumber(settings.stackDuration)
-            or 0
-        local soundStyle = {
-            displayType = "sound",
-            soundPath = soundPath,
-            soundChannel = soundChannel,
-            soundTrigger = soundTrigger,
-            soundStartDelay = soundStartDelay,
-            soundEndBefore = soundEndBefore,
-            soundInterval = soundInterval,
-            soundDuration = soundDuration,
-            frameStrata = "BACKGROUND",
-            frameLevel = 1,
-        }
-        if resolver:AttachAuraContainer(trackedBuff, tracker.host, soundStyle) then
-            tracker.protectedObservationReported = nil
-            return
-        end
-    end
-
     -- Get tracking data
     local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
 

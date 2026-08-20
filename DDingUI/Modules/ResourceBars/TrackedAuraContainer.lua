@@ -12,8 +12,6 @@ local RETRY_DELAY = 2
 local desiredByTracker = setmetatable({}, { __mode = "k" })
 local bindingByTracker = setmetatable({}, { __mode = "k" })
 local failureByTracker = setmetatable({}, { __mode = "k" })
-local soundStateByTracker = setmetatable({}, { __mode = "k" })
-local protectedSoundStateByTracker = setmetatable({}, { __mode = "k" })
 local activePresentationByTracker = setmetatable({}, { __mode = "k" })
 local formatterCache = {}
 local suspended = false
@@ -75,7 +73,6 @@ local function IsSupportedAuraTracker(tracker)
     local displayType = tracker.displayType or "bar"
     if displayType ~= "bar" and displayType ~= "ring"
         and displayType ~= "icon" and displayType ~= "text"
-        and displayType ~= "sound"
     then
         return false
     end
@@ -257,14 +254,6 @@ local function StyleSignature(style)
         tostring(style.showIcon),
         tostring(style.iconSize),
         tostring(style.preserveInactive),
-        tostring(style.soundPath),
-        tostring(style.soundChannel),
-        tostring(style.soundTrigger),
-        tostring(style.soundStartDelay),
-        tostring(style.soundEndBefore),
-        tostring(style.soundInterval),
-        tostring(style.soundDuration),
-        tostring(style.protectedSoundSignature),
     }, "|")
 end
 
@@ -391,9 +380,8 @@ local function InitializeButton(button, proxy, style)
 end
 
 local StartContainerGlow
-local BindProtectedSounds
 
-local function CreateBarInitializer(proxy, desired, style, tracker)
+local function CreateBarInitializer(proxy, desired, style)
     return function(button)
         InitializeButton(button, proxy, style)
 
@@ -435,62 +423,17 @@ local function CreateBarInitializer(proxy, desired, style, tracker)
 
         CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
         StartContainerGlow(button, style)
-        BindProtectedSounds(tracker, button, style)
     end
 end
 
 StartContainerGlow = function(button, style)
-    if not button or not style or style.glowWhenInactive == true then return end
-
-    local animation = style.iconAnimation or "none"
-    if animation == "none" or animation == "hover" or animation == "pulse"
-        or animation == "flash" or animation == "spin"
-    then
-        return
-    end
-
-    local SL = _G.DDingUI_StyleLib
-    if not SL then return end
-
-    local overlay = CreateFrame("Frame", nil, button)
-    overlay:SetAllPoints(button)
-    overlay:SetFrameLevel(button:GetFrameLevel() + 6)
-    overlay:EnableMouse(false)
-    overlay:Show()
-
-    local color = style.glowColor or { 1, 0.9, 0.5, 1 }
-    local lines = math.floor(tonumber(style.glowLines) or 8)
-    local frequency = tonumber(style.glowFrequency) or 0.25
-    local thickness = tonumber(style.glowThickness) or 2
-    local xOffset = tonumber(style.glowXOffset) or 0
-    local yOffset = tonumber(style.glowYOffset) or 0
-
-    if animation == "pixel" or animation == "shine" then
-        if SL.ShowPixelGlow then
-            SL.ShowPixelGlow(overlay, color, lines, frequency, nil, thickness, xOffset, yOffset)
-        end
-    elseif animation == "autocast" then
-        if SL.ShowAutocastGlow then
-            SL.ShowAutocastGlow(overlay, color, lines, frequency, thickness, xOffset, yOffset)
-        end
-    elseif animation == "proc" then
-        local LCG = LibStub("LibCustomGlow-1.0", true)
-        if LCG and LCG.ProcGlow_Start then
-            LCG.ProcGlow_Start(overlay, {
-                color = color,
-                duration = frequency,
-                startAnim = true,
-            })
-        end
-    else
-        -- Legacy "glow" and explicit "button" both use button glow.
-        if SL.ShowButtonGlow then
-            SL.ShowButtonGlow(overlay, color, frequency)
-        end
+    local visuals = DDingUI.RestrictedAuraVisuals
+    if visuals and visuals.ApplyGlow then
+        visuals:ApplyGlow(button, style)
     end
 end
 
-local function CreateIconInitializer(proxy, desired, style, tracker)
+local function CreateIconInitializer(proxy, desired, style)
     return function(button)
         InitializeButton(button, proxy, style)
 
@@ -529,11 +472,10 @@ local function CreateIconInitializer(proxy, desired, style, tracker)
         end
         CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
         StartContainerGlow(button, style)
-        BindProtectedSounds(tracker, button, style)
     end
 end
 
-local function CreateRingInitializer(proxy, desired, style, tracker)
+local function CreateRingInitializer(proxy, desired, style)
     return function(button)
         InitializeButton(button, proxy, style)
 
@@ -574,11 +516,10 @@ local function CreateRingInitializer(proxy, desired, style, tracker)
             RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
         end
         StartContainerGlow(button, style)
-        BindProtectedSounds(tracker, button, style)
     end
 end
 
-local function CreateTextInitializer(proxy, desired, style, tracker)
+local function CreateTextInitializer(proxy, desired, style)
     return function(button)
         InitializeButton(button, proxy, style)
 
@@ -602,213 +543,18 @@ local function CreateTextInitializer(proxy, desired, style, tracker)
             RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
         end
         StartContainerGlow(button, style)
-        BindProtectedSounds(tracker, button, style)
     end
 end
 
-local function CancelSoundSchedule(state)
-    if state.delayTimer then
-        state.delayTimer:Cancel()
-        state.delayTimer = nil
-    end
-    if state.intervalTicker then
-        state.intervalTicker:Cancel()
-        state.intervalTicker = nil
-    end
-end
-
-local function PlayConfiguredSound(style)
-    local path = style and style.soundPath
-    if (type(path) == "string" and path ~= "") or type(path) == "number" then
-        PlaySoundFile(path, style.soundChannel or "Master")
-    end
-end
-
-local function ResetSoundState(tracker)
-    local state = tracker and soundStateByTracker[tracker]
-    if not state then return end
-    CancelSoundSchedule(state)
-    state.active = false
-    state.button = nil
-    state.style = nil
-end
-
-local function StartSoundSchedule(tracker, button, style)
-    local state = soundStateByTracker[tracker]
-    if not state then
-        state = {}
-        soundStateByTracker[tracker] = state
-    end
-
-    state.button = button
-    state.style = style
-    if state.active then return end
-
-    state.active = true
-    CancelSoundSchedule(state)
-    local trigger = style.soundTrigger or "start"
-    if trigger == "start" then
-        PlayConfiguredSound(style)
-    elseif trigger == "startDelay" then
-        local delay = math.max(0, tonumber(style.soundStartDelay) or 0)
-        state.delayTimer = C_Timer.NewTimer(delay, function()
-            state.delayTimer = nil
-            if state.active and state.button == button then
-                PlayConfiguredSound(state.style)
-            end
-        end)
-    elseif trigger == "endBefore" then
-        local duration = tonumber(style.soundDuration) or 0
-        local before = math.max(0, tonumber(style.soundEndBefore) or 0)
-        if duration > 0 then
-            state.delayTimer = C_Timer.NewTimer(math.max(0, duration - before), function()
-                state.delayTimer = nil
-                if state.active and state.button == button then
-                    PlayConfiguredSound(state.style)
-                end
-            end)
-        end
-    elseif trigger == "interval" then
-        local interval = math.max(0.1, tonumber(style.soundInterval) or 5)
-        PlayConfiguredSound(style)
-        state.intervalTicker = C_Timer.NewTicker(interval, function()
-            if state.active and state.button == button then
-                PlayConfiguredSound(state.style)
-            end
-        end)
-    end
-end
-
-local function StopSoundSchedule(tracker, button)
-    local state = tracker and soundStateByTracker[tracker]
-    if not state or state.button ~= button or not state.active then return end
-
-    local style = state.style
-    state.active = false
-    CancelSoundSchedule(state)
-    if style and style.soundTrigger == "end" then
-        PlayConfiguredSound(style)
-    end
-end
-
-local function CancelProtectedSoundTimers(state)
-    for key, timer in pairs(state.timers or {}) do
-        timer:Cancel()
-        state.timers[key] = nil
-    end
-end
-
-local function ResetProtectedSoundState(tracker)
-    local state = tracker and protectedSoundStateByTracker[tracker]
-    if not state then return end
-    CancelProtectedSoundTimers(state)
-    state.active = false
-    state.signature = nil
-    state.actions = nil
-    wipe(state.buttons)
-end
-
-local function PlayProtectedActionSound(action)
-    if type(action) ~= "table" then return end
-
-    local path = action.soundCustomPath
-    if type(path) ~= "string" or path == "" then
-        local soundKey = action.soundFile
-        if not soundKey or soundKey == "" or soundKey == "None" then return end
-        local LSM = LibStub("LibSharedMedia-3.0", true)
-        path = LSM and soundKey and LSM:Fetch("sound", soundKey) or nil
-    end
-    if (type(path) == "string" and path ~= "") or type(path) == "number" then
-        PlaySoundFile(path, action.soundChannel or "Master")
-    end
-end
-
-local function StartProtectedSoundTimers(state, playInitial)
-    for actionIndex, action in ipairs(state.actions or {}) do
-        if action.soundMode == "repeat" then
-            if playInitial then PlayProtectedActionSound(action) end
-            local interval = math.max(0.1, tonumber(action.soundCooldown) or 3)
-            local signature = state.signature
-            state.timers[actionIndex] = C_Timer.NewTicker(interval, function()
-                if state.active and state.signature == signature then
-                    PlayProtectedActionSound(action)
-                end
-            end)
-        elseif playInitial then
-            PlayProtectedActionSound(action)
-        end
-    end
-end
-
-BindProtectedSounds = function(tracker, button, style)
-    local actions = style and style.protectedSoundActions
-    if not tracker or not button or type(actions) ~= "table" or #actions == 0 then return end
-
-    local state = protectedSoundStateByTracker[tracker]
-    if not state then
-        state = {
-            buttons = setmetatable({}, { __mode = "k" }),
-            timers = {},
-        }
-        protectedSoundStateByTracker[tracker] = state
-    end
-
-    local signature = style.protectedSoundSignature or ""
-    if state.signature ~= signature then
-        CancelProtectedSoundTimers(state)
-        state.signature = signature
-        state.actions = actions
-        if state.active then
-            StartProtectedSoundTimers(state, false)
-        end
-    end
-
-    local function Activate(self)
-        state.buttons[self] = true
-        if state.active then return end
-        state.active = true
-        StartProtectedSoundTimers(state, true)
-    end
-
-    local function Deactivate(self)
-        state.buttons[self] = nil
-        if next(state.buttons) then return end
-        state.active = false
-        CancelProtectedSoundTimers(state)
-    end
-
-    button:HookScript("OnShow", Activate)
-    button:HookScript("OnHide", Deactivate)
-    Activate(button)
-end
-
-local function CreateSoundInitializer(proxy, desired, style, tracker)
-    return function(button)
-        InitializeButton(button, proxy, style)
-        button:SetAlpha(0)
-        button:HookScript("OnShow", function(self)
-            StartSoundSchedule(tracker, self, style)
-        end)
-        button:HookScript("OnHide", function(self)
-            StopSoundSchedule(tracker, self)
-        end)
-        -- initializeFrame runs for the matched aura. Start here so protected
-        -- AuraButton state is never queried later from ordinary addon code.
-        StartSoundSchedule(tracker, button, style)
-    end
-end
-
-local function CreateInitializer(proxy, desired, style, tracker)
+local function CreateInitializer(proxy, desired, style)
     if style.displayType == "icon" then
-        return CreateIconInitializer(proxy, desired, style, tracker)
+        return CreateIconInitializer(proxy, desired, style)
     elseif style.displayType == "ring" then
-        return CreateRingInitializer(proxy, desired, style, tracker)
+        return CreateRingInitializer(proxy, desired, style)
     elseif style.displayType == "text" then
-        return CreateTextInitializer(proxy, desired, style, tracker)
-    elseif style.displayType == "sound" then
-        return CreateSoundInitializer(proxy, desired, style, tracker)
+        return CreateTextInitializer(proxy, desired, style)
     end
-    return CreateBarInitializer(proxy, desired, style, tracker)
+    return CreateBarInitializer(proxy, desired, style)
 end
 
 local function BuildBinding(bar, desired, style, styleSignature, tracker)
@@ -826,7 +572,7 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
     container:SetSize(1, 1)
     container:AddAuraSlot("tracked", "HELPFUL", {
         candidateFilters = { includeSpellIDs = desired.include },
-        initializeFrame = CreateInitializer(proxy, desired, style, tracker),
+        initializeFrame = CreateInitializer(proxy, desired, style),
     })
     container:SetUnit("player")
     container:UpdateAllAuras()
@@ -838,7 +584,6 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
         desiredSignature = desired.signature,
         styleSignature = styleSignature,
         displayType = style.displayType,
-        protectedSoundSignature = style.protectedSoundSignature,
         tracker = tracker,
     }
 end
@@ -900,14 +645,8 @@ local function HideLegacyDisplay(host, style)
     end
 end
 
-local function ParkBinding(binding, preserveSoundState, preserveProtectedSoundState)
+local function ParkBinding(binding)
     if not binding then return end
-    if not preserveSoundState then
-        ResetSoundState(binding.tracker)
-    end
-    if not preserveProtectedSoundState then
-        ResetProtectedSoundState(binding.tracker)
-    end
     if binding.proxy then binding.proxy:Hide() end
     RestoreLegacyDisplay(binding.bar)
     diagnostics.parked = diagnostics.parked + 1
@@ -996,11 +735,6 @@ function Engine:Attach(tracker, bar, style)
         ApplyGlowStyle(style, settings, "textAnimation", "textGlowColor", "textGlow")
         style.glowWhenInactive = false
     end
-    if presentation and presentation.sounds then
-        style.protectedSoundActions = presentation.sounds
-        style.protectedSoundSignature = presentation.soundSignature
-    end
-
     local signature = StyleSignature(style)
     local binding = bindingByTracker[tracker]
     if binding and binding.desiredSignature == desired.signature and binding.styleSignature == signature then
@@ -1053,12 +787,7 @@ function Engine:Attach(tracker, bar, style)
 
     diagnostics.buildSuccess = diagnostics.buildSuccess + 1
     diagnostics.lastError = nil
-    local preserveSoundState = binding
-        and binding.displayType == "sound"
-        and replacement.displayType == "sound"
-    local preserveProtectedSoundState = binding
-        and replacement.protectedSoundSignature ~= nil
-    ParkBinding(binding, preserveSoundState, preserveProtectedSoundState)
+    ParkBinding(binding)
     bindingByTracker[tracker] = replacement
     failureByTracker[tracker] = nil
     HideLegacyDisplay(bar, style)

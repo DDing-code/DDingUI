@@ -14,8 +14,6 @@ DDingUI.CustomIconAuraEngine = Engine
 
 local RuntimeValues = DDingUI.CustomIconRuntimeValues
 local SafeNumber = RuntimeValues and RuntimeValues.SafeNumber
-local StyleLib = _G.DDingUI_StyleLib
-local GLOW_KEY = "_DDingUIAuraContainerGlow"
 
 local VALID_POINTS = {
     TOP = true, TOPLEFT = true, TOPRIGHT = true,
@@ -412,36 +410,10 @@ local function ApplyRegionStyle(regions, style)
 end
 
 local function ApplyActiveGlow(button, style)
-    if not style.glowEnabled or not StyleLib then return end
-    local color
-    if not style.glowBlizzard then
-        color = { ResolveColor(style.glowColor, { 0.95, 0.95, 0.32, 1 }) }
-    end
-    local glowType = style.glowType == "Blizzard Glow" and "Proc Glow" or style.glowType
-    if glowType == "Autocast Shine" and StyleLib.ShowAutocastGlow then
-        StyleLib.ShowAutocastGlow(
-            button, color, style.glowParticles, style.glowAutocastFrequency,
-            style.glowScale, 0, 0, GLOW_KEY, style.glowBlizzard
-        )
-    elseif glowType == "Action Button Glow" and StyleLib.ShowButtonGlow then
-        StyleLib.ShowButtonGlow(button, color, style.glowButtonFrequency)
-    elseif glowType == "Proc Glow" then
-        local glow = LibStub and LibStub("LibCustomGlow-1.0", true)
-        if glow and glow.ProcGlow_Start then
-            glow.ProcGlow_Start(button, {
-                color = color,
-                startAnim = false,
-                xOffset = 0,
-                yOffset = 0,
-                key = GLOW_KEY,
-            })
-        end
-    elseif StyleLib.ShowPixelGlow then
-        StyleLib.ShowPixelGlow(
-            button, color, style.glowLines, style.glowFrequency,
-            style.glowLength, style.glowThickness, -1, -1, false,
-            GLOW_KEY, style.glowBlizzard
-        )
+    if not style.glowEnabled then return end
+    local visuals = DDingUI.RestrictedAuraVisuals
+    if visuals and visuals.ApplyGlow then
+        visuals:ApplyGlow(button, style)
     end
 end
 

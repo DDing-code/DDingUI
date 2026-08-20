@@ -64,6 +64,7 @@ Core\ConditionalActions.lua
 Core\Movers.lua
 Core\EditModeLock.lua
 Core\CircularProgress.lua
+Core\RestrictedAuraVisuals.lua
 
 # Utility files
 Utils\SecretSafe.lua
