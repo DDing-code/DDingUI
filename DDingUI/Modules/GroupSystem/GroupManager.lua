@@ -1752,6 +1752,21 @@ function GroupManager:ClassifyAll()
     return classifiedGroups
 end
 
+function GroupManager:GetClassificationSnapshot(groupName)
+    local source = classifiedGroups[groupName]
+    if type(source) ~= "table" then return nil end
+
+    local snapshot = {}
+    for index, entry in ipairs(source) do
+        snapshot[index] = {
+            cooldownID = entry.cooldownID,
+            icon = entry.icon,
+            spellName = entry.spellName,
+        }
+    end
+    return snapshot
+end
+
 local function RemoveClassifiedEntry(iconList, target)
     if not iconList or not target then return end
     for index = #iconList, 1, -1 do

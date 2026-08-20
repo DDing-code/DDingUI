@@ -1061,7 +1061,9 @@ local function GetCDMIconEntries()
 end
 
 local function IsDefaultTrackedEntry(entry)
-    return entry and (entry.isRuntimeActive == true or entry.isBlizzardArranged == true)
+    -- The assigned preview mirrors frames that the runtime can actually render.
+    -- Arranged-only entries remain available through the add catalog.
+    return entry and entry.isRuntimeActive == true
 end
 
 -- CDMHookEngine 호환 spellName 생성 (buff_ 접두사)
@@ -1216,40 +1218,118 @@ local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames, tra
     local assignments = gs and gs.spellAssignments or {}
     local seen = {}
 
-    for idx, entry in ipairs(allEntries or GetCDMIconEntries()) do
-        local spellName = GetGSSpellName(entry)
-        if (not trackedOnly or IsDefaultTrackedEntry(entry))
-            and spellName and not seen[spellName]
-            and not (skipSpellNames and skipSpellNames[spellName])
-        then
-            local spellID = ResolveEntrySpellID(entry, spellName)
-            local isBuffSpell = IsBuffSpell(spellName, entry)
-            local buffOwnedByDynamic = isBuffSpell and FindBuffDynamicSpellOwner(gs, spellID, nil)
-            local isGloballyUnassigned = isBuffSpell and IsBuffSpellUnassigned(gs, spellName)
-            local assigned, assignmentKey = GetUsableSpellAssignment(gs, spellName, entry)
-            local belongsToGroup = assigned == groupName
-                or (not assigned and targetViewer and entry.viewerName == targetViewer and IsDefaultTrackedEntry(entry))
-            if belongsToGroup and not isGloballyUnassigned and not buffOwnedByDynamic then
-                seen[spellName] = true
-                local rowSpellName = assigned and assignmentKey or spellName
-                seen[rowSpellName] = true
-                rows[#rows + 1] = {
-                    kind = "cdm",
-                    token = MakeCDMOrderToken(rowSpellName),
-                    spellName = rowSpellName,
-                    entry = entry,
-                    isManual = assigned == groupName,
-                    isBuffSpell = isBuffSpell,
-                    fallbackOrder = tonumber(entry.layoutIndex) or idx,
-                }
-            end
+    local entries = allEntries or GetCDMIconEntries()
+    local runtimeSnapshot
+    if trackedOnly then
+        local manager = DDingUI.GroupManager
+        if manager and manager.GetClassificationSnapshot then
+            runtimeSnapshot = manager:GetClassificationSnapshot(groupName)
         end
     end
 
-    if assignments then
+    local entriesByCooldownID = {}
+    for _, entry in ipairs(entries) do
+        local cooldownID = entry and SafeOptionID(entry.cooldownID)
+        if cooldownID then
+            entriesByCooldownID[cooldownID] = entry
+        end
+    end
+
+    local function BuildRuntimeEntry(runtimeEntry, fallbackOrder)
+        local cooldownID = runtimeEntry and SafeOptionID(runtimeEntry.cooldownID)
+        if not cooldownID then return nil end
+
+        local cached = entriesByCooldownID[cooldownID]
+        if cached then return cached end
+
+        local icon = runtimeEntry.icon
+        local compat = DDingUI.CDMCompat
+        local frameSpellID = icon and compat and compat.ResolveFrameSpellID
+            and compat:ResolveFrameSpellID(icon)
+        local info = (icon and compat and compat.GetFrameCooldownInfo and compat:GetFrameCooldownInfo(icon))
+            or (compat and compat:GetCooldownInfo(cooldownID))
+        local candidates = GetCooldownInfoSpellCandidates(info, cooldownID, frameSpellID)
+        local texture
+        if icon then
+            local ok, value = pcall(function()
+                local region = icon.Icon or icon.icon
+                return region and region.GetTexture and region:GetTexture()
+            end)
+            texture = SafeOptionValue(ok and value)
+        end
+
+        local rawName = runtimeEntry.spellName
+        if type(rawName) == "string" then rawName = rawName:gsub("^buff_", "") end
+        rawName = ResolveCatalogSpellName(
+            candidates,
+            rawName or (DDingUI.CDMHookEngine and DDingUI.CDMHookEngine:GetSpellNameForID(cooldownID))
+        )
+        local entry = {
+            cooldownID = cooldownID,
+            spellID = candidates[1] or frameSpellID or cooldownID,
+            iconSpellID = candidates[1] or frameSpellID,
+            name = rawName,
+            icon = ResolveSpellTextureFromCandidates(candidates, texture),
+            viewerName = (DDingUI.CDMHookEngine and DDingUI.CDMHookEngine:GetIconSource(cooldownID))
+                or (icon and icon._ddSourceViewer),
+            layoutIndex = SafeCDMLayoutIndex(icon, fallbackOrder),
+            isRuntimeActive = true,
+        }
+        entriesByCooldownID[cooldownID] = entry
+        return entry
+    end
+
+    local function AddRow(entry, idx, runtimeSpellName, runtimeConfirmed)
+        if not entry or (trackedOnly and not runtimeConfirmed and not IsDefaultTrackedEntry(entry)) then
+            return
+        end
+
+        local spellName = runtimeSpellName or GetGSSpellName(entry)
+        if not spellName or (skipSpellNames and skipSpellNames[spellName]) then return end
+
+        local runtimeKey = runtimeConfirmed and SafeOptionID(entry.cooldownID)
+        local seenKey = runtimeKey and ("id:" .. tostring(runtimeKey)) or ("name:" .. spellName)
+        if seen[seenKey] then return end
+
+        local spellID = ResolveEntrySpellID(entry, spellName)
+        local isBuffSpell = IsBuffSpell(spellName, entry)
+        local buffOwnedByDynamic = isBuffSpell and FindBuffDynamicSpellOwner(gs, spellID, nil)
+        local isGloballyUnassigned = isBuffSpell and IsBuffSpellUnassigned(gs, spellName)
+        local assigned, assignmentKey = GetUsableSpellAssignment(gs, spellName, entry)
+        local belongsToGroup = runtimeConfirmed or assigned == groupName
+            or (not assigned and targetViewer and entry.viewerName == targetViewer and IsDefaultTrackedEntry(entry))
+        if not belongsToGroup or isGloballyUnassigned or buffOwnedByDynamic then return end
+
+        seen[seenKey] = true
+        seen["name:" .. spellName] = true
+        local rowSpellName = assigned and assignmentKey or spellName
+        seen["name:" .. rowSpellName] = true
+        rows[#rows + 1] = {
+            kind = "cdm",
+            token = MakeCDMOrderToken(rowSpellName),
+            spellName = rowSpellName,
+            entry = entry,
+            isManual = assigned == groupName,
+            isBuffSpell = isBuffSpell,
+            fallbackOrder = runtimeConfirmed and idx or tonumber(entry.layoutIndex) or idx,
+        }
+    end
+
+    if runtimeSnapshot then
+        for idx, runtimeEntry in ipairs(runtimeSnapshot) do
+            AddRow(BuildRuntimeEntry(runtimeEntry, idx), idx, runtimeEntry.spellName, true)
+        end
+    else
+        for idx, entry in ipairs(entries) do
+            AddRow(entry, idx, nil, false)
+        end
+    end
+
+    if assignments and not trackedOnly then
         for spellName, assignedGroup in pairs(assignments) do
-            if assignedGroup == groupName and not seen[spellName] and not (skipSpellNames and skipSpellNames[spellName]) then
-                seen[spellName] = true
+            local seenKey = "name:" .. tostring(spellName)
+            if assignedGroup == groupName and not seen[seenKey] and not (skipSpellNames and skipSpellNames[spellName]) then
+                seen[seenKey] = true
                 rows[#rows + 1] = {
                     kind = "cdm",
                     token = MakeCDMOrderToken(spellName),
