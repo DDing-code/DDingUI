@@ -222,6 +222,9 @@ local state = {
     lastAcceptedScanCount = 0,
     lastPvPInstance = nil,
     acquireSerial = 0,
+    settingsTopologyDirty = false,
+    settingsPendingFrames = setmetatable({}, { __mode = "k" }),
+    settingsResumeVersion = 0,
     -- 통계
     reconcileCount = 0,
 }
@@ -716,11 +719,13 @@ function FrameController:_ResetAcquiredCooldownFrame(frame)
     local restoreVisuals = frame._ddCDMStaleBuff
         or frame._ddSuppressed
         or frame._ddProvisionalHidden
+        or frame._ddSettingsDeferredHidden
 
     frame._ddCDMViewerShown = nil
     frame._ddCDMStaleBuff = nil
     frame._ddLayoutVisible = nil
     frame._ddProvisionalHidden = nil
+    frame._ddSettingsDeferredHidden = nil
     frame._ddCombatKeepAlive = nil
     frame._ddCombatVisible = nil
     frame._ddLastCooldownID = nil
@@ -1782,14 +1787,57 @@ end
 local function InstallCDMHooks()
     if state.hooksInstalled then return end
 
+    local function DeferSettingsTopology(frame, viewer)
+        state.settingsTopologyDirty = true
+        if frame then
+            state.settingsPendingFrames[frame] = true
+            local sourceViewer = viewer or frame:GetParent()
+            local isBuffIcon = sourceViewer == viewerRefs.BuffIconCooldownViewer
+                or frame._ddSourceViewer == "BuffIconCooldownViewer"
+            if isBuffIcon and not frame.Bar and not frame.isEditing and frame.SetAlpha then
+                frame._ddSettingsDeferredHidden = true
+                frame:SetAlpha(0)
+            end
+        end
+        state.dirty = true
+        state.reconcileDueAt = 0
+    end
+
     local function ResumeAfterSettings()
         if not FrameController.initialized then return end
-        C_Timer.After(0.1, function()
+        state.settingsResumeVersion = state.settingsResumeVersion + 1
+        local resumeVersion = state.settingsResumeVersion
+        local pendingFramesPrepared = false
+
+        local function RecoverSettingsFrames(finalPass)
+            if resumeVersion ~= state.settingsResumeVersion then return end
             if not FrameController.initialized or IsCooldownViewerSettingsOpen() then return end
+            if not pendingFramesPrepared then
+                pendingFramesPrepared = true
+                for frame in pairs(state.settingsPendingFrames) do
+                    FrameController:_ResetAcquiredCooldownFrame(frame)
+                    if CDMCompat then CDMCompat:ForgetFrame(frame) end
+                    FrameController:_TrackAuraFrame(frame, true)
+                end
+            end
             if CDMCompat then CDMCompat:Invalidate() end
+            if DDingUI.InvalidateGroupCDMIconEntryCache then
+                DDingUI.InvalidateGroupCDMIconEntryCache()
+            end
             FrameController:RefreshViewerRefs()
             MarkDirty(0, true)
             if not state.pollingActive then EnablePolling() end
+            if finalPass then
+                wipe(state.settingsPendingFrames)
+                state.settingsTopologyDirty = false
+            end
+        end
+
+        C_Timer.After(0, function()
+            RecoverSettingsFrames(false)
+        end)
+        C_Timer.After(state.settingsTopologyDirty and 0.1 or 0.05, function()
+            RecoverSettingsFrames(true)
         end)
     end
 
@@ -1800,6 +1848,15 @@ local function InstallCDMHooks()
         if layoutMgr and layoutMgr.NotifyListeners then
             hooksecurefunc(layoutMgr, "NotifyListeners", function()
                 if not FrameController.initialized then return end
+
+                if CDMCompat then CDMCompat:Invalidate() end
+                if DDingUI.InvalidateGroupCDMIconEntryCache then
+                    DDingUI.InvalidateGroupCDMIconEntryCache()
+                end
+                if IsCooldownViewerSettingsOpen() then
+                    DeferSettingsTopology()
+                    return
+                end
 
                 -- 컨텍스트에 따른 디바운스 시간 결정
                 if state.specChangeDetected or state.talentChangeDetected then return end
@@ -1820,8 +1877,9 @@ local function InstallCDMHooks()
         state.settingsCallbackOwner = state.settingsCallbackOwner or {}
         EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function()
             if FrameController.initialized then
-                state.dirty = true
-                state.reconcileDueAt = 0
+                state.settingsResumeVersion = state.settingsResumeVersion + 1
+                FrameController:DisablePolling()
+                DeferSettingsTopology()
             end
         end, state.settingsCallbackOwner)
         EventRegistry:RegisterCallback("CooldownViewerSettings.OnHide", ResumeAfterSettings, state.settingsCallbackOwner)
@@ -1836,7 +1894,7 @@ local function InstallCDMHooks()
         hooksecurefunc(CooldownViewerMixin, "OnAcquireItemFrame", function(viewer, frame)
             if not FrameController.initialized then return end
             if IsCooldownViewerSettingsOpen() then
-                MarkDirty()
+                DeferSettingsTopology(frame, viewer)
                 return
             end
 
@@ -1892,7 +1950,7 @@ local function InstallCDMHooks()
         hooksecurefunc(CooldownViewerItemDataMixin, "SetCooldownID", function(itemFrame, cooldownID)
             if not FrameController.initialized then return end
             if IsCooldownViewerSettingsOpen() then
-                MarkDirty()
+                DeferSettingsTopology(itemFrame)
                 return
             end
 
@@ -1939,7 +1997,7 @@ local function InstallCDMHooks()
             hooksecurefunc(viewer, "Layout", function()
                 if FrameController.initialized then
                     if IsCooldownViewerSettingsOpen() then
-                        MarkDirty()
+                        DeferSettingsTopology()
                         return
                     end
                     -- Blizzard may restore a managed frame to the viewer during Layout.
@@ -2007,7 +2065,7 @@ local function InstallCDMHooks()
             if not FrameController.initialized then return end
             FrameController:_TrackAuraFrame(frame)
             FrameController:_NotifyTrackedAuraState()
-            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
+            if IsCooldownViewerSettingsOpen() then DeferSettingsTopology(frame); return end
             if frame and frame.isEditing then return end
             if frame and frame._ddCDMStaleBuff then
                 RestoreStaleBuffFrame(frame)
@@ -2032,7 +2090,7 @@ local function InstallCDMHooks()
     if CooldownViewerEssentialItemMixin and CooldownViewerEssentialItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerEssentialItemMixin, "OnCooldownIDSet", function(frame)
             if not FrameController.initialized then return end
-            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
+            if IsCooldownViewerSettingsOpen() then DeferSettingsTopology(frame); return end
             if frame and frame.isEditing then return end
             if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
@@ -2054,7 +2112,7 @@ local function InstallCDMHooks()
     if CooldownViewerUtilityItemMixin and CooldownViewerUtilityItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerUtilityItemMixin, "OnCooldownIDSet", function(frame)
             if not FrameController.initialized then return end
-            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
+            if IsCooldownViewerSettingsOpen() then DeferSettingsTopology(frame); return end
             if frame and frame.isEditing then return end
             if CDMCompat then CDMCompat:GetFrameCooldownID(frame) end
             if frame and frame.SetScale then frame:SetScale(1) end
@@ -2078,7 +2136,7 @@ local function InstallCDMHooks()
             if not FrameController.initialized then return end
             FrameController:_TrackAuraFrame(frame)
             FrameController:_NotifyTrackedAuraState()
-            if IsCooldownViewerSettingsOpen() then MarkDirty(); return end
+            if IsCooldownViewerSettingsOpen() then DeferSettingsTopology(frame); return end
             if frame and frame.isEditing then return end
             if frame and frame.SetScale then frame:SetScale(1) end
             MarkDirty()
