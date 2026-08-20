@@ -3225,11 +3225,15 @@ function groupRuntime:Layout(groupIndex, group, trackedBuffs)
     local groupFrame = self:GetFrame(groupIndex)
     local settings = group.groupSettings or {}
     local children = {}
+    local auraContainer = DDingUI.TrackedAuraContainer
 
     for order, childIndex in ipairs(group.controlledChildren or {}) do
         local child = trackedBuffs[childIndex]
         local frame = child and self:GetDisplayFrame(childIndex, child)
-        if frame and frame:IsShown() then
+        local isContainerAnchor = frame and child and auraContainer
+            and auraContainer.IsBound and auraContainer:IsBound(child)
+            and (not auraContainer.GetBoundHost or auraContainer:GetBoundHost(child) == frame)
+        if frame and (frame:IsShown() or isContainerAnchor) then
             children[#children + 1] = {
                 order = order,
                 config = child,
