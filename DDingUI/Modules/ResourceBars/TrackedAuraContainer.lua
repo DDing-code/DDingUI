@@ -12,9 +12,13 @@ local RETRY_DELAY = 2
 local desiredByTracker = setmetatable({}, { __mode = "k" })
 local bindingByTracker = setmetatable({}, { __mode = "k" })
 local failureByTracker = setmetatable({}, { __mode = "k" })
+local deferredByTracker = setmetatable({}, { __mode = "k" })
 local activePresentationByTracker = setmetatable({}, { __mode = "k" })
+local deferredDisables = {}
 local formatterCache = {}
 local suspended = false
+local loadWindow = false
+local deferredBuildRequested = false
 local diagnostics = {
     syncs = 0,
     desiredTrackers = 0,
@@ -26,6 +30,8 @@ local diagnostics = {
     retrySuppressed = 0,
     parked = 0,
     fallbackRequests = 0,
+    deferredDisables = 0,
+    deferredBuilds = 0,
     totalBuildMs = 0,
     maxBuildMs = 0,
     lastBuildMs = 0,
@@ -137,6 +143,17 @@ local function SortedIDs(include)
     return ids
 end
 
+local function BuildSpellSet(tracker)
+    if type(tracker) ~= "table" then return nil end
+
+    local include = {}
+    local cooldownID = TrackerCooldownID(tracker)
+    AddSpellVariants(include, TrackerSpellID(tracker))
+    AddCooldownInfo(include, cooldownID)
+    if next(include) == nil then return nil end
+    return include
+end
+
 local function ClampInteger(value, minimum, maximum, fallback)
     value = tonumber(value) or fallback
     value = math.floor(value + 0.5)
@@ -148,10 +165,8 @@ end
 local function BuildDesired(tracker)
     if not IsSupportedAuraTracker(tracker) then return nil end
 
-    local include = {}
-    local cooldownID = TrackerCooldownID(tracker)
-    AddSpellVariants(include, TrackerSpellID(tracker))
-    AddCooldownInfo(include, cooldownID)
+    local include = BuildSpellSet(tracker)
+    if not include then return nil end
 
     local ids = SortedIDs(include)
     if #ids == 0 then return nil end
@@ -166,6 +181,11 @@ local function BuildDesired(tracker)
         signature = table.concat(ids, ",") .. ":" .. maxApplications .. ":" .. durationDecimals
             .. ":" .. (tracker.displayType or "bar"),
     }
+end
+
+function Engine:GetTrackedSpellIDs(tracker)
+    local include = BuildSpellSet(tracker)
+    return include and SortedIDs(include) or nil
 end
 
 local function GetFormatter(decimals)
@@ -198,6 +218,20 @@ local function EnsureContainerAPI()
         if not ok then return false end
     end
     return C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") == true
+end
+
+local function CanMutateBindings()
+    if loadWindow then return true end
+    if (InCombatLockdown and InCombatLockdown())
+        or (UnitAffectingCombat and UnitAffectingCombat("player"))
+    then
+        return false
+    end
+    if C_Secrets and C_Secrets.ShouldAurasBeSecret then
+        local ok, restricted = pcall(C_Secrets.ShouldAurasBeSecret)
+        if not ok or IsSecret(restricted) or restricted == true then return false end
+    end
+    return true
 end
 
 local function ColorPart(color)
@@ -574,9 +608,10 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
     proxy:SetFrameLevel(style.frameLevel or 1)
     proxy:SetAllPoints(bar)
     proxy:EnableMouse(false)
-    proxy:Show()
+    proxy:Hide()
 
     local container = CreateFrame("AuraContainer", nil, proxy, "CustomAuraContainerTemplate")
+    container:Hide()
     container:SetPoint("CENTER", proxy, "CENTER")
     container:SetSize(1, 1)
     container:AddAuraSlot("tracked", "HELPFUL", {
@@ -584,7 +619,10 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
         initializeFrame = CreateInitializer(proxy, desired, style),
     })
     container:SetUnit("player")
+    if container.SetEnabled then container:SetEnabled(true) end
+    container:Show()
     container:UpdateAllAuras()
+    proxy:SetShown(style.presentationVisible ~= false)
 
     return {
         proxy = proxy,
@@ -594,6 +632,8 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
         styleSignature = styleSignature,
         displayType = style.displayType,
         tracker = tracker,
+        active = true,
+        presentationVisible = style.presentationVisible ~= false,
     }
 end
 
@@ -654,15 +694,113 @@ local function HideLegacyDisplay(host, style)
     end
 end
 
+local lifecycleFrame = CreateFrame("Frame")
+local lifecycleTicker
+local FlushDeferredBindings
+
+local function RegisterLifecycleRetry()
+    lifecycleFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    lifecycleFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    lifecycleFrame:RegisterEvent("ENCOUNTER_END")
+    lifecycleFrame:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
+    if not lifecycleTicker and C_Timer and C_Timer.NewTicker then
+        lifecycleTicker = C_Timer.NewTicker(1, function()
+            FlushDeferredBindings()
+        end)
+    end
+end
+
+local function SetBindingEnabled(binding, enabled)
+    local container = binding and binding.container
+    if not container or not CanMutateBindings() then return false end
+
+    local ok = true
+    if type(container.SetEnabled) == "function" then
+        ok = pcall(container.SetEnabled, container, enabled)
+    end
+    if ok then
+        if enabled then container:Show() else container:Hide() end
+    end
+    return ok
+end
+
+FlushDeferredBindings = function()
+    if not CanMutateBindings() then return end
+    for binding in pairs(deferredDisables) do
+        if binding.active ~= true then
+            if SetBindingEnabled(binding, false) then
+                deferredDisables[binding] = nil
+            end
+        else
+            deferredDisables[binding] = nil
+        end
+    end
+    if deferredBuildRequested then
+        deferredBuildRequested = false
+        local resourceBars = DDingUI.ResourceBars
+        if resourceBars and resourceBars.RequestBuffTrackerUpdate then
+            resourceBars:RequestBuffTrackerUpdate("aura-container-ready", 0)
+        end
+    end
+    if not deferredBuildRequested and next(deferredDisables) == nil then
+        lifecycleFrame:UnregisterAllEvents()
+        if lifecycleTicker then
+            lifecycleTicker:Cancel()
+            lifecycleTicker = nil
+        end
+    end
+end
+
+lifecycleFrame:SetScript("OnEvent", FlushDeferredBindings)
+
+local function ActivateBinding(binding)
+    if not binding then return false end
+    if binding.active == true then
+        deferredDisables[binding] = nil
+        if binding.proxy then binding.proxy:SetShown(binding.presentationVisible ~= false) end
+        return true
+    end
+    if deferredDisables[binding] then
+        deferredDisables[binding] = nil
+        binding.active = true
+        if binding.proxy then binding.proxy:SetShown(binding.presentationVisible ~= false) end
+        return true
+    end
+
+    local enabled = SetBindingEnabled(binding, true)
+    if not enabled then
+        RegisterLifecycleRetry()
+        return false
+    end
+    binding.active = true
+    if binding.proxy then binding.proxy:SetShown(binding.presentationVisible ~= false) end
+    if enabled and binding.container and binding.container.UpdateAllAuras then
+        pcall(binding.container.UpdateAllAuras, binding.container)
+    end
+    return enabled
+end
+
 local function ParkBinding(binding)
     if not binding then return end
+    if binding.active == false then
+        if binding.proxy then binding.proxy:Hide() end
+        RestoreLegacyDisplay(binding.bar)
+        return
+    end
+    binding.active = false
     if binding.proxy then binding.proxy:Hide() end
+    if not SetBindingEnabled(binding, false) then
+        deferredDisables[binding] = true
+        diagnostics.deferredDisables = diagnostics.deferredDisables + 1
+        RegisterLifecycleRetry()
+    end
     RestoreLegacyDisplay(binding.bar)
     diagnostics.parked = diagnostics.parked + 1
 end
 
 function Engine:Sync(trackers)
     diagnostics.syncs = diagnostics.syncs + 1
+    suspended = false
     local retained = {}
     local desiredCount = 0
     for _, tracker in ipairs(trackers or {}) do
@@ -681,9 +819,22 @@ function Engine:Sync(trackers)
             bindingByTracker[tracker] = nil
             desiredByTracker[tracker] = nil
             failureByTracker[tracker] = nil
+            deferredByTracker[tracker] = nil
         end
     end
-    suspended = false
+end
+
+function Engine:BeginLoadWindow()
+    loadWindow = true
+    deferredBuildRequested = false
+end
+
+function Engine:EndLoadWindow()
+    loadWindow = false
+end
+
+function Engine:IsLoadWindow()
+    return loadWindow
 end
 
 local function ApplyGlowStyle(style, source, animationKey, colorKey, prefix)
@@ -756,9 +907,14 @@ function Engine:Attach(tracker, bar, style)
         end
         binding.proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
         binding.proxy:SetFrameLevel(style.frameLevel or 1)
-        binding.proxy:Show()
+        binding.presentationVisible = style.presentationVisible ~= false
+        if not ActivateBinding(binding) then
+            RestoreLegacyDisplay(bar)
+            return false
+        end
         HideLegacyDisplay(bar, style)
         bar._auraContainerBinding = binding
+        deferredByTracker[tracker] = nil
         return true
     end
 
@@ -772,6 +928,33 @@ function Engine:Attach(tracker, bar, style)
         return false
     end
 
+    if not CanMutateBindings() then
+        deferredByTracker[tracker] = true
+        if not deferredBuildRequested then
+            deferredBuildRequested = true
+            diagnostics.deferredBuilds = diagnostics.deferredBuilds + 1
+        end
+        RegisterLifecycleRetry()
+        if binding and binding.desiredSignature == desired.signature then
+            if binding.bar ~= bar then
+                RestoreLegacyDisplay(binding.bar)
+                binding.bar = bar
+                binding.proxy:ClearAllPoints()
+                binding.proxy:SetAllPoints(bar)
+            end
+            binding.proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
+            binding.proxy:SetFrameLevel(style.frameLevel or 1)
+            binding.presentationVisible = style.presentationVisible ~= false
+            if ActivateBinding(binding) then
+                HideLegacyDisplay(bar, style)
+                bar._auraContainerBinding = binding
+                return true
+            end
+        end
+        ParkBinding(binding)
+        RestoreLegacyDisplay(bar)
+        return false
+    end
     diagnostics.buildAttempts = diagnostics.buildAttempts + 1
     if binding then diagnostics.rebuilds = diagnostics.rebuilds + 1 end
     local started = debugprofilestop and debugprofilestop() or nil
@@ -781,6 +964,7 @@ function Engine:Attach(tracker, bar, style)
     diagnostics.totalBuildMs = diagnostics.totalBuildMs + elapsed
     diagnostics.maxBuildMs = math.max(diagnostics.maxBuildMs, elapsed)
     if not ok then
+        deferredByTracker[tracker] = nil
         diagnostics.buildFailures = diagnostics.buildFailures + 1
         diagnostics.lastError = tostring(replacement)
         failureByTracker[tracker] = { signature = buildSignature, time = now }
@@ -799,6 +983,7 @@ function Engine:Attach(tracker, bar, style)
     ParkBinding(binding)
     bindingByTracker[tracker] = replacement
     failureByTracker[tracker] = nil
+    deferredByTracker[tracker] = nil
     HideLegacyDisplay(bar, style)
     bar._auraContainerBinding = replacement
     return true
@@ -818,8 +1003,25 @@ function Engine:ShouldReadLegacy(tracker)
     return failure ~= nil and GetTime() - failure.time < RETRY_DELAY
 end
 
+function Engine:HasBinding(tracker)
+    return tracker ~= nil and bindingByTracker[tracker] ~= nil
+end
+
+function Engine:SetPresentationVisible(tracker, visible)
+    local binding = tracker and bindingByTracker[tracker]
+    if not binding or not binding.proxy then return false end
+    binding.presentationVisible = visible == true
+    binding.proxy:SetShown(binding.active == true and binding.presentationVisible)
+    return true
+end
+
+function Engine:IsBuildDeferred(tracker)
+    return tracker ~= nil and deferredByTracker[tracker] == true
+end
+
 function Engine:Detach(tracker, bar)
     local binding = tracker and bindingByTracker[tracker]
+    if tracker then deferredByTracker[tracker] = nil end
     if binding then ParkBinding(binding) end
     RestoreLegacyDisplay(bar)
 end

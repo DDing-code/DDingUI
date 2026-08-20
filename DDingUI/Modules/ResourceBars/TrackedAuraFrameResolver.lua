@@ -367,6 +367,10 @@ function Resolver:BeginPass(trackers)
     if auraContainer and auraContainer.Sync then
         auraContainer:Sync(trackers)
     end
+    local auraSounds = DDingUI.TrackedAuraSounds
+    if auraSounds and auraSounds.Sync then
+        auraSounds:Sync(trackers)
+    end
 
     wipe(assignments)
     HookKnownViewers()
@@ -465,10 +469,18 @@ function Resolver:Suspend()
     if auraContainer and auraContainer.Suspend then
         auraContainer:Suspend()
     end
+    local auraSounds = DDingUI.TrackedAuraSounds
+    if auraSounds and auraSounds.Suspend then
+        auraSounds:Suspend()
+    end
 end
 
 function Resolver:Invalidate()
     wipe(assignments)
+    local auraSounds = DDingUI.TrackedAuraSounds
+    if auraSounds and auraSounds.Invalidate then
+        auraSounds:Invalidate()
+    end
 end
 
 function Resolver:GetDiagnostics()

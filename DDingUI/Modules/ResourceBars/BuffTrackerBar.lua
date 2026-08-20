@@ -2939,9 +2939,14 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
         elseif action.type == "sound" then
             local stateKey = actionIdx
             local wasActive = frame._alertPrevState[stateKey]
+            local auraSounds = DDingUI.TrackedAuraSounds
+            local nativeSound = auraSounds and auraSounds.IsNativeAlertAction
+                and auraSounds:IsNativeAlertAction(action)
 
             local alertCustomPath = action.soundCustomPath or "" -- [12.0.1]
-            if action.soundMode == "repeat" then
+            if nativeSound then
+                -- The game client owns this aura edge and plays the registered sound.
+            elseif action.soundMode == "repeat" then
                 -- Repeat mode: play at cooldown intervals
                 if shouldFire then
                     local cooldown = action.soundCooldown or 3
@@ -3240,10 +3245,11 @@ function groupRuntime:HideAll()
     end
 end
 
-function groupRuntime:IsActive(group)
+function groupRuntime:IsActive(group, prepareBindings)
     if not group or not group.isGroup then return false end
     if isInMoverMode or isInPreviewMode then return true end
     if group.disabled or group.enabled == false then return false end
+    if prepareBindings then return true end
     if not CheckActivationCondition(group) then return false end
 
     local settings = group.groupSettings or {}
@@ -3479,11 +3485,17 @@ function ResourceBars:UpdateBuffTrackerBar()
     if useTrackedBuffSystem then
         local groupChildOwners = {}
         local activeGroups = {}
+        local preparedGroups = {}
         local updateOrder = {}
         local groupColorSources = {}
+        local auraContainer = DDingUI.TrackedAuraContainer
+        local prebuildWindow = auraContainer and auraContainer.IsLoadWindow
+            and auraContainer:IsLoadWindow() or false
         for groupIndex, buff in ipairs(trackedBuffs) do
             if buff.isGroup then
                 activeGroups[groupIndex] = groupRuntime:IsActive(buff)
+                preparedGroups[groupIndex] = activeGroups[groupIndex]
+                    or (prebuildWindow and groupRuntime:IsActive(buff, true))
                 for _, childIdx in ipairs(buff.controlledChildren or {}) do
                     if trackedBuffs[childIdx] and not trackedBuffs[childIdx].isGroup then
                         groupChildOwners[childIdx] = groupIndex
@@ -3505,17 +3517,27 @@ function ResourceBars:UpdateBuffTrackerBar()
         for _, barIndex in ipairs(updateOrder) do
             local trackedBuff = trackedBuffs[barIndex]
             local ownerGroup = groupChildOwners[barIndex]
+            local activationActive = CheckActivationCondition(trackedBuff)
+            local prepareTracker = prebuildWindow and auraContainer
+                and auraContainer.IsContainerCandidate
+                and auraContainer:IsContainerCandidate(trackedBuff)
+            local ownerReady = not ownerGroup or activeGroups[ownerGroup]
+                or (prepareTracker and preparedGroups[ownerGroup])
             if trackedBuff.isGroup
                or trackedBuff.enabled == false
-               or not CheckActivationCondition(trackedBuff)
-               or (ownerGroup and not activeGroups[ownerGroup]) then
+               or (not activationActive and not prepareTracker)
+               or not ownerReady then
                 if soundTrackers[barIndex] then
                     self:CancelTrackedBuffSoundTimer(soundTrackers[barIndex])
                     soundTrackers[barIndex] = nil
                 end
                 groupRuntime:HideDisplay(barIndex)
                 local auraContainer = DDingUI.TrackedAuraContainer
-                if auraContainer and auraContainer.Detach then
+                local keptPrepared = auraContainer and auraContainer.HasBinding
+                    and auraContainer:HasBinding(trackedBuff)
+                if keptPrepared and auraContainer.SetPresentationVisible then
+                    auraContainer:SetPresentationVisible(trackedBuff, false)
+                elseif auraContainer and auraContainer.Detach then
                     auraContainer:Detach(trackedBuff)
                 end
             else
@@ -3569,6 +3591,12 @@ function ResourceBars:UpdateBuffTrackerBar()
                     -- Fallback to bar mode
                     self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)
                     HideOtherTrackedBuffDisplays(barIndex, "bar")
+                end
+                if not activationActive or (ownerGroup and not activeGroups[ownerGroup]) then
+                    groupRuntime:HideDisplay(barIndex)
+                    if auraContainer and auraContainer.SetPresentationVisible then
+                        auraContainer:SetPresentationVisible(trackedBuff, false)
+                    end
                 end
             end
         end
@@ -4457,7 +4485,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
 
     local auraStyle
     if not isManualMode and not isInPreviewMode and not isInMoverMode
-        and barStyle == "bar" and not (onlyInCombat and not inCombat)
+        and barStyle == "bar"
     then
         auraStyle = {
             displayType = "bar",
@@ -4488,6 +4516,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             durationColor = durationTextColor,
             frameStrata = strata,
             frameLevel = bar:GetFrameLevel(),
+            presentationVisible = not (onlyInCombat and not inCombat),
         }
     end
     local auraAttached = resolver and resolver.AttachAuraContainer
@@ -4508,6 +4537,10 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     end
 
     if onlyInCombat and not inCombat and not isInMoverMode and not isInPreviewMode then
+        local auraContainer = DDingUI.TrackedAuraContainer
+        if auraAttached and auraContainer and auraContainer.SetPresentationVisible then
+            auraContainer:SetPresentationVisible(trackedBuff, false)
+        end
         bar:Hide()
         return
     end
@@ -4653,13 +4686,8 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
     local shouldShow = hasData or isInPreviewMode or isInMoverMode or containerEligible
 
-    if onlyInCombat and not inCombat and not isInPreviewMode and not isInMoverMode then
-        if resolver and resolver.AttachAuraContainer then
-            resolver:AttachAuraContainer(trackedBuff, bar, nil)
-        end
-        bar:Hide()
-        return
-    end
+    local hideForCombat = onlyInCombat and not inCombat
+        and not isInPreviewMode and not isInMoverMode
 
     if not shouldShow and hideWhenZero then
         if not (showInCombat and inCombat) then
@@ -5087,10 +5115,19 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             frameStrata = strata,
             frameLevel = bar:GetFrameLevel(),
             preserveInactive = not hideWhenZero,
+            presentationVisible = not hideForCombat,
         }
     end
     if resolver and resolver.AttachAuraContainer then
         resolver:AttachAuraContainer(trackedBuff, bar, ringAuraStyle)
+    end
+    if hideForCombat then
+        local auraContainer = DDingUI.TrackedAuraContainer
+        if ringAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
+            auraContainer:SetPresentationVisible(trackedBuff, false)
+        end
+        bar:Hide()
+        return
     end
     bar:Show()
 end
@@ -5203,15 +5240,8 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
 
     -- onlyInCombat: 전투 중에만 표시
     local onlyInCombat = settings.onlyInCombat or false
-    if onlyInCombat and not inCombat and not isInMoverMode and not isInPreviewMode then
-        if resolver and resolver.AttachAuraContainer then
-            resolver:AttachAuraContainer(trackedBuff, icon, nil)
-        end
-        icon:Hide()
-        StopAllAnimations(icon)
-        icon._currentAnimation = nil
-        return
-    end
+    local hideForCombat = onlyInCombat and not inCombat
+        and not isInMoverMode and not isInPreviewMode
 
     local showOnlyWhenInactive = settings.showOnlyWhenInactive or false
     local conditionalVisualActive = icon._alertGlowOverride
@@ -5615,10 +5645,21 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             frameStrata = settings.frameStrata or globalCfg.frameStrata or "MEDIUM",
             frameLevel = icon:GetFrameLevel(),
             preserveInactive = not hideWhenZero,
+            presentationVisible = not hideForCombat,
         }
     end
     if resolver and resolver.AttachAuraContainer then
         resolver:AttachAuraContainer(trackedBuff, icon, iconAuraStyle)
+    end
+    if hideForCombat then
+        local auraContainer = DDingUI.TrackedAuraContainer
+        if iconAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
+            auraContainer:SetPresentationVisible(trackedBuff, false)
+        end
+        icon:Hide()
+        StopAllAnimations(icon)
+        icon._currentAnimation = nil
+        return
     end
     icon:Show()
 
@@ -5647,6 +5688,18 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     local soundEndBefore = math_max(0, tonumber(settings.soundEndBefore) or 3)
     local soundInterval = math_max(0.5, tonumber(settings.soundInterval) or 5)
     local soundCustomPath = settings.soundCustomPath or "" -- [12.0.1] custom sound path
+
+    local auraSounds = DDingUI.TrackedAuraSounds
+    if auraSounds and auraSounds.IsNative and auraSounds:IsNative(trackedBuff) then
+        self:CancelTrackedBuffSoundTimer(tracker)
+        tracker.native = true
+        tracker.initialized = false
+        return
+    elseif tracker.native then
+        tracker.native = nil
+        tracker.initialized = false
+        tracker.wasActive = false
+    end
 
     local ownerKey = trackedBuff.uid or trackedBuff
     if tracker.ownerKey ~= ownerKey or tracker.soundTrigger ~= soundTrigger then
@@ -5882,13 +5935,8 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- onlyInCombat: 전투 중에만 표시
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
     local onlyInCombat = settings.onlyInCombat or false
-    if onlyInCombat and not inCombat and not isInMoverMode and not isInPreviewMode then
-        if resolver and resolver.AttachAuraContainer then
-            resolver:AttachAuraContainer(trackedBuff, textFrame, nil)
-        end
-        textFrame:Hide()
-        return
-    end
+    local hideForCombat = onlyInCombat and not inCombat
+        and not isInMoverMode and not isInPreviewMode
 
     -- Hide if no data and hideWhenZero (skip in mover/preview mode)
     -- Also skip hiding if showInCombat is enabled and we're in combat
@@ -6145,10 +6193,19 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             frameStrata = settings.frameStrata or globalCfg.frameStrata or "MEDIUM",
             frameLevel = textFrame:GetFrameLevel(),
             preserveInactive = not hideWhenZero,
+            presentationVisible = not hideForCombat,
         }
     end
     if resolver and resolver.AttachAuraContainer then
         resolver:AttachAuraContainer(trackedBuff, textFrame, textAuraStyle)
+    end
+    if hideForCombat then
+        local auraContainer = DDingUI.TrackedAuraContainer
+        if textAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
+            auraContainer:SetPresentationVisible(trackedBuff, false)
+        end
+        textFrame:Hide()
+        return
     end
     textFrame:Show()
 
@@ -6201,7 +6258,20 @@ function ResourceBars:InitializeBuffTracker()
     end
     StartBuffTrackerTicker()
 
-    ScheduleBuffTrackerStartupRefresh("initial", { 0.05, 0.5, 1.5 })
+    local auraContainer = DDingUI.TrackedAuraContainer
+    local prebuilt = auraContainer and auraContainer.BeginLoadWindow ~= nil
+        and auraContainer.EndLoadWindow ~= nil
+    if prebuilt then
+        auraContainer:BeginLoadWindow()
+        C_Timer.After(0, function()
+            auraContainer:EndLoadWindow()
+        end)
+        self:UpdateBuffTrackerBar()
+        auraContainer:EndLoadWindow()
+    end
+
+    ScheduleBuffTrackerStartupRefresh("initial", prebuilt and { 0.5, 1.5 }
+        or { 0.05, 0.5, 1.5 })
     C_Timer.After(1.6, function()
         buffTrackerInitialized = true
     end)
@@ -6308,9 +6378,11 @@ SlashCmdList["DDINGBUFF"] = function(msg)
     if msg == "metrics" or msg == "metrics reset" then
         local engine = DDingUI.TrackedAuraContainer
         local resolver = DDingUI.TrackedAuraFrameResolver
+        local auraSounds = DDingUI.TrackedAuraSounds
         if msg == "metrics reset" then
             if engine and engine.ResetDiagnostics then engine:ResetDiagnostics() end
             if resolver and resolver.ResetDiagnostics then resolver:ResetDiagnostics() end
+            if auraSounds and auraSounds.ResetDiagnostics then auraSounds:ResetDiagnostics() end
             cdmVisibility.scans = 0
             cdmVisibility.skipped = 0
             cdmVisibility.visitedFrames = 0
@@ -6318,6 +6390,7 @@ SlashCmdList["DDINGBUFF"] = function(msg)
         end
         local data = engine and engine.GetDiagnostics and engine:GetDiagnostics() or {}
         local resolverData = resolver and resolver.GetDiagnostics and resolver:GetDiagnostics() or {}
+        local soundData = auraSounds and auraSounds.GetDiagnostics and auraSounds:GetDiagnostics() or {}
         print(string.format(
             "|cffffffffDDing|r|cffffa300UI|r: Aura containers active=%d desired=%d builds=%d success=%d failures=%d rebuilds=%d reuses=%d retriesSkipped=%d",
             data.activeBindings or 0,
@@ -6336,6 +6409,16 @@ SlashCmdList["DDINGBUFF"] = function(msg)
             data.maxBuildMs or 0,
             data.fallbackRequests or 0,
             data.failedTrackers or 0
+        ))
+        print(string.format(
+            "  deferred builds=%d disables=%d sound active=%d add=%d remove=%d failures=%d pending=%s",
+            data.deferredBuilds or 0,
+            data.deferredDisables or 0,
+            soundData.activeRegistrations or 0,
+            soundData.registrations or 0,
+            soundData.removals or 0,
+            soundData.failures or 0,
+            tostring(soundData.pending == true)
         ))
         print(string.format(
             "  CDM visibility scans=%d skipped=%d framesVisited=%d protectedConditions=%d dirty=%s",

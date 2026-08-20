@@ -118,7 +118,7 @@ function Engine:Attach(tracker, bar, style)
         if attached == true then
             fallbackTrackers[tracker] = nil
             StopLegacyDurationDrivers(bar)
-        elseif candidate then
+        elseif candidate and not (self.IsBuildDeferred and self:IsBuildDeferred(tracker)) then
             MarkFallback(tracker)
         end
     end

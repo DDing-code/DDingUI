@@ -66,6 +66,7 @@ local function BuildSafeAlerts(tracker, alerts)
 
         if mappedIndex then
             local safeAction = ShallowCopy(action)
+            safeAction._nativeSourceAction = action
             safeAction.condition = "trigger" .. mappedIndex
             safeActions[#safeActions + 1] = safeAction
         else

@@ -3649,6 +3649,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                         PlaySoundFile(soundPath, "Master")
                     end
                 end
+                DDingUI:UpdateBuffTrackerBar()
             end
         end,
     }
@@ -3682,6 +3683,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                     local channel = trackedBuffs[index].settings.soundChannel or "Master"
                     PlaySoundFile(val, channel)
                 end
+                DDingUI:UpdateBuffTrackerBar()
             end
         end,
     }
@@ -3740,6 +3742,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] and trackedBuffs[index].settings then
                 trackedBuffs[index].settings.soundChannel = val
+                DDingUI:UpdateBuffTrackerBar()
             end
         end,
     }
@@ -3767,6 +3770,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] and trackedBuffs[index].settings then
                 trackedBuffs[index].settings.soundTrigger = val
+                DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()
             end
         end,
@@ -6785,6 +6789,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                         local soundPath = LSM:Fetch("sound", val)
                         if soundPath then PlaySoundFile(soundPath, "Master") end
                     end
+                    DDingUI:UpdateBuffTrackerBar()
                 end
             end,
         }
@@ -6815,6 +6820,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 local alerts = EnsureAlerts(index)
                 if alerts and alerts.actions[actIdx] then
                     alerts.actions[actIdx].soundChannel = val
+                    DDingUI:UpdateBuffTrackerBar()
                 end
             end,
         }
@@ -6842,6 +6848,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 local alerts = EnsureAlerts(index)
                 if alerts and alerts.actions[actIdx] then
                     alerts.actions[actIdx].soundMode = val
+                    DDingUI:UpdateBuffTrackerBar()
                     RefreshOptions()
                 end
             end,
@@ -6902,6 +6909,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                         local channel = alerts.actions[actIdx].soundChannel or "Master"
                         PlaySoundFile(val, channel)
                     end
+                    DDingUI:UpdateBuffTrackerBar()
                 end
             end,
         }
