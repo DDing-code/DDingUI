@@ -113,23 +113,47 @@ local function GetTriggerState(trigger, group, trackedBuffs)
         spellIDsToCheck[#spellIDsToCheck + 1] = cooldownID
     end
 
-    for _, sid in ipairs(spellIDsToCheck) do
-        if hasAura then break end
-        pcall(function()
-            local auraData = C_UnitAuras.GetPlayerAuraBySpellID(sid)
-            if auraData then
-                hasAura = true
-                -- duration: expirationTime은 secret-safe
-                duration = nil
-                local expirationTime = ReadSafeNumber(auraData.expirationTime)
-                if expirationTime then
-                    local remaining = expirationTime - GetTime()
-                    duration = remaining > 0 and remaining or 0
-                elseif ReadSafeNumber(auraData.duration) == 0 then
-                    duration = 0
+    local auraDriver = DDingUI.TrackedAuraLegacyFallbackDriver
+    local matchedAuraSpellID
+    if auraDriver and auraDriver.ResolvePlayerAuraPresence then
+        local resolved
+        resolved, matchedAuraSpellID = auraDriver.ResolvePlayerAuraPresence(cooldownID, effectiveSpellID)
+        if resolved ~= nil then
+            hasAura = resolved
+        end
+    else
+        for _, sid in ipairs(spellIDsToCheck) do
+            if hasAura then break end
+            pcall(function()
+                local auraData = C_UnitAuras.GetPlayerAuraBySpellID(sid)
+                if IsSecretValue(auraData) then
+                    hasAura = true
+                elseif auraData ~= nil then
+                    hasAura = true
+                    duration = nil
+                    local expirationTime = ReadSafeNumber(auraData.expirationTime)
+                    if expirationTime then
+                        local remaining = expirationTime - GetTime()
+                        duration = remaining > 0 and remaining or 0
+                    elseif ReadSafeNumber(auraData.duration) == 0 then
+                        duration = 0
+                    end
                 end
+            end)
+        end
+    end
+
+    if hasAura and matchedAuraSpellID and auraDriver and auraDriver.GetPlayerAuraBySpellID then
+        local auraData = auraDriver.GetPlayerAuraBySpellID(matchedAuraSpellID)
+        if auraDriver.HasAuraResult(auraData) and not auraDriver.IsSecretValue(auraData) then
+            local expirationTime = ReadSafeNumber(auraData.expirationTime)
+            if expirationTime then
+                local remaining = expirationTime - GetTime()
+                duration = remaining > 0 and remaining or 0
+            elseif ReadSafeNumber(auraData.duration) == 0 then
+                duration = 0
             end
-        end)
+        end
     end
 
     -- ─── 2) 쿨다운 상태 (secret-safe) ───

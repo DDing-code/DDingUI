@@ -1350,6 +1350,9 @@ buffTrackerEventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_AURA" then
         local unit = ...
         if unit == "player" then
+            if LegacyAuraDriver.InvalidatePlayerAuraPresenceCache then
+                LegacyAuraDriver.InvalidatePlayerAuraPresenceCache()
+            end
             QueueBuffTrackerUpdate("unit-aura")
             QueueBuffTrackerAuraSettleRefresh()
         end
@@ -2504,6 +2507,36 @@ local function GetSoundTracker(barIndex)
     return soundTrackers[barIndex]
 end
 
+function ResourceBars:CancelTrackedBuffSoundTimer(tracker)
+    if not tracker then return end
+    if tracker.timer then
+        tracker.timer:Cancel()
+        tracker.timer = nil
+    end
+    tracker.timerDueAt = nil
+end
+
+function ResourceBars:ScheduleTrackedBuffSoundUpdate(tracker, delay)
+    delay = tonumber(delay)
+    if not tracker or not delay or delay <= 0 then return end
+
+    local now = GetTime()
+    local dueAt = now + delay
+    if tracker.timer and tracker.timerDueAt and tracker.timerDueAt <= dueAt + 0.01 then
+        return
+    end
+
+    self:CancelTrackedBuffSoundTimer(tracker)
+    tracker.timerDueAt = dueAt
+    tracker.timer = C_Timer.NewTimer(math_max(0.02, delay), function()
+        tracker.timer = nil
+        tracker.timerDueAt = nil
+        if QueueBuffTrackerUpdate then
+            QueueBuffTrackerUpdate("sound-timer", 0)
+        end
+    end)
+end
+
 -- Validate custom sound file extension (mp3/ogg/wav only)
 local function IsValidSoundPath(path)
     if not path or path == "" then return false end
@@ -2517,8 +2550,8 @@ local function PlayTrackerSound(soundKey, channel, customPath)
     if customPath and customPath ~= "" then
         if IsValidSoundPath(customPath) then
             PlaySoundFile(customPath, channel or "Master")
+            return
         end
-        return
     end
     -- Fallback to LSM
     if not soundKey or soundKey == "None" or soundKey == "" then return end
@@ -2532,7 +2565,9 @@ end
 ResetAllSoundTrackers = function()
     for _, tracker in pairs(soundTrackers) do
         if tracker then
+            ResourceBars:CancelTrackedBuffSoundTimer(tracker)
             tracker.wasActive = false
+            tracker.initialized = false
             tracker.lastPlayTime = 0
             tracker.lastIntervalPlay = 0
             tracker.buffStartTime = nil
@@ -2637,6 +2672,19 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     local auraRemaining, auraDuration, auraTimingProtected
     local nextEvaluationDelay
     local protectedAuraState = IsProtectedAuraObservation(trackedStacks, auraInstanceID)
+    local auraPresenceLoaded = false
+    local auraPresent
+
+    local function LoadAuraPresence()
+        if not auraPresenceLoaded then
+            auraPresent = LegacyAuraDriver.ResolvePlayerAuraPresence(
+                tonumber(trackedBuff.cooldownID) or 0,
+                tonumber(trackedBuff.spellID) or 0
+            )
+            auraPresenceLoaded = true
+        end
+        return auraPresent
+    end
 
     local function LoadAuraTiming()
         if not auraTimingLoaded then
@@ -2658,7 +2706,16 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
         local result = false
 
         if trigger.type == "active" then
-            if protectedAuraState then
+            local resolvedPresence
+            if trackedBuff.trackingMode ~= "manual"
+                and trackedBuff.trackingMode ~= "spell"
+                and trackedBuff.isAura ~= false
+            then
+                resolvedPresence = LoadAuraPresence()
+            end
+            if resolvedPresence ~= nil then
+                result = EvaluateComparison(resolvedPresence, trigger.op, trigger.value)
+            elseif protectedAuraState then
                 protectedTriggers = protectedTriggers or {}
                 protectedTriggers[i] = true
             else
@@ -2892,6 +2949,13 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
                     if now - lastPlay >= cooldown then
                         PlayTrackerSound(action.soundFile, action.soundChannel or "Master", alertCustomPath)
                         frame._alertSoundLastPlay[stateKey] = now
+                        lastPlay = now
+                    end
+                    if alertResult then
+                        local delay = math_max(0.02, cooldown - (now - lastPlay))
+                        if not alertResult.nextEvaluationDelay or delay < alertResult.nextEvaluationDelay then
+                            alertResult.nextEvaluationDelay = delay
+                        end
                     end
                 end
             else
@@ -3367,6 +3431,8 @@ function ResourceBars:UpdateBuffTrackerBar()
         if ConditionalVisuals then
             ConditionalVisuals:Clear()
         end
+        ResetAllSoundTrackers()
+        wipe(soundTrackers)
         if DDingUI.TrackedAuraFrameResolver and DDingUI.TrackedAuraFrameResolver.Suspend then
             DDingUI.TrackedAuraFrameResolver:Suspend()
         end
@@ -3381,6 +3447,13 @@ function ResourceBars:UpdateBuffTrackerBar()
     -- ============================================================
     local trackedBuffs = GetTrackedBuffs()
     local useTrackedBuffSystem = (#trackedBuffs > 0)
+    for index, tracker in pairs(soundTrackers) do
+        local trackedBuff = trackedBuffs[index]
+        if not trackedBuff or trackedBuff.displayType ~= "sound" then
+            self:CancelTrackedBuffSoundTimer(tracker)
+            soundTrackers[index] = nil
+        end
+    end
     RefreshCDMVisibilityCache(trackedBuffs)
     if DDingUI.TrackedAuraFrameResolver then
         DDingUI.TrackedAuraFrameResolver:BeginPass(trackedBuffs)
@@ -3436,6 +3509,10 @@ function ResourceBars:UpdateBuffTrackerBar()
                or trackedBuff.enabled == false
                or not CheckActivationCondition(trackedBuff)
                or (ownerGroup and not activeGroups[ownerGroup]) then
+                if soundTrackers[barIndex] then
+                    self:CancelTrackedBuffSoundTimer(soundTrackers[barIndex])
+                    soundTrackers[barIndex] = nil
+                end
                 groupRuntime:HideDisplay(barIndex)
                 local auraContainer = DDingUI.TrackedAuraContainer
                 if auraContainer and auraContainer.Detach then
@@ -3443,6 +3520,10 @@ function ResourceBars:UpdateBuffTrackerBar()
                 end
             else
                 local displayType = trackedBuff.displayType or "bar"
+                if displayType ~= "sound" and soundTrackers[barIndex] then
+                    self:CancelTrackedBuffSoundTimer(soundTrackers[barIndex])
+                    soundTrackers[barIndex] = nil
+                end
 
                 if displayType == "bar" then
                     -- Bar mode: update bar, hide others
@@ -5562,10 +5643,23 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     local soundFile = settings.soundFile or "None"
     local soundChannel = settings.soundChannel or "Master"
     local soundTrigger = settings.soundTrigger or "start"
-    local soundStartDelay = settings.soundStartDelay or 0
-    local soundEndBefore = settings.soundEndBefore or 3
-    local soundInterval = settings.soundInterval or 5
+    local soundStartDelay = math_max(0, tonumber(settings.soundStartDelay) or 0)
+    local soundEndBefore = math_max(0, tonumber(settings.soundEndBefore) or 3)
+    local soundInterval = math_max(0.5, tonumber(settings.soundInterval) or 5)
     local soundCustomPath = settings.soundCustomPath or "" -- [12.0.1] custom sound path
+
+    local ownerKey = trackedBuff.uid or trackedBuff
+    if tracker.ownerKey ~= ownerKey or tracker.soundTrigger ~= soundTrigger then
+        self:CancelTrackedBuffSoundTimer(tracker)
+        tracker.ownerKey = ownerKey
+        tracker.soundTrigger = soundTrigger
+        tracker.initialized = false
+        tracker.wasActive = false
+        tracker.lastPlayTime = 0
+        tracker.lastIntervalPlay = 0
+        tracker.buffStartTime = nil
+        tracker.endBeforePlayed = false
+    end
 
     -- ============================================================
     -- MANUAL TRACKING MODE: Use spell-cast-based stacks instead of aura
@@ -5576,35 +5670,43 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
         manualStackCount, manualExpiresAt = GetManualStacks(barIndex)
     end
 
-    -- Get tracking data
-    local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
-
-    -- [12.0.1] Taint-safe stacks resolution
-    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(cooldownID, frame, isManualMode, manualStackCount, trackedBuff.spellID, trackedBuff.name)
-
-    -- Auto mode accepts either an aura instance or an active stack value.
+    local trackedStacks, auraInstanceID, unit
     local hasData
     if isManualMode then
         hasData = (manualStackCount or 0) > 0
     else
-        hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
-        if IsProtectedAuraObservation(trackedStacks, auraInstanceID) then
-            if not tracker.protectedObservationReported then
-                cdmVisibility.protectedConditionsSkipped = cdmVisibility.protectedConditionsSkipped + 1
-                tracker.protectedObservationReported = true
-            end
-            return
+        hasData = LegacyAuraDriver.ResolvePlayerAuraPresence(cooldownID, trackedBuff.spellID)
+        if hasData == nil or trackedBuff.isAura == false or trackedBuff.trackingMode == "spell" then
+            local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
+            trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+                cooldownID,
+                frame,
+                false,
+                nil,
+                trackedBuff.spellID,
+                trackedBuff.name
+            )
+            hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
         end
         tracker.protectedObservationReported = nil
     end
 
     local now = GetTime()
+    local priming = not tracker.initialized
+    if priming then
+        tracker.initialized = true
+        tracker.wasActive = hasData
+        if soundTrigger == "interval" and hasData then
+            tracker.lastIntervalPlay = now
+        end
+    end
     if hasData and not tracker.wasActive then
         tracker.endBeforePlayed = false
     end
 
     -- Handle sound triggers
     if soundTrigger == "start" then
+        self:CancelTrackedBuffSoundTimer(tracker)
         -- Play when buff starts
         if hasData and not tracker.wasActive then
             PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
@@ -5620,9 +5722,13 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
             if elapsed >= soundStartDelay and tracker.lastPlayTime < tracker.buffStartTime + soundStartDelay then
                 PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
                 tracker.lastPlayTime = now
+                self:CancelTrackedBuffSoundTimer(tracker)
+            elseif elapsed < soundStartDelay then
+                self:ScheduleTrackedBuffSoundUpdate(tracker, soundStartDelay - elapsed)
             end
         end
     elseif soundTrigger == "end" then
+        self:CancelTrackedBuffSoundTimer(tracker)
         -- Play when buff ends
         if not hasData and tracker.wasActive then
             PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
@@ -5630,19 +5736,33 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
         end
     elseif soundTrigger == "endBefore" then
         -- Play X seconds before buff ends (requires duration tracking)
+        local timeLeft
         if hasData and not tracker.endBeforePlayed and isManualMode and manualExpiresAt then
-            local timeLeft = manualExpiresAt - now
-            if timeLeft > 0 and timeLeft <= soundEndBefore then
-                PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
-                tracker.lastPlayTime = now
-                tracker.endBeforePlayed = true
+            timeLeft = manualExpiresAt - now
+        elseif hasData and not tracker.endBeforePlayed then
+            if auraInstanceID == nil then
+                local frame = ResolveTrackedFrame(cooldownID, trackedBuff)
+                trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+                    cooldownID,
+                    frame,
+                    false,
+                    nil,
+                    trackedBuff.spellID,
+                    trackedBuff.name
+                )
             end
-        elseif hasData and not tracker.endBeforePlayed and HasAuraInstanceID(auraInstanceID) then
-            local timeLeft = LegacyDurationDriver.GetTimeLeft(unit, auraInstanceID, now)
-            if timeLeft and timeLeft > 0 and timeLeft <= soundEndBefore then
+            if HasAuraInstanceID(auraInstanceID) then
+                timeLeft = LegacyDurationDriver.GetTimeLeft(unit, auraInstanceID, now)
+            end
+        end
+        if timeLeft and timeLeft > 0 then
+            if timeLeft <= soundEndBefore then
                 PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
                 tracker.lastPlayTime = now
                 tracker.endBeforePlayed = true
+                self:CancelTrackedBuffSoundTimer(tracker)
+            elseif timeLeft > soundEndBefore then
+                self:ScheduleTrackedBuffSoundUpdate(tracker, timeLeft - soundEndBefore)
             end
         end
     elseif soundTrigger == "interval" then
@@ -5652,12 +5772,18 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
                 PlayTrackerSound(soundFile, soundChannel, soundCustomPath)
                 tracker.lastIntervalPlay = now
             end
+            self:ScheduleTrackedBuffSoundUpdate(
+                tracker,
+                math_max(0.02, soundInterval - (now - tracker.lastIntervalPlay))
+            )
         else
             tracker.lastIntervalPlay = 0  -- Reset when buff drops
+            self:CancelTrackedBuffSoundTimer(tracker)
         end
     end
 
     if not hasData then
+        self:CancelTrackedBuffSoundTimer(tracker)
         tracker.buffStartTime = nil
         tracker.endBeforePlayed = false
     end

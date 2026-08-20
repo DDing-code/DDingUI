@@ -90,8 +90,17 @@ end
 
 local function RequiresLegacyObservation(tracker)
     local alerts = tracker and tracker.settings and tracker.settings.alerts
-    return alerts and alerts.enabled == true
-        and (#(alerts.triggers or {}) > 0 or #(alerts.actions or {}) > 0)
+    if not alerts or alerts.enabled ~= true then return false end
+
+    for _, trigger in ipairs(alerts.triggers or {}) do
+        local triggerType = type(trigger) == "table" and trigger.type
+        if triggerType == "duration" or triggerType == "duration_percent"
+            or triggerType == "stacks"
+        then
+            return true
+        end
+    end
+    return false
 end
 
 local function AddCooldownInfo(include, cooldownID)

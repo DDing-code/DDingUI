@@ -12,6 +12,7 @@ if not DDingUI then return end
 
 local Driver = {}
 DDingUI.TrackedAuraLegacyFallbackDriver = Driver
+Driver.playerAuraPresenceCache = {}
 
 local C_UnitAuras = C_UnitAuras
 local CDMCompat = DDingUI.CDMCompat
@@ -300,6 +301,37 @@ local function FindTrackedPlayerAura(cooldownID, savedSpellID)
     end
 
     return TryTrackedPlayerAura(cooldownID)
+end
+
+function Driver.InvalidatePlayerAuraPresenceCache()
+    wipe(Driver.playerAuraPresenceCache)
+end
+
+function Driver.ResolvePlayerAuraPresence(cooldownID, spellID)
+    cooldownID = tonumber(cooldownID) or 0
+    spellID = tonumber(spellID) or 0
+    if not C_UnitAuras or not C_UnitAuras.GetPlayerAuraBySpellID then
+        return nil, nil
+    end
+    if cooldownID <= 0 and spellID <= 0 then
+        return nil, nil
+    end
+
+    local now = GetTime and GetTime() or 0
+    local cacheKey = tostring(cooldownID) .. ":" .. tostring(spellID)
+    local cached = Driver.playerAuraPresenceCache[cacheKey]
+    if cached and now >= cached.checkedAt and (now - cached.checkedAt) <= 0.02 then
+        return cached.active, cached.spellID
+    end
+
+    local aura, matchedSpellID = FindTrackedPlayerAura(cooldownID, spellID)
+    local active = Driver.HasAuraResult(aura)
+    Driver.playerAuraPresenceCache[cacheKey] = {
+        checkedAt = now,
+        active = active,
+        spellID = matchedSpellID,
+    }
+    return active, matchedSpellID
 end
 
 local function ReadAuraPresentation(aura)

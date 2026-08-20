@@ -11,7 +11,6 @@ if not Engine then return end
 -- path have separate lifecycle owners.
 
 local AURA_DEPENDENT_TRIGGER = {
-    active = true,
     duration = true,
     duration_percent = true,
     stacks = true,

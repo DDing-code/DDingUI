@@ -13,10 +13,10 @@ if not ResourceBars or not Engine or not Engine.IsBound then return end
 -- Filter the entire protected display path, including the first pre-bind pass.
 -- If AuraContainer later fails, TrackedAuraObservationPolicy marks the tracker as
 -- a legacy fallback and this wrapper automatically stops filtering that pass.
--- Explicit actions bound to non-aura triggers are preserved and remapped.
+-- Active/inactive checks use public spell IDs and remain safe. Numeric aura
+-- state still stays inside the container, so only those triggers are filtered.
 
 local AURA_DEPENDENT_TRIGGER = {
-    active = true,
     duration = true,
     duration_percent = true,
     stacks = true,
