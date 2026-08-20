@@ -21,17 +21,6 @@ local diagnostics = {
     appliedOverrides = 0,
 }
 
-local OVERRIDE_FIELDS = {
-    "iconAnimation",
-    "glowColor",
-    "glowLines",
-    "glowFrequency",
-    "glowThickness",
-    "glowXOffset",
-    "glowYOffset",
-    "glowWhenInactive",
-}
-
 local function ActiveTriggerMeansAuraPresent(trigger)
     if type(trigger) ~= "table" or trigger.type ~= "active" then
         return false
@@ -93,8 +82,14 @@ local function ResolveProtectedSelfGlow(tracker)
     return selected
 end
 
-local function IsProtectedIconPath(tracker)
-    if not tracker or (tracker.displayType or "bar") ~= "icon" then return false end
+local function IsProtectedVisualPath(tracker)
+    if not tracker then return false end
+    local displayType = tracker.displayType or "bar"
+    if displayType ~= "bar" and displayType ~= "ring"
+        and displayType ~= "icon" and displayType ~= "text"
+    then
+        return false
+    end
     if Engine.IsProtectedDisplayPath then
         return Engine:IsProtectedDisplayPath(tracker)
     end
@@ -102,7 +97,7 @@ local function IsProtectedIconPath(tracker)
 end
 
 local function CallWithProtectedSelfGlow(original, self, barIndex, tracker, globalCfg)
-    if not IsProtectedIconPath(tracker) then
+    if not IsProtectedVisualPath(tracker) then
         return original(self, barIndex, tracker, globalCfg)
     end
 
@@ -113,34 +108,9 @@ local function CallWithProtectedSelfGlow(original, self, barIndex, tracker, glob
         return original(self, barIndex, tracker, globalCfg)
     end
 
-    local settings = tracker.settings
-    local saved = {}
-    local present = {}
-    for _, field in ipairs(OVERRIDE_FIELDS) do
-        present[field] = settings[field] ~= nil
-        saved[field] = settings[field]
-    end
-
-    -- TrackedAuraContainer copies these presentation settings into the secure
-    -- AuraButton initializer. No protected aura value is read here.
-    settings.iconAnimation = action.glowType or "pixel"
-    settings.glowColor = action.glowColor or { 1, 0.82, 0.1, 1 }
-    settings.glowLines = action.glowLines or 8
-    settings.glowFrequency = action.glowFrequency or 0.25
-    settings.glowThickness = action.glowThickness or 2
-    settings.glowXOffset = action.glowXOffset or 0
-    settings.glowYOffset = action.glowYOffset or 0
-    settings.glowWhenInactive = false
-
+    Engine:SetActiveGlowOverride(tracker, action)
     local ok, result1, result2, result3 = pcall(original, self, barIndex, tracker, globalCfg)
-
-    for _, field in ipairs(OVERRIDE_FIELDS) do
-        if present[field] then
-            settings[field] = saved[field]
-        else
-            settings[field] = nil
-        end
-    end
+    Engine:ClearActiveGlowOverride(tracker)
 
     if not ok then
         error(result1, 0)
@@ -150,12 +120,19 @@ local function CallWithProtectedSelfGlow(original, self, barIndex, tracker, glob
     return result1, result2, result3
 end
 
-local originalUpdateIcon = ResourceBars.UpdateSingleTrackedBuffIcon
-if type(originalUpdateIcon) == "function" then
-    ResourceBars.UpdateSingleTrackedBuffIcon = function(self, barIndex, tracker, globalCfg)
-        return CallWithProtectedSelfGlow(originalUpdateIcon, self, barIndex, tracker, globalCfg)
+local function Wrap(methodName)
+    local original = ResourceBars[methodName]
+    if type(original) == "function" then
+        ResourceBars[methodName] = function(self, barIndex, tracker, globalCfg)
+            return CallWithProtectedSelfGlow(original, self, barIndex, tracker, globalCfg)
+        end
     end
 end
+
+Wrap("UpdateSingleTrackedBuffBar")
+Wrap("UpdateSingleTrackedBuffRing")
+Wrap("UpdateSingleTrackedBuffIcon")
+Wrap("UpdateSingleTrackedBuffText")
 
 function Engine:GetProtectedGlowDiagnostics()
     return {

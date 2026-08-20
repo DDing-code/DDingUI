@@ -4379,6 +4379,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         and barStyle == "bar" and not (onlyInCombat and not inCombat)
     then
         auraStyle = {
+            displayType = "bar",
             barStyle = barStyle,
             mode = barFillMode,
             texture = tex,
@@ -4392,12 +4393,14 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             showDurationText = showDurationText,
             stacksFont = DDingUI:GetFont(stacksFont),
             stacksFontSize = textSize,
+            stacksOutline = "OUTLINE",
             stacksAlign = textAlign,
             stacksX = DDingUI:Scale(textX),
             stacksY = DDingUI:Scale(textY),
             stacksColor = textColor,
             durationFont = DDingUI:GetFont(settings.durationTextFont or settings.textFont or globalCfg.textFont),
             durationFontSize = durationTextSize,
+            durationOutline = "OUTLINE",
             durationAlign = durationTextAlign,
             durationX = DDingUI:Scale(durationTextX),
             durationY = DDingUI:Scale(durationTextY),
@@ -4987,6 +4990,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             displayType = "ring",
             mode = "duration",
             ringMaskTexture = ringTexture,
+            ringBgColor = ringBgColor,
             swipeColor = ringColor,
             swipeReverse = not ringReverse,
             showDurationText = ringShowText,
@@ -4996,7 +5000,9 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             durationX = 0,
             durationY = 0,
             durationColor = ringTextColor,
-            borderSize = 0,
+            borderSize = DDingUI:ScaleBorder(ringBorderSize),
+            borderColor = ringBorderColor,
+            durationOutline = "OUTLINE",
             frameStrata = strata,
             frameLevel = bar:GetFrameLevel(),
             preserveInactive = not hideWhenZero,
@@ -5025,6 +5031,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     local iconSize = settings.iconSize or 32
     local iconAttachTo = ResolveTrackedAnchorName(settings.iconAttachTo or globalCfg.attachTo or "DDingUI_Anchor_Cooldowns", barIndex, "Icon")
     local iconAnchorPoint = settings.iconAnchorPoint or globalCfg.anchorPoint or "CENTER"
+    local iconSelfPoint = settings.iconSelfPoint or "CENTER"
     local iconOffsetX = settings.iconOffsetX
     local iconOffsetY = settings.iconOffsetY
     -- Default stacking: place icons side by side horizontally
@@ -5163,10 +5170,11 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     end
     if anchor == UIParent then
         iconAnchorPoint = "CENTER"
+        iconSelfPoint = "CENTER"
     end
     if ShouldApplyTrackerFramePosition() then
         icon:ClearAllPoints()
-        icon:SetPoint("CENTER", anchor, iconAnchorPoint, DDingUI:Scale(iconOffsetX), DDingUI:Scale(iconOffsetY))
+        icon:SetPoint(iconSelfPoint, anchor, iconAnchorPoint, DDingUI:Scale(iconOffsetX), DDingUI:Scale(iconOffsetY))
     end
 
     -- Set icon texture
@@ -5506,6 +5514,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             showStacksText = iconShowStackText,
             stacksFont = iconStackTextFont and LSM:Fetch("font", iconStackTextFont) or STANDARD_TEXT_FONT,
             stacksFontSize = DDingUI:Scale(iconStackTextSize),
+            stacksOutline = iconStackTextOutline or "OUTLINE",
             stacksAlign = iconStackTextAnchor,
             stacksJustify = iconStackTextAnchor:find("LEFT") and "LEFT"
                 or (iconStackTextAnchor:find("RIGHT") and "RIGHT" or "CENTER"),
@@ -5515,6 +5524,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             showDurationText = showDurationText,
             durationFont = settings.durationTextFont and LSM:Fetch("font", settings.durationTextFont) or STANDARD_TEXT_FONT,
             durationFontSize = DDingUI:Scale(settings.durationTextSize or 10),
+            durationOutline = "OUTLINE",
             durationAlign = settings.durationTextAlign or "CENTER",
             durationX = DDingUI:Scale(settings.durationTextX or 0),
             durationY = DDingUI:Scale(settings.durationTextY or 0),
@@ -5564,6 +5574,48 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     local manualStackCount, manualExpiresAt = nil, nil
     if isManualMode then
         manualStackCount, manualExpiresAt = GetManualStacks(barIndex)
+    end
+
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    local containerEligible = not isManualMode
+        and trackedBuff.trackingMode ~= "spell"
+        and not (trackedBuff.trigger and trackedBuff.trigger.type == "spell")
+    if containerEligible and resolver and resolver.AttachAuraContainer then
+        if not tracker.host then
+            tracker.host = CreateFrame("Frame", nil, UIParent)
+            tracker.host:SetSize(1, 1)
+            tracker.host:SetPoint("CENTER", UIParent, "CENTER")
+            tracker.host:SetAlpha(0)
+            tracker.host:Show()
+        end
+
+        local soundPath
+        if IsValidSoundPath(soundCustomPath) then
+            soundPath = soundCustomPath
+        elseif soundFile and soundFile ~= "None" and soundFile ~= "" then
+            soundPath = LSM:Fetch("sound", soundFile)
+        end
+
+        local soundDuration = tonumber(settings._detectedDuration)
+            or tonumber(settings.maxDuration)
+            or tonumber(settings.stackDuration)
+            or 0
+        local soundStyle = {
+            displayType = "sound",
+            soundPath = soundPath,
+            soundChannel = soundChannel,
+            soundTrigger = soundTrigger,
+            soundStartDelay = soundStartDelay,
+            soundEndBefore = soundEndBefore,
+            soundInterval = soundInterval,
+            soundDuration = soundDuration,
+            frameStrata = "BACKGROUND",
+            frameLevel = 1,
+        }
+        if resolver:AttachAuraContainer(trackedBuff, tracker.host, soundStyle) then
+            tracker.protectedObservationReported = nil
+            return
+        end
     end
 
     -- Get tracking data
@@ -5992,6 +6044,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             showStacksText = true,
             stacksFont = fontPath,
             stacksFontSize = DDingUI:Scale(textSize),
+            stacksOutline = textOutline,
             stacksAlign = "LEFT",
             stacksJustify = "LEFT",
             stacksX = showIcon and (DDingUI:Scale(iconSize) + 4) or 0,
@@ -6000,6 +6053,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             showDurationText = settings.showDurationText or false,
             durationFont = settings.durationTextFont and LSM:Fetch("font", settings.durationTextFont) or STANDARD_TEXT_FONT,
             durationFontSize = DDingUI:Scale(settings.durationTextSize or 10),
+            durationOutline = "OUTLINE",
             durationAlign = settings.durationTextAlign or "LEFT",
             durationX = DDingUI:Scale(settings.durationTextX or 4),
             durationY = DDingUI:Scale(settings.durationTextY or 0),

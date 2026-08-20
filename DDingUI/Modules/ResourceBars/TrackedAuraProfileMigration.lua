@@ -17,7 +17,7 @@ if not DDingUI then return end
 local Migration = {}
 DDingUI.TrackedAuraProfileMigration = Migration
 
-local MIGRATION_VERSION = 1
+local MIGRATION_VERSION = 2
 Migration.VERSION = MIGRATION_VERSION
 
 -- Old circular/square styles were icon-backed CooldownFrames, so the modern
@@ -39,6 +39,8 @@ local diagnostics = {
     spellSkipped = 0,
     nonAuraSkipped = 0,
     storedSpecsMigrated = 0,
+    displaySettingsMerged = 0,
+    displayTypesRecovered = 0,
     lastReason = nil,
     lastChanged = 0,
 }
@@ -64,6 +66,43 @@ local function SetIfNil(settings, key, value)
     if settings[key] ~= nil or value == nil then return false end
     settings[key] = CopyValue(value)
     return true
+end
+
+local VALID_DISPLAY_TYPE = {
+    bar = true,
+    ring = true,
+    icon = true,
+    sound = true,
+    text = true,
+    trigger = true,
+}
+
+local function MergeLegacyDisplay(tracker)
+    local display = tracker.display
+    if type(display) ~= "table" then return false end
+
+    local settings = tracker.settings
+    if type(settings) ~= "table" then
+        settings = {}
+        tracker.settings = settings
+    end
+
+    local changed = false
+    for key, value in pairs(display) do
+        if key ~= "type" and settings[key] == nil then
+            settings[key] = CopyValue(value)
+            diagnostics.displaySettingsMerged = diagnostics.displaySettingsMerged + 1
+            changed = true
+        end
+    end
+
+    if tracker.displayType == nil and VALID_DISPLAY_TYPE[display.type] then
+        tracker.displayType = display.type
+        diagnostics.displayTypesRecovered = diagnostics.displayTypesRecovered + 1
+        changed = true
+    end
+
+    return changed
 end
 
 local function GetCurrentSpecID()
@@ -125,13 +164,14 @@ end
 
 function Migration:NormalizeTracker(tracker, rootCfg, trackerIndex)
     if type(tracker) ~= "table" then return false end
+    local changed = MergeLegacyDisplay(tracker)
     local settings = tracker.settings
-    if type(settings) ~= "table" then return false end
+    if type(settings) ~= "table" then return changed end
 
     local oldStyle = settings.barStyle
     local targetType = LEGACY_STYLE_TARGET[oldStyle]
     if not targetType or not IsAutomaticAuraTracker(tracker, oldStyle) then
-        return false
+        return changed
     end
 
     rootCfg = rootCfg or {}
