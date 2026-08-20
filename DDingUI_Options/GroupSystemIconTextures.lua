@@ -236,8 +236,16 @@ function GroupSystemIconTextures:CreateRuntime(pendingSpellRefresh, invalidateCa
         end
     end
 
-    local function GetCooldownInfoSpellCandidates(info, cooldownID)
+    local function GetCooldownInfoSpellCandidates(info, cooldownID, preferredSpellID)
         local candidates, seen = {}, {}
+        local compat = DDingUI.CDMCompat
+        local identity = compat and compat.GetCooldownSpellIdentity
+            and compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID)
+        if identity and type(identity.spellIDs) == "table" then
+            for _, spellID in ipairs(identity.spellIDs) do
+                AddOptionSpellCandidate(candidates, seen, spellID)
+            end
+        end
         if info then
             AddOptionSpellCandidate(candidates, seen, info.overrideTooltipSpellID)
             AddOptionSpellCandidate(candidates, seen, info.overrideSpellID)

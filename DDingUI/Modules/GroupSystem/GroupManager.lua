@@ -1563,16 +1563,41 @@ local function ClassifyIconWithContext(cooldownID, CDMHookEngine, gs, routes)
 
     -- 1순위: 수동 할당 (spellName 기반)
     -- 수동 할당은 그룹 유형과 관계없이 CDM 원본 프레임을 해당 그룹으로 재배치한다.
-    if spellName and gs.spellAssignments and gs.spellAssignments[spellName] then
-        local assigned = ResolveCDMGroup(gs, gs.spellAssignments[spellName], spellName)
+    local assignedGroup, assignmentKey
+    if spellName and gs.spellAssignments then
+        if CDMCompat and CDMCompat.FindSpellMapValue then
+            assignedGroup, assignmentKey = CDMCompat:FindSpellMapValue(
+                gs.spellAssignments,
+                cooldownID,
+                spellName,
+                IsBuffSpellKey(spellName)
+            )
+        else
+            assignedGroup = gs.spellAssignments[spellName]
+            assignmentKey = assignedGroup and spellName or nil
+        end
+    end
+    if assignedGroup then
+        local assigned = ResolveCDMGroup(gs, assignedGroup, assignmentKey or spellName)
         if assigned and gs.groups[assigned] and gs.groups[assigned].enabled then
-            return assigned, spellName
+            return assigned, assignmentKey or spellName
         end
     end
 
     local unassignedBuffs = IsBuffSpellKey(spellName) and GetUnassignedBuffSpells(gs, false)
-    if unassignedBuffs and unassignedBuffs[spellName] then
-        return nil, spellName
+    local unassignedValue, unassignedKey
+    if unassignedBuffs and CDMCompat and CDMCompat.FindSpellMapValue then
+        unassignedValue, unassignedKey = CDMCompat:FindSpellMapValue(
+            unassignedBuffs,
+            cooldownID,
+            spellName,
+            true
+        )
+    elseif unassignedBuffs then
+        unassignedValue = unassignedBuffs[spellName]
+    end
+    if unassignedValue then
+        return nil, unassignedKey or spellName
     end
 
     -- 2순위: 뷰어 소스 기반 자동 분류 (기본 그룹)

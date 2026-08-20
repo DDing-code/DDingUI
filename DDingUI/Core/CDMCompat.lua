@@ -14,11 +14,15 @@ local issecretvalue = issecretvalue
 
 local cooldownInfoCache = {}
 local categorySetCache = {}
+local categoryLookupCache = {}
 local spellIDCache = {}
+local spellIdentityCache = {}
 local frameCache = setmetatable({}, { __mode = "k" })
 local framesByCooldownID = {}
 local hookedPools = setmetatable({}, { __mode = "k" })
 local groupBuffItemsCache
+local hiddenGroupBuffSpellSetCache
+local hiddenGroupBuffSpellSetReady = false
 local categoryDefinitionsCache
 local generation = 0
 
@@ -232,6 +236,253 @@ function Compat:GetCategorySet(category, allowUnlearned, forceRefresh)
     end
     categorySetCache[cacheKey] = cleanIDs
     return cleanIDs
+end
+
+function Compat:GetCategoryLookup(category, allowUnlearned, forceRefresh)
+    if not self:IsPublicNumber(category) then return nil end
+    local cacheKey = tostring(category) .. (allowUnlearned and ":all" or ":known")
+    if not forceRefresh and categoryLookupCache[cacheKey] then
+        return categoryLookupCache[cacheKey]
+    end
+
+    local cooldownIDs = self:GetCategorySet(category, allowUnlearned, forceRefresh)
+    if type(cooldownIDs) ~= "table" then return nil end
+
+    local lookup = {}
+    for _, cooldownID in ipairs(cooldownIDs) do
+        if self:IsUsableID(cooldownID) then
+            lookup[cooldownID] = true
+        end
+    end
+    categoryLookupCache[cacheKey] = lookup
+    return lookup
+end
+
+function Compat:GetHiddenGroupBuffSpellSet(forceRefresh)
+    if hiddenGroupBuffSpellSetReady and not forceRefresh then
+        return hiddenGroupBuffSpellSetCache
+    end
+
+    local settings = _G.CooldownViewerSettings
+    if not settings or type(settings.GetLayoutManager) ~= "function"
+        or type(_G.CooldownManagerLayout_GetHiddenGroupBuffs) ~= "function"
+    then
+        return nil
+    end
+
+    local okManager, layoutManager = pcall(settings.GetLayoutManager, settings)
+    if not okManager or not layoutManager or type(layoutManager.GetActiveLayout) ~= "function" then
+        return nil
+    end
+
+    local accessOnly = Enum and Enum.CDMLayoutMode and Enum.CDMLayoutMode.AccessOnly or false
+    local okLayout, layout = pcall(layoutManager.GetActiveLayout, layoutManager, accessOnly)
+    if not okLayout or not layout then return nil end
+
+    local okList, hiddenSpellIDs = pcall(_G.CooldownManagerLayout_GetHiddenGroupBuffs, layout)
+    if not okList or IsSecret(hiddenSpellIDs) or type(hiddenSpellIDs) ~= "table" then
+        return nil
+    end
+
+    local lookup = {}
+    for _, spellID in ipairs(hiddenSpellIDs) do
+        if self:IsUsableID(spellID) then
+            lookup[spellID] = true
+        end
+    end
+    hiddenGroupBuffSpellSetCache = lookup
+    hiddenGroupBuffSpellSetReady = true
+    return hiddenGroupBuffSpellSetCache
+end
+
+function Compat:GetProviderEntryDisposition(cooldownID, providerInfo, rawInfo, liveCategoryLookup, hiddenGroupBuffSpells)
+    if not self:IsUsableID(cooldownID) then return nil end
+
+    local merged = self:SanitizeCooldownInfo(providerInfo, cooldownID)
+    local raw = self:SanitizeCooldownInfo(rawInfo, cooldownID)
+    local category = merged and merged.category
+    local categories = Enum and Enum.CooldownViewerCategory
+    local hiddenActive = categories and categories.HiddenActive or -1
+    local hiddenPassive = categories and categories.HiddenPassive or -2
+
+    if category == hiddenActive or category == hiddenPassive then
+        return "hidden"
+    end
+
+    local groupBuff = self:GetCategory("GroupBuff")
+    local specEssential = self:GetCategory("SpecAgnosticEssential")
+    local specTracked = self:GetCategory("SpecAgnosticTracked")
+    local equipEssential = self:GetCategory("EquipSlotEssential")
+    local equipTracked = self:GetCategory("EquipSlotTracked")
+    local needsRaw = category == nil or category == groupBuff
+        or category == specEssential or category == specTracked
+        or category == equipEssential or category == equipTracked
+
+    if needsRaw and not raw then
+        raw = self:GetCooldownInfo(cooldownID)
+    end
+    if category == nil and raw then
+        category = raw.category
+    end
+    if not self:IsPublicNumber(category) then return nil end
+
+    if category == groupBuff then
+        local spellID = merged and merged.spellID or raw and raw.spellID
+        local hiddenSet = hiddenGroupBuffSpells
+        if hiddenSet == nil then
+            hiddenSet = self:GetHiddenGroupBuffSpellSet()
+        end
+        if self:IsUsableID(spellID) and type(hiddenSet) == "table" and hiddenSet[spellID] then
+            return "hidden"
+        end
+        return nil
+    end
+
+    local isSelfMappedCategory = category == specEssential or category == specTracked
+        or category == equipEssential or category == equipTracked
+    if not isSelfMappedCategory or not raw then return nil end
+
+    local lookup = liveCategoryLookup
+    if lookup == nil then
+        lookup = self:GetCategoryLookup(category, true)
+    end
+    if type(lookup) == "table" and next(lookup) and not lookup[cooldownID] then
+        return "removed"
+    end
+    if raw.isKnown == false then
+        return "removed"
+    end
+    return nil
+end
+
+function Compat:IsKnownSpell(spellID)
+    if not self:IsUsableID(spellID) or type(IsPlayerSpell) ~= "function" then return nil end
+    local ok, known = pcall(IsPlayerSpell, spellID)
+    if not ok or IsSecret(known) or type(known) ~= "boolean" then return nil end
+    return known
+end
+
+function Compat:GetBaseSpellID(spellID)
+    if not self:IsUsableID(spellID) then return nil end
+    local api = C_Spell and C_Spell.GetBaseSpell
+    if type(api) == "function" then
+        local ok, baseSpellID = pcall(api, spellID)
+        if ok and self:IsUsableID(baseSpellID) then
+            return baseSpellID
+        end
+    end
+    return spellID
+end
+
+function Compat:GetLiveOverrideSpellID(spellID)
+    if not self:IsUsableID(spellID) then return nil end
+    local api = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+    if type(api) == "function" then
+        local ok, overrideSpellID = pcall(api, spellID)
+        if ok and self:IsUsableID(overrideSpellID) then
+            return overrideSpellID
+        end
+    end
+    return spellID
+end
+
+function Compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID, forceRefresh)
+    if not self:IsUsableID(cooldownID) then return nil end
+    local cached = spellIdentityCache[cooldownID]
+    if cached and not forceRefresh
+        and (not self:IsUsableID(preferredSpellID) or cached.idSet[preferredSpellID])
+    then
+        return cached
+    end
+
+    local sourceInfo = self:SanitizeCooldownInfo(info, cooldownID) or self:GetCooldownInfo(cooldownID)
+    local identity = { spellIDs = {}, idSet = {}, names = {}, nameSet = {} }
+
+    local function AddNameForID(spellID)
+        local api = C_Spell and C_Spell.GetSpellName
+        if type(api) ~= "function" then return end
+        local ok, name = pcall(api, spellID)
+        if ok and self:IsPublicString(name) and name ~= "" and not identity.nameSet[name] then
+            identity.nameSet[name] = true
+            identity.names[#identity.names + 1] = name
+        end
+    end
+
+    local function AddSpellID(spellID)
+        if not self:IsUsableID(spellID) or identity.idSet[spellID] then return end
+        identity.idSet[spellID] = true
+        identity.spellIDs[#identity.spellIDs + 1] = spellID
+        AddNameForID(spellID)
+    end
+
+    local primarySpellID = sourceInfo and sourceInfo.spellID
+    if not self:IsUsableID(primarySpellID) and sourceInfo and type(sourceInfo.linkedSpellIDs) == "table" then
+        primarySpellID = sourceInfo.linkedSpellIDs[1]
+    end
+    if not self:IsUsableID(primarySpellID) and sourceInfo then
+        primarySpellID = sourceInfo.overrideSpellID
+    end
+
+    local canonicalSpellID = self:GetBaseSpellID(primarySpellID or preferredSpellID)
+    local liveSpellID = self:GetLiveOverrideSpellID(canonicalSpellID or primarySpellID)
+    local liveSpellKnown = self:IsKnownSpell(liveSpellID)
+    local overrideSpellKnown = sourceInfo and self:IsKnownSpell(sourceInfo.overrideSpellID)
+    local preferred = self:IsUsableID(preferredSpellID) and preferredSpellID or nil
+    if not preferred and liveSpellKnown == true then
+        preferred = liveSpellID
+    end
+    if not preferred and overrideSpellKnown == true then
+        preferred = sourceInfo.overrideSpellID
+    end
+    preferred = preferred or primarySpellID
+        or (sourceInfo and sourceInfo.overrideSpellID)
+        or (sourceInfo and sourceInfo.overrideTooltipSpellID)
+
+    AddSpellID(preferred)
+    if liveSpellKnown == true then AddSpellID(liveSpellID) end
+    if overrideSpellKnown == true then
+        AddSpellID(sourceInfo.overrideSpellID)
+    end
+    AddSpellID(primarySpellID)
+    AddSpellID(canonicalSpellID)
+    if sourceInfo then
+        AddSpellID(sourceInfo.overrideSpellID)
+        AddSpellID(sourceInfo.overrideTooltipSpellID)
+        if type(sourceInfo.linkedSpellIDs) == "table" then
+            for _, linkedSpellID in ipairs(sourceInfo.linkedSpellIDs) do
+                AddSpellID(linkedSpellID)
+                AddSpellID(self:GetBaseSpellID(linkedSpellID))
+            end
+        end
+    end
+
+    if #identity.spellIDs == 0 then
+        AddSpellID(cooldownID)
+    end
+    identity.preferredSpellID = identity.spellIDs[1]
+    identity.canonicalSpellID = canonicalSpellID or self:GetBaseSpellID(identity.preferredSpellID)
+    spellIdentityCache[cooldownID] = identity
+    return identity
+end
+
+function Compat:FindSpellMapValue(map, cooldownID, fallbackName, isBuff)
+    if type(map) ~= "table" then return nil end
+    if self:IsPublicString(fallbackName) and fallbackName ~= "" and map[fallbackName] ~= nil then
+        return map[fallbackName], fallbackName
+    end
+
+    local identity = self:GetCooldownSpellIdentity(cooldownID)
+    if not identity then return nil end
+    for _, rawName in ipairs(identity.names) do
+        local key = rawName
+        if isBuff and rawName:sub(1, 5) ~= "buff_" then
+            key = "buff_" .. rawName
+        end
+        if map[key] ~= nil then
+            return map[key], key
+        end
+    end
+    return nil
 end
 
 function Compat:ResolveInfoSpellID(info)
@@ -499,9 +750,13 @@ function Compat:Invalidate()
     generation = generation + 1
     wipe(cooldownInfoCache)
     wipe(categorySetCache)
+    wipe(categoryLookupCache)
     wipe(spellIDCache)
+    wipe(spellIdentityCache)
     categoryDefinitionsCache = nil
     -- Frame IDs stay valid until pool release. Keep their last public values so
     -- a data update during combat cannot erase the only readable identity.
     groupBuffItemsCache = nil
+    hiddenGroupBuffSpellSetCache = nil
+    hiddenGroupBuffSpellSetReady = false
 end
