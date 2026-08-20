@@ -7,10 +7,10 @@ local Engine = DDingUI.TrackedAuraContainer
 if not ResourceBars or not Engine then return end
 
 -- Protected automatic auras cannot expose their active/stacks/duration state to
--- ordinary addon Lua. A narrow visual case is still representable without
--- observing that state: if an alert means exactly "this aura is present" and
--- its action is a self glow, the glow can be styled onto the AuraContainer
--- AuraButton itself. The button's secure visibility then owns the condition.
+-- ordinary addon Lua. Actions that mean exactly "this aura is present" can
+-- still be attached to the AuraContainer button itself. Its visibility owns
+-- self color, desaturation, glow, and sound transitions without reading aura
+-- values back into addon code.
 --
 -- This bridge runs outside TrackedAuraProtectedAlerts so it can inspect the
 -- SavedVariables-backed alert definition before that module temporarily removes
@@ -63,23 +63,56 @@ local function ConditionMeansAuraPresent(alerts, condition)
     return ActiveTriggerMeansAuraPresent(trigger)
 end
 
-local function ResolveProtectedSelfGlow(tracker)
+local function SoundSignaturePart(actionIndex, action)
+    return table.concat({
+        tostring(actionIndex),
+        tostring(action.soundFile),
+        tostring(action.soundCustomPath),
+        tostring(action.soundChannel),
+        tostring(action.soundMode),
+        tostring(action.soundCooldown),
+    }, ":")
+end
+
+local function ResolveProtectedPresentation(tracker)
     local settings = tracker and tracker.settings
     local alerts = settings and settings.alerts
     if type(alerts) ~= "table" or alerts.enabled ~= true then return nil end
 
-    local selected
-    for _, action in ipairs(alerts.actions or {}) do
-        if type(action) == "table"
-            and action.type == "glow"
-            and (action.visualTarget == nil or action.visualTarget == "self")
-            and ConditionMeansAuraPresent(alerts, action.condition)
-        then
-            -- Match ApplyAlertActions' last-matching-action behavior.
-            selected = action
+    local presentation = {}
+    local soundParts = {}
+    for actionIndex, action in ipairs(alerts.actions or {}) do
+        if type(action) == "table" and ConditionMeansAuraPresent(alerts, action.condition) then
+            local selfTarget = action.visualTarget == nil or action.visualTarget == "self"
+            if action.type == "glow" and selfTarget then
+                presentation.glow = action
+            elseif action.type == "color" and selfTarget and type(action.color) == "table" then
+                local colorTarget = action.colorTarget or "self"
+                if colorTarget == "self" then
+                    presentation.selfColor = action.color
+                elseif colorTarget == "icon" then
+                    presentation.iconColor = action.color
+                elseif colorTarget == "border" then
+                    presentation.borderColor = action.color
+                end
+            elseif action.type == "desaturate" and selfTarget then
+                presentation.desaturate = true
+            elseif action.type == "sound" then
+                presentation.sounds = presentation.sounds or {}
+                presentation.sounds[#presentation.sounds + 1] = action
+                soundParts[#soundParts + 1] = SoundSignaturePart(actionIndex, action)
+            end
         end
     end
-    return selected
+    if presentation.sounds then
+        presentation.soundSignature = table.concat(soundParts, "|")
+    end
+    if presentation.glow or presentation.selfColor or presentation.iconColor
+        or presentation.borderColor or presentation.desaturate or presentation.sounds
+    then
+        return presentation
+    end
+    return nil
 end
 
 local function IsProtectedVisualPath(tracker)
@@ -96,21 +129,21 @@ local function IsProtectedVisualPath(tracker)
     return Engine.IsBound and Engine:IsBound(tracker) or false
 end
 
-local function CallWithProtectedSelfGlow(original, self, barIndex, tracker, globalCfg)
+local function CallWithProtectedPresentation(original, self, barIndex, tracker, globalCfg)
     if not IsProtectedVisualPath(tracker) then
         return original(self, barIndex, tracker, globalCfg)
     end
 
     diagnostics.eligibleEvaluations = diagnostics.eligibleEvaluations + 1
 
-    local action = ResolveProtectedSelfGlow(tracker)
-    if not action then
+    local presentation = ResolveProtectedPresentation(tracker)
+    if not presentation then
         return original(self, barIndex, tracker, globalCfg)
     end
 
-    Engine:SetActiveGlowOverride(tracker, action)
+    Engine:SetActivePresentationOverride(tracker, presentation)
     local ok, result1, result2, result3 = pcall(original, self, barIndex, tracker, globalCfg)
-    Engine:ClearActiveGlowOverride(tracker)
+    Engine:ClearActivePresentationOverride(tracker)
 
     if not ok then
         error(result1, 0)
@@ -124,7 +157,7 @@ local function Wrap(methodName)
     local original = ResourceBars[methodName]
     if type(original) == "function" then
         ResourceBars[methodName] = function(self, barIndex, tracker, globalCfg)
-            return CallWithProtectedSelfGlow(original, self, barIndex, tracker, globalCfg)
+            return CallWithProtectedPresentation(original, self, barIndex, tracker, globalCfg)
         end
     end
 end
