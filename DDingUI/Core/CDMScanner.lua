@@ -363,8 +363,20 @@ function CDMScanner.ScanAll()
                         -- Check if already exists (for TrackedBuff+Bar case)
                         local existing = masterCatalog[cdID]
                         if existing then
+                            -- Static category membership can differ from the viewer that
+                            -- currently owns the frame. The live viewer is authoritative
+                            -- for cooldown/utility routing and per-spec layout changes.
+                            if viewerInfo.category == "Essential" or viewerInfo.category == "Utility" then
+                                existing.category = viewerInfo.category
+                                existing.categoryName = CATEGORY_NAMES[viewerInfo.category] or viewerInfo.category
+                                existing.viewerType = viewerInfo.viewerType
+                                existing.viewerName = viewerInfo.name
+                                existing.isAura = false
+                                existing.isTrackedBuff = false
+                                existing.isTrackedBar = false
+                                existing.frame = frame
                             -- Update category to show it's in both buff viewers
-                            if existing.category == "TrackedBuff" and viewerInfo.category == "TrackedBar" then
+                            elseif existing.category == "TrackedBuff" and viewerInfo.category == "TrackedBar" then
                                 existing.category = "TrackedBuff+Bar"
                                 existing.categoryName = CATEGORY_NAMES["TrackedBuff+Bar"]
                                 existing.isTrackedBar = true

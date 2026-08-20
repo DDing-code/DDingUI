@@ -40,6 +40,7 @@ local diagnostics = {
     scannerRefreshes = 0,
     scannerFrames = 0,
     scannerUnchangedSkips = 0,
+    scannerConflictSkips = 0,
     bootstrapPoolScans = 0,
     bootstrapFrames = 0,
     viewerResets = 0,
@@ -162,7 +163,7 @@ function Registry:Acquire(viewer, frame)
     end
 
     local viewerName = self:ResolveViewerName(viewer, frame)
-    frameMeta[frame] = viewerName and { viewerName = viewerName } or nil
+    frameMeta[frame] = viewerName and { viewerName = viewerName, hookObserved = true } or nil
     if viewerName then
         frame._ddSourceViewer = viewerName
         EnsureViewerTable(viewerName)
@@ -176,6 +177,7 @@ function Registry:TrackFrame(frame, cooldownID, viewerName)
     if not frame then return false end
 
     local previous = frameMeta[frame]
+    local hookObserved = (previous and previous.hookObserved) or viewerName == nil
     viewerName = viewerName or self:ResolveViewerName(nil, frame)
         or (previous and previous.viewerName)
     if not viewerName then return false end
@@ -192,6 +194,7 @@ function Registry:TrackFrame(frame, cooldownID, viewerName)
     local meta = previous or {}
     meta.viewerName = viewerName
     meta.cooldownID = IsUsableID(cooldownID) and cooldownID or nil
+    meta.hookObserved = hookObserved and true or nil
     frameMeta[frame] = meta
 
     if not meta.cooldownID then
@@ -233,6 +236,14 @@ local function TrackScannerFrame(self, viewerName, frame, cooldownID)
     -- Hook-observed identity wins over the scanner snapshot. The scanner is
     -- deliberately delayed outside combat and can still point at a frame that
     -- has already been released/reused by Blizzard.
+    local meta = frameMeta[frame]
+    if meta and meta.hookObserved
+        and (meta.viewerName ~= viewerName
+            or (meta.cooldownID and meta.cooldownID ~= cooldownID))
+    then
+        diagnostics.scannerConflictSkips = diagnostics.scannerConflictSkips + 1
+        return 0
+    end
     local existing = EnsureViewerTable(viewerName)[cooldownID]
     if existing and existing ~= frame then
         return 0
