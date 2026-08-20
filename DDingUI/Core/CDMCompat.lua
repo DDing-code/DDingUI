@@ -50,11 +50,11 @@ local CATEGORY_SPECS = {
     { name = "Utility", fallback = 1, bucket = "Utility", viewerName = "UtilityCooldownViewer", defaultGroup = "Utility", isAura = false },
     { name = "TrackedBuff", fallback = 2, bucket = "Buff", viewerName = "BuffIconCooldownViewer", defaultGroup = "Buffs", isAura = true },
     { name = "TrackedBar", fallback = 3, bucket = "Buff", viewerName = "BuffBarCooldownViewer", defaultGroup = "Buffs", isAura = true },
-    { name = "GroupBuff", bucket = "Buff", viewerName = "BuffIconCooldownViewer", defaultGroup = "Buffs", isAura = true },
-    { name = "SpecAgnosticEssential", bucket = "Essential", viewerName = "EssentialCooldownViewer", defaultGroup = "Cooldowns", isAura = false },
-    { name = "SpecAgnosticTracked", bucket = "Buff", viewerName = "BuffIconCooldownViewer", defaultGroup = "Buffs", isAura = true },
-    { name = "EquipSlotEssential", bucket = "Essential", viewerName = "EssentialCooldownViewer", defaultGroup = "Cooldowns", isAura = false },
-    { name = "EquipSlotTracked", bucket = "Buff", viewerName = "BuffIconCooldownViewer", defaultGroup = "Buffs", isAura = true },
+    { name = "GroupBuff", fallback = 4, bucket = "Buff", viewerName = "BuffIconCooldownViewer", defaultGroup = "Buffs", isAura = true },
+    { name = "SpecAgnosticEssential", fallback = 5, bucket = "Essential", viewerName = "EssentialCooldownViewer", defaultGroup = "Cooldowns", isAura = false },
+    { name = "SpecAgnosticTracked", fallback = 6, bucket = "Buff", viewerName = "BuffIconCooldownViewer", defaultGroup = "Buffs", isAura = true },
+    { name = "EquipSlotEssential", fallback = 7, bucket = "Essential", viewerName = "EssentialCooldownViewer", defaultGroup = "Cooldowns", isAura = false },
+    { name = "EquipSlotTracked", fallback = 8, bucket = "Buff", viewerName = "BuffIconCooldownViewer", defaultGroup = "Buffs", isAura = true },
 }
 
 local function IsSecret(value)

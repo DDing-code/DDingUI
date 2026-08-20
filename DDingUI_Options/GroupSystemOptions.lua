@@ -800,8 +800,9 @@ local function GetCDMIconEntries()
     local iconMap = CDMHookEngine:GetIconMap() or {}
     local result = {}
     local entriesByCooldownID = {}
-    local hiddenBuffCooldownIDs = {}
+    local providerExcludedCooldownIDs = {}
     local providerEntries = {}
+    local providerAvailable = false
     local categoryViewerMap = {}
     local catalogViewers = {
         EssentialCooldownViewer = true,
@@ -818,10 +819,8 @@ local function GetCDMIconEntries()
         end
     end
 
-    local categories = Enum and Enum.CooldownViewerCategory
-    local hiddenAuraCategory = categories and categories.HiddenAura
     local settings = _G.CooldownViewerSettings
-    if hiddenAuraCategory and settings and type(settings.GetDataProvider) == "function" then
+    if settings and type(settings.GetDataProvider) == "function" then
         local okProvider, provider = pcall(settings.GetDataProvider, settings)
         if okProvider and type(provider) == "table"
             and type(provider.GetOrderedCooldownIDs) == "function"
@@ -829,22 +828,21 @@ local function GetCDMIconEntries()
         then
             local okOrdered, orderedCooldownIDs = pcall(provider.GetOrderedCooldownIDs, provider)
             if okOrdered and type(orderedCooldownIDs) == "table" then
+                providerAvailable = true
                 for orderIndex, rawCooldownID in ipairs(orderedCooldownIDs) do
                     local cooldownID = SafeOptionID(rawCooldownID)
                     if cooldownID then
                         local okInfo, providerInfo = pcall(provider.GetCooldownInfoForID, provider, cooldownID)
                         local category = okInfo and type(providerInfo) == "table"
                             and SafeOptionValue(providerInfo.category)
-                        if category == hiddenAuraCategory then
-                            hiddenBuffCooldownIDs[cooldownID] = true
-                        else
-                            local viewerName = categoryViewerMap[category]
-                            if viewerName then
-                                providerEntries[cooldownID] = {
-                                    viewerName = viewerName,
-                                    layoutIndex = orderIndex,
-                                }
-                            end
+                        local viewerName = categoryViewerMap[category]
+                        if viewerName then
+                            providerEntries[cooldownID] = {
+                                viewerName = viewerName,
+                                layoutIndex = orderIndex,
+                            }
+                        elseif category ~= nil then
+                            providerExcludedCooldownIDs[cooldownID] = true
                         end
                     end
                 end
@@ -875,11 +873,19 @@ local function GetCDMIconEntries()
         return "Unknown"
     end
 
-    local function AddCatalogEntry(cooldownID, viewerName, layoutIndex, icon)
+    local function AddCatalogEntry(cooldownID, viewerName, layoutIndex, icon, sourceKind)
         cooldownID = SafeOptionID(cooldownID)
-        if not cooldownID or hiddenBuffCooldownIDs[cooldownID]
-            or entriesByCooldownID[cooldownID] or not catalogViewers[viewerName]
+        if not cooldownID or providerExcludedCooldownIDs[cooldownID]
+            or not catalogViewers[viewerName]
         then
+            return
+        end
+
+        local existing = entriesByCooldownID[cooldownID]
+        if existing then
+            if icon then existing.isRuntimeActive = true end
+            if sourceKind == "provider" then existing.isBlizzardArranged = true end
+            if sourceKind == "fallback" then existing.isStaticFallback = true end
             return
         end
 
@@ -916,6 +922,9 @@ local function GetCDMIconEntries()
             icon = tex,
             viewerName = viewerName,
             layoutIndex = layoutIndex or (#result + 1),
+            isRuntimeActive = icon ~= nil,
+            isBlizzardArranged = sourceKind == "provider",
+            isStaticFallback = sourceKind == "fallback",
         }
         entriesByCooldownID[cooldownID] = entry
         result[#result + 1] = entry
@@ -924,7 +933,7 @@ local function GetCDMIconEntries()
     -- Live frames preserve the active viewer route and runtime order.
     for rawCooldownID, icon in pairs(iconMap) do
         local cooldownID = SafeOptionID(rawCooldownID)
-        if cooldownID and not hiddenBuffCooldownIDs[cooldownID] then
+        if cooldownID and not providerExcludedCooldownIDs[cooldownID] then
             local providerEntry = providerEntries[cooldownID]
             local viewerName = CDMHookEngine:GetIconSource(cooldownID)
                 or (providerEntry and providerEntry.viewerName)
@@ -932,7 +941,8 @@ local function GetCDMIconEntries()
                 cooldownID,
                 viewerName,
                 SafeCDMLayoutIndex(icon, providerEntry and providerEntry.layoutIndex or #result + 1),
-                icon
+                icon,
+                "runtime"
             )
         end
     end
@@ -940,20 +950,22 @@ local function GetCDMIconEntries()
     -- The settings provider includes arranged entries whose viewer frame has not
     -- been created yet, such as untalented or temporarily inactive abilities.
     for cooldownID, providerEntry in pairs(providerEntries) do
-        AddCatalogEntry(cooldownID, providerEntry.viewerName, providerEntry.layoutIndex)
+        AddCatalogEntry(cooldownID, providerEntry.viewerName, providerEntry.layoutIndex, nil, "provider")
     end
 
-    -- Category sets remain available when the settings panel/provider is absent.
-    -- Merge them last so live and arranged routes stay authoritative.
-    if compat and compat.GetCategoryDefinitions and compat.GetCategorySet then
+    -- Static category sets do not preserve the user's displayed/hidden arrangement.
+    -- Use learned entries only when the settings provider is unavailable.
+    if not providerAvailable and compat and compat.GetCategoryDefinitions and compat.GetCategorySet then
         for categoryIndex, definition in ipairs(compat:GetCategoryDefinitions() or {}) do
             if catalogViewers[definition.viewerName] then
-                local cooldownIDs = compat:GetCategorySet(definition.category, true)
+                local cooldownIDs = compat:GetCategorySet(definition.category, false)
                 for entryIndex, cooldownID in ipairs(cooldownIDs or {}) do
                     AddCatalogEntry(
                         cooldownID,
                         definition.viewerName,
-                        50000 + (categoryIndex * 1000) + entryIndex
+                        50000 + (categoryIndex * 1000) + entryIndex,
+                        nil,
+                        "fallback"
                     )
                 end
             end
@@ -970,6 +982,10 @@ local function GetCDMIconEntries()
     cdmEntryCache = result
     cdmEntryCacheTime = now
     return result
+end
+
+local function IsDefaultTrackedEntry(entry)
+    return entry and (entry.isRuntimeActive == true or entry.isBlizzardArranged == true)
 end
 
 -- CDMHookEngine 호환 spellName 생성 (buff_ 접두사)
@@ -1114,7 +1130,7 @@ local function SortRowsByIconOrder(groupSettings, rows)
     end)
 end
 
-local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames)
+local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames, trackedOnly)
     local rows = {}
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
@@ -1126,13 +1142,17 @@ local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames)
 
     for idx, entry in ipairs(allEntries or GetCDMIconEntries()) do
         local spellName = GetGSSpellName(entry)
-        if spellName and not seen[spellName] and not (skipSpellNames and skipSpellNames[spellName]) then
+        if (not trackedOnly or IsDefaultTrackedEntry(entry))
+            and spellName and not seen[spellName]
+            and not (skipSpellNames and skipSpellNames[spellName])
+        then
             local spellID = ResolveEntrySpellID(entry, spellName)
             local isBuffSpell = IsBuffSpell(spellName, entry)
             local buffOwnedByDynamic = isBuffSpell and FindBuffDynamicSpellOwner(gs, spellID, nil)
             local isGloballyUnassigned = isBuffSpell and IsBuffSpellUnassigned(gs, spellName)
             local assigned = GetUsableSpellAssignment(gs, spellName)
-            local belongsToGroup = assigned == groupName or (not assigned and targetViewer and entry.viewerName == targetViewer)
+            local belongsToGroup = assigned == groupName
+                or (not assigned and targetViewer and entry.viewerName == targetViewer and IsDefaultTrackedEntry(entry))
             if belongsToGroup and not isGloballyUnassigned and not buffOwnedByDynamic then
                 seen[spellName] = true
                 rows[#rows + 1] = {
@@ -1536,6 +1556,7 @@ local function BuildUnassignedSpellRows(groupName)
                 seen[spellName] = true
                 local assigned = GetUsableSpellAssignment(gs, spellName)
                 local defaultAssigned = (not assigned) and targetViewer and viewerName == targetViewer
+                    and IsDefaultTrackedEntry(entry)
                 local belongsToGroup = assigned == groupName or defaultAssigned
                 local iconType = GetDynamicIconTypeForEntry(entry, spellName)
                 local spellID = ResolveEntrySpellID(entry, spellName)
@@ -1660,6 +1681,7 @@ local function BuildBuffCandidateRows(groupName)
             local assignedGroup = spellName and GetUsableSpellAssignment(gs, spellName)
             local defaultAssigned = not assignedGroup
                 and targetViewer == "BuffIconCooldownViewer"
+                and IsDefaultTrackedEntry(entry)
             local alreadyAdded = assignedGroup == groupName or defaultAssigned
                 or (spellID and sourceKey
                     and FindDynamicIconInSourceGroup(sourceKey, "aura", spellID))
@@ -1709,6 +1731,7 @@ local function BuildSkillCandidateRows(groupName)
             local spellID = SafeOptionID(ResolveEntrySpellID(entry, spellName))
             local assignedGroup = spellName and GetUsableSpellAssignment(gs, spellName)
             local defaultAssigned = not assignedGroup and targetViewer == viewerName
+                and IsDefaultTrackedEntry(entry)
             local alreadyAdded = assignedGroup == groupName or defaultAssigned
             if isDynamicGroup and spellID and sourceKey then
                 alreadyAdded = alreadyAdded
@@ -1773,7 +1796,8 @@ local function UpdateGroupAssignGrid(parent, groupName)
 
                 -- 할당 상태 확인
                 local assigned = GetUsableSpellAssignment(gs, btn.spellName)
-                local defaultAssigned = (not assigned) and (not isDynamicGroup) and targetViewer and entry.viewerName == targetViewer
+                local defaultAssigned = (not assigned) and (not isDynamicGroup) and targetViewer
+                    and entry.viewerName == targetViewer and IsDefaultTrackedEntry(entry)
                 local hasDynamicCopy = false
                 if isDynamicGroup and sourceKey then
                     local iconType = GetDynamicIconTypeForEntry(entry, btn.spellName)
@@ -1915,7 +1939,9 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                     local assigned = GetUsableSpellAssignment(gsCurrent, self.spellName)
                     local grpSettings = gsCurrent and gsCurrent.groups and gsCurrent.groups[groupName]
                     local isDynamic = grpSettings and grpSettings.groupType == "dynamic"
-                    local defaultAssigned = (not assigned) and (not isDynamic) and self.entry and GROUP_VIEWER_MAP[groupName] == self.entry.viewerName
+                    local defaultAssigned = (not assigned) and (not isDynamic) and self.entry
+                        and GROUP_VIEWER_MAP[groupName] == self.entry.viewerName
+                        and IsDefaultTrackedEntry(self.entry)
                     local hasDynamicCopy = false
                     local sourceKey = isDynamic and EnsureSourceGroup(groupName) or nil
                     if isDynamic and sourceKey then
@@ -2045,7 +2071,9 @@ local function BuildAssignedSpellsArgs(groupName)
 
     -- 1. CDM 기본/수동 아이콘도 "할당된 목록"처럼 보여준다.
     -- 실제 DB를 강제로 채우지는 않고, 기본 뷰어 소속이면 자동 할당처럼 표시한다.
-    local cdmRows = CollectCDMRowsForGroup(groupName)
+    -- Mirror live frames plus entries explicitly arranged by Blizzard. Static
+    -- fallback candidates stay in the add catalog until the provider is ready.
+    local cdmRows = CollectCDMRowsForGroup(groupName, nil, nil, true)
     for _, row in ipairs(cdmRows) do
         local spellName = row.spellName
         local displayName = spellName and spellName:gsub("^buff_", "") or "Unknown"
