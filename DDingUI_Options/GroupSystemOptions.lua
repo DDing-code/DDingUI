@@ -797,9 +797,26 @@ local function GetCDMIconEntries()
     end
 
     CDMHookEngine:RebuildMaps()
-    local iconMap = CDMHookEngine:GetIconMap()
+    local iconMap = CDMHookEngine:GetIconMap() or {}
     local result = {}
+    local entriesByCooldownID = {}
     local hiddenBuffCooldownIDs = {}
+    local providerEntries = {}
+    local categoryViewerMap = {}
+    local catalogViewers = {
+        EssentialCooldownViewer = true,
+        UtilityCooldownViewer = true,
+        BuffIconCooldownViewer = true,
+    }
+    local compat = DDingUI.CDMCompat
+
+    if compat and compat.GetCategoryDefinitions then
+        for _, definition in ipairs(compat:GetCategoryDefinitions() or {}) do
+            if catalogViewers[definition.viewerName] then
+                categoryViewerMap[definition.category] = definition.viewerName
+            end
+        end
+    end
 
     local categories = Enum and Enum.CooldownViewerCategory
     local hiddenAuraCategory = categories and categories.HiddenAura
@@ -812,7 +829,7 @@ local function GetCDMIconEntries()
         then
             local okOrdered, orderedCooldownIDs = pcall(provider.GetOrderedCooldownIDs, provider)
             if okOrdered and type(orderedCooldownIDs) == "table" then
-                for _, rawCooldownID in ipairs(orderedCooldownIDs) do
+                for orderIndex, rawCooldownID in ipairs(orderedCooldownIDs) do
                     local cooldownID = SafeOptionID(rawCooldownID)
                     if cooldownID then
                         local okInfo, providerInfo = pcall(provider.GetCooldownInfoForID, provider, cooldownID)
@@ -820,6 +837,14 @@ local function GetCDMIconEntries()
                             and SafeOptionValue(providerInfo.category)
                         if category == hiddenAuraCategory then
                             hiddenBuffCooldownIDs[cooldownID] = true
+                        else
+                            local viewerName = categoryViewerMap[category]
+                            if viewerName then
+                                providerEntries[cooldownID] = {
+                                    viewerName = viewerName,
+                                    layoutIndex = orderIndex,
+                                }
+                            end
                         end
                     end
                 end
@@ -827,11 +852,39 @@ local function GetCDMIconEntries()
         end
     end
 
-    for rawCooldownID, icon in pairs(iconMap) do
-        local cooldownID = SafeOptionID(rawCooldownID)
-        if cooldownID and not hiddenBuffCooldownIDs[cooldownID] then
-            local spellName = CDMHookEngine:GetSpellNameForID(cooldownID)
-            local tex = nil
+    local function ResolveCatalogSpellName(spellCandidates, fallbackName)
+        local name = SafeOptionValue(fallbackName)
+        if type(name) == "string" and name ~= "" and name ~= "Unknown" then
+            return name
+        end
+
+        for _, spellID in ipairs(spellCandidates or {}) do
+            local okName, resolvedName = pcall(function()
+                if C_Spell and C_Spell.GetSpellName then
+                    return C_Spell.GetSpellName(spellID)
+                end
+                if GetSpellInfo then
+                    return GetSpellInfo(spellID)
+                end
+            end)
+            resolvedName = SafeOptionValue(okName and resolvedName)
+            if type(resolvedName) == "string" and resolvedName ~= "" then
+                return resolvedName
+            end
+        end
+        return "Unknown"
+    end
+
+    local function AddCatalogEntry(cooldownID, viewerName, layoutIndex, icon)
+        cooldownID = SafeOptionID(cooldownID)
+        if not cooldownID or hiddenBuffCooldownIDs[cooldownID]
+            or entriesByCooldownID[cooldownID] or not catalogViewers[viewerName]
+        then
+            return
+        end
+
+        local tex
+        if icon then
             local ok, texResult = pcall(function()
                 if icon.Icon and icon.Icon.GetTexture then
                     return icon.Icon:GetTexture()
@@ -844,31 +897,75 @@ local function GetCDMIconEntries()
                     tex = texResult
                 end
             end
+        end
 
-            -- [FIX] 실제 spellID 조회 — cooldownID와 spellID가 다를 수 있음
-            local realSpellID = 0
-            local iconSpellID = nil
-            local spellCandidates = GetCooldownInfoSpellCandidates(nil, cooldownID)
-            local compat = DDingUI.CDMCompat
-            local info = compat and compat:GetCooldownInfo(cooldownID)
-            if info then
-                spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
-                iconSpellID = spellCandidates and spellCandidates[1]
-                realSpellID = iconSpellID or 0
-            end
-            tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
+        local info = compat and compat:GetCooldownInfo(cooldownID)
+        local spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID)
+        local iconSpellID = spellCandidates and spellCandidates[1]
+        local spellName = ResolveCatalogSpellName(
+            spellCandidates,
+            CDMHookEngine:GetSpellNameForID(cooldownID)
+        )
+        tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
 
-            result[#result + 1] = {
-                cooldownID = cooldownID,
-                spellID = (realSpellID and realSpellID > 0) and realSpellID or cooldownID,
-                iconSpellID = iconSpellID,
-                name = spellName or "Unknown",
-                icon = tex,
-                viewerName = CDMHookEngine:GetIconSource(cooldownID) or "",
-                layoutIndex = SafeCDMLayoutIndex(icon, #result + 1),
-            }
+        local entry = {
+            cooldownID = cooldownID,
+            spellID = iconSpellID or cooldownID,
+            iconSpellID = iconSpellID,
+            name = spellName,
+            icon = tex,
+            viewerName = viewerName,
+            layoutIndex = layoutIndex or (#result + 1),
+        }
+        entriesByCooldownID[cooldownID] = entry
+        result[#result + 1] = entry
+    end
+
+    -- Live frames preserve the active viewer route and runtime order.
+    for rawCooldownID, icon in pairs(iconMap) do
+        local cooldownID = SafeOptionID(rawCooldownID)
+        if cooldownID and not hiddenBuffCooldownIDs[cooldownID] then
+            local providerEntry = providerEntries[cooldownID]
+            local viewerName = CDMHookEngine:GetIconSource(cooldownID)
+                or (providerEntry and providerEntry.viewerName)
+            AddCatalogEntry(
+                cooldownID,
+                viewerName,
+                SafeCDMLayoutIndex(icon, providerEntry and providerEntry.layoutIndex or #result + 1),
+                icon
+            )
         end
     end
+
+    -- The settings provider includes arranged entries whose viewer frame has not
+    -- been created yet, such as untalented or temporarily inactive abilities.
+    for cooldownID, providerEntry in pairs(providerEntries) do
+        AddCatalogEntry(cooldownID, providerEntry.viewerName, providerEntry.layoutIndex)
+    end
+
+    -- Category sets remain available when the settings panel/provider is absent.
+    -- Merge them last so live and arranged routes stay authoritative.
+    if compat and compat.GetCategoryDefinitions and compat.GetCategorySet then
+        for categoryIndex, definition in ipairs(compat:GetCategoryDefinitions() or {}) do
+            if catalogViewers[definition.viewerName] then
+                local cooldownIDs = compat:GetCategorySet(definition.category, true)
+                for entryIndex, cooldownID in ipairs(cooldownIDs or {}) do
+                    AddCatalogEntry(
+                        cooldownID,
+                        definition.viewerName,
+                        50000 + (categoryIndex * 1000) + entryIndex
+                    )
+                end
+            end
+        end
+    end
+
+    table.sort(result, function(a, b)
+        local aOrder = tonumber(a.layoutIndex) or 999999
+        local bOrder = tonumber(b.layoutIndex) or 999999
+        if aOrder ~= bOrder then return aOrder < bOrder end
+        return (tonumber(a.cooldownID) or 0) < (tonumber(b.cooldownID) or 0)
+    end)
 
     cdmEntryCache = result
     cdmEntryCacheTime = now
@@ -6080,6 +6177,41 @@ function DDingUI:BuildGroupGlowArgs(groupName)
         if option then
             option.order = 100 + index
             args["group_" .. key] = option
+        end
+    end
+
+    local function AssistOptionDisabled(requiredType)
+        return function()
+            local gs = GetGS()
+            local group = gs and gs.groups and gs.groups[groupName]
+            if not group or group.assistHighlightEnabled ~= true then return true end
+            return requiredType ~= nil and (group.assistHighlightType or "flipbook") ~= requiredType
+        end
+    end
+
+    for index, key in ipairs({
+        "assistHighlightHeader",
+        "assistHighlightEnabled",
+        "assistHighlightType",
+        "assistFlipbookScale",
+        "assistGlowType",
+        "assistGlowColor",
+        "assistGlowLines",
+        "assistGlowFrequency",
+        "assistGlowThickness",
+        "assistHighlightPixelLength",
+    }) do
+        local option = visualArgs[key]
+        if option then
+            option.order = 120 + index
+            if key == "assistHighlightType" then
+                option.disabled = AssistOptionDisabled()
+            elseif key == "assistFlipbookScale" then
+                option.disabled = AssistOptionDisabled("flipbook")
+            elseif key ~= "assistHighlightHeader" and key ~= "assistHighlightEnabled" then
+                option.disabled = AssistOptionDisabled("lcg")
+            end
+            args["assist_" .. key] = option
         end
     end
     return args
