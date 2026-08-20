@@ -70,7 +70,8 @@ local function GetCurrentSpecID()
     if not GetSpecialization or not GetSpecializationInfo then return nil end
     local specIndex = GetSpecialization()
     if not specIndex then return nil end
-    return tonumber(GetSpecializationInfo(specIndex))
+    local specID = GetSpecializationInfo(specIndex)
+    return tonumber(specID)
 end
 
 local function LegacyBarPosition(settings, rootCfg, trackerIndex)
