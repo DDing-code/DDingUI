@@ -330,24 +330,12 @@ end
 local function ConfigureRingCooldown(cooldown, owner, maskTexture)
     if not cooldown or not owner or not maskTexture then return end
 
-    local mask = cooldown._ddingRingMask
-    if not mask then
-        mask = owner:CreateMaskTexture()
-        mask:SetAllPoints(cooldown)
-        cooldown._ddingRingMask = mask
+    if cooldown._ddingRingSwipeTexture ~= maskTexture then
+        cooldown:SetSwipeTexture(maskTexture, 1, 1, 1, 1)
+        cooldown._ddingRingSwipeTexture = maskTexture
     end
-    if cooldown._ddingRingMaskTexture ~= maskTexture then
-        mask:SetTexture(maskTexture, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        cooldown._ddingRingMaskTexture = maskTexture
-    end
-    if not cooldown._ddingRingMaskAttached then
-        cooldown:AddMaskTexture(mask)
-        cooldown._ddingRingMaskAttached = true
-        mask:Show()
-        cooldown:SetSwipeTexture(SOLID_TEXTURE, 1, 1, 1, 1)
-        if cooldown.SetUseCircularEdge then
-            cooldown:SetUseCircularEdge(true)
-        end
+    if cooldown.SetUseCircularEdge then
+        cooldown:SetUseCircularEdge(true)
     end
 end
 
@@ -357,13 +345,10 @@ end
 
 function Engine:ClearRingCooldownMask(cooldown)
     if not cooldown then return end
-    local mask = cooldown._ddingRingMask
-    if not mask or not cooldown._ddingRingMaskAttached then return end
-
-    cooldown:RemoveMaskTexture(mask)
-    mask:Hide()
-    cooldown._ddingRingMaskAttached = nil
-    cooldown:SetSwipeTexture(SOLID_TEXTURE, 1, 1, 1, 1)
+    if cooldown._ddingRingSwipeTexture then
+        cooldown:SetSwipeTexture(SOLID_TEXTURE, 1, 1, 1, 1)
+        cooldown._ddingRingSwipeTexture = nil
+    end
     if cooldown.SetUseCircularEdge then
         cooldown:SetUseCircularEdge(false)
     end
