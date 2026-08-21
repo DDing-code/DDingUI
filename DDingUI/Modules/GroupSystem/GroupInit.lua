@@ -927,7 +927,12 @@ local function CopyArray(value)
     return copy
 end
 
-local GROUP_DURATION_TEXT_DEFAULTS = {
+local GROUP_TEXT_DEFAULTS = {
+    countTextSize = 14,
+    countTextColor = { 1, 0.82, 0, 1 },
+    chargeTextAnchor = "BOTTOMRIGHT",
+    countTextOffsetX = 0,
+    countTextOffsetY = 0,
     hideDurationText = false,
     durationTextAnchor = "TOP",
     durationTextOffsetX = 0,
@@ -936,7 +941,7 @@ local GROUP_DURATION_TEXT_DEFAULTS = {
     durationTextColor = { 1, 1, 1, 1 },
 }
 
-local function SyncCoreGroupDurationTextSettings(gs, profile)
+local function SyncCoreGroupTextSettings(gs, profile)
     if type(gs) ~= "table" or type(gs.groups) ~= "table" or type(profile) ~= "table" then return end
     if type(profile.viewers) ~= "table" then
         profile.viewers = {}
@@ -953,8 +958,9 @@ local function SyncCoreGroupDurationTextSettings(gs, profile)
 
             -- GroupSystem is the active editor and renderer, so its effective
             -- values must also drive legacy viewer skinning paths.
+            viewer.countTextFont = group.countTextFont
             viewer.durationTextFont = group.durationTextFont
-            for key, defaultValue in pairs(GROUP_DURATION_TEXT_DEFAULTS) do
+            for key, defaultValue in pairs(GROUP_TEXT_DEFAULTS) do
                 local value = group[key]
                 if value == nil then value = defaultValue end
                 viewer[key] = CopyArray(value)
@@ -1075,7 +1081,7 @@ local function MigrateToViewerGroups(gs)
     if gs._groupSystemVersion and gs._groupSystemVersion >= CURRENT_GROUP_SYSTEM_VERSION then
         -- autoClassify만 보장
         if not gs.autoClassify then gs.autoClassify = true end
-        SyncCoreGroupDurationTextSettings(gs, profileRef)
+        SyncCoreGroupTextSettings(gs, profileRef)
         return
     end
 
@@ -1613,14 +1619,14 @@ local function MigrateToViewerGroups(gs)
 
     -- 마이그레이션 완료: 버전 설정
     gs._groupSystemVersion = CURRENT_GROUP_SYSTEM_VERSION
-    SyncCoreGroupDurationTextSettings(gs, profileRef)
+    SyncCoreGroupTextSettings(gs, profileRef)
 
 end
 
-function GroupSystem:SyncCoreGroupDurationTextSettings()
+function GroupSystem:SyncCoreGroupTextSettings()
     local profile = DDingUI.db and DDingUI.db.profile
     local gs = profile and profile.groupSystem
-    SyncCoreGroupDurationTextSettings(gs, profile)
+    SyncCoreGroupTextSettings(gs, profile)
 end
 
 -- (SyncDynamicGroups는 파일 상단 DoFullUpdate 앞에 정의됨)
@@ -2084,7 +2090,7 @@ end
 -- ============================================================
 
 function GroupSystem:Refresh(allowSettingsOpen)
-    self:SyncCoreGroupDurationTextSettings()
+    self:SyncCoreGroupTextSettings()
     if not self.enabled then return end
     if InCombatLockdown() then
         _pendingRefresh = true
