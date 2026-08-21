@@ -1739,6 +1739,9 @@ function Widgets.CreateToggle(parent, option, yOffset, optionsTable)
 
     local checkbox = CreateElvCheckbox(frame)
     checkbox:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    if Widgets.StyleToggleSwitch then
+        Widgets.StyleToggleSwitch(checkbox)
+    end
 
     if option.get then
         local value = ResolveGetSet(option.get, optionsTable, option)

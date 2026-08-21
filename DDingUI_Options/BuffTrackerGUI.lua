@@ -236,30 +236,9 @@ end
 function ModernTrackerEditor:StyleToggleAsSwitch(widget)
     local checkbox = widget and widget.checkbox
     if not checkbox then return end
-
-    checkbox:SetSize(44, 20)
-    if checkbox.check then checkbox.check:Hide() end
-
-    local knob = checkbox:CreateTexture(nil, "OVERLAY")
-    knob:SetSize(14, 14)
-    knob:SetColorTexture(1, 1, 1, 1)
-    checkbox._modernKnob = knob
-
-    checkbox.SetChecked = function(owner, checked)
-        owner.isChecked = checked == true
-        if owner.check then owner.check:Hide() end
-        owner._modernKnob:ClearAllPoints()
-        if owner.isChecked then
-            owner:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-            owner:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-            owner._modernKnob:SetPoint("RIGHT", owner, "RIGHT", -3, 0)
-        else
-            owner:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
-            owner:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.8)
-            owner._modernKnob:SetPoint("LEFT", owner, "LEFT", 3, 0)
-        end
+    if Widgets.StyleToggleSwitch then
+        Widgets.StyleToggleSwitch(checkbox)
     end
-    checkbox:SetChecked(checkbox.isChecked)
 end
 
 function ModernTrackerEditor:CallSet(option, value)
