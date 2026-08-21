@@ -6501,6 +6501,26 @@ local function BuildCustomTextArgs(groupName)
     }
 
     args.durationHeader = { type = "header", name = L["Duration Text"] or "지속시간 텍스트", order = 30 }
+    args.enableDurationText = {
+        type = "toggle",
+        name = L["Enable Duration Text"] or "지속시간 텍스트 활성화",
+        desc = L["Show/hide duration/cooldown text"] or "지속시간/재사용 대기시간 텍스트 표시/숨기기",
+        order = 30.25,
+        width = "full",
+        get = function()
+            local gs = GetGS()
+            local group = gs and gs.groups and gs.groups[groupName]
+            return not (group and group.hideDurationText == true)
+        end,
+        set = function(_, value)
+            local gs = GetGS()
+            local group = gs and gs.groups and gs.groups[groupName]
+            if group then
+                group.hideDurationText = value ~= true
+            end
+            RefreshGroupSystem()
+        end,
+    }
     args.durationTextFont = GS_Font(groupName, "durationTextFont", L["Font"] or "폰트", 30.5)
     args.durationTextSize = GS_Range(groupName, "durationTextSize", L["Font Size"] or "글꼴 크기", 31, 12, 6, 32, 1)
     args.durationTextColor = GS_Color(groupName, "durationTextColor", L["Font Color"] or "글꼴 색상", 32, {1, 1, 1, 1})
