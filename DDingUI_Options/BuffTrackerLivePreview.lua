@@ -283,8 +283,8 @@ local function CreateBarVisual(canvas)
     local background = host:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints(host)
     local edges = CreateEdges(host)
-    local stacks = host:CreateFontString(nil, "OVERLAY")
-    local duration = host:CreateFontString(nil, "OVERLAY")
+    local stacks = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local duration = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     host.bar = bar
     host.background = background
     host.edges = edges
@@ -300,8 +300,8 @@ local function CreateIconVisual(canvas)
     local cooldown = CreateFrame("Cooldown", nil, host, "CooldownFrameTemplate")
     cooldown:SetAllPoints(host)
     local edges = CreateEdges(host, "OVERLAY")
-    local stacks = host:CreateFontString(nil, "OVERLAY")
-    local duration = host:CreateFontString(nil, "OVERLAY")
+    local stacks = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local duration = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     host.icon = icon
     host.cooldown = cooldown
     host.edges = edges
@@ -317,7 +317,7 @@ local function CreateRingVisual(canvas)
     background:SetAllPoints(host)
     local cooldown = CreateFrame("Cooldown", nil, host, "CooldownFrameTemplate")
     cooldown:SetAllPoints(host)
-    local duration = host:CreateFontString(nil, "OVERLAY")
+    local duration = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     duration:SetPoint("CENTER")
     host.border = border
     host.background = background
@@ -329,8 +329,8 @@ end
 local function CreateTextVisual(canvas)
     local host = CreateFrame("Frame", nil, canvas)
     local icon = host:CreateTexture(nil, "ARTWORK")
-    local value = host:CreateFontString(nil, "OVERLAY")
-    local duration = host:CreateFontString(nil, "OVERLAY")
+    local value = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local duration = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     host.icon = icon
     host.value = value
     host.duration = duration
@@ -407,8 +407,8 @@ local function RenderBar(preview, entry)
     local showStacks = ReadSetting(entry, "showStacksText", true) ~= false
     host.stacks:SetShown(showStacks)
     if showStacks then
-        host.stacks:SetText(tostring(sampleStacks))
         ApplyFont(host.stacks, ReadSetting(entry, "textFont"), ReadSetting(entry, "textSize", 12), ReadSetting(entry, "textOutline", "OUTLINE"))
+        host.stacks:SetText(tostring(sampleStacks))
         local tr, tg, tb, ta = ReadColor(ReadSetting(entry, "textColor"), { 1, 1, 1, 1 })
         host.stacks:SetTextColor(tr, tg, tb, ta)
         ApplyTextAnchor(host.stacks, host, ReadSetting(entry, "textAlign", "CENTER"), ReadSetting(entry, "textX", 0), ReadSetting(entry, "textY", 0))
@@ -418,8 +418,8 @@ local function RenderBar(preview, entry)
     host.duration:SetShown(showDuration)
     if showDuration then
         local decimals = math.floor(Clamp(ReadSetting(entry, "durationDecimals", 1), 0, 2))
-        host.duration:SetText(string.format("%." .. decimals .. "f", 8.3))
         ApplyFont(host.duration, ReadSetting(entry, "durationTextFont"), ReadSetting(entry, "durationTextSize", 10), ReadSetting(entry, "durationTextOutline", "OUTLINE"))
+        host.duration:SetText(string.format("%." .. decimals .. "f", 8.3))
         local dr, dg, db, da = ReadColor(ReadSetting(entry, "durationTextColor"), { 1, 1, 1, 1 })
         host.duration:SetTextColor(dr, dg, db, da)
         ApplyTextAnchor(host.duration, host, ReadSetting(entry, "durationTextAlign", "CENTER"), ReadSetting(entry, "durationTextX", 0), ReadSetting(entry, "durationTextY", 0))
@@ -446,8 +446,8 @@ local function RenderIcon(preview, entry)
     local showStacks = ReadSetting(entry, "iconShowStackText", true) ~= false
     host.stacks:SetShown(showStacks)
     if showStacks then
-        host.stacks:SetText("2")
         ApplyFont(host.stacks, ReadSetting(entry, "iconStackTextFont"), (ReadSetting(entry, "iconStackTextSize", 12) or 12) * scale, ReadSetting(entry, "iconStackTextOutline", "OUTLINE"))
+        host.stacks:SetText("2")
         local sr, sg, sb, sa = ReadColor(ReadSetting(entry, "iconStackTextColor"), { 1, 1, 1, 1 })
         host.stacks:SetTextColor(sr, sg, sb, sa)
         ApplyTextAnchor(host.stacks, host, ReadSetting(entry, "iconStackTextAnchor", "BOTTOMRIGHT"), (tonumber(ReadSetting(entry, "iconStackTextOffsetX", -2)) or -2) * scale, (tonumber(ReadSetting(entry, "iconStackTextOffsetY", 2)) or 2) * scale)
@@ -457,8 +457,8 @@ local function RenderIcon(preview, entry)
     host.duration:SetShown(showDuration)
     if showDuration then
         local decimals = math.floor(Clamp(ReadSetting(entry, "durationDecimals", 1), 0, 2))
-        host.duration:SetText(string.format("%." .. decimals .. "f", 8.3))
         ApplyFont(host.duration, ReadSetting(entry, "durationTextFont"), (ReadSetting(entry, "durationTextSize", 10) or 10) * scale, ReadSetting(entry, "durationTextOutline", "OUTLINE"))
+        host.duration:SetText(string.format("%." .. decimals .. "f", 8.3))
         local dr, dg, db, da = ReadColor(ReadSetting(entry, "durationTextColor"), { 1, 1, 1, 1 })
         host.duration:SetTextColor(dr, dg, db, da)
         ApplyTextAnchor(host.duration, host, ReadSetting(entry, "durationTextAlign", "CENTER"), (tonumber(ReadSetting(entry, "durationTextX", 0)) or 0) * scale, (tonumber(ReadSetting(entry, "durationTextY", 0)) or 0) * scale)
@@ -494,8 +494,8 @@ local function RenderRing(preview, entry)
     host.duration:SetShown(showText)
     if showText then
         local decimals = math.floor(Clamp(ReadSetting(entry, "ringDurationDecimals", 1), 0, 2))
-        host.duration:SetText(string.format("%." .. decimals .. "f", 8.3))
         ApplyFont(host.duration, ReadSetting(entry, "ringTextFont", ReadSetting(entry, "durationTextFont")), (ReadSetting(entry, "ringTextSize", ReadSetting(entry, "durationTextSize", 10)) or 10) * scale, ReadSetting(entry, "ringTextOutline", "OUTLINE"))
+        host.duration:SetText(string.format("%." .. decimals .. "f", 8.3))
         local tr, tg, tb, ta = ReadColor(ReadSetting(entry, "ringTextColor", ReadSetting(entry, "durationTextColor")), { 1, 1, 1, 1 })
         host.duration:SetTextColor(tr, tg, tb, ta)
         host.duration:ClearAllPoints()

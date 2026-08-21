@@ -250,7 +250,7 @@ function ModernTrackerEditor:CallSet(option, value)
     if profiles and profiles.MarkDirty then profiles:MarkDirty() end
 end
 
-function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText, orderedValues)
+function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText, orderedValues, onChanged)
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetHeight(32)
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
@@ -299,6 +299,7 @@ function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText,
             current = owner._value
             ModernTrackerEditor:CallSet(option, current)
             RefreshButtons()
+            if onChanged then onChanged(current) end
         end)
         button:SetScript("OnEnter", function(owner)
             if owner._value ~= current then
@@ -466,7 +467,11 @@ function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, co
             excluded[displayKey] = true
             yOffset = self:CreateSegmented(parent, displayType, yOffset,
                 rawget(L, "Display Type") or "Display Type",
-                { "bar", "icon", "ring", "text", "sound", "trigger" })
+                { "bar", "icon", "ring", "text", "sound", "trigger" },
+                function()
+                    if context.panel.RefreshList then context.panel:RefreshList() end
+                    if context.panel.RefreshLivePreview then context.panel:RefreshLivePreview(true) end
+                end)
         end
 
         yOffset = self:CreateSection(parent, yOffset + 4, rawget(L, "Tracking Source") or "Tracking Source")
@@ -1718,7 +1723,10 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     -- 우측 패널도 갱신
                     if btPanel.selectedIndex == idx then
                         btPanel:RenderTrackerTabs(idx)
+                        btPanel:RefreshLivePreview(true)
                     end
+                    local profiles = DDingUI.SpecProfiles
+                    if profiles and profiles.MarkDirty then profiles:MarkDirty() end
                 end,
             }
         end
