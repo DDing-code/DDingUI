@@ -1066,6 +1066,9 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 local container = CreateFrame("Frame", nil, contentFrame)
                 container:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, -yOffset)
                 container:SetPoint("RIGHT", contentFrame, "RIGHT", -10, 0)
+                container._ddingCatalogContentFrame = contentFrame
+                container._ddingCatalogTopOffset = yOffset
+                container._ddingCatalogBottomPadding = 50
 
                 local gridHeight = 120
                 if DDingUI and DDingUI.CreateCDMIconGridWidget then
@@ -1073,6 +1076,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     if grid then
                         grid:ClearAllPoints()
                         grid:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+                        grid:SetPoint("RIGHT", container, "RIGHT", 0, 0)
                         gridHeight = grid:GetHeight() + 10
                     end
                 elseif DDingUI and DDingUI.GetCDMIconGridHeight then

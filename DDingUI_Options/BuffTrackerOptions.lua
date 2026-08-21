@@ -1807,166 +1807,435 @@ end
 function DDingUI.CreateCDMIconGridWidget(parent)
     if cdmIconGridFrame then
         cdmIconGridFrame:SetParent(parent)
-        cdmIconGridFrame:ClearAllPoints()
         cdmIconGridFrame:Show()
         DDingUI.UpdateCDMIconGrid()
         return cdmIconGridFrame
     end
 
-    local GUI = DDingUI.GUI or {}
-    local StyleFontString = GUI.StyleFontString
-    local iconSize, iconSpacing, iconsPerRow = 36, 4, 8
-    local headerHeight = 18
+    local gui = DDingUI.GUI or {}
+    local theme = gui.THEME or {}
+    local styleFont = gui.StyleFontString
+    local accent = theme.accent or { 1, 0.35, 0.08, 1 }
+    local text = theme.text or { 0.86, 0.86, 0.88, 1 }
+    local textDim = theme.textDim or { 0.52, 0.54, 0.58, 1 }
+    local input = theme.input or { 0.035, 0.04, 0.05, 0.96 }
+    local widget = theme.bgWidget or { 0.055, 0.06, 0.07, 0.96 }
+    local hover = theme.bgHover or { 0.11, 0.115, 0.13, 0.96 }
+    local border = theme.border or { 0.2, 0.21, 0.24, 1 }
+    local globalFont = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
+
+    local root = CreateFrame("Frame", "DDingUICDMIconGrid", parent)
+    cdmIconGridFrame = root
+    root._query = ""
+    root._filter = "all"
+    root._sections = {}
+    root._categoryOrder = { "Buff", "Essential", "Utility" }
+    root._palette = {
+        accent = accent,
+        text = text,
+        textDim = textDim,
+        input = input,
+        widget = widget,
+        hover = hover,
+        border = border,
+    }
+
+    local toolbar = CreateFrame("Frame", nil, root)
+    toolbar:SetPoint("TOPLEFT")
+    toolbar:SetPoint("TOPRIGHT")
+    root._toolbar = toolbar
+
+    local filterGroup = CreateFrame("Frame", nil, toolbar)
+    filterGroup:SetHeight(30)
+    root._filterGroup = filterGroup
+
+    local search = CreateFrame("EditBox", nil, toolbar, "BackdropTemplate")
+    search:SetHeight(30)
+    search:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+    search:SetBackdropColor(input[1], input[2], input[3], input[4] or 0.96)
+    search:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+    search:SetAutoFocus(false)
+    search:SetFont(globalFont, 11, "")
+    search:SetTextColor(text[1], text[2], text[3], 1)
+    search:SetTextInsets(28, 26, 0, 0)
+    root._search = search
+
+    local searchIcon = search:CreateTexture(nil, "ARTWORK")
+    searchIcon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+    searchIcon:SetSize(14, 14)
+    searchIcon:SetPoint("LEFT", 8, 0)
+    searchIcon:SetVertexColor(textDim[1], textDim[2], textDim[3], 0.9)
+
+    local placeholder = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    if styleFont then styleFont(placeholder) end
+    placeholder:SetPoint("LEFT", 28, 0)
+    placeholder:SetPoint("RIGHT", -26, 0)
+    placeholder:SetJustifyH("LEFT")
+    placeholder:SetText(rawget(L, "Search catalog...") or "Search catalog...")
+    placeholder:SetTextColor(textDim[1], textDim[2], textDim[3], 0.8)
+    search.placeholder = placeholder
+
+    local clearButton = CreateFrame("Button", nil, search)
+    clearButton:SetSize(24, 24)
+    clearButton:SetPoint("RIGHT", -2, 0)
+    clearButton.label = clearButton:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    if styleFont then styleFont(clearButton.label) end
+    clearButton.label:SetPoint("CENTER", 0, 1)
+    clearButton.label:SetText("x")
+    clearButton.label:SetTextColor(textDim[1], textDim[2], textDim[3], 0.9)
+    clearButton:Hide()
+    clearButton:SetScript("OnEnter", function(self)
+        self.label:SetTextColor(accent[1], accent[2], accent[3], 1)
+    end)
+    clearButton:SetScript("OnLeave", function(self)
+        self.label:SetTextColor(textDim[1], textDim[2], textDim[3], 0.9)
+    end)
+    clearButton:SetScript("OnClick", function()
+        search:SetText("")
+        search:SetFocus()
+    end)
+    root._clearButton = clearButton
+
+    local filterDefinitions = {
+        { key = "all", label = rawget(L, "All") or "All" },
+        { key = "aura", label = rawget(L, "Aura Effects") or "Aura Effects" },
+        { key = "ability", label = rawget(L, "Abilities") or "Abilities" },
+    }
+    root._filterButtons = {}
+    for index, definition in ipairs(filterDefinitions) do
+        local button = CreateFrame("Button", nil, filterGroup, "BackdropTemplate")
+        button:SetHeight(30)
+        button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        if styleFont then styleFont(button.label) end
+        button.label:SetPoint("CENTER")
+        button.label:SetText(definition.label)
+        button._filterKey = definition.key
+        button:SetScript("OnClick", function(self)
+            root._filter = self._filterKey
+            DDingUI.UpdateCDMIconGrid()
+        end)
+        button:SetScript("OnEnter", function(self)
+            if root._filter ~= self._filterKey then
+                self:SetBackdropColor(hover[1], hover[2], hover[3], hover[4] or 0.96)
+            end
+        end)
+        button:SetScript("OnLeave", function()
+            if root._refreshFilters then root:_refreshFilters() end
+        end)
+        root._filterButtons[index] = button
+    end
+
+    function root:_refreshFilters()
+        for _, button in ipairs(self._filterButtons) do
+            local active = self._filter == button._filterKey
+            if active then
+                button:SetBackdropColor(accent[1], accent[2], accent[3], 0.18)
+                button:SetBackdropBorderColor(accent[1], accent[2], accent[3], 0.85)
+                button.label:SetTextColor(accent[1], accent[2], accent[3], 1)
+            else
+                button:SetBackdropColor(widget[1], widget[2], widget[3], widget[4] or 0.96)
+                button:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+                button.label:SetTextColor(textDim[1], textDim[2], textDim[3], 1)
+            end
+        end
+    end
+
+    function root:_layoutToolbar(width)
+        local stacked = width < 560
+        toolbar:SetHeight(stacked and 68 or 30)
+        search:ClearAllPoints()
+        filterGroup:ClearAllPoints()
+        if stacked then
+            search:SetPoint("TOPLEFT")
+            search:SetPoint("TOPRIGHT")
+            filterGroup:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -8)
+            filterGroup:SetPoint("TOPRIGHT", search, "BOTTOMRIGHT", 0, -8)
+        else
+            filterGroup:SetPoint("TOPRIGHT")
+            filterGroup:SetWidth(232)
+            search:SetPoint("TOPLEFT")
+            search:SetPoint("RIGHT", filterGroup, "LEFT", -8, 0)
+        end
+
+        local filterWidth = ((stacked and width or 232) - 4) / 3
+        for index, button in ipairs(self._filterButtons) do
+            button:ClearAllPoints()
+            button:SetWidth(filterWidth)
+            if index == 1 then
+                button:SetPoint("TOPLEFT")
+            else
+                button:SetPoint("LEFT", self._filterButtons[index - 1], "RIGHT", 2, 0)
+            end
+        end
+        self._contentTop = (stacked and 68 or 30) + 16
+    end
+
+    search:SetScript("OnTextChanged", function(self)
+        local value = self:GetText() or ""
+        placeholder:SetShown(value == "")
+        clearButton:SetShown(value ~= "")
+        root._query = value
+        DDingUI.UpdateCDMIconGrid()
+    end)
+    search:SetScript("OnEditFocusGained", function(self)
+        self:SetBackdropBorderColor(accent[1], accent[2], accent[3], 0.95)
+    end)
+    search:SetScript("OnEditFocusLost", function(self)
+        self:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+    end)
+    search:SetScript("OnEscapePressed", function(self)
+        if self:GetText() ~= "" then self:SetText("") else self:ClearFocus() end
+    end)
+    search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+
     local categoryColors = {
-        Essential = {0.2, 0.8, 1.0},
-        Utility = {0.2, 1.0, 0.5},
-        Buff = {1.0, 0.75, 0.2},
+        Buff = { 1.0, 0.62, 0.18 },
+        Essential = { 0.25, 0.78, 1.0 },
+        Utility = { 0.28, 0.88, 0.58 },
     }
     local categoryLabels = {
+        Buff = rawget(L, "Tracked Buffs") or "Tracked Auras",
         Essential = rawget(L, "Essential Cooldowns") or "Essential Cooldowns",
         Utility = rawget(L, "Utility Cooldowns") or "Utility Cooldowns",
-        Buff = rawget(L, "Tracked Buffs") or "Tracked Auras",
     }
 
-    cdmIconGridFrame = CreateFrame("Frame", "DDingUICDMIconGrid", parent)
-    cdmIconGridFrame._sections = {}
-    cdmIconGridFrame._categoryOrder = { "Buff", "Essential", "Utility" }
-    cdmIconGridFrame._iconSize = iconSize
-    cdmIconGridFrame._iconSpacing = iconSpacing
-    cdmIconGridFrame._iconsPerRow = iconsPerRow
-    cdmIconGridFrame._headerHeight = headerHeight
-
-    local gridWidth = iconsPerRow * (iconSize + iconSpacing) - iconSpacing
-    for _, categoryKey in ipairs(cdmIconGridFrame._categoryOrder) do
-        local section = CreateFrame("Frame", nil, cdmIconGridFrame)
-        local color = categoryColors[categoryKey]
-        section:SetWidth(gridWidth)
-        section._buttons = {}
-        section._color = color
+    for _, categoryKey in ipairs(root._categoryOrder) do
+        local section = CreateFrame("Frame", nil, root)
+        section._categoryKey = categoryKey
+        section._color = categoryColors[categoryKey]
         section._label = categoryLabels[categoryKey]
+        section._tiles = {}
 
-        local header = section:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        if StyleFontString then StyleFontString(header) end
-        header:SetPoint("TOPLEFT")
-        header:SetTextColor(color[1], color[2], color[3], 1)
-        header:SetText(section._label)
+        local title = section:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        if styleFont then styleFont(title) end
+        title:SetPoint("TOPLEFT", 0, -1)
+        title:SetText(section._label)
+        title:SetTextColor(section._color[1], section._color[2], section._color[3], 1)
+        section._title = title
+
+        local count = section:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        if styleFont then styleFont(count) end
+        count:SetPoint("LEFT", title, "RIGHT", 8, 0)
+        count:SetTextColor(textDim[1], textDim[2], textDim[3], 0.9)
+        section._count = count
 
         local line = section:CreateTexture(nil, "ARTWORK")
         line:SetHeight(1)
-        line:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -2)
-        line:SetPoint("RIGHT", section, "RIGHT")
-        line:SetColorTexture(color[1], color[2], color[3], 0.3)
+        line:SetPoint("TOPLEFT", 0, -21)
+        line:SetPoint("TOPRIGHT", 0, -21)
+        line:SetColorTexture(section._color[1], section._color[2], section._color[3], 0.26)
 
-        local emptyText = section:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        if StyleFontString then StyleFontString(emptyText) end
-        emptyText:SetPoint("TOPLEFT", line, "BOTTOMLEFT", 4, -5)
-        emptyText:SetTextColor(0.5, 0.5, 0.5, 1)
-        emptyText:SetText(rawget(L, "None") or "None")
-        emptyText:Hide()
-        section._emptyText = emptyText
+        function section:_acquireTile()
+            local tile = CreateFrame("Button", nil, self, "BackdropTemplate")
+            tile:SetHeight(50)
+            tile:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+            tile:SetBackdropColor(widget[1], widget[2], widget[3], widget[4] or 0.96)
+            tile:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+            tile._section = self
 
-        section._acquireButton = function(self)
-            local button = CreateFrame("Button", nil, self, "BackdropTemplate")
-            button:SetSize(iconSize, iconSize)
-            button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-            button:SetBackdropColor(0.06, 0.06, 0.06, 0.95)
-            button:SetBackdropBorderColor(0.28, 0.28, 0.28, 1)
-            button._section = self
-
-            local icon = button:CreateTexture(nil, "ARTWORK")
-            icon:SetPoint("TOPLEFT", 2, -2)
-            icon:SetPoint("BOTTOMRIGHT", -2, 2)
+            local icon = tile:CreateTexture(nil, "ARTWORK")
+            icon:SetSize(38, 38)
+            icon:SetPoint("LEFT", 6, 0)
             icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            button.icon = icon
+            tile.icon = icon
 
-            button:SetScript("OnEnter", function(owner)
-                local ownerSection = owner._section
-                local ownerColor = ownerSection and ownerSection._color or {1, 0.45, 0.12}
-                owner:SetBackdropBorderColor(ownerColor[1], ownerColor[2], ownerColor[3], 1)
+            local name = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            if styleFont then styleFont(name) end
+            name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 9, -4)
+            name:SetPoint("RIGHT", tile, "RIGHT", -25, 0)
+            name:SetJustifyH("LEFT")
+            name:SetWordWrap(false)
+            name:SetTextColor(text[1], text[2], text[3], 1)
+            tile.name = name
+
+            local meta = tile:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            if styleFont then styleFont(meta) end
+            meta:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 9, 4)
+            meta:SetPoint("RIGHT", tile, "RIGHT", -25, 0)
+            meta:SetJustifyH("LEFT")
+            meta:SetWordWrap(false)
+            meta:SetTextColor(textDim[1], textDim[2], textDim[3], 0.9)
+            tile.meta = meta
+
+            local add = tile:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            if styleFont then styleFont(add) end
+            add:SetPoint("RIGHT", -8, 0)
+            add:SetText("+")
+            add:SetTextColor(textDim[1], textDim[2], textDim[3], 0.72)
+            tile.add = add
+
+            tile:SetScript("OnEnter", function(owner)
+                local color = owner._section._color
+                owner:SetBackdropColor(hover[1], hover[2], hover[3], hover[4] or 0.96)
+                owner:SetBackdropBorderColor(color[1], color[2], color[3], 0.88)
+                owner.add:SetTextColor(color[1], color[2], color[3], 1)
                 if not owner.entry then return end
                 GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
                 GameTooltip:AddLine(owner.entry.name or "Unknown", 1, 0.82, 0)
-                GameTooltip:AddLine(ownerSection and ownerSection._label or "", 0.55, 0.55, 0.55)
+                GameTooltip:AddLine(owner._section._label, 0.58, 0.6, 0.64)
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine(rawget(L, "Click to add to tracking")
-                    or "Click to add to tracking", 0, 1, 0)
+                    or "Click to add to tracking", 0.2, 0.9, 0.45)
                 GameTooltip:Show()
             end)
-            button:SetScript("OnLeave", function(owner)
-                owner:SetBackdropBorderColor(0.28, 0.28, 0.28, 1)
+            tile:SetScript("OnLeave", function(owner)
+                owner:SetBackdropColor(widget[1], widget[2], widget[3], widget[4] or 0.96)
+                owner:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+                owner.add:SetTextColor(textDim[1], textDim[2], textDim[3], 0.72)
                 GameTooltip:Hide()
             end)
-            button:SetScript("OnClick", function(owner)
+            tile:SetScript("OnClick", function(owner)
                 SelectCustomAuraCatalogEntry(owner.entry)
             end)
-            self._buttons[#self._buttons + 1] = button
-            return button
+
+            self._tiles[#self._tiles + 1] = tile
+            return tile
         end
 
-        cdmIconGridFrame._sections[categoryKey] = section
+        root._sections[categoryKey] = section
     end
 
+    local emptyState = root:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    if styleFont then styleFont(emptyState) end
+    emptyState:SetText(rawget(L, "No catalog results") or "No matching catalog entries.")
+    emptyState:SetTextColor(textDim[1], textDim[2], textDim[3], 0.9)
+    emptyState:Hide()
+    root._emptyState = emptyState
+
+    root:SetScript("OnSizeChanged", function(self, width)
+        if not self._ready or not width or width < 1 then return end
+        if math.abs(width - (self._lastLayoutWidth or 0)) < 1 then return end
+        self._lastLayoutWidth = width
+        DDingUI.UpdateCDMIconGrid()
+    end)
+    root:SetScript("OnShow", function()
+        DDingUI.UpdateCDMIconGrid()
+    end)
+    root:SetScript("OnHide", function()
+        search:ClearFocus()
+        GameTooltip:Hide()
+    end)
+
+    root._ready = true
+    root:_refreshFilters()
     DDingUI.UpdateCDMIconGrid()
-    return cdmIconGridFrame
+    return root
 end
 
 function DDingUI.UpdateCDMIconGrid()
-    if not cdmIconGridFrame or not cdmIconGridFrame._sections then return end
+    local root = cdmIconGridFrame
+    if not root or not root._sections then return end
 
+    local container = root:GetParent()
+    local width = root:GetWidth()
+    if not width or width < 100 then width = container and container:GetWidth() end
+    if not width or width < 100 then width = 640 end
+    width = math.max(320, math.floor(width + 0.5))
+    root._lastLayoutWidth = width
+    root:_layoutToolbar(width)
+    root:_refreshFilters()
+
+    local query = tostring(root._query or ""):lower():match("^%s*(.-)%s*$") or ""
+    local filter = root._filter or "all"
     local grouped = GetCustomAuraCatalogGroups()
-    local iconSize = cdmIconGridFrame._iconSize or 36
-    local iconSpacing = cdmIconGridFrame._iconSpacing or 4
-    local iconsPerRow = cdmIconGridFrame._iconsPerRow or 8
-    local headerHeight = cdmIconGridFrame._headerHeight or 18
-    local sectionSpacing = 10
-    local gridWidth = iconsPerRow * (iconSize + iconSpacing) - iconSpacing
-    local yOffset = 0
+    local tileGap = 8
+    local tileHeight = 50
+    local columns = width >= 760 and 3 or width >= 500 and 2 or 1
+    local tileWidth = math.floor((width - (columns - 1) * tileGap) / columns)
+    local yOffset = root._contentTop or 46
+    local visibleTotal = 0
 
-    for _, categoryKey in ipairs(cdmIconGridFrame._categoryOrder or {}) do
-        local section = cdmIconGridFrame._sections[categoryKey]
-        local entries = grouped[categoryKey] or {}
-        section:ClearAllPoints()
-        section:SetPoint("TOPLEFT", cdmIconGridFrame, "TOPLEFT", 0, -yOffset)
-
-        for index, entry in ipairs(entries) do
-            local button = section._buttons[index] or section:_acquireButton()
-            local row = math.floor((index - 1) / iconsPerRow)
-            local column = (index - 1) % iconsPerRow
-            button:ClearAllPoints()
-            button:SetPoint("TOPLEFT", column * (iconSize + iconSpacing),
-                -(headerHeight + 4) - row * (iconSize + iconSpacing))
-            button.icon:SetTexture(entry.icon)
-            button.entry = entry
-            button:Show()
-        end
-        for index = #entries + 1, #section._buttons do
-            section._buttons[index].entry = nil
-            section._buttons[index]:Hide()
-        end
-
-        local entryCount = #entries
-        local rowCount = entryCount > 0 and math.ceil(entryCount / iconsPerRow) or 0
-        local sectionHeight
-        if entryCount == 0 then
-            section._emptyText:Show()
-            sectionHeight = headerHeight + 22
-        else
-            section._emptyText:Hide()
-            sectionHeight = headerHeight + 4 + rowCount * (iconSize + iconSpacing)
-        end
-        section:SetHeight(sectionHeight)
-        section:Show()
-        yOffset = yOffset + sectionHeight + sectionSpacing
+    local function EntryMatches(entry)
+        if query == "" then return true end
+        local haystack = tostring(entry.name or ""):lower()
+            .. " " .. tostring(entry.cooldownID or "")
+            .. " " .. tostring(entry.spellID or "")
+        return haystack:find(query, 1, true) ~= nil
     end
 
-    local totalHeight = math.max(40, yOffset - sectionSpacing)
-    cdmIconGridFrame:SetSize(gridWidth, totalHeight)
-    local container = cdmIconGridFrame:GetParent()
-    if container then container:SetHeight(totalHeight + 10) end
+    for _, categoryKey in ipairs(root._categoryOrder) do
+        local section = root._sections[categoryKey]
+        local categoryAllowed = filter == "all"
+            or (filter == "aura" and categoryKey == "Buff")
+            or (filter == "ability" and categoryKey ~= "Buff")
+        local entries = {}
+        if categoryAllowed then
+            for _, entry in ipairs(grouped[categoryKey] or {}) do
+                if EntryMatches(entry) then entries[#entries + 1] = entry end
+            end
+        end
+
+        if #entries == 0 then
+            section:Hide()
+            for _, tile in ipairs(section._tiles) do
+                tile.entry = nil
+                tile:Hide()
+            end
+        else
+            section:ClearAllPoints()
+            section:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -yOffset)
+            section:SetWidth(width)
+            section._count:SetText(tostring(#entries))
+            section:Show()
+
+            for index, entry in ipairs(entries) do
+                local tile = section._tiles[index] or section:_acquireTile()
+                local row = math.floor((index - 1) / columns)
+                local column = (index - 1) % columns
+                tile:ClearAllPoints()
+                tile:SetPoint("TOPLEFT", column * (tileWidth + tileGap), -(30 + row * (tileHeight + tileGap)))
+                tile:SetWidth(tileWidth)
+                tile.icon:SetTexture(entry.icon)
+                tile.name:SetText(entry.name or "Unknown")
+                tile.meta:SetText(section._label)
+                tile.entry = entry
+                tile:Show()
+            end
+            for index = #entries + 1, #section._tiles do
+                section._tiles[index].entry = nil
+                section._tiles[index]:Hide()
+            end
+
+            local rows = math.ceil(#entries / columns)
+            local sectionHeight = 30 + rows * tileHeight + math.max(0, rows - 1) * tileGap
+            section:SetHeight(sectionHeight)
+            yOffset = yOffset + sectionHeight + 18
+            visibleTotal = visibleTotal + #entries
+        end
+    end
+
+    if visibleTotal == 0 then
+        root._emptyState:ClearAllPoints()
+        root._emptyState:SetPoint("TOP", root, "TOP", 0, -(yOffset + 20))
+        root._emptyState:Show()
+        yOffset = yOffset + 72
+    else
+        root._emptyState:Hide()
+        yOffset = yOffset - 18
+    end
+
+    local totalHeight = math.max(108, yOffset)
+    root:SetHeight(totalHeight)
+    if container then
+        local containerHeight = totalHeight + 10
+        container:SetHeight(containerHeight)
+        local contentFrame = container._ddingCatalogContentFrame
+        if contentFrame then
+            local topOffset = container._ddingCatalogTopOffset or 15
+            local bottomPadding = container._ddingCatalogBottomPadding or 50
+            contentFrame:SetHeight(topOffset + containerHeight + 15 + bottomPadding)
+            local scrollFrame = contentFrame.scrollFrame
+            local scrollBar = scrollFrame and scrollFrame.ScrollBar
+            if scrollBar and scrollBar.UpdateThumbPosition then
+                scrollBar.UpdateThumbPosition()
+            end
+        end
+    end
 end
 
 function DDingUI.GetCDMIconGridHeight()
-    return cdmIconGridFrame and (cdmIconGridFrame:GetHeight() + 10) or 160
+    return cdmIconGridFrame and (cdmIconGridFrame:GetHeight() + 10) or 180
 end
 
 -- ============================================================
