@@ -153,10 +153,54 @@ local function GetSpellDisplay(spellID)
     return name, icon
 end
 
+local function HasSpellIdentity(info)
+    if type(info) ~= "table" then return false end
+    if IsUsableID(info.spellID) or IsUsableID(info.displaySpellID)
+        or IsUsableID(info.overrideSpellID) or IsUsableID(info.overrideTooltipSpellID)
+        or IsUsableID(info.linkedSpellID)
+    then
+        return true
+    end
+    local linked = info.linkedSpellIDs
+    return type(linked) == "table" and IsUsableID(linked[1])
+end
+
+local function ApplyCatalogSpellIdentity(entry, info, displaySpellID, identity)
+    if type(entry) ~= "table" then return end
+    if type(info) == "table" then
+        if IsUsableID(info.spellID) then entry.spellID = info.spellID end
+        if IsUsableID(info.overrideSpellID) then entry.overrideSpellID = info.overrideSpellID end
+        if IsUsableID(info.overrideTooltipSpellID) then
+            entry.overrideTooltipSpellID = info.overrideTooltipSpellID
+        end
+        if IsUsableID(info.linkedSpellID) then entry.linkedSpellID = info.linkedSpellID end
+        if type(info.linkedSpellIDs) == "table" and #info.linkedSpellIDs > 0 then
+            entry.linkedSpellIDs = info.linkedSpellIDs
+        end
+    end
+    if IsUsableID(displaySpellID) then entry.displaySpellID = displaySpellID end
+    if identity and identity.preferredSpellID then
+        if not IsUsableID(entry.displaySpellID) then
+            entry.displaySpellID = identity.preferredSpellID
+        end
+        if not IsUsableID(entry.spellID) then
+            entry.spellID = identity.canonicalSpellID or identity.preferredSpellID
+        end
+        entry.trackingSpellIDs = identity.spellIDs
+    end
+end
+
 local function AddStaticCatalogEntry(cooldownID, info, categoryDef)
     if not IsUsableID(cooldownID) or type(info) ~= "table" then return end
     local category = NormalizeCategoryName(categoryDef and categoryDef.name or "Essential")
     local displaySpellID = CDMCompat and CDMCompat:ResolveInfoSpellID(info) or info.overrideSpellID or info.spellID
+    if not IsUsableID(displaySpellID) then displaySpellID = nil end
+    local identity = CDMCompat and CDMCompat:GetCooldownSpellIdentity(
+        cooldownID,
+        info,
+        displaySpellID
+    )
+    displaySpellID = displaySpellID or (identity and identity.preferredSpellID)
     local name, icon = GetSpellDisplay(displaySpellID)
     local existing = masterCatalog[cooldownID]
     if existing then
@@ -169,10 +213,11 @@ local function AddStaticCatalogEntry(cooldownID, info, categoryDef)
             existing.categoryName = CATEGORY_NAMES["TrackedBuff+Bar"]
             existing.isTrackedBuff = true
         end
+        ApplyCatalogSpellIdentity(existing, info, displaySpellID, identity)
         return
     end
 
-    masterCatalog[cooldownID] = {
+    local entry = {
         cooldownID = cooldownID,
         spellID = IsUsableID(info.spellID) and info.spellID or displaySpellID or 0,
         displaySpellID = displaySpellID or 0,
@@ -194,6 +239,8 @@ local function AddStaticCatalogEntry(cooldownID, info, categoryDef)
         flags = info.flags,
         isKnown = info.isKnown,
     }
+    ApplyCatalogSpellIdentity(entry, info, displaySpellID, identity)
+    masterCatalog[cooldownID] = entry
 end
 
 -- ============================================================
@@ -223,6 +270,7 @@ function CDMScanner.ScanAll()
     local previousCatalog = masterCatalog
     local previousFrameToCooldownID = frameToCooldownID
     local previousFrameByLayoutKey = frameByLayoutKey
+    local identityRefreshAttempted = {}
     masterCatalog = {}
     frameToCooldownID = setmetatable({}, { __mode = "k" })
     frameByLayoutKey = {}
@@ -234,6 +282,13 @@ function CDMScanner.ScanAll()
             if type(cooldownIDs) == "table" then
                 for _, cooldownID in ipairs(cooldownIDs) do
                     local info = CDMCompat:GetCooldownInfo(cooldownID)
+                    local previous = previousCatalog[cooldownID]
+                    if not HasSpellIdentity(info) and previous and not HasSpellIdentity(previous)
+                        and not identityRefreshAttempted[cooldownID]
+                    then
+                        identityRefreshAttempted[cooldownID] = true
+                        info = CDMCompat:GetCooldownInfo(cooldownID, true) or info
+                    end
                     AddStaticCatalogEntry(cooldownID, info, categoryDef)
                 end
             end
@@ -284,6 +339,13 @@ function CDMScanner.ScanAll()
 
                         local displaySpellID = CDMCompat and CDMCompat:ResolveFrameSpellID(frame)
                             or overrideSpellID or firstLinkedSpellID or baseSpellID
+                        if not IsUsableID(displaySpellID) then displaySpellID = nil end
+                        local identity = CDMCompat and CDMCompat:GetCooldownSpellIdentity(
+                            cdID,
+                            info,
+                            displaySpellID
+                        )
+                        displaySpellID = displaySpellID or (identity and identity.preferredSpellID)
 
                         spellID = baseSpellID
                         pcall(function() name = displaySpellID and C_Spell.GetSpellName(displaySpellID) end)
@@ -399,9 +461,10 @@ function CDMScanner.ScanAll()
                             if displaySpellID and displaySpellID > 0 then
                                 existing.displaySpellID = displaySpellID
                             end
+                            ApplyCatalogSpellIdentity(existing, info, displaySpellID, identity)
                         else
                             -- Create new entry
-                            masterCatalog[cdID] = {
+                            local entry = {
                                 cooldownID = cdID,
                                 spellID = spellID or 0,
                                 displaySpellID = displaySpellID or 0,  -- override/linked 포함
@@ -431,6 +494,8 @@ function CDMScanner.ScanAll()
                                 hasAuraInstance = HasAuraInstanceID(frame.auraInstanceID),
                                 auraDataUnit = frame.auraDataUnit or "player",
                             }
+                            ApplyCatalogSpellIdentity(entry, info, displaySpellID, identity)
+                            masterCatalog[cdID] = entry
                         end
 
                         -- Store slot index on frame

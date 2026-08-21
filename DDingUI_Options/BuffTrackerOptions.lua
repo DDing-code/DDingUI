@@ -672,16 +672,102 @@ function DDingUI.DuplicateTrackedBuff(index)
     end
 end
 
+local function ResolveCatalogTrackingIdentity(entry, forceRefresh)
+    if type(entry) ~= "table" then return 0, 0, nil end
+
+    local cooldownID = tonumber(entry.cooldownID) or 0
+    local preferredSpellID = tonumber(entry.displaySpellID) or 0
+    if preferredSpellID <= 0 then preferredSpellID = tonumber(entry.spellID) or 0 end
+    local identity
+    local compat = DDingUI.CDMCompat
+    if cooldownID > 0 and compat and compat.GetCooldownSpellIdentity then
+        identity = compat:GetCooldownSpellIdentity(
+            cooldownID,
+            entry,
+            preferredSpellID > 0 and preferredSpellID or nil,
+            forceRefresh == true
+        )
+    end
+
+    local spellID = identity and identity.preferredSpellID or preferredSpellID
+    local spellIDs = {}
+    local seen = {}
+    local function AddSpellID(value)
+        value = tonumber(value)
+        if value and value > 0 and not seen[value] then
+            seen[value] = true
+            spellIDs[#spellIDs + 1] = value
+        end
+    end
+
+    AddSpellID(spellID)
+    if identity and type(identity.spellIDs) == "table" then
+        for _, value in ipairs(identity.spellIDs) do AddSpellID(value) end
+    end
+    if type(entry.trackingSpellIDs) == "table" then
+        for _, value in ipairs(entry.trackingSpellIDs) do AddSpellID(value) end
+    end
+
+    return cooldownID, spellID or 0, #spellIDs > 0 and spellIDs or nil
+end
+
+local function IsCatalogAuraEntry(entry)
+    if type(entry) ~= "table" then return false end
+    if entry.isAura == true or entry.viewerType == "aura" then return true end
+    local category = entry.category
+    return category == "TrackedBuff" or category == "TrackedBar"
+        or category == "TrackedBuff+Bar"
+end
+
+local function ApplyCatalogEntryToTracker(tracker, entry, forceRefresh)
+    if type(tracker) ~= "table" or type(entry) ~= "table" then return false end
+
+    local cooldownID, spellID, spellIDs = ResolveCatalogTrackingIdentity(entry, forceRefresh)
+    if spellID <= 0 then return false end
+
+    local isAura = IsCatalogAuraEntry(entry)
+    tracker.cooldownID = cooldownID
+    tracker.spellID = spellID
+    tracker.trackingSpellIDs = spellIDs
+    tracker.name = entry.name or tracker.name or "Unknown"
+    tracker.icon = entry.icon or tracker.icon or 134400
+    tracker.isAura = isAura
+    tracker.trigger = tracker.trigger or {}
+    tracker.trigger.cooldownID = cooldownID
+    tracker.trigger.spellID = spellID
+
+    if isAura then
+        tracker.trackingMode = "cdm"
+        tracker.trigger.type = "cdm"
+        tracker.trigger.hideWhenZero = nil
+    else
+        tracker.trackingMode = "spell"
+        tracker.trigger.type = "spell"
+        tracker.trigger.hideWhenZero = false
+    end
+    return true
+end
+
 -- Add a new tracked buff
 function DDingUI.AddTrackedBuff(entry, displayType)
     if not entry or not entry.cooldownID then return end
+
+    local cooldownID, spellID, trackingSpellIDs = ResolveCatalogTrackingIdentity(entry, true)
+    if spellID <= 0 then
+        print(CDM_PREFIX .. "|cffff5555" .. (entry.name or "Unknown")
+            .. ": 추적할 주문 정보를 아직 불러오지 못했습니다.|r")
+        if DDingUI.CDMScanner and DDingUI.CDMScanner.ScanAll then
+            DDingUI.CDMScanner.ScanAll()
+        end
+        return
+    end
 
     local trackedBuffs = GetTrackedBuffs()
 
     -- Check if already tracked with same displayType
     -- (같은 버프를 여러 타입으로 추적 가능: bar, icon, sound, text)
     for _, buff in ipairs(trackedBuffs) do
-        if buff.cooldownID == entry.cooldownID and buff.displayType == displayType then
+        if buff.cooldownID == cooldownID and buff.displayType == displayType then
             local typeNames = {
                 bar = L["Bar"] or "Bar",
                 ring = L["Ring"] or "Ring",
@@ -703,11 +789,11 @@ function DDingUI.AddTrackedBuff(entry, displayType)
     local defaultOffsetY = baseOffsetY - (existingCount * 20)  -- Each bar 20px below previous
 
     -- Get bar color from spell school (주문 계열별 자동 색상)
-    local autoBarColor = GetSpellSchoolColor(entry.spellID or entry.cooldownID)
+    local autoBarColor = GetSpellSchoolColor(spellID)
 
     -- [REFACTOR] isAura(버프) vs 능력(쿨다운)에 따라 기본 설정 분기
     -- 능력(쿨다운)은 CDM이 자동 제공 → 수동 설정 불필요
-    local isAura = entry.isAura or false
+    local isAura = IsCatalogAuraEntry(entry)
     local defaultBarFillMode = "duration"       -- 둘 다 지속시간/쿨다운 표시
     local defaultMaxStacks = 1                  -- CDM이 자동 감지
     local defaultStackDuration = 0              -- dynamicDuration이 자동 감지
@@ -716,10 +802,11 @@ function DDingUI.AddTrackedBuff(entry, displayType)
     -- Create new tracked buff entry
     local newBuff = {
         uid = GenerateUID(),  -- 고유 식별자 (순서 변경에도 불변)
-        cooldownID = entry.cooldownID,
+        cooldownID = cooldownID,
         name = entry.name or "Unknown",
         icon = entry.icon or 134400,
-        spellID = entry.spellID or 0,
+        spellID = spellID,
+        trackingSpellIDs = trackingSpellIDs,
         displayType = displayType or "bar",  -- "bar", "icon", "sound", "text"
         expanded = false,  -- foldable state
         isAura = isAura,   -- [FIX] 유형 정보 저장 (버프 vs 능력)
@@ -819,15 +906,14 @@ function DDingUI.AddTrackedBuff(entry, displayType)
 
 
     -- [SPELL CD] Non-aura spells automatically use spell cooldown mode
-    if not isAura and (entry.spellID and entry.spellID > 0) then
+    if not isAura then
         newBuff.trackingMode = "spell"
         -- displaySpellID = 특성 오버라이드/링크 포함 실제 주문 ID
         -- cooldownID = CDM 내부 ID, spellID = base (info.spellID)
-        local actualSpellID = entry.displaySpellID or entry.cooldownID or entry.spellID
         newBuff.trigger = {
             type = "spell",
-            spellID = actualSpellID,
-            cooldownID = entry.cooldownID or 0,
+            spellID = spellID,
+            cooldownID = cooldownID,
             hideWhenZero = false,
         }
         newBuff.display = newBuff.display or {}
@@ -835,6 +921,13 @@ function DDingUI.AddTrackedBuff(entry, displayType)
         -- 텍스트는 사용자가 명시적으로 활성화해야 함 (자동 생성 방지)
         newBuff.display.showDurationText = false
         newBuff.display.showStacksText = false
+    else
+        newBuff.trackingMode = "cdm"
+        newBuff.trigger = {
+            type = "cdm",
+            spellID = spellID,
+            cooldownID = cooldownID,
+        }
     end
 
     -- [TRIGGER] Trigger-only mode: auto-enable alert system
@@ -1626,9 +1719,12 @@ local function ApplyCDMEntry(entry)
     if not cfg then return end
 
     -- CDM 추적 모드로 설정
+    local cooldownID, spellID, trackingSpellIDs = ResolveCatalogTrackingIdentity(entry, true)
+    if spellID <= 0 then return end
     cfg.trackingMode = "cdm"
-    cfg.cooldownID = entry.cooldownID
-    cfg.spellID = entry.spellID or 0
+    cfg.cooldownID = cooldownID
+    cfg.spellID = spellID
+    cfg.trackingSpellIDs = trackingSpellIDs
 
     -- 스택/지속시간 설정 (CDM은 실시간으로 가져오므로 기본값만 설정)
     cfg.maxStacks = 10  -- CDM에서 실제 값 가져옴
@@ -1690,12 +1786,10 @@ local function CreateCDMIconGrid(parent)
                     local trackedBuffs = GetTrackedBuffs()
                     if trackedBuffs[replaceIdx] then
                         local entry = self.entry
-                        trackedBuffs[replaceIdx].spellID = entry.spellID or 0
-                        trackedBuffs[replaceIdx].cooldownID = entry.cooldownID or trackedBuffs[replaceIdx].cooldownID
-                        trackedBuffs[replaceIdx].name = entry.name or trackedBuffs[replaceIdx].name
-                        trackedBuffs[replaceIdx].icon = entry.icon or trackedBuffs[replaceIdx].icon
-                        if trackedBuffs[replaceIdx].trigger then
-                            trackedBuffs[replaceIdx].trigger.spellID = entry.spellID or 0
+                        if not ApplyCatalogEntryToTracker(trackedBuffs[replaceIdx], entry, true) then
+                            print(CDM_PREFIX .. "|cffff5555" .. (entry.name or "Unknown")
+                                .. ": 추적할 주문 정보를 아직 불러오지 못했습니다.|r")
+                            return
                         end
                         DDingUI:UpdateBuffTrackerBar()
                         C_Timer.After(0, function()
@@ -1887,12 +1981,10 @@ function DDingUI.CreateCDMIconGridWidget(parent)
                         local trackedBuffs = GetTrackedBuffs()
                         if trackedBuffs[replaceIdx] then
                             local entry = self.entry
-                            trackedBuffs[replaceIdx].spellID = entry.spellID or 0
-                            trackedBuffs[replaceIdx].cooldownID = entry.cooldownID or trackedBuffs[replaceIdx].cooldownID
-                            trackedBuffs[replaceIdx].name = entry.name or trackedBuffs[replaceIdx].name
-                            trackedBuffs[replaceIdx].icon = entry.icon or trackedBuffs[replaceIdx].icon
-                            if trackedBuffs[replaceIdx].trigger then
-                                trackedBuffs[replaceIdx].trigger.spellID = entry.spellID or 0
+                            if not ApplyCatalogEntryToTracker(trackedBuffs[replaceIdx], entry, true) then
+                                print(CDM_PREFIX .. "|cffff5555" .. (entry.name or "Unknown")
+                                    .. ": 추적할 주문 정보를 아직 불러오지 못했습니다.|r")
+                                return
                             end
                             DDingUI:UpdateBuffTrackerBar()
                             -- 리스트 + 설정 패널 갱신

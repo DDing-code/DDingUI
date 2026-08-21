@@ -29,6 +29,7 @@ local generation = 0
 local NUMBER_FIELDS = {
     "cooldownID",
     "spellID",
+    "displaySpellID",
     "spellCategoryID",
     "overrideSpellID",
     "overrideTooltipSpellID",
@@ -395,7 +396,13 @@ function Compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID, for
         return cached
     end
 
-    local sourceInfo = self:SanitizeCooldownInfo(info, cooldownID) or self:GetCooldownInfo(cooldownID)
+    local sourceInfo = self:SanitizeCooldownInfo(info, cooldownID)
+    local apiInfo = self:GetCooldownInfo(cooldownID, forceRefresh == true)
+    if sourceInfo and apiInfo then
+        sourceInfo = MergeInfo(sourceInfo, apiInfo)
+    else
+        sourceInfo = sourceInfo or apiInfo
+    end
     local identity = { spellIDs = {}, idSet = {}, names = {}, nameSet = {} }
 
     local function AddNameForID(spellID)
@@ -415,6 +422,8 @@ function Compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID, for
         AddNameForID(spellID)
     end
 
+    local displaySpellID = sourceInfo and sourceInfo.displaySpellID
+    if not self:IsUsableID(displaySpellID) then displaySpellID = nil end
     local primarySpellID = sourceInfo and sourceInfo.spellID
     if not self:IsUsableID(primarySpellID) and sourceInfo and type(sourceInfo.linkedSpellIDs) == "table" then
         primarySpellID = sourceInfo.linkedSpellIDs[1]
@@ -434,11 +443,14 @@ function Compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID, for
     if not preferred and overrideSpellKnown == true then
         preferred = sourceInfo.overrideSpellID
     end
-    preferred = preferred or primarySpellID
-        or (sourceInfo and sourceInfo.overrideSpellID)
-        or (sourceInfo and sourceInfo.overrideTooltipSpellID)
+    local fallbackOverride = sourceInfo and sourceInfo.overrideSpellID
+    if not self:IsUsableID(fallbackOverride) then fallbackOverride = nil end
+    local fallbackTooltip = sourceInfo and sourceInfo.overrideTooltipSpellID
+    if not self:IsUsableID(fallbackTooltip) then fallbackTooltip = nil end
+    preferred = preferred or displaySpellID or primarySpellID or fallbackOverride or fallbackTooltip
 
     AddSpellID(preferred)
+    AddSpellID(displaySpellID)
     if liveSpellKnown == true then AddSpellID(liveSpellID) end
     if overrideSpellKnown == true then
         AddSpellID(sourceInfo.overrideSpellID)
@@ -446,6 +458,7 @@ function Compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID, for
     AddSpellID(primarySpellID)
     AddSpellID(canonicalSpellID)
     if sourceInfo then
+        AddSpellID(sourceInfo.linkedSpellID)
         AddSpellID(sourceInfo.overrideSpellID)
         AddSpellID(sourceInfo.overrideTooltipSpellID)
         if type(sourceInfo.linkedSpellIDs) == "table" then

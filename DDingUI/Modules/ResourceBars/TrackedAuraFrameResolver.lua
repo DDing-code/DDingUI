@@ -77,11 +77,17 @@ local function FindDurationFontString(statusBar)
 end
 
 local function TrackerCooldownID(tracker)
-    return CleanID(tracker and (tracker.cooldownID or (tracker.trigger and tracker.trigger.cooldownID)))
+    if not tracker then return 0 end
+    local cooldownID = CleanID(tracker.cooldownID)
+    if cooldownID > 0 then return cooldownID end
+    return CleanID(tracker.trigger and tracker.trigger.cooldownID)
 end
 
 local function TrackerSpellID(tracker)
-    return CleanID(tracker and (tracker.spellID or (tracker.trigger and tracker.trigger.spellID)))
+    if not tracker then return 0 end
+    local spellID = CleanID(tracker.spellID)
+    if spellID > 0 then return spellID end
+    return CleanID(tracker.trigger and tracker.trigger.spellID)
 end
 
 local function IsAuraTracker(tracker)

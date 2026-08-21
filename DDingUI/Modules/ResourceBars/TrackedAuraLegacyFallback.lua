@@ -60,8 +60,11 @@ local function IsContainerCandidate(tracker)
     if tracker.trigger and tracker.trigger.type == "spell" then return false end
     if tracker.isAura == false then return false end
 
-    return HasUsableID(tracker.cooldownID or (tracker.trigger and tracker.trigger.cooldownID))
-        or HasUsableID(tracker.spellID or (tracker.trigger and tracker.trigger.spellID))
+    local trigger = tracker.trigger
+    return HasUsableID(tracker.cooldownID)
+        or HasUsableID(trigger and trigger.cooldownID)
+        or HasUsableID(tracker.spellID)
+        or HasUsableID(trigger and trigger.spellID)
 end
 
 local function StopLegacyDurationDrivers(host)

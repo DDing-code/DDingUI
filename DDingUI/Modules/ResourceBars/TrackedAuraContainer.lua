@@ -8,6 +8,7 @@ DDingUI.TrackedAuraContainer = Engine
 local SOLID_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
 local RETRY_DELAY = 2
+local SPELL_LIST_FIELDS = { "linkedSpellIDs", "trackingSpellIDs", "spellIDs" }
 
 local desiredByTracker = setmetatable({}, { __mode = "k" })
 local bindingByTracker = setmetatable({}, { __mode = "k" })
@@ -49,6 +50,10 @@ local function CleanID(value)
     return value
 end
 
+local function FirstCleanID(primary, fallback)
+    return CleanID(primary) or CleanID(fallback)
+end
+
 local function AddSpellVariants(include, value)
     local spellID = CleanID(value)
     if not spellID then return end
@@ -67,11 +72,17 @@ local function AddSpellVariants(include, value)
 end
 
 local function TrackerCooldownID(tracker)
-    return CleanID(tracker and (tracker.cooldownID or (tracker.trigger and tracker.trigger.cooldownID))) or 0
+    return tracker and FirstCleanID(
+        tracker.cooldownID,
+        tracker.trigger and tracker.trigger.cooldownID
+    ) or 0
 end
 
 local function TrackerSpellID(tracker)
-    return CleanID(tracker and (tracker.spellID or (tracker.trigger and tracker.trigger.spellID))) or 0
+    return tracker and FirstCleanID(
+        tracker.spellID,
+        tracker.trigger and tracker.trigger.spellID
+    ) or 0
 end
 
 local function IsSupportedAuraTracker(tracker)
@@ -109,15 +120,7 @@ local function RequiresLegacyObservation(tracker)
     return false
 end
 
-local function AddCooldownInfo(include, cooldownID)
-    if cooldownID <= 0 then return end
-
-    local scanner = DDingUI.CDMScanner
-    local info = scanner and scanner.GetEntry and scanner.GetEntry(cooldownID)
-    if not info then
-        local compat = DDingUI.CDMCompat
-        info = compat and compat.GetCooldownInfo and compat:GetCooldownInfo(cooldownID)
-    end
+local function AddInfoSpellIDs(include, info)
     if type(info) ~= "table" or IsSecret(info) then return end
 
     AddSpellVariants(include, info.spellID)
@@ -126,12 +129,30 @@ local function AddCooldownInfo(include, cooldownID)
     AddSpellVariants(include, info.overrideTooltipSpellID)
     AddSpellVariants(include, info.linkedSpellID)
 
-    local linked = info.linkedSpellIDs
-    if type(linked) == "table" and not IsSecret(linked) then
-        for index = 1, #linked do
-            AddSpellVariants(include, linked[index])
+    for _, key in ipairs(SPELL_LIST_FIELDS) do
+        local linked = info[key]
+        if type(linked) == "table" and not IsSecret(linked) then
+            for index = 1, #linked do
+                AddSpellVariants(include, linked[index])
+            end
         end
     end
+end
+
+local function AddCooldownInfo(include, cooldownID, preferredSpellID)
+    if cooldownID <= 0 then return end
+
+    local scanner = DDingUI.CDMScanner
+    local catalogInfo = scanner and scanner.GetEntry and scanner.GetEntry(cooldownID)
+    AddInfoSpellIDs(include, catalogInfo)
+
+    local compat = DDingUI.CDMCompat
+    local apiInfo = compat and compat.GetCooldownInfo and compat:GetCooldownInfo(cooldownID)
+    AddInfoSpellIDs(include, apiInfo)
+
+    local identity = compat and compat.GetCooldownSpellIdentity
+        and compat:GetCooldownSpellIdentity(cooldownID, catalogInfo or apiInfo, preferredSpellID)
+    AddInfoSpellIDs(include, identity)
 end
 
 local function SortedIDs(include)
@@ -148,8 +169,10 @@ local function BuildSpellSet(tracker)
 
     local include = {}
     local cooldownID = TrackerCooldownID(tracker)
-    AddSpellVariants(include, TrackerSpellID(tracker))
-    AddCooldownInfo(include, cooldownID)
+    local spellID = TrackerSpellID(tracker)
+    AddSpellVariants(include, spellID)
+    AddInfoSpellIDs(include, tracker)
+    AddCooldownInfo(include, cooldownID, spellID)
     if next(include) == nil then return nil end
     return include
 end
