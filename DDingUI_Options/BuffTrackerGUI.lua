@@ -6,13 +6,305 @@ local SL = _G.DDingUI_StyleLib
 local FLAT = SL.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 local Tokens = SL.Tokens
 local WR = SL.WidgetRefresh
-local PG = SL.ProceduralGlow
 local THEME = GUI.THEME
 local CreateCustomScrollBar = GUI.CreateCustomScrollBar
 local DDingUI_GetPopupEditBox = GUI.GetPopupEditBox
 
 local function RenderOptions(...)
     return GUI.RenderOptions(...)
+end
+
+local function ReadPreviewColor(value, fallback)
+    if type(value) ~= "table" then
+        return fallback[1], fallback[2], fallback[3], fallback[4] or 1
+    end
+    local r = value.r or value[1]
+    local g = value.g or value[2]
+    local b = value.b or value[3]
+    local a = value.a or value[4]
+    if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+        return fallback[1], fallback[2], fallback[3], fallback[4] or 1
+    end
+    return r, g, b, type(a) == "number" and a or 1
+end
+
+local function ResolvePreviewIcon(entry)
+    if not entry then return nil end
+    if entry.icon then return entry.icon end
+    local spellID = entry.spellID or (entry.trigger and entry.trigger.spellID)
+    if spellID and spellID > 0 and C_Spell and C_Spell.GetSpellTexture then
+        local ok, texture = pcall(C_Spell.GetSpellTexture, spellID)
+        if ok and texture then return texture end
+    end
+    return "Interface\\Icons\\Spell_Holy_MagicalSentry"
+end
+
+local function CreateTrackerLivePreview(parent)
+    local preview = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    preview:SetHeight(96)
+    preview:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+    preview:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.96)
+    preview:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.72)
+
+    local title = preview:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("TOPLEFT", 12, -9)
+    title:SetText(L["Live Preview"] or "Live Preview")
+    title:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+
+    local mode = preview:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    mode:SetPoint("TOPRIGHT", -12, -9)
+    mode:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+
+    local canvas = CreateFrame("Frame", nil, preview, "BackdropTemplate")
+    canvas:SetPoint("TOPLEFT", 10, -28)
+    canvas:SetPoint("BOTTOMRIGHT", -10, 8)
+    canvas:SetBackdrop({ bgFile = FLAT })
+    canvas:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], 0.9)
+
+    local iconFrame = CreateFrame("Frame", nil, canvas, "BackdropTemplate")
+    iconFrame:SetSize(42, 42)
+    iconFrame:SetPoint("LEFT", 10, 0)
+    iconFrame:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+    iconFrame:SetBackdropColor(0.02, 0.02, 0.02, 1)
+    iconFrame:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+
+    local icon = iconFrame:CreateTexture(nil, "ARTWORK")
+    icon:SetPoint("TOPLEFT", 2, -2)
+    icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    local name = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    name:SetPoint("TOPLEFT", iconFrame, "TOPRIGHT", 10, -2)
+    name:SetPoint("RIGHT", canvas, "RIGHT", -54, 0)
+    name:SetJustifyH("LEFT")
+    name:SetWordWrap(false)
+    name:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
+
+    local state = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    state:SetPoint("TOPRIGHT", -10, -3)
+
+    local track = CreateFrame("Frame", nil, canvas, "BackdropTemplate")
+    track:SetPoint("BOTTOMLEFT", iconFrame, "BOTTOMRIGHT", 10, 2)
+    track:SetPoint("RIGHT", canvas, "RIGHT", -10, 0)
+    track:SetHeight(15)
+    track:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+    track:SetBackdropColor(0.025, 0.025, 0.025, 1)
+    track:SetBackdropBorderColor(0, 0, 0, 1)
+
+    local fill = track:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMLEFT", 1, 1)
+    fill:SetWidth(160)
+
+    local duration = track:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    duration:SetPoint("RIGHT", -5, 0)
+    duration:SetText("8.3")
+    duration:SetTextColor(1, 1, 1, 1)
+
+    local emptyText = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER")
+    emptyText:SetText(L["Select a tracker to preview"] or "Select a tracker to preview")
+    emptyText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.9)
+
+    function preview:Refresh(entry)
+        if not entry then
+            iconFrame:Hide()
+            name:Hide()
+            state:Hide()
+            track:Hide()
+            mode:SetText("")
+            emptyText:Show()
+            return
+        end
+
+        emptyText:Hide()
+        iconFrame:Show()
+        name:Show()
+        state:Show()
+        icon:SetTexture(ResolvePreviewIcon(entry))
+        name:SetText(entry.name or (L["Unnamed Tracker"] or "Unnamed Tracker"))
+
+        local displayType = entry.isGroup and "group" or (entry.displayType or "bar")
+        mode:SetText(displayType:upper())
+        if entry.disabled then
+            state:SetText(L["Disabled"] or "Disabled")
+            state:SetTextColor(0.48, 0.48, 0.5, 1)
+            icon:SetDesaturated(true)
+            iconFrame:SetBackdropBorderColor(0.35, 0.35, 0.37, 1)
+        else
+            state:SetText(L["Enabled"] or "Enabled")
+            state:SetTextColor(0.3, 0.9, 0.5, 1)
+            icon:SetDesaturated(false)
+            iconFrame:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.8)
+        end
+
+        if displayType == "bar" or displayType == "group" then
+            track:Show()
+            local settings = entry.settings or entry.display or {}
+            local r, g, b, a = ReadPreviewColor(settings.barColor, THEME.accent)
+            fill:SetColorTexture(r, g, b, a)
+            local trackWidth = track:GetWidth()
+            fill:SetWidth(math.max(20, (trackWidth and trackWidth > 0 and trackWidth or 240) * 0.68))
+            duration:SetText(displayType == "group" and tostring(#(entry.controlledChildren or {})) or "8.3")
+        else
+            track:Hide()
+        end
+    end
+
+    preview:Refresh(nil)
+    return preview
+end
+
+local function CreateAuraCatalogPane(parent, createScrollBar)
+    local pane = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    pane:SetBackdrop({ bgFile = FLAT })
+    pane:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.98)
+
+    local heading = pane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    heading:SetPoint("TOPLEFT", 12, -12)
+    heading:SetText(L["Aura Catalog"] or "Aura Catalog")
+    heading:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
+
+    local subtitle = pane:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    subtitle:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -4)
+    subtitle:SetText(L["Search and add tracked auras"] or "Search and add tracked auras")
+    subtitle:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.9)
+
+    local separator = pane:CreateTexture(nil, "ARTWORK")
+    separator:SetHeight(1)
+    separator:SetPoint("TOPLEFT", 10, -46)
+    separator:SetPoint("TOPRIGHT", -10, -46)
+    separator:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.5)
+
+    local scroll = CreateFrame("ScrollFrame", nil, pane)
+    scroll:SetPoint("TOPLEFT", 10, -56)
+    scroll:SetPoint("BOTTOMRIGHT", -14, 8)
+    scroll:EnableMouseWheel(true)
+
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetHeight(1)
+    scroll:SetScrollChild(child)
+    child.scrollFrame = scroll
+
+    local scrollBar = createScrollBar(pane, scroll)
+    scrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 3, 0)
+    scrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 3, 0)
+    scroll.ScrollBar = scrollBar
+
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local maxScroll = math.max(0, child:GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * 42)))
+        if scrollBar.UpdateThumbPosition then scrollBar.UpdateThumbPosition() end
+    end)
+
+    local embed = CreateFrame("Frame", nil, child)
+    embed:SetPoint("TOPLEFT", 0, 0)
+    embed:SetPoint("RIGHT", child, "RIGHT", 0, 0)
+    embed._ddingCatalogContentFrame = child
+    embed._ddingCatalogTopOffset = 0
+    embed._ddingCatalogBottomPadding = 16
+
+    local grid = DDingUI.CreateCDMIconGridWidget and DDingUI.CreateCDMIconGridWidget(embed)
+    if grid then
+        grid:ClearAllPoints()
+        grid:SetPoint("TOPLEFT", embed, "TOPLEFT", 0, 0)
+        grid:SetPoint("RIGHT", embed, "RIGHT", 0, 0)
+    end
+
+    scroll:SetScript("OnSizeChanged", function(self, width)
+        if not width or width < 1 then return end
+        child:SetWidth(math.max(1, width))
+        if DDingUI.UpdateCDMIconGrid then DDingUI.UpdateCDMIconGrid() end
+    end)
+    child:SetScript("OnSizeChanged", function()
+        if scrollBar.UpdateThumbPosition then scrollBar.UpdateThumbPosition() end
+    end)
+
+    pane.scrollFrame = scroll
+    pane.scrollChild = child
+    pane.grid = grid
+    return pane
+end
+
+local function GetTrackerOptionCategory(key, order)
+    local normalized = tostring(key or ""):lower()
+
+    if normalized:find("_alertactionsheader", 1, true)
+        or normalized:find("_alertaction", 1, true)
+        or normalized:find("_alertaddaction", 1, true)
+    then
+        return "actions"
+    end
+
+    if normalized:find("_activation", 1, true)
+        or normalized:find("_alertheader", 1, true)
+        or normalized:find("_alertenabled", 1, true)
+        or normalized:find("_alerttrigger", 1, true)
+        or normalized:find("_alertaddtrigger", 1, true)
+        or normalized:find("_soundtrigger", 1, true)
+        or normalized:find("_soundstartdelay", 1, true)
+        or normalized:find("_soundendbefore", 1, true)
+        or normalized:find("_soundinterval", 1, true)
+    then
+        return "conditions"
+    end
+
+    if normalized:find("text", 1, true) then
+        return "text"
+    end
+
+    if normalized:find("attachto", 1, true)
+        or normalized:find("anchorpoint", 1, true)
+        or normalized:find("selfpoint", 1, true)
+        or normalized:find("offsetx", 1, true)
+        or normalized:find("offsety", 1, true)
+        or normalized:find("pickframe", 1, true)
+        or normalized:find("framestrata", 1, true)
+        or normalized:match("_width$")
+        or normalized:match("_height$")
+    then
+        return "position"
+    end
+
+    if normalized:find("_icon", 1, true)
+        or normalized:find("_bar", 1, true)
+        or normalized:find("_ring", 1, true)
+        or normalized:find("_glow", 1, true)
+        or normalized:find("_border", 1, true)
+        or normalized:find("_texture", 1, true)
+        or normalized:find("_color", 1, true)
+        or normalized:find("_smooth", 1, true)
+        or normalized:find("_tick", 1, true)
+        or normalized:find("_sound", 1, true)
+        or normalized:find("_hidewhenzero", 1, true)
+        or normalized:find("_showincombat", 1, true)
+        or normalized:find("_onlyincombat", 1, true)
+    then
+        return "appearance"
+    end
+
+    if type(order) == "number" and order >= 8 then
+        return "conditions"
+    end
+    return "general"
+end
+
+local function CreateModernTrackerTabDefinitions()
+    local definitions = {
+        { key = "general", name = L["General"] or "General" },
+        { key = "appearance", name = L["Appearance"] or "Appearance" },
+        { key = "position", name = L["Position"] or "Position" },
+        { key = "text", name = L["Text"] or "Text" },
+        { key = "conditions", name = L["Conditions"] or "Conditions" },
+        { key = "actions", name = L["Actions"] or "Actions" },
+    }
+    for _, definition in ipairs(definitions) do
+        local category = definition.key
+        definition.filter = function(key, order)
+            return GetTrackerOptionCategory(key, order) == category
+        end
+    end
+    return definitions
 end
 
 function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
@@ -36,8 +328,9 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         contentArea._btPanel = nil
     end
 
-    local SIDE_W = Tokens and Tokens.SIDEBAR_W or 180
-    local ITEM_H = Tokens and Tokens.ROW_H or 22
+    local SIDE_W = 220
+    local CATALOG_W = 300
+    local ITEM_H = math.max(Tokens and Tokens.ROW_H or 22, 30)
     local TAB_H  = Tokens and Tokens.TABBAR_H or 32
 
     -- [FIX] GUI용 trackedBuffs 획득 헬퍼 (GetDisplayOrder와 동일한 소스)
@@ -70,16 +363,25 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     leftPanel:SetBackdrop({bgFile = FLAT})
     leftPanel:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 1)
 
+    local sidebarTitle = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sidebarTitle:SetPoint("TOPLEFT", 12, -12)
+    sidebarTitle:SetText(L["Custom Aura"] or "Custom Aura")
+    sidebarTitle:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
+
+    local sidebarCount = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    sidebarCount:SetPoint("TOPRIGHT", leftPanel, "TOPRIGHT", -12, -14)
+    sidebarCount:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.9)
+
     -- 검색 바
     local searchFrame = CreateFrame("Frame", nil, leftPanel)
-    searchFrame:SetPoint("TOPLEFT", 5, -5)
-    searchFrame:SetPoint("TOPRIGHT", -5, -5)
-    searchFrame:SetHeight(22)
+    searchFrame:SetPoint("TOPLEFT", 8, -38)
+    searchFrame:SetPoint("TOPRIGHT", -8, -38)
+    searchFrame:SetHeight(28)
 
     -- Preview 토글 버튼 (검색바 오른쪽)
     local PREVIEW_BTN_W = 22
     local previewBtn = CreateFrame("Button", nil, searchFrame, "BackdropTemplate")
-    previewBtn:SetSize(PREVIEW_BTN_W, 22)
+    previewBtn:SetSize(PREVIEW_BTN_W + 4, 28)
     previewBtn:SetPoint("RIGHT", searchFrame, "RIGHT", 0, 0)
     previewBtn:SetBackdrop({bgFile = FLAT, edgeFile = FLAT, edgeSize = 1})
     previewBtn:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
@@ -134,19 +436,24 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     end)
 
     -- 검색 입력 배경 (Preview 버튼 왼쪽까지)
-    local searchInputFrame = CreateFrame("Frame", nil, searchFrame)
+    local searchInputFrame = CreateFrame("Frame", nil, searchFrame, "BackdropTemplate")
     searchInputFrame:SetPoint("TOPLEFT", 0, 0)
     searchInputFrame:SetPoint("BOTTOMRIGHT", previewBtn, "BOTTOMLEFT", -3, 0)
+    searchInputFrame:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+    searchInputFrame:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], THEME.input[4] or 0.8)
+    searchInputFrame:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.65)
 
-    local searchBg = searchInputFrame:CreateTexture(nil, "BACKGROUND")
-    searchBg:SetAllPoints()
-    searchBg:SetColorTexture(THEME.input[1], THEME.input[2], THEME.input[3], THEME.input[4] or 0.8)
+    local trackerSearchIcon = searchInputFrame:CreateTexture(nil, "ARTWORK")
+    trackerSearchIcon:SetSize(13, 13)
+    trackerSearchIcon:SetPoint("LEFT", 7, 0)
+    trackerSearchIcon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+    trackerSearchIcon:SetVertexColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.85)
 
     local searchBox = CreateFrame("EditBox", nil, searchInputFrame)
     searchBox:SetAllPoints()
     searchBox:SetFontObject(GameFontNormalSmall)
     searchBox:SetAutoFocus(false)
-    searchBox:SetTextInsets(6, 6, 0, 0)
+    searchBox:SetTextInsets(25, 6, 0, 0)
     searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     searchBox:SetScript("OnTextChanged", function(self)
         if btPanel.RefreshList then btPanel:RefreshList(self:GetText()) end
@@ -154,8 +461,8 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
 
     -- placeholder
     local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    searchPlaceholder:SetPoint("LEFT", 6, 0)
-    searchPlaceholder:SetText("Search...")
+    searchPlaceholder:SetPoint("LEFT", 25, 0)
+    searchPlaceholder:SetText(L["Search trackers..."] or "Search trackers...")
     searchBox:SetScript("OnEditFocusGained", function() searchPlaceholder:Hide() end)
     searchBox:SetScript("OnEditFocusLost", function(self)
         if self:GetText() == "" then searchPlaceholder:Show() end
@@ -189,15 +496,31 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     divider:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 0, 0)
     divider:SetPoint("BOTTOMLEFT", leftPanel, "BOTTOMRIGHT", 0, 0)
 
-    -- ─── 우측 패널: 탭 + 설정 ───
+    -- ─── 우측 카탈로그: 검색과 추가를 편집 화면에 상시 노출 ───
+    local catalogPanel = CreateAuraCatalogPane(btPanel, CreateCustomScrollBar)
+    catalogPanel:SetPoint("TOPRIGHT", btPanel, "TOPRIGHT", 0, 0)
+    catalogPanel:SetPoint("BOTTOMRIGHT", btPanel, "BOTTOMRIGHT", 0, 0)
+    catalogPanel:SetWidth(CATALOG_W)
+
+    local catalogDivider = btPanel:CreateTexture(nil, "ARTWORK")
+    catalogDivider:SetWidth(1)
+    catalogDivider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.6)
+    catalogDivider:SetPoint("TOPRIGHT", catalogPanel, "TOPLEFT", 0, 0)
+    catalogDivider:SetPoint("BOTTOMRIGHT", catalogPanel, "BOTTOMLEFT", 0, 0)
+
+    -- ─── 중앙 패널: 미리보기 + 탭 + 설정 ───
     local rightPanel = CreateFrame("Frame", nil, btPanel)
     rightPanel:SetPoint("TOPLEFT", divider, "TOPRIGHT", 0, 0)
-    rightPanel:SetPoint("BOTTOMRIGHT", btPanel, "BOTTOMRIGHT", 0, 0)
+    rightPanel:SetPoint("BOTTOMRIGHT", catalogDivider, "BOTTOMLEFT", 0, 0)
+
+    local livePreview = CreateTrackerLivePreview(rightPanel)
+    livePreview:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 10, -10)
+    livePreview:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -10, -10)
 
     -- 탭 바
     local tabBar = CreateFrame("Frame", nil, rightPanel, "BackdropTemplate")
-    tabBar:SetPoint("TOPLEFT", 0, 0)
-    tabBar:SetPoint("TOPRIGHT", 0, 0)
+    tabBar:SetPoint("TOPLEFT", livePreview, "BOTTOMLEFT", -10, -8)
+    tabBar:SetPoint("TOPRIGHT", livePreview, "BOTTOMRIGHT", 10, -8)
     tabBar:SetHeight(TAB_H)
     tabBar:SetBackdrop({bgFile = FLAT})
     tabBar:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 0.95)
@@ -243,6 +566,9 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     -- 참조 저장
     btPanel.leftPanel = leftPanel
     btPanel.rightPanel = rightPanel
+    btPanel.catalogPanel = catalogPanel
+    btPanel.livePreview = livePreview
+    btPanel.sidebarCount = sidebarCount
     btPanel.searchBox = searchBox
     btPanel.previewBtn = previewBtn
     btPanel.listScroll = listScroll
@@ -298,11 +624,44 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         tabScrollFrame:SetVerticalScroll(0)
     end
 
+    function btPanel:RefreshLivePreview(force)
+        local entry
+        if type(self.selectedIndex) == "number" then
+            entry = GetTrackedBuffsForGUI()[self.selectedIndex]
+        end
+        local settings = entry and (entry.settings or entry.display) or nil
+        local color = settings and settings.barColor or nil
+        local signature = table.concat({
+            tostring(self.selectedIndex or "none"),
+            tostring(entry and entry.name or ""),
+            tostring(entry and entry.icon or ""),
+            tostring(entry and entry.displayType or ""),
+            tostring(entry and entry.disabled or false),
+            tostring(color and (color.r or color[1]) or ""),
+            tostring(color and (color.g or color[2]) or ""),
+            tostring(color and (color.b or color[3]) or ""),
+        }, ":")
+        if not force and self._previewSignature == signature then return end
+        self._previewSignature = signature
+        livePreview:Refresh(entry)
+    end
+
+    livePreview:SetScript("OnUpdate", function(self, elapsed)
+        self._refreshElapsed = (self._refreshElapsed or 0) + elapsed
+        if self._refreshElapsed < 0.2 then return end
+        self._refreshElapsed = 0
+        btPanel:RefreshLivePreview()
+    end)
+    livePreview:SetScript("OnSizeChanged", function()
+        btPanel:RefreshLivePreview(true)
+    end)
+
     -- ─── 트래커 리스트 렌더링 ───
     function btPanel:RefreshList(searchQueryRaw)
         local searchQ = (searchQueryRaw or searchBox:GetText() or ""):lower()
         local rootCfg = DDingUI.db.profile.buffTrackerBar
         local trackedBuffs = GetTrackedBuffsForGUI()  -- [FIX] global per-spec 소스
+        sidebarCount:SetText(tostring(#trackedBuffs))
 
         -- 기존 버튼 숨기기
         for _, btn in ipairs(self.listButtons) do btn:Hide() end
@@ -310,10 +669,9 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         local yOff = 0
         local btnIdx = 0
 
-        -- ─── 상단 고정 항목 (WeakAuras 스타일) ───
+        -- ─── 상단 고정 항목 ───
         local staticItems = {
-            { key = "wizard",    name = "|cff44ee44+ " .. (L["New Tracker"] or "New Tracker") .. "|r",  colorR = 0.27, colorG = 0.93, colorB = 0.27 },
-            { key = "catalog",   name = L["CDM Aura Catalog"] or "CDM Catalog",                          colorR = THEME.text[1], colorG = THEME.text[2], colorB = THEME.text[3] },
+            { key = "wizard", name = "|cffff6a00+ " .. (L["New Tracker"] or "New Tracker") .. "|r" },
         }
         for _, si in ipairs(staticItems) do
             btnIdx = btnIdx + 1
@@ -462,7 +820,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 btn._arrow:Hide()
                 -- 스펠 아이콘
                 btn._icon = btn:CreateTexture(nil, "ARTWORK")
-                btn._icon:SetSize(16, 16)
+                btn._icon:SetSize(20, 20)
                 btn._icon:SetPoint("LEFT", 6, 0)
                 btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 -- 이름 텍스트
@@ -646,14 +1004,10 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     btn._text:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
                 end
                 btn._stripe:Show()
-                -- [DDINGUI] 스트라이프 펄스 애니메이션
-                if PG then PG.StartStripePulse(btn._stripe, 2.5, 0.5, 1.0) end
             else
                 -- 비선택: 얼룩말 배경
                 btn._bg:SetColorTexture(1, 1, 1, rowAlpha)
                 btn._stripe:Hide()
-                -- [DDINGUI] 이전 펄스 중지
-                if PG then PG.StopStripePulse(btn._stripe) end
             end
 
             -- [DDINGUI] 3단계 호버 (bg + text 동시 변환)
@@ -1283,18 +1637,21 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     function btPanel:SelectTracker(index)
         self.selectedIndex = index
         self:RefreshList()
+        self:RefreshLivePreview()
         self:RenderTrackerTabs(index)
     end
 
     function btPanel:SelectStatic(key)
         self.selectedIndex = key
         self:RefreshList()
+        self:RefreshLivePreview()
         self:RenderStaticPage(key)
     end
 
     -- ─── 그룹 선택 → 그룹 설정 렌더링 ───
     function btPanel:RenderGroupSettings(groupIdx)
         ClearTabContent()
+        self:RefreshLivePreview()
 
         -- 탭 바 숨기기 (그룹 설정은 단일 설정 화면)
         tabBar:Show()
@@ -1576,10 +1933,11 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         EasyMenu(menuList, menuFrame, anchorBtn, 0, 0, "MENU")
     end
 
-    -- ─── 우측 탭 렌더링 (WeakAuras 스타일) ───
+    -- ─── 중앙 작업 탭 렌더링 ───
     -- flat options를 order 범위 + key prefix로 탭으로 자동 분류
     function btPanel:RenderTrackerTabs(index)
         ClearTabContent()
+        self:RefreshLivePreview()
 
         -- 기존 탭 버튼 숨기기
         for _, tb in ipairs(self.tabButtons) do tb:Hide() end
@@ -1602,6 +1960,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         -- 각 탭은 { name, filter } 형태
         -- filter(key, order) → true면 해당 탭에 포함
         local tabDefs = {}
+        if false then
         local function KeyHasAny(key, ...)
             for i = 1, select("#", ...) do
                 local fragment = select(i, ...)
@@ -2010,6 +2369,8 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 return key:find("_alert") ~= nil or order >= 8
             end,
         }
+        end
+        tabDefs = CreateModernTrackerTabDefinitions()
 
         -- ─── 각 탭의 옵션 분류 ───
         local tabGroups = {}
@@ -2195,13 +2556,19 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     -- ─── 정적 페이지 (개요, 마법사, 카탈로그, 글로벌) ───
     function btPanel:RenderStaticPage(key)
         ClearTabContent()
+        self:RefreshLivePreview()
+        if key == "catalog" then
+            key = "wizard"
+            self.selectedIndex = "wizard"
+            if DDingUI.FocusCDMIconGridSearch then DDingUI.FocusCDMIconGridSearch() end
+        end
         -- 탭 바 숨기기 (정적 페이지는 탭 없음)
         tabBar:Hide()
         for _, tb in ipairs(self.tabButtons) do tb:Hide() end
 
         -- 컨텐츠 영역 재배치 (탭바 숨김이므로 상단부터)
         tabScrollFrame:ClearAllPoints()
-        tabScrollFrame:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 5, -5)
+        tabScrollFrame:SetPoint("TOPLEFT", livePreview, "BOTTOMLEFT", -5, -8)
         tabScrollFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -12, 2)
 
         local pageOpts = nil
@@ -2258,15 +2625,13 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                         order = 3,
                         width = "full",
                         func = function()
-                            btPanel:SelectStatic("catalog")
+                            if DDingUI.FocusCDMIconGridSearch then
+                                DDingUI.FocusCDMIconGridSearch()
+                            end
                         end,
                     },
                 },
             }
-        elseif key == "catalog" then
-            -- CDM 카탈로그 (기존 작동 유지)
-            local catalogOpts = ns.CreateAuraIconOptions(1)
-            pageOpts = {type = "group", name = "CDM Catalog", args = catalogOpts}
         end
 
         if pageOpts then
@@ -2283,9 +2648,8 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
 
     -- 외부(옵션)에서 카탈로그 열기 지원
     DDingUI.OpenAuraCatalog = function()
-        if btPanel and btPanel.RenderStaticPage then
-            btPanel:RenderStaticPage("catalog")
-        end
+        if btPanel and btPanel.catalogPanel then btPanel.catalogPanel:Show() end
+        if DDingUI.FocusCDMIconGridSearch then DDingUI.FocusCDMIconGridSearch() end
     end
 
     -- ─── 우클릭 컨텍스트 메뉴 ───

@@ -373,7 +373,7 @@ local function CleanupNestedOptionFrames(contentFrame, parentFrame)
 end
 
 -- ============================================================
--- [REFACTOR] WeakAuras-style Buff Tracker Panel
+-- 커스텀 오라 전용 작업 패널
 -- contentArea 안에 좌측 리스트 + 우측 탭 split-view를 임베딩
 -- ============================================================
 RenderOptions = function(contentFrame, options, path, parentFrame)
@@ -1605,10 +1605,10 @@ function DDingUI:CreateConfigFrame()
     local version = C_AddOns.GetAddOnMetadata("DDingUI", "Version") or "unknown"
 
     local panel = SL.CreateSettingsPanel("CDM", "DDingUI CDM", version, {
-        width = 980,
-        height = 640,
-        minWidth = 600,
-        minHeight = 400,
+        width = 1280,
+        height = 720,
+        minWidth = 1180,
+        minHeight = 600,
         menuWidth = 240,
     })
 

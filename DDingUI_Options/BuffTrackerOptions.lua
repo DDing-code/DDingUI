@@ -1160,7 +1160,7 @@ function DDingUI.AddManualTrackedBuff()
 end
 
 -- ============================================================
--- GROUP SYSTEM (WeakAuras-style tracker groups)
+-- GROUP SYSTEM (tracker groups)
 -- ============================================================
 
 -- Check if a tracked buff entry is a group
@@ -2236,6 +2236,14 @@ end
 
 function DDingUI.GetCDMIconGridHeight()
     return cdmIconGridFrame and (cdmIconGridFrame:GetHeight() + 10) or 180
+end
+
+function DDingUI.FocusCDMIconGridSearch()
+    if not cdmIconGridFrame or not cdmIconGridFrame._search then return end
+    cdmIconGridFrame._filter = "all"
+    cdmIconGridFrame._search:SetFocus()
+    cdmIconGridFrame._search:HighlightText()
+    DDingUI.UpdateCDMIconGrid()
 end
 
 -- ============================================================
@@ -7297,7 +7305,7 @@ local function CreateBuffTrackerOptions(orderNum)
         name = L["Buff Tracker"] or "Buff Tracker",
         order = orderNum or 9,
         -- [REFACTOR] customRenderer: single node in main tree,
-        -- content panel renders WeakAuras-style split-view directly
+        -- content panel renders the tracker workspace directly
         customRenderer = "buffTracker",
         args = {}
     }
@@ -7318,7 +7326,7 @@ end
 
 ns.CreateBuffTrackerOptions = CreateBuffTrackerOptions
 
--- [REFACTOR] Export internal functions for WeakAuras-style custom renderer (GUI.lua)
+-- Export internal functions for the custom tracker renderer (GUI.lua)
 ns.CreateTrackedBuffOptions = CreateTrackedBuffOptions
 ns.CreateTrackedBuffListOptions = CreateTrackedBuffListOptions
 ns.CreateAuraIconOptions = CreateAuraIconOptions
