@@ -7,8 +7,8 @@ if not DDingUI then return end
 -- FrameController used to rebuild its maps by enumerating every active Blizzard
 -- Cooldown Viewer pool on each Reconcile. This registry keeps active frame
 -- identity incrementally from CDM acquire/id/release hooks and uses the cached
--- CDMScanner catalog for bootstrap/repair. Direct pool walking is retained only
--- as an out-of-combat bootstrap fallback when no fresh cached identity exists.
+-- CDMScanner catalog for bootstrap/repair. A bounded live-pool reconciliation
+-- closes hook timing gaps without repeating the full catalog/API scan.
 
 local Registry = {}
 DDingUI.GroupCDMFrameRegistry = Registry
@@ -46,6 +46,9 @@ local diagnostics = {
     viewerResets = 0,
     viewerBootstrapScans = 0,
     idReplacements = 0,
+    livePoolScans = 0,
+    livePoolFrames = 0,
+    livePoolPrunes = 0,
 }
 
 local function IsUsableID(value)
@@ -319,6 +322,53 @@ local function BootstrapViewerPool(self, viewerName)
     return tracked
 end
 
+local function SyncViewerPool(self, viewerName)
+    local viewer = viewerRefs[viewerName] or _G[viewerName]
+    local pool = viewer and viewer.itemFramePool
+    if not (pool and pool.EnumerateActive) then return 0, false end
+
+    viewerNeedsBootstrap[viewerName] = nil
+    diagnostics.livePoolScans = diagnostics.livePoolScans + 1
+    local seen = {}
+    local tracked = 0
+    for frame in pool:EnumerateActive() do
+        seen[frame] = true
+        local cooldownID = CDMCompat and CDMCompat:GetFrameCooldownID(frame) or frame.cooldownID
+        if self:TrackFrame(frame, cooldownID, viewerName) then
+            tracked = tracked + 1
+        end
+    end
+
+    local frames = EnsureViewerTable(viewerName)
+    for cooldownID, frame in pairs(frames) do
+        if not seen[frame] then
+            frames[cooldownID] = nil
+            local meta = frameMeta[frame]
+            if meta and meta.viewerName == viewerName and meta.cooldownID == cooldownID then
+                frameMeta[frame] = nil
+                if frame._ddSourceViewer == viewerName then
+                    frame._ddSourceViewer = nil
+                end
+            end
+            diagnostics.livePoolPrunes = diagnostics.livePoolPrunes + 1
+        end
+    end
+
+    diagnostics.livePoolFrames = diagnostics.livePoolFrames + tracked
+    return tracked, true
+end
+
+function Registry:SyncLivePools()
+    local tracked = 0
+    local scanned = 0
+    for _, viewerName in ipairs(KNOWN_VIEWERS) do
+        local viewerTracked, didScan = SyncViewerPool(self, viewerName)
+        tracked = tracked + viewerTracked
+        if didScan then scanned = scanned + 1 end
+    end
+    return tracked, scanned
+end
+
 function Registry:Bootstrap(externalViewerRefs)
     for _, viewerName in ipairs(KNOWN_VIEWERS) do
         local viewer = (externalViewerRefs and externalViewerRefs[viewerName]) or _G[viewerName]
@@ -352,6 +402,13 @@ function Registry:Refresh(externalViewerRefs)
     if not self._bootstrapped then
         tracked = tracked + self:Bootstrap(externalViewerRefs)
     end
+
+    -- The live pools are authoritative. CDM can finish or recycle frames after
+    -- the initial scanner/bootstrap pass without emitting every hook we observe.
+    -- Reconcile is already debounced, so one bounded pass keeps membership exact
+    -- without restoring the old repeated API/catalog scans.
+    local liveTracked = self:SyncLivePools()
+    tracked = tracked + liveTracked
 
     -- A Blizzard viewer object can be replaced without a fresh CDMScanner scan.
     -- In that case the cached scanner frames belong to the old viewer, so make

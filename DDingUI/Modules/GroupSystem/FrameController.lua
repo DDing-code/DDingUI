@@ -680,17 +680,13 @@ local function ShouldIncludeCooldownViewerFrame(icon, viewerName)
         return false
     end
 
-    if viewerName ~= "BuffIconCooldownViewer" then
-        if not (icon.IsShown and icon:IsShown()) then
-            return false
-        end
-        return true
-    end
-
     if icon.IsShown and icon:IsShown() then
         return true
     end
 
+    -- A pooled CDM slot remains part of the configured list while Blizzard is
+    -- rebuilding or temporarily hiding its frame. Treating IsShown() as slot
+    -- membership drops valid cooldown and utility icons until another rebuild.
     if CDMCompat and CDMCompat:GetFrameCooldownInfo(icon) then
         return true
     elseif not CDMCompat and icon.cooldownInfo then
