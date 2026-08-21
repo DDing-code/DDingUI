@@ -389,7 +389,7 @@ end
 function Compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID, forceRefresh)
     if not self:IsUsableID(cooldownID) then return nil end
     local cached = spellIdentityCache[cooldownID]
-    if cached and not forceRefresh
+    if cached and #cached.spellIDs > 0 and not forceRefresh
         and (not self:IsUsableID(preferredSpellID) or cached.idSet[preferredSpellID])
     then
         return cached
@@ -456,12 +456,9 @@ function Compat:GetCooldownSpellIdentity(cooldownID, info, preferredSpellID, for
         end
     end
 
-    if #identity.spellIDs == 0 then
-        AddSpellID(cooldownID)
-    end
     identity.preferredSpellID = identity.spellIDs[1]
     identity.canonicalSpellID = canonicalSpellID or self:GetBaseSpellID(identity.preferredSpellID)
-    spellIdentityCache[cooldownID] = identity
+    spellIdentityCache[cooldownID] = identity.preferredSpellID and identity or nil
     return identity
 end
 

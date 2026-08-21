@@ -259,7 +259,6 @@ function GroupSystemIconTextures:CreateRuntime(pendingSpellRefresh, invalidateCa
                 end)
             end
         end
-        AddOptionSpellCandidate(candidates, seen, cooldownID)
         return candidates
     end
 
@@ -292,8 +291,6 @@ function GroupSystemIconTextures:CreateRuntime(pendingSpellRefresh, invalidateCa
                     for _, id in ipairs(GetCooldownInfoSpellCandidates(info, entry.cooldownID)) do
                         AddOptionSpellCandidate(candidates, seen, id)
                     end
-                else
-                    AddOptionSpellCandidate(candidates, seen, cooldownID)
                 end
             end
         end
