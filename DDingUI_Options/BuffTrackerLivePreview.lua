@@ -263,6 +263,17 @@ local function FitSize(canvas, width, height, horizontalPadding, verticalPadding
     return math.max(1, width * scale), math.max(1, height * scale), scale
 end
 
+local function FitBarSize(canvas, width, height, horizontalPadding, verticalPadding)
+    local canvasWidth = canvas:GetWidth() or 0
+    local canvasHeight = canvas:GetHeight() or 0
+    if canvasWidth < 160 then canvasWidth = 420 end
+    if canvasHeight < 50 then canvasHeight = 80 end
+
+    local availableWidth = math.max(40, canvasWidth - (horizontalPadding or 36))
+    local availableHeight = math.max(20, canvasHeight - (verticalPadding or 28))
+    return math.max(1, math.min(width, availableWidth)), math.max(1, math.min(height, availableHeight))
+end
+
 local function SetCooldownSample(cooldown, texture, color, reverse)
     cooldown:SetDrawEdge(false)
     cooldown:SetDrawBling(false)
@@ -384,7 +395,7 @@ local function RenderBar(preview, entry)
     local height = Clamp(ReadSetting(entry, "height", ReadRootSetting("height", 6)), 2, 160)
     local orientation = ReadSetting(entry, "barOrientation", "HORIZONTAL")
     if orientation == "VERTICAL" then width, height = height, width end
-    width, height = FitSize(preview.canvas, width, height, 42, 34)
+    width, height = FitBarSize(preview.canvas, width, height, 42, 34)
 
     host:SetSize(width, height)
     host:ClearAllPoints()

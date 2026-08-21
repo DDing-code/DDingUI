@@ -1616,6 +1616,49 @@ end
 
 -- BUFF TRACKER BAR
 
+local function UsesStableTrackerAnchorWidth(anchor)
+    if not anchor or anchor == UIParent then return false end
+    if anchor == DDingUI.powerBar or anchor == DDingUI.secondaryPowerBar
+        or anchor == DDingUI.buffTrackerBar
+    then
+        return true
+    end
+
+    local name = anchor.GetName and anchor:GetName()
+    return type(name) == "string" and name:match("^DDingUIBuffTracker") ~= nil
+end
+
+local function ResolveTrackerAutoWidth(bar, anchor, borderSize)
+    if bar and bar._autoWidthAnchor ~= anchor then
+        bar._autoWidthAnchor = anchor
+        bar._lastValidAutoWidth = nil
+    end
+
+    local effectiveWidth, needsBorderComp
+    if UsesStableTrackerAnchorWidth(anchor) then
+        effectiveWidth = anchor:GetWidth()
+        needsBorderComp = false
+    else
+        effectiveWidth, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
+    end
+
+    local resolvedWidth
+    if effectiveWidth and effectiveWidth > 0 and anchor ~= UIParent then
+        if needsBorderComp then
+            local borderComp = DDingUI:ScaleBorder(borderSize or 1)
+            resolvedWidth = PixelSnap(effectiveWidth - 2 * borderComp)
+        else
+            resolvedWidth = PixelSnap(effectiveWidth)
+        end
+    end
+
+    if resolvedWidth and resolvedWidth > 0 then
+        if bar then bar._lastValidAutoWidth = resolvedWidth end
+        return resolvedWidth
+    end
+    return (bar and bar._lastValidAutoWidth) or 200
+end
+
 function ResourceBars:GetBuffTrackerBar()
     if DDingUI.buffTrackerBar then return DDingUI.buffTrackerBar end
 
@@ -1641,17 +1684,7 @@ function ResourceBars:GetBuffTrackerBar()
 
     local width = cfg.width or 0
     if width <= 0 then
-        local effectiveWidth, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
-        if effectiveWidth and effectiveWidth > 0 and anchor ~= UIParent then
-            if needsBorderComp then
-                local bComp = DDingUI:ScaleBorder(cfg.borderSize or 1)
-                width = PixelSnap(effectiveWidth - 2 * bComp)
-            else
-                width = PixelSnap(effectiveWidth)
-            end
-        else
-            width = 200
-        end
+        width = ResolveTrackerAutoWidth(bar, anchor, cfg.borderSize)
     else
         width = DDingUI:Scale(width)
     end
@@ -4173,17 +4206,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     -- Calculate width
     local barWidth = width
     if barWidth <= 0 then
-        local effectiveWidth, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
-        if effectiveWidth and effectiveWidth > 0 and anchor ~= UIParent then
-            if needsBorderComp then
-                local bComp = DDingUI:ScaleBorder(borderSize)
-                barWidth = PixelSnap(effectiveWidth - 2 * bComp)
-            else
-                barWidth = PixelSnap(effectiveWidth)
-            end
-        else
-            barWidth = 200
-        end
+        barWidth = ResolveTrackerAutoWidth(bar, anchor, borderSize)
     else
         barWidth = DDingUI:Scale(barWidth)
     end
