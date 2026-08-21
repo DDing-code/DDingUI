@@ -1067,19 +1067,18 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 container:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, -yOffset)
                 container:SetPoint("RIGHT", contentFrame, "RIGHT", -10, 0)
 
-                local gridHeight = 120  -- Default height
-                if DDingUI and DDingUI.GetCDMIconGridHeight then
-                    gridHeight = DDingUI.GetCDMIconGridHeight()
-                end
-                container:SetHeight(gridHeight)
-
+                local gridHeight = 120
                 if DDingUI and DDingUI.CreateCDMIconGridWidget then
                     local grid = DDingUI.CreateCDMIconGridWidget(container)
                     if grid then
                         grid:ClearAllPoints()
                         grid:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+                        gridHeight = grid:GetHeight() + 10
                     end
+                elseif DDingUI and DDingUI.GetCDMIconGridHeight then
+                    gridHeight = DDingUI.GetCDMIconGridHeight()
                 end
+                container:SetHeight(gridHeight)
 
                 widget = container
                 widgetHeight = gridHeight

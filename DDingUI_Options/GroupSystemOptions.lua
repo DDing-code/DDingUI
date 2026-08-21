@@ -181,15 +181,15 @@ local FILTER_VALUES = {
 local CDM_ENTRY_CACHE_TTL = 0.5
 local GROUP_QUICK_ASSIGN_ENABLED = false
 local GROUP_SPELL_INPUT_ENABLED = false
-local cdmEntryCache
-local cdmEntryCacheTime = 0
+local cdmEntryCaches = {}
+local cdmEntryCacheTimes = {}
 local pendingOptionSpellIconRefresh = {}
 local dynamicIconRefreshPollers = {}
 local assignedIconRuntimePreviews = setmetatable({}, { __mode = "k" })
 
 local function InvalidateCDMIconEntryCache()
-    cdmEntryCache = nil
-    cdmEntryCacheTime = 0
+    wipe(cdmEntryCaches)
+    wipe(cdmEntryCacheTimes)
 end
 DDingUI.InvalidateGroupCDMIconEntryCache = InvalidateCDMIconEntryCache
 
@@ -794,20 +794,21 @@ local function SafeCDMLayoutIndex(icon, fallback)
     return fallback or 0
 end
 
--- CDMHookEngine에서 전체 뷰어 아이콘 목록 수집
--- [FIX] CDMScanner는 BuffIcon/BuffBar만 스캔 → Essential/Utility 누락
--- CDMHookEngine은 3개 뷰어 모두 스캔하므로 그룹 할당 그리드에 적합
-local function GetCDMIconEntries()
+-- Build one normalized options catalog from the configured CDM viewers.
+-- Group editing uses icon viewers; Custom Aura also requests tracked bars.
+local function GetCDMIconEntries(includeTrackedBars)
     local CDMHookEngine = DDingUI.CDMHookEngine
     if not CDMHookEngine then return {} end
 
     local now = GetTime and GetTime() or 0
     local compat = DDingUI.CDMCompat
     local compatGeneration = compat and compat.GetGeneration and compat:GetGeneration() or 0
-    if cdmEntryCache and cdmEntryCache._compatGeneration == compatGeneration
-        and (now - cdmEntryCacheTime) <= CDM_ENTRY_CACHE_TTL
+    local cacheKey = includeTrackedBars and "all" or "icons"
+    local cachedEntries = cdmEntryCaches[cacheKey]
+    if cachedEntries and cachedEntries._compatGeneration == compatGeneration
+        and (now - (cdmEntryCacheTimes[cacheKey] or 0)) <= CDM_ENTRY_CACHE_TTL
     then
-        return cdmEntryCache
+        return cachedEntries
     end
 
     CDMHookEngine:RebuildMaps()
@@ -823,6 +824,9 @@ local function GetCDMIconEntries()
         UtilityCooldownViewer = true,
         BuffIconCooldownViewer = true,
     }
+    if includeTrackedBars then
+        catalogViewers.BuffBarCooldownViewer = true
+    end
 
     if compat and compat.GetCategoryDefinitions then
         for _, definition in ipairs(compat:GetCategoryDefinitions() or {}) do
@@ -961,7 +965,9 @@ local function GetCDMIconEntries()
             -- [FIX] secret number 방어: GetTexture()가 secret value 반환 가능
             if ok and texResult then
                 local isSafe = not (issecretvalue and issecretvalue(texResult))
-                if isSafe and texResult ~= 0 and texResult ~= "" then
+                if isSafe and texResult ~= 0 and texResult ~= ""
+                    and not IsQuestionTexture(texResult)
+                then
                     tex = texResult
                 end
             end
@@ -983,17 +989,42 @@ local function GetCDMIconEntries()
             spellCandidates,
             CDMHookEngine:GetSpellNameForID(cooldownID)
         )
-        tex = ResolveSpellTextureFromCandidates(spellCandidates, tex)
+        local resolvedIcon = tex
+        if not resolvedIcon then
+            for _, candidateSpellID in ipairs(spellCandidates or {}) do
+                local candidateTexture = SafeOptionSpellTexture(candidateSpellID)
+                if candidateTexture and not IsQuestionTexture(candidateTexture) then
+                    resolvedIcon = candidateTexture
+                    break
+                end
+            end
+        end
+        tex = resolvedIcon or ResolveSpellTextureFromCandidates(spellCandidates, tex)
+
+        local isTrackedBar = viewerName == "BuffBarCooldownViewer"
+        local isAura = viewerName == "BuffIconCooldownViewer" or isTrackedBar
+        local category = isTrackedBar and "TrackedBar"
+            or isAura and "TrackedBuff"
+            or viewerName == "UtilityCooldownViewer" and "Utility"
+            or "Essential"
 
         local entry = {
             cooldownID = cooldownID,
             spellID = iconSpellID,
             iconSpellID = iconSpellID,
             canonicalSpellID = identity and identity.canonicalSpellID,
+            displaySpellID = identity and identity.preferredSpellID or iconSpellID,
+            trackingSpellIDs = identity and identity.spellIDs,
             name = spellName,
             icon = tex,
+            category = category,
+            viewerType = isAura and "aura" or "cooldown",
+            isAura = isAura,
+            isTrackedBuff = isAura and not isTrackedBar,
+            isTrackedBar = isTrackedBar,
             viewerName = viewerName,
             layoutIndex = layoutIndex or (#result + 1),
+            catalogReady = spellName ~= "Unknown" and resolvedIcon ~= nil,
             isRuntimeActive = sourceKind == "runtime",
             isPoolActive = sourceKind == "pool",
             isBlizzardArranged = sourceKind == "provider",
@@ -1024,11 +1055,15 @@ local function GetCDMIconEntries()
     -- The settings window can rebuild a viewer pool before the runtime map is
     -- reconciled. Merge those live pool frames into the add catalog without
     -- treating them as already rendered by GroupSystem.
-    for _, viewerName in ipairs({
+    local poolViewerNames = {
         "EssentialCooldownViewer",
         "UtilityCooldownViewer",
         "BuffIconCooldownViewer",
-    }) do
+    }
+    if includeTrackedBars then
+        poolViewerNames[#poolViewerNames + 1] = "BuffBarCooldownViewer"
+    end
+    for _, viewerName in ipairs(poolViewerNames) do
         local viewer = _G[viewerName]
         local pool = viewer and viewer.itemFramePool
         if pool and pool.EnumerateActive then
@@ -1090,10 +1125,15 @@ local function GetCDMIconEntries()
         return (tonumber(a.cooldownID) or 0) < (tonumber(b.cooldownID) or 0)
     end)
 
-    cdmEntryCache = result
-    cdmEntryCache._compatGeneration = compatGeneration
-    cdmEntryCacheTime = now
+    cdmEntryCaches[cacheKey] = result
+    result._compatGeneration = compatGeneration
+    cdmEntryCacheTimes[cacheKey] = now
     return result
+end
+
+-- Options pages share the same normalized catalog as the CDM group editor.
+DDingUI.GetOptionsCDMCatalogEntries = function()
+    return GetCDMIconEntries(true)
 end
 
 local function IsDefaultTrackedEntry(entry)

@@ -1702,134 +1702,60 @@ end
 -- Uses auraInstanceID + C_UnitAuras.GetAuraDataByAuraInstanceID() for accurate tracking
 -- ============================================================
 
--- CDM 카탈로그에서 사용 가능한 오라 목록 가져오기
-local function GetAvailableCDMAuras()
-    local CDMScanner = DDingUI.CDMScanner
-    if not CDMScanner then return {} end
-
-    local entries = CDMScanner.GetAllEntries()
-    return entries or {}
-end
-
--- CDM 엔트리로 트래커 설정 (cooldownID 기반 - 가장 정확한 방식!)
-local function ApplyCDMEntry(entry)
-    if not entry or not entry.cooldownID then return end
-
-    local cfg = GetSpecConfig()
-    if not cfg then return end
-
-    -- CDM 추적 모드로 설정
-    local cooldownID, spellID, trackingSpellIDs = ResolveCatalogTrackingIdentity(entry, true)
-    if spellID <= 0 then return end
-    cfg.trackingMode = "cdm"
-    cfg.cooldownID = cooldownID
-    cfg.spellID = spellID
-    cfg.trackingSpellIDs = trackingSpellIDs
-
-    -- 스택/지속시간 설정 (CDM은 실시간으로 가져오므로 기본값만 설정)
-    cfg.maxStacks = 10  -- CDM에서 실제 값 가져옴
-    cfg.stackDuration = 30  -- CDM에서 실제 값 가져옴
-    cfg.dynamicDuration = true  -- 기본값: 자동 감지 ON
-    cfg.hideWhenZero = true
-    cfg.resetOnCombatEnd = false  -- CDM이 관리하므로 불필요
-
-    -- Manual/Buff 모드용 배열 초기화 (사용 안 함)
-    cfg.generators = {}
-    cfg.spenders = {}
-
-    -- 바 업데이트
-    if DDingUI.UpdateBuffTrackerBar then
-        DDingUI:UpdateBuffTrackerBar()
-    end
-
-    RefreshOptions()
-
-    local spellName = entry.name or ("ID:" .. entry.cooldownID)
-    print(CDM_PREFIX .. spellName .. " (CDM) 설정 적용됨")
-end
-
--- CDM 아이콘 그리드 프레임 (수동 배치)
 local cdmIconGridFrame = nil
-local cdmIconButtons = {}
 
-local function CreateCDMIconGrid(parent)
-    if cdmIconGridFrame then
-        cdmIconGridFrame:Show()
-        return cdmIconGridFrame
+local function IsUsableCatalogIcon(texture)
+    if texture == nil or texture == 0 or texture == "" or texture == 134400 then
+        return false
     end
-
-    local ICON_SIZE = 36
-    local ICON_SPACING = 4
-    local ICONS_PER_ROW = 8
-    local MAX_ICONS = 20
-
-    cdmIconGridFrame = CreateFrame("Frame", "DDingUICDMIconGrid", parent)
-    cdmIconGridFrame:SetSize(ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING), 3 * (ICON_SIZE + ICON_SPACING))
-
-    for i = 1, MAX_ICONS do
-        local row = math.floor((i - 1) / ICONS_PER_ROW)
-        local col = (i - 1) % ICONS_PER_ROW
-
-        local btn = CreateFrame("Button", nil, cdmIconGridFrame)
-        btn:SetSize(ICON_SIZE, ICON_SIZE)
-        btn:SetPoint("TOPLEFT", col * (ICON_SIZE + ICON_SPACING), -row * (ICON_SIZE + ICON_SPACING))
-
-        local icon = btn:CreateTexture(nil, "ARTWORK")
-        icon:SetAllPoints()
-        btn.icon = icon
-
-        btn:SetScript("OnClick", function(self)
-            if self.entry then
-                if DDingUI._pendingReplaceIndex then
-                    local replaceIdx = DDingUI._pendingReplaceIndex
-                    DDingUI._pendingReplaceIndex = nil
-                    local trackedBuffs = GetTrackedBuffs()
-                    if trackedBuffs[replaceIdx] then
-                        local entry = self.entry
-                        if not ApplyCatalogEntryToTracker(trackedBuffs[replaceIdx], entry, true) then
-                            print(CDM_PREFIX .. "|cffff5555" .. (entry.name or "Unknown")
-                                .. ": 추적할 주문 정보를 아직 불러오지 못했습니다.|r")
-                            return
-                        end
-                        DDingUI:UpdateBuffTrackerBar()
-                        C_Timer.After(0, function()
-                            local configFrame = _G["DDingUI_ConfigFrame"]
-                            local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
-                            if btPanel then
-                                if btPanel.RefreshList then btPanel:RefreshList() end
-                                if btPanel.SelectTracker then btPanel:SelectTracker(replaceIdx) end
-                            end
-                        end)
-                        print("|cffffffffDDing|r|cffffa300UI|r: |cff00ff00" .. (entry.name or "Spell") .. "|r 으로 주문이 변경되었습니다.")
-                    end
-                else
-                    ShowAddTrackedBuffDialog(self.entry)
-                end
-            end
-        end)
-
-        btn:SetScript("OnEnter", function(self)
-            if self.entry then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine(self.entry.name or "Unknown", 1, 0.82, 0)
-                GameTooltip:AddLine("cooldownID: " .. (self.entry.cooldownID or 0), 0.5, 0.5, 0.5)
-                GameTooltip:AddLine("Click to add", 0, 1, 0)
-                GameTooltip:Show()
-            end
-        end)
-
-        btn:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
-
-        btn:Hide()
-        cdmIconButtons[i] = btn
+    if type(texture) == "string" then
+        return texture:gsub("/", "\\"):lower():find("inv_misc_questionmark", 1, true) == nil
     end
-
-    return cdmIconGridFrame
+    return true
 end
 
--- [REMOVED] 이전 UpdateCDMIconGrid → CreateCDMIconGridWidget 내부로 이동됨
+local function GetCatalogCategory(entry)
+    if not entry then return nil end
+    if entry.viewerName == "BuffIconCooldownViewer" or entry.isAura == true
+        or entry.viewerType == "aura"
+    then
+        return "Buff"
+    end
+    if entry.viewerName == "UtilityCooldownViewer" or entry.category == "Utility" then
+        return "Utility"
+    end
+    if entry.viewerName == "EssentialCooldownViewer" or entry.category == "Essential" then
+        return "Essential"
+    end
+    return nil
+end
+
+local function GetCustomAuraCatalogGroups()
+    local entries
+    if DDingUI.GetOptionsCDMCatalogEntries then
+        entries = DDingUI.GetOptionsCDMCatalogEntries()
+    elseif DDingUI.CDMScanner and DDingUI.CDMScanner.GetAllEntries then
+        entries = DDingUI.CDMScanner.GetAllEntries()
+    end
+
+    local grouped = { Buff = {}, Essential = {}, Utility = {} }
+    local seen = {}
+    for _, entry in ipairs(entries or {}) do
+        local category = GetCatalogCategory(entry)
+        local cooldownID = tonumber(entry.cooldownID)
+        local name = entry.name
+        local ready = entry.catalogReady
+        if ready == nil then
+            ready = type(name) == "string" and name ~= "" and name ~= "Unknown"
+                and IsUsableCatalogIcon(entry.icon)
+        end
+        if category and cooldownID and cooldownID > 0 and ready and not seen[cooldownID] then
+            seen[cooldownID] = true
+            grouped[category][#grouped[category] + 1] = entry
+        end
+    end
+    return grouped
+end
 
 -- CDM 카탈로그 옵션
 local function CreateCDMCatalogSlotOptions(baseOrder)
@@ -1846,10 +1772,39 @@ local function CreateCDMCatalogSlotOptions(baseOrder)
     return options
 end
 
--- CDM 아이콘 그리드 생성 함수 (GUI.lua에서 호출)
--- [REFACTOR] 핵심/보조/강화 3섹션으로 분류 표시
+local function SelectCustomAuraCatalogEntry(entry)
+    if not entry then return end
+    if not DDingUI._pendingReplaceIndex then
+        ShowAddTrackedBuffDialog(entry)
+        return
+    end
+
+    local replaceIdx = DDingUI._pendingReplaceIndex
+    DDingUI._pendingReplaceIndex = nil
+    local trackedBuffs = GetTrackedBuffs()
+    if not trackedBuffs[replaceIdx] then return end
+    if not ApplyCatalogEntryToTracker(trackedBuffs[replaceIdx], entry, true) then
+        print(CDM_PREFIX .. "|cffff5555" .. (entry.name or "Unknown")
+            .. ": 추적할 주문 정보를 아직 불러오지 못했습니다.|r")
+        return
+    end
+
+    DDingUI:UpdateBuffTrackerBar()
+    C_Timer.After(0, function()
+        local configFrame = _G["DDingUI_ConfigFrame"]
+        local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
+        if not btPanel then return end
+        if btPanel.RefreshList then btPanel:RefreshList() end
+        if btPanel.selectedIndex == replaceIdx and btPanel.RenderTrackerTabs then
+            btPanel:RenderTrackerTabs(replaceIdx)
+        end
+        if btPanel.SelectTracker then btPanel:SelectTracker(replaceIdx) end
+    end)
+    print("|cffffffffDDing|r|cffffa300UI|r: |cff00ff00"
+        .. (entry.name or "Spell") .. "|r 으로 주문이 변경되었습니다.")
+end
+
 function DDingUI.CreateCDMIconGridWidget(parent)
-    -- 이미 있으면 재사용
     if cdmIconGridFrame then
         cdmIconGridFrame:SetParent(parent)
         cdmIconGridFrame:ClearAllPoints()
@@ -1858,240 +1813,160 @@ function DDingUI.CreateCDMIconGridWidget(parent)
         return cdmIconGridFrame
     end
 
-    local ICON_SIZE = 36
-    local ICON_SPACING = 4
-    local ICONS_PER_ROW = 8
-    local MAX_ICONS_PER_SECTION = 16
-    local HEADER_HEIGHT = 18
-    local SECTION_SPACING = 8
-
     local GUI = DDingUI.GUI or {}
-    local THEME = GUI.THEME or {
-        text = {0.85, 0.85, 0.85, 1},
-        accent = {0.90, 0.45, 0.12},
-        gold = {0.90, 0.45, 0.12, 1},
-        bgWidget = {0.06, 0.06, 0.06, 0.80},
-        border = {0.25, 0.25, 0.25, 0.50},
-    }
     local StyleFontString = GUI.StyleFontString
+    local iconSize, iconSpacing, iconsPerRow = 36, 4, 8
+    local headerHeight = 18
+    local categoryColors = {
+        Essential = {0.2, 0.8, 1.0},
+        Utility = {0.2, 1.0, 0.5},
+        Buff = {1.0, 0.75, 0.2},
+    }
+    local categoryLabels = {
+        Essential = rawget(L, "Essential Cooldowns") or "Essential Cooldowns",
+        Utility = rawget(L, "Utility Cooldowns") or "Utility Cooldowns",
+        Buff = rawget(L, "Tracked Buffs") or "Tracked Auras",
+    }
 
     cdmIconGridFrame = CreateFrame("Frame", "DDingUICDMIconGrid", parent)
-
-    -- 카테고리 색상
-    local CAT_COLORS = {
-        Essential = {0.2, 0.8, 1.0},      -- 파랑 (핵심)
-        Utility   = {0.2, 1.0, 0.5},      -- 초록 (보조)
-        Buff      = {1.0, 0.75, 0.2},     -- 주황 (강화)
-    }
-    local CAT_LABELS = {
-        Essential = L["Essential Cooldowns"] or "핵심 능력",
-        Utility   = L["Utility Cooldowns"] or "보조 능력",
-        Buff      = L["Tracked Buffs"] or "강화 효과",
-    }
-    local CAT_ORDER = { "Buff", "Essential", "Utility" }
-
-    -- 섹션별 프레임 저장
     cdmIconGridFrame._sections = {}
-    cdmIconGridFrame._allButtons = {}
+    cdmIconGridFrame._categoryOrder = { "Buff", "Essential", "Utility" }
+    cdmIconGridFrame._iconSize = iconSize
+    cdmIconGridFrame._iconSpacing = iconSpacing
+    cdmIconGridFrame._iconsPerRow = iconsPerRow
+    cdmIconGridFrame._headerHeight = headerHeight
 
-    local gridWidth = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING) - ICON_SPACING
-
-    for _, catKey in ipairs(CAT_ORDER) do
+    local gridWidth = iconsPerRow * (iconSize + iconSpacing) - iconSpacing
+    for _, categoryKey in ipairs(cdmIconGridFrame._categoryOrder) do
         local section = CreateFrame("Frame", nil, cdmIconGridFrame)
+        local color = categoryColors[categoryKey]
         section:SetWidth(gridWidth)
+        section._buttons = {}
+        section._color = color
+        section._label = categoryLabels[categoryKey]
 
-        -- 카테고리 헤더
         local header = section:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         if StyleFontString then StyleFontString(header) end
-        header:SetPoint("TOPLEFT", 0, 0)
-        local c = CAT_COLORS[catKey]
-        header:SetTextColor(c[1], c[2], c[3], 1)
-        header:SetText(CAT_LABELS[catKey])
-        section._header = header
+        header:SetPoint("TOPLEFT")
+        header:SetTextColor(color[1], color[2], color[3], 1)
+        header:SetText(section._label)
 
-        -- 구분선
         local line = section:CreateTexture(nil, "ARTWORK")
         line:SetHeight(1)
         line:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -2)
-        line:SetPoint("RIGHT", section, "RIGHT", 0, 0)
-        line:SetColorTexture(c[1], c[2], c[3], 0.3)
-        section._line = line
+        line:SetPoint("RIGHT", section, "RIGHT")
+        line:SetColorTexture(color[1], color[2], color[3], 0.3)
 
-        -- 빈 문구
         local emptyText = section:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         if StyleFontString then StyleFontString(emptyText) end
-        emptyText:SetPoint("TOPLEFT", line, "BOTTOMLEFT", 4, -4)
+        emptyText:SetPoint("TOPLEFT", line, "BOTTOMLEFT", 4, -5)
         emptyText:SetTextColor(0.5, 0.5, 0.5, 1)
-        emptyText:SetText("|cff666666(없음)|r")
+        emptyText:SetText(rawget(L, "None") or "None")
         emptyText:Hide()
         section._emptyText = emptyText
 
-        -- 아이콘 버튼들
-        section._buttons = {}
-        for i = 1, MAX_ICONS_PER_SECTION do
-            local row = math.floor((i - 1) / ICONS_PER_ROW)
-            local col = (i - 1) % ICONS_PER_ROW
+        section._acquireButton = function(self)
+            local button = CreateFrame("Button", nil, self, "BackdropTemplate")
+            button:SetSize(iconSize, iconSize)
+            button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+            button:SetBackdropColor(0.06, 0.06, 0.06, 0.95)
+            button:SetBackdropBorderColor(0.28, 0.28, 0.28, 1)
+            button._section = self
 
-            local btn = CreateFrame("Button", nil, section, "BackdropTemplate")
-            btn:SetSize(ICON_SIZE, ICON_SIZE)
-            btn:SetPoint("TOPLEFT", col * (ICON_SIZE + ICON_SPACING), -(HEADER_HEIGHT + 4) - row * (ICON_SIZE + ICON_SPACING))
-
-            btn:SetBackdrop({
-                bgFile = FLAT,
-                edgeFile = FLAT,
-                edgeSize = 1,
-            })
-            btn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-            btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-
-            local icon = btn:CreateTexture(nil, "ARTWORK")
+            local icon = button:CreateTexture(nil, "ARTWORK")
             icon:SetPoint("TOPLEFT", 2, -2)
             icon:SetPoint("BOTTOMRIGHT", -2, 2)
-            btn.icon = icon
+            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            button.icon = icon
 
-            btn:SetScript("OnEnter", function(self)
-                self:SetBackdropBorderColor(c[1], c[2], c[3], 1)
-                if self.entry then
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:AddLine(self.entry.name or "Unknown", 1, 0.82, 0)
-                    GameTooltip:AddLine("|cff888888" .. (CAT_LABELS[catKey] or catKey) .. "|r")
-                    GameTooltip:AddLine(" ")
-                    if self.entry.isAura then
-                        GameTooltip:AddLine("유형: 강화 효과 (버프/디버프)", 0.7, 0.7, 0.7)
-                    else
-                        GameTooltip:AddLine("유형: 능력 (재사용 대기)", 0.7, 0.7, 0.7)
-                    end
-                    GameTooltip:AddLine(" ")
-                    GameTooltip:AddLine(L["Click to add to tracking"] or "Click to add to tracking", 0, 1, 0)
-                    GameTooltip:Show()
-                end
+            button:SetScript("OnEnter", function(owner)
+                local ownerSection = owner._section
+                local ownerColor = ownerSection and ownerSection._color or {1, 0.45, 0.12}
+                owner:SetBackdropBorderColor(ownerColor[1], ownerColor[2], ownerColor[3], 1)
+                if not owner.entry then return end
+                GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+                GameTooltip:AddLine(owner.entry.name or "Unknown", 1, 0.82, 0)
+                GameTooltip:AddLine(ownerSection and ownerSection._label or "", 0.55, 0.55, 0.55)
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(rawget(L, "Click to add to tracking")
+                    or "Click to add to tracking", 0, 1, 0)
+                GameTooltip:Show()
             end)
-
-            btn:SetScript("OnLeave", function(self)
-                self:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+            button:SetScript("OnLeave", function(owner)
+                owner:SetBackdropBorderColor(0.28, 0.28, 0.28, 1)
                 GameTooltip:Hide()
             end)
-
-            btn:SetScript("OnClick", function(self)
-                if self.entry then
-                    -- 교체 모드: 기존 트래커의 주문을 변경
-                    if DDingUI._pendingReplaceIndex then
-                        local replaceIdx = DDingUI._pendingReplaceIndex
-                        DDingUI._pendingReplaceIndex = nil
-                        local trackedBuffs = GetTrackedBuffs()
-                        if trackedBuffs[replaceIdx] then
-                            local entry = self.entry
-                            if not ApplyCatalogEntryToTracker(trackedBuffs[replaceIdx], entry, true) then
-                                print(CDM_PREFIX .. "|cffff5555" .. (entry.name or "Unknown")
-                                    .. ": 추적할 주문 정보를 아직 불러오지 못했습니다.|r")
-                                return
-                            end
-                            DDingUI:UpdateBuffTrackerBar()
-                            -- 리스트 + 설정 패널 갱신
-                            C_Timer.After(0, function()
-                                local configFrame = _G["DDingUI_ConfigFrame"]
-                                local btPanel = configFrame and configFrame.contentArea and configFrame.contentArea._btPanel
-                                if btPanel then
-                                    if btPanel.RefreshList then btPanel:RefreshList() end
-                                    if btPanel.selectedIndex == replaceIdx and btPanel.RenderTrackerTabs then
-                                        btPanel:RenderTrackerTabs(replaceIdx)
-                                    end
-                                    -- 교체 후 해당 트래커를 선택 상태로
-                                    if btPanel.SelectTracker then btPanel:SelectTracker(replaceIdx) end
-                                end
-                            end)
-                            print("|cffffffffDDing|r|cffffa300UI|r: |cff00ff00" .. (entry.name or "Spell") .. "|r 으로 주문이 변경되었습니다.")
-                        end
-                    else
-                        ShowAddTrackedBuffDialog(self.entry)
-                    end
-                end
+            button:SetScript("OnClick", function(owner)
+                SelectCustomAuraCatalogEntry(owner.entry)
             end)
-
-            btn:Hide()
-            section._buttons[i] = btn
-            table.insert(cdmIconGridFrame._allButtons, btn)
+            self._buttons[#self._buttons + 1] = button
+            return button
         end
 
-        cdmIconGridFrame._sections[catKey] = section
+        cdmIconGridFrame._sections[categoryKey] = section
     end
 
     DDingUI.UpdateCDMIconGrid()
     return cdmIconGridFrame
 end
 
--- CDM 아이콘 그리드 업데이트 (카테고리별 배치)
 function DDingUI.UpdateCDMIconGrid()
     if not cdmIconGridFrame or not cdmIconGridFrame._sections then return end
 
-    local CDMScanner = DDingUI.CDMScanner
-    if not CDMScanner or not CDMScanner.GetEntriesByCategory then return end
-
-    local grouped = CDMScanner.GetEntriesByCategory()
-    local CAT_ORDER = { "Buff", "Essential", "Utility" }
-
-    local ICON_SIZE = 36
-    local ICON_SPACING = 4
-    local ICONS_PER_ROW = 8
-    local HEADER_HEIGHT = 18
-    local SECTION_SPACING = 10
-
-    local gridWidth = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING) - ICON_SPACING
+    local grouped = GetCustomAuraCatalogGroups()
+    local iconSize = cdmIconGridFrame._iconSize or 36
+    local iconSpacing = cdmIconGridFrame._iconSpacing or 4
+    local iconsPerRow = cdmIconGridFrame._iconsPerRow or 8
+    local headerHeight = cdmIconGridFrame._headerHeight or 18
+    local sectionSpacing = 10
+    local gridWidth = iconsPerRow * (iconSize + iconSpacing) - iconSpacing
     local yOffset = 0
 
-    for _, catKey in ipairs(CAT_ORDER) do
-        local section = cdmIconGridFrame._sections[catKey]
-        if not section then break end
-
-        local entries = grouped[catKey] or {}
-
+    for _, categoryKey in ipairs(cdmIconGridFrame._categoryOrder or {}) do
+        local section = cdmIconGridFrame._sections[categoryKey]
+        local entries = grouped[categoryKey] or {}
         section:ClearAllPoints()
         section:SetPoint("TOPLEFT", cdmIconGridFrame, "TOPLEFT", 0, -yOffset)
 
-        -- 버튼 업데이트
-        for i, btn in ipairs(section._buttons) do
-            local entry = entries[i]
-            if entry then
-                btn.icon:SetTexture(entry.icon or 134400)
-                btn.entry = entry
-                btn:Show()
-            else
-                btn:Hide()
-            end
+        for index, entry in ipairs(entries) do
+            local button = section._buttons[index] or section:_acquireButton()
+            local row = math.floor((index - 1) / iconsPerRow)
+            local column = (index - 1) % iconsPerRow
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", column * (iconSize + iconSpacing),
+                -(headerHeight + 4) - row * (iconSize + iconSpacing))
+            button.icon:SetTexture(entry.icon)
+            button.entry = entry
+            button:Show()
+        end
+        for index = #entries + 1, #section._buttons do
+            section._buttons[index].entry = nil
+            section._buttons[index]:Hide()
         end
 
-        -- 높이 계산
-        local numEntries = #entries
-        local numRows = (numEntries > 0) and math.ceil(numEntries / ICONS_PER_ROW) or 0
-        local iconsHeight = numRows * (ICON_SIZE + ICON_SPACING)
+        local entryCount = #entries
+        local rowCount = entryCount > 0 and math.ceil(entryCount / iconsPerRow) or 0
         local sectionHeight
-
-        if numEntries == 0 then
+        if entryCount == 0 then
             section._emptyText:Show()
-            sectionHeight = HEADER_HEIGHT + 20
+            sectionHeight = headerHeight + 22
         else
             section._emptyText:Hide()
-            sectionHeight = HEADER_HEIGHT + 4 + iconsHeight
+            sectionHeight = headerHeight + 4 + rowCount * (iconSize + iconSpacing)
         end
-
         section:SetHeight(sectionHeight)
         section:Show()
-
-        yOffset = yOffset + sectionHeight + SECTION_SPACING
+        yOffset = yOffset + sectionHeight + sectionSpacing
     end
 
-    -- 총 높이 설정
-    cdmIconGridFrame:SetWidth(gridWidth)
-    cdmIconGridFrame:SetHeight(math.max(40, yOffset))
+    local totalHeight = math.max(40, yOffset - sectionSpacing)
+    cdmIconGridFrame:SetSize(gridWidth, totalHeight)
+    local container = cdmIconGridFrame:GetParent()
+    if container then container:SetHeight(totalHeight + 10) end
 end
 
--- CDM 아이콘 그리드 높이 반환 (GUI.lua에서 레이아웃 계산용)
 function DDingUI.GetCDMIconGridHeight()
-    if cdmIconGridFrame then
-        return cdmIconGridFrame:GetHeight() + 10
-    end
-    -- 기본값: 3섹션 기본 높이
-    return 200
+    return cdmIconGridFrame and (cdmIconGridFrame:GetHeight() + 10) or 160
 end
 
 -- ============================================================
