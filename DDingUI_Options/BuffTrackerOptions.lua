@@ -983,6 +983,12 @@ function DDingUI.AddSpellTrackedBuff()
         },
         display = {
             type = "bar",
+        },
+        conditions = {},
+        settings = {
+            hideWhenZero = false,
+            offsetX = 0,
+            offsetY = defaultOffsetY,
             barFillMode = "duration",
             barColor = { 0.26, 0.78, 1, 1 },
             bgColor = { 0.15, 0.15, 0.15, 1 },
@@ -1006,12 +1012,6 @@ function DDingUI.AddSpellTrackedBuff()
             barOrientation = "HORIZONTAL",
             borderSize = 1,
             borderColor = { 0, 0, 0, 1 },
-        },
-        conditions = {},
-        settings = {
-            hideWhenZero = false,
-            offsetX = 0,
-            offsetY = defaultOffsetY,
         },
     }
 

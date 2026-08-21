@@ -17,8 +17,51 @@ if not DDingUI then return end
 local Migration = {}
 DDingUI.TrackedAuraProfileMigration = Migration
 
-local MIGRATION_VERSION = 2
+local MIGRATION_VERSION = 3
 Migration.VERSION = MIGRATION_VERSION
+
+local BAR_APPEARANCE_VERSION = 1
+
+-- Before the current tracker schema, bar presentation lived in tracker.display.
+-- Some records already had a settings table containing defaults, so a missing-
+-- only merge left the customized legacy presentation stranded in display.
+local LEGACY_BAR_APPEARANCE_KEYS = {
+    "barStyle",
+    "barFillMode",
+    "barColor",
+    "bgColor",
+    "borderColor",
+    "borderSize",
+    "texture",
+    "width",
+    "height",
+    "barOrientation",
+    "barReverseFill",
+    "showStacksText",
+    "textFont",
+    "textSize",
+    "textAlign",
+    "textX",
+    "textY",
+    "textColor",
+    "showDurationText",
+    "durationTextFont",
+    "durationTextSize",
+    "durationTextAlign",
+    "durationTextX",
+    "durationTextY",
+    "durationTextColor",
+    "durationDecimals",
+    "durationWarningEnabled",
+    "durationWarningThreshold",
+    "durationWarningColor",
+    "showTicks",
+    "tickWidth",
+    "durationTickPositions",
+    "smoothProgress",
+    "frameStrata",
+    "frameLevel",
+}
 
 -- Old circular/square styles were icon-backed CooldownFrames, so the modern
 -- icon display is the closest representation. Donut/ring were explicit ring
@@ -41,6 +84,8 @@ local diagnostics = {
     storedSpecsMigrated = 0,
     displaySettingsMerged = 0,
     displayTypesRecovered = 0,
+    legacyBarAppearancesRecovered = 0,
+    legacyBarAppearanceValuesRecovered = 0,
     lastReason = nil,
     lastChanged = 0,
 }
@@ -77,6 +122,42 @@ local VALID_DISPLAY_TYPE = {
     trigger = true,
 }
 
+local function HasLegacyBarAppearance(tracker, display)
+    local appearanceVersion = tracker._barAppearanceSchemaVersion
+    if type(appearanceVersion) == "number" and appearanceVersion >= BAR_APPEARANCE_VERSION then
+        return false
+    end
+
+    local displayType = tracker.displayType or display.type or "bar"
+    if displayType ~= "bar" then return false end
+
+    -- New spell trackers may keep spell-only behavior in display. Requiring the
+    -- complete old bar shape prevents those sparse records from being mistaken
+    -- for legacy appearance data.
+    return display.barColor ~= nil
+        and display.bgColor ~= nil
+        and display.width ~= nil
+        and display.height ~= nil
+end
+
+local function PromoteLegacyBarAppearance(tracker, display, settings)
+    if not HasLegacyBarAppearance(tracker, display) then return false end
+
+    local copied = 0
+    for _, key in ipairs(LEGACY_BAR_APPEARANCE_KEYS) do
+        local value = display[key]
+        if value ~= nil then
+            settings[key] = CopyValue(value)
+            copied = copied + 1
+        end
+    end
+
+    tracker._barAppearanceSchemaVersion = BAR_APPEARANCE_VERSION
+    diagnostics.legacyBarAppearancesRecovered = diagnostics.legacyBarAppearancesRecovered + 1
+    diagnostics.legacyBarAppearanceValuesRecovered = diagnostics.legacyBarAppearanceValuesRecovered + copied
+    return true
+end
+
 local function MergeLegacyDisplay(tracker)
     local display = tracker.display
     if type(display) ~= "table" then return false end
@@ -87,7 +168,7 @@ local function MergeLegacyDisplay(tracker)
         tracker.settings = settings
     end
 
-    local changed = false
+    local changed = PromoteLegacyBarAppearance(tracker, display, settings)
     for key, value in pairs(display) do
         if key ~= "type" and settings[key] == nil then
             settings[key] = CopyValue(value)
