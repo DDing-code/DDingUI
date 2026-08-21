@@ -15,6 +15,7 @@ GUIWidgets.lua
 GUISearch.lua
 GUI.lua
 GUIStyledWidgets.lua
+BuffTrackerLivePreview.lua
 BuffTrackerGUI.lua
 ConfigHelpers.lua
 DynamicIconsUI.lua

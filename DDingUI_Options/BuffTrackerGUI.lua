@@ -15,146 +15,7 @@ local function RenderOptions(...)
     return GUI.RenderOptions(...)
 end
 
-local function ReadPreviewColor(value, fallback)
-    if type(value) ~= "table" then
-        return fallback[1], fallback[2], fallback[3], fallback[4] or 1
-    end
-    local r = value.r or value[1]
-    local g = value.g or value[2]
-    local b = value.b or value[3]
-    local a = value.a or value[4]
-    if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
-        return fallback[1], fallback[2], fallback[3], fallback[4] or 1
-    end
-    return r, g, b, type(a) == "number" and a or 1
-end
-
-local function ResolvePreviewIcon(entry)
-    if not entry then return nil end
-    if entry.icon then return entry.icon end
-    local spellID = entry.spellID or (entry.trigger and entry.trigger.spellID)
-    if spellID and spellID > 0 and C_Spell and C_Spell.GetSpellTexture then
-        local ok, texture = pcall(C_Spell.GetSpellTexture, spellID)
-        if ok and texture then return texture end
-    end
-    return "Interface\\Icons\\Spell_Holy_MagicalSentry"
-end
-
-local function CreateTrackerLivePreview(parent)
-    local preview = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    preview:SetHeight(96)
-    preview:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-    preview:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.96)
-    preview:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.72)
-
-    local title = preview:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    title:SetPoint("TOPLEFT", 12, -9)
-    title:SetText(L["Live Preview"] or "Live Preview")
-    title:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
-
-    local mode = preview:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    mode:SetPoint("TOPRIGHT", -12, -9)
-    mode:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-
-    local canvas = CreateFrame("Frame", nil, preview, "BackdropTemplate")
-    canvas:SetPoint("TOPLEFT", 10, -28)
-    canvas:SetPoint("BOTTOMRIGHT", -10, 8)
-    canvas:SetBackdrop({ bgFile = FLAT })
-    canvas:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], 0.9)
-
-    local iconFrame = CreateFrame("Frame", nil, canvas, "BackdropTemplate")
-    iconFrame:SetSize(42, 42)
-    iconFrame:SetPoint("LEFT", 10, 0)
-    iconFrame:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-    iconFrame:SetBackdropColor(0.02, 0.02, 0.02, 1)
-    iconFrame:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
-
-    local icon = iconFrame:CreateTexture(nil, "ARTWORK")
-    icon:SetPoint("TOPLEFT", 2, -2)
-    icon:SetPoint("BOTTOMRIGHT", -2, 2)
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-    local name = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    name:SetPoint("TOPLEFT", iconFrame, "TOPRIGHT", 10, -2)
-    name:SetPoint("RIGHT", canvas, "RIGHT", -54, 0)
-    name:SetJustifyH("LEFT")
-    name:SetWordWrap(false)
-    name:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
-
-    local state = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    state:SetPoint("TOPRIGHT", -10, -3)
-
-    local track = CreateFrame("Frame", nil, canvas, "BackdropTemplate")
-    track:SetPoint("BOTTOMLEFT", iconFrame, "BOTTOMRIGHT", 10, 2)
-    track:SetPoint("RIGHT", canvas, "RIGHT", -10, 0)
-    track:SetHeight(15)
-    track:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-    track:SetBackdropColor(0.025, 0.025, 0.025, 1)
-    track:SetBackdropBorderColor(0, 0, 0, 1)
-
-    local fill = track:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", 1, -1)
-    fill:SetPoint("BOTTOMLEFT", 1, 1)
-    fill:SetWidth(160)
-
-    local duration = track:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    duration:SetPoint("RIGHT", -5, 0)
-    duration:SetText("8.3")
-    duration:SetTextColor(1, 1, 1, 1)
-
-    local emptyText = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    emptyText:SetPoint("CENTER")
-    emptyText:SetText(L["Select a tracker to preview"] or "Select a tracker to preview")
-    emptyText:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.9)
-
-    function preview:Refresh(entry)
-        if not entry then
-            iconFrame:Hide()
-            name:Hide()
-            state:Hide()
-            track:Hide()
-            mode:SetText("")
-            emptyText:Show()
-            return
-        end
-
-        emptyText:Hide()
-        iconFrame:Show()
-        name:Show()
-        state:Show()
-        icon:SetTexture(ResolvePreviewIcon(entry))
-        name:SetText(entry.name or (L["Unnamed Tracker"] or "Unnamed Tracker"))
-
-        local displayType = entry.isGroup and "group" or (entry.displayType or "bar")
-        mode:SetText(displayType:upper())
-        if entry.disabled then
-            state:SetText(L["Disabled"] or "Disabled")
-            state:SetTextColor(0.48, 0.48, 0.5, 1)
-            icon:SetDesaturated(true)
-            iconFrame:SetBackdropBorderColor(0.35, 0.35, 0.37, 1)
-        else
-            state:SetText(L["Enabled"] or "Enabled")
-            state:SetTextColor(0.3, 0.9, 0.5, 1)
-            icon:SetDesaturated(false)
-            iconFrame:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.8)
-        end
-
-        if displayType == "bar" or displayType == "group" then
-            track:Show()
-            local settings = entry.settings or entry.display or {}
-            local r, g, b, a = ReadPreviewColor(settings.barColor, THEME.accent)
-            fill:SetColorTexture(r, g, b, a)
-            local trackWidth = track:GetWidth()
-            fill:SetWidth(math.max(20, (trackWidth and trackWidth > 0 and trackWidth or 240) * 0.68))
-            duration:SetText(displayType == "group" and tostring(#(entry.controlledChildren or {})) or "8.3")
-        else
-            track:Hide()
-        end
-    end
-
-    preview:Refresh(nil)
-    return preview
-end
+local CreateTrackerLivePreview = GUI.CreateTrackerLivePreview
 
 local function CreateAuraCatalogPane(parent, createScrollBar)
     local pane = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -1006,24 +867,16 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
 
     function btPanel:RefreshLivePreview(force)
         local entry
+        local trackedBuffs = GetTrackedBuffsForGUI()
         if type(self.selectedIndex) == "number" then
-            entry = GetTrackedBuffsForGUI()[self.selectedIndex]
+            entry = trackedBuffs[self.selectedIndex]
         end
-        local settings = entry and (entry.settings or entry.display) or nil
-        local color = settings and settings.barColor or nil
-        local signature = table.concat({
-            tostring(self.selectedIndex or "none"),
-            tostring(entry and entry.name or ""),
-            tostring(entry and entry.icon or ""),
-            tostring(entry and entry.displayType or ""),
-            tostring(entry and entry.disabled or false),
-            tostring(color and (color.r or color[1]) or ""),
-            tostring(color and (color.g or color[2]) or ""),
-            tostring(color and (color.b or color[3]) or ""),
-        }, ":")
+        local signature = livePreview.GetSignature
+            and livePreview:GetSignature(entry, trackedBuffs)
+            or tostring(entry)
         if not force and self._previewSignature == signature then return end
         self._previewSignature = signature
-        livePreview:Refresh(entry)
+        livePreview:Refresh(entry, trackedBuffs)
     end
 
     livePreview:SetScript("OnUpdate", function(self, elapsed)
