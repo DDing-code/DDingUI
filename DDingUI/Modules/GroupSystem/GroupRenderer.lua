@@ -469,6 +469,15 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
 
     local countText = GetIconCountText(icon)
     if countText then
+        local hideCountText = ResolveGroupTextSetting(groupName, groupSettings, "hideCountText") == true
+        countText._ddHideCountText = hideCountText
+        if countText.Show and not countText._ddCountTextVisibilityHooked then
+            countText._ddCountTextVisibilityHooked = true
+            hooksecurefunc(countText, "Show", function(self)
+                if self._ddHideCountText then self:Hide() end
+            end)
+        end
+
         local countAnchor = ResolveGroupTextSetting(groupName, groupSettings, "chargeTextAnchor") or "BOTTOMRIGHT"
         if countAnchor == "MIDDLE" then countAnchor = "CENTER" end
         local cox = tonumber(ResolveGroupTextSetting(groupName, groupSettings, "countTextOffsetX")) or 0
@@ -486,11 +495,22 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
         if type(countColor) == "table" then
             countText:SetTextColor(ResolveRGBA(countColor))
         end
+
+        if hideCountText then
+            countText._ddHiddenByGroupText = true
+            if countText.Hide then countText:Hide() end
+        elseif countText._ddHiddenByGroupText then
+            countText._ddHiddenByGroupText = nil
+            if not icon._ddInactiveAlpha and countText.Show then countText:Show() end
+        end
     end
 
     local cooldown = GetIconCooldownFrame(icon)
     if cooldown then
         local useDurationText = IconUsesDurationText(groupName, icon._ddSourceViewer, icon)
+        local hideCountdownText = useDurationText
+            and groupSettings.hideDurationText == true
+            or (not useDurationText and groupSettings.hideCooldownText == true)
         local cdAnchor, oxRaw, oyRaw, textSizeRaw, textFont, textColor =
             ResolveCooldownTextStyle(groupName, groupSettings, useDurationText)
         local ox = tonumber(oxRaw) or 0
@@ -505,7 +525,7 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
             end
         end
 
-        if groupSettings.hideDurationText then
+        if hideCountdownText then
             if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
             cooldown.noCooldownCount = true
         else
@@ -515,7 +535,7 @@ local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
 
         local foundCooldownText = ForEachCooldownTextFontString(cooldown, function(cdText)
             icon._ddDynamicTextRetryCount = nil
-            if groupSettings.hideDurationText then
+            if hideCountdownText then
                 cdText:Hide()
                 if not cdText.hookedHideText then
                     cdText.hookedHideText = true
@@ -1628,6 +1648,7 @@ local function BuildGroupRenderSettingsHash(groupSettings)
     AddHashValue(parts, "chargeTextAnchor", groupSettings.chargeTextAnchor)
     AddHashValue(parts, "countTextOffsetX", groupSettings.countTextOffsetX)
     AddHashValue(parts, "countTextOffsetY", groupSettings.countTextOffsetY)
+    AddHashValue(parts, "hideCountText", groupSettings.hideCountText)
     AddHashValue(parts, "cooldownFont", groupSettings.cooldownFont)
     AddHashValue(parts, "cooldownFontSize", groupSettings.cooldownFontSize)
     AddHashColor(parts, "cooldownTextColor", groupSettings.cooldownTextColor)
@@ -1635,6 +1656,7 @@ local function BuildGroupRenderSettingsHash(groupSettings)
     AddHashValue(parts, "cooldownTextOffsetX", groupSettings.cooldownTextOffsetX)
     AddHashValue(parts, "cooldownTextOffsetY", groupSettings.cooldownTextOffsetY)
     AddHashValue(parts, "cooldownTextFormat", groupSettings.cooldownTextFormat)
+    AddHashValue(parts, "hideCooldownText", groupSettings.hideCooldownText)
     AddHashValue(parts, "hideDurationText", groupSettings.hideDurationText)
     AddHashValue(parts, "durationTextFont", groupSettings.durationTextFont)
     AddHashValue(parts, "durationTextSize", groupSettings.durationTextSize)

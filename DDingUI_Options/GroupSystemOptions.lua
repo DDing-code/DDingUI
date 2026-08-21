@@ -6480,9 +6480,40 @@ end
 
 -- Text options shared by every group.
 local function BuildCustomTextArgs(groupName)
+    local function MakeVisibilityToggle(hideKey, name, order)
+        return {
+            type = "toggle",
+            name = name,
+            order = order,
+            width = "full",
+            get = function()
+                local gs = GetGS()
+                local group = gs and gs.groups and gs.groups[groupName]
+                return not (group and group[hideKey] == true)
+            end,
+            set = function(_, value)
+                local gs = GetGS()
+                local group = gs and gs.groups and gs.groups[groupName]
+                if group then
+                    group[hideKey] = value ~= true
+                end
+                RefreshGroupSystem()
+            end,
+        }
+    end
+
+    local function DisabledWhenHidden(hideKey)
+        return function()
+            local gs = GetGS()
+            local group = gs and gs.groups and gs.groups[groupName]
+            return group and group[hideKey] == true
+        end
+    end
+
     local args = {
         -- 충전/스택 텍스트
         chargeTextHeader = { type = "header", name = L["Stack Text"] or "중첩 텍스트", order = 1 },
+        showCountText = MakeVisibilityToggle("hideCountText", L["Show Stack Text"] or "중첩 텍스트 표시", 1.25),
         countTextFont = GS_Font(groupName, "countTextFont", L["Font"] or "폰트", 1.5),
         countTextSize = GS_Range(groupName, "countTextSize", L["Font Size"] or "글꼴 크기", 2, 14, 6, 32, 1),
         countTextColor = GS_Color(groupName, "countTextColor", L["Font Color"] or "글꼴 색상", 3, {1, 0.82, 0, 1}),
@@ -6491,6 +6522,7 @@ local function BuildCustomTextArgs(groupName)
         countTextOffsetY = GS_Range(groupName, "countTextOffsetY", L["Y Offset"] or "Y 오프셋", 6, 0, -20, 20, 1),
         -- 쿨다운 텍스트
         cooldownTextHeader = { type = "header", name = L["Cooldown Text"] or "재사용 대기시간 텍스트", order = 10 },
+        showCooldownText = MakeVisibilityToggle("hideCooldownText", L["Show Cooldown Text"] or "재사용 대기시간 텍스트 표시", 10.25),
         cooldownFont = GS_Font(groupName, "cooldownFont", L["Font"] or "폰트", 10.5),
         cooldownFontSize = GS_Range(groupName, "cooldownFontSize", L["Font Size"] or "글꼴 크기", 11, 14, 6, 32, 1),
         cooldownTextColor = GS_Color(groupName, "cooldownTextColor", L["Font Color"] or "글꼴 색상", 12, {1, 1, 1, 1}),
@@ -6527,6 +6559,30 @@ local function BuildCustomTextArgs(groupName)
     args.durationTextAnchor = GS_Select(groupName, "durationTextAnchor", L["Anchor"] or "앵커", 33, "TOP", ANCHOR_POINTS)
     args.durationTextOffsetX = GS_Range(groupName, "durationTextOffsetX", L["X Offset"] or "X 오프셋", 34, 0, -20, 20, 1)
     args.durationTextOffsetY = GS_Range(groupName, "durationTextOffsetY", L["Y Offset"] or "Y 오프셋", 35, 0, -20, 20, 1)
+
+    local countDisabled = DisabledWhenHidden("hideCountText")
+    for _, key in ipairs({
+        "countTextFont", "countTextSize", "countTextColor",
+        "countTextAnchor", "countTextOffsetX", "countTextOffsetY",
+    }) do
+        args[key].disabled = countDisabled
+    end
+
+    local cooldownDisabled = DisabledWhenHidden("hideCooldownText")
+    for _, key in ipairs({
+        "cooldownFont", "cooldownFontSize", "cooldownTextColor",
+        "cooldownTextAnchor", "cooldownTextOffsetX", "cooldownTextOffsetY",
+    }) do
+        args[key].disabled = cooldownDisabled
+    end
+
+    local durationDisabled = DisabledWhenHidden("hideDurationText")
+    for _, key in ipairs({
+        "durationTextFont", "durationTextSize", "durationTextColor",
+        "durationTextAnchor", "durationTextOffsetX", "durationTextOffsetY",
+    }) do
+        args[key].disabled = durationDisabled
+    end
 
     return args
 end

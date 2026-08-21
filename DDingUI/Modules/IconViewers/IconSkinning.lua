@@ -842,26 +842,27 @@ function IconViewers:SkinIcon(icon, settings)
                 -- [PERF] 상태 변경 없으면 heavy 로직 전부 스킵 (매 프레임 → 전환 시에만)
                 if isAuraSwipe == prevAura and not (isAuraSwipe and s and s.auraGlow and not pid.auraGlowActive) then return end
 
-                -- [12.0.1] Hide Duration Text logic (상태 전환 시에만 실행)
-                if s.hideDurationText then
-                    -- [PERF] FontString 캐시: GetRegions() 임시 테이블 생성 방지
-                    if not cd._cachedFontStrings then
-                        cd._cachedFontStrings = {}
-                        for _, region in ipairs({ self:GetRegions() }) do
-                            if region:GetObjectType() == "FontString" and not region.hookedHideText then
-                                cd._cachedFontStrings[#cd._cachedFontStrings + 1] = region
-                            end
+                -- Duration and cooldown countdowns have independent visibility.
+                local hideCountdownText = isAuraSwipe
+                    and s.hideDurationText == true
+                    or (not isAuraSwipe and s.hideCooldownText == true)
+                -- [PERF] FontString 캐시: GetRegions() 임시 테이블 생성 방지
+                if not cd._cachedFontStrings then
+                    cd._cachedFontStrings = {}
+                    for _, region in ipairs({ self:GetRegions() }) do
+                        if region:GetObjectType() == "FontString" and not region.hookedHideText then
+                            cd._cachedFontStrings[#cd._cachedFontStrings + 1] = region
                         end
                     end
-                    if isAuraSwipe then
-                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(true) end
-                        self.noCooldownCount = true
-                        for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Hide() end
-                    else
-                        if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(false) end
-                        self.noCooldownCount = nil
-                        for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Show() end
-                    end
+                end
+                if hideCountdownText then
+                    if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(true) end
+                    self.noCooldownCount = true
+                    for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Hide() end
+                else
+                    if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(false) end
+                    self.noCooldownCount = nil
+                    for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Show() end
                 end
 
 
@@ -1207,7 +1208,10 @@ function IconViewers:SkinIcon(icon, settings)
 
         -- Hide Duration Text initial state
         local pid = GetIconData(icon)
-        if settings.hideDurationText and pid.isAuraSwipe then
+        local hideCountdownText = pid.isAuraSwipe
+            and settings.hideDurationText == true
+            or (not pid.isAuraSwipe and settings.hideCooldownText == true)
+        if hideCountdownText then
             if icon.Cooldown.SetHideCountdownNumbers then
                 icon.Cooldown:SetHideCountdownNumbers(true)
             end
@@ -1226,7 +1230,7 @@ function IconViewers:SkinIcon(icon, settings)
 
             for _, region in ipairs({ icon.Cooldown:GetRegions() }) do
                 if region:GetObjectType() == "FontString" then
-                    if settings.hideDurationText and pid.isAuraSwipe then
+                    if hideCountdownText then
                         region:Hide()
                         -- Prevent region from showing
                         if not region.hookedHideText then
@@ -1289,6 +1293,14 @@ function IconViewers:SkinIcon(icon, settings)
     -- Charge/stack text
     local fs = GetIconCountFont(icon)
     if fs and fs.ClearAllPoints then
+        fs._ddHideCountText = settings.hideCountText == true
+        if fs.Show and not fs._ddCountTextVisibilityHooked then
+            fs._ddCountTextVisibilityHooked = true
+            hooksecurefunc(fs, "Show", function(self)
+                if self._ddHideCountText then self:Hide() end
+            end)
+        end
+
         fs:ClearAllPoints()
 
         -- Keep charge/stack text above proc glows
@@ -1322,6 +1334,13 @@ function IconViewers:SkinIcon(icon, settings)
         local cr, cg, cb, ca = SafeColor(ctc, 1, 1, 1, 1)
         fs:SetTextColor(cr, cg, cb, ca)
 
+        if fs._ddHideCountText then
+            fs._ddHiddenByGroupText = true
+            fs:Hide()
+        elseif fs._ddHiddenByGroupText then
+            fs._ddHiddenByGroupText = nil
+            fs:Show()
+        end
     end
 
     -- Strip Blizzard overlay
