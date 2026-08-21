@@ -7,6 +7,7 @@ local FLAT = SL.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 local Tokens = SL.Tokens
 local WR = SL.WidgetRefresh
 local THEME = GUI.THEME
+local Widgets = GUI.Widgets
 local CreateCustomScrollBar = GUI.CreateCustomScrollBar
 local DDingUI_GetPopupEditBox = GUI.GetPopupEditBox
 
@@ -305,6 +306,385 @@ local function CreateModernTrackerTabDefinitions()
         end
     end
     return definitions
+end
+
+local ModernTrackerEditor = {}
+
+function ModernTrackerEditor:IsHidden(option)
+    if not option or option.hidden == nil then return false end
+    if type(option.hidden) == "function" then
+        local ok, hidden = pcall(option.hidden)
+        return ok and hidden == true
+    end
+    return option.hidden == true
+end
+
+function ModernTrackerEditor:ResolveLabel(option, fallback)
+    local label = option and option.name or fallback or ""
+    if type(label) == "function" then
+        local ok, value = pcall(label, { option = option })
+        if not ok then ok, value = pcall(label) end
+        label = ok and value or fallback or ""
+    end
+    label = tostring(label or fallback or "")
+    label = label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    label = label:gsub("|T.-|t", ""):gsub("\n", " ")
+    label = label:gsub("━", ""):gsub("─", "")
+    return label:match("^%s*(.-)%s*$") or label
+end
+
+function ModernTrackerEditor:CloneOption(option, label)
+    local copy = {}
+    for key, value in pairs(option or {}) do copy[key] = value end
+    copy.name = label or self:ResolveLabel(option)
+    return copy
+end
+
+function ModernTrackerEditor:AddWidget(parent, widget)
+    if not widget then return end
+    parent.widgets = parent.widgets or {}
+    parent.widgets[#parent.widgets + 1] = widget
+end
+
+function ModernTrackerEditor:CreateSection(parent, yOffset, text)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetHeight(30)
+    frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
+    frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
+
+    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    if GUI.StyleFontString then GUI.StyleFontString(label) end
+    label:SetPoint("LEFT", 0, 2)
+    label:SetText(text)
+    label:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+
+    local line = frame:CreateTexture(nil, "ARTWORK")
+    line:SetHeight(1)
+    line:SetPoint("BOTTOMLEFT", 0, 1)
+    line:SetPoint("BOTTOMRIGHT", 0, 1)
+    line:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.38)
+    if line.SetSnapToPixelGrid then
+        line:SetSnapToPixelGrid(false)
+        line:SetTexelSnappingBias(0)
+    end
+
+    self:AddWidget(parent, frame)
+    return yOffset + 38
+end
+
+function ModernTrackerEditor:StyleToggleAsSwitch(widget)
+    local checkbox = widget and widget.checkbox
+    if not checkbox then return end
+
+    checkbox:SetSize(44, 20)
+    if checkbox.check then checkbox.check:Hide() end
+
+    local knob = checkbox:CreateTexture(nil, "OVERLAY")
+    knob:SetSize(14, 14)
+    knob:SetColorTexture(1, 1, 1, 1)
+    checkbox._modernKnob = knob
+
+    checkbox.SetChecked = function(owner, checked)
+        owner.isChecked = checked == true
+        if owner.check then owner.check:Hide() end
+        owner._modernKnob:ClearAllPoints()
+        if owner.isChecked then
+            owner:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            owner:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            owner._modernKnob:SetPoint("RIGHT", owner, "RIGHT", -3, 0)
+        else
+            owner:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
+            owner:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.8)
+            owner._modernKnob:SetPoint("LEFT", owner, "LEFT", 3, 0)
+        end
+    end
+    checkbox:SetChecked(checkbox.isChecked)
+end
+
+function ModernTrackerEditor:CallSet(option, value)
+    if not option or not option.set then return end
+    if type(option.set) == "function" then
+        option.set({ option = option }, value)
+    end
+    local profiles = DDingUI.SpecProfiles
+    if profiles and profiles.MarkDirty then profiles:MarkDirty() end
+end
+
+function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText, orderedValues)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetHeight(32)
+    frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
+    frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
+
+    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    if GUI.StyleFontString then GUI.StyleFontString(label) end
+    label:SetPoint("LEFT", 0, 0)
+    label:SetText(labelText)
+    label:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3], 1)
+
+    local values = type(option.values) == "function" and option.values({ option = option }) or option.values or {}
+    local current = type(option.get) == "function" and option.get({ option = option }) or nil
+    local group = CreateFrame("Frame", nil, frame)
+    group:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    group:SetSize(#orderedValues * 52, 26)
+    local buttons = {}
+
+    local function RefreshButtons()
+        current = type(option.get) == "function" and option.get({ option = option }) or current
+        for _, button in ipairs(buttons) do
+            local active = button._value == current
+            if active then
+                button:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.18)
+                button:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.9)
+                button._label:SetTextColor(THEME.accentLight[1], THEME.accentLight[2], THEME.accentLight[3], 1)
+            else
+                button:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], 0.95)
+                button:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.72)
+                button._label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+            end
+        end
+    end
+
+    for index, value in ipairs(orderedValues) do
+        local button = CreateFrame("Button", nil, group, "BackdropTemplate")
+        button:SetSize(52, 26)
+        button:SetPoint("LEFT", group, "LEFT", (index - 1) * 52, 0)
+        button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        button._value = value
+        button._label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        if GUI.StyleFontString then GUI.StyleFontString(button._label) end
+        button._label:SetPoint("CENTER", 0, 1)
+        button._label:SetText(values[value] or value)
+        button:SetScript("OnClick", function(owner)
+            current = owner._value
+            ModernTrackerEditor:CallSet(option, current)
+            RefreshButtons()
+        end)
+        button:SetScript("OnEnter", function(owner)
+            if owner._value ~= current then
+                owner:SetBackdropColor(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 0.72)
+            end
+        end)
+        button:SetScript("OnLeave", RefreshButtons)
+        buttons[#buttons + 1] = button
+    end
+
+    frame.Refresh = RefreshButtons
+    RefreshButtons()
+    self:AddWidget(parent, frame)
+    return yOffset + 38
+end
+
+function ModernTrackerEditor:CreateSourceRow(parent, sourceOption, catalogOption, yOffset)
+    local copy = self:CloneOption(sourceOption, rawget(L, "Source Spell") or "Source Spell")
+    local widget = Widgets.CreateInput(parent, copy, yOffset, {})
+    if widget.editBox and catalogOption and not self:IsHidden(catalogOption) then
+        widget.editBox:ClearAllPoints()
+        widget.editBox:SetPoint("RIGHT", widget, "RIGHT", -34, 0)
+        widget.editBox:SetWidth(166)
+
+        local catalogButton = CreateFrame("Button", nil, widget, "BackdropTemplate")
+        catalogButton:SetSize(26, 24)
+        catalogButton:SetPoint("RIGHT", widget, "RIGHT", 0, 0)
+        catalogButton:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        catalogButton:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], 1)
+        catalogButton:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.8)
+        local icon = catalogButton:CreateTexture(nil, "ARTWORK")
+        icon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+        icon:SetSize(14, 14)
+        icon:SetPoint("CENTER")
+        icon:SetVertexColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+        catalogButton:SetScript("OnClick", function()
+            if type(catalogOption.func) == "function" then catalogOption.func({ option = catalogOption }) end
+        end)
+        catalogButton:SetScript("OnEnter", function(owner)
+            owner:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            icon:SetVertexColor(THEME.accentLight[1], THEME.accentLight[2], THEME.accentLight[3], 1)
+            GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+            GameTooltip:SetText(rawget(L, "Choose from Catalog") or "Choose from Catalog")
+            GameTooltip:Show()
+        end)
+        catalogButton:SetScript("OnLeave", function(owner)
+            owner:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.8)
+            icon:SetVertexColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
+            GameTooltip:Hide()
+        end)
+    end
+    self:AddWidget(parent, widget)
+    return yOffset + 38
+end
+
+function ModernTrackerEditor:FindOption(args, suffix)
+    for key, option in pairs(args or {}) do
+        if key:sub(-#suffix) == suffix and not self:IsHidden(option) then
+            return option, key
+        end
+    end
+end
+
+function ModernTrackerEditor:CreateStandardWidget(parent, key, option, yOffset)
+    if self:IsHidden(option) then return yOffset end
+    local label = self:ResolveLabel(option, key)
+    if label == "" and option.type ~= "description" then return yOffset end
+    local clean = self:CloneOption(option, label)
+    local widget
+    local height
+
+    if clean.type == "toggle" then
+        widget = Widgets.CreateToggle(parent, clean, yOffset, {})
+        self:StyleToggleAsSwitch(widget)
+        height = 34
+    elseif clean.type == "range" then
+        widget = Widgets.CreateRange(parent, clean, yOffset, {})
+        height = 38
+    elseif clean.type == "select" then
+        widget = Widgets.CreateSelect(parent, clean, yOffset, {}, key, { key })
+        height = 42
+    elseif clean.type == "color" then
+        widget = Widgets.CreateColor(parent, clean, yOffset, {})
+        height = 34
+    elseif clean.type == "input" then
+        widget = Widgets.CreateInput(parent, clean, yOffset, {})
+        height = clean.multiline and 158 or 36
+    elseif clean.type == "execute" then
+        widget = Widgets.CreateExecute(parent, clean, yOffset, {})
+        height = 34
+    elseif clean.type == "header" then
+        return self:CreateSection(parent, yOffset, label)
+    elseif clean.type == "description" then
+        local technical = key:find("_spellInfo", 1, true) ~= nil
+        if technical then return yOffset end
+        local isSection = key:lower():find("header", 1, true) ~= nil
+            or tostring(option.name or ""):find("━", 1, true) ~= nil
+        if isSection and label ~= "" then
+            return self:CreateSection(parent, yOffset, label)
+        end
+        widget = Widgets.CreateDescription(parent, clean, yOffset, {})
+        height = math.max(28, widget:GetHeight() + 4)
+    end
+
+    if widget then
+        self:AddWidget(parent, widget)
+        return yOffset + height
+    end
+    return yOffset
+end
+
+function ModernTrackerEditor:GetSortedOptions(args, excluded)
+    local sorted = {}
+    for key, option in pairs(args or {}) do
+        if not excluded[key] and not self:IsHidden(option) then
+            sorted[#sorted + 1] = { key = key, option = option }
+        end
+    end
+    table.sort(sorted, function(left, right)
+        local leftOrder = left.option.order or 999
+        local rightOrder = right.option.order or 999
+        if leftOrder == rightOrder then return left.key < right.key end
+        return leftOrder < rightOrder
+    end)
+    return sorted
+end
+
+function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, context)
+    if not tabGroup or not tabGroup.key then return false end
+    local args = tabGroup.args or {}
+    local yOffset = 14
+    local excluded = {}
+
+    if tabGroup.key == "general" then
+        yOffset = self:CreateSection(parent, yOffset, rawget(L, "Tracker Settings") or "Tracker Settings")
+
+        local enabled, enabledKey = self:FindOption(args, "_enabled")
+        if enabled then
+            excluded[enabledKey] = true
+            yOffset = self:CreateStandardWidget(parent, enabledKey, enabled, yOffset)
+        end
+
+        local entry = context.entry
+        if entry then
+            local nameOption = {
+                type = "input",
+                name = rawget(L, "Tracker Name") or "Tracker Name",
+                get = function() return entry.name or "" end,
+                set = function(_, value)
+                    value = tostring(value or ""):match("^%s*(.-)%s*$") or ""
+                    if value == "" then return end
+                    entry.name = value
+                    if DDingUI.UpdateBuffTrackerBar then DDingUI:UpdateBuffTrackerBar() end
+                    if context.panel.RefreshList then context.panel:RefreshList() end
+                    if context.panel.RefreshLivePreview then context.panel:RefreshLivePreview(true) end
+                    local profiles = DDingUI.SpecProfiles
+                    if profiles and profiles.MarkDirty then profiles:MarkDirty() end
+                end,
+            }
+            yOffset = self:CreateStandardWidget(parent, "trackerName", nameOption, yOffset)
+        end
+
+        local displayType, displayKey = self:FindOption(args, "_displayType")
+        if displayType then
+            excluded[displayKey] = true
+            yOffset = self:CreateSegmented(parent, displayType, yOffset,
+                rawget(L, "Display Type") or "Display Type",
+                { "bar", "icon", "ring", "text", "sound", "trigger" })
+        end
+
+        yOffset = self:CreateSection(parent, yOffset + 4, rawget(L, "Tracking Source") or "Tracking Source")
+        local trackingMode, trackingModeKey = self:FindOption(args, "_trackingMode")
+        if trackingMode then
+            excluded[trackingModeKey] = true
+            yOffset = self:CreateStandardWidget(parent, trackingModeKey, trackingMode, yOffset)
+        end
+
+        local sourceOption, sourceKey = self:FindOption(args, "_changeSpellID")
+        if not sourceOption then sourceOption, sourceKey = self:FindOption(args, "_spellID") end
+        local catalogOption, catalogKey = self:FindOption(args, "_openCatalog")
+        if sourceOption then
+            excluded[sourceKey] = true
+            if catalogKey then excluded[catalogKey] = true end
+            yOffset = self:CreateSourceRow(parent, sourceOption, catalogOption, yOffset)
+        end
+
+        local spellInfo, spellInfoKey = self:FindOption(args, "_spellInfo")
+        if spellInfo then excluded[spellInfoKey] = true end
+        local spellHeader, spellHeaderKey = self:FindOption(args, "_spellHeader")
+        if spellHeader then excluded[spellHeaderKey] = true end
+
+        local remaining = self:GetSortedOptions(args, excluded)
+        if #remaining > 0 then
+            yOffset = self:CreateSection(parent, yOffset + 4, rawget(L, "Tracker Behavior") or "Tracker Behavior")
+            for _, item in ipairs(remaining) do
+                yOffset = self:CreateStandardWidget(parent, item.key, item.option, yOffset)
+            end
+        end
+    else
+        local sectionNames = {
+            appearance = rawget(L, "Appearance Settings") or "Appearance Settings",
+            position = rawget(L, "Position and Size") or "Position and Size",
+            text = rawget(L, "Text Settings") or "Text Settings",
+            conditions = rawget(L, "Condition Settings") or "Condition Settings",
+            actions = rawget(L, "Action Settings") or "Action Settings",
+        }
+        yOffset = self:CreateSection(parent, yOffset, sectionNames[tabGroup.key] or tabGroup.name)
+        local sorted = self:GetSortedOptions(args, excluded)
+        for _, item in ipairs(sorted) do
+            yOffset = self:CreateStandardWidget(parent, item.key, item.option, yOffset)
+        end
+    end
+
+    if yOffset <= 52 then
+        local empty = {
+            type = "description",
+            name = rawget(L, "No options in this section") or "No options in this section.",
+        }
+        yOffset = self:CreateStandardWidget(parent, "empty", empty, yOffset)
+    end
+
+    parent:SetHeight(math.max(yOffset + 24, scrollFrame:GetHeight() or 1))
+    C_Timer.After(0.02, function()
+        if scrollBar and scrollBar.UpdateThumbPosition then scrollBar.UpdateThumbPosition() end
+    end)
+    return true
 end
 
 function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
@@ -2411,6 +2791,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     end
                 end
                 tabGroups[i] = {
+                    key = def.key,
                     name = def.name,
                     args = sectionGroups,
                     hasVisible = hasVisible,
@@ -2418,7 +2799,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 }
             else
                 local args, hasVisible = CollectOptions(def.filter)
-                tabGroups[i] = { name = def.name, args = args, hasVisible = hasVisible }
+                tabGroups[i] = { key = def.key, name = def.name, args = args, hasVisible = hasVisible }
             end
         end
 
@@ -2537,13 +2918,23 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         else
             parentFrame._requestedSubTabPath = nil
         end
-        local pageOpts = {
-            type = "group",
-            name = tabGroup.name,
-            args = tabGroup.args,
-            childGroups = tabGroup.childGroups,
-        }
-        RenderOptions(tabChild, pageOpts, {}, parentFrame)
+        local trackedBuffs = GetTrackedBuffsForGUI()
+        local selectedEntry = type(self.selectedIndex) == "number" and trackedBuffs[self.selectedIndex] or nil
+        local handled = ModernTrackerEditor:Render(tabChild, tabScrollFrame, tabScrollBar, tabGroup, {
+            entry = selectedEntry,
+            index = self.selectedIndex,
+            panel = self,
+            parentFrame = parentFrame,
+        })
+        if not handled then
+            local pageOpts = {
+                type = "group",
+                name = tabGroup.name,
+                args = tabGroup.args,
+                childGroups = tabGroup.childGroups,
+            }
+            RenderOptions(tabChild, pageOpts, {}, parentFrame)
+        end
 
         -- 높이 갱신
         C_Timer.After(0.05, function()
