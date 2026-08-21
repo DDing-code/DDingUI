@@ -390,9 +390,19 @@ end
 local function RenderBar(preview, entry)
     local host = preview.barVisual
     local width = tonumber(ReadSetting(entry, "width", 0)) or 0
-    if width <= 0 then width = tonumber(ReadRootSetting("width", 0)) or 0 end
-    if width <= 0 then width = 240 end
+    if width <= 0 then
+        width = tonumber(ReadRootSetting("width", 0)) or 0
+    end
+    if width <= 0 then
+        local attachTo = ReadSetting(entry, "attachTo", ReadRootSetting("attachTo", "UIParent"))
+        local anchor = DDingUI.ResolveAnchorFrame and DDingUI:ResolveAnchorFrame(attachTo) or UIParent
+        local resolver = DDingUI.ResourceBars and DDingUI.ResourceBars.ResolveTrackerAutoWidth
+        width = resolver and resolver(nil, anchor, ReadSetting(entry, "borderSize", ReadRootSetting("borderSize", 1))) or 200
+    elseif DDingUI.Scale then
+        width = DDingUI:Scale(width)
+    end
     local height = Clamp(ReadSetting(entry, "height", ReadRootSetting("height", 6)), 2, 160)
+    if DDingUI.Scale then height = DDingUI:Scale(height) end
     local orientation = ReadSetting(entry, "barOrientation", "HORIZONTAL")
     if orientation == "VERTICAL" then width, height = height, width end
     width, height = FitBarSize(preview.canvas, width, height, 42, 34)
@@ -407,7 +417,9 @@ local function RenderBar(preview, entry)
     host.bar:SetStatusBarColor(r, g, b, a)
     local br, bg, bb, ba = ReadColor(ReadSetting(entry, "bgColor", ReadRootSetting("bgColor")), { 0.15, 0.15, 0.15, 1 })
     host.background:SetColorTexture(br, bg, bb, ba)
-    ApplyEdges(host.edges, host, ReadSetting(entry, "borderSize", ReadRootSetting("borderSize", 1)), ReadSetting(entry, "borderColor", ReadRootSetting("borderColor")))
+    local borderSize = ReadSetting(entry, "borderSize", ReadRootSetting("borderSize", 1))
+    if DDingUI.ScaleBorder then borderSize = DDingUI:ScaleBorder(borderSize) end
+    ApplyEdges(host.edges, host, borderSize, ReadSetting(entry, "borderColor", ReadRootSetting("borderColor")))
 
     local fillMode = ReadSetting(entry, "barFillMode", "duration")
     local maximum = math.max(1, tonumber(ReadSetting(entry, "maxStacks", 1)) or 1)

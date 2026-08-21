@@ -1659,6 +1659,8 @@ local function ResolveTrackerAutoWidth(bar, anchor, borderSize)
     return (bar and bar._lastValidAutoWidth) or 200
 end
 
+ResourceBars.ResolveTrackerAutoWidth = ResolveTrackerAutoWidth
+
 function ResourceBars:GetBuffTrackerBar()
     if DDingUI.buffTrackerBar then return DDingUI.buffTrackerBar end
 
@@ -4235,12 +4237,18 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
         frameHeight = desiredHeight
     end
 
-    if bar._lastHeight ~= frameHeight then
+    local actualHeight = bar:GetHeight()
+    if bar._lastHeight ~= frameHeight or not actualHeight
+        or math.abs(actualHeight - frameHeight) > 0.01
+    then
         bar:SetHeight(frameHeight)
         bar._lastHeight = frameHeight
     end
 
-    if bar._lastWidth ~= frameWidth then
+    local actualWidth = bar:GetWidth()
+    if bar._lastWidth ~= frameWidth or not actualWidth
+        or math.abs(actualWidth - frameWidth) > 0.01
+    then
         bar:SetWidth(frameWidth)
         bar._lastWidth = frameWidth
     end
@@ -4799,6 +4807,9 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
     -- Set ring size (square) - SetPoint 이후에 SetSize 호출 (CENTER 앵커 기준 확장)
     bar:SetSize(ringSize, ringSize)
+    bar._lastWidth = ringSize
+    bar._lastHeight = ringSize
+    bar._lastBarStyle = "ring"
 
     -- Hide bar-specific elements
     bar.StatusBar:Hide()
