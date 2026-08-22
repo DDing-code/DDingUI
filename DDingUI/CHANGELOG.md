@@ -2,6 +2,25 @@
 
 ---
 
+## v2.1.2.1
+
+_Release date: 2026-08-22_
+_Scope: Git changes from v2.1.2 through this release._
+
+### English Patch Notes
+- Stabilized Custom Aura matching after Cooldown Manager catalog rebuilds and corrected inactive visibility across bar, icon, ring, and text displays.
+- Moved Custom Aura bar width and height controls to Appearance and made the live preview update immediately while adjusting either value.
+- Reduced settings-window startup work by building heavy Cooldown Manager options only when the relevant group is selected.
+- Separated ability cooldown text from active-effect duration text so visibility, font, size, color, anchor, and offsets follow the correct state-specific settings.
+- Prevented shared UI styling hooks from contaminating protected action bars and fixed the startup error in micro-button styling.
+
+### Korean Patch Notes
+- 쿨다운 관리자 카탈로그 갱신 후에도 커스텀 오라가 올바르게 연결되도록 안정화하고 바, 아이콘, 링, 텍스트 형식의 비활성 표시 상태를 수정했습니다.
+- 커스텀 오라 바의 너비와 높이 설정을 외관 탭으로 옮기고 값을 조절하는 즉시 실시간 미리보기에 반영되도록 변경했습니다.
+- 무거운 쿨다운 관리자 옵션은 해당 그룹을 선택할 때만 생성하여 설정창을 열 때 발생하는 초기 부하를 줄였습니다.
+- 능력의 재사용 대기시간 텍스트와 활성 효과의 지속시간 텍스트를 분리하여 표시 여부, 폰트, 크기, 색상, 앵커 및 오프셋이 각 상태의 설정을 정확히 따르도록 수정했습니다.
+- 공용 UI 스타일 훅이 보호된 행동 단축바를 오염시키지 않도록 변경하고 마이크로 버튼 스타일 적용 중 발생하던 시작 오류를 수정했습니다.
+
 ## v2.1.2
 
 _Release date: 2026-08-22_
