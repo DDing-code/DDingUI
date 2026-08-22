@@ -164,16 +164,52 @@ local function SortedIDs(include)
     return ids
 end
 
-local function BuildSpellSet(tracker)
+local function BuildSavedSpellSet(tracker)
     if type(tracker) ~= "table" then return nil end
 
     local include = {}
-    local cooldownID = TrackerCooldownID(tracker)
     local spellID = TrackerSpellID(tracker)
     AddSpellVariants(include, spellID)
     AddInfoSpellIDs(include, tracker)
-    AddCooldownInfo(include, cooldownID, spellID)
     if next(include) == nil then return nil end
+    return include
+end
+
+local function AddResolvedAuraIdentity(include, spellID, cooldownID)
+    if cooldownID > 0 then
+        AddCooldownInfo(include, cooldownID, spellID)
+        return
+    end
+
+    local scanner = DDingUI.CDMScanner
+    local catalogInfo = scanner and scanner.FindUniqueAuraEntryBySpellID
+        and scanner.FindUniqueAuraEntryBySpellID(spellID)
+    if not catalogInfo then return end
+
+    AddInfoSpellIDs(include, catalogInfo)
+    local resolvedCooldownID = CleanID(catalogInfo.cooldownID) or 0
+    AddCooldownInfo(include, resolvedCooldownID, spellID)
+end
+
+local function BuildSpellSet(tracker, claimedBySpellID, saved)
+    saved = saved or BuildSavedSpellSet(tracker)
+    if not saved then return nil end
+
+    local include = {}
+    for spellID in pairs(saved) do
+        include[spellID] = true
+    end
+
+    local extra = {}
+    local cooldownID = TrackerCooldownID(tracker)
+    local spellID = TrackerSpellID(tracker)
+    AddResolvedAuraIdentity(extra, spellID, cooldownID)
+    for extraSpellID in pairs(extra) do
+        local owner = claimedBySpellID and claimedBySpellID[extraSpellID]
+        if owner == nil or owner == tracker then
+            include[extraSpellID] = true
+        end
+    end
     return include
 end
 
@@ -185,10 +221,10 @@ local function ClampInteger(value, minimum, maximum, fallback)
     return value
 end
 
-local function BuildDesired(tracker)
+local function BuildDesired(tracker, claimedBySpellID, saved)
     if not IsSupportedAuraTracker(tracker) then return nil end
 
-    local include = BuildSpellSet(tracker)
+    local include = BuildSpellSet(tracker, claimedBySpellID, saved)
     if not include then return nil end
 
     local ids = SortedIDs(include)
@@ -245,11 +281,6 @@ end
 
 local function CanMutateBindings()
     if loadWindow then return true end
-    if (InCombatLockdown and InCombatLockdown())
-        or (UnitAffectingCombat and UnitAffectingCombat("player"))
-    then
-        return false
-    end
     if C_Secrets and C_Secrets.ShouldAurasBeSecret then
         local ok, restricted = pcall(C_Secrets.ShouldAurasBeSecret)
         if not ok or IsSecret(restricted) or restricted == true then return false end
@@ -662,6 +693,8 @@ local function RestoreLegacyDisplay(host)
     if host.Texture then host.Texture:SetAlpha(1) end
     if host.Icon then host.Icon:SetAlpha(1) end
     if host._ringColorBg then host._ringColorBg:SetAlpha(1) end
+    if host.RingBackground then host.RingBackground:SetAlpha(1) end
+    if host.RingProgress then host.RingProgress:SetAlpha(1) end
     if host.RingBorder then host.RingBorder:SetAlpha(1) end
 end
 
@@ -682,6 +715,8 @@ local function HideLegacyDisplay(host, style)
         if host.DurationText then host.DurationText:SetAlpha(0) end
         if type(style) == "table" and not style.preserveInactive then
             if host._ringColorBg then host._ringColorBg:SetAlpha(0) end
+            if host.RingBackground then host.RingBackground:SetAlpha(0) end
+            if host.RingProgress then host.RingProgress:SetAlpha(0) end
             if host.RingBorder then host.RingBorder:SetAlpha(0) end
         end
     elseif displayType == "icon" then
@@ -727,7 +762,10 @@ local function SetBindingEnabled(binding, enabled)
         ok = pcall(container.SetEnabled, container, enabled)
     end
     if ok then
-        if enabled then container:Show() else container:Hide() end
+        local visibilityMethod = enabled and container.Show or container.Hide
+        if type(visibilityMethod) == "function" then
+            ok = pcall(visibilityMethod, container)
+        end
     end
     return ok
 end
@@ -811,8 +849,23 @@ function Engine:Sync(trackers)
     suspended = false
     local retained = {}
     local desiredCount = 0
+    local savedByTracker = {}
+    local claimedBySpellID = {}
+
     for _, tracker in ipairs(trackers or {}) do
-        local desired = BuildDesired(tracker)
+        if IsSupportedAuraTracker(tracker) then
+            local saved = BuildSavedSpellSet(tracker)
+            savedByTracker[tracker] = saved
+            for spellID in pairs(saved or {}) do
+                if claimedBySpellID[spellID] == nil then
+                    claimedBySpellID[spellID] = tracker
+                end
+            end
+        end
+    end
+
+    for _, tracker in ipairs(trackers or {}) do
+        local desired = BuildDesired(tracker, claimedBySpellID, savedByTracker[tracker])
         desiredByTracker[tracker] = desired
         if desired then
             retained[tracker] = true

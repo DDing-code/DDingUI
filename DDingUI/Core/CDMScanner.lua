@@ -257,6 +257,8 @@ end
 
 -- [FIX] Forward declaration — GetAllEntries/GetEntriesByCategory 정렬 캐시에서 사용
 local catalogVersion = 0
+local auraIdentityIndex
+local auraIdentityIndexVersion = -1
 
 function CDMScanner.ScanAll()
     -- Combat protection
@@ -534,6 +536,11 @@ function CDMScanner.ScanAll()
 
     catalogVersion = catalogVersion + 1
 
+    local resourceBars = DDingUI.ResourceBars
+    if resourceBars and resourceBars.RequestBuffTrackerUpdate then
+        resourceBars:RequestBuffTrackerUpdate("cdm-catalog", 0)
+    end
+
     return true, totalCount, trackedBuffs, trackedBars
 end
 
@@ -611,6 +618,72 @@ end
 function CDMScanner.GetEntry(cooldownID)
     if not IsUsableID(cooldownID) then return nil end
     return masterCatalog[cooldownID]
+end
+
+local AURA_IDENTITY_FIELDS = {
+    "spellID",
+    "displaySpellID",
+    "overrideSpellID",
+    "overrideTooltipSpellID",
+    "linkedSpellID",
+}
+
+local AURA_IDENTITY_LIST_FIELDS = {
+    "linkedSpellIDs",
+    "trackingSpellIDs",
+    "spellIDs",
+}
+
+local function IsAuraCatalogEntry(entry)
+    if type(entry) ~= "table" then return false end
+    if entry.isAura == true or entry.viewerType == "aura" then return true end
+    local category = entry.category
+    return category == "TrackedBuff" or category == "TrackedBar"
+        or category == "TrackedBuff+Bar"
+end
+
+local function AddAuraIdentityOwner(index, spellID, entry)
+    if not IsUsableID(spellID) then return end
+    local owner = index[spellID]
+    if owner == nil then
+        index[spellID] = entry
+    elseif owner ~= false and owner.cooldownID ~= entry.cooldownID then
+        index[spellID] = false
+    end
+end
+
+local function RebuildAuraIdentityIndex()
+    local index = {}
+    for _, entry in pairs(masterCatalog) do
+        if IsAuraCatalogEntry(entry) then
+            for _, key in ipairs(AURA_IDENTITY_FIELDS) do
+                AddAuraIdentityOwner(index, entry[key], entry)
+            end
+            for _, key in ipairs(AURA_IDENTITY_LIST_FIELDS) do
+                local spellIDs = entry[key]
+                if type(spellIDs) == "table" then
+                    for listIndex = 1, #spellIDs do
+                        AddAuraIdentityOwner(index, spellIDs[listIndex], entry)
+                    end
+                end
+            end
+        end
+    end
+    auraIdentityIndex = index
+    auraIdentityIndexVersion = catalogVersion
+end
+
+function CDMScanner.FindUniqueAuraEntryBySpellID(spellID)
+    if not IsUsableID(spellID) then return nil end
+    if auraIdentityIndexVersion ~= catalogVersion or not auraIdentityIndex then
+        RebuildAuraIdentityIndex()
+    end
+    local entry = auraIdentityIndex[spellID]
+    return type(entry) == "table" and entry or nil
+end
+
+function CDMScanner.GetCatalogVersion()
+    return catalogVersion
 end
 
 -- Get entry count

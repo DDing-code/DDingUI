@@ -5152,14 +5152,19 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             presentationVisible = not hideForCombat,
         }
     end
-    if resolver and resolver.AttachAuraContainer then
-        resolver:AttachAuraContainer(trackedBuff, bar, ringAuraStyle)
-    end
+    local ringAuraAttached = resolver and resolver.AttachAuraContainer
+        and resolver:AttachAuraContainer(trackedBuff, bar, ringAuraStyle) or false
     if hideForCombat then
         local auraContainer = DDingUI.TrackedAuraContainer
         if ringAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
             auraContainer:SetPresentationVisible(trackedBuff, false)
         end
+        bar:Hide()
+        return
+    end
+    if containerEligible and not ringAuraAttached and hideWhenZero
+        and not (showInCombat and inCombat)
+    then
         bar:Hide()
         return
     end
@@ -5682,14 +5687,22 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             presentationVisible = not hideForCombat,
         }
     end
-    if resolver and resolver.AttachAuraContainer then
-        resolver:AttachAuraContainer(trackedBuff, icon, iconAuraStyle)
-    end
+    local iconAuraAttached = resolver and resolver.AttachAuraContainer
+        and resolver:AttachAuraContainer(trackedBuff, icon, iconAuraStyle) or false
     if hideForCombat then
         local auraContainer = DDingUI.TrackedAuraContainer
         if iconAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
             auraContainer:SetPresentationVisible(trackedBuff, false)
         end
+        icon:Hide()
+        StopAllAnimations(icon)
+        icon._currentAnimation = nil
+        return
+    end
+    if containerEligible and not showOnlyWhenInactive and not iconAuraAttached
+        and hideWhenZero and not (showInCombat and inCombat)
+        and not conditionalVisualActive
+    then
         icon:Hide()
         StopAllAnimations(icon)
         icon._currentAnimation = nil
@@ -6230,14 +6243,19 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             presentationVisible = not hideForCombat,
         }
     end
-    if resolver and resolver.AttachAuraContainer then
-        resolver:AttachAuraContainer(trackedBuff, textFrame, textAuraStyle)
-    end
+    local textAuraAttached = resolver and resolver.AttachAuraContainer
+        and resolver:AttachAuraContainer(trackedBuff, textFrame, textAuraStyle) or false
     if hideForCombat then
         local auraContainer = DDingUI.TrackedAuraContainer
         if textAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
             auraContainer:SetPresentationVisible(trackedBuff, false)
         end
+        textFrame:Hide()
+        return
+    end
+    if containerEligible and not textAuraAttached and hideWhenZero
+        and not (showInCombat and inCombat)
+    then
         textFrame:Hide()
         return
     end
