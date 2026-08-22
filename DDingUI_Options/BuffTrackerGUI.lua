@@ -88,6 +88,12 @@ local function CreateAuraCatalogPane(parent, createScrollBar)
     return pane
 end
 
+local function IsTrackedBarSizeOption(key)
+    local normalized = tostring(key or ""):lower()
+    return normalized:match("^tracked%d+_width$") ~= nil
+        or normalized:match("^tracked%d+_height$") ~= nil
+end
+
 local function GetTrackerOptionCategory(key, order)
     local normalized = tostring(key or ""):lower()
 
@@ -113,6 +119,10 @@ local function GetTrackerOptionCategory(key, order)
 
     if normalized:find("text", 1, true) then
         return "text"
+    end
+
+    if IsTrackedBarSizeOption(normalized) then
+        return "appearance"
     end
 
     if normalized:find("attachto", 1, true)
@@ -363,11 +373,21 @@ function ModernTrackerEditor:FindOption(args, suffix)
     end
 end
 
-function ModernTrackerEditor:CreateStandardWidget(parent, key, option, yOffset)
+function ModernTrackerEditor:CreateStandardWidget(parent, key, option, yOffset, context)
     if self:IsHidden(option) then return yOffset end
     local label = self:ResolveLabel(option, key)
     if label == "" and option.type ~= "description" then return yOffset end
     local clean = self:CloneOption(option, label)
+    if IsTrackedBarSizeOption(key) and type(clean.set) == "function" then
+        local originalSet = clean.set
+        clean.set = function(info, value)
+            originalSet(info, value)
+            local panel = context and context.panel
+            if panel and panel.RefreshLivePreview then
+                panel:RefreshLivePreview(true)
+            end
+        end
+    end
     local widget
     local height
 
@@ -439,7 +459,7 @@ function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, co
         local enabled, enabledKey = self:FindOption(args, "_enabled")
         if enabled then
             excluded[enabledKey] = true
-            yOffset = self:CreateStandardWidget(parent, enabledKey, enabled, yOffset)
+            yOffset = self:CreateStandardWidget(parent, enabledKey, enabled, yOffset, context)
         end
 
         local entry = context.entry
@@ -459,7 +479,7 @@ function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, co
                     if profiles and profiles.MarkDirty then profiles:MarkDirty() end
                 end,
             }
-            yOffset = self:CreateStandardWidget(parent, "trackerName", nameOption, yOffset)
+            yOffset = self:CreateStandardWidget(parent, "trackerName", nameOption, yOffset, context)
         end
 
         local displayType, displayKey = self:FindOption(args, "_displayType")
@@ -478,7 +498,7 @@ function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, co
         local trackingMode, trackingModeKey = self:FindOption(args, "_trackingMode")
         if trackingMode then
             excluded[trackingModeKey] = true
-            yOffset = self:CreateStandardWidget(parent, trackingModeKey, trackingMode, yOffset)
+            yOffset = self:CreateStandardWidget(parent, trackingModeKey, trackingMode, yOffset, context)
         end
 
         local sourceOption, sourceKey = self:FindOption(args, "_changeSpellID")
@@ -499,7 +519,7 @@ function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, co
         if #remaining > 0 then
             yOffset = self:CreateSection(parent, yOffset + 4, rawget(L, "Tracker Behavior") or "Tracker Behavior")
             for _, item in ipairs(remaining) do
-                yOffset = self:CreateStandardWidget(parent, item.key, item.option, yOffset)
+                yOffset = self:CreateStandardWidget(parent, item.key, item.option, yOffset, context)
             end
         end
     else
@@ -513,7 +533,7 @@ function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, co
         yOffset = self:CreateSection(parent, yOffset, sectionNames[tabGroup.key] or tabGroup.name)
         local sorted = self:GetSortedOptions(args, excluded)
         for _, item in ipairs(sorted) do
-            yOffset = self:CreateStandardWidget(parent, item.key, item.option, yOffset)
+            yOffset = self:CreateStandardWidget(parent, item.key, item.option, yOffset, context)
         end
     end
 
@@ -522,7 +542,7 @@ function ModernTrackerEditor:Render(parent, scrollFrame, scrollBar, tabGroup, co
             type = "description",
             name = rawget(L, "No options in this section") or "No options in this section.",
         }
-        yOffset = self:CreateStandardWidget(parent, "empty", empty, yOffset)
+        yOffset = self:CreateStandardWidget(parent, "empty", empty, yOffset, context)
     end
 
     parent:SetHeight(math.max(yOffset + 24, scrollFrame:GetHeight() or 1))
