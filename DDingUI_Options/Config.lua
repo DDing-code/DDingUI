@@ -11,6 +11,7 @@ local BuffDebuffFramesOptions = ns.CreateBuffDebuffFramesOptions
 local BuffBarOptions = ns.CreateBuffBarOptions
 local BuffTrackerOptions = ns.CreateBuffTrackerOptions
 local GroupSystemOptions = ns.CreateGroupSystemOptions
+local LazyGroupSystemOptions = ns.CreateLazyGroupSystemOptions
 local ProfileOptions = ns.CreateProfileOptions
 
 -- [REFACTOR] AceGUI → StyleLib: AceConfig-3.0, AceConfigDialog-3.0 제거
@@ -279,7 +280,8 @@ function DDingUI:SetupOptions()
 
     -- CDM bars
     if GroupSystemOptions then
-        options.args.groupSystem = GroupSystemOptions(1)
+        options.args.groupSystem = LazyGroupSystemOptions and LazyGroupSystemOptions(1)
+            or GroupSystemOptions(1)
     end
 
     -- Custom aura

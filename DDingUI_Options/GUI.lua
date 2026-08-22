@@ -84,6 +84,9 @@ local function ResolveSectionTarget(targetKey, frame)
 
     if rootKey == "groupSystem" and frame and frame._optionLookup then
         local groupSystem = frame._optionLookup.groupSystem
+        if groupSystem and groupSystem.option then
+            groupSystem.option = MaterializeLazyOption(groupSystem.option)
+        end
         local groupArgs = groupSystem and groupSystem.option and groupSystem.option.args
         local remainder = targetKey:match("^groupSystem%.(.+)$")
         local bestMatch
@@ -2592,11 +2595,13 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         end
     end
 
-    -- [FIX] groupSystem 옵션 테이블을 매번 재생성 (현재 spec/프로필 데이터 반영)
-    -- SetupOptions()에서 1회 빌드된 configOptions.args.groupSystem은
-    -- 빌드 시점의 gs.groups를 캐시하므로, spec/캐릭 변경 후 열면 이전 데이터가 잔존
-    if options and options.args and ns.CreateGroupSystemOptions then
-        options.args.groupSystem = ns.CreateGroupSystemOptions(1)
+    -- 현재 전문화의 그룹 목록은 매번 새로 읽되, CDM 화면을 열기 전에는
+    -- 대형 옵션 트리를 생성하지 않는다.
+    if options and options.args then
+        local createGroupSystem = ns.CreateLazyGroupSystemOptions or ns.CreateGroupSystemOptions
+        if createGroupSystem then
+            options.args.groupSystem = createGroupSystem(1)
+        end
         self.configOptions = options
     end
 

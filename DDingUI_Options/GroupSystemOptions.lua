@@ -7602,7 +7602,21 @@ local function BuildGroupSystemOptions(order)
     return options
 end
 
+local function CreateLazyGroupSystemOptions(order)
+    local optionOrder = order or 1
+    return {
+        type = "group",
+        name = rawget(L, "CDM Bars") or "CDM Bars",
+        order = optionOrder,
+        childGroups = "tab",
+        _lazyBuilder = function()
+            return BuildGroupSystemOptions(optionOrder)
+        end,
+    }
+end
+
 -- Export
 ns.CreateGroupSystemOptions = BuildGroupSystemOptions
+ns.CreateLazyGroupSystemOptions = CreateLazyGroupSystemOptions
 DDingUI._CreateGroupSystemOptions = BuildGroupSystemOptions
 -- [REFACTOR] ShowGroupAssignDialog 제거 → DDingUI:BuildGroupAssignGridUI 사용
