@@ -587,11 +587,22 @@ function DDingUI:UI_SCALE_CHANGED()
     self:PixelScaleChanged('UI_SCALE_CHANGED')
 end
 
+local MicroButtonRegionData = setmetatable({}, { __mode = "k" })
+
+local function GetMicroButtonRegionData(region)
+    local data = MicroButtonRegionData[region]
+    if not data then
+        data = {}
+        MicroButtonRegionData[region] = data
+    end
+    return data
+end
+
 local function StyleMicroButtonRegion(button, region)
     if not (button and region) then
         return
     end
-    local data = GetFrameData(region)
+    local data = GetMicroButtonRegionData(region)
     if data.styled then
         return
     end
