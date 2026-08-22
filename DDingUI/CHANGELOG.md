@@ -2,6 +2,29 @@
 
 ---
 
+## v2.1.2
+
+_Release date: 2026-08-22_
+_Scope: Git changes from v2.1.1 through this release._
+
+### English Patch Notes
+- Completed the WoW 12.1 protected-aura transition for Custom Aura bars, icons, rings, text, sounds, glow actions, and conditional presentation without directly comparing protected stack or duration values.
+- Reduced Custom Aura overhead by stopping legacy aura reads after native container ownership, caching hidden CDM frame searches, measuring rebuild and fallback costs, and deferring protected frame ownership repairs.
+- Reworked CDM frame reconciliation around live viewer data so assigned and unassigned catalogs retain configured slots, spell variants, ordering, and newly rebuilt frames after talent or settings changes.
+- Redesigned the Custom Aura workspace with a searchable CDM catalog, clearer tracker editing, settings-bound live previews, consistent toggle controls, and refresh behavior that preserves the selected tracker.
+- Restored stack and duration text controls, native radial ring progress, stale visual cleanup, protected aura sounds and glows, and reliable active or hidden-state handling across all supported display modes.
+- Stabilized Custom Aura bar dimensions and automatic anchor width across display-mode changes, and migrated legacy bar appearance values without changing saved anchors, offsets, or tracking conditions.
+- Prevented terminal cast events from older queued spells from incorrectly clearing the current player cast bar.
+
+### Korean Patch Notes
+- 보호된 중첩 및 지속시간 값을 직접 비교하지 않고도 커스텀 오라의 바, 아이콘, 링, 텍스트, 사운드, 글로우 동작 및 조건부 외관이 작동하도록 WoW 12.1 보호 오라 전환을 완료했습니다.
+- 기본 오라 컨테이너가 표시를 소유한 뒤 레거시 조회를 중단하고, 숨겨진 CDM 프레임 검색을 캐시하며, 컨테이너 재생성 및 대체 경로 비용을 계측하고, 보호 프레임 소유권 복구를 안전한 시점까지 지연하여 부하를 줄였습니다.
+- 실제 CDM 뷰어 데이터를 기준으로 프레임을 재조정하여 특성 또는 설정 변경 후에도 할당·미할당 카탈로그의 설정 슬롯, 주문 변형, 정렬 및 새로 생성된 프레임을 유지합니다.
+- 검색 가능한 CDM 카탈로그, 명확한 추적기 편집 화면, 설정값을 그대로 반영하는 실시간 미리보기, 통일된 토글 및 선택 항목을 유지하는 갱신 방식으로 커스텀 오라 작업 화면을 개편했습니다.
+- 중첩 및 지속시간 텍스트 설정, 기본 원형 링 진행 효과, 남은 시각효과 정리, 보호 오라 사운드와 글로우, 활성·숨김 상태 처리를 모든 지원 표시 형식에서 복구하고 안정화했습니다.
+- 표시 형식 변경 후에도 커스텀 오라 바 크기와 앵커 자동 너비가 유지되도록 수정하고, 저장된 앵커·오프셋·추적 조건을 바꾸지 않으면서 구버전 바 외관값을 최신 구조로 복구했습니다.
+- 이전 대기 주문의 종료 이벤트가 현재 플레이어 시전바를 잘못 지우지 않도록 수정했습니다.
+
 ## v2.1.1
 
 _Release date: 2026-08-19_

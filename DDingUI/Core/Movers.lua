@@ -4035,7 +4035,7 @@ function Movers:MigrateAnchorPoints()
 
     -- profileVersion 세팅 (이후 마이그레이션 재실행 방지)
     local addonVersion = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("DDingUI", "Version")
-    profile.profileVersion = DDingUI.VERSION or addonVersion or "2.1.1"
+    profile.profileVersion = DDingUI.VERSION or addonVersion or "2.1.2"
 
     -- 구 pendingMoverMigration 플래그 정리
     profile.pendingMoverMigration = nil
