@@ -143,6 +143,7 @@ Modules\BuffDebuffFrames\BuffDebuffFrames.lua
 # GroupSystem (CDM 프레임 re-parent 그룹 시스템 + DynamicIcons 통합)
 Modules\GroupSystem\CDMFrameRegistry.lua
 Modules\GroupSystem\FrameController.lua
+Modules\GroupSystem\NativeTrinketOverlay.lua
 Modules\GroupSystem\ContainerSync.lua
 Modules\GroupSystem\GroupManager.lua
 Modules\GroupSystem\BuffGroupPlaceholders.lua

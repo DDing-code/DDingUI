@@ -133,6 +133,44 @@ local function NormalizeCategoryName(category)
     return "Essential"
 end
 
+local nativeCategoryNames
+
+local function GetNativeCategoryName(category, categoryDef)
+    if categoryDef and categoryDef.name then return categoryDef.name end
+    if not IsSafeNumber(category) or not CDMCompat then return nil end
+    if not nativeCategoryNames then
+        nativeCategoryNames = {}
+        for _, definition in ipairs(CDMCompat:GetCategoryDefinitions() or {}) do
+            if IsSafeNumber(definition.category) then
+                nativeCategoryNames[definition.category] = definition.name
+            end
+        end
+    end
+    return nativeCategoryNames[category]
+end
+
+local function ApplyNativeCategoryMetadata(entry, info, categoryDef)
+    if type(entry) ~= "table" or type(info) ~= "table" then return end
+    local nativeCategory = categoryDef and categoryDef.category
+        or (IsSafeNumber(info.category) and info.category)
+    local nativeCategoryName = GetNativeCategoryName(nativeCategory, categoryDef)
+    local isEquipmentCategory = nativeCategoryName == "EquipSlotEssential"
+        or nativeCategoryName == "EquipSlotTracked"
+    local hasEquipmentCategory = entry.isEquipmentCooldown == true
+        or entry.isEquipmentTracked == true
+
+    if isEquipmentCategory or not hasEquipmentCategory then
+        if IsSafeNumber(nativeCategory) then entry.nativeCategory = nativeCategory end
+        if nativeCategoryName then entry.nativeCategoryName = nativeCategoryName end
+    end
+    if IsUsableID(info.equipSlot) then entry.equipSlot = info.equipSlot end
+    if IsUsableID(info.buffSlot) then entry.buffSlot = info.buffSlot end
+    if isEquipmentCategory then
+        entry.isEquipmentCooldown = nativeCategoryName == "EquipSlotEssential"
+        entry.isEquipmentTracked = nativeCategoryName == "EquipSlotTracked"
+    end
+end
+
 local function GetSpellDisplay(spellID)
     if not IsUsableID(spellID) or not C_Spell then return nil, nil end
     local name
@@ -214,6 +252,7 @@ local function AddStaticCatalogEntry(cooldownID, info, categoryDef)
             existing.isTrackedBuff = true
         end
         ApplyCatalogSpellIdentity(existing, info, displaySpellID, identity)
+        ApplyNativeCategoryMetadata(existing, info, categoryDef)
         return
     end
 
@@ -240,6 +279,7 @@ local function AddStaticCatalogEntry(cooldownID, info, categoryDef)
         isKnown = info.isKnown,
     }
     ApplyCatalogSpellIdentity(entry, info, displaySpellID, identity)
+    ApplyNativeCategoryMetadata(entry, info, categoryDef)
     masterCatalog[cooldownID] = entry
 end
 
@@ -464,6 +504,7 @@ function CDMScanner.ScanAll()
                                 existing.displaySpellID = displaySpellID
                             end
                             ApplyCatalogSpellIdentity(existing, info, displaySpellID, identity)
+                            ApplyNativeCategoryMetadata(existing, info)
                         else
                             -- Create new entry
                             local entry = {
@@ -497,6 +538,7 @@ function CDMScanner.ScanAll()
                                 auraDataUnit = frame.auraDataUnit or "player",
                             }
                             ApplyCatalogSpellIdentity(entry, info, displaySpellID, identity)
+                            ApplyNativeCategoryMetadata(entry, info)
                             masterCatalog[cdID] = entry
                         end
 

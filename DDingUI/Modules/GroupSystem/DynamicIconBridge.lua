@@ -394,6 +394,15 @@ local function IsIconActive(iconKey, iconData, iconFrame)
 
     if iconData.type == "trinketProc" then
         local settings = iconData.settings or {}
+        local nativeOverlay = DDingUI.NativeTrinketOverlay
+        if nativeOverlay and nativeOverlay.OwnsBaseFrame
+            and nativeOverlay:OwnsBaseFrame(iconFrame, iconData.slotID)
+        then
+            if settings.showItemCooldown ~= false then
+                return ShouldTrackSlot(iconFrame, iconData.slotID)
+            end
+            return nativeOverlay:IsSlotEffectActive(iconData.slotID)
+        end
         if settings.showItemCooldown ~= false then
             local slotID = iconData.slotID
             if ShouldTrackSlot(iconFrame, slotID) then return true end

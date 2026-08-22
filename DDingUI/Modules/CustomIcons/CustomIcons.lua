@@ -2497,6 +2497,44 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     end
 
     local settings = iconData.settings or {}
+    local nativeOverlay = DDingUI.NativeTrinketOverlay
+    if nativeOverlay and nativeOverlay.OwnsBaseFrame
+        and nativeOverlay:OwnsBaseFrame(iconFrame, slotID)
+    then
+        iconFrame._trinketProcWasActive = false
+        iconFrame._ddProcActiveUntil = nil
+        iconFrame._ddLastProcActiveAt = nil
+        iconFrame._cachedBuffSpellID = nil
+        CustomIcons:StopTrackedTrinketEffectGlow(iconFrame)
+        iconFrame.cooldown:SetReverse(false)
+
+        local onCooldown = false
+        if settings.showItemCooldown ~= false then
+            onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
+            if not managedVisualLocked then
+                if settings.showCooldown ~= false and onCooldown then
+                    iconFrame.cooldown:Show()
+                else
+                    iconFrame.cooldown:Hide()
+                end
+            end
+        elseif not managedVisualLocked then
+            iconFrame.cooldown:Clear()
+            iconFrame.cooldown:Hide()
+        end
+        if iconFrame.count and not managedVisualLocked then
+            iconFrame.count:Hide()
+        end
+        if not managedVisualLocked then
+            local allowDesat = settings.desaturateOnCooldown ~= false
+            iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
+        end
+        iconFrame._ddCustomIconActive = false
+        iconFrame._ddCustomIconProcActive = false
+        iconFrame._ddCustomIconReady = itemID ~= nil and not onCooldown
+        return
+    end
+
     local registry = DDingUI.TrinketEffects
     local trackedState = registry and registry.GetActiveEffectForItem
         and registry:GetActiveEffectForItem(itemID)

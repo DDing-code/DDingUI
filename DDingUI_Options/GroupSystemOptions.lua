@@ -802,6 +802,16 @@ local function GetCDMIconEntries(includeTrackedBars)
 
     local now = GetTime and GetTime() or 0
     local compat = DDingUI.CDMCompat
+    local equipEssentialCategory = compat and compat:GetCategory("EquipSlotEssential")
+    local equipTrackedCategory = compat and compat:GetCategory("EquipSlotTracked")
+    local equipEssentialLookup = equipEssentialCategory and compat
+        and compat:GetCategoryLookup(equipEssentialCategory, true)
+    local equipTrackedLookup = equipTrackedCategory and compat
+        and compat:GetCategoryLookup(equipTrackedCategory, true)
+    local profile = DDingUI.db and DDingUI.db.profile
+    local groupSystem = profile and profile.groupSystem
+    local integrateNativeTrinkets = not groupSystem
+        or groupSystem.integrateNativeTrinketEffects ~= false
     local compatGeneration = compat and compat.GetGeneration and compat:GetGeneration() or 0
     local cacheKey = includeTrackedBars and "all" or "icons"
     local cachedEntries = cdmEntryCaches[cacheKey]
@@ -853,8 +863,6 @@ local function GetCDMIconEntries(includeTrackedBars)
                 local groupBuffCategory = compat and compat:GetCategory("GroupBuff")
                 local specEssentialCategory = compat and compat:GetCategory("SpecAgnosticEssential")
                 local specTrackedCategory = compat and compat:GetCategory("SpecAgnosticTracked")
-                local equipEssentialCategory = compat and compat:GetCategory("EquipSlotEssential")
-                local equipTrackedCategory = compat and compat:GetCategory("EquipSlotTracked")
                 for orderIndex, rawCooldownID in ipairs(orderedCooldownIDs) do
                     local cooldownID = SafeOptionID(rawCooldownID)
                     if cooldownID then
@@ -867,7 +875,10 @@ local function GetCDMIconEntries(includeTrackedBars)
                         local needsRawInfo = category == nil or category == groupBuffCategory
                             or category == specEssentialCategory or category == specTrackedCategory
                             or category == equipEssentialCategory or category == equipTrackedCategory
-                        local rawInfo = needsRawInfo and compat and compat:GetCooldownInfo(cooldownID) or nil
+                        local forceRawInfo = category == equipEssentialCategory
+                            or category == equipTrackedCategory
+                        local rawInfo = needsRawInfo and compat
+                            and compat:GetCooldownInfo(cooldownID, forceRawInfo) or nil
                         if category == nil and rawInfo then
                             category = rawInfo.category
                         end
@@ -946,6 +957,38 @@ local function GetCDMIconEntries(includeTrackedBars)
             return
         end
 
+        local frameSpellID = icon and compat and compat.ResolveFrameSpellID
+            and compat:ResolveFrameSpellID(icon)
+        local equipmentCategory = type(equipEssentialLookup) == "table"
+            and equipEssentialLookup[cooldownID] and equipEssentialCategory
+            or type(equipTrackedLookup) == "table"
+                and equipTrackedLookup[cooldownID] and equipTrackedCategory
+            or nil
+        local equipmentInfo = equipmentCategory and compat
+            and compat:GetCooldownInfo(cooldownID, true)
+        local sourceCategory = type(sourceInfo) == "table"
+            and SafeOptionValue(sourceInfo.category) or nil
+        local sourceEquipSlot = type(sourceInfo) == "table"
+            and SafeOptionID(sourceInfo.equipSlot) or nil
+        local sourceIsEquipment = sourceEquipSlot and (sourceCategory == equipEssentialCategory
+            or sourceCategory == equipTrackedCategory)
+        local info = equipmentInfo
+            or (sourceIsEquipment and sourceInfo)
+            or (icon and compat and compat.GetFrameCooldownInfo and compat:GetFrameCooldownInfo(icon))
+            or sourceInfo
+            or (compat and compat:GetCooldownInfo(cooldownID))
+        local nativeCategory = type(info) == "table" and SafeOptionValue(info.category) or nil
+        if equipmentCategory then nativeCategory = equipmentCategory end
+        local equipSlot = type(info) == "table" and SafeOptionID(info.equipSlot) or nil
+        local nativeOverlay = icon and DDingUI.NativeTrinketOverlay
+            and DDingUI.NativeTrinketOverlay:IsOverlayFrame(icon)
+        local hiddenNativeCooldown = DDingUI.NativeTrinketOverlay
+            and DDingUI.NativeTrinketOverlay.ShouldHideCatalogCooldown
+            and DDingUI.NativeTrinketOverlay:ShouldHideCatalogCooldown(cooldownID)
+        if integrateNativeTrinkets and (nativeOverlay or hiddenNativeCooldown) then
+            return
+        end
+
         local existing = entriesByCooldownID[cooldownID]
         if existing then
             if sourceKind == "runtime" then existing.isRuntimeActive = true end
@@ -973,14 +1016,9 @@ local function GetCDMIconEntries(includeTrackedBars)
             end
         end
 
-        local frameSpellID = icon and compat and compat.ResolveFrameSpellID
-            and compat:ResolveFrameSpellID(icon)
-        local info = (icon and compat and compat.GetFrameCooldownInfo and compat:GetFrameCooldownInfo(icon))
-            or sourceInfo
-            or (compat and compat:GetCooldownInfo(cooldownID))
         local spellCandidates = GetCooldownInfoSpellCandidates(info, cooldownID, frameSpellID)
         local iconSpellID = spellCandidates and spellCandidates[1]
-        if not iconSpellID and sourceKind ~= "runtime" then
+        if not iconSpellID and not equipSlot and sourceKind ~= "runtime" then
             return
         end
         local identity = compat and compat.GetCooldownSpellIdentity
@@ -989,7 +1027,24 @@ local function GetCDMIconEntries(includeTrackedBars)
             spellCandidates,
             CDMHookEngine:GetSpellNameForID(cooldownID)
         )
+        local itemID = equipSlot and GetInventoryItemID
+            and SafeOptionID(GetInventoryItemID("player", equipSlot))
+        local itemName = itemID and C_Item and C_Item.GetItemNameByID
+            and SafeOptionValue(C_Item.GetItemNameByID(itemID))
+        if itemName and (nativeCategory == equipEssentialCategory
+            or not spellName or spellName == "Unknown")
+        then
+            spellName = itemName
+        end
         local resolvedIcon = tex
+        local itemTexture = itemID and C_Item and C_Item.GetItemIconByID
+            and SafeOptionValue(C_Item.GetItemIconByID(itemID))
+        if not itemTexture and equipSlot and GetInventoryItemTexture then
+            itemTexture = SafeOptionValue(GetInventoryItemTexture("player", equipSlot))
+        end
+        if itemTexture and nativeCategory == equipEssentialCategory then
+            resolvedIcon = itemTexture
+        end
         if not resolvedIcon then
             for _, candidateSpellID in ipairs(spellCandidates or {}) do
                 local candidateTexture = SafeOptionSpellTexture(candidateSpellID)
@@ -999,6 +1054,7 @@ local function GetCDMIconEntries(includeTrackedBars)
                 end
             end
         end
+        if not resolvedIcon then resolvedIcon = itemTexture end
         tex = resolvedIcon or ResolveSpellTextureFromCandidates(spellCandidates, tex)
 
         local isTrackedBar = viewerName == "BuffBarCooldownViewer"
@@ -1024,6 +1080,14 @@ local function GetCDMIconEntries(includeTrackedBars)
             isTrackedBar = isTrackedBar,
             viewerName = viewerName,
             layoutIndex = layoutIndex or (#result + 1),
+            nativeCategory = nativeCategory,
+            nativeCategoryName = nativeCategory == equipEssentialCategory and "EquipSlotEssential"
+                or nativeCategory == equipTrackedCategory and "EquipSlotTracked"
+                or nil,
+            equipSlot = equipSlot,
+            itemID = itemID,
+            isEquipmentCooldown = equipSlot ~= nil and nativeCategory == equipEssentialCategory,
+            isEquipmentTracked = equipSlot ~= nil and nativeCategory == equipTrackedCategory,
             catalogReady = spellName ~= "Unknown" and resolvedIcon ~= nil,
             isRuntimeActive = sourceKind == "runtime",
             isPoolActive = sourceKind == "pool",
@@ -2485,6 +2549,8 @@ local function BuildAssignedSpellsArgs(groupName)
                 _gridCooldownID = capturedEntry and capturedEntry.cooldownID,
                 _gridSpellID = ResolveEntrySpellID(capturedEntry, capturedSpell),
                 _gridSpellName = capturedSpell,
+                _gridItemID = capturedEntry and capturedEntry.itemID,
+                _gridSlotID = capturedEntry and capturedEntry.equipSlot,
                 _gridViewerType = capturedViewerType,
                 _gridGroupName = groupName,
                 _dragData = {
@@ -3319,7 +3385,58 @@ function DDingUI:GroupHasTrinketEffect(groupName, effectKey)
     return false
 end
 
+function DDingUI:GetNativeTrinketEffectSlot(itemID)
+    itemID = SafeOptionID(itemID)
+    local overlay = self.NativeTrinketOverlay
+    if not itemID or not overlay or not overlay.HasNativeEffectForSlot then return nil end
+    for _, slotID in ipairs({ 13, 14 }) do
+        local equippedItemID = GetInventoryItemID
+            and SafeOptionID(GetInventoryItemID("player", slotID))
+        if equippedItemID == itemID and overlay:HasNativeEffectForSlot(slotID) then
+            return slotID
+        end
+    end
+    return nil
+end
+
 function DDingUI:AddTrinketEffectsToGroup(groupName, itemID)
+    local nativeSlotID = self:GetNativeTrinketEffectSlot(itemID)
+    if nativeSlotID then
+        local sourceKey = EnsureSourceGroup(groupName)
+        local dynDB = self.db and self.db.profile and self.db.profile.dynamicIcons
+        local sourceGroup = sourceKey and dynDB and dynDB.groups and dynDB.groups[sourceKey]
+        local existingProc
+        for _, iconKey in ipairs((sourceGroup and sourceGroup.icons) or {}) do
+            local iconData = dynDB.iconData and dynDB.iconData[iconKey]
+            if iconData then
+                local iconType = iconData.type
+                local matchesSlot = iconType == "slot"
+                    and SafeOptionID(iconData.slotID) == nativeSlotID
+                local matchesItem = iconType == "item"
+                    and SafeOptionID(iconData.id) == SafeOptionID(itemID)
+                if matchesSlot or matchesItem then
+                    iconData.settings = iconData.settings or {}
+                    if iconData.settings.trackTrinketEffect == true then
+                        return false
+                    end
+                    iconData.settings.trackTrinketEffect = true
+                    ScheduleDynamicIconRefresh(iconKey)
+                    return true
+                end
+                if iconType == "trinketProc"
+                    and SafeOptionID(iconData.slotID) == nativeSlotID
+                then
+                    existingProc = true
+                end
+            end
+        end
+        if existingProc then return false end
+        return AddDynamicPayloadToGroup(groupName, {
+            type = "trinketProc",
+            slotID = nativeSlotID,
+        })
+    end
+
     local registry = DDingUI.TrinketEffects
     if not registry or not registry.BuildAuraPayloads then return false end
     local changed = false
@@ -3335,8 +3452,11 @@ end
 function DDingUI:BuildTrinketEffectGroupMenu(opt, refreshFunc)
     local itemID = self:ResolveGridTrinketItemID(opt)
     local registry = DDingUI.TrinketEffects
-    if not itemID or not registry or not registry.GetEffectsForItem then return nil end
-    if #(registry:GetEffectsForItem(itemID) or {}) == 0 then return nil end
+    if not itemID then return nil end
+    local nativeSlotID = self:GetNativeTrinketEffectSlot(itemID)
+    local hasLegacyEffect = registry and registry.GetEffectsForItem
+        and #(registry:GetEffectsForItem(itemID) or {}) > 0
+    if not nativeSlotID and not hasLegacyEffect then return nil end
 
     local gs = GetGS()
     local groups = {}
@@ -3378,9 +3498,10 @@ function DDingUI:SetGridTrinketEffectTracked(opt, enabled)
 
     local itemID = self:ResolveGridTrinketItemID(opt)
     local registry = DDingUI.TrinketEffects
-    if not itemID or not registry or not registry.GetEffectsForItem
-        or #(registry:GetEffectsForItem(itemID) or {}) == 0
-    then
+    local hasNativeEffect = itemID and self:GetNativeTrinketEffectSlot(itemID) ~= nil
+    local hasLegacyEffect = itemID and registry and registry.GetEffectsForItem
+        and #(registry:GetEffectsForItem(itemID) or {}) > 0
+    if not itemID or (not hasNativeEffect and not hasLegacyEffect) then
         return false
     end
 
@@ -3444,9 +3565,11 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
         local function AddTrinketBuff(slotID, labelKey, fallbackLabel)
             local itemID = SafeOptionID(GetInventoryItemID("player", slotID))
             local registry = DDingUI.TrinketEffects
-            if not itemID or not registry or not registry.GetEffectsForItem
-                or #(registry:GetEffectsForItem(itemID) or {}) == 0
-            then
+            local hasNativeEffect = itemID
+                and DDingUI:GetNativeTrinketEffectSlot(itemID) ~= nil
+            local hasLegacyEffect = itemID and registry and registry.GetEffectsForItem
+                and #(registry:GetEffectsForItem(itemID) or {}) > 0
+            if not itemID or (not hasNativeEffect and not hasLegacyEffect) then
                 return
             end
             local itemName
@@ -4675,8 +4798,11 @@ function DDingUI:BuildAssignedIconLinkedEffectItems(groupName, opt, refreshFunc)
         and (opt._gridDynamicIconType == "slot" or opt._gridDynamicIconType == "item")
     local itemID = self:ResolveGridTrinketItemID(opt)
     local registry = self.TrinketEffects
-    local hasRegisteredEffect = itemID and registry and registry.GetEffectsForItem
-        and #(registry:GetEffectsForItem(itemID) or {}) > 0
+    local hasRegisteredEffect = itemID and (
+        self:GetNativeTrinketEffectSlot(itemID) ~= nil
+        or (registry and registry.GetEffectsForItem
+            and #(registry:GetEffectsForItem(itemID) or {}) > 0)
+    )
 
     if attachToExistingIcon and hasRegisteredEffect then
         local tracked = self:IsGridTrinketEffectTracked(opt)

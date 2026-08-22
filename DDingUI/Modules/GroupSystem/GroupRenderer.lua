@@ -1301,6 +1301,17 @@ local function ShouldKeepDynamicIconInCombat(icon)
 
     if iconData.type == "trinketProc" then
         local settings = iconData.settings or {}
+        local nativeOverlay = DDingUI.NativeTrinketOverlay
+        if nativeOverlay and nativeOverlay.OwnsBaseFrame
+            and nativeOverlay:OwnsBaseFrame(icon, iconData.slotID)
+        then
+            if settings.showItemCooldown ~= false and iconData.slotID
+                and GetInventoryItemID("player", iconData.slotID)
+            then
+                return true
+            end
+            return nativeOverlay:IsSlotEffectActive(iconData.slotID)
+        end
         if settings.showItemCooldown ~= false and iconData.slotID and GetInventoryItemID("player", iconData.slotID) then
             return true
         end
@@ -2695,16 +2706,25 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
 
     for _, icon in pairs(frame._managedIcons) do
         if icon and not newSet[icon] and icon._ddContainerRef == frame then
-            GroupRenderer:StartIconExitTransition(icon, frame, groupSettings)
-            StopIconMotion(icon)
-            icon._ddTransitionHidden = true
-            SetManagedIconLayoutVisible(icon, false)
-            SetDynamicIconInactiveGray(icon, false)
-            icon._ddInactivePlaceholder = nil
+            local isNativeTrinketOverlay = icon._ddNativeTrinketOverlay == true
+            if isNativeTrinketOverlay then
+                StopIconMotion(icon)
+                icon._ddTransitionHidden = nil
+                icon._ddLayoutVisible = nil
+            else
+                GroupRenderer:StartIconExitTransition(icon, frame, groupSettings)
+                StopIconMotion(icon)
+                icon._ddTransitionHidden = true
+                SetManagedIconLayoutVisible(icon, false)
+                SetDynamicIconInactiveGray(icon, false)
+                icon._ddInactivePlaceholder = nil
+            end
             local cleanupCooldownID = CDMCompat and CDMCompat:GetFrameCooldownID(icon)
                 or SafeTokenValue(icon._ddLastCooldownID)
             GRLog("cleanup:", tostring(cleanupCooldownID), "dyn=" .. tostring(icon._ddIconKey ~= nil), "shown=" .. tostring(icon:IsShown()), "alpha=" .. string.format("%.2f", icon:GetAlpha()))
-            if icon._ddIsPlaceholder then
+            if isNativeTrinketOverlay then
+                -- Placement is transferred directly to its paired trinket icon below.
+            elseif icon._ddIsPlaceholder then
                 if placeholders then placeholders:DeactivateFrame(icon) end
             elseif icon._ddIconKey then
                 -- 동적 아이콘: DDingUI가 소유 → 직접 Hide + Release
@@ -3119,6 +3139,10 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
         end
     end
     if auraEngine then auraEngine:MarkAnchor(groupName) end
+    local nativeTrinketOverlay = DDingUI.NativeTrinketOverlay
+    if nativeTrinketOverlay and nativeTrinketOverlay.ApplyAll then
+        nativeTrinketOverlay:ApplyAll()
+    end
 end
 
 -- ============================================================

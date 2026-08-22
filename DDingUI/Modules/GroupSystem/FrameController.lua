@@ -987,6 +987,10 @@ function FrameController:ScanCDMViewers()
 
     FrameRegistry:Refresh(viewerRefs)
     FrameController._diagCounters.registryScans = FrameController._diagCounters.registryScans + 1
+    local nativeTrinketOverlay = DDingUI.NativeTrinketOverlay
+    if nativeTrinketOverlay and nativeTrinketOverlay.RefreshPairs then
+        nativeTrinketOverlay:RefreshPairs(FrameRegistry)
+    end
 
     local previousCount = 0
     for _ in pairs(idIconMap) do previousCount = previousCount + 1 end
@@ -1067,6 +1071,9 @@ function FrameController:ScanCDMViewers()
                         end
                     end
                     local shouldInclude = ShouldIncludeCooldownViewerFrame(icon, globalName)
+                    if nativeTrinketOverlay and nativeTrinketOverlay:IsOverlayFrame(icon) then
+                        shouldInclude = false
+                    end
                     if globalName == "BuffIconCooldownViewer" then
                         if shouldInclude and sourceShown then
                             RestoreStaleBuffFrame(icon)

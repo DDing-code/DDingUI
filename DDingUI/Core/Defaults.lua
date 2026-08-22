@@ -725,6 +725,7 @@ local defaults = {
             enabled = true, -- 기본 활성 (CDM 아이콘을 그룹으로 관리, 편집모드에서 위치 조정 가능)
             autoClassify = true, -- [REPARENT] true: 뷰어별 자동 분류 (Essential/Buffs/Utility)
             hideDefaultViewers = true, -- enabled일 때 WoW 기본 뷰어 숨김
+            integrateNativeTrinketEffects = true,
             groups = {
                 -- [REPARENT] 뷰어별 3개 기본 그룹 — FrameController CDM_VIEWERS.defaultGroup과 매칭
                 ["Cooldowns"] = {

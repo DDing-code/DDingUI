@@ -185,6 +185,12 @@ function TrinketEffects:GetEffectsForItem(itemID)
 end
 
 function TrinketEffects:GetActiveEffectForItem(itemID)
+    local nativeOverlay = DDingUI.NativeTrinketOverlay
+    if nativeOverlay and nativeOverlay.HasNativeEffectForItem
+        and nativeOverlay:HasNativeEffectForItem(itemID)
+    then
+        return nil
+    end
     local now = GetTime()
     local best
     for _, spec in ipairs(self:GetEffectsForItem(itemID) or {}) do
@@ -209,6 +215,12 @@ function TrinketEffects:GetActiveEffectForItem(itemID)
 end
 
 function TrinketEffects:BuildAuraPayloads(itemID)
+    local nativeOverlay = DDingUI.NativeTrinketOverlay
+    if nativeOverlay and nativeOverlay.HasNativeEffectForItem
+        and nativeOverlay:HasNativeEffectForItem(itemID)
+    then
+        return {}
+    end
     local result = {}
     for _, spec in ipairs(self:GetEffectsForItem(itemID) or {}) do
         local stateID = spec.displaySpellID or spec.spellID
@@ -287,22 +299,47 @@ end
 local function HasTrackedEffectIcons()
     local profile = DDingUI.db and DDingUI.db.profile
     local dynamicIcons = profile and profile.dynamicIcons
+    local nativeOverlay = DDingUI.NativeTrinketOverlay
     for _, iconData in pairs((dynamicIcons and dynamicIcons.iconData) or {}) do
         local settings = iconData and iconData.settings
         if iconData and iconData.type == "trinketProc" then
-            return true
+            local nativeOwned = nativeOverlay and nativeOverlay.HasNativeEffectForSlot
+                and nativeOverlay:HasNativeEffectForSlot(iconData.slotID)
+            if not nativeOwned then return true end
         end
         if settings and (
             settings.trackTrinketEffect == true
             or specsByKey[settings.trinketEffectKey] ~= nil
         ) then
-            return true
+            local slotID = tonumber(iconData.slotID)
+            local itemID = settings.trinketItemID
+                or (iconData.type == "item" and iconData.id)
+                or ((slotID == 13 or slotID == 14)
+                    and GetInventoryItemID("player", slotID))
+            local nativeOwned = nativeOverlay and nativeOverlay.HasNativeEffectForItem
+                and nativeOverlay:HasNativeEffectForItem(itemID)
+            if not nativeOwned then return true end
         end
     end
     return false
 end
 
 function TrinketEffects:RefreshEventRegistration()
+    local nativeOverlay = DDingUI.NativeTrinketOverlay
+    if nativeOverlay and nativeOverlay.HasNativeEffectForItem then
+        local customIcons = DDingUI.CustomIcons
+        for key, state in pairs(states) do
+            local spec = specsByKey[key]
+            if spec and nativeOverlay:HasNativeEffectForItem(spec.itemID) then
+                states[key] = nil
+                local stateID = spec.displaySpellID or spec.spellID or (state and state.triggerSpellID)
+                if stateID and customIcons and customIcons.DeactivateExternalTimedAura then
+                    customIcons:DeactivateExternalTimedAura(stateID)
+                end
+            end
+        end
+    end
+
     local enabled = HasTrackedEffectIcons()
     if enabled == effectEventsRegistered then return end
     effectEventsRegistered = enabled
