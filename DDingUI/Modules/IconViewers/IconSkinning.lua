@@ -488,6 +488,88 @@ local function SafeColor(c, fallbackR, fallbackG, fallbackB, fallbackA)
     return fallbackR or 0, fallbackG or 0, fallbackB or 0, fallbackA or 1
 end
 
+local function ApplyCountdownTextStyle(icon, cooldown, settings, useDurationText)
+    if not (icon and cooldown and settings) then return end
+
+    local anchor
+    local offsetX
+    local offsetY
+    local fontName
+    local fontSize
+    local fontColor
+    local hidden
+    if useDurationText then
+        anchor = settings.durationTextAnchor or settings.cooldownTextAnchor or "CENTER"
+        offsetX = settings.durationTextOffsetX or settings.cooldownTextOffsetX or 0
+        offsetY = settings.durationTextOffsetY or settings.cooldownTextOffsetY or 0
+        fontName = settings.durationTextFont or settings.cooldownFont
+        fontSize = settings.durationTextSize or settings.cooldownFontSize or 14
+        fontColor = settings.durationTextColor or settings.cooldownTextColor
+        hidden = settings.hideDurationText == true
+    else
+        anchor = settings.cooldownTextAnchor or "CENTER"
+        offsetX = settings.cooldownTextOffsetX or 0
+        offsetY = settings.cooldownTextOffsetY or 0
+        fontName = settings.cooldownFont
+        fontSize = settings.cooldownFontSize or 14
+        fontColor = settings.cooldownTextColor
+        hidden = settings.hideCooldownText == true
+    end
+
+    if anchor == "MIDDLE" then anchor = "CENTER" end
+    fontSize = tonumber(fontSize) or 14
+    local fontPath = DDingUI:GetFont(fontName)
+    if fontPath and fontSize > 0 and cooldown.SetCountdownFont then
+        pcall(cooldown.SetCountdownFont, cooldown, fontPath, fontSize, "OUTLINE")
+    end
+
+    if cooldown.SetHideCountdownNumbers then
+        cooldown:SetHideCountdownNumbers(hidden)
+    end
+    cooldown.noCooldownCount = hidden and true or nil
+
+    local cdd = GetCdData(cooldown)
+    cdd._cachedFontStrings = cdd._cachedFontStrings or {}
+    cdd._cachedFontStringSet = cdd._cachedFontStringSet or setmetatable({}, { __mode = "k" })
+    cdd._countdownVisibilityHooks = cdd._countdownVisibilityHooks or setmetatable({}, { __mode = "k" })
+
+    local ok, regions = pcall(function()
+        return { cooldown:GetRegions() }
+    end)
+    if ok and type(regions) == "table" then
+        for _, region in ipairs(regions) do
+            if region:GetObjectType() == "FontString" and not cdd._cachedFontStringSet[region] then
+                cdd._cachedFontStringSet[region] = true
+                cdd._cachedFontStrings[#cdd._cachedFontStrings + 1] = region
+            end
+        end
+    end
+
+    for _, region in ipairs(cdd._cachedFontStrings) do
+        if not cdd._countdownVisibilityHooks[region] then
+            cdd._countdownVisibilityHooks[region] = true
+            hooksecurefunc(region, "Show", function(self)
+                local parent = self:GetParent()
+                if parent and parent.noCooldownCount then self:Hide() end
+            end)
+        end
+
+        if hidden then
+            region:Hide()
+        else
+            region:Show()
+            region:ClearAllPoints()
+            region:SetPoint(anchor, cooldown, anchor, offsetX, offsetY)
+            if fontPath and fontSize > 0 then
+                region:SetFont(fontPath, fontSize, "OUTLINE")
+            end
+            if fontColor then
+                region:SetTextColor(SafeColor(fontColor, 1, 1, 1, 1))
+            end
+        end
+    end
+end
+
 local function ReconcileAuraVisualSettings(icon, cooldown, cdd, settings)
     local pid = iconData[icon]
     if not pid then return end
@@ -842,28 +924,7 @@ function IconViewers:SkinIcon(icon, settings)
                 -- [PERF] 상태 변경 없으면 heavy 로직 전부 스킵 (매 프레임 → 전환 시에만)
                 if isAuraSwipe == prevAura and not (isAuraSwipe and s and s.auraGlow and not pid.auraGlowActive) then return end
 
-                -- Duration and cooldown countdowns have independent visibility.
-                local hideCountdownText = isAuraSwipe
-                    and s.hideDurationText == true
-                    or (not isAuraSwipe and s.hideCooldownText == true)
-                -- [PERF] FontString 캐시: GetRegions() 임시 테이블 생성 방지
-                if not cd._cachedFontStrings then
-                    cd._cachedFontStrings = {}
-                    for _, region in ipairs({ self:GetRegions() }) do
-                        if region:GetObjectType() == "FontString" and not region.hookedHideText then
-                            cd._cachedFontStrings[#cd._cachedFontStrings + 1] = region
-                        end
-                    end
-                end
-                if hideCountdownText then
-                    if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(true) end
-                    self.noCooldownCount = true
-                    for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Hide() end
-                else
-                    if self.SetHideCountdownNumbers then self:SetHideCountdownNumbers(false) end
-                    self.noCooldownCount = nil
-                    for i = 1, #cd._cachedFontStrings do cd._cachedFontStrings[i]:Show() end
-                end
+                ApplyCountdownTextStyle(parentIcon, self, s, isAuraSwipe and s.hideActiveState ~= true)
 
 
                 if isAuraSwipe and s then
@@ -1203,66 +1264,10 @@ function IconViewers:SkinIcon(icon, settings)
             end
         end
 
-        -- Position cooldown text (countdown timer) -- [12.0.1] cooldownTextAnchor/Offset 추가
-        local cdAnchor = settings.durationTextAnchor or settings.cooldownTextAnchor
-
-        -- Hide Duration Text initial state
         local pid = GetIconData(icon)
-        local hideCountdownText = pid.isAuraSwipe
-            and settings.hideDurationText == true
-            or (not pid.isAuraSwipe and settings.hideCooldownText == true)
-        if hideCountdownText then
-            if icon.Cooldown.SetHideCountdownNumbers then
-                icon.Cooldown:SetHideCountdownNumbers(true)
-            end
-            icon.Cooldown.noCooldownCount = true
-        else
-            if icon.Cooldown.SetHideCountdownNumbers then
-                icon.Cooldown:SetHideCountdownNumbers(false)
-            end
-            icon.Cooldown.noCooldownCount = nil
-        end
-
-        if cdAnchor then
-            if cdAnchor == "MIDDLE" then cdAnchor = "CENTER" end
-            local cdOffsetX = settings.durationTextOffsetX or settings.cooldownTextOffsetX or 0
-            local cdOffsetY = settings.durationTextOffsetY or settings.cooldownTextOffsetY or 0
-
-            for _, region in ipairs({ icon.Cooldown:GetRegions() }) do
-                if region:GetObjectType() == "FontString" then
-                    if hideCountdownText then
-                        region:Hide()
-                        -- Prevent region from showing
-                        if not region.hookedHideText then
-                            region.hookedHideText = true
-                            hooksecurefunc(region, "Show", function(self)
-                                if IsCooldownViewerSettingsOpen() then return end
-                                local cd = self:GetParent()
-                                if cd and cd.noCooldownCount then
-                                    self:Hide()
-                                end
-                            end)
-                        end
-                    else
-                        region:Show()
-                        region:ClearAllPoints()
-                        region:SetPoint(cdAnchor, icon.Cooldown, cdAnchor, cdOffsetX, cdOffsetY)
-                        -- [12.0.1] Duration text font/size/color for BuffIconCooldownViewer
-                        if settings.durationTextFont or settings.durationTextSize or settings.durationTextColor then
-                            local dtSize = settings.durationTextSize or 14
-                            local dtFont = DDingUI:GetFont(settings.durationTextFont)
-                            region:SetFont(dtFont, dtSize, "OUTLINE")
-                            local dtColor = settings.durationTextColor
-                            if dtColor then
-                                local dr, dg, db, da = SafeColor(dtColor, 1, 1, 1, 1)
-                                region:SetTextColor(dr, dg, db, da)
-                            end
-                        end
-                    end
-                    break
-                end
-            end
-        end
+        local hasAuraState = pid.isAuraSwipe == true or IconHasAuraState(icon, icon.Cooldown)
+        pid.isAuraSwipe = hasAuraState
+        ApplyCountdownTextStyle(icon, icon.Cooldown, settings, hasAuraState and settings.hideActiveState ~= true)
     end
 
     -- Pandemic icon
