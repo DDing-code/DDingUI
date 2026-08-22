@@ -6,25 +6,47 @@ Release date: 2026-08-22
 
 ## English
 
-- Added a one-time update notice for existing installations, with direct settings links for newly added modules that remain disabled by default.
-- Added Premade Group Filter with seasonal dungeon selection, group-composition and Bloodlust-fit checks, leader score display, sorting, specialization icons, and Raider.IO-aware panel placement.
-- Added Preservation Evoker Stasis Tracker and a dedicated Class Features section with class-colored module titles.
-- Added Bloodlust Timer with active and exhaustion tracking plus detailed icon, bar, text, glow, TGA animation, and sound controls.
-- Added Ready Check Assistant and configurable combat start/end alerts with simple and animated visual modes.
-- Added Toolkit profile-code export and import, while excluding saved memo contents from shared codes.
-- Expanded item-level display switches, role-specific character-position marker controls, Notepad list scrolling, and WoW 12.1 exhaustion tracking in Party Tracker.
-- Improved 12.1 secret-value and taint handling for Target Spell and inspection, stabilized Target Spell icon placement, corrected the Bloodlust cooldown swipe, and removed the retired Buff Reminder from the active load path.
+### New Modules
+
+- **Premade Group Filter:** Added seasonal dungeon selection, role-slot, tank, healer, and Bloodlust-fit filters, leader rating and best-key requirements, sorting, specialization icons, and leader score display.
+- **Stasis Tracker:** Added three stored-spell slots, question-mark empty icons, release-window tracking, and options for size, spacing, fonts, timer, and individual colors.
+- **Bloodlust Timer:** Added active and exhaustion tracking with icon, bar, cooldown swipe, time-text format and order, colors, glow, TGA animation, start music, and start, end, and ready sounds.
+- **Ready Check Assistant:** Added specialization, talent loadout, and durability checks with threshold, reporting, button, size, anchor, and placement options.
+- **Combat Start/End Alert:** Added simple and animated modes with separate start and end text, detailed color palettes, size, position, frame priority, animation, and sound options.
+
+### Option Changes
+
+- Added a dedicated Class Features category with class-colored module titles.
+- Added account-wide, one-time new-module notices with direct settings links. New modules remain disabled for existing profiles until enabled manually.
+- Added Toolkit profile-code export and import. Saved Notepad contents are excluded from exported codes.
+- Added separate self and inspect switches to Item Level, plus melee, ranged, tank, and healer display switches to Character Position Marker.
+- Added Notepad list scrolling and updated Party Tracker's Bloodlust exhaustion tracking for WoW 12.1.
+
+### Fixes
+
+- Stabilized Target Spell icon placement, corrected the Bloodlust Timer cooldown swipe, and improved inspection reliability under WoW 12.1 restrictions.
 
 ## 한국어
 
-- 기존 설치본에 한 번만 표시되는 업데이트 안내를 추가하고, 기본 비활성 상태인 신규 모듈의 설정으로 바로 이동할 수 있게 했습니다.
-- 시즌 던전 선택, 파티 구성과 블러드 적합 여부, 파티장 점수, 정렬, 전문화 아이콘 및 Raider.IO 패널 위치 대응을 포함한 파티 검색 필터를 추가했습니다.
-- 보존 기원사 정지장 트래커와 직업색 모듈 제목을 사용하는 직업별 특수 기능 분류를 추가했습니다.
-- 블러드 지속시간과 소진을 추적하고 아이콘, 막대, 텍스트, 글로우, TGA 애니메이션 및 사운드를 세부 설정할 수 있는 블러드 타이머를 추가했습니다.
-- 준비 확인 도우미와 심플·모션 표현을 선택할 수 있는 전투 시작/종료 알림을 추가했습니다.
-- 메모장 본문을 제외한 Toolkit 프로필 코드를 내보내고 새 프로필로 불러오는 기능을 추가했습니다.
-- 아이템 레벨 표시 범위, 역할별 캐릭터 위치 마커, 메모장 목록 스크롤 및 Party Tracker의 WoW 12.1 소진 추적 설정을 보완했습니다.
-- 타겟 스펠과 살펴보기의 12.1 보안값 및 오염 대응을 강화하고, 타겟 스펠 아이콘 위치와 블러드 쿨다운 스와이프를 보정했으며, 더 이상 사용하지 않는 강화효과 알림을 활성 로드 경로에서 제거했습니다.
+### 신규 모듈
+
+- **파티 검색 필터:** 시즌 던전 선택, 역할 자리, 탱커, 힐러, 블러드 적합 필터와 파티장 점수·최고 단수 조건, 정렬, 전문화 아이콘 및 파티장 점수 표시를 추가했습니다.
+- **정지장 트래커:** 저장 주문 3칸, 미저장 칸 물음표 아이콘, 방출 제한시간 추적과 크기, 간격, 글꼴, 타이머 및 개별 색상 옵션을 추가했습니다.
+- **블러드 타이머:** 블러드 지속시간과 소진 추적, 아이콘, 막대, 쿨다운 스와이프, 시간 텍스트 형식·순서, 색상, 글로우, TGA 애니메이션, 시작 음악 및 시작·종료·준비 완료 효과음 옵션을 추가했습니다.
+- **준비 확인 도우미:** 전문화, 특성 불러오기와 내구도 점검 및 기준값, 파티 알림, 버튼, 크기, 기준 방향과 위치 옵션을 추가했습니다.
+- **전투 시작/종료 알림:** 심플·모션 표현과 시작·종료 문구, 세부 색상, 크기, 위치, 표시 우선순위, 애니메이션 및 사운드 옵션을 추가했습니다.
+
+### 옵션 변경
+
+- 직업색 모듈 제목을 사용하는 직업별 특수 기능 분류를 추가했습니다.
+- 계정당 한 번 표시되는 신규 모듈 안내와 설정 바로가기를 추가했습니다. 기존 프로필의 신규 모듈은 직접 활성화하기 전까지 꺼진 상태를 유지합니다.
+- Toolkit 프로필 코드 내보내기·불러오기를 추가했습니다. 메모장 본문은 내보내기 코드에서 제외됩니다.
+- 아이템 레벨에 내 캐릭터·살펴보기 개별 활성 옵션을, 캐릭터 위치 마커에 근딜·원딜·탱커·힐러 개별 표시 옵션을 추가했습니다.
+- 메모장 목록 스크롤을 추가하고 Party Tracker의 WoW 12.1 블러드 소진 추적을 갱신했습니다.
+
+### 수정 사항
+
+- 타겟 스펠 아이콘 위치를 안정화하고 블러드 타이머 쿨다운 스와이프 방향과 WoW 12.1 살펴보기 동작을 보정했습니다.
 
 ## 2.1
 
