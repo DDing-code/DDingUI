@@ -105,12 +105,12 @@ function PP.SetOutside(obj, anchor, xOff, yOff)
 end
 
 --- WoW 내장 픽셀 스냅 비활성화
---- SetColorTexture() 호출 시 WoW가 스냅을 재활성화하므로
---- PixelSnapDisabled 플래그로 중복 호출 방지 + 색 변경 후 재호출 필요
+--- SetColorTexture() 호출 시 WoW가 스냅을 재활성화할 수 있으므로
+--- 호출할 때마다 적용한다. Blizzard 리전에 사용자 필드를 쓰지 않는다.
 --- StatusBar의 내부 텍스처도 처리
 --- @param obj Region  텍스처/프레임/상태바
 function PP.DisablePixelSnap(obj)
-    if not obj or obj.PixelSnapDisabled then return end
+    if not obj then return end
     if obj.SetSnapToPixelGrid then
         obj:SetSnapToPixelGrid(false)
         obj:SetTexelSnappingBias(0)
@@ -121,7 +121,6 @@ function PP.DisablePixelSnap(obj)
             tex:SetTexelSnappingBias(0)
         end
     end
-    obj.PixelSnapDisabled = true
 end
 
 --- 4-edge 텍스처 보더 생성 (Backdrop 미사용, 물리 1px)
@@ -163,8 +162,6 @@ function PP.CreateBorder(frame, r, g, b, a)
     function brd:SetColor(cr, cg, cb, ca)
         for i = 1, 4 do
             self[i]:SetColorTexture(cr, cg, cb, ca or 1)
-            -- SetColorTexture 후 PixelSnap 플래그 리셋 필요
-            self[i].PixelSnapDisabled = nil
             PP.DisablePixelSnap(self[i])
         end
     end
@@ -291,7 +288,6 @@ function PanelPP.CreateBorder(frame, r, g, b, a)
     function brd:SetColor(cr, cg, cb, ca)
         for i = 1, 4 do
             self[i]:SetColorTexture(cr, cg, cb, ca or 1)
-            self[i].PixelSnapDisabled = nil
             PP.DisablePixelSnap(self[i])
         end
     end

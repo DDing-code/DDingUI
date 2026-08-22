@@ -325,34 +325,20 @@ local function CanAccessFrame(frame)
 	return true
 end
 
-local function WatchPixelSnap(frame, snap)
-	if not CanAccessFrame(frame) then
-		return
-	end
-
-	if frame.PixelSnapDisabled and snap then
-		frame.PixelSnapDisabled = nil
-	end
-end
-
 local function DisablePixelSnap(frame)
 	if not CanAccessFrame(frame) then
 		return
 	end
 
-	if not frame.PixelSnapDisabled then
-		if frame.SetSnapToPixelGrid then
-			frame:SetSnapToPixelGrid(false)
-			frame:SetTexelSnappingBias(0)
-		elseif frame.GetStatusBarTexture then
-			local texture = frame:GetStatusBarTexture()
-			if type(texture) == 'table' and texture.SetSnapToPixelGrid then
-				texture:SetSnapToPixelGrid(false)
-				texture:SetTexelSnappingBias(0)
-			end
+	if frame.SetSnapToPixelGrid then
+		frame:SetSnapToPixelGrid(false)
+		frame:SetTexelSnappingBias(0)
+	elseif frame.GetStatusBarTexture then
+		local texture = frame:GetStatusBarTexture()
+		if type(texture) == 'table' and texture.SetSnapToPixelGrid then
+			texture:SetSnapToPixelGrid(false)
+			texture:SetTexelSnappingBias(0)
 		end
-
-		frame.PixelSnapDisabled = true
 	end
 end
 
@@ -489,17 +475,9 @@ local function AddAPI(object)
 		end
 	end
 
-	if not object.DisabledPixelSnap and (mk.SetSnapToPixelGrid or mk.SetStatusBarTexture or mk.SetColorTexture or mk.SetVertexColor or mk.CreateTexture or mk.SetTexCoord or mk.SetTexture) then
-		if mk.SetSnapToPixelGrid then hooksecurefunc(mk, 'SetSnapToPixelGrid', WatchPixelSnap) end
-		if mk.SetStatusBarTexture then hooksecurefunc(mk, 'SetStatusBarTexture', DisablePixelSnap) end
-		if mk.SetColorTexture then hooksecurefunc(mk, 'SetColorTexture', DisablePixelSnap) end
-		if mk.SetVertexColor then hooksecurefunc(mk, 'SetVertexColor', DisablePixelSnap) end
-		if mk.CreateTexture then hooksecurefunc(mk, 'CreateTexture', DisablePixelSnap) end
-		if mk.SetTexCoord then hooksecurefunc(mk, 'SetTexCoord', DisablePixelSnap) end
-		if mk.SetTexture then hooksecurefunc(mk, 'SetTexture', DisablePixelSnap) end
-
-		mk.DisabledPixelSnap = true
-	end
+	-- Never hook shared widget metatables here. Blizzard action buttons use the
+	-- same methods, so a global post-hook contaminates their protected state.
+	-- DDingUI-owned regions opt in through SetInside/SetOutside instead.
 end
 
 local handled = { Frame = true }
@@ -548,4 +526,3 @@ if C_CurveUtil and C_CurveUtil.CreateCurve then
     DDingUI._GCDFilterCurve:AddPoint(0, 0)
     DDingUI._GCDFilterCurve:AddPoint(1.6, 1)
 end
-
