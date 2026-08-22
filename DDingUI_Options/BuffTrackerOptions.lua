@@ -2547,7 +2547,20 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] then
-                trackedBuffs[index].displayType = val
+                local buff = trackedBuffs[index]
+                buff.displayType = val
+                if val == "trigger" then
+                    buff.settings = buff.settings or {}
+                    local alerts = buff.settings.alerts
+                    if type(alerts) ~= "table" then
+                        alerts = { triggerLogic = "or", triggers = {}, actions = {} }
+                        buff.settings.alerts = alerts
+                    end
+                    alerts.triggers = type(alerts.triggers) == "table" and alerts.triggers or {}
+                    alerts.actions = type(alerts.actions) == "table" and alerts.actions or {}
+                    alerts.enabled = true
+                    buff.settings.hideWhenZero = false
+                end
                 DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()
             end
@@ -6661,7 +6674,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         name = "\n|cff88ccff" .. (L["Actions"] or "Actions") .. "|r",
         order = orderBase + 8.45,
         width = "full",
-        hidden = hiddenIfAlertsOff,
+        hidden = hiddenIfSoundMode,
     }
 
     -- Action type display names
@@ -6677,7 +6690,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         local actOrderBase = orderBase + 8.50 + (actIdx - 1) * 0.08
 
         local function hiddenIfActionNotExists()
-            if hiddenIfAlertsOff() then return true end
+            if hiddenIfSoundMode() then return true end
             local buff = GetTrackedBuff(index)
             local actions = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions
             return not actions or not actions[actIdx]
@@ -7204,7 +7217,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         order = orderBase + 8.90,
         width = 0.6,
         hidden = function()
-            if hiddenIfAlertsOff() then return true end
+            if hiddenIfSoundMode() then return true end
             local buff = GetTrackedBuff(index)
             local actions = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions or {}
             return #actions >= MAX_ALERT_ACTIONS
@@ -7212,6 +7225,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         func = function()
             local alerts = EnsureAlerts(index)
             if alerts then
+                alerts.enabled = true
                 local buff = GetTrackedBuff(index)
                 local colorTarget = buff and buff.displayType == "icon" and "icon" or "self"
                 table.insert(alerts.actions, {

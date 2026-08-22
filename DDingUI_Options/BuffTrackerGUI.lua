@@ -100,13 +100,13 @@ local function GetTrackerOptionCategory(key, order)
     if normalized:find("_alertactionsheader", 1, true)
         or normalized:find("_alertaction", 1, true)
         or normalized:find("_alertaddaction", 1, true)
+        or normalized:find("_alertenabled", 1, true)
     then
         return "actions"
     end
 
     if normalized:find("_activation", 1, true)
         or normalized:find("_alertheader", 1, true)
-        or normalized:find("_alertenabled", 1, true)
         or normalized:find("_alerttrigger", 1, true)
         or normalized:find("_alertaddtrigger", 1, true)
         or normalized:find("_soundtrigger", 1, true)
@@ -391,7 +391,15 @@ function ModernTrackerEditor:CreateStandardWidget(parent, key, option, yOffset, 
     local widget
     local height
 
-    if clean.type == "toggle" then
+    if clean.type == "group" then
+        local groupArgs = type(clean.args) == "table" and clean.args or {}
+        yOffset = self:CreateSection(parent, yOffset, label)
+        for _, item in ipairs(self:GetSortedOptions(groupArgs, {})) do
+            local childKey = key .. "." .. item.key
+            yOffset = self:CreateStandardWidget(parent, childKey, item.option, yOffset, context)
+        end
+        return yOffset + 4
+    elseif clean.type == "toggle" then
         widget = Widgets.CreateToggle(parent, clean, yOffset, {})
         self:StyleToggleAsSwitch(widget)
         height = 34
