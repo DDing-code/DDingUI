@@ -3,13 +3,15 @@
 ## Notes: Modular utility addon (Talent Background, LFG Alert, etc.)
 ## Notes-koKR: 모듈형 유틸리티 애드온 (특성창 배경, 파티 신청 알림 등)
 ## Author: DDing
-## Version: 2.1
+## Version: 2.1.2
 ## IconTexture: Interface\AddOns\DDingUI_Toolkit\logo
 ## SavedVariables: DDingUIToolkitDB
 ## OptionalDeps: DDingUI_Controller, BigWigs
 
 # Libraries
 Libs\LibStub\LibStub.lua
+Libs\LibDeflate\LibDeflate.lua
+Libs\AceSerializer-3.0\AceSerializer-3.0.xml
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
@@ -64,6 +66,7 @@ UI\Dropdown.lua
 UI\Workspace.lua
 UI\HomePanels.lua
 Config_UI.lua
+UI\NewModulePopup.lua
 
 # UI
 UI\Themes.lua
@@ -77,6 +80,7 @@ Modules\TalentBG\Config.lua
 # Modules - LFGAlert
 Modules\LFGAlert\LFGAlert.lua
 Modules\LFGAlert\AlertFrame.lua
+Modules\PremadeGroupFilter\PremadeGroupFilter.lua
 Modules\PartyFullAlert\PartyFullAlert.lua
 
 # Modules - MailAlert
@@ -116,24 +120,13 @@ Modules\SkyridingTracker\SkyridingTracker.lua
 
 # Modules - Quality of Combat (Absorbed)
 Modules\CombatTimer\CombatTimer.lua
+Modules\CombatStateAlert\CombatStateAlert.lua
 Modules\RaidBreakTimer\RaidBreakTimer.lua
 Modules\CharacterPositionMarker\CharacterPositionMarker.lua
 Modules\RangeDisplay\RangeDisplay.lua
 Modules\CastingAlert\CastingAlert.lua
 Modules\FocusInterrupt\FocusInterrupt.lua
+Modules\StasisTracker\StasisTracker.lua
+Modules\BloodlustTimer\BloodlustTimer.lua
 Modules\PartyTracker\PartyTracker.lua
-
-# Modules - BuffReminder
-Modules\BuffReminder\BuffData.lua
-Modules\BuffReminder\PetData.lua
-Modules\BuffReminder\CombatSafeSpells.lua
-Modules\BuffReminder\ConsumableItems.lua
-Modules\BuffReminder\Beneficiaries.lua
-Modules\BuffReminder\BuffState.lua
-Modules\BuffReminder\BuffMemory.lua
-Modules\BuffReminder\BuffScanner.lua
-Modules\BuffReminder\BR_Glow.lua
-Modules\BuffReminder\SecureButtons.lua
-Modules\BuffReminder\BuffDisplay.lua
-Modules\BuffReminder\BR_Core.lua
-Modules\BuffReminder\BuffReminder.lua
+Modules\ReadyCheckAssistant\ReadyCheckAssistant.lua

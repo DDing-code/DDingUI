@@ -113,6 +113,10 @@ local function Clamp(value, minValue, maxValue)
     return value
 end
 
+local function IsSecret(value)
+    return issecretvalue and issecretvalue(value)
+end
+
 local function Clamp01(value)
     value = tonumber(value) or 0
     if value < 0 then return 0 end
@@ -716,14 +720,46 @@ end
 local function GetCurrentSpecID()
     if not GetSpecialization or not GetSpecializationInfo then return nil end
     local specIndex = GetSpecialization()
-    if not specIndex then return nil end
+    if not specIndex or IsSecret(specIndex) then return nil end
 
-    return GetSpecializationInfo(specIndex)
+    local specID = GetSpecializationInfo(specIndex)
+    if not specID or IsSecret(specID) then return nil end
+    return specID
 end
 
 local function IsMeleeDpsSpec()
     local specID = GetCurrentSpecID()
     return specID and MELEE_DPS_SPEC_IDS[specID] == true
+end
+
+local function GetCurrentRoleCategory()
+    if not GetSpecialization then return nil end
+    local specIndex = GetSpecialization()
+    if not specIndex or IsSecret(specIndex) then return nil end
+
+    local role
+    if GetSpecializationRole then
+        role = GetSpecializationRole(specIndex)
+    end
+    if IsSecret(role) then return nil end
+    if (not role or role == "NONE") and GetSpecializationInfo then
+        role = select(5, GetSpecializationInfo(specIndex))
+    end
+    if not role or IsSecret(role) then return nil end
+
+    if role == "TANK" then return "TANK" end
+    if role == "HEALER" then return "HEALER" end
+    if role ~= "DAMAGER" then return nil end
+    return IsMeleeDpsSpec() and "MELEE" or "RANGED"
+end
+
+local function IsCurrentRoleEnabled(db)
+    local category = GetCurrentRoleCategory()
+    if category == "MELEE" then return db.showMelee ~= false end
+    if category == "RANGED" then return db.showRanged ~= false end
+    if category == "TANK" then return db.showTank ~= false end
+    if category == "HEALER" then return db.showHealer ~= false end
+    return false
 end
 
 local function HasAttackableTarget()
@@ -932,6 +968,7 @@ function CharacterPositionMarker:ShouldShow()
     if not db then return false end
     if editPreview or testMode then return true end
     if not db.enabled then return false end
+    if not IsCurrentRoleEnabled(db) then return false end
 
     if db.combatOnly ~= false and not IsCombatActive() then
         return false

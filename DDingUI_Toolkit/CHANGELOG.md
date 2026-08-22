@@ -1,5 +1,31 @@
 # DDingUI Toolkit Changelog
 
+## 2.1.2
+
+Release date: 2026-08-22
+
+## English
+
+- Added a one-time update notice for existing installations, with direct settings links for newly added modules that remain disabled by default.
+- Added Premade Group Filter with seasonal dungeon selection, group-composition and Bloodlust-fit checks, leader score display, sorting, specialization icons, and Raider.IO-aware panel placement.
+- Added Preservation Evoker Stasis Tracker and a dedicated Class Features section with class-colored module titles.
+- Added Bloodlust Timer with active and exhaustion tracking plus detailed icon, bar, text, glow, TGA animation, and sound controls.
+- Added Ready Check Assistant and configurable combat start/end alerts with simple and animated visual modes.
+- Added Toolkit profile-code export and import, while excluding saved memo contents from shared codes.
+- Expanded item-level display switches, role-specific character-position marker controls, Notepad list scrolling, and WoW 12.1 exhaustion tracking in Party Tracker.
+- Improved 12.1 secret-value and taint handling for Target Spell and inspection, stabilized Target Spell icon placement, corrected the Bloodlust cooldown swipe, and removed the retired Buff Reminder from the active load path.
+
+## 한국어
+
+- 기존 설치본에 한 번만 표시되는 업데이트 안내를 추가하고, 기본 비활성 상태인 신규 모듈의 설정으로 바로 이동할 수 있게 했습니다.
+- 시즌 던전 선택, 파티 구성과 블러드 적합 여부, 파티장 점수, 정렬, 전문화 아이콘 및 Raider.IO 패널 위치 대응을 포함한 파티 검색 필터를 추가했습니다.
+- 보존 기원사 정지장 트래커와 직업색 모듈 제목을 사용하는 직업별 특수 기능 분류를 추가했습니다.
+- 블러드 지속시간과 소진을 추적하고 아이콘, 막대, 텍스트, 글로우, TGA 애니메이션 및 사운드를 세부 설정할 수 있는 블러드 타이머를 추가했습니다.
+- 준비 확인 도우미와 심플·모션 표현을 선택할 수 있는 전투 시작/종료 알림을 추가했습니다.
+- 메모장 본문을 제외한 Toolkit 프로필 코드를 내보내고 새 프로필로 불러오는 기능을 추가했습니다.
+- 아이템 레벨 표시 범위, 역할별 캐릭터 위치 마커, 메모장 목록 스크롤 및 Party Tracker의 WoW 12.1 소진 추적 설정을 보완했습니다.
+- 타겟 스펠과 살펴보기의 12.1 보안값 및 오염 대응을 강화하고, 타겟 스펠 아이콘 위치와 블러드 쿨다운 스와이프를 보정했으며, 더 이상 사용하지 않는 강화효과 알림을 활성 로드 경로에서 제거했습니다.
+
 ## 2.1
 
 Release date: 2026-08-14

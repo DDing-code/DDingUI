@@ -41,8 +41,10 @@ local CATEGORY_DEFS = {
         icon = ICON_ROOT .. "Combat.tga",
         panels = {
             "combattimer",
+            "combatstatealert",
             "castingalert",
             "focusinterrupt",
+            "bloodlusttimer",
             "rangedisplay",
             "characterpositionmarker",
         },
@@ -52,6 +54,8 @@ local CATEGORY_DEFS = {
         label = L["WORKSPACE_PARTY_RAID"],
         icon = ICON_ROOT .. "PartyRaid.tga",
         panels = {
+            "premadegroupfilter",
+            "readycheckassistant",
             "partytracker",
             "mythicplus",
             "goldsplit",
@@ -90,6 +94,14 @@ local CATEGORY_DEFS = {
         panels = {
             "notepad",
             "autorepair",
+        },
+    },
+    {
+        key = "classfeatures",
+        label = L["WORKSPACE_CLASS_FEATURES"],
+        icon = ICON_ROOT .. "ClassFeatures.tga",
+        panels = {
+            "stasistracker",
         },
     },
     {
@@ -513,6 +525,19 @@ function Workspace:Create(title, version, opts)
         return CleanLabel(panelDef and panelDef.title or panelKey)
     end
 
+    local function GetPanelTitleColor(panelKey)
+        local panelDef = GetPanelDef(panelKey)
+        local classToken = panelDef and panelDef.classToken
+        if not classToken then return nil end
+
+        local color = (RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken])
+            or (CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS[classToken])
+        if not color then return nil end
+        local r, g, b = color.r or color[1], color.g or color[2], color.b or color[3]
+        if r == nil or g == nil or b == nil then return nil end
+        return r, g, b
+    end
+
     local function PanelMatches(panelKey, query)
         if not query or query == "" then return true end
         query = query:lower()
@@ -614,14 +639,23 @@ function Workspace:Create(title, version, opts)
 
     local function ApplyModuleState(row)
         local active = row.panelKey == workspace.selectedPanel
+        local titleR, titleG, titleB = GetPanelTitleColor(row.panelKey)
         row.active = active
         row.activeBar:SetShown(active)
         if active then
             row.background:SetColorTexture(0.12, 0.12, 0.135, 0.98)
-            row.label:SetTextColor(from[1], from[2], from[3], 1)
+            if titleR then
+                row.label:SetTextColor(titleR, titleG, titleB, 1)
+            else
+                row.label:SetTextColor(from[1], from[2], from[3], 1)
+            end
         else
             row.background:SetColorTexture(0, 0, 0, 0)
-            row.label:SetTextColor(UnpackColor(C.text.normal))
+            if titleR then
+                row.label:SetTextColor(titleR, titleG, titleB, 1)
+            else
+                row.label:SetTextColor(UnpackColor(C.text.normal))
+            end
         end
 
         local panelDef = GetPanelDef(row.panelKey)
@@ -686,7 +720,12 @@ function Workspace:Create(title, version, opts)
         row:SetScript("OnEnter", function(self)
             if not self.active then
                 self.background:SetColorTexture(0.12, 0.12, 0.14, 0.68)
-                self.label:SetTextColor(0.94, 0.94, 0.95, 1)
+                local titleR, titleG, titleB = GetPanelTitleColor(self.panelKey)
+                if titleR then
+                    self.label:SetTextColor(titleR, titleG, titleB, 1)
+                else
+                    self.label:SetTextColor(0.94, 0.94, 0.95, 1)
+                end
             end
         end)
         row:SetScript("OnLeave", ApplyModuleState)
@@ -742,6 +781,12 @@ function Workspace:Create(title, version, opts)
     function workspace:SetPanelMeta(panelKey)
         local panelDef = GetPanelDef(panelKey)
         detailTitle:SetText(GetPanelLabel(panelKey))
+        local titleR, titleG, titleB = GetPanelTitleColor(panelKey)
+        if titleR then
+            detailTitle:SetTextColor(titleR, titleG, titleB, 1)
+        else
+            detailTitle:SetTextColor(UnpackColor(C.text.highlight))
+        end
         detailDescription:SetText(CleanLabel(panelDef and panelDef.desc or ""))
         detailDescription:SetShown(panelDef and panelDef.desc and panelDef.desc ~= "")
 

@@ -46,6 +46,19 @@ local REG = {
         defaultW = 120, defaultH = 40,
     },
     {
+        name = "CombatStateAlert",
+        getFrame = function()
+            local mod = ns.CombatStateAlert or (DDingToolKit.modules and DDingToolKit.modules.CombatStateAlert)
+            if mod and mod.CreateFrame then mod:CreateFrame() end
+            return _G.DDingToolKit_CombatStateAlertFrame
+        end,
+        dbPath = "CombatStateAlert.position",
+        posType = "standard",
+        module = "CombatStateAlert",
+        previewState = "always",
+        defaultW = 480, defaultH = 96,
+    },
+    {
         name = "RaidBreakTimer",
         getFrame = function()
             local mod = ns.RaidBreakTimer or (DDingToolKit.modules and DDingToolKit.modules.RaidBreakTimer)
@@ -138,6 +151,32 @@ local REG = {
         defaultW = 300, defaultH = 30,
     },
     {
+        name = "StasisTracker",
+        getFrame = function()
+            local mod = ns.StasisTracker or (DDingToolKit.modules and DDingToolKit.modules.StasisTracker)
+            if mod and mod.CreateFrame then mod:CreateFrame() end
+            return _G.DDingToolKit_StasisTrackerFrame
+        end,
+        dbPath = "StasisTracker.position",
+        posType = "standard",
+        module = "StasisTracker",
+        previewState = "combat",
+        defaultW = 140, defaultH = 63,
+    },
+    {
+        name = "BloodlustTimer",
+        getFrame = function()
+            local mod = ns.BloodlustTimer or (DDingToolKit.modules and DDingToolKit.modules.BloodlustTimer)
+            if mod and mod.CreateFrame then mod:CreateFrame() end
+            return _G.DDingToolKit_BloodlustTimerFrame
+        end,
+        dbPath = "BloodlustTimer.position",
+        posType = "standard",
+        module = "BloodlustTimer",
+        previewState = "combat",
+        defaultW = 266, defaultH = 44,
+    },
+    {
         name = "PartyTracker",
         frameName = "DDingToolKit_PartyTrackerFrame",
         dbPath = "PartyTracker.position",
@@ -222,6 +261,8 @@ local DEFAULT_POSITIONS = {
     TargetSpell = { x = 0, y = -30 },
     FocusInterrupt_T = { x = 0, y = -100 },
     FocusInterrupt_F = { x = 0, y = 50 },
+    StasisTracker = { x = 0, y = -220 },
+    BloodlustTimer = { x = 0, y = -170 },
     PartyTracker = { x = -500, y = -110 },
     PartyTracker_Mana = { x = 0, y = -150 },
     DeathAlert = { x = 0, y = 0 },
@@ -242,6 +283,8 @@ local function GetDisplayName(reg)
         TargetSpell = Locale("TAB_CASTINGALERT", "Target Spell"),
         FocusInterrupt_T = Locale("TAB_FOCUSINTERRUPT", "Interrupt Bar") .. " - " .. (TARGET or "Target"),
         FocusInterrupt_F = Locale("TAB_FOCUSINTERRUPT", "Interrupt Bar") .. " - " .. (FOCUS or "Focus"),
+        StasisTracker = Locale("TAB_STASISTRACKER", "Stasis Tracker"),
+        BloodlustTimer = Locale("TAB_BLOODLUSTTIMER", "Bloodlust Timer"),
         PartyTracker = Locale("TAB_PARTYTRACKER", "Party Tracker"),
         PartyTracker_Mana = Locale("PARTYTRACKER_HEALER_MANA", "Healer Mana"),
         DeathAlert = Locale("TAB_DEATHALERT", "Death Alert"),

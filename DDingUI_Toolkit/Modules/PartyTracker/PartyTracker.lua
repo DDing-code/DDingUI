@@ -55,14 +55,53 @@ local updateTicker = nil
 local isEnabled = false
 local isTestMode = false
 
--- 블러드 디버프 스펠 ID (만족함, 소진, 시간의 균열, 피로, 지침)
+-- Standard Bloodlust lockouts. 12.1 allows direct player aura queries by
+-- spell ID, but blocks index-based aura scans in restricted content.
 local LUST_DEBUFFS = {
     [57724] = true, -- 만족함 (피의 욕망)
     [57723] = true, -- 소진 (영웅심)
     [80354] = true, -- 시간의 균열 (시간 왜곡)
+    [95809] = true, -- 광기 (고대의 광기)
+    [160455] = true, -- 피로 (원시적인 분노, 이전 변형)
     [264689] = true, -- 피로 (원시적인 분노)
     [390435] = true, -- 지침 (위상의 열기)
 }
+
+local function IsSecret(value)
+    return (ns.IsSecretValue and ns.IsSecretValue(value))
+        or (issecretvalue and issecretvalue(value))
+        or false
+end
+
+local function SafeNumber(value)
+    if IsSecret(value) or value == nil then return nil end
+    local ok, number = pcall(tonumber, value)
+    if not ok or IsSecret(number) then return nil end
+    return number
+end
+
+local function FindLustDebuff()
+    if not C_UnitAuras or not C_UnitAuras.GetPlayerAuraBySpellID then return nil end
+
+    for spellID in pairs(LUST_DEBUFFS) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
+        if ok and not IsSecret(aura) and type(aura) == "table" then
+            return aura
+        end
+    end
+end
+
+local function GetLustDurationObject(aura)
+    if not aura or IsSecret(aura) then return nil end
+    local auraInstanceID = aura.auraInstanceID
+    if IsSecret(auraInstanceID) or auraInstanceID == nil then return nil end
+    if not C_UnitAuras or not C_UnitAuras.GetAuraDuration then return nil end
+
+    local ok, durationObject = pcall(C_UnitAuras.GetAuraDuration, "player", auraInstanceID)
+    if ok and not IsSecret(durationObject) and durationObject then
+        return durationObject
+    end
+end
 
 -- 초기화
 function PartyTracker:OnInitialize()
@@ -670,44 +709,37 @@ end
 function PartyTracker:UpdateLust()
     if not lustFrame or not lustFrame:IsShown() then return end
 
-    local maxExpiration = 0
-    local duration = 0
-    local hasDebuff = false
+    local aura = FindLustDebuff()
+    if aura then
+        local expirationTime = SafeNumber(aura.expirationTime)
+        local duration = SafeNumber(aura.duration)
+        local remaining = expirationTime and (expirationTime - GetTime()) or nil
 
-    -- pcall로 감싸서 시크릿밸류 오라를 안전하게 스킵
-    for i = 1, 40 do
-        local ok, auraData = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HARMFUL")
-        if not ok or not auraData then break end
-        -- 필드 접근 자체가 시크릿일 수 있으므로 전체를 pcall로 감쌈
-        pcall(function()
-            local spellId = auraData.spellId
-            if spellId and type(spellId) == "number" and LUST_DEBUFFS[spellId] then
-                hasDebuff = true
-                local expirationTime = auraData.expirationTime
-                local dur = auraData.duration
-                if expirationTime and expirationTime > maxExpiration then
-                    maxExpiration = expirationTime
-                    duration = dur or 0
-                end
-            end
-        end)
-    end
+        lustFrame.icon:SetDesaturated(true)
+        lustFrame.chargeText:SetText("")
 
-    if hasDebuff and maxExpiration > 0 then
-        local remaining = maxExpiration - GetTime()
-        if remaining > 0 then
-            lustFrame.cooldown:SetCooldown(maxExpiration - duration, duration)
+        if remaining and duration and duration > 0 and remaining > 0 then
+            lustFrame.cooldown:SetHideCountdownNumbers(true)
+            lustFrame.cooldown:SetCooldown(expirationTime - duration, duration)
             local minutes = math.floor(remaining / 60)
             local seconds = math.floor(remaining % 60)
             lustFrame.mainText:SetText(string.format("%d:%02d", minutes, seconds))
             lustFrame.mainText:SetTextColor(1, 0.2, 0.2, 1) -- 빨간색
         else
-            lustFrame.mainText:SetText("")
-            lustFrame.cooldown:SetCooldown(0, 0)
+            local durationObject = GetLustDurationObject(aura)
+            if durationObject and lustFrame.cooldown.SetCooldownFromDurationObject then
+                lustFrame.cooldown:SetHideCountdownNumbers(false)
+                lustFrame.cooldown:SetCooldownFromDurationObject(durationObject)
+                lustFrame.mainText:SetText("")
+            else
+                lustFrame.cooldown:SetHideCountdownNumbers(true)
+                lustFrame.cooldown:SetCooldown(0, 0)
+                lustFrame.mainText:SetText(L["PARTYTRACKER_LUST_SATED"] or "SATED")
+                lustFrame.mainText:SetTextColor(1, 0.2, 0.2, 1)
+            end
         end
-        lustFrame.icon:SetDesaturated(true)
-        lustFrame.chargeText:SetText("")
     else
+        lustFrame.cooldown:SetHideCountdownNumbers(true)
         lustFrame.mainText:SetText("READY")
         lustFrame.mainText:SetTextColor(0, 1, 0, 1) -- 초록색
         lustFrame.icon:SetDesaturated(false)

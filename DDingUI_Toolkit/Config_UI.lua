@@ -193,7 +193,7 @@ local function CreateSoundWidget(parent, setting)
         local testBtn = Widgets.CreateButton(container, ADDON_KEY, L and L["SOUND_TEST"] or "Test", function()
             local customPath = ns:GetDBValue(customKey)
             local soundFile = ns:GetDBValue(setting.key)
-            local channelKey = setting.key:gsub("soundFile$", "soundChannel")
+            local channelKey = setting.channelKey or setting.key:gsub("soundFile$", "soundChannel")
             local channel = ns:GetDBValue(channelKey) or "Master"
             ns:PlaySound(soundFile, channel, customPath)
         end, { width = 72, height = 24 })

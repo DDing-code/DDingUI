@@ -100,18 +100,40 @@ function ns:GetChatTypeOptions()
     }
 end
 
+local function ClassColorText(text, classToken)
+    text = tostring(text or "")
+    local color = (RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken])
+        or (CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS[classToken])
+    if not color then return text end
+    if color.colorStr then return "|c" .. color.colorStr .. text .. "|r" end
+
+    local r, g, b = color.r or color[1], color.g or color[2], color.b or color[3]
+    if r == nil or g == nil or b == nil then return text end
+    return string.format(
+        "|cff%02x%02x%02x%s|r",
+        math.floor(r * 255 + 0.5),
+        math.floor(g * 255 + 0.5),
+        math.floor(b * 255 + 0.5),
+        text
+    )
+end
+
 ------------------------------------------------------
 -- Module Key ↔ Name 매핑
 ------------------------------------------------------
 
 ns.ConfigModuleMap = {
-    -- 전투
+    -- 전투 / 직업별 특수 기능
     combattimer     = "CombatTimer",
+    combatstatealert = "CombatStateAlert",
     raidbreaktimer  = "RaidBreakTimer",
     characterpositionmarker = "CharacterPositionMarker",
     rangedisplay    = "RangeDisplay",
     castingalert    = "CastingAlert",
     focusinterrupt  = "FocusInterrupt",
+    stasistracker   = "StasisTracker",
+    bloodlusttimer  = "BloodlustTimer",
+    readycheckassistant = "ReadyCheckAssistant",
     partytracker    = "PartyTracker",
     deathalert      = "DeathAlert",
     deathreleaseguard = "DeathReleaseGuard",
@@ -120,6 +142,7 @@ ns.ConfigModuleMap = {
     -- 유틸리티
     talentbg        = "TalentBG",
     lfgalert        = "LFGAlert",
+    premadegroupfilter = "PremadeGroupFilter",
     partyfullalert  = "PartyFullAlert",
     mailalert       = "MailAlert",
     cursortrail     = "CursorTrail",
@@ -148,10 +171,12 @@ function ns:InitConfigTree()
         -- [REFACTOR] 전투/비전투 카테고리 분리
         { text = L["TAB_CATEGORY_COMBAT"] or "|TInterface\\ICONS\\Ability_DualWield:14:14|t |cffff6b6b전투|r",  key = "cat_combat", children = {
             { text = L["TAB_COMBATTIMER"],      key = "combattimer" },
+            { text = L["TAB_COMBATSTATEALERT"], key = "combatstatealert" },
             { text = L["TAB_CHARACTERPOSITIONMARKER"], key = "characterpositionmarker" },
             { text = L["TAB_RANGEDISPLAY"],     key = "rangedisplay" },
             { text = L["TAB_CASTINGALERT"],     key = "castingalert" },
             { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
+            { text = L["TAB_BLOODLUSTTIMER"],   key = "bloodlusttimer" },
             { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
             { text = L["DEATHALERT_TITLE"] or "DeathAlert", key = "deathalert" },
             { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
@@ -159,7 +184,9 @@ function ns:InitConfigTree()
         { text = L["TAB_CATEGORY_UTILITY"] or "|TInterface\\ICONS\\Trade_Engineering:14:14|t |cff6baaff유틸리티|r", key = "cat_utility", children = {
             { text = L["TAB_TALENTBG"],         key = "talentbg" },
             { text = L["TAB_LFGALERT"],         key = "lfgalert" },
+            { text = L["TAB_PREMADEGROUPFILTER"], key = "premadegroupfilter" },
             { text = L["TAB_PARTYFULLALERT"],   key = "partyfullalert" },
+            { text = L["TAB_READYCHECKASSISTANT"], key = "readycheckassistant" },
             { text = L["TAB_RAIDBREAKTIMER"],   key = "raidbreaktimer" },
             { text = L["TAB_MAILALERT"],        key = "mailalert" },
             { text = L["TAB_CURSORTRAIL"],      key = "cursortrail" },
@@ -170,6 +197,9 @@ function ns:InitConfigTree()
             { text = L["TAB_SKYRIDINGTRACKER"], key = "skyridingtracker" },
             { text = L["TAB_AUTOREPAIR"],       key = "autorepair" },
             { text = L["TAB_RAIDLOOTPASS"],     key = "raidlootpass" },
+        }},
+        { text = L["TAB_CATEGORY_CLASS_FEATURES"] or "|TInterface\\AddOns\\DDingUI_Toolkit\\Media\\Navigation\\ClassFeatures.tga:14:14|t |cffc586ff직업별 특수 기능|r", key = "cat_classfeatures", children = {
+            { text = ClassColorText(L["TAB_STASISTRACKER"], "EVOKER"), key = "stasistracker" },
         }},
     }
 
@@ -198,6 +228,17 @@ function ns:InitConfigTree()
         settings = {
             { type = "header", label = L["TAB_CATEGORY_COMBAT"] or "전투 모듈", isFirst = true },
             { type = "text", label = L["CATEGORY_COMBAT_DESC"] or "전투 중 사용되는 유틸리티 모듈입니다.\n좌측 메뉴에서 개별 모듈을 선택하세요." },
+        },
+    }
+
+    -----------------------------------------------
+    -- Category: 직업별 특수 기능 (Overview)
+    -----------------------------------------------
+    tree.panels["cat_classfeatures"] = {
+        title = L["TAB_CATEGORY_CLASS_FEATURES"] or "|TInterface\\AddOns\\DDingUI_Toolkit\\Media\\Navigation\\ClassFeatures.tga:14:14|t 직업별 특수 기능",
+        settings = {
+            { type = "header", label = L["TAB_CATEGORY_CLASS_FEATURES"] or "직업별 특수 기능", isFirst = true },
+            { type = "text", label = L["CATEGORY_CLASS_FEATURES_DESC"] or "현재 직업과 특성에서만 사용할 수 있는 전용 모듈입니다.\n좌측 메뉴에서 개별 모듈을 선택하세요." },
         },
     }
 
@@ -296,6 +337,33 @@ function ns:InitConfigTree()
     }
 
     -----------------------------------------------
+    -- PremadeGroupFilter
+    -----------------------------------------------
+    local function RefreshPremadeGroupFilter()
+        local mod = ns.modules and ns.modules["PremadeGroupFilter"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    tree.panels["premadegroupfilter"] = {
+        title = L["PGF_TITLE"],
+        desc = L["PGF_DESC"],
+        moduleEnableKey = "profile.modules.PremadeGroupFilter",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.PremadeGroupFilter", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+
+            { type = "header", label = L["PGF_PANEL_SETTINGS"] },
+            { type = "toggle", key = "profile.PremadeGroupFilter.showPanel", label = L["PGF_SHOW_PANEL"], onChange = RefreshPremadeGroupFilter },
+
+            { type = "header", label = L["PGF_RESULT_DISPLAY_SECTION"] },
+            { type = "toggle", key = "profile.PremadeGroupFilter.showSpecIcons", label = L["PGF_SHOW_SPEC_ICONS"], onChange = RefreshPremadeGroupFilter },
+            { type = "toggle", key = "profile.PremadeGroupFilter.showLeaderScore", label = L["PGF_SHOW_LEADER_SCORE"], onChange = RefreshPremadeGroupFilter },
+            { type = "toggle", key = "profile.PremadeGroupFilter.specIconClassBorder", label = L["PGF_SPEC_ICON_CLASS_BORDER"], onChange = RefreshPremadeGroupFilter },
+            { type = "toggle", key = "profile.PremadeGroupFilter.specIconLeaderMarker", label = L["PGF_SPEC_ICON_LEADER_MARKER"], onChange = RefreshPremadeGroupFilter },
+        },
+    }
+
+    -----------------------------------------------
     -- PartyFullAlert
     -----------------------------------------------
     local function RefreshPartyFullAlert()
@@ -349,6 +417,79 @@ function ns:InitConfigTree()
             { type = "button", label = L["RESET_POSITION"], onClick = function()
                 local mod = ns.modules and ns.modules["PartyFullAlert"]
                 if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- ReadyCheckAssistant
+    -----------------------------------------------
+    local function RefreshReadyCheckAssistant()
+        local mod = ns.modules and ns.modules["ReadyCheckAssistant"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    tree.panels["readycheckassistant"] = {
+        title = L["RCA_TITLE"],
+        desc = L["RCA_DESC"],
+        moduleEnableKey = "profile.modules.ReadyCheckAssistant",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.ReadyCheckAssistant", label = L["MODULE_ENABLED"], isModuleToggle = true,
+              onChange = function(checked)
+                local mod = ns.modules and ns.modules["ReadyCheckAssistant"]
+                if not mod then return end
+                if checked then
+                    if mod.OnInitialize and not mod.initialized then mod:OnInitialize() end
+                    if mod.OnEnable then mod:OnEnable() end
+                    mod.enabled = true
+                else
+                    if mod.OnDisable then mod:OnDisable() end
+                    mod.enabled = false
+                end
+              end,
+            },
+
+            { type = "header", label = L["RCA_CHECK_SETTINGS"] },
+            { type = "slider", key = "profile.ReadyCheckAssistant.minDurabilityPercent", label = L["RCA_MIN_DURABILITY"], min = 5, max = 100, step = 5, onChange = RefreshReadyCheckAssistant },
+            { type = "toggle", key = "profile.ReadyCheckAssistant.showLowSlots", label = L["RCA_SHOW_LOW_SLOTS"], onChange = RefreshReadyCheckAssistant },
+            { type = "toggle", key = "profile.ReadyCheckAssistant.hideInCombat", label = L["RCA_HIDE_IN_COMBAT"], onChange = RefreshReadyCheckAssistant },
+
+            { type = "header", label = L["RCA_LOADOUT_SETTINGS"] },
+            { type = "input", key = "profile.ReadyCheckAssistant.mplusLoadouts", label = L["RCA_MPLUS_LOADOUTS"], inputWidth = 300, desc = L["RCA_LOADOUT_INPUT_DESC"], onChange = RefreshReadyCheckAssistant },
+            { type = "button", label = L["RCA_SAVE_CURRENT_MPLUS"], refreshPanel = true, onClick = function()
+                local mod = ns.modules and ns.modules["ReadyCheckAssistant"]
+                if mod and mod.SaveCurrentLoadout then mod:SaveCurrentLoadout("MPLUS") end
+            end },
+            { type = "separator" },
+            { type = "input", key = "profile.ReadyCheckAssistant.raidLoadouts", label = L["RCA_RAID_LOADOUTS"], inputWidth = 300, desc = L["RCA_LOADOUT_INPUT_DESC"], onChange = RefreshReadyCheckAssistant },
+            { type = "button", label = L["RCA_SAVE_CURRENT_RAID"], refreshPanel = true, onClick = function()
+                local mod = ns.modules and ns.modules["ReadyCheckAssistant"]
+                if mod and mod.SaveCurrentLoadout then mod:SaveCurrentLoadout("RAID") end
+            end },
+            { type = "text", label = L["RCA_LOADOUT_NOTE"] },
+
+            { type = "header", label = L["RCA_REPORT_SETTINGS"] },
+            { type = "toggle", key = "profile.ReadyCheckAssistant.autoReport", label = L["RCA_AUTO_REPORT"] },
+            { type = "toggle", key = "profile.ReadyCheckAssistant.reportOnlyProblems", label = L["RCA_REPORT_ONLY_PROBLEMS"] },
+            { type = "toggle", key = "profile.ReadyCheckAssistant.showReportButton", label = L["RCA_SHOW_REPORT_BUTTON"], onChange = RefreshReadyCheckAssistant },
+            { type = "text", label = L["RCA_REPORT_NOTE"] },
+
+            { type = "header", label = L["RCA_DISPLAY_SETTINGS"] },
+            { type = "toggle", key = "profile.ReadyCheckAssistant.showOpenTalentsButton", label = L["RCA_SHOW_TALENTS_BUTTON"], onChange = RefreshReadyCheckAssistant },
+            { type = "slider", key = "profile.ReadyCheckAssistant.width", label = L["RCA_PANEL_WIDTH"], min = 320, max = 560, step = 5, onChange = RefreshReadyCheckAssistant },
+            { type = "slider", key = "profile.ReadyCheckAssistant.scale", label = L["SCALE"], min = 0.6, max = 1.8, step = 0.05, onChange = RefreshReadyCheckAssistant },
+            { type = "dropdown", key = "profile.ReadyCheckAssistant.anchorSide", label = L["RCA_ANCHOR_SIDE"], options = {
+                { text = L["RCA_ANCHOR_BELOW"], value = "BELOW" },
+                { text = L["RCA_ANCHOR_ABOVE"], value = "ABOVE" },
+            }, onChange = RefreshReadyCheckAssistant },
+            { type = "slider", key = "profile.ReadyCheckAssistant.offsetX", label = L["CASTINGALERT_POS_X"], min = -500, max = 500, step = 1, onChange = RefreshReadyCheckAssistant },
+            { type = "slider", key = "profile.ReadyCheckAssistant.offsetY", label = L["CASTINGALERT_POS_Y"], min = -300, max = 300, step = 1, onChange = RefreshReadyCheckAssistant },
+
+            { type = "header", label = L["RCA_TEST_SETTINGS"] },
+            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
+                local mod = ns.modules and ns.modules["ReadyCheckAssistant"]
+                if mod and mod.TestMode then mod:TestMode() end
             end },
         },
     }
@@ -502,6 +643,7 @@ function ns:InitConfigTree()
 
             -- 본인 캐릭터
             { type = "header", label = L["ITEMLEVEL_SELF_SETTINGS"] },
+            { type = "toggle", key = "profile.ItemLevel.selfEnabled", label = L["ITEMLEVEL_SELF_ENABLED"], onChange = RefreshItemLevel },
             { type = "slider", key = "profile.ItemLevel.selfIlvlSize",    label = L["ITEMLEVEL_SELF_ILVL_SIZE"],    min = 8, max = 20, step = 1, onChange = RefreshItemLevel },
             { type = "dropdown", key = "profile.ItemLevel.selfIlvlFlags", label = L["ITEMLEVEL_ILVL_OUTLINE"], options = {
                 { text = L["FONT_OUTLINE_NONE"], value = "" },
@@ -520,6 +662,7 @@ function ns:InitConfigTree()
 
             -- 살펴보기
             { type = "header", label = L["ITEMLEVEL_INSPECT_SETTINGS"] },
+            { type = "toggle", key = "profile.ItemLevel.inspectEnabled", label = L["ITEMLEVEL_INSPECT_ENABLED"], onChange = RefreshItemLevel },
             { type = "slider", key = "profile.ItemLevel.inspIlvlSize",    label = L["ITEMLEVEL_INSPECT_ILVL_SIZE"],    min = 8, max = 20, step = 1, onChange = RefreshItemLevel },
             { type = "dropdown", key = "profile.ItemLevel.inspIlvlFlags", label = L["ITEMLEVEL_ILVL_OUTLINE"], options = {
                 { text = L["FONT_OUTLINE_NONE"], value = "" },
@@ -614,6 +757,379 @@ function ns:InitConfigTree()
             end },
             { type = "button", label = L["RESET_POSITION"], onClick = function()
                 local mod = ns.modules and ns.modules["CombatTimer"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- CombatStateAlert
+    -----------------------------------------------
+    local function RefreshCombatStateAlert()
+        local mod = ns.modules and ns.modules["CombatStateAlert"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    local function RefreshCombatStateAlertPosition()
+        local mod = ns.modules and ns.modules["CombatStateAlert"]
+        if mod and mod.ApplyPosition then mod:ApplyPosition() end
+    end
+
+    tree.panels["combatstatealert"] = {
+        title = L["CSA_TITLE"],
+        desc = L["CSA_DESC"],
+        moduleEnableKey = "profile.modules.CombatStateAlert",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.CombatStateAlert", label = L["MODULE_ENABLED"], isModuleToggle = true,
+              onChange = function(checked)
+                local mod = ns.modules and ns.modules["CombatStateAlert"]
+                if not mod then return end
+                if checked then
+                    if mod.OnInitialize and not mod.initialized then mod:OnInitialize() end
+                    if mod.OnEnable then mod:OnEnable() end
+                    mod.enabled = true
+                else
+                    if mod.OnDisable then mod:OnDisable() end
+                    mod.enabled = false
+                end
+              end,
+            },
+
+            { type = "header", label = L["CSA_GENERAL_SETTINGS"] },
+            { type = "toggle", key = "profile.CombatStateAlert.showStart", label = L["CSA_SHOW_START"], onChange = RefreshCombatStateAlert },
+            { type = "toggle", key = "profile.CombatStateAlert.showEnd", label = L["CSA_SHOW_END"], onChange = RefreshCombatStateAlert },
+            { type = "toggle", key = "profile.CombatStateAlert.instanceOnly", label = L["CSA_INSTANCE_ONLY"], onChange = RefreshCombatStateAlert },
+
+            { type = "header", label = L["CSA_VISUAL_SETTINGS"] },
+            { type = "dropdown", key = "profile.CombatStateAlert.visualMode", label = L["CSA_VISUAL_MODE"], options = {
+                { text = L["CSA_VISUAL_SIMPLE"], value = "SIMPLE" },
+                { text = L["CSA_VISUAL_FANCY"], value = "FANCY" },
+            }, onChange = RefreshCombatStateAlert },
+            { type = "toggle", key = "profile.CombatStateAlert.animationEnabled", label = L["CSA_ANIMATION_ENABLED"], onChange = RefreshCombatStateAlert },
+            { type = "slider", key = "profile.CombatStateAlert.duration", label = L["CSA_DURATION"], min = 0.8, max = 4.0, step = 0.1, onChange = RefreshCombatStateAlert },
+            { type = "slider", key = "profile.CombatStateAlert.width", label = L["CSA_WIDTH"], min = 260, max = 800, step = 10, onChange = RefreshCombatStateAlert },
+            { type = "slider", key = "profile.CombatStateAlert.height", label = L["CSA_HEIGHT"], min = 64, max = 200, step = 2, onChange = RefreshCombatStateAlert },
+            { type = "slider", key = "profile.CombatStateAlert.scale", label = L["SCALE"], min = 0.5, max = 2.0, step = 0.05, onChange = RefreshCombatStateAlert },
+            { type = "dropdown", key = "profile.CombatStateAlert.frameStrata", label = L["CSA_FRAME_STRATA"], options = {
+                { text = L["CSA_STRATA_MEDIUM"], value = "MEDIUM" },
+                { text = L["CSA_STRATA_HIGH"], value = "HIGH" },
+                { text = L["CSA_STRATA_DIALOG"], value = "DIALOG" },
+            }, onChange = RefreshCombatStateAlert },
+
+            { type = "header", label = L["CSA_TEXT_SETTINGS"] },
+            { type = "input", key = "profile.CombatStateAlert.startText", label = L["CSA_START_TEXT"], inputWidth = 240, onChange = RefreshCombatStateAlert },
+            { type = "input", key = "profile.CombatStateAlert.endText", label = L["CSA_END_TEXT"], inputWidth = 240, onChange = RefreshCombatStateAlert },
+            { type = "font", key = "profile.CombatStateAlert.font", label = L["FONT"], onChange = RefreshCombatStateAlert },
+            { type = "slider", key = "profile.CombatStateAlert.fontSize", label = L["FONT_SIZE"], min = 12, max = 64, step = 1, onChange = RefreshCombatStateAlert },
+            { type = "dropdown", key = "profile.CombatStateAlert.fontOutline", label = L["FONT_OUTLINE"], options = {
+                { text = L["NONE"], value = "NONE" },
+                { text = "OUTLINE", value = "OUTLINE" },
+                { text = "THICKOUTLINE", value = "THICKOUTLINE" },
+            }, onChange = RefreshCombatStateAlert },
+
+            { type = "header", label = L["CSA_COLOR_SETTINGS"] },
+            { type = "text", label = L["CSA_START_COLORS"] },
+            { type = "color", key = "profile.CombatStateAlert.startTextColor", label = L["CSA_COLOR_TEXT"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.startLineColor", label = L["CSA_COLOR_MAIN_LINE"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.startAccentColor", label = L["CSA_COLOR_ACCENT_LINE"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.startDiamondColor", label = L["CSA_COLOR_DIAMONDS"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.startWingColor", label = L["CSA_COLOR_WINGS"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.startPanelColor", label = L["CSA_COLOR_PANELS"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.startFlashColor", label = L["CSA_COLOR_FLASH"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "separator" },
+            { type = "text", label = L["CSA_END_COLORS"] },
+            { type = "color", key = "profile.CombatStateAlert.endTextColor", label = L["CSA_COLOR_TEXT"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.endLineColor", label = L["CSA_COLOR_MAIN_LINE"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.endAccentColor", label = L["CSA_COLOR_ACCENT_LINE"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.endDiamondColor", label = L["CSA_COLOR_DIAMONDS"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.endWingColor", label = L["CSA_COLOR_WINGS"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.endPanelColor", label = L["CSA_COLOR_PANELS"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+            { type = "color", key = "profile.CombatStateAlert.endFlashColor", label = L["CSA_COLOR_FLASH"], hasAlpha = true, onChange = RefreshCombatStateAlert },
+
+            { type = "header", label = L["CSA_SOUND_SETTINGS"] },
+            { type = "text", label = L["CSA_START_SOUND"] },
+            { type = "toggle", key = "profile.CombatStateAlert.startSoundEnabled", label = L["CSA_SOUND_ENABLED"] },
+            { type = "sound", key = "profile.CombatStateAlert.startSoundFile", label = L["CSA_SOUND_FILE"], defaultLabel = L["CSA_SOUND_NONE"], customPathKey = "profile.CombatStateAlert.startSoundCustomPath", channelKey = "profile.CombatStateAlert.startSoundChannel" },
+            { type = "dropdown", key = "profile.CombatStateAlert.startSoundChannel", label = L["CSA_SOUND_CHANNEL"], options = "soundChannels" },
+            { type = "separator" },
+            { type = "text", label = L["CSA_END_SOUND"] },
+            { type = "toggle", key = "profile.CombatStateAlert.endSoundEnabled", label = L["CSA_SOUND_ENABLED"] },
+            { type = "sound", key = "profile.CombatStateAlert.endSoundFile", label = L["CSA_SOUND_FILE"], defaultLabel = L["CSA_SOUND_NONE"], customPathKey = "profile.CombatStateAlert.endSoundCustomPath", channelKey = "profile.CombatStateAlert.endSoundChannel" },
+            { type = "dropdown", key = "profile.CombatStateAlert.endSoundChannel", label = L["CSA_SOUND_CHANNEL"], options = "soundChannels" },
+
+            { type = "header", label = L["CSA_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.CombatStateAlert.position.x", label = L["POSITION_X"], min = -1200, max = 1200, step = 1, onChange = RefreshCombatStateAlertPosition },
+            { type = "slider", key = "profile.CombatStateAlert.position.y", label = L["POSITION_Y"], min = -800, max = 800, step = 1, onChange = RefreshCombatStateAlertPosition },
+            { type = "separator" },
+            { type = "button", label = L["CSA_TEST_START"], onClick = function()
+                local mod = ns.modules and ns.modules["CombatStateAlert"]
+                if mod and mod.TestAlert then mod:TestAlert("START") end
+            end },
+            { type = "button", label = L["CSA_TEST_END"], onClick = function()
+                local mod = ns.modules and ns.modules["CombatStateAlert"]
+                if mod and mod.TestAlert then mod:TestAlert("END") end
+            end },
+            { type = "button", label = L["CSA_TEST_SEQUENCE"], onClick = function()
+                local mod = ns.modules and ns.modules["CombatStateAlert"]
+                if mod and mod.TestSequence then mod:TestSequence() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["CombatStateAlert"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- StasisTracker
+    -----------------------------------------------
+    local function RefreshStasisTracker()
+        local mod = ns.modules and ns.modules["StasisTracker"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    local function RefreshStasisTrackerPosition()
+        local mod = ns.modules and ns.modules["StasisTracker"]
+        if mod and mod.ApplyPosition then mod:ApplyPosition() end
+    end
+
+    tree.panels["stasistracker"] = {
+        title = L["STASISTRACKER_TITLE"],
+        desc = L["STASISTRACKER_DESC"],
+        classToken = "EVOKER",
+        moduleEnableKey = "profile.modules.StasisTracker",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.StasisTracker", label = L["MODULE_ENABLED"], isModuleToggle = true,
+              onChange = function(checked)
+                local mod = ns.modules and ns.modules["StasisTracker"]
+                if not mod then return end
+                if checked then
+                    if mod.OnInitialize and not mod.initialized then mod:OnInitialize() end
+                    if mod.OnEnable then mod:OnEnable() end
+                    mod.enabled = true
+                else
+                    if mod.OnDisable then mod:OnDisable() end
+                    mod.enabled = false
+                end
+              end,
+            },
+
+            { type = "header", label = L["STASISTRACKER_DISPLAY_SETTINGS"] },
+            { type = "slider", key = "profile.StasisTracker.iconSize", label = L["STASISTRACKER_ICON_SIZE"], min = 24, max = 80, step = 1, onChange = RefreshStasisTracker },
+            { type = "slider", key = "profile.StasisTracker.spacing", label = L["STASISTRACKER_SPACING"], min = 0, max = 20, step = 1, onChange = RefreshStasisTracker },
+            { type = "slider", key = "profile.StasisTracker.scale", label = L["SCALE"], min = 0.5, max = 2.0, step = 0.05, onChange = RefreshStasisTracker },
+            { type = "toggle", key = "profile.StasisTracker.showTimer", label = L["STASISTRACKER_SHOW_TIMER"], onChange = RefreshStasisTracker },
+            { type = "font", key = "profile.StasisTracker.font", label = L["FONT"], onChange = RefreshStasisTracker },
+            { type = "slider", key = "profile.StasisTracker.timerFontSize", label = L["STASISTRACKER_TIMER_FONT_SIZE"], min = 8, max = 24, step = 1, onChange = RefreshStasisTracker },
+            { type = "slider", key = "profile.StasisTracker.warningThreshold", label = L["STASISTRACKER_WARNING_THRESHOLD"], min = 1, max = 15, step = 1, onChange = RefreshStasisTracker },
+
+            { type = "header", label = L["STASISTRACKER_COLOR_SETTINGS"] },
+            { type = "color", key = "profile.StasisTracker.storedBorderColor", label = L["STASISTRACKER_STORED_BORDER_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.emptyBorderColor", label = L["STASISTRACKER_EMPTY_BORDER_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.slotBackgroundColor", label = L["STASISTRACKER_SLOT_BACKGROUND_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.emptyIconColor", label = L["STASISTRACKER_EMPTY_ICON_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.emptyShadeColor", label = L["STASISTRACKER_EMPTY_SHADE_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.orderTextColor", label = L["STASISTRACKER_ORDER_TEXT_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.timerBarColor", label = L["STASISTRACKER_TIMER_BAR_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.timerBackgroundColor", label = L["STASISTRACKER_TIMER_BACKGROUND_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.timerTextColor", label = L["STASISTRACKER_TIMER_TEXT_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+            { type = "color", key = "profile.StasisTracker.warningColor", label = L["STASISTRACKER_WARNING_COLOR"], hasAlpha = true, onChange = RefreshStasisTracker },
+
+            { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.StasisTracker.position.x", label = L["CASTINGALERT_POS_X"], min = -800, max = 800, step = 1, onChange = RefreshStasisTrackerPosition },
+            { type = "slider", key = "profile.StasisTracker.position.y", label = L["CASTINGALERT_POS_Y"], min = -600, max = 600, step = 1, onChange = RefreshStasisTrackerPosition },
+
+            { type = "separator" },
+            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
+                local mod = ns.modules and ns.modules["StasisTracker"]
+                if mod and mod.TestMode then mod:TestMode() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["StasisTracker"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    -----------------------------------------------
+    -- BloodlustTimer
+    -----------------------------------------------
+    local function RefreshBloodlustTimer()
+        local mod = ns.modules and ns.modules["BloodlustTimer"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    local function RefreshBloodlustTimerPosition()
+        local mod = ns.modules and ns.modules["BloodlustTimer"]
+        if mod and mod.ApplyPosition then mod:ApplyPosition() end
+    end
+
+    tree.panels["bloodlusttimer"] = {
+        title = L["BLT_TITLE"],
+        desc = L["BLT_DESC"],
+        moduleEnableKey = "profile.modules.BloodlustTimer",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.BloodlustTimer", label = L["MODULE_ENABLED"], isModuleToggle = true,
+              onChange = function(checked)
+                local mod = ns.modules and ns.modules["BloodlustTimer"]
+                if not mod then return end
+                if checked then
+                    if mod.OnInitialize and not mod.initialized then mod:OnInitialize() end
+                    if mod.OnEnable then mod:OnEnable() end
+                    mod.enabled = true
+                else
+                    if mod.OnDisable then mod:OnDisable() end
+                    mod.enabled = false
+                end
+              end,
+            },
+
+            { type = "header", label = L["BLT_GENERAL_SETTINGS"] },
+            { type = "toggle", key = "profile.BloodlustTimer.showActive", label = L["BLT_SHOW_ACTIVE"], onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.showExhaustion", label = L["BLT_SHOW_EXHAUSTION"], onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.groupOnly", label = L["BLT_GROUP_ONLY"], onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.instanceOnly", label = L["BLT_INSTANCE_ONLY"], onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.showIcon", label = L["BLT_SHOW_ICON"], onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.iconSize", label = L["BLT_ICON_SIZE"], min = 20, max = 100, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.iconSpacing", label = L["BLT_ICON_SPACING"], min = 0, max = 30, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.showCooldownSwipe", label = L["BLT_SHOW_SWIPE"], onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.showCooldownNumbers", label = L["BLT_SHOW_COOLDOWN_NUMBERS"], onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.scale", label = L["SCALE"], min = 0.5, max = 2.5, step = 0.05, onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.frameStrata", label = L["BLT_FRAME_STRATA"], options = {
+                { text = L["BLT_STRATA_MEDIUM"], value = "MEDIUM" },
+                { text = L["BLT_STRATA_HIGH"], value = "HIGH" },
+                { text = L["BLT_STRATA_DIALOG"], value = "DIALOG" },
+            }, onChange = RefreshBloodlustTimer },
+
+            { type = "header", label = L["BLT_BAR_SETTINGS"] },
+            { type = "toggle", key = "profile.BloodlustTimer.showBar", label = L["BLT_SHOW_BAR"], onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.barWidth", label = L["BLT_BAR_WIDTH"], min = 80, max = 600, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.barHeight", label = L["BLT_BAR_HEIGHT"], min = 6, max = 80, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "statusbar", key = "profile.BloodlustTimer.barTexture", label = L["BLT_BAR_TEXTURE"], onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.barDirection", label = L["BLT_BAR_DIRECTION"], options = {
+                { text = L["BLT_DIRECTION_LEFT"], value = "LEFT" },
+                { text = L["BLT_DIRECTION_RIGHT"], value = "RIGHT" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.smoothBar", label = L["BLT_SMOOTH_BAR"], onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.activeBarColor", label = L["BLT_ACTIVE_BAR_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.exhaustionBarColor", label = L["BLT_EXHAUSTION_BAR_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.barBackgroundColor", label = L["BLT_BAR_BACKGROUND_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.barBorderColor", label = L["BLT_BAR_BORDER_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.barBorderSize", label = L["BLT_BAR_BORDER_SIZE"], min = 0, max = 8, step = 1, onChange = RefreshBloodlustTimer },
+
+            { type = "header", label = L["BLT_GLOW_SETTINGS"] },
+            { type = "toggle", key = "profile.BloodlustTimer.iconGlowEnabled", label = L["BLT_ICON_GLOW_ENABLED"], onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.barGlowEnabled", label = L["BLT_BAR_GLOW_ENABLED"], onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.iconGlowColor", label = L["BLT_ICON_GLOW_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.barGlowColor", label = L["BLT_BAR_GLOW_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.glowLines", label = L["BLT_GLOW_LINES"], min = 1, max = 20, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.glowFrequency", label = L["BLT_GLOW_FREQUENCY"], min = 0.05, max = 1.0, step = 0.05, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.glowLength", label = L["BLT_GLOW_LENGTH"], min = 2, max = 40, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.glowThickness", label = L["BLT_GLOW_THICKNESS"], min = 1, max = 8, step = 1, onChange = RefreshBloodlustTimer },
+
+            { type = "header", label = L["BLT_TEXT_SETTINGS"] },
+            { type = "toggle", key = "profile.BloodlustTimer.showText", label = L["BLT_SHOW_TEXT"], onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.textFormat", label = L["BLT_TEXT_FORMAT"], options = {
+                { text = L["BLT_FORMAT_REMAINING"], value = "REMAINING" },
+                { text = L["BLT_FORMAT_REMAINING_TOTAL"], value = "REMAINING_TOTAL" },
+                { text = L["BLT_FORMAT_SECONDS"], value = "SECONDS" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "input", key = "profile.BloodlustTimer.activeText", label = L["BLT_ACTIVE_TEXT"], inputWidth = 240, onChange = RefreshBloodlustTimer },
+            { type = "input", key = "profile.BloodlustTimer.exhaustionText", label = L["BLT_EXHAUSTION_TEXT"], inputWidth = 240, onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.textOrder", label = L["BLT_TEXT_ORDER"], options = {
+                { text = L["BLT_TIME_ONLY"], value = "TIME_ONLY" },
+                { text = L["BLT_LABEL_TIME"], value = "LABEL_TIME" },
+                { text = L["BLT_TIME_LABEL"], value = "TIME_LABEL" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.textDecimals", label = L["BLT_DECIMALS"], min = 0, max = 2, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.decimalsThreshold", label = L["BLT_DECIMAL_THRESHOLD"], min = 0, max = 30, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "font", key = "profile.BloodlustTimer.font", label = L["FONT"], onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.fontSize", label = L["FONT_SIZE"], min = 8, max = 40, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.fontOutline", label = L["FONT_OUTLINE"], options = {
+                { text = L["NONE"], value = "" },
+                { text = "OUTLINE", value = "OUTLINE" },
+                { text = "THICKOUTLINE", value = "THICKOUTLINE" },
+                { text = "MONOCHROME, OUTLINE", value = "MONOCHROME,OUTLINE" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.activeTextColor", label = L["BLT_ACTIVE_TEXT_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "color", key = "profile.BloodlustTimer.exhaustionTextColor", label = L["BLT_EXHAUSTION_TEXT_COLOR"], hasAlpha = true, onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.textPosition", label = L["BLT_TEXT_POSITION"], options = {
+                { text = L["BLT_POSITION_INSIDE"], value = "INSIDE" },
+                { text = L["BLT_POSITION_ABOVE"], value = "ABOVE" },
+                { text = L["BLT_POSITION_BELOW"], value = "BELOW" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.textOffsetX", label = L["BLT_TEXT_OFFSET_X"], min = -400, max = 400, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.textOffsetY", label = L["BLT_TEXT_OFFSET_Y"], min = -200, max = 200, step = 1, onChange = RefreshBloodlustTimer },
+
+            { type = "header", label = L["BLT_ANIMATION_SETTINGS"] },
+            { type = "toggle", key = "profile.BloodlustTimer.animationEnabled", label = L["BLT_ANIMATION_ENABLED"], onChange = RefreshBloodlustTimer },
+            { type = "input", key = "profile.BloodlustTimer.animationFolder", label = L["BLT_ANIMATION_FOLDER"], inputWidth = 300, onChange = RefreshBloodlustTimer },
+            { type = "input", key = "profile.BloodlustTimer.animationFile", label = L["BLT_ANIMATION_FILE"], inputWidth = 300, onChange = RefreshBloodlustTimer },
+            { type = "text", label = L["BLT_ANIMATION_PATH_NOTE"] },
+            { type = "slider", key = "profile.BloodlustTimer.animationColumns", label = L["BLT_ANIMATION_COLUMNS"], min = 1, max = 32, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationRows", label = L["BLT_ANIMATION_ROWS"], min = 1, max = 32, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationFrameCount", label = L["BLT_ANIMATION_FRAME_COUNT"], min = 1, max = 256, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationFPS", label = L["BLT_ANIMATION_FPS"], min = 1, max = 60, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.animationPlayback", label = L["BLT_ANIMATION_PLAYBACK"], options = {
+                { text = L["BLT_ANIMATION_LOOP"], value = "LOOP" },
+                { text = L["BLT_ANIMATION_ONCE"], value = "ONCE" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationWidth", label = L["BLT_ANIMATION_WIDTH"], min = 16, max = 1000, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationHeight", label = L["BLT_ANIMATION_HEIGHT"], min = 16, max = 1000, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationAlpha", label = L["BLT_ANIMATION_ALPHA"], min = 0, max = 1, step = 0.05, onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.animationBlendMode", label = L["BLT_ANIMATION_BLEND"], options = {
+                { text = "ADD", value = "ADD" },
+                { text = "BLEND", value = "BLEND" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.animationLayer", label = L["BLT_ANIMATION_LAYER"], options = {
+                { text = "BACKGROUND", value = "BACKGROUND" },
+                { text = "BORDER", value = "BORDER" },
+                { text = "ARTWORK", value = "ARTWORK" },
+                { text = "OVERLAY", value = "OVERLAY" },
+            }, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationOffsetX", label = L["BLT_ANIMATION_OFFSET_X"], min = -800, max = 800, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.animationOffsetY", label = L["BLT_ANIMATION_OFFSET_Y"], min = -600, max = 600, step = 1, onChange = RefreshBloodlustTimer },
+            { type = "button", label = L["BLT_ANIMATION_PREVIEW"], onClick = function()
+                local mod = ns.modules and ns.modules["BloodlustTimer"]
+                if mod and mod.PreviewAnimation then mod:PreviewAnimation() end
+            end },
+
+            { type = "header", label = L["BLT_SOUND_SETTINGS"] },
+            { type = "text", label = L["BLT_START_SOUND_HEADER"] },
+            { type = "toggle", key = "profile.BloodlustTimer.startSoundEnabled", label = L["BLT_SOUND_ENABLED"] },
+            { type = "sound", key = "profile.BloodlustTimer.startSoundFile", label = L["BLT_SOUND_FILE"], defaultLabel = L["BLT_SOUND_NONE"], customPathKey = "profile.BloodlustTimer.startSoundCustomPath", channelKey = "profile.BloodlustTimer.startSoundChannel" },
+            { type = "dropdown", key = "profile.BloodlustTimer.startSoundChannel", label = L["BLT_SOUND_CHANNEL"], options = "soundChannels" },
+            { type = "separator" },
+            { type = "text", label = L["BLT_MUSIC_HEADER"] },
+            { type = "toggle", key = "profile.BloodlustTimer.musicSoundEnabled", label = L["BLT_SOUND_ENABLED"], onChange = RefreshBloodlustTimer },
+            { type = "sound", key = "profile.BloodlustTimer.musicSoundFile", label = L["BLT_SOUND_FILE"], defaultLabel = L["BLT_SOUND_NONE"], customPathKey = "profile.BloodlustTimer.musicSoundCustomPath", channelKey = "profile.BloodlustTimer.musicSoundChannel", onChange = RefreshBloodlustTimer },
+            { type = "dropdown", key = "profile.BloodlustTimer.musicSoundChannel", label = L["BLT_SOUND_CHANNEL"], options = "soundChannels", onChange = RefreshBloodlustTimer },
+            { type = "toggle", key = "profile.BloodlustTimer.musicLoop", label = L["BLT_MUSIC_LOOP"], onChange = RefreshBloodlustTimer },
+            { type = "slider", key = "profile.BloodlustTimer.musicRepeatInterval", label = L["BLT_MUSIC_REPEAT_INTERVAL"], min = 1, max = 40, step = 0.5, onChange = RefreshBloodlustTimer },
+            { type = "separator" },
+            { type = "text", label = L["BLT_END_SOUND_HEADER"] },
+            { type = "toggle", key = "profile.BloodlustTimer.endSoundEnabled", label = L["BLT_SOUND_ENABLED"] },
+            { type = "sound", key = "profile.BloodlustTimer.endSoundFile", label = L["BLT_SOUND_FILE"], defaultLabel = L["BLT_SOUND_NONE"], customPathKey = "profile.BloodlustTimer.endSoundCustomPath", channelKey = "profile.BloodlustTimer.endSoundChannel" },
+            { type = "dropdown", key = "profile.BloodlustTimer.endSoundChannel", label = L["BLT_SOUND_CHANNEL"], options = "soundChannels" },
+            { type = "separator" },
+            { type = "text", label = L["BLT_READY_SOUND_HEADER"] },
+            { type = "toggle", key = "profile.BloodlustTimer.readySoundEnabled", label = L["BLT_SOUND_ENABLED"] },
+            { type = "sound", key = "profile.BloodlustTimer.readySoundFile", label = L["BLT_SOUND_FILE"], defaultLabel = L["BLT_SOUND_NONE"], customPathKey = "profile.BloodlustTimer.readySoundCustomPath", channelKey = "profile.BloodlustTimer.readySoundChannel" },
+            { type = "dropdown", key = "profile.BloodlustTimer.readySoundChannel", label = L["BLT_SOUND_CHANNEL"], options = "soundChannels" },
+
+            { type = "header", label = L["BLT_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.BloodlustTimer.position.x", label = L["CASTINGALERT_POS_X"], min = -800, max = 800, step = 1, onChange = RefreshBloodlustTimerPosition },
+            { type = "slider", key = "profile.BloodlustTimer.position.y", label = L["CASTINGALERT_POS_Y"], min = -600, max = 600, step = 1, onChange = RefreshBloodlustTimerPosition },
+            { type = "separator" },
+            { type = "button", label = L["BLT_TEST_TIMELINE"], onClick = function()
+                local mod = ns.modules and ns.modules["BloodlustTimer"]
+                if mod and mod.TestMode then mod:TestMode() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["BloodlustTimer"]
                 if mod and mod.ResetPosition then mod:ResetPosition() end
             end },
         },
@@ -749,6 +1265,31 @@ function ns:InitConfigTree()
               end,
             },
             { type = "toggle", key = "profile.CharacterPositionMarker.instanceOnly", label = L["CHARPOSMARKER_INSTANCE_ONLY"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "header", label = L["CHARPOSMARKER_ROLE_SETTINGS"] },
+            { type = "toggle", key = "profile.CharacterPositionMarker.showMelee", label = L["CHARPOSMARKER_SHOW_MELEE"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CharacterPositionMarker.showRanged", label = L["CHARPOSMARKER_SHOW_RANGED"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CharacterPositionMarker.showTank", label = L["CHARPOSMARKER_SHOW_TANK"],
+              onChange = function()
+                local mod = ns.modules and ns.modules["CharacterPositionMarker"]
+                if mod and mod.ApplySettings then mod:ApplySettings() end
+              end,
+            },
+            { type = "toggle", key = "profile.CharacterPositionMarker.showHealer", label = L["CHARPOSMARKER_SHOW_HEALER"],
               onChange = function()
                 local mod = ns.modules and ns.modules["CharacterPositionMarker"]
                 if mod and mod.ApplySettings then mod:ApplySettings() end
@@ -1283,12 +1824,6 @@ function ns:InitConfigTree()
             -- 표시 설정
             { type = "header", label = L["CASTINGALERT_DISPLAY_SETTINGS"] },
             { type = "toggle", key = "profile.CastingAlert.disableForTank", label = L["CASTINGALERT_DISABLE_FOR_TANK"],
-              onChange = function()
-                local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.ApplySettings then mod:ApplySettings() end
-              end,
-            },
-            { type = "toggle", key = "profile.CastingAlert.ensureOffscreenNameplates", label = L["CASTINGALERT_ENSURE_OFFSCREEN"],
               onChange = function()
                 local mod = ns.modules and ns.modules["CastingAlert"]
                 if mod and mod.ApplySettings then mod:ApplySettings() end

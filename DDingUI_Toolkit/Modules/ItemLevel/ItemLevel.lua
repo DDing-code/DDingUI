@@ -201,11 +201,46 @@ local selfPool = {}
 local inspPool = {}
 local avgInspectFS = nil
 
+local function IsSelfDisplayEnabled()
+    return ItemLevel.enabled and ItemLevel.db and ItemLevel.db.selfEnabled ~= false
+end
+
+local function IsInspectDisplayEnabled()
+    return ItemLevel.enabled and ItemLevel.db and ItemLevel.db.inspectEnabled ~= false
+end
+
+local function HideSlotData(data)
+    if not data then return end
+    if data.ilvlFS then data.ilvlFS:Hide() end
+    if data.enchFS then data.enchFS:Hide() end
+    for _, texture in ipairs(data.gems or {}) do
+        texture:Hide()
+    end
+end
+
+local function HideSlotPool(pool)
+    for _, data in pairs(pool) do
+        HideSlotData(data)
+    end
+end
+
+local function HideSelfDisplay()
+    HideSlotPool(selfPool)
+end
+
+local function HideInspectDisplay()
+    HideSlotPool(inspPool)
+    if avgInspectFS then avgInspectFS:Hide() end
+end
+
 --------------------------------------------------------------------------------
 -- 1. 본인: 슬롯별 ilvl/인챈트/보석
 --------------------------------------------------------------------------------
 local function UpdateSelfSlot(button)
-    if not ItemLevel.enabled then return end
+    if not IsSelfDisplayEnabled() then
+        HideSlotData(button and selfPool[button])
+        return
+    end
     if UnitAffectingCombat("player") then return end
     if not button or type(button.GetID) ~= "function" then return end
 
@@ -338,7 +373,7 @@ end
 -- 2. 본인 평균 아이템 레벨
 --------------------------------------------------------------------------------
 local function UpdateCustomItemLevel()
-    if not ItemLevel.enabled then return end
+    if not IsSelfDisplayEnabled() then return end
     local db = ItemLevel.db
 
     if not db.showAverageIlvl then return end
@@ -374,7 +409,10 @@ local function EnsureInspectAverage()
 end
 
 local function UpdateInspectSlot(button, unit)
-    if not ItemLevel.enabled then return end
+    if not IsInspectDisplayEnabled() then
+        HideSlotData(button and inspPool[button])
+        return
+    end
     if UnitAffectingCombat("player") then return end
     if not button or not unit or UnitIsUnit(unit, "player") then return end
 
@@ -520,7 +558,7 @@ end
 -- 4. 강화 수치 (치명타/가속/특화/유연성/생기흡수/광역회피/이동속도)
 --------------------------------------------------------------------------------
 local function OverwriteCritStat(statFrame, unit)
-    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    if not IsSelfDisplayEnabled() or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_CRIT_MELEE) or 0
     local c1, c2, c3 = GetSpellCritChance(2), GetRangedCritChance(), GetCritChance()
     if issecretvalue and (issecretvalue(rating) or issecretvalue(c1) or issecretvalue(c2) or issecretvalue(c3)) then return end
@@ -532,7 +570,7 @@ local function OverwriteCritStat(statFrame, unit)
 end
 
 local function OverwriteHasteStat(statFrame, unit)
-    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    if not IsSelfDisplayEnabled() or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_HASTE_MELEE) or 0
     local percent = GetHaste() or 0
     if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
@@ -543,7 +581,7 @@ local function OverwriteHasteStat(statFrame, unit)
 end
 
 local function OverwriteMasteryStat(statFrame, unit)
-    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    if not IsSelfDisplayEnabled() or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_MASTERY) or 0
     local percent = GetMasteryEffect() or 0
     if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
@@ -554,7 +592,7 @@ local function OverwriteMasteryStat(statFrame, unit)
 end
 
 local function OverwriteVersStat(statFrame, unit)
-    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    if not IsSelfDisplayEnabled() or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_VERSATILITY_DAMAGE_DONE) or 0
     local percentAtk = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
     local percentDR = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_TAKEN) or 0
@@ -566,7 +604,7 @@ local function OverwriteVersStat(statFrame, unit)
 end
 
 local function OverwriteLeechStat(statFrame, unit)
-    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    if not IsSelfDisplayEnabled() or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_LIFESTEAL) or 0
     local percent = GetLifesteal() or 0
     if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
@@ -577,7 +615,7 @@ local function OverwriteLeechStat(statFrame, unit)
 end
 
 local function OverwriteAvoidanceStat(statFrame, unit)
-    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    if not IsSelfDisplayEnabled() or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local rating = GetCombatRating(CR_AVOIDANCE) or 0
     local percent = GetCombatRatingBonus(CR_AVOIDANCE) or 0
     if issecretvalue and (issecretvalue(rating) or issecretvalue(percent)) then return end
@@ -588,7 +626,7 @@ local function OverwriteAvoidanceStat(statFrame, unit)
 end
 
 local function OverwriteSpeedStat(statFrame, unit)
-    if not ItemLevel.enabled or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
+    if not IsSelfDisplayEnabled() or not ItemLevel.db.showEnhancedStats or unit ~= "player" or UnitAffectingCombat("player") then return end
     local speed = select(2, GetUnitSpeed("player")) or 0
     if issecretvalue and issecretvalue(speed) then return end
     local percent = speed / 7 * 100
@@ -648,7 +686,10 @@ local function RegisterHooks()
     -- 살펴보기 프레임 이벤트
     if InspectFrame then
         InspectFrame:HookScript("OnShow", function(self)
-            if not ItemLevel.enabled then return end
+            if not IsInspectDisplayEnabled() then
+                HideInspectDisplay()
+                return
+            end
             if self.unit and self.unit ~= "player" then
                 EnsureInspectAverage()
                 NotifyInspect(self.unit)
@@ -680,19 +721,24 @@ end
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("INSPECT_READY")
 listener:SetScript("OnEvent", function()
-    if not ItemLevel.enabled then return end
+    if not IsInspectDisplayEnabled() then
+        HideInspectDisplay()
+        return
+    end
 
     local unit = InspectFrame and InspectFrame.unit
     if not unit then return end
 
     EnsureInspectAverage()
-    if avgInspectFS then
+    if avgInspectFS and ItemLevel.db.showAverageIlvl then
         local ok, avg = pcall(C_PaperDollInfo.GetInspectItemLevel, unit)
         if not ok or (issecretvalue and issecretvalue(avg)) then
             avg = 0
         end
         avgInspectFS:SetText(string.format("%.2f", tonumber(avg) or 0))
         avgInspectFS:Show()
+    elseif avgInspectFS then
+        avgInspectFS:Hide()
     end
     for _, s in ipairs(SlotNames) do
         local btn = _G["Inspect" .. s]
@@ -728,38 +774,37 @@ end
 
 function ItemLevel:OnDisable()
     self.enabled = false
-    -- 표시 요소들 숨기기
-    for _, d in pairs(selfPool) do
-        if d.ilvlFS then d.ilvlFS:Hide() end
-        if d.enchFS then d.enchFS:Hide() end
-        for _, tex in ipairs(d.gems) do tex:Hide() end
-    end
-    for _, d in pairs(inspPool) do
-        if d.ilvlFS then d.ilvlFS:Hide() end
-        if d.enchFS then d.enchFS:Hide() end
-        for _, tex in ipairs(d.gems) do tex:Hide() end
-    end
-    if avgInspectFS then
-        avgInspectFS:Hide()
-    end
+    HideSelfDisplay()
+    HideInspectDisplay()
 end
 
 function ItemLevel:Refresh()
     if not self.enabled then return end
     if CharacterFrame and CharacterFrame:IsShown() then
-        PaperDollFrame_UpdateStats()
-        for _, s in ipairs(SlotNames) do
-            local btn = _G["Character" .. s]
-            if btn then
-                UpdateSelfSlot(btn)
+        if PaperDollFrame_UpdateStats then PaperDollFrame_UpdateStats() end
+        if IsSelfDisplayEnabled() then
+            for _, s in ipairs(SlotNames) do
+                local btn = _G["Character" .. s]
+                if btn then
+                    UpdateSelfSlot(btn)
+                end
             end
+        else
+            HideSelfDisplay()
         end
+    elseif not IsSelfDisplayEnabled() then
+        HideSelfDisplay()
+    end
+
+    if not IsInspectDisplayEnabled() then
+        HideInspectDisplay()
+        return
     end
 
     local unit = InspectFrame and InspectFrame:IsShown() and InspectFrame.unit
     if unit then
         EnsureInspectAverage()
-        if avgInspectFS then
+        if avgInspectFS and self.db.showAverageIlvl then
             local ok, avg = pcall(C_PaperDollInfo.GetInspectItemLevel, unit)
             if not ok or (issecretvalue and issecretvalue(avg)) then
                 avg = 0
@@ -771,6 +816,8 @@ function ItemLevel:Refresh()
             )
             avgInspectFS:SetText(string.format("%.2f", tonumber(avg) or 0))
             avgInspectFS:Show()
+        elseif avgInspectFS then
+            avgInspectFS:Hide()
         end
         for _, slotName in ipairs(SlotNames) do
             local button = _G["Inspect" .. slotName]

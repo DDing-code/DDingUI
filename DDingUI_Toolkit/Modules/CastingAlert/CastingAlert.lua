@@ -28,8 +28,6 @@ local DEFAULTS = {
     onlyImportant = false,
     combatOnly = true,
     ignoreMinor = true,
-    ensureOffscreenNameplates = true,
-
     showDuration = true,
     showSwipe = true,
     showImportantGlow = true,
@@ -602,7 +600,6 @@ function CastingAlert:Start()
 
     isEnabled = true
     self:CreateMainFrame()
-    self:EnsureNameplateCVars()
     self:RegisterEvents()
     self:ScanVisibleNameplates()
     self:StartTicker()
@@ -641,12 +638,6 @@ function CastingAlert:Stop()
     end
 end
 
-function CastingAlert:EnsureNameplateCVars()
-    if self.db.ensureOffscreenNameplates and C_CVar and C_CVar.SetCVar then
-        C_CVar.SetCVar("nameplateShowOffscreen", 1)
-    end
-end
-
 function CastingAlert:RegisterEvents()
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
@@ -674,7 +665,6 @@ function CastingAlert:RegisterEvents()
     eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTIBLE")
     eventFrame:RegisterEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
     eventFrame:RegisterEvent("RAID_TARGET_UPDATE")
-    eventFrame:RegisterEvent("CVAR_UPDATE")
     eventFrame:RegisterEvent("ENCOUNTER_START")
     eventFrame:RegisterEvent("ENCOUNTER_END")
 end
@@ -743,8 +733,6 @@ function CastingAlert:OnEvent(event, ...)
         self:UpdateInterruptibility(event, ...)
     elseif event == "RAID_TARGET_UPDATE" then
         self:RefreshRaidMarkers()
-    elseif event == "CVAR_UPDATE" then
-        self:OnCVarUpdate(...)
     elseif event == "ENCOUNTER_START" then
         activeEncounterID = ...
     elseif event == "ENCOUNTER_END" then
@@ -814,13 +802,6 @@ function CastingAlert:OnEnvironmentEvent(event, unit)
             CastingAlert:ScanVisibleNameplates()
         end
     end)
-end
-
-function CastingAlert:OnCVarUpdate(name, value)
-    if name == "nameplateShowEnemies" and (value == 0 or value == "0") then
-        WipeTable(activeCasts)
-        self:HideDisplayFrames()
-    end
 end
 
 function CastingAlert:UpdateInterruptibility(event, unit)

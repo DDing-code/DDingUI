@@ -14,12 +14,14 @@ ns.defaults = {
         modules = {
             TalentBG = true,
             LFGAlert = true,
+            PremadeGroupFilter = false,
             PartyFullAlert = true,
             MailAlert = true,
             CursorTrail = true,
             ItemLevel = true,
             Notepad = true,
             CombatTimer = true,
+            CombatStateAlert = false,
             RaidBreakTimer = false,
             CharacterPositionMarker = true,
             RangeDisplay = true,
@@ -32,6 +34,9 @@ ns.defaults = {
 
             CastingAlert = true,
             FocusInterrupt = true,
+            StasisTracker = false,
+            BloodlustTimer = false,
+            ReadyCheckAssistant = false,
             AutoRepair = true,
             RaidLootPass = true,
             SkyridingTracker = true,
@@ -63,6 +68,24 @@ ns.defaults = {
             alertAnimation = "bounce",
             leaderOnly = false,
             cooldown = 2,
+        },
+
+        -- PremadeGroupFilter settings
+        PremadeGroupFilter = {
+            uiRevision = 4,
+            showPanel = true,
+            showSpecIcons = true,
+            showLeaderScore = true,
+            specIconClassBorder = true,
+            specIconLeaderMarker = true,
+            selectedDungeons = {},
+            needMyRole = false,
+            bloodlustFit = false,
+            requireTank = false,
+            requireHealer = false,
+            minLeaderRating = 0,
+            minMapBest = 0,
+            sortMode = "DEFAULT",
         },
 
         -- PartyFullAlert 설정
@@ -152,6 +175,8 @@ ns.defaults = {
         -- ItemLevel 설정
         ItemLevel = {
             -- 표시 옵션
+            selfEnabled = true,
+            inspectEnabled = true,
             showItemLevel = true,
             showEnchant = true,
             showGems = true,
@@ -209,6 +234,57 @@ ns.defaults = {
             },
         },
 
+        -- CombatStateAlert settings
+        CombatStateAlert = {
+            showStart = true,
+            showEnd = true,
+            instanceOnly = false,
+            visualMode = "SIMPLE",
+            animationEnabled = true,
+            duration = 1.8,
+            designVersion = 3,
+            width = 480,
+            height = 96,
+            scale = 1.0,
+            frameStrata = "HIGH",
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            fontSize = 28,
+            fontOutline = "OUTLINE",
+            startText = "",
+            endText = "",
+            startColor = { 0.18, 0.82, 1.00, 1 },
+            endColor = { 1.00, 0.72, 0.24, 1 },
+            colorVersion = 2,
+            startTextColor = { 0.70, 0.94, 1.00, 1.00 },
+            startLineColor = { 0.12, 0.78, 0.92, 0.88 },
+            startAccentColor = { 0.38, 0.55, 1.00, 0.72 },
+            startDiamondColor = { 0.54, 0.36, 1.00, 0.90 },
+            startWingColor = { 0.23, 0.72, 0.88, 0.70 },
+            startPanelColor = { 0.03, 0.08, 0.12, 0.82 },
+            startFlashColor = { 0.18, 0.82, 1.00, 0.14 },
+            endTextColor = { 1.00, 0.85, 0.55, 1.00 },
+            endLineColor = { 1.00, 0.63, 0.18, 0.88 },
+            endAccentColor = { 1.00, 0.38, 0.18, 0.72 },
+            endDiamondColor = { 1.00, 0.70, 0.28, 0.90 },
+            endWingColor = { 1.00, 0.54, 0.18, 0.70 },
+            endPanelColor = { 0.12, 0.055, 0.02, 0.82 },
+            endFlashColor = { 1.00, 0.55, 0.16, 0.14 },
+            startSoundEnabled = false,
+            startSoundFile = "Sound\\Interface\\RaidWarning.ogg",
+            startSoundCustomPath = "",
+            startSoundChannel = "Master",
+            endSoundEnabled = false,
+            endSoundFile = "Sound\\Interface\\LevelUp2.ogg",
+            endSoundCustomPath = "",
+            endSoundChannel = "Master",
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = 140,
+            },
+        },
+
         -- RaidBreakTimer settings
         RaidBreakTimer = {
             font = SL and SL.Font.path or "Fonts\\2002.TTF",
@@ -241,6 +317,10 @@ ns.defaults = {
         -- CharacterPositionMarker (캐릭터 위치 마커) 설정
         CharacterPositionMarker = {
             enabled = true,
+            showMelee = true,
+            showRanged = true,
+            showTank = true,
+            showHealer = true,
             combatOnly = true,
             instanceOnly = false,
             rangeCheck = true,
@@ -384,7 +464,6 @@ ns.defaults = {
             onlyImportant = false,
             combatOnly = true,
             ignoreMinor = true,
-            ensureOffscreenNameplates = true,
             showDuration = true,
             showSwipe = true,
             showImportantGlow = true,
@@ -498,6 +577,146 @@ ns.defaults = {
             focusPosition  = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 50 },
         },
 
+        -- StasisTracker (Preservation Evoker Stasis) settings
+        StasisTracker = {
+            iconSize = 44,
+            spacing = 4,
+            scale = 1.0,
+            showTimer = true,
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            fontSize = 15,
+            orderFontSize = 10,
+            timerFontSize = 12,
+            warningThreshold = 5,
+            storedBorderColor = { 0.20, 0.78, 1.00, 0.95 },
+            emptyBorderColor = { 0.22, 0.28, 0.36, 0.90 },
+            slotBackgroundColor = { 0.025, 0.035, 0.05, 0.90 },
+            emptyIconColor = { 1.00, 1.00, 1.00, 1.00 },
+            emptyShadeColor = { 0.00, 0.00, 0.00, 0.35 },
+            orderTextColor = { 1.00, 1.00, 1.00, 0.95 },
+            timerBarColor = { 0.20, 0.78, 1.00, 0.95 },
+            timerBackgroundColor = { 0.025, 0.035, 0.05, 0.90 },
+            timerTextColor = { 1.00, 1.00, 1.00, 1.00 },
+            warningColor = { 1.00, 0.22, 0.18, 0.95 },
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = -220,
+            },
+        },
+
+        -- BloodlustTimer (Bloodlust and exhaustion timeline) settings
+        BloodlustTimer = {
+            showActive = true,
+            showExhaustion = true,
+            groupOnly = false,
+            instanceOnly = false,
+            showIcon = true,
+            iconSize = 40,
+            iconSpacing = 4,
+            showCooldownSwipe = true,
+            showCooldownNumbers = true,
+            iconGlowEnabled = false,
+            barGlowEnabled = false,
+            iconGlowColor = { 1.00, 0.28, 0.10, 1.00 },
+            barGlowColor = { 1.00, 0.28, 0.10, 0.95 },
+            glowLines = 8,
+            glowFrequency = 0.25,
+            glowLength = 10,
+            glowThickness = 2,
+            scale = 1.0,
+            frameStrata = "HIGH",
+
+            showBar = true,
+            barWidth = 220,
+            barHeight = 20,
+            barTexture = "Interface\\TargetingFrame\\UI-StatusBar",
+            barDirection = "LEFT",
+            smoothBar = true,
+            activeBarColor = { 1.00, 0.24, 0.12, 1 },
+            exhaustionBarColor = { 0.38, 0.44, 0.54, 1 },
+            barBackgroundColor = { 0.02, 0.025, 0.035, 0.90 },
+            barBorderColor = { 0, 0, 0, 1 },
+            barBorderSize = 1,
+
+            showText = true,
+            textFormat = "REMAINING",
+            textDecimals = 1,
+            decimalsThreshold = 3,
+            activeText = "BL",
+            exhaustionText = "",
+            textOrder = "LABEL_TIME",
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            fontSize = 14,
+            fontOutline = "OUTLINE",
+            activeTextColor = { 1, 1, 1, 1 },
+            exhaustionTextColor = { 0.85, 0.88, 0.92, 1 },
+            textPosition = "INSIDE",
+            textOffsetX = 0,
+            textOffsetY = 0,
+
+            animationEnabled = false,
+            animationFolder = "DDingUI_Media\\Bloodlust",
+            animationFile = "",
+            animationColumns = 4,
+            animationRows = 4,
+            animationFrameCount = 16,
+            animationFPS = 20,
+            animationPlayback = "LOOP",
+            animationWidth = 220,
+            animationHeight = 220,
+            animationAlpha = 1,
+            animationBlendMode = "ADD",
+            animationLayer = "BACKGROUND",
+            animationOffsetX = 0,
+            animationOffsetY = 0,
+
+            startSoundEnabled = false,
+            startSoundFile = "",
+            startSoundCustomPath = "",
+            startSoundChannel = "Master",
+            musicSoundEnabled = false,
+            musicSoundFile = "",
+            musicSoundCustomPath = "",
+            musicSoundChannel = "Music",
+            musicLoop = false,
+            musicRepeatInterval = 10,
+            endSoundEnabled = false,
+            endSoundFile = "",
+            endSoundCustomPath = "",
+            endSoundChannel = "Master",
+            readySoundEnabled = false,
+            readySoundFile = "",
+            readySoundCustomPath = "",
+            readySoundChannel = "Master",
+
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = -170,
+            },
+        },
+
+        -- ReadyCheckAssistant (spec, loadout, and durability check)
+        ReadyCheckAssistant = {
+            minDurabilityPercent = 25,
+            showLowSlots = true,
+            mplusLoadouts = "",
+            raidLoadouts = "",
+            autoReport = false,
+            reportOnlyProblems = true,
+            showOpenTalentsButton = true,
+            showReportButton = true,
+            hideInCombat = true,
+            width = 390,
+            scale = 1.0,
+            anchorSide = "BELOW",
+            offsetX = 0,
+            offsetY = -8,
+        },
+
         -- DeathAlert (party/raid death alert)
         DeathAlert = {
             onlyInstance = false,
@@ -579,6 +798,9 @@ ns.defaults = {
             customPaths = {},    -- 사용자 추가 배경 파일명 목록
             customFolder = "DDingUI_Backgrounds",
         },
+        newModuleNotices = {
+            seen = {},
+        },
     },
 }
 
@@ -592,10 +814,140 @@ local function DisableNewModulesForExistingProfile(profile, defaultModules)
     end
 end
 
+local function RemoveRetiredModuleData(profile)
+    if type(profile) ~= "table" then return end
+
+    local retiredModules = {
+        "BuffChecker",
+        "BuffReminder",
+        "KeystoneTracker",
+    }
+
+    for _, moduleName in ipairs(retiredModules) do
+        if type(profile.modules) == "table" then
+            profile.modules[moduleName] = nil
+        end
+        profile[moduleName] = nil
+    end
+end
+
+local function CopyAlertColor(color, fallback, alphaMultiplier)
+    color = type(color) == "table" and color or fallback
+    fallback = fallback or { 1, 1, 1, 1 }
+    local alpha = tonumber(color and color[4]) or tonumber(fallback[4]) or 1
+    return {
+        tonumber(color and color[1]) or fallback[1] or 1,
+        tonumber(color and color[2]) or fallback[2] or 1,
+        tonumber(color and color[3]) or fallback[3] or 1,
+        alpha * (alphaMultiplier or 1),
+    }
+end
+
+local function MigrateCombatStateAlertColors(profile)
+    local db = type(profile) == "table" and profile.CombatStateAlert
+    if type(db) ~= "table" or (tonumber(db.colorVersion) or 0) >= 2 then return end
+
+    local startColor = CopyAlertColor(db.startColor, { 0.18, 0.82, 1.00, 1.00 })
+    local endColor = CopyAlertColor(db.endColor, { 1.00, 0.72, 0.24, 1.00 })
+
+    db.startTextColor = db.startTextColor or CopyAlertColor(startColor)
+    db.startLineColor = db.startLineColor or CopyAlertColor(startColor, nil, 0.95)
+    db.startAccentColor = db.startAccentColor or { 0.62, 0.34, 1.00, 0.65 }
+    db.startDiamondColor = db.startDiamondColor or { 0.62, 0.34, 1.00, 0.95 }
+    db.startWingColor = db.startWingColor or CopyAlertColor(startColor, nil, 0.82)
+    db.startPanelColor = db.startPanelColor or { 0.62, 0.34, 1.00, 0.24 }
+    db.startFlashColor = db.startFlashColor or CopyAlertColor(startColor, nil, 0.24)
+
+    db.endTextColor = db.endTextColor or CopyAlertColor(endColor)
+    db.endLineColor = db.endLineColor or CopyAlertColor(endColor, nil, 0.95)
+    db.endAccentColor = db.endAccentColor or { 1.00, 0.40, 0.22, 0.65 }
+    db.endDiamondColor = db.endDiamondColor or { 1.00, 0.40, 0.22, 0.95 }
+    db.endWingColor = db.endWingColor or CopyAlertColor(endColor, nil, 0.82)
+    db.endPanelColor = db.endPanelColor or { 1.00, 0.40, 0.22, 0.24 }
+    db.endFlashColor = db.endFlashColor or CopyAlertColor(endColor, nil, 0.24)
+    db.colorVersion = 2
+end
+
+local COMBAT_ALERT_V2_COLORS = {
+    startTextColor = { 0.18, 0.82, 1.00, 1.00 },
+    startLineColor = { 0.18, 0.82, 1.00, 0.95 },
+    startAccentColor = { 0.62, 0.34, 1.00, 0.65 },
+    startDiamondColor = { 0.62, 0.34, 1.00, 0.95 },
+    startWingColor = { 0.18, 0.82, 1.00, 0.82 },
+    startPanelColor = { 0.62, 0.34, 1.00, 0.24 },
+    startFlashColor = { 0.18, 0.82, 1.00, 0.24 },
+    endTextColor = { 1.00, 0.72, 0.24, 1.00 },
+    endLineColor = { 1.00, 0.72, 0.24, 0.95 },
+    endAccentColor = { 1.00, 0.40, 0.22, 0.65 },
+    endDiamondColor = { 1.00, 0.40, 0.22, 0.95 },
+    endWingColor = { 1.00, 0.72, 0.24, 0.82 },
+    endPanelColor = { 1.00, 0.40, 0.22, 0.24 },
+    endFlashColor = { 1.00, 0.72, 0.24, 0.24 },
+}
+
+local COMBAT_ALERT_V3_COLORS = {
+    startTextColor = { 0.70, 0.94, 1.00, 1.00 },
+    startLineColor = { 0.12, 0.78, 0.92, 0.88 },
+    startAccentColor = { 0.38, 0.55, 1.00, 0.72 },
+    startDiamondColor = { 0.54, 0.36, 1.00, 0.90 },
+    startWingColor = { 0.23, 0.72, 0.88, 0.70 },
+    startPanelColor = { 0.03, 0.08, 0.12, 0.82 },
+    startFlashColor = { 0.18, 0.82, 1.00, 0.14 },
+    endTextColor = { 1.00, 0.85, 0.55, 1.00 },
+    endLineColor = { 1.00, 0.63, 0.18, 0.88 },
+    endAccentColor = { 1.00, 0.38, 0.18, 0.72 },
+    endDiamondColor = { 1.00, 0.70, 0.28, 0.90 },
+    endWingColor = { 1.00, 0.54, 0.18, 0.70 },
+    endPanelColor = { 0.12, 0.055, 0.02, 0.82 },
+    endFlashColor = { 1.00, 0.55, 0.16, 0.14 },
+}
+
+local function AlertColorsMatch(color, expected)
+    if type(color) ~= "table" then return false end
+    for index = 1, 4 do
+        local value = tonumber(color[index])
+        if not value or math.abs(value - expected[index]) > 0.001 then
+            return false
+        end
+    end
+    return true
+end
+
+local function MigrateCombatStateAlertDesign(profile)
+    local db = type(profile) == "table" and profile.CombatStateAlert
+    if type(db) ~= "table" or (tonumber(db.designVersion) or 0) >= 3 then return end
+
+    local width = tonumber(db.width)
+    local height = tonumber(db.height)
+    if width == 420 or width == 520 then db.width = 480 end
+    if height == 84 or height == 112 then db.height = 96 end
+
+    for key, oldColor in pairs(COMBAT_ALERT_V2_COLORS) do
+        if AlertColorsMatch(db[key], oldColor) then
+            db[key] = CopyAlertColor(COMBAT_ALERT_V3_COLORS[key])
+        end
+    end
+    db.designVersion = 3
+end
+
 -- 데이터베이스 초기화
 function ns:InitDB()
+    ns.isFreshInstall = not (
+        type(DDingUIToolkitDB) == "table"
+        and type(DDingUIToolkitDB.profile) == "table"
+    )
+
     if not DDingUIToolkitDB then
         DDingUIToolkitDB = {}
+    end
+
+    MigrateCombatStateAlertColors(DDingUIToolkitDB.profile)
+    MigrateCombatStateAlertDesign(DDingUIToolkitDB.profile)
+    if type(DDingUIToolkitDB.profiles) == "table" then
+        for _, storedProfile in pairs(DDingUIToolkitDB.profiles) do
+            MigrateCombatStateAlertColors(storedProfile)
+            MigrateCombatStateAlertDesign(storedProfile)
+        end
     end
 
     -- 프로필 초기화
@@ -604,6 +956,12 @@ function ns:InitDB()
     else
         DisableNewModulesForExistingProfile(DDingUIToolkitDB.profile, self.defaults.profile.modules)
         self:MergeDefaults(DDingUIToolkitDB.profile, self.defaults.profile)
+    end
+    RemoveRetiredModuleData(DDingUIToolkitDB.profile)
+    if type(DDingUIToolkitDB.profiles) == "table" then
+        for _, storedProfile in pairs(DDingUIToolkitDB.profiles) do
+            RemoveRetiredModuleData(storedProfile)
+        end
     end
 
     -- 캐릭터별 데이터 초기화

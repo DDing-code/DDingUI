@@ -15,7 +15,7 @@ Notepad.enabled = false
 
 -- 프레임 참조
 local mainFrame, createFrame, detailFrame
-local memoList, emptyMessage
+local memoScrollFrame, memoList, emptyMessage
 local nameBox, titleBox, contentBox
 local detailNameEdit, detailTitleEdit, detailContentEdit
 local editingMemoIndex = nil
@@ -23,6 +23,9 @@ local selectedMemoIndex = nil
 
 -- 로컬 함수 선언
 local RefreshMemoList, ShowMemoDetail, UpdateRowHighlights
+
+local MEMO_ROW_HEIGHT = 36
+local MEMO_ROW_SPACING = 40
 
 ------------------------------------------------
 -- 멀티라인 에디트 박스 생성 (UI 시스템에 없음)
@@ -127,17 +130,48 @@ local function CreateMainFrame()
     content:SetPoint("TOP", titleBar, "BOTTOM", 0, -10)
     content:SetPoint("LEFT", 10, 0)
     content:SetPoint("RIGHT", -10, 0)
-    content:SetPoint("BOTTOM", 60, 0)
+    content:SetPoint("BOTTOM", mainFrame, "BOTTOM", 0, 60)
 
-    -- 메모 리스트 컨테이너
-    memoList = CreateFrame("Frame", nil, content)
-    memoList:SetPoint("TOPLEFT", 10, -10)
-    memoList:SetPoint("BOTTOMRIGHT", -10, 10)
+    -- 메모 목록만 스크롤하고 하단 생성 버튼은 고정한다.
+    memoScrollFrame = CreateFrame(
+        "ScrollFrame", "DDingToolKit_NotepadMemoScrollFrame",
+        content, "UIPanelScrollFrameTemplate"
+    )
+    memoScrollFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 10, -10)
+    memoScrollFrame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -30, 10)
+    memoScrollFrame:EnableMouseWheel(true)
+
+    local scrollBar = memoScrollFrame.ScrollBar
+    if scrollBar then
+        scrollBar:ClearAllPoints()
+        scrollBar:SetPoint("TOPLEFT", memoScrollFrame, "TOPRIGHT", 4, -16)
+        scrollBar:SetPoint("BOTTOMLEFT", memoScrollFrame, "BOTTOMRIGHT", 4, 16)
+        if scrollBar.SetHideIfUnscrollable then
+            scrollBar:SetHideIfUnscrollable(true)
+        end
+    end
+
+    memoList = CreateFrame("Frame", nil, memoScrollFrame)
+    memoList:SetSize(340, 1)
+    memoScrollFrame:SetScrollChild(memoList)
+    memoScrollFrame:SetScript("OnSizeChanged", function(_, width)
+        memoList:SetWidth(math.max(1, width or 1))
+    end)
+    memoScrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local range = math.max(0, self:GetVerticalScrollRange() or 0)
+        local current = self:GetVerticalScroll() or 0
+        local target = math.max(0, math.min(range, current - delta * MEMO_ROW_SPACING))
+        if self.ScrollBar then
+            self.ScrollBar:SetValue(target)
+        else
+            self:SetVerticalScroll(target)
+        end
+    end)
 
     -- 빈 메시지
-    emptyMessage = memoList:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    emptyMessage = memoScrollFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     emptyMessage:SetText("저장된 메모가 없습니다.")
-    emptyMessage:SetPoint("CENTER", memoList, "CENTER")
+    emptyMessage:SetPoint("CENTER", memoScrollFrame, "CENTER")
     emptyMessage:SetTextColor(unpack(UI.colors.textDim))
     emptyMessage:Show()
 
@@ -364,12 +398,10 @@ RefreshMemoList = function()
     if not Notepad.enabled or not Notepad.db then return end
     local savedNotes = Notepad.db.savedNotes
 
-    if memoList.rows then
-        for _, oldRow in ipairs(memoList.rows) do
-            oldRow:Hide()
-        end
+    memoList.rows = memoList.rows or {}
+    for _, oldRow in ipairs(memoList.rows) do
+        oldRow:Hide()
     end
-    memoList.rows = {}
 
     if #savedNotes == 0 then
         emptyMessage:Show()
@@ -378,43 +410,64 @@ RefreshMemoList = function()
     end
 
     for i, note in ipairs(savedNotes) do
-        local row = CreateFrame("Frame", nil, memoList, "BackdropTemplate")
-        row:SetSize(360, 36)
-        row:SetBackdrop(UI.backdrop)
+        local row = memoList.rows[i]
+        if not row then
+            row = CreateFrame("Frame", nil, memoList, "BackdropTemplate")
+            row:SetHeight(MEMO_ROW_HEIGHT)
+            row:SetBackdrop(UI.backdrop)
+            row:EnableMouse(true)
+
+            row:SetScript("OnEnter", function(self)
+                if self.memoIndex ~= selectedMemoIndex then
+                    self:SetBackdropBorderColor(unpack(UI.colors.borderHover))
+                end
+            end)
+
+            row:SetScript("OnLeave", function(self)
+                if self.memoIndex ~= selectedMemoIndex then
+                    self:SetBackdropBorderColor(unpack(UI.colors.border))
+                end
+            end)
+
+            row:SetScript("OnMouseDown", function(self)
+                selectedMemoIndex = self.memoIndex
+                UpdateRowHighlights()
+                ShowMemoDetail(self.note, self.memoIndex)
+            end)
+
+            row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.nameText:SetPoint("LEFT", row, "LEFT", 15, 0)
+            row.nameText:SetPoint("RIGHT", row, "RIGHT", -15, 0)
+            row.nameText:SetTextColor(unpack(UI.colors.text))
+            row.nameText:SetJustifyH("LEFT")
+            memoList.rows[i] = row
+        end
+
+        row.memoIndex = i
+        row.note = note
         row:SetBackdropColor(unpack(UI.colors.panel))
         row:SetBackdropBorderColor(unpack(UI.colors.border))
-        row:EnableMouse(true)
-        row:SetPoint("TOP", memoList, "TOP", 0, -((i - 1) * 40))
-
-        -- 호버 효과
-        row:SetScript("OnEnter", function(self)
-            if i ~= selectedMemoIndex then
-                self:SetBackdropBorderColor(unpack(UI.colors.borderHover))
-            end
-        end)
-
-        row:SetScript("OnLeave", function(self)
-            if i ~= selectedMemoIndex then
-                self:SetBackdropBorderColor(unpack(UI.colors.border))
-            end
-        end)
-
-        row:SetScript("OnMouseDown", function()
-            selectedMemoIndex = i
-            UpdateRowHighlights()
-            ShowMemoDetail(note, i)
-        end)
-
-        -- 메모 이름
-        row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        row.nameText:SetPoint("LEFT", row, "LEFT", 15, 0)
+        row:ClearAllPoints()
+        local yOffset = -((i - 1) * MEMO_ROW_SPACING)
+        row:SetPoint("TOPLEFT", memoList, "TOPLEFT", 0, yOffset)
+        row:SetPoint("TOPRIGHT", memoList, "TOPRIGHT", 0, yOffset)
         row.nameText:SetText(note.name or "")
-        row.nameText:SetTextColor(unpack(UI.colors.text))
-        row.nameText:SetWidth(340)
-        row.nameText:SetJustifyH("LEFT")
         row:Show()
+    end
 
-        memoList.rows[i] = row
+    local listHeight = #savedNotes > 0
+        and ((#savedNotes - 1) * MEMO_ROW_SPACING + MEMO_ROW_HEIGHT) or 1
+    memoList:SetHeight(listHeight)
+    memoScrollFrame:UpdateScrollChildRect()
+
+    local scrollRange = math.max(0, memoScrollFrame:GetVerticalScrollRange() or 0)
+    local currentScroll = memoScrollFrame:GetVerticalScroll() or 0
+    local scrollBar = memoScrollFrame.ScrollBar
+    if scrollBar then
+        scrollBar:SetShown(scrollRange > 0)
+        if currentScroll > scrollRange then scrollBar:SetValue(scrollRange) end
+    elseif currentScroll > scrollRange then
+        memoScrollFrame:SetVerticalScroll(scrollRange)
     end
 
     UpdateRowHighlights()

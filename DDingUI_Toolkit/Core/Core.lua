@@ -11,7 +11,7 @@ _G.DDingToolKit = DDingToolKit
 ns.DDingToolKit = DDingToolKit
 
 -- 버전 정보 (TOC와 동기화)
-DDingToolKit.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.1"
+DDingToolKit.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.1.2"
 local SL = _G.DDingUI_StyleLib -- [STYLE]
 local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: " -- [STYLE]
 DDingToolKit.addonName = addonName
@@ -101,6 +101,10 @@ function DDingToolKit:OnEnable()
     -- 환영 메시지
     if ns.db.profile.welcomeMessage then
         print(CHAT_PREFIX .. "v" .. self.version .. " loaded.") -- [STYLE]
+    end
+
+    if ns.NewModulePopup and ns.NewModulePopup.Queue then
+        ns.NewModulePopup:Queue()
     end
 end
 
