@@ -220,7 +220,7 @@ end
 local function CreateResourcePreview(parent)
     local visual = CreateFrame("Frame", nil, parent)
     visual:SetSize(660, 90)
-    visual:SetPoint("CENTER", parent, "CENTER", 0, -12)
+    visual:SetPoint("CENTER", parent, "CENTER", 0, -24)
     visual.primary = CreatePreviewBar(visual)
     visual.secondary = CreatePreviewBar(visual)
     visual.primaryCaption = CreateText(visual, 9, { 0.48, 0.51, 0.58, 1 }, "RIGHT")
@@ -247,9 +247,10 @@ local function CreateResourcePreview(parent)
         secondaryWidth = Clamp(secondaryWidth, 220, 520)
         local primaryHeight = Clamp(primary.height or 14, 8, 30)
         local secondaryHeight = Clamp(secondary.height or 14, 8, 30)
+        local totalHeight = primaryHeight + 8 + secondaryHeight
 
         self.primary:ClearAllPoints()
-        self.primary:SetPoint("TOP", self, "TOP", 36, -10)
+        self.primary:SetPoint("TOP", self, "CENTER", 36, totalHeight / 2)
         self.primary:SetSize(primaryWidth, primaryHeight)
         self.secondary:ClearAllPoints()
         self.secondary:SetPoint("TOP", self.primary, "BOTTOM", 0, -8)
@@ -357,7 +358,7 @@ end
 local function CreateTrackedPreview(parent)
     local visual = CreateFrame("Frame", nil, parent)
     visual:SetSize(680, 92)
-    visual:SetPoint("CENTER", parent, "CENTER", 0, -12)
+    visual:SetPoint("CENTER", parent, "CENTER", 0, -24)
     visual.rows = {}
     for index = 1, 2 do
         local row = CreateFrame("Frame", nil, visual)
@@ -384,10 +385,11 @@ local function CreateTrackedPreview(parent)
         local showIcon = config.hideIcon ~= true
         local iconRight = config.iconPosition == "RIGHT"
         local spacing = Clamp(config.barSpacing or 2, 0, 12)
+        local totalHeight = height * #self.rows + spacing * (#self.rows - 1)
         for index, row in ipairs(self.rows) do
             row:SetSize(width + (showIcon and height + 4 or 0), height)
             row:ClearAllPoints()
-            row:SetPoint("TOP", self, "TOP", 0, -8 - (index - 1) * (height + spacing))
+            row:SetPoint("TOP", self, "CENTER", 0, totalHeight / 2 - (index - 1) * (height + spacing))
             row.bar:ClearAllPoints()
             row.bar:SetSize(width, height)
             if showIcon then
