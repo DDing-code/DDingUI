@@ -706,11 +706,37 @@ function CustomIcons.StopIconDesatUpdater(frame)
     updater.targetIcon = nil
 end
 
+function CustomIcons.ShouldSuppressIconFrame(frame)
+    if not frame then return false end
+    if frame._ddHideWhenEmptySuppressed == true or frame._ddCombatVisible == false then
+        return true
+    end
+
+    local bridge = DDingUI.DynamicIconBridge
+    return bridge and bridge:IsActive() and not frame._ddIsManaged
+end
+
+function CustomIcons.SuppressIconFrameVisibility(frame)
+    if not frame then return end
+    CustomIcons.StopIconDesatUpdater(frame)
+    if frame.SetAlpha then
+        frame:SetAlpha(0)
+        frame._ddLastGroupAlpha = 0
+    end
+    if frame.Hide then
+        frame:Hide()
+    end
+end
+
 function CustomIcons.RestoreActiveIconVisual(frame)
     if not frame then return end
+    if CustomIcons.ShouldSuppressIconFrame(frame) then
+        CustomIcons.SuppressIconFrameVisibility(frame)
+        return false
+    end
     if CustomIcons.ManagedVisualLocked(frame) then
         CustomIcons.StopIconDesatUpdater(frame)
-        return
+        return false
     end
     if frame.Show then
         frame:Show()
@@ -731,6 +757,7 @@ function CustomIcons.RestoreActiveIconVisual(frame)
     frame._ddCombatKeepAlive = nil
     frame._ddCombatVisible = nil
     frame._ddCombatMissingSince = nil
+    return true
 end
 
 function CustomIcons.HideManagedIconBorderLayers(frame)
@@ -1910,8 +1937,6 @@ end
 local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
     if not itemID or not iconFrame then return end
-    CustomIcons.RestoreActiveIconVisual(iconFrame)
-    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
     local activeEffectOverlay = DDingUI.CustomIconActiveEffectOverlay
     local activeEffectOwnsCooldown = activeEffectOverlay
         and activeEffectOverlay.ShouldSuppressBaseCooldown
@@ -1952,6 +1977,16 @@ local function UpdateItemIcon(iconFrame, iconData)
     end
     iconFrame._ddCombatItemCount = SafeNumber(itemCount)
     iconFrame._ddItemCountEmpty = itemCount == nil or itemCount == 0
+    iconFrame._ddHideWhenEmptySuppressed = settings
+        and settings.hideWhenEmpty == true
+        and iconFrame._ddItemCountEmpty == true
+        or nil
+    if iconFrame._ddHideWhenEmptySuppressed then
+        CustomIcons.SuppressIconFrameVisibility(iconFrame)
+    else
+        CustomIcons.RestoreActiveIconVisual(iconFrame)
+    end
+    local managedVisualLocked = CustomIcons.ManagedVisualLocked(iconFrame)
 
     iconFrame._textureCacheKey = activeItemID and ("item:" .. tostring(activeItemID)) or iconFrame._textureCacheKey
     local itemTexture = ResolveItemTexture(activeItemID)
@@ -1963,6 +1998,9 @@ local function UpdateItemIcon(iconFrame, iconData)
     -- [CDM] Item cooldown uses item cooldown first, then mapped spell duration.
     EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
     if CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, activeItemID) then
+        if iconFrame._ddHideWhenEmptySuppressed then
+            CustomIcons.SuppressIconFrameVisibility(iconFrame)
+        end
         return
     end
 
@@ -2097,6 +2135,9 @@ local function UpdateItemIcon(iconFrame, iconData)
         and not itemCooldownActive
         and not itemSpellCooldownActive
         and not showEmptyItem
+    if iconFrame._ddHideWhenEmptySuppressed then
+        CustomIcons.SuppressIconFrameVisibility(iconFrame)
+    end
 end
 
 local function UpdateSpellIconFrame(iconFrame, iconData)
@@ -3070,7 +3111,10 @@ local function ExecuteUpdateAllIcons(filter)
             elseif filter == "cooldown" then
                 typeMatches = iconType == "item" or iconType == "slot" or iconType == "trinketProc" or iconType == "spell" or iconType == "racial"
             end
-            if iconData and typeMatches and (frame._ddNeedsInitialUpdate or frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or iconType == "totem" or frame._ddIsManaged) then
+            local observesHiddenItemCount = iconType == "item"
+                and iconData.settings
+                and iconData.settings.hideWhenEmpty == true
+            if iconData and typeMatches and (frame._ddNeedsInitialUpdate or frame:IsVisible() or iconType == "aura" or iconType == "trinketProc" or iconType == "totem" or frame._ddIsManaged or observesHiddenItemCount) then
                 local okUpdate, err = pcall(function()
                     local beforeLayoutState = GetDynamicLayoutStateToken(frame, iconData)
 

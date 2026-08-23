@@ -796,7 +796,10 @@ function GroupRenderer:IsHiddenSourceBuffIcon(icon)
 end
 
 function GroupRenderer:CanShowManagedIcon(icon)
-    return icon and not icon._ddingHidden and not self:IsHiddenSourceBuffIcon(icon)
+    return icon
+        and not icon._ddingHidden
+        and not icon._ddHideWhenEmptySuppressed
+        and not self:IsHiddenSourceBuffIcon(icon)
 end
 
 function GroupRenderer:HideHiddenSourceBuffIcon(icon)
@@ -1339,6 +1342,18 @@ end
 
 local function RestoreDynamicIconVisibility(icon, groupName, groupSettings, groupAlpha, combatVisible, inactiveGray, inactivePlaceholder, inactiveAlpha)
     if not icon then return end
+    if icon._ddHideWhenEmptySuppressed then
+        SetManagedIconLayoutVisible(icon, false)
+        icon._ddCombatVisible = false
+        icon._ddCombatKeepAlive = nil
+        local customIcons = DDingUI.CustomIcons
+        if customIcons and customIcons.SuppressIconFrameVisibility then
+            customIcons.SuppressIconFrameVisibility(icon)
+        elseif icon.Hide then
+            icon:Hide()
+        end
+        return
+    end
     icon._ddInactivePlaceholder = inactivePlaceholder and true or nil
     ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
     if inactivePlaceholder or inactiveGray then
@@ -2741,6 +2756,8 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
                             icon._ddLastGroupAlpha = 0
                         end
                         if icon.Hide then icon:Hide() end
+                    elseif icon._ddHideWhenEmptySuppressed and icon.Hide then
+                        icon:Hide()
                     elseif icon.Show then
                         icon:Show()
                     end
@@ -2905,7 +2922,11 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
                     idx = idx + 1
                     frame._managedIcons[idx] = icon
                     -- CDM 기본 그룹이 아직 숨겨진 상태여도 동적 아이콘은 레이아웃 대상에 포함되어야 한다.
-                    icon:Show()
+                    if GroupRenderer:CanShowManagedIcon(icon) then
+                        icon:Show()
+                    else
+                        icon:Hide()
+                    end
                 end
             elseif fc then
                 -- [CDM 아이콘 스키닝]
@@ -2949,7 +2970,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
 
             -- [FIX] 동적 그룹 아이콘 등 새로 할당된 아이콘 가시성 복구
             -- 컨테이너가 이미 보이는 상태에서 아이콘이 추가되면 OnShow가 안 타므로 직접 Show
-            if frame:IsShown() and sourceVisible and not icon._ddSuppressed and not icon._ddingHidden then
+            if frame:IsShown() and sourceVisible and not icon._ddSuppressed and GroupRenderer:CanShowManagedIcon(icon) then
                 if not icon:IsShown() then
                     if not (scanHolding and not icon._ddIconKey) then
                         icon:Show()
@@ -3123,7 +3144,9 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
             -- 스와이프·아이콘색상 동시 깜빡임의 근본 원인 차단
             if not ic._ddingHidden then
                 local iconAlpha = groupAlpha
-                if ic._ddIconKey and ic._ddCombatKeepAlive and ic._ddCombatVisible == false then
+                if ic._ddHideWhenEmptySuppressed then
+                    iconAlpha = 0
+                elseif ic._ddIconKey and ic._ddCombatKeepAlive and ic._ddCombatVisible == false then
                     iconAlpha = 0
                 elseif GroupRenderer:IsHiddenSourceBuffIcon(ic) then
                     iconAlpha = 0

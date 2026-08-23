@@ -1071,9 +1071,11 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     frame._groupSettings = container._groupSettings or frame._groupSettings
     local iconData = GetDynamicIconData(iconKey)
     local expiredManagedAura = iconData and iconData.type == "aura" and frame._ddManagedAuraExpired
+    local visibilitySuppressed = frame._ddHideWhenEmptySuppressed == true
+        or frame._ddCombatVisible == false
     if not (iconData and iconData.type == "aura") then
         frame._ddManagedAuraExpired = nil
-        if frame.icon and frame.icon.SetAlpha and not IsFlightHideAlphaLocked() then
+        if not visibilitySuppressed and frame.icon and frame.icon.SetAlpha and not IsFlightHideAlphaLocked() then
             frame.icon:SetAlpha(1)
         end
     end
@@ -1106,7 +1108,7 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     frame._ddIconKey = iconKey
 
     -- [FIX] reparent 후 명시적 Show (이전 부모가 숨겨졌으면 프레임도 숨겨진 상태)
-    if expiredManagedAura then
+    if expiredManagedAura or visibilitySuppressed then
         frame:SetAlpha(0)
         frame:Hide()
     else
@@ -1165,7 +1167,7 @@ function DynamicIconBridge:SetupFrameInContainer(frame, container, targetW, targ
     frame._ddSettingPosition = false
 
     -- 7. Show
-    if expiredManagedAura then
+    if expiredManagedAura or visibilitySuppressed then
         frame:SetAlpha(0)
         frame:Hide()
     elseif container:IsShown() then
@@ -1197,6 +1199,14 @@ function DynamicIconBridge:ReleaseFrame(frame, iconKey)
         if frame:GetParent() ~= nil then
             frame:SetSize(orig.width or 40, orig.height or orig.width or 40)
             frame:SetScale(orig.scale)
+            if orig.points and #orig.points > 0 then
+                frame._ddSettingPosition = true
+                frame:ClearAllPoints()
+                for _, pointInfo in ipairs(orig.points) do
+                    pcall(frame.SetPoint, frame, pointInfo[1], pointInfo[2], pointInfo[3], pointInfo[4], pointInfo[5])
+                end
+                frame._ddSettingPosition = false
+            end
         end
     end
 
