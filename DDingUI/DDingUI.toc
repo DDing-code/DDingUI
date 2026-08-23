@@ -65,6 +65,7 @@ Core\Movers.lua
 Core\EditModeLock.lua
 Core\CircularProgress.lua
 Core\RestrictedAuraVisuals.lua
+Core\GroupTextSettings.lua
 
 # Utility files
 Utils\SecretSafe.lua

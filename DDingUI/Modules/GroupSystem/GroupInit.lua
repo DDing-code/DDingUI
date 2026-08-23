@@ -917,7 +917,6 @@ local GROUP_VIEWER_MAP = {
 
 local CURRENT_CDM_GROUP_SCHEMA_VERSION = 3
 local CURRENT_GROUP_SYSTEM_VERSION = 1  -- 1.2.4
-local CURRENT_GROUP_TEXT_SCHEMA_VERSION = 1
 
 local function CopyArray(value)
     if type(value) ~= "table" then return value end
@@ -934,82 +933,10 @@ local function CopyArray(value)
     return copy
 end
 
-local GROUP_TEXT_DEFAULTS = {
-    hideCountText = false,
-    countTextSize = 14,
-    countTextColor = { 1, 0.82, 0, 1 },
-    chargeTextAnchor = "BOTTOMRIGHT",
-    countTextOffsetX = 0,
-    countTextOffsetY = 0,
-    hideCooldownText = false,
-    cooldownFontSize = 18,
-    cooldownTextColor = { 1, 1, 1, 1 },
-    cooldownTextAnchor = "CENTER",
-    cooldownTextOffsetX = 0,
-    cooldownTextOffsetY = 0,
-    cooldownShadowOffsetX = 0,
-    cooldownShadowOffsetY = 0,
-    cooldownTextFormat = "auto",
-    hideDurationText = false,
-    durationTextAnchor = "TOP",
-    durationTextOffsetX = 0,
-    durationTextOffsetY = 0,
-    durationTextSize = 12,
-    durationTextColor = { 1, 1, 1, 1 },
-}
-
-local GROUP_TEXT_KEYS = {
-    "hideCountText", "countTextFont", "countTextSize", "countTextColor",
-    "chargeTextAnchor", "countTextOffsetX", "countTextOffsetY",
-    "hideCooldownText", "cooldownFont", "cooldownFontSize", "cooldownTextColor",
-    "cooldownTextAnchor", "cooldownTextOffsetX", "cooldownTextOffsetY",
-    "cooldownShadowOffsetX", "cooldownShadowOffsetY", "cooldownTextFormat",
-    "hideDurationText", "durationTextFont", "durationTextAnchor",
-    "durationTextOffsetX", "durationTextOffsetY", "durationTextSize", "durationTextColor",
-}
-
-local function ImportLegacyCoreGroupTextSettings(group, viewer)
-    if (tonumber(group._groupTextSchemaVersion) or 0) >= CURRENT_GROUP_TEXT_SCHEMA_VERSION then
-        return
-    end
-
-    if type(viewer) == "table" then
-        for _, key in ipairs(GROUP_TEXT_KEYS) do
-            if rawget(group, key) == nil and viewer[key] ~= nil then
-                group[key] = CopyArray(viewer[key])
-            end
-        end
-    end
-    group._groupTextSchemaVersion = CURRENT_GROUP_TEXT_SCHEMA_VERSION
-end
-
 local function SyncCoreGroupTextSettings(gs, profile)
-    if type(gs) ~= "table" or type(gs.groups) ~= "table" or type(profile) ~= "table" then return end
-    if type(profile.viewers) ~= "table" then
-        profile.viewers = {}
-    end
-
-    for groupName, viewerName in pairs(GROUP_VIEWER_MAP) do
-        local group = gs.groups[groupName]
-        if type(group) == "table" then
-            local viewer = profile.viewers[viewerName]
-            if type(viewer) ~= "table" then
-                viewer = {}
-                profile.viewers[viewerName] = viewer
-            end
-
-            ImportLegacyCoreGroupTextSettings(group, viewer)
-
-            -- GroupSystem is the active editor and renderer, so its effective
-            -- values must also drive legacy viewer skinning paths.
-            for _, key in ipairs(GROUP_TEXT_KEYS) do
-                local defaultValue = GROUP_TEXT_DEFAULTS[key]
-                local value = group[key]
-                if value == nil then value = defaultValue end
-                viewer[key] = CopyArray(value)
-            end
-        end
-    end
+    if type(gs) ~= "table" or type(profile) ~= "table" then return false end
+    local settings = DDingUI.GroupTextSettings
+    return settings and settings.NormalizeProfile and settings:NormalizeProfile(profile) or false
 end
 
 local function ApplyMissingGroupDefaults(group, defaults)
@@ -1670,6 +1597,11 @@ function GroupSystem:SyncCoreGroupTextSettings()
     local profile = DDingUI.db and DDingUI.db.profile
     local gs = profile and profile.groupSystem
     SyncCoreGroupTextSettings(gs, profile)
+end
+
+function GroupSystem:NormalizeProfileGroupTextSettings(profile)
+    local gs = profile and profile.groupSystem
+    return SyncCoreGroupTextSettings(gs, profile)
 end
 
 -- (SyncDynamicGroups는 파일 상단 DoFullUpdate 앞에 정의됨)

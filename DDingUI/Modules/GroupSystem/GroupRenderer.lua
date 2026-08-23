@@ -400,28 +400,15 @@ local function ResolveCDMSkinSettings(groupName, groupSettings, sourceViewer)
 end
 
 local function ResolveGroupTextSetting(groupName, groupSettings, primaryKey, fallbackKey)
-    if groupSettings then
-        if primaryKey and groupSettings[primaryKey] ~= nil then
-            return groupSettings[primaryKey]
-        end
-        if fallbackKey and groupSettings[fallbackKey] ~= nil then
-            return groupSettings[fallbackKey]
-        end
+    local settings = DDingUI.GroupTextSettings
+    if settings and settings.Resolve then
+        return settings:Resolve(groupSettings, primaryKey, fallbackKey)
     end
 
-    local viewerName = GROUP_VIEWER_MAP[groupName]
-    local profile = DDingUI.db and DDingUI.db.profile
-    local viewerSettings = viewerName and profile and profile.viewers and profile.viewers[viewerName]
-    if viewerSettings then
-        if primaryKey and viewerSettings[primaryKey] ~= nil then
-            return viewerSettings[primaryKey]
-        end
-        if fallbackKey and viewerSettings[fallbackKey] ~= nil then
-            return viewerSettings[fallbackKey]
-        end
-    end
-
-    return nil
+    if type(groupSettings) ~= "table" then return nil end
+    local value = primaryKey and groupSettings[primaryKey]
+    if value ~= nil then return value end
+    return fallbackKey and groupSettings[fallbackKey] or nil
 end
 
 local function ResolveCooldownTextStyle(groupName, groupSettings, useDurationText)

@@ -305,6 +305,17 @@ local function BuildSourceSpec(groupName, settings, iconList)
 end
 
 local function BuildStyle(settings, spec)
+    local textSettings = DDingUI.GroupTextSettings
+    local function TextValue(primaryKey, fallbackKey)
+        if textSettings and textSettings.Resolve then
+            return textSettings:Resolve(settings, primaryKey, fallbackKey)
+        end
+
+        local value = settings[primaryKey]
+        if value ~= nil then return value end
+        return fallbackKey and settings[fallbackKey] or nil
+    end
+
     local hideActiveState = settings.hideActiveState == true
     local glowType = settings.auraGlowType or "Pixel Glow"
     local style = {
@@ -314,19 +325,20 @@ local function BuildStyle(settings, spec)
         aspect = settings.aspectRatioCrop or 1,
         borderSize = math.max(0, PixelSnap(settings.borderSize or 1)),
         borderColor = settings.borderColor or { 0, 0, 0, 1 },
-        durationFont = ResolveFont(settings.durationTextFont or settings.cooldownFont),
-        durationSize = math.max(1, tonumber(settings.durationTextSize or settings.cooldownFontSize) or 12),
-        durationColor = settings.durationTextColor or settings.cooldownTextColor or { 1, 1, 1, 1 },
-        durationPoint = NormalizePoint(settings.durationTextAnchor or settings.cooldownTextAnchor, "CENTER"),
-        durationX = tonumber(settings.durationTextOffsetX or settings.cooldownTextOffsetX) or 0,
-        durationY = tonumber(settings.durationTextOffsetY or settings.cooldownTextOffsetY) or 0,
-        hideDuration = settings.hideDurationText == true,
-        countFont = ResolveFont(settings.countTextFont),
-        countSize = math.max(1, tonumber(settings.countTextSize) or 14),
-        countColor = settings.countTextColor or { 1, 1, 1, 1 },
-        countPoint = NormalizePoint(settings.chargeTextAnchor, "BOTTOMRIGHT"),
-        countX = tonumber(settings.countTextOffsetX) or 0,
-        countY = tonumber(settings.countTextOffsetY) or 0,
+        durationFont = ResolveFont(TextValue("durationTextFont", "cooldownFont")),
+        durationSize = math.max(1, tonumber(TextValue("durationTextSize", "cooldownFontSize")) or 12),
+        durationColor = TextValue("durationTextColor", "cooldownTextColor"),
+        durationPoint = NormalizePoint(TextValue("durationTextAnchor", "cooldownTextAnchor"), "CENTER"),
+        durationX = tonumber(TextValue("durationTextOffsetX", "cooldownTextOffsetX")) or 0,
+        durationY = tonumber(TextValue("durationTextOffsetY", "cooldownTextOffsetY")) or 0,
+        hideDuration = TextValue("hideDurationText") == true,
+        countFont = ResolveFont(TextValue("countTextFont")),
+        countSize = math.max(1, tonumber(TextValue("countTextSize")) or 14),
+        countColor = TextValue("countTextColor"),
+        countPoint = NormalizePoint(TextValue("chargeTextAnchor"), "BOTTOMRIGHT"),
+        countX = tonumber(TextValue("countTextOffsetX")) or 0,
+        countY = tonumber(TextValue("countTextOffsetY")) or 0,
+        hideCount = TextValue("hideCountText") == true,
         hideSwipe = settings.disableSwipeAnimation == true or hideActiveState,
         swipeReverse = settings.swipeReverse == true,
         swipeColor = settings.auraSwipeColor or settings.swipeColor or { 0, 0, 0, 0.8 },
@@ -351,7 +363,7 @@ local function BuildStyle(settings, spec)
         style.durationFont, style.durationSize, ColorSignature(style.durationColor),
         style.durationPoint, style.durationX, style.durationY, style.hideDuration and 1 or 0,
         style.countFont, style.countSize, ColorSignature(style.countColor),
-        style.countPoint, style.countX, style.countY,
+        style.countPoint, style.countX, style.countY, style.hideCount and 1 or 0,
         style.hideSwipe and 1 or 0, style.swipeReverse and 1 or 0,
         ColorSignature(style.swipeColor), style.desaturateIcon and 1 or 0,
         style.drawEdge and 1 or 0,
@@ -405,7 +417,8 @@ local function ApplyRegionStyle(regions, style)
     )
     ApplyText(
         regions.count, style.countFont, style.countSize,
-        style.countColor, style.countPoint, style.countX, style.countY, 1
+        style.countColor, style.countPoint, style.countX, style.countY,
+        style.hideCount and 0 or 1
     )
 end
 

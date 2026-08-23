@@ -5,8 +5,8 @@ DDingUI.SpecProfiles = DDingUI.SpecProfiles or {}
 local SP = DDingUI.SpecProfiles
 
 -- Per-specialization profile snapshots.
--- v12 adds stable dynamic-icon identities to specialization snapshots.
-local SPEC_DATA_VERSION = 12
+-- v13 canonicalizes group text settings across every specialization snapshot.
+local SPEC_DATA_VERSION = 13
 local SPEC_DELTA_FORMAT = 1
 local SPEC_DELETE_KEY = "__ddinguiSpecDelete"
 
@@ -68,6 +68,13 @@ local function FullSnapshot(settings, defaults, isTopLevel)
     end
 
     return snapshot
+end
+
+local function NormalizeGroupTextSettings(profile)
+    local settings = DDingUI.GroupTextSettings
+    if settings and settings.NormalizeProfile then
+        settings:NormalizeProfile(profile)
+    end
 end
 
 local function MergeSnapshot(dest, source)
@@ -151,9 +158,11 @@ end
 local function StoreSpecDelta(profile, specID, snapshot, hasDynamicIcons)
     if not profile or not specID or type(snapshot) ~= "table" then return nil end
 
+    NormalizeGroupTextSettings(snapshot)
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     if type(profile.specDataBase) ~= "table" then
         profile.specDataBase = FullSnapshot(profile, defaults, true)
+        NormalizeGroupTextSettings(profile.specDataBase)
     end
 
     local changes = BuildDelta(snapshot, profile.specDataBase)
@@ -232,6 +241,7 @@ local function CompactStoredSpec(profile, specID)
         customIcons:NormalizeStoredProfile(snapshot)
     end
     RepairStaleHybridSources(snapshot)
+    NormalizeGroupTextSettings(snapshot)
 
     StoreSpecDelta(profile, specID, snapshot, hasDynamicIcons)
     return snapshot, hasDynamicIcons
@@ -290,6 +300,7 @@ local function MigrateSpecData()
         customIcons:NormalizeStoredProfile(nextBaseline)
     end
     RepairStaleHybridSources(nextBaseline)
+    NormalizeGroupTextSettings(nextBaseline)
 
     local queue = {}
     for specID in pairs(profile.specData or {}) do
@@ -359,6 +370,7 @@ local function MigrateSpecData()
             customIcons:NormalizeStoredProfile(snapshot)
         end
         RepairStaleHybridSources(snapshot)
+        NormalizeGroupTextSettings(snapshot)
         expandedSpecs[specID] = {
             snapshot = snapshot,
             hasDynamicIcons = hasDynamicIcons,
@@ -377,14 +389,16 @@ function SP:SaveCurrentSpec()
     local specID = self.lastSpecID or GetCurrentSpecID()
     if not specID or not DDingUI.db or not DDingUI.db.profile then return end
 
-    DDingUI.db.profile.specData = DDingUI.db.profile.specData or {}
+    local profile = DDingUI.db.profile
+    profile.specData = profile.specData or {}
+    NormalizeGroupTextSettings(profile)
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
-    local snapshot = FullSnapshot(DDingUI.db.profile, defaults, true)
+    local snapshot = FullSnapshot(profile, defaults, true)
     local customIcons = DDingUI.CustomIcons
     if customIcons and customIcons.NormalizeStoredProfile then
         customIcons:NormalizeStoredProfile(snapshot)
     end
-    StoreSpecDelta(DDingUI.db.profile, specID, snapshot, type(snapshot.dynamicIcons) == "table")
+    StoreSpecDelta(profile, specID, snapshot, type(snapshot.dynamicIcons) == "table")
 end
 
 function SP:MutateStoredSpecs(mutator)
@@ -416,6 +430,7 @@ function SP:LoadSpec(specID)
 
     ApplySnapshot(DDingUI.db.profile, snapshot, true)
     RepairStaleHybridSources(DDingUI.db.profile)
+    NormalizeGroupTextSettings(DDingUI.db.profile)
     return true
 end
 
