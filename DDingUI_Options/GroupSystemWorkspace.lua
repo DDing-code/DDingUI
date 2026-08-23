@@ -507,15 +507,6 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     local canvasTitle = CreateText(canvas, 10, { 0.5, 0.53, 0.6, 1 })
     canvasTitle:SetPoint("TOPLEFT", canvas, "TOPLEFT", 12, -10)
     canvasTitle:SetText(T("Live Preview", "실시간 미리보기"))
-    local selectionStrip = CreateFrame("Frame", nil, canvas, "BackdropTemplate")
-    selectionStrip:SetPoint("TOP", canvas, "TOP", 0, -30)
-    selectionStrip:SetSize(250, 25)
-    selectionStrip:SetFrameLevel(canvas:GetFrameLevel() + 20)
-    SetSurface(selectionStrip, THEME.bgMedium, THEME.focus)
-    selectionStrip.text = CreateText(selectionStrip, 10, { 0.74, 0.88, 0.93, 1 }, "CENTER")
-    selectionStrip.text:SetPoint("CENTER")
-    selectionStrip:Hide()
-
     local statusBar = CreateFrame("Frame", nil, center)
     statusBar:SetPoint("BOTTOMLEFT", center, "BOTTOMLEFT", 0, 0)
     statusBar:SetPoint("BOTTOMRIGHT", center, "BOTTOMRIGHT", 0, 0)
@@ -525,7 +516,6 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
 
     workspace.centerHeader = centerHeader
     workspace.canvas = canvas
-    workspace.selectionStrip = selectionStrip
     workspace.inspectorHeader = inspectorHeader
     workspace.inspectorScroll = inspectorScroll
     workspace.inspectorChild = inspectorChild
@@ -548,17 +538,6 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         self.centerHeader.state:SetTextColor(enabled and 0.35 or 0.55, enabled and 0.92 or 0.57, enabled and 0.48 or 0.62, 1)
         self.restoreButton:SetShown(self.selectedGroup == "Cooldowns" or self.selectedGroup == "Buffs" or self.selectedGroup == "Utility")
         self.statusText:SetText(GetGroupLabel(self.selectedGroup))
-    end
-
-    function workspace:RefreshPreviewSelection()
-        local selected = DDingUI:GetGroupIconDetailSelection(self.selectedGroup)
-        if selected then
-            local name = selected._gridDisplayName or selected._gridSpellName or selected._gridDynamicIconKey or T("Selected Icon", "선택한 아이콘")
-            self.selectionStrip.text:SetText(name .. "  ·  " .. T("editing", "편집 중"))
-            self.selectionStrip:Show()
-        else
-            self.selectionStrip:Hide()
-        end
     end
 
     function workspace:ResolveNavigation()
@@ -690,7 +669,6 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         self._previewSignature = GetGroupSignature(self.selectedGroup)
         self._observedSignature = self._previewSignature
         self._signatureStableFor = 0
-        self:RefreshPreviewSelection()
     end
 
     function workspace:RefreshInspectorHeader(definition, currentSection, selected)
