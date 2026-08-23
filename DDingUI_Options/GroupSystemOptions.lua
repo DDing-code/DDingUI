@@ -454,8 +454,6 @@ local function SoftRefreshDynamicIcons()
     SoftRefreshGroupSystemOptions(0.1)
 end
 
--- [12.0.1] 새 그룹 이름 임시 저장 (입력과 생성 분리 — 포커스 잃을 때 리프레시 방지)
-local pendingGroupName = nil
 local pendingItemID = nil
 
 -- ============================================================
@@ -4949,7 +4947,11 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         if DDingUI.GroupSystem and DDingUI.GroupSystem.RefreshLayout then
             DDingUI.GroupSystem:RefreshLayout(true)
         end
-        SoftRefreshGroupSystemOptions(0.05)
+        if type(parent._onAssignedGridCommit) == "function" then
+            parent:_onAssignedGridCommit(groupName)
+        else
+            SoftRefreshGroupSystemOptions(0.05)
+        end
     end
 
     local function MoveAssignedIcon(opt, targetGroupName)
@@ -5681,13 +5683,17 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                     ShowAssignedIconContextMenu(self, opt)
                 elseif button == "LeftButton" and opt then
                     if DDingUI:SetGroupIconDetailSelection(groupName, opt) then
-                        if _G["DDingUI_ConfigFrame"] then
-                            _G["DDingUI_ConfigFrame"]._requestedSubTabPath = {
-                                "group_" .. groupName,
-                                "iconSettings",
-                            }
+                        if type(parent._onGroupIconSelected) == "function" then
+                            parent:_onGroupIconSelected(groupName, opt)
+                        else
+                            if _G["DDingUI_ConfigFrame"] then
+                                _G["DDingUI_ConfigFrame"]._requestedSubTabPath = {
+                                    "group_" .. groupName,
+                                    "iconSettings",
+                                }
+                            end
+                            SoftRefreshGroupSystemOptions(0)
                         end
-                        SoftRefreshGroupSystemOptions(0)
                     end
                 end
             end)
@@ -7805,94 +7811,13 @@ local function BuildGroupSystemOptions(order)
         DDingUI.GroupSystem:SyncDynamicGroups()
     end
 
-    local barArgs = {
-        systemSettings = {
-            type = "group",
-            name = L["Settings"] or "설정",
-            order = 0,
-            args = {
-                hideDefaultViewers = {
-                    type = "toggle",
-                    name = L["Hide Default Viewers"] or "기본 뷰어 숨기기",
-                    desc = L["Hide WoW default cooldown viewers when group system is active"] or "그룹 시스템 활성 시 WoW 기본 재사용 대기시간 뷰어 숨기기",
-                    order = 3,
-                    width = "full",
-                    get = function()
-                        local gs = GetGS()
-                        return gs and gs.hideDefaultViewers
-                    end,
-                    set = function(_, val)
-                        local gs = GetGS()
-                        if gs then
-                            gs.hideDefaultViewers = val
-                            if DDingUI.GroupSystem then
-                                DDingUI.GroupSystem:Toggle()
-                            end
-                        end
-                    end,
-                },
-                addGroupHeader = {
-                    type = "header",
-                    name = L["Add Group"] or "그룹 추가",
-                    order = 10,
-                },
-                newGroupName = {
-                    type = "input",
-                    name = L["New Group Name"] or "새 그룹 이름",
-                    desc = L["Enter group name and click Create"] or "그룹 이름을 입력 후 '생성' 버튼을 누르세요",
-                    order = 11,
-                    width = "double",
-                    get = function() return pendingGroupName or "" end,
-                    set = function(_, val)
-                        pendingGroupName = (val and val ~= "") and val or nil
-                    end,
-                },
-                createGroupBtn = {
-                    type = "execute",
-                    name = L["Create"] or "생성",
-                    order = 12,
-                    width = "half",
-                    disabled = function() return not pendingGroupName or pendingGroupName == "" end,
-                    func = function()
-                        local val = pendingGroupName
-                        pendingGroupName = nil
-                        if val and val ~= "" and DDingUI.GroupManager then
-                            local ok = DDingUI.GroupManager:CreateGroup(val)
-                            if ok then
-                                if DDingUI.GroupSystem then
-                                    DDingUI.GroupSystem:OnGroupAdded(val)
-                                end
-                                DDingUI:RefreshConfigGUI(false, "groupSystem.group_" .. val)
-                            end
-                        end
-                    end,
-                },
-            },
-        },
-    }
-    local options = {
+    return {
         type = "group",
         name = rawget(L, "CDM Bars") or "CDM Bars",
         order = order,
-        childGroups = "tab",
-        args = barArgs,
+        customRenderer = "groupSystem",
+        args = {},
     }
-
-    local gs = GetGS()
-    if gs and gs.groups then
-        local sorted = {}
-        for name, settings in pairs(gs.groups) do
-            sorted[#sorted + 1] = { name = name, order = settings.order or 999 }
-        end
-        table.sort(sorted, function(a, b) return a.order < b.order end)
-
-        for i, entry in ipairs(sorted) do
-            local groupOption = CreateGroupOptions(entry.name, i)
-            barArgs["group_" .. entry.name] = groupOption
-        end
-    end
-
-    return options
 end
 
 local function CreateLazyGroupSystemOptions(order)
@@ -7901,10 +7826,49 @@ local function CreateLazyGroupSystemOptions(order)
         type = "group",
         name = rawget(L, "CDM Bars") or "CDM Bars",
         order = optionOrder,
-        childGroups = "tab",
+        customRenderer = "groupSystem",
         _lazyBuilder = function()
             return BuildGroupSystemOptions(optionOrder)
         end,
+    }
+end
+
+function DDingUI:BuildGroupWorkspaceOptionPage(groupName, mode)
+    if mode == "icon" then
+        return {
+            type = "group",
+            name = rawget(L, "Icon Settings") or "Icon Settings",
+            args = BuildUnifiedIconSettingsArgs(groupName),
+        }
+    end
+
+    local groupOptions = CreateGroupOptions(groupName, 1)
+    return groupOptions and groupOptions.args and groupOptions.args.groupSettings
+end
+
+function DDingUI:BuildGroupWorkspaceSystemPage()
+    return {
+        type = "group",
+        name = rawget(L, "Settings") or "Settings",
+        args = {
+            hideDefaultViewers = {
+                type = "toggle",
+                name = L["Hide Default Viewers"] or "기본 뷰어 숨기기",
+                desc = L["Hide WoW default cooldown viewers when group system is active"] or "그룹 시스템 활성 시 WoW 기본 재사용 대기시간 뷰어 숨기기",
+                order = 1,
+                width = "full",
+                get = function()
+                    local gs = GetGS()
+                    return gs and gs.hideDefaultViewers
+                end,
+                set = function(_, value)
+                    local gs = GetGS()
+                    if not gs then return end
+                    gs.hideDefaultViewers = value
+                    if DDingUI.GroupSystem then DDingUI.GroupSystem:Toggle() end
+                end,
+            },
+        },
     }
 end
 

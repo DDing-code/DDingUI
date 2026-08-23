@@ -33,4 +33,5 @@ ProfileOptions.lua
 GroupSystemIconTextures.lua
 GroupSystemOptions.lua
 GroupStateStudio.lua
+GroupSystemWorkspace.lua
 Config.lua

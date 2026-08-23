@@ -56,6 +56,12 @@ local SECTION_MENU_DEFS = {
     { key = "buffBar",      label = "Tracked Bars",     icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\TrackedBars.tga" },
 }
 
+local WORKSPACE_GROUP_LABEL_KEYS = {
+    Cooldowns = "Essential Cooldowns",
+    Buffs = "Buff Icons",
+    Utility = "Utility Cooldowns",
+}
+
 local function IsOptionVisible(option)
     if not option then return false end
     if type(option.hidden) == "function" then
@@ -83,6 +89,16 @@ local function ResolveSectionTarget(targetKey, frame)
     end
 
     if rootKey == "groupSystem" and frame and frame._optionLookup then
+        local workspaceGroup = targetKey:match("^groupSystem%.group_([^%.]+)")
+        if workspaceGroup then
+            DDingUI._groupWorkspaceSelectedGroup = workspaceGroup
+            if targetKey:find(".iconSettings", 1, true) then
+                DDingUI._groupWorkspaceInspectorMode = "icon"
+            end
+            local workspaceKey = "groupSystem.group_" .. workspaceGroup
+            return frame._optionLookup[workspaceKey] and workspaceKey or rootKey, nil
+        end
+
         local groupSystem = frame._optionLookup.groupSystem
         if groupSystem and groupSystem.option then
             groupSystem.option = MaterializeLazyOption(groupSystem.option)
@@ -140,6 +156,52 @@ local function BuildSectionMenuData(options, frame)
 
     frame._optionLookup = {}
     local menuData = {}
+    local function AppendWorkspaceGroups(groupSystemOption)
+        menuData[#menuData + 1] = {
+            key = "groupSystem.__groups",
+            text = L["Groups"] or "그룹",
+            kind = "section",
+        }
+        menuData[#menuData + 1] = {
+            key = "groupSystem.__add",
+            text = "+  " .. (L["Add Group"] or "그룹 추가"),
+            kind = "groupAdd",
+        }
+        frame._optionLookup["groupSystem.__add"] = { action = "addGroup" }
+
+        local profile = DDingUI.db and DDingUI.db.profile
+        local groupSystem = profile and profile.groupSystem
+        local groups = {}
+        for name, settings in pairs((groupSystem and groupSystem.groups) or {}) do
+            groups[#groups + 1] = {
+                name = name,
+                label = (WORKSPACE_GROUP_LABEL_KEYS[name] and L[WORKSPACE_GROUP_LABEL_KEYS[name]])
+                    or settings.name
+                    or name,
+                order = tonumber(settings.order) or 999,
+                enabled = settings.enabled ~= false,
+            }
+        end
+        table.sort(groups, function(a, b)
+            if a.order ~= b.order then return a.order < b.order end
+            return tostring(a.label) < tostring(b.label)
+        end)
+        for _, group in ipairs(groups) do
+            local key = "groupSystem.group_" .. group.name
+            menuData[#menuData + 1] = {
+                key = key,
+                text = group.label,
+                kind = "group",
+                enabled = group.enabled,
+            }
+            frame._optionLookup[key] = {
+                option = groupSystemOption,
+                path = { "groupSystem" },
+                workspaceGroup = group.name,
+            }
+        end
+    end
+
     for _, definition in ipairs(SECTION_MENU_DEFS) do
         local option = sectionOptions[definition.key]
         if IsOptionVisible(option) then
@@ -153,6 +215,9 @@ local function BuildSectionMenuData(options, frame)
                 option = option,
                 path = { definition.key },
             }
+            if definition.key == "groupSystem" then
+                AppendWorkspaceGroups(option)
+            end
         end
     end
     return menuData
@@ -166,18 +231,41 @@ local function CreateSectionMenu(parent, menuData, opts)
     menu.rowsByKey = {}
     menu.selectedKey = nil
     menu.onSelect = opts.onSelect
+    menu.onRightClick = opts.onRightClick
 
     local function ApplyRowState(row)
+        if row._kind == "section" then
+            row._active = false
+            row.activeBar:Hide()
+            row.background:SetColorTexture(0, 0, 0, 0)
+            row.label:SetTextColor(0.54, 0.56, 0.62, 1)
+            return
+        end
+        if row._kind == "groupAdd" then
+            row._active = false
+            row.activeBar:Hide()
+            row.background:SetColorTexture(0, 0, 0, 0)
+            row.label:SetTextColor(1, 0.43, 0.08, 1)
+            return
+        end
         local active = row._key == menu.selectedKey
         row._active = active
         row.activeBar:SetShown(active)
         if active then
             row.background:SetColorTexture(0.105, 0.105, 0.115, 0.96)
-            row.icon:SetVertexColor(1, 0.43, 0.08, 1)
+            if row._kind == "group" then
+                row.icon:SetVertexColor(row._enabled and 0.28 or 0.42, row._enabled and 0.9 or 0.44, row._enabled and 0.42 or 0.48, 1)
+            else
+                row.icon:SetVertexColor(1, 0.43, 0.08, 1)
+            end
             row.label:SetTextColor(1, 1, 1, 1)
         else
             row.background:SetColorTexture(0, 0, 0, 0)
-            row.icon:SetVertexColor(0.72, 0.72, 0.75, 1)
+            if row._kind == "group" then
+                row.icon:SetVertexColor(row._enabled and 0.28 or 0.42, row._enabled and 0.9 or 0.44, row._enabled and 0.42 or 0.48, 1)
+            else
+                row.icon:SetVertexColor(0.72, 0.72, 0.75, 1)
+            end
             row.label:SetTextColor(0.84, 0.84, 0.87, 1)
         end
     end
@@ -188,7 +276,7 @@ local function CreateSectionMenu(parent, menuData, opts)
 
         row = CreateFrame("Button", nil, menu)
         row:SetHeight(54)
-        row:RegisterForClicks("LeftButtonUp")
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
         row.background = row:CreateTexture(nil, "BACKGROUND")
         row.background:SetAllPoints()
@@ -217,15 +305,25 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.divider:SetColorTexture(0.24, 0.24, 0.27, 0.5)
 
         row:SetScript("OnEnter", function(self)
+            if self._kind == "section" then return end
             if not self._active then
                 self.background:SetColorTexture(0.12, 0.12, 0.14, 0.72)
-                self.label:SetTextColor(0.88, 0.88, 0.9, 1)
+                if self._kind == "groupAdd" then
+                    self.label:SetTextColor(1, 0.62, 0.28, 1)
+                else
+                    self.label:SetTextColor(0.88, 0.88, 0.9, 1)
+                end
             end
         end)
         row:SetScript("OnLeave", function(self)
             ApplyRowState(self)
         end)
-        row:SetScript("OnClick", function(self)
+        row:SetScript("OnClick", function(self, button)
+            if self._kind == "section" then return end
+            if button == "RightButton" then
+                if menu.onRightClick then menu.onRightClick(self._key, self._text, self) end
+                return
+            end
             menu:SetSelected(self._key)
             if menu.onSelect then
                 menu.onSelect(self._key, true)
@@ -238,16 +336,53 @@ local function CreateSectionMenu(parent, menuData, opts)
 
     function menu:SetMenuData(data)
         self.rowsByKey = {}
+        local yOffset = 0
         for index, item in ipairs(data or {}) do
             local row = AcquireRow(index)
+            local kind = item.kind or "main"
+            local height = kind == "main" and 54 or (kind == "section" and 31 or 34)
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -((index - 1) * 54))
+            row:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -yOffset)
             row:SetPoint("RIGHT", self, "RIGHT", 0, 0)
+            row:SetHeight(height)
             row._key = item.key
-            row.icon:SetTexture(item.icon)
+            row._kind = kind
+            row._text = item.text or item.key
+            row._enabled = item.enabled ~= false
+            row.icon:ClearAllPoints()
+            row.label:ClearAllPoints()
+            row.divider:SetShown(kind == "main")
+
+            if kind == "main" then
+                row.icon:SetSize(30, 30)
+                row.icon:SetPoint("LEFT", row, "LEFT", 24, 0)
+                row.icon:SetTexture(item.icon)
+                row.icon:Show()
+                row.label:SetFont(globalFontPath, 13, "")
+                row.label:SetPoint("LEFT", row.icon, "RIGHT", 20, 0)
+            elseif kind == "section" then
+                row.icon:Hide()
+                row.label:SetFont(globalFontPath, 10, "")
+                row.label:SetPoint("LEFT", row, "LEFT", 24, -3)
+            elseif kind == "groupAdd" then
+                row.icon:Hide()
+                row.label:SetFont(globalFontPath, 10, "")
+                row.label:SetPoint("LEFT", row, "LEFT", 30, 0)
+                row.label:SetTextColor(1, 0.43, 0.08, 1)
+            else
+                row.icon:SetSize(7, 7)
+                row.icon:SetPoint("LEFT", row, "LEFT", 29, 0)
+                row.icon:SetTexture(FLAT)
+                row.icon:SetVertexColor(item.enabled and 0.28 or 0.42, item.enabled and 0.9 or 0.44, item.enabled and 0.42 or 0.48, 1)
+                row.icon:Show()
+                row.label:SetFont(globalFontPath, 11, "")
+                row.label:SetPoint("LEFT", row.icon, "RIGHT", 10, 0)
+            end
+            row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
             row.label:SetText(item.text or item.key)
             row:Show()
             self.rowsByKey[item.key] = row
+            yOffset = yOffset + height
         end
         for index = #(data or {}) + 1, #self.rows do
             self.rows[index]:Hide()
@@ -409,6 +544,18 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         end
     end
 
+    if parentFrame and parentFrame.contentArea and parentFrame.contentArea._groupWorkspace then
+        local workspace = parentFrame.contentArea._groupWorkspace
+        if contentFrame._insideGroupSystemWorkspace ~= true then
+            if workspace.Release then workspace:Release() end
+            workspace:Hide()
+            workspace:SetParent(nil)
+            parentFrame.contentArea._groupWorkspace = nil
+            parentFrame.scrollFrame:Show()
+            if parentFrame.scrollBar then parentFrame.scrollBar:Show() end
+        end
+    end
+
     if contentFrame.subScrollChild then
         if contentFrame.subScrollChild.widgets then
             for i = #contentFrame.subScrollChild.widgets, 1, -1 do
@@ -456,6 +603,11 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
     -- [REFACTOR] 커스텀 렌더러 분기
     if options.customRenderer == "buffTracker" then
         DDingUI.GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
+        return
+    end
+
+    if options.customRenderer == "groupSystem" and DDingUI.GUI.CreateGroupSystemWorkspace then
+        DDingUI.GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         return
     end
 
@@ -2382,6 +2534,12 @@ function DDingUI:CreateConfigFrame()
 
         if not self.currentTab then return end
 
+        local groupWorkspace = self.contentArea and self.contentArea._groupWorkspace
+        if self.currentTab:match("^groupSystem") and groupWorkspace and groupWorkspace:IsShown() then
+            groupWorkspace:RefreshAll(false)
+            return
+        end
+
         local scrollPos = self.scrollFrame:GetVerticalScroll()
 
         if DDingUI and DDingUI.configOptions then
@@ -2835,6 +2993,30 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                 return
             end
 
+            if lookup.action == "addGroup" then
+                if frame.currentTab then tree:SetSelected(frame.currentTab) end
+                if DDingUI.GUI.PromptCreateCDMGroup then
+                    DDingUI.GUI.PromptCreateCDMGroup(function(groupName)
+                        frame:RebuildTreeMenu("groupSystem.group_" .. groupName)
+                    end)
+                end
+                return
+            end
+
+            if lookup.workspaceGroup then
+                DDingUI._groupWorkspaceSelectedGroup = lookup.workspaceGroup
+                local workspace = frame.contentArea and frame.contentArea._groupWorkspace
+                if workspace and workspace:IsShown() and frame.currentTab
+                    and frame.currentTab:match("^groupSystem")
+                then
+                    workspace:SelectGroup(lookup.workspaceGroup)
+                    frame.currentTab = key
+                    frame.currentPath = lookup.path
+                    frame.configOptions = options
+                    return
+                end
+            end
+
             frame:SetContent(lookup.option, lookup.path)
             frame.currentTab = key
             frame.currentPath = lookup.path
@@ -3109,111 +3291,11 @@ function DDingUI:OpenConfigGUI(options, tabKey)
 
     -- [12.0.1] 트리 메뉴 재빌드 (그룹 생성/삭제/이름변경 후 호출)
     frame.RebuildTreeMenu = function(self, selectKey)
-        -- 옵션 테이블 재생성
         if ns.CreateGroupSystemOptions then
             options.args.groupSystem = ns.CreateGroupSystemOptions(1)
         end
         DDingUI.configOptions = options
-
-        -- menuData + _optionLookup 재빌드
-        local newMenuData = {}
-        self._optionLookup = {}
-
-        local sorted = {}
-        for k, opt in pairs(options.args or {}) do
-            if opt.type == "group" then
-                local isHidden = false
-                if opt.hidden then
-                    if type(opt.hidden) == "function" then
-                        isHidden = opt.hidden()
-                    else
-                        isHidden = opt.hidden
-                    end
-                end
-                if not isHidden then
-                    table.insert(sorted, {key = k, option = opt, order = opt.order or 999})
-                end
-            end
-        end
-        table.sort(sorted, function(a, b) return a.order < b.order end)
-
-        -- RebuildTreeChildren: childGroups="select" 재귀 지원 (BuffTracker 그룹 포함)
-        local function RebuildTreeChildren(parentOption, parentPath)
-            local children = {}
-            local sortedCh = {}
-            for childKey, childOption in pairs(parentOption.args or {}) do
-                if childOption.type == "group" then
-                    local childHidden = false
-                    if childOption.hidden then
-                        if type(childOption.hidden) == "function" then
-                            childHidden = childOption.hidden()
-                        else
-                            childHidden = childOption.hidden
-                        end
-                    end
-                    if not childHidden then
-                        table.insert(sortedCh, {key = childKey, option = childOption, order = childOption.order or 999})
-                    end
-                end
-            end
-            table.sort(sortedCh, function(a, b) return a.order < b.order end)
-
-            for _, ch in ipairs(sortedCh) do
-                local childName = ch.option.name or ch.key
-                if type(childName) == "function" then childName = childName() end
-                local childPath = {}
-                for _, p in ipairs(parentPath) do childPath[#childPath + 1] = p end
-                childPath[#childPath + 1] = ch.key
-                local childTreeKey = table.concat(childPath, ".")
-
-                -- 재귀: childGroups="select"인 경우 손자 노드도 변환
-                local grandChildren = nil
-                if ch.option.childGroups == "select" and ch.option.args then
-                    grandChildren = RebuildTreeChildren(ch.option, childPath)
-                end
-
-                table.insert(children, {
-                    text = childName,
-                    key = childTreeKey,
-                    icon = ch.option.icon,
-                    iconCoords = ch.option.iconCoords,
-                    desc = ch.option.desc,
-                    disabled = ch.option.disabled,
-                    children = (grandChildren and #grandChildren > 0) and grandChildren or nil,
-                })
-                self._optionLookup[childTreeKey] = { option = ch.option, path = childPath }
-
-                if grandChildren and #grandChildren > 0 then
-                    self._optionLookup[childTreeKey] = self._optionLookup[grandChildren[1].key]
-                end
-            end
-            return children
-        end
-
-        for _, item in ipairs(sorted) do
-            local displayName = item.option.name or item.key
-            if type(displayName) == "function" then displayName = displayName() end
-
-            local cg = item.option.childGroups
-            if cg == "tab" or cg == "select" then
-                local children = RebuildTreeChildren(item.option, {item.key})
-                if #children > 0 then
-                    self._optionLookup[item.key] = self._optionLookup[children[1].key]
-                end
-                table.insert(newMenuData, {
-                    text = displayName,
-                    key = item.key,
-                    icon = item.option.icon,
-                    iconCoords = item.option.iconCoords,
-                    children = children,
-                })
-            else
-                table.insert(newMenuData, { text = displayName, key = item.key })
-                self._optionLookup[item.key] = { option = item.option, path = {item.key} }
-            end
-        end
-
-        newMenuData = BuildSectionMenuData(options, self)
+        local newMenuData = BuildSectionMenuData(options, self)
         menuData = newMenuData
         self._fullMenuData = newMenuData
         tree:SetMenuData(newMenuData)
@@ -3283,6 +3365,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                             text = ch.text, key = ch.key,
                             icon = ch.icon, iconCoords = ch.iconCoords,
                             children = ch.children,
+                            kind = ch.kind, enabled = ch.enabled,
                         }
                     end
                 end
@@ -3291,12 +3374,14 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                         text = item.text, key = item.key,
                         icon = item.icon, iconCoords = item.iconCoords,
                         children = item.children,
+                        kind = item.kind, enabled = item.enabled,
                     }
                 elseif #matchedChildren > 0 then
                     filtered[#filtered + 1] = {
                         text = item.text, key = item.key,
                         icon = item.icon, iconCoords = item.iconCoords,
                         children = matchedChildren,
+                        kind = item.kind, enabled = item.enabled,
                     }
                 end
             else
@@ -3304,6 +3389,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                     filtered[#filtered + 1] = {
                         text = item.text, key = item.key,
                         icon = item.icon, iconCoords = item.iconCoords,
+                        kind = item.kind, enabled = item.enabled,
                     }
                 end
             end
@@ -3341,6 +3427,12 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             local buffTrackerPanel = contentArea._btPanel
             if buffTrackerPanel then
                 buffTrackerPanel:Hide()
+            end
+
+            local groupWorkspace = contentArea._groupWorkspace
+            if groupWorkspace then
+                if groupWorkspace.Release then groupWorkspace:Release() end
+                groupWorkspace:Hide()
             end
         end
 
@@ -3492,6 +3584,7 @@ DDingUI.GUI = {
     OpenConfigGUI = DDingUI.OpenConfigGUI,
     RenderOptions = RenderOptions,
     GetPopupEditBox = DDingUI_GetPopupEditBox,
+    ShowCDMGroupContextMenu = ShowCDMGroupContextMenu,
 
     -- Refresh the config frame (for external modules to trigger UI update)
     SoftRefresh = function()
