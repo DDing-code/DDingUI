@@ -281,6 +281,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     inspectorChild.widgets = {}
     inspectorChild.scrollFrame = inspectorScroll
     inspectorChild._insideGroupSystemWorkspace = true
+    inspectorChild._compactOptionsLayout = true
     inspectorScroll:SetScrollChild(inspectorChild)
     local inspectorScrollBar = GUI.CreateCustomScrollBar(inspector, inspectorScroll)
     inspectorScrollBar:SetPoint("TOPLEFT", inspectorScroll, "TOPRIGHT", 3, 0)

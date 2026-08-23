@@ -1794,7 +1794,7 @@ end
 -- ============================================
 -- 슬라이더 스타일 - 얇은 트랙 + 둥근 핸들
 -- ============================================
-local function StyleSlider(slider)
+local function StyleSlider(slider, compact)
     if not slider then return end
 
     -- 기본 텍스쳐 숨기기 및 Low/High 텍스트를 슬라이더 양쪽에 배치
@@ -1805,19 +1805,27 @@ local function StyleSlider(slider)
         local highText = sliderName and _G[sliderName.."High"] or slider.High
         local titleText = sliderName and _G[sliderName.."Text"] or slider.Text
 
-        -- 낮음: 슬라이더 왼쪽에 배치
         if lowText then
             lowText:ClearAllPoints()
-            lowText:SetPoint("RIGHT", slider, "LEFT", -6, 0)
-            lowText:SetTextColor(SL.GetColor("dim"))
-            StyleFontString(lowText)
+            if compact then
+                lowText:Hide()
+            else
+                lowText:SetPoint("RIGHT", slider, "LEFT", -6, 0)
+                lowText:SetTextColor(SL.GetColor("dim"))
+                StyleFontString(lowText)
+                lowText:Show()
+            end
         end
-        -- 높음: 슬라이더 오른쪽에 배치
         if highText then
             highText:ClearAllPoints()
-            highText:SetPoint("LEFT", slider, "RIGHT", 6, 0)
-            highText:SetTextColor(SL.GetColor("dim"))
-            StyleFontString(highText)
+            if compact then
+                highText:Hide()
+            else
+                highText:SetPoint("LEFT", slider, "RIGHT", 6, 0)
+                highText:SetTextColor(SL.GetColor("dim"))
+                StyleFontString(highText)
+                highText:Show()
+            end
         end
         if titleText then
             titleText:Hide()  -- 타이틀 텍스트는 숨김 (별도 라벨 사용)
@@ -1902,15 +1910,20 @@ local function StyleSlider(slider)
 end
 
 function Widgets.CreateRange(parent, option, yOffset, optionsTable)
+    local compact = parent._compactOptionsLayout == true
     local frame = CreateFrame("Frame", nil, parent)
-    frame:SetHeight(32)
+    frame:SetHeight(compact and 48 or 32)
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
     frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
 
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     StyleFontString(label)
-    label:SetPoint("LEFT", frame, "LEFT", 0, 0)
-    label:SetWidth(180)  -- 라벨 너비 증가 (긴 한글 텍스트 대응)
+    if compact then
+        label:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
+    else
+        label:SetPoint("LEFT", frame, "LEFT", 0, 0)
+        label:SetWidth(180)
+    end
     label:SetJustifyH("LEFT")
     local name = option.name or ""
     if type(name) == "function" then
@@ -1922,7 +1935,12 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     local valueEditBox = CreateFrame("EditBox", nil, frame, "BackdropTemplate")
     valueEditBox:SetHeight(18)
     valueEditBox:SetWidth(50)
-    valueEditBox:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    if compact then
+        valueEditBox:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 1)
+        label:SetPoint("TOPRIGHT", valueEditBox, "TOPLEFT", -8, -2)
+    else
+        valueEditBox:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    end
     StyleEditBox(valueEditBox, "GameFontHighlight")
     valueEditBox:SetTextColor(1, 1, 1, 1)
     valueEditBox:SetAutoFocus(false)
@@ -1953,12 +1971,17 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     local slider = CreateFrame("Slider", nil, frame, "OptionsSliderTemplate")
     slider:SetOrientation("HORIZONTAL")
     slider:SetHeight(16)
-    slider:SetPoint("LEFT", label, "RIGHT", 45, 0)  -- 낮음 텍스트 공간 확보
-    slider:SetPoint("RIGHT", valueEditBox, "LEFT", -45, 0)  -- 높음 텍스트 공간 확보
+    if compact then
+        slider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 3)
+        slider:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 3)
+    else
+        slider:SetPoint("LEFT", label, "RIGHT", 45, 0)
+        slider:SetPoint("RIGHT", valueEditBox, "LEFT", -45, 0)
+    end
     slider:EnableMouse(true)
 
     -- Apply ElvUI-style to slider
-    StyleSlider(slider)
+    StyleSlider(slider, compact)
 
     local min = option.min or 0
     local max = option.max or 100

@@ -949,7 +949,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 widgetHeight = 28
             elseif option.type == "range" then
                 widget = Widgets.CreateRange(contentFrame, option, yOffset, options)
-                widgetHeight = 32
+                widgetHeight = widget:GetHeight()
             elseif option.type == "select" then
                 -- Build path for info structure
                 local currentPath = {}
@@ -1429,6 +1429,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 local contentContainer = CreateFrame("Frame", nil, groupFrame)
                 contentContainer:SetPoint("TOPLEFT", groupFrame, "TOPLEFT", 0, -28)
                 contentContainer:SetPoint("RIGHT", groupFrame, "RIGHT", 0, 0)
+                contentContainer._compactOptionsLayout = contentFrame._compactOptionsLayout
                 groupFrame._contentContainer = contentContainer
                 groupFrame._contentWidgets = {}
 
@@ -1459,7 +1460,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                             inlineHeight = 28
                         elseif inlineItem.option.type == "range" then
                             inlineWidget = Widgets.CreateRange(contentContainer, inlineItem.option, inlineYOffset, options)
-                            inlineHeight = 32
+                            inlineHeight = inlineWidget:GetHeight()
                         elseif inlineItem.option.type == "select" then
                             -- Build path for info structure (for inline groups, path is just the key)
                             local inlinePath = {inlineItem.key}
@@ -1494,6 +1495,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                             local nestedGroupFrame = CreateFrame("Frame", nil, contentContainer)
                             nestedGroupFrame:SetPoint("TOPLEFT", contentContainer, "TOPLEFT", 10, -inlineYOffset)
                             nestedGroupFrame:SetPoint("RIGHT", contentContainer, "RIGHT", -10, 0)
+                            nestedGroupFrame._compactOptionsLayout = contentContainer._compactOptionsLayout
 
                             -- Nested group title
                             local nestedGroupTitle = nestedGroupFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1529,7 +1531,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                                         nestedHeight = 35
                                     elseif nestedItem.option.type == "range" then
                                         nestedWidget = Widgets.CreateRange(nestedGroupFrame, nestedItem.option, nestedYOffset, options)
-                                        nestedHeight = 35
+                                        nestedHeight = nestedWidget:GetHeight()
                                     elseif nestedItem.option.type == "select" then
                                         -- Build path for info structure (for nested groups, path is just the key)
                                         local nestedPath = {nestedItem.key}
@@ -2948,7 +2950,8 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     -- ============================================
     -- 트리 메뉴 생성
     -- ============================================
-    local tree = CreateSectionMenu(frame.treeFrame, menuData, {
+    local tree
+    tree = CreateSectionMenu(frame.treeFrame, menuData, {
         defaultKey = defaultKey,
         onSelect = function(key, fromUser)
             if fromUser then
