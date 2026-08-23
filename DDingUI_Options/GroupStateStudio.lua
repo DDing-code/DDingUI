@@ -793,13 +793,14 @@ function DDingUI:BuildGroupStateStudioUI(parent, groupName)
 
     local selectedState = GetSelectedState(groupName, context)
     local font = self.GetGlobalFont and self:GetGlobalFont() or "Fonts\\2002.TTF"
-    local width = math.max(660, parent:GetWidth() or 760)
+    local width = math.max(280, parent:GetWidth() or 760)
     local margin, gap, cardHeight = 6, 8, 94
-    local cardWidth = math.floor((width - margin * 2 - gap * 2) / 3)
+    local columns = width >= 620 and 3 or width >= 390 and 2 or 1
+    local cardWidth = math.floor((width - margin * 2 - gap * (columns - 1)) / columns)
 
     for index, definition in ipairs(STATE_ORDER) do
-        local row = math.floor((index - 1) / 3)
-        local column = (index - 1) % 3
+        local row = math.floor((index - 1) / columns)
+        local column = (index - 1) % columns
         local supported = context.capabilities[definition.key] == true
         local card = CreateFrame("Button", nil, parent)
         card:SetSize(cardWidth, cardHeight)
@@ -867,7 +868,8 @@ function DDingUI:BuildGroupStateStudioUI(parent, groupName)
         end
     end
 
-    parent:SetHeight(margin * 2 + cardHeight * 2 + gap)
+    local rows = math.ceil(#STATE_ORDER / columns)
+    parent:SetHeight(margin * 2 + cardHeight * rows + gap * math.max(0, rows - 1))
 end
 
 DDingUI.GroupStateStudio = {

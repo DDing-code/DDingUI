@@ -62,31 +62,141 @@ local function CreateButton(parent, label, accent)
     return button
 end
 
-local function CreateModeButton(parent, label)
+local WORKSPACE_CATEGORIES = {
+    {
+        key = "layout",
+        glyph = "↔",
+        label = "Layout & Size",
+        fallback = "배치와 크기",
+        sections = {
+            { key = "appearance", label = "Appearance", fallback = "외관" },
+            { key = "position", label = "Position", fallback = "위치" },
+        },
+    },
+    {
+        key = "state",
+        glyph = "◇",
+        label = "Icon State",
+        fallback = "아이콘 상태",
+        requiresIcon = true,
+        sections = {
+            { key = "states", label = "State Display", fallback = "상태 표시" },
+            { key = "advanced", label = "Advanced Display", fallback = "고급 표시" },
+        },
+    },
+    {
+        key = "text",
+        glyph = "T",
+        label = "Text",
+        fallback = "텍스트",
+        sections = {
+            { key = "stack", label = "Stack Text", fallback = "중첩 텍스트" },
+            { key = "cooldown", label = "Cooldown Text", fallback = "재사용 대기시간" },
+            { key = "duration", label = "Duration Text", fallback = "지속시간" },
+        },
+    },
+    {
+        key = "effects",
+        glyph = "✦",
+        label = "Glow & Effects",
+        fallback = "글로우와 효과",
+        sections = {
+            { key = "icon", label = "Icon Glow", fallback = "아이콘 글로우", requiresIcon = true },
+            { key = "group", label = "Group Default Glow", fallback = "그룹 기본 글로우" },
+            { key = "swipe", label = "Swipe", fallback = "스와이프" },
+        },
+    },
+    {
+        key = "animation",
+        glyph = "▶",
+        label = "Animation",
+        fallback = "애니메이션",
+    },
+}
+
+local CATEGORY_BY_KEY = {}
+for _, definition in ipairs(WORKSPACE_CATEGORIES) do
+    CATEGORY_BY_KEY[definition.key] = definition
+end
+
+local function CreateCategoryButton(parent, definition)
     local button = CreateFrame("Button", nil, parent)
-    button:SetHeight(32)
-    button.label = CreateText(button, 11, { 0.64, 0.66, 0.72, 1 }, "CENTER")
+    button:SetHeight(50)
+    button.background = button:CreateTexture(nil, "BACKGROUND")
+    button.background:SetAllPoints()
+    button.background:SetColorTexture(THEME.panelStrong[1], THEME.panelStrong[2], THEME.panelStrong[3], 0)
+    button.accent = button:CreateTexture(nil, "ARTWORK")
+    button.accent:SetPoint("TOPLEFT")
+    button.accent:SetPoint("BOTTOMLEFT")
+    button.accent:SetWidth(3)
+    button.accent:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+    button.glyph = CreateText(button, 18, { 0.58, 0.61, 0.67, 1 }, "CENTER")
+    button.glyph:SetSize(34, 30)
+    button.glyph:SetPoint("LEFT", button, "LEFT", 10, 0)
+    button.glyph:SetText(definition.glyph)
+    button.label = CreateText(button, 11, { 0.72, 0.74, 0.79, 1 })
+    button.label:SetPoint("LEFT", button.glyph, "RIGHT", 8, 0)
+    button.label:SetPoint("RIGHT", button, "RIGHT", -8, 0)
+    button.label:SetText(T(definition.label, definition.fallback))
+
+    function button:SetAvailable(available)
+        self._available = available ~= false
+        self:EnableMouse(self._available)
+        self:SetAlpha(self._available and 1 or 0.36)
+    end
+
+    function button:SetActive(active)
+        self._active = active == true
+        self.accent:SetShown(self._active)
+        self.background:SetAlpha(self._active and 0.9 or 0)
+        if self._active then
+            self.glyph:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            self.label:SetTextColor(0.97, 0.98, 1, 1)
+        else
+            self.glyph:SetTextColor(0.58, 0.61, 0.67, 1)
+            self.label:SetTextColor(0.72, 0.74, 0.79, 1)
+        end
+    end
+
+    button:SetScript("OnEnter", function(self)
+        if self._available and not self._active then
+            self.background:SetAlpha(0.45)
+            self.label:SetTextColor(0.94, 0.95, 0.98, 1)
+        end
+    end)
+    button:SetScript("OnLeave", function(self) self:SetActive(self._active) end)
+    button:SetAvailable(true)
+    button:SetActive(false)
+    return button
+end
+
+local function CreateSubsectionButton(parent, definition)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetHeight(34)
+    button.label = CreateText(button, 10, { 0.58, 0.61, 0.67, 1 }, "CENTER")
     button.label:SetPoint("CENTER")
-    button.label:SetText(label)
+    button.label:SetText(T(definition.label, definition.fallback))
     button.underline = button:CreateTexture(nil, "ARTWORK")
-    button.underline:SetPoint("BOTTOMLEFT", 8, 0)
-    button.underline:SetPoint("BOTTOMRIGHT", -8, 0)
+    button.underline:SetPoint("BOTTOMLEFT", 6, 0)
+    button.underline:SetPoint("BOTTOMRIGHT", -6, 0)
     button.underline:SetHeight(2)
     button.underline:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
 
     function button:SetActive(active)
         self._active = active == true
         self.underline:SetShown(self._active)
-        if self._active then
-            self.label:SetTextColor(1, 0.48, 0.12, 1)
-        else
-            self.label:SetTextColor(0.64, 0.66, 0.72, 1)
-        end
+        self.label:SetTextColor(
+            self._active and THEME.accent[1] or 0.58,
+            self._active and THEME.accent[2] or 0.61,
+            self._active and THEME.accent[3] or 0.67,
+            1
+        )
     end
     button:SetScript("OnEnter", function(self)
-        if not self._active then self.label:SetTextColor(0.9, 0.91, 0.94, 1) end
+        if not self._active then self.label:SetTextColor(0.93, 0.94, 0.97, 1) end
     end)
     button:SetScript("OnLeave", function(self) self:SetActive(self._active) end)
+    button:SetActive(false)
     return button
 end
 
@@ -227,22 +337,23 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     contentArea._groupWorkspace = workspace
     workspace._parentFrame = parentFrame
     workspace.selectedGroup = GetDefaultGroup()
-    workspace.inspectorMode = DDingUI._groupWorkspaceInspectorMode
-        or (DDingUI:GetGroupIconDetailSelection(workspace.selectedGroup) and "icon" or "group")
+    local requestedMode = DDingUI._groupWorkspaceInspectorMode
+    local hasSelectedIcon = DDingUI:GetGroupIconDetailSelection(workspace.selectedGroup) ~= nil
+    workspace.category = requestedMode == "icon" and hasSelectedIcon and "state"
+        or DDingUI._groupWorkspaceCategory
+        or "layout"
+    workspace.sectionByCategory = DDingUI._groupWorkspaceSections or {}
     DDingUI._groupWorkspaceInspectorMode = nil
 
     local inspector = CreateFrame("Frame", nil, workspace, "BackdropTemplate")
-    inspector:SetPoint("TOPRIGHT", workspace, "TOPRIGHT", 0, 0)
-    inspector:SetPoint("BOTTOMRIGHT", workspace, "BOTTOMRIGHT", 0, 0)
-    inspector:SetWidth(330)
     SetSurface(inspector, THEME.panelRaised, THEME.border)
 
     local inspectorHeader = CreateFrame("Frame", nil, inspector)
     inspectorHeader:SetPoint("TOPLEFT", inspector, "TOPLEFT", 0, 0)
     inspectorHeader:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
-    inspectorHeader:SetHeight(66)
+    inspectorHeader:SetHeight(54)
     inspectorHeader.iconFrame = CreateFrame("Frame", nil, inspectorHeader, "BackdropTemplate")
-    inspectorHeader.iconFrame:SetSize(40, 40)
+    inspectorHeader.iconFrame:SetSize(34, 34)
     inspectorHeader.iconFrame:SetPoint("LEFT", inspectorHeader, "LEFT", 12, 0)
     SetSurface(inspectorHeader.iconFrame, THEME.input, THEME.borderLight)
     inspectorHeader.icon = inspectorHeader.iconFrame:CreateTexture(nil, "ARTWORK")
@@ -250,34 +361,50 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     inspectorHeader.icon:SetPoint("BOTTOMRIGHT", -2, 2)
     inspectorHeader.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     inspectorHeader.title = CreateText(inspectorHeader, 12, { 0.96, 0.97, 0.99, 1 })
-    inspectorHeader.title:SetPoint("TOPLEFT", inspectorHeader.iconFrame, "TOPRIGHT", 10, -3)
+    inspectorHeader.title:SetPoint("TOPLEFT", inspectorHeader.iconFrame, "TOPRIGHT", 10, -1)
     inspectorHeader.title:SetPoint("RIGHT", inspectorHeader, "RIGHT", -10, 0)
     inspectorHeader.subtitle = CreateText(inspectorHeader, 10, { 0.48, 0.52, 0.59, 1 })
     inspectorHeader.subtitle:SetPoint("TOPLEFT", inspectorHeader.title, "BOTTOMLEFT", 0, -6)
     inspectorHeader.subtitle:SetPoint("RIGHT", inspectorHeader, "RIGHT", -10, 0)
-    CreateDivider(inspectorHeader, -65)
+    CreateDivider(inspectorHeader, -53)
 
-    local modeBar = CreateFrame("Frame", nil, inspector, "BackdropTemplate")
-    modeBar:SetPoint("TOPLEFT", inspectorHeader, "BOTTOMLEFT", 0, 0)
-    modeBar:SetPoint("TOPRIGHT", inspectorHeader, "BOTTOMRIGHT", 0, 0)
-    modeBar:SetHeight(34)
-    SetSurface(modeBar, THEME.panelStrong, THEME.border)
-    local iconMode = CreateModeButton(modeBar, T("Icon", "아이콘"))
-    iconMode:SetPoint("TOPLEFT", modeBar, "TOPLEFT", 8, -1)
-    iconMode:SetWidth(78)
-    local groupMode = CreateModeButton(modeBar, T("Group", "그룹"))
-    groupMode:SetPoint("LEFT", iconMode, "RIGHT", 2, 0)
-    groupMode:SetWidth(78)
-    local systemMode = CreateModeButton(modeBar, T("General", "공통"))
-    systemMode:SetPoint("LEFT", groupMode, "RIGHT", 2, 0)
-    systemMode:SetWidth(78)
+    local categoryRail = CreateFrame("Frame", nil, inspector, "BackdropTemplate")
+    categoryRail:SetPoint("TOPLEFT", inspectorHeader, "BOTTOMLEFT", 0, 0)
+    categoryRail:SetPoint("BOTTOMLEFT", inspector, "BOTTOMLEFT", 0, 0)
+    categoryRail:SetWidth(168)
+    SetSurface(categoryRail, THEME.panelStrong, THEME.border)
+    local categoryTitle = CreateText(categoryRail, 9, { 0.46, 0.49, 0.55, 1 })
+    categoryTitle:SetPoint("TOPLEFT", categoryRail, "TOPLEFT", 14, -12)
+    categoryTitle:SetText(T("What do you want to configure?", "무엇을 설정할까요?"))
+
+    local categoryButtons = {}
+    local previousCategoryButton
+    for _, definition in ipairs(WORKSPACE_CATEGORIES) do
+        local button = CreateCategoryButton(categoryRail, definition)
+        button:SetPoint("LEFT", categoryRail, "LEFT", 1, 0)
+        button:SetPoint("RIGHT", categoryRail, "RIGHT", -1, 0)
+        if previousCategoryButton then
+            button:SetPoint("TOP", previousCategoryButton, "BOTTOM", 0, -1)
+        else
+            button:SetPoint("TOP", categoryRail, "TOP", 0, -36)
+        end
+        categoryButtons[definition.key] = button
+        previousCategoryButton = button
+    end
+
+    local subsectionBar = CreateFrame("Frame", nil, inspector, "BackdropTemplate")
+    subsectionBar:SetPoint("TOPLEFT", inspectorHeader, "BOTTOMLEFT", 168, 0)
+    subsectionBar:SetPoint("TOPRIGHT", inspectorHeader, "BOTTOMRIGHT", 0, 0)
+    subsectionBar:SetHeight(38)
+    SetSurface(subsectionBar, THEME.panelStrong, THEME.border)
+    subsectionBar.buttons = {}
 
     local inspectorScroll = CreateFrame("ScrollFrame", nil, inspector)
-    inspectorScroll:SetPoint("TOPLEFT", modeBar, "BOTTOMLEFT", 4, -4)
+    inspectorScroll:SetPoint("TOPLEFT", subsectionBar, "BOTTOMLEFT", 4, -4)
     inspectorScroll:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -14, 4)
     inspectorScroll:EnableMouseWheel(true)
     local inspectorChild = CreateFrame("Frame", nil, inspectorScroll)
-    inspectorChild:SetWidth(311)
+    inspectorChild:SetWidth(640)
     inspectorChild:SetHeight(1)
     inspectorChild.widgets = {}
     inspectorChild.scrollFrame = inspectorScroll
@@ -303,7 +430,10 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
 
     local center = CreateFrame("Frame", nil, workspace)
     center:SetPoint("TOPLEFT", workspace, "TOPLEFT", 10, -10)
-    center:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMLEFT", -10, 10)
+    center:SetPoint("TOPRIGHT", workspace, "TOPRIGHT", -10, -10)
+    center:SetHeight(250)
+    inspector:SetPoint("TOPLEFT", center, "BOTTOMLEFT", 0, -8)
+    inspector:SetPoint("BOTTOMRIGHT", workspace, "BOTTOMRIGHT", -10, 10)
 
     local centerHeader = CreateFrame("Frame", nil, center, "BackdropTemplate")
     centerHeader:SetPoint("TOPLEFT", center, "TOPLEFT", 0, 0)
@@ -351,9 +481,9 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     workspace.inspectorScroll = inspectorScroll
     workspace.inspectorChild = inspectorChild
     workspace.inspectorScrollBar = inspectorScrollBar
-    workspace.iconMode = iconMode
-    workspace.groupMode = groupMode
-    workspace.systemMode = systemMode
+    workspace.categoryRail = categoryRail
+    workspace.categoryButtons = categoryButtons
+    workspace.subsectionBar = subsectionBar
     workspace.restoreButton = restoreButton
     workspace.statusText = statusText
 
@@ -382,8 +512,111 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         end
     end
 
+    function workspace:ResolveNavigation()
+        local selected = DDingUI:GetGroupIconDetailSelection(self.selectedGroup)
+        local definition = CATEGORY_BY_KEY[self.category]
+        if not definition or (definition.requiresIcon and not selected) then
+            self.category = "layout"
+            definition = CATEGORY_BY_KEY.layout
+        end
+
+        local sections = {}
+        for _, section in ipairs(definition.sections or {}) do
+            if not section.requiresIcon or selected then
+                sections[#sections + 1] = section
+            end
+        end
+
+        local currentSection = self.sectionByCategory[self.category]
+        local sectionIsAvailable = false
+        for _, section in ipairs(sections) do
+            if section.key == currentSection then
+                sectionIsAvailable = true
+                break
+            end
+        end
+        if not sectionIsAvailable then
+            currentSection = sections[1] and sections[1].key or nil
+            self.sectionByCategory[self.category] = currentSection
+        end
+
+        DDingUI._groupWorkspaceCategory = self.category
+        DDingUI._groupWorkspaceSections = self.sectionByCategory
+        return definition, sections, currentSection, selected
+    end
+
+    function workspace:RefreshCategoryNavigation()
+        local definition, sections, currentSection, selected = self:ResolveNavigation()
+        for _, category in ipairs(WORKSPACE_CATEGORIES) do
+            local button = self.categoryButtons[category.key]
+            if button then
+                button:SetAvailable(not category.requiresIcon or selected ~= nil)
+                button:SetActive(category.key == self.category)
+            end
+        end
+
+        for _, button in ipairs(self.subsectionBar.buttons) do
+            button:Hide()
+            button:SetParent(nil)
+        end
+        wipe(self.subsectionBar.buttons)
+
+        self.inspectorScroll:ClearAllPoints()
+        if #sections > 0 then
+            self.subsectionBar:Show()
+            self.inspectorScroll:SetPoint("TOPLEFT", self.subsectionBar, "BOTTOMLEFT", 4, -4)
+            local availableWidth = math.max(420, (self.subsectionBar:GetWidth() or 600) - 16)
+            local buttonWidth = math.max(96, math.min(168,
+                math.floor((availableWidth - math.max(0, #sections - 1) * 2) / #sections)))
+            local previous
+            for _, section in ipairs(sections) do
+                local button = CreateSubsectionButton(self.subsectionBar, section)
+                button:SetWidth(buttonWidth)
+                if previous then
+                    button:SetPoint("TOPLEFT", previous, "TOPRIGHT", 2, 0)
+                else
+                    button:SetPoint("TOPLEFT", self.subsectionBar, "TOPLEFT", 8, -2)
+                end
+                button:SetActive(section.key == currentSection)
+                local sectionKey = section.key
+                button:SetScript("OnClick", function() self:SelectSection(sectionKey) end)
+                self.subsectionBar.buttons[#self.subsectionBar.buttons + 1] = button
+                previous = button
+            end
+        else
+            self.subsectionBar:Hide()
+            self.inspectorScroll:SetPoint("TOPLEFT", self.inspectorHeader, "BOTTOMLEFT", 172, -4)
+        end
+        self.inspectorScroll:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -14, 4)
+        return definition, currentSection, selected
+    end
+
+    function workspace:SelectCategory(categoryKey)
+        local definition = CATEGORY_BY_KEY[categoryKey]
+        local selected = DDingUI:GetGroupIconDetailSelection(self.selectedGroup)
+        if not definition or (definition.requiresIcon and not selected) then return end
+        self.category = categoryKey
+        if categoryKey == "effects"
+            and self.sectionByCategory.effects == "icon"
+            and not selected
+        then
+            self.sectionByCategory.effects = "group"
+        end
+        self:RefreshInspector()
+    end
+
+    function workspace:SelectSection(sectionKey)
+        if not sectionKey then return end
+        self.sectionByCategory[self.category] = sectionKey
+        self:RefreshInspector()
+    end
+
     function workspace:QueueRefresh(mode)
-        if mode then self.inspectorMode = mode end
+        if mode then
+            self.category = mode == "icon" and "state"
+                or (mode == "group" or mode == "system") and "layout"
+                or mode
+        end
         if self._interactionTimer then self._interactionTimer:Cancel() end
         self._interactionTimer = C_Timer.NewTimer(0, function()
             self._interactionTimer = nil
@@ -399,7 +632,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         end
         local holder = CreateFrame("Frame", nil, self.canvas)
         holder:SetWidth(math.max(280, (self.canvas:GetWidth() or 560) - 28))
-        holder._onGroupIconSelected = function() self:QueueRefresh("icon") end
+        holder._onGroupIconSelected = function() self:QueueRefresh("state") end
         holder._onAssignedGridCommit = function() self:QueueRefresh(nil) end
         DDingUI:BuildGroupAssignedIconGridUI(holder, self.selectedGroup)
         holder:ClearAllPoints()
@@ -411,42 +644,40 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         self:RefreshPreviewSelection()
     end
 
-    function workspace:RefreshInspectorHeader()
-        local selected = DDingUI:GetGroupIconDetailSelection(self.selectedGroup)
-        if self.inspectorMode == "system" then
-            self.inspectorHeader.icon:SetTexture("Interface\\Buttons\\UI-OptionsButton")
-            self.inspectorHeader.title:SetText(T("CDM Settings", "CDM 전체 설정"))
-            self.inspectorHeader.subtitle:SetText(T("Viewer behavior", "뷰어 동작 설정"))
-        elseif self.inspectorMode == "icon" and selected then
+    function workspace:RefreshInspectorHeader(definition, currentSection, selected)
+        local categoryLabel = definition and T(definition.label, definition.fallback) or ""
+        local showSelectedIcon = selected and (
+            self.category == "state"
+            or (self.category == "effects" and currentSection == "icon")
+        )
+        if showSelectedIcon then
             self.inspectorHeader.icon:SetTexture(selected._gridIconTex or 134400)
             self.inspectorHeader.title:SetText(selected._gridDisplayName or selected._gridSpellName or T("Selected Icon", "선택한 아이콘"))
             local kind = selected._gridKind == "dynamic" and T("Custom Icon", "커스텀 아이콘") or T("CDM Icon", "CDM 아이콘")
-            self.inspectorHeader.subtitle:SetText(kind .. "  ·  " .. GetGroupLabel(self.selectedGroup))
+            self.inspectorHeader.subtitle:SetText(categoryLabel .. "  ·  " .. kind .. "  ·  " .. GetGroupLabel(self.selectedGroup))
         else
             self.inspectorHeader.icon:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
             self.inspectorHeader.title:SetText(GetGroupLabel(self.selectedGroup))
-            self.inspectorHeader.subtitle:SetText(T("Group settings", "그룹 설정"))
+            self.inspectorHeader.subtitle:SetText(categoryLabel)
         end
     end
 
     function workspace:RefreshInspector()
         if not self.selectedGroup then return end
-        local selected = DDingUI:GetGroupIconDetailSelection(self.selectedGroup)
-        if self.inspectorMode == "icon" and not selected then self.inspectorMode = "group" end
-        self:RefreshInspectorHeader()
-        self.iconMode:SetActive(self.inspectorMode == "icon")
-        self.groupMode:SetActive(self.inspectorMode == "group")
-        self.systemMode:SetActive(self.inspectorMode == "system")
-        self.iconMode:SetAlpha(selected and 1 or 0.42)
+        local definition, currentSection, selected = self:RefreshCategoryNavigation()
+        self:RefreshInspectorHeader(definition, currentSection, selected)
         self.inspectorScroll:SetVerticalScroll(0)
-        local page = self.inspectorMode == "system"
-            and DDingUI:BuildGroupWorkspaceSystemPage()
-            or DDingUI:BuildGroupWorkspaceOptionPage(self.selectedGroup, self.inspectorMode)
+        local page = DDingUI:BuildGroupWorkspaceOptionPage(
+            self.selectedGroup,
+            self.category,
+            currentSection
+        )
         if page then
             GUI.RenderOptions(self.inspectorChild, page, {
                 "groupSystem",
                 "group_" .. tostring(self.selectedGroup),
-                self.inspectorMode,
+                self.category,
+                currentSection or "main",
             }, self._parentFrame)
         end
         if self.inspectorScrollBar.UpdateThumbPosition then C_Timer.After(0, self.inspectorScrollBar.UpdateThumbPosition) end
@@ -457,7 +688,9 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         if not groupName then return end
         self.selectedGroup = groupName
         DDingUI._groupWorkspaceSelectedGroup = groupName
-        if not DDingUI:GetGroupIconDetailSelection(groupName) then self.inspectorMode = "group" end
+        if not DDingUI:GetGroupIconDetailSelection(groupName) and self.category == "state" then
+            self.category = "layout"
+        end
         self:RefreshAll(true)
     end
 
@@ -480,19 +713,12 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         end
     end
 
-    iconMode:SetScript("OnClick", function()
-        if not DDingUI:GetGroupIconDetailSelection(workspace.selectedGroup) then return end
-        workspace.inspectorMode = "icon"
-        workspace:RefreshInspector()
-    end)
-    groupMode:SetScript("OnClick", function()
-        workspace.inspectorMode = "group"
-        workspace:RefreshInspector()
-    end)
-    systemMode:SetScript("OnClick", function()
-        workspace.inspectorMode = "system"
-        workspace:RefreshInspector()
-    end)
+    for _, definition in ipairs(WORKSPACE_CATEGORIES) do
+        local categoryKey = definition.key
+        categoryButtons[categoryKey]:SetScript("OnClick", function()
+            workspace:SelectCategory(categoryKey)
+        end)
+    end
     restoreButton:SetScript("OnClick", function()
         if DDingUI.ResetGroupSystemIconOrder and DDingUI:ResetGroupSystemIconOrder(workspace.selectedGroup) then
             workspace:RefreshAll(true)

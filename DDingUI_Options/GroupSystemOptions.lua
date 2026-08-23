@@ -7833,17 +7833,147 @@ local function CreateLazyGroupSystemOptions(order)
     }
 end
 
-function DDingUI:BuildGroupWorkspaceOptionPage(groupName, mode)
-    if mode == "icon" then
-        return {
-            type = "group",
-            name = rawget(L, "Icon Settings") or "Icon Settings",
-            args = BuildUnifiedIconSettingsArgs(groupName),
-        }
+local WORKSPACE_TEXT_SECTIONS = {
+    stack = {
+        "chargeTextHeader", "showCountText", "countTextFont", "countTextSize",
+        "countTextColor", "countTextAnchor", "countTextOffsetX", "countTextOffsetY",
+    },
+    cooldown = {
+        "cooldownTextHeader", "showCooldownText", "cooldownFont", "cooldownFontSize",
+        "cooldownTextColor", "cooldownTextAnchor", "cooldownTextOffsetX", "cooldownTextOffsetY",
+    },
+    duration = {
+        "durationHeader", "enableDurationText", "durationTextFont", "durationTextSize",
+        "durationTextColor", "durationTextAnchor", "durationTextOffsetX", "durationTextOffsetY",
+    },
+}
+
+local function CloneWorkspaceOption(option, order)
+    if type(option) ~= "table" then return nil end
+    local copy = {}
+    for key, value in pairs(option) do copy[key] = value end
+    if order ~= nil then copy.order = order end
+    return copy
+end
+
+local function CopyWorkspaceOptionList(target, source, keys)
+    for index, key in ipairs(keys or {}) do
+        local option = CloneWorkspaceOption(source and source[key], index)
+        if option then target[key] = option end
+    end
+end
+
+local function BuildWorkspacePage(name, args)
+    return {
+        type = "group",
+        name = name,
+        args = args or {},
+    }
+end
+
+function DDingUI:BuildGroupWorkspaceOptionPage(groupName, category, section)
+    category = category or "layout"
+
+    if category == "state" then
+        if section == "advanced" then
+            return BuildWorkspacePage(
+                rawget(L, "Advanced Display") or "Advanced Display",
+                self:BuildGroupIconDetailArgs(groupName)
+            )
+        end
+
+        local args = {}
+        local trinketPreset = BuildTrinketEffectPreset(groupName)
+        if trinketPreset then
+            args.quickHeader = {
+                type = "header",
+                name = rawget(L, "Quick Setup") or "Quick Setup",
+                order = -10,
+            }
+            args.trinketEffectPreset = CloneWorkspaceOption(trinketPreset, -9)
+        end
+        CopyOptionArgs(
+            args,
+            self.BuildGroupStateStudioArgs and self:BuildGroupStateStudioArgs(groupName) or {},
+            "state_",
+            0
+        )
+        return BuildWorkspacePage(rawget(L, "State Display") or "State Display", args)
+    end
+
+    if category == "text" then
+        local textArgs = BuildCustomTextArgs(groupName)
+        local args = {}
+        CopyWorkspaceOptionList(
+            args,
+            textArgs,
+            WORKSPACE_TEXT_SECTIONS[section] or WORKSPACE_TEXT_SECTIONS.stack
+        )
+        local titleKey = section == "cooldown" and "Cooldown Text"
+            or section == "duration" and "Duration Text"
+            or "Stack Text"
+        return BuildWorkspacePage(rawget(L, titleKey) or titleKey, args)
+    end
+
+    if category == "effects" then
+        if section == "icon" then
+            return BuildWorkspacePage(
+                rawget(L, "Icon Glow") or "Icon Glow",
+                self:BuildGroupIconDetailArgs(groupName, "glow")
+            )
+        elseif section == "swipe" then
+            return BuildWorkspacePage(rawget(L, "Swipe") or "Swipe", BuildGroupSwipeArgs(groupName))
+        end
+        return BuildWorkspacePage(
+            rawget(L, "Group Default Glow") or "Group Default Glow",
+            self:BuildGroupGlowArgs(groupName, true)
+        )
+    end
+
+    if category == "animation" then
+        return BuildWorkspacePage(
+            rawget(L, "Animation") or "Animation",
+            BuildGroupAnimationArgs(groupName)
+        )
     end
 
     local groupOptions = CreateGroupOptions(groupName, 1)
-    return groupOptions and groupOptions.args and groupOptions.args.groupSettings
+    local groupPage = groupOptions and groupOptions.args and groupOptions.args.groupSettings
+    local groupArgs = groupPage and groupPage.args
+    if not groupArgs then return BuildWorkspacePage(rawget(L, "Layout") or "Layout", {}) end
+
+    if section == "position" then
+        return BuildWorkspacePage(
+            rawget(L, "Position") or "Position",
+            groupArgs.position and groupArgs.position.args or {}
+        )
+    end
+
+    local args = {}
+    args.enabled = CloneWorkspaceOption(groupArgs.enabled, 1)
+    args.appearanceHeader = {
+        type = "header",
+        name = rawget(L, "Appearance") or "Appearance",
+        order = 10,
+    }
+    CopyOptionArgs(args, groupArgs.appearance and groupArgs.appearance.args, "appearance_", 20)
+    args.layoutHeader = {
+        type = "header",
+        name = rawget(L, "Layout") or "Layout",
+        order = 100,
+    }
+    CopyOptionArgs(args, groupArgs.layout and groupArgs.layout.args, "layout_", 110)
+
+    local systemPage = self:BuildGroupWorkspaceSystemPage()
+    if systemPage and systemPage.args then
+        args.systemHeader = {
+            type = "header",
+            name = rawget(L, "General") or "General",
+            order = 300,
+        }
+        CopyOptionArgs(args, systemPage.args, "system_", 310)
+    end
+    return BuildWorkspacePage(rawget(L, "Appearance") or "Appearance", args)
 end
 
 function DDingUI:BuildGroupWorkspaceSystemPage()
