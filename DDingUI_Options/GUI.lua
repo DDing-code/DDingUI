@@ -436,6 +436,14 @@ local function CreateSectionMenu(parent, menuData, opts)
         return self.selectedKey
     end
 
+    function menu:SetItemEnabled(key, enabled)
+        local row = self.rowsByKey[key]
+        if not row then return false end
+        row._enabled = enabled ~= false
+        ApplyRowState(row)
+        return true
+    end
+
     menu:SetMenuData(menuData)
     return menu
 end
@@ -3363,6 +3371,25 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         tree:SetSelected(defaultKey)
     end
     frame._fullMenuData = menuData
+
+    function frame:SetGroupMenuEnabled(groupName, enabled)
+        local key = "groupSystem.group_" .. tostring(groupName or "")
+        local function UpdateItems(items)
+            for _, item in ipairs(items or {}) do
+                if item.key == key then
+                    item.enabled = enabled ~= false
+                    return true
+                end
+                if UpdateItems(item.children) then return true end
+            end
+            return false
+        end
+
+        UpdateItems(self._fullMenuData)
+        if self.treeMenu and self.treeMenu.SetItemEnabled then
+            self.treeMenu:SetItemEnabled(key, enabled)
+        end
+    end
 
     function frame:NavigateToSection(targetKey)
         local rootKey, subTabPath = ResolveSectionTarget(targetKey, self)

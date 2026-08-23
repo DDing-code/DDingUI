@@ -6940,6 +6940,10 @@ local function CreateGroupOptions(groupName, order)
                             sourceGroup.enabled = grp.enabled
                         end
                     end
+                    local configFrame = _G["DDingUI_ConfigFrame"]
+                    if configFrame and configFrame.SetGroupMenuEnabled then
+                        configFrame:SetGroupMenuEnabled(groupName, grp.enabled)
+                    end
                     RefreshGroupSystem()
                     SoftRefreshGroupSystemOptions(0)
                 end
