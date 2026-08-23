@@ -289,8 +289,31 @@ end
 local function GetIconCountText(icon)
     if not icon then return nil end
     if icon.count then return icon.count end
+
+    local cached = icon._ddCountTextFS
+    if cached and cached.GetObjectType and cached:GetObjectType() == "FontString" then
+        return cached
+    end
+
     local applications = icon.Applications
-    return applications and applications.Applications or nil
+    if not applications then return nil end
+
+    local direct = applications.Applications or applications.Count or applications.Text
+    if direct and direct.GetObjectType and direct:GetObjectType() == "FontString" then
+        icon._ddCountTextFS = direct
+        return direct
+    end
+
+    if applications.GetRegions then
+        local ok, found = pcall(function()
+            return FindCooldownFontString(applications:GetRegions())
+        end)
+        if ok and found then
+            icon._ddCountTextFS = found
+            return found
+        end
+    end
+    return nil
 end
 
 local function ForEachCooldownTextFontString(cooldown, callback)
@@ -445,6 +468,7 @@ end
 
 local function ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
     if not icon or not groupSettings then return end
+    if icon.IsForbidden and icon:IsForbidden() then return end
     local iconTexture = icon.icon or icon.Icon
     local textAnchorFrame = iconTexture or icon
 
@@ -2954,6 +2978,19 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
                     icon._ddLastCooldownID = entry.cooldownID
                     icon._ddLayoutCooldownID = entry.cooldownID
                 end
+
+                -- Text styling is safe to refresh independently of the CDM frame skin.
+                -- This also covers already-managed frames and settings-window previews.
+                icon._groupSettings = groupSettings
+                icon._ddGroupName = groupName
+                icon._ddSourceViewer = icon._ddSourceViewer or viewerName
+                local nativeCooldown = GetIconCooldownFrame(icon)
+                if nativeCooldown then
+                    nativeCooldown._ddGroupName = groupName
+                    nativeCooldown._ddSourceViewer = icon._ddSourceViewer
+                end
+                ApplyDynamicIconTextOptions(icon, groupName, groupSettings)
+
                 local cdmLayoutVisible = sourceVisible and not icon._ddSuppressed and not icon._ddingHidden
                 if wasLayoutVisible and not cdmLayoutVisible then
                     GroupRenderer:StartIconExitTransition(icon, frame, groupSettings)

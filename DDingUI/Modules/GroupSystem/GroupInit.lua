@@ -917,6 +917,7 @@ local GROUP_VIEWER_MAP = {
 
 local CURRENT_CDM_GROUP_SCHEMA_VERSION = 3
 local CURRENT_GROUP_SYSTEM_VERSION = 1  -- 1.2.4
+local CURRENT_GROUP_TEXT_SCHEMA_VERSION = 1
 
 local function CopyArray(value)
     if type(value) ~= "table" then return value end
@@ -924,15 +925,31 @@ local function CopyArray(value)
     for k, v in pairs(value) do
         copy[k] = v
     end
+    -- AceDB color arrays can inherit unchanged channels from defaults.
+    for i = 1, 4 do
+        if copy[i] == nil and value[i] ~= nil then
+            copy[i] = value[i]
+        end
+    end
     return copy
 end
 
 local GROUP_TEXT_DEFAULTS = {
+    hideCountText = false,
     countTextSize = 14,
     countTextColor = { 1, 0.82, 0, 1 },
     chargeTextAnchor = "BOTTOMRIGHT",
     countTextOffsetX = 0,
     countTextOffsetY = 0,
+    hideCooldownText = false,
+    cooldownFontSize = 18,
+    cooldownTextColor = { 1, 1, 1, 1 },
+    cooldownTextAnchor = "CENTER",
+    cooldownTextOffsetX = 0,
+    cooldownTextOffsetY = 0,
+    cooldownShadowOffsetX = 0,
+    cooldownShadowOffsetY = 0,
+    cooldownTextFormat = "auto",
     hideDurationText = false,
     durationTextAnchor = "TOP",
     durationTextOffsetX = 0,
@@ -940,6 +957,31 @@ local GROUP_TEXT_DEFAULTS = {
     durationTextSize = 12,
     durationTextColor = { 1, 1, 1, 1 },
 }
+
+local GROUP_TEXT_KEYS = {
+    "hideCountText", "countTextFont", "countTextSize", "countTextColor",
+    "chargeTextAnchor", "countTextOffsetX", "countTextOffsetY",
+    "hideCooldownText", "cooldownFont", "cooldownFontSize", "cooldownTextColor",
+    "cooldownTextAnchor", "cooldownTextOffsetX", "cooldownTextOffsetY",
+    "cooldownShadowOffsetX", "cooldownShadowOffsetY", "cooldownTextFormat",
+    "hideDurationText", "durationTextFont", "durationTextAnchor",
+    "durationTextOffsetX", "durationTextOffsetY", "durationTextSize", "durationTextColor",
+}
+
+local function ImportLegacyCoreGroupTextSettings(group, viewer)
+    if (tonumber(group._groupTextSchemaVersion) or 0) >= CURRENT_GROUP_TEXT_SCHEMA_VERSION then
+        return
+    end
+
+    if type(viewer) == "table" then
+        for _, key in ipairs(GROUP_TEXT_KEYS) do
+            if rawget(group, key) == nil and viewer[key] ~= nil then
+                group[key] = CopyArray(viewer[key])
+            end
+        end
+    end
+    group._groupTextSchemaVersion = CURRENT_GROUP_TEXT_SCHEMA_VERSION
+end
 
 local function SyncCoreGroupTextSettings(gs, profile)
     if type(gs) ~= "table" or type(gs.groups) ~= "table" or type(profile) ~= "table" then return end
@@ -956,11 +998,12 @@ local function SyncCoreGroupTextSettings(gs, profile)
                 profile.viewers[viewerName] = viewer
             end
 
+            ImportLegacyCoreGroupTextSettings(group, viewer)
+
             -- GroupSystem is the active editor and renderer, so its effective
             -- values must also drive legacy viewer skinning paths.
-            viewer.countTextFont = group.countTextFont
-            viewer.durationTextFont = group.durationTextFont
-            for key, defaultValue in pairs(GROUP_TEXT_DEFAULTS) do
+            for _, key in ipairs(GROUP_TEXT_KEYS) do
+                local defaultValue = GROUP_TEXT_DEFAULTS[key]
                 local value = group[key]
                 if value == nil then value = defaultValue end
                 viewer[key] = CopyArray(value)
