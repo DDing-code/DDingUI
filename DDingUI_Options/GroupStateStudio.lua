@@ -24,6 +24,15 @@ local LAYOUT_KEYS = {
     hideWhenEmpty = true,
 }
 
+local GLOW_STYLE_KEYS = {
+    "glowType",
+    "glowColorMode",
+    "glowColor",
+    "glowSpeed",
+    "glowLines",
+    "glowThickness",
+}
+
 local RESET_KEYS = {
     ready = {
         { "glow", "cooldownReadyGlow" },
@@ -34,16 +43,13 @@ local RESET_KEYS = {
         { "visual", "cooldownSwipeMode" },
         { "visual", "nonActiveMode" },
         { "visual", "cooldownStateEffect" },
-        { "visual", "cooldownStateAlpha" },
     },
     active = {
         { "glow", "activeGlow" },
         { "glow", "procGlowMode" },
         { "visual", "activeEffectDisplayMode" },
         { "visual", "activeSwipeMode" },
-        { "visual", "activeSwipeColor" },
         { "visual", "activeBorderEnabled" },
-        { "visual", "activeBorderColor" },
         { "visual", "activeDurationMode" },
         { "visual", "showProcDuration" },
         { "visual", "showProcStacks" },
@@ -51,7 +57,6 @@ local RESET_KEYS = {
     inactive = {
         { "visual", "alwaysShow" },
         { "visual", "desatInactive" },
-        { "visual", "inactiveAlpha" },
     },
     maxCharges = {
         { "glow", "maxChargesGlow" },
@@ -209,13 +214,6 @@ local function MarkDirty()
 end
 
 local function RefreshStateStudioOptions(groupName, delay)
-    local configFrame = _G["DDingUI_ConfigFrame"]
-    if configFrame and configFrame:IsShown() and groupName then
-        configFrame._requestedSubTabPath = {
-            "group_" .. tostring(groupName),
-            "iconSettings",
-        }
-    end
     if DDingUI.SoftRefreshGroupSystemOptions then
         DDingUI:SoftRefreshGroupSystemOptions(delay or 0)
     end
@@ -256,6 +254,8 @@ local function WriteChanges(groupName, changes)
     local context = GetContext(groupName, true)
     if not context then return false end
 
+    local glowStyleChanged = false
+
     for _, change in ipairs(changes) do
         local target
         if change.scope == "glow" and context.kind == "dynamic" then
@@ -265,6 +265,7 @@ local function WriteChanges(groupName, changes)
             target = context.settings
         end
         target[change.key] = change.value
+        glowStyleChanged = glowStyleChanged or change.glowStyle == true
     end
 
     if context.kind == "dynamic" and IsEmpty(context.settings.customStateGlow) then
@@ -287,6 +288,13 @@ local function WriteChanges(groupName, changes)
 
     MarkDirty()
     RefreshRuntime(context, changes)
+    if glowStyleChanged and DDingUI.ApplyAssignedIconGlowStyleScope then
+        local current = GetContext(groupName, false)
+        DDingUI:ApplyAssignedIconGlowStyleScope(
+            groupName,
+            current and current.glowSettings or EMPTY
+        )
+    end
     return true
 end
 
@@ -329,7 +337,7 @@ local function MakeToggle(groupName, label, scope, key, order, defaultValue)
     }
 end
 
-local function MakeSelect(groupName, label, scope, key, order, values, defaultValue)
+local function MakeSelect(groupName, label, scope, key, order, values, defaultValue, glowStyle)
     return {
         type = "select",
         name = label,
@@ -342,12 +350,14 @@ local function MakeSelect(groupName, label, scope, key, order, values, defaultVa
         end,
         set = function(_, value)
             local stored = value == defaultValue and nil or value
-            WriteChanges(groupName, { { scope = scope, key = key, value = stored } })
+            WriteChanges(groupName, {
+                { scope = scope, key = key, value = stored, glowStyle = glowStyle },
+            })
         end,
     }
 end
 
-local function MakeRange(groupName, label, scope, key, order, defaultValue, minimum, maximum, step)
+local function MakeRange(groupName, label, scope, key, order, defaultValue, minimum, maximum, step, glowStyle)
     return {
         type = "range",
         name = label,
@@ -364,12 +374,14 @@ local function MakeRange(groupName, label, scope, key, order, defaultValue, mini
         set = function(_, value)
             local number = tonumber(value) or defaultValue
             local stored = math.abs(number - defaultValue) < 0.0001 and nil or number
-            WriteChanges(groupName, { { scope = scope, key = key, value = stored } })
+            WriteChanges(groupName, {
+                { scope = scope, key = key, value = stored, glowStyle = glowStyle },
+            })
         end,
     }
 end
 
-local function MakeColor(groupName, label, scope, key, order, defaultColor)
+local function MakeColor(groupName, label, scope, key, order, defaultColor, glowStyle)
     return {
         type = "color",
         name = label,
@@ -386,13 +398,18 @@ local function MakeColor(groupName, label, scope, key, order, defaultColor)
         end,
         set = function(_, r, g, b, a)
             WriteChanges(groupName, {
-                { scope = scope, key = key, value = { r = r, g = g, b = b, a = a or 1 } },
+                {
+                    scope = scope,
+                    key = key,
+                    value = { r = r, g = g, b = b, a = a or 1 },
+                    glowStyle = glowStyle,
+                },
             })
         end,
     }
 end
 
-local function AddGlowControls(args, groupName, context, state, order)
+local function AddGlowActivationControl(args, groupName, context, state, order)
     local glowKey = state == "ready" and "cooldownReadyGlow"
         or state == "maxCharges" and "maxChargesGlow"
         or "activeGlow"
@@ -409,31 +426,6 @@ local function AddGlowControls(args, groupName, context, state, order)
             or state == "maxCharges" and T("Max Charges Glow", "Max Charges Glow")
             or T("Activation Glow", "Activation Glow")
         args.glowEnabled = MakeToggle(groupName, label, "glow", glowKey, order, false)
-    end
-
-    args.glowType = MakeSelect(groupName, T("Glow Type", "Glow Type"), "glow", "glowType", order + 1, {
-        button = T("Button Glow", "Button Glow"),
-        pixel = T("Pixel Glow", "Pixel Glow"),
-        autocast = T("Autocast Glow", "Autocast Glow"),
-        proc = T("Proc Glow", "Proc Glow"),
-    }, "button")
-    args.glowColorMode = MakeSelect(groupName, T("Glow Color Mode", "Glow Color Mode"), "glow", "glowColorMode", order + 2, {
-        default = T("Default", "Default"),
-        blizzard = T("Blizzard Default", "Blizzard Default"),
-        class = T("Class Color", "Class Color"),
-        custom = T("Custom", "Custom"),
-    }, "default")
-    args.glowColor = MakeColor(
-        groupName,
-        T("Custom Glow Color", "Custom Glow Color"),
-        "glow",
-        "glowColor",
-        order + 3,
-        { 1, 0.78, 0.2, 1 }
-    )
-    args.glowColor.hidden = function()
-        local current = GetContext(groupName, false)
-        return not current or ReadSetting(current, "glow", "glowColorMode", "default") ~= "custom"
     end
 end
 
@@ -462,16 +454,11 @@ local function AddCooldownControls(args, groupName, context)
             hiddenOnCD = T("Hide on Cooldown", "Hide on Cooldown"),
             hiddenReady = T("Hide when Ready", "Hide when Ready"),
         }, "inherit")
-        args.cooldownAlpha = MakeRange(groupName, T("Cooldown Opacity", "Cooldown Opacity"), "visual", "cooldownStateAlpha", 24, 0.35, 0.05, 1, 0.05)
-        args.cooldownAlpha.hidden = function()
-            local current = GetContext(groupName, false)
-            return not current or ReadSetting(current, "visual", "cooldownStateEffect") ~= "lowerAlphaOnCD"
-        end
     end
 end
 
 local function AddActiveControls(args, groupName, context)
-    AddGlowControls(args, groupName, context, "active", 20)
+    AddGlowActivationControl(args, groupName, context, "active", 20)
     if context.kind == "dynamic" and context.capabilities.itemActive then
         args.activeEffectDisplay = MakeSelect(groupName, T("Active Effect Display", "Active Effect Display"), "visual", "activeEffectDisplayMode", 24, {
             inherit = T("Default", "Default"),
@@ -488,17 +475,7 @@ local function AddActiveControls(args, groupName, context)
         class = T("Class Color", "Class Color"),
         hidden = T("Hide Active State", "Hide Active State"),
     }, "inherit")
-    args.activeSwipeColor = MakeColor(groupName, T("Active Swipe Color", "Active Swipe Color"), "visual", "activeSwipeColor", 26, { 1, 0.776, 0.376, 0.8 })
-    args.activeSwipeColor.hidden = function()
-        local current = GetContext(groupName, false)
-        return not current or ReadSetting(current, "visual", "activeSwipeMode", "inherit") ~= "custom"
-    end
     args.activeBorder = MakeToggle(groupName, T("Active Border", "Active Border"), "visual", "activeBorderEnabled", 27, false)
-    args.activeBorderColor = MakeColor(groupName, T("Active Border Color", "Active Border Color"), "visual", "activeBorderColor", 28, { 1, 0.776, 0.376, 1 })
-    args.activeBorderColor.hidden = function()
-        local current = GetContext(groupName, false)
-        return not current or ReadSetting(current, "visual", "activeBorderEnabled", false) ~= true
-    end
 
     if context.kind == "dynamic" and context.iconType == "trinketProc" then
         args.activeDuration = MakeToggle(groupName, T("Show Proc Duration", "Show Proc Duration"), "visual", "showProcDuration", 29, true)
@@ -523,11 +500,10 @@ local function AddInactiveControls(args, groupName)
         on = T("Desaturate", "Desaturate"),
         off = T("Full Color", "Full Color"),
     }, "inherit")
-    args.inactiveAlpha = MakeRange(groupName, T("Inactive Opacity", "Inactive Opacity"), "visual", "inactiveAlpha", 22, 0.5, 0.05, 1, 0.05)
 end
 
 local function AddMaxChargeControls(args, groupName, context)
-    AddGlowControls(args, groupName, context, "maxCharges", 20)
+    AddGlowActivationControl(args, groupName, context, "maxCharges", 20)
     if context.kind == "dynamic" then
         args.showCharges = MakeToggle(groupName, T("Show Charges", "Show Charges"), "visual", "showCharges", 24, true)
     else
@@ -596,7 +572,7 @@ function DDingUI:BuildGroupStateStudioArgs(groupName)
     }
 
     if state == "ready" then
-        AddGlowControls(args, groupName, context, state, 20)
+        AddGlowActivationControl(args, groupName, context, state, 20)
     elseif state == "cooldown" then
         AddCooldownControls(args, groupName, context)
     elseif state == "active" then
@@ -615,6 +591,336 @@ function DDingUI:BuildGroupStateStudioArgs(groupName)
         order = 90,
         width = "normal",
         func = function() ResetState(groupName, state) end,
+    }
+    return args
+end
+
+local function GetResolvedGlowType(context)
+    local glowType = ReadSetting(context, "glow", "glowType", "button")
+    return glowType == "blizzard" and "proc" or glowType
+end
+
+local function GetResolvedGlowColorMode(context)
+    if ReadSetting(context, "glow", "glowType") == "blizzard" then
+        return "blizzard"
+    end
+    local mode = ReadSetting(context, "glow", "glowColorMode")
+    if mode then return mode end
+    return ReadSetting(context, "glow", "glowColor") and "custom" or "default"
+end
+
+local function ScopeDescription(scope)
+    if scope == "all" then
+        return T(
+            "Glow style changes are copied to every icon in every specialization. State activation settings are not changed.",
+            "글로우 스타일 변경을 모든 전문화의 모든 아이콘에 복사합니다. 상태 활성화 설정은 변경하지 않습니다."
+        )
+    elseif scope == "group" then
+        return T(
+            "Glow style changes are copied to every icon in this group. State activation settings are not changed.",
+            "글로우 스타일 변경을 이 그룹의 모든 아이콘에 복사합니다. 상태 활성화 설정은 변경하지 않습니다."
+        )
+    end
+    return T(
+        "Glow style changes affect only the selected icon.",
+        "글로우 스타일 변경은 선택한 아이콘에만 적용됩니다."
+    )
+end
+
+function DDingUI:BuildGroupEffectStyleArgs(groupName)
+    local context = GetContext(groupName, false)
+    if not context then
+        return {
+            empty = {
+                type = "description",
+                name = T(
+                    "Select an icon from the preview to edit its effect style.",
+                    "미리보기에서 아이콘을 선택하면 효과 스타일을 편집할 수 있습니다."
+                ),
+                order = 1,
+            },
+        }
+    end
+
+    local scope = self._groupIconApplyScope or "icon"
+    local args = {
+        scopeHeader = {
+            type = "header",
+            name = T("Glow Apply Scope", "글로우 적용 범위"),
+            order = 1,
+        },
+        applyScope = {
+            type = "select",
+            name = T("Glow Apply Scope", "글로우 적용 범위"),
+            order = 2,
+            width = "full",
+            values = {
+                icon = T("This Icon", "이 아이콘"),
+                group = T("This Group", "이 그룹"),
+                all = T("All Groups and Specs", "모든 그룹·전문화"),
+            },
+            get = function()
+                return DDingUI._groupIconApplyScope or "icon"
+            end,
+            set = function(_, value)
+                DDingUI._groupIconApplyScope = value
+                RefreshStateStudioOptions(groupName, 0)
+            end,
+        },
+        scopeDescription = {
+            type = "description",
+            name = ScopeDescription(scope),
+            order = 3,
+        },
+        styleHeader = {
+            type = "header",
+            name = T("Glow Style", "글로우 스타일"),
+            order = 10,
+        },
+    }
+
+    args.glowType = {
+        type = "select",
+        name = T("Glow Type", "글로우 유형"),
+        order = 11,
+        width = "full",
+        values = {
+            button = T("Action Button Glow", "액션 버튼 글로우"),
+            pixel = T("Pixel Glow", "픽셀 글로우"),
+            autocast = T("Autocast Shine", "자동시전 광택"),
+            proc = T("Proc Effect", "발동 효과"),
+        },
+        get = function()
+            local current = GetContext(groupName, false)
+            return current and GetResolvedGlowType(current) or "button"
+        end,
+        set = function(_, value)
+            local current = GetContext(groupName, false)
+            local changes = {
+                {
+                    scope = "glow",
+                    key = "glowType",
+                    value = value == "button" and nil or value,
+                    glowStyle = true,
+                },
+            }
+            if current and ReadSetting(current, "glow", "glowType") == "blizzard" then
+                changes[#changes + 1] = {
+                    scope = "glow",
+                    key = "glowColorMode",
+                    value = "blizzard",
+                    glowStyle = true,
+                }
+            end
+            WriteChanges(groupName, changes)
+        end,
+    }
+
+    args.glowColorMode = {
+        type = "select",
+        name = T("Glow Color Mode", "글로우 색상 방식"),
+        order = 12,
+        width = "full",
+        values = {
+            default = T("Default", "기본값"),
+            blizzard = T("Keep Blizzard Default Glow Color", "블리자드 기본 글로우 색상 유지"),
+            class = T("Class Color", "직업 색상"),
+            custom = T("Custom", "사용자 지정"),
+        },
+        get = function()
+            local current = GetContext(groupName, false)
+            return current and GetResolvedGlowColorMode(current) or "default"
+        end,
+        set = function(_, value)
+            local current = GetContext(groupName, false)
+            local changes = {
+                {
+                    scope = "glow",
+                    key = "glowColorMode",
+                    value = value == "default" and nil or value,
+                    glowStyle = true,
+                },
+            }
+            if current and ReadSetting(current, "glow", "glowType") == "blizzard" then
+                changes[#changes + 1] = {
+                    scope = "glow",
+                    key = "glowType",
+                    value = "proc",
+                    glowStyle = true,
+                }
+            end
+            WriteChanges(groupName, changes)
+        end,
+    }
+
+    args.glowColor = MakeColor(
+        groupName,
+        T("Custom Glow Color", "사용자 글로우 색상"),
+        "glow",
+        "glowColor",
+        13,
+        { 1, 0.85, 0.1, 1 },
+        true
+    )
+    args.glowColor.hidden = function()
+        local current = GetContext(groupName, false)
+        return not current or GetResolvedGlowColorMode(current) ~= "custom"
+    end
+
+    args.motionHeader = {
+        type = "header",
+        name = T("Glow Motion", "글로우 움직임"),
+        order = 20,
+    }
+    args.glowSpeed = MakeRange(
+        groupName,
+        T("Glow Frequency", "글로우 속도"),
+        "glow",
+        "glowSpeed",
+        21,
+        0.25,
+        0.05,
+        1,
+        0.05,
+        true
+    )
+    args.glowSpeed.isPercent = false
+    args.glowLines = MakeRange(
+        groupName,
+        T("Line Amount", "라인 수"),
+        "glow",
+        "glowLines",
+        22,
+        8,
+        1,
+        30,
+        1,
+        true
+    )
+    args.glowThickness = MakeRange(
+        groupName,
+        T("Line Thickness", "라인 두께"),
+        "glow",
+        "glowThickness",
+        23,
+        2,
+        0.5,
+        6,
+        0.5,
+        true
+    )
+    local function HidePixelOptions()
+        local current = GetContext(groupName, false)
+        return not current or GetResolvedGlowType(current) ~= "pixel"
+    end
+    args.glowLines.hidden = HidePixelOptions
+    args.glowThickness.hidden = HidePixelOptions
+
+    args.resetGlowStyle = {
+        type = "execute",
+        name = T("Reset Glow Style", "글로우 스타일 초기화"),
+        order = 29,
+        width = "normal",
+        func = function()
+            local changes = {}
+            for _, key in ipairs(GLOW_STYLE_KEYS) do
+                changes[#changes + 1] = {
+                    scope = "glow",
+                    key = key,
+                    value = nil,
+                    glowStyle = true,
+                }
+            end
+            WriteChanges(groupName, changes)
+        end,
+    }
+
+    args.stateAppearanceHeader = {
+        type = "header",
+        name = T("State Appearance", "상태 외형"),
+        order = 40,
+    }
+    args.stateAppearanceDescription = {
+        type = "description",
+        name = T(
+            "These appearance values always apply only to the selected icon.",
+            "이 외형 값은 항상 선택한 아이콘에만 적용됩니다."
+        ),
+        order = 41,
+    }
+
+    if context.capabilities.active then
+        args.activeSwipeColor = MakeColor(
+            groupName,
+            T("Active Swipe Color", "활성 스와이프 색상"),
+            "visual",
+            "activeSwipeColor",
+            42,
+            { 1, 0.776, 0.376, 0.8 }
+        )
+        args.activeSwipeColor.hidden = function()
+            local current = GetContext(groupName, false)
+            return not current or ReadSetting(current, "visual", "activeSwipeMode", "inherit") ~= "custom"
+        end
+        args.activeBorderColor = MakeColor(
+            groupName,
+            T("Active Border Color", "활성 테두리 색상"),
+            "visual",
+            "activeBorderColor",
+            43,
+            { 1, 0.776, 0.376, 1 }
+        )
+        args.activeBorderColor.hidden = function()
+            local current = GetContext(groupName, false)
+            return not current or ReadSetting(current, "visual", "activeBorderEnabled", false) ~= true
+        end
+    end
+
+    if context.capabilities.cooldown then
+        args.cooldownAlpha = MakeRange(
+            groupName,
+            T("Cooldown Opacity", "재사용 대기 중 투명도"),
+            "visual",
+            "cooldownStateAlpha",
+            44,
+            0.35,
+            0.05,
+            1,
+            0.05
+        )
+        args.cooldownAlpha.hidden = function()
+            local current = GetContext(groupName, false)
+            return not current or ReadSetting(current, "visual", "cooldownStateEffect") ~= "lowerAlphaOnCD"
+        end
+    end
+
+    if context.capabilities.inactive then
+        args.inactiveAlpha = MakeRange(
+            groupName,
+            T("Inactive Opacity", "비활성 투명도"),
+            "visual",
+            "inactiveAlpha",
+            45,
+            0.5,
+            0.05,
+            1,
+            0.05
+        )
+    end
+
+    args.resetStateAppearance = {
+        type = "execute",
+        name = T("Reset State Appearance", "상태 외형 초기화"),
+        order = 90,
+        width = "normal",
+        func = function()
+            WriteChanges(groupName, {
+                { scope = "visual", key = "activeSwipeColor", value = nil },
+                { scope = "visual", key = "activeBorderColor", value = nil },
+                { scope = "visual", key = "cooldownStateAlpha", value = nil },
+                { scope = "visual", key = "inactiveAlpha", value = nil },
+            })
+        end,
     }
     return args
 end

@@ -4397,6 +4397,121 @@ local function ApplyAssignedIconGlowScope(groupName, settings)
     end
 end
 
+function DDingUI:ApplyAssignedIconGlowStyleScope(groupName, settings, immediate, requestedScope)
+    local scope = requestedScope or self._groupIconApplyScope or "icon"
+    if scope == "icon" then return end
+
+    if not immediate and C_Timer and C_Timer.NewTimer then
+        if self._groupGlowStyleScopeTimer then
+            self._groupGlowStyleScopeTimer:Cancel()
+        end
+        local copiedSettings = CopyGlowSettings(settings)
+        self._groupGlowStyleScopeTimer = C_Timer.NewTimer(0.05, function()
+            self._groupGlowStyleScopeTimer = nil
+            self:ApplyAssignedIconGlowStyleScope(groupName, copiedSettings, true, scope)
+        end)
+        return
+    end
+
+    local styleKeys = {
+        "glowType",
+        "glowColorMode",
+        "glowColor",
+        "glowSpeed",
+        "glowLines",
+        "glowThickness",
+    }
+    local includeAll = scope == "all"
+    local spellKeys = CollectGroupGlowSpellKeys(groupName, includeAll)
+    local touchedDynamicKeys = {}
+    local sourceStyle = {}
+    for _, key in ipairs(styleKeys) do
+        local value = settings and settings[key]
+        if value ~= nil then
+            sourceStyle[key] = type(value) == "table"
+                and CopyGlowSettings({ [key] = value })[key]
+                or value
+        end
+    end
+
+    local function MergeStyle(target)
+        target = type(target) == "table" and target or {}
+        for _, key in ipairs(styleKeys) do
+            target[key] = nil
+            local value = sourceStyle[key]
+            if value ~= nil then
+                target[key] = type(value) == "table"
+                    and CopyGlowSettings({ [key] = value })[key]
+                    or value
+            end
+        end
+        return target
+    end
+
+    local function ApplyToProfile(profile, collectDynamicKeys)
+        if type(profile) ~= "table" then return false end
+        local changed = false
+        local dynDB = profile.dynamicIcons
+        local gs = profile.groupSystem
+        local targetDynamicKeys
+
+        if dynDB and dynDB.iconData then
+            if includeAll then
+                targetDynamicKeys = {}
+                for iconKey in pairs(dynDB.iconData) do
+                    targetDynamicKeys[#targetDynamicKeys + 1] = iconKey
+                end
+            else
+                local groupSettings = gs and gs.groups and gs.groups[groupName]
+                local sourceKey = groupSettings and groupSettings.sourceGroupKey
+                local sourceGroup = sourceKey and dynDB.groups and dynDB.groups[sourceKey]
+                targetDynamicKeys = sourceGroup and sourceGroup.icons
+            end
+
+            for _, iconKey in ipairs(targetDynamicKeys or {}) do
+                local iconData = dynDB.iconData[iconKey]
+                if iconData then
+                    iconData.settings = iconData.settings or {}
+                    local merged = MergeStyle(iconData.settings.customStateGlow)
+                    iconData.settings.customStateGlow = next(merged) and merged or nil
+                    if collectDynamicKeys then
+                        touchedDynamicKeys[#touchedDynamicKeys + 1] = iconKey
+                    end
+                    changed = true
+                end
+            end
+        end
+
+        profile.iconCustomization = profile.iconCustomization or {}
+        profile.iconCustomization.spells = profile.iconCustomization.spells or {}
+        for spellKey in pairs(spellKeys or {}) do
+            local merged = MergeStyle(profile.iconCustomization.spells[spellKey])
+            profile.iconCustomization.spells[spellKey] = next(merged) and merged or nil
+            changed = true
+        end
+        return changed
+    end
+
+    local profile = self.db and self.db.profile
+    ApplyToProfile(profile, true)
+    if includeAll and self.SpecProfiles and self.SpecProfiles.MutateStoredSpecs then
+        self.SpecProfiles:MutateStoredSpecs(function(snapshot)
+            return ApplyToProfile(snapshot, false)
+        end)
+    elseif self.SpecProfiles and self.SpecProfiles.MarkDirty then
+        self.SpecProfiles:MarkDirty()
+    end
+
+    if self.CustomIcons and self.CustomIcons.RefreshDynamicIcon then
+        for _, iconKey in ipairs(touchedDynamicKeys) do
+            self.CustomIcons:RefreshDynamicIcon(iconKey)
+        end
+    end
+    if self.IconCustomization and self.IconCustomization.RefreshAllGlows then
+        self.IconCustomization:RefreshAllGlows()
+    end
+end
+
 function DDingUI:EnsureGroupBuffIconOrder(groupName, opt)
     if not groupName or not opt or opt._gridKind ~= "cdm" or opt._gridViewerType ~= "Buff" then
         return false
@@ -4429,6 +4544,10 @@ end
 function DDingUI:SetGroupIconDetailSelection(groupName, opt)
     local key = self:GetGroupIconDetailKey(opt)
     if not groupName or not key then return false end
+    local selection = self._groupIconDetailSelection
+    if not selection or selection.groupName ~= groupName or selection.key ~= key then
+        self._groupIconApplyScope = "icon"
+    end
     self._groupIconDetailSelection = {
         groupName = groupName,
         key = key,
@@ -6548,72 +6667,6 @@ local function BuildGroupSwipeArgs(groupName)
     }
 end
 
-function DDingUI:BuildGroupGlowArgs(groupName, groupOnly)
-    local args = {}
-    if groupOnly ~= true then
-        local iconArgs = self:BuildGroupIconDetailArgs(groupName, "glow")
-        for key, option in pairs(iconArgs) do
-            option.order = (tonumber(option.order) or 0) + 10
-            args["icon_" .. tostring(key)] = option
-        end
-    end
-
-    args.groupDefaultsHeader = {
-        type = "header",
-        name = rawget(L, "Group Default Glow") or "Group Default Glow",
-        order = 100,
-    }
-    local visualArgs = BuildCustomVisualArgs(groupName)
-    for index, key in ipairs({
-        "auraGlow",
-        "procGlowEnabled",
-        "hideActiveState",
-        "hideActiveStateDesc",
-    }) do
-        local option = visualArgs[key]
-        if option then
-            option.order = 100 + index
-            args["group_" .. key] = option
-        end
-    end
-
-    local function AssistOptionDisabled(requiredType)
-        return function()
-            local gs = GetGS()
-            local group = gs and gs.groups and gs.groups[groupName]
-            if not group or group.assistHighlightEnabled ~= true then return true end
-            return requiredType ~= nil and (group.assistHighlightType or "flipbook") ~= requiredType
-        end
-    end
-
-    for index, key in ipairs({
-        "assistHighlightHeader",
-        "assistHighlightEnabled",
-        "assistHighlightType",
-        "assistFlipbookScale",
-        "assistGlowType",
-        "assistGlowColor",
-        "assistGlowLines",
-        "assistGlowFrequency",
-        "assistGlowThickness",
-        "assistHighlightPixelLength",
-    }) do
-        local option = visualArgs[key]
-        if option then
-            option.order = 120 + index
-            if key == "assistHighlightType" then
-                option.disabled = AssistOptionDisabled()
-            elseif key == "assistFlipbookScale" then
-                option.disabled = AssistOptionDisabled("flipbook")
-            elseif key ~= "assistHighlightHeader" and key ~= "assistHighlightEnabled" then
-                option.disabled = AssistOptionDisabled("lcg")
-            end
-            args["assist_" .. key] = option
-        end
-    end
-    return args
-end
-
 local GROUP_FONT_DEFAULT_KEY = "__default"
 
 local function GetGroupFontValues()
@@ -6849,55 +6902,6 @@ local function BuildTrinketEffectPreset(groupName)
             SoftRefreshGroupSystemOptions(0)
         end,
     }
-end
-
-local function BuildUnifiedIconSettingsArgs(groupName)
-    local args = {}
-    local selected = DDingUI:GetGroupIconDetailSelection(groupName)
-    local details = DDingUI:BuildGroupIconDetailArgs(groupName)
-    if details.selected then
-        details.selected.order = -20
-        args.selected = details.selected
-    end
-
-    if not selected then
-        args.empty = details.empty
-        return args
-    end
-
-    local trinketPreset = BuildTrinketEffectPreset(groupName)
-    if trinketPreset then
-        args.quickHeader = {
-            type = "header",
-            name = rawget(L, "Quick Setup") or "Quick Setup",
-            order = 0,
-        }
-        args.trinketEffectPreset = trinketPreset
-    end
-
-    args.detailsSection = {
-        type = "header",
-        name = rawget(L, "Icon Settings") or "Icon Settings",
-        order = 9,
-    }
-    CopyOptionArgs(args, details, "detail_", 10, "selected")
-
-    args.stateSection = {
-        type = "header",
-        name = rawget(L, "State Display") or "State Display",
-        order = 200,
-        defaultCollapsed = true,
-        lazy = true,
-    }
-    CopyOptionArgs(
-        args,
-        DDingUI.BuildGroupStateStudioArgs
-            and DDingUI:BuildGroupStateStudioArgs(groupName)
-            or {},
-        "state_",
-        210
-    )
-    return args
 end
 
 local function CreateGroupOptions(groupName, order)
@@ -7293,13 +7297,6 @@ local function CreateGroupOptions(groupName, order)
         offsetArgs[key] = layoutArgs[key]
         layoutArgs[key] = nil
     end
-
-    args.iconSettings = {
-        type = "group",
-        name = rawget(L, "Icon") or "Icon",
-        order = 10,
-        args = BuildUnifiedIconSettingsArgs(groupName),
-    }
 
     -- ========== 2. 스펠 관리 ==========
     local showInlineAddOptions = false
@@ -7744,47 +7741,11 @@ local function CreateGroupOptions(groupName, order)
                 lazy = true,
                 args = layoutArgs,
             },
-            text = {
-                type = "group",
-                inline = true,
-                name = L["Text"] or "Text",
-                order = 30,
-                defaultCollapsed = true,
-                lazy = true,
-                args = BuildCustomTextArgs(groupName),
-            },
-            swipe = {
-                type = "group",
-                inline = true,
-                name = L["Swipe"] or "Swipe",
-                order = 40,
-                defaultCollapsed = true,
-                lazy = true,
-                args = BuildGroupSwipeArgs(groupName),
-            },
-            glow = {
-                type = "group",
-                inline = true,
-                name = L["Glow"] or "Glow",
-                order = 50,
-                defaultCollapsed = true,
-                lazy = true,
-                args = DDingUI:BuildGroupGlowArgs(groupName, true),
-            },
-            animation = {
-                type = "group",
-                inline = true,
-                name = L["Animation"] or "Animation",
-                order = 60,
-                defaultCollapsed = true,
-                lazy = true,
-                args = BuildGroupAnimationArgs(groupName),
-            },
             position = {
                 type = "group",
                 inline = true,
                 name = L["Position"] or "Position",
-                order = 70,
+                order = 30,
                 defaultCollapsed = true,
                 lazy = true,
                 args = offsetArgs,
@@ -7875,13 +7836,6 @@ function DDingUI:BuildGroupWorkspaceOptionPage(groupName, category, section)
     category = category or "layout"
 
     if category == "state" then
-        if section == "advanced" then
-            return BuildWorkspacePage(
-                rawget(L, "Advanced Display") or "Advanced Display",
-                self:BuildGroupIconDetailArgs(groupName)
-            )
-        end
-
         local args = {}
         local trinketPreset = BuildTrinketEffectPreset(groupName)
         if trinketPreset then
@@ -7898,6 +7852,29 @@ function DDingUI:BuildGroupWorkspaceOptionPage(groupName, category, section)
             "state_",
             0
         )
+
+        local visualArgs = BuildCustomVisualArgs(groupName)
+        args.groupDefaultsHeader = {
+            type = "header",
+            name = rawget(L, "Group State Defaults") or "그룹 상태 기본값",
+            order = 100,
+        }
+        args.groupDefaultsDescription = {
+            type = "description",
+            name = rawget(L, "These settings apply when an icon has no individual state override.")
+                or "아이콘에 개별 상태 설정이 없을 때 적용되는 그룹 기본값입니다.",
+            order = 101,
+        }
+        for index, key in ipairs({
+            "auraGlow",
+            "procGlowEnabled",
+            "hideActiveState",
+            "hideActiveStateDesc",
+            "assistHighlightEnabled",
+        }) do
+            local option = CloneWorkspaceOption(visualArgs[key], 101 + index)
+            if option then args["groupState_" .. key] = option end
+        end
         return BuildWorkspacePage(rawget(L, "State Display") or "State Display", args)
     end
 
@@ -7916,17 +7893,65 @@ function DDingUI:BuildGroupWorkspaceOptionPage(groupName, category, section)
     end
 
     if category == "effects" then
-        if section == "icon" then
+        if section == "iconStyle" then
             return BuildWorkspacePage(
-                rawget(L, "Icon Glow") or "Icon Glow",
-                self:BuildGroupIconDetailArgs(groupName, "glow")
+                rawget(L, "Icon Style") or "Icon Style",
+                self.BuildGroupEffectStyleArgs and self:BuildGroupEffectStyleArgs(groupName) or {}
             )
         elseif section == "swipe" then
-            return BuildWorkspacePage(rawget(L, "Swipe") or "Swipe", BuildGroupSwipeArgs(groupName))
+            return BuildWorkspacePage(
+                rawget(L, "Swipe Style") or "Swipe Style",
+                BuildGroupSwipeArgs(groupName)
+            )
+        end
+
+        local visualArgs = BuildCustomVisualArgs(groupName)
+        local args = {
+            highlightHeader = {
+                type = "header",
+                name = rawget(L, "Highlight Style") or "강조 효과 스타일",
+                order = 1,
+            },
+            highlightDescription = {
+                type = "description",
+                name = rawget(L, "Enable or disable this effect in State Display. This page only controls its appearance.")
+                    or "효과 활성화 여부는 상태별 표시에서 설정합니다. 이 화면은 외형만 변경합니다.",
+                order = 2,
+            },
+        }
+        local function HighlightOptionDisabled(requiredType)
+            return function()
+                local gs = GetGS()
+                local group = gs and gs.groups and gs.groups[groupName]
+                if not group or group.assistHighlightEnabled ~= true then return true end
+                return requiredType ~= nil and (group.assistHighlightType or "flipbook") ~= requiredType
+            end
+        end
+        for index, key in ipairs({
+            "assistHighlightType",
+            "assistFlipbookScale",
+            "assistGlowType",
+            "assistGlowColor",
+            "assistGlowLines",
+            "assistGlowFrequency",
+            "assistGlowThickness",
+            "assistHighlightPixelLength",
+        }) do
+            local option = CloneWorkspaceOption(visualArgs[key], 2 + index)
+            if option then
+                if key == "assistHighlightType" then
+                    option.disabled = HighlightOptionDisabled()
+                elseif key == "assistFlipbookScale" then
+                    option.disabled = HighlightOptionDisabled("flipbook")
+                else
+                    option.disabled = HighlightOptionDisabled("lcg")
+                end
+                args["highlight_" .. key] = option
+            end
         end
         return BuildWorkspacePage(
-            rawget(L, "Group Default Glow") or "Group Default Glow",
-            self:BuildGroupGlowArgs(groupName, true)
+            rawget(L, "Highlight Style") or "Highlight Style",
+            args
         )
     end
 

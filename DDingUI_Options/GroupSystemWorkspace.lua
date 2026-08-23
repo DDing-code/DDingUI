@@ -76,13 +76,8 @@ local WORKSPACE_CATEGORIES = {
     {
         key = "state",
         icon = "state",
-        label = "Icon State",
-        fallback = "아이콘 상태",
-        requiresIcon = true,
-        sections = {
-            { key = "states", label = "State Display", fallback = "상태 표시" },
-            { key = "advanced", label = "Advanced Display", fallback = "고급 표시" },
-        },
+        label = "State Display",
+        fallback = "상태별 표시",
     },
     {
         key = "text",
@@ -98,12 +93,12 @@ local WORKSPACE_CATEGORIES = {
     {
         key = "effects",
         icon = "effects",
-        label = "Glow & Effects",
-        fallback = "글로우와 효과",
+        label = "Effect Style",
+        fallback = "효과 스타일",
         sections = {
-            { key = "icon", label = "Icon Glow", fallback = "아이콘 글로우", requiresIcon = true },
-            { key = "group", label = "Group Default Glow", fallback = "그룹 기본 글로우" },
-            { key = "swipe", label = "Swipe", fallback = "스와이프" },
+            { key = "iconStyle", label = "Icon Style", fallback = "아이콘 스타일", requiresIcon = true },
+            { key = "swipe", label = "Swipe Style", fallback = "스와이프 스타일" },
+            { key = "highlight", label = "Highlight Style", fallback = "강조 효과 스타일" },
         },
     },
     {
@@ -625,10 +620,10 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         if not definition or (definition.requiresIcon and not selected) then return end
         self.category = categoryKey
         if categoryKey == "effects"
-            and self.sectionByCategory.effects == "icon"
+            and self.sectionByCategory.effects == "iconStyle"
             and not selected
         then
-            self.sectionByCategory.effects = "group"
+            self.sectionByCategory.effects = "swipe"
         end
         self:RefreshInspector()
     end
@@ -675,7 +670,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         local categoryLabel = definition and T(definition.label, definition.fallback) or ""
         local showSelectedIcon = selected and (
             self.category == "state"
-            or (self.category == "effects" and currentSection == "icon")
+            or (self.category == "effects" and currentSection == "iconStyle")
         )
         if showSelectedIcon then
             self.inspectorHeader.icon:SetTexture(selected._gridIconTex or 134400)
@@ -715,9 +710,6 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         if not groupName then return end
         self.selectedGroup = groupName
         DDingUI._groupWorkspaceSelectedGroup = groupName
-        if not DDingUI:GetGroupIconDetailSelection(groupName) and self.category == "state" then
-            self.category = "layout"
-        end
         self:RefreshAll(true)
     end
 
