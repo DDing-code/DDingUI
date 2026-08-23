@@ -211,7 +211,7 @@ local function RefreshStateStudioOptions(groupName, delay)
     if configFrame and configFrame:IsShown() and groupName then
         configFrame._requestedSubTabPath = {
             "group_" .. tostring(groupName),
-            "stateStudio",
+            "iconSettings",
         }
     end
     if DDingUI.SoftRefreshGroupSystemOptions then
@@ -230,6 +230,13 @@ local function RefreshRuntime(context, changes)
     if context.kind == "dynamic" then
         if DDingUI.CustomIcons and DDingUI.CustomIcons.RefreshDynamicIcon then
             DDingUI.CustomIcons:RefreshDynamicIcon(context.iconKey)
+        end
+        if glowChanged and DDingUI.NativeTrinketOverlay
+            and DDingUI.NativeTrinketOverlay.ApplyAll
+        then
+            C_Timer.After(0, function()
+                DDingUI.NativeTrinketOverlay:ApplyAll()
+            end)
         end
         if layoutChanged and DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged then
             DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
@@ -659,7 +666,13 @@ end
 
 local function IsGlowEnabled(context, state)
     if state == "active" and context.kind == "dynamic" and context.capabilities.procActive then
-        return ReadSetting(context, "glow", "procGlowMode") == "on"
+        local mode = ReadSetting(context, "glow", "procGlowMode")
+        if mode == "on" then return true end
+        if mode == "off" then return false end
+        local profile = DDingUI.db and DDingUI.db.profile
+        local groups = profile and profile.groupSystem and profile.groupSystem.groups
+        local group = groups and groups[context.groupName]
+        return not group or group.procGlowEnabled ~= false
     end
     local key = state == "ready" and "cooldownReadyGlow"
         or state == "maxCharges" and "maxChargesGlow"

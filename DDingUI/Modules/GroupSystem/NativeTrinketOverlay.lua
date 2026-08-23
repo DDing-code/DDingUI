@@ -361,6 +361,8 @@ local function CollectDynamicBases(result)
             local candidate = {
                 frame = frame,
                 iconKey = iconKey,
+                iconData = iconData,
+                iconSettings = settings,
                 slotID = slotID,
                 priority = iconType == "trinketProc" and 3
                     or iconType == "slot" and 2 or 1,
@@ -488,6 +490,9 @@ local function UpdatePairSources(pair, base, effects)
     pair.baseApplications = baseApplications
     pair.nativeCooldownFrame = base.nativeCooldownFrame
     pair.nativeCooldownID = base.nativeCooldownID
+    pair.iconKey = base.iconKey
+    pair.iconData = base.iconData
+    pair.iconSettings = base.iconSettings
     pair.usesDynamicBase = base.usesDynamicBase == true
     pair.visibilityDependsOnEffect = base.visibilityDependsOnEffect == true
     for index, source in ipairs(effects) do
@@ -631,6 +636,9 @@ function NativeTrinketOverlay:RefreshPairs(registry)
                     baseApplications = GetApplications(base.frame),
                     nativeCooldownFrame = base.nativeCooldownFrame,
                     nativeCooldownID = base.nativeCooldownID,
+                    iconKey = base.iconKey,
+                    iconData = base.iconData,
+                    iconSettings = base.iconSettings,
                     usesDynamicBase = base.usesDynamicBase == true,
                     visibilityDependsOnEffect = base.visibilityDependsOnEffect == true,
                     effects = slotEffects,
@@ -704,15 +712,111 @@ function NativeTrinketOverlay:RefreshPairs(registry)
     return count
 end
 
-local function BuildStyleKey(container, settings, width, height)
-    local renderHash = container and container._lastCombinedLayoutHash
-    if renderHash then
-        return tostring(renderHash) .. ":" .. tostring(width) .. ":" .. tostring(height)
+local GLOW_TYPE_MAP = {
+    button = "Action Button Glow",
+    pixel = "Pixel Glow",
+    autocast = "Autocast Shine",
+    proc = "Proc Glow",
+    blizzard = "Blizzard Glow",
+}
+
+local function CopySettings(settings)
+    local copy = {}
+    for key, value in pairs(settings or {}) do
+        copy[key] = value
     end
-    if type(settings) ~= "table" then
-        return tostring(width) .. ":" .. tostring(height)
+    return copy
+end
+
+local function ResolveIconGlowColor(custom, fallback)
+    local mode = custom and custom.glowColorMode
+    if mode == "custom" and type(custom.glowColor) == "table" then
+        return custom.glowColor
     end
+    if mode == "class" then
+        local _, classFile = UnitClass("player")
+        local classColor = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+        if classColor then
+            return { classColor.r, classColor.g, classColor.b, classColor.a or 1 }
+        end
+    elseif mode == "blizzard" then
+        return { 1, 0.82, 0.28, 1 }
+    end
+    return fallback or { 1, 0.85, 0.1, 1 }
+end
+
+local function BuildEffectSettings(pair, groupSettings)
+    groupSettings = type(groupSettings) == "table" and groupSettings or {}
+    local settings = CopySettings(groupSettings)
+    settings.auraGlow = groupSettings.procGlowEnabled ~= false
+    settings.auraGlowType = groupSettings.procGlowType
+        or groupSettings.auraGlowType
+        or "Pixel Glow"
+    settings.auraGlowColor = groupSettings.procGlowColor
+        or groupSettings.auraGlowColor
+        or { 0.95, 0.95, 0.32, 1 }
+    settings.auraGlowPixelLines = groupSettings.procGlowPixelLines
+        or groupSettings.auraGlowPixelLines
+    settings.auraGlowPixelFrequency = groupSettings.procGlowPixelFrequency
+        or groupSettings.auraGlowPixelFrequency
+    settings.auraGlowPixelThickness = groupSettings.procGlowPixelThickness
+        or groupSettings.auraGlowPixelThickness
+    settings.auraGlowAutocastFrequency = groupSettings.procGlowAutocastFrequency
+        or groupSettings.auraGlowAutocastFrequency
+    settings.auraGlowButtonFrequency = groupSettings.procGlowButtonFrequency
+        or groupSettings.auraGlowButtonFrequency
+
+    local iconSettings = pair and pair.iconSettings
+    local custom = iconSettings and iconSettings.customStateGlow
+    if type(custom) ~= "table" then return settings end
+
+    local mode = custom.procGlowMode
+    local hasStyle = custom.glowType ~= nil
+        or custom.glowColorMode ~= nil
+        or custom.glowColor ~= nil
+        or custom.glowLines ~= nil
+        or custom.glowSpeed ~= nil
+        or custom.glowThickness ~= nil
+    if mode ~= "on" and mode ~= "off" and not hasStyle then
+        return settings
+    end
+
+    if mode == "on" then
+        settings.auraGlow = true
+        settings.auraGlowType = GLOW_TYPE_MAP[custom.glowType or "button"]
+            or settings.auraGlowType
+            or "Action Button Glow"
+    elseif mode == "off" then
+        settings.auraGlow = false
+    elseif custom.glowType then
+        settings.auraGlowType = GLOW_TYPE_MAP[custom.glowType] or settings.auraGlowType
+    end
+
+    if mode ~= "off" then
+        settings.auraGlowColor = ResolveIconGlowColor(custom, settings.auraGlowColor)
+        settings.auraGlowPixelLines = custom.glowLines or settings.auraGlowPixelLines
+        settings.auraGlowPixelFrequency = custom.glowSpeed or settings.auraGlowPixelFrequency
+        settings.auraGlowPixelThickness = custom.glowThickness or settings.auraGlowPixelThickness
+        settings.auraGlowAutocastFrequency = custom.glowSpeed or settings.auraGlowAutocastFrequency
+        settings.auraGlowButtonFrequency = custom.glowSpeed or settings.auraGlowButtonFrequency
+    end
+    return settings
+end
+
+local function ColorSignature(color)
+    if type(color) ~= "table" then return "-" end
     return table.concat({
+        tostring(color[1] or color.r),
+        tostring(color[2] or color.g),
+        tostring(color[3] or color.b),
+        tostring(color[4] or color.a),
+    }, ",")
+end
+
+local function BuildStyleKey(container, settings, width, height)
+    settings = type(settings) == "table" and settings or {}
+    return table.concat({
+        tostring(container and container._lastCombinedLayoutHash or "-"),
         tostring(width),
         tostring(height),
         tostring(settings.zoom),
@@ -727,6 +831,12 @@ local function BuildStyleKey(container, settings, width, height)
         tostring(settings.countTextOffsetY),
         tostring(settings.auraGlow),
         tostring(settings.auraGlowType),
+        ColorSignature(settings.auraGlowColor),
+        tostring(settings.auraGlowPixelLines),
+        tostring(settings.auraGlowPixelFrequency),
+        tostring(settings.auraGlowPixelThickness),
+        tostring(settings.auraGlowAutocastFrequency),
+        tostring(settings.auraGlowButtonFrequency),
     }, ":")
 end
 
@@ -764,7 +874,7 @@ local function ApplyEffectPlacement(pair, effect, baseFrame, width, height)
 
     if effect.anchored then
         local container = baseFrame._ddContainerRef
-        local settings = container and container._groupSettings
+        local settings = BuildEffectSettings(pair, container and container._groupSettings)
         local styleKey = BuildStyleKey(container, settings, width, height)
         if effect.styleKey ~= styleKey and DDingUI.IconViewers and DDingUI.IconViewers.SkinIcon then
             DDingUI.IconViewers:SkinIcon(procFrame, settings or {})

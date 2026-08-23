@@ -5684,7 +5684,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                         if _G["DDingUI_ConfigFrame"] then
                             _G["DDingUI_ConfigFrame"]._requestedSubTabPath = {
                                 "group_" .. groupName,
-                                "iconDetails",
+                                "iconSettings",
                             }
                         end
                         SoftRefreshGroupSystemOptions(0)
@@ -6542,12 +6542,14 @@ local function BuildGroupSwipeArgs(groupName)
     }
 end
 
-function DDingUI:BuildGroupGlowArgs(groupName)
+function DDingUI:BuildGroupGlowArgs(groupName, groupOnly)
     local args = {}
-    local iconArgs = self:BuildGroupIconDetailArgs(groupName, "glow")
-    for key, option in pairs(iconArgs) do
-        option.order = (tonumber(option.order) or 0) + 10
-        args["icon_" .. tostring(key)] = option
+    if groupOnly ~= true then
+        local iconArgs = self:BuildGroupIconDetailArgs(groupName, "glow")
+        for key, option in pairs(iconArgs) do
+            option.order = (tonumber(option.order) or 0) + 10
+            args["icon_" .. tostring(key)] = option
+        end
     end
 
     args.groupDefaultsHeader = {
@@ -6750,6 +6752,145 @@ local function BuildCustomTextArgs(groupName)
         args[key].disabled = durationDisabled
     end
 
+    return args
+end
+
+local function CopyOptionArgs(target, source, prefix, orderOffset, skipKey)
+    for key, option in pairs(source or {}) do
+        if key ~= skipKey then
+            local copy = {}
+            for optionKey, value in pairs(option) do
+                copy[optionKey] = value
+            end
+            copy.order = (tonumber(option.order) or 999) + (orderOffset or 0)
+            target[tostring(prefix or "") .. tostring(key)] = copy
+        end
+    end
+end
+
+local function GetSelectedDynamicIcon(groupName)
+    local opt = DDingUI:GetGroupIconDetailSelection(groupName)
+    if not opt or opt._gridKind ~= "dynamic" then return nil end
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynamicIcons = profile and profile.dynamicIcons
+    local iconKey = opt._gridDynamicIconKey
+    local iconData = iconKey and dynamicIcons and dynamicIcons.iconData
+        and dynamicIcons.iconData[iconKey]
+    if not iconData then return nil end
+    return opt, iconData, iconKey
+end
+
+local function BuildTrinketEffectPreset(groupName)
+    local opt, iconData, iconKey = GetSelectedDynamicIcon(groupName)
+    local iconType = iconData and iconData.type
+    if not opt or (iconType ~= "slot" and iconType ~= "item") then return nil end
+
+    local itemID = DDingUI:ResolveGridTrinketItemID(opt)
+    local registry = DDingUI.TrinketEffects
+    local hasEffect = itemID and (
+        DDingUI:GetNativeTrinketEffectSlot(itemID) ~= nil
+        or (registry and registry.GetEffectsForItem
+            and #(registry:GetEffectsForItem(itemID) or {}) > 0)
+    )
+    if not hasEffect then return nil end
+
+    return {
+        type = "select",
+        name = rawget(L, "Trinket Effect Display") or "Trinket Effect Display",
+        desc = rawget(L, "Choose how the equipped trinket effect appears on this icon.")
+            or "Choose how the equipped trinket effect appears on this icon.",
+        order = 2,
+        width = "full",
+        values = {
+            off = rawget(L, "Disabled") or "Disabled",
+            icon = rawget(L, "Effect Icon") or "Effect Icon",
+            iconGlow = rawget(L, "Effect Icon and Glow") or "Effect Icon and Glow",
+        },
+        sorting = { "off", "icon", "iconGlow" },
+        get = function()
+            local _, current = GetSelectedDynamicIcon(groupName)
+            local settings = current and current.settings
+            if not settings or settings.trackTrinketEffect ~= true then return "off" end
+            local glow = settings.customStateGlow
+            return glow and glow.procGlowMode == "on" and "iconGlow" or "icon"
+        end,
+        set = function(_, value)
+            local currentOpt, current, currentKey = GetSelectedDynamicIcon(groupName)
+            if not currentOpt or not current then return end
+            current.settings = current.settings or {}
+            local settings = current.settings
+            settings.trackTrinketEffect = value ~= "off"
+            settings.customStateGlow = settings.customStateGlow or {}
+            if value == "iconGlow" then
+                settings.customStateGlow.procGlowMode = "on"
+            elseif value == "icon" then
+                settings.customStateGlow.procGlowMode = "off"
+            else
+                settings.customStateGlow.procGlowMode = nil
+            end
+            if next(settings.customStateGlow) == nil then
+                settings.customStateGlow = nil
+            end
+
+            if registry and registry.RefreshEventRegistration then
+                registry:RefreshEventRegistration()
+            end
+            ScheduleDynamicIconRefresh(currentKey or iconKey)
+            if DDingUI.SpecProfiles and DDingUI.SpecProfiles.MarkDirty then
+                DDingUI.SpecProfiles:MarkDirty()
+            end
+            RefreshGroupSystem()
+            SoftRefreshGroupSystemOptions(0)
+        end,
+    }
+end
+
+local function BuildUnifiedIconSettingsArgs(groupName)
+    local args = {}
+    local details = DDingUI:BuildGroupIconDetailArgs(groupName)
+    if details.selected then
+        details.selected.order = -20
+        args.selected = details.selected
+    end
+
+    local trinketPreset = BuildTrinketEffectPreset(groupName)
+    if trinketPreset then
+        args.quickHeader = {
+            type = "header",
+            name = rawget(L, "Quick Setup") or "Quick Setup",
+            order = 0,
+        }
+        args.trinketEffectPreset = trinketPreset
+    end
+
+    args.stateSection = {
+        type = "header",
+        name = rawget(L, "State Display") or "State Display",
+        order = 9,
+    }
+    CopyOptionArgs(
+        args,
+        DDingUI.BuildGroupStateStudioArgs
+            and DDingUI:BuildGroupStateStudioArgs(groupName)
+            or {},
+        "state_",
+        10
+    )
+
+    args.detailsSection = {
+        type = "header",
+        name = rawget(L, "Basic and Linked Effects") or "Basic and Linked Effects",
+        order = 200,
+    }
+    CopyOptionArgs(args, details, "detail_", 210, "selected")
+    return args
+end
+
+local function BuildGroupAppearanceArgs(groupName)
+    local args = {}
+    CopyOptionArgs(args, BuildCustomTextArgs(groupName), "text_", 0)
+    CopyOptionArgs(args, BuildGroupSwipeArgs(groupName), "swipe_", 100)
+    CopyOptionArgs(args, DDingUI:BuildGroupGlowArgs(groupName, true), "glow_", 200)
     return args
 end
 
@@ -7161,20 +7302,11 @@ local function CreateGroupOptions(groupName, order)
         args = layoutArgs,
     }
 
-    args.stateStudio = {
+    args.iconSettings = {
         type = "group",
-        name = rawget(L, "State Studio") or "State Studio",
-        order = 14,
-        args = DDingUI.BuildGroupStateStudioArgs
-            and DDingUI:BuildGroupStateStudioArgs(groupName)
-            or {},
-    }
-
-    args.iconDetails = {
-        type = "group",
-        name = rawget(L, "Individual Settings") or "Individual Settings",
+        name = rawget(L, "Icon Settings") or "Icon Settings",
         order = 15,
-        args = DDingUI:BuildGroupIconDetailArgs(groupName),
+        args = BuildUnifiedIconSettingsArgs(groupName),
     }
 
     -- ========== 2. 스펠 관리 ==========
@@ -7564,27 +7696,18 @@ local function CreateGroupOptions(groupName, order)
     -- Spell management controls now live at the top of the layout tab.
     args.spellManagement = nil
 
-    -- Runtime selects the relevant text style per icon.
-    local textArgs = BuildCustomTextArgs(groupName)
-    args.text = {
+    args.appearance = {
         type = "group",
-        name = L["Text"] or "텍스트",
+        name = rawget(L, "Group Appearance") or "Group Appearance",
         order = 20,
-        args = textArgs,
+        args = BuildGroupAppearanceArgs(groupName),
     }
 
     args.animation = {
         type = "group",
         name = L["Animation"] or "애니메이션",
-        order = 25,
-        args = BuildGroupAnimationArgs(groupName),
-    }
-
-    args.swipe = {
-        type = "group",
-        name = L["Swipe Settings"] or "스와이프",
         order = 30,
-        args = BuildGroupSwipeArgs(groupName),
+        args = BuildGroupAnimationArgs(groupName),
     }
 
     -- Viewer-specific party and raid offsets share the group offset tab.
@@ -7610,13 +7733,6 @@ local function CreateGroupOptions(groupName, order)
         name = L["Offsets"] or "Offsets",
         order = 40,
         args = offsetArgs,
-    }
-
-    args.glow = {
-        type = "group",
-        name = L["Glow"] or "Glow",
-        order = 50,
-        args = DDingUI:BuildGroupGlowArgs(groupName),
     }
 
     return {
