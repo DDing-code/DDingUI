@@ -144,6 +144,8 @@ local function BuildSectionMenuData(options, frame)
         general = {
             type = "group",
             name = L["General Settings"] or "General Settings",
+            customRenderer = "sectionWorkspace",
+            workspaceKind = "general",
             childGroups = "tab",
             args = generalArgs,
         },
@@ -556,6 +558,18 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
         end
     end
 
+    if parentFrame and parentFrame.contentArea and parentFrame.contentArea._sectionWorkspace then
+        local workspace = parentFrame.contentArea._sectionWorkspace
+        if contentFrame._insideSectionWorkspace ~= true then
+            if workspace.Release then workspace:Release() end
+            workspace:Hide()
+            workspace:SetParent(nil)
+            parentFrame.contentArea._sectionWorkspace = nil
+            parentFrame.scrollFrame:Show()
+            if parentFrame.scrollBar then parentFrame.scrollBar:Show() end
+        end
+    end
+
     if contentFrame.subScrollChild then
         if contentFrame.subScrollChild.widgets then
             for i = #contentFrame.subScrollChild.widgets, 1, -1 do
@@ -608,6 +622,11 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
     if options.customRenderer == "groupSystem" and DDingUI.GUI.CreateGroupSystemWorkspace then
         DDingUI.GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
+        return
+    end
+
+    if options.customRenderer == "sectionWorkspace" and DDingUI.GUI.CreateSectionWorkspace then
+        DDingUI.GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
         return
     end
 
@@ -2542,6 +2561,12 @@ function DDingUI:CreateConfigFrame()
             return
         end
 
+        local sectionWorkspace = self.contentArea and self.contentArea._sectionWorkspace
+        if sectionWorkspace and sectionWorkspace:IsShown() then
+            sectionWorkspace:RefreshAll(true)
+            return
+        end
+
         local scrollPos = self.scrollFrame:GetVerticalScroll()
 
         if DDingUI and DDingUI.configOptions then
@@ -3436,6 +3461,14 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             if groupWorkspace then
                 if groupWorkspace.Release then groupWorkspace:Release() end
                 groupWorkspace:Hide()
+            end
+
+            local sectionWorkspace = contentArea._sectionWorkspace
+            if sectionWorkspace then
+                if sectionWorkspace.Release then sectionWorkspace:Release() end
+                sectionWorkspace:Hide()
+                sectionWorkspace:SetParent(nil)
+                contentArea._sectionWorkspace = nil
             end
         end
 

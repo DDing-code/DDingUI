@@ -31,6 +31,8 @@ local function BuildBuffBarOptions(order)
         type = "group",
         name = L["Buff Bar"],
         order = order,
+        customRenderer = "sectionWorkspace",
+        workspaceKind = "buffBar",
         childGroups = "tab",
         args = {
             -- General Settings Tab

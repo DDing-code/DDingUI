@@ -29,6 +29,8 @@ local function CreateCastBarOptions()
         type = "group",
         name = L["Player Cast Bar"] or "플레이어 시전바",
         order = 5,
+        customRenderer = "sectionWorkspace",
+        workspaceKind = "castBars",
         args = {
                     header = {
                         type = "header",

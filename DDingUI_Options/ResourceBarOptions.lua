@@ -103,6 +103,8 @@ local function CreateResourceBarOptions()
         type = "group",
         name = L["Resource Bars"] or "Resource Bars",
         order = 4,
+        customRenderer = "sectionWorkspace",
+        workspaceKind = "resourceBars",
         childGroups = "tab",
         args = {
             primary = {
