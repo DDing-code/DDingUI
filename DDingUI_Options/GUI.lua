@@ -163,11 +163,13 @@ local function BuildSectionMenuData(options, frame)
             key = "groupSystem.__groups",
             text = L["Groups"] or "그룹",
             kind = "section",
+            parentKey = "groupSystem",
         }
         menuData[#menuData + 1] = {
             key = "groupSystem.__add",
             text = "+  " .. (L["Add Group"] or "그룹 추가"),
             kind = "groupAdd",
+            parentKey = "groupSystem",
         }
         frame._optionLookup["groupSystem.__add"] = { action = "addGroup" }
 
@@ -195,6 +197,7 @@ local function BuildSectionMenuData(options, frame)
                 text = group.label,
                 kind = "group",
                 enabled = group.enabled,
+                parentKey = "groupSystem",
             }
             frame._optionLookup[key] = {
                 option = groupSystemOption,
@@ -336,21 +339,47 @@ local function CreateSectionMenu(parent, menuData, opts)
         return row
     end
 
-    function menu:SetMenuData(data)
-        self.rowsByKey = {}
+    local function IsRowVisible(row)
+        if not row._hasData then return false end
+        if menu._showAllRows or not row._parentKey then return true end
+
+        local selectedKey = menu.selectedKey
+        return selectedKey == row._parentKey
+            or (type(selectedKey) == "string"
+                and selectedKey:sub(1, #row._parentKey + 1) == row._parentKey .. ".")
+    end
+
+    local function LayoutRows()
         local yOffset = 0
+        for _, row in ipairs(menu.rows) do
+            if IsRowVisible(row) then
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -yOffset)
+                row:SetPoint("RIGHT", menu, "RIGHT", 0, 0)
+                row:Show()
+                ApplyRowState(row)
+                yOffset = yOffset + row._height
+            else
+                row:Hide()
+            end
+        end
+    end
+
+    function menu:SetMenuData(data, showAllRows)
+        self.rowsByKey = {}
+        self._showAllRows = showAllRows == true
         for index, item in ipairs(data or {}) do
             local row = AcquireRow(index)
             local kind = item.kind or "main"
             local height = kind == "main" and 54 or (kind == "section" and 31 or 34)
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -yOffset)
-            row:SetPoint("RIGHT", self, "RIGHT", 0, 0)
             row:SetHeight(height)
+            row._hasData = true
+            row._height = height
             row._key = item.key
             row._kind = kind
             row._text = item.text or item.key
             row._enabled = item.enabled ~= false
+            row._parentKey = item.parentKey
             row.icon:ClearAllPoints()
             row.label:ClearAllPoints()
             row.divider:SetShown(kind == "main")
@@ -382,27 +411,24 @@ local function CreateSectionMenu(parent, menuData, opts)
             end
             row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
             row.label:SetText(item.text or item.key)
-            row:Show()
             self.rowsByKey[item.key] = row
-            yOffset = yOffset + height
         end
         for index = #(data or {}) + 1, #self.rows do
-            self.rows[index]:Hide()
+            local row = self.rows[index]
+            row._hasData = false
+            row._parentKey = nil
+            row:Hide()
         end
         if self.selectedKey and not self.rowsByKey[self.selectedKey] then
             self.selectedKey = nil
         end
-        for _, row in ipairs(self.rows) do
-            if row:IsShown() then ApplyRowState(row) end
-        end
+        LayoutRows()
     end
 
     function menu:SetSelected(key)
         if not self.rowsByKey[key] then return false end
         self.selectedKey = key
-        for _, row in ipairs(self.rows) do
-            if row:IsShown() then ApplyRowState(row) end
-        end
+        LayoutRows()
         return true
     end
 
