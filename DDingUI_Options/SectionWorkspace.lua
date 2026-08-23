@@ -6,6 +6,7 @@ local L = Base.L
 local FLAT = Base.FLAT
 local THEME = Base.THEME
 local LSM = LibStub("LibSharedMedia-3.0", true)
+local SL = _G.DDingUI_StyleLib
 
 local WORKSPACE_META = {
     general = {
@@ -83,8 +84,8 @@ end
 
 local function ColorValues(value, fallback)
     value = type(value) == "table" and value or fallback
-    return tonumber(value[1]) or fallback[1], tonumber(value[2]) or fallback[2],
-        tonumber(value[3]) or fallback[3], tonumber(value[4]) or fallback[4] or 1
+    return tonumber(value[1] or value.r) or fallback[1], tonumber(value[2] or value.g) or fallback[2],
+        tonumber(value[3] or value.b) or fallback[3], tonumber(value[4] or value.a) or fallback[4] or 1
 end
 
 local function FetchMedia(kind, name, fallback)
@@ -124,11 +125,16 @@ local function AnchorText(text, parent, point, offsetX, offsetY)
     end
 end
 
-local function SetBarAppearance(bar, config, fallbackColor)
+local function SetBarAppearance(bar, config, fallbackColor, resolvedColor)
     local texture = FetchMedia("statusbar", config and config.texture, FLAT)
     bar:SetStatusBarTexture(texture or FLAT)
-    local r, g, b, a = ColorValues(config and (config.color or config.barColor), fallbackColor)
-    bar:SetStatusBarColor(r, g, b, a)
+    local color = resolvedColor or (config and (config.color or config.barColor))
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(bar, color, fallbackColor)
+    else
+        local r, g, b, a = ColorValues(color, fallbackColor)
+        bar:SetStatusBarColor(r, g, b, a)
+    end
     local br, bg, bb, ba = ColorValues(config and config.bgColor, { 0.08, 0.085, 0.1, 1 })
     bar:SetBackdropColor(br, bg, bb, ba)
     local rr, rg, rb, ra = ColorValues(config and config.borderColor, { 0, 0, 0, 1 })
@@ -154,21 +160,29 @@ local function GetClassColor()
     return 1, 0.55, 0.12, 1
 end
 
-local function GetResourceColor(secondary)
+local function GetClassColorSpec()
+    local r, g, b, a = GetClassColor()
+    return { r, g, b, a }
+end
+
+local function GetResourceColorSpec(secondary)
     local profile = DDingUI.db and DDingUI.db.profile or {}
     local colors = profile.powerTypeColors or {}
-    if colors.useClassColor then return GetClassColor() end
+    if colors.useClassColor then return GetClassColorSpec() end
     local resource
     if secondary and DDingUI.ResourceBars and DDingUI.ResourceBars.GetSecondaryResource then
         local ok, result = pcall(DDingUI.ResourceBars.GetSecondaryResource)
+        if ok then resource = result end
+    elseif not secondary and DDingUI.ResourceBars and DDingUI.ResourceBars.GetPrimaryResource then
+        local ok, result = pcall(DDingUI.ResourceBars.GetPrimaryResource)
         if ok then resource = result end
     else
         local ok, result = pcall(UnitPowerType, "player")
         if ok then resource = result end
     end
     local color = colors.colors and colors.colors[resource]
-    if color then return ColorValues(color, { 0.2, 0.64, 1, 1 }) end
-    return secondary and 0.2 or 0.22, secondary and 0.64 or 0.58, 1, 1
+    if color then return color end
+    return { secondary and 0.2 or 0.22, secondary and 0.64 or 0.58, 1, 1 }
 end
 
 local function CreateGeneralPreview(parent)
@@ -261,8 +275,8 @@ local function CreateResourcePreview(parent)
         self.secondaryCaption:ClearAllPoints()
         self.secondaryCaption:SetPoint("RIGHT", self.secondary, "LEFT", -10, 0)
 
-        SetBarAppearance(self.primary, primary, { GetResourceColor(false) })
-        SetBarAppearance(self.secondary, secondary, { GetResourceColor(true) })
+        SetBarAppearance(self.primary, primary, { 0.22, 0.58, 1, 1 }, GetResourceColorSpec(false))
+        SetBarAppearance(self.secondary, secondary, { 0.2, 0.64, 1, 1 }, GetResourceColorSpec(true))
         self.primary:SetAlpha(primary.enabled == false and 0.35 or 1)
         self.secondary:SetAlpha(secondary.enabled == false and 0.35 or 1)
         self.primary.leftText:SetShown(primary.showText ~= false)
@@ -327,7 +341,8 @@ local function CreateCastPreview(parent)
         self.iconFrame:SetPoint("RIGHT", self.bar, "LEFT", -3, 0)
         self.iconFrame:SetSize(height, height)
         self.iconFrame:SetShown(iconShown)
-        SetBarAppearance(self.bar, config, { GetClassColor() })
+        local castColor = config.useClassColor and GetClassColorSpec() or config.color
+        SetBarAppearance(self.bar, config, { 1, 0.55, 0.12, 1 }, castColor)
         self.bar:SetAlpha(config.enabled == false and 0.35 or 1)
         self.bar.leftText:SetText(T("Preview Cast", "시전 미리보기"))
         self.bar.leftText:SetShown(config.showSpellText ~= false)
@@ -537,7 +552,14 @@ local function AddSignatureColor(parts, color)
         parts[#parts + 1] = "-"
         return
     end
-    for index = 1, 4 do parts[#parts + 1] = tostring(color[index] or "") end
+    parts[#parts + 1] = tostring(color[1] or color.r or "")
+    parts[#parts + 1] = tostring(color[2] or color.g or "")
+    parts[#parts + 1] = tostring(color[3] or color.b or "")
+    parts[#parts + 1] = tostring(color[4] or color.a or "")
+    parts[#parts + 1] = tostring(color.gradientMode or "SOLID")
+    parts[#parts + 1] = tostring(color.gradientOrientation or "HORIZONTAL")
+    local gradient = type(color.gradientColor) == "table" and color.gradientColor or {}
+    for index = 1, 4 do parts[#parts + 1] = tostring(gradient[index] or "") end
 end
 
 local function PreviewSignature(kind, selectedKey)
@@ -553,10 +575,8 @@ local function PreviewSignature(kind, selectedKey)
     elseif kind == "resourceBars" then
         local colorSettings = profile.powerTypeColors or {}
         parts[#parts + 1] = tostring(colorSettings.useClassColor)
-        local primaryR, primaryG, primaryB, primaryA = GetResourceColor(false)
-        local secondaryR, secondaryG, secondaryB, secondaryA = GetResourceColor(true)
-        parts[#parts + 1] = string.format("%.3f,%.3f,%.3f,%.3f", primaryR, primaryG, primaryB, primaryA)
-        parts[#parts + 1] = string.format("%.3f,%.3f,%.3f,%.3f", secondaryR, secondaryG, secondaryB, secondaryA)
+        AddSignatureColor(parts, GetResourceColorSpec(false))
+        AddSignatureColor(parts, GetResourceColorSpec(true))
         for _, config in ipairs({ profile.powerBar or {}, profile.secondaryPowerBar or {} }) do
             for _, key in ipairs({ "enabled", "width", "height", "texture", "textFont", "textSize", "textX", "textY", "showText", "showTicks" }) do
                 parts[#parts + 1] = tostring(config[key])
@@ -567,7 +587,7 @@ local function PreviewSignature(kind, selectedKey)
         end
     elseif kind == "castBars" then
         local config = profile.castBar or {}
-        for _, key in ipairs({ "enabled", "width", "height", "texture", "showIcon", "showSpark", "showSpellText", "spellTextFont", "spellTextSize", "spellTextOffsetX", "spellTextOffsetY", "showTimeText", "timeTextFont", "timeTextSize", "timeTextOffsetX", "timeTextOffsetY", "showChannelTicks", "showChannelTickMarks" }) do
+        for _, key in ipairs({ "enabled", "width", "height", "texture", "useClassColor", "showIcon", "showSpark", "showSpellText", "spellTextFont", "spellTextSize", "spellTextOffsetX", "spellTextOffsetY", "showTimeText", "timeTextFont", "timeTextSize", "timeTextOffsetX", "timeTextOffsetY", "showChannelTicks", "showChannelTickMarks" }) do
             parts[#parts + 1] = tostring(config[key])
         end
         AddSignatureColor(parts, config.color)
