@@ -382,23 +382,6 @@ local function IconUsesDurationText(groupName, sourceViewer, icon)
         or (icon and icon._type == "aura")
 end
 
-local function ResolveCDMSkinSettings(groupName, groupSettings, sourceViewer)
-    if sourceViewer ~= "BuffIconCooldownViewer"
-        or groupName == "Buffs"
-        or not groupSettings
-        or groupSettings.hideActiveState ~= true
-    then
-        return groupSettings
-    end
-
-    local settings = {}
-    for key, value in pairs(groupSettings) do
-        settings[key] = value
-    end
-    settings.hideActiveState = false
-    return settings
-end
-
 local function ResolveGroupTextSetting(groupName, groupSettings, primaryKey, fallbackKey)
     local settings = DDingUI.GroupTextSettings
     if settings and settings.Resolve then
@@ -2954,12 +2937,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
                         if srcViewer then
                             icon._ddSourceViewer = srcViewer
                         end
-                        local iconSkinSettings = ResolveCDMSkinSettings(
-                            groupName,
-                            skinSettingsForGroup,
-                            srcViewer
-                        )
-                        pcall(IconViewers.SkinIcon, IconViewers, icon, iconSkinSettings)
+                        pcall(IconViewers.SkinIcon, IconViewers, icon, skinSettingsForGroup)
                     end
                 else
                     icon._ddLastCooldownID = entry.cooldownID

@@ -145,6 +145,7 @@ end
 local function SetHideActiveStateGray(icon, active)
     if not icon then return end
     local pid = GetIconData(icon)
+    if pid._applyingHideActiveStateGray then return end
     local texture = icon.icon or icon.Icon
 
     if active then
@@ -156,6 +157,7 @@ local function SetHideActiveStateGray(icon, active)
     end
 
     if not texture then return end
+    pid._applyingHideActiveStateGray = true
     if texture.SetDesaturated then
         pcall(texture.SetDesaturated, texture, active and true or false)
     end
@@ -169,6 +171,7 @@ local function SetHideActiveStateGray(icon, active)
             pcall(texture.SetVertexColor, texture, 1, 1, 1, 1)
         end
     end
+    pid._applyingHideActiveStateGray = nil
 end
 
 local function SyncAuraGlowHost(icon, pid)
@@ -480,7 +483,7 @@ end
 local function SafeColor(c, fallbackR, fallbackG, fallbackB, fallbackA)
     if not c then return fallbackR or 0, fallbackG or 0, fallbackB or 0, fallbackA or 1 end
     -- {r, g, b, a} 테이블
-    if type(c) == "table" and c[1] then return c[1], c[2], c[3], c[4] or 1 end
+    if type(c) == "table" and c[1] ~= nil then return c[1], c[2], c[3], c[4] or 1 end
     -- CreateColor() 객체 (GetRGBA 메서드)
     if type(c) == "table" and c.GetRGBA then return c:GetRGBA() end
     -- {r=, g=, b=, a=} 테이블
@@ -568,6 +571,96 @@ local function ApplyCountdownTextStyle(icon, cooldown, settings, useDurationText
             end
         end
     end
+end
+
+local function ApplyHiddenActiveCooldown(icon, cooldown, cdd, settings, refreshCooldown)
+    if not (icon and cooldown and cdd and settings) then return end
+
+    local pid = GetIconData(icon)
+    pid.isAuraSwipe = true
+    SetHideActiveStateGray(icon, true)
+    if pid.auraGlowActive or pid.auraGlowWanted then
+        StopAuraGlow(icon, pid)
+    end
+
+    if cooldown.SetDrawSwipe then
+        cdd.bypassSwipeHook = true
+        cooldown:SetDrawSwipe(true)
+        cdd.bypassSwipeHook = nil
+    end
+    if cooldown.SetReverse then
+        cdd.bypassReverseHook = true
+        cooldown:SetReverse(false)
+        cdd.bypassReverseHook = nil
+    end
+    if cooldown.SetUseAuraDisplayTime then
+        cdd.bypassAuraDisplayHook = true
+        cooldown:SetUseAuraDisplayTime(false)
+        cdd.bypassAuraDisplayHook = nil
+    end
+    if cooldown.SetSwipeColor then
+        local r, g, b, a = SafeColor(settings.swipeColor, 0, 0, 0, 0.7)
+        cdd.bypassColorHook = true
+        cooldown:SetSwipeColor(r, g, b, a)
+        cdd.bypassColorHook = nil
+    end
+
+    if refreshCooldown and cooldown.SetCooldownFromDurationObject then
+        local spellID = CDMCompat and CDMCompat:ResolveFrameSpellID(icon)
+        if spellID and C_Spell then
+            cdd.bypassCDHook = true
+            cdd.bypassColorHook = true
+            pcall(function()
+                local hasChargeSource = false
+                if type(icon.HasVisualDataSource_Charges) == "function" then
+                    local ok, result = pcall(function()
+                        return icon:HasVisualDataSource_Charges() == true
+                    end)
+                    hasChargeSource = ok and result or false
+                end
+
+                local durationObject
+                if hasChargeSource and C_Spell.GetSpellChargeDuration then
+                    durationObject = C_Spell.GetSpellChargeDuration(spellID)
+                end
+                if not durationObject and C_Spell.GetSpellCooldownDuration then
+                    durationObject = C_Spell.GetSpellCooldownDuration(spellID)
+                end
+                if durationObject then
+                    cooldown:SetCooldownFromDurationObject(durationObject)
+                end
+            end)
+            cdd.bypassCDHook = nil
+            cdd.bypassColorHook = nil
+        end
+    end
+
+    ApplyCountdownTextStyle(icon, cooldown, settings, false)
+end
+
+local function ScheduleHiddenActiveReconcile(icon, cooldown)
+    local pid = GetIconData(icon)
+    if pid._hiddenActiveReconcileScheduled then return end
+    pid._hiddenActiveReconcileScheduled = true
+
+    C_Timer.After(AURA_SWIPE_GRACE + 0.05, function()
+        pid._hiddenActiveReconcileScheduled = nil
+        local now = GetTime and GetTime() or 0
+        if pid.auraSwipeLastSeen and (now - pid.auraSwipeLastSeen) <= AURA_SWIPE_GRACE then
+            ScheduleHiddenActiveReconcile(icon, cooldown)
+            return
+        end
+        if IconHasAuraState(icon, cooldown) then return end
+
+        pid.isAuraSwipe = false
+        pid.auraSwipeLastSeen = nil
+        SetHideActiveStateGray(icon, false)
+        local cdd = cdData[cooldown]
+        local settings = cdd and cdd.settings
+        if settings then
+            ApplyCountdownTextStyle(icon, cooldown, settings, false)
+        end
+    end)
 end
 
 local function ReconcileAuraVisualSettings(icon, cooldown, cdd, settings)
@@ -817,9 +910,31 @@ function IconViewers:SkinIcon(icon, settings)
             end
         end)
 
+        if iconTexture.SetDesaturated then
+            hooksecurefunc(iconTexture, "SetDesaturated", function()
+                local pid = iconData[icon]
+                if pid and pid.hideActiveStateGray and not pid._applyingHideActiveStateGray then
+                    SetHideActiveStateGray(icon, true)
+                end
+            end)
+        end
+        if iconTexture.SetDesaturation then
+            hooksecurefunc(iconTexture, "SetDesaturation", function()
+                local pid = iconData[icon]
+                if pid and pid.hideActiveStateGray and not pid._applyingHideActiveStateGray then
+                    SetHideActiveStateGray(icon, true)
+                end
+            end)
+        end
+
         -- SetVertexColor 훅 (alpha channel로 숨길 수 있음)
         hooksecurefunc(iconTexture, "SetVertexColor", function(self, r, g, b, a)
             if IsCooldownViewerSettingsOpen() then return end
+            local pid = iconData[icon]
+            if pid and pid.hideActiveStateGray and not pid._applyingHideActiveStateGray then
+                SetHideActiveStateGray(icon, true)
+                return
+            end
             if CDMCompat and (not CDMCompat:IsPublicNumber(r)
                 or not CDMCompat:IsPublicNumber(g)
                 or not CDMCompat:IsPublicNumber(b)
@@ -895,11 +1010,12 @@ function IconViewers:SkinIcon(icon, settings)
                 if not parentIcon then return end
 
                 -- [PERF] 변경 감지: 이전 isAuraSwipe 상태와 동일하면 전체 로직 스킵
-                local isAuraSwipe = IsAuraSwipeColor(r, g, b)
+                local nativeAuraSwipe = IsAuraSwipeColor(r, g, b)
+                local isAuraSwipe = nativeAuraSwipe
                 local pid = iconData[parentIcon]
                 if not pid then pid = {}; iconData[parentIcon] = pid end
                 local now = GetTime and GetTime() or 0
-                if isAuraSwipe then
+                if nativeAuraSwipe then
                     pid.nativeAuraSwipeColor = { r, g, b, a or 1 }
                 end
                 if not isAuraSwipe and IconHasAuraState(parentIcon, self) then
@@ -913,41 +1029,31 @@ function IconViewers:SkinIcon(icon, settings)
                 local prevAura = pid.isAuraSwipe
                 pid.isAuraSwipe = isAuraSwipe
                 if s and s.hideActiveState then
-                    SetHideActiveStateGray(parentIcon, isAuraSwipe)
+                    if isAuraSwipe then
+                        ApplyHiddenActiveCooldown(parentIcon, self, cd, s, prevAura ~= true)
+                        if not nativeAuraSwipe then
+                            ScheduleHiddenActiveReconcile(parentIcon, self)
+                        end
+                    else
+                        SetHideActiveStateGray(parentIcon, false)
+                    end
                 else
                     SetHideActiveStateGray(parentIcon, false)
                 end
-                if isAuraSwipe and s and s.auraGlow then
+                local wantsAuraGlow = isAuraSwipe and s and not s.hideActiveState and s.auraGlow
+                if wantsAuraGlow then
                     pid._glowRemoveTimer = nil
                     pid.auraGlowLastSeen = now
                 end
                 -- [PERF] 상태 변경 없으면 heavy 로직 전부 스킵 (매 프레임 → 전환 시에만)
-                if isAuraSwipe == prevAura and not (isAuraSwipe and s and s.auraGlow and not pid.auraGlowActive) then return end
+                if isAuraSwipe == prevAura and not (wantsAuraGlow and not pid.auraGlowActive) then return end
 
                 ApplyCountdownTextStyle(parentIcon, self, s, isAuraSwipe and s.hideActiveState ~= true)
 
 
-                if isAuraSwipe and s then
-                    -- Option 0: hideActiveState — convert aura swipe to normal cooldown swipe
-                    -- (CDM CDM "hideActive" port: SetReverse(false) + normal swipe color)
-                    -- The icon shows its regular CD timer instead of the active-state yellow overlay
-                    if s.hideActiveState then
-                        SetHideActiveStateGray(parentIcon, true)
-                        -- Switch from reversed (aura) to forward (cooldown) direction
-                        if self.SetReverse then self:SetReverse(false) end
-                        -- Override yellow aura color → normal cooldown swipe color
-                        cd.bypassColorHook = true
-                        local swipeAlpha = 0.7
-                        if s.swipeColor then
-                            local sc = s.swipeColor
-                            local sr, sg, sb, sa = sc[1] or 0, sc[2] or 0, sc[3] or 0, sc[4] or 0.8
-                            self:SetSwipeColor(sr, sg, sb, sa)
-                        else
-                            self:SetSwipeColor(0, 0, 0, swipeAlpha)
-                        end
-                        cd.bypassColorHook = nil
+                if isAuraSwipe and s and not s.hideActiveState then
                     -- Option 1: Replace aura swipe with glow
-                    elseif s.auraGlow then
+                    if s.auraGlow then
                         pid._glowRemoveTimer = nil
                         ShowAuraGlow(parentIcon, pid, s)
                         -- Hide swipe (make transparent)
@@ -1008,58 +1114,38 @@ function IconViewers:SkinIcon(icon, settings)
         -- This makes the icon show the real cooldown timer instead of aura remaining time.
         if not cdd.setCooldownHooked then
             cdd.setCooldownHooked = true
-            hooksecurefunc(icon.Cooldown, "SetCooldown", function(self)
+            local function ReapplyHiddenActiveCooldown(self)
                 local cd = cdData[self]
                 if not cd then return end
                 if cd.bypassCDHook then return end  -- prevent recursion
                 local s = cd.settings
                 local parentIcon = cd.parentIcon
                 if not s or not parentIcon or not s.hideActiveState then return end
-                -- Check if frame is in aura state
-                local isActive = false
-                pcall(function()
-                    isActive = parentIcon.wasSetFromAura == true
-                        or parentIcon.auraInstanceID ~= nil
-                end)
+                local pid = GetIconData(parentIcon)
+                local isActive = pid.isAuraSwipe == true or IconHasAuraState(parentIcon, self)
                 if not isActive then
                     SetHideActiveStateGray(parentIcon, false)
                     return
                 end
-                SetHideActiveStateGray(parentIcon, true)
-                -- Get spellID from CDM frame
-                local spellID = nil
-                pcall(function()
-                    local ci = parentIcon.cooldownInfo
-                    if ci then spellID = ci.overrideSpellID or ci.spellID end
-                end)
-                if not spellID then return end
-                -- Visual: normal cooldown appearance
-                self:SetReverse(false)
-                cd.bypassColorHook = true
-                if s.swipeColor then
-                    local sc = s.swipeColor
-                    self:SetSwipeColor(sc[1] or 0, sc[2] or 0, sc[3] or 0, sc[4] or 0.8)
-                else
-                    self:SetSwipeColor(0, 0, 0, 0.7)
+                ApplyHiddenActiveCooldown(parentIcon, self, cd, s, true)
+            end
+            hooksecurefunc(icon.Cooldown, "SetCooldown", ReapplyHiddenActiveCooldown)
+            if icon.Cooldown.SetCooldownFromDurationObject then
+                hooksecurefunc(icon.Cooldown, "SetCooldownFromDurationObject", ReapplyHiddenActiveCooldown)
+            end
+        end
+
+        if icon.Cooldown.SetUseAuraDisplayTime and not cdd.auraDisplayHooked then
+            cdd.auraDisplayHooked = true
+            hooksecurefunc(icon.Cooldown, "SetUseAuraDisplayTime", function(self)
+                local cd = cdData[self]
+                if not cd or cd.bypassAuraDisplayHook or cd.bypassCDHook then return end
+                local s = cd.settings
+                local parentIcon = cd.parentIcon
+                local pid = parentIcon and iconData[parentIcon]
+                if s and s.hideActiveState and pid and pid.isAuraSwipe then
+                    ApplyHiddenActiveCooldown(parentIcon, self, cd, s, true)
                 end
-                cd.bypassColorHook = nil
-                -- Data: replace aura duration with actual spell cooldown
-                cd.bypassCDHook = true
-                cd.bypassColorHook = true
-                pcall(function()
-                    local durObj
-                    local charges = C_Spell.GetSpellCharges(spellID)
-                    if charges and charges.maxCharges and charges.maxCharges > 1 then
-                        durObj = C_Spell.GetSpellChargeDuration(spellID)
-                    else
-                        durObj = C_Spell.GetSpellCooldownDuration(spellID)
-                    end
-                    if durObj then
-                        self:SetCooldownFromDurationObject(durObj)
-                    end
-                end)
-                cd.bypassCDHook = nil
-                cd.bypassColorHook = nil
             end)
         end
 
@@ -1077,6 +1163,12 @@ function IconViewers:SkinIcon(icon, settings)
 
                 -- If auraGlow is active, keep swipe hidden
                 local pid = iconData[parentIcon]
+                if s.hideActiveState and pid and pid.isAuraSwipe then
+                    cd.bypassSwipeHook = true
+                    self:SetDrawSwipe(true)
+                    cd.bypassSwipeHook = nil
+                    return
+                end
                 if pid and pid.auraGlowActive and draw then
                     cd.bypassSwipeHook = true
                     self:SetDrawSwipe(false)
@@ -1091,6 +1183,22 @@ function IconViewers:SkinIcon(icon, settings)
                     cd.bypassSwipeHook = true
                     self:SetDrawSwipe(false)
                     cd.bypassSwipeHook = nil
+                end
+            end)
+        end
+
+        if icon.Cooldown.SetReverse and not cdd.reverseHooked then
+            cdd.reverseHooked = true
+            hooksecurefunc(icon.Cooldown, "SetReverse", function(self)
+                local cd = cdData[self]
+                if not cd or cd.bypassReverseHook then return end
+                local s = cd.settings
+                local parentIcon = cd.parentIcon
+                local pid = parentIcon and iconData[parentIcon]
+                if s and s.hideActiveState and pid and pid.isAuraSwipe then
+                    cd.bypassReverseHook = true
+                    self:SetReverse(false)
+                    cd.bypassReverseHook = nil
                 end
             end)
         end
@@ -1187,51 +1295,10 @@ function IconViewers:SkinIcon(icon, settings)
         -- [hideActiveState] Immediate application for already-active icons
         -- When user toggles the option, icons already showing aura state get overridden now
         if settings.hideActiveState then
-            local isActive = false
-            pcall(function()
-                isActive = icon.wasSetFromAura == true or icon.auraInstanceID ~= nil
-            end)
-            if not isActive then
-                -- Fallback: check current swipe color
-                local ok2, cr, cg, cb = pcall(function() return icon.Cooldown:GetSwipeColor() end)
-                if ok2 and cr and cg and cb and cr > 0.9 and cg > 0.9 and cb > 0.4 then
-                    isActive = true
-                end
-            end
+            local pid = GetIconData(icon)
+            local isActive = pid.isAuraSwipe == true or IconHasAuraState(icon, icon.Cooldown)
             if isActive then
-                SetHideActiveStateGray(icon, true)
-                -- Visual: normal cooldown appearance
-                icon.Cooldown:SetReverse(false)
-                cdd.bypassColorHook = true
-                if settings.swipeColor then
-                    local sc = settings.swipeColor
-                    icon.Cooldown:SetSwipeColor(sc[1] or 0, sc[2] or 0, sc[3] or 0, sc[4] or 0.8)
-                else
-                    icon.Cooldown:SetSwipeColor(0, 0, 0, 0.7)
-                end
-                cdd.bypassColorHook = nil
-                GetIconData(icon).isAuraSwipe = true
-                -- Data: replace aura duration with actual spell cooldown
-                pcall(function()
-                    local ci = icon.cooldownInfo
-                    local spellID = ci and (ci.overrideSpellID or ci.spellID)
-                    if spellID then
-                        cdd.bypassCDHook = true
-                        cdd.bypassColorHook = true
-                        local durObj
-                        local charges = C_Spell.GetSpellCharges(spellID)
-                        if charges and charges.maxCharges and charges.maxCharges > 1 then
-                            durObj = C_Spell.GetSpellChargeDuration(spellID)
-                        else
-                            durObj = C_Spell.GetSpellCooldownDuration(spellID)
-                        end
-                        if durObj then
-                            icon.Cooldown:SetCooldownFromDurationObject(durObj)
-                        end
-                        cdd.bypassCDHook = nil
-                        cdd.bypassColorHook = nil
-                    end
-                end)
+                ApplyHiddenActiveCooldown(icon, icon.Cooldown, cdd, settings, true)
             else
                 SetHideActiveStateGray(icon, false)
             end
@@ -1242,7 +1309,7 @@ function IconViewers:SkinIcon(icon, settings)
         -- Check current swipe color to detect if aura is active and apply auraSwipeColor immediately
         -- This handles the case where settings are changed while an aura swipe is already visible
         -- (auraGlow feature temporarily disabled)
-        if settings.auraSwipeColor then
+        if settings.auraSwipeColor and not settings.hideActiveState then
             -- Get current swipe color using pcall to avoid errors
             local ok, r, g, b, a2 = pcall(function()
                 return icon.Cooldown:GetSwipeColor()
