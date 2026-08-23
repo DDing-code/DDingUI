@@ -2515,6 +2515,50 @@ local function CreateResourceBarOptions()
     local secondaryArgs = options.args.secondary.args
     local colorArgs = options.args.colors.args
 
+    local gradientColorTargets = {
+        manaColor = { Enum.PowerType.Mana, "primary" },
+        rageColor = { Enum.PowerType.Rage, "primary" },
+        focusColor = { Enum.PowerType.Focus, "primary" },
+        energyColor = { Enum.PowerType.Energy, "primary" },
+        runicPowerColor = { Enum.PowerType.RunicPower, "primary" },
+        lunarPowerColor = { Enum.PowerType.LunarPower, "primary" },
+        furyColor = { Enum.PowerType.Fury, "primary" },
+        maelstromColor = { Enum.PowerType.Maelstrom, "primary" },
+        runesColor = { Enum.PowerType.Runes, "secondary" },
+        runeBloodColor = { "RUNE_BLOOD", "secondary" },
+        runeFrostColor = { "RUNE_FROST", "secondary" },
+        runeUnholyColor = { "RUNE_UNHOLY", "secondary" },
+        soulFragmentsColor = { "SOUL", "secondary" },
+        comboPointsColor = { Enum.PowerType.ComboPoints, "secondary" },
+        essenceColor = { Enum.PowerType.Essence, "secondary" },
+        arcaneChargesColor = { Enum.PowerType.ArcaneCharges, "secondary" },
+        chiColor = { Enum.PowerType.Chi, "secondary" },
+        holyPowerColor = { Enum.PowerType.HolyPower, "secondary" },
+        soulShardsColor = { Enum.PowerType.SoulShards, "secondary" },
+        maelstromWeaponColor = { "MAELSTROM_WEAPON", "secondary" },
+    }
+    for optionKey, targetInfo in pairs(gradientColorTargets) do
+        local colorOption = colorArgs[optionKey]
+        local colorKey = targetInfo[1]
+        local targetBar = targetInfo[2]
+        if colorOption then
+            local targetColorKey = colorKey
+            local targetBarKey = targetBar
+            colorOption.supportsGradient = true
+            colorOption.gradientTarget = function()
+                return DDingUI.db.profile.powerTypeColors.colors[targetColorKey]
+            end
+            colorOption.gradientChanged = function()
+                if targetBarKey == "primary" then
+                    DDingUI:UpdatePowerBar()
+                else
+                    DDingUI:UpdateSecondaryPowerBar()
+                end
+                MarkSpecDirty()
+            end
+        end
+    end
+
     -- Primary bar: border color
     primaryArgs.borderColorReset = MakeColorReset(23.01, function()
         DDingUI.db.profile.powerBar.borderColor = { 0, 0, 0, 1 }

@@ -1,12 +1,14 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 if not DDingUI then return end
+local SL = _G.DDingUI_StyleLib
 
 local Engine = {}
 DDingUI.TrackedAuraContainer = Engine
 
 local SOLID_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
+local EMPTY_COLOR = {}
 local RETRY_DELAY = 2
 local SPELL_LIST_FIELDS = { "linkedSpellIDs", "trackingSpellIDs", "spellIDs" }
 
@@ -304,11 +306,18 @@ end
 
 local function ColorPart(color)
     color = color or {}
+    local gradient = color.gradientColor or EMPTY_COLOR
     return table.concat({
         tostring(color[1] or 1),
         tostring(color[2] or 1),
         tostring(color[3] or 1),
         tostring(color[4] or 1),
+        tostring(color.gradientMode or "SOLID"),
+        tostring(color.gradientOrientation or "HORIZONTAL"),
+        tostring(gradient[1] or 1),
+        tostring(gradient[2] or 1),
+        tostring(gradient[3] or 1),
+        tostring(gradient[4] or 1),
     }, ",")
 end
 
@@ -493,7 +502,11 @@ local function CreateBarInitializer(proxy, desired, style)
         progress:SetStatusBarTexture(style.texture or SOLID_TEXTURE)
         progress:SetOrientation(style.orientation or "HORIZONTAL")
         progress:SetReverseFill(style.reverseFill == true)
-        ApplyColor(progress:GetStatusBarTexture(), style.barColor or { 1, 0.8, 0, 1 })
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(progress, style.barColor or { 1, 0.8, 0, 1 })
+        else
+            ApplyColor(progress:GetStatusBarTexture(), style.barColor or { 1, 0.8, 0, 1 })
+        end
 
         local immediate = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
         if style.mode == "stacks" then

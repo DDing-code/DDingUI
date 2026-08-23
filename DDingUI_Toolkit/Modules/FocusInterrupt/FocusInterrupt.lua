@@ -141,10 +141,19 @@ local function ApplyCastbarStyle(bar, db)
         bar.notinterruptable:SetTexture(db.texture or SL_FLAT)
     end
     local notR, notG, notB = ColorValues(db.notInterruptibleColor, { 0.9, 0.9, 0.9, 1 })
-    bar.notinterruptable:SetVertexColor(
-        notR, notG, notB,
-        NumberOr(db.notInterruptibleAlpha, 1, 0, 1)
-    )
+    local notAlpha = NumberOr(db.notInterruptibleAlpha, 1, 0, 1)
+    local notColorSpec = { notR, notG, notB, notAlpha }
+    if SL and SL.CopyBarColorMetadata then
+        SL.CopyBarColorMetadata(notColorSpec, db.notInterruptibleColor)
+        if type(notColorSpec.gradientColor) == "table" then
+            notColorSpec.gradientColor[4] = notAlpha
+        end
+    end
+    if SL and SL.ApplyBarColorToTexture then
+        SL.ApplyBarColorToTexture(bar.notinterruptable, notColorSpec)
+    else
+        bar.notinterruptable:SetVertexColor(notR, notG, notB, notAlpha)
+    end
 
     bar.important:ClearAllPoints()
     bar.important:SetPoint("TOPLEFT", bar, "TOPLEFT", -2, 2)
@@ -460,7 +469,11 @@ local function CheckCasting(bar, event, interruptedBy)
             bar.time:SetText(L["FOCUSINTERRUPT_INTERRUPTED"] or INTERRUPTED)
         end
         local c = bar._failedColor
-        bar:SetStatusBarColor(c[1], c[2], c[3])
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(bar, c)
+        else
+            bar:SetStatusBarColor(c[1], c[2], c[3])
+        end
         bar.failstart = currtime
         bar:SetStatusBarDesaturated(false)
         bar.duration_obj = nil
@@ -506,7 +519,11 @@ local function CheckCasting(bar, event, interruptedBy)
         bar.castspellid = spellid
 
         local c = bar._interruptColor
-        bar:SetStatusBarColor(c[1], c[2], c[3])
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(bar, c)
+        else
+            bar:SetStatusBarColor(c[1], c[2], c[3])
+        end
         bar.name:SetText(name)
         ShowRaidIcon(unit, bar.mark)
         bar.button.icon:SetShown(db.showIcon ~= false)
@@ -856,7 +873,11 @@ local function PopulatePreviewBar(bar, label)
     bar.targetname:SetShown(db.showTargetText ~= false)
     bar:SetMinMaxValues(0, 100)
     bar:SetValue(50)
-    bar:SetStatusBarColor(bar._interruptColor[1], bar._interruptColor[2], bar._interruptColor[3])
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(bar, bar._interruptColor)
+    else
+        bar:SetStatusBarColor(bar._interruptColor[1], bar._interruptColor[2], bar._interruptColor[3])
+    end
     bar.notinterruptable:SetAlpha(0)
     bar.important:SetAlpha(db.showImportantAlert ~= false and 0.65 or 0)
     if bar.mark._enabled then

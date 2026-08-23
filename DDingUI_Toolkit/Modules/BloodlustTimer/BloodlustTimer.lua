@@ -762,8 +762,12 @@ function BloodlustTimer:UpdateDisplay(force)
     local activeColor = { 1.00, 0.24, 0.12, 1 }
     local exhaustionColor = { 0.38, 0.44, 0.54, 1 }
     local barColor = snapshot.phase == "ACTIVE" and self.db.activeBarColor or self.db.exhaustionBarColor
-    local r, g, b, a = GetColor(barColor, snapshot.phase == "ACTIVE" and activeColor or exhaustionColor)
-    display.bar:SetStatusBarColor(r, g, b, a)
+    local fallbackColor = snapshot.phase == "ACTIVE" and activeColor or exhaustionColor
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(display.bar, barColor, fallbackColor)
+    else
+        display.bar:SetStatusBarColor(GetColor(barColor, fallbackColor))
+    end
     display.bar:SetMinMaxValues(0, snapshot.duration or 1)
     local value = snapshot.remaining
     if value == nil then value = snapshot.duration or 1 end

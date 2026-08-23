@@ -413,8 +413,13 @@ local function RenderBar(preview, entry)
     host.bar:SetOrientation(orientation == "VERTICAL" and "VERTICAL" or "HORIZONTAL")
     host.bar:SetReverseFill(ReadSetting(entry, "barReverseFill", false) == true)
     host.bar:SetStatusBarTexture(ResolveTexture(ReadSetting(entry, "texture", ReadRootSetting("texture"))))
-    local r, g, b, a = ReadColor(ReadSetting(entry, "barColor"), { 1, 0.8, 0, 1 })
-    host.bar:SetStatusBarColor(r, g, b, a)
+    local barColor = ReadSetting(entry, "barColor") or { 1, 0.8, 0, 1 }
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(host.bar, barColor)
+    else
+        local r, g, b, a = ReadColor(barColor, { 1, 0.8, 0, 1 })
+        host.bar:SetStatusBarColor(r, g, b, a)
+    end
     local br, bg, bb, ba = ReadColor(ReadSetting(entry, "bgColor", ReadRootSetting("bgColor")), { 0.15, 0.15, 0.15, 1 })
     host.background:SetColorTexture(br, bg, bb, ba)
     local borderSize = ReadSetting(entry, "borderSize", ReadRootSetting("borderSize", 1))

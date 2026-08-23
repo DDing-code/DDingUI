@@ -5025,6 +5025,14 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     options["tracked" .. index .. "_barColor"] = {
         type = "color",
         name = "    " .. (L["Bar Color"] or "Bar Color"),
+        supportsGradient = true,
+        gradientTarget = function()
+            local buff = GetTrackedBuff(index)
+            if not buff or not buff.settings then return nil end
+            buff.settings.barColor = buff.settings.barColor or { 1, 0.8, 0, 1 }
+            return buff.settings.barColor
+        end,
+        gradientChanged = function() DDingUI:UpdateBuffTrackerBar() end,
         order = orderBase + 4.8,
         width = 0.5,
         hasAlpha = true,

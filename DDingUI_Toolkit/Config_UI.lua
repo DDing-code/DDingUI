@@ -275,31 +275,69 @@ end
 ------------------------------------------------------
 -- 위젯: Color 버튼
 ------------------------------------------------------
+local GRADIENT_BAR_COLOR_KEYS = {
+    ["profile.StasisTracker.timerBarColor"] = true,
+    ["profile.StasisTracker.warningColor"] = true,
+    ["profile.BloodlustTimer.activeBarColor"] = true,
+    ["profile.BloodlustTimer.exhaustionBarColor"] = true,
+    ["profile.FocusInterrupt.interruptibleColor"] = true,
+    ["profile.FocusInterrupt.notInterruptibleColor"] = true,
+    ["profile.FocusInterrupt.interruptedColor"] = true,
+}
+
 local function CreateColorButton(parent, setting)
+    local supportsGradient = setting.supportsGradient == true or GRADIENT_BAR_COLOR_KEYS[setting.key] == true
+
     local function ReadColor()
         local c = ns:GetDBValue(setting.key)
         if not c then return { 1, 1, 1, 1 } end
         if setting.colorFormat == "rgb_object" then
             return { c.r or 1, c.g or 1, c.b or 1, 1 }
         end
-        return { c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1 }
+        local result = { c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1 }
+        if supportsGradient and Lib.CopyBarColorMetadata then
+            Lib.CopyBarColorMetadata(result, c)
+        end
+        return result
+    end
+
+    local function NotifyChanged(value)
+        if setting.onChange then setting.onChange(value) end
+        QueueDetailPreviewRefresh()
     end
 
     local widget = Widgets.CreateColor(parent, ADDON_KEY, setting.label or "", ReadColor(), {
         hasAlpha = setting.hasAlpha,
         tooltip = setting.desc,
+        supportsGradient = supportsGradient,
         onChange = function(r, g, b, a)
+            local previous = ns:GetDBValue(setting.key)
+            local nextColor
             if setting.colorFormat == "rgb_object" then
-                ns:SetDBValue(setting.key, { r = r, g = g, b = b })
+                nextColor = { r = r, g = g, b = b }
             elseif setting.hasAlpha then
-                ns:SetDBValue(setting.key, { r, g, b, a })
+                nextColor = { r, g, b, a }
             else
-                ns:SetDBValue(setting.key, { r, g, b })
+                nextColor = { r, g, b }
             end
-            if setting.onChange then
-                setting.onChange(ns:GetDBValue(setting.key))
+            if supportsGradient and Lib.CopyBarColorMetadata then
+                Lib.CopyBarColorMetadata(nextColor, previous)
             end
-            QueueDetailPreviewRefresh()
+            ns:SetDBValue(setting.key, nextColor)
+            NotifyChanged(nextColor)
+        end,
+        onGradientChange = function(colorSpec)
+            local nextColor = {
+                colorSpec[1] or 1,
+                colorSpec[2] or 1,
+                colorSpec[3] or 1,
+                colorSpec[4] or 1,
+            }
+            if Lib.CopyBarColorMetadata then
+                Lib.CopyBarColorMetadata(nextColor, colorSpec)
+            end
+            ns:SetDBValue(setting.key, nextColor)
+            NotifyChanged(nextColor)
         end,
     })
     if setting.compactWidth then

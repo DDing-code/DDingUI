@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local SL = _G.DDingUI_StyleLib
 
 -- Get CastBars module
 local CastBars = DDingUI.CastBars
@@ -280,11 +281,20 @@ function CastBars:UpdateCastBarLayout()
         r, g, b, a = 1, 0.7, 0, 1
     end
 
-    bar.status:SetStatusBarColor(r, g, b, a or 1)
+    local colorSpec = (not cfg.useClassColor and cfg.color) or { r, g, b, a or 1 }
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(bar.status, colorSpec)
+    else
+        bar.status:SetStatusBarColor(r, g, b, a or 1)
+    end
     -- [ConditionalActions] 조건부 동작 색상 오버라이드
     if bar._ddingColorOverride then
         local oc = bar._ddingColorOverride
-        bar.status:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(bar.status, oc)
+        else
+            bar.status:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+        end
     end
 
     bar.spellName:ClearAllPoints()
@@ -477,7 +487,11 @@ function CastBars:OnPlayerSpellcastStop(unit, castGUID, spellID, wasInterrupted,
 
         -- Apply red color
         local color = cfg.interruptedColor or { 0.9, 0.2, 0.2, 1 }
-        bar.status:SetStatusBarColor(color[1], color[2], color[3], color[4] or 1)
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(bar.status, color)
+        else
+            bar.status:SetStatusBarColor(color[1], color[2], color[3], color[4] or 1)
+        end
         -- [ConditionalActions] 인터럽트 시에는 오버라이드 무시
 
         -- Fade out using OnUpdate (smoother than C_Timer)

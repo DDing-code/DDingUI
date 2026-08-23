@@ -523,14 +523,29 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
     local row = CreateRow(parent, labelText, opts.height or 30)
     local color = default or { 1, 1, 1, 1 }
 
-    local swatch = CreateFrame("Button", nil, row, "BackdropTemplate")
-    swatch:SetSize(34, 20)
-    swatch:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    ApplyBackdrop(swatch, C.bg.input, C.border.default)
+    local function CreateSwatch(width)
+        local button = CreateFrame("Button", nil, row, "BackdropTemplate")
+        button:SetSize(width or 34, 20)
+        ApplyBackdrop(button, C.bg.input, C.border.default)
+        local texture = button:CreateTexture(nil, "ARTWORK")
+        texture:SetPoint("TOPLEFT", button, "TOPLEFT", 3, -3)
+        texture:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -3, 3)
+        button:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(r, g, b, 1)
+        end)
+        button:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(UnpackColor(C.border.default))
+        end)
+        return button, texture
+    end
 
-    local preview = swatch:CreateTexture(nil, "ARTWORK")
-    preview:SetPoint("TOPLEFT", swatch, "TOPLEFT", 3, -3)
-    preview:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", -3, 3)
+    local supportsGradient = opts.supportsGradient == true
+    local swatch, preview = CreateSwatch(supportsGradient and 50 or 34)
+    swatch:SetPoint("RIGHT", row, "RIGHT", supportsGradient and -76 or 0, 0)
+    local modeButton
+    local endSwatch
+    local endPreview
+    local directionButton
 
     local function ReadColor()
         return color[1] or color.r or 1,
@@ -540,26 +555,44 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
     end
 
     local function Refresh()
-        preview:SetColorTexture(ReadColor())
+        local baseR, baseG, baseB, baseA = ReadColor()
+        local isGradient = supportsGradient and Lib.IsGradientBarColor and Lib.IsGradientBarColor(color)
+        local endColor = color.gradientColor
+        if type(endColor) ~= "table" then
+            endColor = { baseR * 0.55, baseG * 0.55, baseB * 0.55, baseA }
+        end
+        if isGradient then
+            preview:SetColorTexture(1, 1, 1, 1)
+            preview:SetGradient(
+                color.gradientOrientation == "VERTICAL" and "VERTICAL" or "HORIZONTAL",
+                CreateColor(baseR, baseG, baseB, baseA),
+                CreateColor(UnpackColor(endColor))
+            )
+        else
+            preview:SetColorTexture(baseR, baseG, baseB, baseA)
+        end
+        if not supportsGradient then return end
+
+        modeButton.label:SetText(isGradient and (GetLocale() == "koKR" and "그라데이션" or "Gradient") or (GetLocale() == "koKR" and "단색" or "Solid"))
+        endSwatch:SetShown(isGradient)
+        directionButton:SetShown(isGradient)
+        endPreview:SetColorTexture(UnpackColor(endColor))
+        directionButton.label:SetText(color.gradientOrientation == "VERTICAL" and (GetLocale() == "koKR" and "세로" or "Vertical") or (GetLocale() == "koKR" and "가로" or "Horizontal"))
     end
 
     local function Apply(nextR, nextG, nextB, nextA, silent)
+        local previous = color
         color = { nextR, nextG, nextB, nextA or 1 }
+        if Lib.CopyBarColorMetadata then
+            Lib.CopyBarColorMetadata(color, previous)
+        end
         Refresh()
         if not silent and opts.onChange then
             opts.onChange(nextR, nextG, nextB, nextA or 1)
         end
     end
 
-    swatch:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(r, g, b, 1)
-    end)
-    swatch:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(UnpackColor(C.border.default))
-    end)
-    swatch:SetScript("OnClick", function()
-        if row._disabled then return end
-        local oldR, oldG, oldB, oldA = ReadColor()
+    local function OpenPicker(oldR, oldG, oldB, oldA, onApply, onCancel)
         local function PickerAlpha()
             if ColorPickerFrame.GetColorAlpha then
                 return ColorPickerFrame:GetColorAlpha()
@@ -578,14 +611,14 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
             swatchFunc = function()
                 local nextR, nextG, nextB = ColorPickerFrame:GetColorRGB()
                 local nextA = opts.hasAlpha and PickerAlpha() or oldA
-                Apply(nextR, nextG, nextB, nextA)
+                onApply(nextR, nextG, nextB, nextA)
             end,
             opacityFunc = function()
                 local nextR, nextG, nextB = ColorPickerFrame:GetColorRGB()
-                Apply(nextR, nextG, nextB, PickerAlpha())
+                onApply(nextR, nextG, nextB, PickerAlpha())
             end,
             cancelFunc = function()
-                Apply(oldR, oldG, oldB, oldA)
+                if onCancel then onCancel(oldR, oldG, oldB, oldA) end
             end,
         }
         if ColorPickerFrame.SetupColorPickerAndShow then
@@ -599,7 +632,68 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
             ColorPickerFrame:SetColorRGB(oldR, oldG, oldB)
             ColorPickerFrame:Show()
         end
+    end
+
+    swatch:SetScript("OnClick", function()
+        if row._disabled then return end
+        local oldR, oldG, oldB, oldA = ReadColor()
+        OpenPicker(oldR, oldG, oldB, oldA, function(nextR, nextG, nextB, nextA)
+            Apply(nextR, nextG, nextB, nextA)
+        end, function()
+            Apply(oldR, oldG, oldB, oldA)
+        end)
     end)
+
+    if supportsGradient then
+        local function CreateTextButton(width)
+            local button = CreateFrame("Button", nil, row, "BackdropTemplate")
+            button:SetSize(width, 20)
+            ApplyBackdrop(button, C.bg.input, C.border.default)
+            button.label = MakeFont(button, F.small, C.text.normal, "")
+            button.label:SetPoint("CENTER")
+            return button
+        end
+
+        modeButton = CreateTextButton(70)
+        modeButton:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        endSwatch, endPreview = CreateSwatch(34)
+        endSwatch:SetPoint("RIGHT", swatch, "LEFT", -4, 0)
+        directionButton = CreateTextButton(48)
+        directionButton:SetPoint("RIGHT", endSwatch, "LEFT", -4, 0)
+
+        local function CommitGradient()
+            Refresh()
+            if opts.onGradientChange then opts.onGradientChange(color) end
+        end
+
+        modeButton:SetScript("OnClick", function()
+            if row._disabled then return end
+            local baseR, baseG, baseB, baseA = ReadColor()
+            color.gradientMode = color.gradientMode == "GRADIENT" and "SOLID" or "GRADIENT"
+            color.gradientColor = color.gradientColor or { baseR * 0.55, baseG * 0.55, baseB * 0.55, baseA }
+            color.gradientOrientation = color.gradientOrientation or "HORIZONTAL"
+            CommitGradient()
+        end)
+
+        directionButton:SetScript("OnClick", function()
+            if row._disabled then return end
+            color.gradientOrientation = color.gradientOrientation == "VERTICAL" and "HORIZONTAL" or "VERTICAL"
+            CommitGradient()
+        end)
+
+        endSwatch:SetScript("OnClick", function()
+            if row._disabled then return end
+            local endColor = color.gradientColor or { ReadColor() }
+            local oldColor = { UnpackColor(endColor) }
+            OpenPicker(oldColor[1], oldColor[2], oldColor[3], oldColor[4], function(nextR, nextG, nextB, nextA)
+                color.gradientColor = { nextR, nextG, nextB, nextA or 1 }
+                CommitGradient()
+            end, function()
+                color.gradientColor = oldColor
+                CommitGradient()
+            end)
+        end)
+    end
 
     function row:SetColor(nextR, nextG, nextB, nextA, silent)
         Apply(nextR, nextG, nextB, nextA, silent)
@@ -609,12 +703,22 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
         return ReadColor()
     end
 
+    function row:GetColorSpec()
+        return color
+    end
+
     function row:SetDisabledState(disabled)
         SetRowDisabled(self, disabled)
         swatch:SetEnabled(not disabled)
+        if modeButton then modeButton:SetEnabled(not disabled) end
+        if endSwatch then endSwatch:SetEnabled(not disabled) end
+        if directionButton then directionButton:SetEnabled(not disabled) end
     end
 
     row.swatch = swatch
+    row.gradientModeButton = modeButton
+    row.gradientEndSwatch = endSwatch
+    row.gradientDirectionButton = directionButton
     row.control = swatch
     Refresh()
     SetTooltip(row, opts.tooltip)

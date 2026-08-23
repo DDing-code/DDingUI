@@ -311,7 +311,11 @@ function StasisTracker:Render()
     local preview = IsPreviewing()
     local spells = preview and PREVIEW_SPELLS or state.stored
     local visible = preview or state.collecting
-    display.timer:SetStatusBarColor(GetColor(self.db and self.db.timerBarColor, COLOR_DEFAULTS.timerBar))
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(display.timer, self.db and self.db.timerBarColor, COLOR_DEFAULTS.timerBar)
+    else
+        display.timer:SetStatusBarColor(GetColor(self.db and self.db.timerBarColor, COLOR_DEFAULTS.timerBar))
+    end
 
     for index, slot in ipairs(display.slots) do
         local spellID = spells[index]
@@ -464,12 +468,20 @@ function StasisTracker:OnUpdate(elapsed)
         frame.timerText:SetFormattedText("%d", math.ceil(remaining))
         local warningAt = Clamp(self.db and self.db.warningThreshold, 1, 15, 5)
         if remaining <= warningAt then
-            frame.timer:SetStatusBarColor(GetColor(self.db and self.db.warningColor, COLOR_DEFAULTS.warning))
+            if SL and SL.ApplyBarColor then
+                SL.ApplyBarColor(frame.timer, self.db and self.db.warningColor, COLOR_DEFAULTS.warning)
+            else
+                frame.timer:SetStatusBarColor(GetColor(self.db and self.db.warningColor, COLOR_DEFAULTS.warning))
+            end
             for _, slot in ipairs(frame.slots) do
                 SetBorderFromSetting(slot, self.db and self.db.warningColor, COLOR_DEFAULTS.warning)
             end
         else
-            frame.timer:SetStatusBarColor(GetColor(self.db and self.db.timerBarColor, COLOR_DEFAULTS.timerBar))
+            if SL and SL.ApplyBarColor then
+                SL.ApplyBarColor(frame.timer, self.db and self.db.timerBarColor, COLOR_DEFAULTS.timerBar)
+            else
+                frame.timer:SetStatusBarColor(GetColor(self.db and self.db.timerBarColor, COLOR_DEFAULTS.timerBar))
+            end
         end
     end
 end

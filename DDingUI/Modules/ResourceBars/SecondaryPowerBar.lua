@@ -1,6 +1,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local LSM = LibStub("LibSharedMedia-3.0")
+local SL = _G.DDingUI_StyleLib
 
 -- Local API caching for hot paths
 local string_format = string.format
@@ -517,7 +518,13 @@ function ResourceBars:UpdateFragmentedPowerDisplay(bar, resource)
     local fragmentedBarWidth = barWidth / maxPower
     local fragmentedBarHeight = barHeight / maxPower
 
-    local r, g, b, a = bar.StatusBar:GetStatusBarColor()
+    local baseColorSpec = bar._ddingBaseColorSpec
+    local r, g, b, a
+    if type(baseColorSpec) == "table" then
+        r, g, b, a = baseColorSpec[1], baseColorSpec[2], baseColorSpec[3], baseColorSpec[4]
+    else
+        r, g, b, a = bar.StatusBar:GetStatusBarColor()
+    end
     local color = { r = r, g = g, b = b, a = a or 1 }
 
     if resource == Enum.PowerType.Essence then
@@ -1133,6 +1140,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
         -- Color
         local powerTypeColors = DDingUI.db.profile.powerTypeColors
         local baseR, baseG, baseB, baseA = 1, 1, 1, 1
+        local baseColorSpec
         if powerTypeColors.useClassColor then
             local _, class = UnitClass("player")
             local classColor = RAID_CLASS_COLORS[class]
@@ -1146,6 +1154,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
             end
         elseif powerTypeColors.colors and powerTypeColors.colors[resource] then
             local color = powerTypeColors.colors[resource]
+            baseColorSpec = color
             baseR, baseG, baseB, baseA = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
         else
             local color = GetResourceColor(resource)
@@ -1153,7 +1162,12 @@ function ResourceBars:UpdateSecondaryPowerBar()
                 baseR, baseG, baseB, baseA = color.r or color[1] or 1, color.g or color[2] or 1, color.b or color[3] or 1, 1
             end
         end
-        bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+        bar._ddingBaseColorSpec = baseColorSpec or { baseR, baseG, baseB, baseA }
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(bar.StatusBar, bar._ddingBaseColorSpec)
+        else
+            bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+        end
 
         -- Marker color overlay for SOUL resources (secret value safe)
         UpdateMarkerColorOverlays(bar, cfg, current, max, interpolation)
@@ -1215,6 +1229,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
         -- Set StatusBar color first so UpdateFragmentedPowerDisplay can read it
         local powerTypeColors = DDingUI.db.profile.powerTypeColors
         local fragR, fragG, fragB, fragA = 1, 1, 1, 1
+        local fragColorSpec
         if powerTypeColors.useClassColor then
             -- Class color for all resources
             local _, class = UnitClass("player")
@@ -1241,14 +1256,17 @@ function ResourceBars:UpdateSecondaryPowerBar()
                     specColor = powerTypeColors.colors["RUNE_UNHOLY"]
                 end
                 if specColor then
+                    fragColorSpec = specColor
                     fragR, fragG, fragB, fragA = specColor[1] or 1, specColor[2] or 1, specColor[3] or 1, specColor[4] or 1
                 else
                     local color = powerTypeColors.colors[resource]
+                    fragColorSpec = color
                     fragR, fragG, fragB, fragA = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
                 end
             else
                 -- Power type specific color
                 local color = powerTypeColors.colors[resource]
+                fragColorSpec = color
                 fragR, fragG, fragB, fragA = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
             end
         else
@@ -1279,8 +1297,13 @@ function ResourceBars:UpdateSecondaryPowerBar()
         end
 
         -- Base color (threshold takes precedence if applied; maxColor handled by overlay)
+        bar._ddingBaseColorSpec = fragColorSpec or { fragR, fragG, fragB, fragA }
         if not thresholdApplied then
-            bar.StatusBar:SetStatusBarColor(fragR, fragG, fragB, fragA)
+            if SL and SL.ApplyBarColor then
+                SL.ApplyBarColor(bar.StatusBar, bar._ddingBaseColorSpec)
+            else
+                bar.StatusBar:SetStatusBarColor(fragR, fragG, fragB, fragA)
+            end
         end
 
         -- Marker + max color overlays for fragmented resources (secret value safe)
@@ -1308,6 +1331,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
         -- Set bar color
         local powerTypeColors = DDingUI.db.profile.powerTypeColors
         local baseR, baseG, baseB, baseA = 1, 1, 1, 1
+        local baseColorSpec
         if powerTypeColors.useClassColor then
             -- Class color for all resources
             local _, class = UnitClass("player")
@@ -1323,6 +1347,7 @@ function ResourceBars:UpdateSecondaryPowerBar()
         elseif powerTypeColors.colors and powerTypeColors.colors[resource] and resource ~= "STAGGER" then
             -- Power type specific color (skip for stagger as it uses dynamic colors)
             local color = powerTypeColors.colors[resource]
+            baseColorSpec = color
             baseR, baseG, baseB, baseA = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
         else
             -- Default resource color (includes dynamic stagger colors)
@@ -1352,14 +1377,23 @@ function ResourceBars:UpdateSecondaryPowerBar()
         end
 
         -- Base color (threshold takes precedence if applied; maxColor handled by overlay)
+        bar._ddingBaseColorSpec = baseColorSpec or { baseR, baseG, baseB, baseA }
         if not thresholdApplied then
-            bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+            if SL and SL.ApplyBarColor then
+                SL.ApplyBarColor(bar.StatusBar, bar._ddingBaseColorSpec)
+            else
+                bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+            end
         end
 
         -- [ConditionalActions] 조건부 동작 색상 오버라이드
         if bar._ddingColorOverride then
             local oc = bar._ddingColorOverride
-            bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+            if SL and SL.ApplyBarColor then
+                SL.ApplyBarColor(bar.StatusBar, oc)
+            else
+                bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+            end
         end
 
         -- Marker + max color overlays for normal bar resources (secret value safe)
@@ -1524,4 +1558,3 @@ DDingUI.UpdateFragmentedPowerDisplay = function(self, bar, resource) return Reso
 DDingUI.UpdateChargedPowerSegments = function(self, bar, resource, max) return ResourceBars:UpdateChargedPowerSegments(bar, resource, max) end
 DDingUI.UpdatePerPointColorSegments = function(self, bar, resource, max, current) return ResourceBars:UpdatePerPointColorSegments(bar, resource, max, current) end
 DDingUI.UpdateOverflowColorSegments = function(self, bar, resource, max, current) return ResourceBars:UpdateOverflowColorSegments(bar, resource, max, current) end
-

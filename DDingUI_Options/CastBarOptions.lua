@@ -288,10 +288,13 @@ local function CreateCastBarOptions()
                         type = "color",
                         name = L["Custom Color"],
                         desc = L["Used when class color is disabled"],
-                    order = 23,
-                    width = "normal",
-                    hasAlpha = true,
-                    get = function()
+                        supportsGradient = true,
+                        gradientTarget = function() return DDingUI.db.profile.castBar.color end,
+                        gradientChanged = function() DDingUI:UpdateCastBarLayout() end,
+                        order = 23,
+                        width = "normal",
+                        hasAlpha = true,
+                        get = function()
                             local c = DDingUI.db.profile.castBar.color
                             if c then
                                 return c[1], c[2], c[3], c[4] or 1
@@ -326,6 +329,9 @@ local function CreateCastBarOptions()
                         type = "color",
                         name = L["Interrupted Color"] or "중단 색상",
                         desc = L["Color briefly used when the cast is interrupted"] or "시전이 중단될 때 잠시 사용되는 색상",
+                        supportsGradient = true,
+                        gradientTarget = function() return DDingUI.db.profile.castBar.interruptedColor end,
+                        gradientChanged = function() DDingUI:UpdateCastBarLayout() end,
                         order = 24.1,
                         width = "normal",
                         hasAlpha = true,

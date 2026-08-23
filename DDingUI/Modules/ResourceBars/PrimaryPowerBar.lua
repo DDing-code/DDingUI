@@ -1,6 +1,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local LSM = LibStub("LibSharedMedia-3.0")
+local SL = _G.DDingUI_StyleLib
 
 -- Local API caching for hot paths
 local string_format = string.format
@@ -542,6 +543,7 @@ function ResourceBars:UpdatePowerBar()
     -- Set bar color
     local powerTypeColors = DDingUI.db.profile.powerTypeColors
     local baseR, baseG, baseB, baseA = 1, 1, 1, 1
+    local baseColorSpec
 
     if powerTypeColors.useClassColor then
         -- Class color
@@ -557,6 +559,7 @@ function ResourceBars:UpdatePowerBar()
     elseif powerTypeColors.colors[resource] then
         -- Power type specific color
         local color = powerTypeColors.colors[resource]
+        baseColorSpec = color
         baseR, baseG, baseB, baseA = color[1], color[2], color[3], color[4] or 1
     else
         -- Default resource color
@@ -585,13 +588,21 @@ function ResourceBars:UpdatePowerBar()
 
     -- Only use base colors if threshold wasn't applied
     if not thresholdApplied then
-        bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(bar.StatusBar, baseColorSpec or { baseR, baseG, baseB, baseA })
+        else
+            bar.StatusBar:SetStatusBarColor(baseR, baseG, baseB, baseA)
+        end
     end
 
     -- [ConditionalActions] 조건부 동작 색상 오버라이드
     if bar._ddingColorOverride then
         local oc = bar._ddingColorOverride
-        bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+        if SL and SL.ApplyBarColor then
+            SL.ApplyBarColor(bar.StatusBar, oc)
+        else
+            bar.StatusBar:SetStatusBarColor(oc[1], oc[2], oc[3], oc[4] or 1)
+        end
     end
 
     -- Marker color overlay: clip frame + overlay StatusBar (secret value safe)
@@ -805,4 +816,3 @@ DDingUI.UpdatePowerBar = function(self) return ResourceBars:UpdatePowerBar() end
 DDingUI.UpdatePowerBarTicks = function(self, bar, resource, max) return ResourceBars:UpdatePowerBarTicks(bar, resource, max) end
 
 -- Debug command for threshold
-

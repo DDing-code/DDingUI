@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
+local SL = _G.DDingUI_StyleLib
 
 DDingUI.IconViewers = DDingUI.IconViewers or {}
 local IconViewers = DDingUI.IconViewers
@@ -705,7 +706,11 @@ local function StyleBarChild(child, settings, viewer)
     local tex = DDingUI.GetTexture and DDingUI:GetTexture(settings.texture) or WHITE8
     bar:SetStatusBarTexture(tex)
     local color = GetBarColor(settings, barIndex) or settings.barColor or { 0.9, 0.9, 0.9, 1 }
-    bar:SetStatusBarColor(color[1], color[2], color[3], color[4] or 1)
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(bar, color)
+    else
+        bar:SetStatusBarColor(color[1], color[2], color[3], color[4] or 1)
+    end
     if barState then
         barState.barIndex = barIndex
     end
@@ -1232,7 +1237,9 @@ function BuffBar:Initialize()
 
             local savedColor = (settings.barColors and settings.barColors[index]) or settings.barColor or {1, 1, 1, 1}
             local fill = item.Bar.FillTexture or (item.Bar.GetStatusBarTexture and item.Bar:GetStatusBarTexture())
-            if fill then
+            if SL and SL.ApplyBarColor then
+                SL.ApplyBarColor(item.Bar, savedColor)
+            elseif fill then
                 fill:SetVertexColor(savedColor[1], savedColor[2], savedColor[3], savedColor[4] or 1)
             end
 
@@ -1256,16 +1263,22 @@ function BuffBar:Initialize()
                 info.swatchFunc = function()
                     local r, g, b = ColorPickerFrame:GetColorRGB()
                     local a = ColorPickerFrame:GetColorAlpha()
-                    SetBarColor(settings, index, { r, g, b, a })
-                    if fill then
+                    local pickedColor = { r, g, b, a }
+                    SetBarColor(settings, index, pickedColor)
+                    if SL and SL.ApplyBarColor then
+                        SL.ApplyBarColor(item.Bar, pickedColor)
+                    elseif fill then
                         fill:SetVertexColor(r, g, b, a)
                     end
                     swatch:SetColorRGB(r, g, b)
                 end
                 info.cancelFunc = function()
                     local r, g, b, a = ColorPickerFrame:GetPreviousValues()
-                    SetBarColor(settings, index, { r, g, b, a })
-                    if fill then
+                    local restoredColor = { r, g, b, a }
+                    SetBarColor(settings, index, restoredColor)
+                    if SL and SL.ApplyBarColor then
+                        SL.ApplyBarColor(item.Bar, restoredColor)
+                    elseif fill then
                         fill:SetVertexColor(r, g, b, a)
                     end
                     swatch:SetColorRGB(r, g, b)

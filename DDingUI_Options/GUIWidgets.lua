@@ -2325,34 +2325,35 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
     label:SetText(name)
     label:SetTextColor(SL.GetColor("text"))
 
-    -- ElvUI style color swatch
-    local colorButton = CreateFrame("Button", nil, frame, "BackdropTemplate")
-    colorButton:SetSize(50, 18)
-    colorButton:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
-    colorButton:SetBackdrop({
-        bgFile = FLAT,
-        edgeFile = FLAT,
-        tile = false,
-        edgeSize = 1,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 }
-    })
-    colorButton:SetBackdropColor(0, 0, 0, 1)
-    colorButton:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+    local function CreateSwatch(width)
+        local button = CreateFrame("Button", nil, frame, "BackdropTemplate")
+        button:SetSize(width or 34, 18)
+        button:SetBackdrop({
+            bgFile = FLAT,
+            edgeFile = FLAT,
+            tile = false,
+            edgeSize = 1,
+            insets = { left = 0, right = 0, top = 0, bottom = 0 },
+        })
+        button:SetBackdropColor(0, 0, 0, 1)
+        button:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        button:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(SL.GetColor("accent"))
+        end)
+        button:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        end)
 
-    local colorSwatch = colorButton:CreateTexture(nil, "ARTWORK")
-    colorSwatch:SetPoint("TOPLEFT", colorButton, "TOPLEFT", 2, -2)
-    colorSwatch:SetPoint("BOTTOMRIGHT", colorButton, "BOTTOMRIGHT", -2, 2)
+        local swatch = button:CreateTexture(nil, "ARTWORK")
+        swatch:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+        swatch:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+        button.swatch = swatch
+        return button, swatch
+    end
 
-    -- Hover effect
-    colorButton:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(SL.GetColor("accent"))
-    end)
-    colorButton:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
-    end)
-
-    local r, g, b, a = 1, 1, 1, 1
-    if option.get then
+    local function ReadOptionColor()
+        local r, g, b, a = 1, 1, 1, 1
+        if not option.get then return r, g, b, a end
         local info = {
             handler = optionsTable and optionsTable.handler,
             option = option,
@@ -2369,123 +2370,225 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
                 if not success then r, g, b, a = 1, 1, 1, 1 end
             end
         end
-        r, g, b, a = r or 1, g or 1, b or 1, a or 1
+        return r or 1, g or 1, b or 1, a or 1
     end
-    colorSwatch:SetColorTexture(r, g, b, a or 1)
 
-    colorButton:SetScript("OnClick", function(self)
+    local function GradientTarget()
+        if type(option.gradientTarget) ~= "function" then return nil end
+        local ok, target = pcall(option.gradientTarget)
+        return ok and type(target) == "table" and target or nil
+    end
+
+    local function NotifyGradientChanged()
+        if type(option.gradientChanged) == "function" then
+            pcall(option.gradientChanged)
+        end
+        local specProfiles = DDingUI and DDingUI.SpecProfiles
+        if specProfiles and specProfiles.MarkDirty then
+            specProfiles:MarkDirty()
+        end
+    end
+
+    local supportsGradient = option.supportsGradient == true and GradientTarget() ~= nil
+    local colorButton, colorSwatch = CreateSwatch(supportsGradient and 50 or 34)
+    if supportsGradient then
+        colorButton:SetPoint("RIGHT", frame, "RIGHT", -76, 0)
+    else
+        colorButton:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    end
+
+    local r, g, b, a = ReadOptionColor()
+    local modeButton
+    local endColorButton
+    local endColorSwatch
+    local directionButton
+
+    local function ReadGradientState()
+        local target = GradientTarget()
+        local mode = target and target.gradientMode or "SOLID"
+        local endColor = target and target.gradientColor
+        if type(endColor) ~= "table" then
+            endColor = { math.max(0, r * 0.55), math.max(0, g * 0.55), math.max(0, b * 0.55), a or 1 }
+        end
+        local orientation = target and target.gradientOrientation == "VERTICAL" and "VERTICAL" or "HORIZONTAL"
+        return mode, endColor, orientation
+    end
+
+    local function RefreshGradientControls()
+        local mode, endColor, orientation = ReadGradientState()
+        local isGradient = supportsGradient and mode == "GRADIENT"
+        if isGradient then
+            colorSwatch:SetColorTexture(1, 1, 1, 1)
+            colorSwatch:SetGradient(
+                orientation,
+                CreateColor(r, g, b, a or 1),
+                CreateColor(endColor[1] or 1, endColor[2] or 1, endColor[3] or 1, endColor[4] or 1)
+            )
+        else
+            colorSwatch:SetColorTexture(r, g, b, a or 1)
+        end
+        if not supportsGradient then return end
+
+        modeButton.text:SetText(isGradient and (GetLocale() == "koKR" and "그라데이션" or "Gradient") or (GetLocale() == "koKR" and "단색" or "Solid"))
+        if isGradient then
+            modeButton:SetBackdropBorderColor(SL.GetColor("accent"))
+        else
+            modeButton:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], THEME.border[4] or 1)
+        end
+        endColorButton:SetShown(isGradient)
+        directionButton:SetShown(isGradient)
+        endColorSwatch:SetColorTexture(endColor[1] or 1, endColor[2] or 1, endColor[3] or 1, endColor[4] or 1)
+        directionButton.text:SetText(orientation == "VERTICAL" and (GetLocale() == "koKR" and "세로" or "Vertical") or (GetLocale() == "koKR" and "가로" or "Horizontal"))
+    end
+
+    local function OpenColorPicker(initialR, initialG, initialB, initialA, onApply, onCancel)
         ColorPickerFrame:Hide()
-        local previousValues = {r, g, b, a}
+        local previousValues = { initialR, initialG, initialB, initialA }
+        local invertedAlpha = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+
+        local function PickerValues()
+            local nextR, nextG, nextB = ColorPickerFrame:GetColorRGB()
+            local nextA = initialA or 1
+            if option.hasAlpha then
+                if ColorPickerFrame.GetColorAlpha then
+                    nextA = ColorPickerFrame:GetColorAlpha()
+                elseif OpacitySliderFrame and OpacitySliderFrame.GetValue then
+                    nextA = OpacitySliderFrame:GetValue()
+                elseif ColorPickerFrame.opacity then
+                    nextA = ColorPickerFrame.opacity
+                end
+                if invertedAlpha then nextA = 1 - nextA end
+            end
+            return nextR, nextG, nextB, nextA
+        end
+
+        local function ApplyPicker()
+            onApply(PickerValues())
+        end
 
         if ColorPickerFrame.SetupColorPickerAndShow then
-            local r2, g2, b2, a2 = r, g, b, (a or 1)
-            local INVERTED_ALPHA = (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
-            if INVERTED_ALPHA then
-                a2 = 1 - a2
-            end
-
+            local pickerAlpha = invertedAlpha and (1 - (initialA or 1)) or (initialA or 1)
             local info = {
-                swatchFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = ColorPickerFrame:GetColorAlpha()
-                    if INVERTED_ALPHA then
-                        a = 1 - a
-                    end
-                    colorSwatch:SetColorTexture(r, g, b, a or 1)
-                    if option.set then
-                        ResolveGetSet(option.set, optionsTable, option, r, g, b, a)
-                    end
-                end,
+                swatchFunc = ApplyPicker,
                 hasOpacity = option.hasAlpha or false,
-                opacityFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = ColorPickerFrame:GetColorAlpha()
-                    if INVERTED_ALPHA then
-                        a = 1 - a
-                    end
-                    colorSwatch:SetColorTexture(r, g, b, a or 1)
-                    if option.set then
-                        ResolveGetSet(option.set, optionsTable, option, r, g, b, a)
-                    end
-                end,
-                opacity = a2,
+                opacityFunc = ApplyPicker,
+                opacity = pickerAlpha,
                 cancelFunc = function()
-                    r, g, b, a = unpack(previousValues)
-                    colorSwatch:SetColorTexture(r, g, b, a or 1)
+                    if onCancel then onCancel(unpack(previousValues)) end
                 end,
-                r = r2,
-                g = g2,
-                b = b2,
+                r = initialR,
+                g = initialG,
+                b = initialB,
             }
-
             ColorPickerFrame:SetupColorPickerAndShow(info)
         else
             local colorPicker = ColorPickerFrame
             colorPicker.previousValues = previousValues
-
-            colorPicker.func = function()
-                if ColorPickerFrame.GetColorRGB then
-                    r, g, b = ColorPickerFrame:GetColorRGB()
-                else
-                    r = ColorPickerFrame.r or r
-                    g = ColorPickerFrame.g or g
-                    b = ColorPickerFrame.b or b
-                end
-                if option.hasAlpha then
-                    if OpacitySliderFrame and OpacitySliderFrame.GetValue then
-                        a = OpacitySliderFrame:GetValue()
-                    else
-                        a = ColorPickerFrame.opacity or a
-                    end
-                end
-                colorSwatch:SetColorTexture(r, g, b, a or 1)
-                if option.set then
-                    ResolveGetSet(option.set, optionsTable, option, r, g, b, a)
-                end
-            end
-
+            colorPicker.func = ApplyPicker
             colorPicker.hasOpacity = option.hasAlpha or false
-            if option.hasAlpha then
-                colorPicker.opacityFunc = function()
-                    if ColorPickerFrame.GetColorRGB then
-                        r, g, b = ColorPickerFrame:GetColorRGB()
-                    else
-                        r = ColorPickerFrame.r or r
-                        g = ColorPickerFrame.g or g
-                        b = ColorPickerFrame.b or b
-                    end
-                    if OpacitySliderFrame and OpacitySliderFrame.GetValue then
-                        a = OpacitySliderFrame:GetValue()
-                    else
-                        a = ColorPickerFrame.opacity or a
-                    end
-                    colorSwatch:SetColorTexture(r, g, b, a or 1)
-                    if option.set then
-                        ResolveGetSet(option.set, optionsTable, option, r, g, b, a)
-                    end
-                end
-                colorPicker.opacity = 1 - (a or 1)
-            end
-
-            if colorPicker.SetColorRGB then
-                colorPicker:SetColorRGB(r, g, b)
-            else
-                colorPicker.r = r
-                colorPicker.g = g
-                colorPicker.b = b
-            end
-
+            colorPicker.opacityFunc = ApplyPicker
+            colorPicker.opacity = invertedAlpha and (1 - (initialA or 1)) or (initialA or 1)
+            colorPicker:SetColorRGB(initialR, initialG, initialB)
             colorPicker.cancelFunc = function()
-                r, g, b, a = unpack(previousValues)
-                colorSwatch:SetColorTexture(r, g, b, a or 1)
+                if onCancel then onCancel(unpack(previousValues)) end
             end
-
             ColorPickerFrame:Show()
         end
+    end
+
+    colorButton:SetScript("OnClick", function()
+        local oldR, oldG, oldB, oldA = r, g, b, a
+        local oldTarget = GradientTarget()
+        local oldMetadata = oldTarget and {
+            gradientMode = oldTarget.gradientMode,
+            gradientColor = oldTarget.gradientColor and { unpack(oldTarget.gradientColor) } or nil,
+            gradientOrientation = oldTarget.gradientOrientation,
+        }
+        OpenColorPicker(r, g, b, a, function(nextR, nextG, nextB, nextA)
+            r, g, b, a = nextR, nextG, nextB, nextA
+            if option.set then ResolveGetSet(option.set, optionsTable, option, r, g, b, a) end
+            local newTarget = GradientTarget()
+            if newTarget and oldMetadata and SL.CopyBarColorMetadata then
+                SL.CopyBarColorMetadata(newTarget, oldMetadata)
+                NotifyGradientChanged()
+            end
+            RefreshGradientControls()
+        end, function()
+            r, g, b, a = oldR, oldG, oldB, oldA
+            if option.set then ResolveGetSet(option.set, optionsTable, option, r, g, b, a) end
+            local newTarget = GradientTarget()
+            if newTarget and oldMetadata and SL.CopyBarColorMetadata then
+                SL.CopyBarColorMetadata(newTarget, oldMetadata)
+                NotifyGradientChanged()
+            end
+            RefreshGradientControls()
+        end)
     end)
+
+    if supportsGradient then
+        local function CreateTextButton(width)
+            local button = CreateFrame("Button", nil, frame, "BackdropTemplate")
+            button:SetSize(width, 18)
+            button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+            button:SetBackdropColor(0.025, 0.025, 0.025, 0.98)
+            button:SetBackdropBorderColor(unpack(THEME.border))
+            button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            StyleFontString(button.text)
+            button.text:SetPoint("CENTER")
+            button.text:SetTextColor(SL.GetColor("text"))
+            return button
+        end
+
+        modeButton = CreateTextButton(70)
+        modeButton:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+        endColorButton, endColorSwatch = CreateSwatch(34)
+        endColorButton:SetPoint("RIGHT", colorButton, "LEFT", -4, 0)
+        directionButton = CreateTextButton(48)
+        directionButton:SetPoint("RIGHT", endColorButton, "LEFT", -4, 0)
+
+        modeButton:SetScript("OnClick", function()
+            local target = GradientTarget()
+            if not target then return end
+            local _, endColor = ReadGradientState()
+            target.gradientMode = target.gradientMode == "GRADIENT" and "SOLID" or "GRADIENT"
+            target.gradientColor = target.gradientColor or { unpack(endColor) }
+            target.gradientOrientation = target.gradientOrientation or "HORIZONTAL"
+            NotifyGradientChanged()
+            RefreshGradientControls()
+        end)
+
+        directionButton:SetScript("OnClick", function()
+            local target = GradientTarget()
+            if not target then return end
+            target.gradientOrientation = target.gradientOrientation == "VERTICAL" and "HORIZONTAL" or "VERTICAL"
+            NotifyGradientChanged()
+            RefreshGradientControls()
+        end)
+
+        endColorButton:SetScript("OnClick", function()
+            local target = GradientTarget()
+            if not target then return end
+            local _, endColor = ReadGradientState()
+            local oldColor = { unpack(endColor) }
+            OpenColorPicker(endColor[1], endColor[2], endColor[3], endColor[4] or 1, function(nextR, nextG, nextB, nextA)
+                target.gradientColor = { nextR, nextG, nextB, nextA or 1 }
+                NotifyGradientChanged()
+                RefreshGradientControls()
+            end, function()
+                target.gradientColor = oldColor
+                NotifyGradientChanged()
+                RefreshGradientControls()
+            end)
+        end)
+    end
+
+    RefreshGradientControls()
 
     frame.colorButton = colorButton
     frame.colorSwatch = colorSwatch
+    frame.gradientModeButton = modeButton
+    frame.gradientEndColorButton = endColorButton
+    frame.gradientDirectionButton = directionButton
     frame.label = label
 
     return frame

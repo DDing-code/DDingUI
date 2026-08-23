@@ -4530,12 +4530,16 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             )
         end
     end
-    bar.StatusBar:SetStatusBarColor(
-        appliedBarColor[1],
-        appliedBarColor[2],
-        appliedBarColor[3],
-        appliedBarColor[4] or 1
-    )
+    if SL and SL.ApplyBarColor then
+        SL.ApplyBarColor(bar.StatusBar, appliedBarColor)
+    else
+        bar.StatusBar:SetStatusBarColor(
+            appliedBarColor[1],
+            appliedBarColor[2],
+            appliedBarColor[3],
+            appliedBarColor[4] or 1
+        )
+    end
 
     -- Text display (개별 버프 설정 사용)
     -- 중첩 텍스트 설정 (barFillMode와 무관하게 표시 가능)
