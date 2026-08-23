@@ -742,6 +742,8 @@ local function CreateCustomDropdown(parent, width)
     selectedText:SetPoint("LEFT", dropdown, "LEFT", 8, 0)
     selectedText:SetPoint("RIGHT", dropdown, "RIGHT", -20, 0)
     selectedText:SetJustifyH("LEFT")
+    selectedText:SetWordWrap(false)
+    if selectedText.SetMaxLines then selectedText:SetMaxLines(1) end
     selectedText:SetTextColor(SL.GetColor("text"))
     selectedText:SetText("Select...")
     dropdown.selectedText = selectedText
@@ -836,9 +838,16 @@ local function CreateCustomDropdown(parent, width)
     dropdown.mediaType = nil
     dropdown.values = nil
     dropdown.searchable = false
+    dropdown.sortOrder = nil
     local searchEdit
     local searchPlaceholder
     local noSearchResults
+
+    function dropdown:SetMenuWidth(menuWidth)
+        menuWidth = math.max(width, tonumber(menuWidth) or width)
+        listFrame:SetWidth(menuWidth)
+        scrollChild:SetWidth(menuWidth - 4 - scrollbarWidth - 2)
+    end
 
     local function EnsureSelectedMediaPreview()
         if selectedMediaPreview then return selectedMediaPreview end
@@ -1195,7 +1204,14 @@ local function CreateCustomDropdown(parent, width)
                 activeDropdown.listFrame:Hide()
             end
             if self._itemsDirty then
-                self:SetOptions(self.values, self.currentValue, self.mediaType, self.searchable, true)
+                self:SetOptions(
+                    self.values,
+                    self.currentValue,
+                    self.mediaType,
+                    self.searchable,
+                    true,
+                    self.sortOrder
+                )
             end
             activeDropdown = self
             listFrame:Show()
@@ -1223,7 +1239,8 @@ local function CreateCustomDropdown(parent, width)
                 dropdown.currentValue,
                 dropdown.mediaType,
                 dropdown.searchable,
-                true
+                true,
+                dropdown.sortOrder
             )
         end
         local uiScale = UIParent:GetEffectiveScale()
@@ -1262,12 +1279,13 @@ local function CreateCustomDropdown(parent, width)
     end)
 
     -- 옵션 설정 함수
-    function dropdown:SetOptions(values, currentKey, mediaType, searchable, buildItems)
+    function dropdown:SetOptions(values, currentKey, mediaType, searchable, buildItems, sortOrder)
         values = type(values) == "table" and values or {}
         self.values = values
         self.mediaType = mediaType
         self.currentValue = currentKey
         self.searchable = mediaType ~= nil or searchable == true
+        self.sortOrder = type(sortOrder) == "table" and sortOrder or nil
         if buildItems then
             ConfigureSearch(self.searchable)
         end
@@ -1294,13 +1312,25 @@ local function CreateCustomDropdown(parent, width)
         self._itemsDirty = false
 
         -- 키를 정렬해서 ABC 순으로 표시
-        local sortedKeys = {}
-        for key in pairs(values) do
-            sortedKeys[#sortedKeys + 1] = key
+        local sortedKeys, included = {}, {}
+        for _, key in ipairs(self.sortOrder or {}) do
+            if values[key] ~= nil and not included[key] then
+                sortedKeys[#sortedKeys + 1] = key
+                included[key] = true
+            end
         end
-        table.sort(sortedKeys, function(a, b)
+        local remainingKeys = {}
+        for key in pairs(values) do
+            if not included[key] then
+                remainingKeys[#remainingKeys + 1] = key
+            end
+        end
+        table.sort(remainingKeys, function(a, b)
             return tostring(a):upper() < tostring(b):upper()
         end)
+        for _, key in ipairs(remainingKeys) do
+            sortedKeys[#sortedKeys + 1] = key
+        end
 
         for _, key in ipairs(sortedKeys) do
             local value = values[key]
@@ -1358,6 +1388,8 @@ local function CreateCustomDropdown(parent, width)
             itemText:SetPoint("LEFT", item, "LEFT", 10, 0)
             itemText:SetPoint("RIGHT", item, "RIGHT", -6, 0)
             itemText:SetJustifyH("LEFT")
+            itemText:SetWordWrap(false)
+            if itemText.SetMaxLines then itemText:SetMaxLines(1) end
             itemText:SetText(displayText)
             if item._defaultFontPath then
                 itemText:SetFont(item._defaultFontPath, item._defaultFontSize or 11, item._defaultFontFlags or "")
@@ -2195,8 +2227,11 @@ function Widgets.CreateSelect(parent, option, yOffset, optionsTable, optionKey, 
     label:SetTextColor(SL.GetColor("text"))
 
     -- 커스텀 드롭다운 사용
-    local dropdown = CreateCustomDropdown(frame, 200)
+    local dropdown = CreateCustomDropdown(frame, tonumber(option.controlWidth) or 200)
     dropdown:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    if option.menuWidth then
+        dropdown:SetMenuWidth(option.menuWidth)
+    end
 
     local function ResolveMethod(method, useInfo)
         if not method then
@@ -2251,13 +2286,16 @@ function Widgets.CreateSelect(parent, option, yOffset, optionsTable, optionKey, 
 
     local info = BuildInfo()
     local currentValue = ResolveMethod(option.get, info)
+    local sortOrder = ResolveMethod(option.sorting, info)
 
     -- 커스텀 드롭다운에 옵션 설정
     dropdown:SetOptions(
         values,
         currentValue,
         ResolveOptionMediaType(option, values),
-        option.searchable == true
+        option.searchable == true,
+        false,
+        sortOrder
     )
 
     -- 값 변경 콜백 설정

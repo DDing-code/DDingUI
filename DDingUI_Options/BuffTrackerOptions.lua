@@ -1545,15 +1545,49 @@ local function BuildConditionalIconTargets(currentTarget)
     local scanner = DDingUI.CDMScanner
     local entries = scanner and scanner.GetAllEntries and scanner.GetAllEntries() or {}
 
+    local function SafeTexture(value)
+        if value == nil or (issecretvalue and issecretvalue(value)) then return nil end
+        if type(value) == "number" and value > 0 then return value end
+        if type(value) == "string" and value ~= "" then return value end
+        return nil
+    end
+
+    local function FormatTargetLabel(texture, name, groupName)
+        local icon = SafeTexture(texture)
+        local iconText = icon and ("|T" .. tostring(icon) .. ":18:18:0:0|t  ") or ""
+        return iconText .. tostring(name or (L["Unknown"] or "Unknown"))
+            .. "  |cff7f8792" .. tostring(groupName or "") .. "|r"
+    end
+
+    local categoryLabels = {
+        Essential = L["Essential Cooldowns"] or "Essential",
+        Utility = L["Utility Cooldowns"] or "Utility",
+        TrackedBuff = L["Buff Icons"] or "Buff",
+        TrackedBar = L["Buff Icons"] or "Buff",
+        ["TrackedBuff+Bar"] = L["Buff Icons"] or "Buff",
+    }
+    local categoryOrder = {
+        Essential = 2,
+        TrackedBuff = 3,
+        TrackedBar = 3,
+        ["TrackedBuff+Bar"] = 3,
+        Utility = 4,
+    }
+    local targets = {}
+
     for _, entry in ipairs(entries) do
         local cooldownID = tonumber(entry.cooldownID)
         local targetFrame = entry.iconFrame or (entry.category ~= "TrackedBar" and entry.frame)
         if cooldownID and cooldownID > 0 and targetFrame then
             local key = "cdm:" .. cooldownID
             local name = entry.name or (L["Unknown"] or "Unknown")
-            local category = entry.categoryName or entry.category
-            values[key] = category and (name .. " - " .. category) or name
-            sorting[#sorting + 1] = key
+            local category = entry.category or "Essential"
+            targets[#targets + 1] = {
+                key = key,
+                label = FormatTargetLabel(entry.icon, name, categoryLabels[category] or category),
+                name = name,
+                order = categoryOrder[category] or 5,
+            }
         end
     end
 
@@ -1579,17 +1613,37 @@ local function BuildConditionalIconTargets(currentTarget)
             name = name or iconData.name
                 or ((iconData.type or "icon") .. " " .. tostring(iconData.id or iconData.slotID or iconKey))
 
+            local texture = iconData.settings and (
+                iconData.settings.iconTexture
+                or iconData.settings.fallbackIcon
+                or iconData.settings.icon
+            )
+            local frameTexture = frame.Icon or frame.icon or frame.Texture
+            if not texture and frameTexture and frameTexture.GetTexture then
+                texture = frameTexture:GetTexture()
+            end
+
             local key = "custom:" .. iconKey
             customTargets[#customTargets + 1] = {
                 key = key,
-                label = name .. " - " .. (L["Custom Icon"] or "Custom Icon"),
+                label = FormatTargetLabel(texture, name, L["Custom Icon"] or "Custom Icon"),
+                name = name,
+                order = 1,
             }
         end
     end
-    table.sort(customTargets, function(a, b) return a.label < b.label end)
     for _, target in ipairs(customTargets) do
-        values[target.key] = target.label
-        sorting[#sorting + 1] = target.key
+        targets[#targets + 1] = target
+    end
+    table.sort(targets, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return tostring(a.name):lower() < tostring(b.name):lower()
+    end)
+    for _, target in ipairs(targets) do
+        if not values[target.key] then
+            values[target.key] = target.label
+            sorting[#sorting + 1] = target.key
+        end
     end
 
     if currentTarget and currentTarget ~= "self" and not values[currentTarget] then
@@ -6805,6 +6859,9 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
             type = "select",
             name = L["Target Icon"] or "Target Icon",
             order = 2.1, width = 0.8,
+            controlWidth = 300,
+            menuWidth = 420,
+            searchable = true,
             hidden = function()
                 local buff = GetTrackedBuff(index)
                 local a = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.actions and buff.settings.alerts.actions[actIdx]

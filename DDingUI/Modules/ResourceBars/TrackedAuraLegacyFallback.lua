@@ -42,6 +42,9 @@ local function HasUsableID(value)
 end
 
 local function IsContainerCandidate(tracker)
+    if Engine.IsSupportedAuraTracker then
+        return Engine:IsSupportedAuraTracker(tracker)
+    end
     if type(tracker) ~= "table" or tracker.isGroup or tracker.enabled == false then return false end
 
     local displayType = tracker.displayType or "bar"

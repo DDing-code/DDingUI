@@ -35,6 +35,10 @@ local function ResolveTargetFrame(targetKey)
     return iconKey and frames and frames[iconKey] or nil
 end
 
+function Visuals:ResolveTargetFrame(targetKey)
+    return ResolveTargetFrame(targetKey)
+end
+
 local function GetIconTexture(frame)
     if not frame then return nil end
 

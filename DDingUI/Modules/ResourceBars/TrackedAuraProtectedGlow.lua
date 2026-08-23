@@ -62,6 +62,82 @@ local function ConditionMeansAuraPresent(alerts, condition)
     return ActiveTriggerMeansAuraPresent(trigger)
 end
 
+local function ColorSignature(color)
+    color = type(color) == "table" and color or {}
+    return table.concat({
+        tostring(color[1] or 1),
+        tostring(color[2] or 0.82),
+        tostring(color[3] or 0.1),
+        tostring(color[4] or 1),
+    }, ",")
+end
+
+local function ResolveProtectedTriggerPresentation(tracker)
+    if not tracker or tracker.displayType ~= "trigger" then return nil end
+
+    local alerts = tracker.settings and tracker.settings.alerts
+    if type(alerts) ~= "table" or alerts.enabled ~= true then return nil end
+
+    local actions = alerts.actions or {}
+    if #actions == 0 then return nil end
+
+    local targetKey
+    local signatures = {}
+    for index, action in ipairs(actions) do
+        local actionTarget = type(action) == "table" and action.visualTarget
+        if type(action) ~= "table" or action.type ~= "glow"
+            or type(actionTarget) ~= "string"
+            or (not actionTarget:match("^cdm:%d+$") and not actionTarget:match("^custom:.+$"))
+            or not ConditionMeansAuraPresent(alerts, action.condition or "any")
+        then
+            return nil
+        end
+        if targetKey and targetKey ~= actionTarget then return nil end
+        targetKey = actionTarget
+        signatures[index] = table.concat({
+            actionTarget,
+            tostring(action.glowType or "pixel"),
+            ColorSignature(action.glowColor),
+            tostring(action.glowLines or 8),
+            tostring(action.glowFrequency or 0.25),
+            tostring(action.glowThickness or 2),
+            tostring(action.glowXOffset or 0),
+            tostring(action.glowYOffset or 0),
+        }, ":")
+    end
+
+    return {
+        actions = actions,
+        targetKey = targetKey,
+        signature = table.concat(signatures, ";"),
+    }
+end
+
+function Engine:GetProtectedTriggerPresentation(tracker)
+    return ResolveProtectedTriggerPresentation(tracker)
+end
+
+function Engine:InitializeProtectedTriggerButton(button, tracker)
+    local presentation = ResolveProtectedTriggerPresentation(tracker)
+    local visuals = DDingUI.RestrictedAuraVisuals
+    if not presentation or not visuals or not visuals.ApplyGlow then return false end
+
+    for _, action in ipairs(presentation.actions) do
+        visuals:ApplyGlow(button, {
+            iconAnimation = action.glowType or "pixel",
+            glowColor = action.glowColor or { 1, 0.82, 0.1, 1 },
+            glowLines = action.glowLines or 8,
+            glowFrequency = action.glowFrequency or 0.25,
+            glowThickness = action.glowThickness or 2,
+            glowXOffset = action.glowXOffset or 0,
+            glowYOffset = action.glowYOffset or 0,
+            glowEnabled = true,
+            glowWhenInactive = false,
+        })
+    end
+    return true
+end
+
 local function ResolveProtectedPresentation(tracker)
     local settings = tracker and tracker.settings
     local alerts = settings and settings.alerts

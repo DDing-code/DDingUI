@@ -3502,6 +3502,48 @@ function groupRuntime:Layout(groupIndex, group, trackedBuffs)
     groupFrame:Show()
 end
 
+function ResourceBars:UpdateSingleTrackedBuffTrigger(barIndex, trackedBuff, globalCfg)
+    local host = GetTrackedBuffBar(barIndex)
+    host:Hide()
+
+    local auraContainer = DDingUI.TrackedAuraContainer
+    local presentation = auraContainer and auraContainer.GetProtectedTriggerPresentation
+        and auraContainer:GetProtectedTriggerPresentation(trackedBuff) or nil
+    local resolver = DDingUI.TrackedAuraFrameResolver
+    local auraAttached = presentation and resolver and resolver.AttachAuraContainer
+        and resolver:AttachAuraContainer(trackedBuff, host, {
+            displayType = "trigger",
+            protectedTriggerSignature = presentation.signature,
+            frameStrata = (trackedBuff.settings or {}).frameStrata
+                or (globalCfg and globalCfg.frameStrata) or "MEDIUM",
+            frameLevel = host:GetFrameLevel(),
+            presentationVisible = true,
+        }) or false
+
+    if auraAttached then
+        if host._alertEvaluationTimer then
+            host._alertEvaluationTimer:Cancel()
+            host._alertEvaluationTimer = nil
+        end
+        return
+    end
+
+    local cooldownID = tonumber(trackedBuff.cooldownID) or 0
+    local triggerFrame = ResolveTrackedFrame(cooldownID, trackedBuff)
+    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+        cooldownID,
+        triggerFrame,
+        false,
+        nil,
+        trackedBuff.spellID,
+        trackedBuff.name
+    )
+    local hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
+    local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
+    ApplyAlertActions(alertResult, trackedBuff, host, barIndex)
+    ScheduleAlertEvaluation(host, alertResult)
+end
+
 function ResourceBars:UpdateBuffTrackerBar()
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
     local cfg, _ = GetFullSpecConfig()
@@ -3658,25 +3700,8 @@ function ResourceBars:UpdateBuffTrackerBar()
                     self:UpdateSingleTrackedBuffText(barIndex, trackedBuff, cfg)
                     HideOtherTrackedBuffDisplays(barIndex, "text")
                 elseif displayType == "trigger" then
-                    -- Trigger mode: no visual, only alert evaluation
-                    HideOtherTrackedBuffDisplays(barIndex, "trigger")  -- Hide ALL visuals
-                    -- 알림 평가를 위한 아우라 상태 확인
-                    local cooldownID = tonumber(trackedBuff.cooldownID) or 0
-                    local triggerFrame = ResolveTrackedFrame(cooldownID, trackedBuff)
-                    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
-                        cooldownID,
-                        triggerFrame,
-                        false,
-                        nil,
-                        trackedBuff.spellID,
-                        trackedBuff.name
-                    )
-                    local hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
-                    -- 알림 평가: colorTarget에 따라 외부 바에도 색상 적용됨
-                    local dummyFrame = barFrames[barIndex] or GetAlertRuntimeOwner(trackedBuff)
-                    local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
-                    ApplyAlertActions(alertResult, trackedBuff, dummyFrame, barIndex)
-                    ScheduleAlertEvaluation(dummyFrame, alertResult)
+                    self:UpdateSingleTrackedBuffTrigger(barIndex, trackedBuff, cfg)
+                    HideOtherTrackedBuffDisplays(barIndex, "trigger")
                 else
                     -- Fallback to bar mode
                     self:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, cfg)

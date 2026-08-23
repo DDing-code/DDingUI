@@ -89,7 +89,7 @@ local function IsSupportedAuraTracker(tracker)
     if type(tracker) ~= "table" or tracker.isGroup or tracker.enabled == false then return false end
     local displayType = tracker.displayType or "bar"
     if displayType ~= "bar" and displayType ~= "ring"
-        and displayType ~= "icon" and displayType ~= "text"
+        and displayType ~= "icon" and displayType ~= "text" and displayType ~= "trigger"
     then
         return false
     end
@@ -102,7 +102,16 @@ local function IsSupportedAuraTracker(tracker)
     if tracker.trackingMode == "manual" or tracker.trackingMode == "spell" then return false end
     if tracker.trigger and tracker.trigger.type == "spell" then return false end
     if tracker.isAura == false then return false end
+    if displayType == "trigger" then
+        return Engine.GetProtectedTriggerPresentation
+            and Engine:GetProtectedTriggerPresentation(tracker) ~= nil
+            and (TrackerCooldownID(tracker) > 0 or TrackerSpellID(tracker) > 0)
+    end
     return TrackerCooldownID(tracker) > 0 or TrackerSpellID(tracker) > 0
+end
+
+function Engine:IsSupportedAuraTracker(tracker)
+    return IsSupportedAuraTracker(tracker)
 end
 
 local function RequiresLegacyObservation(tracker)
@@ -233,12 +242,17 @@ local function BuildDesired(tracker, claimedBySpellID, saved)
     local settings = tracker.settings or {}
     local maxApplications = ClampInteger(settings.maxStacks, 1, 1000, 1)
     local durationDecimals = ClampInteger(settings.durationDecimals, 0, 2, 1)
+    local protectedTrigger = tracker.displayType == "trigger"
+        and Engine.GetProtectedTriggerPresentation
+        and Engine:GetProtectedTriggerPresentation(tracker) or nil
     return {
         include = include,
         maxApplications = maxApplications,
         durationDecimals = durationDecimals,
+        triggerTargetKey = protectedTrigger and protectedTrigger.targetKey or nil,
         signature = table.concat(ids, ",") .. ":" .. maxApplications .. ":" .. durationDecimals
-            .. ":" .. (tracker.displayType or "bar"),
+            .. ":" .. (tracker.displayType or "bar")
+            .. ":" .. (protectedTrigger and protectedTrigger.signature or ""),
     }
 end
 
@@ -351,6 +365,7 @@ local function StyleSignature(style)
         tostring(style.showIcon),
         tostring(style.iconSize),
         tostring(style.preserveInactive),
+        tostring(style.protectedTriggerSignature),
     }, "|")
 end
 
@@ -628,39 +643,86 @@ local function CreateTextInitializer(proxy, desired, style)
     end
 end
 
-local function CreateInitializer(proxy, desired, style)
+local function CreateTriggerInitializer(proxy, tracker, style)
+    return function(button)
+        InitializeButton(button, proxy, style)
+        button:SetFrameLevel(proxy:GetFrameLevel() + 1)
+        if not Engine.InitializeProtectedTriggerButton
+            or not Engine:InitializeProtectedTriggerButton(button, tracker)
+        then
+            error("protected trigger initialization failed")
+        end
+    end
+end
+
+local function CreateInitializer(proxy, desired, style, tracker)
     if style.displayType == "icon" then
         return CreateIconInitializer(proxy, desired, style)
     elseif style.displayType == "ring" then
         return CreateRingInitializer(proxy, desired, style)
     elseif style.displayType == "text" then
         return CreateTextInitializer(proxy, desired, style)
+    elseif style.displayType == "trigger" then
+        return CreateTriggerInitializer(proxy, tracker, style)
     end
     return CreateBarInitializer(proxy, desired, style)
+end
+
+local function PositionProxy(proxy, container, bar, style, targetFrame, reparent)
+    if not proxy then return end
+
+    local parent = targetFrame or UIParent
+    if reparent and proxy:GetParent() ~= parent then
+        proxy:SetParent(parent)
+    end
+
+    proxy:ClearAllPoints()
+    if targetFrame then
+        proxy:SetFrameStrata(targetFrame:GetFrameStrata() or style.frameStrata or "MEDIUM")
+        proxy:SetFrameLevel((targetFrame:GetFrameLevel() or 1) + 10)
+        proxy:SetAllPoints(targetFrame)
+        if container then
+            container:SetFrameLevel(proxy:GetFrameLevel() + 1)
+        end
+    else
+        proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
+        proxy:SetFrameLevel(style.frameLevel or 1)
+        proxy:SetAllPoints(bar)
+    end
 end
 
 local function BuildBinding(bar, desired, style, styleSignature, tracker)
     if not EnsureContainerAPI() then error("AuraContainer API unavailable") end
 
+    local targetFrame
+    if style.displayType == "trigger" then
+        local visuals = DDingUI.BuffTrackerConditionalVisuals
+        targetFrame = visuals and visuals.ResolveTargetFrame
+            and visuals:ResolveTargetFrame(desired.triggerTargetKey)
+        if not targetFrame then error("protected trigger target unavailable") end
+    end
+
+    -- Build the engine-owned subtree under UIParent first. Once the slot is
+    -- registered, the addon-owned proxy can safely follow its target icon.
     local proxy = CreateFrame("Frame", nil, UIParent)
-    proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
-    proxy:SetFrameLevel(style.frameLevel or 1)
-    proxy:SetAllPoints(bar)
+    PositionProxy(proxy, nil, bar, style, targetFrame, false)
     proxy:EnableMouse(false)
     proxy:Hide()
 
     local container = CreateFrame("AuraContainer", nil, proxy, "CustomAuraContainerTemplate")
+    if targetFrame then container:SetFrameLevel(proxy:GetFrameLevel() + 1) end
     container:Hide()
     container:SetPoint("CENTER", proxy, "CENTER")
     container:SetSize(1, 1)
     container:AddAuraSlot("tracked", "HELPFUL", {
         candidateFilters = { includeSpellIDs = desired.include },
-        initializeFrame = CreateInitializer(proxy, desired, style),
+        initializeFrame = CreateInitializer(proxy, desired, style, tracker),
     })
     container:SetUnit("player")
     if container.SetEnabled then container:SetEnabled(true) end
     container:Show()
     container:UpdateAllAuras()
+    PositionProxy(proxy, container, bar, style, targetFrame, true)
     proxy:SetShown(style.presentationVisible ~= false)
 
     return {
@@ -671,6 +733,7 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
         styleSignature = styleSignature,
         displayType = style.displayType,
         tracker = tracker,
+        targetFrame = targetFrame,
         active = true,
         presentationVisible = style.presentationVisible ~= false,
     }
@@ -925,6 +988,16 @@ function Engine:Attach(tracker, bar, style)
     end
 
     local settings = tracker.settings or {}
+    local protectedTrigger
+    if style.displayType == "trigger" then
+        protectedTrigger = self.GetProtectedTriggerPresentation
+            and self:GetProtectedTriggerPresentation(tracker) or nil
+        if not protectedTrigger then
+            self:Detach(tracker, bar)
+            return false
+        end
+        style.protectedTriggerSignature = protectedTrigger.signature
+    end
     local presentation = activePresentationByTracker[tracker]
     if presentation and presentation.selfColor then
         if style.displayType == "bar" then
@@ -958,16 +1031,23 @@ function Engine:Attach(tracker, bar, style)
     end
     local signature = StyleSignature(style)
     local binding = bindingByTracker[tracker]
-    if binding and binding.desiredSignature == desired.signature and binding.styleSignature == signature then
+    local triggerTargetFrame
+    if protectedTrigger then
+        local visuals = DDingUI.BuffTrackerConditionalVisuals
+        triggerTargetFrame = visuals and visuals.ResolveTargetFrame
+            and visuals:ResolveTargetFrame(protectedTrigger.targetKey)
+    end
+    local bindingMatches = binding
+        and binding.desiredSignature == desired.signature
+        and binding.styleSignature == signature
+        and (not protectedTrigger or binding.targetFrame == triggerTargetFrame)
+    if bindingMatches then
         diagnostics.reuses = diagnostics.reuses + 1
         if binding.bar ~= bar then
             RestoreLegacyDisplay(binding.bar)
             binding.bar = bar
-            binding.proxy:ClearAllPoints()
-            binding.proxy:SetAllPoints(bar)
         end
-        binding.proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
-        binding.proxy:SetFrameLevel(style.frameLevel or 1)
+        PositionProxy(binding.proxy, binding.container, bar, style, binding.targetFrame, true)
         binding.presentationVisible = style.presentationVisible ~= false
         if not ActivateBinding(binding) then
             RestoreLegacyDisplay(bar)
@@ -996,15 +1076,12 @@ function Engine:Attach(tracker, bar, style)
             diagnostics.deferredBuilds = diagnostics.deferredBuilds + 1
         end
         RegisterLifecycleRetry()
-        if binding and binding.desiredSignature == desired.signature then
+        if bindingMatches then
             if binding.bar ~= bar then
                 RestoreLegacyDisplay(binding.bar)
                 binding.bar = bar
-                binding.proxy:ClearAllPoints()
-                binding.proxy:SetAllPoints(bar)
             end
-            binding.proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
-            binding.proxy:SetFrameLevel(style.frameLevel or 1)
+            PositionProxy(binding.proxy, binding.container, bar, style, binding.targetFrame, true)
             binding.presentationVisible = style.presentationVisible ~= false
             if ActivateBinding(binding) then
                 HideLegacyDisplay(bar, style)
@@ -1028,13 +1105,29 @@ function Engine:Attach(tracker, bar, style)
         deferredByTracker[tracker] = nil
         diagnostics.buildFailures = diagnostics.buildFailures + 1
         diagnostics.lastError = tostring(replacement)
-        failureByTracker[tracker] = { signature = buildSignature, time = now }
+        local failureAttempts = failure and failure.signature == buildSignature
+            and ((failure.attempts or 0) + 1) or 1
+        failureByTracker[tracker] = {
+            signature = buildSignature,
+            time = now,
+            attempts = failureAttempts,
+        }
         ParkBinding(binding)
         RestoreLegacyDisplay(bar)
         local resourceBars = DDingUI.ResourceBars
         if resourceBars and resourceBars.RequestBuffTrackerUpdate then
             diagnostics.fallbackRequests = diagnostics.fallbackRequests + 1
             resourceBars:RequestBuffTrackerUpdate("aura-container-fallback", 0)
+            if failureAttempts <= 3 and C_Timer and C_Timer.After then
+                C_Timer.After(RETRY_DELAY, function()
+                    local currentFailure = failureByTracker[tracker]
+                    if currentFailure and currentFailure.signature == buildSignature
+                        and currentFailure.time == now
+                    then
+                        resourceBars:RequestBuffTrackerUpdate("aura-container-retry", 0)
+                    end
+                end)
+            end
         end
         return false
     end
