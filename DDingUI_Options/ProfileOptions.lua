@@ -3,6 +3,8 @@ local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
 
 local importBuffer = ""
+local exportBuffer = ""
+local exportPending = false
 local newProfileNameBuffer = ""
 local newProfileBuffer = ""
 local copyFromBuffer = ""
@@ -293,6 +295,26 @@ local function CreateProfileOptions()
                         name = "",
                     },
 
+                    generateExport = {
+                        type = "execute",
+                        name = L["Generate Export String"] or "Generate Export String",
+                        desc = L["Generate the export string only when you need it."]
+                            or "Generate the export string only when you need it.",
+                        order = 9,
+                        func = function()
+                            if exportPending then return end
+                            exportPending = true
+                            exportBuffer = L["Generating export string..."] or "Generating export string..."
+                            C_Timer.After(0, function()
+                                exportBuffer = DDingUI:ExportProfileToString()
+                                exportPending = false
+                                if DDingUI.RefreshConfigGUI then
+                                    DDingUI:RefreshConfigGUI(true)
+                                end
+                            end)
+                        end,
+                    },
+
                     export = {
                         type = "input",
                         name = L["Export Current Profile"] or "Export Current Profile",
@@ -300,7 +322,7 @@ local function CreateProfileOptions()
                         width = "full",
                         multiline = true,
                         get = function()
-                            return DDingUI:ExportProfileToString()
+                            return exportBuffer
                         end,
                         set = function() end,
                     },

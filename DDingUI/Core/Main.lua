@@ -18,6 +18,8 @@ local L = ns.L or LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME, true)
 
 local AceSerializer = LibStub("AceSerializer-3.0", true)
 local LibDeflate    = LibStub("LibDeflate", true)
+local PROFILE_EXPORT_PREFIX = "DDUI2:"
+local LEGACY_PROFILE_EXPORT_PREFIX = "DDUI1:"
 -- AceDBOptions removed to prevent conflicts with ElvUI
 
 local SL_Main = _G.DDingUI_StyleLib -- [12.0.1]
@@ -36,7 +38,7 @@ function DDingUI:ExportProfileToString()
     if not self.db or not self.db.profile then
         return L["No profile loaded."] or "No profile loaded."
     end
-    if not AceSerializer or not LibDeflate then
+    if not AceSerializer then
         return L["Export requires AceSerializer-3.0 and LibDeflate."] or "Export requires AceSerializer-3.0 and LibDeflate."
     end
 
@@ -53,6 +55,24 @@ function DDingUI:ExportProfileToString()
         return L["Failed to serialize profile."] or "Failed to serialize profile."
     end
 
+    if C_EncodingUtil and C_EncodingUtil.CompressString and C_EncodingUtil.EncodeBase64 then
+        local compressed = C_EncodingUtil.CompressString(serialized)
+        if not compressed then
+            return L["Failed to compress profile."] or "Failed to compress profile."
+        end
+
+        local encoded = C_EncodingUtil.EncodeBase64(compressed)
+        if not encoded then
+            return L["Failed to encode profile."] or "Failed to encode profile."
+        end
+
+        return PROFILE_EXPORT_PREFIX .. encoded
+    end
+
+    if not LibDeflate then
+        return L["Export requires AceSerializer-3.0 and LibDeflate."] or "Export requires AceSerializer-3.0 and LibDeflate."
+    end
+
     local compressed = LibDeflate:CompressDeflate(serialized)
     if not compressed then
         return L["Failed to compress profile."] or "Failed to compress profile."
@@ -63,14 +83,14 @@ function DDingUI:ExportProfileToString()
         return L["Failed to encode profile."] or "Failed to encode profile."
     end
 
-    return "DDUI1:" .. encoded
+    return LEGACY_PROFILE_EXPORT_PREFIX .. encoded
 end
 
 function DDingUI:ImportProfileFromString(str, profileName)
     if not self.db then
         return false, L["No profile loaded."] or "No profile loaded."
     end
-    if not AceSerializer or not LibDeflate then
+    if not AceSerializer then
         return false, L["Import requires AceSerializer-3.0 and LibDeflate."] or "Import requires AceSerializer-3.0 and LibDeflate."
     end
     if not str or str == "" then
@@ -78,16 +98,39 @@ function DDingUI:ImportProfileFromString(str, profileName)
     end
 
     str = str:gsub("%s+", "")
-    str = str:gsub("^DDUI1:", "")
 
-    local compressed = LibDeflate:DecodeForPrint(str)
-    if not compressed then
-        return false, L["Could not decode string (maybe corrupted)."] or "Could not decode string (maybe corrupted)."
-    end
+    local serialized
+    if str:sub(1, #PROFILE_EXPORT_PREFIX) == PROFILE_EXPORT_PREFIX then
+        if not C_EncodingUtil or not C_EncodingUtil.DecodeBase64 or not C_EncodingUtil.DecompressString then
+            return false, L["Could not decode string (maybe corrupted)."] or "Could not decode string (maybe corrupted)."
+        end
 
-    local serialized = LibDeflate:DecompressDeflate(compressed)
-    if not serialized then
-        return false, L["Could not decompress data."] or "Could not decompress data."
+        local payload = str:sub(#PROFILE_EXPORT_PREFIX + 1)
+        local decodeOK, compressed = pcall(C_EncodingUtil.DecodeBase64, payload)
+        if not decodeOK or not compressed then
+            return false, L["Could not decode string (maybe corrupted)."] or "Could not decode string (maybe corrupted)."
+        end
+
+        local decompressOK
+        decompressOK, serialized = pcall(C_EncodingUtil.DecompressString, compressed)
+        if not decompressOK or not serialized then
+            return false, L["Could not decompress data."] or "Could not decompress data."
+        end
+    else
+        if not LibDeflate then
+            return false, L["Import requires AceSerializer-3.0 and LibDeflate."] or "Import requires AceSerializer-3.0 and LibDeflate."
+        end
+
+        str = str:gsub("^" .. LEGACY_PROFILE_EXPORT_PREFIX, "")
+        local compressed = LibDeflate:DecodeForPrint(str)
+        if not compressed then
+            return false, L["Could not decode string (maybe corrupted)."] or "Could not decode string (maybe corrupted)."
+        end
+
+        serialized = LibDeflate:DecompressDeflate(compressed)
+        if not serialized then
+            return false, L["Could not decompress data."] or "Could not decompress data."
+        end
     end
 
     local ok, t = AceSerializer:Deserialize(serialized)
