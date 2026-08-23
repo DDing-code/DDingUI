@@ -65,6 +65,7 @@ local RESET_KEYS = {
     },
     unusable = {
         { "visual", "desaturateWhenUnusable" },
+        { "visual", "hideWhenEmpty" },
         { "visual", "nonActiveMode" },
     },
 }
@@ -518,8 +519,11 @@ end
 local function AddUnusableControls(args, groupName, context)
     if context.kind == "dynamic" then
         args.unusableDesaturate = MakeToggle(groupName, T("Desaturate When Unusable", "Desaturate When Unusable"), "visual", "desaturateWhenUnusable", 20, true)
+        if context.iconType == "item" then
+            args.hideWhenEmpty = MakeToggle(groupName, T("Hide When Empty", "Hide When Empty"), "visual", "hideWhenEmpty", 21, false)
+        end
     end
-    args.unusableColor = MakeSelect(groupName, T("Non-active Color", "Non-active Color"), "visual", "nonActiveMode", 21, {
+    args.unusableColor = MakeSelect(groupName, T("Non-active Color", "Non-active Color"), "visual", "nonActiveMode", 22, {
         inherit = T("Default", "Default"),
         desaturate = T("Desaturate", "Desaturate"),
         fullColor = T("Full Color", "Full Color"),
