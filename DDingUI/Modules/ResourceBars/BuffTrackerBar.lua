@@ -462,8 +462,10 @@ local CDM_AURA_VIEWERS = {
 
 local cdmVisibility = {
     desired = {},
+    desiredSpellIDs = {},
     framesByCooldownID = {},
     hiddenFrames = setmetatable({}, { __mode = "k" }),
+    hiddenSpellIDs = setmetatable({}, { __mode = "k" }),
     hookedPools = setmetatable({}, { __mode = "k" }),
     hookedViewers = setmetatable({}, { __mode = "k" }),
     dirty = true,
@@ -474,7 +476,7 @@ local cdmVisibility = {
     protectedConditionsSkipped = 0,
 }
 
-local function SetCachedCDMFrameHidden(frame, cooldownID, shouldHide)
+local function SetCachedCDMFrameHidden(frame, cooldownID, shouldHide, spellID)
     if not frame or not frame.SetAlpha then return end
 
     local hiddenID = cdmVisibility.hiddenFrames[frame]
@@ -483,11 +485,13 @@ local function SetCachedCDMFrameHidden(frame, cooldownID, shouldHide)
             frame:SetAlpha(0)
         end
         cdmVisibility.hiddenFrames[frame] = cooldownID
+        cdmVisibility.hiddenSpellIDs[frame] = spellID
         frame._ddingHidden = true
         frame._ddingCooldownID = cooldownID
     elseif hiddenID or frame._ddingHidden then
         frame:SetAlpha(1)
         cdmVisibility.hiddenFrames[frame] = nil
+        cdmVisibility.hiddenSpellIDs[frame] = nil
         frame._ddingHidden = nil
         frame._ddingCooldownID = nil
     end
@@ -538,15 +542,23 @@ end
 
 local function BuildCDMVisibilitySignature(trackers)
     wipe(cdmVisibility.desired)
+    wipe(cdmVisibility.desiredSpellIDs)
     local ids = {}
     for _, tracker in ipairs(trackers or {}) do
         local settings = type(tracker) == "table" and tracker.settings
-        local cooldownID = settings and settings.hideFromCDM
-            and ResolveTrackedAuraCooldownID(tracker)
-        if cooldownID then
-            if not cdmVisibility.desired[cooldownID] then
+        if settings and settings.hideFromCDM then
+            local spellID = tonumber(tracker.spellID)
+            if CDMCompat and CDMCompat:IsUsableID(spellID)
+                and not cdmVisibility.desiredSpellIDs[spellID]
+            then
+                cdmVisibility.desiredSpellIDs[spellID] = true
+                ids[#ids + 1] = "s:" .. spellID
+            end
+
+            local cooldownID = ResolveTrackedAuraCooldownID(tracker)
+            if cooldownID and not cdmVisibility.desired[cooldownID] then
                 cdmVisibility.desired[cooldownID] = true
-                ids[#ids + 1] = cooldownID
+                ids[#ids + 1] = "c:" .. cooldownID
             end
         end
     end
@@ -572,7 +584,10 @@ local function RefreshCDMVisibilityCache(trackers)
     wipe(cdmVisibility.framesByCooldownID)
 
     for frame, hiddenID in pairs(cdmVisibility.hiddenFrames) do
-        if not cdmVisibility.desired[hiddenID] then
+        local spellID = cdmVisibility.hiddenSpellIDs[frame]
+        if not cdmVisibility.desired[hiddenID]
+            and not cdmVisibility.desiredSpellIDs[spellID]
+        then
             SetCachedCDMFrameHidden(frame, hiddenID, false)
         end
     end
@@ -593,16 +608,20 @@ local function RefreshCDMVisibilityCache(trackers)
             cdmVisibility.framesByCooldownID[cooldownID] = frames
         end
         frames[#frames + 1] = frame
-        SetCachedCDMFrameHidden(frame, cooldownID, cdmVisibility.desired[cooldownID] == true)
+        local spellID = CDMCompat:ResolveFrameSpellID(frame)
+        local shouldHide = cdmVisibility.desired[cooldownID] == true
+            or cdmVisibility.desiredSpellIDs[spellID] == true
+        SetCachedCDMFrameHidden(frame, cooldownID, shouldHide, spellID)
     end
 
     local scanner = DDingUI.CDMScanner
     for cooldownID in pairs(cdmVisibility.desired) do
         local entry = scanner and scanner.GetEntry and scanner.GetEntry(cooldownID)
         if entry and not IsSecretValue(entry) then
-            CacheFrame(entry.iconFrame, cooldownID)
-            CacheFrame(entry.barFrame, cooldownID)
-            if entry.isAura == true then
+            local isAuraEntry = entry.isAura == true or entry.viewerType == "aura"
+            if isAuraEntry then
+                CacheFrame(entry.iconFrame, cooldownID)
+                CacheFrame(entry.barFrame, cooldownID)
                 CacheFrame(entry.frame, cooldownID)
             elseif entry.frame and entry.frame._ddingHidden then
                 SetCachedCDMFrameHidden(entry.frame, cooldownID, false)
@@ -623,19 +642,29 @@ local function RefreshCDMVisibilityCache(trackers)
 end
 
 function ResourceBars:SetTrackedBuffHiddenInCDM(cooldownID, shouldHide, knownFrame)
-    if not CDMCompat or not CDMCompat:IsUsableID(cooldownID) then
-        return knownFrame
-    end
+    if not CDMCompat then return knownFrame end
     if CDMCompat:IsSettingsOpen() then
         return knownFrame
     end
+
+    if not CDMCompat:IsUsableID(cooldownID) and knownFrame then
+        cooldownID = CDMCompat:GetFrameCooldownID(knownFrame)
+    end
+    if not CDMCompat:IsUsableID(cooldownID) then return knownFrame end
 
     local matchedFrame = knownFrame
     local frames = cdmVisibility.framesByCooldownID[cooldownID]
     if frames then
         matchedFrame = matchedFrame or frames[1]
     elseif knownFrame then
-        SetCachedCDMFrameHidden(knownFrame, cooldownID, cdmVisibility.desired[cooldownID] == true)
+        local spellID = CDMCompat:ResolveFrameSpellID(knownFrame)
+        SetCachedCDMFrameHidden(
+            knownFrame,
+            cooldownID,
+            cdmVisibility.desired[cooldownID] == true
+                or cdmVisibility.desiredSpellIDs[spellID] == true,
+            spellID
+        )
     end
     return matchedFrame
 end

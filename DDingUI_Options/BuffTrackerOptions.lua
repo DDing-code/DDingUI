@@ -26,6 +26,20 @@ local function MarkSpecDirty()
     end
 end
 
+local function GetCurrentTalentNodeInfo(nodeID)
+    nodeID = tonumber(nodeID)
+    if not nodeID or nodeID <= 0 or not C_ClassTalents or not C_Traits then return nil end
+
+    local nodeInfo
+    local ok = pcall(function()
+        local configID = C_ClassTalents.GetActiveConfigID()
+        if configID then
+            nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
+        end
+    end)
+    return ok and type(nodeInfo) == "table" and nodeInfo or nil
+end
+
 -- ============================================================
 -- SPELL SCHOOL COLOR MAPPING (주문 계열별 바 색상)
 -- ============================================================
@@ -4709,7 +4723,14 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.activationType = val
+                local settings = trackedBuffs[index].settings
+                settings.activationType = val
+                if val == "talent" and settings.activationTalentID
+                    and settings.activationTalentID > 0
+                    and not GetCurrentTalentNodeInfo(settings.activationTalentID)
+                then
+                    settings.activationTalentID = 0
+                end
                 DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()
             end
@@ -4792,7 +4813,11 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         set = function(_, val)
             local trackedBuffs = GetTrackedBuffs()
             if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.activationTalentID = tonumber(val) or 0
+                local nodeID = tonumber(val) or 0
+                if nodeID > 0 and not GetCurrentTalentNodeInfo(nodeID) then
+                    nodeID = 0
+                end
+                trackedBuffs[index].settings.activationTalentID = nodeID
                 DDingUI:UpdateBuffTrackerBar()
                 RefreshOptions()
             end
