@@ -210,7 +210,7 @@ function DurabilityCheck:EnsureAlertRegions()
     end
 
     if not alertFrame.title then
-        local title = alertFrame.art:CreateFontString(nil, "OVERLAY")
+        local title = alertFrame.art:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         title:SetPoint("CENTER", alertFrame.art, "CENTER", 0, 9)
         title:SetText(L["DURABILITY_REPAIR_NEEDED"])
         title:SetJustifyH("CENTER")
@@ -222,7 +222,7 @@ function DurabilityCheck:EnsureAlertRegions()
     end
 
     if not alertFrame.percent then
-        local percentText = alertFrame.art:CreateFontString(nil, "OVERLAY")
+        local percentText = alertFrame.art:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         percentText:SetPoint("CENTER", alertFrame.art, "CENTER", 0, -20)
         percentText:SetJustifyH("CENTER")
         percentText:SetJustifyV("MIDDLE")
@@ -233,7 +233,7 @@ function DurabilityCheck:EnsureAlertRegions()
     end
 
     if not alertFrame.warningMark then
-        local warningMark = alertFrame.art:CreateFontString(nil, "OVERLAY")
+        local warningMark = alertFrame.art:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         warningMark:SetText("!")
         warningMark:SetJustifyH("CENTER")
         warningMark:SetJustifyV("MIDDLE")
