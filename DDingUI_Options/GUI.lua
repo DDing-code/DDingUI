@@ -2563,7 +2563,7 @@ function DDingUI:CreateConfigFrame()
 
         local sectionWorkspace = self.contentArea and self.contentArea._sectionWorkspace
         if sectionWorkspace and sectionWorkspace:IsShown() then
-            sectionWorkspace:RefreshAll(true)
+            sectionWorkspace:RefreshCurrent(true)
             return
         end
 
@@ -2672,6 +2672,12 @@ function DDingUI:CreateConfigFrame()
     -- Full refresh (resets scroll, restores sub-tab)
     frame.FullRefresh = function(self)
         if not self.currentTab then return end
+
+        local sectionWorkspace = self.contentArea and self.contentArea._sectionWorkspace
+        if sectionWorkspace and sectionWorkspace:IsShown() then
+            sectionWorkspace:RefreshCurrent(true)
+            return
+        end
 
         if DDingUI and DDingUI.configOptions then
             self.configOptions = DDingUI.configOptions

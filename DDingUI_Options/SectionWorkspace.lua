@@ -808,6 +808,10 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
         local entry = FindEntry(self.entries, self.selectedKey)
         if not entry then return end
         local oldScroll = preserveScroll and self.settingsScroll:GetVerticalScroll() or 0
+        local viewportWidth = self.settingsScroll:GetWidth()
+        if viewportWidth and viewportWidth > 80 then
+            self.settingsChild:SetWidth(viewportWidth - 1)
+        end
         self.settings.header.title:SetText(entry.label)
         local rootLabel = T(meta.title, meta.fallback)
         self.settings.header.breadcrumb:SetText(entry.parentLabel
@@ -839,6 +843,12 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
         local selected = self.selectedKey
         self:RebuildNavigation()
         if selected and FindEntry(self.entries, selected) then self.selectedKey = selected end
+        self:RefreshNavigationState()
+        self:RefreshPreview()
+        self:RenderSettings(preserveScroll)
+    end
+
+    function workspace:RefreshCurrent(preserveScroll)
         self:RefreshNavigationState()
         self:RefreshPreview()
         self:RenderSettings(preserveScroll)
