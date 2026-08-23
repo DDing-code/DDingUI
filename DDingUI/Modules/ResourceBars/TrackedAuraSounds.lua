@@ -80,13 +80,18 @@ local function PassesActivation(tracker)
     elseif activationType == "talent" then
         local nodeID = tonumber(settings.activationTalentID)
         if not nodeID or nodeID <= 0 then return true end
+        local evaluated = false
         local learned = false
-        pcall(function()
+        local ok = pcall(function()
             local configID = C_ClassTalents and C_ClassTalents.GetActiveConfigID()
             local nodeInfo = configID and C_Traits and C_Traits.GetNodeInfo(configID, nodeID)
-            learned = nodeInfo and nodeInfo.activeRank and nodeInfo.activeRank > 0 or false
+            if type(nodeInfo) ~= "table" or IsSecret(nodeInfo) then return end
+            local activeRank = nodeInfo.activeRank
+            if type(activeRank) ~= "number" or IsSecret(activeRank) then return end
+            evaluated = true
+            learned = activeRank > 0
         end)
-        return learned
+        return not ok or not evaluated or learned
     end
     return true
 end

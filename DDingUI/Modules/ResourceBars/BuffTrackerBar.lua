@@ -516,13 +516,34 @@ local function HookCDMVisibilityViewer(viewer)
     end
 end
 
+local function ResolveTrackedAuraCooldownID(tracker)
+    if type(tracker) ~= "table" or not CDMCompat then return nil end
+
+    -- A saved cooldownID can be zero or can point at the ability entry while
+    -- the aura lives under a different 12.1 CDM entry. Prefer the catalog's
+    -- unique aura identity so hiding the aura never hides the matching skill.
+    local spellID = tonumber(tracker.spellID)
+    local scanner = DDingUI.CDMScanner
+    local entry = CDMCompat:IsUsableID(spellID)
+        and scanner and scanner.FindUniqueAuraEntryBySpellID
+        and scanner.FindUniqueAuraEntryBySpellID(spellID)
+    local resolvedCooldownID = type(entry) == "table" and entry.cooldownID
+    if CDMCompat:IsUsableID(resolvedCooldownID) then
+        return resolvedCooldownID
+    end
+
+    local cooldownID = tonumber(tracker.cooldownID)
+    return CDMCompat:IsUsableID(cooldownID) and cooldownID or nil
+end
+
 local function BuildCDMVisibilitySignature(trackers)
     wipe(cdmVisibility.desired)
     local ids = {}
     for _, tracker in ipairs(trackers or {}) do
         local settings = type(tracker) == "table" and tracker.settings
-        local cooldownID = tonumber(type(tracker) == "table" and tracker.cooldownID)
-        if settings and settings.hideFromCDM and CDMCompat and CDMCompat:IsUsableID(cooldownID) then
+        local cooldownID = settings and settings.hideFromCDM
+            and ResolveTrackedAuraCooldownID(tracker)
+        if cooldownID then
             if not cdmVisibility.desired[cooldownID] then
                 cdmVisibility.desired[cooldownID] = true
                 ids[#ids + 1] = cooldownID
@@ -3209,15 +3230,20 @@ local function CheckActivationCondition(trackedBuff)
         -- 특성 습득 여부 확인
         local nodeID = settings.activationTalentID
         if nodeID and nodeID > 0 then
+            local evaluated = false
             local learned = false
-            pcall(function()
-                local configID = C_ClassTalents.GetActiveConfigID()
-                if configID then
-                    local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
-                    learned = nodeInfo and nodeInfo.activeRank and nodeInfo.activeRank > 0
-                end
+            local ok = pcall(function()
+                local configID = C_ClassTalents and C_ClassTalents.GetActiveConfigID()
+                local nodeInfo = configID and C_Traits and C_Traits.GetNodeInfo(configID, nodeID)
+                if type(nodeInfo) ~= "table" or IsSecretValue(nodeInfo) then return end
+                local activeRank = nodeInfo.activeRank
+                if not IsAccessibleNumber(activeRank) then return end
+                evaluated = true
+                learned = activeRank > 0
             end)
-            return learned
+            -- Old profiles can contain talent node IDs that no longer exist.
+            -- An unevaluable condition must not permanently suppress the aura.
+            return not ok or not evaluated or learned
         end
         return true  -- nodeID 없으면 항상 활성
     end
@@ -3816,7 +3842,8 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     local frame
     if useLegacyAuraData or hideFromCDM or hideStateChanged then
         frame = ResolveTrackedFrame(cooldownID, trackedBuff)
-        frame = self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame) or frame
+        local auraCooldownID = ResolveTrackedAuraCooldownID(trackedBuff) or cooldownID
+        frame = self:SetTrackedBuffHiddenInCDM(auraCooldownID, hideFromCDM, frame) or frame
         cdmHideState[trackedBuff] = hideFromCDM
     end
 
@@ -5272,7 +5299,11 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         iconBorderColor = GetGroupAlertColorOverride(trackedBuff) or iconBorderColor
     end
 
-    self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame)
+    self:SetTrackedBuffHiddenInCDM(
+        ResolveTrackedAuraCooldownID(trackedBuff) or cooldownID,
+        hideFromCDM,
+        frame
+    )
 
     -- Hide/show logic (skip in mover/preview mode)
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
@@ -5977,7 +6008,11 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         textColor = GetGroupAlertColorOverride(trackedBuff) or textColor
     end
 
-    self:SetTrackedBuffHiddenInCDM(cooldownID, hideFromCDM, frame)
+    self:SetTrackedBuffHiddenInCDM(
+        ResolveTrackedAuraCooldownID(trackedBuff) or cooldownID,
+        hideFromCDM,
+        frame
+    )
 
     -- onlyInCombat: 전투 중에만 표시
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
