@@ -65,7 +65,7 @@ end
 local WORKSPACE_CATEGORIES = {
     {
         key = "layout",
-        glyph = "↔",
+        icon = "layout",
         label = "Layout & Size",
         fallback = "배치와 크기",
         sections = {
@@ -75,7 +75,7 @@ local WORKSPACE_CATEGORIES = {
     },
     {
         key = "state",
-        glyph = "◇",
+        icon = "state",
         label = "Icon State",
         fallback = "아이콘 상태",
         requiresIcon = true,
@@ -86,7 +86,7 @@ local WORKSPACE_CATEGORIES = {
     },
     {
         key = "text",
-        glyph = "T",
+        icon = "text",
         label = "Text",
         fallback = "텍스트",
         sections = {
@@ -97,7 +97,7 @@ local WORKSPACE_CATEGORIES = {
     },
     {
         key = "effects",
-        glyph = "✦",
+        icon = "effects",
         label = "Glow & Effects",
         fallback = "글로우와 효과",
         sections = {
@@ -108,7 +108,7 @@ local WORKSPACE_CATEGORIES = {
     },
     {
         key = "animation",
-        glyph = "▶",
+        icon = "animation",
         label = "Animation",
         fallback = "애니메이션",
     },
@@ -117,6 +117,56 @@ local WORKSPACE_CATEGORIES = {
 local CATEGORY_BY_KEY = {}
 for _, definition in ipairs(WORKSPACE_CATEGORIES) do
     CATEGORY_BY_KEY[definition.key] = definition
+end
+
+local NAVIGATION_ICON_PATHS = {
+    layout = {
+        { 0, -8, 0, 8 }, { -8, 0, 8, 0 },
+        { -3, 5, 0, 8 }, { 0, 8, 3, 5 },
+        { -3, -5, 0, -8 }, { 0, -8, 3, -5 },
+        { -5, 3, -8, 0 }, { -8, 0, -5, -3 },
+        { 5, 3, 8, 0 }, { 8, 0, 5, -3 },
+    },
+    state = {
+        { -7, 7, 0, 9 }, { 0, 9, 7, 7 },
+        { 7, 7, 6, -2 }, { 6, -2, 3, -7 }, { 3, -7, 0, -9 },
+        { 0, -9, -3, -7 }, { -3, -7, -6, -2 }, { -6, -2, -7, 7 },
+        { -3, 0, -0.5, -3 }, { -0.5, -3, 4, 3 },
+    },
+    text = {
+        { -8, 7, 8, 7 }, { 0, 7, 0, -8 }, { -3, -8, 3, -8 },
+    },
+    effects = {
+        { 1, 8, 3, 1 }, { 3, 1, 9, -1 }, { 9, -1, 3, -3 },
+        { 3, -3, 1, -9 }, { 1, -9, -1, -3 }, { -1, -3, -7, -1 },
+        { -7, -1, -1, 1 }, { -1, 1, 1, 8 },
+        { -6, 4, -6, 9 }, { -8.5, 6.5, -3.5, 6.5 },
+    },
+    animation = {
+        { -6, 8, 7, 0 }, { 7, 0, -6, -8 }, { -6, -8, -6, 8 },
+    },
+}
+
+local function CreateNavigationIcon(parent, iconKey)
+    local icon = CreateFrame("Frame", nil, parent)
+    icon:SetSize(30, 30)
+    icon.lines = {}
+    for _, segment in ipairs(NAVIGATION_ICON_PATHS[iconKey] or {}) do
+        local line = icon:CreateLine(nil, "ARTWORK", nil, 2)
+        line:SetThickness(1.4)
+        line:SetStartPoint("CENTER", icon, segment[1], segment[2])
+        line:SetEndPoint("CENTER", icon, segment[3], segment[4])
+        icon.lines[#icon.lines + 1] = line
+    end
+
+    function icon:SetIconColor(r, g, b, a)
+        for _, line in ipairs(self.lines) do
+            line:SetColorTexture(r, g, b, a or 1)
+        end
+    end
+
+    icon:SetIconColor(0.58, 0.61, 0.67, 1)
+    return icon
 end
 
 local function CreateCategoryButton(parent, definition)
@@ -130,12 +180,10 @@ local function CreateCategoryButton(parent, definition)
     button.accent:SetPoint("BOTTOMLEFT")
     button.accent:SetWidth(3)
     button.accent:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-    button.glyph = CreateText(button, 18, { 0.58, 0.61, 0.67, 1 }, "CENTER")
-    button.glyph:SetSize(34, 30)
-    button.glyph:SetPoint("LEFT", button, "LEFT", 10, 0)
-    button.glyph:SetText(definition.glyph)
+    button.icon = CreateNavigationIcon(button, definition.icon)
+    button.icon:SetPoint("LEFT", button, "LEFT", 12, 0)
     button.label = CreateText(button, 11, { 0.72, 0.74, 0.79, 1 })
-    button.label:SetPoint("LEFT", button.glyph, "RIGHT", 8, 0)
+    button.label:SetPoint("LEFT", button.icon, "RIGHT", 8, 0)
     button.label:SetPoint("RIGHT", button, "RIGHT", -8, 0)
     button.label:SetText(T(definition.label, definition.fallback))
 
@@ -150,10 +198,10 @@ local function CreateCategoryButton(parent, definition)
         self.accent:SetShown(self._active)
         self.background:SetAlpha(self._active and 0.9 or 0)
         if self._active then
-            self.glyph:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+            self.icon:SetIconColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
             self.label:SetTextColor(0.97, 0.98, 1, 1)
         else
-            self.glyph:SetTextColor(0.58, 0.61, 0.67, 1)
+            self.icon:SetIconColor(0.58, 0.61, 0.67, 1)
             self.label:SetTextColor(0.72, 0.74, 0.79, 1)
         end
     end
@@ -161,6 +209,7 @@ local function CreateCategoryButton(parent, definition)
     button:SetScript("OnEnter", function(self)
         if self._available and not self._active then
             self.background:SetAlpha(0.45)
+            self.icon:SetIconColor(0.86, 0.88, 0.92, 1)
             self.label:SetTextColor(0.94, 0.95, 0.98, 1)
         end
     end)
