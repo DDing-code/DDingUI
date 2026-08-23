@@ -1420,15 +1420,21 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
                 -- Collapse/Expand arrow button
                 local collapseBtn = CreateFrame("Button", nil, groupFrame)
-                collapseBtn:SetSize(20, 20)
-                collapseBtn:SetPoint("TOPLEFT", groupFrame, "TOPLEFT", 4, -4)
+                collapseBtn:SetSize(28, 28)
+                collapseBtn:SetPoint("TOPLEFT", groupFrame, "TOPLEFT", 0, 0)
 
                 local collapseArrow = collapseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 StyleFontString(collapseArrow)
+                collapseArrow:SetFont(globalFontPath, 17, "OUTLINE")
                 collapseArrow:SetPoint("CENTER", collapseBtn, "CENTER", 0, 0)
                 collapseArrow:SetText(isCollapsed and "+" or "-")
                 collapseArrow:SetTextColor(SL.GetColor("dim"))
                 collapseBtn.arrow = collapseArrow
+
+                local collapseHighlight = collapseBtn:CreateTexture(nil, "BACKGROUND")
+                collapseHighlight:SetAllPoints()
+                collapseHighlight:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.12)
+                collapseBtn:SetHighlightTexture(collapseHighlight, "ADD")
 
                 collapseBtn:SetScript("OnEnter", function(self)
                     self.arrow:SetTextColor(SL.GetColor("accent"))
@@ -1439,7 +1445,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
                 local groupTitle = groupFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 StyleFontString(groupTitle)
-                groupTitle:SetPoint("TOPLEFT", collapseBtn, "TOPRIGHT", 2, -3)
+                groupTitle:SetPoint("LEFT", collapseBtn, "RIGHT", 4, 0)
                 groupTitle:SetText(groupName)
                 -- Gold title for groups like ElvUI
                 groupTitle:SetTextColor(THEME.gold[1], THEME.gold[2], THEME.gold[3], 1)
