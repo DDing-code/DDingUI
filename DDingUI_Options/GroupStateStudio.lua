@@ -1,6 +1,8 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local L = LibStub("AceLocale-3.0"):GetLocale("DDingUI")
+local Base = DDingUI.GUIBase
+local THEME = Base.THEME
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FALLBACK_ICON = 134400
@@ -812,12 +814,14 @@ function DDingUI:BuildGroupStateStudioUI(parent, groupName)
 
         local background = card:CreateTexture(nil, "BACKGROUND")
         background:SetAllPoints()
-        background:SetColorTexture(0.035, 0.04, 0.05, supported and 0.94 or 0.5)
+        background:SetColorTexture(
+            THEME.panelRaised[1], THEME.panelRaised[2], THEME.panelRaised[3],
+            supported and 1 or 0.5)
         local edges = CreateEdges(card, "BORDER", 1)
         if selectedState == definition.key then
-            SetEdges(edges, 1, 0.36, 0.04, 1, 2)
+            SetEdges(edges, THEME.accent[1], THEME.accent[2], THEME.accent[3], 1, 2)
         else
-            SetEdges(edges, 0.18, 0.2, 0.24, supported and 0.9 or 0.45, 1)
+            SetEdges(edges, THEME.border[1], THEME.border[2], THEME.border[3], supported and 1 or 0.45, 1)
         end
 
         local iconFrame = CreateFrame("Frame", nil, card)
@@ -850,10 +854,10 @@ function DDingUI:BuildGroupStateStudioUI(parent, groupName)
 
         if supported then
             card:SetScript("OnEnter", function()
-                background:SetColorTexture(0.065, 0.07, 0.085, 0.98)
+                background:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 1)
             end)
             card:SetScript("OnLeave", function()
-                background:SetColorTexture(0.035, 0.04, 0.05, 0.94)
+                background:SetColorTexture(THEME.panelRaised[1], THEME.panelRaised[2], THEME.panelRaised[3], 1)
             end)
             card:SetScript("OnClick", function()
                 SetSelectedState(groupName, context, definition.key)

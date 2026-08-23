@@ -9,12 +9,13 @@ local SL = _G.DDingUI_StyleLib
 local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
 local THEME = Base.THEME or {}
 
-local ON_BACKGROUND = { 0.18, 0.075, 0.02, 1 }
-local OFF_BACKGROUND = { 0.055, 0.06, 0.07, 1 }
-local OFF_HOVER_BACKGROUND = { 0.085, 0.065, 0.05, 1 }
-local OFF_BORDER = { 0.36, 0.38, 0.42, 1 }
-local OFF_THUMB = { 0.68, 0.70, 0.74, 1 }
-local OFF_TEXT = { 0.76, 0.78, 0.82, 1 }
+local ON_BACKGROUND = THEME.accent or { 0.965, 0.482, 0.016, 1 }
+local OFF_BACKGROUND = THEME.panelStrong or { 0.098, 0.106, 0.118, 1 }
+local OFF_HOVER_BACKGROUND = THEME.bgHover or { 0.120, 0.129, 0.145, 1 }
+local OFF_BORDER = THEME.borderLight or { 0.310, 0.333, 0.365, 1 }
+local ON_THUMB = { 0.965, 0.970, 0.980, 1 }
+local OFF_THUMB = { 0.700, 0.725, 0.760, 1 }
+local OFF_TEXT = THEME.text or { 0.850, 0.860, 0.880, 1 }
 
 local function GetAccent()
     local accent = THEME.accent
@@ -49,11 +50,11 @@ local function RefreshSwitchVisual(checkbox)
     if checked then
         SetBackdropColor(checkbox, ON_BACKGROUND)
         checkbox:SetBackdropBorderColor(accentR, accentG, accentB, accentA)
-        checkbox._ddingSwitchThumb:SetColorTexture(accentR, accentG, accentB, 1)
+        SetColor(checkbox._ddingSwitchThumb, ON_THUMB)
         checkbox._ddingSwitchThumb:SetPoint("RIGHT", checkbox, "RIGHT", -3, 0)
         checkbox._ddingSwitchText:SetPoint("LEFT", checkbox, "LEFT", 5, 0)
         checkbox._ddingSwitchText:SetText("ON")
-        checkbox._ddingSwitchText:SetTextColor(1, 0.76, 0.48, 1)
+        checkbox._ddingSwitchText:SetTextColor(0.12, 0.08, 0.03, 1)
     else
         SetBackdropColor(checkbox, hovered and OFF_HOVER_BACKGROUND or OFF_BACKGROUND)
         if hovered then

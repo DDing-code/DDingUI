@@ -243,7 +243,7 @@ local function CreateSectionMenu(parent, menuData, opts)
             row._active = false
             row.activeBar:Hide()
             row.background:SetColorTexture(0, 0, 0, 0)
-            row.label:SetTextColor(0.54, 0.56, 0.62, 1)
+            row.label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
             return
         end
         if row._kind == "groupAdd" then
@@ -257,21 +257,21 @@ local function CreateSectionMenu(parent, menuData, opts)
         row._active = active
         row.activeBar:SetShown(active)
         if active then
-            row.background:SetColorTexture(0.105, 0.105, 0.115, 0.96)
+            row.background:SetColorTexture(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
             if row._kind == "group" then
                 row.icon:SetVertexColor(row._enabled and 0.28 or 0.42, row._enabled and 0.9 or 0.44, row._enabled and 0.42 or 0.48, 1)
             else
                 row.icon:SetVertexColor(1, 0.43, 0.08, 1)
             end
-            row.label:SetTextColor(1, 1, 1, 1)
+            row.label:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
         else
             row.background:SetColorTexture(0, 0, 0, 0)
             if row._kind == "group" then
                 row.icon:SetVertexColor(row._enabled and 0.28 or 0.42, row._enabled and 0.9 or 0.44, row._enabled and 0.42 or 0.48, 1)
             else
-                row.icon:SetVertexColor(0.72, 0.72, 0.75, 1)
+                row.icon:SetVertexColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
             end
-            row.label:SetTextColor(0.84, 0.84, 0.87, 1)
+            row.label:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3], 1)
         end
     end
 
@@ -290,7 +290,7 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.activeBar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
         row.activeBar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
         row.activeBar:SetWidth(3)
-        row.activeBar:SetColorTexture(1, 0.36, 0.06, 1)
+        row.activeBar:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
 
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(30, 30)
@@ -307,12 +307,12 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
         row.divider:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
         row.divider:SetHeight(1)
-        row.divider:SetColorTexture(0.24, 0.24, 0.27, 0.5)
+        row.divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.72)
 
         row:SetScript("OnEnter", function(self)
             if self._kind == "section" then return end
             if not self._active then
-                self.background:SetColorTexture(0.12, 0.12, 0.14, 0.72)
+                self.background:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 1)
                 if self._kind == "groupAdd" then
                     self.label:SetTextColor(1, 0.62, 0.28, 1)
                 else
@@ -696,7 +696,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 stickyPreview:SetPoint("TOPLEFT", parentScrollFrame, "TOPLEFT", 0, 0)
                 stickyPreview:SetPoint("TOPRIGHT", parentScrollFrame, "TOPRIGHT", 0, 0)
             end
-            CreateBackdrop(stickyPreview, {THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.98}, {0, 0, 0, 1})
+            CreateBackdrop(stickyPreview, THEME.bgDark, THEME.border)
 
             local previewWidth = math.max(240, (parentScrollFrame:GetWidth() or contentFrame:GetWidth() or 760) - 20)
             local previewHolder = CreateFrame("Frame", nil, stickyPreview)
@@ -721,7 +721,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
         -- Add background to make it look good when sticky
         local bgMediumTransparent = {THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 0.95}
-        CreateBackdrop(subTabContainer, bgMediumTransparent, {0, 0, 0, 1})  -- UF 통일
+        CreateBackdrop(subTabContainer, bgMediumTransparent, THEME.border)
 
         if parentContentArea and parentScrollFrame then
             if stickyPreview then
@@ -1853,14 +1853,36 @@ function DDingUI:CreateConfigFrame()
     local treeFrame = panel.treeFrame
     local contentScroll = panel.contentScroll
     local contentChild = panel.contentChild
+    local contentFrame = contentScroll:GetParent()
 
     -- Backward-compat global reference
     _G["DDingUI_ConfigFrame"] = frame
 
     frame:SetFrameLevel(100)
 
-    -- UF 통일: 프레임 테두리를 솔리드 블랙으로 오버라이드
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
+    frame:SetBackdropColor(THEME.shell[1], THEME.shell[2], THEME.shell[3], 1)
+    frame:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+
+    titleBar._ddingThemeBackground = titleBar._ddingThemeBackground
+        or titleBar:CreateTexture(nil, "BACKGROUND", nil, 1)
+    titleBar._ddingThemeBackground:SetAllPoints()
+    titleBar._ddingThemeBackground:SetColorTexture(
+        THEME.titlebar[1], THEME.titlebar[2], THEME.titlebar[3], 1)
+
+    treeFrame._ddingThemeBackground = treeFrame._ddingThemeBackground
+        or treeFrame:CreateTexture(nil, "BACKGROUND")
+    treeFrame._ddingThemeBackground:SetAllPoints()
+    treeFrame._ddingThemeBackground:SetColorTexture(
+        THEME.sidebar[1], THEME.sidebar[2], THEME.sidebar[3], 1)
+
+    contentFrame._ddingThemeBackground = contentFrame._ddingThemeBackground
+        or contentFrame:CreateTexture(nil, "BACKGROUND")
+    contentFrame._ddingThemeBackground:SetAllPoints()
+    contentFrame._ddingThemeBackground:SetColorTexture(
+        THEME.panel[1], THEME.panel[2], THEME.panel[3], 1)
+    if panel.divider then
+        panel.divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+    end
 
     -- GUI 스케일 적용 (저장된 값)
     local savedScale = (DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.general and DDingUI.db.profile.general.guiScale) or 1.0
@@ -1944,7 +1966,7 @@ function DDingUI:CreateConfigFrame()
     local profileDropdown = CreateFrame("Frame", nil, titleBar, "BackdropTemplate")
     profileDropdown:SetSize(140, 20)
     profileDropdown:SetPoint("LEFT", titleBar.verText or titleBar.titleText, "RIGHT", 14, 0)
-    CreateBackdrop(profileDropdown, THEME.bgWidget, {0, 0, 0, 1})  -- UF 통일: 솔리드 블랙
+    CreateBackdrop(profileDropdown, THEME.bgWidget, THEME.border)
 
     local profileText = profileDropdown:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     profileText:SetFont(globalFontPath, 11, "")
@@ -1974,7 +1996,7 @@ function DDingUI:CreateConfigFrame()
         self:SetBackdropBorderColor(SL.GetColor("accent"))
     end)
     profileDropdown:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
     end)
 
     -- ============================================
@@ -2087,7 +2109,7 @@ function DDingUI:CreateConfigFrame()
         if not listFrame then
             listFrame = CreateFrame("Frame", nil, dropdown, "BackdropTemplate")
             listFrame:SetFrameStrata("TOOLTIP")
-            CreateBackdrop(listFrame, THEME.bgDark, {0, 0, 0, 1})
+            CreateBackdrop(listFrame, THEME.bgDark, THEME.border)
             dropdown._listFrame = listFrame
         end
 
@@ -2258,7 +2280,7 @@ function DDingUI:CreateConfigFrame()
         edgeSize = 1,
     })
     scaleSlider:SetBackdropColor(SL.GetColor("widget"))
-    scaleSlider:SetBackdropBorderColor(0, 0, 0, 1)
+    scaleSlider:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
     local scaleThumb = scaleSlider:CreateTexture(nil, "OVERLAY")
     scaleThumb:SetSize(10, 16)
@@ -2308,7 +2330,7 @@ function DDingUI:CreateConfigFrame()
         GameTooltip:Show()
     end)
     scaleSlider:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(0, 0, 0, 1)
+        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
         GameTooltip:Hide()
     end)
 
@@ -2325,7 +2347,7 @@ function DDingUI:CreateConfigFrame()
     local editModeBtn = CreateFrame("Button", nil, titleBar, "BackdropTemplate") -- [12.0.1]
     editModeBtn:SetSize(62, 20)
     editModeBtn:SetPoint("RIGHT", searchBox, "LEFT", -8, 0)
-    CreateBackdrop(editModeBtn, THEME.bgWidget, {0, 0, 0, 1})
+    CreateBackdrop(editModeBtn, THEME.bgWidget, THEME.border)
 
     local editModeText = editModeBtn:CreateFontString(nil, "OVERLAY") -- [12.0.1]
     editModeText:SetFont(globalFontPath, 11, "")
@@ -2344,7 +2366,7 @@ function DDingUI:CreateConfigFrame()
         GameTooltip:Show()
     end)
     editModeBtn:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(0, 0, 0, 1)
+        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
         editModeText:SetTextColor(SL.GetColor("dim"))
         GameTooltip:Hide()
     end)
@@ -2359,7 +2381,7 @@ function DDingUI:CreateConfigFrame()
 
     -- 크기 슬라이더를 편집 버튼 왼쪽에 배치 -- [12.0.1]
     scaleContainer:SetPoint("RIGHT", editModeBtn, "LEFT", -10, 0)
-    CreateBackdrop(searchBox, THEME.bgWidget, {0, 0, 0, 1})  -- UF 통일
+    CreateBackdrop(searchBox, THEME.bgWidget, THEME.border)
 
     -- 돋보기 아이콘
     local searchIcon = searchBox:CreateTexture(nil, "ARTWORK")
@@ -2482,8 +2504,6 @@ function DDingUI:CreateConfigFrame()
     -- ============================================
     -- 콘텐츠 영역: 커스텀 스크롤바 추가
     -- ============================================
-    local contentFrame = contentScroll:GetParent()
-
     -- contentScroll 위치 조정 (스크롤바 공간 확보)
     contentScroll:ClearAllPoints()
     contentScroll:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 4, -4)
@@ -3115,7 +3135,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                     edgeSize = 1,
                 })
                 ctx:SetBackdropColor(0.1, 0.1, 0.12, 0.95)
-                ctx:SetBackdropBorderColor(0, 0, 0, 1)
+                ctx:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
                 ctx:Hide()
                 ctx._buttonPool = {}
                 ctx._sepPool = {}

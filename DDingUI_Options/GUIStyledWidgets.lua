@@ -1,7 +1,7 @@
 local ADDON_NAME, ns = ...
 local DDingUI = ns.Addon
 local GUI = DDingUI.GUI
-local SL = _G.DDingUI_StyleLib
+local SL = (DDingUI.GUIBase and DDingUI.GUIBase.SL) or _G.DDingUI_StyleLib
 local FLAT = SL.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 local THEME = GUI.THEME
 local globalFontPath = "Fonts\\2002.TTF"

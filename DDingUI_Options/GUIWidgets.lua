@@ -63,11 +63,53 @@ local function IsDropAfterTarget(button)
     return cursorUIY < ((top + bottom) * 0.5)
 end
 
-local SL = _G.DDingUI_StyleLib -- [12.0.1]
-assert(SL, "DDingUI_StyleLib must be loaded before GUI.lua") -- [12.0.1]
-local SLC = SL.Colors
-local FLAT = SL.Textures.flat or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
-local acFrom, acTo, acLight, acDark = SL.GetAccent("CDM")
+local SharedStyle = _G.DDingUI_StyleLib -- [12.0.1]
+assert(SharedStyle, "DDingUI_StyleLib must be loaded before GUI.lua") -- [12.0.1]
+
+-- Options owns its palette so another addon's embedded StyleLib cannot recolor it at load time.
+local OPTION_COLORS = {
+    background    = { 0.059, 0.067, 0.075, 1.00 },
+    shell         = { 0.039, 0.047, 0.055, 1.00 },
+    sidebar       = { 0.075, 0.082, 0.090, 1.00 },
+    input         = { 0.035, 0.043, 0.050, 1.00 },
+    widget        = { 0.047, 0.055, 0.063, 1.00 },
+    hover         = { 0.120, 0.129, 0.145, 1.00 },
+    selected      = { 0.129, 0.137, 0.157, 1.00 },
+    titlebar      = { 0.098, 0.106, 0.114, 1.00 },
+    header        = { 0.078, 0.090, 0.102, 1.00 },
+    panelRaised   = { 0.078, 0.090, 0.102, 1.00 },
+    panelStrong   = { 0.098, 0.106, 0.118, 1.00 },
+    canvas        = { 0.055, 0.067, 0.075, 1.00 },
+    border        = { 0.188, 0.204, 0.224, 1.00 },
+    borderActive  = { 0.310, 0.333, 0.365, 1.00 },
+    separator     = { 0.173, 0.188, 0.204, 0.82 },
+    text          = { 0.850, 0.860, 0.880, 1.00 },
+    highlight     = { 0.965, 0.970, 0.980, 1.00 },
+    disabled      = { 0.420, 0.435, 0.465, 1.00 },
+    dim           = { 0.570, 0.590, 0.625, 1.00 },
+    accent        = { 0.965, 0.482, 0.016, 1.00 },
+    accentLight   = { 1.000, 0.635, 0.250, 1.00 },
+    accentDark    = { 0.670, 0.235, 0.000, 1.00 },
+    accentGradEnd = { 0.760, 0.270, 0.000, 1.00 },
+    focus         = { 0.000, 0.735, 0.835, 1.00 },
+    success       = { 0.360, 0.780, 0.270, 1.00 },
+    warning       = { 0.930, 0.720, 0.180, 1.00 },
+    error         = { 0.900, 0.250, 0.250, 1.00 },
+    gradTop       = { 0.098, 0.106, 0.114, 1.00 },
+    gradBottom    = { 0.059, 0.067, 0.075, 1.00 },
+}
+
+local SL = setmetatable({}, { __index = SharedStyle })
+function SL.GetColor(name)
+    local color = OPTION_COLORS[name]
+    if color then return color[1], color[2], color[3], color[4] or 1 end
+    return SharedStyle.GetColor(name)
+end
+function SL.GetColorTable(name)
+    return OPTION_COLORS[name] or SharedStyle.GetColorTable(name)
+end
+
+local FLAT = SharedStyle.Textures.flat or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
 
 -- [FIX] WoW 12.0+: StaticPopup editBox 접근 헬퍼 (editBox 필드가 nil인 버전 대응)
 local function DDingUI_GetPopupEditBox(dlg)
@@ -92,40 +134,40 @@ local WR     = SL.WidgetRefresh         -- 인플레이스 갱신
 local PG     = SL.ProceduralGlow        -- 수학적 글로우 엔진
 
 local THEME = {
-    -- 액센트 (StyleLib accent preset "CDM")
-    accent      = acFrom,                  -- primary accent
-    accentLight = acLight,                 -- hover / light variant
-    accentDark  = acDark,                  -- pressed / dark variant
-    accentBlue  = acTo,                    -- gradient end
+    accent      = OPTION_COLORS.accent,
+    accentLight = OPTION_COLORS.accentLight,
+    accentDark  = OPTION_COLORS.accentDark,
+    accentBlue  = OPTION_COLORS.accentGradEnd,
+    focus       = OPTION_COLORS.focus,
 
-    -- 배경 (StyleLib Colors.bg)
-    bgDark   = SLC.bg.sidebar,
-    bgMain   = SLC.bg.main,
-    bgTop    = SLC.bg.gradTop,
-    bgBottom = SLC.bg.gradBottom,
-    bgMedium = SLC.bg.selected,
-    bgLight  = SLC.bg.hoverLight,
-    bgWidget = SLC.bg.widget,
-    bgHover  = SLC.bg.hover,
+    shell       = OPTION_COLORS.shell,
+    sidebar     = OPTION_COLORS.sidebar,
+    titlebar    = OPTION_COLORS.titlebar,
+    panel       = OPTION_COLORS.background,
+    panelRaised = OPTION_COLORS.panelRaised,
+    panelStrong = OPTION_COLORS.panelStrong,
+    canvas      = OPTION_COLORS.canvas,
+    bgDark      = OPTION_COLORS.sidebar,
+    bgMain      = OPTION_COLORS.background,
+    bgTop       = OPTION_COLORS.gradTop,
+    bgBottom    = OPTION_COLORS.gradBottom,
+    bgMedium    = OPTION_COLORS.selected,
+    bgLight     = OPTION_COLORS.panelStrong,
+    bgWidget    = OPTION_COLORS.widget,
+    bgHover     = OPTION_COLORS.hover,
 
-    -- 보더 (StyleLib Colors.border)
-    border       = SLC.border.default,
-    borderLight  = SLC.border.active,
-    borderAccent = {acFrom[1], acFrom[2], acFrom[3], 1},
+    border       = OPTION_COLORS.border,
+    borderLight  = OPTION_COLORS.borderActive,
+    borderAccent = OPTION_COLORS.accent,
 
-    -- 텍스트 (StyleLib Colors.text)
-    text       = SLC.text.normal,
-    textDim    = SLC.text.dim,
-    textBright = SLC.text.highlight,
-    gold       = {acFrom[1], acFrom[2], acFrom[3], 1},
-
-    -- 인풋 (StyleLib Colors.bg.input)
-    input = SLC.bg.input,
-
-    -- 상태 색상 (StyleLib Colors.status)
-    success = SLC.status.success,
-    warning = SLC.status.warning,
-    error   = SLC.status.error,
+    text       = OPTION_COLORS.text,
+    textDim    = OPTION_COLORS.dim,
+    textBright = OPTION_COLORS.highlight,
+    gold       = OPTION_COLORS.accent,
+    input      = OPTION_COLORS.input,
+    success    = OPTION_COLORS.success,
+    warning    = OPTION_COLORS.warning,
+    error      = OPTION_COLORS.error,
 }
 
 -- ============================================
@@ -692,7 +734,7 @@ local function CreateCustomDropdown(parent, width)
         insets = { left = 1, right = 1, top = 1, bottom = 1 }
     })
     dropdown:SetBackdropColor(SL.GetColor("widget"))
-    dropdown:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일: 솔리드 블랙
+    dropdown:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
     -- 선택된 텍스트
     local selectedText = dropdown:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -732,7 +774,7 @@ local function CreateCustomDropdown(parent, width)
         insets = { left = 1, right = 1, top = 1, bottom = 1 }
     })
     listFrame:SetBackdropColor(SL.GetColor("selected"))
-    listFrame:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일: 솔리드 블랙
+    listFrame:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
     listFrame:Hide()
     dropdown.listFrame = listFrame
 
@@ -1136,7 +1178,7 @@ local function CreateCustomDropdown(parent, width)
     end)
     dropdown:SetScript("OnLeave", function(self)
         if not listFrame:IsShown() then
-            self:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+            self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
             arrow:SetTextColor(SL.GetColor("dim"))
         end
     end)
@@ -1162,7 +1204,7 @@ local function CreateCustomDropdown(parent, width)
 
     -- 리스트 프레임 닫기 처리
     listFrame:SetScript("OnHide", function()
-        dropdown:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+        dropdown:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
         arrow:SetTextColor(SL.GetColor("dim"))
         if searchEdit then searchEdit:ClearFocus() end
     end)
@@ -1945,7 +1987,7 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     valueEditBox:SetTextColor(1, 1, 1, 1)
     valueEditBox:SetAutoFocus(false)
     valueEditBox:SetJustifyH("CENTER")
-    CreateBackdrop(valueEditBox, THEME.input, {0, 0, 0, 1})  -- UF 통일
+    CreateBackdrop(valueEditBox, THEME.input, THEME.border)
 
     -- Allow decimal input (don't use SetNumeric which blocks ".")
     valueEditBox:SetNumeric(false)
@@ -2257,7 +2299,7 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
         insets = { left = 0, right = 0, top = 0, bottom = 0 }
     })
     colorButton:SetBackdropColor(0, 0, 0, 1)
-    colorButton:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+    colorButton:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
     local colorSwatch = colorButton:CreateTexture(nil, "ARTWORK")
     colorSwatch:SetPoint("TOPLEFT", colorButton, "TOPLEFT", 2, -2)
@@ -2268,7 +2310,7 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
         self:SetBackdropBorderColor(SL.GetColor("accent"))
     end)
     colorButton:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
     end)
 
     local r, g, b, a = 1, 1, 1, 1
@@ -2507,7 +2549,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
             insets = { left = 0, right = 0, top = 0, bottom = 0 }
         })
         button:SetBackdropColor(SL.GetColor("widget"))
-        button:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+        button:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
         local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         StyleFontString(label)
@@ -2643,7 +2685,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
 
             button:SetScript("OnLeave", function(self)
                 self:SetBackdropColor(SL.GetColor("widget"))
-                self:SetBackdropBorderColor(0, 0, 0, 1)
+                self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
                 label:SetTextColor(SL.GetColor("text"))
             end)
 
@@ -2659,7 +2701,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                 insets = { left = 0, right = 0, top = 0, bottom = 0 }
             })
             closeBtn:SetBackdropColor(0.3, 0.1, 0.1, 0.8)
-            closeBtn:SetBackdropBorderColor(0, 0, 0, 1)
+            closeBtn:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
             local closeText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             StyleFontString(closeText)
@@ -2674,7 +2716,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
             end)
             closeBtn:SetScript("OnLeave", function(self)
                 self:SetBackdropColor(0.3, 0.1, 0.1, 0.8)
-                self:SetBackdropBorderColor(0, 0, 0, 1)
+                self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
                 closeText:SetTextColor(0.6, 0.3, 0.3, 1)
             end)
             closeBtn:SetScript("OnClick", function()
@@ -2695,7 +2737,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
 
             button:SetScript("OnLeave", function(self)
                 self:SetBackdropColor(SL.GetColor("widget"))
-                self:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+                self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
                 label:SetTextColor(SL.GetColor("text"))
             end)
 
@@ -2832,7 +2874,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             edgeSize = 1,
         })
         scrollContainer:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], THEME.input[4])
-        scrollContainer:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+        scrollContainer:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
         local scrollFrame = CreateFrame("ScrollFrame", nil, scrollContainer, "UIPanelScrollFrameTemplate")
         scrollFrame:SetPoint("TOPLEFT", 4, -4)
@@ -2869,7 +2911,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
 
         editBox:SetScript("OnEditFocusLost", function(self)
             -- Remove visual feedback
-            scrollContainer:SetBackdropBorderColor(0, 0, 0, 1)  -- UF 통일
+            scrollContainer:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
         end)
 
         if option.get then
@@ -2901,7 +2943,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         editBox:SetWidth(200)
         StyleEditBox(editBox, "GameFontNormal")
         editBox:SetTextColor(SL.GetColor("text"))
-        CreateBackdrop(editBox, THEME.input, {0, 0, 0, 1})  -- UF 통일
+        CreateBackdrop(editBox, THEME.input, THEME.border)
 
         editBox:EnableKeyboard(false)
 
@@ -2925,7 +2967,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             self:EnableKeyboard(false)
             self:ClearFocus()
             -- Remove visual feedback for focus
-            CreateBackdrop(self, THEME.input, {0, 0, 0, 1})  -- UF 통일
+            CreateBackdrop(self, THEME.input, THEME.border)
         end)
 
         editBox:SetScript("OnEnter", function(self)
@@ -3004,7 +3046,7 @@ function Widgets.CreateFramePicker(parent, option, yOffset, optionsTable)
     editBox:SetPoint("RIGHT", pickButton, "LEFT", -8, 0)
     StyleEditBox(editBox, "GameFontHighlight")
     editBox:SetAutoFocus(false)
-    CreateBackdrop(editBox, THEME.input, {0, 0, 0, 1})  -- UF 통일
+    CreateBackdrop(editBox, THEME.input, THEME.border)
 
     -- 초기값 설정
     if option.get then
