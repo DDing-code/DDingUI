@@ -1,7 +1,7 @@
 ## Title: |cffffffffDDing|r|cffff4444UI|r |cffffffffProfile|r
 ## Notes: DDingUI 프로필 자동 설치 애드온
 ## Author: DDing
-## Version: 1.3.1
+## Version: 2.1
 ## SavedVariables: DDingUIProfileDB
 ## OptionalDeps:
 ## Interface: 120005

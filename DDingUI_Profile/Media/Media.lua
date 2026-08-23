@@ -22,7 +22,7 @@ LSM:Register("statusbar", "DDing BuiOnePixel",     mediaPath .. "Textures\\BuiOn
 LSM:Register("statusbar", "DD SL Bracket",         mediaPath .. "Textures\\SL_Bracket.tga")
 
 ------------------------------------------------------------------------
--- 사운드 (47)
+-- 사운드 (71)
 ------------------------------------------------------------------------
 LSM:Register("sound", "DD Aggro",                  mediaPath .. "Sounds\\aggro.ogg")
 LSM:Register("sound", "DD Air Horn",               mediaPath .. "Sounds\\AirHorn.ogg")
@@ -42,6 +42,13 @@ LSM:Register("sound", "DD Alert Kick Punch",       mediaPath .. "Sounds\\DD_Aler
 LSM:Register("sound", "DD Ancestral Win",          mediaPath .. "Sounds\\DD_Ancestral Win.ogg")
 LSM:Register("sound", "DD Award Win",              mediaPath .. "Sounds\\DD_Award Win.ogg")
 LSM:Register("sound", "DD Bloodlust",              mediaPath .. "Sounds\\DD_bloodlust.ogg")
+LSM:Register("sound", "DD Bloodlust Ready",        mediaPath .. "Sounds\\DD_bloodlust_ready.ogg")
+LSM:Register("sound", "DD Bloodlust Available",    mediaPath .. "Sounds\\DD_bloodlust_available.ogg")
+LSM:Register("sound", "DD Bloodlust End",          mediaPath .. "Sounds\\DD_bloodlust_end.ogg")
+LSM:Register("sound", "DD Combat Start",           mediaPath .. "Sounds\\DD_combat_start.ogg")
+LSM:Register("sound", "DD Combat End",             mediaPath .. "Sounds\\DD_combat_end.ogg")
+LSM:Register("sound", "DD Party Full",             mediaPath .. "Sounds\\DD_party_full.ogg")
+LSM:Register("sound", "DD Party Application",      mediaPath .. "Sounds\\DD_party_application.ogg")
 LSM:Register("sound", "DD Celestial Win",          mediaPath .. "Sounds\\DD_Celestial Win.ogg")
 LSM:Register("sound", "DD Ding Alert",             mediaPath .. "Sounds\\DD_Ding-Sound-Effect-Alert.ogg")
 LSM:Register("sound", "DD Music Accent",           mediaPath .. "Sounds\\DD_MusicAccent EC09_07_1.ogg")
