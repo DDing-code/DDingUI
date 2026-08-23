@@ -3114,8 +3114,13 @@ function Widgets.CreateHeader(parent, option, yOffset, sectionKey)
         name = name()
     end
 
-    -- Check collapsed state
-    local isCollapsed = sectionKey and (CollapsedGroups[sectionKey] == true) or false  -- nil = 펼침 (기본)
+    -- An unset value follows the section's requested initial state. Once the
+    -- user toggles it, the explicit value in CollapsedGroups wins.
+    local storedCollapsed = sectionKey and CollapsedGroups[sectionKey]
+    local isCollapsed = sectionKey and (
+        storedCollapsed == true
+        or (storedCollapsed == nil and option.defaultCollapsed == true)
+    ) or false
 
     -- Collapse/Expand arrow button
     local collapseBtn = CreateFrame("Button", nil, frame)
@@ -3131,6 +3136,7 @@ function Widgets.CreateHeader(parent, option, yOffset, sectionKey)
     frame.collapseBtn = collapseBtn
     frame._sectionKey = sectionKey
     frame._isCollapsed = isCollapsed
+    frame._lazyUnrendered = isCollapsed and option.lazy == true
 
     collapseBtn:SetScript("OnEnter", function(self)
         self.arrow:SetTextColor(SL.GetColor("accent"))

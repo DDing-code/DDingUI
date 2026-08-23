@@ -776,6 +776,13 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
             end
         end
 
+        if not isHidden and currentSectionCollapsed
+            and currentHeaderWidget and currentHeaderWidget._lazySection
+            and option.type ~= "header"
+        then
+            isHidden = true
+        end
+
         if not isHidden then
             local widget = nil
 
@@ -1115,22 +1122,30 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 -- Track this as current section
                 currentHeaderWidget = widget
                 currentSectionKey = sectionKey
-                currentSectionCollapsed = CollapsedGroups[sectionKey] == true  -- nil = 펼침 (기본)
+                currentSectionCollapsed = widget._isCollapsed == true
+                widget._lazySection = option.lazy == true
                 sectionWidgets[sectionKey] = {}
 
                 -- Set up collapse button click handler
                 if widget.collapseBtn then
                     widget.collapseBtn:SetScript("OnClick", function(self)
                         local sk = widget._sectionKey
-                        local collapsed = CollapsedGroups[sk] == true  -- nil = 펼침 (기본)
+                        local collapsed = widget._isCollapsed == true
 
                         if collapsed then
                             -- Expand
                             CollapsedGroups[sk] = false
+                            widget._isCollapsed = false
+                            if widget._lazyUnrendered and parentFrame and parentFrame.SoftRefresh then
+                                widget._lazyUnrendered = false
+                                parentFrame:SoftRefresh()
+                                return
+                            end
                             self.arrow:SetText("▼")
                         else
                             -- Collapse
                             CollapsedGroups[sk] = true
+                            widget._isCollapsed = true
                             self.arrow:SetText("▶")
                         end
 
@@ -1213,13 +1228,17 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
                 -- Generate unique key for collapse state
                 local groupKey = table.concat(path or {}, ".") .. "." .. key
-                local isCollapsed = CollapsedGroups[groupKey] == true  -- nil = 펼침 (기본)
+                local storedCollapsed = CollapsedGroups[groupKey]
+                local isCollapsed = storedCollapsed == true
+                    or (storedCollapsed == nil and option.defaultCollapsed == true)
 
                 -- Foldable group frame (no background)
                 local groupFrame = CreateFrame("Frame", nil, contentFrame)
                 groupFrame:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -yOffset)
                 groupFrame:SetPoint("RIGHT", contentFrame, "RIGHT", 0, 0)
                 groupFrame._groupKey = groupKey
+                groupFrame._isCollapsed = isCollapsed
+                groupFrame._lazyUnrendered = isCollapsed and option.lazy == true
 
                 -- 상단 구분선
                 local topLine = groupFrame:CreateTexture(nil, "ARTWORK")
@@ -1268,19 +1287,20 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 end
                 table.sort(inlineSorted, function(a, b) return a.order < b.order end)
 
-                for _, inlineItem in ipairs(inlineSorted) do
-                    -- Skip if hidden (not disabled - disabled shows but greyed out)
-                    local inlineHidden = false
-                    if inlineItem.option.hidden then
-                        if type(inlineItem.option.hidden) == "function" then
-                            inlineHidden = inlineItem.option.hidden()
-                        else
-                            inlineHidden = inlineItem.option.hidden
+                if not groupFrame._lazyUnrendered then
+                    for _, inlineItem in ipairs(inlineSorted) do
+                        -- Skip if hidden (not disabled - disabled shows but greyed out)
+                        local inlineHidden = false
+                        if inlineItem.option.hidden then
+                            if type(inlineItem.option.hidden) == "function" then
+                                inlineHidden = inlineItem.option.hidden()
+                            else
+                                inlineHidden = inlineItem.option.hidden
+                            end
                         end
-                    end
-                    if not inlineHidden then
-                        local inlineWidget = nil
-                        local inlineHeight = 0
+                        if not inlineHidden then
+                            local inlineWidget = nil
+                            local inlineHeight = 0
 
                         if inlineItem.option.type == "toggle" then
                             inlineWidget = Widgets.CreateToggle(contentContainer, inlineItem.option, inlineYOffset, options)
@@ -1399,12 +1419,13 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                             inlineHeight = nestedYOffset + 10
                         end
 
-                        if inlineWidget then
-                            inlineWidget:SetParent(contentContainer)
-                            inlineWidget:Show()
-                            table.insert(groupFrame._contentWidgets, inlineWidget)
-                            table.insert(contentFrame.widgets, inlineWidget)
-                            inlineYOffset = inlineYOffset + inlineHeight + 4
+                            if inlineWidget then
+                                inlineWidget:SetParent(contentContainer)
+                                inlineWidget:Show()
+                                table.insert(groupFrame._contentWidgets, inlineWidget)
+                                table.insert(contentFrame.widgets, inlineWidget)
+                                inlineYOffset = inlineYOffset + inlineHeight + 4
+                            end
                         end
                     end
                 end
@@ -1429,17 +1450,24 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                     local gf = self:GetParent()
                     local gKey = gf._groupKey
                     local cc = gf._contentContainer
-                    local collapsed = CollapsedGroups[gKey] == true  -- nil = 펼침 (기본)
+                    local collapsed = gf._isCollapsed == true
 
                     if collapsed then
                         -- Expand
                         CollapsedGroups[gKey] = false
+                        gf._isCollapsed = false
+                        if gf._lazyUnrendered and parentFrame and parentFrame.SoftRefresh then
+                            gf._lazyUnrendered = false
+                            parentFrame:SoftRefresh()
+                            return
+                        end
                         cc:Show()
                         gf:SetHeight(gf._contentHeight + 28 + 10)
                         self.arrow:SetText("-")
                     else
                         -- Collapse
                         CollapsedGroups[gKey] = true
+                        gf._isCollapsed = true
                         cc:Hide()
                         gf:SetHeight(gf._collapsedHeight)
                         self.arrow:SetText("+")

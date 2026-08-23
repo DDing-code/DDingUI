@@ -6847,10 +6847,16 @@ end
 
 local function BuildUnifiedIconSettingsArgs(groupName)
     local args = {}
+    local selected = DDingUI:GetGroupIconDetailSelection(groupName)
     local details = DDingUI:BuildGroupIconDetailArgs(groupName)
     if details.selected then
         details.selected.order = -20
         args.selected = details.selected
+    end
+
+    if not selected then
+        args.empty = details.empty
+        return args
     end
 
     local trinketPreset = BuildTrinketEffectPreset(groupName)
@@ -6863,10 +6869,19 @@ local function BuildUnifiedIconSettingsArgs(groupName)
         args.trinketEffectPreset = trinketPreset
     end
 
+    args.detailsSection = {
+        type = "header",
+        name = rawget(L, "Icon Settings") or "Icon Settings",
+        order = 9,
+    }
+    CopyOptionArgs(args, details, "detail_", 10, "selected")
+
     args.stateSection = {
         type = "header",
         name = rawget(L, "State Display") or "State Display",
-        order = 9,
+        order = 200,
+        defaultCollapsed = true,
+        lazy = true,
     }
     CopyOptionArgs(
         args,
@@ -6874,23 +6889,8 @@ local function BuildUnifiedIconSettingsArgs(groupName)
             and DDingUI:BuildGroupStateStudioArgs(groupName)
             or {},
         "state_",
-        10
+        210
     )
-
-    args.detailsSection = {
-        type = "header",
-        name = rawget(L, "Basic and Linked Effects") or "Basic and Linked Effects",
-        order = 200,
-    }
-    CopyOptionArgs(args, details, "detail_", 210, "selected")
-    return args
-end
-
-local function BuildGroupAppearanceArgs(groupName)
-    local args = {}
-    CopyOptionArgs(args, BuildCustomTextArgs(groupName), "text_", 0)
-    CopyOptionArgs(args, BuildGroupSwipeArgs(groupName), "swipe_", 100)
-    CopyOptionArgs(args, DDingUI:BuildGroupGlowArgs(groupName, true), "glow_", 200)
     return args
 end
 
@@ -7271,13 +7271,6 @@ local function CreateGroupOptions(groupName, order)
             end
         end,
     } or nil
-    layoutArgs.unassignedIconGrid = {
-        type = "groupUnassignedIconGrid",
-        groupName = groupName,
-        order = -28,
-        width = "full",
-    }
-
     local offsetArgs = {}
     local offsetKeys = {
         "anchorSettingsHeader",
@@ -7295,24 +7288,18 @@ local function CreateGroupOptions(groupName, order)
         layoutArgs[key] = nil
     end
 
-    args.layout = {
-        type = "group",
-        name = L["Layout"] or "배치",
-        order = 10,
-        args = layoutArgs,
-    }
-
     args.iconSettings = {
         type = "group",
-        name = rawget(L, "Icon Settings") or "Icon Settings",
-        order = 15,
+        name = rawget(L, "Icon") or "Icon",
+        order = 10,
         args = BuildUnifiedIconSettingsArgs(groupName),
     }
 
     -- ========== 2. 스펠 관리 ==========
     local showInlineAddOptions = false
     local showAdvanced = showInlineAddOptions
-    args.spellManagement = {
+    if showInlineAddOptions then
+        args.spellManagement = {
         type = "group",
         name = L["Spell Management"] or "스펠 관리",
         order = 20,
@@ -7691,24 +7678,11 @@ local function CreateGroupOptions(groupName, order)
                 end,
             } or nil,
         },
-    }
+        }
+    end
 
-    -- Spell management controls now live at the top of the layout tab.
+    -- Adding and catalog browsing are handled by the preview toolbar.
     args.spellManagement = nil
-
-    args.appearance = {
-        type = "group",
-        name = rawget(L, "Group Appearance") or "Group Appearance",
-        order = 20,
-        args = BuildGroupAppearanceArgs(groupName),
-    }
-
-    args.animation = {
-        type = "group",
-        name = L["Animation"] or "애니메이션",
-        order = 30,
-        args = BuildGroupAnimationArgs(groupName),
-    }
 
     -- Viewer-specific party and raid offsets share the group offset tab.
     if isCDM and viewerKey and ns.CreateSingleViewerOptions then
@@ -7728,11 +7702,88 @@ local function CreateGroupOptions(groupName, order)
         end
     end
 
-    args.offsets = {
+    local appearanceArgs = {}
+    for _, key in ipairs({
+        "stylePreset", "iconSize", "spacing", "borderSize", "borderColor",
+        "zoom", "aspectRatio", "groupAlpha",
+    }) do
+        appearanceArgs[key] = layoutArgs[key]
+        layoutArgs[key] = nil
+    end
+    layoutArgs.appearanceHeader = nil
+    layoutArgs.layoutHeader = nil
+
+    local enabledOption = layoutArgs.enabled
+    layoutArgs.enabled = nil
+
+    args.groupSettings = {
         type = "group",
-        name = L["Offsets"] or "Offsets",
-        order = 40,
-        args = offsetArgs,
+        name = rawget(L, "Group") or "Group",
+        order = 20,
+        args = {
+            enabled = enabledOption,
+            appearance = {
+                type = "group",
+                inline = true,
+                name = L["Appearance"] or "Appearance",
+                order = 10,
+                args = appearanceArgs,
+            },
+            layout = {
+                type = "group",
+                inline = true,
+                name = L["Layout"] or "Layout",
+                order = 20,
+                defaultCollapsed = true,
+                lazy = true,
+                args = layoutArgs,
+            },
+            text = {
+                type = "group",
+                inline = true,
+                name = L["Text"] or "Text",
+                order = 30,
+                defaultCollapsed = true,
+                lazy = true,
+                args = BuildCustomTextArgs(groupName),
+            },
+            swipe = {
+                type = "group",
+                inline = true,
+                name = L["Swipe"] or "Swipe",
+                order = 40,
+                defaultCollapsed = true,
+                lazy = true,
+                args = BuildGroupSwipeArgs(groupName),
+            },
+            glow = {
+                type = "group",
+                inline = true,
+                name = L["Glow"] or "Glow",
+                order = 50,
+                defaultCollapsed = true,
+                lazy = true,
+                args = DDingUI:BuildGroupGlowArgs(groupName, true),
+            },
+            animation = {
+                type = "group",
+                inline = true,
+                name = L["Animation"] or "Animation",
+                order = 60,
+                defaultCollapsed = true,
+                lazy = true,
+                args = BuildGroupAnimationArgs(groupName),
+            },
+            position = {
+                type = "group",
+                inline = true,
+                name = L["Position"] or "Position",
+                order = 70,
+                defaultCollapsed = true,
+                lazy = true,
+                args = offsetArgs,
+            },
+        },
     }
 
     return {
