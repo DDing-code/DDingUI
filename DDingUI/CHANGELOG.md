@@ -2,6 +2,31 @@
 
 ---
 
+## v2.1.3
+
+_Release date: 2026-08-23_
+_Scope: Git changes from v2.1.2.1 through this release._
+
+### English Patch Notes
+- Rebuilt the settings experience around consistent task-based workspaces for CDM bars, Custom Auras, resource bars, cast bars, tracked bars, and profile management, with clearer navigation and a persistent live preview.
+- Consolidated icon state, active-effect, glow, swipe, text, and animation controls into a more direct editing flow, while stabilizing selection, folding, scrolling, compact sliders, and submenu cleanup during refreshes.
+- Added native trinket active-effect presentation for on-use and proc effects, including effect icons, duration and stack display, glow controls, and state-aware cooldown presentation.
+- Restored Custom Aura action editing and improved legacy profile recovery, tracker identity matching, container-driven trigger glows, and visibility after catalog or specialization changes.
+- Standardized cooldown, duration, and stack text settings across specializations and custom effects so inherited fonts, anchors, offsets, and visibility remain consistent.
+- Fixed hidden or unavailable item handling: hidden items remain attached to their group, the per-item "Hide When Empty" control is available again, and group status indicators now follow the actual enabled state.
+- Stabilized "Hide Active Effect" so active overlays are replaced by a grayscale icon with the regular cooldown swipe and cooldown text without repeated flashing.
+- Added solid and gradient bar-color palettes, corrected class-color live previews for cast and resource bars, centered bar previews, and deferred profile export generation until requested.
+
+### Korean Patch Notes
+- CDM 바, 커스텀 오라, 자원 바, 시전 바, 추적중인 막대 및 프로필 관리를 일관된 작업 중심 화면으로 개편하고 탐색 구조를 명확하게 정리했으며 실시간 미리보기를 계속 확인할 수 있도록 구성했습니다.
+- 아이콘 상태, 활성 효과, 글로우, 스와이프, 텍스트 및 애니메이션 설정을 더 직접적인 편집 흐름으로 통합하고 갱신 중 선택 유지, 접기, 스크롤, 컴팩트 슬라이더 및 하위 메뉴 정리를 안정화했습니다.
+- 사용 및 착용 발동형 장신구 효과를 기본 CDM 흐름에 연동하여 효과 아이콘, 지속시간과 중첩 표시, 글로우 설정 및 상태에 맞는 재사용 대기시간 표시를 지원합니다.
+- 커스텀 오라 동작 편집을 복구하고 구형 프로필 복원, 추적기 식별, 오라 컨테이너 기반 트리거 글로우 및 카탈로그·전문화 변경 후 표시 안정성을 개선했습니다.
+- 전문화와 커스텀 효과에 따라 달라지던 재사용 대기시간, 지속시간 및 중첩 텍스트 설정을 정규화하여 상속된 글꼴, 앵커, 오프셋 및 표시 여부가 일관되게 유지됩니다.
+- 숨김 및 미보유 아이템 처리를 수정하여 숨겨진 아이템이 그룹 앵커에서 이탈하지 않도록 하고 아이템별 `보유하지 않을 때 숨기기` 설정을 복구했으며 그룹 상태 표시가 실제 활성화 여부를 따르도록 변경했습니다.
+- `지속 효과 숨기기` 사용 시 활성 오버레이 대신 흑백 아이콘, 일반 재사용 대기 스와이프 및 재사용 대기시간 텍스트가 깜빡임 없이 유지되도록 안정화했습니다.
+- 바 색상에 단색 및 그라데이션 팔레트를 추가하고 시전 바·자원 바의 직업 색상 미리보기와 바 미리보기 위치를 수정했으며 프로필 내보내기는 요청할 때만 생성하도록 변경했습니다.
+
 ## v2.1.2.1
 
 _Release date: 2026-08-22_
