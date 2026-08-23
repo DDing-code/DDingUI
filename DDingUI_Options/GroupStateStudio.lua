@@ -611,6 +611,7 @@ function DDingUI:BuildGroupStateStudioArgs(groupName)
 end
 
 local function CreateEdges(frame, layer, subLevel)
+    subLevel = math.max(-8, math.min(7, tonumber(subLevel) or 0))
     local edges = {}
     for index = 1, 4 do
         edges[index] = frame:CreateTexture(nil, layer, nil, subLevel)
@@ -762,7 +763,7 @@ local function AddStatePreview(iconFrame, context, state, font)
     end
 
     if IsGlowEnabled(context, state) then
-        local glow = CreateEdges(iconFrame, "OVERLAY", 8)
+        local glow = CreateEdges(iconFrame, "OVERLAY", 7)
         local r, g, b, a = GetGlowColor(context)
         SetEdges(glow, r, g, b, a, 3)
     end
