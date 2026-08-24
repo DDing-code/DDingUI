@@ -401,7 +401,9 @@ end
 function Migration:QueueStoredSpecMigration()
     if self._storedSpecMigrationQueued then return end
     local SP = DDingUI.SpecProfiles
-    if not SP or type(SP.MutateStoredSpecs) ~= "function" or not C_Timer or not C_Timer.After then
+    local canMutateModule = SP and type(SP.MutateStoredSpecModuleAsync) == "function"
+    local canMutateProfile = SP and type(SP.MutateStoredSpecs) == "function"
+    if not SP or (not canMutateModule and not canMutateProfile) or not C_Timer or not C_Timer.After then
         return
     end
 
@@ -422,15 +424,32 @@ function Migration:QueueStoredSpecMigration()
             return
         end
 
-        Migration._storedSpecMigrationQueued = nil
-        SP:MutateStoredSpecs(function(snapshot)
-            local changed = Migration:NormalizeProfileSnapshot(snapshot)
+        local function NormalizeStoredConfig(rootCfg)
+            local changed = NormalizeBuffTrackerConfig(rootCfg)
             if changed > 0 then
                 diagnostics.storedSpecsMigrated = diagnostics.storedSpecsMigrated + changed
                 return true
             end
             return false
+        end
+
+        if canMutateModule then
+            local started = SP:MutateStoredSpecModuleAsync("buffTrackerBar", NormalizeStoredConfig, function(_, aborted)
+                Migration._storedSpecMigrationQueued = nil
+                if aborted then
+                    Migration:QueueStoredSpecMigration()
+                end
+            end)
+            if not started then
+                Migration._storedSpecMigrationQueued = nil
+            end
+            return
+        end
+
+        SP:MutateStoredSpecs(function(snapshot)
+            return NormalizeStoredConfig(snapshot.buffTrackerBar)
         end)
+        Migration._storedSpecMigrationQueued = nil
     end
     C_Timer.After(0, TryMigrate)
 end

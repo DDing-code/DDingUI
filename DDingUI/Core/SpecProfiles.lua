@@ -417,6 +417,95 @@ function SP:MutateStoredSpecs(mutator)
     return changed
 end
 
+local function ExpandStoredModule(profile, stored, moduleKey)
+    if type(profile) ~= "table" or type(stored) ~= "table" or not moduleKey then return nil end
+
+    local defaults = DDingUI.defaults and DDingUI.defaults.profile
+    local moduleDefaults = defaults and type(defaults[moduleKey]) == "table" and defaults[moduleKey] or nil
+    if IsDeltaSnapshot(stored) and type(profile.specDataBase) == "table" then
+        local baseline = FullSnapshot(profile.specDataBase[moduleKey], moduleDefaults, false)
+        local moduleDelta = stored.changes[moduleKey]
+        local expanded
+        if IsDeleteMarker(moduleDelta) then
+            expanded = FullSnapshot(nil, moduleDefaults, false)
+        else
+            expanded = DeepCopy(baseline)
+            if type(moduleDelta) == "table" then
+                ApplyDelta(expanded, moduleDelta)
+            elseif moduleDelta ~= nil then
+                expanded = DeepCopy(moduleDelta)
+            end
+            expanded = FullSnapshot(expanded, moduleDefaults, false)
+        end
+        return expanded, baseline
+    end
+
+    return FullSnapshot(stored[moduleKey], moduleDefaults, false), nil
+end
+
+local function StoreStoredModule(profile, stored, moduleKey, moduleSnapshot, baseline)
+    if IsDeltaSnapshot(stored) and type(profile.specDataBase) == "table" then
+        baseline = baseline or {}
+        local moduleDelta, changed = BuildDelta(moduleSnapshot, baseline)
+        stored.changes[moduleKey] = changed and moduleDelta or nil
+    else
+        stored[moduleKey] = DeepCopy(moduleSnapshot)
+    end
+end
+
+-- Module-scoped stored-spec migration. Large profiles stay delta-encoded and
+-- each specialization is processed on a separate frame.
+function SP:MutateStoredSpecModuleAsync(moduleKey, mutator, onComplete)
+    if type(moduleKey) ~= "string" or type(mutator) ~= "function"
+        or not DDingUI.db or not DDingUI.db.profile
+    then
+        return false
+    end
+
+    local profile = DDingUI.db.profile
+    local queue = {}
+    for specID in pairs(profile.specData or {}) do
+        queue[#queue + 1] = specID
+    end
+    table.sort(queue, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+
+    local index = 1
+    local changed = false
+    local function Finish(aborted)
+        if type(onComplete) == "function" then
+            onComplete(changed, aborted == true)
+        end
+    end
+
+    local function MutateNext()
+        if not DDingUI.db or DDingUI.db.profile ~= profile then
+            Finish(true)
+            return
+        end
+
+        local specID = queue[index]
+        if not specID then
+            Finish(false)
+            return
+        end
+
+        local stored = profile.specData and profile.specData[specID]
+        local moduleSnapshot, baseline = ExpandStoredModule(profile, stored, moduleKey)
+        if moduleSnapshot and mutator(moduleSnapshot, specID) then
+            StoreStoredModule(profile, stored, moduleKey, moduleSnapshot, baseline)
+            changed = true
+        end
+
+        index = index + 1
+        C_Timer.After(0, MutateNext)
+    end
+
+    C_Timer.After(0, MutateNext)
+    return true
+end
+
 function SP:LoadSpec(specID)
     if not specID or not DDingUI.db or not DDingUI.db.profile then return false end
     local specData = DDingUI.db.profile.specData
