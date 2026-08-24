@@ -3,9 +3,11 @@
 -- Named color lookup
 -- 기존 Colors.lua의 테이블 구조와 호환되며 이름으로 빠르게 접근
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.GetColor then return end
 
 local format = string.format
 

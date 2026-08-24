@@ -50,6 +50,30 @@ local MODULES = {
         descKey = "NEW_MODULE_POPUP_READY_DESC",
         icon = "Interface\\Icons\\INV_Misc_Note_01",
     },
+    {
+        id = "RaidGroups-2.1.3",
+        introducedVersion = "2.1.3",
+        module = "RaidGroups",
+        titleKey = "RAIDGROUPS_TITLE",
+        descKey = "NEW_MODULE_POPUP_RAIDGROUPS_DESC",
+        icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend",
+    },
+    {
+        id = "RaidPreparation-2.1.3",
+        introducedVersion = "2.1.3",
+        module = "RaidPreparation",
+        titleKey = "RAIDPREP_TITLE",
+        descKey = "NEW_MODULE_POPUP_RAIDPREP_DESC",
+        icon = "Interface\\Icons\\INV_Misc_Note_01",
+    },
+    {
+        id = "RaidPartyTooltip-2.1.3",
+        introducedVersion = "2.1.3",
+        module = "RaidPartyTooltip",
+        titleKey = "RPT_TITLE",
+        descKey = "NEW_MODULE_POPUP_RPT_DESC",
+        icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend",
+    },
 }
 
 local function VersionParts(version)
@@ -143,6 +167,13 @@ function Popup:MarkSeen(entries)
 end
 
 function Popup:CreateFrame(entries)
+    local P = ns.UI and ns.UI.popupColors or {
+        background = { 0.10, 0.10, 0.10, 0.985 }, control = { 0.06, 0.06, 0.06, 0.94 },
+        hover = { 0.14, 0.14, 0.15, 0.96 }, border = { 0.30, 0.30, 0.32, 0.82 },
+        borderSoft = { 0.25, 0.25, 0.25, 0.50 }, separator = { 0.20, 0.20, 0.20, 0.40 },
+        accent = { 0.16, 0.58, 0.68, 0.80 }, accentText = { 0.42, 0.76, 0.82, 1 },
+        text = { 0.85, 0.85, 0.85, 1 }, textBright = { 1, 1, 1, 1 }, textDim = { 0.60, 0.60, 0.60, 1 },
+    }
     local frameHeight = 156 + (#entries * 60)
     local frame = CreateFrame("Frame", "DDingUIToolkitNewModulePopup", UIParent, "BackdropTemplate")
     frame:SetSize(540, frameHeight)
@@ -157,23 +188,23 @@ function Popup:CreateFrame(entries)
         edgeFile = SOLID,
         edgeSize = 1,
     })
-    frame:SetBackdropColor(0.035, 0.045, 0.060, 0.98)
-    frame:SetBackdropBorderColor(0.08, 0.72, 0.90, 0.92)
+    frame:SetBackdropColor(unpack(P.background))
+    frame:SetBackdropBorderColor(unpack(P.border))
 
     local accent = frame:CreateTexture(nil, "OVERLAY")
     accent:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
     accent:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
     accent:SetHeight(2)
-    accent:SetColorTexture(0.08, 0.78, 0.96, 1)
+    accent:SetColorTexture(unpack(P.accent))
     DisablePixelSnap(accent)
 
-    local title = AddFont(frame, 20, { 0.94, 0.97, 1.00, 1 }, L["NEW_MODULE_POPUP_TITLE"])
+    local title = AddFont(frame, 20, P.textBright, L["NEW_MODULE_POPUP_TITLE"])
     title:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -20)
 
     local version = AddFont(
         frame,
         12,
-        { 0.20, 0.82, 1.00, 1 },
+        P.accentText,
         string.format(L["NEW_MODULE_POPUP_VERSION"], ns.DDingToolKit.version)
     )
     version:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -48, -24)
@@ -181,7 +212,7 @@ function Popup:CreateFrame(entries)
     local subtitle = AddFont(
         frame,
         12,
-        { 0.67, 0.72, 0.78, 1 },
+        P.textDim,
         string.format(L["NEW_MODULE_POPUP_SUBTITLE"], #entries)
     )
     subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
@@ -195,13 +226,13 @@ function Popup:CreateFrame(entries)
     close:SetSize(28, 28)
     close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -9, -9)
     close:RegisterForClicks("LeftButtonUp")
-    local closeText = AddFont(close, 18, { 0.62, 0.68, 0.74, 1 }, "x")
+    local closeText = AddFont(close, 18, P.textDim, "x")
     closeText:SetPoint("CENTER", close, "CENTER", 0, 1)
     close:SetScript("OnEnter", function()
         closeText:SetTextColor(1, 1, 1, 1)
     end)
     close:SetScript("OnLeave", function()
-        closeText:SetTextColor(0.62, 0.68, 0.74, 1)
+        closeText:SetTextColor(unpack(P.textDim))
     end)
     close:SetScript("OnClick", function()
         frame:Hide()
@@ -211,7 +242,7 @@ function Popup:CreateFrame(entries)
     separator:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -92)
     separator:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -92)
     separator:SetHeight(1)
-    separator:SetColorTexture(0.18, 0.22, 0.27, 0.72)
+    separator:SetColorTexture(unpack(P.separator))
     DisablePixelSnap(separator)
 
     local previous
@@ -230,14 +261,14 @@ function Popup:CreateFrame(entries)
             edgeFile = SOLID,
             edgeSize = 1,
         })
-        row:SetBackdropColor(0.055, 0.070, 0.088, 0.92)
-        row:SetBackdropBorderColor(0.16, 0.20, 0.24, 0.92)
+        row:SetBackdropColor(unpack(P.control))
+        row:SetBackdropBorderColor(unpack(P.borderSoft))
 
         local iconBorder = CreateFrame("Frame", nil, row, "BackdropTemplate")
         iconBorder:SetSize(40, 40)
         iconBorder:SetPoint("LEFT", row, "LEFT", 7, 0)
         iconBorder:SetBackdrop({ edgeFile = SOLID, edgeSize = 1 })
-        iconBorder:SetBackdropBorderColor(0.08, 0.72, 0.90, 0.88)
+        iconBorder:SetBackdropBorderColor(unpack(P.accent))
 
         local icon = iconBorder:CreateTexture(nil, "ARTWORK")
         icon:SetPoint("TOPLEFT", iconBorder, "TOPLEFT", 1, -1)
@@ -245,30 +276,30 @@ function Popup:CreateFrame(entries)
         icon:SetTexture(ResolveIcon(entry))
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-        local rowTitle = AddFont(row, 14, { 0.92, 0.96, 1.00, 1 }, L[entry.titleKey])
+        local rowTitle = AddFont(row, 14, P.textBright, L[entry.titleKey])
         rowTitle:SetPoint("TOPLEFT", row, "TOPLEFT", 58, -9)
         rowTitle:SetPoint("RIGHT", row, "RIGHT", -120, 0)
         rowTitle:SetJustifyH("LEFT")
         rowTitle:SetWordWrap(false)
 
-        local description = AddFont(row, 11, { 0.59, 0.65, 0.71, 1 }, L[entry.descKey])
+        local description = AddFont(row, 11, P.textDim, L[entry.descKey])
         description:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 58, 9)
         description:SetPoint("RIGHT", row, "RIGHT", -120, 0)
         description:SetJustifyH("LEFT")
         description:SetWordWrap(false)
 
-        local openText = AddFont(row, 11, { 0.20, 0.82, 1.00, 1 }, L["NEW_MODULE_POPUP_OPEN"])
+        local openText = AddFont(row, 11, P.accentText, L["NEW_MODULE_POPUP_OPEN"])
         openText:SetPoint("RIGHT", row, "RIGHT", -12, 0)
 
         row:SetScript("OnEnter", function(self)
-            self:SetBackdropColor(0.075, 0.105, 0.128, 0.98)
-            self:SetBackdropBorderColor(0.08, 0.72, 0.90, 0.72)
-            openText:SetTextColor(0.58, 0.94, 1.00, 1)
+            self:SetBackdropColor(unpack(P.hover))
+            self:SetBackdropBorderColor(unpack(P.border))
+            openText:SetTextColor(unpack(P.textBright))
         end)
         row:SetScript("OnLeave", function(self)
-            self:SetBackdropColor(0.055, 0.070, 0.088, 0.92)
-            self:SetBackdropBorderColor(0.16, 0.20, 0.24, 0.92)
-            openText:SetTextColor(0.20, 0.82, 1.00, 1)
+            self:SetBackdropColor(unpack(P.control))
+            self:SetBackdropBorderColor(unpack(P.borderSoft))
+            openText:SetTextColor(unpack(P.accentText))
         end)
         row:SetScript("OnClick", function()
             frame:Hide()

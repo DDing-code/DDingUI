@@ -3,9 +3,11 @@
 -- Mathematical glow engine (DDingUI Procedural Ants + Shape Glow)
 -- Taint-free: uses OnUpdate + trigonometry instead of AnimationGroup
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.ProceduralGlow then return end
 
 local sin, cos, abs, floor, max, min = math.sin, math.cos, math.abs, math.floor, math.max, math.min
 local PI2 = 6.2831853  -- 2π

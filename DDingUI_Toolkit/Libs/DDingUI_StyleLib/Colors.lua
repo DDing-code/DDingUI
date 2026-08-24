@@ -2,9 +2,11 @@
 -- DDingUI_StyleLib :: Colors
 -- Common colour palette (design-system single source)
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.Colors then return end
 
 Lib.Colors = {
     -- Backgrounds (matched to CLAUDE.md / UF design spec)

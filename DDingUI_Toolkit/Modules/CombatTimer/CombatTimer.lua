@@ -60,6 +60,7 @@ end
 
 -- 비활성화
 function CombatTimer:OnDisable()
+    if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CombatTimer") end
     if eventFrame then
         eventFrame:UnregisterAllEvents()
     end
@@ -235,10 +236,21 @@ function CombatTimer:StartTimer()
         local soundFile = self.db.soundFile
         local customPath = self.db.soundCustomPath
         local channel = self.db.soundChannel or "Master"
-        if (customPath and customPath ~= "") or (soundFile and soundFile ~= "") then
+        local soundKit = (SOUNDKIT and SOUNDKIT.UI_BATTLEGROUND_COUNTDOWN_GO) or 8959
+        if ns.RequestSound then
+            ns:RequestSound({
+                source = "CombatTimer",
+                key = "combat-start",
+                soundFile = soundFile,
+                customPath = customPath,
+                soundKit = soundKit,
+                channel = channel,
+                priority = 55,
+            })
+        elseif (customPath and customPath ~= "") or (soundFile and soundFile ~= "") then
             ns:PlaySound(soundFile, channel, customPath)
         else
-            PlaySound(SOUNDKIT.UI_BATTLEGROUND_COUNTDOWN_GO or 8959, channel)
+            PlaySound(soundKit, channel)
         end
     end
 end

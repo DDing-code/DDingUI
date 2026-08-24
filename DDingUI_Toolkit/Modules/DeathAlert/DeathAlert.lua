@@ -69,9 +69,21 @@ local function HasSoundSelection(key)
     return type(key) == "string" and key ~= "" and key ~= "None"
 end
 
-local function PlayDeathSound(key, channel)
+local function PlayDeathSound(key, channel, eventKey, priority, immediate)
     local soundFile = ResolveSoundFile(key)
     if not soundFile then return false end
+
+    if ns.RequestSound then
+        return ns:RequestSound({
+            source = "DeathAlert",
+            key = eventKey or "death",
+            soundFile = soundFile,
+            channel = channel or "Master",
+            priority = priority or 75,
+            dedupeWindow = 0,
+            immediate = immediate == true,
+        })
+    end
 
     local played, willPlay = pcall(PlaySoundFile, soundFile, channel or "Master")
     return played and willPlay ~= false
@@ -264,7 +276,7 @@ end
 ------------------------------------------------------
 -- Trigger Logic
 ------------------------------------------------------
-function DeathAlert:ShowMessage(text, role, name)
+function DeathAlert:ShowMessage(text, role, name, isTest)
     if not msgFrame then CreateMessageFrame() end
     local db = ns.db.profile.DeathAlert
     if not db then return end
@@ -311,24 +323,24 @@ function DeathAlert:ShowMessage(text, role, name)
 
         -- 본인 사망
         if db.enablePlayerSound and name == UnitName("player") and HasSoundSelection(db.playerSound) then
-            PlayDeathSound(db.playerSound, db.soundChannel)
+            PlayDeathSound(db.playerSound, db.soundChannel, "player-death", 100, isTest)
             playedRoleSound = true
         end
 
         -- 직업별 사운드
         if not playedRoleSound then
             if role == "TANK" and HasSoundSelection(db.tankSound) then
-                PlayDeathSound(db.tankSound, db.soundChannel)
+                PlayDeathSound(db.tankSound, db.soundChannel, "tank-death", 90, isTest)
                 playedRoleSound = true
             elseif role == "HEALER" and HasSoundSelection(db.healerSound) then
-                PlayDeathSound(db.healerSound, db.soundChannel)
+                PlayDeathSound(db.healerSound, db.soundChannel, "healer-death", 90, isTest)
                 playedRoleSound = true
             end
         end
 
         -- 일반 사운드
         if not playedRoleSound and HasSoundSelection(db.soundFile) then
-            PlayDeathSound(db.soundFile, db.soundChannel)
+            PlayDeathSound(db.soundFile, db.soundChannel, "group-death", 75, isTest)
         end
     end
 end
@@ -510,6 +522,7 @@ function DeathAlert:OnEnable()
 end
 
 function DeathAlert:OnDisable()
+    if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("DeathAlert") end
     isActive = false
     wipe(deadState)
     if msgFrame and msgFrame.bg then msgFrame.bg:Hide(); msgFrame:Hide() end
@@ -538,7 +551,7 @@ function DeathAlert:TestMode()
     local db = ns.db.profile.DeathAlert
     local iconStr = (db and db.enableRoleIcon) and (GetRoleIcon(role) .. " ") or ""
 
-    self:ShowMessage(iconStr .. coloredName .. " 사망! (테스트)", role, name)
+    self:ShowMessage(iconStr .. coloredName .. " 사망! (테스트)", role, name, true)
 end
 
 EnsureEventFrame()

@@ -56,6 +56,9 @@ local CATEGORY_DEFS = {
         panels = {
             "premadegroupfilter",
             "readycheckassistant",
+            "raidgroups",
+            "raidpreparation",
+            "raidpartytooltip",
             "partytracker",
             "mythicplus",
             "goldsplit",
@@ -68,6 +71,7 @@ local CATEGORY_DEFS = {
         label = L["WORKSPACE_ALERTS"],
         icon = ICON_ROOT .. "Alerts.tga",
         panels = {
+            "soundmanager",
             "lfgalert",
             "partyfullalert",
             "mailalert",

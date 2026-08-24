@@ -3,9 +3,11 @@
 -- 100+ design tokens (DDingUI pattern)
 -- Centralized visual constants for all DDingUI modules
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.Tokens then return end
 
 -- ============================================
 -- Design Tokens — single source of truth

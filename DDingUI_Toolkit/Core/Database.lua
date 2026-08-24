@@ -37,6 +37,9 @@ ns.defaults = {
             StasisTracker = false,
             BloodlustTimer = false,
             ReadyCheckAssistant = false,
+            RaidGroups = false,
+            RaidPreparation = false,
+            RaidPartyTooltip = false,
             AutoRepair = true,
             RaidLootPass = true,
             SkyridingTracker = true,
@@ -45,6 +48,27 @@ ns.defaults = {
         -- 전역 설정
         minimap = { hide = false, minimapPos = 225 },
         welcomeMessage = false,
+        SoundManager = {
+            enabled = true,
+            mode = "PRIORITY",
+            decisionWindow = 0.12,
+            defaultDuration = 1.2,
+            queueExpiry = 1.5,
+            fadeOut = 0.08,
+            pauseBackground = true,
+            priorityOffsets = {
+                FocusInterrupt = 0,
+                CastingAlert = 0,
+                DeathAlert = 0,
+                BloodlustTimer = 0,
+                CombatTimer = 0,
+                CombatStateAlert = 0,
+                PartyFullAlert = 0,
+                LFGAlert = 0,
+                DurabilityCheck = 0,
+                MailAlert = 0,
+            },
+        },
 
         -- TalentBG 설정
         TalentBG = {
@@ -65,7 +89,20 @@ ns.defaults = {
             alertPosition = "TOP",
             alertScale = 1.0,
             alertDuration = 5,
-            alertAnimation = "bounce",
+            animationEnabled = true,
+            designVersion = 2,
+            width = 500,
+            height = 112,
+            frameStrata = "FULLSCREEN_DIALOG",
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            fontSize = 24,
+            fontOutline = "OUTLINE",
+            titleColor = { 0.78, 0.94, 1.00, 1.00 },
+            subtitleColor = { 0.68, 0.80, 0.86, 1.00 },
+            lineColor = { 0.26, 0.76, 0.90, 0.82 },
+            accentColor = { 0.50, 0.68, 1.00, 0.82 },
+            panelColor = { 0.025, 0.075, 0.10, 0.78 },
+            glowColor = { 0.38, 0.82, 1.00, 0.20 },
             leaderOnly = false,
             cooldown = 2,
         },
@@ -100,6 +137,20 @@ ns.defaults = {
             soundChannel = "Master",
             alertScale = 1.0,
             alertDuration = 5,
+            animationEnabled = true,
+            designVersion = 2,
+            width = 500,
+            height = 112,
+            frameStrata = "FULLSCREEN_DIALOG",
+            font = SL and SL.Font.path or "Fonts\\2002.TTF",
+            fontSize = 24,
+            fontOutline = "OUTLINE",
+            titleColor = { 0.80, 1.00, 0.88, 1.00 },
+            subtitleColor = { 0.72, 0.86, 0.79, 1.00 },
+            lineColor = { 0.25, 0.88, 0.68, 0.84 },
+            accentColor = { 0.90, 0.72, 0.38, 0.88 },
+            panelColor = { 0.025, 0.09, 0.07, 0.80 },
+            glowColor = { 0.35, 0.95, 0.72, 0.20 },
             cooldown = 5,
             pollInterval = 0.4,
             position = {
@@ -448,9 +499,20 @@ ns.defaults = {
             soundChannel = "Master",
             locked = false,
             scale = 1.0,
+            designVersion = 2,
+            blinkEnabled = true,
+            blinkPeriod = 1.4,
+            width = 460,
+            height = 120,
+            frameStrata = "HIGH",
             titleSize = 24,
             percentSize = 36,
             font = SL and SL.Font.path or "Fonts\\2002.TTF", -- [12.0.1]
+            fontOutline = "OUTLINE",
+            titleColor = { 1.00, 0.82, 0.58, 1.00 },
+            lineColor = { 1.00, 0.54, 0.22, 0.88 },
+            panelColor = { 0.12, 0.045, 0.015, 0.82 },
+            glowColor = { 1.00, 0.30, 0.12, 0.20 },
             position = nil,  -- 저장된 위치
         },
 
@@ -656,6 +718,39 @@ ns.defaults = {
             textOffsetX = 0,
             textOffsetY = 0,
 
+            startMotionEnabled = true,
+            startMotionStyle = "SYSTEM",
+            startMotionText = "BLOODLUST",
+            startMotionDuration = 1.2,
+            startMotionWidth = 620,
+            startMotionHeight = 130,
+            startMotionScale = 1.0,
+            startMotionFrameStrata = "DIALOG",
+            startMotionStyleVersion = 4,
+            startMotionFont = SL and SL.Font.path or "Fonts\\2002.TTF",
+            startMotionFontSize = 38,
+            startMotionFontOutline = "OUTLINE",
+            startMotionTitleColor = { 1.00, 0.76, 0.30, 1.00 },
+            startMotionLineColor = { 0.70, 0.40, 0.10, 0.96 },
+            startMotionAccentColor = { 0.72, 0.015, 0.025, 0.98 },
+            startMotionPulseColor = { 1.00, 0.07, 0.025, 0.90 },
+            startMotionPanelColor = { 0.018, 0.002, 0.006, 0.90 },
+            startMotionGlowColor = { 0.88, 0.010, 0.015, 0.34 },
+            startMotionSystemTitleColor = { 1.00, 0.91, 0.82, 1.00 },
+            startMotionSystemRingColor = { 0.90, 0.92, 0.90, 0.94 },
+            startMotionSystemAccentColor = { 0.98, 0.025, 0.56, 0.94 },
+            startMotionSystemPulseColor = { 0.90, 0.025, 0.075, 0.94 },
+            startMotionSystemPanelColor = { 0.115, 0.002, 0.052, 0.82 },
+            startMotionSystemGlowColor = { 0.98, 0.025, 0.56, 0.34 },
+            startMotionSystemCrestColor = { 1.00, 0.82, 0.62, 1.00 },
+            startMotionSystemCrestCoreColor = { 0.90, 0.025, 0.075, 1.00 },
+            startMotionPosition = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = 40,
+            },
+
             animationEnabled = false,
             animationFolder = "DDingUI_Media\\Bloodlust",
             animationFile = "",
@@ -717,6 +812,78 @@ ns.defaults = {
             offsetY = -8,
         },
 
+        -- RaidGroups (editable 8 x 5 raid group layouts)
+        RaidGroups = {
+            showRoleIcons = true,
+            colorNames = true,
+            balancePattern = "ODD_EVEN",
+            autoCloseAfterApply = false,
+            showLauncher = true,
+            launcherRaidOnly = true,
+            scale = 1.0,
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = 20,
+            },
+            launcherPosition = {
+                point = "LEFT",
+                relativePoint = "LEFT",
+                x = 12,
+                y = 80,
+            },
+            currentLayout = {},
+            savedLayouts = {},
+            selectedLayoutName = "",
+        },
+
+        -- RaidPreparation (raid-wide ready and consumable overview)
+        RaidPreparation = {
+            autoOpen = true,
+            raidOnly = true,
+            leaderOnly = true,
+            hideComplete = false,
+            autoReport = false,
+            reportUnknown = false,
+            checkFood = true,
+            checkFlask = true,
+            checkRune = true,
+            checkRaidBuffs = true,
+            raidBuffAttackPower = true,
+            raidBuffStamina = true,
+            raidBuffIntellect = true,
+            raidBuffVersatility = true,
+            raidBuffMastery = true,
+            raidBuffMovement = true,
+            checkWeaponEnchant = false,
+            checkDurability = true,
+            durabilityThreshold = 30,
+            minimumBuffMinutes = 10,
+            closeAfterReadyCheck = false,
+            closeDelay = 5,
+            customFoodSpellIDs = "",
+            customFlaskSpellIDs = "",
+            customRuneSpellIDs = "",
+            scale = 1.0,
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = 10,
+            },
+        },
+
+        -- RaidPartyTooltip (subgroup class and armor counts)
+        RaidPartyTooltip = {
+            showOnMembers = true,
+            showOnEmptySlots = true,
+            showClassCounts = true,
+            showClassIcons = true,
+            showArmorCounts = true,
+            showZeroArmor = true,
+        },
+
         -- DeathAlert (party/raid death alert)
         DeathAlert = {
             onlyInstance = false,
@@ -753,6 +920,14 @@ ns.defaults = {
         RaidLootPass = {
             enabled = true,
             chatOutput = true,
+            excludeSelectedItems = false,
+            protectRecipes = true,
+            protectToys = true,
+            protectMounts = true,
+            protectPets = true,
+            protectAppearanceUnlocks = true,
+            protectHousingDecor = true,
+            protectQuestItems = true,
         },
 
         -- SkyridingTracker (활공 트래커) 설정
@@ -930,6 +1105,27 @@ local function MigrateCombatStateAlertDesign(profile)
     db.designVersion = 3
 end
 
+local function MigratePartyAlertDesign(profile)
+    if type(profile) ~= "table" then return end
+
+    for _, moduleName in ipairs({ "LFGAlert", "PartyFullAlert" }) do
+        local db = profile[moduleName]
+        if type(db) == "table" and (tonumber(db.designVersion) or 0) < 2 then
+            if db.animationEnabled == nil then
+                db.animationEnabled = moduleName ~= "LFGAlert" or db.alertAnimation ~= "none"
+            end
+            db.designVersion = 2
+        end
+    end
+end
+
+local function MigrateBloodlustStartMotionStyle(profile)
+    local db = type(profile) == "table" and profile.BloodlustTimer
+    if type(db) == "table" and db.startMotionStyle == nil then
+        db.startMotionStyle = "RITUAL"
+    end
+end
+
 -- 데이터베이스 초기화
 function ns:InitDB()
     ns.isFreshInstall = not (
@@ -943,10 +1139,14 @@ function ns:InitDB()
 
     MigrateCombatStateAlertColors(DDingUIToolkitDB.profile)
     MigrateCombatStateAlertDesign(DDingUIToolkitDB.profile)
+    MigratePartyAlertDesign(DDingUIToolkitDB.profile)
+    MigrateBloodlustStartMotionStyle(DDingUIToolkitDB.profile)
     if type(DDingUIToolkitDB.profiles) == "table" then
         for _, storedProfile in pairs(DDingUIToolkitDB.profiles) do
             MigrateCombatStateAlertColors(storedProfile)
             MigrateCombatStateAlertDesign(storedProfile)
+            MigratePartyAlertDesign(storedProfile)
+            MigrateBloodlustStartMotionStyle(storedProfile)
         end
     end
 

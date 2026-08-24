@@ -10,6 +10,16 @@ ns.ReadyCheckAssistant = ReadyCheckAssistant
 
 local DEFAULT_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
 local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
+local P = ns.UI and ns.UI.popupColors or {
+    background = { 0.10, 0.10, 0.10, 0.985 }, control = { 0.06, 0.06, 0.06, 0.94 },
+    hover = { 0.14, 0.14, 0.15, 0.96 }, footer = { 0.075, 0.075, 0.08, 0.98 },
+    border = { 0.30, 0.30, 0.32, 0.82 }, borderSoft = { 0.25, 0.25, 0.25, 0.50 },
+    separator = { 0.20, 0.20, 0.20, 0.40 }, accent = { 0.16, 0.58, 0.68, 0.80 },
+    accentText = { 0.42, 0.76, 0.82, 1 }, primary = { 0.09, 0.18, 0.20, 0.98 },
+    primaryHover = { 0.11, 0.23, 0.26, 1 }, primaryBorder = { 0.16, 0.50, 0.57, 0.84 },
+    primaryBorderHover = { 0.20, 0.62, 0.70, 0.94 }, text = { 0.85, 0.85, 0.85, 1 },
+    textBright = { 1, 1, 1, 1 }, textDim = { 0.60, 0.60, 0.60, 1 },
+}
 local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit")
     or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: "
 local PANEL_HEIGHT = 196
@@ -117,22 +127,22 @@ local function CreatePanelButton(parent, label, primary)
     local function ApplyVisual(state)
         if primary then
             if state == "pressed" then
-                SetBackdrop(button, { 0.04, 0.21, 0.27, 1 }, { 0.12, 0.54, 0.68, 1 })
+                SetBackdrop(button, P.primary, P.primaryBorder)
             elseif state == "hover" then
-                SetBackdrop(button, { 0.07, 0.36, 0.45, 1 }, { 0.22, 0.78, 0.92, 1 })
+                SetBackdrop(button, P.primaryHover, P.primaryBorderHover)
             else
-                SetBackdrop(button, { 0.05, 0.27, 0.35, 1 }, { 0.15, 0.65, 0.80, 1 })
+                SetBackdrop(button, P.primary, P.primaryBorder)
             end
-            button.label:SetTextColor(0.90, 0.97, 1.00, 1)
+            button.label:SetTextColor(unpack(P.textBright))
         else
             if state == "pressed" then
-                SetBackdrop(button, { 0.08, 0.15, 0.18, 1 }, { 0.22, 0.58, 0.70, 1 })
+                SetBackdrop(button, P.control, P.borderSoft)
             elseif state == "hover" then
-                SetBackdrop(button, { 0.10, 0.14, 0.17, 1 }, { 0.28, 0.66, 0.80, 1 })
+                SetBackdrop(button, P.hover, P.border)
             else
-                SetBackdrop(button, { 0.07, 0.08, 0.10, 1 }, { 0.25, 0.28, 0.33, 1 })
+                SetBackdrop(button, P.control, P.borderSoft)
             end
-            button.label:SetTextColor(0.86, 0.90, 0.95, 1)
+            button.label:SetTextColor(unpack(P.text))
         end
     end
 
@@ -347,30 +357,30 @@ function ReadyCheckAssistant:CreateFrame()
     frame:SetFrameStrata("HIGH")
     frame:SetClampedToScreen(true)
     frame:EnableMouse(false)
-    SetBackdrop(frame, { 0.035, 0.038, 0.045, 0.97 }, { 0.18, 0.20, 0.24, 1 })
+    SetBackdrop(frame, P.background, P.border)
 
     frame.accent = frame:CreateTexture(nil, "ARTWORK")
     frame.accent:SetPoint("TOPLEFT", 1, -1)
     frame.accent:SetPoint("BOTTOMLEFT", 1, 1)
     frame.accent:SetWidth(3)
-    frame.accent:SetColorTexture(0.20, 0.78, 1.00, 1)
+    frame.accent:SetColorTexture(unpack(P.accent))
 
     frame.title = frame:CreateFontString(nil, "OVERLAY")
     frame.title:SetFont(DEFAULT_FONT, 14, "OUTLINE")
     frame.title:SetPoint("TOPLEFT", 16, -13)
-    frame.title:SetTextColor(0.92, 0.95, 1.00, 1)
+    frame.title:SetTextColor(unpack(P.textBright))
     frame.title:SetText(L["RCA_PANEL_TITLE"])
 
     frame.context = frame:CreateFontString(nil, "OVERLAY")
     frame.context:SetFont(DEFAULT_FONT, 11, "OUTLINE")
     frame.context:SetPoint("TOPRIGHT", -14, -15)
-    frame.context:SetTextColor(0.45, 0.82, 1.00, 1)
+    frame.context:SetTextColor(unpack(P.accentText))
 
     frame.divider = frame:CreateTexture(nil, "ARTWORK")
     frame.divider:SetPoint("TOPLEFT", 14, -36)
     frame.divider:SetPoint("TOPRIGHT", -14, -36)
     frame.divider:SetHeight(1)
-    frame.divider:SetColorTexture(0.18, 0.20, 0.24, 1)
+    frame.divider:SetColorTexture(unpack(P.separator))
 
     frame.specIcon = frame:CreateTexture(nil, "ARTWORK")
     frame.specIcon:SetSize(36, 36)
@@ -406,7 +416,7 @@ function ReadyCheckAssistant:CreateFrame()
     frame.durabilityBar:SetMinMaxValues(0, 100)
     frame.durabilityBar.background = frame.durabilityBar:CreateTexture(nil, "BACKGROUND")
     frame.durabilityBar.background:SetAllPoints()
-    frame.durabilityBar.background:SetColorTexture(0.10, 0.11, 0.13, 1)
+    frame.durabilityBar.background:SetColorTexture(unpack(P.control))
 
     frame.durabilityText = frame.durabilityBar:CreateFontString(nil, "OVERLAY")
     frame.durabilityText:SetFont(DEFAULT_FONT, 11, "OUTLINE")
@@ -420,14 +430,14 @@ function ReadyCheckAssistant:CreateFrame()
     frame.detailText:SetHeight(12)
     frame.detailText:SetJustifyH("LEFT")
     frame.detailText:SetJustifyV("MIDDLE")
-    frame.detailText:SetTextColor(0.72, 0.76, 0.82, 1)
+    frame.detailText:SetTextColor(unpack(P.textDim))
     frame.detailText:SetWordWrap(false)
 
     frame.statusBackground = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
     frame.statusBackground:SetPoint("TOPLEFT", 14, -134)
     frame.statusBackground:SetPoint("TOPRIGHT", -14, -134)
     frame.statusBackground:SetHeight(18)
-    frame.statusBackground:SetColorTexture(0.07, 0.09, 0.10, 0.92)
+    frame.statusBackground:SetColorTexture(unpack(P.control))
 
     frame.statusText = frame:CreateFontString(nil, "OVERLAY")
     frame.statusText:SetFont(DEFAULT_FONT, 11, "OUTLINE")
@@ -441,13 +451,13 @@ function ReadyCheckAssistant:CreateFrame()
     frame.footerBackground:SetPoint("BOTTOMLEFT", 1, 1)
     frame.footerBackground:SetPoint("BOTTOMRIGHT", -1, 1)
     frame.footerBackground:SetHeight(38)
-    frame.footerBackground:SetColorTexture(0.02, 0.025, 0.032, 0.98)
+    frame.footerBackground:SetColorTexture(unpack(P.footer))
 
     frame.footerDivider = frame:CreateTexture(nil, "ARTWORK")
     frame.footerDivider:SetPoint("BOTTOMLEFT", 14, 39)
     frame.footerDivider:SetPoint("BOTTOMRIGHT", -14, 39)
     frame.footerDivider:SetHeight(1)
-    frame.footerDivider:SetColorTexture(0.16, 0.19, 0.23, 1)
+    frame.footerDivider:SetColorTexture(unpack(P.separator))
 
     frame.openTalentsButton = CreatePanelButton(frame, L["RCA_OPEN_TALENTS"], false)
     frame.openTalentsButton:SetScript("OnClick", function()

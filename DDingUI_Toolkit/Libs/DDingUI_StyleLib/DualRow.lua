@@ -3,9 +3,11 @@
 -- 2-column layout system for option panels (DDingUI DualRow pattern)
 -- 한 행에 좌/우 위젯 2개를 선언적으로 배치
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.CreateDualRow then return end
 
 local C      = Lib.Colors
 local F      = Lib.Font

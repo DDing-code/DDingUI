@@ -177,6 +177,19 @@ local REG = {
         defaultW = 266, defaultH = 44,
     },
     {
+        name = "BloodlustStartMotion",
+        getFrame = function()
+            local mod = ns.BloodlustTimer or (DDingToolKit.modules and DDingToolKit.modules.BloodlustTimer)
+            if mod and mod.CreateStartMotionFrame then mod:CreateStartMotionFrame() end
+            return _G.DDingToolKit_BloodlustStartMotionFrame
+        end,
+        dbPath = "BloodlustTimer.startMotionPosition",
+        posType = "standard",
+        module = "BloodlustTimer",
+        previewState = "combat",
+        defaultW = 620, defaultH = 130,
+    },
+    {
         name = "PartyTracker",
         frameName = "DDingToolKit_PartyTrackerFrame",
         dbPath = "PartyTracker.position",
@@ -218,7 +231,7 @@ local REG = {
         posType = "standard",
         module = "DurabilityCheck",
         previewState = "noncombat",
-        defaultW = 200, defaultH = 80,
+        defaultW = 460, defaultH = 120,
     },
     {
         name = "GoldSplit",
@@ -235,7 +248,7 @@ local REG = {
         posType = "none",
         module = "LFGAlert",
         previewState = "noncombat",
-        defaultW = 420, defaultH = 80,
+        defaultW = 500, defaultH = 112,
     },
     {
         name = "PartyFullAlert",
@@ -248,7 +261,7 @@ local REG = {
         posType = "standard",
         module = "PartyFullAlert",
         previewState = "noncombat",
-        defaultW = 420, defaultH = 80,
+        defaultW = 500, defaultH = 112,
     },
 }
 
@@ -263,6 +276,7 @@ local DEFAULT_POSITIONS = {
     FocusInterrupt_F = { x = 0, y = 50 },
     StasisTracker = { x = 0, y = -220 },
     BloodlustTimer = { x = 0, y = -170 },
+    BloodlustStartMotion = { x = 0, y = 40 },
     PartyTracker = { x = -500, y = -110 },
     PartyTracker_Mana = { x = 0, y = -150 },
     DeathAlert = { x = 0, y = 0 },
@@ -285,6 +299,7 @@ local function GetDisplayName(reg)
         FocusInterrupt_F = Locale("TAB_FOCUSINTERRUPT", "Interrupt Bar") .. " - " .. (FOCUS or "Focus"),
         StasisTracker = Locale("TAB_STASISTRACKER", "Stasis Tracker"),
         BloodlustTimer = Locale("TAB_BLOODLUSTTIMER", "Bloodlust Timer"),
+        BloodlustStartMotion = Locale("BLT_START_MOTION_ANCHOR", "Bloodlust Start HUD"),
         PartyTracker = Locale("TAB_PARTYTRACKER", "Party Tracker"),
         PartyTracker_Mana = Locale("PARTYTRACKER_HEALER_MANA", "Healer Mana"),
         DeathAlert = Locale("TAB_DEATHALERT", "Death Alert"),

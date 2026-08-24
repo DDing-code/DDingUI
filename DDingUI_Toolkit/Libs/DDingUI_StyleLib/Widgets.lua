@@ -3,9 +3,11 @@
 -- UI widget factory – every function's first arg is
 -- addonName so the correct accent is auto-applied.
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.EnableRightClickMouselook then return end
 local C    = Lib.Colors
 local S    = Lib.Spacing
 local F    = Lib.Font

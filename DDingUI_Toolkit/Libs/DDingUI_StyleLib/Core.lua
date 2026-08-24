@@ -2,9 +2,15 @@
 -- DDingUI_StyleLib :: Core
 -- Namespace, accent preset registration, addon registry
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR, MINOR = "DDingUI-StyleLib-1.0", 3
 local lib, oldMinor = LibStub:NewLibrary(MAJOR, MINOR)
 if not lib then return end
+
+-- Embedded copies must only populate the library when their Core.lua won
+-- LibStub's version check. Otherwise later addons overwrite the active
+-- implementation and transfer their taint identity to every shared method.
+lib.__ddingStyleLibLoadOwner = ADDON_NAME
 
 -- 하위 호환: 글로벌 참조 유지
 DDingUI_StyleLib = lib

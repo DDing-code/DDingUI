@@ -50,6 +50,7 @@ end
 
 -- 비활성화
 function MailAlert:OnDisable()
+    if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("MailAlert") end
     if eventFrame then
         eventFrame:UnregisterAllEvents()
     end
@@ -96,10 +97,23 @@ function MailAlert:TriggerAlert(isTest)
         local soundFile = self.db.soundFile
         local customPath = self.db.soundCustomPath
         local channel = self.db.soundChannel or "Master"
-        if (customPath and customPath ~= "") or (soundFile and soundFile ~= "") then
+        local soundKit = (SOUNDKIT and SOUNDKIT.TELL_MESSAGE) or 3081
+        if ns.RequestSound then
+            ns:RequestSound({
+                source = "MailAlert",
+                key = "new-mail",
+                soundFile = soundFile,
+                customPath = customPath,
+                soundKit = soundKit,
+                channel = channel,
+                priority = 20,
+                canQueue = true,
+                immediate = isTest == true,
+            })
+        elseif (customPath and customPath ~= "") or (soundFile and soundFile ~= "") then
             ns:PlaySound(soundFile, channel, customPath)
         else
-            PlaySound(SOUNDKIT.TELL_MESSAGE, channel)
+            PlaySound(soundKit, channel)
         end
     end
 

@@ -4,6 +4,8 @@
 ]]
 
 local addonName, ns = ...
+local SL = _G.DDingUI_StyleLib
+local StyleColors = SL and SL.Colors
 
 -- UI 네임스페이스
 ns.UI = ns.UI or {}
@@ -11,19 +13,19 @@ ns.UI = ns.UI or {}
 -- 다크 테마 색상 팔레트
 ns.UI.colors = {
     -- 배경
-    background = { 0.07, 0.07, 0.07, 0.95 },
-    panel = { 0.12, 0.12, 0.12, 0.95 },
-    panelLight = { 0.15, 0.15, 0.15, 0.95 },
+    background = (StyleColors and StyleColors.bg and StyleColors.bg.main) or { 0.10, 0.10, 0.10, 0.95 },
+    panel = (StyleColors and StyleColors.bg and StyleColors.bg.sidebar) or { 0.08, 0.08, 0.08, 0.95 },
+    panelLight = (StyleColors and StyleColors.bg and StyleColors.bg.titlebar) or { 0.12, 0.12, 0.12, 0.98 },
 
     -- 테두리
-    border = { 0.2, 0.2, 0.2, 1 },
-    borderHover = { 0.4, 0.4, 0.4, 1 },
-    borderFocus = { 0.0, 0.44, 0.87, 1 },
+    border = (StyleColors and StyleColors.border and StyleColors.border.default) or { 0.25, 0.25, 0.25, 0.50 },
+    borderHover = (StyleColors and StyleColors.border and StyleColors.border.active) or { 0.40, 0.40, 0.40, 0.70 },
+    borderFocus = { 0.16, 0.58, 0.68, 0.85 },
 
     -- 강조색
-    accent = { 0.0, 0.44, 0.87, 1 },        -- 파란색
-    accentHover = { 0.1, 0.54, 0.97, 1 },
-    accentDark = { 0.0, 0.34, 0.67, 1 },
+    accent = { 0.16, 0.58, 0.68, 0.85 },
+    accentHover = { 0.20, 0.68, 0.78, 0.92 },
+    accentDark = { 0.12, 0.42, 0.50, 0.90 },
 
     -- 상태 색상
     success = { 0.2, 0.8, 0.2, 1 },         -- 녹색
@@ -38,12 +40,39 @@ ns.UI.colors = {
     textHighlight = { 1.0, 1.0, 1.0, 1 },
 
     -- 선택/호버
-    selected = { 0.0, 0.44, 0.87, 0.3 },
+    selected = { 0.10, 0.14, 0.15, 0.70 },
     hover = { 1, 1, 1, 0.05 },
 
     -- 탭
-    tabActive = { 0.15, 0.15, 0.15, 1 },
-    tabInactive = { 0.1, 0.1, 0.1, 1 },
+    tabActive = (StyleColors and StyleColors.bg and StyleColors.bg.selected) or { 0.18, 0.18, 0.22, 0.80 },
+    tabInactive = (StyleColors and StyleColors.bg and StyleColors.bg.sidebar) or { 0.08, 0.08, 0.08, 0.95 },
+}
+
+-- Operational popups use the same neutral surfaces as the main workspace.
+-- Cyan is reserved for selected states and small accents.
+ns.UI.popupColors = {
+    background = (StyleColors and StyleColors.bg and StyleColors.bg.main) or { 0.10, 0.10, 0.10, 0.985 },
+    header = (StyleColors and StyleColors.bg and StyleColors.bg.titlebar) or { 0.12, 0.12, 0.12, 1 },
+    panel = { 0.075, 0.075, 0.08, 0.97 },
+    panelAlt = { 0.088, 0.088, 0.095, 0.96 },
+    control = (StyleColors and StyleColors.bg and StyleColors.bg.widget) or { 0.06, 0.06, 0.06, 0.94 },
+    input = { 0.045, 0.045, 0.05, 1 },
+    hover = { 0.14, 0.14, 0.15, 0.96 },
+    selected = { 0.10, 0.14, 0.15, 0.96 },
+    footer = { 0.075, 0.075, 0.08, 0.98 },
+    border = { 0.30, 0.30, 0.32, 0.82 },
+    borderSoft = (StyleColors and StyleColors.border and StyleColors.border.default) or { 0.25, 0.25, 0.25, 0.50 },
+    separator = (StyleColors and StyleColors.border and StyleColors.border.separator) or { 0.20, 0.20, 0.20, 0.40 },
+    accent = { 0.16, 0.58, 0.68, 0.80 },
+    accentStrong = { 0.16, 0.68, 0.80, 0.92 },
+    accentText = { 0.42, 0.76, 0.82, 1 },
+    primary = { 0.09, 0.18, 0.20, 0.98 },
+    primaryHover = { 0.11, 0.23, 0.26, 1 },
+    primaryBorder = { 0.16, 0.50, 0.57, 0.84 },
+    primaryBorderHover = { 0.20, 0.62, 0.70, 0.94 },
+    text = (StyleColors and StyleColors.text and StyleColors.text.normal) or { 0.85, 0.85, 0.85, 1 },
+    textBright = (StyleColors and StyleColors.text and StyleColors.text.highlight) or { 1, 1, 1, 1 },
+    textDim = (StyleColors and StyleColors.text and StyleColors.text.dim) or { 0.60, 0.60, 0.60, 1 },
 }
 
 -- 공통 백드롭

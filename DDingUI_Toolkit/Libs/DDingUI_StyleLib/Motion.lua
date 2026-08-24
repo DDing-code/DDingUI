@@ -2,9 +2,11 @@
 -- DDingUI_StyleLib :: Motion
 -- Small shared motion helpers for UI feedback.
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.InterfaceButtonMotion then return end
 
 local M = {}
 Lib.Motion = M

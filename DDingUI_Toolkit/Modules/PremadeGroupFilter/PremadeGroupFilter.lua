@@ -11,6 +11,15 @@ local PremadeGroupFilter = {}
 
 local SOLID = "Interface\\Buttons\\WHITE8x8"
 local FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
+local P = ns.UI and ns.UI.popupColors or {
+    background = { 0.10, 0.10, 0.10, 0.985 }, panel = { 0.075, 0.075, 0.08, 0.97 },
+    control = { 0.06, 0.06, 0.06, 0.94 }, input = { 0.045, 0.045, 0.05, 1 },
+    hover = { 0.14, 0.14, 0.15, 0.96 }, selected = { 0.10, 0.14, 0.15, 0.96 },
+    border = { 0.30, 0.30, 0.32, 0.82 }, borderSoft = { 0.25, 0.25, 0.25, 0.50 },
+    separator = { 0.20, 0.20, 0.20, 0.40 }, accent = { 0.16, 0.58, 0.68, 0.80 },
+    accentStrong = { 0.16, 0.68, 0.80, 0.92 }, accentText = { 0.42, 0.76, 0.82, 1 },
+    text = { 0.85, 0.85, 0.85, 1 }, textBright = { 1, 1, 1, 1 }, textDim = { 0.60, 0.60, 0.60, 1 },
+}
 local CATEGORY_DUNGEON = 2
 local PANEL_WIDTH = 280
 local PANEL_BOTTOM_EXTENSION = 16
@@ -59,6 +68,21 @@ local ROLE_SORT_ORDER = {
     HEALER = 2,
     DAMAGER = 3,
     NONE = 4,
+}
+
+local DUNGEON_COMPOSITION_ROLES = {
+    "TANK",
+    "HEALER",
+    "DAMAGER",
+    "DAMAGER",
+    "DAMAGER",
+}
+
+local EMPTY_ROLE_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
+local EMPTY_ROLE_TEXCOORDS = {
+    TANK = { 0 / 64, 19 / 64, 22 / 64, 41 / 64 },
+    HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 },
+    DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 },
 }
 
 local VALID_SORT_MODES = {
@@ -620,6 +644,58 @@ local function BuildSpecializationMembers(resultID, memberCount)
     return members
 end
 
+local function BuildDungeonCompositionSlots(members)
+    local slots = {}
+    local overflow = {}
+
+    for index, role in ipairs(DUNGEON_COMPOSITION_ROLES) do
+        slots[index] = { role = role }
+    end
+
+    for _, member in ipairs(members) do
+        local assigned = false
+        if member.role ~= "NONE" then
+            for _, slot in ipairs(slots) do
+                if not slot.member and slot.role == member.role then
+                    slot.member = member
+                    assigned = true
+                    break
+                end
+            end
+        end
+        if not assigned then overflow[#overflow + 1] = member end
+    end
+
+    local nextEmpty = 1
+    for _, member in ipairs(overflow) do
+        while slots[nextEmpty] and slots[nextEmpty].member do
+            nextEmpty = nextEmpty + 1
+        end
+        if slots[nextEmpty] then slots[nextEmpty].member = member end
+    end
+
+    return slots
+end
+
+local function SetEmptyRoleSlot(frame, role, isDelisted)
+    local coords = EMPTY_ROLE_TEXCOORDS[role] or EMPTY_ROLE_TEXCOORDS.DAMAGER
+    local iconAlpha = isDelisted and 0.26 or 0.52
+    local borderAlpha = isDelisted and 0.24 or 0.55
+
+    frame.border:SetShown(true)
+    frame.border:SetColorTexture(0.20, 0.24, 0.30, borderAlpha)
+    frame.icon:ClearAllPoints()
+    frame.icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+    frame.icon:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+    frame.icon:SetTexture(EMPTY_ROLE_TEXTURE)
+    frame.icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+    frame.icon:SetDesaturated(true)
+    frame.icon:SetVertexColor(0.76, 0.82, 0.90, 1)
+    frame.icon:SetAlpha(iconAlpha)
+    frame.crown:Hide()
+    frame:Show()
+end
+
 local function HideSpecializationRow(row)
     local frames = specializationRows[row]
     if not frames then return end
@@ -773,7 +849,7 @@ local function CreateToggleControl(parent, label, width, onToggle, tooltip)
     button.accent:SetPoint("BOTTOMLEFT", 0, 1)
     button.accent:SetWidth(3)
 
-    button.label = CreateText(button, 12, { 0.72, 0.75, 0.80, 1 })
+    button.label = CreateText(button, 12, P.text)
     button.label:SetPoint("LEFT", 12, 0)
     button.label:SetPoint("RIGHT", -8, 0)
     button.label:SetJustifyH("LEFT")
@@ -781,20 +857,20 @@ local function CreateToggleControl(parent, label, width, onToggle, tooltip)
 
     function button:UpdateVisual()
         if self.active then
-            self:SetBackdropColor(0.035, 0.20, 0.26, 0.96)
-            self:SetBackdropBorderColor(0.10, 0.72, 0.90, 0.95)
-            self.accent:SetColorTexture(0.10, 0.82, 1.00, 1)
-            self.label:SetTextColor(0.90, 0.97, 1.00, 1)
+            self:SetBackdropColor(unpack(P.selected))
+            self:SetBackdropBorderColor(unpack(P.accent))
+            self.accent:SetColorTexture(unpack(P.accentStrong))
+            self.label:SetTextColor(unpack(P.textBright))
         elseif self.hovered then
-            self:SetBackdropColor(0.09, 0.10, 0.13, 0.96)
-            self:SetBackdropBorderColor(0.30, 0.34, 0.41, 0.95)
-            self.accent:SetColorTexture(0.30, 0.34, 0.41, 0.8)
-            self.label:SetTextColor(0.88, 0.90, 0.94, 1)
+            self:SetBackdropColor(unpack(P.hover))
+            self:SetBackdropBorderColor(unpack(P.border))
+            self.accent:SetColorTexture(unpack(P.border))
+            self.label:SetTextColor(unpack(P.text))
         else
-            self:SetBackdropColor(0.045, 0.05, 0.07, 0.94)
-            self:SetBackdropBorderColor(0.15, 0.17, 0.21, 0.95)
-            self.accent:SetColorTexture(0.15, 0.17, 0.21, 0.8)
-            self.label:SetTextColor(0.68, 0.71, 0.77, 1)
+            self:SetBackdropColor(unpack(P.control))
+            self:SetBackdropBorderColor(unpack(P.borderSoft))
+            self.accent:SetColorTexture(unpack(P.borderSoft))
+            self.label:SetTextColor(unpack(P.textDim))
         end
     end
 
@@ -815,10 +891,10 @@ local function CreateNumberControl(parent, label, width, maximum, onCommit)
     local control = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     control:SetSize(width, 36)
     control:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-    control:SetBackdropColor(0.045, 0.05, 0.07, 0.94)
-    control:SetBackdropBorderColor(0.15, 0.17, 0.21, 0.95)
+    control:SetBackdropColor(unpack(P.control))
+    control:SetBackdropBorderColor(unpack(P.borderSoft))
 
-    control.label = CreateText(control, 11, { 0.72, 0.75, 0.80, 1 })
+    control.label = CreateText(control, 11, P.text)
     control.label:SetPoint("LEFT", 10, 0)
     control.label:SetPoint("RIGHT", -64, 0)
     control.label:SetJustifyH("LEFT")
@@ -828,10 +904,10 @@ local function CreateNumberControl(parent, label, width, maximum, onCommit)
     control.edit:SetSize(48, 24)
     control.edit:SetPoint("RIGHT", -6, 0)
     control.edit:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-    control.edit:SetBackdropColor(0.015, 0.018, 0.025, 1)
-    control.edit:SetBackdropBorderColor(0.20, 0.23, 0.29, 1)
+    control.edit:SetBackdropColor(unpack(P.input))
+    control.edit:SetBackdropBorderColor(unpack(P.borderSoft))
     control.edit:SetFont(FONT, 12, "OUTLINE")
-    control.edit:SetTextColor(0.90, 0.94, 0.98, 1)
+    control.edit:SetTextColor(unpack(P.textBright))
     control.edit:SetJustifyH("CENTER")
     control.edit:SetAutoFocus(false)
     control.edit:SetNumeric(true)
@@ -860,7 +936,7 @@ local function CreateNumberControl(parent, label, width, maximum, onCommit)
     end)
     control.edit:SetScript("OnEditFocusGained", function(edit)
         edit:HighlightText()
-        edit:SetBackdropBorderColor(0.10, 0.72, 0.90, 1)
+        edit:SetBackdropBorderColor(unpack(P.accentStrong))
     end)
 
     function control:SetValue(value)
@@ -868,14 +944,14 @@ local function CreateNumberControl(parent, label, width, maximum, onCommit)
         self.value = value
         if not self.edit:HasFocus() then self.edit:SetText(tostring(value)) end
         if value > 0 then
-            self:SetBackdropBorderColor(0.10, 0.58, 0.74, 0.95)
-            self.label:SetTextColor(0.82, 0.94, 1.00, 1)
+            self:SetBackdropBorderColor(unpack(P.accent))
+            self.label:SetTextColor(unpack(P.text))
         else
-            self:SetBackdropBorderColor(0.15, 0.17, 0.21, 0.95)
-            self.label:SetTextColor(0.72, 0.75, 0.80, 1)
+            self:SetBackdropBorderColor(unpack(P.borderSoft))
+            self.label:SetTextColor(unpack(P.textDim))
         end
         if not self.edit:HasFocus() then
-            self.edit:SetBackdropBorderColor(0.20, 0.23, 0.29, 1)
+            self.edit:SetBackdropBorderColor(unpack(P.borderSoft))
         end
     end
 
@@ -887,7 +963,7 @@ local function CreateSegmentButton(parent, label, onClick)
     button:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
     button:RegisterForClicks("LeftButtonUp")
 
-    button.label = CreateText(button, 11, { 0.66, 0.69, 0.74, 1 })
+    button.label = CreateText(button, 11, P.textDim)
     button.label:SetPoint("CENTER")
     button.label:SetText(label)
 
@@ -898,20 +974,20 @@ local function CreateSegmentButton(parent, label, onClick)
 
     function button:UpdateVisual()
         if self.active then
-            self:SetBackdropColor(0.035, 0.20, 0.26, 0.96)
-            self:SetBackdropBorderColor(0.10, 0.72, 0.90, 0.95)
-            self.line:SetColorTexture(0.10, 0.82, 1.00, 1)
-            self.label:SetTextColor(0.92, 0.98, 1.00, 1)
+            self:SetBackdropColor(unpack(P.selected))
+            self:SetBackdropBorderColor(unpack(P.accent))
+            self.line:SetColorTexture(unpack(P.accentStrong))
+            self.label:SetTextColor(unpack(P.textBright))
         elseif self.hovered then
-            self:SetBackdropColor(0.09, 0.10, 0.13, 0.96)
-            self:SetBackdropBorderColor(0.28, 0.31, 0.37, 0.95)
-            self.line:SetColorTexture(0.28, 0.31, 0.37, 0.8)
-            self.label:SetTextColor(0.86, 0.88, 0.92, 1)
+            self:SetBackdropColor(unpack(P.hover))
+            self:SetBackdropBorderColor(unpack(P.border))
+            self.line:SetColorTexture(unpack(P.border))
+            self.label:SetTextColor(unpack(P.text))
         else
-            self:SetBackdropColor(0.045, 0.05, 0.07, 0.94)
-            self:SetBackdropBorderColor(0.15, 0.17, 0.21, 0.95)
-            self.line:SetColorTexture(0.15, 0.17, 0.21, 0.8)
-            self.label:SetTextColor(0.66, 0.69, 0.74, 1)
+            self:SetBackdropColor(unpack(P.control))
+            self:SetBackdropBorderColor(unpack(P.borderSoft))
+            self.line:SetColorTexture(unpack(P.borderSoft))
+            self.label:SetTextColor(unpack(P.textDim))
         end
     end
 
@@ -944,7 +1020,7 @@ local function CreateDungeonButton(parent, width, onClick)
     button.icon:SetPoint("LEFT", 4, 0)
     button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-    button.label = CreateText(button, 10, { 0.67, 0.70, 0.76, 1 })
+    button.label = CreateText(button, 10, P.textDim)
     button.label:SetPoint("LEFT", button.icon, "RIGHT", 5, 0)
     button.label:SetPoint("RIGHT", -4, 0)
     button.label:SetJustifyH("LEFT")
@@ -952,20 +1028,20 @@ local function CreateDungeonButton(parent, width, onClick)
 
     function button:UpdateVisual()
         if self.active then
-            self:SetBackdropColor(0.035, 0.20, 0.26, 0.96)
-            self:SetBackdropBorderColor(0.10, 0.72, 0.90, 0.95)
+            self:SetBackdropColor(unpack(P.selected))
+            self:SetBackdropBorderColor(unpack(P.accent))
             self.icon:SetAlpha(1)
-            self.label:SetTextColor(0.90, 0.97, 1.00, 1)
+            self.label:SetTextColor(unpack(P.textBright))
         elseif self.hovered then
-            self:SetBackdropColor(0.09, 0.10, 0.13, 0.96)
-            self:SetBackdropBorderColor(0.30, 0.34, 0.41, 0.95)
+            self:SetBackdropColor(unpack(P.hover))
+            self:SetBackdropBorderColor(unpack(P.border))
             self.icon:SetAlpha(0.92)
-            self.label:SetTextColor(0.88, 0.90, 0.94, 1)
+            self.label:SetTextColor(unpack(P.text))
         else
-            self:SetBackdropColor(0.045, 0.05, 0.07, 0.94)
-            self:SetBackdropBorderColor(0.15, 0.17, 0.21, 0.95)
+            self:SetBackdropColor(unpack(P.control))
+            self:SetBackdropBorderColor(unpack(P.borderSoft))
             self.icon:SetAlpha(0.72)
-            self.label:SetTextColor(0.67, 0.70, 0.76, 1)
+            self.label:SetTextColor(unpack(P.textDim))
         end
     end
 
@@ -1010,7 +1086,7 @@ local function CreateDungeonButton(parent, width, onClick)
 end
 
 local function CreateSectionLabel(parent, label)
-    local text = CreateText(parent, 10, { 0.37, 0.69, 0.79, 1 })
+    local text = CreateText(parent, 10, P.accentText)
     text:SetJustifyH("LEFT")
     text:SetText(label)
     return text
@@ -1183,9 +1259,22 @@ function PremadeGroupFilter:UpdateSpecializationRow(
         if not member.specIcon then return end
     end
 
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+    local useDungeonComposition = categoryID == CATEGORY_DUNGEON
+        and #defaultIcons >= #DUNGEON_COMPOSITION_ROLES
+    local displaySlots = {}
+    if useDungeonComposition then
+        displaySlots = BuildDungeonCompositionSlots(members)
+    else
+        for index, member in ipairs(members) do
+            displaySlots[index] = { member = member }
+        end
+    end
+
     local frames = GetSpecializationFrames(row, defaultIcons)
-    for memberIndex = 1, #members do
-        local slotIndex = #defaultIcons - memberIndex + 1
+    for displayIndex = 1, #displaySlots do
+        local slotIndex = #defaultIcons - displayIndex + 1
         local defaultIcon = defaultIcons[slotIndex]
         if IsSecret(defaultIcon) or not defaultIcon or not defaultIcon.SetAlpha
             or not frames[slotIndex] then
@@ -1197,8 +1286,8 @@ function PremadeGroupFilter:UpdateSpecializationRow(
     local isDelisted = SafeBoolean(searchResultInfo.isDelisted, false)
     local alpha = isDelisted and 0.45 or 1
 
-    for memberIndex, member in ipairs(members) do
-        local slotIndex = #defaultIcons - memberIndex + 1
+    for displayIndex, displaySlot in ipairs(displaySlots) do
+        local slotIndex = #defaultIcons - displayIndex + 1
         local frame = frames[slotIndex]
         local defaultIcon = defaultIcons[slotIndex]
         local ok, defaultAlpha = pcall(defaultIcon.GetAlpha, defaultIcon)
@@ -1206,27 +1295,34 @@ function PremadeGroupFilter:UpdateSpecializationRow(
         frame.defaultAlpha = ok and (SafeNumber(defaultAlpha, 1) or 1) or 1
         defaultIcon:SetAlpha(0)
 
-        local showBorder = self.db.specIconClassBorder ~= false
-        frame.border:SetShown(showBorder)
-        frame.icon:ClearAllPoints()
-        if showBorder then
-            local red, green, blue = GetClassColor(member.classToken)
-            if isDelisted then red, green, blue = 0.20, 0.22, 0.25 end
-            frame.border:SetColorTexture(red, green, blue, alpha)
-            frame.icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
-            frame.icon:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+        local member = displaySlot.member
+        if not member then
+            SetEmptyRoleSlot(frame, displaySlot.role, isDelisted)
         else
-            frame.icon:SetAllPoints()
+            local showBorder = self.db.specIconClassBorder ~= false
+            frame.border:SetShown(showBorder)
+            frame.icon:ClearAllPoints()
+            if showBorder then
+                local red, green, blue = GetClassColor(member.classToken)
+                if isDelisted then red, green, blue = 0.20, 0.22, 0.25 end
+                frame.border:SetColorTexture(red, green, blue, alpha)
+                frame.icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+                frame.icon:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+            else
+                frame.icon:SetAllPoints()
+            end
+            frame.icon:SetTexture(member.specIcon)
+            frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            frame.icon:SetDesaturated(isDelisted)
+            frame.icon:SetVertexColor(1, 1, 1, 1)
+            frame.icon:SetAlpha(alpha)
+            frame.crown:SetShown(
+                self.db.specIconLeaderMarker ~= false and member.isLeader == true
+            )
+            frame.crown:SetDesaturated(isDelisted)
+            frame.crown:SetAlpha(alpha)
+            frame:Show()
         end
-        frame.icon:SetTexture(member.specIcon)
-        frame.icon:SetDesaturated(isDelisted)
-        frame.icon:SetAlpha(alpha)
-        frame.crown:SetShown(
-            self.db.specIconLeaderMarker ~= false and member.isLeader == true
-        )
-        frame.crown:SetDesaturated(isDelisted)
-        frame.crown:SetAlpha(alpha)
-        frame:Show()
     end
 end
 
@@ -1351,8 +1447,8 @@ function PremadeGroupFilter:CreateSidePanel()
     )
     panel:SetWidth(PANEL_WIDTH)
     panel:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-    panel:SetBackdropColor(0.018, 0.022, 0.032, 0.97)
-    panel:SetBackdropBorderColor(0.12, 0.15, 0.19, 1)
+    panel:SetBackdropColor(unpack(P.background))
+    panel:SetBackdropBorderColor(unpack(P.border))
     panel:SetFrameLevel((PVEFrame:GetFrameLevel() or 1) + 20)
     panel:Hide()
 
@@ -1360,13 +1456,13 @@ function PremadeGroupFilter:CreateSidePanel()
     panel.topAccent:SetPoint("TOPLEFT", 1, -1)
     panel.topAccent:SetPoint("TOPRIGHT", -1, -1)
     panel.topAccent:SetHeight(2)
-    panel.topAccent:SetColorTexture(0.10, 0.82, 1.00, 1)
+    panel.topAccent:SetColorTexture(unpack(P.accent))
 
-    panel.title = CreateText(panel, 15, { 0.87, 0.94, 0.98, 1 })
+    panel.title = CreateText(panel, 15, P.textBright)
     panel.title:SetPoint("TOPLEFT", 14, -14)
     panel.title:SetText(L["PGF_PANEL_TITLE"] or L["PGF_TITLE"] or "Party Filter")
 
-    panel.count = CreateText(panel, 11, { 0.40, 0.72, 0.82, 1 })
+    panel.count = CreateText(panel, 11, P.accentText)
     panel.count:SetPoint("TOPRIGHT", -14, -16)
     panel.count:SetJustifyH("RIGHT")
 
@@ -1374,7 +1470,7 @@ function PremadeGroupFilter:CreateSidePanel()
     panel.headerLine:SetPoint("TOPLEFT", 12, -43)
     panel.headerLine:SetPoint("TOPRIGHT", -12, -43)
     panel.headerLine:SetHeight(1)
-    panel.headerLine:SetColorTexture(0.14, 0.17, 0.21, 0.9)
+    panel.headerLine:SetColorTexture(unpack(P.separator))
 
     panel.dungeonTitle = CreateSectionLabel(
         panel, L["PGF_DUNGEON_SECTION"] or "Dungeons"

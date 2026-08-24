@@ -3,10 +3,10 @@
 ## Notes: Modular utility addon (Talent Background, LFG Alert, etc.)
 ## Notes-koKR: 모듈형 유틸리티 애드온 (특성창 배경, 파티 신청 알림 등)
 ## Author: DDing
-## Version: 2.1.2
+## Version: 2.1.3
 ## IconTexture: Interface\AddOns\DDingUI_Toolkit\logo
 ## SavedVariables: DDingUIToolkitDB
-## OptionalDeps: DDingUI_Controller, BigWigs
+## OptionalDeps: DDingUI_Controller, DDingUI_StyleLib, BigWigs
 
 # Libraries
 Libs\LibStub\LibStub.lua
@@ -50,6 +50,7 @@ Locales\Locale.lua
 
 # Media
 Media\SharedMedia.lua
+Media\SoundManager.lua
 
 # Core
 Core\Database.lua
@@ -78,8 +79,8 @@ Modules\TalentBG\TalentBG.lua
 Modules\TalentBG\Config.lua
 
 # Modules - LFGAlert
-Modules\LFGAlert\LFGAlert.lua
 Modules\LFGAlert\AlertFrame.lua
+Modules\LFGAlert\LFGAlert.lua
 Modules\PremadeGroupFilter\PremadeGroupFilter.lua
 Modules\PartyFullAlert\PartyFullAlert.lua
 
@@ -130,3 +131,6 @@ Modules\StasisTracker\StasisTracker.lua
 Modules\BloodlustTimer\BloodlustTimer.lua
 Modules\PartyTracker\PartyTracker.lua
 Modules\ReadyCheckAssistant\ReadyCheckAssistant.lua
+Modules\RaidGroups\RaidGroups.lua
+Modules\RaidPreparation\RaidPreparation.lua
+Modules\RaidPartyTooltip\RaidPartyTooltip.lua

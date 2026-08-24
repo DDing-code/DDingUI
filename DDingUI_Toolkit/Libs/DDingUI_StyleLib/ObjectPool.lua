@@ -3,9 +3,11 @@
 -- Reusable widget pool
 -- Scroll, Dropdown 등에서 동적 위젯 재사용
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.NewObjectPool then return end
 
 ---------------------------------------------------------------------
 -- ObjectPool

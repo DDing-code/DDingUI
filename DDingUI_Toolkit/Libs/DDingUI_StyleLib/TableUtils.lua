@@ -2,9 +2,11 @@
 -- DDingUI_StyleLib :: TableUtils
 -- Shared table utilities
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.DeepCopy then return end
 
 ---------------------------------------------------------------------
 -- Deep Copy

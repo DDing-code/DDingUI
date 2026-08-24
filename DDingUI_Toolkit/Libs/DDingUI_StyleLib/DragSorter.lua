@@ -3,9 +3,11 @@
 -- Drag-to-reorder helpers
 -- 버프 트래커, 아이콘 그룹 등에서 사용
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.CreateDragSorter then return end
 
 local CreateFrame = CreateFrame
 local GetCursorPosition = GetCursorPosition

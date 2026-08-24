@@ -302,7 +302,7 @@ local function GetEventPalette(db, kind)
         db.startFlashColor or legacy
 end
 
-local function PlayAlertSound(db, kind)
+local function PlayAlertSound(db, kind, immediate)
     local enabled
     local soundFile
     local customPath
@@ -322,7 +322,22 @@ local function PlayAlertSound(db, kind)
 
     if not enabled then return end
     if (customPath and customPath ~= "") or (soundFile and soundFile ~= "") then
-        ns:PlaySound(soundFile, channel or "Master", customPath)
+        if ns.RequestSound then
+            local key = kind == "END" and "combat-end" or "combat-start"
+            local oppositeKey = kind == "END" and "CombatStateAlert:combat-start" or "CombatStateAlert:combat-end"
+            if ns.CancelManagedSound then ns:CancelManagedSound(oppositeKey) end
+            ns:RequestSound({
+                source = "CombatStateAlert",
+                key = key,
+                soundFile = soundFile,
+                customPath = customPath,
+                channel = channel or "Master",
+                priority = 50,
+                immediate = immediate == true,
+            })
+        else
+            ns:PlaySound(soundFile, channel or "Master", customPath)
+        end
     end
 end
 
@@ -579,7 +594,7 @@ function CombatStateAlert:ShowAlert(kind, force)
         end
     end
 
-    PlayAlertSound(db, kind)
+    PlayAlertSound(db, kind, force == true)
 
     self:CreateFrame()
     if not alertFrame then return end
@@ -676,6 +691,7 @@ function CombatStateAlert:OnEnable()
 end
 
 function CombatStateAlert:OnDisable()
+    if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CombatStateAlert") end
     activeModule = false
     editPreview = false
     sequenceToken = sequenceToken + 1
@@ -693,6 +709,7 @@ eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_ENTERING_WORLD" then
+        if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CombatStateAlert") end
         sequenceToken = sequenceToken + 1
         displayToken = displayToken + 1
         if not editPreview then

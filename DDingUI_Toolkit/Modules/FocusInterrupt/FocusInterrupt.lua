@@ -279,7 +279,18 @@ local function PlayFocusCastSound(unit, notInterruptible)
     local channel = db.focusSoundChannel or "Master"
     local soundFile = db.focusSoundFile
     local customPath = db.focusSoundCustomPath
-    if (customPath and customPath ~= "") or (soundFile and soundFile ~= "") then
+    local raidWarningSound = (SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959
+    if ns.RequestSound then
+        ns:RequestSound({
+            source = "FocusInterrupt",
+            key = "interruptible-cast",
+            soundFile = soundFile,
+            customPath = customPath,
+            soundKit = raidWarningSound,
+            channel = channel,
+            priority = 110,
+        })
+    elseif (customPath and customPath ~= "") or (soundFile and soundFile ~= "") then
         if ns.PlaySound then
             ns:PlaySound(soundFile, channel, customPath)
         elseif customPath and customPath ~= "" then
@@ -288,7 +299,6 @@ local function PlayFocusCastSound(unit, notInterruptible)
             PlaySoundFile(soundFile, channel)
         end
     else
-        local raidWarningSound = (SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959
         PlaySound(raidWarningSound, channel)
     end
 end
@@ -716,6 +726,7 @@ function FocusInterrupt:OnEnable()
 end
 
 function FocusInterrupt:OnDisable()
+    if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("FocusInterrupt") end
     isEnabled = false
     isTestMode = false
     if ns.targetcastbar then

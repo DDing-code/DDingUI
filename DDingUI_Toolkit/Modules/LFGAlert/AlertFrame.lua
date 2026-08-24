@@ -156,6 +156,10 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
     local accentColor = self:GetColor("accentColor")
     local panelColor = self:GetColor("panelColor")
     local glowColor = self:GetColor("glowColor")
+    local motionKind = self.motionKind == "COMPLETE" and "COMPLETE" or "APPLICATION"
+    local motionEnabled = self.motionEnabled ~= false
+    local motionElapsed = motionEnabled and elapsed or 0
+    local ambientPulse = motionEnabled and (0.5 + 0.5 * math.sin(motionElapsed * 1.15)) or 0.5
     local shapeReveal = SmoothStep(reveal) * (1 - 0.12 * exitProgress)
 
     frame.art:SetAlpha(visibility)
@@ -165,7 +169,7 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
     local panelReveal = 0.18 + 0.82 * EaseOutCubic(reveal)
     local panelHalfWidth = width * 0.43 * panelReveal
     local panelHeight = height * 0.58 * (0.92 + 0.08 * reveal)
-    local panelAlpha = SmoothStep(reveal) * (1 - exitProgress)
+    local panelAlpha = SmoothStep(reveal) * (1 - exitProgress) * (0.96 + 0.04 * ambientPulse)
     SetAnchoredRect(frame.panelLeft, panelHalfWidth, panelHeight, "RIGHT", frame.art, "CENTER", 0, 0)
     SetAnchoredRect(frame.panelRight, panelHalfWidth, panelHeight, "LEFT", frame.art, "CENTER", 0, 0)
     SetGradientColor(frame.panelLeft, panelColor, 0, panelColor, 1, panelAlpha)
@@ -173,7 +177,8 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
 
     local glowHalfWidth = width * 0.47 * panelReveal
     local glowHeight = height * 0.82
-    local glowAlpha = SmoothStep(reveal) * (1 - exitProgress) * 0.72
+    local glowBreath = motionEnabled and (0.86 + 0.14 * ambientPulse) or 1
+    local glowAlpha = SmoothStep(reveal) * (1 - exitProgress) * 0.72 * glowBreath
     SetAnchoredRect(frame.glowLeft, glowHalfWidth, glowHeight, "RIGHT", frame.art, "CENTER", 0, 0)
     SetAnchoredRect(frame.glowRight, glowHalfWidth, glowHeight, "LEFT", frame.art, "CENTER", 0, 0)
     SetGradientColor(frame.glowLeft, glowColor, 0, glowColor, 0.58, glowAlpha)
@@ -227,13 +232,41 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
     local nodeSpacing = math.min(22, width * 0.045)
     for index, node in ipairs(frame.nodes) do
         if index <= nodeCount then
-            local delay = 0.25 + (index - 1) * 0.055
+            local delay = (motionKind == "COMPLETE" and 0.18 or 0.22) + (index - 1) * 0.06
             local nodeReveal = SmoothStep((reveal - delay) / 0.34)
-            local pulse = 0.88 + 0.12 * math.sin(elapsed * 1.8 + index * 0.72)
+            local pulse = motionEnabled and (0.90 + 0.10 * math.sin(motionElapsed * 1.55 + index * 0.72)) or 1
             local nodeAlpha = nodeReveal * (1 - exitProgress) * pulse
             local targetX = (index - (nodeCount + 1) * 0.5) * nodeSpacing
-            local x = targetX * (0.72 + 0.28 * nodeReveal)
-            local y = bottomY + (1 - nodeReveal) * 7 - exitProgress * 3
+            local startX = targetX
+            local startY = bottomY
+
+            if motionEnabled then
+                local side
+                if motionKind == "COMPLETE" then
+                    local midpoint = (nodeCount + 1) * 0.5
+                    if index < midpoint then
+                        side = -1
+                    elseif index > midpoint then
+                        side = 1
+                    else
+                        side = index % 2 == 0 and -1 or 1
+                    end
+                    startX = side * (width * 0.30 + index * 5)
+                    startY = bottomY + 11 + (index % 2) * 3
+                else
+                    side = index % 2 == 1 and -1 or 1
+                    startX = side * (width * 0.36 + ((index - 1) % 3) * 8)
+                    startY = bottomY + 6 + (index % 3) * 3
+                end
+            end
+
+            local settle = EaseOutCubic(nodeReveal)
+            local x = startX + (targetX - startX) * settle
+            local idleFloat = 0
+            if motionEnabled and motionKind == "APPLICATION" then
+                idleFloat = math.sin(motionElapsed * 1.35 + index * 0.8) * 0.7 * nodeReveal
+            end
+            local y = startY + (bottomY - startY) * settle + idleFloat - exitProgress * 3
             local size = 6 + nodeReveal * 2
             SetCenteredRect(node, size, size, frame.art, x, y, math.rad(45))
             SetSolidColor(node, index % 2 == 0 and lineColor or accentColor, nodeAlpha)
@@ -243,11 +276,38 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
         end
     end
 
-    local shimmerCycle = (elapsed * 0.24) % 1
-    local shimmerAlpha = math.sin(math.pi * shimmerCycle) * shapeReveal * (1 - exitProgress) * 0.34
-    local shimmerX = -width * 0.32 + width * 0.64 * shimmerCycle
-    SetCenteredRect(frame.shimmer, math.max(24, width * 0.09), 2, frame.art, shimmerX, topY)
-    SetGradientColor(frame.shimmer, glowColor, 0, glowColor, 1, shimmerAlpha)
+    if motionEnabled and motionKind == "COMPLETE" then
+        local completionReveal = SmoothStep((reveal - 0.54) / 0.40)
+        local rippleCycle = (motionElapsed * 0.29) % 1
+        local rippleEase = EaseOutCubic(rippleCycle)
+        local rippleAlpha = math.sin(math.pi * rippleCycle) * completionReveal * (1 - exitProgress) * 0.38
+        local rippleWidth = math.max(18, width * 0.29 * rippleEase)
+        SetAnchoredRect(frame.shimmer, rippleWidth, 2, "RIGHT", frame.art, "CENTER", -8, bottomY)
+        SetAnchoredRect(frame.shimmerRight, rippleWidth, 2, "LEFT", frame.art, "CENTER", 8, bottomY)
+        SetGradientColor(frame.shimmer, glowColor, 0, lineColor, 0.84, rippleAlpha)
+        SetGradientColor(frame.shimmerRight, lineColor, 0.84, glowColor, 0, rippleAlpha)
+
+        local haloWidth = width * (0.22 + 0.20 * rippleEase)
+        local haloAlpha = math.sin(math.pi * rippleCycle) * completionReveal * (1 - exitProgress) * 0.24
+        SetAnchoredRect(frame.haloLeft, haloWidth, height * 0.74, "RIGHT", frame.art, "CENTER", 0, 0)
+        SetAnchoredRect(frame.haloRight, haloWidth, height * 0.74, "LEFT", frame.art, "CENTER", 0, 0)
+        SetGradientColor(frame.haloLeft, glowColor, 0, glowColor, 0.66, haloAlpha)
+        SetGradientColor(frame.haloRight, glowColor, 0.66, glowColor, 0, haloAlpha)
+    elseif motionEnabled then
+        local shimmerCycle = (motionElapsed * 0.22) % 1
+        local shimmerAlpha = math.sin(math.pi * shimmerCycle) * shapeReveal * (1 - exitProgress) * 0.30
+        local shimmerX = -width * 0.34 + width * 0.68 * shimmerCycle
+        SetCenteredRect(frame.shimmer, math.max(24, width * 0.09), 2, frame.art, shimmerX, topY)
+        SetGradientColor(frame.shimmer, glowColor, 0, glowColor, 1, shimmerAlpha)
+        frame.shimmerRight:SetAlpha(0)
+        frame.haloLeft:SetAlpha(0)
+        frame.haloRight:SetAlpha(0)
+    else
+        frame.shimmer:SetAlpha(0)
+        frame.shimmerRight:SetAlpha(0)
+        frame.haloLeft:SetAlpha(0)
+        frame.haloRight:SetAlpha(0)
+    end
 end
 
 function CalmVisual:OnUpdate(elapsed)
@@ -256,6 +316,10 @@ function CalmVisual:OnUpdate(elapsed)
 
     elapsed = tonumber(elapsed) or 0
     state.elapsed = state.elapsed + math.max(0, elapsed)
+
+    if state.looping and state.elapsed >= state.duration then
+        state.elapsed = state.elapsed % state.duration
+    end
 
     if state.closing then
         local progress = Clamp01(state.elapsed / state.duration)
@@ -270,7 +334,6 @@ function CalmVisual:OnUpdate(elapsed)
 
     local duration = state.duration
     if not state.animated then
-        self:Render(1, 0, 1, 0)
         if state.elapsed >= duration then
             self.state = nil
             self.frame:Hide()
@@ -350,11 +413,23 @@ function CalmVisual:Show(title, subtitle, options)
     self.frame.title:SetText(type(title) == "string" and title or "")
     self.frame.subtitle:SetText(type(subtitle) == "string" and subtitle or "")
     self.nodeCount = math.max(1, math.min(5, math.floor(tonumber(options.nodeCount) or 1)))
+    self.motionKind = options.motionKind == "COMPLETE" and "COMPLETE" or "APPLICATION"
+    self.motionEnabled = options.animated ~= false
     self.frame:Show()
 
     if options.persistent then
-        self.state = nil
-        self:Render(1, 0, 1, 0)
+        if self.motionEnabled then
+            self.state = {
+                elapsed = 0,
+                duration = Clamp(options.previewDuration, 2.8, 6),
+                animated = true,
+                looping = true,
+            }
+            self:Render(0, 0, 0, 0)
+        else
+            self.state = nil
+            self:Render(1, 0, 1, 0)
+        end
         return
     end
 
@@ -405,6 +480,9 @@ function ns.CreateCalmPartyAlert(frameName)
     frame.diamondBottomLeft = CreateFlatTexture(frame.art, "ARTWORK", 1)
     frame.diamondBottomRight = CreateFlatTexture(frame.art, "ARTWORK", 1)
     frame.shimmer = CreateFlatTexture(frame.art, "ARTWORK", 2)
+    frame.shimmerRight = CreateFlatTexture(frame.art, "ARTWORK", 2)
+    frame.haloLeft = CreateFlatTexture(frame.art, "BACKGROUND", -1)
+    frame.haloRight = CreateFlatTexture(frame.art, "BACKGROUND", -1)
     frame.nodes = {}
     for index = 1, 5 do
         frame.nodes[index] = CreateFlatTexture(frame.art, "ARTWORK", 1)

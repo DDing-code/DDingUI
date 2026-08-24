@@ -551,6 +551,7 @@ function CastingAlert:OnEnable()
 end
 
 function CastingAlert:OnDisable()
+    if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CastingAlert") end
     self:Stop()
     if self._specFrame then
         self._specFrame:UnregisterAllEvents()
@@ -1256,10 +1257,22 @@ function CastingAlert:MaybePlaySound(list)
     local now = GetTime()
 
     if targetingCount >= threshold and previousTargetingCount < threshold and (now - lastSoundTime) >= cooldown then
-        if (self.db.soundCustomPath and self.db.soundCustomPath ~= "") or (self.db.soundFile and self.db.soundFile ~= "") then
-            ns:PlaySound(self.db.soundFile, self.db.soundChannel or "Master", self.db.soundCustomPath)
+        local channel = self.db.soundChannel or "Master"
+        local soundKit = (SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959
+        if ns.RequestSound then
+            ns:RequestSound({
+                source = "CastingAlert",
+                key = "multiple-targeting",
+                soundFile = self.db.soundFile,
+                customPath = self.db.soundCustomPath,
+                soundKit = soundKit,
+                channel = channel,
+                priority = 100,
+            })
+        elseif (self.db.soundCustomPath and self.db.soundCustomPath ~= "") or (self.db.soundFile and self.db.soundFile ~= "") then
+            ns:PlaySound(self.db.soundFile, channel, self.db.soundCustomPath)
         else
-            PlaySound(SOUNDKIT.RAID_WARNING, self.db.soundChannel or "Master")
+            PlaySound(soundKit, channel)
         end
         lastSoundTime = now
     end
