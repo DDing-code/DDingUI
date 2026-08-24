@@ -1989,11 +1989,19 @@ function Movers:GetGUIKeyFromMoverName(moverName)
 end
 
 -- 편집모드 종료 (외부 호출용)
-function Movers:ExitEditMode()
-    if self.ConfigMode then
-        self:HideMovers()
-        self.ConfigMode = false
+function Movers:ExitEditMode(forCombat)
+    if not self.ConfigMode then return end
+
+    -- 전투 진입 중에는 OnDragStop이 전투 잠금으로 조기 반환한다. 여기서
+    -- 드래그 갱신을 먼저 끊어 전투 중 프레임 재배치가 이어지지 않게 한다.
+    if isDragging then
+        isDragging = false
+        dragFrame = nil
+        updateFrame:SetScript("OnUpdate", nil)
+        self:ClearGridHighlight()
     end
+
+    self:HideMovers(forCombat == true)
 end
 
 --------------------------------------------------------------------------------
@@ -2266,7 +2274,25 @@ function Movers:SyncMoverToModuleSettings(name)
     end
 end
 
-function Movers:HideMovers()
+function Movers:RestoreEditModeViewerMouse()
+    if not self._editModeViewerMouse then return end
+
+    for vname in pairs(self._editModeViewerMouse) do
+        local viewer = _G[vname]
+        if viewer then
+            viewer:EnableMouse(true)
+            if viewer.viewerFrame then
+                viewer.viewerFrame:EnableMouse(true)
+            end
+        end
+    end
+
+    wipe(self._editModeViewerMouse)
+    self._restoreViewerMouseAfterCombat = nil
+end
+
+function Movers:HideMovers(forCombat)
+    local combatExit = forCombat == true or InCombatLockdown()
     self.ConfigMode = false
 
     for name, holder in pairs(self.CreatedMovers) do
@@ -2349,18 +2375,13 @@ function Movers:HideMovers()
         wipe(self._editModeGroupRestore)
     end
 
-    -- [FIX] CDM 뷰어 마우스 이벤트 복원
+    -- 기본 CDM 프레임의 입력 속성은 전투 종료 후 복원한다.
     if self._editModeViewerMouse then
-        for vname, _ in pairs(self._editModeViewerMouse) do
-            local viewer = _G[vname]
-            if viewer then
-                viewer:EnableMouse(true)
-                if viewer.viewerFrame then
-                    viewer.viewerFrame:EnableMouse(true)
-                end
-            end
+        if combatExit then
+            self._restoreViewerMouseAfterCombat = true
+        else
+            self:RestoreEditModeViewerMouse()
         end
-        wipe(self._editModeViewerMouse)
     end
 
     -- [FIX] 편집모드 종료 후 매핑 모듈 위치 강제 재적용
@@ -4371,11 +4392,17 @@ end
 -- Auto-initialize (전통적 프레임 이벤트 방식)
 local moverInitFrame = CreateFrame("Frame")
 moverInitFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+moverInitFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+moverInitFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 moverInitFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_ENTERING_WORLD" then
         C_Timer.After(2, function()
             Movers:Initialize()
         end)
         self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        Movers:ExitEditMode(true)
+    elseif event == "PLAYER_REGEN_ENABLED" and Movers._restoreViewerMouseAfterCombat then
+        Movers:RestoreEditModeViewerMouse()
     end
 end)
