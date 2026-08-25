@@ -322,14 +322,17 @@ local function ColorPart(color)
 end
 
 local function StyleSignature(style)
+    local borderColor = style.useHostBorder and nil or style.borderColor
+    local borderSize = style.useHostBorder and 0 or style.borderSize
     return table.concat({
         tostring(style.displayType),
         tostring(style.mode),
         tostring(style.texture),
         ColorPart(style.barColor),
         ColorPart(style.bgColor),
-        ColorPart(style.borderColor),
-        tostring(style.borderSize or 0),
+        ColorPart(borderColor),
+        tostring(borderSize or 0),
+        tostring(style.useHostBorder),
         tostring(style.orientation),
         tostring(style.reverseFill),
         tostring(style.showStacksText),
@@ -531,7 +534,9 @@ local function CreateBarInitializer(proxy, desired, style)
             RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
         end
 
-        CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
+        if not style.useHostBorder then
+            CreateBorder(button, style.borderSize, style.borderColor or { 0, 0, 0, 1 })
+        end
         StartContainerGlow(button, style)
     end
 end
@@ -700,7 +705,20 @@ local function PositionProxy(proxy, container, bar, style, targetFrame, reparent
     else
         proxy:SetFrameStrata(style.frameStrata or "MEDIUM")
         proxy:SetFrameLevel(style.frameLevel or 1)
-        proxy:SetAllPoints(bar)
+        local width = tonumber(style.geometryWidth)
+        local height = tonumber(style.geometryHeight)
+        if (not width or width <= 0) and bar and bar.GetWidth then
+            width = bar:GetWidth()
+        end
+        if (not height or height <= 0) and bar and bar.GetHeight then
+            height = bar:GetHeight()
+        end
+        if width and width > 0 and height and height > 0 then
+            proxy:SetPoint("CENTER", bar, "CENTER")
+            proxy:SetSize(width, height)
+        else
+            proxy:SetAllPoints(bar)
+        end
     end
 end
 
@@ -781,7 +799,7 @@ local function HideLegacyDisplay(host, style)
     if displayType == "bar" or displayType == nil then
         if host.StatusBar then host.StatusBar:SetAlpha(0) end
         if host.Background then host.Background:SetAlpha(0) end
-        if host.Border then host.Border:SetAlpha(0) end
+        if host.Border then host.Border:SetAlpha(type(style) == "table" and style.useHostBorder and 1 or 0) end
         if host.TickFrame then host.TickFrame:SetAlpha(0) end
         if host.TextValue then host.TextValue:SetAlpha(0) end
         if host.DurationText then host.DurationText:SetAlpha(0) end
@@ -985,6 +1003,31 @@ local function ApplyGlowStyle(style, source, animationKey, colorKey, prefix)
     style.glowYOffset = source[prefix .. "YOffset"] or source.glowYOffset or 0
 end
 
+local function SyncHostBorder(host, style)
+    if not host or not host.Border or style.displayType ~= "bar" or not style.useHostBorder then
+        return
+    end
+
+    local size = math.max(0, tonumber(style.borderSize) or 0)
+    local color = style.borderColor or { 0, 0, 0, 1 }
+    if DDingUI.UpdateTextureBorderSize then
+        DDingUI.UpdateTextureBorderSize(host.Border, size)
+    end
+    if DDingUI.UpdateTextureBorderColor then
+        DDingUI.UpdateTextureBorderColor(
+            host.Border,
+            color[1] or 0,
+            color[2] or 0,
+            color[3] or 0,
+            color[4] or 1
+        )
+    end
+    if DDingUI.ShowTextureBorder then
+        DDingUI.ShowTextureBorder(host.Border, size > 0)
+    end
+    host.Border:SetAlpha(1)
+end
+
 function Engine:SetActivePresentationOverride(tracker, presentation)
     if tracker then activePresentationByTracker[tracker] = presentation end
 end
@@ -1042,6 +1085,7 @@ function Engine:Attach(tracker, bar, style)
         ApplyGlowStyle(style, settings, "textAnimation", "textGlowColor", "textGlow")
         style.glowWhenInactive = false
     end
+    SyncHostBorder(bar, style)
     local signature = StyleSignature(style)
     local binding = bindingByTracker[tracker]
     local triggerTargetFrame
