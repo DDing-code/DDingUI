@@ -3682,7 +3682,7 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
         }
         items[#items + 1] = {
             label = rawget(L, "Potions & Healthstone") or "Potions & Healthstone",
-            icon = SafeItemIcon(241304),
+            icon = SafeItemIcon(271884, SafeItemIcon(241304)),
             submenu = {
                 {
                     label = rawget(L, "Light's Potential") or "Light's Potential",
@@ -3699,10 +3699,10 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
                     end,
                 },
                 {
-                    label = rawget(L, "Silvermoon Health Potion") or "Silvermoon Health Potion",
-                    icon = SafeItemIcon(241304),
+                    label = rawget(L, "Concentrated Silvermoon Health Potion") or "Concentrated Silvermoon Health Potion",
+                    icon = SafeItemIcon(271884, SafeItemIcon(241304)),
                     action = function()
-                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241304 }, { fallbackItems = "241305" })
+                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 271884 }, { fallbackItems = "271883,241304,241305" })
                     end,
                 },
                 {
@@ -7581,13 +7581,13 @@ local function CreateGroupOptions(groupName, order)
                 type = "header", name = L["Quick Add Consumables"] or "소모품 빠른 추가", order = 50,
             } or nil,
 
-            -- 실버문 생명력 물약 (R2 241304 / R1 241305) — 항상 R2로 추가, 아이콘 표시 시 R1 폴백
+            -- 농축된 실버문 생명력 물약과 이전 등급을 하나의 아이콘으로 추적
             addHealthPotion = showAdvanced and {
                 type = "execute", order = 51, width = "normal",
-                name = function() local icon = C_Item.GetItemIconByID(241304) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Silvermoon Health Potion"] or "실버문 생명력 물약") end,
-                desc = "Item ID: 241304 (★★) / 241305 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
+                name = function() local icon = C_Item.GetItemIconByID(271884) or C_Item.GetItemIconByID(241304) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Concentrated Silvermoon Health Potion"] or "농축된 실버문 생명력 물약") end,
+                desc = "Item ID: 271884 / 271883\n이전 등급 241304 / 241305도 자동으로 추적합니다.",
                 func = function()
-                    AddDynamicItemToGroup(groupName, 241304, "241305")
+                    AddDynamicItemToGroup(groupName, 271884, "271883,241304,241305")
                 end,
             } or nil,
 
