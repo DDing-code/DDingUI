@@ -4,7 +4,7 @@
 
 ## v2.1.3
 
-_Release date: 2026-08-23_
+_Release date: 2026-08-25_
 _Scope: Git changes from v2.1.2.1 through this release._
 
 ### English Patch Notes
@@ -16,6 +16,9 @@ _Scope: Git changes from v2.1.2.1 through this release._
 - Fixed hidden or unavailable item handling: hidden items remain attached to their group, the per-item "Hide When Empty" control is available again, and group status indicators now follow the actual enabled state.
 - Stabilized "Hide Active Effect" so active overlays are replaced by a grayscale icon with the regular cooldown swipe and cooldown text without repeated flashing.
 - Added solid and gradient bar-color palettes, corrected class-color live previews for cast and resource bars, centered bar previews, and deferred profile export generation until requested.
+- Edit Mode now closes automatically when combat begins, preventing configuration overlays from remaining active during combat.
+- Improved stored specialization-profile migration so large Custom Aura profiles are processed in bounded batches without prolonged loading stalls.
+- Added Concentrated Silvermoon Health Potion to the Potions & Healthstone shortcut, including current and legacy item-rank fallbacks.
 
 ### Korean Patch Notes
 - CDM 바, 커스텀 오라, 자원 바, 시전 바, 추적중인 막대 및 프로필 관리를 일관된 작업 중심 화면으로 개편하고 탐색 구조를 명확하게 정리했으며 실시간 미리보기를 계속 확인할 수 있도록 구성했습니다.
@@ -26,6 +29,9 @@ _Scope: Git changes from v2.1.2.1 through this release._
 - 숨김 및 미보유 아이템 처리를 수정하여 숨겨진 아이템이 그룹 앵커에서 이탈하지 않도록 하고 아이템별 `보유하지 않을 때 숨기기` 설정을 복구했으며 그룹 상태 표시가 실제 활성화 여부를 따르도록 변경했습니다.
 - `지속 효과 숨기기` 사용 시 활성 오버레이 대신 흑백 아이콘, 일반 재사용 대기 스와이프 및 재사용 대기시간 텍스트가 깜빡임 없이 유지되도록 안정화했습니다.
 - 바 색상에 단색 및 그라데이션 팔레트를 추가하고 시전 바·자원 바의 직업 색상 미리보기와 바 미리보기 위치를 수정했으며 프로필 내보내기는 요청할 때만 생성하도록 변경했습니다.
+- 전투 시작 시 편집 모드를 자동으로 종료하여 전투 중에 설정용 오버레이가 남지 않도록 변경했습니다.
+- 대형 커스텀 오라 프로필도 로딩이 오래 멈추지 않도록 저장된 전문화 프로필 마이그레이션을 제한된 단위로 나누어 처리합니다.
+- `물약 및 생명석` 숏컷에 농축된 실버문 생명력 물약을 추가하고 현재 및 이전 등급 아이템을 함께 인식하도록 했습니다.
 
 ## v2.1.2.1
 
