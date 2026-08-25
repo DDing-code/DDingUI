@@ -68,6 +68,19 @@ local function ReadProcActive(frame)
     if not frame then return false end
     if frame.IsForbidden and frame:IsForbidden() then return false end
 
+    local active
+    if CDMCompat and type(CDMCompat.GetFrameActiveState) == "function" then
+        active = CDMCompat:GetFrameActiveState(frame)
+    elseif type(frame.IsActive) == "function" then
+        local ok, value = pcall(frame.IsActive, frame)
+        if ok and not IsSecret(value) and type(value) == "boolean" then
+            active = value
+        end
+    end
+    if active ~= nil then
+        return active
+    end
+
     local auraInstanceID = frame.auraInstanceID
     if IsSecret(auraInstanceID) then
         return true
@@ -76,14 +89,21 @@ local function ReadProcActive(frame)
         return auraInstanceID ~= 0
     end
 
-    local active = frame.isActive
+    active = frame.isActive
     if not IsSecret(active) and type(active) == "boolean" then
         return active
     end
 
-    local cooldown = GetCooldown(frame)
-    if cooldown and type(cooldown.IsShown) == "function" and cooldown:IsShown() then
-        return true
+    local wasSetFromAura = frame.wasSetFromAura
+    if not IsSecret(wasSetFromAura) and type(wasSetFromAura) == "boolean" then
+        return wasSetFromAura
+    end
+
+    if type(frame.IsActive) ~= "function" and type(frame.IsShown) == "function" then
+        local ok, shown = pcall(frame.IsShown, frame)
+        if ok and not IsSecret(shown) and type(shown) == "boolean" then
+            return shown
+        end
     end
     return false
 end
@@ -192,6 +212,12 @@ local function HookProcFrame(procFrame, procCooldown)
             if self._ddNativeTrinketAlphaGuard then return end
             if pairByProcFrame[self] then QueueStateRefresh() end
         end)
+        if type(procFrame.OnActiveStateChanged) == "function" then
+            pcall(hooksecurefunc, procFrame, "OnActiveStateChanged", QueueStateRefresh)
+        end
+        if type(procFrame.TriggerAuraAppliedAlert) == "function" then
+            pcall(hooksecurefunc, procFrame, "TriggerAuraAppliedAlert", QueueStateRefresh)
+        end
         procFrame._ddNativeTrinketOverlayHooked = true
     end
 

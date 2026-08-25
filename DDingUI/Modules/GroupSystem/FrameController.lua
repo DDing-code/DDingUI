@@ -699,6 +699,17 @@ end
 local function ReadBuffFrameActiveState(frame)
     if not frame then return nil end
 
+    if CDMCompat and type(CDMCompat.GetFrameActiveState) == "function" then
+        return CDMCompat:GetFrameActiveState(frame)
+    end
+
+    if type(frame.IsActive) == "function" then
+        local ok, active = pcall(frame.IsActive, frame)
+        if ok and (not issecretvalue or not issecretvalue(active)) and type(active) == "boolean" then
+            return active
+        end
+    end
+
     local active = frame.isActive
     if issecretvalue and issecretvalue(active) then
         return nil

@@ -88,6 +88,23 @@ function Compat:IsPublicString(value)
     return not IsSecret(value) and type(value) == "string"
 end
 
+function Compat:GetFrameActiveState(frame)
+    if not frame then return nil end
+
+    if type(frame.IsActive) == "function" then
+        local ok, active = pcall(frame.IsActive, frame)
+        if ok and not IsSecret(active) and type(active) == "boolean" then
+            return active
+        end
+    end
+
+    local active = frame.isActive
+    if not IsSecret(active) and type(active) == "boolean" then
+        return active
+    end
+    return nil
+end
+
 local function CopyPublicInfo(info, fallbackCooldownID)
     if IsSecret(info) or type(info) ~= "table" then return nil end
 
@@ -573,13 +590,7 @@ function Compat:FindFrameByCooldownID(cooldownID, preferBar)
         local data = frameCache[frame]
         if data and data.cooldownID == cooldownID then
             local isBar = frame.Bar ~= nil
-            local isActive = false
-            if type(frame.IsActive) == "function" then
-                local ok, value = pcall(frame.IsActive, frame)
-                if ok and not IsSecret(value) and type(value) == "boolean" then
-                    isActive = value
-                end
-            end
+            local isActive = self:GetFrameActiveState(frame) == true
 
             if isBar then
                 if isActive then activeBar = frame else inactiveBar = inactiveBar or frame end
