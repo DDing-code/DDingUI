@@ -9,7 +9,7 @@ local RaidPartyTooltip = {}
 local MAX_GROUPS = 8
 local SLOTS_PER_GROUP = 5
 local MAX_RAID_MEMBERS = 40
-local ATTACH_INTERVAL = 0.5
+local RAID_LFG_CATEGORY_ID = 3
 
 local CLASS_ARMOR = {
     PRIEST = "CLOTH",
@@ -61,8 +61,7 @@ local ARMOR_COLORS = {
 local active = false
 local db
 local hooksComplete = false
-local tooltipProcessorRegistered = false
-local attachElapsed = 0
+local lfgTooltipHooked = false
 
 local memberButtons = setmetatable({}, { __mode = "k" })
 local memberButtonHooks = setmetatable({}, { __mode = "k" })
@@ -70,7 +69,7 @@ local standaloneOwners = setmetatable({}, { __mode = "k" })
 local standaloneHooks = setmetatable({}, { __mode = "k" })
 
 local attachWatcher = CreateFrame("Frame")
-attachWatcher:Hide()
+attachWatcher:RegisterEvent("ADDON_LOADED")
 
 local function GetDB()
     local profile = ns.db and ns.db.profile
@@ -96,6 +95,13 @@ local function SafeInteger(value, minimum, maximum)
     if minimum and number < minimum then return nil end
     if maximum and number > maximum then return nil end
     return number
+end
+
+local function SafeTableField(tableValue, key)
+    if IsSecret(tableValue) or type(tableValue) ~= "table" then return nil, false end
+    local ok, value = pcall(function() return tableValue[key] end)
+    if not ok or IsSecret(value) then return nil, false end
+    return value, true
 end
 
 local function ColorText(text, color)
@@ -188,6 +194,67 @@ function RaidPartyTooltip:CollectGroup(subgroup)
         end
     end
 
+    return summary
+end
+
+function RaidPartyTooltip:CollectSearchResult(resultID)
+    resultID = SafeInteger(resultID, 1)
+    local api = _G.C_LFGList
+    if not resultID or type(api) ~= "table"
+        or type(api.GetSearchResultPlayerInfo) ~= "function" then
+        return nil
+    end
+
+    local expectedMembers
+    if type(api.GetSearchResultInfo) == "function" then
+        local ok, resultInfo = pcall(api.GetSearchResultInfo, resultID)
+        if ok then
+            local value, accessible = SafeTableField(resultInfo, "numMembers")
+            if accessible then
+                expectedMembers = SafeInteger(value, 0, MAX_RAID_MEMBERS)
+            end
+        end
+    end
+
+    if expectedMembers == 0 then return nil end
+
+    local summary = {
+        total = 0,
+        classes = {},
+        unknownClasses = 0,
+        armor = { CLOTH = 0, LEATHER = 0, MAIL = 0, PLATE = 0 },
+        unknownArmor = 0,
+    }
+    local memberLimit = expectedMembers or MAX_RAID_MEMBERS
+
+    for index = 1, memberLimit do
+        local ok, memberInfo = pcall(api.GetSearchResultPlayerInfo, resultID, index)
+        if not ok then return nil end
+        if IsSecret(memberInfo) then return nil end
+        if memberInfo == nil then
+            if expectedMembers then return nil end
+            break
+        end
+
+        local classFile, accessible = SafeTableField(memberInfo, "classFilename")
+        if not accessible or type(classFile) ~= "string" or classFile == "" then
+            return nil
+        end
+
+        summary.total = summary.total + 1
+        summary.classes[classFile] = (summary.classes[classFile] or 0) + 1
+
+        local armorType = CLASS_ARMOR[classFile]
+        if armorType then
+            summary.armor[armorType] = summary.armor[armorType] + 1
+        else
+            summary.unknownArmor = summary.unknownArmor + 1
+        end
+    end
+
+    if summary.total == 0 or (expectedMembers and summary.total ~= expectedMembers) then
+        return nil
+    end
     return summary
 end
 
@@ -332,40 +399,11 @@ local function HookStandalone(owner, subgroup, location)
     return true
 end
 
-local function AppendToMemberTooltip(tooltip)
-    if not active or not tooltip or not db or db.showOnMembers == false then return end
-    if type(tooltip.GetOwner) ~= "function" then return end
-
-    local owner = tooltip:GetOwner()
-    if not owner or not memberButtons[owner] then return end
-
-    local subgroup = ResolveMemberGroup(owner)
-    if not subgroup then return end
-    AddGroupSummary(tooltip, subgroup, true)
-    tooltip:Show()
-end
-
-local function RegisterTooltipProcessor()
-    if tooltipProcessorRegistered then return true end
-    if not TooltipDataProcessor or type(TooltipDataProcessor.AddTooltipPostCall) ~= "function" then
-        return false
-    end
-    if not Enum or not Enum.TooltipDataType or not Enum.TooltipDataType.Unit then
-        return false
-    end
-
-    local ok = pcall(function()
-        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, AppendToMemberTooltip)
-    end)
-    tooltipProcessorRegistered = ok
-    return ok
-end
-
 local function HookMemberButton(button)
-    if not button then return false end
+    if not button or type(button.HookScript) ~= "function" then return false end
     memberButtons[button] = true
 
-    if not tooltipProcessorRegistered and type(button.HookScript) == "function" and not memberButtonHooks[button] then
+    if not memberButtonHooks[button] then
         memberButtonHooks[button] = true
         button:HookScript("OnEnter", function(owner)
             if not active or not db or db.showOnMembers == false or not GameTooltip then return end
@@ -379,8 +417,61 @@ local function HookMemberButton(button)
     return true
 end
 
+local function GetCurrentLFGCategory()
+    local frame = _G.LFGListFrame
+    if not frame then return nil end
+
+    local searchPanel = frame.SearchPanel
+    local categoryID = searchPanel and SafeInteger(searchPanel.categoryID, 1)
+    if categoryID then return categoryID end
+
+    local categorySelection = frame.CategorySelection
+    return categorySelection and SafeInteger(categorySelection.selectedCategory, 1) or nil
+end
+
+local function AppendSearchResultSummary(tooltip, resultID)
+    if not active or not tooltip or not db or db.showOnPremadeRaid == false then return end
+    if GetCurrentLFGCategory() ~= RAID_LFG_CATEGORY_ID then return end
+
+    local summary = RaidPartyTooltip:CollectSearchResult(resultID)
+    if not summary then return end
+
+    tooltip:AddLine(" ")
+    tooltip:AddDoubleLine(
+        L["RPT_LFG_TITLE"],
+        string.format(L["RPT_MEMBER_COUNT"], summary.total),
+        0.35, 0.82, 0.92,
+        0.76, 0.78, 0.82
+    )
+
+    if db.showClassCounts ~= false then
+        tooltip:AddLine(" ")
+        tooltip:AddLine(L["RPT_CLASS_SECTION"], 0.35, 0.82, 0.92)
+        AddPairedRows(tooltip, BuildClassEntries(summary, db.showClassIcons ~= false))
+    end
+
+    if db.showArmorCounts ~= false then
+        tooltip:AddLine(" ")
+        tooltip:AddLine(L["RPT_ARMOR_SECTION"], 0.35, 0.82, 0.92)
+        AddPairedRows(tooltip, BuildArmorEntries(summary, db.showZeroArmor ~= false))
+    end
+    tooltip:Show()
+end
+
+function RaidPartyTooltip:AttachLFGTooltip()
+    if lfgTooltipHooked then return true end
+    if type(_G.hooksecurefunc) ~= "function"
+        or type(_G.LFGListUtil_SetSearchEntryTooltip) ~= "function" then
+        return false
+    end
+
+    local ok = pcall(_G.hooksecurefunc, "LFGListUtil_SetSearchEntryTooltip", AppendSearchResultSummary)
+    lfgTooltipHooked = ok
+    return ok
+end
+
 function RaidPartyTooltip:AttachBlizzardRaidUI()
-    RegisterTooltipProcessor()
+    if hooksComplete then return true end
     local complete = true
 
     for subgroup = 1, MAX_GROUPS do
@@ -398,7 +489,6 @@ function RaidPartyTooltip:AttachBlizzardRaidUI()
     end
 
     hooksComplete = complete
-    if complete then attachWatcher:Hide() end
     return complete
 end
 
@@ -413,15 +503,12 @@ function RaidPartyTooltip:OnEnable()
     db = self.db
     active = true
 
-    if not self:AttachBlizzardRaidUI() then
-        attachElapsed = 0
-        attachWatcher:Show()
-    end
+    self:AttachBlizzardRaidUI()
+    self:AttachLFGTooltip()
 end
 
 function RaidPartyTooltip:OnDisable()
     active = false
-    attachWatcher:Hide()
 
     if GameTooltip and type(GameTooltip.GetOwner) == "function" then
         local owner = GameTooltip:GetOwner()
@@ -436,12 +523,13 @@ function RaidPartyTooltip:ApplySettings()
     db = self.db
 end
 
-attachWatcher:SetScript("OnUpdate", function(_, elapsed)
-    if not active or hooksComplete then return end
-    attachElapsed = attachElapsed + (tonumber(elapsed) or 0)
-    if attachElapsed < ATTACH_INTERVAL then return end
-    attachElapsed = 0
-    RaidPartyTooltip:AttachBlizzardRaidUI()
+attachWatcher:SetScript("OnEvent", function(_, event, loadedAddon)
+    if event ~= "ADDON_LOADED" or not active then return end
+    if loadedAddon == "Blizzard_RaidUI" then
+        RaidPartyTooltip:AttachBlizzardRaidUI()
+    elseif loadedAddon == "Blizzard_GroupFinder" then
+        RaidPartyTooltip:AttachLFGTooltip()
+    end
 end)
 
 DDingToolKit:RegisterModule("RaidPartyTooltip", RaidPartyTooltip)

@@ -109,7 +109,7 @@ ns.defaults = {
 
         -- PremadeGroupFilter settings
         PremadeGroupFilter = {
-            uiRevision = 4,
+            uiRevision = 5,
             showPanel = true,
             showSpecIcons = true,
             showLeaderScore = true,
@@ -876,6 +876,7 @@ ns.defaults = {
 
         -- RaidPartyTooltip (subgroup class and armor counts)
         RaidPartyTooltip = {
+            showOnPremadeRaid = true,
             showOnMembers = true,
             showOnEmptySlots = true,
             showClassCounts = true,

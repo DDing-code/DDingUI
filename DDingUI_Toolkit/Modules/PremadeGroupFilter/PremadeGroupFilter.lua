@@ -33,6 +33,38 @@ local BLOODLUST_CLASSES = {
     SHAMAN = true,
 }
 
+local VALID_SORT_MODES = {
+    DEFAULT = true,
+    RATING = true,
+    MAPBEST = true,
+}
+
+local BLOODLUST_SORT_ORDER = {
+    PRESENT = 1,
+    FLEX = 2,
+    MISSING = 3,
+}
+
+local COMPOSITION_SEARCH_KEYS = {
+    needMyRole = true,
+    requireTank = true,
+    requireHealer = true,
+}
+
+local SEARCH_INFO_RENDER_KEYS = {
+    "activityIDs",
+    "name",
+    "censored",
+    "isWarMode",
+    "isDelisted",
+    "voiceChat",
+    "generalPlaystyle",
+    "numMembers",
+    "numBNetFriends",
+    "numCharFriends",
+    "numGuildMates",
+}
+
 local CURRENT_SEASON_MAP_ORDER = { 588, 584, 586, 587, 585, 399, 250, 249 }
 local CURRENT_SEASON_ACTIVITY_GROUPS = {
     [588] = 420,
@@ -44,23 +76,9 @@ local CURRENT_SEASON_ACTIVITY_GROUPS = {
     [250] = 139,
     [249] = 141,
 }
-local CURRENT_SEASON_ACTIVITY_MAPS = {
-    [1933] = 588,
-    [1949] = 584,
-    [1952] = 586,
-    [1950] = 587,
-    [1951] = 585,
-    [1176] = 399,
-    [504] = 250,
-    [514] = 249,
-    [661] = 249,
-}
-
 local MAP_ORDER_INDEX = {}
-local MAP_BY_ACTIVITY_GROUP = {}
 for index, mapID in ipairs(CURRENT_SEASON_MAP_ORDER) do
     MAP_ORDER_INDEX[mapID] = index
-    MAP_BY_ACTIVITY_GROUP[CURRENT_SEASON_ACTIVITY_GROUPS[mapID]] = mapID
 end
 
 local ROLE_SORT_ORDER = {
@@ -83,12 +101,6 @@ local EMPTY_ROLE_TEXCOORDS = {
     TANK = { 0 / 64, 19 / 64, 22 / 64, 41 / 64 },
     HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 },
     DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 },
-}
-
-local VALID_SORT_MODES = {
-    DEFAULT = true,
-    RATING = true,
-    MAPBEST = true,
 }
 
 local OBSOLETE_DB_KEYS = {
@@ -122,16 +134,45 @@ local sidePanel
 local attachTicker
 local hooksAttached = false
 local specEntryHooked = false
-local rawResults = {}
+local resultSortHooked = false
 local lastMatchCount = 0
 local lastTotalCount = 0
 local specializationLookup
 local specializationRows = setmetatable({}, { __mode = "k" })
 local leaderScoreRows = setmetatable({}, { __mode = "k" })
+local resultAssistRows = setmetatable({}, { __mode = "k" })
+local nativeResultOrder = {}
 local seasonDungeons = {}
 local raiderIOAnchorHooked = false
 local raiderIOAnchorUpdating = false
 local raiderIORetryScheduled = false
+local resultRefreshPending = false
+local chatRestrictionState
+
+local ADVANCED_FILTER_BOOLEAN_KEYS = {
+    "needsTank",
+    "needsHealer",
+    "needsDamage",
+    "needsMyClass",
+    "hasTank",
+    "hasHealer",
+    "difficultyNormal",
+    "difficultyHeroic",
+    "difficultyMythic",
+    "difficultyMythicPlus",
+    "generalPlaystyle1",
+    "generalPlaystyle2",
+    "generalPlaystyle3",
+    "generalPlaystyle4",
+}
+
+local OWNED_FILTER_BOOLEAN_KEYS = {
+    "needsTank",
+    "needsHealer",
+    "needsDamage",
+    "hasTank",
+    "hasHealer",
+}
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value)
@@ -152,6 +193,40 @@ end
 local function SafeBoolean(value, fallback)
     if IsSecret(value) or value == nil then return fallback end
     return value == true
+end
+
+local function IsChatRestricted()
+    local restrictionType = Enum and Enum.AddOnRestrictionType
+        and Enum.AddOnRestrictionType.Chat or 5
+    local inactiveState = Enum and Enum.AddOnRestrictionState
+        and Enum.AddOnRestrictionState.Inactive or 0
+
+    if chatRestrictionState ~= nil and chatRestrictionState ~= inactiveState then
+        return true
+    end
+    if not C_RestrictedActions then return false end
+
+    if C_RestrictedActions.GetAddOnRestrictionState then
+        local ok, state = pcall(
+            C_RestrictedActions.GetAddOnRestrictionState, restrictionType
+        )
+        if ok and not IsSecret(state) and state ~= nil then
+            return state ~= inactiveState
+        end
+    end
+    if C_RestrictedActions.IsAddOnRestrictionActive then
+        local ok, active = pcall(
+            C_RestrictedActions.IsAddOnRestrictionActive, restrictionType
+        )
+        return ok and not IsSecret(active) and active == true
+    end
+    return false
+end
+
+local function IsCombatLocked()
+    if not InCombatLockdown then return false end
+    local ok, locked = pcall(InCombatLockdown)
+    return ok and not IsSecret(locked) and locked == true
 end
 
 local function Clamp(value, minimum, maximum)
@@ -233,34 +308,6 @@ local function GetSeasonDungeons()
     return seasonDungeons
 end
 
-local function ResolveActivityMapID(activityID)
-    activityID = SafeNumber(activityID, nil)
-    if not activityID then return nil end
-    activityID = math.floor(activityID)
-
-    local mapID = CURRENT_SEASON_ACTIVITY_MAPS[activityID]
-    if mapID then return mapID end
-    if not C_LFGList or not C_LFGList.GetActivityInfoTable then return nil end
-
-    local ok, activityInfo = pcall(C_LFGList.GetActivityInfoTable, activityID)
-    if not ok or IsSecret(activityInfo) or type(activityInfo) ~= "table" then return nil end
-    local activityGroupID = SafeNumber(activityInfo.groupFinderActivityGroupID, nil)
-    return activityGroupID and MAP_BY_ACTIVITY_GROUP[math.floor(activityGroupID)] or nil
-end
-
-local function GetResultChallengeMapID(searchResultInfo)
-    if IsSecret(searchResultInfo) or type(searchResultInfo) ~= "table" then return nil end
-
-    local activityIDs = searchResultInfo.activityIDs
-    if not IsSecret(activityIDs) and type(activityIDs) == "table" then
-        for _, activityID in ipairs(activityIDs) do
-            local mapID = ResolveActivityMapID(activityID)
-            if mapID then return mapID end
-        end
-    end
-    return ResolveActivityMapID(searchResultInfo.activityID)
-end
-
 local function IsDungeonSelected(db, mapID)
     if not db or type(db.selectedDungeons) ~= "table" then return false end
     mapID = SafeNumber(mapID, nil)
@@ -274,39 +321,14 @@ local function HasDungeonSelection(db)
     return false
 end
 
-local function IsSearchPanelReady(searchPanel)
-    if IsSecret(searchPanel) or searchPanel == nil then return false end
-
-    local results = searchPanel.results
-    local applications = searchPanel.applications
-    return not IsSecret(results) and type(results) == "table"
-        and not IsSecret(applications) and type(applications) == "table"
-end
-
-local function GetDisplayedResultCount(results, applications)
-    local total = #results
-    if IsSecret(applications) or type(applications) ~= "table" then return total end
-
-    local resultSet = {}
-    for _, resultID in ipairs(results) do
-        if not IsSecret(resultID) and resultID ~= nil then resultSet[resultID] = true end
-    end
-    for _, resultID in ipairs(applications) do
-        if not IsSecret(resultID) and resultID ~= nil and not resultSet[resultID] then
-            total = total + 1
-        end
-    end
-    return total
-end
-
 local function GetMemberCounts(resultID)
     if IsSecret(resultID) or not C_LFGList
         or not C_LFGList.GetSearchResultMemberCounts then
-        return {}
+        return {}, false
     end
     local ok, counts = pcall(C_LFGList.GetSearchResultMemberCounts, resultID)
-    if not ok or IsSecret(counts) or type(counts) ~= "table" then return {} end
-    return counts
+    if not ok or IsSecret(counts) or type(counts) ~= "table" then return {}, false end
+    return counts, true
 end
 
 local function GetMemberCount(source, key)
@@ -315,18 +337,21 @@ local function GetMemberCount(source, key)
 end
 
 local function MemberCountsHaveBloodlust(counts)
-    if IsSecret(counts) or type(counts) ~= "table" then return false end
+    if IsSecret(counts) or type(counts) ~= "table" then return nil end
     local classesByRole = counts.classesByRole
-    if IsSecret(classesByRole) or type(classesByRole) ~= "table" then return false end
+    if IsSecret(classesByRole) or type(classesByRole) ~= "table" then return nil end
 
-    for _, roleClasses in pairs(classesByRole) do
-        if not IsSecret(roleClasses) and type(roleClasses) == "table" then
-            for rawClassToken, count in pairs(roleClasses) do
-                local classToken = SafeString(rawClassToken, nil)
-                if classToken and BLOODLUST_CLASSES[classToken]
-                    and (SafeNumber(count, 0) or 0) > 0 then
-                    return true
-                end
+    for rawRole, roleClasses in pairs(classesByRole) do
+        if IsSecret(rawRole) or IsSecret(roleClasses) or type(roleClasses) ~= "table" then
+            return nil
+        end
+        for rawClassToken, rawCount in pairs(roleClasses) do
+            if IsSecret(rawClassToken) or IsSecret(rawCount) then return nil end
+            local classToken = SafeString(rawClassToken, nil)
+            local count = SafeNumber(rawCount, 0) or 0
+            classToken = classToken and string.upper(classToken) or nil
+            if classToken and BLOODLUST_CLASSES[classToken] and count > 0 then
+                return true
             end
         end
     end
@@ -336,10 +361,10 @@ end
 local function SearchingPartyHasBloodlust()
     if not UnitExists or not UnitClass then return false end
     for _, unit in ipairs({ "player", "party1", "party2", "party3", "party4" }) do
-        local exists = UnitExists(unit)
-        if not IsSecret(exists) and exists then
-            local ok, _, classToken = pcall(UnitClass, unit)
-            classToken = ok and SafeString(classToken, nil) or nil
+        local okExists, exists = pcall(UnitExists, unit)
+        if okExists and not IsSecret(exists) and exists == true then
+            local okClass, _, classToken = pcall(UnitClass, unit)
+            classToken = okClass and SafeString(classToken, nil) or nil
             if classToken and BLOODLUST_CLASSES[classToken] then return true end
         end
     end
@@ -380,18 +405,19 @@ end
 
 local function GetSearchingPartyRoles()
     local roles = { TANK = 0, HEALER = 0, DAMAGER = 0, total = 0 }
-    local units = { "player", "party1", "party2", "party3", "party4" }
-
-    for _, unit in ipairs(units) do
-        local exists = UnitExists and UnitExists(unit)
-        if not IsSecret(exists) and exists then
+    for _, unit in ipairs({ "player", "party1", "party2", "party3", "party4" }) do
+        local okExists, exists = pcall(UnitExists, unit)
+        if okExists and not IsSecret(exists) and exists == true then
             roles.total = roles.total + 1
-            local role = UnitGroupRolesAssigned
-                and SafeString(UnitGroupRolesAssigned(unit), nil) or nil
+            local role
+            if UnitGroupRolesAssigned then
+                local okRole, assignedRole = pcall(UnitGroupRolesAssigned, unit)
+                role = okRole and SafeString(assignedRole, nil) or nil
+            end
             if unit == "player" and (not role or role == "NONE") then
                 role = GetPlayerSpecializationRole()
             end
-            if roles[role] ~= nil then roles[role] = roles[role] + 1 end
+            if role and roles[role] ~= nil then roles[role] = roles[role] + 1 end
         end
     end
 
@@ -403,37 +429,48 @@ local function GetSearchingPartyRoles()
     return roles
 end
 
-local function IsPartyFit(counts, listingMembers, partyRoles)
-    if partyRoles.total + listingMembers > 5 then return false end
-    if partyRoles.TANK + GetMemberCount(counts, "TANK") > 1 then return false end
-    if partyRoles.HEALER + GetMemberCount(counts, "HEALER") > 1 then return false end
-    local listingDamage = GetMemberCount(counts, "DAMAGER") + GetMemberCount(counts, "NOROLE")
-    if partyRoles.DAMAGER + listingDamage > 3 then return false end
-    return true
-end
+local function GetBloodlustStatus(counts, listingMembers, partyRoles, partyHasBloodlust)
+    local listingHasBloodlust = MemberCountsHaveBloodlust(counts)
+    if listingHasBloodlust == nil then return nil end
+    if partyHasBloodlust or listingHasBloodlust then return "PRESENT" end
 
-local function IsBloodlustFit(counts, listingMembers, partyRoles, partyHasBloodlust)
-    if partyHasBloodlust or MemberCountsHaveBloodlust(counts) then return true end
-    if partyRoles.total + listingMembers > 5 then return false end
+    listingMembers = math.max(0, SafeNumber(listingMembers, 0) or 0)
+    if partyRoles.total + listingMembers > 5 then return "MISSING" end
 
     local healerCount = partyRoles.HEALER + GetMemberCount(counts, "HEALER")
     local damageCount = partyRoles.DAMAGER
         + GetMemberCount(counts, "DAMAGER")
         + GetMemberCount(counts, "NOROLE")
-    return healerCount < 1 or damageCount < 3
+    if healerCount < 1 or damageCount < 3 then return "FLEX" end
+    return "MISSING"
 end
 
 local function GetMapBest(searchResultInfo)
-    if IsSecret(searchResultInfo) or type(searchResultInfo) ~= "table" then return 0 end
+    if IsSecret(searchResultInfo) or type(searchResultInfo) ~= "table" then return 0, false end
     local best = 0
+    local valid = true
 
     local function ReadScoreInfo(scoreInfo)
-        if IsSecret(scoreInfo) or type(scoreInfo) ~= "table" then return end
-        local direct = math.max(0, SafeNumber(scoreInfo.bestRunLevel, 0) or 0)
+        if IsSecret(scoreInfo) then
+            valid = false
+            return
+        end
+        if scoreInfo == nil then return end
+        if type(scoreInfo) ~= "table" then
+            valid = false
+            return
+        end
+        local rawDirect = scoreInfo.bestRunLevel
+        if IsSecret(rawDirect) then valid = false end
+        local direct = math.max(0, SafeNumber(rawDirect, 0) or 0)
         if direct > best then best = direct end
         for _, entry in pairs(scoreInfo) do
-            if not IsSecret(entry) and type(entry) == "table" then
-                local level = math.max(0, SafeNumber(entry.bestRunLevel, 0) or 0)
+            if IsSecret(entry) then
+                valid = false
+            elseif type(entry) == "table" then
+                local rawLevel = entry.bestRunLevel
+                if IsSecret(rawLevel) then valid = false end
+                local level = math.max(0, SafeNumber(rawLevel, 0) or 0)
                 if level > best then best = level end
             end
         end
@@ -441,74 +478,7 @@ local function GetMapBest(searchResultInfo)
 
     ReadScoreInfo(searchResultInfo.leaderDungeonScoreInfo)
     ReadScoreInfo(searchResultInfo.leaderBestDungeonScoreInfo)
-    return best
-end
-
-local function BuildResultModel(resultID, originalIndex, partyRoles, partyHasBloodlust)
-    if IsSecret(resultID) or resultID == nil
-        or not C_LFGList or not C_LFGList.GetSearchResultInfo then
-        return nil
-    end
-
-    local ok, info = pcall(C_LFGList.GetSearchResultInfo, resultID)
-    if not ok or IsSecret(info) or type(info) ~= "table" then return nil end
-
-    local counts = GetMemberCounts(resultID)
-    local members = math.max(0, SafeNumber(info.numMembers, 0) or 0)
-    local applied, declined = GetApplicationState(resultID, info)
-    local friends = GetMemberCount(info, "numBNetFriends")
-        + GetMemberCount(info, "numCharFriends")
-        + GetMemberCount(info, "numGuildMates")
-
-    return {
-        id = resultID,
-        originalIndex = originalIndex,
-        hasTank = GetMemberCount(counts, "TANK") > 0,
-        hasHealer = GetMemberCount(counts, "HEALER") > 0,
-        partyFit = IsPartyFit(counts, members, partyRoles),
-        bloodlustFit = IsBloodlustFit(counts, members, partyRoles, partyHasBloodlust),
-        rating = math.max(0, SafeNumber(info.leaderOverallDungeonScore, 0) or 0),
-        mapBest = GetMapBest(info),
-        mapID = GetResultChallengeMapID(info),
-        friends = friends,
-        applied = applied,
-        declined = declined,
-    }
-end
-
-local function PassesFilters(model, db)
-    if not model then return true end
-    if model.applied then return true end
-    if db.needMyRole and not model.partyFit then return false end
-    if db.bloodlustFit and not model.bloodlustFit then return false end
-    if db.requireTank and not model.hasTank then return false end
-    if db.requireHealer and not model.hasHealer then return false end
-    if HasDungeonSelection(db) and not IsDungeonSelected(db, model.mapID) then return false end
-
-    local minRating = math.max(0, SafeNumber(db.minLeaderRating, 0) or 0)
-    local minMapBest = math.max(0, SafeNumber(db.minMapBest, 0) or 0)
-    if minRating > 0 and model.rating < minRating then return false end
-    if minMapBest > 0 and model.mapBest < minMapBest then return false end
-    return true
-end
-
-local function CompareRecords(left, right, sortMode)
-    local a, b = left.model, right.model
-    if (a == nil) ~= (b == nil) then return a ~= nil end
-    if not a then return left.index < right.index end
-    if a.applied ~= b.applied then return a.applied end
-
-    local aSocial = a.friends > 0
-    local bSocial = b.friends > 0
-    if aSocial ~= bSocial then return aSocial end
-
-    if sortMode == "RATING" and a.rating ~= b.rating then
-        return a.rating > b.rating
-    end
-    if sortMode == "MAPBEST" and a.mapBest ~= b.mapBest then
-        return a.mapBest > b.mapBest
-    end
-    return a.originalIndex < b.originalIndex
+    return best, valid
 end
 
 local function AddSpecializationLookupEntry(lookup, classToken, classID, specIndex, sex)
@@ -574,7 +544,8 @@ end
 local function GetRoleClassOrder(resultID)
     local order = {}
     local counts = GetMemberCounts(resultID)
-    local classesByRole = counts.classesByRole
+    local classesByRole = not IsSecret(counts) and type(counts) == "table"
+        and counts.classesByRole or nil
     local roleOrder = type(LFG_LIST_GROUP_DATA_ROLE_ORDER) == "table"
         and LFG_LIST_GROUP_DATA_ROLE_ORDER
         or { "TANK", "HEALER", "DAMAGER" }
@@ -699,15 +670,7 @@ end
 local function HideSpecializationRow(row)
     local frames = specializationRows[row]
     if not frames then return end
-    for _, frame in pairs(frames) do
-        frame:Hide()
-        if frame.defaultIcon and frame.defaultAlpha ~= nil
-            and frame.defaultIcon.SetAlpha then
-            frame.defaultIcon:SetAlpha(frame.defaultAlpha)
-        end
-        frame.defaultIcon = nil
-        frame.defaultAlpha = nil
-    end
+    for _, frame in pairs(frames) do frame:Hide() end
 end
 
 local function GetSpecializationFrames(row, defaultIcons)
@@ -739,7 +702,6 @@ local function GetSpecializationFrames(row, defaultIcons)
         end
         frame:ClearAllPoints()
         frame:SetAllPoints(defaultIcon)
-        frame.defaultIcon = defaultIcon
         frame:Hide()
     end
     for iconIndex = #defaultIcons + 1, #frames do frames[iconIndex]:Hide() end
@@ -794,6 +756,31 @@ local function GetLeaderScoreFrame(row)
     frame.best:SetJustifyH("RIGHT")
 
     leaderScoreRows[row] = frame
+    return frame
+end
+
+local function HideResultAssistRow(row)
+    local frame = resultAssistRows[row]
+    if frame then frame:Hide() end
+end
+
+local function GetResultAssistFrame(row)
+    local frame = resultAssistRows[row]
+    if frame then return frame end
+
+    frame = CreateFrame("Frame", nil, row, "BackdropTemplate")
+    frame:SetSize(24, 10)
+    frame:SetPoint("TOPRIGHT", row, "TOPRIGHT", -115, -1)
+    frame:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+    frame:SetFrameLevel((row:GetFrameLevel() or 1) + 13)
+    frame:EnableMouse(false)
+
+    frame.blood = CreateText(frame, 8, { 0.72, 0.90, 0.74, 1 })
+    frame.blood:SetSize(22, 9)
+    frame.blood:SetPoint("CENTER")
+    frame.blood:SetJustifyH("CENTER")
+
+    resultAssistRows[row] = frame
     return frame
 end
 
@@ -958,7 +945,7 @@ local function CreateNumberControl(parent, label, width, maximum, onCommit)
     return control
 end
 
-local function CreateSegmentButton(parent, label, onClick)
+local function CreateSegmentButton(parent, label, onClick, tooltip)
     local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
     button:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
     button:RegisterForClicks("LeftButtonUp")
@@ -1006,6 +993,7 @@ local function CreateSegmentButton(parent, label, onClick)
         self:UpdateVisual()
     end)
     button:SetActive(false)
+    if tooltip then SetTooltip(button, tooltip) end
     return button
 end
 
@@ -1105,77 +1093,515 @@ function PremadeGroupFilter:NormalizeDatabase()
         self.db.sortMode = "DEFAULT"
     end
     if revision < 4 then self.db.bloodlustFit = false end
+    if revision < 5 then
+        self.db.minMapBest = 0
+    end
 
     if type(self.db.selectedDungeons) ~= "table" then self.db.selectedDungeons = {} end
     if self.db.showLeaderScore == nil then self.db.showLeaderScore = true end
-    self.db.uiRevision = 4
+    self.db.uiRevision = 5
     if not VALID_SORT_MODES[self.db.sortMode] then self.db.sortMode = "DEFAULT" end
     for _, key in ipairs(OBSOLETE_DB_KEYS) do self.db[key] = nil end
 end
 
-function PremadeGroupFilter:PublishResults(results)
-    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
-    if not IsSearchPanelReady(searchPanel)
-        or IsSecret(results) or type(results) ~= "table" then
+local function CopyAdvancedFilterOptions(source)
+    if IsSecret(source) or type(source) ~= "table" then return nil end
+
+    local copy = {}
+    for _, key in ipairs(ADVANCED_FILTER_BOOLEAN_KEYS) do
+        copy[key] = SafeBoolean(source[key], false) == true
+    end
+    copy.minimumRating = math.max(0, SafeNumber(source.minimumRating, 0) or 0)
+    copy.activities = CopyArray(source.activities)
+    return copy
+end
+
+local function GetNativeFilterOptions()
+    if IsChatRestricted() or not C_LFGList or not C_LFGList.GetAdvancedFilter then
+        return nil
+    end
+    local ok, options = pcall(C_LFGList.GetAdvancedFilter)
+    if not ok then return nil end
+    return CopyAdvancedFilterOptions(options)
+end
+
+local function BuildSelectedActivityGroups(db)
+    local groups, seen = {}, {}
+    if not HasDungeonSelection(db) then return groups end
+
+    for _, dungeon in ipairs(GetSeasonDungeons()) do
+        local groupID = SafeNumber(dungeon.activityGroupID, nil)
+        if groupID and IsDungeonSelected(db, dungeon.mapID) then
+            groupID = math.floor(groupID)
+            if groupID > 0 and not seen[groupID] then
+                seen[groupID] = true
+                groups[#groups + 1] = groupID
+            end
+        end
+    end
+    table.sort(groups)
+    return groups
+end
+
+local function CaptureOwnedNativeFilter(options)
+    local backup = {
+        activities = CopyArray(options.activities),
+        minimumRating = math.max(0, SafeNumber(options.minimumRating, 0) or 0),
+    }
+    for _, key in ipairs(OWNED_FILTER_BOOLEAN_KEYS) do
+        backup[key] = options[key] == true
+    end
+    return backup
+end
+
+local function ApplyOwnedNativeFilter(options, db)
+    for _, key in ipairs({ "needsTank", "needsHealer", "needsDamage" }) do
+        options[key] = false
+    end
+    if db.needMyRole == true then
+        local role = GetPlayerSpecializationRole()
+        if role == "TANK" then
+            options.needsTank = true
+        elseif role == "HEALER" then
+            options.needsHealer = true
+        elseif role == "DAMAGER" then
+            options.needsDamage = true
+        end
+    end
+
+    options.hasTank = db.requireTank == true
+    options.hasHealer = db.requireHealer == true
+    options.minimumRating = math.floor(Clamp(db.minLeaderRating or 0, 0, 5000))
+    options.activities = BuildSelectedActivityGroups(db)
+end
+
+local function RestoreOwnedNativeFilter(options, backup)
+    backup = type(backup) == "table" and backup or {}
+    for _, key in ipairs(OWNED_FILTER_BOOLEAN_KEYS) do
+        options[key] = backup[key] == true
+    end
+    options.minimumRating = math.max(0, SafeNumber(backup.minimumRating, 0) or 0)
+    options.activities = CopyArray(backup.activities)
+end
+
+local function SaveNativeFilterOptions(options)
+    if IsChatRestricted() or not options or not C_LFGList
+        or not C_LFGList.SaveAdvancedFilter then
+        return false
+    end
+    return pcall(C_LFGList.SaveAdvancedFilter, options)
+end
+
+function PremadeGroupFilter:RefreshResultCount()
+    if IsChatRestricted() or not C_LFGList or not C_LFGList.GetFilteredSearchResults then
+        return
+    end
+
+    local ok, total, results = pcall(C_LFGList.GetFilteredSearchResults)
+    if not ok or IsSecret(results) or type(results) ~= "table" then return end
+    local filteredCount = #results
+    lastMatchCount = filteredCount
+    lastTotalCount = math.max(filteredCount, SafeNumber(total, filteredCount) or filteredCount)
+    self:RefreshPanel()
+end
+
+local function CopySafeResultIDs(source)
+    if IsSecret(source) or type(source) ~= "table" then return nil end
+    local copy = {}
+    for index = 1, #source do
+        local resultID = SafeNumber(source[index], nil)
+        if not resultID then return nil end
+        copy[index] = math.floor(resultID)
+    end
+    return copy
+end
+
+local function ContainsSecretValue(source, depth)
+    if IsSecret(source) then return true end
+    if type(source) ~= "table" or depth <= 0 then return false end
+    for key, value in pairs(source) do
+        if IsSecret(key) or IsSecret(value) then return true end
+        if type(value) == "table" and ContainsSecretValue(value, depth - 1) then
+            return true
+        end
+    end
+    return false
+end
+
+local function CanSafelyRenderResult(resultID, searchResultInfo)
+    if IsSecret(searchResultInfo) or type(searchResultInfo) ~= "table" then return false end
+    for _, key in ipairs(SEARCH_INFO_RENDER_KEYS) do
+        if IsSecret(searchResultInfo[key]) then return false end
+    end
+
+    local activityIDs = searchResultInfo.activityIDs
+    if type(activityIDs) ~= "table" or #activityIDs == 0
+        or ContainsSecretValue(activityIDs, 1) then
+        return false
+    end
+    if not C_LFGList or not C_LFGList.GetApplicationInfo then return false end
+
+    local counts, countsValid = GetMemberCounts(resultID)
+    if not countsValid or ContainsSecretValue(counts, 3) then return false end
+
+    local ok, applicationID, appStatus, pendingStatus, appDuration =
+        pcall(C_LFGList.GetApplicationInfo, resultID)
+    if not ok or IsSecret(applicationID) or IsSecret(appStatus)
+        or IsSecret(pendingStatus) or IsSecret(appDuration) then
+        return false
+    end
+    return true
+end
+
+local function CanSafelyRefreshRows(order)
+    if type(order) ~= "table" or #order == 0 then return true end
+    if not C_LFGList or not C_LFGList.GetSearchResultInfo then return false end
+    local resultID = SafeNumber(order[1], nil)
+    if not resultID then return false end
+    local ok, info = pcall(C_LFGList.GetSearchResultInfo, resultID)
+    return ok and CanSafelyRenderResult(resultID, info)
+end
+
+local function CanSafelyRefreshSearchPanel(searchPanel, order)
+    if not searchPanel or IsSecret(searchPanel.applications)
+        or type(searchPanel.applications) ~= "table"
+        or ContainsSecretValue(searchPanel.applications, 1)
+        or not CanSafelyRefreshRows(order) then
         return false
     end
 
-    searchPanel.results = results
-    searchPanel.totalResults = GetDisplayedResultCount(results, searchPanel.applications)
-    if LFGListSearchPanel_UpdateResults then LFGListSearchPanel_UpdateResults(searchPanel) end
+    for _, rawResultID in ipairs(searchPanel.applications) do
+        local resultID = SafeNumber(rawResultID, nil)
+        if not resultID then return false end
+        local ok, info = pcall(C_LFGList.GetSearchResultInfo, resultID)
+        if not ok or not CanSafelyRenderResult(resultID, info) then return false end
+    end
+
+    local selectedResult = searchPanel.selectedResult
+    if IsSecret(selectedResult) then return false end
+    if selectedResult ~= nil then
+        selectedResult = SafeNumber(selectedResult, nil)
+        if not selectedResult then return false end
+        local ok, info = pcall(C_LFGList.GetSearchResultInfo, selectedResult)
+        if not ok or not CanSafelyRenderResult(selectedResult, info) then return false end
+    end
+    return true
+end
+
+function PremadeGroupFilter:CaptureNativeResultOrder(searchPanel)
+    if not searchPanel then return false end
+    local copy = CopySafeResultIDs(searchPanel.results)
+    if not copy then return false end
+    nativeResultOrder = copy
+    return true
+end
+
+function PremadeGroupFilter:BuildDisplayOrder(baseOrder)
+    if IsChatRestricted() or IsCombatLocked() or not self.enabled or not self.db
+        or not C_LFGList or not C_LFGList.GetSearchResultInfo then
+        return nil
+    end
+
+    baseOrder = CopySafeResultIDs(baseOrder)
+    if not baseOrder then return nil end
+    local sortMode = VALID_SORT_MODES[self.db.sortMode] and self.db.sortMode or "DEFAULT"
+    local sortBloodlust = self.db.bloodlustFit == true
+    local partyRoles = sortBloodlust and GetSearchingPartyRoles() or nil
+    local partyHasBloodlust = sortBloodlust and SearchingPartyHasBloodlust() or false
+    local records = {}
+
+    for index, resultID in ipairs(baseOrder) do
+        local infoOK, info = pcall(C_LFGList.GetSearchResultInfo, resultID)
+        if not infoOK or IsSecret(info) or type(info) ~= "table" then return nil end
+        for _, key in ipairs(SEARCH_INFO_RENDER_KEYS) do
+            if IsSecret(info[key]) then return nil end
+        end
+        if index == 1 and not CanSafelyRenderResult(resultID, info) then return nil end
+
+        local record = { id = resultID, originalIndex = index, rating = 0, mapBest = 0 }
+        if sortMode == "RATING" or sortMode == "MAPBEST" then
+            local rawRating = info.leaderOverallDungeonScore
+            if IsSecret(rawRating) then return nil end
+            record.rating = math.max(0, SafeNumber(rawRating, 0) or 0)
+        end
+        if sortMode == "MAPBEST" then
+            local validBest
+            record.mapBest, validBest = GetMapBest(info)
+            if not validBest then return nil end
+        end
+        if sortBloodlust then
+            local counts, countsValid = GetMemberCounts(resultID)
+            if not countsValid or ContainsSecretValue(counts, 3) then return nil end
+            local rawMembers = info.numMembers
+            if IsSecret(rawMembers) then return nil end
+            local status = GetBloodlustStatus(
+                counts,
+                SafeNumber(rawMembers, 0) or 0,
+                partyRoles,
+                partyHasBloodlust
+            )
+            record.bloodlustOrder = status and BLOODLUST_SORT_ORDER[status] or nil
+            if not record.bloodlustOrder then return nil end
+        end
+        records[#records + 1] = record
+    end
+
+    if sortBloodlust or sortMode ~= "DEFAULT" then
+        table.sort(records, function(left, right)
+            if sortBloodlust and left.bloodlustOrder ~= right.bloodlustOrder then
+                return left.bloodlustOrder < right.bloodlustOrder
+            end
+            if sortMode == "RATING" and left.rating ~= right.rating then
+                return left.rating > right.rating
+            end
+            if sortMode == "MAPBEST" then
+                if left.mapBest ~= right.mapBest then return left.mapBest > right.mapBest end
+                if left.rating ~= right.rating then return left.rating > right.rating end
+            end
+            return left.originalIndex < right.originalIndex
+        end)
+    end
+
+    local order = {}
+    for index, record in ipairs(records) do order[index] = record.id end
+    if not CanSafelyRefreshRows(order) then return nil end
+    return order
+end
+
+function PremadeGroupFilter:ApplyDisplayOrder(searchPanel, baseOrder)
+    if not searchPanel or IsSecret(searchPanel.results)
+        or type(searchPanel.results) ~= "table" then
+        return false
+    end
+    local currentOrder = CopySafeResultIDs(searchPanel.results)
+    if not currentOrder then return false end
+    local order = self:BuildDisplayOrder(baseOrder or currentOrder)
+    if not order or #order ~= #currentOrder then return false end
+    if not CanSafelyRefreshSearchPanel(searchPanel, order) then return false end
+    local changed = false
+    for index, resultID in ipairs(order) do
+        if currentOrder[index] ~= resultID then
+            changed = true
+            break
+        end
+    end
+    if not changed then return true, false end
+    for index, resultID in ipairs(order) do searchPanel.results[index] = resultID end
+    return true, true
+end
+
+function PremadeGroupFilter:RefreshCurrentDisplayOrder()
+    if IsChatRestricted() or IsCombatLocked() or not self.enabled then return false end
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+    if categoryID ~= CATEGORY_DUNGEON then return false end
+
+    local baseOrder = #nativeResultOrder > 0 and nativeResultOrder
+        or (searchPanel and searchPanel.results)
+    local applied, changed = self:ApplyDisplayOrder(searchPanel, baseOrder)
+    if not applied then return false end
+    if not changed then return true end
+    if not LFGListSearchPanel_UpdateResults then return false end
+    local ok = pcall(LFGListSearchPanel_UpdateResults, searchPanel)
+    return ok == true
+end
+
+function PremadeGroupFilter:RestoreCurrentDisplayOrder()
+    if IsChatRestricted() or IsCombatLocked() then return false end
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local currentOrder = searchPanel and CopySafeResultIDs(searchPanel.results) or nil
+    local baseOrder = CopySafeResultIDs(nativeResultOrder)
+    if not currentOrder or not baseOrder or #currentOrder ~= #baseOrder
+        or not CanSafelyRefreshSearchPanel(searchPanel, baseOrder) then
+        return false
+    end
+
+    local changed = false
+    for index, resultID in ipairs(baseOrder) do
+        if currentOrder[index] ~= resultID then changed = true break end
+    end
+    if not changed then return true end
+    for index, resultID in ipairs(baseOrder) do searchPanel.results[index] = resultID end
+    if not LFGListSearchPanel_UpdateResults then return false end
+    return pcall(LFGListSearchPanel_UpdateResults, searchPanel)
+end
+
+local function BuildFilteredNativeOrder(filteredOrder)
+    local filtered = {}
+    for _, resultID in ipairs(filteredOrder) do filtered[resultID] = true end
+
+    local order, added = {}, {}
+    for _, resultID in ipairs(nativeResultOrder) do
+        if filtered[resultID] then
+            order[#order + 1] = resultID
+            added[resultID] = true
+        end
+    end
+    for _, resultID in ipairs(filteredOrder) do
+        if not added[resultID] then
+            order[#order + 1] = resultID
+            added[resultID] = true
+        end
+    end
+    return order
+end
+
+local function WriteResultOrder(target, order)
+    if IsSecret(target) or type(target) ~= "table" or type(order) ~= "table" then
+        return false
+    end
+
+    local previousLength = #target
+    for index, resultID in ipairs(order) do target[index] = resultID end
+    for index = previousLength, #order + 1, -1 do target[index] = nil end
+    return true
+end
+
+function PremadeGroupFilter:RefreshFilteredResultList()
+    if IsChatRestricted() or IsCombatLocked() or not self.enabled or not self.db
+        or not C_LFGList or not C_LFGList.GetFilteredSearchResults
+        or not LFGListSearchPanel_UpdateResults then
+        return false
+    end
+
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+    if categoryID ~= CATEGORY_DUNGEON or IsSecret(searchPanel.searching)
+        or searchPanel.searching == true then
+        return false
+    end
+
+    local currentOrder = CopySafeResultIDs(searchPanel.results)
+    if not currentOrder then return false end
+    local ok, totalResults, filteredResults = pcall(C_LFGList.GetFilteredSearchResults)
+    if not ok or IsSecret(totalResults) then return false end
+    local filteredOrder = CopySafeResultIDs(filteredResults)
+    if not filteredOrder then return false end
+
+    local baseOrder = BuildFilteredNativeOrder(filteredOrder)
+    local displayOrder = self:BuildDisplayOrder(baseOrder)
+    if not displayOrder or not CanSafelyRefreshSearchPanel(searchPanel, displayOrder) then
+        return false
+    end
+
+    local previousNativeOrder = CopySafeResultIDs(nativeResultOrder) or {}
+    local previousTotalResults = SafeNumber(searchPanel.totalResults, #currentOrder) or #currentOrder
+    local previousMatchCount, previousTotalCount = lastMatchCount, lastTotalCount
+    nativeResultOrder = CopySafeResultIDs(baseOrder) or {}
+    if not WriteResultOrder(searchPanel.results, displayOrder) then
+        nativeResultOrder = previousNativeOrder
+        return false
+    end
+
+    local filteredCount = #displayOrder
+    local totalCount = math.max(filteredCount, SafeNumber(totalResults, filteredCount) or filteredCount)
+    searchPanel.totalResults = totalCount
+    lastMatchCount = filteredCount
+    lastTotalCount = totalCount
+
+    local updateOK = pcall(LFGListSearchPanel_UpdateResults, searchPanel)
+    if not updateOK then
+        WriteResultOrder(searchPanel.results, currentOrder)
+        searchPanel.totalResults = previousTotalResults
+        nativeResultOrder = previousNativeOrder
+        lastMatchCount, lastTotalCount = previousMatchCount, previousTotalCount
+        return false
+    end
+
+    self:RefreshPanel()
+    self:RefreshSpecializationRows()
+    return true
+end
+
+function PremadeGroupFilter:RequestFilterResultRefresh()
+    return self:RefreshFilteredResultList()
+end
+
+function PremadeGroupFilter:QueueResultRefresh()
+    if resultRefreshPending then return end
+    resultRefreshPending = true
+
+    local function Refresh()
+        resultRefreshPending = false
+        if not PremadeGroupFilter.enabled then return end
+        if IsChatRestricted() or IsCombatLocked() then
+            PremadeGroupFilter:HideAllSpecializationRows()
+            PremadeGroupFilter:HideAllLeaderScoreRows()
+            PremadeGroupFilter:HideAllResultAssistRows()
+            return
+        end
+        PremadeGroupFilter:RefreshResultCount()
+        PremadeGroupFilter:RefreshCurrentDisplayOrder()
+        PremadeGroupFilter:RefreshSpecializationRows()
+        PremadeGroupFilter:UpdatePanelVisibility()
+    end
+
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, Refresh)
+    else
+        Refresh()
+    end
+end
+
+function PremadeGroupFilter:ApplyNativeFilters()
+    if not self.enabled or not self.db or IsChatRestricted() or IsCombatLocked() then
+        return false
+    end
+    local options = GetNativeFilterOptions()
+    if not options then return false end
+
+    local backup = not self.db.nativeFilterApplied
+        and CaptureOwnedNativeFilter(options) or nil
+    ApplyOwnedNativeFilter(options, self.db)
+    if not SaveNativeFilterOptions(options) then return false end
+
+    if backup then self.db.nativeFilterBackup = backup end
+    self.db.nativeFilterApplied = true
+    self:QueueResultRefresh()
+    return true
+end
+
+function PremadeGroupFilter:RestoreNativeFilters(db)
+    if not db or db.nativeFilterApplied ~= true or IsChatRestricted() then return false end
+    local options = GetNativeFilterOptions()
+    if not options then return false end
+
+    RestoreOwnedNativeFilter(options, db.nativeFilterBackup)
+    if not SaveNativeFilterOptions(options) then return false end
+
+    db.nativeFilterApplied = nil
+    db.nativeFilterBackup = nil
     return true
 end
 
 function PremadeGroupFilter:ApplyCurrentResults()
-    if not self.enabled or not self.db then return end
-    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
-    if not IsSearchPanelReady(searchPanel) then return end
-
-    lastTotalCount = #rawResults
-    local categoryID = SafeNumber(searchPanel.categoryID, 0) or 0
-    if categoryID ~= CATEGORY_DUNGEON then
-        lastMatchCount = lastTotalCount
-        self:PublishResults(CopyArray(rawResults))
-        self:RefreshPanel()
-        return
-    end
-
-    local partyRoles = GetSearchingPartyRoles()
-    local partyHasBloodlust = SearchingPartyHasBloodlust()
-    local passed = {}
-    for index, resultID in ipairs(rawResults) do
-        local model = BuildResultModel(resultID, index, partyRoles, partyHasBloodlust)
-        if PassesFilters(model, self.db) then
-            passed[#passed + 1] = { id = resultID, index = index, model = model }
-        end
-    end
-
-    local sortMode = VALID_SORT_MODES[self.db.sortMode] and self.db.sortMode or "DEFAULT"
-    if sortMode ~= "DEFAULT" and #passed > 1 then
-        table.sort(passed, function(left, right)
-            return CompareRecords(left, right, sortMode)
-        end)
-    end
-
-    local filtered = {}
-    for index, record in ipairs(passed) do filtered[index] = record.id end
-    lastMatchCount = #filtered
-    self:PublishResults(filtered)
-    self:RefreshPanel()
+    return self:ApplyNativeFilters()
 end
 
-function PremadeGroupFilter:CaptureSearchResults(searchPanel)
-    if not self.enabled or not self.db or not IsSearchPanelReady(searchPanel) then return end
-    rawResults = CopyArray(searchPanel.results)
-    self:ApplyCurrentResults()
+function PremadeGroupFilter:CaptureSearchResults()
+    if not self.enabled or not self.db then return end
+    self:QueueResultRefresh()
 end
 
 function PremadeGroupFilter:UpdateSetting(key, value)
     if not self.db then return end
     self.db[key] = value
     self:RefreshPanel()
-    self:ApplyCurrentResults()
+    if key == "bloodlustFit" or key == "sortMode" then
+        self:RefreshCurrentDisplayOrder()
+        self:RefreshSpecializationRows()
+        return
+    end
+    local filtersApplied = self:ApplyCurrentResults()
+    if filtersApplied and COMPOSITION_SEARCH_KEYS[key] then
+        self:RequestFilterResultRefresh()
+    end
     self:RefreshSpecializationRows()
+end
+
+function PremadeGroupFilter:SetSortMode(mode)
+    if not VALID_SORT_MODES[mode] then mode = "DEFAULT" end
+    self:UpdateSetting("sortMode", mode)
 end
 
 function PremadeGroupFilter:ResetFilters()
@@ -1189,7 +1615,10 @@ function PremadeGroupFilter:ResetFilters()
     self.db.minMapBest = 0
     self.db.sortMode = "DEFAULT"
     self:RefreshPanel()
-    self:ApplyCurrentResults()
+    local filtersApplied = self:ApplyCurrentResults()
+    if filtersApplied then self:RequestFilterResultRefresh() end
+    self:RefreshCurrentDisplayOrder()
+    self:RefreshSpecializationRows()
 end
 
 function PremadeGroupFilter:UpdateDungeonSelection(mapID, selected)
@@ -1201,14 +1630,16 @@ function PremadeGroupFilter:UpdateDungeonSelection(mapID, selected)
     local key = tostring(math.floor(mapID))
     self.db.selectedDungeons[key] = selected == true and true or nil
     self:RefreshPanel()
-    self:ApplyCurrentResults()
+    local filtersApplied = self:ApplyCurrentResults()
+    if filtersApplied then self:RequestFilterResultRefresh() end
 end
 
 function PremadeGroupFilter:ClearDungeonSelection()
     if not self.db then return end
     self.db.selectedDungeons = {}
     self:RefreshPanel()
-    self:ApplyCurrentResults()
+    local filtersApplied = self:ApplyCurrentResults()
+    if filtersApplied then self:RequestFilterResultRefresh() end
 end
 
 function PremadeGroupFilter:RefreshSeasonDungeons()
@@ -1227,7 +1658,13 @@ function PremadeGroupFilter:UpdateSpecializationRow(
 )
     if not row then return end
     HideSpecializationRow(row)
-    if not self.enabled or not self.db or self.db.showSpecIcons == false then return end
+    if IsChatRestricted() or not self.enabled or not self.db
+        or self.db.showSpecIcons == false then
+        return
+    end
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+    if categoryID ~= CATEGORY_DUNGEON then return end
     if not C_LFGList or not C_LFGList.GetSearchResultInfo
         or not C_LFGList.GetSearchResultPlayerInfo then
         return
@@ -1259,10 +1696,7 @@ function PremadeGroupFilter:UpdateSpecializationRow(
         if not member.specIcon then return end
     end
 
-    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
-    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
-    local useDungeonComposition = categoryID == CATEGORY_DUNGEON
-        and #defaultIcons >= #DUNGEON_COMPOSITION_ROLES
+    local useDungeonComposition = #defaultIcons >= #DUNGEON_COMPOSITION_ROLES
     local displaySlots = {}
     if useDungeonComposition then
         displaySlots = BuildDungeonCompositionSlots(members)
@@ -1276,8 +1710,7 @@ function PremadeGroupFilter:UpdateSpecializationRow(
     for displayIndex = 1, #displaySlots do
         local slotIndex = #defaultIcons - displayIndex + 1
         local defaultIcon = defaultIcons[slotIndex]
-        if IsSecret(defaultIcon) or not defaultIcon or not defaultIcon.SetAlpha
-            or not frames[slotIndex] then
+        if IsSecret(defaultIcon) or not defaultIcon or not frames[slotIndex] then
             HideSpecializationRow(row)
             return
         end
@@ -1289,11 +1722,6 @@ function PremadeGroupFilter:UpdateSpecializationRow(
     for displayIndex, displaySlot in ipairs(displaySlots) do
         local slotIndex = #defaultIcons - displayIndex + 1
         local frame = frames[slotIndex]
-        local defaultIcon = defaultIcons[slotIndex]
-        local ok, defaultAlpha = pcall(defaultIcon.GetAlpha, defaultIcon)
-        frame.defaultIcon = defaultIcon
-        frame.defaultAlpha = ok and (SafeNumber(defaultAlpha, 1) or 1) or 1
-        defaultIcon:SetAlpha(0)
 
         local member = displaySlot.member
         if not member then
@@ -1370,12 +1798,93 @@ function PremadeGroupFilter:UpdateLeaderScoreRow(
     frame:Show()
 end
 
+function PremadeGroupFilter:UpdateResultAssistRow(
+    row, resultID, searchResultInfo, applied, declined
+)
+    if not row then return end
+    HideResultAssistRow(row)
+    if IsChatRestricted() or IsCombatLocked() or not self.enabled or not self.db then
+        return
+    end
+
+    local showBloodStatus = self.db.bloodlustFit == true
+    if not showBloodStatus then return end
+
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+    if categoryID ~= CATEGORY_DUNGEON then return end
+
+    if resultID == nil then resultID = row.resultID end
+    resultID = SafeNumber(resultID, nil)
+    if not resultID then return end
+    resultID = math.floor(resultID)
+
+    if IsSecret(searchResultInfo) or type(searchResultInfo) ~= "table" then
+        if not C_LFGList or not C_LFGList.GetSearchResultInfo then return end
+        local ok
+        ok, searchResultInfo = pcall(C_LFGList.GetSearchResultInfo, resultID)
+        if not ok or IsSecret(searchResultInfo) or type(searchResultInfo) ~= "table" then
+            return
+        end
+    end
+
+    if applied == nil or declined == nil then
+        applied, declined = GetApplicationState(resultID, searchResultInfo)
+    end
+    if applied or declined then return end
+
+    local bloodStatus
+    if showBloodStatus then
+        local counts, countsValid = GetMemberCounts(resultID)
+        if countsValid then
+            bloodStatus = GetBloodlustStatus(
+                counts,
+                SafeNumber(searchResultInfo.numMembers, 0) or 0,
+                GetSearchingPartyRoles(),
+                SearchingPartyHasBloodlust()
+            )
+        end
+    end
+
+    if not bloodStatus then return end
+
+    local frame = GetResultAssistFrame(row)
+    frame.blood:SetText("")
+
+    if bloodStatus == "PRESENT" then
+        frame.blood:SetText("BL")
+        frame.blood:SetTextColor(0.45, 0.90, 0.55, 1)
+        frame:SetBackdropColor(0.04, 0.16, 0.08, 0.88)
+        frame:SetBackdropBorderColor(0.22, 0.58, 0.30, 0.88)
+    elseif bloodStatus == "FLEX" then
+        frame.blood:SetText("BL+")
+        frame.blood:SetTextColor(1.00, 0.78, 0.30, 1)
+        frame:SetBackdropColor(0.18, 0.12, 0.03, 0.88)
+        frame:SetBackdropBorderColor(0.66, 0.44, 0.12, 0.88)
+    elseif bloodStatus == "MISSING" then
+        frame.blood:SetText("BL-")
+        frame.blood:SetTextColor(1.00, 0.42, 0.42, 1)
+        frame:SetBackdropColor(0.18, 0.04, 0.04, 0.88)
+        frame:SetBackdropBorderColor(0.64, 0.18, 0.18, 0.88)
+    else
+        frame:SetBackdropColor(unpack(P.control))
+        frame:SetBackdropBorderColor(unpack(P.borderSoft))
+    end
+    frame:Show()
+end
+
 function PremadeGroupFilter:UpdateResultRow(row)
     if not row then return end
-    if not self.enabled or not self.db
-        or (self.db.showSpecIcons == false and self.db.showLeaderScore == false) then
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+    if IsChatRestricted() or IsCombatLocked() or categoryID ~= CATEGORY_DUNGEON
+        or not self.enabled or not self.db
+        or (self.db.showSpecIcons == false
+            and self.db.showLeaderScore == false
+            and self.db.bloodlustFit ~= true) then
         HideSpecializationRow(row)
         HideLeaderScoreRow(row)
+        HideResultAssistRow(row)
         return
     end
 
@@ -1384,6 +1893,7 @@ function PremadeGroupFilter:UpdateResultRow(row)
         or not C_LFGList or not C_LFGList.GetSearchResultInfo then
         HideSpecializationRow(row)
         HideLeaderScoreRow(row)
+        HideResultAssistRow(row)
         return
     end
 
@@ -1391,11 +1901,13 @@ function PremadeGroupFilter:UpdateResultRow(row)
     if not ok or IsSecret(searchResultInfo) or type(searchResultInfo) ~= "table" then
         HideSpecializationRow(row)
         HideLeaderScoreRow(row)
+        HideResultAssistRow(row)
         return
     end
     local applied, declined = GetApplicationState(resultID, searchResultInfo)
     self:UpdateSpecializationRow(row, resultID, searchResultInfo, applied, declined)
     self:UpdateLeaderScoreRow(row, resultID, searchResultInfo, applied, declined)
+    self:UpdateResultAssistRow(row, resultID, searchResultInfo, applied, declined)
 end
 
 function PremadeGroupFilter:HideAllSpecializationRows()
@@ -1406,10 +1918,15 @@ function PremadeGroupFilter:HideAllLeaderScoreRows()
     for row in pairs(leaderScoreRows) do HideLeaderScoreRow(row) end
 end
 
+function PremadeGroupFilter:HideAllResultAssistRows()
+    for row in pairs(resultAssistRows) do HideResultAssistRow(row) end
+end
+
 function PremadeGroupFilter:RefreshSpecializationRows()
-    if not self.enabled or not self.db then
+    if IsChatRestricted() or IsCombatLocked() or not self.enabled or not self.db then
         self:HideAllSpecializationRows()
         self:HideAllLeaderScoreRows()
+        self:HideAllResultAssistRows()
         return
     end
 
@@ -1429,14 +1946,45 @@ function PremadeGroupFilter:AttachSpecializationHook()
     end
     specEntryHooked = true
     hooksecurefunc("LFGListSearchEntry_Update", function(row)
-        if PremadeGroupFilter.enabled then
-            PremadeGroupFilter:UpdateResultRow(row)
-        else
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function()
+                if PremadeGroupFilter.enabled then
+                    PremadeGroupFilter:UpdateResultRow(row)
+                else
+                    HideSpecializationRow(row)
+                    HideLeaderScoreRow(row)
+                    HideResultAssistRow(row)
+                end
+            end)
+        elseif not PremadeGroupFilter.enabled then
             HideSpecializationRow(row)
             HideLeaderScoreRow(row)
+            HideResultAssistRow(row)
         end
     end)
     self:RefreshSpecializationRows()
+end
+
+function PremadeGroupFilter:AttachResultSortHook()
+    if resultSortHooked or not LFGListUtil_SortSearchResults then return end
+    resultSortHooked = true
+    hooksecurefunc("LFGListUtil_SortSearchResults", function(searchPanel)
+        if not PremadeGroupFilter.enabled or not PremadeGroupFilter.db
+            or IsChatRestricted() or IsCombatLocked() then
+            return
+        end
+        local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+        if categoryID ~= CATEGORY_DUNGEON
+            or not PremadeGroupFilter:CaptureNativeResultOrder(searchPanel) then
+            return
+        end
+
+        local sortMode = VALID_SORT_MODES[PremadeGroupFilter.db.sortMode]
+            and PremadeGroupFilter.db.sortMode or "DEFAULT"
+        if PremadeGroupFilter.db.bloodlustFit == true or sortMode ~= "DEFAULT" then
+            PremadeGroupFilter:ApplyDisplayOrder(searchPanel, nativeResultOrder)
+        end
+    end)
 end
 
 function PremadeGroupFilter:CreateSidePanel()
@@ -1555,44 +2103,38 @@ function PremadeGroupFilter:CreateSidePanel()
     )
     panel.rating:SetPoint("TOPLEFT", 14, -309)
 
-    panel.mapBest = CreateNumberControl(
-        panel,
-        L["PGF_MIN_MAP_BEST_SHORT"] or "Map Best",
-        PANEL_WIDTH - 28,
-        40,
-        function(value) PremadeGroupFilter:UpdateSetting("minMapBest", value) end
-    )
-    panel.mapBest:SetPoint("TOPLEFT", panel.rating, "BOTTOMLEFT", 0, -5)
-
-    panel.sortTitle = CreateSectionLabel(panel, L["PGF_SORT_SECTION"] or "Sorting")
-    panel.sortTitle:SetPoint("TOPLEFT", 14, -398)
-
     panel.reset = CreateSegmentButton(
         panel,
         L["PGF_RESET_SHORT"] or "Reset",
         function() PremadeGroupFilter:ResetFilters() end
     )
     panel.reset:SetSize(54, 20)
-    panel.reset:SetPoint("TOPRIGHT", -14, -393)
+    panel.reset:SetPoint("TOPRIGHT", -14, -288)
+
+    panel.sortTitle = CreateSectionLabel(panel, L["PGF_SORT_SECTION"] or "Sorting")
+    panel.sortTitle:SetPoint("TOPLEFT", 14, -359)
 
     panel.sortButtons = {}
     local segmentWidth = math.floor((PANEL_WIDTH - 32) / 3)
     local sortDefinitions = {
         { "DEFAULT", L["PGF_SORT_DEFAULT_SHORT"] or "Default" },
         { "RATING", L["PGF_SORT_RATING"] or "Rating" },
-        { "MAPBEST", L["PGF_SORT_MAP_BEST"] or "Map Best" },
+        { "MAPBEST", L["PGF_SORT_MAP_BEST"] or "Map" },
     }
     local function SelectSortMode(mode)
-        return function()
-            PremadeGroupFilter:UpdateSetting("sortMode", mode)
-        end
+        return function() PremadeGroupFilter:SetSortMode(mode) end
     end
     for index, definition in ipairs(sortDefinitions) do
         local mode = definition[1]
-        local button = CreateSegmentButton(panel, definition[2], SelectSortMode(mode))
+        local button = CreateSegmentButton(
+            panel,
+            definition[2],
+            SelectSortMode(mode),
+            L["PGF_SORT_ASSIST_TOOLTIP"]
+        )
         button:SetSize(segmentWidth, 28)
         if index == 1 then
-            button:SetPoint("TOPLEFT", 14, -414)
+            button:SetPoint("TOPLEFT", 14, -375)
         else
             button:SetPoint("LEFT", panel.sortButtons[index - 1], "RIGHT", 2, 0)
         end
@@ -1685,7 +2227,6 @@ function PremadeGroupFilter:RefreshPanel()
     sidePanel.tank:SetActive(self.db.requireTank == true)
     sidePanel.healer:SetActive(self.db.requireHealer == true)
     sidePanel.rating:SetValue(self.db.minLeaderRating)
-    sidePanel.mapBest:SetValue(self.db.minMapBest)
     sidePanel.dungeonAll:SetActive(not HasDungeonSelection(self.db))
     for _, button in ipairs(sidePanel.dungeonButtons) do
         button:SetActive(button.mapID ~= nil and IsDungeonSelected(self.db, button.mapID))
@@ -1706,7 +2247,10 @@ function PremadeGroupFilter:UpdatePanelVisibility()
 
     local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
     local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
-    if categoryID ~= CATEGORY_DUNGEON then self:HideAllLeaderScoreRows() end
+    if categoryID ~= CATEGORY_DUNGEON then
+        self:HideAllLeaderScoreRows()
+        self:HideAllResultAssistRows()
+    end
     local visible = self.db.showPanel ~= false
         and _G.PVEFrame and PVEFrame:IsShown()
         and searchPanel and searchPanel:IsShown()
@@ -1724,7 +2268,11 @@ end
 
 function PremadeGroupFilter:AttachGroupFinder()
     if hooksAttached then
+        self:AttachResultSortHook()
         self:AttachSpecializationHook()
+        if #nativeResultOrder == 0 then
+            self:CaptureNativeResultOrder(LFGListFrame.SearchPanel)
+        end
         self:CaptureSearchResults(LFGListFrame.SearchPanel)
         self:UpdatePanelVisibility()
         return true
@@ -1734,7 +2282,9 @@ function PremadeGroupFilter:AttachGroupFinder()
     hooksAttached = true
     seasonDungeons = BuildSeasonDungeonData()
     self:CreateSidePanel()
+    self:AttachResultSortHook()
     self:AttachSpecializationHook()
+    self:CaptureNativeResultOrder(LFGListFrame.SearchPanel)
 
     if LFGListSearchPanel_UpdateResultList then
         hooksecurefunc("LFGListSearchPanel_UpdateResultList", function(searchPanel)
@@ -1748,9 +2298,12 @@ function PremadeGroupFilter:AttachGroupFinder()
     if LFGListSearchPanel_SetCategory then
         hooksecurefunc("LFGListSearchPanel_SetCategory", function()
             if not PremadeGroupFilter.enabled then return end
-            rawResults = {}
             lastMatchCount = 0
             lastTotalCount = 0
+            nativeResultOrder = {}
+            PremadeGroupFilter:HideAllSpecializationRows()
+            PremadeGroupFilter:HideAllLeaderScoreRows()
+            PremadeGroupFilter:HideAllResultAssistRows()
             PremadeGroupFilter:RefreshPanel()
             PremadeGroupFilter:UpdatePanelVisibility()
         end)
@@ -1764,8 +2317,16 @@ function PremadeGroupFilter:AttachGroupFinder()
 
     LFGListFrame.SearchPanel:HookScript("OnShow", function()
         if PremadeGroupFilter.enabled then
-            PremadeGroupFilter:ApplyCurrentResults()
-            PremadeGroupFilter:UpdatePanelVisibility()
+            if C_Timer and C_Timer.After then
+                C_Timer.After(0, function()
+                    if PremadeGroupFilter.enabled then
+                        PremadeGroupFilter:ApplyCurrentResults()
+                        PremadeGroupFilter:UpdatePanelVisibility()
+                    end
+                end)
+            else
+                PremadeGroupFilter:UpdatePanelVisibility()
+            end
         end
     end)
     LFGListFrame.SearchPanel:HookScript("OnHide", function()
@@ -1808,6 +2369,7 @@ function PremadeGroupFilter:ApplySettings()
     self:NormalizeDatabase()
     self:RefreshPanel()
     self:ApplyCurrentResults()
+    self:RefreshCurrentDisplayOrder()
     self:RefreshSpecializationRows()
     self:UpdatePanelVisibility()
 end
@@ -1826,6 +2388,7 @@ function PremadeGroupFilter:OnEnable()
     if C_MythicPlus and C_MythicPlus.RequestMapInfo then
         pcall(C_MythicPlus.RequestMapInfo)
     end
+    self:ApplyNativeFilters()
     self:StartAttachWatcher()
     self:ScheduleRaiderIOAnchorUpdate()
     if C_Timer and C_Timer.After then
@@ -1836,7 +2399,8 @@ function PremadeGroupFilter:OnEnable()
 end
 
 function PremadeGroupFilter:OnDisable()
-    if hooksAttached then self:PublishResults(CopyArray(rawResults)) end
+    self:RestoreNativeFilters(self.db)
+    self:RestoreCurrentDisplayOrder()
     self.enabled = false
     if attachTicker then
         attachTicker:Cancel()
@@ -1844,8 +2408,66 @@ function PremadeGroupFilter:OnDisable()
     end
     self:HideAllSpecializationRows()
     self:HideAllLeaderScoreRows()
+    self:HideAllResultAssistRows()
+    nativeResultOrder = {}
     if sidePanel then sidePanel:Hide() end
     self:UpdateRaiderIOAnchor()
 end
+
+local restrictionWatcher = CreateFrame("Frame")
+restrictionWatcher:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
+restrictionWatcher:RegisterEvent("PLAYER_LOGIN")
+restrictionWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+restrictionWatcher:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+restrictionWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+restrictionWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+restrictionWatcher:SetScript("OnEvent", function(_, event, restrictionType, state)
+    if event == "ADDON_RESTRICTION_STATE_CHANGED" then
+        local chatType = Enum and Enum.AddOnRestrictionType
+            and Enum.AddOnRestrictionType.Chat or 5
+        if IsSecret(restrictionType) or restrictionType ~= chatType then return end
+
+        chatRestrictionState = IsSecret(state) and 2 or state
+        local inactiveState = Enum and Enum.AddOnRestrictionState
+            and Enum.AddOnRestrictionState.Inactive or 0
+        if chatRestrictionState ~= inactiveState then
+            PremadeGroupFilter:HideAllSpecializationRows()
+            PremadeGroupFilter:HideAllLeaderScoreRows()
+            PremadeGroupFilter:HideAllResultAssistRows()
+            return
+        end
+
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function()
+                if PremadeGroupFilter.enabled then
+                    PremadeGroupFilter:QueueResultRefresh()
+                else
+                    local profile = ns.db and ns.db.profile
+                    local db = profile and profile.PremadeGroupFilter
+                    PremadeGroupFilter:RestoreNativeFilters(db)
+                end
+            end)
+        end
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        PremadeGroupFilter:HideAllSpecializationRows()
+        PremadeGroupFilter:HideAllLeaderScoreRows()
+        PremadeGroupFilter:HideAllResultAssistRows()
+    elseif event == "PLAYER_REGEN_ENABLED" and PremadeGroupFilter.enabled then
+        PremadeGroupFilter:QueueResultRefresh()
+    elseif (event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED")
+        and PremadeGroupFilter.enabled then
+        PremadeGroupFilter:QueueResultRefresh()
+    elseif event == "PLAYER_LOGIN" and C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            local profile = ns.db and ns.db.profile
+            if not profile or not profile.PremadeGroupFilter then return end
+            local moduleEnabled = profile.modules
+                and profile.modules.PremadeGroupFilter == true
+            if not moduleEnabled then
+                PremadeGroupFilter:RestoreNativeFilters(profile.PremadeGroupFilter)
+            end
+        end)
+    end
+end)
 
 DDingToolKit:RegisterModule("PremadeGroupFilter", PremadeGroupFilter)

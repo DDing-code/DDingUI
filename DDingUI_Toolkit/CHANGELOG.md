@@ -2,7 +2,7 @@
 
 ## 2.1.3
 
-Release date: 2026-08-24
+Release date: 2026-08-25
 
 ## English
 
@@ -31,6 +31,9 @@ Release date: 2026-08-24
 - Added a one-shot `BLOODLUST` start HUD with a deep-crimson ritual banner, a pulsing red-gem seal, antique-gold filigree drawn outward, lower jewel punctuation, and drifting embers, plus a separate edit-mode anchor, preview button, and detailed motion, typography, position, and color options.
 - Refined the Bloodlust start HUD palette with a denser black-crimson banner, darker aged-brass ornament, saturated blood-red seal and embers, and reduced highlight whitening so the gold no longer appears beige in game.
 - Added a selectable **System Activation** Bloodlust HUD with independently rotating segmented rings, an original center crest, a magenta-black system panel, status nodes, and staged assembly, lock-in, pulse, and fade motion. Developed the crest into an original Bloodlust-inspired war mask with separately tintable frame and blood core layers, and expanded the system palette to eight colors while preserving the existing War Ritual design.
+- Expanded Raid Party Tooltip to premade raid listings, with a separate display toggle plus the existing class icons, class counts, armor counts, and zero-count controls.
+- Reworked Premade Group Filter so dungeon and party-composition changes refresh the visible results immediately, Bloodlust suitability is shown as `BL`/`BL+`/`BL-`, and Rating or Map sorting changes the actual row order while retaining Blizzard's order during restricted states.
+- Updated Mythic+ Helper teleport overlays with secure spell buttons and safer cooldown and combat-state handling for WoW 12.1.
 
 ## 한국어
 
@@ -59,6 +62,9 @@ Release date: 2026-08-24
 - 블러드가 새로 시작될 때 짙은 진홍색 의식 배경 위에서 붉은 보석 봉인이 맥동하고, 고금색 문양이 좌우로 펼쳐지며 하단 보석과 잔불이 이어지는 `BLOODLUST` 시작 HUD를 한 번 재생하도록 추가했습니다. 별도 편집 앵커, 미리보기, 모션·문구·위치·세부 색상 옵션도 제공합니다.
 - 블러드 시작 HUD의 기본색을 더 짙은 검붉은 암부, 어두운 황동 문양, 선명한 혈색 봉인과 잔불로 조정하고 밝은 선의 백색 혼합을 줄여 게임 화면에서 금색이 베이지색으로 뜨지 않도록 개선했습니다.
 - 블러드 시작 HUD에 독립 회전하는 분절 링, 툴킷 전용 중앙 문장, 자홍·검정 시스템 패널과 상태 노드가 조립·고정·맥동·소멸하는 **시스템 기동** 디자인을 추가했습니다. 중앙 문장을 피의 욕망을 오마주한 독자적인 전투 가면으로 발전시키고 골격과 혈색 핵을 따로 조절하도록 시스템 전용 색상 옵션을 8종으로 확장했습니다.
+- 공격대 파티 툴팁을 파티 찾기 공격대 목록까지 확장하고, 별도 표시 토글과 기존 직업 아이콘·직업별 인원·방어구별 인원·0명 표시 옵션을 함께 적용했습니다.
+- 파티 찾기 필터에서 던전 및 파티 구성 조건을 바꾸면 현재 결과를 즉시 갱신하고, 블러드 적합도를 `BL`/`BL+`/`BL-`로 표시하며, 점수·던전 정렬이 실제 행 순서를 바꾸도록 개편했습니다. Blizzard 제한 상태에서는 기본 순서를 유지합니다.
+- 쐐기 도우미의 던전 순간이동 오버레이를 보안 주문 버튼으로 변경하고 WoW 12.1의 재사용 대기시간 및 전투 상태 처리를 안정화했습니다.
 
 ## 2.1.2
 

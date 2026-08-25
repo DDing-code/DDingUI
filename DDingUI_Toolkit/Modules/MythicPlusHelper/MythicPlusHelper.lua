@@ -122,6 +122,28 @@ local overlaysVisible = true
 local textScale = 1.0
 local teleportUpdateTimer = nil
 
+local function IsSecretValue(value)
+    return issecretvalue and issecretvalue(value) or false
+end
+
+local function SafeNumberValue(value)
+    if value == nil or IsSecretValue(value) then return nil end
+    local number = tonumber(value)
+    if number == nil or IsSecretValue(number) then return nil end
+    return number
+end
+
+local function IsKnownSpell(spellID)
+    for _, checkerName in ipairs({ "IsPlayerSpell", "IsSpellKnown" }) do
+        local checker = _G[checkerName]
+        if checker then
+            local ok, known = pcall(checker, spellID)
+            if ok and not IsSecretValue(known) and known == true then return true end
+        end
+    end
+    return false
+end
+
 -- 스펠 상태
 local SpellStatus = {
     Ready = 1,
@@ -180,11 +202,12 @@ end
 
 -- 모든 오버레이 숨기기
 function MythicPlusHelper:HideAllOverlays()
+    local canUpdateTeleport = not InCombatLockdown or not InCombatLockdown()
     for dungeonIcon, overlay in pairs(dungeonOverlays) do
         if overlay.nameText then overlay.nameText:Hide() end
         if overlay.levelText then overlay.levelText:Hide() end
         if overlay.scoreText then overlay.scoreText:Hide() end
-        if overlay.teleportButton then overlay.teleportButton:Hide() end
+        if canUpdateTeleport and overlay.teleportButton then overlay.teleportButton:Hide() end
 
         -- 기존 HighestLevel 다시 표시
         if dungeonIcon.HighestLevel then
@@ -199,11 +222,12 @@ end
 
 -- 모든 오버레이 표시
 function MythicPlusHelper:ShowAllOverlays()
+    local canUpdateTeleport = not InCombatLockdown or not InCombatLockdown()
     for dungeonIcon, overlay in pairs(dungeonOverlays) do
         if overlay.nameText then overlay.nameText:Show() end
         if overlay.levelText then overlay.levelText:Show() end
         if overlay.scoreText then overlay.scoreText:Show() end
-        if overlay.teleportButton then overlay.teleportButton:Show() end
+        if canUpdateTeleport and overlay.teleportButton then overlay.teleportButton:Show() end
 
         -- 기존 HighestLevel 숨기기
         if dungeonIcon.HighestLevel then
@@ -323,6 +347,7 @@ end
 
 -- 던전 오버레이 생성
 function MythicPlusHelper:CreateDungeonOverlay(dungeonIcon)
+    if InCombatLockdown and InCombatLockdown() then return end
     if not dungeonIcon or not dungeonIcon.mapID then return end
 
     local mapID = dungeonIcon.mapID
@@ -363,14 +388,14 @@ function MythicPlusHelper:CreateDungeonOverlay(dungeonIcon)
     overlay.scoreText:SetPoint("BOTTOM", dungeonIcon, "BOTTOM", 0, 2)
     overlay.scoreText:SetTextColor(1, 1, 1, 1)
 
-    -- 텔레포트 버튼 (InsecureActionButtonTemplate 사용)
+    -- 텔레포트 버튼
     local spellIDs = MAP_TO_SPELL[mapID]
     if spellIDs then
-        local button = CreateFrame("Button", nil, dungeonIcon, "InsecureActionButtonTemplate")
+        local button = CreateFrame("Button", nil, dungeonIcon, "SecureActionButtonTemplate")
         button:SetAllPoints(dungeonIcon)
         button:RegisterForClicks("AnyDown", "AnyUp")
         button:SetAttribute("type", "spell")
-        button:SetAttribute("spell", nil)
+        button:SetAttribute("spell", spellIDs[1])
 
         button:SetScript("OnEnter", function(self)
             MythicPlusHelper:UpdateTeleportButton(dungeonIcon, button, spellIDs, true)
@@ -501,8 +526,6 @@ function MythicPlusHelper:UpdateTeleportButton(dungeonIcon, button, spellIDs, in
     end
 
     GameTooltip:Show()
-    button:SetAttribute("spell", teleportSpell and teleportSpell.id)
-
     -- 기존 타이머 취소 후 새 타이머 시작
     if teleportUpdateTimer then
         teleportUpdateTimer:Cancel()
@@ -541,27 +564,43 @@ end
 
 -- 텔레포트 스펠 정보 가져오기
 function MythicPlusHelper:GetTeleportSpellInfo(spellIndex, spellID)
-    local spell = C_Spell.GetSpellInfo(spellID)
-    local isSpellKnown = (IsPlayerSpell and IsPlayerSpell(spellID)) or (IsSpellKnown and IsSpellKnown(spellID)) or false
-    local cooldown = C_Spell.GetSpellCooldown(spellID)
+    local spell
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, value = pcall(C_Spell.GetSpellInfo, spellID)
+        if ok and not IsSecretValue(value) and type(value) == "table" then spell = value end
+    end
+    local isSpellKnown = IsKnownSpell(spellID)
+    local cooldown
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local ok, value = pcall(C_Spell.GetSpellCooldown, spellID)
+        if ok and not IsSecretValue(value) and type(value) == "table" then cooldown = value end
+    end
 
     -- GCD 체크
     local gcdDuration = 0
     if WeakAuras and WeakAuras.gcdDuration then
-        gcdDuration = WeakAuras.gcdDuration()
+        local ok, value = pcall(WeakAuras.gcdDuration)
+        gcdDuration = ok and SafeNumberValue(value) or 0
     end
 
-    local isOnCooldown = cooldown and cooldown.duration ~= 0 and cooldown.duration ~= gcdDuration or false
+    local startTime = cooldown and SafeNumberValue(cooldown.startTime)
+    local duration = cooldown and SafeNumberValue(cooldown.duration)
+    local cooldownReadable = startTime ~= nil and duration ~= nil
+    local isOnCooldown = cooldownReadable and duration > 0
+        and math.abs(duration - gcdDuration) > 0.001 or false
     local remainingTime = nil
 
-    if isOnCooldown and cooldown then
-        local remaining = math.ceil(cooldown.startTime + cooldown.duration - GetTime())
+    if isOnCooldown then
+        local remaining = math.max(0, math.ceil(startTime + duration - GetTime()))
         remainingTime = SecondsToTime(remaining)
     end
 
     local status
-    if not spell or not isSpellKnown or not cooldown then
+    if not spell or not isSpellKnown then
         status = SpellStatus.NotLearned
+    elseif not cooldownReadable then
+        status = SpellStatus.OnCooldown
+        remainingTime = "--"
     elseif isOnCooldown then
         status = SpellStatus.OnCooldown
     else
@@ -572,7 +611,7 @@ function MythicPlusHelper:GetTeleportSpellInfo(spellIndex, spellID)
         index = spellIndex,
         id = spellID,
         status = status,
-        name = spell and spell.name or "던전 텔레포트",
+        name = spell and not IsSecretValue(spell.name) and spell.name or "던전 텔레포트",
         remainingTime = remainingTime,
     }
 end
@@ -628,6 +667,7 @@ eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 eventFrame:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD")
 eventFrame:RegisterEvent("MYTHIC_PLUS_CURRENT_AFFIX_UPDATE")
 eventFrame:RegisterEvent("WEEKLY_REWARDS_UPDATE")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         if isEnabled and C_AddOns.IsAddOnLoaded("Blizzard_ChallengesUI") then
@@ -645,6 +685,12 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "WEEKLY_REWARDS_UPDATE" or event == "MYTHIC_PLUS_CURRENT_AFFIX_UPDATE" then
         if isEnabled then
             MythicPlusHelper:UpdateWeeklyCount()
+        end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        if isEnabled and overlaysVisible then
+            MythicPlusHelper:ShowAllOverlays()
+        else
+            MythicPlusHelper:HideAllOverlays()
         end
     end
 end)

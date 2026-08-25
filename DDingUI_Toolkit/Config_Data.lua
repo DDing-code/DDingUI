@@ -729,6 +729,7 @@ function ns:InitConfigTree()
             { type = "text", label = L["RPT_INFO"] },
 
             { type = "header", label = L["RPT_LOCATION_SETTINGS"] },
+            { type = "toggle", key = "profile.RaidPartyTooltip.showOnPremadeRaid", label = L["RPT_SHOW_ON_LFG_RAIDS"], onChange = RefreshRaidPartyTooltip },
             { type = "toggle", key = "profile.RaidPartyTooltip.showOnMembers", label = L["RPT_SHOW_ON_MEMBERS"], onChange = RefreshRaidPartyTooltip },
             { type = "toggle", key = "profile.RaidPartyTooltip.showOnEmptySlots", label = L["RPT_SHOW_ON_EMPTY_SLOTS"], onChange = RefreshRaidPartyTooltip },
 
