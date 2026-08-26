@@ -4614,7 +4614,6 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             borderSize = bar._scaledBorder or 0,
             geometryWidth = frameWidth,
             geometryHeight = frameHeight,
-            useHostBorder = true,
             orientation = barOrientation,
             reverseFill = barReverseFill,
             showStacksText = showStacksText,
