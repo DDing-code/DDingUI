@@ -497,7 +497,7 @@ function CircularProgress:CreateRingWidget(parent, size, options)
     -- Background ring (always full)
     widget.background = self:Create(widget, "BACKGROUND", 0)
     self:Modify(widget.background, {
-        texture = options.texture or "Interface\\AddOns\\DDingUI\\Media\\Textures\\Ring_20px.tga",
+        texture = options.texture or "Interface\\AddOns\\DDingUI_CDM\\Media\\Textures\\Ring_20px.tga",
         width = size,
         height = size,
         crop_x = options.crop_x or 1.41,
@@ -516,7 +516,7 @@ function CircularProgress:CreateRingWidget(parent, size, options)
     -- Foreground ring (progress)
     widget.foreground = self:Create(widget, "ARTWORK", 1)
     self:Modify(widget.foreground, {
-        texture = options.texture or "Interface\\AddOns\\DDingUI\\Media\\Textures\\Ring_20px.tga",
+        texture = options.texture or "Interface\\AddOns\\DDingUI_CDM\\Media\\Textures\\Ring_20px.tga",
         width = size,
         height = size,
         crop_x = options.crop_x or 1.41,

@@ -539,7 +539,7 @@ local function RenderRing(preview, entry)
     host:ClearAllPoints()
     host:SetPoint("CENTER", preview.canvas, "CENTER", 0, -3)
     local thickness = math.floor(Clamp(ReadSetting(entry, "ringThickness", 20), 10, 40) / 10 + 0.5) * 10
-    local ringTexture = string.format("Interface\\AddOns\\DDingUI\\Media\\Textures\\Ring_%dpx.tga", thickness)
+    local ringTexture = string.format("Interface\\AddOns\\DDingUI_CDM\\Media\\Textures\\Ring_%dpx.tga", thickness)
     host.background:SetTexture(ringTexture)
     local br, bg, bb, ba = ReadColor(ReadSetting(entry, "ringBgColor"), { 0.15, 0.15, 0.15, 1 })
     host.background:SetVertexColor(br, bg, bb, ba)

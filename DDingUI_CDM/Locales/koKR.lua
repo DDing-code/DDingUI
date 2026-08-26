@@ -544,7 +544,7 @@ L["Settings are automatically saved when changing values or specs."] = "값이�
 -- CONFIG - SOUND MODE (사운드 모드)
 -- ============================================================
 L["Custom Sound File"] = "커스텀 사운드 파일"
-L["CustomSoundDesc"] = ".ogg, .mp3, .wav 파일 경로를 WoW 폴더 기준으로 입력하세요. 예: Interface\\AddOns\\DDingUI\\sounds\\alert.ogg\n설정하면 위의 사운드 선택보다 우선 적용됩니다."
+L["CustomSoundDesc"] = ".ogg, .mp3, .wav 파일 경로를 WoW 폴더 기준으로 입력하세요. 예: Interface\\AddOns\\DDingUI_CDM\\sounds\\alert.ogg\n설정하면 위의 사운드 선택보다 우선 적용됩니다."
 L["Path to a custom sound file (e.g. Interface\\AddOns\\MyAddon\\alert.ogg). Supports .ogg, .mp3, .wav. Overrides the Sound selection above."] = "커스텀 사운드 파일 경로 (예: Interface\\AddOns\\MyAddon\\alert.ogg). .ogg, .mp3, .wav 지원. 위의 사운드 선택보다 우선 적용됩니다."
 L["Interval Seconds"] = "주기 (초)"
 L["Minimum Stacks"] = "최소 중첩"

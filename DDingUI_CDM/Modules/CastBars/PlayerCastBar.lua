@@ -1,4 +1,5 @@
-local ADDON_NAME, ns = ...
+local _, ns = ...
+local ADDON_NAME = "DDingUI"
 local DDingUI = ns.Addon
 local SL = _G.DDingUI_StyleLib
 

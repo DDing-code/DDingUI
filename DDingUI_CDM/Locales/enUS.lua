@@ -436,7 +436,7 @@ L["Settings are automatically saved when changing values or specs."] = "Settings
 -- CONFIG - SOUND MODE
 -- ============================================================
 L["Custom Sound File"] = "Custom Sound File"
-L["CustomSoundDesc"] = "Enter a .ogg, .mp3, or .wav file path relative to the WoW folder. Example: Interface\\AddOns\\DDingUI\\sounds\\alert.ogg\nIf set, this overrides the Sound selection above."
+L["CustomSoundDesc"] = "Enter a .ogg, .mp3, or .wav file path relative to the WoW folder. Example: Interface\\AddOns\\DDingUI_CDM\\sounds\\alert.ogg\nIf set, this overrides the Sound selection above."
 L["Path to a custom sound file (e.g. Interface\\AddOns\\MyAddon\\alert.ogg). Supports .ogg, .mp3, .wav. Overrides the Sound selection above."] = "Path to a custom sound file (e.g. Interface\\AddOns\\MyAddon\\alert.ogg). Supports .ogg, .mp3, .wav. Overrides the Sound selection above."
 L["Interval Seconds"] = "Interval Seconds"
 L["Minimum Stacks"] = "Minimum Stacks"

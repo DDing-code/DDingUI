@@ -1,4 +1,5 @@
-local ADDON_NAME, ns = ...
+local ADDON_FOLDER, ns = ...
+local ADDON_NAME = "DDingUI"
 
 local DDingUI = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -7,7 +8,9 @@ local DDingUI = LibStub("AceAddon-3.0"):NewAddon(
 )
 
 ns.Addon = DDingUI
-DDingUI.VERSION = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "unknown"
+DDingUI.ADDON_FOLDER = ADDON_FOLDER
+DDingUI.OPTIONS_ADDON_FOLDER = "DDingUI_CDM_Option"
+DDingUI.VERSION = C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "Version") or "unknown"
 ns.VERSION = DDingUI.VERSION
 
 -- [LoD] DDingUI_Options이 네임스페이스에 접근할 수 있도록 공유
@@ -324,7 +327,7 @@ function DDingUI:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("DDingUIDB", defaults, true)
 
     if not self.db or not self.db.sv then
-        error("DDingUI: Failed to initialize database! Check SavedVariables in DDingUI.toc")
+        error("DDingUI: Failed to initialize database! Check SavedVariables in DDingUI_CDM.toc")
     end
 
 
@@ -877,8 +880,7 @@ function DDingUI:OnEnable()
             end,
             OnCancel = function()
                 -- 마이그레이션 건너뛰기: profileVersion만 설정
-                local addonVersion = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("DDingUI", "Version")
-                DDingUI.db.profile.profileVersion = DDingUI.VERSION or addonVersion or "2.1.4"
+                DDingUI.db.profile.profileVersion = DDingUI.VERSION or "2.1.4"
                 print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffaaaaaaa마이그레이션을 건너뛰었습니다. 설정 > 프로필에서 수동으로 변경할 수 있습니다.|r")
             end,
         }
@@ -939,9 +941,9 @@ end
 function DDingUI:OpenConfig()
     -- [LoD] DDingUI_Options 최초 로드
     if not self._optionsLoaded then
-        local loaded, reason = C_AddOns.LoadAddOn("DDingUI_Options")
+        local loaded, reason = C_AddOns.LoadAddOn(self.OPTIONS_ADDON_FOLDER)
         if not loaded then
-            print(CDM_PREFIX .. "|cffff6600DDingUI_Options 로드 실패: |r" .. (reason or "unknown")) -- [STYLE]
+            print(CDM_PREFIX .. "|cffff6600" .. self.OPTIONS_ADDON_FOLDER .. " 로드 실패: |r" .. (reason or "unknown")) -- [STYLE]
             if self.SetupOptions then
                 self:SetupOptions()
                 self._optionsLoaded = true
@@ -1025,7 +1027,7 @@ function DDingUI:CreateMinimapButton()
 
     local dataObj = LDB:NewDataObject(ADDON_NAME, {
         type = "launcher",
-        icon = "Interface\\AddOns\\DDingUI\\Media\\logo.tga",
+        icon = "Interface\\AddOns\\DDingUI_CDM\\Media\\logo.tga",
         label = L["DDingUI"] or "DDingUI",
         OnClick = function(clickedframe, button)
             if button == "LeftButton" then

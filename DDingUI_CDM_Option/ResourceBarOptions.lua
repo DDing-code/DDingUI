@@ -1,4 +1,5 @@
-local ADDON_NAME, ns = ...
+local _, ns = ...
+local ADDON_NAME = "DDingUI"
 local DDingUI = ns.Addon
 local L = ns.L or LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME, true)
 local LSM = LibStub("LibSharedMedia-3.0")

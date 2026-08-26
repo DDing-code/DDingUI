@@ -3,7 +3,8 @@
     Core loader that initializes AceLocale-3.0 and provides access to locale strings
 --]]
 
-local ADDON_NAME, ns = ...
+local _, ns = ...
+local ADDON_NAME = "DDingUI"
 
 -- Get or create locale
 local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME, true)

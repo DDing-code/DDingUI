@@ -48,12 +48,12 @@ local function MaterializeLazyOption(option)
 end
 
 local SECTION_MENU_DEFS = {
-    { key = "general",      label = "General Settings", icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\General.tga" },
-    { key = "groupSystem",  label = "CDM Bars",         icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\CooldownBars.tga" },
-    { key = "buffTracker",  label = "Buff Tracker",     icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\CustomAura.tga" },
-    { key = "resourceBars", label = "Resource Bars",    icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\ResourceBars.tga" },
-    { key = "castBars",     label = "Cast Bars",        icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\CastBars.tga" },
-    { key = "buffBar",      label = "Tracked Bars",     icon = "Interface\\AddOns\\DDingUI_Options\\Media\\Navigation\\TrackedBars.tga" },
+    { key = "general",      label = "General Settings", icon = "Interface\\AddOns\\DDingUI_CDM_Option\\Media\\Navigation\\General.tga" },
+    { key = "groupSystem",  label = "CDM Bars",         icon = "Interface\\AddOns\\DDingUI_CDM_Option\\Media\\Navigation\\CooldownBars.tga" },
+    { key = "buffTracker",  label = "Buff Tracker",     icon = "Interface\\AddOns\\DDingUI_CDM_Option\\Media\\Navigation\\CustomAura.tga" },
+    { key = "resourceBars", label = "Resource Bars",    icon = "Interface\\AddOns\\DDingUI_CDM_Option\\Media\\Navigation\\ResourceBars.tga" },
+    { key = "castBars",     label = "Cast Bars",        icon = "Interface\\AddOns\\DDingUI_CDM_Option\\Media\\Navigation\\CastBars.tga" },
+    { key = "buffBar",      label = "Tracked Bars",     icon = "Interface\\AddOns\\DDingUI_CDM_Option\\Media\\Navigation\\TrackedBars.tga" },
 }
 
 local WORKSPACE_GROUP_LABEL_KEYS = {
@@ -1846,7 +1846,7 @@ function DDingUI:CreateConfigFrame()
     -- ============================================
     -- StyleLib 패널 뼈대 생성
     -- ============================================
-    local version = C_AddOns.GetAddOnMetadata("DDingUI", "Version") or "unknown"
+    local version = DDingUI.VERSION or "unknown"
 
     local panel = SL.CreateSettingsPanel("CDM", "DDingUI CDM", version, {
         width = 1280,
@@ -1957,7 +1957,7 @@ function DDingUI:CreateConfigFrame()
     titleBar.brandLogo:ClearAllPoints()
     titleBar.brandLogo:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
     titleBar.brandLogo:SetSize(128, 32)
-    titleBar.brandLogo:SetTexture("Interface\\AddOns\\DDingUI\\Media\\logo_wordmark.tga")
+    titleBar.brandLogo:SetTexture("Interface\\AddOns\\DDingUI_CDM\\Media\\logo_wordmark.tga")
     titleBar.brandLogo:SetTexCoord(0, 1, 0, 1)
     titleBar.brandLogo:Show()
     if titleBar.verText then

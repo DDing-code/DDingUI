@@ -1,4 +1,5 @@
-local ADDON_NAME, ns = ...
+local _, ns = ...
+local ADDON_NAME = "DDingUI"
 local DDingUI = ns.Addon
 local CDMCompat = DDingUI.CDMCompat
 local LSM = LibStub("LibSharedMedia-3.0")
@@ -2400,21 +2401,21 @@ local function CreateTrackedBuffBar(barIndex)
     -- Ring background (solid circle for progress fill)
     bar.RingBackground = bar:CreateTexture(nil, "BACKGROUND", nil, 1)
     bar.RingBackground:SetAllPoints()
-    bar.RingBackground:SetTexture("Interface\\AddOns\\DDingUI\\Media\\Textures\\Ring_20px.tga")
+    bar.RingBackground:SetTexture("Interface\\AddOns\\DDingUI_CDM\\Media\\Textures\\Ring_20px.tga")
     bar.RingBackground:SetVertexColor(0.15, 0.15, 0.15, 1)
     bar.RingBackground:Hide()
 
     -- Ring progress (shows current value with color)
     bar.RingProgress = bar:CreateTexture(nil, "ARTWORK", nil, 1)
     bar.RingProgress:SetAllPoints()
-    bar.RingProgress:SetTexture("Interface\\AddOns\\DDingUI\\Media\\Textures\\Ring_20px.tga")
+    bar.RingProgress:SetTexture("Interface\\AddOns\\DDingUI_CDM\\Media\\Textures\\Ring_20px.tga")
     bar.RingProgress:SetVertexColor(1, 0.8, 0, 1)
     bar.RingProgress:Hide()
 
     -- Ring border (outer ring texture - behind the ring for border effect)
     bar.RingBorder = bar:CreateTexture(nil, "BACKGROUND", nil, 0)  -- sublevel 0, behind RingBackground (sublevel 1)
     bar.RingBorder:SetPoint("CENTER")
-    bar.RingBorder:SetTexture("Interface\\AddOns\\DDingUI\\Media\\Textures\\Ring_20px.tga")  -- Same texture, larger size for border
+    bar.RingBorder:SetTexture("Interface\\AddOns\\DDingUI_CDM\\Media\\Textures\\Ring_20px.tga")  -- Same texture, larger size for border
     bar.RingBorder:SetVertexColor(0, 0, 0, 1)
     bar.RingBorder:Hide()
 
@@ -4913,7 +4914,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
 
     -- ringThickness에 따라 텍스쳐 선택 (10, 20, 30, 40px)
     local ringThickness = settings.ringThickness or 20
-    local ringTexture = string.format("Interface\\AddOns\\DDingUI\\Media\\Textures\\Ring_%dpx.tga", ringThickness)
+    local ringTexture = string.format("Interface\\AddOns\\DDingUI_CDM\\Media\\Textures\\Ring_%dpx.tga", ringThickness)
 
     -- Show ring textures (explicitly set size and position)
     -- Border (outermost, behind everything)

@@ -4,7 +4,7 @@ local DDingUI = ns.Addon
 local LSM = LibStub("LibSharedMedia-3.0")
 
 -- Register fonts
-LSM:Register("font","Expressway", [[Interface\AddOns\DDingUI\Fonts\Expressway.TTF]])
+LSM:Register("font","Expressway", [[Interface\AddOns\DDingUI_CDM\Fonts\Expressway.TTF]])
 
 -- Register sounds (WoW built-in sounds for buff tracking)
 LSM:Register("sound", "None", [[]])
@@ -30,7 +30,7 @@ LSM:Register("sound", "Wisp", [[Sound\Event Sounds\Wisp\WispPissed1.ogg]])
 
 function DDingUI:GetGlobalFont()
     local fontName = self.db.profile.general.globalFont or "Expressway"
-    return LSM:Fetch("font", fontName) or [[Interface\AddOns\DDingUI\Fonts\Expressway.TTF]]
+    return LSM:Fetch("font", fontName) or [[Interface\AddOns\DDingUI_CDM\Fonts\Expressway.TTF]]
 end
 
 function DDingUI:GetGlobalTexture()

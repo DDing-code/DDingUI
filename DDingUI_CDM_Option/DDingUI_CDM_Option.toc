@@ -1,0 +1,38 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fOptions|r
+## Notes: DDingUI CooldownManager - Options UI (Load on Demand)
+## Author: DDing
+## Version: 2.1.4
+## LoadOnDemand: 1
+## Dependencies: DDingUI_CDM
+
+# Options-only localization
+Locales\enUS.lua
+Locales\koKR.lua
+
+OptionsLoader.lua
+GUIWidgets.lua
+GUIToggleSwitch.lua
+GUISearch.lua
+GUI.lua
+GUIStyledWidgets.lua
+BuffTrackerLivePreview.lua
+BuffTrackerGUI.lua
+ConfigHelpers.lua
+DynamicIconsUI.lua
+ViewerOptions.lua
+ResourceBarOptions.lua
+CustomIconOptions.lua
+CastBarOptions.lua
+BuffDebuffFramesOptions.lua
+BuffBarOptions.lua
+BuffTrackerOptions.lua
+BuffTrackerGroupOptions.lua
+BuffTrackerGlobalOptions.lua
+ProfileOptions.lua
+GroupSystemIconTextures.lua
+GroupSystemOptions.lua
+GroupStateStudio.lua
+GroupSystemWorkspace.lua
+SectionWorkspace.lua
+Config.lua
