@@ -27,6 +27,10 @@ def test_text_animation_contract():
     assert "function Visuals:ApplyTextPreviewMotion" in RUNTIME
     assert 'visuals:ApplyTextExit(frame, "fade", settings.textFadeOutDirection)' in BAR
     assert "settings.textFadeInDirection" in BAR
+    assert "LegacyAuraDriver.ResolvePlayerAuraPresence(cooldownID, trackedBuff.spellID)" in BAR
+    assert "mirrorLegacyText = true" in BAR
+    assert "local function MirrorTextBinding" in CONTAINER
+    assert "if hideForNoData then" in BAR
     assert "LEFT = { -14, 0 }" in RUNTIME
     assert "RIGHT = { 14, 0 }" in RUNTIME
     assert "UP = { 0, 14 }" in RUNTIME

@@ -6096,6 +6096,11 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     local hasData
     if isManualMode then
         hasData = (manualStackCount or 0) > 0
+    elseif containerEligible then
+        hasData = LegacyAuraDriver.ResolvePlayerAuraPresence(cooldownID, trackedBuff.spellID)
+        if hasData == nil then
+            hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
+        end
     else
         hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     end
@@ -6128,11 +6133,12 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
 
     -- Hide if no data and hideWhenZero (skip in mover/preview mode)
     -- Also skip hiding if showInCombat is enabled and we're in combat
-    if hideWhenZero and not hasData and not containerEligible and not isInMoverMode and not isInPreviewMode then
-        if not (showInCombat and inCombat) then
-            HideTrackedBuffText(textFrame, settings, true)
-            return
-        end
+    local hideForNoData = hideWhenZero and not hasData
+        and not isInMoverMode and not isInPreviewMode
+        and not (showInCombat and inCombat)
+    if hideForNoData and not containerEligible then
+        HideTrackedBuffText(textFrame, settings, true)
+        return
     end
 
     -- Set position (DDingUI:Scale - v1.1.5.5와 일관성)
@@ -6169,7 +6175,9 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- Set text based on display mode
     local displayText = ""
     if textDisplayMode == "stacks" then
-        if hasData then
+        if containerEligible and hasData then
+            displayText = ""
+        elseif hasData then
             displayText = trackedStacks  -- Secret value 직접 전달
         elseif isInPreviewMode then
             local previewStacks = GetPreviewValues(barIndex, 10, 30, "stacks")
@@ -6180,7 +6188,9 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             displayText = "0"
         end
     elseif textDisplayMode == "duration" then
-        if hasData and HasAuraInstanceID(auraInstanceID) then
+        if containerEligible then
+            displayText = ""
+        elseif hasData and HasAuraInstanceID(auraInstanceID) then
             local timeLeft = LegacyDurationDriver.GetTimeLeft(unit, auraInstanceID, GetTime())
             if timeLeft then
                 if timeLeft > 0 then
@@ -6201,7 +6211,9 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         displayText = customText
     end
 
-    textFrame.Text:SetText(displayText)
+    if not (containerEligible and hideForNoData and textFrame._lastHasData) then
+        textFrame.Text:SetText(displayText)
+    end
 
     -- ============================================================
     -- DURATION TEXT (bar 모드와 동일한 구조) -- [12.0.1]
@@ -6226,7 +6238,19 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         textFrame.DurationText:SetFont(dtFontPath, DDingUI:Scale(dtSize), "OUTLINE")
         textFrame.DurationText:SetTextColor(dtColor[1] or 1, dtColor[2] or 1, dtColor[3] or 1, dtColor[4] or 1)
 
-        if hasData and HasAuraInstanceID(auraInstanceID) then
+        if containerEligible then
+            if textFrame._hasDurationUpdate then
+                UnregisterDurationUpdate(textFrame)
+                textFrame._hasDurationUpdate = nil
+                textFrame._durationData = nil
+            end
+            if hasData or hideWhenZero then
+                textFrame.DurationText:Show()
+            else
+                textFrame.DurationText:SetText("")
+                textFrame.DurationText:Hide()
+            end
+        elseif hasData and HasAuraInstanceID(auraInstanceID) then
             -- OnUpdate 핸들러로 실시간 업데이트 (bar 모드와 동일 패턴)
             if not textFrame._hasDurationUpdate then
                 RegisterDurationUpdate(textFrame, function(self, elapsed)
@@ -6382,6 +6406,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             frameLevel = textFrame:GetFrameLevel(),
             preserveInactive = not hideWhenZero,
             presentationVisible = not hideForCombat,
+            mirrorLegacyText = true,
             textFadeInDirection = settings.textFadeInDirection or "NONE",
         }
     end
@@ -6393,6 +6418,10 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             auraContainer:SetPresentationVisible(trackedBuff, false)
         end
         HideTrackedBuffText(textFrame, settings, false)
+        return
+    end
+    if hideForNoData then
+        HideTrackedBuffText(textFrame, settings, true)
         return
     end
     if containerEligible and not textAuraAttached and hideWhenZero

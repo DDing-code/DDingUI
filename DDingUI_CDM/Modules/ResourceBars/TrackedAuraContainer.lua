@@ -379,6 +379,7 @@ local function StyleSignature(style)
         tostring(style.staticText),
         tostring(style.showIcon),
         tostring(style.iconSize),
+        tostring(style.mirrorLegacyText),
         tostring(style.preserveInactive),
         tostring(style.protectedTriggerSignature),
     }, "|")
@@ -676,7 +677,7 @@ local function CreateRingInitializer(proxy, desired, style)
     end
 end
 
-local function CreateTextInitializer(proxy, desired, style)
+local function CreateTextInitializer(proxy, desired, style, runtime)
     return function(button)
         InitializeButton(button, proxy, style)
 
@@ -685,25 +686,32 @@ local function CreateTextInitializer(proxy, desired, style)
             icon:SetPoint("LEFT", button, "LEFT", 0, 0)
             icon:SetSize(style.iconSize or 20, style.iconSize or 20)
             button:SetIcon(icon)
+            if style.mirrorLegacyText then icon:SetAlpha(0) end
         end
 
         local text = CreateBoundText(button, style, "stacks")
         if style.textDisplayMode == "duration" then
             RegisterDurationText(button, text, desired.durationDecimals)
+            runtime.mainText = text
         elseif style.textDisplayMode == "stacks" then
             local formatter = GetFormatter(0)
             button:SetApplicationCount(text, formatter and { formatter = formatter } or {})
+            runtime.mainText = text
         else
             text:SetText(style.staticText or "")
         end
+        if style.mirrorLegacyText then text:SetAlpha(0) end
         if style.showDurationText and style.textDisplayMode ~= "duration" then
-            RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
+            local durationText = CreateBoundText(button, style, "duration")
+            RegisterDurationText(button, durationText, desired.durationDecimals)
+            runtime.durationText = durationText
+            if style.mirrorLegacyText then durationText:SetAlpha(0) end
         end
         local visuals = DDingUI.RestrictedAuraVisuals
-        if visuals and visuals.ApplyTextMotion then
+        if not style.mirrorLegacyText and visuals and visuals.ApplyTextMotion then
             visuals:ApplyTextMotion(button, style.iconAnimation, style.textFadeInDirection)
         end
-        StartContainerGlow(button, style)
+        if not style.mirrorLegacyText then StartContainerGlow(button, style) end
     end
 end
 
@@ -719,13 +727,13 @@ local function CreateTriggerInitializer(proxy, tracker, style)
     end
 end
 
-local function CreateInitializer(proxy, desired, style, tracker)
+local function CreateInitializer(proxy, desired, style, tracker, runtime)
     if style.displayType == "icon" then
         return CreateIconInitializer(proxy, desired, style)
     elseif style.displayType == "ring" then
         return CreateRingInitializer(proxy, desired, style)
     elseif style.displayType == "text" then
-        return CreateTextInitializer(proxy, desired, style)
+        return CreateTextInitializer(proxy, desired, style, runtime)
     elseif style.displayType == "trigger" then
         return CreateTriggerInitializer(proxy, tracker, style)
     end
@@ -786,6 +794,7 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
     proxy:EnableMouse(false)
     proxy:Hide()
 
+    local runtime = {}
     local container = CreateFrame("AuraContainer", nil, proxy, "CustomAuraContainerTemplate")
     if targetFrame then container:SetFrameLevel(proxy:GetFrameLevel() + 1) end
     container:Hide()
@@ -793,7 +802,7 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
     container:SetSize(1, 1)
     container:AddAuraSlot("tracked", "HELPFUL", {
         candidateFilters = { includeSpellIDs = desired.include },
-        initializeFrame = CreateInitializer(proxy, desired, style, tracker),
+        initializeFrame = CreateInitializer(proxy, desired, style, tracker, runtime),
     })
     container:SetUnit("player")
     if container.SetEnabled then container:SetEnabled(true) end
@@ -811,6 +820,7 @@ local function BuildBinding(bar, desired, style, styleSignature, tracker)
         displayType = style.displayType,
         tracker = tracker,
         targetFrame = targetFrame,
+        textRuntime = style.mirrorLegacyText and runtime or nil,
         active = true,
         presentationVisible = style.presentationVisible ~= false,
     }
@@ -869,13 +879,46 @@ local function HideLegacyDisplay(host, style)
             if host.Glow then host.Glow:SetAlpha(0) end
         end
     elseif displayType == "text" then
-        if host.Text then host.Text:SetAlpha(0) end
-        if host.DurationText then host.DurationText:SetAlpha(0) end
-        if type(style) == "table" and not style.preserveInactive and host.Icon then
-            host.Icon:SetAlpha(0)
+        if type(style) ~= "table" or not style.mirrorLegacyText then
+            if host.Text then host.Text:SetAlpha(0) end
+            if host.DurationText then host.DurationText:SetAlpha(0) end
+            if type(style) == "table" and not style.preserveInactive and host.Icon then
+                host.Icon:SetAlpha(0)
+            end
         end
     end
 end
+
+-- Keep secret values engine-bound, then mirror only their rendered strings onto
+-- the addon-owned text frame where directional transitions are legal.
+local function CopyEngineText(source, target)
+    if not source or not target then return end
+    local ok, value = pcall(function() return source:GetText() end)
+    if ok and type(value) ~= "nil" then
+        pcall(target.SetText, target, value)
+    end
+end
+
+local function MirrorTextBinding(binding, force)
+    local runtime = binding and binding.textRuntime
+    local bar = binding and binding.bar
+    if not runtime or not bar or (not force and not bar:IsShown()) then return end
+    CopyEngineText(runtime.mainText, bar.Text)
+    CopyEngineText(runtime.durationText, bar.DurationText)
+end
+
+local textMirrorElapsed = 0
+local textMirrorDriver = CreateFrame("Frame")
+textMirrorDriver:SetScript("OnUpdate", function(_, elapsed)
+    textMirrorElapsed = textMirrorElapsed + elapsed
+    if textMirrorElapsed < 0.05 then return end
+    textMirrorElapsed = 0
+    for _, binding in pairs(bindingByTracker) do
+        if binding.active and binding.presentationVisible ~= false then
+            MirrorTextBinding(binding)
+        end
+    end
+end)
 
 local lifecycleFrame = CreateFrame("Frame")
 local lifecycleTicker
@@ -1132,6 +1175,7 @@ function Engine:Attach(tracker, bar, style)
         end
         HideLegacyDisplay(bar, style)
         bar._auraContainerBinding = binding
+        MirrorTextBinding(binding, true)
         deferredByTracker[tracker] = nil
         return true
     end
@@ -1217,6 +1261,7 @@ function Engine:Attach(tracker, bar, style)
     deferredByTracker[tracker] = nil
     HideLegacyDisplay(bar, style)
     bar._auraContainerBinding = replacement
+    MirrorTextBinding(replacement, true)
     return true
 end
 
