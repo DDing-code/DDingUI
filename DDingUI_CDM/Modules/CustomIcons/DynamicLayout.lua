@@ -547,7 +547,7 @@ function DynamicLayout.Create(
                 for _, iconKey in ipairs(pendingKeys) do
                     if not runtime.iconFrames[iconKey] then
                         local iconData = db.iconData[iconKey]
-                        if iconData then
+                        if iconData and IsIconLoadable(iconData) then
                             local groupKey = FindIconGroup(iconKey, db)
                             local settings
                             if groupKey == "ungrouped" or db.ungrouped[iconKey] then
@@ -563,6 +563,8 @@ function DynamicLayout.Create(
                             else
                                 stillPending[#stillPending + 1] = iconKey
                             end
+                        elseif iconData then
+                            stillPending[#stillPending + 1] = iconKey
                         end
                     end
                 end

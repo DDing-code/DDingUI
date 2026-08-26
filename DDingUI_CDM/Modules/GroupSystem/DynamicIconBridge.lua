@@ -440,24 +440,11 @@ local function IsIconActive(iconKey, iconData, iconFrame)
         return iconFrame and iconFrame._trinketProcWasActive == true
     end
 
-    -- spellbook 체크: spell 타입이면 배운 주문만
+    -- Custom spell IDs still require the spell to be learned in the current spec.
     if iconData.type == "spell" and iconData.id then
-        local spellInfo = C_Spell and C_Spell.GetSpellInfo(iconData.id)
-        if not spellInfo then
-            -- [FIX] 전투 중 GetSpellInfo가 일시적 nil 반환 — 폴백 체크
-            -- IsSpellKnownOrOverridesKnown은 더 안정적 (캐시 기반)
-            local isKnown = false
-            pcall(function()
-                isKnown = IsSpellKnownOrOverridesKnown(iconData.id)
-                    or IsPlayerSpell(iconData.id)
-            end)
-            if not isKnown then
-                -- 최종 폴백: 이전 프레임에서 보였으면 유지 (hysteresis)
-                if iconFrame._wasVisibleInGroup then
-                    return true
-                end
-                return false
-            end
+        local ci = GetCustomIcons()
+        if ci and ci.IsIconLoadable and not ci:IsIconLoadable(iconData) then
+            return false
         end
     end
 

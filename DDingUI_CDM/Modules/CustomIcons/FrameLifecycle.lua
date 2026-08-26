@@ -85,9 +85,6 @@ function FrameLifecycle.Create(
     local function IsIconLoadable(iconData)
         if not iconData then return false end
         if iconData.type == "spell" then
-            if iconData.settings and iconData.settings.customID == true then
-                return true
-            end
             return IsSpellInPlayerBook(iconData.id)
         elseif iconData.type == "racial" then
             local racialID = GetPlayerRacialSpellID()
@@ -111,7 +108,6 @@ function FrameLifecycle.Create(
         if not iconData then return false end
         -- Spellbook gating
         if iconData.type == "spell"
-            and not (iconData.settings and iconData.settings.customID == true)
             and not IsSpellInPlayerBook(iconData.id)
         then
             return false

@@ -3830,6 +3830,10 @@ local GetAnchorFrame,
         UpdateTrinketProcIcon
     )
 
+function CustomIcons:IsIconLoadable(iconData)
+    return IsIconLoadable(iconData)
+end
+
 function CustomIcons:RefreshDynamicIcon(iconKey)
     if iconKey and runtime.UpdateDynamicIcon then
         runtime.UpdateDynamicIcon(iconKey)
