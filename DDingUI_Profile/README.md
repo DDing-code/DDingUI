@@ -20,7 +20,7 @@ All-in-one UI profile installer for World of Warcraft. Configure six supported a
 - **One-Click Apply** - Apply each installed addon's profile with a single button
 - **Per-Spec Cooldowns** - Built-in DDingUI CDM layouts for every specialization
 - **Profile Reuse** - Install once, then load saved profiles on alternate characters
-- **Custom Media Included** - 4 fonts, 3 status bar textures, and 74 sound files
+- **Custom Media Included** - 4 fonts, 3 status bar textures, and 77 sound files
 - **Addon Compartment Support** - Reopen the installer from WoW's addon compartment
 
 ## Slash Commands
@@ -59,7 +59,7 @@ The included fonts support Korean, Chinese, Japanese, Russian, and other WoW cli
 - DDing BuiOnePixel
 - DD SL Bracket
 
-### Sounds (74)
+### Sounds (77)
 
 Alert and effect sounds registered through LibSharedMedia for use with compatible addons.
 
