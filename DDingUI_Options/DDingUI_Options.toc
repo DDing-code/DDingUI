@@ -2,7 +2,7 @@
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fOptions|r
 ## Notes: DDingUI CooldownManager - Options UI (Load on Demand)
 ## Author: DDing
-## Version: 2.1.3
+## Version: 2.1.4
 ## LoadOnDemand: 1
 ## Dependencies: DDingUI
 

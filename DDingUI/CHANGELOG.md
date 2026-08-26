@@ -2,6 +2,21 @@
 
 ---
 
+## v2.1.4
+
+_Release date: 2026-08-26_
+_Scope: Git changes from 9964ab3 through this release._
+
+### English Patch Notes
+- Restored native trinket active-effect states so on-use and proc effects can present their effect icon, duration, stacks, and glow independently from the regular cooldown state.
+- Corrected Custom Aura bar rendering under the WoW 12.1 protected AuraContainer path so live width, height, texture, colors, and border settings match the configured preview.
+- Restored Custom Aura bar dividers for stack and duration modes, including divider thickness, horizontal and vertical layouts, immediate preview updates, and rebuilds after size changes.
+
+### Korean Patch Notes
+- 사용 및 착용 발동형 장신구의 기본 활성 효과 상태를 복구하여 일반 재사용 대기 상태와 별개로 효과 아이콘, 지속시간, 중첩 및 글로우를 표시할 수 있도록 수정했습니다.
+- WoW 12.1 보호 AuraContainer 경로에서 커스텀 오라 바의 실제 너비, 높이, 텍스처, 색상 및 테두리 설정이 구성된 미리보기와 일치하도록 수정했습니다.
+- 중첩 및 지속시간 방식의 커스텀 오라 바 구분선을 복구하고 구분선 두께, 가로·세로 배치, 즉시 미리보기 및 크기 변경 후 재생성을 지원합니다.
+
 ## v2.1.3
 
 _Release date: 2026-08-25_
