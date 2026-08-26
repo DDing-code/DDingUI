@@ -31,6 +31,7 @@ local activePanel       -- 현재 선택된 패널 키
 local panelSectionState = {}
 local activeDetailPreview
 local detailPreviewRefreshTimer
+local DETAIL_PREVIEW_CONTEXT = { source = "config" }
 
 local function QueueDetailPreviewRefresh()
     if not activeDetailPreview or not activeDetailPreview.module then return end
@@ -45,10 +46,10 @@ local function QueueDetailPreviewRefresh()
 
         local module = state.module
         if module.RefreshEditPreview then
-            module:RefreshEditPreview()
+            module:RefreshEditPreview(state.context)
         elseif module.ExitEditPreview and module.EnterEditPreview then
-            module:ExitEditPreview()
-            module:EnterEditPreview()
+            module:ExitEditPreview(state.context)
+            module:EnterEditPreview(state.context)
         end
     end)
 end
@@ -163,7 +164,10 @@ local function CreateSoundWidget(parent, setting)
         tooltip = setting.desc,
         onChange = function(value)
             ns:SetDBValue(setting.key, value)
-            if value and value ~= "" then PlaySoundFile(value, "Master") end
+            if value and value ~= "" then
+                local channelKey = setting.channelKey or setting.key:gsub("soundFile$", "soundChannel")
+                PlaySoundFile(value, ns:GetDBValue(channelKey) or "Master")
+            end
             if setting.onChange then setting.onChange(value) end
             QueueDetailPreviewRefresh()
         end,
@@ -184,6 +188,10 @@ local function CreateSoundWidget(parent, setting)
                 maxLetters = 256,
                 onChange = function(value)
                     ns:SetDBValue(customKey, value)
+                    if setting.customPathOnChange and setting.onChange then
+                        setting.onChange(value)
+                    end
+                    QueueDetailPreviewRefresh()
                 end,
             }
         )
@@ -406,7 +414,7 @@ local function StopDetailPreview()
     if not state then return end
 
     if state.module and state.module.ExitEditPreview then
-        state.module:ExitEditPreview()
+        state.module:ExitEditPreview(state.context)
     end
     SetButtonText(state.button, LT("DETAIL_PREVIEW_START", "Start preview"))
     activeDetailPreview = nil
@@ -424,11 +432,12 @@ local function ToggleDetailPreview(panelKey, button)
     if not module then return end
 
     if module.EnterEditPreview and module.ExitEditPreview then
-        module:EnterEditPreview()
+        module:EnterEditPreview(DETAIL_PREVIEW_CONTEXT)
         activeDetailPreview = {
             panelKey = panelKey,
             module = module,
             button = button,
+            context = DETAIL_PREVIEW_CONTEXT,
         }
         SetButtonText(button, LT("DETAIL_PREVIEW_STOP", "Stop preview"))
     elseif module.TriggerAlert then
@@ -1648,11 +1657,23 @@ function ConfigUI:Show()
         ns.ToolkitMovers:ToggleConfigMode()
     end
     local p = self:Initialize()
-    if p then p.frame:Show() end
+    if p then
+        if p.frame.ShowAnimated then
+            p.frame:ShowAnimated()
+        else
+            p.frame:Show()
+        end
+    end
 end
 
 function ConfigUI:Hide()
-    if settingsPanel then settingsPanel.frame:Hide() end
+    if settingsPanel then
+        if settingsPanel.frame.HideAnimated then
+            settingsPanel.frame:HideAnimated()
+        else
+            settingsPanel.frame:Hide()
+        end
+    end
 end
 
 function ConfigUI:Toggle()

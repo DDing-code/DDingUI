@@ -11,6 +11,8 @@ ns.BloodlustTimer = BloodlustTimer
 local ACTIVE_DURATION = 40
 local EXHAUSTION_DURATION = 600
 local UPDATE_INTERVAL = 0.05
+local READY_SOUND_DECISION_DELAY = 0.35
+local RAID_BOSS_READY_SUPPRESS_SECONDS = 10
 local DEFAULT_ICON = 136012
 local DEFAULT_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
 local DEFAULT_BAR = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -136,6 +138,8 @@ local startMotionState
 local musicHandle
 local nextMusicAt
 local suppressFreshUntil = 0
+local suppressReadySoundUntil = 0
+local readySoundRequestSerial = 0
 
 local state = {
     hasDebuff = false,
@@ -447,6 +451,64 @@ local function PlayConfiguredSound(db, prefix, request)
     local ok, played, handle = pcall(PlaySoundFile, path, channel)
     if not ok or IsSecret(played) or not played or IsSecret(handle) then return nil end
     return handle
+end
+
+local function IsReadySoundSuppressed()
+    return GetTime() < suppressReadySoundUntil
+end
+
+local function CancelReadySoundRequest()
+    readySoundRequestSerial = readySoundRequestSerial + 1
+    if ns.CancelManagedSound then
+        ns:CancelManagedSound("BloodlustTimer:ready", 0)
+    end
+end
+
+local function IsSuccessfulRaidEncounter(success)
+    if SafeNumber(success) ~= 1 or type(IsInInstance) ~= "function" then return false end
+    local ok, inInstance, instanceType = pcall(IsInInstance)
+    if not ok or IsSecret(inInstance) or IsSecret(instanceType) then return false end
+    return inInstance == true and instanceType == "raid"
+end
+
+local function SuppressReadySoundForRaidBossKill()
+    suppressReadySoundUntil = math.max(
+        suppressReadySoundUntil,
+        GetTime() + RAID_BOSS_READY_SUPPRESS_SECONDS
+    )
+    CancelReadySoundRequest()
+end
+
+function BloodlustTimer:QueueReadySound()
+    if not self.db or self.db.readySoundEnabled ~= true then return end
+
+    readySoundRequestSerial = readySoundRequestSerial + 1
+    local serial = readySoundRequestSerial
+    C_Timer.After(READY_SOUND_DECISION_DELAY, function()
+        if serial ~= readySoundRequestSerial
+            or not activeModule
+            or not BloodlustTimer.db
+            or BloodlustTimer.db.readySoundEnabled ~= true
+            or state.phase ~= "READY"
+            or state.hasDebuff
+            or IsReadySoundSuppressed()
+        then
+            return
+        end
+
+        PlayConfiguredSound(BloodlustTimer.db, "ready", {
+            source = "BloodlustTimer",
+            key = "ready",
+            priority = 65,
+            canQueue = true,
+            isValid = function()
+                return activeModule
+                    and state.phase == "READY"
+                    and not state.hasDebuff
+                    and not IsReadySoundSuppressed()
+            end,
+        })
+    end)
 end
 
 function BloodlustTimer:StopMusic(fadeMilliseconds)
@@ -1581,6 +1643,7 @@ end
 function BloodlustTimer:StartFromAura(aura, debuffSpellID, buffSpellID, silent)
     local now = GetTime()
     local appliedAt, expirationTime, duration = GetAuraTimes(aura)
+    CancelReadySoundRequest()
     state.hasDebuff = true
     state.debuffSpellID = debuffSpellID
     state.buffSpellID = buffSpellID or 2825
@@ -1652,12 +1715,7 @@ function BloodlustTimer:FinishExhaustion(playSound)
     self:StopMusic(100)
     self:StopAnimation()
     if hadDebuff and playSound and self.db.readySoundEnabled == true then
-        PlayConfiguredSound(self.db, "ready", {
-            source = "BloodlustTimer",
-            key = "ready",
-            priority = 65,
-            canQueue = true,
-        })
+        self:QueueReadySound()
     end
     self:UpdateDisplay(true)
 end
@@ -1849,8 +1907,18 @@ eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("PLAYER_DEAD")
-eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo)
+eventFrame:RegisterEvent("ENCOUNTER_END")
+eventFrame:SetScript("OnEvent", function(_, event, ...)
     if not activeModule then return end
+    if event == "ENCOUNTER_END" then
+        local _, _, _, _, success = ...
+        if IsSuccessfulRaidEncounter(success) then
+            SuppressReadySoundForRaidBossKill()
+        end
+        return
+    end
+
+    local unit, updateInfo = ...
     if event == "UNIT_AURA" then
         local isFullUpdate = false
         if not IsSecret(updateInfo) and type(updateInfo) == "table" then

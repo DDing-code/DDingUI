@@ -74,6 +74,14 @@ local MODULES = {
         descKey = "NEW_MODULE_POPUP_RPT_DESC",
         icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend",
     },
+    {
+        id = "RaidDefensiveTracker-2.1.4",
+        introducedVersion = "2.1.4",
+        module = "RaidDefensiveTracker",
+        titleKey = "RDT_TITLE",
+        descKey = "NEW_MODULE_POPUP_RDT_DESC",
+        spellID = 97462,
+    },
 }
 
 local function VersionParts(version)

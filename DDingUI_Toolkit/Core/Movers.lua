@@ -177,6 +177,26 @@ local REG = {
         defaultW = 266, defaultH = 44,
     },
     {
+        name = "RaidDefensiveTracker",
+        getFrame = function()
+            local mod = ns.RaidDefensiveTracker or (DDingToolKit.modules and DDingToolKit.modules.RaidDefensiveTracker)
+            if mod and mod.CreateFrame then mod:CreateFrame() end
+            return _G.DDingToolKit_RaidDefensiveTrackerFrame
+        end,
+        dbPath = "RaidDefensiveTracker.position",
+        posType = "standard",
+        module = "RaidDefensiveTracker",
+        previewState = "combat",
+        defaultW = 44, defaultH = 44,
+        onPositionChanged = function()
+            local mod = ns.RaidDefensiveTracker
+                or (DDingToolKit.modules and DDingToolKit.modules.RaidDefensiveTracker)
+            if mod and mod.OnMoverPositionChanged then
+                mod:OnMoverPositionChanged()
+            end
+        end,
+    },
+    {
         name = "BloodlustStartMotion",
         getFrame = function()
             local mod = ns.BloodlustTimer or (DDingToolKit.modules and DDingToolKit.modules.BloodlustTimer)
@@ -276,6 +296,7 @@ local DEFAULT_POSITIONS = {
     FocusInterrupt_F = { x = 0, y = 50 },
     StasisTracker = { x = 0, y = -220 },
     BloodlustTimer = { x = 0, y = -170 },
+    RaidDefensiveTracker = { x = 0, y = -250 },
     BloodlustStartMotion = { x = 0, y = 40 },
     PartyTracker = { x = -500, y = -110 },
     PartyTracker_Mana = { x = 0, y = -150 },
@@ -299,6 +320,7 @@ local function GetDisplayName(reg)
         FocusInterrupt_F = Locale("TAB_FOCUSINTERRUPT", "Interrupt Bar") .. " - " .. (FOCUS or "Focus"),
         StasisTracker = Locale("TAB_STASISTRACKER", "Stasis Tracker"),
         BloodlustTimer = Locale("TAB_BLOODLUSTTIMER", "Bloodlust Timer"),
+        RaidDefensiveTracker = Locale("TAB_RAIDDEFENSIVETRACKER", "Raid Defensive Tracker"),
         BloodlustStartMotion = Locale("BLT_START_MOTION_ANCHOR", "Bloodlust Start HUD"),
         PartyTracker = Locale("TAB_PARTYTRACKER", "Party Tracker"),
         PartyTracker_Mana = Locale("PARTYTRACKER_HEALER_MANA", "Healer Mana"),
@@ -643,6 +665,12 @@ local function SavePos(reg, point, x, y)
     end
 end
 
+local function NotifyPositionChanged(reg)
+    if reg and reg.onPositionChanged then
+        pcall(reg.onPositionChanged, reg)
+    end
+end
+
 local function GetSavedPos(reg)
     if reg.posType == "skyriding" then
         local db = ns.db.profile.SkyridingTracker
@@ -947,6 +975,7 @@ local function ApplyOvPos(name, x, y)
                 tf:ClearAllPoints()
                 tf:SetPoint("CENTER", UIParent, "CENTER", x / s, y / s)
             end
+            NotifyPositionChanged(reg)
             break
         end
     end
@@ -1144,11 +1173,11 @@ local function CreateMoverOverlay(reg)
     return ov
 end
 
-local function SyncMoverToTarget(reg)
+local function SyncMoverToTarget(reg, targetFrame)
     local ov = movers[reg.name]
     if not ov then return end
 
-    local tf = GetTargetFrame(reg)
+    local tf = targetFrame or GetTargetFrame(reg)
     if not tf then return end
 
     local w, h = tf:GetSize()
@@ -1168,6 +1197,18 @@ local function SyncMoverToTarget(reg)
         ov:SetPoint("CENTER", UIParent, "CENTER", fx, fy)
         moverPos[reg.name] = { x = math.floor(fx + 0.5), y = math.floor(fy + 0.5) }
     end
+end
+
+function Movers:SyncFromTarget(name, targetFrame)
+    local reg = GetReg(name)
+    if not reg then return false end
+
+    SyncMoverToTarget(reg, targetFrame)
+    if selected == name then
+        local position = moverPos[name]
+        if position then UpdateCoordUI(name, position.x, position.y) end
+    end
+    return true
 end
 
 local function RefreshFrameSelector()
@@ -1219,6 +1260,7 @@ function Movers:ResetSelected()
         SyncMoverToTarget(reg)
         local position = moverPos[selected] or { x = 0, y = 0 }
         UpdateCoordUI(selected, position.x, position.y)
+        NotifyPositionChanged(reg)
     else
         ApplyOvPos(selected, x, y)
     end

@@ -849,6 +849,28 @@ function RaidGroups:ProcessApply()
     end
 
     local roster = self:CollectRoster()
+    if state.orderSwap then
+        if #roster ~= state.expectedCount then
+            self:FinishApply(false, L["RAIDGROUPS_ERROR_ROSTER_CHANGED"])
+            return
+        end
+        local orderSwap = state.orderSwap
+        local pair = orderSwap[orderSwap.step]
+        local leftIndex = pair and SafeNumber(UnitInRaid and UnitInRaid(pair[1]))
+        local rightIndex = pair and SafeNumber(UnitInRaid and UnitInRaid(pair[2]))
+        local ok = leftIndex and rightIndex and SwapRaidSubgroup
+            and pcall(SwapRaidSubgroup, leftIndex, rightIndex)
+        if not ok then
+            self:FinishApply(false, L["RAIDGROUPS_ERROR_APPLY_FAILED"])
+            return
+        end
+        orderSwap.step = orderSwap.step + 1
+        if not orderSwap[orderSwap.step] then state.orderSwap = nil end
+        self:SetStatus(string.format(L["RAIDGROUPS_STATUS_ORDERING"], orderSwap.mismatchCount), "working")
+        self:ScheduleApply(0.35)
+        return
+    end
+
     local groupCounts = {}
     local groupPositions = {}
     local currentPositions = {}
@@ -911,15 +933,15 @@ function RaidGroups:ProcessApply()
             return
         end
 
-        local ok = pcall(SwapRaidSubgroup, candidate.index, bridge.index)
-        if ok then ok = pcall(SwapRaidSubgroup, bridge.index, swapTarget.index) end
-        if ok then ok = pcall(SwapRaidSubgroup, candidate.index, bridge.index) end
-        if not ok then
-            self:FinishApply(false, L["RAIDGROUPS_ERROR_APPLY_FAILED"])
-            return
-        end
+        state.orderSwap = {
+            step = 1,
+            mismatchCount = positionMismatchCount,
+            { candidate.name, bridge.name },
+            { candidate.name, swapTarget.name },
+            { swapTarget.name, bridge.name },
+        }
         self:SetStatus(string.format(L["RAIDGROUPS_STATUS_ORDERING"], positionMismatchCount), "working")
-        self:ScheduleApply(0.35)
+        self:ScheduleApply(0)
         return
     end
 

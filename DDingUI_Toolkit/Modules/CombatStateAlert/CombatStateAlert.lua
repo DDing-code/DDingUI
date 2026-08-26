@@ -9,6 +9,8 @@ local L = ns.L
 local SL = _G.DDingUI_StyleLib
 local SL_FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
 local SL_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
+local END_SOUND_DECISION_DELAY = 0.35
+local RAID_BOSS_END_SOUND_SUPPRESS_SECONDS = 10
 
 local CombatStateAlert = {}
 CombatStateAlert.name = "CombatStateAlert"
@@ -75,6 +77,8 @@ local editPreview = false
 local animationState
 local sequenceToken = 0
 local displayToken = 0
+local endSoundRequestSerial = 0
+local suppressEndSoundUntil = 0
 
 local function Clamp(value, minValue, maxValue)
     value = tonumber(value) or minValue
@@ -341,6 +345,52 @@ local function PlayAlertSound(db, kind, immediate)
     end
 end
 
+local function IsSecret(value)
+    return (ns.IsSecretValue and ns.IsSecretValue(value))
+        or (issecretvalue and issecretvalue(value))
+        or false
+end
+
+local function CancelCombatEndSoundRequest()
+    endSoundRequestSerial = endSoundRequestSerial + 1
+    if ns.CancelManagedSound then
+        ns:CancelManagedSound("CombatStateAlert:combat-end", 0)
+    end
+end
+
+local function IsSuccessfulRaidEncounter(success)
+    if IsSecret(success) or type(IsInInstance) ~= "function" then return false end
+    local okNumber, numericSuccess = pcall(tonumber, success)
+    if not okNumber or IsSecret(numericSuccess) or numericSuccess ~= 1 then return false end
+
+    local okInstance, inInstance, instanceType = pcall(IsInInstance)
+    if not okInstance or IsSecret(inInstance) or IsSecret(instanceType) then return false end
+    return inInstance == true and instanceType == "raid"
+end
+
+local function SuppressCombatEndSoundForRaidBossKill()
+    suppressEndSoundUntil = math.max(
+        suppressEndSoundUntil,
+        GetTime() + RAID_BOSS_END_SOUND_SUPPRESS_SECONDS
+    )
+    CancelCombatEndSoundRequest()
+end
+
+local function QueueCombatEndSound(db)
+    endSoundRequestSerial = endSoundRequestSerial + 1
+    local serial = endSoundRequestSerial
+    C_Timer.After(END_SOUND_DECISION_DELAY, function()
+        if serial ~= endSoundRequestSerial
+            or not activeModule
+            or editPreview
+            or GetTime() < suppressEndSoundUntil
+        then
+            return
+        end
+        PlayAlertSound(db, "END", false)
+    end)
+end
+
 local function ApplyStaticLayout(kind, reveal, exitProgress, visibility)
     if not alertFrame then return end
 
@@ -594,7 +644,14 @@ function CombatStateAlert:ShowAlert(kind, force)
         end
     end
 
-    PlayAlertSound(db, kind, force == true)
+    if kind == "END" and not force then
+        QueueCombatEndSound(db)
+    else
+        if kind == "START" and not force then
+            CancelCombatEndSoundRequest()
+        end
+        PlayAlertSound(db, kind, force == true)
+    end
 
     self:CreateFrame()
     if not alertFrame then return end
@@ -691,6 +748,7 @@ function CombatStateAlert:OnEnable()
 end
 
 function CombatStateAlert:OnDisable()
+    CancelCombatEndSoundRequest()
     if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CombatStateAlert") end
     activeModule = false
     editPreview = false
@@ -707,8 +765,18 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:SetScript("OnEvent", function(_, event)
+eventFrame:RegisterEvent("ENCOUNTER_END")
+eventFrame:SetScript("OnEvent", function(_, event, ...)
+    if event == "ENCOUNTER_END" then
+        local _, _, _, _, success = ...
+        if activeModule and IsSuccessfulRaidEncounter(success) then
+            SuppressCombatEndSoundForRaidBossKill()
+        end
+        return
+    end
+
     if event == "PLAYER_ENTERING_WORLD" then
+        CancelCombatEndSoundRequest()
         if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CombatStateAlert") end
         sequenceToken = sequenceToken + 1
         displayToken = displayToken + 1

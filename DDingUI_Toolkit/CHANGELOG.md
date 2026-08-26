@@ -1,5 +1,51 @@
 # DDingUI Toolkit Changelog
 
+## 2.1.4
+
+Release date: 2026-08-26
+
+## English
+
+### New Modules
+
+- **Raid Defensive Tracker:** Added a WoW 12.1 engine-driven icon tracker for received Innervate, Time Spiral, Spatial Paradox, Power Infusion, Anti-Magic Zone, Darkness, Zephyr, Aura Mastery, Mass Barrier, Power Word: Barrier, Spirit Link Totem, and Rallying Cry effects.
+
+### Option Changes
+
+- Added a Group Movement Buffs section to Raid Defensive Tracker for received Stampeding Roar, Wind Rush Totem, and Piercing Howl effects, including per-effect toggles, icons, and sound settings.
+- Added spell icons to every tracked-effect option, plus separate sound, custom sound path, and output-channel settings for each buff.
+- Added a global default sound for Raid Defensive Tracker; a configured per-buff sound overrides it, while `Use Global Setting` inherits the shared sound and channel.
+- Fixed Raid Defensive Tracker borders appearing only in preview by drawing four explicitly sized inner edge lines on an isolated layer above the cooldown. Border setup now finishes before Blizzard marks duration text properties as secret, so a rejected text write cannot skip it. No filled backing rectangle remains for the aura provider to expand across the screen.
+- Removed the redundant live icon background layer and its color option. This prevents Blizzard's 12.1 AuraContainer from detaching the layer as either a full-screen dim or an icon-sized black box at screen center.
+- Corrected Raid Defensive Tracker's duration swipe so it depletes in the intended direction as the received buff expires.
+- Suppressed both the Bloodlust ready sound caused by exhaustion cleanup and the combat-end sound after a successful raid-boss kill. The combat-end visual and normal exhaustion-expiry alerts remain unchanged.
+- Grouped Raid Party Tooltip class counts by tank, damage, and healer roles. Each role icon and heading now occupies its own line, followed by indented class-icon counts on the next line for easier scanning.
+- Fixed manual Raid Group Manager ordering by resolving fresh raid indices and waiting for each roster update between the three bridge swaps, so changes within the same party are applied instead of collapsing into a no-op.
+- Added a uniform icon zoom control plus separate horizontal and vertical crop controls to Raid Defensive Tracker, shared by preview and live aura icons. Cropping now trims the actual icon bounds without stretching the remaining image, allowing rectangular icons while zoom remains independent.
+- Added position locking and direct drag placement while settings preview is active, and synchronized its coordinates with the global edit-mode anchor and position controls. Fixed preview-source detection so unlocking position enables direct dragging without conflicting with the global edit-mode mover.
+- Added separate external-support and raid-defensive toggles plus icon size, spacing, growth direction, scale, layer, duration swipe and text, font, border, color, position, settings preview, and edit-mode anchor settings.
+
+## 한국어
+
+### 신규 모듈
+
+- **공생기 추적:** 내 캐릭터에게 적용된 정신 자극, 시간의 와류, 공간의 역설, 마력 주입과 대마법 지대, 어둠, 미풍, 오라 숙련, 대규모 방벽, 신의 권능: 방벽, 정신의 고리 토템 및 재집결의 함성을 WoW 12.1 엔진 기반 아이콘으로 표시합니다.
+
+### 옵션 변경
+
+- 공생기 추적에 이동 지원기 구역을 추가하고, 내가 받는 쇄도의 포효·바람 질주 토템·날카로운 고함을 개별 활성화·아이콘·사운드 설정과 함께 추적합니다.
+- 각 추적 효과 옵션에 주문 아이콘을 표시하고, 버프마다 효과음·사용자 사운드 경로·출력 채널을 따로 지정할 수 있게 했습니다.
+- 공생기 추적에 전체 기본 사운드를 추가했습니다. 버프별 사운드를 지정하면 개별 설정을 우선하고, `전체 설정 사용`이면 공통 사운드와 채널을 상속합니다.
+- 공생기 추적 테두리가 미리보기에만 표시되던 문제를 수정하고, 쿨다운 위의 독립 레이어에 크기를 명시한 안쪽 상·하·좌·우 선 4개로 표시하도록 변경했습니다. Blizzard가 지속시간 텍스트를 제한하기 전에 테두리 설정을 끝내므로 텍스트 설정이 거부되어도 건너뛰지 않으며, 오라 컨테이너가 화면 전체로 늘릴 수 있는 채워진 후면 사각형은 남기지 않습니다.
+- 불필요한 라이브 아이콘 배경 레이어와 배경색 옵션을 제거해, WoW 12.1 오라 컨테이너에서 해당 레이어가 화면 전체 암전 또는 화면 중앙의 아이콘 크기 검정 상자로 분리되어 표시되던 문제를 수정했습니다.
+- 공생기 추적의 지속시간 스와이프가 버프 만료 방향과 반대로 움직이던 문제를 수정했습니다.
+- 레이드 보스 처치 성공 후 소진 효과가 정리될 때 발생하는 블러드 준비 완료 소리와 전투 종료 효과음을 모두 억제했습니다. 전투 종료 화면 연출과 일반 소진 만료 알림은 그대로 유지됩니다.
+- 공격대 파티 툴팁의 직업별 인원을 방어·공격·치유 담당으로 나누고, 역할 아이콘과 제목은 한 줄에, 해당 역할의 직업 아이콘·이름·인원은 다음 들여쓰기 줄에 표시하도록 변경했습니다.
+- 공격대 그룹 관리에서 같은 파티 안의 수동 순서를 바꿀 때 최신 공격대 인덱스를 확인하고 3번의 브리지 교환 사이마다 명단 갱신을 기다리도록 해, 적용이 무효화되던 문제를 수정했습니다.
+- 공생기 추적에 비율을 유지하는 아이콘 확대와 가로·세로 크롭을 각각 조절하는 옵션을 추가하고 미리보기와 실제 오라 아이콘에 동일하게 적용했습니다. 크롭은 남은 이미지를 늘리지 않고 실제 표시 영역을 잘라 직사각형 아이콘을 만들며, 아이콘 확대는 별도로 적용됩니다.
+- 위치 잠금과 설정 미리보기 중 직접 드래그 이동을 추가하고, 좌표 설정값을 전역 편집 모드 앵커와 양방향 동기화했습니다. 미리보기 진입 경로를 구분해 위치 잠금을 풀면 직접 드래그가 활성화되고 전역 편집 모드 앵커와 충돌하지 않도록 수정했습니다.
+- 외부 지원기와 공생기를 나눈 개별 활성화 옵션 및 아이콘 크기, 간격, 확장 방향, 배율, 레이어, 지속시간 스와이프·텍스트, 글꼴, 테두리, 색상, 위치, 설정 미리보기와 편집 모드 앵커 설정을 추가했습니다.
+
 ## 2.1.3
 
 Release date: 2026-08-25

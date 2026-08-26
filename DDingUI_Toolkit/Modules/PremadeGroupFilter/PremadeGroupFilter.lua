@@ -45,12 +45,6 @@ local BLOODLUST_SORT_ORDER = {
     MISSING = 3,
 }
 
-local COMPOSITION_SEARCH_KEYS = {
-    needMyRole = true,
-    requireTank = true,
-    requireHealer = true,
-}
-
 local SEARCH_INFO_RENDER_KEYS = {
     "activityIDs",
     "name",
@@ -175,7 +169,13 @@ local OWNED_FILTER_BOOLEAN_KEYS = {
 }
 
 local function IsSecret(value)
-    return issecretvalue and issecretvalue(value)
+    if type(canaccessvalue) == "function" and not canaccessvalue(value) then return true end
+    if type(issecretvalue) == "function" and issecretvalue(value) then return true end
+    if type(issecrettable) == "function" and type(value) == "table" then
+        local ok, secret = pcall(issecrettable, value)
+        if not ok or secret then return true end
+    end
+    return false
 end
 
 local function SafeNumber(value, fallback)
@@ -1117,7 +1117,7 @@ local function CopyAdvancedFilterOptions(source)
 end
 
 local function GetNativeFilterOptions()
-    if IsChatRestricted() or not C_LFGList or not C_LFGList.GetAdvancedFilter then
+    if not C_LFGList or not C_LFGList.GetAdvancedFilter then
         return nil
     end
     local ok, options = pcall(C_LFGList.GetAdvancedFilter)
@@ -1185,8 +1185,7 @@ local function RestoreOwnedNativeFilter(options, backup)
 end
 
 local function SaveNativeFilterOptions(options)
-    if IsChatRestricted() or not options or not C_LFGList
-        or not C_LFGList.SaveAdvancedFilter then
+    if not options or not C_LFGList or not C_LFGList.SaveAdvancedFilter then
         return false
     end
     return pcall(C_LFGList.SaveAdvancedFilter, options)
@@ -1517,6 +1516,26 @@ function PremadeGroupFilter:RequestFilterResultRefresh()
     return self:RefreshFilteredResultList()
 end
 
+function PremadeGroupFilter:RequestNativeSearchRefresh()
+    if IsChatRestricted() or IsCombatLocked()
+        or type(securecallfunction) ~= "function"
+        or type(LFGListSearchPanel_DoSearch) ~= "function" then
+        return false
+    end
+    if type(issecurevariable) == "function"
+        and not issecurevariable("LFGListSearchPanel_DoSearch") then
+        return false
+    end
+
+    local searchPanel = _G.LFGListFrame and LFGListFrame.SearchPanel
+    local categoryID = searchPanel and SafeNumber(searchPanel.categoryID, 0) or 0
+    if categoryID ~= CATEGORY_DUNGEON or IsSecret(searchPanel.searching)
+        or searchPanel.searching == true then
+        return false
+    end
+    return pcall(securecallfunction, LFGListSearchPanel_DoSearch, searchPanel)
+end
+
 function PremadeGroupFilter:QueueResultRefresh()
     if resultRefreshPending then return end
     resultRefreshPending = true
@@ -1530,6 +1549,7 @@ function PremadeGroupFilter:QueueResultRefresh()
             PremadeGroupFilter:HideAllResultAssistRows()
             return
         end
+        PremadeGroupFilter:RequestFilterResultRefresh()
         PremadeGroupFilter:RefreshResultCount()
         PremadeGroupFilter:RefreshCurrentDisplayOrder()
         PremadeGroupFilter:RefreshSpecializationRows()
@@ -1543,8 +1563,8 @@ function PremadeGroupFilter:QueueResultRefresh()
     end
 end
 
-function PremadeGroupFilter:ApplyNativeFilters()
-    if not self.enabled or not self.db or IsChatRestricted() or IsCombatLocked() then
+function PremadeGroupFilter:ApplyNativeFilters(requestSearch)
+    if not self.enabled or not self.db or IsCombatLocked() then
         return false
     end
     local options = GetNativeFilterOptions()
@@ -1557,12 +1577,13 @@ function PremadeGroupFilter:ApplyNativeFilters()
 
     if backup then self.db.nativeFilterBackup = backup end
     self.db.nativeFilterApplied = true
+    if requestSearch == true then self:RequestNativeSearchRefresh() end
     self:QueueResultRefresh()
     return true
 end
 
 function PremadeGroupFilter:RestoreNativeFilters(db)
-    if not db or db.nativeFilterApplied ~= true or IsChatRestricted() then return false end
+    if not db or db.nativeFilterApplied ~= true then return false end
     local options = GetNativeFilterOptions()
     if not options then return false end
 
@@ -1574,8 +1595,8 @@ function PremadeGroupFilter:RestoreNativeFilters(db)
     return true
 end
 
-function PremadeGroupFilter:ApplyCurrentResults()
-    return self:ApplyNativeFilters()
+function PremadeGroupFilter:ApplyCurrentResults(requestSearch)
+    return self:ApplyNativeFilters(requestSearch)
 end
 
 function PremadeGroupFilter:CaptureSearchResults()
@@ -1592,10 +1613,7 @@ function PremadeGroupFilter:UpdateSetting(key, value)
         self:RefreshSpecializationRows()
         return
     end
-    local filtersApplied = self:ApplyCurrentResults()
-    if filtersApplied and COMPOSITION_SEARCH_KEYS[key] then
-        self:RequestFilterResultRefresh()
-    end
+    self:ApplyCurrentResults(true)
     self:RefreshSpecializationRows()
 end
 
@@ -1615,8 +1633,7 @@ function PremadeGroupFilter:ResetFilters()
     self.db.minMapBest = 0
     self.db.sortMode = "DEFAULT"
     self:RefreshPanel()
-    local filtersApplied = self:ApplyCurrentResults()
-    if filtersApplied then self:RequestFilterResultRefresh() end
+    self:ApplyCurrentResults(true)
     self:RefreshCurrentDisplayOrder()
     self:RefreshSpecializationRows()
 end
@@ -1630,16 +1647,14 @@ function PremadeGroupFilter:UpdateDungeonSelection(mapID, selected)
     local key = tostring(math.floor(mapID))
     self.db.selectedDungeons[key] = selected == true and true or nil
     self:RefreshPanel()
-    local filtersApplied = self:ApplyCurrentResults()
-    if filtersApplied then self:RequestFilterResultRefresh() end
+    self:ApplyCurrentResults(true)
 end
 
 function PremadeGroupFilter:ClearDungeonSelection()
     if not self.db then return end
     self.db.selectedDungeons = {}
     self:RefreshPanel()
-    local filtersApplied = self:ApplyCurrentResults()
-    if filtersApplied then self:RequestFilterResultRefresh() end
+    self:ApplyCurrentResults(true)
 end
 
 function PremadeGroupFilter:RefreshSeasonDungeons()

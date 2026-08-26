@@ -45,6 +45,7 @@ local CATEGORY_DEFS = {
             "castingalert",
             "focusinterrupt",
             "bloodlusttimer",
+            "raiddefensivetracker",
             "rangedisplay",
             "characterpositionmarker",
         },
@@ -426,6 +427,24 @@ function Workspace:Create(title, version, opts)
     frame:SetResizeBounds(opts.minWidth or 930, opts.minHeight or 580)
     frame:SetClampedToScreen(true)
     SetBackdrop(frame, C.bg.main, { 0, 0, 0, 1 })
+    frame._ddslMotionBaseScale = frame:GetScale() or 1
+
+    function frame:ShowAnimated()
+        if Lib.Motion and Lib.Motion.PanelOpen then
+            Lib.Motion.PanelOpen(self, { baseScale = self._ddslMotionBaseScale })
+        else
+            self:Show()
+        end
+    end
+
+    function frame:HideAnimated()
+        if Lib.Motion and Lib.Motion.PanelClose then
+            Lib.Motion.PanelClose(self, { baseScale = self._ddslMotionBaseScale })
+        else
+            self:Hide()
+        end
+    end
+
     frame:Hide()
 
     local titleBar = Lib.CreateTitleBar(frame, ADDON_KEY, title, version)

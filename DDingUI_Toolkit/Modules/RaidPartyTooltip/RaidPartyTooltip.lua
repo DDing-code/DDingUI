@@ -10,6 +10,12 @@ local MAX_GROUPS = 8
 local SLOTS_PER_GROUP = 5
 local MAX_RAID_MEMBERS = 40
 local RAID_LFG_CATEGORY_ID = 3
+local TOOLTIP_HEADER_FONT_SIZE = 15
+local TOOLTIP_SECTION_FONT_SIZE = 14
+local TOOLTIP_BODY_FONT_SIZE = 14
+local CLASS_ICON_SIZE = 16
+local ROLE_ICON_SIZE = 16
+local ROLE_CLASSES_PER_ROW = 4
 
 local CLASS_ARMOR = {
     PRIEST = "CLOTH",
@@ -50,6 +56,18 @@ local FALLBACK_CLASS_ICON_TCOORDS = {
 }
 
 local ARMOR_ORDER = { "CLOTH", "LEATHER", "MAIL", "PLATE" }
+local ROLE_ORDER = { "TANK", "DAMAGER", "HEALER", "NONE" }
+local ROLE_ATLAS = {
+    TANK = "groupfinder-icon-role-large-tank",
+    DAMAGER = "groupfinder-icon-role-large-dps",
+    HEALER = "groupfinder-icon-role-large-heal",
+}
+local ROLE_COLORS = {
+    TANK = { 0.42, 0.68, 1.00 },
+    DAMAGER = { 1.00, 0.46, 0.38 },
+    HEALER = { 0.38, 0.90, 0.52 },
+    NONE = { 0.72, 0.72, 0.76 },
+}
 local ARMOR_COLORS = {
     CLOTH = { 0.82, 0.84, 0.90 },
     LEATHER = { 0.78, 0.55, 0.32 },
@@ -67,6 +85,7 @@ local memberButtons = setmetatable({}, { __mode = "k" })
 local memberButtonHooks = setmetatable({}, { __mode = "k" })
 local standaloneOwners = setmetatable({}, { __mode = "k" })
 local standaloneHooks = setmetatable({}, { __mode = "k" })
+local styledTooltips = setmetatable({}, { __mode = "k" })
 
 local attachWatcher = CreateFrame("Frame")
 attachWatcher:RegisterEvent("ADDON_LOADED")
@@ -140,10 +159,77 @@ local function GetClassIconMarkup(classFile)
     end
 
     return string.format(
-        "|T%s:14:14:0:0:256:256:%d:%d:%d:%d|t ",
+        "|T%s:%d:%d:0:0:256:256:%d:%d:%d:%d|t ",
         CLASS_ICON_TEXTURE,
+        CLASS_ICON_SIZE,
+        CLASS_ICON_SIZE,
         values[1], values[2], values[3], values[4]
     )
+end
+
+local function NormalizeRole(role)
+    if IsSecret(role) or type(role) ~= "string" then return "NONE" end
+    if role == "TANK" or role == "DAMAGER" or role == "HEALER" then return role end
+    return "NONE"
+end
+
+local function GetRoleIconMarkup(role)
+    local atlas = ROLE_ATLAS[role]
+    if atlas then
+        return string.format("|A:%s:%d:%d|a ", atlas, ROLE_ICON_SIZE, ROLE_ICON_SIZE)
+    end
+    return "|cffffcc00?|r "
+end
+
+local function CreateRoleClassCounts()
+    return {
+        TANK = {},
+        DAMAGER = {},
+        HEALER = {},
+        NONE = {},
+    }
+end
+
+local function CreateUnknownClassCounts()
+    return {
+        TANK = 0,
+        DAMAGER = 0,
+        HEALER = 0,
+        NONE = 0,
+    }
+end
+
+local function AddSummaryMember(summary, classFile, role)
+    role = NormalizeRole(role)
+    summary.total = summary.total + 1
+
+    if not IsSecret(classFile) and type(classFile) == "string" and classFile ~= "" then
+        summary.classes[classFile] = (summary.classes[classFile] or 0) + 1
+        local roleClasses = summary.roleClasses[role]
+        roleClasses[classFile] = (roleClasses[classFile] or 0) + 1
+
+        local armorType = CLASS_ARMOR[classFile]
+        if armorType then
+            summary.armor[armorType] = summary.armor[armorType] + 1
+        else
+            summary.unknownArmor = summary.unknownArmor + 1
+        end
+        return
+    end
+
+    summary.unknownClasses = summary.unknownClasses + 1
+    summary.unknownClassesByRole[role] = summary.unknownClassesByRole[role] + 1
+    summary.unknownArmor = summary.unknownArmor + 1
+end
+
+local function ResolveRaidMemberRole(index, combatRole)
+    local assignedRole
+    if type(UnitGroupRolesAssigned) == "function" then
+        local ok, value = pcall(UnitGroupRolesAssigned, "raid" .. index)
+        if ok and not IsSecret(value) then assignedRole = NormalizeRole(value) end
+    end
+    if assignedRole and assignedRole ~= "NONE" then return assignedRole end
+    return NormalizeRole(combatRole)
 end
 
 local function IsCurrentlyInRaid()
@@ -158,7 +244,9 @@ function RaidPartyTooltip:CollectGroup(subgroup)
         subgroup = subgroup,
         total = 0,
         classes = {},
+        roleClasses = CreateRoleClassCounts(),
         unknownClasses = 0,
+        unknownClassesByRole = CreateUnknownClassCounts(),
         armor = { CLOTH = 0, LEATHER = 0, MAIL = 0, PLATE = 0 },
         unknownArmor = 0,
     }
@@ -175,22 +263,10 @@ function RaidPartyTooltip:CollectGroup(subgroup)
     end
 
     for index = 1, memberCount do
-        local ok, _, _, memberGroup, _, _, classFile = pcall(GetRaidRosterInfo, index)
+        local ok, name, rank, memberGroup, level, className, classFile, zone, online,
+            isDead, legacyRole, isMasterLooter, combatRole = pcall(GetRaidRosterInfo, index)
         if ok and SafeInteger(memberGroup, 1, MAX_GROUPS) == subgroup then
-            summary.total = summary.total + 1
-
-            if not IsSecret(classFile) and type(classFile) == "string" and classFile ~= "" then
-                summary.classes[classFile] = (summary.classes[classFile] or 0) + 1
-                local armorType = CLASS_ARMOR[classFile]
-                if armorType then
-                    summary.armor[armorType] = summary.armor[armorType] + 1
-                else
-                    summary.unknownArmor = summary.unknownArmor + 1
-                end
-            else
-                summary.unknownClasses = summary.unknownClasses + 1
-                summary.unknownArmor = summary.unknownArmor + 1
-            end
+            AddSummaryMember(summary, classFile, ResolveRaidMemberRole(index, combatRole))
         end
     end
 
@@ -221,7 +297,9 @@ function RaidPartyTooltip:CollectSearchResult(resultID)
     local summary = {
         total = 0,
         classes = {},
+        roleClasses = CreateRoleClassCounts(),
         unknownClasses = 0,
+        unknownClassesByRole = CreateUnknownClassCounts(),
         armor = { CLOTH = 0, LEATHER = 0, MAIL = 0, PLATE = 0 },
         unknownArmor = 0,
     }
@@ -241,15 +319,8 @@ function RaidPartyTooltip:CollectSearchResult(resultID)
             return nil
         end
 
-        summary.total = summary.total + 1
-        summary.classes[classFile] = (summary.classes[classFile] or 0) + 1
-
-        local armorType = CLASS_ARMOR[classFile]
-        if armorType then
-            summary.armor[armorType] = summary.armor[armorType] + 1
-        else
-            summary.unknownArmor = summary.unknownArmor + 1
-        end
+        local assignedRole, roleAccessible = SafeTableField(memberInfo, "assignedRole")
+        AddSummaryMember(summary, classFile, roleAccessible and assignedRole or "NONE")
     end
 
     if summary.total == 0 or (expectedMembers and summary.total ~= expectedMembers) then
@@ -258,14 +329,14 @@ function RaidPartyTooltip:CollectSearchResult(resultID)
     return summary
 end
 
-local function BuildClassEntries(summary, showIcons)
+local function BuildOrderedClassEntries(classCounts, unknownCount, showIcons)
     local entries = {}
     local seen = {}
 
     local function AddFromOrder(order)
         if type(order) ~= "table" then return end
         for _, classFile in ipairs(order) do
-            local count = summary.classes[classFile]
+            local count = classCounts[classFile]
             if count and count > 0 and not seen[classFile] then
                 seen[classFile] = true
                 local icon = showIcons and GetClassIconMarkup(classFile) or ""
@@ -279,7 +350,7 @@ local function BuildClassEntries(summary, showIcons)
     AddFromOrder(FALLBACK_CLASS_ORDER)
 
     local remaining = {}
-    for classFile, count in pairs(summary.classes) do
+    for classFile, count in pairs(classCounts) do
         if count > 0 and not seen[classFile] then
             remaining[#remaining + 1] = classFile
         end
@@ -287,11 +358,46 @@ local function BuildClassEntries(summary, showIcons)
     table.sort(remaining)
     AddFromOrder(remaining)
 
-    if summary.unknownClasses > 0 then
+    if unknownCount > 0 then
         entries[#entries + 1] = ColorText(L["RPT_UNKNOWN"], ARMOR_COLORS.UNKNOWN)
-            .. " |cffffffff" .. summary.unknownClasses .. "|r"
+            .. " |cffffffff" .. unknownCount .. "|r"
     end
     return entries
+end
+
+local function BuildClassEntries(summary, showIcons)
+    local rows = {}
+    local roleClasses = summary.roleClasses or CreateRoleClassCounts()
+    local unknownByRole = summary.unknownClassesByRole or CreateUnknownClassCounts()
+
+    for _, role in ipairs(ROLE_ORDER) do
+        local entries = BuildOrderedClassEntries(
+            roleClasses[role] or {},
+            unknownByRole[role] or 0,
+            showIcons
+        )
+        local roleHeader = GetRoleIconMarkup(role)
+            .. ColorText(L["RPT_ROLE_" .. role], ROLE_COLORS[role])
+
+        if #entries == 0 then
+            if role ~= "NONE" then
+                rows[#rows + 1] = roleHeader
+                rows[#rows + 1] = "    "
+                    .. ColorText(L["RPT_ROLE_EMPTY"], ARMOR_COLORS.UNKNOWN)
+            end
+        else
+            rows[#rows + 1] = roleHeader
+            for first = 1, #entries, ROLE_CLASSES_PER_ROW do
+                local chunk = {}
+                local last = math.min(first + ROLE_CLASSES_PER_ROW - 1, #entries)
+                for index = first, last do
+                    chunk[#chunk + 1] = entries[index]
+                end
+                rows[#rows + 1] = "    " .. table.concat(chunk, "  ")
+            end
+        end
+    end
+    return rows
 end
 
 local function BuildArmorEntries(summary, showZero)
@@ -310,9 +416,76 @@ local function BuildArmorEntries(summary, showZero)
     return entries
 end
 
-local function AddPairedRows(tooltip, entries)
-    for index = 1, #entries, 2 do
-        tooltip:AddDoubleLine(entries[index], entries[index + 1] or "", 1, 1, 1, 1, 1, 1)
+local function RestoreTooltipFonts(tooltip)
+    local state = styledTooltips[tooltip]
+    if not state then return end
+
+    for fontString, original in pairs(state.originals) do
+        if original.fontObject and type(fontString.SetFontObject) == "function" then
+            fontString:SetFontObject(original.fontObject)
+        elseif original.fontPath and type(fontString.SetFont) == "function" then
+            fontString:SetFont(original.fontPath, original.fontSize, original.fontFlags)
+        end
+    end
+    state.originals = {}
+end
+
+local function GetTooltipFontState(tooltip)
+    local state = styledTooltips[tooltip]
+    if state then return state end
+
+    state = { originals = {} }
+    styledTooltips[tooltip] = state
+
+    if type(tooltip.HookScript) == "function" then
+        tooltip:HookScript("OnHide", RestoreTooltipFonts)
+        pcall(tooltip.HookScript, tooltip, "OnTooltipCleared", RestoreTooltipFonts)
+    end
+    return state
+end
+
+local function SetLatestTooltipLineFontSize(tooltip, fontSize)
+    if not tooltip or type(tooltip.GetName) ~= "function" or type(tooltip.NumLines) ~= "function" then
+        return
+    end
+
+    local tooltipName = tooltip:GetName()
+    local lineIndex = tooltip:NumLines()
+    if type(tooltipName) ~= "string" or type(lineIndex) ~= "number" then return end
+
+    local state = GetTooltipFontState(tooltip)
+    for _, side in ipairs({ "Left", "Right" }) do
+        local fontString = _G[tooltipName .. "Text" .. side .. lineIndex]
+        if fontString and type(fontString.GetFont) == "function" and type(fontString.SetFont) == "function" then
+            local fontPath, currentSize, fontFlags = fontString:GetFont()
+            if type(fontPath) == "string" and fontPath ~= "" then
+                if not state.originals[fontString] then
+                    state.originals[fontString] = {
+                        fontObject = type(fontString.GetFontObject) == "function" and fontString:GetFontObject() or nil,
+                        fontPath = fontPath,
+                        fontSize = currentSize,
+                        fontFlags = fontFlags,
+                    }
+                end
+                fontString:SetFont(fontPath, fontSize, fontFlags)
+            end
+        end
+    end
+end
+
+local function AddSizedLine(tooltip, text, r, g, b, fontSize)
+    tooltip:AddLine(text, r, g, b)
+    SetLatestTooltipLineFontSize(tooltip, fontSize)
+end
+
+local function AddSizedDoubleLine(tooltip, leftText, rightText, lr, lg, lb, rr, rg, rb, fontSize)
+    tooltip:AddDoubleLine(leftText, rightText, lr, lg, lb, rr, rg, rb)
+    SetLatestTooltipLineFontSize(tooltip, fontSize)
+end
+
+local function AddSingleColumnRows(tooltip, entries)
+    for _, entry in ipairs(entries) do
+        AddSizedLine(tooltip, entry, 1, 1, 1, TOOLTIP_BODY_FONT_SIZE)
     end
 end
 
@@ -324,28 +497,30 @@ local function AddGroupSummary(tooltip, subgroup, append)
     if not append then tooltip:ClearLines() end
     if append then tooltip:AddLine(" ") end
 
-    tooltip:AddDoubleLine(
+    AddSizedDoubleLine(
+        tooltip,
         string.format(L["RPT_GROUP_TITLE"], subgroup),
         string.format(L["RPT_MEMBER_COUNT"], summary.total),
         0.35, 0.82, 0.92,
-        0.76, 0.78, 0.82
+        0.76, 0.78, 0.82,
+        TOOLTIP_HEADER_FONT_SIZE
     )
 
     if summary.total == 0 then
-        tooltip:AddLine(L["RPT_NO_MEMBERS"], 0.62, 0.62, 0.64)
+        AddSizedLine(tooltip, L["RPT_NO_MEMBERS"], 0.62, 0.62, 0.64, TOOLTIP_BODY_FONT_SIZE)
         return
     end
 
     if settings.showClassCounts ~= false then
         tooltip:AddLine(" ")
-        tooltip:AddLine(L["RPT_CLASS_SECTION"], 0.35, 0.82, 0.92)
-        AddPairedRows(tooltip, BuildClassEntries(summary, settings.showClassIcons ~= false))
+        AddSizedLine(tooltip, L["RPT_CLASS_SECTION"], 0.35, 0.82, 0.92, TOOLTIP_SECTION_FONT_SIZE)
+        AddSingleColumnRows(tooltip, BuildClassEntries(summary, settings.showClassIcons ~= false))
     end
 
     if settings.showArmorCounts ~= false then
         tooltip:AddLine(" ")
-        tooltip:AddLine(L["RPT_ARMOR_SECTION"], 0.35, 0.82, 0.92)
-        AddPairedRows(tooltip, BuildArmorEntries(summary, settings.showZeroArmor ~= false))
+        AddSizedLine(tooltip, L["RPT_ARMOR_SECTION"], 0.35, 0.82, 0.92, TOOLTIP_SECTION_FONT_SIZE)
+        AddSingleColumnRows(tooltip, BuildArmorEntries(summary, settings.showZeroArmor ~= false))
     end
 end
 
@@ -437,23 +612,25 @@ local function AppendSearchResultSummary(tooltip, resultID)
     if not summary then return end
 
     tooltip:AddLine(" ")
-    tooltip:AddDoubleLine(
+    AddSizedDoubleLine(
+        tooltip,
         L["RPT_LFG_TITLE"],
         string.format(L["RPT_MEMBER_COUNT"], summary.total),
         0.35, 0.82, 0.92,
-        0.76, 0.78, 0.82
+        0.76, 0.78, 0.82,
+        TOOLTIP_HEADER_FONT_SIZE
     )
 
     if db.showClassCounts ~= false then
         tooltip:AddLine(" ")
-        tooltip:AddLine(L["RPT_CLASS_SECTION"], 0.35, 0.82, 0.92)
-        AddPairedRows(tooltip, BuildClassEntries(summary, db.showClassIcons ~= false))
+        AddSizedLine(tooltip, L["RPT_CLASS_SECTION"], 0.35, 0.82, 0.92, TOOLTIP_SECTION_FONT_SIZE)
+        AddSingleColumnRows(tooltip, BuildClassEntries(summary, db.showClassIcons ~= false))
     end
 
     if db.showArmorCounts ~= false then
         tooltip:AddLine(" ")
-        tooltip:AddLine(L["RPT_ARMOR_SECTION"], 0.35, 0.82, 0.92)
-        AddPairedRows(tooltip, BuildArmorEntries(summary, db.showZeroArmor ~= false))
+        AddSizedLine(tooltip, L["RPT_ARMOR_SECTION"], 0.35, 0.82, 0.92, TOOLTIP_SECTION_FONT_SIZE)
+        AddSingleColumnRows(tooltip, BuildArmorEntries(summary, db.showZeroArmor ~= false))
     end
     tooltip:Show()
 end

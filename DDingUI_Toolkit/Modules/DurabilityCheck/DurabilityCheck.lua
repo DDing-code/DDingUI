@@ -322,25 +322,38 @@ local function ApplyFont(fontString, font, size, flags)
     end
 end
 
+local function GetAlertTextLayout(settings, height)
+    local titleSize = AlertStyle.Clamp(settings.titleSize, 14, 48)
+    local percentSize = AlertStyle.Clamp(settings.percentSize, 20, 72)
+    local titleHeight = math.max(1, math.min(height * 0.28, titleSize * 1.20))
+    local percentHeight = math.max(1, math.min(height * 0.36, percentSize * 1.20))
+    local availableGap = math.max(0, height * 0.64 - titleHeight - percentHeight)
+    local gap = math.min(height * 0.02, 4, availableGap)
+
+    return titleSize, percentSize, titleHeight, percentHeight,
+        (percentHeight + gap) * 0.5,
+        -(titleHeight + gap) * 0.5
+end
+
 function DurabilityCheck:ApplySettings()
     if not alertFrame or not self.db or not AlertStyle then return end
     if not self:EnsureAlertRegions() then return end
 
     local width = AlertStyle.Clamp(self.db.width, 320, 700)
     local height = AlertStyle.Clamp(self.db.height, 90, 170)
-    local titleSize = AlertStyle.Clamp(self.db.titleSize, 14, 48)
-    local percentSize = AlertStyle.Clamp(self.db.percentSize, 20, 72)
+    local titleSize, percentSize, titleHeight, percentHeight = GetAlertTextLayout(self.db, height)
     local outline = self.db.fontOutline or "OUTLINE"
     local fontFlags = outline == "NONE" and "" or outline
     local font = self.db.font or SL_FONT
+    local textWidth = math.max(1, width - 48)
 
     alertFrame:SetSize(width, height)
     alertFrame:SetScale(AlertStyle.Clamp(self.db.scale, 0.5, 2))
     alertFrame:SetFrameStrata(self.db.frameStrata or "HIGH")
-    alertFrame.title:SetWidth(math.max(1, width - 48))
-    alertFrame.title:SetHeight(math.max(1, height * 0.28))
-    alertFrame.percent:SetWidth(math.max(1, width - 64))
-    alertFrame.percent:SetHeight(math.max(1, height * 0.36))
+    alertFrame.title:SetWidth(textWidth)
+    alertFrame.title:SetHeight(titleHeight)
+    alertFrame.percent:SetWidth(textWidth)
+    alertFrame.percent:SetHeight(percentHeight)
     ApplyFont(alertFrame.title, font, titleSize, fontFlags)
     ApplyFont(alertFrame.percent, font, percentSize, fontFlags)
     ApplyFont(alertFrame.warningMark, font, math.max(12, math.floor(titleSize * 0.58 + 0.5)), "OUTLINE")
@@ -368,6 +381,7 @@ function DurabilityCheck:RenderAlert(percent, reveal, pulse)
     local linePulse = blinking and (0.56 + 0.44 * pulse) or 1
     local textPulse = blinking and (0.72 + 0.28 * pulse) or 1
     local shapeReveal = AlertStyle.SmoothStep(reveal)
+    local _, _, _, _, titleY, percentY = GetAlertTextLayout(self.db, height)
 
     alertFrame.art:SetAlpha(1)
     alertFrame.art:SetScale(0.98 + 0.02 * AlertStyle.EaseOutCubic(reveal))
@@ -420,8 +434,9 @@ function DurabilityCheck:RenderAlert(percent, reveal, pulse)
 
     local titleReveal = AlertStyle.SmoothStep((reveal - 0.12) / 0.52)
     local percentReveal = AlertStyle.SmoothStep((reveal - 0.22) / 0.48)
+    local textOffsetY = (1 - shapeReveal) * 4
     alertFrame.title:ClearAllPoints()
-    alertFrame.title:SetPoint("CENTER", alertFrame.art, "CENTER", 0, 10 + (1 - titleReveal) * 4)
+    alertFrame.title:SetPoint("CENTER", alertFrame.art, "CENTER", 0, titleY + textOffsetY)
     alertFrame.title:SetTextColor(
         AlertStyle.ColorComponent(titleColor, 1, 1),
         AlertStyle.ColorComponent(titleColor, 2, 1),
@@ -431,7 +446,7 @@ function DurabilityCheck:RenderAlert(percent, reveal, pulse)
 
     local r, g, b = self:GetDurabilityColor(percent)
     alertFrame.percent:ClearAllPoints()
-    alertFrame.percent:SetPoint("CENTER", alertFrame.art, "CENTER", 0, -20 + (1 - percentReveal) * 4)
+    alertFrame.percent:SetPoint("CENTER", alertFrame.art, "CENTER", 0, percentY + textOffsetY)
     alertFrame.percent:SetTextColor(r, g, b, percentReveal * textPulse)
     alertFrame.warningMark:ClearAllPoints()
     alertFrame.warningMark:SetPoint("CENTER", alertFrame.art, "CENTER", 0, topY)

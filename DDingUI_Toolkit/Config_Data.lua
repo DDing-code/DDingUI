@@ -118,6 +118,43 @@ local function ClassColorText(text, classToken)
     )
 end
 
+local function SpellIconText(spellID, text)
+    local texture = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+    if (issecretvalue and issecretvalue(texture)) or texture == nil then
+        return tostring(text or "")
+    end
+    return string.format("|T%s:18:18:0:0|t %s", tostring(texture), tostring(text or ""))
+end
+
+local RDT_EFFECT_OPTIONS = {
+    { key = "innervate", labelKey = "RDT_INNERVATE", iconSpellID = 29166 },
+    { key = "timeSpiral", labelKey = "RDT_TIME_SPIRAL", iconSpellID = 374968 },
+    { key = "spatialParadox", labelKey = "RDT_SPATIAL_PARADOX", iconSpellID = 406732 },
+    { key = "powerInfusion", labelKey = "RDT_POWER_INFUSION", iconSpellID = 10060 },
+    { key = "stampedingRoar", labelKey = "RDT_STAMPEDING_ROAR", iconSpellID = 106898 },
+    { key = "windRush", labelKey = "RDT_WIND_RUSH", iconSpellID = 192077 },
+    { key = "piercingHowl", labelKey = "RDT_PIERCING_HOWL", iconSpellID = 12323 },
+    { key = "antiMagicZone", labelKey = "RDT_ANTI_MAGIC_ZONE", iconSpellID = 51052 },
+    { key = "darkness", labelKey = "RDT_DARKNESS", iconSpellID = 196718 },
+    { key = "zephyr", labelKey = "RDT_ZEPHYR", iconSpellID = 374227 },
+    { key = "auraMastery", labelKey = "RDT_AURA_MASTERY", iconSpellID = 31821 },
+    { key = "massBarrier", labelKey = "RDT_MASS_BARRIER", iconSpellID = 414660 },
+    { key = "powerWordBarrier", labelKey = "RDT_POWER_WORD_BARRIER", iconSpellID = 62618 },
+    { key = "spiritLink", labelKey = "RDT_SPIRIT_LINK", iconSpellID = 98008 },
+    { key = "rallyingCry", labelKey = "RDT_RALLYING_CRY", iconSpellID = 97462 },
+}
+
+local RDT_EFFECT_BY_KEY = {}
+for _, effect in ipairs(RDT_EFFECT_OPTIONS) do
+    RDT_EFFECT_BY_KEY[effect.key] = effect
+end
+
+local function RDTOptionLabel(key)
+    local effect = RDT_EFFECT_BY_KEY[key]
+    if not effect then return tostring(key or "") end
+    return SpellIconText(effect.iconSpellID, L[effect.labelKey])
+end
+
 ------------------------------------------------------
 -- Module Key ↔ Name 매핑
 ------------------------------------------------------
@@ -133,6 +170,7 @@ ns.ConfigModuleMap = {
     focusinterrupt  = "FocusInterrupt",
     stasistracker   = "StasisTracker",
     bloodlusttimer  = "BloodlustTimer",
+    raiddefensivetracker = "RaidDefensiveTracker",
     readycheckassistant = "ReadyCheckAssistant",
     raidgroups       = "RaidGroups",
     raidpreparation  = "RaidPreparation",
@@ -181,6 +219,7 @@ function ns:InitConfigTree()
             { text = L["TAB_CASTINGALERT"],     key = "castingalert" },
             { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
             { text = L["TAB_BLOODLUSTTIMER"],   key = "bloodlusttimer" },
+            { text = L["TAB_RAIDDEFENSIVETRACKER"], key = "raiddefensivetracker" },
             { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
             { text = L["DEATHALERT_TITLE"] or "DeathAlert", key = "deathalert" },
             { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
@@ -1199,6 +1238,164 @@ function ns:InitConfigTree()
             end },
         },
     }
+
+    -----------------------------------------------
+    -- RaidDefensiveTracker
+    -----------------------------------------------
+    local function RefreshRaidDefensiveTracker()
+        local mod = ns.modules and ns.modules["RaidDefensiveTracker"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    local function RefreshRaidDefensiveTrackerPosition()
+        local mod = ns.modules and ns.modules["RaidDefensiveTracker"]
+        if mod and mod.ApplyPosition then mod:ApplyPosition() end
+    end
+
+    local function RefreshRaidDefensiveTrackerSounds()
+        local mod = ns.modules and ns.modules["RaidDefensiveTracker"]
+        if mod and mod.RefreshAuraSounds then mod:RefreshAuraSounds() end
+    end
+
+    tree.panels["raiddefensivetracker"] = {
+        title = L["RDT_TITLE"],
+        desc = L["RDT_DESC"],
+        moduleEnableKey = "profile.modules.RaidDefensiveTracker",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.RaidDefensiveTracker", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+
+            { type = "header", label = L["RDT_SUPPORT_EFFECTS"] },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.innervate", label = RDTOptionLabel("innervate"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.timeSpiral", label = RDTOptionLabel("timeSpiral"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.spatialParadox", label = RDTOptionLabel("spatialParadox"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.powerInfusion", label = RDTOptionLabel("powerInfusion"), onChange = RefreshRaidDefensiveTracker },
+
+            { type = "header", label = L["RDT_MOVEMENT_EFFECTS"] },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.stampedingRoar", label = RDTOptionLabel("stampedingRoar"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.windRush", label = RDTOptionLabel("windRush"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.piercingHowl", label = RDTOptionLabel("piercingHowl"), onChange = RefreshRaidDefensiveTracker },
+
+            { type = "header", label = L["RDT_TRACKED_EFFECTS"] },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.antiMagicZone", label = RDTOptionLabel("antiMagicZone"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.darkness", label = RDTOptionLabel("darkness"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.zephyr", label = RDTOptionLabel("zephyr"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.auraMastery", label = RDTOptionLabel("auraMastery"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.massBarrier", label = RDTOptionLabel("massBarrier"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.powerWordBarrier", label = RDTOptionLabel("powerWordBarrier"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.spiritLink", label = RDTOptionLabel("spiritLink"), onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.spells.rallyingCry", label = RDTOptionLabel("rallyingCry"), onChange = RefreshRaidDefensiveTracker },
+
+            { type = "header", label = L["RDT_DISPLAY_SETTINGS"] },
+            { type = "slider", key = "profile.RaidDefensiveTracker.iconSize", label = L["ICON_SIZE"], min = 20, max = 96, step = 1, onChange = RefreshRaidDefensiveTracker },
+            { type = "slider", key = "profile.RaidDefensiveTracker.iconZoom", label = L["RDT_ICON_ZOOM"], min = 0, max = 40, step = 1, onChange = RefreshRaidDefensiveTracker },
+            { type = "slider", key = "profile.RaidDefensiveTracker.iconCropX", label = L["RDT_ICON_CROP_X"], min = 0, max = 45, step = 1, onChange = RefreshRaidDefensiveTracker },
+            { type = "slider", key = "profile.RaidDefensiveTracker.iconCropY", label = L["RDT_ICON_CROP_Y"], min = 0, max = 45, step = 1, onChange = RefreshRaidDefensiveTracker },
+            { type = "slider", key = "profile.RaidDefensiveTracker.spacing", label = L["RDT_ICON_SPACING"], min = 0, max = 24, step = 1, onChange = RefreshRaidDefensiveTracker },
+            { type = "slider", key = "profile.RaidDefensiveTracker.scale", label = L["SCALE"], min = 0.5, max = 2.0, step = 0.05, onChange = RefreshRaidDefensiveTracker },
+            { type = "dropdown", key = "profile.RaidDefensiveTracker.growDirection", label = L["PARTYTRACKER_GROWTH_DIRECTION"], options = {
+                { text = L["GROWTH_RIGHT"], value = "RIGHT" },
+                { text = L["GROWTH_LEFT"], value = "LEFT" },
+                { text = L["GROWTH_UP"], value = "UP" },
+                { text = L["GROWTH_DOWN"], value = "DOWN" },
+              }, onChange = RefreshRaidDefensiveTracker,
+            },
+            { type = "dropdown", key = "profile.RaidDefensiveTracker.frameStrata", label = L["CHARPOSMARKER_FRAME_STRATA"], options = {
+                { text = L["CHARPOSMARKER_STRATA_LOW"], value = "LOW" },
+                { text = L["CHARPOSMARKER_STRATA_MEDIUM"], value = "MEDIUM" },
+                { text = L["CHARPOSMARKER_STRATA_HIGH"], value = "HIGH" },
+              }, onChange = RefreshRaidDefensiveTracker,
+            },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.showSwipe", label = L["RDT_SHOW_SWIPE"], onChange = RefreshRaidDefensiveTracker },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.showDuration", label = L["RDT_SHOW_DURATION"], onChange = RefreshRaidDefensiveTracker },
+
+            { type = "header", label = L["RDT_TEXT_SETTINGS"] },
+            { type = "font", key = "profile.RaidDefensiveTracker.font", label = L["FONT"], onChange = RefreshRaidDefensiveTracker },
+            { type = "slider", key = "profile.RaidDefensiveTracker.durationFontSize", label = L["RDT_DURATION_FONT_SIZE"], min = 8, max = 36, step = 1, onChange = RefreshRaidDefensiveTracker },
+            { type = "dropdown", key = "profile.RaidDefensiveTracker.fontOutline", label = L["FONT_OUTLINE"], options = {
+                { text = L["FONT_OUTLINE_NONE"], value = "" },
+                { text = L["FONT_OUTLINE_NORMAL"], value = "OUTLINE" },
+                { text = L["FONT_OUTLINE_THICK"], value = "THICKOUTLINE" },
+              }, onChange = RefreshRaidDefensiveTracker,
+            },
+
+            { type = "header", label = L["COLOR"] },
+            { type = "slider", key = "profile.RaidDefensiveTracker.borderSize", label = L["RDT_BORDER_SIZE"], min = 0, max = 6, step = 1, onChange = RefreshRaidDefensiveTracker },
+            { type = "color", key = "profile.RaidDefensiveTracker.borderColor", label = L["RDT_BORDER_COLOR"], hasAlpha = true, onChange = RefreshRaidDefensiveTracker },
+            { type = "color", key = "profile.RaidDefensiveTracker.durationTextColor", label = L["RDT_DURATION_COLOR"], hasAlpha = true, onChange = RefreshRaidDefensiveTracker },
+
+            { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
+            { type = "toggle", key = "profile.RaidDefensiveTracker.locked", label = L["POSITION_LOCKED"], onChange = RefreshRaidDefensiveTracker },
+            { type = "slider", key = "profile.RaidDefensiveTracker.position.x", label = L["POSITION_X"], min = -1200, max = 1200, step = 1, onChange = RefreshRaidDefensiveTrackerPosition },
+            { type = "slider", key = "profile.RaidDefensiveTracker.position.y", label = L["POSITION_Y"], min = -800, max = 800, step = 1, onChange = RefreshRaidDefensiveTrackerPosition },
+
+            { type = "separator" },
+            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
+                local mod = ns.modules and ns.modules["RaidDefensiveTracker"]
+                if mod and mod.TestMode then mod:TestMode() end
+            end },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                local mod = ns.modules and ns.modules["RaidDefensiveTracker"]
+                if mod and mod.ResetPosition then mod:ResetPosition() end
+            end },
+        },
+    }
+
+    local raidDefensiveSettings = tree.panels["raiddefensivetracker"].settings
+    raidDefensiveSettings[#raidDefensiveSettings + 1] = { type = "header", label = L["RDT_SOUND_SETTINGS"] }
+    raidDefensiveSettings[#raidDefensiveSettings + 1] = {
+        type = "text",
+        label = L["RDT_GLOBAL_SOUND"],
+    }
+    raidDefensiveSettings[#raidDefensiveSettings + 1] = {
+        type = "sound",
+        key = "profile.RaidDefensiveTracker.soundFile",
+        label = L["RDT_SOUND_FILE"],
+        defaultLabel = L["RDT_SOUND_NONE"],
+        customPathKey = "profile.RaidDefensiveTracker.soundCustomPath",
+        customPathOnChange = true,
+        channelKey = "profile.RaidDefensiveTracker.soundChannel",
+        onChange = RefreshRaidDefensiveTrackerSounds,
+    }
+    raidDefensiveSettings[#raidDefensiveSettings + 1] = {
+        type = "dropdown",
+        key = "profile.RaidDefensiveTracker.soundChannel",
+        label = L["RDT_SOUND_CHANNEL"],
+        options = "soundChannels",
+        onChange = RefreshRaidDefensiveTrackerSounds,
+    }
+    raidDefensiveSettings[#raidDefensiveSettings + 1] = { type = "separator" }
+    raidDefensiveSettings[#raidDefensiveSettings + 1] = {
+        type = "text",
+        label = L["RDT_PER_BUFF_SOUNDS"],
+    }
+    for index, effect in ipairs(RDT_EFFECT_OPTIONS) do
+        local baseKey = "profile.RaidDefensiveTracker.sounds." .. effect.key
+        raidDefensiveSettings[#raidDefensiveSettings + 1] = {
+            type = "text",
+            label = RDTOptionLabel(effect.key),
+        }
+        raidDefensiveSettings[#raidDefensiveSettings + 1] = {
+            type = "sound",
+            key = baseKey .. ".soundFile",
+            label = L["RDT_SOUND_FILE"],
+            defaultLabel = L["RDT_SOUND_USE_GLOBAL"],
+            customPathKey = baseKey .. ".soundCustomPath",
+            customPathOnChange = true,
+            channelKey = baseKey .. ".soundChannel",
+            onChange = RefreshRaidDefensiveTrackerSounds,
+        }
+        raidDefensiveSettings[#raidDefensiveSettings + 1] = {
+            type = "dropdown",
+            key = baseKey .. ".soundChannel",
+            label = L["RDT_SOUND_CHANNEL"],
+            options = "soundChannels",
+            onChange = RefreshRaidDefensiveTrackerSounds,
+        }
+        if index < #RDT_EFFECT_OPTIONS then
+            raidDefensiveSettings[#raidDefensiveSettings + 1] = { type = "separator" }
+        end
+    end
 
     -----------------------------------------------
     -- BloodlustTimer
