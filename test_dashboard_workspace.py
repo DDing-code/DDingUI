@@ -22,6 +22,7 @@ def test_dashboard_workspace_contract():
     assert "parentFrame:NavigateToSection(self.descriptor.target)" in dashboard
     assert 'target = "groupSystem.group_" .. group.name' in WORKSPACE
     assert '"resourceBars.primary"' in WORKSPACE
+    assert "DDingUI.secondaryPowerBar, secondary," in WORKSPACE
     assert '"castBars.general"' in WORKSPACE
     assert '"profiles.importExport"' in dashboard
     assert '"profiles.moduleImport"' in dashboard

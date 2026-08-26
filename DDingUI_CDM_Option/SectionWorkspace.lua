@@ -820,7 +820,8 @@ local function BuildDashboardDescriptors()
         GetResourceColorSpec(false))
     local secondary = profile.secondaryPowerBar or {}
     AddBar("secondaryPower", T("Secondary Resource", "보조 자원"), "resourceBars.secondary",
-        DDingUI.secondaryPowerBar, secondary.width and secondary.width > 0 and secondary.width or 430,
+        DDingUI.secondaryPowerBar, secondary,
+        secondary.width and secondary.width > 0 and secondary.width or 430,
         secondary.height or 14, GetResourceColorSpec(true))
     local cast = profile.castBar or {}
     local castColor = cast.useClassColor and GetClassColorSpec() or cast.color
