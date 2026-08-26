@@ -2424,6 +2424,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                         name = L["Effects"],
                         filter = function(key)
                             return key:find("_textAnimation", 1, true)
+                                or key:find("_textFade", 1, true)
                                 or key:find("_textGlow", 1, true)
                         end,
                     },

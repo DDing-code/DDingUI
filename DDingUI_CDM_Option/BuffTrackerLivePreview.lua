@@ -233,7 +233,12 @@ local function ApplyPreviewEffect(frame, iconTexture, entry, isText)
     if animationType == "none" then return end
     if isText then
         local visuals = DDingUI.RestrictedAuraVisuals
-        if visuals and visuals.ApplyTextMotion and visuals:ApplyTextMotion(frame, animationType) then
+        if visuals and visuals.ApplyTextPreviewMotion and visuals:ApplyTextPreviewMotion(
+            frame,
+            animationType,
+            ReadSetting(entry, "textFadeInDirection", "NONE"),
+            ReadSetting(entry, "textFadeOutDirection", "NONE")
+        ) then
             return
         end
     elseif animationType == "hover" or animationType == "pulse" or animationType == "flash" or animationType == "spin" then

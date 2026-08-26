@@ -8,6 +8,14 @@ local CDM_PREFIX = (SL and SL.GetChatPrefix and SL.GetChatPrefix("CDM", "CDM")) 
 local OptionBuilders = ns.OptionBuilders
 -- [REFACTOR] AceGUI → StyleLib: AceConfigRegistry, AceConfigDialog 제거
 local buildVersion = select(4, GetBuildInfo())
+local TEXT_FADE_DIRECTION_VALUES = {
+    NONE = L["No Direction"] or "None",
+    LEFT = L["Left"] or "Left",
+    RIGHT = L["Right"] or "Right",
+    UP = L["Up"] or "Up",
+    DOWN = L["Down"] or "Down",
+}
+local TEXT_FADE_DIRECTION_SORTING = { "NONE", "LEFT", "RIGHT", "UP", "DOWN" }
 
 -- Get current specialization ID (unique across all classes)
 local function GetCurrentSpecID()
@@ -4424,6 +4432,28 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         afterChange = function()
             RefreshOptions()
         end,
+    })
+
+    local function hiddenIfNotTextFade()
+        if hiddenIfNotText() then return true end
+        local buff = GetTrackedBuff(index)
+        return not (buff and buff.settings and buff.settings.textAnimation == "fade")
+    end
+    options["tracked" .. index .. "_textFadeInDirection"] = CreateTrackedSettingOption("select", index, "textFadeInDirection", "NONE", {
+        name = "    " .. (L["Fade In Direction"] or "Fade In Direction"),
+        order = orderBase + 1.97501,
+        width = 0.8,
+        hidden = hiddenIfNotTextFade,
+        values = TEXT_FADE_DIRECTION_VALUES,
+        sorting = TEXT_FADE_DIRECTION_SORTING,
+    })
+    options["tracked" .. index .. "_textFadeOutDirection"] = CreateTrackedSettingOption("select", index, "textFadeOutDirection", "NONE", {
+        name = "    " .. (L["Fade Out Direction"] or "Fade Out Direction"),
+        order = orderBase + 1.97502,
+        width = 0.8,
+        hidden = hiddenIfNotTextFade,
+        values = TEXT_FADE_DIRECTION_VALUES,
+        sorting = TEXT_FADE_DIRECTION_SORTING,
     })
 
     -- Helper: Check if text glow options should be shown

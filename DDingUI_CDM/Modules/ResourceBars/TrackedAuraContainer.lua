@@ -362,6 +362,7 @@ local function StyleSignature(style)
         tostring(style.iconDesaturate),
         ColorPart(style.iconTint),
         tostring(style.iconAnimation),
+        tostring(style.textFadeInDirection),
         ColorPart(style.glowColor),
         tostring(style.glowLines),
         tostring(style.glowFrequency),
@@ -700,7 +701,7 @@ local function CreateTextInitializer(proxy, desired, style)
         end
         local visuals = DDingUI.RestrictedAuraVisuals
         if visuals and visuals.ApplyTextMotion then
-            visuals:ApplyTextMotion(button, style.iconAnimation)
+            visuals:ApplyTextMotion(button, style.iconAnimation, style.textFadeInDirection)
         end
         StartContainerGlow(button, style)
     end

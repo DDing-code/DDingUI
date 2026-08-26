@@ -34,6 +34,14 @@ local TEXT_MOTION_PRESETS = {
     focus = true,
     spin = true,
 }
+local TEXT_FADE_DIRECTIONS = {
+    NONE = { 0, 0 },
+    LEFT = { -14, 0 },
+    RIGHT = { 14, 0 },
+    UP = { 0, 14 },
+    DOWN = { 0, -14 },
+}
+local TEXT_FADE_OUT_DURATION = 0.22
 local textMotionByFrame = setmetatable({}, { __mode = "k" })
 
 local function AddAlpha(group, order, fromAlpha, toAlpha, duration, smoothing)
@@ -62,14 +70,37 @@ local function AddScale(group, order, fromScale, toScale, duration, smoothing)
     return animation
 end
 
-local function BuildTextMotion(frame, preset)
+local function AddTranslation(group, order, x, y, duration, smoothing)
+    local animation = group:CreateAnimation("Translation")
+    animation:SetOrder(order)
+    animation:SetOffset(x, y)
+    animation:SetDuration(duration)
+    if smoothing then animation:SetSmoothing(smoothing) end
+    return animation
+end
+
+local function NormalizeFadeDirection(direction)
+    direction = type(direction) == "string" and direction:upper() or "NONE"
+    return TEXT_FADE_DIRECTIONS[direction] and direction or "NONE"
+end
+
+local function BuildTextMotion(frame, preset, direction)
     local start
     local main
 
     if preset == "fade" then
         start = frame:CreateAnimationGroup()
-        AddAlpha(start, 1, 0, 1, 0.28, "OUT")
-        AddScale(start, 1, 0.96, 1, 0.28, "OUT")
+        local offset = TEXT_FADE_DIRECTIONS[direction]
+        if direction ~= "NONE" then
+            AddAlpha(start, 1, 0, 0, 0.001)
+            AddTranslation(start, 1, offset[1], offset[2], 0.001)
+            AddAlpha(start, 2, 0, 1, 0.28, "OUT")
+            AddTranslation(start, 2, -offset[1], -offset[2], 0.28, "OUT")
+            AddScale(start, 2, 0.98, 1, 0.28, "OUT")
+        else
+            AddAlpha(start, 1, 0, 1, 0.28, "OUT")
+            AddScale(start, 1, 0.96, 1, 0.28, "OUT")
+        end
     elseif preset == "pop" then
         start = frame:CreateAnimationGroup()
         AddAlpha(start, 1, 0, 1, 0.16, "OUT")
@@ -130,35 +161,114 @@ local function BuildTextMotion(frame, preset)
     return { start = start, main = main }
 end
 
+local function BuildTextExit(frame, direction)
+    local finish = frame:CreateAnimationGroup()
+    local offset = TEXT_FADE_DIRECTIONS[direction]
+    AddAlpha(finish, 1, 1, 0, TEXT_FADE_OUT_DURATION, "IN")
+    AddScale(finish, 1, 1, 0.98, TEXT_FADE_OUT_DURATION, "IN")
+    if direction ~= "NONE" then
+        AddTranslation(finish, 1, offset[1], offset[2], TEXT_FADE_OUT_DURATION, "IN")
+    end
+    finish:SetToFinalAlpha(true)
+    return { finish = finish }
+end
+
+local function BuildTextPreview(frame, enterDirection, exitDirection)
+    local group = frame:CreateAnimationGroup()
+    local enterOffset = TEXT_FADE_DIRECTIONS[enterDirection]
+    local exitOffset = TEXT_FADE_DIRECTIONS[exitDirection]
+
+    AddAlpha(group, 1, 0, 0, 0.001)
+    AddTranslation(group, 1, enterOffset[1], enterOffset[2], 0.001)
+    AddAlpha(group, 2, 0, 1, 0.28, "OUT")
+    AddTranslation(group, 2, -enterOffset[1], -enterOffset[2], 0.28, "OUT")
+    AddAlpha(group, 3, 1, 1, 0.8)
+    AddAlpha(group, 4, 1, 0, TEXT_FADE_OUT_DURATION, "IN")
+    AddTranslation(group, 4, exitOffset[1], exitOffset[2], TEXT_FADE_OUT_DURATION, "IN")
+    AddAlpha(group, 5, 0, 0, 0.001)
+    AddTranslation(group, 5, -exitOffset[1], -exitOffset[2], 0.001)
+    AddAlpha(group, 6, 0, 0, 0.3)
+    group:SetLooping("REPEAT")
+    return { preview = group }
+end
+
 function Visuals:StopTextMotion(frame)
     local state = frame and textMotionByFrame[frame]
     local record = state and state.active
     if not record then return end
     if record.start and record.start:IsPlaying() then record.start:Stop() end
     if record.main and record.main:IsPlaying() then record.main:Stop() end
+    if record.finish and record.finish:IsPlaying() then record.finish:Stop() end
+    if record.preview and record.preview:IsPlaying() then record.preview:Stop() end
     state.active = nil
 end
 
-function Visuals:ApplyTextMotion(frame, motionType)
+function Visuals:ApplyTextMotion(frame, motionType, direction)
     self:StopTextMotion(frame)
     if not frame or type(motionType) ~= "string" then return false end
 
     local preset = TEXT_MOTION_ALIASES[motionType:lower()] or motionType:lower()
     if not TEXT_MOTION_PRESETS[preset] then return false end
+    direction = preset == "fade" and NormalizeFadeDirection(direction) or "NONE"
 
     local state = textMotionByFrame[frame]
     if not state then
-        state = { presets = {} }
+        state = { presets = {}, exits = {}, previews = {} }
         textMotionByFrame[frame] = state
     end
-    local record = state.presets[preset]
+    local key = preset .. ":" .. direction
+    local record = state.presets[key]
     if not record then
-        record = BuildTextMotion(frame, preset)
-        state.presets[preset] = record
+        record = BuildTextMotion(frame, preset, direction)
+        state.presets[key] = record
     end
     state.active = record
     if record.start then record.start:Play() end
     if record.main then record.main:Play() end
+    return true
+end
+
+function Visuals:ApplyTextExit(frame, motionType, direction)
+    self:StopTextMotion(frame)
+    if not frame or type(motionType) ~= "string" or motionType:lower() ~= "fade" then return nil end
+
+    direction = NormalizeFadeDirection(direction)
+    local state = textMotionByFrame[frame]
+    if not state then
+        state = { presets = {}, exits = {}, previews = {} }
+        textMotionByFrame[frame] = state
+    end
+    local record = state.exits[direction]
+    if not record then
+        record = BuildTextExit(frame, direction)
+        state.exits[direction] = record
+    end
+    state.active = record
+    record.finish:Play()
+    return TEXT_FADE_OUT_DURATION
+end
+
+function Visuals:ApplyTextPreviewMotion(frame, motionType, enterDirection, exitDirection)
+    if type(motionType) ~= "string" or motionType:lower() ~= "fade" then
+        return self:ApplyTextMotion(frame, motionType, enterDirection)
+    end
+
+    self:StopTextMotion(frame)
+    enterDirection = NormalizeFadeDirection(enterDirection)
+    exitDirection = NormalizeFadeDirection(exitDirection)
+    local state = textMotionByFrame[frame]
+    if not state then
+        state = { presets = {}, exits = {}, previews = {} }
+        textMotionByFrame[frame] = state
+    end
+    local key = enterDirection .. ":" .. exitDirection
+    local record = state.previews[key]
+    if not record then
+        record = BuildTextPreview(frame, enterDirection, exitDirection)
+        state.previews[key] = record
+    end
+    state.active = record
+    record.preview:Play()
     return true
 end
 

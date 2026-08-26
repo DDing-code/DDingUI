@@ -3088,20 +3088,54 @@ end
 local textFrames = {}  -- [barIndex] = textFrame
 
 local function StopTextAnimations(frame)
+    if frame then
+        frame._textExitSerial = (frame._textExitSerial or 0) + 1
+        frame._textExitPending = nil
+    end
     local visuals = DDingUI.RestrictedAuraVisuals
     if visuals and visuals.StopTextMotion then
         visuals:StopTextMotion(frame)
     end
     StopAllAnimations(frame)
+    if frame then frame:SetAlpha(1) end
 end
 
-local function ApplyTextAnimation(frame, animationType, glowSettings)
+local function ApplyTextAnimation(frame, animationType, glowSettings, direction)
     StopTextAnimations(frame)
     local visuals = DDingUI.RestrictedAuraVisuals
-    if visuals and visuals.ApplyTextMotion and visuals:ApplyTextMotion(frame, animationType) then
+    if visuals and visuals.ApplyTextMotion and visuals:ApplyTextMotion(frame, animationType, direction) then
         return
     end
     ApplyIconAnimation(frame, animationType, glowSettings)
+end
+
+local function HideTrackedBuffText(frame, settings, animate)
+    if animate and frame._textExitPending then return end
+    if animate and frame._lastHasData and frame:IsShown()
+        and (settings.textAnimation or "none") == "fade"
+    then
+        StopTextAnimations(frame)
+        local visuals = DDingUI.RestrictedAuraVisuals
+        local duration = visuals and visuals.ApplyTextExit
+            and visuals:ApplyTextExit(frame, "fade", settings.textFadeOutDirection)
+        if duration then
+            frame._textExitPending = true
+            frame._lastHasData = false
+            local serial = frame._textExitSerial
+            C_Timer.After(duration, function()
+                if frame._textExitSerial ~= serial or not frame._textExitPending then return end
+                frame:Hide()
+                StopTextAnimations(frame)
+                frame._currentAnimation = nil
+            end)
+            return
+        end
+    end
+
+    frame._lastHasData = false
+    StopTextAnimations(frame)
+    frame._currentAnimation = nil
+    frame:Hide()
 end
 
 local function HideOtherTrackedBuffDisplays(barIndex, exceptType)
@@ -6096,9 +6130,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- Also skip hiding if showInCombat is enabled and we're in combat
     if hideWhenZero and not hasData and not containerEligible and not isInMoverMode and not isInPreviewMode then
         if not (showInCombat and inCombat) then
-            StopTextAnimations(textFrame)
-            textFrame._currentAnimation = nil
-            textFrame:Hide()
+            HideTrackedBuffText(textFrame, settings, true)
             return
         end
     end
@@ -6350,6 +6382,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             frameLevel = textFrame:GetFrameLevel(),
             preserveInactive = not hideWhenZero,
             presentationVisible = not hideForCombat,
+            textFadeInDirection = settings.textFadeInDirection or "NONE",
         }
     end
     local textAuraAttached = resolver and resolver.AttachAuraContainer
@@ -6359,18 +6392,18 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         if textAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
             auraContainer:SetPresentationVisible(trackedBuff, false)
         end
-        StopTextAnimations(textFrame)
-        textFrame._currentAnimation = nil
-        textFrame:Hide()
+        HideTrackedBuffText(textFrame, settings, false)
         return
     end
     if containerEligible and not textAuraAttached and hideWhenZero
         and not (showInCombat and inCombat)
     then
+        HideTrackedBuffText(textFrame, settings, false)
+        return
+    end
+    if hasData and textFrame._textExitPending then
         StopTextAnimations(textFrame)
         textFrame._currentAnimation = nil
-        textFrame:Hide()
-        return
     end
     textFrame:Show()
 
@@ -6389,7 +6422,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
 
         -- Track previous animation to avoid redundant calls
         if textFrame._currentAnimation ~= textAnimation then
-            ApplyTextAnimation(textFrame, textAnimation, glowSettings)
+            ApplyTextAnimation(textFrame, textAnimation, glowSettings, settings.textFadeInDirection)
             textFrame._currentAnimation = textAnimation
         end
     else
@@ -6399,6 +6432,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             textFrame._currentAnimation = nil
         end
     end
+    textFrame._lastHasData = hasData == true
 
     if BUFF_TRACKER_DEBUG then
         print(string.format("[BuffTracker] Text %s (%s): hasData=%s, mode=%s",
