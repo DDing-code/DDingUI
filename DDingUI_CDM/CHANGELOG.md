@@ -11,11 +11,15 @@ _Scope: Git changes from 9964ab3 through this release._
 - Restored native trinket active-effect states so on-use and proc effects can present their effect icon, duration, stacks, and glow independently from the regular cooldown state.
 - Corrected Custom Aura bar rendering under the WoW 12.1 protected AuraContainer path so live width, height, texture, colors, and border settings match the configured preview.
 - Restored Custom Aura bar dividers for stack and duration modes, including divider thickness, horizontal and vertical layouts, immediate preview updates, and rebuilds after size changes.
+- Renamed the runtime folders to `DDingUI_CDM` and `DDingUI_CDM_Option` while retaining existing `DDingUIDB` profiles through upgrade compatibility bridges.
+- Custom spell trackers now hide when the current specialization has not learned the spell and return automatically when the required talent is learned.
 
 ### Korean Patch Notes
 - 사용 및 착용 발동형 장신구의 기본 활성 효과 상태를 복구하여 일반 재사용 대기 상태와 별개로 효과 아이콘, 지속시간, 중첩 및 글로우를 표시할 수 있도록 수정했습니다.
 - WoW 12.1 보호 AuraContainer 경로에서 커스텀 오라 바의 실제 너비, 높이, 텍스처, 색상 및 테두리 설정이 구성된 미리보기와 일치하도록 수정했습니다.
 - 중첩 및 지속시간 방식의 커스텀 오라 바 구분선을 복구하고 구분선 두께, 가로·세로 배치, 즉시 미리보기 및 크기 변경 후 재생성을 지원합니다.
+- 실행 폴더명을 `DDingUI_CDM`과 `DDingUI_CDM_Option`으로 변경하고 업그레이드 호환 브리지를 통해 기존 `DDingUIDB` 프로필이 유지되도록 했습니다.
+- 현재 전문화에서 배우지 않은 사용자 지정 스킬은 숨기고 필요한 특성을 배우면 자동으로 다시 표시되도록 수정했습니다.
 
 ## v2.1.3
 
