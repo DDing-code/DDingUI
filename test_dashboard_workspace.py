@@ -26,6 +26,9 @@ def test_dashboard_workspace_contract():
     assert '"profiles.importExport"' in dashboard
     assert '"profiles.moduleImport"' in dashboard
     assert "DDingUI.Movers:ToggleConfigMode()" in dashboard
+    assert "selected.open = GUI.CreateStyledButton" in dashboard
+    assert "CreateButton(selected" not in dashboard
+    assert "CreateButton(quick" not in dashboard
     assert "descriptor.frame:SetParent" not in dashboard
     assert "self._geometryElapsed >= 0.25" in dashboard
     assert "function workspace:RefreshCurrent()" in dashboard

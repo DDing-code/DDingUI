@@ -981,7 +981,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
     selected.path = CreateText(selected, 8, { 0.5, 0.54, 0.6, 1 })
     selected.path:SetPoint("TOPLEFT", selected.title, "BOTTOMLEFT", 0, -5)
     selected.path:SetPoint("RIGHT", selected, "RIGHT", -10, 0)
-    selected.open = CreateButton(selected, T("Open Settings", "설정 열기"), true)
+    selected.open = GUI.CreateStyledButton(selected, T("Open Settings", "설정 열기"), 100, 26)
     selected.open:SetPoint("BOTTOMLEFT", selected, "BOTTOMLEFT", 10, 9)
     selected.open:SetPoint("BOTTOMRIGHT", selected, "BOTTOMRIGHT", -10, 9)
 
@@ -1012,7 +1012,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
     end
     workspace.quickRows = quickRows
 
-    local editButton = CreateButton(quick, T("Open Edit Mode", "편집 모드 열기"), true)
+    local editButton = GUI.CreateStyledButton(quick, T("Open Edit Mode", "편집 모드 열기"), 100, 34)
     editButton:SetPoint("BOTTOMLEFT", quick, "BOTTOMLEFT", 10, 10)
     editButton:SetPoint("BOTTOMRIGHT", quick, "BOTTOMRIGHT", -10, 10)
     editButton:SetHeight(34)
