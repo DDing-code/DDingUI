@@ -330,8 +330,13 @@ local function StyleSignature(style)
         ColorPart(style.bgColor),
         ColorPart(style.borderColor),
         tostring(style.borderSize or 0),
+        tostring(style.geometryWidth),
+        tostring(style.geometryHeight),
         tostring(style.orientation),
         tostring(style.reverseFill),
+        tostring(style.showTicks),
+        tostring(style.tickWidth),
+        type(style.tickPositions) == "table" and table.concat(style.tickPositions, ",") or "",
         tostring(style.showStacksText),
         tostring(style.showDurationText),
         tostring(style.stacksFont),
@@ -487,6 +492,46 @@ end
 
 local StartContainerGlow
 
+local function CreateBarTicks(button, desired, style)
+    local positions = style.tickPositions
+    local maximum = tonumber(desired.maxApplications) or 1
+    local count
+    if style.mode == "duration" then
+        count = type(positions) == "table" and #positions or 0
+    elseif style.showTicks ~= false and maximum > 1 then
+        count = maximum - 1
+    else
+        return
+    end
+    if count <= 0 then return end
+
+    local width = tonumber(style.geometryWidth) or 0
+    local height = tonumber(style.geometryHeight) or 0
+    if width <= 0 or height <= 0 then return end
+
+    local host = CreateFrame("Frame", nil, button)
+    host:SetAllPoints(button)
+    host:SetFrameLevel(button:GetFrameLevel() + 2)
+    host:EnableMouse(false)
+
+    local tickWidth = math.max(1, tonumber(style.tickWidth) or 1)
+    local vertical = style.orientation == "VERTICAL"
+    for index = 1, count do
+        local position = style.mode == "duration" and tonumber(positions[index]) or (index / maximum)
+        if position and position > 0 and position < 1 then
+            local tick = host:CreateTexture(nil, "OVERLAY")
+            tick:SetColorTexture(0, 0, 0, 1)
+            if vertical then
+                tick:SetPoint("BOTTOM", host, "BOTTOM", 0, position * height)
+                tick:SetSize(width, tickWidth)
+            else
+                tick:SetPoint("LEFT", host, "LEFT", position * width, 0)
+                tick:SetSize(tickWidth, height)
+            end
+        end
+    end
+end
+
 local function CreateBarInitializer(proxy, desired, style)
     return function(button)
         InitializeButton(button, proxy, style)
@@ -521,6 +566,7 @@ local function CreateBarInitializer(proxy, desired, style)
                 direction = remaining,
             })
         end
+        CreateBarTicks(button, desired, style)
 
         if style.showStacksText then
             local applications = CreateBoundText(button, style, "stacks")

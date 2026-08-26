@@ -294,11 +294,19 @@ local function CreateBarVisual(canvas)
     local background = host:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints(host)
     local edges = CreateEdges(host)
-    local stacks = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    local duration = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local tickFrame = CreateFrame("Frame", nil, host)
+    tickFrame:SetAllPoints(host)
+    tickFrame:SetFrameLevel(bar:GetFrameLevel() + 1)
+    local textFrame = CreateFrame("Frame", nil, host)
+    textFrame:SetAllPoints(host)
+    textFrame:SetFrameLevel(tickFrame:GetFrameLevel() + 1)
+    local stacks = textFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local duration = textFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     host.bar = bar
     host.background = background
     host.edges = edges
+    host.tickFrame = tickFrame
+    host.ticks = {}
     host.stacks = stacks
     host.duration = duration
     return host
@@ -431,6 +439,33 @@ local function RenderBar(preview, entry)
     local sampleStacks = math.min(2, maximum)
     host.bar:SetMinMaxValues(0, fillMode == "stacks" and maximum or 30)
     host.bar:SetValue(fillMode == "stacks" and sampleStacks or 20.4)
+
+    for _, tick in ipairs(host.ticks) do tick:Hide() end
+    local positions = fillMode == "duration" and ReadSetting(entry, "durationTickPositions", {}) or nil
+    if type(positions) ~= "table" then positions = {} end
+    local count = fillMode == "duration" and #positions
+        or (ReadSetting(entry, "showTicks", true) ~= false and maximum > 1 and maximum - 1 or 0)
+    local tickWidth = math.max(1, DDingUI.Scale and DDingUI:Scale(ReadSetting(entry, "tickWidth", 2)) or 2)
+    for index = 1, count do
+        local position = fillMode == "duration" and tonumber(positions[index]) or (index / maximum)
+        if position and position > 0 and position < 1 then
+            local tick = host.ticks[index]
+            if not tick then
+                tick = host.tickFrame:CreateTexture(nil, "OVERLAY")
+                tick:SetColorTexture(0, 0, 0, 1)
+                host.ticks[index] = tick
+            end
+            tick:ClearAllPoints()
+            if orientation == "VERTICAL" then
+                tick:SetPoint("BOTTOM", host.tickFrame, "BOTTOM", 0, position * height)
+                tick:SetSize(width, tickWidth)
+            else
+                tick:SetPoint("LEFT", host.tickFrame, "LEFT", position * width, 0)
+                tick:SetSize(tickWidth, height)
+            end
+            tick:Show()
+        end
+    end
 
     local showStacks = ReadSetting(entry, "showStacksText", true) ~= false
     host.stacks:SetShown(showStacks)
