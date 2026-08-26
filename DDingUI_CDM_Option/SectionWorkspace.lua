@@ -10,10 +10,10 @@ local SL = _G.DDingUI_StyleLib
 
 local WORKSPACE_META = {
     general = {
-        title = "General Settings",
-        fallback = "기본 설정",
-        subtitle = "Environment and profiles",
-        subtitleFallback = "환경 및 프로필",
+        title = "Dashboard",
+        fallback = "대시보드",
+        subtitle = "Current profile layout and status",
+        subtitleFallback = "현재 프로필의 배치와 상태",
     },
     resourceBars = {
         title = "Resource Bars",
@@ -633,7 +633,730 @@ local function CreateNavigationRow(parent)
     return row
 end
 
+local DASHBOARD_GROUP_LABEL_KEYS = {
+    Cooldowns = "Essential Cooldowns",
+    Buffs = "Buff Icons",
+    Utility = "Utility Cooldowns",
+}
+
+local function DashboardNumber(value)
+    if issecretvalue and issecretvalue(value) then return nil end
+    return type(value) == "number" and value or nil
+end
+
+local function DashboardTexture(value)
+    if value == nil or (issecretvalue and issecretvalue(value)) then return nil end
+    local valueType = type(value)
+    return (valueType == "number" or valueType == "string") and value or nil
+end
+
+local function DashboardFrameRect(frame)
+    if not frame then return nil end
+    local ok, left, bottom, width, height = pcall(function()
+        if frame.GetRect then return frame:GetRect() end
+        return frame:GetLeft(), frame:GetBottom(), frame:GetWidth(), frame:GetHeight()
+    end)
+    if not ok then return nil end
+    left, bottom = DashboardNumber(left), DashboardNumber(bottom)
+    width, height = DashboardNumber(width), DashboardNumber(height)
+    if not left or not bottom or not width or not height or width <= 0 or height <= 0 then return nil end
+    return { left = left, bottom = bottom, width = width, height = height }
+end
+
+local function DashboardPoint(rect, point)
+    point = type(point) == "string" and point or "CENTER"
+    local x = point:find("LEFT", 1, true) and rect.left
+        or point:find("RIGHT", 1, true) and (rect.left + rect.width)
+        or (rect.left + rect.width * 0.5)
+    local y = point:find("BOTTOM", 1, true) and rect.bottom
+        or point:find("TOP", 1, true) and (rect.bottom + rect.height)
+        or (rect.bottom + rect.height * 0.5)
+    return x, y
+end
+
+local function DashboardConfiguredRect(config, width, height, uiRect)
+    config = type(config) == "table" and config or {}
+    width = math.max(1, tonumber(width) or 160)
+    height = math.max(1, tonumber(height) or 18)
+    local anchorFrame = type(config.attachTo) == "string" and _G[config.attachTo] or nil
+    local anchorRect = DashboardFrameRect(anchorFrame) or uiRect
+    if not anchorRect then return nil end
+    local anchorX, anchorY = DashboardPoint(anchorRect, config.anchorPoint)
+    local ownRect = { left = 0, bottom = 0, width = width, height = height }
+    local ownX, ownY = DashboardPoint(ownRect, config.selfPoint)
+    return {
+        left = anchorX + (tonumber(config.offsetX) or 0) - ownX,
+        bottom = anchorY + (tonumber(config.offsetY) or 0) - ownY,
+        width = width,
+        height = height,
+    }
+end
+
+local function DashboardIconTexture(icon)
+    if not icon then return nil end
+    local ok, texture = pcall(function()
+        local region = icon.Icon or icon.icon or icon.IconTexture or icon.texture
+        return region and region.GetTexture and region:GetTexture() or nil
+    end)
+    return ok and DashboardTexture(texture) or nil
+end
+
+local function DashboardTokenTexture(token)
+    local id = type(token) == "number" and token
+        or type(token) == "string" and tonumber(token:match("(%d+)"))
+    if not id or not C_Spell or not C_Spell.GetSpellTexture then return nil end
+    local ok, texture = pcall(C_Spell.GetSpellTexture, id)
+    return ok and DashboardTexture(texture) or nil
+end
+
+local function DashboardGroupTextures(frame, settings)
+    local textures = {}
+    local managed, count
+    if frame then
+        pcall(function()
+            managed = frame._managedIcons
+            count = DashboardNumber(frame._iconCount)
+        end)
+    end
+    if type(managed) == "table" then
+        count = math.min(24, math.max(0, count or #managed))
+        for index = 1, count do
+            textures[#textures + 1] = DashboardIconTexture(managed[index]) or 136243
+        end
+    end
+    if #textures == 0 and type(settings.iconOrder) == "table" then
+        for index = 1, math.min(24, #settings.iconOrder) do
+            textures[index] = DashboardTokenTexture(settings.iconOrder[index]) or 136243
+        end
+    end
+    if #textures == 0 then
+        for index = 1, 4 do textures[index] = 136243 end
+    end
+    return textures
+end
+
+local function DashboardGroupSize(settings, count)
+    local iconHeight = math.max(8, tonumber(settings.iconSize) or 36)
+    local iconWidth = iconHeight * math.max(0.5, tonumber(settings.aspectRatioCrop) or 1)
+    local spacing = math.max(0, tonumber(settings.spacing) or 2)
+    local limit = math.max(1, math.min(count, tonumber(settings.rowLimit) or count))
+    local horizontal = settings.direction ~= "UP" and settings.direction ~= "DOWN"
+    local primary = math.min(count, limit)
+    local secondary = math.max(1, math.ceil(count / limit))
+    if horizontal then
+        return primary * iconWidth + math.max(0, primary - 1) * spacing,
+            secondary * iconHeight + math.max(0, secondary - 1) * spacing
+    end
+    return secondary * iconWidth + math.max(0, secondary - 1) * spacing,
+        primary * iconHeight + math.max(0, primary - 1) * spacing
+end
+
+local function DashboardGroupLabel(groupName, settings)
+    local localeKey = DASHBOARD_GROUP_LABEL_KEYS[groupName]
+    return (localeKey and T(localeKey, nil)) or settings.name or groupName
+end
+
+local function DashboardTrackedGroups()
+    if not DDingUI.GetTrackedBuffGroups then return {} end
+    local ok, groups = pcall(DDingUI.GetTrackedBuffGroups, DDingUI)
+    return ok and type(groups) == "table" and groups or {}
+end
+
+local function BuildDashboardDescriptors()
+    local profile = DDingUI.db and DDingUI.db.profile or {}
+    local descriptors = {}
+    local groupStore = profile.groupSystem and profile.groupSystem.groups or {}
+    local groups = {}
+    for groupName, settings in pairs(groupStore) do
+        groups[#groups + 1] = {
+            name = groupName,
+            settings = settings,
+            order = tonumber(settings.order) or 999,
+        }
+    end
+    table.sort(groups, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return tostring(a.name) < tostring(b.name)
+    end)
+    for _, group in ipairs(groups) do
+        local frame = DDingUI.GroupRenderer and DDingUI.GroupRenderer.groupFrames
+            and DDingUI.GroupRenderer.groupFrames[group.name]
+        local textures = DashboardGroupTextures(frame, group.settings)
+        local width, height = DashboardGroupSize(group.settings, #textures)
+        descriptors[#descriptors + 1] = {
+            key = "group:" .. group.name,
+            kind = "icons",
+            label = DashboardGroupLabel(group.name, group.settings),
+            path = (T("CDM Bars", "CDM 바")) .. "  /  " .. DashboardGroupLabel(group.name, group.settings),
+            target = "groupSystem.group_" .. group.name,
+            frame = frame,
+            config = group.settings,
+            width = width,
+            height = height,
+            textures = textures,
+            enabled = group.settings.enabled ~= false,
+        }
+    end
+
+    local function AddBar(key, label, target, frame, config, width, height, color)
+        descriptors[#descriptors + 1] = {
+            key = key,
+            kind = "bar",
+            label = label,
+            path = label,
+            target = target,
+            frame = frame,
+            config = config,
+            width = width,
+            height = height,
+            color = color,
+            enabled = config.enabled ~= false,
+        }
+    end
+
+    local primary = profile.powerBar or {}
+    AddBar("power", T("Primary Resource", "주 자원"), "resourceBars.primary", DDingUI.powerBar,
+        primary, primary.width and primary.width > 0 and primary.width or 430, primary.height or 14,
+        GetResourceColorSpec(false))
+    local secondary = profile.secondaryPowerBar or {}
+    AddBar("secondaryPower", T("Secondary Resource", "보조 자원"), "resourceBars.secondary",
+        DDingUI.secondaryPowerBar, secondary.width and secondary.width > 0 and secondary.width or 430,
+        secondary.height or 14, GetResourceColorSpec(true))
+    local cast = profile.castBar or {}
+    local castColor = cast.useClassColor and GetClassColorSpec() or cast.color
+    AddBar("cast", T("Player Cast Bar", "플레이어 시전 바"), "castBars.general", DDingUI.castBar,
+        cast, cast.width and cast.width > 0 and cast.width or 440, cast.height or 24,
+        castColor or { 1, 0.55, 0.12, 1 })
+
+    local trackedGroups = DashboardTrackedGroups()
+    local trackedKeys = {}
+    for key in pairs(trackedGroups) do trackedKeys[#trackedKeys + 1] = key end
+    table.sort(trackedKeys, function(a, b) return tostring(a) < tostring(b) end)
+    local trackedConfig = profile.buffTrackerBar or {}
+    for _, key in ipairs(trackedKeys) do
+        AddBar("trackedAura:" .. tostring(key), T("Buff Tracker", "커스텀 오라"), "buffTracker",
+            trackedGroups[key], trackedConfig,
+            trackedConfig.width and trackedConfig.width > 0 and trackedConfig.width or 320,
+            math.max(12, trackedConfig.height or 16), trackedConfig.barColor or { 1, 0.8, 0, 1 })
+    end
+
+    local trackedBar = profile.buffBarViewer or {}
+    AddBar("trackedBars", T("Tracked Bars", "추적중인 막대"), "buffBar",
+        _G["BuffBarCooldownViewer"], trackedBar,
+        trackedBar.width and trackedBar.width > 0 and trackedBar.width or 430,
+        trackedBar.height or 16, trackedBar.barColor or { 0.88, 0.73, 0.18, 1 })
+    return descriptors
+end
+
+local function DashboardSourceSignature()
+    local profile = DDingUI.db and DDingUI.db.profile or {}
+    local parts = {
+        DDingUI.db and DDingUI.db.GetCurrentProfile and tostring(DDingUI.db:GetCurrentProfile()) or "",
+    }
+    local groups = profile.groupSystem and profile.groupSystem.groups or {}
+    for name, settings in pairs(groups) do
+        local frame = DDingUI.GroupRenderer and DDingUI.GroupRenderer.groupFrames
+            and DDingUI.GroupRenderer.groupFrames[name]
+        local count = frame and DashboardNumber(frame._iconCount) or 0
+        local groupParts = {
+            name,
+            tostring(settings.enabled ~= false),
+            tostring(count or 0),
+            tostring(settings.iconSize),
+            tostring(settings.aspectRatioCrop),
+            tostring(settings.spacing),
+            tostring(settings.rowLimit),
+            tostring(settings.direction),
+            tostring(settings.growDirection),
+        }
+        for _, texture in ipairs(DashboardGroupTextures(frame, settings)) do
+            groupParts[#groupParts + 1] = tostring(texture)
+        end
+        parts[#parts + 1] = table.concat(groupParts, ":")
+    end
+    for key in pairs(DashboardTrackedGroups()) do
+        parts[#parts + 1] = "tracked:" .. tostring(key)
+    end
+    parts[#parts + 1] = "power:" .. tostring(profile.powerBar and profile.powerBar.enabled ~= false)
+    parts[#parts + 1] = "secondary:" .. tostring(profile.secondaryPowerBar and profile.secondaryPowerBar.enabled ~= false)
+    parts[#parts + 1] = "cast:" .. tostring(profile.castBar and profile.castBar.enabled ~= false)
+    parts[#parts + 1] = "trackedBars:" .. tostring(profile.buffBarViewer and profile.buffBarViewer.enabled ~= false)
+    table.sort(parts)
+    return table.concat(parts, "|")
+end
+
+local function CreateDashboardQuickRow(parent, label, target)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(43)
+    row.target = target
+    row.background = row:CreateTexture(nil, "BACKGROUND")
+    row.background:SetAllPoints()
+    row.background:SetColorTexture(0, 0, 0, 0)
+    row.label = CreateText(row, 10, { 0.82, 0.84, 0.88, 1 })
+    row.label:SetPoint("LEFT", row, "LEFT", 9, 0)
+    row.label:SetText(label)
+    row.value = CreateText(row, 9, { 0.5, 0.54, 0.6, 1 }, "RIGHT")
+    row.value:SetPoint("RIGHT", row, "RIGHT", -9, 0)
+    row.value:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
+    local divider = row:CreateTexture(nil, "ARTWORK")
+    divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+    divider:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+    divider:SetHeight(1)
+    divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.72)
+    row:SetScript("OnEnter", function(self)
+        self.background:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 1)
+        self.label:SetTextColor(1, 1, 1, 1)
+    end)
+    row:SetScript("OnLeave", function(self)
+        self.background:SetColorTexture(0, 0, 0, 0)
+        self.label:SetTextColor(0.82, 0.84, 0.88, 1)
+    end)
+    return row
+end
+
+local function CreateDashboardWorkspace(contentFrame, parentFrame)
+    local contentArea = parentFrame.contentArea
+    parentFrame.scrollFrame:Hide()
+    if parentFrame.scrollBar then parentFrame.scrollBar:Hide() end
+
+    local old = contentArea._sectionWorkspace
+    if old then
+        if old.Release then old:Release() end
+        old:Hide()
+        old:SetParent(nil)
+    end
+
+    local workspace = CreateFrame("Frame", nil, contentArea, "BackdropTemplate")
+    workspace:SetAllPoints(contentArea)
+    workspace:SetFrameStrata("DIALOG")
+    workspace:SetFrameLevel(contentArea:GetFrameLevel() + 5)
+    SetSurface(workspace, THEME.shell, THEME.border)
+    contentArea._sectionWorkspace = workspace
+    workspace._parentFrame = parentFrame
+    workspace.nodes = {}
+
+    local header = CreateFrame("Frame", nil, workspace)
+    header:SetPoint("TOPLEFT", workspace, "TOPLEFT", 10, -10)
+    header:SetPoint("TOPRIGHT", workspace, "TOPRIGHT", -10, -10)
+    header:SetHeight(52)
+    header.title = CreateText(header, 15, { 0.96, 0.97, 0.99, 1 })
+    header.title:SetPoint("TOPLEFT", header, "TOPLEFT", 4, -4)
+    header.title:SetText(T("Dashboard", "대시보드"))
+    header.subtitle = CreateText(header, 9, { 0.48, 0.51, 0.58, 1 })
+    header.subtitle:SetPoint("TOPLEFT", header.title, "BOTTOMLEFT", 0, -5)
+    header.subtitle:SetText(T("Current profile layout and status", "현재 프로필의 배치와 상태"))
+    header.live = CreateText(header, 9, { 0.34, 0.9, 0.48, 1 }, "RIGHT")
+    header.live:SetPoint("RIGHT", header, "RIGHT", -4, 4)
+    header.live:SetText(T("Live Layout", "실시간 배치"))
+    header.liveDot = header:CreateTexture(nil, "ARTWORK")
+    header.liveDot:SetSize(6, 6)
+    header.liveDot:SetPoint("RIGHT", header.live, "LEFT", -7, 0)
+    header.liveDot:SetColorTexture(0.34, 0.9, 0.48, 1)
+    CreateDivider(header, "BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+
+    local body = CreateFrame("Frame", nil, workspace)
+    body:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -8)
+    body:SetPoint("BOTTOMRIGHT", workspace, "BOTTOMRIGHT", -10, 10)
+
+    local quick = CreateFrame("Frame", nil, body, "BackdropTemplate")
+    quick:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, 0)
+    quick:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
+    quick:SetWidth(250)
+    SetSurface(quick, THEME.panel, THEME.border)
+    quick.header = CreateText(quick, 12, { 0.96, 0.97, 0.99, 1 })
+    quick.header:SetPoint("TOPLEFT", quick, "TOPLEFT", 12, -13)
+    quick.header:SetText(T("Quick Settings", "빠른 설정"))
+    CreateDivider(quick, "TOPLEFT", quick, "TOPLEFT", 10, -40)
+
+    local selected = CreateFrame("Frame", nil, quick, "BackdropTemplate")
+    selected:SetPoint("TOPLEFT", quick, "TOPLEFT", 10, -51)
+    selected:SetPoint("TOPRIGHT", quick, "TOPRIGHT", -10, -51)
+    selected:SetHeight(108)
+    SetSurface(selected, THEME.input, THEME.borderLight)
+    selected.eyebrow = CreateText(selected, 8, { 1, 0.43, 0.08, 1 })
+    selected.eyebrow:SetPoint("TOPLEFT", selected, "TOPLEFT", 10, -9)
+    selected.eyebrow:SetText(T("Selected Element", "선택한 요소"))
+    selected.title = CreateText(selected, 13, { 0.96, 0.97, 0.99, 1 })
+    selected.title:SetPoint("TOPLEFT", selected.eyebrow, "BOTTOMLEFT", 0, -6)
+    selected.path = CreateText(selected, 8, { 0.5, 0.54, 0.6, 1 })
+    selected.path:SetPoint("TOPLEFT", selected.title, "BOTTOMLEFT", 0, -5)
+    selected.path:SetPoint("RIGHT", selected, "RIGHT", -10, 0)
+    selected.open = CreateButton(selected, T("Open Settings", "설정 열기"), true)
+    selected.open:SetPoint("BOTTOMLEFT", selected, "BOTTOMLEFT", 10, 9)
+    selected.open:SetPoint("BOTTOMRIGHT", selected, "BOTTOMRIGHT", -10, 9)
+
+    local quickTitle = CreateText(quick, 8, { 0.48, 0.51, 0.58, 1 })
+    quickTitle:SetPoint("TOPLEFT", selected, "BOTTOMLEFT", 2, -15)
+    quickTitle:SetText(T("General Settings", "기본 설정"))
+
+    local quickRows = {
+        CreateDashboardQuickRow(quick, T("UI Scale", "UI 스케일"), "uiScale"),
+        CreateDashboardQuickRow(quick, T("Display", "표시"), "display"),
+        CreateDashboardQuickRow(quick, T("Profile Management", "프로필 관리"), "profiles.management"),
+        CreateDashboardQuickRow(quick, T("Import / Export", "가져오기 / 내보내기"), "profiles.importExport"),
+        CreateDashboardQuickRow(quick, T("Module Import", "모듈별 불러오기"), "profiles.moduleImport"),
+    }
+    local previousRow
+    for _, row in ipairs(quickRows) do
+        row:SetPoint("LEFT", quick, "LEFT", 10, 0)
+        row:SetPoint("RIGHT", quick, "RIGHT", -10, 0)
+        if previousRow then
+            row:SetPoint("TOP", previousRow, "BOTTOM", 0, 0)
+        else
+            row:SetPoint("TOP", quickTitle, "BOTTOM", 0, -8)
+        end
+        row:SetScript("OnClick", function(self)
+            parentFrame:NavigateToSection(self.target)
+        end)
+        previousRow = row
+    end
+    workspace.quickRows = quickRows
+
+    local editButton = CreateButton(quick, T("Open Edit Mode", "편집 모드 열기"), true)
+    editButton:SetPoint("BOTTOMLEFT", quick, "BOTTOMLEFT", 10, 10)
+    editButton:SetPoint("BOTTOMRIGHT", quick, "BOTTOMRIGHT", -10, 10)
+    editButton:SetHeight(34)
+    editButton:SetScript("OnClick", function()
+        if DDingUI.Movers and DDingUI.Movers.ToggleConfigMode then
+            DDingUI.Movers:ToggleConfigMode()
+        end
+    end)
+
+    local stagePanel = CreateFrame("Frame", nil, body, "BackdropTemplate")
+    stagePanel:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    stagePanel:SetPoint("BOTTOMRIGHT", quick, "BOTTOMLEFT", -8, 0)
+    SetSurface(stagePanel, THEME.panel, THEME.border)
+    local stageHeader = CreateFrame("Frame", nil, stagePanel)
+    stageHeader:SetPoint("TOPLEFT", stagePanel, "TOPLEFT", 0, 0)
+    stageHeader:SetPoint("TOPRIGHT", stagePanel, "TOPRIGHT", 0, 0)
+    stageHeader:SetHeight(40)
+    stageHeader.title = CreateText(stageHeader, 11, { 0.96, 0.97, 0.99, 1 })
+    stageHeader.title:SetPoint("LEFT", stageHeader, "LEFT", 12, 0)
+    stageHeader.title:SetText(T("Current Layout", "현재 배치"))
+    stageHeader.meta = CreateText(stageHeader, 8, { 0.48, 0.54, 0.62, 1 }, "RIGHT")
+    stageHeader.meta:SetPoint("RIGHT", stageHeader, "RIGHT", -12, 0)
+    CreateDivider(stageHeader, "BOTTOMLEFT", stageHeader, "BOTTOMLEFT", 0, 0)
+
+    local stageFooter = CreateFrame("Frame", nil, stagePanel)
+    stageFooter:SetPoint("BOTTOMLEFT", stagePanel, "BOTTOMLEFT", 0, 0)
+    stageFooter:SetPoint("BOTTOMRIGHT", stagePanel, "BOTTOMRIGHT", 0, 0)
+    stageFooter:SetHeight(30)
+    CreateDivider(stageFooter, "TOPLEFT", stageFooter, "TOPLEFT", 0, 0)
+    stageFooter.state = CreateText(stageFooter, 8, { 0.34, 0.9, 0.48, 1 }, "RIGHT")
+    stageFooter.state:SetPoint("RIGHT", stageFooter, "RIGHT", -11, 0)
+    stageFooter.state:SetText(T("Profile layout synced", "프로필 배치 동기화됨"))
+
+    local stageHost = CreateFrame("Frame", nil, stagePanel)
+    stageHost:SetPoint("TOPLEFT", stageHeader, "BOTTOMLEFT", 10, -10)
+    stageHost:SetPoint("BOTTOMRIGHT", stageFooter, "TOPRIGHT", -10, 10)
+    local stage = CreateFrame("Frame", nil, stageHost, "BackdropTemplate")
+    SetSurface(stage, { 0.025, 0.03, 0.035, 1 }, { 0.24, 0.27, 0.3, 1 })
+    if stage.SetClipsChildren then stage:SetClipsChildren(true) end
+    workspace.stage = stage
+    workspace.stageHost = stageHost
+    workspace.stageHeader = stageHeader
+    workspace.selectedCard = selected
+
+    stage.screenLabel = CreateText(stage, 7, { 0.32, 0.37, 0.43, 1 })
+    stage.screenLabel:SetPoint("TOPLEFT", stage, "TOPLEFT", 8, -7)
+    stage.screenLabel:SetText(T("Screen Preview", "화면 미리보기"))
+    stage.gridLines = {}
+    for index = 1, 4 do
+        local line = stage:CreateTexture(nil, "BACKGROUND")
+        line:SetColorTexture(0.1, 0.12, 0.14, 0.72)
+        stage.gridLines[index] = line
+    end
+
+    function workspace:ApplyNodeState(node, hovered)
+        local selectedNode = self.selectedKey == node.descriptor.key
+        if hovered or selectedNode then
+            node:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+        else
+            node:SetBackdropBorderColor(THEME.borderLight[1], THEME.borderLight[2], THEME.borderLight[3], 0.8)
+        end
+        node:SetAlpha(node.descriptor.enabled and 1 or 0.38)
+    end
+
+    function workspace:SelectDescriptor(descriptor)
+        if not descriptor then return end
+        self.selectedKey = descriptor.key
+        self.selectedDescriptor = descriptor
+        self.selectedCard.title:SetText(descriptor.label)
+        self.selectedCard.path:SetText(descriptor.path)
+        for _, node in ipairs(self.nodes) do self:ApplyNodeState(node, false) end
+    end
+
+    function workspace:AcquireIconSlot(node, index)
+        local slot = node.icons[index]
+        if slot then return slot end
+        slot = CreateFrame("Frame", nil, node, "BackdropTemplate")
+        SetSurface(slot, THEME.input, { 0.25, 0.28, 0.31, 1 })
+        slot.texture = slot:CreateTexture(nil, "ARTWORK")
+        slot.texture:SetPoint("TOPLEFT", slot, "TOPLEFT", 1, -1)
+        slot.texture:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -1, 1)
+        slot.texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        node.icons[index] = slot
+        return slot
+    end
+
+    function workspace:LayoutIconNode(node, uiRect)
+        local descriptor = node.descriptor
+        local config = descriptor.config or {}
+        local count = #descriptor.textures
+        local stageWidth, stageHeight = self.stage:GetWidth(), self.stage:GetHeight()
+        local iconHeight = Clamp((tonumber(config.iconSize) or 36) * stageHeight / uiRect.height, 7, 28)
+        local iconWidth = iconHeight * math.max(0.5, tonumber(config.aspectRatioCrop) or 1)
+        local spacing = Clamp((tonumber(config.spacing) or 2) * stageWidth / uiRect.width, 0, 4)
+        local limit = math.max(1, math.min(count, tonumber(config.rowLimit) or count))
+        local horizontal = config.direction ~= "UP" and config.direction ~= "DOWN"
+        local nodeWidth, nodeHeight = node:GetWidth(), node:GetHeight()
+        for index = 1, count do
+            local slot = self:AcquireIconSlot(node, index)
+            local primary = (index - 1) % limit
+            local secondary = math.floor((index - 1) / limit)
+            local x, y
+            if horizontal then
+                x = config.direction == "LEFT"
+                    and nodeWidth - iconWidth - primary * (iconWidth + spacing)
+                    or primary * (iconWidth + spacing)
+                y = config.growDirection == "UP"
+                    and secondary * (iconHeight + spacing)
+                    or nodeHeight - iconHeight - secondary * (iconHeight + spacing)
+            else
+                y = config.direction == "UP"
+                    and primary * (iconHeight + spacing)
+                    or nodeHeight - iconHeight - primary * (iconHeight + spacing)
+                x = config.growDirection == "LEFT"
+                    and nodeWidth - iconWidth - secondary * (iconWidth + spacing)
+                    or secondary * (iconWidth + spacing)
+            end
+            slot:ClearAllPoints()
+            slot:SetPoint("BOTTOMLEFT", node, "BOTTOMLEFT", x, y)
+            slot:SetSize(iconWidth, iconHeight)
+            local texture = descriptor.textures[index] or 136243
+            if slot._texture ~= texture then
+                slot.texture:SetTexture(texture)
+                slot._texture = texture
+            end
+            slot:Show()
+        end
+        for index = count + 1, #node.icons do node.icons[index]:Hide() end
+        node.fill:Hide()
+        node.text:Hide()
+    end
+
+    function workspace:LayoutBarNode(node)
+        for _, slot in ipairs(node.icons) do slot:Hide() end
+        local width, height = node:GetWidth(), node:GetHeight()
+        node.fill:ClearAllPoints()
+        node.fill:SetPoint("TOPLEFT", node, "TOPLEFT", 1, -1)
+        node.fill:SetPoint("BOTTOMLEFT", node, "BOTTOMLEFT", 1, 1)
+        node.fill:SetWidth(math.max(1, (width - 2) * 0.72))
+        local r, g, b, a = ColorValues(node.descriptor.color, { 0.22, 0.68, 0.84, 1 })
+        node.fill:SetColorTexture(r, g, b, a)
+        node.fill:Show()
+        node.text:SetShown(width >= 58 and height >= 10)
+    end
+
+    function workspace:RefreshGeometry()
+        local uiRect = DashboardFrameRect(UIParent)
+        local stageWidth, stageHeight = self.stage:GetWidth(), self.stage:GetHeight()
+        if not uiRect or not stageWidth or not stageHeight or stageWidth <= 1 or stageHeight <= 1 then return end
+        local meta = string.format("UIParent %.0f × %.0f  ·  %.2f",
+            uiRect.width, uiRect.height, UIParent:GetScale() or 1)
+        if self._stageMeta ~= meta then
+            self.stageHeader.meta:SetText(meta)
+            self._stageMeta = meta
+        end
+        local visible = 0
+        for _, node in ipairs(self.nodes) do
+            local descriptor = node.descriptor
+            local rect = DashboardFrameRect(descriptor.frame)
+                or DashboardConfiguredRect(descriptor.config, descriptor.width, descriptor.height, uiRect)
+            if rect then
+                local x = (rect.left - uiRect.left) * stageWidth / uiRect.width
+                local y = (rect.bottom - uiRect.bottom) * stageHeight / uiRect.height
+                local width = math.max(descriptor.kind == "bar" and 22 or 8, rect.width * stageWidth / uiRect.width)
+                local height = math.max(descriptor.kind == "bar" and 5 or 8, rect.height * stageHeight / uiRect.height)
+                node:ClearAllPoints()
+                node:SetPoint("BOTTOMLEFT", self.stage, "BOTTOMLEFT", x, y)
+                node:Show()
+                if node._layoutWidth ~= width or node._layoutHeight ~= height
+                    or node._layoutStageWidth ~= stageWidth or node._layoutStageHeight ~= stageHeight
+                then
+                    node:SetSize(width, height)
+                    node._layoutWidth, node._layoutHeight = width, height
+                    node._layoutStageWidth, node._layoutStageHeight = stageWidth, stageHeight
+                    if descriptor.kind == "icons" then
+                        self:LayoutIconNode(node, uiRect)
+                    else
+                        self:LayoutBarNode(node)
+                    end
+                end
+                visible = visible + 1
+            else
+                node:Hide()
+            end
+        end
+        self.stage.empty:SetShown(visible == 0)
+    end
+
+    function workspace:CreateNode(descriptor)
+        local node = CreateFrame("Button", nil, self.stage, "BackdropTemplate")
+        node.descriptor = descriptor
+        node.icons = {}
+        SetSurface(node, { 0.05, 0.055, 0.065, 0.82 }, THEME.borderLight)
+        node.fill = node:CreateTexture(nil, "ARTWORK")
+        node.text = CreateText(node, 7, { 1, 1, 1, 1 }, "CENTER")
+        node.text:SetPoint("CENTER")
+        node.text:SetText(descriptor.label)
+        node:SetScript("OnEnter", function(self)
+            workspace:SelectDescriptor(self.descriptor)
+            workspace:ApplyNodeState(self, true)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(self.descriptor.label, 1, 1, 1)
+            GameTooltip:AddLine(self.descriptor.path, 0.58, 0.62, 0.68)
+            GameTooltip:Show()
+        end)
+        node:SetScript("OnLeave", function(self)
+            workspace:ApplyNodeState(self, false)
+            GameTooltip:Hide()
+        end)
+        node:SetScript("OnClick", function(self)
+            parentFrame:NavigateToSection(self.descriptor.target)
+        end)
+        self.nodes[#self.nodes + 1] = node
+        self:ApplyNodeState(node, false)
+        return node
+    end
+
+    function workspace:RebuildNodes()
+        local selectedKey = self.selectedKey
+        for _, node in ipairs(self.nodes) do
+            node:Hide()
+            node:SetParent(nil)
+        end
+        wipe(self.nodes)
+        local descriptors = BuildDashboardDescriptors()
+        local first = descriptors[1]
+        local preferred
+        for _, descriptor in ipairs(descriptors) do
+            self:CreateNode(descriptor)
+            if descriptor.key == selectedKey then
+                preferred = descriptor
+            elseif not preferred and descriptor.key == "group:Cooldowns" then
+                preferred = descriptor
+            end
+        end
+        self:SelectDescriptor(preferred or first)
+        self._sourceSignature = DashboardSourceSignature()
+        self:RefreshGeometry()
+    end
+
+    function workspace:RefreshQuickValues()
+        local profile = DDingUI.db and DDingUI.db.profile or {}
+        local general = profile.general or {}
+        local scale = tonumber(general.uiScale) or (UIParent and UIParent:GetScale()) or 1
+        self.quickRows[1].value:SetText(string.format("%.2f", scale))
+        local hiddenRules = (general.hideWhileFlying and 1 or 0)
+            + (general.hideWhileMounted and 1 or 0)
+            + (general.hideInVehicle and 1 or 0)
+        self.quickRows[2].value:SetText(hiddenRules > 0 and tostring(hiddenRules) or T("Always visible", "항상 표시"))
+        self.quickRows[3].value:SetText(DDingUI.db and DDingUI.db.GetCurrentProfile
+            and DDingUI.db:GetCurrentProfile() or "-")
+        self.quickRows[4].value:SetText(T("Open", "열기"))
+        self.quickRows[5].value:SetText(T("Open", "열기"))
+    end
+
+    function workspace:ResizeStage()
+        local availableWidth = math.max(1, self.stageHost:GetWidth() - 10)
+        local availableHeight = math.max(1, self.stageHost:GetHeight() - 10)
+        local width = math.min(availableWidth, availableHeight * 16 / 9)
+        local height = width * 9 / 16
+        self.stage:ClearAllPoints()
+        self.stage:SetPoint("CENTER", self.stageHost, "CENTER", 0, 0)
+        self.stage:SetSize(width, height)
+        local fractions = { 1 / 3, 2 / 3 }
+        for index, fraction in ipairs(fractions) do
+            local vertical = self.stage.gridLines[index]
+            vertical:ClearAllPoints()
+            vertical:SetPoint("TOPLEFT", self.stage, "TOPLEFT", width * fraction, 0)
+            vertical:SetPoint("BOTTOMLEFT", self.stage, "BOTTOMLEFT", width * fraction, 0)
+            vertical:SetWidth(1)
+            local horizontal = self.stage.gridLines[index + 2]
+            horizontal:ClearAllPoints()
+            horizontal:SetPoint("TOPLEFT", self.stage, "TOPLEFT", 0, -height * fraction)
+            horizontal:SetPoint("TOPRIGHT", self.stage, "TOPRIGHT", 0, -height * fraction)
+            horizontal:SetHeight(1)
+        end
+        self:RefreshGeometry()
+    end
+
+    stage.empty = CreateText(stage, 10, { 0.48, 0.51, 0.58, 1 }, "CENTER")
+    stage.empty:SetPoint("CENTER")
+    stage.empty:SetText(T("No active layout elements", "표시할 배치 요소가 없습니다"))
+    selected.open:SetScript("OnClick", function()
+        if workspace.selectedDescriptor then
+            parentFrame:NavigateToSection(workspace.selectedDescriptor.target)
+        end
+    end)
+
+    function workspace:RefreshCurrent()
+        self:RefreshQuickValues()
+        local signature = DashboardSourceSignature()
+        if signature ~= self._sourceSignature then
+            self:RebuildNodes()
+        else
+            self:RefreshGeometry()
+        end
+    end
+
+    function workspace:Release()
+        self:SetScript("OnUpdate", nil)
+        self.stageHost:SetScript("OnSizeChanged", nil)
+        if self._resizeTimer then self._resizeTimer:Cancel(); self._resizeTimer = nil end
+    end
+
+    stageHost:SetScript("OnSizeChanged", function()
+        if workspace._resizeTimer then workspace._resizeTimer:Cancel() end
+        workspace._resizeTimer = C_Timer.NewTimer(0.04, function()
+            workspace._resizeTimer = nil
+            if workspace:IsShown() then workspace:ResizeStage() end
+        end)
+    end)
+    workspace:SetScript("OnUpdate", function(self, elapsed)
+        self._geometryElapsed = (self._geometryElapsed or 0) + elapsed
+        self._sourceElapsed = (self._sourceElapsed or 0) + elapsed
+        if self._geometryElapsed >= 0.25 then
+            self._geometryElapsed = 0
+            self:RefreshGeometry()
+        end
+        if self._sourceElapsed >= 0.8 then
+            self._sourceElapsed = 0
+            local signature = DashboardSourceSignature()
+            if signature ~= self._sourceSignature then
+                self:RebuildNodes()
+                self:RefreshQuickValues()
+            end
+        end
+    end)
+    workspace:SetScript("OnHide", function(self) self:Release() end)
+    workspace:RefreshQuickValues()
+    C_Timer.After(0, function()
+        if workspace:IsShown() then
+            workspace:ResizeStage()
+            workspace:RebuildNodes()
+        end
+    end)
+end
+
 function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
+    local requestedPath = parentFrame._requestedSubTabPath
+    local requestedKind = options.workspaceKind or (path and path[1]) or "general"
+    if requestedKind == "general" and not (requestedPath and #requestedPath > 0) then
+        return CreateDashboardWorkspace(contentFrame, parentFrame)
+    end
+
     local contentArea = parentFrame.contentArea
     parentFrame.scrollFrame:Hide()
     if parentFrame.scrollBar then parentFrame.scrollBar:Hide() end
