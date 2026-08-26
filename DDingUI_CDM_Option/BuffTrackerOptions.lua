@@ -4401,24 +4401,26 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         },
     })
 
-    -- Text Animation (expanded with glow types and hover/spin)
+    -- Text motion presets and glow effects
     options["tracked" .. index .. "_textAnimation"] = CreateTrackedSettingOption("select", index, "textAnimation", "none", {
         name = "    " .. (L["Animation"] or "Animation"),
-        desc = L["Animation effect when buff is active"] or "Animation effect when buff is active",
+        desc = L["Text animation preset description"] or "Activation presets play once; active presets continue while the aura is visible.",
         order = orderBase + 1.975,
         width = 0.8,
         hidden = hiddenIfNotText,
         values = {
             none = L["None"] or "None",
-            hover = L["Hover"] or "Hover",
-            pulse = L["Pulse"] or "Pulse",
-            flash = L["Flash"] or "Flash",
-            spin = L["Spin"] or "Spin",
+            fade = L["Soft Fade"] or "Soft Fade",
+            pop = L["Elastic Pop"] or "Elastic Pop",
+            spring = L["Spring Rise"] or "Spring Rise",
+            breathe = L["Soft Breathe"] or "Soft Breathe",
+            float = L["Soft Float"] or "Soft Float",
             pixel = L["Pixel Glow"] or "Pixel Glow",
             autocast = L["AutoCast Glow"] or "AutoCast Glow",
             button = L["Button Glow"] or "Button Glow",
             proc = L["Proc Glow"] or "Proc Glow",
         },
+        sorting = { "none", "fade", "pop", "spring", "breathe", "float", "pixel", "autocast", "button", "proc" },
         afterChange = function()
             RefreshOptions()
         end,

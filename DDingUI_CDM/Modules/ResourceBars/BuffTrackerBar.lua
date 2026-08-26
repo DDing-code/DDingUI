@@ -3087,15 +3087,21 @@ end
 -- ============================================================
 local textFrames = {}  -- [barIndex] = textFrame
 
--- Text animation uses the shared animation system defined above
--- ApplyTextAnimation wraps ApplyIconAnimation for text frames with glow settings
-local function ApplyTextAnimation(frame, animationType, glowSettings)
-    ApplyIconAnimation(frame, animationType, glowSettings)
+local function StopTextAnimations(frame)
+    local visuals = DDingUI.RestrictedAuraVisuals
+    if visuals and visuals.StopTextMotion then
+        visuals:StopTextMotion(frame)
+    end
+    StopAllAnimations(frame)
 end
 
--- Alias for stopping all text animations
-local function StopTextAnimations(frame)
-    StopAllAnimations(frame)
+local function ApplyTextAnimation(frame, animationType, glowSettings)
+    StopTextAnimations(frame)
+    local visuals = DDingUI.RestrictedAuraVisuals
+    if visuals and visuals.ApplyTextMotion and visuals:ApplyTextMotion(frame, animationType) then
+        return
+    end
+    ApplyIconAnimation(frame, animationType, glowSettings)
 end
 
 local function HideOtherTrackedBuffDisplays(barIndex, exceptType)
@@ -3122,6 +3128,8 @@ local function HideOtherTrackedBuffDisplays(barIndex, exceptType)
     if exceptType ~= "text" then
         local textFrame = textFrames[barIndex]
         DDingUI:SafeHide(textFrame)
+        StopTextAnimations(textFrame)
+        if textFrame then textFrame._currentAnimation = nil end
         if textFrame and textFrame._alertEvaluationTimer then
             textFrame._alertEvaluationTimer:Cancel()
             textFrame._alertEvaluationTimer = nil
@@ -6088,6 +6096,8 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     -- Also skip hiding if showInCombat is enabled and we're in combat
     if hideWhenZero and not hasData and not containerEligible and not isInMoverMode and not isInPreviewMode then
         if not (showInCombat and inCombat) then
+            StopTextAnimations(textFrame)
+            textFrame._currentAnimation = nil
             textFrame:Hide()
             return
         end
@@ -6349,12 +6359,16 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         if textAuraStyle and auraContainer and auraContainer.SetPresentationVisible then
             auraContainer:SetPresentationVisible(trackedBuff, false)
         end
+        StopTextAnimations(textFrame)
+        textFrame._currentAnimation = nil
         textFrame:Hide()
         return
     end
     if containerEligible and not textAuraAttached and hideWhenZero
         and not (showInCombat and inCombat)
     then
+        StopTextAnimations(textFrame)
+        textFrame._currentAnimation = nil
         textFrame:Hide()
         return
     end

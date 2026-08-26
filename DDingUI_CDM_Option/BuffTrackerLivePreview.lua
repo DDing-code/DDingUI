@@ -164,6 +164,10 @@ end
 
 local function StopPreviewEffects(frame)
     if not frame then return end
+    local visuals = DDingUI.RestrictedAuraVisuals
+    if visuals and visuals.StopTextMotion then
+        visuals:StopTextMotion(frame)
+    end
     if SL and SL.HideAllGlows then
         SL.HideAllGlows(frame, GLOW_KEY)
     end
@@ -223,21 +227,27 @@ local function StartMotion(frame, animationType, iconTexture)
     group:Play()
 end
 
-local function ApplyPreviewEffect(frame, iconTexture, entry)
+local function ApplyPreviewEffect(frame, iconTexture, entry, isText)
     StopPreviewEffects(frame)
-    local animationType = ReadSetting(entry, "iconAnimation", "button")
+    local animationType = ReadSetting(entry, isText and "textAnimation" or "iconAnimation", isText and "none" or "button")
     if animationType == "none" then return end
-    if animationType == "hover" or animationType == "pulse" or animationType == "flash" or animationType == "spin" then
+    if isText then
+        local visuals = DDingUI.RestrictedAuraVisuals
+        if visuals and visuals.ApplyTextMotion and visuals:ApplyTextMotion(frame, animationType) then
+            return
+        end
+    elseif animationType == "hover" or animationType == "pulse" or animationType == "flash" or animationType == "spin" then
         StartMotion(frame, animationType, iconTexture)
         return
     end
 
-    local color = ColorTable(ReadSetting(entry, "glowColor"), { 1, 0.9, 0.5, 1 })
-    local lines = math.floor(Clamp(ReadSetting(entry, "glowLines", 8), 1, 20))
-    local frequency = Clamp(ReadSetting(entry, "glowFrequency", 0.25), 0.05, 2)
-    local thickness = Clamp(ReadSetting(entry, "glowThickness", 2), 1, 10)
-    local xOffset = tonumber(ReadSetting(entry, "glowXOffset", 0)) or 0
-    local yOffset = tonumber(ReadSetting(entry, "glowYOffset", 0)) or 0
+    local prefix = isText and "textGlow" or "glow"
+    local color = ColorTable(ReadSetting(entry, prefix .. "Color"), { 1, 0.9, 0.5, 1 })
+    local lines = math.floor(Clamp(ReadSetting(entry, prefix .. "Lines", 8), 1, 20))
+    local frequency = Clamp(ReadSetting(entry, prefix .. "Frequency", 0.25), 0.05, 2)
+    local thickness = Clamp(ReadSetting(entry, prefix .. "Thickness", 2), 1, 10)
+    local xOffset = tonumber(ReadSetting(entry, prefix .. "XOffset", 0)) or 0
+    local yOffset = tonumber(ReadSetting(entry, prefix .. "YOffset", 0)) or 0
     if animationType == "pixel" or animationType == "shine" then
         if SL and SL.ShowPixelGlow then
             SL.ShowPixelGlow(frame, color, lines, frequency, nil, thickness, xOffset, yOffset, false, GLOW_KEY)
@@ -609,6 +619,7 @@ local function RenderText(preview, entry)
     host.duration:Hide()
     host:SetAlpha(entry.disabled and 0.45 or 1)
     host:Show()
+    if not entry.disabled then ApplyPreviewEffect(host, host.icon, entry, true) end
 end
 
 local function RenderPassive(preview, entry, displayType)
@@ -757,6 +768,7 @@ function Preview:Create(parent)
 
     function frame:ResetVisuals()
         StopPreviewEffects(self.iconVisual)
+        StopPreviewEffects(self.textVisual)
         for _, visual in ipairs(self.visuals) do visual:Hide() end
         self.emptyText:Hide()
     end
@@ -792,6 +804,7 @@ function Preview:Create(parent)
 
     frame:SetScript("OnHide", function(self)
         StopPreviewEffects(self.iconVisual)
+        StopPreviewEffects(self.textVisual)
     end)
     frame:Refresh(nil)
     return frame

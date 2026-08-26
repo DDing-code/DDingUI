@@ -20,13 +20,154 @@ local function Clamp(value, minimum, maximum)
     return value
 end
 
+local TEXT_MOTION_ALIASES = {
+    hover = "float",
+    pulse = "breathe",
+    flash = "focus",
+}
+local TEXT_MOTION_PRESETS = {
+    fade = true,
+    pop = true,
+    spring = true,
+    breathe = true,
+    float = true,
+    focus = true,
+    spin = true,
+}
+local textMotionByFrame = setmetatable({}, { __mode = "k" })
+
+local function AddAlpha(group, order, fromAlpha, toAlpha, duration, smoothing)
+    local animation = group:CreateAnimation("Alpha")
+    animation:SetOrder(order)
+    animation:SetFromAlpha(fromAlpha)
+    animation:SetToAlpha(toAlpha)
+    animation:SetDuration(duration)
+    if smoothing then animation:SetSmoothing(smoothing) end
+    return animation
+end
+
+local function AddScale(group, order, fromScale, toScale, duration, smoothing)
+    local animation = group:CreateAnimation("Scale")
+    animation:SetOrder(order)
+    local setFrom = animation.SetScaleFrom or animation.SetFromScale
+    local setTo = animation.SetScaleTo or animation.SetToScale
+    if setFrom and setTo then
+        setFrom(animation, fromScale, fromScale)
+        setTo(animation, toScale, toScale)
+    else
+        animation:SetScale(toScale / math.max(0.01, fromScale), toScale / math.max(0.01, fromScale))
+    end
+    animation:SetDuration(duration)
+    if smoothing then animation:SetSmoothing(smoothing) end
+    return animation
+end
+
+local function BuildTextMotion(frame, preset)
+    local start
+    local main
+
+    if preset == "fade" then
+        start = frame:CreateAnimationGroup()
+        AddAlpha(start, 1, 0, 1, 0.28, "OUT")
+        AddScale(start, 1, 0.96, 1, 0.28, "OUT")
+    elseif preset == "pop" then
+        start = frame:CreateAnimationGroup()
+        AddAlpha(start, 1, 0, 1, 0.16, "OUT")
+        AddScale(start, 1, 0.72, 1.1, 0.22, "OUT")
+        AddScale(start, 2, 1.1, 0.98, 0.1, "IN_OUT")
+        AddScale(start, 3, 0.98, 1, 0.08, "OUT")
+    elseif preset == "spring" then
+        start = frame:CreateAnimationGroup()
+        AddAlpha(start, 1, 0, 1, 0.14, "OUT")
+        AddScale(start, 1, 0.86, 1.06, 0.16, "OUT")
+        local up = start:CreateAnimation("Translation")
+        up:SetOrder(1)
+        up:SetOffset(0, 5)
+        up:SetDuration(0.16)
+        up:SetSmoothing("OUT")
+        AddScale(start, 2, 1.06, 1, 0.22, "IN_OUT")
+        local settle = start:CreateAnimation("Translation")
+        settle:SetOrder(2)
+        settle:SetOffset(0, -5)
+        settle:SetDuration(0.22)
+        settle:SetSmoothing("IN_OUT")
+    elseif preset == "breathe" then
+        main = frame:CreateAnimationGroup()
+        AddScale(main, 1, 1, 1.035, 0.9, "IN_OUT")
+        AddAlpha(main, 1, 1, 0.82, 0.9, "IN_OUT")
+        AddScale(main, 2, 1.035, 1, 0.9, "IN_OUT")
+        AddAlpha(main, 2, 0.82, 1, 0.9, "IN_OUT")
+        main:SetLooping("REPEAT")
+    elseif preset == "float" then
+        main = frame:CreateAnimationGroup()
+        local up = main:CreateAnimation("Translation")
+        up:SetOrder(1)
+        up:SetOffset(0, 2)
+        up:SetDuration(0.8)
+        up:SetSmoothing("IN_OUT")
+        AddAlpha(main, 1, 1, 0.9, 0.8, "IN_OUT")
+        local down = main:CreateAnimation("Translation")
+        down:SetOrder(2)
+        down:SetOffset(0, -2)
+        down:SetDuration(0.8)
+        down:SetSmoothing("IN_OUT")
+        AddAlpha(main, 2, 0.9, 1, 0.8, "IN_OUT")
+        main:SetLooping("REPEAT")
+    elseif preset == "focus" then
+        main = frame:CreateAnimationGroup()
+        AddAlpha(main, 1, 1, 0.58, 0.34, "IN_OUT")
+        AddAlpha(main, 2, 0.58, 1, 0.52, "IN_OUT")
+        main:SetLooping("REPEAT")
+    elseif preset == "spin" then
+        main = frame:CreateAnimationGroup()
+        local spin = main:CreateAnimation("Rotation")
+        spin:SetOrder(1)
+        spin:SetDegrees(360)
+        spin:SetDuration(2.8)
+        main:SetLooping("REPEAT")
+    end
+
+    return { start = start, main = main }
+end
+
+function Visuals:StopTextMotion(frame)
+    local state = frame and textMotionByFrame[frame]
+    local record = state and state.active
+    if not record then return end
+    if record.start and record.start:IsPlaying() then record.start:Stop() end
+    if record.main and record.main:IsPlaying() then record.main:Stop() end
+    state.active = nil
+end
+
+function Visuals:ApplyTextMotion(frame, motionType)
+    self:StopTextMotion(frame)
+    if not frame or type(motionType) ~= "string" then return false end
+
+    local preset = TEXT_MOTION_ALIASES[motionType:lower()] or motionType:lower()
+    if not TEXT_MOTION_PRESETS[preset] then return false end
+
+    local state = textMotionByFrame[frame]
+    if not state then
+        state = { presets = {} }
+        textMotionByFrame[frame] = state
+    end
+    local record = state.presets[preset]
+    if not record then
+        record = BuildTextMotion(frame, preset)
+        state.presets[preset] = record
+    end
+    state.active = record
+    if record.start then record.start:Play() end
+    if record.main then record.main:Play() end
+    return true
+end
+
 local function ResolveGlowType(style)
     local value = style and (style.iconAnimation or style.glowType)
     if type(value) ~= "string" then return nil end
 
     value = value:lower()
-    if value == "none" or value == "hover" or value == "pulse"
-        or value == "flash" or value == "spin"
+    if value == "none" or TEXT_MOTION_ALIASES[value] or TEXT_MOTION_PRESETS[value]
     then
         return nil
     elseif value:find("proc", 1, true) or value:find("blizzard", 1, true) then

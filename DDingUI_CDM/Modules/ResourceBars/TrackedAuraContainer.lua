@@ -698,6 +698,10 @@ local function CreateTextInitializer(proxy, desired, style)
         if style.showDurationText and style.textDisplayMode ~= "duration" then
             RegisterDurationText(button, CreateBoundText(button, style, "duration"), desired.durationDecimals)
         end
+        local visuals = DDingUI.RestrictedAuraVisuals
+        if visuals and visuals.ApplyTextMotion then
+            visuals:ApplyTextMotion(button, style.iconAnimation)
+        end
         StartContainerGlow(button, style)
     end
 end
