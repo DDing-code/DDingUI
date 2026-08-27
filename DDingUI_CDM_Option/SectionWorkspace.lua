@@ -638,6 +638,7 @@ local DASHBOARD_GROUP_LABEL_KEYS = {
     Buffs = "Buff Icons",
     Utility = "Utility Cooldowns",
 }
+local DASHBOARD_PREVIEW_ZOOM = 1.65
 
 local function DashboardNumber(value)
     if issecretvalue and issecretvalue(value) then return nil end
@@ -692,6 +693,27 @@ local function DashboardConfiguredRect(config, width, height, uiRect)
     }
 end
 
+local function DashboardViewportRect(rects, uiRect)
+    local centerX = uiRect.left + uiRect.width * 0.5
+    local centerY = uiRect.bottom + uiRect.height * 0.5
+    local zoom = DASHBOARD_PREVIEW_ZOOM
+    for _, rect in pairs(rects) do
+        local halfWidth = math.max(math.abs(rect.left - centerX), math.abs(rect.left + rect.width - centerX))
+        local halfHeight = math.max(math.abs(rect.bottom - centerY), math.abs(rect.bottom + rect.height - centerY))
+        if halfWidth > 0 then zoom = math.min(zoom, uiRect.width * 0.46 / halfWidth) end
+        if halfHeight > 0 then zoom = math.min(zoom, uiRect.height * 0.46 / halfHeight) end
+    end
+    zoom = Clamp(zoom, 1, DASHBOARD_PREVIEW_ZOOM)
+    local width, height = uiRect.width / zoom, uiRect.height / zoom
+    return {
+        left = centerX - width * 0.5,
+        bottom = centerY - height * 0.5,
+        width = width,
+        height = height,
+        zoom = zoom,
+    }
+end
+
 local function DashboardIconTexture(icon)
     if not icon then return nil end
     local ok, texture = pcall(function()
@@ -711,6 +733,7 @@ end
 
 local function DashboardGroupTextures(frame, settings)
     local textures = {}
+    local iconFrames = {}
     local managed, count
     if frame then
         pcall(function()
@@ -722,6 +745,7 @@ local function DashboardGroupTextures(frame, settings)
         count = math.min(24, math.max(0, count or #managed))
         for index = 1, count do
             textures[#textures + 1] = DashboardIconTexture(managed[index]) or 136243
+            iconFrames[index] = managed[index]
         end
     end
     if #textures == 0 and type(settings.iconOrder) == "table" then
@@ -732,7 +756,7 @@ local function DashboardGroupTextures(frame, settings)
     if #textures == 0 then
         for index = 1, 4 do textures[index] = 136243 end
     end
-    return textures
+    return textures, iconFrames
 end
 
 local function DashboardGroupSize(settings, count)
@@ -781,7 +805,7 @@ local function BuildDashboardDescriptors()
     for _, group in ipairs(groups) do
         local frame = DDingUI.GroupRenderer and DDingUI.GroupRenderer.groupFrames
             and DDingUI.GroupRenderer.groupFrames[group.name]
-        local textures = DashboardGroupTextures(frame, group.settings)
+        local textures, iconFrames = DashboardGroupTextures(frame, group.settings)
         local width, height = DashboardGroupSize(group.settings, #textures)
         descriptors[#descriptors + 1] = {
             key = "group:" .. group.name,
@@ -794,6 +818,7 @@ local function BuildDashboardDescriptors()
             width = width,
             height = height,
             textures = textures,
+            iconFrames = iconFrames,
             enabled = group.settings.enabled ~= false,
         }
     end
@@ -1100,14 +1125,48 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
         return slot
     end
 
-    function workspace:LayoutIconNode(node, uiRect)
+    function workspace:LayoutIconNode(node, viewRect, sourceRect)
         local descriptor = node.descriptor
         local config = descriptor.config or {}
         local count = #descriptor.textures
         local stageWidth, stageHeight = self.stage:GetWidth(), self.stage:GetHeight()
-        local iconHeight = Clamp((tonumber(config.iconSize) or 36) * stageHeight / uiRect.height, 7, 28)
+        local exactRects = {}
+        local useExactRects = #descriptor.iconFrames == count and count > 0
+        if useExactRects then
+            for index = 1, count do
+                exactRects[index] = DashboardFrameRect(descriptor.iconFrames[index])
+                if not exactRects[index] then
+                    useExactRects = false
+                    break
+                end
+            end
+        end
+        if useExactRects then
+            for index = 1, count do
+                local rect = exactRects[index]
+                local slot = self:AcquireIconSlot(node, index)
+                slot:ClearAllPoints()
+                slot:SetPoint("BOTTOMLEFT", node, "BOTTOMLEFT",
+                    (rect.left - sourceRect.left) * stageWidth / viewRect.width,
+                    (rect.bottom - sourceRect.bottom) * stageHeight / viewRect.height)
+                slot:SetSize(math.max(1, rect.width * stageWidth / viewRect.width),
+                    math.max(1, rect.height * stageHeight / viewRect.height))
+                local texture = descriptor.textures[index] or 136243
+                if slot._texture ~= texture then
+                    slot.texture:SetTexture(texture)
+                    slot._texture = texture
+                end
+                slot:Show()
+            end
+            for index = count + 1, #node.icons do node.icons[index]:Hide() end
+            node.fill:Hide()
+            node.text:Hide()
+            return
+        end
+
+        local iconHeight = Clamp((tonumber(config.iconSize) or 36) * stageHeight / viewRect.height, 7, 28)
         local iconWidth = iconHeight * math.max(0.5, tonumber(config.aspectRatioCrop) or 1)
-        local spacing = Clamp((tonumber(config.spacing) or 2) * stageWidth / uiRect.width, 0, 4)
+        local spacing = Clamp((tonumber(config.spacing) or 2) * stageWidth / viewRect.width, 0, 4)
         local limit = math.max(1, math.min(count, tonumber(config.rowLimit) or count))
         local horizontal = config.direction ~= "UP" and config.direction ~= "DOWN"
         local nodeWidth, nodeHeight = node:GetWidth(), node:GetHeight()
@@ -1163,22 +1222,28 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
         local uiRect = DashboardFrameRect(UIParent)
         local stageWidth, stageHeight = self.stage:GetWidth(), self.stage:GetHeight()
         if not uiRect or not stageWidth or not stageHeight or stageWidth <= 1 or stageHeight <= 1 then return end
-        local meta = string.format("UIParent %.0f × %.0f  ·  %.2f",
-            uiRect.width, uiRect.height, UIParent:GetScale() or 1)
+        local rects = {}
+        for index, node in ipairs(self.nodes) do
+            local descriptor = node.descriptor
+            rects[index] = DashboardFrameRect(descriptor.frame)
+                or DashboardConfiguredRect(descriptor.config, descriptor.width, descriptor.height, uiRect)
+        end
+        local viewRect = DashboardViewportRect(rects, uiRect)
+        local meta = string.format("UIParent %.0f × %.0f  ·  %.2fx",
+            uiRect.width, uiRect.height, viewRect.zoom)
         if self._stageMeta ~= meta then
             self.stageHeader.meta:SetText(meta)
             self._stageMeta = meta
         end
         local visible = 0
-        for _, node in ipairs(self.nodes) do
+        for index, node in ipairs(self.nodes) do
             local descriptor = node.descriptor
-            local rect = DashboardFrameRect(descriptor.frame)
-                or DashboardConfiguredRect(descriptor.config, descriptor.width, descriptor.height, uiRect)
+            local rect = rects[index]
             if rect then
-                local x = (rect.left - uiRect.left) * stageWidth / uiRect.width
-                local y = (rect.bottom - uiRect.bottom) * stageHeight / uiRect.height
-                local width = math.max(descriptor.kind == "bar" and 22 or 8, rect.width * stageWidth / uiRect.width)
-                local height = math.max(descriptor.kind == "bar" and 5 or 8, rect.height * stageHeight / uiRect.height)
+                local x = (rect.left - viewRect.left) * stageWidth / viewRect.width
+                local y = (rect.bottom - viewRect.bottom) * stageHeight / viewRect.height
+                local width = math.max(descriptor.kind == "bar" and 22 or 8, rect.width * stageWidth / viewRect.width)
+                local height = math.max(descriptor.kind == "bar" and 5 or 8, rect.height * stageHeight / viewRect.height)
                 node:ClearAllPoints()
                 node:SetPoint("BOTTOMLEFT", self.stage, "BOTTOMLEFT", x, y)
                 node:Show()
@@ -1189,7 +1254,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
                     node._layoutWidth, node._layoutHeight = width, height
                     node._layoutStageWidth, node._layoutStageHeight = stageWidth, stageHeight
                     if descriptor.kind == "icons" then
-                        self:LayoutIconNode(node, uiRect)
+                        self:LayoutIconNode(node, viewRect, rect)
                     else
                         self:LayoutBarNode(node)
                     end
