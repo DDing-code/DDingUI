@@ -22,7 +22,10 @@ def test_dashboard_workspace_contract():
     assert "DashboardFrameRect(descriptor.frame)" in dashboard
     assert "DASHBOARD_PREVIEW_MAX_ZOOM = 3.2" in WORKSPACE
     assert "left = left and math.min(left, rect.left)" in WORKSPACE
-    assert 'descriptor.kind == "icons" and DashboardFramesRect(descriptor.iconFrames)' in dashboard
+    assert 'if descriptor.kind == "icons" then' in dashboard
+    assert "DashboardFramesRect(descriptor.iconFrames)" in dashboard
+    assert "DASHBOARD_REPRESENTATIVE_ICON_COUNT = 4" in WORKSPACE
+    assert "#textures == 0 and hasRuntimeIcons" in WORKSPACE
     assert "icon.Icon or icon.icon or icon.Texture" in WORKSPACE
     assert "DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])" in WORKSPACE
     assert "renderer.IsManagedIconInLayout" in WORKSPACE

@@ -639,6 +639,7 @@ local DASHBOARD_GROUP_LABEL_KEYS = {
     Utility = "Utility Cooldowns",
 }
 local DASHBOARD_PREVIEW_MAX_ZOOM = 3.2
+local DASHBOARD_REPRESENTATIVE_ICON_COUNT = 4
 local DASHBOARD_FALLBACK_ICON = DDingUI.GroupSystemIconTextures
     and DDingUI.GroupSystemIconTextures.DEFAULT_BUFF_ICON_TEXTURE or 134400
 local DASHBOARD_ICON_RUNTIME = DDingUI.GroupSystemIconTextures
@@ -810,13 +811,22 @@ local function DashboardGroupTextures(frame, settings)
             end
         end
     end
+    if #textures == 0 and hasRuntimeIcons then
+        for index = 1, math.min(DASHBOARD_REPRESENTATIVE_ICON_COUNT, count) do
+            textures[#textures + 1] = DashboardIconTexture(managed[index])
+                or DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])
+                or DASHBOARD_FALLBACK_ICON
+        end
+    end
     if #textures == 0 and not hasRuntimeIcons and type(settings.iconOrder) == "table" then
         for index = 1, math.min(24, #settings.iconOrder) do
             textures[index] = DashboardTokenTexture(settings.iconOrder[index]) or DASHBOARD_FALLBACK_ICON
         end
     end
-    if #textures == 0 and not hasRuntimeIcons then
-        for index = 1, 4 do textures[index] = DASHBOARD_FALLBACK_ICON end
+    if #textures == 0 then
+        for index = 1, DASHBOARD_REPRESENTATIVE_ICON_COUNT do
+            textures[index] = DASHBOARD_FALLBACK_ICON
+        end
     end
     return textures, iconFrames
 end
@@ -1294,9 +1304,13 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
         local rects = {}
         for index, node in ipairs(self.nodes) do
             local descriptor = node.descriptor
-            rects[index] = (descriptor.kind == "icons" and DashboardFramesRect(descriptor.iconFrames))
-                or DashboardFrameRect(descriptor.frame)
-                or DashboardConfiguredRect(descriptor.config, descriptor.width, descriptor.height, uiRect)
+            if descriptor.kind == "icons" then
+                rects[index] = DashboardFramesRect(descriptor.iconFrames)
+                    or DashboardConfiguredRect(descriptor.config, descriptor.width, descriptor.height, uiRect)
+            else
+                rects[index] = DashboardFrameRect(descriptor.frame)
+                    or DashboardConfiguredRect(descriptor.config, descriptor.width, descriptor.height, uiRect)
+            end
         end
         local viewRect = DashboardViewportRect(rects, uiRect)
         local meta = string.format("UIParent %.0f × %.0f  ·  %.2fx",
