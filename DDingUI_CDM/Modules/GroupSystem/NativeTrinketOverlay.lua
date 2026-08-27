@@ -77,33 +77,20 @@ local function ReadProcActive(frame)
             active = value
         end
     end
-    if active ~= nil then
-        return active
-    end
+    if active == true then return true end
 
     local auraInstanceID = frame.auraInstanceID
     if IsSecret(auraInstanceID) then
         return true
     end
-    if type(auraInstanceID) == "number" then
-        return auraInstanceID ~= 0
-    end
-
-    active = frame.isActive
-    if not IsSecret(active) and type(active) == "boolean" then
-        return active
-    end
+    if type(auraInstanceID) == "number" and auraInstanceID ~= 0 then return true end
 
     local wasSetFromAura = frame.wasSetFromAura
-    if not IsSecret(wasSetFromAura) and type(wasSetFromAura) == "boolean" then
-        return wasSetFromAura
-    end
+    if not IsSecret(wasSetFromAura) and wasSetFromAura == true then return true end
 
-    if type(frame.IsActive) ~= "function" and type(frame.IsShown) == "function" then
+    if type(frame.IsShown) == "function" then
         local ok, shown = pcall(frame.IsShown, frame)
-        if ok and not IsSecret(shown) and type(shown) == "boolean" then
-            return shown
-        end
+        if ok and not IsSecret(shown) and shown == true then return true end
     end
     return false
 end
@@ -160,6 +147,24 @@ local function ApplyPairState(pair)
         local active = pairByProcFrame[procFrame] == pair and ReadProcActive(procFrame)
         effect.active = active
         procFrame._ddNativeTrinketActive = active and true or nil
+        if active and not effect.visualActive and procFrame._ddTexSnapHooked then
+            local icon = procFrame.icon or procFrame.Icon
+            if icon then
+                if icon.SetDesaturated then pcall(icon.SetDesaturated, icon, false) end
+                if icon.SetDesaturation then pcall(icon.SetDesaturation, icon, 0) end
+            end
+            local visualApplied = false
+            local cooldown = effect.cooldown or GetCooldown(procFrame)
+            if cooldown and cooldown.GetSwipeColor and cooldown.SetSwipeColor then
+                local ok, r, g, b, a = pcall(cooldown.GetSwipeColor, cooldown)
+                if ok then
+                    visualApplied = pcall(cooldown.SetSwipeColor, cooldown, r, g, b, a)
+                end
+            end
+            effect.visualActive = visualApplied and true or nil
+        elseif not active then
+            effect.visualActive = nil
+        end
         if active and not activeEffect then
             activeEffect = effect
         end

@@ -95,6 +95,7 @@ local function IconHasAuraState(icon, cooldown)
     if IsManagedDynamicIcon(icon) then
         if FrameFlagIsTrue(icon, "_auraWasActive")
             or FrameFlagIsTrue(icon, "_trinketProcWasActive")
+            or FrameFlagIsTrue(icon, "_ddNativeTrinketActive")
             or FrameTimeIsFuture(icon, "_ddTimedAuraActiveUntil")
             or FrameTimeIsFuture(icon, "_ddAuraActiveUntil")
             or FrameTimeIsFuture(icon, "_ddProcActiveUntil")
