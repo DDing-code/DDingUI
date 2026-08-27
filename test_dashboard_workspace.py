@@ -22,6 +22,9 @@ def test_dashboard_workspace_contract():
     assert "DASHBOARD_PREVIEW_MAX_ZOOM = 3.2" in WORKSPACE
     assert "left = left and math.min(left, rect.left)" in WORKSPACE
     assert 'descriptor.kind == "icons" and DashboardFramesRect(descriptor.iconFrames)' in dashboard
+    assert "icon.Icon or icon.icon or icon.Texture" in WORKSPACE
+    assert "DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])" in WORKSPACE
+    assert "bridge.ApplyTexCoordCrop(slot.texture" in dashboard
     assert "DashboardFrameRect(descriptor.iconFrames[index])" in dashboard
     assert "DashboardViewportRect(rects, uiRect)" in dashboard
     assert "parentFrame:NavigateToSection(self.descriptor.target)" in dashboard

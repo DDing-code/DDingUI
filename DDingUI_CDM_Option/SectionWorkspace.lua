@@ -639,6 +639,10 @@ local DASHBOARD_GROUP_LABEL_KEYS = {
     Utility = "Utility Cooldowns",
 }
 local DASHBOARD_PREVIEW_MAX_ZOOM = 3.2
+local DASHBOARD_FALLBACK_ICON = DDingUI.GroupSystemIconTextures
+    and DDingUI.GroupSystemIconTextures.DEFAULT_BUFF_ICON_TEXTURE or 134400
+local DASHBOARD_ICON_RUNTIME = DDingUI.GroupSystemIconTextures
+    and DDingUI.GroupSystemIconTextures:CreateRuntime()
 
 local function DashboardNumber(value)
     if issecretvalue and issecretvalue(value) then return nil end
@@ -746,8 +750,11 @@ end
 local function DashboardIconTexture(icon)
     if not icon then return nil end
     local ok, texture = pcall(function()
-        local region = icon.Icon or icon.icon or icon.IconTexture or icon.texture
-        return region and region.GetTexture and region:GetTexture() or nil
+        local region = icon.Icon or icon.icon or icon.Texture or icon.IconTexture or icon.iconTexture or icon.texture
+        if region and region.GetTexture then return region:GetTexture() end
+        if type(region) == "number" or type(region) == "string" then return region end
+        if region and region.Icon and region.Icon.GetTexture then return region.Icon:GetTexture() end
+        return icon._fallbackTexture
     end)
     return ok and DashboardTexture(texture) or nil
 end
@@ -755,7 +762,20 @@ end
 local function DashboardTokenTexture(token)
     local id = type(token) == "number" and token
         or type(token) == "string" and tonumber(token:match("(%d+)"))
-    if not id or not C_Spell or not C_Spell.GetSpellTexture then return nil end
+    if not id then return nil end
+    if DASHBOARD_ICON_RUNTIME and DDingUI.CDMCompat and DDingUI.CDMCompat.GetCooldownInfo then
+        local ok, info = pcall(DDingUI.CDMCompat.GetCooldownInfo, DDingUI.CDMCompat, id)
+        if ok and info then
+            local candidates = DASHBOARD_ICON_RUNTIME.GetCooldownInfoSpellCandidates(info, id)
+            return DashboardTexture(DASHBOARD_ICON_RUNTIME.ResolveSpellTextureFromCandidates(candidates))
+        end
+    end
+    if type(token) == "string" and token:lower():find("item", 1, true)
+        and DASHBOARD_ICON_RUNTIME and DASHBOARD_ICON_RUNTIME.SafeOptionItemTexture
+    then
+        return DashboardTexture(DASHBOARD_ICON_RUNTIME.SafeOptionItemTexture(id))
+    end
+    if not C_Spell or not C_Spell.GetSpellTexture then return nil end
     local ok, texture = pcall(C_Spell.GetSpellTexture, id)
     return ok and DashboardTexture(texture) or nil
 end
@@ -773,17 +793,19 @@ local function DashboardGroupTextures(frame, settings)
     if type(managed) == "table" then
         count = math.min(24, math.max(0, count or #managed))
         for index = 1, count do
-            textures[#textures + 1] = DashboardIconTexture(managed[index]) or 136243
+            textures[#textures + 1] = DashboardIconTexture(managed[index])
+                or DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])
+                or DASHBOARD_FALLBACK_ICON
             iconFrames[index] = managed[index]
         end
     end
     if #textures == 0 and type(settings.iconOrder) == "table" then
         for index = 1, math.min(24, #settings.iconOrder) do
-            textures[index] = DashboardTokenTexture(settings.iconOrder[index]) or 136243
+            textures[index] = DashboardTokenTexture(settings.iconOrder[index]) or DASHBOARD_FALLBACK_ICON
         end
     end
     if #textures == 0 then
-        for index = 1, 4 do textures[index] = 136243 end
+        for index = 1, 4 do textures[index] = DASHBOARD_FALLBACK_ICON end
     end
     return textures, iconFrames
 end
@@ -1154,6 +1176,21 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
         return slot
     end
 
+    function workspace:SetIconSlotTexture(slot, texture, config)
+        texture = texture or DASHBOARD_FALLBACK_ICON
+        if slot._texture ~= texture then
+            slot.texture:SetTexture(texture)
+            slot._texture = texture
+        end
+        local bridge = DDingUI.DynamicIconBridge
+        if bridge and bridge.ApplyTexCoordCrop then
+            bridge.ApplyTexCoordCrop(slot.texture, tonumber(config.zoom) or 0.08,
+                tonumber(config.aspectRatioCrop) or 1)
+        else
+            slot.texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
+    end
+
     function workspace:LayoutIconNode(node, viewRect, sourceRect)
         local descriptor = node.descriptor
         local config = descriptor.config or {}
@@ -1180,11 +1217,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
                     (rect.bottom - sourceRect.bottom) * stageHeight / viewRect.height)
                 slot:SetSize(math.max(1, rect.width * stageWidth / viewRect.width),
                     math.max(1, rect.height * stageHeight / viewRect.height))
-                local texture = descriptor.textures[index] or 136243
-                if slot._texture ~= texture then
-                    slot.texture:SetTexture(texture)
-                    slot._texture = texture
-                end
+                self:SetIconSlotTexture(slot, descriptor.textures[index], config)
                 slot:Show()
             end
             for index = count + 1, #node.icons do node.icons[index]:Hide() end
@@ -1222,11 +1255,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
             slot:ClearAllPoints()
             slot:SetPoint("BOTTOMLEFT", node, "BOTTOMLEFT", x, y)
             slot:SetSize(iconWidth, iconHeight)
-            local texture = descriptor.textures[index] or 136243
-            if slot._texture ~= texture then
-                slot.texture:SetTexture(texture)
-                slot._texture = texture
-            end
+            self:SetIconSlotTexture(slot, descriptor.textures[index], config)
             slot:Show()
         end
         for index = count + 1, #node.icons do node.icons[index]:Hide() end
