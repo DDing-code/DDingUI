@@ -638,7 +638,7 @@ local DASHBOARD_GROUP_LABEL_KEYS = {
     Buffs = "Buff Icons",
     Utility = "Utility Cooldowns",
 }
-local DASHBOARD_PREVIEW_ZOOM = 1.65
+local DASHBOARD_PREVIEW_MAX_ZOOM = 2.25
 
 local function DashboardNumber(value)
     if issecretvalue and issecretvalue(value) then return nil end
@@ -694,17 +694,32 @@ local function DashboardConfiguredRect(config, width, height, uiRect)
 end
 
 local function DashboardViewportRect(rects, uiRect)
-    local centerX = uiRect.left + uiRect.width * 0.5
-    local centerY = uiRect.bottom + uiRect.height * 0.5
-    local zoom = DASHBOARD_PREVIEW_ZOOM
+    local left, right, bottom, top
     for _, rect in pairs(rects) do
-        local halfWidth = math.max(math.abs(rect.left - centerX), math.abs(rect.left + rect.width - centerX))
-        local halfHeight = math.max(math.abs(rect.bottom - centerY), math.abs(rect.bottom + rect.height - centerY))
-        if halfWidth > 0 then zoom = math.min(zoom, uiRect.width * 0.46 / halfWidth) end
-        if halfHeight > 0 then zoom = math.min(zoom, uiRect.height * 0.46 / halfHeight) end
+        left = left and math.min(left, rect.left) or rect.left
+        right = right and math.max(right, rect.left + rect.width) or (rect.left + rect.width)
+        bottom = bottom and math.min(bottom, rect.bottom) or rect.bottom
+        top = top and math.max(top, rect.bottom + rect.height) or (rect.bottom + rect.height)
     end
-    zoom = Clamp(zoom, 1, DASHBOARD_PREVIEW_ZOOM)
+    if not left then
+        return {
+            left = uiRect.left,
+            bottom = uiRect.bottom,
+            width = uiRect.width,
+            height = uiRect.height,
+            zoom = 1,
+        }
+    end
+
+    local zoom = math.min(DASHBOARD_PREVIEW_MAX_ZOOM,
+        uiRect.width * 0.84 / math.max(1, right - left),
+        uiRect.height * 0.84 / math.max(1, top - bottom))
+    zoom = Clamp(zoom, 1, DASHBOARD_PREVIEW_MAX_ZOOM)
     local width, height = uiRect.width / zoom, uiRect.height / zoom
+    local centerX = Clamp((left + right) * 0.5,
+        uiRect.left + width * 0.5, uiRect.left + uiRect.width - width * 0.5)
+    local centerY = Clamp((bottom + top) * 0.5,
+        uiRect.bottom + height * 0.5, uiRect.bottom + uiRect.height - height * 0.5)
     return {
         left = centerX - width * 0.5,
         bottom = centerY - height * 0.5,
