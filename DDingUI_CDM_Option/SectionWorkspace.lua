@@ -638,7 +638,7 @@ local DASHBOARD_GROUP_LABEL_KEYS = {
     Buffs = "Buff Icons",
     Utility = "Utility Cooldowns",
 }
-local DASHBOARD_PREVIEW_MAX_ZOOM = 2.25
+local DASHBOARD_PREVIEW_MAX_ZOOM = 3.2
 
 local function DashboardNumber(value)
     if issecretvalue and issecretvalue(value) then return nil end
@@ -662,6 +662,20 @@ local function DashboardFrameRect(frame)
     width, height = DashboardNumber(width), DashboardNumber(height)
     if not left or not bottom or not width or not height or width <= 0 or height <= 0 then return nil end
     return { left = left, bottom = bottom, width = width, height = height }
+end
+
+local function DashboardFramesRect(frames)
+    if type(frames) ~= "table" or #frames == 0 then return nil end
+    local left, right, bottom, top
+    for _, frame in ipairs(frames) do
+        local rect = DashboardFrameRect(frame)
+        if not rect then return nil end
+        left = left and math.min(left, rect.left) or rect.left
+        right = right and math.max(right, rect.left + rect.width) or (rect.left + rect.width)
+        bottom = bottom and math.min(bottom, rect.bottom) or rect.bottom
+        top = top and math.max(top, rect.bottom + rect.height) or (rect.bottom + rect.height)
+    end
+    return { left = left, bottom = bottom, width = right - left, height = top - bottom }
 end
 
 local function DashboardPoint(rect, point)
@@ -1240,7 +1254,8 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
         local rects = {}
         for index, node in ipairs(self.nodes) do
             local descriptor = node.descriptor
-            rects[index] = DashboardFrameRect(descriptor.frame)
+            rects[index] = (descriptor.kind == "icons" and DashboardFramesRect(descriptor.iconFrames))
+                or DashboardFrameRect(descriptor.frame)
                 or DashboardConfiguredRect(descriptor.config, descriptor.width, descriptor.height, uiRect)
         end
         local viewRect = DashboardViewportRect(rects, uiRect)

@@ -19,8 +19,9 @@ def test_dashboard_workspace_contract():
     assert 'L["General Settings"] = "대시보드"' in KO
     assert 'requestedKind == "general" and not (requestedPath and #requestedPath > 0)' in WORKSPACE
     assert "DashboardFrameRect(descriptor.frame)" in dashboard
-    assert "DASHBOARD_PREVIEW_MAX_ZOOM = 2.25" in WORKSPACE
+    assert "DASHBOARD_PREVIEW_MAX_ZOOM = 3.2" in WORKSPACE
     assert "left = left and math.min(left, rect.left)" in WORKSPACE
+    assert 'descriptor.kind == "icons" and DashboardFramesRect(descriptor.iconFrames)' in dashboard
     assert "DashboardFrameRect(descriptor.iconFrames[index])" in dashboard
     assert "DashboardViewportRect(rects, uiRect)" in dashboard
     assert "parentFrame:NavigateToSection(self.descriptor.target)" in dashboard
