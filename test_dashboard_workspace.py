@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 WORKSPACE = (ROOT / "DDingUI_CDM_Option/SectionWorkspace.lua").read_text(encoding="utf-8")
+GROUP_RENDERER = (ROOT / "DDingUI_CDM/Modules/GroupSystem/GroupRenderer.lua").read_text(encoding="utf-8")
 EN = (ROOT / "DDingUI_CDM_Option/Locales/enUS.lua").read_text(encoding="utf-8")
 KO = (ROOT / "DDingUI_CDM_Option/Locales/koKR.lua").read_text(encoding="utf-8")
 
@@ -24,6 +25,11 @@ def test_dashboard_workspace_contract():
     assert 'descriptor.kind == "icons" and DashboardFramesRect(descriptor.iconFrames)' in dashboard
     assert "icon.Icon or icon.icon or icon.Texture" in WORKSPACE
     assert "DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])" in WORKSPACE
+    assert "renderer.IsManagedIconInLayout" in WORKSPACE
+    assert "not hasRuntimeIcons" in WORKSPACE
+    assert "function GroupRenderer:IsManagedIconInLayout(icon)" in GROUP_RENDERER
+    assert "not icon._ddStateFiltered" in GROUP_RENDERER
+    assert "not icon._ddOverflowFiltered" in GROUP_RENDERER
     assert "bridge.ApplyTexCoordCrop(slot.texture" in dashboard
     assert "DashboardFrameRect(descriptor.iconFrames[index])" in dashboard
     assert "DashboardViewportRect(rects, uiRect)" in dashboard

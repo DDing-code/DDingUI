@@ -790,21 +790,32 @@ local function DashboardGroupTextures(frame, settings)
             count = DashboardNumber(frame._iconCount)
         end)
     end
-    if type(managed) == "table" then
-        count = math.min(24, math.max(0, count or #managed))
+    local hasRuntimeIcons = type(managed) == "table" and (count or #managed) > 0
+    if hasRuntimeIcons then
+        count = math.max(0, count or #managed)
         for index = 1, count do
-            textures[#textures + 1] = DashboardIconTexture(managed[index])
-                or DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])
-                or DASHBOARD_FALLBACK_ICON
-            iconFrames[index] = managed[index]
+            local icon = managed[index]
+            local include = true
+            local renderer = DDingUI.GroupRenderer
+            if renderer and renderer.IsManagedIconInLayout then
+                local ok, inLayout = pcall(renderer.IsManagedIconInLayout, renderer, icon)
+                include = ok and inLayout == true
+            end
+            if include then
+                textures[#textures + 1] = DashboardIconTexture(icon)
+                    or DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])
+                    or DASHBOARD_FALLBACK_ICON
+                iconFrames[#iconFrames + 1] = icon
+                if #textures == 24 then break end
+            end
         end
     end
-    if #textures == 0 and type(settings.iconOrder) == "table" then
+    if #textures == 0 and not hasRuntimeIcons and type(settings.iconOrder) == "table" then
         for index = 1, math.min(24, #settings.iconOrder) do
             textures[index] = DashboardTokenTexture(settings.iconOrder[index]) or DASHBOARD_FALLBACK_ICON
         end
     end
-    if #textures == 0 then
+    if #textures == 0 and not hasRuntimeIcons then
         for index = 1, 4 do textures[index] = DASHBOARD_FALLBACK_ICON end
     end
     return textures, iconFrames

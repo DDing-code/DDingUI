@@ -834,6 +834,12 @@ local function ShouldLayoutManagedIcon(icon)
     return icon:IsShown()
 end
 
+function GroupRenderer:IsManagedIconInLayout(icon)
+    return ShouldLayoutManagedIcon(icon)
+        and not icon._ddStateFiltered
+        and not icon._ddOverflowFiltered
+end
+
 local function IsSecretValue(value)
     return type(issecretvalue) == "function" and issecretvalue(value)
 end
