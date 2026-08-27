@@ -15,6 +15,9 @@ def test_dashboard_workspace_contract():
     signature = WORKSPACE.split("local function DashboardSourceSignature", 1)[1].split(
         "local function CreateDashboardQuickRow", 1
     )[0]
+    descriptors = WORKSPACE.split("local function BuildDashboardDescriptors", 1)[1].split(
+        "local function DashboardSourceSignature", 1
+    )[0]
 
     assert 'L["General Settings"] = "Dashboard"' in EN
     assert 'L["General Settings"] = "대시보드"' in KO
@@ -38,6 +41,8 @@ def test_dashboard_workspace_contract():
     assert "DashboardViewportRect(rects, uiRect)" in dashboard
     assert "parentFrame:NavigateToSection(self.descriptor.target)" in dashboard
     assert 'target = "groupSystem.group_" .. group.name' in WORKSPACE
+    assert 'groupName ~= "Utility"' in descriptors
+    assert 'AddBar("trackedBars"' not in descriptors
     assert '"resourceBars.primary"' in WORKSPACE
     assert "DDingUI.secondaryPowerBar, secondary," in WORKSPACE
     assert '"castBars.general"' in WORKSPACE

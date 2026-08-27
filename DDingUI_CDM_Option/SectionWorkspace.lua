@@ -864,11 +864,13 @@ local function BuildDashboardDescriptors()
     local groupStore = profile.groupSystem and profile.groupSystem.groups or {}
     local groups = {}
     for groupName, settings in pairs(groupStore) do
-        groups[#groups + 1] = {
-            name = groupName,
-            settings = settings,
-            order = tonumber(settings.order) or 999,
-        }
+        if groupName ~= "Utility" then
+            groups[#groups + 1] = {
+                name = groupName,
+                settings = settings,
+                order = tonumber(settings.order) or 999,
+            }
+        end
     end
     table.sort(groups, function(a, b)
         if a.order ~= b.order then return a.order < b.order end
@@ -938,11 +940,6 @@ local function BuildDashboardDescriptors()
             math.max(12, trackedConfig.height or 16), trackedConfig.barColor or { 1, 0.8, 0, 1 })
     end
 
-    local trackedBar = profile.buffBarViewer or {}
-    AddBar("trackedBars", T("Tracked Bars", "추적중인 막대"), "buffBar",
-        _G["BuffBarCooldownViewer"], trackedBar,
-        trackedBar.width and trackedBar.width > 0 and trackedBar.width or 430,
-        trackedBar.height or 16, trackedBar.barColor or { 0.88, 0.73, 0.18, 1 })
     return descriptors
 end
 
