@@ -7,6 +7,14 @@ SKINNING = (ROOT / "DDingUI_CDM/Modules/IconViewers/IconSkinning.lua").read_text
 
 
 def main():
+    identity_reader = OVERLAY.split("local function GetEquipmentIdentity", 1)[1].split(
+        "local function FindIcon", 1
+    )[0]
+    assert identity_reader.index("GetCooldownInfo(cooldownID, true)") < identity_reader.index(
+        "GetFrameCooldownInfo(frame)"
+    )
+    assert "categoryLookup[cooldownID]" not in identity_reader
+
     active_reader = OVERLAY.split("local function ReadProcActive", 1)[1].split(
         "local function RestoreSuppressedRegion", 1
     )[0]

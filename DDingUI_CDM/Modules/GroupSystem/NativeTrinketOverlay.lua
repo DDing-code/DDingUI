@@ -280,24 +280,13 @@ local function HookPairFrames(pair)
     end
 end
 
-local function GetEquipmentIdentity(frame, expectedCategory, categoryLookup)
+local function GetEquipmentIdentity(frame, expectedCategory)
     if not frame or not CDMCompat then return nil end
     local cooldownID = CDMCompat:GetFrameCooldownID(frame)
     if not IsPublicNumber(cooldownID) then return nil end
-    if type(categoryLookup) == "table" and not categoryLookup[cooldownID] then
-        return nil
-    end
 
-    local info
-    if type(categoryLookup) == "table" then
-        info = CDMCompat:GetCooldownInfo(cooldownID, true)
-    else
-        info = CDMCompat:GetFrameCooldownInfo(frame)
-        local frameSlot = type(info) == "table" and info.equipSlot
-        if IsPublicNumber(frameSlot) and IsTrackedSlot(frameSlot) then
-            info = CDMCompat:GetCooldownInfo(cooldownID, true) or info
-        end
-    end
+    local info = CDMCompat:GetCooldownInfo(cooldownID, true)
+        or CDMCompat:GetFrameCooldownInfo(frame)
     if type(info) ~= "table" then return nil end
 
     local category = info.category
@@ -446,18 +435,10 @@ end
 local function CollectCandidates(registry, viewerName, expectedKind, result)
     local categoryName = expectedKind == "cooldown" and "EquipSlotEssential" or "EquipSlotTracked"
     local expectedCategory = CDMCompat:GetCategory(categoryName)
-    local categoryLookup = expectedCategory and CDMCompat:GetCategoryLookup(expectedCategory, true)
     if not IsPublicNumber(expectedCategory) then return end
-    if type(categoryLookup) == "table" and next(categoryLookup) == nil then
-        categoryLookup = nil
-    end
 
     for cooldownID, frame in pairs(registry:GetFrames(viewerName) or {}) do
-        local slotID, resolvedCooldownID, info = GetEquipmentIdentity(
-            frame,
-            expectedCategory,
-            categoryLookup
-        )
+        local slotID, resolvedCooldownID, info = GetEquipmentIdentity(frame, expectedCategory)
         if slotID then
             local resolvedID = resolvedCooldownID or cooldownID
             if expectedKind == "effect" then
