@@ -189,7 +189,6 @@ local function HideDefaultBackgrounds()
     if talentsFrame.Clouds2 then
         talentsFrame.Clouds2:SetAlpha(0)
     end
-    talentsFrame.backgroundAnims = nil
 end
 
 -- 배경 적용

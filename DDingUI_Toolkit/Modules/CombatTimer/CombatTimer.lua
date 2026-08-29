@@ -40,12 +40,8 @@ function CombatTimer:OnEnable()
         if event == "PLAYER_REGEN_DISABLED" then
             self:StartTimer()
         elseif event == "PLAYER_REGEN_ENABLED" then
-            -- 그룹 전투 중이면 타이머 유지 (죽어서 전투 해제된 경우)
-            if self:IsGroupStillFighting() then
-                self:WatchGroupCombat()
-            else
-                self:StopTimer()
-            end
+            -- 사망/구원의 영혼 전환 시 그룹 전투 상태 갱신을 잠시 기다림
+            self:WatchGroupCombat()
         end
     end)
 
@@ -217,6 +213,8 @@ end
 -- 타이머 시작
 function CombatTimer:StartTimer()
     self:CancelGroupWatch()  -- 기존 감시 취소
+    if startTime then return end
+
     startTime = GetTime()
     if timerFrame then
         -- bg가 없으면 생성 (기존 프레임 호환)

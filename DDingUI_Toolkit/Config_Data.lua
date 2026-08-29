@@ -194,6 +194,7 @@ ns.ConfigModuleMap = {
     skyridingtracker = "SkyridingTracker",
     autorepair      = "AutoRepair",
     raidlootpass    = "RaidLootPass",
+    voidcorehelper  = "VoidcoreHelper",
 }
 
 ------------------------------------------------------
@@ -243,6 +244,7 @@ function ns:InitConfigTree()
             { text = L["TAB_SKYRIDINGTRACKER"], key = "skyridingtracker" },
             { text = L["TAB_AUTOREPAIR"],       key = "autorepair" },
             { text = L["TAB_RAIDLOOTPASS"],     key = "raidlootpass" },
+            { text = L["TAB_VOIDCOREHELPER"],   key = "voidcorehelper" },
         }},
         { text = L["TAB_CATEGORY_CLASS_FEATURES"] or "|TInterface\\AddOns\\DDingUI_Toolkit\\Media\\Navigation\\ClassFeatures.tga:14:14|t |cffc586ff직업별 특수 기능|r", key = "cat_classfeatures", children = {
             { text = ClassColorText(L["TAB_STASISTRACKER"], "EVOKER"), key = "stasistracker" },
@@ -2818,6 +2820,39 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.RaidLootPass.protectPets", label = L["RAIDLOOTPASS_PROTECT_PETS"], onChange = ApplyRaidLootPassSettings },
             { type = "toggle", key = "profile.RaidLootPass.protectHousingDecor", label = L["RAIDLOOTPASS_PROTECT_DECOR"], onChange = ApplyRaidLootPassSettings },
             { type = "toggle", key = "profile.RaidLootPass.protectQuestItems", label = L["RAIDLOOTPASS_PROTECT_QUEST"], onChange = ApplyRaidLootPassSettings },
+        },
+    }
+
+    -----------------------------------------------
+    -- VoidcoreHelper
+    -----------------------------------------------
+    local function ApplyVoidcoreHelperSettings()
+        local mod = ns.modules and ns.modules["VoidcoreHelper"]
+        if mod and mod.ApplySettings then mod:ApplySettings() end
+    end
+
+    tree.panels["voidcorehelper"] = {
+        title = L["VCH_TITLE"],
+        desc = L["VCH_DESC"],
+        moduleEnableKey = "profile.modules.VoidcoreHelper",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.VoidcoreHelper", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
+            { type = "text", label = L["VCH_INFO"] },
+            { type = "text", label = L["VCH_CONDITION_INFO"] },
+
+            { type = "header", label = L["VCH_DISPLAY_HEADER"] },
+            { type = "toggle", key = "profile.VoidcoreHelper.showAdvisor", label = L["VCH_SHOW_ADVISOR"], onChange = ApplyVoidcoreHelperSettings },
+            { type = "toggle", key = "profile.VoidcoreHelper.showLootTable", label = L["VCH_SHOW_LOOT_TABLE"], onChange = ApplyVoidcoreHelperSettings },
+            { type = "toggle", key = "profile.VoidcoreHelper.guardNonTargets", label = L["VCH_GUARD_NON_TARGETS"], onChange = ApplyVoidcoreHelperSettings },
+            { type = "toggle", key = "profile.VoidcoreHelper.entryPrompt", label = L["VCH_ENTRY_PROMPT"], onChange = ApplyVoidcoreHelperSettings },
+
+            { type = "header", label = L["VCH_BIS_HEADER"] },
+            { type = "text", label = L["VCH_BIS_NOTE"] },
+            { type = "button", label = L["VCH_OPEN_BIS_SETTINGS"], onClick = function()
+                local mod = ns.modules and ns.modules["VoidcoreHelper"]
+                if mod and mod.OpenBISSettings then mod:OpenBISSettings() end
+            end },
         },
     }
 

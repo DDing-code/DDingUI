@@ -18,3 +18,13 @@ def test_premade_group_filter_rejects_secret_tables_and_inaccessible_values() ->
     assert access_guard < value_guard < table_guard
     assert "if not ok or secret then return true end" in helper
     assert "return false" in helper
+
+
+def test_modules_do_not_overwrite_blizzard_ui_state() -> None:
+    root = Path(__file__).parents[1] / "Modules"
+    item_level = (root / "ItemLevel" / "ItemLevel.lua").read_text(encoding="utf-8-sig")
+    talent_bg = (root / "TalentBG" / "TalentBG.lua").read_text(encoding="utf-8-sig")
+
+    assert "InspectGuildFrame_Update = function" not in item_level
+    assert "InspectPVPFrame_Update = function" not in item_level
+    assert "talentsFrame.backgroundAnims =" not in talent_bg

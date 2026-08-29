@@ -63,7 +63,6 @@ local CATEGORY_DEFS = {
             "partytracker",
             "mythicplus",
             "goldsplit",
-            "raidlootpass",
             "raidbreaktimer",
         },
     },
@@ -99,6 +98,8 @@ local CATEGORY_DEFS = {
         panels = {
             "notepad",
             "autorepair",
+            "raidlootpass",
+            "voidcorehelper",
         },
     },
     {

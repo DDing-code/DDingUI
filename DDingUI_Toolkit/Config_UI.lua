@@ -186,6 +186,7 @@ local function CreateSoundWidget(parent, setting)
             {
                 inputWidth = 230,
                 maxLetters = 256,
+                tooltip = L and L["SOUND_CUSTOM_PATH_HELP"] or "Enter the path relative to the WoW _retail_ folder.\nExample: Interface\\abc.ogg",
                 onChange = function(value)
                     ns:SetDBValue(customKey, value)
                     if setting.customPathOnChange and setting.onChange then

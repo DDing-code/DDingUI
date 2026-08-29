@@ -697,24 +697,6 @@ local function RegisterHooks()
         end)
     end
 
-    -- 오류 방지
-    if InspectGuildFrame_Update then
-        local orig = InspectGuildFrame_Update
-        InspectGuildFrame_Update = function(self)
-            if GetGuildInfo("inspect") then
-                orig(self)
-            end
-        end
-    end
-
-    if InspectPVPFrame_Update then
-        local orig = InspectPVPFrame_Update
-        InspectPVPFrame_Update = function(self)
-            if InspectFrame and InspectFrame.unit then
-                pcall(orig, self)
-            end
-        end
-    end
 end
 
 -- INSPECT_READY 이벤트 리스너

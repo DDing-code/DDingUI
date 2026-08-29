@@ -1,5 +1,47 @@
 # DDingUI Toolkit Changelog
 
+## 2.1.5
+
+Release date: 2026-08-29
+
+## English
+
+### New Modules
+
+- **Voidcore Helper:** Added a Nebulous Voidcore advisor for Heroic/Mythic raid bosses and Mythic Keystone +10 or higher. It tracks specialization-specific BIS targets, shows remaining eligible loot and an equal-weight estimated chance, and can automatically decline ineligible rewards after per-instance approval.
+
+### Option Changes
+
+- Added a BIS setup browser that selects targets directly from seasonal dungeon and raid-boss loot tables. It keeps equippable loot for the selected specialization while excluding recipes, housing decor, and cosmetic-only entries.
+- Added separate toggles for the Voidcore advisor, remaining-loot list, non-BIS auto-decline, and the instance-entry approval prompt. The new module starts disabled for existing profiles and appears in the one-time new-module notice.
+- Moved Raid Loot Pass and Voidcore Helper into the Utility category.
+- Added a tooltip to custom sound paths explaining that paths begin below the WoW `_retail_` folder, with `Interface\abc.ogg` as an example.
+
+### Fixes
+
+- Kept Combat Timer running when the player dies or enters Spirit of Redemption while the group remains in combat.
+- Removed direct overrides of Blizzard inspect and talent-frame state that could contribute to protected-action taint.
+- Improved Voidcore loot-table loading when item specialization metadata is not yet available, without restoring recipes or cosmetic-only entries.
+
+## 한국어
+
+### 신규 모듈
+
+- **공허핵 도우미:** 영웅·신화 공격대 보스와 10단 이상 쐐기에서 성운의 공허핵 사용 여부를 판단합니다. 전문화별 BIS 목표, 남은 획득 가능 전리품과 동일 확률 기준 예상 획득률을 표시하고, 인스턴스별 승인을 받은 뒤 조건에 맞지 않는 보상을 자동 포기할 수 있습니다.
+
+### 옵션 변경
+
+- 시즌 던전과 공격대 보스 전리품 표에서 직접 전문화별 BIS를 선택하는 설정 창을 추가했습니다. 선택한 전문화가 착용할 수 있는 장비만 남기고 도안, 하우징 장식 및 장식 전용 아이템은 제외합니다.
+- 공허핵 판단창, 남은 전리품 목록, 비-BIS 자동 포기와 인스턴스 진입 승인 팝업을 각각 설정할 수 있습니다. 새 모듈은 기존 프로필에서 비활성 상태로 시작하며 최초 한 번 신규 모듈 안내에 표시됩니다.
+- 레이드 전리품 자동 포기와 공허핵 도우미를 편의 기능 분류로 이동했습니다.
+- 커스텀 사운드 경로에 WoW `_retail_` 폴더 아래부터 입력한다는 도움말과 `Interface\abc.ogg` 예시를 추가했습니다.
+
+### 수정 사항
+
+- 플레이어가 사망하거나 구원의 영혼 상태가 되어도 파티가 전투 중이면 전투 타이머가 이어지도록 수정했습니다.
+- 보호된 동작 오염을 유발할 수 있던 Blizzard 살펴보기 함수 및 특성창 상태 직접 덮어쓰기를 제거했습니다.
+- 아이템 전문화 정보가 아직 준비되지 않은 경우에도 정상 장비가 공허핵 전리품 표에서 누락되지 않도록 개선했으며, 도안과 장식 전용 아이템 제외는 유지했습니다.
+
 ## 2.1.4
 
 Release date: 2026-08-26

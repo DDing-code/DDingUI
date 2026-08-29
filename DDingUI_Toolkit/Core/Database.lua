@@ -43,6 +43,7 @@ ns.defaults = {
             RaidPartyTooltip = false,
             AutoRepair = true,
             RaidLootPass = true,
+            VoidcoreHelper = false,
             SkyridingTracker = true,
         },
 
@@ -994,6 +995,16 @@ ns.defaults = {
             protectAppearanceUnlocks = true,
             protectHousingDecor = true,
             protectQuestItems = true,
+        },
+
+        -- Nebulous Voidcore bonus-roll advisor
+        VoidcoreHelper = {
+            entryPrompt = true,
+            guardNonTargets = true,
+            showAdvisor = true,
+            showLootTable = true,
+            bisBySpec = {},
+            bisSourcesBySpec = {},
         },
 
         -- SkyridingTracker (활공 트래커) 설정

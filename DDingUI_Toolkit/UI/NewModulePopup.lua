@@ -82,6 +82,14 @@ local MODULES = {
         descKey = "NEW_MODULE_POPUP_RDT_DESC",
         spellID = 97462,
     },
+    {
+        id = "VoidcoreHelper-2.1.5",
+        introducedVersion = "2.1.5",
+        module = "VoidcoreHelper",
+        titleKey = "VCH_TITLE",
+        descKey = "NEW_MODULE_POPUP_VCH_DESC",
+        icon = "Interface\\Icons\\INV_Misc_Gem_Amethyst_02",
+    },
 }
 
 local function VersionParts(version)
