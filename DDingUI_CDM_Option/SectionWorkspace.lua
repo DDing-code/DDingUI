@@ -126,7 +126,8 @@ local function AnchorText(text, parent, point, offsetX, offsetY)
 end
 
 local function SetBarAppearance(bar, config, fallbackColor, resolvedColor)
-    local texture = FetchMedia("statusbar", config and config.texture, FLAT)
+    local texture = DDingUI.GetTexture and DDingUI:GetTexture(config and config.texture)
+        or FetchMedia("statusbar", config and config.texture, FLAT)
     bar:SetStatusBarTexture(texture or FLAT)
     local color = resolvedColor or (config and (config.color or config.barColor))
     if SL and SL.ApplyBarColor then
@@ -719,6 +720,7 @@ local function BuildDashboardDescriptors()
             path = T("CDM Bars", "CDM 바") .. " / " .. DashboardGroupLabel(group.name, group.settings),
             target = "groupSystem.group_" .. group.name,
             frame = frame, sources = sources, restricted = restricted,
+            groupName = group.name,
         }
     end
 
@@ -730,12 +732,18 @@ local function BuildDashboardDescriptors()
             sources = visible == true and { frame } or {},
             restricted = frame ~= nil and visible == nil,
             color = color, trackerIndex = trackerIndex,
+            config = not trackerIndex and config or nil,
         }
     end
-    AddFrame("power", T("Primary Resource", "주 자원"), "resourceBars.primary",
-        DDingUI.powerBar, profile.powerBar or {}, GetResourceColorSpec(false))
-    AddFrame("secondaryPower", T("Secondary Resource", "보조 자원"), "resourceBars.secondary",
-        DDingUI.secondaryPowerBar, profile.secondaryPowerBar or {}, GetResourceColorSpec(true))
+    local resources = DDingUI.ResourceBars
+    if not resources or not resources.GetPrimaryResource or DashboardPreview.Read(resources, "GetPrimaryResource") ~= nil then
+        AddFrame("power", T("Primary Resource", "주 자원"), "resourceBars.primary",
+            DDingUI.powerBar, profile.powerBar or {}, GetResourceColorSpec(false))
+    end
+    if not resources or not resources.GetSecondaryResource or DashboardPreview.Read(resources, "GetSecondaryResource") ~= nil then
+        AddFrame("secondaryPower", T("Secondary Resource", "보조 자원"), "resourceBars.secondary",
+            DDingUI.secondaryPowerBar, profile.secondaryPowerBar or {}, GetResourceColorSpec(true))
+    end
     local cast = profile.castBar or {}
     AddFrame("cast", T("Player Cast Bar", "플레이어 시전 바"), "castBars.general",
         DDingUI.castBar, cast, cast.useClassColor and GetClassColorSpec() or cast.color)
@@ -764,6 +772,116 @@ local function BuildDashboardDescriptors()
         end
     end
     return descriptors
+end
+
+local function DashboardAnchorFraction(point)
+    point = point or "CENTER"
+    return point:find("LEFT", 1, true) and 0 or point:find("RIGHT", 1, true) and 1 or 0.5,
+        point:find("BOTTOM", 1, true) and 0 or point:find("TOP", 1, true) and 1 or 0.5
+end
+
+local function DashboardBarRect(descriptor)
+    local rect = DashboardFrameRect(descriptor.frame)
+    if rect then return rect end
+    if descriptor.frame then return nil end -- Do not replace restricted geometry with guesses.
+    local cfg = descriptor.config
+    local anchor = DDingUI.ResolveAnchorFrame and DDingUI:ResolveAnchorFrame(cfg.attachTo) or UIParent
+    local anchorRect = DashboardFrameRect(anchor)
+    if not anchorRect then return nil end
+    local function Scale(value) return DDingUI.Scale and DDingUI:Scale(value) or value end
+    local width = Scale(cfg.width or 0)
+    if width <= 0 then
+        local effective, borderComp
+        if anchor ~= UIParent and DDingUI.GetEffectiveAnchorWidth then
+            local ok, result, compensation = pcall(DDingUI.GetEffectiveAnchorWidth, DDingUI, anchor)
+            if ok then effective, borderComp = result, compensation end
+        end
+        if not (issecretvalue and (issecretvalue(effective) or issecretvalue(borderComp)))
+            and type(effective) == "number" and effective > 0 and effective < 1000 then
+            width = effective - (borderComp and 2 * Scale(cfg.borderSize or 1) or 0)
+        else width = 200 end
+    end
+    local height = Scale(cfg.height or (descriptor.key == "cast" and 10 or descriptor.key == "secondaryPower" and 4 or 6))
+    local offsetY = cfg.offsetY or (descriptor.key == "cast" and 18 or descriptor.key == "secondaryPower" and 12 or 6)
+    local ax, ay = DashboardAnchorFraction(cfg.anchorPoint)
+    local sx, sy = DashboardAnchorFraction(cfg.selfPoint)
+    return {
+        left = anchorRect.left + anchorRect.width * ax + Scale(cfg.offsetX or 0) - width * sx,
+        bottom = anchorRect.bottom + anchorRect.height * ay + Scale(offsetY) - height * sy,
+        width = math.max(1, width), height = math.max(1, height),
+    }
+end
+
+local function DashboardIdleRect(node)
+    local descriptor = node.descriptor
+    node._buffPreview = nil
+    if descriptor.restricted then return nil end
+    if descriptor.config then return DashboardBarRect(descriptor) end
+    if not descriptor.groupName or not DDingUI.GetDashboardBuffPreview then return nil end
+    local anchor = DashboardFrameRect(descriptor.frame)
+    if not anchor then return nil end
+    local now, profile = GetTime(), DDingUI.db.profile
+    local cached = node._buffPreviewCache
+    -- Reuse the catalog snapshot while panning; layout coordinates still update each frame.
+    if not cached or cached.groupName ~= descriptor.groupName or cached.profile ~= profile or now >= cached.expires then
+        cached = { groupName = descriptor.groupName, profile = profile, expires = now + 0.5,
+            layout = DDingUI:GetDashboardBuffPreview(descriptor.groupName) }
+        node._buffPreviewCache = cached
+    end
+    local layout = cached.layout
+    if not layout or #layout.icons == 0 then return nil end
+    node._buffPreview = layout
+    local scale = (DashboardPreview.Read(descriptor.frame, "GetEffectiveScale") or 1)
+        / (DashboardPreview.Read(UIParent, "GetEffectiveScale") or 1)
+    local width, height = layout.width * scale, layout.height * scale
+    -- Buff rows grow from row one's center, not the phantom container's top edge.
+    local bottom = anchor.bottom + (anchor.height - height) / 2
+    if layout.layoutType == "HORIZONTAL" then
+        local first = layout.slots[1]
+        bottom = anchor.bottom + anchor.height / 2 - (layout.height - first.y - first.h / 2) * scale
+    end
+    return { left = anchor.left + (anchor.width - width) / 2, bottom = bottom, width = width, height = height }
+end
+
+local function PaintDashboardIdle(node, rect, scale)
+    if not node.idleVisual then
+        node.idleVisual = CreateFrame("Frame", nil, node)
+        node.idleVisual:SetAllPoints(node)
+        node.idleVisual:EnableMouse(false)
+        node.idleVisual.icons = {}
+    end
+    local visual = node.idleVisual
+    local layout = node._buffPreview
+    if layout then
+        if visual.bar then visual.bar:Hide() end
+        local unitScale = rect.width / layout.width * scale
+        for index, texture in ipairs(layout.icons) do
+            local icon = visual.icons[index] or visual:CreateTexture(nil, "ARTWORK")
+            visual.icons[index] = icon
+            local slot = layout.slots[index]
+            icon:ClearAllPoints()
+            icon:SetPoint("TOPLEFT", visual, "TOPLEFT", slot.x * unitScale, -slot.y * unitScale)
+            icon:SetSize(slot.w * unitScale, slot.h * unitScale)
+            icon:SetTexture(texture)
+            layout.ApplyTexCoord(icon, layout.settings)
+            icon:Show()
+        end
+    else
+        visual.bar = visual.bar or CreatePreviewBar(visual)
+        local bar = visual.bar
+        bar:SetAllPoints(visual)
+        local cfg = node.descriptor.config
+        local border = DDingUI.ScaleBorder and DDingUI:ScaleBorder(cfg.borderSize or 1) or cfg.borderSize or 1
+        bar:SetBackdrop({ bgFile = FLAT, edgeFile = border > 0 and FLAT or nil, edgeSize = border * scale })
+        SetBarAppearance(bar, cfg, { 0.22, 0.58, 1, 1 }, node.descriptor.color)
+        -- Idle preview shows the configured surface, never invented stacks or time.
+        bar:SetValue(100)
+        bar.leftText:Hide()
+        bar.rightText:Hide()
+        bar:Show()
+    end
+    for index = (layout and #layout.icons or 0) + 1, #visual.icons do visual.icons[index]:Hide() end
+    visual:Show()
 end
 
 local function CreateDashboardQuickRow(parent, label, target)
@@ -1073,13 +1191,15 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
         for index, node in ipairs(self.nodes) do
             local descriptor = node.descriptor
             rects[index] = DashboardFramesRect(descriptor.sources)
+            node._idle = rects[index] == nil
+            if node._idle then rects[index] = DashboardIdleRect(node) end
         end
         local viewRect = DashboardViewportRect(rects, uiRect, stageWidth, stageHeight, self.zoom)
         viewRect.left = viewRect.left + (self.panX or 0)
         viewRect.bottom = viewRect.bottom + (self.panY or 0)
         self.viewRect = viewRect
         self.stageHeader.meta:SetFormattedText("%.0f%%", viewRect.scale * 100)
-        local visible, partial, inactive = 0, 0, 0
+        local visible, partial, previews = 0, 0, 0
         for index, node in ipairs(self.nodes) do
             local rect = rects[index]
             node._active = rect ~= nil
@@ -1094,25 +1214,35 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
                 node._stageX, node._stageY = x, y
                 node._sourceRect = rect
                 node._layoutWidth, node._layoutHeight = width, height
-                local count, limited = DashboardPreview.Paint(node.visual, node.descriptor.sources,
-                    rect, viewRect.scale, node.descriptor.color)
+                local count, limited
+                if node._idle then
+                    DashboardPreview.Clear(node.visual)
+                    PaintDashboardIdle(node, rect, viewRect.scale)
+                    count = 1
+                    previews = previews + 1
+                else
+                    if node.idleVisual then node.idleVisual:Hide() end
+                    count, limited = DashboardPreview.Paint(node.visual, node.descriptor.sources,
+                        rect, viewRect.scale, node.descriptor.color)
+                end
                 node._partial = node._partial or limited
                 node.text:SetText(node.descriptor.label)
                 node.text:SetShown(count == 0 and width > 100 and height > 16)
                 node:Show()
                 if node._partial then partial = partial + 1 end
-                if node._active then visible = visible + 1 else inactive = inactive + 1 end
+                visible = visible + 1
                 self:ApplyNodeState(node, false)
             else
                 node._stageX, node._stageY, node._sourceRect = nil, nil, nil
                 DashboardPreview.Clear(node.visual)
+                if node.idleVisual then node.idleVisual:Hide() end
                 node:Hide()
-                if node._partial then partial = partial + 1 else inactive = inactive + 1 end
+                if node._partial then partial = partial + 1 end
             end
         end
         self.stage.empty:SetShown(visible == 0)
-        self.stageFooter.state:SetFormattedText(T("Dashboard status", "%d 표시 / %d 비활성 / %d 표시 제한"),
-            visible, inactive, partial)
+        self.stageFooter.state:SetFormattedText(T("Dashboard layout status", "%d 실시간 / %d 배치 미리보기 / %d 표시 제한"),
+            visible - previews, previews, partial)
         self.stageFooter.state:SetTextColor(unpack(partial > 0 and THEME.warning or THEME.textDim))
         self:RefreshSelectionGuides()
     end
@@ -1139,6 +1269,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText(self.descriptor.label, 1, 1, 1)
             GameTooltip:AddLine(self.descriptor.path, 0.58, 0.62, 0.68)
+            if self._idle then GameTooltip:AddLine(T("Idle layout preview", "비활성 상태의 배치 미리보기"), 0.9, 0.7, 0.3) end
             local rect = self._sourceRect
             if rect then
                 GameTooltip:AddDoubleLine(
@@ -1176,6 +1307,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
             if not retained[key] then
                 node:Hide()
                 node._hovered = nil
+                node._buffPreviewCache, node._buffPreview = nil, nil
                 DashboardPreview.Clear(node.visual)
                 self.freeNodes[#self.freeNodes + 1] = node
                 self.nodeByKey[key] = nil
@@ -1262,7 +1394,11 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
     function workspace:Release()
         self:SetScript("OnUpdate", nil)
         self._drag = nil
-        for _, node in ipairs(self.nodes) do DashboardPreview.Clear(node.visual) end
+        for _, node in ipairs(self.nodes) do
+            DashboardPreview.Clear(node.visual)
+            node._buffPreviewCache, node._buffPreview = nil, nil
+            if node.idleVisual then node.idleVisual:Hide() end
+        end
         self.stageHost:SetScript("OnSizeChanged", nil)
         if self._resizeTimer then self._resizeTimer:Cancel(); self._resizeTimer = nil end
     end

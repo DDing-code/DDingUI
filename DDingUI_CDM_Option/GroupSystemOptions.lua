@@ -349,7 +349,7 @@ local function EnsureSourceGroup(groupName)
     return sourceKey
 end
 
-local function GetUsableSpellAssignment(gs, spellName, entry)
+local function GetUsableSpellAssignment(gs, spellName, entry, readOnly)
     if not gs or not spellName or not gs.spellAssignments then return nil end
     local assigned = gs.spellAssignments[spellName]
     local assignmentKey = spellName
@@ -366,8 +366,10 @@ local function GetUsableSpellAssignment(gs, spellName, entry)
 
     local assignedGroup = gs.groups and gs.groups[assigned]
     if not assignedGroup then
-        gs.spellAssignments[assignmentKey] = nil
-        MarkSpecProfileDirty()
+        if not readOnly then
+            gs.spellAssignments[assignmentKey] = nil
+            MarkSpecProfileDirty()
+        end
         return nil
     end
     if assignedGroup.enabled == false then
@@ -1346,7 +1348,7 @@ local function SortRowsByIconOrder(groupSettings, rows)
     end)
 end
 
-local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames, trackedOnly)
+local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames, trackedOnly, readOnly)
     local rows = {}
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
@@ -1433,7 +1435,7 @@ local function CollectCDMRowsForGroup(groupName, allEntries, skipSpellNames, tra
         local isBuffSpell = IsBuffSpell(spellName, entry)
         local buffOwnedByDynamic = isBuffSpell and FindBuffDynamicSpellOwner(gs, spellID, nil)
         local isGloballyUnassigned = isBuffSpell and IsBuffSpellUnassigned(gs, spellName)
-        local assigned, assignmentKey = GetUsableSpellAssignment(gs, spellName, entry)
+        local assigned, assignmentKey = GetUsableSpellAssignment(gs, spellName, entry, readOnly)
         local belongsToGroup = runtimeConfirmed or assigned == groupName
             or (not assigned and targetViewer and entry.viewerName == targetViewer and IsDefaultTrackedEntry(entry))
         if not belongsToGroup or isGloballyUnassigned or buffOwnedByDynamic then return end
@@ -3021,6 +3023,28 @@ local function AssignedGridApplyTexCoord(texture, settings)
     end
 
     texture:SetTexCoord(left, right, top, bottom)
+end
+
+function DDingUI:GetDashboardBuffPreview(groupName)
+    -- Reuse assignment/catalog resolution; inactive auras may not own a frame yet.
+    local rows = CollectCDMRowsForGroup(groupName, nil, nil, false, true)
+    local icons = {}
+    local iconMap = self.CDMHookEngine and self.CDMHookEngine:GetIconMap() or {}
+    for _, row in ipairs(rows) do
+        local source = row.entry and iconMap[row.entry.cooldownID]
+        local ok, suppressed = pcall(function()
+            if source and source.IsForbidden and source:IsForbidden() then return true end
+            return source and (source._ddingHidden or source._ddSuppressed)
+        end)
+        if row.isBuffSpell and row.entry and ok and not (issecretvalue and issecretvalue(suppressed)) and not suppressed then
+            icons[#icons + 1] = ResolveCDMEntryIconTexture(row.entry, row.spellName, row.entry and row.entry.icon)
+        end
+    end
+    local settings = AssignedGridPreviewSettings(groupName)
+    local layout = AssignedGridBuildLayout(settings, #icons, #icons)
+    layout.icons, layout.settings = icons, settings
+    layout.ApplyTexCoord = AssignedGridApplyTexCoord
+    return layout
 end
 
 local function AssignedGridSetEdges(edges, r, g, b, a, thickness)

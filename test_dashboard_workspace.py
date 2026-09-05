@@ -11,6 +11,8 @@ function LibStub() return nil end
 function UnitClass() return "Monk", "MONK" end
 function UnitPowerType() return 0 end
 function GetCursorPosition() return 0, 0 end
+clockTime=0
+function GetTime() return clockTime end
 function IsMouseButtonDown() return false end
 function wipe(t) for k in pairs(t) do t[k] = nil end end
 function CreateColor(...) return {...} end
@@ -73,6 +75,11 @@ function Frame:GetJustifyV() return "MIDDLE" end
 function Frame:GetNumMaskTextures() return #(self.masks or {}) end
 function Frame:GetMaskTexture(i) return self.masks[i] end
 function Frame:GetStatusBarTexture() return self.fill end
+function Frame:GetMinMaxValues() return self.minimum or 0, self.maximum or 100 end
+function Frame:GetValue() return self.value or 0 end
+function Frame:GetStatusBarColor() return unpack(self.barColor or {1,1,1,1}) end
+function Frame:GetOrientation() return "HORIZONTAL" end
+function Frame:GetReverseFill() return false end
 function Frame:GetCooldownTimes() return self.start, self.duration end
 function Frame:GetDrawSwipe() return self.drawSwipe ~= false end
 function Frame:GetDrawEdge() return false end
@@ -120,6 +127,13 @@ setter("SetDrawSwipe", function(s,b) s.drawSwipe=b end)
 setter("SetReverse", function(s,b) s.reverse=b end)
 setter("SetCooldown", function(s,a,b) assert(type(a)=="number" and type(b)=="number"); s.start=a; s.duration=b end)
 setter("SetSwipeColor", function(s,...) s.swipeColor={...} end)
+setter("SetMinMaxValues", function(s,a,b) s.minimum=a; s.maximum=b end)
+setter("SetValue", function(s,v) s.value=v end)
+setter("SetStatusBarTexture", function(s,t)
+    s.fill=s.fill or s:CreateTexture(); s.fill:SetTexture(t)
+end)
+setter("SetStatusBarColor", function(s,...) s.barColor={...} end)
+setter("SetGradient", function(s,...) s.gradient={...} end)
 setter("AddMaskTexture", function(s,m) s.masks=s.masks or {}; s.masks[#s.masks+1]=m end)
 setter("RemoveMaskTexture", function(s,m)
     for i,v in ipairs(s.masks or {}) do if v==m then table.remove(s.masks,i); break end end
@@ -127,7 +141,8 @@ end)
 for _, method in ipairs({"SetBackdrop", "SetBackdropColor", "SetBackdropBorderColor",
     "EnableMouse", "EnableMouseWheel", "SetFrameStrata", "SetClipsChildren", "SetHitRectInsets",
     "SetJustifyH", "SetJustifyV", "SetWordWrap", "SetBlendMode", "SetRotation",
-    "SetDrawBling", "SetHideCountdownNumbers", "SetDrawEdge", "SetGradient"}) do
+    "SetDrawBling", "SetHideCountdownNumbers", "SetDrawEdge",
+    "SetOrientation", "SetReverseFill"}) do
     setter(method, function() end)
 end
 UIParent=CreateFrame("Frame")
@@ -266,6 +281,7 @@ status:SetAllPoints(bar)
 status.fill=status:CreateTexture()
 status.fill.rect={100,100,37,12}; status.fill:SetTexture("bar.tga")
 status.fill:SetVertexColor(0,0.9,0.4,1)
+status.value=37; status.maximum=180; status.barColor={0,0.9,0.4,1}
 local border=bar:CreateTexture()
 border.rect={99,99,182,1}; border:SetTexture("border.tga")
 local barHost=CreateFrame("Frame",nil,UIParent)
@@ -273,11 +289,35 @@ freeze(bar)
 preview.Paint(barHost,{bar},preview.Rect(bar),2,{1,0,0,1})
 local foundFill,foundBorder
 for _,cell in ipairs(barHost._previewPool.Texture) do
-    if cell.visual.texture=="bar.tga" then
-        foundFill=true; near(cell.width,74); near(cell.visual.vertexColor[2],0.9)
-    elseif cell.visual.texture=="border.tga" then foundBorder=true; near(cell.height,2) end
+    if cell.visual.texture=="border.tga" then foundBorder=true; near(cell.height,2) end
 end
+local mirrored=barHost._previewPool.StatusBar[1]
+foundFill=mirrored.shown and mirrored.fill.texture=="bar.tga"
+near(mirrored.width,360); near(mirrored.maximum,180); near(mirrored.value,37)
+near(mirrored.barColor[2],0.9)
 assert(foundFill and foundBorder)
+-- Engine-owned fills need not be returned by GetRegions().
+status.regions={}
+preview.Paint(barHost,{bar},preview.Rect(bar),2)
+assert(barHost._previewPool.StatusBar and barHost._previewPool.StatusBar[1].shown,
+    "native StatusBar fill disappeared when GetRegions omitted it")
+near(barHost._previewPool.StatusBar[1].value,37)
+status.value=SECRET; status.maximum=SECRET
+local _,restricted=preview.Paint(barHost,{bar},preview.Rect(bar),2)
+assert(not restricted and rawequal(mirrored.value,SECRET) and rawequal(mirrored.maximum,SECRET),
+    "secret bar values must pass straight to allowed native setters")
+status.value=37; status.maximum=180
+local gradient={0.1,0.2,0.3,1,gradientMode="GRADIENT",gradientColor={0.7,0.8,0.9,1}}
+status._ddingBarGradientActive=true
+preview.Paint(barHost,{bar},preview.Rect(bar),2,gradient)
+assert(mirrored._ddingBarGradientActive and mirrored.fill.gradient)
+near(mirrored.fill.gradient[3][1],0.7)
+status._ddingBarGradientActive=nil; status.barColor={SECRET,0.9,0.4,1}
+preview.Paint(barHost,{bar},preview.Rect(bar),2)
+assert(not mirrored._ddingBarGradientActive and rawequal(mirrored.barColor[1],SECRET),
+    "reused gradient bar lost the native secret color")
+near(mirrored.fill.gradient[2][1],1)
+status.barColor={0,0.9,0.4,1}
 status.fill.rect[3]=0
 local _,limited=preview.Paint(barHost,{bar},preview.Rect(bar),2)
 -- A zero-width fill is empty, not restricted data.
@@ -301,11 +341,72 @@ local parent=CreateFrame("Frame",nil,UIParent)
 parent.contentArea=CreateFrame("Frame",nil,parent)
 parent.scrollFrame=CreateFrame("Frame",nil,parent)
 function parent:NavigateToSection(target) self.destination=target end
+-- Idle buffs and hidden resource/cast bars still belong to the configured layout.
+local buff=runtime({100,250,40,20},601); buff:Hide(); buff.filtered=true
+local buffs=runtime({100,250,400,20})
+buffs._managedIcons={buff}; buffs._iconCount=1
+addon.GroupRenderer.groupFrames.Buffs=buffs
+addon.db.profile.groupSystem.groups.Buffs={iconSize=40, aspectRatioCrop=2, direction="CENTERED_HORIZONTAL"}
+catalogRows={
+    {isBuffSpell=true, spellName="buff:one", entry={icon=601,cooldownID=1}},
+    {isBuffSpell=true, spellName="buff:two", entry={icon=602,cooldownID=2}},
+    {isBuffSpell=false, spellName="unrelated", entry={icon=999,cooldownID=3}},
+    {isBuffSpell=true, spellName="stale", entry=nil},
+}
+addon.powerBar=bar; bar.shown=false
+addon.secondaryPowerBar=runtime({100,180,180,6}); addon.secondaryPowerBar:Hide()
+addon.castBar=runtime({100,80,180,12}); addon.castBar:Hide()
+addon.db.profile.powerBar={enabled=true,height=90,color={1,0,0,1},texture="power.tga"}
+addon.db.profile.secondaryPowerBar={enabled=true, texture="secondary.tga"}
+addon.db.profile.castBar={enabled=true, useClassColor=true, texture="cast.tga"}
+freeze(addon.secondaryPowerBar); freeze(addon.castBar); freeze(buffs); freeze(buff)
 api.create(CreateFrame("Frame",nil,parent),parent)
 local w=parent.contentArea._sectionWorkspace
 w.stage:SetSize(800,450); w:RefreshCurrent()
 local node=w.nodeByKey["group:Cooldowns"]
 assert(node and node:IsShown())
+for _,key in ipairs({"group:Buffs","power","secondaryPower","cast"}) do
+    local idle=w.nodeByKey[key]
+    assert(idle and idle:IsShown() and idle._idle, key.." missing from idle dashboard")
+end
+local buffNode=w.nodeByKey["group:Buffs"]
+assert(#buffNode.idleVisual.icons==2, "idle preview included unrelated or stale spells")
+near(buffNode._sourceRect.height,20)
+near(buffNode._sourceRect.bottom,250)
+near(buffNode.idleVisual.icons[1].texCoord[3],0.29)
+local powerNode=w.nodeByKey.power
+near(powerNode._sourceRect.height,12) -- actual frame, not stale saved height=90
+assert(not powerNode.idleVisual.bar.leftText:IsShown())
+near(w.nodeByKey.cast.idleVisual.bar.barColor[2],1) -- current class color
+addon.ResourceBars={GetSecondaryResource=function()return nil end}
+w:RefreshCurrent()
+assert(not w.nodeByKey.secondaryPower, "unavailable resource from the previous spec leaked into the layout")
+addon.ResourceBars=nil
+w:RefreshCurrent()
+-- No spellcast yet: resolve the cast bar from its configured anchor without creating a live frame.
+addon.castBar=nil
+addon.db.profile.castBar.width=180; addon.db.profile.castBar.height=12
+addon.db.profile.castBar.attachTo="anchor"; addon.db.profile.castBar.anchorPoint="TOPLEFT"
+addon.db.profile.castBar.selfPoint="BOTTOMLEFT"; addon.db.profile.castBar.offsetY=8
+addon.ResolveAnchorFrame=function()return group end
+addon.GetTexture=function(_,name)return name end
+w:RefreshCurrent()
+near(w.nodeByKey.cast._sourceRect.left,100); near(w.nodeByKey.cast._sourceRect.bottom,228)
+assert(addon.castBar==nil, "preview instantiated a runtime bar")
+-- Active values replace the idle surface; removal/disabled settings remove its preview too.
+bar.shown=true; buff.shown=true; buff.filtered=nil
+w:RefreshCurrent()
+assert(not powerNode._idle and not powerNode.idleVisual:IsShown())
+assert(powerNode.visual._previewPool.StatusBar[1]:IsShown())
+assert(not buffNode._idle and not buffNode.idleVisual:IsShown())
+buff.shown=false; buff.filtered=true
+w:RefreshCurrent()
+assert(buffNode._idle and buffNode.idleVisual:IsShown())
+catalogRows={}; clockTime=clockTime+1; w:RefreshCurrent()
+assert(not buffNode:IsShown(), "empty assignment kept stale idle buff icons")
+addon.db.profile.powerBar.enabled=false; addon.db.profile.secondaryPowerBar.enabled=false
+addon.db.profile.castBar.enabled=false; w:RefreshCurrent()
+assert(not w.nodeByKey.power and not powerNode:IsShown())
 near(node._layoutWidth/node._layoutHeight,84/20)
 assert(w.stage.selectionReadout:IsShown(), "selection guide disappeared")
 near(w.stage.selectionCenter.point[4],node._stageX+node._layoutWidth/2)
@@ -347,6 +448,33 @@ def test_dashboard_workspace():
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(STUBS)
     ns = lua.table(Addon=lua.globals().addon)
+    gradient_source = (ROOT / "DDingUI_StyleLib/Gradient.lua").read_text(encoding="utf-8")
+    lua.execute("local Lib={}; _G.DDingUI_StyleLib=Lib; local function ReadColor" +
+                gradient_source.split("local function ReadColor", 1)[1])
+    group_source = (ROOT / "DDingUI_CDM_Option/GroupSystemOptions.lua").read_text(encoding="utf-8")
+    assignment = group_source.split("local function GetUsableSpellAssignment", 1)[1].split("-- [12.0.1]", 1)[0]
+    lua.execute('''
+        local DDingUI=addon
+        local dirty=0
+        local function MarkSpecProfileDirty()dirty=dirty+1 end
+        local function GetUsableSpellAssignment''' + assignment + '''
+        local gs={groups={}, spellAssignments={stale="deleted"}}
+        assert(GetUsableSpellAssignment(gs,"stale",nil,true)==nil)
+        assert(gs.spellAssignments.stale=="deleted" and dirty==0, "preview mutated saved assignments")
+        GetUsableSpellAssignment(gs,"stale")
+        assert(gs.spellAssignments.stale==nil and dirty==1, "existing editor cleanup changed")
+    ''')
+    layout = group_source.split("local ASSIGNED_DIRECTION_RULES =", 1)[1]
+    layout = "local ASSIGNED_DIRECTION_RULES =" + layout.split("local function AssignedGridSetEdges", 1)[0]
+    lua.execute('''
+        local DDingUI=addon
+        local function GetGS()return addon.db.profile.groupSystem end
+        local function CollectCDMRowsForGroup(_,_,_,trackedOnly,readOnly)
+            assert(trackedOnly==false and readOnly==true)
+            return catalogRows or {}
+        end
+        local function ResolveCDMEntryIconTexture(entry)return entry and entry.icon end
+    ''' + layout)
     for name in ("DashboardPreview.lua", "SectionWorkspace.lua"):
         source = (ROOT / "DDingUI_CDM_Option" / name).read_text(encoding="utf-8")
         if name == "SectionWorkspace.lua":

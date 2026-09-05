@@ -69,7 +69,7 @@ local function Acquire(host, kind, index)
     local pool = host._previewPool[kind]
     if not pool then pool = {}; host._previewPool[kind] = pool end
     if not pool[index] then
-        local cell = CreateFrame(kind == "Cooldown" and "Cooldown" or "Frame", nil, host)
+        local cell = CreateFrame((kind == "Cooldown" or kind == "StatusBar") and kind or "Frame", nil, host)
         cell:EnableMouse(false)
         if kind == "Texture" then
             cell.visual = cell:CreateTexture(nil, "ARTWORK")
@@ -117,11 +117,6 @@ function Preview.Paint(host, sources, bounds, scale, color)
             if atlas and atlas ~= "" then visual:SetAtlas(atlas)
             elseif texture then visual:SetTexture(texture)
             else partial = true; return end
-            if cell.gradient then
-                local white = CreateColor(1, 1, 1, 1)
-                visual:SetGradient("HORIZONTAL", white, white)
-                cell.gradient = nil
-            end
             if not Copy(source, visual, "GetTexCoord", "SetTexCoord")
                 or not Copy(source, visual, "GetVertexColor", "SetVertexColor")
                 or not Copy(source, visual, "IsDesaturated", "SetDesaturated") then
@@ -129,16 +124,6 @@ function Preview.Paint(host, sources, bounds, scale, color)
             end
             Copy(source, visual, "GetBlendMode", "SetBlendMode")
             Copy(source, visual, "GetDrawLayer", "SetDrawLayer")
-            local parent = Read(source, "GetParent")
-            local sl = _G.DDingUI_StyleLib
-            if Read(parent, "GetStatusBarTexture") == source then
-                local ok, gradient = pcall(function() return parent._ddingBarGradientActive end)
-                if ok and not Secret(gradient) and gradient == true then
-                    if not color or not sl or not sl.ApplyBarColorToTexture then partial = true; return end
-                    sl.ApplyBarColorToTexture(visual, color)
-                    cell.gradient = true
-                end
-            end
             local masks = Read(source, "GetNumMaskTextures") or 0
             cell.masks = cell.masks or {}
             for _, mask in ipairs(cell.activeMasks or {}) do visual:RemoveMaskTexture(mask) end
@@ -159,6 +144,37 @@ function Preview.Paint(host, sources, bounds, scale, color)
                     visual:AddMaskTexture(mask)
                     cell.activeMasks[#cell.activeMasks + 1] = mask
                 else partial = true end
+            end
+        elseif kind == "StatusBar" then
+            local fill = Read(source, "GetStatusBarTexture")
+            local texture = Read(fill, "GetTexture")
+            if not texture then partial = true; return end
+            cell:SetStatusBarTexture(texture)
+            Copy(source, cell, "GetOrientation", "SetOrientation")
+            Copy(source, cell, "GetReverseFill", "SetReverseFill")
+            Copy(source, cell, "GetFillStyle", "SetFillStyle")
+            Copy(source, cell, "GetRotatesTexture", "SetRotatesTexture")
+            local sl = _G.DDingUI_StyleLib
+            if cell._ddingBarGradientActive and sl and sl.ApplyBarColor then
+                sl.ApplyBarColor(cell, { 1, 1, 1, 1 })
+            end
+            -- These native setters accept secret values. Never branch on or calculate them.
+            local okState, copied = pcall(function()
+                if source.IsForbidden and source:IsForbidden() then return false end
+                cell:SetMinMaxValues(source:GetMinMaxValues())
+                if source.GetInterpolatedValue then cell:SetValue(source:GetInterpolatedValue())
+                else cell:SetValue(source:GetValue()) end
+                cell:SetStatusBarColor(source:GetStatusBarColor())
+                if source.GetStatusBarDesaturation and cell.SetStatusBarDesaturation then
+                    cell:SetStatusBarDesaturation(source:GetStatusBarDesaturation())
+                end
+                return true
+            end)
+            if not okState or not copied then partial = true; return end
+            local ok, gradient = pcall(function() return source._ddingBarGradientActive end)
+            if ok and not Secret(gradient) and gradient == true then
+                if not color or not sl or not sl.ApplyBarColor then partial = true; return end
+                sl.ApplyBarColor(cell, color)
             end
         elseif kind == "FontString" then
             local font, size, flags = Read(source, "GetFont")
@@ -219,13 +235,20 @@ function Preview.Paint(host, sources, bounds, scale, color)
         -- ponytail: bounded visual traversal; add a dedicated adapter for deeper custom renderers.
         if depth > 6 then partial = true; return end
         local level = Read(frame, "GetFrameLevel") or rootLevel
-        if Read(frame, "GetObjectType") == "Cooldown" then Draw(frame, "Cooldown", level) end
+        local kind = Read(frame, "GetObjectType")
+        local fill
+        if kind == "Cooldown" then Draw(frame, kind, level)
+        elseif kind == "StatusBar" then
+            -- The engine-owned fill is not guaranteed to occur in GetRegions().
+            fill = Read(frame, "GetStatusBarTexture")
+            Draw(frame, kind, level)
+        end
         local regions = Values(frame, "GetRegions")
         if not regions then partial = true end
         for index = 1, regions and regions.n or 0 do
             local region = regions[index]
             local kind = Read(region, "GetObjectType")
-            if kind == "Texture" or kind == "FontString" then
+            if region ~= fill and (kind == "Texture" or kind == "FontString") then
                 local shown = Read(region, "IsVisible")
                 if shown == true then Draw(region, kind, level)
                 elseif shown == nil then partial = true end
