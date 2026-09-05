@@ -8,8 +8,9 @@
 - Added Japanese voice alerts for combat start, combat end, party full, and group application events.
 - Added Japanese voice alerts for Time Spiral, Power Infusion, and Spatial Paradox.
 - Added English voice alerts for Time Spiral, Power Infusion, and Spatial Paradox.
+- Added the normalized DD New Schedule voice sound.
 - Matched all new voice alerts to the boosted stereo loudness of the existing DDingUI alert set.
-- Expanded the LibSharedMedia sound catalog to 77 registered sounds.
+- Expanded the LibSharedMedia sound catalog to 78 registered sounds.
 
 ### 한국어
 
@@ -17,8 +18,9 @@
 - 전투 시작, 전투 종료, 파티 모집 완료 및 파티 신청을 안내하는 일본어 음성 알림을 추가했습니다.
 - 시간의 와류, 마력 주입 및 공간의 역설을 안내하는 일본어 음성 알림을 추가했습니다.
 - 시간의 와류, 마력 주입 및 공간의 역설을 안내하는 영어 음성 알림을 추가했습니다.
+- 음량을 보정한 DD New Schedule 음성 사운드를 추가했습니다.
 - 새 음성 알림의 스테레오 체감 음량을 기존 DDingUI 알림음과 동일한 수준으로 맞췄습니다.
-- LibSharedMedia 사운드 목록을 총 77개로 확장했습니다.
+- LibSharedMedia 사운드 목록을 총 78개로 확장했습니다.
 
 ## 1.3.1 - 2026-08-09
 

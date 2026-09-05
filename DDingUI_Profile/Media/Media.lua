@@ -22,7 +22,7 @@ LSM:Register("statusbar", "DDing BuiOnePixel",     mediaPath .. "Textures\\BuiOn
 LSM:Register("statusbar", "DD SL Bracket",         mediaPath .. "Textures\\SL_Bracket.tga")
 
 ------------------------------------------------------------------------
--- 사운드 (77)
+-- 사운드 (78)
 ------------------------------------------------------------------------
 LSM:Register("sound", "DD Aggro",                  mediaPath .. "Sounds\\aggro.ogg")
 LSM:Register("sound", "DD Air Horn",               mediaPath .. "Sounds\\AirHorn.ogg")
@@ -49,6 +49,7 @@ LSM:Register("sound", "DD Combat Start",           mediaPath .. "Sounds\\DD_comb
 LSM:Register("sound", "DD Combat End",             mediaPath .. "Sounds\\DD_combat_end.ogg")
 LSM:Register("sound", "DD Party Full",             mediaPath .. "Sounds\\DD_party_full.ogg")
 LSM:Register("sound", "DD Party Application",      mediaPath .. "Sounds\\DD_party_application.ogg")
+LSM:Register("sound", "DD New Schedule",           mediaPath .. "Sounds\\DD_new_schedule.ogg")
 LSM:Register("sound", "DD Time Spiral JP",         mediaPath .. "Sounds\\DD_time_spiral_jp.ogg")
 LSM:Register("sound", "DD Power Infusion JP",      mediaPath .. "Sounds\\DD_power_infusion_jp.ogg")
 LSM:Register("sound", "DD Spatial Paradox JP",     mediaPath .. "Sounds\\DD_spatial_paradox_jp.ogg")
