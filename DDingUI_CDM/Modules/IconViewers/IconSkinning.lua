@@ -143,15 +143,44 @@ local function CopyColor(color)
     }
 end
 
+local function GetHiddenActiveSpellID(icon)
+    if not CDMCompat then return nil end
+    local spellID
+    if type(icon.GetBaseSpellID) == "function" then
+        local ok, value = pcall(icon.GetBaseSpellID, icon)
+        if ok and CDMCompat:IsUsableID(value) then spellID = value end
+    end
+    return CDMCompat:GetLiveOverrideSpellID(spellID or CDMCompat:ResolveFrameSpellID(icon))
+end
+
 local function SetHideActiveStateGray(icon, active)
     if not icon then return end
     local pid = GetIconData(icon)
     if pid._applyingHideActiveStateGray then return end
     local texture = icon.icon or icon.Icon
 
+    local gray = active and true or false
     if active then
-        pid.hideActiveStateGray = true
-    elseif not pid.hideActiveStateGray then
+        local spellID = GetHiddenActiveSpellID(icon)
+        if spellID and C_Spell and C_Spell.GetSpellCooldown then
+            local ok, info = pcall(C_Spell.GetSpellCooldown, spellID)
+            if ok and type(info) == "table"
+                and CDMCompat:IsPublicValue(info.isActive)
+                and CDMCompat:IsPublicValue(info.isOnGCD)
+                and type(info.isActive) == "boolean" and type(info.isOnGCD) == "boolean"
+            then
+                gray = info.isActive and not info.isOnGCD
+                if gray and FrameFlagIsTrue(icon, "wasSetFromCharges") then
+                    gray = false
+                elseif gray and type(icon.HasVisualDataSource_Charges) == "function" then
+                    local chargeOK, fromCharges = pcall(icon.HasVisualDataSource_Charges, icon)
+                    if chargeOK and SafeBool(fromCharges) then gray = false end
+                end
+            end
+        end
+        -- false still owns the active appearance so native updates cannot restore stale gray.
+        pid.hideActiveStateGray = gray
+    elseif pid.hideActiveStateGray == nil then
         return
     else
         pid.hideActiveStateGray = nil
@@ -160,13 +189,13 @@ local function SetHideActiveStateGray(icon, active)
     if not texture then return end
     pid._applyingHideActiveStateGray = true
     if texture.SetDesaturated then
-        pcall(texture.SetDesaturated, texture, active and true or false)
+        pcall(texture.SetDesaturated, texture, gray)
     end
     if texture.SetDesaturation then
-        pcall(texture.SetDesaturation, texture, active and 1 or 0)
+        pcall(texture.SetDesaturation, texture, gray and 1 or 0)
     end
     if texture.SetVertexColor then
-        if active then
+        if gray then
             pcall(texture.SetVertexColor, texture, 0.58, 0.58, 0.58, 1)
         else
             pcall(texture.SetVertexColor, texture, 1, 1, 1, 1)
@@ -607,7 +636,7 @@ local function ApplyHiddenActiveCooldown(icon, cooldown, cdd, settings, refreshC
     end
 
     if refreshCooldown and cooldown.SetCooldownFromDurationObject then
-        local spellID = CDMCompat and CDMCompat:ResolveFrameSpellID(icon)
+        local spellID = GetHiddenActiveSpellID(icon)
         if spellID and C_Spell then
             cdd.bypassCDHook = true
             cdd.bypassColorHook = true
@@ -629,6 +658,8 @@ local function ApplyHiddenActiveCooldown(icon, cooldown, cdd, settings, refreshC
                 end
                 if durationObject then
                     cooldown:SetCooldownFromDurationObject(durationObject)
+                elseif cooldown.Clear then
+                    cooldown:Clear()
                 end
             end)
             cdd.bypassCDHook = nil
@@ -914,7 +945,7 @@ function IconViewers:SkinIcon(icon, settings)
         if iconTexture.SetDesaturated then
             hooksecurefunc(iconTexture, "SetDesaturated", function()
                 local pid = iconData[icon]
-                if pid and pid.hideActiveStateGray and not pid._applyingHideActiveStateGray then
+                if pid and pid.hideActiveStateGray ~= nil and not pid._applyingHideActiveStateGray then
                     SetHideActiveStateGray(icon, true)
                 end
             end)
@@ -922,7 +953,7 @@ function IconViewers:SkinIcon(icon, settings)
         if iconTexture.SetDesaturation then
             hooksecurefunc(iconTexture, "SetDesaturation", function()
                 local pid = iconData[icon]
-                if pid and pid.hideActiveStateGray and not pid._applyingHideActiveStateGray then
+                if pid and pid.hideActiveStateGray ~= nil and not pid._applyingHideActiveStateGray then
                     SetHideActiveStateGray(icon, true)
                 end
             end)
@@ -932,7 +963,7 @@ function IconViewers:SkinIcon(icon, settings)
         hooksecurefunc(iconTexture, "SetVertexColor", function(self, r, g, b, a)
             if IsCooldownViewerSettingsOpen() then return end
             local pid = iconData[icon]
-            if pid and pid.hideActiveStateGray and not pid._applyingHideActiveStateGray then
+            if pid and pid.hideActiveStateGray ~= nil and not pid._applyingHideActiveStateGray then
                 SetHideActiveStateGray(icon, true)
                 return
             end
