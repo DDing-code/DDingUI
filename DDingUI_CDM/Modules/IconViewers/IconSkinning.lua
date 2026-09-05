@@ -1036,7 +1036,16 @@ function IconViewers:SkinIcon(icon, settings)
             cdd.swipeColorHooked = true
             hooksecurefunc(icon.Cooldown, "SetSwipeColor", function(self, r, g, b, a)
                 local cd = cdData[self]
-                if not cd or cd.bypassColorHook then return end
+                if not cd then return end
+                if issecretvalue and (issecretvalue(r) or issecretvalue(g) or issecretvalue(b) or issecretvalue(a)) then
+                    cd.previewSwipeColor = nil
+                    return
+                end
+                -- No native color getter: keep the final public style, including nested overrides.
+                local color = cd.previewSwipeColor or {}
+                color[1], color[2], color[3], color[4] = r, g, b, a or 1
+                cd.previewSwipeColor = color
+                if cd.bypassColorHook then return end
                 local s = cd.settings
                 local parentIcon = cd.parentIcon
                 if not parentIcon then return end

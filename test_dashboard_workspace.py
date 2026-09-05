@@ -1,64 +1,378 @@
+"""Run the actual Lua 5.1 dashboard and preview code against read-only UI doubles."""
 from pathlib import Path
-
+from lupa.lua51 import LuaRuntime
 
 ROOT = Path(__file__).parent
-WORKSPACE = (ROOT / "DDingUI_CDM_Option/SectionWorkspace.lua").read_text(encoding="utf-8")
-GROUP_RENDERER = (ROOT / "DDingUI_CDM/Modules/GroupSystem/GroupRenderer.lua").read_text(encoding="utf-8")
-EN = (ROOT / "DDingUI_CDM_Option/Locales/enUS.lua").read_text(encoding="utf-8")
-KO = (ROOT / "DDingUI_CDM_Option/Locales/koKR.lua").read_text(encoding="utf-8")
+
+STUBS = r"""
+SECRET = setmetatable({}, {__add=function() error("secret arithmetic") end})
+function issecretvalue(value) return rawequal(value, SECRET) end
+function LibStub() return nil end
+function UnitClass() return "Monk", "MONK" end
+function UnitPowerType() return 0 end
+function GetCursorPosition() return 0, 0 end
+function IsMouseButtonDown() return false end
+function wipe(t) for k in pairs(t) do t[k] = nil end end
+function CreateColor(...) return {...} end
+RAID_CLASS_COLORS = {MONK={r=0, g=1, b=0.6}}
+C_Timer = {After=function(_, fn) fn() end, NewTimer=function(_, fn)
+    return {Cancel=function() end}
+end}
+
+local Frame = {}
+Frame.__index = Frame
+created = 0
+function CreateFrame(kind, name, parent)
+    created = created + 1
+    local f = setmetatable({kind=kind, name=name, parent=parent, children={}, regions={},
+        width=100, height=30, shown=true, level=1, alpha=1, scale=1, scripts={}}, Frame)
+    if parent then parent.children[#parent.children+1] = f end
+    return f
+end
+function Frame:CreateTexture()
+    local r = CreateFrame("Texture", nil, nil)
+    r.parent = self; self.regions[#self.regions+1] = r
+    return r
+end
+function Frame:CreateMaskTexture() local t=self:CreateTexture(); t.kind="MaskTexture"; return t end
+function Frame:CreateFontString() local t=self:CreateTexture(); t.kind="FontString"; return t end
+function Frame:IsForbidden() return self.forbidden or false end
+function Frame:GetObjectType() return self.kind end
+function Frame:GetParent() return self.parent end
+function Frame:GetChildren() return unpack(self.children) end
+function Frame:GetRegions() return unpack(self.regions) end
+function Frame:IsShown() return self.shown end
+function Frame:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
+function Frame:GetAlpha() return self.alpha end
+function Frame:GetScale() return self.scale end
+function Frame:GetEffectiveScale() return self.scale * (self.parent and self.parent:GetEffectiveScale() or 1) end
+function Frame:GetEffectiveAlpha() return self.alpha * (self.parent and self.parent:GetEffectiveAlpha() or 1) end
+function Frame:GetFrameLevel() return self.level end
+function Frame:GetWidth() return self.allPoints and self.allPoints:GetWidth() or self.width end
+function Frame:GetHeight() return self.allPoints and self.allPoints:GetHeight() or self.height end
+function Frame:GetRect(...)
+    assert(select("#", ...)==0, "unexpected widget arguments")
+    if self.rect then return unpack(self.rect) end
+    if self.allPoints then return self.allPoints:GetRect() end
+    local x,y = 0,0
+    if self.point and self.point[2] then x,y=self.point[2]:GetRect() end
+    return x+(self.point and self.point[4] or 0), y+(self.point and self.point[5] or 0), self.width,self.height
+end
+function Frame:GetFont() return self.font, self.fontSize, self.flags end
+function Frame:GetText() return self.text end
+function Frame:GetTextColor() return unpack(self.textColor or {1,1,1,1}) end
+function Frame:GetTexture() return self.texture end
+function Frame:GetAtlas() return self.atlas end
+function Frame:GetTexCoord() return unpack(self.texCoord or {0,1,0,1}) end
+function Frame:GetVertexColor() return unpack(self.vertexColor or {1,1,1,1}) end
+function Frame:IsDesaturated() return self.desaturated or false end
+function Frame:GetBlendMode() return "BLEND" end
+function Frame:GetDrawLayer() return self.layer or "ARTWORK", self.sublevel or 0 end
+function Frame:GetJustifyH() return "CENTER" end
+function Frame:GetJustifyV() return "MIDDLE" end
+function Frame:GetNumMaskTextures() return #(self.masks or {}) end
+function Frame:GetMaskTexture(i) return self.masks[i] end
+function Frame:GetStatusBarTexture() return self.fill end
+function Frame:GetCooldownTimes() return self.start, self.duration end
+function Frame:GetDrawSwipe() return self.drawSwipe ~= false end
+function Frame:GetDrawEdge() return false end
+function Frame:GetReverse() return self.reverse or false end
+function Frame:GetRotation() return 0 end
+
+local function setter(name, fn)
+    Frame[name] = function(self, ...)
+        assert(not self.readOnly, "source mutated: "..name)
+        return fn(self, ...)
+    end
+end
+setter("SetSize", function(s,w,h) assert(type(w)=="number" and type(h)=="number"); s.width=w; s.height=h end)
+setter("SetWidth", function(s,w) s.width=w end)
+setter("SetHeight", function(s,h) s.height=h end)
+setter("SetPoint", function(s,...) s.point={...} end)
+setter("SetAllPoints", function(s,r) s.allPoints=r or s.parent end)
+setter("ClearAllPoints", function(s) s.point=nil; s.allPoints=nil end)
+setter("SetFrameLevel", function(s,v) s.level=v end)
+setter("SetScale", function(s,v) s.scale=v end)
+setter("SetAlpha", function(s,v) s.alpha=v end)
+setter("SetParent", function(s,p) s.parent=p end)
+setter("SetScript", function(s,k,v) s.scripts[k]=v end)
+setter("HookScript", function(s,k,v)
+    local prev=s.scripts[k]; s.scripts[k]=function(...) if prev then prev(...) end; v(...) end
+end)
+setter("Show", function(s) s.shown=true end)
+setter("Hide", function(s) s.shown=false end)
+setter("SetShown", function(s,b) s.shown=b end)
+setter("SetFont", function(s,f,z,flags)
+    if not f or z<=0 then return false end
+    s.font=f; s.fontSize=z; s.flags=flags; return true
+end)
+setter("SetText", function(s,t) assert(s.font, "Font not set"); s.text=t end)
+setter("SetFormattedText", function(s,fmt,...) s:SetText(string.format(fmt,...)) end)
+setter("SetTextColor", function(s,...) s.textColor={...} end)
+setter("SetTexture", function(s,t) s.texture=t; s.atlas=nil end)
+setter("SetAtlas", function(s,t) s.atlas=t end)
+setter("SetTexCoord", function(s,...) s.texCoord={...} end)
+setter("SetVertexColor", function(s,...) s.vertexColor={...} end)
+setter("SetDesaturated", function(s,b) s.desaturated=b end)
+setter("SetDrawLayer", function(s,l,z) assert(z>=-8 and z<=7); s.layer=l; s.sublevel=z end)
+setter("SetColorTexture", function(s,...) s.texture="solid"; s.vertexColor={...} end)
+setter("SetDrawSwipe", function(s,b) s.drawSwipe=b end)
+setter("SetReverse", function(s,b) s.reverse=b end)
+setter("SetCooldown", function(s,a,b) assert(type(a)=="number" and type(b)=="number"); s.start=a; s.duration=b end)
+setter("SetSwipeColor", function(s,...) s.swipeColor={...} end)
+setter("AddMaskTexture", function(s,m) s.masks=s.masks or {}; s.masks[#s.masks+1]=m end)
+setter("RemoveMaskTexture", function(s,m)
+    for i,v in ipairs(s.masks or {}) do if v==m then table.remove(s.masks,i); break end end
+end)
+for _, method in ipairs({"SetBackdrop", "SetBackdropColor", "SetBackdropBorderColor",
+    "EnableMouse", "EnableMouseWheel", "SetFrameStrata", "SetClipsChildren", "SetHitRectInsets",
+    "SetJustifyH", "SetJustifyV", "SetWordWrap", "SetBlendMode", "SetRotation",
+    "SetDrawBling", "SetHideCountdownNumbers", "SetDrawEdge", "SetGradient"}) do
+    setter(method, function() end)
+end
+UIParent=CreateFrame("Frame")
+UIParent.rect={0,0,3440,1440}
+GameTooltip={SetOwner=function()end, SetText=function()end, AddLine=function()end,
+    AddDoubleLine=function()end, Show=function()end, Hide=function()end}
+local colors=setmetatable({}, {__index=function(t,k) local c={0.2,0.3,0.4,1}; rawset(t,k,c); return c end})
+addon={GUI={}, GUIBase={L={}, FLAT="flat", THEME=colors}, db={profile={},
+    GetCurrentProfile=function()return"AD"end}}
+function addon.GUI.CreateStyledButton(parent, text, width, height)
+    local f=CreateFrame("Button",nil,parent); f:SetSize(width,height); return f
+end
+function runtime(rect, texture, parent)
+    local f=CreateFrame("Frame",nil,parent or UIParent); f.rect=rect
+    if texture then f.Icon=f:CreateTexture(); f.Icon:SetAllPoints(f); f.Icon:SetTexture(texture) end
+    return f
+end
+function freeze(f)
+    f.readOnly=true
+    for _,r in ipairs(f.regions) do r.readOnly=true end
+    for _,c in ipairs(f.children) do freeze(c) end
+end
+function near(a,b) assert(math.abs(a-b)<0.00001, tostring(a).." ~= "..tostring(b)) end
+"""
+
+CHECKS = r"""
+local preview = addon.GUI.DashboardPreview
+local a = runtime({100,200,40,20},101)
+local b = runtime({144,200,40,20},102)
+a.Icon:SetTexCoord(0.08,0.92,0.29,0.71)
+a.Icon:SetVertexColor(0.6,0.7,0.8,1)
+a.Icon:SetDesaturated(true)
+local count=a:CreateFontString()
+count:SetAllPoints(a); count:SetFont("font.ttf",12,"OUTLINE"); count:SetText("3")
+local cooldown=CreateFrame("Cooldown",nil,a)
+cooldown:SetAllPoints(a); cooldown.start=1000; cooldown.duration=5000; cooldown.reverse=true
+addon.IconViewers={_cdData={[cooldown]={previewSwipeColor={0.9,0.5,0.2,0.7}}}}
+local group=runtime({100,200,84,20})
+group._managedIcons={a,b}; group._iconCount=2
+addon.GroupRenderer={groupFrames={Cooldowns=group},
+    IsManagedIconInLayout=function(_,f)return not f.filtered end}
+addon.db.profile={groupSystem={groups={
+    Cooldowns={iconOrder={"cdm:Merithra", "dynid:slot:13"}, rowLimit=0, aspectRatioCrop=2},
+    Utility={}, Empty={}}},
+    powerBar={enabled=false}, secondaryPowerBar={enabled=false}, castBar={enabled=false}}
+local descriptors=api.build()
+assert(#descriptors==2 and #descriptors[1].sources==2)
+assert(descriptors[1].sources[1]==a, "identity must come from the runtime frame")
+assert(#descriptors[2].sources==0, "empty group must not invent icons")
+a.filtered=true
+assert(#api.build()[1].sources==1)
+a.filtered=nil
+for i=3,30 do group._managedIcons[i]=runtime({100+(i-1)*44,200,40,20},100+i) end
+group._iconCount=30
+assert(#api.build()[1].sources==30, "24-icon truncation returned")
+group._iconCount=2
+
+local bars,icons,texts={},{},{}
+local tracked={
+    {uid="bar", displayType="bar", settings={}}, {uid="ring", displayType="ring", settings={}},
+    {uid="icon", displayType="icon", settings={}}, {uid="text", displayType="text", settings={}},
+    {uid="sound", displayType="sound"}, {isGroup=true}, {uid="disabled", displayType="bar",disabled=true}}
+bars[1]=runtime({100,160,180,12},201); bars[2]=runtime({290,150,32,32},202)
+icons[3]=runtime({330,150,32,32},203); texts[4]=runtime({370,150,80,16},204)
+bars[7]=runtime({900,900,100,20},207)
+addon.GetTrackedBuffConfigs=function()return tracked end
+addon.GetTrackedBuffBars=function()return bars end
+addon.GetTrackedBuffIcons=function()return icons end
+addon.GetTrackedBuffTexts=function()return texts end
+addon.GetTrackedBuffGroups=function()error("stale group cache must not be used")end
+local ds=api.build()
+assert(#ds==6)
+assert(ds[3].frame==bars[1] and ds[4].frame==bars[2] and ds[5].frame==icons[3] and ds[6].frame==texts[4])
+tracked[1].displayType="icon"; icons[1]=icons[3]
+assert(api.build()[3].frame==icons[1], "display type must refresh immediately")
+tracked[1].displayType="bar"
+addon.GetTrackedBuffConfigs=function()return{}end
+
+-- Fit the content, using one scale on ultrawide and portrait canvases.
+for _,size in ipairs({{800,450},{700,700},{500,900}}) do
+    local v=api.viewport({{left=900,bottom=400,width=400,height=100}},preview.Rect(UIParent),size[1],size[2])
+    near(size[1]/v.width,size[2]/v.height)
+    near(v.left+v.width/2,1100); near(v.bottom+v.height/2,450)
+    assert(400*v.scale<=size[1] and 100*v.scale<=size[2])
+end
+local scaled=runtime({10,20,40,20},301)
+scaled.scale=2
+local r=preview.Rect(scaled); near(r.left,20); near(r.width,80)
+
+-- Actual textures, crop, desaturation, text, and timing; originals reject every setter.
+freeze(a); freeze(b)
+local host=CreateFrame("Frame",nil,UIParent)
+local rect={left=100,bottom=200,width=84,height=20}
+local painted,partial=preview.Paint(host,{a,b},rect,2)
+assert(painted==4 and not partial)
+local texture=host._previewPool.Texture[1].visual
+assert(texture.texture==101 and texture.desaturated)
+near(texture.texCoord[3],0.29); near(texture.vertexColor[1],0.6)
+near(host._previewPool.Texture[1].width,80); near(host._previewPool.Texture[1].height,40)
+assert(host._previewPool.FontString[1].visual.text=="3")
+near(host._previewPool.FontString[1].visual.fontSize,24)
+assert(host._previewPool.Cooldown[1].start==1 and host._previewPool.Cooldown[1].duration==5)
+assert(host._previewPool.Cooldown[1].reverse)
+near(host._previewPool.Cooldown[1].swipeColor[1],0.9)
+local allocations=created
+for i=1,20 do preview.Paint(host,{a,b},rect,2) end
+assert(created==allocations, "refresh allocated new frames")
+-- Inner geometry changes even though the group's outside bounds do not.
+a.rect={100,200,32,20}; b.rect={136,200,48,20}
+preview.Paint(host,{a,b},rect,2)
+near(host._previewPool.Texture[1].width,64); near(host._previewPool.Texture[2].point[4],72)
+a.Icon.texCoord={0.1,0.9,0.25,0.75}; count.text="8"
+preview.Paint(host,{a,b},rect,2)
+near(texture.texCoord[3],0.25); assert(host._previewPool.FontString[1].visual.text=="8")
+
+-- Secret values and forbidden descendants are omitted, never compared or guessed.
+cooldown.start=SECRET
+a.Icon.GetTexture=function()return SECRET end
+painted,partial=preview.Paint(host,{a,b},rect,2)
+assert(partial and not host._previewPool.Texture[1].shown and not host._previewPool.Cooldown[1].shown)
+local forbidden=runtime({10,10,30,30},999)
+forbidden.forbidden=true
+forbidden.GetRect=function()error("forbidden getter called")end
+forbidden.GetChildren=forbidden.GetRect
+forbidden.GetRegions=forbidden.GetRect
+assert(preview.Rect(forbidden)==nil)
+painted,partial=preview.Paint(host,{forbidden},rect,2)
+assert(painted==0 and partial)
+assert(not host._previewPool.FontString[1].shown, "stale text remained visible")
+a.Icon.GetTexture=nil; cooldown.start=1000
+
+-- Bars keep the actual fill length, color and border/segment regions, not a 72% sample.
+local bar=runtime({100,100,180,12})
+local status=CreateFrame("StatusBar",nil,bar)
+status:SetAllPoints(bar)
+status.fill=status:CreateTexture()
+status.fill.rect={100,100,37,12}; status.fill:SetTexture("bar.tga")
+status.fill:SetVertexColor(0,0.9,0.4,1)
+local border=bar:CreateTexture()
+border.rect={99,99,182,1}; border:SetTexture("border.tga")
+local barHost=CreateFrame("Frame",nil,UIParent)
+freeze(bar)
+preview.Paint(barHost,{bar},preview.Rect(bar),2,{1,0,0,1})
+local foundFill,foundBorder
+for _,cell in ipairs(barHost._previewPool.Texture) do
+    if cell.visual.texture=="bar.tga" then
+        foundFill=true; near(cell.width,74); near(cell.visual.vertexColor[2],0.9)
+    elseif cell.visual.texture=="border.tga" then foundBorder=true; near(cell.height,2) end
+end
+assert(foundFill and foundBorder)
+status.fill.rect[3]=0
+local _,limited=preview.Paint(barHost,{bar},preview.Rect(bar),2)
+-- A zero-width fill is empty, not restricted data.
+status.fill.width=0
+_,limited=preview.Paint(barHost,{bar},preview.Rect(bar),2)
+assert(not limited)
+
+-- Mask pools remove previously attached masks when the next source is unmasked.
+local masked=runtime({100,100,40,40},401)
+local mask=masked:CreateMaskTexture()
+mask:SetAllPoints(masked); mask:SetTexture("ring.tga")
+masked.Icon:AddMaskTexture(mask)
+preview.Paint(host,{masked},preview.Rect(masked),1)
+assert(#host._previewPool.Texture[1].visual.masks==1)
+masked.Icon:RemoveMaskTexture(mask)
+preview.Paint(host,{masked},preview.Rect(masked),1)
+assert(#host._previewPool.Texture[1].visual.masks==0)
+
+-- Construct the real workspace: nil helpers and widget misuse must fail here.
+local parent=CreateFrame("Frame",nil,UIParent)
+parent.contentArea=CreateFrame("Frame",nil,parent)
+parent.scrollFrame=CreateFrame("Frame",nil,parent)
+function parent:NavigateToSection(target) self.destination=target end
+api.create(CreateFrame("Frame",nil,parent),parent)
+local w=parent.contentArea._sectionWorkspace
+w.stage:SetSize(800,450); w:RefreshCurrent()
+local node=w.nodeByKey["group:Cooldowns"]
+assert(node and node:IsShown())
+near(node._layoutWidth/node._layoutHeight,84/20)
+assert(w.stage.selectionReadout:IsShown(), "selection guide disappeared")
+near(w.stage.selectionCenter.point[4],node._stageX+node._layoutWidth/2)
+local firstScale=w.viewRect.scale
+group._managedIcons[3]=runtime({3000,1000,40,40},888)
+group._managedIcons[3].filtered=true; group._iconCount=3
+w:RefreshCurrent(); near(w.viewRect.scale,firstScale)
+group._iconCount=2
+local stable=created
+for i=1,20 do w:RefreshCurrent() end
+assert(created==stable and w.nodeByKey["group:Cooldowns"]==node, "keyed node reuse failed")
+w._drag={x=0,y=0,panX=0,panY=0}
+w.scripts.OnUpdate(w,0.3)
+assert(w._drag==nil, "mouse release outside the canvas left panning active")
+local previous=w.selectedKey
+node.scripts.OnEnter(node)
+assert(w.selectedKey==previous, "hover changed selection")
+node.scripts.OnClick(node)
+assert(parent.destination=="groupSystem.group_Cooldowns")
+addon.db.profile.groupSystem.groups.Cooldowns.enabled=false
+w:RefreshCurrent()
+assert(not w.nodeByKey["group:Cooldowns"] and not node:IsShown())
+addon.db.profile.groupSystem.groups.Cooldowns.enabled=true
+w:RefreshCurrent()
+assert(w.nodeByKey["group:Cooldowns"]==node, "retired node not reused")
+local selectedIndex
+parent.contentArea._btPanel={SelectTracker=function(_,i)selectedIndex=i end}
+w:OpenDescriptor({target="buffTracker",trackerIndex=4})
+assert(selectedIndex==4)
+w:Release()
+assert(w.scripts.OnUpdate==nil)
+for _, pool in pairs(node.visual._previewPool) do
+    for _,cell in ipairs(pool)do assert(not cell:IsShown())end
+end
+"""
 
 
-def test_dashboard_workspace_contract():
-    dashboard = WORKSPACE.split("local function CreateDashboardWorkspace", 1)[1].split(
-        "function GUI.CreateSectionWorkspace", 1
-    )[0]
-    signature = WORKSPACE.split("local function DashboardSourceSignature", 1)[1].split(
-        "local function CreateDashboardQuickRow", 1
-    )[0]
-    descriptors = WORKSPACE.split("local function BuildDashboardDescriptors", 1)[1].split(
-        "local function DashboardSourceSignature", 1
-    )[0]
-
-    assert 'L["General Settings"] = "Dashboard"' in EN
-    assert 'L["General Settings"] = "대시보드"' in KO
-    assert 'requestedKind == "general" and not (requestedPath and #requestedPath > 0)' in WORKSPACE
-    assert "DashboardFrameRect(descriptor.frame)" in dashboard
-    assert "DASHBOARD_PREVIEW_MAX_ZOOM = 3.2" in WORKSPACE
-    assert "left = left and math.min(left, rect.left)" in WORKSPACE
-    assert 'if descriptor.kind == "icons" then' in dashboard
-    assert "DashboardFramesRect(descriptor.iconFrames)" in dashboard
-    assert "DASHBOARD_REPRESENTATIVE_ICON_COUNT = 4" in WORKSPACE
-    assert "#textures == 0 and hasRuntimeIcons" in WORKSPACE
-    assert "icon.Icon or icon.icon or icon.Texture" in WORKSPACE
-    assert "DashboardTokenTexture(settings.iconOrder and settings.iconOrder[index])" in WORKSPACE
-    assert "renderer.IsManagedIconInLayout" in WORKSPACE
-    assert "not hasRuntimeIcons" in WORKSPACE
-    assert "function GroupRenderer:IsManagedIconInLayout(icon)" in GROUP_RENDERER
-    assert "not icon._ddStateFiltered" in GROUP_RENDERER
-    assert "not icon._ddOverflowFiltered" in GROUP_RENDERER
-    assert "bridge.ApplyTexCoordCrop(slot.texture" in dashboard
-    assert "DashboardFrameRect(descriptor.iconFrames[index])" in dashboard
-    assert "DashboardViewportRect(rects, uiRect)" in dashboard
-    assert "parentFrame:NavigateToSection(self.descriptor.target)" in dashboard
-    assert 'target = "groupSystem.group_" .. group.name' in WORKSPACE
-    assert 'groupName ~= "Utility"' in descriptors
-    assert 'AddBar("trackedBars"' not in descriptors
-    assert '"resourceBars.primary"' in WORKSPACE
-    assert "DDingUI.secondaryPowerBar, secondary," in WORKSPACE
-    assert '"castBars.general"' in WORKSPACE
-    assert '"profiles.importExport"' in dashboard
-    assert '"profiles.moduleImport"' in dashboard
-    assert "DDingUI.Movers:ToggleConfigMode()" in dashboard
-    assert "selected.open = GUI.CreateStyledButton" in dashboard
-    assert "CreateButton(selected" not in dashboard
-    assert "CreateButton(quick" not in dashboard
-    assert "descriptor.frame:SetParent" not in dashboard
-    assert "self._geometryElapsed >= 0.25" in dashboard
-    assert "function workspace:RefreshCurrent()" in dashboard
-    assert "DashboardGroupTextures(frame, settings)" in signature
-    assert '"tracked:" .. tostring(key)' in signature
+def test_dashboard_workspace():
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(STUBS)
+    ns = lua.table(Addon=lua.globals().addon)
+    for name in ("DashboardPreview.lua", "SectionWorkspace.lua"):
+        source = (ROOT / "DDingUI_CDM_Option" / name).read_text(encoding="utf-8")
+        if name == "SectionWorkspace.lua":
+            source += "\nreturn {create=CreateDashboardWorkspace, build=BuildDashboardDescriptors, viewport=DashboardViewportRect}"
+            lua.globals().api = lua.execute(source, "DDingUI_CDM_Option", ns)
+        else:
+            lua.execute(source, "DDingUI_CDM_Option", ns)
+    lua.execute(CHECKS)
+    skinning = (ROOT / "DDingUI_CDM/Modules/IconViewers/IconSkinning.lua").read_text(encoding="utf-8")
+    hook = skinning.split('hooksecurefunc(icon.Cooldown, "SetSwipeColor", function(self, r, g, b, a)', 1)[1]
+    hook = hook.split("local s = cd.settings", 1)[0]
+    lua.execute("local cdData = addon.IconViewers._cdData; captured = function(self,r,g,b,a) " + hook + " end")
+    lua.execute('''
+        local frame={}
+        local data={bypassColorHook=true}
+        addon.IconViewers._cdData[frame]=data
+        captured(frame, 0.1, 0.2, 0.3, 0)
+        assert(data.previewSwipeColor[4]==0, "nested transparent override was lost")
+        local reused=data.previewSwipeColor
+        captured(frame, 0.4, 0.5, 0.6, 1)
+        assert(data.previewSwipeColor==reused, "color cache allocates on every setter")
+        captured(frame, SECRET, 0, 0, 1)
+        assert(data.previewSwipeColor==nil)
+    ''')
 
 
 if __name__ == "__main__":
-    test_dashboard_workspace_contract()
-    print("dashboard workspace contract: ok")
+    test_dashboard_workspace()
+    print("dashboard Lua 5.1 runtime checks: OK")
