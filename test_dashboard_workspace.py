@@ -68,6 +68,7 @@ function Frame:GetAtlas() return self.atlas end
 function Frame:GetTexCoord() return unpack(self.texCoord or {0,1,0,1}) end
 function Frame:GetVertexColor() return unpack(self.vertexColor or {1,1,1,1}) end
 function Frame:IsDesaturated() return self.desaturated or false end
+function Frame:GetDesaturation() return self.desaturation or (self.desaturated and 1 or 0) end
 function Frame:GetBlendMode() return "BLEND" end
 function Frame:GetDrawLayer() return self.layer or "ARTWORK", self.sublevel or 0 end
 function Frame:GetJustifyH() return "CENTER" end
@@ -120,7 +121,10 @@ setter("SetTexture", function(s,t) s.texture=t; s.atlas=nil end)
 setter("SetAtlas", function(s,t) s.atlas=t end)
 setter("SetTexCoord", function(s,...) s.texCoord={...} end)
 setter("SetVertexColor", function(s,...) s.vertexColor={...} end)
-setter("SetDesaturated", function(s,b) s.desaturated=b end)
+setter("SetDesaturated", function(s,b)
+    s.desaturated=b; s.desaturation=issecretvalue(b) and b or (b and 1 or 0)
+end)
+setter("SetDesaturation", function(s,v) s.desaturation=v end)
 setter("SetDrawLayer", function(s,l,z) assert(z>=-8 and z<=7); s.layer=l; s.sublevel=z end)
 setter("SetColorTexture", function(s,...) s.texture="solid"; s.vertexColor={...} end)
 setter("SetDrawSwipe", function(s,b) s.drawSwipe=b end)
@@ -239,7 +243,7 @@ local rect={left=100,bottom=200,width=84,height=20}
 local painted,partial=preview.Paint(host,{a,b},rect,2)
 assert(painted==4 and not partial)
 local texture=host._previewPool.Texture[1].visual
-assert(texture.texture==101 and texture.desaturated)
+assert(texture.texture==101 and texture.desaturation==1)
 near(texture.texCoord[3],0.29); near(texture.vertexColor[1],0.6)
 near(host._previewPool.Texture[1].width,80); near(host._previewPool.Texture[1].height,40)
 assert(host._previewPool.FontString[1].visual.text=="3")
@@ -273,6 +277,68 @@ painted,partial=preview.Paint(host,{forbidden},rect,2)
 assert(painted==0 and partial)
 assert(not host._previewPool.FontString[1].shown, "stale text remained visible")
 a.Icon.GetTexture=nil; cooldown.start=1000
+
+-- Native CDM textures can expose numeric desaturation but deny the boolean accessor.
+-- The old mirror dropped every native icon while the custom icon and group bounds survived.
+local nativeSources, booleanReads = {}, 0
+for index=1,18 do
+    local icon=runtime({100+(index-1)%9*40,200-math.floor((index-1)/9)*20,40,20},700+index)
+    icon.Icon.IsDesaturated=function() booleanReads=booleanReads+1; error("desaturation access denied") end
+    icon.Icon.GetDesaturation=function() return SECRET end
+    freeze(icon)
+    nativeSources[index]=icon
+end
+nativeSources[19]=runtime({260,160,40,20},719)
+freeze(nativeSources[19])
+local nativeHost=CreateFrame("Frame",nil,UIParent)
+local nativeBounds={left=100,bottom=160,width=360,height=60}
+painted,partial=preview.Paint(nativeHost,nativeSources,nativeBounds,2)
+assert(painted==19 and not partial, "native CDM icons vanished when desaturation was protected: "..painted.."/19")
+assert(booleanReads==0, "restricted boolean accessor used instead of numeric desaturation")
+for index=1,18 do
+    local cell=nativeHost._previewPool.Texture[index]
+    assert(cell.shown and cell.visual.texture==700+index and rawequal(cell.visual.desaturation,SECRET))
+end
+
+-- Only allowed display setters receive secret values; coordinates and hierarchy stay public.
+local native=nativeSources[1]
+native.Icon.GetEffectiveAlpha=function() return SECRET end
+native.Icon.GetAlpha=native.Icon.GetEffectiveAlpha
+native.Icon.GetVertexColor=function() return SECRET,0.7,0.8,1 end
+native.Icon.GetTexCoord=function() return SECRET,0,0,1,1,0,1,1 end
+local nativeText=native:CreateFontString()
+nativeText:SetAllPoints(native); nativeText:SetFont("font.ttf",12,"OUTLINE")
+nativeText.text=SECRET; nativeText.textColor={SECRET,1,1,1}
+freeze(native)
+painted,partial=preview.Paint(nativeHost,{native},nativeBounds,2)
+local nativeCell=nativeHost._previewPool.Texture[1]
+assert(painted==2 and not partial, "permitted secret display values were dropped")
+assert(rawequal(nativeCell.alpha,SECRET) and rawequal(nativeCell.visual.vertexColor[1],SECRET))
+assert(rawequal(nativeCell.visual.texCoord[1],SECRET))
+assert(rawequal(nativeHost._previewPool.FontString[1].visual.text,SECRET))
+assert(rawequal(nativeHost._previewPool.FontString[1].visual.textColor[1],SECRET))
+assert(preview.Read(native.Icon,"GetAlpha")==nil, "public read boundary exposed a secret")
+-- Reused cells must replace secret state with the next source's actual public state.
+native.Icon.GetDesaturation=function() return 0.35 end
+native.Icon.GetEffectiveAlpha=false -- Regions can provide only GetAlpha.
+native.Icon.GetAlpha=function() return 0.6 end
+native.Icon.GetVertexColor=nil; native.Icon.GetTexCoord=nil
+nativeText.text="4"; nativeText.textColor=nil
+preview.Paint(nativeHost,{native},nativeBounds,2)
+near(nativeCell.visual.desaturation,0.35); near(nativeCell.alpha,0.6)
+near(nativeCell.visual.vertexColor[1],1); near(nativeCell.visual.texCoord[1],0)
+assert(nativeHost._previewPool.FontString[1].visual.text=="4")
+native.Icon.GetRect=function() return SECRET,200,40,20 end
+assert(preview.Rect(native.Icon)==nil)
+painted,partial=preview.Paint(nativeHost,{native},nativeBounds,2)
+assert(partial and not nativeCell.shown, "secret geometry reached layout arithmetic")
+native.Icon.GetRect=nil
+native.Icon.GetVertexColor=function() error("getter unavailable") end
+painted,partial=preview.Paint(nativeHost,{native},nativeBounds,2)
+assert(partial and not nativeCell.shown, "failed native copy left a stale icon visible")
+native.Icon.GetVertexColor=nil
+preview.Paint(nativeHost,{native},nativeBounds,2)
+assert(nativeCell.shown, "icon did not recover after getter became accessible")
 
 -- Bars keep the actual fill length, color and border/segment regions, not a 72% sample.
 local bar=runtime({100,100,180,12})
@@ -365,6 +431,17 @@ local w=parent.contentArea._sectionWorkspace
 w.stage:SetSize(800,450); w:RefreshCurrent()
 local node=w.nodeByKey["group:Cooldowns"]
 assert(node and node:IsShown())
+local originalIcons,originalCount=group._managedIcons,group._iconCount
+group._managedIcons=nativeSources; group._iconCount=#nativeSources
+w:RefreshCurrent()
+near(node._sourceRect.width,360); near(node._sourceRect.height,60)
+for index=1,19 do
+    local cell=node.visual._previewPool.Texture[index]
+    assert(cell and cell.shown and cell.visual.texture==700+index,
+        "dashboard collection or painting lost native icon "..index)
+end
+group._managedIcons=originalIcons; group._iconCount=originalCount
+w:RefreshCurrent()
 for _,key in ipairs({"group:Buffs","power","secondaryPower","cast"}) do
     local idle=w.nodeByKey[key]
     assert(idle and idle:IsShown() and idle._idle, key.." missing from idle dashboard")

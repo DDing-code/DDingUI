@@ -11,7 +11,7 @@ local function Secret(value)
 end
 
 -- Read-only boundary: never inspect forbidden frames or calculate with secret returns.
-local function Values(object, method, ...)
+local function Values(object, method, allowSecret, ...)
     if Secret(object) or object == nil then return nil end
     local args = Pack(...)
     local ok, values = pcall(function()
@@ -21,8 +21,10 @@ local function Values(object, method, ...)
         return Pack(fn(object, unpack(args, 1, args.n)))
     end)
     if not ok or not values then return nil end
-    for index = 1, values.n do
-        if Secret(values[index]) then return nil end
+    if not allowSecret then
+        for index = 1, values.n do
+            if Secret(values[index]) then return nil end
+        end
     end
     return values
 end
@@ -56,9 +58,10 @@ function Preview.Rect(object)
     return { left = left * scale, bottom = bottom * scale, width = width * scale, height = height * scale }
 end
 
-local function Copy(source, target, getter, setter)
-    local values = Values(source, getter)
-    if values and values.n > 0 and values[1] ~= nil then
+-- Opt in only for AllowedWhenTainted display setters; never inspect their secret arguments.
+local function Copy(source, target, getter, setter, allowSecret)
+    local values = Values(source, getter, allowSecret)
+    if values and values.n > 0 and (Secret(values[1]) or values[1] ~= nil) then
         return pcall(target[setter], target, unpack(values, 1, values.n))
     end
     return false
@@ -108,18 +111,20 @@ function Preview.Paint(host, sources, bounds, scale, color)
             (rect.left - bounds.left) * scale, (rect.bottom - bounds.bottom) * scale)
         cell:SetSize(rect.width * scale, rect.height * scale)
         cell:SetFrameLevel(baseLevel + math.max(0, math.min(16, level - rootLevel)))
-        local alpha = Read(source, "GetEffectiveAlpha") or Read(source, "GetAlpha")
-        if alpha == nil then partial = true; return end
-        cell:SetAlpha(alpha)
+        if not Copy(source, cell, "GetEffectiveAlpha", "SetAlpha", true)
+            and not Copy(source, cell, "GetAlpha", "SetAlpha", true) then
+            partial = true; return
+        end
         local visual = cell.visual
         if kind == "Texture" then
             local texture, atlas = Read(source, "GetTexture"), Read(source, "GetAtlas")
             if atlas and atlas ~= "" then visual:SetAtlas(atlas)
             elseif texture then visual:SetTexture(texture)
             else partial = true; return end
-            if not Copy(source, visual, "GetTexCoord", "SetTexCoord")
-                or not Copy(source, visual, "GetVertexColor", "SetVertexColor")
-                or not Copy(source, visual, "IsDesaturated", "SetDesaturated") then
+            -- Unlike IsDesaturated, the numeric getter permits forwarding protected CDM desaturation.
+            if not Copy(source, visual, "GetTexCoord", "SetTexCoord", true)
+                or not Copy(source, visual, "GetVertexColor", "SetVertexColor", true)
+                or not Copy(source, visual, "GetDesaturation", "SetDesaturation", true) then
                 partial = true; return
             end
             Copy(source, visual, "GetBlendMode", "SetBlendMode")
@@ -140,7 +145,7 @@ function Preview.Paint(host, sources, bounds, scale, color)
                     mask:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT",
                         (maskRect.left - rect.left) * scale, (maskRect.bottom - rect.bottom) * scale)
                     mask:SetSize(maskRect.width * scale, maskRect.height * scale)
-                    Copy(maskSource, mask, "GetTexCoord", "SetTexCoord")
+                    Copy(maskSource, mask, "GetTexCoord", "SetTexCoord", true)
                     visual:AddMaskTexture(mask)
                     cell.activeMasks[#cell.activeMasks + 1] = mask
                 else partial = true end
@@ -180,13 +185,15 @@ function Preview.Paint(host, sources, bounds, scale, color)
             local font, size, flags = Read(source, "GetFont")
             local text = Read(source, "GetText")
             if text == "" then return end
-            if not font or not size or text == nil then partial = true; return end
+            if not font or not size then partial = true; return end
             local fontScale = (Read(source, "GetEffectiveScale") or 1) / (Read(UIParent, "GetEffectiveScale") or 1)
             if not visual:SetFont(font, math.max(1, size * fontScale * scale), flags) then
                 partial = true; return
             end
-            visual:SetText(text)
-            if not Copy(source, visual, "GetTextColor", "SetTextColor") then partial = true; return end
+            if not Copy(source, visual, "GetText", "SetText", true)
+                or not Copy(source, visual, "GetTextColor", "SetTextColor", true) then
+                partial = true; return
+            end
             Copy(source, visual, "GetJustifyH", "SetJustifyH")
             Copy(source, visual, "GetJustifyV", "SetJustifyV")
             Copy(source, visual, "GetDrawLayer", "SetDrawLayer")
