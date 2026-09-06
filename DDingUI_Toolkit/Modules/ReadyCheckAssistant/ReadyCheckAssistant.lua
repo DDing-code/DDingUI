@@ -22,10 +22,14 @@ local P = ns.UI and ns.UI.popupColors or {
 }
 local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit")
     or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: "
-local PANEL_HEIGHT = 196
-local COMPACT_PANEL_HEIGHT = 160
-local ACTION_BUTTON_WIDTH = 100
-local ACTION_BUTTON_HEIGHT = 26
+local PANEL_HEIGHT = 400
+local COMPACT_PANEL_HEIGHT = 346
+local ACTION_BUTTON_HEIGHT = 31
+local ICON_PATH = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\ReadyCheckIcons.tga"
+local ICONS = { alert = 0, check = 1, close = 2, talent = 3, repair = 4, chat = 5, open = 6 }
+local READY_COLOR = { 0.51, 0.78, 0.64, 1 }
+local WARNING_COLOR = { 0.89, 0.73, 0.47, 1 }
+local REPAIR_COLOR = { 0.93, 0.58, 0.53, 1 }
 
 local active = false
 local editPreview = false
@@ -111,21 +115,55 @@ local function SetBackdrop(target, background, border)
     target:SetBackdropBorderColor(unpack(border))
 end
 
-local function CreatePanelButton(parent, label, primary)
+local function AddText(parent, size, color, text)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetFont(DEFAULT_FONT, size, "")
+    label:SetShadowOffset(1, -1)
+    label:SetShadowColor(0, 0, 0, 0.5)
+    label:SetTextColor(unpack(color))
+    label:SetJustifyH("LEFT")
+    label:SetJustifyV("MIDDLE")
+    label:SetWordWrap(false)
+    label:SetText(text or "")
+    frame.fontSizes[label] = size
+    return label
+end
+
+local function SetIcon(texture, name, color)
+    local index = ICONS[name]
+    texture:SetTexture(ICON_PATH)
+    texture:SetTexCoord(index / 8, (index + 1) / 8, 0, 1)
+    texture:SetVertexColor(unpack(color))
+end
+
+local function AddIcon(parent, name, size, color)
+    local icon = parent:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(size, size)
+    SetIcon(icon, name, color)
+    return icon
+end
+
+local function SetCheckStatus(label, icon, text, symbol, color)
+    label:SetText(text)
+    label:SetTextColor(unpack(color))
+    label:SetWidth(label:GetStringWidth())
+    icon:SetShown(symbol ~= nil)
+    if symbol then SetIcon(icon, symbol, color) end
+end
+
+local function CreatePanelButton(parent, label, symbol)
     local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    button:SetSize(ACTION_BUTTON_WIDTH, ACTION_BUTTON_HEIGHT)
+    button:SetSize(200, ACTION_BUTTON_HEIGHT)
     button:RegisterForClicks("LeftButtonUp")
 
-    button.label = button:CreateFontString(nil, "OVERLAY")
-    button.label:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-    button.label:SetPoint("LEFT", 8, 0)
-    button.label:SetPoint("RIGHT", -8, 0)
+    button.label = AddText(button, 12, P.text, label)
+    button.label:SetPoint("CENTER", 10, 0)
     button.label:SetJustifyH("CENTER")
-    button.label:SetWordWrap(false)
-    button.label:SetText(label)
+    button.icon = AddIcon(button, symbol, 14, P.text)
+    button.icon:SetPoint("RIGHT", button.label, "LEFT", -7, 0)
 
     local function ApplyVisual(state)
-        if primary then
+        if button.primary then
             if state == "pressed" then
                 SetBackdrop(button, P.primary, P.primaryBorder)
             elseif state == "hover" then
@@ -144,6 +182,11 @@ local function CreatePanelButton(parent, label, primary)
             end
             button.label:SetTextColor(unpack(P.text))
         end
+    end
+
+    function button:SetPrimary(primary)
+        self.primary = primary
+        ApplyVisual(self._hovered and "hover" or "normal")
     end
 
     button:SetScript("OnEnter", function(self)
@@ -167,15 +210,6 @@ local function CreatePanelButton(parent, label, primary)
 
     ApplyVisual("normal")
     return button
-end
-
-local function SetStatusIcon(texture, atlas)
-    if not frame then return end
-    if atlas and frame.statusIcon.SetAtlas then
-        frame.statusIcon:SetAtlas(atlas)
-    else
-        frame.statusIcon:SetTexture(texture)
-    end
 end
 
 local function NormalizeExpectedName(value)
@@ -331,8 +365,10 @@ function ReadyCheckAssistant:CollectSnapshot()
     local status = "READY"
     if #durability.lowSlots > 0 then
         status = "REPAIR"
+    elseif not loadoutKnown then
+        status = "UNKNOWN"
     elseif loadoutMatch == false then
-        status = loadoutKnown and "LOADOUT" or "UNKNOWN"
+        status = "LOADOUT"
     end
 
     return {
@@ -346,6 +382,7 @@ function ReadyCheckAssistant:CollectSnapshot()
         context = context,
         durability = durability,
         status = status,
+        issueCount = (#durability.lowSlots > 0 and 1 or 0) + ((not loadoutKnown or loadoutMatch == false) and 1 or 0),
     }
 end
 
@@ -353,121 +390,155 @@ function ReadyCheckAssistant:CreateFrame()
     if frame then return frame end
 
     frame = CreateFrame("Frame", "DDingToolKit_ReadyCheckAssistantFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(390, PANEL_HEIGHT)
+    frame.fontSizes = {}
+    frame:SetSize(440, PANEL_HEIGHT)
     frame:SetFrameStrata("HIGH")
     frame:SetClampedToScreen(true)
     frame:EnableMouse(false)
     SetBackdrop(frame, P.background, P.border)
 
+    local function Text(key, size, color, text, x, y, width)
+        local label = AddText(frame, size, color, text)
+        label:SetPoint("TOPLEFT", x, -y)
+        label:SetHeight(size + 6)
+        if width then
+            label:SetWidth(width)
+        else
+            label:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -16, -y)
+        end
+        frame[key] = label
+        return label
+    end
+
+    frame.headerBackground = frame:CreateTexture(nil, "BACKGROUND")
+    frame.headerBackground:SetPoint("TOPLEFT", 1, -1)
+    frame.headerBackground:SetPoint("TOPRIGHT", -1, -1)
+    frame.headerBackground:SetHeight(37)
+    frame.headerBackground:SetColorTexture(unpack(P.header or P.hover))
+
+    Text("title", 13, P.textBright, L["RCA_PANEL_TITLE"], 16, 10)
+    frame.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -142, -10)
+    frame.context = AddText(frame, 11, P.textDim)
+    frame.context:SetPoint("TOPRIGHT", -48, -10)
+    frame.context:SetSize(80, 18)
+    frame.context:SetJustifyH("RIGHT")
+
+    frame.closeButton = CreateFrame("Button", nil, frame)
+    frame.closeButton:SetSize(24, 24)
+    frame.closeButton:SetPoint("TOPRIGHT", -11, -7)
+    frame.closeButton.icon = AddIcon(frame.closeButton, "close", 16, P.textDim)
+    frame.closeButton.icon:SetPoint("CENTER")
+    frame.closeButton:SetHighlightTexture(FLAT)
+    frame.closeButton:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
+    frame.closeButton:SetScript("OnClick", function()
+        editPreview = false
+        ReadyCheckAssistant:Hide()
+    end)
+
+    frame.statusBackground = frame:CreateTexture(nil, "BACKGROUND")
+    frame.statusBackground:SetPoint("TOPLEFT", 1, -39)
+    frame.statusBackground:SetPoint("TOPRIGHT", -1, -39)
+    frame.statusBackground:SetHeight(64)
     frame.accent = frame:CreateTexture(nil, "ARTWORK")
-    frame.accent:SetPoint("TOPLEFT", 1, -1)
-    frame.accent:SetPoint("BOTTOMLEFT", 1, 1)
-    frame.accent:SetWidth(3)
-    frame.accent:SetColorTexture(unpack(P.accent))
+    frame.accent:SetPoint("TOPLEFT", 1, -39)
+    frame.accent:SetSize(3, 64)
+    frame.statusIcon = AddIcon(frame, "check", 25, READY_COLOR)
+    frame.statusIcon:SetPoint("TOPLEFT", 20, -58)
+    Text("statusText", 18, P.textBright, "", 57, 51)
+    Text("statusDetail", 11, P.textDim, "", 57, 77)
 
-    frame.title = frame:CreateFontString(nil, "OVERLAY")
-    frame.title:SetFont(DEFAULT_FONT, 14, "OUTLINE")
-    frame.title:SetPoint("TOPLEFT", 16, -13)
-    frame.title:SetTextColor(unpack(P.textBright))
-    frame.title:SetText(L["RCA_PANEL_TITLE"])
+    Text("specLabel", 12, P.textDim, L["RCA_CURRENT_SPEC"], 16, 115, 100)
+    Text("specText", 13, P.text, "", 122, 114)
 
-    frame.context = frame:CreateFontString(nil, "OVERLAY")
-    frame.context:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-    frame.context:SetPoint("TOPRIGHT", -14, -15)
-    frame.context:SetTextColor(unpack(P.accentText))
+    for _, y in ipairs({ 38, 145, 233 }) do
+        local line = frame:CreateTexture(nil, "ARTWORK")
+        line:SetPoint("TOPLEFT", 16, -y)
+        line:SetPoint("TOPRIGHT", -16, -y)
+        line:SetHeight(1)
+        line:SetColorTexture(0.20, 0.20, 0.21, 1)
+    end
 
-    frame.divider = frame:CreateTexture(nil, "ARTWORK")
-    frame.divider:SetPoint("TOPLEFT", 14, -36)
-    frame.divider:SetPoint("TOPRIGHT", -14, -36)
-    frame.divider:SetHeight(1)
-    frame.divider:SetColorTexture(unpack(P.separator))
+    frame.talentIcon = AddIcon(frame, "talent", 15, P.textDim)
+    frame.talentIcon:SetPoint("TOPLEFT", 16, -158)
+    Text("talentTitle", 13, P.textBright, L["RCA_TALENT_LABEL"], 38, 156, 130)
+    Text("loadoutLabel", 11, P.textDim, L["RCA_CURRENT"], 38, 183, 67)
+    Text("expectedLabel", 11, P.textDim, L["RCA_EXPECTED"], 38, 204, 67)
+    Text("loadoutText", 12, P.text, "", 112, 182)
+    Text("expectedText", 12, P.accentText, "", 112, 203)
+    frame.loadoutStatus = AddText(frame, 11, P.textDim)
+    frame.loadoutStatus:SetPoint("TOPRIGHT", -16, -157)
+    frame.loadoutStatus:SetHeight(18)
+    frame.loadoutStatus:SetJustifyH("RIGHT")
+    frame.loadoutStatusIcon = AddIcon(frame, "check", 13, READY_COLOR)
+    frame.loadoutStatusIcon:SetPoint("RIGHT", frame.loadoutStatus, "LEFT", -5, 0)
 
-    frame.specIcon = frame:CreateTexture(nil, "ARTWORK")
-    frame.specIcon:SetSize(36, 36)
-    frame.specIcon:SetPoint("TOPLEFT", 16, -48)
-    frame.specIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    frame.repairIcon = AddIcon(frame, "repair", 15, P.textDim)
+    frame.repairIcon:SetPoint("TOPLEFT", 16, -247)
+    Text("durabilityTitle", 13, P.textBright, L["RCA_DURABILITY_LABEL"], 38, 245, 130)
+    frame.durabilityStatus = AddText(frame, 11, P.textDim)
+    frame.durabilityStatus:SetPoint("TOPRIGHT", -16, -246)
+    frame.durabilityStatus:SetHeight(18)
+    frame.durabilityStatus:SetJustifyH("RIGHT")
+    frame.durabilityStatusIcon = AddIcon(frame, "check", 13, READY_COLOR)
+    frame.durabilityStatusIcon:SetPoint("RIGHT", frame.durabilityStatus, "LEFT", -5, 0)
 
-    frame.specText = frame:CreateFontString(nil, "OVERLAY")
-    frame.specText:SetFont(DEFAULT_FONT, 13, "OUTLINE")
-    frame.specText:SetPoint("TOPLEFT", frame.specIcon, "TOPRIGHT", 10, -1)
-    frame.specText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -44, -49)
-    frame.specText:SetHeight(16)
-    frame.specText:SetJustifyH("LEFT")
-    frame.specText:SetJustifyV("MIDDLE")
-
-    frame.loadoutText = frame:CreateFontString(nil, "OVERLAY")
-    frame.loadoutText:SetFont(DEFAULT_FONT, 12, "OUTLINE")
-    frame.loadoutText:SetPoint("TOPLEFT", frame.specText, "BOTTOMLEFT", 0, -4)
-    frame.loadoutText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -44, -69)
-    frame.loadoutText:SetHeight(15)
-    frame.loadoutText:SetJustifyH("LEFT")
-    frame.loadoutText:SetJustifyV("MIDDLE")
-    frame.loadoutText:SetWordWrap(false)
-
-    frame.statusIcon = frame:CreateTexture(nil, "OVERLAY")
-    frame.statusIcon:SetSize(24, 24)
-    frame.statusIcon:SetPoint("TOPRIGHT", -14, -50)
+    Text("minimumLabel", 11, P.textDim, L["RCA_LOWEST"], 16, 282, 40)
+    frame.durabilityText = AddText(frame, 22, READY_COLOR)
+    frame.durabilityText:SetPoint("TOPLEFT", 61, -274)
+    frame.durabilityText:SetHeight(30)
+    frame.percentText = AddText(frame, 13, READY_COLOR, "%")
+    frame.percentText:SetPoint("BOTTOMLEFT", frame.durabilityText, "BOTTOMRIGHT", 1, 3)
+    frame.averageText = AddText(frame, 11, P.textDim)
+    frame.averageText:SetPoint("TOPRIGHT", -16, -282)
+    frame.averageText:SetSize(140, 18)
+    frame.averageText:SetJustifyH("RIGHT")
 
     frame.durabilityBar = CreateFrame("StatusBar", nil, frame)
-    frame.durabilityBar:SetPoint("TOPLEFT", 16, -96)
-    frame.durabilityBar:SetPoint("TOPRIGHT", -16, -96)
-    frame.durabilityBar:SetHeight(18)
+    frame.durabilityBar:SetPoint("TOPLEFT", 16, -310)
+    frame.durabilityBar:SetPoint("TOPRIGHT", -16, -310)
+    frame.durabilityBar:SetHeight(8)
     frame.durabilityBar:SetStatusBarTexture(FLAT)
     frame.durabilityBar:SetMinMaxValues(0, 100)
     frame.durabilityBar.background = frame.durabilityBar:CreateTexture(nil, "BACKGROUND")
     frame.durabilityBar.background:SetAllPoints()
     frame.durabilityBar.background:SetColorTexture(unpack(P.control))
+    frame.durabilityTicks = {}
+    for index = 1, 9 do
+        local tick = frame.durabilityBar:CreateTexture(nil, "OVERLAY")
+        tick:SetSize(1, 8)
+        tick:SetColorTexture(unpack(P.background))
+        frame.durabilityTicks[index] = tick
+    end
+    frame.durabilityThresholdMarker = frame.durabilityBar:CreateTexture(nil, "OVERLAY")
+    frame.durabilityThresholdMarker:SetSize(2, 14)
+    frame.durabilityThresholdMarker:SetColorTexture(unpack(WARNING_COLOR))
 
-    frame.durabilityText = frame.durabilityBar:CreateFontString(nil, "OVERLAY")
-    frame.durabilityText:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-    frame.durabilityText:SetPoint("CENTER")
-    frame.durabilityText:SetTextColor(1, 1, 1, 1)
+    Text("detailText", 11, P.textDim, "", 16, 326)
+    frame.detailText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -136, -326)
+    frame.thresholdText = AddText(frame, 10, P.textDim)
+    frame.thresholdText:SetPoint("TOPRIGHT", -16, -326)
+    frame.thresholdText:SetSize(112, 17)
+    frame.thresholdText:SetJustifyH("RIGHT")
 
-    frame.detailText = frame:CreateFontString(nil, "OVERLAY")
-    frame.detailText:SetFont(DEFAULT_FONT, 10, "OUTLINE")
-    frame.detailText:SetPoint("TOPLEFT", frame.durabilityBar, "BOTTOMLEFT", 0, -6)
-    frame.detailText:SetPoint("TOPRIGHT", frame.durabilityBar, "BOTTOMRIGHT", 0, -6)
-    frame.detailText:SetHeight(12)
-    frame.detailText:SetJustifyH("LEFT")
-    frame.detailText:SetJustifyV("MIDDLE")
-    frame.detailText:SetTextColor(unpack(P.textDim))
-    frame.detailText:SetWordWrap(false)
-
-    frame.statusBackground = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
-    frame.statusBackground:SetPoint("TOPLEFT", 14, -134)
-    frame.statusBackground:SetPoint("TOPRIGHT", -14, -134)
-    frame.statusBackground:SetHeight(18)
-    frame.statusBackground:SetColorTexture(unpack(P.control))
-
-    frame.statusText = frame:CreateFontString(nil, "OVERLAY")
-    frame.statusText:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-    frame.statusText:SetPoint("TOPLEFT", frame.statusBackground, "TOPLEFT", 6, -2)
-    frame.statusText:SetPoint("BOTTOMRIGHT", frame.statusBackground, "BOTTOMRIGHT", -6, 2)
-    frame.statusText:SetJustifyH("LEFT")
-    frame.statusText:SetJustifyV("MIDDLE")
-    frame.statusText:SetWordWrap(false)
-
-    frame.footerBackground = frame:CreateTexture(nil, "BACKGROUND", nil, 0)
+    frame.footerBackground = frame:CreateTexture(nil, "BACKGROUND")
     frame.footerBackground:SetPoint("BOTTOMLEFT", 1, 1)
     frame.footerBackground:SetPoint("BOTTOMRIGHT", -1, 1)
-    frame.footerBackground:SetHeight(38)
+    frame.footerBackground:SetHeight(53)
     frame.footerBackground:SetColorTexture(unpack(P.footer))
-
     frame.footerDivider = frame:CreateTexture(nil, "ARTWORK")
-    frame.footerDivider:SetPoint("BOTTOMLEFT", 14, 39)
-    frame.footerDivider:SetPoint("BOTTOMRIGHT", -14, 39)
+    frame.footerDivider:SetPoint("BOTTOMLEFT", 1, 54)
+    frame.footerDivider:SetPoint("BOTTOMRIGHT", -1, 54)
     frame.footerDivider:SetHeight(1)
-    frame.footerDivider:SetColorTexture(unpack(P.separator))
+    frame.footerDivider:SetColorTexture(0.20, 0.20, 0.21, 1)
 
-    frame.openTalentsButton = CreatePanelButton(frame, L["RCA_OPEN_TALENTS"], false)
+    frame.openTalentsButton = CreatePanelButton(frame, L["RCA_OPEN_TALENTS"], "open")
     frame.openTalentsButton:SetScript("OnClick", function()
         if SafeBooleanCall(InCombatLockdown) then return end
         if PlayerSpellsUtil and PlayerSpellsUtil.TogglePlayerSpellsFrame then
             pcall(PlayerSpellsUtil.TogglePlayerSpellsFrame, 2)
         end
     end)
-
-    frame.reportButton = CreatePanelButton(frame, L["RCA_REPORT_BUTTON"], true)
+    frame.reportButton = CreatePanelButton(frame, L["RCA_REPORT_BUTTON"], "chat")
     frame.reportButton:SetScript("OnClick", function()
         ReadyCheckAssistant:SendReport(false)
     end)
@@ -475,11 +546,8 @@ function ReadyCheckAssistant:CreateFrame()
     frame:SetScript("OnUpdate", function()
         if editPreview or not readyCheckOpen or GetTime() - shownAt < 0.25 then return end
         local readyFrame = _G.ReadyCheckFrame
-        if readyFrame and not readyFrame:IsShown() then
-            ReadyCheckAssistant:Hide()
-        end
+        if readyFrame and not readyFrame:IsShown() then ReadyCheckAssistant:Hide() end
     end)
-
     frame:Hide()
     self.frame = frame
     return frame
@@ -490,7 +558,7 @@ function ReadyCheckAssistant:ApplySettings()
     if not self.db then return end
     local display = self:CreateFrame()
     local db = self.db
-    local width = Clamp(db.width, 320, 560, 390)
+    local width = Clamp(db.width, 320, 560, 440)
     local showDetails = db.showLowSlots ~= false
     local showTalentsButton = db.showOpenTalentsButton ~= false
     local showReportButton = db.showReportButton ~= false
@@ -519,16 +587,11 @@ function ReadyCheckAssistant:ApplySettings()
 
     display.reportButton:ClearAllPoints()
     display.openTalentsButton:ClearAllPoints()
-    if showReportButton then
-        display.reportButton:SetPoint("BOTTOMRIGHT", display, "BOTTOMRIGHT", -14, 7)
-    end
-    if showTalentsButton then
-        if showReportButton then
-            display.openTalentsButton:SetPoint("RIGHT", display.reportButton, "LEFT", -8, 0)
-        else
-            display.openTalentsButton:SetPoint("BOTTOMRIGHT", display, "BOTTOMRIGHT", -14, 7)
-        end
-    end
+    local buttonWidth = showTalentsButton and showReportButton and (width - 40) / 2 or width - 32
+    display.openTalentsButton:SetWidth(buttonWidth)
+    display.reportButton:SetWidth(buttonWidth)
+    display.openTalentsButton:SetPoint("BOTTOMLEFT", display, "BOTTOMLEFT", 16, 12)
+    display.reportButton:SetPoint("BOTTOMRIGHT", display, "BOTTOMRIGHT", -16, 12)
     self:Refresh()
 end
 
@@ -543,7 +606,23 @@ local function FormatLowSlots(lowSlots, maximum)
     if #lowSlots > maximum then
         parts[#parts + 1] = string.format(L["RCA_MORE_SLOTS"], #lowSlots - maximum)
     end
-    return table.concat(parts, "  |  ")
+    return table.concat(parts, " \194\183 ")
+end
+
+local function PositionDurabilityScale(durability)
+    if not frame or not frame.durabilityBar then return end
+    local width = frame.durabilityBar:GetWidth()
+    if not width or width <= 1 then width = math.max(1, frame:GetWidth() - 32) end
+    for index, tick in ipairs(frame.durabilityTicks or {}) do
+        tick:ClearAllPoints()
+        tick:SetPoint("CENTER", frame.durabilityBar, "LEFT", math.floor(width * index / 10 + 0.5), 0)
+    end
+    local marker = frame.durabilityThresholdMarker
+    if marker then
+        local threshold = Clamp(durability and durability.threshold, 1, 100, 25)
+        marker:ClearAllPoints()
+        marker:SetPoint("CENTER", frame.durabilityBar, "LEFT", math.floor(width * threshold / 100 + 0.5), 0)
+    end
 end
 
 function ReadyCheckAssistant:Refresh()
@@ -552,66 +631,53 @@ function ReadyCheckAssistant:Refresh()
     self.snapshot = snapshot
 
     frame.context:SetText(L["RCA_CONTEXT_" .. snapshot.context] or snapshot.context)
-    frame.specIcon:SetTexture(snapshot.specIcon)
-    frame.specText:SetText(string.format(L["RCA_SPEC_FORMAT"], snapshot.specName))
+    frame.specText:SetText(snapshot.specName)
+    frame.loadoutText:SetText(snapshot.loadoutName)
+    frame.expectedText:SetText(snapshot.expectedLoadout ~= "" and snapshot.expectedLoadout or L["RCA_NOT_CONFIGURED"])
+    frame.expectedText:SetTextColor(unpack(snapshot.expectedLoadout ~= "" and P.accentText or P.textDim))
 
-    local loadoutText = string.format(L["RCA_LOADOUT_FORMAT"], snapshot.loadoutName)
-    if snapshot.expectedLoadout ~= "" then
-        loadoutText = loadoutText .. string.format(L["RCA_EXPECTED_SUFFIX"], snapshot.expectedLoadout)
-    end
-    frame.loadoutText:SetText(loadoutText)
-    if snapshot.loadoutMatch == false then
-        frame.loadoutText:SetTextColor(1.00, 0.56, 0.28, 1)
+    local talentSummary
+    if not snapshot.loadoutKnown then
+        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_CHECK_UNKNOWN"], "alert", WARNING_COLOR)
+        talentSummary = L["RCA_SUMMARY_UNKNOWN"]
+    elseif snapshot.loadoutMatch == false then
+        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_CHECK_MISMATCH"], "alert", WARNING_COLOR)
+        talentSummary = L["RCA_SUMMARY_MISMATCH"]
     elseif snapshot.loadoutMatch == true then
-        frame.loadoutText:SetTextColor(0.38, 1.00, 0.58, 1)
+        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_CHECK_MATCH"], "check", READY_COLOR)
+        talentSummary = L["RCA_SUMMARY_MATCH"]
     else
-        frame.loadoutText:SetTextColor(0.82, 0.86, 0.92, 1)
+        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_NOT_CONFIGURED"], nil, P.textDim)
+        talentSummary = L["RCA_SUMMARY_UNSET"]
     end
+    local talentIssue = not snapshot.loadoutKnown or snapshot.loadoutMatch == false
+    frame.loadoutText:SetTextColor(unpack(talentIssue and WARNING_COLOR or P.text))
+    frame.openTalentsButton:SetPrimary(talentIssue)
 
     local durability = snapshot.durability
-    local lowest = math.floor(durability.lowest + 0.5)
-    local average = math.floor(durability.average + 0.5)
+    local needsRepair = #durability.lowSlots > 0
+    local durabilityColor = needsRepair and REPAIR_COLOR or READY_COLOR
+    SetCheckStatus(frame.durabilityStatus, frame.durabilityStatusIcon,
+        L[needsRepair and "RCA_REPAIR_NEEDED" or "RCA_HEALTHY"],
+        needsRepair and "alert" or "check", durabilityColor)
     frame.durabilityBar:SetValue(durability.lowest)
-    frame.durabilityText:SetText(string.format(L["RCA_DURABILITY_FORMAT"], lowest, average))
-    frame.detailText:SetText(FormatLowSlots(durability.lowSlots, 3))
+    frame.durabilityBar:SetStatusBarColor(unpack(needsRepair and { 0.75, 0.46, 0.42, 1 } or { 0.36, 0.58, 0.45, 1 }))
+    frame.durabilityText:SetText(tostring(math.floor(durability.lowest + 0.5)))
+    frame.durabilityText:SetTextColor(unpack(durabilityColor))
+    frame.percentText:SetTextColor(unpack(durabilityColor))
+    frame.averageText:SetText(string.format(L["RCA_AVERAGE_FORMAT"], math.floor(durability.average + 0.5)))
+    frame.thresholdText:SetText(string.format(L["RCA_THRESHOLD_FORMAT"], durability.threshold))
+    frame.detailText:SetText(FormatLowSlots(durability.lowSlots, 2))
+    frame.detailText:SetTextColor(unpack(needsRepair and REPAIR_COLOR or P.textDim))
+    PositionDurabilityScale(durability)
 
-    if #durability.lowSlots > 0 then
-        frame.durabilityBar:SetStatusBarColor(1.00, 0.22, 0.20, 1)
-    elseif durability.lowest < 50 then
-        frame.durabilityBar:SetStatusBarColor(1.00, 0.62, 0.22, 1)
-    else
-        frame.durabilityBar:SetStatusBarColor(0.20, 0.82, 0.46, 1)
-    end
-
-    if snapshot.status == "REPAIR" then
-        SetStatusIcon("Interface\\RaidFrame\\ReadyCheck-NotReady", "UI-LFG-DeclineMark")
-        frame.statusText:SetText(string.format(L["RCA_STATUS_REPAIR"], #durability.lowSlots, durability.threshold))
-        frame.statusText:SetTextColor(1.00, 0.30, 0.28, 1)
-        frame.accent:SetColorTexture(1.00, 0.22, 0.20, 1)
-        frame.statusBackground:SetColorTexture(0.18, 0.045, 0.05, 0.94)
-        frame:SetBackdropBorderColor(0.72, 0.18, 0.18, 1)
-    elseif snapshot.status == "LOADOUT" then
-        SetStatusIcon("Interface\\RaidFrame\\ReadyCheck-Waiting", "UI-LFG-PendingMark")
-        frame.statusText:SetText(L["RCA_STATUS_LOADOUT"])
-        frame.statusText:SetTextColor(1.00, 0.68, 0.25, 1)
-        frame.accent:SetColorTexture(1.00, 0.62, 0.18, 1)
-        frame.statusBackground:SetColorTexture(0.17, 0.11, 0.035, 0.94)
-        frame:SetBackdropBorderColor(0.62, 0.43, 0.16, 1)
-    elseif snapshot.status == "UNKNOWN" then
-        SetStatusIcon("Interface\\RaidFrame\\ReadyCheck-Waiting", "UI-LFG-PendingMark")
-        frame.statusText:SetText(L["RCA_STATUS_UNKNOWN"])
-        frame.statusText:SetTextColor(0.90, 0.74, 0.36, 1)
-        frame.accent:SetColorTexture(0.88, 0.66, 0.20, 1)
-        frame.statusBackground:SetColorTexture(0.15, 0.12, 0.045, 0.94)
-        frame:SetBackdropBorderColor(0.54, 0.42, 0.18, 1)
-    else
-        SetStatusIcon("Interface\\RaidFrame\\ReadyCheck-Ready", "UI-LFG-ReadyMark")
-        frame.statusText:SetText(L["RCA_STATUS_READY"])
-        frame.statusText:SetTextColor(0.34, 1.00, 0.56, 1)
-        frame.accent:SetColorTexture(0.20, 0.82, 0.46, 1)
-        frame.statusBackground:SetColorTexture(0.035, 0.15, 0.09, 0.94)
-        frame:SetBackdropBorderColor(0.18, 0.56, 0.34, 1)
-    end
+    local hasIssues = snapshot.issueCount > 0
+    local summaryColor = hasIssues and WARNING_COLOR or READY_COLOR
+    SetIcon(frame.statusIcon, hasIssues and "alert" or "check", summaryColor)
+    frame.accent:SetColorTexture(unpack(summaryColor))
+    frame.statusBackground:SetColorTexture(unpack(hasIssues and { 0.153, 0.137, 0.114, 1 } or { 0.118, 0.161, 0.137, 1 }))
+    frame.statusText:SetText(hasIssues and string.format(L["RCA_SUMMARY_ISSUES_FORMAT"], snapshot.issueCount) or L["RCA_STATUS_READY"])
+    frame.statusDetail:SetText(talentSummary .. " \194\183 " .. L[needsRepair and "RCA_REPAIR_NEEDED" or "RCA_SUMMARY_DURABILITY"])
 end
 
 function ReadyCheckAssistant:Show(isPreview)
@@ -645,12 +711,13 @@ function ReadyCheckAssistant:BuildReport(snapshot)
         snapshot.loadoutName,
         math.floor(snapshot.durability.average + 0.5)
     )
-    if snapshot.status == "REPAIR" then
+    if #snapshot.durability.lowSlots > 0 then
         message = message .. string.format(L["RCA_REPORT_REPAIR"], #snapshot.durability.lowSlots)
-    elseif snapshot.status == "LOADOUT" then
-        message = message .. string.format(L["RCA_REPORT_LOADOUT"], snapshot.expectedLoadout)
-    elseif snapshot.status == "UNKNOWN" then
+    end
+    if not snapshot.loadoutKnown then
         message = message .. L["RCA_REPORT_UNKNOWN"]
+    elseif snapshot.loadoutMatch == false then
+        message = message .. string.format(L["RCA_REPORT_LOADOUT"], snapshot.expectedLoadout)
     end
     return message
 end
@@ -729,16 +796,11 @@ function ReadyCheckAssistant:OnDisable()
 end
 
 function ReadyCheckAssistant:OnMediaChanged()
+    DEFAULT_FONT = (SL and SL.Font and SL.Font.path) or DEFAULT_FONT
     if frame then
-        frame.title:SetFont(DEFAULT_FONT, 14, "OUTLINE")
-        frame.context:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-        frame.specText:SetFont(DEFAULT_FONT, 13, "OUTLINE")
-        frame.loadoutText:SetFont(DEFAULT_FONT, 12, "OUTLINE")
-        frame.durabilityText:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-        frame.detailText:SetFont(DEFAULT_FONT, 10, "OUTLINE")
-        frame.statusText:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-        frame.openTalentsButton.label:SetFont(DEFAULT_FONT, 11, "OUTLINE")
-        frame.reportButton.label:SetFont(DEFAULT_FONT, 11, "OUTLINE")
+        for label, size in pairs(frame.fontSizes) do
+            label:SetFont(DEFAULT_FONT, size, "")
+        end
     end
     self:ApplySettings()
 end

@@ -820,6 +820,22 @@ local function SetStatusCell(cell, value, text, disabled)
     end
 end
 
+local function SetGaugeValue(bar, value, enabled)
+    if not bar then return end
+    value = Clamp(value, 0, 1, 0)
+    bar:SetValue(value)
+    bar:SetAlpha(enabled == false and 0.24 or 1)
+    if enabled == false then
+        bar:SetStatusBarColor(0.35, 0.39, 0.44, 1)
+    elseif value >= 1 then
+        bar:SetStatusBarColor(0.20, 0.82, 0.46, 1)
+    elseif value >= 0.5 then
+        bar:SetStatusBarColor(1.00, 0.62, 0.22, 1)
+    else
+        bar:SetStatusBarColor(1.00, 0.28, 0.24, 1)
+    end
+end
+
 local function RemainingText(seconds)
     seconds = SafeNumber(seconds)
     if not seconds then return nil end
@@ -856,12 +872,35 @@ function RaidPreparation:Refresh()
     local maxOffset = math.max(0, #roster - VISIBLE_ROWS)
     scrollOffset = math.max(0, math.min(scrollOffset, maxOffset))
 
+    local sourceRoster = self.roster or roster
     local complete = 0
-    for _, record in ipairs(self.roster or roster) do
+    for _, record in ipairs(sourceRoster) do
         if self:IsRecordComplete(record, true) then complete = complete + 1 end
     end
-    local total = #(self.roster or roster)
+    local total = #sourceRoster
     frame.summary:SetText(string.format(L["RAIDPREP_SUMMARY"], complete, total))
+    SetGaugeValue(frame.readinessGauge, total > 0 and complete / total or 0, total > 0)
+
+    local metrics = {
+        { key = "food", enabled = self.db.checkFood ~= false },
+        { key = "flask", enabled = self.db.checkFlask ~= false },
+        { key = "rune", enabled = self.db.checkRune ~= false },
+        { key = "raidBuff", enabled = self.db.checkRaidBuffs ~= false and #(self.expectedRaidBuffs or {}) > 0 },
+        { key = "weapon", enabled = self.db.checkWeaponEnchant ~= false },
+        { key = "durability", enabled = self.db.checkDurability ~= false },
+        { key = "ready", enabled = true },
+    }
+    for _, metric in ipairs(metrics) do
+        local passed = 0
+        if metric.enabled then
+            for _, record in ipairs(sourceRoster) do
+                local ready = metric.key == "ready" and record.ready == true
+                    or metric.key ~= "ready" and self:IsCheckedValue(record[metric.key], metric.key)
+                if ready then passed = passed + 1 end
+            end
+        end
+        SetGaugeValue(frame.metricBars[metric.key], total > 0 and passed / total or 0, metric.enabled and total > 0)
+    end
     frame.hideCompleteButton.label:SetText(self.db.hideComplete and L["RAIDPREP_SHOW_ALL"] or L["RAIDPREP_HIDE_COMPLETE"])
     local hasScroll = #roster > VISIBLE_ROWS
     frame.scrollTrack:SetShown(hasScroll)
@@ -1140,6 +1179,23 @@ function RaidPreparation:CreateFrame()
     frame.close:SetPoint("RIGHT", -9, 0)
     frame.close:SetScript("OnClick", function() frame:Hide() end)
 
+    frame.readinessGauge = CreateFrame("StatusBar", nil, frame.header)
+    frame.readinessGauge:SetSize(180, 6)
+    frame.readinessGauge:SetPoint("RIGHT", frame.close, "LEFT", -12, 0)
+    frame.readinessGauge:SetStatusBarTexture(FLAT)
+    frame.readinessGauge:SetMinMaxValues(0, 1)
+    frame.readinessGauge.background = frame.readinessGauge:CreateTexture(nil, "BACKGROUND")
+    frame.readinessGauge.background:SetAllPoints()
+    frame.readinessGauge.background:SetColorTexture(0.04, 0.05, 0.06, 0.92)
+    frame.readinessGauge.ticks = {}
+    for index = 1, 9 do
+        local tick = frame.readinessGauge:CreateTexture(nil, "OVERLAY")
+        tick:SetSize(1, 4)
+        tick:SetPoint("CENTER", frame.readinessGauge, "LEFT", index * 18, 0)
+        tick:SetColorTexture(0.02, 0.025, 0.03, 0.82)
+        frame.readinessGauge.ticks[index] = tick
+    end
+
     frame.refreshButton = CreateButton(frame, L["RAIDPREP_REFRESH"], 82, false)
     frame.refreshButton:SetPoint("TOPLEFT", 14, -52)
     frame.refreshButton:SetScript("OnClick", function()
@@ -1163,22 +1219,34 @@ function RaidPreparation:CreateFrame()
     frame.columns:SetPoint("TOPRIGHT", -14, -88)
     frame.columns:SetHeight(25)
     SetBackdrop(frame.columns, P.panel, P.borderSoft)
+    frame.metricBars = {}
     local headers = {
         { L["RAIDPREP_COLUMN_GROUP"], 6, 34, "CENTER" },
         { L["RAIDPREP_COLUMN_PLAYER"], 44, 185, "LEFT" },
-        { L["RAIDPREP_COLUMN_FOOD"], 232, 78, "CENTER" },
-        { L["RAIDPREP_COLUMN_FLASK"], 310, 82, "CENTER" },
-        { L["RAIDPREP_COLUMN_RUNE"], 392, 78, "CENTER" },
-        { L["RAIDPREP_COLUMN_RAIDBUFF"], 470, 100, "CENTER" },
-        { L["RAIDPREP_COLUMN_WEAPON"], 570, 101, "CENTER" },
-        { L["RAIDPREP_COLUMN_DURABILITY"], 671, 111, "CENTER" },
-        { L["RAIDPREP_COLUMN_READY"], 782, 94, "CENTER" },
+        { L["RAIDPREP_COLUMN_FOOD"], 232, 78, "CENTER", "food" },
+        { L["RAIDPREP_COLUMN_FLASK"], 310, 82, "CENTER", "flask" },
+        { L["RAIDPREP_COLUMN_RUNE"], 392, 78, "CENTER", "rune" },
+        { L["RAIDPREP_COLUMN_RAIDBUFF"], 470, 100, "CENTER", "raidBuff" },
+        { L["RAIDPREP_COLUMN_WEAPON"], 570, 101, "CENTER", "weapon" },
+        { L["RAIDPREP_COLUMN_DURABILITY"], 671, 111, "CENTER", "durability" },
+        { L["RAIDPREP_COLUMN_READY"], 782, 94, "CENTER", "ready" },
     }
     for _, info in ipairs(headers) do
         local label = AddText(frame.columns, 10, P.textDim, info[1])
         label:SetPoint("LEFT", info[2], 0)
         label:SetWidth(info[3])
         label:SetJustifyH(info[4])
+        if info[5] then
+            local bar = CreateFrame("StatusBar", nil, frame.columns)
+            bar:SetPoint("BOTTOMLEFT", frame.columns, "BOTTOMLEFT", info[2] + 5, 2)
+            bar:SetSize(info[3] - 10, 2)
+            bar:SetStatusBarTexture(FLAT)
+            bar:SetMinMaxValues(0, 1)
+            bar.background = bar:CreateTexture(nil, "BACKGROUND")
+            bar.background:SetAllPoints()
+            bar.background:SetColorTexture(0.035, 0.04, 0.045, 0.9)
+            frame.metricBars[info[5]] = bar
+        end
     end
 
     frame.rows = {}

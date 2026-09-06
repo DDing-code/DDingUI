@@ -28,3 +28,17 @@ def test_modules_do_not_overwrite_blizzard_ui_state() -> None:
     assert "InspectGuildFrame_Update = function" not in item_level
     assert "InspectPVPFrame_Update = function" not in item_level
     assert "talentsFrame.backgroundAnims =" not in talent_bg
+
+
+def test_automatic_instance_prompts_do_not_use_blizzard_popup_pool() -> None:
+    root = Path(__file__).parents[1]
+    templates = (root / "UI" / "Templates.lua").read_text(encoding="utf-8-sig")
+
+    assert "function UI:ShowConfirmation" in templates
+    assert "function UI:HideConfirmation" in templates
+    for relative in (
+        Path("Modules/RaidLootPass/RaidLootPass.lua"),
+        Path("Modules/VoidcoreHelper/VoidcoreHelper.lua"),
+    ):
+        source = (root / relative).read_text(encoding="utf-8-sig")
+        assert "StaticPopup" not in source

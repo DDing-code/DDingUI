@@ -92,6 +92,14 @@ local function ResolveOptions(options)
     return {}
 end
 
+local function IsSettingVisible(setting)
+    if type(setting.visible) == "function" then
+        local ok, visible = pcall(setting.visible)
+        return ok and visible ~= false
+    end
+    return setting.visible ~= false
+end
+
 local function GetValue(setting)
     local val = ns:GetDBValue(setting.key)
     if setting.invert then val = not val end
@@ -532,8 +540,8 @@ local function BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
     end
 
     for _, setting in ipairs(panelDef.settings or {}) do
-        local skipWorkspaceSetting = usesWorkspaceHeader
-            and (setting.isModuleToggle or (setting.type == "header" and setting.isFirst))
+        local skipWorkspaceSetting = not IsSettingVisible(setting)
+            or (usesWorkspaceHeader and (setting.isModuleToggle or (setting.type == "header" and setting.isFirst)))
 
         if not skipWorkspaceSetting and not IsRedundantPreviewButton(setting, panelKey) then
             if setting.type == "header" then
@@ -629,7 +637,12 @@ local function RenderSettingsPanel(container, panelDef)
         yOff = yOff - math.max(textH + 12, 24)
     end
 
-    local settings = panelDef.settings or {}
+    local settings = {}
+    for _, setting in ipairs(panelDef.settings or {}) do
+        if IsSettingVisible(setting) then
+            settings[#settings + 1] = setting
+        end
+    end
 
     for _, s in ipairs(settings) do
         local w  -- 생성된 위젯
@@ -703,6 +716,25 @@ local function RenderSettingsPanel(container, panelDef)
                         QueueDetailPreviewRefresh()
                     end,
                 })
+            w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
+
+        -- segmented mode selector ------------------------------
+        elseif s.type == "segmented" then
+            local opts = ResolveOptions(s.options)
+            local val = ns:GetDBValue(s.key)
+            w = Widgets.CreateSegmentedControl(container, ADDON_KEY, s.label or "", opts, val, {
+                tooltip = s.desc,
+                onChange = function(value)
+                    SetValue(s, value)
+                    if s.refreshPanel then
+                        C_Timer.After(0, function()
+                            if activePanel then ConfigUI:RefreshCurrentPanel() end
+                        end)
+                    end
+                end,
+            })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
             w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap - w:GetHeight()

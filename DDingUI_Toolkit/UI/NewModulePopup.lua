@@ -90,6 +90,14 @@ local MODULES = {
         descKey = "NEW_MODULE_POPUP_VCH_DESC",
         icon = "Interface\\Icons\\INV_Misc_Gem_Amethyst_02",
     },
+    {
+        id = "CalendarInviteAlert-2.1.6",
+        introducedVersion = "2.1.6",
+        module = "CalendarInviteAlert",
+        titleKey = "TAB_CALENDARINVITEALERT",
+        descKey = "NEW_MODULE_POPUP_CALENDAR_DESC",
+        icon = "Interface\\Icons\\INV_Misc_Note_01",
+    },
 }
 
 local function VersionParts(version)

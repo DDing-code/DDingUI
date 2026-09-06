@@ -1,5 +1,41 @@
 # DDingUI Toolkit Changelog
 
+## 2.1.6
+
+Release date: 2026-09-06
+
+### New Modules
+
+- **Calendar Invite Alert:** Added login and new-invitation notifications based on unanswered calendar invites. Repeated count updates are deduplicated, alerts can wait until combat ends, and answered or cancelled invites clear the notice. The module starts disabled and is included in the one-time new-module popup.
+
+### 신규 모듈
+
+- **달력 초대 알림:** 접속 시 미응답 달력 초대와 새 초대를 알려줍니다. 같은 개수의 중복 알림을 방지하고 전투 중에는 보류하며, 모두 응답하거나 취소되면 알림을 정리합니다. 기본 비활성 상태로 시작하고 신규 모듈 안내에 표시됩니다.
+
+### Option Changes
+
+- **Calendar Invite Alert:** Notifications now start after loading screens finish; interrupted notices resume after loading.
+- **Targeted Spells:** Added icon, duration-bar, and icon/text/icon display modes with shared stable sorting.
+- **Combat State Alert:** Added an option to exclude Delves.
+
+- **Calendar Invite Alert:** Added Today's Events and a separate test button. Today's personal, guild and community events show their server-time start and title in chronological order, without repeating unchanged events during the session. System events and declined or removed invitations are excluded.
+- Added Calendar Invite Alert under Alerts, with screen/sound/chat/taskbar notifications, combat deferral, motion, font/color, duration, position, edit-mode preview, and a calendar-open button. Sounds use the shared Sound Manager.
+- Calendar alerts use the calm party-alert motion with a calendar emblem, muted mint rails and pale gold accents. Motion OFF keeps a static notification; existing custom colors are preserved.
+- **Ready Check Assistant:** Reworked the panel into a status summary, separate current/expected talent rows, and a durability gauge with a repair threshold. The default width is now 440px; existing width, position, scale, and button visibility settings are preserved.
+- Talent and repair issues appear together, with unset or unavailable loadouts distinguished from a match. Group reports include both issues when applicable.
+
+### 옵션 변경
+
+- **달력 초대 알림:** 로딩 종료 후 알림을 시작하고 로딩으로 중단된 알림은 화면이 돌아온 뒤 다시 표시합니다.
+- **타겟 스펠:** 아이콘, 지속시간 바, 아이콘·텍스트·아이콘 표시 모드와 공통 정렬을 추가했습니다.
+- **전투 시작·종료 알림:** 구렁에서 제외하는 옵션을 추가했습니다.
+
+- **달력 초대 알림:** 오늘 일정 알림과 별도 테스트 버튼을 추가했습니다. 개인·길드·커뮤니티의 오늘 일정을 서버 시간순으로 시작 시각과 제목을 표시하고, 접속 중 같은 일정은 반복 알림하지 않습니다. 시스템 일정과 거절·제외된 초대는 표시하지 않습니다.
+- 알림 분류에 달력 초대 알림을 추가하고 화면·소리·채팅·작업 표시줄 알림, 전투 종료 후 알림, 모션·글꼴·색상·표시 시간·위치·편집모드 미리보기 및 달력 열기 버튼을 제공합니다. 효과음은 공통 사운드 관리자를 사용합니다.
+- 달력 알림에 파티 알림 계열의 차분한 모션과 달력 표식, 은은한 민트색 선·연한 금색 장식을 적용했습니다. 모션을 끄면 정적으로 표시되며 기존 사용자 지정 색상은 유지합니다.
+- **준비 확인 도우미:** 상태 요약, 현재·기준 특성 비교, 수리 기준선이 있는 내구도 표시로 패널을 개편했습니다. 기본 너비는 440px이며 기존 너비·위치·배율·버튼 표시 설정은 유지합니다.
+- 특성 불일치와 수리 필요를 함께 표시하고, 특성 미설정·확인 불가를 기준 일치와 구분합니다. 파티 알림에도 동시에 발생한 문제를 모두 포함합니다.
+
 ## 2.1.5
 
 Release date: 2026-08-29

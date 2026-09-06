@@ -207,6 +207,113 @@ function Controls.CreateButton(parent, addonKey, text, onClick, opts)
     return button
 end
 
+function Controls.CreateSegmentedControl(parent, addonKey, labelText, options, current, opts)
+    opts = opts or {}
+    options = options or {}
+
+    local r, g, b = Accent()
+    local width = opts.width or 560
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(width, opts.height or 64)
+
+    local label = MakeFont(row, F.normal, C.text.normal, labelText)
+    label:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+
+    local group = CreateFrame("Frame", nil, row)
+    group:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -26)
+    group:SetSize(width, 30)
+
+    local buttons = {}
+    local selected = current
+    local count = math.max(1, #options)
+    local buttonWidth = math.floor(width / count)
+
+    local function Refresh()
+        for _, button in ipairs(buttons) do
+            local active = button.value == selected
+            button.active = active
+            if active then
+                button:SetBackdropColor(r * 0.16, g * 0.16, b * 0.16, 0.98)
+                button:SetBackdropBorderColor(r, g, b, 0.95)
+                button.label:SetTextColor(UnpackColor(C.text.highlight))
+                button.accent:Show()
+            else
+                button:SetBackdropColor(UnpackColor(C.bg.input))
+                button:SetBackdropBorderColor(UnpackColor(C.border.default))
+                button.label:SetTextColor(UnpackColor(C.text.normal))
+                button.accent:Hide()
+            end
+        end
+    end
+
+    for index, option in ipairs(options) do
+        local button = CreateFrame("Button", nil, group, "BackdropTemplate")
+        button:SetPoint("TOPLEFT", group, "TOPLEFT", (index - 1) * buttonWidth, 0)
+        button:SetSize(index == count and (width - ((count - 1) * buttonWidth)) or buttonWidth, 30)
+        ApplyBackdrop(button, C.bg.input, C.border.default)
+        button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        button.value = option.value
+
+        button.label = MakeFont(button, F.small, C.text.normal, option.text or tostring(option.value or ""))
+        button.label:SetPoint("LEFT", button, "LEFT", 5, 0)
+        button.label:SetPoint("RIGHT", button, "RIGHT", -5, 0)
+        button.label:SetJustifyH("CENTER")
+        button.label:SetWordWrap(false)
+
+        button.accent = button:CreateTexture(nil, "OVERLAY")
+        button.accent:SetTexture(SOLID)
+        button.accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
+        button.accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+        button.accent:SetHeight(2)
+        button.accent:SetVertexColor(r, g, b, 1)
+        DisablePixelSnap(button.accent)
+
+        button:SetScript("OnClick", function(self, mouseButton)
+            if mouseButton ~= "LeftButton" or row._disabled or selected == self.value then return end
+            selected = self.value
+            Refresh()
+            if opts.onChange then opts.onChange(selected) end
+        end)
+        button:SetScript("OnEnter", function(self)
+            if not self.active then
+                self:SetBackdropColor(UnpackColor(C.bg.hover))
+                self:SetBackdropBorderColor(r, g, b, 0.72)
+                self.label:SetTextColor(UnpackColor(C.text.highlight))
+            end
+        end)
+        button:SetScript("OnLeave", Refresh)
+        EnableRightClickMouselook(button)
+        buttons[#buttons + 1] = button
+    end
+
+    function row:SetValue(value, silent)
+        local changed = selected ~= value
+        selected = value
+        Refresh()
+        if changed and not silent and opts.onChange then opts.onChange(selected) end
+    end
+
+    function row:GetValue()
+        return selected
+    end
+
+    function row:SetDisabledState(disabled)
+        row._disabled = disabled == true
+        row:SetAlpha(row._disabled and 0.48 or 1)
+        for _, button in ipairs(buttons) do
+            button:SetEnabled(not row._disabled)
+        end
+    end
+
+    row.label = label
+    row.control = group
+    row.buttons = buttons
+    Refresh()
+    SetTooltip(row, opts.tooltip)
+    EnableRightClickMouselook(row)
+    return row
+end
+
 function Controls.CreateCheckbox(parent, addonKey, labelText, default, opts)
     opts = opts or {}
     local r, g, b = Accent()

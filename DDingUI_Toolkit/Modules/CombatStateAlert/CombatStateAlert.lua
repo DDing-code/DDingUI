@@ -27,6 +27,7 @@ local FALLBACK_DEFAULTS = {
     showStart = true,
     showEnd = true,
     instanceOnly = false,
+    excludeDelves = false,
     visualMode = "SIMPLE",
     animationEnabled = true,
     duration = 1.8,
@@ -368,6 +369,13 @@ local function IsSuccessfulRaidEncounter(success)
     return inInstance == true and instanceType == "raid"
 end
 
+local function IsInDelve()
+    if type(GetInstanceInfo) ~= "function" then return false end
+    local ok, _, _, difficultyID = pcall(GetInstanceInfo)
+    if not ok or IsSecret(difficultyID) then return false end
+    return difficultyID == 208
+end
+
 local function SuppressCombatEndSoundForRaidBossKill()
     suppressEndSoundUntil = math.max(
         suppressEndSoundUntil,
@@ -642,6 +650,7 @@ function CombatStateAlert:ShowAlert(kind, force)
             local inInstance = IsInInstance()
             if not inInstance then return end
         end
+        if db.excludeDelves and IsInDelve() then return end
     end
 
     if kind == "END" and not force then

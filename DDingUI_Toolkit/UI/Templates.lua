@@ -152,6 +152,139 @@ function UI:CreateButton(parent, width, height, text)
     return btn
 end
 
+local confirmationFrame
+local confirmationCurrent
+local confirmationQueue = {}
+local ShowNextConfirmation
+
+local function GetConfirmationFrame()
+    if confirmationFrame then return confirmationFrame end
+
+    local frame = UI:CreatePanel(UIParent, 440, 170, "DDingToolKitConfirmationDialog")
+    frame:SetPoint("TOP", UIParent, "TOP", 0, -150)
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(100)
+    frame:SetClampedToScreen(true)
+    frame:EnableMouse(true)
+    frame:Hide()
+
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    frame.title:SetPoint("TOPLEFT", 18, -16)
+    frame.title:SetPoint("TOPRIGHT", -18, -16)
+    frame.title:SetJustifyH("LEFT")
+    frame.title:SetText("DDingUI Toolkit")
+
+    frame.message = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    frame.message:SetPoint("TOPLEFT", 18, -48)
+    frame.message:SetPoint("TOPRIGHT", -18, -48)
+    frame.message:SetJustifyH("LEFT")
+    frame.message:SetJustifyV("TOP")
+    frame.message:SetWordWrap(true)
+
+    frame.accept = UI:CreateButton(frame, 150, 30, YES or "Yes")
+    frame.accept:SetPoint("BOTTOMRIGHT", frame, "BOTTOM", -5, 16)
+    frame.cancel = UI:CreateButton(frame, 150, 30, NO or "No")
+    frame.cancel:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 5, 16)
+
+    frame.accept:SetScript("OnClick", function()
+        local request = confirmationCurrent
+        if not request then return end
+        confirmationCurrent = nil
+        frame:Hide()
+        if request.onAccept then
+            xpcall(function() request.onAccept(request.data) end, geterrorhandler())
+        end
+        ShowNextConfirmation()
+    end)
+    frame.cancel:SetScript("OnClick", function()
+        local request = confirmationCurrent
+        if not request then return end
+        confirmationCurrent = nil
+        frame:Hide()
+        if request.onCancel then
+            xpcall(function() request.onCancel(request.data) end, geterrorhandler())
+        end
+        ShowNextConfirmation()
+    end)
+    frame:SetScript("OnShow", function(self)
+        self:EnableKeyboard(true)
+        self:SetPropagateKeyboardInput(true)
+        self:Raise()
+    end)
+    frame:SetScript("OnHide", function(self)
+        self:EnableKeyboard(false)
+    end)
+    frame:SetScript("OnKeyDown", function(self, key)
+        if key ~= "ESCAPE" then
+            self:SetPropagateKeyboardInput(true)
+            return
+        end
+        self:SetPropagateKeyboardInput(false)
+        self.cancel:Click()
+    end)
+
+    confirmationFrame = frame
+    return frame
+end
+
+local function DisplayConfirmation(request)
+    confirmationCurrent = request
+    local frame = GetConfirmationFrame()
+    frame.title:SetText(request.title)
+    frame.message:SetText(request.text)
+    frame.accept.text:SetText(request.acceptText)
+    frame.cancel.text:SetText(request.cancelText)
+    frame:SetHeight(math.max(150, math.ceil(frame.message:GetStringHeight()) + 112))
+    frame:Show()
+end
+
+ShowNextConfirmation = function()
+    if confirmationCurrent then return end
+    local request = table.remove(confirmationQueue, 1)
+    if request then DisplayConfirmation(request) end
+end
+
+function UI:ShowConfirmation(key, options)
+    if type(key) ~= "string" or type(options) ~= "table" then return false end
+
+    local request = {
+        key = key,
+        title = options.title or "DDingUI Toolkit",
+        text = tostring(options.text or ""),
+        acceptText = options.acceptText or YES or "Yes",
+        cancelText = options.cancelText or NO or "No",
+        data = options.data,
+        onAccept = options.onAccept,
+        onCancel = options.onCancel,
+    }
+
+    for index = #confirmationQueue, 1, -1 do
+        if confirmationQueue[index].key == key then
+            table.remove(confirmationQueue, index)
+        end
+    end
+    if confirmationCurrent and confirmationCurrent.key == key then
+        DisplayConfirmation(request)
+    else
+        confirmationQueue[#confirmationQueue + 1] = request
+        ShowNextConfirmation()
+    end
+    return true
+end
+
+function UI:HideConfirmation(key)
+    for index = #confirmationQueue, 1, -1 do
+        if confirmationQueue[index].key == key then
+            table.remove(confirmationQueue, index)
+        end
+    end
+    if confirmationCurrent and confirmationCurrent.key == key then
+        confirmationCurrent = nil
+        if confirmationFrame then confirmationFrame:Hide() end
+        ShowNextConfirmation()
+    end
+end
+
 -- 스타일이 적용된 체크박스
 function UI:CreateCheckbox(parent, label, onClick)
     local container = CreateFrame("Frame", nil, parent)
