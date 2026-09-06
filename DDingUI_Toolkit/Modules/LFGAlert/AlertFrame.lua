@@ -14,6 +14,15 @@ local DEFAULT_COLORS = {
     glowColor = { 0.38, 0.82, 1.00, 0.20 },
 }
 
+-- Calendar outline, binding tabs, divider and four date cells (x, y, width, height).
+local CALENDAR_MARK = {
+    { -10, 0, 1.5, 20 }, { 10, 0, 1.5, 20 },
+    { 0, 10, 20, 1.5 }, { 0, -10, 20, 1.5 },
+    { -5, 10, 1.5, 6 }, { 5, 10, 1.5, 6 }, { 0, 4, 20, 1 },
+    { -4, -1, 2, 2 }, { 4, -1, 2, 2 },
+    { -4, -6, 2, 2 }, { 4, -6, 3, 3 },
+}
+
 local function Clamp(value, minimum, maximum)
     value = tonumber(value) or minimum
     if value < minimum then return minimum end
@@ -184,14 +193,14 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
     SetGradientColor(frame.glowLeft, glowColor, 0, glowColor, 0.58, glowAlpha)
     SetGradientColor(frame.glowRight, glowColor, 0.58, glowColor, 0, glowAlpha)
 
-    local railGap = 10
+    local railGap = frame.calendarMark and 18 or 10
     local railHalfWidth = width * 0.38 * shapeReveal
     local topY = height * 0.31
     local bottomY = -height * 0.31
     SetAnchoredRect(frame.topLeft, railHalfWidth, 2, "RIGHT", frame.art, "CENTER", -railGap, topY)
     SetAnchoredRect(frame.topRight, railHalfWidth, 2, "LEFT", frame.art, "CENTER", railGap, topY)
-    SetAnchoredRect(frame.bottomLeft, railHalfWidth * 0.72, 1, "RIGHT", frame.art, "CENTER", -railGap, bottomY)
-    SetAnchoredRect(frame.bottomRight, railHalfWidth * 0.72, 1, "LEFT", frame.art, "CENTER", railGap, bottomY)
+    SetAnchoredRect(frame.bottomLeft, railHalfWidth * 0.72, 1, "RIGHT", frame.art, "CENTER", -10, bottomY)
+    SetAnchoredRect(frame.bottomRight, railHalfWidth * 0.72, 1, "LEFT", frame.art, "CENTER", 10, bottomY)
     SetGradientColor(frame.topLeft, accentColor, 0.18, lineColor, 1, shapeReveal)
     SetGradientColor(frame.topRight, lineColor, 1, accentColor, 0.18, shapeReveal)
     SetGradientColor(frame.bottomLeft, accentColor, 0.08, lineColor, 0.62, shapeReveal * 0.72)
@@ -204,15 +213,24 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
     SetCenteredRect(frame.diamondTopRight, diamondEdge, 1.5, frame.art, diamondMid, topY + diamondMid, math.rad(-45))
     SetCenteredRect(frame.diamondBottomLeft, diamondEdge, 1.5, frame.art, -diamondMid, topY - diamondMid, math.rad(-45))
     SetCenteredRect(frame.diamondBottomRight, diamondEdge, 1.5, frame.art, diamondMid, topY - diamondMid, math.rad(45))
-    SetSolidColor(frame.diamondTopLeft, accentColor, shapeReveal)
-    SetSolidColor(frame.diamondTopRight, accentColor, shapeReveal)
-    SetSolidColor(frame.diamondBottomLeft, accentColor, shapeReveal)
-    SetSolidColor(frame.diamondBottomRight, accentColor, shapeReveal)
+    local diamondAlpha = frame.calendarMark and 0 or shapeReveal
+    SetSolidColor(frame.diamondTopLeft, accentColor, diamondAlpha)
+    SetSolidColor(frame.diamondTopRight, accentColor, diamondAlpha)
+    SetSolidColor(frame.diamondBottomLeft, accentColor, diamondAlpha)
+    SetSolidColor(frame.diamondBottomRight, accentColor, diamondAlpha)
+    if frame.calendarMark then
+        local markReveal = SmoothStep((reveal - 0.10) / 0.65)
+        for index, texture in ipairs(frame.calendarMark) do
+            local rect = CALENDAR_MARK[index]
+            SetCenteredRect(texture, rect[3], rect[4], frame.art, rect[1], topY + rect[2] + (1 - markReveal) * 2)
+            SetSolidColor(texture, index == #CALENDAR_MARK and titleColor or accentColor, markReveal * (1 - exitProgress))
+        end
+    end
 
     local titleReveal = SmoothStep((reveal - 0.14) / 0.50) * (1 - exitProgress)
     local subtitleReveal = SmoothStep((reveal - 0.24) / 0.48) * (1 - exitProgress)
     frame.title:ClearAllPoints()
-    frame.title:SetPoint("CENTER", frame.art, "CENTER", 0, 9 + (1 - titleReveal) * 5 - exitProgress * 4)
+    frame.title:SetPoint("CENTER", frame.art, "CENTER", 0, (frame.calendarMark and height * 0.055 or 9) + (1 - titleReveal) * 5 - exitProgress * 4)
     frame.title:SetTextColor(
         ColorComponent(titleColor, 1, 1),
         ColorComponent(titleColor, 2, 1),
@@ -220,7 +238,7 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
         ColorComponent(titleColor, 4, 1) * titleReveal
     )
     frame.subtitle:ClearAllPoints()
-    frame.subtitle:SetPoint("CENTER", frame.art, "CENTER", 0, -17 + (1 - subtitleReveal) * 4 - exitProgress * 3)
+    frame.subtitle:SetPoint("CENTER", frame.art, "CENTER", 0, (frame.calendarMark and -height * 0.17 or -17) + (1 - subtitleReveal) * 4 - exitProgress * 3)
     frame.subtitle:SetTextColor(
         ColorComponent(subtitleColor, 1, 1),
         ColorComponent(subtitleColor, 2, 1),
@@ -368,6 +386,9 @@ function CalmVisual:Apply(settings, position)
     local width = Clamp(self.settings.width, 320, 760)
     local height = Clamp(self.settings.height, 80, 170)
     local fontSize = Clamp(self.settings.fontSize, 14, 48)
+    if frame.calendarMark then
+        fontSize = math.min(fontSize, height * 0.215, width / 13)
+    end
     local outline = self.settings.fontOutline or "OUTLINE"
     local font = self.settings.font or DEFAULT_FONT
 
@@ -458,7 +479,7 @@ function CalmVisual:Hide(immediate)
     }
 end
 
-function ns.CreateCalmPartyAlert(frameName)
+function ns.CreateCalmPartyAlert(frameName, emblem)
     local visual = setmetatable({}, CalmVisual)
     local frame = CreateFrame("Frame", frameName, UIParent)
     frame:SetClampedToScreen(true)
@@ -479,6 +500,12 @@ function ns.CreateCalmPartyAlert(frameName)
     frame.diamondTopRight = CreateFlatTexture(frame.art, "ARTWORK", 1)
     frame.diamondBottomLeft = CreateFlatTexture(frame.art, "ARTWORK", 1)
     frame.diamondBottomRight = CreateFlatTexture(frame.art, "ARTWORK", 1)
+    if emblem == "CALENDAR" then
+        frame.calendarMark = {}
+        for index = 1, #CALENDAR_MARK do
+            frame.calendarMark[index] = CreateFlatTexture(frame.art, "ARTWORK", 1)
+        end
+    end
     frame.shimmer = CreateFlatTexture(frame.art, "ARTWORK", 2)
     frame.shimmerRight = CreateFlatTexture(frame.art, "ARTWORK", 2)
     frame.haloLeft = CreateFlatTexture(frame.art, "BACKGROUND", -1)

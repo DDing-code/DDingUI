@@ -283,6 +283,19 @@ local REG = {
         previewState = "noncombat",
         defaultW = 500, defaultH = 112,
     },
+    {
+        name = "CalendarInviteAlert",
+        getFrame = function()
+            local mod = ns.CalendarInviteAlert
+            if mod then mod:CreateAlertFrame() end
+            return _G.DDingToolKit_CalendarInviteAlertFrame
+        end,
+        dbPath = "CalendarInviteAlert.position",
+        posType = "standard",
+        module = "CalendarInviteAlert",
+        previewState = "noncombat",
+        defaultW = 500, defaultH = 112,
+    },
 }
 
 local DEFAULT_POSITIONS = {
@@ -306,6 +319,7 @@ local DEFAULT_POSITIONS = {
     GoldSplit = { x = 0, y = 0 },
     LFGAlert = { x = 0, y = -100 },
     PartyFullAlert = { x = 0, y = 0 },
+    CalendarInviteAlert = { x = 0, y = -260 },
 }
 
 local function GetDisplayName(reg)
@@ -330,6 +344,7 @@ local function GetDisplayName(reg)
         GoldSplit = Locale("TAB_GOLDSPLIT", "Calculator"),
         LFGAlert = Locale("TAB_LFGALERT", "Party Alert"),
         PartyFullAlert = Locale("TAB_PARTYFULLALERT", "Party Full Alert"),
+        CalendarInviteAlert = Locale("TAB_CALENDARINVITEALERT", "Calendar Invite Alert"),
     }
     return labels[reg.name] or reg.name
 end
@@ -380,6 +395,18 @@ local function GetFrameRelativeScale(frame)
     return frameScale / uiScale
 end
 
+local function UpdateMoverReadout(overlay, x, y)
+    if not overlay or not overlay.coord then return end
+    local width, height = overlay:GetSize()
+    overlay.coord:SetText(string.format(
+        "X %d  Y %d  ·  %d×%d",
+        math.floor((x or 0) + 0.5),
+        math.floor((y or 0) + 0.5),
+        math.floor((width or 0) + 0.5),
+        math.floor((height or 0) + 0.5)
+    ))
+end
+
 -- OnUpdate drag state
 local _isDragging  = false
 local _dragMover   = nil
@@ -413,9 +440,7 @@ _dragUpdate:SetScript("OnUpdate", function()
         target:ClearAllPoints()
         target:SetPoint("CENTER", UIParent, "CENTER", nx / targetScale, ny / targetScale)
     end
-    if _dragMover.coord then
-        _dragMover.coord:SetText(string.format("%d, %d", math.floor(nx + 0.5), math.floor(ny + 0.5)))
-    end
+    UpdateMoverReadout(_dragMover, nx, ny)
     if nudgeFrame then
         nudgeFrame.coordLabel:SetText(
             (_dragMover.label and _dragMover.label:GetText()) or _dragMover._regName
@@ -943,9 +968,7 @@ local function UpdateCoordUI(name, x, y)
         nudgeFrame.inputY:SetText(nudgeFrame.inputY._lastVal)
     end
     local overlay = movers[name]
-    if overlay and overlay.coord then
-        overlay.coord:SetText(string.format("%d, %d", math.floor(x + 0.5), math.floor(y + 0.5)))
-    end
+    UpdateMoverReadout(overlay, x, y)
     if nudgeFrame.metaLabel then
         local width, height = overlay and overlay:GetSize()
         nudgeFrame.metaLabel:SetText(string.format(
@@ -1033,6 +1056,16 @@ local function RefreshMoverStyle(ov)
         ov:SetBackdropColor(r * 0.12, g * 0.12, b * 0.12, enabled and 0.58 or 0.48)
         if ov.label then ov.label:SetTextColor(enabled and 0.92 or 0.62, enabled and 0.94 or 0.62, enabled and 0.96 or 0.62, 1) end
     end
+    if ov.centerV then
+        ov.centerV:SetColorTexture(accentR, accentG, accentB, 0.78)
+        ov.centerH:SetColorTexture(accentR, accentG, accentB, 0.78)
+        ov.centerV:SetShown(ov._selected)
+        ov.centerH:SetShown(ov._selected)
+    end
+    if ov.selectionHUD then
+        ov.selectionHUD.accent:SetColorTexture(accentR, accentG, accentB, 1)
+        ov.selectionHUD:SetShown(ov._selected)
+    end
     if ov.disabledLabel then ov.disabledLabel:SetShown(not enabled) end
 end
 
@@ -1096,6 +1129,20 @@ local function CreateMoverOverlay(reg)
     ov._reg = reg
     ov._regName = reg.name
 
+    local centerV = ov:CreateTexture(nil, "ARTWORK")
+    centerV:SetPoint("CENTER")
+    centerV:SetSize(1, 12)
+    centerV:SetColorTexture(r, g, b, 0.78)
+    centerV:Hide()
+    ov.centerV = centerV
+
+    local centerH = ov:CreateTexture(nil, "ARTWORK")
+    centerH:SetPoint("CENTER")
+    centerH:SetSize(12, 1)
+    centerH:SetColorTexture(r, g, b, 0.78)
+    centerH:Hide()
+    ov.centerH = centerH
+
     local lbl = ov:CreateFontString(nil, "OVERLAY")
     lbl:SetFont(SL_FONT, 11, "OUTLINE")
     lbl:SetPoint("LEFT", ov, "LEFT", 4, 4)
@@ -1106,11 +1153,31 @@ local function CreateMoverOverlay(reg)
     lbl:SetTextColor(1, 1, 1, 1)
     ov.label = lbl
 
-    local coord = ov:CreateFontString(nil, "OVERLAY")
+    local selectionHUD = CreateFrame("Frame", nil, ov)
+    selectionHUD:SetSize(178, 18)
+    selectionHUD:SetPoint("TOPRIGHT", ov, "BOTTOMRIGHT", 0, -4)
+    selectionHUD:SetFrameLevel(ov:GetFrameLevel() + 2)
+    selectionHUD:SetClampedToScreen(true)
+    selectionHUD:Hide()
+
+    local hudBg = selectionHUD:CreateTexture(nil, "BACKGROUND")
+    hudBg:SetAllPoints()
+    local hudColor = SL and SL.Colors and SL.Colors.bg and SL.Colors.bg.input or { 0.025, 0.035, 0.05 }
+    hudBg:SetColorTexture(hudColor[1], hudColor[2], hudColor[3], 0.94)
+
+    local hudAccent = selectionHUD:CreateTexture(nil, "BORDER")
+    hudAccent:SetPoint("TOPLEFT")
+    hudAccent:SetPoint("BOTTOMLEFT")
+    hudAccent:SetWidth(2)
+    hudAccent:SetColorTexture(r, g, b, 1)
+    selectionHUD.accent = hudAccent
+
+    local coord = selectionHUD:CreateFontString(nil, "OVERLAY")
     coord:SetFont(SL_FONT, 9, "OUTLINE")
-    coord:SetPoint("BOTTOM", 0, 3)
-    coord:SetTextColor(0.8, 0.8, 0.8, 1)
+    coord:SetPoint("LEFT", 7, 0)
+    coord:SetTextColor(0.88, 0.91, 0.96, 1)
     ov.coord = coord
+    ov.selectionHUD = selectionHUD
 
     local disabledLabel = ov:CreateFontString(nil, "OVERLAY")
     disabledLabel:SetFont(SL_FONT, 8, "OUTLINE")
@@ -1123,7 +1190,7 @@ local function CreateMoverOverlay(reg)
     local pt, px, py = GetSavedPos(reg)
     moverPos[reg.name] = { x = px, y = py }
     ov:SetPoint("CENTER", UIParent, pt, px, py)
-    coord:SetText(string.format("%d, %d", math.floor(px + 0.5), math.floor(py + 0.5)))
+    UpdateMoverReadout(ov, px, py)
     RefreshMoverStyle(ov)
 
     -- Cursor-driven drag keeps scaling and snapping deterministic.

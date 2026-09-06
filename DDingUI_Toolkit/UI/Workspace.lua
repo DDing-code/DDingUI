@@ -75,6 +75,7 @@ local CATEGORY_DEFS = {
             "lfgalert",
             "partyfullalert",
             "mailalert",
+            "calendarinvitealert",
             "deathalert",
             "deathreleaseguard",
             "durability",

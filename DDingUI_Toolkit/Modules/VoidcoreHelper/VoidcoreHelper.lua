@@ -13,7 +13,7 @@ local FONT = Lib.Font and Lib.Font.path or "Fonts\\2002.TTF"
 local VoidcoreHelper = {}
 ns.VoidcoreHelper = VoidcoreHelper
 
-local POPUP_NAME = "DDINGTOOLKIT_VOIDCORE_INSTANCE_GUARD"
+local CONFIRMATION_KEY = "voidcore-instance-guard"
 local MIN_KEYSTONE_LEVEL = 10
 local RAID_HEROIC_CONTEXT = 5
 local RAID_MYTHIC_CONTEXT = 6
@@ -141,10 +141,14 @@ local function GetItemDisplay(itemID)
     return name, icon
 end
 
-local function IsBISLootItem(itemID, specID)
+local function IsBISLootItem(itemID, specID, itemLink)
     if not C_Item or not C_Item.GetItemInfoInstant then return false end
     local ok, _, _, _, equipLoc, _, classID, subClassID = pcall(C_Item.GetItemInfoInstant, itemID)
     if not ok or IsSecret(equipLoc) or IsSecret(classID) or IsSecret(subClassID) then return false end
+    if classID == nil or equipLoc == nil then
+        RequestItemData(itemID)
+        return false, true
+    end
     local weaponClass = Enum and Enum.ItemClass and Enum.ItemClass.Weapon or 2
     local armorClass = Enum and Enum.ItemClass and Enum.ItemClass.Armor or 4
     local cosmeticSubclass = Enum and Enum.ItemArmorSubclass and Enum.ItemArmorSubclass.Cosmetic or 5
@@ -152,16 +156,29 @@ local function IsBISLootItem(itemID, specID)
     if classID == armorClass and subClassID == cosmeticSubclass then return false end
     if type(equipLoc) ~= "string" or equipLoc == "" or equipLoc == "INVTYPE_NON_EQUIP_IGNORE" then return false end
 
-    if C_Item.GetItemSpecInfo then
-        local specOK, specs = pcall(C_Item.GetItemSpecInfo, itemID)
-        if specOK and not IsSecret(specs) and type(specs) == "table" and #specs > 0 then
-            for _, allowedSpecID in ipairs(specs) do
-                if SafeNumber(allowedSpecID) == specID then return true end
-            end
-            return false
+    if C_Item.IsItemDataCachedByID then
+        local cacheOK, isCached = pcall(C_Item.IsItemDataCachedByID, itemID)
+        if not cacheOK or IsSecret(isCached) then return false end
+        if isCached ~= true then
+            RequestItemData(itemID)
+            return false, true
         end
     end
-    return true
+
+    if not C_Item.DoesItemContainSpec then return false end
+    local classOK, _, _, playerClassID = pcall(UnitClass, "player")
+    playerClassID = classOK and SafeNumber(playerClassID) or nil
+    specID = SafeNumber(specID)
+    if not playerClassID or not specID or specID <= 0 then return false end
+
+    -- Use native class/spec eligibility instead of the optional per-item spec list.
+    local specOK, isEligible = pcall(C_Item.DoesItemContainSpec, itemLink or itemID, playerClassID, specID)
+    if not specOK or IsSecret(isEligible) then return false end
+    if type(isEligible) ~= "boolean" then
+        RequestItemData(itemID)
+        return false, true
+    end
+    return isEligible
 end
 
 local function NormalizeItemName(text)
@@ -303,7 +320,7 @@ local function FindVoidcorePrompt()
     return nil
 end
 
-local function ExtractLootEntries(prompt)
+local function ExtractLootEntries(prompt, specID)
     if not C_TooltipInfo or not C_TooltipInfo.GetItemByID then return nil end
 
     local ok, data
@@ -317,17 +334,39 @@ local function ExtractLootEntries(prompt)
 
     local entries = {}
     local seen = {}
+    local loading = false
+    local sourceItemsByName
     for _, line in ipairs(data.lines) do
         if not IsSecret(line) and type(line) == "table" then
             local rawText = SafeString(line.leftText)
             local prefixText = rawText and rawText:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cn[%w_]+:", ""):gsub("|r", "")
             local plainName = NormalizeItemName(rawText)
             if rawText and plainName and prefixText:match("^%s*%-") then
-                local hyperlink = SafeString(line.hyperlink) or rawText
-                local itemID = ParseItemID(hyperlink)
-                local key = itemID and ("id:" .. itemID) or ("name:" .. plainName)
-                if not seen[key] then
-                    seen[key] = true
+                local hyperlink = SafeString(line.hyperlink) or rawText:match("|H(item:.-)|h")
+                local itemID = SafeNumber(line.itemID) or ParseItemID(hyperlink) or ParseItemID(rawText)
+                if not itemID then
+                    if not sourceItemsByName then
+                        sourceItemsByName = {}
+                        local sourceItems, _, sourceLoading = VoidcoreHelper:GetSourceLoot(prompt.sourceItemID, specID)
+                        loading = loading or not sourceItems or sourceLoading == true
+                        for _, item in ipairs(sourceItems or {}) do
+                            local name = NormalizeItemName(item.name)
+                            if name then sourceItemsByName[name] = item end
+                        end
+                    end
+                    local sourceItem = sourceItemsByName[plainName]
+                    if sourceItem then
+                        itemID, hyperlink = sourceItem.itemID, sourceItem.link
+                    end
+                    if not itemID then loading = true end
+                end
+                local isLootable, itemDataLoading = false, false
+                if itemID then
+                    isLootable, itemDataLoading = IsBISLootItem(itemID, specID, hyperlink)
+                end
+                if itemDataLoading then loading = true end
+                if isLootable and not seen[itemID] then
+                    seen[itemID] = true
                     entries[#entries + 1] = {
                         itemID = itemID,
                         name = plainName,
@@ -337,7 +376,7 @@ local function ExtractLootEntries(prompt)
             end
         end
     end
-    return entries
+    return entries, loading
 end
 
 local function IsEligiblePrompt(prompt, sourceKind)
@@ -386,6 +425,7 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
     self.lootCache = self.lootCache or {}
     local cacheKey = tostring(specID) .. ":" .. tostring(sourceItemID)
     if self.lootCache[cacheKey] then return self.lootCache[cacheKey] end
+    if InCombatLockdown and InCombatLockdown() then return nil, nil, true end
 
     local source = SOURCE_BY_ITEM[sourceItemID]
     if not source or not EnsureEncounterJournal() then
@@ -405,6 +445,7 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
         difficulty = EJ_GetDifficulty and EJ_GetDifficulty() or nil,
         instanceID = EncounterJournal and SafeNumber(EncounterJournal.instanceID) or nil,
         encounterID = EncounterJournal and SafeNumber(EncounterJournal.encounterID) or nil,
+        slotFilter = C_EncounterJournal.GetSlotFilter and C_EncounterJournal.GetSlotFilter() or nil,
     }
     if EJ_GetLootFilter then
         local previousClassID, previousSpecID = EJ_GetLootFilter()
@@ -419,22 +460,37 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
     end
 
     local items = {}
+    local itemDataLoading = false
+    self.readingSourceLoot = true
     local ok = journalInstanceID and pcall(function()
         if EJ_ClearSearch then EJ_ClearSearch() end
         if EJ_ResetLootFilter then EJ_ResetLootFilter() end
-        EJ_SetDifficulty(source.kind == "raid" and 16 or 23)
         EJ_SelectInstance(journalInstanceID)
+        EJ_SetDifficulty(source.kind == "raid" and 16 or 23)
         if source.kind == "raid" then EJ_SelectEncounter(source.encounterID) end
         EJ_SetLootFilter(classID, specID)
+        if C_EncounterJournal.ResetSlotFilter then C_EncounterJournal.ResetSlotFilter() end
 
         local count = SafeNumber(EJ_GetNumLoot()) or 0
+        if EJ_IsLootListOutOfDate then
+            itemDataLoading = EJ_IsLootListOutOfDate() == true
+        else
+            itemDataLoading = count == 0
+        end
         local seen = {}
         for index = 1, count do
             local info = C_EncounterJournal.GetLootInfoByIndex(index)
             if not IsSecret(info) and type(info) == "table" then
                 local itemID = SafeNumber(info.itemID)
                 local slot = SafeString(info.slot) or ""
-                if itemID and IsBISLootItem(itemID, specID) and not seen[itemID] then
+                local isLootable, loading = false, false
+                if itemID then
+                    isLootable, loading = IsBISLootItem(itemID, specID, SafeString(info.link))
+                else
+                    itemDataLoading = true
+                end
+                if loading then itemDataLoading = true end
+                if isLootable and not seen[itemID] then
                     seen[itemID] = true
                     local name = SafeString(info.name)
                     local icon = SafeNumber(info.icon)
@@ -443,13 +499,17 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
                         name = name or itemName
                         icon = icon or itemIcon
                     end
+                    if not name then itemDataLoading = true end
                     items[#items + 1] = {
                         itemID = itemID,
                         name = name,
                         icon = icon,
                         slot = slot,
+                        link = SafeString(info.link),
                     }
                 end
+            else
+                itemDataLoading = true
             end
         end
     end)
@@ -464,6 +524,10 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
     elseif EJ_ResetLootFilter then
         pcall(EJ_ResetLootFilter)
     end
+    if previous.slotFilter ~= nil and C_EncounterJournal.SetSlotFilter then
+        pcall(C_EncounterJournal.SetSlotFilter, previous.slotFilter)
+    end
+    self.readingSourceLoot = nil
 
     if not ok then
         return nil, T("VCH_BIS_JOURNAL_ERROR", "The Encounter Journal could not be loaded.")
@@ -472,8 +536,8 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
         if left.slot == right.slot then return (left.name or "") < (right.name or "") end
         return left.slot < right.slot
     end)
-    self.lootCache[cacheKey] = items
-    return items
+    if not itemDataLoading and #items > 0 then self.lootCache[cacheKey] = items end
+    return items, nil, itemDataLoading
 end
 
 function VoidcoreHelper:GetTargetSets(specID)
@@ -802,7 +866,7 @@ function VoidcoreHelper:RefreshBISFrame()
 
     local targetSet = {}
     for _, itemID in ipairs(targets) do targetSet[itemID] = true end
-    local items, errorText = self:GetSourceLoot(self.selectedSourceItemID, self.selectedSpecID)
+    local items, errorText, loading = self:GetSourceLoot(self.selectedSourceItemID, self.selectedSpecID)
     items = items or {}
     local sources = self:GetTargetSources(self.selectedSpecID, true)
     for _, item in ipairs(items) do
@@ -811,7 +875,8 @@ function VoidcoreHelper:RefreshBISFrame()
             sources[itemKey] = self.selectedSourceItemID
         end
     end
-    self:SetBISMessage(errorText or T("VCH_BIS_PICK_HELP", "Select a source, then check your BIS items."), errorText ~= nil)
+    local loadingText = loading and (RETRIEVING_ITEM_INFO or "Loading item information...")
+    self:SetBISMessage(errorText or loadingText or T("VCH_BIS_PICK_HELP", "Select a source, then check your BIS items."), errorText ~= nil)
 
     local P = PopupColors()
     for index, item in ipairs(items) do
@@ -843,13 +908,14 @@ function VoidcoreHelper:RefreshBISFrame()
         frame.empty = AddFont(frame.scrollContent, 12, P.textDim, "")
         frame.empty:SetPoint("TOPLEFT", frame.scrollContent, "TOPLEFT", 4, -12)
     end
-    frame.empty:SetText(errorText or T("VCH_BIS_NO_LOOT", "No loot is listed for this specialization."))
+    frame.empty:SetText(errorText or loadingText or T("VCH_BIS_NO_LOOT", "No loot is listed for this specialization."))
     frame.empty:SetShown(#items == 0)
     frame.scrollContent:SetHeight(math.max(320, #items * 44))
 end
 
 function VoidcoreHelper:OpenBISSettings()
     self:GetDB()
+    self.lootCache = nil
     EnsureEncounterJournal()
     local frame = self:CreateBISFrame()
     self.selectedSpecID = GetCurrentSpecID()
@@ -933,7 +999,7 @@ end
 
 local function AnalyzePromptTargets(self, prompt, specID)
     local targetIDs, targetNames, targetDataLoading = self:GetTargetSets(specID)
-    local lootEntries = ExtractLootEntries(prompt)
+    local lootEntries, lootDataLoading = ExtractLootEntries(prompt, specID)
     local targetCount = 0
     if lootEntries then
         for _, entry in ipairs(lootEntries) do
@@ -941,7 +1007,7 @@ local function AnalyzePromptTargets(self, prompt, specID)
             if entry.isTarget then targetCount = targetCount + 1 end
         end
     end
-    return lootEntries, #self:GetTargets(specID, false), targetCount, targetDataLoading
+    return lootEntries, #self:GetTargets(specID, false), targetCount, targetDataLoading or lootDataLoading
 end
 
 local function GetStoredSourceTargetState(self, specID, sourceItemID)
@@ -976,7 +1042,11 @@ function VoidcoreHelper:TryAutoDecline(spellID, prompt)
     end
 
     local lootEntries, configuredTargetCount, targetCount, targetDataLoading = AnalyzePromptTargets(self, prompt, specID)
-    if configuredTargetCount > 0 and lootEntries and #lootEntries > 0 and not targetDataLoading and targetCount == 0 then
+    if configuredTargetCount == 0 then
+        DeclineSpellConfirmationPrompt(spellID)
+        return true
+    end
+    if lootEntries and #lootEntries > 0 and not targetDataLoading and targetCount == 0 then
         DeclineSpellConfirmationPrompt(spellID)
         return true
     end
@@ -1026,7 +1096,7 @@ function VoidcoreHelper:RenderPrompt(prompt)
     frame.status:SetTextColor(UnpackColor(statusColor))
 
     local totalCount = lootEntries and #lootEntries or 0
-    if totalCount > 0 then
+    if totalCount > 0 and not targetDataLoading then
         local percent = (targetCount / totalCount) * 100
         frame.chance:SetText(string.format(T("VCH_CHANCE_FORMAT", "Estimated chance: %d/%d (%.1f%%)"), targetCount, totalCount, percent))
     else
@@ -1056,7 +1126,7 @@ function VoidcoreHelper:RenderPrompt(prompt)
         or T("VCH_MANUAL_NOTE", "Equal-chance estimate; use the Blizzard confirmation buttons directly."))
     self:AnchorAdvisor()
     frame:Show()
-    return lootEntries ~= nil and #lootEntries > 0
+    return lootEntries ~= nil and #lootEntries > 0 and not targetDataLoading
 end
 
 function VoidcoreHelper:RefreshCurrentPrompt()
@@ -1114,16 +1184,25 @@ function VoidcoreHelper:EvaluateInstance()
     if not key then
         self.currentInstanceKey = nil
         self.sessionGuard = nil
-        StaticPopup_Hide(POPUP_NAME)
+        ns.UI:HideConfirmation(CONFIRMATION_KEY)
         return
     end
     if self.currentInstanceKey == key then return end
 
     self.currentInstanceKey = key
     self.sessionGuard = db.entryPrompt and nil or db.guardNonTargets == true
-    StaticPopup_Hide(POPUP_NAME)
+    ns.UI:HideConfirmation(CONFIRMATION_KEY)
     if db.entryPrompt and db.guardNonTargets then
-        StaticPopup_Show(POPUP_NAME, displayName)
+        ns.UI:ShowConfirmation(CONFIRMATION_KEY, {
+            text = string.format(
+                T("VCH_ENTRY_CONFIRM", "%s\n\nAutomatically decline Voidcore bonus loot when no configured BIS remains or the difficulty is ineligible?"),
+                displayName
+            ),
+            acceptText = T("VCH_ENTRY_ENABLE", "Enable auto-decline"),
+            cancelText = NO,
+            onAccept = function() VoidcoreHelper.sessionGuard = true end,
+            onCancel = function() VoidcoreHelper.sessionGuard = false end,
+        })
     end
 end
 
@@ -1135,7 +1214,7 @@ function VoidcoreHelper:ApplySettings()
         self:QueuePromptScan()
     end
     if not db.entryPrompt or not db.guardNonTargets then
-        StaticPopup_Hide(POPUP_NAME)
+        ns.UI:HideConfirmation(CONFIRMATION_KEY)
         self.sessionGuard = db.guardNonTargets == true
     else
         self.currentInstanceKey = nil
@@ -1159,24 +1238,12 @@ end
 
 function VoidcoreHelper:OnDisable()
     if activeModule == self then activeModule = nil end
-    StaticPopup_Hide(POPUP_NAME)
+    ns.UI:HideConfirmation(CONFIRMATION_KEY)
     self:HideAdvisor()
     if self.bisFrame then self.bisFrame:Hide() end
     self.currentInstanceKey = nil
     self.sessionGuard = nil
 end
-
-StaticPopupDialogs[POPUP_NAME] = {
-    text = T("VCH_ENTRY_CONFIRM", "%s\n\nAutomatically decline Voidcore bonus loot when no configured BIS remains or the difficulty is ineligible?"),
-    button1 = T("VCH_ENTRY_ENABLE", "Enable auto-decline"),
-    button2 = NO,
-    OnAccept = function() VoidcoreHelper.sessionGuard = true end,
-    OnCancel = function() VoidcoreHelper.sessionGuard = false end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
 
 eventFrame:RegisterEvent("SPELL_CONFIRMATION_PROMPT")
 eventFrame:RegisterEvent("BONUS_ROLL_ACTIVATE")
@@ -1189,10 +1256,22 @@ eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("PLAYER_LOOT_SPEC_UPDATED")
 eventFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+eventFrame:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
-    if event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
-        VoidcoreHelper:RefreshBISFrame()
-        if activeModule then activeModule:RefreshCurrentPrompt() end
+    if event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT"
+        or event == "EJ_LOOT_DATA_RECIEVED" or event == "PLAYER_REGEN_ENABLED" then
+        if VoidcoreHelper.readingSourceLoot then return end
+        VoidcoreHelper.lootCache = nil
+        local frame = VoidcoreHelper.bisFrame
+        if not (frame and frame:IsShown()) and not VoidcoreHelper.currentPrompt then return end
+        if VoidcoreHelper.lootRefreshPending then return end
+        VoidcoreHelper.lootRefreshPending = true
+        C_Timer.After(0, function()
+            VoidcoreHelper.lootRefreshPending = nil
+            VoidcoreHelper:RefreshBISFrame()
+            if activeModule then activeModule:RefreshCurrentPrompt() end
+        end)
         return
     end
 

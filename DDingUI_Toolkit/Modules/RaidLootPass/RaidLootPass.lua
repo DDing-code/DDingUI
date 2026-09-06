@@ -13,7 +13,7 @@ local RaidLootPass = {}
 ns.RaidLootPass = RaidLootPass
 
 local PASS_ROLL_TYPE = LOOT_ROLL_TYPE_PASS or 0
-local POPUP_NAME = "DDINGTOOLKIT_RAID_LOOT_PASS_CONFIRM"
+local CONFIRMATION_KEY = "raid-loot-pass"
 
 local DECISION_PASS = 1
 local DECISION_PROTECT = 2
@@ -297,7 +297,6 @@ function RaidLootPass:OnInitialize()
 end
 
 function RaidLootPass:OnEnable()
-    self:RegisterPopup()
     self:RegisterEvents()
     C_Timer.After(1, function()
         self:EvaluateInstance()
@@ -308,7 +307,7 @@ function RaidLootPass:OnDisable()
     if eventFrame then
         eventFrame:UnregisterAllEvents()
     end
-    StaticPopup_Hide(POPUP_NAME)
+    ns.UI:HideConfirmation(CONFIRMATION_KEY)
     currentInstanceKey = nil
     currentInstanceName = nil
     popupInstanceKey = nil
@@ -316,24 +315,6 @@ function RaidLootPass:OnDisable()
     wipe(pendingRolls)
     wipe(passedRolls)
     wipe(protectedRolls)
-end
-
-function RaidLootPass:RegisterPopup()
-    StaticPopupDialogs[POPUP_NAME] = {
-        text = "",
-        button1 = YES,
-        button2 = NO,
-        OnAccept = function(_, key)
-            RaidLootPass:ApproveInstance(key or popupInstanceKey)
-        end,
-        OnCancel = function(_, key)
-            RaidLootPass:DeclineInstance(key or popupInstanceKey)
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-    }
 end
 
 function RaidLootPass:RegisterEvents()
@@ -373,7 +354,7 @@ function RaidLootPass:ApplySettings()
     if self.db.enabled then
         self:EvaluateInstance()
     else
-        StaticPopup_Hide(POPUP_NAME)
+        ns.UI:HideConfirmation(CONFIRMATION_KEY)
         popupInstanceKey = nil
         wipe(instanceDecisions)
         wipe(pendingRolls)
@@ -395,7 +376,7 @@ function RaidLootPass:EvaluateInstance()
         wipe(pendingRolls)
         wipe(passedRolls)
         wipe(protectedRolls)
-        StaticPopup_Hide(POPUP_NAME)
+        ns.UI:HideConfirmation(CONFIRMATION_KEY)
         return
     end
 
@@ -403,7 +384,7 @@ function RaidLootPass:EvaluateInstance()
         wipe(pendingRolls)
         wipe(passedRolls)
         wipe(protectedRolls)
-        StaticPopup_Hide(POPUP_NAME)
+        ns.UI:HideConfirmation(CONFIRMATION_KEY)
     end
 
     currentInstanceKey = key
@@ -421,8 +402,21 @@ end
 
 function RaidLootPass:ShowConfirmPopup(key, displayName)
     popupInstanceKey = key
-    StaticPopupDialogs[POPUP_NAME].text = T("RAIDLOOTPASS_CONFIRM_TEXT", "%s\n\nAutomatically pass eligible raid loot rolls in this instance?")
-    StaticPopup_Show(POPUP_NAME, displayName or T("RAIDLOOTPASS_UNKNOWN_INSTANCE", "this instance"), nil, key)
+    ns.UI:ShowConfirmation(CONFIRMATION_KEY, {
+        text = string.format(
+            T("RAIDLOOTPASS_CONFIRM_TEXT", "%s\n\nAutomatically pass eligible raid loot rolls in this instance?"),
+            displayName or T("RAIDLOOTPASS_UNKNOWN_INSTANCE", "this instance")
+        ),
+        acceptText = YES,
+        cancelText = NO,
+        data = key,
+        onAccept = function(instanceKey)
+            RaidLootPass:ApproveInstance(instanceKey or popupInstanceKey)
+        end,
+        onCancel = function(instanceKey)
+            RaidLootPass:DeclineInstance(instanceKey or popupInstanceKey)
+        end,
+    })
 end
 
 function RaidLootPass:ApproveInstance(key)

@@ -186,6 +186,7 @@ ns.ConfigModuleMap = {
     premadegroupfilter = "PremadeGroupFilter",
     partyfullalert  = "PartyFullAlert",
     mailalert       = "MailAlert",
+    calendarinvitealert = "CalendarInviteAlert",
     cursortrail     = "CursorTrail",
     itemlevel       = "ItemLevel",
     notepad         = "Notepad",
@@ -236,6 +237,7 @@ function ns:InitConfigTree()
             { text = L["TAB_RAIDPARTYTOOLTIP"], key = "raidpartytooltip" },
             { text = L["TAB_RAIDBREAKTIMER"],   key = "raidbreaktimer" },
             { text = L["TAB_MAILALERT"],        key = "mailalert" },
+            { text = L["TAB_CALENDARINVITEALERT"], key = "calendarinvitealert" },
             { text = L["TAB_CURSORTRAIL"],      key = "cursortrail" },
             { text = L["TAB_ITEMLEVEL"],        key = "itemlevel" },
             { text = L["TAB_NOTEPAD"],          key = "notepad" },
@@ -347,6 +349,7 @@ function ns:InitConfigTree()
             { type = "dropdown", key = "profile.SoundManager.priorityOffsets.LFGAlert", label = L["TAB_LFGALERT"], options = soundPriorityOptions },
             { type = "dropdown", key = "profile.SoundManager.priorityOffsets.DurabilityCheck", label = L["TAB_DURABILITY"], options = soundPriorityOptions },
             { type = "dropdown", key = "profile.SoundManager.priorityOffsets.MailAlert", label = L["TAB_MAILALERT"], options = soundPriorityOptions },
+            { type = "dropdown", key = "profile.SoundManager.priorityOffsets.CalendarInviteAlert", label = L["TAB_CALENDARINVITEALERT"], options = soundPriorityOptions },
         },
     }
 
@@ -831,6 +834,85 @@ function ns:InitConfigTree()
     }
 
     -----------------------------------------------
+    -- CalendarInviteAlert
+    -----------------------------------------------
+    local function RefreshCalendarInviteAlert()
+        local mod = ns.modules and ns.modules.CalendarInviteAlert
+        if mod then mod:ApplySettings() end
+    end
+
+    tree.panels["calendarinvitealert"] = {
+        title = L["TAB_CALENDARINVITEALERT"],
+        desc = L["CALENDARALERT_DESC"],
+        moduleEnableKey = "profile.modules.CalendarInviteAlert",
+        settings = {
+            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
+            { type = "toggle", key = "profile.modules.CalendarInviteAlert", label = L["MODULE_ENABLED"], isModuleToggle = true,
+                onChange = function(value)
+                    local mod = ns.modules and ns.modules.CalendarInviteAlert
+                    if not mod then return end
+                    if value then mod:OnEnable() else mod:OnDisable() end
+                    mod.enabled = value == true
+                end },
+
+            { type = "header", label = L["ALERT_METHOD"] },
+            { type = "toggle", key = "profile.CalendarInviteAlert.soundEnabled", label = L["MAILALERT_SOUND_ENABLED"], onChange = RefreshCalendarInviteAlert },
+            { type = "toggle", key = "profile.CalendarInviteAlert.screenAlertEnabled", label = L["MAILALERT_SCREEN_ALERT"], onChange = RefreshCalendarInviteAlert },
+            { type = "toggle", key = "profile.CalendarInviteAlert.chatAlert", label = L["MAILALERT_CHAT_ALERT"] },
+            { type = "toggle", key = "profile.CalendarInviteAlert.flashEnabled", label = L["LFGALERT_FLASH_DESC"] },
+
+            { type = "header", label = L["CONDITIONS"] },
+            { type = "toggle", key = "profile.CalendarInviteAlert.notifyOnLogin", label = L["CALENDARALERT_NOTIFY_LOGIN"] },
+            { type = "toggle", key = "profile.CalendarInviteAlert.notifyToday", label = L["CALENDARALERT_NOTIFY_TODAY"], desc = L["CALENDARALERT_NOTIFY_TODAY_DESC"], onChange = RefreshCalendarInviteAlert },
+            { type = "toggle", key = "profile.CalendarInviteAlert.hideInCombat", label = L["CALENDARALERT_DEFER_COMBAT"], onChange = RefreshCalendarInviteAlert },
+
+            { type = "header", label = L["SOUND_SETTINGS"] },
+            { type = "sound", key = "profile.CalendarInviteAlert.soundFile", label = L["LFGALERT_SOUND_FILE"], defaultLabel = L["CALENDARALERT_DEFAULT_SOUND"], customPathKey = "profile.CalendarInviteAlert.soundCustomPath" },
+            { type = "dropdown", key = "profile.CalendarInviteAlert.soundChannel", label = L["LFGALERT_SOUND_CHANNEL"], options = "soundChannels" },
+
+            { type = "header", label = L["SCREEN_ALERT_SETTINGS"] },
+            { type = "toggle", key = "profile.CalendarInviteAlert.animationEnabled", label = L["PARTYALERT_ANIMATION_ENABLED"], onChange = RefreshCalendarInviteAlert },
+            { type = "slider", key = "profile.CalendarInviteAlert.width", label = L["PARTYALERT_WIDTH"], min = 320, max = 760, step = 10, onChange = RefreshCalendarInviteAlert },
+            { type = "slider", key = "profile.CalendarInviteAlert.height", label = L["PARTYALERT_HEIGHT"], min = 80, max = 170, step = 2, onChange = RefreshCalendarInviteAlert },
+            { type = "slider", key = "profile.CalendarInviteAlert.alertScale", label = L["ALERT_SIZE"], min = 0.5, max = 2, step = 0.05, onChange = RefreshCalendarInviteAlert },
+            { type = "slider", key = "profile.CalendarInviteAlert.alertDuration", label = L["DISPLAY_DURATION"], min = 1, max = 15, step = 0.5, onChange = RefreshCalendarInviteAlert },
+
+            { type = "header", label = L["PARTYALERT_TEXT_SETTINGS"] },
+            { type = "font", key = "profile.CalendarInviteAlert.font", label = L["FONT"], onChange = RefreshCalendarInviteAlert },
+            { type = "slider", key = "profile.CalendarInviteAlert.fontSize", label = L["FONT_SIZE"], min = 14, max = 36, step = 1, onChange = RefreshCalendarInviteAlert },
+            { type = "dropdown", key = "profile.CalendarInviteAlert.fontOutline", label = L["FONT_OUTLINE"], options = partyAlertOutlineOptions, onChange = RefreshCalendarInviteAlert },
+
+            { type = "header", label = L["PARTYALERT_COLOR_SETTINGS"] },
+            { type = "color", key = "profile.CalendarInviteAlert.titleColor", label = L["PARTYALERT_TITLE_COLOR"], hasAlpha = true, onChange = RefreshCalendarInviteAlert },
+            { type = "color", key = "profile.CalendarInviteAlert.subtitleColor", label = L["PARTYALERT_SUBTITLE_COLOR"], hasAlpha = true, onChange = RefreshCalendarInviteAlert },
+            { type = "color", key = "profile.CalendarInviteAlert.lineColor", label = L["PARTYALERT_LINE_COLOR"], hasAlpha = true, onChange = RefreshCalendarInviteAlert },
+            { type = "color", key = "profile.CalendarInviteAlert.accentColor", label = L["PARTYALERT_ACCENT_COLOR"], hasAlpha = true, onChange = RefreshCalendarInviteAlert },
+            { type = "color", key = "profile.CalendarInviteAlert.panelColor", label = L["PARTYALERT_PANEL_COLOR"], hasAlpha = true, onChange = RefreshCalendarInviteAlert },
+            { type = "color", key = "profile.CalendarInviteAlert.glowColor", label = L["PARTYALERT_GLOW_COLOR"], hasAlpha = true, onChange = RefreshCalendarInviteAlert },
+
+            { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },
+            { type = "slider", key = "profile.CalendarInviteAlert.position.x", label = L["CASTINGALERT_POS_X"], min = -800, max = 800, step = 1, onChange = RefreshCalendarInviteAlert },
+            { type = "slider", key = "profile.CalendarInviteAlert.position.y", label = L["CASTINGALERT_POS_Y"], min = -600, max = 600, step = 1, onChange = RefreshCalendarInviteAlert },
+            { type = "button", label = L["RESET_POSITION"], onClick = function()
+                ns.modules.CalendarInviteAlert:ResetPosition()
+            end },
+
+            { type = "separator" },
+            { type = "button", label = L["CALENDARALERT_OPEN_CALENDAR"], onClick = function()
+                ns.modules.CalendarInviteAlert:OpenCalendar()
+            end },
+            { type = "button", label = L["TEST_ALERT"], onClick = function()
+                ns.modules.CalendarInviteAlert:TriggerAlert(true)
+            end },
+            { type = "button", label = L["CALENDARALERT_TEST_TODAY"], onClick = function()
+                ns.modules.CalendarInviteAlert:TriggerAlert(true, nil, {
+                    key = "test", hour = 20, minute = 0, title = L["CALENDARALERT_TODAY_EXAMPLE"],
+                })
+            end },
+        },
+    }
+
+    -----------------------------------------------
     -- CursorTrail
     -----------------------------------------------
     tree.panels["cursortrail"] = {
@@ -1088,6 +1170,7 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.CombatStateAlert.showStart", label = L["CSA_SHOW_START"], onChange = RefreshCombatStateAlert },
             { type = "toggle", key = "profile.CombatStateAlert.showEnd", label = L["CSA_SHOW_END"], onChange = RefreshCombatStateAlert },
             { type = "toggle", key = "profile.CombatStateAlert.instanceOnly", label = L["CSA_INSTANCE_ONLY"], onChange = RefreshCombatStateAlert },
+            { type = "toggle", key = "profile.CombatStateAlert.excludeDelves", label = L["CSA_EXCLUDE_DELVES"], onChange = RefreshCombatStateAlert },
 
             { type = "header", label = L["CSA_VISUAL_SETTINGS"] },
             { type = "dropdown", key = "profile.CombatStateAlert.visualMode", label = L["CSA_VISUAL_MODE"], options = {
@@ -2331,6 +2414,20 @@ function ns:InitConfigTree()
     -----------------------------------------------
     -- CastingAlert
     -----------------------------------------------
+    local function CastingAlertMode()
+        return ns:GetDBValue("profile.CastingAlert.displayMode") or "ICON"
+    end
+
+    local function ShowCastingAlertMode(mode)
+        return function()
+            return CastingAlertMode() == mode
+        end
+    end
+
+    local function ShowCastingAlertIconOptions()
+        return CastingAlertMode() ~= "BAR"
+    end
+
     tree.panels["castingalert"] = {
         title = L["CASTINGALERT_TITLE"],
         desc  = L["CASTINGALERT_DESC"],
@@ -2347,6 +2444,17 @@ function ns:InitConfigTree()
 
             -- 표시 설정
             { type = "header", label = L["CASTINGALERT_DISPLAY_SETTINGS"] },
+            { type = "segmented", key = "profile.CastingAlert.displayMode", label = L["CASTINGALERT_DISPLAY_MODE"], options = {
+                { text = L["CASTINGALERT_MODE_ICON"], value = "ICON" },
+                { text = L["CASTINGALERT_MODE_BAR"], value = "BAR" },
+                { text = L["CASTINGALERT_MODE_DUAL"], value = "ICON_TEXT_ICON" },
+              },
+              refreshPanel = true,
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
             { type = "toggle", key = "profile.CastingAlert.disableForTank", label = L["CASTINGALERT_DISABLE_FOR_TANK"],
               onChange = function()
                 local mod = ns.modules and ns.modules["CastingAlert"]
@@ -2365,8 +2473,8 @@ function ns:InitConfigTree()
                 if mod and mod.RestartUpdate then mod:RestartUpdate() end
               end,
             },
-            { type = "header", label = L["CASTINGALERT_ICON_SETTINGS"] },
             { type = "toggle", key = "profile.CastingAlert.showSwipe",       label = L["CASTINGALERT_SHOW_SWIPE"],
+              visible = ShowCastingAlertIconOptions,
               onChange = function()
                 local mod = ns.modules and ns.modules["CastingAlert"]
                 if mod and mod.UpdateStyle then mod:UpdateStyle() end
@@ -2385,18 +2493,6 @@ function ns:InitConfigTree()
               end,
             },
             { type = "slider", key = "profile.CastingAlert.maxShow",        label = L["CASTINGALERT_MAX_SHOW"],   min = 1,   max = 15,  step = 1,
-              onChange = function()
-                local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.UpdateStyle then mod:UpdateStyle() end
-              end,
-            },
-            { type = "slider", key = "profile.CastingAlert.iconSize",       label = L["ICON_SIZE"],               min = 20,  max = 80,  step = 1,
-              onChange = function()
-                local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.UpdateStyle then mod:UpdateStyle() end
-              end,
-            },
-            { type = "slider", key = "profile.CastingAlert.iconFontSize",   label = L["CASTINGALERT_ICON_FONT_SIZE"], min = 10, max = 36, step = 1,
               onChange = function()
                 local mod = ns.modules and ns.modules["CastingAlert"]
                 if mod and mod.UpdateStyle then mod:UpdateStyle() end
@@ -2427,18 +2523,29 @@ function ns:InitConfigTree()
               end,
             },
 
+            -- 아이콘 설정
+            { type = "header", label = L["CASTINGALERT_ICON_SETTINGS"], visible = ShowCastingAlertMode("ICON") },
+            { type = "slider", key = "profile.CastingAlert.iconSize",       label = L["ICON_SIZE"],               min = 20,  max = 80,  step = 1,
+              visible = ShowCastingAlertMode("ICON"),
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.iconFontSize",   label = L["CASTINGALERT_ICON_FONT_SIZE"], min = 10, max = 36, step = 1,
+              visible = ShowCastingAlertMode("ICON"),
+              onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+
             -- Filter settings
             { type = "header", label = L["CASTINGALERT_FILTER_SETTINGS"] },
             { type = "toggle", key = "profile.CastingAlert.onlyTargetingMe", label = L["CASTINGALERT_ONLY_TARGETING_ME"],
               onChange = function()
                 local mod = ns.modules and ns.modules["CastingAlert"]
                 if mod and mod.UpdateStyle then mod:UpdateStyle() end
-              end,
-            },
-            { type = "toggle", key = "profile.CastingAlert.showTarget",      label = L["CASTINGALERT_SHOW_TARGET"],
-              onChange = function()
-                local mod = ns.modules and ns.modules["CastingAlert"]
-                if mod and mod.ApplySettings then mod:ApplySettings() end
               end,
             },
             { type = "toggle", key = "profile.CastingAlert.hideUntargeted",  label = L["CASTINGALERT_HIDE_UNTARGETED"],
@@ -2476,6 +2583,88 @@ function ns:InitConfigTree()
             },
 
             -- 바 설정
+            { type = "header", label = L["CASTINGALERT_BAR_SETTINGS"], visible = ShowCastingAlertMode("BAR") },
+            { type = "slider", key = "profile.CastingAlert.barWidth", label = L["CASTINGALERT_BAR_WIDTH"], min = 120, max = 800, step = 1,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.barHeight", label = L["CASTINGALERT_BAR_HEIGHT"], min = 16, max = 80, step = 1,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "statusbar", key = "profile.CastingAlert.barTexture", label = L["CASTINGALERT_BAR_TEXTURE"],
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.barFontSize", label = L["CASTINGALERT_BAR_FONT_SIZE"], min = 8, max = 36, step = 1,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "toggle", key = "profile.CastingAlert.showTarget", label = L["CASTINGALERT_SHOW_TARGET"],
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "color", key = "profile.CastingAlert.barColor", label = L["CASTINGALERT_BAR_COLOR"], hasAlpha = true,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "color", key = "profile.CastingAlert.barBackgroundColor", label = L["CASTINGALERT_BAR_BACKGROUND_COLOR"], hasAlpha = true,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "color", key = "profile.CastingAlert.barBorderColor", label = L["CASTINGALERT_BAR_BORDER_COLOR"], hasAlpha = true,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "color", key = "profile.CastingAlert.barTextColor", label = L["CASTINGALERT_BAR_TEXT_COLOR"], hasAlpha = true,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "color", key = "profile.CastingAlert.barTargetTextColor", label = L["CASTINGALERT_BAR_TARGET_COLOR"], hasAlpha = true,
+              visible = ShowCastingAlertMode("BAR"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+
+            -- 양쪽 아이콘 설정
+            { type = "header", label = L["CASTINGALERT_DUAL_SETTINGS"], visible = ShowCastingAlertMode("ICON_TEXT_ICON") },
+            { type = "slider", key = "profile.CastingAlert.dualIconSize", label = L["CASTINGALERT_DUAL_ICON_SIZE"], min = 16, max = 80, step = 1,
+              visible = ShowCastingAlertMode("ICON_TEXT_ICON"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.dualFontSize", label = L["CASTINGALERT_DUAL_FONT_SIZE"], min = 8, max = 48, step = 1,
+              visible = ShowCastingAlertMode("ICON_TEXT_ICON"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
+            { type = "slider", key = "profile.CastingAlert.dualGap", label = L["CASTINGALERT_DUAL_GAP"], min = 0, max = 40, step = 1,
+              visible = ShowCastingAlertMode("ICON_TEXT_ICON"), onChange = function()
+                local mod = ns.modules and ns.modules["CastingAlert"]
+                if mod and mod.UpdateStyle then mod:UpdateStyle() end
+              end,
+            },
 
             -- 위치 설정
             { type = "header", label = L["CASTINGALERT_POSITION_SETTINGS"] },

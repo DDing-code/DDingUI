@@ -11,6 +11,9 @@ local SOLID = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\
 local DEFAULT_ICON = 136243
 local INTERRUPT_ICON = "Interface\\TARGETINGFRAME\\UI-RaidTargetingIcon_7"
 local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("TargetSpell", "TargetSpell") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6TargetSpell|r: "
+local DISPLAY_MODE_ICON = "ICON"
+local DISPLAY_MODE_BAR = "BAR"
+local DISPLAY_MODE_DUAL = "ICON_TEXT_ICON"
 
 local CastingAlert = {}
 CastingAlert.name = "CastingAlert"
@@ -33,6 +36,7 @@ local DEFAULTS = {
     showImportantGlow = true,
     indicateInterrupts = true,
 
+    displayMode = DISPLAY_MODE_ICON,
     maxShow = 10,
     iconSize = 35,
     fontSize = 18,
@@ -45,6 +49,20 @@ local DEFAULTS = {
     scale = 1.0,
     updateRate = 0.05,
     scanDelay = START_DELAY,
+
+    barWidth = 300,
+    barHeight = 30,
+    barTexture = SOLID,
+    barFontSize = 14,
+    barColor = { 0.16, 0.58, 0.42, 1 },
+    barBackgroundColor = { 0.04, 0.05, 0.06, 0.92 },
+    barBorderColor = { 0.24, 0.29, 0.33, 1 },
+    barTextColor = { 1, 1, 1, 1 },
+    barTargetTextColor = { 0.25, 0.82, 1, 1 },
+
+    dualIconSize = 32,
+    dualFontSize = 20,
+    dualGap = 4,
 
     soundEnabled = true,
     soundThreshold = 2,
@@ -85,8 +103,9 @@ local eventFrame
 local updateTicker
 local previewTicker
 local iconFrames = {}
+local barFrames = {}
+local dualFrames = {}
 local activeCasts = {}
-local castSlots = {}
 local previewInfos = {}
 local isEnabled = false
 local isPreview = false
@@ -146,6 +165,51 @@ local function NumberValue(value, fallback, minimum, maximum)
         result = Clamp(result, minimum, maximum)
     end
     return result
+end
+
+local function NormalizeDisplayMode(value)
+    if value == DISPLAY_MODE_BAR or value == DISPLAY_MODE_DUAL then
+        return value
+    end
+    return DISPLAY_MODE_ICON
+end
+
+local function GetDisplayDimensions(db)
+    local mode = NormalizeDisplayMode(db and db.displayMode)
+    if mode == DISPLAY_MODE_BAR then
+        return NumberValue(db.barWidth, DEFAULTS.barWidth, 120, 800),
+            NumberValue(db.barHeight, DEFAULTS.barHeight, 16, 80)
+    end
+
+    if mode == DISPLAY_MODE_DUAL then
+        local iconSize = NumberValue(db.dualIconSize, DEFAULTS.dualIconSize, 16, 120)
+        local fontSize = NumberValue(db.dualFontSize, DEFAULTS.dualFontSize, 8, 64)
+        local gap = NumberValue(db.dualGap, DEFAULTS.dualGap, 0, 60)
+        return (iconSize * 2) + (gap * 2) + (fontSize * 2.6), math.max(iconSize, fontSize + 4)
+    end
+
+    local iconSize = NumberValue(db and db.iconSize, DEFAULTS.iconSize, 16, 120)
+    return iconSize, iconSize
+end
+
+local function IsSecretValue(value)
+    return (ns.IsSecretValue and ns.IsSecretValue(value))
+        or (issecretvalue and issecretvalue(value))
+        or false
+end
+
+local function HasValue(value)
+    if IsSecretValue(value) then
+        return true
+    end
+    return value ~= nil
+end
+
+local function DisplayTexture(value)
+    if IsSecretValue(value) then
+        return value
+    end
+    return value == nil and DEFAULT_ICON or value
 end
 
 local function BoolAlpha(value, trueAlpha, falseAlpha)
@@ -296,6 +360,10 @@ local function GetTargetClassColor(unit)
         class = UnitSpellTargetClass(unit)
     end
 
+    if IsSecretValue(class) then
+        return nil
+    end
+
     if class and C_ClassColor and C_ClassColor.GetClassColor then
         return C_ClassColor.GetClassColor(class)
     end
@@ -305,7 +373,7 @@ end
 
 local function GetUnitLevelScore(unit)
     local level = UnitLevel(unit)
-    if type(level) ~= "number" then
+    if IsSecretValue(level) or type(level) ~= "number" then
         return 0
     end
 
@@ -314,22 +382,14 @@ local function GetUnitLevelScore(unit)
     end
 
     local classification = UnitClassification(unit)
-    if classification == "worldboss" or classification == "elite" or UnitIsBossMob(unit) then
+    if IsSecretValue(classification) then classification = nil end
+    local isBoss = UnitIsBossMob(unit)
+    if IsSecretValue(isBoss) then isBoss = false end
+    if classification == "worldboss" or classification == "elite" or isBoss == true then
         return level + 500
     end
 
     return level
-end
-
-local function FormatTime(seconds)
-    seconds = math.max(seconds or 0, 0)
-    if seconds >= 60 then
-        return string.format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
-    end
-    if seconds > 3 then
-        return string.format("%d", math.floor(seconds + 0.5))
-    end
-    return string.format("%.1f", seconds)
 end
 
 local function CreateBorderLines(parent, layer, thickness)
@@ -387,6 +447,19 @@ end
 local function ApplyCooldownFont(cooldown, font, size, color)
     if not cooldown then return end
 
+    if cooldown.GetCountdownFontString then
+        local fontString = cooldown:GetCountdownFontString()
+        if fontString then
+            ApplyFont(fontString, font, size, color, DEFAULTS.durationTextColor)
+            fontString:ClearAllPoints()
+            fontString:SetPoint("CENTER", cooldown, "CENTER", 0, 0)
+            fontString:SetJustifyH("CENTER")
+            fontString:SetJustifyV("MIDDLE")
+            fontString:SetDrawLayer("OVERLAY")
+            return
+        end
+    end
+
     for _, region in next, { cooldown:GetRegions() } do
         if region.GetObjectType and region:GetObjectType() == "FontString" then
             ApplyFont(region, font, size, color, DEFAULTS.durationTextColor)
@@ -398,6 +471,39 @@ local function ApplyCooldownFont(cooldown, font, size, color)
             return
         end
     end
+end
+
+local function SetCooldownDuration(cooldown, info)
+    if not cooldown or not info then return end
+
+    cooldown:Clear()
+    if info.durationObject and cooldown.SetCooldownFromDurationObject then
+        cooldown:SetCooldownFromDurationObject(info.durationObject)
+    elseif info.isPreview then
+        cooldown:SetCooldown(info.startTime or GetTime(), info.duration or 1)
+    end
+end
+
+local function ApplyDisplayAlpha(frame, info, db)
+    local shownAlpha = info.interrupted and 0.85 or 1
+    if db.onlyTargetingMe then
+        local trueAlpha = shownAlpha
+        if db.onlyImportant then
+            trueAlpha = BoolAlpha(info.importantSecret, shownAlpha, 0)
+        end
+        ApplyAlphaFromBoolean(frame, info.targetsPlayerSecret, trueAlpha, 0)
+    elseif db.onlyImportant then
+        ApplyAlphaFromBoolean(frame, info.importantSecret, shownAlpha, 0)
+    else
+        ApplyAlphaFromBoolean(frame, info.targetsPlayerSecret, shownAlpha, db.dimAlpha or DEFAULTS.dimAlpha)
+    end
+end
+
+local function GetImportantAlpha(db, info)
+    if not db.showImportantGlow then
+        return 0
+    end
+    return BoolAlpha(info.importantSecret, 0.95, 0)
 end
 
 local function GetCastPlainKey(info)
@@ -468,6 +574,7 @@ local function GetCurrentCastInfo(unit)
         isChannel = isChannel,
         notInterruptibleSecret = SecretBoolean(notInterruptible),
         targetName = targetName,
+        hasTargetNamePlain = HasValue(targetName),
         targetClassColor = GetTargetClassColor(unit),
         targetsPlayerNamePlain = false,
         targetsPlayerSecret = GetTargetsPlayer(unit),
@@ -480,10 +587,8 @@ local function GetCurrentCastInfo(unit)
 end
 
 local function CompareCastInfo(a, b)
-    local scoreA = (a.targetsPlayerNamePlain and 100000 or 0)
-        + (a.levelScore or 0)
-    local scoreB = (b.targetsPlayerNamePlain and 100000 or 0)
-        + (b.levelScore or 0)
+    local scoreA = a.levelScore or 0
+    local scoreB = b.levelScore or 0
 
     if scoreA ~= scoreB then
         return scoreA > scoreB
@@ -527,6 +632,7 @@ function CastingAlert:ApplyDefaults()
     local legacyPosition = rawget(self.db, "position")
 
     MergeDefaults(self.db, DEFAULTS)
+    self.db.displayMode = NormalizeDisplayMode(self.db.displayMode)
 
     if not hadIconPosition then
         self.db.iconPosition = CopyValue(legacyPosition or DEFAULTS.iconPosition)
@@ -913,7 +1019,7 @@ function CastingAlert:CleanupDanglingCasts()
 end
 
 function CastingAlert:InfoPassesFilters(info)
-    if self.db.hideUntargeted and info.targetName == nil then
+    if self.db.hideUntargeted and info.hasTargetNamePlain == false then
         return false
     end
 
@@ -1007,8 +1113,8 @@ end
 
 function CastingAlert:UpdateAnchorSizes()
     if iconAnchorFrame then
-        local size = NumberValue(self.db.iconSize, DEFAULTS.iconSize, 16, 120)
-        iconAnchorFrame:SetSize(size, size)
+        local width, height = GetDisplayDimensions(self.db)
+        iconAnchorFrame:SetSize(width, height)
     end
 end
 
@@ -1074,23 +1180,21 @@ function CastingAlert:CreateIconFrame(index)
     return frame
 end
 
-function CastingAlert:PositionIcon(frame, index)
-    local size = NumberValue(self.db.iconSize, DEFAULTS.iconSize, 16, 120)
+function CastingAlert:PositionDisplayFrame(frame, index, width, height)
     local spacing = NumberValue(self.db.spacing, DEFAULTS.spacing, -50, 80)
     local direction = self.db.stackDirection or "UP"
-    local offset = (index - 1) * (size + spacing)
     local x, y = 0, 0
 
     if direction == "DOWN" then
-        y = -offset
+        y = -(index - 1) * (height + spacing)
     elseif direction == "LEFT" then
-        x = -offset
+        x = -(index - 1) * (width + spacing)
     elseif direction == "RIGHT" then
-        x = offset
+        x = (index - 1) * (width + spacing)
     elseif direction == "OVERLAP" then
         x, y = 0, 0
     else
-        y = offset
+        y = (index - 1) * (height + spacing)
     end
 
     local parent = iconAnchorFrame or UIParent
@@ -1099,7 +1203,7 @@ function CastingAlert:PositionIcon(frame, index)
         frame._layoutKey = nil
     end
 
-    local layoutKey = tostring(index) .. ":" .. tostring(size) .. ":" .. tostring(spacing) .. ":" .. tostring(direction) .. ":" .. tostring(x) .. ":" .. tostring(y)
+    local layoutKey = tostring(index) .. ":" .. tostring(width) .. ":" .. tostring(height) .. ":" .. tostring(spacing) .. ":" .. tostring(direction) .. ":" .. tostring(x) .. ":" .. tostring(y)
     if frame._layoutKey == layoutKey then
         return
     end
@@ -1116,13 +1220,9 @@ function CastingAlert:UpdateIconFrame(frame, info, index)
         frame._iconSize = size
         frame._layoutKey = nil
     end
-    self:PositionIcon(frame, index)
+    self:PositionDisplayFrame(frame, index, size, size)
 
-    local iconTexture = info.texture
-    if iconTexture == nil then
-        iconTexture = DEFAULT_ICON
-    end
-    frame.icon:SetTexture(iconTexture)
+    frame.icon:SetTexture(DisplayTexture(info.texture))
     frame.icon:SetDesaturated(info.interrupted and true or false)
     frame.interruptIcon:SetShown(info.interrupted and self.db.indicateInterrupts)
 
@@ -1141,89 +1241,333 @@ function CastingAlert:UpdateIconFrame(frame, info, index)
     local key = GetCastPlainKey(info)
     if frame._castKeyPlain ~= key then
         frame._castKeyPlain = key
-        frame.cooldown:Clear()
-        if info.durationObject and frame.cooldown.SetCooldownFromDurationObject then
-            frame.cooldown:SetCooldownFromDurationObject(info.durationObject)
-        else
-            frame.cooldown:SetCooldown(info.startTime or GetTime(), info.duration or 1)
-        end
+        SetCooldownDuration(frame.cooldown, info)
     end
 
     if info.interrupted then
         frame.cooldown:Clear()
     end
 
-    local importantAlpha = 0
-    if self.db.showImportantGlow then
-        importantAlpha = BoolAlpha(info.importantSecret, 0.95, 0)
-    end
-    SetBorderLinesColor(frame.importantBorder, 1, 0.86, 0.2, importantAlpha)
-
-    local shownAlpha = info.interrupted and 0.85 or 1
-    if self.db.onlyTargetingMe then
-        local trueAlpha = shownAlpha
-        if self.db.onlyImportant then
-            trueAlpha = BoolAlpha(info.importantSecret, shownAlpha, 0)
-        end
-        ApplyAlphaFromBoolean(frame, info.targetsPlayerSecret, trueAlpha, 0)
-    elseif self.db.onlyImportant then
-        ApplyAlphaFromBoolean(frame, info.importantSecret, shownAlpha, 0)
-    else
-        ApplyAlphaFromBoolean(frame, info.targetsPlayerSecret, shownAlpha, self.db.dimAlpha or DEFAULTS.dimAlpha)
-    end
+    SetBorderLinesColor(frame.importantBorder, 1, 0.86, 0.2, GetImportantAlpha(self.db, info))
+    ApplyDisplayAlpha(frame, info, self.db)
 
     frame:Show()
 end
 
-function CastingAlert:HideDisplayFrames()
-    WipeTable(castSlots)
-    for _, frame in ipairs(iconFrames) do
-        frame._castKeyPlain = nil
-        frame:Hide()
+function CastingAlert:CreateBarFrame(index)
+    local frame = barFrames[index]
+    if frame then
+        return frame
     end
+
+    frame = CreateFrame("Frame", nil, iconAnchorFrame or UIParent)
+    frame:SetFrameLevel(1000 - index)
+    frame:EnableMouse(false)
+
+    frame.background = frame:CreateTexture(nil, "BACKGROUND")
+    frame.background:SetTexture(SOLID)
+    frame.background:SetAllPoints()
+
+    frame.icon = frame:CreateTexture(nil, "ARTWORK")
+    frame.icon:SetTexCoord(0.08, 0.92, 0.16, 0.84)
+
+    frame.progress = CreateFrame("StatusBar", nil, frame)
+    frame.progress:SetMinMaxValues(0, 1)
+    frame.progress:SetValue(1)
+
+    frame.progressBackground = frame.progress:CreateTexture(nil, "BACKGROUND")
+    frame.progressBackground:SetTexture(SOLID)
+    frame.progressBackground:SetAllPoints()
+
+    frame.spellName = frame.progress:CreateFontString(nil, "OVERLAY")
+    frame.spellName:SetJustifyH("LEFT")
+    frame.spellName:SetJustifyV("MIDDLE")
+    frame.spellName:SetWordWrap(false)
+
+    frame.targetName = frame.progress:CreateFontString(nil, "OVERLAY")
+    frame.targetName:SetJustifyH("RIGHT")
+    frame.targetName:SetJustifyV("MIDDLE")
+    frame.targetName:SetWordWrap(false)
+
+    frame.durationCooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    frame.durationCooldown:SetDrawEdge(false)
+    frame.durationCooldown:SetDrawSwipe(false)
+    frame.durationCooldown:SetDrawBling(false)
+
+    frame.interruptIcon = frame:CreateTexture(nil, "OVERLAY")
+    frame.interruptIcon:SetTexture(INTERRUPT_ICON)
+    frame.interruptIcon:Hide()
+
+    frame.border = CreateBorderLines(frame, "OVERLAY", 1)
+    frame.importantBorder = CreateBorderLines(frame, "OVERLAY", 2)
+    SetBorderLinesColor(frame.importantBorder, 1, 0.86, 0.2, 0)
+
+    barFrames[index] = frame
+    return frame
+end
+
+function CastingAlert:UpdateBarFrame(frame, info, index)
+    local width = NumberValue(self.db.barWidth, DEFAULTS.barWidth, 120, 800)
+    local height = NumberValue(self.db.barHeight, DEFAULTS.barHeight, 16, 80)
+    local fontSize = NumberValue(self.db.barFontSize, DEFAULTS.barFontSize, 8, 36)
+    local durationWidth = math.max(34, fontSize * 2.8)
+    local targetWidth = math.max(52, math.min(96, width * 0.24))
+
+    if frame._displayWidth ~= width or frame._displayHeight ~= height or frame._fontSize ~= fontSize or frame._showTarget ~= self.db.showTarget then
+        SetSize(frame, width, height)
+        frame._displayWidth = width
+        frame._displayHeight = height
+        frame._fontSize = fontSize
+        frame._showTarget = self.db.showTarget
+        frame._layoutKey = nil
+
+        frame.icon:ClearAllPoints()
+        frame.icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+        frame.icon:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
+        frame.icon:SetWidth(math.max(1, height - 2))
+
+        frame.progress:ClearAllPoints()
+        frame.progress:SetPoint("TOPLEFT", frame.icon, "TOPRIGHT", 1, 0)
+        frame.progress:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+
+        frame.durationCooldown:ClearAllPoints()
+        frame.durationCooldown:SetPoint("TOPRIGHT", frame.progress, "TOPRIGHT", 0, 0)
+        frame.durationCooldown:SetPoint("BOTTOMRIGHT", frame.progress, "BOTTOMRIGHT", 0, 0)
+        frame.durationCooldown:SetWidth(durationWidth)
+
+        frame.targetName:ClearAllPoints()
+        frame.targetName:SetPoint("RIGHT", frame.durationCooldown, "LEFT", -4, 0)
+        frame.targetName:SetWidth(targetWidth)
+
+        frame.spellName:ClearAllPoints()
+        frame.spellName:SetPoint("LEFT", frame.progress, "LEFT", 6, 0)
+        if self.db.showTarget then
+            frame.spellName:SetPoint("RIGHT", frame.targetName, "LEFT", -6, 0)
+        else
+            frame.spellName:SetPoint("RIGHT", frame.durationCooldown, "LEFT", -6, 0)
+        end
+
+        frame.interruptIcon:ClearAllPoints()
+        frame.interruptIcon:SetPoint("TOPLEFT", frame.icon, "TOPLEFT", 4, -4)
+        frame.interruptIcon:SetPoint("BOTTOMRIGHT", frame.icon, "BOTTOMRIGHT", -4, 4)
+    end
+
+    self:PositionDisplayFrame(frame, index, width, height)
+
+    frame.icon:SetTexture(DisplayTexture(info.texture))
+    frame.icon:SetDesaturated(info.interrupted and true or false)
+    frame.interruptIcon:SetShown(info.interrupted and self.db.indicateInterrupts)
+
+    frame.progress:SetStatusBarTexture(self.db.barTexture or DEFAULTS.barTexture)
+    local statusTexture = frame.progress:GetStatusBarTexture()
+    if statusTexture and statusTexture.SetHorizTile then
+        statusTexture:SetHorizTile(false)
+    end
+
+    local r, g, b, a = ReadColor(self.db.barColor, DEFAULTS.barColor)
+    frame.progress:SetStatusBarColor(r, g, b, a)
+    r, g, b, a = ReadColor(self.db.barBackgroundColor, DEFAULTS.barBackgroundColor)
+    frame.background:SetVertexColor(r, g, b, a)
+    frame.progressBackground:SetVertexColor(r, g, b, a)
+    r, g, b, a = ReadColor(self.db.barBorderColor, DEFAULTS.barBorderColor)
+    SetBorderLinesColor(frame.border, r, g, b, a)
+
+    ApplyFont(frame.spellName, self.db.font or DEFAULTS.font, fontSize, self.db.barTextColor, DEFAULTS.barTextColor)
+    ApplyFont(frame.targetName, self.db.font or DEFAULTS.font, fontSize, self.db.barTargetTextColor, DEFAULTS.barTargetTextColor)
+    frame.spellName:SetText(info.spellName)
+    if self.db.showTarget then
+        frame.targetName:SetText(info.targetName)
+        frame.targetName:Show()
+    else
+        frame.targetName:Hide()
+    end
+
+    frame.durationCooldown:SetHideCountdownNumbers(not self.db.showDuration)
+    ApplyCooldownFont(frame.durationCooldown, self.db.font or DEFAULTS.font, fontSize, self.db.durationTextColor)
+
+    local key = GetCastPlainKey(info)
+    if frame._castKeyPlain ~= key then
+        frame._castKeyPlain = key
+        SetCooldownDuration(frame.durationCooldown, info)
+        if info.durationObject and frame.progress.SetTimerDuration then
+            local interpolation = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.None
+            if interpolation ~= nil then
+                frame.progress:SetTimerDuration(info.durationObject, interpolation, info.isChannel and 1 or 0)
+            else
+                frame.progress:SetTimerDuration(info.durationObject)
+            end
+        end
+    end
+
+    if info.interrupted then
+        frame.durationCooldown:Clear()
+    end
+
+    SetBorderLinesColor(frame.importantBorder, 1, 0.86, 0.2, GetImportantAlpha(self.db, info))
+    ApplyDisplayAlpha(frame, info, self.db)
+    frame:Show()
+end
+
+local function CreateDualIconCell(parent)
+    local cell = CreateFrame("Frame", nil, parent)
+
+    cell.background = cell:CreateTexture(nil, "BACKGROUND")
+    cell.background:SetTexture(SOLID)
+    cell.background:SetAllPoints()
+    cell.background:SetVertexColor(0, 0, 0, 0.9)
+
+    cell.icon = cell:CreateTexture(nil, "ARTWORK")
+    cell.icon:SetPoint("TOPLEFT", 2, -2)
+    cell.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    cell.icon:SetTexCoord(0.08, 0.92, 0.16, 0.84)
+
+    cell.cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate")
+    cell.cooldown:SetAllPoints(cell.icon)
+    cell.cooldown:SetDrawEdge(false)
+    cell.cooldown:SetDrawBling(false)
+    cell.cooldown:SetHideCountdownNumbers(true)
+
+    cell.interruptIcon = cell:CreateTexture(nil, "OVERLAY")
+    cell.interruptIcon:SetTexture(INTERRUPT_ICON)
+    cell.interruptIcon:SetPoint("TOPLEFT", cell.icon, "TOPLEFT", 4, -4)
+    cell.interruptIcon:SetPoint("BOTTOMRIGHT", cell.icon, "BOTTOMRIGHT", -4, 4)
+    cell.interruptIcon:Hide()
+
+    cell.border = CreateBorderLines(cell, "OVERLAY", 1)
+    SetBorderLinesColor(cell.border, 0, 0, 0, 1)
+    cell.importantBorder = CreateBorderLines(cell, "OVERLAY", 2)
+    SetBorderLinesColor(cell.importantBorder, 1, 0.86, 0.2, 0)
+
+    return cell
+end
+
+function CastingAlert:CreateDualFrame(index)
+    local frame = dualFrames[index]
+    if frame then
+        return frame
+    end
+
+    frame = CreateFrame("Frame", nil, iconAnchorFrame or UIParent)
+    frame:SetFrameLevel(1000 - index)
+    frame:EnableMouse(false)
+
+    frame.leftCell = CreateDualIconCell(frame)
+    frame.rightCell = CreateDualIconCell(frame)
+    frame.cells = { frame.leftCell, frame.rightCell }
+
+    frame.durationCooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    frame.durationCooldown:SetDrawEdge(false)
+    frame.durationCooldown:SetDrawSwipe(false)
+    frame.durationCooldown:SetDrawBling(false)
+
+    dualFrames[index] = frame
+    return frame
+end
+
+function CastingAlert:UpdateDualFrame(frame, info, index)
+    local iconSize = NumberValue(self.db.dualIconSize, DEFAULTS.dualIconSize, 16, 120)
+    local fontSize = NumberValue(self.db.dualFontSize, DEFAULTS.dualFontSize, 8, 64)
+    local gap = NumberValue(self.db.dualGap, DEFAULTS.dualGap, 0, 60)
+    local textWidth = fontSize * 2.6
+    local width = (iconSize * 2) + (gap * 2) + textWidth
+    local height = math.max(iconSize, fontSize + 4)
+
+    if frame._displayWidth ~= width or frame._displayHeight ~= height then
+        SetSize(frame, width, height)
+        frame._displayWidth = width
+        frame._displayHeight = height
+        frame._layoutKey = nil
+
+        SetSize(frame.leftCell, iconSize, iconSize)
+        frame.leftCell:ClearAllPoints()
+        frame.leftCell:SetPoint("LEFT", frame, "LEFT", 0, 0)
+
+        SetSize(frame.rightCell, iconSize, iconSize)
+        frame.rightCell:ClearAllPoints()
+        frame.rightCell:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+
+        frame.durationCooldown:ClearAllPoints()
+        frame.durationCooldown:SetPoint("CENTER", frame, "CENTER", 0, 0)
+        SetSize(frame.durationCooldown, textWidth, height)
+    end
+
+    self:PositionDisplayFrame(frame, index, width, height)
+
+    local texture = DisplayTexture(info.texture)
+    local importantAlpha = GetImportantAlpha(self.db, info)
+    for _, cell in ipairs(frame.cells) do
+        cell.icon:SetTexture(texture)
+        cell.icon:SetDesaturated(info.interrupted and true or false)
+        cell.interruptIcon:SetShown(info.interrupted and self.db.indicateInterrupts)
+        cell.cooldown:SetDrawSwipe(self.db.showSwipe and not info.interrupted)
+        cell.cooldown:SetReverse(info.isChannel and true or false)
+        SetBorderLinesColor(cell.importantBorder, 1, 0.86, 0.2, importantAlpha)
+    end
+
+    frame.durationCooldown:SetHideCountdownNumbers(not self.db.showDuration)
+    ApplyCooldownFont(
+        frame.durationCooldown,
+        self.db.font or DEFAULTS.font,
+        fontSize,
+        self.db.durationTextColor
+    )
+
+    local key = GetCastPlainKey(info)
+    if frame._castKeyPlain ~= key then
+        frame._castKeyPlain = key
+        SetCooldownDuration(frame.leftCell.cooldown, info)
+        SetCooldownDuration(frame.rightCell.cooldown, info)
+        SetCooldownDuration(frame.durationCooldown, info)
+    end
+
+    if info.interrupted then
+        frame.leftCell.cooldown:Clear()
+        frame.rightCell.cooldown:Clear()
+        frame.durationCooldown:Clear()
+    end
+
+    ApplyDisplayAlpha(frame, info, self.db)
+    frame:Show()
+end
+
+local function HideFrames(frames, firstIndex)
+    for i = firstIndex or 1, #frames do
+        frames[i]._castKeyPlain = nil
+        frames[i]:Hide()
+    end
+end
+
+function CastingAlert:HideDisplayFrames()
+    HideFrames(iconFrames)
+    HideFrames(barFrames)
+    HideFrames(dualFrames)
 end
 
 function CastingAlert:RenderList(list)
     if not iconAnchorFrame then return end
 
-    local usedSlots = {}
-    local liveKeys = {}
-    local maxShow = math.max(1, math.floor(NumberValue(self.db.maxShow, DEFAULTS.maxShow, 1, 20)))
-
-    for _, info in ipairs(list) do
-        local key = GetCastPlainKey(info)
-        liveKeys[key] = true
-
-        local slot = castSlots[key]
-        if slot == nil or slot > maxShow or usedSlots[slot] then
-            slot = nil
-            for candidate = 1, maxShow do
-                if not usedSlots[candidate] then
-                    slot = candidate
-                    break
-                end
-            end
+    local mode = NormalizeDisplayMode(self.db.displayMode)
+    if mode == DISPLAY_MODE_BAR then
+        HideFrames(iconFrames)
+        HideFrames(dualFrames)
+        for index, info in ipairs(list) do
+            self:UpdateBarFrame(self:CreateBarFrame(index), info, index)
         end
-
-        if slot then
-            castSlots[key] = slot
-            usedSlots[slot] = true
-            local frame = self:CreateIconFrame(slot)
-            self:UpdateIconFrame(frame, info, slot)
+        HideFrames(barFrames, #list + 1)
+    elseif mode == DISPLAY_MODE_DUAL then
+        HideFrames(iconFrames)
+        HideFrames(barFrames)
+        for index, info in ipairs(list) do
+            self:UpdateDualFrame(self:CreateDualFrame(index), info, index)
         end
-    end
-
-    for key, slot in pairs(castSlots) do
-        if not liveKeys[key] or slot > maxShow then
-            castSlots[key] = nil
+        HideFrames(dualFrames, #list + 1)
+    else
+        HideFrames(barFrames)
+        HideFrames(dualFrames)
+        for index, info in ipairs(list) do
+            self:UpdateIconFrame(self:CreateIconFrame(index), info, index)
         end
-    end
-
-    for i = 1, #iconFrames do
-        if not usedSlots[i] then
-            iconFrames[i]._castKeyPlain = nil
-            iconFrames[i]:Hide()
-        end
+        HideFrames(iconFrames, #list + 1)
     end
 end
 
@@ -1310,6 +1654,7 @@ function CastingAlert:BuildPreviewInfos()
             isPreview = true,
             notInterruptibleSecret = SecretBoolean(sample.notInterruptible),
             targetName = sample.targetName,
+            hasTargetNamePlain = sample.targetName ~= nil,
             targetClassColor = i == 1 and C_ClassColor and C_ClassColor.GetClassColor(select(2, UnitClass("player"))) or nil,
             targetsPlayerNamePlain = sample.targetsPlayer,
             targetsPlayerSecret = sample.targetsPlayer,

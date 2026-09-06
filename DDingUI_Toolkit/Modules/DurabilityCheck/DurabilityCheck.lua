@@ -331,7 +331,7 @@ local function GetAlertTextLayout(settings, height)
     local gap = math.min(height * 0.02, 4, availableGap)
 
     return titleSize, percentSize, titleHeight, percentHeight,
-        (percentHeight + gap) * 0.5,
+        (percentHeight + gap) * 0.5 - 3,
         -(titleHeight + gap) * 0.5
 end
 
