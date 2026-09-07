@@ -111,7 +111,7 @@ local function BuildOrderMap(groupSettings)
     if type(order) ~= "table" then return map end
     for index, token in ipairs(order) do
         if type(token) == "string" and token ~= "" and not map[token] then
-            map[token] = index
+            map[token] = index * 1000
         end
     end
     return map
@@ -119,6 +119,10 @@ end
 
 local function BuildEntryOrderToken(entry)
     if not entry then return nil end
+    if entry._ddOrderToken then return entry._ddOrderToken end
+    if entry.isDynamic then
+        return BuildDynamicOrderToken(entry.iconKey or entry.cooldownID)
+    end
     local spellName = entry.spellName
     if (not spellName or spellName == "") and entry.cooldownID then
         local cdm = DDingUI.CDMHookEngine or DDingUI.FrameController
@@ -243,16 +247,34 @@ local function SyncStableCDMOrder(groupSettings, iconList)
     return orderMap
 end
 
-local function SortIconListForGroup(groupName, iconList, groupSettings)
+local function GetLinkedDynamicIcons(groupSettings)
+    local sourceKey = groupSettings and groupSettings.sourceGroupKey
+    if not sourceKey then return nil end
+    local profile = DDingUI.db and DDingUI.db.profile
+    local dynDB = profile and profile.dynamicIcons
+    local sourceGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
+    return sourceGroup and sourceGroup.icons
+end
+
+function GroupManager:SortIconListForGroup(groupName, iconList, groupSettings)
     if type(iconList) ~= "table" then return end
 
     local orderMap = BuildOrderMap(groupSettings)
-    for _, entry in ipairs(iconList) do
+    local dynamicKeys = GetLinkedDynamicIcons(groupSettings) or {}
+    local dynamicOrder = {}
+    for index, iconKey in ipairs(dynamicKeys) do
+        if not dynamicOrder[iconKey] then dynamicOrder[iconKey] = index end
+    end
+    for index, entry in ipairs(iconList) do
+        entry._ddDefaultOrder = index
         entry._ddGroupOrderToken = BuildEntryOrderToken(entry)
     end
     local stableOrderMap = SyncStableCDMOrder(groupSettings, iconList)
 
     local function StableOrderForEntry(entry)
+        if entry and entry.isDynamic then
+            return 1000000 + (dynamicOrder[entry.iconKey] or (#dynamicKeys + entry._ddDefaultOrder))
+        end
         local token = entry and entry._ddGroupOrderToken
         return (token and stableOrderMap and stableOrderMap[token]) or SafeLayoutIndexForEntry(entry)
     end
@@ -270,12 +292,12 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
     end
 
     local cdmAnchors = {}
-    for _, entry in ipairs(iconList) do
-        local token = entry and entry._ddGroupOrderToken
-        local rank = ExplicitRank(entry)
+    -- [FIX] Missing source frames must not change the rank of surviving icons.
+    for token, layout in pairs(stableOrderMap or {}) do
+        local rank = orderMap[token]
         if rank and IsCDMOrderToken(token) then
             cdmAnchors[#cdmAnchors + 1] = {
-                layout = StableOrderForEntry(entry),
+                layout = layout,
                 rank = rank,
             }
         end
@@ -341,8 +363,10 @@ local function SortIconListForGroup(groupName, iconList, groupSettings)
     end)
 
     local cache = pvpIconOrderCache[groupName]
-    if not cache then
-        cache = { ranks = {}, nextRank = 1 }
+    local specID = DDingUI.SpecProfiles and DDingUI.SpecProfiles.lastSpecID
+    local stableOrder = groupSettings and groupSettings._cdmStableOrder
+    if not cache or cache.settings ~= groupSettings or cache.specID ~= specID or cache.stableOrder ~= stableOrder then
+        cache = { ranks = {}, nextRank = 1, settings = groupSettings, specID = specID, stableOrder = stableOrder }
         pvpIconOrderCache[groupName] = cache
     end
     for index, entry in ipairs(iconList) do
@@ -538,15 +562,6 @@ local function RemoveTokenFromAllGroups(gs, token, exceptGroup)
         end
     end
     return changed
-end
-
-local function GetLinkedDynamicIcons(groupSettings)
-    local sourceKey = groupSettings and groupSettings.sourceGroupKey
-    if not sourceKey then return nil end
-    local profile = DDingUI.db and DDingUI.db.profile
-    local dynDB = profile and profile.dynamicIcons
-    local sourceGroup = dynDB and dynDB.groups and dynDB.groups[sourceKey]
-    return sourceGroup and sourceGroup.icons
 end
 
 local function NormalizeGroupIconOrder(gs, groupName)
@@ -1746,7 +1761,7 @@ function GroupManager:ClassifyAll()
     end
 
     for groupName, iconList in pairs(classifiedGroups) do
-        SortIconListForGroup(groupName, iconList, gs and gs.groups and gs.groups[groupName])
+        self:SortIconListForGroup(groupName, iconList, gs and gs.groups and gs.groups[groupName])
     end
 
     return classifiedGroups
@@ -1830,7 +1845,7 @@ function GroupManager:ClassifyChanged(changedIDs)
     end
 
     for groupName in pairs(touchedGroups) do
-        SortIconListForGroup(groupName, classifiedGroups[groupName], gs.groups[groupName])
+        self:SortIconListForGroup(groupName, classifiedGroups[groupName], gs.groups[groupName])
     end
 
     return classifiedGroups, touchedGroups

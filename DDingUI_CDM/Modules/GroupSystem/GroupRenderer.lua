@@ -1511,87 +1511,6 @@ local function ListRequiresFreshLayout(list, frame, layoutHash)
     return false
 end
 
-local function ApplyGroupIconOrder(groupSettings, combinedList)
-    local iconOrder = groupSettings and groupSettings.iconOrder
-    if type(iconOrder) ~= "table" or #iconOrder == 0 then return end
-
-    local ORDER_STRIDE = 1000
-    local orderMap = {}
-    for i, token in ipairs(iconOrder) do
-        if type(token) == "string" and token ~= "" and not orderMap[token] then
-            orderMap[token] = i * ORDER_STRIDE
-        end
-    end
-
-    for i, entry in ipairs(combinedList) do
-        entry._ddDefaultOrder = i
-        if not entry._ddOrderToken then
-            if entry.isDynamic then
-                entry._ddOrderToken = BuildDynamicOrderToken(entry.iconKey or entry.cooldownID)
-            else
-                entry._ddOrderToken = BuildCDMOrderToken(entry)
-            end
-        end
-    end
-
-    local cdmAnchors = {}
-    for _, entry in ipairs(combinedList) do
-        local token = entry._ddOrderToken
-        local rank = token and orderMap[token]
-        if rank and not entry.isDynamic then
-            cdmAnchors[#cdmAnchors + 1] = {
-                defaultOrder = entry._ddDefaultOrder or 0,
-                rank = rank,
-            }
-        end
-    end
-    table.sort(cdmAnchors, function(a, b)
-        return (a.defaultOrder or 0) < (b.defaultOrder or 0)
-    end)
-
-    local function GetImplicitCDMRank(entry)
-        if not entry or entry.isDynamic then return nil end
-        if entry._ddOrderToken and orderMap[entry._ddOrderToken] then return nil end
-        local defaultOrder = entry._ddDefaultOrder or 0
-        local prevAnchor, nextAnchor
-        for _, anchor in ipairs(cdmAnchors) do
-            if anchor.defaultOrder < defaultOrder then
-                prevAnchor = anchor
-            elseif anchor.defaultOrder > defaultOrder then
-                nextAnchor = anchor
-                break
-            end
-        end
-
-        if prevAnchor and nextAnchor and nextAnchor.rank > prevAnchor.rank then
-            local span = nextAnchor.defaultOrder - prevAnchor.defaultOrder
-            if span > 0 then
-                local ratio = (defaultOrder - prevAnchor.defaultOrder) / span
-                return prevAnchor.rank + ((nextAnchor.rank - prevAnchor.rank) * ratio) + (defaultOrder * 0.001)
-            end
-        elseif prevAnchor then
-            return prevAnchor.rank + (ORDER_STRIDE * 0.5) + (defaultOrder * 0.001)
-        elseif nextAnchor then
-            return nextAnchor.rank - (ORDER_STRIDE * 0.5) + (defaultOrder * 0.001)
-        end
-
-        return nil
-    end
-
-    table.sort(combinedList, function(a, b)
-        local aOrder = a._ddOrderToken and orderMap[a._ddOrderToken]
-        local bOrder = b._ddOrderToken and orderMap[b._ddOrderToken]
-        local aRank = aOrder or GetImplicitCDMRank(a)
-        local bRank = bOrder or GetImplicitCDMRank(b)
-        if aRank or bRank then
-            aRank = aRank or (100000000 + (a._ddDefaultOrder or 0))
-            bRank = bRank or (100000000 + (b._ddDefaultOrder or 0))
-            if aRank ~= bRank then return aRank < bRank end
-        end
-        return (a._ddDefaultOrder or 0) < (b._ddDefaultOrder or 0)
-    end)
-end
-
 -- ============================================================
 -- ViewerLayout 동일 헬퍼 함수들
 -- [REPARENT] 뷰어 설정을 100% 반영하기 위해 ViewerLayout과 동일 로직 복제
@@ -2706,7 +2625,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
         end
     end
 
-    ApplyGroupIconOrder(groupSettings, combinedList)
+    DDingUI.GroupManager:SortIconListForGroup(groupName, combinedList, groupSettings)
     local combinedHash = BuildPlacementHash(combinedList, groupSettings)
     local needsFreshLayout = ListRequiresFreshLayout(combinedList, frame, combinedHash)
     if inCombat and frame._lastCombinedLayoutHash == combinedHash and not GroupRenderer._forceFullSetup and not needsFreshLayout then
