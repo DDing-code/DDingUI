@@ -2,6 +2,6 @@
 ## Title: DDingUI CDM Options - Legacy Folder
 ## Notes: Compatibility marker for installations upgraded from DDingUI_Options.
 ## Author: DDing
-## Version: 2.1.4
+## Version: 2.1.5
 ## LoadOnDemand: 1
 ## Dependencies: DDingUI_CDM_Option

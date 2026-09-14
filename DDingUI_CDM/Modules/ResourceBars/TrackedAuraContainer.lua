@@ -87,8 +87,14 @@ local function TrackerSpellID(tracker)
     ) or 0
 end
 
+function Engine:IsAutomaticAuraTracker(tracker)
+    return type(tracker) == "table" and not tracker.isGroup and tracker.isAura ~= false
+        and tracker.trackingMode ~= "manual" and tracker.trackingMode ~= "spell"
+        and not (tracker.trigger and tracker.trigger.type == "spell")
+end
+
 local function IsSupportedAuraTracker(tracker)
-    if type(tracker) ~= "table" or tracker.isGroup or tracker.enabled == false then return false end
+    if not Engine:IsAutomaticAuraTracker(tracker) or tracker.enabled == false then return false end
     local displayType = tracker.displayType or "bar"
     if displayType ~= "bar" and displayType ~= "ring"
         and displayType ~= "icon" and displayType ~= "text" and displayType ~= "trigger"
@@ -101,9 +107,6 @@ local function IsSupportedAuraTracker(tracker)
     if displayType == "icon" and (tracker.settings or {}).showOnlyWhenInactive then
         return false
     end
-    if tracker.trackingMode == "manual" or tracker.trackingMode == "spell" then return false end
-    if tracker.trigger and tracker.trigger.type == "spell" then return false end
-    if tracker.isAura == false then return false end
     if displayType == "trigger" then
         return Engine.GetProtectedTriggerPresentation
             and Engine:GetProtectedTriggerPresentation(tracker) ~= nil
@@ -114,21 +117,6 @@ end
 
 function Engine:IsSupportedAuraTracker(tracker)
     return IsSupportedAuraTracker(tracker)
-end
-
-local function RequiresLegacyObservation(tracker)
-    local alerts = tracker and tracker.settings and tracker.settings.alerts
-    if not alerts or alerts.enabled ~= true then return false end
-
-    for _, trigger in ipairs(alerts.triggers or {}) do
-        local triggerType = type(trigger) == "table" and trigger.type
-        if triggerType == "duration" or triggerType == "duration_percent"
-            or triggerType == "stacks"
-        then
-            return true
-        end
-    end
-    return false
 end
 
 local function AddInfoSpellIDs(include, info)
@@ -1269,7 +1257,6 @@ function Engine:ShouldReadLegacy(tracker)
     if suspended or not tracker or not desiredByTracker[tracker] then
         return true
     end
-    if RequiresLegacyObservation(tracker) then return true end
 
     if bindingByTracker[tracker] then
         return false

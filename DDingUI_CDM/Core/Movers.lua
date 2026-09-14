@@ -24,6 +24,15 @@ Movers.Settings = {
     gridSize = 32,
 }
 
+local function GetMoverAccent()
+    local SL = _G.DDingUI_StyleLib
+    local color = SL and SL.GetAccent and SL.GetAccent("CDM")
+    if type(color) == "table" then
+        return color[1] or 0.90, color[2] or 0.45, color[3] or 0.12
+    end
+    return 0.90, 0.45, 0.12
+end
+
 -- Undo/Redo 스택 (함수는 GetPoint/SetPoint 정의 이후에)
 Movers.UndoStack = {}
 Movers.RedoStack = {}
@@ -651,6 +660,9 @@ local function OnUpdateDrag(self, elapsed)
 
     dragFrame:ClearAllPoints()
     dragFrame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", snapX, snapY)
+    if dragFrame.UpdateSelectionHUD then
+        dragFrame:UpdateSelectionHUD()
+    end
 
     -- 드래그 중 parent(bar)도 mover를 따라가도록 업데이트
     if dragFrame.parent then
@@ -1056,6 +1068,75 @@ local function CreateMoverFrame(parent, name, displayText)
     end
     mover.UpdateBorderColor = UpdateBorderColor
 
+    local centerV = mover:CreateTexture(nil, "ARTWORK")
+    centerV:SetPoint("CENTER")
+    centerV:SetSize(1, 12)
+    centerV:Hide()
+    mover.centerV = centerV
+
+    local centerH = mover:CreateTexture(nil, "ARTWORK")
+    centerH:SetPoint("CENTER")
+    centerH:SetSize(12, 1)
+    centerH:Hide()
+    mover.centerH = centerH
+
+    local selectionHUD = CreateFrame("Frame", nil, mover)
+    selectionHUD:SetSize(178, 18)
+    selectionHUD:SetPoint("TOPRIGHT", mover, "BOTTOMRIGHT", 0, -4)
+    selectionHUD:SetFrameStrata("DIALOG")
+    selectionHUD:SetFrameLevel(mover:GetFrameLevel() + 2)
+    selectionHUD:SetClampedToScreen(true)
+    selectionHUD:Hide()
+
+    local hudBg = selectionHUD:CreateTexture(nil, "BACKGROUND")
+    hudBg:SetAllPoints()
+    local SL = _G.DDingUI_StyleLib
+    local hudColor = SL and SL.Colors and SL.Colors.bg and SL.Colors.bg.input or { 0.025, 0.035, 0.05 }
+    hudBg:SetColorTexture(hudColor[1], hudColor[2], hudColor[3], 0.94)
+
+    local hudAccent = selectionHUD:CreateTexture(nil, "BORDER")
+    hudAccent:SetPoint("TOPLEFT")
+    hudAccent:SetPoint("BOTTOMLEFT")
+    hudAccent:SetWidth(2)
+    selectionHUD.accent = hudAccent
+
+    local hudText = selectionHUD:CreateFontString(nil, "OVERLAY")
+    hudText:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
+    hudText:SetPoint("LEFT", 7, 0)
+    hudText:SetTextColor(0.88, 0.91, 0.96, 1)
+    selectionHUD.text = hudText
+    mover.selectionHUD = selectionHUD
+
+    function mover:UpdateSelectionHUD()
+        if not self.selectionHUD then return end
+        local _, _, _, x, y = self:GetPoint(1)
+        local width, height = self:GetSize()
+        self.selectionHUD.text:SetText(string.format(
+            "X %d  Y %d  ·  %d×%d",
+            math.floor((x or 0) + 0.5),
+            math.floor((y or 0) + 0.5),
+            math.floor((width or 0) + 0.5),
+            math.floor((height or 0) + 0.5)
+        ))
+    end
+
+    function mover:SetSelectionHUD(selected)
+        self._selected = selected and true or false
+        local accentR, accentG, accentB = GetMoverAccent()
+        self.centerV:SetColorTexture(accentR, accentG, accentB, 0.78)
+        self.centerH:SetColorTexture(accentR, accentG, accentB, 0.78)
+        self.selectionHUD.accent:SetColorTexture(accentR, accentG, accentB, 1)
+        self.centerV:SetShown(self._selected)
+        self.centerH:SetShown(self._selected)
+        self.selectionHUD:SetShown(self._selected)
+        if self._selected then
+            self.UpdateBorderColor(accentR, accentG, accentB, 1)
+            self:UpdateSelectionHUD()
+        else
+            self.UpdateBorderColor(0.4, 0.6, 1, 0.8)
+        end
+    end
+
     -- Text label
     local text = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     text:SetPoint("CENTER")
@@ -1133,7 +1214,12 @@ local function CreateMoverFrame(parent, name, displayText)
     end)
 
     mover:SetScript("OnEnter", function(self)
-        self.UpdateBorderColor(1, 0.8, 0, 1)
+        self._hover = true
+        if self._selected then
+            self:SetSelectionHUD(true)
+        else
+            self.UpdateBorderColor(1, 0.8, 0, 1)
+        end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(self.displayText or self.name, 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -1145,11 +1231,8 @@ local function CreateMoverFrame(parent, name, displayText)
     end)
 
     mover:SetScript("OnLeave", function(self)
-        if Movers.SelectedMover == self then
-            self.UpdateBorderColor(0, 1, 0, 1)
-        else
-            self.UpdateBorderColor(0.4, 0.6, 1, 0.8)
-        end
+        self._hover = false
+        self:SetSelectionHUD(Movers.SelectedMover == self)
         GameTooltip:Hide()
     end)
 
@@ -1193,6 +1276,9 @@ function Movers:RegisterMover(parent, name, displayText, defaultPoint)
             if math.abs((curW or 0) - 100) > 0.5 or math.abs((curH or 0) - MIN_MOVER_HEIGHT) > 0.5 then
                 mover:SetSize(100, MIN_MOVER_HEIGHT)
             end
+        end
+        if mover.UpdateSelectionHUD then
+            mover:UpdateSelectionHUD()
         end
     end
 
@@ -2321,6 +2407,9 @@ function Movers:HideMovers(forCombat)
             end
         end
         holder.mover._startPoint = nil
+        if holder.mover.SetSelectionHUD then
+            holder.mover:SetSelectionHUD(false)
+        end
         UIFrameFadeOut(holder.mover, 0.2, 1, 0)
         -- [FIX] 페이드아웃 후 투명 상태로 마우스 클릭을 가로채지 않도록 확실히 Hide 처리
         C_Timer.After(0.25, function()
@@ -3861,14 +3950,9 @@ function Movers:CreateNudgeFrame()
                 self.frameSelectDropdown:SetValue(mover.name, mover.displayText or mover.name)
             end
 
-            if mover.UpdateBorderColor then
-                mover.UpdateBorderColor(0, 1, 0, 1)
-            end
-
-            -- Reset other movers' highlight
             for _, holder in pairs(Movers.CreatedMovers) do
-                if holder.mover ~= mover and holder.mover.UpdateBorderColor then
-                    holder.mover.UpdateBorderColor(0.4, 0.6, 1, 0.8)
+                if holder.mover.SetSelectionHUD then
+                    holder.mover:SetSelectionHUD(holder.mover == mover)
                 end
             end
 
@@ -3885,12 +3969,20 @@ function Movers:CreateNudgeFrame()
             if self.anchorPointDropdown and self.anchorPointDropdown.SetValue then self.anchorPointDropdown:SetValue(nil, "--") end
             if self.anchorFrameDropdown and self.anchorFrameDropdown.SetValue then self.anchorFrameDropdown:SetValue(nil, "--") end
             if self.selfPointDropdown and self.selfPointDropdown.SetValue then self.selfPointDropdown:SetValue(nil, "--") end
+            for _, holder in pairs(Movers.CreatedMovers) do
+                if holder.mover.SetSelectionHUD then
+                    holder.mover:SetSelectionHUD(false)
+                end
+            end
         end
     end
 
     function nudge:UpdateInfo()
         local mover = Movers.SelectedMover
         if not mover then return end
+        if mover.UpdateSelectionHUD then
+            mover:UpdateSelectionHUD()
+        end
 
         -- 앵커 기준 오프셋 계산
         local point, anchorFrame, relPoint, x, y = mover:GetPoint(1)
@@ -4055,7 +4147,7 @@ function Movers:MigrateAnchorPoints()
     if profile.profileVersion then return end
 
     -- profileVersion 세팅 (이후 마이그레이션 재실행 방지)
-    profile.profileVersion = DDingUI.VERSION or "2.1.4"
+    profile.profileVersion = DDingUI.VERSION or "2.1.5"
 
     -- 구 pendingMoverMigration 플래그 정리
     profile.pendingMoverMigration = nil

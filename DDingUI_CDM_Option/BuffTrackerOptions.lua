@@ -2358,6 +2358,122 @@ local function CreateTrackedColorOption(index, settingKey, defaultValue, spec)
 end
 
 -- Create a single tracked buff entry options (foldable with detail settings)
+-- Keep unsupported saved choices visible for repair, but never offer them as new choices.
+local function RestrictAuraSelect(option, allowed)
+    local originalValues, originalSet, originalSorting = option.values, option.set, option.sorting
+    option.values = function()
+        local values = type(originalValues) == "function" and originalValues() or originalValues
+        local result = {}
+        for key, label in pairs(values) do
+            if allowed(key) then result[key] = label end
+        end
+        local current = option.get()
+        if current and not result[current] then
+            result[current] = current == "none" and L["Deleted Alert Condition"]
+                or ((values[current] or tostring(current)) .. " (" .. L["Unsupported in 12.1"] .. ")")
+        end
+        return result
+    end
+    option.set = function(info, value)
+        if allowed(value) then originalSet(info, value); RefreshOptions() end
+    end
+    if originalSorting then
+        option.sorting = function()
+            local values, result = option.values(), {}
+            for _, key in ipairs(originalSorting()) do
+                if values[key] then result[#result + 1] = key end
+            end
+            return result
+        end
+    end
+end
+
+local function ConfigureAuraAlertOptions(options, index, orderBase)
+    local engine = DDingUI.TrackedAuraContainer
+    local prefix = "tracked" .. index
+    local function Automatic()
+        return engine:IsAutomaticAuraTracker(GetTrackedBuff(index))
+    end
+    local function Notice(hidden)
+        return {
+            type = "description", name = L["Aura Alert Support"], width = "full",
+            order = orderBase + 8.025,
+            hidden = function() return hidden() or not Automatic() end,
+        }
+    end
+    options[prefix .. "_alertTriggerSupport"] = Notice(options[prefix .. "_alertHeader"].hidden)
+    options[prefix .. "_alertActionSupport"] = Notice(options[prefix .. "_alertEnabled"].hidden)
+    options[prefix .. "_soundTriggerSupport"] = Notice(options[prefix .. "_soundTrigger"].hidden)
+    local soundTrigger = options[prefix .. "_soundTrigger"]
+    soundTrigger.values.applications = L["Aura Applications Increased"]
+    RestrictAuraSelect(soundTrigger, function(value)
+        if not Automatic() then return value ~= "applications" end
+        return value == "start" or value == "end" or value == "applications"
+    end)
+    for _, suffix in ipairs({ "_soundStartDelay", "_soundEndBefore", "_soundInterval" }) do
+        options[prefix .. suffix].disabled = Automatic
+    end
+    for i = 1, 5 do
+        local key = prefix .. "_alertT" .. i
+        RestrictAuraSelect(options[key .. "_type"], function(value)
+            if not Automatic() then return value ~= "applications" end
+            return value == "active" or value == "applications" or value == "combat"
+        end)
+        local op = options[key .. "_op"]
+        local originalHidden = op.hidden
+        op.hidden = function()
+            return originalHidden() or options[key .. "_type"].get() == "applications"
+        end
+        local function UnsupportedNumeric()
+            local kind = options[key .. "_type"].get()
+            return Automatic() and (kind == "duration" or kind == "duration_percent" or kind == "stacks")
+        end
+        op.disabled = UnsupportedNumeric
+        options[key .. "_value"].disabled = UnsupportedNumeric
+
+        local args = options[prefix .. "_alertAction" .. i].args
+        local function Action()
+            local buff = GetTrackedBuff(index)
+            local alerts = buff and buff.settings and buff.settings.alerts
+            return alerts and alerts.actions and alerts.actions[i] or {}
+        end
+        RestrictAuraSelect(args.type, function(value)
+            if not Automatic() or value == "sound" then return true end
+            if engine:GetAlertConditionKind(GetTrackedBuff(index), Action().condition) ~= "present" then return false end
+            return value == "glow" or GetTrackedBuff(index).displayType ~= "trigger"
+        end)
+        RestrictAuraSelect(args.condition, function(value)
+            if value == "none" then return false end
+            if not Automatic() then return true end
+            local kind = engine:GetAlertConditionKind(GetTrackedBuff(index), value)
+            return kind ~= nil and (Action().type == "sound" or kind == "present")
+        end)
+        RestrictAuraSelect(args.soundMode, function(value)
+            return not Automatic() or value == "once"
+                or engine:GetAlertConditionKind(GetTrackedBuff(index), Action().condition) == "combat"
+        end)
+        args.soundCooldown.disabled = function()
+            return Automatic() and engine:GetAlertConditionKind(GetTrackedBuff(index), Action().condition) ~= "combat"
+        end
+        RestrictAuraSelect(args.colorTarget, function(value)
+            return not Automatic() or value == "self" or value == "icon" or value == "border"
+        end)
+        RestrictAuraSelect(args.visualTarget, function(value)
+            if not Automatic() then return true end
+            if GetTrackedBuff(index).displayType ~= "trigger" then return value == "self" end
+            return value:match("^cdm:%d+$") ~= nil or value:match("^custom:.+$") ~= nil
+        end)
+        args.support = {
+            type = "description", order = 0, width = "full",
+            name = function()
+                local issue = engine:GetAlertActionIssue(GetTrackedBuff(index), Action())
+                return issue and (L["Unsupported in 12.1"] .. ": " .. L[issue]) or ""
+            end,
+            hidden = function() return not engine:GetAlertActionIssue(GetTrackedBuff(index), Action()) end,
+        }
+    end
+end
+
 local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
     -- baseOrder는 이미 호출 시 index별로 계산되어 전달됨
     -- skipCollapsible: true면 header/remove/spacer 제외, 항상 expanded (커스텀 패널용)
@@ -6619,6 +6735,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 stacks = L["Stacks"] or "Stacks",
                 active = L["Active"] or "Active",
                 combat = L["Combat State"] or "Combat State",
+                applications = L["Aura Applications Increased"],
             },
             get = function()
                 local buff = GetTrackedBuff(index)
@@ -6691,7 +6808,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 if hiddenIfTriggerNotExists() then return true end
                 local buff = GetTrackedBuff(index)
                 local t = buff and buff.settings and buff.settings.alerts and buff.settings.alerts.triggers and buff.settings.alerts.triggers[trigIdx]
-                return t and (t.type == "active" or t.type == "combat")
+                return t and (t.type == "active" or t.type == "combat" or t.type == "applications")
             end,
             get = function()
                 local buff = GetTrackedBuff(index)
@@ -6758,6 +6875,14 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 local alerts = EnsureAlerts(index)
                 if alerts and alerts.triggers then
                     table.remove(alerts.triggers, trigIdx)
+                    for _, action in ipairs(alerts.actions or {}) do
+                        local ref = tonumber((action.condition or ""):match("^trigger(%d+)$"))
+                        if ref == trigIdx then
+                            action.condition = "none"
+                        elseif ref and ref > trigIdx then
+                            action.condition = "trigger" .. (ref - 1)
+                        end
+                    end
                     DDingUI:UpdateBuffTrackerBar()
                     RefreshOptions()
                 end
@@ -7351,7 +7476,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
                 local buff = GetTrackedBuff(index)
                 local colorTarget = buff and buff.displayType == "icon" and "icon" or "self"
                 table.insert(alerts.actions, {
-                    type = "color",
+                    type = DDingUI.TrackedAuraContainer:IsAutomaticAuraTracker(buff) and "sound" or "color",
                     condition = "any",
                     color = { 1, 0, 0, 1 },
                     colorTarget = colorTarget,
@@ -7374,6 +7499,7 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         }
     end
 
+    ConfigureAuraAlertOptions(options, index, orderBase)
     return options
 end
 

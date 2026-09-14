@@ -78,7 +78,11 @@ local function GetTriggerState(trigger, group, trackedBuffs)
             end
         end
     end
-    if not buff then return 0, 1, 0, false, false, false end
+    local auraContainer = DDingUI.TrackedAuraContainer
+    if not buff or (auraContainer and auraContainer:IsAutomaticAuraTracker(buff)) then
+        -- Group actions cannot combine protected aura state. Unknown is never inactive.
+        return 0, 1, 0, false, false, false, false
+    end
 
     local stacks = 0
     local maxStacks = ReadSafeNumber(buff.settings and buff.settings.maxStacks) or 1
@@ -288,9 +292,9 @@ local function EvaluateSetTriggers(set, group, trackedBuffs)
 
     local results = {}
     for i, trigger in ipairs(set.triggers) do
-        local stacks, maxStacks, duration, hasAura, cdReady, cdActive = GetTriggerState(trigger, group, trackedBuffs)
+        local stacks, maxStacks, duration, hasAura, cdReady, cdActive, available = GetTriggerState(trigger, group, trackedBuffs)
         -- duration 조건에 maxDuration 설정이 있으면 수동 계산
-        -- API에서 duration을 못 읽거나 (secret value) 수동 계산을 원할 때 사용
+        -- Public/manual sources only; never estimate protected automatic auras.
         local cond = trigger.condition or "active"
         local maxDuration = ReadSafeNumber(trigger.maxDuration)
         if (cond == "duration_gte" or cond == "duration_lte") and maxDuration and maxDuration > 0 then
@@ -309,7 +313,7 @@ local function EvaluateSetTriggers(set, group, trackedBuffs)
             end
         end
 
-        results[i] = CheckCondition(cond, trigger.value, {
+        results[i] = available ~= false and CheckCondition(cond, trigger.value, {
             stacks = stacks,
             maxStacks = maxStacks,
             duration = duration,

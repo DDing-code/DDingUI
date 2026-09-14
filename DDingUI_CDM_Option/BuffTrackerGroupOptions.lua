@@ -306,6 +306,8 @@ function DDingUI.CreateGroupOptions(groupIdx)
 
     -- 공용 드롭다운 데이터
     local childValues = {}
+    local supportedChildren = {}
+    local auraContainer = DDingUI.TrackedAuraContainer
     for ci, childIdx in ipairs(children) do
         local child = allTrackedBuffs[childIdx]
         if child then
@@ -315,6 +317,7 @@ function DDingUI.CreateGroupOptions(groupIdx)
                 if sn then n = sn end
             end
             childValues[ci] = ci .. ". " .. n
+            if not auraContainer:IsAutomaticAuraTracker(child) then supportedChildren[ci] = childValues[ci] end
         end
     end
 
@@ -366,6 +369,7 @@ function DDingUI.CreateGroupOptions(groupIdx)
     options["actionsEnabled"] = {
         type = "toggle",
         name = L["Enable Actions"] or "Enable Actions",
+        desc = L["Aura Group Alert Support"],
         order = 5.1, width = "full",
         get = function() return ca.enabled end,
         set = function(_, val) ca.enabled = val; RefreshOptions() end,
@@ -401,15 +405,26 @@ function DDingUI.CreateGroupOptions(groupIdx)
                 type = "select",
                 name = "#" .. ti .. " " .. (L["Source"] or "Source"),
                 order = tOrder, width = "half",
-                values = childValues,
+                values = function()
+                    local values = {}
+                    for key, label in pairs(supportedChildren) do values[key] = label end
+                    local current = trigger.childIndex or 1
+                    if not values[current] then
+                        values[current] = (childValues[current] or "?") .. " (" .. L["Unsupported in 12.1"] .. ")"
+                    end
+                    return values
+                end,
                 get = function() return trigger.childIndex or 1 end,
-                set = function(_, val) trigger.childIndex = val; trigger.source = "child" end,
+                set = function(_, val)
+                    if supportedChildren[val] then trigger.childIndex = val; trigger.source = "child"; RefreshOptions() end
+                end,
             }
             setArgs["t" .. ti .. "_cond"] = {
                 type = "select",
                 name = L["Condition"] or "Condition",
                 order = tOrder + 0.01, width = "normal",
                 values = conditionValues,
+                disabled = function() return not supportedChildren[trigger.childIndex or 1] end,
                 get = function() return trigger.condition or "active" end,
                 set = function(_, val)
                     trigger.condition = val
@@ -488,11 +503,12 @@ function DDingUI.CreateGroupOptions(groupIdx)
             type = "execute",
             name = "+ " .. (L["Add Trigger"] or "Add Trigger"),
             order = 1.99, width = "normal",
+            disabled = function() return not next(supportedChildren) end,
             func = function()
                 if not set.triggers then set.triggers = {} end
                 table.insert(set.triggers, {
                     source = "child",
-                    childIndex = 1,
+                    childIndex = next(supportedChildren),
                     condition = "active",
                     value = 0,
                 })
@@ -732,11 +748,12 @@ function DDingUI.CreateGroupOptions(groupIdx)
         type = "execute",
         name = "|cff44ff44+ " .. (L["Add Action Set"] or "Add Action Set") .. "|r",
         order = 9.99, width = "full",
+        disabled = function() return not next(supportedChildren) end,
         func = function()
             table.insert(ca.sets, {
                 logic = "and",
                 triggers = {
-                    { source = "child", childIndex = 1, condition = "active", value = 0 },
+                    { source = "child", childIndex = next(supportedChildren), condition = "active", value = 0 },
                 },
                 actions = {
                     { type = "bar_color", target = "PrimaryPowerBar", color = {1, 0.2, 0.2, 1} },

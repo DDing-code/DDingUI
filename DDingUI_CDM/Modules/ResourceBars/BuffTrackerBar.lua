@@ -2760,6 +2760,8 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     local protectedAuraState = IsProtectedAuraObservation(trackedStacks, auraInstanceID)
     local auraPresenceLoaded = false
     local auraPresent
+    local auraContainer = DDingUI.TrackedAuraContainer
+    local automaticAura = auraContainer and auraContainer:IsAutomaticAuraTracker(trackedBuff)
 
     local function LoadAuraPresence()
         if not auraPresenceLoaded then
@@ -2791,7 +2793,12 @@ local function EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceI
     for i, trigger in ipairs(triggers) do
         local result = false
 
-        if trigger.type == "active" then
+        if automaticAura and trigger.type ~= "combat" then
+            -- Native sounds/visuals own aura predicates, even before registration
+            -- or container binding. Never fall back to reading protected state.
+            protectedTriggers = protectedTriggers or {}
+            protectedTriggers[i] = true
+        elseif trigger.type == "active" then
             local resolvedPresence
             if trackedBuff.trackingMode ~= "manual"
                 and trackedBuff.trackingMode ~= "spell"
@@ -2926,6 +2933,12 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
             end
         end
 
+        local auraContainer = DDingUI.TrackedAuraContainer
+        local automaticAura = auraContainer and auraContainer:IsAutomaticAuraTracker(trackedBuff)
+        if automaticAura and auraContainer:GetAlertActionIssue(trackedBuff, action) then
+            shouldFire = false
+        end
+
         local visualTarget = action.visualTarget or "self"
         local colorTarget = action.colorTarget or "self"
         local isExternalVisual = visualTarget ~= "self"
@@ -3030,7 +3043,8 @@ local function ApplyAlertActions(alertResult, trackedBuff, frame, sourceIndex)
                 and auraSounds:IsNativeAlertAction(action)
 
             local alertCustomPath = action.soundCustomPath or "" -- [12.0.1]
-            if nativeSound then
+            if nativeSound or (automaticAura
+                and auraContainer:GetAlertConditionKind(trackedBuff, action.condition) ~= "combat") then
                 -- The game client owns this aura edge and plays the registered sound.
             elseif action.soundMode == "repeat" then
                 -- Repeat mode: play at cooldown intervals
@@ -3550,6 +3564,7 @@ function ResourceBars:UpdateSingleTrackedBuffTrigger(barIndex, trackedBuff, glob
     host:Hide()
 
     local auraContainer = DDingUI.TrackedAuraContainer
+    local automaticAura = auraContainer and auraContainer:IsAutomaticAuraTracker(trackedBuff)
     local presentation = auraContainer and auraContainer.GetProtectedTriggerPresentation
         and auraContainer:GetProtectedTriggerPresentation(trackedBuff) or nil
     local resolver = DDingUI.TrackedAuraFrameResolver
@@ -3563,24 +3578,15 @@ function ResourceBars:UpdateSingleTrackedBuffTrigger(barIndex, trackedBuff, glob
             presentationVisible = true,
         }) or false
 
-    if auraAttached then
-        if host._alertEvaluationTimer then
-            host._alertEvaluationTimer:Cancel()
-            host._alertEvaluationTimer = nil
-        end
-        return
-    end
-
     local cooldownID = tonumber(trackedBuff.cooldownID) or 0
-    local triggerFrame = ResolveTrackedFrame(cooldownID, trackedBuff)
-    local trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
-        cooldownID,
-        triggerFrame,
-        false,
-        nil,
-        trackedBuff.spellID,
-        trackedBuff.name
-    )
+    local trackedStacks, auraInstanceID, unit = 0, nil, "player"
+    if not automaticAura then
+        local triggerFrame = ResolveTrackedFrame(cooldownID, trackedBuff)
+        trackedStacks, auraInstanceID, unit = ResolveTrackedStacks(
+            cooldownID, triggerFrame, trackedBuff.trackingMode == "manual",
+            GetManualStacks(barIndex), trackedBuff.spellID, trackedBuff.name
+        )
+    end
     local hasData = HasTrackedAuraData(trackedStacks, auraInstanceID)
     local alertResult = EvaluateAlerts(trackedBuff, trackedStacks, hasData, auraInstanceID, unit)
     ApplyAlertActions(alertResult, trackedBuff, host, barIndex)
@@ -5874,10 +5880,12 @@ function ResourceBars:UpdateSingleTrackedBuffSound(barIndex, trackedBuff, global
     local soundCustomPath = settings.soundCustomPath or "" -- [12.0.1] custom sound path
 
     local auraSounds = DDingUI.TrackedAuraSounds
-    if auraSounds and auraSounds.IsNative and auraSounds:IsNative(trackedBuff) then
+    local auraContainer = DDingUI.TrackedAuraContainer
+    if auraContainer and auraContainer:IsAutomaticAuraTracker(trackedBuff) then
         self:CancelTrackedBuffSoundTimer(tracker)
-        tracker.native = true
+        tracker.native = auraSounds and auraSounds:IsNative(trackedBuff) or false
         tracker.initialized = false
+        tracker.wasActive = false
         return
     elseif tracker.native then
         tracker.native = nil

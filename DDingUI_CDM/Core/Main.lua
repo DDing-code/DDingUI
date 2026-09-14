@@ -880,7 +880,7 @@ function DDingUI:OnEnable()
             end,
             OnCancel = function()
                 -- 마이그레이션 건너뛰기: profileVersion만 설정
-                DDingUI.db.profile.profileVersion = DDingUI.VERSION or "2.1.4"
+                DDingUI.db.profile.profileVersion = DDingUI.VERSION or "2.1.5"
                 print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffaaaaaaa마이그레이션을 건너뛰었습니다. 설정 > 프로필에서 수동으로 변경할 수 있습니다.|r")
             end,
         }
@@ -939,6 +939,8 @@ end
 
 
 function DDingUI:OpenConfig()
+    local loadedOptionsNow = false
+
     -- [LoD] DDingUI_Options 최초 로드
     if not self._optionsLoaded then
         local loaded, reason = C_AddOns.LoadAddOn(self.OPTIONS_ADDON_FOLDER)
@@ -956,14 +958,47 @@ function DDingUI:OpenConfig()
                 self:SetupOptions()
             end
             self._optionsLoaded = true
+            loadedOptionsNow = true
         end
     end
 
-    if self.OpenConfigGUI then
-        self:OpenConfigGUI()
-    else
-        print(CDM_PREFIX .. "|cffff0000Error: Custom GUI not loaded.|r") -- [STYLE]
+    local function OpenLoadedConfig()
+        if self.OpenConfigGUI then
+            self:OpenConfigGUI()
+        else
+            print(CDM_PREFIX .. "|cffff0000Error: Custom GUI not loaded.|r") -- [STYLE]
+        end
     end
+
+    -- Loading the large LoD options addon and constructing its NineSlice-backed
+    -- window in the same click handler can exhaust WoW's per-script time budget.
+    -- Continue on the next frame after the first load; subsequent opens remain
+    -- immediate.
+    if loadedOptionsNow and C_Timer and C_Timer.After then
+        if self._configOpenPending then return end
+        self._configOpenPending = true
+        C_Timer.After(0, function()
+            self._configOpenPending = nil
+            OpenLoadedConfig()
+        end)
+        return
+    end
+
+    OpenLoadedConfig()
+end
+
+function DDingUI:ToggleConfig()
+    local visibleConfig = _G["DDingUI_ConfigFrame"] or _G["DDingUI_CDM_Panel"]
+    if visibleConfig and visibleConfig.IsShown and visibleConfig:IsShown() then
+        if visibleConfig.HideAnimated then
+            visibleConfig:HideAnimated()
+        else
+            visibleConfig:Hide()
+        end
+        return
+    end
+
+    self:OpenConfig()
 end
 
 function DDingUI:OpenPartyRaidFramesConfig()
@@ -1031,7 +1066,7 @@ function DDingUI:CreateMinimapButton()
         label = L["DDingUI"] or "DDingUI",
         OnClick = function(clickedframe, button)
             if button == "LeftButton" then
-                self:OpenConfig()
+                self:ToggleConfig()
             elseif button == "RightButton" then
                 if self.Movers and self.Movers.ToggleConfigMode then
                     self.Movers:ToggleConfigMode()

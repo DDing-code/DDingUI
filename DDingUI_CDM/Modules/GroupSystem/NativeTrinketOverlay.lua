@@ -77,7 +77,8 @@ local function ReadProcActive(frame)
             active = value
         end
     end
-    if active == true then return true end
+    -- [FIX] A visible idle buff slot must not mask another slot's actual proc.
+    if active ~= nil then return active end
 
     local auraInstanceID = frame.auraInstanceID
     if IsSecret(auraInstanceID) then
@@ -357,7 +358,12 @@ local function CollectDynamicBases(result)
         local slotID = iconData and iconData.slotID
         local iconType = iconData and iconData.type
         local settings = iconData and iconData.settings
-        if iconType == "item" and settings and settings.trackTrinketEffect == true then
+        -- [FIX] Native integration also covers existing slot/item icons with no legacy opt-in.
+        local tracksEffect = iconType == "trinketProc"
+            or ((iconType == "slot" or iconType == "item")
+                and (not settings or settings.trackTrinketEffect ~= false))
+        if iconType == "item" and tracksEffect then
+            slotID = nil
             local itemID = tonumber(iconData.id)
             for _, equippedSlot in ipairs({ 13, 14 }) do
                 local equippedItemID = GetInventoryItemID
@@ -370,9 +376,6 @@ local function CollectDynamicBases(result)
                 end
             end
         end
-        local tracksEffect = iconType == "trinketProc"
-            or ((iconType == "slot" or iconType == "item") and settings
-                and settings.trackTrinketEffect == true)
         local frame = tracksEffect and IsTrackedSlot(slotID) and iconFrames[iconKey]
         local isAssigned = frame and (frame._ddIsManaged == true or assignedIconKeys[iconKey] == true)
         local isVisibleFallback = frame and not hasLinkedGroups

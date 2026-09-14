@@ -57,15 +57,12 @@ local function DisplayTrigger(tracker)
     local triggerName = tracker and tracker.settings and tracker.settings.soundTrigger or "start"
     if triggerName == "start" then return TriggerEnum("Added") end
     if triggerName == "end" then return TriggerEnum("Removed") end
+    if triggerName == "applications" then return TriggerEnum("ApplicationsIncreased") end
     return nil
 end
 
 local function IsAutomaticAuraTracker(tracker)
-    if type(tracker) ~= "table" or tracker.isGroup or tracker.enabled == false then return false end
-    if tracker.isAura == false then return false end
-    if tracker.trackingMode == "manual" or tracker.trackingMode == "spell" then return false end
-    if tracker.trigger and tracker.trigger.type == "spell" then return false end
-    return true
+    return Container:IsAutomaticAuraTracker(tracker) and tracker.enabled ~= false
 end
 
 local function PassesActivation(tracker)
@@ -160,6 +157,9 @@ local function BoolValue(value)
 end
 
 local function ActiveTriggerEdge(trigger)
+    if type(trigger) == "table" and trigger.type == "applications" then
+        return TriggerEnum("ApplicationsIncreased")
+    end
     if type(trigger) ~= "table" or trigger.type ~= "active" then return nil end
     local expected = BoolValue(trigger.value)
     if expected == nil then return nil end
@@ -178,7 +178,7 @@ end
 
 local function ActionTrigger(alerts, action)
     if type(action) ~= "table" or action.type ~= "sound"
-        or action.soundMode == "repeat"
+        or (action.soundMode or "once") ~= "once"
     then
         return nil
     end

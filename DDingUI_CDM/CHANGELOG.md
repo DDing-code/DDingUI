@@ -2,6 +2,45 @@
 
 ---
 
+## v2.1.5
+
+_Release date: 2026-09-14_
+_Scope: Git changes after the final v2.1.4 release commit 935da5f through this release._
+
+### English Patch Notes
+
+#### New Modules
+- **Layout Dashboard:** Added a live overview of CDM groups, Custom Auras, resource bars, and cast bars, with zoom, drag-to-pan, Fit Layout, and click-to-edit selection. Inactive buffs and bars remain available as layout previews.
+
+#### Option Changes
+- **Custom Aura Text:** Expanded text animation presets with fade, pop, spring, breathe, and float effects, plus separate entry and exit fade directions and matching previews.
+- **Custom Aura Conditions & Actions:** Added sounds when aura stacks increase alongside application and removal sounds. Automatic auras now offer supported visual and sound combinations; unsupported remaining-time, stack-threshold, delayed, and repeating aura alerts remain saved and are marked as unsupported instead of running. Group conditions direct automatic aura alerts to their individual trackers.
+- **Edit Mode:** Added a selection crosshair and live position/size readout that follows dragging and nudging.
+- **Settings Window:** The minimap left-click now toggles the settings window, with animated opening and improved first-open responsiveness.
+
+#### Fixes
+- **Trinket Effects:** Improved passive proc detection and effect-to-icon matching after equipment changes. Effects still require tracking in the native Cooldown Manager.
+- **Cooldown Icons:** Preserved icon order across refreshes and kept usable transformed abilities in color when Hide Active Effect is enabled.
+- **Layout Dashboard:** Improved icon artwork, cooldown text, inactive previews, and layout scaling across window sizes.
+- **Custom Aura Actions:** Kept glow and sound actions working together and preserved condition references when another condition is deleted.
+
+### Korean Patch Notes
+
+#### 새 모듈
+- **배치 대시보드:** CDM 그룹, 커스텀 오라, 자원바와 시전바를 한 화면에서 확인하는 실시간 배치 미리보기를 추가했습니다. 확대·축소, 드래그 이동, 배치 맞춤과 클릭하여 설정 열기를 지원하며, 비활성 강화효과와 바도 배치 미리보기에서 확인할 수 있습니다.
+
+#### 옵션 변경
+- **커스텀 오라 텍스트:** 페이드, 팝, 스프링, 호흡, 부유 애니메이션을 확장하고 나타날 때와 사라질 때의 페이드 방향을 각각 설정할 수 있도록 했습니다. 미리보기에도 같은 효과를 적용합니다.
+- **커스텀 오라 조건·동작:** 오라 생성·제거 소리에 중첩 증가 소리를 추가했습니다. 자동 오라는 지원되는 시각 효과·소리 조합을 제공하며, 남은 시간·중첩 수치 조건과 지연·반복 오라 알림은 기존 설정을 보존하고 미지원으로 표시하여 실행하지 않습니다. 자동 오라의 그룹 알림은 각 트래커에서 설정하도록 정리했습니다.
+- **편집 모드:** 선택한 요소의 중심 십자선과 실시간 위치·크기 표시를 추가하고 드래그 및 미세 이동에 맞춰 갱신합니다.
+- **설정창:** 미니맵 왼쪽 클릭으로 설정창을 열고 닫을 수 있으며, 열기 애니메이션과 최초 열기 반응을 개선했습니다.
+
+#### 수정 사항
+- **장신구 효과:** 무작위 발동 감지와 장비 교체 후 효과·아이콘 연결을 개선했습니다. 효과는 기본 쿨다운 관리자에서 추적 중이어야 합니다.
+- **쿨다운 아이콘:** 갱신 후에도 아이콘 순서를 유지하고, 활성 효과 숨기기를 사용할 때 시전 가능한 변환 스킬이 컬러로 표시되도록 수정했습니다.
+- **배치 대시보드:** 아이콘 모양, 쿨다운 텍스트, 비활성 미리보기와 창 크기에 따른 배치 비율을 개선했습니다.
+- **커스텀 오라 동작:** 반짝임과 소리를 함께 사용할 수 있도록 하고, 조건을 삭제해도 다른 조건의 동작 연결을 유지하도록 수정했습니다.
+
 ## v2.1.4
 
 _Release date: 2026-08-26_

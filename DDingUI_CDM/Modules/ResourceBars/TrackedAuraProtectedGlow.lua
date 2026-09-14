@@ -11,56 +11,13 @@ if not ResourceBars or not Engine then return end
 -- can still be attached to the AuraContainer button itself. Its visibility owns
 -- self color, desaturation, and glow without reading aura values back into Lua.
 --
--- This bridge runs outside TrackedAuraProtectedAlerts so it can inspect the
--- SavedVariables-backed alert definition before that module temporarily removes
--- protected triggers/actions from legacy Lua evaluation.
+-- The shared alert policy rejects unsupported actions without rewriting saves.
 
 local diagnostics = {
     eligibleEvaluations = 0,
     appliedOverrides = 0,
 }
 
-local function ActiveTriggerMeansAuraPresent(trigger)
-    if type(trigger) ~= "table" or trigger.type ~= "active" then
-        return false
-    end
-
-    local op = trigger.op or "=="
-    if op == "==" then
-        return trigger.value == true
-    elseif op == "!=" then
-        return trigger.value == false
-    end
-    return false
-end
-
-local function AllTriggersMeanAuraPresent(alerts)
-    local triggers = alerts and alerts.triggers or {}
-    if #triggers == 0 then return false end
-
-    for _, trigger in ipairs(triggers) do
-        if not ActiveTriggerMeansAuraPresent(trigger) then
-            return false
-        end
-    end
-    return true
-end
-
-local function ConditionMeansAuraPresent(alerts, condition)
-    if condition == "any" then
-        -- With only aura-present predicates, both AND and OR collapse to the
-        -- same condition: the tracked aura is present. The default single
-        -- active trigger + `any` action therefore remains supported.
-        return AllTriggersMeanAuraPresent(alerts)
-    end
-
-    local triggerIndex = type(condition) == "string"
-        and tonumber(condition:match("^trigger(%d+)$")) or nil
-    if not triggerIndex then return false end
-
-    local trigger = alerts and alerts.triggers and alerts.triggers[triggerIndex]
-    return ActiveTriggerMeansAuraPresent(trigger)
-end
 
 local function ColorSignature(color)
     color = type(color) == "table" and color or {}
@@ -73,7 +30,7 @@ local function ColorSignature(color)
 end
 
 local function ResolveProtectedTriggerPresentation(tracker)
-    if not tracker or tracker.displayType ~= "trigger" then return nil end
+    if not Engine:IsAutomaticAuraTracker(tracker) or tracker.displayType ~= "trigger" then return nil end
 
     local alerts = tracker.settings and tracker.settings.alerts
     if type(alerts) ~= "table" or alerts.enabled ~= true then return nil end
@@ -83,31 +40,27 @@ local function ResolveProtectedTriggerPresentation(tracker)
 
     local targetKey
     local signatures = {}
-    for index, action in ipairs(actions) do
-        local actionTarget = type(action) == "table" and action.visualTarget
-        if type(action) ~= "table" or action.type ~= "glow"
-            or type(actionTarget) ~= "string"
-            or (not actionTarget:match("^cdm:%d+$") and not actionTarget:match("^custom:.+$"))
-            or not ConditionMeansAuraPresent(alerts, action.condition or "any")
-        then
-            return nil
+    local visualActions = {}
+    for _, action in ipairs(actions) do
+        if action.type == "glow" and not Engine:GetAlertActionIssue(tracker, action) then
+            targetKey = action.visualTarget
+            visualActions[#visualActions + 1] = action
+            signatures[#signatures + 1] = table.concat({
+                targetKey,
+                tostring(action.glowType or "pixel"),
+                ColorSignature(action.glowColor),
+                tostring(action.glowLines or 8),
+                tostring(action.glowFrequency or 0.25),
+                tostring(action.glowThickness or 2),
+                tostring(action.glowXOffset or 0),
+                tostring(action.glowYOffset or 0),
+            }, ":")
         end
-        if targetKey and targetKey ~= actionTarget then return nil end
-        targetKey = actionTarget
-        signatures[index] = table.concat({
-            actionTarget,
-            tostring(action.glowType or "pixel"),
-            ColorSignature(action.glowColor),
-            tostring(action.glowLines or 8),
-            tostring(action.glowFrequency or 0.25),
-            tostring(action.glowThickness or 2),
-            tostring(action.glowXOffset or 0),
-            tostring(action.glowYOffset or 0),
-        }, ":")
     end
+    if not targetKey then return nil end
 
     return {
-        actions = actions,
+        actions = visualActions,
         targetKey = targetKey,
         signature = table.concat(signatures, ";"),
     }
@@ -145,7 +98,8 @@ local function ResolveProtectedPresentation(tracker)
 
     local presentation = {}
     for _, action in ipairs(alerts.actions or {}) do
-        if type(action) == "table" and ConditionMeansAuraPresent(alerts, action.condition) then
+        if type(action) == "table" and not Engine:GetAlertActionIssue(tracker, action)
+            and Engine:GetAlertConditionKind(tracker, action.condition) == "present" then
             local selfTarget = action.visualTarget == nil or action.visualTarget == "self"
             if action.type == "glow" and selfTarget then
                 presentation.glow = action

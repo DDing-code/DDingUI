@@ -2885,7 +2885,11 @@ function DDingUI:OpenConfigGUI(options, tabKey)
     end
 
     if not options then
-        frame:Show()
+        if frame.ShowAnimated then
+            frame:ShowAnimated()
+        else
+            frame:Show()
+        end
         frame:Raise()
         return
     end
@@ -3650,7 +3654,11 @@ function DDingUI:OpenConfigGUI(options, tabKey)
         end
     end
 
-    frame:Show()
+    if frame.ShowAnimated then
+        frame:ShowAnimated()
+    else
+        frame:Show()
+    end
     frame:Raise()
 
     C_Timer.After(0.15, function()
