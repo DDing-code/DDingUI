@@ -596,7 +596,7 @@ function RaidGroups:AutoBalance()
         return
     end
 
-    local groupCount = math.max(1, math.min(MAX_GROUPS, math.ceil(#roster / SLOTS_PER_GROUP)))
+    local groupCount = math.min(MAX_GROUPS, math.ceil(#roster / (SLOTS_PER_GROUP * 2)) * 2)
     local _, firstSide, secondSide = self:GetBalanceGroupOrder(groupCount)
     local frontGroupTiers = BuildGroupTiers(firstSide, secondSide, false)
     local backGroupTiers = BuildGroupTiers(firstSide, secondSide, true)

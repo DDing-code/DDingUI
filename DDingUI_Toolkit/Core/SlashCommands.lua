@@ -91,6 +91,9 @@ local function SlashHandler(msg)
             PVEFrame_ToggleFrame("ChallengesFrame")
         end
 
+    elseif command == "affix" then
+        ns.AffixProbe:Command(arg)
+
     elseif command == "party" or command == "tracker" then
         -- 파티 트래커 테스트 모드
         local partyTracker = ns.PartyTracker
@@ -171,6 +174,7 @@ local function SlashHandler(msg)
         print("  /ddt ilvl - Open ItemLevel settings")
         print("  /ddt notepad - Open Notepad")
         print("  /ddt tp - Open M+ Teleport window")
+        print("  /ddt affix - Affix signal diagnostic commands")
         print("  /ddt party - Toggle PartyTracker test mode")
         print("  /ddt enable <module> - Enable module")
         print("  /ddt disable <module> - Disable module")

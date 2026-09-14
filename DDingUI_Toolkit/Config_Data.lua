@@ -614,7 +614,7 @@ function ns:InitConfigTree()
 
             { type = "header", label = L["RCA_DISPLAY_SETTINGS"] },
             { type = "toggle", key = "profile.ReadyCheckAssistant.showOpenTalentsButton", label = L["RCA_SHOW_TALENTS_BUTTON"], onChange = RefreshReadyCheckAssistant },
-            { type = "slider", key = "profile.ReadyCheckAssistant.width", label = L["RCA_PANEL_WIDTH"], min = 320, max = 560, step = 5, onChange = RefreshReadyCheckAssistant },
+            { type = "slider", key = "profile.ReadyCheckAssistant.width", label = L["RCA_PANEL_WIDTH"], min = 560, max = 900, step = 5, onChange = RefreshReadyCheckAssistant },
             { type = "slider", key = "profile.ReadyCheckAssistant.scale", label = L["SCALE"], min = 0.6, max = 1.8, step = 0.05, onChange = RefreshReadyCheckAssistant },
             { type = "dropdown", key = "profile.ReadyCheckAssistant.anchorSide", label = L["RCA_ANCHOR_SIDE"], options = {
                 { text = L["RCA_ANCHOR_BELOW"], value = "BELOW" },
@@ -704,7 +704,6 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.RaidPreparation.autoOpen", label = L["RAIDPREP_AUTO_OPEN"] },
             { type = "toggle", key = "profile.RaidPreparation.raidOnly", label = L["RAIDPREP_RAID_ONLY"] },
             { type = "toggle", key = "profile.RaidPreparation.leaderOnly", label = L["RAIDPREP_LEADER_ONLY"] },
-            { type = "toggle", key = "profile.RaidPreparation.hideComplete", label = L["RAIDPREP_HIDE_COMPLETE_OPTION"], onChange = RefreshRaidPreparation },
             { type = "toggle", key = "profile.RaidPreparation.closeAfterReadyCheck", label = L["RAIDPREP_CLOSE_AFTER"] },
             { type = "slider", key = "profile.RaidPreparation.closeDelay", label = L["RAIDPREP_CLOSE_DELAY"], min = 0, max = 30, step = 1 },
 
@@ -788,6 +787,13 @@ function ns:InitConfigTree()
     -----------------------------------------------
     -- MailAlert
     -----------------------------------------------
+    local function RefreshMailAlert()
+        local mod = ns.modules and ns.modules.MailAlert
+        if mod then mod:ApplySettings() end
+    end
+    local function ShowMailSealOptions()
+        return ns:GetDBValue("profile.MailAlert.alertStyle") == "SEAL"
+    end
     tree.panels["mailalert"] = {
         title = L["MAILALERT_TITLE"],
         desc  = L["MAILALERT_DESC"],
@@ -799,7 +805,7 @@ function ns:InitConfigTree()
             { type = "header", label = L["ALERT_METHOD"] },
             { type = "toggle", key = "profile.MailAlert.soundEnabled",       label = L["MAILALERT_SOUND_ENABLED"] },
             { type = "toggle", key = "profile.MailAlert.flashEnabled",       label = L["MAILALERT_FLASH_ENABLED"] },
-            { type = "toggle", key = "profile.MailAlert.screenAlertEnabled", label = L["MAILALERT_SCREEN_ALERT"] },
+            { type = "toggle", key = "profile.MailAlert.screenAlertEnabled", label = L["MAILALERT_SCREEN_ALERT"], onChange = RefreshMailAlert },
             { type = "toggle", key = "profile.MailAlert.chatAlert",          label = L["MAILALERT_CHAT_ALERT"] },
 
             -- 조건 설정
@@ -815,14 +821,19 @@ function ns:InitConfigTree()
 
             -- 화면 알림 설정
             { type = "header", label = L["SCREEN_ALERT_SETTINGS"] },
-            { type = "dropdown", key = "profile.MailAlert.alertPosition",  label = L["ALERT_POSITION"], options = "alertPositions" },
-            { type = "dropdown", key = "profile.MailAlert.alertAnimation", label = L["ANIMATION"], options = {
+            { type = "dropdown", key = "profile.MailAlert.alertStyle", label = L["MAILALERT_DESIGN"], refreshPanel = true, onChange = RefreshMailAlert, options = {
+                { text = L["MAILALERT_DESIGN_FACTION"], value = "FACTION" },
+                { text = L["MAILALERT_DESIGN_SEAL"], value = "SEAL" },
+            }},
+            { type = "dropdown", key = "profile.MailAlert.alertPosition",  label = L["ALERT_POSITION"], options = "alertPositions", onChange = RefreshMailAlert },
+            { type = "toggle", key = "profile.MailAlert.sealMotion", label = L["PARTYALERT_ANIMATION_ENABLED"], visible = ShowMailSealOptions, onChange = RefreshMailAlert },
+            { type = "dropdown", key = "profile.MailAlert.alertAnimation", label = L["ANIMATION"], visible = function() return not ShowMailSealOptions() end, onChange = RefreshMailAlert, options = {
                 { text = L["ANIM_PULSE"], value = "pulse" },
                 { text = L["ANIM_FADE"],  value = "fade" },
                 { text = L["ANIM_NONE"],  value = "none" },
             }},
-            { type = "slider", key = "profile.MailAlert.alertScale",    label = L["ALERT_SIZE"],       min = 0.5, max = 2.0, step = 0.1 },
-            { type = "slider", key = "profile.MailAlert.alertDuration", label = L["DISPLAY_DURATION"], min = 1,   max = 15,  step = 1 },
+            { type = "slider", key = "profile.MailAlert.alertScale",    label = L["ALERT_SIZE"],       min = 0.5, max = 2.0, step = 0.1, onChange = RefreshMailAlert },
+            { type = "slider", key = "profile.MailAlert.alertDuration", label = L["DISPLAY_DURATION"], min = 1,   max = 15,  step = 1, onChange = RefreshMailAlert },
 
             -- 테스트
             { type = "separator" },

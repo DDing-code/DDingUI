@@ -101,6 +101,22 @@ def test_calendar_emblem_layout_and_shared_motion():
                 ns.CalendarInviteAlert:ShowAlert(true, nil, {key="test", hour=20, minute=30, title=ns.L.CALENDARALERT_TODAY_EXAMPLE})
                 assert(frame.title.text == string.format(ns.L.CALENDARALERT_TODAY_TITLE, 20, 30))
                 assert(frame.subtitle.text == ns.L.CALENDARALERT_TODAY_EXAMPLE)
+                for _, count in ipairs({2,5,10}) do
+                    local entries, lines = {}, {}
+                    for i = 1, count do
+                        entries[i] = {key=tostring(i)}
+                        lines[i] = "20:00  " .. ns.L.CALENDARALERT_TODAY_EXAMPLE
+                    end
+                    ns.CalendarInviteAlert:ShowAlert(true, nil, {key="batch", events=entries, title=table.concat(lines,"\\n")})
+                    assert(frame.height > dimensions[2] and visual.calendarRows == count)
+                    assert(frame.subtitle.height >= count * frame.subtitle.fontSize)
+                    local blockTop = frame.subtitle.y + frame.subtitle.height / 2
+                    local blockBottom = frame.subtitle.y - frame.subtitle.height / 2
+                    assert(blockTop < frame.title.y - frame.title.fontSize / 2, "schedule rows overlap title")
+                    assert(blockBottom > -frame.height * 0.31, "schedule rows overlap bottom rail")
+                end
+                ns.CalendarInviteAlert:ShowAlert(true)
+                assert(frame.height == dimensions[2] and visual.calendarRows == 1, "pending notice must restore its height")
             end
             visual:Hide(true)
             assert(not frame:IsShown() and not visual.state)

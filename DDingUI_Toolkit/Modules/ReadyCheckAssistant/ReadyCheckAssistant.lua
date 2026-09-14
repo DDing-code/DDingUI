@@ -22,11 +22,12 @@ local P = ns.UI and ns.UI.popupColors or {
 }
 local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit")
     or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: "
-local PANEL_HEIGHT = 400
-local COMPACT_PANEL_HEIGHT = 346
+local PANEL_HEIGHT = 340
+local COMPACT_PANEL_HEIGHT = 286
 local ACTION_BUTTON_HEIGHT = 31
 local ICON_PATH = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\ReadyCheckIcons.tga"
-local ICONS = { alert = 0, check = 1, close = 2, talent = 3, repair = 4, chat = 5, open = 6 }
+local ICONS = { alert = 0, check = 1, close = 2, talent = 3, repair = 4, chat = 5, open = 6,
+    flask = 7, food = 8, rune = 9, weapon = 10, spec = 11 }
 local READY_COLOR = { 0.51, 0.78, 0.64, 1 }
 local WARNING_COLOR = { 0.89, 0.73, 0.47, 1 }
 local REPAIR_COLOR = { 0.93, 0.58, 0.53, 1 }
@@ -132,7 +133,7 @@ end
 local function SetIcon(texture, name, color)
     local index = ICONS[name]
     texture:SetTexture(ICON_PATH)
-    texture:SetTexCoord(index / 8, (index + 1) / 8, 0, 1)
+    texture:SetTexCoord(index / 16, (index + 1) / 16, 0, 1)
     texture:SetVertexColor(unpack(color))
 end
 
@@ -354,6 +355,66 @@ function ReadyCheckAssistant:GetExpectedLoadout(context)
     return ""
 end
 
+
+local CONSUMABLES = {
+    { key = "flask", label = "RAIDPREP_COLUMN_FLASK", icon = 134830 },
+    { key = "food", label = "RAIDPREP_COLUMN_FOOD", icon = 134062 },
+    { key = "rune", label = "RAIDPREP_COLUMN_RUNE", icon = 134419 },
+    { key = "weapon", label = "RAIDPREP_COLUMN_WEAPON", icon = 135274 },
+}
+
+function ReadyCheckAssistant:GetConsumables()
+    local result = {}
+    local scanner = ns.RaidPreparation
+    if scanner then
+        -- Reuse the raid module's spell lists without enabling its UI or comms.
+        if not self.consumableScanner then
+            local raidDB = ns.db and ns.db.profile and ns.db.profile.RaidPreparation or {}
+            self.consumableScanner = { db = {
+                minimumBuffMinutes = 0,
+                customFoodSpellIDs = raidDB.customFoodSpellIDs,
+                customFlaskSpellIDs = raidDB.customFlaskSpellIDs,
+                customRuneSpellIDs = raidDB.customRuneSpellIDs,
+            } }
+            scanner.BuildSpellSets(self.consumableScanner)
+        end
+        local food, flask, rune, foodTime, flaskTime, runeTime, _, icons =
+            scanner.ScanUnitAuras(self.consumableScanner, "player")
+        result.food = { value = food, remaining = foodTime, icon = icons and icons.food }
+        result.flask = { value = flask, remaining = flaskTime, icon = icons and icons.flask }
+        result.rune = { value = rune, remaining = runeTime, icon = icons and icons.rune }
+    end
+    local weapon = {}
+    if GetWeaponEnchantInfo then
+        local ok, main, expiration, _, _, off, offExpiration = pcall(GetWeaponEnchantInfo)
+        if ok and not IsSecret(main) and not IsSecret(off) then
+            local mainTime, offTime = SafeNumber(expiration), SafeNumber(offExpiration)
+            if main == true or off == true then
+                weapon.value = true
+                local milliseconds = main == true and mainTime or offTime
+                weapon.remaining = milliseconds and milliseconds / 1000
+            elseif main == false and (off == false or off == nil) then
+                weapon.value = false
+            end
+        end
+    end
+    result.weapon = weapon
+    return result
+end
+
+local function ConsumableStatus(item)
+    if not item or item.value == nil then return L["RCA_CHECK_UNKNOWN"], P.textDim end
+    if item.value == false then return L["RCA_MISSING"], WARNING_COLOR end
+    if item.remaining then
+        if item.remaining <= 0 then return L["RCA_MISSING"], WARNING_COLOR end
+        if item.remaining < 60 then
+            return string.format(L["RCA_SECONDS_LEFT"], math.ceil(item.remaining)), WARNING_COLOR
+        end
+        return string.format(L["RCA_MINUTES_LEFT"], math.floor(item.remaining / 60)), READY_COLOR
+    end
+    return L["RCA_ACTIVE"], READY_COLOR
+end
+
 function ReadyCheckAssistant:CollectSnapshot()
     local spec = self:GetSpecializationInfo()
     local loadoutName, loadoutKnown = self:GetLoadoutInfo(spec.id)
@@ -371,7 +432,15 @@ function ReadyCheckAssistant:CollectSnapshot()
         status = "LOADOUT"
     end
 
+    local consumables = self:GetConsumables()
+    local consumableIssues = 0
+    for _, definition in ipairs(CONSUMABLES) do
+        local item = consumables[definition.key]
+        if not item or item.value ~= true then consumableIssues = consumableIssues + 1 end
+    end
+    if status == "READY" and consumableIssues > 0 then status = "CONSUMABLES" end
     return {
+        consumables = consumables,
         specID = spec.id,
         specName = spec.name,
         specIcon = spec.icon,
@@ -382,7 +451,7 @@ function ReadyCheckAssistant:CollectSnapshot()
         context = context,
         durability = durability,
         status = status,
-        issueCount = (#durability.lowSlots > 0 and 1 or 0) + ((not loadoutKnown or loadoutMatch == false) and 1 or 0),
+        issueCount = consumableIssues + (#durability.lowSlots > 0 and 1 or 0) + ((not loadoutKnown or loadoutMatch == false) and 1 or 0),
     }
 end
 
@@ -391,7 +460,7 @@ function ReadyCheckAssistant:CreateFrame()
 
     frame = CreateFrame("Frame", "DDingToolKit_ReadyCheckAssistantFrame", UIParent, "BackdropTemplate")
     frame.fontSizes = {}
-    frame:SetSize(440, PANEL_HEIGHT)
+    frame:SetSize(720, PANEL_HEIGHT)
     frame:SetFrameStrata("HIGH")
     frame:SetClampedToScreen(true)
     frame:EnableMouse(false)
@@ -447,78 +516,61 @@ function ReadyCheckAssistant:CreateFrame()
     Text("statusText", 18, P.textBright, "", 57, 51)
     Text("statusDetail", 11, P.textDim, "", 57, 77)
 
-    Text("specLabel", 12, P.textDim, L["RCA_CURRENT_SPEC"], 16, 115, 100)
-    Text("specText", 13, P.text, "", 122, 114)
+    frame.specIcon = frame:CreateTexture(nil, "ARTWORK")
+    frame.specIcon:SetPoint("TOPLEFT", 16, -113)
+    frame.specIcon:SetSize(24, 24)
+    Text("specText", 13, P.accentText, "", 49, 113, 112)
+    Text("loadoutText", 12, P.text, "", 171, 113)
+    Text("expectedText", 11, P.textDim, "", 49, 140)
+    frame.loadoutStatus = AddText(frame, 11, P.textDim)
+    frame.loadoutStatus:SetPoint("TOPRIGHT", -16, -140)
+    frame.loadoutStatus:SetHeight(18)
+    frame.loadoutStatus:SetJustifyH("RIGHT")
+    frame.loadoutStatusIcon = AddIcon(frame, "check", 13, READY_COLOR)
+    frame.loadoutStatusIcon:SetPoint("RIGHT", frame.loadoutStatus, "LEFT", -5, 0)
 
-    for _, y in ipairs({ 38, 145, 233 }) do
+    for _, y in ipairs({38, 164}) do
         local line = frame:CreateTexture(nil, "ARTWORK")
         line:SetPoint("TOPLEFT", 16, -y)
         line:SetPoint("TOPRIGHT", -16, -y)
         line:SetHeight(1)
         line:SetColorTexture(0.20, 0.20, 0.21, 1)
     end
-
-    frame.talentIcon = AddIcon(frame, "talent", 15, P.textDim)
-    frame.talentIcon:SetPoint("TOPLEFT", 16, -158)
-    Text("talentTitle", 13, P.textBright, L["RCA_TALENT_LABEL"], 38, 156, 130)
-    Text("loadoutLabel", 11, P.textDim, L["RCA_CURRENT"], 38, 183, 67)
-    Text("expectedLabel", 11, P.textDim, L["RCA_EXPECTED"], 38, 204, 67)
-    Text("loadoutText", 12, P.text, "", 112, 182)
-    Text("expectedText", 12, P.accentText, "", 112, 203)
-    frame.loadoutStatus = AddText(frame, 11, P.textDim)
-    frame.loadoutStatus:SetPoint("TOPRIGHT", -16, -157)
-    frame.loadoutStatus:SetHeight(18)
-    frame.loadoutStatus:SetJustifyH("RIGHT")
-    frame.loadoutStatusIcon = AddIcon(frame, "check", 13, READY_COLOR)
-    frame.loadoutStatusIcon:SetPoint("RIGHT", frame.loadoutStatus, "LEFT", -5, 0)
-
-    frame.repairIcon = AddIcon(frame, "repair", 15, P.textDim)
-    frame.repairIcon:SetPoint("TOPLEFT", 16, -247)
-    Text("durabilityTitle", 13, P.textBright, L["RCA_DURABILITY_LABEL"], 38, 245, 130)
-    frame.durabilityStatus = AddText(frame, 11, P.textDim)
-    frame.durabilityStatus:SetPoint("TOPRIGHT", -16, -246)
-    frame.durabilityStatus:SetHeight(18)
-    frame.durabilityStatus:SetJustifyH("RIGHT")
-    frame.durabilityStatusIcon = AddIcon(frame, "check", 13, READY_COLOR)
-    frame.durabilityStatusIcon:SetPoint("RIGHT", frame.durabilityStatus, "LEFT", -5, 0)
-
-    Text("minimumLabel", 11, P.textDim, L["RCA_LOWEST"], 16, 282, 40)
-    frame.durabilityText = AddText(frame, 22, READY_COLOR)
-    frame.durabilityText:SetPoint("TOPLEFT", 61, -274)
-    frame.durabilityText:SetHeight(30)
-    frame.percentText = AddText(frame, 13, READY_COLOR, "%")
-    frame.percentText:SetPoint("BOTTOMLEFT", frame.durabilityText, "BOTTOMRIGHT", 1, 3)
-    frame.averageText = AddText(frame, 11, P.textDim)
-    frame.averageText:SetPoint("TOPRIGHT", -16, -282)
-    frame.averageText:SetSize(140, 18)
-    frame.averageText:SetJustifyH("RIGHT")
-
-    frame.durabilityBar = CreateFrame("StatusBar", nil, frame)
-    frame.durabilityBar:SetPoint("TOPLEFT", 16, -310)
-    frame.durabilityBar:SetPoint("TOPRIGHT", -16, -310)
-    frame.durabilityBar:SetHeight(8)
-    frame.durabilityBar:SetStatusBarTexture(FLAT)
-    frame.durabilityBar:SetMinMaxValues(0, 100)
-    frame.durabilityBar.background = frame.durabilityBar:CreateTexture(nil, "BACKGROUND")
-    frame.durabilityBar.background:SetAllPoints()
-    frame.durabilityBar.background:SetColorTexture(unpack(P.control))
-    frame.durabilityTicks = {}
-    for index = 1, 9 do
-        local tick = frame.durabilityBar:CreateTexture(nil, "OVERLAY")
-        tick:SetSize(1, 8)
-        tick:SetColorTexture(unpack(P.background))
-        frame.durabilityTicks[index] = tick
+    frame.cells = {}
+    for index = 1, 5 do
+        local cell = CreateFrame("Frame", nil, frame)
+        cell:EnableMouse(true)
+        cell.icon = cell:CreateTexture(nil, "ARTWORK")
+        cell.icon:SetPoint("TOP", cell, "TOP", 0, 0)
+        cell.icon:SetSize(32, 32)
+        cell.label = AddText(cell, 12, P.text)
+        cell.label:SetPoint("TOPLEFT", 4, -40)
+        cell.label:SetPoint("TOPRIGHT", -4, -40)
+        cell.label:SetHeight(18)
+        cell.label:SetJustifyH("CENTER")
+        cell.value = AddText(cell, 11, P.textDim)
+        cell.value:SetPoint("TOPLEFT", 4, -63)
+        cell.value:SetPoint("TOPRIGHT", -4, -63)
+        cell.value:SetHeight(18)
+        cell.value:SetJustifyH("CENTER")
+        cell.label:SetText(index == 5 and L["RAIDPREP_COLUMN_DURABILITY"] or L[CONSUMABLES[index].label])
+        if index > 1 then
+            cell.divider = cell:CreateTexture(nil, "ARTWORK")
+            cell.divider:SetPoint("TOPLEFT", 0, 0)
+            cell.divider:SetSize(1, 82)
+            cell.divider:SetColorTexture(0.20, 0.20, 0.21, 1)
+        end
+        cell:SetScript("OnEnter", function()
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(cell, "ANCHOR_TOP")
+            GameTooltip:SetText(cell.label:GetText())
+            GameTooltip:AddLine(cell.tooltip or cell.value:GetText(), 0.85, 0.85, 0.85, true)
+            GameTooltip:Show()
+        end)
+        cell:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        frame.cells[index] = cell
     end
-    frame.durabilityThresholdMarker = frame.durabilityBar:CreateTexture(nil, "OVERLAY")
-    frame.durabilityThresholdMarker:SetSize(2, 14)
-    frame.durabilityThresholdMarker:SetColorTexture(unpack(WARNING_COLOR))
-
-    Text("detailText", 11, P.textDim, "", 16, 326)
-    frame.detailText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -136, -326)
-    frame.thresholdText = AddText(frame, 10, P.textDim)
-    frame.thresholdText:SetPoint("TOPRIGHT", -16, -326)
-    frame.thresholdText:SetSize(112, 17)
-    frame.thresholdText:SetJustifyH("RIGHT")
+    Text("detailText", 11, P.textDim, "", 16, 264)
 
     frame.footerBackground = frame:CreateTexture(nil, "BACKGROUND")
     frame.footerBackground:SetPoint("BOTTOMLEFT", 1, 1)
@@ -544,9 +596,14 @@ function ReadyCheckAssistant:CreateFrame()
     end)
 
     frame:SetScript("OnUpdate", function()
-        if editPreview or not readyCheckOpen or GetTime() - shownAt < 0.25 then return end
-        local readyFrame = _G.ReadyCheckFrame
-        if readyFrame and not readyFrame:IsShown() then ReadyCheckAssistant:Hide() end
+        if readyCheckOpen and not editPreview and GetTime() - shownAt >= 0.25 then
+            local readyFrame = _G.ReadyCheckFrame
+            if readyFrame and not readyFrame:IsShown() then ReadyCheckAssistant:Hide(); return end
+        end
+        if GetTime() >= (frame.nextRefresh or 0) then
+            frame.nextRefresh = GetTime() + 1
+            ReadyCheckAssistant:Refresh()
+        end
     end)
     frame:Hide()
     self.frame = frame
@@ -558,7 +615,8 @@ function ReadyCheckAssistant:ApplySettings()
     if not self.db then return end
     local display = self:CreateFrame()
     local db = self.db
-    local width = Clamp(db.width, 320, 560, 440)
+    local width = Clamp(db.width, 560, 900, 720)
+    db.width = width
     local showDetails = db.showLowSlots ~= false
     local showTalentsButton = db.showOpenTalentsButton ~= false
     local showReportButton = db.showReportButton ~= false
@@ -579,6 +637,16 @@ function ReadyCheckAssistant:ApplySettings()
         display:SetPoint("CENTER", UIParent, "CENTER", Clamp(db.offsetX, -500, 500, 0), Clamp(db.offsetY, -300, 300, -160))
     end
 
+    for index, cell in ipairs(display.cells) do
+        local cellWidth = (width - 32) / 5
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", display, "TOPLEFT", 16 + (index - 1) * cellWidth, -178)
+        cell:SetSize(cellWidth, 82)
+    end
+    display.expectedText:ClearAllPoints()
+    display.expectedText:SetPoint("TOPLEFT", 49, -140)
+    display.expectedText:SetSize(width - 235, 18)
+    self.consumableScanner = nil
     display.detailText:SetShown(showDetails)
     display.openTalentsButton:SetShown(showTalentsButton)
     display.reportButton:SetShown(showReportButton)
@@ -609,22 +677,6 @@ local function FormatLowSlots(lowSlots, maximum)
     return table.concat(parts, " \194\183 ")
 end
 
-local function PositionDurabilityScale(durability)
-    if not frame or not frame.durabilityBar then return end
-    local width = frame.durabilityBar:GetWidth()
-    if not width or width <= 1 then width = math.max(1, frame:GetWidth() - 32) end
-    for index, tick in ipairs(frame.durabilityTicks or {}) do
-        tick:ClearAllPoints()
-        tick:SetPoint("CENTER", frame.durabilityBar, "LEFT", math.floor(width * index / 10 + 0.5), 0)
-    end
-    local marker = frame.durabilityThresholdMarker
-    if marker then
-        local threshold = Clamp(durability and durability.threshold, 1, 100, 25)
-        marker:ClearAllPoints()
-        marker:SetPoint("CENTER", frame.durabilityBar, "LEFT", math.floor(width * threshold / 100 + 0.5), 0)
-    end
-end
-
 function ReadyCheckAssistant:Refresh()
     if not frame or not self.db then return end
     local snapshot = self:CollectSnapshot()
@@ -632,8 +684,9 @@ function ReadyCheckAssistant:Refresh()
 
     frame.context:SetText(L["RCA_CONTEXT_" .. snapshot.context] or snapshot.context)
     frame.specText:SetText(snapshot.specName)
+    SetIcon(frame.specIcon, "spec", P.accentText)
     frame.loadoutText:SetText(snapshot.loadoutName)
-    frame.expectedText:SetText(snapshot.expectedLoadout ~= "" and snapshot.expectedLoadout or L["RCA_NOT_CONFIGURED"])
+    frame.expectedText:SetText(L["RCA_EXPECTED"] .. ": " .. (snapshot.expectedLoadout ~= "" and snapshot.expectedLoadout or L["RCA_NOT_CONFIGURED"]))
     frame.expectedText:SetTextColor(unpack(snapshot.expectedLoadout ~= "" and P.accentText or P.textDim))
 
     local talentSummary
@@ -657,19 +710,26 @@ function ReadyCheckAssistant:Refresh()
     local durability = snapshot.durability
     local needsRepair = #durability.lowSlots > 0
     local durabilityColor = needsRepair and REPAIR_COLOR or READY_COLOR
-    SetCheckStatus(frame.durabilityStatus, frame.durabilityStatusIcon,
-        L[needsRepair and "RCA_REPAIR_NEEDED" or "RCA_HEALTHY"],
-        needsRepair and "alert" or "check", durabilityColor)
-    frame.durabilityBar:SetValue(durability.lowest)
-    frame.durabilityBar:SetStatusBarColor(unpack(needsRepair and { 0.75, 0.46, 0.42, 1 } or { 0.36, 0.58, 0.45, 1 }))
-    frame.durabilityText:SetText(tostring(math.floor(durability.lowest + 0.5)))
-    frame.durabilityText:SetTextColor(unpack(durabilityColor))
-    frame.percentText:SetTextColor(unpack(durabilityColor))
-    frame.averageText:SetText(string.format(L["RCA_AVERAGE_FORMAT"], math.floor(durability.average + 0.5)))
-    frame.thresholdText:SetText(string.format(L["RCA_THRESHOLD_FORMAT"], durability.threshold))
+    local durabilityCell = frame.cells[5]
+    SetIcon(durabilityCell.icon, "repair", durabilityColor)
+    durabilityCell.value:SetText(string.format("%s %d%%", L["RCA_LOWEST"], math.floor(durability.lowest + 0.5)))
+    durabilityCell.value:SetTextColor(unpack(durabilityColor))
+    durabilityCell.tooltip = string.format(L["RCA_AVERAGE_FORMAT"], math.floor(durability.average + 0.5))
+        .. "\n" .. string.format(L["RCA_THRESHOLD_FORMAT"], durability.threshold)
+        .. "\n" .. FormatLowSlots(durability.lowSlots, 17)
     frame.detailText:SetText(FormatLowSlots(durability.lowSlots, 2))
     frame.detailText:SetTextColor(unpack(needsRepair and REPAIR_COLOR or P.textDim))
-    PositionDurabilityScale(durability)
+    local missing = {}
+    for index, definition in ipairs(CONSUMABLES) do
+        local item = snapshot.consumables[definition.key]
+        local text, color = ConsumableStatus(item)
+        local cell = frame.cells[index]
+        SetIcon(cell.icon, definition.key, color)
+        cell.value:SetText(text)
+        cell.value:SetTextColor(unpack(color))
+        cell.tooltip = text
+        if not item or item.value ~= true then missing[#missing + 1] = L[definition.label] end
+    end
 
     local hasIssues = snapshot.issueCount > 0
     local summaryColor = hasIssues and WARNING_COLOR or READY_COLOR
@@ -677,7 +737,9 @@ function ReadyCheckAssistant:Refresh()
     frame.accent:SetColorTexture(unpack(summaryColor))
     frame.statusBackground:SetColorTexture(unpack(hasIssues and { 0.153, 0.137, 0.114, 1 } or { 0.118, 0.161, 0.137, 1 }))
     frame.statusText:SetText(hasIssues and string.format(L["RCA_SUMMARY_ISSUES_FORMAT"], snapshot.issueCount) or L["RCA_STATUS_READY"])
-    frame.statusDetail:SetText(talentSummary .. " \194\183 " .. L[needsRepair and "RCA_REPAIR_NEEDED" or "RCA_SUMMARY_DURABILITY"])
+    if talentIssue then missing[#missing + 1] = talentSummary end
+    if needsRepair then missing[#missing + 1] = L["RCA_REPAIR_NEEDED"] end
+    frame.statusDetail:SetText(#missing > 0 and table.concat(missing, " / ") or (talentSummary .. " / " .. L["RCA_SUMMARY_DURABILITY"]))
 end
 
 function ReadyCheckAssistant:Show(isPreview)
@@ -718,6 +780,12 @@ function ReadyCheckAssistant:BuildReport(snapshot)
         message = message .. L["RCA_REPORT_UNKNOWN"]
     elseif snapshot.loadoutMatch == false then
         message = message .. string.format(L["RCA_REPORT_LOADOUT"], snapshot.expectedLoadout)
+    end
+    for _, definition in ipairs(CONSUMABLES) do
+        local item = snapshot.consumables and snapshot.consumables[definition.key]
+        if not item or item.value ~= true then
+            message = message .. " / " .. L[definition.label] .. ": " .. ConsumableStatus(item)
+        end
     end
     return message
 end
@@ -832,6 +900,8 @@ function ReadyCheckAssistant:ExitEditPreview()
     end
 end
 
+eventFrame:RegisterEvent("UNIT_AURA")
+eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
 eventFrame:RegisterEvent("READY_CHECK")
 eventFrame:RegisterEvent("READY_CHECK_FINISHED")
 eventFrame:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
@@ -842,8 +912,9 @@ eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:SetScript("OnEvent", function(_, event)
+eventFrame:SetScript("OnEvent", function(_, event, unit)
     if not active then return end
+    if (event == "UNIT_AURA" or event == "UNIT_INVENTORY_CHANGED") and unit ~= "player" then return end
     if event == "READY_CHECK" then
         ReadyCheckAssistant:HandleReadyCheck()
     elseif event == "READY_CHECK_FINISHED" or event == "PLAYER_ENTERING_WORLD" then
@@ -853,7 +924,10 @@ eventFrame:SetScript("OnEvent", function(_, event)
             ReadyCheckAssistant:Hide()
         end
     elseif frame and frame:IsShown() then
+        if frame.refreshPending then return end
+        frame.refreshPending = true
         C_Timer.After(0.1, function()
+            if frame then frame.refreshPending = false end
             if active and frame and frame:IsShown() then ReadyCheckAssistant:Refresh() end
         end)
     end

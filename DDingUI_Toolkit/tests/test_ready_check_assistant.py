@@ -95,6 +95,10 @@ def panel_runtime(locale="koKR"):
         function module:GetGroupContext() return "RAID" end
         durability = {lowest=18, average=64, threshold=25, lowSlots={{label="Chest", percent=18}, {label="Shoulder", percent=22}}}
         function module:GetDurabilityInfo() return durability end
+        function module:GetConsumables()
+            return {flask={value=true,remaining=2700}, food={value=true,remaining=1680},
+                rune={value=true,remaining=3120}, weapon={value=true,remaining=3240}}
+        end
         module:OnEnable()
         display = module.frame
     ''')
@@ -107,19 +111,20 @@ def test_ready_check_layout_and_status_transitions():
         lua.execute('''
             local L = ns.L
             for label in pairs(display.fontSizes) do assert(label.text ~= "", "missing panel label") end
-            assert(display.width == 440 and display.height == 400)
+            assert(display.width == 720 and display.height == 340)
             assert(module.snapshot.issueCount == 2)
             assert(display.statusText.text == string.format(L.RCA_SUMMARY_ISSUES_FORMAT, 2))
             assert(display.statusDetail.text:find(L.RCA_SUMMARY_MISMATCH, 1, true))
             assert(display.statusDetail.text:find(L.RCA_REPAIR_NEEDED, 1, true))
-            assert(display.loadoutText.text == "Dungeon" and display.expectedText.text == "Raid")
+            assert(display.loadoutText.text == "Dungeon" and display.expectedText.text == L.RCA_EXPECTED .. ": Raid")
             assert(display.openTalentsButton.primary)
-            assert(display.durabilityText.text == "18" and display.durabilityBar.value == 18)
+            assert(display.cells[5].value.text:find("18%",1,true))
+            assert(#display.cells == 5 and not display.durabilityBar)
             local report = module:BuildReport(module.snapshot)
             assert(report:find(string.format(L.RCA_REPORT_REPAIR, 2), 1, true))
             assert(report:find(string.format(L.RCA_REPORT_LOADOUT, "Raid"), 1, true))
             local anchors = {}
-            for _, key in ipairs({"specText", "loadoutText", "expectedText", "durabilityText", "statusText"}) do
+            for _, key in ipairs({"specText", "loadoutText", "expectedText", "statusText"}) do
                 anchors[key] = display[key].points.TOPLEFT
             end
             currentLoadout = "Raid"
@@ -140,17 +145,17 @@ def test_ready_check_layout_and_status_transitions():
             loadoutKnown = true
             module:Refresh()
             assert(display.loadoutStatus.text == L.RCA_NOT_CONFIGURED)
-            assert(display.expectedText.text == L.RCA_NOT_CONFIGURED and not display.loadoutStatusIcon.shown)
+            assert(display.expectedText.text == L.RCA_EXPECTED .. ": " .. L.RCA_NOT_CONFIGURED and not display.loadoutStatusIcon.shown)
             assert(display.statusDetail.text:find(L.RCA_SUMMARY_UNSET, 1, true))
 
-            for _, width in ipairs({320, 440, 560}) do
+            for _, width in ipairs({560, 720, 900}) do
                 module.db.width = width
                 for _, talents in ipairs({true, false}) do
                     for _, reportShown in ipairs({true, false}) do
                         module.db.showOpenTalentsButton, module.db.showReportButton = talents, reportShown
                         module:ApplySettings()
                         assert(display.width == width)
-                        assert(display.height == ((talents or reportShown) and 400 or 346))
+                        assert(display.height == ((talents or reportShown) and 340 or 286))
                         assert(display.openTalentsButton.shown == talents and display.reportButton.shown == reportShown)
                         local buttonWidth = (talents and reportShown) and (width - 40) / 2 or width - 32
                         assert(display.openTalentsButton.width == buttonWidth and display.reportButton.width == buttonWidth)
@@ -158,8 +163,13 @@ def test_ready_check_layout_and_status_transitions():
                         assert(display.reportButton.label:GetStringWidth() + 21 <= buttonWidth)
                         assert(display.openTalentsButton.points.BOTTOMLEFT.x == 16)
                         assert(display.reportButton.points.BOTTOMRIGHT.x == -16)
-                        assert(display.durabilityBar:GetWidth() == width - 32)
-                        assert(display.durabilityThresholdMarker.points.CENTER.x == math.floor((width - 32) * 0.25 + 0.5))
+                        for index, cell in ipairs(display.cells) do
+                            assert(cell.width == (width-32)/5)
+                            assert(cell.points.TOPLEFT.x == 16+(index-1)*cell.width)
+                            assert(cell.label:GetStringWidth() <= cell.width-8)
+                            assert(cell.value:GetStringWidth() <= cell.width-8)
+                            assert(cell.points.TOPLEFT.y == -178)
+                        end
                     end
                 end
             end
@@ -186,17 +196,17 @@ def test_ready_check_layout_and_status_transitions():
         ''')
 
 
-def test_ready_check_icon_atlas_has_seven_transparent_icons():
+def test_ready_check_icon_atlas_has_twelve_transparent_icons():
     from PIL import Image
 
     with Image.open(ROOT / "Media/ReadyCheckIcons.tga") as atlas:
-        assert atlas.size == (512, 64) and atlas.mode == "RGBA"
-        for index in range(7):
+        assert atlas.size == (1024, 64) and atlas.mode == "RGBA"
+        for index in range(12):
             alpha = atlas.getchannel("A").crop((index * 64, 0, (index + 1) * 64, 64))
             assert alpha.getextrema() == (0, 255)
             left, top, right, bottom = alpha.getbbox()
             assert left > 0 and top > 0 and right < 64 and bottom < 64
-        assert not atlas.getchannel("A").crop((448, 0, 512, 64)).getbbox()
+        assert not atlas.getchannel("A").crop((768, 0, 1024, 64)).getbbox()
 
 
 def test_ready_check_panel_has_an_independent_close_button() -> None:
@@ -209,16 +219,89 @@ def test_ready_check_panel_has_an_independent_close_button() -> None:
     assert "ReadyCheckAssistant:Hide()" in close_handler
 
 
-def test_durability_gauge_has_notches_and_configured_threshold_marker() -> None:
-    module = (Path(__file__).parents[1] / "Modules/ReadyCheckAssistant/ReadyCheckAssistant.lua").read_text(
-        encoding="utf-8-sig"
-    )
+def test_personal_consumables_use_shared_scan_without_enabling_raid_module():
+    lua = panel_runtime()
+    # Restore the real collector, then load the shared scanner with no OnEnable.
+    lua.execute((ROOT / "Modules/ReadyCheckAssistant/ReadyCheckAssistant.lua").read_text(encoding="utf-8-sig"),
+                "DDingUI_Toolkit", lua.globals().ns)
+    lua.execute("UISpecialFrames, SlashCmdList = {}, {}; function LibStub() return nil end")
+    lua.execute((ROOT / "Modules/RaidPreparation/RaidPreparation.lua").read_text(encoding="utf-8-sig"),
+                "DDingUI_Toolkit", lua.globals().ns)
+    lua.execute('''
+        local personal = ns.ReadyCheckAssistant
+        local function clone(t) local n={} for k,v in pairs(t) do n[k]=v end return n end
+        function CopyTable(t) return clone(t) end
+        function UnitExists() return true end
+        function UnitIsConnected() return true end
+        local secret = {}
+        function issecretvalue(v) return v == secret end
+        local auras = {
+            {spellId=1236763,icon=111,expirationTime=clock+2700},
+            {spellId=308488,icon=222,expirationTime=clock+1680},
+            {spellId=1234969,icon=333,expirationTime=clock+3120},
+        }
+        C_UnitAuras={GetAuraDataByIndex=function(_,i) return auras[i] end}
+        C_Secrets={ShouldAurasBeSecret=function() return false end}
+        function GetWeaponEnchantInfo() return true,3240000,0,1,false end
+        local data=personal:GetConsumables()
+        assert(data.flask.value==true and data.flask.remaining==2700 and data.flask.icon==111)
+        assert(data.food.value==true and data.rune.value==true)
+        assert(data.weapon.remaining==3240 and data.weapon.value==true)
+        assert(not ns.RaidPreparation.frame and not ns.RaidPreparation.enabled)
+        auras={}
+        data=personal:GetConsumables()
+        assert(data.flask.value==false and data.food.value==false and data.rune.value==false)
+        auras={{spellId=secret,icon=secret,expirationTime=secret}}
+        data=personal:GetConsumables()
+        assert(data.flask.value==nil and data.food.value==nil and data.rune.value==nil)
+        auras={secret}
+        assert(personal:GetConsumables().flask.value==nil)
+        C_UnitAuras.GetAuraDataByIndex=function() error("unavailable") end
+        assert(personal:GetConsumables().flask.value==nil)
+        C_Secrets.ShouldAurasBeSecret=function() return true end
+        assert(personal:GetConsumables().flask.value==nil)
+        C_Secrets.ShouldAurasBeSecret=function() return secret end
+        assert(personal:GetConsumables().flask.value==nil)
+        function GetWeaponEnchantInfo() return secret,secret,0,0,secret end
+        assert(personal:GetConsumables().weapon.value==nil)
+        C_Secrets.ShouldAurasBeSecret=function() return false end
+        C_UnitAuras.GetAuraDataByIndex=function(_,i)
+            if i==1 then return {spellId=1236763,expirationTime=clock-1} end
+        end
+        assert(personal:GetConsumables().flask.value=="LOW")
+    ''')
 
-    assert "frame.durabilityTicks = {}" in module
-    assert "frame.durabilityThresholdMarker" in module
-    scale = module.split("local function PositionDurabilityScale", 1)[1].split(
-        "function ReadyCheckAssistant:Refresh", 1
-    )[0]
-    assert "width * index / 10" in scale
-    assert "durability and durability.threshold" in scale
-    assert "PositionDurabilityScale(durability)" in module
+
+def test_personal_consumable_status_and_reports():
+    lua = panel_runtime()
+    lua.execute('''
+        currentLoadout="Raid"
+        durability={lowest=96,average=98,threshold=25,lowSlots={}}
+        local buffs={flask={value=false},food={value=true,remaining=1680},
+            rune={},weapon={value=true,remaining=32}}
+        function module:GetConsumables() return buffs end
+        module:Refresh()
+        assert(module.snapshot.issueCount==2)
+        assert(display.cells[1].value.text==ns.L.RCA_MISSING)
+        assert(display.cells[2].value.text==string.format(ns.L.RCA_MINUTES_LEFT,28))
+        assert(display.cells[3].value.text==ns.L.RCA_CHECK_UNKNOWN)
+        assert(display.cells[4].value.text==string.format(ns.L.RCA_SECONDS_LEFT,32))
+        local atlas = display.cells[5].icon.texture
+        for index=1,4 do
+            local cell=display.cells[index]
+            assert(cell.icon.texture==atlas)
+            assert(cell.icon.texCoord[1]==(index+6)/16)
+            for channel=1,3 do assert(cell.icon.vertexColor[channel]==cell.value.textColor[channel]) end
+        end
+        assert(display.specIcon.texture==atlas and display.specIcon.texCoord[1]==11/16)
+        local report=module:BuildReport(module.snapshot)
+        assert(report:find(ns.L.RAIDPREP_COLUMN_FLASK,1,true))
+        assert(report:find(ns.L.RCA_CHECK_UNKNOWN,1,true))
+        buffs.flask={value=true};buffs.rune={value=true}
+        local flaskUV=display.cells[1].icon.texCoord[1]
+        module:Refresh()
+        assert(module.snapshot.issueCount==0 and module.snapshot.status=="READY")
+        assert(display.cells[1].value.text==ns.L.RCA_ACTIVE)
+        assert(display.cells[1].icon.texCoord[1]==flaskUV)
+        assert(display.cells[1].icon.vertexColor[2]==display.cells[1].value.textColor[2])
+    ''')

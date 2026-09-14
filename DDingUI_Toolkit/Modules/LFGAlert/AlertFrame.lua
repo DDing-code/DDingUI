@@ -158,7 +158,9 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
 
     local settings = self.settings or {}
     local width = Clamp(settings.width, 320, 760)
-    local height = Clamp(settings.height, 80, 170)
+    local baseHeight = Clamp(settings.height, 80, 170)
+    local extra = self.calendarExtra or 0
+    local height = baseHeight + extra / 0.62
     local titleColor = self:GetColor("titleColor")
     local subtitleColor = self:GetColor("subtitleColor")
     local lineColor = self:GetColor("lineColor")
@@ -230,7 +232,7 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
     local titleReveal = SmoothStep((reveal - 0.14) / 0.50) * (1 - exitProgress)
     local subtitleReveal = SmoothStep((reveal - 0.24) / 0.48) * (1 - exitProgress)
     frame.title:ClearAllPoints()
-    frame.title:SetPoint("CENTER", frame.art, "CENTER", 0, (frame.calendarMark and height * 0.055 or 9) + (1 - titleReveal) * 5 - exitProgress * 4)
+    frame.title:SetPoint("CENTER", frame.art, "CENTER", 0, (frame.calendarMark and baseHeight * 0.055 + extra / 2 or 9) + (1 - titleReveal) * 5 - exitProgress * 4)
     frame.title:SetTextColor(
         ColorComponent(titleColor, 1, 1),
         ColorComponent(titleColor, 2, 1),
@@ -238,7 +240,7 @@ function CalmVisual:Render(reveal, exitProgress, visibility, elapsed)
         ColorComponent(titleColor, 4, 1) * titleReveal
     )
     frame.subtitle:ClearAllPoints()
-    frame.subtitle:SetPoint("CENTER", frame.art, "CENTER", 0, (frame.calendarMark and -height * 0.17 or -17) + (1 - subtitleReveal) * 4 - exitProgress * 3)
+    frame.subtitle:SetPoint("CENTER", frame.art, "CENTER", 0, (frame.calendarMark and -baseHeight * 0.17 or -17) + (1 - subtitleReveal) * 4 - exitProgress * 3)
     frame.subtitle:SetTextColor(
         ColorComponent(subtitleColor, 1, 1),
         ColorComponent(subtitleColor, 2, 1),
@@ -392,13 +394,15 @@ function CalmVisual:Apply(settings, position)
     local outline = self.settings.fontOutline or "OUTLINE"
     local font = self.settings.font or DEFAULT_FONT
 
-    frame:SetSize(width, height)
+    local subtitleSize = math.max(11, math.floor(fontSize * 0.56 + 0.5))
+    self.calendarExtra = frame.calendarMark and math.max(0, (self.calendarRows or 1) - 1) * (subtitleSize + 6) or 0
+    frame:SetSize(width, height + self.calendarExtra / 0.62)
     frame:SetScale(Clamp(self.settings.alertScale or self.settings.scale, 0.5, 2))
     frame:SetFrameStrata(self.settings.frameStrata or "FULLSCREEN_DIALOG")
     frame.title:SetWidth(math.max(1, width - 48))
     frame.title:SetHeight(math.max(1, height * 0.32))
     frame.subtitle:SetWidth(math.max(1, width - 64))
-    frame.subtitle:SetHeight(math.max(1, height * 0.24))
+    frame.subtitle:SetHeight(self.calendarExtra > 0 and (subtitleSize + 6 + self.calendarExtra) or math.max(1, height * 0.24))
 
     local fontFlags = outline == "NONE" and "" or outline
     local titleOK, titleResult = pcall(frame.title.SetFont, frame.title, font, fontSize, fontFlags)
@@ -411,6 +415,7 @@ function CalmVisual:Apply(settings, position)
     end
 
     position = type(position) == "table" and position or self.settings.position or {}
+    self.position = position
     frame:ClearAllPoints()
     frame:SetPoint(
         position.point or "TOP",
@@ -431,6 +436,10 @@ end
 
 function CalmVisual:Show(title, subtitle, options)
     options = type(options) == "table" and options or {}
+    if self.frame.calendarMark then
+        self.calendarRows = math.max(1, tonumber(options.calendarRows) or 1)
+        self:Apply(self.settings, self.position)
+    end
     self.frame.title:SetText(type(title) == "string" and title or "")
     self.frame.subtitle:SetText(type(subtitle) == "string" and subtitle or "")
     self.nodeCount = math.max(1, math.min(5, math.floor(tonumber(options.nodeCount) or 1)))

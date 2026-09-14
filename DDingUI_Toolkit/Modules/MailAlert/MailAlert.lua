@@ -18,6 +18,7 @@ ns.MailAlert = MailAlert
 local hadMail = false
 local lastAlertTime = 0
 local eventFrame = nil
+local editPreview = false
 
 -- 초기화
 function MailAlert:OnInitialize()
@@ -50,13 +51,12 @@ end
 
 -- 비활성화
 function MailAlert:OnDisable()
+    editPreview = false
     if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("MailAlert") end
     if eventFrame then
         eventFrame:UnregisterAllEvents()
     end
-    if self.alertFrame then
-        self.alertFrame:Hide()
-    end
+    self:HideAlert(true)
 end
 
 -- 새 메일 확인
@@ -92,6 +92,7 @@ end
 
 -- 알림 트리거
 function MailAlert:TriggerAlert(isTest)
+    if not self.db then self:OnInitialize() end
     -- 소리 알림 -- [12.0.1] ns:PlaySound 통합
     if self.db.soundEnabled then
         local soundFile = self.db.soundFile
@@ -123,7 +124,7 @@ function MailAlert:TriggerAlert(isTest)
     end
 
     -- 화면 알림
-    if self.db.screenAlertEnabled and self.alertFrame then
+    if self.db.screenAlertEnabled then
         self:ShowAlert(isTest)
     end
 
@@ -145,7 +146,22 @@ end
 
 -- 알림 프레임 생성
 function MailAlert:CreateAlertFrame()
-    if self.alertFrame then return end
+    if not self.db then self:OnInitialize() end
+    local frame
+    if self.db.alertStyle == "SEAL" then
+        frame = self:CreateSealVisual().frame
+    else
+        self:CreateFactionFrame()
+        frame = self.factionFrame
+    end
+    if self.alertFrame ~= frame then
+        self:HideAlert(true)
+        self.alertFrame = frame
+    end
+end
+
+function MailAlert:CreateFactionFrame()
+    if self.factionFrame then return end
 
     -- WeakAuras 원본 비율: 411x63 + 메일 아이콘 64x64
     local frame = CreateFrame("Frame", "DDingToolKit_MailAlertFrame", UIParent)
@@ -215,19 +231,27 @@ function MailAlert:CreateAlertFrame()
     pulseAnim:SetDuration(0.5)
     frame.pulse = pulse
 
-    self.alertFrame = frame
+    self.factionFrame = frame
 end
 
 -- 알림 표시
 function MailAlert:ShowAlert(isTest)
-    if not self.alertFrame then return end
-
+    self:CreateAlertFrame()
+    self:HideAlert(true)
+    self.lastTest = isTest == true
     local frame = self.alertFrame
+    local token = self.alertToken
 
-    -- 기존 애니메이션 모두 중지
-    if frame.fadeIn and frame.fadeIn:IsPlaying() then frame.fadeIn:Stop() end
-    if frame.fadeOut and frame.fadeOut:IsPlaying() then frame.fadeOut:Stop() end
-    if frame.pulse and frame.pulse:IsPlaying() then frame.pulse:Stop() end
+    if self.db.alertStyle == "SEAL" then
+        self:ApplyPosition()
+        self.sealVisual:Show(L["MAILALERT_SEAL_TITLE"], L["MAILALERT_SEAL_SUBTITLE"], {
+            duration = self.db.alertDuration or 5,
+            animated = self.db.sealMotion ~= false,
+            persistent = editPreview,
+            previewDuration = self.db.alertDuration or 5,
+        })
+        return
+    end
 
     -- 텍스트 업데이트
     if isTest then
@@ -244,20 +268,7 @@ function MailAlert:ShowAlert(isTest)
         frame.factionBg:SetAtlas("Objective-Header-CampaignAlliance")
     end
 
-    -- 위치 설정
-    frame:ClearAllPoints()
-    local position = self.db.alertPosition or "CENTER"
-    if position == "TOP" then
-        frame:SetPoint("TOP", UIParent, "TOP", 0, -100)
-    elseif position == "CENTER" then
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
-    elseif position == "BOTTOM" then
-        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 200)
-    end
-
-    -- 크기 조절
-    local scale = self.db.alertScale or 1.0
-    frame:SetScale(scale)
+    self:ApplyPosition()
 
     -- 표시
     frame:Show()
@@ -272,19 +283,33 @@ function MailAlert:ShowAlert(isTest)
     end
 
     -- 자동 숨기기
+    if editPreview then return end
     local duration = self.db.alertDuration or 5
     C_Timer.After(duration, function()
-        if frame:IsShown() then
+        if self.alertToken == token and self.alertFrame == frame and frame:IsShown() then
             self:HideAlert()
         end
     end)
 end
 
 -- 알림 숨기기
-function MailAlert:HideAlert()
+function MailAlert:HideAlert(immediate)
+    self.alertToken = (self.alertToken or 0) + 1
     if not self.alertFrame then return end
 
     local frame = self.alertFrame
+    if self.sealVisual and frame == self.sealVisual.frame then
+        self.sealVisual:Hide(immediate == true)
+        return
+    end
+    if immediate then
+        for _, animation in ipairs({frame.fadeIn, frame.fadeOut, frame.pulse}) do
+            animation:Stop()
+        end
+        frame:Hide()
+        frame:SetAlpha(1)
+        return
+    end
 
     -- 펄스 애니메이션 중지
     if frame.pulse and frame.pulse:IsPlaying() then
@@ -305,11 +330,12 @@ function MailAlert:AnimatePulse()
     if not self.alertFrame or not self.alertFrame.pulse then return end
 
     local frame = self.alertFrame
+    local token = self.alertToken
     frame.pulse:Play()
 
     -- 3초 후 펄스 중지
     C_Timer.After(3, function()
-        if frame.pulse and frame.pulse:IsPlaying() then
+        if self.alertToken == token and self.alertFrame == frame and frame.pulse and frame.pulse:IsPlaying() then
             frame.pulse:Stop()
             frame:SetAlpha(1)
         end
@@ -323,6 +349,43 @@ function MailAlert:AnimateFade()
     local frame = self.alertFrame
     frame:SetAlpha(0)
     frame.fadeIn:Play()
+end
+
+function MailAlert:ApplyPosition()
+    local frame = self.alertFrame
+    if not frame then return end
+    frame:ClearAllPoints()
+    local position = self.db.alertPosition
+    if position == "TOP" then
+        frame:SetPoint("TOP", UIParent, "TOP", 0, -100)
+    elseif position == "BOTTOM" then
+        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 200)
+    else
+        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
+    end
+    frame:SetScale(self.db.alertScale or 1)
+end
+
+function MailAlert:ApplySettings()
+    if not self.db then self:OnInitialize() end
+    if not self.db.screenAlertEnabled and not editPreview then self:HideAlert(true); return end
+    if editPreview or (self.alertFrame and self.alertFrame:IsShown()) then
+        self:ShowAlert(self.lastTest)
+    end
+end
+
+function MailAlert:EnterEditPreview()
+    editPreview = true
+    self:ShowAlert(true)
+end
+
+function MailAlert:RefreshEditPreview()
+    if editPreview then self:ShowAlert(true) end
+end
+
+function MailAlert:ExitEditPreview()
+    editPreview = false
+    self:HideAlert(true)
 end
 
 -- 모듈 등록

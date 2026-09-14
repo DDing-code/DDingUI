@@ -1,5 +1,41 @@
 # DDingUI Toolkit Changelog
 
+## 2.1.7
+
+Release date: 2026-09-14
+
+### Option Changes
+
+- **Mail Alert:** Added an Alert Design selector for the original faction banner or the new mail seal. Existing profiles retain the faction banner. The seal has its own motion toggle; both designs share position, scale, duration and sound settings, and can be switched in live preview.
+
+- **Bloodlust Timer:** Replaced the system crest with a symmetric mask. Mask and eyes/forehead colors and opacity can be changed independently; existing custom colors are preserved. Restored the original centered title, font size, and ring/crest proportions without changing the timer's icon or text settings.
+
+- **Ready Check Assistant:** Personal readiness now uses matching line icons for flask, food, augment rune, weapon enhancement, and durability, with specialization and talents above. Shows remaining buff time or unknown status, includes missing consumables in reports, and supports widths from 560 to 900. Existing position, scale, action-button and close behavior settings remain.
+
+- **Raid Preparation:** Replaced the large grid and gauges with a compact response summary and a scrollable list of outstanding checks. Automatically opened windows fade out after everyone is ready and all enabled checks pass; entering combat hides the window. Manually opened windows stay open on completion. The optional end-of-check timeout can still close incomplete results.
+
+- **Calendar Invite Alert:** Today's upcoming events are grouped into one notification with a time-and-title list and one sound. Pending-invitation alerts now also exclude already-started events, including combat/loading deferrals; queued sounds recheck eligibility before playing.
+
+- **Raid Groups:** Both balancing modes now reserve an equal number of parties on each side even when the raid needs an odd number of parties. For example, 25 players use parties 1-2-3 / 4-5-6 in consecutive mode.
+
+- **Affix Diagnostics:** Added opt-in `/ddt affix on`, `mark`, `off`, and `report` commands. Reports are cleared by reload. This is a diagnostic tool, not an affix countdown timer.
+
+### 옵션 변경
+
+- **우편 알림:** 알림 디자인에서 기존 진영 배너와 새 편지 인장을 선택할 수 있습니다. 기존 사용자는 진영 배너를 유지하며, 인장형에는 별도 모션 ON/OFF를 제공합니다. 위치·크기·표시 시간·소리 설정은 공통으로 사용하고 실시간 미리보기에서 디자인을 전환할 수 있습니다.
+
+- **블러드 타이머:** 시스템 문양을 대칭 가면으로 교체했습니다. 가면과 눈·이마의 색상·투명도를 따로 조절할 수 있으며 기존 사용자 색상은 유지합니다. 모션의 중앙 문구 배치·글자 크기·링과 문양 비율은 기존대로 복원하고 타이머 본체의 아이콘·텍스트 설정은 유지합니다.
+
+- **준비 확인 도우미:** 개인 영약·음식·증강 룬·무기 강화·내구도를 통일된 선형 아이콘으로 표시하고 전문화·특성은 상단으로 분리했습니다. 버프 남은 시간과 확인 불가 상태를 표시하며, 소모품 부족도 파티 보고에 포함합니다. 너비 범위는 560~900으로 확장하고 기존 위치·배율·버튼·닫힘 설정은 유지합니다.
+
+- **공격대 준비:** 큰 표와 게이지 대신 가로형 응답 요약과 부족한 항목 목록을 표시합니다. 자동으로 열린 창은 전원이 준비하고 활성 점검을 통과하면 잠시 후 사라지며, 전투 진입 시 즉시 숨깁니다. 수동으로 연 창은 완료 시 유지하고, 미완료여도 준비 확인 종료 후 닫는 옵션은 유지합니다.
+
+- **달력 초대 알림:** 오늘 남은 일정을 시간·제목 목록으로 한 알림에 모아 표시하고 효과음도 한 번만 재생합니다. 미확인 초대 알림에도 지난 일정 제외를 적용하여 전투·로딩 후 재개 시 이미 시작한 일정은 건너뛰고, 대기 중인 효과음도 재생 직전에 확인합니다.
+
+- **공격대 그룹 관리:** 필요한 파티 수가 홀수여도 양쪽 조에 같은 수의 파티를 확보하도록 균형 배치를 조정했습니다. 예를 들어 25인 공대의 연속 배치는 1·2·3 / 4·5·6파티를 사용합니다.
+
+- **어픽스 진단:** 직접 켜서 사용하는 `/ddt affix on`, `mark`, `off`, `report` 명령을 추가했습니다. 기록은 리로드하면 지워지며, 아직 어픽스 카운트다운 타이머는 아닙니다.
+
 ## 2.1.6
 
 Release date: 2026-09-06

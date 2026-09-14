@@ -30,7 +30,23 @@ def calendar_runtime(loaded=True):
             return pendingCount
         end}
         C_GameRules = {IsGameRuleActive=function() return calendarDisabled end}
-        Enum = {GameRule={IngameCalendarDisabled=1}}
+        Enum = {GameRule={IngameCalendarDisabled=1}, CalendarStatus={Invited=0, Declined=2, Out=4, NotSignedup=7}}
+        calendarNow = {year=2026, month=9, monthDay=6, hour=10, minute=0}
+        C_DateAndTime = {GetCurrentCalendarTime=function() return calendarNow end}
+        C_Calendar.GetMonthInfo = function() return {year=2026, month=9, numDays=30} end
+        C_Calendar.GetMaxCreateDate = function() return {year=2026, month=9, monthDay=30} end
+        C_Calendar.GetFirstPendingInvite = function(_, day) return day == 7 and 1 or nil end
+        C_Calendar.GetNumDayEvents = function(_, day)
+            return day == 7 and type(pendingCount) == "number" and pendingCount >= 0
+                and pendingCount < 1000 and math.floor(pendingCount) or 0
+        end
+        C_Calendar.GetDayEvent = function(_, _, index)
+            return {eventID=index, title="Tomorrow", calendarType="PLAYER", inviteStatus=0,
+                startTime={year=2026, month=9, monthDay=7, hour=20, minute=0}}
+        end
+        C_Timer = {NewTimer=function(_, callback)
+            return {callback=callback, Cancel=function(self) self.cancelled=true end}
+        end}
         function FlashClientIcon() flashes=flashes+1 end
         function ToggleCalendar() calendarOpens=calendarOpens+1 end
         function print(message) messages[#messages+1]=message end
@@ -82,8 +98,6 @@ def test_loading_defers_both_alerts_and_resumes_only_interrupted_notices():
         ns:InitDB()
         module = ns.CalendarInviteAlert
         pendingCount = 2
-        C_DateAndTime = {}
-        C_Calendar.GetDayEvent = function() end
         C_Timer = {NewTimer=function(delay, callback)
             timer = {callback=callback, Cancel=function(self) self.cancelled=true end}
             return timer
@@ -268,6 +282,112 @@ def test_calendar_invite_events_preview_and_settings():
     ''')
 
 
+def test_pending_invites_expire_across_combat_loading_and_sound_queue():
+    lua = calendar_runtime()
+    lua.execute('''
+        ns:InitDB()
+        module = ns.CalendarInviteAlert
+        ns.db.profile.CalendarInviteAlert.notifyToday = false
+        calendarNow = {year=2026, month=12, monthDay=31, hour=20, minute=0}
+        pendingCount = 5
+        reads = 0
+        local function invite(id, month, day, hour, minute, status)
+            return {eventID=id, title=id, calendarType="PLAYER", inviteStatus=status or 0, listingMonth=month, listingDay=day,
+                startTime={year=month==1 and 2027 or 2026, month=month, monthDay=day, hour=hour, minute=minute}}
+        end
+        events = {
+            invite("yesterday",12,30,23,59), invite("earlier",12,31,19,59),
+            invite("now",12,31,20,0), invite("soon",12,31,20,1),
+            invite("tomorrow",1,1,10,0), invite("answered",12,31,22,0,1),
+        }
+        C_Calendar.GetMaxCreateDate = function() return {year=2027, month=1, monthDay=31} end
+        -- The user is browsing February; scanning must never change their month or open an event.
+        C_Calendar.GetMonthInfo = function(offset)
+            assert(offset >= -2 and offset <= 0)
+            return {year=offset==-2 and 2026 or 2027, month=offset==-2 and 12 or 2+offset, numDays=31}
+        end
+        local function onDay(offset, day)
+            local list={}
+            for _, event in ipairs(events) do
+                if event.listingMonth == (offset==-2 and 12 or 2+offset) and event.listingDay==day then
+                    list[#list+1]=event
+                end
+            end
+            return list
+        end
+        C_Calendar.GetFirstPendingInvite = function(offset, day)
+            reads=reads+1
+            if badMarker then return badMarker end
+            for index, event in ipairs(onDay(offset,day)) do
+                if event.inviteStatus == 0 or event.inviteStatus == 7 then return index end
+            end
+        end
+        C_Calendar.GetNumDayEvents = function(offset, day) return #onDay(offset,day) end
+        C_Calendar.GetDayEvent = function(offset, day, index) return onDay(offset,day)[index] end
+        C_Calendar.SetAbsMonth = function() error("must not change calendar selection") end
+        C_Calendar.OpenEvent = function() error("must not mark invitations read") end
+        module:OnEnable()
+        assert(module:GetPendingCount()==2, "past starts, current minute and answered invites are excluded")
+        assert(#sounds==1 and sounds[1].isValid())
+        assert(module.alertFrame.subtitle.text==string.format(ns.L.CALENDARALERT_PENDING_TEXT,2))
+        local cachedReads=reads
+        module.alertVisual:Hide(true)
+        inCombat=true; fire("PLAYER_REGEN_DISABLED")
+        inCombat=false; fire("PLAYER_REGEN_ENABLED")
+        assert(#sounds==1 and reads==cachedReads, "combat completion must not rescan or replay a completed alert")
+
+        -- An unchanged native pending count must not keep expired invites eligible.
+        calendarNow.hour=20; calendarNow.minute=1
+        assert(module:GetPendingCount()==1)
+        calendarNow.year=2027; calendarNow.month=1; calendarNow.monthDay=1; calendarNow.hour=10; calendarNow.minute=0
+        fire("PLAYER_REGEN_ENABLED")
+        assert(module:GetPendingCount()==0 and not sounds[1].isValid())
+        assert(not module.alertFrame.shown and cancelledKeys["CalendarInviteAlert:pending-invites"])
+
+        calendarNow.year=2026; calendarNow.month=12; calendarNow.monthDay=31; calendarNow.hour=20; calendarNow.minute=0
+        events={invite("combat",12,31,20,1)}
+        inCombat=true; fire("CALENDAR_UPDATE_EVENT_LIST")
+        calendarNow.minute=1
+        inCombat=false; fire("PLAYER_REGEN_ENABLED")
+        assert(#sounds==1 and not module.alertFrame.shown, "expired combat-deferred invite must not notify")
+
+        events={invite("loading",12,31,20,2)}
+        fire("CALENDAR_UPDATE_EVENT_LIST")
+        assert(#sounds==2 and sounds[2].isValid())
+        fire("LOADING_SCREEN_ENABLED")
+        calendarNow.minute=2
+        fire("LOADING_SCREEN_DISABLED")
+        assert(#sounds==2 and not module.alertFrame.shown and not sounds[2].isValid())
+
+        events={invite("guild",12,31,20,3,7)}
+        events[1].calendarType="GUILD_EVENT"
+        fire("CALENDAR_UPDATE_EVENT_LIST")
+        assert(#sounds==3 and module:GetPendingCount()==1, "native pending guild signup must still alert")
+        events[1].startTime=SECRET
+        fire("CALENDAR_UPDATE_EVENT_LIST")
+        assert(module:GetPendingCount()==nil and not sounds[3].isValid(), "restricted dates must never use the raw count")
+        events={invite("safe",12,31,20,4)}
+        badMarker=SECRET; fire("CALENDAR_UPDATE_EVENT_LIST")
+        assert(module:GetPendingCount()==nil and #sounds==3)
+        badMarker=nil; fire("CALENDAR_UPDATE_EVENT_LIST")
+        assert(module:GetPendingCount()==1)
+        local request=sounds[3]
+        calendarNow.minute=4
+        assert(not request.isValid(), "queued sounds revalidate the start time immediately before playing")
+
+        -- Today-only sounds are independently checked, including chat/sound-only configurations.
+        local today={key="today", hour=21, minute=0, title="Raid"}
+        function module:GetTodayEvents() return {today} end
+        module:TriggerAlert(false,nil,today)
+        local todaySound=sounds[#sounds]
+        assert(todaySound.isValid())
+        function module:GetTodayEvents() return {} end
+        assert(not todaySound.isValid())
+        module:TriggerAlert(true)
+        assert(sounds[#sounds].isValid(), "explicit tests do not require a real upcoming invitation")
+    ''')
+
+
 def test_calendar_invite_module_wiring_and_lua_syntax():
     lua = LuaRuntime(unpack_returned_tuples=True)
     compile_lua = lua.eval("function(source, name) assert(loadstring(source, name)) end")
@@ -301,6 +421,8 @@ def test_today_events_order_filters_deferral_and_daily_deduplication():
     lua.execute('''
         ns:InitDB()
         module = ns.CalendarInviteAlert
+        -- Keep invitation delivery orchestration independent of this day's schedule fixtures.
+        function module:GetPendingCount() return pendingCount end
         assert(ns.db.profile.CalendarInviteAlert.notifyToday == true)
         Enum.CalendarStatus = {Invited=0, Available=1, Declined=2, Confirmed=3, Out=4, Standby=5, Signedup=6, NotSignedup=7, Tentative=8}
         serverDate = {year=2026, month=9, monthDay=5, hour=10, minute=30}
@@ -365,19 +487,22 @@ def test_today_events_order_filters_deferral_and_daily_deduplication():
         end
 
         dayEvents={event("later",21,30,"Guild Raid","GUILD_EVENT",3), event("early",19,0,"Keys"),
+            event("past",9,59,"Past"), event("past-minute",10,29,"Past minute"), event("started",10,30,"Starting now"),
             event("festival",0,0,"Holiday","HOLIDAY"), event("lock",12,0,"Lockout","RAID_LOCKOUT"),
             event("reset",12,0,"Reset","RAID_RESET"), event("decline",20,0,"Declined","PLAYER",2),
             event("out",20,0,"Removed","PLAYER",4), event("yesterday",20,0,"Multi-day","PLAYER",1,4)}
         module:OnEnable()
         assert(requests == 1 and #sounds == 1, "synchronous calendar data event must not double-notify")
-        assert(module.alertFrame.titleText == string.format(ns.L.CALENDARALERT_TODAY_TITLE,19,0))
-        assert(module.alertFrame.subtitle.text == "Keys" and sounds[1].key == "today-event")
+        local summary = "19:00  Keys\\n21:30  Guild Raid"
+        assert(module.alertFrame.titleText == ns.L.CALENDARALERT_NOTIFY_TODAY)
+        assert(module.alertFrame.subtitle.text == summary and sounds[1].key == "today-event")
+        assert(module.alertVisual.options.calendarRows == 2)
         assert(messages[1]:find("19:00",1,true) and activeTimers()==1)
         fire("CALENDAR_UPDATE_PENDING_INVITES")
         fire("PLAYER_ENTERING_WORLD")
-        assert(module.alertFrame.shown and module.alertFrame.subtitle.text=="Keys" and #sounds==1)
+        assert(module.alertFrame.shown and module.alertFrame.subtitle.text==summary and #sounds==1)
         advance(6.2)
-        assert(module.alertFrame.subtitle.text=="Guild Raid" and #sounds==2)
+        assert(not module.alertFrame.shown and #sounds==1, "one popup and sound for the whole batch")
         advance(6.2)
         local completedSounds=#sounds
         fire("CALENDAR_UPDATE_EVENT_LIST")
@@ -444,10 +569,10 @@ def test_today_events_order_filters_deferral_and_daily_deduplication():
         serverDate.hour,serverDate.minute=23,59
         fire("CALENDAR_UPDATE_EVENT_LIST")
         serverDate.monthDay,serverDate.hour,serverDate.minute=6,0,0
-        dayEvents={event("next-day",0,0,"Midnight")}
+        dayEvents={event("next-day",0,1,"Midnight")}
         advance(62)
         assert(requests==2 and module.alertFrame.subtitle.text=="Midnight")
-        assert(module.alertFrame.titleText==string.format(ns.L.CALENDARALERT_TODAY_TITLE,0,0))
+        assert(module.alertFrame.titleText==string.format(ns.L.CALENDARALERT_TODAY_TITLE,0,1))
         advance(6.2)
         module:OnDisable()
         assert(activeTimers()==0)
@@ -495,6 +620,20 @@ def test_today_events_order_filters_deferral_and_daily_deduplication():
         validEvent.startTime.hour=22
         fire("CALENDAR_UPDATE_EVENT_LIST")
         assert(module.alertFrame.titleText==string.format(ns.L.CALENDARALERT_TODAY_TITLE,22,10), "changed start time must notify")
+        inCombat=true
+        fire("PLAYER_REGEN_DISABLED")
+        serverDate.hour,serverDate.minute=22,10
+        local beforeExpired=#sounds
+        inCombat=false
+        fire("PLAYER_REGEN_ENABLED")
+        assert(#sounds==beforeExpired and not module.alertFrame.shown, "started event must not resume after combat")
+        dayEvents={event("next-minute",22,11,"Next minute"), event("next-hour",23,0,"Next hour")}
+        fire("CALENDAR_UPDATE_EVENT_LIST")
+        assert(module.alertFrame.subtitle.text=="22:11  Next minute\\n23:00  Next hour")
+        fire("LOADING_SCREEN_ENABLED")
+        serverDate.minute=12
+        fire("LOADING_SCREEN_DISABLED")
+        assert(module.alertFrame.subtitle.text=="Next hour", "skip events that started during loading")
         module:OnDisable()
         assert(activeTimers()==0 and not driver.events.CALENDAR_UPDATE_PENDING_INVITES)
         local afterDisable=#sounds

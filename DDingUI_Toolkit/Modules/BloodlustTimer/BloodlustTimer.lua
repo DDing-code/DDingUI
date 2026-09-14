@@ -21,12 +21,12 @@ local DEFAULT_ANIMATION_FOLDER = "DDingUI_Media\\Bloodlust"
 local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
 local ICON_GLOW_KEY = "DDingUI_BloodlustIcon"
 local BAR_GLOW_KEY = "DDingUI_BloodlustBar"
-local START_MOTION_STYLE_VERSION = 4
+local START_MOTION_STYLE_VERSION = 5
 local SYSTEM_TEXTURE_ROOT = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\BloodlustSystem\\"
 local SYSTEM_RING_OUTER = SYSTEM_TEXTURE_ROOT .. "RingOuter.tga"
 local SYSTEM_RING_INNER = SYSTEM_TEXTURE_ROOT .. "RingInner.tga"
-local SYSTEM_CREST = SYSTEM_TEXTURE_ROOT .. "Crest.tga"
-local SYSTEM_CREST_CORE = SYSTEM_TEXTURE_ROOT .. "CrestCore.tga"
+local SYSTEM_CREST = SYSTEM_TEXTURE_ROOT .. "Mask.tga"
+local SYSTEM_CREST_CORE = SYSTEM_TEXTURE_ROOT .. "MaskAccent.tga"
 
 -- Detect the player-side lockout instead of individual drums or cast spells.
 -- This covers every current 12.1 Bloodlust source and future sources that use
@@ -89,8 +89,8 @@ local SYSTEM_MOTION_COLORS = {
     pulse = { 0.90, 0.025, 0.075, 0.94 },
     panel = { 0.115, 0.002, 0.052, 0.82 },
     glow = { 0.98, 0.025, 0.56, 0.34 },
-    crest = { 1.00, 0.82, 0.62, 1.00 },
-    crestCore = { 0.90, 0.025, 0.075, 1.00 },
+    crest = { 241 / 255, 238 / 255, 218 / 255, 1.00 },
+    crestCore = { 219 / 255, 7 / 255, 84 / 255, 1.00 },
 }
 
 local START_MOTION_DIAMOND_EDGES = {
@@ -251,6 +251,14 @@ local function EnsureDB()
             if StartMotionColorMatches(db[dbKey], START_MOTION_V3_COLORS[colorKey]) then
                 db[dbKey] = CopyStartMotionColor(START_MOTION_COLORS[colorKey])
             end
+        end
+    end
+    if styleVersion < 5 then
+        if StartMotionColorMatches(db.startMotionSystemCrestColor, { 1.00, 0.82, 0.62, 1.00 }) then
+            db.startMotionSystemCrestColor = CopyStartMotionColor(SYSTEM_MOTION_COLORS.crest)
+        end
+        if StartMotionColorMatches(db.startMotionSystemCrestCoreColor, { 0.90, 0.025, 0.075, 1.00 }) then
+            db.startMotionSystemCrestCoreColor = CopyStartMotionColor(SYSTEM_MOTION_COLORS.crestCore)
         end
     end
     if styleVersion < START_MOTION_STYLE_VERSION then
@@ -915,8 +923,8 @@ function BloodlustTimer:CreateStartMotionFrame()
     display.systemAccentRing = CreateSystemAssetTexture(display.systemArt, SYSTEM_RING_OUTER, "ARTWORK", 2, "ADD")
     display.systemInnerRing = CreateSystemAssetTexture(display.systemArt, SYSTEM_RING_INNER, "ARTWORK", 3, "ADD")
     display.systemCrestGlow = CreateSystemAssetTexture(display.systemArt, SYSTEM_CREST, "ARTWORK", 3, "ADD")
-    display.systemCrestCore = CreateSystemAssetTexture(display.systemArt, SYSTEM_CREST_CORE, "ARTWORK", 4, "ADD")
-    display.systemCrest = CreateSystemAssetTexture(display.systemArt, SYSTEM_CREST, "ARTWORK", 5, "ADD")
+    display.systemCrestCore = CreateSystemAssetTexture(display.systemArt, SYSTEM_CREST_CORE, "ARTWORK", 4, "BLEND")
+    display.systemCrest = CreateSystemAssetTexture(display.systemArt, SYSTEM_CREST, "ARTWORK", 5, "BLEND")
 
     display.systemStatusNodes = {}
     for index = 1, 3 do
@@ -1032,7 +1040,7 @@ function BloodlustTimer:RenderSystemStartMotion(progress)
     SetSystemAssetColor(display.systemOuterRing, ringColor, SYSTEM_MOTION_COLORS.ring, ringReveal)
     SetSystemAssetColor(display.systemAccentRing, accentColor, SYSTEM_MOTION_COLORS.accent, ringReveal * 0.82)
     SetSystemAssetColor(display.systemInnerRing, pulseColor, SYSTEM_MOTION_COLORS.pulse, ringReveal * 0.90)
-    SetSystemAssetColor(display.systemCrestGlow, accentColor, SYSTEM_MOTION_COLORS.accent, crestReveal * (0.10 + pulse * 0.24))
+    SetSystemAssetColor(display.systemCrestGlow, crestColor, SYSTEM_MOTION_COLORS.crest, crestReveal * (0.04 + pulse * 0.08))
     SetSystemAssetColor(display.systemCrestCore, crestCoreColor, SYSTEM_MOTION_COLORS.crestCore, crestReveal * (0.78 + pulse * 0.22))
     SetSystemAssetColor(display.systemCrest, crestColor, SYSTEM_MOTION_COLORS.crest, crestReveal)
 
