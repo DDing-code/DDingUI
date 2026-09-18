@@ -348,10 +348,15 @@ if not StaticPopupDialogs["DDINGUI_CREATE_CDM_GROUP"] then
     }
 end
 
-function GUI.PromptCreateCDMGroup(onCreated)
+function GUI.PromptCreateCDMGroup(onCreated, shared)
     StaticPopup_Show("DDINGUI_CREATE_CDM_GROUP", nil, nil, {
         onAccept = function(name)
-            if not DDingUI.GroupManager or not DDingUI.GroupManager:CreateGroup(name) then return end
+            if not DDingUI.GroupManager then return end
+            local ok, reason = DDingUI.GroupManager:CreateGroup(name, shared and { shared = true } or nil)
+            if not ok then
+                DDingUI:Print(reason and (L[reason] or reason) or T("A group with this name already exists.", "같은 이름의 그룹이 이미 있습니다."))
+                return
+            end
             if DDingUI.GroupSystem and DDingUI.GroupSystem.OnGroupAdded then
                 DDingUI.GroupSystem:OnGroupAdded(name)
             end
@@ -525,7 +530,9 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         local store = GetGroupStore()
         local settings = store and store.groups and store.groups[self.selectedGroup]
         self.centerHeader.title:SetText(GetGroupLabel(self.selectedGroup))
-        self.centerHeader.subtitle:SetText(GROUP_LABEL_KEYS[self.selectedGroup]
+        self.centerHeader.subtitle:SetText(settings and settings.shared
+            and T("Shared across all specializations in this profile.", "현재 프로필의 모든 전문화에 공통으로 적용됩니다.")
+            or GROUP_LABEL_KEYS[self.selectedGroup]
             and T("Blizzard CDM group", "블리자드 CDM 그룹")
             or T("Custom icon group", "커스텀 아이콘 그룹"))
         local enabled = settings and settings.enabled ~= false

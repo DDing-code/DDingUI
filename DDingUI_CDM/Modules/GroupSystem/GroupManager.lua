@@ -1221,6 +1221,11 @@ function GroupManager:CreateGroup(name, settings)
     local gs = GetGroupSystemSettings()
     if not gs then return false end
     if gs.groups[name] then return false end -- 이미 존재
+    if settings and settings.shared then
+        if InCombatLockdown() then return false, "Group sharing cannot be changed in combat." end
+        local ok, reason = DDingUI.SpecProfiles:CanUseSharedGroupName(name)
+        if not ok then return false, reason end
+    end
 
     -- 최대 order 찾기
     local maxOrder = 0
@@ -1283,6 +1288,19 @@ function GroupManager:CreateGroup(name, settings)
     return true
 end
 
+function GroupManager:SetGroupShared(name, shared)
+    local group = GetGroupSettings(name)
+    if not group or group.groupType ~= "dynamic" then return false, "Only custom groups can be shared." end
+    if InCombatLockdown() then return false, "Group sharing cannot be changed in combat." end
+    if shared then
+        local ok, reason = DDingUI.SpecProfiles:CanUseSharedGroupName(group.name or name, name)
+        if not ok then return false, reason end
+    end
+    group.shared = shared == true or nil
+    SaveCurrentSpecNow()
+    return true
+end
+
 function GroupManager:DeleteGroup(name)
     local gs = GetGroupSystemSettings()
     if not gs or not gs.groups[name] then return false end
@@ -1308,9 +1326,29 @@ end
 function GroupManager:RenameGroup(oldName, newName)
     local gs = GetGroupSystemSettings()
     if not gs or not gs.groups[oldName] or gs.groups[newName] then return false end
+    if gs.groups[oldName].shared then
+        if InCombatLockdown() then return false, "Group sharing cannot be changed in combat." end
+        local ok, reason = DDingUI.SpecProfiles:CanUseSharedGroupName(newName, oldName)
+        if not ok then return false, reason end
+    end
 
     gs.groups[newName] = gs.groups[oldName]
     gs.groups[oldName] = nil
+    gs.groups[newName].name = newName
+    local profile = DDingUI.db.profile
+    local db = profile.dynamicIcons
+    local source = db and db.groups and db.groups[gs.groups[newName].sourceGroupKey]
+    if source then
+        source.name, source.linkedCDMGroup = newName, newName
+        for _, key in ipairs(source.icons or {}) do
+            local data = db.iconData[key]
+            if data and data.settings then data.settings.targetCDMGroup = newName end
+        end
+    end
+    if profile.movers then
+        profile.movers["DDingUI_Group_" .. newName] = profile.movers["DDingUI_Group_" .. oldName]
+        profile.movers["DDingUI_Group_" .. oldName] = nil
+    end
 
     -- 스펠 할당도 업데이트
     if gs.spellAssignments then

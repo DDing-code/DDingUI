@@ -7,6 +7,7 @@ local DragState = Base.DragState
 local SL = Base.SL
 local FLAT = Base.FLAT
 local THEME = Base.THEME
+local SHARED_COLOR = SL.GetAccent("MJToolkit")
 local DDingUI_GetPopupEditBox = Base.GetPopupEditBox
 local GetSafeScrollRange = Base.GetSafeScrollRange
 local StyleFontString = Base.StyleFontString
@@ -172,6 +173,7 @@ local function BuildSectionMenuData(options, frame)
             parentKey = "groupSystem",
         }
         frame._optionLookup["groupSystem.__add"] = { action = "addGroup" }
+        frame._optionLookup["groupSystem.__addShared"] = { action = "addSharedGroup" }
 
         local profile = DDingUI.db and DDingUI.db.profile
         local groupSystem = profile and profile.groupSystem
@@ -184,6 +186,7 @@ local function BuildSectionMenuData(options, frame)
                     or name,
                 order = tonumber(settings.order) or 999,
                 enabled = settings.enabled ~= false,
+                shared = settings.shared == true,
             }
         end
         table.sort(groups, function(a, b)
@@ -197,6 +200,7 @@ local function BuildSectionMenuData(options, frame)
                 text = group.label,
                 kind = "group",
                 enabled = group.enabled,
+                shared = group.shared,
                 parentKey = "groupSystem",
             }
             frame._optionLookup[key] = {
@@ -273,6 +277,12 @@ local function CreateSectionMenu(parent, menuData, opts)
             end
             row.label:SetTextColor(THEME.text[1], THEME.text[2], THEME.text[3], 1)
         end
+        if row._shared then
+            row.icon:SetVertexColor(SHARED_COLOR[1], SHARED_COLOR[2], SHARED_COLOR[3], row._enabled and 1 or 0.4)
+            row.activeBar:SetColorTexture(unpack(SHARED_COLOR))
+        else
+            row.activeBar:SetColorTexture(unpack(THEME.accent))
+        end
     end
 
     local function AcquireRow(index)
@@ -302,6 +312,33 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.label:SetPoint("LEFT", row.icon, "RIGHT", 20, 0)
         row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
         row.label:SetJustifyH("LEFT")
+
+        row.sharedBadge = row:CreateFontString(nil, "OVERLAY")
+        row.sharedBadge:SetFont(globalFontPath, 9, "")
+        row.sharedBadge:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+        row.sharedBadge:SetText(L["Shared"] or "공용")
+        row.sharedBadge:SetTextColor(unpack(SHARED_COLOR))
+        row.sharedBadge:Hide()
+
+        row.sharedAdd = CreateFrame("Button", nil, row)
+        row.sharedAdd:SetSize(112, 30)
+        row.sharedAdd:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+        row.sharedAdd.label = row.sharedAdd:CreateFontString(nil, "OVERLAY")
+        row.sharedAdd.label:SetFont(globalFontPath, 10, "")
+        row.sharedAdd.label:SetAllPoints()
+        row.sharedAdd.label:SetJustifyH("RIGHT")
+        row.sharedAdd.label:SetText("+ " .. (L["Add Shared Group"] or "공용 그룹 추가"))
+        row.sharedAdd.label:SetTextColor(unpack(SHARED_COLOR))
+        row.sharedAdd:SetScript("OnClick", function()
+            if menu.onSelect then menu.onSelect("groupSystem.__addShared", true) end
+        end)
+        row.sharedAdd:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(L["Shared across all specializations in this profile."])
+            GameTooltip:Show()
+        end)
+        row.sharedAdd:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        row.sharedAdd:Hide()
 
         row.divider = row:CreateTexture(nil, "BORDER")
         row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
@@ -379,6 +416,9 @@ local function CreateSectionMenu(parent, menuData, opts)
             row._kind = kind
             row._text = item.text or item.key
             row._enabled = item.enabled ~= false
+            row._shared = item.shared == true
+            row.sharedBadge:SetShown(row._shared)
+            row.sharedAdd:SetShown(kind == "groupAdd")
             row._parentKey = item.parentKey
             row.icon:ClearAllPoints()
             row.label:ClearAllPoints()
@@ -409,7 +449,7 @@ local function CreateSectionMenu(parent, menuData, opts)
                 row.label:SetFont(globalFontPath, 11, "")
                 row.label:SetPoint("LEFT", row.icon, "RIGHT", 10, 0)
             end
-            row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+            row.label:SetPoint("RIGHT", row, "RIGHT", kind == "groupAdd" and -124 or (row._shared and -52 or -12), 0)
             row.label:SetText(item.text or item.key)
             self.rowsByKey[item.key] = row
         end
@@ -457,8 +497,26 @@ local CDM_BUILTIN_GROUPS = {
 local function ShowCDMGroupContextMenu(configFrame, groupName, displayName, owner)
     if not groupName or CDM_BUILTIN_GROUPS[groupName] then return false end
     if not SL or not SL.ShowCascadingMenu then return false end
+    local group = DDingUI.GroupManager and DDingUI.GroupManager:GetGroupByName(groupName)
+    if not group then return false end
 
     local menuItems = {
+        {
+            text = group.shared and L["Convert to Specialization Group"] or L["Convert to Shared Group"],
+            disabled = InCombatLockdown(),
+            func = function()
+                local ok, reason = DDingUI.GroupManager:SetGroupShared(groupName, not group.shared)
+                if not ok then
+                    if reason then DDingUI:Print(L[reason] or reason) end
+                    return
+                end
+                if configFrame and configFrame.RebuildTreeMenu then
+                    configFrame:RebuildTreeMenu("groupSystem.group_" .. groupName)
+                end
+                if DDingUI.GroupSystem then DDingUI.GroupSystem:Refresh(true) end
+            end,
+        },
+        { isSeparator = true },
         {
             text = L["Rename"] or "이름 변경",
             func = function()
@@ -466,13 +524,16 @@ local function ShowCDMGroupContextMenu(configFrame, groupName, displayName, owne
                     oldName = groupName,
                     onAccept = function(newName)
                         if newName == groupName then return end
-                        if DDingUI.GroupManager and DDingUI.GroupManager:RenameGroup(groupName, newName) then
+                        local ok, reason = DDingUI.GroupManager:RenameGroup(groupName, newName)
+                        if ok then
                             if configFrame and configFrame.RebuildTreeMenu then
                                 configFrame:RebuildTreeMenu("groupSystem.group_" .. newName)
                             end
                             if DDingUI.GroupSystem and DDingUI.GroupSystem.Refresh then
                                 DDingUI.GroupSystem:Refresh(true)
                             end
+                        elseif reason then
+                            DDingUI:Print(L[reason] or reason)
                         end
                     end,
                 })
@@ -3091,12 +3152,12 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                 return
             end
 
-            if lookup.action == "addGroup" then
+            if lookup.action == "addGroup" or lookup.action == "addSharedGroup" then
                 if frame.currentTab then tree:SetSelected(frame.currentTab) end
                 if DDingUI.GUI.PromptCreateCDMGroup then
                     DDingUI.GUI.PromptCreateCDMGroup(function(groupName)
                         frame:RebuildTreeMenu("groupSystem.group_" .. groupName)
-                    end)
+                    end, lookup.action == "addSharedGroup")
                 end
                 return
             end

@@ -614,6 +614,8 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings,
             -- skip: no frame exists
         elseif not iconData then
             -- skip: no icon data
+        elseif iconData.type == "item" and ci.IsIconLoadable and not ci:IsIconLoadable(iconData) then
+            -- Role-filtered items must not reserve space or use combat keep-alive.
         else
             local isActive = isEditMode
             if not isActive then

@@ -4147,7 +4147,7 @@ function Movers:MigrateAnchorPoints()
     if profile.profileVersion then return end
 
     -- profileVersion 세팅 (이후 마이그레이션 재실행 방지)
-    profile.profileVersion = DDingUI.VERSION or "2.1.5"
+    profile.profileVersion = DDingUI.VERSION or "2.1.6"
 
     -- 구 pendingMoverMigration 플래그 정리
     profile.pendingMoverMigration = nil

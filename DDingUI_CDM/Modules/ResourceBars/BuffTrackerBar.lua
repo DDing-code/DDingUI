@@ -3840,7 +3840,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     local maxStacks = settings.maxStacks or 1
     local hideWhenZero = settings.hideWhenZero
     if hideWhenZero == nil then hideWhenZero = true end
-    local showInCombat = settings.showInCombat or false
+    local alwaysShow = settings.showInCombat or false -- Keep the saved key for compatibility.
     local barColor = settings.barColor or { 1, 0.8, 0, 1 }
     local bgColor = settings.bgColor or globalCfg.bgColor or { 0.15, 0.15, 0.15, 1 }
     local showStacksText = settings.showStacksText
@@ -4686,6 +4686,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
             durationColor = durationTextColor,
             frameStrata = strata,
             frameLevel = bar:GetFrameLevel(),
+            preserveInactive = not hideWhenZero or alwaysShow,
             presentationVisible = not (onlyInCombat and not inCombat),
         }
     end
@@ -4716,7 +4717,7 @@ function ResourceBars:UpdateSingleTrackedBuffBar(barIndex, trackedBuff, globalCf
     end
 
     if hideWhenZero and not hasData and not isInMoverMode and not isInPreviewMode
-        and not (showInCombat and inCombat)
+        and not alwaysShow
     then
         if BUFF_TRACKER_DEBUG then
             print(string.format("[BT] HIDING bar#%s: hideWhenZero=%s hasData=%s mover=%s preview=%s engine=%s",
@@ -4769,9 +4770,9 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
     local dynamicDuration = settings.dynamicDuration or false
     local hideWhenZero = settings.hideWhenZero
     if hideWhenZero == nil then hideWhenZero = true end
-    local showInCombat = settings.showInCombat
-    if showInCombat == nil then
-        showInCombat = settings.alwaysShowInCombat or false
+    local alwaysShow = settings.showInCombat
+    if alwaysShow == nil then
+        alwaysShow = settings.alwaysShowInCombat or false
     end
     local onlyInCombat = settings.onlyInCombat or false
 
@@ -4860,7 +4861,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         and not isInPreviewMode and not isInMoverMode
 
     if not shouldShow and hideWhenZero then
-        if not (showInCombat and inCombat) then
+        if not alwaysShow then
             bar:Hide()
             return
         end
@@ -5287,7 +5288,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
             durationOutline = "OUTLINE",
             frameStrata = strata,
             frameLevel = bar:GetFrameLevel(),
-            preserveInactive = not hideWhenZero,
+            preserveInactive = not hideWhenZero or alwaysShow,
             presentationVisible = not hideForCombat,
         }
     end
@@ -5302,7 +5303,7 @@ function ResourceBars:UpdateSingleTrackedBuffRing(barIndex, trackedBuff, globalC
         return
     end
     if containerEligible and not ringAuraAttached and hideWhenZero
-        and not (showInCombat and inCombat)
+        and not alwaysShow
     then
         bar:Hide()
         return
@@ -5357,7 +5358,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
     local iconStackTextOutline = settings.iconStackTextOutline or "OUTLINE"
     local hideWhenZero = settings.hideWhenZero
     if hideWhenZero == nil then hideWhenZero = true end
-    local showInCombat = settings.showInCombat or false
+    local alwaysShow = settings.showInCombat or false -- Keep the saved key for compatibility.
     local hideFromCDM = settings.hideFromCDM or false
 
     -- Per-buff frame strata (개별 설정 > 전체 설정 > 기본값)
@@ -5440,9 +5441,9 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             return
         end
     else
-        -- 기존 로직: hideWhenZero + showInCombat
+        -- Always Show overrides hideWhenZero.
         if hideWhenZero and not hasData and not containerEligible and not isInMoverMode and not isInPreviewMode then
-            if not (showInCombat and inCombat) and not conditionalVisualActive then
+            if not alwaysShow and not conditionalVisualActive then
                 icon:Hide()
                 StopAllAnimations(icon)
                 icon._currentAnimation = nil
@@ -5826,7 +5827,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
             borderColor = iconBorderColor,
             frameStrata = settings.frameStrata or globalCfg.frameStrata or "MEDIUM",
             frameLevel = icon:GetFrameLevel(),
-            preserveInactive = not hideWhenZero,
+            preserveInactive = not hideWhenZero or alwaysShow,
             presentationVisible = not hideForCombat,
         }
     end
@@ -5843,7 +5844,7 @@ function ResourceBars:UpdateSingleTrackedBuffIcon(barIndex, trackedBuff, globalC
         return
     end
     if containerEligible and not showOnlyWhenInactive and not iconAuraAttached
-        and hideWhenZero and not (showInCombat and inCombat)
+        and hideWhenZero and not alwaysShow
         and not conditionalVisualActive
     then
         icon:Hide()
@@ -6069,7 +6070,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
     local iconSize = settings.textIconSize or 24
     local hideWhenZero = settings.hideWhenZero
     if hideWhenZero == nil then hideWhenZero = true end
-    local showInCombat = settings.showInCombat or false
+    local alwaysShow = settings.showInCombat or false -- Keep the saved key for compatibility.
     local hideFromCDM = settings.hideFromCDM or false
     local durationDecimals = settings.durationDecimals or 1  -- 소수점 자릿수
 
@@ -6140,10 +6141,10 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         and not isInMoverMode and not isInPreviewMode
 
     -- Hide if no data and hideWhenZero (skip in mover/preview mode)
-    -- Also skip hiding if showInCombat is enabled and we're in combat
+    -- Always Show overrides hiding an inactive aura; onlyInCombat still gates the display.
     local hideForNoData = hideWhenZero and not hasData
         and not isInMoverMode and not isInPreviewMode
-        and not (showInCombat and inCombat)
+        and not alwaysShow
     if hideForNoData and not containerEligible then
         HideTrackedBuffText(textFrame, settings, true)
         return
@@ -6412,7 +6413,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
             durationColor = settings.durationTextColor or { 1, 1, 1, 1 },
             frameStrata = settings.frameStrata or globalCfg.frameStrata or "MEDIUM",
             frameLevel = textFrame:GetFrameLevel(),
-            preserveInactive = not hideWhenZero,
+            preserveInactive = not hideWhenZero or alwaysShow,
             presentationVisible = not hideForCombat,
             mirrorLegacyText = true,
             textFadeInDirection = settings.textFadeInDirection or "NONE",
@@ -6433,7 +6434,7 @@ function ResourceBars:UpdateSingleTrackedBuffText(barIndex, trackedBuff, globalC
         return
     end
     if containerEligible and not textAuraAttached and hideWhenZero
-        and not (showInCombat and inCombat)
+        and not alwaysShow
     then
         HideTrackedBuffText(textFrame, settings, false)
         return

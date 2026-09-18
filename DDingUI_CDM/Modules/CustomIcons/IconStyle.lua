@@ -152,7 +152,7 @@ end
 local function ApplyIconBorder(iconFrame, settings)
     if not iconFrame or not iconFrame.border then return end
     local edgeSize = settings.borderSize or 0
-    if edgeSize <= 0 then
+    if iconFrame._ddIsManaged or edgeSize <= 0 then
         ShowTextureBorder(iconFrame.border, false)
         iconFrame.border:Hide()
         return

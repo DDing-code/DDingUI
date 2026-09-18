@@ -368,7 +368,6 @@ local function StyleSignature(style)
         tostring(style.showIcon),
         tostring(style.iconSize),
         tostring(style.mirrorLegacyText),
-        tostring(style.preserveInactive),
         tostring(style.protectedTriggerSignature),
     }, "|")
 end
@@ -839,11 +838,13 @@ end
 local function HideLegacyDisplay(host, style)
     if not host then return end
     local displayType = type(style) == "table" and style.displayType or style
+    -- Only addon-owned inactive surfaces change; the native aura keeps its binding.
+    local inactiveAlpha = type(style) == "table" and style.preserveInactive and 1 or 0
     host._auraContainerOwnsDisplay = true
     if displayType == "bar" or displayType == nil then
         if host.StatusBar then host.StatusBar:SetAlpha(0) end
-        if host.Background then host.Background:SetAlpha(0) end
-        if host.Border then host.Border:SetAlpha(0) end
+        if host.Background then host.Background:SetAlpha(inactiveAlpha) end
+        if host.Border then host.Border:SetAlpha(inactiveAlpha) end
         if host.TickFrame then host.TickFrame:SetAlpha(0) end
         if host.TextValue then host.TextValue:SetAlpha(0) end
         if host.DurationText then host.DurationText:SetAlpha(0) end
@@ -851,28 +852,22 @@ local function HideLegacyDisplay(host, style)
         if host.Cooldown then host.Cooldown:SetAlpha(0) end
         if host.TextValue then host.TextValue:SetAlpha(0) end
         if host.DurationText then host.DurationText:SetAlpha(0) end
-        if type(style) == "table" and not style.preserveInactive then
-            if host._ringColorBg then host._ringColorBg:SetAlpha(0) end
-            if host.RingBackground then host.RingBackground:SetAlpha(0) end
-            if host.RingProgress then host.RingProgress:SetAlpha(0) end
-            if host.RingBorder then host.RingBorder:SetAlpha(0) end
-        end
+        if host._ringColorBg then host._ringColorBg:SetAlpha(inactiveAlpha) end
+        if host.RingBackground then host.RingBackground:SetAlpha(inactiveAlpha) end
+        if host.RingProgress then host.RingProgress:SetAlpha(inactiveAlpha) end
+        if host.RingBorder then host.RingBorder:SetAlpha(inactiveAlpha) end
     elseif displayType == "icon" then
         if host.Cooldown then host.Cooldown:SetAlpha(0) end
         if host.StackText then host.StackText:SetAlpha(0) end
         if host.DurationText then host.DurationText:SetAlpha(0) end
-        if type(style) == "table" and not style.preserveInactive then
-            if host.Texture then host.Texture:SetAlpha(0) end
-            if host.Border then host.Border:SetAlpha(0) end
-            if host.Glow then host.Glow:SetAlpha(0) end
-        end
+        if host.Texture then host.Texture:SetAlpha(inactiveAlpha) end
+        if host.Border then host.Border:SetAlpha(inactiveAlpha) end
+        if host.Glow then host.Glow:SetAlpha(inactiveAlpha) end
     elseif displayType == "text" then
         if type(style) ~= "table" or not style.mirrorLegacyText then
             if host.Text then host.Text:SetAlpha(0) end
             if host.DurationText then host.DurationText:SetAlpha(0) end
-            if type(style) == "table" and not style.preserveInactive and host.Icon then
-                host.Icon:SetAlpha(0)
-            end
+            if host.Icon then host.Icon:SetAlpha(inactiveAlpha) end
         end
     end
 end

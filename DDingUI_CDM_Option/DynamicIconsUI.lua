@@ -1365,7 +1365,19 @@ function CustomIcons:RefreshDynamicConfigUI()
 
         -- Fallback Item IDs (show for item type or unknown type with id)
         local isItemType = (iconData.type == "item") or (iconData.type ~= "spell" and iconData.type ~= "slot" and iconData.type ~= "trinketProc" and iconData.id)
-        if isItemType then
+        if isItemType and DDingUI.ConsumableOptions:GetKind(iconData) then
+            GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
+                name = L["Potion Priority"],
+                func = function()
+                    DDingUI.ConsumableOptions:Edit(iconKey, function()
+                        CustomIcons:RefreshDynamicListUI()
+                        CustomIcons:RefreshDynamicConfigUI()
+                    end)
+                end,
+                width = "full",
+            }, y)
+            y = y + 36
+        elseif isItemType then
             GUIRefs.Widgets.CreateInput(uiFrames.configParent, {
                 name = "Fallback Item IDs",
                 get = function() return iconData.settings.fallbackItems or "" end,
@@ -1386,7 +1398,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             fallbackDesc:SetShadowColor(0, 0, 0, 1)
             fallbackDesc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
             fallbackDesc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
-            fallbackDesc:SetText("예: 3성 물약ID, 2성ID, 1성ID (쉼표 구분)")
+            fallbackDesc:SetText(L["Enter item IDs in priority order, separated by commas."])
             fallbackDesc:SetJustifyH("LEFT")
             y = y + 20
         end

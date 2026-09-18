@@ -2326,6 +2326,33 @@ end
 -- TRACKED BUFFS FOLDABLE LIST OPTIONS
 -- ============================================================
 
+local function CreateTrackedAlwaysShowOption(index, order, width, hidden)
+    return {
+        type = "toggle",
+        name = "    " .. L["Always show"],
+        desc = L["Show even when the aura is inactive. Only show in combat still applies."],
+        order = order, width = width, hidden = hidden,
+        get = function()
+            local buff = GetTrackedBuff(index)
+            local settings = buff and buff.settings or {}
+            local alwaysShow = settings.showInCombat
+            if alwaysShow == nil and buff and buff.displayType == "ring" then
+                alwaysShow = settings.alwaysShowInCombat
+            end
+            return alwaysShow == true or settings.hideWhenZero == false
+        end,
+        set = function(_, val)
+            local buff = GetTrackedBuff(index)
+            if not buff or not buff.settings then return end
+            -- Keep legacy keys in sync so disabling Always Show really hides inactive auras.
+            buff.settings.showInCombat = val
+            buff.settings.hideWhenZero = not val
+            DDingUI:UpdateBuffTrackerBar()
+            RefreshOptions()
+        end,
+    }
+end
+
 local function CreateTrackedSettingOption(optionType, index, settingKey, defaultValue, spec)
     local afterChange = spec.afterChange
     spec.afterChange = nil
@@ -3795,41 +3822,9 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         hidden = hiddenIfNotIcon,
     })
 
-    options["tracked" .. index .. "_showInactiveIcon"] = {
-        type = "toggle",
-        name = "    " .. L["Show Inactive Icon"],
-        desc = L["Keep this icon visible while its aura is inactive."],
-        order = orderBase + 1.80405,
-        width = 1.0,
-        hidden = hiddenIfNotIcon,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            if not buff or not buff.settings then return false end
-            return buff.settings.hideWhenZero == false
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            local buff = trackedBuffs[index]
-            if not buff or not buff.settings then return end
-
-            buff.settings.hideWhenZero = not val
-            if not val then
-                buff.settings.showInCombat = false
-                buff.settings.showOnlyWhenInactive = false
-            end
-            DDingUI:UpdateBuffTrackerBar()
-            RefreshOptions()
-        end,
-    }
-
-    -- Icon Always Show In Combat (아이콘 전투중 항상 표시)
-    options["tracked" .. index .. "_iconShowInCombat"] = CreateTrackedSettingOption("toggle", index, "showInCombat", false, {
-        name = "    " .. (L["Always show in combat"] or "Always show in combat"),
-        desc = L["Show during combat even when stacks are 0"] or "Show during combat even when stacks are 0",
-        order = orderBase + 1.8041,
-        width = 1.0,
-        hidden = hiddenIfNotIcon,
-    })
+    options["tracked" .. index .. "_iconShowInCombat"] = CreateTrackedAlwaysShowOption(
+        index, orderBase + 1.8041, 1.0, hiddenIfNotIcon
+    )
 
     -- Icon Only In Combat (아이콘 전투 중에만 표시)
     options["tracked" .. index .. "_iconOnlyInCombat"] = CreateTrackedSettingOption("toggle", index, "onlyInCombat", false, {
@@ -4764,74 +4759,40 @@ local function CreateTrackedBuffOptions(index, baseOrder, skipCollapsible)
         end,
     }
 
-    -- Hide When Zero / Hide When Full Charge (spell 모드에서 레이블 변경)
+    -- Spell charge visibility is separate from inactive aura visibility.
     options["tracked" .. index .. "_hideWhenZero"] = {
         type = "toggle",
-        name = function()
-            local buff = GetTrackedBuff(index)
-            local isSpell = buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell"))
-            if isSpell then
-                return "    " .. (L["Hide when fully charged"] or "Hide when fully charged")
-            end
-            return "    " .. (L["Hide at 0 stacks"] or "Hide at 0 stacks")
-        end,
+        name = "    " .. L["Hide when fully charged"],
         order = orderBase + 4,
         width = 0.7,
         hidden = function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
-            return not buff
+            local isSpell = buff and (buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell"))
+            return not isSpell
                 or (buff.displayType ~= "bar" and buff.displayType ~= "ring" and buff.displayType ~= "text")
         end,
         get = function()
             local buff = GetTrackedBuff(index)
-            if not buff or not buff.settings then return false end
-            local isSpell = buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell")
-            if isSpell then
-                return buff.settings.hideWhenFullCharge
-            end
-            return buff.settings.hideWhenZero
+            return buff and buff.settings and buff.settings.hideWhenFullCharge
         end,
         set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                local buff = trackedBuffs[index]
-                local isSpell = buff.trackingMode == "spell" or (buff.trigger and buff.trigger.type == "spell")
-                if isSpell then
-                    trackedBuffs[index].settings.hideWhenFullCharge = val
-                else
-                    trackedBuffs[index].settings.hideWhenZero = val
-                end
+            local buff = GetTrackedBuff(index)
+            if buff and buff.settings then
+                buff.settings.hideWhenFullCharge = val
                 DDingUI:UpdateBuffTrackerBar()
             end
         end,
     }
 
-    -- Show In Combat (bar와 ring 둘 다 표시)
-    options["tracked" .. index .. "_showInCombat"] = {
-        type = "toggle",
-        name = "    " .. (L["Always show in combat"] or "Always show in combat"),
-        desc = L["Show during combat even when stacks are 0"] or "Show during combat even when stacks are 0",
-        order = orderBase + 4.3,
-        width = 0.7,
-        hidden = function()
+    options["tracked" .. index .. "_showInCombat"] = CreateTrackedAlwaysShowOption(
+        index, orderBase + 4.3, 0.7, function()
             if hiddenIfCollapsed() then return true end
             local buff = GetTrackedBuff(index)
             return not buff
                 or (buff.displayType ~= "bar" and buff.displayType ~= "ring" and buff.displayType ~= "text")
-        end,
-        get = function()
-            local buff = GetTrackedBuff(index)
-            return buff and buff.settings and buff.settings.showInCombat
-        end,
-        set = function(_, val)
-            local trackedBuffs = GetTrackedBuffs()
-            if trackedBuffs[index] and trackedBuffs[index].settings then
-                trackedBuffs[index].settings.showInCombat = val
-                DDingUI:UpdateBuffTrackerBar()
-            end
-        end,
-    }
+        end
+    )
 
     -- Only In Combat (전투 중에만 표시)
     options["tracked" .. index .. "_onlyInCombat"] = {

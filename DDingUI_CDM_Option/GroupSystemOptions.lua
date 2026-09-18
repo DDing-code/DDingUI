@@ -125,6 +125,10 @@ function DDingUI:RequestDeleteIconGroup(groupName, label)
             if not groupInfo then return end
 
             local sourceGroupKey = groupInfo.sourceGroupKey
+            -- Clear routes before CustomIcons removes the GroupSystem wrapper.
+            if DDingUI.GroupManager then
+                DDingUI.GroupManager:DeleteGroup(groupName)
+            end
             if groupInfo.groupType == "dynamic" and sourceGroupKey then
                 local customIcons = DDingUI.CustomIcons
                 if customIcons and customIcons.RemoveGroup then
@@ -142,9 +146,6 @@ function DDingUI:RequestDeleteIconGroup(groupName, label)
                 end
             end
 
-            if DDingUI.GroupManager then
-                DDingUI.GroupManager:DeleteGroup(groupName)
-            end
             if DDingUI.GroupSystem then
                 DDingUI.GroupSystem:OnGroupDeleted(groupName, sourceGroupKey)
             end
@@ -3286,6 +3287,21 @@ local function AddDynamicPayloadToGroup(groupName, payload, settings)
     return true
 end
 
+function DDingUI:ShowConsumableGroupOptions(groupName, kind)
+    local profile = self.db.profile
+    local group = profile.groupSystem and profile.groupSystem.groups[groupName]
+    if not group then return false end
+    return self.ConsumableOptions:Show(kind, nil, function(payload)
+        if self.db.profile ~= profile or profile.groupSystem.groups[groupName] ~= group then return false end
+        local added = AddDynamicPayloadToGroup(groupName, payload)
+        if added then
+            if self.SpecProfiles then self.SpecProfiles:SaveCurrentSpec() end
+            SoftRefreshDynamicIcons()
+        end
+        return added
+    end)
+end
+
 function DDingUI:AddTotemSlotToGroup(groupName, slot)
     slot = tonumber(slot)
     if not groupName or not slot or slot < 1 then return false end
@@ -3705,35 +3721,28 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
             action = function() return AddRacialIconToGroup(groupName) end,
         }
         items[#items + 1] = {
-            label = rawget(L, "Potions & Healthstone") or "Potions & Healthstone",
+            label = rawget(L, "Consumables") or "Consumables",
             icon = SafeItemIcon(271884, SafeItemIcon(241304)),
             submenu = {
                 {
-                    label = rawget(L, "Light's Potential") or "Light's Potential",
-                    icon = SafeItemIcon(241308),
+                    label = rawget(L, "Stat Potions") or "Stat Potions",
+                    icon = SafeItemIcon(245898),
                     action = function()
-                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241308 }, { fallbackItems = "245898,245897,241309" })
+                        return DDingUI:ShowConsumableGroupOptions(groupName, "stat")
                     end,
                 },
                 {
-                    label = rawget(L, "Potion of Recklessness") or "Potion of Recklessness",
-                    icon = SafeItemIcon(241288),
-                    action = function()
-                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241288 }, { fallbackItems = "245902,245903,241289" })
-                    end,
-                },
-                {
-                    label = rawget(L, "Concentrated Silvermoon Health Potion") or "Concentrated Silvermoon Health Potion",
+                    label = rawget(L, "Health Potions") or "Health Potions",
                     icon = SafeItemIcon(271884, SafeItemIcon(241304)),
                     action = function()
-                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 271884 }, { fallbackItems = "271883,241304,241305" })
+                        return DDingUI:ShowConsumableGroupOptions(groupName, "health")
                     end,
                 },
                 {
-                    label = rawget(L, "Lightfused Mana Potion") or "Lightfused Mana Potion",
+                    label = rawget(L, "Mana Potions") or "Mana Potions",
                     icon = SafeItemIcon(241300),
                     action = function()
-                        return AddDynamicPayloadToGroup(groupName, { type = "item", id = 241300 }, { fallbackItems = "245917,245916,241301" })
+                        return DDingUI:ShowConsumableGroupOptions(groupName, "mana")
                     end,
                 },
                 {
@@ -4291,6 +4300,7 @@ local function CopyGlowSettings(settings)
         activeGlow = true,
         maxChargesGlow = true,
         cooldownReadyGlow = true,
+        cooldownReadyGlowCombatOnly = true,
         glowType = true,
         glowColorMode = true,
         glowColor = true,
@@ -4324,6 +4334,7 @@ local function MergeGlowSettings(target, settings)
         "activeGlow",
         "maxChargesGlow",
         "cooldownReadyGlow",
+        "cooldownReadyGlowCombatOnly",
         "glowType",
         "glowColorMode",
         "glowColor",
@@ -4807,6 +4818,17 @@ end
 function DDingUI:BuildAssignedIconSettingsItems(groupName, opt, glowOnly)
     if not opt then return {} end
     local items = {}
+    local iconKey = opt._gridDynamicIconKey
+    local dynDB = self.db.profile.dynamicIcons
+    local iconData = iconKey and dynDB and dynDB.iconData and dynDB.iconData[iconKey]
+    if not glowOnly and self.ConsumableOptions:GetKind(iconData) then
+        items[#items + 1] = {
+            text = rawget(L, "Potion Priority") or "Potion Priority",
+            func = function()
+                self.ConsumableOptions:Edit(iconKey, SoftRefreshDynamicIcons)
+            end,
+        }
+    end
     if glowOnly then
         local scope = self._groupIconApplyScope or "icon"
         items[#items + 1] = {
@@ -5151,6 +5173,15 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             },
         }
 
+        local iconKey = opt._gridDynamicIconKey
+        local dynDB = DDingUI.db.profile.dynamicIcons
+        local iconData = iconKey and dynDB and dynDB.iconData and dynDB.iconData[iconKey]
+        if DDingUI.ConsumableOptions:GetKind(iconData) then
+            menuList[#menuList + 1] = {
+                text = rawget(L, "Potion Priority") or "Potion Priority",
+                func = function() DDingUI.ConsumableOptions:Edit(iconKey, RefreshAfterCommit) end,
+            }
+        end
         local resetItem
         if opt._gridKind == "cdm" then
             for _, item in ipairs(DDingUI:BuildAssignedIconSettingsItems(groupName, opt)) do
@@ -7605,33 +7636,31 @@ local function CreateGroupOptions(groupName, order)
                 type = "header", name = L["Quick Add Consumables"] or "소모품 빠른 추가", order = 50,
             } or nil,
 
-            -- 농축된 실버문 생명력 물약과 이전 등급을 하나의 아이콘으로 추적
+            -- 소모품 우선순위 창에서 종류와 등급을 선택
             addHealthPotion = showAdvanced and {
                 type = "execute", order = 51, width = "normal",
-                name = function() local icon = C_Item.GetItemIconByID(271884) or C_Item.GetItemIconByID(241304) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Concentrated Silvermoon Health Potion"] or "농축된 실버문 생명력 물약") end,
-                desc = "Item ID: 271884 / 271883\n이전 등급 241304 / 241305도 자동으로 추적합니다.",
+                name = function() local icon = C_Item.GetItemIconByID(271884) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. L["Health Potions"] end,
+                desc = L["Potion Priority"],
                 func = function()
-                    AddDynamicItemToGroup(groupName, 271884, "271883,241304,241305")
+                    DDingUI:ShowConsumableGroupOptions(groupName, "health")
                 end,
             } or nil,
 
-            -- 빛주입 마나 물약 (R2 241300 / R1 241301) — 항상 R2로 추가, 아이콘 표시 시 R1 폴백
             addManaPotion = showAdvanced and {
                 type = "execute", order = 52, width = "normal",
-                name = function() local icon = C_Item.GetItemIconByID(241300) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Lightfused Mana Potion"] or "빛주입 마나 물약") end,
-                desc = "Item ID: 241300 (★★) / 241301 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
+                name = function() local icon = C_Item.GetItemIconByID(241300) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. L["Mana Potions"] end,
+                desc = L["Potion Priority"],
                 func = function()
-                    AddDynamicItemToGroup(groupName, 241300, "245917,245916,241301")
+                    DDingUI:ShowConsumableGroupOptions(groupName, "mana")
                 end,
             } or nil,
 
-            -- 빛의 잠재력 (R2 241308 / R1 241309) — 항상 R2로 추가, 아이콘 표시 시 R1 폴백
             addTemperedPotion = showAdvanced and {
                 type = "execute", order = 53, width = "normal",
-                name = function() local icon = C_Item.GetItemIconByID(241308) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. (L["Light's Potential"] or "빛의 잠재력") end,
-                desc = "Item ID: 241308 (★★) / 241309 (★)\n2성 미소지 시 1성 아이콘으로 자동 폴백합니다.",
+                name = function() local icon = C_Item.GetItemIconByID(245898) or 134830; return "|T" .. icon .. ":16:16:0:0|t " .. L["Stat Potions"] end,
+                desc = L["Potion Priority"],
                 func = function()
-                    AddDynamicItemToGroup(groupName, 241308, "245898,245897,241309")
+                    DDingUI:ShowConsumableGroupOptions(groupName, "stat")
                 end,
             } or nil,
 

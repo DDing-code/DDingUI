@@ -1099,11 +1099,12 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
 
     local shouldGlow = false
     if custom then
+        local readyGlowAllowed = custom.cooldownReadyGlowCombatOnly ~= true or InCombatLockdown()
         if custom.activeGlow == true and active then
             shouldGlow = true
         elseif custom.maxChargesGlow == true and atMaxCharges then
             shouldGlow = true
-        elseif custom.cooldownReadyGlow == true and not onCooldown then
+        elseif custom.cooldownReadyGlow == true and not onCooldown and readyGlowAllowed then
             shouldGlow = true
         elseif custom.readyGlow == true then
             local legacyTrigger = custom.glowTrigger
@@ -1111,7 +1112,7 @@ local function UpdateReadyGlow(iconFrame, isTimerFiring)
             if legacyTrigger == "active" then
                 shouldGlow = active
             else
-                shouldGlow = not onCooldown
+                shouldGlow = not onCooldown and readyGlowAllowed
             end
         end
     end
@@ -1406,6 +1407,11 @@ local function BuildGlowContextMenuItems(Current, Apply, SetGlowState, ResetGlow
             text = L["Cooldown Ready Glow"] or "Cooldown Ready Glow",
             checked = enabled,
             func = function() SetGlowState("ready", not enabled) end,
+        }
+        items[#items + 1] = {
+            text = L["Ready Glow Only in Combat"] or "Ready Glow Only in Combat",
+            checked = custom.cooldownReadyGlowCombatOnly == true,
+            func = function() Apply("cooldownReadyGlowCombatOnly", custom.cooldownReadyGlowCombatOnly ~= true or nil) end,
         }
     end
     if #items > 0 then
@@ -1867,6 +1873,7 @@ function IconCustomization:BuildContextMenuItems(spellID, viewerType, onSettings
             custom.activeGlow = nil
             custom.maxChargesGlow = nil
             custom.cooldownReadyGlow = nil
+            custom.cooldownReadyGlowCombatOnly = nil
         end
         Compact()
         NotifyChanged()
@@ -2916,8 +2923,21 @@ function IconCustomization:BuildIconCustomizationUI(parentFrame)
                 yOffset = yOffset + 35
             end
 
-            -- Glow Trigger select (ready vs active)
-            -- Default based on category: Buff → "active", Essential/Utility → "ready"
+            if Widgets and Widgets.CreateToggle then
+                local combatToggle = Widgets.CreateToggle(parentFrame, {
+                    name = L["Ready Glow Only in Combat"] or "Ready Glow Only in Combat",
+                    get = function() return custom.cooldownReadyGlowCombatOnly == true end,
+                    set = function(_, val)
+                        db.spells[spellKey] = db.spells[spellKey] or {}
+                        db.spells[spellKey].cooldownReadyGlowCombatOnly = val or nil
+                        RefreshAllReadyGlows(false, uiState.selectedSpellID, uiState.selectedViewerType)
+                    end,
+                }, yOffset, {})
+                table.insert(parentFrame.widgets, combatToggle)
+                yOffset = yOffset + 35
+            end
+
+            -- Glow Trigger: Buff defaults to active, Essential/Utility to ready.
             local defaultTrigger = (selectedCategory == "Buff") and "active" or "ready"
             if Widgets and Widgets.CreateSelect then
                 local glowTriggerSelect = Widgets.CreateSelect(parentFrame, {
@@ -3148,6 +3168,8 @@ function IconCustomization:Initialize()
         self.__eventFrame = CreateFrame("Frame")
         self.__eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
         self.__eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+        self.__eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+        self.__eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         self.__eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
         self.__eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
         self.__eventFrame:RegisterUnitEvent("UNIT_AURA", "player")

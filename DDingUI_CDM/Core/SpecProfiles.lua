@@ -28,6 +28,9 @@ local CORE_CDM_GROUPS = {
     Utility = true,
 }
 
+local CaptureSharedGroups, StripSharedGroups, ApplySharedGroups
+local ExpandStoredModule
+
 local function GetCurrentSpecID()
     local specIndex = GetSpecialization()
     if not specIndex then return nil end
@@ -158,10 +161,13 @@ end
 local function StoreSpecDelta(profile, specID, snapshot, hasDynamicIcons)
     if not profile or not specID or type(snapshot) ~= "table" then return nil end
 
+    -- Shared groups live in the active profile, outside specialization snapshots.
+    StripSharedGroups(snapshot)
     NormalizeGroupTextSettings(snapshot)
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     if type(profile.specDataBase) ~= "table" then
         profile.specDataBase = FullSnapshot(profile, defaults, true)
+        StripSharedGroups(profile.specDataBase)
         NormalizeGroupTextSettings(profile.specDataBase)
     end
 
@@ -295,6 +301,7 @@ local function MigrateSpecData()
     RepairStaleHybridSources(profile)
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     local nextBaseline = FullSnapshot(profile, defaults, true)
+    StripSharedGroups(nextBaseline)
     local customIcons = DDingUI.CustomIcons
     if customIcons and customIcons.NormalizeStoredProfile then
         customIcons:NormalizeStoredProfile(nextBaseline)
@@ -394,6 +401,8 @@ function SP:SaveCurrentSpec()
     NormalizeGroupTextSettings(profile)
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
     local snapshot = FullSnapshot(profile, defaults, true)
+    local previousGS = ExpandStoredModule(profile, profile.specData[specID], "groupSystem")
+    StripSharedGroups(snapshot, previousGS)
     local customIcons = DDingUI.CustomIcons
     if customIcons and customIcons.NormalizeStoredProfile then
         customIcons:NormalizeStoredProfile(snapshot)
@@ -417,7 +426,7 @@ function SP:MutateStoredSpecs(mutator)
     return changed
 end
 
-local function ExpandStoredModule(profile, stored, moduleKey)
+ExpandStoredModule = function(profile, stored, moduleKey)
     if type(profile) ~= "table" or type(stored) ~= "table" or not moduleKey then return nil end
 
     local defaults = DDingUI.defaults and DDingUI.defaults.profile
@@ -512,10 +521,18 @@ function SP:LoadSpec(specID)
     local snapshot = specData and specData[specID]
     if not snapshot then return false end
 
+    local shared = CaptureSharedGroups(DDingUI.db.profile)
+
     local storedHasDynamicIcons
     snapshot, storedHasDynamicIcons = CompactStoredSpec(DDingUI.db.profile, specID)
     if not snapshot then return false end
-    if not storedHasDynamicIcons then snapshot.dynamicIcons = nil end
+    if not storedHasDynamicIcons then
+        local previous = FullSnapshot(DDingUI.db.profile, nil, true)
+        StripSharedGroups(previous)
+        snapshot.dynamicIcons = previous.dynamicIcons
+    end
+    StripSharedGroups(snapshot)
+    ApplySharedGroups(snapshot, shared)
 
     ApplySnapshot(DDingUI.db.profile, snapshot, true)
     RepairStaleHybridSources(DDingUI.db.profile)
@@ -540,6 +557,7 @@ function SP:OnSpecChanged(newSpecID)
 
     if not loaded then
         local p = DDingUI.db.profile
+        local shared = CaptureSharedGroups(p)
 
         if p.powerBar then
             p.powerBar.markers = {}
@@ -552,6 +570,7 @@ function SP:OnSpecChanged(newSpecID)
             p.secondaryPowerBar.markerColorChange = false
         end
         ResetIconGroupsForFreshSpec(p)
+        ApplySharedGroups(p, shared)
 
         RepairStaleHybridSources(p)
         self:SaveCurrentSpec()
@@ -790,6 +809,149 @@ local function CopyDynamicSourceGroup(sourceProfile, destProfile, sourceKey)
     return true
 end
 
+CaptureSharedGroups = function(profile)
+    local shared = { groupSystem = { groups = {}, spellAssignments = {} }, movers = {} }
+    local gs = profile and profile.groupSystem
+    for name, group in pairs((gs and gs.groups) or {}) do
+        if group.shared and not CORE_CDM_GROUPS[name] then
+            shared.groupSystem.groups[name] = DeepCopy(group)
+            CopyDynamicSourceGroup(profile, shared, group.sourceGroupKey)
+            for _, mover in ipairs({ "DDingUI_Group_" .. name, "DDingUI_DynGroup_" .. (group.sourceGroupKey or "") }) do
+                shared.movers[mover] = profile.movers and profile.movers[mover]
+            end
+        end
+    end
+    for spell, name in pairs((gs and gs.spellAssignments) or {}) do
+        if shared.groupSystem.groups[name] then shared.groupSystem.spellAssignments[spell] = name end
+    end
+    return shared
+end
+
+StripSharedGroups = function(profile, previousGS)
+    local gs = profile and profile.groupSystem
+    if not gs or not gs.groups then return end
+    local shared = {}
+    for name, group in pairs(gs.groups) do
+        if group.shared and not CORE_CDM_GROUPS[name] then
+            shared[name] = true
+            RemoveDynamicSourceGroup(profile, group.sourceGroupKey)
+            gs.groups[name] = nil
+            if profile.movers then
+                profile.movers["DDingUI_Group_" .. name] = nil
+                if group.sourceGroupKey then profile.movers["DDingUI_DynGroup_" .. group.sourceGroupKey] = nil end
+            end
+        end
+    end
+    for spell, name in pairs(gs.spellAssignments or {}) do
+        if shared[name] then
+            -- Keep the spec's original route underneath the shared route.
+            local previous = previousGS and previousGS.spellAssignments and previousGS.spellAssignments[spell]
+            gs.spellAssignments[spell] = previous and gs.groups[previous] and previous or nil
+            if previousGS and previousGS.unassignedBuffSpells and previousGS.unassignedBuffSpells[spell] then
+                gs.unassignedBuffSpells = gs.unassignedBuffSpells or {}
+                gs.unassignedBuffSpells[spell] = true
+            end
+        end
+    end
+end
+
+local function UnusedKey(key, entries)
+    if not entries[key] then return key end
+    local suffix = 2
+    while entries[key .. "_" .. suffix] do suffix = suffix + 1 end
+    return key .. "_" .. suffix
+end
+
+ApplySharedGroups = function(profile, shared)
+    if not next(shared.groupSystem.groups) then return end
+    local gs = EnsureGroupSystemDB(profile)
+    local db = EnsureDynamicDB(profile)
+    local identity = DDingUI.CustomIconIdentity
+    for name, original in pairs(shared.groupSystem.groups) do
+        -- Imported profiles may contain a conflicting local name. Preserve both.
+        if gs.groups[name] then
+            local localName = UnusedKey(name, gs.groups)
+            gs.groups[localName] = gs.groups[name]
+            gs.groups[localName].name = localName
+            if profile.movers then
+                profile.movers["DDingUI_Group_" .. localName] = profile.movers["DDingUI_Group_" .. name]
+            end
+            local localSource = db.groups[gs.groups[localName].sourceGroupKey]
+            if localSource then
+                localSource.name, localSource.linkedCDMGroup = localName, localName
+                for _, key in ipairs(localSource.icons or {}) do
+                    local data = db.iconData[key]
+                    if data and data.settings then data.settings.targetCDMGroup = localName end
+                end
+            end
+            for spell, assigned in pairs(gs.spellAssignments) do
+                if assigned == name then gs.spellAssignments[spell] = localName end
+            end
+        end
+        local group = DeepCopy(original)
+        gs.groups[name] = group
+        gs.deletedGroups[name] = nil
+        local sourceKey = original.sourceGroupKey
+        local source = shared.dynamicIcons and shared.dynamicIcons.groups[sourceKey]
+        if source then
+            local newSourceKey = UnusedKey(sourceKey, db.groups)
+            local copied = DeepCopy(source)
+            copied.name, copied.linkedCDMGroup = group.name or name, name
+            db.groups[newSourceKey] = copied
+            group.sourceGroupKey = newSourceKey
+            local tokens = {}
+            for index, key in ipairs(source.icons or {}) do
+                local data = shared.dynamicIcons.iconData[key]
+                if data then
+                    local newKey = UnusedKey(key, db.iconData)
+                    data = DeepCopy(data)
+                    data.key = newKey
+                    data.settings = data.settings or {}
+                    data.settings.targetCDMGroup = name
+                    local oldToken = identity and identity:BuildOrderToken(shared.dynamicIcons, key)
+                    if identity then identity:EnsureIcon(db, newKey, data, true) end
+                    db.iconData[newKey] = data
+                    copied.icons[index] = newKey
+                    local newToken = identity and identity:BuildOrderToken(db, newKey) or ("dyn:" .. newKey)
+                    tokens["dyn:" .. key] = newToken
+                    if oldToken then tokens[oldToken] = newToken end
+                end
+            end
+            for index, token in ipairs(group.iconOrder or {}) do
+                group.iconOrder[index] = tokens[token] or token
+            end
+            profile.movers = profile.movers or {}
+            profile.movers["DDingUI_DynGroup_" .. newSourceKey] = shared.movers["DDingUI_DynGroup_" .. sourceKey]
+        end
+        profile.movers = profile.movers or {}
+        profile.movers["DDingUI_Group_" .. name] = shared.movers["DDingUI_Group_" .. name]
+    end
+    for spell, name in pairs(shared.groupSystem.spellAssignments) do
+        gs.spellAssignments[spell] = name
+        if gs.unassignedBuffSpells then gs.unassignedBuffSpells[spell] = nil end
+    end
+end
+
+function SP:CanUseSharedGroupName(name, ignoreName)
+    local profile = DDingUI.db and DDingUI.db.profile
+    if not profile or CORE_CDM_GROUPS[name] then return false, "Only custom groups can be shared." end
+    if self._migrationProfile == profile then return false, "Please wait for profile loading to finish." end
+    local function HasName(gs, ignore)
+        for key, group in pairs((gs and gs.groups) or {}) do
+            if key ~= ignore and (key == name or group.name == name) then return true end
+        end
+    end
+    if HasName(profile.groupSystem, ignoreName) then return false, "A group with this name already exists in another specialization." end
+    local current = self.lastSpecID or GetCurrentSpecID()
+    for specID, stored in pairs(profile.specData or {}) do
+        if specID ~= current then
+            local gs = ExpandStoredModule(profile, stored, "groupSystem")
+            if HasName(gs) then return false, "A group with this name already exists in another specialization." end
+        end
+    end
+    return true
+end
+
 local function IsCDMSourceGroup(profile, sourceKey)
     if not sourceKey then return false end
 
@@ -991,11 +1153,14 @@ function SP:CopyModulesFromSpec(sourceSpecID, moduleKeys)
     if not snapshot then return false end
     if not storedHasDynamicIcons then snapshot.dynamicIcons = nil end
 
+    local shared = CaptureSharedGroups(DDingUI.db.profile)
+    StripSharedGroups(DDingUI.db.profile)
     local copiedAny = false
     for _, moduleKey in ipairs(moduleKeys) do
         copiedAny = CopyWholeModuleFromSource(snapshot, moduleKey, false) or copiedAny
     end
 
+    ApplySharedGroups(DDingUI.db.profile, shared)
     self:SaveCurrentSpec()
     return copiedAny
 end
@@ -1007,11 +1172,16 @@ function SP:CopyModulesFromProfile(sourceProfileKey, moduleKeys)
     local sourceProfile = DDingUI.db.profiles[sourceProfileKey]
     if not sourceProfile then return false end
 
+    sourceProfile = FullSnapshot(sourceProfile, nil, true)
+    StripSharedGroups(sourceProfile)
+    local shared = CaptureSharedGroups(DDingUI.db.profile)
+    StripSharedGroups(DDingUI.db.profile)
     local copiedAny = false
     for _, moduleKey in ipairs(moduleKeys) do
         copiedAny = CopyWholeModuleFromSource(sourceProfile, moduleKey, true) or copiedAny
     end
 
+    ApplySharedGroups(DDingUI.db.profile, shared)
     self:SaveCurrentSpec()
     return copiedAny
 end

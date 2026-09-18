@@ -36,6 +36,7 @@ local GLOW_STYLE_KEYS = {
 local RESET_KEYS = {
     ready = {
         { "glow", "cooldownReadyGlow" },
+        { "glow", "cooldownReadyGlowCombatOnly" },
     },
     cooldown = {
         { "visual", "showCooldown" },
@@ -427,6 +428,9 @@ local function AddGlowActivationControl(args, groupName, context, state, order)
             or state == "maxCharges" and T("Max Charges Glow", "Max Charges Glow")
             or T("Activation Glow", "Activation Glow")
         args.glowEnabled = MakeToggle(groupName, label, "glow", glowKey, order, false)
+    end
+    if state == "ready" then
+        args.readyGlowCombatOnly = MakeToggle(groupName, T("Ready Glow Only in Combat"), "glow", "cooldownReadyGlowCombatOnly", order + 1, false)
     end
 end
 

@@ -84,6 +84,10 @@ function FrameLifecycle.Create(
 
     local function IsIconLoadable(iconData)
         if not iconData then return false end
+        if iconData.type == "item" and iconData.settings and iconData.settings.healerOnly then
+            local spec = GetSpecialization and GetSpecialization()
+            return (spec and GetSpecializationRole and GetSpecializationRole(spec)) == "HEALER"
+        end
         if iconData.type == "spell" then
             return IsSpellInPlayerBook(iconData.id)
         elseif iconData.type == "racial" then
@@ -105,16 +109,7 @@ function FrameLifecycle.Create(
     end
 
     local function ShouldIconSpawn(iconData)
-        if not iconData then return false end
-        -- Spellbook gating
-        if iconData.type == "spell"
-            and not IsSpellInPlayerBook(iconData.id)
-        then
-            return false
-        elseif iconData.type == "racial" then
-            local racialID = GetPlayerRacialSpellID()
-            if not racialID then return false end
-        end
+        if not IsIconLoadable(iconData) then return false end
 
         EnsureLoadConditions(iconData)
         local lc = iconData.settings.loadConditions or {}

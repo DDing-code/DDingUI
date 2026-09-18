@@ -1346,13 +1346,14 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
     local ready = frame._ddCustomIconReady == true
     local shouldGlow = false
     if settings then
+        local readyGlowAllowed = settings.cooldownReadyGlowCombatOnly ~= true or InCombatLockdown()
         if settings.procGlowMode == "on" and procActive then
             shouldGlow = not isItemActiveEffect
         elseif settings.activeGlow == true and active then
             shouldGlow = not isItemActiveEffect
         elseif settings.maxChargesGlow == true and frame._ddCustomIconAtMaxCharges == true then
             shouldGlow = true
-        elseif settings.cooldownReadyGlow == true and ready then
+        elseif settings.cooldownReadyGlow == true and ready and readyGlowAllowed then
             shouldGlow = true
         elseif settings.readyGlow == true then
             local trigger = settings.glowTrigger
@@ -1368,7 +1369,7 @@ function CustomIcons:UpdateDynamicIconStateGlow(frame, iconData)
             if trigger == "active" then
                 shouldGlow = active
             else
-                shouldGlow = ready
+                shouldGlow = ready and readyGlowAllowed
             end
         end
     end
@@ -1934,6 +1935,35 @@ function runtime.ApplyCooldownDurationObject(iconFrame, durationObject)
     return ok == true
 end
 
+function CustomIcons:GetPreferredItem(iconData)
+    local itemID = iconData and iconData.id
+    if not itemID then return nil, 0, 0 end
+    local settings = iconData.settings
+    local includeCharges = settings and settings.showCharges
+    local sumCounts = settings and settings.itemCountMode == "total"
+    local itemCount = SafeNumber(C_Item.GetItemCount(itemID, false, includeCharges, false)) or 0
+    if itemCount > 0 and not sumCounts then return itemID, itemCount, itemCount end
+    local totalCount = itemCount
+    local seen = sumCounts and {[itemID] = true}
+    local fallbacks = settings and settings.fallbackItems
+    if type(fallbacks) == "string" then
+        for fallbackID in string.gmatch(fallbacks, "(%d+)") do
+            local id = tonumber(fallbackID)
+            if not seen or not seen[id] then
+                local count = SafeNumber(C_Item.GetItemCount(id, false, includeCharges, false)) or 0
+                if itemCount <= 0 and count > 0 then itemID, itemCount = id, count end
+                if not sumCounts and itemCount > 0 then return itemID, itemCount, itemCount end
+                if seen then
+                    seen[id] = true
+                    totalCount = totalCount + count
+                end
+            end
+        end
+    end
+    -- Keep availability and combat-use detection tied to the selected item.
+    return itemID, itemCount, sumCounts and totalCount or itemCount
+end
+
 local function UpdateItemIcon(iconFrame, iconData)
     local itemID = iconData.id
     if not itemID or not iconFrame then return end
@@ -1943,31 +1973,8 @@ local function UpdateItemIcon(iconFrame, iconData)
         and activeEffectOverlay:ShouldSuppressBaseCooldown(iconData)
 
     local settings = iconData.settings
-    local includeCharges = settings and settings.showCharges
-    local itemCount = C_Item.GetItemCount(itemID, false, includeCharges, false)
-    local activeItemID = itemID
-    local usedFallback = false
+    local activeItemID, itemCount, displayCount = CustomIcons:GetPreferredItem(iconData)
     local previousCombatCount = iconFrame._ddCombatItemCount
-
-    -- Fallback item logic: if primary item count is 0 and fallbackItems are configured
-    if (itemCount == 0 or itemCount == nil) and settings and settings.fallbackItems then
-        local fallbackItems = settings.fallbackItems
-        if type(fallbackItems) == "string" and fallbackItems ~= "" then
-            -- Parse comma-separated item IDs
-            for fallbackID in string.gmatch(fallbackItems, "(%d+)") do
-                local fID = tonumber(fallbackID)
-                if fID then
-                    local fCount = C_Item.GetItemCount(fID, false, includeCharges, false)
-                    if fCount and fCount > 0 then
-                        activeItemID = fID
-                        itemCount = fCount
-                        usedFallback = true
-                        break
-                    end
-                end
-            end
-        end
-    end
 
     if ITEM_COMBAT_LOCKOUT_ITEMS[activeItemID] and InCombatLockdown and InCombatLockdown() then
         local currentCount = SafeNumber(itemCount)
@@ -2072,7 +2079,7 @@ local function UpdateItemIcon(iconFrame, iconData)
 
     -- 아이템 카운트 표시
     if iconFrame.count and not managedVisualLocked then
-        pcall(iconFrame.count.SetText, iconFrame.count, itemCount or 0)
+        pcall(iconFrame.count.SetText, iconFrame.count, displayCount or 0)
         if iconData.settings and iconData.settings.showCharges == false then
             iconFrame.count:Hide()
         else
@@ -2130,7 +2137,7 @@ local function UpdateItemIcon(iconFrame, iconData)
         iconFrame.icon:SetAlpha(1.0)
     end
     iconFrame._ddCustomIconActive = false
-    iconFrame._ddCustomIconReady = not activeEffectOwnsCooldown
+    iconFrame._ddCustomIconReady = itemSpellID ~= nil and not activeEffectOwnsCooldown
         and not itemCombatLocked
         and not itemCooldownActive
         and not itemSpellCooldownActive
@@ -2447,7 +2454,8 @@ local function UpdateSlotIcon(iconFrame, iconData)
         iconFrame.icon:SetDesaturation(allowDesat and onCooldown and 1 or 0)
     end
     iconFrame._ddCustomIconActive = false
-    iconFrame._ddCustomIconReady = itemID ~= nil and not onCooldown
+    iconFrame._ddCustomIconReady = ResolveUsableItemSpellID(iconFrame, itemID, iconData.settings) ~= nil
+        and not onCooldown
 end
 
 local function ResolveTrinketProcAuraForIcon(iconFrame, iconData)
@@ -2549,9 +2557,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         CustomIcons:StopTrackedTrinketEffectGlow(iconFrame)
         iconFrame.cooldown:SetReverse(false)
 
-        local onCooldown = false
+        local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
         if settings.showItemCooldown ~= false then
-            onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
             if not managedVisualLocked then
                 if settings.showCooldown ~= false and onCooldown then
                     iconFrame.cooldown:Show()
@@ -2572,7 +2579,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         end
         iconFrame._ddCustomIconActive = false
         iconFrame._ddCustomIconProcActive = false
-        iconFrame._ddCustomIconReady = itemID ~= nil and not onCooldown
+        iconFrame._ddCustomIconReady = ResolveUsableItemSpellID(iconFrame, itemID, settings) ~= nil
+            and not onCooldown
         return
     end
 
@@ -2634,6 +2642,7 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     end
 
     -- 2. Proc not active → show item cooldown as fallback
+    local onCooldown = false
     if not procActive then
         -- [Visuals: Reset]
         iconFrame._ddProcActiveUntil = nil
@@ -2644,8 +2653,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
         end
 
 
+        onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
         if settings.showItemCooldown ~= false then
-            local onCooldown = ApplyInventorySlotCooldown(iconFrame, "_trinketDurObj", slotID)
             if not managedVisualLocked then
                 if settings.showCooldown ~= false and onCooldown then
                     iconFrame.cooldown:Show()
@@ -2670,7 +2679,8 @@ local function UpdateTrinketProcIcon(iconFrame, iconData)
     end
     iconFrame._ddCustomIconActive = procActive == true
     iconFrame._ddCustomIconProcActive = procActive == true
-    iconFrame._ddCustomIconReady = procActive ~= true
+    iconFrame._ddCustomIconReady = ResolveUsableItemSpellID(iconFrame, itemID, settings) ~= nil
+        and not procActive and not onCooldown
 end
 
 -- ------------------------
@@ -3537,6 +3547,7 @@ local function SetCustomIconEventsEnabled(enabled)
     frame:RegisterEvent("SPELLS_CHANGED")
     frame:RegisterUnitEvent("UNIT_AURA", "player")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
     frame:RegisterEvent("PLAYER_DEAD")
     frame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
@@ -3573,7 +3584,12 @@ local function EnsureEventFrame()
             if runtime.RequestCustomCooldownWatchRegistration then
                 runtime.RequestCustomCooldownWatchRegistration()
             end
-            RefreshItemCooldownIcons()
+            UpdateAllIcons(nil, "all")
+            return
+        end
+
+        if event == "PLAYER_REGEN_DISABLED" then
+            UpdateAllIcons(nil, "all")
             return
         end
 
@@ -4115,8 +4131,8 @@ function CustomIcons:AddDynamicIcon(iconData)
     db.ungroupedPositions[iconKey] = db.ungroupedPositions[iconKey] or BuildDefaultUngroupedPositionSettings()
     EnsureEventFrame()
 
-    -- Build frame — CreateDynamicIcon은 항상 프레임 반환 (CDM 방식)
-    local frame = CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(iconKey, db.ungroupedPositions[iconKey]))
+    -- Keep filtered entries saved; the specialization reload creates their frames when eligible.
+    local frame = IsIconLoadable(iconData) and CreateDynamicIcon(iconKey, iconData, EnsureGroupFrame(iconKey, db.ungroupedPositions[iconKey]))
     if frame then
         runtime.iconFrames[iconKey] = frame
         UpdateDynamicIcon(iconKey)

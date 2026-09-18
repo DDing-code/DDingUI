@@ -2,5 +2,5 @@
 ## Title: DDingUI CDM - Legacy Data Bridge
 ## Notes: Loads existing DDingUI SavedVariables before DDingUI_CDM.
 ## Author: DDing
-## Version: 2.1.5
+## Version: 2.1.6
 ## SavedVariables: DDingUIDB

@@ -2,6 +2,43 @@
 
 ---
 
+## v2.1.6
+
+_Release date: 2026-09-18_
+_Scope: Changes after the v2.1.5 release commit db6f2c3 through this release._
+
+### English Patch Notes
+
+#### New Modules
+- **Shared Icon Groups:** Added groups shared across every specialization in the current profile, with a dedicated add button and distinct label. Right-click a custom group to convert it between shared and specialization-only use.
+- **Potion Priority:** Added dedicated settings for health and stat potions, plus a separate mana potion window. Choose potion types, reorder them with arrow buttons, prioritize fleeting potions or higher ranks, preview bag counts, and hide the icon when all selected potions are missing.
+
+#### Option Changes
+- **Potion Counts:** Choose between the selected potion's count and the combined count of all included potions. Mana potions also offer Show Only for Healer Specializations, which follows specialization changes in shared groups.
+- **Ready Glow:** Added Only in Combat for native CDM and custom icons, including trinkets and consumables. Activation and full-charge glows retain their own behavior.
+- **Custom Aura Visibility:** Renamed Always Show in Combat to Always Show and combined redundant zero-stack/inactive visibility options. Turning it off now hides inactive auras; Only Show in Combat remains a separate option.
+
+#### Fixes
+- **Trinkets:** Passive-only trinkets no longer trigger Ready Glow. On-use trinkets now respect their cooldown when displaying readiness, including when the cooldown display is hidden.
+- **Potion Settings:** Fixed priority windows appearing behind the main settings window.
+- **Grouped Item Icons:** Prevented individual icon borders from covering group glows.
+
+### Korean Patch Notes
+
+#### 새 모듈
+- **공용 아이콘 그룹:** 현재 프로필의 모든 전문화에 적용되는 그룹을 추가했습니다. 전용 추가 버튼과 구분 표시를 제공하며, 사용자 그룹을 우클릭하여 공용·전문화 전용으로 전환할 수 있습니다.
+- **물약 우선순위:** 생명력·스탯 물약 설정과 별도의 마나 물약 전용 창을 추가했습니다. 사용할 종류 선택, 화살표 순서 변경, 덧없는 물약·높은 등급 우선, 보유 수량 미리보기와 선택한 물약이 모두 없을 때 숨기기를 지원합니다.
+
+#### 옵션 변경
+- **물약 수량:** 현재 선택된 물약의 수량만 표시하거나 등록한 물약의 전체 수량을 합산할 수 있습니다. 마나 물약에는 ‘힐러일 때만 표시’를 추가하여 공용 그룹에서도 전문화 변경에 따라 표시됩니다.
+- **사용 가능 글로우:** 기본 CDM과 장신구·소모품 등 커스텀 아이콘에 ‘전투 중에만’ 옵션을 추가했습니다. 발동·최대 충전 글로우는 각각의 설정을 따릅니다.
+- **커스텀 오라 표시:** ‘전투 중 항상 표시’를 ‘항상 표시’로 바꾸고 중복된 0중첩·비활성 표시 옵션을 통합했습니다. 끄면 비활성 오라가 숨겨지며, ‘전투 중에만 표시’는 별도로 설정할 수 있습니다.
+
+#### 수정 사항
+- **장신구:** 착용효과만 있는 장신구에서 사용 가능 글로우가 계속 켜지는 문제를 수정했습니다. 사용형 장신구는 쿨다운 표시를 숨겨도 실제 재사용 대기 상태에 맞춰 사용 가능 여부를 표시합니다.
+- **물약 설정:** 우선순위 창이 메인 설정창 뒤에 가려져 추가 버튼이 반응하지 않는 것처럼 보이던 문제를 수정했습니다.
+- **그룹 아이템 아이콘:** 개별 아이콘 테두리가 그룹 글로우를 가리지 않도록 수정했습니다.
+
 ## v2.1.5
 
 _Release date: 2026-09-14_
