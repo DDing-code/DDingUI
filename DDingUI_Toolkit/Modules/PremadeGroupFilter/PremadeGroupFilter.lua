@@ -137,8 +137,6 @@ local leaderScoreRows = setmetatable({}, { __mode = "k" })
 local resultAssistRows = setmetatable({}, { __mode = "k" })
 local nativeResultOrder = {}
 local seasonDungeons = {}
-local raiderIOAnchorHooked = false
-local raiderIOAnchorUpdating = false
 local raiderIORetryScheduled = false
 local resultRefreshPending = false
 local chatRestrictionState
@@ -2164,37 +2162,7 @@ function PremadeGroupFilter:CreateSidePanel()
 end
 
 function PremadeGroupFilter:UpdateRaiderIOAnchor()
-    local anchor = _G.RaiderIO_ProfileTooltipAnchor
-    if not anchor or not anchor.GetPoint or not anchor.SetPoint then return end
-
-    if not raiderIOAnchorHooked and hooksecurefunc then
-        raiderIOAnchorHooked = true
-        hooksecurefunc(anchor, "SetPoint", function(_, _, relativeTo)
-            if raiderIOAnchorUpdating or not PremadeGroupFilter.enabled then return end
-            if relativeTo == _G.PVEFrame or relativeTo == sidePanel then
-                PremadeGroupFilter:UpdateRaiderIOAnchor()
-            end
-        end)
-    end
-
-    local ok, point, relativeTo, relativePoint, offsetX, offsetY =
-        pcall(anchor.GetPoint, anchor, 1)
-    point = ok and SafeString(point, nil) or nil
-    relativePoint = ok and SafeString(relativePoint, nil) or nil
-    offsetX = ok and (SafeNumber(offsetX, 0) or 0) or 0
-    offsetY = ok and (SafeNumber(offsetY, 0) or 0) or 0
-    if not point or not relativePoint then return end
-    if relativeTo ~= _G.PVEFrame and relativeTo ~= sidePanel then return end
-
-    local panelOnRight = self.enabled and sidePanel and sidePanel:IsShown()
-        and sidePanel._attachedSide == "RIGHT"
-    local target = panelOnRight and sidePanel or _G.PVEFrame
-    if not target or relativeTo == target then return end
-
-    raiderIOAnchorUpdating = true
-    anchor:ClearAllPoints()
-    anchor:SetPoint(point, target, relativePoint, offsetX, offsetY)
-    raiderIOAnchorUpdating = false
+    ns.UI:UpdateGroupFinderSideAnchor(sidePanel)
 end
 
 function PremadeGroupFilter:ScheduleRaiderIOAnchorUpdate()

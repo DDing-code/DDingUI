@@ -59,6 +59,9 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
     assert 'bisBySpec = {}' in database
     assert 'bisSourcesBySpec = {}' in database
     assert 'VoidcoreHelper = false' in database
+    for option in ("autoPassDelves", "autoPassPrey"):
+        assert f'{option} = true' in database
+        assert f'profile.VoidcoreHelper.{option}' in config
     assert 'tree.panels["voidcorehelper"]' in config
     party = workspace.split('key = "party"', 1)[1].split('key = "alerts"', 1)[0]
     utility = workspace.split('key = "utility"', 1)[1].split('key = "classfeatures"', 1)[0]
@@ -75,6 +78,109 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
     for locale_name in ("koKR", "enUS"):
         locale = (ROOT / f"Locales/{locale_name}.lua").read_text(encoding="utf-8-sig")
         assert all(f'L["{key}"]' in locale for key in keys)
+
+
+def test_side_content_auto_pass_respects_toggles_and_preserves_bis_guards():
+    from lupa.lua51 import LuaRuntime
+
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(r'''
+        ns = { DDingToolKit = { RegisterModule = function() end },
+            UI = { HideConfirmation = function() end },
+            db = { profile = { VoidcoreHelper = {
+                guardNonTargets = true, entryPrompt = true,
+                bisBySpec = { ["257"] = { 123 } },
+                bisSourcesBySpec = { ["257"] = { ["123"] = 278284 } },
+            } } } }
+        function LibStub() return {} end
+        eventFrame = {}
+        function eventFrame:RegisterEvent() end
+        function eventFrame:SetScript(_, callback) self.onEvent = callback end
+        function CreateFrame() return eventFrame end
+        C_Timer = { After = function() end }
+        C_Item = { GetItemInfo = function() return "Target" end }
+        function GetLootSpecialization() return 257 end
+        function IsInInstance() return false, "none" end
+        secret = {}
+        function issecretvalue(value) return value == secret end
+        declines, scans = 0, 0
+        function DeclineSpellConfirmationPrompt(spellID)
+            assert(spellID == 777)
+            declines = declines + 1
+        end
+        function prompt(source, expected, context, level, currency, spell)
+            local before = declines
+            eventFrame.onEvent(eventFrame, "SPELL_CONFIRMATION_PROMPT",
+                spell or 777, 0, "Reward", 60, currency or 3513, 1, 0,
+                source, context or 0, level or 0)
+            assert(declines - before == expected, "unexpected auto-pass for " .. tostring(source))
+        end
+    ''')
+    lua.execute(
+        (ROOT / "Modules/VoidcoreHelper/VoidcoreHelper.lua").read_text(encoding="utf-8-sig"),
+        "DDingUI_Toolkit", lua.globals().ns,
+    )
+    lua.execute(r'''
+        local mod = ns.VoidcoreHelper
+        local db = mod:GetDB()
+        function mod:QueuePromptScan() scans = scans + 1 end
+        mod:OnEnable()
+
+        -- Known rewards work outdoors, without entry approval, with existing BIS targets.
+        for _, source in ipairs({ 268969, 279284, 269768, 280131 }) do
+            mod.currentPrompt = {}
+            prompt(source, 1)
+            assert(not mod.currentPrompt, "decline must cancel the advisor")
+        end
+        assert(scans == 0, "declined rewards must not enqueue the advisor")
+        prompt(268969, 1, 0, 0, 3418)
+        prompt(269768, 1, 0, 0, 3418)
+        mod.sessionGuard = false
+        prompt(279284, 1)
+        prompt(280131, 1)
+
+        -- Explicit opt-outs must not fall through into the generic ineligible pass.
+        db.entryPrompt, mod.sessionGuard = false, true
+        db.autoPassDelves, db.autoPassPrey = false, true
+        prompt(279284, 0)
+        prompt(268969, 0)
+        prompt(280131, 1)
+        db.autoPassDelves, db.autoPassPrey = true, false
+        prompt(279284, 1)
+        prompt(269768, 0)
+        prompt(280131, 0)
+        db.autoPassPrey, db.guardNonTargets = true, false
+        prompt(279284, 0)
+        prompt(280131, 0)
+        db.guardNonTargets, db.entryPrompt, mod.sessionGuard = true, true, nil
+
+        prompt(279284, 0, 0, 0, 999) -- Ordinary loot is not a Voidcore offer.
+        prompt(secret, 0)
+        prompt(279284, 0, 0, 0, secret)
+        prompt(280131, 0, 0, 0, 3513, secret)
+        prompt(999999, 0) -- No location-based guessing for unknown sources.
+
+        -- Raid/dungeon offers retain instance consent and existing BIS handling.
+        db.bisBySpec["257"] = {}
+        prompt(278284, 0, 6)
+        prompt(279618, 0, 16, 10)
+        mod.sessionGuard = true
+        prompt(278284, 1, 6)
+        prompt(279618, 1, 16, 10)
+        db.bisBySpec["257"] = { 123 }
+        prompt(278284, 0, 6) -- Keep the configured raid source while loot loads.
+        prompt(279618, 1, 16, 10) -- Known non-BIS source still passes.
+        db.bisSourcesBySpec["257"]["123"] = 279618
+        prompt(279618, 0, 16, 10)
+        prompt(279618, 1, 16, 9)
+
+        mod:OnDisable()
+        prompt(279284, 0)
+        prompt(280131, 0)
+        mod:OnEnable()
+        DeclineSpellConfirmationPrompt = nil
+        prompt(279284, 0)
+    ''')
 
 
 def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():

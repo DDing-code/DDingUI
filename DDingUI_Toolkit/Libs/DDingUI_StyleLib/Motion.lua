@@ -433,7 +433,7 @@ function M.PanelOpen(frame, opts)
     local fromAlpha = opts.fromAlpha or 0
     local toAlpha = opts.toAlpha or 1
 
-    if frame.Show then frame:Show() end
+    if frame.Show then (opts.show or frame.Show)(frame) end
     frame:SetAlpha(fromAlpha)
     if frame.SetScale then frame:SetScale(fromScale) end
 
@@ -490,6 +490,63 @@ function M.PanelClose(frame, opts)
             SafeCall(opts.onFinish, target)
         end,
     })
+end
+
+--- Bind ordinary settings-window Show/Hide (including Escape) to the panel presets.
+--- HideImmediately is reserved for teardown and gameplay preview handoffs.
+function M.BindPanel(frame)
+    if frame._ddslPanelBound then return end
+    frame._ddslPanelBound = true
+    local show, hide = frame.Show, frame.Hide
+    local openPanel = M.PanelOpen or M.EllesmereOpen
+    local closePanel = M.PanelClose or M.EllesmereClose
+    local active, baseScale
+
+    function frame:HideImmediately()
+        M.Stop(self, "settingsOpen")
+        M.Stop(self, "settingsClose")
+        if active then self:SetScale(baseScale) end
+        active = nil
+        self._ddslPanelClosing = nil
+        self:SetAlpha(1)
+        hide(self)
+    end
+
+    function frame:ShowAnimated()
+        if self:IsShown() and not self._ddslPanelClosing then return end
+        local reversing = self._ddslPanelClosing
+        if not active then baseScale = self:GetScale() end
+        local fromScale = reversing and self:GetScale() or baseScale * 0.965
+        local fromAlpha = reversing and self:GetAlpha() or 0
+        self._ddslPanelClosing = nil
+        active = "open"
+        openPanel(self, {
+            key = "settingsOpen", closeKey = "settingsClose", show = show,
+            baseScale = baseScale, fromScale = fromScale, fromAlpha = fromAlpha,
+            onFinish = function() active = nil end,
+        })
+    end
+
+    function frame:HideAnimated()
+        if not self:IsShown() then return end
+        if InCombatLockdown and InCombatLockdown() then self:HideImmediately(); return end
+        if self._ddslPanelClosing then return end
+        if not active then baseScale = self:GetScale() end
+        active = "close"
+        self._ddslPanelClosing = true
+        closePanel(self, {
+            key = "settingsClose", openKey = "settingsOpen",
+            baseScale = baseScale, fromScale = self:GetScale(),
+            hideOnFinish = false,
+            onFinish = function() self:HideImmediately() end,
+        })
+    end
+
+    frame.Show = frame.ShowAnimated
+    frame.Hide = frame.HideAnimated
+    function frame:SetShown(shown)
+        if shown then self:Show() else self:Hide() end
+    end
 end
 
 ------------------------------------------------------

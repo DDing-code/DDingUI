@@ -5,14 +5,6 @@
 
 local addonName, ns = ...
 local DDingToolKit = ns.DDingToolKit
-local L = ns.L
-
-local function Locale(key, fallback)
-    local value = L and rawget(L, key)
-    if type(value) == "string" and value ~= "" then return value end
-    return fallback
-end
-
 function DDingToolKit:CreateMinimapButton()
     local LDB = LibStub("LibDataBroker-1.1", true)
     local LibDBIcon = LibStub("LibDBIcon-1.0", true)
@@ -42,9 +34,10 @@ function DDingToolKit:CreateMinimapButton()
             local SL = _G.DDingUI_StyleLib -- [STYLE]
             local title = (SL and SL.CreateAddonTitle) and SL.CreateAddonTitle("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r Toolkit"
             tooltip:SetText(title)
-            tooltip:AddLine("|cffffffffLeft-click|r  " .. Locale("MINIMAP_LEFT_CLICK", "Open settings"), 0.7, 0.7, 0.7)
-            tooltip:AddLine("|cffffffffRight-click|r  " .. Locale("MINIMAP_RIGHT_CLICK", "Edit Mode"), 0.7, 0.7, 0.7)
-            tooltip:AddLine("|cffffffffDrag|r  " .. Locale("MINIMAP_DRAG", "Move button"), 0.7, 0.7, 0.7)
+            local ko = GetLocale() == "koKR"
+            tooltip:AddLine(ko and "|cffffffff좌클릭|r  설정 창 열기/닫기" or "|cffffffffLeft-click|r  Toggle settings", 0.7, 0.7, 0.7)
+            tooltip:AddLine(ko and "|cffffffff우클릭|r  편집 모드 · 위치 조정" or "|cffffffffRight-click|r  Edit mode / adjust position", 0.7, 0.7, 0.7)
+            tooltip:AddLine(ko and "|cffffffff드래그|r  버튼 위치 이동" or "|cffffffffDrag|r  Move button", 0.7, 0.7, 0.7)
         end,
     })
 

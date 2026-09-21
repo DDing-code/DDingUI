@@ -23,6 +23,38 @@ function UI:CreatePanel(parent, width, height, name)
     return frame
 end
 
+-- Both group-finder side panels share one Raider.IO anchor owner.
+local groupFinderPanels = setmetatable({}, { __mode = "k" })
+local raiderAnchor, updatingRaiderAnchor
+function UI:UpdateGroupFinderSideAnchor(panel)
+    if panel then groupFinderPanels[panel] = true end
+    local anchor = _G.RaiderIO_ProfileTooltipAnchor
+    if not anchor or not anchor.GetPoint or updatingRaiderAnchor then return end
+    if raiderAnchor ~= anchor then
+        raiderAnchor = anchor
+        hooksecurefunc(anchor, "SetPoint", function() UI:UpdateGroupFinderSideAnchor() end)
+    end
+    local ok, point, relative, relativePoint, x, y = pcall(anchor.GetPoint, anchor, 1)
+    local isSecret = ns.IsSecretValue or issecretvalue
+    if not ok or (isSecret and (isSecret(point) or isSecret(relative) or isSecret(relativePoint)
+        or isSecret(x) or isSecret(y))) then return end
+    if type(point) ~= "string" or type(relativePoint) ~= "string"
+        or type(x) ~= "number" or type(y) ~= "number" then return end
+    if relative ~= _G.PVEFrame and not groupFinderPanels[relative] then return end
+    local target = _G.PVEFrame
+    for candidate in pairs(groupFinderPanels) do
+        if candidate:IsVisible() and candidate._attachedSide == "RIGHT" then
+            target = candidate
+            break
+        end
+    end
+    if not target or target == relative then return end
+    updatingRaiderAnchor = true
+    anchor:ClearAllPoints()
+    anchor:SetPoint(point, target, relativePoint, x, y)
+    updatingRaiderAnchor = false
+end
+
 -- 메인 스타일 프레임 (드래그 가능)
 function UI:CreateMainFrame(parent, width, height, name)
     local frame = CreateFrame("Frame", name, parent, "BackdropTemplate")

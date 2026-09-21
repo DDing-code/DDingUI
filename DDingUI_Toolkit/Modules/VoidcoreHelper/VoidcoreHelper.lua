@@ -25,6 +25,14 @@ local KNOWN_VOIDCORE_CURRENCIES = {
     [3513] = true,
 }
 
+-- Match the reward source, not the player's location; prompts can arrive after leaving.
+local DIRECT_PASS_OPTIONS = {
+    [268969] = "autoPassDelves", -- Season 1 Delver's Trove
+    [279284] = "autoPassDelves", -- Season 2 Delver's Trove
+    [269768] = "autoPassPrey", -- Season 1 Prey
+    [280131] = "autoPassPrey", -- Season 2 Prey
+}
+
 -- Midnight Season 2 bonus-roll source items. The prompt still works for unknown future sources.
 local SOURCE_BY_ITEM = {
     [279618] = { kind = "dungeon", journalInstanceID = 1322, challengeModeID = 588, fallback = "Altar of Fangs" },
@@ -1025,7 +1033,16 @@ local function GetStoredSourceTargetState(self, specID, sourceItemID)
 end
 
 function VoidcoreHelper:TryAutoDecline(spellID, prompt)
-    if not spellID or not prompt or not self:IsGuardActive() or not DeclineSpellConfirmationPrompt then return false end
+    if not spellID or not prompt or not DeclineSpellConfirmationPrompt then return false end
+    local directOption = DIRECT_PASS_OPTIONS[prompt.sourceItemID]
+    if directOption then
+        local db = self:GetDB()
+        if not db.guardNonTargets or db[directOption] == false then return false end
+        DeclineSpellConfirmationPrompt(spellID)
+        self:HideAdvisor()
+        return true
+    end
+    if not self:IsGuardActive() then return false end
 
     local _, sourceKind = GetSourceName(prompt.sourceItemID)
     local eligible = IsEligiblePrompt(prompt, sourceKind)
@@ -1070,7 +1087,9 @@ function VoidcoreHelper:RenderPrompt(prompt)
     local statusText
     local statusColor
     if not eligible then
-        if resolvedKind == "dungeon" then
+        if DIRECT_PASS_OPTIONS[prompt.sourceItemID] then
+            statusText = T("VCH_STATUS_SIDE_CONTENT", "Delve / Prey reward")
+        elseif resolvedKind == "dungeon" then
             statusText = string.format(T("VCH_STATUS_LOW_KEY", "Not recommended: below +%d"), MIN_KEYSTONE_LEVEL)
         else
             statusText = T("VCH_STATUS_RAID_DIFFICULTY", "Not recommended: not Heroic/Mythic")

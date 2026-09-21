@@ -94,6 +94,7 @@ local RAID_BUFFS = {
 }
 
 local RAID_BUFF_BY_SPELL_ID = {}
+RaidPreparation.RaidBuffs = RAID_BUFFS
 for _, definition in ipairs(RAID_BUFFS) do
     for spellID in pairs(definition.spellIDs) do
         RAID_BUFF_BY_SPELL_ID[spellID] = definition.key
@@ -803,18 +804,45 @@ function RaidPreparation:GetVisibleRoster()
     return filtered
 end
 
+local function UpdateReadyNames(line, records)
+    line.records = records
+    line:SetShown(#records > 0)
+    local names = {}
+    for _, record in ipairs(records) do
+        local r, g, b = GetClassColor(record.classToken)
+        names[#names + 1] = string.format("|cff%02x%02x%02x%s|r",
+            math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5), ShortName(record.name))
+    end
+    local shown = #names
+    line.text:SetWidth(0)
+    -- ponytail: at most 40 raid names; use cumulative widths if this becomes a larger list.
+    repeat
+        local suffix = shown < #names and string.format(L["RAIDPREP_MORE_PLAYERS"], #names - shown) or ""
+        line.text:SetText(line.statusLabel .. ": " .. table.concat(names, ", ", 1, shown)
+            .. (shown > 0 and suffix ~= "" and " / " or "") .. suffix)
+        shown = shown - 1
+    until line.text:GetStringWidth() <= line:GetWidth() or shown < 0
+    line.text:SetWidth(line:GetWidth())
+    if GameTooltip and GameTooltip:GetOwner() == line and GameTooltip:IsShown() then
+        if #records > 0 and frame:IsShown() then line:GetScript("OnEnter")(line)
+        else GameTooltip:Hide() end
+    end
+end
+
 function RaidPreparation:Refresh()
     if not frame or not self.db then return end
     self:UpdateDynamicRoster()
     local source = self.roster or {}
-    local ready, declined, checks = 0, 0, 0
+    local ready, checks = 0, 0
+    local declinedRecords, waitingRecords = {}, {}
     for _, record in ipairs(source) do
         if record.ready == true then ready = ready + 1
-        elseif record.ready == false then declined = declined + 1 end
+        elseif record.ready == false then declinedRecords[#declinedRecords + 1] = record
+        else waitingRecords[#waitingRecords + 1] = record end
         if not self:IsRecordComplete(record, false) then checks = checks + 1 end
     end
     local total = #source
-    local waiting = total - ready - declined
+    local declined, waiting = #declinedRecords, #waitingRecords
     self.fullyReady = total > 0 and ready == total and checks == 0
     frame.summary:SetText(string.format(L["RAIDPREP_RESPONSES"], ready + declined, total))
     frame.headline:SetText(self.fullyReady and L["RAIDPREP_COMPLETE"]
@@ -824,12 +852,15 @@ function RaidPreparation:Refresh()
     frame.headline:SetTextColor(unpack(self.fullyReady and {0.54, 0.75, 0.64, 1} or {0.85, 0.74, 0.52, 1}))
     frame.counts:SetText(string.format(L["RAIDPREP_COUNTS"], ready, declined, waiting))
     frame.checks:SetText(string.format(L["RAIDPREP_CHECK_COUNT"], checks))
+    UpdateReadyNames(frame.declinedNames, declinedRecords)
+    UpdateReadyNames(frame.waitingNames, waitingRecords)
+    frame.hint:SetShown(declined == 0 and waiting == 0)
     local roster = self:GetVisibleRoster()
     self.visibleRoster = roster
     local maxOffset = math.max(0, math.ceil(#roster / 3) - 3) * 3
     scrollOffset = math.max(0, math.min(scrollOffset, maxOffset))
     local lines = math.max(1, math.min(3, math.ceil(#roster / 3)))
-    frame:SetHeight(210 + lines * ROW_HEIGHT)
+    frame:SetHeight(232 + lines * ROW_HEIGHT)
     frame.scrollTrack:SetShown(maxOffset > 0)
     frame.scrollThumb:SetShown(maxOffset > 0)
     if maxOffset > 0 then
@@ -1042,7 +1073,7 @@ end
 function RaidPreparation:CreateFrame()
     if frame then return frame end
     frame = CreateFrame("Frame", "DDingUIToolkitRaidPreparationFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(640, 264)
+    frame:SetSize(640, 286)
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
@@ -1099,11 +1130,35 @@ function RaidPreparation:CreateFrame()
     frame.summary:SetJustifyH("RIGHT")
     frame.hint = AddText(frame, 12, P.textDim, L["RAIDPREP_CHECK_HINT"])
     frame.hint:SetPoint("TOPLEFT", 18, -96)
+    for index, key in ipairs({"declinedNames", "waitingNames"}) do
+        local line = CreateFrame("Frame", nil, frame)
+        line.raidPrepRow = true
+        line.statusLabel = L[index == 1 and "RAIDPREP_NOT_READY" or "RAIDPREP_WAITING"]
+        line:SetPoint("TOPLEFT", 18, -94 - (index - 1) * 20)
+        line:SetSize(604, 18)
+        line:EnableMouse(true)
+        line.text = AddText(line, 12, index == 1 and {0.85,0.74,0.52,1} or P.text, "")
+        line.text:SetPoint("LEFT")
+        line.text:SetHeight(18)
+        line.text:SetJustifyH("LEFT")
+        line.text:SetWordWrap(false)
+        line:SetScript("OnEnter", function(self)
+            if not GameTooltip or not self.records or #self.records == 0 then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(self.statusLabel, unpack(P.textBright, 1, 3))
+            for _, record in ipairs(self.records) do
+                GameTooltip:AddLine(SafeString(record.name) or "?", GetClassColor(record.classToken))
+            end
+            GameTooltip:Show()
+        end)
+        line:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        frame[key] = line
+    end
     frame.counts = AddText(frame, 13, P.text, "")
-    frame.counts:SetPoint("TOPLEFT", 18, -132)
+    frame.counts:SetPoint("TOPLEFT", 18, -154)
     frame.checks = AddText(frame, 13, {0.85,0.74,0.52,1}, "")
-    frame.checks:SetPoint("TOPRIGHT", -18, -132)
-    for _, y in ipairs({-39,-120,-160}) do
+    frame.checks:SetPoint("TOPRIGHT", -18, -154)
+    for _, y in ipairs({-39,-142,-182}) do
         local line = frame:CreateTexture(nil, "ARTWORK")
         line:SetPoint("TOPLEFT", 1, y); line:SetPoint("TOPRIGHT", -1, y)
         line:SetHeight(1); line:SetColorTexture(unpack(P.separator))
@@ -1113,7 +1168,7 @@ function RaidPreparation:CreateFrame()
         local row = CreateFrame("Frame", nil, frame)
         row.raidPrepRow = true
         row:SetSize(194, ROW_HEIGHT - 6)
-        row:SetPoint("TOPLEFT", 18 + ((index-1) % 3) * 204, -171 - math.floor((index-1)/3)*ROW_HEIGHT)
+        row:SetPoint("TOPLEFT", 18 + ((index-1) % 3) * 204, -193 - math.floor((index-1)/3)*ROW_HEIGHT)
         row:EnableMouse(true)
         row:EnableMouseWheel(true)
         row:SetScript("OnMouseWheel", frame:GetScript("OnMouseWheel"))
@@ -1134,9 +1189,9 @@ function RaidPreparation:CreateFrame()
         frame.rows[index] = row
     end
     frame.empty = AddText(frame, 13, {0.54,0.75,0.64,1}, "")
-    frame.empty:SetPoint("TOPLEFT", 18, -184)
+    frame.empty:SetPoint("TOPLEFT", 18, -206)
     frame.scrollTrack = frame:CreateTexture(nil, "BACKGROUND")
-    frame.scrollTrack:SetPoint("TOPRIGHT", -8, -171); frame.scrollTrack:SetWidth(2)
+    frame.scrollTrack:SetPoint("TOPRIGHT", -8, -193); frame.scrollTrack:SetWidth(2)
     frame.scrollTrack:SetColorTexture(unpack(P.separator))
     frame.scrollThumb = frame:CreateTexture(nil, "ARTWORK")
     frame.scrollThumb:SetWidth(4); frame.scrollThumb:SetColorTexture(unpack(P.accent))

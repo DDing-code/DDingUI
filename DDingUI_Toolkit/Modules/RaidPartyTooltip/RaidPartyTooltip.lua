@@ -5,6 +5,7 @@ local L = ns.L
 local DDingToolKit = ns.DDingToolKit
 
 local RaidPartyTooltip = {}
+ns.RaidPartyTooltip = RaidPartyTooltip
 
 local MAX_GROUPS = 8
 local SLOTS_PER_GROUP = 5
@@ -80,6 +81,30 @@ local active = false
 local db
 local hooksComplete = false
 local lfgTooltipHooked = false
+local recruitmentHooked = false
+local recruitmentPending = false
+local specLibrary
+local reportedSpecs = {}
+local inspectRequests = {}
+local lastInspectAt = -math.huge
+local inspectHooked = false
+local PANEL_WIDTH = 320
+local PURE_DAMAGE_POSITION = {
+    WARRIOR = "MELEE", PALADIN = "MELEE", ROGUE = "MELEE", DEATHKNIGHT = "MELEE", MONK = "MELEE",
+    MAGE = "RANGED", PRIEST = "RANGED", WARLOCK = "RANGED", EVOKER = "RANGED",
+}
+local EXTRA_SYNERGIES = {
+    { providerClass = "MONK", spellID = 113746, labelKey = "RPT_MYSTIC_TOUCH" },
+    { providerClass = "DEMONHUNTER", spellID = 1490, labelKey = "RPT_CHAOS_BRAND" },
+    { providerClass = "HUNTER", spellID = 257284, labelKey = "RPT_HUNTERS_MARK" },
+    { providerClass = "PALADIN", spellID = 465, labelKey = "RPT_DEVOTION_AURA" },
+    { providerClass = "ROGUE", spellID = 381637, labelKey = "RPT_ATROPHIC_POISON" },
+}
+local RECRUITMENT_EVENTS = {
+    "GROUP_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED", "PLAYER_SPECIALIZATION_CHANGED",
+    "INSPECT_READY", "LFG_LIST_ACTIVE_ENTRY_UPDATE", "PARTY_LEADER_CHANGED",
+    "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
+}
 
 local memberButtons = setmetatable({}, { __mode = "k" })
 local memberButtonHooks = setmetatable({}, { __mode = "k" })
@@ -118,9 +143,44 @@ end
 
 local function SafeTableField(tableValue, key)
     if IsSecret(tableValue) or type(tableValue) ~= "table" then return nil, false end
+    if issecrettable and issecrettable(tableValue) then return nil, false end
     local ok, value = pcall(function() return tableValue[key] end)
     if not ok or IsSecret(value) then return nil, false end
     return value, true
+end
+
+local function PublicCall(func, ...)
+    if type(func) ~= "function" then return nil end
+    local ok, value = pcall(func, ...)
+    if ok and not IsSecret(value) then return value end
+end
+
+local function MemberKey(name)
+    if IsSecret(name) or type(name) ~= "string" or name == "" then return nil end
+    -- LibSpecialization omits the realm for same-realm senders.
+    if not name:find("-", 1, true) then
+        local realm = PublicCall(GetNormalizedRealmName)
+        if type(realm) ~= "string" or realm == "" then return nil end
+        name = name .. "-" .. realm
+    end
+    return name:gsub(" ", ""):lower()
+end
+
+local function UnitMemberKey(unit)
+    if not UnitFullName then return nil end
+    local name, realm = UnitFullName(unit)
+    if IsSecret(name) or IsSecret(realm) or type(name) ~= "string" then return nil end
+    if not realm or realm == "" then return MemberKey(name) end
+    return type(realm) == "string" and MemberKey(name .. "-" .. realm) or nil
+end
+
+local function UnitSpecialization(unit)
+    local info = C_SpecializationInfo or {}
+    if PublicCall(UnitIsUnit, unit, "player") == true then
+        local index = SafeInteger(PublicCall(info.GetSpecialization or GetSpecialization), 1)
+        return index and SafeInteger(PublicCall(info.GetSpecializationInfo or GetSpecializationInfo, index), 1)
+    end
+    return SafeInteger(PublicCall(info.GetInspectSpecialization or GetInspectSpecialization, unit), 1)
 end
 
 local function ColorText(text, color)
@@ -173,6 +233,12 @@ local function NormalizeRole(role)
     return "NONE"
 end
 
+local function SpecializationRole(specID)
+    if not specID or type(GetSpecializationInfoByID) ~= "function" then return "NONE" end
+    local ok, _, _, _, _, role = pcall(GetSpecializationInfoByID, specID)
+    return NormalizeRole(ok and role)
+end
+
 local function GetRoleIconMarkup(role)
     local atlas = ROLE_ATLAS[role]
     if atlas then
@@ -222,6 +288,43 @@ local function AddSummaryMember(summary, classFile, role)
     summary.unknownArmor = summary.unknownArmor + 1
 end
 
+local function NewSummary(subgroup)
+    return {
+        subgroup = subgroup, total = 0, classes = {}, roleClasses = CreateRoleClassCounts(),
+        unknownClasses = 0, unknownClassesByRole = CreateUnknownClassCounts(),
+        armor = { CLOTH = 0, LEATHER = 0, MAIL = 0, PLATE = 0 }, unknownArmor = 0,
+        positions = { TANK = 0, MELEE = 0, RANGED = 0, HEALER = 0, UNKNOWN = 0 },
+        unresolvedUnits = {},
+    }
+end
+
+local function AddRecruitmentMember(summary, unit, classFile, role)
+    if IsSecret(classFile) or type(classFile) ~= "string" then classFile = nil end
+    local key = UnitMemberKey(unit)
+    local reported = key and reportedSpecs[key]
+    local specID = (reported and reported.specID) or UnitSpecialization(unit)
+    if key and specID and not reported then
+        reportedSpecs[key] = { specID = specID, role = SpecializationRole(specID) }
+        reported = reportedSpecs[key]
+    end
+    role = NormalizeRole(role)
+    if role == "NONE" then
+        role = SpecializationRole(specID)
+        if role == "NONE" and reported then role = reported.role end
+    end
+    AddSummaryMember(summary, classFile, role)
+    local position
+    if role == "TANK" or role == "HEALER" then
+        position = role
+    elseif role == "DAMAGER" then
+        local positions = ns.RaidGroups and ns.RaidGroups.DamageSpecPositions or {}
+        position = positions[specID] or PURE_DAMAGE_POSITION[classFile]
+    end
+    position = position or "UNKNOWN"
+    summary.positions[position] = summary.positions[position] + 1
+    if position == "UNKNOWN" then summary.unresolvedUnits[#summary.unresolvedUnits + 1] = unit end
+end
+
 local function ResolveRaidMemberRole(index, combatRole)
     local assignedRole
     if type(UnitGroupRolesAssigned) == "function" then
@@ -239,19 +342,11 @@ local function IsCurrentlyInRaid()
 end
 
 function RaidPartyTooltip:CollectGroup(subgroup)
+    local wholeRaid = not IsSecret(subgroup) and subgroup == nil
     subgroup = SafeInteger(subgroup, 1, MAX_GROUPS)
-    local summary = {
-        subgroup = subgroup,
-        total = 0,
-        classes = {},
-        roleClasses = CreateRoleClassCounts(),
-        unknownClasses = 0,
-        unknownClassesByRole = CreateUnknownClassCounts(),
-        armor = { CLOTH = 0, LEATHER = 0, MAIL = 0, PLATE = 0 },
-        unknownArmor = 0,
-    }
+    local summary = NewSummary(subgroup)
 
-    if not subgroup or not IsCurrentlyInRaid() or type(GetRaidRosterInfo) ~= "function" then
+    if (not subgroup and not wholeRaid) or not IsCurrentlyInRaid() or type(GetRaidRosterInfo) ~= "function" then
         return summary
     end
 
@@ -265,12 +360,67 @@ function RaidPartyTooltip:CollectGroup(subgroup)
     for index = 1, memberCount do
         local ok, name, rank, memberGroup, level, className, classFile, zone, online,
             isDead, legacyRole, isMasterLooter, combatRole = pcall(GetRaidRosterInfo, index)
-        if ok and SafeInteger(memberGroup, 1, MAX_GROUPS) == subgroup then
-            AddSummaryMember(summary, classFile, ResolveRaidMemberRole(index, combatRole))
+        if ok and (wholeRaid or SafeInteger(memberGroup, 1, MAX_GROUPS) == subgroup) then
+            local role = ResolveRaidMemberRole(index, combatRole)
+            if wholeRaid then
+                AddRecruitmentMember(summary, "raid" .. index, classFile, role)
+            else
+                AddSummaryMember(summary, classFile, role)
+            end
+        elseif wholeRaid then
+            AddRecruitmentMember(summary, "raid" .. index, nil, "NONE")
         end
     end
 
     return summary
+end
+
+function RaidPartyTooltip:CollectRecruitment()
+    if IsCurrentlyInRaid() then return self:CollectGroup() end
+    local summary = NewSummary()
+    local count = SafeInteger(PublicCall(GetNumSubgroupMembers), 0, 4) or 0
+    for index = 0, count do
+        local unit = index == 0 and "player" or "party" .. index
+        local ok, _, classFile = pcall(UnitClass, unit)
+        if not ok then classFile = nil end
+        AddRecruitmentMember(summary, unit, classFile, PublicCall(UnitGroupRolesAssigned, unit))
+    end
+    return summary
+end
+
+function RaidPartyTooltip:GetMissingSynergies(summary)
+    local missing = {}
+    local function AddMissing(definitions)
+        for _, definition in ipairs(definitions) do
+            if not summary.classes[definition.providerClass] then missing[#missing + 1] = definition end
+        end
+    end
+    AddMissing(ns.RaidPreparation and ns.RaidPreparation.RaidBuffs or {})
+    AddMissing(EXTRA_SYNERGIES)
+    return missing
+end
+
+function RaidPartyTooltip:RequestMissingSpecializations(summary)
+    if not self:ShouldShowRecruitment() or type(NotifyInspect) ~= "function" then return end
+    if _G.InspectFrame and InspectFrame:IsShown() then return end
+    local now = GetTime()
+    if now - lastInspectAt < 4 then return end
+    local nextUnit, nextKey
+    local oldest = math.huge
+    for _, unit in ipairs(summary.unresolvedUnits) do
+        local key = UnitMemberKey(unit)
+        local requestedAt = key and inspectRequests[key] or -math.huge
+        if key and now - requestedAt >= 30 and requestedAt < oldest
+            and PublicCall(UnitIsUnit, unit, "player") == false
+            and PublicCall(CanInspect, unit) == true then
+            nextUnit, nextKey, oldest = unit, key, requestedAt
+        end
+    end
+    if nextUnit then
+        inspectRequests[nextKey] = now
+        lastInspectAt = now
+        pcall(NotifyInspect, nextUnit)
+    end
 end
 
 function RaidPartyTooltip:CollectSearchResult(resultID)
@@ -294,15 +444,7 @@ function RaidPartyTooltip:CollectSearchResult(resultID)
 
     if expectedMembers == 0 then return nil end
 
-    local summary = {
-        total = 0,
-        classes = {},
-        roleClasses = CreateRoleClassCounts(),
-        unknownClasses = 0,
-        unknownClassesByRole = CreateUnknownClassCounts(),
-        armor = { CLOTH = 0, LEATHER = 0, MAIL = 0, PLATE = 0 },
-        unknownArmor = 0,
-    }
+    local summary = NewSummary()
     local memberLimit = expectedMembers or MAX_RAID_MEMBERS
 
     for index = 1, memberLimit do
@@ -669,6 +811,234 @@ function RaidPartyTooltip:AttachBlizzardRaidUI()
     return complete
 end
 
+function RaidPartyTooltip:ShouldShowRecruitment()
+    local finder = _G.LFGListFrame
+    local viewer = finder and finder.ApplicationViewer
+    if not active or not db or db.showRecruitmentPanel == false
+        or PublicCall(InCombatLockdown) ~= false or not viewer or not viewer:IsVisible()
+        or not _G.PVEFrame or not PVEFrame:IsVisible() then return false end
+    if PublicCall(UnitIsGroupLeader, "player", LE_PARTY_CATEGORY_HOME) ~= true
+        and PublicCall(IsInGroup) ~= false then return false end
+    local api = C_LFGList or {}
+    local entry = PublicCall(api.GetActiveEntryInfo)
+    local ids = SafeTableField(entry, "activityIDs")
+    local activityID = SafeInteger(SafeTableField(ids, 1), 1)
+    if not activityID then return false end
+    local activity = PublicCall(api.GetActivityInfoTable, activityID)
+    return SafeInteger(SafeTableField(activity, "categoryID"), 1) == RAID_LFG_CATEGORY_ID
+end
+
+function RaidPartyTooltip:PositionRecruitmentPanel()
+    local panel = self.recruitmentPanel
+    if not panel or not _G.PVEFrame then return end
+    -- Choose once per opening; Raider.IO rebuilds its tooltip while hovering applicants.
+    if not panel._attachedSide then
+        local right = PublicCall(PVEFrame.GetRight, PVEFrame)
+        local left = PublicCall(PVEFrame.GetLeft, PVEFrame)
+        local screenRight = PublicCall(UIParent.GetRight, UIParent)
+        local frameScale = PVEFrame:GetEffectiveScale()
+        local screenScale = UIParent:GetEffectiveScale()
+        local raiderTooltip = _G.RaiderIO_ProfileTooltip
+        local raiderWidth = 0
+        if raiderTooltip then
+            local width = SafeInteger(PublicCall(raiderTooltip.GetWidth, raiderTooltip), 0)
+            raiderWidth = (width or 0) * raiderTooltip:GetEffectiveScale()
+        end
+        local useLeft = type(right) == "number" and type(left) == "number" and type(screenRight) == "number"
+            and screenRight * screenScale - right * frameScale < (PANEL_WIDTH + 8) * frameScale + raiderWidth
+            and left > PANEL_WIDTH + 8
+        panel:ClearAllPoints()
+        panel._attachedSide = useLeft and "LEFT" or "RIGHT"
+        if useLeft then
+            panel:SetPoint("TOPRIGHT", PVEFrame, "TOPLEFT", -4, 0)
+        else
+            panel:SetPoint("TOPLEFT", PVEFrame, "TOPRIGHT", 4, 0)
+        end
+    end
+    ns.UI:UpdateGroupFinderSideAnchor(panel)
+end
+
+function RaidPartyTooltip:CreateRecruitmentPanel()
+    if self.recruitmentPanel then return self.recruitmentPanel end
+    local P = ns.UI.popupColors
+    local panel = ns.UI:CreatePanel(PVEFrame, PANEL_WIDTH, 558, "DDingToolKit_RaidRecruitmentPanel")
+    self.recruitmentPanel = panel
+    panel:Hide()
+    panel:SetBackdropColor(unpack(P.background))
+    panel:SetBackdropBorderColor(unpack(P.border))
+    panel:SetFrameStrata("DIALOG")
+    panel:SetClampedToScreen(true)
+    panel:EnableMouse(true)
+    if ns.EnableRightClickMouselook then ns:EnableRightClickMouselook(panel) end
+    local font = (_G.DDingUI_StyleLib and DDingUI_StyleLib.Font.path) or "Fonts\\2002.TTF"
+    local function Text(text, x, y, width, size, color)
+        local label = panel:CreateFontString(nil, "OVERLAY")
+        label:SetFont(font, size or 13, "")
+        label:SetTextColor(unpack(color or P.text))
+        label:SetPoint("TOPLEFT", x, -y)
+        label:SetSize(width, (size or 13) + 6)
+        label:SetWordWrap(false)
+        label:SetJustifyH("LEFT")
+        label:SetText(text)
+        return label
+    end
+    Text(L["RPT_RECRUITMENT_TITLE"], 14, 13, 214, 15, P.textBright)
+    panel.count = Text("", 236, 14, 70, 13, P.accentText)
+    panel.count:SetJustifyH("RIGHT")
+    for _, y in ipairs({42, 144, 242}) do
+        local line = panel:CreateTexture(nil, "BORDER")
+        line:SetColorTexture(unpack(P.separator))
+        line:SetPoint("TOPLEFT", 14, -y)
+        line:SetSize(PANEL_WIDTH - 28, 1)
+    end
+    Text(L["RPT_ROLE_SECTION"], 14, 55, 292, 13, P.accentText)
+    panel.positions, panel.armor = {}, {}
+    for index, key in ipairs({"TANK", "MELEE", "RANGED", "HEALER"}) do
+        local x = 14 + (index - 1) * 73
+        local label = Text(L["RPT_POSITION_" .. key], x, 80, 73, 12, P.textDim)
+        label:SetJustifyH("CENTER")
+        panel.positions[key] = Text("0", x, 100, 73, 18, P.textBright)
+        panel.positions[key]:SetJustifyH("CENTER")
+    end
+    panel.unknownPosition = Text("", 14, 125, 292, 11, P.textDim)
+    Text(L["RPT_ARMOR_SECTION"], 14, 157, 292, 13, P.accentText)
+    for index, key in ipairs(ARMOR_ORDER) do
+        local x = 14 + (index - 1) * 73
+        local label = Text(L["RPT_ARMOR_" .. key], x, 181, 73, 12, P.textDim)
+        label:SetJustifyH("CENTER")
+        panel.armor[key] = Text("0", x, 201, 73, 18, P.textBright)
+        panel.armor[key]:SetJustifyH("CENTER")
+    end
+    panel.unknownArmor = Text("", 14, 225, 292, 11, P.textDim)
+    panel.synergyTitle = Text(L["RPT_MISSING_SYNERGY"], 14, 254, 292, 13, P.accentText)
+    panel.synergies = {}
+    for index = 1, 11 do
+        local row = CreateFrame("Frame", nil, panel)
+        row:SetPoint("TOPLEFT", 14, -(278 + (index - 1) * 24))
+        row:SetSize(292, 24)
+        row:EnableMouse(true)
+        row.text = row:CreateFontString(nil, "OVERLAY")
+        row.text:SetFont(font, 13, "")
+        row.text:SetTextColor(unpack(P.text))
+        row.text:SetPoint("LEFT", 0, 0)
+        row.text:SetSize(292, 22)
+        row.text:SetWordWrap(false)
+        row.text:SetJustifyH("LEFT")
+        row:SetScript("OnEnter", function(owner)
+            local definition = owner.definition
+            if not definition or not GameTooltip then return end
+            GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+            GameTooltip:SetText(L[definition.labelKey], 1, 1, 1)
+            local color = GetClassColor(definition.providerClass)
+            GameTooltip:AddLine(GetClassIconMarkup(definition.providerClass)
+                .. GetClassName(definition.providerClass), color.r or color[1], color.g or color[2], color.b or color[3])
+            GameTooltip:AddLine(L["RPT_SYNERGY_INFO"], 0.65, 0.65, 0.65, true)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function(owner) HideStandalone(owner) end)
+        panel.synergies[index] = row
+    end
+    panel.empty = Text(L["RPT_SYNERGY_COMPLETE"], 14, 281, 292, 13, P.textDim)
+    panel:SetScript("OnHide", function()
+        panel._attachedSide = nil
+        panel._specRefreshElapsed = 0
+        for _, row in ipairs(panel.synergies) do HideStandalone(row) end
+        ns.UI:UpdateGroupFinderSideAnchor(panel)
+    end)
+    panel:SetScript("OnUpdate", function(self, elapsed)
+        if not self._needsSpecRefresh then return end
+        self._specRefreshElapsed = (self._specRefreshElapsed or 0) + elapsed
+        if self._specRefreshElapsed < 2 then return end
+        self._specRefreshElapsed = 0
+        RaidPartyTooltip:RefreshRecruitment()
+    end)
+    return panel
+end
+
+function RaidPartyTooltip:RefreshRecruitment()
+    if not self:ShouldShowRecruitment() then
+        if self.recruitmentPanel then self.recruitmentPanel:Hide() end
+        return
+    end
+    local panel = self:CreateRecruitmentPanel()
+    local summary = self:CollectRecruitment()
+    panel._needsSpecRefresh = summary.positions.UNKNOWN > 0
+    local missing = self:GetMissingSynergies(summary)
+    panel.count:SetText(string.format(L["RPT_MEMBER_COUNT"], summary.total))
+    for key, label in pairs(panel.positions) do label:SetText(summary.positions[key]) end
+    for key, label in pairs(panel.armor) do label:SetText(summary.armor[key]) end
+    panel.unknownPosition:SetText(summary.positions.UNKNOWN > 0
+        and string.format(L["RPT_POSITION_UNKNOWN"], summary.positions.UNKNOWN) or "")
+    panel.unknownArmor:SetText(summary.unknownArmor > 0
+        and string.format(L["RPT_ARMOR_UNKNOWN"], summary.unknownArmor) or "")
+    panel.synergyTitle:SetText(summary.unknownClasses > 0 and L["RPT_SYNERGY_UNCERTAIN"] or L["RPT_MISSING_SYNERGY"])
+    for index, row in ipairs(panel.synergies) do
+        local definition = missing[index]
+        if row.definition ~= definition then HideStandalone(row) end
+        row.definition = definition
+        row:SetShown(definition ~= nil)
+        if definition then
+            local spellID = definition.spellID or next(definition.spellIDs)
+            local name = PublicCall(C_Spell and C_Spell.GetSpellName, spellID)
+            name = type(name) == "string" and name ~= "" and name or L[definition.labelKey]
+            row.text:SetText(GetClassIconMarkup(definition.providerClass) .. name)
+        end
+    end
+    panel.empty:SetShown(#missing == 0)
+    panel:SetHeight(294 + math.max(1, #missing) * 24)
+    panel:Show()
+    self:PositionRecruitmentPanel()
+    if panel._needsSpecRefresh then self:RequestMissingSpecializations(summary) end
+end
+
+function RaidPartyTooltip:ScheduleRecruitmentRefresh()
+    if not active or recruitmentPending then return end
+    recruitmentPending = true
+    C_Timer.After(0.1, function()
+        recruitmentPending = false
+        if active then RaidPartyTooltip:RefreshRecruitment() end
+    end)
+end
+
+function RaidPartyTooltip:AttachRecruitment()
+    if not inspectHooked and type(NotifyInspect) == "function" then
+        inspectHooked = true
+        -- Share the inspection throttle without replacing or clearing another addon's request.
+        hooksecurefunc("NotifyInspect", function() lastInspectAt = GetTime() end)
+    end
+    local viewer = _G.LFGListFrame and LFGListFrame.ApplicationViewer
+    if not recruitmentHooked and viewer and _G.PVEFrame then
+        recruitmentHooked = true
+        viewer:HookScript("OnShow", function() RaidPartyTooltip:ScheduleRecruitmentRefresh() end)
+        viewer:HookScript("OnHide", function()
+            if RaidPartyTooltip.recruitmentPanel then RaidPartyTooltip.recruitmentPanel:Hide() end
+        end)
+        PVEFrame:HookScript("OnShow", function() RaidPartyTooltip:ScheduleRecruitmentRefresh() end)
+    end
+    if not specLibrary and LibStub then
+        local library = LibStub("LibSpecialization", true)
+        if library and library.RegisterGroup then
+            library.RegisterGroup(self, function(specID, role, _, sender)
+                local key = MemberKey(sender)
+                specID = SafeInteger(specID, 1)
+                if not active or not key or not specID then return end
+                local count = SafeInteger(PublicCall(GetNumGroupMembers), 0, 40) or 0
+                local raid = IsCurrentlyInRaid()
+                for index = raid and 1 or 0, raid and count or math.max(0, count - 1) do
+                    local unit = raid and "raid" .. index or (index == 0 and "player" or "party" .. index)
+                    if UnitMemberKey(unit) == key then
+                        reportedSpecs[key] = { specID = specID, role = NormalizeRole(role) }
+                        RaidPartyTooltip:ScheduleRecruitmentRefresh()
+                        break
+                    end
+                end
+            end)
+            specLibrary = library
+        end
+    end
+    self:ScheduleRecruitmentRefresh()
+end
+
 function RaidPartyTooltip:OnInitialize()
     self.db = GetDB()
     db = self.db
@@ -682,10 +1052,17 @@ function RaidPartyTooltip:OnEnable()
 
     self:AttachBlizzardRaidUI()
     self:AttachLFGTooltip()
+    self:AttachRecruitment()
+    for _, event in ipairs(RECRUITMENT_EVENTS) do attachWatcher:RegisterEvent(event) end
 end
 
 function RaidPartyTooltip:OnDisable()
     active = false
+    if self.recruitmentPanel then self.recruitmentPanel:Hide() end
+    for _, event in ipairs(RECRUITMENT_EVENTS) do attachWatcher:UnregisterEvent(event) end
+    if specLibrary then specLibrary.UnregisterGroup(self); specLibrary = nil end
+    reportedSpecs = {}
+    inspectRequests = {}
 
     if GameTooltip and type(GameTooltip.GetOwner) == "function" then
         local owner = GameTooltip:GetOwner()
@@ -698,15 +1075,39 @@ end
 function RaidPartyTooltip:ApplySettings()
     self.db = GetDB()
     db = self.db
+    self:RefreshRecruitment()
 end
 
 attachWatcher:SetScript("OnEvent", function(_, event, loadedAddon)
-    if event ~= "ADDON_LOADED" or not active then return end
-    if loadedAddon == "Blizzard_RaidUI" then
+    if not active then return end
+    if event == "PLAYER_REGEN_DISABLED" then
+        if RaidPartyTooltip.recruitmentPanel then RaidPartyTooltip.recruitmentPanel:Hide() end
+        return
+    elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
+        local key = not IsSecret(loadedAddon) and type(loadedAddon) == "string" and UnitMemberKey(loadedAddon)
+        if key then reportedSpecs[key] = nil; inspectRequests[key] = nil end
+    elseif event == "INSPECT_READY" then
+        -- Snapshot before another inspection replaces the game's transient specialization data.
+        RaidPartyTooltip:CollectRecruitment()
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        local present = {}
+        local raid = IsCurrentlyInRaid()
+        local count = SafeInteger(PublicCall(GetNumGroupMembers), 0, 40) or 0
+        for index = raid and 1 or 0, raid and count or math.max(0, count - 1) do
+            local key = UnitMemberKey(raid and "raid" .. index or (index == 0 and "player" or "party" .. index))
+            if key then present[key] = true end
+        end
+        for key in pairs(reportedSpecs) do if not present[key] then reportedSpecs[key] = nil end end
+        for key in pairs(inspectRequests) do if not present[key] then inspectRequests[key] = nil end end
+    elseif event == "ADDON_LOADED" then
+        RaidPartyTooltip:AttachRecruitment()
+    end
+    if event == "ADDON_LOADED" and loadedAddon == "Blizzard_RaidUI" then
         RaidPartyTooltip:AttachBlizzardRaidUI()
-    elseif loadedAddon == "Blizzard_GroupFinder" then
+    elseif event == "ADDON_LOADED" and loadedAddon == "Blizzard_GroupFinder" then
         RaidPartyTooltip:AttachLFGTooltip()
     end
+    RaidPartyTooltip:ScheduleRecruitmentRefresh()
 end)
 
 DDingToolKit:RegisterModule("RaidPartyTooltip", RaidPartyTooltip)

@@ -990,6 +990,7 @@ ns.defaults = {
 
         -- RaidPartyTooltip (subgroup class and armor counts)
         RaidPartyTooltip = {
+            showRecruitmentPanel = true,
             showOnPremadeRaid = true,
             showOnMembers = true,
             showOnEmptySlots = true,
@@ -1049,6 +1050,8 @@ ns.defaults = {
         VoidcoreHelper = {
             entryPrompt = true,
             guardNonTargets = true,
+            autoPassDelves = true,
+            autoPassPrey = true,
             showAdvisor = true,
             showLootTable = true,
             bisBySpec = {},

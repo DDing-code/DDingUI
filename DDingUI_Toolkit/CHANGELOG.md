@@ -1,5 +1,33 @@
 # DDingUI Toolkit Changelog
 
+## 2.1.8
+
+Release date: 2026-09-22
+
+### Option Changes
+
+- **Voidcore Helper:** Added separate Delve and Prey auto-decline toggles, enabled by default. With non-BIS auto-decline enabled, recognized Voidcore offers from these activities are declined without instance-entry confirmation or BIS checks. Ordinary loot and dungeon/raid BIS rules are unchanged.
+
+- **Raid Party Tooltip:** Added a Recruitment Panel option for raid leaders. The applicant view shows joined members' tank/melee/ranged/healer counts, armor counts, and missing class-based synergies, in group-finder / composition / Raider.IO order. Unavailable role or specialization data is shown separately; recruitment end, combat, and closing the finder hide the panel.
+  The panel chooses its side once when opened; Raider.IO tooltip visibility, width changes, and roster refreshes no longer move it between sides.
+  Fixed same-realm specialization matching and added sequential inspection of unclassified, inspectable members while the panel is open. Received information is retained; combat and manual inspections pause automatic requests. Members with no available information remain unclassified.
+
+- **Raid Preparation:** Shows not-ready and waiting-for-reply player names separately below the status heading, each in its class color. Long lists show a remaining count, with the full class-colored names available on hover. Names update as players respond.
+
+- **Settings Window:** Added opening and closing motion and unified window titles, edit-mode branding, and minimap tooltip labels. Settings remain accessible when an older shared library is loaded.
+
+### 옵션 변경
+
+- **공허핵 도우미:** '구렁 자동 포기'와 '사냥 자동 포기' 옵션을 추가했습니다(기본 켜짐). 비-BIS 자동 포기가 켜져 있으면 해당 콘텐츠로 확인된 공허핵 보상을 진입 확인이나 BIS 설정과 관계없이 포기합니다. 일반 전리품과 기존 던전·레이드 BIS 판단은 유지합니다.
+
+- **공격대 파티 툴팁:** 공대장용 '모집 구성창 표시' 옵션을 추가했습니다. 신청자 화면에서 합류한 인원의 탱커·근딜·원딜·힐러 수, 방어구별 인원, 없는 직업 시너지를 확인합니다. 모집창 → 공대 구성창 → Raider.IO 순으로 배치하며, 미확인 역할·전문화는 따로 표시합니다. 모집 종료·전투 진입·모집창 닫기 시 함께 숨깁니다.
+  구성창의 좌우 배치는 열 때 한 번만 결정하여 Raider.IO 툴팁 표시·숨김·너비 변경이나 인원 갱신으로 위치가 바뀌지 않습니다.
+  같은 서버의 전문화 정보가 누락되던 이름 매칭을 수정했습니다. 구성창이 열려 있을 때 조회 가능한 미확인 인원을 순차 확인하고 받은 정보를 유지합니다. 전투·수동 살펴보기 중에는 자동 조회를 쉬며, 정보를 얻을 수 없는 인원은 미확인으로 남깁니다.
+
+- **공격대 준비:** 상태 제목 아래에 미준비·응답 대기 인원의 이름을 나누어 각 직업 색상으로 표시합니다. 긴 명단은 '외 N명'으로 줄이고 마우스를 올리면 직업 색상이 적용된 전체 이름을 확인할 수 있습니다. 응답하면 명단도 갱신됩니다.
+
+- **설정 창:** 열기·닫기 모션을 추가하고 창 제목·편집 모드·미니맵 안내 표기를 통일했습니다. 이전 공용 라이브러리를 사용 중이어도 설정 창은 정상적으로 열립니다.
+
 ## 2.1.7
 
 Release date: 2026-09-14

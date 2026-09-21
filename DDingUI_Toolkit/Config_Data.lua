@@ -773,6 +773,7 @@ function ns:InitConfigTree()
 
             { type = "header", label = L["RPT_LOCATION_SETTINGS"] },
             { type = "toggle", key = "profile.RaidPartyTooltip.showOnPremadeRaid", label = L["RPT_SHOW_ON_LFG_RAIDS"], onChange = RefreshRaidPartyTooltip },
+            { type = "toggle", key = "profile.RaidPartyTooltip.showRecruitmentPanel", label = L["RPT_SHOW_RECRUITMENT"], desc = L["RPT_RECRUITMENT_INFO"], onChange = RefreshRaidPartyTooltip },
             { type = "toggle", key = "profile.RaidPartyTooltip.showOnMembers", label = L["RPT_SHOW_ON_MEMBERS"], onChange = RefreshRaidPartyTooltip },
             { type = "toggle", key = "profile.RaidPartyTooltip.showOnEmptySlots", label = L["RPT_SHOW_ON_EMPTY_SLOTS"], onChange = RefreshRaidPartyTooltip },
 
@@ -3046,6 +3047,8 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.VoidcoreHelper.showLootTable", label = L["VCH_SHOW_LOOT_TABLE"], onChange = ApplyVoidcoreHelperSettings },
             { type = "toggle", key = "profile.VoidcoreHelper.guardNonTargets", label = L["VCH_GUARD_NON_TARGETS"], onChange = ApplyVoidcoreHelperSettings },
             { type = "toggle", key = "profile.VoidcoreHelper.entryPrompt", label = L["VCH_ENTRY_PROMPT"], onChange = ApplyVoidcoreHelperSettings },
+            { type = "toggle", key = "profile.VoidcoreHelper.autoPassDelves", label = L["VCH_PASS_DELVES"], desc = L["VCH_PASS_SIDE_CONTENT_DESC"], onChange = ApplyVoidcoreHelperSettings },
+            { type = "toggle", key = "profile.VoidcoreHelper.autoPassPrey", label = L["VCH_PASS_PREY"], desc = L["VCH_PASS_SIDE_CONTENT_DESC"], onChange = ApplyVoidcoreHelperSettings },
 
             { type = "header", label = L["VCH_BIS_HEADER"] },
             { type = "text", label = L["VCH_BIS_NOTE"] },
