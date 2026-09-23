@@ -6,7 +6,6 @@ local ACTIVE_PROFILE_ADDONS = {
     DDingUI_CDM = true,
     DDingUI_Toolkit = true,
     EllesmereUI = true,
-    WarpDeplete = true,
     Platynator = true,
 }
 

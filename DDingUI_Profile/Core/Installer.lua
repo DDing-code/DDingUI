@@ -62,14 +62,11 @@ I.installer = {
         -- 5. EllesmereUI
         [5] = AddonPage("EllesmereUI", "EllesmereUI"),
 
-        -- 6. WarpDeplete
-        [6] = AddonPage("WarpDeplete", "WarpDeplete"),
+        -- 6. Platynator
+        [6] = AddonPage("Platynator", "Platynator"),
 
-        -- 7. Platynator
-        [7] = AddonPage("Platynator", "Platynator"),
-
-        -- 8. 설치 완료
-        [8] = function()
+        -- 7. 설치 완료
+        [7] = function()
             PluginInstallFrame.SubTitle:SetText("설치 완료!")
             PluginInstallFrame.Desc1:SetText("DDingUI 프로필 설치가 완료되었습니다.")
             PluginInstallFrame.Desc2:SetText("'리로드'를 클릭하여 설정을 저장하고 UI를 다시 불러오세요.")
@@ -87,9 +84,8 @@ I.installer = {
         [3]  = "DDingUI_CDM",
         [4]  = "DDingUI_Toolkit",
         [5]  = "EllesmereUI",
-        [6]  = "WarpDeplete",
-        [7]  = "Platynator",
-        [8]  = "설치 완료",
+        [6]  = "Platynator",
+        [7]  = "설치 완료",
     },
     StepTitlesColor = {1, 1, 1},
     StepTitlesColorSelected = {0, 0.8, 1},

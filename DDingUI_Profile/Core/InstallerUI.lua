@@ -62,7 +62,6 @@ local SIDEBAR_W = 176
 local NAV_H = 48
 local STEP_H = 28
 local CONTENT_PAD = 28
-local TITLE_LOGO = [[Interface\AddOns\DDingUI_Profile\Media\Textures\logo_wordmark.tga]]
 
 local installerFrame
 local currentPage = 1
@@ -303,8 +302,8 @@ local function CreateTitleBar(parent)
         AddGradientLine(titleBar, acFrom, acTo, 2, true)
 
         local title = Font(titleBar, FontSize("title", 14), textHigh)
-        title:SetPoint("LEFT", 12, 0)
-        title:SetText("|cffffffffDDing|r|cffff4444UI|r |cffffffffProfile|r")
+        title:SetPoint("LEFT", 10, 0)
+        title:SetText("|cffffffffDDing|r|cffffa300UI|r |cffff4545P|r|cfff23e3er|r|cffe63737o|r|cffd93030f|r|cffcc2828i|r|cffc02121l|r|cffb31a1ae|r")
 
         local version = Font(titleBar, FontSize("small", 11), textDim)
         version:SetText("v" .. tostring(DUI.version or ""))
@@ -318,22 +317,9 @@ local function CreateTitleBar(parent)
         titleBar.closeBtn = close
     end
 
-    if titleBar.titleText then
-        titleBar.titleText:SetText("")
-        titleBar.titleText:Hide()
-    end
-    if not titleBar.brandLogo then
-        titleBar.brandLogo = titleBar:CreateTexture(nil, "ARTWORK")
-    end
-    titleBar.brandLogo:ClearAllPoints()
-    titleBar.brandLogo:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
-    titleBar.brandLogo:SetSize(144, 36)
-    titleBar.brandLogo:SetTexture(TITLE_LOGO)
-    titleBar.brandLogo:SetTexCoord(0, 1, 0, 1)
-    titleBar.brandLogo:Show()
     if titleBar.verText then
         titleBar.verText:ClearAllPoints()
-        titleBar.verText:SetPoint("LEFT", titleBar.brandLogo, "RIGHT", 5, -1)
+        titleBar.verText:SetPoint("LEFT", titleBar.titleText, "RIGHT", 6, 0)
     end
 
     titleBar:EnableMouse(true)
@@ -356,22 +342,6 @@ local function CreateInstallerFrame()
     f._ddslMotionBaseScale = f:GetScale() or 1
 
     ApplyBackdrop(f, bgMain, { 0, 0, 0, 1 })
-
-    function f:ShowAnimated()
-        if SL and SL.Motion and SL.Motion.EllesmereOpen then
-            SL.Motion.EllesmereOpen(self, { baseScale = self._ddslMotionBaseScale })
-        else
-            self:Show()
-        end
-    end
-
-    function f:HideAnimated()
-        if SL and SL.Motion and SL.Motion.EllesmereClose then
-            SL.Motion.EllesmereClose(self, { baseScale = self._ddslMotionBaseScale })
-        else
-            self:Hide()
-        end
-    end
 
     RegisterSpecialFrame("DDingUIInstallerFrame")
 
@@ -478,6 +448,7 @@ local function CreateInstallerFrame()
     f.PageIndicator = pageInd
 
     f:Hide()
+    if SL and SL.Motion then SL.Motion.BindPanel(f) end
     installerFrame = f
     return f
 end

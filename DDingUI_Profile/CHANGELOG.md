@@ -1,5 +1,19 @@
 # Changelog
 
+## 260923 - 2026-09-23
+
+### English
+
+- Refreshed the bundled BigWigs, DDingUI CDM, DDingUI Toolkit, EllesmereUI, and Platynator profiles from the current character settings.
+- Removed WarpDeplete from the installer and reduced the guided setup to seven steps.
+- Updated the installer panel presentation and motion.
+
+### 한국어
+
+- 현재 캐릭터 설정을 기준으로 BigWigs, DDingUI CDM, DDingUI Toolkit, EllesmereUI, Platynator 프로필을 갱신했습니다.
+- WarpDeplete 설치 항목을 제거하고 설치 과정을 7단계로 정리했습니다.
+- 설치창 디자인과 애니메이션을 갱신했습니다.
+
 ## 2.1 - 2026-08-24
 
 ### English

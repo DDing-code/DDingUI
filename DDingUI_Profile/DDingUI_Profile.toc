@@ -1,7 +1,7 @@
 ## Title: |cffffffffDDing|r|cffff4444UI|r |cffffffffProfile|r
 ## Notes: DDingUI 프로필 자동 설치 애드온
 ## Author: DDing
-## Version: 2.1
+## Version: 260923
 ## SavedVariables: DDingUIProfileDB
 ## OptionalDeps:
 ## Interface: 120005
@@ -38,7 +38,6 @@ Core\Functions.lua
 Media\Media.lua
 
 Data\AddOns\BigWigs.lua
-Data\AddOns\WarpDeplete.lua
 Data\AddOns\DDingUI.lua
 Data\AddOns\DDingUI_Toolkit.lua
 Data\AddOns\EllesmereUI.lua
@@ -46,7 +45,6 @@ Data\AddOns\Platynator.lua
 
 Setup\Setup.lua
 Setup\AddOns\BigWigs.lua
-Setup\AddOns\WarpDeplete.lua
 Setup\AddOns\DDingUI.lua
 Setup\AddOns\DDingUI_Toolkit.lua
 Setup\AddOns\EllesmereUI.lua

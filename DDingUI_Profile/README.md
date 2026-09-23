@@ -1,6 +1,6 @@
 # DDingUI Profile
 
-All-in-one UI profile installer for World of Warcraft. Configure six supported addons through one guided setup.
+All-in-one UI profile installer for World of Warcraft. Configure five supported addons through one guided setup.
 
 ## Supported Addons
 
@@ -10,12 +10,11 @@ All-in-one UI profile installer for World of Warcraft. Configure six supported a
 | **DDingUI CDM** | Per-specialization cooldown manager layouts |
 | **DDingUI Toolkit** | DDingUI utility module settings |
 | **EllesmereUI** | UI addon profile |
-| **WarpDeplete** | Mythic+ timer layout |
 | **Platynator** | Nameplate profile and style |
 
 ## Features
 
-- **8-Step Install Wizard** - Guided setup from welcome to completion
+- **7-Step Install Wizard** - Guided setup from welcome to completion
 - **Standalone or ElvUI Integration** - Uses its own installer UI, or ElvUI's PluginInstaller when ElvUI is loaded
 - **One-Click Apply** - Apply each installed addon's profile with a single button
 - **Per-Spec Cooldowns** - Built-in DDingUI CDM layouts for every specialization
@@ -39,7 +38,6 @@ Supported addons are optional and missing addons are skipped automatically:
 - DDingUI CDM
 - DDingUI Toolkit
 - EllesmereUI
-- WarpDeplete
 - Platynator
 
 ## Included Media
