@@ -1,5 +1,6 @@
 local DUI = unpack(DDingUI_Profile)
 local SE = DUI:GetModule("Setup")
+local PROFILE_NAME = "DDingUI_AD"
 
 -- 테이블 딥카피 (원본 D.ddingui 오염 방지)
 local function deepCopy(src)
@@ -26,10 +27,19 @@ function SE.DDingUI(addon, import)
         -- 문자열 포맷 (DDUI1: 프리픽스)
         if type(profileData) == "string" and profileData ~= "" then
             if ddingAddon and ddingAddon.ImportProfileFromString then
-                local ok, err = ddingAddon:ImportProfileFromString(profileData, DUI.profileName)
+                local db = ddingAddon.db
+                local previousProfile
+                local importName = PROFILE_NAME
+                if db and db.profiles and db.profiles[PROFILE_NAME] then
+                    previousProfile = db:GetCurrentProfile()
+                    db:SetProfile(PROFILE_NAME)
+                    importName = nil
+                end
+                local ok, err = ddingAddon:ImportProfileFromString(profileData, importName)
                 if ok then
                     SE.CompleteSetup(addon)
                 else
+                    if previousProfile then db:SetProfile(previousProfile) end
                     DUI:Print("DDingUI 프로필 가져오기 실패: " .. tostring(err))
                 end
             else
@@ -46,13 +56,13 @@ function SE.DDingUI(addon, import)
                 -- 프로필 데이터 저장
                 DDingUIDB = DDingUIDB or {}
                 DDingUIDB.profiles = DDingUIDB.profiles or {}
-                DDingUIDB.profiles[DUI.profileName] = copied
+                DDingUIDB.profiles[PROFILE_NAME] = copied
 
-                if db.keys.profile == DUI.profileName then
+                if db.keys.profile == PROFILE_NAME then
                     -- 같은 프로필이면 db.profile 참조를 새 복사본으로 갱신
                     db.profile = copied
                 else
-                    db:SetProfile(DUI.profileName)
+                    db:SetProfile(PROFILE_NAME)
                 end
 
                 -- 즉시 UI 갱신
@@ -63,21 +73,21 @@ function SE.DDingUI(addon, import)
             elseif DDingUIDB then
                 -- DDingUI 애드온 객체 없이 SavedVariables만 존재하는 경우
                 DDingUIDB.profiles = DDingUIDB.profiles or {}
-                DDingUIDB.profiles[DUI.profileName] = copied
+                DDingUIDB.profiles[PROFILE_NAME] = copied
                 SE.CompleteSetup(addon)
             end
         else
             DUI:Print("DDingUI 프로필 데이터가 유효하지 않습니다.")
         end
     else
-        if not SE.IsProfileExisting(DDingUIDB) then
+        if not DDingUIDB or not DDingUIDB.profiles or not DDingUIDB.profiles[PROFILE_NAME] then
             SE.RemoveFromDatabase(addon)
             return
         end
 
         local ddingAddon = LibStub("AceAddon-3.0"):GetAddon("DDingUI", true)
         if ddingAddon and ddingAddon.db then
-            ddingAddon.db:SetProfile(DUI.profileName)
+            ddingAddon.db:SetProfile(PROFILE_NAME)
         end
     end
 end

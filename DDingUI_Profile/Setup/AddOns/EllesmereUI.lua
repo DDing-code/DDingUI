@@ -1,5 +1,6 @@
 local DUI = unpack(DDingUI_Profile)
 local SE = DUI:GetModule("Setup")
+local PROFILE_NAME = "DDing_UI"
 
 function SE.EllesmereUI(addon, import)
     local D = DUI:GetModule("Data")
@@ -18,7 +19,7 @@ function SE.EllesmereUI(addon, import)
 
         local ok, err = EllesmereUI.ImportProfileSilent({
             importString = profileData,
-            profileName = DUI.profileName,
+            profileName = PROFILE_NAME,
             cleanSlate = true,
             applyUIScale = true,
             autoAssignSpecs = false,
@@ -33,15 +34,15 @@ function SE.EllesmereUI(addon, import)
 
         SE.CompleteSetup(addon)
     else
-        if not EllesmereUIDB or not EllesmereUIDB.profiles or type(EllesmereUIDB.profiles[DUI.profileName]) ~= "table" then
+        if not EllesmereUIDB or not EllesmereUIDB.profiles or type(EllesmereUIDB.profiles[PROFILE_NAME]) ~= "table" then
             SE.RemoveFromDatabase(addon)
             return
         end
 
         if EllesmereUI and type(EllesmereUI.SetProfile) == "function" then
-            EllesmereUI.SetProfile(DUI.profileName)
+            EllesmereUI.SetProfile(PROFILE_NAME)
         else
-            EllesmereUIDB.activeProfile = DUI.profileName
+            EllesmereUIDB.activeProfile = PROFILE_NAME
         end
     end
 end

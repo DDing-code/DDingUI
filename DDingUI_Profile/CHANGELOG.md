@@ -1,5 +1,17 @@
 # Changelog
 
+## 260923.1 - 2026-09-23
+
+### English
+
+- Install and reload the bundled DDingUI CDM profile as `DDingUI_AD`, updating an existing profile without a numbered duplicate.
+- Install and reload the bundled EllesmereUI profile as `DDing_UI`.
+
+### 한국어
+
+- DDingUI CDM 번들 프로필을 `DDingUI_AD`로 설치·불러오고, 이미 있으면 번호가 붙은 중복 프로필 없이 갱신합니다.
+- EllesmereUI 번들 프로필을 `DDing_UI`로 설치·불러옵니다.
+
 ## 260923 - 2026-09-23
 
 ### English
