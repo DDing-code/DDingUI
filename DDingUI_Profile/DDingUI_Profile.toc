@@ -4,7 +4,7 @@
 ## Version: 260923
 ## SavedVariables: DDingUIProfileDB
 ## OptionalDeps:
-## Interface: 120005
+## Interface: 120005, 120007, 120100
 ## AddonCompartmentFunc: DDingUIProfile_OnAddonCompartmentClick
 ## IconTexture: Interface\AddOns\DDingUI_Profile\Media\Textures\logo_s.tga
 

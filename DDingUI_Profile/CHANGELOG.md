@@ -7,12 +7,14 @@
 - Refreshed the bundled BigWigs, DDingUI CDM, DDingUI Toolkit, EllesmereUI, and Platynator profiles from the current character settings.
 - Removed WarpDeplete from the installer and reduced the guided setup to seven steps.
 - Updated the installer panel presentation and motion.
+- Updated the TOC game-version metadata for Retail 12.0.7 and 12.1.0.
 
 ### 한국어
 
 - 현재 캐릭터 설정을 기준으로 BigWigs, DDingUI CDM, DDingUI Toolkit, EllesmereUI, Platynator 프로필을 갱신했습니다.
 - WarpDeplete 설치 항목을 제거하고 설치 과정을 7단계로 정리했습니다.
 - 설치창 디자인과 애니메이션을 갱신했습니다.
+- Retail 12.0.7 및 12.1.0에 맞게 TOC 게임 버전 표기를 갱신했습니다.
 
 ## 2.1 - 2026-08-24
 
