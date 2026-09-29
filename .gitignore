@@ -38,3 +38,36 @@ Thumbs.db
 *.lua.bak
 *.txt.bak
 nul
+
+# DDingUI RaidHelper local credentials
+DDingUI_RaidHelper/.env
+DDingUI_RaidHelper/tools/.env
+DDingUI_RaidHelper/tools/.cache/
+DDingUI_RaidHelper/**/__pycache__/
+DDingUI_RaidHelper/**/*.pyc
+# Added by code-review-graph
+.code-review-graph/
+
+# Repository-local snapshots and manual deletion backups
+/_Reference/
+/DDingUICDMv*/
+/rollback_backup_*/
+/zip_rollback_backup_*/
+**/_backup/
+
+# 2026-09-30 repository scope: only StyleLib, CDM set (CDM/CDM_Option/DDingUI/DDingUI_Options),
+# Toolkit, RaidHelper, APL and FX are versioned here. Other addons stay on disk, untracked.
+/DDingUI_Profile/
+/DDingUI_UF/
+/DDingUI_PersonalBar/
+/DDingUI_DF_Plugin/
+/Branding/
+/__pycache__/
+/editor.html
+/fix_bar.py
+/fix_glow.py
+/generate_icons3.py
+/update_locales.py
+/update_locales_2.py
+/Start.bat
+/Resume.bat
