@@ -109,11 +109,6 @@ def check():
         source = (ROOT / path).read_text(encoding="utf-8-sig")
         assert "logo_wordmark" not in source and "titleText:Hide()" not in source, path
         lua.execute("assert(loadstring(...))", source)
-    source = (ROOT / "DDingUI_PersonalBar/Core.lua").read_text(encoding="utf-8-sig")
-    title = re.search(r'local ADDON_TITLE = "([^"\n]+)"', source)[1]
-    assert title.startswith(PREFIX)
-    assert len(set(re.findall(r"\|cff([0-9a-f]{6})", title[len(PREFIX):]))) > 2
-    lua.execute("assert(loadstring(...))", source)
     for path in ("DDingUI_RaidHelper/UI/OptionsWindow.lua", "DDingUI_Toolkit/Core/Movers.lua"):
         lua.execute("assert(loadstring(...))", (ROOT / path).read_text(encoding="utf-8-sig"))
     raid = (ROOT / "DDingUI_RaidHelper/UI/OptionsWindow.lua").read_text(encoding="utf-8-sig")
@@ -128,8 +123,6 @@ def check():
         ("DDingUI_UF/Core/Init.lua", "UnitFrames", "UnitFrames"),
         ("DDingUI_FX/Minimap.lua", "FX", "FX"),
         ("DDingUI_RaidHelper/UI/MinimapButton.lua", "RaidHelper", "RaidHelper"),
-        ("DDingUI_PersonalBar/Core.lua", None, None),
-        ("DDingUI_DF_Plugin/Core.lua", None, None),
     ]
     for path, key, name in launchers:
         source = (ROOT / path).read_text(encoding="utf-8-sig")
@@ -169,7 +162,7 @@ def check():
         lua.execute(body + "\n" + owner + ":Print('message', 42)")
         assert lua.globals().printed[1] == prefix
         assert lua.globals().printed[2] == "message" and lua.globals().printed[3] == 42
-    print(f"PASS: {len(bundles)} title factories, per-addon logos, fixed typography, series gradients and geometry, chat prefixes, 7 minimap tooltips")
+    print(f"PASS: {len(bundles)} title factories, per-addon logos, fixed typography, series gradients and geometry, chat prefixes, 5 minimap tooltips")
 
 
 if __name__ == "__main__":

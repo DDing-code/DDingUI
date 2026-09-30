@@ -59,8 +59,6 @@ DDingUI_RaidHelper/**/*.pyc
 # Toolkit, RaidHelper, APL and FX are versioned here. Other addons stay on disk, untracked.
 /DDingUI_Profile/
 /DDingUI_UF/
-/DDingUI_PersonalBar/
-/DDingUI_DF_Plugin/
 /Branding/
 /__pycache__/
 /editor.html
