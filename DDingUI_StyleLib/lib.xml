@@ -2,5 +2,19 @@
     <Script file="Core.lua"/>
     <Script file="Colors.lua"/>
     <Script file="Gradient.lua"/>
+    <Script file="Motion.lua"/>
+    <Script file="TableUtils.lua"/>
+    <Script file="Delay.lua"/>
+    <Script file="ColorNames.lua"/>
+    <Script file="DesignTokens.lua"/>
+    <Script file="PixelUtil.lua"/>
+    <Script file="ObjectPool.lua"/>
+    <Script file="Animation.lua"/>
+    <Script file="WidgetRefresh.lua"/>
+    <Script file="GlowEffects.lua"/>
+    <Script file="CascadingMenu.lua"/>
+    <Script file="DragSorter.lua"/>
+    <Script file="DualRow.lua"/>
     <Script file="Widgets.lua"/>
+    <Script file="ProceduralGlow.lua"/>
 </Ui>

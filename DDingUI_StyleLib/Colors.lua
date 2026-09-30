@@ -2,9 +2,11 @@
 -- DDingUI_StyleLib :: Colors
 -- Common colour palette (design-system single source)
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.Colors then return end
 
 Lib.Colors = {
     -- Backgrounds (matched to CLAUDE.md / UF design spec)
@@ -26,7 +28,7 @@ Lib.Colors = {
         normal    = { 0.85, 0.85, 0.85, 1.0 },   -- labels, descriptions
         highlight = { 1.00, 1.00, 1.00, 1.0 },    -- selected items, emphasis
         disabled  = { 0.50, 0.50, 0.50, 1.0 },    -- inactive controls
-        dim       = { 0.60, 0.60, 0.60, 1.0 },    -- secondary info
+        dim       = { 0.66, 0.66, 0.66, 1.0 },    -- secondary info -- [STYLE] 0.60 -> 0.66 readability
         -- section headers use addon accent (resolved at runtime)
     },
 
@@ -62,6 +64,6 @@ Lib.Font = {
     title     = 14,   -- title bar addon name (UF DDINGUI_FONT_TITLE)
     section   = 14,   -- section headers (UF DDINGUI_FONT_ACCENT)
     normal    = 13,   -- labels, tree items, widgets (UF DDINGUI_FONT_NORMAL)
-    small     = 11,   -- version text, slider min/max (UF DDINGUI_FONT_SMALL)
+    small     = 12,   -- version text, slider min/max -- [STYLE] 11 -> 12 minimum readable size
     sizeScale = 1.0,  -- [CONTROLLER] 글로벌 크기 배율 (Controller에서 설정)
 }
