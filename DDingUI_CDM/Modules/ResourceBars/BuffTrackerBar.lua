@@ -1950,7 +1950,7 @@ end
 SLASH_BTDEBUG1 = "/btdebug"
 SlashCmdList["BTDEBUG"] = function()
     BUFF_TRACKER_DEBUG = not BUFF_TRACKER_DEBUG
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Buff Tracker Debug: " .. (BUFF_TRACKER_DEBUG and "ON" or "OFF")) -- [STYLE]
+    DDingUI:Print("Buff Tracker Debug: " .. (BUFF_TRACKER_DEBUG and "ON" or "OFF")) -- [STYLE]
 
     -- Print current state
     local rootCfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffTrackerBar
@@ -2158,7 +2158,7 @@ SlashCmdList["BTTEST"] = function()
     testMode = not testMode
 
     if testMode then
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00Buff Tracker Test Mode: ON|r (ticker paused)") -- [STYLE]
+        DDingUI:Print("|cff00ff00Buff Tracker Test Mode: ON|r (ticker paused)") -- [STYLE]
         StopBuffTrackerTicker()
 
         local bar = ResourceBars:GetBuffTrackerBar()
@@ -2180,7 +2180,7 @@ SlashCmdList["BTTEST"] = function()
         bar:Show()
         print("  - Bar at CENTER, 200x10, value 5/10")
     else
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00Buff Tracker Test Mode: OFF|r (ticker resumed)") -- [STYLE]
+        DDingUI:Print("|cff00ff00Buff Tracker Test Mode: OFF|r (ticker resumed)") -- [STYLE]
         StartBuffTrackerTicker()
         ResourceBars:UpdateBuffTrackerBar()
     end
@@ -6684,7 +6684,7 @@ SlashCmdList["DDINGBUFF"] = function(msg)
     local cdID = tonumber(msg)
     if cdID then
         -- Test specific cooldownID
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Testing cdID: " .. cdID)
+        DDingUI:Print("Testing cdID: " .. cdID)
 
         -- 1. CDMScanner에서 frame 찾기
         local CDMScanner = DDingUI.CDMScanner
@@ -6698,14 +6698,14 @@ SlashCmdList["DDINGBUFF"] = function(msg)
         end
     else
         BUFF_TRACKER_DEBUG = not BUFF_TRACKER_DEBUG
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Debug: " .. (BUFF_TRACKER_DEBUG and "ON" or "OFF"))
+        DDingUI:Print("Debug: " .. (BUFF_TRACKER_DEBUG and "ON" or "OFF"))
     end
 end
 
 -- Scan available buffs command (CDM API)
 SLASH_BTSCAN1 = "/btscan"
 SlashCmdList["BTSCAN"] = function(msg)
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Scanning available buffs...")
+    DDingUI:Print("Scanning available buffs...")
 
     local buffs = DDingUI.ScanAvailableBuffs()
     if not buffs or #buffs == 0 then
@@ -6726,7 +6726,7 @@ end
 SLASH_BTRESET1 = "/btreset"
 SlashCmdList["BTRESET"] = function(msg)
     if not DDingUI.db then
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 BuffTracker config not found!")
+        DDingUI:Print("|cffff0000 BuffTracker config not found!")
         return
     end
 
@@ -6750,15 +6750,15 @@ SlashCmdList["BTRESET"] = function(msg)
                 end
             end
         end
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 All tracked buffs cleared!")
+        DDingUI:Print("|cff00ff00 All tracked buffs cleared!")
     elseif msg == "spec" or msg == "" then
         -- Reset current spec's tracked buffs only
         local specID = GetCurrentSpecID()
         if specID and globalStore then
             globalStore[specID] = {}
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 Current spec (ID: " .. specID .. ") tracked buffs cleared!")
+            DDingUI:Print("|cff00ff00 Current spec (ID: " .. specID .. ") tracked buffs cleared!")
         else
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 Could not determine current spec!")
+            DDingUI:Print("|cffff0000 Could not determine current spec!")
         end
     elseif msg == "legacy" then
         -- Clean up old per-spec data (now using SpecProfiles system)
@@ -6770,15 +6770,15 @@ SlashCmdList["BTRESET"] = function(msg)
             end
         end
         rootCfg.usePerSpec = false
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 Cleaned " .. cleaned .. " legacy spec entries! (Now using SpecProfiles system)")
+        DDingUI:Print("|cff00ff00 Cleaned " .. cleaned .. " legacy spec entries! (Now using SpecProfiles system)")
     elseif msg == "help" then
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffffcc00BuffTracker Reset|r")
+        DDingUI:Print("|cffffcc00BuffTracker Reset|r")
         print("  /btreset         - Clear current spec's tracked buffs")
         print("  /btreset spec    - Clear current spec's tracked buffs")
         print("  /btreset all     - Clear ALL specs' tracked buffs")
         print("  /btreset legacy  - Clean up old per-spec data")
     else
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffffcc00BuffTracker Reset|r")
+        DDingUI:Print("|cffffcc00BuffTracker Reset|r")
         print("  /btreset         - Clear current spec's tracked buffs")
         print("  /btreset spec    - Clear current spec's tracked buffs")
         print("  /btreset all     - Clear ALL specs' tracked buffs")

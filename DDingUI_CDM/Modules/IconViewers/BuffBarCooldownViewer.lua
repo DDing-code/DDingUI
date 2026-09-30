@@ -1359,12 +1359,12 @@ SLASH_DDINGBAR1 = "/ddingbar"
 SlashCmdList["DDINGBAR"] = function()
     local viewer = _G["BuffBarCooldownViewer"]
     if not viewer then
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000BuffBarCooldownViewer not found|r") -- [STYLE]
+        DDingUI:Print("|cffff0000BuffBarCooldownViewer not found|r") -- [STYLE]
         return
     end
 
     local allChildren = { viewer:GetChildren() }
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: BuffBar Debug - Total children: " .. #allChildren) -- [STYLE]
+    DDingUI:Print("BuffBar Debug - Total children: " .. #allChildren) -- [STYLE]
     print("  Viewer size: " .. string.format("%.1f x %.1f", viewer:GetWidth(), viewer:GetHeight()))
     print("  Viewer shown: " .. tostring(viewer:IsShown()))
 

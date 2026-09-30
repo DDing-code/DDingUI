@@ -26,7 +26,11 @@ local function GetAccent()
 end
 
 local function SetColor(texture, color)
-    texture:SetColorTexture(color[1], color[2], color[3], color[4] or 1)
+    if texture._ddslRoundTex then -- [STYLE] rounded thumb keeps its shape
+        texture:SetVertexColor(color[1], color[2], color[3], color[4] or 1)
+    else
+        texture:SetColorTexture(color[1], color[2], color[3], color[4] or 1)
+    end
 end
 
 local function SetBackdropColor(frame, color)
@@ -85,6 +89,8 @@ function Widgets.StyleToggleSwitch(checkbox)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
+    -- [STYLE] StyleLib 1.3: rounded switch track (radius 6 fits the 20px height)
+    if Base.RoundFrame then Base.RoundFrame(checkbox, 6) end
 
     if checkbox.check then checkbox.check:Hide() end
     local highlight = checkbox.GetHighlightTexture and checkbox:GetHighlightTexture()
@@ -92,9 +98,10 @@ function Widgets.StyleToggleSwitch(checkbox)
 
     local thumb = checkbox:CreateTexture(nil, "OVERLAY")
     thumb:SetSize(14, 14)
+    if Base.RoundTexture then Base.RoundTexture(thumb, 4) end -- [STYLE]
     checkbox._ddingSwitchThumb = thumb
 
-    local stateText = checkbox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local stateText = checkbox:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
     stateText:SetJustifyH("CENTER")
     stateText:SetShadowOffset(0, 0)
     checkbox._ddingSwitchText = stateText

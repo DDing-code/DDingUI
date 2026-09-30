@@ -933,53 +933,6 @@ function DDingUI:BuildGroupEffectStyleArgs(groupName)
     return args
 end
 
-local function CreateEdges(frame, layer, subLevel)
-    subLevel = math.max(-8, math.min(7, tonumber(subLevel) or 0))
-    local edges = {}
-    for index = 1, 4 do
-        edges[index] = frame:CreateTexture(nil, layer, nil, subLevel)
-        edges[index]:SetColorTexture(1, 1, 1, 1)
-    end
-    edges[1]:SetPoint("TOPLEFT")
-    edges[1]:SetPoint("TOPRIGHT")
-    edges[1]:SetHeight(1)
-    edges[2]:SetPoint("BOTTOMLEFT")
-    edges[2]:SetPoint("BOTTOMRIGHT")
-    edges[2]:SetHeight(1)
-    edges[3]:SetPoint("TOPLEFT")
-    edges[3]:SetPoint("BOTTOMLEFT")
-    edges[3]:SetWidth(1)
-    edges[4]:SetPoint("TOPRIGHT")
-    edges[4]:SetPoint("BOTTOMRIGHT")
-    edges[4]:SetWidth(1)
-    return edges
-end
-
-local function SetEdges(edges, r, g, b, a, thickness)
-    for index, edge in ipairs(edges) do
-        edge:SetColorTexture(r, g, b, a)
-        if index <= 2 then edge:SetHeight(thickness) else edge:SetWidth(thickness) end
-    end
-end
-
-local function GetGlowColor(context)
-    local mode = ReadSetting(context, "glow", "glowColorMode", "default")
-    local color
-    if mode == "custom" then
-        color = ReadSetting(context, "glow", "glowColor", { r = 1, g = 0.78, b = 0.2, a = 1 })
-    elseif mode == "class" then
-        local _, class = UnitClass("player")
-        color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-    elseif mode == "blizzard" then
-        color = { r = 1, g = 0.82, b = 0.28, a = 1 }
-    end
-    color = color or { r = 1, g = 0.42, b = 0.08, a = 1 }
-    return color.r or color[1] or 1,
-        color.g or color[2] or 0.42,
-        color.b or color[3] or 0.08,
-        color.a or color[4] or 1
-end
-
 local function IsGlowEnabled(context, state)
     if state == "active" and context.kind == "dynamic" and context.capabilities.procActive then
         local mode = ReadSetting(context, "glow", "procGlowMode")
@@ -990,9 +943,12 @@ local function IsGlowEnabled(context, state)
         local group = groups and groups[context.groupName]
         return not group or group.procGlowEnabled ~= false
     end
+    -- [REFACTOR] runtime glows only exist for ready / active / max charges; the old preview also
+    -- drew the active glow on the cooldown, inactive and unusable cards.
     local key = state == "ready" and "cooldownReadyGlow"
         or state == "maxCharges" and "maxChargesGlow"
-        or "activeGlow"
+        or state == "active" and "activeGlow"
+    if not key then return false end
     return ReadSetting(context, "glow", key, false) == true
 end
 
@@ -1016,89 +972,208 @@ local function GetStateSummary(context, state)
     return ""
 end
 
-local function AddStatePreview(iconFrame, context, state, font)
+-- ============================================================
+-- [REFACTOR] State previews draw with the runtime's own functions:
+-- size (GroupRenderer.ComputeGroupLayout), crop (IconSkinning / DynamicIconBridge), border
+-- (ScaleBorder + borderColor), swipe colours (IconSkinning / ActiveEffectOverlay), per-icon
+-- overrides and state alpha (IconCustomization), glow (IconCustomization:UpdateDynamicIconGlow)
+-- and text (GroupRenderer:ApplyDynamicIconTextOptions on a real Cooldown countdown).
+-- Only sample values stay preview-owned: a 10 s cooldown 4 s in, 3 stacks, 2 charges.
+-- ============================================================
+local GROUP_VIEWERS = {
+    Cooldowns = "EssentialCooldownViewer",
+    Buffs = "BuffIconCooldownViewer",
+    Utility = "UtilityCooldownViewer",
+}
+local SWIPE_TEXTURE = "Interface\\Buttons\\WHITE8X8"
+local PREVIEW_BOX = 64
+local previewIconFrames = {}
+
+local function GetGroupSettings(groupName)
+    local profile = DDingUI.db and DDingUI.db.profile
+    local groups = profile and profile.groupSystem and profile.groupSystem.groups
+    return groups and groups[groupName] or EMPTY
+end
+
+local function RuntimeIconSize(groupName, groupSettings)
+    local renderer = DDingUI.GroupRenderer
+    if renderer and renderer.ComputeGroupLayout and renderer.BuildLayoutSettings then
+        local layout = renderer.ComputeGroupLayout(renderer.BuildLayoutSettings(groupSettings),
+            GROUP_VIEWERS[groupName], 1)
+        local slot = layout.slots[1]
+        if slot then return slot.w, slot.h end
+    end
+    return 36, 36
+end
+
+local function ApplyRuntimeCrop(texture, context, groupSettings)
+    local bridge = DDingUI.DynamicIconBridge
+    if context.kind == "dynamic" and bridge and bridge.ApplyTexCoordCrop then
+        bridge.ApplyTexCoordCrop(texture, groupSettings.zoom or 0.08, groupSettings.aspectRatioCrop or 1.0)
+        return
+    end
+    local viewers = DDingUI.IconViewers
+    if viewers and viewers.ComputeIconTexCoord then
+        texture:SetTexCoord(viewers.ComputeIconTexCoord(groupSettings))
+    end
+end
+
+local function CreateEdges(frame, layer, subLevel)
+    subLevel = math.max(-8, math.min(7, tonumber(subLevel) or 0))
+    local edges = {}
+    for index = 1, 4 do
+        edges[index] = frame:CreateTexture(nil, layer, nil, subLevel)
+        edges[index]:SetColorTexture(1, 1, 1, 1)
+    end
+    edges[1]:SetPoint("TOPLEFT")
+    edges[1]:SetPoint("TOPRIGHT")
+    edges[2]:SetPoint("BOTTOMLEFT")
+    edges[2]:SetPoint("BOTTOMRIGHT")
+    edges[3]:SetPoint("TOPLEFT", edges[1], "BOTTOMLEFT")
+    edges[3]:SetPoint("BOTTOMLEFT", edges[2], "TOPLEFT")
+    edges[4]:SetPoint("TOPRIGHT", edges[1], "BOTTOMRIGHT")
+    edges[4]:SetPoint("BOTTOMRIGHT", edges[2], "TOPRIGHT")
+    return edges
+end
+
+local function SetEdges(edges, r, g, b, a, thickness)
+    for index, edge in ipairs(edges) do
+        edge:SetColorTexture(r, g, b, a)
+        if index <= 2 then edge:SetHeight(thickness) else edge:SetWidth(thickness) end
+        edge:SetShown(thickness > 0)
+    end
+end
+
+local function ColorRGBA(color, r, g, b, a)
+    if type(color) ~= "table" then return r, g, b, a end
+    return color.r or color[1] or r, color.g or color[2] or g, color.b or color[3] or b, color.a or color[4] or a
+end
+
+--- Glow settings as the runtime reads them, with the toggle for this state switched on.
+local function BuildGlowSettings(context)
+    local settings = { activeGlow = true }
+    for _, key in ipairs(GLOW_STYLE_KEYS) do
+        settings[key] = ReadSetting(context, "glow", key)
+    end
+    return settings
+end
+
+local function ReleasePreviewIconFrames()
+    local customization = DDingUI.IconCustomization
+    for index = #previewIconFrames, 1, -1 do
+        local frame = previewIconFrames[index]
+        if customization and customization.ClearDynamicIconGlow then
+            pcall(customization.ClearDynamicIconGlow, customization, frame)
+        end
+        previewIconFrames[index] = nil
+    end
+end
+
+--- Returns the in-game alpha the runtime would use (0 = hidden in game).
+local function AddStatePreview(iconFrame, context, state, groupSettings)
     local icon = iconFrame.icon
-    local alpha = 1
+    local custom = context.settings or EMPTY
+    local customization = DDingUI.IconCustomization
+    local viewers = DDingUI.IconViewers
+    local effective = context.kind == "cdm" and customization and customization.ApplySkinOverrides
+        and customization.ApplySkinOverrides(groupSettings, custom) or groupSettings
+
+    -- Border: runtime thickness/colour; an active border only recolours it (same thickness).
+    local borderSize = tonumber(groupSettings.borderSize) or 1
+    borderSize = DDingUI.ScaleBorder and DDingUI:ScaleBorder(borderSize) or math.floor(borderSize + 0.5)
+    local br, bg, bb, ba = ColorRGBA(groupSettings.borderColor, 0, 0, 0, 1)
+    if state == "active" and ReadSetting(context, "visual", "activeBorderEnabled", false) == true
+        and customization and customization.ResolveActiveBorderColor then
+        local color = customization.ResolveActiveBorderColor(custom)
+        br, bg, bb, ba = color[1], color[2], color[3], color[4]
+    end
+    SetEdges(CreateEdges(iconFrame, "OVERLAY", 6), br, bg, bb, ba, borderSize)
+
+    -- Alpha and desaturation per state.
+    local gameAlpha = 1
+    local textureAlpha = 1
     local desaturated = false
     if state == "inactive" then
-        alpha = tonumber(ReadSetting(context, "visual", "inactiveAlpha", 0.5)) or 0.5
+        -- GroupRenderer SetDynamicIconInactiveGray: alpha on the texture, clamped 0.05..1
+        textureAlpha = math.max(0.05, math.min(1, tonumber(ReadSetting(context, "visual", "inactiveAlpha", 0.5)) or 0.5))
         desaturated = ReadSetting(context, "visual", "desatInactive", "inherit") ~= "off"
     elseif state == "cooldown" then
         desaturated = context.kind == "dynamic"
             and ReadSetting(context, "visual", "desaturateOnCooldown", true) ~= false
             or ReadSetting(context, "visual", "nonActiveMode") == "desaturate"
-        if ReadSetting(context, "visual", "cooldownStateEffect") == "lowerAlphaOnCD" then
-            alpha = tonumber(ReadSetting(context, "visual", "cooldownStateAlpha", 0.35)) or 0.35
-        end
     elseif state == "unusable" then
         desaturated = ReadSetting(context, "visual", "desaturateWhenUnusable", true) ~= false
     end
+    if (state == "cooldown" or state == "ready") and customization and customization.ResolveCooldownStateAlpha then
+        gameAlpha = customization.ResolveCooldownStateAlpha(custom, state == "cooldown")
+    end
     icon:SetDesaturated(desaturated)
-    iconFrame:SetAlpha(math.max(0.05, math.min(1, alpha)))
+    icon:SetAlpha(textureAlpha)
+    -- A state hidden in game stays faintly visible here so the card is still readable.
+    iconFrame:SetAlpha(math.max(0.12, gameAlpha))
 
+    -- Swipe: sample 10 s cooldown, 4 s elapsed; the engine draws its own countdown numbers.
+    local swipe
+    if state == "cooldown" then
+        local hidden = context.kind == "dynamic" and ReadSetting(context, "visual", "showCooldown", true) == false
+            or effective.disableSwipeAnimation == true
+        if not hidden and viewers and viewers.ResolveCooldownSwipeColor then
+            swipe = { viewers.ResolveCooldownSwipeColor(effective) }
+            swipe.reverse = effective.swipeReverse == true
+        end
+    elseif state == "active" then
+        if context.kind == "dynamic" then
+            local overlay = DDingUI.CustomIconActiveEffectOverlay
+            local r, g, b, a
+            if overlay and overlay.ResolveSwipeColor then r, g, b, a = overlay.ResolveSwipeColor(custom) end
+            if r then swipe = { r, g, b, a } end
+        elseif not effective.hideActiveState and viewers and viewers.ResolveAuraSwipeColor then
+            swipe = { viewers.ResolveAuraSwipeColor(effective) }
+            swipe.reverse = effective.swipeReverse == true
+        end
+    end
     if state == "cooldown" or state == "active" then
         local cooldown = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
         cooldown:SetAllPoints()
-        cooldown:SetDrawEdge(false)
         cooldown:SetDrawBling(false)
-        cooldown:SetHideCountdownNumbers(true)
-        if state == "active" then
-            local color = ReadSetting(context, "visual", "activeSwipeColor", { r = 1, g = 0.776, b = 0.376, a = 0.65 })
-            cooldown:SetSwipeColor(
-                color.r or color[1] or 1,
-                color.g or color[2] or 0.776,
-                color.b or color[3] or 0.376,
-                color.a or color[4] or 0.65
-            )
-        else
-            cooldown:SetSwipeColor(0, 0, 0, 0.72)
+        cooldown:SetDrawEdge(state == "cooldown" and effective.disableEdgeGlow ~= true)
+        cooldown:SetDrawSwipe(swipe ~= nil)
+        if swipe then
+            cooldown:SetSwipeTexture(SWIPE_TEXTURE)
+            cooldown:SetSwipeColor(swipe[1], swipe[2], swipe[3], swipe[4] or 1)
+            cooldown:SetReverse(swipe.reverse == true)
         end
         cooldown:SetCooldown(GetTime() - 4, 10)
+        iconFrame.cooldown = cooldown
     end
 
-    if state == "active" then
-        local duration = iconFrame:CreateFontString(nil, "OVERLAY", nil, 7)
-        duration:SetFont(font, 11, "OUTLINE")
-        duration:SetPoint("TOP", iconFrame, "TOP", 0, -2)
-        duration:SetText("8.4")
-        duration:SetTextColor(1, 1, 1, 1)
-        local stacks = iconFrame:CreateFontString(nil, "OVERLAY", nil, 7)
-        stacks:SetFont(font, 11, "OUTLINE")
-        stacks:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -2, 2)
-        stacks:SetText("3")
-    elseif state == "maxCharges" then
-        local charges = iconFrame:CreateFontString(nil, "OVERLAY", nil, 7)
-        charges:SetFont(font, 13, "OUTLINE")
-        charges:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -2, 2)
-        charges:SetText("2")
-        charges:SetTextColor(1, 0.84, 0.16, 1)
-    elseif state == "unusable" then
-        local tint = iconFrame:CreateTexture(nil, "OVERLAY", nil, 4)
-        tint:SetAllPoints()
-        tint:SetColorTexture(0.35, 0.02, 0.02, 0.2)
+    -- Stack / charge text uses the runtime count style; sample values are in the real range.
+    if state == "active" or state == "maxCharges" then
+        local count = iconFrame:CreateFontString(nil, "OVERLAY", nil, 7)
+        count:SetFont(DDingUI.GetFont and DDingUI:GetFont() or STANDARD_TEXT_FONT, 14, "OUTLINE")
+        count:SetText(state == "active" and "3" or "2")
+        iconFrame.count = count
+    end
+    local renderer = DDingUI.GroupRenderer
+    if renderer and renderer.ApplyDynamicIconTextOptions and (iconFrame.cooldown or iconFrame.count) then
+        iconFrame._ddSourceViewer = GROUP_VIEWERS[context.groupName]
+        renderer:ApplyDynamicIconTextOptions(iconFrame, context.groupName, groupSettings)
+        -- The countdown FontString appears on the first cooldown draw; style it then.
+        C_Timer.After(0.05, function()
+            if iconFrame:IsShown() then renderer:ApplyDynamicIconTextOptions(iconFrame, context.groupName, groupSettings) end
+        end)
     end
 
-    if state == "active" and ReadSetting(context, "visual", "activeBorderEnabled", false) then
-        local border = CreateEdges(iconFrame, "OVERLAY", 6)
-        local color = ReadSetting(context, "visual", "activeBorderColor", { r = 1, g = 0.776, b = 0.376, a = 1 })
-        SetEdges(
-            border,
-            color.r or color[1] or 1,
-            color.g or color[2] or 0.776,
-            color.b or color[3] or 0.376,
-            color.a or color[4] or 1,
-            2
-        )
+    -- Glow: the runtime glow call with this icon's glow style.
+    if IsGlowEnabled(context, state) and customization and customization.UpdateDynamicIconGlow then
+        pcall(customization.UpdateDynamicIconGlow, customization, iconFrame, BuildGlowSettings(context), true)
+        previewIconFrames[#previewIconFrames + 1] = iconFrame
     end
-
-    if IsGlowEnabled(context, state) then
-        local glow = CreateEdges(iconFrame, "OVERLAY", 7)
-        local r, g, b, a = GetGlowColor(context)
-        SetEdges(glow, r, g, b, a, 3)
-    end
+    return gameAlpha
 end
 
 function DDingUI:BuildGroupStateStudioUI(parent, groupName)
+    ReleasePreviewIconFrames()
     local context = GetContext(groupName, false)
     if not context then
         parent:SetHeight(1)
@@ -1111,12 +1186,22 @@ function DDingUI:BuildGroupStateStudioUI(parent, groupName)
     local margin, gap, cardHeight = 6, 8, 94
     local columns = width >= 620 and 3 or width >= 390 and 2 or 1
     local cardWidth = math.floor((width - margin * 2 - gap * (columns - 1)) / columns)
+    local groupSettings = GetGroupSettings(groupName)
+    local iconW, iconH = RuntimeIconSize(groupName, groupSettings)
+    -- Real on-screen size; shrink only when larger than the card's icon box.
+    local uiScale = UIParent and UIParent:GetEffectiveScale() or 1
+    local ownScale = parent.GetEffectiveScale and parent:GetEffectiveScale() or 1
+    local trueScale = ownScale > 0 and uiScale / ownScale or 1
+    local iconScale = trueScale * math.min(1, PREVIEW_BOX / (math.max(iconW, iconH) * trueScale))
+    local round = Base.RoundFrame
+    local radius = Base.RADIUS and Base.RADIUS.card or 10
 
     for index, definition in ipairs(STATE_ORDER) do
         local row = math.floor((index - 1) / columns)
         local column = (index - 1) % columns
         local supported = context.capabilities[definition.key] == true
-        local card = CreateFrame("Button", nil, parent)
+        local selected = selectedState == definition.key
+        local card = CreateFrame("Button", nil, parent, "BackdropTemplate")
         card:SetSize(cardWidth, cardHeight)
         card:SetPoint(
             "TOPLEFT",
@@ -1126,54 +1211,56 @@ function DDingUI:BuildGroupStateStudioUI(parent, groupName)
             -(margin + row * (cardHeight + gap))
         )
         card:RegisterForClicks("LeftButtonUp")
-
-        local background = card:CreateTexture(nil, "BACKGROUND")
-        background:SetAllPoints()
-        background:SetColorTexture(
-            THEME.panelRaised[1], THEME.panelRaised[2], THEME.panelRaised[3],
-            supported and 1 or 0.5)
-        local edges = CreateEdges(card, "BORDER", 1)
-        if selectedState == definition.key then
-            SetEdges(edges, THEME.accent[1], THEME.accent[2], THEME.accent[3], 1, 2)
-        else
-            SetEdges(edges, THEME.border[1], THEME.border[2], THEME.border[3], supported and 1 or 0.45, 1)
+        -- [STYLE] StyleLib 1.3 rounded state card; the selected card gets the accent outline + tint.
+        card:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+        local function Paint(hovered)
+            local bgColor = selected and THEME.accent or (hovered and THEME.bgHover or THEME.panelRaised)
+            card:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3],
+                selected and 0.16 or (supported and 1 or 0.5))
+            local edge = selected and THEME.accent or THEME.border
+            card:SetBackdropBorderColor(edge[1], edge[2], edge[3], selected and 1 or (supported and 1 or 0.45))
         end
+        Paint(false)
+        if round then round(card, radius) end
 
-        local iconFrame = CreateFrame("Frame", nil, card)
-        iconFrame:SetSize(54, 54)
-        iconFrame:SetPoint("LEFT", card, "LEFT", 12, 0)
+        local box = CreateFrame("Frame", nil, card)
+        box:SetSize(PREVIEW_BOX, PREVIEW_BOX)
+        box:SetPoint("LEFT", card, "LEFT", 12, 0)
+        local iconFrame = CreateFrame("Frame", nil, box)
+        iconFrame:SetSize(iconW, iconH)
+        iconFrame:SetScale(iconScale) -- box is unscaled, so this is relative to the card
+        iconFrame:SetPoint("CENTER", box, "CENTER", 0, 0)
         local icon = iconFrame:CreateTexture(nil, "ARTWORK")
         icon:SetAllPoints()
         icon:SetTexture(context.opt._gridIconTex or FALLBACK_ICON)
-        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        ApplyRuntimeCrop(icon, context, groupSettings)
         iconFrame.icon = icon
-        AddStatePreview(iconFrame, context, definition.key, font)
+        local gameAlpha = AddStatePreview(iconFrame, context, definition.key, groupSettings)
 
         local label = card:CreateFontString(nil, "OVERLAY")
         label:SetFont(font, 12, "")
-        label:SetPoint("TOPLEFT", card, "TOPLEFT", 76, -18)
+        label:SetPoint("TOPLEFT", card, "TOPLEFT", 12 + PREVIEW_BOX + 12, -18)
         label:SetPoint("RIGHT", card, "RIGHT", -8, 0)
         label:SetJustifyH("LEFT")
         label:SetText(T(definition.label, definition.label))
-        label:SetTextColor(supported and 0.95 or 0.48, supported and 0.95 or 0.48, supported and 0.95 or 0.48, 1)
+        local text = selected and THEME.accent or (supported and THEME.textBright or THEME.textDim)
+        label:SetTextColor(text[1], text[2], text[3], 1)
 
         local summary = card:CreateFontString(nil, "OVERLAY")
-        summary:SetFont(font, 10, "")
+        summary:SetFont(font, 12, "") -- [STYLE]
         summary:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -8)
         summary:SetPoint("RIGHT", card, "RIGHT", -8, 0)
         summary:SetJustifyH("LEFT")
-        summary:SetText(supported
-            and GetStateSummary(context, definition.key)
-            or T("Not supported", "Not supported"))
-        summary:SetTextColor(0.62, 0.65, 0.72, supported and 1 or 0.55)
+        local summaryText = supported and GetStateSummary(context, definition.key) or T("Not supported", "Not supported")
+        if supported and gameAlpha <= 0 then
+            summaryText = summaryText .. "  ·  " .. T("Hidden in game", "게임에서 숨김")
+        end
+        summary:SetText(summaryText)
+        summary:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], supported and 1 or 0.55)
 
         if supported then
-            card:SetScript("OnEnter", function()
-                background:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 1)
-            end)
-            card:SetScript("OnLeave", function()
-                background:SetColorTexture(THEME.panelRaised[1], THEME.panelRaised[2], THEME.panelRaised[3], 1)
-            end)
+            card:SetScript("OnEnter", function() if not selected then Paint(true) end end)
+            card:SetScript("OnLeave", function() Paint(false) end)
             card:SetScript("OnClick", function()
                 SetSelectedState(groupName, context, definition.key)
             end)

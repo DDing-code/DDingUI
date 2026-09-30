@@ -206,6 +206,7 @@ local function StyleFontString(fontString)
     if type(size) ~= "number" or size <= 0 or size > 96 then
         size = 12
     end
+    if size < 12 then size = 12 end -- [STYLE] settings text never below 12pt
 
     -- UF 통일: 그림자 적용 (1, -1)
     flags = ""
@@ -279,6 +280,7 @@ local function StyleEditBox(editBox, fontObjectName)
     end
 
     -- Apply global font (UF 통일: 그림자 적용)
+    if type(size) ~= "number" or size < 12 then size = 12 end -- [STYLE]
     if globalFontPath then
         editBox:SetFont(globalFontPath, size, "")
     end
@@ -291,10 +293,46 @@ end
 -- ============================================
 -- Backdrop 생성 함수 (둥근 모서리 지원)
 -- ============================================
+-- [STYLE] StyleLib 1.3 rounded surfaces for the settings window (see Lib.MakeRounded)
+local RADIUS = SL.Radius or { window = 14, card = 10, row = 8, control = 6, check = 4, track = 2 }
+
+--- Round an existing backdrop frame; SetBackdropColor/BorderColor keep working afterwards.
+local function RoundFrame(frame, radius)
+    if not (frame and SL.MakeRounded and SL.Rounded ~= false) then return frame end
+    local bg, border
+    if frame.GetBackdropColor then
+        local r, g, b, a = frame:GetBackdropColor()
+        if r then bg = { r, g, b, a } end
+    end
+    if frame.GetBackdropBorderColor then
+        local r, g, b, a = frame:GetBackdropBorderColor()
+        if r then border = { r, g, b, a } end
+    end
+    SL.MakeRounded(frame, radius, bg, border)
+    return frame
+end
+
+--- Rounded 9-slice texture (SL.RoundTexture marks it; SL.RowHover then tints it).
+local function RoundTexture(tex, radius)
+    if not (tex and SL.RoundTexture and SL.Rounded ~= false) then return nil end
+    return SL.RoundTexture(tex, radius)
+end
+
+--- Colour a texture that may be rounded: tint keeps the rounded shape.
+local function TintTexture(tex, r, g, b, a)
+    if tex._ddslRoundTex then
+        tex:SetVertexColor(r, g, b, a or 1)
+    else
+        tex:SetColorTexture(r, g, b, a or 1)
+    end
+end
+
 local function CreateBackdrop(parent, bgColor, borderColor, edgeSize, rounded)
     if not parent then return end
 
     edgeSize = edgeSize or 1
+    local radius = type(rounded) == "number" and rounded or nil -- [STYLE] numeric = StyleLib radius
+    if radius then rounded = nil end
 
     local backdrop
     if rounded then
@@ -345,6 +383,7 @@ local function CreateBackdrop(parent, bgColor, borderColor, edgeSize, rounded)
             parent:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
         end
     end
+    if radius then RoundFrame(parent, radius) end
 end
 
 -- ============================================
@@ -733,6 +772,7 @@ local function CreateCustomDropdown(parent, width)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 }
     })
+    RoundFrame(dropdown, RADIUS.control) -- [STYLE]
     dropdown:SetBackdropColor(SL.GetColor("widget"))
     dropdown:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
@@ -775,6 +815,7 @@ local function CreateCustomDropdown(parent, width)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 }
     })
+    RoundFrame(listFrame, RADIUS.row) -- [STYLE]
     listFrame:SetBackdropColor(SL.GetColor("selected"))
     listFrame:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
     listFrame:Hide()
@@ -883,7 +924,7 @@ local function CreateCustomDropdown(parent, width)
 
     local function ResetSelectedTextFont()
         if selectedFontPath then
-            selectedText:SetFont(selectedFontPath, selectedFontSize or 11, selectedFontFlags or "")
+            selectedText:SetFont(selectedFontPath, math.max(12, selectedFontSize or 12), selectedFontFlags or "") -- [STYLE]
         end
     end
 
@@ -1050,6 +1091,7 @@ local function CreateCustomDropdown(parent, width)
             edgeSize = 1,
             insets = { left = 1, right = 1, top = 1, bottom = 1 },
         })
+        RoundFrame(searchEdit, RADIUS.control) -- [STYLE]
         searchEdit:SetBackdropColor(0, 0, 0, 0.45)
         searchEdit:SetBackdropBorderColor(SL.GetColor("border"))
         searchEdit:SetAutoFocus(false)
@@ -1058,10 +1100,10 @@ local function CreateCustomDropdown(parent, width)
         searchEdit:SetTextColor(SL.GetColor("text"))
         searchEdit:SetJustifyH("LEFT")
         local searchFont = DDingUI:GetGlobalFont() or globalFontPath
-        searchEdit:SetFont(searchFont, 11, "")
+        searchEdit:SetFont(searchFont, 12, "") -- [STYLE]
 
         searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
-        searchPlaceholder:SetFont(searchFont, 11, "")
+        searchPlaceholder:SetFont(searchFont, 12, "") -- [STYLE]
         searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 7, 0)
         searchPlaceholder:SetText(rawget(L, "Search...") or "Search...")
         searchPlaceholder:SetTextColor(SL.GetColor("dim"))
@@ -1392,7 +1434,7 @@ local function CreateCustomDropdown(parent, width)
             if itemText.SetMaxLines then itemText:SetMaxLines(1) end
             itemText:SetText(displayText)
             if item._defaultFontPath then
-                itemText:SetFont(item._defaultFontPath, item._defaultFontSize or 11, item._defaultFontFlags or "")
+                itemText:SetFont(item._defaultFontPath, math.max(12, item._defaultFontSize or 12), item._defaultFontFlags or "") -- [STYLE]
             end
 
             local mediaPreview = item.mediaPreview
@@ -1591,6 +1633,7 @@ local function CreateTabButton(parent, text, onClick)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 }
     })
+    RoundFrame(btn, RADIUS.control) -- [STYLE]
     btn:SetBackdropColor(0, 0, 0, 0)  -- 기본 투명
     btn:SetBackdropBorderColor(0, 0, 0, 0)
 
@@ -1746,14 +1789,20 @@ local function CreateElvCheckbox(parent)
         edgeFile = FLAT,
         edgeSize = 1,
     })
+    RoundFrame(checkbox, RADIUS.check) -- [STYLE]
     checkbox:SetBackdropColor(0.115, 0.115, 0.115, 0.9)
     checkbox:SetBackdropBorderColor(SL.GetColor("border"))
 
     -- 체크 마크 (UF 통일: 전체 채우기 그라데이션)
     local check = checkbox:CreateTexture(nil, "OVERLAY")
-    check:SetPoint("TOPLEFT", 1, -1)
-    check:SetPoint("BOTTOMRIGHT", -1, 1)
-    check:SetColorTexture(1, 1, 1, 1)
+    -- [STYLE] rounded inner mark (3px inset, radius 2) like the StyleLib 1.3 checkbox
+    check:SetPoint("TOPLEFT", 3, -3)
+    check:SetPoint("BOTTOMRIGHT", -3, 3)
+    if RoundTexture(check, RADIUS.track) then
+        check:SetVertexColor(1, 1, 1, 1)
+    else
+        check:SetColorTexture(1, 1, 1, 1)
+    end
     local _cAcR, _cAcG, _cAcB = SL.GetColor("accent")
     local _cAbR, _cAbG, _cAbB = SL.GetColor("accentGradEnd")
     check:SetGradient("HORIZONTAL",
@@ -1765,7 +1814,11 @@ local function CreateElvCheckbox(parent)
 
     -- 하이라이트 (UF 통일)
     local highlightTex = checkbox:CreateTexture(nil, "ARTWORK")
-    highlightTex:SetColorTexture(_cAcR, _cAcG, _cAcB, 0.1)
+    if RoundTexture(highlightTex, 3) then -- [STYLE]
+        highlightTex:SetVertexColor(_cAcR, _cAcG, _cAcB, 0.1)
+    else
+        highlightTex:SetColorTexture(_cAcR, _cAcG, _cAcB, 0.1)
+    end
     highlightTex:SetPoint("TOPLEFT", 1, -1)
     highlightTex:SetPoint("BOTTOMRIGHT", -1, 1)
     checkbox:SetHighlightTexture(highlightTex, "ADD")
@@ -1866,10 +1919,17 @@ function Widgets.CreateToggle(parent, option, yOffset, optionsTable)
 end
 
 -- ============================================
--- 슬라이더 스타일 - 얇은 트랙 + 둥근 핸들
+-- 슬라이더 스타일 - StyleLib 1.2 SliderSpec (트랙 6 / 클릭 영역 28 / 손잡이 16→18) -- [STYLE]
 -- ============================================
+local SLIDER_SPEC = SL.SliderSpec or {
+    trackWidth = 180, trackHeight = 6, hitHeight = 28,
+    thumbSize = 16, thumbHover = 18,
+    valueWidth = 56, valueHeight = 24, valueGap = 8,
+}
+
 local function StyleSlider(slider, compact)
     if not slider then return end
+    local SPEC = SLIDER_SPEC
 
     -- 기본 텍스쳐 숨기기 및 Low/High 텍스트를 슬라이더 양쪽에 배치
     pcall(function()
@@ -1906,38 +1966,75 @@ local function StyleSlider(slider, compact)
         end
     end)
 
-    -- 트랙 배경 (4px 높이 - UF/스펙 통일)
+    -- 클릭 영역 28px, 가운데 6px 트랙 -- [STYLE]
+    slider:SetHeight(SPEC.hitHeight)
+    slider:SetHitRectInsets(0, 0, 0, 0)
+
     if not slider.bgTexture then
         local bg = slider:CreateTexture(nil, "BACKGROUND")
-        bg:SetHeight(4)
+        bg:SetHeight(SPEC.trackHeight)
         bg:SetPoint("LEFT", 0, 0)
         bg:SetPoint("RIGHT", 0, 0)
-        bg:SetColorTexture(THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 1)
+        RoundTexture(bg, RADIUS.track) -- [STYLE] rounded track (StyleLib 1.3)
+        TintTexture(bg, THEME.bgWidget[1], THEME.bgWidget[2], THEME.bgWidget[3], 1)
         slider.bgTexture = bg
 
-        -- 진행률 바 (악센트 그라데이션) - ARTWORK 레이어, sublevel 1로 설정
+        -- 트랙 테두리 (호버 시 active 색)
+        local border = slider:CreateTexture(nil, "BACKGROUND", nil, 1)
+        if SL.RoundTexture and SL.Rounded ~= false then
+            SL.RoundTexture(border, RADIUS.track, true) -- 1px rounded outline over the track
+            border:SetAllPoints(bg)
+        else
+            border:SetDrawLayer("BACKGROUND", -1)
+            border:SetPoint("TOPLEFT", bg, "TOPLEFT", -1, 1)
+            border:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 1, -1)
+        end
+        TintTexture(border, THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        slider.trackBorder = border
+
+        -- 진행률 바 (악센트 그라데이션) - 트랙 높이 전체 알약 -- [STYLE]
         local fill = slider:CreateTexture(nil, "ARTWORK", nil, 1)
-        fill:SetHeight(4)
+        fill:SetHeight(SPEC.trackHeight)
         fill:SetPoint("LEFT", bg, "LEFT", 0, 0)
-        fill:SetColorTexture(1, 1, 1, 1)
+        if not RoundTexture(fill, RADIUS.track) then fill:SetColorTexture(1, 1, 1, 1) end
         fill:SetGradient("HORIZONTAL",
-            CreateColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1),      -- 보라 (좌)
-            CreateColor(THEME.accentBlue[1], THEME.accentBlue[2], THEME.accentBlue[3], 1)  -- 파랑 (우)
+            CreateColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1),
+            CreateColor(THEME.accentBlue[1], THEME.accentBlue[2], THEME.accentBlue[3], 1)
         )
         fill:SetWidth(1)
         fill:Show()
         slider.fillTexture = fill
     end
 
-    -- 핸들 (8x8 사각형 - UF/스펙 통일)
+    -- [STYLE] Plain high-contrast thumb instead of a miniature logo.
+    local thumbSize = SPEC.thumbSize or 16
+    local thumbHover = SPEC.thumbHover or 18
     pcall(function()
         local thumb = slider:GetThumbTexture()
         if thumb then
-            thumb:SetTexture(FLAT)
-            thumb:SetVertexColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-            thumb:SetSize(8, 8)
+            if not RoundTexture(thumb, RADIUS.control) then thumb:SetTexture(FLAT) end
+            thumb:SetVertexColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
+            thumb:SetSize(thumbSize, thumbSize)
         end
     end)
+
+    if not slider._ddHoverBound and SL.AttachHoverMotion then
+        slider._ddHoverBound = true
+        SL.AttachHoverMotion(slider, {
+            key = "sliderHover", duration = 0.09, ease = "outCubic", hook = true,
+            apply = function(self, t)
+                local thumb = self:GetThumbTexture()
+                if thumb then
+                    local size = thumbSize + (thumbHover - thumbSize) * t
+                    thumb:SetSize(size, size)
+                end
+                if self.trackBorder then
+                    local c = t > 0.5 and THEME.borderLight or THEME.border
+                    TintTexture(self.trackBorder, c[1], c[2], c[3], 1)
+                end
+            end,
+        })
+    end
 
     -- 진행률 바 업데이트 함수 (슬라이더에 저장하여 언제든 호출 가능)
     slider.UpdateFillBar = function(self)
@@ -1949,7 +2046,9 @@ local function StyleSlider(slider, compact)
                 local percent = (value - min) / range
                 local sliderWidth = self:GetWidth()
                 if sliderWidth and sliderWidth > 0 then
-                    local fillWidth = math.max(1, sliderWidth * percent)
+                    -- [STYLE] keep at least the rounded caps (2 x slice margin)
+                    local minFill = self.fillTexture._ddslRoundTex and 6 or 1
+                    local fillWidth = math.max(minFill, sliderWidth * percent)
                     self.fillTexture:SetWidth(fillWidth)
                     self.fillTexture:Show()
                 end
@@ -1985,8 +2084,9 @@ end
 
 function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     local compact = parent._compactOptionsLayout == true
+    local SPEC = SLIDER_SPEC -- [STYLE] StyleLib 1.2 slider spec
     local frame = CreateFrame("Frame", nil, parent)
-    frame:SetHeight(compact and 48 or 32)
+    frame:SetHeight(compact and 54 or 34) -- [STYLE] 28px hit area + 24px value box
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
     frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
 
@@ -2007,19 +2107,17 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     label:SetTextColor(SL.GetColor("text"))
 
     local valueEditBox = CreateFrame("EditBox", nil, frame, "BackdropTemplate")
-    valueEditBox:SetHeight(18)
-    valueEditBox:SetWidth(50)
+    valueEditBox:SetHeight(SPEC.valueHeight) -- [STYLE]
+    valueEditBox:SetWidth(SPEC.valueWidth)
     if compact then
-        valueEditBox:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 1)
+        valueEditBox:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
         label:SetPoint("TOPRIGHT", valueEditBox, "TOPLEFT", -8, -2)
-    else
-        valueEditBox:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
     end
     StyleEditBox(valueEditBox, "GameFontHighlight")
     valueEditBox:SetTextColor(1, 1, 1, 1)
     valueEditBox:SetAutoFocus(false)
     valueEditBox:SetJustifyH("CENTER")
-    CreateBackdrop(valueEditBox, THEME.input, THEME.border)
+    CreateBackdrop(valueEditBox, THEME.input, THEME.border, nil, RADIUS.control) -- [STYLE]
 
     -- Allow decimal input (don't use SetNumeric which blocks ".")
     valueEditBox:SetNumeric(false)
@@ -2044,13 +2142,16 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
 
     local slider = CreateFrame("Slider", nil, frame, "OptionsSliderTemplate")
     slider:SetOrientation("HORIZONTAL")
-    slider:SetHeight(16)
+    slider:SetHeight(SPEC.hitHeight) -- [STYLE]
     if compact then
-        slider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 3)
-        slider:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 3)
+        -- narrow inspector: track fills the panel width under the label
+        slider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 0)
+        slider:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 0)
     else
+        -- [STYLE] fixed 180px track (no full-row stretch): label | min | track | max | value
         slider:SetPoint("LEFT", label, "RIGHT", 45, 0)
-        slider:SetPoint("RIGHT", valueEditBox, "LEFT", -45, 0)
+        slider:SetWidth(SPEC.trackWidth)
+        valueEditBox:SetPoint("LEFT", slider, "RIGHT", 45, 0)
     end
     slider:EnableMouse(true)
 
@@ -2335,6 +2436,7 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
             edgeSize = 1,
             insets = { left = 0, right = 0, top = 0, bottom = 0 },
         })
+        RoundFrame(button, RADIUS.check) -- [STYLE] colour swatch
         button:SetBackdropColor(0, 0, 0, 1)
         button:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
         button:SetScript("OnEnter", function(self)
@@ -2530,6 +2632,7 @@ function Widgets.CreateColor(parent, option, yOffset, optionsTable)
             local button = CreateFrame("Button", nil, frame, "BackdropTemplate")
             button:SetSize(width, 18)
             button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+            RoundFrame(button, RADIUS.control) -- [STYLE]
             button:SetBackdropColor(0.025, 0.025, 0.025, 0.98)
             button:SetBackdropBorderColor(unpack(THEME.border))
             button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -2689,6 +2792,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
             edgeSize = 1,
             insets = { left = 0, right = 0, top = 0, bottom = 0 }
         })
+        RoundFrame(button, RADIUS.control) -- [STYLE]
         button:SetBackdropColor(SL.GetColor("widget"))
         button:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
@@ -2841,6 +2945,7 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                 bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
                 insets = { left = 0, right = 0, top = 0, bottom = 0 }
             })
+            RoundFrame(closeBtn, RADIUS.control) -- [STYLE]
             closeBtn:SetBackdropColor(0.3, 0.1, 0.1, 0.8)
             closeBtn:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
@@ -2882,6 +2987,18 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                 label:SetTextColor(SL.GetColor("text"))
             end)
 
+            -- [STYLE] "적용됨" feedback for apply-type buttons (option.appliedFeedback = true).
+            -- The option table outlives a re-render, so a rebuilt button resumes the feedback.
+            local function ShowAppliedFeedback(remaining)
+                if not SL.AppliedFeedback then return end
+                label:SetTextColor(SL.GetColor("text"))
+                SL.AppliedFeedback(button, label, {
+                    text = rawget(L, "Applied") or "적용됨",
+                    color = THEME.success,
+                    duration = remaining,
+                })
+            end
+
             button:SetScript("OnClick", function(self)
                 if option.func then
                     local info = {
@@ -2889,6 +3006,8 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                         option = option,
                         arg = option.arg,
                     }
+                    -- set first: a func that re-renders the page rebuilds this button
+                    if option.appliedFeedback then option._ddAppliedUntil = GetTime() + 1.2 end
                     if type(option.func) == "function" then
                         option.func(info)
                     elseif type(option.func) == "string" then
@@ -2897,8 +3016,17 @@ function Widgets.CreateExecute(parent, option, yOffset, optionsTable)
                             handler[option.func](handler, info)
                         end
                     end
+                    if option.appliedFeedback and self:IsVisible() then
+                        ShowAppliedFeedback(1.2)
+                    end
                 end
             end)
+
+            local appliedUntil = option.appliedFeedback and option._ddAppliedUntil
+            if appliedUntil then
+                local remaining = appliedUntil - GetTime()
+                if remaining > 0.05 then ShowAppliedFeedback(remaining) else option._ddAppliedUntil = nil end
+            end
         end
 
         frame.button = button
@@ -3014,6 +3142,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             edgeFile = FLAT,
             edgeSize = 1,
         })
+        RoundFrame(scrollContainer, RADIUS.control) -- [STYLE]
         scrollContainer:SetBackdropColor(THEME.input[1], THEME.input[2], THEME.input[3], THEME.input[4])
         scrollContainer:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
@@ -3023,7 +3152,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
 
         local editBox = CreateFrame("EditBox", nil, scrollFrame)
         editBox:SetMultiLine(true)
-        editBox:SetFontObject(GameFontHighlightSmall)
+        editBox:SetFontObject(GameFontHighlight) -- [STYLE] 12pt
         editBox:SetTextColor(SL.GetColor("text"))
         editBox:SetWidth(scrollFrame:GetWidth() - 20)
         editBox:SetHeight(120)
@@ -3084,7 +3213,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
         editBox:SetWidth(200)
         StyleEditBox(editBox, "GameFontNormal")
         editBox:SetTextColor(SL.GetColor("text"))
-        CreateBackdrop(editBox, THEME.input, THEME.border)
+        CreateBackdrop(editBox, THEME.input, THEME.border, nil, RADIUS.control) -- [STYLE]
 
         editBox:EnableKeyboard(false)
 
@@ -3098,7 +3227,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             self:EnableKeyboard(true)
             self:SetCursorPosition(string.len(self:GetText()))
             -- Add visual feedback for focus
-            CreateBackdrop(self, THEME.input, THEME.accent)
+            CreateBackdrop(self, THEME.input, THEME.accent, nil, RADIUS.control) -- [STYLE]
         end)
 
         editBox:SetScript("OnEditFocusLost", function(self)
@@ -3108,7 +3237,7 @@ function Widgets.CreateInput(parent, option, yOffset, optionsTable)
             self:EnableKeyboard(false)
             self:ClearFocus()
             -- Remove visual feedback for focus
-            CreateBackdrop(self, THEME.input, THEME.border)
+            CreateBackdrop(self, THEME.input, THEME.border, nil, RADIUS.control) -- [STYLE]
         end)
 
         editBox:SetScript("OnEnter", function(self)
@@ -3172,7 +3301,7 @@ function Widgets.CreateFramePicker(parent, option, yOffset, optionsTable)
     local pickButton = CreateFrame("Button", nil, frame, "BackdropTemplate")
     pickButton:SetSize(60, 22)
     pickButton:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
-    CreateBackdrop(pickButton, THEME.accent, THEME.borderAccent)
+    CreateBackdrop(pickButton, THEME.accent, THEME.borderAccent, nil, RADIUS.control) -- [STYLE]
     local pickText = pickButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     StyleFontString(pickText)
     pickText:SetPoint("CENTER")
@@ -3187,7 +3316,7 @@ function Widgets.CreateFramePicker(parent, option, yOffset, optionsTable)
     editBox:SetPoint("RIGHT", pickButton, "LEFT", -8, 0)
     StyleEditBox(editBox, "GameFontHighlight")
     editBox:SetAutoFocus(false)
-    CreateBackdrop(editBox, THEME.input, THEME.border)
+    CreateBackdrop(editBox, THEME.input, THEME.border, nil, RADIUS.control) -- [STYLE]
 
     -- 초기값 설정
     if option.get then
@@ -3363,7 +3492,15 @@ function Widgets.CreateHeader(parent, option, yOffset, sectionKey)
     end
     label:SetShadowOffset(1, -1)
     label:SetShadowColor(0, 0, 0, 1)
-    label:SetPoint("LEFT", collapseBtn, "RIGHT", 4, 0)
+    -- [STYLE] StyleLib 1.3: series logo ring bullet before the section title
+    local bullet = SL.CreateRingBullet and SL.CreateRingBullet(frame, "CDM", 11)
+    if bullet then
+        bullet:SetPoint("LEFT", collapseBtn, "RIGHT", 4, 0)
+        label:SetPoint("LEFT", bullet, "RIGHT", 6, 0)
+        frame.bullet = bullet
+    else
+        label:SetPoint("LEFT", collapseBtn, "RIGHT", 4, 0)
+    end
     label:SetJustifyH("LEFT")
     label:SetText(name)
     -- ElvUI style - gold/yellow header text
@@ -3463,6 +3600,10 @@ DDingUI.GUIBase = {
     FadeIn = FadeIn,
     FadeOut = FadeOut,
     CreateBackdrop = CreateBackdrop,
+    RoundFrame = RoundFrame, -- [STYLE]
+    RoundTexture = RoundTexture,
+    TintTexture = TintTexture,
+    RADIUS = RADIUS,
     CreateShadow = CreateShadow,
     CreateGradientText = CreateGradientText,
     CreateCustomScrollBar = CreateCustomScrollBar,

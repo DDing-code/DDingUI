@@ -19,7 +19,8 @@ def test_text_animation_contract():
         assert f'{legacy} = "{replacement}"' in RUNTIME
 
     assert "visuals:ApplyTextMotion(button, style.iconAnimation, style.textFadeInDirection)" in CONTAINER
-    assert "ApplyPreviewEffect(host, host.icon, entry, true)" in PREVIEW
+    # The live preview copies the runtime frame and demonstrates text motion with the runtime preset.
+    assert "visuals:ApplyTextPreviewMotion(self.host, motion," in PREVIEW
     assert '"textFadeInDirection"' in OPTIONS
     assert '"textFadeOutDirection"' in OPTIONS
     assert 'key:find("_textFade", 1, true)' in GUI

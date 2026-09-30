@@ -29,6 +29,10 @@ local SL_Main = _G.DDingUI_StyleLib -- [12.0.1]
 local WHITE8 = (SL_Main and SL_Main.Textures and SL_Main.Textures.flat) or "Interface\\Buttons\\WHITE8X8" -- [12.0.1]
 local CDM_PREFIX = (SL_Main and SL_Main.GetChatPrefix and SL_Main.GetChatPrefix("CDM", "CDM")) or "|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " -- [STYLE]
 
+function DDingUI:Print(...)
+    print(CDM_PREFIX, ...)
+end
+
 -- Performance utilities: avoid C++ overhead on already-shown/hidden frames
 function DDingUI:SafeShow(frame)
     if frame and not frame:IsShown() then frame:Show() end
@@ -880,8 +884,8 @@ function DDingUI:OnEnable()
             end,
             OnCancel = function()
                 -- 마이그레이션 건너뛰기: profileVersion만 설정
-                DDingUI.db.profile.profileVersion = DDingUI.VERSION or "2.1.6"
-                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffaaaaaaa마이그레이션을 건너뛰었습니다. 설정 > 프로필에서 수동으로 변경할 수 있습니다.|r")
+                DDingUI.db.profile.profileVersion = DDingUI.VERSION or "2.2.0"
+                DDingUI:Print("|cffaaaaaaa마이그레이션을 건너뛰었습니다. 설정 > 프로필에서 수동으로 변경할 수 있습니다.|r")
             end,
         }
         StaticPopup_Show("DDINGUI_MIGRATION_PROMPT")
@@ -989,7 +993,9 @@ end
 
 function DDingUI:ToggleConfig()
     local visibleConfig = _G["DDingUI_ConfigFrame"] or _G["DDingUI_CDM_Panel"]
-    if visibleConfig and visibleConfig.IsShown and visibleConfig:IsShown() then
+    if visibleConfig and visibleConfig.IsShown and visibleConfig:IsShown()
+        and not visibleConfig._ddslPanelClosing -- [STYLE] a toggle during the exit motion reopens
+    then
         if visibleConfig.HideAnimated then
             visibleConfig:HideAnimated()
         else
@@ -1013,7 +1019,7 @@ function DDingUI:CheckDualSpec()
     local LibDualSpec = LibStub("LibDualSpec-1.0", true)
     if not LibDualSpec then
         print(CDM_PREFIX .. "|cffff0000LibDualSpec-1.0 is NOT loaded.|r") -- [STYLE]
-        print("|cffffff00This is normal on Classic Era realms (except Season of Discovery/Anniversary).|r")
+        print(CDM_PREFIX .. "|cffffff00This is normal on Classic Era realms (except Season of Discovery/Anniversary).|r") -- [STYLE]
         return
     end
 
@@ -1075,10 +1081,12 @@ function DDingUI:CreateMinimapButton()
         end,
         OnTooltipShow = function(tooltip)
             local SL = _G.DDingUI_StyleLib -- [STYLE]
-            local title = (SL and SL.CreateAddonTitle) and SL.CreateAddonTitle("CDM", "CooldownManager") or "|cffffffffDDing|r|cffffa300UI|r CDM"
+            local title = (SL and SL.CreateAddonTitle) and SL.CreateAddonTitle("CDM", "CDM") or "|cffffffffDDing|r|cffffa300UI|r CDM"
             tooltip:SetText(title)
-            tooltip:AddLine("|cffffffffLeft-click|r  Open settings", 0.7, 0.7, 0.7)
-            tooltip:AddLine("|cffffffffRight-click|r  Toggle move mode", 0.7, 0.7, 0.7)
+            local ko = GetLocale() == "koKR"
+            tooltip:AddLine(ko and "|cffffffff좌클릭|r  설정 창 열기/닫기" or "|cffffffffLeft-click|r  Toggle settings", 0.7, 0.7, 0.7)
+            tooltip:AddLine(ko and "|cffffffff우클릭|r  편집 모드 · 위치 조정" or "|cffffffffRight-click|r  Edit mode / adjust position", 0.7, 0.7, 0.7)
+            tooltip:AddLine(ko and "|cffffffff드래그|r  버튼 위치 이동" or "|cffffffffDrag|r  Move button", 0.7, 0.7, 0.7)
         end,
     })
 

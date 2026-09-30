@@ -2156,7 +2156,7 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
     local gridHeight = gridRows * (ICON_GRID_SIZE + ICON_GRID_SPACING) - ICON_GRID_SPACING
 
     -- 서브타이틀
-    local subtitle = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local subtitle = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
     subtitle:SetPoint("TOPLEFT", 0, 0)
     subtitle:SetText("아이콘을 클릭해서 이 그룹으로 끌어옵니다.")
     subtitle:SetTextColor(0.7, 0.7, 0.7)
@@ -2294,7 +2294,7 @@ function DDingUI:BuildGroupAssignGridUI(parent, groupName)
                                 SoftRefreshDynamicIcons()
                             end
                         else
-                            print("|cffffffffDDing|r|cffffa300UI|r: |cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
+                            DDingUI:Print("|cffff0000 스펠 ID를 찾을 수 없습니다: " .. (self.spellName or "?") .. "|r")
                         end
                     else
                         -- CDM 그룹: 기존 AssignSpell 경로
@@ -2713,16 +2713,16 @@ local function GetGridOptionIcon(opt)
 end
 
 -- Runtime-shaped assigned icon preview.
--- Mirrors GroupRenderer layout rules and adds DDingUI-style manual drag feedback.
+-- [REFACTOR] Geometry and texture crop come from the runtime renderer itself
+-- (GroupRenderer.BuildLayoutSettings/ComputeGroupLayout, IconViewers.ComputeIconTexCoord,
+-- DynamicIconBridge.ApplyTexCoordCrop). Only the drag feedback is preview-specific.
 local ASSIGNED_GRID_DRAG_THRESHOLD = 8
 
-local ASSIGNED_DIRECTION_RULES = {
-    CENTERED_HORIZONTAL = { type = "HORIZONTAL", defaultSecondary = "DOWN",  allowed = { UP = true, DOWN = true } },
-    LEFT                = { type = "HORIZONTAL", defaultSecondary = "DOWN",  allowed = { UP = true, DOWN = true } },
-    RIGHT               = { type = "HORIZONTAL", defaultSecondary = "DOWN",  allowed = { UP = true, DOWN = true } },
-    UP                  = { type = "VERTICAL",   defaultSecondary = "RIGHT", allowed = { LEFT = true, RIGHT = true } },
-    DOWN                = { type = "VERTICAL",   defaultSecondary = "RIGHT", allowed = { LEFT = true, RIGHT = true } },
-    STATIC              = { type = "STATIC" },
+-- Same mapping as GroupRenderer's GROUP_VIEWER_MAP (Buffs pins wrapped rows + phantom size).
+local ASSIGNED_GRID_VIEWERS = {
+    Cooldowns = "EssentialCooldownViewer",
+    Buffs = "BuffIconCooldownViewer",
+    Utility = "UtilityCooldownViewer",
 }
 
 local function AssignedGridNumber(value, fallback)
@@ -2735,295 +2735,75 @@ local function AssignedGridPixelSnap(value)
     return math.floor((tonumber(value) or 0) + 0.5)
 end
 
-local function AssignedGridNormalizeDirection(token)
-    if not token or token == "" then return nil end
-    local aliases = {
-        CENTEREDHORIZONTAL = "CENTERED_HORIZONTAL",
-        CENTERHORIZONTAL   = "CENTERED_HORIZONTAL",
-        CENTERED           = "CENTERED_HORIZONTAL",
-        CENTER             = "CENTERED_HORIZONTAL",
-        CENTRED            = "CENTERED_HORIZONTAL",
-        CENTRE             = "CENTERED_HORIZONTAL",
-    }
-    local cleaned = tostring(token):gsub("[%s%-_]+", ""):upper()
-    return aliases[cleaned] or cleaned
-end
-
-local function AssignedGridAspect(settings)
-    local aspect = AssignedGridNumber(settings and settings.aspectRatioCrop, nil)
-    if not aspect and settings and settings.aspectRatio then
-        local w, h = tostring(settings.aspectRatio):match("^(%d+%.?%d*):(%d+%.?%d*)$")
-        w, h = tonumber(w), tonumber(h)
-        if w and h and h ~= 0 then aspect = w / h end
-    end
-    if not aspect or aspect <= 0 then aspect = 1 end
-    return aspect
-end
-
-local function AssignedGridRowIconSize(settings, rowIndex)
-    local sizes = settings and settings.rowIconSizes
-    local value = sizes and sizes[rowIndex]
-    value = AssignedGridNumber(value, nil)
-    if value and value > 0 then return value end
-    return nil
-end
-
-local function AssignedGridIconDimensions(settings, rowIndex)
-    local sizeOverride = AssignedGridRowIconSize(settings, rowIndex)
-    local iconSize = (sizeOverride or AssignedGridNumber(settings and settings.iconSize, 32)) + 0.1
-    local aspect = AssignedGridAspect(settings)
-    local iconW, iconH = iconSize, iconSize
-
-    if aspect > 1 then
-        iconH = iconSize / aspect
-    elseif aspect < 1 then
-        iconW = iconSize * aspect
-    end
-
-    return math.max(1, AssignedGridPixelSnap(iconW)), math.max(1, AssignedGridPixelSnap(iconH))
-end
-
-local function AssignedGridSpacing(settings)
-    return math.max(0, AssignedGridPixelSnap(AssignedGridNumber(settings and settings.spacing, 2)))
-end
-
-local function AssignedGridResolveDirections(settings)
-    local primary = AssignedGridNormalizeDirection(settings and settings.direction)
-        or AssignedGridNormalizeDirection(settings and settings.primaryDirection)
-        or "RIGHT"
-    local secondary = AssignedGridNormalizeDirection(settings and settings.growDirection)
-        or AssignedGridNormalizeDirection(settings and settings.secondaryDirection)
-
-    local rule = ASSIGNED_DIRECTION_RULES[primary]
-    if not rule then
-        primary = "RIGHT"
-        rule = ASSIGNED_DIRECTION_RULES[primary]
-    end
-
-    local rowLimit = math.floor(AssignedGridNumber(settings and settings.rowLimit, 0) + 0.0001)
-    if rowLimit < 0 then rowLimit = 0 end
-
-    if rule.type ~= "STATIC" and rowLimit > 0 then
-        if not secondary or not rule.allowed[secondary] then
-            secondary = rule.defaultSecondary
-        end
-    else
-        secondary = nil
-    end
-
-    return primary, secondary, rowLimit, rule.type
-end
-
 local function AssignedGridPreviewSettings(groupName)
     local gs = GetGS()
     local groupSettings = gs and gs.groups and gs.groups[groupName]
     return groupSettings or {}
 end
 
-local function AssignedGridBuildLayout(settings, count, overflowCount)
-    local layout = {
-        slots = {},
-        width = 1,
-        height = 1,
-        spacing = AssignedGridSpacing(settings),
-    }
-
-    if count <= 0 then return layout end
-
-    local primary, secondary, rowLimit, layoutType = AssignedGridResolveDirections(settings)
-    layout.primary = primary
-    layout.secondary = secondary
-    layout.rowLimit = rowLimit
-    layout.layoutType = layoutType
-
-    local overflowScale = 1
-    local measuredCount = overflowCount or count
-    if settings and settings.overflowMode == "shrink" and rowLimit > 0 and measuredCount > rowLimit then
-        local baseSize = math.max(1, AssignedGridNumber(settings.iconSize, 32))
-        local minScale = math.min(1, 16 / baseSize)
-        overflowScale = math.max(minScale, rowLimit / measuredCount)
-        rowLimit = 0
-        layout.rowLimit = 0
-    end
-
-    local spacing = AssignedGridPixelSnap(layout.spacing * overflowScale)
-    layout.spacing = spacing
-
-    local function GetPreviewDimensions(line)
-        local width, height = AssignedGridIconDimensions(settings, line)
-        if overflowScale < 1 then
-            width = math.max(1, AssignedGridPixelSnap(width * overflowScale))
-            height = math.max(1, AssignedGridPixelSnap(height * overflowScale))
-        end
-        return width, height
-    end
-
-    if layoutType == "VERTICAL" then
-        local iconsPerColumn = rowLimit > 0 and math.max(1, rowLimit) or count
-        local numColumns = math.ceil(count / iconsPerColumn)
-        local columns = {}
-        local totalW, maxH = 0, 0
-
-        for column = 1, numColumns do
-            local iconW, iconH = GetPreviewDimensions(column)
-            local startIndex = (column - 1) * iconsPerColumn + 1
-            local endIndex = math.min(column * iconsPerColumn, count)
-            local columnCount = endIndex - startIndex + 1
-            local columnH = columnCount * iconH + math.max(0, columnCount - 1) * spacing
-
-            columns[column] = {
-                startIndex = startIndex,
-                count = columnCount,
-                width = iconW,
-                height = columnH,
-                iconW = iconW,
-                iconH = iconH,
-            }
-            totalW = totalW + iconW
-            if column > 1 then totalW = totalW + spacing end
-            maxH = math.max(maxH, columnH)
-        end
-
-        local currentX
-        if secondary == "LEFT" then
-            currentX = totalW
-            for column = 1, numColumns do
-                local meta = columns[column]
-                currentX = currentX - meta.width
-                meta.x = currentX
-                currentX = currentX - spacing
-            end
-        else
-            currentX = 0
-            for column = 1, numColumns do
-                local meta = columns[column]
-                meta.x = currentX
-                currentX = currentX + meta.width + spacing
-            end
-        end
-
-        for column = 1, numColumns do
-            local meta = columns[column]
-            local columnY = (primary == "UP") and (maxH - meta.height) or 0
-            for position = 0, meta.count - 1 do
-                local idx = meta.startIndex + position
-                local y
-                if primary == "UP" then
-                    y = columnY + meta.height - meta.iconH - position * (meta.iconH + spacing)
-                else
-                    y = columnY + position * (meta.iconH + spacing)
-                end
-                layout.slots[idx] = {
-                    x = AssignedGridPixelSnap(meta.x),
-                    y = AssignedGridPixelSnap(y),
-                    w = meta.iconW,
-                    h = meta.iconH,
-                    line = column,
-                }
-            end
-        end
-
-        layout.width = math.max(1, AssignedGridPixelSnap(totalW))
-        layout.height = math.max(1, AssignedGridPixelSnap(maxH))
+--- Slot rectangles from the runtime layout, as top-left boxes inside the icon bounds.
+-- Every slot also keeps the runtime center offset (cx, cy) from the group container center.
+-- overflowMode "hide": runtime hides icons after rowLimit; they stay in the preview for
+-- reordering, placed on the next wrapped line and flagged overflowHidden.
+local function AssignedGridBuildLayout(settings, count, groupName)
+    local layout = { slots = {}, width = 1, height = 1, spacing = 0 }
+    local renderer = DDingUI.GroupRenderer
+    if count <= 0 or not (renderer and renderer.BuildLayoutSettings and renderer.ComputeGroupLayout) then
         return layout
     end
+    local layoutSettings = renderer.BuildLayoutSettings(settings)
+    local hiddenFrom
+    if layoutSettings.overflowMode == "hide" then
+        local limit = math.floor((tonumber(layoutSettings.rowLimit) or 0) + 0.0001)
+        if limit > 0 and count > limit then
+            hiddenFrom = limit + 1
+            layoutSettings.overflowMode = "wrap" -- first line keeps the runtime positions
+        end
+    end
+    local result = renderer.ComputeGroupLayout(layoutSettings, ASSIGNED_GRID_VIEWERS[groupName], count)
+    if #result.slots == 0 then return layout end
 
-    local iconsPerRow = rowLimit > 0 and math.max(1, rowLimit) or count
-    local numRows = math.ceil(count / iconsPerRow)
-    local rows = {}
-    local maxW, totalH = 0, 0
-
-    for row = 1, numRows do
-        local iconW, iconH = GetPreviewDimensions(row)
-        local startIndex = (row - 1) * iconsPerRow + 1
-        local endIndex = math.min(row * iconsPerRow, count)
-        local rowCount = endIndex - startIndex + 1
-        local rowW = rowCount * iconW + math.max(0, rowCount - 1) * spacing
-
-        rows[row] = {
-            startIndex = startIndex,
-            count = rowCount,
-            width = math.max(iconW, rowW),
-            iconW = iconW,
-            iconH = iconH,
+    local left, right, bottom, top
+    for _, slot in ipairs(result.slots) do
+        local l, r = slot.x - slot.w / 2, slot.x + slot.w / 2
+        local b, t = slot.y - slot.h / 2, slot.y + slot.h / 2
+        left = left and math.min(left, l) or l
+        right = right and math.max(right, r) or r
+        bottom = bottom and math.min(bottom, b) or b
+        top = top and math.max(top, t) or t
+    end
+    for index, slot in ipairs(result.slots) do
+        layout.slots[index] = {
+            x = slot.x - slot.w / 2 - left,
+            y = top - (slot.y + slot.h / 2),
+            w = slot.w, h = slot.h, line = slot.line,
+            cx = slot.x, cy = slot.y,
+            overflowHidden = hiddenFrom ~= nil and index >= hiddenFrom or nil,
         }
-        maxW = math.max(maxW, rows[row].width)
-        totalH = totalH + iconH
-        if row > 1 then totalH = totalH + spacing end
     end
-
-    local currentY
-    if secondary == "UP" then
-        currentY = totalH
-        for row = 1, numRows do
-            local meta = rows[row]
-            currentY = currentY - meta.iconH
-            meta.y = currentY
-            currentY = currentY - spacing
-        end
-    else
-        currentY = 0
-        for row = 1, numRows do
-            local meta = rows[row]
-            meta.y = currentY
-            currentY = currentY + meta.iconH + spacing
-        end
-    end
-
-    for row = 1, numRows do
-        local meta = rows[row]
-        local rowX
-        if primary == "LEFT" then
-            rowX = maxW - meta.width
-        elseif primary == "CENTERED_HORIZONTAL" then
-            rowX = (maxW - meta.width) * 0.5
-        else
-            rowX = 0
-        end
-
-        for position = 0, meta.count - 1 do
-            local idx = meta.startIndex + position
-            local x
-            if primary == "LEFT" then
-                x = rowX + meta.width - meta.iconW - position * (meta.iconW + spacing)
-            else
-                x = rowX + position * (meta.iconW + spacing)
-            end
-            layout.slots[idx] = {
-                x = AssignedGridPixelSnap(x),
-                y = AssignedGridPixelSnap(meta.y),
-                w = meta.iconW,
-                h = meta.iconH,
-                line = row,
-            }
-        end
-    end
-
-    layout.width = math.max(1, AssignedGridPixelSnap(maxW))
-    layout.height = math.max(1, AssignedGridPixelSnap(totalH))
+    layout.width = math.max(1, right - left)
+    layout.height = math.max(1, top - bottom)
+    layout.boundsLeft, layout.boundsBottom = left, bottom -- relative to the container center
+    layout.containerWidth, layout.containerHeight = result.containerWidth, result.containerHeight
+    layout.primary, layout.secondary = result.primary, result.secondary
+    layout.rowLimit, layout.layoutType = result.rowLimit, result.layoutType
+    layout.spacing, layout.static = result.spacing, result.static
     return layout
 end
 
-local function AssignedGridApplyTexCoord(texture, settings)
-    local zoom = AssignedGridNumber(settings and settings.zoom, 0.08)
-    if zoom < 0 then zoom = 0 end
-    if zoom > 0.45 then zoom = 0.45 end
-
-    local left, right, top, bottom = zoom, 1 - zoom, zoom, 1 - zoom
-    local aspect = AssignedGridAspect(settings)
-    if aspect > 1 then
-        local crop = (1 - (1 / aspect)) * 0.5
-        local span = bottom - top
-        top = top + span * crop
-        bottom = bottom - span * crop
-    elseif aspect < 1 then
-        local crop = (1 - aspect) * 0.5
-        local span = right - left
-        left = left + span * crop
-        right = right - span * crop
+--- Texture crop exactly as the runtime applies it for this icon kind:
+-- CDM frames use SkinIcon's crop (zoom default 0), custom/dynamic icons use the bridge crop.
+local function AssignedGridApplyTexCoord(texture, settings, kind)
+    settings = settings or {}
+    local bridge = DDingUI.DynamicIconBridge
+    if kind == "dynamic" and bridge and bridge.ApplyTexCoordCrop then
+        bridge.ApplyTexCoordCrop(texture, settings.zoom or 0.08, settings.aspectRatioCrop or 1.0)
+        return
     end
-
-    texture:SetTexCoord(left, right, top, bottom)
+    local viewers = DDingUI.IconViewers
+    if viewers and viewers.ComputeIconTexCoord then
+        texture:SetTexCoord(viewers.ComputeIconTexCoord(settings))
+    end
 end
 
 function DDingUI:GetDashboardBuffPreview(groupName)
@@ -3042,7 +2822,7 @@ function DDingUI:GetDashboardBuffPreview(groupName)
         end
     end
     local settings = AssignedGridPreviewSettings(groupName)
-    local layout = AssignedGridBuildLayout(settings, #icons, #icons)
+    local layout = AssignedGridBuildLayout(settings, #icons, groupName)
     layout.icons, layout.settings = icons, settings
     layout.ApplyTexCoord = AssignedGridApplyTexCoord
     return layout
@@ -3884,10 +3664,10 @@ local function AcquirePopupRow(parent, index, width, height)
         row.text:SetPoint("LEFT", row, "LEFT", 10, 0)
         row.text:SetPoint("RIGHT", row.icon, "LEFT", -10, 0)
         row.text:SetJustifyH("LEFT")
-        row.text:SetFont(STANDARD_TEXT_FONT, 11, "")
+        row.text:SetFont(STANDARD_TEXT_FONT, 12, "") -- [STYLE]
         row.arrow = row:CreateFontString(nil, "OVERLAY")
         row.arrow:SetPoint("RIGHT", row.icon, "LEFT", -6, 0)
-        row.arrow:SetFont(STANDARD_TEXT_FONT, 11, "")
+        row.arrow:SetFont(STANDARD_TEXT_FONT, 12, "") -- [STYLE]
         row.arrow:SetText(">")
         parent._rows[index] = row
     end
@@ -3910,7 +3690,7 @@ local function StylePopupRow(row, item, gf, accentR, accentG, accentB)
     row:SetBackdropColor(0, 0, 0, 0)
     row:SetBackdropBorderColor(0, 0, 0, 0)
     row.bg:SetColorTexture(0.04, 0.065, 0.075, 0)
-    row.text:SetFont(gf, item.separator and 10 or 11, "")
+    row.text:SetFont(gf, 12, "") -- [STYLE]
     row.text:SetText(item.label or "")
     row.text:SetTextColor(item.disabled and 0.36 or (item.separator and 0.9 or 0.82), item.disabled and 0.36 or (item.separator and 0.55 or 0.82), item.disabled and 0.36 or (item.separator and 0.22 or 0.82), 1)
     if item.icon and not item.separator then
@@ -3980,7 +3760,7 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
         popup.edit:SetBackdropBorderColor(0.18, 0.24, 0.26, 1)
         popup.edit:SetAutoFocus(false)
         popup.edit:SetHeight(24)
-        popup.edit:SetFont(gf, 11, "")
+        popup.edit:SetFont(gf, 12, "") -- [STYLE]
         popup.edit:SetTextColor(0.92, 0.94, 0.95, 1)
         popup.edit:SetTextInsets(6, 6, 0, 0)
         popup.edit:SetScript("OnEditFocusGained", function(self)
@@ -4007,7 +3787,7 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
             button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
             button.text = button:CreateFontString(nil, "OVERLAY")
             button.text:SetPoint("CENTER")
-            button.text:SetFont(gf, 11, "")
+            button.text:SetFont(gf, 12, "") -- [STYLE]
         end
         self._groupIconAddPopup = popup
     end
@@ -4095,7 +3875,7 @@ function DDingUI:ShowGroupIconAddPopup(owner, groupName, settings, unassignedRow
     popup.edit:SetPoint("TOPLEFT", popup, "TOPLEFT", pad + 2, showTypeSelector and -(pad + 28) or -pad - 2)
     popup.edit:SetSize(rowW - 34, 24)
     popup.edit:SetText("")
-    popup.edit.placeholder:SetFont(gf, 11, "")
+    popup.edit.placeholder:SetFont(gf, 12, "") -- [STYLE]
     RefreshInputType()
     popup.edit:SetScript("OnTextChanged", function(self)
         if (self:GetText() or "") == "" then
@@ -4144,7 +3924,7 @@ end
 function DDingUI:GetGroupAssignedIconGridHeight(groupName, width)
     local rows = GetAssignedGridRows(groupName)
     local settings = AssignedGridPreviewSettings(groupName)
-    local layout = AssignedGridBuildLayout(settings, #rows, #rows)
+    local layout = AssignedGridBuildLayout(settings, #rows, groupName)
     width = tonumber(width) or 760
 
     return math.max(72, (layout.height or 1) + 52)
@@ -4198,7 +3978,7 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
     if #skillRows == 0 and #buffRows == 0 then
         local empty = parent:CreateFontString(nil, "OVERLAY")
         empty:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
-        empty:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 11, "")
+        empty:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 12, "") -- [STYLE]
         empty:SetText(rawget(L, "No unassigned spells") or "No unassigned spells.")
         empty:SetTextColor(0.55, 0.55, 0.55, 1)
         parent:SetHeight(58)
@@ -4267,7 +4047,7 @@ function DDingUI:BuildGroupUnassignedIconGridUI(parent, groupName)
     for _, section in ipairs(sections) do
         local heading = parent:CreateFontString(nil, "OVERLAY")
         heading:SetPoint("TOPLEFT", parent, "TOPLEFT", pad, -yOffset)
-        heading:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 11, "")
+        heading:SetFont(DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT, 12, "") -- [STYLE]
         heading:SetText(section.label)
         heading:SetTextColor(section.color[1], section.color[2], section.color[3], 1)
 
@@ -5044,25 +4824,57 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     local gf = DDingUI.GetGlobalFont and DDingUI:GetGlobalFont() or STANDARD_TEXT_FONT
     local settings = AssignedGridPreviewSettings(groupName)
     local count = #rows
-    local layout = AssignedGridBuildLayout(settings, count, count)
+    local layout = AssignedGridBuildLayout(settings, count, groupName)
     local width = parent:GetWidth()
     if not width or width < 240 then width = 760 end
     -- Keep the preview in the option frame's own scale. Counter-scaling it against
     -- UIParent makes WoW's mouse hit regions drift inside a scaled options window.
     local localParentW = width
     local padX, padY = 8, 6
+    -- [REFACTOR] Draw at the real on-screen size: runtime sizes are UIParent units, so convert them
+    -- into this frame's units by multiplying geometry (no SetScale, hit regions stay exact).
+    -- Shrink only when the real size does not fit the canvas; the workspace shows the ratio.
+    local uiScale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+    local ownScale = parent.GetEffectiveScale and parent:GetEffectiveScale() or 1
+    local trueScale = (ownScale and ownScale > 0) and (uiScale / ownScale) or 1
+    local fit = math.min(1, (localParentW - padX * 2) / math.max(1, layout.width * trueScale))
+    local maxPreviewHeight = tonumber(parent._maxPreviewHeight)
+    if maxPreviewHeight and maxPreviewHeight > 16 then
+        fit = math.min(fit, (maxPreviewHeight - padY * 2) / math.max(1, layout.height * trueScale))
+    end
+    local displayScale = trueScale * math.max(0.1, fit)
+    parent._ddPreviewSizeRatio = displayScale / trueScale
+    if displayScale ~= 1 then
+        for _, slot in ipairs(layout.slots) do
+            slot.x, slot.y = slot.x * displayScale, slot.y * displayScale
+            slot.w, slot.h = slot.w * displayScale, slot.h * displayScale
+        end
+        layout.width, layout.height = layout.width * displayScale, layout.height * displayScale
+    end
     local startX = math.max(padX, math.floor((localParentW - layout.width) * 0.5 + 0.5))
     local startY = padY
     local accentR, accentG, accentB = 0.3, 0.85, 1
     local insertR, insertG, insertB = 0.52, 1, 0.52
-    local borderSize = math.max(1, AssignedGridPixelSnap(AssignedGridNumber(settings.borderSize, 1)))
+    -- [REFACTOR] Runtime border: ScaleBorder(borderSize) in borderColor (0 hides it), see GroupRenderer.
+    local borderSize = AssignedGridNumber(settings.borderSize, 1)
+    borderSize = (DDingUI.ScaleBorder and DDingUI:ScaleBorder(borderSize) or AssignedGridPixelSnap(borderSize)) * displayScale
+    local borderColor = type(settings.borderColor) == "table" and settings.borderColor or { 0, 0, 0, 1 }
+    local borderR, borderG, borderB, borderA = borderColor[1] or 0, borderColor[2] or 0, borderColor[3] or 0, borderColor[4] or 1
     local groupAlpha = AssignedGridNumber(settings.groupAlpha, 1)
+    -- Editing exception: a fully transparent group stays faintly visible so it can be reordered.
     if groupAlpha < 0.2 then groupAlpha = 0.2 end
     local drag = {}
     local slotFrames = {}
     local insertLine
     local assignDropOverlay
     local ClearDragFeedback
+
+    -- Order numbers are an editing aid; the idle grid shows only what the game draws.
+    local function SetOrderBadgesShown(shown)
+        for _, frame in ipairs(slotFrames) do
+            if frame._orderText then frame._orderText:SetShown(shown) end
+        end
+    end
 
     local assignedPreviewHeight = math.ceil(layout.height + padY * 2)
     local unassignedTileSize, unassignedGap = 34, 6
@@ -5368,13 +5180,22 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
     AssignedGridSetEdges(assignDropOverlay.edges, insertR, insertG, insertB, 0.95, 2)
     assignDropOverlay:Hide()
 
+    -- [REFACTOR] Same border as the runtime icon; a 0 size hides it like GroupRenderer does.
+    local function ApplySlotBorder(slot)
+        local edges = slot and slot._edges
+        if not edges then return end
+        local shown = borderSize > 0
+        if shown then AssignedGridSetEdges(edges, borderR, borderG, borderB, borderA, borderSize) end
+        for i = 1, 4 do edges[i]:SetShown(shown) end
+    end
+
     local function ClearSlotTarget(slot)
         if not slot then return end
         slot._targetOffX = 0
         slot._targetOffY = 0
         slot._swapTarget = false
         slot:SetAlpha(slot._baseAlpha or groupAlpha)
-        AssignedGridSetEdges(slot._edges, 0, 0, 0, 0.78, borderSize)
+        ApplySlotBorder(slot)
         if slot._hoverEdges then
             for i = 1, 4 do slot._hoverEdges[i]:Hide() end
         end
@@ -5513,6 +5334,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             if target then
                 target._swapTarget = true
                 AssignedGridSetEdges(target._edges, insertR, insertG, insertB, 1, 2)
+                for i = 1, 4 do target._edges[i]:Show() end
             end
             insertLine:Hide()
             return
@@ -5650,6 +5472,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         drag.mode = nil
         drag.targetIdx = nil
         drag.insertIdx = nil
+        SetOrderBadgesShown(false)
         preview:SetScript("OnUpdate", function(self, elapsed)
             if TickAnimation(elapsed) then
                 self:SetScript("OnUpdate", nil)
@@ -5673,11 +5496,12 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         drag.insertIdx = nil
         slot._ddSuppressClick = true
         GameTooltip:Hide()
+        SetOrderBadgesShown(true)
 
         local ghost = EnsureGhost()
         ghost:SetSize(slot._w, slot._h)
         ghost.icon:SetTexture(slot._icon:GetTexture())
-        AssignedGridApplyTexCoord(ghost.icon, settings)
+        AssignedGridApplyTexCoord(ghost.icon, settings, slot._gridKind)
         PositionRuntimeGhostAtCursor(ghost)
         ghost:Show()
         slot:SetAlpha(0.26)
@@ -5803,24 +5627,24 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
             slot._h = pos.h
             slot._line = pos.line
             slot._data = opt and opt._dragData
-            slot._baseAlpha = groupAlpha
-            slot:SetAlpha(groupAlpha)
+            slot._gridKind = opt and opt._gridKind
+            -- Runtime hides icons past rowLimit in "hide" overflow mode; keep them draggable but faint.
+            slot._baseAlpha = pos.overflowHidden and groupAlpha * 0.3 or groupAlpha
+            slot._overflowHidden = pos.overflowHidden
+            slot:SetAlpha(slot._baseAlpha)
             slot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             slot:SetHitRectInsets(-3, -3, -3, -3)
             PositionSlot(slot)
 
-            local bg = slot:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(0.02, 0.025, 0.03, 0.75)
-
+            -- [REFACTOR] No preview-only backdrop: the runtime icon is its texture + border only.
             local icon = slot:CreateTexture(nil, "ARTWORK")
             icon:SetAllPoints()
             icon:SetTexture(GetGridOptionIcon(opt))
-            AssignedGridApplyTexCoord(icon, settings)
+            AssignedGridApplyTexCoord(icon, settings, slot._gridKind)
             slot._icon = icon
 
             slot._edges = AssignedGridCreateEdges(slot, "OVERLAY", 2)
-            AssignedGridSetEdges(slot._edges, 0, 0, 0, 0.78, borderSize)
+            ApplySlotBorder(slot)
             slot._hoverEdges = AssignedGridCreateEdges(slot, "OVERLAY", 4)
             AssignedGridSetEdges(slot._hoverEdges, accentR, accentG, accentB, 1, 2)
             for i = 1, 4 do slot._hoverEdges[i]:Hide() end
@@ -5830,19 +5654,29 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
                 for i = 1, 4 do slot._selectionEdges[i]:Hide() end
             end
 
+            -- Editing aid, not part of the in-game icon: only shown while the pointer is on the grid.
             local orderText = slot:CreateFontString(nil, "OVERLAY")
             orderText:SetFont(gf, math.max(8, math.min(11, math.floor(pos.h * 0.28))), "OUTLINE")
             orderText:SetPoint("TOPLEFT", slot, "TOPLEFT", 2, -1)
             orderText:SetText(idx)
             orderText:SetTextColor(1, 1, 1, 0.58)
+            orderText:Hide()
+            slot._orderText = orderText
 
             slot:SetScript("OnEnter", function(self)
+                SetOrderBadgesShown(true)
                 if not drag.active then
                     for i = 1, 4 do self._hoverEdges[i]:Show() end
                     SetupTooltip(self, opt)
+                    if self._overflowHidden then
+                        GameTooltip:AddLine(rawget(L, "Hidden in game: exceeds the icons-per-row limit")
+                            or "게임에서는 줄당 개수를 넘어 숨겨집니다", 1, 0.55, 0.35, true)
+                        GameTooltip:Show()
+                    end
                 end
             end)
             slot:SetScript("OnLeave", function(self)
+                if not drag.active then SetOrderBadgesShown(false) end
                 if not self._swapTarget then
                     for i = 1, 4 do self._hoverEdges[i]:Hide() end
                 end
@@ -5919,11 +5753,14 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
         button:SetBackdropColor(0.035, 0.045, 0.052, 0.94)
         button:SetBackdropBorderColor(r, g, b, 0.55)
+        -- [STYLE] StyleLib 1.3 control radius (settings chrome, not the in-game icon surface)
+        local base = DDingUI.GUIBase
+        if base and base.RoundFrame then base.RoundFrame(button, base.RADIUS and base.RADIUS.control or 6) end
         button:RegisterForClicks("LeftButtonUp")
 
         local text = button:CreateFontString(nil, "OVERLAY")
         text:SetPoint("CENTER")
-        text:SetFont(gf, 11, "")
+        text:SetFont(gf, 12, "") -- [STYLE]
         text:SetText("+  " .. label)
         text:SetTextColor(0.88, 0.9, 0.92, 1)
 
@@ -5985,7 +5822,7 @@ function DDingUI:BuildGroupAssignedIconGridUI(parent, groupName)
         title:SetTextColor(1, 0.55, 0.18, 1)
 
         local desc = parent:CreateFontString(nil, "OVERLAY")
-        desc:SetFont(gf, 10, "")
+        desc:SetFont(gf, 12, "") -- [STYLE]
         desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
         desc:SetText(L["Drag icons up to assign them to this group."] or "아이콘을 위로 드래그하면 이 그룹에 할당됩니다.")
         desc:SetTextColor(0.65, 0.65, 0.65, 1)

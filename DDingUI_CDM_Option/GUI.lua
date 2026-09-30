@@ -21,6 +21,13 @@ local CreateCustomScrollBar = Base.CreateCustomScrollBar
 local PropagateMouseWheelToScroll = Base.PropagateMouseWheelToScroll
 local PropagateMouseWheelRecursive = Base.PropagateMouseWheelRecursive
 local CreateTabButton = Base.CreateTabButton
+-- [STYLE] StyleLib 1.3 rounded surfaces (helpers from GUIWidgets)
+local RADIUS = Base.RADIUS or { window = 14, card = 10, row = 8, control = 6, check = 4, track = 2 }
+local RoundFrame = Base.RoundFrame or function(frame) return frame end
+local RoundTexture = Base.RoundTexture or function() return nil end
+local TintTexture = Base.TintTexture or function(tex, r, g, b, a) tex:SetColorTexture(r, g, b, a or 1) end
+local ROUNDED = SL.Rounded ~= false and SL.MakeRounded ~= nil
+local CARD_GAP = 8 -- [STYLE] cards sit 8px inside the window and 8px apart
 local Widgets = Base.Widgets
 local globalFontPath = "Fonts\\2002.TTF"
 local ConfigFrame
@@ -232,6 +239,39 @@ local function BuildSectionMenuData(options, frame)
     return menuData
 end
 
+-- [STYLE] StyleLib 1.2: fade the freshly rendered page in, top-level blocks first.
+local STAGGER_MAX_REGIONS = 12
+local function AppendShownRegions(regions, list)
+    for _, region in ipairs(list or {}) do
+        if #regions >= STAGGER_MAX_REGIONS then return end
+        if region and region.IsShown and region:IsShown() then
+            regions[#regions + 1] = region
+        end
+    end
+end
+
+local function StaggerPageIn(frame)
+    if not (SL.StaggerIn and frame) then return end
+    local regions = {}
+    local area = frame.contentArea
+    local workspace = area and (area._sectionWorkspace or area._groupWorkspace)
+    local trackerPanel = area and area._btPanel
+    if workspace and workspace:IsShown() then
+        AppendShownRegions(regions, { workspace:GetChildren() })
+    elseif trackerPanel and trackerPanel:IsShown() then
+        AppendShownRegions(regions, { trackerPanel:GetChildren() })
+    else
+        local child = frame.scrollChild
+        if not child then return end
+        if child.subTabContainer then AppendShownRegions(regions, { child.subTabContainer }) end
+        AppendShownRegions(regions, child.widgets)
+        if child.subScrollChild then AppendShownRegions(regions, child.subScrollChild.widgets) end
+    end
+    if #regions > 0 then
+        SL.StaggerIn(regions, { step = 0.03, offset = 4 })
+    end
+end
+
 local function CreateSectionMenu(parent, menuData, opts)
     opts = opts or {}
     local menu = CreateFrame("Frame", nil, parent)
@@ -242,26 +282,53 @@ local function CreateSectionMenu(parent, menuData, opts)
     menu.onSelect = opts.onSelect
     menu.onRightClick = opts.onRightClick
 
-    local function ApplyRowState(row)
+    -- [STYLE] One selection marker slides between rows (StyleLib 1.2). StyleLib 1.3 (시안 7):
+    -- a rounded pill (accent a0.18) drawn on the menu itself, i.e. under the row buttons;
+    -- rows are inset 4px so the pill and the rounded hover backgrounds stay inside the card.
+    local ROW_INSET = ROUNDED and 4 or 0
+    local PILL_ALPHA = 0.18
+    if SL.CreateIndicator then
+        if ROUNDED then
+            local menuWidth = parent:GetWidth() or 232
+            menu.indicator = SL.CreateIndicator(menu, math.max(20, menuWidth - ROW_INSET * 2), 54,
+                { THEME.accent[1], THEME.accent[2], THEME.accent[3], PILL_ALPHA },
+                { radius = RADIUS.row, layer = "BACKGROUND", subLevel = 1, x = ROW_INSET })
+        else
+            local indicatorLayer = CreateFrame("Frame", nil, menu)
+            indicatorLayer:SetAllPoints(menu)
+            indicatorLayer:SetFrameLevel(menu:GetFrameLevel() + 20)
+            menu.indicator = SL.CreateIndicator(indicatorLayer, 3, 54, THEME.accent)
+        end
+    end
+    local ROW_NORMAL = ROUNDED and { 1, 1, 1, 0 } or { 0, 0, 0, 0 }
+    local ROW_HOVER = ROUNDED and { 1, 1, 1, 0.05 } or THEME.bgHover
+
+    local function IsRowHoverLocked(row)
+        return row._active or row._kind == "section"
+    end
+
+    local function ApplyRowState(row, keepBackground)
         if row._kind == "section" then
             row._active = false
-            row.activeBar:Hide()
-            row.background:SetColorTexture(0, 0, 0, 0)
+            TintTexture(row.background, 0, 0, 0, 0)
             row.label:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 1)
             return
         end
         if row._kind == "groupAdd" then
             row._active = false
-            row.activeBar:Hide()
-            row.background:SetColorTexture(0, 0, 0, 0)
+            if not keepBackground then TintTexture(row.background, 0, 0, 0, 0) end
             row.label:SetTextColor(1, 0.43, 0.08, 1)
             return
         end
         local active = row._key == menu.selectedKey
         row._active = active
-        row.activeBar:SetShown(active)
         if active then
-            row.background:SetColorTexture(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
+            -- [STYLE] rounded mode: the pill is the selection, the row itself stays clear
+            if ROUNDED then
+                TintTexture(row.background, 0, 0, 0, 0)
+            else
+                row.background:SetColorTexture(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
+            end
             if row._kind == "group" then
                 row.icon:SetVertexColor(row._enabled and 0.28 or 0.42, row._enabled and 0.9 or 0.44, row._enabled and 0.42 or 0.48, 1)
             else
@@ -269,7 +336,7 @@ local function CreateSectionMenu(parent, menuData, opts)
             end
             row.label:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
         else
-            row.background:SetColorTexture(0, 0, 0, 0)
+            if not keepBackground then TintTexture(row.background, 0, 0, 0, 0) end
             if row._kind == "group" then
                 row.icon:SetVertexColor(row._enabled and 0.28 or 0.42, row._enabled and 0.9 or 0.44, row._enabled and 0.42 or 0.48, 1)
             else
@@ -279,10 +346,32 @@ local function CreateSectionMenu(parent, menuData, opts)
         end
         if row._shared then
             row.icon:SetVertexColor(SHARED_COLOR[1], SHARED_COLOR[2], SHARED_COLOR[3], row._enabled and 1 or 0.4)
-            row.activeBar:SetColorTexture(unpack(SHARED_COLOR))
-        else
-            row.activeBar:SetColorTexture(unpack(THEME.accent))
         end
+        -- [STYLE] group state as a logo status ring (green = enabled, grey = disabled)
+        if row.statusRing then
+            if row._kind == "group" then
+                local r, g, b = row.icon:GetVertexColor()
+                row.statusRing:SetVertexColor(r or 0.28, g or 0.9, b or 0.42, 1)
+            end
+        end
+    end
+
+    -- [STYLE] Place the shared bar on the selected row; slide only for user clicks.
+    local function UpdateIndicator(animate)
+        local indicator = menu.indicator
+        if not indicator then return end
+        local row = menu.selectedKey and menu.rowsByKey[menu.selectedKey]
+        if not row or not row:IsShown() or row._kind == "section" or row._kind == "groupAdd" then
+            indicator:HideIndicator()
+            return
+        end
+        local color = row._shared and SHARED_COLOR or THEME.accent
+        if indicator._ddslRoundTex then
+            indicator:SetVertexColor(color[1], color[2], color[3], PILL_ALPHA) -- [STYLE] pill
+        else
+            indicator:SetColorTexture(color[1], color[2], color[3], 1)
+        end
+        indicator:MoveTo(row, animate == true)
     end
 
     local function AcquireRow(index)
@@ -295,12 +384,8 @@ local function CreateSectionMenu(parent, menuData, opts)
 
         row.background = row:CreateTexture(nil, "BACKGROUND")
         row.background:SetAllPoints()
-
-        row.activeBar = row:CreateTexture(nil, "ARTWORK")
-        row.activeBar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-        row.activeBar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
-        row.activeBar:SetWidth(3)
-        row.activeBar:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+        RoundTexture(row.background, RADIUS.row) -- [STYLE] rounded hover background (radius 8)
+        -- [STYLE] per-row active bars replaced by menu.indicator
 
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(30, 30)
@@ -313,8 +398,13 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
         row.label:SetJustifyH("LEFT")
 
+        if ROUNDED and SL.CreateStatusRing then -- [STYLE] group enabled state marker
+            row.statusRing = SL.CreateStatusRing(row, 11)
+            row.statusRing:Hide()
+        end
+
         row.sharedBadge = row:CreateFontString(nil, "OVERLAY")
-        row.sharedBadge:SetFont(globalFontPath, 9, "")
+        row.sharedBadge:SetFont(globalFontPath, 12, "") -- [STYLE]
         row.sharedBadge:SetPoint("RIGHT", row, "RIGHT", -12, 0)
         row.sharedBadge:SetText(L["Shared"] or "공용")
         row.sharedBadge:SetTextColor(unpack(SHARED_COLOR))
@@ -324,7 +414,7 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.sharedAdd:SetSize(112, 30)
         row.sharedAdd:SetPoint("RIGHT", row, "RIGHT", -8, 0)
         row.sharedAdd.label = row.sharedAdd:CreateFontString(nil, "OVERLAY")
-        row.sharedAdd.label:SetFont(globalFontPath, 10, "")
+        row.sharedAdd.label:SetFont(globalFontPath, 12, "") -- [STYLE]
         row.sharedAdd.label:SetAllPoints()
         row.sharedAdd.label:SetJustifyH("RIGHT")
         row.sharedAdd.label:SetText("+ " .. (L["Add Shared Group"] or "공용 그룹 추가"))
@@ -345,11 +435,13 @@ local function CreateSectionMenu(parent, menuData, opts)
         row.divider:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
         row.divider:SetHeight(1)
         row.divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.72)
+        if ROUNDED then row.divider:SetAlpha(0) end -- [STYLE] cards replace the row dividers
 
+        -- [STYLE] Background fade + label nudge come from SL.RowHover (bound in SetMenuData);
+        -- these handlers only swap the label colour.
         row:SetScript("OnEnter", function(self)
             if self._kind == "section" then return end
             if not self._active then
-                self.background:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 1)
                 if self._kind == "groupAdd" then
                     self.label:SetTextColor(1, 0.62, 0.28, 1)
                 else
@@ -358,7 +450,7 @@ local function CreateSectionMenu(parent, menuData, opts)
             end
         end)
         row:SetScript("OnLeave", function(self)
-            ApplyRowState(self)
+            ApplyRowState(self, true)
         end)
         row:SetScript("OnClick", function(self, button)
             if self._kind == "section" then return end
@@ -366,7 +458,14 @@ local function CreateSectionMenu(parent, menuData, opts)
                 if menu.onRightClick then menu.onRightClick(self._key, self._text, self) end
                 return
             end
+            -- [STYLE] measure the bar on the current row before the layout changes, then slide
+            local previous = menu.selectedKey and menu.rowsByKey[menu.selectedKey]
+            if menu.indicator and previous and previous:IsShown() and previous ~= self then
+                menu.indicator:MoveTo(previous, false)
+            end
+            menu._animateIndicator = true
             menu:SetSelected(self._key)
+            menu._animateIndicator = nil
             if menu.onSelect then
                 menu.onSelect(self._key, true)
             end
@@ -391,8 +490,8 @@ local function CreateSectionMenu(parent, menuData, opts)
         for _, row in ipairs(menu.rows) do
             if IsRowVisible(row) then
                 row:ClearAllPoints()
-                row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -yOffset)
-                row:SetPoint("RIGHT", menu, "RIGHT", 0, 0)
+                row:SetPoint("TOPLEFT", menu, "TOPLEFT", ROW_INSET, -(yOffset + ROW_INSET)) -- [STYLE]
+                row:SetPoint("RIGHT", menu, "RIGHT", -ROW_INSET, 0)
                 row:Show()
                 ApplyRowState(row)
                 yOffset = yOffset + row._height
@@ -400,6 +499,20 @@ local function CreateSectionMenu(parent, menuData, opts)
                 row:Hide()
             end
         end
+        UpdateIndicator(menu._animateIndicator) -- [STYLE]
+    end
+
+    -- [STYLE] Label anchored by LEFT + width (single point) so RowHover can nudge it 2px.
+    local function AnchorRowLabel(row, relative, relativePoint, x, y, rightPad)
+        local rowWidth = menu:GetWidth()
+        if not rowWidth or rowWidth <= 0 then rowWidth = parent:GetWidth() or 240 end
+        rowWidth = rowWidth - ROW_INSET * 2 -- [STYLE]
+        local left = x
+        if relative == row.icon then
+            left = x + (row._iconLeft or 0) + (row.icon:GetWidth() or 0)
+        end
+        row.label:SetPoint("LEFT", relative, relativePoint, x, y)
+        row.label:SetWidth(math.max(20, rowWidth - left - rightPad))
     end
 
     function menu:SetMenuData(data, showAllRows)
@@ -424,33 +537,52 @@ local function CreateSectionMenu(parent, menuData, opts)
             row.label:ClearAllPoints()
             row.divider:SetShown(kind == "main")
 
+            local rightPad = kind == "groupAdd" and 124 or (row._shared and 52 or 12)
             if kind == "main" then
                 row.icon:SetSize(30, 30)
                 row.icon:SetPoint("LEFT", row, "LEFT", 24, 0)
+                row._iconLeft = 24
                 row.icon:SetTexture(item.icon)
                 row.icon:Show()
                 row.label:SetFont(globalFontPath, 13, "")
-                row.label:SetPoint("LEFT", row.icon, "RIGHT", 20, 0)
+                AnchorRowLabel(row, row.icon, "RIGHT", 20, 0, rightPad)
             elseif kind == "section" then
                 row.icon:Hide()
-                row.label:SetFont(globalFontPath, 10, "")
-                row.label:SetPoint("LEFT", row, "LEFT", 24, -3)
+                row.label:SetFont(globalFontPath, 12, "") -- [STYLE]
+                AnchorRowLabel(row, row, "LEFT", 24, -3, rightPad)
             elseif kind == "groupAdd" then
                 row.icon:Hide()
-                row.label:SetFont(globalFontPath, 10, "")
-                row.label:SetPoint("LEFT", row, "LEFT", 30, 0)
+                row.label:SetFont(globalFontPath, 12, "") -- [STYLE]
+                AnchorRowLabel(row, row, "LEFT", 30, 0, rightPad)
                 row.label:SetTextColor(1, 0.43, 0.08, 1)
             else
                 row.icon:SetSize(7, 7)
                 row.icon:SetPoint("LEFT", row, "LEFT", 29, 0)
+                row._iconLeft = 29
                 row.icon:SetTexture(FLAT)
                 row.icon:SetVertexColor(item.enabled and 0.28 or 0.42, item.enabled and 0.9 or 0.44, item.enabled and 0.42 or 0.48, 1)
-                row.icon:Show()
-                row.label:SetFont(globalFontPath, 11, "")
-                row.label:SetPoint("LEFT", row.icon, "RIGHT", 10, 0)
+                row.icon:SetShown(not row.statusRing) -- [STYLE] ring replaces the square dot
+                if row.statusRing then
+                    row.statusRing:ClearAllPoints()
+                    row.statusRing:SetPoint("CENTER", row.icon, "CENTER", 0, 0)
+                    row.statusRing:Show()
+                end
+                row.label:SetFont(globalFontPath, 12, "") -- [STYLE]
+                AnchorRowLabel(row, row.icon, "RIGHT", 10, 0, rightPad)
             end
-            row.label:SetPoint("RIGHT", row, "RIGHT", kind == "groupAdd" and -124 or (row._shared and -52 or -12), 0)
+            if row.statusRing and kind ~= "group" then row.statusRing:Hide() end
+            row.label:SetWordWrap(false)
             row.label:SetText(item.text or item.key)
+            -- [STYLE] 0.09s background fade + 2px label nudge (re-captures the label anchor)
+            if SL.RowHover then
+                SL.RowHover(row, {
+                    bg = row.background,
+                    label = kind ~= "section" and row.label or nil,
+                    normal = ROW_NORMAL,
+                    hover = ROW_HOVER,
+                    isActive = IsRowHoverLocked,
+                })
+            end
             self.rowsByKey[item.key] = row
         end
         for index = #(data or {}) + 1, #self.rows do
@@ -877,6 +1009,12 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
                 btn:SetActive(true)
 
                 RenderOptions(subScrollChild, item.option, {unpack(path), item.key}, parentFrame)
+                -- [STYLE] stagger only real clicks; SoftRefresh re-clicks tabs programmatically
+                if SL.StaggerIn and btn.IsMouseOver and btn:IsMouseOver() then
+                    local regions = {}
+                    AppendShownRegions(regions, subScrollChild.widgets)
+                    if #regions > 0 then SL.StaggerIn(regions, { step = 0.03, offset = 4 }) end
+                end
 
                 -- Update content frame height after rendering sub-tab content
                 -- Use multiple delays to ensure content has finished rendering
@@ -1179,7 +1317,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
                 -- Placeholder 텍스트
                 local placeholder = inputContainer:CreateFontString(nil, "OVERLAY")
-                placeholder:SetFont(gf, 11, "")
+                placeholder:SetFont(gf, 12, "") -- [STYLE]
                 placeholder:SetPoint("LEFT", inputContainer.editBox, "LEFT", 0, 0)
                 placeholder:SetText(option.placeholder or "Spell ID...")
                 placeholder:SetTextColor(0.55, 0.55, 0.55, 1)
@@ -1196,7 +1334,7 @@ RenderOptions = function(contentFrame, options, path, parentFrame)
 
                 -- 상태 텍스트 (스펠 이름 or 에러)
                 local statusText = searchFrame:CreateFontString(nil, "OVERLAY")
-                statusText:SetFont(gf, 11, "")
+                statusText:SetFont(gf, 12, "") -- [STYLE]
                 statusText:SetShadowOffset(1, -1)
                 statusText:SetShadowColor(0, 0, 0, 1)
                 statusText:SetPoint("LEFT", iconPreview, "RIGHT", 8, 0)
@@ -1877,7 +2015,8 @@ function DDingUI:CreateConfigFrame()
 
     -- Always destroy and recreate the frame to ensure we have latest version
     if ConfigFrame then
-        ConfigFrame:Hide()
+        -- [STYLE] teardown: never run the exit motion on a frame being destroyed
+        if ConfigFrame.HideImmediately then ConfigFrame:HideImmediately() else ConfigFrame:Hide() end
         ConfigFrame:ClearAllPoints()
         local children = {ConfigFrame:GetChildren()}
         for _, child in ipairs(children) do
@@ -1892,7 +2031,7 @@ function DDingUI:CreateConfigFrame()
     for _, gName in ipairs({"DDingUI_ConfigFrame", "DDingUI_CDM_Panel"}) do
         local gf = _G[gName]
         if gf then
-            gf:Hide()
+            if gf.HideImmediately then gf:HideImmediately() else gf:Hide() end -- [STYLE]
             gf:ClearAllPoints()
             local children = {gf:GetChildren()}
             for _, child in ipairs(children) do
@@ -1932,30 +2071,67 @@ function DDingUI:CreateConfigFrame()
     frame:SetBackdropColor(THEME.shell[1], THEME.shell[2], THEME.shell[3], 1)
     frame:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
 
-    titleBar._ddingThemeBackground = titleBar._ddingThemeBackground
-        or titleBar:CreateTexture(nil, "BACKGROUND", nil, 1)
-    titleBar._ddingThemeBackground:SetAllPoints()
-    titleBar._ddingThemeBackground:SetColorTexture(
-        THEME.titlebar[1], THEME.titlebar[2], THEME.titlebar[3], 1)
+    if ROUNDED then
+        -- [STYLE] StyleLib 1.3 (시안 7): WoW clips rectangles, so nothing square may touch the
+        -- rounded window corners. The title bar is part of the window surface; the menu and the
+        -- detail area become rounded cards 8px inside the window and 8px apart.
+        local titleBottom = -((titleBar:GetHeight() or 34) + 1)
+        local menuWidth = treeFrame:GetWidth() or 240
+        treeFrame:ClearAllPoints()
+        treeFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_GAP, titleBottom)
+        treeFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CARD_GAP, CARD_GAP)
+        treeFrame:SetWidth(menuWidth - CARD_GAP)
+        SL.MakeRounded(treeFrame, RADIUS.card, THEME.sidebar,
+            { THEME.border[1], THEME.border[2], THEME.border[3], 0.7 })
 
-    treeFrame._ddingThemeBackground = treeFrame._ddingThemeBackground
-        or treeFrame:CreateTexture(nil, "BACKGROUND")
-    treeFrame._ddingThemeBackground:SetAllPoints()
-    treeFrame._ddingThemeBackground:SetColorTexture(
-        THEME.sidebar[1], THEME.sidebar[2], THEME.sidebar[3], 1)
+        contentFrame:ClearAllPoints()
+        contentFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", menuWidth + CARD_GAP, titleBottom)
+        contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -CARD_GAP, CARD_GAP)
+        SL.MakeRounded(contentFrame, RADIUS.card, THEME.panel,
+            { THEME.border[1], THEME.border[2], THEME.border[3], 0.7 })
+        if SL.AddWatermark and not contentFrame._ddingWatermark then
+            contentFrame._ddingWatermark = SL.AddWatermark(contentFrame, "CDM", { height = 144 })
+        end
+        if panel.divider then panel.divider:Hide() end
+    else
+        titleBar._ddingThemeBackground = titleBar._ddingThemeBackground
+            or titleBar:CreateTexture(nil, "BACKGROUND", nil, 1)
+        titleBar._ddingThemeBackground:SetAllPoints()
+        titleBar._ddingThemeBackground:SetColorTexture(
+            THEME.titlebar[1], THEME.titlebar[2], THEME.titlebar[3], 1)
 
-    contentFrame._ddingThemeBackground = contentFrame._ddingThemeBackground
-        or contentFrame:CreateTexture(nil, "BACKGROUND")
-    contentFrame._ddingThemeBackground:SetAllPoints()
-    contentFrame._ddingThemeBackground:SetColorTexture(
-        THEME.panel[1], THEME.panel[2], THEME.panel[3], 1)
-    if panel.divider then
-        panel.divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        treeFrame._ddingThemeBackground = treeFrame._ddingThemeBackground
+            or treeFrame:CreateTexture(nil, "BACKGROUND")
+        treeFrame._ddingThemeBackground:SetAllPoints()
+        treeFrame._ddingThemeBackground:SetColorTexture(
+            THEME.sidebar[1], THEME.sidebar[2], THEME.sidebar[3], 1)
+
+        contentFrame._ddingThemeBackground = contentFrame._ddingThemeBackground
+            or contentFrame:CreateTexture(nil, "BACKGROUND")
+        contentFrame._ddingThemeBackground:SetAllPoints()
+        contentFrame._ddingThemeBackground:SetColorTexture(
+            THEME.panel[1], THEME.panel[2], THEME.panel[3], 1)
+        if panel.divider then
+            panel.divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+        end
     end
 
-    -- GUI 스케일 적용 (저장된 값)
-    local savedScale = (DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.general and DDingUI.db.profile.general.guiScale) or 1.0
-    frame:SetScale(savedScale)
+    -- [STYLE] Close button, minimap, Escape (UISpecialFrames) and toggles share the
+    -- series open/close motion; combat or teardown uses HideImmediately().
+    if SL.Motion and SL.Motion.BindPanel then
+        SL.Motion.BindPanel(frame)
+    end
+
+    -- GUI 스케일 적용 (저장된 값) -- [STYLE] base scale survives the open/close motion
+    local function GetSavedGUIScale()
+        local general = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.general
+        return tonumber(general and general.guiScale) or 1.0
+    end
+    if frame.SetBaseScale then
+        frame:SetBaseScale(GetSavedGUIScale())
+    else
+        frame:SetScale(GetSavedGUIScale())
+    end
 
     -- 프레임 닫힐 때 설정 전용 미리보기와 타이머 정리
     frame:SetScript("OnHide", function()
@@ -2007,25 +2183,7 @@ function DDingUI:CreateConfigFrame()
     -- ============================================
     globalFontPath = DDingUI:GetGlobalFont() or SL.Font.path
 
-    -- 타이틀 텍스트 (UF 통일: 글자별 그라디언트)
-    if titleBar.titleText then
-        titleBar.titleText:SetText("")
-        titleBar.titleText:Hide()
-    end
-    if not titleBar.brandLogo then
-        titleBar.brandLogo = titleBar:CreateTexture(nil, "ARTWORK")
-    end
-    titleBar.brandLogo:ClearAllPoints()
-    titleBar.brandLogo:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
-    titleBar.brandLogo:SetSize(128, 32)
-    titleBar.brandLogo:SetTexture("Interface\\AddOns\\DDingUI_CDM\\Media\\logo_wordmark.tga")
-    titleBar.brandLogo:SetTexCoord(0, 1, 0, 1)
-    titleBar.brandLogo:Show()
-    if titleBar.verText then
-        titleBar.verText:ClearAllPoints()
-        titleBar.verText:SetPoint("LEFT", titleBar.brandLogo, "RIGHT", 4, -1)
-        titleBar.verText:SetText("v" .. tostring(version))
-    end
+    -- Keep StyleLib's fixed DDingUI prefix and addon-colour gradient title.
 
     local closeBtn = titleBar.closeBtn
 
@@ -2035,10 +2193,10 @@ function DDingUI:CreateConfigFrame()
     local profileDropdown = CreateFrame("Frame", nil, titleBar, "BackdropTemplate")
     profileDropdown:SetSize(140, 20)
     profileDropdown:SetPoint("LEFT", titleBar.verText or titleBar.titleText, "RIGHT", 14, 0)
-    CreateBackdrop(profileDropdown, THEME.bgWidget, THEME.border)
+    CreateBackdrop(profileDropdown, THEME.bgWidget, THEME.border, nil, RADIUS.control) -- [STYLE]
 
-    local profileText = profileDropdown:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    profileText:SetFont(globalFontPath, 11, "")
+    local profileText = profileDropdown:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
+    profileText:SetFont(globalFontPath, 12, "") -- [STYLE]
     profileText:SetShadowColor(0, 0, 0, 1)
     profileText:SetShadowOffset(1, -1)
     profileText:SetPoint("LEFT", 6, 0)
@@ -2046,8 +2204,8 @@ function DDingUI:CreateConfigFrame()
     profileText:SetJustifyH("LEFT")
     profileText:SetTextColor(SL.GetColor("text"))
 
-    local profileArrow = profileDropdown:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    profileArrow:SetFont(globalFontPath, 10, "")
+    local profileArrow = profileDropdown:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
+    profileArrow:SetFont(globalFontPath, 12, "") -- [STYLE]
     profileArrow:SetPoint("RIGHT", -4, 0)
     profileArrow:SetText("▼")
     profileArrow:SetTextColor(SL.GetColor("dim"))
@@ -2091,6 +2249,7 @@ function DDingUI:CreateConfigFrame()
     })
     confirmPopup:SetBackdropColor(0.08, 0.08, 0.08, 0.97)
     confirmPopup:SetBackdropBorderColor(0.8, 0.2, 0.2, 0.9)
+    RoundFrame(confirmPopup, RADIUS.card) -- [STYLE]
 
     local confirmText = confirmPopup:CreateFontString(nil, "OVERLAY")
     confirmText:SetFont(globalFontPath, 12, "")
@@ -2106,10 +2265,10 @@ function DDingUI:CreateConfigFrame()
     local confirmAcceptBtn = CreateFrame("Button", nil, confirmPopup, "BackdropTemplate")
     confirmAcceptBtn:SetSize(100, 26)
     confirmAcceptBtn:SetPoint("BOTTOMRIGHT", confirmPopup, "BOTTOM", -8, 14)
-    CreateBackdrop(confirmAcceptBtn, {0.6, 0.15, 0.15, 0.9}, {0.8, 0.2, 0.2, 0.9})
+    CreateBackdrop(confirmAcceptBtn, {0.6, 0.15, 0.15, 0.9}, {0.8, 0.2, 0.2, 0.9}, nil, RADIUS.control) -- [STYLE]
 
     local acceptText = confirmAcceptBtn:CreateFontString(nil, "OVERLAY")
-    acceptText:SetFont(globalFontPath, 11, "")
+    acceptText:SetFont(globalFontPath, 12, "") -- [STYLE]
     acceptText:SetShadowColor(0, 0, 0, 1)
     acceptText:SetShadowOffset(1, -1)
     acceptText:SetPoint("CENTER", 0, 0)
@@ -2133,10 +2292,10 @@ function DDingUI:CreateConfigFrame()
     local confirmCancelBtn = CreateFrame("Button", nil, confirmPopup, "BackdropTemplate")
     confirmCancelBtn:SetSize(100, 26)
     confirmCancelBtn:SetPoint("BOTTOMLEFT", confirmPopup, "BOTTOM", 8, 14)
-    CreateBackdrop(confirmCancelBtn, THEME.bgWidget, {0.3, 0.3, 0.3, 0.7})
+    CreateBackdrop(confirmCancelBtn, THEME.bgWidget, {0.3, 0.3, 0.3, 0.7}, nil, RADIUS.control) -- [STYLE]
 
     local cancelText = confirmCancelBtn:CreateFontString(nil, "OVERLAY")
-    cancelText:SetFont(globalFontPath, 11, "")
+    cancelText:SetFont(globalFontPath, 12, "") -- [STYLE]
     cancelText:SetShadowColor(0, 0, 0, 1)
     cancelText:SetShadowOffset(1, -1)
     cancelText:SetPoint("CENTER", 0, 0)
@@ -2178,7 +2337,7 @@ function DDingUI:CreateConfigFrame()
         if not listFrame then
             listFrame = CreateFrame("Frame", nil, dropdown, "BackdropTemplate")
             listFrame:SetFrameStrata("TOOLTIP")
-            CreateBackdrop(listFrame, THEME.bgDark, THEME.border)
+            CreateBackdrop(listFrame, THEME.bgDark, THEME.border, nil, RADIUS.row) -- [STYLE]
             dropdown._listFrame = listFrame
         end
 
@@ -2207,8 +2366,8 @@ function DDingUI:CreateConfigFrame()
             })
             item:SetBackdropColor(0, 0, 0, 0)
 
-            local itemText = item:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            itemText:SetFont(globalFontPath, 11, "")
+            local itemText = item:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
+            itemText:SetFont(globalFontPath, 12, "") -- [STYLE]
             itemText:SetShadowColor(0, 0, 0, 1)
             itemText:SetShadowOffset(1, -1)
             itemText:SetPoint("LEFT", 6, 0)
@@ -2311,97 +2470,21 @@ function DDingUI:CreateConfigFrame()
     frame.profileDropdown = profileDropdown
 
     -- ============================================
-    -- GUI 크기 슬라이더 (타이틀바 내 검색 왼쪽)
+    -- GUI 크기 (타이틀바 내 검색 왼쪽) -- [STYLE] StyleLib 표준 컨트롤
+    -- 50~150%, 5% 단위, 드래그 중 미리보기 / 놓을 때 저장 / 휠
     -- ============================================
-    local scaleContainer = CreateFrame("Frame", nil, titleBar)
-    scaleContainer:SetSize(140, 24)
-
-    local scaleLabel = scaleContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    scaleLabel:SetFont(globalFontPath, 11, "")
-    scaleLabel:SetShadowColor(0, 0, 0, 1)
-    scaleLabel:SetShadowOffset(1, -1)
-    scaleLabel:SetPoint("LEFT", scaleContainer, "LEFT", 0, 0)
-    scaleLabel:SetText(L["Scale"] or "Scale")
-    scaleLabel:SetTextColor(SL.GetColor("dim"))
-
-    local currentScale = (DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.general and DDingUI.db.profile.general.guiScale) or 1.0
-    local scaleValue = scaleContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    scaleValue:SetFont(globalFontPath, 11, "")
-    scaleValue:SetShadowColor(0, 0, 0, 1)
-    scaleValue:SetShadowOffset(1, -1)
-    scaleValue:SetPoint("RIGHT", scaleContainer, "RIGHT", 0, 0)
-    scaleValue:SetText(string.format("%.0f%%", currentScale * 100))
-    scaleValue:SetTextColor(SL.GetColor("text"))
-
-    local scaleSlider = CreateFrame("Slider", nil, scaleContainer, "BackdropTemplate")
-    scaleSlider:SetSize(70, 12)
-    scaleSlider:SetPoint("LEFT", scaleLabel, "RIGHT", 6, 0)
-    scaleSlider:SetPoint("RIGHT", scaleValue, "LEFT", -6, 0)
-    scaleSlider:SetOrientation("HORIZONTAL")
-    scaleSlider:SetMinMaxValues(0.5, 1.5)
-    scaleSlider:SetValueStep(0.05)
-    scaleSlider:SetObeyStepOnDrag(true)
-    scaleSlider:SetValue(currentScale)
-
-    scaleSlider:SetBackdrop({
-        bgFile = FLAT,
-        edgeFile = FLAT,
-        edgeSize = 1,
+    local scaleContainer = SL.CreateTitleScaleControl(titleBar, "CDM", {
+        get = GetSavedGUIScale,
+        set = function(value)
+            if DDingUI.db and DDingUI.db.profile then
+                if not DDingUI.db.profile.general then DDingUI.db.profile.general = {} end
+                DDingUI.db.profile.general.guiScale = value
+            end
+        end,
+        target = frame,
+        label = L["GUI Scale"] or "GUI Scale",
     })
-    scaleSlider:SetBackdropColor(SL.GetColor("widget"))
-    scaleSlider:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
-
-    local scaleThumb = scaleSlider:CreateTexture(nil, "OVERLAY")
-    scaleThumb:SetSize(10, 16)
-    scaleThumb:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-    scaleSlider:SetThumbTexture(scaleThumb)
-
-    scaleSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 20 + 0.5) / 20
-        scaleValue:SetText(string.format("%.0f%%", value * 100))
-        self._pendingValue = value
-    end)
-
-    scaleSlider:SetScript("OnMouseUp", function(self)
-        local value = self._pendingValue or self:GetValue()
-        value = math.floor(value * 20 + 0.5) / 20
-        if DDingUI.db and DDingUI.db.profile then
-            if not DDingUI.db.profile.general then DDingUI.db.profile.general = {} end
-            DDingUI.db.profile.general.guiScale = value
-        end
-        frame:SetScale(value)
-    end)
-
-    scaleSlider:EnableMouseWheel(true)
-    scaleSlider:SetScript("OnMouseWheel", function(self, delta)
-        local current = self:GetValue()
-        local step = 0.05
-        local newValue
-        if delta > 0 then
-            newValue = math.min(1.5, current + step)
-        else
-            newValue = math.max(0.5, current - step)
-        end
-        self:SetValue(newValue)
-        newValue = math.floor(newValue * 20 + 0.5) / 20
-        if DDingUI.db and DDingUI.db.profile then
-            if not DDingUI.db.profile.general then DDingUI.db.profile.general = {} end
-            DDingUI.db.profile.general.guiScale = newValue
-        end
-        frame:SetScale(newValue)
-    end)
-
-    scaleSlider:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(SL.GetColor("accent"))
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -4)
-        GameTooltip:SetText(L["GUI Scale"] or "GUI Scale", 1, 1, 1)
-        GameTooltip:AddLine(L["Adjust the size of this settings window"] or "Adjust the size of this settings window", 0.7, 0.7, 0.7)
-        GameTooltip:Show()
-    end)
-    scaleSlider:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
-        GameTooltip:Hide()
-    end)
+    frame.scaleControl = scaleContainer
 
     -- ============================================
     -- 검색 입력칸 (UF 통일: 200px, 닫기 버튼 왼쪽)
@@ -2414,12 +2497,12 @@ function DDingUI:CreateConfigFrame()
     -- 편집 모드(이동모드) 토글 버튼 (검색 왼쪽) -- [12.0.1]
     -- ============================================
     local editModeBtn = CreateFrame("Button", nil, titleBar, "BackdropTemplate") -- [12.0.1]
-    editModeBtn:SetSize(62, 20)
+    editModeBtn:SetSize(70, 20) -- [STYLE] room for 12pt label
     editModeBtn:SetPoint("RIGHT", searchBox, "LEFT", -8, 0)
-    CreateBackdrop(editModeBtn, THEME.bgWidget, THEME.border)
+    CreateBackdrop(editModeBtn, THEME.bgWidget, THEME.border, nil, RADIUS.control) -- [STYLE]
 
     local editModeText = editModeBtn:CreateFontString(nil, "OVERLAY") -- [12.0.1]
-    editModeText:SetFont(globalFontPath, 11, "")
+    editModeText:SetFont(globalFontPath, 12, "") -- [STYLE]
     editModeText:SetShadowColor(0, 0, 0, 1)
     editModeText:SetShadowOffset(1, -1)
     editModeText:SetPoint("CENTER", 0, 0)
@@ -2440,8 +2523,8 @@ function DDingUI:CreateConfigFrame()
         GameTooltip:Hide()
     end)
     editModeBtn:SetScript("OnClick", function()
-        -- 설정 창 닫기
-        frame:Hide()
+        -- 설정 창 닫기 -- [STYLE] gameplay handoff: close at once, no exit motion
+        if frame.HideImmediately then frame:HideImmediately() else frame:Hide() end
         -- 이동모드 토글
         if DDingUI.Movers and DDingUI.Movers.ToggleConfigMode then
             DDingUI.Movers:ToggleConfigMode()
@@ -2450,7 +2533,7 @@ function DDingUI:CreateConfigFrame()
 
     -- 크기 슬라이더를 편집 버튼 왼쪽에 배치 -- [12.0.1]
     scaleContainer:SetPoint("RIGHT", editModeBtn, "LEFT", -10, 0)
-    CreateBackdrop(searchBox, THEME.bgWidget, THEME.border)
+    CreateBackdrop(searchBox, THEME.bgWidget, THEME.border, nil, RADIUS.control) -- [STYLE]
 
     -- 돋보기 아이콘
     local searchIcon = searchBox:CreateTexture(nil, "ARTWORK")
@@ -2464,14 +2547,14 @@ function DDingUI:CreateConfigFrame()
     searchEditBox:SetPoint("LEFT", searchIcon, "RIGHT", 4, 0)
     searchEditBox:SetPoint("RIGHT", -24, 0)
     searchEditBox:SetHeight(20)
-    searchEditBox:SetFont(globalFontPath, 11, "")
+    searchEditBox:SetFont(globalFontPath, 12, "") -- [STYLE]
     searchEditBox:SetAutoFocus(false)
     searchEditBox:SetJustifyH("LEFT")
     searchEditBox:SetTextColor(SL.GetColor("text"))
 
     -- 플레이스홀더
-    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchPlaceholder:SetFont(globalFontPath, 11, "")
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
+    searchPlaceholder:SetFont(globalFontPath, 12, "") -- [STYLE]
     searchPlaceholder:SetText(L["Search..."] or "검색...")
     searchPlaceholder:SetTextColor(0.5, 0.5, 0.5)
     searchPlaceholder:SetPoint("LEFT", searchEditBox, "LEFT", 0, 0)
@@ -3180,6 +3263,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
             frame.currentTab = key
             frame.currentPath = lookup.path
             frame.configOptions = options
+            if fromUser then StaggerPageIn(frame) end -- [STYLE] page change only, not refreshes
         end,
         -- 그룹 및 추적 항목 우클릭 메뉴
         onRightClick = function(key, text, btn)
@@ -3209,6 +3293,7 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                 })
                 ctx:SetBackdropColor(0.1, 0.1, 0.12, 0.95)
                 ctx:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
+                RoundFrame(ctx, RADIUS.row) -- [STYLE]
                 ctx:Hide()
                 ctx._buttonPool = {}
                 ctx._sepPool = {}
@@ -3404,8 +3489,9 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                         row:SetHeight(ROW_H)
                         row._bg = row:CreateTexture(nil, "BACKGROUND")
                         row._bg:SetAllPoints()
-                        row._bg:SetColorTexture(0, 0, 0, 0)
-                        row._text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                        RoundTexture(row._bg, RADIUS.control) -- [STYLE]
+                        TintTexture(row._bg, 0, 0, 0, 0)
+                        row._text = row:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                         row._text:SetPoint("LEFT", 10, 0)
                         row._text:SetPoint("RIGHT", -10, 0)
                         row._text:SetJustifyH("LEFT")
@@ -3416,8 +3502,8 @@ function DDingUI:OpenConfigGUI(options, tabKey)
                     row:SetPoint("TOPRIGHT", ctx, "TOPRIGHT", -2, yOff)
                     row._text:SetText(item.text)
                     row:SetScript("OnClick", item.func)
-                    row:SetScript("OnEnter", function(self) self._bg:SetColorTexture(0.2, 0.3, 0.5, 0.4) end)
-                    row:SetScript("OnLeave", function(self) self._bg:SetColorTexture(0, 0, 0, 0) end)
+                    row:SetScript("OnEnter", function(self) TintTexture(self._bg, 0.2, 0.3, 0.5, 0.4) end) -- [STYLE]
+                    row:SetScript("OnLeave", function(self) TintTexture(self._bg, 0, 0, 0, 0) end)
                     row:Show()
                     yOff = yOff - ROW_H
                 end

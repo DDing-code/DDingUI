@@ -151,7 +151,7 @@ local function CreateBreadcrumbBadge(parent, breadcrumbText, yOffset, onClick)
     badge:SetBackdropBorderColor(0, 0, 0, 1)
 
     local text = badge:CreateFontString(nil, "OVERLAY")
-    text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 10, "")
+    text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
     text:SetShadowOffset(1, -1)
     text:SetShadowColor(0, 0, 0, 1)
     text:SetText(breadcrumbText)
@@ -328,7 +328,7 @@ local function RenderSearchResults(contentFrame, results, parentFrame)
                 widgetHeight = 28
             elseif entry.type == "range" then
                 widget = Widgets.CreateRange(contentFrame, entry.option, yOffset, entry.optionsTable)
-                widgetHeight = 32
+                widgetHeight = widget:GetHeight() -- [STYLE] follows the slider spec row height
             elseif entry.type == "select" then
                 widget = Widgets.CreateSelect(contentFrame, entry.option, yOffset, entry.optionsTable, entry.key, {})
                 widgetHeight = 36

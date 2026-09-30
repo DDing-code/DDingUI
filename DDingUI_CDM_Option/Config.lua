@@ -82,6 +82,7 @@ function DDingUI:SetupOptions()
             -- Confirm UI Scale Button
             confirmUIScale = {
                 type = "execute",
+                appliedFeedback = true, -- [STYLE]
                 name = L["Confirm UI Scale"],
                 desc = L["Apply the UI scale value from the input box above"],
                 order = 11,
@@ -102,13 +103,13 @@ function DDingUI:SetupOptions()
 
                         if DDingUI.AutoUIScale and DDingUI.AutoUIScale.SetUIScale then
                             DDingUI.AutoUIScale:SetUIScale(savedScale)
-                            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " " .. string.format("%.2f", savedScale) .. "|r") -- [STYLE]
+                            DDingUI:Print("|cff00ff00" .. L["UI Scale set to"] .. " " .. string.format("%.2f", savedScale) .. "|r") -- [STYLE]
                         end
 
                         -- [REFACTOR] AceGUI → StyleLib
                         DDingUI:RefreshConfigGUI()
                     else
-                        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff0000" .. L["[DDingUI] Invalid UI scale value. Please enter a number between 0.33 and 1.0"] .. "|r") -- [STYLE]
+                        DDingUI:Print("|cffff0000" .. L["Invalid UI scale value. Please enter a number between 0.33 and 1.0"] .. "|r") -- [STYLE]
                     end
                 end,
             },
@@ -122,6 +123,7 @@ function DDingUI:SetupOptions()
             -- Preset Buttons
             preset1080p = {
                 type = "execute",
+                appliedFeedback = true, -- [STYLE]
                 name = L["Set for 1080p (0.711111)"],
                 desc = L["Automatically set UI scale to 0.711111 for 1080p displays"],
                 order = 20,
@@ -132,7 +134,7 @@ function DDingUI:SetupOptions()
 
                     if DDingUI.AutoUIScale and DDingUI.AutoUIScale.SetUIScale then
                         DDingUI.AutoUIScale:SetUIScale(scale1080p)
-                        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " 0.71 (1080p)|r") -- [STYLE]
+                        DDingUI:Print("|cff00ff00" .. L["UI Scale set to"] .. " 0.71 (1080p)|r") -- [STYLE]
                     end
 
                     -- [REFACTOR] AceGUI → StyleLib
@@ -142,6 +144,7 @@ function DDingUI:SetupOptions()
 
             preset1440p = {
                 type = "execute",
+                appliedFeedback = true, -- [STYLE]
                 name = L["Set for 1440p (0.53333333)"],
                 desc = L["Automatically set UI scale to 0.53333333 for 1440p displays"],
                 order = 21,
@@ -152,7 +155,7 @@ function DDingUI:SetupOptions()
 
                     if DDingUI.AutoUIScale and DDingUI.AutoUIScale.SetUIScale then
                         DDingUI.AutoUIScale:SetUIScale(scale1440p)
-                        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. L["[DDingUI] UI Scale set to"] .. " 0.53 (1440p)|r") -- [STYLE]
+                        DDingUI:Print("|cff00ff00" .. L["UI Scale set to"] .. " 0.53 (1440p)|r") -- [STYLE]
                     end
 
                     -- [REFACTOR] AceGUI → StyleLib

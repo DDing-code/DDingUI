@@ -3,9 +3,11 @@
 -- 우클릭 컨텍스트 메뉴
 -- 계단식 서브메뉴 지원
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.ShowCascadingMenu then return end
 
 local CreateFrame = CreateFrame
 local UIParent = UIParent

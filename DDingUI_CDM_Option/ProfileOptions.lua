@@ -154,7 +154,7 @@ local function CreateProfileOptions()
                         func = function()
                             if newProfileBuffer and newProfileBuffer ~= "" and DDingUI.db then
                                 DDingUI.db:SetProfile(newProfileBuffer)
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 Profile '" .. newProfileBuffer .. "' created.|r")
+                                DDingUI:Print("|cff00ff00 Profile '" .. newProfileBuffer .. "' created.|r")
                                 newProfileBuffer = ""
                             end
                         end,
@@ -201,7 +201,7 @@ local function CreateProfileOptions()
                         func = function()
                             if copyFromBuffer and copyFromBuffer ~= "" and DDingUI.db then
                                 DDingUI.db:CopyProfile(copyFromBuffer)
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 Profile copied from '" .. copyFromBuffer .. "'.|r")
+                                DDingUI:Print("|cff00ff00 Profile copied from '" .. copyFromBuffer .. "'.|r")
                                 copyFromBuffer = ""
                             end
                         end,
@@ -241,7 +241,7 @@ local function CreateProfileOptions()
                         set = function(_, val)
                             if val and val ~= "" and DDingUI.db then
                                 DDingUI.db:DeleteProfile(val, true)
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 Profile '" .. val .. "' deleted.|r")
+                                DDingUI:Print("|cff00ff00 Profile '" .. val .. "' deleted.|r")
                             end
                         end,
                         confirm = true,
@@ -270,7 +270,7 @@ local function CreateProfileOptions()
                         func = function()
                             if DDingUI.db then
                                 DDingUI.db:ResetProfile()
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 Profile reset to defaults.|r")
+                                DDingUI:Print("|cff00ff00 Profile reset to defaults.|r")
                             end
                         end,
                     },
@@ -372,7 +372,7 @@ local function CreateProfileOptions()
                             end
 
                             if not importString or importString == "" then
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 Import failed: No data found.|r")
+                                DDingUI:Print("|cffff0000 Import failed: No data found.|r")
                                 return
                             end
 
@@ -382,17 +382,17 @@ local function CreateProfileOptions()
                             end
 
                             if not newProfileName or newProfileName == "" then
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 Please enter a profile name for the imported profile.|r")
+                                DDingUI:Print("|cffff0000 Please enter a profile name for the imported profile.|r")
                                 return
                             end
 
                             local ok, err = DDingUI:ImportProfileFromString(importString, newProfileName)
                             if ok then
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 Profile imported as '" .. newProfileName .. "'. Please reload your UI.|r")
+                                DDingUI:Print("|cff00ff00 Profile imported as '" .. newProfileName .. "'. Please reload your UI.|r")
                                 importBuffer = ""
                                 newProfileNameBuffer = ""
                             else
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 Import failed: " .. (err or "Unknown error") .. "|r")
+                                DDingUI:Print("|cffff0000 Import failed: " .. (err or "Unknown error") .. "|r")
                             end
                         end,
                     },
@@ -529,7 +529,7 @@ local function CreateProfileOptions()
                         func = function()
                             local SP = DDingUI.SpecProfiles
                             if not SP then
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 SpecProfiles 모듈을 찾을 수 없습니다.|r")
+                                DDingUI:Print("|cffff0000 SpecProfiles 모듈을 찾을 수 없습니다.|r")
                                 return
                             end
 
@@ -544,7 +544,7 @@ local function CreateProfileOptions()
                             end
 
                             if #keys == 0 then
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 불러올 모듈을 선택해주세요.|r")
+                                DDingUI:Print("|cffff0000 불러올 모듈을 선택해주세요.|r")
                                 return
                             end
 
@@ -555,7 +555,7 @@ local function CreateProfileOptions()
                             elseif moduleImportSource == "profile" and moduleImportSourceProfile then
                                 ok = SP:CopyModulesFromProfile(moduleImportSourceProfile, keys)
                             else
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 원본을 선택해주세요.|r")
+                                DDingUI:Print("|cffff0000 원본을 선택해주세요.|r")
                                 return
                             end
 
@@ -566,12 +566,12 @@ local function CreateProfileOptions()
                                         table.insert(moduleNames, entry.name)
                                     end
                                 end
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00 불러오기 완료: " .. table.concat(moduleNames, ", ") .. "|r")
+                                DDingUI:Print("|cff00ff00 불러오기 완료: " .. table.concat(moduleNames, ", ") .. "|r")
                                 if DDingUI.RefreshAll then
                                     DDingUI:RefreshAll()
                                 end
                             else
-                                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff0000 불러오기 실패: 원본 데이터를 찾을 수 없습니다.|r")
+                                DDingUI:Print("|cffff0000 불러오기 실패: 원본 데이터를 찾을 수 없습니다.|r")
                             end
                         end,
                     },

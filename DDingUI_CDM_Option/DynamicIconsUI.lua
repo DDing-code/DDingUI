@@ -140,7 +140,7 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
     f.close:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
     f.close:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], 1)
     local closeText = f.close:CreateFontString(nil, "OVERLAY")
-    closeText:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
+    closeText:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
     closeText:SetShadowOffset(1, -1)
     closeText:SetShadowColor(0, 0, 0, 1)
     closeText:SetPoint("CENTER", 0, 1)
@@ -182,7 +182,7 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
     enableHighlight:SetColorTexture(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 0.1)
     enableBtn:SetHighlightTexture(enableHighlight, "ADD")
     local enableLabel = enableBtn:CreateFontString(nil, "OVERLAY")
-    enableLabel:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
+    enableLabel:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
     enableLabel:SetShadowOffset(1, -1)
     enableLabel:SetShadowColor(0, 0, 0, 1)
     enableLabel:SetTextColor(GUIRefs.THEME.text[1], GUIRefs.THEME.text[2], GUIRefs.THEME.text[3], 1)
@@ -233,7 +233,7 @@ function CustomIcons:ShowLoadConditionsWindow(iconKey, iconData)
         icon:SetTexture(spec.icon)
 
         local name = row:CreateFontString(nil, "OVERLAY")
-        name:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
+        name:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
         name:SetShadowOffset(1, -1)
         name:SetShadowColor(0, 0, 0, 1)
         name:SetTextColor(GUIRefs.THEME.text[1], GUIRefs.THEME.text[2], GUIRefs.THEME.text[3], 1)
@@ -445,7 +445,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
 
     local globalFont = DDingUI:GetGlobalFont() or "Fonts\\2002.TTF"
     local label = node:CreateFontString(nil, "OVERLAY")
-    label:SetFont(globalFont, 11, "")
+    label:SetFont(globalFont, 12, "") -- [STYLE]
     label:SetShadowOffset(1, -1)
     label:SetShadowColor(0, 0, 0, 1)
     label:SetPoint("LEFT", node.iconTex, "RIGHT", 6, 6)
@@ -480,7 +480,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     label:SetText(displayName)
 
     local badge = node:CreateFontString(nil, "OVERLAY")
-    badge:SetFont(globalFont, 10, "")
+    badge:SetFont(globalFont, 12, "") -- [STYLE]
     badge:SetShadowOffset(1, -1)
     badge:SetShadowColor(0, 0, 0, 1)
     badge:SetPoint("LEFT", label, "LEFT", 0, -12)
@@ -499,7 +499,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     deleteBtn:SetBackdropColor(GUIRefs.THEME.bgWidget[1], GUIRefs.THEME.bgWidget[2], GUIRefs.THEME.bgWidget[3], 0.9)
     deleteBtn:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], GUIRefs.THEME.border[4] or 0.50)
     local deleteBtnText = deleteBtn:CreateFontString(nil, "OVERLAY")
-    deleteBtnText:SetFont(globalFont, 11, "")
+    deleteBtnText:SetFont(globalFont, 12, "") -- [STYLE]
     deleteBtnText:SetPoint("CENTER", 0, 1)
     deleteBtnText:SetText("×")
     deleteBtnText:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
@@ -637,7 +637,7 @@ function CustomIcons:RefreshDynamicListUI()
     local selectedCount = 0
     for _ in pairs(uiState.selectedIcons) do selectedCount = selectedCount + 1 end
     local countText = selectBtnFrame:CreateFontString(nil, "OVERLAY")
-    countText:SetFont(globalFont, 10, "")
+    countText:SetFont(globalFont, 12, "") -- [STYLE]
     countText:SetShadowOffset(1, -1)
     countText:SetShadowColor(0, 0, 0, 1)
     countText:SetPoint("LEFT", deselectAllBtn, "RIGHT", 8, 0)
@@ -678,7 +678,7 @@ function CustomIcons:RefreshDynamicListUI()
         header:SetHeight(22)
 
         local headerText = header:CreateFontString(nil, "OVERLAY")
-        headerText:SetFont(globalFont, 11, "")
+        headerText:SetFont(globalFont, 12, "") -- [STYLE]
         headerText:SetShadowOffset(1, -1)
         headerText:SetShadowColor(0, 0, 0, 1)
         headerText:SetPoint("LEFT", header, "LEFT", 4, 0)
@@ -703,7 +703,7 @@ function CustomIcons:RefreshDynamicListUI()
         arrowBtn:SetBackdropBorderColor(GUIRefs.THEME.border[1], GUIRefs.THEME.border[2], GUIRefs.THEME.border[3], GUIRefs.THEME.border[4] or 0.50)
         local globalFont = DDingUI:GetGlobalFont() or "Fonts\\2002.TTF"
         local arrowText = arrowBtn:CreateFontString(nil, "OVERLAY")
-        arrowText:SetFont(globalFont, 11, "")
+        arrowText:SetFont(globalFont, 12, "") -- [STYLE]
         arrowText:SetShadowOffset(1, -1)
         arrowText:SetShadowColor(0, 0, 0, 1)
         arrowText:SetPoint("CENTER", 0, 0)
@@ -904,7 +904,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         y = y + 30
 
         local desc = uiFrames.configParent:CreateFontString(nil, "OVERLAY")
-        desc:SetFont(globalFont, 10, "")
+        desc:SetFont(globalFont, 12, "") -- [STYLE]
         desc:SetShadowOffset(1, -1)
         desc:SetShadowColor(0, 0, 0, 1)
         desc:SetPoint("TOPLEFT", uiFrames.configParent, "TOPLEFT", 0, -y)
@@ -1001,6 +1001,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         -- Apply Button
         GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = "|cff00ff00일괄 적용|r",
+            appliedFeedback = true, -- [STYLE]
             func = function()
                 CustomIcons:ApplyBatchSettings({
                     iconSize = batchEditState.iconSize,
@@ -1314,7 +1315,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             y = y + 30
 
             local procDesc = uiFrames.configParent:CreateFontString(nil, "OVERLAY")
-            procDesc:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 10, "")
+            procDesc:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
             procDesc:SetShadowOffset(1, -1)
             procDesc:SetShadowColor(0, 0, 0, 1)
             procDesc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
@@ -1393,7 +1394,7 @@ function CustomIcons:RefreshDynamicConfigUI()
             y = y + 30
 
             local fallbackDesc = uiFrames.configParent:CreateFontString(nil, "OVERLAY")
-            fallbackDesc:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 10, "")
+            fallbackDesc:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
             fallbackDesc:SetShadowOffset(1, -1)
             fallbackDesc:SetShadowColor(0, 0, 0, 1)
             fallbackDesc:SetTextColor(GUIRefs.THEME.textDim[1], GUIRefs.THEME.textDim[2], GUIRefs.THEME.textDim[3], 1)
@@ -1562,6 +1563,7 @@ function CustomIcons:RefreshDynamicConfigUI()
         -- Apply size to all icons in group button
         GUIRefs.Widgets.CreateExecute(uiFrames.configParent, {
             name = L["Apply Size to All Icons"] or "Apply Size to All Icons",
+            appliedFeedback = true, -- [STYLE]
             func = function()
                 if selectedGroup and selectedGroup.icons then
                     for _, iKey in ipairs(selectedGroup.icons) do
@@ -1696,7 +1698,7 @@ function CustomIcons:ConfirmDeleteIcon(iconKey, label)
         f.title:SetTextColor(GUIRefs.THEME.accent[1], GUIRefs.THEME.accent[2], GUIRefs.THEME.accent[3], 1)
 
         f.text = f:CreateFontString(nil, "OVERLAY")
-        f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
+        f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
         f.text:SetShadowOffset(1, -1)
         f.text:SetShadowColor(0, 0, 0, 1)
         f.text:SetPoint("TOP", f, "TOP", 0, -38)
@@ -1747,7 +1749,7 @@ function CustomIcons:ConfirmDeleteGroup(groupKey, label)
         f.title:SetTextColor(0.90, 0.25, 0.25, 1)  -- Red for warning (GUIRefs.THEME error color)
 
         f.text = f:CreateFontString(nil, "OVERLAY")
-        f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
+        f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
         f.text:SetShadowOffset(1, -1)
         f.text:SetShadowColor(0, 0, 0, 1)
         f.text:SetPoint("TOP", f, "TOP", 0, -38)
@@ -1809,7 +1811,7 @@ function CustomIcons:ConfirmDeleteSelected()
         f.title:SetTextColor(0.90, 0.25, 0.25, 1)
 
         f.text = f:CreateFontString(nil, "OVERLAY")
-        f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 11, "")
+        f.text:SetFont(DDingUI:GetGlobalFont() or "Fonts\\2002.TTF", 12, "") -- [STYLE]
         f.text:SetShadowOffset(1, -1)
         f.text:SetShadowColor(0, 0, 0, 1)
         f.text:SetPoint("TOP", f, "TOP", 0, -38)
@@ -1899,7 +1901,7 @@ function CustomIcons:BuildDynamicIconsUI(parent)
 
     local globalFont = DDingUI:GetGlobalFont() or "Fonts\\2002.TTF"
     local resultText = container:CreateFontString(nil, "OVERLAY")
-    resultText:SetFont(globalFont, 10, "")
+    resultText:SetFont(globalFont, 12, "") -- [STYLE]
     resultText:SetShadowOffset(1, -1)
     resultText:SetShadowColor(0, 0, 0, 1)
     if search.editBox then
@@ -2096,7 +2098,7 @@ function CustomIcons:ShowCreateIconDialog()
 
         -- ID input (styled)
         local idLabel = f:CreateFontString(nil, "OVERLAY")
-        idLabel:SetFont(globalFont, 11, "")
+        idLabel:SetFont(globalFont, 12, "") -- [STYLE]
         idLabel:SetShadowOffset(1, -1)
         idLabel:SetShadowColor(0, 0, 0, 1)
         idLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -78)
@@ -2110,7 +2112,7 @@ function CustomIcons:ShowCreateIconDialog()
 
         -- Slot dropdown (styled)
         local slotLabel = f:CreateFontString(nil, "OVERLAY")
-        slotLabel:SetFont(globalFont, 11, "")
+        slotLabel:SetFont(globalFont, 12, "") -- [STYLE]
         slotLabel:SetShadowOffset(1, -1)
         slotLabel:SetShadowColor(0, 0, 0, 1)
         slotLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -78)
@@ -2133,7 +2135,7 @@ function CustomIcons:ShowCreateIconDialog()
             {text = "Trinket 2 (Slot 14)", slotID = 14},
         }
         local trinketLabel = f:CreateFontString(nil, "OVERLAY")
-        trinketLabel:SetFont(globalFont, 11, "")
+        trinketLabel:SetFont(globalFont, 12, "") -- [STYLE]
         trinketLabel:SetShadowOffset(1, -1)
         trinketLabel:SetShadowColor(0, 0, 0, 1)
         trinketLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -78)

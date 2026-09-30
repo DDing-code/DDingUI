@@ -2060,11 +2060,14 @@ end
 -- ============================================================
 -- ViewerLayout.LayoutHorizontal 동일 (snap-back 지원 버전)
 -- CENTERED_HORIZONTAL, LEFT, RIGHT + 보조 방향 UP/DOWN
+-- [REFACTOR] 슬롯 계산(순수 함수)과 적용을 분리한다. 옵션 미리보기가
+-- GroupRenderer.ComputeGroupLayout으로 같은 계산을 재사용한다.
+-- 슬롯 좌표는 컨테이너 CENTER 기준 아이콘 중심 오프셋(반올림)이다.
 -- ============================================================
 
-local function LayoutHorizontal(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow, motionSettings)
-    local count = #icons
-    if count == 0 then return 0, 0 end
+local function ComputeHorizontalSlots(count, primary, secondary, spacing, rowLimit, getDimensionsForRow, pinWrappedRowsToAnchor)
+    local slots = {}
+    if count == 0 then return slots, 0, 0 end
 
     local iconsPerRow = rowLimit > 0 and math_max(1, rowLimit) or count
     local numRows = math_ceil(count / iconsPerRow)
@@ -2099,7 +2102,7 @@ local function LayoutHorizontal(icons, container, primary, secondary, spacing, r
 
     -- Row 1을 기준점으로 anchorY 계산 (DOWN이면 위에서, UP이면 아래에서 시작)
     local anchorY
-    if motionSettings and motionSettings.pinWrappedRowsToAnchor then
+    if pinWrappedRowsToAnchor then
         anchorY = 0
     elseif rowDirection == -1 then
         anchorY = (totalHeight / 2) - (rowMeta[1].iconHeight / 2)
@@ -2121,7 +2124,6 @@ local function LayoutHorizontal(icons, container, primary, secondary, spacing, r
         end
 
         for position = 0, meta.count - 1 do
-            local icon = icons[meta.startIndex + position]
             local x
             if primary == "LEFT" then
                 x = baseX - position * (meta.iconWidth + spacing)
@@ -2129,8 +2131,13 @@ local function LayoutHorizontal(icons, container, primary, secondary, spacing, r
                 x = baseX + position * (meta.iconWidth + spacing)
             end
 
-            SetIconSize(icon, meta.iconWidth, meta.iconHeight)
-            SetIconPosition(icon, container, math_floor(x + 0.5), math_floor(currentY + 0.5), motionSettings)
+            slots[meta.startIndex + position] = {
+                x = math_floor(x + 0.5),
+                y = math_floor(currentY + 0.5),
+                w = meta.iconWidth,
+                h = meta.iconHeight,
+                line = row,
+            }
         end
 
         local nextMeta = rowMeta[row + 1]
@@ -2140,7 +2147,7 @@ local function LayoutHorizontal(icons, container, primary, secondary, spacing, r
         end
     end
 
-    return maxRowWidth, totalHeight
+    return slots, maxRowWidth, totalHeight
 end
 
 -- ============================================================
@@ -2148,9 +2155,9 @@ end
 -- UP, DOWN + 보조 방향 LEFT/RIGHT
 -- ============================================================
 
-local function LayoutVertical(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow, motionSettings)
-    local count = #icons
-    if count == 0 then return 0, 0 end
+local function ComputeVerticalSlots(count, primary, secondary, spacing, rowLimit, getDimensionsForRow)
+    local slots = {}
+    if count == 0 then return slots, 0, 0 end
 
     local iconsPerColumn = rowLimit > 0 and math_max(1, rowLimit) or count
     local numColumns = math_ceil(count / iconsPerColumn)
@@ -2207,11 +2214,15 @@ local function LayoutVertical(icons, container, primary, secondary, spacing, row
         local startY = anchorY
 
         for position = 0, meta.count - 1 do
-            local icon = icons[meta.startIndex + position]
             local y = startY + position * (meta.iconHeight + spacing) * verticalDirection
 
-            SetIconSize(icon, meta.iconWidth, meta.iconHeight)
-            SetIconPosition(icon, container, math_floor(currentX + 0.5), math_floor(y + 0.5), motionSettings)
+            slots[meta.startIndex + position] = {
+                x = math_floor(currentX + 0.5),
+                y = math_floor(y + 0.5),
+                w = meta.iconWidth,
+                h = meta.iconHeight,
+                line = column,
+            }
         end
 
         local nextMeta = columnMeta[column + 1]
@@ -2221,7 +2232,191 @@ local function LayoutVertical(icons, container, primary, secondary, spacing, row
         end
     end
 
-    return totalWidth, totalHeight
+    return slots, totalWidth, totalHeight
+end
+
+-- [REFACTOR] 계산된 슬롯을 기존과 같은 순서(아이콘마다 크기 → 위치)로 적용한다.
+local function ApplyIconSlots(icons, container, slots, count, motionSettings)
+    for index = 1, count do
+        local slot = slots[index]
+        local icon = icons[index]
+        SetIconSize(icon, slot.w, slot.h)
+        SetIconPosition(icon, container, slot.x, slot.y, motionSettings)
+    end
+end
+
+local function LayoutHorizontal(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow, motionSettings)
+    local count = #icons
+    if count == 0 then return 0, 0 end
+    local slots, width, height = ComputeHorizontalSlots(count, primary, secondary, spacing, rowLimit,
+        getDimensionsForRow, motionSettings and motionSettings.pinWrappedRowsToAnchor)
+    ApplyIconSlots(icons, container, slots, count, motionSettings)
+    return width, height
+end
+
+local function LayoutVertical(icons, container, primary, secondary, spacing, rowLimit, getDimensionsForRow, motionSettings)
+    local count = #icons
+    if count == 0 then return 0, 0 end
+    local slots, width, height = ComputeVerticalSlots(count, primary, secondary, spacing, rowLimit, getDimensionsForRow)
+    ApplyIconSlots(icons, container, slots, count, motionSettings)
+    return width, height
+end
+
+-- ============================================================
+-- [REFACTOR] LayoutGroup의 순수 계산 조각 (프레임 부작용 없음)
+-- 런타임 LayoutGroup과 옵션 미리보기(ComputeGroupLayout)가 같은 함수를 쓴다.
+-- ============================================================
+
+local DEFAULT_LAYOUT_SETTINGS = { iconSize = 32, spacing = 2, primaryDirection = "CENTERED_HORIZONTAL" }
+
+-- 강화효과(BuffIconCooldownViewer)만 phantom 최소 크기를 쓴다.
+local function ComputePhantomSize(viewerSettings, viewerName)
+    local phantomW, phantomH = 1, 1
+    local phantomPrimary, phantomSecondary, phantomLayoutType
+    local isCoreGroup = (viewerName == "BuffIconCooldownViewer")  -- 강화효과만 phantom 적용
+    if isCoreGroup and viewerSettings then
+        local phantomIconW, phantomIconH = ComputeIconDimensions(viewerSettings)
+        local phantomSpacing = ComputeSpacing(viewerSettings)
+        local phantomRowLimit = viewerSettings.rowLimit or 0
+        if phantomRowLimit <= 0 then phantomRowLimit = 9 end
+        local phantomRows = (viewerName == "BuffIconCooldownViewer") and 1 or 2
+        -- [FIX] ResolveDirections는 rowLimit=0이면 secondary를 nil로 버림
+        -- phantom은 2줄 기준이므로, rowLimit을 강제로 2로 설정하여 유저의 secondary 설정을 보존
+        local _
+        phantomPrimary, phantomSecondary, _, phantomLayoutType = ResolveDirections(viewerName, viewerSettings, 2)
+        if phantomLayoutType == "VERTICAL" then
+            phantomW = phantomRows * phantomIconW + (phantomRows - 1) * phantomSpacing
+            phantomH = phantomRowLimit * phantomIconH + (phantomRowLimit - 1) * phantomSpacing
+        else
+            phantomW = phantomRowLimit * phantomIconW + (phantomRowLimit - 1) * phantomSpacing
+            phantomH = phantomRows * phantomIconH + (phantomRows - 1) * phantomSpacing
+        end
+        phantomW = math_max(PixelSnap(phantomW), 1)
+        phantomH = math_max(PixelSnap(phantomH), 1)
+    end
+    return phantomW, phantomH, phantomPrimary, phantomSecondary, phantomLayoutType
+end
+
+-- overflowMode "shrink": 한 줄에 모두 들어가도록 배율을 줄이고 줄바꿈을 끈다.
+local function ResolveOverflowScale(viewerSettings, overflowMode, rowLimit, count)
+    local overflowScale = 1
+    if overflowMode == "shrink" and rowLimit > 0 and count > rowLimit then
+        local baseSize = math_max(1, tonumber(viewerSettings.iconSize) or 32)
+        local minScale = math_min(1, 16 / baseSize)
+        overflowScale = math_max(minScale, rowLimit / count)
+        rowLimit = 0
+    end
+    return overflowScale, rowLimit
+end
+
+-- 행/열별 아이콘 크기 (rowIconSizes 지원, shrink 배율 반영)
+local function CreateRowDimensionResolver(viewerSettings, overflowScale)
+    local rowDimensions = {}
+    return function(rowIndex)
+        if not rowDimensions[rowIndex] then
+            local overrideSize = GetRowIconSize(viewerSettings, rowIndex)
+            local w, h = ComputeIconDimensions(viewerSettings, overrideSize)
+            if overflowScale < 1 then
+                w = math_max(1, PixelSnap(w * overflowScale))
+                h = math_max(1, PixelSnap(h * overflowScale))
+            end
+            rowDimensions[rowIndex] = { width = w, height = h }
+        end
+        return rowDimensions[rowIndex].width, rowDimensions[rowIndex].height
+    end
+end
+
+-- phantom이 실제 아이콘보다 높을 때 성장 방향 쪽으로 붙이는 세로 이동량
+local function ComputePhantomShiftY(finalH, snappedH, secondary, phantomSecondary)
+    local resolvedSecondary = secondary or phantomSecondary or "DOWN"
+    if resolvedSecondary == "UP" then
+        -- 아이콘을 프레임 하단에 정렬 (위로 성장)
+        return -(finalH - snappedH) / 2
+    end
+    -- DOWN 또는 기본: 아이콘을 프레임 상단에 정렬 (아래로 성장)
+    return (finalH - snappedH) / 2
+end
+
+-- gs.groups[name] → LayoutGroup 입력 변환 (UpdateGroup·지연 재배치·옵션 미리보기 공용)
+function GroupRenderer.BuildLayoutSettings(groupSettings, groupOffsets)
+    groupSettings = groupSettings or {}
+    return {
+        iconSize = groupSettings.iconSize or 32,
+        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
+        spacing = groupSettings.spacing or 2,
+        primaryDirection = groupSettings.direction or "RIGHT",
+        secondaryDirection = groupSettings.growDirection,
+        rowLimit = groupSettings.rowLimit or 0,
+        overflowMode = groupSettings.overflowMode or "wrap",
+        stateFilter = groupSettings.stateFilter or "automatic",
+        rowIconSizes = groupSettings.rowIconSizes,
+        groupOffsets = groupOffsets,
+        iconMotion = groupSettings.iconMotion,
+        iconMotionDuration = groupSettings.iconMotionDuration,
+        iconFadeInDirection = groupSettings.iconFadeInDirection,
+        iconFadeOutDirection = groupSettings.iconFadeOutDirection,
+    }
+end
+
+--- 런타임 LayoutGroup과 같은 계산으로 count개 아이콘의 최종 슬롯을 돌려준다.
+-- 입력은 BuildLayoutSettings 결과. 프레임 상태에 따르는 보정(attachTo 부모 너비,
+-- 파티/레이드 groupOffsets, 숨김 실패한 overflow 아이콘, stateFilter)은 포함하지 않는다.
+-- 슬롯 x/y는 컨테이너 CENTER 기준 아이콘 중심 오프셋이다(phantom 정렬 이동 포함).
+function GroupRenderer.ComputeGroupLayout(viewerSettings, viewerName, count)
+    viewerSettings = viewerSettings or DEFAULT_LAYOUT_SETTINGS
+    count = math_max(0, math_floor(tonumber(count) or 0))
+    local phantomW, phantomH, _, phantomSecondary = ComputePhantomSize(viewerSettings, viewerName)
+    local overflowMode = viewerSettings.overflowMode or "wrap"
+    local overflowLimit = math_floor((tonumber(viewerSettings.rowLimit) or 0) + 0.0001)
+    local visibleCount = count
+    if overflowMode == "hide" and overflowLimit > 0 and count > overflowLimit then
+        visibleCount = overflowLimit
+    end
+    local result = {
+        slots = {}, count = count, visibleCount = visibleCount,
+        width = 0, height = 0, containerWidth = phantomW, containerHeight = phantomH,
+    }
+    if visibleCount == 0 then return result end
+
+    local primary, secondary, rowLimit, layoutType = ResolveDirections(viewerName, viewerSettings)
+    local overflowScale
+    overflowScale, rowLimit = ResolveOverflowScale(viewerSettings, overflowMode, rowLimit, visibleCount)
+    local spacing = PixelSnap(ComputeSpacing(viewerSettings) * overflowScale)
+    local getDimensions = CreateRowDimensionResolver(viewerSettings, overflowScale)
+
+    local slots, totalW, totalH
+    if layoutType == "VERTICAL" then
+        slots, totalW, totalH = ComputeVerticalSlots(visibleCount, primary, secondary, spacing, rowLimit, getDimensions)
+    elseif layoutType == "HORIZONTAL" then
+        slots, totalW, totalH = ComputeHorizontalSlots(visibleCount, primary, secondary, spacing, rowLimit,
+            getDimensions, viewerName == "BuffIconCooldownViewer")
+    else
+        -- STATIC: 런타임은 크기만 바꾸고 위치를 건드리지 않는다. 미리보기용으로 한 줄 배치.
+        slots, totalW, totalH = ComputeHorizontalSlots(visibleCount, "RIGHT", nil, spacing, 0, getDimensions, false)
+        local iconW, iconH = getDimensions(1)
+        for _, slot in ipairs(slots) do slot.w, slot.h = iconW, iconH end
+        result.static = true
+    end
+
+    local snappedW = math_max(PixelSnap(totalW), 1)
+    local snappedH = math_max(PixelSnap(totalH), 1)
+    local finalW = math_max(snappedW, phantomW)
+    local finalH = math_max(snappedH, phantomH)
+    if not result.static and finalH > snappedH then
+        local shiftY = ComputePhantomShiftY(finalH, snappedH, secondary, phantomSecondary)
+        if shiftY ~= 0 then
+            local offset = math_floor(shiftY + 0.5)
+            for _, slot in ipairs(slots) do slot.y = slot.y + offset end
+        end
+    end
+
+    result.slots = slots
+    result.width, result.height = totalW, totalH
+    result.snappedWidth, result.snappedHeight = snappedW, snappedH
+    result.containerWidth, result.containerHeight = finalW, finalH
+    result.primary, result.secondary, result.rowLimit = primary, secondary, rowLimit
+    result.layoutType, result.spacing, result.overflowScale = layoutType, spacing, overflowScale
+    return result
 end
 
 -- ============================================================
@@ -2930,21 +3125,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
                             local cachedGS = p._groupSettings
                             if cachedGS then
                                 local vn2 = GROUP_VIEWER_MAP[gn]
-                                local ls = {
-                                    iconSize = cachedGS.iconSize or 32,
-                                    aspectRatioCrop = cachedGS.aspectRatioCrop or 1.0,
-                                    spacing = cachedGS.spacing or 2,
-                                    primaryDirection = cachedGS.direction or "RIGHT",
-                                    secondaryDirection = cachedGS.growDirection,
-                                    rowLimit = cachedGS.rowLimit or 0,
-                                    overflowMode = cachedGS.overflowMode or "wrap",
-                                    stateFilter = cachedGS.stateFilter or "automatic",
-                                    rowIconSizes = cachedGS.rowIconSizes,
-                                    iconMotion = cachedGS.iconMotion,
-                                    iconMotionDuration = cachedGS.iconMotionDuration,
-                                    iconFadeInDirection = cachedGS.iconFadeInDirection,
-                                    iconFadeOutDirection = cachedGS.iconFadeOutDirection,
-                                }
+                                local ls = GroupRenderer.BuildLayoutSettings(cachedGS, nil) -- [REFACTOR]
                                 GroupRenderer:LayoutGroup(p, ls, vn2)
                             end
                             -- 모든 아이콘이 숨겨졌으면 그룹 프레임도 숨기기
@@ -2984,22 +3165,7 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
             resolvedGroupOffsets = vs.groupOffsets
         end
     end
-    local layoutSettings = {
-        iconSize = groupSettings.iconSize or 32,
-        aspectRatioCrop = groupSettings.aspectRatioCrop or 1.0,
-        spacing = groupSettings.spacing or 2,
-        primaryDirection = groupSettings.direction or "RIGHT",
-        secondaryDirection = groupSettings.growDirection,
-        rowLimit = groupSettings.rowLimit or 0,
-        overflowMode = groupSettings.overflowMode or "wrap",
-        stateFilter = groupSettings.stateFilter or "automatic",
-        rowIconSizes = groupSettings.rowIconSizes,
-        groupOffsets = resolvedGroupOffsets,
-        iconMotion = groupSettings.iconMotion,
-        iconMotionDuration = groupSettings.iconMotionDuration,
-        iconFadeInDirection = groupSettings.iconFadeInDirection,
-        iconFadeOutDirection = groupSettings.iconFadeOutDirection,
-    }
+    local layoutSettings = GroupRenderer.BuildLayoutSettings(groupSettings, resolvedGroupOffsets) -- [REFACTOR]
 
     -- 2단계: LayoutGroup (최종 크기/위치 결정 — rowIconSizes 반영)
     self:LayoutGroup(frame, layoutSettings, viewerName)
@@ -3158,28 +3324,9 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     end
     -- [FIX] 가상 최소 크기 계산 (핵심 3대 그룹만: Cooldowns, Buffs, Utility)
     -- 다이나믹 그룹은 다른 모듈이 앵커되지 않으므로 phantom 불필요
-    local phantomW, phantomH = 1, 1
-    local phantomPrimary, phantomSecondary, phantomLayoutType
-    local isCoreGroup = (viewerName == "BuffIconCooldownViewer")  -- 강화효과만 phantom 적용
-    if isCoreGroup and viewerSettings then
-        local phantomIconW, phantomIconH = ComputeIconDimensions(viewerSettings)
-        local phantomSpacing = ComputeSpacing(viewerSettings)
-        local phantomRowLimit = viewerSettings.rowLimit or 0
-        if phantomRowLimit <= 0 then phantomRowLimit = 9 end
-        local phantomRows = (viewerName == "BuffIconCooldownViewer") and 1 or 2
-        -- [FIX] ResolveDirections는 rowLimit=0이면 secondary를 nil로 버림
-        -- phantom은 2줄 기준이므로, rowLimit을 강제로 2로 설정하여 유저의 secondary 설정을 보존
-        phantomPrimary, phantomSecondary, _, phantomLayoutType = ResolveDirections(viewerName, viewerSettings, 2)
-        if phantomLayoutType == "VERTICAL" then
-            phantomW = phantomRows * phantomIconW + (phantomRows - 1) * phantomSpacing
-            phantomH = phantomRowLimit * phantomIconH + (phantomRowLimit - 1) * phantomSpacing
-        else
-            phantomW = phantomRowLimit * phantomIconW + (phantomRowLimit - 1) * phantomSpacing
-            phantomH = phantomRows * phantomIconH + (phantomRows - 1) * phantomSpacing
-        end
-        phantomW = math_max(PixelSnap(phantomW), 1)
-        phantomH = math_max(PixelSnap(phantomH), 1)
-    end
+    -- [REFACTOR] 계산은 ComputePhantomSize(순수 함수)로 분리 — 옵션 미리보기와 공유
+    local phantomW, phantomH, phantomPrimary, phantomSecondary, phantomLayoutType =
+        ComputePhantomSize(viewerSettings, viewerName)
 
     if count == 0 then
         if frame._lastLayoutW and frame._lastLayoutW > phantomW then
@@ -3217,13 +3364,9 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
 
     -- ViewerLayout과 동일하게 방향/행제한 resolve
     local primary, secondary, rowLimit, layoutType = ResolveDirections(viewerName, viewerSettings)
-    local overflowScale = 1
-    if overflowMode == "shrink" and rowLimit > 0 and count > rowLimit then
-        local baseSize = math_max(1, tonumber(viewerSettings.iconSize) or 32)
-        local minScale = math_min(1, 16 / baseSize)
-        overflowScale = math_max(minScale, rowLimit / count)
-        rowLimit = 0
-    end
+    -- [REFACTOR] shrink 배율·간격·행별 크기는 순수 함수로 분리 — 옵션 미리보기와 공유
+    local overflowScale
+    overflowScale, rowLimit = ResolveOverflowScale(viewerSettings, overflowMode, rowLimit, count)
 
     -- [12.0.1] rowLimit 오버라이드 제거: 뷰어 설정의 rowLimit을 그대로 사용
     -- 기본값 0(=단일행)이므로, 유저가 명시적으로 설정한 값(예: 9)이 존중됨
@@ -3231,19 +3374,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     local spacing = PixelSnap(ComputeSpacing(viewerSettings) * overflowScale)
 
     -- 행/열별 아이콘 크기 (rowIconSizes 지원)
-    local rowDimensions = {}
-    local function GetDimensionsForRow(rowIndex)
-        if not rowDimensions[rowIndex] then
-            local overrideSize = GetRowIconSize(viewerSettings, rowIndex)
-            local w, h = ComputeIconDimensions(viewerSettings, overrideSize)
-            if overflowScale < 1 then
-                w = math_max(1, PixelSnap(w * overflowScale))
-                h = math_max(1, PixelSnap(h * overflowScale))
-            end
-            rowDimensions[rowIndex] = { width = w, height = h }
-        end
-        return rowDimensions[rowIndex].width, rowDimensions[rowIndex].height
-    end
+    local GetDimensionsForRow = CreateRowDimensionResolver(viewerSettings, overflowScale)
 
     -- 레이아웃 실행
     local totalW, totalH = 0, 0
@@ -3281,15 +3412,7 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     -- [FIX] 가상 크기가 실제보다 클 때, 아이콘을 방향 설정에 맞게 정렬 (세로 중앙 X)
     -- DOWN → 아이콘을 프레임 상단에 정렬, UP → 하단에 정렬
     if finalH > snappedH then
-        local resolvedSecondary = secondary or phantomSecondary or "DOWN"
-        local shiftY = 0
-        if resolvedSecondary == "UP" then
-            -- 아이콘을 프레임 하단에 정렬 (위로 성장)
-            shiftY = -(finalH - snappedH) / 2
-        else
-            -- DOWN 또는 기본: 아이콘을 프레임 상단에 정렬 (아래로 성장)
-            shiftY = (finalH - snappedH) / 2
-        end
+        local shiftY = ComputePhantomShiftY(finalH, snappedH, secondary, phantomSecondary) -- [REFACTOR]
         if shiftY ~= 0 then
             for i = 1, count do
                 local icon = icons[i]

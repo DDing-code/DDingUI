@@ -3,9 +3,11 @@
 -- In-place widget refresh system (DDingUI pattern)
 -- Prevents flicker by updating values without destroying/recreating widgets
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.WidgetRefresh then return end
 
 -- ============================================
 -- WidgetRefresh Module

@@ -2,6 +2,51 @@
 
 ---
 
+## v2.2.0
+
+_Release date: 2026-09-30_
+_Scope: Changes after the v2.1.6 release commit a6d71e0 through this release._
+
+### English Patch Notes
+
+#### Option Changes
+- **Settings Window Design:** Rounded window and content cards, a sliding pill that marks the selected menu entry, softer row hover, a short fade-in when switching pages, ring-shaped group status markers, and a minimum text size of 12 pt. The title bar shows the linked DDingUI logo rings.
+- **GUI Size:** Added a GUI Size control to the title bar (50–150% in 5% steps, drag or mouse wheel). The size is saved and applied when the window opens.
+- **Sliders:** Sliders now use a fixed-width track with a larger click area, a bigger handle, and a min / track / max / value layout that no longer stretches across wide rows.
+- **Open and Close:** The close button, minimap button and Esc now share the same open/close animation. The window closes instantly in combat, and clicking the minimap button while it is closing reopens it. Apply buttons such as UI Scale and 1080p/1440p briefly show "Applied".
+- **Minimap Tooltip:** Lists left-click (toggle settings), right-click (edit mode / adjust position) and drag (move button), in Korean or English.
+- **Item Quality Badge:** Custom item icons show the displayed item's quality badge. For potion icons it can be turned off with "Show item quality on icon" in the potion priority window.
+
+#### Previews
+- **CDM Bar Preview:** Icons are placed, sized, cropped and bordered with the same rules as the in-game groups, and are drawn at their on-screen size (the canvas shows "Actual size" or the shrink ratio when they do not fit). Order numbers appear only while hovering or dragging, and icons hidden by the "hide" overflow mode are shown faded with a tooltip.
+- **State Display Preview:** Each state card uses the in-game icon size, crop and border, swipe colour and direction, opacity, glow style and text style. The active glow no longer appears on the cooldown, inactive and unusable cards, and the unusable card no longer shows a red tint that does not exist in game.
+- **Resource, Cast and Tracked Bar Previews:** The preview now copies the actual bars on screen instead of drawing sample bars. Added a Test Cast button to preview the real cast bar.
+- **Custom Aura Preview:** The preview copies the tracker as it is drawn on screen, at its actual size. When the tracker is not shown, a button turns on the existing screen preview mode.
+- **Layout Dashboard:** Inactive resource and cast bar placement and colours, and the crop of inactive buff icons, now follow the in-game rules.
+
+#### Fixes
+- **Chat Messages:** CDM chat output now uses a single, consistent DDingUI CDM prefix.
+
+### Korean Patch Notes
+
+#### 옵션 변경
+- **설정창 디자인:** 창과 내용 카드를 둥글게 바꾸고, 선택한 메뉴를 알약 모양 표시가 따라가도록 했습니다. 행 호버, 페이지 전환 시 짧은 등장 효과, 고리 모양 그룹 상태 표시를 적용하고 글자는 12pt 이상으로 맞췄습니다. 제목줄에는 DDingUI 로고 고리가 표시됩니다.
+- **GUI 크기:** 제목줄에 GUI 크기 조절(50~150%, 5% 단위, 드래그·마우스 휠)을 추가했습니다. 크기는 저장되어 창을 열 때 적용됩니다.
+- **슬라이더:** 고정 폭 트랙, 넓은 클릭 영역, 큰 손잡이와 `최소 / 트랙 / 최대 / 값` 배치로 바꿔 넓은 행에서도 늘어나지 않습니다.
+- **열기·닫기:** 닫기 버튼, 미니맵 버튼, Esc가 같은 열기·닫기 애니메이션을 사용합니다. 전투 중에는 즉시 닫히며, 닫히는 도중 미니맵 버튼을 누르면 다시 열립니다. UI 스케일·1080p/1440p 같은 적용 버튼은 잠시 ‘적용됨’을 표시합니다.
+- **미니맵 툴팁:** 좌클릭(설정 창 열기/닫기), 우클릭(편집 모드 · 위치 조정), 드래그(버튼 위치 이동)를 한국어/영어로 안내합니다.
+- **아이템 품질 표시:** 커스텀 아이템 아이콘에 현재 표시 중인 아이템의 품질 표시를 보여줍니다. 물약 아이콘은 물약 우선순위 창의 ‘아이콘 품질 표시’로 끌 수 있습니다.
+
+#### 미리보기
+- **CDM 바 미리보기:** 아이콘 위치·크기·잘라내기·테두리를 게임 안 그룹과 같은 규칙으로 계산하고, 실제 화면 크기로 그립니다(들어가지 않으면 축소 비율을 표시). 순번은 마우스를 올리거나 드래그할 때만 보이며, ‘넘침 숨기기’로 게임에서 숨는 아이콘은 흐리게 표시하고 툴팁으로 알려줍니다.
+- **상태별 표시 미리보기:** 각 상태 카드가 게임 안과 같은 아이콘 크기·잘라내기·테두리, 스와이프 색과 방향, 투명도, 글로우 종류, 텍스트 스타일을 사용합니다. 재사용 대기·비활성·사용 불가 카드에 활성 글로우가 표시되던 문제와 게임에 없는 붉은 틴트를 없앴습니다.
+- **자원·시전·추적 막대 미리보기:** 예시 막대를 따로 그리지 않고 화면의 실제 막대를 그대로 복사합니다. 실제 시전 바를 확인할 수 있는 ‘테스트 시전’ 버튼을 추가했습니다.
+- **커스텀 오라 미리보기:** 화면에 그려진 추적기를 실제 크기로 복사해 보여줍니다. 추적기가 화면에 없을 때는 기존 화면 미리보기 모드를 켜는 버튼을 제공합니다.
+- **배치 대시보드:** 비활성 자원바·시전바의 위치와 색, 비활성 강화효과 아이콘의 잘라내기가 게임 안 규칙을 따릅니다.
+
+#### 수정 사항
+- **채팅 메시지:** CDM 채팅 출력이 하나의 DDingUI CDM 접두사로 통일되었습니다.
+
 ## v2.1.6
 
 _Release date: 2026-09-18_

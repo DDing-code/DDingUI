@@ -292,7 +292,7 @@ function IconViewers:ForceRefreshBuffIcons()
         if not InCombatLockdown() then
             self:ProcessPendingIcons()
         end
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cff00ff00Force refreshed BuffIconCooldownViewer|r") -- [STYLE]
+        DDingUI:Print("|cff00ff00Force refreshed BuffIconCooldownViewer|r") -- [STYLE]
     end
 end
 

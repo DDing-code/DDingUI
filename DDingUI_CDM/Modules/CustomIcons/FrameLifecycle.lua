@@ -294,6 +294,11 @@ function FrameLifecycle.Create(
             frame.count:SetText("")
             frame.count:Hide()
         end
+        if frame.Applications and ClearItemCraftingQualityOverlay then
+            -- The native visibility callback must not revive a pooled item's badge.
+            frame.Applications.isProfessionItem = false
+            ClearItemCraftingQualityOverlay(frame.Applications)
+        end
         CustomIcons.HideManagedIconBorderLayers(frame)
         if frame.icon then
             frame.icon:ClearAllPoints()

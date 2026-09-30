@@ -790,7 +790,7 @@ function AssistHighlight:DebugStatus()
     currentSuggestedSpellID = GetCurrentSuggestedSpellID()
     local suggestedName = currentSuggestedSpellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(currentSuggestedSpellID) or "nil"
     local cvar = GetCVar and GetCVar("assistedCombatHighlight") or "?"
-    print(string.format("|cff66ccffDDingUI Assist|r enabled=%s anySetting=%s cvar=%s suggested=%s (%s)",
+    DDingUI:Print(string.format("|cff66ccffAssist|r enabled=%s anySetting=%s cvar=%s suggested=%s (%s)",
         tostring(isEnabled), tostring(IsEnabledForAnyViewer()), tostring(cvar), tostring(currentSuggestedSpellID), tostring(suggestedName)))
 
     for _, vName in ipairs(viewerNames) do

@@ -2002,6 +2002,17 @@ local function UpdateItemIcon(iconFrame, iconData)
     end
     SetStableIconTexture(iconFrame, itemTexture, true)
 
+    -- Use the selected item's native quality badge above cooldown/effect overlays.
+    local qualityHolder = iconFrame.Applications
+    if qualityHolder and SetItemCraftingQualityOverlay and ClearItemCraftingQualityOverlay then
+        qualityHolder.alwaysShowProfessionsQuality = true
+        qualityHolder.isProfessionItem = false
+        ClearItemCraftingQualityOverlay(qualityHolder)
+        if not settings or settings.showItemQuality ~= false then
+            SetItemCraftingQualityOverlay(qualityHolder, activeItemID)
+        end
+    end
+
     -- [CDM] Item cooldown uses item cooldown first, then mapped spell duration.
     EnsureCooldownSpanOwner(iconFrame, "_ddItemCooldown", activeItemID)
     if CustomIcons:ApplyTrackedTrinketEffect(iconFrame, iconData, activeItemID) then
@@ -3532,6 +3543,7 @@ local function SetCustomIconEventsEnabled(enabled)
     frame:RegisterEvent("BAG_UPDATE_DELAYED")
     frame:RegisterEvent("BAG_UPDATE_COOLDOWN")
     frame:RegisterEvent("ITEM_COUNT_CHANGED")
+    frame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
     frame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     frame:RegisterEvent("SPELL_UPDATE_CHARGES")
     frame:RegisterEvent("SPELL_UPDATE_USABLE")
@@ -3656,6 +3668,7 @@ local function EnsureEventFrame()
             or event == "PVP_MATCH_STATE_CHANGED"
             or event == "SPELL_UPDATE_USABLE"
             or event == "ITEM_COUNT_CHANGED"
+            or event == "ITEM_DATA_LOAD_RESULT"
             or event == "BAG_UPDATE_DELAYED"
         local isSpellCooldownEvent = event == "SPELL_UPDATE_COOLDOWN"
             or event == "SPELL_UPDATE_CHARGES"

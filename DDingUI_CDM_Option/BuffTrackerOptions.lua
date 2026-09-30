@@ -513,7 +513,7 @@ local function RefreshOptions()
                     ok, err = pcall(btPanel.RenderTrackerTabs, btPanel, btPanel.selectedIndex)
                 end
                 if not ok and err then
-                    print("|cffff4444[DDingUI] RefreshOptions error:|r " .. tostring(err))
+                    DDingUI:Print("|cffff4444RefreshOptions error:|r " .. tostring(err))
                 end
                 return
             end
@@ -1876,7 +1876,7 @@ local function SelectCustomAuraCatalogEntry(entry)
         end
         if btPanel.SelectTracker then btPanel:SelectTracker(replaceIdx) end
     end)
-    print("|cffffffffDDing|r|cffffa300UI|r: |cff00ff00"
+    DDingUI:Print("|cff00ff00"
         .. (entry.name or "Spell") .. "|r 으로 주문이 변경되었습니다.")
 end
 
@@ -1931,7 +1931,7 @@ function DDingUI.CreateCDMIconGridWidget(parent)
     search:SetBackdropColor(input[1], input[2], input[3], input[4] or 0.96)
     search:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
     search:SetAutoFocus(false)
-    search:SetFont(globalFont, 11, "")
+    search:SetFont(globalFont, 12, "") -- [STYLE]
     search:SetTextColor(text[1], text[2], text[3], 1)
     search:SetTextInsets(28, 26, 0, 0)
     root._search = search
@@ -1942,7 +1942,7 @@ function DDingUI.CreateCDMIconGridWidget(parent)
     searchIcon:SetPoint("LEFT", 8, 0)
     searchIcon:SetVertexColor(textDim[1], textDim[2], textDim[3], 0.9)
 
-    local placeholder = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local placeholder = search:CreateFontString(nil, "OVERLAY", "GameFontDisable") -- [STYLE] 12pt
     if styleFont then styleFont(placeholder) end
     placeholder:SetPoint("LEFT", 28, 0)
     placeholder:SetPoint("RIGHT", -26, 0)
@@ -1954,7 +1954,7 @@ function DDingUI.CreateCDMIconGridWidget(parent)
     local clearButton = CreateFrame("Button", nil, search)
     clearButton:SetSize(24, 24)
     clearButton:SetPoint("RIGHT", -2, 0)
-    clearButton.label = clearButton:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    clearButton.label = clearButton:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
     if styleFont then styleFont(clearButton.label) end
     clearButton.label:SetPoint("CENTER", 0, 1)
     clearButton.label:SetText("x")
@@ -1982,7 +1982,7 @@ function DDingUI.CreateCDMIconGridWidget(parent)
         local button = CreateFrame("Button", nil, filterGroup, "BackdropTemplate")
         button:SetHeight(30)
         button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
         if styleFont then styleFont(button.label) end
         button.label:SetPoint("CENTER")
         button.label:SetText(definition.label)
@@ -2090,7 +2090,7 @@ function DDingUI.CreateCDMIconGridWidget(parent)
         title:SetTextColor(section._color[1], section._color[2], section._color[3], 1)
         section._title = title
 
-        local count = section:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local count = section:CreateFontString(nil, "OVERLAY", "GameFontDisable") -- [STYLE] 12pt
         if styleFont then styleFont(count) end
         count:SetPoint("LEFT", title, "RIGHT", 8, 0)
         count:SetTextColor(textDim[1], textDim[2], textDim[3], 0.9)
@@ -2116,7 +2116,7 @@ function DDingUI.CreateCDMIconGridWidget(parent)
             icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             tile.icon = icon
 
-            local name = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local name = tile:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
             if styleFont then styleFont(name) end
             name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 9, -4)
             name:SetPoint("RIGHT", tile, "RIGHT", -25, 0)
@@ -2125,7 +2125,7 @@ function DDingUI.CreateCDMIconGridWidget(parent)
             name:SetTextColor(text[1], text[2], text[3], 1)
             tile.name = name
 
-            local meta = tile:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            local meta = tile:CreateFontString(nil, "OVERLAY", "GameFontDisable") -- [STYLE] 12pt
             if styleFont then styleFont(meta) end
             meta:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 9, 4)
             meta:SetPoint("RIGHT", tile, "RIGHT", -25, 0)

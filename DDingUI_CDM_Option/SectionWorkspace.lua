@@ -7,6 +7,15 @@ local FLAT = Base.FLAT
 local THEME = Base.THEME
 local LSM = LibStub("LibSharedMedia-3.0", true)
 local SL = _G.DDingUI_StyleLib
+-- [STYLE] StyleLib 1.3 rounded cards (helpers from GUIWidgets; absent in headless tests)
+local RADIUS = Base.RADIUS or { card = 10, row = 8 }
+local RoundFrame = Base.RoundFrame
+local RoundTexture = Base.RoundTexture
+local TintTexture = Base.TintTexture or function(tex, r, g, b, a) tex:SetColorTexture(r, g, b, a or 1) end
+local ROUNDED = SL and SL.Rounded ~= false and RoundFrame ~= nil
+local ROW_INSET = ROUNDED and 4 or 0
+local PILL_ALPHA = 0.18
+local HOVER_TINT = ROUNDED and { 1, 1, 1, 0.05 } or THEME.bgHover
 
 local WORKSPACE_META = {
     general = {
@@ -61,10 +70,16 @@ end
 
 local function CreateText(parent, size, color, justify)
     local text = parent:CreateFontString(nil, "OVERLAY")
-    text:SetFont(FontPath(), math.max(1, tonumber(size) or 11), "")
+    text:SetFont(FontPath(), math.max(12, tonumber(size) or 12), "") -- [STYLE] settings text >= 12pt
     text:SetTextColor(color[1], color[2], color[3], color[4] or 1)
     text:SetJustifyH(justify or "LEFT")
     return text
+end
+
+--- [STYLE] Card surface: rounded when StyleLib 1.3 is available, square otherwise.
+local function SetCard(frame, background, border)
+    SetSurface(frame, background, border)
+    if ROUNDED then RoundFrame(frame, RADIUS.card) end
 end
 
 local function CreateDivider(parent, point, relative, relativePoint, x, y)
@@ -96,36 +111,7 @@ local function FetchMedia(kind, name, fallback)
     return fallback
 end
 
-local function ResolveFont(name)
-    if name and DDingUI.GetFont then
-        local ok, path = pcall(DDingUI.GetFont, DDingUI, name)
-        if ok and path then return path end
-    end
-    return FetchMedia("font", name, FontPath())
-end
-
-local function ApplyTextStyle(text, fontName, size, color)
-    text:SetFont(ResolveFont(fontName), Clamp(size or 11, 7, 28), "")
-    if color then
-        local r, g, b, a = ColorValues(color, { 1, 1, 1, 1 })
-        text:SetTextColor(r, g, b, a)
-    end
-end
-
-local function AnchorText(text, parent, point, offsetX, offsetY)
-    point = type(point) == "string" and point or "CENTER"
-    text:ClearAllPoints()
-    text:SetPoint(point, parent, point, tonumber(offsetX) or 0, tonumber(offsetY) or 0)
-    if point:find("LEFT", 1, true) then
-        text:SetJustifyH("LEFT")
-    elseif point:find("RIGHT", 1, true) then
-        text:SetJustifyH("RIGHT")
-    else
-        text:SetJustifyH("CENTER")
-    end
-end
-
-local function SetBarAppearance(bar, config, fallbackColor, resolvedColor)
+local function SetBarAppearance(bar, config, fallbackColor, resolvedColor, bgFallback)
     local texture = DDingUI.GetTexture and DDingUI:GetTexture(config and config.texture)
         or FetchMedia("statusbar", config and config.texture, FLAT)
     bar:SetStatusBarTexture(texture or FLAT)
@@ -136,7 +122,7 @@ local function SetBarAppearance(bar, config, fallbackColor, resolvedColor)
         local r, g, b, a = ColorValues(color, fallbackColor)
         bar:SetStatusBarColor(r, g, b, a)
     end
-    local br, bg, bb, ba = ColorValues(config and config.bgColor, { 0.08, 0.085, 0.1, 1 })
+    local br, bg, bb, ba = ColorValues(config and config.bgColor, bgFallback or { 0.08, 0.085, 0.1, 1 })
     bar:SetBackdropColor(br, bg, bb, ba)
     local rr, rg, rb, ra = ColorValues(config and config.borderColor, { 0, 0, 0, 1 })
     bar:SetBackdropBorderColor(rr, rg, rb, ra)
@@ -232,223 +218,6 @@ local function CreateGeneralPreview(parent)
     end
     return visual
 end
-
-local function CreateResourcePreview(parent)
-    local visual = CreateFrame("Frame", nil, parent)
-    visual:SetSize(660, 90)
-    visual:SetPoint("CENTER", parent, "CENTER", 0, -24)
-    visual.primary = CreatePreviewBar(visual)
-    visual.secondary = CreatePreviewBar(visual)
-    visual.primaryCaption = CreateText(visual, 9, { 0.48, 0.51, 0.58, 1 }, "RIGHT")
-    visual.primaryCaption:SetText(T("Primary Resource", "주 자원"))
-    visual.secondaryCaption = CreateText(visual, 9, { 0.48, 0.51, 0.58, 1 }, "RIGHT")
-    visual.secondaryCaption:SetText(T("Secondary Resource", "보조 자원"))
-    visual.primary:SetValue(74)
-    visual.secondary:SetValue(62)
-    visual.ticks = {}
-    for index = 1, 4 do
-        local tick = visual.secondary:CreateTexture(nil, "OVERLAY")
-        tick:SetWidth(1)
-        tick:SetColorTexture(0, 0, 0, 0.72)
-        visual.ticks[index] = tick
-    end
-
-    function visual:Refresh(selectedKey)
-        local profile = DDingUI.db and DDingUI.db.profile or {}
-        local primary = profile.powerBar or {}
-        local secondary = profile.secondaryPowerBar or {}
-        local primaryWidth = primary.width and primary.width > 0 and primary.width or 430
-        local secondaryWidth = secondary.width and secondary.width > 0 and secondary.width or primaryWidth
-        primaryWidth = Clamp(primaryWidth, 220, 520)
-        secondaryWidth = Clamp(secondaryWidth, 220, 520)
-        local primaryHeight = Clamp(primary.height or 14, 8, 30)
-        local secondaryHeight = Clamp(secondary.height or 14, 8, 30)
-        local totalHeight = primaryHeight + 8 + secondaryHeight
-
-        self.primary:ClearAllPoints()
-        self.primary:SetPoint("TOP", self, "CENTER", 36, totalHeight / 2)
-        self.primary:SetSize(primaryWidth, primaryHeight)
-        self.secondary:ClearAllPoints()
-        self.secondary:SetPoint("TOP", self.primary, "BOTTOM", 0, -8)
-        self.secondary:SetSize(secondaryWidth, secondaryHeight)
-        self.primaryCaption:ClearAllPoints()
-        self.primaryCaption:SetPoint("RIGHT", self.primary, "LEFT", -10, 0)
-        self.secondaryCaption:ClearAllPoints()
-        self.secondaryCaption:SetPoint("RIGHT", self.secondary, "LEFT", -10, 0)
-
-        SetBarAppearance(self.primary, primary, { 0.22, 0.58, 1, 1 }, GetResourceColorSpec(false))
-        SetBarAppearance(self.secondary, secondary, { 0.2, 0.64, 1, 1 }, GetResourceColorSpec(true))
-        self.primary:SetAlpha(primary.enabled == false and 0.35 or 1)
-        self.secondary:SetAlpha(secondary.enabled == false and 0.35 or 1)
-        self.primary.leftText:SetShown(primary.showText ~= false)
-        self.primary.rightText:Hide()
-        self.secondary.leftText:SetShown(secondary.showText ~= false)
-        self.secondary.rightText:Hide()
-        self.primary.leftText:SetText("74%")
-        self.secondary.leftText:SetText("3 / 5")
-        ApplyTextStyle(self.primary.leftText, primary.textFont, primary.textSize)
-        ApplyTextStyle(self.secondary.leftText, secondary.textFont, secondary.textSize)
-        AnchorText(self.primary.leftText, self.primary, "CENTER", primary.textX, primary.textY)
-        AnchorText(self.secondary.leftText, self.secondary, "CENTER", secondary.textX, secondary.textY)
-
-        local showTicks = secondary.showTicks ~= false
-        for index, tick in ipairs(self.ticks) do
-            tick:ClearAllPoints()
-            tick:SetPoint("TOP", self.secondary, "TOPLEFT", secondaryWidth * index / 5, 0)
-            tick:SetPoint("BOTTOM", self.secondary, "BOTTOMLEFT", secondaryWidth * index / 5, 0)
-            tick:SetShown(showTicks)
-        end
-        local primarySelected = selectedKey and selectedKey:match("primary$")
-        local secondarySelected = selectedKey and selectedKey:match("secondary$")
-        self.primaryCaption:SetTextColor(primarySelected and 1 or 0.48, primarySelected and 0.48 or 0.51, primarySelected and 0.12 or 0.58, 1)
-        self.secondaryCaption:SetTextColor(secondarySelected and 1 or 0.48, secondarySelected and 0.48 or 0.51, secondarySelected and 0.12 or 0.58, 1)
-    end
-    return visual
-end
-
-local function CreateCastPreview(parent)
-    local visual = CreateFrame("Frame", nil, parent)
-    visual:SetSize(680, 86)
-    visual:SetPoint("CENTER", parent, "CENTER", 0, -12)
-    visual.bar = CreatePreviewBar(visual)
-    visual.bar:SetValue(63)
-    visual.iconFrame = CreateFrame("Frame", nil, visual, "BackdropTemplate")
-    SetSurface(visual.iconFrame, THEME.input, THEME.border)
-    visual.icon = visual.iconFrame:CreateTexture(nil, "ARTWORK")
-    visual.icon:SetPoint("TOPLEFT", 1, -1)
-    visual.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-    visual.icon:SetTexture(136243)
-    visual.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    visual.spark = visual.bar:CreateTexture(nil, "OVERLAY")
-    visual.spark:SetWidth(2)
-    visual.spark:SetColorTexture(1, 1, 1, 0.9)
-    visual.ticks = {}
-    for index = 1, 4 do
-        local tick = visual.bar:CreateTexture(nil, "OVERLAY")
-        tick:SetWidth(1)
-        visual.ticks[index] = tick
-    end
-
-    function visual:Refresh(selectedKey)
-        local profile = DDingUI.db and DDingUI.db.profile or {}
-        local config = profile.castBar or {}
-        local width = Clamp(config.width and config.width > 0 and config.width or 440, 240, 610)
-        local height = Clamp(config.height or 24, 12, 42)
-        local iconShown = config.showIcon ~= false
-        self.bar:ClearAllPoints()
-        self.bar:SetPoint("CENTER", self, "CENTER", iconShown and height * 0.52 or 0, -3)
-        self.bar:SetSize(width, height)
-        self.iconFrame:ClearAllPoints()
-        self.iconFrame:SetPoint("RIGHT", self.bar, "LEFT", -3, 0)
-        self.iconFrame:SetSize(height, height)
-        self.iconFrame:SetShown(iconShown)
-        local castColor = config.useClassColor and GetClassColorSpec() or config.color
-        SetBarAppearance(self.bar, config, { 1, 0.55, 0.12, 1 }, castColor)
-        self.bar:SetAlpha(config.enabled == false and 0.35 or 1)
-        self.bar.leftText:SetText(T("Preview Cast", "시전 미리보기"))
-        self.bar.leftText:SetShown(config.showSpellText ~= false)
-        self.bar.rightText:SetText("1.8 / 3.0")
-        self.bar.rightText:SetShown(config.showTimeText ~= false)
-        ApplyTextStyle(self.bar.leftText, config.spellTextFont or config.textFont, config.spellTextSize or config.textSize)
-        ApplyTextStyle(self.bar.rightText, config.timeTextFont or config.textFont, config.timeTextSize or config.textSize)
-        AnchorText(self.bar.leftText, self.bar, "LEFT", config.spellTextOffsetX or 4, config.spellTextOffsetY)
-        AnchorText(self.bar.rightText, self.bar, "RIGHT", config.timeTextOffsetX or -4, config.timeTextOffsetY)
-        self.spark:ClearAllPoints()
-        self.spark:SetPoint("TOP", self.bar, "TOPLEFT", width * 0.63, 0)
-        self.spark:SetPoint("BOTTOM", self.bar, "BOTTOMLEFT", width * 0.63, 0)
-        self.spark:SetShown(config.showSpark ~= false)
-        local showTicks = config.showChannelTicks ~= false and config.showChannelTickMarks ~= false
-        for index, tick in ipairs(self.ticks) do
-            tick:ClearAllPoints()
-            tick:SetPoint("TOP", self.bar, "TOPLEFT", width * index / 5, 0)
-            tick:SetPoint("BOTTOM", self.bar, "BOTTOMLEFT", width * index / 5, 0)
-            local tr, tg, tb, ta = ColorValues(config.channelTickColor, { 1, 1, 1, 0.7 })
-            tick:SetColorTexture(tr, tg, tb, ta)
-            tick:SetShown(showTicks)
-        end
-        local highlightTicks = selectedKey and (selectedKey:match("channelTicks$") or selectedKey:match("empowered$"))
-        self.bar.leftText:SetTextColor(highlightTicks and 1 or 0.96, highlightTicks and 0.48 or 0.97, highlightTicks and 0.12 or 0.99, 1)
-    end
-    return visual
-end
-
-local function CreateTrackedPreview(parent)
-    local visual = CreateFrame("Frame", nil, parent)
-    visual:SetSize(680, 92)
-    visual:SetPoint("CENTER", parent, "CENTER", 0, -24)
-    visual.rows = {}
-    for index = 1, 2 do
-        local row = CreateFrame("Frame", nil, visual)
-        row.bar = CreatePreviewBar(row)
-        row.iconFrame = CreateFrame("Frame", nil, row, "BackdropTemplate")
-        SetSurface(row.iconFrame, THEME.input, THEME.border)
-        row.icon = row.iconFrame:CreateTexture(nil, "ARTWORK")
-        row.icon:SetPoint("TOPLEFT", 1, -1)
-        row.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-        row.icon:SetTexture(index == 1 and 136243 or 135953)
-        row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        row.count = CreateText(row.iconFrame, 10, { 1, 1, 1, 1 }, "RIGHT")
-        row.count:SetPoint("BOTTOMRIGHT", row.iconFrame, "BOTTOMRIGHT", -2, 2)
-        row.count:SetText(index == 1 and "2" or "")
-        row.bar:SetValue(index == 1 and 76 or 43)
-        visual.rows[index] = row
-    end
-
-    function visual:Refresh()
-        local profile = DDingUI.db and DDingUI.db.profile or {}
-        local config = profile.buffBarViewer or {}
-        local width = Clamp(config.width and config.width > 0 and config.width or 430, 230, 610)
-        local height = Clamp(config.height or 16, 10, 34)
-        local showIcon = config.hideIcon ~= true
-        local iconRight = config.iconPosition == "RIGHT"
-        local spacing = Clamp(config.barSpacing or 2, 0, 12)
-        local totalHeight = height * #self.rows + spacing * (#self.rows - 1)
-        for index, row in ipairs(self.rows) do
-            row:SetSize(width + (showIcon and height + 4 or 0), height)
-            row:ClearAllPoints()
-            row:SetPoint("TOP", self, "CENTER", 0, totalHeight / 2 - (index - 1) * (height + spacing))
-            row.bar:ClearAllPoints()
-            row.bar:SetSize(width, height)
-            if showIcon then
-                row.iconFrame:SetSize(height, height)
-                row.iconFrame:ClearAllPoints()
-                if iconRight then
-                    row.bar:SetPoint("LEFT", row, "LEFT", 0, 0)
-                    row.iconFrame:SetPoint("LEFT", row.bar, "RIGHT", config.iconGap or 0, 0)
-                else
-                    row.iconFrame:SetPoint("LEFT", row, "LEFT", 0, 0)
-                    row.bar:SetPoint("LEFT", row.iconFrame, "RIGHT", config.iconGap or 0, 0)
-                end
-            else
-                row.bar:SetPoint("CENTER", row, "CENTER", 0, 0)
-            end
-            row.iconFrame:SetShown(showIcon)
-            local zoom = Clamp(config.iconZoom or 0.08, 0, 0.45)
-            row.icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
-            SetBarAppearance(row.bar, config, { 0.88, 0.73, 0.18, 1 })
-            row.bar.leftText:SetText(index == 1 and T("Tracked Effect", "추적 효과") or T("Secondary Effect", "보조 효과"))
-            row.bar.leftText:SetShown(config.showName ~= false)
-            row.bar.rightText:SetText(index == 1 and "8.3" or "4.7")
-            row.bar.rightText:SetShown(config.showDuration ~= false)
-            row.count:SetShown(config.showApplications ~= false)
-            ApplyTextStyle(row.bar.leftText, config.nameFont, config.nameSize, config.nameColor)
-            ApplyTextStyle(row.bar.rightText, config.durationFont, config.durationSize, config.durationColor)
-            ApplyTextStyle(row.count, config.applicationsFont, config.applicationsSize, config.applicationsColor)
-            AnchorText(row.bar.leftText, row.bar, config.nameAnchor or "LEFT", config.nameOffsetX, config.nameOffsetY)
-            AnchorText(row.bar.rightText, row.bar, config.durationAnchor or "RIGHT", config.durationOffsetX, config.durationOffsetY)
-            AnchorText(row.count, row.iconFrame, config.applicationsAnchor or "BOTTOMRIGHT", config.applicationsOffsetX, config.applicationsOffsetY)
-        end
-        self:SetAlpha(config.enabled == false and 0.35 or 1)
-    end
-    return visual
-end
-
-local PREVIEW_BUILDERS = {
-    general = CreateGeneralPreview,
-    resourceBars = CreateResourcePreview,
-    castBars = CreateCastPreview,
-    buffBar = CreateTrackedPreview,
-}
 
 local function IsVisible(option)
     if type(option) ~= "table" then return false end
@@ -548,21 +317,8 @@ local function BuildRenderPage(entry)
     return page
 end
 
-local function AddSignatureColor(parts, color)
-    if type(color) ~= "table" then
-        parts[#parts + 1] = "-"
-        return
-    end
-    parts[#parts + 1] = tostring(color[1] or color.r or "")
-    parts[#parts + 1] = tostring(color[2] or color.g or "")
-    parts[#parts + 1] = tostring(color[3] or color.b or "")
-    parts[#parts + 1] = tostring(color[4] or color.a or "")
-    parts[#parts + 1] = tostring(color.gradientMode or "SOLID")
-    parts[#parts + 1] = tostring(color.gradientOrientation or "HORIZONTAL")
-    local gradient = type(color.gradientColor) == "table" and color.gradientColor or {}
-    for index = 1, 4 do parts[#parts + 1] = tostring(gradient[index] or "") end
-end
-
+-- [REFACTOR] Only the text-only general preview is signature driven; the bar sections copy the
+-- live runtime frames on a timer, so every runtime setting change is picked up automatically.
 local function PreviewSignature(kind, selectedKey)
     local profile = DDingUI.db and DDingUI.db.profile or {}
     local parts = { kind or "", selectedKey or "" }
@@ -573,63 +329,30 @@ local function PreviewSignature(kind, selectedKey)
         parts[#parts + 1] = tostring(config.hideWhileMounted)
         parts[#parts + 1] = tostring(config.hideInVehicle)
         parts[#parts + 1] = DDingUI.db and DDingUI.db.GetCurrentProfile and tostring(DDingUI.db:GetCurrentProfile()) or ""
-    elseif kind == "resourceBars" then
-        local colorSettings = profile.powerTypeColors or {}
-        parts[#parts + 1] = tostring(colorSettings.useClassColor)
-        AddSignatureColor(parts, GetResourceColorSpec(false))
-        AddSignatureColor(parts, GetResourceColorSpec(true))
-        for _, config in ipairs({ profile.powerBar or {}, profile.secondaryPowerBar or {} }) do
-            for _, key in ipairs({ "enabled", "width", "height", "texture", "textFont", "textSize", "textX", "textY", "showText", "showTicks" }) do
-                parts[#parts + 1] = tostring(config[key])
-            end
-            AddSignatureColor(parts, config.color or config.barColor)
-            AddSignatureColor(parts, config.bgColor)
-            AddSignatureColor(parts, config.borderColor)
-        end
-    elseif kind == "castBars" then
-        local config = profile.castBar or {}
-        for _, key in ipairs({ "enabled", "width", "height", "texture", "useClassColor", "showIcon", "showSpark", "showSpellText", "spellTextFont", "spellTextSize", "spellTextOffsetX", "spellTextOffsetY", "showTimeText", "timeTextFont", "timeTextSize", "timeTextOffsetX", "timeTextOffsetY", "showChannelTicks", "showChannelTickMarks" }) do
-            parts[#parts + 1] = tostring(config[key])
-        end
-        AddSignatureColor(parts, config.color)
-        AddSignatureColor(parts, config.bgColor)
-        AddSignatureColor(parts, config.channelTickColor)
-    elseif kind == "buffBar" then
-        local config = profile.buffBarViewer or {}
-        for _, key in ipairs({ "enabled", "width", "height", "barSpacing", "texture", "hideIcon", "iconPosition", "iconGap", "iconZoom", "showName", "nameFont", "nameSize", "nameAnchor", "nameOffsetX", "nameOffsetY", "showDuration", "durationFont", "durationSize", "durationAnchor", "durationOffsetX", "durationOffsetY", "showApplications", "applicationsFont", "applicationsSize", "applicationsAnchor", "applicationsOffsetX", "applicationsOffsetY" }) do
-            parts[#parts + 1] = tostring(config[key])
-        end
-        AddSignatureColor(parts, config.barColor)
-        AddSignatureColor(parts, config.bgColor)
-        AddSignatureColor(parts, config.borderColor)
-        AddSignatureColor(parts, config.nameColor)
-        AddSignatureColor(parts, config.durationColor)
-        AddSignatureColor(parts, config.applicationsColor)
     end
     return table.concat(parts, "|")
 end
+
+local NAV_ROW_NORMAL = ROUNDED and { 1, 1, 1, 0 } or { 0, 0, 0, 0 } -- [STYLE]
 
 local function CreateNavigationRow(parent)
     local row = CreateFrame("Button", nil, parent)
     row:RegisterForClicks("LeftButtonUp")
     row.background = row:CreateTexture(nil, "BACKGROUND")
     row.background:SetAllPoints()
-    row.active = row:CreateTexture(nil, "ARTWORK")
-    row.active:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-    row.active:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
-    row.active:SetWidth(3)
-    row.active:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
-    row.index = CreateText(row, 9, { 0.38, 0.41, 0.47, 1 }, "RIGHT")
+    if ROUNDED and RoundTexture then RoundTexture(row.background, RADIUS.row) end -- [STYLE]
+    -- [STYLE] the per-row active bar is replaced by the navigation's sliding indicator
+    row.index = CreateText(row, 12, { 0.38, 0.41, 0.47, 1 }, "RIGHT")
     row.index:SetWidth(22)
-    row.label = CreateText(row, 11, { 0.78, 0.8, 0.85, 1 })
-    row.label:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+    row.label = CreateText(row, 12, { 0.78, 0.8, 0.85, 1 })
+    row.label:SetWordWrap(false)
+    -- [STYLE] background fade comes from SL.RowHover; these only swap the label colour
     row:SetScript("OnEnter", function(self)
         if self._isHeader or self._selected then return end
-        self.background:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 1)
         self.label:SetTextColor(0.96, 0.97, 0.99, 1)
     end)
     row:SetScript("OnLeave", function(self)
-        if self._workspace then self._workspace:RefreshNavigationState() end
+        if self._workspace then self._workspace:RefreshNavigationState(true) end
     end)
     return row
 end
@@ -681,11 +404,12 @@ local function DashboardGroupLabel(groupName, settings)
     return (localeKey and T(localeKey, nil)) or settings.name or groupName
 end
 
-local function BuildDashboardDescriptors()
+local function BuildDashboardDescriptors(barsOnly)
     local profile = DDingUI.db and DDingUI.db.profile or {}
     local descriptors = {}
     local groups = {}
-    for groupName, settings in pairs(profile.groupSystem and profile.groupSystem.groups or {}) do
+    -- [REFACTOR] barsOnly: the section previews sample only the resource/cast bars at 10 Hz
+    for groupName, settings in pairs(not barsOnly and profile.groupSystem and profile.groupSystem.groups or {}) do
         if groupName ~= "Utility" and type(settings) == "table" and settings.enabled ~= false then
             groups[#groups + 1] = { name = groupName, settings = settings, order = tonumber(settings.order) or 999 }
         end
@@ -753,7 +477,7 @@ local function BuildDashboardDescriptors()
     local icons = DDingUI.GetTrackedBuffIcons and DDingUI:GetTrackedBuffIcons() or {}
     local texts = DDingUI.GetTrackedBuffTexts and DDingUI:GetTrackedBuffTexts() or {}
     local config = profile.buffTrackerBar or {}
-    if config.enabled ~= false then
+    if config.enabled ~= false and not barsOnly then
         for index, entry in ipairs(tracked) do
             local parent = entry.parentGroup and tracked[entry.parentGroup]
             if not entry.isGroup and not entry.disabled and not (parent and parent.disabled) then
@@ -789,6 +513,11 @@ local function DashboardBarRect(descriptor)
     local anchorRect = DashboardFrameRect(anchor)
     if not anchorRect then return nil end
     local function Scale(value) return DDingUI.Scale and DDingUI:Scale(value) or value end
+    local function Snap(value) return math.floor(value + 0.5) end
+    -- [REFACTOR] Same first-layout rules as PrimaryPowerBar/SecondaryPowerBar/PlayerCastBar:
+    -- auto width limit (600 for power bars, <1000 for the cast bar), border compensation,
+    -- pixel snap, default offsets and the legacy selfPoint conversion of the power bars.
+    local isCast = descriptor.key == "cast"
     local width = Scale(cfg.width or 0)
     if width <= 0 then
         local effective, borderComp
@@ -796,15 +525,28 @@ local function DashboardBarRect(descriptor)
             local ok, result, compensation = pcall(DDingUI.GetEffectiveAnchorWidth, DDingUI, anchor)
             if ok then effective, borderComp = result, compensation end
         end
-        if not (issecretvalue and (issecretvalue(effective) or issecretvalue(borderComp)))
-            and type(effective) == "number" and effective > 0 and effective < 1000 then
-            width = effective - (borderComp and 2 * Scale(cfg.borderSize or 1) or 0)
+        local usable = not (issecretvalue and (issecretvalue(effective) or issecretvalue(borderComp)))
+            and type(effective) == "number" and effective > 0
+            and (isCast and effective < 1000 or (not isCast and effective <= 600))
+        if usable then
+            local border = isCast and Scale(1)
+                or (DDingUI.ScaleBorder and DDingUI:ScaleBorder(cfg.borderSize or 1) or Scale(cfg.borderSize or 1))
+            width = Snap(effective - (borderComp and 2 * border or 0))
         else width = 200 end
+        if width <= 0 then width = 200 end
     end
-    local height = Scale(cfg.height or (descriptor.key == "cast" and 10 or descriptor.key == "secondaryPower" and 4 or 6))
-    local offsetY = cfg.offsetY or (descriptor.key == "cast" and 18 or descriptor.key == "secondaryPower" and 12 or 6)
-    local ax, ay = DashboardAnchorFraction(cfg.anchorPoint)
-    local sx, sy = DashboardAnchorFraction(cfg.selfPoint)
+    local height = Scale(cfg.height or (isCast and 10 or descriptor.key == "secondaryPower" and 4 or 6))
+    local offsetY = cfg.offsetY or (isCast and 18 or descriptor.key == "secondaryPower" and 12 or 0)
+    local anchorPoint = cfg.anchorPoint or "CENTER"
+    local selfPoint = cfg.selfPoint
+    if not selfPoint then
+        if isCast then selfPoint = "CENTER"
+        elseif anchorPoint == "TOP" then selfPoint = "BOTTOM"
+        elseif anchorPoint == "BOTTOM" then selfPoint = "TOP"
+        else selfPoint = anchorPoint end
+    end
+    local ax, ay = DashboardAnchorFraction(anchorPoint)
+    local sx, sy = DashboardAnchorFraction(selfPoint)
     return {
         left = anchorRect.left + anchorRect.width * ax + Scale(cfg.offsetX or 0) - width * sx,
         bottom = anchorRect.bottom + anchorRect.height * ay + Scale(offsetY) - height * sy,
@@ -834,13 +576,15 @@ local function DashboardIdleRect(node)
     local scale = (DashboardPreview.Read(descriptor.frame, "GetEffectiveScale") or 1)
         / (DashboardPreview.Read(UIParent, "GetEffectiveScale") or 1)
     local width, height = layout.width * scale, layout.height * scale
-    -- Buff rows grow from row one's center, not the phantom container's top edge.
-    local bottom = anchor.bottom + (anchor.height - height) / 2
-    if layout.layoutType == "HORIZONTAL" then
-        local first = layout.slots[1]
-        bottom = anchor.bottom + anchor.height / 2 - (layout.height - first.y - first.h / 2) * scale
-    end
-    return { left = anchor.left + (anchor.width - width) / 2, bottom = bottom, width = width, height = height }
+    -- [REFACTOR] Runtime icons are CENTER-anchored to the group container; the layout keeps the
+    -- runtime offsets (pinned first row, phantom shift) relative to that center.
+    local centerX = anchor.left + anchor.width / 2
+    local centerY = anchor.bottom + anchor.height / 2
+    return {
+        left = centerX + (layout.boundsLeft or -layout.width / 2) * scale,
+        bottom = centerY + (layout.boundsBottom or -layout.height / 2) * scale,
+        width = width, height = height,
+    }
 end
 
 local function PaintDashboardIdle(node, rect, scale)
@@ -873,7 +617,9 @@ local function PaintDashboardIdle(node, rect, scale)
         local cfg = node.descriptor.config
         local border = DDingUI.ScaleBorder and DDingUI:ScaleBorder(cfg.borderSize or 1) or cfg.borderSize or 1
         bar:SetBackdrop({ bgFile = FLAT, edgeFile = border > 0 and FLAT or nil, edgeSize = border * scale })
-        SetBarAppearance(bar, cfg, { 0.22, 0.58, 1, 1 }, node.descriptor.color)
+        -- [REFACTOR] runtime background defaults: power bars 0.15, cast bar 0.1
+        local runtimeBg = node.descriptor.key == "cast" and { 0.1, 0.1, 0.1, 1 } or { 0.15, 0.15, 0.15, 1 }
+        SetBarAppearance(bar, cfg, { 0.22, 0.58, 1, 1 }, node.descriptor.color, runtimeBg)
         -- Idle preview shows the configured surface, never invented stacks or time.
         bar:SetValue(100)
         bar.leftText:Hide()
@@ -884,13 +630,204 @@ local function PaintDashboardIdle(node, rect, scale)
     visual:Show()
 end
 
+-- ============================================================
+-- [REFACTOR] Section live preview = display copy of the real runtime frames.
+-- Uses the dashboard pipeline (BuildDashboardDescriptors → DashboardPreview.Paint for shown
+-- frames, runtime geometry + configured surface for idle ones). No preview-only bar drawing,
+-- no invented values: a cast is shown only through the runtime's own test cast.
+-- ============================================================
+local SECTION_PREVIEW_KEYS = {
+    resourceBars = { power = "primary", secondaryPower = "secondary" },
+    castBars = { cast = "general" },
+}
+
+local function BuildSectionDescriptors(kind)
+    local descriptors = {}
+    if kind == "buffBar" then
+        local viewer = _G.BuffBarCooldownViewer
+        local config = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.buffBarViewer or {}
+        if config.enabled ~= false and viewer then
+            local visible = DashboardPreview.Read(viewer, "IsVisible")
+            descriptors[1] = {
+                key = "buffBar", label = T("Tracked Bars", "추적중인 막대"), frame = viewer,
+                sources = visible == true and { viewer } or {}, restricted = visible == nil,
+                noIdle = true,
+            }
+        end
+        return descriptors
+    end
+    local wanted = SECTION_PREVIEW_KEYS[kind]
+    if not wanted then return descriptors end
+    for _, descriptor in ipairs(BuildDashboardDescriptors(true)) do
+        if wanted[descriptor.key] then
+            descriptor.entryKey = wanted[descriptor.key]
+            descriptors[#descriptors + 1] = descriptor
+        end
+    end
+    return descriptors
+end
+
+local function CreateLayoutPreview(parent, kind)
+    local visual = CreateFrame("Frame", nil, parent)
+    visual:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, -54)
+    visual:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -12, 10)
+    visual.kind = kind
+    visual.nodes = {}
+    visual.live = true
+    -- The copy surface stands for the game screen, so it stays square like the real frames.
+    local stage = CreateFrame("Frame", nil, visual, "BackdropTemplate")
+    stage:SetAllPoints(visual)
+    SetSurface(stage, THEME.input, THEME.border)
+    if stage.SetClipsChildren then stage:SetClipsChildren(true) end
+    visual.stage = stage
+    visual.hint = CreateText(stage, 12, THEME.textDim, "CENTER")
+    visual.hint:SetPoint("LEFT", stage, "LEFT", 12, 0)
+    visual.hint:SetPoint("RIGHT", stage, "RIGHT", -12, 0)
+    visual.hint:SetWordWrap(true)
+
+    local function AcquireNode(index)
+        local node = visual.nodes[index]
+        if node then return node end
+        node = CreateFrame("Frame", nil, stage, "BackdropTemplate")
+        node.visual = CreateFrame("Frame", nil, node)
+        node.visual:SetAllPoints(node)
+        node.highlight = CreateFrame("Frame", nil, node, "BackdropTemplate")
+        node.highlight:SetPoint("TOPLEFT", node, "TOPLEFT", -3, 3)
+        node.highlight:SetPoint("BOTTOMRIGHT", node, "BOTTOMRIGHT", 3, -3)
+        node.highlight:SetFrameLevel(node:GetFrameLevel() + 24)
+        SetSurface(node.highlight, { 0, 0, 0, 0 }, THEME.accent)
+        node.highlight:Hide()
+        visual.nodes[index] = node
+        return node
+    end
+
+    function visual:Release()
+        for _, node in ipairs(self.nodes) do
+            DashboardPreview.Clear(node.visual)
+            if node.idleVisual then node.idleVisual:Hide() end
+            node._buffPreviewCache, node._buffPreview = nil, nil
+            node:Hide()
+        end
+    end
+
+    function visual:Refresh(selectedKey)
+        local descriptors = BuildSectionDescriptors(self.kind)
+        local rects, nodes = {}, {}
+        for index, descriptor in ipairs(descriptors) do
+            local node = AcquireNode(index)
+            node.descriptor = descriptor
+            nodes[index] = node
+            local rect = DashboardFramesRect(descriptor.sources)
+            node._idle = rect == nil
+            if node._idle and not descriptor.noIdle then rect = DashboardIdleRect(node) end
+            rects[index] = rect
+        end
+        for index = #descriptors + 1, #self.nodes do
+            local node = self.nodes[index]
+            DashboardPreview.Clear(node.visual)
+            if node.idleVisual then node.idleVisual:Hide() end
+            node:Hide()
+        end
+
+        local left, right, bottom, top
+        for index = 1, #descriptors do
+            local rect = rects[index]
+            if rect then
+                left = left and math.min(left, rect.left) or rect.left
+                right = right and math.max(right, rect.left + rect.width) or rect.left + rect.width
+                bottom = bottom and math.min(bottom, rect.bottom) or rect.bottom
+                top = top and math.max(top, rect.bottom + rect.height) or rect.bottom + rect.height
+            end
+        end
+        local stageW, stageH = self.stage:GetWidth() or 0, self.stage:GetHeight() or 0
+        self.sizeRatio, self.idleCount, self.partialCount = nil, 0, 0
+        if not left or stageW <= 1 or stageH <= 1 then
+            for _, node in ipairs(nodes) do
+                DashboardPreview.Clear(node.visual)
+                if node.idleVisual then node.idleVisual:Hide() end
+                node:Hide()
+            end
+            local message
+            if self.kind == "castBars" then
+                message = T("Cast preview hint", "시전 중이거나 '테스트 시전'을 누르면 실제 시전 바가 그대로 복사됩니다")
+            elseif self.kind == "buffBar" then
+                message = T("Tracked bar preview hint", "추적 효과 막대가 화면에 표시되면 실제 모양이 그대로 복사됩니다")
+            else
+                message = T("No active layout elements", "표시할 배치 요소가 없습니다")
+            end
+            self.hint:SetText(message)
+            self.hint:Show()
+            return
+        end
+        self.hint:Hide()
+
+        -- Real on-screen size (UIParent units → this frame's units), shrunk only when it does not fit.
+        local uiScale = DashboardPreview.Read(UIParent, "GetEffectiveScale") or 1
+        local ownScale = DashboardPreview.Read(self.stage, "GetEffectiveScale") or 1
+        local trueScale = ownScale > 0 and uiScale / ownScale or 1
+        local width, height = math.max(1, right - left), math.max(1, top - bottom)
+        local fit = math.min(1, (stageW - 16) / (width * trueScale), (stageH - 16) / (height * trueScale))
+        local scale = trueScale * math.max(0.05, fit)
+        local viewLeft = left - (stageW / scale - width) / 2
+        local viewBottom = bottom - (stageH / scale - height) / 2
+        self.sizeRatio = fit
+
+        for index, node in ipairs(nodes) do
+            local rect = rects[index]
+            if rect then
+                node:ClearAllPoints()
+                node:SetPoint("BOTTOMLEFT", self.stage, "BOTTOMLEFT",
+                    (rect.left - viewLeft) * scale, (rect.bottom - viewBottom) * scale)
+                node:SetSize(rect.width * scale, rect.height * scale)
+                node:Show()
+                local limited
+                if node._idle then
+                    DashboardPreview.Clear(node.visual)
+                    PaintDashboardIdle(node, rect, scale)
+                    self.idleCount = self.idleCount + 1
+                else
+                    if node.idleVisual then node.idleVisual:Hide() end
+                    local _, partial = DashboardPreview.Paint(node.visual, node.descriptor.sources,
+                        rect, scale, node.descriptor.color)
+                    limited = partial
+                end
+                if limited or node.descriptor.restricted then self.partialCount = self.partialCount + 1 end
+                local selected = selectedKey and node.descriptor.entryKey
+                    and (selectedKey == node.descriptor.entryKey
+                        or selectedKey:sub(1, #node.descriptor.entryKey + 1) == node.descriptor.entryKey .. "."
+                        or selectedKey:match(node.descriptor.entryKey .. "$"))
+                node.highlight:SetShown(selected and true or false)
+            else
+                DashboardPreview.Clear(node.visual)
+                if node.idleVisual then node.idleVisual:Hide() end
+                node:Hide()
+                self.partialCount = self.partialCount + (node.descriptor.restricted and 1 or 0)
+            end
+        end
+    end
+
+    return visual
+end
+
+local function CreateResourcePreview(parent) return CreateLayoutPreview(parent, "resourceBars") end
+local function CreateCastPreview(parent) return CreateLayoutPreview(parent, "castBars") end
+local function CreateTrackedPreview(parent) return CreateLayoutPreview(parent, "buffBar") end
+
+local PREVIEW_BUILDERS = {
+    general = CreateGeneralPreview,
+    resourceBars = CreateResourcePreview,
+    castBars = CreateCastPreview,
+    buffBar = CreateTrackedPreview,
+}
+
 local function CreateDashboardQuickRow(parent, label, target)
     local row = CreateFrame("Button", nil, parent)
     row:SetHeight(43)
     row.target = target
     row.background = row:CreateTexture(nil, "BACKGROUND")
     row.background:SetAllPoints()
-    row.background:SetColorTexture(0, 0, 0, 0)
+    if ROUNDED and RoundTexture then RoundTexture(row.background, RADIUS.row) end -- [STYLE]
+    TintTexture(row.background, 0, 0, 0, 0)
     row.label = CreateText(row, 11, THEME.text)
     row.label:SetPoint("LEFT", row, "LEFT", 9, 0)
     row.label:SetText(label)
@@ -904,11 +841,11 @@ local function CreateDashboardQuickRow(parent, label, target)
     divider:SetHeight(1)
     divider:SetColorTexture(THEME.border[1], THEME.border[2], THEME.border[3], 0.72)
     row:SetScript("OnEnter", function(self)
-        self.background:SetColorTexture(THEME.bgHover[1], THEME.bgHover[2], THEME.bgHover[3], 1)
+        TintTexture(self.background, HOVER_TINT[1], HOVER_TINT[2], HOVER_TINT[3], HOVER_TINT[4] or 1) -- [STYLE]
         self.label:SetTextColor(1, 1, 1, 1)
     end)
     row:SetScript("OnLeave", function(self)
-        self.background:SetColorTexture(0, 0, 0, 0)
+        TintTexture(self.background, 0, 0, 0, 0)
         self.label:SetTextColor(0.82, 0.84, 0.88, 1)
     end)
     return row
@@ -930,7 +867,7 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
     workspace:SetAllPoints(contentArea)
     workspace:SetFrameStrata("DIALOG")
     workspace:SetFrameLevel(contentArea:GetFrameLevel() + 5)
-    SetSurface(workspace, THEME.shell, THEME.border)
+    SetCard(workspace, THEME.shell, THEME.border) -- [STYLE] fills the rounded content card
     contentArea._sectionWorkspace = workspace
     workspace._parentFrame = parentFrame
     workspace.nodes = {}
@@ -951,10 +888,14 @@ local function CreateDashboardWorkspace(contentFrame, parentFrame)
     header.live = CreateText(header, 9, { 0.34, 0.9, 0.48, 1 }, "RIGHT")
     header.live:SetPoint("RIGHT", header, "RIGHT", -4, 4)
     header.live:SetText(T("Live Layout", "실시간 배치"))
-    header.liveDot = header:CreateTexture(nil, "ARTWORK")
-    header.liveDot:SetSize(6, 6)
+    if ROUNDED and SL.CreateStatusRing then -- [STYLE] StyleLib 1.3 status ring instead of a square dot
+        header.liveDot = SL.CreateStatusRing(header, 11, { 0.34, 0.9, 0.48, 1 })
+    else
+        header.liveDot = header:CreateTexture(nil, "ARTWORK")
+        header.liveDot:SetSize(6, 6)
+        header.liveDot:SetColorTexture(0.34, 0.9, 0.48, 1)
+    end
     header.liveDot:SetPoint("RIGHT", header.live, "LEFT", -7, 0)
-    header.liveDot:SetColorTexture(0.34, 0.9, 0.48, 1)
     CreateDivider(header, "BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
 
     local body = CreateFrame("Frame", nil, workspace)
@@ -1459,7 +1400,7 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
     workspace:SetAllPoints(contentArea)
     workspace:SetFrameStrata("DIALOG")
     workspace:SetFrameLevel(contentArea:GetFrameLevel() + 5)
-    SetSurface(workspace, THEME.shell, THEME.border)
+    SetCard(workspace, THEME.shell, THEME.border) -- [STYLE] fills the rounded content card
     contentArea._sectionWorkspace = workspace
     workspace._parentFrame = parentFrame
     workspace._rootOptions = options
@@ -1470,17 +1411,29 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
     preview:SetPoint("TOPLEFT", workspace, "TOPLEFT", 10, -10)
     preview:SetPoint("TOPRIGHT", workspace, "TOPRIGHT", -10, -10)
     preview:SetHeight(154)
-    SetSurface(preview, THEME.panelRaised, THEME.border)
+    SetCard(preview, THEME.panelRaised, THEME.border) -- [STYLE]
     preview.title = CreateText(preview, 14, { 0.96, 0.97, 0.99, 1 })
     preview.title:SetPoint("TOPLEFT", preview, "TOPLEFT", 14, -11)
     preview.title:SetText(T(meta.title, meta.fallback))
     preview.subtitle = CreateText(preview, 10, { 0.48, 0.51, 0.58, 1 })
     preview.subtitle:SetPoint("TOPLEFT", preview.title, "BOTTOMLEFT", 0, -5)
     preview.subtitle:SetText(T(meta.subtitle, meta.subtitleFallback))
-    preview.badge = CreateText(preview, 9, { 0.34, 0.9, 0.48, 1 }, "RIGHT")
+    preview.badge = CreateText(preview, 12, { 0.34, 0.9, 0.48, 1 }, "RIGHT")
     preview.badge:SetPoint("TOPRIGHT", preview, "TOPRIGHT", -14, -15)
     preview.badge:SetText(T("Live Preview", "실시간 미리보기"))
-    CreateDivider(preview, "TOPLEFT", preview, "TOPLEFT", 12, -47)
+    -- [STYLE] no full-width divider: the square screen copy below separates itself from the header
+    if kind == "castBars" and GUI.CreateStyledButton then
+        -- Runtime test cast (CastBars:ShowTestCastBar): the preview then copies the real cast bar.
+        preview.testCast = GUI.CreateStyledButton(preview, T("Test Cast", "테스트 시전"), 96, 26)
+        preview.testCast:SetPoint("TOPRIGHT", preview, "TOPRIGHT", -12, -12)
+        preview.badge:ClearAllPoints()
+        preview.badge:SetPoint("RIGHT", preview.testCast, "LEFT", -10, 0)
+        preview.testCast:SetScript("OnClick", function()
+            if InCombatLockdown() or not DDingUI.ShowTestCastBar then return end
+            DDingUI:ShowTestCastBar()
+            workspace._previewElapsed = 1
+        end)
+    end
 
     local lower = CreateFrame("Frame", nil, workspace)
     lower:SetPoint("TOPLEFT", preview, "BOTTOMLEFT", 0, -8)
@@ -1490,17 +1443,33 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
     navigation:SetPoint("TOPLEFT", lower, "TOPLEFT", 0, 0)
     navigation:SetPoint("BOTTOMLEFT", lower, "BOTTOMLEFT", 0, 0)
     navigation:SetWidth(190)
-    SetSurface(navigation, THEME.sidebar, THEME.border)
+    SetCard(navigation, THEME.sidebar, THEME.border) -- [STYLE]
     navigation.title = CreateText(navigation, 9, { 0.48, 0.51, 0.58, 1 })
     navigation.title:SetPoint("TOPLEFT", navigation, "TOPLEFT", 14, -13)
     navigation.title:SetText(T("Settings Sections", "설정 영역"))
     CreateDivider(navigation, "TOPLEFT", navigation, "TOPLEFT", 10, -37)
     navigation.rows = {}
+    -- [STYLE] one sliding selection marker (StyleLib 1.2); 1.3: rounded pill under the rows
+    if SL and SL.CreateIndicator then
+        if ROUNDED then
+            navigation.indicator = SL.CreateIndicator(navigation, 190 - ROW_INSET * 2, 39,
+                { THEME.accent[1], THEME.accent[2], THEME.accent[3], PILL_ALPHA },
+                { radius = RADIUS.row, layer = "BACKGROUND", subLevel = 1, x = ROW_INSET })
+        else
+            local indicatorLayer = CreateFrame("Frame", nil, navigation)
+            indicatorLayer:SetAllPoints(navigation)
+            indicatorLayer:SetFrameLevel(navigation:GetFrameLevel() + 20)
+            navigation.indicator = SL.CreateIndicator(indicatorLayer, 3, 39, THEME.accent)
+        end
+    end
 
     local settings = CreateFrame("Frame", nil, lower, "BackdropTemplate")
     settings:SetPoint("TOPLEFT", navigation, "TOPRIGHT", 8, 0)
     settings:SetPoint("BOTTOMRIGHT", lower, "BOTTOMRIGHT", 0, 0)
-    SetSurface(settings, THEME.panel, THEME.border)
+    SetCard(settings, THEME.panel, THEME.border) -- [STYLE]
+    if ROUNDED and SL.AddWatermark then -- [STYLE] faint series logo, bottom-right of the detail card
+        settings.watermark = SL.AddWatermark(settings, "CDM", { height = 144 })
+    end
     settings.header = CreateFrame("Frame", nil, settings)
     settings.header:SetPoint("TOPLEFT", settings, "TOPLEFT", 0, 0)
     settings.header:SetPoint("TOPRIGHT", settings, "TOPRIGHT", 0, 0)
@@ -1542,27 +1511,41 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
     workspace.settingsScrollBar = settingsScrollBar
     workspace.previewVisual = (PREVIEW_BUILDERS[kind] or CreateGeneralPreview)(preview)
 
-    function workspace:RefreshNavigationState()
+    function workspace:RefreshNavigationState(keepBackground, animateIndicator)
         local selectableIndex = 0
+        local selectedRow
         for _, row in ipairs(self.navigation.rows) do
             local entry = row._entry
             if entry and not entry.isHeader then selectableIndex = selectableIndex + 1 end
             row._selected = entry and not entry.isHeader and entry.key == self.selectedKey
-            row.active:SetShown(row._selected)
+            if row._selected and row:IsShown() then selectedRow = row end
             if not entry or entry.isHeader then
-                row.background:SetColorTexture(0, 0, 0, 0)
+                TintTexture(row.background, 0, 0, 0, 0)
                 row.index:SetText("")
                 row.label:SetTextColor(0.48, 0.51, 0.58, 1)
             elseif row._selected then
-                row.background:SetColorTexture(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
+                if ROUNDED then -- [STYLE] the pill marks the selection
+                    TintTexture(row.background, 0, 0, 0, 0)
+                else
+                    row.background:SetColorTexture(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
+                end
                 row.index:SetText(string.format("%02d", selectableIndex))
                 row.index:SetTextColor(1, 0.38, 0.08, 1)
                 row.label:SetTextColor(1, 1, 1, 1)
             else
-                row.background:SetColorTexture(0, 0, 0, 0)
+                -- [STYLE] on mouse-leave RowHover fades the background out itself
+                if not keepBackground then TintTexture(row.background, 0, 0, 0, 0) end
                 row.index:SetText(string.format("%02d", selectableIndex))
                 row.index:SetTextColor(0.38, 0.41, 0.47, 1)
                 row.label:SetTextColor(0.78, 0.8, 0.85, 1)
+            end
+        end
+        local indicator = self.navigation.indicator
+        if indicator and not keepBackground then -- mouse-leave must not cut a running slide
+            if selectedRow then
+                indicator:MoveTo(selectedRow, animateIndicator == true)
+            else
+                indicator:HideIndicator()
             end
         end
     end
@@ -1577,26 +1560,42 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
             row._entry = entry
             row._isHeader = entry.isHeader == true
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", self.navigation, "TOPLEFT", 0, -y)
-            row:SetPoint("RIGHT", self.navigation, "RIGHT", 0, 0)
+            row:SetPoint("TOPLEFT", self.navigation, "TOPLEFT", ROW_INSET, -y) -- [STYLE]
+            row:SetPoint("RIGHT", self.navigation, "RIGHT", -ROW_INSET, 0)
             local height = entry.isHeader and 27 or 39
             row:SetHeight(height)
             row.label:ClearAllPoints()
+            -- [STYLE] single LEFT anchor + width so RowHover can nudge the label 2px
+            local navWidth = self.navigation:GetWidth()
+            if not navWidth or navWidth <= 0 then navWidth = 190 end
+            navWidth = navWidth - ROW_INSET * 2 -- [STYLE]
             if entry.isHeader then
                 row.index:Hide()
                 row.label:SetPoint("LEFT", row, "LEFT", 14, -2)
-                row.label:SetFont(FontPath(), 9, "")
+                row.label:SetWidth(math.max(20, navWidth - 14 - 10))
+                row.label:SetFont(FontPath(), 12, "") -- [STYLE]
             else
+                local indexLeft = 10 + (entry.depth or 0) * 8
                 row.index:Show()
                 row.index:ClearAllPoints()
-                row.index:SetPoint("LEFT", row, "LEFT", 10 + (entry.depth or 0) * 8, 0)
+                row.index:SetPoint("LEFT", row, "LEFT", indexLeft, 0)
                 row.label:SetPoint("LEFT", row.index, "RIGHT", 9, 0)
-                row.label:SetFont(FontPath(), 11, "")
+                row.label:SetWidth(math.max(20, navWidth - indexLeft - 22 - 9 - 10))
+                row.label:SetFont(FontPath(), 12, "") -- [STYLE]
             end
             row.label:SetText(entry.label)
+            if SL and SL.RowHover then
+                SL.RowHover(row, {
+                    bg = row.background,
+                    label = not entry.isHeader and row.label or nil,
+                    normal = NAV_ROW_NORMAL,
+                    hover = HOVER_TINT,
+                    isActive = function(r) return r._isHeader or r._selected end,
+                })
+            end
             local capturedKey = entry.key
             row:SetScript("OnClick", entry.isHeader and nil or function()
-                self:SelectEntry(capturedKey, false)
+                self:SelectEntry(capturedKey, false, true) -- [STYLE] user click: slide + stagger
             end)
             row:Show()
             y = y + height
@@ -1627,8 +1626,31 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
     end
 
     function workspace:RefreshPreview()
-        if self.previewVisual and self.previewVisual.Refresh then
-            self.previewVisual:Refresh(self.selectedKey)
+        local visual = self.previewVisual
+        if visual and visual.Refresh then
+            visual:Refresh(self.selectedKey)
+        end
+        if visual and visual.live then
+            -- [REFACTOR] say whether the copy is at in-game size and whether anything is idle/limited
+            local ratio = visual.sizeRatio
+            local text
+            if not ratio then
+                text = T("Live Preview", "실시간 미리보기")
+            elseif ratio >= 0.995 then
+                text = T("Actual size", "실제 크기")
+            else
+                text = string.format(T("Scaled to %d%%", "%d%%로 축소"), math.floor(ratio * 100 + 0.5))
+            end
+            if (visual.idleCount or 0) > 0 then
+                text = text .. "  ·  " .. T("Idle layout", "비활성 배치")
+            end
+            if (visual.partialCount or 0) > 0 then
+                text = text .. "  ·  " .. T("Display limited", "표시 제한")
+            end
+            self.preview.badge:SetText(text)
+            local warn = (visual.partialCount or 0) > 0
+            self.preview.badge:SetTextColor(warn and THEME.warning[1] or 0.34, warn and THEME.warning[2] or 0.9,
+                warn and THEME.warning[3] or 0.48, 1)
         end
         self._previewSignature = PreviewSignature(self.kind, self.selectedKey)
     end
@@ -1657,15 +1679,24 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
         end)
     end
 
-    function workspace:SelectEntry(key, preserveScroll)
+    function workspace:SelectEntry(key, preserveScroll, fromUser)
         local entry = FindEntry(self.entries, key)
         if not entry then return end
         self.selectedKey = entry.key
         DDingUI._sectionWorkspaceSelections = DDingUI._sectionWorkspaceSelections or {}
         DDingUI._sectionWorkspaceSelections[self.kind] = entry.key
-        self:RefreshNavigationState()
+        self:RefreshNavigationState(false, fromUser)
         self:RefreshPreview()
         self:RenderSettings(preserveScroll)
+        -- [STYLE] sub-page change: settings rows fade in top-down (clicks only)
+        if fromUser and SL and SL.StaggerIn then
+            local regions = {}
+            for _, widget in ipairs(self.settingsChild.widgets or {}) do
+                if #regions >= 12 then break end
+                if widget and widget.IsShown and widget:IsShown() then regions[#regions + 1] = widget end
+            end
+            if #regions > 0 then SL.StaggerIn(regions, { step = 0.03, offset = 4 }) end
+        end
     end
 
     function workspace:RefreshAll(preserveScroll)
@@ -1687,12 +1718,16 @@ function GUI.CreateSectionWorkspace(contentFrame, parentFrame, options, path)
         self:SetScript("OnUpdate", nil)
         self:SetScript("OnSizeChanged", nil)
         if self._resizeTimer then self._resizeTimer:Cancel(); self._resizeTimer = nil end
+        if self.previewVisual and self.previewVisual.Release then self.previewVisual:Release() end
     end
 
     workspace:SetScript("OnUpdate", function(self, elapsed)
         self._previewElapsed = (self._previewElapsed or 0) + elapsed
-        if self._previewElapsed < 0.12 then return end
+        local live = self.previewVisual and self.previewVisual.live
+        -- live copies sample the runtime frames (cast progress, resource values) a few times a second
+        if self._previewElapsed < (live and 0.1 or 0.12) then return end
         self._previewElapsed = 0
+        if live then self:RefreshPreview(); return end
         local signature = PreviewSignature(self.kind, self.selectedKey)
         if signature ~= self._previewSignature then self:RefreshPreview() end
     end)

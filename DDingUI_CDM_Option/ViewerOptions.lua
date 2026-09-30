@@ -1505,7 +1505,7 @@ local function CreateViewerOptions(viewerKey, displayName, order)
                         end
                     end)
                 else
-                    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff8800프레임 선택기를 사용할 수 없습니다.|r") -- [STYLE]
+                    DDingUI:Print("|cffff8800프레임 선택기를 사용할 수 없습니다.|r") -- [STYLE]
                 end
             end,
         }

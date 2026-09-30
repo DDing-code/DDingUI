@@ -2,7 +2,7 @@
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fCooldownManager|r
 ## Notes: Lightweight Resource Bar & Cooldown Manager
 ## Author: DDing
-## Version: 2.1.6
+## Version: 2.2.0
 ## SavedVariables: DDingUIDB
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, DDingUI_Controller, DDingUI
 ## IconTexture: Interface\AddOns\DDingUI_CDM\Media\logo.tga
@@ -16,23 +16,21 @@ Libs\DDingUI_StyleLib\Core.lua
 Libs\DDingUI_StyleLib\Colors.lua
 Libs\DDingUI_StyleLib\Gradient.lua
 Libs\DDingUI_StyleLib\Motion.lua
-# StyleLib v2 Foundation
 Libs\DDingUI_StyleLib\TableUtils.lua
 Libs\DDingUI_StyleLib\Delay.lua
 Libs\DDingUI_StyleLib\ColorNames.lua
+Libs\DDingUI_StyleLib\DesignTokens.lua
 Libs\DDingUI_StyleLib\PixelUtil.lua
 Libs\DDingUI_StyleLib\ObjectPool.lua
 Libs\DDingUI_StyleLib\Animation.lua
-# LibCustomGlow must load BEFORE GlowEffects (GlowEffects depends on it)
+Libs\DDingUI_StyleLib\WidgetRefresh.lua
+# LibCustomGlow must load BEFORE GlowEffects
 Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
-# StyleLib v2 Widgets
 Libs\DDingUI_StyleLib\GlowEffects.lua
 Libs\DDingUI_StyleLib\CascadingMenu.lua
 Libs\DDingUI_StyleLib\DragSorter.lua
-# StyleLib Widgets (기존)
+Libs\DDingUI_StyleLib\DualRow.lua
 Libs\DDingUI_StyleLib\Widgets.lua
-Libs\DDingUI_StyleLib\DesignTokens.lua
-Libs\DDingUI_StyleLib\WidgetRefresh.lua
 Libs\DDingUI_StyleLib\ProceduralGlow.lua
 
 # Media & utility libraries

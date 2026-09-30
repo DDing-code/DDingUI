@@ -1097,12 +1097,12 @@ SlashCmdList["DDINGCDM"] = function(msg)
 
     if cmd == "scan" then
         local success, total, buffs, bars = CDMScanner.ScanAll()
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Scan " .. (success and "complete" or "failed"))
+        DDingUI:Print("Scan " .. (success and "complete" or "failed"))
         print("  Total: " .. (total or 0) .. " (Buffs: " .. (buffs or 0) .. ", Bars: " .. (bars or 0) .. ")")
         print("  Cached frames: " .. CDMScanner.GetCachedFrameCount())
     elseif cmd == "list" then
         local entries = CDMScanner.GetAllEntries()
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. #entries .. " entries:")
+        DDingUI:Print(#entries .. " entries:")
         for i, entry in ipairs(entries) do
             local stacks, hasAura = CDMScanner.GetStacksByCooldownID(entry.cooldownID)
             print(string_format("  [%d] %s (cdID:%d, stacks:%d, hasAura:%s)",
@@ -1110,7 +1110,7 @@ SlashCmdList["DDINGCDM"] = function(msg)
         end
     elseif cmd == "detail" then
         local entries = CDMScanner.GetAllEntries()
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Detailed info:")
+        DDingUI:Print("Detailed info:")
         for i, entry in ipairs(entries) do
             print(string_format("  [%d] %s", i, entry.name or "?"))
             print(string_format("      cooldownID: %d, spellID: %d", entry.cooldownID or 0, entry.spellID or 0))
@@ -1123,15 +1123,15 @@ SlashCmdList["DDINGCDM"] = function(msg)
         -- Inspect frame structure for a specific cooldownID
         local cdID = tonumber(args[2])
         if not cdID then
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Usage: /ddingcdm inspect <cooldownID>")
+            DDingUI:Print("Usage: /ddingcdm inspect <cooldownID>")
             return
         end
         local frame = CDMScanner.FindFrameByCooldownID(cdID)
         if not frame then
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Frame not found for cooldownID: " .. cdID)
+            DDingUI:Print("Frame not found for cooldownID: " .. cdID)
             return
         end
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Frame inspection for cdID: " .. cdID)
+        DDingUI:Print("Frame inspection for cdID: " .. cdID)
         print("  auraInstanceID: " .. tostring(frame.auraInstanceID))
         print("  cooldownID: " .. tostring(frame.cooldownID))
         print("  frame.Count exists: " .. tostring(frame.Count ~= nil))
@@ -1170,10 +1170,10 @@ SlashCmdList["DDINGCDM"] = function(msg)
         -- Test tracking for a specific cooldownID
         local cdID = tonumber(args[2])
         if not cdID then
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Usage: /ddingcdm test <cooldownID>")
+            DDingUI:Print("Usage: /ddingcdm test <cooldownID>")
             return
         end
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Testing cooldownID: " .. cdID)
+        DDingUI:Print("Testing cooldownID: " .. cdID)
         local frame = CDMScanner.FindFrameByCooldownID(cdID)
         print("  Frame found: " .. tostring(frame ~= nil))
         if frame then
@@ -1192,7 +1192,7 @@ SlashCmdList["DDINGCDM"] = function(msg)
         end
     elseif cmd == "cache" then
         -- Show cache statistics
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Cache Statistics:")
+        DDingUI:Print("Cache Statistics:")
         print("  Cached frames: " .. CDMScanner.GetCachedFrameCount())
         print("  Catalog entries: " .. CDMScanner.GetCount())
         print("  Last scan: " .. (lastScanTime > 0 and string_format("%.1fs ago", GetTime() - lastScanTime) or "never"))
@@ -1205,7 +1205,7 @@ SlashCmdList["DDINGCDM"] = function(msg)
         end
         print("  Layout key cache: " .. layoutKeyCount)
     else
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Commands:")
+        DDingUI:Print("Commands:")
         print("  /ddingcdm scan - Rescan CDM frames")
         print("  /ddingcdm list - List all CDM entries with stacks")
         print("  /ddingcdm detail - Detailed CDM info")

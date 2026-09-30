@@ -2096,7 +2096,7 @@ end
 
 function Movers:ToggleConfigMode()
     if InCombatLockdown() then
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Cannot toggle movers in combat"] or "Cannot toggle movers in combat") .. "|r") -- [STYLE]
+        DDingUI:Print("|cffff6666" .. (L["Cannot toggle movers in combat"] or "Cannot toggle movers in combat") .. "|r") -- [STYLE]
         return
     end
 
@@ -2117,7 +2117,8 @@ function Movers:ShowMovers()
     if not silent then
         local configFrame = _G["DDingUI_ConfigFrame"]
         if configFrame and configFrame:IsShown() then
-            configFrame:Hide()
+            -- [STYLE] edit-mode handoff closes without the exit motion
+            if configFrame.HideImmediately then configFrame:HideImmediately() else configFrame:Hide() end
         end
     end
 
@@ -2251,7 +2252,7 @@ function Movers:ShowMovers()
             end
         end
 
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. (L["Mover mode enabled"] or "Mover mode enabled. Click a frame to adjust.") .. "|r") -- [STYLE]
+        DDingUI:Print("|cff00ff00" .. (L["Mover mode enabled"] or "Mover mode enabled. Click a frame to adjust.") .. "|r") -- [STYLE]
     end
 end
 
@@ -2441,7 +2442,7 @@ function Movers:HideMovers(forCombat)
     self:SaveSettings()
 
     if not self._silentToggle then
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. (L["Mover mode disabled"] or "Mover mode disabled. Positions saved.") .. "|r") -- [STYLE]
+        DDingUI:Print("|cff00ff00" .. (L["Mover mode disabled"] or "Mover mode disabled. Positions saved.") .. "|r") -- [STYLE]
     end
 
     -- [FIX] 편집모드 중 강제 표시한 그룹 프레임 복원
@@ -3411,7 +3412,7 @@ function Movers:CreateNudgeFrame()
             local parentName = holder and holder.parent and holder.parent:GetName()
 
             if targetFrame == mv or (holder and targetFrame == holder.parent) or val == parentName or val == mv.name then
-                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
+                DDingUI:Print("|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
                 return
             end
 
@@ -3475,7 +3476,7 @@ function Movers:CreateNudgeFrame()
 
     anchorSelectBtn:SetScript("OnClick", function()
         if not Movers.SelectedMover then
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Select a frame first"] or "Select a frame first") .. "|r")
+            DDingUI:Print("|cffff6666" .. (L["Select a frame first"] or "Select a frame first") .. "|r")
             return
         end
 
@@ -3489,7 +3490,7 @@ function Movers:CreateNudgeFrame()
             local moverBaseName = mv.name
 
             if targetFrame == mv or (holder and targetFrame == holder.parent) or frameName == parentName or frameName == moverBaseName then
-                print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
+                DDingUI:Print("|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
                 return
             end
 
@@ -4147,7 +4148,7 @@ function Movers:MigrateAnchorPoints()
     if profile.profileVersion then return end
 
     -- profileVersion 세팅 (이후 마이그레이션 재실행 방지)
-    profile.profileVersion = DDingUI.VERSION or "2.1.6"
+    profile.profileVersion = DDingUI.VERSION or "2.2.0"
 
     -- 구 pendingMoverMigration 플래그 정리
     profile.pendingMoverMigration = nil
@@ -4213,7 +4214,7 @@ function Movers:MigrateAnchorPoints()
     end
 
     if migratedCount > 0 then
-        print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. migratedCount .. "개 프레임이 프록시 앵커로 전환되었습니다.|r")
+        DDingUI:Print("|cff00ff00" .. migratedCount .. "개 프레임이 프록시 앵커로 전환되었습니다.|r")
     end
 end
 
@@ -4259,9 +4260,9 @@ function Movers:Initialize()
     SlashCmdList["DDINGUIREFRESH"] = function()
         if Movers.ConfigMode then
             Movers:RegisterBuffTrackerFrames()
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00" .. (L["Buff Tracker frames refreshed"] or "Buff Tracker frames refreshed") .. "|r") -- [STYLE]
+            DDingUI:Print("|cff00ff00" .. (L["Buff Tracker frames refreshed"] or "Buff Tracker frames refreshed") .. "|r") -- [STYLE]
         else
-            print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cffff6666" .. (L["Enter mover mode first (/ddmove)"] or "Enter mover mode first (/ddmove)") .. "|r") -- [STYLE]
+            DDingUI:Print("|cffff6666" .. (L["Enter mover mode first (/ddmove)"] or "Enter mover mode first (/ddmove)") .. "|r") -- [STYLE]
         end
     end
 
@@ -4284,7 +4285,7 @@ function Movers:Initialize()
         self:ReloadMappedModulePositions()
     end)
 
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: " .. "|cff00ff00로드 완료. |cffffa300/dcm|r|cff00ff00 으로 설정을 열 수 있습니다.|r") -- [STYLE]
+    DDingUI:Print("|cff00ff00로드 완료. |cffffa300/dcm|r|cff00ff00 으로 설정을 열 수 있습니다.|r") -- [STYLE]
 end
 
 local function SeedBuffBarViewerMoverConfig(viewer)

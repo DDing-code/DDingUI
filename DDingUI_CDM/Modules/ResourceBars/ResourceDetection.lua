@@ -499,7 +499,7 @@ SlashCmdList["DDUIRES"] = function()
     local primary = GetPrimaryResource()
     local secondary = GetSecondaryResource()
 
-    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: Resource Debug") -- [STYLE]
+    DDingUI:Print("Resource Debug") -- [STYLE]
     print("  Class: " .. tostring(playerClass))
     print("  Spec Index: " .. tostring(spec))
     print("  Spec ID: " .. tostring(specID))

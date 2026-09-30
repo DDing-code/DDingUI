@@ -5,6 +5,15 @@ local Base = DDingUI.GUIBase
 local L = Base.L
 local FLAT = Base.FLAT
 local THEME = Base.THEME
+local SL = _G.DDingUI_StyleLib -- [STYLE] indicator / row hover (StyleLib 1.2)
+-- [STYLE] StyleLib 1.3 rounded cards (helpers from GUIWidgets)
+local RADIUS = Base.RADIUS or { card = 10, row = 8 }
+local RoundFrame = Base.RoundFrame
+local RoundTexture = Base.RoundTexture
+local TintTexture = Base.TintTexture or function(tex, r, g, b, a) tex:SetColorTexture(r, g, b, a or 1) end
+local ROUNDED = SL and SL.Rounded ~= false and RoundFrame ~= nil
+local ROW_INSET = ROUNDED and 4 or 1
+local PILL_ALPHA = 0.18
 
 local GROUP_LABEL_KEYS = {
     Cooldowns = "Essential Cooldowns",
@@ -26,9 +35,15 @@ local function SetSurface(frame, background, border)
     frame:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
 end
 
+--- [STYLE] Card surface: rounded when StyleLib 1.3 is available.
+local function SetCard(frame, background, border)
+    SetSurface(frame, background, border)
+    if ROUNDED then RoundFrame(frame, RADIUS.card) end
+end
+
 local function CreateText(parent, size, color, justify)
     local text = parent:CreateFontString(nil, "OVERLAY")
-    text:SetFont(FontPath(), size, "")
+    text:SetFont(FontPath(), math.max(12, tonumber(size) or 12), "") -- [STYLE] settings text >= 12pt
     text:SetTextColor(color[1], color[2], color[3], color[4] or 1)
     text:SetJustifyH(justify or "LEFT")
     return text
@@ -48,6 +63,7 @@ local function CreateButton(parent, label, accent)
     button:SetHeight(26)
     local border = accent and THEME.accent or THEME.focus
     SetSurface(button, THEME.input, border)
+    if ROUNDED then RoundFrame(button, RADIUS.control or 6) end -- [STYLE]
     button.label = CreateText(button, 10, { 0.83, 0.85, 0.89, 1 }, "CENTER")
     button.label:SetPoint("CENTER")
     button.label:SetText(label)
@@ -164,22 +180,26 @@ local function CreateNavigationIcon(parent, iconKey)
     return icon
 end
 
+local CATEGORY_BG_NORMAL = ROUNDED and { 1, 1, 1, 0 } -- [STYLE]
+    or { THEME.panelStrong[1], THEME.panelStrong[2], THEME.panelStrong[3], 0 }
+local CATEGORY_BG_HOVER = ROUNDED and { 1, 1, 1, 0.05 }
+    or { THEME.panelStrong[1], THEME.panelStrong[2], THEME.panelStrong[3], 0.45 }
+
 local function CreateCategoryButton(parent, definition)
     local button = CreateFrame("Button", nil, parent)
     button:SetHeight(50)
     button.background = button:CreateTexture(nil, "BACKGROUND")
     button.background:SetAllPoints()
-    button.background:SetColorTexture(THEME.panelStrong[1], THEME.panelStrong[2], THEME.panelStrong[3], 0)
-    button.accent = button:CreateTexture(nil, "ARTWORK")
-    button.accent:SetPoint("TOPLEFT")
-    button.accent:SetPoint("BOTTOMLEFT")
-    button.accent:SetWidth(3)
-    button.accent:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+    if ROUNDED and RoundTexture then RoundTexture(button.background, RADIUS.row) end -- [STYLE]
+    TintTexture(button.background, THEME.panelStrong[1], THEME.panelStrong[2], THEME.panelStrong[3], 0)
+    -- [STYLE] per-button accent bar replaced by the rail's sliding indicator
     button.icon = CreateNavigationIcon(button, definition.icon)
     button.icon:SetPoint("LEFT", button, "LEFT", 12, 0)
-    button.label = CreateText(button, 11, { 0.72, 0.74, 0.79, 1 })
+    button.label = CreateText(button, 12, { 0.72, 0.74, 0.79, 1 })
+    -- [STYLE] single LEFT anchor + width (rail 168 - 2*inset - 50 left - 8 right) for the hover nudge
     button.label:SetPoint("LEFT", button.icon, "RIGHT", 8, 0)
-    button.label:SetPoint("RIGHT", button, "RIGHT", -8, 0)
+    button.label:SetWidth(168 - ROW_INSET * 2 - 50 - 8)
+    button.label:SetWordWrap(false)
     button.label:SetText(T(definition.label, definition.fallback))
 
     function button:SetAvailable(available)
@@ -188,27 +208,46 @@ local function CreateCategoryButton(parent, definition)
         self:SetAlpha(self._available and 1 or 0.36)
     end
 
-    function button:SetActive(active)
-        self._active = active == true
-        self.accent:SetShown(self._active)
-        self.background:SetAlpha(self._active and 0.9 or 0)
+    local function ApplyColors(self, keepBackground)
         if self._active then
+            if ROUNDED then -- [STYLE] the pill marks the selection
+                TintTexture(self.background, 0, 0, 0, 0)
+            else
+                self.background:SetColorTexture(THEME.panelStrong[1], THEME.panelStrong[2], THEME.panelStrong[3], 0.9)
+            end
             self.icon:SetIconColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
             self.label:SetTextColor(0.97, 0.98, 1, 1)
         else
+            if not keepBackground then
+                TintTexture(self.background, THEME.panelStrong[1], THEME.panelStrong[2], THEME.panelStrong[3], 0)
+            end
             self.icon:SetIconColor(0.58, 0.61, 0.67, 1)
             self.label:SetTextColor(0.72, 0.74, 0.79, 1)
         end
     end
 
+    function button:SetActive(active)
+        self._active = active == true
+        ApplyColors(self)
+    end
+
     button:SetScript("OnEnter", function(self)
         if self._available and not self._active then
-            self.background:SetAlpha(0.45)
             self.icon:SetIconColor(0.86, 0.88, 0.92, 1)
             self.label:SetTextColor(0.94, 0.95, 0.98, 1)
         end
     end)
-    button:SetScript("OnLeave", function(self) self:SetActive(self._active) end)
+    button:SetScript("OnLeave", function(self) ApplyColors(self, true) end)
+    -- [STYLE] 0.09s background fade + 2px label nudge (StyleLib 1.2)
+    if SL and SL.RowHover then
+        SL.RowHover(button, {
+            bg = button.background,
+            label = button.label,
+            normal = CATEGORY_BG_NORMAL,
+            hover = CATEGORY_BG_HOVER,
+            isActive = function(self) return self._active or not self._available end,
+        })
+    end
     button:SetAvailable(true)
     button:SetActive(false)
     return button
@@ -220,11 +259,20 @@ local function CreateSubsectionButton(parent, definition)
     button.label = CreateText(button, 10, { 0.58, 0.61, 0.67, 1 }, "CENTER")
     button.label:SetPoint("CENTER")
     button.label:SetText(T(definition.label, definition.fallback))
-    button.underline = button:CreateTexture(nil, "ARTWORK")
-    button.underline:SetPoint("BOTTOMLEFT", 6, 0)
-    button.underline:SetPoint("BOTTOMRIGHT", -6, 0)
-    button.underline:SetHeight(2)
-    button.underline:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+    if ROUNDED and RoundTexture then
+        -- [STYLE] StyleLib 1.3: the active sub-page is a rounded pill, not an underline
+        button.underline = button:CreateTexture(nil, "BACKGROUND")
+        button.underline:SetPoint("TOPLEFT", 2, -3)
+        button.underline:SetPoint("BOTTOMRIGHT", -2, 3)
+        RoundTexture(button.underline, RADIUS.row)
+        TintTexture(button.underline, THEME.accent[1], THEME.accent[2], THEME.accent[3], PILL_ALPHA)
+    else
+        button.underline = button:CreateTexture(nil, "ARTWORK")
+        button.underline:SetPoint("BOTTOMLEFT", 6, 0)
+        button.underline:SetPoint("BOTTOMRIGHT", -6, 0)
+        button.underline:SetHeight(2)
+        button.underline:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+    end
 
     function button:SetActive(active)
         self._active = active == true
@@ -382,7 +430,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     workspace:SetAllPoints(contentArea)
     workspace:SetFrameStrata("DIALOG")
     workspace:SetFrameLevel(contentArea:GetFrameLevel() + 5)
-    SetSurface(workspace, THEME.shell, THEME.border)
+    SetCard(workspace, THEME.shell, THEME.border) -- [STYLE] fills the rounded content card
     contentArea._groupWorkspace = workspace
     workspace._parentFrame = parentFrame
     workspace.selectedGroup = GetDefaultGroup()
@@ -395,7 +443,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     DDingUI._groupWorkspaceInspectorMode = nil
 
     local inspector = CreateFrame("Frame", nil, workspace, "BackdropTemplate")
-    SetSurface(inspector, THEME.panelRaised, THEME.border)
+    SetCard(inspector, THEME.panelRaised, THEME.border) -- [STYLE]
 
     local inspectorHeader = CreateFrame("Frame", nil, inspector)
     inspectorHeader:SetPoint("TOPLEFT", inspector, "TOPLEFT", 0, 0)
@@ -421,17 +469,30 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     categoryRail:SetPoint("TOPLEFT", inspectorHeader, "BOTTOMLEFT", 0, 0)
     categoryRail:SetPoint("BOTTOMLEFT", inspector, "BOTTOMLEFT", 0, 0)
     categoryRail:SetWidth(168)
-    SetSurface(categoryRail, THEME.panelStrong, THEME.border)
+    SetCard(categoryRail, THEME.panelStrong, THEME.border) -- [STYLE] shares the inspector's bottom-left corner
     local categoryTitle = CreateText(categoryRail, 9, { 0.46, 0.49, 0.55, 1 })
     categoryTitle:SetPoint("TOPLEFT", categoryRail, "TOPLEFT", 14, -12)
     categoryTitle:SetText(T("What do you want to configure?", "무엇을 설정할까요?"))
 
     local categoryButtons = {}
     local previousCategoryButton
+    -- [STYLE] one sliding selection marker; StyleLib 1.3: rounded pill under the buttons
+    if SL and SL.CreateIndicator then
+        if ROUNDED then
+            categoryRail.indicator = SL.CreateIndicator(categoryRail, 168 - ROW_INSET * 2, 50,
+                { THEME.accent[1], THEME.accent[2], THEME.accent[3], PILL_ALPHA },
+                { radius = RADIUS.row, layer = "BACKGROUND", subLevel = 1, x = ROW_INSET })
+        else
+            local indicatorLayer = CreateFrame("Frame", nil, categoryRail)
+            indicatorLayer:SetAllPoints(categoryRail)
+            indicatorLayer:SetFrameLevel(categoryRail:GetFrameLevel() + 20)
+            categoryRail.indicator = SL.CreateIndicator(indicatorLayer, 3, 50, THEME.accent, { x = 1 })
+        end
+    end
     for _, definition in ipairs(WORKSPACE_CATEGORIES) do
         local button = CreateCategoryButton(categoryRail, definition)
-        button:SetPoint("LEFT", categoryRail, "LEFT", 1, 0)
-        button:SetPoint("RIGHT", categoryRail, "RIGHT", -1, 0)
+        button:SetPoint("LEFT", categoryRail, "LEFT", ROW_INSET, 0)
+        button:SetPoint("RIGHT", categoryRail, "RIGHT", -ROW_INSET, 0)
         if previousCategoryButton then
             button:SetPoint("TOP", previousCategoryButton, "BOTTOM", 0, -1)
         else
@@ -446,6 +507,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     subsectionBar:SetPoint("TOPRIGHT", inspectorHeader, "BOTTOMRIGHT", 0, 0)
     subsectionBar:SetHeight(38)
     SetSurface(subsectionBar, THEME.panelStrong, THEME.border)
+    if ROUNDED then RoundFrame(subsectionBar, RADIUS.row) end -- [STYLE]
     subsectionBar.buttons = {}
 
     local inspectorScroll = CreateFrame("ScrollFrame", nil, inspector)
@@ -488,7 +550,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     centerHeader:SetPoint("TOPLEFT", center, "TOPLEFT", 0, 0)
     centerHeader:SetPoint("TOPRIGHT", center, "TOPRIGHT", 0, 0)
     centerHeader:SetHeight(52)
-    SetSurface(centerHeader, THEME.panelRaised, THEME.border)
+    SetCard(centerHeader, THEME.panelRaised, THEME.border) -- [STYLE]
     centerHeader.title = CreateText(centerHeader, 14, { 0.96, 0.97, 0.99, 1 })
     centerHeader.title:SetPoint("TOPLEFT", centerHeader, "TOPLEFT", 14, -10)
     centerHeader.subtitle = CreateText(centerHeader, 10, { 0.49, 0.52, 0.59, 1 })
@@ -502,11 +564,14 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
     local canvas = CreateFrame("Frame", nil, center, "BackdropTemplate")
     canvas:SetPoint("TOPLEFT", centerHeader, "BOTTOMLEFT", 0, -8)
     canvas:SetPoint("BOTTOMRIGHT", center, "BOTTOMRIGHT", 0, 32)
-    SetSurface(canvas, THEME.panel, THEME.border)
+    SetCard(canvas, THEME.panel, THEME.border) -- [STYLE]
     if canvas.SetClipsChildren then canvas:SetClipsChildren(true) end
     local canvasTitle = CreateText(canvas, 10, { 0.5, 0.53, 0.6, 1 })
     canvasTitle:SetPoint("TOPLEFT", canvas, "TOPLEFT", 12, -10)
     canvasTitle:SetText(T("Live Preview", "실시간 미리보기"))
+    -- [REFACTOR] Tells whether the icons are drawn at their in-game size or shrunk to fit.
+    local canvasScale = CreateText(canvas, 12, { 0.5, 0.53, 0.6, 1 }, "RIGHT")
+    canvasScale:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", -12, -10)
     local statusBar = CreateFrame("Frame", nil, center)
     statusBar:SetPoint("BOTTOMLEFT", center, "BOTTOMLEFT", 0, 0)
     statusBar:SetPoint("BOTTOMRIGHT", center, "BOTTOMRIGHT", 0, 0)
@@ -516,6 +581,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
 
     workspace.centerHeader = centerHeader
     workspace.canvas = canvas
+    workspace.canvasScale = canvasScale
     workspace.inspectorHeader = inspectorHeader
     workspace.inspectorScroll = inspectorScroll
     workspace.inspectorChild = inspectorChild
@@ -577,11 +643,24 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
 
     function workspace:RefreshCategoryNavigation()
         local definition, sections, currentSection, selected = self:ResolveNavigation()
+        local activeButton
         for _, category in ipairs(WORKSPACE_CATEGORIES) do
             local button = self.categoryButtons[category.key]
             if button then
                 button:SetAvailable(not category.requiresIcon or selected ~= nil)
                 button:SetActive(category.key == self.category)
+                if category.key == self.category then activeButton = button end
+            end
+        end
+        -- [STYLE] slide on user clicks only; refreshes keep the bar where it is
+        local indicator = self.categoryRail and self.categoryRail.indicator
+        if indicator then
+            if not activeButton then
+                indicator:HideIndicator()
+                indicator._ddRow = nil
+            elseif self._animateCategory or indicator._ddRow ~= activeButton or not indicator:IsShown() then
+                indicator:MoveTo(activeButton, self._animateCategory == true)
+                indicator._ddRow = activeButton
             end
         end
 
@@ -625,6 +704,13 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         local definition = CATEGORY_BY_KEY[categoryKey]
         local selected = DDingUI:GetGroupIconDetailSelection(self.selectedGroup)
         if not definition or (definition.requiresIcon and not selected) then return end
+        -- [STYLE] measure the bar on the current button, then let the refresh slide it
+        local indicator = self.categoryRail and self.categoryRail.indicator
+        local previous = self.categoryButtons[self.category]
+        if indicator and previous and self.category ~= categoryKey then
+            indicator:MoveTo(previous, false)
+        end
+        self._animateCategory = self.category ~= categoryKey
         self.category = categoryKey
         if categoryKey == "effects"
             and self.sectionByCategory.effects == "iconStyle"
@@ -633,6 +719,7 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
             self.sectionByCategory.effects = "swipe"
         end
         self:RefreshInspector()
+        self._animateCategory = nil
     end
 
     function workspace:SelectSection(sectionKey)
@@ -664,10 +751,18 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
         holder:SetWidth(math.max(280, (self.canvas:GetWidth() or 560) - 28))
         holder._onGroupIconSelected = function() self:QueueRefresh("state") end
         holder._onAssignedGridCommit = function() self:QueueRefresh(nil) end
+        -- [REFACTOR] The grid draws icons at their real on-screen size and only shrinks to fit;
+        -- canvas height minus title and add-button toolbar is the room it may use.
+        holder._maxPreviewHeight = math.max(40, (self.canvas:GetHeight() or 158) - 70)
         DDingUI:BuildGroupAssignedIconGridUI(holder, self.selectedGroup)
         holder:ClearAllPoints()
         holder:SetPoint("CENTER", self.canvas, "CENTER", 0, -6)
         self.previewHolder = holder
+        local ratio = tonumber(holder._ddPreviewSizeRatio) or 1
+        if self.canvasScale then
+            self.canvasScale:SetText(ratio >= 0.995 and T("Actual size", "실제 크기")
+                or string.format(T("Scaled to %d%%", "%d%%로 축소"), math.floor(ratio * 100 + 0.5)))
+        end
         self._previewSignature = GetGroupSignature(self.selectedGroup)
         self._observedSignature = self._previewSignature
         self._signatureStableFor = 0

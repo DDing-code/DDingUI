@@ -1,11 +1,13 @@
 ------------------------------------------------------
 -- DDingUI_StyleLib :: Animation
--- 애니메이션 헬퍼 (inspired by AbstractFramework)
+-- Shared animation helpers
 -- FadeIn/Out, SlideIn/Out, Pulse, Flash
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.SmoothResize then return end
 
 ---------------------------------------------------------------------
 -- FadeIn / FadeOut

@@ -71,6 +71,7 @@ function Consumables:CreateDraft(kind, iconData)
     local draft = { kind = kind, order = {}, enabled = {}, highRankFirst = true, fleetingFirst = true,
         healerOnly = kind == "mana" and iconData and iconData.settings and iconData.settings.healerOnly == true or false,
         itemCountMode = iconData and iconData.settings and iconData.settings.itemCountMode == "total" and "total" or "selected",
+        showItemQuality = not (iconData and iconData.settings and iconData.settings.showItemQuality == false),
         hideWhenEmpty = iconData and iconData.settings and iconData.settings.hideWhenEmpty == true or false }
     local seen = {}
     if iconData then
@@ -107,6 +108,7 @@ function Consumables:BuildPayload(draft)
     return { type = "item", id = draft.ids[1], settings = {
         fallbackItems = table.concat(fallbacks, ","), hideWhenEmpty = draft.hideWhenEmpty == true,
         itemCountMode = draft.itemCountMode == "total" and "total" or nil,
+        showItemQuality = draft.showItemQuality ~= false,
         healerOnly = draft.kind == "mana" and draft.healerOnly == true or nil,
     } }
 end
@@ -135,6 +137,7 @@ function Consumables:Edit(iconKey, onDone)
         iconData.settings.fallbackItems = payload.settings.fallbackItems
         iconData.settings.hideWhenEmpty = payload.settings.hideWhenEmpty
         iconData.settings.itemCountMode = payload.settings.itemCountMode
+        iconData.settings.showItemQuality = payload.settings.showItemQuality
         iconData.settings.healerOnly = payload.settings.healerOnly
         local ci = DDingUI.CustomIcons
         local overlay = DDingUI.CustomIconActiveEffectOverlay
@@ -160,7 +163,7 @@ function Consumables:Show(kind, iconData, onApply)
     if not window then
         window = CreateFrame("Frame", windowName, UIParent, "BackdropTemplate")
         windows[windowName] = window
-        window:SetSize(640, 626)
+        window:SetSize(640, 658)
         window:SetPoint("CENTER")
         -- [FIX] The settings workspace is DIALOG with elevated child frame levels.
         window:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -184,7 +187,7 @@ function Consumables:Show(kind, iconData, onApply)
             return text
         end
         window.title = label(18, 16, "accent")
-        window.hint = label(48, 11, "dim")
+        window.hint = label(48, 12, "dim") -- [STYLE]
         window.hint:SetText(T(kind == "mana"
             and "Choose the mana potion priority. The first potion in your bags is displayed."
             or "Check potion types and use the arrows to set priority. The first potion in your bags is displayed."))
@@ -233,10 +236,10 @@ function Consumables:Show(kind, iconData, onApply)
             window:Reorder()
         end})
         window.rank:SetPoint("TOPLEFT", 330, -164)
-        window.rules = label(193, 11, "dim")
+        window.rules = label(193, 12, "dim") -- [STYLE]
         window.rules:SetText(T("When off: regular potions first / lower rank first. Potion type order takes priority."))
         window.preview = label(228, 13)
-        window.orderLabel = label(268, 11, "dim")
+        window.orderLabel = label(268, 12, "dim") -- [STYLE]
         window.entries = {}
         for index = 1, 8 do
             local row = CreateFrame("Frame", nil, window)
@@ -271,7 +274,11 @@ function Consumables:Show(kind, iconData, onApply)
             window:Refresh()
         end})
         window.countMode:SetPoint("TOPLEFT", 330, -526)
-        window.status = label(553, 11, "dim")
+        window.quality = SL.CreateCheckbox(window, "CDM", T("Show item quality on icon"), true, {onChange = function(value)
+            if not window.refreshing then window.draft.showItemQuality = value end
+        end})
+        window.quality:SetPoint("TOPLEFT", 20, -558)
+        window.status = label(585, 12, "dim") -- [STYLE]
         window.apply = SL.CreateButton(window, "CDM", T("Apply"), function()
             if InCombatLockdown() then return end
             local payload = Consumables:BuildPayload(window.draft)
@@ -307,6 +314,7 @@ function Consumables:Show(kind, iconData, onApply)
             self.fleeting:SetChecked(d.fleetingFirst)
             self.rank:SetChecked(d.highRankFirst)
             self.empty:SetChecked(d.hideWhenEmpty)
+            self.quality:SetChecked(d.showItemQuality)
             if self.healerOnly then self.healerOnly:SetChecked(d.healerOnly) end
             self.countMode:SetValue(d.itemCountMode)
             local payload = Consumables:BuildPayload(d)
@@ -344,7 +352,7 @@ function Consumables:Show(kind, iconData, onApply)
     window.draft, window.onApply = draft, onApply
     window.profile = DDingUI.db.profile
     window.spec = GetSpecialization and GetSpecialization()
-    window:SetScale(math.min(1, UIParent:GetWidth() / 680, UIParent:GetHeight() / 660))
+    window:SetScale(math.min(1, UIParent:GetWidth() / 680, UIParent:GetHeight() / 692))
     for _, event in ipairs({"BAG_UPDATE_DELAYED", "ITEM_DATA_LOAD_RESULT", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED"}) do window:RegisterEvent(event) end
     window:Refresh()
     window:Show()

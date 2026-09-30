@@ -151,7 +151,7 @@ FrameController._isDebugLog = function() return _debugLog end
 SLASH_DDBUFFLOG1 = "/ddbufflog"
 SlashCmdList["DDBUFFLOG"] = function()
     _debugLog = not _debugLog
-    print("|cff00ff00[DDingUI] BuffLog:", _debugLog and "ON" or "OFF", "|r")
+    DDingUI:Print("|cff00ff00BuffLog:", _debugLog and "ON" or "OFF", "|r")
 end
 
 -- [DEBUG] /ddbuffwatch: 매 프레임 managed 아이콘 가시성 모니터
@@ -193,11 +193,11 @@ SlashCmdList["DDBUFFWATCH"] = function()
                 end
             end
         end)
-        print("|cff00ff00[DDingUI] BuffWatch: ON (per-frame monitoring)|r")
+        DDingUI:Print("|cff00ff00BuffWatch: ON (per-frame monitoring)|r")
     else
         _watchFrame:SetScript("OnUpdate", nil)
         wipe(_watchState)
-        print("|cff00ff00[DDingUI] BuffWatch: OFF|r")
+        DDingUI:Print("|cff00ff00BuffWatch: OFF|r")
     end
 end
 
@@ -2584,7 +2584,7 @@ end
 -- ============================================================
 SLASH_DDBUFFDUMP1 = "/ddbuffdump"
 SlashCmdList["DDBUFFDUMP"] = function()
-    local P = function(...) print("|cff00ff00[DDingUI BuffDump]|r", ...) end
+    local P = function(...) DDingUI:Print("|cff00ff00BuffDump|r", ...) end
     P("=== CDM Pool State ===")
     local viewer = _G["BuffIconCooldownViewer"]
     if not viewer then P("BuffIconCooldownViewer NOT FOUND") return end

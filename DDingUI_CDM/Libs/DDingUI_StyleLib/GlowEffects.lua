@@ -2,9 +2,11 @@
 -- DDingUI_StyleLib :: GlowEffects
 -- 글로우 효과 래퍼 (LibCustomGlow-1.0 wrapper)
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.ShowPixelGlow then return end
 
 local LCG = LibStub("LibCustomGlow-1.0", true)
 if not LCG then return end

@@ -16,18 +16,24 @@ local function RenderOptions(...)
 end
 
 local CreateTrackerLivePreview = GUI.CreateTrackerLivePreview
+-- [STYLE] StyleLib 1.3: panes that touch the rounded content card get the same card radius
+local Base = DDingUI.GUIBase or {}
+local function RoundCard(frame)
+    if Base.RoundFrame and SL.Rounded ~= false then Base.RoundFrame(frame, (Base.RADIUS or {}).card or 10) end
+end
 
 local function CreateAuraCatalogPane(parent, createScrollBar)
     local pane = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     pane:SetBackdrop({ bgFile = FLAT })
     pane:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 0.98)
+    RoundCard(pane) -- [STYLE] right edge of the content card
 
     local heading = pane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     heading:SetPoint("TOPLEFT", 12, -12)
     heading:SetText(L["Aura Catalog"] or "Aura Catalog")
     heading:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
 
-    local subtitle = pane:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local subtitle = pane:CreateFontString(nil, "OVERLAY", "GameFontDisable") -- [STYLE] 12pt
     subtitle:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -4)
     subtitle:SetText(L["Search and add tracked auras"] or "Search and add tracked auras")
     subtitle:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.9)
@@ -223,7 +229,7 @@ function ModernTrackerEditor:CreateSection(parent, yOffset, text)
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
     frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
 
-    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
     if GUI.StyleFontString then GUI.StyleFontString(label) end
     label:SetPoint("LEFT", 0, 2)
     label:SetText(text)
@@ -301,7 +307,7 @@ function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText,
         button:SetPoint("LEFT", group, "LEFT", (index - 1) * 52, 0)
         button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
         button._value = value
-        button._label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        button._label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
         if GUI.StyleFontString then GUI.StyleFontString(button._label) end
         button._label:SetPoint("CENTER", 0, 1)
         button._label:SetText(values[value] or value)
@@ -615,13 +621,14 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     leftPanel:SetWidth(SIDE_W)
     leftPanel:SetBackdrop({bgFile = FLAT})
     leftPanel:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], 1)
+    RoundCard(leftPanel) -- [STYLE] left edge of the content card
 
     local sidebarTitle = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     sidebarTitle:SetPoint("TOPLEFT", 12, -12)
     sidebarTitle:SetText(L["Custom Aura"] or "Custom Aura")
     sidebarTitle:SetTextColor(THEME.textBright[1], THEME.textBright[2], THEME.textBright[3], 1)
 
-    local sidebarCount = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local sidebarCount = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable") -- [STYLE] 12pt
     sidebarCount:SetPoint("TOPRIGHT", leftPanel, "TOPRIGHT", -12, -14)
     sidebarCount:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3], 0.9)
 
@@ -639,6 +646,9 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     previewBtn:SetBackdrop({bgFile = FLAT, edgeFile = FLAT, edgeSize = 1})
     previewBtn:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 1)
     previewBtn:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 0.6)
+    if Base.RoundFrame and SL.Rounded ~= false then -- [STYLE] control radius
+        Base.RoundFrame(previewBtn, (Base.RADIUS or {}).control or 6)
+    end
 
     local previewIcon = previewBtn:CreateTexture(nil, "ARTWORK")
     previewIcon:SetSize(14, 14)
@@ -648,6 +658,8 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     -- Preview state tracking
     local isPreviewOn = DDingUI.IsBuffTrackerPreviewEnabled and DDingUI:IsBuffTrackerPreviewEnabled() or false
     local function UpdatePreviewButtonVisual()
+        -- [REFACTOR] the live preview card can toggle the same runtime mode; read the real state
+        if DDingUI.IsBuffTrackerPreviewEnabled then isPreviewOn = DDingUI:IsBuffTrackerPreviewEnabled() end
         if isPreviewOn then
             previewBtn:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.35)
             previewBtn:SetBackdropBorderColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 0.8)
@@ -704,7 +716,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
 
     local searchBox = CreateFrame("EditBox", nil, searchInputFrame)
     searchBox:SetAllPoints()
-    searchBox:SetFontObject(GameFontNormalSmall)
+    searchBox:SetFontObject(GameFontNormal) -- [STYLE] 12pt
     searchBox:SetAutoFocus(false)
     searchBox:SetTextInsets(25, 6, 0, 0)
     searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -713,7 +725,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     end)
 
     -- placeholder
-    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisable") -- [STYLE] 12pt
     searchPlaceholder:SetPoint("LEFT", 25, 0)
     searchPlaceholder:SetText(L["Search trackers..."] or "Search trackers...")
     searchBox:SetScript("OnEditFocusGained", function() searchPlaceholder:Hide() end)
@@ -769,6 +781,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     local livePreview = CreateTrackerLivePreview(rightPanel)
     livePreview:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 10, -10)
     livePreview:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -10, -10)
+    livePreview.onPreviewModeChanged = UpdatePreviewButtonVisual -- [REFACTOR] keep the eye button in sync
 
     -- 탭 바
     local tabBar = CreateFrame("Frame", nil, rightPanel, "BackdropTemplate")
@@ -777,6 +790,9 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     tabBar:SetHeight(TAB_H)
     tabBar:SetBackdrop({bgFile = FLAT})
     tabBar:SetBackdropColor(THEME.bgMedium[1], THEME.bgMedium[2], THEME.bgMedium[3], 0.95)
+    if Base.RoundFrame and SL.Rounded ~= false then -- [STYLE] StyleLib 1.3 row radius
+        Base.RoundFrame(tabBar, (Base.RADIUS or {}).row or 8)
+    end
 
     -- 탭 콘텐츠 (스크롤 영역)
     local tabScrollFrame = CreateFrame("ScrollFrame", nil, rightPanel)
@@ -886,14 +902,15 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         local signature = livePreview.GetSignature
             and livePreview:GetSignature(entry, trackedBuffs)
             or tostring(entry)
-        if not force and self._previewSignature == signature then return end
+        -- [REFACTOR] a live copy of the runtime frame must be resampled even without setting changes
+        if not force and not livePreview.live and self._previewSignature == signature then return end
         self._previewSignature = signature
         livePreview:Refresh(entry, trackedBuffs)
     end
 
     livePreview:SetScript("OnUpdate", function(self, elapsed)
         self._refreshElapsed = (self._refreshElapsed or 0) + elapsed
-        if self._refreshElapsed < 0.2 then return end
+        if self._refreshElapsed < (self.live and 0.1 or 0.2) then return end
         self._refreshElapsed = 0
         btPanel:RefreshLivePreview()
     end)
@@ -933,7 +950,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 btn._stripe:SetPoint("BOTTOMLEFT", 0, 0)
                 btn._stripe:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
                 btn._stripe:Hide()
-                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 btn._text:SetPoint("LEFT", 10, 0)
                 btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
                 btn._text:SetJustifyH("LEFT")
@@ -1007,7 +1024,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         if not hdr then
             hdr = CreateFrame("Frame", nil, listChild)
             hdr:SetHeight(16)
-            hdr._text = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            hdr._text = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
             hdr._text:SetPoint("LEFT", 8, 0)
             hdr._text:SetJustifyH("LEFT")
             self.listButtons[btnIdx] = hdr
@@ -1059,7 +1076,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 if WR then WR.RegAccent("solid", btn._stripe) end
                 btn._stripe:Hide()
                 -- 접기/펼치기 화살표 (그룹용)
-                btn._arrow = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._arrow = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 btn._arrow:SetPoint("LEFT", 6, 0)
                 btn._arrow:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
                 btn._arrow:Hide()
@@ -1069,12 +1086,12 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 btn._icon:SetPoint("LEFT", 6, 0)
                 btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 -- 이름 텍스트
-                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 btn._text:SetPoint("LEFT", btn._icon, "RIGHT", 4, 0)
                 btn._text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
                 btn._text:SetJustifyH("LEFT")
                 -- 타입 태그 텍스트 (우측)
-                btn._typeTag = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._typeTag = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 btn._typeTag:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
                 btn._typeTag:SetJustifyH("RIGHT")
                 btn._typeTag:Hide()
@@ -1097,7 +1114,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                 btn._expandBtn = CreateFrame("Button", nil, btn)
                 btn._expandBtn:SetSize(18, ITEM_H)
                 btn._expandBtn:SetPoint("RIGHT", btn, "RIGHT", -16, 0)
-                btn._expandBtn._text = btn._expandBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._expandBtn._text = btn._expandBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 btn._expandBtn._text:SetAllPoints()
                 btn._expandBtn._text:SetJustifyH("CENTER")
                 btn._expandBtn._text:SetTextColor(THEME.textDim[1], THEME.textDim[2], THEME.textDim[3])
@@ -1352,7 +1369,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     self:SetAlpha(0.4)
                     -- 드래그 레이블
                     if not btPanel._dragLabel then
-                        btPanel._dragLabel = UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                        btPanel._dragLabel = UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                     end
                     btPanel._dragLabel:SetText("|cffcccccc" .. buffName .. "|r")
                     btPanel._dragLabel:Show()
@@ -1659,11 +1676,11 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
             local btn = f._items[i]
             if not btn then
                 btn = CreateFrame("Button", nil, f)
-                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 btn._text:SetPoint("LEFT", 8, 0)
                 btn._text:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
                 btn._text:SetJustifyH("LEFT")
-                btn._check = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                btn._check = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 btn._check:SetPoint("RIGHT", -6, 0)
                 btn._check:SetJustifyH("RIGHT")
                 btn:SetScript("OnEnter", function(self)
@@ -1949,7 +1966,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     tb._underline:SetSnapToPixelGrid(false)
                     tb._underline:SetTexelSnappingBias(0)
                 end
-                tb._label = tb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                tb._label = tb:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                 tb._label:SetPoint("CENTER", 0, 1)
                 self.tabButtons[ti] = tb
             end
@@ -2695,7 +2712,7 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
                     tb._underline:SetPoint("BOTTOMRIGHT", 0, 0)
                     tb._underline:SetColorTexture(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
                     tb._underline:Hide()
-                    tb._label = tb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    tb._label = tb:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
                     tb._label:SetPoint("CENTER", 0, 1)
                     self.tabButtons[btnIdx] = tb
                 end

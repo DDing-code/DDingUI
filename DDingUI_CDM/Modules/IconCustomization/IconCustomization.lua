@@ -467,8 +467,9 @@ local function ResolveActiveSwipeColor(custom)
     return nil
 end
 
-local function BuildEffectiveSkinSettings(icon, settings)
-    local custom = ResolveIconCustomization(icon)
+-- [REFACTOR] Pure part of BuildEffectiveSkinSettings: per-icon overrides on top of group skin
+-- settings. Shared with the options state preview (IconCustomization.ApplySkinOverrides).
+local function ApplySkinOverrides(settings, custom)
     if not custom then return settings end
     local activeStateMode = custom.activeStateMode
     local activeSwipeMode = custom.activeSwipeMode
@@ -529,6 +530,11 @@ local function BuildEffectiveSkinSettings(icon, settings)
     effective._ddIconCooldownEdgeMode = cooldownEdgeMode
     effective._ddIconCooldownFinishMode = cooldownFinishMode
     return effective
+end
+IconCustomization.ApplySkinOverrides = ApplySkinOverrides
+
+local function BuildEffectiveSkinSettings(icon, settings)
+    return ApplySkinOverrides(settings, ResolveIconCustomization(icon))
 end
 
 local function ApplyExplicitSkinVisibility(icon, settings)
@@ -897,6 +903,12 @@ local function GetDefaultBorderColor(iconFrame)
     return NormalizeColor(settings and settings.borderColor, { 0, 0, 0, 1 })
 end
 
+-- [REFACTOR] shared with the options state preview
+local function ResolveActiveBorderColor(custom)
+    return NormalizeColor(custom and custom.activeBorderColor, { 1, 0.776, 0.376, 1 })
+end
+IconCustomization.ResolveActiveBorderColor = ResolveActiveBorderColor
+
 local function ApplyActiveBorder(iconFrame, custom, active)
     local data = GetFrameData(iconFrame)
     local enabled = custom and custom.activeBorderEnabled == true
@@ -905,7 +917,7 @@ local function ApplyActiveBorder(iconFrame, custom, active)
     local borders = GetIconBorderTextures(iconFrame)
     if type(borders) ~= "table" then return end
     local color = enabled and active
-        and NormalizeColor(custom.activeBorderColor, { 1, 0.776, 0.376, 1 })
+        and ResolveActiveBorderColor(custom)
         or GetDefaultBorderColor(iconFrame)
     for _, border in ipairs(borders) do
         if border and border.SetColorTexture then
@@ -914,6 +926,20 @@ local function ApplyActiveBorder(iconFrame, custom, active)
     end
     data.activeBorderApplied = enabled and active or nil
 end
+
+-- [REFACTOR] cooldownStateEffect → icon alpha (pure), shared with the options state preview
+local function ResolveCooldownStateAlpha(custom, onCooldown)
+    local effect = custom and custom.cooldownStateEffect
+    if effect == "lowerAlphaOnCD" and onCooldown then
+        return tonumber(custom.cooldownStateAlpha) or 0.5
+    elseif effect == "hiddenOnCD" and onCooldown then
+        return 0
+    elseif effect == "hiddenReady" and not onCooldown then
+        return 0
+    end
+    return 1
+end
+IconCustomization.ResolveCooldownStateAlpha = ResolveCooldownStateAlpha
 
 local function ApplyNativeStateAppearance(iconFrame, custom, active, onCooldown, isCharge)
     if not iconFrame then return end
@@ -948,14 +974,7 @@ local function ApplyNativeStateAppearance(iconFrame, custom, active, onCooldown,
     end
 
     local effect = custom and custom.cooldownStateEffect
-    local visualAlpha = 1
-    if effect == "lowerAlphaOnCD" and onCooldown then
-        visualAlpha = tonumber(custom.cooldownStateAlpha) or 0.5
-    elseif effect == "hiddenOnCD" and onCooldown then
-        visualAlpha = 0
-    elseif effect == "hiddenReady" and not onCooldown then
-        visualAlpha = 0
-    end
+    local visualAlpha = ResolveCooldownStateAlpha(custom, onCooldown) -- [REFACTOR]
     if effect or data.cooldownStateAlphaApplied then
         SetVisualAlpha(iconFrame, visualAlpha)
         data.cooldownStateAlphaApplied = effect and true or nil

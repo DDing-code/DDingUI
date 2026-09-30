@@ -6,6 +6,10 @@ local FLAT = SL.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 local THEME = GUI.THEME
 local globalFontPath = "Fonts\\2002.TTF"
 local CreateBackdrop = GUI.CreateBackdrop
+-- [STYLE] StyleLib 1.3 rounded controls (helpers live in GUIWidgets)
+local Base = DDingUI.GUIBase or {}
+local RADIUS = Base.RADIUS or { card = 10, row = 8, control = 6 }
+local RoundFrame = Base.RoundFrame or function(frame) return frame end
 
 local function CreateStyledButton(parent, text, width, height)
     local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
@@ -16,12 +20,13 @@ local function CreateStyledButton(parent, text, width, height)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
+    RoundFrame(btn, RADIUS.control) -- [STYLE]
     btn:SetBackdropColor(SL.GetColor("widget"))
     btn:SetBackdropBorderColor(SL.GetColor("border"))
 
     local gf = DDingUI:GetGlobalFont() or globalFontPath
     btn.text = btn:CreateFontString(nil, "OVERLAY")
-    btn.text:SetFont(gf, 11, "")
+    btn.text:SetFont(gf, 12, "") -- [STYLE]
     btn.text:SetShadowOffset(1, -1)
     btn.text:SetShadowColor(0, 0, 0, 1)
     btn.text:SetPoint("CENTER")
@@ -49,12 +54,13 @@ local function CreateStyledToggle(parent, text, width)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
+    RoundFrame(btn, RADIUS.control) -- [STYLE]
     btn:SetBackdropColor(SL.GetColor("widget"))
     btn:SetBackdropBorderColor(SL.GetColor("border"))
 
     local gf = DDingUI:GetGlobalFont() or globalFontPath
     btn.text = btn:CreateFontString(nil, "OVERLAY")
-    btn.text:SetFont(gf, 11, "")
+    btn.text:SetFont(gf, 12, "") -- [STYLE]
     btn.text:SetShadowOffset(1, -1)
     btn.text:SetShadowColor(0, 0, 0, 1)
     btn.text:SetPoint("CENTER")
@@ -100,6 +106,7 @@ local function CreateStyledInput(parent, width, height, numeric)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
+    RoundFrame(container, RADIUS.control) -- [STYLE]
     container:SetBackdropColor(SL.GetColor("widget"))
     container:SetBackdropBorderColor(SL.GetColor("border"))
 
@@ -107,7 +114,7 @@ local function CreateStyledInput(parent, width, height, numeric)
     editBox:SetPoint("TOPLEFT", 6, -4)
     editBox:SetPoint("BOTTOMRIGHT", -6, 4)
     editBox:SetAutoFocus(false)
-    editBox:SetFont(gf, 11, "")
+    editBox:SetFont(gf, 12, "") -- [STYLE]
     editBox:SetShadowOffset(1, -1)
     editBox:SetShadowColor(0, 0, 0, 1)
     editBox:SetTextColor(SL.GetColor("text"))
@@ -145,11 +152,12 @@ local function CreateStyledDropdown(parent, options, width)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
+    RoundFrame(container, RADIUS.control) -- [STYLE]
     container:SetBackdropColor(SL.GetColor("widget"))
     container:SetBackdropBorderColor(SL.GetColor("border"))
 
     container.text = container:CreateFontString(nil, "OVERLAY")
-    container.text:SetFont(gf, 11, "")
+    container.text:SetFont(gf, 12, "") -- [STYLE]
     container.text:SetShadowOffset(1, -1)
     container.text:SetShadowColor(0, 0, 0, 1)
     container.text:SetPoint("LEFT", 8, 0)
@@ -158,7 +166,7 @@ local function CreateStyledDropdown(parent, options, width)
     container.text:SetTextColor(SL.GetColor("text"))
 
     local arrow = container:CreateFontString(nil, "OVERLAY")
-    arrow:SetFont(gf, 10, "")
+    arrow:SetFont(gf, 12, "") -- [STYLE]
     arrow:SetPoint("RIGHT", -6, 0)
     arrow:SetText("\226\150\188") -- ▼
     arrow:SetTextColor(SL.GetColor("dim"))
@@ -175,6 +183,7 @@ local function CreateStyledDropdown(parent, options, width)
         edgeSize = 1,
         insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
+    RoundFrame(menu, RADIUS.row) -- [STYLE]
     menu:SetBackdropColor(THEME.bgDark[1], THEME.bgDark[2], THEME.bgDark[3], THEME.bgDark[4] or 0.95)
     menu:SetBackdropBorderColor(SL.GetColor("border"))
     menu:SetFrameStrata("TOOLTIP")
@@ -192,7 +201,7 @@ local function CreateStyledDropdown(parent, options, width)
                 btn = CreateFrame("Button", nil, menu)
                 btn:SetHeight(22)
                 btn.text = btn:CreateFontString(nil, "OVERLAY")
-                btn.text:SetFont(gf, 11, "")
+                btn.text:SetFont(gf, 12, "") -- [STYLE]
                 btn.text:SetShadowOffset(1, -1)
                 btn.text:SetShadowColor(0, 0, 0, 1)
                 btn.text:SetPoint("LEFT", 8, 0)
@@ -266,6 +275,7 @@ local function CreateModalOverlay(parentFrame, width, height)
     window:SetFrameStrata("DIALOG")
     window:SetFrameLevel(overlay:GetFrameLevel() + 5)
     CreateBackdrop(window, THEME.bgDark, THEME.border)
+    RoundFrame(window, RADIUS.card) -- [STYLE]
     window:SetScript("OnMouseDown", function() end)
 
     -- 닫기 버튼
@@ -296,6 +306,7 @@ local function CreateExpandableRow(parent, rowData, expandedRef, onRepositionAll
     local row = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     row:SetHeight(ROW_HEIGHT_COLLAPSED)
     CreateBackdrop(row, THEME.bgWidget, THEME.border)
+    RoundFrame(row, RADIUS.row) -- [STYLE]
     row.spellID = rowData.spellID
     row.isExpanded = false
 
@@ -310,7 +321,7 @@ local function CreateExpandableRow(parent, rowData, expandedRef, onRepositionAll
 
     -- 스펠 이름
     local nameText = row:CreateFontString(nil, "OVERLAY")
-    nameText:SetFont(gf, 11, "")
+    nameText:SetFont(gf, 12, "") -- [STYLE]
     nameText:SetShadowOffset(1, -1)
     nameText:SetShadowColor(0, 0, 0, 1)
     nameText:SetPoint("LEFT", icon, "RIGHT", 8, 0)
@@ -320,7 +331,7 @@ local function CreateExpandableRow(parent, rowData, expandedRef, onRepositionAll
 
     -- 확장 화살표
     local arrowText = row:CreateFontString(nil, "OVERLAY")
-    arrowText:SetFont(gf, 10, "")
+    arrowText:SetFont(gf, 12, "") -- [STYLE]
     arrowText:SetPoint("RIGHT", row, "RIGHT", -32, 0)
     arrowText:SetText("\226\150\182") -- ▶
     arrowText:SetTextColor(SL.GetColor("dim"))

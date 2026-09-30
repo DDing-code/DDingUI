@@ -521,6 +521,19 @@ local function SafeColor(c, fallbackR, fallbackG, fallbackB, fallbackA)
     return fallbackR or 0, fallbackG or 0, fallbackB or 0, fallbackA or 1
 end
 
+-- [REFACTOR] Swipe colours exactly as SkinIcon/ReconcileAuraVisualSettings apply them (pure).
+-- The options state preview calls these through IconViewers so both sides stay identical.
+local function ResolveCooldownSwipeColor(settings)
+    return SafeColor(settings and settings.swipeColor, 0, 0, 0, 0.8)
+end
+
+local function ResolveAuraSwipeColor(settings, nativeColor)
+    return SafeColor((settings and settings.auraSwipeColor) or nativeColor, 1, 1, 0.5, 0.8)
+end
+
+IconViewers.ResolveCooldownSwipeColor = ResolveCooldownSwipeColor
+IconViewers.ResolveAuraSwipeColor = ResolveAuraSwipeColor
+
 local function ApplyCountdownTextStyle(icon, cooldown, settings, useDurationText)
     if not (icon and cooldown and settings) then return end
 
@@ -721,12 +734,73 @@ local function ReconcileAuraVisualSettings(icon, cooldown, cdd, settings)
     end
 
     if cooldown.SetSwipeColor then
-        local color = settings.auraSwipeColor or pid.nativeAuraSwipeColor
-        local r, g, b, a = SafeColor(color, 1, 1, 0.5, 0.8)
+        local r, g, b, a = ResolveAuraSwipeColor(settings, pid.nativeAuraSwipeColor) -- [REFACTOR]
         cdd.bypassColorHook = true
         cooldown:SetSwipeColor(r, g, b, a)
         cdd.bypassColorHook = nil
     end
+end
+
+-- [REFACTOR] SkinIcon의 종횡비/줌 크롭 계산(순수 함수). 옵션 미리보기가 같은 함수를 호출한다.
+local function ResolveSkinAspectRatio(settings)
+    local aspectRatioValue = 1.0 -- Default to square
+    -- Get aspect ratio from crop slider or convert from string format
+    if settings.aspectRatioCrop then
+        aspectRatioValue = settings.aspectRatioCrop
+    elseif settings.aspectRatio then
+        -- Convert "16:9" format to numeric ratio
+        local aspectW, aspectH = settings.aspectRatio:match("^(%d+%.?%d*):(%d+%.?%d*)$")
+        if aspectW and aspectH then
+            aspectRatioValue = tonumber(aspectW) / tonumber(aspectH)
+        end
+    end
+    return aspectRatioValue
+end
+
+local function ComputeSkinTexCoord(aspectRatioValue, zoom)
+    -- Calculate texture coordinates based on aspect ratio to prevent stretching
+    local left, right, top, bottom = 0, 1, 0, 1
+
+    if aspectRatioValue and aspectRatioValue ~= 1.0 then
+        if aspectRatioValue > 1.0 then
+            -- Wider than tall (e.g., 1.78 for 16:9) - crop top/bottom
+            local cropAmount = 1.0 - (1.0 / aspectRatioValue)
+            local offset = cropAmount / 2.0
+            top = offset
+            bottom = 1.0 - offset
+        elseif aspectRatioValue < 1.0 then
+            -- Taller than wide (e.g., 0.56 for 9:16) - crop left/right
+            local cropAmount = 1.0 - aspectRatioValue
+            local offset = cropAmount / 2.0
+            left = offset
+            right = 1.0 - offset
+        end
+    end
+
+    -- Apply zoom on top of aspect ratio crop
+    if zoom > 0 then
+        local currentWidth = right - left
+        local currentHeight = bottom - top
+        local visibleSize = 1.0 - (zoom * 2)
+
+        local zoomedWidth = currentWidth * visibleSize
+        local zoomedHeight = currentHeight * visibleSize
+
+        local centerX = (left + right) / 2.0
+        local centerY = (top + bottom) / 2.0
+
+        left = centerX - (zoomedWidth / 2.0)
+        right = centerX + (zoomedWidth / 2.0)
+        top = centerY - (zoomedHeight / 2.0)
+        bottom = centerY + (zoomedHeight / 2.0)
+    end
+    return left, right, top, bottom
+end
+
+--- CDM 아이콘 스킨과 같은 텍스처 좌표(left, right, top, bottom). 프레임 부작용 없음.
+function IconViewers.ComputeIconTexCoord(settings)
+    settings = settings or {}
+    return ComputeSkinTexCoord(ResolveSkinAspectRatio(settings), settings.zoom or 0)
 end
 
 function IconViewers:SkinIcon(icon, settings)
@@ -796,18 +870,7 @@ function IconViewers:SkinIcon(icon, settings)
     -- Calculate icon dimensions from iconSize and aspectRatio (crop slider)
     local iconSize = settings.iconSize or 40
     iconSize = iconSize + 0.01
-    local aspectRatioValue = 1.0 -- Default to square
-
-    -- Get aspect ratio from crop slider or convert from string format
-    if settings.aspectRatioCrop then
-        aspectRatioValue = settings.aspectRatioCrop
-    elseif settings.aspectRatio then
-        -- Convert "16:9" format to numeric ratio
-        local aspectW, aspectH = settings.aspectRatio:match("^(%d+%.?%d*):(%d+%.?%d*)$")
-        if aspectW and aspectH then
-            aspectRatioValue = tonumber(aspectW) / tonumber(aspectH)
-        end
-    end
+    local aspectRatioValue = ResolveSkinAspectRatio(settings) -- [REFACTOR]
 
     local iconWidth = iconSize
     local iconHeight = iconSize
@@ -843,41 +906,7 @@ function IconViewers:SkinIcon(icon, settings)
 
     -- Calculate texture coordinates based on aspect ratio to prevent stretching
     -- Use the same aspectRatioValue calculated above
-    local left, right, top, bottom = 0, 1, 0, 1
-
-    if aspectRatioValue and aspectRatioValue ~= 1.0 then
-        if aspectRatioValue > 1.0 then
-            -- Wider than tall (e.g., 1.78 for 16:9) - crop top/bottom
-            local cropAmount = 1.0 - (1.0 / aspectRatioValue)
-            local offset = cropAmount / 2.0
-            top = offset
-            bottom = 1.0 - offset
-        elseif aspectRatioValue < 1.0 then
-            -- Taller than wide (e.g., 0.56 for 9:16) - crop left/right
-            local cropAmount = 1.0 - aspectRatioValue
-            local offset = cropAmount / 2.0
-            left = offset
-            right = 1.0 - offset
-        end
-    end
-
-    -- Apply zoom on top of aspect ratio crop
-    if zoom > 0 then
-        local currentWidth = right - left
-        local currentHeight = bottom - top
-        local visibleSize = 1.0 - (zoom * 2)
-
-        local zoomedWidth = currentWidth * visibleSize
-        local zoomedHeight = currentHeight * visibleSize
-
-        local centerX = (left + right) / 2.0
-        local centerY = (top + bottom) / 2.0
-
-        left = centerX - (zoomedWidth / 2.0)
-        right = centerX + (zoomedWidth / 2.0)
-        top = centerY - (zoomedHeight / 2.0)
-        bottom = centerY + (zoomedHeight / 2.0)
-    end
+    local left, right, top, bottom = ComputeSkinTexCoord(aspectRatioValue, zoom) -- [REFACTOR]
 
     -- Apply texture coordinates - this zooms/crops instead of stretching
     iconTexture:SetTexCoord(left, right, top, bottom)
@@ -1307,8 +1336,7 @@ function IconViewers:SkinIcon(icon, settings)
                 pid.isAuraSwipe = true
             end
 
-            local swipeColor = settings.swipeColor
-            local sr, sg, sb, sa = SafeColor(swipeColor, 0, 0, 0, 0.8)
+            local sr, sg, sb, sa = ResolveCooldownSwipeColor(settings) -- [REFACTOR]
 
             if currentlyIsAura then
                 if settings.hideActiveState then
@@ -1566,7 +1594,7 @@ function IconViewers:SkinAllIconsInViewer(viewer)
                 local ok, err = pcall(self.SkinIcon, self, icon, settings)
                 if not ok then
                     GetIconData(icon).skinError = true
-                    print("|cffffffffDDing|r|cffffa300UI|r |cffe6731fCDM|r: |cffff4444SkinIcon error for", name, "icon:", err, "|r") -- [STYLE]
+                    DDingUI:Print("|cffff4444SkinIcon error for", name, "icon:", err, "|r") -- [STYLE]
                 end
             end
         end

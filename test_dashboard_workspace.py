@@ -187,7 +187,11 @@ addon.IconViewers={_cdData={[cooldown]={previewSwipeColor={0.9,0.5,0.2,0.7}}}}
 local group=runtime({100,200,84,20})
 group._managedIcons={a,b}; group._iconCount=2
 addon.GroupRenderer={groupFrames={Cooldowns=group},
-    IsManagedIconInLayout=function(_,f)return not f.filtered end}
+    IsManagedIconInLayout=function(_,f)return not f.filtered end,
+    -- real runtime layout helpers (loaded from GroupRenderer.lua by the harness)
+    BuildLayoutSettings=shared.GroupRenderer.BuildLayoutSettings,
+    ComputeGroupLayout=shared.GroupRenderer.ComputeGroupLayout}
+addon.IconViewers.ComputeIconTexCoord=sharedViewers.ComputeIconTexCoord
 addon.db.profile={groupSystem={groups={
     Cooldowns={iconOrder={"cdm:Merithra", "dynid:slot:13"}, rowLimit=0, aspectRatioCrop=2},
     Utility={}, Empty={}}},
@@ -450,7 +454,7 @@ local buffNode=w.nodeByKey["group:Buffs"]
 assert(#buffNode.idleVisual.icons==2, "idle preview included unrelated or stale spells")
 near(buffNode._sourceRect.height,20)
 near(buffNode._sourceRect.bottom,250)
-near(buffNode.idleVisual.icons[1].texCoord[3],0.29)
+near(buffNode.idleVisual.icons[1].texCoord[3],0.25) -- SkinIcon crop: zoom unset = 0, aspect 2
 local powerNode=w.nodeByKey.power
 near(powerNode._sourceRect.height,12) -- actual frame, not stale saved height=90
 assert(not powerNode.idleVisual.bar.leftText:IsShown())
@@ -518,6 +522,27 @@ assert(w.scripts.OnUpdate==nil)
 for _, pool in pairs(node.visual._previewPool) do
     for _,cell in ipairs(pool)do assert(not cell:IsShown())end
 end
+
+-- Section preview (resource bars): a copy of the runtime bars at real size, never a fake bar.
+addon.db.profile.powerBar={enabled=true}; addon.db.profile.secondaryPowerBar={enabled=true}
+local power=runtime({100,300,180,12},901); addon.powerBar=power
+local secondary=runtime({100,285,180,6}); secondary:Hide(); addon.secondaryPowerBar=secondary
+local holder=CreateFrame("Frame",nil,UIParent)
+local section=api.layout(holder,"resourceBars")
+section.stage.allPoints=nil; section.stage:SetSize(640,90)
+section:Refresh("primary")
+local live,idle=section.nodes[1],section.nodes[2]
+assert(live.descriptor.key=="power" and live:IsShown() and not live._idle, "live power bar not copied")
+near(live.width,180); near(live.height,12)
+assert(section.sizeRatio==1, "section preview should show the actual size when it fits")
+assert(live.visual._previewPool.Texture[1].visual.texture==901)
+assert(live.highlight:IsShown() and not idle.highlight:IsShown())
+assert(idle._idle and idle.idleVisual:IsShown(), "hidden secondary bar lost its idle surface")
+assert(not idle.idleVisual.bar.leftText:IsShown(), "idle bar invented a value")
+addon.powerBar=nil; addon.secondaryPowerBar=nil; addon.db.profile.powerBar.enabled=false
+addon.db.profile.secondaryPowerBar.enabled=false
+section:Refresh(nil)
+assert(section.hint:IsShown() and not live:IsShown(), "empty section preview must explain itself")
 """
 
 
@@ -541,8 +566,19 @@ def test_dashboard_workspace():
         GetUsableSpellAssignment(gs,"stale")
         assert(gs.spellAssignments.stale==nil and dirty==1, "existing editor cleanup changed")
     ''')
-    layout = group_source.split("local ASSIGNED_DIRECTION_RULES =", 1)[1]
-    layout = "local ASSIGNED_DIRECTION_RULES =" + layout.split("local function AssignedGridSetEdges", 1)[0]
+    # The idle buff preview uses the runtime layout/crop, so load those real pure functions.
+    shared = lua.eval("{db=addon.db}")
+    renderer_source = (ROOT / "DDingUI_CDM/Modules/GroupSystem/GroupRenderer.lua").read_text(encoding="utf-8-sig")
+    lua.execute("realCreateFrame=CreateFrame; CreateFrame=function(...) local f=realCreateFrame(...);"
+                " f.RegisterEvent=f.RegisterEvent or function() end; return f end")
+    lua.execute(renderer_source, "DDingUI_CDM", lua.table(Addon=shared))
+    lua.execute("CreateFrame=realCreateFrame")
+    lua.globals().shared = shared
+    skin_source = (ROOT / "DDingUI_CDM/Modules/IconViewers/IconSkinning.lua").read_text(encoding="utf-8")
+    skin_crop = skin_source.split("local function ResolveSkinAspectRatio", 1)[1].split("function IconViewers:SkinIcon", 1)[0]
+    lua.execute("sharedViewers={}; local IconViewers=sharedViewers; local function ResolveSkinAspectRatio" + skin_crop)
+    layout = group_source.split("-- Runtime-shaped assigned icon preview.", 1)[1]
+    layout = layout.split("local function AssignedGridSetEdges", 1)[0]
     lua.execute('''
         local DDingUI=addon
         local function GetGS()return addon.db.profile.groupSystem end
@@ -555,7 +591,7 @@ def test_dashboard_workspace():
     for name in ("DashboardPreview.lua", "SectionWorkspace.lua"):
         source = (ROOT / "DDingUI_CDM_Option" / name).read_text(encoding="utf-8")
         if name == "SectionWorkspace.lua":
-            source += "\nreturn {create=CreateDashboardWorkspace, build=BuildDashboardDescriptors, viewport=DashboardViewportRect}"
+            source += "\nreturn {create=CreateDashboardWorkspace, build=BuildDashboardDescriptors, viewport=DashboardViewportRect, layout=CreateLayoutPreview}"
             lua.globals().api = lua.execute(source, "DDingUI_CDM_Option", ns)
         else:
             lua.execute(source, "DDingUI_CDM_Option", ns)

@@ -12,7 +12,7 @@ def main():
     lua.execute('''
         local frame=getmetatable(UIParent)
         for _,key in ipairs({"SetShadowOffset","SetShadowColor","SetClampedToScreen","SetMovable",
-            "RegisterForDrag","StartMoving","StopMovingOrSizing"}) do frame[key]=function()end end
+            "RegisterForDrag","RegisterForClicks","StartMoving","StopMovingOrSizing"}) do frame[key]=function()end end
         frame.SetEnabled=function(self,value)self.enabled=value end
         frame.SetFrameStrata=function(self,value)self.strata=value end
         frame.GetFrameStrata=function(self)return self.strata or (self.parent and self.parent:GetFrameStrata()) or "MEDIUM" end
@@ -70,6 +70,24 @@ def main():
         addon.CustomIcons={}
         addon.db.profile={dynamicIcons={iconData={}}}
         GameTooltip.SetItemByID=function()end
+        -- Native helper contract: no-quality items do not clear the previous texture.
+        qualities={[241305]="rank1",[241304]="rank2",[271884]="new-rank2"}
+        function UpdateQualityVisibility(holder)
+            holder.ProfessionQualityOverlay:SetShown(holder.isProfessionItem and holder.alwaysShowProfessionsQuality)
+        end
+        function SetItemCraftingQualityOverlay(holder,id)
+            holder.isProfessionItem=qualities[id]~=nil
+            if not holder.isProfessionItem then return end
+            holder.ProfessionQualityOverlay=holder.ProfessionQualityOverlay or holder:CreateTexture()
+            holder.ProfessionQualityOverlay:SetAtlas(qualities[id])
+            UpdateQualityVisibility(holder)
+        end
+        function ClearItemCraftingQualityOverlay(holder)
+            if holder.ProfessionQualityOverlay then
+                holder.ProfessionQualityOverlay:SetTexture(nil)
+                holder.ProfessionQualityOverlay:Hide()
+            end
+        end
     ''')
     ns = lua.table(Addon=lua.globals().addon)
     for name in ('Core', 'Colors', 'ColorNames', 'Widgets'):
@@ -273,7 +291,9 @@ def main():
         addon.CustomIconActiveEffectOverlay=nil
         local frame=CreateFrame("Frame",nil,UIParent)
         frame.icon=frame:CreateTexture();frame.cooldown=CreateFrame("Cooldown",nil,frame)
-        frame.count=frame:CreateFontString();frame.count:SetFont("font.ttf",12,"")
+        frame.Applications=CreateFrame("Frame",nil,frame)
+        frame.count=frame.Applications:CreateFontString();frame.count:SetFont("font.ttf",12,"")
+        qualityTestFrame=frame
         p.settings.hideWhenEmpty=true
         for _,mode in ipairs({"selected","total"}) do
         p.settings.itemCountMode=mode
@@ -283,17 +303,53 @@ def main():
             assert(frame.icon:GetTexture()==241305 and frame.cooldownOwner==241305 and cooldownItem==241305)
             assert(frame.count:GetText()==7 and frame.cooldown:IsShown() and frame:IsShown())
             assert(frame.cooldown.duration==30 and frame.icon:GetDesaturation()==1)
+            assert(frame.Applications.ProfessionQualityOverlay:GetAtlas()=="rank1")
+            assert(frame.Applications.ProfessionQualityOverlay:IsShown())
             bag[241304]=3;TestUpdateItemIcon(frame,p)
             assert(frame.icon:GetTexture()==241304 and frame.cooldownOwner==241304 and cooldownItem==241304)
             assert(frame.count:GetText()==(mode=="total" and 10 or 3) and frame._ddCombatItemCount==3)
             assert(not frame._ddItemCountEmpty and frame:IsShown())
+            assert(frame.Applications.ProfessionQualityOverlay:GetAtlas()=="rank2")
             bag={};TestUpdateItemIcon(frame,p);assert(not frame:IsShown())
             bag={[271884]=2};hasCooldown=false;TestUpdateItemIcon(frame,p)
             assert(frame:IsShown() and frame.icon:GetTexture()==271884 and frame.count:GetText()==2)
             assert(not frame.cooldown:IsShown() and frame.icon:GetDesaturation()==0)
+            assert(frame.Applications.ProfessionQualityOverlay:GetAtlas()=="new-rank2")
         end
         end
         p.settings.showCharges=false;TestUpdateItemIcon(frame,p);assert(not frame.count:IsShown())
+        assert(frame.Applications.ProfessionQualityOverlay:IsShown(), "hiding count must preserve quality")
+        TestUpdateItemIcon(frame,{id=5512,settings={}})
+        assert(not frame.Applications.ProfessionQualityOverlay:IsShown(), "unranked item must clear stale quality")
+        qualities[271884]=nil;TestUpdateItemIcon(frame,p)
+        assert(not frame.Applications.ProfessionQualityOverlay:IsShown())
+        qualities[271884]="loaded-rank2";TestUpdateItemIcon(frame,p)
+        assert(frame.Applications.ProfessionQualityOverlay:GetAtlas()=="loaded-rank2")
+
+        -- Real option callbacks save per-icon quality, refresh immediately and preserve cancellation.
+        combat=false
+        for _,kind in ipairs({"health","stat","mana"}) do
+            local data=c:BuildPayload(c:CreateDraft(kind))
+            assert(data.settings.showItemQuality==true)
+            data.settings.showItemQuality=nil -- Existing icons default to enabled.
+            addon.db.profile.dynamicIcons.iconData.quality=data
+            ci.RefreshDynamicIcon=function(_,key)assert(key=="quality");TestUpdateItemIcon(frame,data)end
+            bag={[data.id]=3};qualities[data.id]="rank2"
+            TestUpdateItemIcon(frame,data)
+            c:Edit("quality");local window=kind=="mana" and m or w
+            assert(window.quality:GetChecked() and window.quality.label:GetText()=="아이콘 품질 표시")
+            click(window.quality.box);click(window.cancel)
+            assert(data.settings.showItemQuality==nil and frame.Applications.ProfessionQualityOverlay:IsShown())
+            c:Edit("quality");click(window.quality.box);click(window.apply)
+            assert(data.settings.showItemQuality==false and not frame.Applications.ProfessionQualityOverlay:IsShown())
+            UpdateQualityVisibility(frame.Applications)
+            assert(not frame.Applications.ProfessionQualityOverlay:IsShown(), "native callbacks must honor disabled quality")
+            assert(frame.icon:GetTexture()==data.id and frame.count:GetText()==3)
+            c:Edit("quality");assert(not window.quality:GetChecked())
+            click(window.quality.box);click(window.apply)
+            assert(data.settings.showItemQuality==true and frame.Applications.ProfessionQualityOverlay:IsShown())
+            c:Edit("quality");assert(window.quality:GetChecked());click(window.cancel)
+        end
     ''')
     # Follow the real add-menu -> draft -> existing group insertion path.
     options = (ROOT / 'DDingUI_CDM_Option/GroupSystemOptions.lua').read_text(encoding='utf-8-sig')
@@ -329,10 +385,12 @@ def main():
         assert(submenu and submenu[1].action())
         assert(added==0, "opening the priority dialog must not create an icon")
         selectCount(w,"total")
+        click(w.quality.box)
         click(w.apply)
         local new=addon.db.profile.dynamicIcons.iconData.added
         assert(added==1 and new.id==245898 and new.settings.fallbackItems=="245897,241308,241309,245902,245903,241288,241289")
         assert(new.settings.itemCountMode=="total")
+        assert(new.settings.showItemQuality==false)
         assert(addedToken=="added" and addedRefresh=="added")
         submenu[2].action();click(w.cancel);assert(added==1)
         assert(not addon:ShowConsumableGroupOptions("Deleted","health"))
@@ -357,11 +415,37 @@ def main():
     ''')
     # The same role check controls frame creation, standalone layout and the real group bridge.
     lua.execute((ROOT / 'DDingUI_CDM/Modules/CustomIcons/FrameLifecycle.lua').read_text(encoding='utf-8-sig'), 'test', ns)
+    # An asynchronous item-data response must retry quality without a bag change/reload.
+    lua.execute('''
+        local DDingUI,CustomIcons=addon,ci
+        local runtime={}
+        getmetatable(UIParent).RegisterUnitEvent=function()end
+        local function RebuildTimeSpiralGlowFilters()end
+        local function HandleCustomTimedAuraEvent()return false end
+        local function HasItemCooldownIcon()return true,false end
+        local function RefreshItemCooldownIcons()
+            TestUpdateItemIcon(qualityTestFrame,{id=271884,settings={}})
+        end
+    ''' + custom[custom.index('local function SetCustomIconEventsEnabled'):custom.index('local function BuildTimedAuraDebugBucket')] + '''
+        EnsureEventFrame()
+        assert(runtime.eventFrame.events.ITEM_DATA_LOAD_RESULT)
+        qualities[271884]="async-rank2"
+        runtime.eventFrame.scripts.OnEvent(runtime.eventFrame,"ITEM_DATA_LOAD_RESULT",271884,true)
+        assert(qualityTestFrame.Applications.ProfessionQualityOverlay:GetAtlas()=="async-rank2")
+    ''')
     lua.execute('''
         local function ensure(data)
             data.settings=data.settings or {};data.settings.loadConditions=data.settings.loadConditions or {}
         end
-        local _,loadable,spawn=addon.CustomIconFrameLifecycle.Create({},ci,nil,nil,ensure)
+        local pool={iconFramePool={}}
+        local _,loadable,spawn,release=addon.CustomIconFrameLifecycle.Create(pool,ci,nil,nil,ensure)
+        ci.StopTrackedTrinketEffectGlow=function()end
+        ci.HideManagedIconBorderLayers=function()end
+        release("quality",qualityTestFrame)
+        local holder=qualityTestFrame.Applications
+        assert(pool.iconFramePool[1]==qualityTestFrame and not holder.ProfessionQualityOverlay:IsShown())
+        UpdateQualityVisibility(holder)
+        assert(not holder.ProfessionQualityOverlay:IsShown(), "native callback must not revive a pooled badge")
         ci.IsIconLoadable=function(_,data)return loadable(data)end
         TestShouldSpawn=spawn
         local db=addon.db.profile.dynamicIcons

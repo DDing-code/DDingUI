@@ -272,3 +272,44 @@ function Preview.Paint(host, sources, bounds, scale, color)
     end
     return painted, partial
 end
+
+-- [REFACTOR] Union rectangle (UIParent units) of the readable frames, or nil.
+function Preview.UnionRect(frames)
+    local left, right, bottom, top
+    for _, frame in ipairs(frames or {}) do
+        local rect = Preview.Rect(frame)
+        if rect then
+            left = left and math.min(left, rect.left) or rect.left
+            right = right and math.max(right, rect.left + rect.width) or rect.left + rect.width
+            bottom = bottom and math.min(bottom, rect.bottom) or rect.bottom
+            top = top and math.max(top, rect.bottom + rect.height) or rect.bottom + rect.height
+        end
+    end
+    if left then return { left = left, bottom = bottom, width = right - left, height = top - bottom } end
+end
+
+--- [REFACTOR] Copy runtime frames into host at their real on-screen size, centred, and shrink
+-- only when they do not fit. Returns painted, partial, sizeRatio (1 = actual size) or nil ratio
+-- when nothing readable was found.
+function Preview.PaintFit(host, sources, color, padding)
+    local bounds = Preview.UnionRect(sources)
+    local hostW, hostH = Read(host, "GetWidth") or 0, Read(host, "GetHeight") or 0
+    if not bounds or hostW <= 1 or hostH <= 1 then
+        Preview.Clear(host)
+        return 0, bounds == nil and #(sources or {}) > 0, nil
+    end
+    padding = padding or 8
+    local uiScale = Read(UIParent, "GetEffectiveScale") or 1
+    local hostScale = Read(host, "GetEffectiveScale") or 1
+    local trueScale = hostScale > 0 and uiScale / hostScale or 1
+    local fit = math.min(1,
+        math.max(1, hostW - padding * 2) / math.max(1, bounds.width * trueScale),
+        math.max(1, hostH - padding * 2) / math.max(1, bounds.height * trueScale))
+    local scale = trueScale * math.max(0.05, fit)
+    local view = {
+        left = bounds.left - (hostW / scale - bounds.width) / 2,
+        bottom = bounds.bottom - (hostH / scale - bounds.height) / 2,
+    }
+    local painted, partial = Preview.Paint(host, sources, view, scale, color)
+    return painted, partial, fit
+end

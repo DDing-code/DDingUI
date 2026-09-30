@@ -3,9 +3,11 @@
 -- Pixel-perfect rendering system
 -- DDingUI PP / PanelPP 시스템 완전 이식 + 기존 API 하위 호환
 ------------------------------------------------------
+local ADDON_NAME = ...
 local MAJOR = "DDingUI-StyleLib-1.0"
 local Lib = LibStub:GetLibrary(MAJOR)
 if not Lib then return end
+if Lib.__ddingStyleLibLoadOwner ~= ADDON_NAME and Lib.PP then return end
 
 local GetPhysicalScreenSize = GetPhysicalScreenSize
 local math_floor = math.floor

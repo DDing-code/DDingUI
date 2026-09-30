@@ -237,6 +237,7 @@ local function ResolveColor(settings)
     end
     return GOLD[1], GOLD[2], GOLD[3], GOLD[4]
 end
+ActiveEffectOverlay.ResolveSwipeColor = ResolveColor -- [REFACTOR] shared with the options state preview
 
 local function SyncFrameLevels(frame, overlay)
     local baseLevel = frame:GetFrameLevel() or 0
