@@ -380,7 +380,7 @@ function DeathAlert:HandleDeath(deadGUID, fallbackName)
     DeathAlert:ShowMessage(iconStr .. coloredName .. " 사망!", role, name)
 
     if db.enableChatAlert then
-        print((ns.prefix or "") .. "|cffff0000[사망]|r " .. iconStr .. coloredName)
+        ns.Print("|cffff0000[사망]|r " .. iconStr .. coloredName) -- [STYLE] 공통 접두사 (ns.prefix 미정의 수정)
     end
 end
 

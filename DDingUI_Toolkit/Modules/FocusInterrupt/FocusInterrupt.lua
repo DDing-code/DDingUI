@@ -18,8 +18,7 @@ local L  = ns.L
 local SL = _G.DDingUI_StyleLib
 local SL_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
 local SL_FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("QoC", "QoC")
-    or "|cffffffffDDing|r|cffffa300UI|r |cffd93380QoC|r: "
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 
 local FocusInterrupt = {}
 FocusInterrupt.name = "FocusInterrupt"

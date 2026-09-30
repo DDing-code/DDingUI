@@ -3,7 +3,7 @@
 -- Namespace, accent preset registration, addon registry
 ------------------------------------------------------
 local ADDON_NAME = ...
-local MAJOR, MINOR = "DDingUI-StyleLib-1.0", 3
+local MAJOR, MINOR = "DDingUI-StyleLib-1.0", 6 -- [REFACTOR] 시리즈 통합본 (Toolkit 기준)
 local lib, oldMinor = LibStub:NewLibrary(MAJOR, MINOR)
 if not lib then return end
 

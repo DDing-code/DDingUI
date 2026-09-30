@@ -7,6 +7,10 @@ local lines, auras = {}, {}
 local running, collecting, startedAt = false, false, 0
 local eventFrame, reportFrame
 local IsSecret = ns.IsSecretValue
+
+local function Say(msg) -- [STYLE] shared Toolkit chat prefix (Core/Core.lua)
+    ns.Print("[affix] " .. msg)
+end
 local runEvents = {
     "ENCOUNTER_TIMELINE_EVENT_ADDED", "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED",
     "ENCOUNTER_TIMELINE_EVENT_REMOVED", "ENCOUNTER_TIMELINE_STATE_UPDATED",
@@ -35,7 +39,7 @@ function Probe:Stop(reason)
         running, collecting = false, false
         eventFrame:UnregisterAllEvents()
         auras = {}
-        print("DDT affix: stopped. /ddt affix report")
+        Say("stopped. /ddt affix report") -- [STYLE]
     end
 end
 
@@ -47,7 +51,7 @@ function Probe:Record(text)
         running, collecting = false, false
         eventFrame:UnregisterAllEvents()
         auras = {}
-        print("DDT affix: log limit reached. /ddt affix report")
+        Say("log limit reached. /ddt affix report") -- [STYLE]
     end
 end
 
@@ -197,9 +201,9 @@ function Probe:OnEvent(event, arg, update)
 end
 
 function Probe:Start()
-    if running then print("DDT affix: already collecting/armed."); return end
+    if running then Say("already collecting/armed."); return end -- [STYLE]
     if not C_ChallengeMode or not C_ChallengeMode.IsChallengeModeActive then
-        print("DDT affix: ChallengeMode API unavailable."); return
+        Say("ChallengeMode API unavailable."); return -- [STYLE]
     end
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
@@ -214,7 +218,7 @@ function Probe:Start()
         eventFrame:RegisterEvent(name)
     end
     self:Context("ARMED")
-    print("DDT affix: armed for M+. /ddt affix mark when visible; report before /reload.")
+    Say("armed for M+. /ddt affix mark when visible; report before /reload.") -- [STYLE]
 end
 
 function Probe:GetReport()
@@ -225,7 +229,7 @@ function Probe:GetReport()
 end
 
 function Probe:ShowReport()
-    if InCombatLockdown() then print("DDT affix: open report out of combat."); return end
+    if InCombatLockdown() then Say("open report out of combat."); return end -- [STYLE]
     if not reportFrame then
         reportFrame = ns.UI:CreateMainFrame(UIParent, 660, 420)
         ns.UI:CreateTitleBar(reportFrame, "Affix probe")
@@ -266,8 +270,8 @@ function Probe:Command(arg)
         self:Record("MANUAL_AFFIX_MARK")
         self:SnapshotTimeline()
         self:SnapshotAuras()
-        print("DDT affix: marked.")
+        Say("marked.") -- [STYLE]
     else
-        print("DDT affix: /ddt affix on | mark (in M+) | off | report. Runtime only; /reload clears the log.")
+        Say("/ddt affix on | mark (in M+) | off | report. Runtime only; /reload clears the log.") -- [STYLE]
     end
 end

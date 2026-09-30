@@ -13,6 +13,10 @@ local ADDON_KEY = "MJToolkit"
 local Controls = {}
 ns.ToolkitControls = Controls
 
+-- [STYLE] StyleLib 1.3 rounded controls (same radii as the StyleLib widgets).
+local ROUNDED = (Lib.Rounded and Lib.MakeRounded and Lib.RoundTexture and Lib.Radius) and true or false
+local RADIUS = Lib.Radius or {}
+
 local function UnpackColor(color, fallbackAlpha)
     color = color or { 1, 1, 1, fallbackAlpha or 1 }
     return color[1] or 1, color[2] or 1, color[3] or 1, color[4] or fallbackAlpha or 1
@@ -23,7 +27,12 @@ local function Accent()
     return color[1], color[2], color[3]
 end
 
-local function ApplyBackdrop(frame, background, border)
+--- radius (optional): rounded surface via Lib.MakeRounded; SetBackdropColor keeps working. -- [STYLE]
+local function ApplyBackdrop(frame, background, border, radius)
+    if radius and ROUNDED then
+        Lib.MakeRounded(frame, radius, background or C.bg.input, border or C.border.default)
+        return
+    end
     frame:SetBackdrop({
         bgFile = SOLID,
         edgeFile = SOLID,
@@ -31,6 +40,21 @@ local function ApplyBackdrop(frame, background, border)
     })
     frame:SetBackdropColor(UnpackColor(background or C.bg.input))
     frame:SetBackdropBorderColor(UnpackColor(border or C.border.default))
+end
+
+-- Rounded fill texture for pills/highlights; tint it with TintFill. -- [STYLE]
+local function RoundFill(texture, radius)
+    if ROUNDED and texture then Lib.RoundTexture(texture, radius) end
+    return texture
+end
+
+-- Colour a fill without replacing a rounded 9-slice texture. -- [STYLE]
+local function TintFill(texture, r, g, b, a)
+    if texture._ddslRoundTex then
+        texture:SetVertexColor(r, g, b, a or 1)
+    else
+        texture:SetColorTexture(r, g, b, a or 1)
+    end
 end
 
 local function DisablePixelSnap(texture)
@@ -111,8 +135,16 @@ function Controls.CreateSectionHeader(parent, addonKey, text, opts)
     row:SetSize(560, opts.isFirst and 36 or 48)
 
     local label = MakeFont(row, F.section, { r, g, b, 1 }, text)
-    label:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 10)
     label:SetJustifyH("LEFT")
+    if ROUNDED and Lib.CreateRingBullet and opts.bullet ~= false then -- [STYLE] series ring bullet
+        local bullet = Lib.CreateRingBullet(row, ADDON_KEY, 11)
+        local indent = (bullet:GetWidth() or 13) + 7
+        label:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", indent, 10)
+        bullet:SetPoint("RIGHT", label, "LEFT", -7, 0)
+        row.bullet = bullet
+    else
+        label:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 10)
+    end
 
     local line = row:CreateTexture(nil, "ARTWORK")
     line:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 3)
@@ -140,7 +172,8 @@ function Controls.CreateButton(parent, addonKey, text, onClick, opts)
     ApplyBackdrop(
         button,
         buttonColors and { buttonColors[1], buttonColors[2], buttonColors[3], buttonColors[4] } or C.bg.input,
-        buttonColors and { buttonColors[9], buttonColors[10], buttonColors[11], buttonColors[12] } or C.border.default
+        buttonColors and { buttonColors[9], buttonColors[10], buttonColors[11], buttonColors[12] } or C.border.default,
+        RADIUS.control
     )
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
@@ -250,7 +283,7 @@ function Controls.CreateSegmentedControl(parent, addonKey, labelText, options, c
         local button = CreateFrame("Button", nil, group, "BackdropTemplate")
         button:SetPoint("TOPLEFT", group, "TOPLEFT", (index - 1) * buttonWidth, 0)
         button:SetSize(index == count and (width - ((count - 1) * buttonWidth)) or buttonWidth, 30)
-        ApplyBackdrop(button, C.bg.input, C.border.default)
+        ApplyBackdrop(button, C.bg.input, C.border.default, RADIUS.control)
         button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         button.value = option.value
 
@@ -262,8 +295,9 @@ function Controls.CreateSegmentedControl(parent, addonKey, labelText, options, c
 
         button.accent = button:CreateTexture(nil, "OVERLAY")
         button.accent:SetTexture(SOLID)
-        button.accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
-        button.accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+        local accentInset = ROUNDED and (RADIUS.control or 6) or 1 -- [STYLE] clear of the rounded corners
+        button.accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", accentInset, 1)
+        button.accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -accentInset, 1)
         button.accent:SetHeight(2)
         button.accent:SetVertexColor(r, g, b, 1)
         DisablePixelSnap(button.accent)
@@ -334,12 +368,12 @@ function Controls.CreateCheckbox(parent, addonKey, labelText, default, opts)
     local box = CreateFrame("Frame", nil, row, "BackdropTemplate")
     box:SetSize(CB.SIZE, CB.SIZE)
     box:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    ApplyBackdrop(box, { CB.BOX_R, CB.BOX_G, CB.BOX_B, 1 }, { 1, 1, 1, CB.BRD_A })
+    ApplyBackdrop(box, { CB.BOX_R, CB.BOX_G, CB.BOX_B, 1 }, { 1, 1, 1, CB.BRD_A }, RADIUS.check)
 
-    local fill = box:CreateTexture(nil, "ARTWORK")
+    local fill = RoundFill(box:CreateTexture(nil, "ARTWORK"), 2) -- [STYLE]
     fill:SetPoint("TOPLEFT", box, "TOPLEFT", CB.CHECK_INSET, -CB.CHECK_INSET)
     fill:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -CB.CHECK_INSET, CB.CHECK_INSET)
-    fill:SetColorTexture(r, g, b, 1)
+    TintFill(fill, r, g, b, 1)
     DisablePixelSnap(fill)
 
     local check = MakeFont(box, 12, C.text.highlight, "")
@@ -403,7 +437,7 @@ function Controls.CreateInputField(parent, addonKey, labelText, default, opts)
     local editBox = CreateFrame("EditBox", nil, row, "BackdropTemplate")
     editBox:SetSize(opts.inputWidth or 220, 24)
     editBox:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    ApplyBackdrop(editBox, C.bg.input, C.border.default)
+    ApplyBackdrop(editBox, C.bg.input, C.border.default, RADIUS.control)
     editBox:SetFont(F.path, math.max(1, F.normal), "")
     editBox:SetTextColor(UnpackColor(C.text.highlight))
     editBox:SetTextInsets(7, 7, 0, 0)
@@ -492,41 +526,50 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
         TRACK_R = 0.08, TRACK_G = 0.10, TRACK_B = 0.12,
         TRACK_A = 0.95, TRACK_H = 4, FILL_A = 0.75, THUMB_SZ = 12,
     }
+    -- [STYLE] Series slider spec (StyleLib 1.2): fixed short track, wide hit area, big thumb.
+    local SPEC = Lib.SliderSpec or {
+        trackWidth = 180, trackHeight = 6, hitHeight = 28,
+        thumbSize = 16, thumbHover = 18,
+        valueWidth = 56, valueHeight = 24, valueGap = 8,
+    }
     local row = CreateRow(parent, labelText, opts.height or 36)
 
     local valueBox = CreateFrame("EditBox", nil, row, "BackdropTemplate")
-    valueBox:SetSize(54, 24)
+    valueBox:SetSize(SPEC.valueWidth, SPEC.valueHeight) -- [STYLE]
     valueBox:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    ApplyBackdrop(valueBox, C.bg.input, C.border.default)
-    valueBox:SetFont(F.path, math.max(1, F.small), "")
+    ApplyBackdrop(valueBox, C.bg.input, C.border.default, RADIUS.control)
+    valueBox:SetFont(F.path, math.max(1, F.normal), "") -- [STYLE]
     valueBox:SetTextColor(UnpackColor(C.text.highlight))
     valueBox:SetTextInsets(4, 4, 0, 0)
     valueBox:SetJustifyH("CENTER")
     valueBox:SetAutoFocus(false)
 
     local track = CreateFrame("Frame", nil, row, "BackdropTemplate")
-    track:SetHeight(SL.TRACK_H)
-    track:SetPoint("LEFT", row, "CENTER", 12, 0)
-    track:SetPoint("RIGHT", valueBox, "LEFT", -18, 0)
-    ApplyBackdrop(track, { SL.TRACK_R, SL.TRACK_G, SL.TRACK_B, SL.TRACK_A }, { 0, 0, 0, 0 })
+    track:SetSize(SPEC.trackWidth, SPEC.trackHeight) -- [STYLE]
+    track:SetPoint("RIGHT", valueBox, "LEFT", -SPEC.valueGap, 0) -- [STYLE]
+    ApplyBackdrop(track, { SL.TRACK_R, SL.TRACK_G, SL.TRACK_B, SL.TRACK_A }, { 0, 0, 0, 0 }, RADIUS.track)
 
-    local fill = track:CreateTexture(nil, "ARTWORK")
+    -- [STYLE] Rounded: the fill is a pill spanning the whole track height.
+    local fill = RoundFill(track:CreateTexture(nil, "ARTWORK"), RADIUS.track)
     fill:SetPoint("LEFT", track, "LEFT", 0, 0)
-    fill:SetHeight(SL.TRACK_H)
-    fill:SetColorTexture(r, g, b, SL.FILL_A)
+    fill:SetHeight(SPEC.trackHeight) -- [STYLE]
+    TintFill(fill, r, g, b, SL.FILL_A)
     DisablePixelSnap(fill)
+    local minFill = ROUNDED and SPEC.trackHeight or 1
 
+    local hitPad = (SPEC.hitHeight - SPEC.trackHeight) / 2 -- [STYLE] 28px click area
     local slider = CreateFrame("Slider", nil, row)
-    slider:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 6)
-    slider:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, -6)
+    slider:SetPoint("TOPLEFT", track, "TOPLEFT", 0, hitPad)
+    slider:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, -hitPad)
     slider:SetOrientation("HORIZONTAL")
     slider:SetMinMaxValues(minimum, maximum)
     slider:SetValueStep(step)
     slider:SetObeyStepOnDrag(true)
     slider:EnableMouseWheel(true)
 
+    -- [STYLE] Solid accent thumb stays visible against the dark track.
     local thumb = slider:CreateTexture(nil, "OVERLAY")
-    thumb:SetSize(math.max(8, SL.THUMB_SZ - 3), SL.THUMB_SZ + 1)
+    thumb:SetSize(SPEC.thumbSize, SPEC.thumbSize)
     thumb:SetColorTexture(r, g, b, 1)
     DisablePixelSnap(thumb)
     slider:SetThumbTexture(thumb)
@@ -546,7 +589,7 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
     local function UpdateVisual(value)
         local range = maximum - minimum
         local progress = range > 0 and ((value - minimum) / range) or 0
-        fill:SetWidth(math.max(1, (track:GetWidth() or 1) * progress))
+        fill:SetWidth(math.max(minFill, (track:GetWidth() or 1) * progress))
         valueBox:SetText(string.format(formatString, value))
     end
 
@@ -573,12 +616,21 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
         if row._disabled then return end
         SetValue(slider:GetValue() + (delta > 0 and step or -step))
     end)
-    slider:SetScript("OnEnter", function()
-        thumb:SetColorTexture(1, 1, 1, 1)
-    end)
-    slider:SetScript("OnLeave", function()
-        thumb:SetColorTexture(r, g, b, 1)
-    end)
+    -- [STYLE] Hover: thumb grows 16 -> 18 px and turns white (0.09s).
+    local function ApplyThumbHover(t)
+        local size = SPEC.thumbSize + (SPEC.thumbHover - SPEC.thumbSize) * t
+        thumb:SetSize(size, size)
+        thumb:SetColorTexture(r + (1 - r) * t, g + (1 - g) * t, b + (1 - b) * t, 1)
+    end
+    if Motion and Motion.Hover then
+        Motion.Hover(slider, {
+            key = "sliderHover", duration = 0.09, ease = "outCubic",
+            apply = function(_, t) ApplyThumbHover(t) end,
+        })
+    else
+        slider:SetScript("OnEnter", function() ApplyThumbHover(1) end)
+        slider:SetScript("OnLeave", function() ApplyThumbHover(0) end)
+    end
     track:SetScript("OnSizeChanged", function()
         UpdateVisual(slider:GetValue())
     end)
@@ -633,7 +685,7 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
     local function CreateSwatch(width)
         local button = CreateFrame("Button", nil, row, "BackdropTemplate")
         button:SetSize(width or 34, 20)
-        ApplyBackdrop(button, C.bg.input, C.border.default)
+        ApplyBackdrop(button, C.bg.input, C.border.default, RADIUS.control)
         local texture = button:CreateTexture(nil, "ARTWORK")
         texture:SetPoint("TOPLEFT", button, "TOPLEFT", 3, -3)
         texture:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -3, 3)
@@ -755,7 +807,7 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
         local function CreateTextButton(width)
             local button = CreateFrame("Button", nil, row, "BackdropTemplate")
             button:SetSize(width, 20)
-            ApplyBackdrop(button, C.bg.input, C.border.default)
+            ApplyBackdrop(button, C.bg.input, C.border.default, RADIUS.control)
             button.label = MakeFont(button, F.small, C.text.normal, "")
             button.label:SetPoint("CENTER")
             return button
@@ -838,7 +890,7 @@ function Controls.CreateSearchBox(parent, width, opts)
     local r, g, b = Accent()
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     frame:SetSize(width or 220, opts.height or 28)
-    ApplyBackdrop(frame, C.bg.input, C.border.default)
+    ApplyBackdrop(frame, C.bg.input, C.border.default, RADIUS.control)
 
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetSize(14, 14)
@@ -915,6 +967,9 @@ end
 
 Controls.UnpackColor = UnpackColor
 Controls.ApplyBackdrop = ApplyBackdrop
+Controls.RoundFill = RoundFill
+Controls.TintFill = TintFill
+Controls.Rounded = ROUNDED
 Controls.MakeFont = MakeFont
 Controls.SetTooltip = SetTooltip
 Controls.EnableRightClickMouselook = EnableRightClickMouselook

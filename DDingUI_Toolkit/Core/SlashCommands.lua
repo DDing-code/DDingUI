@@ -6,8 +6,7 @@
 local addonName, ns = ...
 local DDingToolKit = ns.DDingToolKit
 local SL = _G.DDingUI_StyleLib -- [STYLE]
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: " -- [STYLE]
-local CHAT_PREFIX_ERR = "|cFFFF0000" .. ((SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: ") -- [STYLE]
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 
 -- 슬래시 커맨드 핸들러
 local function SlashHandler(msg)
@@ -109,10 +108,10 @@ local function SlashHandler(msg)
             if DDingToolKit:EnableModule(arg) then
                 print(CHAT_PREFIX .. "Module '" .. arg .. "' enabled.") -- [STYLE]
             else
-                print(CHAT_PREFIX_ERR .. "Module '" .. arg .. "' not found.") -- [STYLE]
+                ns.PrintError("Module '" .. arg .. "' not found.") -- [STYLE]
             end
         else
-            print(CHAT_PREFIX_ERR .. "Usage: /ddt enable <module>") -- [STYLE]
+            ns.PrintError("Usage: /ddt enable <module>") -- [STYLE]
         end
 
     elseif command == "disable" then
@@ -121,10 +120,10 @@ local function SlashHandler(msg)
             if DDingToolKit:DisableModule(arg) then
                 print(CHAT_PREFIX .. "Module '" .. arg .. "' disabled.") -- [STYLE]
             else
-                print(CHAT_PREFIX_ERR .. "Module '" .. arg .. "' not found.") -- [STYLE]
+                ns.PrintError("Module '" .. arg .. "' not found.") -- [STYLE]
             end
         else
-            print(CHAT_PREFIX_ERR .. "Usage: /ddt disable <module>") -- [STYLE]
+            ns.PrintError("Usage: /ddt disable <module>") -- [STYLE]
         end
 
     elseif command == "list" then
@@ -157,7 +156,7 @@ local function SlashHandler(msg)
         if ns.ToolkitMovers then
             ns.ToolkitMovers:ToggleConfigMode()
         else
-            print(CHAT_PREFIX_ERR .. "Movers not loaded.") -- [STYLE]
+            ns.PrintError("Movers not loaded.") -- [STYLE]
         end
 
     else

@@ -697,6 +697,7 @@ L["TALENTBG_MODE_GLOBAL"] = "Global"
 L["TALENTBG_SELECT_IMAGE"] = "Select Image"
 L["TALENTBG_CURRENT_SPEC"] = "Current Spec"
 L["TALENTBG_PREVIEW"] = "Preview"
+L["TALENTBG_NO_SELECTION"] = "No selection"
 
 -- ==========================================
 -- LFGAlert Module
@@ -902,6 +903,7 @@ L["GROWTH_RIGHT"] = "Right"
 -- ==========================================
 L["ADD"] = "Add"
 L["APPLY"] = "Apply"
+L["APPLIED"] = "Applied" -- [STYLE]
 L["CANCEL"] = "Cancel"
 L["CLOSE"] = "Close"
 L["DELETE"] = "Delete"
@@ -1770,3 +1772,5 @@ L["RPT_CHAOS_BRAND"] = "Chaos Brand"
 L["RPT_HUNTERS_MARK"] = "Hunter's Mark"
 L["RPT_DEVOTION_AURA"] = "Devotion Aura"
 L["RPT_ATROPHIC_POISON"] = "Atrophic Poison"
+L["RPT_DEMONIC_GATEWAY"] = "Demonic Gateway"
+L["RPT_DEATH_GRIP"] = "Death Grip"

@@ -50,6 +50,10 @@ def calm_runtime(locale="koKR"):
         function CreateColor(...) return {...} end
         UIParent = CreateFrame("Frame")
         ns = {L={}, DDingToolKit={RegisterModule=function() end}}
+        -- Core/Core.lua shared chat helpers
+        ns.CHAT_PREFIX = "DDingUI Toolkit: "
+        function ns.Print(msg, ...) print(ns.CHAT_PREFIX .. tostring(msg), ...) end
+        function ns.PrintError(msg, ...) ns.Print(msg, ...) end
         function LibStub() return {NewLocale=function() return ns.L end} end
     ''')
     for file in ("Core/Database.lua", f"Locales/{locale}.lua", "Modules/LFGAlert/AlertFrame.lua",

@@ -80,6 +80,10 @@ def panel_runtime(locale="koKR"):
         C_Timer = {After=function(_, callback) callback() end}
         DDingUI_StyleLib = {Font={path="font.ttf"}}
         ns = {DDingToolKit={RegisterModule=function() end}, L={}, db={profile={ReadyCheckAssistant={raidLoadouts="Raid"}}}}
+        -- Core/Core.lua shared chat helpers
+        ns.CHAT_PREFIX = "DDingUI Toolkit: "
+        function ns.Print(msg, ...) print(ns.CHAT_PREFIX .. tostring(msg), ...) end
+        function ns.PrintError(msg, ...) ns.Print(msg, ...) end
         function LibStub() return {NewLocale=function() return ns.L end} end
     ''')
     lua.execute((ROOT / f"Locales/{locale}.lua").read_text(encoding="utf-8-sig"))

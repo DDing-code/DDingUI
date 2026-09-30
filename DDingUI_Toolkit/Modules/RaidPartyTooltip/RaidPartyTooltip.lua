@@ -99,6 +99,8 @@ local EXTRA_SYNERGIES = {
     { providerClass = "HUNTER", spellID = 257284, labelKey = "RPT_HUNTERS_MARK" },
     { providerClass = "PALADIN", spellID = 465, labelKey = "RPT_DEVOTION_AURA" },
     { providerClass = "ROGUE", spellID = 381637, labelKey = "RPT_ATROPHIC_POISON" },
+    { providerClass = "WARLOCK", spellID = 111771, labelKey = "RPT_DEMONIC_GATEWAY" },
+    { providerClass = "DEATHKNIGHT", spellID = 49576, labelKey = "RPT_DEATH_GRIP" },
 }
 local RECRUITMENT_EVENTS = {
     "GROUP_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED", "PLAYER_SPECIALIZATION_CHANGED",
@@ -294,6 +296,7 @@ local function NewSummary(subgroup)
         unknownClasses = 0, unknownClassesByRole = CreateUnknownClassCounts(),
         armor = { CLOTH = 0, LEATHER = 0, MAIL = 0, PLATE = 0 }, unknownArmor = 0,
         positions = { TANK = 0, MELEE = 0, RANGED = 0, HEALER = 0, UNKNOWN = 0 },
+        positionClasses = {},
         unresolvedUnits = {},
     }
 end
@@ -322,6 +325,11 @@ local function AddRecruitmentMember(summary, unit, classFile, role)
     end
     position = position or "UNKNOWN"
     summary.positions[position] = summary.positions[position] + 1
+    if classFile and classFile ~= "" then
+        local classes = summary.positionClasses[position] or {}
+        summary.positionClasses[position] = classes
+        classes[classFile] = (classes[classFile] or 0) + 1
+    end
     if position == "UNKNOWN" then summary.unresolvedUnits[#summary.unresolvedUnits + 1] = unit end
 end
 
@@ -705,6 +713,29 @@ local function HideStandalone(owner)
     if isOwned then GameTooltip:Hide() end
 end
 
+local function ShowRecruitmentCount(owner)
+    local panel = RaidPartyTooltip.recruitmentPanel
+    if not active or not panel or not panel:IsVisible() or not panel.summary or not GameTooltip then return end
+    local summary = panel.summary
+    local classes = summary.positionClasses[owner.key] or {}
+    local title = L[(owner.category == "armor" and "RPT_ARMOR_" or "RPT_POSITION_") .. owner.key]
+    if owner.category == "armor" then
+        classes = {}
+        for classFile, count in pairs(summary.classes) do
+            if CLASS_ARMOR[classFile] == owner.key then classes[classFile] = count end
+        end
+    end
+    local count = summary[owner.category][owner.key]
+    local unknown = count
+    for _, classCount in pairs(classes) do unknown = unknown - classCount end
+    local entries = BuildOrderedClassEntries(classes, unknown, db.showClassIcons ~= false)
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(title .. "  " .. string.format(L["RPT_MEMBER_COUNT"], count), 1, 1, 1)
+    if #entries == 0 then entries[1] = L["RPT_ROLE_EMPTY"] end
+    AddSingleColumnRows(GameTooltip, entries)
+    GameTooltip:Show()
+end
+
 local function HookStandalone(owner, subgroup, location)
     if not owner or type(owner.HookScript) ~= "function" then return false end
     standaloneOwners[owner] = { subgroup = subgroup, location = location }
@@ -893,12 +924,26 @@ function RaidPartyTooltip:CreateRecruitmentPanel()
     end
     Text(L["RPT_ROLE_SECTION"], 14, 55, 292, 13, P.accentText)
     panel.positions, panel.armor = {}, {}
+    panel.countTooltips = {}
+    local function AttachCountTooltip(label, category, key)
+        local area = CreateFrame("Frame", nil, panel)
+        area:SetPoint("TOPLEFT", label, "TOPLEFT", 0, 0)
+        area:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 0, 0)
+        area:EnableMouse(true)
+        if ns.EnableRightClickMouselook then ns:EnableRightClickMouselook(area) end
+        area.category, area.key = category, key
+        area:SetScript("OnEnter", ShowRecruitmentCount)
+        area:SetScript("OnLeave", HideStandalone)
+        area:SetScript("OnHide", HideStandalone)
+        panel.countTooltips[#panel.countTooltips + 1] = area
+    end
     for index, key in ipairs({"TANK", "MELEE", "RANGED", "HEALER"}) do
         local x = 14 + (index - 1) * 73
         local label = Text(L["RPT_POSITION_" .. key], x, 80, 73, 12, P.textDim)
         label:SetJustifyH("CENTER")
         panel.positions[key] = Text("0", x, 100, 73, 18, P.textBright)
         panel.positions[key]:SetJustifyH("CENTER")
+        AttachCountTooltip(panel.positions[key], "positions", key)
     end
     panel.unknownPosition = Text("", 14, 125, 292, 11, P.textDim)
     Text(L["RPT_ARMOR_SECTION"], 14, 157, 292, 13, P.accentText)
@@ -908,11 +953,13 @@ function RaidPartyTooltip:CreateRecruitmentPanel()
         label:SetJustifyH("CENTER")
         panel.armor[key] = Text("0", x, 201, 73, 18, P.textBright)
         panel.armor[key]:SetJustifyH("CENTER")
+        AttachCountTooltip(panel.armor[key], "armor", key)
     end
     panel.unknownArmor = Text("", 14, 225, 292, 11, P.textDim)
     panel.synergyTitle = Text(L["RPT_MISSING_SYNERGY"], 14, 254, 292, 13, P.accentText)
     panel.synergies = {}
-    for index = 1, 11 do
+    local synergyCount = #(ns.RaidPreparation and ns.RaidPreparation.RaidBuffs or {}) + #EXTRA_SYNERGIES
+    for index = 1, synergyCount do
         local row = CreateFrame("Frame", nil, panel)
         row:SetPoint("TOPLEFT", 14, -(278 + (index - 1) * 24))
         row:SetSize(292, 24)
@@ -943,6 +990,7 @@ function RaidPartyTooltip:CreateRecruitmentPanel()
         panel._attachedSide = nil
         panel._specRefreshElapsed = 0
         for _, row in ipairs(panel.synergies) do HideStandalone(row) end
+        for _, area in ipairs(panel.countTooltips) do HideStandalone(area) end
         ns.UI:UpdateGroupFinderSideAnchor(panel)
     end)
     panel:SetScript("OnUpdate", function(self, elapsed)
@@ -962,6 +1010,7 @@ function RaidPartyTooltip:RefreshRecruitment()
     end
     local panel = self:CreateRecruitmentPanel()
     local summary = self:CollectRecruitment()
+    panel.summary = summary
     panel._needsSpecRefresh = summary.positions.UNKNOWN > 0
     local missing = self:GetMissingSynergies(summary)
     panel.count:SetText(string.format(L["RPT_MEMBER_COUNT"], summary.total))
@@ -982,12 +1031,19 @@ function RaidPartyTooltip:RefreshRecruitment()
             local name = PublicCall(C_Spell and C_Spell.GetSpellName, spellID)
             name = type(name) == "string" and name ~= "" and name or L[definition.labelKey]
             row.text:SetText(GetClassIconMarkup(definition.providerClass) .. name)
+            local color = GetClassColor(definition.providerClass)
+            row.text:SetTextColor(color.r or color[1], color.g or color[2], color.b or color[3])
         end
     end
     panel.empty:SetShown(#missing == 0)
     panel:SetHeight(294 + math.max(1, #missing) * 24)
     panel:Show()
     self:PositionRecruitmentPanel()
+    if GameTooltip and GameTooltip:IsShown() then
+        for _, area in ipairs(panel.countTooltips) do
+            if GameTooltip:GetOwner() == area then ShowRecruitmentCount(area) end
+        end
+    end
     if panel._needsSpecRefresh then self:RequestMissingSpecializations(summary) end
 end
 

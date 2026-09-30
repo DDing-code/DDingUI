@@ -16,14 +16,22 @@ local ADDON_KEY = "MJToolkit"
 local Workspace = {}
 ns.ToolkitWorkspace = Workspace
 
-local PRIMARY_WIDTH = 190
-local MODULE_WIDTH = 240
+-- [STYLE] StyleLib 1.3 rounded workspace: three rounded cards inside a rounded window.
+local ROUNDED = (Lib.Rounded and Lib.MakeRounded and Lib.RoundTexture and Lib.Radius) and true or false
+local RADIUS = Lib.Radius or {}
+local CARD_MARGIN = ROUNDED and 8 or 1 -- window edge -> card, and card -> card gap
+local CARD_INSET = ROUNDED and 4 or 0 -- card edge -> row (pill indicator inset)
+local PRIMARY_WIDTH = ROUNDED and 182 or 190
+local MODULE_WIDTH = ROUNDED and 232 or 240
+local CARD_BG = { 0.07, 0.07, 0.078, 0.94 }
+local DETAIL_BG = { 0.125, 0.125, 0.137, 0.94 }
+local CARD_BORDER = { 1, 1, 1, 0.05 }
 local TOP_HEIGHT = 42
 local DETAIL_HEADER_HEIGHT = 86
 local PRIMARY_ROW_HEIGHT = 56
 local MODULE_ROW_HEIGHT = 48
 local RESIZE_GRIP_SIZE = 32
-local RESIZE_GRIP_MARGIN = 4
+local RESIZE_GRIP_MARGIN = ROUNDED and 10 or 4 -- [STYLE] keep the grip inside the rounded detail card
 local RESIZE_GRIP_CLEARANCE = RESIZE_GRIP_SIZE + (RESIZE_GRIP_MARGIN * 2)
 
 local ICON_ROOT = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\Navigation\\"
@@ -133,6 +141,58 @@ local function UnpackColor(color, fallbackAlpha)
     return color[1], color[2], color[3], color[4] or fallbackAlpha or 1
 end
 
+-- Row hover colours (normal -> hover) shared with Lib.RowHover. -- [STYLE]
+local PRIMARY_ROW_NORMAL = { 0, 0, 0, 0 }
+local PRIMARY_ROW_HOVER = { 0.12, 0.12, 0.14, 0.72 }
+local MODULE_ROW_NORMAL = { 0, 0, 0, 0 }
+local MODULE_ROW_HOVER = { 0.12, 0.12, 0.14, 0.68 }
+
+-- RowHover keeps its progress per key (state.progress); fallback hooks set _hoverFallback. -- [STYLE]
+local function RowHoverProgress(row)
+    local state = row._rowHover
+    return (state and state.progress) or row._hoverFallback or 0
+end
+
+local function LerpColor(fromColor, toColor, t) -- [STYLE]
+    t = math.max(0, math.min(1, tonumber(t) or 0))
+    return fromColor[1] + (toColor[1] - fromColor[1]) * t,
+        fromColor[2] + (toColor[2] - fromColor[2]) * t,
+        fromColor[3] + (toColor[3] - fromColor[3]) * t,
+        (fromColor[4] or 1) + ((toColor[4] or 1) - (fromColor[4] or 1)) * t
+end
+
+-- Title-bar GUI scale: the only saved key is profile.guiScale (default 1.0). -- [STYLE]
+local GUI_SCALE_MIN, GUI_SCALE_MAX = 0.5, 1.5
+
+local function GetSavedGuiScale() -- [STYLE]
+    local profile = ns.db and ns.db.profile
+    local value = profile and tonumber(profile.guiScale) or 1
+    return math.max(GUI_SCALE_MIN, math.min(GUI_SCALE_MAX, value))
+end
+
+local function SaveGuiScale(value) -- [STYLE]
+    local profile = ns.db and ns.db.profile
+    if profile and tonumber(value) then
+        profile.guiScale = math.max(GUI_SCALE_MIN, math.min(GUI_SCALE_MAX, tonumber(value)))
+    end
+end
+
+-- One sliding selection marker per column. -- [STYLE]
+-- Rounded: an accent pill (alpha 0.18) drawn on the card itself, so it sits below the row
+-- frames and their hover fills; it is as wide as the inset rows. Legacy: a thin bar above rows.
+local function CreateColumnIndicator(column, width, color, rowWidth)
+    if not Lib.CreateIndicator then return nil end
+    if ROUNDED and rowWidth then
+        return Lib.CreateIndicator(column, rowWidth, 20, { color[1], color[2], color[3], 0.18 }, {
+            radius = RADIUS.row or 8, layer = "BACKGROUND", subLevel = 2, x = CARD_INSET,
+        })
+    end
+    local host = CreateFrame("Frame", nil, column)
+    host:SetAllPoints(column)
+    host:SetFrameLevel(column:GetFrameLevel() + 20)
+    return Lib.CreateIndicator(host, width, 20, { color[1], color[2], color[3], 1 })
+end
+
 local function SetBackdrop(frame, background, border)
     frame:SetBackdrop({
         bgFile = SOLID,
@@ -141,6 +201,33 @@ local function SetBackdrop(frame, background, border)
     })
     frame:SetBackdropColor(UnpackColor(background))
     frame:SetBackdropBorderColor(UnpackColor(border))
+end
+
+-- Rounded surface with the backdrop colour API (SetBackdropColor keeps working). -- [STYLE]
+local function SetSurface(frame, radius, background, border)
+    if ROUNDED then
+        Lib.MakeRounded(frame, radius, background, border)
+    else
+        SetBackdrop(frame, background, border)
+    end
+end
+
+-- Rounded 9-slice fill (hover rows, pills). Lib.RowHover tints these itself. -- [STYLE]
+local function CreateRoundedFill(owner, layer, radius)
+    local texture = owner:CreateTexture(nil, layer or "BACKGROUND")
+    if ROUNDED then
+        Lib.RoundTexture(texture, radius or RADIUS.row or 8)
+    end
+    return texture
+end
+
+-- Colour a fill without replacing a rounded 9-slice texture. -- [STYLE]
+local function TintFill(texture, r, g, b, a)
+    if texture._ddslRoundTex then
+        texture:SetVertexColor(r, g, b, a or 1)
+    else
+        texture:SetColorTexture(r, g, b, a or 1)
+    end
 end
 
 local function MakeFont(parent, size, color, text)
@@ -177,12 +264,12 @@ local function CreateToggle(parent, onChanged)
     local from = Lib.GetAccent(ADDON_KEY)
     local toggle = CreateFrame("Button", nil, parent, "BackdropTemplate")
     toggle:SetSize(18, 18)
-    SetBackdrop(toggle, C.bg.widget, C.border.default)
+    SetSurface(toggle, RADIUS.check or 4, C.bg.widget, C.border.default) -- [STYLE]
 
-    local fill = toggle:CreateTexture(nil, "ARTWORK")
+    local fill = CreateRoundedFill(toggle, "ARTWORK", 3) -- [STYLE]
     fill:SetPoint("TOPLEFT", 3, -3)
     fill:SetPoint("BOTTOMRIGHT", -3, 3)
-    fill:SetColorTexture(from[1], from[2], from[3], 1)
+    TintFill(fill, from[1], from[2], from[3], 1)
 
     function toggle:SetValue(value, silent)
         self.value = value ~= false
@@ -290,9 +377,9 @@ local function CreateScrollArea(parent)
     local thumb = CreateFrame("Button", nil, track)
     thumb:SetWidth(4)
     thumb:SetPoint("TOP", track, "TOP", 0, 0)
-    local thumbTexture = thumb:CreateTexture(nil, "ARTWORK")
+    local thumbTexture = CreateRoundedFill(thumb, "ARTWORK", RADIUS.track or 2) -- [STYLE] pill thumb
     thumbTexture:SetAllPoints()
-    thumbTexture:SetColorTexture(0.48, 0.49, 0.52, 0.8)
+    TintFill(thumbTexture, 0.48, 0.49, 0.52, 0.8)
 
     local function UpdateThumb()
         local range = scroll:GetVerticalScrollRange() or 0
@@ -349,10 +436,10 @@ local function CreateScrollArea(parent)
         self:SetScript("OnUpdate", nil)
     end)
     thumb:SetScript("OnEnter", function()
-        thumbTexture:SetColorTexture(0.72, 0.73, 0.76, 1)
+        TintFill(thumbTexture, 0.72, 0.73, 0.76, 1)
     end)
     thumb:SetScript("OnLeave", function()
-        thumbTexture:SetColorTexture(0.48, 0.49, 0.52, 0.8)
+        TintFill(thumbTexture, 0.48, 0.49, 0.52, 0.8)
     end)
 
     scroll._updateThumb = UpdateThumb
@@ -428,7 +515,12 @@ function Workspace:Create(title, version, opts)
     frame:SetResizable(true)
     frame:SetResizeBounds(opts.minWidth or 930, opts.minHeight or 580)
     frame:SetClampedToScreen(true)
-    SetBackdrop(frame, C.bg.main, { 0, 0, 0, 1 })
+    -- [STYLE] Round the window before CreateTitleBar so the bar drops its square fill and accent line.
+    if ROUNDED then
+        Lib.MakeRounded(frame, RADIUS.window or 14, C.bg.main, C.border.default)
+    else
+        SetBackdrop(frame, C.bg.main, { 0, 0, 0, 1 })
+    end
     frame._ddslMotionBaseScale = frame:GetScale() or 1
 
     function frame:ShowAnimated()
@@ -449,8 +541,39 @@ function Workspace:Create(title, version, opts)
 
     frame:Hide()
 
-    local titleBar = Lib.CreateTitleBar(frame, ADDON_KEY, title, version)
+    local titleBarOpts -- [STYLE]
+    if Lib.CreateTitleScaleControl then
+        titleBarOpts = {
+            scale = {
+                min = GUI_SCALE_MIN,
+                max = GUI_SCALE_MAX,
+                step = 0.05,
+                target = frame,
+                get = GetSavedGuiScale,
+                set = function(value)
+                    SaveGuiScale(value)
+                    frame._ddslMotionBaseScale = GetSavedGuiScale()
+                end,
+            },
+        }
+    end
+    local titleBar = Lib.CreateTitleBar(frame, ADDON_KEY, title, version, titleBarOpts) -- [STYLE]
     titleBar:SetHeight(TOP_HEIGHT)
+    if titleBar.scaleControl then titleBar.scaleControl:SetWidth(184) end -- [STYLE] leave room between label and track
+
+    --- Re-apply the saved GUI scale (window create/show). -- [STYLE]
+    function frame:ApplySavedGuiScale()
+        local scale = GetSavedGuiScale()
+        self._ddslMotionBaseScale = scale
+        if self.SetBaseScale then
+            self:SetBaseScale(scale)
+        else
+            self:SetScale(scale)
+        end
+        if titleBar.scaleControl and titleBar.scaleControl.Refresh then
+            titleBar.scaleControl:Refresh()
+        end
+    end
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
     titleBar:SetScript("OnDragStart", function()
@@ -460,35 +583,59 @@ function Workspace:Create(title, version, opts)
         frame:StopMovingOrSizing()
     end)
 
+    -- [STYLE] Rounded layout: category / page / detail cards sit below the title bar, 8px from the
+    -- window edges and from each other, so no square fill touches the rounded window corners.
     local primaryFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    primaryFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -TOP_HEIGHT)
-    primaryFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
+    primaryFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_MARGIN, -TOP_HEIGHT)
+    primaryFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CARD_MARGIN, CARD_MARGIN)
     primaryFrame:SetWidth(PRIMARY_WIDTH)
-    SetBackdrop(primaryFrame, C.bg.sidebar, { 0, 0, 0, 0 })
+    SetSurface(primaryFrame, RADIUS.card or 10,
+        ROUNDED and CARD_BG or C.bg.sidebar, ROUNDED and CARD_BORDER or { 0, 0, 0, 0 })
 
+    local cardGap = ROUNDED and CARD_MARGIN or 0
     local moduleFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    moduleFrame:SetPoint("TOPLEFT", primaryFrame, "TOPRIGHT", 0, 0)
-    moduleFrame:SetPoint("BOTTOMLEFT", primaryFrame, "BOTTOMRIGHT", 0, 0)
+    moduleFrame:SetPoint("TOPLEFT", primaryFrame, "TOPRIGHT", cardGap, 0)
+    moduleFrame:SetPoint("BOTTOMLEFT", primaryFrame, "BOTTOMRIGHT", cardGap, 0)
     moduleFrame:SetWidth(MODULE_WIDTH)
-    SetBackdrop(moduleFrame, { 0.075, 0.075, 0.08, 0.98 }, { 0, 0, 0, 0 })
+    SetSurface(moduleFrame, RADIUS.card or 10,
+        ROUNDED and CARD_BG or { 0.075, 0.075, 0.08, 0.98 }, ROUNDED and CARD_BORDER or { 0, 0, 0, 0 })
 
-    local contentHeader = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    contentHeader:SetPoint("TOPLEFT", moduleFrame, "TOPRIGHT", 1, 0)
-    contentHeader:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -TOP_HEIGHT)
+    -- Detail card: header + scrolling content share one rounded surface.
+    local detailCard = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    detailCard:SetPoint("TOPLEFT", moduleFrame, "TOPRIGHT", ROUNDED and CARD_MARGIN or 1, 0)
+    detailCard:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -CARD_MARGIN, CARD_MARGIN)
+    if ROUNDED then
+        Lib.MakeRounded(detailCard, RADIUS.card or 10, DETAIL_BG, CARD_BORDER)
+        if Lib.AddWatermark then
+            detailCard.watermark = Lib.AddWatermark(detailCard, ADDON_KEY) -- [STYLE] faint series rings
+        end
+    end
+
+    local contentHeader = CreateFrame("Frame", nil, detailCard, "BackdropTemplate")
+    contentHeader:SetPoint("TOPLEFT", detailCard, "TOPLEFT", 0, 0)
+    contentHeader:SetPoint("TOPRIGHT", detailCard, "TOPRIGHT", 0, 0)
     contentHeader:SetHeight(DETAIL_HEADER_HEIGHT)
-    SetBackdrop(contentHeader, { 0.095, 0.095, 0.105, 0.98 }, { 0, 0, 0, 0 })
+    if not ROUNDED then
+        SetBackdrop(contentHeader, { 0.095, 0.095, 0.105, 0.98 }, { 0, 0, 0, 0 })
+    end
 
-    local contentFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    local contentFrame = CreateFrame("Frame", nil, detailCard, "BackdropTemplate")
     contentFrame:SetPoint("TOPLEFT", contentHeader, "BOTTOMLEFT", 0, -1)
-    contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
-    SetBackdrop(contentFrame, C.bg.main, { 0, 0, 0, 0 })
+    contentFrame:SetPoint("BOTTOMRIGHT", detailCard, "BOTTOMRIGHT", 0, 0)
+    if not ROUNDED then
+        SetBackdrop(contentFrame, C.bg.main, { 0, 0, 0, 0 })
+    end
 
-    local primaryDivider = CreateDivider(frame, "TOPLEFT", primaryFrame, "TOPRIGHT", 0, 0, true)
-    primaryDivider:SetPoint("BOTTOMLEFT", primaryFrame, "BOTTOMRIGHT", 0, 0)
-    local moduleDivider = CreateDivider(frame, "TOPLEFT", moduleFrame, "TOPRIGHT", 0, 0, true)
-    moduleDivider:SetPoint("BOTTOMLEFT", moduleFrame, "BOTTOMRIGHT", 0, 0)
-    local headerDivider = CreateDivider(contentHeader, "BOTTOMLEFT", contentHeader, "BOTTOMLEFT", 0, 0, false)
-    headerDivider:SetPoint("BOTTOMRIGHT", contentHeader, "BOTTOMRIGHT", 0, 0)
+    local moduleDivider
+    if not ROUNDED then -- the gaps between rounded cards replace the column dividers
+        local primaryDivider = CreateDivider(frame, "TOPLEFT", primaryFrame, "TOPRIGHT", 0, 0, true)
+        primaryDivider:SetPoint("BOTTOMLEFT", primaryFrame, "BOTTOMRIGHT", 0, 0)
+        moduleDivider = CreateDivider(frame, "TOPLEFT", moduleFrame, "TOPRIGHT", 0, 0, true)
+        moduleDivider:SetPoint("BOTTOMLEFT", moduleFrame, "BOTTOMRIGHT", 0, 0)
+    end
+    local headerInset = ROUNDED and 1 or 0
+    local headerDivider = CreateDivider(contentHeader, "BOTTOMLEFT", contentHeader, "BOTTOMLEFT", headerInset, 0, false)
+    headerDivider:SetPoint("BOTTOMRIGHT", contentHeader, "BOTTOMRIGHT", -headerInset, 0)
 
     local contentScroll, contentChild = CreateScrollArea(contentFrame)
     contentScroll:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, -8)
@@ -541,6 +688,9 @@ function Workspace:Create(title, version, opts)
     moduleList:SetPoint("TOPLEFT", moduleFrame, "TOPLEFT", 0, -84)
     moduleList:SetPoint("BOTTOMRIGHT", moduleFrame, "BOTTOMRIGHT", 0, 0)
 
+    local primaryIndicator = CreateColumnIndicator(primaryFrame, 3, from, PRIMARY_WIDTH - CARD_INSET * 2) -- [STYLE]
+    local moduleIndicator = CreateColumnIndicator(moduleList, 2, from, MODULE_WIDTH - CARD_INSET * 2) -- [STYLE]
+
     local function GetPanelDef(panelKey)
         return ns.ConfigTree and ns.ConfigTree.panels and ns.ConfigTree.panels[panelKey]
     end
@@ -579,18 +729,27 @@ function Workspace:Create(title, version, opts)
         return false
     end
 
+    -- Active rows keep their own colour; idle rows follow the RowHover progress. -- [STYLE]
     local function ApplyPrimaryState(row)
         local active = row.categoryKey == workspace.selectedCategory
         row.active = active
-        row.activeBar:SetShown(active)
+        if row.activeBar then row.activeBar:SetShown(active) end
         if active then
-            row.background:SetColorTexture(0.115, 0.115, 0.13, 0.96)
+            if ROUNDED then -- [STYLE] the accent pill under the row marks the selection
+                TintFill(row.background, 0, 0, 0, 0)
+            else
+                TintFill(row.background, 0.115, 0.115, 0.13, 0.96)
+            end
             row.icon:SetVertexColor(from[1], from[2], from[3], 1)
             row.label:SetTextColor(1, 1, 1, 1)
         else
-            row.background:SetColorTexture(0, 0, 0, 0)
+            TintFill(row.background, LerpColor(PRIMARY_ROW_NORMAL, PRIMARY_ROW_HOVER, RowHoverProgress(row)))
             row.icon:SetVertexColor(0.67, 0.68, 0.71, 1)
-            row.label:SetTextColor(UnpackColor(C.text.normal))
+            if RowHoverProgress(row) > 0.5 then
+                row.label:SetTextColor(0.92, 0.92, 0.94, 1)
+            else
+                row.label:SetTextColor(UnpackColor(C.text.normal))
+            end
         end
     end
 
@@ -602,82 +761,131 @@ function Workspace:Create(title, version, opts)
         row:SetHeight(PRIMARY_ROW_HEIGHT)
         row:RegisterForClicks("LeftButtonUp")
 
-        row.background = row:CreateTexture(nil, "BACKGROUND")
+        row.background = CreateRoundedFill(row, "BACKGROUND") -- [STYLE]
         row.background:SetAllPoints()
 
-        row.activeBar = row:CreateTexture(nil, "ARTWORK")
-        row.activeBar:SetPoint("TOPLEFT")
-        row.activeBar:SetPoint("BOTTOMLEFT")
-        row.activeBar:SetWidth(3)
-        row.activeBar:SetColorTexture(from[1], from[2], from[3], 1)
+        if not primaryIndicator then -- [STYLE] fallback for a StyleLib without CreateIndicator
+            row.activeBar = row:CreateTexture(nil, "ARTWORK")
+            row.activeBar:SetPoint("TOPLEFT")
+            row.activeBar:SetPoint("BOTTOMLEFT")
+            row.activeBar:SetWidth(3)
+            row.activeBar:SetColorTexture(from[1], from[2], from[3], 1)
+        end
 
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(28, 28)
-        row.icon:SetPoint("LEFT", 20, 0)
+        row.icon:SetPoint("LEFT", 20 - CARD_INSET, 0) -- [STYLE] same screen x inside the inset row
         row.icon:SetTexCoord(0, 1, 0, 1)
 
         row.label = MakeFont(row, F.normal, C.text.normal)
-        row.label:SetPoint("LEFT", row.icon, "RIGHT", 16, 0)
-        row.label:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+        row.label:SetPoint("LEFT", row.icon, "RIGHT", 16, 0) -- [STYLE] single anchor so RowHover can nudge it
+        row.label:SetWidth(PRIMARY_WIDTH - CARD_INSET - 20 - 28 - 16 - 12)
         row.label:SetJustifyH("LEFT")
+        row.label:SetWordWrap(false)
 
         row.divider = row:CreateTexture(nil, "BORDER")
         row.divider:SetPoint("BOTTOMLEFT")
         row.divider:SetPoint("BOTTOMRIGHT")
         row.divider:SetHeight(1)
         row.divider:SetColorTexture(0.20, 0.20, 0.22, 0.48)
+        row.divider:SetShown(not ROUNDED) -- [STYLE] pills replace the row separators
 
         row:SetScript("OnEnter", function(self)
             if not self.active then
-                self.background:SetColorTexture(0.12, 0.12, 0.14, 0.72)
                 self.label:SetTextColor(0.92, 0.92, 0.94, 1)
             end
         end)
-        row:SetScript("OnLeave", ApplyPrimaryState)
+        row:SetScript("OnLeave", function(self)
+            if not self.active then
+                self.label:SetTextColor(UnpackColor(C.text.normal))
+            end
+        end)
         row:SetScript("OnClick", function(self)
             workspace:SelectCategory(self.categoryKey, true)
         end)
+        if Lib.RowHover then -- [STYLE]
+            row._rowHover = Lib.RowHover(row, {
+                bg = row.background,
+                label = row.label,
+                normal = PRIMARY_ROW_NORMAL,
+                hover = PRIMARY_ROW_HOVER,
+                isActive = function(self) return self.active end,
+            })
+        else
+            row:HookScript("OnEnter", function(self)
+                self._hoverFallback = 1
+                if not self.active then TintFill(self.background, UnpackColor(PRIMARY_ROW_HOVER)) end
+            end)
+            row:HookScript("OnLeave", function(self)
+                self._hoverFallback = 0
+                if not self.active then TintFill(self.background, UnpackColor(PRIMARY_ROW_NORMAL)) end
+            end)
+        end
 
         workspace.primaryRows[index] = row
         return row
     end
 
-    local function RefreshPrimaryRows()
+    local function UpdatePrimaryIndicator(animate) -- [STYLE]
+        if not primaryIndicator then return end
+        for _, row in ipairs(workspace.primaryRows) do
+            if row.active and row:IsShown() then
+                primaryIndicator:MoveTo(row, animate)
+                return
+            end
+        end
+        primaryIndicator:HideIndicator()
+    end
+
+    local function RefreshPrimaryRows(animate)
         local topIndex = 0
         for index, category in ipairs(CATEGORY_DEFS) do
             local row = AcquirePrimaryRow(index)
             row:ClearAllPoints()
             if category.bottom then
-                row:SetPoint("BOTTOMLEFT", primaryFrame, "BOTTOMLEFT", 0, 0)
+                row:SetPoint("BOTTOMLEFT", primaryFrame, "BOTTOMLEFT", CARD_INSET, CARD_INSET)
             else
-                row:SetPoint("TOPLEFT", primaryFrame, "TOPLEFT", 0, -(topIndex * PRIMARY_ROW_HEIGHT))
+                row:SetPoint("TOPLEFT", primaryFrame, "TOPLEFT", CARD_INSET, -(CARD_INSET + topIndex * PRIMARY_ROW_HEIGHT))
                 topIndex = topIndex + 1
             end
-            row:SetPoint("RIGHT", primaryFrame, "RIGHT", 0, 0)
+            row:SetPoint("RIGHT", primaryFrame, "RIGHT", -CARD_INSET, 0)
             row.categoryKey = category.key
             row.icon:SetTexture(category.icon)
             row.label:SetText(category.label)
             row:Show()
             ApplyPrimaryState(row)
         end
+        UpdatePrimaryIndicator(animate) -- [STYLE]
     end
+
+    -- The bottom-anchored profile row moves when the window is resized. -- [STYLE]
+    primaryFrame:HookScript("OnSizeChanged", function()
+        UpdatePrimaryIndicator(false)
+    end)
 
     local function ApplyModuleState(row)
         local active = row.panelKey == workspace.selectedPanel
         local titleR, titleG, titleB = GetPanelTitleColor(row.panelKey)
         row.active = active
-        row.activeBar:SetShown(active)
+        if row.activeBar then row.activeBar:SetShown(active) end
         if active then
-            row.background:SetColorTexture(0.12, 0.12, 0.135, 0.98)
+            if ROUNDED then -- [STYLE] the accent pill under the row marks the selection
+                TintFill(row.background, 0, 0, 0, 0)
+            else
+                TintFill(row.background, 0.12, 0.12, 0.135, 0.98)
+            end
             if titleR then
                 row.label:SetTextColor(titleR, titleG, titleB, 1)
             else
                 row.label:SetTextColor(from[1], from[2], from[3], 1)
             end
         else
-            row.background:SetColorTexture(0, 0, 0, 0)
+            -- [STYLE] idle rows follow the RowHover progress
+            TintFill(row.background, LerpColor(MODULE_ROW_NORMAL, MODULE_ROW_HOVER, RowHoverProgress(row)))
             if titleR then
                 row.label:SetTextColor(titleR, titleG, titleB, 1)
+            elseif RowHoverProgress(row) > 0.5 then
+                row.label:SetTextColor(0.94, 0.94, 0.95, 1)
             else
                 row.label:SetTextColor(UnpackColor(C.text.normal))
             end
@@ -688,15 +896,27 @@ function Workspace:Create(title, version, opts)
             local enabled = ns:GetDBValue(panelDef.moduleEnableKey)
             row.toggle:SetValue(enabled == true, true)
             row.toggle:Show()
-            row.status:SetColorTexture(
-                enabled == true and 0.28 or 0.48,
-                enabled == true and 0.82 or 0.48,
-                enabled == true and 0.70 or 0.48,
-                1
-            )
+            if row.statusRing then -- [STYLE] status ring: accent when on, grey when off
+                if enabled == true then
+                    row.status:SetVertexColor(from[1], from[2], from[3], 1)
+                else
+                    row.status:SetVertexColor(0.48, 0.48, 0.50, 1)
+                end
+            else
+                row.status:SetColorTexture(
+                    enabled == true and 0.28 or 0.48,
+                    enabled == true and 0.82 or 0.48,
+                    enabled == true and 0.70 or 0.48,
+                    1
+                )
+            end
         else
             row.toggle:Hide()
-            row.status:SetColorTexture(from[1], from[2], from[3], 0.8)
+            if row.statusRing then
+                row.status:SetVertexColor(from[1], from[2], from[3], 0.8)
+            else
+                row.status:SetColorTexture(from[1], from[2], from[3], 0.8)
+            end
         end
     end
 
@@ -708,22 +928,30 @@ function Workspace:Create(title, version, opts)
         row:SetHeight(MODULE_ROW_HEIGHT)
         row:RegisterForClicks("LeftButtonUp")
 
-        row.background = row:CreateTexture(nil, "BACKGROUND")
+        row.background = CreateRoundedFill(row, "BACKGROUND") -- [STYLE]
         row.background:SetAllPoints()
 
-        row.activeBar = row:CreateTexture(nil, "ARTWORK")
-        row.activeBar:SetPoint("TOPLEFT")
-        row.activeBar:SetPoint("BOTTOMLEFT")
-        row.activeBar:SetWidth(2)
-        row.activeBar:SetColorTexture(from[1], from[2], from[3], 1)
+        if not moduleIndicator then -- [STYLE] fallback for a StyleLib without CreateIndicator
+            row.activeBar = row:CreateTexture(nil, "ARTWORK")
+            row.activeBar:SetPoint("TOPLEFT")
+            row.activeBar:SetPoint("BOTTOMLEFT")
+            row.activeBar:SetWidth(2)
+            row.activeBar:SetColorTexture(from[1], from[2], from[3], 1)
+        end
 
-        row.status = row:CreateTexture(nil, "ARTWORK")
-        row.status:SetSize(7, 7)
-        row.status:SetPoint("LEFT", 16, 0)
+        if ROUNDED and Lib.CreateStatusRing then -- [STYLE] open ring (right half of the logo)
+            row.status = Lib.CreateStatusRing(row, 11, from)
+            row.statusRing = true
+        else
+            row.status = row:CreateTexture(nil, "ARTWORK")
+            row.status:SetSize(7, 7)
+        end
+        row.status:SetPoint("LEFT", 16 - CARD_INSET, 0)
+        local statusWidth = row.status:GetWidth() or 7
 
         row.label = MakeFont(row, F.normal, C.text.normal)
-        row.label:SetPoint("LEFT", row.status, "RIGHT", 12, 0)
-        row.label:SetPoint("RIGHT", row, "RIGHT", -60, 0)
+        row.label:SetPoint("LEFT", row.status, "RIGHT", 12, 0) -- [STYLE] single anchor so RowHover can nudge it
+        row.label:SetWidth(MODULE_WIDTH - CARD_INSET - 16 - statusWidth - 12 - 60)
         row.label:SetJustifyH("LEFT")
         row.label:SetWordWrap(false)
 
@@ -733,7 +961,7 @@ function Workspace:Create(title, version, opts)
             end
         end)
         row.toggle:SetSize(18, 18)
-        row.toggle:SetPoint("RIGHT", row, "RIGHT", -14, 0)
+        row.toggle:SetPoint("RIGHT", row, "RIGHT", -(14 - CARD_INSET), 0)
         row.toggle:SetFrameLevel(row:GetFrameLevel() + 4)
 
         row.divider = row:CreateTexture(nil, "BORDER")
@@ -741,22 +969,39 @@ function Workspace:Create(title, version, opts)
         row.divider:SetPoint("BOTTOMRIGHT", -12, 0)
         row.divider:SetHeight(1)
         row.divider:SetColorTexture(0.20, 0.20, 0.22, 0.40)
+        row.divider:SetShown(not ROUNDED) -- [STYLE] pills replace the row separators
 
         row:SetScript("OnEnter", function(self)
-            if not self.active then
-                self.background:SetColorTexture(0.12, 0.12, 0.14, 0.68)
-                local titleR, titleG, titleB = GetPanelTitleColor(self.panelKey)
-                if titleR then
-                    self.label:SetTextColor(titleR, titleG, titleB, 1)
-                else
-                    self.label:SetTextColor(0.94, 0.94, 0.95, 1)
-                end
+            if not self.active and not GetPanelTitleColor(self.panelKey) then
+                self.label:SetTextColor(0.94, 0.94, 0.95, 1)
             end
         end)
-        row:SetScript("OnLeave", ApplyModuleState)
+        row:SetScript("OnLeave", function(self)
+            if not self.active and not GetPanelTitleColor(self.panelKey) then
+                self.label:SetTextColor(UnpackColor(C.text.normal))
+            end
+        end)
         row:SetScript("OnClick", function(self)
             workspace:SelectPanel(self.panelKey, true)
         end)
+        if Lib.RowHover then -- [STYLE]
+            row._rowHover = Lib.RowHover(row, {
+                bg = row.background,
+                label = row.label,
+                normal = MODULE_ROW_NORMAL,
+                hover = MODULE_ROW_HOVER,
+                isActive = function(self) return self.active end,
+            })
+        else
+            row:HookScript("OnEnter", function(self)
+                self._hoverFallback = 1
+                if not self.active then TintFill(self.background, UnpackColor(MODULE_ROW_HOVER)) end
+            end)
+            row:HookScript("OnLeave", function(self)
+                self._hoverFallback = 0
+                if not self.active then TintFill(self.background, UnpackColor(MODULE_ROW_NORMAL)) end
+            end)
+        end
 
         workspace.moduleRows[index] = row
         return row
@@ -791,8 +1036,8 @@ function Workspace:Create(title, version, opts)
         for index, panelKey in ipairs(panelKeys) do
             local row = AcquireModuleRow(index)
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", moduleList, "TOPLEFT", 0, -((index - 1) * MODULE_ROW_HEIGHT))
-            row:SetPoint("RIGHT", moduleList, "RIGHT", 0, 0)
+            row:SetPoint("TOPLEFT", moduleList, "TOPLEFT", CARD_INSET, -((index - 1) * MODULE_ROW_HEIGHT))
+            row:SetPoint("RIGHT", moduleList, "RIGHT", -CARD_INSET, 0)
             row.panelKey = panelKey
             row.label:SetText(GetPanelLabel(panelKey))
             row:Show()
@@ -801,6 +1046,18 @@ function Workspace:Create(title, version, opts)
         for index = #panelKeys + 1, #self.moduleRows do
             self.moduleRows[index]:Hide()
         end
+        self:UpdateModuleIndicator(false) -- [STYLE] list rebuilt: jump, do not slide
+    end
+
+    function workspace:UpdateModuleIndicator(animate) -- [STYLE]
+        if not moduleIndicator then return end
+        for _, row in ipairs(self.moduleRows) do
+            if row:IsShown() and row.panelKey == self.selectedPanel then
+                moduleIndicator:MoveTo(row, animate)
+                return
+            end
+        end
+        moduleIndicator:HideIndicator()
     end
 
     function workspace:SetPanelMeta(panelKey)
@@ -831,7 +1088,7 @@ function Workspace:Create(title, version, opts)
         if Controls.CloseDropdowns then Controls.CloseDropdowns() end
         self.selectedCategory = categoryKey
         moduleSearch:SetText("")
-        RefreshPrimaryRows()
+        RefreshPrimaryRows(true) -- [STYLE] slide the category indicator
         self:RefreshModuleRows()
 
         local panelKey = category.panels[1]
@@ -846,18 +1103,22 @@ function Workspace:Create(title, version, opts)
         if Controls.CloseDropdowns then Controls.CloseDropdowns() end
 
         local categoryKey = PANEL_CATEGORY[panelKey]
+        local listChanged = false -- [STYLE]
         if categoryKey and categoryKey ~= self.selectedCategory then
             self.selectedCategory = categoryKey
             moduleSearch:SetText("")
-            RefreshPrimaryRows()
+            RefreshPrimaryRows(true)
             self:RefreshModuleRows()
+            listChanged = true
         end
 
+        local previousPanel = self.selectedPanel
         self.selectedPanel = panelKey
         self:SetPanelMeta(panelKey)
         for _, row in ipairs(self.moduleRows) do
             if row:IsShown() then ApplyModuleState(row) end
         end
+        self:UpdateModuleIndicator(not listChanged and previousPanel ~= panelKey) -- [STYLE]
 
         if notify and self.opts.onSelect then
             self.opts.onSelect(panelKey)
@@ -897,12 +1158,14 @@ function Workspace:Create(title, version, opts)
 
     CreateResizeGrip(frame)
     RegisterEscapeFrame(frame)
+    frame:ApplySavedGuiScale() -- [STYLE]
 
     local result = {
         frame = frame,
         titleBar = titleBar,
         treeFrame = primaryFrame,
         moduleFrame = moduleFrame,
+        detailCard = detailCard,
         contentHeader = contentHeader,
         contentFrame = contentFrame,
         contentScroll = contentScroll,

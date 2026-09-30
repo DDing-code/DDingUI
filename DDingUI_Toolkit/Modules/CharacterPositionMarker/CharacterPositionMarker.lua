@@ -9,8 +9,7 @@ local SL = _G.DDingUI_StyleLib
 local SL_FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
 local SYSTEM_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\FRIZQT__.TTF"
 local EMPTY_DIAMOND_TEXTURE = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\CharacterPositionMarker\\empty_diamond.tga"
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("QoC", "QoC")
-    or "|cffffffffDDing|r|cffffa300UI|r |cffd93380QoC|r: "
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 
 local CharacterPositionMarker = {}
 CharacterPositionMarker.name = "CharacterPositionMarker"

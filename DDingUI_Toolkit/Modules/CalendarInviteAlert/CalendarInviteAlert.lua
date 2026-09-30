@@ -3,7 +3,7 @@
 local addonName, ns = ...
 local L = ns.L
 local SL = _G.DDingUI_StyleLib
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "DDingUI Toolkit: "
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 
 local CalendarInviteAlert = {}
 ns.CalendarInviteAlert = CalendarInviteAlert

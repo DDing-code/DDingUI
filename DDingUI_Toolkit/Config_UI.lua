@@ -479,10 +479,19 @@ local function CreateDetailPreview(parent, panelKey)
 
     local accent = Lib.GetAccent(ADDON_KEY)
     local marker = preview:CreateTexture(nil, "ARTWORK")
-    marker:SetPoint("TOPLEFT", preview, "TOPLEFT", 0, 0)
-    marker:SetPoint("BOTTOMLEFT", preview, "BOTTOMLEFT", 0, 0)
-    marker:SetWidth(3)
-    marker:SetColorTexture(accent[1], accent[2], accent[3], 1)
+    if Lib.Rounded and Lib.MakeRounded and Lib.Radius then -- [STYLE] rounded card, pill marker clear of corners
+        Lib.MakeRounded(preview, Lib.Radius.row, { 0.055, 0.058, 0.065, 0.96 }, { 0.22, 0.23, 0.26, 0.9 })
+        Lib.RoundTexture(marker, Lib.Radius.track)
+        marker:SetPoint("TOPLEFT", preview, "TOPLEFT", 5, -10)
+        marker:SetPoint("BOTTOMLEFT", preview, "BOTTOMLEFT", 5, 10)
+        marker:SetWidth(3)
+        marker:SetVertexColor(accent[1], accent[2], accent[3], 1)
+    else
+        marker:SetPoint("TOPLEFT", preview, "TOPLEFT", 0, 0)
+        marker:SetPoint("BOTTOMLEFT", preview, "BOTTOMLEFT", 0, 0)
+        marker:SetWidth(3)
+        marker:SetColorTexture(accent[1], accent[2], accent[3], 1)
+    end
 
     local title = preview:CreateFontString(nil, "OVERLAY")
     title:SetFont(F.path, F.normal, "")
@@ -1066,8 +1075,41 @@ local function SetPanelModuleEnabled(panelKey, enabled)
     end
 end
 
+-- Panel switch: fade the top-level rows/sections in one after another. -- [STYLE]
+-- Rows below full alpha (disabled rows) and the module overlay keep their own alpha.
+local STAGGER_MAX_ROWS = 14
+local function StaggerPanelRows(container)
+    if not (Lib.StaggerIn and container) then return end
+    local rows = {}
+    local wrappers = {}
+    if container._customSubFrame then wrappers[container._customSubFrame] = true end
+    for _, body in pairs(container._sectionBodies or {}) do wrappers[body] = true end
+
+    local function Collect(parent)
+        for _, child in ipairs({ parent:GetChildren() }) do
+            if #rows >= STAGGER_MAX_ROWS then return end
+            if child ~= container._moduleOverlay and child:IsShown() then
+                if wrappers[child] then
+                    Collect(child)
+                elseif child:GetAlpha() >= 0.99 then
+                    rows[#rows + 1] = child
+                end
+            end
+        end
+    end
+    Collect(container)
+    -- A custom panel that renders into one wrapper frame: stagger its rows instead.
+    if #rows == 1 and rows[1]:GetNumChildren() > 1 then
+        local wrapper = rows[1]
+        rows = {}
+        Collect(wrapper)
+    end
+    Lib.StaggerIn(rows, { step = 0.03, offset = 4 })
+end
+
 local function ShowPanel(key)
     if not settingsPanel then return end
+    local panelChanged = activePanel ~= key -- [STYLE]
     if activePanel and activePanel ~= key then
         StopDetailPreview()
     end
@@ -1174,6 +1216,7 @@ local function ShowPanel(key)
         c:_refresh()
     end
     settingsPanel.contentChild:SetHeight(c._contentHeight or 600)
+    if panelChanged then StaggerPanelRows(c) end -- [STYLE]
 end
 
 ------------------------------------------------------
@@ -1331,6 +1374,9 @@ local function RenderSearchResults(contentChild, results)
             insets = { left = 0, right = 0, top = 0, bottom = 0 },
         })
         local widgetBg = C.bg.widget or { 0.14, 0.14, 0.14, 0.9 }
+        if Lib.Rounded and Lib.MakeRounded and Lib.Radius then -- [STYLE]
+            Lib.MakeRounded(badge, Lib.Radius.control)
+        end
         badge:SetBackdropColor(widgetBg[1], widgetBg[2], widgetBg[3], widgetBg[4] or 0.9)
         badge:SetBackdropBorderColor(0, 0, 0, 1)
 
@@ -1583,7 +1629,8 @@ function ConfigUI:Initialize()
 
     -- 검색 박스 (타이틀바 우측, 닫기 버튼 좌측)
     local searchBox = Widgets.CreateSearchBox(settingsPanel.titleBar, 200)
-    searchBox:SetPoint("RIGHT", settingsPanel.titleBar.closeBtn, "LEFT", -10, 0)
+    local searchAnchor = settingsPanel.titleBar.scaleControl or settingsPanel.titleBar.closeBtn -- [STYLE] GUI scale sits left of close
+    searchBox:SetPoint("RIGHT", searchAnchor, "LEFT", -10, 0)
     settingsPanel.searchBox = searchBox
 
     local editModeButton = Widgets.CreateButton(
@@ -1661,6 +1708,7 @@ function ConfigUI:Initialize()
     end)
 
     if Lib.Motion and Lib.Motion.BindPanel then Lib.Motion.BindPanel(settingsPanel.frame) end
+    if settingsPanel.frame.ApplySavedGuiScale then settingsPanel.frame:ApplySavedGuiScale() end -- [STYLE]
     return settingsPanel
 end
 
@@ -1673,6 +1721,9 @@ function ConfigUI:Show()
     end
     local p = self:Initialize()
     if p then
+        if p.frame.ApplySavedGuiScale and not p.frame:IsShown() then
+            p.frame:ApplySavedGuiScale() -- [STYLE]
+        end
         if p.frame.ShowAnimated then
             p.frame:ShowAnimated()
         else

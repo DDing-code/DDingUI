@@ -8,7 +8,7 @@ local DDingToolKit = ns.DDingToolKit
 local UI = ns.UI
 local L = ns.L
 local SL = _G.DDingUI_StyleLib -- [STYLE]
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: " -- [STYLE]
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 
 -- MailAlert 모듈
 local MailAlert = {}

@@ -14,8 +14,7 @@ local C    = Lib.Colors
 local F    = Lib.Font
 local ADDON_KEY = "MJToolkit"
 local SOLID     = "Interface\\Buttons\\WHITE8x8"
-local CHAT_PREFIX = (Lib and Lib.GetChatPrefix) and Lib.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: " -- [STYLE]
-local CHAT_PREFIX_ERR = "|cFFFF0000" .. ((Lib and Lib.GetChatPrefix) and Lib.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: ") -- [STYLE]
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 
 local TalentBG  -- forward ref
 local Presets   -- forward ref
@@ -135,6 +134,17 @@ local function CreateTextureGrid(parent, w, h)
     thumb:SetColorTexture(u(Lib.GetAccent(ADDON_KEY)))
     thumb:SetSize(10, 40)
     sb:SetThumbTexture(thumb)
+
+    -- [STYLE] SliderSpec: wider click area (up to the grid gap and frame edge) + hover feedback.
+    sb:SetHitRectInsets(-5, -3, 0, 0)
+    sb:SetScript("OnEnter", function()
+        thumb:SetSize(12, 40)
+        thumb:SetColorTexture(1, 1, 1, 1)
+    end)
+    sb:SetScript("OnLeave", function()
+        thumb:SetSize(10, 40)
+        thumb:SetColorTexture(u(Lib.GetAccent(ADDON_KEY)))
+    end)
 
     sb:SetScript("OnValueChanged", function(_, val) scrollFrame:SetVerticalScroll(val) end)
     scrollFrame:SetScript("OnMouseWheel", function(_, delta)
@@ -389,7 +399,7 @@ local function OnConfigReady()
             local eb = editBox.editBox or editBox
             local fn = eb.GetText and eb:GetText() or ""
             if fn == "" then
-                print(CHAT_PREFIX_ERR .. (L["TALENTBG_ENTER_FILENAME"] or "Enter filename")) -- [STYLE]
+                ns.PrintError(L["TALENTBG_ENTER_FILENAME"] or "Enter filename") -- [STYLE]
                 return
             end
             if Presets and Presets:AddCustomTexture(fn) then
@@ -397,15 +407,15 @@ local function OnConfigReady()
                 eb:SetText("")
                 print(CHAT_PREFIX .. string.format(L["TALENTBG_BG_ADDED"] or "Added: %s", fn)) -- [STYLE]
             else
-                print(CHAT_PREFIX_ERR .. string.format(L["TALENTBG_BG_EXISTS"] or "Already exists: %s", fn)) -- [STYLE]
+                ns.PrintError(string.format(L["TALENTBG_BG_EXISTS"] or "Already exists: %s", fn)) -- [STYLE]
             end
         end, { width = 80 })
         addBtn:SetPoint("LEFT", editBox, "RIGHT", 8, 0)
 
         -- 하단 버튼: 적용 + 리셋
-        local applyBtn = Widgets.CreateButton(container, ADDON_KEY, L["APPLY"] or "Apply", function()
+        local applyBtn = Widgets.CreateButton(container, ADDON_KEY, L["APPLY"] or "Apply", function(button)
             if InCombatLockdown() then
-                print(CHAT_PREFIX_ERR .. (L["TALENTBG_NOT_IN_COMBAT"] or "Not in combat")) -- [STYLE]
+                ns.PrintError(L["TALENTBG_NOT_IN_COMBAT"] or "Not in combat") -- [STYLE]
                 return
             end
             local path = grid:GetSelectedTexturePath()
@@ -413,15 +423,18 @@ local function OnConfigReady()
                 self:SetCurrentBackground(path)
                 container.selectedTexture = path
                 print(CHAT_PREFIX .. string.format(L["TALENTBG_APPLIED"] or "Applied: %s", path)) -- [STYLE]
+                if Lib.AppliedFeedback then
+                    Lib.AppliedFeedback(button, button and button.label, { text = L["APPLIED"] }) -- [STYLE]
+                end
             else
-                print(CHAT_PREFIX_ERR .. (L["TALENTBG_SELECT_TEXTURE"] or "Select a texture first")) -- [STYLE]
+                ns.PrintError(L["TALENTBG_SELECT_TEXTURE"] or "Select a texture first") -- [STYLE]
             end
         end, { width = 160 })
         applyBtn:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", rightX, 15)
 
         local resetBtn = Widgets.CreateButton(container, ADDON_KEY, L["RESET_TO_DEFAULT"] or "Reset", function()
             if InCombatLockdown() then
-                print(CHAT_PREFIX_ERR .. (L["TALENTBG_NOT_IN_COMBAT"] or "Not in combat")) -- [STYLE]
+                ns.PrintError(L["TALENTBG_NOT_IN_COMBAT"] or "Not in combat") -- [STYLE]
                 return
             end
             StaticPopupDialogs["DDINGTOOLKIT_TALENTBG_RESET"] = {

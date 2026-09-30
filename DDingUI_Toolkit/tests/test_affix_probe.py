@@ -17,6 +17,10 @@ def test_affix_probe_public_signals_lifecycle_and_copy_report():
             __eq=function() error("secret compared") end,
         })
         ns = {DDingToolKit={}}
+        -- Core/Core.lua shared chat helpers
+        ns.CHAT_PREFIX = "DDingUI Toolkit: "
+        function ns.Print(msg, ...) print(ns.CHAT_PREFIX .. tostring(msg), ...) end
+        function ns.PrintError(msg, ...) ns.Print(msg, ...) end
         ns.IsSecretValue = function(v) return rawequal(v, secret) end
         function GetTime() return now end
         function GetBuildInfo() return "12.1.0", "123456", "date", 120100 end

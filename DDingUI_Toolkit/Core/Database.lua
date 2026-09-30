@@ -51,6 +51,7 @@ ns.defaults = {
         -- 전역 설정
         minimap = { hide = false, minimapPos = 225 },
         welcomeMessage = false,
+        guiScale = 1.0, -- [STYLE] settings window title-bar GUI scale (0.5-1.5)
         SoundManager = {
             enabled = true,
             mode = "PRIORITY",

@@ -1,5 +1,47 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.0
+
+Release date: 2026-09-30
+
+### Option Changes
+
+- **Settings Window:** Redesigned the window with rounded corners. Categories, pages and details sit on separate rounded cards, and the selected category and page are marked with an accent pill that slides to each new selection. Row hover highlights fade in and out, module status shows an accent ring when enabled and a grey ring when disabled, section headings have a ring marker, and settings fade in one after another when you switch pages.
+- **Settings Window:** The title bar shows the DDingUI logo rings, which link together each time the window opens, followed by the DDingUI wordmark and the Toolkit name.
+- **Settings Window:** Added a 'GUI Scale' control to the left of the title bar's close button. Drag it or use the mouse wheel to scale the window from 50% to 150%; the scale is saved and kept when the window reopens.
+- **Settings Window:** Sliders use a fixed-width track with a 28px click area and a larger solid thumb that grows and turns white on hover; values use a larger font. Buttons, checkboxes, input fields, dropdowns, color buttons, the search box, dashboard cards and the profile code window use rounded corners.
+
+- **Chat Messages:** All Toolkit chat messages now use the same "DDingUI Toolkit" prefix. Target Spell, Character Position Marker, Combat Timer, Focus Interrupt and affix diagnostics previously used their own labels, and death alert chat messages had no prefix. Error messages keep the prefix colors and show only the message text in red.
+
+- **Notepad / Affix Diagnostics:** Notepad windows and the affix report window use rounded corners and the Toolkit accent title color.
+
+- **Raid Party Tooltip:** Hover over role or armor counts in the recruitment panel to see class icons, class-colored names, and member counts. Open tooltips update with roster and specialization changes.
+
+- **Talent Background:** Fixed a missing translation warning when opening the preview without a selected background. Korean and English now display the empty-selection message correctly.
+- **Talent Background:** The Apply button briefly shows 'Applied' after a background is applied. The image list scroll bar has a wider click area and highlights on hover.
+
+- **Raid Party Tooltip:** Missing synergy names in the recruitment composition panel now use the providing class's color, matching the class information in their tooltips.
+- **Raid Party Tooltip:** Added Warlock Demonic Gateway and Death Knight Death Grip to missing synergies. Their class icons and colors are shown while the corresponding class is absent; the list now accommodates all 13 entries.
+
+### 옵션 변경
+
+- **설정 창:** 둥근 모서리 디자인으로 개편했습니다. 카테고리·페이지·상세 영역을 각각 둥근 카드로 나누고, 선택한 카테고리와 페이지는 새 선택 위치로 미끄러지는 악센트 알약으로 표시합니다. 행에 마우스를 올리면 강조가 부드럽게 나타나고 사라지며, 모듈 상태는 켜짐이면 악센트색 고리, 꺼짐이면 회색 고리로 표시합니다. 섹션 제목에 고리 표식을 붙이고, 페이지를 바꾸면 설정 항목이 차례로 나타납니다.
+- **설정 창:** 제목줄에 DDingUI 로고 고리를 표시하며, 창을 열 때마다 두 고리가 맞물리는 애니메이션이 재생됩니다. 그 옆에 DDingUI 워드마크와 Toolkit 이름을 표시합니다.
+- **설정 창:** 제목줄 닫기 버튼 왼쪽에 'GUI 크기' 조절을 추가했습니다. 드래그나 마우스 휠로 창 크기를 50~150%로 조절하며, 설정한 크기는 저장되어 창을 다시 열어도 유지됩니다.
+- **설정 창:** 슬라이더를 고정 너비 트랙, 28px 클릭 영역, 마우스를 올리면 커지고 흰색으로 바뀌는 큼직한 단색 손잡이로 바꾸고 값 글자도 키웠습니다. 버튼·체크박스·입력칸·드롭다운·색상 버튼·검색창·대시보드 카드·프로필 코드 창에 둥근 모서리를 적용했습니다.
+
+- **채팅 메시지:** 모든 Toolkit 채팅 메시지가 같은 'DDingUI Toolkit' 접두사를 사용합니다. 타겟 스펠·캐릭터 위치 마커·전투 타이머·주시 차단·어픽스 진단은 각자 다른 표기를 쓰고 있었고, 사망 알림 채팅 메시지에는 접두사가 없었습니다. 오류 메시지는 접두사 색상을 유지하고 본문만 빨간색으로 표시합니다.
+
+- **메모장 / 어픽스 진단:** 메모장 창과 어픽스 보고서 창에 둥근 모서리와 Toolkit 악센트색 제목을 적용했습니다.
+
+- **공격대 파티 툴팁:** 모집 구성창의 역할·방어구 인원수에 마우스를 올리면 직업 아이콘·직업 색상과 직업별 인원수를 표시합니다. 공대원이나 전문화 정보가 바뀌면 열린 툴팁도 함께 갱신됩니다.
+
+- **특성창 배경:** 선택된 배경 없이 미리보기를 열 때 발생하던 번역 누락 오류를 수정했습니다. 한국어·영어에서 선택 없음 안내를 정상 표시합니다.
+- **특성창 배경:** 배경을 적용하면 적용 버튼에 잠시 '적용됨'을 표시합니다. 이미지 목록 스크롤바의 클릭 영역을 넓히고 마우스를 올리면 강조되도록 했습니다.
+
+- **공격대 파티 툴팁:** 모집 구성창의 '없는 시너지' 이름을 해당 직업 색상으로 표시하여 툴팁의 직업 정보와 구분을 맞췄습니다.
+- **공격대 파티 툴팁:** 없는 시너지에 흑마법사의 '악마의 관문'과 죽음의 기사의 '죽음의 손아귀'를 추가했습니다. 해당 직업이 없으면 직업 아이콘·색상으로 표시하며, 최대 13개 항목이 모두 나오도록 목록을 확장했습니다.
+
 ## 2.1.8
 
 Release date: 2026-09-22

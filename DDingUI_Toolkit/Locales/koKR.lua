@@ -702,6 +702,7 @@ L["TALENTBG_MODE_GLOBAL"] = "공용"
 L["TALENTBG_SELECT_IMAGE"] = "이미지 선택"
 L["TALENTBG_CURRENT_SPEC"] = "현재 전문화"
 L["TALENTBG_PREVIEW"] = "미리보기"
+L["TALENTBG_NO_SELECTION"] = "선택된 배경 없음"
 
 -- ==========================================
 -- LFGAlert Module
@@ -907,6 +908,7 @@ L["GROWTH_RIGHT"] = "오른쪽으로"
 -- ==========================================
 L["ADD"] = "추가"
 L["APPLY"] = "적용"
+L["APPLIED"] = "적용됨" -- [STYLE]
 L["CANCEL"] = "취소"
 L["CLOSE"] = "닫기"
 L["DELETE"] = "삭제"
@@ -1785,3 +1787,5 @@ L["RPT_CHAOS_BRAND"] = "혼돈의 낙인"
 L["RPT_HUNTERS_MARK"] = "사냥꾼의 징표"
 L["RPT_DEVOTION_AURA"] = "헌신의 오라"
 L["RPT_ATROPHIC_POISON"] = "위축의 독"
+L["RPT_DEMONIC_GATEWAY"] = "악마의 관문"
+L["RPT_DEATH_GRIP"] = "죽음의 손아귀"

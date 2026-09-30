@@ -60,9 +60,13 @@ function UI:CreateMainFrame(parent, width, height, name)
     local frame = CreateFrame("Frame", name, parent, "BackdropTemplate")
     frame:SetSize(width or 800, height or 600)
     frame:SetPoint("CENTER")
-    frame:SetBackdrop(self.backdrop)
-    frame:SetBackdropColor(unpack(self.colors.background))
-    frame:SetBackdropBorderColor(unpack(self.colors.border))
+    if SL and SL.Rounded and SL.MakeRounded and SL.Radius then -- [STYLE] StyleLib 1.3 rounded tool window
+        SL.MakeRounded(frame, SL.Radius.window, self.colors.background, self.colors.border)
+    else
+        frame:SetBackdrop(self.backdrop)
+        frame:SetBackdropColor(unpack(self.colors.background))
+        frame:SetBackdropBorderColor(unpack(self.colors.border))
+    end
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
     frame:EnableMouse(true)
@@ -79,9 +83,22 @@ function UI:CreateTitleBar(parent, title)
     titleBar:SetPoint("TOPLEFT")
     titleBar:SetPoint("TOPRIGHT")
     titleBar:SetHeight(36)
-    titleBar:SetBackdrop(self.backdrop)
-    titleBar:SetBackdropColor(0, 0, 0, 0.9)
-    titleBar:SetBackdropBorderColor(unpack(self.colors.border))
+    -- [STYLE] On a rounded window the bar is part of the window surface: no square fill that
+    -- would poke out of the corners, only a separator kept clear of the rounded edges.
+    local roundedParent = parent._ddslRounded ~= nil
+    if roundedParent then
+        local inset = (SL and SL.Radius and SL.Radius.window) or 14
+        local separator = titleBar:CreateTexture(nil, "ARTWORK")
+        separator:SetPoint("BOTTOMLEFT", titleBar, "BOTTOMLEFT", inset, 0)
+        separator:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", -inset, 0)
+        separator:SetHeight(1)
+        separator:SetColorTexture(unpack(self.colors.border))
+        titleBar.separator = separator
+    else
+        titleBar:SetBackdrop(self.backdrop)
+        titleBar:SetBackdropColor(0, 0, 0, 0.9)
+        titleBar:SetBackdropBorderColor(unpack(self.colors.border))
+    end
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
     titleBar:SetScript("OnDragStart", function() parent:StartMoving() end)
@@ -93,6 +110,10 @@ function UI:CreateTitleBar(parent, title)
     titleText:SetPoint("LEFT", 12, 0)
     -- 글자별 그라디언트 (파랑 → 하늘색)
     local function ApplyGradientText(text)
+        -- [STYLE] rounded windows use the Toolkit accent gradient instead of the old fixed blue
+        if roundedParent and SL and SL.CreateGradientText then
+            return SL.CreateGradientText("MJToolkit", text)
+        end
         local len = strlenutf8(text)
         if len == 0 then return text end
         local result = ""
@@ -359,37 +380,88 @@ end
 
 -- 스타일이 적용된 슬라이더
 function UI:CreateSlider(parent, label, min, max, step, onChange)
-    local container = CreateFrame("Frame", nil, parent)
-    container:SetSize(200, 50)
+    -- [STYLE] StyleLib 1.2 slider spec: short fixed track, 28px hit area, 16px thumb, 12pt+ text.
+    local Lib = LibStub and LibStub("DDingUI-StyleLib-1.0", true)
+    local SPEC = (Lib and Lib.SliderSpec) or {
+        trackWidth = 180, trackHeight = 6, hitHeight = 28,
+        thumbSize = 16, thumbHover = 18,
+        valueWidth = 56, valueHeight = 24, valueGap = 8,
+    }
+    local accent = (Lib and Lib.GetAccent and Lib.GetAccent("MJToolkit")) or self.colors.accent
+    local fontPath = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
+    local fontSize = (SL and SL.Font and SL.Font.normal) or 13
+    local hitPad = (SPEC.hitHeight - SPEC.trackHeight) / 2
 
-    -- 라벨
+    local container = CreateFrame("Frame", nil, parent)
+    container:SetSize(SPEC.trackWidth + SPEC.valueGap + SPEC.valueWidth, 50)
+
+    -- label
     local labelText = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     labelText:SetPoint("TOPLEFT")
     labelText:SetText(label or "")
     labelText:SetTextColor(unpack(self.colors.text))
 
-    -- 값 표시
-    local valueText = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    valueText:SetPoint("TOPRIGHT")
+    -- track + accent fill
+    local track = CreateFrame("Frame", nil, container, "BackdropTemplate")
+    track:SetSize(SPEC.trackWidth, SPEC.trackHeight)
+    track:SetPoint("TOPLEFT", labelText, "BOTTOMLEFT", 0, -(4 + hitPad))
+    track:SetBackdrop(self.backdrop)
+    track:SetBackdropColor(unpack(self.colors.panel))
+    track:SetBackdropBorderColor(unpack(self.colors.border))
+
+    local fill = track:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", track, "TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT", 1, 1)
+    fill:SetWidth(1)
+    fill:SetColorTexture(accent[1], accent[2], accent[3], 1)
+
+    -- value (right of the track)
+    local valueText = container:CreateFontString(nil, "OVERLAY")
+    valueText:SetFont(fontPath, fontSize, "")
+    valueText:SetPoint("LEFT", track, "RIGHT", SPEC.valueGap, 0)
+    valueText:SetWidth(SPEC.valueWidth)
+    valueText:SetJustifyH("CENTER")
     valueText:SetTextColor(unpack(self.colors.textDim))
 
-    -- 슬라이더
-    local slider = CreateFrame("Slider", nil, container, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", labelText, "BOTTOMLEFT", 0, -8)
-    slider:SetPoint("TOPRIGHT", valueText, "BOTTOMRIGHT", 0, -8)
-    slider:SetHeight(16)
+    -- slider: 28px hit area centred on the track
+    local slider = CreateFrame("Slider", nil, container)
+    slider:SetPoint("TOPLEFT", track, "TOPLEFT", 0, hitPad)
+    slider:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, -hitPad)
+    slider:SetOrientation("HORIZONTAL")
     slider:SetMinMaxValues(min or 0, max or 100)
     slider:SetValueStep(step or 1)
     slider:SetObeyStepOnDrag(true)
-    slider.Low:SetText("")
-    slider.High:SetText("")
-    slider.Text:SetText("")
+    slider:EnableMouseWheel(true)
+
+    local thumb = slider:CreateTexture(nil, "OVERLAY")
+    thumb:SetSize(SPEC.thumbSize, SPEC.thumbSize)
+    thumb:SetColorTexture(accent[1], accent[2], accent[3], 1)
+    slider:SetThumbTexture(thumb)
+
+    local function UpdateFill(value)
+        local lo, hi = slider:GetMinMaxValues()
+        local range = (hi or 0) - (lo or 0)
+        local pct = range > 0 and ((value or slider:GetValue()) - lo) / range or 0
+        fill:SetWidth(math.max(1, (SPEC.trackWidth - 2) * math.max(0, math.min(1, pct))))
+    end
 
     slider:SetScript("OnValueChanged", function(self, value)
         valueText:SetText(string.format("%.1f", value))
+        UpdateFill(value)
         if onChange then
             onChange(value)
         end
+    end)
+    slider:SetScript("OnMouseWheel", function(self, delta)
+        self:SetValue(self:GetValue() + delta * (step or 1))
+    end)
+    slider:SetScript("OnEnter", function()
+        thumb:SetSize(SPEC.thumbHover, SPEC.thumbHover)
+        thumb:SetColorTexture(1, 1, 1, 1)
+    end)
+    slider:SetScript("OnLeave", function()
+        thumb:SetSize(SPEC.thumbSize, SPEC.thumbSize)
+        thumb:SetColorTexture(accent[1], accent[2], accent[3], 1)
     end)
 
     container.label = labelText

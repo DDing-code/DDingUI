@@ -20,8 +20,7 @@ local P = ns.UI and ns.UI.popupColors or {
     primaryBorderHover = { 0.20, 0.62, 0.70, 0.94 }, text = { 0.85, 0.85, 0.85, 1 },
     textBright = { 1, 1, 1, 1 }, textDim = { 0.60, 0.60, 0.60, 1 },
 }
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit")
-    or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: "
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 local PANEL_HEIGHT = 340
 local COMPACT_PANEL_HEIGHT = 286
 local ACTION_BUTTON_HEIGHT = 31

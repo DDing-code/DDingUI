@@ -11,9 +11,22 @@ _G.DDingToolKit = DDingToolKit
 ns.DDingToolKit = DDingToolKit
 
 -- 버전 정보 (TOC와 동기화)
-DDingToolKit.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.1.8"
+DDingToolKit.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.0"
 local SL = _G.DDingUI_StyleLib -- [STYLE]
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: " -- [STYLE]
+local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r|cff888888:|r " -- [STYLE]
+
+-- Toolkit 공통 채팅 접두사/출력 헬퍼 (모든 모듈은 이것만 사용) -- [STYLE]
+ns.CHAT_PREFIX = CHAT_PREFIX -- [STYLE]
+ns.CHAT_ERROR_COLOR = "|cFFFF0000" -- [STYLE]
+
+function ns.Print(msg, ...) -- [STYLE]
+    print(CHAT_PREFIX .. tostring(msg), ...)
+end
+
+function ns.PrintError(msg, ...) -- [STYLE] 접두사는 공통, 본문만 빨간색
+    print(CHAT_PREFIX .. ns.CHAT_ERROR_COLOR .. tostring(msg) .. "|r", ...)
+end
+
 DDingToolKit.addonName = addonName
 
 -- 12.0 Secret Value 헬퍼 (ElvUI 패턴)

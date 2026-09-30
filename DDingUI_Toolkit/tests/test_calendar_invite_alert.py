@@ -12,6 +12,10 @@ def calendar_runtime(loaded=True):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute('''
         ns = {L={}, modules={}}
+        -- Core/Core.lua shared chat helpers
+        ns.CHAT_PREFIX = "DDingUI Toolkit: "
+        function ns.Print(msg, ...) print(ns.CHAT_PREFIX .. tostring(msg), ...) end
+        function ns.PrintError(msg, ...) ns.Print(msg, ...) end
         ns.DDingToolKit = {version="2.1.6", RegisterModule=function(_, name, module)
             ns.modules[name] = module; module.enabled = false
         end}

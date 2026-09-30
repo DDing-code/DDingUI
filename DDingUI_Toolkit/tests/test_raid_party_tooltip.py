@@ -149,7 +149,7 @@ def test_recruiting_composition_counts_specs_and_secret_data():
             assert(s.positions.MELEE==4 and s.positions.RANGED==4 and s.positions.UNKNOWN==1)
             assert(s.armor.PLATE==1 and s.armor.CLOTH==2 and s.armor.MAIL==4 and s.armor.LEATHER==4)
             assert(display.positions.MELEE.text=="4" and display.armor.MAIL.text=="4")
-            assert(#module:GetMissingSynergies(s)==4)
+            assert(#module:GetMissingSynergies(s)==6)
             specCallback(253,"DAMAGER","RANGED","Unknown");flush()
             assert(module:CollectRecruitment().positions.RANGED==5)
             specCallback(255,"DAMAGER","MELEE","Unknown-OtherRealm");flush()
@@ -188,12 +188,141 @@ def test_recruiting_composition_counts_specs_and_secret_data():
             assert(module:CollectGroup(0).total==0 and module:CollectGroup(secret).total==0)
             roster={}
             for _,class in ipairs({"WARRIOR","PRIEST","MAGE","DRUID","SHAMAN","EVOKER",
-                "MONK","DEMONHUNTER","HUNTER","PALADIN","ROGUE"}) do
+                "MONK","DEMONHUNTER","HUNTER","PALADIN","ROGUE","WARLOCK","DEATHKNIGHT"}) do
                 roster[#roster+1]={name=class,class=class,role="DAMAGER"}
             end
             module:RefreshRecruitment()
             assert(#module:GetMissingSynergies(module:CollectRecruitment())==0 and display.empty.shown)
             for _,row in ipairs(display.synergies) do assert(not row.shown) end
+        ''')
+
+
+def test_recruiting_count_tooltips_follow_class_counts_and_lifecycle():
+    for locale in ("koKR", "enUS"):
+        lua = recruitment_runtime(locale)
+        lua.execute('''
+            setmetatable(ns.L,{__index=function(_,key) error("missing localization: "..key) end})
+            roster={
+                {name="Tank",class="WARRIOR",role="TANK",spec=73},
+                {name="Feral1",class="DRUID",role="DAMAGER",spec=103},
+                {name="Feral2",class="DRUID",role="DAMAGER",spec=103},
+                {name="Balance",class="DRUID",role="DAMAGER",spec=102},
+                {name="Healer",class="DRUID",role="HEALER"},
+                {name="Warrior",class="WARRIOR",role="DAMAGER"},
+                {name="Hunter",class="HUNTER",role="DAMAGER"},
+                {name="HiddenClass",class=secret,role="TANK"},
+            }
+            fire("GROUP_ROSTER_UPDATE");flush()
+            local frameCount=#regions
+            local function hover(category,key,expected,unknown)
+                local area
+                for _,candidate in ipairs(display.countTooltips) do
+                    if candidate.category==category and candidate.key==key then area=candidate end
+                end
+                assert(area and area.points.TOPLEFT.relative==display[category][key])
+                assert(area.points.BOTTOMRIGHT.relative==display[category][key])
+                area.scripts.OnEnter(area)
+                assert(GameTooltip.owner==area and GameTooltip:IsShown())
+                local found,total=0,unknown or 0
+                for class,count in pairs(expected) do
+                    total=total+count
+                    for _,line in ipairs(GameTooltip.lines) do
+                        if line.text:find(class.."|r |cffffffff"..count.."|r",1,true) then
+                            found=found+1
+                            assert(line.text:find("|T",1,true),"missing class icon")
+                        end
+                    end
+                end
+                local expectedLines=0
+                for _ in pairs(expected) do expectedLines=expectedLines+1 end
+                assert(found==expectedLines,"wrong class breakdown")
+                if unknown then
+                    assert(GameTooltip.lines[#GameTooltip.lines].text:find(ns.L.RPT_UNKNOWN,1,true))
+                    expectedLines=expectedLines+1
+                end
+                assert(#GameTooltip.lines==math.max(1,expectedLines))
+                assert(GameTooltip.text:find(string.format(ns.L.RPT_MEMBER_COUNT,total),1,true))
+                if total==0 then assert(GameTooltip.lines[1].text==ns.L.RPT_ROLE_EMPTY) end
+                return area
+            end
+            assert(#display.countTooltips==8)
+            hover("positions","TANK",{WARRIOR=1},1)
+            assert(GameTooltip.lines[1].text:find("|cffc79c6eWARRIOR|r",1,true))
+            local melee=hover("positions","MELEE",{WARRIOR=1,DRUID=2})
+            hover("positions","RANGED",{DRUID=1})
+            hover("positions","HEALER",{DRUID=1})
+            hover("armor","CLOTH",{})
+            hover("armor","LEATHER",{DRUID=4})
+            hover("armor","MAIL",{HUNTER=1})
+            hover("armor","PLATE",{WARRIOR=2})
+            melee.scripts.OnEnter(melee)
+            specCallback(255,"DAMAGER","MELEE","Hunter");flush()
+            assert(GameTooltip.text:find(string.format(ns.L.RPT_MEMBER_COUNT,4),1,true))
+            assert(#GameTooltip.lines==3,"open tooltip did not refresh on spec arrival")
+            roster[2].role="HEALER";fire("PLAYER_ROLES_ASSIGNED");flush()
+            assert(GameTooltip.text:find(string.format(ns.L.RPT_MEMBER_COUNT,3),1,true))
+            module.db.showClassIcons=false;module:ApplySettings()
+            for _,line in ipairs(GameTooltip.lines) do assert(not line.text:find("|T",1,true)) end
+            module.db.showClassIcons=true
+            melee.scripts.OnLeave(melee);assert(not GameTooltip:IsShown())
+            GameTooltip:SetOwner(viewer);GameTooltip:Show()
+            melee.scripts.OnLeave(melee);assert(GameTooltip:IsShown(),"hid another owner's tooltip")
+            for _,area in ipairs(display.countTooltips) do
+                area.scripts.OnEnter(area);viewer:Hide();assert(not GameTooltip:IsShown())
+                viewer:Show();flush()
+            end
+            melee.scripts.OnEnter(melee);inCombat=true;fire("PLAYER_REGEN_DISABLED")
+            assert(not display:IsShown() and not GameTooltip:IsShown())
+            inCombat=false;fire("PLAYER_REGEN_ENABLED");flush()
+            melee.scripts.OnEnter(melee);module:OnDisable();assert(not GameTooltip:IsShown())
+            module:OnEnable();flush();assert(#regions==frameCount,"created frames during refresh")
+            roster={}
+            for i=1,40 do roster[i]={name="Member"..i,class="PRIEST",role="HEALER"} end
+            fire("GROUP_ROSTER_UPDATE");flush()
+            hover("positions","HEALER",{PRIEST=40});hover("armor","CLOTH",{PRIEST=40})
+            inRaid=false;roster={roster[1]};fire("GROUP_ROSTER_UPDATE");flush()
+            hover("positions","HEALER",{PRIEST=1});hover("armor","CLOTH",{PRIEST=1})
+        ''')
+
+
+def test_missing_synergy_labels_follow_provider_class_colors():
+    for locale in ("koKR", "enUS"):
+        lua = recruitment_runtime(locale)
+        lua.execute('''
+            RAID_CLASS_COLORS.MAGE={r=.25,g=.78,b=.92}
+            RAID_CLASS_COLORS.PALADIN={r=.96,g=.55,b=.73}
+            RAID_CLASS_COLORS.WARLOCK={r=.53,g=.53,b=.93}
+            RAID_CLASS_COLORS.DEATHKNIGHT={r=.77,g=.12,b=.23}
+            local definitions=module:GetMissingSynergies({classes={}})
+            assert(#definitions==13 and #display.synergies==#definitions)
+            assert(definitions[12].providerClass=="WARLOCK" and definitions[12].spellID==111771)
+            assert(definitions[13].providerClass=="DEATHKNIGHT" and definitions[13].spellID==49576)
+            local firstRow=display.synergies[1]
+            for _,leaderClass in ipairs({"WARRIOR","PRIEST","MAGE","WARLOCK","DEATHKNIGHT","UNKNOWN"}) do
+                roster={{name="Leader",class=leaderClass,role="NONE"}}
+                fire("GROUP_ROSTER_UPDATE");flush()
+                assert(display.synergies[1]==firstRow, "reuse existing rows")
+                local visible=0
+                for _,row in ipairs(display.synergies) do
+                    if row.shown then
+                        visible=visible+1
+                        assert(-row.points.TOPLEFT.y+row.height<display.height, "synergy row outside panel")
+                        local class=row.definition.providerClass
+                        assert(class~=leaderClass)
+                        local expected=RAID_CLASS_COLORS[class] or {r=.62,g=.62,b=.64}
+                        local actual=row.text.textColor
+                        assert(actual[1]==expected.r and actual[2]==expected.g and actual[3]==expected.b,
+                            "wrong or stale synergy color: "..class)
+                        assert(row.text.text:find("|T",1,true), "keep the class icon")
+                        assert(row.text.text:find(ns.L[row.definition.labelKey],1,true), "keep localized spell name")
+                        row.scripts.OnEnter(row)
+                        local line=GameTooltip.lines[1]
+                        assert(line.r==actual[1] and line.g==actual[2] and line.b==actual[3])
+                        row.scripts.OnLeave(row)
+                    end
+                end
+                assert(visible==#module:GetMissingSynergies(module:CollectRecruitment()), "missing displayed synergy")
+            end
         ''')
 
 

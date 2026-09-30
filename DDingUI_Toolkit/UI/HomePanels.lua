@@ -31,7 +31,13 @@ local function MakeText(parent, size, color, text)
     return fontString
 end
 
-local function SetBackdrop(frame, background, border)
+--- radius (optional): StyleLib 1.3 rounded surface; SetBackdropColor keeps working. -- [STYLE]
+local RADIUS = Lib.Radius or {}
+local function SetBackdrop(frame, background, border, radius)
+    if radius and Lib.Rounded and Lib.MakeRounded then
+        Lib.MakeRounded(frame, radius, background or C.bg.input, border or C.border.default)
+        return
+    end
     frame:SetBackdrop({
         bgFile = SOLID,
         edgeFile = SOLID,
@@ -54,7 +60,7 @@ local function AddStat(parent, x, width, label)
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -58)
     frame:SetSize(width, 74)
-    SetBackdrop(frame, { 0.07, 0.072, 0.082, 0.94 }, { 0.22, 0.23, 0.26, 0.85 })
+    SetBackdrop(frame, { 0.07, 0.072, 0.082, 0.94 }, { 0.22, 0.23, 0.26, 0.85 }, RADIUS.card)
 
     local value = MakeText(frame, 24, C.text.highlight, "0")
     value:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -12)
@@ -106,7 +112,7 @@ function HomePanels:RenderDashboard(container)
             row:SetPoint("TOPLEFT", container, "TOPLEFT", 18, y - 6)
             row:SetPoint("TOPRIGHT", container, "TOPRIGHT", -18, y - 6)
             row:SetHeight(46)
-            SetBackdrop(row, { 0.065, 0.067, 0.075, 0.88 }, { 0.18, 0.19, 0.22, 0.8 })
+            SetBackdrop(row, { 0.065, 0.067, 0.075, 0.88 }, { 0.18, 0.19, 0.22, 0.8 }, RADIUS.row)
 
             local label = MakeText(row, F.normal, C.text.highlight, category.label)
             label:SetPoint("LEFT", row, "LEFT", 14, 6)
@@ -262,7 +268,7 @@ local function CreateProfileCodeDialog()
     dialog:RegisterForDrag("LeftButton")
     dialog:SetScript("OnDragStart", function(self) self:StartMoving() end)
     dialog:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    SetBackdrop(dialog, { 0.035, 0.038, 0.047, 0.98 }, { 0.15, 0.75, 0.92, 0.95 })
+    SetBackdrop(dialog, { 0.035, 0.038, 0.047, 0.98 }, { 0.15, 0.75, 0.92, 0.95 }, RADIUS.window)
 
     local title = MakeText(dialog, 17, C.text.highlight, "")
     title:SetPoint("TOPLEFT", dialog, "TOPLEFT", 20, -18)
@@ -293,7 +299,7 @@ local function CreateProfileCodeDialog()
     nameEdit:SetFont(F.path, math.max(1, F.normal), "")
     nameEdit:SetTextColor(Color(C.text.highlight))
     nameEdit:SetTextInsets(7, 7, 0, 0)
-    SetBackdrop(nameEdit, C.bg.input, C.border.default)
+    SetBackdrop(nameEdit, C.bg.input, C.border.default, RADIUS.control)
     nameEdit:SetScript("OnEditFocusGained", function(self)
         self:SetBackdropBorderColor(0.15, 0.75, 0.92, 1)
         self:HighlightText()
@@ -309,7 +315,7 @@ local function CreateProfileCodeDialog()
     codeBox:SetPoint("LEFT", dialog, "LEFT", 20, 0)
     codeBox:SetPoint("RIGHT", dialog, "RIGHT", -20, 0)
     codeBox:SetPoint("BOTTOM", dialog, "BOTTOM", 0, 68)
-    SetBackdrop(codeBox, { 0.018, 0.020, 0.026, 1 }, C.border.default)
+    SetBackdrop(codeBox, { 0.018, 0.020, 0.026, 1 }, C.border.default, RADIUS.row)
 
     local scroll = CreateFrame("ScrollFrame", nil, codeBox, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", codeBox, "TOPLEFT", 8, -8)

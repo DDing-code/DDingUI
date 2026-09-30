@@ -17,6 +17,7 @@ local DD = T.DD or {
 }
 local SOLID = Lib.Textures and Lib.Textures.flat or "Interface\\Buttons\\WHITE8x8"
 local ADDON_KEY = "MJToolkit"
+local RADIUS = Lib.Radius or {} -- [STYLE] StyleLib 1.3 rounded dropdown
 
 local activeDropdown
 
@@ -153,7 +154,8 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
     Controls.ApplyBackdrop(
         button,
         { DD.BG_R, DD.BG_G, DD.BG_B, DD.BG_A },
-        { 1, 1, 1, DD.BRD_A }
+        { 1, 1, 1, DD.BRD_A },
+        RADIUS.control
     )
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
@@ -182,7 +184,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
     list:SetFrameLevel(500)
     list:SetToplevel(true)
     list:SetClampedToScreen(true)
-    Controls.ApplyBackdrop(list, { 0.055, 0.055, 0.06, 0.99 }, { 0, 0, 0, 1 })
+    Controls.ApplyBackdrop(list, { 0.055, 0.055, 0.06, 0.99 }, { 0, 0, 0, 1 }, RADIUS.row)
     list:Hide()
 
     local search = Controls.CreateSearchBox(list, width - 8, {
@@ -337,15 +339,15 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
             local item = optionRow.item
             local selected = item and item.value == row.currentValue
             local keyboard = item and row.filtered[row.keyboardIndex] == item
-            optionRow.accent:SetShown(selected)
+            optionRow.accent:SetShown(selected and not Controls.Rounded) -- [STYLE] rounded fill marks it
             if selected then
-                optionRow.background:SetColorTexture(r, g, b, math.max(DD.ITEM_SEL_A or 0.12, 0.14))
+                Controls.TintFill(optionRow.background, r, g, b, math.max(DD.ITEM_SEL_A or 0.12, 0.14))
                 optionRow.text:SetTextColor(1, 1, 1, 1)
             elseif keyboard then
-                optionRow.background:SetColorTexture(1, 1, 1, math.max(DD.ITEM_HL_A or 0.08, 0.10))
+                Controls.TintFill(optionRow.background, 1, 1, 1, math.max(DD.ITEM_HL_A or 0.08, 0.10))
                 optionRow.text:SetTextColor(1, 1, 1, 1)
             else
-                optionRow.background:SetColorTexture(0, 0, 0, 0)
+                Controls.TintFill(optionRow.background, 0, 0, 0, 0)
                 optionRow.text:SetTextColor(Controls.UnpackColor(
                     item and item.disabled and C.text.disabled or C.text.normal
                 ))
@@ -374,7 +376,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
         optionRow:SetHeight(rowHeight)
         optionRow:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-        optionRow.background = optionRow:CreateTexture(nil, "BACKGROUND")
+        optionRow.background = Controls.RoundFill(optionRow:CreateTexture(nil, "BACKGROUND"), RADIUS.control) -- [STYLE]
         optionRow.background:SetAllPoints()
 
         optionRow.accent = optionRow:CreateTexture(nil, "ARTWORK")
@@ -393,7 +395,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
 
         optionRow:SetScript("OnEnter", function(self)
             if self.item and not self.item.disabled and self.item.value ~= row.currentValue then
-                self.background:SetColorTexture(1, 1, 1, DD.ITEM_HL_A or 0.08)
+                Controls.TintFill(self.background, 1, 1, 1, DD.ITEM_HL_A or 0.08)
                 self.text:SetTextColor(1, 1, 1, 1)
             end
             if self.item and self.item.tooltip then

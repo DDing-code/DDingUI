@@ -71,3 +71,7 @@ DDingUI_RaidHelper/**/*.pyc
 /update_locales_2.py
 /Start.bat
 /Resume.bat
+
+# Python caches
+__pycache__/
+*.pyc

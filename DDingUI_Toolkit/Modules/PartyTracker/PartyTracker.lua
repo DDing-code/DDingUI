@@ -10,7 +10,7 @@ local L = ns.L
 local SL = _G.DDingUI_StyleLib -- [12.0.1]
 local SL_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF" -- [12.0.1]
 local SL_FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8" -- [12.0.1]
-local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r: " -- [STYLE]
+local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
 
 -- PartyTracker 모듈
 local PartyTracker = {}
@@ -1250,7 +1250,7 @@ SlashCmdList["PT"] = function(msg)
 
     local db = PartyTracker.db
     if not db then
-        print(CHAT_PREFIX .. "|cFFFF0000" .. L["PARTYTRACKER_SETTINGS_NOT_FOUND"] .. "|r") -- [STYLE]
+        ns.PrintError(L["PARTYTRACKER_SETTINGS_NOT_FOUND"]) -- [STYLE]
         return
     end
 
@@ -1289,7 +1289,7 @@ SlashCmdList["PT"] = function(msg)
         db.showManaText = true
         print(CHAT_PREFIX .. L["PARTYTRACKER_ALL_ENABLED"]) -- [STYLE]
     else
-        print(CHAT_PREFIX .. "|cFFFF0000" .. L["PARTYTRACKER_UNKNOWN_CMD"] .. "|r") -- [STYLE]
+        ns.PrintError(L["PARTYTRACKER_UNKNOWN_CMD"]) -- [STYLE]
     end
 end
 

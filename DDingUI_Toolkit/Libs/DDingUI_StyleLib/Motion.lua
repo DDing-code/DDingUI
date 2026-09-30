@@ -154,6 +154,26 @@ driver:SetScript("OnUpdate", function(self, elapsed)
     if #jobs == 0 then self:Hide() end
 end)
 
+------------------------------------------------------
+-- Motion level (series-wide): "full" | "reduced" | "off"  -- [STYLE]
+-- reduced keeps fades but drops scale/offset movement; off finishes every tween at once.
+------------------------------------------------------
+M.level = M.level or "full"
+
+function M.SetLevel(level)
+    if level == "full" or level == "reduced" or level == "off" then
+        M.level = level
+    end
+end
+
+function M.GetLevel()
+    return M.level
+end
+
+function M.AllowsMovement()
+    return M.level == "full"
+end
+
 --- Start a numeric tween.
 --- opts: { key, delay, ease, overshoot, onUpdate(target, value, eased, rawT), onFinish(target) }
 function M.Tween(target, fromValue, toValue, duration, opts)
@@ -161,6 +181,12 @@ function M.Tween(target, fromValue, toValue, duration, opts)
     opts = opts or {}
     local key = opts.key or "default"
     M.Stop(target, key)
+
+    if M.level == "off" then
+        SafeCall(opts.onUpdate, target, tonumber(toValue) or 1, 1, 1)
+        SafeCall(opts.onFinish, target)
+        return nil
+    end
 
     local store = GetJobStore(target)
     if not store then return nil end
@@ -309,21 +335,37 @@ function M.Hover(frame, opts)
     local key = opts.key or "hover"
     local duration = opts.duration or 0.10
     local ease = opts.ease or "smooth"
-    local state = frame._ddslHoverMotion or {}
-    frame._ddslHoverProgress = Clamp01(opts.initial or frame._ddslHoverProgress or 0)
+    -- [STYLE] Each key keeps its own state so ButtonHover + RowHover on one frame do not
+    -- overwrite each other. The default "hover" key keeps the legacy fields.
+    local legacy = key == "hover"
+    local state
+    if legacy then
+        state = frame._ddslHoverMotion or {}
+    else
+        frame._ddslHoverStates = frame._ddslHoverStates or {}
+        state = frame._ddslHoverStates[key] or {}
+    end
+    local function GetProgress()
+        if legacy then return frame._ddslHoverProgress end
+        return state.progress
+    end
+    local function SetProgress(v)
+        if legacy then frame._ddslHoverProgress = v else state.progress = v end
+    end
+    SetProgress(Clamp01(opts.initial or GetProgress() or 0))
 
     function state:SetTarget(target)
         target = Clamp01(target)
-        local from = Clamp01(frame._ddslHoverProgress or 0)
+        local from = Clamp01(GetProgress() or 0)
         return M.Tween(frame, from, target, duration, {
             key = key,
             ease = ease,
             onUpdate = function(obj, value, eased, rawT)
-                obj._ddslHoverProgress = value
+                SetProgress(value)
                 SafeCall(opts.apply, obj, value, eased, rawT)
             end,
             onFinish = function(obj)
-                obj._ddslHoverProgress = target
+                SetProgress(target)
                 SafeCall(opts.apply, obj, target, target, 1)
             end,
         })
@@ -339,8 +381,8 @@ function M.Hover(frame, opts)
         return self:SetTarget(0)
     end
 
-    frame._ddslHoverMotion = state
-    SafeCall(opts.apply, frame, frame._ddslHoverProgress, frame._ddslHoverProgress, 1)
+    if legacy then frame._ddslHoverMotion = state else frame._ddslHoverStates[key] = state end
+    SafeCall(opts.apply, frame, GetProgress(), GetProgress(), 1)
 
     if opts.bind ~= false and not state.bound then
         if opts.hook then
@@ -430,6 +472,7 @@ function M.PanelOpen(frame, opts)
     local base = opts.baseScale or (frame.GetScale and frame:GetScale()) or 1
     local fromScale = opts.fromScale or (base * 0.965)
     local toScale = opts.toScale or base
+    if not M.AllowsMovement() then fromScale = toScale end -- [STYLE] reduced: fade only
     local fromAlpha = opts.fromAlpha or 0
     local toAlpha = opts.toAlpha or 1
 
@@ -463,6 +506,7 @@ function M.PanelClose(frame, opts)
     local base = opts.baseScale or (frame.GetScale and frame:GetScale()) or 1
     local fromScale = opts.fromScale or base
     local toScale = opts.toScale or (base * 0.965)
+    if not M.AllowsMovement() then toScale = fromScale end -- [STYLE] reduced: fade only
     local fromAlpha = opts.fromAlpha or (frame.GetAlpha and frame:GetAlpha()) or 1
     local toAlpha = opts.toAlpha or 0
     local hideOnFinish = opts.hideOnFinish
@@ -510,6 +554,20 @@ function M.BindPanel(frame)
         self._ddslPanelClosing = nil
         self:SetAlpha(1)
         hide(self)
+    end
+
+    --- User GUI scale (title-bar "GUI 크기"). Safe while an open/close motion is running. -- [STYLE]
+    function frame:SetBaseScale(scale)
+        scale = tonumber(scale) or 1
+        if active then
+            M.Stop(self, "settingsOpen", true) -- finish the open (alpha 1)
+            M.Stop(self, "settingsClose")      -- never finish a close here (it would hide)
+            self._ddslPanelClosing = nil
+            self:SetAlpha(1)
+            active = nil
+        end
+        baseScale = scale
+        self:SetScale(scale)
     end
 
     function frame:ShowAnimated()
@@ -610,6 +668,7 @@ function M.ImpactPop(frame, opts)
     local endAlpha = opts.toAlpha or 1
     local alpha = opts.alpha
     local initialAlpha = startAlpha or (frame.GetAlpha and frame:GetAlpha()) or 0
+    if not M.AllowsMovement() then from, peak = to, to end -- [STYLE] reduced: no pop
 
     if frame.Show then frame:Show() end
 
@@ -721,6 +780,29 @@ end
 function M.EdgeFlash(frame, r, g, b, opts)
     if not frame or not frame.CreateTexture then return nil end
     opts = opts or {}
+
+    -- [STYLE] StyleLib 1.3: rounded surfaces flash along their rounded outline.
+    local rounded = frame._ddslRounded
+    if rounded and Lib.RoundTexture then
+        local ring = frame._ddslRoundFlash
+        if not ring then
+            ring = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+            ring:SetAllPoints()
+            frame._ddslRoundFlash = ring
+        end
+        Lib.RoundTexture(ring, rounded.radius, true)
+        ring:SetVertexColor(r or 1, g or 1, b or 1, opts.alpha or 0.90)
+        ring:SetAlpha(1)
+        ring:Show()
+        return M.Alpha(ring, 1, 0, opts.duration or 0.32, {
+            key = "edgeFlash",
+            ease = opts.ease or "outCubic",
+            onFinish = function(target)
+                if target and target.Hide then target:Hide() end
+                SafeCall(opts.onFinish, target)
+            end,
+        })
+    end
     local key = opts.key or "default"
     local alpha = opts.alpha or 0.90
     local flash = EnsureFlash(frame, key, opts.thickness or 2, opts.layer, opts.subLevel)
@@ -750,8 +832,238 @@ function M.EdgeFlash(frame, r, g, b, opts)
 end
 
 ------------------------------------------------------
+-- Settings-window helpers (StyleLib 1.2 "정밀 다듬기")  -- [STYLE]
+------------------------------------------------------
+
+--- One selection bar that slides between rows instead of re-drawing per row.
+--- Rows must be children of `parent` (or share its effective scale).
+--- @return Texture indicator with :MoveTo(row, animate) and :HideIndicator()
+function M.CreateIndicator(parent, width, height, color, opts)
+    if not parent then return nil end
+    opts = opts or {}
+    local bar = parent:CreateTexture(nil, opts.layer or "OVERLAY", nil, opts.subLevel or 7)
+    local r, g, b, a = ReadRGBA(color, { 1, 1, 1, 1 })
+    if opts.radius and Lib.RoundTexture then -- [STYLE] rounded pill indicator (StyleLib 1.3)
+        Lib.RoundTexture(bar, opts.radius)
+        bar:SetVertexColor(r, g, b, a)
+    else
+        bar:SetColorTexture(r, g, b, a)
+    end
+    bar:SetSize(width or 3, height or 20)
+    bar:Hide()
+    -- [STYLE] axis "y" (default): vertical lists; axis "x": horizontal tab strips.
+    local horizontal = opts.axis == "x"
+    local xOffset = opts.x or 0
+    local yOffset = opts.y or 0
+
+    local function Place(self, v)
+        self:ClearAllPoints()
+        if horizontal then
+            self:SetPoint("TOPLEFT", parent, "TOPLEFT", v, yOffset)
+        else
+            self:SetPoint("TOPLEFT", parent, "TOPLEFT", xOffset, v)
+        end
+    end
+
+    function bar:MoveTo(row, animate)
+        if not row then self:Hide(); return end
+        local top, rowTop
+        if horizontal then
+            top, rowTop = parent:GetLeft(), row:GetLeft()
+            if opts.matchWidth ~= false and row.GetWidth then self:SetWidth(row:GetWidth()) end
+        else
+            top, rowTop = parent:GetTop(), row:GetTop()
+            if opts.matchHeight ~= false and row.GetHeight then self:SetHeight(row:GetHeight()) end
+        end
+        self:Show()
+        if not top or not rowTop then
+            -- Layout not resolved yet: pin to the row, measure on the next move.
+            self:ClearAllPoints()
+            self:SetPoint("TOPLEFT", row, "TOPLEFT", horizontal and 0 or xOffset, horizontal and yOffset or 0)
+            self._ddslY = nil
+            return
+        end
+        local y = rowTop - top -- vertical: top offset; horizontal: left offset
+        local from = self._ddslY
+        self._ddslY = y
+        if animate == false or from == nil or math.abs(from - y) < 0.5 then
+            M.Stop(self, "indicator")
+            Place(self, y)
+            return
+        end
+        M.Tween(self, from, y, opts.duration or 0.18, {
+            key = "indicator",
+            ease = opts.ease or "outCubic",
+            onUpdate = function(target, value)
+                Place(target, M.AllowsMovement() and value or y)
+            end,
+            onFinish = function(target) Place(target, y) end,
+        })
+    end
+
+    function bar:HideIndicator()
+        M.Stop(self, "indicator")
+        self._ddslY = nil
+        self:Hide()
+    end
+
+    return bar
+end
+
+--- Fade (and nudge up) a list of already-laid-out regions one after another.
+--- opts: { step=0.03, duration=0.16, offset=4, key }
+function M.StaggerIn(regions, opts)
+    if type(regions) ~= "table" then return end
+    opts = opts or {}
+    local step = opts.step or 0.03
+    local duration = opts.duration or 0.16
+    local offset = opts.offset or 4
+    local key = opts.key or "staggerIn"
+
+    for i, region in ipairs(regions) do
+        if region and region.SetAlpha then
+            local p, rel, rp, x, y
+            local running = region._ddslMotionJobs and region._ddslMotionJobs[key]
+            if running and region._ddslStaggerBase then
+                -- [STYLE] re-triggered mid-flight: reuse the resting point, never the offset one
+                local b = region._ddslStaggerBase
+                p, rel, rp, x, y = b[1], b[2], b[3], b[4], b[5]
+                M.Stop(region, key)
+                region:SetPoint(p, rel, rp, x, y)
+            elseif offset ~= 0 and M.AllowsMovement() and region.GetNumPoints and region:GetNumPoints() == 1 then
+                p, rel, rp, x, y = region:GetPoint(1)
+                region._ddslStaggerBase = { p, rel, rp, x, y }
+            else
+                region._ddslStaggerBase = nil
+            end
+            region:SetAlpha(0)
+            M.Tween(region, 0, 1, duration, {
+                key = key,
+                delay = (i - 1) * step,
+                ease = "outCubic",
+                onUpdate = function(target, value)
+                    target:SetAlpha(value)
+                    if p then target:SetPoint(p, rel, rp, x, y - offset * (1 - value)) end
+                end,
+                onFinish = function(target)
+                    target:SetAlpha(1)
+                    if p then target:SetPoint(p, rel, rp, x, y) end
+                end,
+            })
+        end
+    end
+end
+
+--- Row hover: background colour tween + label nudge (2px) in 0.09s.
+--- opts: { bg=Texture, label=FontString, normal={r,g,b,a}, hover={r,g,b,a}, nudge=2,
+---         isActive=function(row) -> bool (active rows keep their own colour), hook=true }
+function M.RowHover(row, opts)
+    if not row then return nil end
+    opts = opts or {}
+    local bg, label = opts.bg, opts.label
+    local nudge = opts.nudge or 2
+    local lp, lrel, lrp, lx, ly
+    if label and label.GetNumPoints and label:GetNumPoints() == 1 then
+        lp, lrel, lrp, lx, ly = label:GetPoint(1)
+    end
+    return M.Hover(row, {
+        key = "rowHover",
+        duration = opts.duration or 0.09,
+        ease = "outCubic",
+        hook = opts.hook ~= false,
+        apply = function(frame, t)
+            local active = opts.isActive and opts.isActive(frame)
+            if bg and opts.normal and opts.hover and not active then
+                -- [STYLE] rounded backgrounds keep their 9-slice texture: tint instead of replace
+                if bg._ddslRoundTex then
+                    bg:SetVertexColor(LerpRGBA(opts.normal, opts.hover, t))
+                else
+                    bg:SetColorTexture(LerpRGBA(opts.normal, opts.hover, t))
+                end
+            end
+            if lp and M.AllowsMovement() then
+                label:SetPoint(lp, lrel, lrp, lx + nudge * t, ly)
+            end
+        end,
+    })
+end
+
+--- "적용됨" feedback: swap a button label for `duration` seconds, then restore.
+--- opts: { text="적용됨", color={r,g,b}, duration=1.2 }
+function M.AppliedFeedback(button, fontString, opts)
+    fontString = fontString or (button and button.GetFontString and button:GetFontString())
+    if not fontString then return end
+    opts = opts or {}
+    local original = fontString._ddslOriginalText or fontString:GetText()
+    local or_, og, ob, oa = fontString:GetTextColor()
+    fontString._ddslOriginalText = original
+    fontString._ddslOriginalColor = fontString._ddslOriginalColor or { or_, og, ob, oa }
+    local token = (fontString._ddslAppliedToken or 0) + 1
+    fontString._ddslAppliedToken = token
+
+    fontString:SetText(opts.text or "적용됨")
+    if opts.color then fontString:SetTextColor(ReadRGBA(opts.color)) end
+    if M.AllowsMovement() and button and button.SetScale then
+        M.ImpactPop(button, { from = 1, peak = 1.04, to = 1, duration = 0.16, key = "appliedPop" })
+    end
+
+    -- [STYLE] StyleLib 1.3: small series rings link up beside the label
+    if button and opts.rings ~= false and Lib.CreateLogoRings then
+        local rings = fontString._ddslAppliedRings
+        if not rings then
+            rings = Lib.CreateLogoRings(button, 12)
+            rings:SetPoint("RIGHT", fontString, "LEFT", -5, 0)
+            fontString._ddslAppliedRings = rings
+        end
+        local cr, cg, cb = fontString:GetTextColor()
+        rings:SetColor(cr, cg, cb, 1)
+        rings:Show()
+        rings:PlayLink(3)
+    end
+
+    fontString._ddslAppliedButton = button
+    C_Timer.After(opts.duration or 1.2, function()
+        if fontString._ddslAppliedToken ~= token then return end
+        M.RestoreAppliedLabel(fontString)
+    end)
+end
+
+--- Put the original label back; re-apply the button's hover state so a label that was
+--- captured mid-hover does not stay highlighted after the pointer left.
+function M.RestoreAppliedLabel(fontString)
+    if not fontString then return end
+    if fontString._ddslOriginalText then
+        fontString:SetText(fontString._ddslOriginalText)
+        local c = fontString._ddslOriginalColor
+        if c then fontString:SetTextColor(c[1], c[2], c[3], c[4] or 1) end
+    end
+    fontString._ddslOriginalText = nil
+    fontString._ddslOriginalColor = nil
+    if fontString._ddslAppliedRings then fontString._ddslAppliedRings:Hide() end
+    local button = fontString._ddslAppliedButton
+    local hover = button and button._ddslHoverMotion
+    if hover and hover.SetTarget then
+        hover:SetTarget((button.IsMouseOver and button:IsMouseOver()) and 1 or 0)
+    end
+end
+
+--- Restore a label changed by AppliedFeedback right away (e.g. the button is reused for another page).
+function M.CancelAppliedFeedback(fontString)
+    if not fontString or not fontString._ddslAppliedToken then return end
+    fontString._ddslAppliedToken = fontString._ddslAppliedToken + 1
+    M.RestoreAppliedLabel(fontString)
+end
+
+------------------------------------------------------
 -- Convenience aliases on the main lib
 ------------------------------------------------------
+Lib.CancelAppliedFeedback = M.CancelAppliedFeedback
+Lib.SetMotionLevel = M.SetLevel
+Lib.GetMotionLevel = M.GetLevel
+Lib.CreateIndicator = M.CreateIndicator
+Lib.StaggerIn = M.StaggerIn
+Lib.RowHover = M.RowHover
+Lib.AppliedFeedback = M.AppliedFeedback
 Lib.Tween = M.Tween
 Lib.StopMotion = M.Stop
 Lib.ColorTween = M.Color
