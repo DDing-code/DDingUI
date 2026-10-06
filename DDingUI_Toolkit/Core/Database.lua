@@ -26,7 +26,7 @@ ns.defaults = {
             RaidBreakTimer = false,
             CharacterPositionMarker = true,
             RangeDisplay = true,
-            PartyTracker = true,
+            PartyTracker = false, -- [REFACTOR] Retired module; retain the legacy DB key.
             DeathAlert = true,
             DeathReleaseGuard = true,
             MythicPlusHelper = true,
@@ -478,7 +478,7 @@ ns.defaults = {
             },
         },
 
-        -- PartyTracker 설정 (기본값 비활성화 - SavedVariables 없으면 모두 꺼짐)
+        -- [REFACTOR] Retired PartyTracker defaults are inert; preserve the saved-data structure.
         PartyTracker = {
             enabled = false,           -- 모듈 활성화
             showInParty = false,       -- 파티에서 표시

@@ -175,7 +175,6 @@ ns.ConfigModuleMap = {
     raidgroups       = "RaidGroups",
     raidpreparation  = "RaidPreparation",
     raidpartytooltip = "RaidPartyTooltip",
-    partytracker    = "PartyTracker",
     deathalert      = "DeathAlert",
     deathreleaseguard = "DeathReleaseGuard",
     mythicplus      = "MythicPlusHelper",
@@ -222,7 +221,6 @@ function ns:InitConfigTree()
             { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
             { text = L["TAB_BLOODLUSTTIMER"],   key = "bloodlusttimer" },
             { text = L["TAB_RAIDDEFENSIVETRACKER"], key = "raiddefensivetracker" },
-            { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
             { text = L["DEATHALERT_TITLE"] or "DeathAlert", key = "deathalert" },
             { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
         }},
@@ -1390,7 +1388,7 @@ function ns:InitConfigTree()
             { type = "slider", key = "profile.RaidDefensiveTracker.iconCropY", label = L["RDT_ICON_CROP_Y"], min = 0, max = 45, step = 1, onChange = RefreshRaidDefensiveTracker },
             { type = "slider", key = "profile.RaidDefensiveTracker.spacing", label = L["RDT_ICON_SPACING"], min = 0, max = 24, step = 1, onChange = RefreshRaidDefensiveTracker },
             { type = "slider", key = "profile.RaidDefensiveTracker.scale", label = L["SCALE"], min = 0.5, max = 2.0, step = 0.05, onChange = RefreshRaidDefensiveTracker },
-            { type = "dropdown", key = "profile.RaidDefensiveTracker.growDirection", label = L["PARTYTRACKER_GROWTH_DIRECTION"], options = {
+            { type = "dropdown", key = "profile.RaidDefensiveTracker.growDirection", label = L["GROWTH_DIRECTION"], options = {
                 { text = L["GROWTH_RIGHT"], value = "RIGHT" },
                 { text = L["GROWTH_LEFT"], value = "LEFT" },
                 { text = L["GROWTH_UP"], value = "UP" },
@@ -2097,111 +2095,6 @@ function ns:InitConfigTree()
                 local mod = ns.modules and ns.modules["RangeDisplay"]
                 if mod and mod.ResetPosition then mod:ResetPosition() end
             end },
-        },
-    }
-
-    -----------------------------------------------
-    -- PartyTracker
-    -----------------------------------------------
-    tree.panels["partytracker"] = {
-        title = L["PARTYTRACKER_TITLE"],
-        desc  = L["PARTYTRACKER_DESC"],
-        moduleEnableKey = "profile.modules.PartyTracker",
-        settings = {
-            -- 모듈 활성화
-            { type = "header", label = L["MODULE_ENABLED"], isFirst = true },
-            { type = "toggle", key = "profile.modules.PartyTracker", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
-
-            -- 표시 설정
-            { type = "header", label = L["PARTYTRACKER_DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.PartyTracker.showInParty", label = L["PARTYTRACKER_SHOW_PARTY"] },
-            { type = "toggle", key = "profile.PartyTracker.showInRaid",  label = L["PARTYTRACKER_SHOW_RAID"] },
-            { type = "toggle", key = "profile.PartyTracker.showLust",    label = L["PARTYTRACKER_SHOW_LUST"], onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateVisibility then mod:UpdateVisibility() end
-            end },
-            { type = "toggle", key = "profile.PartyTracker.showManaBar", label = L["PARTYTRACKER_SHOW_MANA_BAR"] },
-            { type = "toggle", key = "profile.PartyTracker.showManaText",label = L["PARTYTRACKER_SHOW_MANA_TEXT"] },
-            { type = "toggle", key = "profile.PartyTracker.locked",      label = L["POSITION_LOCKED"], onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateLockState then mod:UpdateLockState() end
-            end },
-
-            -- 마나 프레임 분리
-            { type = "header", label = L["PARTYTRACKER_SEPARATE_MANA"] },
-            { type = "toggle", key = "profile.PartyTracker.separateManaFrame", label = L["PARTYTRACKER_SEPARATE_MANA_DESC"] },
-            { type = "toggle", key = "profile.PartyTracker.manaLocked",        label = L["PARTYTRACKER_MANA_LOCKED"], onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateLockState then mod:UpdateLockState() end
-            end },
-            { type = "slider", key = "profile.PartyTracker.manaScale",         label = L["PARTYTRACKER_MANA_SCALE"], min = 0.5, max = 2.0, step = 0.1, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateManaScale then mod:UpdateManaScale() end
-            end },
-            { type = "button", label = L["PARTYTRACKER_MANA_POSITION_RESET"], onClick = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.ResetManaPosition then mod:ResetManaPosition() end
-            end },
-
-            -- 크기 설정
-            { type = "header", label = L["PARTYTRACKER_SIZE_SETTINGS"] },
-            { type = "slider", key = "profile.PartyTracker.iconSize", label = L["ICON_SIZE"], min = 20, max = 60, step = 1, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateIconSize then mod:UpdateIconSize() end
-            end },
-            { type = "slider", key = "profile.PartyTracker.scale",    label = L["SCALE"],     min = 0.5, max = 2.0, step = 0.1, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateScale then mod:UpdateScale() end
-            end },
-
-            -- 폰트 설정
-            { type = "header", label = L["PARTYTRACKER_FONT_SETTINGS"] },
-            { type = "font",   key = "profile.PartyTracker.font",     label = L["FONT"], onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateFonts then mod:UpdateFonts() end
-            end },
-            { type = "slider", key = "profile.PartyTracker.fontSize",  label = L["FONT_SIZE"], min = 8, max = 24, step = 1, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateFonts then mod:UpdateFonts() end
-            end },
-
-            -- 마나바 설정
-            { type = "header",    label = L["PARTYTRACKER_MANA_BAR_SETTINGS"] },
-            { type = "slider",    key = "profile.PartyTracker.manaBarWidth",   label = L["PARTYTRACKER_MANA_BAR_WIDTH"],   min = 30,  max = 120, step = 5, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateManaBarSize then mod:UpdateManaBarSize() end
-            end },
-            { type = "slider",    key = "profile.PartyTracker.manaBarHeight",  label = L["PARTYTRACKER_MANA_BAR_HEIGHT"],  min = 4,   max = 20,  step = 1, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateManaBarSize then mod:UpdateManaBarSize() end
-            end },
-            { type = "slider",    key = "profile.PartyTracker.manaBarOffsetX", label = L["PARTYTRACKER_MANA_BAR_OFFSET_X"],min = -50, max = 100, step = 1, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateManaBarPosition then mod:UpdateManaBarPosition() end
-            end },
-            { type = "slider",    key = "profile.PartyTracker.manaBarOffsetY", label = L["PARTYTRACKER_MANA_BAR_OFFSET_Y"],min = -30, max = 30,  step = 1, onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateManaBarPosition then mod:UpdateManaBarPosition() end
-            end },
-            { type = "statusbar", key = "profile.PartyTracker.manaBarTexture", label = L["PARTYTRACKER_MANA_BAR_TEXTURE"], onChange = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.UpdateManaBarTexture then mod:UpdateManaBarTexture() end
-            end },
-
-            -- 버튼
-            { type = "separator" },
-            { type = "button", label = L["TEST_ON_OFF"], onClick = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.TestMode then mod:TestMode() end
-            end },
-            { type = "button", label = L["RESET_POSITION"], onClick = function()
-                local mod = ns.modules and ns.modules["PartyTracker"]
-                if mod and mod.ResetPosition then mod:ResetPosition() end
-            end },
-
-            -- 정보 텍스트
-            { type = "header", label = L["PARTYTRACKER_INFO_TITLE"] },
-            { type = "text",   label = L["PARTYTRACKER_INFO_TEXT"] },
         },
     }
 

@@ -135,7 +135,6 @@ Modules\FocusInterrupt\FocusInterrupt.lua
 Modules\StasisTracker\StasisTracker.lua
 Modules\BloodlustTimer\BloodlustTimer.lua
 Modules\RaidDefensiveTracker\RaidDefensiveTracker.lua
-Modules\PartyTracker\PartyTracker.lua
 Modules\ReadyCheckAssistant\ReadyCheckAssistant.lua
 Modules\RaidGroups\RaidGroups.lua
 Modules\RaidPreparation\RaidPreparation.lua

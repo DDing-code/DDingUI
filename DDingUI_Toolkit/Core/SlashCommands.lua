@@ -93,15 +93,6 @@ local function SlashHandler(msg)
     elseif command == "affix" then
         ns.AffixProbe:Command(arg)
 
-    elseif command == "party" or command == "tracker" then
-        -- 파티 트래커 테스트 모드
-        local partyTracker = ns.PartyTracker
-        if partyTracker and partyTracker.TestMode then
-            partyTracker:TestMode()
-        else
-            DDingToolKit:OpenConfig("PartyTracker")
-        end
-
     elseif command == "enable" then
         -- 모듈 활성화
         if arg and arg ~= "" then
@@ -174,7 +165,6 @@ local function SlashHandler(msg)
         print("  /ddt notepad - Open Notepad")
         print("  /ddt tp - Open M+ Teleport window")
         print("  /ddt affix - Affix signal diagnostic commands")
-        print("  /ddt party - Toggle PartyTracker test mode")
         print("  /ddt enable <module> - Enable module")
         print("  /ddt disable <module> - Disable module")
         print("  /ddt list - List all modules")
