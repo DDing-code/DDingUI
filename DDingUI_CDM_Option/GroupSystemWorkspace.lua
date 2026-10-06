@@ -104,6 +104,8 @@ local WORKSPACE_CATEGORIES = {
             { key = "stack", label = "Stack Text", fallback = "중첩 텍스트" },
             { key = "cooldown", label = "Cooldown Text", fallback = "재사용 대기시간" },
             { key = "duration", label = "Duration Text", fallback = "지속시간" },
+            -- [REFACTOR] Use the existing viewer-specific keybind settings.
+            { key = "keybind", label = "Show Keybind Text", fallback = "단축키 표시", requiresKeybinds = true },
         },
     },
     {
@@ -618,7 +620,9 @@ function GUI.CreateGroupSystemWorkspace(contentFrame, parentFrame)
 
         local sections = {}
         for _, section in ipairs(definition.sections or {}) do
-            if not section.requiresIcon or selected then
+            if (not section.requiresIcon or selected)
+                and (not section.requiresKeybinds or DDingUI:GetGroupKeybindViewer(self.selectedGroup))
+            then
                 sections[#sections + 1] = section
             end
         end

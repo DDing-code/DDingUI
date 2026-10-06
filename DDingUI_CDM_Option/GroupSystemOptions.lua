@@ -7679,7 +7679,19 @@ local WORKSPACE_TEXT_SECTIONS = {
         "durationHeader", "enableDurationText", "durationTextFont", "durationTextSize",
         "durationTextColor", "durationTextAnchor", "durationTextOffsetX", "durationTextOffsetY",
     },
+    keybind = {
+        "showKeybinds", "keybindHeader", "keybindFont", "keybindFontSize", "keybindFontColor",
+        "keybindAnchor", "keybindOffsetX", "keybindOffsetY",
+    },
 }
+
+-- [REFACTOR] Keybind settings keep their existing Essential/Utility profile keys.
+function DDingUI:GetGroupKeybindViewer(groupName)
+    local viewerKey = GROUP_VIEWER_MAP[groupName]
+    if viewerKey == "EssentialCooldownViewer" or viewerKey == "UtilityCooldownViewer" then
+        return viewerKey
+    end
+end
 
 local function CloneWorkspaceOption(option, order)
     if type(option) ~= "table" then return nil end
@@ -7751,6 +7763,23 @@ function DDingUI:BuildGroupWorkspaceOptionPage(groupName, category, section)
     end
 
     if category == "text" then
+        -- [REFACTOR] Restore the existing viewer controls in the group workspace.
+        if section == "keybind" then
+            local viewerKey = self:GetGroupKeybindViewer(groupName)
+            local vo = viewerKey and ns.CreateSingleViewerOptions
+                and ns.CreateSingleViewerOptions(viewerKey, GROUP_DISPLAY_NAMES[groupName], 1)
+            local args = {}
+            CopyWorkspaceOptionList(args, vo and vo.args, WORKSPACE_TEXT_SECTIONS.keybind)
+            local function KeybindsDisabled()
+                return not args.showKeybinds or not args.showKeybinds.get()
+            end
+            for _, key in ipairs(WORKSPACE_TEXT_SECTIONS.keybind) do
+                if args[key] and key ~= "showKeybinds" and key ~= "keybindHeader" then
+                    args[key].disabled = KeybindsDisabled
+                end
+            end
+            return BuildWorkspacePage(L["Show Keybind Text"], args)
+        end
         local textArgs = BuildCustomTextArgs(groupName)
         local args = {}
         CopyWorkspaceOptionList(
