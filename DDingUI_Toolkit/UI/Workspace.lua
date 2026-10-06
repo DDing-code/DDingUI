@@ -68,6 +68,7 @@ local CATEGORY_DEFS = {
             "raidgroups",
             "raidpreparation",
             "raidpartytooltip",
+            "partytracker",
             "mythicplus",
             "goldsplit",
             "raidbreaktimer",
