@@ -2,7 +2,7 @@
 ## Title: DDingUI_StyleLib
 ## Notes: Shared UI Style Library for DDingUI addon series
 ## Author: DDing
-## Version: 1.3.0
+## Version: 1.4.0
 ## IconTexture: Interface\Icons\INV_Inscription_Pigment_Bug01
 ## OptionalDeps: LibStub
 
@@ -23,4 +23,5 @@ CascadingMenu.lua
 DragSorter.lua
 DualRow.lua
 Widgets.lua
+EditMode.lua
 ProceduralGlow.lua
