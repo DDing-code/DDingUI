@@ -1,0 +1,288 @@
+{
+  "commit": "faf366dbb9e60c9bab904d5c91da8adaad10ab85",
+  "build": "12.1.0.69933",
+  "license": "GPL-3.0-or-later",
+  "specs": [
+    {
+      "specID": 71,
+      "key": "warrior_arms",
+      "source": "ActionPriorityLists/default/warrior_arms.simc",
+      "sha256": "4f19107e038cfa3b7a04b1da4c758869eceda38ccf46da9cfd6200bcb939405e",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 72,
+      "key": "warrior_fury",
+      "source": "ActionPriorityLists/default/warrior_fury.simc",
+      "sha256": "5abcbe2bcfa3dfb466ce88fb438a99db1a36d53a7ab3e662e6ee54b1a5b8e023",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 73,
+      "key": "warrior_protection",
+      "source": "ActionPriorityLists/default/warrior_protection.simc",
+      "sha256": "b658aad6cdbb43ad8c0c473a1d5dcccfd48aa8dbf7de2cd4cbf51087e79f36a6",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 65,
+      "key": "paladin_holy",
+      "source": null,
+      "sha256": null,
+      "status": "no_upstream_apl"
+    },
+    {
+      "specID": 66,
+      "key": "paladin_protection",
+      "source": "ActionPriorityLists/default/paladin_protection.simc",
+      "sha256": "0baba5f23287c433d9445de33ff4c53d593256019af32b0be9a39fc5ab240d5c",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 70,
+      "key": "paladin_retribution",
+      "source": "ActionPriorityLists/default/paladin_retribution.simc",
+      "sha256": "8257b0eb3369ca8bcea2b6d46c2d132b71fd45b5de54580145ed8cacfef1b35a",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 253,
+      "key": "hunter_beast_mastery",
+      "source": "ActionPriorityLists/default/hunter_beast_mastery.simc",
+      "sha256": "96402c9ae154c2a6252bc1e4d55240b056e968550578a9ac1681251b5b146d41",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 254,
+      "key": "hunter_marksmanship",
+      "source": "ActionPriorityLists/default/hunter_marksmanship.simc",
+      "sha256": "cfcf5d04a4aac40bd7e06263cf7213c33eb2204a145c4f19b60ae6e1fe1a7dee",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 255,
+      "key": "hunter_survival",
+      "source": "ActionPriorityLists/default/hunter_survival.simc",
+      "sha256": "e850490c779260bbf4b368b535d1837bd803ac3ae09ba3b8b3ec22248ffc2154",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 259,
+      "key": "rogue_assassination",
+      "source": "ActionPriorityLists/default/rogue_assassination.simc",
+      "sha256": "d2fd09031344fb416a32e012e2c05c57dc72bfd35523d4f18b48142f24d4941b",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 260,
+      "key": "rogue_outlaw",
+      "source": "ActionPriorityLists/default/rogue_outlaw.simc",
+      "sha256": "d776ebebf55ebeebea9fe71e43ae394b6f63fc12559ba9d3a2c69be84f03fc9f",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 261,
+      "key": "rogue_subtlety",
+      "source": "ActionPriorityLists/default/rogue_subtlety.simc",
+      "sha256": "4fff3151b7c04a204e1a9f699cd3978c870b58623cf28d25be08e94710a6a25f",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 256,
+      "key": "priest_discipline",
+      "source": null,
+      "sha256": null,
+      "status": "no_upstream_apl"
+    },
+    {
+      "specID": 257,
+      "key": "priest_holy",
+      "source": null,
+      "sha256": null,
+      "status": "no_upstream_apl"
+    },
+    {
+      "specID": 258,
+      "key": "priest_shadow",
+      "source": "ActionPriorityLists/default/priest_shadow.simc",
+      "sha256": "6776b505bfb71e8e2ecae1859dcdc5bd88e14363551ad92556d8b0344ff8b826",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 250,
+      "key": "deathknight_blood",
+      "source": "ActionPriorityLists/default/deathknight_blood.simc",
+      "sha256": "7f264e82ee950a5fca754b9f2abdea144241f9908e42811bf6e3a8e7acf90929",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 251,
+      "key": "deathknight_frost",
+      "source": "ActionPriorityLists/default/deathknight_frost.simc",
+      "sha256": "23245083391de3587d931b386a6d406143572bd168bab944999f09e91ca9f2f0",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 252,
+      "key": "deathknight_unholy",
+      "source": "ActionPriorityLists/default/deathknight_unholy.simc",
+      "sha256": "70c1120078766a5b80a92102f701e249af191f00455a0f0ec4a2e41ac233c029",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 262,
+      "key": "shaman_elemental",
+      "source": "ActionPriorityLists/default/shaman_elemental.simc",
+      "sha256": "0cb0be7cd3e9e0b84e40e8fbcc03047f165ce7ac983c9d1056b9cda932b04f57",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 263,
+      "key": "shaman_enhancement",
+      "source": "ActionPriorityLists/default/shaman_enhancement.simc",
+      "sha256": "827733ed1418fe01823960242453c9c9d8f80dfab4cdae5c361dbcd34f325bb4",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 264,
+      "key": "shaman_restoration",
+      "source": null,
+      "sha256": null,
+      "status": "no_upstream_apl"
+    },
+    {
+      "specID": 62,
+      "key": "mage_arcane",
+      "source": "ActionPriorityLists/default/mage_arcane.simc",
+      "sha256": "b1d85887ec62431864cc2db45b95993868bc02a0c0852b5189997542f47cabd4",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 63,
+      "key": "mage_fire",
+      "source": "ActionPriorityLists/default/mage_fire.simc",
+      "sha256": "cd8e473728ecaaecfb114e80cfc59dd494ada819f93f2ec889419ece44b331dd",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 64,
+      "key": "mage_frost",
+      "source": "ActionPriorityLists/default/mage_frost.simc",
+      "sha256": "3629a25e029142a37253e12d606e0213cef90fc5f2f6214a6d67534b0b70f9ce",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 265,
+      "key": "warlock_affliction",
+      "source": "ActionPriorityLists/default/warlock_affliction.simc",
+      "sha256": "36adc17ae842b7ea814a492912772b09c13823308a3e56629a85d890e5dc4112",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 266,
+      "key": "warlock_demonology",
+      "source": "ActionPriorityLists/default/warlock_demonology.simc",
+      "sha256": "b328abf420877717fbb4e7ce6b317c630f81aa236e9fbe4aea49e24e7227a82b",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 267,
+      "key": "warlock_destruction",
+      "source": "ActionPriorityLists/default/warlock_destruction.simc",
+      "sha256": "97ef06dd88e11e618a19d3b7909c66982fbba7cf9bc42b380d6939ee2b71d028",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 268,
+      "key": "monk_brewmaster",
+      "source": "ActionPriorityLists/default/monk_brewmaster.simc",
+      "sha256": "b4bed36e7be719ccfe44f66ae647f3b6d7d168af4ceda1649b88591349a22b11",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 270,
+      "key": "monk_mistweaver",
+      "source": null,
+      "sha256": null,
+      "status": "no_upstream_apl"
+    },
+    {
+      "specID": 269,
+      "key": "monk_windwalker",
+      "source": "ActionPriorityLists/default/monk_windwalker.simc",
+      "sha256": "5dbae97fc10ec05efaee165d4ac87bd9818e56d2d32ea6758f554b058c652d5d",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 102,
+      "key": "druid_balance",
+      "source": "ActionPriorityLists/default/druid_balance.simc",
+      "sha256": "3667cc23e74b9ad6b295cd84cc900afcc296b59d9c5031f2b482b93c09e57a08",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 103,
+      "key": "druid_feral",
+      "source": "ActionPriorityLists/default/druid_feral.simc",
+      "sha256": "255c89bce282ac2bc9c63d354f4d726d49cd3c722b5cf1648819b6a39e0ce1ed",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 104,
+      "key": "druid_guardian",
+      "source": "ActionPriorityLists/default/druid_guardian.simc",
+      "sha256": "72d0570f199a817291430dcdce89ed795831fac13984bab34d3efe3bee532f70",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 105,
+      "key": "druid_restoration",
+      "source": "ActionPriorityLists/default/druid_restoration.simc",
+      "sha256": "99d7e7fd2da699ee7026de3aac160fba9a54bf9136e4718cda3e0ec3e4f6acda",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 577,
+      "key": "demonhunter_havoc",
+      "source": "ActionPriorityLists/default/demonhunter_havoc.simc",
+      "sha256": "b64c859866b3dd441eb505a848bb47e36cd0502b5d232fb0d37a3ace74e4147d",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 581,
+      "key": "demonhunter_vengeance",
+      "source": "ActionPriorityLists/default/demonhunter_vengeance.simc",
+      "sha256": "52ba08dea1e3e535275738381b93b291ee474c2e2f1efc4bbee9b21429a88850",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 1480,
+      "key": "demonhunter_devourer",
+      "source": "ActionPriorityLists/default/demonhunter_devourer.simc",
+      "sha256": "2a934e527581fa02f3fea93f7bcd74ca4446304dc36adfb5a4dd51f178c540e2",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 1467,
+      "key": "evoker_devastation",
+      "source": "ActionPriorityLists/default/evoker_devastation.simc",
+      "sha256": "73828a5536c485dcd91829491830ab1f9d2446cc5ff54c47fc3e5c8da8e73f9b",
+      "status": "unverified_source"
+    },
+    {
+      "specID": 1468,
+      "key": "evoker_preservation",
+      "source": null,
+      "sha256": null,
+      "status": "no_upstream_apl"
+    },
+    {
+      "specID": 1473,
+      "key": "evoker_augmentation",
+      "source": "ActionPriorityLists/default/evoker_augmentation.simc",
+      "sha256": "b73ca860434233a07cd30934bc168c1d8a0c33fbf1c39c8885e200b033dad2e3",
+      "status": "unverified_source"
+    }
+  ],
+  "tokens": 803
+}

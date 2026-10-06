@@ -1,0 +1,985 @@
+-- Reused from DDingUI_Toolkit/UI/Controls.lua; private FX controls.
+
+local addonName, ns = ...
+local Lib = LibStub("DDingUI-FX-StyleLib-1.0")
+local C = Lib.Colors
+local F = Lib.Font
+local Motion = Lib.Motion
+local T = Lib.Tokens or {}
+local PP = Lib.PP
+local SOLID = Lib.Textures and Lib.Textures.flat or "Interface\\Buttons\\WHITE8x8"
+local ADDON_KEY = "FX"
+-- [STYLE] StyleLib 1.3 rounded surfaces (시안 7). Falls back to square backdrops without it.
+local ROUNDED = Lib.Rounded and Lib.MakeRounded and Lib.RoundTexture and true or false
+local R = Lib.Radius or { window = 14, card = 10, row = 8, control = 6, check = 4, track = 2 }
+
+local Controls = {}
+ns.Controls = Controls
+
+local function UnpackColor(color, fallbackAlpha)
+    color = color or { 1, 1, 1, fallbackAlpha or 1 }
+    return color[1] or 1, color[2] or 1, color[3] or 1, color[4] or fallbackAlpha or 1
+end
+
+local function Accent()
+    local color = Lib.GetAccent(ADDON_KEY)
+    return color[1], color[2], color[3]
+end
+
+local function ApplyBackdrop(frame, background, border, radius)
+    -- [STYLE] A radius turns the frame into a rounded surface; SetBackdropColor keeps working.
+    if radius and ROUNDED then
+        Lib.MakeRounded(frame, radius, background or C.bg.input, border or C.border.default)
+        return
+    end
+    frame:SetBackdrop({
+        bgFile = SOLID,
+        edgeFile = SOLID,
+        edgeSize = 1,
+    })
+    frame:SetBackdropColor(UnpackColor(background or C.bg.input))
+    frame:SetBackdropBorderColor(UnpackColor(border or C.border.default))
+end
+
+local function DisablePixelSnap(texture)
+    if PP and PP.DisablePixelSnap then
+        PP.DisablePixelSnap(texture)
+    elseif texture and texture.SetSnapToPixelGrid then
+        texture:SetSnapToPixelGrid(false)
+        texture:SetTexelSnappingBias(0)
+    end
+end
+
+--- [STYLE] Rounded 9-slice texture (StyleLib marks it _ddslRoundTex; RowHover tints it itself).
+local function RoundedTexture(texture, radius, border)
+    if ROUNDED and texture then Lib.RoundTexture(texture, radius, border) end
+    return texture
+end
+
+--- [STYLE] Colour a plain or rounded texture without replacing the rounded 9-slice.
+local function Tint(texture, r, g, b, a)
+    if texture._ddslRoundTex then
+        texture:SetVertexColor(r, g, b, a or 1)
+    else
+        texture:SetColorTexture(r, g, b, a or 1)
+    end
+end
+
+local function MakeFont(parent, size, color, text)
+    local fontString = parent:CreateFontString(nil, "OVERLAY")
+    fontString:SetFont(F.path, math.max(1, tonumber(size) or F.normal), "")
+    fontString:SetTextColor(UnpackColor(color or C.text.normal))
+    fontString:SetText(text or "")
+    fontString:SetShadowOffset(1, -1)
+    fontString:SetShadowColor(0, 0, 0, 0.9)
+    return fontString
+end
+
+local function SetTooltip(frame, text)
+    if not frame or not text or text == "" then return end
+    frame:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(text, 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    frame:HookScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+end
+
+local function EnableRightClickMouselook(frame)
+    if ns.EnableRightClickMouselook then
+        ns:EnableRightClickMouselook(frame)
+    elseif Lib.EnableRightClickMouselook then
+        Lib.EnableRightClickMouselook(frame)
+    end
+end
+
+local function CreateRow(parent, labelText, height)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(560, height or 30)
+
+    local label = MakeFont(row, F.normal, C.text.normal, labelText)
+    label:SetPoint("LEFT", row, "LEFT", 0, 0)
+    label:SetPoint("RIGHT", row, "CENTER", -22, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+
+    row.label = label
+    return row
+end
+
+local function SetRowDisabled(row, disabled)
+    row._disabled = disabled == true
+    row:SetAlpha(row._disabled and 0.48 or 1)
+    if row.control and row.control.SetEnabled then
+        row.control:SetEnabled(not row._disabled)
+    end
+end
+
+function Controls.CreateSeparator(parent, opts)
+    opts = opts or {}
+    local line = parent:CreateTexture(nil, "ARTWORK")
+    line:SetHeight(1)
+    line:SetWidth(opts.width or parent:GetWidth() or 300)
+    line:SetColorTexture(UnpackColor(opts.color or C.border.separator))
+    DisablePixelSnap(line)
+    return line
+end
+
+function Controls.CreateSectionHeader(parent, addonKey, text, opts)
+    opts = opts or {}
+    local r, g, b = Accent()
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(560, opts.isFirst and 36 or 48)
+
+    local label = MakeFont(row, F.section, { r, g, b, 1 }, text)
+    label:SetJustifyH("LEFT")
+    local indent = 0
+    if ROUNDED and Lib.CreateRingBullet then -- [STYLE] series ring bullet (StyleLib 1.3)
+        local bullet = Lib.CreateRingBullet(row, ADDON_KEY, 11)
+        bullet:SetPoint("LEFT", label, "LEFT", -(bullet:GetWidth() + 7), 0)
+        indent = bullet:GetWidth() + 7
+        row.bullet = bullet
+    end
+    label:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", indent, 10)
+
+    local line = row:CreateTexture(nil, "ARTWORK")
+    line:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 3)
+    line:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 3)
+    line:SetHeight(1)
+    line:SetColorTexture(r, g, b, 0.55)
+    DisablePixelSnap(line)
+
+    local cap = row:CreateTexture(nil, "OVERLAY")
+    cap:SetPoint("BOTTOMLEFT", line, "BOTTOMLEFT", 0, 0)
+    cap:SetSize(54, 1)
+    cap:SetColorTexture(r, g, b, 1)
+    DisablePixelSnap(cap)
+
+    row.label = label
+    return row
+end
+
+function Controls.CreateButton(parent, addonKey, text, onClick, opts)
+    opts = opts or {}
+    local r, g, b = Accent()
+    local buttonColors = T.MakeButtonColors and T.MakeButtonColors({ r, g, b, 1 })
+    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    button:SetSize(opts.width or 160, opts.height or 28)
+    ApplyBackdrop(
+        button,
+        buttonColors and { buttonColors[1], buttonColors[2], buttonColors[3], buttonColors[4] } or C.bg.input,
+        buttonColors and { buttonColors[9], buttonColors[10], buttonColors[11], buttonColors[12] } or C.border.default,
+        R.control
+    )
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    local label = MakeFont(button, F.normal, C.text.normal, text)
+    label:SetPoint("CENTER")
+    button.label = label
+
+    local hoverMotion
+    local buttonHover = Motion and (Motion.ButtonHover or Motion.InterfaceButton)
+    if buttonHover then
+        hoverMotion = buttonHover(button, {
+            normalBg = buttonColors and { buttonColors[1], buttonColors[2], buttonColors[3], buttonColors[4] } or C.bg.input,
+            hoverBg = C.bg.hover,
+            normalBorder = buttonColors and { buttonColors[9], buttonColors[10], buttonColors[11], buttonColors[12] } or C.border.default,
+            hoverBorder = { r, g, b, 0.85 },
+            text = label,
+            normalText = C.text.normal,
+            hoverText = C.text.highlight,
+            duration = 0.10,
+            bind = true,
+        })
+    else
+        button:SetScript("OnEnter", function(self)
+            self:SetBackdropColor(UnpackColor(C.bg.hover))
+            self:SetBackdropBorderColor(r, g, b, 0.85)
+            label:SetTextColor(UnpackColor(C.text.highlight))
+        end)
+        button:SetScript("OnLeave", function(self)
+            self:SetBackdropColor(UnpackColor(C.bg.input))
+            self:SetBackdropBorderColor(UnpackColor(C.border.default))
+            label:SetTextColor(UnpackColor(C.text.normal))
+        end)
+    end
+
+    button:SetScript("OnMouseDown", function(self, mouseButton)
+        if mouseButton ~= "LeftButton" then return end
+        self:SetBackdropColor(r, g, b, 0.42)
+        label:SetPoint("CENTER", 0, -1)
+    end)
+    button:SetScript("OnMouseUp", function(self, mouseButton)
+        if mouseButton ~= "LeftButton" then return end
+        label:SetPoint("CENTER", 0, 0)
+        if hoverMotion and hoverMotion.SetTarget then
+            hoverMotion:SetTarget(self:IsMouseOver() and 1 or 0)
+        else
+            self:SetBackdropColor(UnpackColor(self:IsMouseOver() and C.bg.hover or C.bg.input))
+        end
+    end)
+    if onClick then
+        button:SetScript("OnClick", function(self, mouseButton)
+            if mouseButton == "LeftButton" then
+                onClick(self)
+            end
+        end)
+    end
+
+    function button:SetDisabledState(disabled)
+        self:SetEnabled(not disabled)
+        self:SetAlpha(disabled and 0.48 or 1)
+    end
+
+    SetTooltip(button, opts.tooltip)
+    EnableRightClickMouselook(button)
+    return button
+end
+
+function Controls.CreateSegmentedControl(parent, addonKey, labelText, options, current, opts)
+    opts = opts or {}
+    options = options or {}
+
+    local r, g, b = Accent()
+    local width = opts.width or 560
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(width, opts.height or 64)
+
+    local label = MakeFont(row, F.normal, C.text.normal, labelText)
+    label:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+
+    local group = CreateFrame("Frame", nil, row)
+    group:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -26)
+    group:SetSize(width, 30)
+
+    local buttons = {}
+    local selected = current
+    local count = math.max(1, #options)
+    local buttonWidth = math.floor(width / count)
+    local gap = ROUNDED and 4 or 0 -- [STYLE] separate rounded segments instead of touching corners
+
+    local function Refresh()
+        for _, button in ipairs(buttons) do
+            local active = button.value == selected
+            button.active = active
+            if active then
+                button:SetBackdropColor(r * 0.16, g * 0.16, b * 0.16, 0.98)
+                button:SetBackdropBorderColor(r, g, b, 0.95)
+                button.label:SetTextColor(UnpackColor(C.text.highlight))
+                button.accent:Show()
+            else
+                button:SetBackdropColor(UnpackColor(C.bg.input))
+                button:SetBackdropBorderColor(UnpackColor(C.border.default))
+                button.label:SetTextColor(UnpackColor(C.text.normal))
+                button.accent:Hide()
+            end
+        end
+    end
+
+    for index, option in ipairs(options) do
+        local button = CreateFrame("Button", nil, group, "BackdropTemplate")
+        button:SetPoint("TOPLEFT", group, "TOPLEFT", (index - 1) * buttonWidth, 0)
+        button:SetSize(index == count and (width - ((count - 1) * buttonWidth)) or (buttonWidth - gap), 30)
+        ApplyBackdrop(button, C.bg.input, C.border.default, R.control)
+        button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        button.value = option.value
+
+        button.label = MakeFont(button, F.small, C.text.normal, option.text or tostring(option.value or ""))
+        button.label:SetPoint("LEFT", button, "LEFT", 5, 0)
+        button.label:SetPoint("RIGHT", button, "RIGHT", -5, 0)
+        button.label:SetJustifyH("CENTER")
+        button.label:SetWordWrap(false)
+
+        button.accent = button:CreateTexture(nil, "OVERLAY")
+        button.accent:SetTexture(SOLID)
+        -- [STYLE] Keep the active underline clear of the rounded corners.
+        local inset = ROUNDED and R.control or 1
+        button.accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", inset, 1)
+        button.accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -inset, 1)
+        button.accent:SetHeight(2)
+        button.accent:SetVertexColor(r, g, b, 1)
+        DisablePixelSnap(button.accent)
+
+        button:SetScript("OnClick", function(self, mouseButton)
+            if mouseButton ~= "LeftButton" or row._disabled or selected == self.value then return end
+            selected = self.value
+            Refresh()
+            if opts.onChange then opts.onChange(selected) end
+        end)
+        button:SetScript("OnEnter", function(self)
+            if not self.active then
+                self:SetBackdropColor(UnpackColor(C.bg.hover))
+                self:SetBackdropBorderColor(r, g, b, 0.72)
+                self.label:SetTextColor(UnpackColor(C.text.highlight))
+            end
+        end)
+        button:SetScript("OnLeave", Refresh)
+        EnableRightClickMouselook(button)
+        buttons[#buttons + 1] = button
+    end
+
+    function row:SetValue(value, silent)
+        local changed = selected ~= value
+        selected = value
+        Refresh()
+        if changed and not silent and opts.onChange then opts.onChange(selected) end
+    end
+
+    function row:GetValue()
+        return selected
+    end
+
+    function row:SetDisabledState(disabled)
+        row._disabled = disabled == true
+        row:SetAlpha(row._disabled and 0.48 or 1)
+        for _, button in ipairs(buttons) do
+            button:SetEnabled(not row._disabled)
+        end
+    end
+
+    row.label = label
+    row.control = group
+    row.buttons = buttons
+    Refresh()
+    SetTooltip(row, opts.tooltip)
+    EnableRightClickMouselook(row)
+    return row
+end
+
+function Controls.CreateCheckbox(parent, addonKey, labelText, default, opts)
+    opts = opts or {}
+    local r, g, b = Accent()
+    local CB = T.CB or {
+        BOX_R = 0.075, BOX_G = 0.113, BOX_B = 0.141,
+        BRD_A = 0.25, ACT_BRD_A = 0.70, SIZE = 14, CHECK_INSET = 2,
+    }
+    local row = CreateFrame("Button", nil, parent)
+    row:SetSize(560, opts.height or 28)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    local label = MakeFont(row, F.normal, C.text.normal, labelText)
+    label:SetPoint("LEFT", row, "LEFT", 0, 0)
+    label:SetPoint("RIGHT", row, "RIGHT", -42, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+
+    local box = CreateFrame("Frame", nil, row, "BackdropTemplate")
+    box:SetSize(CB.SIZE, CB.SIZE)
+    box:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    ApplyBackdrop(box, { CB.BOX_R, CB.BOX_G, CB.BOX_B, 1 }, { 1, 1, 1, CB.BRD_A }, R.check)
+
+    local fill = box:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", box, "TOPLEFT", CB.CHECK_INSET, -CB.CHECK_INSET)
+    fill:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -CB.CHECK_INSET, CB.CHECK_INSET)
+    RoundedTexture(fill, 2)
+    Tint(fill, r, g, b, 1)
+    DisablePixelSnap(fill)
+
+    local check = MakeFont(box, 12, C.text.highlight, "")
+    check:SetPoint("CENTER", box, "CENTER", 0, 0)
+
+    row.checked = default == true
+
+    local function Refresh()
+        fill:SetShown(row.checked)
+        check:SetText(row.checked and "" or "")
+        box:SetBackdropBorderColor(UnpackColor(
+            row.checked and { r, g, b, CB.ACT_BRD_A } or { 1, 1, 1, CB.BRD_A }
+        ))
+    end
+
+    function row:SetChecked(value, silent)
+        local nextValue = value == true
+        local changed = self.checked ~= nextValue
+        self.checked = nextValue
+        Refresh()
+        if changed and not silent and opts.onChange then
+            opts.onChange(self.checked)
+        end
+    end
+
+    function row:GetChecked()
+        return self.checked
+    end
+
+    function row:SetDisabledState(disabled)
+        SetRowDisabled(self, disabled)
+    end
+
+    row:SetScript("OnClick", function(self, mouseButton)
+        if mouseButton ~= "LeftButton" or self._disabled then return end
+        self:SetChecked(not self.checked)
+    end)
+    row:SetScript("OnEnter", function()
+        label:SetTextColor(UnpackColor(C.text.highlight))
+        box:SetBackdropBorderColor(r, g, b, 0.9)
+    end)
+    row:SetScript("OnLeave", function()
+        label:SetTextColor(UnpackColor(C.text.normal))
+        Refresh()
+    end)
+
+    row.label = label
+    row.box = box
+    row.control = row
+    Refresh()
+    SetTooltip(row, opts.tooltip)
+    EnableRightClickMouselook(row)
+    return row
+end
+
+function Controls.CreateInputField(parent, addonKey, labelText, default, opts)
+    opts = opts or {}
+    local r, g, b = Accent()
+    local row = CreateRow(parent, labelText, opts.height or 30)
+
+    local editBox = CreateFrame("EditBox", nil, row, "BackdropTemplate")
+    editBox:SetSize(opts.inputWidth or 220, 24)
+    editBox:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    ApplyBackdrop(editBox, C.bg.input, C.border.default, R.control)
+    editBox:SetFont(F.path, math.max(1, F.normal), "")
+    editBox:SetTextColor(UnpackColor(C.text.highlight))
+    editBox:SetTextInsets(7, 7, 0, 0)
+    editBox:SetAutoFocus(false)
+    editBox:SetMaxLetters(opts.maxLetters or 256)
+    editBox:SetText(default == nil and "" or tostring(default))
+    if opts.numeric then editBox:SetNumeric(true) end
+
+    local lastCommitted = editBox:GetText()
+    local function Commit()
+        local value = editBox:GetText()
+        if value == lastCommitted then return end
+        lastCommitted = value
+        if opts.onEnter then opts.onEnter(value) end
+        if opts.onChange then opts.onChange(value) end
+    end
+
+    editBox:SetScript("OnEnter", function(self)
+        if not self:HasFocus() then
+            self:SetBackdropBorderColor(r, g, b, 0.7)
+        end
+    end)
+    editBox:SetScript("OnLeave", function(self)
+        if not self:HasFocus() then
+            self:SetBackdropBorderColor(UnpackColor(C.border.default))
+        end
+    end)
+    editBox:SetScript("OnEditFocusGained", function(self)
+        self:SetBackdropBorderColor(r, g, b, 1)
+        self:HighlightText()
+    end)
+    editBox:SetScript("OnEditFocusLost", function(self)
+        self:SetBackdropBorderColor(UnpackColor(C.border.default))
+        self:HighlightText(0, 0)
+        Commit()
+    end)
+    editBox:SetScript("OnEnterPressed", function(self)
+        Commit()
+        self:ClearFocus()
+    end)
+    editBox:SetScript("OnEscapePressed", function(self)
+        self:SetText(lastCommitted)
+        self:ClearFocus()
+    end)
+
+    function row:SetValue(value, silent)
+        local text = value == nil and "" or tostring(value)
+        lastCommitted = text
+        editBox:SetText(text)
+        if not silent and opts.onChange then opts.onChange(text) end
+    end
+
+    function row:GetValue()
+        return editBox:GetText()
+    end
+
+    function row:SetDisabledState(disabled)
+        SetRowDisabled(self, disabled)
+        editBox:EnableMouse(not disabled)
+        editBox:EnableKeyboard(not disabled)
+    end
+
+    row.editBox = editBox
+    row.control = editBox
+    SetTooltip(row, opts.tooltip)
+    EnableRightClickMouselook(row)
+    return row
+end
+
+local function DecimalPlaces(step)
+    local value = math.abs(tonumber(step) or 1)
+    if value >= 1 then return 0 end
+    if value >= 0.1 then return 1 end
+    if value >= 0.01 then return 2 end
+    return 3
+end
+
+function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, step, default, opts)
+    opts = opts or {}
+    minimum = tonumber(minimum) or 0
+    maximum = tonumber(maximum) or 100
+    step = math.max(0.0001, tonumber(step) or 1)
+
+    local r, g, b = Accent()
+    -- [STYLE] StyleLib 1.2 series slider spec: short fixed track, 28px hit area.
+    -- Plain white thumb stays visible over the accent fill; the fill keeps the rounded track.
+    local SPEC = Lib.SliderSpec or {
+        trackWidth = 180, trackHeight = 6, hitHeight = 28,
+        thumbSize = 16, thumbHover = 18,
+        valueWidth = 56, valueHeight = 24, valueGap = 8,
+    }
+    local row = CreateRow(parent, labelText, opts.height or 36)
+
+    local valueBox = CreateFrame("EditBox", nil, row, "BackdropTemplate")
+    valueBox:SetSize(SPEC.valueWidth, SPEC.valueHeight)
+    valueBox:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    ApplyBackdrop(valueBox, C.bg.input, C.border.default, R.control)
+    valueBox:SetFont(F.path, math.max(1, F.normal), "")
+    valueBox:SetTextColor(UnpackColor(C.text.highlight))
+    valueBox:SetTextInsets(4, 4, 0, 0)
+    valueBox:SetJustifyH("CENTER")
+    valueBox:SetAutoFocus(false)
+
+    local track = CreateFrame("Frame", nil, row, "BackdropTemplate")
+    track:SetSize(SPEC.trackWidth, SPEC.trackHeight)
+    track:SetPoint("RIGHT", valueBox, "LEFT", -SPEC.valueGap, 0)
+    ApplyBackdrop(track, C.bg.input, C.border.default, R.track)
+    -- The label may use the space the shorter track leaves free.
+    row.label:SetPoint("RIGHT", track, "LEFT", -16, 0)
+
+    local fill = track:CreateTexture(nil, "ARTWORK")
+    local minFill = 1
+    if ROUNDED then -- [STYLE] pill fill spans the whole rounded track height
+        fill:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 0)
+        fill:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT", 0, 0)
+        RoundedTexture(fill, R.track)
+        minFill = SPEC.trackHeight
+    else
+        fill:SetPoint("TOPLEFT", track, "TOPLEFT", 1, -1)
+        fill:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT", 1, 1)
+    end
+    Tint(fill, r, g, b, 1)
+    DisablePixelSnap(fill)
+
+    local pad = (SPEC.hitHeight - SPEC.trackHeight) / 2
+    local slider = CreateFrame("Slider", nil, row)
+    slider:SetPoint("TOPLEFT", track, "TOPLEFT", 0, pad)
+    slider:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, -pad)
+    slider:SetOrientation("HORIZONTAL")
+    slider:SetMinMaxValues(minimum, maximum)
+    slider:SetValueStep(step)
+    slider:SetObeyStepOnDrag(true)
+    slider:EnableMouseWheel(true)
+
+    local thumb = slider:CreateTexture(nil, "OVERLAY")
+    local thumbW, thumbH = 12, 18
+    thumb:SetColorTexture(UnpackColor(C.text.highlight))
+    thumb:SetSize(thumbW, thumbH)
+    DisablePixelSnap(thumb)
+    slider:SetThumbTexture(thumb)
+
+    local decimals = DecimalPlaces(step)
+    local formatString = "%." .. decimals .. "f"
+    local updating = false
+    local currentValue
+
+    local function Normalize(value)
+        value = tonumber(value) or minimum
+        value = math.max(minimum, math.min(maximum, value))
+        value = minimum + math.floor(((value - minimum) / step) + 0.5) * step
+        return math.max(minimum, math.min(maximum, value))
+    end
+
+    local function UpdateVisual(value)
+        local range = maximum - minimum
+        local progress = range > 0 and ((value - minimum) / range) or 0
+        fill:SetWidth(math.max(minFill, ((track:GetWidth() or 2) - (ROUNDED and 0 or 2)) * progress))
+        valueBox:SetText(string.format(formatString, value))
+    end
+
+    local function SetValue(value, silent)
+        value = Normalize(value)
+        local changed = currentValue ~= value
+        currentValue = value
+        updating = true
+        slider:SetValue(value)
+        UpdateVisual(value)
+        updating = false
+        if changed and not silent and opts.onChange then opts.onChange(value) end
+    end
+
+    slider:SetScript("OnValueChanged", function(_, value)
+        if updating then return end
+        value = Normalize(value)
+        local changed = currentValue ~= value
+        currentValue = value
+        UpdateVisual(value)
+        if changed and opts.onChange then opts.onChange(value) end
+    end)
+    slider:SetScript("OnMouseWheel", function(_, delta)
+        if row._disabled then return end
+        SetValue(slider:GetValue() + (delta > 0 and step or -step))
+    end)
+    local function ApplyThumbHover(t)
+        thumb:SetSize(thumbW + 2 * t, thumbH + 2 * t)
+        track:SetBackdropBorderColor(UnpackColor(t > 0.5 and C.border.active or C.border.default))
+    end
+    if Motion and Motion.Hover then
+        Motion.Hover(slider, { key = "sliderHover", duration = 0.09, ease = "outCubic",
+            apply = function(_, t) ApplyThumbHover(t) end })
+    else
+        slider:SetScript("OnEnter", function() ApplyThumbHover(1) end)
+        slider:SetScript("OnLeave", function() ApplyThumbHover(0) end)
+    end
+    track:SetScript("OnSizeChanged", function()
+        UpdateVisual(slider:GetValue())
+    end)
+
+    valueBox:SetScript("OnEditFocusGained", function(self)
+        self:SetBackdropBorderColor(r, g, b, 1)
+        self:HighlightText()
+    end)
+    valueBox:SetScript("OnEditFocusLost", function(self)
+        self:SetBackdropBorderColor(UnpackColor(C.border.default))
+        SetValue(self:GetText())
+    end)
+    valueBox:SetScript("OnEnterPressed", function(self)
+        SetValue(self:GetText())
+        self:ClearFocus()
+    end)
+    valueBox:SetScript("OnEscapePressed", function(self)
+        UpdateVisual(slider:GetValue())
+        self:ClearFocus()
+    end)
+
+    function row:SetValue(value, silent)
+        SetValue(value, silent)
+    end
+
+    function row:GetValue()
+        return slider:GetValue()
+    end
+
+    function row:SetDisabledState(disabled)
+        SetRowDisabled(self, disabled)
+        slider:EnableMouse(not disabled)
+        valueBox:EnableMouse(not disabled)
+        valueBox:EnableKeyboard(not disabled)
+    end
+
+    row.slider = slider
+    row.valueBox = valueBox
+    row.control = slider
+    SetValue(default, true)
+    SetTooltip(row, opts.tooltip)
+    EnableRightClickMouselook(row)
+    return row
+end
+
+function Controls.CreateColor(parent, addonKey, labelText, default, opts)
+    opts = opts or {}
+    local r, g, b = Accent()
+    local row = CreateRow(parent, labelText, opts.height or 30)
+    local color = default or { 1, 1, 1, 1 }
+
+    local function CreateSwatch(width)
+        local button = CreateFrame("Button", nil, row, "BackdropTemplate")
+        button:SetSize(width or 34, 20)
+        ApplyBackdrop(button, C.bg.input, C.border.default, R.control)
+        local texture = button:CreateTexture(nil, "ARTWORK")
+        texture:SetPoint("TOPLEFT", button, "TOPLEFT", 3, -3)
+        texture:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -3, 3)
+        button:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(r, g, b, 1)
+        end)
+        button:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(UnpackColor(C.border.default))
+        end)
+        return button, texture
+    end
+
+    local supportsGradient = opts.supportsGradient == true
+    local swatch, preview = CreateSwatch(supportsGradient and 50 or 34)
+    swatch:SetPoint("RIGHT", row, "RIGHT", supportsGradient and -76 or 0, 0)
+    local modeButton
+    local endSwatch
+    local endPreview
+    local directionButton
+
+    local function ReadColor()
+        return color[1] or color.r or 1,
+            color[2] or color.g or 1,
+            color[3] or color.b or 1,
+            color[4] or color.a or 1
+    end
+
+    local function Refresh()
+        local baseR, baseG, baseB, baseA = ReadColor()
+        local isGradient = supportsGradient and Lib.IsGradientBarColor and Lib.IsGradientBarColor(color)
+        local endColor = color.gradientColor
+        if type(endColor) ~= "table" then
+            endColor = { baseR * 0.55, baseG * 0.55, baseB * 0.55, baseA }
+        end
+        if isGradient then
+            preview:SetColorTexture(1, 1, 1, 1)
+            preview:SetGradient(
+                color.gradientOrientation == "VERTICAL" and "VERTICAL" or "HORIZONTAL",
+                CreateColor(baseR, baseG, baseB, baseA),
+                CreateColor(UnpackColor(endColor))
+            )
+        else
+            preview:SetColorTexture(baseR, baseG, baseB, baseA)
+        end
+        if not supportsGradient then return end
+
+        modeButton.label:SetText(isGradient and (GetLocale() == "koKR" and "그라데이션" or "Gradient") or (GetLocale() == "koKR" and "단색" or "Solid"))
+        endSwatch:SetShown(isGradient)
+        directionButton:SetShown(isGradient)
+        endPreview:SetColorTexture(UnpackColor(endColor))
+        directionButton.label:SetText(color.gradientOrientation == "VERTICAL" and (GetLocale() == "koKR" and "세로" or "Vertical") or (GetLocale() == "koKR" and "가로" or "Horizontal"))
+    end
+
+    local function Apply(nextR, nextG, nextB, nextA, silent)
+        local previous = color
+        color = { nextR, nextG, nextB, nextA or 1 }
+        if Lib.CopyBarColorMetadata then
+            Lib.CopyBarColorMetadata(color, previous)
+        end
+        Refresh()
+        if not silent and opts.onChange then
+            opts.onChange(nextR, nextG, nextB, nextA or 1)
+        end
+    end
+
+    local function OpenPicker(oldR, oldG, oldB, oldA, onApply, onCancel)
+        local function PickerAlpha()
+            if ColorPickerFrame.GetColorAlpha then
+                return ColorPickerFrame:GetColorAlpha()
+            end
+            if OpacitySliderFrame then
+                return 1 - OpacitySliderFrame:GetValue()
+            end
+            return oldA
+        end
+        local info = {
+            r = oldR,
+            g = oldG,
+            b = oldB,
+            opacity = 1 - oldA,
+            hasOpacity = opts.hasAlpha == true,
+            swatchFunc = function()
+                local nextR, nextG, nextB = ColorPickerFrame:GetColorRGB()
+                local nextA = opts.hasAlpha and PickerAlpha() or oldA
+                onApply(nextR, nextG, nextB, nextA)
+            end,
+            opacityFunc = function()
+                local nextR, nextG, nextB = ColorPickerFrame:GetColorRGB()
+                onApply(nextR, nextG, nextB, PickerAlpha())
+            end,
+            cancelFunc = function()
+                if onCancel then onCancel(oldR, oldG, oldB, oldA) end
+            end,
+        }
+        if ColorPickerFrame.SetupColorPickerAndShow then
+            ColorPickerFrame:SetupColorPickerAndShow(info)
+        else
+            ColorPickerFrame.hasOpacity = info.hasOpacity
+            ColorPickerFrame.opacity = info.opacity
+            ColorPickerFrame.func = info.swatchFunc
+            ColorPickerFrame.opacityFunc = info.opacityFunc
+            ColorPickerFrame.cancelFunc = info.cancelFunc
+            ColorPickerFrame:SetColorRGB(oldR, oldG, oldB)
+            ColorPickerFrame:Show()
+        end
+    end
+
+    swatch:SetScript("OnClick", function()
+        if row._disabled then return end
+        local oldR, oldG, oldB, oldA = ReadColor()
+        OpenPicker(oldR, oldG, oldB, oldA, function(nextR, nextG, nextB, nextA)
+            Apply(nextR, nextG, nextB, nextA)
+        end, function()
+            Apply(oldR, oldG, oldB, oldA)
+        end)
+    end)
+
+    if supportsGradient then
+        local function CreateTextButton(width)
+            local button = CreateFrame("Button", nil, row, "BackdropTemplate")
+            button:SetSize(width, 20)
+            ApplyBackdrop(button, C.bg.input, C.border.default, R.control)
+            button.label = MakeFont(button, F.small, C.text.normal, "")
+            button.label:SetPoint("CENTER")
+            return button
+        end
+
+        modeButton = CreateTextButton(70)
+        modeButton:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        endSwatch, endPreview = CreateSwatch(34)
+        endSwatch:SetPoint("RIGHT", swatch, "LEFT", -4, 0)
+        directionButton = CreateTextButton(48)
+        directionButton:SetPoint("RIGHT", endSwatch, "LEFT", -4, 0)
+
+        local function CommitGradient()
+            Refresh()
+            if opts.onGradientChange then opts.onGradientChange(color) end
+        end
+
+        modeButton:SetScript("OnClick", function()
+            if row._disabled then return end
+            local baseR, baseG, baseB, baseA = ReadColor()
+            color.gradientMode = color.gradientMode == "GRADIENT" and "SOLID" or "GRADIENT"
+            color.gradientColor = color.gradientColor or { baseR * 0.55, baseG * 0.55, baseB * 0.55, baseA }
+            color.gradientOrientation = color.gradientOrientation or "HORIZONTAL"
+            CommitGradient()
+        end)
+
+        directionButton:SetScript("OnClick", function()
+            if row._disabled then return end
+            color.gradientOrientation = color.gradientOrientation == "VERTICAL" and "HORIZONTAL" or "VERTICAL"
+            CommitGradient()
+        end)
+
+        endSwatch:SetScript("OnClick", function()
+            if row._disabled then return end
+            local endColor = color.gradientColor or { ReadColor() }
+            local oldColor = { UnpackColor(endColor) }
+            OpenPicker(oldColor[1], oldColor[2], oldColor[3], oldColor[4], function(nextR, nextG, nextB, nextA)
+                color.gradientColor = { nextR, nextG, nextB, nextA or 1 }
+                CommitGradient()
+            end, function()
+                color.gradientColor = oldColor
+                CommitGradient()
+            end)
+        end)
+    end
+
+    function row:SetColor(nextR, nextG, nextB, nextA, silent)
+        Apply(nextR, nextG, nextB, nextA, silent)
+    end
+
+    function row:GetColor()
+        return ReadColor()
+    end
+
+    function row:GetColorSpec()
+        return color
+    end
+
+    function row:SetDisabledState(disabled)
+        SetRowDisabled(self, disabled)
+        swatch:SetEnabled(not disabled)
+        if modeButton then modeButton:SetEnabled(not disabled) end
+        if endSwatch then endSwatch:SetEnabled(not disabled) end
+        if directionButton then directionButton:SetEnabled(not disabled) end
+    end
+
+    row.swatch = swatch
+    row.gradientModeButton = modeButton
+    row.gradientEndSwatch = endSwatch
+    row.gradientDirectionButton = directionButton
+    row.control = swatch
+    Refresh()
+    SetTooltip(row, opts.tooltip)
+    EnableRightClickMouselook(row)
+    return row
+end
+
+function Controls.CreateSearchBox(parent, width, opts)
+    opts = opts or {}
+    local r, g, b = Accent()
+    local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    frame:SetSize(width or 220, opts.height or 28)
+    ApplyBackdrop(frame, C.bg.input, C.border.default, R.control)
+
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(14, 14)
+    icon:SetPoint("LEFT", frame, "LEFT", 8, 0)
+    icon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+    icon:SetVertexColor(UnpackColor(C.text.dim))
+
+    local editBox = CreateFrame("EditBox", nil, frame)
+    editBox:SetPoint("LEFT", icon, "RIGHT", 7, 0)
+    editBox:SetPoint("RIGHT", frame, "RIGHT", -26, 0)
+    editBox:SetHeight(22)
+    editBox:SetFont(F.path, math.max(1, F.normal), "")
+    editBox:SetTextColor(UnpackColor(C.text.highlight))
+    editBox:SetAutoFocus(false)
+
+    local placeholder = MakeFont(frame, F.normal, C.text.dim, opts.placeholder or SEARCH or "Search")
+    placeholder:SetPoint("LEFT", editBox, "LEFT", 0, 0)
+
+    local clear = CreateFrame("Button", nil, frame)
+    clear:SetSize(20, 20)
+    clear:SetPoint("RIGHT", frame, "RIGHT", -3, 0)
+    local clearText = MakeFont(clear, F.normal, C.text.dim, "x")
+    clearText:SetPoint("CENTER")
+    clear:Hide()
+
+    local callback
+    editBox:SetScript("OnTextChanged", function(self)
+        local text = self:GetText()
+        placeholder:SetShown(text == "")
+        clear:SetShown(text ~= "")
+        if callback then callback(text) end
+    end)
+    editBox:SetScript("OnEditFocusGained", function()
+        frame:SetBackdropBorderColor(r, g, b, 1)
+    end)
+    editBox:SetScript("OnEditFocusLost", function()
+        frame:SetBackdropBorderColor(UnpackColor(C.border.default))
+    end)
+    editBox:SetScript("OnEscapePressed", function(self)
+        if self:GetText() ~= "" then
+            self:SetText("")
+        else
+            self:ClearFocus()
+        end
+    end)
+    clear:SetScript("OnClick", function()
+        editBox:SetText("")
+        editBox:SetFocus()
+    end)
+    clear:SetScript("OnEnter", function()
+        clearText:SetTextColor(r, g, b, 1)
+    end)
+    clear:SetScript("OnLeave", function()
+        clearText:SetTextColor(UnpackColor(C.text.dim))
+    end)
+
+    function frame:SetOnTextChanged(fn)
+        callback = fn
+    end
+
+    function frame:GetText()
+        return editBox:GetText()
+    end
+
+    function frame:SetText(text)
+        editBox:SetText(text or "")
+    end
+
+    frame.editBox = editBox
+    frame.clearButton = clear
+    EnableRightClickMouselook(frame)
+    return frame
+end
+
+Controls.UnpackColor = UnpackColor
+Controls.ApplyBackdrop = ApplyBackdrop
+Controls.RoundedTexture = RoundedTexture
+Controls.Tint = Tint
+Controls.Radius = R
+Controls.MakeFont = MakeFont
+Controls.SetTooltip = SetTooltip
+Controls.EnableRightClickMouselook = EnableRightClickMouselook
+
+ns.Style = Lib
+Lib.RegisterAddon('FX', {
+    from = {77/255, 141/255, 1, 1}, -- cobalt blue #4D8DFF
+    to = {36/255, 78/255, 184/255, 1},
+    light = {120/255, 171/255, 1, 1},
+    dark = {29/255, 62/255, 145/255, 1},
+})

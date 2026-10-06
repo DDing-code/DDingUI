@@ -1,0 +1,52 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cffffffffDDing|r|cffffa300UI|r |cffd65cffRaidHelper|r
+## Notes: Raid utilities for DDingUI.
+## Notes-koKR: DDingUI 공격대 보조 도구입니다.
+## Author: DDing
+## Version: 2.2.0
+## DefaultState: enabled
+## IconTexture: Interface\AddOns\DDingUI_RaidHelper\Media\RaidHelper_Icon.tga
+## OptionalDeps: BigWigs
+## SavedVariables: DDingUI_RaidHelperDB
+
+# Embedded libraries
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+
+# DDingUI StyleLib (embedded)
+Libs\DDingUI_StyleLib\Core.lua
+Libs\DDingUI_StyleLib\Colors.lua
+Libs\DDingUI_StyleLib\Gradient.lua
+Libs\DDingUI_StyleLib\Motion.lua
+Libs\DDingUI_StyleLib\TableUtils.lua
+Libs\DDingUI_StyleLib\Delay.lua
+Libs\DDingUI_StyleLib\ColorNames.lua
+Libs\DDingUI_StyleLib\DesignTokens.lua
+Libs\DDingUI_StyleLib\PixelUtil.lua
+Libs\DDingUI_StyleLib\ObjectPool.lua
+Libs\DDingUI_StyleLib\Animation.lua
+Libs\DDingUI_StyleLib\WidgetRefresh.lua
+Libs\DDingUI_StyleLib\GlowEffects.lua
+Libs\DDingUI_StyleLib\CascadingMenu.lua
+Libs\DDingUI_StyleLib\DragSorter.lua
+Libs\DDingUI_StyleLib\DualRow.lua
+Libs\DDingUI_StyleLib\Widgets.lua
+Libs\DDingUI_StyleLib\EditMode.lua
+Libs\DDingUI_StyleLib\ProceduralGlow.lua
+
+Core.lua
+Data\CooldownCatalog.lua
+Data\Registry.lua
+Data\Demo.lua
+Data\Generated.lua
+Runtime\Engine.lua
+Runtime\TalentExport.lua
+Integrations\BigWigs.lua
+UI\HealerProfile.lua
+UI\Timeline.lua
+UI\MinimapButton.lua
+Options.lua
+UI\OptionsWindow.lua
+Commands.lua

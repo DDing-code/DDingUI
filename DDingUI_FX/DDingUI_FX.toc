@@ -1,0 +1,30 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cffffffffDDing|r|cffffa300UI|r |cff4d8dffFX|r
+## IconTexture: Interface\AddOns\DDingUI_FX\Media\logo.tga
+## Notes: Spell-triggered TGA sprite animations and sound effects.
+## Notes-koKR: 스킬·버프 발동 TGA 애니메이션 및 효과음
+## Author: DDing
+## Version: 2.2.0
+## SavedVariablesPerCharacter: DDingUI_FXDB
+## OptionalDeps: DDingUI_Toolkit, DDingUI_Profile, SharedMedia
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
+Libs\DDingUI_StyleLib\Core.lua
+Libs\DDingUI_StyleLib\Colors.lua
+Libs\DDingUI_StyleLib\Gradient.lua
+Libs\DDingUI_StyleLib\Motion.lua
+Libs\DDingUI_StyleLib\Widgets.lua
+Libs\DDingUI_StyleLib\EditMode.lua
+Libs\DDingUI_StyleLib\DesignTokens.lua
+Presets.lua
+Core.lua
+Playback.lua
+Controls.lua
+Dropdown.lua
+UI.lua
+EditMode.lua
+Minimap.lua
