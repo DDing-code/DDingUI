@@ -1,5 +1,24 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.1
+
+Release date: 2026-10-06
+Scope: Changes after the 2.2.0 release commit 2a90459 through this release.
+
+### English Patch Notes
+
+- **Edit Mode:** Added the shared edit remote with frame selection, X/Y entry, keyboard nudging, undo/redo, grid and snapping controls. Open it from the settings title bar or `/ddt edit`. Footer buttons are centered and shrink when space is limited; entering combat exits edit mode, and a normal exit returns to the settings window when it was open.
+- **Combat Timer:** Added one- or two-digit fractional seconds. The combat timer and combat-state alerts use the same combat start/end state, and the final timer value stops at the end of combat rather than including the end-confirmation delay.
+- **Party Tracker Commands:** Removed `/pt`, `/partytracker`, `/ddt party` and `/ddt tracker`. Party tracking, its settings and its edit-mode frames remain available.
+- **Settings Window:** The window can be moved partly off screen while keeping a visible area available for dragging. The title-bar edit button shows whether edit mode is active.
+
+### Korean Patch Notes
+
+- **편집 모드:** 프레임 선택, X/Y 입력, 키보드 이동, 실행 취소·다시 실행, 격자·스냅을 제공하는 공통 리모컨을 추가했습니다. 설정창 제목줄이나 `/ddt edit`로 열 수 있습니다. 하단 버튼은 가운데 정렬되며 공간이 좁으면 너비를 줄입니다. 전투에 들어가면 종료되며, 설정창에서 진입했다면 일반 종료 후 설정창으로 돌아갑니다.
+- **전투 타이머:** 소수점 한 자리·두 자리 표시를 추가했습니다. 전투 타이머와 전투 상태 알림이 같은 시작·종료 기준을 사용하며, 최종 시간에 전투 종료 확인을 위한 대기 시간이 더해지지 않도록 조정했습니다.
+- **파티트래커 명령어:** `/pt`, `/partytracker`, `/ddt party`, `/ddt tracker`를 제거했습니다. 파티 추적 기능과 설정, 편집 모드 프레임은 유지합니다.
+- **설정창:** 화면 밖으로 일부 이동할 수 있으며, 다시 드래그할 수 있는 영역은 남겨 둡니다. 제목줄의 편집 버튼에서 현재 편집 상태를 확인할 수 있습니다.
+
 ## 2.2.0
 
 Release date: 2026-09-30
