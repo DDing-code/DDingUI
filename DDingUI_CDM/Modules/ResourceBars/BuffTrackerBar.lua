@@ -1667,50 +1667,23 @@ end
 
 -- BUFF TRACKER BAR
 
-local function UsesStableTrackerAnchorWidth(anchor)
-    if not anchor or anchor == UIParent then return false end
-    if anchor == DDingUI.powerBar or anchor == DDingUI.secondaryPowerBar
-        or anchor == DDingUI.buffTrackerBar
-    then
-        return true
-    end
-
-    local name = anchor.GetName and anchor:GetName()
-    return type(name) == "string" and name:match("^DDingUIBuffTracker") ~= nil
-end
-
+-- [REFACTOR] 추적 막대 자동 너비도 공통 해석(DDingUI:ResolveAutoWidth)을 쓴다.
+-- 다른 DDingUI 막대에 붙으면 그 막대 폭 그대로, 아이콘 그룹이면 아이콘 줄 폭 - 바깥 테두리,
+-- 앵커를 못 읽으면 이 막대의 마지막 정상 자동 폭(앵커가 바뀌면 초기화), 한 번도 없으면 200.
 local function ResolveTrackerAutoWidth(bar, anchor, borderSize)
-    if bar and bar._autoWidthAnchor ~= anchor then
-        bar._autoWidthAnchor = anchor
-        bar._lastValidAutoWidth = nil
-    end
-
-    local effectiveWidth, needsBorderComp
-    if UsesStableTrackerAnchorWidth(anchor) then
-        effectiveWidth = anchor:GetWidth()
-        needsBorderComp = false
-    else
-        effectiveWidth, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
-    end
-
-    local resolvedWidth
-    if effectiveWidth and effectiveWidth > 0 and anchor ~= UIParent then
-        if needsBorderComp then
-            local borderComp = DDingUI:ScaleBorder(borderSize or 1)
-            resolvedWidth = PixelSnap(effectiveWidth - 2 * borderComp)
-        else
-            resolvedWidth = PixelSnap(effectiveWidth)
-        end
-    end
-
-    if resolvedWidth and resolvedWidth > 0 then
-        if bar then bar._lastValidAutoWidth = resolvedWidth end
-        return resolvedWidth
-    end
-    return (bar and bar._lastValidAutoWidth) or 200
+    return (DDingUI:ResolveAutoWidth(anchor, borderSize, { owner = bar }))
 end
 
 ResourceBars.ResolveTrackerAutoWidth = ResolveTrackerAutoWidth
+
+-- [REFACTOR] 앵커 폭이 바뀌면 추적 막대를 바로 다시 배치한다(한 프레임에 합쳐진 알림).
+if DDingUI.RegisterAnchorWidthListener then
+    DDingUI:RegisterAnchorWidthListener(function()
+        if ResourceBars.RequestBuffTrackerUpdate then
+            ResourceBars:RequestBuffTrackerUpdate("anchor-width", 0)
+        end
+    end, 40)
+end
 
 function ResourceBars:GetBuffTrackerBar()
     if DDingUI.buffTrackerBar then return DDingUI.buffTrackerBar end
@@ -2632,6 +2605,8 @@ end
 
 -- Play sound using LibSharedMedia or custom file path
 local function PlayTrackerSound(soundKey, channel, customPath)
+    -- [REFACTOR] preview values and the dashboard layout preview must never play aura sounds
+    if isInPreviewMode or (DDingUI.IsLayoutPreviewForced and DDingUI:IsLayoutPreviewForced()) then return end
     -- Custom path takes priority if valid
     if customPath and customPath ~= "" then
         if IsValidSoundPath(customPath) then

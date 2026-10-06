@@ -10,7 +10,8 @@ local Movers = DDingUI.Movers
 Movers.CreatedMovers = {}
 Movers.ConfigMode = false
 Movers.Grid = nil
-Movers.NudgeFrame = nil
+Movers.Guides = nil
+Movers.NudgeFrame = nil -- [REFACTOR] StyleLib CreateEditRemote (이름은 호출처 호환용)
 Movers.SelectedMover = nil
 
 -- Settings
@@ -24,13 +25,21 @@ Movers.Settings = {
     gridSize = 32,
 }
 
-local function GetMoverAccent()
-    local SL = _G.DDingUI_StyleLib
-    local color = SL and SL.GetAccent and SL.GetAccent("CDM")
-    if type(color) == "table" then
-        return color[1] or 0.90, color[2] or 0.45, color[3] or 0.12
-    end
-    return 0.90, 0.45, 0.12
+-- [REFACTOR] 시리즈 공용 편집 모드 부품(StyleLib 1.4 EditMode.lua)을 쓴다.
+-- 리모컨·무버 표면·HUD·격자·안내선·스냅 계산은 공용, 위치 모델과 저장은 CDM이 가진다.
+local function GetSL()
+    return _G.DDingUI_StyleLib
+end
+
+local function GetEditSpec()
+    local SL = GetSL()
+    return SL and SL.EditModeSpec
+        or { gridSpacing = 32, gridChoices = { 16, 32, 64 }, snapThreshold = 8, nudge = 1, nudgeShift = 10 }
+end
+
+-- 스냅 거리는 시리즈 공용 규격(8)으로 고정한다. 저장된 snapThreshold는 읽어 두기만 하고 쓰지 않는다.
+local function GetSnapThreshold()
+    return GetEditSpec().snapThreshold or 8
 end
 
 -- Undo/Redo 스택 (함수는 GetPoint/SetPoint 정의 이후에)
@@ -429,55 +438,6 @@ function Movers:ClearUndoRedo()
 end
 
 --------------------------------------------------------------------------------
--- ElvUI Style Position Calculation (9-point system)
---------------------------------------------------------------------------------
-
-function Movers:CalculateMoverPoints(mover, nudgeX, nudgeY)
-    local centerX, centerY = UIParent:GetCenter()
-    local width = UIParent:GetRight()
-    local x, y = mover:GetCenter()
-
-    if not x or not y then
-        return 0, 0, "CENTER", "CENTER", "CENTER"
-    end
-
-    local point = "BOTTOM"
-    local nudgePoint = "BOTTOM"
-    local nudgeInversePoint = "TOP"
-
-    -- 세로 위치 판단 (상단/하단)
-    if y >= centerY then
-        point = "TOP"
-        nudgePoint = "TOP"
-        nudgeInversePoint = "BOTTOM"
-        y = -(UIParent:GetTop() - mover:GetTop())
-    else
-        y = mover:GetBottom()
-    end
-
-    -- 가로 위치 판단 (좌/중/우)
-    if x >= (width * 2 / 3) then
-        point = point .. "RIGHT"
-        nudgePoint = "RIGHT"
-        nudgeInversePoint = "LEFT"
-        x = mover:GetRight() - width
-    elseif x <= (width / 3) then
-        point = point .. "LEFT"
-        nudgePoint = "LEFT"
-        nudgeInversePoint = "RIGHT"
-        x = mover:GetLeft()
-    else
-        x = x - centerX
-    end
-
-    -- 미세 조정 (Nudge) 적용
-    x = x + (nudgeX or 0)
-    y = y + (nudgeY or 0)
-
-    return Round(x), Round(y), point, nudgePoint, nudgeInversePoint
-end
-
---------------------------------------------------------------------------------
 -- Snap Functions
 --------------------------------------------------------------------------------
 
@@ -538,103 +498,87 @@ local function GetSnapTargets(excludeMover)
     return targets
 end
 
+-- [REFACTOR] 스냅 계산은 StyleLib 공용 함수(SnapToCenter/SnapToGrid/SnapToRects)를 쓴다.
+-- 격자 스냅과 보이는 격자는 같은 간격(Settings.gridSize)·같은 원점(화면 중앙)이다.
+-- 우선순위: 화면 중앙 > 다른 프레임의 가장자리·중앙 > 격자.
 local function CalculateSnap(x, y, width, height, excludeMover)
     local settings = Movers.Settings
-    if not settings.snapEnabled then return x, y, nil end
+    if not settings.snapEnabled then return x, y end
+    local SL = GetSL()
+    if not (SL and SL.SnapToGrid and SL.SnapToCenter and SL.SnapToRects) then return x, y end
 
-    local threshold = settings.snapThreshold
+    local threshold = GetSnapThreshold()
+    local screenCenterX, screenCenterY = UIParent:GetCenter()
     local snapX, snapY = x, y
-    local snapInfo = nil
+    local lockedX, lockedY = false, false
 
-    local frameLeft = x - width/2
-    local frameRight = x + width/2
-    local frameTop = y + height/2
-    local frameBottom = y - height/2
+    if settings.snapToCenter and screenCenterX then
+        local dx, hitX = SL.SnapToCenter(x - screenCenterX, threshold)
+        local dy, hitY = SL.SnapToCenter(y - screenCenterY, threshold)
+        if hitX then snapX = screenCenterX + dx; lockedX = true end
+        if hitY then snapY = screenCenterY + dy; lockedY = true end
+    end
 
-    -- 화면 중앙 스냅
-    if settings.snapToCenter then
-        local screenCenterX, screenCenterY = UIParent:GetCenter()
-
-        -- 수평 중앙
-        if math.abs(x - screenCenterX) < threshold then
-            snapX = screenCenterX
-            snapInfo = "CENTER_H"
+    if settings.snapToGrid and screenCenterX then
+        local spacing = Movers:GetGridSpacing()
+        if not lockedX then
+            local gx, hit = SL.SnapToGrid(x - screenCenterX, spacing, threshold)
+            if hit then snapX = screenCenterX + gx end
         end
-
-        -- 수직 중앙
-        if math.abs(y - screenCenterY) < threshold then
-            snapY = screenCenterY
-            snapInfo = snapInfo and "CENTER" or "CENTER_V"
+        if not lockedY then
+            local gy, hit = SL.SnapToGrid(y - screenCenterY, spacing, threshold)
+            if hit then snapY = screenCenterY + gy end
         end
     end
 
-    -- 그리드 스냅
-    if settings.snapToGrid then
-        local gridSize = settings.gridSize
-        if not gridSize or gridSize <= 0 then gridSize = 32 end
-
-        local nearestGridX = Round(x / gridSize) * gridSize
-        local nearestGridY = Round(y / gridSize) * gridSize
-
-        if math.abs(x - nearestGridX) < threshold and snapInfo ~= "CENTER_H" and snapInfo ~= "CENTER" then
-            snapX = nearestGridX
-        end
-
-        if math.abs(y - nearestGridY) < threshold and snapInfo ~= "CENTER_V" and snapInfo ~= "CENTER" then
-            snapY = nearestGridY
-        end
-    end
-
-    -- 다른 프레임 스냅
     if settings.snapToFrames then
-        local targets = GetSnapTargets(excludeMover)
-
-        for _, target in ipairs(targets) do
-            -- 좌측 엣지 → 타겟 우측 엣지
-            if math.abs(frameLeft - target.right) < threshold then
-                snapX = target.right + width/2
-            end
-            -- 우측 엣지 → 타겟 좌측 엣지
-            if math.abs(frameRight - target.left) < threshold then
-                snapX = target.left - width/2
-            end
-            -- 좌측 엣지 정렬
-            if math.abs(frameLeft - target.left) < threshold then
-                snapX = target.left + width/2
-            end
-            -- 우측 엣지 정렬
-            if math.abs(frameRight - target.right) < threshold then
-                snapX = target.right - width/2
-            end
-
-            -- 상단 엣지 → 타겟 하단 엣지
-            if math.abs(frameTop - target.bottom) < threshold then
-                snapY = target.bottom - height/2
-            end
-            -- 하단 엣지 → 타겟 상단 엣지
-            if math.abs(frameBottom - target.top) < threshold then
-                snapY = target.top + height/2
-            end
-            -- 상단 엣지 정렬
-            if math.abs(frameTop - target.top) < threshold then
-                snapY = target.top - height/2
-            end
-            -- 하단 엣지 정렬
-            if math.abs(frameBottom - target.bottom) < threshold then
-                snapY = target.bottom + height/2
-            end
-
-            -- 중앙 정렬
-            if math.abs(x - target.centerX) < threshold then
-                snapX = target.centerX
-            end
-            if math.abs(y - target.centerY) < threshold then
-                snapY = target.centerY
-            end
+        local rects = {}
+        for _, target in ipairs(GetSnapTargets(excludeMover)) do
+            rects[#rects + 1] = { target.left, target.bottom, target.right - target.left, target.top - target.bottom }
+        end
+        if #rects > 0 then
+            local dx, dy = SL.SnapToRects({ x - width / 2, y - height / 2, width, height }, rects, threshold)
+            if dx ~= 0 and not lockedX then snapX = x + dx end
+            if dy ~= 0 and not lockedY then snapY = y + dy end
         end
     end
 
-    return snapX, snapY, snapInfo
+    return snapX, snapY
+end
+
+--------------------------------------------------------------------------------
+-- 앵커 상대 오프셋 (HUD·리모컨 X/Y의 단일 기준) -- [REFACTOR]
+-- 드래그 중에는 무버가 잠시 화면 절대 좌표로 붙으므로, 드래그 시작 때의 앵커로 환산해 보여 준다.
+-- 놓은 뒤 앵커가 유지되면 같은 숫자가 저장된다(SyncMoverToModuleSettings와 같은 계산).
+--------------------------------------------------------------------------------
+
+local function GetMoverAnchor(mover)
+    local drag = mover and mover._dragAnchor
+    if drag then
+        return drag[1] or "CENTER", drag[2] or UIParent, drag[3] or "CENTER"
+    end
+    local selfPt, anchor, relPt = mover:GetPoint(1)
+    return selfPt or "CENTER", anchor or UIParent, relPt or selfPt or "CENTER"
+end
+
+--- @return x, y, selfPoint, anchorFrame, anchorPoint
+function Movers:GetMoverOffset(mover)
+    if not mover then return 0, 0, "CENTER", UIParent, "CENTER" end
+    local selfPt, anchor, relPt = GetMoverAnchor(mover)
+    local selfX, selfY = GetPointPosition(mover, selfPt)
+    local anchorX, anchorY = GetPointPosition(anchor, relPt)
+    if not selfX or not anchorX then
+        local _, _, _, x, y = mover:GetPoint(1)
+        return x or 0, y or 0, selfPt, anchor, relPt
+    end
+    return selfX - anchorX, selfY - anchorY, selfPt, anchor, relPt
+end
+
+function Movers:RefreshRemoteInfo()
+    local remote = self.NudgeFrame
+    if remote and remote:IsShown() and remote.UpdateInfo then
+        remote:UpdateInfo()
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -656,10 +600,12 @@ local function OnUpdateDrag(self, elapsed)
     -- 스냅 계산
     local width, height = dragFrame:GetSize()
     local snapX, snapY = CalculateSnap(targetX, targetY, width, height, dragFrame)
-    Movers:UpdateGridHighlight(snapX, snapY)
 
     dragFrame:ClearAllPoints()
     dragFrame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", snapX, snapY)
+    if Movers.Guides then
+        Movers.Guides:ShowAt(snapX, snapY)
+    end
     if dragFrame.UpdateSelectionHUD then
         dragFrame:UpdateSelectionHUD()
     end
@@ -670,27 +616,28 @@ local function OnUpdateDrag(self, elapsed)
         dragFrame.parent:SetPoint("CENTER", UIParent, "BOTTOMLEFT", snapX, snapY)
     end
 
-    -- Update nudge frame coordinates during drag
-    if Movers.NudgeFrame and Movers.NudgeFrame:IsShown() then
-        Movers.NudgeFrame:UpdateInfo()
-    end
+    Movers:RefreshRemoteInfo()
 end
 
 local updateFrame = CreateFrame("Frame")
+Movers._dragUpdateFrame = updateFrame -- 테스트·진단용 참조
 
 local function OnDragStart(mover)
     if InCombatLockdown() then return end
     -- [FIX] 프레임 피커 활성 중에는 드래그 방지
     if DDingUI._framePickerActive then return end
 
-    -- Show grid during drag (always show while dragging for snap reference)
+    -- 격자가 꺼져 있으면 드래그 동안만 임시로 보여 준다(사용자 설정은 그대로)
     if not Movers.Settings.gridEnabled then
-        Movers:ShowGrid()
+        Movers:ShowGrid(true)
         mover._tempGridShown = true
     end
+    Movers:CreateGuides()
 
-    -- Undo용 초기 위치 저장
+    -- Undo용 초기 위치 + HUD 기준 앵커 저장
     mover._dragStartPoint = GetPoint(mover)
+    local selfPt, anchor, relPt = mover:GetPoint(1)
+    mover._dragAnchor = { selfPt or "CENTER", anchor or UIParent, relPt or selfPt or "CENTER" }
 
     -- Calculate offset from mouse to frame center
     local scale = mover:GetEffectiveScale()
@@ -725,15 +672,11 @@ local function OnDragStop(mover)
     isDragging = false
     dragFrame = nil
     updateFrame:SetScript("OnUpdate", nil)
-    Movers:ClearGridHighlight()
+    Movers:HideGuides()
 
-    -- Hide grid after drag only if it was temporarily shown
+    -- 드래그 동안만 보여 준 격자는 다시 숨긴다(사용자 설정은 그대로)
     if mover._tempGridShown then
-        Movers:HideGrid()
-        -- Restore grid checkbox state
-        if Movers.NudgeFrame and Movers.NudgeFrame.gridCheckbox then
-            Movers.NudgeFrame.gridCheckbox:SetChecked(false)
-        end
+        Movers:HideGrid(true)
         mover._tempGridShown = nil
     end
 
@@ -759,6 +702,7 @@ local function OnDragStop(mover)
             Movers:PushUndo(mover.name, mover._dragStartPoint)
         end
         mover._dragStartPoint = nil
+    mover._dragAnchor = nil
         Movers:SaveMoverPosition(mover.name)
 
         if Movers.NudgeFrame and Movers.NudgeFrame:IsShown() then
@@ -991,6 +935,7 @@ local function OnDragStop(mover)
         Movers:PushUndo(mover.name, mover._dragStartPoint)
     end
     mover._dragStartPoint = nil
+    mover._dragAnchor = nil
 
     if isBuffTracker then
         Movers:SaveMoverPosition(mover.name)
@@ -1019,130 +964,38 @@ local function CreateMoverFrame(parent, name, displayText)
     mover:RegisterForDrag("LeftButton")
     mover:Hide()
 
-    -- Appearance (texture-based to avoid SetBackdrop taint)
-    -- Background
-    local bg = mover:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.1, 0.1, 0.1, 0.6)
-    mover.bg = bg
-
-    -- Border textures (1px)
-    local borderSize = 1
-    local borders = {}
-
-    local top = mover:CreateTexture(nil, "BORDER")
-    top:SetColorTexture(0.4, 0.6, 1, 1)
-    top:SetPoint("TOPLEFT", mover, "TOPLEFT", 0, 0)
-    top:SetPoint("TOPRIGHT", mover, "TOPRIGHT", 0, 0)
-    top:SetHeight(borderSize)
-    borders.top = top
-
-    local bottom = mover:CreateTexture(nil, "BORDER")
-    bottom:SetColorTexture(0.4, 0.6, 1, 1)
-    bottom:SetPoint("BOTTOMLEFT", mover, "BOTTOMLEFT", 0, 0)
-    bottom:SetPoint("BOTTOMRIGHT", mover, "BOTTOMRIGHT", 0, 0)
-    bottom:SetHeight(borderSize)
-    borders.bottom = bottom
-
-    local left = mover:CreateTexture(nil, "BORDER")
-    left:SetColorTexture(0.4, 0.6, 1, 1)
-    left:SetPoint("TOPLEFT", mover, "TOPLEFT", 0, 0)
-    left:SetPoint("BOTTOMLEFT", mover, "BOTTOMLEFT", 0, 0)
-    left:SetWidth(borderSize)
-    borders.left = left
-
-    local right = mover:CreateTexture(nil, "BORDER")
-    right:SetColorTexture(0.4, 0.6, 1, 1)
-    right:SetPoint("TOPRIGHT", mover, "TOPRIGHT", 0, 0)
-    right:SetPoint("BOTTOMRIGHT", mover, "BOTTOMRIGHT", 0, 0)
-    right:SetWidth(borderSize)
-    borders.right = right
-
-    mover._borders = borders
-
-    -- Helper to change border color (closure, no self needed)
-    local function UpdateBorderColor(r, g, b, a)
-        for _, tex in pairs(borders) do
-            tex:SetColorTexture(r, g, b, a or 1)
-        end
+    -- [REFACTOR] 표면·HUD는 시리즈 공용 부품(StyleMover / CreateMoverHUD).
+    -- 배경·테두리 색을 직접 그리지 않는다(평상시 accent, 오버 밝아짐, 선택 2px+꺾쇠).
+    local SL = GetSL()
+    if SL and SL.StyleMover then
+        mover.surface = SL.StyleMover(mover, "CDM", { label = displayText or name })
+        mover.text = mover.surface.label
+    else
+        local text = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        text:SetPoint("CENTER")
+        text:SetText(displayText or name)
+        mover.text = text
     end
-    mover.UpdateBorderColor = UpdateBorderColor
+    if SL and SL.CreateMoverHUD then
+        mover.hud = SL.CreateMoverHUD(mover, "CDM")
+    end
 
-    local centerV = mover:CreateTexture(nil, "ARTWORK")
-    centerV:SetPoint("CENTER")
-    centerV:SetSize(1, 12)
-    centerV:Hide()
-    mover.centerV = centerV
-
-    local centerH = mover:CreateTexture(nil, "ARTWORK")
-    centerH:SetPoint("CENTER")
-    centerH:SetSize(12, 1)
-    centerH:Hide()
-    mover.centerH = centerH
-
-    local selectionHUD = CreateFrame("Frame", nil, mover)
-    selectionHUD:SetSize(178, 18)
-    selectionHUD:SetPoint("TOPRIGHT", mover, "BOTTOMRIGHT", 0, -4)
-    selectionHUD:SetFrameStrata("DIALOG")
-    selectionHUD:SetFrameLevel(mover:GetFrameLevel() + 2)
-    selectionHUD:SetClampedToScreen(true)
-    selectionHUD:Hide()
-
-    local hudBg = selectionHUD:CreateTexture(nil, "BACKGROUND")
-    hudBg:SetAllPoints()
-    local SL = _G.DDingUI_StyleLib
-    local hudColor = SL and SL.Colors and SL.Colors.bg and SL.Colors.bg.input or { 0.025, 0.035, 0.05 }
-    hudBg:SetColorTexture(hudColor[1], hudColor[2], hudColor[3], 0.94)
-
-    local hudAccent = selectionHUD:CreateTexture(nil, "BORDER")
-    hudAccent:SetPoint("TOPLEFT")
-    hudAccent:SetPoint("BOTTOMLEFT")
-    hudAccent:SetWidth(2)
-    selectionHUD.accent = hudAccent
-
-    local hudText = selectionHUD:CreateFontString(nil, "OVERLAY")
-    hudText:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
-    hudText:SetPoint("LEFT", 7, 0)
-    hudText:SetTextColor(0.88, 0.91, 0.96, 1)
-    selectionHUD.text = hudText
-    mover.selectionHUD = selectionHUD
-
+    -- HUD 좌표 = 앵커 상대 오프셋(드래그 중과 후가 같다)
     function mover:UpdateSelectionHUD()
-        if not self.selectionHUD then return end
-        local _, _, _, x, y = self:GetPoint(1)
+        if not self.hud or not self._selected then return end
+        local x, y = Movers:GetMoverOffset(self)
         local width, height = self:GetSize()
-        self.selectionHUD.text:SetText(string.format(
-            "X %d  Y %d  ·  %d×%d",
-            math.floor((x or 0) + 0.5),
-            math.floor((y or 0) + 0.5),
-            math.floor((width or 0) + 0.5),
-            math.floor((height or 0) + 0.5)
-        ))
+        self.hud:Update(x, y, width, height)
     end
 
     function mover:SetSelectionHUD(selected)
         self._selected = selected and true or false
-        local accentR, accentG, accentB = GetMoverAccent()
-        self.centerV:SetColorTexture(accentR, accentG, accentB, 0.78)
-        self.centerH:SetColorTexture(accentR, accentG, accentB, 0.78)
-        self.selectionHUD.accent:SetColorTexture(accentR, accentG, accentB, 1)
-        self.centerV:SetShown(self._selected)
-        self.centerH:SetShown(self._selected)
-        self.selectionHUD:SetShown(self._selected)
-        if self._selected then
-            self.UpdateBorderColor(accentR, accentG, accentB, 1)
-            self:UpdateSelectionHUD()
-        else
-            self.UpdateBorderColor(0.4, 0.6, 1, 0.8)
+        if self.surface then self.surface:SetSelected(self._selected) end
+        if self.hud then
+            self.hud:SetShown(self._selected)
+            if self._selected then self:UpdateSelectionHUD() end
         end
     end
-
-    -- Text label
-    local text = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    text:SetPoint("CENTER")
-    text:SetText(displayText or name)
-    text:SetTextColor(1, 1, 1, 1)
-    mover.text = text
 
     -- Store references
     mover.name = name
@@ -1159,11 +1012,10 @@ local function CreateMoverFrame(parent, name, displayText)
             if isDragging then
                 OnDragStop(self)
             end
-            -- Select this mover and show nudge frame
+            -- Select this mover
             if DDingUI._framePickerActive then return end
             Movers.SelectedMover = self
             if Movers.NudgeFrame then
-                Movers.NudgeFrame:Show()
                 Movers.NudgeFrame:UpdateSelection()
             end
         elseif button == "RightButton" then
@@ -1171,13 +1023,14 @@ local function CreateMoverFrame(parent, name, displayText)
             if IsShiftKeyDown() then
                 Movers:ResetMoverPosition(self.name)
             else
-                -- 우클릭 → 해당 프레임의 설정 메뉴 열기
+                -- 우클릭 → 해당 프레임의 설정 메뉴 열기 (종료 시 자동 재열기와 겹치지 않게)
                 local guiKey = Movers:GetGUIKeyFromMoverName(self.name)
                 -- BuffTracker 개별 바: 인덱스 추출 → 설정 창에서 자동 선택
                 local btIndex = tonumber(self.name:match("^DDingUI_BuffTracker%w+_(%d+)"))
                 if btIndex then
                     DDingUI._pendingBTSelect = btIndex
                 end
+                Movers._reopenConfigOnExit = nil
                 Movers:ExitEditMode()
                 C_Timer.After(0.1, function()
                     if DDingUI.OpenConfigGUI then
@@ -1215,14 +1068,9 @@ local function CreateMoverFrame(parent, name, displayText)
 
     mover:SetScript("OnEnter", function(self)
         self._hover = true
-        if self._selected then
-            self:SetSelectionHUD(true)
-        else
-            self.UpdateBorderColor(1, 0.8, 0, 1)
-        end
+        if self.surface then self.surface:SetHover(true) end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(self.displayText or self.name, 1, 1, 1)
-        GameTooltip:AddLine(" ")
         GameTooltip:AddLine(L["Left-click: Select and adjust"] or "Left-click: Select and adjust", 0.7, 0.7, 0.7)
         GameTooltip:AddLine(L["Drag: Move frame"] or "Drag: Move frame", 0.7, 0.7, 0.7)
         GameTooltip:AddLine(L["Right-click: Open settings"] or "Right-click: Open settings", 0.7, 0.7, 0.7)
@@ -1232,7 +1080,7 @@ local function CreateMoverFrame(parent, name, displayText)
 
     mover:SetScript("OnLeave", function(self)
         self._hover = false
-        self:SetSelectionHUD(Movers.SelectedMover == self)
+        if self.surface then self.surface:SetHover(false) end
         GameTooltip:Hide()
     end)
 
@@ -1962,12 +1810,6 @@ function Movers:ResetMoverPosition(name)
     end
 end
 
-function Movers:ResetAllPositions()
-    for name in pairs(self.CreatedMovers) do
-        self:ResetMoverPosition(name)
-    end
-end
-
 -- 모든 저장된 Mover 위치를 적용 (모듈 설정보다 우선)
 function Movers:ApplyAllSavedPositions()
     if not DDingUI.db or not DDingUI.db.profile.movers then return end
@@ -2082,9 +1924,10 @@ function Movers:ExitEditMode(forCombat)
     -- 드래그 갱신을 먼저 끊어 전투 중 프레임 재배치가 이어지지 않게 한다.
     if isDragging then
         isDragging = false
+        if dragFrame then dragFrame._dragAnchor = nil end
         dragFrame = nil
         updateFrame:SetScript("OnUpdate", nil)
-        self:ClearGridHighlight()
+        self:HideGuides()
     end
 
     self:HideMovers(forCombat == true)
@@ -2112,12 +1955,15 @@ end
 function Movers:ShowMovers()
     self.ConfigMode = true
     local silent = self._silentToggle
+    self:RefreshEditModeButtons()
 
     -- DDingUI 메인 설정 창 닫기
     if not silent then
         local configFrame = _G["DDingUI_ConfigFrame"]
         if configFrame and configFrame:IsShown() then
             -- [STYLE] edit-mode handoff closes without the exit motion
+            -- [REFACTOR] C12: 진입 때 열려 있던 설정창은 종료 때 다시 연다
+            self._reopenConfigOnExit = true
             if configFrame.HideImmediately then configFrame:HideImmediately() else configFrame:Hide() end
         end
     end
@@ -2226,11 +2072,8 @@ function Movers:ShowMovers()
         -- 편집모드 진입 시 DDingUI 스타일의 은은한 기준 그리드를 자동 표시
         self:ShowGrid()
 
-        -- Nudge Frame 표시
-        if self.NudgeFrame then
-            self.NudgeFrame:Show()
-            UIFrameFadeIn(self.NudgeFrame, 0.2, 0, 1)
-        end
+        -- 리모컨 표시 (StyleLib CreateEditRemote)
+        self:ShowRemote()
 
         -- [FIX] 알파 0으로 숨겨진 CDM 뷰어의 마우스 이벤트 비활성화 + Mover 숨기기
         self._editModeViewerMouse = {}
@@ -2381,6 +2224,7 @@ end
 function Movers:HideMovers(forCombat)
     local combatExit = forCombat == true or InCombatLockdown()
     self.ConfigMode = false
+    self:RefreshEditModeButtons()
 
     for name, holder in pairs(self.CreatedMovers) do
         if string.match(name, "^DDingUI_BuffTracker") and holder.mover then
@@ -2420,18 +2264,10 @@ function Movers:HideMovers(forCombat)
         end)
     end
 
-    self:HideGrid()
-    self.Settings.gridEnabled = false  -- 종료 시 그리드 상태 초기화
-
-    if self.NudgeFrame then
-        UIFrameFadeOut(self.NudgeFrame, 0.2, 1, 0)
-        -- [FIX] NudgeFrame 숨기기 보장
-        C_Timer.After(0.25, function()
-            if not self.ConfigMode and self.NudgeFrame then
-                self.NudgeFrame:Hide()
-            end
-        end)
-    end
+    -- 격자는 숨기되 사용자 설정(gridEnabled)은 그대로 두어 실제 값이 저장되게 한다
+    self:HideGrid(true)
+    self:HideGuides()
+    self:HideRemote()
 
     self.SelectedMover = nil
 
@@ -2443,6 +2279,16 @@ function Movers:HideMovers(forCombat)
 
     if not self._silentToggle then
         DDingUI:Print("|cff00ff00" .. (L["Mover mode disabled"] or "Mover mode disabled. Positions saved.") .. "|r") -- [STYLE]
+    end
+
+    -- [REFACTOR] C12: 진입 때 닫은 설정창을 다시 연다 (전투 종료는 제외)
+    if self._reopenConfigOnExit then
+        self._reopenConfigOnExit = nil
+        if not combatExit and DDingUI.OpenConfig then
+            C_Timer.After(0, function()
+                if not Movers.ConfigMode and not InCombatLockdown() then DDingUI:OpenConfig() end
+            end)
+        end
     end
 
     -- [FIX] 편집모드 중 강제 표시한 그룹 프레임 복원
@@ -2507,6 +2353,9 @@ function Movers:HideMovers(forCombat)
     if DDingUI.RefreshBuffBarCooldownViewer then
         pcall(DDingUI.RefreshBuffBarCooldownViewer, DDingUI)
     end
+    if DDingUI.DynamicIconBridge and DDingUI.DynamicIconBridge.NotifyIconsChanged then
+        DDingUI.DynamicIconBridge:NotifyIconsChanged(true)
+    end
 end
 
 function Movers:IsConfigMode()
@@ -2514,394 +2363,75 @@ function Movers:IsConfigMode()
 end
 
 --------------------------------------------------------------------------------
--- Grid (ElvUI Style Snap Grid)
+-- Grid / Guides (StyleLib CreateEditGrid / CreateEditGuides) -- [REFACTOR]
+-- 보이는 격자와 스냅 격자는 같은 간격(Settings.gridSize)·같은 원점(화면 중앙)을 쓴다.
+-- 간격은 리모컨의 격자 버튼(16/32/64)이 바꾼다.
 --------------------------------------------------------------------------------
 
-local GRID_FADE_IN_DURATION = 0.75
-local GRID_FADE_OUT_DURATION = 0.18
-local GRID_SPACING = 32
-local GRID_ALPHA = 0.30
-local GRID_CENTER_ALPHA = 0.54
-local GRID_CROSS_ALPHA = 0.62
-local GRID_OVERLAY_ALPHA = 0.18
-local GRID_DRAG_LIGHT_RADIUS = 180
-local GRID_DRAG_LIGHT_BOOST = 0.62
-local GRID_DRAG_LIGHT_SEGMENTS = 6
-
-local function GetGridAccentColor()
-    local SL = _G.DDingUI_StyleLib
-    if SL and SL.GetAccent then
-        local accent = select(1, SL.GetAccent("CDM"))
-        if type(accent) == "table" then
-            return accent[1] or 0.90, accent[2] or 0.45, accent[3] or 0.12
-        end
-    end
-    return 0.90, 0.45, 0.12
-end
-
-local function GetPixelMult()
-    local SL = _G.DDingUI_StyleLib
-    local PP = SL and SL.PP
-    if PP and PP.UpdateMult then
-        PP.UpdateMult()
-    end
-    if PP and PP.mult then
-        return PP.mult
-    end
-
-    local _, physicalHeight = GetPhysicalScreenSize()
-    local uiScale = UIParent and UIParent:GetScale() or 1
-    if not physicalHeight or physicalHeight <= 0 or not uiScale or uiScale <= 0 then
-        return 1
-    end
-    return (768 / physicalHeight) / uiScale
-end
-
-local function SnapToPixel(value, mult)
-    mult = mult or 1
-    if mult == 1 then
-        return math.floor(value + 0.5)
-    end
-    return math.floor(value / mult + 0.5) * mult
-end
-
-local function DisablePixelSnap(texture)
-    if texture and texture.SetSnapToPixelGrid then
-        texture:SetSnapToPixelGrid(false)
-        texture:SetTexelSnappingBias(0)
-    end
-end
-
-local function EnsureGridOverlay(self)
-    if self.GridOverlay then return self.GridOverlay end
-
-    local overlay = CreateFrame("Frame", "DDingUI_MoverGridOverlay", UIParent)
-    overlay:SetAllPoints(UIParent)
-    overlay:SetFrameStrata("DIALOG")
-    overlay:SetFrameLevel(80)
-    overlay:EnableMouse(false)
-    overlay:SetAlpha(0)
-    overlay:Hide()
-
-    overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
-    overlay.texture:SetAllPoints(overlay)
-    overlay.texture:SetColorTexture(0.02, 0.03, 0.04, GRID_OVERLAY_ALPHA)
-    DisablePixelSnap(overlay.texture)
-
-    self.GridOverlay = overlay
-    return overlay
-end
-
-local function FadeOutFrame(frame, duration)
-    if not frame or not frame:IsShown() then return end
-    local startAlpha = frame:GetAlpha() or 1
-    local elapsed = 0
-    frame:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        local t = math.min(1, elapsed / (duration or GRID_FADE_OUT_DURATION))
-        self:SetAlpha(startAlpha * (1 - t))
-        if t >= 1 then
-            self:SetScript("OnUpdate", nil)
-            self:SetAlpha(0)
-            self:Hide()
-        end
-    end)
+function Movers:GetGridSpacing()
+    local spacing = tonumber(self.Settings.gridSize)
+    if not spacing or spacing <= 0 then spacing = GetEditSpec().gridSpacing or 32 end
+    return spacing
 end
 
 function Movers:CreateGrid()
-    if self.Grid then
-        return self.Grid
-    end
-
-    local grid = CreateFrame("Frame", "DDingUI_MoverGrid", UIParent)
-    grid:SetAllPoints(UIParent)
-    grid:SetFrameStrata("BACKGROUND")
-    grid:SetFrameLevel(1)
-    grid:EnableMouse(false)
-    grid:SetAlpha(0)
-    grid:Hide()
-    grid.lines = {}
-    grid.glows = {}
-    self.Grid = grid
-
-    function grid:Rebuild()
-        for _, tex in ipairs(self.lines) do
-            tex:Hide()
-            tex:ClearAllPoints()
-        end
-
-        local idx = 0
-        local width, height = UIParent:GetSize()
-        local accentR, accentG, accentB = GetGridAccentColor()
-        local mult = GetPixelMult()
-        local lineWidth = mult
-        local spacing = GRID_SPACING * mult
-        local centerX = SnapToPixel(width / 2, mult)
-        local centerY = SnapToPixel(height / 2, mult)
-        self._accentR, self._accentG, self._accentB = accentR, accentG, accentB
-        self._lineWidth = lineWidth
-
-        local function GetLine(subLevel)
-            idx = idx + 1
-            local tex = self.lines[idx]
-            if not tex then
-                tex = self:CreateTexture(nil, "BACKGROUND", nil, subLevel or -7)
-                DisablePixelSnap(tex)
-                self.lines[idx] = tex
-            end
-            tex:ClearAllPoints()
-            tex:Show()
-            return tex
-        end
-
-        local function MakeLine(isVertical, pos, r, g, b, a, subLevel)
-            local tex = GetLine(subLevel)
-            tex:SetColorTexture(r, g, b, a)
-            tex._r, tex._g, tex._b = r, g, b
-            tex._baseAlpha = a
-            tex._isWhite = false
-            tex._isVert = isVertical
-            tex._pos = pos
-            if isVertical then
-                tex:SetSize(lineWidth, height)
-                tex:SetPoint("TOPLEFT", UIParent, "TOPLEFT", pos, 0)
-            else
-                tex:SetSize(width, lineWidth)
-                tex:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, -pos)
-            end
-        end
-
-        local x = centerX - spacing
-        while x > 0 do
-            MakeLine(true, SnapToPixel(x, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
-            x = x - spacing
-        end
-        x = centerX + spacing
-        while x < width do
-            MakeLine(true, SnapToPixel(x, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
-            x = x + spacing
-        end
-
-        local y = centerY - spacing
-        while y > 0 do
-            MakeLine(false, SnapToPixel(y, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
-            y = y - spacing
-        end
-        y = centerY + spacing
-        while y < height do
-            MakeLine(false, SnapToPixel(y, mult), accentR, accentG, accentB, GRID_ALPHA, -7)
-            y = y + spacing
-        end
-
-        MakeLine(true, centerX, accentR, accentG, accentB, GRID_CENTER_ALPHA, -6)
-        MakeLine(false, centerY, accentR, accentG, accentB, GRID_CENTER_ALPHA, -6)
-
-        local crossArm = 20
-        local crossV = GetLine(-5)
-        crossV:SetColorTexture(1, 1, 1, GRID_CROSS_ALPHA)
-        crossV._r, crossV._g, crossV._b = 1, 1, 1
-        crossV._baseAlpha = GRID_CROSS_ALPHA
-        crossV._isWhite = true
-        crossV._isVert = true
-        crossV._pos = centerX
-        crossV:SetSize(lineWidth, crossArm * 2)
-        crossV:SetPoint("TOPLEFT", UIParent, "TOPLEFT", centerX, -(centerY - crossArm))
-
-        local crossH = GetLine(-5)
-        crossH:SetColorTexture(1, 1, 1, GRID_CROSS_ALPHA)
-        crossH._r, crossH._g, crossH._b = 1, 1, 1
-        crossH._baseAlpha = GRID_CROSS_ALPHA
-        crossH._isWhite = true
-        crossH._isVert = false
-        crossH._pos = centerY
-        crossH:SetSize(crossArm * 2, lineWidth)
-        crossH:SetPoint("TOPLEFT", UIParent, "TOPLEFT", centerX - crossArm, -centerY)
-
-        for i = idx + 1, #self.lines do
-            self.lines[i]:Hide()
-        end
-
-        self._lineCount = idx
-        self._lastWidth = width
-        self._lastHeight = height
-    end
-
-    return grid
+    if self.Grid then return self.Grid end
+    local SL = GetSL()
+    if not (SL and SL.CreateEditGrid) then return nil end
+    self.Grid = SL.CreateEditGrid("CDM", { spacing = self:GetGridSpacing() })
+    return self.Grid
 end
 
-local function GetGridGlow(grid, idx)
-    local glow = grid.glows[idx]
-    if not glow then
-        glow = grid:CreateTexture(nil, "BACKGROUND", nil, -4)
-        glow:SetBlendMode("ADD")
-        DisablePixelSnap(glow)
-        grid.glows[idx] = glow
-    end
-    return glow
+function Movers:CreateGuides()
+    if self.Guides then return self.Guides end
+    local SL = GetSL()
+    if not (SL and SL.CreateEditGuides) then return nil end
+    self.Guides = SL.CreateEditGuides("CDM")
+    return self.Guides
 end
 
-function Movers:ClearGridHighlight()
-    local grid = self.Grid
-    if not grid or not grid.glows then return end
-
-    for _, glow in ipairs(grid.glows) do
-        glow:Hide()
-    end
-    grid._glowCount = 0
+function Movers:HideGuides()
+    if self.Guides then self.Guides:Hide() end
 end
 
-function Movers:UpdateGridHighlight(focusX, focusY)
-    local grid = self.Grid
-    if not grid or not grid:IsShown() or not focusX or not focusY then
-        self:ClearGridHighlight()
-        return
-    end
-
-    local width, height = UIParent:GetSize()
-    if not width or not height then
-        self:ClearGridHighlight()
-        return
-    end
-
-    local radius = GRID_DRAG_LIGHT_RADIUS
-    local radiusSquared = radius * radius
-    local focusYFromTop = height - focusY
-    local lineWidth = grid._lineWidth or GetPixelMult()
-    local glowWidth = math.max(lineWidth * 2, lineWidth)
-    local glowIdx = 0
-    local lineCount = grid._lineCount or #grid.lines
-
-    for i = 1, lineCount do
-        local tex = grid.lines[i]
-        if tex and tex:IsShown() and tex._pos then
-            local perpendicular = tex._isVert and math.abs(tex._pos - focusX) or math.abs(tex._pos - focusYFromTop)
-            if perpendicular < radius then
-                local halfSpan = math.sqrt(radiusSquared - perpendicular * perpendicular)
-                local segSize = math.max((halfSpan * 2) / GRID_DRAG_LIGHT_SEGMENTS, lineWidth)
-                local r = tex._isWhite and 1 or (grid._accentR or tex._r or 1)
-                local g = tex._isWhite and 1 or (grid._accentG or tex._g or 1)
-                local b = tex._isWhite and 1 or (grid._accentB or tex._b or 1)
-
-                if tex._isVert then
-                    local spanStart = math.max(0, focusY - halfSpan)
-                    local spanEnd = math.min(height, focusY + halfSpan)
-                    local segY = spanStart
-                    while segY < spanEnd do
-                        local segEnd = math.min(segY + segSize, spanEnd)
-                        local midY = (segY + segEnd) * 0.5
-                        local dx = tex._pos - focusX
-                        local dy = midY - focusY
-                        local distSquared = dx * dx + dy * dy
-                        if distSquared < radiusSquared then
-                            local t = 1 - math.sqrt(distSquared) / radius
-                            local alpha = GRID_DRAG_LIGHT_BOOST * t * t
-                            if alpha > 0.003 then
-                                glowIdx = glowIdx + 1
-                                local glow = GetGridGlow(grid, glowIdx)
-                                glow:SetColorTexture(r, g, b, alpha)
-                                glow:ClearAllPoints()
-                                glow:SetSize(glowWidth, segEnd - segY)
-                                glow:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", tex._pos - glowWidth * 0.5, segY)
-                                glow:Show()
-                            end
-                        end
-                        segY = segEnd
-                    end
-                else
-                    local spanStart = math.max(0, focusX - halfSpan)
-                    local spanEnd = math.min(width, focusX + halfSpan)
-                    local segX = spanStart
-                    local y = height - tex._pos - glowWidth * 0.5
-                    while segX < spanEnd do
-                        local segEnd = math.min(segX + segSize, spanEnd)
-                        local midX = (segX + segEnd) * 0.5
-                        local dx = midX - focusX
-                        local dy = tex._pos - focusYFromTop
-                        local distSquared = dx * dx + dy * dy
-                        if distSquared < radiusSquared then
-                            local t = 1 - math.sqrt(distSquared) / radius
-                            local alpha = GRID_DRAG_LIGHT_BOOST * t * t
-                            if alpha > 0.003 then
-                                glowIdx = glowIdx + 1
-                                local glow = GetGridGlow(grid, glowIdx)
-                                glow:SetColorTexture(r, g, b, alpha)
-                                glow:ClearAllPoints()
-                                glow:SetSize(segEnd - segX, glowWidth)
-                                glow:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", segX, y)
-                                glow:Show()
-                            end
-                        end
-                        segX = segEnd
-                    end
-                end
-            end
-        end
-    end
-
-    for i = glowIdx + 1, #grid.glows do
-        grid.glows[i]:Hide()
-    end
-    grid._glowCount = glowIdx
+-- 리모컨 격자 체크 상태를 맞춘다. 공용 체크박스는 SetChecked에서도 onChange를 부르므로 재진입을 막는다.
+local function SyncRemoteGrid(on, spacing)
+    local remote = Movers.NudgeFrame
+    if not (remote and remote.SetGridState) or Movers._syncingRemoteGrid then return end
+    Movers._syncingRemoteGrid = true
+    remote:SetGridState(on, spacing)
+    Movers._syncingRemoteGrid = nil
 end
 
-function Movers:ShowGrid()
+--- 격자 간격을 바꾼다(보이는 격자와 스냅이 함께). 리모컨 버튼이 부른다.
+function Movers:SetGridSpacing(spacing)
+    spacing = tonumber(spacing)
+    if not spacing or spacing <= 0 then return end
+    self.Settings.gridSize = spacing
+    if self.Grid then self.Grid:SetSpacing(spacing) end
+    SyncRemoteGrid(nil, spacing)
+end
+
+-- keepSetting이면 사용자 설정(gridEnabled)은 건드리지 않는다(드래그 중 임시 표시, 편집 모드 종료).
+function Movers:ShowGrid(keepSetting)
     local grid = self:CreateGrid()
-    local overlay = EnsureGridOverlay(self)
-
-    grid:Rebuild()
-    self:ClearGridHighlight()
-    grid:SetAlpha(0)
-    grid:Show()
-
-    overlay:SetAlpha(0)
-    overlay:Show()
-
-    local elapsed = 0
-    grid:SetScript("OnUpdate", function(frame, dt)
-        elapsed = elapsed + dt
-        local progress = math.min(1, elapsed / GRID_FADE_IN_DURATION)
-        local flicker = 0
-        if progress < 0.9 then
-            local intensity = (1 - progress) * 0.7
-            flicker = (
-                math.sin(elapsed * 37.3) * 0.4 +
-                math.sin(elapsed * 13.7) * 0.35 +
-                math.sin(elapsed * 71.1) * 0.25
-            ) * intensity
-            if math.sin(elapsed * 5.3) > 0.85 and progress < 0.6 then
-                flicker = flicker - 0.5
-            end
-        end
-
-        frame:SetAlpha(math.max(0, math.min(1, progress + flicker)))
-        overlay:SetAlpha(math.min(1, progress))
-
-        if progress >= 1 then
-            frame:SetScript("OnUpdate", nil)
-            frame:SetAlpha(1)
-            overlay:SetAlpha(1)
-        end
-    end)
-
-    self.Settings.gridEnabled = true
-
-    if self.NudgeFrame and self.NudgeFrame.gridCheckbox then
-        self.NudgeFrame.gridCheckbox:SetChecked(true)
+    self._gridVisible = true
+    if grid then
+        grid:SetSpacing(self:GetGridSpacing())
+        grid:ShowAnimated()
+    end
+    if not keepSetting then
+        self.Settings.gridEnabled = true
+        SyncRemoteGrid(true)
     end
 end
 
-function Movers:HideGrid()
-    self:ClearGridHighlight()
-    if self.Grid then
-        FadeOutFrame(self.Grid, GRID_FADE_OUT_DURATION)
-    end
-    if self.GridOverlay then
-        FadeOutFrame(self.GridOverlay, GRID_FADE_OUT_DURATION)
-    end
-    self.Settings.gridEnabled = false
-
-    if self.NudgeFrame and self.NudgeFrame.gridCheckbox then
-        self.NudgeFrame.gridCheckbox:SetChecked(false)
+function Movers:HideGrid(keepSetting)
+    self._gridVisible = false
+    if self.Grid then self.Grid:HideAnimated() end
+    if not keepSetting then
+        self.Settings.gridEnabled = false
+        SyncRemoteGrid(false)
     end
 end
 
@@ -2914,1162 +2444,476 @@ function Movers:ToggleGrid()
 end
 
 --------------------------------------------------------------------------------
--- Nudge Frame (ElvUI Style - Position near selected mover)
+-- Edit Remote (StyleLib CreateEditRemote) -- [REFACTOR]
+-- 공용: 프레임 선택·선택 정보·X/Y·▲▼◀▶(Shift ×10)·격자 표시/간격·스냅·초기화/실행 취소/다시 실행/완료,
+--       Esc 종료·방향키·Ctrl+Z/Y, 둥근 창·시리즈 제목줄, 옮긴 위치 저장(moverSettings.editRemotePos).
+-- CDM 전용(opts.extra): 9점 앵커 격자(좌클릭 앵커점 / 우클릭 기준점), 연결 대상 드롭다운, 연결 대상 선택(프레임 피커).
+-- 기존 이름 NudgeFrame과 UpdateSelection/UpdateInfo/UpdateUndoRedoButtons는 호출처 호환을 위해 유지한다.
 --------------------------------------------------------------------------------
 
-function Movers:PositionNudgeFrame(mover)
-    if not self.NudgeFrame or not mover then return end
+local ANCHOR_POINTS = {
+    "TOPLEFT", "TOP", "TOPRIGHT",
+    "LEFT", "CENTER", "RIGHT",
+    "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT",
+}
 
-    local x, y, point, nudgePoint, nudgeInversePoint = self:CalculateMoverPoints(mover)
+local DOT_POSITIONS = {
+    TOPLEFT = { x = 0, y = 0 }, TOP = { x = 0.5, y = 0 }, TOPRIGHT = { x = 1, y = 0 },
+    LEFT = { x = 0, y = 0.5 }, CENTER = { x = 0.5, y = 0.5 }, RIGHT = { x = 1, y = 0.5 },
+    BOTTOMLEFT = { x = 0, y = 1 }, BOTTOM = { x = 0.5, y = 1 }, BOTTOMRIGHT = { x = 1, y = 1 },
+}
 
-    -- Position nudge frame on opposite side of mover
-    self.NudgeFrame:ClearAllPoints()
+-- [FIX] alpha=0으로 숨겨진 CDM 뷰어는 앵커 선택 불가 (GroupSystem 대체 시)
+local HIDDEN_CDM_VIEWERS = {
+    EssentialCooldownViewer = true,
+    UtilityCooldownViewer = true,
+    BuffIconCooldownViewer = true,
+}
 
-    local offsetX, offsetY = 0, 0
-    if nudgeInversePoint == "TOP" then
-        offsetY = 10
-    elseif nudgeInversePoint == "BOTTOM" then
-        offsetY = -10
-    elseif nudgeInversePoint == "LEFT" then
-        offsetX = -10
-    elseif nudgeInversePoint == "RIGHT" then
-        offsetX = 10
+local function MoverItems()
+    local items = { { text = L["No selection"] or "선택 없음", value = "" } }
+    local list = {}
+    for name, holder in pairs(Movers.CreatedMovers or {}) do
+        if holder.mover then
+            list[#list + 1] = { text = holder.mover.displayText or name, value = name }
+        end
     end
-
-    self.NudgeFrame:SetPoint(nudgePoint, mover, nudgeInversePoint, offsetX, offsetY)
+    table.sort(list, function(a, b) return a.text < b.text end)
+    for _, item in ipairs(list) do items[#items + 1] = item end
+    return items
 end
 
-function Movers:CreateNudgeFrame()
-    if self.NudgeFrame then return end
-
-    local SL = _G.DDingUI_StyleLib
-    local accent = SL and { SL.GetAccent("CDM") } or { {0.90, 0.45, 0.12}, {0.60, 0.18, 0.05} }
-    local accentFrom = accent[1] or {0.90, 0.45, 0.12}
-    local panelBg = SL and SL.Colors.bg.main or {0.10, 0.10, 0.10, 0.95}
-    local panelBorder = SL and SL.Colors.border.default or {0.25, 0.25, 0.25, 0.50}
-
-    local nudge = CreateFrame("Frame", "DDingUI_NudgeFrame", UIParent, "BackdropTemplate")
-    nudge:SetSize(280, 670)
-    nudge:SetPoint("TOP", UIParent, "TOP", 0, -50)
-    nudge:SetFrameStrata("FULLSCREEN_DIALOG")
-    nudge:SetFrameLevel(200)
-    nudge:EnableMouse(true)
-    nudge:SetClampedToScreen(true)
-    nudge:Hide()
-
-    nudge:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-    nudge:SetBackdropColor(panelBg[1], panelBg[2], panelBg[3], panelBg[4] or 0.95)
-    nudge:SetBackdropBorderColor(panelBorder[1], panelBorder[2], panelBorder[3], panelBorder[4] or 0.50)
-
-    if SL and SL.CreateHorizontalGradient then
-        local gradLine = SL.CreateHorizontalGradient(nudge, accentFrom, accent[2] or accentFrom, 2, "OVERLAY")
-        if gradLine then
-            gradLine:ClearAllPoints()
-            gradLine:SetPoint("TOPLEFT", 0, 0)
-            gradLine:SetPoint("TOPRIGHT", 0, 0)
-        end
-    end
-
-    -- 드래그 가능한 타이틀 바 생성
-    local titleBar = CreateFrame("Frame", nil, nudge)
-    titleBar:SetHeight(16)
-    titleBar:SetPoint("TOPLEFT", nudge, "TOPLEFT", 0, 0)
-    titleBar:SetPoint("TOPRIGHT", nudge, "TOPRIGHT", 0, 0)
-    titleBar:EnableMouse(true)
-
-    local titleBarDragging = false
-    local titleBarOffsetX, titleBarOffsetY = 0, 0
-
-    titleBar:SetScript("OnMouseDown", function(self, button)
-        if button == "LeftButton" then
-            titleBarDragging = true
-            local scale = nudge:GetEffectiveScale()
-            local mouseX, mouseY = GetCursorPosition()
-            mouseX = mouseX / scale
-            mouseY = mouseY / scale
-            local frameX, frameY = nudge:GetCenter()
-            titleBarOffsetX = frameX - mouseX
-            titleBarOffsetY = frameY - mouseY
-        end
-    end)
-
-    titleBar:SetScript("OnMouseUp", function(self, button)
-        titleBarDragging = false
-    end)
-
-    nudge:SetScript("OnUpdate", function(self)
-        if titleBarDragging then
-            local scale = self:GetEffectiveScale()
-            local mouseX, mouseY = GetCursorPosition()
-            mouseX = mouseX / scale
-            mouseY = mouseY / scale
-            self:ClearAllPoints()
-            self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", mouseX + titleBarOffsetX, mouseY + titleBarOffsetY)
-        end
-    end)
-
-    -- Close button (StyleLib)
-    local closeBtn = CreateFrame("Button", nil, nudge)
-    closeBtn:SetSize(28, 24)
-    closeBtn:SetPoint("TOPRIGHT", -4, -4)
-
-    local closeText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    closeText:SetPoint("CENTER")
-    closeText:SetText("X")
-    closeText:SetTextColor(0.5, 0.5, 0.5)
-
-    closeBtn:SetScript("OnEnter", function() closeText:SetTextColor(1, 0.3, 0.3) end)
-    closeBtn:SetScript("OnLeave", function() closeText:SetTextColor(0.5, 0.5, 0.5) end)
-    closeBtn:SetScript("OnClick", function()
-        if Movers.ConfigMode then
-            Movers:ToggleConfigMode()
-        else
-            nudge:Hide()
-        end
-    end)
-
-    -- Title
-    local title = nudge:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    title:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
-    title:SetPoint("TOP", 0, -10)
-    title:SetText(L["Position Adjustment"] or "Position Adjustment")
-    title:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3])
-    nudge.title = title
-
-    -- Selected frame name
-    local selectedText = nudge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    selectedText:SetPoint("TOP", title, "BOTTOM", 0, -4)
-    selectedText:SetText(L["No frame selected"] or "No frame selected")
-    nudge.selectedText = selectedText
-
-    -- Anchor info (더 눈에 띄게)
-    local anchorLabel = nudge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    anchorLabel:SetPoint("TOP", selectedText, "BOTTOM", 0, -8)
-    anchorLabel:SetText("Anchor: --")
-    anchorLabel:SetTextColor(accentFrom[1], accentFrom[2], accentFrom[3])
-    nudge.anchorLabel = anchorLabel
-
-    --------------------------------------------------------------------------------
-    -- Anchor Point & Frame Dropdowns (StyleLib Flat)
-    --------------------------------------------------------------------------------
-    local anchorY = -70
-    local SOLID = "Interface\\Buttons\\WHITE8x8"
-    local ddInputBg = SL and SL.Colors.bg.input or {0.06, 0.06, 0.06, 0.80}
-    local ddHoverBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
-    local ddMainBg  = SL and SL.Colors.bg.main  or {0.10, 0.10, 0.10, 0.95}
-    local ddBorder  = SL and SL.Colors.border.default or {0.25, 0.25, 0.25, 0.50}
-
-    local ANCHOR_POINTS = {
-        "TOPLEFT", "TOP", "TOPRIGHT",
-        "LEFT", "CENTER", "RIGHT",
-        "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT"
-    }
-
-    -- Internal: create a StyleLib-style flat dropdown
-    local function CreateFlatDropdown(parent, labelText, width, anchorPt, anchorFrame, anchorRelPt, xOff, yOff, items, onSelect)
-        local container = CreateFrame("Frame", nil, parent)
-        container:SetSize(width + 10, 40)
-        container:SetPoint(anchorPt, anchorFrame, anchorRelPt, xOff, yOff)
-
-        local lbl = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lbl:SetPoint("TOPLEFT", 0, 0)
-        lbl:SetText(labelText)
-
-        local btn = CreateFrame("Button", nil, container, "BackdropTemplate")
-        btn:SetSize(width, 22)
-        btn:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -2)
-        btn:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-        btn:SetBackdropColor(unpack(ddInputBg))
-        btn:SetBackdropBorderColor(unpack(ddBorder))
-
-        local selText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        selText:SetPoint("LEFT", 4, 0)
-        selText:SetPoint("RIGHT", -16, 0)
-        selText:SetJustifyH("LEFT")
-        selText:SetWordWrap(false)
-
-        local arrow = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        arrow:SetPoint("RIGHT", -4, 0)
-        arrow:SetText("\226\150\188") -- U+25BC ▼
-
-        container._value = nil
-        container._text = ""
-        container._items = items or {}
-
-        local function SetDisplay(text, value)
-            container._value = value
-            container._text = text
-            selText:SetText(text or "--")
-        end
-
-        -- dropdown list
-        local list = CreateFrame("Frame", nil, btn, "BackdropTemplate")
-        list:SetFrameStrata("FULLSCREEN_DIALOG")
-        list:SetFrameLevel(999) -- 강제 최상단
-        list:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
-        list:SetWidth(width)
-        list:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-        list:SetBackdropColor(unpack(ddMainBg))
-        list:SetBackdropBorderColor(unpack(ddBorder))
-        list:Hide()
-
-        -- click-away catcher
-        local catcher = CreateFrame("Button", nil, list)
-        catcher:SetFrameStrata("FULLSCREEN_DIALOG")
-        catcher:SetFrameLevel(998)
-        catcher:SetAllPoints(UIParent)
-        catcher:SetScript("OnClick", function() list:Hide(); catcher:Hide() end)
-        catcher:EnableMouseWheel(true)
-        catcher:SetScript("OnMouseWheel", function() list:Hide(); catcher:Hide() end)
-        catcher:Hide()
-
-        local rowButtons = {}
-        local function RebuildItems(newItems)
-            for _, rb in ipairs(rowButtons) do rb:Hide() end
-            wipe(rowButtons)
-            container._items = newItems or container._items
-            local totalH = math.max(22, (#container._items * 20) + 2)
-            list:SetHeight(math.min(totalH, 15 * 20 + 2))
-
-            for i, item in ipairs(container._items) do
-                local row = CreateFrame("Button", nil, list, "BackdropTemplate")
-                row:SetSize(width - 4, 20)
-                row:SetPoint("TOPLEFT", list, "TOPLEFT", 2, -(1 + (i - 1) * 20))
-                row:SetFrameLevel(list:GetFrameLevel() + 1)
-                row:Show()
-
-                local rowBG = row:CreateTexture(nil, "BACKGROUND")
-                rowBG:SetAllPoints()
-                rowBG:SetColorTexture(0, 0, 0, 0)
-
-                local rowText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                rowText:SetPoint("LEFT", 4, 0)
-                rowText:SetText(item.text or item)
-                rowText:SetJustifyH("LEFT")
-
-                row:SetScript("OnEnter", function() rowBG:SetColorTexture(unpack(ddHoverBg)) end)
-                row:SetScript("OnLeave", function() rowBG:SetColorTexture(0, 0, 0, 0) end)
-                row:SetScript("OnClick", function()
-                    local val = item.value or item
-                    local txt = item.text or item
-                    SetDisplay(txt, val)
-                    list:Hide()
-                    catcher:Hide()
-                    if onSelect then onSelect(val, txt) end
-                end)
-                rowButtons[#rowButtons + 1] = row
-            end
-        end
-
-        -- initial build
-        RebuildItems()
-        if #container._items > 0 then
-            local first = container._items[1]
-            SetDisplay(first.text or first, first.value or first)
-        end
-
-        btn:SetScript("OnClick", function()
-            if list:IsShown() then list:Hide(); catcher:Hide()
-            else list:Show(); catcher:Show() end
-        end)
-        btn:SetScript("OnEnter", function() btn:SetBackdropColor(unpack(ddHoverBg)) end)
-        btn:SetScript("OnLeave", function() btn:SetBackdropColor(unpack(ddInputBg)) end)
-
-        function container:SetValue(val, displayText)
-            SetDisplay(displayText or val, val)
-        end
-        function container:GetValue() return self._value end
-        function container:SetItems(newItems) RebuildItems(newItems) end
-
-        container.button = btn
-        container.label = lbl
-        return container
-    end
-
-    -- ==========================================
-    -- [ANCHOR-GRID] 9-point 앵커 선택기 (UF 동일)
-    -- ==========================================
-    local GRID_H_ANCHOR = 150
-    local anchorGridContainer = CreateFrame("Frame", nil, nudge)
-    anchorGridContainer:SetSize(260, GRID_H_ANCHOR)
-    anchorGridContainer:SetPoint("TOPLEFT", nudge, "TOPLEFT", 10, anchorY)
-
-    local CDM_GRID_W = 180
-    local CDM_GRID_H = 105
-    local CDM_DOT_SZ = 12
-    local CDM_DOT_SEL_SZ = 18
-
-    local previewFrame = CreateFrame("Frame", nil, anchorGridContainer, "BackdropTemplate")
-    previewFrame:SetSize(CDM_GRID_W, CDM_GRID_H)
-    previewFrame:SetPoint("TOP", anchorGridContainer, "TOP", 0, -2)
-    previewFrame:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-    previewFrame:SetBackdropColor(0.10, 0.10, 0.10, 0.90)
-    previewFrame:SetBackdropBorderColor(0.70, 0.70, 0.70, 0.90)
-
-    -- 크기 텍스트
-    local sizeText = anchorGridContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sizeText:SetPoint("TOP", previewFrame, "BOTTOM", 0, -4)
-    sizeText:SetTextColor(0.9, 0.75, 0.2, 0.9)
-    sizeText:SetText("")
-    nudge._anchorSizeText = sizeText
-
-    nudge._anchorDots = {}
-    nudge._selfPointCurrent = "CENTER"
-    nudge._anchorPointCurrent = "CENTER"
-
-    local SELF_PT_COLOR = { 0.25, 0.78, 0.88 }
-    local ANC_PT_COLOR  = { accentFrom[1], accentFrom[2], accentFrom[3] }
-    local BOTH_PT_COLOR = { 1, 0.85, 0.3 }
-
-    local DOT_POSITIONS = {
-        TOPLEFT = {x=0, y=0}, TOP = {x=0.5, y=0}, TOPRIGHT = {x=1, y=0},
-        LEFT = {x=0, y=0.5}, CENTER = {x=0.5, y=0.5}, RIGHT = {x=1, y=0.5},
-        BOTTOMLEFT = {x=0, y=1}, BOTTOM = {x=0.5, y=1}, BOTTOMRIGHT = {x=1, y=1},
-    }
-
-    local function UpdateAnchorDots()
-        local selfPt = nudge._selfPointCurrent or "CENTER"
-        local ancPt  = nudge._anchorPointCurrent or "CENTER"
-        for _, apName in ipairs(ANCHOR_POINTS) do
-            local dot = nudge._anchorDots[apName]
-            if dot then
-                local isSelf = (apName == selfPt)
-                local isAnc  = (apName == ancPt)
-                if isSelf and isAnc then
-                    dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
-                    dot._bg:SetColorTexture(BOTH_PT_COLOR[1], BOTH_PT_COLOR[2], BOTH_PT_COLOR[3], 1)
-                    dot._border:SetColorTexture(1, 1, 1, 0.9)
-                    if dot._glow then dot._glow:SetColorTexture(BOTH_PT_COLOR[1], BOTH_PT_COLOR[2], BOTH_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
-                elseif isSelf then
-                    dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
-                    dot._bg:SetColorTexture(SELF_PT_COLOR[1], SELF_PT_COLOR[2], SELF_PT_COLOR[3], 1)
-                    dot._border:SetColorTexture(1, 1, 1, 0.9)
-                    if dot._glow then dot._glow:SetColorTexture(SELF_PT_COLOR[1], SELF_PT_COLOR[2], SELF_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
-                elseif isAnc then
-                    dot:SetSize(CDM_DOT_SEL_SZ, CDM_DOT_SEL_SZ)
-                    dot._bg:SetColorTexture(ANC_PT_COLOR[1], ANC_PT_COLOR[2], ANC_PT_COLOR[3], 1)
-                    dot._border:SetColorTexture(1, 1, 1, 0.9)
-                    if dot._glow then dot._glow:SetColorTexture(ANC_PT_COLOR[1], ANC_PT_COLOR[2], ANC_PT_COLOR[3], 0.18); dot._glow:SetSize(CDM_DOT_SEL_SZ+12, CDM_DOT_SEL_SZ+12); dot._glow:Show() end
-                else
-                    dot:SetSize(CDM_DOT_SZ, CDM_DOT_SZ)
-                    dot._bg:SetColorTexture(0.40, 0.40, 0.40, 0.9)
-                    dot._border:SetColorTexture(0.60, 0.60, 0.60, 0.7)
-                    if dot._glow then dot._glow:Hide() end
+local function AnchorItems(mover)
+    local list = {}
+    local currentHolder = mover and Movers.CreatedMovers[mover.name]
+    for iterName, holder in pairs(Movers.CreatedMovers or {}) do
+        if holder.mover and holder.mover ~= mover and holder.parent ~= (currentHolder and currentHolder.parent) then
+            local parentFrameName = holder.parent and holder.parent:GetName()
+            if parentFrameName then
+                local isHiddenViewer = HIDDEN_CDM_VIEWERS[parentFrameName]
+                    and holder.parent.GetAlpha and holder.parent:GetAlpha() < 0.01
+                if not isHiddenViewer then
+                    list[#list + 1] = { text = holder.mover.displayText or iterName, value = parentFrameName }
                 end
             end
         end
     end
-    nudge._refreshAnchorGrid = UpdateAnchorDots
+    table.sort(list, function(a, b) return a.text < b.text end)
+    local items = { { text = "UIParent", value = "UIParent" } }
+    for _, item in ipairs(list) do items[#items + 1] = item end
+    return items
+end
+
+local function FrameDisplayName(frameName)
+    if not frameName or frameName == "UIParent" then return "UIParent" end
+    for name, holder in pairs(Movers.CreatedMovers or {}) do
+        if holder.parent and holder.parent:GetName() == frameName then
+            return holder.mover.displayText or name
+        end
+    end
+    return frameName
+end
+
+-- 선택한 무버의 연결 대상을 바꾼다 (드롭다운·프레임 피커 공용)
+local function ApplyAnchorFrame(mover, frameName)
+    if not mover or not frameName or frameName == "" then return false end
+    local targetFrame = _G[frameName] or UIParent
+    local holder = Movers.CreatedMovers[mover.name]
+    local parentName = holder and holder.parent and holder.parent:GetName()
+    if targetFrame == mover or (holder and targetFrame == holder.parent) or frameName == parentName or frameName == mover.name then
+        DDingUI:Print("|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
+        return false
+    end
+
+    local oldPointStr = GetPoint(mover)
+    local selfPt, _, relPoint = mover:GetPoint(1)
+    local isBuffTracker = IsBuffTrackerMoverName(mover.name)
+    selfPt = selfPt or "CENTER"
+    local anchorPoint = relPoint or "CENTER"
+    if targetFrame == UIParent then
+        selfPt = "CENTER"
+        anchorPoint = "CENTER"
+    end
+
+    if isBuffTracker then
+        mover._ddExplicitAnchorName = frameName
+        mover._ddExplicitAnchorPoint = anchorPoint
+        SetMoverPointPreservingScreen(mover, selfPt, targetFrame, anchorPoint)
+    else
+        mover:ClearAllPoints()
+        mover:SetPoint(selfPt, targetFrame, anchorPoint, 0, 0)
+    end
+
+    Movers:PushUndo(mover.name, oldPointStr)
+    Movers:SaveMoverPosition(mover.name)
+    if not isBuffTracker then
+        Movers:UpdateParentPosition(mover.name)
+    end
+
+    local mapping = MoverToModuleMapping[mover.name]
+    local anchorCfg = mapping and DDingUI.db and ResolvePath(DDingUI.db.profile, mapping.path)
+    if anchorCfg and mapping.attachKey then
+        anchorCfg[mapping.attachKey] = frameName
+    end
+    return true
+end
+
+-- 9점 격자: 좌클릭 = 앵커점(연결 대상의 기준점), 우클릭 = 기준점(이 프레임의 기준점)
+local function ApplyAnchorPoint(mover, apName, isSelfPoint)
+    if not mover or not apName then return end
+    local oldPoint = GetPoint(mover)
+    local selfPt, af, relPt, x, y = mover:GetPoint(1)
+    local isBuffTracker = IsBuffTrackerMoverName(mover.name)
+
+    if isSelfPoint then
+        if isBuffTracker then
+            mover._ddExplicitSelfPoint = apName
+            SetMoverPointPreservingScreen(mover, apName, af or UIParent, relPt or "CENTER")
+        else
+            mover:ClearAllPoints()
+            mover:SetPoint(apName, af or UIParent, relPt or "CENTER", x or 0, y or 0)
+        end
+    else
+        if isBuffTracker then
+            mover._ddExplicitAnchorPoint = apName
+            SetMoverPointPreservingScreen(mover, selfPt or "CENTER", af or UIParent, apName)
+        else
+            mover:ClearAllPoints()
+            mover:SetPoint(selfPt or "CENTER", af or UIParent, apName, x or 0, y or 0)
+        end
+    end
+
+    Movers:PushUndo(mover.name, oldPoint)
+    Movers:SaveMoverPosition(mover.name)
+    if not isBuffTracker then
+        Movers:UpdateParentPosition(mover.name)
+    end
+end
+
+-- CDM 전용 구역: 리모컨 opts.extra(parent, y) -> height
+local function BuildRemoteExtra(remote, parent, y)
+    local SL = GetSL()
+    local C = SL.Colors
+    local accentFrom, accentTo = SL.GetAccent("CDM")
+    accentFrom = accentFrom or { 0.90, 0.45, 0.12, 1 }
+    accentTo = accentTo or accentFrom
+    local PAD = 14
+    local top = y
+
+    local header = SL.CreateSectionHeader(parent, "CDM", L["Anchor"] or "연결", { showLine = true })
+    header:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, y)
+    header:SetPoint("RIGHT", parent, "RIGHT", -PAD, 0)
+    y = y - 28
+
+    -- 9점 앵커 격자 (왼쪽)
+    local GRID_W, GRID_H, DOT, DOT_SEL = 118, 72, 10, 16
+    local gridBox = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    gridBox:SetSize(GRID_W + 16, GRID_H + 16)
+    gridBox:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, y)
+    SL.MakeRounded(gridBox, SL.Radius.card, C.bg.input, C.border.default)
+    local gridArea = CreateFrame("Frame", nil, gridBox)
+    gridArea:SetSize(GRID_W, GRID_H)
+    gridArea:SetPoint("CENTER")
+
+    remote._anchorDots = {}
+    local function RefreshDots()
+        local selfPt, ancPt = remote._selfPointCurrent, remote._anchorPointCurrent
+        for _, apName in ipairs(ANCHOR_POINTS) do
+            local dot = remote._anchorDots[apName]
+            local isSelf, isAnc = apName == selfPt, apName == ancPt
+            local color
+            if isSelf and isAnc then color = C.text.highlight
+            elseif isAnc then color = accentFrom
+            elseif isSelf then color = accentTo
+            end
+            if color then
+                dot:SetSize(DOT_SEL, DOT_SEL)
+                dot.fill:SetColorTexture(color[1], color[2], color[3], 1)
+                dot.ring:SetColorTexture(C.text.highlight[1], C.text.highlight[2], C.text.highlight[3], 0.9)
+            else
+                dot:SetSize(DOT, DOT)
+                dot.fill:SetColorTexture(C.text.dim[1], C.text.dim[2], C.text.dim[3], dot._hover and 0.9 or 0.55)
+                dot.ring:SetColorTexture(C.border.active[1], C.border.active[2], C.border.active[3], dot._hover and 0.9 or 0.6)
+            end
+        end
+    end
+    remote.RefreshAnchorGrid = RefreshDots
 
     for _, apName in ipairs(ANCHOR_POINTS) do
-        local posInfo = DOT_POSITIONS[apName]
-        local dot = CreateFrame("Button", nil, previewFrame)
-        dot:SetSize(CDM_DOT_SZ, CDM_DOT_SZ)
+        local pos = DOT_POSITIONS[apName]
+        local dot = CreateFrame("Button", nil, gridArea)
+        dot:SetSize(DOT, DOT)
         dot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        dot:SetPoint("CENTER", previewFrame, "TOPLEFT", posInfo.x * CDM_GRID_W, -posInfo.y * CDM_GRID_H)
-        dot:SetFrameLevel(previewFrame:GetFrameLevel() + 3)
-
-        local border = dot:CreateTexture(nil, "BACKGROUND")
-        border:SetAllPoints()
-        border:SetColorTexture(0.60, 0.60, 0.60, 0.7)
-        dot._border = border
-
-        local bg = dot:CreateTexture(nil, "ARTWORK")
-        bg:SetPoint("TOPLEFT", 1, -1)
-        bg:SetPoint("BOTTOMRIGHT", -1, 1)
-        bg:SetColorTexture(0.40, 0.40, 0.40, 0.9)
-        dot._bg = bg
-
-        local glow = dot:CreateTexture(nil, "OVERLAY")
-        glow:SetPoint("CENTER")
-        glow:SetSize(CDM_DOT_SEL_SZ + 12, CDM_DOT_SEL_SZ + 12)
-        glow:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 0.18)
-        glow:Hide()
-        dot._glow = glow
-
+        dot:SetPoint("CENTER", gridArea, "TOPLEFT", pos.x * GRID_W, -pos.y * GRID_H)
+        dot.ring = dot:CreateTexture(nil, "BACKGROUND")
+        dot.ring:SetAllPoints()
+        dot.fill = dot:CreateTexture(nil, "ARTWORK")
+        dot.fill:SetPoint("TOPLEFT", 1, -1)
+        dot.fill:SetPoint("BOTTOMRIGHT", -1, 1)
         dot:SetScript("OnEnter", function(self)
-            local isSelf = (apName == nudge._selfPointCurrent)
-            local isAnc  = (apName == nudge._anchorPointCurrent)
-            if not isSelf and not isAnc then
-                self._bg:SetColorTexture(0.55, 0.55, 0.55, 1)
-                self._border:SetColorTexture(0.8, 0.8, 0.8, 0.8)
-            end
+            self._hover = true
+            RefreshDots()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 4, 0)
-            if isSelf and isAnc then
-                GameTooltip:AddLine("|cffffd633" .. apName .. "|r  (Self + Anchor)", 1, 1, 1)
-            elseif isSelf then
-                GameTooltip:AddLine("|cff40c8e0" .. apName .. "|r  (Self Point)", 1, 1, 1)
-            elseif isAnc then
-                GameTooltip:AddLine(apName .. "  (Anchor Point)", accentFrom[1], accentFrom[2], accentFrom[3])
-            else
-                GameTooltip:AddLine(apName, 1, 1, 1)
-            end
-            GameTooltip:AddLine((L["Left-click: Change Anchor Point"] or "좌클릭: Anchor Point 변경"), 0.5, 0.5, 0.5)
-            GameTooltip:AddLine((L["Right-click: Change Self Point"] or "우클릭: Self Point 변경"), 0.5, 0.5, 0.5)
+            GameTooltip:AddLine(apName, 1, 1, 1)
+            GameTooltip:AddLine(L["Left-click: Change Anchor Point"] or "좌클릭: 앵커점 변경", 0.7, 0.7, 0.7)
+            GameTooltip:AddLine(L["Right-click: Change Self Point"] or "우클릭: 기준점 변경", 0.7, 0.7, 0.7)
             GameTooltip:Show()
         end)
         dot:SetScript("OnLeave", function(self)
-            local isSelf = (apName == nudge._selfPointCurrent)
-            local isAnc  = (apName == nudge._anchorPointCurrent)
-            if not isSelf and not isAnc then
-                self._bg:SetColorTexture(0.35, 0.35, 0.35, 0.9)
-                self._border:SetColorTexture(0.55, 0.55, 0.55, 0.6)
-            end
+            self._hover = nil
+            RefreshDots()
             GameTooltip:Hide()
         end)
-
         dot:SetScript("OnClick", function(_, button)
             local mover = Movers.SelectedMover
-            if not mover then return end
-
-            local oldPoint = GetPoint(mover)
-            local selfPt, af, relPt, x, y = mover:GetPoint(1)
-            local isBuffTracker = IsBuffTrackerMoverName(mover.name)
-
-            if button == "LeftButton" then
-                -- Change Anchor Point
-                nudge._anchorPointCurrent = apName
-                if isBuffTracker then
-                    mover._ddExplicitAnchorPoint = apName
-                    SetMoverPointPreservingScreen(mover, selfPt or "CENTER", af or UIParent, apName)
-                else
-                    mover:ClearAllPoints()
-                    mover:SetPoint(selfPt or "CENTER", af or UIParent, apName, x or 0, y or 0)
-                end
-            elseif button == "RightButton" then
-                -- Change Self Point
-                nudge._selfPointCurrent = apName
-                if isBuffTracker then
-                    mover._ddExplicitSelfPoint = apName
-                    SetMoverPointPreservingScreen(mover, apName, af or UIParent, relPt or "CENTER")
-                else
-                    mover:ClearAllPoints()
-                    mover:SetPoint(apName, af or UIParent, relPt or "CENTER", x or 0, y or 0)
-                end
-            end
-
-            Movers:PushUndo(mover.name, oldPoint)
-            Movers:SaveMoverPosition(mover.name)
-            if not isBuffTracker then
-                Movers:UpdateParentPosition(mover.name)
-            end
-            UpdateAnchorDots()
-            nudge:UpdateInfo()
+            if not mover or isDragging then return end
+            ApplyAnchorPoint(mover, apName, button == "RightButton")
+            remote:UpdateInfo()
         end)
-
-        nudge._anchorDots[apName] = dot
+        remote._anchorDots[apName] = dot
     end
+    RefreshDots()
 
-    UpdateAnchorDots()
+    -- 범례 (격자 아래)
+    local legend = parent:CreateFontString(nil, "OVERLAY")
+    legend:SetFont(SL.Font.path, SL.Font.small, "")
+    legend:SetTextColor(C.text.dim[1], C.text.dim[2], C.text.dim[3], 1)
+    legend:SetPoint("TOPLEFT", gridBox, "BOTTOMLEFT", 0, -4)
+    legend:SetText((L["Anchor legend"] or "좌클릭 앵커점 · 우클릭 기준점"))
 
-    -- 호환용 anchorPointDropdown/selfPointDropdown API (UpdateInfo에서 사용)
-    nudge.anchorPointDropdown = {
-        SetValue = function(_, val)
-            nudge._anchorPointCurrent = val or "CENTER"
-            UpdateAnchorDots()
-        end,
-    }
-    nudge.selfPointDropdown = {
-        SetValue = function(_, val)
-            nudge._selfPointCurrent = val or "CENTER"
-            UpdateAnchorDots()
-        end,
-    }
+    -- 연결 대상 드롭다운 + 선택 버튼 (오른쪽)
+    local rightX = PAD + GRID_W + 16 + 10
+    local ddLabel = parent:CreateFontString(nil, "OVERLAY")
+    ddLabel:SetFont(SL.Font.path, SL.Font.small, "")
+    ddLabel:SetTextColor(C.text.dim[1], C.text.dim[2], C.text.dim[3], 1)
+    ddLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", rightX, y - 2)
+    ddLabel:SetText(L["Anchor Frame"] or "연결 대상")
 
-    --------------------------------------------------------------------------------
-    -- Frame Selection Dropdowns & Anchor Selection
-    --------------------------------------------------------------------------------
-    local cursorY = -230
+    local ddY = y - 18
+    local ddWidth = (remote:GetWidth() or 300) - rightX - PAD
+    function remote:RefreshAnchorDropdown(anchorName)
+        local mover = Movers.SelectedMover
+        local items = mover and AnchorItems(mover) or { { text = "UIParent", value = "UIParent" } }
+        if anchorName then
+            local found = false
+            for _, item in ipairs(items) do if item.value == anchorName then found = true end end
+            if not found then items[#items + 1] = { text = FrameDisplayName(anchorName), value = anchorName } end
+        end
+        local parts = {}
+        for _, item in ipairs(items) do parts[#parts + 1] = item.value end
+        local signature = table.concat(parts, "|")
+        if signature ~= self._anchorListSignature or not self.anchorDropdown then
+            self._anchorListSignature = signature
+            if self.anchorDropdown then self.anchorDropdown:Hide() end
+            local dd = SL.CreateDropdown(parent, "CDM", "", items, anchorName or "UIParent", {
+                width = ddWidth,
+                onChange = function(value)
+                    local selected = Movers.SelectedMover
+                    if not selected or isDragging then return end
+                    if ApplyAnchorFrame(selected, value) then remote:UpdateInfo() end
+                end,
+            })
+            dd:SetPoint("TOPLEFT", parent, "TOPLEFT", rightX, ddY)
+            self.anchorDropdown = dd
+        elseif anchorName and self.anchorDropdown.SetValue then
+            self.anchorDropdown:SetValue(anchorName)
+        end
+    end
+    remote:RefreshAnchorDropdown(nil)
 
-    -- [1] Mover Frame Selection Dropdown
-    local frameSelectDropdown = CreateFlatDropdown(nudge,
-        L["Select Frame"] or "프레임 선택", 230,
-        "TOP", nudge, "TOP", -10, cursorY,
-        { {text="선택 없음", value=""} },
-        function(val)
-            if not val or val == "" then return end
-            local holder = Movers.CreatedMovers[val]
-            if holder and holder.mover then
-                Movers.SelectedMover = holder.mover
-                if Movers.NudgeFrame then
-                    Movers.NudgeFrame:UpdateSelection()
-                end
-            end
-        end)
-    nudge.frameSelectDropdown = frameSelectDropdown
-    cursorY = cursorY - 45
-
-    -- [2] Anchor Frame Selection Dropdown
-    local anchorFrameDropdown = CreateFlatDropdown(nudge,
-        L["Anchor Frame"] or "연결 대상", 230,
-        "TOP", nudge, "TOP", -10, cursorY,
-        { {text="UIParent", value="UIParent"} },
-        function(val)
-            if not Movers.SelectedMover then return end
-            local mv = Movers.SelectedMover
-            local targetFrame = _G[val] or UIParent
-            local holder = Movers.CreatedMovers[mv.name]
-            local parentName = holder and holder.parent and holder.parent:GetName()
-
-            if targetFrame == mv or (holder and targetFrame == holder.parent) or val == parentName or val == mv.name then
-                DDingUI:Print("|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
-                return
-            end
-
-            local oldPointStr = GetPoint(mv)
-            local selfPt, _, relPoint, px, py = mv:GetPoint(1)
-            local isBuffTracker = IsBuffTrackerMoverName(mv.name)
-
-            if isBuffTracker then
-                local anchorPoint = relPoint or "CENTER"
-                selfPt = selfPt or "CENTER"
-                if targetFrame == UIParent then
-                    selfPt = "CENTER"
-                    anchorPoint = "CENTER"
-                end
-                mv._ddExplicitAnchorName = val
-                mv._ddExplicitAnchorPoint = anchorPoint
-                SetMoverPointPreservingScreen(mv, selfPt, targetFrame, anchorPoint)
-            else
-                mv:ClearAllPoints()
-                mv:SetPoint(selfPt or "CENTER", targetFrame, relPoint or "CENTER", 0, 0)
-            end
-
-            Movers:PushUndo(mv.name, oldPointStr)
-            Movers:SaveMoverPosition(mv.name)
-            if not isBuffTracker then
-                Movers:UpdateParentPosition(mv.name)
-            end
-
-            local mapping = MoverToModuleMapping[mv.name]
-            if mapping and DDingUI.db then
-                local anchorCfg = ResolvePath(DDingUI.db.profile, mapping.path)
-                if anchorCfg and mapping.attachKey then anchorCfg[mapping.attachKey] = val end
-            end
-
-            nudge:UpdateInfo()
-        end)
-    nudge.anchorFrameDropdown = anchorFrameDropdown
-    cursorY = cursorY - 45
-
-    -- [3] Anchor Selection Button (StartFramePicker)
-    local anchorSelectBtn = CreateFrame("Button", nil, nudge, "BackdropTemplate")
-    anchorSelectBtn:SetSize(250, 24)
-    anchorSelectBtn:SetPoint("TOP", nudge, "TOP", 0, cursorY)
-
-    local dR = (accentFrom and accentFrom[1] or 0.3) * 0.3
-    local dG = (accentFrom and accentFrom[2] or 0.8) * 0.3
-    local dB = (accentFrom and accentFrom[3] or 0.4) * 0.3
-
-    anchorSelectBtn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-    anchorSelectBtn:SetBackdropColor(dR, dG, dB, 0.8)
-    local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
-    anchorSelectBtn:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
-
-    local txt = anchorSelectBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    txt:SetPoint("CENTER")
-    txt:SetText(L["Select Anchor"] or "Select Anchor")
-
-    anchorSelectBtn:SetScript("OnEnter", function() anchorSelectBtn:SetBackdropColor(math.min(dR+0.12,1), math.min(dG+0.12,1), math.min(dB+0.12,1), 0.95) end)
-    anchorSelectBtn:SetScript("OnLeave", function() anchorSelectBtn:SetBackdropColor(dR, dG, dB, 0.8) end)
-    nudge.anchorSelectBtn = anchorSelectBtn
-
-    anchorSelectBtn:SetScript("OnClick", function()
-        if not Movers.SelectedMover then
+    local pickBtn = SL.CreateButton(parent, "CDM", L["Select Anchor"] or "화면에서 선택", function()
+        local mover = Movers.SelectedMover
+        if not mover then
             DDingUI:Print("|cffff6666" .. (L["Select a frame first"] or "Select a frame first") .. "|r")
             return
         end
-
+        if not DDingUI.StartFramePicker then return end
         DDingUI:StartFramePicker(function(frameName)
-            if not frameName or not Movers.SelectedMover then return end
-
-            local mv = Movers.SelectedMover
-            local targetFrame = _G[frameName] or UIParent
-            local holder = Movers.CreatedMovers[mv.name]
-            local parentName = holder and holder.parent and holder.parent:GetName()
-            local moverBaseName = mv.name
-
-            if targetFrame == mv or (holder and targetFrame == holder.parent) or frameName == parentName or frameName == moverBaseName then
-                DDingUI:Print("|cffff6666" .. (L["Cannot anchor to self"] or "Cannot anchor to self") .. "|r")
-                return
-            end
-
-            local oldPointStr = GetPoint(mv)
-            local selfPt, _, relPoint, px, py = mv:GetPoint(1)
-            local isBuffTracker = IsBuffTrackerMoverName(mv.name)
-            selfPt = selfPt or "CENTER"
-            if isBuffTracker then
-                local anchorPoint = relPoint or "CENTER"
-                if targetFrame == UIParent then
-                    selfPt = "CENTER"
-                    anchorPoint = "CENTER"
-                end
-                mv._ddExplicitAnchorName = frameName
-                mv._ddExplicitAnchorPoint = anchorPoint
-                SetMoverPointPreservingScreen(mv, selfPt, targetFrame, anchorPoint)
-            else
-                mv:ClearAllPoints()
-                mv:SetPoint(selfPt, targetFrame, relPoint or "CENTER", 0, 0)
-            end
-
-            Movers:PushUndo(mv.name, oldPointStr)
-            Movers:SaveMoverPosition(mv.name)
-            if not isBuffTracker then
-                Movers:UpdateParentPosition(mv.name)
-            end
-
-            local mapping = MoverToModuleMapping[mv.name]
-            local anchorCfg = mapping and DDingUI.db and ResolvePath(DDingUI.db.profile, mapping.path)
-            if anchorCfg and mapping.attachKey then
-                anchorCfg[mapping.attachKey] = frameName
-            end
-
-            nudge:UpdateInfo()
-
-            local pickerDisplayName = frameName
-            for iterName, iterHolder in pairs(Movers.CreatedMovers or {}) do
-                if iterHolder.parent and iterHolder.parent:GetName() == frameName then
-                    pickerDisplayName = iterHolder.mover.displayText or iterName
-                    break
-                end
-            end
-            if nudge.anchorFrameDropdown and nudge.anchorFrameDropdown.SetValue then
-                nudge.anchorFrameDropdown:SetValue(frameName, pickerDisplayName)
-            end
+            local selected = Movers.SelectedMover
+            if not frameName or not selected then return end
+            if ApplyAnchorFrame(selected, frameName) then remote:UpdateInfo() end
         end)
-    end)
-
-    cursorY = cursorY - 35
-
-    -- Coordinate container
-    local coordY = cursorY
-    cursorY = cursorY - 40
-
-    -- X coordinate
-    local inputBg = SL and SL.Colors.bg.input or {0.06, 0.06, 0.06, 0.80}
-
-    local xLabel = nudge:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    xLabel:SetPoint("TOPLEFT", nudge, "TOPLEFT", 20, coordY)
-    xLabel:SetText("X:")
-
-    local xEditBox = CreateFrame("EditBox", nil, nudge, "BackdropTemplate")
-    xEditBox:SetPoint("LEFT", xLabel, "RIGHT", 4, 0)
-    xEditBox:SetSize(60, 20)
-    xEditBox:SetFontObject("GameFontHighlightSmall")
-    xEditBox:SetJustifyH("CENTER")
-    xEditBox:SetAutoFocus(false)
-    xEditBox:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-    xEditBox:SetBackdropColor(inputBg[1] or 0.06, inputBg[2] or 0.06, inputBg[3] or 0.06, inputBg[4] or 0.8)
-    local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
-    xEditBox:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
-
-    xEditBox:SetScript("OnEditFocusGained", function(self)
-        local pR = accentFrom and accentFrom[1] or 0.3
-        local pG = accentFrom and accentFrom[2] or 0.8
-        local pB2 = accentFrom and accentFrom[3] or 0.4
-        self:SetBackdropBorderColor(pR, pG, pB2, 1)
-    end)
-    xEditBox:SetScript("OnEditFocusLost", function(self) self:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5) end)
-    xEditBox:SetScript("OnEnterPressed", function(self)
-        local val = tonumber(self:GetText())
-        if val and Movers.SelectedMover then
-            local currentX = Movers.SelectedMover._lastX or 0
-            Movers:NudgeMover(val - currentX, 0)
-        end
-        self:ClearFocus()
-    end)
-    xEditBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    xEditBox:SetScript("OnTabPressed", function() nudge.yEditBox:SetFocus() end)
-    nudge.xEditBox = xEditBox
-
-    -- Y coordinate
-    local yLabel = nudge:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    yLabel:SetPoint("LEFT", xEditBox, "RIGHT", 15, 0)
-    yLabel:SetText("Y:")
-
-    local yEditBox = CreateFrame("EditBox", nil, nudge, "BackdropTemplate")
-    yEditBox:SetPoint("LEFT", yLabel, "RIGHT", 4, 0)
-    yEditBox:SetSize(60, 20)
-    yEditBox:SetFontObject("GameFontHighlightSmall")
-    yEditBox:SetJustifyH("CENTER")
-    yEditBox:SetAutoFocus(false)
-    yEditBox:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-    yEditBox:SetBackdropColor(inputBg[1] or 0.06, inputBg[2] or 0.06, inputBg[3] or 0.06, inputBg[4] or 0.8)
-    yEditBox:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
-
-    yEditBox:SetScript("OnEditFocusGained", function(self)
-        local pR = accentFrom and accentFrom[1] or 0.3
-        local pG = accentFrom and accentFrom[2] or 0.8
-        local pB2 = accentFrom and accentFrom[3] or 0.4
-        self:SetBackdropBorderColor(pR, pG, pB2, 1)
-    end)
-    yEditBox:SetScript("OnEditFocusLost", function(self) self:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5) end)
-    yEditBox:SetScript("OnEnterPressed", function(self)
-        local val = tonumber(self:GetText())
-        if val and Movers.SelectedMover then
-            local currentY = Movers.SelectedMover._lastY or 0
-            Movers:NudgeMover(0, val - currentY)
-        end
-        self:ClearFocus()
-    end)
-    yEditBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    yEditBox:SetScript("OnTabPressed", function() nudge.xEditBox:SetFocus() end)
-    nudge.yEditBox = yEditBox
-
-    -- Arrow buttons (Flat UI)
-    local arrowCenterY = cursorY - 10
-    cursorY = cursorY - 60
-
-    local arrowSize = 28
-    local nudgeBtnBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
-
-    local function CreateNudgeBtn(label, dx, dy, offsetX, offsetY)
-        local btn = CreateFrame("Button", nil, nudge, "BackdropTemplate")
-        btn:SetSize(arrowSize, arrowSize)
-        btn:SetPoint("TOP", nudge, "TOP", offsetX, arrowCenterY + offsetY)
-        btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-        btn:SetBackdropColor(nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, nudgeBtnBg[4] or 0.8)
-        local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
-        btn:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
-
-        local text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        text:SetPoint("CENTER")
-        text:SetText(label)
-
-        btn:SetScript("OnClick", function()
-            local amount = IsShiftKeyDown() and 10 or 1
-            Movers:NudgeMover(dx * amount, dy * amount)
-        end)
-        btn:SetScript("OnEnter", function()
-            local pR = (accentFrom and accentFrom[1] or 0.3) * 0.5
-            local pG = (accentFrom and accentFrom[2] or 0.8) * 0.5
-            local pB2 = (accentFrom and accentFrom[3] or 0.4) * 0.5
-            btn:SetBackdropColor(pR, pG, pB2, 0.9)
-        end)
-        btn:SetScript("OnLeave", function() btn:SetBackdropColor(nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, nudgeBtnBg[4] or 0.8) end)
-        return btn
-    end
-
-    nudge.upBtn = CreateNudgeBtn("^", 0, 1, 0, 20)
-    nudge.downBtn = CreateNudgeBtn("v", 0, -1, 0, -36)
-    nudge.leftBtn = CreateNudgeBtn("<", -1, 0, -28, -8)
-    nudge.rightBtn = CreateNudgeBtn(">", 1, 0, 28, -8)
-
-    --------------------------------------------------------------------------------
-    -- Settings Section
-    --------------------------------------------------------------------------------
-    local settingsY = cursorY - 10
-
-    -- Separator
-    local separator = nudge:CreateTexture(nil, "ARTWORK")
-    separator:SetSize(250, 1)
-    separator:SetPoint("TOP", nudge, "TOP", 0, settingsY)
-    separator:SetColorTexture(accentFrom[1] or 0.9, accentFrom[2] or 0.45, accentFrom[3] or 0.12, 0.4)
-
-    -- Settings label
-    local settingsLabel = nudge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    settingsLabel:SetPoint("TOP", separator, "BOTTOM", 0, -6)
-    settingsLabel:SetText(L["Settings"] or "Settings")
-    settingsLabel:SetTextColor(accentFrom[1] or 0.9, accentFrom[2] or 0.45, accentFrom[3] or 0.12, 1)
-
-    -- Helper function for checkboxes (StyleLib Flat)
-    local function CreateCheckbox(label, yOffset, setting, onClick, indent)
-        local container = CreateFrame("Frame", nil, nudge)
-        container:SetSize(120, 18)
-        container:SetPoint("TOPLEFT", nudge, "TOPLEFT", indent or 12, yOffset)
-
-        local box = CreateFrame("Button", nil, container, "BackdropTemplate")
-        box:SetSize(14, 14)
-        box:SetPoint("LEFT", 0, 0)
-        box:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-        box:SetBackdropColor(unpack(ddInputBg))
-        box:SetBackdropBorderColor(unpack(ddBorder))
-
-        local fill = box:CreateTexture(nil, "ARTWORK")
-        fill:SetPoint("TOPLEFT", 1, -1)
-        fill:SetPoint("BOTTOMRIGHT", -1, 1)
-        fill:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 1)
-
-        container._checked = Movers.Settings[setting] or false
-        if container._checked then fill:Show() else fill:Hide() end
-
-        local text = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        text:SetPoint("LEFT", box, "RIGHT", 4, 0)
-        text:SetText(label)
-        container.label = text
-
-        function container:SetChecked(val)
-            self._checked = val
-            if val then fill:Show() else fill:Hide() end
-        end
-        function container:GetChecked() return self._checked end
-
-        box:SetScript("OnClick", function()
-            container._checked = not container._checked
-            if container._checked then fill:Show() else fill:Hide() end
-            Movers.Settings[setting] = container._checked
-            if onClick then onClick(container._checked) end
-        end)
-
-        return container
-    end
-
-    local checkY = settingsY - 22
-
-    -- Grid checkbox
-    nudge.gridCheckbox = CreateCheckbox(L["Show Grid"] or "Show Grid", checkY, "gridEnabled", function(checked)
-        if checked then Movers:ShowGrid() else Movers:HideGrid() end
-    end)
-
-    -- Snap checkbox
-    nudge.snapCheckbox = CreateCheckbox(L["Enable Snap"] or "Enable Snap", checkY - 22, "snapEnabled")
-
-    -- Snap sub-options (indented)
-    nudge.snapGridCheckbox = CreateCheckbox(L["Grid"] or "Grid", checkY - 44, "snapToGrid", nil, 28)
-    nudge.snapFramesCheckbox = CreateCheckbox(L["Frames"] or "Frames", checkY - 66, "snapToFrames", nil, 28)
-    nudge.snapCenterCheckbox = CreateCheckbox(L["Center"] or "Center", checkY - 88, "snapToCenter", nil, 28)
-
-    -- Right side: Sliders (StyleLib Flat, CDM Style)
-    local sliderX = 140
-
-    -- Internal: CDM-style flat slider
-    local function CreateFlatSlider(parent, labelText, minV, maxV, stepV, defaultV, anchorTo, xOff, yOff, onChange)
-        local container = CreateFrame("Frame", nil, parent)
-        container:SetSize(120, 40)
-        container:SetPoint("TOPLEFT", anchorTo, "TOPLEFT", xOff, yOff)
-
-        local lbl = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lbl:SetPoint("TOPLEFT", 0, 0)
-        lbl:SetText(labelText)
-        container.label = lbl
-
-        -- track bg (simple texture, no backdrop)
-        local track = CreateFrame("Frame", nil, container)
-        track:SetHeight(4)
-        track:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -6)
-        track:SetPoint("RIGHT", container, "RIGHT", -50, 0)
-        local trackBg = track:CreateTexture(nil, "BACKGROUND")
-        trackBg:SetAllPoints()
-        trackBg:SetColorTexture(ddInputBg[1] or 0.06, ddInputBg[2] or 0.06, ddInputBg[3] or 0.06, ddInputBg[4] or 0.8)
-
-        local slider = CreateFrame("Slider", nil, container)
-        slider:SetPoint("TOPLEFT", track)
-        slider:SetPoint("BOTTOMRIGHT", track)
-        slider:SetMinMaxValues(minV, maxV)
-        slider:SetValueStep(stepV)
-        slider:SetObeyStepOnDrag(true)
-        slider:SetValue(math.max(minV, math.min(maxV, defaultV)))
-        slider:SetOrientation("HORIZONTAL")
-        slider:EnableMouseWheel(true)
-
-        -- accent-color fill bar
-        local fill = slider:CreateTexture(nil, "ARTWORK")
-        fill:SetHeight(4)
-        fill:SetPoint("LEFT", track, "LEFT", 0, 0)
-        fill:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 1)
-        local function UpdateFill()
-            local pct = (slider:GetValue() - minV) / math.max(1, maxV - minV)
-            fill:SetWidth(math.max(1, pct * track:GetWidth()))
-        end
-
-        -- thumb
-        local thumb = slider:CreateTexture(nil, "OVERLAY")
-        thumb:SetSize(8, 8)
-        thumb:SetColorTexture(accentFrom[1], accentFrom[2], accentFrom[3], 1)
-        slider:SetThumbTexture(thumb)
-
-        -- min/max labels
-        local minLbl = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        minLbl:SetPoint("TOPLEFT", track, "BOTTOMLEFT", 0, -1)
-        minLbl:SetText(tostring(minV))
-        minLbl:SetTextColor(0.5, 0.5, 0.5)
-
-        local maxLbl = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        maxLbl:SetPoint("TOPRIGHT", track, "BOTTOMRIGHT", 0, -1)
-        maxLbl:SetText(tostring(maxV))
-        maxLbl:SetTextColor(0.5, 0.5, 0.5)
-
-        -- value box
-        local valBox = CreateFrame("EditBox", nil, container, "BackdropTemplate")
-        valBox:SetSize(40, 18)
-        valBox:SetPoint("LEFT", track, "RIGHT", 6, 0)
-        valBox:SetFontObject("GameFontHighlightSmall")
-        valBox:SetJustifyH("CENTER")
-        valBox:SetAutoFocus(false)
-        valBox:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
-        valBox:SetBackdropColor(unpack(ddInputBg))
-        valBox:SetBackdropBorderColor(unpack(ddBorder))
-
-        local decimals = stepV < 1 and math.max(1, math.ceil(-math.log10(stepV))) or 0
-        local fmtStr = "%." .. decimals .. "f"
-        valBox:SetText(string.format(fmtStr, slider:GetValue()))
-
-        slider:SetScript("OnValueChanged", function(self, value)
-            value = tonumber(string.format(fmtStr, value))
-            valBox:SetText(tostring(value))
-            UpdateFill()
-            if onChange then onChange(value) end
-        end)
-
-        valBox:SetScript("OnEnterPressed", function(self)
-            local v = tonumber(self:GetText())
-            if v then slider:SetValue(math.max(minV, math.min(maxV, v))) end
-            self:ClearFocus()
-        end)
-        valBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-
-        slider:SetScript("OnMouseWheel", function(self, delta) self:SetValue(self:GetValue() + delta * stepV) end)
-
-        -- defer first fill update
-        C_Timer.After(0, UpdateFill)
-
-        container.slider = slider
-        container.valueBox = valBox
-        return container
-    end
-
-    -- Grid Size Slider (forward-declare for callback upvalue)
-    local gridSizeSliderContainer
-    gridSizeSliderContainer = CreateFlatSlider(nudge,
-        (L["Grid"] or "격자") .. ": " .. Movers.Settings.gridSize,
-        16, 128, 8, Movers.Settings.gridSize,
-        nudge, sliderX, checkY,
-        function(value)
-            Movers.Settings.gridSize = value
-            if gridSizeSliderContainer then
-                gridSizeSliderContainer.label:SetText((L["Grid"] or "격자") .. ": " .. value)
-            end
-            if Movers.Settings.gridEnabled then Movers:CreateGrid(); Movers:ShowGrid() end
-        end)
-    nudge.gridSizeLabel = gridSizeSliderContainer.label
-    nudge.gridSizeSlider = gridSizeSliderContainer.slider
-
-    -- Snap Threshold Slider (forward-declare for callback upvalue)
-    local snapThresholdSliderContainer
-    snapThresholdSliderContainer = CreateFlatSlider(nudge,
-        (L["Snap"] or "스냅") .. ": " .. Movers.Settings.snapThreshold,
-        5, 30, 1, Movers.Settings.snapThreshold,
-        nudge, sliderX, checkY - 50,
-        function(value)
-            Movers.Settings.snapThreshold = value
-            if snapThresholdSliderContainer then
-                snapThresholdSliderContainer.label:SetText((L["Snap"] or "스냅") .. ": " .. value)
-            end
-        end)
-    nudge.snapThresholdLabel = snapThresholdSliderContainer.label
-    nudge.snapThresholdSlider = snapThresholdSliderContainer.slider
-
-    --------------------------------------------------------------------------------
-    -- Button Row (Flat UI)
-    --------------------------------------------------------------------------------
-    local btnWidth = 58
-    local btnSpacing = 6
-    local totalWidth = (btnWidth * 4) + (btnSpacing * 3)
-    local startX = -totalWidth / 2
-    local nudgeBtnBg = SL and SL.Colors.bg.hover or {0.15, 0.15, 0.15, 0.80}
-
-    local function CreateBottomBtn(label, xOff, bgR, bgG, bgB, onClick)
-        local btn = CreateFrame("Button", nil, nudge, "BackdropTemplate")
-        btn:SetSize(btnWidth, 22)
-        btn:SetPoint("BOTTOM", nudge, "BOTTOM", xOff, 12)
-        btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-        btn:SetBackdropColor(bgR, bgG, bgB, 0.8)
-
-        local pB = panelBorder or {0.25, 0.25, 0.25, 0.5}
-        btn:SetBackdropBorderColor(pB[1], pB[2], pB[3], pB[4] or 0.5)
-
-        local text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        text:SetPoint("CENTER")
-        text:SetText(label)
-        btn:SetScript("OnClick", onClick)
-        btn:SetScript("OnEnter", function() btn:SetBackdropColor(math.min(bgR+0.12,1), math.min(bgG+0.12,1), math.min(bgB+0.12,1), 0.95) end)
-        btn:SetScript("OnLeave", function() btn:SetBackdropColor(bgR, bgG, bgB, 0.8) end)
-        return btn
-    end
-
-    nudge.resetBtn = CreateBottomBtn(L["Reset"] or "Reset", startX + btnWidth/2, 0.3, 0.15, 0.15, function()
-        if Movers.SelectedMover then
-            local oldPoint = GetPoint(Movers.SelectedMover)
-            Movers:PushUndo(Movers.SelectedMover.name, oldPoint)
-            Movers:ResetMoverPosition(Movers.SelectedMover.name)
-        end
-    end)
-
-    nudge.undoBtn = CreateBottomBtn(L["Undo"] or "Undo", startX + btnWidth + btnSpacing + btnWidth/2, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function() Movers:Undo() end)
-    nudge.undoBtn._bg = {r = nudgeBtnBg[1] or 0.15, g = nudgeBtnBg[2] or 0.15, b = nudgeBtnBg[3] or 0.15}
-    nudge.undoBtn:Disable()
-
-    nudge.redoBtn = CreateBottomBtn(L["Redo"] or "Redo", startX + (btnWidth + btnSpacing) * 2 + btnWidth/2, nudgeBtnBg[1] or 0.15, nudgeBtnBg[2] or 0.15, nudgeBtnBg[3] or 0.15, function() Movers:Redo() end)
-    nudge.redoBtn._bg = {r = nudgeBtnBg[1] or 0.15, g = nudgeBtnBg[2] or 0.15, b = nudgeBtnBg[3] or 0.15}
-    nudge.redoBtn:Disable()
-
-    local dR = (accentFrom and accentFrom[1] or 0.3) * 0.35
-    local dG = (accentFrom and accentFrom[2] or 0.8) * 0.35
-    local dB = (accentFrom and accentFrom[3] or 0.4) * 0.35
-    nudge.doneBtn = CreateBottomBtn(L["Done"] or "Done", startX + (btnWidth + btnSpacing) * 3 + btnWidth/2, dR, dG, dB, function() Movers:ToggleConfigMode() end)
-
-    -- Undo/Redo 버튼 상태 업데이트 함수
-    function nudge:UpdateUndoRedoButtons()
-        if self.undoBtn and self.undoBtn._bg then
-            if #Movers.UndoStack > 0 then
-                self.undoBtn:Enable()
-                self.undoBtn:SetBackdropColor(self.undoBtn._bg.r, self.undoBtn._bg.g, self.undoBtn._bg.b, 0.8)
-            else
-                self.undoBtn:Disable()
-                self.undoBtn:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
-            end
-        end
-        if self.redoBtn and self.redoBtn._bg then
-            if #Movers.RedoStack > 0 then
-                self.redoBtn:Enable()
-                self.redoBtn:SetBackdropColor(self.redoBtn._bg.r, self.redoBtn._bg.g, self.redoBtn._bg.b, 0.8)
-            else
-                self.redoBtn:Disable()
-                self.redoBtn:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
-            end
-        end
-    end
-
-    -- Update functions
-    function nudge:UpdateSelection()
-        local moverItems = { {text=L["No selection"] or "선택 없음", value=""} }
-        for mName, mHolder in pairs(Movers.CreatedMovers or {}) do
-            moverItems[#moverItems+1] = {text = (mHolder.mover and mHolder.mover.displayText) or mName, value = mName}
-        end
-        table.sort(moverItems, function(a, b) return a.text < b.text end)
-
-        if self.frameSelectDropdown then
-            if self.frameSelectDropdown.SetItems then
-                self.frameSelectDropdown:SetItems(moverItems)
-            end
-        end
-
-        local mover = Movers.SelectedMover
-        if mover then
-            self.selectedText:SetText(mover.displayText or mover.name)
-            if self.frameSelectDropdown and self.frameSelectDropdown.SetValue then
-                self.frameSelectDropdown:SetValue(mover.name, mover.displayText or mover.name)
-            end
-
-            for _, holder in pairs(Movers.CreatedMovers) do
-                if holder.mover.SetSelectionHUD then
-                    holder.mover:SetSelectionHUD(holder.mover == mover)
-                end
-            end
-
-            self:UpdateInfo()
-        else
-            self.selectedText:SetText(L["No frame selected"] or "No frame selected")
-            if self.frameSelectDropdown and self.frameSelectDropdown.SetValue then
-                self.frameSelectDropdown:SetValue("", L["No selection"] or "선택 없음")
-            end
-
-            self.anchorLabel:SetText("Anchor: --")
-            if self.xEditBox then self.xEditBox:SetText("") end
-            if self.yEditBox then self.yEditBox:SetText("") end
-            if self.anchorPointDropdown and self.anchorPointDropdown.SetValue then self.anchorPointDropdown:SetValue(nil, "--") end
-            if self.anchorFrameDropdown and self.anchorFrameDropdown.SetValue then self.anchorFrameDropdown:SetValue(nil, "--") end
-            if self.selfPointDropdown and self.selfPointDropdown.SetValue then self.selfPointDropdown:SetValue(nil, "--") end
-            for _, holder in pairs(Movers.CreatedMovers) do
-                if holder.mover.SetSelectionHUD then
-                    holder.mover:SetSelectionHUD(false)
-                end
-            end
-        end
-    end
-
-    function nudge:UpdateInfo()
-        local mover = Movers.SelectedMover
-        if not mover then return end
-        if mover.UpdateSelectionHUD then
-            mover:UpdateSelectionHUD()
-        end
-
-        -- 앵커 기준 오프셋 계산
-        local point, anchorFrame, relPoint, x, y = mover:GetPoint(1)
-        if not anchorFrame then anchorFrame = UIParent end
-
-        -- 오프셋 값 (SetPoint의 x, y)
-        x = x or 0
-        y = y or 0
-
-        mover._lastX = x
-        mover._lastY = y
-
-        self.xEditBox:SetText(tostring(math.floor(x + 0.5)))
-        self.yEditBox:SetText(tostring(math.floor(y + 0.5)))
-
-        -- 앵커 프레임 정보 표시
-        local anchorName = "UIParent"
-        if anchorFrame then
-            anchorName = anchorFrame:GetName() or "UIParent"
-        end
-
-        -- MoverToModuleMapping에 있는 프레임은 relPoint가 실제 anchorPoint
-        local mapping = MoverToModuleMapping[mover.name]
-        local displayAnchorPoint = relPoint or point or "CENTER"
-        local displaySelfPoint = point or "CENTER"
-
-        self.anchorLabel:SetText(displaySelfPoint .. " → " .. displayAnchorPoint .. " @ " .. anchorName)
-
-        -- 앵커 위치 드롭다운 업데이트
-        if displayAnchorPoint then
-            self.anchorPointDropdown:SetValue(displayAnchorPoint, displayAnchorPoint)
-        end
-
-        -- 기준점 드롭다운 업데이트
-        if displaySelfPoint then
-            self.selfPointDropdown:SetValue(displaySelfPoint, displaySelfPoint)
-        end
-
-        -- 앵커 프레임 드롭다운 업데이트
-        -- 표시 이름 찾기 (parent의 displayText 사용)
-        local displayName = anchorName
-        if anchorFrame and anchorFrame ~= UIParent then
-            for name, holder in pairs(Movers.CreatedMovers or {}) do
-                if holder.parent and holder.parent:GetName() == anchorName then
-                    displayName = holder.mover.displayText or name
-                    break
-                end
-            end
-        end
-        self.anchorFrameDropdown:SetValue(anchorName, displayName)
-
-        -- 앵커 프레임 드롭다운 목록 동적 갱신
-        do
-            local afItems = { {text="UIParent", value="UIParent"} }
-            local currentMover = Movers.SelectedMover
-            local currentHolder = currentMover and Movers.CreatedMovers[currentMover.name]
-            -- [FIX] alpha=0으로 숨겨진 CDM 뷰어는 앵커 선택 불가 (GroupSystem 대체 시)
-            local HIDDEN_CDM_VIEWERS = {
-                EssentialCooldownViewer = true,
-                UtilityCooldownViewer = true,
-                BuffIconCooldownViewer = true,
-            }
-            for iterName, holder in pairs(Movers.CreatedMovers or {}) do
-                if holder.mover and holder.mover ~= currentMover and holder.parent ~= (currentHolder and currentHolder.parent) then
-                    local parentFrameName = holder.parent and holder.parent:GetName()
-                    if parentFrameName then
-                        -- alpha=0으로 숨겨진 CDM 뷰어는 목록에서 제외
-                        local isHiddenViewer = HIDDEN_CDM_VIEWERS[parentFrameName]
-                            and holder.parent.GetAlpha and holder.parent:GetAlpha() < 0.01
-                        if not isHiddenViewer then
-                            afItems[#afItems+1] = {text = holder.mover.displayText or iterName, value = parentFrameName}
-                        end
-                    end
-                end
-            end
-            self.anchorFrameDropdown:SetItems(afItems)
-        end
-    end
-
-    self.NudgeFrame = nudge
+    end, { width = ddWidth, height = 24 })
+    pickBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", rightX, ddY - 30)
+    remote.anchorSelectBtn = pickBtn
+
+    local bottom = y - (GRID_H + 16) - 18
+    return top - bottom + 6
 end
 
+local function RemoteSavedPosition()
+    local saved = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.moverSettings
+    saved = saved and saved.editRemotePos
+    if type(saved) == "table" and saved.point then
+        return saved.point, tonumber(saved.x) or 0, tonumber(saved.y) or 0
+    end
+    return nil
+end
+
+function Movers:CreateEditRemote()
+    if self.NudgeFrame then return self.NudgeFrame end
+    local SL = GetSL()
+    if not (SL and SL.CreateEditRemote) then return nil end
+
+    local remote
+    remote = SL.CreateEditRemote("CDM", {
+        title = L["Edit Mode"] or "편집 모드",
+        version = DDingUI.VERSION or "",
+        frames = function() return MoverItems() end,
+        onSelectFrame = function(value)
+            if not value or value == "" then return end
+            local holder = Movers.CreatedMovers[value]
+            if holder and holder.mover then
+                Movers.SelectedMover = holder.mover
+                remote:UpdateSelection()
+            end
+        end,
+        onNudge = function(dx, dy) Movers:NudgeMover(dx, dy) end,
+        onApplyXY = function(x, y) Movers:ApplyMoverOffset(x, y) end,
+        onReset = function()
+            local mover = Movers.SelectedMover
+            if not mover then return end
+            Movers:PushUndo(mover.name, GetPoint(mover))
+            Movers:ResetMoverPosition(mover.name)
+        end,
+        onUndo = function() Movers:Undo() end,
+        onRedo = function() Movers:Redo() end,
+        onDone = function() if Movers.ConfigMode then Movers:ToggleConfigMode() end end,
+        grid = {
+            enabled = self.Settings.gridEnabled,
+            spacing = self:GetGridSpacing(),
+            onToggle = function(on)
+                if Movers._syncingRemoteGrid then return end
+                if on then Movers:ShowGrid() else Movers:HideGrid() end
+            end,
+            onSpacing = function(n) Movers:SetGridSpacing(n) end,
+        },
+        snap = {
+            enabled = self.Settings.snapEnabled,
+            center = self.Settings.snapToCenter,
+            grid = self.Settings.snapToGrid,
+            frames = self.Settings.snapToFrames,
+            onChange = function(key, on)
+                local map = { enabled = "snapEnabled", center = "snapToCenter", grid = "snapToGrid", frames = "snapToFrames" }
+                if map[key] then Movers.Settings[map[key]] = on and true or false end
+            end,
+        },
+        -- extra는 CreateEditRemote 안에서 불리므로 remote 지역변수 대신 parent(=리모컨)를 쓴다
+        extra = function(parent, y) return BuildRemoteExtra(parent, parent, y) end,
+        loadPosition = RemoteSavedPosition,
+        savePosition = function(point, x, y) Movers:SaveRemotePosition(point, x, y) end,
+    })
+    remote:Hide()
+
+    function remote:UpdateUndoRedoButtons()
+        self:SetUndoState(#Movers.UndoStack > 0, #Movers.RedoStack > 0)
+    end
+
+    function remote:UpdateSelection()
+        local mover = Movers.SelectedMover
+        local items = MoverItems()
+        local parts = {}
+        for _, item in ipairs(items) do parts[#parts + 1] = item.value end
+        local signature = table.concat(parts, "|")
+        if signature ~= self._moverListSignature and self.RefreshFrames then
+            self._moverListSignature = signature
+            self:RefreshFrames(mover and mover.name or "")
+        elseif self.frameDropdown and self.frameDropdown.SetValue then
+            self.frameDropdown:SetValue(mover and mover.name or "")
+        end
+
+        for _, holder in pairs(Movers.CreatedMovers) do
+            if holder.mover and holder.mover.SetSelectionHUD then
+                holder.mover:SetSelectionHUD(holder.mover == mover)
+            end
+        end
+        self:UpdateInfo()
+    end
+
+    function remote:UpdateInfo()
+        local mover = Movers.SelectedMover
+        if not mover then
+            self:SetSelection(nil)
+            self._selfPointCurrent, self._anchorPointCurrent = nil, nil
+            if self.RefreshAnchorGrid then self:RefreshAnchorGrid() end
+            if self.RefreshAnchorDropdown then self:RefreshAnchorDropdown(nil) end
+            return
+        end
+        if mover.UpdateSelectionHUD then mover:UpdateSelectionHUD() end
+        local x, y, selfPt, anchorFrame, relPt = Movers:GetMoverOffset(mover)
+        local anchorName = (anchorFrame and anchorFrame.GetName and anchorFrame:GetName()) or "UIParent"
+        local width, height = mover:GetSize()
+        self:SetSelection({
+            name = mover.displayText or mover.name,
+            anchor = selfPt .. " \226\134\146 " .. relPt .. " @ " .. FrameDisplayName(anchorName),
+            x = x, y = y, w = width, h = height,
+        })
+        self._selfPointCurrent, self._anchorPointCurrent = selfPt, relPt
+        if self.RefreshAnchorGrid then self:RefreshAnchorGrid() end
+        if self.RefreshAnchorDropdown then self:RefreshAnchorDropdown(anchorName) end
+    end
+
+    self.NudgeFrame = remote
+    return remote
+end
+
+function Movers:SaveRemotePosition(point, x, y)
+    if not (DDingUI.db and DDingUI.db.profile) or not point then return end
+    local settings = DDingUI.db.profile.moverSettings
+    if not settings then
+        settings = {}
+        DDingUI.db.profile.moverSettings = settings
+    end
+    settings.editRemotePos = { point = point, x = x or 0, y = y or 0 }
+end
+
+-- 설정창 제목줄의 "편집 모드"/"편집 중" 버튼 갱신 (C12)
+function Movers:RefreshEditModeButtons()
+    local configFrame = _G["DDingUI_ConfigFrame"]
+    local button = configFrame and configFrame.editButton
+    if button and button.Refresh then button:Refresh() end
+end
+
+function Movers:ShowRemote()
+    local remote = self:CreateEditRemote()
+    if not remote then return end
+    remote:UpdateUndoRedoButtons()
+    SyncRemoteGrid(self.Settings.gridEnabled, self:GetGridSpacing())
+    remote:UpdateSelection()
+    if remote.ShowAnimated then remote:ShowAnimated() else remote:Show() end
+end
+
+function Movers:HideRemote()
+    local remote = self.NudgeFrame
+    if not remote then return end
+    -- 축소 모션으로 닫는다(전투 중이면 BindPanel이 즉시 숨긴다)
+    if remote.HideAnimated then remote:HideAnimated() else remote:Hide() end
+end
+
+--- 리모컨 X/Y 입력: 선택한 무버의 앵커 상대 오프셋을 그대로 적용한다.
+function Movers:ApplyMoverOffset(x, y)
+    local mover = self.SelectedMover
+    if not mover or isDragging then return end
+    x, y = tonumber(x), tonumber(y)
+    if not x or not y then return end
+
+    local oldPoint = GetPoint(mover)
+    local selfPt, anchor, relPoint = mover:GetPoint(1)
+    mover:ClearAllPoints()
+    mover:SetPoint(selfPt or "CENTER", anchor or UIParent, relPoint or "CENTER", x, y)
+    if GetPoint(mover) ~= oldPoint then
+        self:PushUndo(mover.name, oldPoint)
+    end
+    self:SaveMoverPosition(mover.name)
+    if not IsBuffTrackerMoverName(mover.name) then
+        self:UpdateParentPosition(mover.name)
+    end
+    self:RefreshRemoteInfo()
+end
 
 function Movers:NudgeMover(dx, dy)
     local mover = self.SelectedMover
-    if not mover then return end
+    if not mover or isDragging then return end
 
     -- Undo용 현재 위치 저장
     local oldPoint = GetPoint(mover)
@@ -4090,30 +2934,29 @@ function Movers:NudgeMover(dx, dy)
         self:UpdateParentPosition(mover.name)
     end
 
-    if self.NudgeFrame then
-        self.NudgeFrame:UpdateInfo()
-    end
+    self:RefreshRemoteInfo()
 end
 
 --------------------------------------------------------------------------------
 -- Settings Persistence
 --------------------------------------------------------------------------------
 
+-- 기존 키만 갱신한다(테이블을 새로 만들지 않아 editRemotePos 같은 다른 키가 지워지지 않는다).
+-- gridEnabled는 종료 시점의 실제 값이다. snapThreshold는 읽은 값을 그대로 돌려 쓴다.
 function Movers:SaveSettings()
     if not DDingUI.db then return end
-    if not DDingUI.db.profile.moverSettings then
-        DDingUI.db.profile.moverSettings = {}
+    local settings = DDingUI.db.profile.moverSettings
+    if not settings then
+        settings = {}
+        DDingUI.db.profile.moverSettings = settings
     end
-
-    DDingUI.db.profile.moverSettings = {
-        gridEnabled = self.Settings.gridEnabled,
-        snapEnabled = self.Settings.snapEnabled,
-        snapToGrid = self.Settings.snapToGrid,
-        snapToFrames = self.Settings.snapToFrames,
-        snapToCenter = self.Settings.snapToCenter,
-        snapThreshold = self.Settings.snapThreshold,
-        gridSize = self.Settings.gridSize,
-    }
+    settings.gridEnabled = self.Settings.gridEnabled and true or false
+    settings.snapEnabled = self.Settings.snapEnabled
+    settings.snapToGrid = self.Settings.snapToGrid
+    settings.snapToFrames = self.Settings.snapToFrames
+    settings.snapToCenter = self.Settings.snapToCenter
+    settings.snapThreshold = self.Settings.snapThreshold
+    settings.gridSize = self.Settings.gridSize
 end
 
 function Movers:LoadSettings()
@@ -4232,7 +3075,7 @@ function Movers:Initialize()
     -- Load saved settings
     self:LoadSettings()
 
-    self:CreateNudgeFrame()
+    self:CreateEditRemote()
 
     -- Mover toggle commands
     SLASH_DDINGUIMOVERS1 = "/dduimove"

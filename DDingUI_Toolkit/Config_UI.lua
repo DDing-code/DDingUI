@@ -1582,8 +1582,22 @@ function ConfigUI:Initialize()
     -- 메인 패널
     local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0" -- [12.0.1] GetAddOnMetadata 폴백 제거
 
+    -- [STYLE] C12: the title bar owns the series "편집 모드" button (StyleLib CreateTitleBar opts.editMode).
+    -- Movers closes this window on entry and reopens it when edit mode ends.
+    local editModeOpts = {
+        onClick = function()
+            if ns.ToolkitMovers and ns.ToolkitMovers.ToggleConfigMode then
+                ns.ToolkitMovers:ToggleConfigMode()
+            end
+        end,
+        isActive = function()
+            return ns.ToolkitMovers and ns.ToolkitMovers.IsActive and ns.ToolkitMovers:IsActive() or false
+        end,
+    }
+
     if ns.ToolkitWorkspace and ns.ToolkitWorkspace.Create then
         settingsPanel = ns.ToolkitWorkspace:Create("DDingUI Toolkit", version, {
+            editMode = editModeOpts,
             width = 1180,
             height = 720,
             minWidth = 930,
@@ -1603,6 +1617,7 @@ function ConfigUI:Initialize()
     else
         settingsPanel = Lib.CreateSettingsPanel(ADDON_KEY, "DDingUI Toolkit", version, {
             width = 920, height = 620, menuWidth = 200,
+            editMode = editModeOpts, -- [STYLE] C12 shared title-bar button
         })
     end
     EnableRightClickMouselook(settingsPanel.frame)
@@ -1629,38 +1644,20 @@ function ConfigUI:Initialize()
 
     -- 검색 박스 (타이틀바 우측, 닫기 버튼 좌측)
     local searchBox = Widgets.CreateSearchBox(settingsPanel.titleBar, 200)
-    local searchAnchor = settingsPanel.titleBar.scaleControl or settingsPanel.titleBar.closeBtn -- [STYLE] GUI scale sits left of close
+    -- [STYLE] right to left: close · 편집 모드 · GUI 크기 · search
+    local titleBar = settingsPanel.titleBar
+    local searchAnchor = titleBar.scaleControl or titleBar.editButton or titleBar.closeBtn
     searchBox:SetPoint("RIGHT", searchAnchor, "LEFT", -10, 0)
     settingsPanel.searchBox = searchBox
 
-    local editModeButton = Widgets.CreateButton(
-        settingsPanel.titleBar,
-        ADDON_KEY,
-        LT("EDIT_MODE", "Edit Mode"),
-        function()
-            settingsPanel.frame:Hide()
-            C_Timer.After(0, function()
-                if ns.ToolkitMovers and ns.ToolkitMovers.ToggleConfigMode then
-                    ns.ToolkitMovers:ToggleConfigMode()
-                end
-            end)
-        end,
-        {
-            width = 104,
-            height = 24,
-            tooltip = LT("EDIT_MODE_DESC", "Move and align Toolkit frames."),
-        }
-    )
-    editModeButton:SetPoint("RIGHT", searchBox, "LEFT", -8, 0)
+    local editModeButton = titleBar.editButton -- both panel paths pass opts.editMode
     settingsPanel.editModeButton = editModeButton
 
-    local function RefreshEditModeButton(active)
-        if not editModeButton or not editModeButton.label then return end
-        editModeButton.label:SetText(active and LT("EDIT_MODE_ACTIVE", "Editing") or LT("EDIT_MODE", "Edit Mode"))
-        editModeButton:SetAlpha(active and 1 or 0.92)
+    local function RefreshEditModeButton()
+        if editModeButton and editModeButton.Refresh then editModeButton:Refresh() end
     end
     if ns.ToolkitMovers and ns.ToolkitMovers.RegisterStateCallback then
-        ns.ToolkitMovers:RegisterStateCallback(RefreshEditModeButton)
+        ns.ToolkitMovers:RegisterStateCallback(RefreshEditModeButton) -- edit mode entry/exit
     end
 
     -- 검색 박스 연결: 트리 필터 + 콘텐츠 검색
@@ -1686,7 +1683,7 @@ function ConfigUI:Initialize()
     -- OnShow → 활성 패널 표시
     settingsPanel.frame:HookScript("OnShow", function()
         local key = treeMenu:GetSelected() or (settingsPanel.workspace and "overview" or "general")
-        RefreshEditModeButton(ns.ToolkitMovers and ns.ToolkitMovers:IsActive())
+        RefreshEditModeButton()
         ShowPanel(key)
     end)
     settingsPanel.frame:HookScript("OnHide", function()
@@ -1717,7 +1714,7 @@ end
 ------------------------------------------------------
 function ConfigUI:Show()
     if ns.ToolkitMovers and ns.ToolkitMovers.IsActive and ns.ToolkitMovers:IsActive() then
-        ns.ToolkitMovers:ToggleConfigMode()
+        ns.ToolkitMovers:ToggleConfigMode({ reopenConfig = false }) -- this call opens the window itself
     end
     local p = self:Initialize()
     if p then

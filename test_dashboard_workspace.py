@@ -19,7 +19,11 @@ function CreateColor(...) return {...} end
 RAID_CLASS_COLORS = {MONK={r=0, g=1, b=0.6}}
 C_Timer = {After=function(_, fn) fn() end, NewTimer=function(_, fn)
     return {Cancel=function() end}
+end, NewTicker=function(_, fn)
+    return {Cancel=function(self) self.cancelled=true end}
 end}
+combat=false
+function InCombatLockdown() return combat end
 
 local Frame = {}
 Frame.__index = Frame
@@ -146,7 +150,7 @@ for _, method in ipairs({"SetBackdrop", "SetBackdropColor", "SetBackdropBorderCo
     "EnableMouse", "EnableMouseWheel", "SetFrameStrata", "SetClipsChildren", "SetHitRectInsets",
     "SetJustifyH", "SetJustifyV", "SetWordWrap", "SetBlendMode", "SetRotation",
     "SetDrawBling", "SetHideCountdownNumbers", "SetDrawEdge",
-    "SetOrientation", "SetReverseFill"}) do
+    "SetOrientation", "SetReverseFill", "RegisterEvent", "UnregisterEvent"}) do
     setter(method, function() end)
 end
 UIParent=CreateFrame("Frame")
@@ -203,6 +207,21 @@ assert(#descriptors[2].sources==0, "empty group must not invent icons")
 a.filtered=true
 assert(#api.build()[1].sources==1)
 a.filtered=nil
+-- An icon the runtime layout keeps a slot for but that is not visible leaves that slot empty in
+-- game too: it is counted for the footer ("empty in game too"), not drawn.
+b:Hide()
+local withHole=api.build()[1]
+assert(#withHole.sources==1 and withHole.emptySlots==1, "hidden in-layout icon not counted as an empty slot")
+b.alpha=0; b:Show()
+assert(api.build()[1].emptySlots==1, "alpha 0 in-layout icon not counted as an empty slot")
+b.alpha=1
+assert(api.build()[1].emptySlots==0)
+-- 12.1 custom aura container icons sit next to the group, outside _managedIcons: copied too
+local auraBox=runtime({190,200,40,20},555)
+addon.CustomIconAuraEngine={records={Cooldowns={active=true, container=auraBox}}}
+local withAura=api.build()[1]
+assert(withAura.sources[#withAura.sources]==auraBox, "aura engine icons missing from the group copy")
+addon.CustomIconAuraEngine=nil
 for i=3,30 do group._managedIcons[i]=runtime({100+(i-1)*44,200,40,20},100+i) end
 group._iconCount=30
 assert(#api.build()[1].sources==30, "24-icon truncation returned")
@@ -411,18 +430,13 @@ local parent=CreateFrame("Frame",nil,UIParent)
 parent.contentArea=CreateFrame("Frame",nil,parent)
 parent.scrollFrame=CreateFrame("Frame",nil,parent)
 function parent:NavigateToSection(target) self.destination=target end
--- Idle buffs and hidden resource/cast bars still belong to the configured layout.
+-- Live layout: the session puts elements on screen; the dashboard only ever copies shown frames.
+session=addon.GUI.DashboardPreview.LiveSession
 local buff=runtime({100,250,40,20},601); buff:Hide(); buff.filtered=true
 local buffs=runtime({100,250,400,20})
 buffs._managedIcons={buff}; buffs._iconCount=1
 addon.GroupRenderer.groupFrames.Buffs=buffs
 addon.db.profile.groupSystem.groups.Buffs={iconSize=40, aspectRatioCrop=2, direction="CENTERED_HORIZONTAL"}
-catalogRows={
-    {isBuffSpell=true, spellName="buff:one", entry={icon=601,cooldownID=1}},
-    {isBuffSpell=true, spellName="buff:two", entry={icon=602,cooldownID=2}},
-    {isBuffSpell=false, spellName="unrelated", entry={icon=999,cooldownID=3}},
-    {isBuffSpell=true, spellName="stale", entry=nil},
-}
 addon.powerBar=bar; bar.shown=false
 addon.secondaryPowerBar=runtime({100,180,180,6}); addon.secondaryPowerBar:Hide()
 addon.castBar=runtime({100,80,180,12}); addon.castBar:Hide()
@@ -432,6 +446,7 @@ addon.db.profile.castBar={enabled=true, useClassColor=true, texture="cast.tga"}
 freeze(addon.secondaryPowerBar); freeze(addon.castBar); freeze(buffs); freeze(buff)
 api.create(CreateFrame("Frame",nil,parent),parent)
 local w=parent.contentArea._sectionWorkspace
+assert(session:IsActive() and session.owners[w], "opening the dashboard did not start the live layout")
 w.stage:SetSize(800,450); w:RefreshCurrent()
 local node=w.nodeByKey["group:Cooldowns"]
 assert(node and node:IsShown())
@@ -446,45 +461,37 @@ for index=1,19 do
 end
 group._managedIcons=originalIcons; group._iconCount=originalCount
 w:RefreshCurrent()
+-- Not shown in game right now: nothing is drawn (no guessed shape), the footer lists it instead.
 for _,key in ipairs({"group:Buffs","power","secondaryPower","cast"}) do
-    local idle=w.nodeByKey[key]
-    assert(idle and idle:IsShown() and idle._idle, key.." missing from idle dashboard")
+    local hidden=w.nodeByKey[key]
+    assert(hidden and not hidden:IsShown(), key.." was drawn although it is not on screen")
+    assert(not hidden.idleVisual, key.." still has an estimated idle surface")
 end
-local buffNode=w.nodeByKey["group:Buffs"]
-assert(#buffNode.idleVisual.icons==2, "idle preview included unrelated or stale spells")
-near(buffNode._sourceRect.height,20)
-near(buffNode._sourceRect.bottom,250)
-near(buffNode.idleVisual.icons[1].texCoord[3],0.25) -- SkinIcon crop: zoom unset = 0, aspect 2
-local powerNode=w.nodeByKey.power
-near(powerNode._sourceRect.height,12) -- actual frame, not stale saved height=90
-assert(not powerNode.idleVisual.bar.leftText:IsShown())
-near(w.nodeByKey.cast.idleVisual.bar.barColor[2],1) -- current class color
+local footer=w.stageFooter.state.text
+assert(footer:find("화면에 없음",1,true) and footer:find("주 자원",1,true), "footer does not list what is not on screen: "..footer)
+assert(w.header.live.text:find("게임 화면에 표시 중",1,true), "missing the 'shown on game screen' note")
 addon.ResourceBars={GetSecondaryResource=function()return nil end}
 w:RefreshCurrent()
 assert(not w.nodeByKey.secondaryPower, "unavailable resource from the previous spec leaked into the layout")
+-- hideWhenMana on a DPS spec: never forced on screen, only listed as hidden in game
+addon.ResourceBars={GetPrimaryResource=function() return 8 end, GetSecondaryResource=function() return 0 end,
+    IsManaHiddenForDPS=function(cfg, resource) return cfg and cfg.hideWhenMana and resource==0 end}
+addon.db.profile.secondaryPowerBar.hideWhenMana=true
+w:RefreshCurrent()
+assert(not w.nodeByKey.secondaryPower, "bar hidden by hideWhenMana leaked into the layout preview")
+assert(w.stageFooter.state.text:find("게임에서 숨김: 보조 자원",1,true), "rule-hidden bar not reported")
+addon.db.profile.secondaryPowerBar.hideWhenMana=nil
 addon.ResourceBars=nil
-w:RefreshCurrent()
--- No spellcast yet: resolve the cast bar from its configured anchor without creating a live frame.
-addon.castBar=nil
-addon.db.profile.castBar.width=180; addon.db.profile.castBar.height=12
-addon.db.profile.castBar.attachTo="anchor"; addon.db.profile.castBar.anchorPoint="TOPLEFT"
-addon.db.profile.castBar.selfPoint="BOTTOMLEFT"; addon.db.profile.castBar.offsetY=8
-addon.ResolveAnchorFrame=function()return group end
-addon.GetTexture=function(_,name)return name end
-w:RefreshCurrent()
-near(w.nodeByKey.cast._sourceRect.left,100); near(w.nodeByKey.cast._sourceRect.bottom,228)
-assert(addon.castBar==nil, "preview instantiated a runtime bar")
--- Active values replace the idle surface; removal/disabled settings remove its preview too.
+-- Once the session shows them, the real frames are copied.
 bar.shown=true; buff.shown=true; buff.filtered=nil
 w:RefreshCurrent()
-assert(not powerNode._idle and not powerNode.idleVisual:IsShown())
-assert(powerNode.visual._previewPool.StatusBar[1]:IsShown())
-assert(not buffNode._idle and not buffNode.idleVisual:IsShown())
+local powerNode=w.nodeByKey.power
+local buffNode=w.nodeByKey["group:Buffs"]
+assert(powerNode:IsShown() and powerNode.visual._previewPool.StatusBar[1]:IsShown())
+assert(buffNode:IsShown() and buffNode.visual._previewPool.Texture[1].visual.texture==601)
 buff.shown=false; buff.filtered=true
 w:RefreshCurrent()
-assert(buffNode._idle and buffNode.idleVisual:IsShown())
-catalogRows={}; clockTime=clockTime+1; w:RefreshCurrent()
-assert(not buffNode:IsShown(), "empty assignment kept stale idle buff icons")
+assert(not buffNode:IsShown(), "a buff that left the screen was still drawn")
 addon.db.profile.powerBar.enabled=false; addon.db.profile.secondaryPowerBar.enabled=false
 addon.db.profile.castBar.enabled=false; w:RefreshCurrent()
 assert(not w.nodeByKey.power and not powerNode:IsShown())
@@ -519,6 +526,7 @@ w:OpenDescriptor({target="buffTracker",trackerIndex=4})
 assert(selectedIndex==4)
 w:Release()
 assert(w.scripts.OnUpdate==nil)
+assert(not session:IsActive(), "closing the dashboard left the live layout on")
 for _, pool in pairs(node.visual._previewPool) do
     for _,cell in ipairs(pool)do assert(not cell:IsShown())end
 end
@@ -529,20 +537,23 @@ local power=runtime({100,300,180,12},901); addon.powerBar=power
 local secondary=runtime({100,285,180,6}); secondary:Hide(); addon.secondaryPowerBar=secondary
 local holder=CreateFrame("Frame",nil,UIParent)
 local section=api.layout(holder,"resourceBars")
+assert(session:IsActive(), "section preview did not start the live layout")
 section.stage.allPoints=nil; section.stage:SetSize(640,90)
 section:Refresh("primary")
-local live,idle=section.nodes[1],section.nodes[2]
-assert(live.descriptor.key=="power" and live:IsShown() and not live._idle, "live power bar not copied")
+local live,hiddenBar=section.nodes[1],section.nodes[2]
+assert(live.descriptor.key=="power" and live:IsShown(), "live power bar not copied")
 near(live.width,180); near(live.height,12)
 assert(section.sizeRatio==1, "section preview should show the actual size when it fits")
 assert(live.visual._previewPool.Texture[1].visual.texture==901)
-assert(live.highlight:IsShown() and not idle.highlight:IsShown())
-assert(idle._idle and idle.idleVisual:IsShown(), "hidden secondary bar lost its idle surface")
-assert(not idle.idleVisual.bar.leftText:IsShown(), "idle bar invented a value")
+assert(live.highlight:IsShown())
+assert(not hiddenBar:IsShown() and not hiddenBar.idleVisual, "hidden secondary bar was drawn as a guess")
+assert(section.note.text:find("보조 자원",1,true), "hidden section element not listed")
 addon.powerBar=nil; addon.secondaryPowerBar=nil; addon.db.profile.powerBar.enabled=false
 addon.db.profile.secondaryPowerBar.enabled=false
 section:Refresh(nil)
 assert(section.hint:IsShown() and not live:IsShown(), "empty section preview must explain itself")
+section:Release()
+assert(not session:IsActive(), "section preview left the live layout on")
 """
 
 
@@ -569,6 +580,12 @@ def test_dashboard_workspace():
     # The idle buff preview uses the runtime layout/crop, so load those real pure functions.
     shared = lua.eval("{db=addon.db}")
     renderer_source = (ROOT / "DDingUI_CDM/Modules/GroupSystem/GroupRenderer.lua").read_text(encoding="utf-8-sig")
+    # Real auto-width resolver (DDingUI:ResolveAutoWidth + GetEffectiveAnchorWidth) from Utils/Toolkit.lua.
+    toolkit = (ROOT / "DDingUI_CDM/Utils/Toolkit.lua").read_text(encoding="utf-8")
+    pixel = "local PixelSnap = function" + toolkit.split("local PixelSnap = function", 1)[1].split("DDingUI.PixelSnapLocal", 1)[0]
+    anchor_fn = "function DDingUI:GetEffectiveAnchorWidth" + toolkit.split("function DDingUI:GetEffectiveAnchorWidth", 1)[1].split("-- ====", 1)[0]
+    auto = "local AUTO_WIDTH_FALLBACK" + toolkit.split("local AUTO_WIDTH_FALLBACK", 1)[1].split("-- [REFACTOR] 앵커 폭 변경 알림", 1)[0]
+    lua.execute("sharedAuto={}; local DDingUI=sharedAuto; " + pixel + anchor_fn + auto.rsplit("-- ====", 1)[0])
     lua.execute("realCreateFrame=CreateFrame; CreateFrame=function(...) local f=realCreateFrame(...);"
                 " f.RegisterEvent=f.RegisterEvent or function() end; return f end")
     lua.execute(renderer_source, "DDingUI_CDM", lua.table(Addon=shared))

@@ -142,7 +142,7 @@ local function SlashHandler(msg)
         }
         StaticPopup_Show("DDINGTOOLKIT_RESET_CONFIRM")
 
-    elseif command == "move" or command == "unlock" then
+    elseif command == "move" or command == "unlock" or command == "edit" then -- [STYLE] C12: "edit" alias
         -- 편집 모드 (Movers) 토글
         if ns.ToolkitMovers then
             ns.ToolkitMovers:ToggleConfigMode()
@@ -168,7 +168,7 @@ local function SlashHandler(msg)
         print("  /ddt enable <module> - Enable module")
         print("  /ddt disable <module> - Disable module")
         print("  /ddt list - List all modules")
-        print("  /ddt move - 편집 모드 토글 (프레임 위치 조정)")
+        print("  /ddt edit (move, unlock) - 편집 모드 토글 (프레임 위치 조정)")
         print("  /ddt reset - Reset all settings")
     end
 end

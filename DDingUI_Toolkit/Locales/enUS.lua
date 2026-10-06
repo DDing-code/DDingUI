@@ -1071,7 +1071,8 @@ L["NOTEPAD_NO"] = "No"
 -- CombatTimer Extended
 -- ==========================================
 L["COMBATTIMER_DISPLAY_SETTINGS"] = "Display Settings"
-L["COMBATTIMER_SHOW_MS"] = "Show Milliseconds (.XX)"
+L["COMBATTIMER_SHOW_MS"] = "Show Fractional Seconds"
+L["COMBATTIMER_DECIMAL_PLACES"] = "Decimal Places"
 L["COMBATTIMER_SHOW_BG"] = "Show Background"
 L["COMBATTIMER_COLOR_BY_TIME"] = "Change Color by Time (30s/60s/120s)"
 L["COMBATTIMER_FONT_SETTINGS"] = "Font Settings"

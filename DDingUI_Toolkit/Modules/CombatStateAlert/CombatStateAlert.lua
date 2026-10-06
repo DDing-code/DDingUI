@@ -744,9 +744,24 @@ function CombatStateAlert:OnInitialize()
     self.db = EnsureDB()
 end
 
+-- [REFACTOR] Combat start/end come from the shared judgement (Core/CombatSession.lua), the same
+-- one CombatTimer uses: a short drop out of combat, or a group member still fighting, continues
+-- the same combat, so neither alert fires; a real end is reported once the all-clear holds.
+local function OnCombatSession(kind, info)
+    if not activeModule or editPreview then return end
+    if kind == "START" then
+        if info and info.silent then return end -- resumed after /reload or login
+        CombatStateAlert:ShowAlert("START")
+    elseif kind == "END" then
+        if info and info.silent then return end -- ended across a loading screen
+        CombatStateAlert:ShowAlert("END")
+    end
+end
+
 function CombatStateAlert:OnEnable()
     self.db = EnsureDB()
     activeModule = true
+    if ns.CombatSession then ns.CombatSession:RegisterCallback(self, OnCombatSession) end -- [REFACTOR]
     sequenceToken = sequenceToken + 1
     displayToken = displayToken + 1
     self:CreateFrame()
@@ -757,6 +772,7 @@ function CombatStateAlert:OnEnable()
 end
 
 function CombatStateAlert:OnDisable()
+    if ns.CombatSession then ns.CombatSession:UnregisterCallback(self) end -- [REFACTOR]
     CancelCombatEndSoundRequest()
     if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CombatStateAlert") end
     activeModule = false
@@ -771,9 +787,7 @@ function CombatStateAlert:OnMediaChanged()
 end
 
 local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD") -- [REFACTOR] REGEN events: Core/CombatSession.lua
 eventFrame:RegisterEvent("ENCOUNTER_END")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "ENCOUNTER_END" then
@@ -794,9 +808,6 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         end
         return
     end
-
-    if not activeModule or editPreview then return end
-    CombatStateAlert:ShowAlert(event == "PLAYER_REGEN_DISABLED" and "START" or "END")
 end)
 
 DDingToolKit:RegisterModule("CombatStateAlert", CombatStateAlert)

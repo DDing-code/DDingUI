@@ -112,6 +112,8 @@ end
 
 local function IsEditPreviewActive()
     if DDingUI.Movers and DDingUI.Movers.ConfigMode then return true end
+    -- [REFACTOR] the options dashboard shows the same edit preview while it is open (out of combat)
+    if DDingUI.IsLayoutPreviewForced and DDingUI:IsLayoutPreviewForced() then return true end
     return EditModeManagerFrame
         and EditModeManagerFrame.IsEditModeActive
         and EditModeManagerFrame:IsEditModeActive()

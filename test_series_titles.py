@@ -33,6 +33,21 @@ def check():
         thumb = slider.slider.thumb
         assert thumb.GetWidth(thumb) == thumb.GetHeight(thumb) == 16, bundle
         assert thumb.color and not thumb.texture, bundle
+        # Settings windows may hang off the screen edge; the title edge and a 64px strip stay visible.
+        lua.execute('''
+            local lib = ...
+            local f = CreateFrame("Frame", nil, UIParent)
+            function f:SetClampRectInsets(l, r, t, b) self.insets = {l, r, t, b} end
+            function f:SetClampedToScreen(v) self.clamped = v end
+            f:SetSize(800, 600)
+            lib.AllowOffscreen(f)
+            assert(f.clamped == true)
+            assert(f.insets[1] == 736 and f.insets[2] == -736 and f.insets[3] == 0 and f.insets[4] == 536)
+            f:SetSize(500, 400)
+            local onSize = f.scripts and f.scripts.OnSizeChanged or f:GetScript("OnSizeChanged")
+            onSize(f, 500, 400)
+            assert(f.insets[1] == 436 and f.insets[4] == 336)
+        ''', lib)
         scale = lib.CreateTitleScaleControl(
             lua.globals().UIParent, "CDM", lua.table_from({"label": "GUI Scale"}))
         lua.execute('''

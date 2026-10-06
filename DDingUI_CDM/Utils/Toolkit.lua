@@ -124,6 +124,154 @@ function DDingUI:GetEffectiveAnchorWidth(frame)
 end
 
 -- ============================================================
+-- [REFACTOR] 자동 너비("앵커 너비에 맞춤", width = 0) 공통 해석
+-- 주 자원·보조 자원·시전·추적 막대·강화효과 막대와 옵션 대시보드가 모두 이 함수만 쓴다.
+-- 고정 상한(600/1000)은 없다. 비정상 값은 0 이하·NaN·secret·UIParent 폭 초과뿐이다.
+-- ============================================================
+local AUTO_WIDTH_FALLBACK = 200
+
+local function IsSecretValue(value)
+    return issecretvalue and issecretvalue(value) or false
+end
+
+--- 막대 폭으로 쓸 수 있는 값인지: 숫자, secret 아님, NaN 아님, 0 초과, UIParent 폭 이하.
+function DDingUI:IsUsableAutoWidth(value)
+    if type(value) ~= "number" or IsSecretValue(value) or value ~= value then return false end
+    if value <= 0 then return false end
+    local limit = UIParent and UIParent.GetWidth and UIParent:GetWidth()
+    if type(limit) == "number" and not IsSecretValue(limit) and limit > 0 and value > limit then
+        return false
+    end
+    return true
+end
+
+-- 다른 DDingUI 막대에 붙은 경우: 그 막대의 프레임 폭을 그대로 쓴다(바깥 테두리가 이미 같은 규칙).
+local function IsDDingUIBarAnchor(addon, anchor)
+    if anchor == addon.powerBar or anchor == addon.secondaryPowerBar
+        or anchor == addon.castBar or anchor == addon.buffTrackerBar then
+        return true
+    end
+    local name = anchor.GetName and anchor:GetName()
+    return type(name) == "string" and name:match("^DDingUIBuffTracker") ~= nil
+end
+
+local function AutoWidthAnchorKey(anchor)
+    local name = anchor and anchor.GetName and anchor:GetName()
+    return name or anchor or false
+end
+
+--- 앵커에 맞춘 막대 폭.
+-- anchor: 앵커 프레임. borderSize: 막대의 바깥 테두리 설정값(ScaleBorder 전, 안쪽 테두리 막대는 0).
+-- opts.owner: 마지막 정상 폭을 기억할 막대(또는 상태 테이블). 앵커 이름이 바뀌면 초기화한다.
+-- opts.noStore: owner에 기록하지 않는다(옵션 미리보기). opts.fallback: 정상값이 한 번도 없을 때 폭.
+-- Returns width, resolved (true면 이번 앵커에서 계산된 값, false면 마지막 정상값 또는 fallback).
+function DDingUI:ResolveAutoWidth(anchor, borderSize, opts)
+    opts = opts or {}
+    local owner = opts.owner
+    local key = AutoWidthAnchorKey(anchor)
+    if owner and not opts.noStore and owner._ddAutoWidthAnchor ~= key then
+        owner._ddAutoWidthAnchor = key
+        owner._ddLastAutoWidth = nil
+    end
+
+    local width
+    if anchor and anchor ~= UIParent then
+        local ok, effective, needsBorderComp = pcall(function()
+            if IsDDingUIBarAnchor(self, anchor) then return anchor:GetWidth(), false end
+            return self:GetEffectiveAnchorWidth(anchor)
+        end)
+        if ok and self:IsUsableAutoWidth(effective) then
+            if needsBorderComp then
+                local border = tonumber(borderSize) or 1
+                border = self.ScaleBorder and self:ScaleBorder(border) or border
+                effective = effective - 2 * border
+            end
+            effective = PixelSnap(effective)
+            if self:IsUsableAutoWidth(effective) then width = effective end
+        end
+    end
+
+    if width then
+        if owner and not opts.noStore then owner._ddLastAutoWidth = width end
+        return width, true
+    end
+    local last = owner and owner._ddAutoWidthAnchor == key and owner._ddLastAutoWidth
+    if self:IsUsableAutoWidth(last) then return last, false end
+    return opts.fallback or AUTO_WIDTH_FALLBACK, false
+end
+
+-- ============================================================
+-- [REFACTOR] 앵커 폭 변경 알림
+-- 그룹 렌더러가 아이콘 줄 폭을 실제로 바꾸면(또는 막대 폭이 바뀌면) 한 프레임 모아 한 번 보낸다.
+-- 리스너는 order 순서(주 자원 → 보조 → 시전 → 추적 → 강화효과)로 호출되고,
+-- 막대 폭이 바뀐 막대는 다시 알려 막대에 붙은 막대가 다음 프레임에 연쇄 갱신된다.
+-- ============================================================
+local anchorWidthListeners = {}
+local anchorWidthPending = {}
+local anchorWidthScheduled = false
+
+local function FlushAnchorWidthChanges()
+    anchorWidthScheduled = false
+    local keys = anchorWidthPending
+    anchorWidthPending = {}
+    for _, listener in ipairs(anchorWidthListeners) do
+        local ok, err = pcall(listener.fn, keys)
+        if not ok then
+            local handler = geterrorhandler and geterrorhandler()
+            if handler then handler(err) end -- report, but keep the other bars updating
+        end
+    end
+end
+
+function DDingUI:RegisterAnchorWidthListener(fn, order)
+    if type(fn) ~= "function" then return end
+    anchorWidthListeners[#anchorWidthListeners + 1] = { fn = fn, order = tonumber(order) or 100 }
+    table.sort(anchorWidthListeners, function(a, b) return a.order < b.order end)
+end
+
+function DDingUI:NotifyAnchorWidthChanged(key)
+    anchorWidthPending[key or "anchor"] = true
+    if anchorWidthScheduled then return end
+    anchorWidthScheduled = true
+    C_Timer.After(0, FlushAnchorWidthChanges)
+end
+
+-- ============================================================
+-- [REFACTOR] 레이아웃 미리보기 강제 표시 (옵션 대시보드가 열린 동안)
+-- 편집 모드와 같은 경로로 꺼진 강화효과·커스텀 아이콘을 실제로 띄운다. 전투 밖에서만 켜지고,
+-- 전투가 시작되면 즉시 꺼진다. 저장 값은 쓰지 않는다(런타임 필드만).
+-- 켜져 있는 동안 커스텀 오라·아이콘 상태·조건 동작의 소리는 재생하지 않는다.
+-- ============================================================
+function DDingUI:IsLayoutPreviewForced()
+    return self._layoutPreviewForced == true and not InCombatLockdown()
+end
+
+local function RefreshForcedLayout(addon)
+    local bridge = addon.DynamicIconBridge
+    if bridge and bridge.NotifyIconsChanged then bridge:NotifyIconsChanged(true) end
+    local groupSystem = addon.GroupSystem
+    if groupSystem and groupSystem.RequestFullUpdate then groupSystem:RequestFullUpdate() end
+end
+
+--- on=true는 전투 밖에서만 적용된다. Returns the resulting state.
+function DDingUI:SetLayoutPreviewForced(on)
+    on = on == true and not InCombatLockdown()
+    if (self._layoutPreviewForced == true) == on then return on end
+    self._layoutPreviewForced = on or nil
+    RefreshForcedLayout(self)
+    return on
+end
+
+local layoutPreviewCombatFrame = CreateFrame("Frame")
+layoutPreviewCombatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+layoutPreviewCombatFrame:SetScript("OnEvent", function()
+    if DDingUI._layoutPreviewForced then
+        DDingUI._layoutPreviewForced = nil
+        RefreshForcedLayout(DDingUI)
+    end
+end)
+
+-- ============================================================
 -- ResolveAnchorFrame: 앵커 이름 → 실제 프레임 해석
 -- CDM 뷰어 이름, DDingUI 그룹 이름, 프록시 앵커 이름 모두 지원
 -- CDM 뷰어가 재생성 중이면 프록시 앵커로 자동 폴백

@@ -178,7 +178,7 @@ function Consumables:Show(kind, iconData, onApply)
         -- [FIX] The settings workspace is DIALOG with elevated child frame levels.
         window:SetFrameStrata("FULLSCREEN_DIALOG")
         window:EnableMouse(true)
-        window:SetClampedToScreen(true)
+        if SL and SL.AllowOffscreen then SL.AllowOffscreen(window) else window:SetClampedToScreen(true) end -- [STYLE] 화면 밖으로 걸쳐 두기
         window:SetMovable(true)
         window:RegisterForDrag("LeftButton")
         window:SetScript("OnDragStart", window.StartMoving)

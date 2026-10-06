@@ -942,7 +942,13 @@ do
 end
 
 
-function DDingUI:OpenConfig()
+function DDingUI:OpenConfig(input)
+    -- [REFACTOR] C12: `/dcm edit` = 편집 모드 토글 (기존 /ddmove·/dduimove 별칭 유지)
+    if type(input) == "string" and input:match("^%s*edit%s*$") then
+        if self.Movers and self.Movers.ToggleConfigMode then self.Movers:ToggleConfigMode() end
+        return
+    end
+
     local loadedOptionsNow = false
 
     -- [LoD] DDingUI_Options 최초 로드

@@ -223,7 +223,7 @@ local function CreateAddBuffDialog()
     end
 
     frame:SetMovable(true)
-    frame:SetClampedToScreen(true)
+    if SL and SL.AllowOffscreen then SL.AllowOffscreen(frame) else frame:SetClampedToScreen(true) end -- [STYLE] 화면 밖으로 걸쳐 두기
     frame:Hide()
 
     -- Create a title bar for dragging (so buttons can still be clicked)
@@ -2207,7 +2207,8 @@ function DDingUI.UpdateCDMIconGrid()
     local width = root:GetWidth()
     if not width or width < 100 then width = container and container:GetWidth() end
     if not width or width < 100 then width = 640 end
-    width = math.max(320, math.floor(width + 0.5))
+    -- [FIX] 오른쪽 카탈로그 칸(콘텐츠 약 276px)보다 큰 최소값이면 탭·카드가 칸 밖으로 잘린다
+    width = math.max(200, math.floor(width + 0.5))
     root._lastLayoutWidth = width
     root:_layoutToolbar(width)
     root:_refreshFilters()

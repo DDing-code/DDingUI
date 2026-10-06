@@ -1,12 +1,18 @@
 -- DDingUI Toolkit - Edit mode
+-- [STYLE] Series edit mode (C5·C12): the remote, mover surface, HUD, grid, guides and snap
+-- maths come from StyleLib 1.4 EditMode.lua. Toolkit keeps the frame registry, the
+-- CENTER-based save model, undo/redo and the combat/non-combat preview switch.
 
 local addonName, ns = ...
 local DDingToolKit = ns.DDingToolKit
 local L = ns.L
 local SL = _G.DDingUI_StyleLib
-local SL_FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
-local SL_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
+local Lib = LibStub and LibStub("DDingUI-StyleLib-1.0", true) or SL
 local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
+local ADDON_KEY = "MJToolkit"
+local SPEC = Lib and Lib.EditModeSpec or {
+    gridSpacing = 32, gridChoices = { 16, 32, 64 }, snapThreshold = 8, nudge = 1, nudgeShift = 10,
+}
 
 local Movers = {}
 ns.ToolkitMovers = Movers
@@ -17,18 +23,15 @@ local function Locale(key, fallback)
     return fallback
 end
 
-local function GetAccent()
-    if SL and SL.GetAccent then
-        local color = SL.GetAccent("MJToolkit")
-        if color then return color[1] or 0.2, color[2] or 0.75, color[3] or 1 end
-    end
-    return 0.2, 0.75, 1
-end
-
 local function EnableRightClickMouselook(frame)
     if ns.EnableRightClickMouselook then
         ns:EnableRightClickMouselook(frame)
     end
+end
+
+local function HasEditModeLib()
+    return Lib and Lib.CreateEditRemote and Lib.StyleMover and Lib.CreateMoverHUD
+        and Lib.CreateEditGrid and Lib.CreateEditGuides and Lib.SnapToGrid and true or false
 end
 
 -- ============================================================
@@ -336,18 +339,22 @@ local selected    = nil     -- currently selected mover name
 local undoStack   = {}
 local redoStack   = {}
 local MAX_UNDO    = 50
+-- Saved under profile.moverSettings (same keys as before; values follow the series spec).
 local editorSettings = {
-    gridEnabled = false,
-    gridSize = 20,
+    gridEnabled = true,
+    gridSize = SPEC.gridSpacing,
     snapEnabled = true,
     snapToGrid = true,
     snapToFrames = true,
     snapToCenter = true,
-    snapThreshold = 10,
+    snapThreshold = SPEC.snapThreshold,
 }
 local editPreviewCombat = false
-local nudgeFrame  = nil
+local remote      = nil     -- Lib.CreateEditRemote
+local grid        = nil     -- Lib.CreateEditGrid
+local guides      = nil     -- Lib.CreateEditGuides
 local eventFrame  = nil
+local reopenConfig = false  -- settings window was open when edit mode started
 local modulePreviewActive = {}
 local modulePreviewInitialized = {}
 local forcedPreviewTargets = {}
@@ -363,6 +370,7 @@ local CalculateSnapPosition
 local GetTargetFrame
 local FinishDrag
 local UpdateSnapGuides
+local UpdateCoordUI
 
 local function GetFrameRelativeScale(frame)
     if not frame then return 1 end
@@ -372,16 +380,11 @@ local function GetFrameRelativeScale(frame)
     return frameScale / uiScale
 end
 
+-- C5: one readout, anchor-relative (CENTER of UIParent) offsets, same while and after dragging.
 local function UpdateMoverReadout(overlay, x, y)
-    if not overlay or not overlay.coord then return end
+    if not overlay or not overlay.selectionHUD then return end
     local width, height = overlay:GetSize()
-    overlay.coord:SetText(string.format(
-        "X %d  Y %d  ·  %d×%d",
-        math.floor((x or 0) + 0.5),
-        math.floor((y or 0) + 0.5),
-        math.floor((width or 0) + 0.5),
-        math.floor((height or 0) + 0.5)
-    ))
+    overlay.selectionHUD:Update(x or 0, y or 0, width or 0, height or 0)
 end
 
 -- OnUpdate drag state
@@ -403,11 +406,11 @@ _dragUpdate:SetScript("OnUpdate", function()
     local sw, sh = UIParent:GetSize()
     local nx = cx - sw/2 - _dragOffX
     local ny = cy - sh/2 - _dragOffY
-    local guideX, guideY
+    local snappedX, snappedY
     if CalculateSnapPosition then
-        nx, ny, guideX, guideY = CalculateSnapPosition(_dragMover, nx, ny)
+        nx, ny, snappedX, snappedY = CalculateSnapPosition(_dragMover, nx, ny)
     end
-    UpdateSnapGuides(guideX, guideY)
+    UpdateSnapGuides(snappedX, snappedY, nx + sw / 2, ny + sh / 2)
     _dragMover:ClearAllPoints()
     _dragMover:SetPoint("CENTER", UIParent, "CENTER", nx, ny)
     moverPos[_dragMover._regName] = { x = nx, y = ny }
@@ -417,53 +420,22 @@ _dragUpdate:SetScript("OnUpdate", function()
         target:ClearAllPoints()
         target:SetPoint("CENTER", UIParent, "CENTER", nx / targetScale, ny / targetScale)
     end
-    UpdateMoverReadout(_dragMover, nx, ny)
-    if nudgeFrame then
-        nudgeFrame.coordLabel:SetText(
-            (_dragMover.label and _dragMover.label:GetText()) or _dragMover._regName
-        )
-        if nudgeFrame.inputX then
-            nudgeFrame.inputX._lastVal = tostring(math.floor(nx+0.5))
-            nudgeFrame.inputX:SetText(nudgeFrame.inputX._lastVal)
-            nudgeFrame.inputY._lastVal = tostring(math.floor(ny+0.5))
-            nudgeFrame.inputY:SetText(nudgeFrame.inputY._lastVal)
-        end
-    end
+    UpdateCoordUI(_dragMover._regName, nx, ny)
 end)
 
--- Snap guide lines (shown during drag)
-local _snapGuideV, _snapGuideH
-local function _EnsureSnapGuides()
-    if _snapGuideV then return end
-    _snapGuideV = UIParent:CreateTexture(nil, "OVERLAY")
-    _snapGuideV:SetColorTexture(1, 0.2, 0.2, 0.75)
-    _snapGuideV:SetSize(2, UIParent:GetHeight())
-    _snapGuideV:Hide()
-    _snapGuideH = UIParent:CreateTexture(nil, "OVERLAY")
-    _snapGuideH:SetColorTexture(1, 0.2, 0.2, 0.75)
-    _snapGuideH:SetSize(UIParent:GetWidth(), 2)
-    _snapGuideH:Hide()
+-- Alignment guides: accent lines through the mover centre, per snapped axis (StyleLib). -- [STYLE]
+UpdateSnapGuides = function(snappedX, snappedY, cx, cy)
+    if not (snappedX or snappedY) then
+        if guides then guides:Hide() end
+        return
+    end
+    if not guides then guides = Lib.CreateEditGuides(ADDON_KEY) end
+    guides:ShowAt(cx, cy)
+    guides.v:SetShown(snappedX and true or false)
+    guides.h:SetShown(snappedY and true or false)
 end
 
-UpdateSnapGuides = function(guideX, guideY)
-    _EnsureSnapGuides()
-    if guideX then
-        _snapGuideV:ClearAllPoints()
-        _snapGuideV:SetPoint("CENTER", UIParent, "BOTTOMLEFT", guideX, UIParent:GetHeight()/2)
-        _snapGuideV:Show()
-    else
-        _snapGuideV:Hide()
-    end
-    if guideY then
-        _snapGuideH:ClearAllPoints()
-        _snapGuideH:SetPoint("CENTER", UIParent, "BOTTOMLEFT", UIParent:GetWidth()/2, guideY)
-        _snapGuideH:Show()
-    else
-        _snapGuideH:Hide()
-    end
-end
-
--- Fade helpers
+-- Fade helpers (mover overlays; the remote uses the StyleLib panel motion)
 local FADE_DUR = 0.18
 local function FadeIn(frame)
     if not frame then return end
@@ -496,59 +468,25 @@ local function FadeOut(frame, cb)
     ag:Stop(); frame:SetAlpha(1); ag:Play()
 end
 
-local gridLines = {}
-local visualGridFrame
-
-local function DrawVisualGrid()
-    if not visualGridFrame then
-        visualGridFrame = CreateFrame("Frame", "DDingToolKitVisualGrid", UIParent)
-        visualGridFrame:SetAllPoints(UIParent)
-        visualGridFrame:SetFrameStrata("BACKGROUND")
-        visualGridFrame:SetFrameLevel(0)
+-- Grid (StyleLib): centred on the screen, same spacing/origin as the snap grid. -- [STYLE]
+local function GetGrid()
+    if not grid then
+        grid = Lib.CreateEditGrid(ADDON_KEY, { spacing = editorSettings.gridSize })
     end
-
-    for _, t in ipairs(gridLines) do t:Hide() end
-    local lineIdx = 1
-
-    local function MakeLine(w, h, p1, p2, x, y, r, g, b, a)
-        local t = gridLines[lineIdx]
-        if not t then
-            t = visualGridFrame:CreateTexture(nil, "BACKGROUND")
-            gridLines[lineIdx] = t
-        end
-        t:SetColorTexture(r, g, b, a)
-        t:SetWidth(w)
-        t:SetHeight(h)
-        t:ClearAllPoints()
-        t:SetPoint(p1, visualGridFrame, p1, x, y)
-        t:SetPoint(p2, visualGridFrame, p2, x, y)
-        t:Show()
-        lineIdx = lineIdx + 1
-    end
-
-    local sw, sh = UIParent:GetSize()
-    MakeLine(1, sh, "TOP", "BOTTOM", 0, 0, 1, 0, 0, 0.6)
-    MakeLine(sw, 1, "LEFT", "RIGHT", 0, 0, 1, 0, 0, 0.6)
-
-    local halfW = math.floor(sw / 2)
-    local halfH = math.floor(sh / 2)
-    local gridSize = editorSettings.gridSize
-    for x = gridSize, halfW, gridSize do
-        MakeLine(1, sh, "TOP", "BOTTOM", x, 0, 0.8, 0.8, 0.8, 0.15)
-        MakeLine(1, sh, "TOP", "BOTTOM", -x, 0, 0.8, 0.8, 0.8, 0.15)
-    end
-    for y = gridSize, halfH, gridSize do
-        MakeLine(sw, 1, "LEFT", "RIGHT", 0, y, 0.8, 0.8, 0.8, 0.15)
-        MakeLine(sw, 1, "LEFT", "RIGHT", 0, -y, 0.8, 0.8, 0.8, 0.15)
-    end
+    return grid
 end
 
-local function ToggleVisualGrid()
+local function RefreshGrid()
+    if not configMode then return end
+    local g = GetGrid()
+    g:SetSpacing(editorSettings.gridSize)
     if editorSettings.gridEnabled then
-        DrawVisualGrid()
-        visualGridFrame:Show()
-    else
-        if visualGridFrame then visualGridFrame:Hide() end
+        if not g:IsShown() or (g:GetAlpha() or 1) < 1 then g:ShowAnimated() end
+    elseif g:IsShown() then
+        g:HideAnimated()
+    end
+    if remote and remote.SetGridState then
+        remote:SetGridState(editorSettings.gridEnabled, editorSettings.gridSize)
     end
 end
 
@@ -564,16 +502,28 @@ local function GetEditorDB()
     return profile.moverSettings
 end
 
+-- Only the series choices (16/32/64) are kept; anything else (old 10/20/40/80) becomes the default 32.
+local function NearestGridChoice(value)
+    value = tonumber(value)
+    for _, choice in ipairs(SPEC.gridChoices or { 16, 32, 64 }) do
+        if choice == value then return choice end
+    end
+    return SPEC.gridSpacing
+end
+
 local function LoadEditorSettings()
     local saved = GetEditorDB()
-    if not saved then return end
-    for key, default in pairs(editorSettings) do
-        if saved[key] ~= nil and type(saved[key]) == type(default) then
-            editorSettings[key] = saved[key]
+    if saved then
+        for key, default in pairs(editorSettings) do
+            if saved[key] ~= nil and type(saved[key]) == type(default) then
+                editorSettings[key] = saved[key]
+            end
         end
     end
-    editorSettings.gridSize = math.max(10, math.min(80, tonumber(editorSettings.gridSize) or 20))
-    editorSettings.snapThreshold = math.max(4, math.min(30, tonumber(editorSettings.snapThreshold) or 10))
+    -- Series spec: the grid is on whenever edit mode starts, spacing is one of 16/32/64, snap distance 8.
+    editorSettings.gridEnabled = true
+    editorSettings.gridSize = NearestGridChoice(editorSettings.gridSize)
+    editorSettings.snapThreshold = SPEC.snapThreshold
 end
 
 local function SaveEditorSettings()
@@ -584,33 +534,25 @@ local function SaveEditorSettings()
     end
 end
 
-local function SavePanelPosition(frame)
-    local saved = GetEditorDB()
-    if not saved or not frame then return end
-    local point, _, relativePoint, x, y = frame:GetPoint(1)
-    saved.panelPosition = {
-        point = point or "BOTTOM",
-        relativePoint = relativePoint or point or "BOTTOM",
-        x = math.floor((x or 0) + 0.5),
-        y = math.floor((y or 80) + 0.5),
-    }
-end
-
-local function LoadPanelPosition(frame)
+-- Remote position: profile.moverSettings.panelPosition (same table shape as before).
+local function LoadRemotePosition()
     local saved = GetEditorDB()
     local position = saved and saved.panelPosition
-    frame:ClearAllPoints()
     if type(position) == "table" and position.point then
-        frame:SetPoint(
-            position.point,
-            UIParent,
-            position.relativePoint or position.point,
-            position.x or 0,
-            position.y or 80
-        )
-    else
-        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 80)
+        return position.point, position.x or 0, position.y or 0
     end
+    return nil
+end
+
+local function SaveRemotePosition(point, x, y)
+    local saved = GetEditorDB()
+    if not saved or not point then return end
+    saved.panelPosition = {
+        point = point,
+        relativePoint = point,
+        x = math.floor((x or 0) + 0.5),
+        y = math.floor((y or 0) + 0.5),
+    }
 end
 
 local function GetPosTable(reg)
@@ -817,94 +759,68 @@ local function RefreshModulePreviews()
     end
 end
 
+-- Snap (StyleLib maths): centre, the visible grid, other movers. Returns x, y, snappedX, snappedY.
+-- Grid snapping follows the "격자" snap checkbox, not whether the grid is drawn.
 CalculateSnapPosition = function(mover, x, y)
     if not editorSettings.snapEnabled then return x, y, nil, nil end
+    local threshold = editorSettings.snapThreshold or SPEC.snapThreshold
+    local bestDx, bestDy = nil, nil
 
-    local threshold = editorSettings.snapThreshold
-    local screenW, screenH = UIParent:GetSize()
-    local bestX, bestY = x, y
-    local bestXDistance, bestYDistance = threshold + 0.001, threshold + 0.001
-    local guideX, guideY
-
-    local function ConsiderX(candidate, guide)
-        local distance = math.abs(candidate - x)
-        if distance < bestXDistance then
-            bestXDistance = distance
-            bestX = candidate
-            guideX = guide + (screenW / 2)
-        end
-    end
-
-    local function ConsiderY(candidate, guide)
-        local distance = math.abs(candidate - y)
-        if distance < bestYDistance then
-            bestYDistance = distance
-            bestY = candidate
-            guideY = guide + (screenH / 2)
-        end
+    local function Consider(dx, dy)
+        if dx and dx ~= 0 and (not bestDx or math.abs(dx) < math.abs(bestDx)) then bestDx = dx end
+        if dy and dy ~= 0 and (not bestDy or math.abs(dy) < math.abs(bestDy)) then bestDy = dy end
     end
 
     if editorSettings.snapToCenter then
-        ConsiderX(0, 0)
-        ConsiderY(0, 0)
+        local sx, hitX = Lib.SnapToCenter(x, threshold)
+        local sy, hitY = Lib.SnapToCenter(y, threshold)
+        Consider(hitX and (sx - x) or nil, hitY and (sy - y) or nil)
     end
 
-    if editorSettings.gridEnabled and editorSettings.snapToGrid then
-        local gridSize = editorSettings.gridSize
-        local gridX = math.floor(x / gridSize + 0.5) * gridSize
-        local gridY = math.floor(y / gridSize + 0.5) * gridSize
-        ConsiderX(gridX, gridX)
-        ConsiderY(gridY, gridY)
+    if editorSettings.snapToGrid then
+        local spacing = editorSettings.gridSize or SPEC.gridSpacing
+        local sx, hitX = Lib.SnapToGrid(x, spacing, threshold)
+        local sy, hitY = Lib.SnapToGrid(y, spacing, threshold)
+        Consider(hitX and (sx - x) or nil, hitY and (sy - y) or nil)
     end
 
     if editorSettings.snapToFrames then
         local width, height = mover:GetSize()
         width = math.max(1, width or 1)
         height = math.max(1, height or 1)
-
+        local rect = { x - width / 2, y - height / 2, width, height }
+        local others = {}
         for name, target in pairs(movers) do
-            if target ~= mover and target:IsShown() and target:GetAlpha() > 0.05 then
-                local targetPosition = moverPos[name]
-                if targetPosition then
-                    local targetW, targetH = target:GetSize()
-                    targetW = math.max(1, targetW or 1)
-                    targetH = math.max(1, targetH or 1)
-                    local targetX, targetY = targetPosition.x, targetPosition.y
-                    local verticalOverlap = math.abs(y - targetY) <= ((height + targetH) / 2 + threshold)
-                    local horizontalOverlap = math.abs(x - targetX) <= ((width + targetW) / 2 + threshold)
-
-                    if verticalOverlap then
-                        ConsiderX(targetX, targetX)
-                        ConsiderX(targetX - targetW / 2 + width / 2, targetX - targetW / 2)
-                        ConsiderX(targetX + targetW / 2 - width / 2, targetX + targetW / 2)
-                        ConsiderX(targetX - targetW / 2 - width / 2, targetX - targetW / 2)
-                        ConsiderX(targetX + targetW / 2 + width / 2, targetX + targetW / 2)
-                    end
-
-                    if horizontalOverlap then
-                        ConsiderY(targetY, targetY)
-                        ConsiderY(targetY - targetH / 2 + height / 2, targetY - targetH / 2)
-                        ConsiderY(targetY + targetH / 2 - height / 2, targetY + targetH / 2)
-                        ConsiderY(targetY - targetH / 2 - height / 2, targetY - targetH / 2)
-                        ConsiderY(targetY + targetH / 2 + height / 2, targetY + targetH / 2)
-                    end
-                end
+            if target ~= mover and target:IsShown() and target:GetAlpha() > 0.05 and moverPos[name] then
+                local targetW, targetH = target:GetSize()
+                targetW = math.max(1, targetW or 1)
+                targetH = math.max(1, targetH or 1)
+                others[#others + 1] = {
+                    moverPos[name].x - targetW / 2, moverPos[name].y - targetH / 2, targetW, targetH,
+                }
             end
+        end
+        if #others > 0 then
+            local dx, dy = Lib.SnapToRects(rect, others, threshold)
+            Consider(dx, dy)
         end
     end
 
-    return bestX, bestY, guideX, guideY
+    -- A candidate that already sits on the line counts as snapped (guide shown, no movement).
+    local snappedX = bestDx ~= nil
+    local snappedY = bestDy ~= nil
+    if not snappedX and editorSettings.snapToCenter and math.abs(x) < 0.5 then snappedX = true end
+    if not snappedY and editorSettings.snapToCenter and math.abs(y) < 0.5 then snappedY = true end
+    return x + (bestDx or 0), y + (bestDy or 0), snappedX or nil, snappedY or nil
 end
 
 -- ============================================================
 -- Undo / Redo
 -- ============================================================
 local function RefreshUndoButtons()
-    if not nudgeFrame then return end
-    nudgeFrame.undoBtn:SetEnabled(#undoStack > 0)
-    nudgeFrame.redoBtn:SetEnabled(#redoStack > 0)
-    if nudgeFrame.undoBtn.RefreshStyle then nudgeFrame.undoBtn:RefreshStyle() end
-    if nudgeFrame.redoBtn.RefreshStyle then nudgeFrame.redoBtn:RefreshStyle() end
+    if remote and remote.SetUndoState then
+        remote:SetUndoState(#undoStack > 0, #redoStack > 0)
+    end
 end
 
 local function PushUndo(name, x, y)
@@ -914,47 +830,33 @@ local function PushUndo(name, x, y)
     RefreshUndoButtons()
 end
 
-local function UpdateCoordUI(name, x, y)
-    if not nudgeFrame then return end
+local function RefreshResetButton()
+    local btn = remote and remote.buttons and remote.buttons["초기화"]
+    if btn and btn.SetDisabledState then btn:SetDisabledState(selected == nil) end
+end
+
+UpdateCoordUI = function(name, x, y)
+    if name then
+        UpdateMoverReadout(movers[name], x, y)
+    end
+    if not remote then return end
     if not name then
-        nudgeFrame.coordLabel:SetText(Locale("EDIT_MODE_SELECT_PROMPT", "Select a frame to edit"))
-        if nudgeFrame.metaLabel then
-            nudgeFrame.metaLabel:SetText("UIParent")
-        end
-        if nudgeFrame.frameSelect and nudgeFrame.frameSelect.SetValue then
-            nudgeFrame.frameSelect:SetValue(nil, true)
-        end
-        if nudgeFrame.inputX then
-            nudgeFrame.inputX:SetText("")
-            nudgeFrame.inputX:ClearFocus()
-            nudgeFrame.inputY:SetText("")
-            nudgeFrame.inputY:ClearFocus()
-        end
-        if nudgeFrame.RefreshSettings then nudgeFrame:RefreshSettings() end
+        remote:SetSelection(nil)
+        RefreshResetButton()
         return
     end
     local reg = GetReg(name)
-    nudgeFrame.coordLabel:SetText(reg and GetDisplayName(reg) or name)
-    if nudgeFrame.frameSelect and nudgeFrame.frameSelect.SetValue then
-        nudgeFrame.frameSelect:SetValue(name, true)
-    end
-    if nudgeFrame.inputX then
-        nudgeFrame.inputX._lastVal = tostring(math.floor(x + 0.5))
-        nudgeFrame.inputX:SetText(nudgeFrame.inputX._lastVal)
-        nudgeFrame.inputY._lastVal = tostring(math.floor(y + 0.5))
-        nudgeFrame.inputY:SetText(nudgeFrame.inputY._lastVal)
-    end
     local overlay = movers[name]
-    UpdateMoverReadout(overlay, x, y)
-    if nudgeFrame.metaLabel then
-        local width, height = overlay and overlay:GetSize()
-        nudgeFrame.metaLabel:SetText(string.format(
-            "UIParent  ·  CENTER  ·  %d × %d",
-            math.floor((width or 0) + 0.5),
-            math.floor((height or 0) + 0.5)
-        ))
+    local width, height = overlay and overlay:GetSize()
+    remote:SetSelection({
+        name = reg and GetDisplayName(reg) or name,
+        anchor = "UIParent  ·  CENTER",
+        x = x, y = y, w = width or 0, h = height or 0,
+    })
+    if remote.frameDropdown and remote.frameDropdown.SetValue then
+        remote.frameDropdown:SetValue(name)
     end
-    if nudgeFrame.RefreshSettings then nudgeFrame:RefreshSettings() end
+    RefreshResetButton()
 end
 
 local function ApplyOvPos(name, x, y)
@@ -1002,6 +904,7 @@ function Movers:Redo()
     RefreshUndoButtons()
 end
 
+--- dx/dy already include the Shift ×10 step (the remote applies it).
 function Movers:Nudge(dx, dy)
     if not selected then return end
     local pos = moverPos[selected] or { x = 0, y = 0 }
@@ -1009,41 +912,28 @@ function Movers:Nudge(dx, dy)
     ApplyOvPos(selected, pos.x + dx, pos.y + dy)
 end
 
+function Movers:SetSelectedPosition(x, y)
+    if not selected then return end
+    x, y = tonumber(x), tonumber(y)
+    if not (x and y) then return end
+    local pos = moverPos[selected] or { x = 0, y = 0 }
+    if math.abs(pos.x - x) < 0.5 and math.abs(pos.y - y) < 0.5 then return end
+    PushUndo(selected, pos.x, pos.y)
+    ApplyOvPos(selected, x, y)
+end
+
 -- ============================================================
 -- Overlay creation
 -- ============================================================
 local function RefreshMoverStyle(ov)
-    if not ov then return end
-    local reg = ov._reg
-    local enabled = IsModuleEnabled(reg)
-    local accentR, accentG, accentB = GetAccent()
-    if ov._selected then
-        ov:SetBackdropBorderColor(accentR, accentG, accentB, 1)
-        ov:SetBackdropColor(accentR * 0.20, accentG * 0.20, accentB * 0.20, 0.82)
-        if ov.label then ov.label:SetTextColor(1, 1, 1, 1) end
-    elseif ov._hover then
-        ov:SetBackdropBorderColor(1, 0.67, 0.18, 1)
-        ov:SetBackdropColor(0.18, 0.14, 0.07, 0.72)
-        if ov.label then ov.label:SetTextColor(1, 0.88, 0.65, 1) end
-    else
-        local r = enabled and accentR or 0.42
-        local g = enabled and accentG or 0.42
-        local b = enabled and accentB or 0.42
-        ov:SetBackdropBorderColor(r, g, b, enabled and 0.88 or 0.65)
-        ov:SetBackdropColor(r * 0.12, g * 0.12, b * 0.12, enabled and 0.58 or 0.48)
-        if ov.label then ov.label:SetTextColor(enabled and 0.92 or 0.62, enabled and 0.94 or 0.62, enabled and 0.96 or 0.62, 1) end
-    end
-    if ov.centerV then
-        ov.centerV:SetColorTexture(accentR, accentG, accentB, 0.78)
-        ov.centerH:SetColorTexture(accentR, accentG, accentB, 0.78)
-        ov.centerV:SetShown(ov._selected)
-        ov.centerH:SetShown(ov._selected)
-    end
+    if not ov or not ov.surface then return end
+    local enabled = IsModuleEnabled(ov._reg)
+    ov.surface:SetDisabled(not enabled, Locale("DISABLED", "Disabled"))
+    ov.surface:SetHover(ov._hover)
+    ov.surface:SetSelected(ov._selected)
     if ov.selectionHUD then
-        ov.selectionHUD.accent:SetColorTexture(accentR, accentG, accentB, 1)
         ov.selectionHUD:SetShown(ov._selected)
     end
-    if ov.disabledLabel then ov.disabledLabel:SetShown(not enabled) end
 end
 
 local function SetMoverSelected(ov, isSelected)
@@ -1089,80 +979,19 @@ FinishDrag = function(overlay)
 end
 
 local function CreateMoverOverlay(reg)
-    local enabled = IsModuleEnabled(reg)
-    local r = enabled and 0.20 or 0.45
-    local g = enabled and 0.75 or 0.45
-    local b = enabled and 0.30 or 0.45
-
-    local ov = CreateFrame("Button", "DDingToolKitMover_" .. reg.name, UIParent, "BackdropTemplate")
+    local ov = CreateFrame("Button", "DDingToolKitMover_" .. reg.name, UIParent)
     ov:SetSize(reg.defaultW or 120, reg.defaultH or 40)
     ov:SetFrameStrata("DIALOG")
     ov:SetFrameLevel(200)
     ov:SetClampedToScreen(true)
     ov:EnableMouse(true)
-    ov:SetBackdrop({ bgFile = SL_FLAT, edgeFile = SL_FLAT, edgeSize = 2 })
-    ov:SetBackdropColor(r, g, b, 0.35)
-    ov:SetBackdropBorderColor(r, g, b, 0.85)
     ov._reg = reg
     ov._regName = reg.name
 
-    local centerV = ov:CreateTexture(nil, "ARTWORK")
-    centerV:SetPoint("CENTER")
-    centerV:SetSize(1, 12)
-    centerV:SetColorTexture(r, g, b, 0.78)
-    centerV:Hide()
-    ov.centerV = centerV
-
-    local centerH = ov:CreateTexture(nil, "ARTWORK")
-    centerH:SetPoint("CENTER")
-    centerH:SetSize(12, 1)
-    centerH:SetColorTexture(r, g, b, 0.78)
-    centerH:Hide()
-    ov.centerH = centerH
-
-    local lbl = ov:CreateFontString(nil, "OVERLAY")
-    lbl:SetFont(SL_FONT, 11, "OUTLINE")
-    lbl:SetPoint("LEFT", ov, "LEFT", 4, 4)
-    lbl:SetPoint("RIGHT", ov, "RIGHT", -4, 4)
-    lbl:SetJustifyH("CENTER")
-    lbl:SetWordWrap(false)
-    lbl:SetText(GetDisplayName(reg))
-    lbl:SetTextColor(1, 1, 1, 1)
-    ov.label = lbl
-
-    local selectionHUD = CreateFrame("Frame", nil, ov)
-    selectionHUD:SetSize(178, 18)
-    selectionHUD:SetPoint("TOPRIGHT", ov, "BOTTOMRIGHT", 0, -4)
-    selectionHUD:SetFrameLevel(ov:GetFrameLevel() + 2)
-    selectionHUD:SetClampedToScreen(true)
-    selectionHUD:Hide()
-
-    local hudBg = selectionHUD:CreateTexture(nil, "BACKGROUND")
-    hudBg:SetAllPoints()
-    local hudColor = SL and SL.Colors and SL.Colors.bg and SL.Colors.bg.input or { 0.025, 0.035, 0.05 }
-    hudBg:SetColorTexture(hudColor[1], hudColor[2], hudColor[3], 0.94)
-
-    local hudAccent = selectionHUD:CreateTexture(nil, "BORDER")
-    hudAccent:SetPoint("TOPLEFT")
-    hudAccent:SetPoint("BOTTOMLEFT")
-    hudAccent:SetWidth(2)
-    hudAccent:SetColorTexture(r, g, b, 1)
-    selectionHUD.accent = hudAccent
-
-    local coord = selectionHUD:CreateFontString(nil, "OVERLAY")
-    coord:SetFont(SL_FONT, 9, "OUTLINE")
-    coord:SetPoint("LEFT", 7, 0)
-    coord:SetTextColor(0.88, 0.91, 0.96, 1)
-    ov.coord = coord
-    ov.selectionHUD = selectionHUD
-
-    local disabledLabel = ov:CreateFontString(nil, "OVERLAY")
-    disabledLabel:SetFont(SL_FONT, 8, "OUTLINE")
-    disabledLabel:SetPoint("TOPRIGHT", -3, -2)
-    disabledLabel:SetText(Locale("DISABLED", "Disabled"))
-    disabledLabel:SetTextColor(0.72, 0.72, 0.74, 1)
-    disabledLabel:SetShown(not enabled)
-    ov.disabledLabel = disabledLabel
+    -- [STYLE] series mover surface + selection HUD (StyleLib 1.4)
+    ov.surface = Lib.StyleMover(ov, ADDON_KEY, { label = GetDisplayName(reg) })
+    ov.label = ov.surface.label
+    ov.selectionHUD = Lib.CreateMoverHUD(ov, ADDON_KEY)
 
     local pt, px, py = GetSavedPos(reg)
     moverPos[reg.name] = { x = px, y = py }
@@ -1240,6 +1069,7 @@ local function SyncMoverToTarget(reg, targetFrame)
         ov:ClearAllPoints()
         ov:SetPoint("CENTER", UIParent, "CENTER", fx, fy)
         moverPos[reg.name] = { x = math.floor(fx + 0.5), y = math.floor(fy + 0.5) }
+        UpdateMoverReadout(ov, moverPos[reg.name].x, moverPos[reg.name].y)
     end
 end
 
@@ -1255,8 +1085,7 @@ function Movers:SyncFromTarget(name, targetFrame)
     return true
 end
 
-local function RefreshFrameSelector()
-    if not nudgeFrame or not nudgeFrame.frameSelect or not nudgeFrame.frameSelect.SetOptions then return end
+local function GetFrameOptions()
     local options = {}
     for _, reg in ipairs(REG) do
         local overlay = movers[reg.name]
@@ -1269,7 +1098,13 @@ local function RefreshFrameSelector()
         end
     end
     table.sort(options, function(a, b) return a.text < b.text end)
-    nudgeFrame.frameSelect:SetOptions(options, selected)
+    return options
+end
+
+local function RefreshFrameSelector()
+    if remote and remote.RefreshFrames then
+        remote:RefreshFrames(selected)
+    end
 end
 
 function Movers:ResetSelected()
@@ -1311,15 +1146,8 @@ function Movers:ResetSelected()
 end
 
 local function UpdatePreviewButtons()
-    if not nudgeFrame then return end
-    if nudgeFrame.nonCombatBtn and nudgeFrame.nonCombatBtn.SetActive then
-        nudgeFrame.nonCombatBtn:SetActive(not editPreviewCombat)
-    end
-    if nudgeFrame.combatBtn and nudgeFrame.combatBtn.SetActive then
-        nudgeFrame.combatBtn:SetActive(editPreviewCombat)
-    end
-    if nudgeFrame.previewLabel then
-        nudgeFrame.previewLabel:SetText(Locale("EDIT_MODE_PREVIEW", "Preview"))
+    if remote and remote.previewControl and remote.previewControl.SetValue then
+        remote.previewControl:SetValue(editPreviewCombat, true)
     end
 end
 
@@ -1383,357 +1211,78 @@ local function SetPreviewCombat(combat)
 end
 
 -- ============================================================
--- NudgeFrame
+-- Remote (StyleLib CreateEditRemote) -- [STYLE]
 -- ============================================================
-local function MakeBtn(parent, text, w, h, onClick)
-    local b = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    b:SetSize(w or 30, h or 22)
-    b:SetBackdrop({ bgFile = SL_FLAT, edgeFile = SL_FLAT, edgeSize = 1 })
-    local fs = b:CreateFontString(nil, "OVERLAY")
-    fs:SetFont(SL_FONT, 11, "OUTLINE")
-    fs:SetAllPoints()
-    fs:SetText(text)
-    b:SetScript("OnClick", onClick)
-    b._fs = fs
-
-    function b:RefreshStyle(hover)
-        if self.IsEnabled and not self:IsEnabled() then
-            self:SetBackdropColor(0.08, 0.08, 0.11, 0.9)
-            self:SetBackdropBorderColor(0.18, 0.18, 0.24, 0.9)
-            self._fs:SetTextColor(0.45, 0.45, 0.50, 1)
-        elseif self._active then
-            self:SetBackdropColor(0.08, 0.34, 0.48, 1)
-            self:SetBackdropBorderColor(0.35, 0.80, 1.0, 1)
-            self._fs:SetTextColor(1, 1, 1, 1)
-        elseif hover then
-            self:SetBackdropColor(0.22, 0.22, 0.30, 1)
-            self:SetBackdropBorderColor(0.35, 0.35, 0.45, 1)
-            self._fs:SetTextColor(1, 1, 1, 1)
-        else
-            self:SetBackdropColor(0.12, 0.12, 0.18, 1)
-            self:SetBackdropBorderColor(0.25, 0.25, 0.35, 1)
-            self._fs:SetTextColor(0.92, 0.92, 0.92, 1)
-        end
-    end
-
-    function b:SetActive(active)
-        self._active = active and true or false
-        self:RefreshStyle(self._hover)
-    end
-
-    function b:SetText(value)
-        self._fs:SetText(value or "")
-    end
-
-    b:SetScript("OnEnter", function(s) s._hover = true; s:RefreshStyle(true) end)
-    b:SetScript("OnLeave", function(s) s._hover = false; s:RefreshStyle(false) end)
-    b:RefreshStyle(false)
-    return b
-end
-
-local function SetControlTooltip(frame, title, description)
-    frame:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText(title, 1, 1, 1)
-        if description and description ~= "" then
-            GameTooltip:AddLine(description, 0.72, 0.75, 0.80, true)
-        end
-        GameTooltip:Show()
-    end)
-    frame:HookScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
-end
-
-local function MakeInputBox(parent, text, w, h, onEnter)
-    local wrap = CreateFrame("Frame", nil, parent)
-    wrap:SetSize(w, h)
-    local lbl = wrap:CreateFontString(nil, "OVERLAY")
-    lbl:SetFont(SL_FONT, 10, "OUTLINE")
-    lbl:SetPoint("LEFT", wrap, "LEFT", 0, 0)
-    lbl:SetText(text)
-    local edit = CreateFrame("EditBox", nil, wrap, "BackdropTemplate")
-    edit:SetSize(w - 15, h)
-    edit:SetPoint("RIGHT", wrap, "RIGHT", 0, 0)
-    edit:SetFont(SL_FONT, 10, "OUTLINE")
-    edit:SetAutoFocus(false)
-    edit:SetJustifyH("CENTER")
-    edit:SetBackdrop({ bgFile = SL_FLAT, edgeFile = SL_FLAT, edgeSize = 1 })
-    edit:SetBackdropColor(0.12, 0.12, 0.18, 1)
-    edit:SetBackdropBorderColor(0.25, 0.25, 0.35, 1)
-    edit:SetScript("OnEnterPressed", function(self)
-        self:ClearFocus()
-        if onEnter then onEnter(tonumber(self:GetText())) end
-    end)
-    edit:SetScript("OnEscapePressed", function(self)
-        self:ClearFocus()
-        self:SetText(self._lastVal or "0")
-    end)
-    edit._wrapper = wrap
-    return edit
-end
-
-local function BuildNudgeFrame()
-    local f = CreateFrame("Frame", "DDingToolKitNudgeFrame", UIParent, "BackdropTemplate")
-    f:SetSize(620, 284)
-    LoadPanelPosition(f)
-    f:SetFrameStrata("DIALOG")
-    f:SetFrameLevel(250)
-    f:SetToplevel(true)
-    f:SetMovable(true)
-    f:SetClampedToScreen(true)
-    f:EnableMouse(true)
-    EnableRightClickMouselook(f)
-    f:SetBackdrop({ bgFile = SL_FLAT, edgeFile = SL_FLAT, edgeSize = 2 })
-    f:SetBackdropColor(0.035, 0.035, 0.045, 0.98)
-    f:SetBackdropBorderColor(0.12, 0.12, 0.15, 1)
-
-    local accentR, accentG, accentB = GetAccent()
-    local header = CreateFrame("Frame", nil, f)
-    header:SetPoint("TOPLEFT", 2, -2)
-    header:SetPoint("TOPRIGHT", -2, -2)
-    header:SetHeight(34)
-    header:EnableMouse(true)
-    header:RegisterForDrag("LeftButton")
-    header:SetScript("OnDragStart", function() f:StartMoving() end)
-    header:SetScript("OnDragStop", function()
-        f:StopMovingOrSizing()
-        SavePanelPosition(f)
-    end)
-
-    local headerBG = header:CreateTexture(nil, "BACKGROUND")
-    headerBG:SetAllPoints()
-    headerBG:SetColorTexture(0.085, 0.085, 0.105, 1)
-    local headerAccent = header:CreateTexture(nil, "ARTWORK")
-    headerAccent:SetPoint("BOTTOMLEFT")
-    headerAccent:SetPoint("BOTTOMRIGHT")
-    headerAccent:SetHeight(2)
-    headerAccent:SetColorTexture(accentR, accentG, accentB, 1)
-
-    local title = header:CreateFontString(nil, "OVERLAY")
-    title:SetFont(SL_FONT, 13, "OUTLINE")
-    title:SetPoint("LEFT", 12, 0)
-    title:SetText(SL and SL.CreateAddonTitle and SL.CreateAddonTitle("MJToolkit", "Toolkit")
-        or "|cffffffffDDing|r|cffffa300UI|r Toolkit")
-
-    local closeBtn = MakeBtn(header, "×", 26, 24, function() Movers:ToggleConfigMode() end)
-    closeBtn:SetPoint("RIGHT", header, "RIGHT", -5, 0)
-    SetControlTooltip(closeBtn, Locale("CLOSE", "Close"), Locale("EDIT_MODE_CLOSE_DESC", "Save positions and leave edit mode."))
-
-    local controls = ns.ToolkitControls
-    if controls and controls.CreateDropdown then
-        local frameSelect = controls.CreateDropdown(
-            f,
-            "MJToolkit",
-            Locale("EDIT_MODE_FRAME", "Frame"),
-            {},
-            nil,
-            {
-                width = 360,
-                searchable = true,
-                placeholder = Locale("EDIT_MODE_SELECT_PROMPT", "Select a frame to edit"),
-                emptyText = Locale("EDIT_MODE_NO_FRAMES", "No frames are available in this preview."),
-                onChange = function(value)
-                    SelectMover(value)
-                end,
-            }
-        )
-        frameSelect:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -43)
-        frameSelect:SetPoint("TOPRIGHT", f, "TOPRIGHT", -18, -43)
-        f.frameSelect = frameSelect
-    end
-
-    local coordLabel = f:CreateFontString(nil, "OVERLAY")
-    coordLabel:SetFont(SL_FONT, 12, "OUTLINE")
-    coordLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -78)
-    coordLabel:SetText(Locale("EDIT_MODE_SELECT_PROMPT", "Select a frame to edit"))
-    coordLabel:SetTextColor(0.95, 0.95, 0.97, 1)
-    f.coordLabel = coordLabel
-
-    local metaLabel = f:CreateFontString(nil, "OVERLAY")
-    metaLabel:SetFont(SL_FONT, 10, "OUTLINE")
-    metaLabel:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -80)
-    metaLabel:SetText("UIParent")
-    metaLabel:SetTextColor(0.54, 0.56, 0.62, 1)
-    f.metaLabel = metaLabel
-
-    local divider = f:CreateTexture(nil, "ARTWORK")
-    divider:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -99)
-    divider:SetPoint("TOPRIGHT", f, "TOPRIGHT", -18, -99)
-    divider:SetHeight(1)
-    divider:SetColorTexture(0.20, 0.20, 0.23, 0.85)
-
-    local function SectionLabel(text, x)
-        local label = f:CreateFontString(nil, "OVERLAY")
-        label:SetFont(SL_FONT, 10, "OUTLINE")
-        label:SetPoint("TOPLEFT", f, "TOPLEFT", x, -110)
-        label:SetText(text)
-        label:SetTextColor(0.58, 0.60, 0.66, 1)
-        return label
-    end
-
-    SectionLabel(Locale("EDIT_MODE_NUDGE", "Fine position"), 20)
-    SectionLabel(Locale("EDIT_MODE_COORDINATES", "Coordinates"), 178)
-    local previewLabel = SectionLabel(Locale("EDIT_MODE_PREVIEW", "Preview"), 410)
-    f.previewLabel = previewLabel
-
-    local inputX = MakeInputBox(f, "X", 90, 24, function(val)
-        if selected and val then
-            local curY = tonumber(f.inputY._lastVal) or 0
-            PushUndo(selected, tonumber(f.inputX._lastVal) or 0, curY)
-            ApplyOvPos(selected, val, curY)
-        end
-    end)
-    inputX._wrapper:SetPoint("TOPLEFT", f, "TOPLEFT", 178, -137)
-    f.inputX = inputX
-
-    local inputY = MakeInputBox(f, "Y", 90, 24, function(val)
-        if selected and val then
-            local curX = tonumber(f.inputX._lastVal) or 0
-            PushUndo(selected, curX, tonumber(f.inputY._lastVal) or 0)
-            ApplyOvPos(selected, curX, val)
-        end
-    end)
-    inputY._wrapper:SetPoint("LEFT", inputX._wrapper, "RIGHT", 12, 0)
-    f.inputY = inputY
-
-    local up = MakeBtn(f, "▲", 32, 24, function() Movers:Nudge(0, 1) end)
-    local down = MakeBtn(f, "▼", 32, 24, function() Movers:Nudge(0, -1) end)
-    local left = MakeBtn(f, "◀", 32, 24, function() Movers:Nudge(-1, 0) end)
-    local right = MakeBtn(f, "▶", 32, 24, function() Movers:Nudge(1, 0) end)
-    up:SetPoint("TOPLEFT", f, "TOPLEFT", 72, -128)
-    down:SetPoint("TOP", up, "BOTTOM", 0, 4)
-    left:SetPoint("RIGHT", down, "LEFT", -4, 0)
-    right:SetPoint("LEFT", down, "RIGHT", 4, 0)
-    SetControlTooltip(up, Locale("EDIT_MODE_NUDGE", "Fine position"), Locale("EDIT_MODE_SHIFT_HINT", "Hold Shift for 10-pixel steps."))
-
-    local nonCombatBtn = MakeBtn(f, Locale("EDIT_MODE_NONCOMBAT", "Non-combat"), 82, 26, function() SetPreviewCombat(false) end)
-    nonCombatBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 410, -136)
-    f.nonCombatBtn = nonCombatBtn
-
-    local combatBtn = MakeBtn(f, Locale("EDIT_MODE_COMBAT", "Combat"), 82, 26, function() SetPreviewCombat(true) end)
-    combatBtn:SetPoint("LEFT", nonCombatBtn, "RIGHT", 6, 0)
-    f.combatBtn = combatBtn
-
-    local snapBtn = MakeBtn(f, "", 96, 24, function()
-        editorSettings.snapEnabled = not editorSettings.snapEnabled
-        SaveEditorSettings()
-        f:RefreshSettings()
-    end)
-    snapBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -190)
-    f.snapBtn = snapBtn
-
-    local gridBtn = MakeBtn(f, "", 96, 24, function()
-        editorSettings.gridEnabled = not editorSettings.gridEnabled
-        SaveEditorSettings()
-        ToggleVisualGrid()
-        f:RefreshSettings()
-    end)
-    gridBtn:SetPoint("LEFT", snapBtn, "RIGHT", 8, 0)
-    f.gridBtn = gridBtn
-
-    local frameSnapBtn = MakeBtn(f, "", 108, 24, function()
-        editorSettings.snapToFrames = not editorSettings.snapToFrames
-        SaveEditorSettings()
-        f:RefreshSettings()
-    end)
-    frameSnapBtn:SetPoint("LEFT", gridBtn, "RIGHT", 8, 0)
-    f.frameSnapBtn = frameSnapBtn
-
-    local centerSnapBtn = MakeBtn(f, "", 108, 24, function()
-        editorSettings.snapToCenter = not editorSettings.snapToCenter
-        SaveEditorSettings()
-        f:RefreshSettings()
-    end)
-    centerSnapBtn:SetPoint("LEFT", frameSnapBtn, "RIGHT", 8, 0)
-    f.centerSnapBtn = centerSnapBtn
-
-    local gridSizeBtn = MakeBtn(f, "", 92, 24, function()
-        local sizes = { 10, 20, 40, 80 }
-        local nextSize = sizes[1]
-        for index, size in ipairs(sizes) do
-            if size == editorSettings.gridSize then
-                nextSize = sizes[(index % #sizes) + 1]
-                break
-            end
-        end
-        editorSettings.gridSize = nextSize
-        SaveEditorSettings()
-        if editorSettings.gridEnabled then ToggleVisualGrid() end
-        f:RefreshSettings()
-    end)
-    gridSizeBtn:SetPoint("LEFT", centerSnapBtn, "RIGHT", 8, 0)
-    f.gridSizeBtn = gridSizeBtn
-
-    local resetBtn = MakeBtn(f, Locale("RESET_POSITION", "Reset"), 76, 24, function() Movers:ResetSelected() end)
-    resetBtn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 20, 14)
-    f.resetBtn = resetBtn
-
-    local undoBtn = MakeBtn(f, Locale("EDIT_MODE_UNDO", "Undo"), 68, 24, function() Movers:Undo() end)
-    undoBtn:SetPoint("LEFT", resetBtn, "RIGHT", 8, 0)
-    undoBtn:SetEnabled(false)
-    undoBtn:RefreshStyle()
-    f.undoBtn = undoBtn
-
-    local redoBtn = MakeBtn(f, Locale("EDIT_MODE_REDO", "Redo"), 68, 24, function() Movers:Redo() end)
-    redoBtn:SetPoint("LEFT", undoBtn, "RIGHT", 8, 0)
-    redoBtn:SetEnabled(false)
-    redoBtn:RefreshStyle()
-    f.redoBtn = redoBtn
-
-    local doneBtn = MakeBtn(f, Locale("EDIT_MODE_DONE", "Done"), 88, 26, function() Movers:ToggleConfigMode() end)
-    doneBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -20, 13)
-    doneBtn:SetActive(true)
-    f.doneBtn = doneBtn
-
-    SetControlTooltip(resetBtn, Locale("RESET_POSITION", "Reset"), Locale("EDIT_MODE_RESET_DESC", "Restore the selected frame to its default position."))
-    SetControlTooltip(snapBtn, Locale("EDIT_MODE_SNAP", "Snap"), Locale("EDIT_MODE_SNAP_DESC", "Enable or disable all position snapping."))
-    SetControlTooltip(gridBtn, Locale("EDIT_MODE_GRID", "Grid"), Locale("EDIT_MODE_GRID_DESC", "Show the alignment grid and snap to it."))
-    SetControlTooltip(frameSnapBtn, Locale("EDIT_MODE_FRAME_SNAP", "Frame snap"), Locale("EDIT_MODE_FRAME_SNAP_DESC", "Align edges and centers with other visible frames."))
-    SetControlTooltip(centerSnapBtn, Locale("EDIT_MODE_CENTER_SNAP", "Center snap"), Locale("EDIT_MODE_CENTER_SNAP_DESC", "Align with the horizontal and vertical screen center."))
-
-    function f:RefreshSettings()
-        snapBtn:SetText(Locale("EDIT_MODE_SNAP", "Snap") .. (editorSettings.snapEnabled and "  ON" or "  OFF"))
-        snapBtn:SetActive(editorSettings.snapEnabled)
-        gridBtn:SetText(Locale("EDIT_MODE_GRID", "Grid") .. (editorSettings.gridEnabled and "  ON" or "  OFF"))
-        gridBtn:SetActive(editorSettings.gridEnabled)
-        frameSnapBtn:SetText(Locale("EDIT_MODE_FRAME_SNAP", "Frame snap"))
-        frameSnapBtn:SetActive(editorSettings.snapEnabled and editorSettings.snapToFrames)
-        centerSnapBtn:SetText(Locale("EDIT_MODE_CENTER_SNAP", "Center snap"))
-        centerSnapBtn:SetActive(editorSettings.snapEnabled and editorSettings.snapToCenter)
-        gridSizeBtn:SetText(string.format("%s  %d", Locale("EDIT_MODE_GRID_SIZE", "Grid"), editorSettings.gridSize))
-        gridSizeBtn:SetActive(editorSettings.gridEnabled)
-        resetBtn:SetEnabled(selected ~= nil)
-        resetBtn:RefreshStyle()
-    end
-
-    f:EnableKeyboard(true)
-    f:SetPropagateKeyboardInput(true)
-    f:SetScript("OnKeyDown", function(self, key)
-        if GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus() then
-            self:SetPropagateKeyboardInput(true)
-            return
-        end
-        local handled = false
-        local step = IsShiftKeyDown() and 10 or 1
-        if key == "UP" then Movers:Nudge(0, step); handled = true
-        elseif key == "DOWN" then Movers:Nudge(0, -step); handled = true
-        elseif key == "LEFT" then Movers:Nudge(-step, 0); handled = true
-        elseif key == "RIGHT" then Movers:Nudge(step, 0); handled = true
-        elseif key == "ESCAPE" then Movers:ToggleConfigMode(); handled = true
-        elseif IsControlKeyDown() and key == "Z" then Movers:Undo(); handled = true
-        elseif IsControlKeyDown() and key == "Y" then Movers:Redo(); handled = true
-        end
-        self:SetPropagateKeyboardInput(not handled)
-    end)
-    f:SetScript("OnKeyUp", function(self)
-        self:SetPropagateKeyboardInput(true)
-    end)
-
-    f:RefreshSettings()
-    UpdatePreviewButtons()
-    f:Hide()
-    return f
+local function BuildRemote()
+    local r
+    r = Lib.CreateEditRemote(ADDON_KEY, {
+        title = "DDingUI Toolkit",
+        version = DDingToolKit.version,
+        frames = GetFrameOptions,
+        onSelectFrame = function(value) SelectMover(value) end,
+        onNudge = function(dx, dy) Movers:Nudge(dx, dy) end,
+        onApplyXY = function(x, y) Movers:SetSelectedPosition(x, y) end,
+        onReset = function() Movers:ResetSelected() end,
+        onUndo = function() Movers:Undo() end,
+        onRedo = function() Movers:Redo() end,
+        onDone = function() if configMode then Movers:ToggleConfigMode() end end,
+        onEscape = function() if configMode then Movers:ToggleConfigMode() end end,
+        grid = {
+            enabled = editorSettings.gridEnabled,
+            spacing = editorSettings.gridSize,
+            -- SetGridState re-enters these through the checkbox; return when nothing changed.
+            onToggle = function(on)
+                on = on and true or false
+                if editorSettings.gridEnabled == on then return end
+                editorSettings.gridEnabled = on
+                SaveEditorSettings()
+                RefreshGrid()
+            end,
+            onSpacing = function(n)
+                n = NearestGridChoice(n)
+                if editorSettings.gridSize == n then return end
+                editorSettings.gridSize = n
+                SaveEditorSettings()
+                RefreshGrid()
+            end,
+        },
+        snap = {
+            enabled = editorSettings.snapEnabled,
+            center = editorSettings.snapToCenter,
+            grid = editorSettings.snapToGrid,
+            frames = editorSettings.snapToFrames,
+            onChange = function(key, on)
+                on = on and true or false
+                if key == "enabled" then editorSettings.snapEnabled = on
+                elseif key == "center" then editorSettings.snapToCenter = on
+                elseif key == "grid" then editorSettings.snapToGrid = on
+                elseif key == "frames" then editorSettings.snapToFrames = on
+                end
+                SaveEditorSettings()
+            end,
+        },
+        -- Toolkit-only: combat / non-combat preview switch.
+        extra = function(parent, y)
+            local controls = ns.ToolkitControls
+            if not (controls and controls.CreateSegmentedControl) then return 0 end
+            local width = (parent:GetWidth() or 300) - 28
+            local control = controls.CreateSegmentedControl(parent, ADDON_KEY,
+                Locale("EDIT_MODE_PREVIEW", "Preview"), {
+                    { text = Locale("EDIT_MODE_NONCOMBAT", "Non-combat"), value = false },
+                    { text = Locale("EDIT_MODE_COMBAT", "Combat"), value = true },
+                }, editPreviewCombat, {
+                    width = width,
+                    onChange = function(value) SetPreviewCombat(value == true) end,
+                })
+            control:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, y)
+            parent.previewControl = control
+            return (control:GetHeight() or 64) + 6
+        end,
+        loadPosition = LoadRemotePosition,
+        savePosition = SaveRemotePosition,
+    })
+    EnableRightClickMouselook(r)
+    return r
 end
 
 -- ============================================================
@@ -1741,15 +1290,15 @@ end
 -- ============================================================
 function Movers:ShowMovers()
     LoadEditorSettings()
-    if not nudgeFrame then
-        nudgeFrame = BuildNudgeFrame()
+    if not remote then
+        remote = BuildRemote()
     end
     RefreshEditPreviewMode(true)
     RefreshFrameSelector()
     UpdatePreviewButtons()
-    nudgeFrame:RefreshSettings()
-    FadeIn(nudgeFrame)
-    if editorSettings.gridEnabled then ToggleVisualGrid() end
+    UpdateCoordUI(nil)
+    if remote.ShowAnimated then remote:ShowAnimated() else remote:Show() end
+    RefreshGrid()
     wipe(undoStack)
     wipe(redoStack)
     RefreshUndoButtons()
@@ -1763,10 +1312,13 @@ function Movers:HideMovers()
         SetMoverSelected(ov, false)
         FadeOut(ov)
     end
-    if nudgeFrame then FadeOut(nudgeFrame) end
-    if visualGridFrame then visualGridFrame:Hide() end
+    if remote and remote:IsShown() then
+        -- [STYLE] StyleLib 1.4: HideAnimated really closes (BindPanel shrink, pairs with the open
+        -- motion; immediate in combat). Only the title-bar X calls onDone.
+        if remote.HideAnimated then remote:HideAnimated() else remote:Hide() end
+    end
+    if grid and grid:IsShown() then grid:HideAnimated() end
     SaveEditorSettings()
-    if nudgeFrame then SavePanelPosition(nudgeFrame) end
     selected = nil
     RestorePreviewTargets()
 
@@ -1790,25 +1342,38 @@ end
 -- ============================================================
 -- Public toggle
 -- ============================================================
-function Movers:ToggleConfigMode()
+--- opts.reopenConfig = false: do not bring the settings window back on exit
+--- (used by ConfigUI:Show, which is already opening it).
+function Movers:ToggleConfigMode(opts)
     if InCombatLockdown() then
         print(CHAT_PREFIX .. Locale("EDIT_MODE_COMBAT_BLOCKED", "Edit mode is unavailable during combat."))
         return
     end
+    if not configMode and not HasEditModeLib() then
+        ns.PrintError("Edit mode needs the embedded DDingUI StyleLib 1.4 (EditMode.lua).")
+        return
+    end
     configMode = not configMode
     if configMode then
-        if ns.ConfigUI and ns.ConfigUI.IsShown and ns.ConfigUI:IsShown() then
-            ns.ConfigUI:Hide()
-        end
+        local config = ns.ConfigUI
+        reopenConfig = (config and config.IsShown and config:IsShown()) and true or false
+        if reopenConfig then config:Hide() end
         self:ShowMovers()
         print(CHAT_PREFIX .. Locale("EDIT_MODE_ENABLED_CHAT", "|cff33bfe6Edit mode enabled|r. Drag a frame to move it."))
     else
         self:HideMovers()
+        local reopen = reopenConfig and not (type(opts) == "table" and opts.reopenConfig == false)
+        reopenConfig = false
+        if reopen and ns.ConfigUI and ns.ConfigUI.Show then
+            ns.ConfigUI:Show()
+        end
     end
     NotifyStateCallbacks()
 end
 
 function Movers:IsActive() return configMode end
+
+function Movers:GetEditorSettings() return editorSettings end
 
 function Movers:RegisterStateCallback(callback)
     if type(callback) ~= "function" then return end
@@ -1831,6 +1396,7 @@ _initFrame:SetScript("OnEvent", function()
     eventFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_DISABLED" and configMode then
             configMode = false
+            reopenConfig = false -- combat: leave the settings window closed
             Movers:HideMovers()
             NotifyStateCallbacks()
             print(CHAT_PREFIX .. Locale("EDIT_MODE_COMBAT_EXIT", "Edit mode closed because combat started."))

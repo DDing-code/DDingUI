@@ -840,6 +840,10 @@ L["Tracker Group"] = "Tracker Group"
 -- Buff Tracker WeakAuras-style Panel
 
 -- Movers / NudgeFrame
+-- [REFACTOR] 편집 모드 리모컨 (StyleLib CreateEditRemote)
+L["Edit Mode"] = "Edit Mode"
+L["Anchor"] = "Anchor"
+L["Anchor legend"] = "Left-click anchor point · right-click self point"
 L["Select Frame"] = "Select Frame"
 L["Show Grid"] = "Show Grid"
 L["Enable Snap"] = "Enable Snap"

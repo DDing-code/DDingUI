@@ -1095,6 +1095,14 @@ function ns:InitConfigTree()
     -----------------------------------------------
     -- CombatTimer
     -----------------------------------------------
+    local function RefreshCombatTimer()
+        local mod = ns.modules and ns.modules["CombatTimer"]
+        if mod then
+            if mod.UpdateTimer then mod:UpdateTimer() end
+            if mod.UpdateFrameStyle then mod:UpdateFrameStyle() end
+        end
+    end
+
     tree.panels["combattimer"] = {
         title = L["COMBATTIMER_TITLE"],
         desc  = L["COMBATTIMER_DESC"],
@@ -1104,7 +1112,8 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.modules.CombatTimer", label = L["MODULE_ENABLED"], reloadRequired = true, isModuleToggle = true },
             -- 표시 설정
             { type = "header", label = L["COMBATTIMER_DISPLAY_SETTINGS"] },
-            { type = "toggle",   key = "profile.CombatTimer.showMilliseconds", label = L["COMBATTIMER_SHOW_MS"] },
+            { type = "toggle",   key = "profile.CombatTimer.showMilliseconds", label = L["COMBATTIMER_SHOW_MS"], onChange = RefreshCombatTimer },
+            { type = "slider",   key = "profile.CombatTimer.decimalPlaces", label = L["COMBATTIMER_DECIMAL_PLACES"], min = 1, max = 2, step = 1, onChange = RefreshCombatTimer },
             { type = "toggle",   key = "profile.CombatTimer.showBackground",   label = L["COMBATTIMER_SHOW_BG"] },
             { type = "toggle",   key = "profile.CombatTimer.colorByTime",      label = L["COMBATTIMER_COLOR_BY_TIME"] },
             { type = "toggle",   key = "profile.CombatTimer.locked",           label = L["POSITION_LOCKED"] },

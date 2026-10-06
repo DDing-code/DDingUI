@@ -25,6 +25,16 @@ local GetSecondaryResource = ResourceBars.GetSecondaryResource
 local GetResourceColor = ResourceBars.GetResourceColor
 local GetPrimaryResourceValue = ResourceBars.GetPrimaryResourceValue
 local tickedPowerTypes = ResourceBars.tickedPowerTypes
+
+-- [REFACTOR] hideWhenMana 규칙(자원이 마나이고 딜러 전문화면 숨김). 주 자원·보조 자원 바와
+-- 옵션 대시보드가 같은 판정을 쓴다.
+local function IsManaHiddenForDPS(cfg, resource)
+    if not (cfg and cfg.hideWhenMana and resource == Enum.PowerType.Mana) then return false end
+    local spec = GetSpecialization and GetSpecialization()
+    local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
+    return role == "DAMAGER"
+end
+ResourceBars.IsManaHiddenForDPS = IsManaHiddenForDPS
 local buildVersion = ResourceBars.buildVersion
 
 -- ========================================
@@ -136,26 +146,10 @@ function ResourceBars:GetPowerBar()
     local initSelfPoint = cfg.selfPoint or "CENTER" -- [FIX: selfPoint support]
     bar:SetPoint(initSelfPoint, anchor, anchorPoint, DDingUI:Scale(cfg.offsetX or 0), DDingUI:Scale(cfg.offsetY or 6))
 
-    local MAX_AUTO_WIDTH_INIT = 600
     local width = cfg.width or 0
     if width <= 0 then
-        -- Auto width: get from viewer or anchor content width
-        local effectiveWidth, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
-        if effectiveWidth and effectiveWidth > 0 and effectiveWidth <= MAX_AUTO_WIDTH_INIT and anchor ~= UIParent then
-            if needsBorderComp then
-                -- [FIX] CDM 아이콘 컨테이너: 보더가 프레임 바깥으로 확장되므로 양쪽 보더 두께만큼 차감
-                local bComp = DDingUI:ScaleBorder(cfg.borderSize or 1)
-                width = PixelSnap(effectiveWidth - 2 * bComp)
-            else
-                -- 일반 프레임 (다른 바 등): 이미 보더가 반영된 너비이므로 그대로 사용
-                width = PixelSnap(effectiveWidth)
-            end
-        else
-            width = 200
-        end
-        if not width or width <= 0 or width > MAX_AUTO_WIDTH_INIT then
-            width = 200
-        end
+        -- [REFACTOR] 자동 너비: 공통 해석(바깥 테두리 보정, 고정 상한 없음, 실패 시 마지막 정상 폭)
+        width = DDingUI:ResolveAutoWidth(anchor, cfg.borderSize or 1, { owner = bar })
     else
         width = DDingUI:Scale(width)
     end
@@ -343,16 +337,12 @@ function ResourceBars:UpdatePowerBar()
     end
 
     -- Check if we should hide the bar when power is mana (DPS spec only)
-    if cfg.hideWhenMana and resource == Enum.PowerType.Mana then
-        local spec = GetSpecialization and GetSpecialization()
-        local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
-        if role == "DAMAGER" then
-            -- Grace Period 중에는 숨기지 않음 (전문화 변경 시 일시적으로 Mana로 감지될 수 있음)
-            if not inGracePeriod then
-                bar:Hide()
-            end
-            return
+    if IsManaHiddenForDPS(cfg, resource) then -- [REFACTOR]
+        -- Grace Period 중에는 숨기지 않음 (전문화 변경 시 일시적으로 Mana로 감지될 수 있음)
+        if not inGracePeriod then
+            bar:Hide()
         end
+        return
     end
 
     -- Check if we should use "no secondary" size
@@ -361,14 +351,7 @@ function ResourceBars:UpdatePowerBar()
     local secondaryCfg = DDingUI.db.profile.secondaryPowerBar
     local secondaryDisabled = secondaryCfg and not secondaryCfg.enabled
     local secondaryResource = GetSecondaryResource and GetSecondaryResource()
-    local secondaryHiddenDueToMana = false
-    if secondaryCfg and secondaryCfg.hideWhenMana and secondaryResource == Enum.PowerType.Mana then
-        local spec = GetSpecialization and GetSpecialization()
-        local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
-        if role == "DAMAGER" then
-            secondaryHiddenDueToMana = true
-        end
-    end
+    local secondaryHiddenDueToMana = IsManaHiddenForDPS(secondaryCfg, secondaryResource) -- [REFACTOR]
     local useNoSecondarySize = cfg.useNoSecondarySize and (not hasSecondary or secondaryDisabled or secondaryHiddenDueToMana)
 
 
@@ -437,26 +420,10 @@ function ResourceBars:UpdatePowerBar()
             bar._lastCfgWidth = cfgWidth
         end
 
-        -- Maximum auto width limit to prevent infinite/huge widths during frame transitions
-        local MAX_AUTO_WIDTH = 600
-
         if cfgWidth <= 0 then
-            -- Auto width: get from viewer or anchor content width
-            local effectiveWidth, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
-            if effectiveWidth and effectiveWidth > 0 and effectiveWidth <= MAX_AUTO_WIDTH and anchor ~= UIParent then
-                if needsBorderComp then
-                    local bComp = DDingUI:ScaleBorder(cfg.borderSize or 1)
-                    width = PixelSnap(effectiveWidth - 2 * bComp)
-                else
-                    width = PixelSnap(effectiveWidth)
-                end
-            else
-                width = bar._graceFallbackWidth or 200
-            end
-            -- Final safeguard against invalid widths
-            if not width or width <= 0 or width > MAX_AUTO_WIDTH then
-                width = bar._graceFallbackWidth or 200
-            end
+            -- [REFACTOR] 자동 너비: 공통 해석. 앵커를 못 읽으면 이 막대의 마지막 정상 자동 폭
+            -- (한 번도 없으면 200). 고정 상한(600)과 200을 기억하던 grace 폭은 없앴다.
+            width = DDingUI:ResolveAutoWidth(anchor, cfg.borderSize or 1, { owner = bar })
         else
             width = DDingUI:Scale(cfgWidth)
         end
@@ -478,8 +445,11 @@ function ResourceBars:UpdatePowerBar()
         end
 
         if bar._lastWidth ~= width and not isInMoverMode then
+            local changed = bar._lastWidth ~= nil or bar:GetWidth() ~= width
             bar:SetWidth(width)
             bar._lastWidth = width
+            -- [REFACTOR] 이 막대에 붙은 막대(시전 바 등)도 폭을 다시 계산하게 알린다
+            if changed then DDingUI:NotifyAnchorWidthChanged("powerBar") end
         end
     end -- positioning block
 

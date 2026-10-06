@@ -335,7 +335,10 @@ def test_section_and_aura_previews_copy_runtime_frames():
     for stale in ('"시전 미리보기"', 'SetText("74%")', 'SetText("3 / 5")', "SetTexture(136243)"):
         assert stale not in section, "section preview draws its own fake bar again: " + stale
     assert "DashboardPreview.Paint(node.visual, node.descriptor.sources" in section
-    assert "DDingUI:ShowTestCastBar()" in section
+    # the live layout session (DashboardPreview.LiveSession) runs the runtime test cast for the previews
+    assert "DashboardPreview.LiveSession:Begin(visual)" in section
+    live = (ROOT / "DDingUI_CDM_Option/DashboardPreview.lua").read_text(encoding="utf-8")
+    assert "addon:ShowTestCastBar(true)" in live
     aura = (ROOT / "DDingUI_CDM_Option/BuffTrackerLivePreview.lua").read_text(encoding="utf-8")
     assert "reader.PaintFit(self.host, sources" in aura
     for stale in ("local function RenderBar", "local function RenderRing", '"8.3"', "GetTime() - 9.6"):
@@ -449,6 +452,40 @@ def test_state_studio_and_aura_card_use_runtime():
     lua.execute(SMOKE_CHECKS)
 
 
+def test_round_frame_fill_only_backdrop_has_no_white_outline():
+    """BackdropTemplateMixin:GetBackdrop() fills a missing edgeFile with "" and GetBackdropBorderColor()
+    returns the untinted (white) edge regions. A fill-only panel must not get a white rounded outline."""
+    source = (ROOT / "DDingUI_CDM_Option/GUIWidgets.lua").read_text(encoding="utf-8")
+    body = "local function RoundFrame" + source.split("local function RoundFrame", 1)[1].split("--- Rounded 9-slice", 1)[0]
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute("""
+        made = {}
+        SL = { MakeRounded = function(frame, radius, bg, border) made[#made + 1] = { frame = frame, bg = bg, border = border } end }
+        local function Mixin(info)
+            local f = { backdropInfo = info }
+            function f:GetBackdrop()                       -- Blizzard_SharedXML/Backdrop.lua behaviour
+                if not self.backdropInfo then return nil end
+                local copy = {}
+                for k, v in pairs(self.backdropInfo) do copy[k] = v end
+                if not copy.bgFile then copy.bgFile = "" end
+                if not copy.edgeFile then copy.edgeFile = "" end
+                return copy
+            end
+            function f:GetBackdropColor() return 0.1, 0.1, 0.1, 1 end
+            function f:GetBackdropBorderColor() return 1, 1, 1, 1 end  -- untinted edge regions
+            return f
+        end
+        fillOnly = Mixin({ bgFile = "flat" })
+        withEdge = Mixin({ bgFile = "flat", edgeFile = "flat" })
+        function withEdge:GetBackdropBorderColor() return 0.2, 0.3, 0.4, 0.5 end
+    """ + body + """
+        RoundFrame(fillOnly, 10)
+        RoundFrame(withEdge, 10)
+        assert(made[1].border[4] == 0, "fill-only backdrop got a visible (white) rounded outline")
+        assert(made[2].border[1] == 0.2 and made[2].border[4] == 0.5, "real edge colour was not kept")
+    """)
+
+
 if __name__ == "__main__":
     test_runtime_layout_matches_shared_layout()
     test_preview_grid_is_runtime_layout()
@@ -456,4 +493,5 @@ if __name__ == "__main__":
     test_icon_customization_state_helpers_are_shared()
     test_section_and_aura_previews_copy_runtime_frames()
     test_state_studio_and_aura_card_use_runtime()
+    test_round_frame_fill_only_backdrop_has_no_white_outline()
     print("CDM preview/runtime parity: OK")

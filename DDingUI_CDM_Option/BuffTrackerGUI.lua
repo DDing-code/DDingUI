@@ -282,7 +282,7 @@ function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText,
     local current = type(option.get) == "function" and option.get({ option = option }) or nil
     local group = CreateFrame("Frame", nil, frame)
     group:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
-    group:SetSize(#orderedValues * 52, 26)
+    group:SetSize(#orderedValues * 52, 26) -- [STYLE] 버튼을 만든 뒤 글자 폭 합계로 다시 맞춘다
     local buttons = {}
 
     local function RefreshButtons()
@@ -304,7 +304,6 @@ function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText,
     for index, value in ipairs(orderedValues) do
         local button = CreateFrame("Button", nil, group, "BackdropTemplate")
         button:SetSize(52, 26)
-        button:SetPoint("LEFT", group, "LEFT", (index - 1) * 52, 0)
         button:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
         button._value = value
         button._label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- [STYLE] 12pt
@@ -325,6 +324,19 @@ function ModernTrackerEditor:CreateSegmented(parent, option, yOffset, labelText,
         button:SetScript("OnLeave", RefreshButtons)
         buttons[#buttons + 1] = button
     end
+
+    -- [STYLE] 글자 폭에 맞춰 버튼 폭을 정하고(최소 52), 이어 붙여 그룹 폭을 맞춘다
+    local x = 0
+    for index, button in ipairs(buttons) do
+        local textW = button._label:GetStringWidth() or 0
+        button:SetWidth(math.max(52, math.ceil(textW) + 18))
+        button:ClearAllPoints()
+        button:SetPoint("LEFT", group, "LEFT", x, 0)
+        x = x + button:GetWidth() + (index < #buttons and 2 or 0)
+    end
+    group:SetWidth(math.max(1, x))
+    label:SetPoint("RIGHT", group, "LEFT", -8, 0)
+    label:SetWordWrap(false)
 
     frame.Refresh = RefreshButtons
     RefreshButtons()
@@ -742,6 +754,10 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
     local listChild = CreateFrame("Frame", nil, listScroll)
     listChild:SetWidth(SIDE_W)
     listScroll:SetScrollChild(listChild)
+    -- [FIX] 스크롤 칸이 목록 폭(SIDE_W)보다 좁아 행 오른쪽 끝(켜짐 표시)이 잘리던 문제: 칸 폭을 따른다
+    listScroll:HookScript("OnSizeChanged", function(_, w)
+        if w and w > 1 then listChild:SetWidth(w) end
+    end)
 
     listScroll:SetScript("OnMouseWheel", function(self, delta)
         local cur = self:GetVerticalScroll()
@@ -910,7 +926,12 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
 
     livePreview:SetScript("OnUpdate", function(self, elapsed)
         self._refreshElapsed = (self._refreshElapsed or 0) + elapsed
-        if self._refreshElapsed < (self.live and 0.1 or 0.2) then return end
+        -- [REFACTOR] full copy 4x a second; bar values / texts / sparks follow every frame between
+        if self._refreshElapsed < (self.live and 0.25 or 0.2) then
+            local reader = self.live and GUI.DashboardPreview
+            if reader and reader.SyncLive and self.host then reader.SyncLive(self.host) end
+            return
+        end
         self._refreshElapsed = 0
         btPanel:RefreshLivePreview()
     end)
@@ -2806,12 +2827,14 @@ function GUI.CreateBuffTrackerPanel(contentFrame, parentFrame)
         end
         local trackedBuffs = GetTrackedBuffsForGUI()
         local selectedEntry = type(self.selectedIndex) == "number" and trackedBuffs[self.selectedIndex] or nil
+        tabChild._compactOptionsLayout = true
         local handled = ModernTrackerEditor:Render(tabChild, tabScrollFrame, tabScrollBar, tabGroup, {
             entry = selectedEntry,
             index = self.selectedIndex,
             panel = self,
             parentFrame = parentFrame,
         })
+        tabChild._compactOptionsLayout = nil
         if not handled then
             local pageOpts = {
                 type = "group",

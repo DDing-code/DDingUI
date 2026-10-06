@@ -113,6 +113,8 @@ local function SyncProxyAnchors()
             -- [핵심 3대 그룹] 크기는 LayoutGroup (GroupRenderer.lua)에서 직접 proxy:SetSize 호출
             -- 여기서 중복 호출하면 mover hookscript와 경쟁하여 깜빡임 유발
             -- __cdmIconWidth만 미러링
+            -- [REFACTOR] 아이콘 줄 폭은 그룹 렌더러만 정한다. 여기서는 복사만 한다
+            -- (예전: 컨테이너 폭·iconSize를 대입해 막대 폭 의미가 바뀌었음).
             proxy.__cdmIconWidth = groupFrame.__cdmIconWidth
             -- [FIX] GroupRenderer가 아직 LayoutGroup을 실행하지 않아 proxy가 1x1이면
             -- groupFrame 크기 또는 DB iconSize fallback 적용 (프록시 "없음" 방지)
@@ -120,14 +122,12 @@ local function SyncProxyAnchors()
                 local gw, gh = groupFrame:GetWidth(), groupFrame:GetHeight()
                 if gw and gw > 1 and gh and gh > 1 then
                     proxy:SetSize(gw, gh)
-                    proxy.__cdmIconWidth = gw
                 else
-                    -- groupFrame도 아직 크기 없으면 DB 기반 fallback
+                    -- groupFrame도 아직 크기 없으면 DB 기반 fallback (프록시 크기만)
                     local viewerSettings = DDingUI.db and DDingUI.db.profile
                         and DDingUI.db.profile.viewers and DDingUI.db.profile.viewers[viewerName]
                     local iconSize = viewerSettings and viewerSettings.iconSize or 32
                     proxy:SetSize(iconSize, iconSize)
-                    proxy.__cdmIconWidth = iconSize
                 end
             end
             local gsEnabled = DDingUI.db and DDingUI.db.profile.groupSystem and DDingUI.db.profile.groupSystem.enabled

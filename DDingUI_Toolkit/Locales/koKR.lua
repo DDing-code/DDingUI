@@ -1076,7 +1076,8 @@ L["NOTEPAD_NO"] = "아니오"
 -- CombatTimer Extended
 -- ==========================================
 L["COMBATTIMER_DISPLAY_SETTINGS"] = "표시 설정"
-L["COMBATTIMER_SHOW_MS"] = "밀리초 표시 (.XX)"
+L["COMBATTIMER_SHOW_MS"] = "밀리초 표시"
+L["COMBATTIMER_DECIMAL_PLACES"] = "소수점 자리수"
 L["COMBATTIMER_SHOW_BG"] = "배경 표시"
 L["COMBATTIMER_COLOR_BY_TIME"] = "시간대별 색상 변경 (30초/60초/120초)"
 L["COMBATTIMER_FONT_SETTINGS"] = "글꼴 설정"

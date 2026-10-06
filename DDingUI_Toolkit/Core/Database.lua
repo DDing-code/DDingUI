@@ -299,6 +299,7 @@ ns.defaults = {
         -- CombatTimer 설정
         CombatTimer = {
             showMilliseconds = true,
+            decimalPlaces = 2,
             showBackground = false,
             colorByTime = false,
             locked = false,
