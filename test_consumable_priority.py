@@ -129,8 +129,33 @@ def main():
         health=c:CreateDraft("health")
         stats=c:CreateDraft("stat")
         assert(ids(health)=="271884,271883,241304,241305")
-        assert(ids(stats)=="245898,245897,241308,241309,245902,245903,241288,241289")
+        assert(ids(stats)=="245898,245897,241308,241309,245902,245903,241288,241289,274764,274763,271887,271886")
         assert(locale["Stat Potions"]=="스탯 물약")
+        assert(locale["Liquid Luster"]=="액화 광택제" and locale["Fleeting Liquid Luster"]=="덧없는 액화 광택제")
+        for _,fleetingFirst in ipairs({true,false}) do
+            for _,highRankFirst in ipairs({true,false}) do
+                local luster=c:CreateDraft("stat")
+                luster.enabled.light=false;luster.enabled.recklessness=false
+                luster.fleetingFirst=fleetingFirst;luster.highRankFirst=highRankFirst
+                luster.ids=c:BuildIDs(luster)
+                local regular=highRankFirst and {271887,271886} or {271886,271887}
+                local fleeting=highRankFirst and {274764,274763} or {274763,274764}
+                local first,second=regular,fleeting
+                if fleetingFirst then first,second=fleeting,regular end
+                assert(ids(luster)==table.concat({first[1],first[2],second[1],second[2]},","))
+                local payload=c:BuildPayload(luster)
+                assert(c:GetKind(payload)=="stat")
+                luster.itemCountMode="total";payload=c:BuildPayload(luster)
+                bag={}
+                for _,id in ipairs(luster.ids) do bag[id]=2 end
+                for index,id in ipairs(luster.ids) do
+                    local selected,own,total=ci:GetPreferredItem(payload)
+                    assert(selected==id and own==2 and total==(5-index)*2)
+                    bag[id]=nil
+                end
+                assert(ci:GetPreferredItem(payload)==payload.id)
+            end
+        end
         local mana=c:CreateDraft("mana")
         assert(not mana.healerOnly, "existing display behavior stays the default")
         assert(ids(mana)=="245916,245917,241300,241301")
@@ -150,7 +175,7 @@ def main():
         assert(not c:GetKind({type="spell",id=241308}))
         assert(not c:GetKind({type="item",id=241308,settings={fallbackItems="5512"}}))
         stats.fleetingFirst=false;stats.ids=c:BuildIDs(stats)
-        assert(ids(stats)=="241308,241309,245898,245897,241288,241289,245902,245903")
+        assert(ids(stats)=="241308,241309,245898,245897,241288,241289,245902,245903,271887,271886,274764,274763")
         stats.highRankFirst=false;stats.ids=c:BuildIDs(stats)
         assert(stats.ids[1]==241309 and stats.ids[2]==241308 and stats.ids[3]==245897)
         stats.order={"recklessness","light"};stats.enabled.light=false;stats.ids=c:BuildIDs(stats)
@@ -190,10 +215,14 @@ def main():
         old={type="item",id=241308,key="stable",uid="keep",settings={fallbackItems="245898,245897,241309",iconSize=42}}
         local legacy=c:CreateDraft("stat",old)
         assert(ids(legacy)=="241308,245898,245897,241309")
-        assert(legacy.enabled.light and not legacy.enabled.recklessness)
+        assert(legacy.enabled.light and not legacy.enabled.recklessness and not legacy.enabled.luster)
         assert(c:BuildPayload(legacy).settings.fallbackItems==old.settings.fallbackItems)
 
         -- Actual native UI widgets/callbacks, including cancellation and live bag preview.
+        c:Show("health",nil,function()error("cancel must not apply")end)
+        w=DDingUI_ConsumablePriority
+        assert(not w.families[3].enabled:IsShown() and w:GetHeight()==658)
+        click(w.cancel)
         bag={[245897]=4,[241308]=6,[245902]=3};c:Show("stat",nil,function(payload)applied=payload;return true end)
         w=DDingUI_ConsumablePriority
         assertAboveWorkspace(w)
@@ -203,8 +232,18 @@ def main():
         selectCount(w,"total")
         assert(w.preview:GetText():find(string.format(locale["Icon count: %d"],13),1,true))
         assert(w.entries[2].count:GetText()==string.format(locale["%d in bags"],4))
-        assert(w.families[1].up.enabled==false and w.families[2].down.enabled==false)
-        assert(requests[245898] and requests[241289] and #UISpecialFrames==1)
+        assert(w.families[1].up.enabled==false and w.families[3].down.enabled==false)
+        assert(w.families[3].enabled:IsShown() and w.families[3].enabled.label:GetText():find("액화 광택제",1,true))
+        assert(#w.entries==12 and w.entries[12]:IsShown() and w.entries[12].itemID==271886)
+        assert(w:GetHeight()==806 and w.fleeting.point[3]==-200)
+        assert(w.entries[12].point[3]-w.entries[12]:GetHeight()>w.empty.point[3])
+        assert(w.status.point[3]>-w:GetHeight()+44)
+        assert(requests[245898] and requests[241289] and requests[274764] and requests[271886] and #UISpecialFrames==1)
+        click(w.families[3].up);click(w.families[2].up)
+        assert(w.draft.ids[1]==274764)
+        click(w.families[1].down);click(w.families[2].down)
+        assert(w.draft.order[3]=="luster")
+        click(w.families[3].enabled.box)
         click(w.families[2].up);assert(w.draft.ids[1]==245902)
         click(w.fleeting.box);assert(w.draft.ids[1]==241288)
         click(w.rank.box);assert(w.draft.ids[1]==241289)
@@ -223,6 +262,7 @@ def main():
         c:Show("health",nil,function()error("cancel must not apply")end)
         assertAboveWorkspace(w)
         assert(not w.fleeting:IsShown() and not w.entries[5]:IsShown())
+        assert(not w.families[3].enabled:IsShown() and not w.families[3].up:IsShown() and w:GetHeight()==658)
         click(w.cancel);assert(not w:IsShown())
 
         -- Mana owns a separate window and draft even while the stat window is open.
@@ -388,7 +428,7 @@ def main():
         click(w.quality.box)
         click(w.apply)
         local new=addon.db.profile.dynamicIcons.iconData.added
-        assert(added==1 and new.id==245898 and new.settings.fallbackItems=="245897,241308,241309,245902,245903,241288,241289")
+        assert(added==1 and new.id==245898 and new.settings.fallbackItems=="245897,241308,241309,245902,245903,241288,241289,274764,274763,271887,271886")
         assert(new.settings.itemCountMode=="total")
         assert(new.settings.showItemQuality==false)
         assert(addedToken=="added" and addedRefresh=="added")
@@ -515,7 +555,33 @@ def main():
         ci:AddDynamicIcon({key="unfiltered",type="item",id=241300,settings={}})
         assert(newFrameCount==2)
     ''')
+    # Run the real potion overlay: all four variants must start and expire together.
+    lua.execute((ROOT / 'DDingUI_CDM/Modules/CustomIcons/ActiveEffectOverlay.lua').read_text(encoding='utf-8-sig'), 'test', ns)
+    lua.execute('''
+        local overlay=addon.CustomIconActiveEffectOverlay
+        ci.RefreshDynamicIcon=function()end
+        addon.db.profile.dynamicIcons.iconData={}
+        clockTime=0
+        for _,id in ipairs({274764,274763,271887,271886}) do
+            local key="luster"..id
+            local data={key=key,type="item",id=id,settings={}}
+            addon.db.profile.dynamicIcons.iconData[key]=data
+            assert(overlay:IsConsumableItem(id) and overlay:SupportsActiveEffect(id))
+        end
+        overlay:MarkDirty()
+        assert(not overlay:HandleSpellcast(SECRET) and not overlay:HandleSpellcast(1236994))
+        assert(overlay:HandleSpellcast(1295132))
+        for _,time in ipairs({0,29.99,30}) do
+            clockTime=time
+            for _,data in pairs(addon.db.profile.dynamicIcons.iconData) do
+                assert(overlay:IsProcActive(data)==(time<30))
+                assert(overlay:ShouldSuppressBaseCooldown(data)==(time<30))
+            end
+        end
+    ''')
     for file in ('DDingUI_CDM/Modules/CustomIcons/CustomIcons.lua',
+                 'DDingUI_CDM/Modules/CustomIcons/ActiveEffectOverlay.lua',
+                 'DDingUI_CDM/Modules/GroupSystem/GroupRenderer.lua',
                  'DDingUI_CDM_Option/ConsumableOptions.lua', 'DDingUI_CDM_Option/GroupSystemOptions.lua',
                  'DDingUI_CDM_Option/DynamicIconsUI.lua', 'DDingUI_CDM_Option/Locales/enUS.lua',
                  'DDingUI_CDM_Option/Locales/koKR.lua'):

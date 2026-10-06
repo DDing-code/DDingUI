@@ -8,6 +8,7 @@ DDingUI.CustomIconActiveEffectOverlay = ActiveEffectOverlay
 local GOLD = { 1, 0.776, 0.376, 0.7 }
 local LIGHTS_POTENTIAL_SPELLS = { [1236616] = true }
 local RECKLESSNESS_SPELLS = { [1236994] = true }
+local LIQUID_LUSTER_SPELLS = { [1295132] = true } -- [12.0.1]
 local DEVOURED_DREAMS_SPELLS = { [1239479] = true }
 local INVISIBILITY_SPELLS = {
     [371125] = true,
@@ -25,6 +26,11 @@ local KNOWN_ITEMS = {
     [241289] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
     [245902] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
     [245903] = { duration = 30, spells = RECKLESSNESS_SPELLS, procGlow = true },
+    -- [12.0.1] Liquid Luster uses the existing 30-second potion effect overlay.
+    [271887] = { duration = 30, spells = LIQUID_LUSTER_SPELLS, procGlow = true },
+    [271886] = { duration = 30, spells = LIQUID_LUSTER_SPELLS, procGlow = true },
+    [274764] = { duration = 30, spells = LIQUID_LUSTER_SPELLS, procGlow = true },
+    [274763] = { duration = 30, spells = LIQUID_LUSTER_SPELLS, procGlow = true },
     [241294] = { duration = 10, spells = DEVOURED_DREAMS_SPELLS, procGlow = true },
     [241302] = { duration = 18, spells = INVISIBILITY_SPELLS },
     [241303] = { duration = 18, spells = INVISIBILITY_SPELLS },

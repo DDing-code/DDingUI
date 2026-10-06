@@ -253,6 +253,11 @@ local ITEM_SPELL_MAP = {
     [241289] = 1236994, -- Potion of Recklessness R1
     [245902] = 1236994, -- Potion of Recklessness alt
     [245903] = 1236994, -- Potion of Recklessness alt
+    -- [12.0.1] Liquid Luster (regular and fleeting ranks).
+    [271887] = 1295132,
+    [271886] = 1295132,
+    [274764] = 1295132,
+    [274763] = 1295132,
     [241300] = 1234770, -- Lightfused Mana Potion R2
     [241301] = 1234770, -- Lightfused Mana Potion R1
     [245917] = 1234770, -- Lightfused Mana Potion alt
