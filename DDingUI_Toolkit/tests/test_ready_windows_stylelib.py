@@ -95,7 +95,47 @@ def test_own_item_icons_are_64px_top_left_tga():
     for name in names:
         path = ROOT / f"Media/ReadyStatus/ready_{name}.tga"
         header = path.read_bytes()[:18]
-        assert header[2] == 2 and header[16] in (24, 32), name  # uncompressed true-colour
+        assert header[2] == 2 and header[16] == 32, name  # uncompressed RGBA
         assert header[17] & 0x20, f"{name}: TGA origin must be top-left"
         with Image.open(path) as image:
-            assert image.size == (64, 64), name
+            assert image.size == (64, 64) and image.mode == "RGBA", name
+            alpha = image.getchannel("A")
+            # line glyph on a transparent background, like Media/Navigation
+            assert alpha.getpixel((0, 0)) == 0 and alpha.getextrema() == (0, 255), name
+        assert (ROOT / f"Media/ReadyStatus/ready_{name}.svg").exists(), name
+
+
+def test_own_line_icons_sit_in_a_padded_well_tinted_by_state():
+    lua = stylelib_runtime()
+    lua.execute('''
+        local RS = ns.ReadyStatus
+        local cell = RS.CreateIcon(UIParent, RS.RAID_ICON)
+        cell:SetIcon(RS.ITEM_ICONS.flask)
+        assert(cell.own and cell.well:IsShown(), "dark well behind the line glyph")
+        local function inset(c) local a = c.icon.points.TOPLEFT; return a[3], a[4] end
+        local x, y = inset(cell)
+        assert(x == 5 and y == -5, "32px cell pads the glyph by 5px: " .. tostring(x))
+        -- no state: normal text colour, no tint
+        local normal = RS.Token("text", "normal")
+        local r, g, b = cell.icon:GetVertexColor()
+        assert(math.abs(r - normal[1]) < 1e-6 and math.abs(b - normal[3]) < 1e-6)
+        assert(not cell.wellTint:IsShown())
+        -- missing: red glyph + red tint
+        cell:SetState("bad")
+        local bad = RS.Color("bad")
+        r, g, b = cell.icon:GetVertexColor()
+        assert(math.abs(r - bad[1]) < 1e-6 and math.abs(g - bad[2]) < 1e-6)
+        assert(cell.wellTint:IsShown())
+        -- a live game icon (e.g. the actual food buff) goes back to the cropped full-colour look
+        cell:SetIcon(134062)
+        assert(not cell.own and not cell.well:IsShown() and not cell.wellTint:IsShown())
+        r, g, b = cell.icon:GetVertexColor()
+        assert(r == 1 and g == 1 and b == 1)
+        x = inset(cell)
+        assert(x == 1)
+        -- 24px personal rows pad by 4px
+        local small = RS.CreateIcon(UIParent, RS.PERSONAL_ICON)
+        small:SetIcon(RS.ITEM_ICONS.durability)
+        x = inset(small)
+        assert(x == 4, tostring(x))
+    ''')

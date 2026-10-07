@@ -14,7 +14,8 @@ RS.RAID_ICON = 32
 RS.PERSONAL_ICON = 24
 RS.BADGE = 16
 
--- [STYLE] Toolkit's own item icons (64x64 TGA, painted in the in-game icon style, no built-in border).
+-- [STYLE] Toolkit's own item icons: white 64x64 line glyphs in the series navigation style
+-- (stroke 4.25, round caps, transparent), tinted by state inside a dark cell.
 local ICON_PATH = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\ReadyStatus\\ready_"
 RS.ITEM_ICONS = {
     food = ICON_PATH .. "food",
@@ -133,6 +134,15 @@ function RS.CreateIcon(parent, size)
     cell:SetSize(size, size)
     cell.size = size
 
+    -- [STYLE] dark well + state tint behind line glyphs (hidden for game icons)
+    cell.well = cell:CreateTexture(nil, "BACKGROUND")
+    cell.well:SetPoint("TOPLEFT", 1, -1)
+    cell.well:SetPoint("BOTTOMRIGHT", -1, 1)
+    cell.well:Hide()
+    cell.wellTint = cell:CreateTexture(nil, "BORDER")
+    cell.wellTint:SetAllPoints(cell.well)
+    cell.wellTint:Hide()
+
     cell.icon = cell:CreateTexture(nil, "ARTWORK")
     cell.icon:SetPoint("TOPLEFT", 1, -1)
     cell.icon:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -160,16 +170,42 @@ function RS.CreateIcon(parent, size)
     badge:Hide()
     cell.badge = badge
 
+    --- Glyph colour: state colour for ok/warn/bad, normal text otherwise; game icons stay white.
+    function cell:ApplyGlyphColor()
+        if self.own then
+            local color = STATE_TOKEN[self.state] and RS.Color(self.state) or Token("text", "normal")
+            self.icon:SetVertexColor(Unpack(color, 1))
+            if STATE_TOKEN[self.state] then
+                self.wellTint:SetColorTexture(Unpack(color, 0.14))
+                self.wellTint:Show()
+            else
+                self.wellTint:Hide()
+            end
+        else
+            self.icon:SetVertexColor(1, 1, 1, 1)
+            self.wellTint:Hide()
+        end
+    end
+
     function cell:SetIcon(texture)
         self.icon:SetTexture(texture or 134400)
-        -- game icons carry a baked border, so crop 8%; our own icons are full-bleed
-        if not self.round then
-            if IsOwnIcon(texture) then
-                self.icon:SetTexCoord(0, 1, 0, 1)
-            else
-                self.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            end
+        if self.round then return end
+        self.own = IsOwnIcon(texture)
+        local inset = self.own and math.floor(self.size * 0.16 + 0.5) or 1
+        self.icon:ClearAllPoints()
+        self.icon:SetPoint("TOPLEFT", inset, -inset)
+        self.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
+        if self.own then
+            -- line glyph: whole texture, padded inside a dark well
+            self.icon:SetTexCoord(0, 1, 0, 1)
+            self.well:SetColorTexture(Unpack(Token("bg", "input"), 1))
+            self.well:Show()
+        else
+            -- game icons carry a baked border, so crop 8%
+            self.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            self.well:Hide()
         end
+        self:ApplyGlyphColor()
     end
 
     function cell:SetRound(round)
@@ -188,6 +224,7 @@ function RS.CreateIcon(parent, size)
             edge:SetColorTexture(Unpack(color))
             edge:SetShown(not self.round)
         end
+        self:ApplyGlyphColor()
     end
 
     function cell:SetBadge(count, state)
