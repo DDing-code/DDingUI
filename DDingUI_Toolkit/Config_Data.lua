@@ -589,7 +589,6 @@ function ns:InitConfigTree()
 
             { type = "header", label = L["RCA_CHECK_SETTINGS"] },
             { type = "slider", key = "profile.ReadyCheckAssistant.minDurabilityPercent", label = L["RCA_MIN_DURABILITY"], min = 5, max = 100, step = 5, onChange = RefreshReadyCheckAssistant },
-            { type = "toggle", key = "profile.ReadyCheckAssistant.showLowSlots", label = L["RCA_SHOW_LOW_SLOTS"], onChange = RefreshReadyCheckAssistant },
             { type = "toggle", key = "profile.ReadyCheckAssistant.hideInCombat", label = L["RCA_HIDE_IN_COMBAT"], onChange = RefreshReadyCheckAssistant },
 
             { type = "header", label = L["RCA_LOADOUT_SETTINGS"] },
@@ -609,12 +608,14 @@ function ns:InitConfigTree()
             { type = "header", label = L["RCA_REPORT_SETTINGS"] },
             { type = "toggle", key = "profile.ReadyCheckAssistant.autoReport", label = L["RCA_AUTO_REPORT"] },
             { type = "toggle", key = "profile.ReadyCheckAssistant.reportOnlyProblems", label = L["RCA_REPORT_ONLY_PROBLEMS"] },
-            { type = "toggle", key = "profile.ReadyCheckAssistant.showReportButton", label = L["RCA_SHOW_REPORT_BUTTON"], onChange = RefreshReadyCheckAssistant },
+            -- [STYLE] "파티에 알림" moved here from the panel (the panel has no buttons)
+            { type = "button", label = L["RCA_REPORT_BUTTON"], desc = L["RCA_REPORT_NOW_DESC"], onClick = function()
+                local mod = ns.modules and ns.modules["ReadyCheckAssistant"]
+                if mod and mod.SendReport then mod:SendReport(false) end
+            end },
             { type = "text", label = L["RCA_REPORT_NOTE"] },
 
             { type = "header", label = L["RCA_DISPLAY_SETTINGS"] },
-            { type = "toggle", key = "profile.ReadyCheckAssistant.showOpenTalentsButton", label = L["RCA_SHOW_TALENTS_BUTTON"], onChange = RefreshReadyCheckAssistant },
-            { type = "slider", key = "profile.ReadyCheckAssistant.width", label = L["RCA_PANEL_WIDTH"], min = 560, max = 900, step = 5, onChange = RefreshReadyCheckAssistant },
             { type = "slider", key = "profile.ReadyCheckAssistant.scale", label = L["SCALE"], min = 0.6, max = 1.8, step = 0.05, onChange = RefreshReadyCheckAssistant },
             { type = "dropdown", key = "profile.ReadyCheckAssistant.anchorSide", label = L["RCA_ANCHOR_SIDE"], options = {
                 { text = L["RCA_ANCHOR_BELOW"], value = "BELOW" },

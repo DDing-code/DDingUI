@@ -9,27 +9,17 @@ local ReadyCheckAssistant = {}
 ns.ReadyCheckAssistant = ReadyCheckAssistant
 
 local DEFAULT_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
-local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
-local P = ns.UI and ns.UI.popupColors or {
-    background = { 0.10, 0.10, 0.10, 0.985 }, control = { 0.06, 0.06, 0.06, 0.94 },
-    hover = { 0.14, 0.14, 0.15, 0.96 }, footer = { 0.075, 0.075, 0.08, 0.98 },
-    border = { 0.30, 0.30, 0.32, 0.82 }, borderSoft = { 0.25, 0.25, 0.25, 0.50 },
-    separator = { 0.20, 0.20, 0.20, 0.40 }, accent = { 0.16, 0.58, 0.68, 0.80 },
-    accentText = { 0.42, 0.76, 0.82, 1 }, primary = { 0.09, 0.18, 0.20, 0.98 },
-    primaryHover = { 0.11, 0.23, 0.26, 1 }, primaryBorder = { 0.16, 0.50, 0.57, 0.84 },
-    primaryBorderHover = { 0.20, 0.62, 0.70, 0.94 }, text = { 0.85, 0.85, 0.85, 1 },
-    textBright = { 1, 1, 1, 1 }, textDim = { 0.60, 0.60, 0.60, 1 },
-}
 local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
-local PANEL_HEIGHT = 340
-local COMPACT_PANEL_HEIGHT = 286
-local ACTION_BUTTON_HEIGHT = 31
-local ICON_PATH = "Interface\\AddOns\\DDingUI_Toolkit\\Media\\ReadyCheckIcons.tga"
-local ICONS = { alert = 0, check = 1, close = 2, talent = 3, repair = 4, chat = 5, open = 6,
-    flask = 7, food = 8, rune = 9, weapon = 10, spec = 11 }
-local READY_COLOR = { 0.51, 0.78, 0.64, 1 }
-local WARNING_COLOR = { 0.89, 0.73, 0.47, 1 }
-local REPAIR_COLOR = { 0.93, 0.58, 0.53, 1 }
+-- [STYLE] Compact checklist (series mock-up E): 300 wide, rounded 14, series title bar, six fixed
+-- 26px rows (talents + five checks), no buttons. Shared visuals: UI/ReadyStatus.lua.
+local PANEL_WIDTH = 300
+local TITLE_HEIGHT = 28
+local ROW_HEIGHT = 26
+local ROWS_TOP = TITLE_HEIGHT + 26 -- title bar + pill row
+local PANEL_HEIGHT = ROWS_TOP + 6 * ROW_HEIGHT + 10
+-- [STYLE] Toolkit's own item icons; game icons are the fallback when UI/ReadyStatus.lua is absent.
+local OWN_ICONS = ns.ReadyStatus and ns.ReadyStatus.ITEM_ICONS or {}
+local DURABILITY_ICON = OWN_ICONS.durability or "Interface\\Icons\\Trade_BlackSmithing"
 
 local active = false
 local editPreview = false
@@ -105,111 +95,14 @@ local function EnsureDB()
     return profile.ReadyCheckAssistant
 end
 
-local function SetBackdrop(target, background, border)
-    target:SetBackdrop({
-        bgFile = FLAT,
-        edgeFile = FLAT,
-        edgeSize = 1,
-    })
-    target:SetBackdropColor(unpack(background))
-    target:SetBackdropBorderColor(unpack(border))
-end
+local function RS() return ns.ReadyStatus end
 
+-- Every label is 12pt or larger; fontSizes lets OnMediaChanged re-apply the StyleLib font.
 local function AddText(parent, size, color, text)
-    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label:SetFont(DEFAULT_FONT, size, "")
-    label:SetShadowOffset(1, -1)
-    label:SetShadowColor(0, 0, 0, 0.5)
-    label:SetTextColor(unpack(color))
-    label:SetJustifyH("LEFT")
-    label:SetJustifyV("MIDDLE")
-    label:SetWordWrap(false)
-    label:SetText(text or "")
-    frame.fontSizes[label] = size
+    local label = RS().Text(parent, size, color, text)
+    label:SetFont(DEFAULT_FONT, math.max(12, size), "")
+    frame.fontSizes[label] = math.max(12, size)
     return label
-end
-
-local function SetIcon(texture, name, color)
-    local index = ICONS[name]
-    texture:SetTexture(ICON_PATH)
-    texture:SetTexCoord(index / 16, (index + 1) / 16, 0, 1)
-    texture:SetVertexColor(unpack(color))
-end
-
-local function AddIcon(parent, name, size, color)
-    local icon = parent:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(size, size)
-    SetIcon(icon, name, color)
-    return icon
-end
-
-local function SetCheckStatus(label, icon, text, symbol, color)
-    label:SetText(text)
-    label:SetTextColor(unpack(color))
-    label:SetWidth(label:GetStringWidth())
-    icon:SetShown(symbol ~= nil)
-    if symbol then SetIcon(icon, symbol, color) end
-end
-
-local function CreatePanelButton(parent, label, symbol)
-    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    button:SetSize(200, ACTION_BUTTON_HEIGHT)
-    button:RegisterForClicks("LeftButtonUp")
-
-    button.label = AddText(button, 12, P.text, label)
-    button.label:SetPoint("CENTER", 10, 0)
-    button.label:SetJustifyH("CENTER")
-    button.icon = AddIcon(button, symbol, 14, P.text)
-    button.icon:SetPoint("RIGHT", button.label, "LEFT", -7, 0)
-
-    local function ApplyVisual(state)
-        if button.primary then
-            if state == "pressed" then
-                SetBackdrop(button, P.primary, P.primaryBorder)
-            elseif state == "hover" then
-                SetBackdrop(button, P.primaryHover, P.primaryBorderHover)
-            else
-                SetBackdrop(button, P.primary, P.primaryBorder)
-            end
-            button.label:SetTextColor(unpack(P.textBright))
-        else
-            if state == "pressed" then
-                SetBackdrop(button, P.control, P.borderSoft)
-            elseif state == "hover" then
-                SetBackdrop(button, P.hover, P.border)
-            else
-                SetBackdrop(button, P.control, P.borderSoft)
-            end
-            button.label:SetTextColor(unpack(P.text))
-        end
-    end
-
-    function button:SetPrimary(primary)
-        self.primary = primary
-        ApplyVisual(self._hovered and "hover" or "normal")
-    end
-
-    button:SetScript("OnEnter", function(self)
-        self._hovered = true
-        ApplyVisual("hover")
-    end)
-    button:SetScript("OnLeave", function(self)
-        self._hovered = false
-        ApplyVisual("normal")
-    end)
-    button:SetScript("OnMouseDown", function()
-        ApplyVisual("pressed")
-    end)
-    button:SetScript("OnMouseUp", function(self)
-        ApplyVisual(self._hovered and "hover" or "normal")
-    end)
-    button:SetScript("OnHide", function(self)
-        self._hovered = false
-        ApplyVisual("normal")
-    end)
-
-    ApplyVisual("normal")
-    return button
 end
 
 local function NormalizeExpectedName(value)
@@ -356,10 +249,10 @@ end
 
 
 local CONSUMABLES = {
-    { key = "flask", label = "RAIDPREP_COLUMN_FLASK", icon = 134830 },
-    { key = "food", label = "RAIDPREP_COLUMN_FOOD", icon = 134062 },
-    { key = "rune", label = "RAIDPREP_COLUMN_RUNE", icon = 134419 },
-    { key = "weapon", label = "RAIDPREP_COLUMN_WEAPON", icon = 135274 },
+    { key = "flask", label = "RAIDPREP_COLUMN_FLASK", icon = OWN_ICONS.flask or 134830 },
+    { key = "food", label = "RAIDPREP_COLUMN_FOOD", icon = OWN_ICONS.food or 134062 },
+    { key = "rune", label = "RAIDPREP_COLUMN_RUNE", rowLabel = "RCA_ROW_RUNE", icon = OWN_ICONS.rune or 134419 },
+    { key = "weapon", label = "RAIDPREP_COLUMN_WEAPON", icon = OWN_ICONS.weapon or 135274 },
 }
 
 function ReadyCheckAssistant:GetConsumables()
@@ -401,17 +294,19 @@ function ReadyCheckAssistant:GetConsumables()
     return result
 end
 
+--- text, state ("ok" | "warn" | "bad" | nil = unknown)
 local function ConsumableStatus(item)
-    if not item or item.value == nil then return L["RCA_CHECK_UNKNOWN"], P.textDim end
-    if item.value == false then return L["RCA_MISSING"], WARNING_COLOR end
+    if not item or item.value == nil then return L["RCA_CHECK_UNKNOWN"], nil end
+    if item.value == false then return L["RCA_MISSING"], "bad" end
     if item.remaining then
-        if item.remaining <= 0 then return L["RCA_MISSING"], WARNING_COLOR end
+        if item.remaining <= 0 then return L["RCA_MISSING"], "bad" end
         if item.remaining < 60 then
-            return string.format(L["RCA_SECONDS_LEFT"], math.ceil(item.remaining)), WARNING_COLOR
+            return string.format(L["RCA_SECONDS_LEFT"], math.ceil(item.remaining)), "warn"
         end
-        return string.format(L["RCA_MINUTES_LEFT"], math.floor(item.remaining / 60)), READY_COLOR
+        return string.format(L["RCA_MINUTES_LEFT"], math.floor(item.remaining / 60)), item.value == "LOW" and "warn" or "ok"
     end
-    return L["RCA_ACTIVE"], READY_COLOR
+    if item.value == "LOW" then return L["RAIDPREP_LOW"], "warn" end
+    return L["RCA_ACTIVE"], "ok"
 end
 
 function ReadyCheckAssistant:CollectSnapshot()
@@ -454,145 +349,97 @@ function ReadyCheckAssistant:CollectSnapshot()
     }
 end
 
+local function OpenTalents()
+    if SafeBooleanCall(InCombatLockdown) then return end
+    if PlayerSpellsUtil and PlayerSpellsUtil.TogglePlayerSpellsFrame then
+        pcall(PlayerSpellsUtil.TogglePlayerSpellsFrame, 2)
+    end
+end
+ReadyCheckAssistant.OpenTalents = OpenTalents
+
+local function ShowRowTooltip(row)
+    if not GameTooltip or not row.tooltipTitle then return end
+    local styles = RS()
+    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(row.tooltipTitle, styles.RGB(styles.Token("text", "highlight")))
+    for _, line in ipairs(row.tooltipLines or {}) do
+        GameTooltip:AddLine(line, styles.RGB(styles.Token("text", "normal")))
+    end
+    if row.clickHint then
+        GameTooltip:AddLine(row.clickHint, styles.RGB(styles.Color(nil)))
+    end
+    GameTooltip:Show()
+end
+
 function ReadyCheckAssistant:CreateFrame()
     if frame then return frame end
+    local styles = RS()
 
     frame = CreateFrame("Frame", "DDingToolKit_ReadyCheckAssistantFrame", UIParent, "BackdropTemplate")
     frame.fontSizes = {}
-    frame:SetSize(720, PANEL_HEIGHT)
+    frame:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
     frame:SetFrameStrata("HIGH")
     frame:SetClampedToScreen(true)
     frame:EnableMouse(false)
-    SetBackdrop(frame, P.background, P.border)
+    styles.Round(frame, styles.Radius("window", 14), styles.Token("bg", "main"), styles.Token("border", "default"))
 
-    local function Text(key, size, color, text, x, y, width)
-        local label = AddText(frame, size, color, text)
-        label:SetPoint("TOPLEFT", x, -y)
-        label:SetHeight(size + 6)
-        if width then
-            label:SetWidth(width)
-        else
-            label:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -16, -y)
-        end
-        frame[key] = label
-        return label
-    end
-
-    frame.headerBackground = frame:CreateTexture(nil, "BACKGROUND")
-    frame.headerBackground:SetPoint("TOPLEFT", 1, -1)
-    frame.headerBackground:SetPoint("TOPRIGHT", -1, -1)
-    frame.headerBackground:SetHeight(37)
-    frame.headerBackground:SetColorTexture(unpack(P.header or P.hover))
-
-    Text("title", 13, P.textBright, L["RCA_PANEL_TITLE"], 16, 10)
-    frame.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -142, -10)
-    frame.context = AddText(frame, 11, P.textDim)
-    frame.context:SetPoint("TOPRIGHT", -48, -10)
-    frame.context:SetSize(80, 18)
-    frame.context:SetJustifyH("RIGHT")
-
-    frame.closeButton = CreateFrame("Button", nil, frame)
-    frame.closeButton:SetSize(24, 24)
-    frame.closeButton:SetPoint("TOPRIGHT", -11, -7)
-    frame.closeButton.icon = AddIcon(frame.closeButton, "close", 16, P.textDim)
-    frame.closeButton.icon:SetPoint("CENTER")
-    frame.closeButton:SetHighlightTexture(FLAT)
-    frame.closeButton:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
-    frame.closeButton:SetScript("OnClick", function()
+    local function Close()
         editPreview = false
         ReadyCheckAssistant:Hide()
-    end)
-
-    frame.statusBackground = frame:CreateTexture(nil, "BACKGROUND")
-    frame.statusBackground:SetPoint("TOPLEFT", 1, -39)
-    frame.statusBackground:SetPoint("TOPRIGHT", -1, -39)
-    frame.statusBackground:SetHeight(64)
-    frame.accent = frame:CreateTexture(nil, "ARTWORK")
-    frame.accent:SetPoint("TOPLEFT", 1, -39)
-    frame.accent:SetSize(3, 64)
-    frame.statusIcon = AddIcon(frame, "check", 25, READY_COLOR)
-    frame.statusIcon:SetPoint("TOPLEFT", 20, -58)
-    Text("statusText", 18, P.textBright, "", 57, 51)
-    Text("statusDetail", 11, P.textDim, "", 57, 77)
-
-    frame.specIcon = frame:CreateTexture(nil, "ARTWORK")
-    frame.specIcon:SetPoint("TOPLEFT", 16, -113)
-    frame.specIcon:SetSize(24, 24)
-    Text("specText", 13, P.accentText, "", 49, 113, 112)
-    Text("loadoutText", 12, P.text, "", 171, 113)
-    Text("expectedText", 11, P.textDim, "", 49, 140)
-    frame.loadoutStatus = AddText(frame, 11, P.textDim)
-    frame.loadoutStatus:SetPoint("TOPRIGHT", -16, -140)
-    frame.loadoutStatus:SetHeight(18)
-    frame.loadoutStatus:SetJustifyH("RIGHT")
-    frame.loadoutStatusIcon = AddIcon(frame, "check", 13, READY_COLOR)
-    frame.loadoutStatusIcon:SetPoint("RIGHT", frame.loadoutStatus, "LEFT", -5, 0)
-
-    for _, y in ipairs({38, 164}) do
-        local line = frame:CreateTexture(nil, "ARTWORK")
-        line:SetPoint("TOPLEFT", 16, -y)
-        line:SetPoint("TOPRIGHT", -16, -y)
-        line:SetHeight(1)
-        line:SetColorTexture(0.20, 0.20, 0.21, 1)
     end
-    frame.cells = {}
-    for index = 1, 5 do
-        local cell = CreateFrame("Frame", nil, frame)
-        cell:EnableMouse(true)
-        cell.icon = cell:CreateTexture(nil, "ARTWORK")
-        cell.icon:SetPoint("TOP", cell, "TOP", 0, 0)
-        cell.icon:SetSize(32, 32)
-        cell.label = AddText(cell, 12, P.text)
-        cell.label:SetPoint("TOPLEFT", 4, -40)
-        cell.label:SetPoint("TOPRIGHT", -4, -40)
-        cell.label:SetHeight(18)
-        cell.label:SetJustifyH("CENTER")
-        cell.value = AddText(cell, 11, P.textDim)
-        cell.value:SetPoint("TOPLEFT", 4, -63)
-        cell.value:SetPoint("TOPRIGHT", -4, -63)
-        cell.value:SetHeight(18)
-        cell.value:SetJustifyH("CENTER")
-        cell.label:SetText(index == 5 and L["RAIDPREP_COLUMN_DURABILITY"] or L[CONSUMABLES[index].label])
-        if index > 1 then
-            cell.divider = cell:CreateTexture(nil, "ARTWORK")
-            cell.divider:SetPoint("TOPLEFT", 0, 0)
-            cell.divider:SetSize(1, 82)
-            cell.divider:SetColorTexture(0.20, 0.20, 0.21, 1)
-        end
-        cell:SetScript("OnEnter", function()
-            if not GameTooltip then return end
-            GameTooltip:SetOwner(cell, "ANCHOR_TOP")
-            GameTooltip:SetText(cell.label:GetText())
-            GameTooltip:AddLine(cell.tooltip or cell.value:GetText(), 0.85, 0.85, 0.85, true)
-            GameTooltip:Show()
-        end)
-        cell:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-        frame.cells[index] = cell
+
+    -- Series title bar: logo rings + "DDingUI Toolkit · 준비 점검" + X
+    local title = "DDingUI Toolkit \194\183 " .. L["RCA_PANEL_SHORT"]
+    if SL and SL.CreateTitleBar then
+        local bar = SL.CreateTitleBar(frame, "MJToolkit", title, "", { rounded = true })
+        bar:SetHeight(TITLE_HEIGHT)
+        if bar.verText then bar.verText:Hide() end
+        bar.closeBtn:SetScript("OnClick", Close)
+        frame.titleBar = bar
+        frame.closeButton = bar.closeBtn
+    else
+        frame.titleText = AddText(frame, 12, styles.Token("text", "highlight"), title)
+        frame.titleText:SetPoint("TOPLEFT", 12, -7)
+        frame.closeButton = styles.CreateCloseButton(frame, Close)
+        frame.closeButton:SetPoint("TOPRIGHT", -8, -5)
     end
-    Text("detailText", 11, P.textDim, "", 16, 264)
 
-    frame.footerBackground = frame:CreateTexture(nil, "BACKGROUND")
-    frame.footerBackground:SetPoint("BOTTOMLEFT", 1, 1)
-    frame.footerBackground:SetPoint("BOTTOMRIGHT", -1, 1)
-    frame.footerBackground:SetHeight(53)
-    frame.footerBackground:SetColorTexture(unpack(P.footer))
-    frame.footerDivider = frame:CreateTexture(nil, "ARTWORK")
-    frame.footerDivider:SetPoint("BOTTOMLEFT", 1, 54)
-    frame.footerDivider:SetPoint("BOTTOMRIGHT", -1, 54)
-    frame.footerDivider:SetHeight(1)
-    frame.footerDivider:SetColorTexture(0.20, 0.20, 0.21, 1)
+    -- Pill row: issue count (left), context (right)
+    frame.summaryPill = styles.CreatePill(frame)
+    frame.summaryPill:SetPoint("TOPLEFT", 12, -(TITLE_HEIGHT + 2))
+    frame.contextPill = styles.CreatePill(frame)
+    frame.contextPill:SetPoint("TOPRIGHT", -12, -(TITLE_HEIGHT + 2))
+    frame.fontSizes[frame.summaryPill.text] = 12
+    frame.fontSizes[frame.contextPill.text] = 12
 
-    frame.openTalentsButton = CreatePanelButton(frame, L["RCA_OPEN_TALENTS"], "open")
-    frame.openTalentsButton:SetScript("OnClick", function()
-        if SafeBooleanCall(InCombatLockdown) then return end
-        if PlayerSpellsUtil and PlayerSpellsUtil.TogglePlayerSpellsFrame then
-            pcall(PlayerSpellsUtil.TogglePlayerSpellsFrame, 2)
-        end
-    end)
-    frame.reportButton = CreatePanelButton(frame, L["RCA_REPORT_BUTTON"], "chat")
-    frame.reportButton:SetScript("OnClick", function()
-        ReadyCheckAssistant:SendReport(false)
-    end)
+    -- Rows: talents, flask, food, rune, weapon, durability
+    frame.rows = {}
+    for index = 1, 6 do
+        local row = CreateFrame("Button", nil, frame)
+        row:SetPoint("TOPLEFT", 12, -(ROWS_TOP + (index - 1) * ROW_HEIGHT))
+        row:SetSize(PANEL_WIDTH - 24, ROW_HEIGHT)
+        row.card = styles.RoundFill(row:CreateTexture(nil, "BACKGROUND"), styles.Radius("row", 8))
+        row.card:SetPoint("TOPLEFT", -6, 0)
+        row.card:SetPoint("BOTTOMRIGHT", 6, 0)
+        row.card:Hide()
+        row.cell = styles.CreateIcon(row, styles.PERSONAL_ICON)
+        row.cell:SetPoint("LEFT", 0, 0)
+        row.status = AddText(row, 12, styles.Color(nil), "")
+        row.status:SetPoint("RIGHT", 0, 0)
+        row.status:SetJustifyH("RIGHT")
+        row.label = AddText(row, 12, styles.Token("text", "normal"), "")
+        row.label:SetPoint("LEFT", row.cell, "RIGHT", 10, 0)
+        row.label:SetPoint("RIGHT", row.status, "LEFT", -8, 0)
+        row:EnableMouse(true)
+        row:SetScript("OnEnter", ShowRowTooltip)
+        row:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        frame.rows[index] = row
+    end
+    frame.talentRow = frame.rows[1]
+    frame.talentRow.cell:SetRound(true)
+    frame.talentRow:RegisterForClicks("LeftButtonUp")
+    frame.talentRow:SetScript("OnClick", OpenTalents) -- [STYLE] replaces the "특성 열기" button
+    frame.talentRow.clickHint = L["RCA_TALENT_CLICK_HINT"]
 
     frame:SetScript("OnUpdate", function()
         if readyCheckOpen and not editPreview and GetTime() - shownAt >= 0.25 then
@@ -614,16 +461,10 @@ function ReadyCheckAssistant:ApplySettings()
     if not self.db then return end
     local display = self:CreateFrame()
     local db = self.db
-    local width = Clamp(db.width, 560, 900, 720)
-    db.width = width
-    local showDetails = db.showLowSlots ~= false
-    local showTalentsButton = db.showOpenTalentsButton ~= false
-    local showReportButton = db.showReportButton ~= false
-    local showActions = showTalentsButton or showReportButton
     local anchorSide = db.anchorSide == "ABOVE" and "ABOVE" or "BELOW"
     local readyFrame = _G.ReadyCheckFrame
 
-    display:SetSize(width, showActions and PANEL_HEIGHT or COMPACT_PANEL_HEIGHT)
+    display:SetSize(PANEL_WIDTH, PANEL_HEIGHT) -- fixed height (no optional buttons)
     display:SetScale(Clamp(db.scale, 0.6, 1.8, 1))
     display:ClearAllPoints()
     if readyFrame then
@@ -635,30 +476,7 @@ function ReadyCheckAssistant:ApplySettings()
     else
         display:SetPoint("CENTER", UIParent, "CENTER", Clamp(db.offsetX, -500, 500, 0), Clamp(db.offsetY, -300, 300, -160))
     end
-
-    for index, cell in ipairs(display.cells) do
-        local cellWidth = (width - 32) / 5
-        cell:ClearAllPoints()
-        cell:SetPoint("TOPLEFT", display, "TOPLEFT", 16 + (index - 1) * cellWidth, -178)
-        cell:SetSize(cellWidth, 82)
-    end
-    display.expectedText:ClearAllPoints()
-    display.expectedText:SetPoint("TOPLEFT", 49, -140)
-    display.expectedText:SetSize(width - 235, 18)
     self.consumableScanner = nil
-    display.detailText:SetShown(showDetails)
-    display.openTalentsButton:SetShown(showTalentsButton)
-    display.reportButton:SetShown(showReportButton)
-    display.footerBackground:SetShown(showActions)
-    display.footerDivider:SetShown(showActions)
-
-    display.reportButton:ClearAllPoints()
-    display.openTalentsButton:ClearAllPoints()
-    local buttonWidth = showTalentsButton and showReportButton and (width - 40) / 2 or width - 32
-    display.openTalentsButton:SetWidth(buttonWidth)
-    display.reportButton:SetWidth(buttonWidth)
-    display.openTalentsButton:SetPoint("BOTTOMLEFT", display, "BOTTOMLEFT", 16, 12)
-    display.reportButton:SetPoint("BOTTOMRIGHT", display, "BOTTOMRIGHT", -16, 12)
     self:Refresh()
 end
 
@@ -676,69 +494,85 @@ local function FormatLowSlots(lowSlots, maximum)
     return table.concat(parts, " \194\183 ")
 end
 
+local function SetRow(row, icon, label, status, state)
+    local styles = RS()
+    row.cell:SetIcon(icon)
+    row.cell:SetState(state)
+    row.label:SetText(label)
+    row.status:SetText(status)
+    row.status:SetTextColor(styles.Unpack(styles.Color(state)))
+    row.state = state
+    if state == "bad" or state == "warn" then
+        styles.Tint(row.card, styles.Color(state), 0.10)
+        row.card:Show()
+    else
+        row.card:Hide()
+    end
+end
+
 function ReadyCheckAssistant:Refresh()
     if not frame or not self.db then return end
     local snapshot = self:CollectSnapshot()
     self.snapshot = snapshot
+    local styles = RS()
 
-    frame.context:SetText(L["RCA_CONTEXT_" .. snapshot.context] or snapshot.context)
-    frame.specText:SetText(snapshot.specName)
-    SetIcon(frame.specIcon, "spec", P.accentText)
-    frame.loadoutText:SetText(snapshot.loadoutName)
-    frame.expectedText:SetText(L["RCA_EXPECTED"] .. ": " .. (snapshot.expectedLoadout ~= "" and snapshot.expectedLoadout or L["RCA_NOT_CONFIGURED"]))
-    frame.expectedText:SetTextColor(unpack(snapshot.expectedLoadout ~= "" and P.accentText or P.textDim))
-
-    local talentSummary
-    if not snapshot.loadoutKnown then
-        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_CHECK_UNKNOWN"], "alert", WARNING_COLOR)
-        talentSummary = L["RCA_SUMMARY_UNKNOWN"]
-    elseif snapshot.loadoutMatch == false then
-        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_CHECK_MISMATCH"], "alert", WARNING_COLOR)
-        talentSummary = L["RCA_SUMMARY_MISMATCH"]
-    elseif snapshot.loadoutMatch == true then
-        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_CHECK_MATCH"], "check", READY_COLOR)
-        talentSummary = L["RCA_SUMMARY_MATCH"]
+    frame.contextPill:SetPill(L["RCA_CONTEXT_" .. snapshot.context] or snapshot.context, nil)
+    if snapshot.issueCount > 0 then
+        frame.summaryPill:SetPill(string.format(L["RCA_SUMMARY_ISSUES_FORMAT"], snapshot.issueCount), "warn")
     else
-        SetCheckStatus(frame.loadoutStatus, frame.loadoutStatusIcon, L["RCA_NOT_CONFIGURED"], nil, P.textDim)
-        talentSummary = L["RCA_SUMMARY_UNSET"]
+        frame.summaryPill:SetPill(L["RCA_NO_ISSUES"], "ok")
     end
-    local talentIssue = not snapshot.loadoutKnown or snapshot.loadoutMatch == false
-    frame.loadoutText:SetTextColor(unpack(talentIssue and WARNING_COLOR or P.text))
-    frame.openTalentsButton:SetPrimary(talentIssue)
 
-    local durability = snapshot.durability
-    local needsRepair = #durability.lowSlots > 0
-    local durabilityColor = needsRepair and REPAIR_COLOR or READY_COLOR
-    local durabilityCell = frame.cells[5]
-    SetIcon(durabilityCell.icon, "repair", durabilityColor)
-    durabilityCell.value:SetText(string.format("%s %d%%", L["RCA_LOWEST"], math.floor(durability.lowest + 0.5)))
-    durabilityCell.value:SetTextColor(unpack(durabilityColor))
-    durabilityCell.tooltip = string.format(L["RCA_AVERAGE_FORMAT"], math.floor(durability.average + 0.5))
-        .. "\n" .. string.format(L["RCA_THRESHOLD_FORMAT"], durability.threshold)
-        .. "\n" .. FormatLowSlots(durability.lowSlots, 17)
-    frame.detailText:SetText(FormatLowSlots(durability.lowSlots, 2))
-    frame.detailText:SetTextColor(unpack(needsRepair and REPAIR_COLOR or P.textDim))
-    local missing = {}
+    -- Talents: "특성 · <기준 이름>" + 일치 / 불일치 / 미설정
+    local talentStatus, talentState
+    if not snapshot.loadoutKnown then
+        talentStatus, talentState = L["RCA_CHECK_UNKNOWN"], "warn"
+    elseif snapshot.loadoutMatch == false then
+        talentStatus, talentState = L["RCA_CHECK_MISMATCH"], "bad"
+    elseif snapshot.loadoutMatch == true then
+        talentStatus, talentState = L["RCA_STATUS_MATCH"], "ok"
+    else
+        talentStatus, talentState = L["RCA_NOT_CONFIGURED"], nil
+    end
+    local talentName = snapshot.expectedLoadout ~= "" and snapshot.expectedLoadout or snapshot.loadoutName
+    local talentRow = frame.talentRow
+    SetRow(talentRow, snapshot.specIcon, string.format(L["RCA_TALENT_ROW"], talentName), talentStatus, talentState)
+    talentRow.tooltipTitle = snapshot.specName
+    talentRow.tooltipLines = {
+        L["RCA_CURRENT"] .. ": " .. snapshot.loadoutName,
+        L["RCA_EXPECTED"] .. ": " .. (snapshot.expectedLoadout ~= "" and snapshot.expectedLoadout or L["RCA_NOT_CONFIGURED"]),
+    }
+
+    -- Flask, food, rune, weapon
     for index, definition in ipairs(CONSUMABLES) do
         local item = snapshot.consumables[definition.key]
-        local text, color = ConsumableStatus(item)
-        local cell = frame.cells[index]
-        SetIcon(cell.icon, definition.key, color)
-        cell.value:SetText(text)
-        cell.value:SetTextColor(unpack(color))
-        cell.tooltip = text
-        if not item or item.value ~= true then missing[#missing + 1] = L[definition.label] end
+        local text, state = ConsumableStatus(item)
+        local row = frame.rows[index + 1]
+        SetRow(row, (item and item.icon) or definition.icon, L[definition.rowLabel or definition.label], text, state)
+        row.tooltipTitle = L[definition.rowLabel or definition.label]
+        row.tooltipLines = { text }
     end
 
-    local hasIssues = snapshot.issueCount > 0
-    local summaryColor = hasIssues and WARNING_COLOR or READY_COLOR
-    SetIcon(frame.statusIcon, hasIssues and "alert" or "check", summaryColor)
-    frame.accent:SetColorTexture(unpack(summaryColor))
-    frame.statusBackground:SetColorTexture(unpack(hasIssues and { 0.153, 0.137, 0.114, 1 } or { 0.118, 0.161, 0.137, 1 }))
-    frame.statusText:SetText(hasIssues and string.format(L["RCA_SUMMARY_ISSUES_FORMAT"], snapshot.issueCount) or L["RCA_STATUS_READY"])
-    if talentIssue then missing[#missing + 1] = talentSummary end
-    if needsRepair then missing[#missing + 1] = L["RCA_REPAIR_NEEDED"] end
-    frame.statusDetail:SetText(#missing > 0 and table.concat(missing, " / ") or (talentSummary .. " / " .. L["RCA_SUMMARY_DURABILITY"]))
+    -- Durability: "최저 91%"
+    local durability = snapshot.durability
+    local needsRepair = #durability.lowSlots > 0
+    local durabilityRow = frame.rows[6]
+    SetRow(durabilityRow, DURABILITY_ICON, L["RAIDPREP_COLUMN_DURABILITY"],
+        string.format("%s %d%%", L["RCA_LOWEST"], math.floor(durability.lowest + 0.5)),
+        needsRepair and "bad" or "ok")
+    durabilityRow.tooltipTitle = L["RAIDPREP_COLUMN_DURABILITY"]
+    durabilityRow.tooltipLines = {
+        string.format(L["RCA_AVERAGE_FORMAT"], math.floor(durability.average + 0.5)),
+        string.format(L["RCA_THRESHOLD_FORMAT"], durability.threshold),
+        FormatLowSlots(durability.lowSlots, 17),
+    }
+
+    if GameTooltip and GameTooltip.IsShown and GameTooltip:IsShown() and GameTooltip.GetOwner then
+        local owner = GameTooltip:GetOwner()
+        for _, row in ipairs(frame.rows) do
+            if owner == row then ShowRowTooltip(row) end
+        end
+    end
 end
 
 function ReadyCheckAssistant:Show(isPreview)

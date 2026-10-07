@@ -8,23 +8,12 @@ local SL = _G.DDingUI_StyleLib
 local RaidPreparation = {}
 ns.RaidPreparation = RaidPreparation
 
-local FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
-local FLAT = (SL and SL.Textures and SL.Textures.flat) or "Interface\\Buttons\\WHITE8x8"
-local P = ns.UI and ns.UI.popupColors or {
-    background = { 0.10, 0.10, 0.10, 0.985 }, header = { 0.12, 0.12, 0.12, 1 },
-    panel = { 0.075, 0.075, 0.08, 0.97 }, panelAlt = { 0.088, 0.088, 0.095, 0.96 },
-    control = { 0.06, 0.06, 0.06, 0.94 }, hover = { 0.14, 0.14, 0.15, 0.96 },
-    border = { 0.30, 0.30, 0.32, 0.82 }, borderSoft = { 0.25, 0.25, 0.25, 0.50 },
-    separator = { 0.20, 0.20, 0.20, 0.40 }, accent = { 0.16, 0.58, 0.68, 0.80 },
-    accentText = { 0.42, 0.76, 0.82, 1 }, primary = { 0.09, 0.18, 0.20, 0.98 },
-    primaryHover = { 0.11, 0.23, 0.26, 1 }, primaryBorder = { 0.16, 0.50, 0.57, 0.84 },
-    primaryBorderHover = { 0.20, 0.62, 0.70, 0.94 }, text = { 0.85, 0.85, 0.85, 1 },
-    textBright = { 1, 1, 1, 1 }, textDim = { 0.60, 0.60, 0.60, 1 },
-}
 local COMM_PREFIX = "DDTREADY"
 local DURABILITY_PREFIX = "LibDRBLT"
-local ROW_HEIGHT = 54
-local VISIBLE_ROWS = 9
+-- [STYLE] Compact ready-check strip (series mock-up C): 372x92, rounded 10, no title bar.
+-- Shared visuals (icons, badges, status colours, buttons) live in UI/ReadyStatus.lua.
+local FRAME_WIDTH, FRAME_HEIGHT = 372, 92
+local GAUGE_SEGMENTS = 10
 
 -- Current retail lists follow the 12.1 MRT RaidCheck data. Custom IDs can be
 -- added in the module options without waiting for an addon update.
@@ -106,7 +95,6 @@ local frame
 local eventFrame = CreateFrame("Frame")
 local refreshPending = false
 local readySerial = 0
-local scrollOffset = 0
 local readyCheckActive = false
 local durabilityRequestAt = 0
 local durabilityReplyAt = {}
@@ -214,52 +202,6 @@ local function ParseSpellIDs(text, destination)
         if spellID and spellID > 0 then destination[spellID] = true end
     end
     return destination
-end
-
-local function SetBackdrop(target, background, border)
-    target:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
-    target:SetBackdropColor(unpack(background))
-    target:SetBackdropBorderColor(unpack(border))
-end
-
-local function AddText(parent, size, color, text)
-    local fontString = parent:CreateFontString(nil, "OVERLAY")
-    fontString:SetFont(FONT, size, "")
-    fontString:SetTextColor(color[1], color[2], color[3], color[4] or 1)
-    fontString:SetText(text or "")
-    fontString:SetShadowOffset(1, -1)
-    fontString:SetShadowColor(0, 0, 0, 0.9)
-    return fontString
-end
-
-local function CreateButton(parent, label, width, primary)
-    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    button:SetSize(width or 100, 27)
-    button:RegisterForClicks("LeftButtonUp")
-    button.label = AddText(button, 11, P.text, label)
-    button.label:SetPoint("LEFT", 7, 0)
-    button.label:SetPoint("RIGHT", -7, 0)
-    button.label:SetJustifyH("CENTER")
-    button.label:SetWordWrap(false)
-
-    local function ApplyVisual(state)
-        if primary then
-            SetBackdrop(button,
-                state == "hover" and P.primaryHover or P.primary,
-                state == "hover" and P.primaryBorderHover or P.primaryBorder)
-            button.label:SetTextColor(unpack(P.textBright))
-        else
-            SetBackdrop(button,
-                state == "hover" and P.hover or P.control,
-                state == "hover" and P.border or P.borderSoft)
-            button.label:SetTextColor(unpack(P.text))
-        end
-    end
-
-    button:SetScript("OnEnter", function() ApplyVisual("hover") end)
-    button:SetScript("OnLeave", function() ApplyVisual("normal") end)
-    ApplyVisual("normal")
-    return button
 end
 
 local function GetClassColor(classToken)
@@ -778,60 +720,140 @@ function RaidPreparation:RefreshUnitAura(unit)
 end
 
 
+-- Status messages (report sent, no permission, test roster) go to chat; the strip has no status line.
 function RaidPreparation:SetStatus(message, kind)
-    if not frame then return end
-    frame.status:SetText(SafeString(message) or "")
-    if kind == "error" then
-        frame.status:SetTextColor(1.00, 0.34, 0.30, 1)
-    elseif kind == "success" then
-        frame.status:SetTextColor(0.32, 1.00, 0.56, 1)
-    else
-        frame.status:SetTextColor(0.58, 0.64, 0.71, 1)
+    message = SafeString(message)
+    if not message then return end
+    self.lastStatus = { text = message, kind = kind }
+    if kind == "error" and ns.PrintError then
+        ns.PrintError(message)
+    elseif ns.Print then
+        ns.Print(message)
     end
 end
 
-local CHECK_COLUMNS = {
-    { "food", "RAIDPREP_COLUMN_FOOD" }, { "flask", "RAIDPREP_COLUMN_FLASK" },
-    { "rune", "RAIDPREP_COLUMN_RUNE" }, { "raidBuff", "RAIDPREP_COLUMN_RAIDBUFF" },
-    { "weapon", "RAIDPREP_COLUMN_WEAPON" }, { "durability", "RAIDPREP_COLUMN_DURABILITY" },
+-- [STYLE] Item icons (same order and same Toolkit icons in both ready-check windows).
+-- Game icons stay as the fallback when UI/ReadyStatus.lua is not loaded.
+local OWN_ICONS = ns.ReadyStatus and ns.ReadyStatus.ITEM_ICONS or {}
+local ITEMS = {
+    { key = "food", label = "RAIDPREP_COLUMN_FOOD", option = "checkFood", icon = OWN_ICONS.food or 134062 },
+    { key = "flask", label = "RAIDPREP_COLUMN_FLASK", option = "checkFlask", icon = OWN_ICONS.flask or 134830 },
+    { key = "rune", label = "RAIDPREP_COLUMN_RUNE", option = "checkRune", icon = OWN_ICONS.rune or 134419 },
+    { key = "raidBuff", label = "RAIDPREP_COLUMN_RAIDBUFF", option = "checkRaidBuffs",
+      icon = OWN_ICONS.raidBuff or "Interface\\Icons\\Spell_Holy_MagicalSentry" },
+    { key = "weapon", label = "RAIDPREP_COLUMN_WEAPON", option = "checkWeaponEnchant", icon = OWN_ICONS.weapon or 135274 },
+    { key = "durability", label = "RAIDPREP_COLUMN_DURABILITY", option = "checkDurability",
+      icon = OWN_ICONS.durability or "Interface\\Icons\\Trade_BlackSmithing" },
 }
+RaidPreparation.Items = ITEMS
 
-function RaidPreparation:GetVisibleRoster()
-    local filtered = {}
-    for _, record in ipairs(self.roster or {}) do
-        if not self:IsRecordComplete(record, true) then filtered[#filtered + 1] = record end
+local function RS() return ns.ReadyStatus end
+
+--- "ok" | "warn" (short time / low durability) | "bad" (missing) | "unknown" | "off" (check disabled)
+function RaidPreparation:GetItemState(record, item)
+    local db = self.db or {}
+    if db[item.option] == false then return "off" end
+    local value = record[item.key]
+    if item.key == "durability" then
+        if type(value) ~= "number" then return "unknown" end
+        return value >= Clamp(db.durabilityThreshold, 1, 100, 30) and "ok" or "warn"
     end
-    return filtered
+    if value == true then return "ok" end
+    if value == "LOW" then return "warn" end
+    if value == false then return "bad" end
+    return "unknown"
 end
 
-local function UpdateReadyNames(line, records)
-    line.records = records
-    line:SetShown(#records > 0)
-    local names = {}
-    for _, record in ipairs(records) do
-        local r, g, b = GetClassColor(record.classToken)
-        names[#names + 1] = string.format("|cff%02x%02x%02x%s|r",
-            math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5), ShortName(record.name))
+local function ItemDetail(self, record, item, state)
+    if item.key == "durability" and type(record.durability) == "number" then
+        return string.format("%d%%", math.floor(record.durability + 0.5))
     end
-    local shown = #names
-    line.text:SetWidth(0)
-    -- ponytail: at most 40 raid names; use cumulative widths if this becomes a larger list.
-    repeat
-        local suffix = shown < #names and string.format(L["RAIDPREP_MORE_PLAYERS"], #names - shown) or ""
-        line.text:SetText(line.statusLabel .. ": " .. table.concat(names, ", ", 1, shown)
-            .. (shown > 0 and suffix ~= "" and " / " or "") .. suffix)
-        shown = shown - 1
-    until line.text:GetStringWidth() <= line:GetWidth() or shown < 0
-    line.text:SetWidth(line:GetWidth())
-    if GameTooltip and GameTooltip:GetOwner() == line and GameTooltip:IsShown() then
-        if #records > 0 and frame:IsShown() then line:GetScript("OnEnter")(line)
-        else GameTooltip:Hide() end
+    if item.key == "raidBuff" and state == "bad" then
+        local detail = self:GetRaidBuffReportDetail(record)
+        return detail ~= "" and detail or nil
     end
+    if state == "warn" then return L["RAIDPREP_LOW"] end
+    return nil
+end
+
+function RaidPreparation:SummarizeItems(source)
+    local summary = {}
+    for _, item in ipairs(ITEMS) do
+        local entry = { item = item, bad = {}, warn = {}, unknown = {}, off = false }
+        for _, record in ipairs(source) do
+            local state = self:GetItemState(record, item)
+            if state == "off" then
+                entry.off = true
+                break
+            elseif state == "bad" or state == "warn" or state == "unknown" then
+                local list = entry[state]
+                list[#list + 1] = record
+            end
+        end
+        entry.problems = #entry.bad + #entry.warn
+        if entry.off then
+            entry.state = nil
+        elseif entry.problems > 0 then
+            entry.state = #entry.bad > 0 and "bad" or "warn"
+        elseif #entry.unknown == 0 and #source > 0 then
+            entry.state = "ok"
+        end
+        summary[#summary + 1] = entry
+    end
+    return summary
+end
+
+local function ShowItemTooltip(cell)
+    if not GameTooltip or not cell.entry then return end
+    local entry = cell.entry
+    local styles = RS()
+    GameTooltip:SetOwner(cell, "ANCHOR_TOP")
+    GameTooltip:AddLine(L[entry.item.label], styles.RGB(styles.Token("text", "highlight")))
+    if entry.off then
+        GameTooltip:AddLine(L["RAIDPREP_ITEM_OFF"], styles.RGB(styles.Color(nil)))
+    elseif entry.problems == 0 and #entry.unknown == 0 then
+        GameTooltip:AddLine(L["RAIDPREP_ALL_OK"], styles.RGB(styles.Color("ok")))
+    end
+    for _, state in ipairs({ "bad", "warn" }) do
+        for _, record in ipairs(entry[state]) do
+            local detail = ItemDetail(RaidPreparation, record, entry.item, state)
+            local r, g, b = GetClassColor(record.classToken)
+            GameTooltip:AddLine(ShortName(record.name) .. (detail and ("  " .. detail) or ""), r, g, b)
+        end
+    end
+    if #entry.unknown > 0 then
+        local names = {}
+        for _, record in ipairs(entry.unknown) do names[#names + 1] = ShortName(record.name) end
+        GameTooltip:AddLine(L["RAIDPREP_UNKNOWN_GROUP"] .. ": " .. table.concat(names, ", "),
+            styles.RGB(styles.Color(nil)))
+    end
+    GameTooltip:Show()
+end
+RaidPreparation.ShowItemTooltip = ShowItemTooltip
+
+local function ShowReadyTooltip(area)
+    if not GameTooltip or not area.groups then return end
+    local styles = RS()
+    GameTooltip:SetOwner(area, "ANCHOR_TOP")
+    GameTooltip:AddLine(area.headline or L["RAIDPREP_TITLE"], styles.RGB(styles.Token("text", "highlight")))
+    local any = false
+    for _, group in ipairs(area.groups) do
+        if #group.records > 0 then
+            any = true
+            GameTooltip:AddLine(group.label, styles.RGB(styles.Color(group.state)))
+            for _, record in ipairs(group.records) do
+                GameTooltip:AddLine(ShortName(record.name), GetClassColor(record.classToken))
+            end
+        end
+    end
+    if not any then GameTooltip:AddLine(L["RAIDPREP_ALL_OK"], styles.RGB(styles.Color("ok"))) end
+    GameTooltip:Show()
 end
 
 function RaidPreparation:Refresh()
     if not frame or not self.db then return end
     self:UpdateDynamicRoster()
+    local styles = RS()
     local source = self.roster or {}
     local ready, checks = 0, 0
     local declinedRecords, waitingRecords = {}, {}
@@ -842,66 +864,57 @@ function RaidPreparation:Refresh()
         if not self:IsRecordComplete(record, false) then checks = checks + 1 end
     end
     local total = #source
-    local declined, waiting = #declinedRecords, #waitingRecords
+    local declined = #declinedRecords
     self.fullyReady = total > 0 and ready == total and checks == 0
-    frame.summary:SetText(string.format(L["RAIDPREP_RESPONSES"], ready + declined, total))
+
+    local countState = self.fullyReady and "ok" or (total == 0 and nil or "warn")
+    frame.count:SetText(tostring(ready))
+    frame.count:SetTextColor(styles.Unpack(styles.Color(countState)))
+    frame.total:SetText("/" .. total)
     frame.headline:SetText(self.fullyReady and L["RAIDPREP_COMPLETE"]
         or total == 0 and L["RAIDPREP_NO_GROUP"]
-        or waiting == 0 and declined == 0 and L["RAIDPREP_RESPONDED"]
         or L["RAIDPREP_INCOMPLETE"])
-    frame.headline:SetTextColor(unpack(self.fullyReady and {0.54, 0.75, 0.64, 1} or {0.85, 0.74, 0.52, 1}))
-    frame.counts:SetText(string.format(L["RAIDPREP_COUNTS"], ready, declined, waiting))
-    frame.checks:SetText(string.format(L["RAIDPREP_CHECK_COUNT"], checks))
-    UpdateReadyNames(frame.declinedNames, declinedRecords)
-    UpdateReadyNames(frame.waitingNames, waitingRecords)
-    frame.hint:SetShown(declined == 0 and waiting == 0)
-    local roster = self:GetVisibleRoster()
-    self.visibleRoster = roster
-    local maxOffset = math.max(0, math.ceil(#roster / 3) - 3) * 3
-    scrollOffset = math.max(0, math.min(scrollOffset, maxOffset))
-    local lines = math.max(1, math.min(3, math.ceil(#roster / 3)))
-    frame:SetHeight(232 + lines * ROW_HEIGHT)
-    frame.scrollTrack:SetShown(maxOffset > 0)
-    frame.scrollThumb:SetShown(maxOffset > 0)
-    if maxOffset > 0 then
-        local trackHeight = lines * ROW_HEIGHT
-        local thumbHeight = math.max(20, trackHeight * VISIBLE_ROWS / #roster)
-        frame.scrollTrack:SetHeight(trackHeight)
-        frame.scrollThumb:SetHeight(thumbHeight)
-        frame.scrollThumb:ClearAllPoints()
-        frame.scrollThumb:SetPoint("TOP", frame.scrollTrack, "TOP", 0, -(trackHeight - thumbHeight) * scrollOffset / maxOffset)
-    end
-    frame.empty:SetShown(#roster == 0)
-    frame.empty:SetText(self.fullyReady and L["RAIDPREP_COMPLETE"] or L["RAIDPREP_STATUS_READY"])
-    for index, row in ipairs(frame.rows) do
-        local record = roster[scrollOffset + index]
-        row.record = record
-        row:SetShown(record ~= nil)
-        if record then
-            row.name:SetText(ShortName(record.name))
-            row.name:SetTextColor(GetClassColor(record.classToken))
-            local issues = {}
-            for _, column in ipairs(CHECK_COLUMNS) do
-                local value = record[column[1]]
-                if not self:IsCheckedValue(value, column[1]) then
-                    issues[#issues + 1] = L[column[2]] .. (value == nil and " ?" or "")
-                end
-            end
-            if record.ready ~= true then
-                issues[#issues + 1] = record.ready == false and L["RAIDPREP_NOT_READY"] or L["RAIDPREP_WAITING"]
-            end
-            row.detail:SetText(table.concat(issues, " / "))
-            row.tooltipLines = issues
-            if self.db.checkRaidBuffs ~= false and record.raidBuff == false then
-                for _, buff in ipairs(record.raidBuffMissing or {}) do issues[#issues + 1] = buff end
-            end
+    frame.replies:SetText(string.format(L["RAIDPREP_REPLIES"], ready + declined))
+    frame.countArea.headline = frame.headline:GetText()
+    frame.countArea.groups = {
+        { label = L["RAIDPREP_NOT_READY"], state = "bad", records = declinedRecords },
+        { label = L["RAIDPREP_WAITING"], state = "warn", records = waitingRecords },
+    }
+
+    local filled = total > 0 and math.floor(ready / total * GAUGE_SEGMENTS) or 0
+    if ready == total and total > 0 then filled = GAUGE_SEGMENTS end
+    for index, segment in ipairs(frame.gauge.segments) do
+        if index <= filled then
+            styles.Tint(segment, styles.Color("ok"))
+        else
+            styles.Tint(segment, styles.Token("bg", "input"))
         end
     end
+
+    local summary = self:SummarizeItems(source)
+    self.itemSummary = summary
+    for index, cell in ipairs(frame.icons) do
+        local entry = summary[index]
+        cell.entry = entry
+        cell:SetState(entry.state)
+        cell:SetBadge(entry.problems, entry.state)
+        cell:SetAlpha(entry.off and 0.35 or 1)
+    end
+    frame.hint:SetText(self.testMode and L["RAIDPREP_STATUS_TEST"] or L["RAIDPREP_ICON_HINT"])
+    frame.reportButton:SetDisabledState(not self:CanReport())
+
+    if GameTooltip and GameTooltip.IsShown and GameTooltip:IsShown() and GameTooltip.GetOwner then
+        local owner = GameTooltip:GetOwner()
+        if owner and owner.raidPrepItem and frame:IsShown() then ShowItemTooltip(owner)
+        elseif owner == frame.countArea and frame:IsShown() then ShowReadyTooltip(owner) end
+    end
+
     if not self.fullyReady then frame.closeElapsed = nil; frame:SetAlpha(1) end
     if self.fullyReady and frame.autoOpened and not self.testMode and frame:IsShown() then
         frame.closeElapsed = frame.closeElapsed or 0
     end
 end
+RaidPreparation.ShowReadyTooltip = ShowReadyTooltip
 
 function RaidPreparation:ScheduleRefresh(delay)
     if refreshPending then return end
@@ -1072,15 +1085,16 @@ end
 
 function RaidPreparation:CreateFrame()
     if frame then return frame end
+    local styles = RS()
     frame = CreateFrame("Frame", "DDingUIToolkitRaidPreparationFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(640, 286)
+    frame:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
     frame:EnableMouse(true)
-    frame:EnableMouseWheel(true)
     frame:RegisterForDrag("LeftButton")
-    SetBackdrop(frame, P.background, P.border)
+    -- [STYLE] rounded 10 strip on bg.main, no title bar
+    styles.Round(frame, styles.Radius("card", 10), styles.Token("bg", "main"), styles.Token("border", "default"))
     frame:SetScript("OnDragStart", function(self)
         if not SafeBooleanCall(InCombatLockdown) then self:StartMoving() end
     end)
@@ -1090,15 +1104,12 @@ function RaidPreparation:CreateFrame()
         RaidPreparation.db.position = {point=point, relativePoint=relativePoint,
             x=math.floor((SafeNumber(x) or 0) + 0.5), y=math.floor((SafeNumber(y) or 0) + 0.5)}
     end)
-    frame:SetScript("OnMouseWheel", function(_, delta)
-        scrollOffset = scrollOffset - math.floor(SafeNumber(delta) or 0) * 3
-        RaidPreparation:Refresh()
-    end)
     frame:SetScript("OnHide", function(self)
         self.closeElapsed = nil
         self.autoOpened = false
         self:SetAlpha(1)
-        if GameTooltip and GameTooltip:GetOwner() and GameTooltip:GetOwner().raidPrepRow then GameTooltip:Hide() end
+        local owner = GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner()
+        if owner and owner.raidPrepItem then GameTooltip:Hide() end
     end)
     frame:SetScript("OnUpdate", function(self, elapsed)
         if self.closeElapsed == nil then return end
@@ -1109,105 +1120,75 @@ function RaidPreparation:CreateFrame()
         self:SetAlpha(math.max(0, 1 - math.max(0, self.closeElapsed - 1.5) / 0.25))
         if self.closeElapsed >= 1.75 then self:Hide() end
     end)
-    frame.header = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    frame.header:SetPoint("TOPLEFT", 1, -1)
-    frame.header:SetPoint("TOPRIGHT", -1, -1)
-    frame.header:SetHeight(38)
-    SetBackdrop(frame.header, P.header, P.header)
-    frame.title = AddText(frame.header, 13, P.text, L["RAIDPREP_TITLE"])
-    frame.title:SetPoint("LEFT", 16, 0)
-    frame.close = CreateButton(frame.header, "X", 28, false)
-    frame.close:SetPoint("RIGHT", -8, 0)
-    frame.close:SetScript("OnClick", function() frame:Hide() end)
-    frame.headline = AddText(frame, 23, {0.85,0.74,0.52,1}, "")
-    frame.headline:SetPoint("TOPLEFT", 18, -57)
-    frame.headline:SetSize(400, 32)
-    frame.headline:SetJustifyH("LEFT")
-    frame.headline:SetWordWrap(false)
-    frame.summary = AddText(frame, 20, P.textBright, "")
-    frame.summary:SetPoint("TOPRIGHT", -18, -60)
-    frame.summary:SetSize(170, 28)
-    frame.summary:SetJustifyH("RIGHT")
-    frame.hint = AddText(frame, 12, P.textDim, L["RAIDPREP_CHECK_HINT"])
-    frame.hint:SetPoint("TOPLEFT", 18, -96)
-    for index, key in ipairs({"declinedNames", "waitingNames"}) do
-        local line = CreateFrame("Frame", nil, frame)
-        line.raidPrepRow = true
-        line.statusLabel = L[index == 1 and "RAIDPREP_NOT_READY" or "RAIDPREP_WAITING"]
-        line:SetPoint("TOPLEFT", 18, -94 - (index - 1) * 20)
-        line:SetSize(604, 18)
-        line:EnableMouse(true)
-        line.text = AddText(line, 12, index == 1 and {0.85,0.74,0.52,1} or P.text, "")
-        line.text:SetPoint("LEFT")
-        line.text:SetHeight(18)
-        line.text:SetJustifyH("LEFT")
-        line.text:SetWordWrap(false)
-        line:SetScript("OnEnter", function(self)
-            if not GameTooltip or not self.records or #self.records == 0 then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine(self.statusLabel, unpack(P.textBright, 1, 3))
-            for _, record in ipairs(self.records) do
-                GameTooltip:AddLine(SafeString(record.name) or "?", GetClassColor(record.classToken))
-            end
-            GameTooltip:Show()
-        end)
-        line:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-        frame[key] = line
-    end
-    frame.counts = AddText(frame, 13, P.text, "")
-    frame.counts:SetPoint("TOPLEFT", 18, -154)
-    frame.checks = AddText(frame, 13, {0.85,0.74,0.52,1}, "")
-    frame.checks:SetPoint("TOPRIGHT", -18, -154)
-    for _, y in ipairs({-39,-142,-182}) do
-        local line = frame:CreateTexture(nil, "ARTWORK")
-        line:SetPoint("TOPLEFT", 1, y); line:SetPoint("TOPRIGHT", -1, y)
-        line:SetHeight(1); line:SetColorTexture(unpack(P.separator))
-    end
-    frame.rows = {}
-    for index = 1, VISIBLE_ROWS do
-        local row = CreateFrame("Frame", nil, frame)
-        row.raidPrepRow = true
-        row:SetSize(194, ROW_HEIGHT - 6)
-        row:SetPoint("TOPLEFT", 18 + ((index-1) % 3) * 204, -193 - math.floor((index-1)/3)*ROW_HEIGHT)
-        row:EnableMouse(true)
-        row:EnableMouseWheel(true)
-        row:SetScript("OnMouseWheel", frame:GetScript("OnMouseWheel"))
-        row.name = AddText(row, 13, P.text, "")
-        row.name:SetPoint("TOPLEFT"); row.name:SetSize(190, 19)
-        row.name:SetJustifyH("LEFT"); row.name:SetWordWrap(false)
-        row.detail = AddText(row, 11, P.textDim, "")
-        row.detail:SetPoint("TOPLEFT", 0, -21); row.detail:SetSize(190, 23)
-        row.detail:SetJustifyH("LEFT"); row.detail:SetWordWrap(false)
-        row:SetScript("OnEnter", function(self)
-            if not self.record or not GameTooltip then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine(ShortName(self.record.name), GetClassColor(self.record.classToken))
-            for _, text in ipairs(self.tooltipLines or {}) do GameTooltip:AddLine(text, 0.85, 0.74, 0.52, true) end
-            GameTooltip:Show()
-        end)
-        row:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-        frame.rows[index] = row
-    end
-    frame.empty = AddText(frame, 13, {0.54,0.75,0.64,1}, "")
-    frame.empty:SetPoint("TOPLEFT", 18, -206)
-    frame.scrollTrack = frame:CreateTexture(nil, "BACKGROUND")
-    frame.scrollTrack:SetPoint("TOPRIGHT", -8, -193); frame.scrollTrack:SetWidth(2)
-    frame.scrollTrack:SetColorTexture(unpack(P.separator))
-    frame.scrollThumb = frame:CreateTexture(nil, "ARTWORK")
-    frame.scrollThumb:SetWidth(4); frame.scrollThumb:SetColorTexture(unpack(P.accent))
-    frame.status = AddText(frame, 11, P.textDim, L["RAIDPREP_UNKNOWN_HINT"])
-    frame.status:SetPoint("BOTTOMLEFT", 18, 20); frame.status:SetSize(350, 18)
-    frame.status:SetJustifyH("LEFT"); frame.status:SetWordWrap(false)
-    frame.reportButton = CreateButton(frame, L["RAIDPREP_REPORT"], 108, false)
-    frame.reportButton:SetPoint("BOTTOMRIGHT", -14, 13)
-    frame.reportButton:SetScript("OnClick", function() RaidPreparation:SendReport(false) end)
-    frame.refreshButton = CreateButton(frame, L["RAIDPREP_REFRESH"], 82, false)
-    frame.refreshButton:SetPoint("RIGHT", frame.reportButton, "LEFT", -6, 0)
-    frame.refreshButton:SetScript("OnClick", function()
+
+    -- Row 1: ready count | headline + replies over the 10-step gauge | 보고 · 갱신 · X
+    frame.count = styles.Text(frame, 22, styles.Color("warn"), "0")
+    frame.count:SetPoint("TOPLEFT", 12, -9)
+    frame.total = styles.Text(frame, 16, styles.Color(nil), "/0")
+    frame.total:SetPoint("BOTTOMLEFT", frame.count, "BOTTOMRIGHT", 1, 1)
+    frame.countArea = CreateFrame("Frame", nil, frame)
+    frame.countArea:SetPoint("TOPLEFT", 6, -4)
+    frame.countArea:SetSize(72, 36)
+    frame.countArea:EnableMouse(true)
+    frame.countArea.raidPrepItem = false
+    frame.countArea:SetScript("OnEnter", function(self) ShowReadyTooltip(self) end)
+    frame.countArea:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+
+    frame.closeButton = styles.CreateCloseButton(frame, function() frame:Hide() end)
+    frame.closeButton:SetPoint("TOPRIGHT", -8, -10)
+    frame.refreshButton = styles.CreateTextButton(frame, L["RAIDPREP_REFRESH_SHORT"], function()
         RaidPreparation.testMode = false
         RaidPreparation:RequestStatuses()
         RaidPreparation:Refresh()
     end)
+    frame.refreshButton:SetPoint("RIGHT", frame.closeButton, "LEFT", -4, 0)
+    frame.reportButton = styles.CreateTextButton(frame, L["RAIDPREP_REPORT_SHORT"], function()
+        RaidPreparation:SendReport(false)
+    end)
+    frame.reportButton:SetPoint("RIGHT", frame.refreshButton, "LEFT", -4, 0)
+
+    local gaugeLeft = 78
+    local gaugeRight = FRAME_WIDTH - 8 - 18 - 4 - frame.refreshButton:GetWidth() - 4 - frame.reportButton:GetWidth() - 8
+    local gaugeWidth = math.max(60, gaugeRight - gaugeLeft)
+    frame.gauge = CreateFrame("Frame", nil, frame)
+    frame.gauge:SetPoint("TOPLEFT", gaugeLeft, -30)
+    frame.gauge:SetSize(gaugeWidth, 6)
+    frame.gauge.segments = {}
+    local segmentWidth = (gaugeWidth - (GAUGE_SEGMENTS - 1) * 2) / GAUGE_SEGMENTS
+    for index = 1, GAUGE_SEGMENTS do
+        local segment = styles.RoundFill(frame.gauge:CreateTexture(nil, "ARTWORK"), styles.Radius("track", 2))
+        segment:SetPoint("TOPLEFT", (index - 1) * (segmentWidth + 2), 0)
+        segment:SetSize(segmentWidth, 6)
+        frame.gauge.segments[index] = segment
+    end
+    frame.replies = styles.Text(frame, 12, styles.Color(nil), "")
+    frame.replies:SetPoint("BOTTOMRIGHT", frame.gauge, "TOPRIGHT", 0, 3)
+    frame.replies:SetJustifyH("RIGHT")
+    frame.headline = styles.Text(frame, 12, styles.Token("text", "highlight"), "")
+    frame.headline:SetPoint("BOTTOMLEFT", frame.gauge, "TOPLEFT", 0, 3)
+    frame.headline:SetPoint("RIGHT", frame.replies, "LEFT", -6, 0)
+
+    -- Row 2: six 32px item icons with a status border and a missing-count badge
+    frame.icons = {}
+    local size = styles.RAID_ICON
+    for index, item in ipairs(ITEMS) do
+        local cell = styles.CreateIcon(frame, size)
+        cell:SetPoint("TOPLEFT", 12 + (index - 1) * (size + 8), -46)
+        cell:SetIcon(item.icon)
+        cell:EnableMouse(true)
+        cell.raidPrepItem = true
+        cell.item = item
+        cell:SetScript("OnEnter", ShowItemTooltip)
+        cell:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        frame.icons[index] = cell
+    end
+    local hintLeft = 12 + #ITEMS * (size + 8)
+    frame.hint = styles.Text(frame, 12, styles.Color(nil), L["RAIDPREP_ICON_HINT"])
+    frame.hint:SetPoint("TOPLEFT", hintLeft, -46)
+    frame.hint:SetSize(FRAME_WIDTH - hintLeft - 12, size)
+    frame.hint:SetJustifyH("RIGHT")
+    frame.hint:SetWordWrap(true)
+
     table.insert(UISpecialFrames, frame:GetName())
     frame:Hide()
     self.frame = frame
@@ -1234,7 +1215,6 @@ function RaidPreparation:ShowWindow(testMode, automatic)
     if not self.db then return end
     self.testMode = testMode == true
     if self.testMode then self:BuildTestRoster() else self:CollectRoster() end
-    scrollOffset = 0
     self:ApplySettings()
     frame.autoOpened = automatic == true
     frame.closeElapsed = nil

@@ -9,22 +9,27 @@ def raid_runtime(locale="koKR"):
     lua = panel_runtime(locale)
     lua.execute('''
         local methods = getmetatable(UIParent).__index
-        for _, name in ipairs({"SetMovable", "EnableMouseWheel", "RegisterForDrag"}) do methods[name]=function() end end
+        for _, name in ipairs({"SetMovable", "RegisterForDrag"}) do methods[name]=function() end end
         function methods:GetScript(name) return self.scripts[name] end
         function methods:GetName() return self.name end
-        function methods:SetAlpha(alpha) self.alpha=alpha end
-        local measure=methods.GetStringWidth
-        function methods:GetStringWidth()
-            local text=self.text
-            self.text=(text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-            local width=measure(self)
-            self.text=text
-            return width
-        end
         UISpecialFrames, SlashCmdList = {}, {}
         timers = {}
         C_Timer.After = function(delay, fn) timers[#timers+1]={delay=delay,fn=fn} end
         function LibStub() return nil end
+        RAID_CLASS_COLORS={PRIEST={r=1,g=1,b=1},MAGE={r=0.25,g=0.78,b=0.92}}
+        GameTooltip = {shown=false, lines={}}
+        function GameTooltip:SetOwner(owner) self.owner=owner; self.lines={} end
+        function GameTooltip:GetOwner() return self.owner end
+        function GameTooltip:AddLine(text,r,g,b,wrap)
+            assert(wrap==nil or type(wrap)=="boolean")
+            self.lines[#self.lines+1]={text=text,r=r,g=g,b=b}
+        end
+        function GameTooltip:Show() self.shown=true end
+        function GameTooltip:Hide() self.shown=false end
+        function GameTooltip:IsShown() return self.shown end
+        printed = {}
+        ns.Print = function(msg) printed[#printed+1]=msg end
+        ns.PrintError = function(msg) printed[#printed+1]="ERR "..msg end
     ''')
     lua.execute((ROOT / "Modules/RaidPreparation/RaidPreparation.lua").read_text(encoding="utf-8-sig"),
                 "DDingUI_Toolkit", lua.globals().ns)
@@ -40,47 +45,89 @@ def raid_runtime(locale="koKR"):
         module:OnEnable()
         module.roster = {}
         for i=1,20 do
-            module.roster[i]={name="Player"..i,classToken="PRIEST",subgroup=1,
+            module.roster[i]={name="Player"..i.."-Realm",classToken="PRIEST",subgroup=1,
                 ready=true,food=true,flask=true,rune=true,raidBuff=true,weapon=true,durability=100}
         end
         module:ShowWindow(false,true)
         display = module.frame
+        function descendants(root)
+            local out = {}
+            for _, r in ipairs(regions) do
+                local p = r.parent
+                while p do if p == root then out[#out+1] = r; break end; p = p.parent end
+            end
+            return out
+        end
+        function badges()
+            local out = {}
+            for i, cell in ipairs(display.icons) do
+                out[i] = cell.badge.shown and (cell.badgeCount .. cell.badgeState) or (cell.state or "-")
+            end
+            return table.concat(out, ",")
+        end
     ''')
     return lua
 
 
-def test_compact_summary_and_auto_close_lifecycle():
+def test_strip_layout_and_auto_close_lifecycle():
     for locale in ("koKR", "enUS"):
         lua = raid_runtime(locale)
         lua.execute('''
-            assert(display.width==640 and display.height==286 and #display.rows==9)
-            assert(not display.readinessGauge and not display.metricBars and not display.columns)
+            local L, styles = ns.L, ns.ReadyStatus
+            assert(display.width==372 and display.height==92)
+            assert(display.rows==nil and display.scrollTrack==nil and display.declinedNames==nil)
+            assert(#display.icons==6 and #display.gauge.segments==10)
+            for i, cell in ipairs(display.icons) do
+                assert(cell.width==32 and cell.height==32 and cell.badge.width>=16 and cell.badge.height==16)
+                assert(cell.points.TOPLEFT.x==12+(i-1)*40 and cell.points.TOPLEFT.y==-46)
+                assert(cell.icon.texture==module.Items[i].icon)
+            end
+            for _, r in ipairs(descendants(display)) do
+                if r.kind=="FontString" then assert(r.fontSize>=12, "text below 12pt: "..tostring(r.text)) end
+            end
+            assert(display.count.fontSize==22 and display.closeButton.width==18 and display.closeButton.label.text=="X")
+            assert(display.reportButton.label.text==L.RAIDPREP_REPORT_SHORT and display.refreshButton.label.text==L.RAIDPREP_REFRESH_SHORT)
+            -- headline and replies fit beside each other above the gauge; the buttons fit the row
+            for _, key in ipairs({"RAIDPREP_COMPLETE", "RAIDPREP_INCOMPLETE", "RAIDPREP_NO_GROUP"}) do
+                display.headline:SetText(L[key]); display.replies:SetText(string.format(L.RAIDPREP_REPLIES, 40))
+                assert(display.headline:GetStringWidth()+6+display.replies:GetStringWidth()<=display.gauge.width, key)
+            end
+            assert(display.gauge.points.TOPLEFT.x+display.gauge.width+8+display.reportButton.width+4
+                +display.refreshButton.width+4+18+8<=372)
+            display.hint:SetText(L.RAIDPREP_ICON_HINT)
+            for line in display.hint.text:gmatch("[^\\n]+") do
+                local probe=display:CreateFontString(); probe:SetFont("f",12); probe:SetText(line)
+                assert(probe:GetStringWidth()<=display.hint.width, line)
+            end
+            module:Refresh()
+            -- all ready: green number, ok borders, no badges, full gauge
             assert(module.fullyReady and display.closeElapsed==0)
+            assert(display.count.text=="20" and display.total.text=="/20")
+            assert(display.count.textColor[2]==styles.Color("ok")[2])
+            assert(display.headline.text==L.RAIDPREP_COMPLETE)
+            assert(badges()=="ok,ok,ok,ok,ok,ok", badges())
+            for _, segment in ipairs(display.gauge.segments) do assert(segment.color[2]==styles.Color("ok")[2]) end
             display.scripts.OnUpdate(display,1.6)
             assert(display.shown and display.alpha<1 and display.alpha>0)
+            -- one player without food: warn number, red badge 1 on food
             module.roster[1].food=false
             module:Refresh()
             assert(not module.fullyReady and display.closeElapsed==nil and display.alpha==1)
-            assert(display.headline.text==ns.L.RAIDPREP_RESPONDED)
-            module.roster[2].ready=false
-            module.roster[3].ready=nil
-            module.roster[3].durability=nil
+            assert(display.headline.text==L.RAIDPREP_INCOMPLETE)
+            assert(display.count.textColor[1]==styles.Color("warn")[1])
+            assert(badges()=="1bad,ok,ok,ok,ok,ok", badges())
+            -- readiness gauge: 16 of 20 ready -> 8 of 10 segments
+            for i=1,4 do module.roster[i].ready=nil end
+            module.roster[5].ready=false
             module:Refresh()
-            assert(display.summary.text==string.format(ns.L.RAIDPREP_RESPONSES,19,20))
-            assert(display.counts.text==string.format(ns.L.RAIDPREP_COUNTS,18,1,1))
-            assert(display.checks.text==string.format(ns.L.RAIDPREP_CHECK_COUNT,2))
-            assert(#module.visibleRoster==3 and display.rows[3].detail.text:find("?",1,true))
-            for i=1,40 do module.roster[i]={name="Player"..i,ready=true,food=false,durability=100} end
-            module:Refresh()
-            assert(display.height==394 and display.scrollTrack.shown)
-            display.scripts.OnMouseWheel(display,-100)
-            assert(display.rows[7].record.name=="Player40")
-            local count=0
-            for _,row in ipairs(display.rows) do if row.shown then count=count+1 end end
-            assert(count==7)
-            for _,r in ipairs(module.roster) do
-                r.food=true;r.flask=true;r.rune=true;r.raidBuff=true;r.weapon=true
+            local filled=0
+            for _, segment in ipairs(display.gauge.segments) do
+                if segment.color[2]==styles.Color("ok")[2] then filled=filled+1 end
             end
+            assert(filled==7 and display.count.text=="15", filled)
+            assert(display.replies.text==string.format(L.RAIDPREP_REPLIES,16))
+            for i=1,5 do module.roster[i].ready=true end
+            module.roster[1].food=true
             module:Refresh()
             assert(module.fullyReady)
             display.scripts.OnUpdate(display,1.8)
@@ -94,10 +141,6 @@ def test_compact_summary_and_auto_close_lifecycle():
             assert(display.shown)
             module:HandleReadyCheck("Player1")
             assert(module.ready.player1==true and display.autoOpened)
-            local oldTimer=timers[#timers]
-            module:ShowWindow(false)
-            oldTimer.fn()
-            assert(display.shown and not display.autoOpened)
             local driver
             for _,r in ipairs(regions) do if r.scripts.OnEvent and r~=ReadyCheckFrame then driver=r end end
             driver.scripts.OnEvent(driver,"PLAYER_REGEN_DISABLED")
@@ -108,95 +151,100 @@ def test_compact_summary_and_auto_close_lifecycle():
             inCombat=false
             module.roster={}
             module:ShowWindow(false,true)
-            assert(not module.fullyReady and display.closeElapsed==nil)
+            assert(not module.fullyReady and display.closeElapsed==nil and display.count.text=="0")
+            assert(display.headline.text==L.RAIDPREP_NO_GROUP)
+            display.closeButton.scripts.OnClick()
+            assert(not display.shown)
+            module:ShowWindow(false)
             module:OnDisable()
             assert(not display.shown)
-            assert(display.headline:GetStringWidth()<=display.headline.width)
-            assert(display.summary:GetStringWidth()<=display.summary.width)
-            assert(display.status.width+18 < 640-14-108-6-82)
         ''')
 
 
-def test_incomplete_names_are_separate_fitted_and_updated():
+def test_badges_and_tooltips_list_missing_players():
     for locale in ("koKR", "enUS"):
         lua = raid_runtime(locale)
         lua.execute('''
-            GameTooltip = {shown=false, lines={}}
-            function GameTooltip:SetOwner(owner) self.owner=owner; self.lines={} end
-            function GameTooltip:GetOwner() return self.owner end
-            function GameTooltip:AddLine(text,r,g,b,wrap)
-                assert(wrap==nil or type(wrap)=="boolean")
-                self.lines[#self.lines+1]={text=text,r=r,g=g,b=b}
-            end
-            function GameTooltip:Show() self.shown=true end
-            function GameTooltip:Hide() self.shown=false end
-            function GameTooltip:IsShown() return self.shown end
-            RAID_CLASS_COLORS={PRIEST={r=1,g=1,b=1},MAGE={r=0.25,g=0.78,b=0.92}}
-            assert(not display.declinedNames.shown and not display.waitingNames.shown and display.hint.shown)
-            module.roster[1].ready=false
-            module.roster[1].name="Declined-Realm"
-            module.roster[2].ready=nil
-            module.roster[2].name="Waiting-Realm"
-            module.roster[2].classToken="MAGE"
-            module.roster[3].food=false
+            local L, styles = ns.L, ns.ReadyStatus
+            module.roster[2].flask=false
+            module.roster[3].flask="LOW"
+            module.roster[3].classToken="MAGE"
+            module.roster[4].rune=nil
+            module.roster[5].durability=12
+            module.roster[6].weapon=false
+            module.roster[7].weapon=false
             module:Refresh()
-            assert(display.headline.text==ns.L.RAIDPREP_INCOMPLETE)
-            assert(display.declinedNames.text.text==ns.L.RAIDPREP_NOT_READY..": |cffffffffDeclined|r")
-            assert(display.waitingNames.text.text==ns.L.RAIDPREP_WAITING..": |cff40c7ebWaiting|r")
-            assert(not display.hint.shown)
-            assert(#display.declinedNames.records==1 and #display.waitingNames.records==1)
-            assert(not display.declinedNames.text.text:find("Player3",1,true), "a ready player missing food is not unready")
-
-            display.declinedNames.scripts.OnEnter(display.declinedNames)
-            assert(GameTooltip.shown and GameTooltip.lines[2].text=="Declined-Realm")
-            assert(GameTooltip.lines[2].g==1)
-            module.roster[4].name="Second-Realm";module.roster[4].ready=false;module.roster[4].classToken="MAGE"
+            -- food ok, flask 2 (one missing -> red), rune unknown only (no border), raid buff ok,
+            -- weapon 2 red, durability 1 warn (yellow)
+            assert(badges()=="ok,2bad,-,ok,2bad,1warn", badges())
+            local flask=display.icons[2]
+            assert(flask.badge.fill.color[1]==styles.Color("bad")[1])
+            assert(display.icons[6].badge.fill.color[1]==styles.Color("warn")[1])
+            flask.scripts.OnEnter(flask)
+            assert(GameTooltip.shown and GameTooltip.owner==flask)
+            assert(GameTooltip.lines[1].text==L.RAIDPREP_COLUMN_FLASK)
+            assert(GameTooltip.lines[2].text=="Player2" and GameTooltip.lines[2].g==1)
+            assert(GameTooltip.lines[3].text=="Player3  "..L.RAIDPREP_LOW and GameTooltip.lines[3].g==0.78)
+            assert(#GameTooltip.lines==3)
+            local rune=display.icons[3]
+            rune.scripts.OnEnter(rune)
+            assert(GameTooltip.lines[2].text==L.RAIDPREP_UNKNOWN_GROUP..": Player4")
+            local durability=display.icons[6]
+            durability.scripts.OnEnter(durability)
+            assert(GameTooltip.lines[2].text=="Player5  12%")
+            -- hovered tooltip follows updates
+            module.roster[5].durability=100
             module:Refresh()
-            assert(display.declinedNames.text.text:find("|cffffffffDeclined|r, |cff40c7ebSecond|r",1,true))
-            assert(GameTooltip.lines[3].g==0.78)
-            module.roster[4].classToken=nil;module:Refresh()
-            assert(display.declinedNames.text.text:find("|cffd1d9e6Second|r",1,true))
-            module.roster[4].ready=true
-            module.roster[1].ready=true
+            assert(GameTooltip.shown and GameTooltip.lines[2].text==L.RAIDPREP_ALL_OK)
+            assert(badges()=="ok,2bad,-,ok,2bad,ok", badges())
+            -- disabled check: dimmed icon, no badge
+            module.db.checkWeaponEnchant=false
             module:Refresh()
-            assert(not display.declinedNames.shown and not GameTooltip.shown)
-            assert(display.waitingNames.shown)
-
-            for i=1,40 do
-                module.roster[i]={name=string.rep("가",12)..i.."-Realm",classToken="PRIEST",ready=false}
-            end
+            assert(display.icons[5].alpha==0.35 and not display.icons[5].badge.shown and display.icons[5].state==nil)
+            display.icons[5].scripts.OnEnter(display.icons[5])
+            assert(GameTooltip.lines[2].text==L.RAIDPREP_ITEM_OFF)
+            -- ready-check replies on the number
+            module.roster[8].ready=false
+            module.roster[9].ready=nil
             module:Refresh()
-            local line=display.declinedNames
-            assert(#line.records==40 and line.text.text:find(" / ",1,true), "long lists need a remaining count")
-            local _,starts=line.text.text:gsub("|c", "")
-            local _,ends=line.text.text:gsub("|r", "")
-            assert(starts>0 and starts==ends and line.text.text:find("|r / ",1,true))
-            assert(line.text:GetStringWidth()<=line.width and line.text.width==line.width)
-            assert(not display.waitingNames.shown and #display.waitingNames.records==0)
-            local before=line.text.text
-            display.scripts.OnMouseWheel(display,-100)
-            assert(line.text.text==before, "names must not depend on the lower checklist's scroll offset")
-            line.scripts.OnEnter(line)
-            assert(#GameTooltip.lines==41 and GameTooltip.lines[41].text==module.roster[40].name)
-            module.roster[40].ready=true
-            module:Refresh()
-            assert(GameTooltip.shown and #GameTooltip.lines==40, "hovered list must update when someone replies")
-
-            for _, record in ipairs(module.roster) do record.ready=nil end
-            module:Refresh()
-            assert(not line.shown and #line.records==0 and not GameTooltip.shown)
-            line=display.waitingNames
-            assert(#line.records==40 and line.text:GetStringWidth()<=line.width)
-            line.scripts.OnEnter(line)
-            assert(#GameTooltip.lines==41 and GameTooltip.lines[1].text==ns.L.RAIDPREP_WAITING)
-            local first=display.declinedNames.points.TOPLEFT
-            local second=display.waitingNames.points.TOPLEFT
-            assert(-first.y+display.declinedNames.height <= -second.y)
-            assert(-second.y+line.height < -display.counts.points.TOPLEFT.y)
-            assert(-display.counts.points.TOPLEFT.y+20 < -display.rows[1].points.TOPLEFT.y)
+            display.countArea.scripts.OnEnter(display.countArea)
+            local texts={}
+            for _, line in ipairs(GameTooltip.lines) do texts[#texts+1]=line.text end
+            texts=table.concat(texts,"|")
+            assert(texts:find(L.RAIDPREP_NOT_READY.."|Player8",1,true) and texts:find(L.RAIDPREP_WAITING.."|Player9",1,true), texts)
             display:Hide()
-            assert(not GameTooltip.shown, "closing preparation must close its names tooltip")
-            module.roster={}
-            module:ShowWindow(false)
-            assert(display.hint.shown and not display.declinedNames.shown and not display.waitingNames.shown)
+            display.icons[2].scripts.OnEnter(display.icons[2])
+            display:Hide()
+            assert(not GameTooltip.shown, "closing the strip must close its item tooltip")
         ''')
+
+
+def test_report_button_follows_permission_and_reports_to_chat():
+    lua = raid_runtime()
+    lua.execute('''
+        local L = ns.L
+        function IsInRaid() return true end
+        function UnitIsGroupLeader() return false end
+        function UnitIsGroupAssistant() return false end
+        module:Refresh()
+        assert(display.reportButton.disabled)
+        function UnitIsGroupLeader() return true end
+        module:Refresh()
+        assert(not display.reportButton.disabled)
+        module.testMode=true
+        display.reportButton.scripts.OnClick(display.reportButton)
+        assert(printed[#printed]=="ERR "..L.RAIDPREP_STATUS_TEST)
+        module:Refresh()
+        assert(display.hint.text==L.RAIDPREP_STATUS_TEST)
+        module.testMode=false
+        module:Refresh()
+        assert(display.hint.text==L.RAIDPREP_ICON_HINT)
+    ''')
+
+
+def test_no_hardcoded_colours_or_glyph_icons():
+    for rel in ("Modules/RaidPreparation/RaidPreparation.lua", "Modules/ReadyCheckAssistant/ReadyCheckAssistant.lua"):
+        source = (ROOT / rel).read_text(encoding="utf-8")
+        assert "SetColorTexture(0." not in source and "SetTextColor(0." not in source and "SetTextColor(1," not in source, rel
+        for glyph in ("↻", "✕", "✖", "✓"):
+            assert glyph not in source, (rel, glyph)

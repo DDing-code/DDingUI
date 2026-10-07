@@ -74,6 +74,7 @@ UI\NewModulePopup.lua
 # UI
 UI\Themes.lua
 UI\Templates.lua
+UI\ReadyStatus.lua
 
 # Modules - TalentBG
 Modules\TalentBG\Presets.lua

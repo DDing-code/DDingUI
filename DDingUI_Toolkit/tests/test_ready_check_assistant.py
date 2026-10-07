@@ -67,9 +67,18 @@ def panel_runtime(locale="koKR"):
         function methods:IsShown() return self.shown end
         function methods:Show() self.shown=true end
         function methods:Hide() self.shown=false; if self.scripts.OnHide then self.scripts.OnHide(self) end end
-        for _, name in ipairs({"RegisterEvent", "SetBackdrop", "SetFrameStrata", "SetClampedToScreen", "EnableMouse",
-            "SetShadowOffset", "SetShadowColor", "SetJustifyV", "SetWordWrap", "RegisterForClicks",
+        for _, name in ipairs({"RegisterEvent", "SetBackdrop", "SetFrameStrata", "SetClampedToScreen",
+            "SetShadowOffset", "SetShadowColor", "SetJustifyV", "SetWordWrap",
             "SetStatusBarTexture", "SetMinMaxValues"}) do methods[name] = function() end end
+        function methods:EnableMouse(value) self.mouse=value end
+        function methods:RegisterForClicks(...) self.clicks={...} end
+        function methods:SetFrameLevel(level) self.level=level end
+        function methods:GetFrameLevel() return self.level or 1 end
+        function methods:SetAlpha(alpha) self.alpha=alpha end
+        function methods:GetAlpha() return self.alpha or 1 end
+        function methods:SetMask(mask) self.mask=mask end
+        function methods:GetText() return self.text end
+        function methods:GetParent() return self.parent end
         UIParent = CreateFrame("Frame")
         UIParent:SetSize(1920,1080)
         ReadyCheckFrame = CreateFrame("Frame", "ReadyCheckFrame", UIParent)
@@ -89,11 +98,13 @@ def panel_runtime(locale="koKR"):
     lua.execute((ROOT / f"Locales/{locale}.lua").read_text(encoding="utf-8-sig"))
     lua.execute((ROOT / "UI/Themes.lua").read_text(encoding="utf-8-sig"),
                 "DDingUI_Toolkit", lua.globals().ns)
+    lua.execute((ROOT / "UI/ReadyStatus.lua").read_text(encoding="utf-8-sig"),
+                "DDingUI_Toolkit", lua.globals().ns)
     lua.execute((ROOT / "Modules/ReadyCheckAssistant/ReadyCheckAssistant.lua").read_text(encoding="utf-8-sig"),
                 "DDingUI_Toolkit", lua.globals().ns)
     lua.execute('''
         module = ns.ReadyCheckAssistant
-        function module:GetSpecializationInfo() return {id=262, name="Elemental"} end
+        function module:GetSpecializationInfo() return {id=262, name="Elemental", icon=136048} end
         currentLoadout, loadoutKnown = "Dungeon", true
         function module:GetLoadoutInfo() return currentLoadout, loadoutKnown end
         function module:GetGroupContext() return "RAID" end
@@ -109,95 +120,175 @@ def panel_runtime(locale="koKR"):
     return lua
 
 
-def test_ready_check_layout_and_status_transitions():
+PANEL_CHECKS = r'''
+    function descendants(root)
+        local out = {}
+        for _, r in ipairs(regions) do
+            local p = r.parent
+            while p do if p == root then out[#out+1] = r; break end; p = p.parent end
+        end
+        return out
+    end
+    function states(display)
+        local out = {}
+        for i, row in ipairs(display.rows) do out[i] = row.state or "none" end
+        return table.concat(out, ",")
+    end
+'''
+
+
+def test_ready_check_compact_checklist_layout():
     for locale in ("koKR", "enUS"):
         lua = panel_runtime(locale)
+        lua.execute(PANEL_CHECKS)
         lua.execute('''
             local L = ns.L
-            for label in pairs(display.fontSizes) do assert(label.text ~= "", "missing panel label") end
-            assert(display.width == 720 and display.height == 340)
-            assert(module.snapshot.issueCount == 2)
-            assert(display.statusText.text == string.format(L.RCA_SUMMARY_ISSUES_FORMAT, 2))
-            assert(display.statusDetail.text:find(L.RCA_SUMMARY_MISMATCH, 1, true))
-            assert(display.statusDetail.text:find(L.RCA_REPAIR_NEEDED, 1, true))
-            assert(display.loadoutText.text == "Dungeon" and display.expectedText.text == L.RCA_EXPECTED .. ": Raid")
-            assert(display.openTalentsButton.primary)
-            assert(display.cells[5].value.text:find("18%",1,true))
-            assert(#display.cells == 5 and not display.durabilityBar)
-            local report = module:BuildReport(module.snapshot)
-            assert(report:find(string.format(L.RCA_REPORT_REPAIR, 2), 1, true))
-            assert(report:find(string.format(L.RCA_REPORT_LOADOUT, "Raid"), 1, true))
-            local anchors = {}
-            for _, key in ipairs({"specText", "loadoutText", "expectedText", "statusText"}) do
-                anchors[key] = display[key].points.TOPLEFT
+            local styles = ns.ReadyStatus
+            -- 300 wide, fixed height, six 26px rows, no buttons
+            assert(display.width == 300 and display.height == 220, display.width .. "x" .. display.height)
+            assert(#display.rows == 6)
+            for i, row in ipairs(display.rows) do
+                assert(row.height == 26 and row.width == 276)
+                assert(row.points.TOPLEFT.y == -(54 + (i - 1) * 26))
+                assert(row.cell.width == styles.PERSONAL_ICON and row.cell.height == 24)
             end
+            assert(display.openTalentsButton == nil and display.reportButton == nil)
+            for _, r in ipairs(descendants(display)) do
+                if r.kind == "FontString" then
+                    assert(r.fontSize >= 12, "text below 12pt: " .. tostring(r.text))
+                    assert(r.text ~= L.RCA_OPEN_TALENTS and r.text ~= L.RCA_REPORT_BUTTON, "button text left in panel")
+                end
+            end
+            -- rows: talents, flask, food, rune, weapon, durability
+            assert(display.rows[1].label.text == string.format(L.RCA_TALENT_ROW, "Raid"))
+            assert(display.rows[2].label.text == L.RAIDPREP_COLUMN_FLASK)
+            assert(display.rows[3].label.text == L.RAIDPREP_COLUMN_FOOD)
+            assert(display.rows[4].label.text == L.RCA_ROW_RUNE)
+            assert(display.rows[5].label.text == L.RAIDPREP_COLUMN_WEAPON)
+            assert(display.rows[6].label.text == L.RAIDPREP_COLUMN_DURABILITY)
+            -- loadout "Dungeon" vs expected "Raid", durability 18% below 25%
+            assert(module.snapshot.issueCount == 2)
+            assert(display.summaryPill.text.text == string.format(L.RCA_SUMMARY_ISSUES_FORMAT, 2))
+            assert(display.summaryPill.state == "warn")
+            assert(display.contextPill.text.text == L.RCA_CONTEXT_RAID)
+            for _, context in ipairs({"RAID", "MPLUS", "PARTY"}) do
+                display.summaryPill:SetPill(string.format(L.RCA_SUMMARY_ISSUES_FORMAT, 6), "warn")
+                display.contextPill:SetPill(L["RCA_CONTEXT_" .. context])
+                assert(display.summaryPill.width + 8 + display.contextPill.width <= 276, context)
+            end
+            for _, row in ipairs(display.rows) do
+                assert(row.status:GetStringWidth() + 24 + 10 + 8 <= 276)
+            end
+            assert(display.rows[1].status.text == L.RCA_CHECK_MISMATCH)
+            assert(display.rows[6].status.text == L.RCA_LOWEST .. " 18%")
+            assert(states(display) == "bad,ok,ok,ok,ok,bad", states(display))
+            assert(display.rows[1].card.shown and display.rows[6].card.shown and not display.rows[2].card.shown)
+            local bad = styles.Color("bad")
+            assert(display.rows[1].status.textColor[1] == bad[1] and display.rows[1].cell.icon.mask)
+            assert(display.rows[1].cell.icon.texture == 136048, "spec icon")
+            -- Toolkit's own icons (full-bleed, no 8% crop) for flask and durability
+            assert(display.rows[2].cell.icon.texture:find("ready_flask", 1, true))
+            assert(display.rows[6].cell.icon.texture:find("ready_durability", 1, true))
+            assert(display.rows[2].cell.icon.texCoord[1] == 0 and display.rows[2].cell.icon.texCoord[2] == 1)
+
             currentLoadout = "Raid"
             durability = {lowest=86, average=94, threshold=25, lowSlots={}}
             module:Refresh()
             assert(module.snapshot.issueCount == 0 and module.snapshot.status == "READY")
-            assert(display.statusText.text == L.RCA_STATUS_READY)
-            assert(display.loadoutStatus.text == L.RCA_CHECK_MATCH and not display.openTalentsButton.primary)
-            assert(display.detailText.text == L.RCA_NO_LOW_SLOTS)
-            for key, anchor in pairs(anchors) do assert(display[key].points.TOPLEFT == anchor) end
+            assert(display.summaryPill.text.text == L.RCA_NO_ISSUES and display.summaryPill.state == "ok")
+            assert(display.rows[1].status.text == L.RCA_STATUS_MATCH)
+            assert(states(display) == "ok,ok,ok,ok,ok,ok")
+            for _, row in ipairs(display.rows) do assert(not row.card.shown) end
             loadoutKnown = false
             module:Refresh()
-            assert(module.snapshot.status == "UNKNOWN" and module.snapshot.issueCount == 1)
-            assert(display.loadoutStatus.text == L.RCA_CHECK_UNKNOWN)
+            assert(display.rows[1].status.text == L.RCA_CHECK_UNKNOWN and display.rows[1].state == "warn")
+            loadoutKnown = true
             ns.db.profile.ReadyCheckAssistant.raidLoadouts = ""
             module:Refresh()
-            assert(display.loadoutStatus.text == L.RCA_CHECK_UNKNOWN)
-            loadoutKnown = true
-            module:Refresh()
-            assert(display.loadoutStatus.text == L.RCA_NOT_CONFIGURED)
-            assert(display.expectedText.text == L.RCA_EXPECTED .. ": " .. L.RCA_NOT_CONFIGURED and not display.loadoutStatusIcon.shown)
-            assert(display.statusDetail.text:find(L.RCA_SUMMARY_UNSET, 1, true))
+            assert(display.rows[1].status.text == L.RCA_NOT_CONFIGURED and display.rows[1].state == nil)
+            assert(display.rows[1].label.text == string.format(L.RCA_TALENT_ROW, "Raid"), "unset: current loadout name")
 
-            for _, width in ipairs({560, 720, 900}) do
-                module.db.width = width
-                for _, talents in ipairs({true, false}) do
-                    for _, reportShown in ipairs({true, false}) do
-                        module.db.showOpenTalentsButton, module.db.showReportButton = talents, reportShown
-                        module:ApplySettings()
-                        assert(display.width == width)
-                        assert(display.height == ((talents or reportShown) and 340 or 286))
-                        assert(display.openTalentsButton.shown == talents and display.reportButton.shown == reportShown)
-                        local buttonWidth = (talents and reportShown) and (width - 40) / 2 or width - 32
-                        assert(display.openTalentsButton.width == buttonWidth and display.reportButton.width == buttonWidth)
-                        assert(display.openTalentsButton.label:GetStringWidth() + 21 <= buttonWidth)
-                        assert(display.reportButton.label:GetStringWidth() + 21 <= buttonWidth)
-                        assert(display.openTalentsButton.points.BOTTOMLEFT.x == 16)
-                        assert(display.reportButton.points.BOTTOMRIGHT.x == -16)
-                        for index, cell in ipairs(display.cells) do
-                            assert(cell.width == (width-32)/5)
-                            assert(cell.points.TOPLEFT.x == 16+(index-1)*cell.width)
-                            assert(cell.label:GetStringWidth() <= cell.width-8)
-                            assert(cell.value:GetStringWidth() <= cell.width-8)
-                            assert(cell.points.TOPLEFT.y == -178)
-                        end
-                    end
-                end
-            end
+            -- old width option no longer changes the panel
+            module.db.width = 900
+            module:ApplySettings()
+            assert(display.width == 300 and display.height == 220)
             DDingUI_StyleLib.Font.path = "new-font.ttf"
             module:OnMediaChanged()
             for label, size in pairs(display.fontSizes) do
-                assert(label.font == "new-font.ttf" and label.fontSize == size and label.fontFlags == "")
+                assert(label.font == "new-font.ttf" and label.fontSize == size and size >= 12)
             end
-            module:EnterEditPreview()
-            assert(display.shown)
-            display.closeButton.scripts.OnClick()
-            assert(not display.shown and ReadyCheckFrame.shown)
-            assert(next(ReadyCheckFrame.points) == nil and next(ReadyCheckFrame.scripts) == nil)
-            module:HandleReadyCheck()
-            assert(display.shown)
-            ReadyCheckFrame:Hide()
-            clock = clock + 1
-            display.scripts.OnUpdate()
-            assert(not display.shown)
-            inCombat = true
-            assert(not module:Show(false))
-            module:OnDisable()
-            assert(not module:Show(false))
         ''')
+
+
+def test_talent_row_opens_talents_and_close_button_hides():
+    lua = panel_runtime()
+    lua.execute('''
+        opened = {}
+        PlayerSpellsUtil = {TogglePlayerSpellsFrame=function(tab) opened[#opened+1]=tab end}
+        local row = display.talentRow
+        assert(row == display.rows[1] and row.clicks)
+        row.scripts.OnClick(row, "LeftButton")
+        assert(#opened == 1 and opened[1] == 2)
+        inCombat = true
+        row.scripts.OnClick(row, "LeftButton")
+        assert(#opened == 1, "talent window must not open in combat")
+        inCombat = false
+        module:EnterEditPreview()
+        assert(display.shown)
+        display.closeButton.scripts.OnClick()
+        assert(not display.shown and ReadyCheckFrame.shown)
+        assert(next(ReadyCheckFrame.points) == nil and next(ReadyCheckFrame.scripts) == nil)
+        module:HandleReadyCheck()
+        assert(display.shown)
+        ReadyCheckFrame:Hide()
+        clock = clock + 1
+        display.scripts.OnUpdate()
+        assert(not display.shown)
+        inCombat = true
+        assert(not module:Show(false))
+        module:OnDisable()
+        assert(not module:Show(false))
+    ''')
+
+
+def test_panel_uses_series_title_bar_and_report_lives_in_options():
+    module = (ROOT / "Modules/ReadyCheckAssistant/ReadyCheckAssistant.lua").read_text(encoding="utf-8-sig")
+    config = (ROOT / "Config_Data.lua").read_text(encoding="utf-8-sig")
+    assert 'SL.CreateTitleBar(frame, "MJToolkit", title' in module
+    assert "bar.closeBtn:SetScript(\"OnClick\", Close)" in module
+    assert "openTalentsButton" not in module and "CreatePanelButton" not in module
+    rca = config.split('tree.panels["readycheckassistant"]', 1)[1].split("tree.panels[", 1)[0]
+    for removed in ("showOpenTalentsButton", "showReportButton", "showLowSlots", "ReadyCheckAssistant.width"):
+        assert removed not in rca, removed
+    assert 'label = L["RCA_REPORT_BUTTON"]' in rca and "mod:SendReport(false)" in rca
+
+
+def test_personal_consumable_status_and_reports():
+    lua = panel_runtime()
+    lua.execute(PANEL_CHECKS)
+    lua.execute('''
+        currentLoadout="Raid"
+        durability={lowest=96,average=98,threshold=25,lowSlots={}}
+        local buffs={flask={value=false},food={value=true,remaining=1680,icon=999},
+            rune={},weapon={value=true,remaining=32}}
+        function module:GetConsumables() return buffs end
+        module:Refresh()
+        assert(module.snapshot.issueCount==2)
+        assert(display.rows[2].status.text==ns.L.RCA_MISSING and display.rows[2].state=="bad")
+        assert(display.rows[3].status.text==string.format(ns.L.RCA_MINUTES_LEFT,28) and display.rows[3].state=="ok")
+        assert(display.rows[3].cell.icon.texture==999, "live aura icon wins")
+        assert(display.rows[4].status.text==ns.L.RCA_CHECK_UNKNOWN and display.rows[4].state==nil)
+        assert(display.rows[5].status.text==string.format(ns.L.RCA_SECONDS_LEFT,32) and display.rows[5].state=="warn")
+        assert(display.rows[2].card.shown and display.rows[5].card.shown and not display.rows[4].card.shown)
+        local report=module:BuildReport(module.snapshot)
+        assert(report:find(ns.L.RAIDPREP_COLUMN_FLASK,1,true))
+        assert(report:find(ns.L.RCA_CHECK_UNKNOWN,1,true))
+        buffs.flask={value=true};buffs.rune={value=true}
+        module:Refresh()
+        assert(module.snapshot.issueCount==0 and module.snapshot.status=="READY")
+        assert(display.rows[2].status.text==ns.L.RCA_ACTIVE and display.rows[2].state=="ok")
+    ''')
+
 
 
 def test_ready_check_icon_atlas_has_twelve_transparent_icons():
@@ -211,16 +302,6 @@ def test_ready_check_icon_atlas_has_twelve_transparent_icons():
             left, top, right, bottom = alpha.getbbox()
             assert left > 0 and top > 0 and right < 64 and bottom < 64
         assert not atlas.getchannel("A").crop((768, 0, 1024, 64)).getbbox()
-
-
-def test_ready_check_panel_has_an_independent_close_button() -> None:
-    module = (Path(__file__).parents[1] / "Modules/ReadyCheckAssistant/ReadyCheckAssistant.lua").read_text(
-        encoding="utf-8-sig"
-    )
-
-    assert 'frame.closeButton = CreateFrame("Button", nil, frame)' in module
-    close_handler = module.split('frame.closeButton:SetScript("OnClick", function()', 1)[1].split("end)", 1)[0]
-    assert "ReadyCheckAssistant:Hide()" in close_handler
 
 
 def test_personal_consumables_use_shared_scan_without_enabling_raid_module():
@@ -273,39 +354,4 @@ def test_personal_consumables_use_shared_scan_without_enabling_raid_module():
             if i==1 then return {spellId=1236763,expirationTime=clock-1} end
         end
         assert(personal:GetConsumables().flask.value=="LOW")
-    ''')
-
-
-def test_personal_consumable_status_and_reports():
-    lua = panel_runtime()
-    lua.execute('''
-        currentLoadout="Raid"
-        durability={lowest=96,average=98,threshold=25,lowSlots={}}
-        local buffs={flask={value=false},food={value=true,remaining=1680},
-            rune={},weapon={value=true,remaining=32}}
-        function module:GetConsumables() return buffs end
-        module:Refresh()
-        assert(module.snapshot.issueCount==2)
-        assert(display.cells[1].value.text==ns.L.RCA_MISSING)
-        assert(display.cells[2].value.text==string.format(ns.L.RCA_MINUTES_LEFT,28))
-        assert(display.cells[3].value.text==ns.L.RCA_CHECK_UNKNOWN)
-        assert(display.cells[4].value.text==string.format(ns.L.RCA_SECONDS_LEFT,32))
-        local atlas = display.cells[5].icon.texture
-        for index=1,4 do
-            local cell=display.cells[index]
-            assert(cell.icon.texture==atlas)
-            assert(cell.icon.texCoord[1]==(index+6)/16)
-            for channel=1,3 do assert(cell.icon.vertexColor[channel]==cell.value.textColor[channel]) end
-        end
-        assert(display.specIcon.texture==atlas and display.specIcon.texCoord[1]==11/16)
-        local report=module:BuildReport(module.snapshot)
-        assert(report:find(ns.L.RAIDPREP_COLUMN_FLASK,1,true))
-        assert(report:find(ns.L.RCA_CHECK_UNKNOWN,1,true))
-        buffs.flask={value=true};buffs.rune={value=true}
-        local flaskUV=display.cells[1].icon.texCoord[1]
-        module:Refresh()
-        assert(module.snapshot.issueCount==0 and module.snapshot.status=="READY")
-        assert(display.cells[1].value.text==ns.L.RCA_ACTIVE)
-        assert(display.cells[1].icon.texCoord[1]==flaskUV)
-        assert(display.cells[1].icon.vertexColor[2]==display.cells[1].value.textColor[2])
     ''')
