@@ -1,0 +1,43 @@
+# 미나즈키 원화 생성 기록
+
+2026-10-08. 내장 image_gen, transparent_background=true. 실제 출력은 1254×1254 RGBA.
+참고: https://www.youtube.com/watch?v=IRORPM2fctk 의 앞 12초 장면.
+원본 장면의 인물·검을 제외하고 붉은 액체 장막과 바닥 웅덩이만 새로 그렸다.
+
+## 최초 참고 시트
+Use case: stylized-concept.
+Create a production 2D game VFX SPRITE SHEET of Unohana's Bankai Minazuki, based on the supplied original anime reference. The reference is for physical motion/color only; do not copy its black background, human figure, sword, subtitles, set, or camera cuts.
+Output exactly 8 columns by 8 rows of 64 successive animation cels, equal square cells, reading left-to-right then top-to-bottom. Target 3840x3840 pixels, cell480x480. Transparent RGBA background, genuine alpha, NO checkerboard painted pixels, no grid, gutters, labels, text or borders.
+Subject: ONLY the supernatural crimson liquid effect surrounding a central empty space where a game character would stand. Unohana's Minazuki is glossy dark-red flowing liquid, NOT fire, lightning, magenta plasma, a magical runic circle, random blood splatter, or a glowing neon doughnut. A shallow low ellipse of dark red liquid with a few narrow falling/rising sheets around the back arc and living thin liquid tendrils. Reference's deep almost-black burgundy core and bright wet scarlet edges. No bodies, wounds or gore.
+Style: highly polished hand-drawn action RPG sprite VFX, restrained MapleStory/Dungeon Fighter pixel sensibility, sharp hand-painted clustered highlights, clean convincing liquid silhouettes, very thin red luminous rim and dark burgundy interior. Each cel is individually drawn, smooth coherent flow between neighboring cels.
+Framing: one locked elevated front three-quarter camera. The same shallow ellipse occupies cell-local x44..436, y255..410. Central empty opening remains centered at x240,y280. Effects rise only on rear and side edges to y70 at the peak, keep the lower front arc low, leave central x165..315 y90..330 mostly open for character visibility. 28px fully transparent margin at every cell edge. No camera motion, no translating the whole effect, no random scale changes.
+Animation over 3.6 sec:
+cells1-8: a small dark crimson pool gathers at ground center, a thin wave rolls outward and forms the low ellipse.
+cells9-20: viscous sheets rise continuously from the rear and side arc, curled wet tips. No disconnected blast or sharp skip. Growth proceeds in small increments.
+cells21-44: established red liquid enclosure remains fixed in footprint and height while sheets continuously flow DOWN like the anime's narrow red waterfalls, liquid strips curl and fold; the front pool sends one low ripple across the ground. The effect is always evolving, never a static hold.
+cells45-56: upper sheets lose height as the liquid drains back into the pool, thin streaks and droplets fall downward naturally.
+cells57-64: the ground pool breaks into small translucent dark crimson wisps and droplets and smoothly vanishes. Final cell almost empty. First and last cells quiet; no white flashes.
+Every cell MUST be a consecutive unique frame of the same continuous animation, not alternative designs or a collage. No objects touch neighboring cells. Keep identical registration and viewpoint throughout. Use actual transparency for all negative space.
+
+## 페이지 1
+Use case: precise-object-edit. Production higher-resolution redraw of one selected part of the supplied 8x8 64-frame Minazuki liquid VFX sprite sheet. This is PAGE 1 of 4.
+Frames 1-16: the pool gathers then widens into the fixed oval; the rear/side liquid sheets gradually begin rising. This corresponds exactly to rows 1 and 2 of the reference 8x8 sheet.
+Re-render ONLY those sixteen consecutive frames into one EXACT 4-column x4-row square sprite sheet, read left to right then top to bottom. Preserve the reference's colors, motions, timings, deep burgundy liquid with scarlet wet edge light, fixed viewpoint, and shape progression. Redraw at higher per-frame detail; no pixel enlargement. Each output cell contains just one animation cel, NOT a miniature whole sheet.
+Transparent RGBA, fully clear negative space (alpha exactly zero), no checkerboard, no black matte, no text, no grid/gutters or cell lines. Aim 2048x2048 output,512px cells. CRITICAL: all per-frame geometry must be registered identically across all pages: at any output cell size, fixed ellipse footprint center at (50% width,76% height), outer width76%, outer height24%, bottom88%; full-height rear/side curtains top15%. Middle x38%..62% remains open. Stay inside margins x10%..90%,y10%..90%. Same frame scale and camera, no whole-frame shifting between cels. The liquid must look flowing/glossy/cel-painted with dark translucent body and narrow wet highlights; no fire, lightning, bright pink plasma, texture noise, spark clouds, hard outline glitter, new symbols, swords, people or wounds. Shape and flow follow reference, only selected 16 frames. Page 1; DO NOT draw other pages or all 64 frames.
+
+## 페이지 2
+Use case: precise-object-edit. Production higher-resolution redraw of one selected part of the supplied 8x8 64-frame Minazuki liquid VFX sprite sheet. This is PAGE 2 of 4.
+Frames 17-32: the rear/side liquid sheets rise to maximum height then start pouring downward in narrow wet scarlet folds, with the same fixed lower oval. This corresponds exactly to rows 3 and 4 of the reference 8x8 sheet.
+Re-render ONLY those sixteen consecutive frames into one EXACT 4-column x4-row square sprite sheet, read left to right then top to bottom. Preserve the reference's colors, motions, timings, deep burgundy liquid with scarlet wet edge light, fixed viewpoint, and shape progression. Redraw at higher per-frame detail; no pixel enlargement. Each output cell contains just one animation cel, NOT a miniature whole sheet.
+Transparent RGBA, fully clear negative space (alpha exactly zero), no checkerboard, no black matte, no text, no grid/gutters or cell lines. Aim 2048x2048 output,512px cells. CRITICAL: all per-frame geometry must be registered identically across all pages: at any output cell size, fixed ellipse footprint center at (50% width,76% height), outer width76%, outer height24%, bottom88%; full-height rear/side curtains top15%. Middle x38%..62% remains open. Stay inside margins x10%..90%,y10%..90%. Same frame scale and camera, no whole-frame shifting between cels. The liquid must look flowing/glossy/cel-painted with dark translucent body and narrow wet highlights; no fire, lightning, bright pink plasma, texture noise, spark clouds, hard outline glitter, new symbols, swords, people or wounds. Shape and flow follow reference, only selected 16 frames. Page 2; DO NOT draw other pages or all 64 frames.
+
+## 페이지 4
+Use case: precise-object-edit. Production higher-resolution redraw of one selected part of the supplied 8x8 64-frame Minazuki liquid VFX sprite sheet. This is PAGE 4 of 4.
+Frames 49-64: the remaining low wave sheets fall, the oval breaks into small receding liquid ribbons, drops and wisps, disappearing completely in final frame64. This corresponds exactly to rows 7 and 8 of the reference 8x8 sheet.
+Re-render ONLY those sixteen consecutive frames into one EXACT 4-column x4-row square sprite sheet, read left to right then top to bottom. Preserve the reference's colors, motions, timings, deep burgundy liquid with scarlet wet edge light, fixed viewpoint, and shape progression. Redraw at higher per-frame detail; no pixel enlargement. Each output cell contains just one animation cel, NOT a miniature whole sheet.
+Transparent RGBA, fully clear negative space (alpha exactly zero), no checkerboard, no black matte, no text, no grid/gutters or cell lines. Aim 2048x2048 output,512px cells. CRITICAL: all per-frame geometry must be registered identically across all pages: at any output cell size, fixed ellipse footprint center at (50% width,76% height), outer width76%, outer height24%, bottom88%; full-height rear/side curtains top15%. Middle x38%..62% remains open. Stay inside margins x10%..90%,y10%..90%. Same frame scale and camera, no whole-frame shifting between cels. The liquid must look flowing/glossy/cel-painted with dark translucent body and narrow wet highlights; no fire, lightning, bright pink plasma, texture noise, spark clouds, hard outline glitter, new symbols, swords, people or wounds. Shape and flow follow reference, only selected 16 frames. Page 4; DO NOT draw other pages or all 64 frames.
+
+## 채택
+gather.png 16개, flow.png 16개, drain.png의 둘째·셋째 행 8개 = 40개 연속 원화. 별도 페이지 3은 중복 성장 구간으로 제외했다.
+원화의 불균등 행 간격을 측정해 자른 뒤 정수 이동만으로 중심과 바닥을 정렬한다. 확대·회전·보간하지 않는다.
+512px 셀 안 그림의 실제 폭은 최대 약 310px다. alpha 0~1은 생성기의 빈 배경으로 처리하며 alpha 2~255와 RGB는 보존한다.

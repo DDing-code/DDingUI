@@ -2,6 +2,11 @@ local _, FX = ...
 
 -- Stable key -> {name, path, columns, rows, frames, fps}; see Media/README.md.
 FX.Catalog = {
+    minazuki = {
+        name = "만해 · 미나즈키",
+        path = "Interface\\AddOns\\DDingUI_FX\\Media\\Minazuki.tga",
+        columns = 4, rows = 4, pages = 3, frames = 40, fps = 11, displayScale = 2,
+    },
     unlimitedVoid = {
         name = "무량공처 · 수인",
         path = "Interface\\AddOns\\DDingUI_FX\\Media\\UnlimitedVoid.tga",

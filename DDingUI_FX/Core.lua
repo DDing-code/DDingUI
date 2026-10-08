@@ -8,6 +8,7 @@ FX.LSM:Register("sound", "DD_Ryoiki_Tenkai", [[Interface\AddOns\DDingUI_FX\Media
 FX.LSM:Register("sound", "DD_Makora", [[Interface\AddOns\DDingUI_FX\Media\DD_Makora.mp3]])
 FX.LSM:Register("sound", "DD_Zoltraak", [[Interface\AddOns\DDingUI_FX\Media\DD_Zoltraak.mp3]])
 FX.LSM:Register("sound", "DD_Time Rewind", [[Interface\AddOns\DDingUI_FX\Media\DD_Time_Rewind.mp3]])
+FX.LSM:Register("sound", "DD_Minazuki", [[Interface\AddOns\DDingUI_FX\Media\DD_Minazuki.mp3]])
 
 function FX.IsSecret(value)
     return issecretvalue and issecretvalue(value) or false

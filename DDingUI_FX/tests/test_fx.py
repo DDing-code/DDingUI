@@ -151,7 +151,11 @@ def check():
         assert(w:IsShown() and not w.hover:IsShown() and not w.hover.player.playing)
         assert(not w.save and type(w.enabled)~='table' and not w.stage and not FX.OpenPresetEditor)
         assert(not w.geometry and not w.speed)
-        assert(#w.cards==8 and w.cards[1].key=='')
+        assert(#w.cards==9 and w.cards[1].key=='')
+        local minazukiCard
+        for _,card in ipairs(w.cards) do if card.key=='minazuki' then minazukiCard=card end end
+        assert(minazukiCard and minazukiCard.image.texture:find('Minazuki_2.tga',1,true))
+        assert(minazukiCard.image.texCoord[1]==0 and minazukiCard.image.texCoord[3]==.25)
         local voidCard
         for _,card in ipairs(w.cards) do if card.key=='unlimitedVoid' then voidCard=card end end
         assert(voidCard and voidCard.image.texture:find('UnlimitedVoid_3.tga',1,true))
@@ -701,6 +705,40 @@ def check():
         rule.opacity=SECRET; assert(FX:NormalizeRule(rule).opacity==100)
         rule.opacity=0/0; assert(FX:NormalizeRule(rule).opacity==100)
         rule.opacity=0; assert(FX:NormalizeRule(rule).opacity==0)
+    ''')
+    for page in range(3):
+        suffix = f'_{page+1}' if page else ''
+        with Image.open(ROOT / f'Media/Minazuki{suffix}.tga') as sheet:
+            assert sheet.mode == 'RGBA' and sheet.size == (2048, 2048)
+            for i in range(16):
+                x, y = i % 4 * 512, i // 4 * 512
+                alpha = sheet.crop((x, y, x+512, y+512)).getchannel('A')
+                box = alpha.getbbox()
+                if page * 16 + i < 40:
+                    assert box and min(box[:2]) >= 32 and max(box[2:]) <= 480
+                else:
+                    assert box is None
+    reload.execute('''
+        local p=FX.presets.minazuki
+        assert(p.name=='만해 · 미나즈키' and p.frames==40 and p.fps==11)
+        assert(p.columns==4 and p.rows==4 and p.pages==3 and p.displayScale==2)
+        local sound=FX.LSM:Fetch('sound','DD_Minazuki',true)
+        assert(sound and sound:find('DD_Minazuki.mp3',1,true))
+        local player=FX:CreatePlayer(UIParent)
+        assert(player:Play(p,1,false) and #player.textures==3)
+        player:Fire('OnUpdate',16/11+.001)
+        assert(player.page==2 and player.frameIndex==16)
+        assert(player.texture.texCoord[1]==0 and player.texture.texCoord[3]==0)
+        player:Fire('OnUpdate',16/11)
+        assert(player.page==3 and player.frameIndex==32)
+        player:Fire('OnUpdate',7/11)
+        assert(player.frameIndex==39 and player.playing)
+        player:Fire('OnUpdate',1/11)
+        assert(not player.playing and not player:GetScript('OnUpdate'))
+        assert(player:Play(p,1,true))
+        player:Fire('OnUpdate',40/11+.001)
+        assert(player.page==1 and player.frameIndex==0 and player.playing)
+        player:Stop()
     ''')
     media = ROOT / 'Media/HollowPurple.tga'
     header = media.read_bytes()[:18]
