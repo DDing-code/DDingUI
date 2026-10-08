@@ -5,7 +5,7 @@ FX.Catalog = {
     minazuki = {
         name = "만해 · 미나즈키",
         path = "Interface\\AddOns\\DDingUI_FX\\Media\\Minazuki.tga",
-        columns = 4, rows = 4, pages = 3, frames = 40, fps = 11, displayScale = 2,
+        columns = 4, rows = 4, pages = 6, frames = 88, fps = 24, displayScale = 2,
     },
     unlimitedVoid = {
         name = "무량공처 · 수인",

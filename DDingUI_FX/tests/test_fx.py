@@ -154,8 +154,8 @@ def check():
         assert(#w.cards==9 and w.cards[1].key=='')
         local minazukiCard
         for _,card in ipairs(w.cards) do if card.key=='minazuki' then minazukiCard=card end end
-        assert(minazukiCard and minazukiCard.image.texture:find('Minazuki_2.tga',1,true))
-        assert(minazukiCard.image.texCoord[1]==0 and minazukiCard.image.texCoord[3]==.25)
+        assert(minazukiCard and minazukiCard.image.texture:find('Minazuki_3.tga',1,true))
+        assert(minazukiCard.image.texCoord[1]==0 and minazukiCard.image.texCoord[3]==.75)
         local voidCard
         for _,card in ipairs(w.cards) do if card.key=='unlimitedVoid' then voidCard=card end end
         assert(voidCard and voidCard.image.texture:find('UnlimitedVoid_3.tga',1,true))
@@ -706,7 +706,7 @@ def check():
         rule.opacity=0/0; assert(FX:NormalizeRule(rule).opacity==100)
         rule.opacity=0; assert(FX:NormalizeRule(rule).opacity==0)
     ''')
-    for page in range(3):
+    for page in range(6):
         suffix = f'_{page+1}' if page else ''
         with Image.open(ROOT / f'Media/Minazuki{suffix}.tga') as sheet:
             assert sheet.mode == 'RGBA' and sheet.size == (2048, 2048)
@@ -714,29 +714,29 @@ def check():
                 x, y = i % 4 * 512, i // 4 * 512
                 alpha = sheet.crop((x, y, x+512, y+512)).getchannel('A')
                 box = alpha.getbbox()
-                if page * 16 + i < 40:
+                if page * 16 + i < 88:
                     assert box and min(box[:2]) >= 32 and max(box[2:]) <= 480
                 else:
                     assert box is None
     reload.execute('''
         local p=FX.presets.minazuki
-        assert(p.name=='만해 · 미나즈키' and p.frames==40 and p.fps==11)
-        assert(p.columns==4 and p.rows==4 and p.pages==3 and p.displayScale==2)
+        assert(p.name=='만해 · 미나즈키' and p.frames==88 and p.fps==24)
+        assert(p.columns==4 and p.rows==4 and p.pages==6 and p.displayScale==2)
         local sound=FX.LSM:Fetch('sound','DD_Minazuki',true)
         assert(sound and sound:find('DD_Minazuki.mp3',1,true))
         local player=FX:CreatePlayer(UIParent)
-        assert(player:Play(p,1,false) and #player.textures==3)
-        player:Fire('OnUpdate',16/11+.001)
-        assert(player.page==2 and player.frameIndex==16)
-        assert(player.texture.texCoord[1]==0 and player.texture.texCoord[3]==0)
-        player:Fire('OnUpdate',16/11)
-        assert(player.page==3 and player.frameIndex==32)
-        player:Fire('OnUpdate',7/11)
-        assert(player.frameIndex==39 and player.playing)
-        player:Fire('OnUpdate',1/11)
+        assert(player:Play(p,1,false) and #player.textures==6)
+        for page=2,6 do
+            player:Fire('OnUpdate',16/24+.0001)
+            assert(player.page==page and player.frameIndex==(page-1)*16)
+            assert(player.texture.texCoord[1]==0 and player.texture.texCoord[3]==0)
+        end
+        player:Fire('OnUpdate',7/24)
+        assert(player.frameIndex==87 and player.playing)
+        player:Fire('OnUpdate',1/24)
         assert(not player.playing and not player:GetScript('OnUpdate'))
         assert(player:Play(p,1,true))
-        player:Fire('OnUpdate',40/11+.001)
+        player:Fire('OnUpdate',88/24+.001)
         assert(player.page==1 and player.frameIndex==0 and player.playing)
         player:Stop()
     ''')
