@@ -776,7 +776,7 @@ function TimelineUI:RefreshMedia()
     self.titleFontSize = styleLib.GetFontSize and styleLib:GetFontSize("title") or styleLib.Font.title
     self.normalFontSize = styleLib.GetFontSize and styleLib:GetFontSize("normal") or styleLib.Font.normal
     self.smallFontSize = styleLib.GetFontSize and styleLib:GetFontSize("small") or styleLib.Font.small
-    self.flatTexture = styleLib.GetTexture and styleLib:GetTexture("flat") or "Interface\Buttons\WHITE8x8"
+    self.flatTexture = styleLib.GetTexture and styleLib:GetTexture("flat") or "Interface\\Buttons\\WHITE8x8"
 
     for _, label in ipairs(self.fontStrings or {}) do
         local category = label._raidHelperFontCategory
