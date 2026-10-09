@@ -1194,6 +1194,7 @@ function Options:PositionAlertSample()
     local vertical = style.grow == "UP" and "BOTTOM" or "TOP"
     local horizontal = style.align == "RIGHT" and "RIGHT" or style.align == "CENTER" and "" or "LEFT"
     local point = vertical .. horizontal
+    sample:SetScale(math.min(1, math.max(1, area:GetWidth()) / style.width))
     sample:ClearAllPoints()
     sample:SetPoint(point, area, point, 0, 0)
 end
@@ -1302,6 +1303,7 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
     sampleArea:SetPoint("BOTTOMRIGHT", sampleCard, "BOTTOMRIGHT", -20, 14)
     if sampleArea.SetClipsChildren then sampleArea:SetClipsChildren(true) end
     self.alertSampleArea = sampleArea
+    sampleArea:SetScript("OnSizeChanged", function() Options:PositionAlertSample() end)
     if ns.TimelineUI and ns.TimelineUI.CreateAlertSample then
         self.alertSample = ns.TimelineUI:CreateAlertSample(sampleArea)
     end
@@ -1401,6 +1403,9 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
     self.alertResetButton = resetButton
     self.alertControls = controls
     self.alertControlKinds = kinds
+    -- [STYLE] Scroll through every card, including layout and element switches below the sample.
+    page.contentHeight = page.rowCursor - PAGE_ROW_GAP
+    page:SetHeight(page.contentHeight)
     self:PositionAlertSample()
     return page
 end

@@ -15,6 +15,7 @@ function methods:GetWidth() return self.width or 640 end
 function methods:GetHeight() return self.height or 500 end
 function methods:GetFrameLevel() return rawget(self, "frameLevel") or 1 end
 function methods:GetScale() return 1 end
+function methods:SetScale(value) self.scale = value end
 function methods:GetEffectiveScale() return 1 end
 function methods:GetName() return rawget(self, "name") end
 function methods:SetPoint() end
@@ -474,6 +475,7 @@ assert(ns.Options.previewButton ~= nil and ns.Options.tooltipCheckbox._ddslRound
 -- [STYLE] "곧 사용 알림" page (2026-10-10): every alert detail, live sample, reset.
 local alertPage = ns.Options.pages.alert
 assert(alertPage, "alert page exists in the display category")
+assert(alertPage.contentHeight >= alertPage.rowCursor - 16, "scroll range must reach every alert option")
 local controls = ns.Options.alertControls
 for _, key in ipairs({ "iconSize", "nameSize", "countSize", "width", "spacing", "maxRows", "window",
     "align", "grow", "showIcon", "showName", "pop" }) do
@@ -495,5 +497,14 @@ assert(controls.iconSize.slider:GetValue() == 26 and controls.align:GetValue() =
 assert(controls.showName:GetChecked() == true)
 assert(next(ns.db.alertStyle) == nil, "syncing the controls does not write values back")
 assert(ns.TimelineUI.applied == appliedBefore + 1)
+
+ns.Options:SetAlertStyleValue("width", 600)
+ns.Options.alertSampleArea:SetWidth(360)
+ns.Options:PositionAlertSample()
+assert(ns.Options.alertSample.scale == 0.6, "wide sample fits without clipping")
+assert(ns.db.alertStyle.width == 600, "fitting the sample must not shrink the live alert")
+ns.Options.alertSampleArea:SetWidth(720)
+ns.Options.alertSampleArea.scripts.OnSizeChanged()
+assert(ns.Options.alertSample.scale == 1, "resizing the options window restores sample size")
 
 print("RaidHelper modern three-column options window test OK")

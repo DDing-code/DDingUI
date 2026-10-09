@@ -150,9 +150,12 @@ assert(UI.upcomingRows[1].label.fontSize == 21 and UI.upcomingRows[1].countdown.
 '''
 
 
-def run():
+def run(extra=""):
     lua = LuaRuntime(unpack_returned_tuples=True)
-    lua.globals().Measure = lambda text, size: len(re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)) * size * 0.65
+    lua.globals().Measure = lambda text, size: sum(
+        0.95 if ord(char) >= 0x1100 else 0.65
+        for char in re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)
+    ) * size
     lua.execute(MOCK.read_text(encoding="utf-8"))
     lua.execute(EXTRA)
     lua.execute(BAR_EXTRA)
@@ -165,10 +168,35 @@ def run():
         source = (ADDON_ROOT / relative).read_text(encoding="utf-8-sig")
         lua.execute("local source, ns = ...; assert(loadstring(source))('DDingUI_RaidHelper', ns)", source, ns)
     lua.execute(SCENARIO, ns)
+    if extra:
+        lua.execute(extra, ns)
 
 
 def test_alert_style_options_drive_the_layout():
     run()
+
+
+def test_largest_alert_elements_fit_the_smallest_width():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+for _, align in ipairs({ "LEFT", "CENTER", "RIGHT" }) do
+    ns.db.alertStyle = { width = 160, iconSize = 48, nameSize = 24, countSize = 36, align = align }
+    local style = UI:ApplyAlertStyle()
+    local row = UI.alertSample.rows[3]
+    row.popStarted = 10
+    UI:AnimateCountdown(row, 10)
+    assert(row.countdown.textScale < 1.4, "large Korean count must limit its pop in a narrow row")
+    assert(row.content:GetWidth() <= row:GetWidth() - 4, "alert group escapes minimum width: " .. align)
+    local x, _, width = row.countdown:Rect()
+    local shownWidth = row.countdown:GetStringWidth() * row.countdown.textScale
+    if align == "RIGHT" then
+        assert(x + width - shownWidth >= row:GetLeft() + 2, "right-aligned count escapes row")
+    else
+        assert(x + shownWidth <= row:GetLeft() + row:GetWidth() - 2, "count escapes row")
+    end
+end
+''')
 
 
 if __name__ == "__main__":

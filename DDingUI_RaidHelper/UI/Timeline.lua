@@ -596,7 +596,8 @@ function TimelineUI:FillUpcomingRow(row, data, remaining, now, style)
 
     -- [STYLE] Keep long names from pushing the enlarged countdown out of the line.
     local iconPart = style.showIcon and (style.iconSize + 7) or 0
-    local slot = AlertCountSlot(style)
+    local slot = min(AlertCountSlot(style), max(1, row:GetWidth() - 4 - iconPart - (style.showName and 9 or 0)))
+    row.popLimit = min(1.4, slot / max(1, row.countdown:GetStringWidth()))
     local contentWidth = iconPart + slot
     if style.showName then
         row.label:SetWidth(0)
@@ -2113,7 +2114,7 @@ function TimelineUI:AnimateCountdown(row, now)
         return
     end
     local ease = 1 - progress
-    row.popScale = 1 + 0.4 * ease * ease
+    row.popScale = min(1 + 0.4 * ease * ease, row.popLimit or 1.4)
     label:SetTextScale(row.popScale)
 end
 
