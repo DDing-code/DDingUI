@@ -1259,7 +1259,7 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
         fontPath,
         colors,
         "음성 카운트",
-        "곧 사용할 쿨기가 3초 남으면 '셋·둘·하나'를 소리로 셉니다. 전투 중에도 바로 적용됩니다.",
+        "곧 사용할 쿨기가 3초 남으면 일본어 '산·니·이치'로 셉니다. 전투 중에도 바로 적용됩니다.",
         -105
     )
     voiceDescription:SetPoint("RIGHT", showCard, "RIGHT", -176, 0)
@@ -1627,26 +1627,9 @@ function Options:CreateModernProfilePage(parent, styleLib, fontPath, colors)
     return page
 end
 
-local function CreateStepRow(parent, fontPath, colors, accent, number, title, description, y)
-    local numberBox = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    numberBox:SetSize(26, 26)
-    numberBox:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, y)
-    ApplyBackdrop(numberBox, colors.bg.selected, colors.border.active, nil, nil, GetRadius("control")) -- [STYLE]
-
-    local numberText = MakeFont(numberBox, fontPath, SMALL_TEXT, accent, tostring(number))
-    numberText:SetPoint("CENTER")
-
-    local titleText = MakeFont(parent, fontPath, 12, colors.text.highlight, title)
-    titleText:SetPoint("TOPLEFT", numberBox, "TOPRIGHT", 12, -1)
-    local descText = MakeFont(parent, fontPath, SMALL_TEXT, colors.text.dim, description)
-    descText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 0, -5)
-    descText:SetPoint("RIGHT", parent, "RIGHT", -20, 0)
-    descText:SetJustifyH("LEFT")
-end
-
 function Options:CreateModernDataPage(parent, styleLib, fontPath, colors)
     local accent = styleLib.GetAccent(ADDON_KEY)
-    local page = CreateModernPage(parent, 490)
+    local page = CreateModernPage(parent, 274)
 
     local statusCard = CreateRowCard(page, colors, 174, accent)
     AddCardHeader(statusCard, fontPath, colors, 14, SMALL_TEXT, "설치 상태", "현재 게임에 로드된 영웅·신화 데이터 모델입니다.")
@@ -1662,12 +1645,6 @@ function Options:CreateModernDataPage(parent, styleLib, fontPath, colors)
         Options:ReloadData()
     end, { width = 174, height = 30 })
     reloadButton:SetPoint("RIGHT", statusCard, "RIGHT", -20, -18)
-
-    local workflowCard = CreateRowCard(page, colors, 200)
-    AddCardHeader(workflowCard, fontPath, colors, 14, SMALL_TEXT, "업데이트 순서", "기존 데이터는 새 팩 생성이 성공했을 때만 교체됩니다.")
-    CreateStepRow(workflowCard, fontPath, colors, accent, 1, "갱신 BAT 실행", "Update_RaidHelper_Data.bat를 더블클릭합니다.", -70)
-    CreateStepRow(workflowCard, fontPath, colors, accent, 2, "수집 완료 대기", "영웅 전 보스와 공개된 신화 보스를 자동 집계합니다.", -112)
-    CreateStepRow(workflowCard, fontPath, colors, accent, 3, "UI 다시 불러오기", "갱신 완료 후 위 버튼을 눌러 새 데이터 팩을 적용합니다.", -154)
 
     local privacyCard = CreateRowCard(page, colors, 76, accent, colors.bg.widget)
     local privacyTitle = MakeFont(privacyCard, fontPath, SMALL_TEXT, accent, "공개 로그만 사용")

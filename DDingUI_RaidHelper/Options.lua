@@ -189,7 +189,7 @@ function Options:RefreshDataSummary()
 
     local summary = ns.Registry and ns.Registry:GetDataSummary() or nil
     if not summary or summary.modelCount == 0 then
-        self.dataSummary:SetText("설치된 실데이터 모델이 없습니다.\nUpdate_RaidHelper_Data.bat를 먼저 실행해 주세요.")
+        self.dataSummary:SetText("설치된 실데이터 모델이 없습니다.")
         return
     end
 
@@ -1031,7 +1031,7 @@ function Options:CreateDataPage(parent, styleLib, fontPath, titleSize, normalSiz
         fontPath,
         normalSize,
         colors.text.normal,
-        "Warcraft Logs 공개 로그를 외부 수집기로 집계한 로컬 데이터 팩의 상태입니다.",
+        "Warcraft Logs 공개 로그에서 생성한 데이터 팩의 상태입니다.",
         CONTENT_WIDTH
     )
     description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
@@ -1048,16 +1048,6 @@ function Options:CreateDataPage(parent, styleLib, fontPath, titleSize, normalSiz
         Options:ReloadData()
     end, { width = 164, height = 26 })
     reloadButton:SetPoint("TOPLEFT", dataSummary, "BOTTOMLEFT", 0, -12)
-
-    local updateNote = CreateText(
-        page,
-        fontPath,
-        smallSize,
-        colors.text.dim,
-        "최신 로그를 다시 수집하려면 애드온 폴더의 Update_RaidHelper_Data.bat를 실행한 뒤 이 버튼을 누르세요.",
-        CONTENT_WIDTH
-    )
-    updateNote:SetPoint("TOPLEFT", reloadButton, "BOTTOMLEFT", 0, -14)
 
     self.dataSummary = dataSummary
     self.reloadButton = reloadButton
