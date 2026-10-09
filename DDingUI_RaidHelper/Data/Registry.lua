@@ -127,6 +127,7 @@ function Registry:FindMechanic(model, keys, nearTime)
 
     local best
     local bestDistance
+    local bestIsCastAnchor = false
     for _, key in ipairs(keys) do
         local candidates
         if not IsSecret(key) and key ~= nil then
@@ -143,9 +144,16 @@ function Registry:FindMechanic(model, keys, nearTime)
                 -- two competing clocks.
                 local syncTime = mechanic.syncT or mechanic.t or 0
                 local distance = math.abs(syncTime - (nearTime or 0))
-                if not best or distance < bestDistance then
+                -- [REFACTOR] shortcut: generated _damage_sync IDs identify hit-only fallbacks; revisit if pack IDs change.
+                local isCastAnchor = mechanic.syncT ~= nil
+                    and not tostring(mechanic.id or ""):match("_damage_sync$")
+                    and distance <= 8
+                if not best
+                    or (isCastAnchor and not bestIsCastAnchor)
+                    or (isCastAnchor == bestIsCastAnchor and distance < bestDistance) then
                     best = mechanic
                     bestDistance = distance
+                    bestIsCastAnchor = isCastAnchor
                 end
             end
         end

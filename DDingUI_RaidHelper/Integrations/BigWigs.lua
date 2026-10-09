@@ -91,12 +91,14 @@ end
 
 function BigWigsSync:BigWigs_ResumeBar(_, module, text, eventID)
     if not IsCurrentEncounter(module) then return end
-    local identity = SafeValue(eventID) or SafeValue(text)
+    local safeEventID = SafeValue(eventID)
+    local identity = safeEventID or SafeValue(text)
     local remaining
-    if type(identity) == "number"
+    -- [REFACTOR] Only event IDs belong in the timeline API; safe string IDs are valid too.
+    if (type(safeEventID) == "number" or type(safeEventID) == "string")
         and C_EncounterTimeline
         and type(C_EncounterTimeline.GetEventTimeRemaining) == "function" then
-        local ok, value = pcall(C_EncounterTimeline.GetEventTimeRemaining, identity)
+        local ok, value = pcall(C_EncounterTimeline.GetEventTimeRemaining, safeEventID)
         if ok and not ns:IsSecret(value) and type(value) == "number" then
             remaining = value
         end

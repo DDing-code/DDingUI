@@ -22,6 +22,20 @@ local function SafeValue(value, fallback)
     return value
 end
 
+-- [REFACTOR] BigWigs can start a bar by event ID and pause/resume/stop it by label.
+local function FindLiveMechanic(engine, value)
+    local identity = SafeIdentity(value)
+    if not identity then return nil end
+    if engine.liveMechanics[identity] then
+        return engine.liveMechanics[identity], identity
+    end
+    for key, mechanic in pairs(engine.liveMechanics) do
+        if SafeIdentity(mechanic.label) == identity then
+            return mechanic, key
+        end
+    end
+end
+
 local function Notify(event, ...)
     if ns.TimelineUI and ns.TimelineUI.OnEngineEvent then
         ns.TimelineUI:OnEngineEvent(event, ...)
@@ -301,29 +315,16 @@ function Engine:ObserveFutureMechanic(keys, secondsUntil, info)
 end
 
 function Engine:RemoveLiveMechanic(value)
-    local identity = SafeIdentity(value)
-    if not identity then return false end
-
-    if self.liveMechanics[identity] then
-        self.liveMechanics[identity] = nil
+    local mechanic, key = FindLiveMechanic(self, value)
+    if mechanic then
+        self.liveMechanics[key] = nil
         return true
-    end
-
-    for key, mechanic in pairs(self.liveMechanics) do
-        local labelIdentity = SafeIdentity(mechanic.label)
-        if labelIdentity and labelIdentity == identity then
-            self.liveMechanics[key] = nil
-            return true
-        end
     end
     return false
 end
 
 function Engine:SetLiveMechanicPaused(value, paused)
-    local identity = SafeIdentity(value)
-    if not identity then return false end
-
-    local mechanic = self.liveMechanics[identity]
+    local mechanic = FindLiveMechanic(self, value)
     if mechanic then
         mechanic.paused = paused == true
         mechanic.pauseClock = mechanic.paused and GetTime() or nil
@@ -333,15 +334,16 @@ function Engine:SetLiveMechanicPaused(value, paused)
 end
 
 function Engine:ResumeLiveMechanic(value, secondsUntil)
-    local identity = SafeIdentity(value)
-    if not identity then return false end
+    local mechanic = FindLiveMechanic(self, value)
+    if not mechanic or IsSecret(secondsUntil) then return false end
 
-    local mechanic = self.liveMechanics[identity]
-    if not mechanic then return false end
-
+    -- [REFACTOR] Legacy bars have no timeline API ID; their timer freezes at pauseClock.
+    if secondsUntil == nil and mechanic.paused and mechanic.pauseClock and mechanic.endClock then
+        secondsUntil = math.max(0, mechanic.endClock - mechanic.pauseClock)
+    end
+    if type(secondsUntil) ~= "number" then return false end
     mechanic.paused = false
     mechanic.pauseClock = nil
-    if IsSecret(secondsUntil) or type(secondsUntil) ~= "number" then return false end
 
     local now = GetTime()
     mechanic.endClock = now + math.max(0, secondsUntil)
