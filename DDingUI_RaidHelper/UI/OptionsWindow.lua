@@ -1381,7 +1381,7 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
     popDivider:SetPoint("TOPLEFT", elementCard, "TOPLEFT", 20, -169)
     popDivider:SetPoint("TOPRIGHT", elementCard, "TOPRIGHT", -20, -169)
     popDivider:SetHeight(1)
-    AddToggle("pop", "3초 강조 효과", "남은 3초 동안 숫자가 넘어갈 때마다 잠깐 커졌다 돌아옵니다.", -187)
+    AddToggle("pop", "모션", "등장·퇴장·줄 이동과 3초 강조·숫자 팝·지금 반짝임을 켭니다.", -187)
 
     local noteCard = CreateRowCard(page, colors, 72, accent, colors.bg.widget)
     local noteTitle = MakeFont(noteCard, fontPath, 12, accent, "바로 적용")

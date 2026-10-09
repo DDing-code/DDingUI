@@ -5,10 +5,12 @@
 ### 한국어
 
 - "곧 사용 알림"의 이름을 "리마인더"로 바꿨습니다(편집 모듈·설정 페이지·안내 문구). 저장 데이터는 그대로입니다.
+- 리마인더에 등장·퇴장·줄 이동, 3초 강조와 시간 선, 숫자 팝, ‘지금’ 반짝임을 적용했습니다. 기존 ‘3초 강조 효과’ 설정을 ‘모션’으로 바꿔 전체 효과를 제어하며 저장값은 유지합니다.
 
 ### English
 
 - Renamed the "upcoming cooldown alert" to "Reminder" in the edit module, settings page and messages. Saved data is unchanged.
+- Added reminder entrance, exit and row transitions, a three-second highlight and time line, number pops and a flash at the scheduled time. The existing highlight toggle now controls all motion and retains its saved value.
 
 ## 2.1.0
 

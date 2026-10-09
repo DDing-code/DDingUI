@@ -8,6 +8,7 @@ local ceil = math.ceil
 local floor = math.floor
 local max = math.max
 local min = math.min
+local sin = math.sin
 local sort = table.sort
 local unpack = unpack
 
@@ -36,6 +37,11 @@ local UPDATE_INTERVAL = 0.05
 -- [STYLE] "곧 사용" countdown: the number pops and a voice counts 셋 · 둘 · 하나.
 local COUNTDOWN_FROM = 3
 local COUNTDOWN_POP_TIME = 0.28
+local ALERT_ENTER_TIME = 0.25
+local ALERT_SLIDE_TIME = 0.2
+local ALERT_FLASH_TIME = 0.4
+local ALERT_EXIT_START = -0.45
+local ALERT_EXIT_END = -0.75
 local COUNTDOWN_VOICE_SLACK = 0.6
 local COUNTDOWN_SOUND = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\Sounds\\Countdown_%d.ogg"
 local UPCOMING_PANEL_MAX_WIDTH = 320
@@ -401,21 +407,32 @@ local SHADE_STOPS = {
     CENTER = { 0, 1, 1, 0 },
 }
 
---- Soft shade behind the text that fades away from the aligned side (both sides when centred).
-function TimelineUI:SetUpcomingRowShade(row, alpha)
-    local input = self.colors.bg.input
-    local base = (input[4] or 1) * alpha
+local function SetRowGradient(row, layer, color, alpha)
     local stops = SHADE_STOPS[row.align or "LEFT"] or SHADE_STOPS.LEFT
-    for index, color in ipairs(row.shadeColors) do
-        local value = base * stops[index]
-        if color.SetRGBA then
-            color:SetRGBA(input[1], input[2], input[3], value)
+    local colors = row[layer .. "Colors"]
+    for index, current in ipairs(colors) do
+        local value = (color[4] or 1) * alpha * stops[index]
+        if current.SetRGBA then
+            current:SetRGBA(color[1], color[2], color[3], value)
         else
-            row.shadeColors[index] = CreateColor(input[1], input[2], input[3], value)
+            colors[index] = CreateColor(color[1], color[2], color[3], value)
         end
     end
-    row.shade:SetGradient("HORIZONTAL", row.shadeColors[1], row.shadeColors[2])
-    row.shade2:SetGradient("HORIZONTAL", row.shadeColors[3], row.shadeColors[4])
+    row[layer]:SetGradient("HORIZONTAL", colors[1], colors[2])
+    row[layer .. "2"]:SetGradient("HORIZONTAL", colors[3], colors[4])
+end
+
+function TimelineUI:SetUpcomingRowShade(row, alpha)
+    SetRowGradient(row, "shade", self.colors.bg.input, alpha)
+    SetRowGradient(row, "tint", self.accentFrom, 0.22 * alpha)
+    SetRowGradient(row, "flash", self.accentLight, 0.55 * alpha)
+end
+
+function TimelineUI:PositionUpcomingRow(row, x, y)
+    local edge = row.grow == "UP" and "BOTTOM" or "TOP"
+    row:ClearAllPoints()
+    row:SetPoint(edge .. "LEFT", row.panel, edge .. "LEFT", x, y)
+    row:SetPoint(edge .. "RIGHT", row.panel, edge .. "RIGHT", x, y)
 end
 
 --- One alert line. panel/pool default to the live alert; the settings sample passes its own.
@@ -426,28 +443,46 @@ function TimelineUI:CreateUpcomingRow(index, panel, pool)
     if row then return row end
 
     local colors = self.colors
-    local input = colors.bg.input
     row = CreateFrame("Frame", nil, panel)
     row.panel = panel
     row.index = index
 
-    row.shade = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.shade:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-    row.shade:SetPoint("BOTTOMRIGHT", row, "BOTTOM", 0, 0)
-    row.shade:SetColorTexture(1, 1, 1, 1)
-    row.shade2 = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.shade2:SetPoint("TOPLEFT", row, "TOP", 0, 0)
-    row.shade2:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
-    row.shade2:SetColorTexture(1, 1, 1, 1)
-    row.shadeColors = {}
-    for index2 = 1, 4 do
-        row.shadeColors[index2] = CreateColor(input[1], input[2], input[3], 0)
+    row.motionStatic = panel ~= self.upcomingPanel
+    for level, layer in ipairs({ "shade", "tint", "flash" }) do
+        row[layer] = row:CreateTexture(nil, "BACKGROUND", nil, level)
+        row[layer]:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        row[layer]:SetPoint("BOTTOMRIGHT", row, "BOTTOM", 0, 0)
+        row[layer]:SetColorTexture(1, 1, 1, 1)
+        row[layer .. "2"] = row:CreateTexture(nil, "BACKGROUND", nil, level)
+        row[layer .. "2"]:SetPoint("TOPLEFT", row, "TOP", 0, 0)
+        row[layer .. "2"]:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+        row[layer .. "2"]:SetColorTexture(1, 1, 1, 1)
+        row[layer .. "Colors"] = {}
+        for index2 = 1, 4 do
+            row[layer .. "Colors"][index2] = CreateColor(1, 1, 1, 0)
+        end
     end
+    row.drain = row:CreateTexture(nil, "ARTWORK")
+    row.drain:SetHeight(2)
+    SetTextureColor(row.drain, self.accentFrom)
 
     -- Icon, name and number live in one holder so the whole line can be aligned as a group.
     row.content = CreateFrame("Frame", nil, row)
     row.icon = row.content:CreateTexture(nil, "ARTWORK")
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    row.glowLayers = {}
+    for index2, spec in ipairs({ { 6, 0.10, 8 }, { 4, 0.14, 6 }, { 2, 0.20, 4 } }) do
+        local layer = row.content:CreateTexture(nil, "BACKGROUND", nil, -8 + index2)
+        layer:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -spec[1], spec[1])
+        layer:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", spec[1], -spec[1])
+        if self.styleLib.RoundTexture then
+            self.styleLib.RoundTexture(layer, spec[3])
+            layer:SetVertexColor(self.accentFrom[1], self.accentFrom[2], self.accentFrom[3], spec[2])
+        else
+            SetTextureColor(layer, self.accentFrom, spec[2])
+        end
+        row.glowLayers[index2] = layer
+    end
     row.label = self:CreateLabel(row.content, "alertName", colors.text.highlight)
     row.countdown = self:CreateLabel(row.content, "count", self.accentLight)
 
@@ -462,15 +497,20 @@ function TimelineUI:LayoutUpcomingRow(row, index, style)
     local panel = row.panel
     local height = AlertRowHeight(style)
     local offset = (index - 1) * (height + style.spacing)
-    row:ClearAllPoints()
-    row:SetHeight(height)
-    if style.grow == "UP" then
-        row:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, offset)
-        row:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, offset)
-    else
-        row:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -offset)
-        row:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -offset)
+    local target = style.grow == "UP" and offset or -offset
+    if row.layoutVersion ~= self.alertLayoutVersion or row.motionStatic or not style.pop then
+        row.motionY, row.slideStarted = target, nil
+    elseif row.targetY ~= target then
+        row.slideFrom = row.motionY or target
+        row.slideStarted = type(GetTime) == "function" and GetTime() or 0
     end
+    row.index, row.grow, row.targetY = index, style.grow, target
+    row.motionY = row.motionY or target
+    row:SetHeight(height)
+    self:PositionUpcomingRow(row, 0, row.motionY)
+    row.drain:ClearAllPoints()
+    local drainEdge = style.align == "RIGHT" and "BOTTOMRIGHT" or "BOTTOMLEFT"
+    row.drain:SetPoint(drainEdge, row, drainEdge, style.align == "RIGHT" and -2 or 2, 0)
 
     local align = style.align
     row.align = align
@@ -529,6 +569,7 @@ function TimelineUI:ApplyAlertStyle()
         panel:SetSize(style.width, self:GetAlertPanelHeight(style))
         for index, row in ipairs(self.upcomingRows or {}) do
             self:LayoutUpcomingRow(row, index, style)
+            if row.data then self:AnimateUpcomingRow(row, type(GetTime) == "function" and GetTime() or 0, style) end
             if index > style.maxRows then
                 row.data = nil
                 row:Hide()
@@ -586,12 +627,20 @@ function TimelineUI:FillUpcomingRow(row, data, remaining, now, style)
         row.label:SetText(ResolveLabel(data))
         row.lastCount = nil
         row.popStarted = nil
+        row.enterStarted = now
+        row.nowStarted = nil
+    end
+    row.remaining, row.updatedAt = remaining, now
+    if remaining <= 0 then
+        if not row.nowStarted then row.nowStarted = now end
+    else
+        row.nowStarted = nil
     end
     if row.lastCount ~= text then
         if urgent and row.lastCount and style.pop then row.popStarted = now end
         row.lastCount = text
         row.countdown:SetText(text)
-        SetTextColor(row.countdown, urgent and self.colors.status.warning or self.accentLight)
+        SetTextColor(row.countdown, remaining <= 0 and self.colors.text.highlight or urgent and self.colors.status.warning or self.accentLight)
     end
 
     -- [STYLE] Keep long names from pushing the enlarged countdown out of the line.
@@ -606,8 +655,7 @@ function TimelineUI:FillUpcomingRow(row, data, remaining, now, style)
         contentWidth = contentWidth + labelWidth + 8
     end
     row.content:SetWidth(contentWidth)
-    if not style.pop then row.popStarted = nil end -- turning the highlight off ends a running pop
-    self:AnimateCountdown(row, now)
+    self:AnimateUpcomingRow(row, now, style)
     row:Show()
 end
 
@@ -2078,7 +2126,7 @@ function TimelineUI:CollectUpcomingCooldowns(currentTime, window, maximumRows)
         local eventTime = tonumber(cooldown.t)
         if eventTime then
             local remaining = eventTime - currentTime
-            if remaining >= -0.75 and remaining <= window then
+            if remaining >= ALERT_EXIT_END and remaining <= window then
                 upcoming[#upcoming + 1] = {
                     data = cooldown,
                     remaining = remaining,
@@ -2116,6 +2164,59 @@ function TimelineUI:AnimateCountdown(row, now)
     local ease = 1 - progress
     row.popScale = min(1 + 0.4 * ease * ease, row.popLimit or 1.4)
     label:SetTextScale(row.popScale)
+end
+
+-- [STYLE] The approved reminder motion shares the existing pop toggle and the frame update.
+function TimelineUI:AnimateUpcomingRow(row, now, style)
+    if not row.data then return end
+    local motion = self.styleLib.Motion
+    local remaining = row.remaining - min(UPDATE_INTERVAL, max(0, now - row.updatedAt))
+    local enabled = style.pop
+    local urgent = enabled and remaining <= COUNTDOWN_FROM
+    local isNow = remaining <= 0
+    local x, exitY, alpha = 0, 0, 1
+    if enabled and not row.motionStatic then
+        local entered = motion.EaseOutQuad(motion.Clamp01((now - row.enterStarted) / ALERT_ENTER_TIME))
+        alpha, x = entered, -10 * (1 - entered)
+        if row.slideStarted then
+            local progress = motion.Clamp01((now - row.slideStarted) / ALERT_SLIDE_TIME)
+            row.motionY = motion.Lerp(row.slideFrom, row.targetY, motion.EaseOutQuad(progress))
+            if progress == 1 then row.slideStarted = nil end
+        end
+        if remaining < ALERT_EXIT_START then
+            local progress = motion.Clamp01((ALERT_EXIT_START - remaining) / (ALERT_EXIT_START - ALERT_EXIT_END))
+            alpha = alpha * (1 - progress)
+            exitY = 6 * motion.EaseOutQuad(progress)
+        end
+    else
+        row.motionY, row.slideStarted = row.targetY, nil
+        if not enabled then row.popStarted, row.nowStarted = nil, nil end
+    end
+    self:PositionUpcomingRow(row, x, row.motionY + exitY)
+    row:SetAlpha(alpha)
+    local tint = urgent and (isNow and 0.55 or 0.45) or 0
+    row.tint:SetAlpha(tint)
+    row.tint2:SetAlpha(tint)
+    local flash = enabled and not row.motionStatic and row.nowStarted
+        and (1 - motion.Clamp01((now - row.nowStarted) / ALERT_FLASH_TIME)) ^ 2 or 0
+    row.flash:SetAlpha(flash)
+    row.flash2:SetAlpha(flash)
+    row.drain:SetWidth(max(0.5, (row:GetWidth() - 4) * motion.Clamp01(remaining / COUNTDOWN_FROM)))
+    row.drain:SetShown(urgent and not isNow)
+    local pulse = 0.5 + 0.5 * sin((now - row.enterStarted) * 2 * math.pi / 1.2)
+    for _, layer in ipairs(row.glowLayers) do
+        layer:SetShown(urgent and style.showIcon)
+        layer:SetAlpha(isNow and 0.9 or 0.3 + 0.45 * pulse)
+    end
+    self:AnimateCountdown(row, now)
+end
+
+function TimelineUI:ResetUpcomingMotion()
+    for _, row in ipairs(self.upcomingRows or {}) do
+        row.data = nil
+        row:Hide()
+    end
+    if self.upcomingPanel then self.upcomingPanel:Hide() end
 end
 
 function TimelineUI:ShouldPlayCountdownVoice()
@@ -2192,16 +2293,41 @@ function TimelineUI:UpdateUpcomingCooldowns(currentTime)
     local now = Now()
     local style = self:GetAlertStyle()
 
+    -- [STYLE] Keep each spell's frame through reordering, so survivors slide instead of re-entering.
+    local rows, ordered, used = self.upcomingRows, {}, {}
     for index, entry in ipairs(upcoming) do
-        local row = self:CreateUpcomingRow(index)
+        for _, row in ipairs(rows) do
+            if row.data == entry.data then
+                ordered[index], used[row] = row, true
+                break
+            end
+        end
+    end
+    for index, entry in ipairs(upcoming) do
+        local row = ordered[index]
+        if not row then
+            for _, candidate in ipairs(rows) do
+                if not used[candidate] then row = candidate; break end
+            end
+            row = row or self:CreateUpcomingRow(#rows + 1)
+            ordered[index], used[row] = row, true
+            local step = (AlertRowHeight(style) + style.spacing) * (style.grow == "UP" and 1 or -1)
+            row.motionY = index > 1 and ordered[index - 1].motionY + step or 0
+            row.data, row.targetY = nil, nil
+        end
+        if row.index ~= index or row.targetY == nil or row.layoutVersion ~= self.alertLayoutVersion then
+            self:LayoutUpcomingRow(row, index, style)
+        end
         self:FillUpcomingRow(row, entry.data, entry.remaining, now, style)
     end
-
-    for index = #upcoming + 1, #self.upcomingRows do
-        local row = self.upcomingRows[index]
-        row.data = nil
-        row:Hide()
+    for _, row in ipairs(rows) do
+        if not used[row] then
+            row.data = nil
+            row:Hide()
+            ordered[#ordered + 1] = row
+        end
     end
+    self.upcomingRows = ordered
 
     if self.upcomingPanel.moverStyle then
         self.upcomingPanel.moverStyle.label:SetShown(#upcoming == 0)
@@ -2282,12 +2408,16 @@ end
 function TimelineUI:OnUpdate(elapsed)
     if not ns.Engine:IsRunning() then return end
     self.elapsed = self.elapsed + elapsed
-    if self.elapsed < (self.updateInterval or UPDATE_INTERVAL) then return end
-
-    local step = self.elapsed
-    self.elapsed = 0
-    ns.Engine:Tick(step)
-    self:UpdateView()
+    if self.elapsed >= (self.updateInterval or UPDATE_INTERVAL) then
+        local step = self.elapsed
+        self.elapsed = 0
+        ns.Engine:Tick(step)
+        self:UpdateView()
+    end
+    local now, style = Now(), self:GetAlertStyle()
+    for _, row in ipairs(self.upcomingRows) do
+        if row:IsShown() then self:AnimateUpcomingRow(row, now, style) end
+    end
 end
 
 --- 0.25 s fade-in on START; any pending end-of-fight fade-out is cancelled.
@@ -2346,11 +2476,13 @@ function TimelineUI:OnEngineEvent(event, ...)
         self.editMode = isPreview
         if not isPreview then self:EndEditSession(false) end
         self:ResetCountdownVoice()
+        self:ResetUpcomingMotion()
         self:RefreshPreviewControl()
         self:ShowAnimated()
         self:UpdateEditHUD()
         self:UpdateView()
     elseif event == "STOP" then
+        self:ResetUpcomingMotion()
         if self:IsPreviewMode() then
             self.previewMode = false
             self.editMode = false
@@ -2361,7 +2493,10 @@ function TimelineUI:OnEngineEvent(event, ...)
         local success = ...
         self:FinishAnimated(success)
     elseif event == "LOOP" or event == "SYNC" or event == "SPECIALIZATION" then
-        if event == "LOOP" then self:ResetCountdownVoice() end
+        if event == "LOOP" then
+            self:ResetCountdownVoice()
+            self:ResetUpcomingMotion()
+        end
         self:UpdateView()
     end
 end
