@@ -65,7 +65,7 @@ assert(frame.editHUD:IsShown() and not alert.editHUD:IsShown())
 -- Clicking the alert selects it: mover selected, its own HUD, remote shows its name.
 alert:Fire("OnMouseDown", "LeftButton")
 assert(UI.editTarget == "alert" and alert.moverStyle.selected)
-assert(remote.nameText:GetText() == "곧 사용 알림")
+assert(remote.nameText:GetText() == "리마인더")
 assert(alert.editHUD:IsShown() and not frame.editHUD:IsShown())
 assert(frame.border[4] < 1, "timeline outline dims while the alert is selected")
 
@@ -186,7 +186,7 @@ UI:SelectEditModule("timeline")
 UI.editRemote.frameDropdown.button:Fire("OnClick", "LeftButton")
 local chosen = false
 for _, object in ipairs(objects) do
-    if object.kind == "FontString" and object.text == "곧 사용 알림"
+    if object.kind == "FontString" and object.text == "리마인더"
         and object.parent.kind == "Button" and object.parent:IsVisible() then
         object.parent:Fire("OnClick", "LeftButton")
         chosen = true

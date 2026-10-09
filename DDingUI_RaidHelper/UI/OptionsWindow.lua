@@ -65,9 +65,9 @@ local PAGE_META = {
         category = "display",
     },
     alert = {
-        label = "곧 사용 알림",
+        label = "리마인더",
         short = "아이콘·글자·정렬·방향",
-        desc = "곧 사용할 쿨기 알림의 아이콘·글자 크기, 정렬, 성장 방향, 줄 수와 음성 카운트를 설정합니다.",
+        desc = "곧 사용할 쿨기를 알리는 리마인더의 아이콘·글자 크기, 정렬, 성장 방향, 줄 수와 음성 카운트를 설정합니다.",
         category = "display",
     },
     cooldowns = {
@@ -1238,7 +1238,7 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
         showCard,
         fontPath,
         colors,
-        "곧 사용할 쿨기",
+        "리마인더",
         "표시 시작 시간 안에 예정된 선택 쿨기를 아이콘·스킬 이름·남은 초로 표시합니다.",
         -23
     )

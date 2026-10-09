@@ -58,7 +58,7 @@ local FALLBACK_ICON = 134400
 local BRAND_ICON = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\RaidHelper_Icon.tga"
 local ADDON_KEY = "RaidHelper"
 local EDIT_FRAME_NAME = "공격대 타임라인"
-local ALERT_FRAME_NAME = "곧 사용 알림"
+local ALERT_FRAME_NAME = "리마인더" -- [STYLE] 2026-10-10 사용자 요청: "곧 사용 알림" → "리마인더"
 local ALERT_ATTACH_GAP = 6 -- legacy layout: alert right under the timeline
 local EDIT_HISTORY_LIMIT = 50
 

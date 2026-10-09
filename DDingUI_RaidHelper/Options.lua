@@ -363,7 +363,7 @@ function Options:ResetAlertStyle()
         ns.TimelineUI:ApplyAlertStyle()
     end
     if self.RefreshAlertControls then self:RefreshAlertControls() end
-    ns:Print("곧 사용 알림 모양을 기본값으로 되돌렸습니다.")
+    ns:Print("리마인더 모양을 기본값으로 되돌렸습니다.")
     return true
 end
 
@@ -372,7 +372,7 @@ function Options:SetCountdownVoiceEnabled(enabled)
     if not ns.db then return false end
     ns.db.countdownVoice = enabled == true
     self:RefreshCheckbox()
-    ns:Print(enabled and "곧 사용 음성 카운트를 켰습니다." or "곧 사용 음성 카운트를 껐습니다.")
+    ns:Print(enabled and "리마인더 음성 카운트를 켰습니다." or "리마인더 음성 카운트를 껐습니다.")
     return true
 end
 
@@ -767,7 +767,7 @@ function Options:CreateTimelinePage(parent, styleLib, fontPath, titleSize, norma
     local upcomingCooldownCheckbox = styleLib.CreateCheckbox(
         page,
         "RaidHelper",
-        "곧 사용할 쿨기 목록 표시",
+        "리마인더 표시 (곧 사용할 쿨기)",
         self:ShouldShowUpcomingCooldowns(),
         {
             onChange = function(value)

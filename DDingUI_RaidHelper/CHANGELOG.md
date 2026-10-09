@@ -1,5 +1,15 @@
 # DDingUI RaidHelper Changelog
 
+## 미공개
+
+### 한국어
+
+- "곧 사용 알림"의 이름을 "리마인더"로 바꿨습니다(편집 모듈·설정 페이지·안내 문구). 저장 데이터는 그대로입니다.
+
+### English
+
+- Renamed the "upcoming cooldown alert" to "Reminder" in the edit module, settings page and messages. Saved data is unchanged.
+
 ## 2.1.0
 
 2026-10-10
