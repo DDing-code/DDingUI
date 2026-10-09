@@ -33,19 +33,27 @@ local COOLDOWN_SIZE = 18
 local COOLDOWN_NEAR_WINDOW = 4
 local PAST_ALPHA = 0.38
 local UPDATE_INTERVAL = 0.05
-local UPCOMING_WINDOW = 12
-local UPCOMING_MAX_ROWS = 3
-local UPCOMING_ROW_HEIGHT = 30
-local UPCOMING_ICON_SIZE = 26
-local UPCOMING_COUNT_WIDTH = 60 -- [STYLE] Room for "지금" at the peak 1.4 text scale.
 -- [STYLE] "곧 사용" countdown: the number pops and a voice counts 셋 · 둘 · 하나.
 local COUNTDOWN_FROM = 3
 local COUNTDOWN_POP_TIME = 0.28
 local COUNTDOWN_VOICE_SLACK = 0.6
-local COUNTDOWN_FONT_SIZE = 20
 local COUNTDOWN_SOUND = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\Sounds\\Countdown_%d.ogg"
-local UPCOMING_ROW_GAP = 2
 local UPCOMING_PANEL_MAX_WIDTH = 320
+local ALERT_STYLE_SPEC = {
+    iconSize = { default = 26, min = 16, max = 48 },
+    nameSize = { default = 14, min = 10, max = 24 },
+    countSize = { default = 20, min = 12, max = 36 },
+    spacing = { default = 2, min = 0, max = 16 },
+    maxRows = { default = 3, min = 1, max = 6 },
+    width = { default = UPCOMING_PANEL_MAX_WIDTH, min = 160, max = 600 },
+    window = { default = 12, min = 5, max = 30 },
+    align = { default = "LEFT", choices = { LEFT = true, CENTER = true, RIGHT = true } },
+    grow = { default = "DOWN", choices = { DOWN = true, UP = true } },
+    showIcon = { default = true },
+    showName = { default = true },
+    pop = { default = true },
+}
+TimelineUI.ALERT_STYLE_SPEC = ALERT_STYLE_SPEC
 local FALLBACK_ICON = 134400
 local BRAND_ICON = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\RaidHelper_Icon.tga"
 local ADDON_KEY = "RaidHelper"
@@ -151,11 +159,16 @@ local function ResolveLabel(data)
     return "Timeline event"
 end
 
+function TimelineUI:GetCategoryFontSize(category)
+    if category == "title" then return self.titleFontSize end
+    if category == "small" then return self.smallFontSize end
+    if category == "count" then return self:GetAlertStyle().countSize end
+    if category == "alertName" then return self:GetAlertStyle().nameSize end
+    return self.normalFontSize
+end
+
 function TimelineUI:CreateLabel(parent, category, color, layer)
-    local size = category == "title" and self.titleFontSize
-        or category == "small" and self.smallFontSize
-        or category == "count" and COUNTDOWN_FONT_SIZE
-        or self.normalFontSize
+    local size = self:GetCategoryFontSize(category)
     local label = parent:CreateFontString(nil, layer or "OVERLAY")
     label:SetFont(self.fontPath, size, "OUTLINE")
     label:SetWordWrap(false)
@@ -333,51 +346,268 @@ end
 
 -- [STYLE] "곧 사용" alert (2026-10-10): NSRT memo style. Each line is icon + spell name +
 -- a large countdown, on a soft shade that fades out to the right instead of a boxed bar.
-function TimelineUI:SetUpcomingRowShade(row, alpha)
-    local input = self.colors.bg.input
-    local left = (input[4] or 1) * alpha
-    if row.shadeLeft.SetRGBA then
-        row.shadeLeft:SetRGBA(input[1], input[2], input[3], left)
-    else
-        row.shadeLeft = CreateColor(input[1], input[2], input[3], left)
+-- [STYLE] "곧 사용" alert layout options (2026-10-10 사용자 요청): icon/text sizes, alignment,
+-- growth direction, spacing, rows, width, lead time, element toggles. Saved in ns.db.alertStyle;
+-- anything missing or invalid falls back to ALERT_STYLE_SPEC defaults.
+local function ResolveAlertStyle(saved)
+    saved = type(saved) == "table" and saved or {}
+    local style = {}
+    for key, spec in pairs(ALERT_STYLE_SPEC) do
+        local value = saved[key]
+        if spec.choices then
+            style[key] = spec.choices[value] and value or spec.default
+        elseif spec.min then
+            value = tonumber(value)
+            style[key] = value and floor(min(spec.max, max(spec.min, value)) + 0.5) or spec.default
+        elseif value == nil then
+            style[key] = spec.default
+        else
+            style[key] = value == true
+        end
     end
-    row.shade:SetGradient("HORIZONTAL", row.shadeLeft, row.shadeRight)
+    return style
+end
+TimelineUI.ResolveAlertStyle = ResolveAlertStyle
+
+function TimelineUI:GetAlertStyle()
+    if not self.alertStyleCache then
+        self.alertStyleCache = ResolveAlertStyle(ns.db and ns.db.alertStyle)
+    end
+    return self.alertStyleCache
 end
 
-function TimelineUI:CreateUpcomingRow(index)
-    local row = self.upcomingRows[index]
+local function AlertRowHeight(style)
+    local icon = style.showIcon and style.iconSize or 0
+    local name = style.showName and ceil(style.nameSize * 1.25) or 0
+    return max(icon, name, ceil(style.countSize * 1.25)) + 4
+end
+TimelineUI.AlertRowHeight = AlertRowHeight
+
+-- Fixed room for the number so a centred line does not wobble as it ticks (fits "지금" at 1.4x).
+local function AlertCountSlot(style)
+    return ceil(style.countSize * 3)
+end
+
+function TimelineUI:GetAlertPanelHeight(style, rows)
+    style = style or self:GetAlertStyle()
+    rows = rows or style.maxRows
+    return rows * AlertRowHeight(style) + max(0, rows - 1) * style.spacing
+end
+
+-- Shade opacity at the left end, middle, middle, right end (two half-width gradients).
+local SHADE_STOPS = {
+    LEFT = { 1, 0.5, 0.5, 0 },
+    RIGHT = { 0, 0.5, 0.5, 1 },
+    CENTER = { 0, 1, 1, 0 },
+}
+
+--- Soft shade behind the text that fades away from the aligned side (both sides when centred).
+function TimelineUI:SetUpcomingRowShade(row, alpha)
+    local input = self.colors.bg.input
+    local base = (input[4] or 1) * alpha
+    local stops = SHADE_STOPS[row.align or "LEFT"] or SHADE_STOPS.LEFT
+    for index, color in ipairs(row.shadeColors) do
+        local value = base * stops[index]
+        if color.SetRGBA then
+            color:SetRGBA(input[1], input[2], input[3], value)
+        else
+            row.shadeColors[index] = CreateColor(input[1], input[2], input[3], value)
+        end
+    end
+    row.shade:SetGradient("HORIZONTAL", row.shadeColors[1], row.shadeColors[2])
+    row.shade2:SetGradient("HORIZONTAL", row.shadeColors[3], row.shadeColors[4])
+end
+
+--- One alert line. panel/pool default to the live alert; the settings sample passes its own.
+function TimelineUI:CreateUpcomingRow(index, panel, pool)
+    panel = panel or self.upcomingPanel
+    pool = pool or self.upcomingRows
+    local row = pool[index]
     if row then return row end
 
     local colors = self.colors
     local input = colors.bg.input
-    row = CreateFrame("Frame", nil, self.upcomingPanel)
-    row:SetHeight(UPCOMING_ROW_HEIGHT)
-    row:SetPoint("TOPLEFT", self.upcomingPanel, "TOPLEFT", 0, -((index - 1) * (UPCOMING_ROW_HEIGHT + UPCOMING_ROW_GAP)))
-    row:SetPoint("TOPRIGHT", self.upcomingPanel, "TOPRIGHT", 0, -((index - 1) * (UPCOMING_ROW_HEIGHT + UPCOMING_ROW_GAP)))
+    row = CreateFrame("Frame", nil, panel)
+    row.panel = panel
+    row.index = index
 
     row.shade = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.shade:SetAllPoints(row)
+    row.shade:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    row.shade:SetPoint("BOTTOMRIGHT", row, "BOTTOM", 0, 0)
     row.shade:SetColorTexture(1, 1, 1, 1)
-    row.shadeLeft = CreateColor(input[1], input[2], input[3], input[4] or 1)
-    row.shadeRight = CreateColor(input[1], input[2], input[3], 0)
-    self:SetUpcomingRowShade(row, self:GetBackgroundAlpha())
+    row.shade2 = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+    row.shade2:SetPoint("TOPLEFT", row, "TOP", 0, 0)
+    row.shade2:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+    row.shade2:SetColorTexture(1, 1, 1, 1)
+    row.shadeColors = {}
+    for index2 = 1, 4 do
+        row.shadeColors[index2] = CreateColor(input[1], input[2], input[3], 0)
+    end
 
-    row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(UPCOMING_ICON_SIZE, UPCOMING_ICON_SIZE)
-    row.icon:SetPoint("LEFT", row, "LEFT", 2, 0)
+    -- Icon, name and number live in one holder so the whole line can be aligned as a group.
+    row.content = CreateFrame("Frame", nil, row)
+    row.icon = row.content:CreateTexture(nil, "ARTWORK")
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    row.label = self:CreateLabel(row.content, "alertName", colors.text.highlight)
+    row.countdown = self:CreateLabel(row.content, "count", self.accentLight)
 
-    row.label = self:CreateLabel(row, "title", colors.text.highlight)
-    row.label:SetPoint("LEFT", row.icon, "RIGHT", 7, 0)
-    row.label:SetJustifyH("LEFT")
-
-    row.countdown = self:CreateLabel(row, "count", self.accentLight)
-    row.countdown:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
-    row.countdown:SetJustifyH("LEFT")
-
+    pool[index] = row
+    self:LayoutUpcomingRow(row, index, self:GetAlertStyle())
     row:Hide()
-    self.upcomingRows[index] = row
     return row
+end
+
+--- Places a line for the current style: growth direction, alignment, sizes and toggles.
+function TimelineUI:LayoutUpcomingRow(row, index, style)
+    local panel = row.panel
+    local height = AlertRowHeight(style)
+    local offset = (index - 1) * (height + style.spacing)
+    row:ClearAllPoints()
+    row:SetHeight(height)
+    if style.grow == "UP" then
+        row:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, offset)
+        row:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, offset)
+    else
+        row:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -offset)
+        row:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -offset)
+    end
+
+    local align = style.align
+    row.align = align
+    local edge = align == "RIGHT" and "RIGHT" or "LEFT"
+    local toward = align == "RIGHT" and "LEFT" or "RIGHT"
+    local sign = align == "RIGHT" and -1 or 1
+
+    local content = row.content
+    content:ClearAllPoints()
+    content:SetHeight(height)
+    if align == "CENTER" then
+        content:SetPoint("CENTER", row, "CENTER", 0, 0)
+    elseif align == "RIGHT" then
+        content:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    else
+        content:SetPoint("LEFT", row, "LEFT", 2, 0)
+    end
+
+    row.icon:SetSize(style.iconSize, style.iconSize)
+    row.icon:ClearAllPoints()
+    row.icon:SetPoint(edge, content, edge, 0, 0)
+    row.icon:SetShown(style.showIcon)
+
+    row.label:SetFont(self.fontPath, style.nameSize, "OUTLINE")
+    row.label:SetJustifyH(edge)
+    row.label:ClearAllPoints()
+    if style.showIcon then
+        row.label:SetPoint(edge, row.icon, toward, sign * 7, 0)
+    else
+        row.label:SetPoint(edge, content, edge, 0, 0)
+    end
+    row.label:SetShown(style.showName)
+
+    row.countdown:SetFont(self.fontPath, style.countSize, "OUTLINE")
+    row.countdown:SetJustifyH(edge)
+    row.countdown:ClearAllPoints()
+    if style.showName then
+        row.countdown:SetPoint(edge, row.label, toward, sign * 8, 0)
+    elseif style.showIcon then
+        row.countdown:SetPoint(edge, row.icon, toward, sign * 7, 0)
+    else
+        row.countdown:SetPoint(edge, content, edge, 0, 0)
+    end
+
+    row.layoutVersion = self.alertLayoutVersion
+    self:SetUpcomingRowShade(row, self:GetBackgroundAlpha())
+end
+
+--- Re-reads ns.db.alertStyle and re-lays the live alert and the settings sample.
+function TimelineUI:ApplyAlertStyle()
+    self.alertStyleCache = nil
+    local style = self:GetAlertStyle()
+    self.alertLayoutVersion = (self.alertLayoutVersion or 0) + 1
+    local panel = self.upcomingPanel
+    if panel then
+        panel:SetSize(style.width, self:GetAlertPanelHeight(style))
+        for index, row in ipairs(self.upcomingRows or {}) do
+            self:LayoutUpcomingRow(row, index, style)
+            if index > style.maxRows then
+                row.data = nil
+                row:Hide()
+            end
+        end
+    end
+    self:RefreshAlertSample()
+    if self.editSession then self:UpdateEditHUD() end
+    return style
+end
+
+-- Settings sample: three lines (counting, urgent, now) drawn with the same layout code.
+local ALERT_SAMPLE = {
+    { data = { spellID = 740, label = "평온", icon = 136107 }, remaining = 8.4 },
+    { data = { spellID = 31821, label = "오라 숙련", icon = 135872 }, remaining = 2.6 },
+    { data = { spellID = 115310, label = "재활", icon = 1020466 }, remaining = 0 },
+}
+
+function TimelineUI:CreateAlertSample(parent)
+    local sample = CreateFrame("Frame", nil, parent)
+    sample.rows = {}
+    self.alertSample = sample
+    self:RefreshAlertSample()
+    return sample
+end
+
+function TimelineUI:RefreshAlertSample()
+    local sample = self.alertSample
+    if not sample then return end
+    local style = self:GetAlertStyle()
+    local count = min(style.maxRows, #ALERT_SAMPLE)
+    sample:SetSize(style.width, self:GetAlertPanelHeight(style, count))
+    for index = 1, count do
+        local row = self:CreateUpcomingRow(index, sample, sample.rows)
+        self:LayoutUpcomingRow(row, index, style)
+        local entry = ALERT_SAMPLE[index]
+        self:FillUpcomingRow(row, entry.data, entry.remaining, 0, style)
+    end
+    for index = count + 1, #sample.rows do
+        sample.rows[index]:Hide()
+    end
+end
+
+--- Writes one entry into a line: icon, name, countdown text/colour, name clamp, group width.
+function TimelineUI:FillUpcomingRow(row, data, remaining, now, style)
+    if row.layoutVersion ~= self.alertLayoutVersion then
+        self:LayoutUpcomingRow(row, row.index or 1, style)
+    end
+
+    local urgent = remaining <= COUNTDOWN_FROM
+    local text = remaining <= 0 and "지금" or tostring(ceil(remaining))
+    if row.data ~= data then
+        row.data = data
+        row.icon:SetTexture(ResolveIcon(data))
+        row.label:SetText(ResolveLabel(data))
+        row.lastCount = nil
+        row.popStarted = nil
+    end
+    if row.lastCount ~= text then
+        if urgent and row.lastCount and style.pop then row.popStarted = now end
+        row.lastCount = text
+        row.countdown:SetText(text)
+        SetTextColor(row.countdown, urgent and self.colors.status.warning or self.accentLight)
+    end
+
+    -- [STYLE] Keep long names from pushing the enlarged countdown out of the line.
+    local iconPart = style.showIcon and (style.iconSize + 7) or 0
+    local slot = AlertCountSlot(style)
+    local contentWidth = iconPart + slot
+    if style.showName then
+        row.label:SetWidth(0)
+        local labelWidth = min(row.label:GetStringWidth(), max(1, row:GetWidth() - 4 - iconPart - 8 - slot))
+        row.label:SetWidth(labelWidth)
+        contentWidth = contentWidth + labelWidth + 8
+    end
+    row.content:SetWidth(contentWidth)
+    if not style.pop then row.popStarted = nil end -- turning the highlight off ends a running pop
+    self:AnimateCountdown(row, now)
+    row:Show()
 end
 
 function TimelineUI:CreateFrame()
@@ -487,10 +717,7 @@ function TimelineUI:CreateFrame()
     -- shares the timeline's fade in/out and "전체 크기" scale. ApplyAlertPosition anchors it.
     frame.upcomingPanel = CreateFrame("Frame", "DDingUI_RaidHelperAlert", frame)
     frame.upcomingPanel:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -ALERT_ATTACH_GAP)
-    frame.upcomingPanel:SetSize(
-        UPCOMING_PANEL_MAX_WIDTH,
-        UPCOMING_MAX_ROWS * UPCOMING_ROW_HEIGHT + (UPCOMING_MAX_ROWS - 1) * UPCOMING_ROW_GAP
-    )
+    frame.upcomingPanel:SetSize(UPCOMING_PANEL_MAX_WIDTH, 94) -- ApplyAlertStyle sets the real size
     frame.upcomingPanel:Hide()
 
     frame:SetScript("OnMouseDown", function()
@@ -717,6 +944,9 @@ function TimelineUI:ApplyBackgroundStyle()
     for _, row in ipairs(self.upcomingRows or {}) do
         self:SetUpcomingRowShade(row, alpha)
     end
+    for _, row in ipairs(self.alertSample and self.alertSample.rows or {}) do
+        self:SetUpcomingRowShade(row, alpha)
+    end
     self:ApplyEditOutline()
     return true
 end
@@ -743,9 +973,8 @@ function TimelineUI:ApplyDisplaySettings()
     local fade = floor(width * FADE_SHARE + 0.5)
     self.frame:SetSize(width, height)
     self.plot:SetHeight(height - RAIL_HEIGHT)
-    if self.upcomingPanel then
-        self.upcomingPanel:SetWidth(min(UPCOMING_PANEL_MAX_WIDTH, max(200, floor(width * 0.58))))
-    end
+    -- [STYLE] The alert is its own module now: its size comes from the alert style options.
+    self:ApplyAlertStyle()
 
     self.compact = width < COMPACT_WIDTH
     local timeReadout = self.frame.timeReadout
@@ -779,12 +1008,7 @@ function TimelineUI:RefreshMedia()
     self.flatTexture = styleLib.GetTexture and styleLib:GetTexture("flat") or "Interface\\Buttons\\WHITE8x8"
 
     for _, label in ipairs(self.fontStrings or {}) do
-        local category = label._raidHelperFontCategory
-        local size = category == "title" and self.titleFontSize
-            or category == "small" and self.smallFontSize
-            or category == "count" and COUNTDOWN_FONT_SIZE
-            or self.normalFontSize
-        label:SetFont(self.fontPath, size, "OUTLINE")
+        label:SetFont(self.fontPath, self:GetCategoryFontSize(label._raidHelperFontCategory), "OUTLINE")
     end
 
     if self.frame then
@@ -1844,8 +2068,9 @@ function TimelineUI:CollectUpcomingCooldowns(currentTime, window, maximumRows)
     if ns.db and ns.db.showUpcomingCooldowns == false then return {} end
 
     currentTime = tonumber(currentTime) or 0
-    window = tonumber(window) or UPCOMING_WINDOW
-    maximumRows = tonumber(maximumRows) or UPCOMING_MAX_ROWS
+    local style = self:GetAlertStyle()
+    window = tonumber(window) or style.window
+    maximumRows = tonumber(maximumRows) or style.maxRows
     local upcoming = {}
 
     for _, cooldown in ipairs(ns.Engine:GetCooldowns() or {}) do
@@ -1964,32 +2189,11 @@ function TimelineUI:UpdateUpcomingCooldowns(currentTime)
 
     local upcoming = self:CollectUpcomingCooldowns(currentTime)
     local now = Now()
+    local style = self:GetAlertStyle()
 
     for index, entry in ipairs(upcoming) do
         local row = self:CreateUpcomingRow(index)
-        local remaining = entry.remaining
-        local urgent = remaining <= COUNTDOWN_FROM
-        local text = remaining <= 0 and "지금" or tostring(ceil(remaining))
-
-        if row.data ~= entry.data then
-            row.data = entry.data
-            row.icon:SetTexture(ResolveIcon(entry.data))
-            row.label:SetText(ResolveLabel(entry.data))
-            row.lastCount = nil
-            row.popStarted = nil
-        end
-        if row.lastCount ~= text then
-            if urgent and row.lastCount then row.popStarted = now end
-            row.lastCount = text
-            row.countdown:SetText(text)
-            SetTextColor(row.countdown, urgent and self.colors.status.warning or self.accentLight)
-        end
-        -- [STYLE] Keep long names from pushing the enlarged countdown outside a narrow bar.
-        row.label:SetWidth(0)
-        row.label:SetWidth(min(row.label:GetStringWidth(),
-            max(1, row:GetWidth() - UPCOMING_ICON_SIZE - 17 - UPCOMING_COUNT_WIDTH)))
-        self:AnimateCountdown(row, now)
-        row:Show()
+        self:FillUpcomingRow(row, entry.data, entry.remaining, now, style)
     end
 
     for index = #upcoming + 1, #self.upcomingRows do
@@ -2001,7 +2205,7 @@ function TimelineUI:UpdateUpcomingCooldowns(currentTime)
     if self.upcomingPanel.moverStyle then
         self.upcomingPanel.moverStyle.label:SetShown(#upcoming == 0)
     end
-    -- Fixed 3-row box (rows fill from the top), so the alert keeps one size as an edit module.
+    -- Fixed box for the chosen line count, so the alert keeps one size as an edit module.
     if #upcoming > 0 or self.editSession then
         self.upcomingPanel:Show()
     else

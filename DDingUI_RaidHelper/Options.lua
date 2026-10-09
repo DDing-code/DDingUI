@@ -262,6 +262,7 @@ function Options:RefreshAll()
     self:RefreshProfileSummary()
     self:RefreshDataSummary()
     self:RefreshCooldownControls()
+    if self.RefreshAlertControls then self:RefreshAlertControls() end
     if self.RefreshPreviewButton then self:RefreshPreviewButton() end
 end
 
@@ -332,6 +333,37 @@ function Options:SetUpcomingCooldownsEnabled(enabled)
     self.pendingShowUpcomingCooldowns = nil
     self:ApplyUpcomingCooldownSetting(enabled)
     ns:Print(enabled and "예정 쿨기 목록을 켰습니다." or "예정 쿨기 목록을 껐습니다.")
+    return true
+end
+
+-- [STYLE] "곧 사용" alert layout (2026-10-10): sizes, alignment, growth, rows, width,
+-- lead time and element toggles in ns.db.alertStyle. The alert is the addon's own unsecured
+-- frame, so changes apply at once, also in combat.
+function Options:GetAlertStyle()
+    if ns.TimelineUI and ns.TimelineUI.GetAlertStyle then
+        return ns.TimelineUI:GetAlertStyle()
+    end
+    return {}
+end
+
+function Options:SetAlertStyleValue(key, value)
+    if not ns.db then return false end
+    if type(ns.db.alertStyle) ~= "table" then ns.db.alertStyle = {} end
+    ns.db.alertStyle[key] = value
+    if ns.TimelineUI and ns.TimelineUI.ApplyAlertStyle then
+        ns.TimelineUI:ApplyAlertStyle()
+    end
+    return true
+end
+
+function Options:ResetAlertStyle()
+    if not ns.db then return false end
+    ns.db.alertStyle = {}
+    if ns.TimelineUI and ns.TimelineUI.ApplyAlertStyle then
+        ns.TimelineUI:ApplyAlertStyle()
+    end
+    if self.RefreshAlertControls then self:RefreshAlertControls() end
+    ns:Print("곧 사용 알림 모양을 기본값으로 되돌렸습니다.")
     return true
 end
 

@@ -81,7 +81,8 @@ assert(row.countdown.fontSize == 20 and row.label.fontSize == 14)
 assert(row.countdown.textColor[1] == UI.accentLight[1])
 assert(not row.border and not row.backdrop, "no boxed bar any more")
 assert(row.shade.gradient[1] == "HORIZONTAL")
-assert(math.abs(row.shade.gradient[2][4] - 0.8) < 1e-6 and row.shade.gradient[3][4] == 0, "shade fades out to the right")
+assert(math.abs(row.shade.gradient[2][4] - 0.8) < 1e-6 and math.abs(row.shade.gradient[3][4] - 0.4) < 1e-6
+    and math.abs(row.shade2.gradient[2][4] - 0.4) < 1e-6 and row.shade2.gradient[3][4] == 0, "shade fades out to the right")
 assert(Spoken() == "")
 
 -- Last three seconds: warning colour, the number pops, and 셋 · 둘 · 하나 each play once.

@@ -160,6 +160,21 @@ local function CreateSlider(_, _, _, _, _, _, initial, options)
     return container
 end
 
+local createdDropdowns = {}
+local function CreateDropdown(_, _, label, items, initial, options)
+    local container = NewObject()
+    container.items = items
+    container.value = initial
+    function container:SetValue(value) self.value = value end
+    function container:GetValue() return self.value end
+    function container:Choose(value)
+        self.value = value
+        if options.onChange then options.onChange(value) end
+    end
+    createdDropdowns[label] = container
+    return container
+end
+
 -- RaidHelper only reads its private embedded StyleLib global.
 DDingUI_RaidHelperStyleLib = {
     Colors = colors,
@@ -248,6 +263,7 @@ DDingUI_RaidHelperStyleLib = {
     CreateSearchBox = CreateSearchBox,
     CreateButton = CreateButton,
     CreateSlider = CreateSlider,
+    CreateDropdown = CreateDropdown,
     EnableRightClickMouselook = Noop,
 }
 
@@ -292,9 +308,26 @@ local ns = {
             return true
         end,
         ResetPosition = Noop,
+        -- "곧 사용 알림" style: the page reads/writes through these.
+        ALERT_STYLE_SPEC = {
+            iconSize = { default = 26, min = 16, max = 48 },
+            width = { default = 320, min = 160, max = 600 },
+        },
+        style = { iconSize = 26, nameSize = 14, countSize = 20, spacing = 2, maxRows = 3, width = 320,
+            window = 12, align = "LEFT", grow = "DOWN", showIcon = true, showName = true, pop = true },
+        GetAlertStyle = function(self) return self.style end,
+        ApplyAlertStyle = function(self)
+            self.applied = (self.applied or 0) + 1
+            local saved = self.ns.db.alertStyle or {}
+            self.style = { iconSize = 26, nameSize = 14, countSize = 20, spacing = 2, maxRows = 3, width = 320,
+                window = 12, align = "LEFT", grow = "DOWN", showIcon = true, showName = true, pop = true }
+            for key, value in pairs(saved) do self.style[key] = value end
+        end,
+        CreateAlertSample = function(self) self.sample = NewObject(); return self.sample end,
     },
 }
 
+ns.TimelineUI.ns = ns
 assert(loadfile("Data/CooldownCatalog.lua"))(addonName, ns)
 assert(loadfile("Options.lua"))(addonName, ns)
 assert(loadfile("UI/OptionsWindow.lua"))(addonName, ns)
@@ -437,5 +470,30 @@ for _, row in ipairs(workspace.moduleRows) do assert(row.background._ddslRoundTe
 assert(roundCalls.rings == #workspace.moduleRows and roundCalls.rings >= 2)
 assert(roundCalls.watermark and roundCalls.watermark.key == "RaidHelper")
 assert(ns.Options.previewButton ~= nil and ns.Options.tooltipCheckbox._ddslRounded.radius == 6)
+
+-- [STYLE] "곧 사용 알림" page (2026-10-10): every alert detail, live sample, reset.
+local alertPage = ns.Options.pages.alert
+assert(alertPage, "alert page exists in the display category")
+local controls = ns.Options.alertControls
+for _, key in ipairs({ "iconSize", "nameSize", "countSize", "width", "spacing", "maxRows", "window",
+    "align", "grow", "showIcon", "showName", "pop" }) do
+    assert(controls[key], key)
+end
+assert(ns.Options.alertSample == ns.TimelineUI.sample, "live sample comes from the timeline layout code")
+assert(ns.Options.upcomingCooldownCheckbox and ns.Options.countdownVoiceCheckbox, "alert switches moved to the alert page")
+controls.iconSize.slider:SetValue(32)
+assert(ns.db.alertStyle.iconSize == 32 and ns.TimelineUI.style.iconSize == 32)
+createdDropdowns["정렬"]:Choose("RIGHT")
+createdDropdowns["성장 방향"]:Choose("UP")
+assert(ns.db.alertStyle.align == "RIGHT" and ns.db.alertStyle.grow == "UP")
+controls.showName:SetChecked(false)
+assert(ns.db.alertStyle.showName == false)
+local appliedBefore = ns.TimelineUI.applied
+assert(ns.Options:ResetAlertStyle())
+assert(next(ns.db.alertStyle) == nil, "reset clears the saved style")
+assert(controls.iconSize.slider:GetValue() == 26 and controls.align:GetValue() == "LEFT")
+assert(controls.showName:GetChecked() == true)
+assert(next(ns.db.alertStyle) == nil, "syncing the controls does not write values back")
+assert(ns.TimelineUI.applied == appliedBefore + 1)
 
 print("RaidHelper modern three-column options window test OK")

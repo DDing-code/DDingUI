@@ -9,6 +9,7 @@ local DEFAULTS = {
     showTooltips = false,
     showUpcomingCooldowns = true,
     countdownVoice = true, -- [STYLE] "곧 사용" 셋·둘·하나 음성 (2026-10-10 사용자 요청)
+    alertStyle = {}, -- [STYLE] "곧 사용" 알림 세부 옵션 (2026-10-10 사용자 요청); 빈 값은 Timeline 기본값
     windowPast = 12,
     windowFuture = 38,
     timelineScale = 1.0,

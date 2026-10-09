@@ -39,7 +39,7 @@ local CATEGORY_DEFS = {
         label = "전투 화면",
         desc = "파형과 화면 배치",
         icon = ICON_ROOT .. "RaidTimeline.tga",
-        pages = { "timeline" },
+        pages = { "timeline", "alert" },
     },
     {
         key = "planning",
@@ -62,6 +62,12 @@ local PAGE_META = {
         label = "타임라인",
         short = "크기·불투명도·툴팁",
         desc = "전투 중 표시되는 피해 파형과 기믹·전문화 쿨기 마커의 크기와 표시 방식을 설정합니다.",
+        category = "display",
+    },
+    alert = {
+        label = "곧 사용 알림",
+        short = "아이콘·글자·정렬·방향",
+        desc = "곧 사용할 쿨기 알림의 아이콘·글자 크기, 정렬, 성장 방향, 줄 수와 음성 카운트를 설정합니다.",
         category = "display",
     },
     cooldowns = {
@@ -1077,7 +1083,7 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
     timelineHeightSlider:SetPoint("TOPLEFT", displayCard, "TOP", 16, -150)
     timelineHeightSlider:SetPoint("RIGHT", displayCard, "RIGHT", -20, 0)
 
-    local behaviorCard = CreateRowCard(page, colors, 256)
+    local behaviorCard = CreateRowCard(page, colors, 92)
     CreateInfoRow(
         behaviorCard,
         fontPath,
@@ -1094,57 +1100,6 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
     tooltipSwitch:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -22, -23)
     tooltipSwitch:SetChecked(self:ShouldShowTooltips(), true)
 
-    local behaviorDivider = CreateDivider(behaviorCard, colors.border.separator)
-    behaviorDivider:SetPoint("TOPLEFT", behaviorCard, "TOPLEFT", 20, -87)
-    behaviorDivider:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -20, -87)
-    behaviorDivider:SetHeight(1)
-
-    CreateInfoRow(
-        behaviorCard,
-        fontPath,
-        colors,
-        "곧 사용할 쿨기",
-        "12초 안에 예정된 선택 쿨기를 아이콘·스킬 이름·남은 초로 최대 3줄 표시합니다.",
-        -105
-    )
-
-    local upcomingCooldownSwitch = CreateSwitch(behaviorCard, styleLib, colors, function(value)
-        if Options.syncingCheckbox then return end
-        Options:SetUpcomingCooldownsEnabled(value)
-    end)
-    upcomingCooldownSwitch:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -22, -105)
-    upcomingCooldownSwitch:SetChecked(self:ShouldShowUpcomingCooldowns(), true)
-
-    -- [STYLE] "곧 사용" voice countdown (2026-10-10): 셋 · 둘 · 하나 for the nearest cooldown.
-    local voiceDivider = CreateDivider(behaviorCard, colors.border.separator)
-    voiceDivider:SetPoint("TOPLEFT", behaviorCard, "TOPLEFT", 20, -169)
-    voiceDivider:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -20, -169)
-    voiceDivider:SetHeight(1)
-
-    local _, voiceDescription = CreateInfoRow(
-        behaviorCard,
-        fontPath,
-        colors,
-        "음성 카운트",
-        "곧 사용할 쿨기가 3초 남으면 '셋·둘·하나'를 소리로 셉니다. 전투 중에도 바로 적용됩니다.",
-        -187
-    )
-    voiceDescription:SetPoint("RIGHT", behaviorCard, "RIGHT", -176, 0)
-
-    local countdownVoiceSwitch = CreateSwitch(behaviorCard, styleLib, colors, function(value)
-        if Options.syncingCheckbox then return end
-        Options:SetCountdownVoiceEnabled(value)
-    end)
-    countdownVoiceSwitch:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -22, -187)
-    countdownVoiceSwitch:SetChecked(self:ShouldPlayCountdownVoice(), true)
-
-    local voicePreviewButton = styleLib.CreateButton(behaviorCard, ADDON_KEY, "미리 듣기", function()
-        if ns.TimelineUI and ns.TimelineUI.PreviewCountdownVoice then
-            ns.TimelineUI:PreviewCountdownVoice()
-        end
-    end, { width = 84, height = 24 })
-    voicePreviewButton:SetPoint("RIGHT", countdownVoiceSwitch, "LEFT", -12, 0)
-
     local safetyCard = CreateRowCard(page, colors, 72, accent, colors.bg.widget)
     local safetyTitle = MakeFont(safetyCard, fontPath, 12, accent, "전투 안전 적용")
     safetyTitle:SetPoint("TOPLEFT", safetyCard, "TOPLEFT", 20, -17)
@@ -1153,16 +1108,13 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
         fontPath,
         SMALL_TEXT,
         colors.text.dim,
-        "음성 카운트를 제외한 표시 설정은 전투 종료 후 자동으로 반영합니다."
+        "이 페이지의 표시 설정은 전투 중에 바꾸면 전투 종료 후 자동으로 반영합니다."
     )
     safetyText:SetPoint("TOPLEFT", safetyTitle, "BOTTOMLEFT", 0, -7)
     safetyText:SetPoint("RIGHT", safetyCard, "RIGHT", -20, 0)
     safetyText:SetJustifyH("LEFT")
 
     self.tooltipCheckbox = tooltipSwitch
-    self.upcomingCooldownCheckbox = upcomingCooldownSwitch
-    self.countdownVoiceCheckbox = countdownVoiceSwitch
-    self.voicePreviewButton = voicePreviewButton
     self.timelineScaleSlider = timelineScaleSlider
     self.backgroundAlphaSlider = backgroundAlphaSlider
     self.timelineWidthSlider = timelineWidthSlider
@@ -1219,6 +1171,238 @@ local function CreateSpellRow(parent, styleLib, fontPath, colors, specID, spell,
     switch:SetPoint("RIGHT", row, "RIGHT", -10, 0)
     switch:SetChecked(spell.defaultShown ~= false, true)
     return row, switch
+end
+
+-- [STYLE] "곧 사용 알림" page (2026-10-10 사용자 요청): every alert detail in one place,
+-- with a live sample drawn by the same layout code as the in-combat alert.
+local ALERT_ALIGN_ITEMS = {
+    { text = "왼쪽", value = "LEFT" },
+    { text = "가운데", value = "CENTER" },
+    { text = "오른쪽", value = "RIGHT" },
+}
+local ALERT_GROW_ITEMS = {
+    { text = "아래로", value = "DOWN" },
+    { text = "위로", value = "UP" },
+}
+
+--- Keeps the settings sample inside its card: horizontally on the aligned side, vertically on
+--- the side it grows from (top when lines stack down, bottom when they stack up).
+function Options:PositionAlertSample()
+    local area, sample = self.alertSampleArea, self.alertSample
+    if not (area and sample) then return end
+    local style = self:GetAlertStyle()
+    local vertical = style.grow == "UP" and "BOTTOM" or "TOP"
+    local horizontal = style.align == "RIGHT" and "RIGHT" or style.align == "CENTER" and "" or "LEFT"
+    local point = vertical .. horizontal
+    sample:ClearAllPoints()
+    sample:SetPoint(point, area, point, 0, 0)
+end
+
+function Options:RefreshAlertControls()
+    local controls = self.alertControls
+    if not controls then return end
+    local style = self:GetAlertStyle()
+    self.syncingAlertControls = true
+    local kinds = self.alertControlKinds or {}
+    for key, control in pairs(controls) do
+        local value = style[key]
+        if kinds[key] == "slider" then
+            control.slider:SetValue(value)
+        elseif kinds[key] == "switch" then
+            control:SetChecked(value == true, true)
+        else
+            control:SetValue(value)
+        end
+    end
+    self.syncingAlertControls = false
+    self:PositionAlertSample()
+end
+
+local function ChangeAlertStyle(key, value)
+    if Options.syncingAlertControls then return end
+    Options:SetAlertStyleValue(key, value)
+    Options:PositionAlertSample()
+end
+
+function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
+    local accent = styleLib.GetAccent(ADDON_KEY)
+    local spec = ns.TimelineUI and ns.TimelineUI.ALERT_STYLE_SPEC or {}
+    local style = self:GetAlertStyle()
+    local page = CreateModernPage(parent, 640)
+    local controls, kinds = {}, {}
+
+    -- Show / voice ----------------------------------------------------------------------
+    local showCard = CreateRowCard(page, colors, 174)
+    CreateInfoRow(
+        showCard,
+        fontPath,
+        colors,
+        "곧 사용할 쿨기",
+        "표시 시작 시간 안에 예정된 선택 쿨기를 아이콘·스킬 이름·남은 초로 표시합니다.",
+        -23
+    )
+    local upcomingCooldownSwitch = CreateSwitch(showCard, styleLib, colors, function(value)
+        if Options.syncingCheckbox then return end
+        Options:SetUpcomingCooldownsEnabled(value)
+    end)
+    upcomingCooldownSwitch:SetPoint("TOPRIGHT", showCard, "TOPRIGHT", -22, -23)
+    upcomingCooldownSwitch:SetChecked(self:ShouldShowUpcomingCooldowns(), true)
+
+    local voiceDivider = CreateDivider(showCard, colors.border.separator)
+    voiceDivider:SetPoint("TOPLEFT", showCard, "TOPLEFT", 20, -87)
+    voiceDivider:SetPoint("TOPRIGHT", showCard, "TOPRIGHT", -20, -87)
+    voiceDivider:SetHeight(1)
+
+    local _, voiceDescription = CreateInfoRow(
+        showCard,
+        fontPath,
+        colors,
+        "음성 카운트",
+        "곧 사용할 쿨기가 3초 남으면 '셋·둘·하나'를 소리로 셉니다. 전투 중에도 바로 적용됩니다.",
+        -105
+    )
+    voiceDescription:SetPoint("RIGHT", showCard, "RIGHT", -176, 0)
+    local countdownVoiceSwitch = CreateSwitch(showCard, styleLib, colors, function(value)
+        if Options.syncingCheckbox then return end
+        Options:SetCountdownVoiceEnabled(value)
+    end)
+    countdownVoiceSwitch:SetPoint("TOPRIGHT", showCard, "TOPRIGHT", -22, -105)
+    countdownVoiceSwitch:SetChecked(self:ShouldPlayCountdownVoice(), true)
+    local voicePreviewButton = styleLib.CreateButton(showCard, ADDON_KEY, "미리 듣기", function()
+        if ns.TimelineUI and ns.TimelineUI.PreviewCountdownVoice then
+            ns.TimelineUI:PreviewCountdownVoice()
+        end
+    end, { width = 84, height = 24 })
+    voicePreviewButton:SetPoint("RIGHT", countdownVoiceSwitch, "LEFT", -12, 0)
+
+    -- Live sample: tall enough for three lines at the largest sizes (3 x 52 + 2 x 16 = 188).
+    local sampleCard = CreateRowCard(page, colors, 280, accent)
+    AddCardHeader(
+        sampleCard,
+        fontPath,
+        colors,
+        14,
+        SMALL_TEXT,
+        "견본",
+        "아래 설정을 바꾸면 바로 반영됩니다. 화면 위치는 편집 모드에서 따로 옮깁니다.",
+        nil,
+        150
+    )
+    local resetButton
+    resetButton = styleLib.CreateButton(sampleCard, ADDON_KEY, "기본값으로", function()
+        Options:ResetAlertStyle()
+        if styleLib.AppliedFeedback then -- [STYLE]
+            styleLib.AppliedFeedback(resetButton, resetButton.label, { text = "되돌림" })
+        end
+    end, { width = 112, height = 28 })
+    resetButton:SetPoint("TOPRIGHT", sampleCard, "TOPRIGHT", -20, -20)
+
+    local sampleArea = CreateFrame("Frame", nil, sampleCard)
+    sampleArea:SetPoint("TOPLEFT", sampleCard, "TOPLEFT", 20, -70)
+    sampleArea:SetPoint("BOTTOMRIGHT", sampleCard, "BOTTOMRIGHT", -20, 14)
+    if sampleArea.SetClipsChildren then sampleArea:SetClipsChildren(true) end
+    self.alertSampleArea = sampleArea
+    if ns.TimelineUI and ns.TimelineUI.CreateAlertSample then
+        self.alertSample = ns.TimelineUI:CreateAlertSample(sampleArea)
+    end
+
+    -- Sizes ------------------------------------------------------------------------------
+    local function AddSlider(card, key, label, step, y, leftColumn)
+        local range = spec[key] or {}
+        local slider = styleLib.CreateSlider(card, ADDON_KEY, label, range.min or 0, range.max or 100,
+            step or 1, style[key] or range.default or 0, {
+                width = 240,
+                onChange = function(value) ChangeAlertStyle(key, value) end,
+            })
+        if leftColumn then
+            slider:SetPoint("TOPLEFT", card, "TOPLEFT", 20, y)
+            slider:SetPoint("RIGHT", card, "CENTER", -16, 0)
+        else
+            slider:SetPoint("TOPLEFT", card, "TOP", 16, y)
+            slider:SetPoint("RIGHT", card, "RIGHT", -20, 0)
+        end
+        controls[key] = slider
+        kinds[key] = "slider"
+        return slider
+    end
+
+    local sizeCard = CreateRowCard(page, colors, 232)
+    AddCardHeader(sizeCard, fontPath, colors, 14, SMALL_TEXT, "크기",
+        "아이콘과 글자 크기, 알림 줄의 너비를 정합니다. 줄 높이는 가장 큰 요소에 맞춰집니다.")
+    AddSlider(sizeCard, "iconSize", "아이콘 크기 (px)", 1, -72, true)
+    AddSlider(sizeCard, "nameSize", "이름 글자 크기", 1, -72, false)
+    AddSlider(sizeCard, "countSize", "숫자 글자 크기", 1, -150, true)
+    AddSlider(sizeCard, "width", "알림 너비 (px)", 10, -150, false)
+
+    -- Layout -----------------------------------------------------------------------------
+    local layoutCard = CreateRowCard(page, colors, 300)
+    AddCardHeader(layoutCard, fontPath, colors, 14, SMALL_TEXT, "배치",
+        "줄 정렬과 쌓이는 방향, 간격과 줄 수, 몇 초 전부터 보여줄지 정합니다.")
+    local alignDropdown = styleLib.CreateDropdown(layoutCard, ADDON_KEY, "정렬", ALERT_ALIGN_ITEMS, style.align, {
+        width = 140,
+        onChange = function(value) ChangeAlertStyle("align", value) end,
+    })
+    alignDropdown:SetPoint("TOPLEFT", layoutCard, "TOPLEFT", 20, -76)
+    controls.align = alignDropdown
+    kinds.align = "dropdown"
+    local growDropdown = styleLib.CreateDropdown(layoutCard, ADDON_KEY, "성장 방향", ALERT_GROW_ITEMS, style.grow, {
+        width = 120,
+        onChange = function(value) ChangeAlertStyle("grow", value) end,
+    })
+    growDropdown:SetPoint("TOPLEFT", layoutCard, "TOP", 16, -76)
+    controls.grow = growDropdown
+    kinds.grow = "dropdown"
+    AddSlider(layoutCard, "spacing", "줄 간격 (px)", 1, -128, true)
+    AddSlider(layoutCard, "maxRows", "최대 줄 수", 1, -128, false)
+    AddSlider(layoutCard, "window", "표시 시작 (초 전)", 1, -206, true)
+
+    -- Elements ---------------------------------------------------------------------------
+    local elementCard = CreateRowCard(page, colors, 256)
+    local function AddToggle(key, title, description, y)
+        CreateInfoRow(elementCard, fontPath, colors, title, description, y)
+        local switch = CreateSwitch(elementCard, styleLib, colors, function(value)
+            ChangeAlertStyle(key, value == true)
+        end)
+        switch:SetPoint("TOPRIGHT", elementCard, "TOPRIGHT", -22, y)
+        switch:SetChecked(style[key] == true, true)
+        controls[key] = switch
+        kinds[key] = "switch"
+        return switch
+    end
+    AddToggle("showIcon", "아이콘 표시", "줄 앞에 스킬 아이콘을 보여줍니다.", -23)
+    local elementDivider = CreateDivider(elementCard, colors.border.separator)
+    elementDivider:SetPoint("TOPLEFT", elementCard, "TOPLEFT", 20, -87)
+    elementDivider:SetPoint("TOPRIGHT", elementCard, "TOPRIGHT", -20, -87)
+    elementDivider:SetHeight(1)
+    AddToggle("showName", "스킬 이름 표시", "끄면 아이콘과 남은 초만 보여줍니다.", -105)
+    local popDivider = CreateDivider(elementCard, colors.border.separator)
+    popDivider:SetPoint("TOPLEFT", elementCard, "TOPLEFT", 20, -169)
+    popDivider:SetPoint("TOPRIGHT", elementCard, "TOPRIGHT", -20, -169)
+    popDivider:SetHeight(1)
+    AddToggle("pop", "3초 강조 효과", "남은 3초 동안 숫자가 넘어갈 때마다 잠깐 커졌다 돌아옵니다.", -187)
+
+    local noteCard = CreateRowCard(page, colors, 72, accent, colors.bg.widget)
+    local noteTitle = MakeFont(noteCard, fontPath, 12, accent, "바로 적용")
+    noteTitle:SetPoint("TOPLEFT", noteCard, "TOPLEFT", 20, -17)
+    local noteText = MakeFont(
+        noteCard,
+        fontPath,
+        SMALL_TEXT,
+        colors.text.dim,
+        "알림 모양은 전투 중에도 바로 바뀝니다. 크기는 타임라인의 '전체 크기'를 함께 따릅니다."
+    )
+    noteText:SetPoint("TOPLEFT", noteTitle, "BOTTOMLEFT", 0, -7)
+    noteText:SetPoint("RIGHT", noteCard, "RIGHT", -20, 0)
+    noteText:SetJustifyH("LEFT")
+
+    self.upcomingCooldownCheckbox = upcomingCooldownSwitch
+    self.countdownVoiceCheckbox = countdownVoiceSwitch
+    self.voicePreviewButton = voicePreviewButton
+    self.alertResetButton = resetButton
+    self.alertControls = controls
+    self.alertControlKinds = kinds
+    self:PositionAlertSample()
+    return page
 end
 
 function Options:CreateModernCooldownPage(parent, styleLib, fontPath, colors)
@@ -1598,6 +1782,7 @@ function Options:Initialize()
 
     self.pages = {
         timeline = self:CreateModernTimelinePage(panel.contentChild, styleLib, fontPath, colors),
+        alert = self:CreateModernAlertPage(panel.contentChild, styleLib, fontPath, colors),
         cooldowns = self:CreateModernCooldownPage(panel.contentChild, styleLib, fontPath, colors),
         profile = self:CreateModernProfilePage(panel.contentChild, styleLib, fontPath, colors),
         data = self:CreateModernDataPage(panel.contentChild, styleLib, fontPath, colors),
