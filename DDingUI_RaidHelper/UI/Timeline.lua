@@ -649,7 +649,21 @@ function TimelineUI:UpdateEditHUD()
         local x, y = self:GetAnchorOffset(false, target)
         local width, height = moduleFrame:GetSize()
         local hud = target == "alert" and alertHUD or frame.editHUD
-        if hud then hud:Update(x, y, width, height) end
+        if hud then
+            hud:Update(x, y, width, height)
+            -- [STYLE] A nearby module must not sit under the selected module's coordinates.
+            local box = hud.box
+            local other = self:GetModuleFrame(target == "alert" and "timeline" or "alert")
+            box:ClearAllPoints()
+            box:SetPoint("TOPRIGHT", moduleFrame, "BOTTOMRIGHT", 0, -4)
+            if other and other:IsShown() and other:GetLeft() and box:GetLeft()
+                and box:GetLeft() < other:GetLeft() + other:GetWidth()
+                and box:GetLeft() + box:GetWidth() > other:GetLeft()
+                and box:GetBottom() < other:GetTop() and box:GetTop() > other:GetBottom() then
+                box:SetPoint("TOPRIGHT", moduleFrame, "BOTTOMRIGHT", 0,
+                    other:GetBottom() - moduleFrame:GetBottom() - 4)
+            end
+        end
         if moduleFrame._editDragging and self.editGuides then
             local left, bottom, rectWidth, rectHeight = self:GetFrameRect(target)
             if left then
@@ -1189,6 +1203,9 @@ function TimelineUI:EnsureEditTools()
             ns.db.editRemotePos = { point = point or "TOP", x = x or 0, y = y or 0 }
         end,
     })
+    -- [STYLE] Keep both selection labels at their top anchors in the taller two-module remote.
+    self.editRemote.nameText:SetJustifyV("TOP")
+    self.editRemote.infoText:SetJustifyV("TOP")
     return self.editRemote ~= nil
 end
 
@@ -1981,6 +1998,9 @@ function TimelineUI:UpdateUpcomingCooldowns(currentTime)
         row:Hide()
     end
 
+    if self.upcomingPanel.moverStyle then
+        self.upcomingPanel.moverStyle.label:SetShown(#upcoming == 0)
+    end
     -- Fixed 3-row box (rows fill from the top), so the alert keeps one size as an edit module.
     if #upcoming > 0 or self.editSession then
         self.upcomingPanel:Show()

@@ -128,7 +128,7 @@ assert(alert.points.TOPLEFT[1] == frame)
 '''
 
 
-def run():
+def run(extra=""):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.globals().Measure = lambda text, size: len(re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)) * size * 0.65
     lua.execute(MOCK.read_text(encoding="utf-8"))
@@ -141,10 +141,60 @@ def run():
         source = (ADDON_ROOT / relative).read_text(encoding="utf-8-sig")
         lua.execute("local source, ns = ...; assert(loadstring(source))('DDingUI_RaidHelper', ns)", source, ns)
     lua.execute(SCENARIO, ns)
+    if extra:
+        lua.execute(extra, ns)
 
 
 def test_timeline_and_alert_are_separate_edit_modules():
     run()
+
+
+def test_edit_labels_do_not_cover_the_other_module_or_alert_rows():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+assert(UI:SetPreviewMode(true))
+local function Overlaps(a, b)
+    local ax, ay, aw, ah = a:Rect()
+    local bx, by, bw, bh = b:Rect()
+    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+end
+for _, width in ipairs({200, 300, 400, 680, 1200}) do
+    ns.db.timelineWidth = width
+    UI:ApplyDisplaySettings()
+    UI:ResetPosition("alert")
+    UI:SelectEditModule("timeline")
+    assert(not Overlaps(UI.frame.editHUD.box, UI.upcomingPanel),
+        "timeline coordinates must not cover the alert module")
+    UI:SelectEditModule("alert")
+    assert(not Overlaps(UI.upcomingPanel.editHUD.box, UI.frame),
+        "alert coordinates must not cover the timeline")
+end
+ns.Engine.GetCooldowns = function() return {
+    {spellID = 31821, label = "오라 숙련", t = 42},
+    {spellID = 740, label = "평온", t = 44},
+    {spellID = 62618, label = "신의 권능: 방벽", t = 46},
+} end
+UI:UpdateUpcomingCooldowns(40)
+assert(not UI.upcomingPanel.moverStyle.label:IsShown(),
+    "module name must not cover the live alert rows")
+UI:UpdateUpcomingCooldowns(100)
+assert(UI.upcomingPanel.moverStyle.label:IsShown(), "empty module keeps its name")
+
+-- Exercise the real dropdown row callback, not just SelectEditModule directly.
+UI:SelectEditModule("timeline")
+UI.editRemote.frameDropdown.button:Fire("OnClick", "LeftButton")
+local chosen = false
+for _, object in ipairs(objects) do
+    if object.kind == "FontString" and object.text == "곧 사용 알림"
+        and object.parent.kind == "Button" and object.parent:IsVisible() then
+        object.parent:Fire("OnClick", "LeftButton")
+        chosen = true
+        break
+    end
+end
+assert(chosen and UI.editTarget == "alert" and UI.editRemote.frameDropdown:GetValue() == "alert")
+''')
 
 
 if __name__ == "__main__":
