@@ -1077,7 +1077,7 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
     timelineHeightSlider:SetPoint("TOPLEFT", displayCard, "TOP", 16, -150)
     timelineHeightSlider:SetPoint("RIGHT", displayCard, "RIGHT", -20, 0)
 
-    local behaviorCard = CreateRowCard(page, colors, 174)
+    local behaviorCard = CreateRowCard(page, colors, 256)
     CreateInfoRow(
         behaviorCard,
         fontPath,
@@ -1104,7 +1104,7 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
         fontPath,
         colors,
         "곧 사용할 쿨기",
-        "12초 안에 예정된 선택 쿨기를 보스 바처럼 최대 3줄로 표시합니다.",
+        "12초 안에 예정된 선택 쿨기를 아이콘·스킬 이름·남은 초로 최대 3줄 표시합니다.",
         -105
     )
 
@@ -1114,6 +1114,36 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
     end)
     upcomingCooldownSwitch:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -22, -105)
     upcomingCooldownSwitch:SetChecked(self:ShouldShowUpcomingCooldowns(), true)
+
+    -- [STYLE] "곧 사용" voice countdown (2026-10-10): 셋 · 둘 · 하나 for the nearest cooldown.
+    local voiceDivider = CreateDivider(behaviorCard, colors.border.separator)
+    voiceDivider:SetPoint("TOPLEFT", behaviorCard, "TOPLEFT", 20, -169)
+    voiceDivider:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -20, -169)
+    voiceDivider:SetHeight(1)
+
+    local _, voiceDescription = CreateInfoRow(
+        behaviorCard,
+        fontPath,
+        colors,
+        "음성 카운트",
+        "곧 사용할 쿨기가 3초 남으면 '셋·둘·하나'를 소리로 셉니다. 전투 중에도 바로 적용됩니다.",
+        -187
+    )
+    voiceDescription:SetPoint("RIGHT", behaviorCard, "RIGHT", -176, 0)
+
+    local countdownVoiceSwitch = CreateSwitch(behaviorCard, styleLib, colors, function(value)
+        if Options.syncingCheckbox then return end
+        Options:SetCountdownVoiceEnabled(value)
+    end)
+    countdownVoiceSwitch:SetPoint("TOPRIGHT", behaviorCard, "TOPRIGHT", -22, -187)
+    countdownVoiceSwitch:SetChecked(self:ShouldPlayCountdownVoice(), true)
+
+    local voicePreviewButton = styleLib.CreateButton(behaviorCard, ADDON_KEY, "미리 듣기", function()
+        if ns.TimelineUI and ns.TimelineUI.PreviewCountdownVoice then
+            ns.TimelineUI:PreviewCountdownVoice()
+        end
+    end, { width = 84, height = 24 })
+    voicePreviewButton:SetPoint("RIGHT", countdownVoiceSwitch, "LEFT", -12, 0)
 
     local safetyCard = CreateRowCard(page, colors, 72, accent, colors.bg.widget)
     local safetyTitle = MakeFont(safetyCard, fontPath, 12, accent, "전투 안전 적용")
@@ -1131,6 +1161,8 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
 
     self.tooltipCheckbox = tooltipSwitch
     self.upcomingCooldownCheckbox = upcomingCooldownSwitch
+    self.countdownVoiceCheckbox = countdownVoiceSwitch
+    self.voicePreviewButton = voicePreviewButton
     self.timelineScaleSlider = timelineScaleSlider
     self.backgroundAlphaSlider = backgroundAlphaSlider
     self.timelineWidthSlider = timelineWidthSlider

@@ -35,7 +35,14 @@ local PAST_ALPHA = 0.38
 local UPDATE_INTERVAL = 0.05
 local UPCOMING_WINDOW = 12
 local UPCOMING_MAX_ROWS = 3
-local UPCOMING_ROW_HEIGHT = 24
+local UPCOMING_ROW_HEIGHT = 30
+local UPCOMING_ICON_SIZE = 26
+-- [STYLE] "곧 사용" countdown: the number pops and a voice counts 셋 · 둘 · 하나.
+local COUNTDOWN_FROM = 3
+local COUNTDOWN_POP_TIME = 0.28
+local COUNTDOWN_VOICE_SLACK = 0.6
+local COUNTDOWN_FONT_SIZE = 20
+local COUNTDOWN_SOUND = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\Sounds\\Countdown_%d.ogg"
 local UPCOMING_ROW_GAP = 2
 local UPCOMING_PANEL_MAX_WIDTH = 320
 local FALLBACK_ICON = 134400
@@ -144,6 +151,7 @@ end
 function TimelineUI:CreateLabel(parent, category, color, layer)
     local size = category == "title" and self.titleFontSize
         or category == "small" and self.smallFontSize
+        or category == "count" and COUNTDOWN_FONT_SIZE
         or self.normalFontSize
     local label = parent:CreateFontString(nil, layer or "OVERLAY")
     label:SetFont(self.fontPath, size, "OUTLINE")
@@ -320,40 +328,49 @@ function TimelineUI:GetPhaseMarker(index)
     return marker
 end
 
+-- [STYLE] "곧 사용" alert (2026-10-10): NSRT memo style. Each line is icon + spell name +
+-- a large countdown, on a soft shade that fades out to the right instead of a boxed bar.
+function TimelineUI:SetUpcomingRowShade(row, alpha)
+    local input = self.colors.bg.input
+    local left = (input[4] or 1) * alpha
+    if row.shadeLeft.SetRGBA then
+        row.shadeLeft:SetRGBA(input[1], input[2], input[3], left)
+    else
+        row.shadeLeft = CreateColor(input[1], input[2], input[3], left)
+    end
+    row.shade:SetGradient("HORIZONTAL", row.shadeLeft, row.shadeRight)
+end
+
 function TimelineUI:CreateUpcomingRow(index)
     local row = self.upcomingRows[index]
     if row then return row end
 
     local colors = self.colors
-    row = CreateFrame("Frame", nil, self.upcomingPanel, "BackdropTemplate")
+    local input = colors.bg.input
+    row = CreateFrame("Frame", nil, self.upcomingPanel)
     row:SetHeight(UPCOMING_ROW_HEIGHT)
     row:SetPoint("TOPLEFT", self.upcomingPanel, "TOPLEFT", 0, -((index - 1) * (UPCOMING_ROW_HEIGHT + UPCOMING_ROW_GAP)))
     row:SetPoint("TOPRIGHT", self.upcomingPanel, "TOPRIGHT", 0, -((index - 1) * (UPCOMING_ROW_HEIGHT + UPCOMING_ROW_GAP)))
-    local background = colors.bg.input
-    ApplyBackdrop(row, self.flatTexture, {
-        background[1], background[2], background[3], (background[4] or 1) * self:GetBackgroundAlpha(),
-    }, colors.border.default)
 
-    row.fill = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.fill:SetPoint("TOPLEFT", row, "TOPLEFT", 1, -1)
-    row.fill:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 1, 1)
-    row.fill:SetWidth(1)
-    SetTextureColor(row.fill, self.accentFrom, 0.18)
+    row.shade = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+    row.shade:SetAllPoints(row)
+    row.shade:SetColorTexture(1, 1, 1, 1)
+    row.shadeLeft = CreateColor(input[1], input[2], input[3], input[4] or 1)
+    row.shadeRight = CreateColor(input[1], input[2], input[3], 0)
+    self:SetUpcomingRowShade(row, self:GetBackgroundAlpha())
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(20, 20)
+    row.icon:SetSize(UPCOMING_ICON_SIZE, UPCOMING_ICON_SIZE)
     row.icon:SetPoint("LEFT", row, "LEFT", 2, 0)
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-    row.countdown = self:CreateLabel(row, "normal", colors.text.highlight)
-    row.countdown:SetPoint("RIGHT", row, "RIGHT", -7, 0)
-    row.countdown:SetWidth(42)
-    row.countdown:SetJustifyH("RIGHT")
-
-    row.label = self:CreateLabel(row, "normal", colors.text.highlight)
-    row.label:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-    row.label:SetPoint("RIGHT", row.countdown, "LEFT", -6, 0)
+    row.label = self:CreateLabel(row, "title", colors.text.highlight)
+    row.label:SetPoint("LEFT", row.icon, "RIGHT", 7, 0)
     row.label:SetJustifyH("LEFT")
+
+    row.countdown = self:CreateLabel(row, "count", self.accentLight)
+    row.countdown:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
+    row.countdown:SetJustifyH("LEFT")
 
     row:Hide()
     self.upcomingRows[index] = row
@@ -643,9 +660,7 @@ function TimelineUI:ApplyBackgroundStyle()
     end
     self.frame.pastShade:SetColorTexture(0, 0, 0, 0.35 * alpha)
     for _, row in ipairs(self.upcomingRows or {}) do
-        ApplyBackdrop(row, self.flatTexture, {
-            input[1], input[2], input[3], (input[4] or 1) * alpha,
-        }, self.colors.border.default)
+        self:SetUpcomingRowShade(row, alpha)
     end
     self:ApplyEditOutline()
     return true
@@ -710,6 +725,7 @@ function TimelineUI:RefreshMedia()
         local category = label._raidHelperFontCategory
         local size = category == "title" and self.titleFontSize
             or category == "small" and self.smallFontSize
+            or category == "count" and COUNTDOWN_FONT_SIZE
             or self.normalFontSize
         label:SetFont(self.fontPath, size, "OUTLINE")
     end
@@ -1605,33 +1621,115 @@ function TimelineUI:CollectUpcomingCooldowns(currentTime, window, maximumRows)
     return upcoming
 end
 
+local function Now()
+    return type(GetTime) == "function" and GetTime() or 0
+end
+
+--- Short pop on the countdown number each time it ticks in the last COUNTDOWN_FROM seconds.
+function TimelineUI:AnimateCountdown(row, now)
+    local label = row.countdown
+    if not label.SetTextScale then return end
+    local started = row.popStarted
+    local progress = started and (now - started) / COUNTDOWN_POP_TIME or 1
+    if progress >= 1 then
+        if row.popScale ~= 1 then
+            row.popScale = 1
+            label:SetTextScale(1)
+        end
+        return
+    end
+    local ease = 1 - progress
+    row.popScale = 1 + 0.4 * ease * ease
+    label:SetTextScale(row.popScale)
+end
+
+function TimelineUI:ShouldPlayCountdownVoice()
+    return not ns.db or ns.db.countdownVoice ~= false
+end
+
+function TimelineUI:PlayCountdownVoice(number)
+    if type(PlaySoundFile) ~= "function" then return false end
+    -- "Master" so the count is heard even when game sound effects are muted (as NSRT does).
+    return PlaySoundFile(COUNTDOWN_SOUND:format(number), "Master") and true or false
+end
+
+--- Settings "미리 듣기": the full 셋 · 둘 · 하나 one second apart, outside the encounter logic.
+function TimelineUI:PreviewCountdownVoice()
+    for number = COUNTDOWN_FROM, 1, -1 do
+        local delay = COUNTDOWN_FROM - number
+        if delay == 0 or not (C_Timer and C_Timer.After) then
+            self:PlayCountdownVoice(number)
+        else
+            C_Timer.After(delay, function() TimelineUI:PlayCountdownVoice(number) end)
+        end
+    end
+end
+
+function TimelineUI:ResetCountdownVoice()
+    self.countdownSpoken = {}
+end
+
+--- Speaks 셋 · 둘 · 하나 for the nearest upcoming cooldown only, once per number, so two
+--- close cooldowns never talk over each other. A late jump from a BigWigs resync skips
+--- numbers it has already passed instead of speaking them late.
+function TimelineUI:UpdateCountdownVoice(upcoming)
+    if self:IsPreviewMode() or not self:ShouldPlayCountdownVoice() then return end
+
+    local nearest
+    for _, entry in ipairs(upcoming) do
+        if entry.remaining > 0 then
+            nearest = entry
+            break
+        end
+    end
+    if not nearest then return end
+
+    self.countdownSpoken = self.countdownSpoken or {}
+    for number = COUNTDOWN_FROM, 1, -1 do
+        if nearest.remaining <= number and nearest.remaining > number - COUNTDOWN_VOICE_SLACK then
+            local last = self.countdownSpoken[nearest.data]
+            if not last or last > number then
+                self.countdownSpoken[nearest.data] = number
+                self:PlayCountdownVoice(number)
+            end
+            return
+        end
+    end
+end
+
 function TimelineUI:UpdateUpcomingCooldowns(currentTime)
     if not self.upcomingPanel then return end
 
     local upcoming = self:CollectUpcomingCooldowns(currentTime)
-    local panelWidth = max(1, self.upcomingPanel:GetWidth())
-    local alpha = self:GetBackgroundAlpha()
+    local now = Now()
 
     for index, entry in ipairs(upcoming) do
         local row = self:CreateUpcomingRow(index)
         local remaining = entry.remaining
-        local urgent = remaining <= 3
-        local color = urgent and self.colors.status.warning or self.accentFrom
-        local progress = min(1, max(0, remaining / UPCOMING_WINDOW))
+        local urgent = remaining <= COUNTDOWN_FROM
+        local text = remaining <= 0 and "지금" or tostring(ceil(remaining))
 
-        row.data = entry.data
-        row.icon:SetTexture(ResolveIcon(entry.data))
-        row.label:SetText(ResolveLabel(entry.data))
-        row.countdown:SetText(remaining <= 0.75 and "지금" or tostring(ceil(remaining)))
-        SetTextColor(row.countdown, color)
-        row.fill:SetWidth(max(1, (panelWidth - 2) * progress))
-        SetTextureColor(row.fill, color, (urgent and 0.28 or 0.18) * alpha)
-        row:SetBackdropBorderColor(color[1], color[2], color[3], urgent and 0.72 or 0.34)
+        if row.data ~= entry.data then
+            row.data = entry.data
+            row.icon:SetTexture(ResolveIcon(entry.data))
+            row.label:SetText(ResolveLabel(entry.data))
+            row.lastCount = nil
+            row.popStarted = nil
+        end
+        if row.lastCount ~= text then
+            if urgent and row.lastCount then row.popStarted = now end
+            row.lastCount = text
+            row.countdown:SetText(text)
+            SetTextColor(row.countdown, urgent and self.colors.status.warning or self.accentLight)
+        end
+        self:AnimateCountdown(row, now)
         row:Show()
     end
 
     for index = #upcoming + 1, #self.upcomingRows do
-        self.upcomingRows[index]:Hide()
+        local row = self.upcomingRows[index]
+        row.data = nil
+        row:Hide()
     end
 
     if #upcoming > 0 then
@@ -1642,6 +1740,7 @@ function TimelineUI:UpdateUpcomingCooldowns(currentTime)
     else
         self.upcomingPanel:Hide()
     end
+    self:UpdateCountdownVoice(upcoming)
 end
 
 function TimelineUI:ShowMarkerTooltip(marker)
@@ -1774,6 +1873,7 @@ function TimelineUI:OnEngineEvent(event, ...)
         self.previewMode = isPreview
         self.editMode = isPreview
         if not isPreview then self:EndEditSession(false) end
+        self:ResetCountdownVoice()
         self:RefreshPreviewControl()
         self:ShowAnimated()
         self:UpdateEditHUD()
@@ -1789,6 +1889,7 @@ function TimelineUI:OnEngineEvent(event, ...)
         local success = ...
         self:FinishAnimated(success)
     elseif event == "LOOP" or event == "SYNC" or event == "SPECIALIZATION" then
+        if event == "LOOP" then self:ResetCountdownVoice() end
         self:UpdateView()
     end
 end

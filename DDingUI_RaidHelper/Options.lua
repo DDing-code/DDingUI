@@ -67,6 +67,10 @@ function Options:ShouldShowUpcomingCooldowns()
     return not ns.db or ns.db.showUpcomingCooldowns ~= false
 end
 
+function Options:ShouldPlayCountdownVoice()
+    return not ns.db or ns.db.countdownVoice ~= false
+end
+
 function Options:GetRequestedTooltipSetting()
     if self.pendingShowTooltips ~= nil then
         return self.pendingShowTooltips
@@ -126,7 +130,7 @@ function Options:SetOptionsScale(value)
 end
 
 function Options:RefreshCheckbox()
-    if not self.tooltipCheckbox and not self.upcomingCooldownCheckbox then return end
+    if not self.tooltipCheckbox and not self.upcomingCooldownCheckbox and not self.countdownVoiceCheckbox then return end
 
     self.syncingCheckbox = true
     if self.tooltipCheckbox then
@@ -134,6 +138,9 @@ function Options:RefreshCheckbox()
     end
     if self.upcomingCooldownCheckbox then
         self.upcomingCooldownCheckbox:SetChecked(self:GetRequestedUpcomingCooldownSetting())
+    end
+    if self.countdownVoiceCheckbox then
+        self.countdownVoiceCheckbox:SetChecked(self:ShouldPlayCountdownVoice())
     end
     self.syncingCheckbox = false
 end
@@ -325,6 +332,15 @@ function Options:SetUpcomingCooldownsEnabled(enabled)
     self.pendingShowUpcomingCooldowns = nil
     self:ApplyUpcomingCooldownSetting(enabled)
     ns:Print(enabled and "예정 쿨기 목록을 켰습니다." or "예정 쿨기 목록을 껐습니다.")
+    return true
+end
+
+-- [STYLE] Voice countdown only plays sounds, so it applies at once, even in combat.
+function Options:SetCountdownVoiceEnabled(enabled)
+    if not ns.db then return false end
+    ns.db.countdownVoice = enabled == true
+    self:RefreshCheckbox()
+    ns:Print(enabled and "곧 사용 음성 카운트를 켰습니다." or "곧 사용 음성 카운트를 껐습니다.")
     return true
 end
 

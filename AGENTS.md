@@ -56,6 +56,7 @@
 - 독립 설정 창은 설치된 영웅·신화 모델 수와 최근 생성 시각을 표시하고, 전투 밖에서만 UI 리로드로 데이터 팩을 다시 읽는다.
 - 게임 실행 중 새 애드온 링크를 만든 첫 설치에서는 `/reload`만으로 폴더가 검색되지 않을 수 있으므로 WoW를 완전히 재시작하고 애드온 목록에서 RaidHelper 활성화를 확인한다. StyleLib는 내장되어 있어 별도 활성화가 필요 없다.
 - 마커 툴팁은 승인된 SavedVariables 키 `showTooltips`로 저장하며 기본값은 `false`다. 전투 중 변경은 즉시 반영하지 않고 `PLAYER_REGEN_ENABLED`에서 적용한다.
+- "곧 사용" 예정 쿨기 알림(2026-10-10 사용자 요청): NSRT 메모처럼 아이콘·스킬 이름·남은 초로 표시하고, 가장 가까운 쿨기 하나만 3초 전부터 "셋·둘·하나" 음성(`Media/Sounds/Countdown_{1,2,3}.ogg`, `tools/build_countdown_voice.py`, Master 채널)으로 센다. 켜고 끄기는 승인된 SavedVariables 키 `countdownVoice`(기본 `true`)이며 소리만 바꾸므로 전투 중에도 즉시 적용한다. 미리보기/편집 중에는 소리를 내지 않는다.
 - 타임라인 전체 크기·너비·높이·배경 불투명도는 승인된 SavedVariables 키 `timelineScale`(기본 1.0, 0.6~1.6), `timelineWidth`(기본 680, 200~1200), `timelineHeight`(바+레일 전체, 기본 98, 80~160 — 이전 4단 창 값 170 이상은 98로 되돌림), `backgroundAlpha`(기본 1.0, 0~1)로 저장한다. 배경 값은 글자·아이콘·파형이 아닌 바 배경과 지난 구간 음영에만 곱하며(0%면 파형·아이콘만 뜸), 전투 중 변경은 `PLAYER_REGEN_ENABLED`에서 적용한다.
 - 미리보기 편집 모드(2026-10-03, 시리즈 C12): StyleLib 1.4 공용 리모컨·HUD·격자·스냅을 쓴다. 리모컨 위치는 승인된 SavedVariables 키 `editRemotePos = {point, x, y}`에만 저장하며 격자·스냅 상태는 저장하지 않는다. `PLAYER_REGEN_DISABLED`와 `ENCOUNTER_START`에서 미리보기를 종료하고, 진입 시 설정창을 닫고 종료 시 다시 연다.
 - 독립 설정창 크기는 승인된 SavedVariables 키 `optionsScale`(기본 1.0, 0.5~1.5)로 저장한다. 제목줄 닫기 버튼 왼쪽의 StyleLib 공통 "GUI 크기" 컨트롤이 바꾸며, 창의 열기/닫기 모션 기준 배율(`SetBaseScale`)로 적용한다. 전투 타임라인 크기(`timelineScale`)와는 별개다.
