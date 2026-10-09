@@ -17,7 +17,7 @@
   - `DDingUI_CDM_Option` 2.1.6 — CDM 옵션
   - `DDingUI_Toolkit` 2.1.8
   - `DDingUI_Profile` 260923.1
-  - `DDingUI_RaidHelper` 0.1.0
+  - `DDingUI_RaidHelper` 2.1.0
   - `DDingUI_FX` 0.1.0 — TGA 모션·효과음
   - `DDIngUI_APL` 0.1.2-alpha — 헤키리형 공격 우선순위 (폴더명 `DDIng` 대소문자 그대로)
   - `DDingUI_StyleLib` 1.4.0 (MINOR 7) — 공유 라이브러리 원본 (각 애드온은 `Libs/DDingUI_StyleLib/`에 내장 사본 사용, `Media/` 텍스처 포함)

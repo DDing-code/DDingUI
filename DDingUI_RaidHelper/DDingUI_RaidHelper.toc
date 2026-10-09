@@ -3,7 +3,7 @@
 ## Notes: Raid utilities for DDingUI.
 ## Notes-koKR: DDingUI 공격대 보조 도구입니다.
 ## Author: DDing
-## Version: 2.2.0
+## Version: 2.1.0
 ## DefaultState: enabled
 ## IconTexture: Interface\AddOns\DDingUI_RaidHelper\Media\RaidHelper_Icon.tga
 ## OptionalDeps: BigWigs
