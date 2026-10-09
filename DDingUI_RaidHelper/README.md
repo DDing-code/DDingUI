@@ -57,12 +57,12 @@ BigWigs에서는 현재 전투 모듈의 신호만 받으며 바 만료 시각�
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\configure_wcl.ps1
 python .\tools\update_wcl.py list
-python .\tools\update_wcl.py update --difficulty 5 --limit 10 --validation-limit 2
+python .\tools\update_wcl.py update --difficulty 5 4 --limit 10 --validation-limit 2 --healer-limit 10 --workers 8
 ```
 
-명령어 대신 프로젝트의 `Update_RaidHelper_Data.bat`를 더블클릭하면 영웅 전 보스와 공개 처치가 존재하는 신화 보스를 갱신합니다. 시즌 초라 신화 공개 처치가 없는 보스는 건너뛰고, 나중에 BAT를 다시 실행하면 새로 열린 신화 보스도 자동으로 포함합니다. 첫 실행 이후에는 로컬 캐시를 재사용합니다.
+위 명령으로 영웅 전 보스와 공개 처치가 존재하는 신화 보스를 갱신합니다. 시즌 초라 신화 공개 처치가 없는 보스는 건너뛰고, 나중에 갱신기를 다시 실행하면 새로 열린 신화 보스도 자동으로 포함합니다. 첫 실행 이후에는 로컬 캐시를 재사용합니다.
 
-BAT 수집기는 최대 8개 작업을 병렬 처리하며 진행률을 즉시 표시합니다. Warcraft Logs 시간당 한도에 도달하면 서버가 알려 준 초기화 시간만큼 모든 요청을 함께 대기시킨 뒤 같은 표본부터 재시도합니다. 최종 파일은 모든 처리가 성공한 뒤에만 교체합니다.
+갱신기는 최대 8개 작업을 병렬 처리하며 진행률을 즉시 표시합니다. Warcraft Logs 시간당 한도에 도달하면 서버가 알려 준 초기화 시간만큼 모든 요청을 함께 대기시킨 뒤 같은 표본부터 재시도합니다. 최종 파일은 모든 처리가 성공한 뒤에만 교체합니다.
 
 브랜딩 아이콘은 공용 `Branding/DDingUI_Symbol_Orange.png`의 형태와 알파를 그대로 유지하고 RaidHelper 포인트 컬러 `#D65CFF`로 변환한 512×512 RGBA TGA입니다. 투명 픽셀 RGB를 0으로 정리하고 WoW용 top-left 방향으로 저장해 미니맵 스킨에서 보라색 원판으로 보이지 않게 했습니다. `python .\tools\build_brand_icon.py`로 재생성할 수 있으며 TOC, 독립 설정 창, 전투 타임라인이 `Media\RaidHelper_Icon.tga`를 사용합니다.
 

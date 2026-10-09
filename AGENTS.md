@@ -47,9 +47,9 @@
 - 전투창은 `Libs/DDingUI_StyleLib/`에 내장한 StyleLib의 색상·폰트·텍스처·디자인 토큰을 사용한다. 별도 `DDingUI_StyleLib` 애드온을 필수 의존성으로 두지 않는다.
 - 전투창 모양(2026-10-10 사용자 선택, C안 릿지 바): 제목줄 없이 테두리 없는 바 하나(기본 70px) + 아래 힐러 쿨기 레일(28px). 바 양 끝은 너비의 12%씩 `Media/RaidHelper_FadeMask.tga` 마스크로 투명하게 페이드되고(`tools/build_fade_mask.py`로 생성, `UI/Timeline.lua`의 `FADE_SHARE`와 일치), 피해 파형은 바 바닥 능선, 기믹 아이콘은 바 위, 가장 가까운 기믹 1개만 상세 칩을 띄운다. 외곽선은 미리보기/편집 중에만 악센트로 표시한다.
 - 브랜딩은 `Branding/DDingUI_Symbol_Orange.png`의 알파와 형태를 유지해 RaidHelper 보라색(`#D65CFF`) 512×512 RGBA TGA로 변환한 `Media/RaidHelper_Icon.tga`를 사용한다. WoW 미니맵 스킨에서 원판으로 보이지 않도록 완전 투명 픽셀의 RGB도 0으로 만들고 TGA origin은 top-left로 저장한다.
-- `Update_RaidHelper_Data.bat`는 영웅·신화 전 보스를 난이도별 상위 공개 처치 로그 최대 10개로 자동 갱신한다.
-- 신화 공개 처치가 없는 보스는 건너뛰며, 나중에 BAT를 다시 실행하면 새로 공개된 보스를 자동 추가한다. WCL 시간당 한도는 초기화 시각까지 대기 후 자동 재개한다.
-- WCL 자격 정보는 소스·BAT·데이터 팩에 저장하지 않고 Windows 사용자 환경 변수 `WCL_CLIENT_ID`, `WCL_CLIENT_SECRET`에서만 읽는다.
+- `tools/update_wcl.py`는 영웅·신화 전 보스를 난이도별 상위 공개 처치 로그 최대 10개로 자동 갱신한다.
+- 신화 공개 처치가 없는 보스는 건너뛰며, 나중에 갱신기를 다시 실행하면 새로 공개된 보스를 자동 추가한다. WCL 시간당 한도는 초기화 시각까지 대기 후 자동 재개한다.
+- WCL 자격 정보는 소스·데이터 팩에 저장하지 않고 Windows 사용자 환경 변수 `WCL_CLIENT_ID`, `WCL_CLIENT_SECRET`에서만 읽는다.
 - 미니맵 버튼은 CDM·Toolkit과 같은 LibDataBroker/LibDBIcon 방식이다. 좌클릭으로 독립 설정 창을 열고 닫으며, 우클릭으로 전투 밖 타임라인 편집 모드를 시작/종료하고, 드래그 위치를 저장한다.
 - 옵션은 블리자드 애드온 설정 카테고리에 등록하지 않는다. `UI/OptionsWindow.lua`가 내장 StyleLib만 사용해 Toolkit 수준의 `1차 카테고리 / 2차 페이지 목록 / 우측 상세` 3단 독립 GUI를 구성하며, 타임라인·미리보기/편집·쿨기 표시·힐러 프로필·데이터 팩 페이지를 제공한다.
 - 독립 GUI의 1차 카테고리는 Toolkit과 동일한 배치로 RaidHelper 전용 제작 아이콘 `RaidTimeline.tga`, `HealerPlan.tga`, `LogData.tga`를 `Media/Navigation/`에 내장해 28px 단색 아이콘과 행 중앙의 한 줄 제목을 사용한다. 다른 DDingUI 애드온의 아이콘은 UI에서 사용하거나 런타임 참조하지 않는다. 숫자 인덱스·2줄 설명형 메뉴는 사용하지 않으며, 2차 페이지 제목/설명은 상태점이 아닌 행의 정수 좌표에 직접 고정해 반 픽셀 글자 흐림을 피한다.

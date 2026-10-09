@@ -25,4 +25,3 @@ finally {
 }
 
 Write-Host "Warcraft Logs credentials saved to the current Windows user environment." -ForegroundColor Green
-Write-Host "You can now run Update_RaidHelper_Data.bat." -ForegroundColor Yellow
