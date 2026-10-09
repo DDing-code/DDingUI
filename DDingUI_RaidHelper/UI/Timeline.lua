@@ -37,6 +37,7 @@ local UPCOMING_WINDOW = 12
 local UPCOMING_MAX_ROWS = 3
 local UPCOMING_ROW_HEIGHT = 30
 local UPCOMING_ICON_SIZE = 26
+local UPCOMING_COUNT_WIDTH = 60 -- [STYLE] Room for "지금" at the peak 1.4 text scale.
 -- [STYLE] "곧 사용" countdown: the number pops and a voice counts 셋 · 둘 · 하나.
 local COUNTDOWN_FROM = 3
 local COUNTDOWN_POP_TIME = 0.28
@@ -1649,24 +1650,37 @@ end
 
 function TimelineUI:PlayCountdownVoice(number)
     if type(PlaySoundFile) ~= "function" then return false end
+    -- [STYLE] A resync can advance two counts before the previous sound finishes.
+    if self.countdownSoundHandle and type(StopSound) == "function" then
+        StopSound(self.countdownSoundHandle)
+    end
     -- "Master" so the count is heard even when game sound effects are muted (as NSRT does).
-    return PlaySoundFile(COUNTDOWN_SOUND:format(number), "Master") and true or false
+    local played, handle = PlaySoundFile(COUNTDOWN_SOUND:format(number), "Master")
+    self.countdownSoundHandle = played and handle or nil
+    return played and true or false
 end
 
 --- Settings "미리 듣기": the full 셋 · 둘 · 하나 one second apart, outside the encounter logic.
 function TimelineUI:PreviewCountdownVoice()
+    local token = (self.countdownPreviewToken or 0) + 1
+    self.countdownPreviewToken = token
     for number = COUNTDOWN_FROM, 1, -1 do
         local delay = COUNTDOWN_FROM - number
         if delay == 0 or not (C_Timer and C_Timer.After) then
             self:PlayCountdownVoice(number)
         else
-            C_Timer.After(delay, function() TimelineUI:PlayCountdownVoice(number) end)
+            C_Timer.After(delay, function()
+                if TimelineUI.countdownPreviewToken == token then
+                    TimelineUI:PlayCountdownVoice(number)
+                end
+            end)
         end
     end
 end
 
 function TimelineUI:ResetCountdownVoice()
     self.countdownSpoken = {}
+    self.countdownPreviewToken = (self.countdownPreviewToken or 0) + 1
 end
 
 --- Speaks 셋 · 둘 · 하나 for the nearest upcoming cooldown only, once per number, so two
@@ -1722,6 +1736,10 @@ function TimelineUI:UpdateUpcomingCooldowns(currentTime)
             row.countdown:SetText(text)
             SetTextColor(row.countdown, urgent and self.colors.status.warning or self.accentLight)
         end
+        -- [STYLE] Keep long names from pushing the enlarged countdown outside a narrow bar.
+        row.label:SetWidth(0)
+        row.label:SetWidth(min(row.label:GetStringWidth(),
+            max(1, row:GetWidth() - UPCOMING_ICON_SIZE - 17 - UPCOMING_COUNT_WIDTH)))
         self:AnimateCountdown(row, now)
         row:Show()
     end

@@ -137,7 +137,7 @@ assert(UI.upcomingRows[1].shade.gradient[2][4] == 0)
 '''
 
 
-def run():
+def run(extra=""):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.globals().Measure = lambda text, size: len(re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)) * size * 0.65
     lua.execute(MOCK.read_text(encoding="utf-8"))
@@ -152,10 +152,57 @@ def run():
         source = (ADDON_ROOT / relative).read_text(encoding="utf-8-sig")
         lua.execute("local source, ns = ...; assert(loadstring(source))('DDingUI_RaidHelper', ns)", source, ns)
     lua.execute(SCENARIO, ns)
+    if extra:
+        lua.execute(extra, ns)
 
 
 def test_upcoming_alert_counts_down_with_voice():
     run()
+
+
+def test_long_alert_keeps_the_pulsing_count_inside_the_row():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+ns.db.timelineWidth = 200
+UI:ApplyDisplaySettings()
+for _, cooldown in ipairs(ns.Engine.model.cooldowns) do
+    if cooldown.t == 44.5 then cooldown.label = "Incarnation: Tree of Life" end
+end
+UI.upcomingRows[1].data = nil
+UI:UpdateUpcomingCooldowns(44.4)
+UI:UpdateUpcomingCooldowns(44.6)
+local row = UI.upcomingRows[1]
+assert(row.countdown.text == "지금" and row.countdown.textScale > 1.3)
+assert(row.countdown:GetLeft() >= row.label:GetLeft() + row.label:GetWidth() + 8)
+assert(row.countdown:GetLeft() + row.countdown:GetStringWidth() * row.countdown.textScale
+    <= row:GetLeft() + row:GetWidth() - 2, "expanded 지금 must stay inside the narrow row")
+''')
+
+
+def test_voice_resync_and_repeated_preview_do_not_overlap():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+local active, calls, callbacks = {}, {}, {}
+local serial = 0
+PlaySoundFile = function(path)
+    assert(next(active) == nil, "a resync must stop the previous count before playing another")
+    serial = serial + 1
+    active[serial] = true
+    calls[#calls + 1] = path:match("Countdown_(%d)%.ogg$")
+    return true, serial
+end
+StopSound = function(handle) active[handle] = nil end
+C_Timer.After = function(delay, callback) callbacks[#callbacks + 1] = callback end
+UI:ResetCountdownVoice()
+UI:UpdateCountdownVoice({{data = {}, remaining = 2.9}})
+UI:UpdateCountdownVoice({{data = {}, remaining = 1.9}})
+UI:PreviewCountdownVoice()
+UI:PreviewCountdownVoice()
+for _, callback in ipairs(callbacks) do callback() end
+assert(table.concat(calls, ",") == "3,2,3,3,2,1", "old preview callbacks must be cancelled")
+''')
 
 
 def test_countdown_voice_files_ship_with_the_addon():

@@ -1153,7 +1153,7 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
         fontPath,
         SMALL_TEXT,
         colors.text.dim,
-        "전투 중 변경한 값은 현재 전투에 적용하지 않고 전투 종료 후 자동으로 반영합니다."
+        "음성 카운트를 제외한 표시 설정은 전투 종료 후 자동으로 반영합니다."
     )
     safetyText:SetPoint("TOPLEFT", safetyTitle, "BOTTOMLEFT", 0, -7)
     safetyText:SetPoint("RIGHT", safetyCard, "RIGHT", -20, 0)
