@@ -124,7 +124,7 @@ local remote = UI.editRemote
 assert(remote and remote:IsShown() and remote.keyboard, "edit remote opens with key capture")
 assert(remote:GetWidth() == 300)
 assert(remote.buttons["완료"] and remote.buttons["초기화"] and remote.buttons["실행 취소"] and remote.buttons["다시 실행"])
-assert(not remote.frameDropdown, "single frame: no frame selector")
+assert(remote.frameDropdown, "two edit modules (timeline / alert): frame selector")
 assert(UI.editGrid:IsShown() and UI.editGrid:GetSpacing() == 32)
 assert(frame.editHUD:IsShown())
 assert(frame.editHUD.box.text:GetText():find("^X 0  Y %-180  "), frame.editHUD.box.text:GetText())
@@ -166,6 +166,9 @@ assert(saved and saved.point == "TOP" and saved.x == 40 and saved.y == -90)
 for key in pairs(db) do assert(before[key] or key == "editRemotePos", key) end
 
 -- Drag: HUD/guides follow the live rectangle; drop snaps to the screen center line.
+-- (The alert module is parked far away so its edges do not take part in the snap.)
+db.alertPosition = { point = "TOPLEFT", relativePoint = "CENTER", x = 300, y = 300 }
+UI:ApplyAlertPosition()
 frame:Fire("OnDragStart", "LeftButton")
 assert(frame._editDragging)
 frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", 3, -178)

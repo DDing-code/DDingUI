@@ -50,6 +50,8 @@ local FALLBACK_ICON = 134400
 local BRAND_ICON = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\RaidHelper_Icon.tga"
 local ADDON_KEY = "RaidHelper"
 local EDIT_FRAME_NAME = "공격대 타임라인"
+local ALERT_FRAME_NAME = "곧 사용 알림"
+local ALERT_ATTACH_GAP = 6 -- legacy layout: alert right under the timeline
 local EDIT_HISTORY_LIMIT = 50
 
 local function IsSecret(value)
@@ -481,16 +483,22 @@ function TimelineUI:CreateFrame()
     frame.cooldownChip.text:SetPoint("LEFT", frame.cooldownChip, "LEFT", 6, 0)
     frame.cooldownChip:SetHeight(18)
 
-    frame.upcomingPanel = CreateFrame("Frame", nil, frame)
-    frame.upcomingPanel:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -6)
+    -- [STYLE] The alert is its own edit module but stays a child of the timeline frame, so it
+    -- shares the timeline's fade in/out and "전체 크기" scale. ApplyAlertPosition anchors it.
+    frame.upcomingPanel = CreateFrame("Frame", "DDingUI_RaidHelperAlert", frame)
+    frame.upcomingPanel:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -ALERT_ATTACH_GAP)
     frame.upcomingPanel:SetSize(
         UPCOMING_PANEL_MAX_WIDTH,
         UPCOMING_MAX_ROWS * UPCOMING_ROW_HEIGHT + (UPCOMING_MAX_ROWS - 1) * UPCOMING_ROW_GAP
     )
     frame.upcomingPanel:Hide()
 
+    frame:SetScript("OnMouseDown", function()
+        if TimelineUI.editSession then TimelineUI:SelectEditModule("timeline") end
+    end)
     frame:SetScript("OnDragStart", function(currentFrame)
         if (ns.db.locked and not TimelineUI:IsPreviewMode()) or InCombatLockdown() then return end
+        if TimelineUI.editSession then TimelineUI:SelectEditModule("timeline") end
         currentFrame:StartMoving()
         currentFrame._editDragging = TimelineUI:IsPreviewMode()
         TimelineUI:UpdateEditHUD()
@@ -513,9 +521,27 @@ function TimelineUI:CreateFrame()
     self:ApplyDisplaySettings()
 end
 
--- [STYLE] C5/C12: the frame rectangle in UIParent units (the timeline has its own scale).
-function TimelineUI:GetFrameRect()
-    local frame = self.frame
+-- [STYLE] Edit modules (2026-10-10): the combat timeline and the "곧 사용" alert are moved
+-- separately. Each has its own saved anchor: timeline = ns.db.position, alert =
+-- ns.db.alertPosition (nil = still attached under the timeline, the pre-split layout).
+local EDIT_MODULES = { "timeline", "alert" }
+local EDIT_MODULE_NAMES = { timeline = EDIT_FRAME_NAME, alert = ALERT_FRAME_NAME }
+
+function TimelineUI:GetModuleFrame(id)
+    if id == "alert" then return self.upcomingPanel end
+    return self.frame
+end
+
+--- Saved anchor of a module, or nil for an alert that still follows the timeline.
+function TimelineUI:GetModulePosition(id)
+    if not ns.db then return nil end
+    if id == "alert" then return ns.db.alertPosition end
+    return ns.db.position
+end
+
+function TimelineUI:GetFrameRect(id)
+    local frame = self:GetModuleFrame(id)
+    if not frame then return nil end
     local left, bottom = frame:GetLeft(), frame:GetBottom()
     local width, height = frame:GetWidth(), frame:GetHeight()
     if not (left and bottom and width and height) then return nil end
@@ -536,8 +562,9 @@ local function PointCoordinate(point, left, bottom, width, height)
     return x, y
 end
 
---- Snap delta (UIParent units) for the frame rectangle: center, then screen edges, then grid.
-function TimelineUI:GetSnapDelta(left, bottom, width, height)
+--- Snap delta (UIParent units) for a module rectangle: center, then the other module's
+--- edges and the screen edges ("프레임"), then the grid.
+function TimelineUI:GetSnapDelta(left, bottom, width, height, id)
     local styleLib, snap = self.styleLib, self.editSnap
     if not (styleLib and styleLib.SnapToGrid and snap and snap.enabled) then return 0, 0 end
 
@@ -552,11 +579,16 @@ function TimelineUI:GetSnapDelta(left, bottom, width, height)
         value, ok = styleLib.SnapToCenter(centerY)
         if ok then dy, snappedY = value - centerY, true end
     end
-    -- RaidHelper has one movable frame, so "프레임" snaps to the screen edges and center.
     if snap.frames and not (snappedX and snappedY) then
-        local rectX, rectY = styleLib.SnapToRects({ left, bottom, width, height }, {
-            { 0, 0, screenWidth, screenHeight },
-        })
+        local others = { { 0, 0, screenWidth, screenHeight } }
+        for _, other in ipairs(EDIT_MODULES) do
+            local otherFrame = self:GetModuleFrame(other)
+            if other ~= (id or "timeline") and otherFrame and otherFrame:IsShown() then
+                local otherLeft, otherBottom, otherWidth, otherHeight = self:GetFrameRect(other)
+                if otherLeft then others[#others + 1] = { otherLeft, otherBottom, otherWidth, otherHeight } end
+            end
+        end
+        local rectX, rectY = styleLib.SnapToRects({ left, bottom, width, height }, others)
         if not snappedX and rectX ~= 0 then dx, snappedX = rectX, true end
         if not snappedY and rectY ~= 0 then dy, snappedY = rectY, true end
     end
@@ -575,18 +607,21 @@ function TimelineUI:GetSnapDelta(left, bottom, width, height)
     return dx, dy
 end
 
---- Anchor-relative offset of the current frame position in the saved anchor model.
---- While dragging this is computed from the live rectangle so the HUD matches the value saved on drop.
-function TimelineUI:GetAnchorOffset(withSnap)
-    local position = ns.db.position
-    if not (self.frame and self.frame._editDragging) and not withSnap then
+--- Anchor-relative offset of a module in its saved anchor model. While dragging (or when
+--- asked) it is computed from the live rectangle so the HUD matches the value saved on drop.
+function TimelineUI:GetAnchorOffset(withSnap, id, anchor)
+    id = id or "timeline"
+    local position = anchor or self:GetModulePosition(id)
+    local frame = self:GetModuleFrame(id)
+    if position and not (frame and frame._editDragging) and not withSnap and not anchor then
         return position.x or 0, position.y or 0
     end
+    position = position or { point = "TOPLEFT", relativePoint = "CENTER" }
 
-    local left, bottom, width, height, relative = self:GetFrameRect()
+    local left, bottom, width, height, relative = self:GetFrameRect(id)
     if not left then return position.x or 0, position.y or 0 end
     if withSnap then
-        local dx, dy = self:GetSnapDelta(left, bottom, width, height)
+        local dx, dy = self:GetSnapDelta(left, bottom, width, height, id)
         left, bottom = left + dx, bottom + dy
     end
     local frameX, frameY = PointCoordinate(position.point, left, bottom, width, height)
@@ -601,17 +636,22 @@ function TimelineUI:UpdateEditHUD()
     if not frame or not frame.editHUD then return false end
 
     local shown = self:IsPreviewMode()
-    frame.editHUD:SetShown(shown)
+    local target = self.editTarget or "timeline"
+    frame.editHUD:SetShown(shown and target == "timeline")
+    local alertHUD = self.upcomingPanel and self.upcomingPanel.editHUD
+    if alertHUD then alertHUD:SetShown(shown and self.editSession == true and target == "alert") end
 
-    -- [STYLE] StyleMover is not applied here: this overlay is the live combat window itself,
-    -- so the accent edit outline lives on its (otherwise invisible) backdrop.
+    -- [STYLE] StyleMover is not applied to the timeline: this overlay is the live combat window
+    -- itself, so the accent edit outline lives on its (otherwise invisible) backdrop.
     self:ApplyEditOutline()
     if shown then
-        local x, y = self:GetAnchorOffset(false)
-        local width, height = frame:GetSize()
-        frame.editHUD:Update(x, y, width, height)
-        if frame._editDragging and self.editGuides then
-            local left, bottom, rectWidth, rectHeight = self:GetFrameRect()
+        local moduleFrame = self:GetModuleFrame(target)
+        local x, y = self:GetAnchorOffset(false, target)
+        local width, height = moduleFrame:GetSize()
+        local hud = target == "alert" and alertHUD or frame.editHUD
+        if hud then hud:Update(x, y, width, height) end
+        if moduleFrame._editDragging and self.editGuides then
+            local left, bottom, rectWidth, rectHeight = self:GetFrameRect(target)
             if left then
                 self.editGuides:ShowAt(left + rectWidth * 0.5, bottom + rectHeight * 0.5)
             end
@@ -672,8 +712,10 @@ function TimelineUI:ApplyEditOutline()
     local frame = self.frame
     if not frame then return end
     if self:IsPreviewMode() then
+        -- Full accent when the timeline is the selected edit module, dimmed otherwise.
         local accent = self.accentFrom
-        frame:SetBackdropBorderColor(accent[1], accent[2], accent[3], accent[4] or 1)
+        local selected = not self.editSession or (self.editTarget or "timeline") == "timeline"
+        frame:SetBackdropBorderColor(accent[1], accent[2], accent[3], selected and (accent[4] or 1) or 0.4)
     else
         frame:SetBackdropBorderColor(0, 0, 0, 0)
     end
@@ -756,7 +798,50 @@ function TimelineUI:ApplyPosition()
         position.x or 0,
         position.y or -180
     )
+    self:ApplyAlertPosition()
     self:UpdateEditHUD()
+end
+
+--- The alert follows the timeline until it gets its own anchor (first edit session or reset).
+function TimelineUI:ApplyAlertPosition()
+    local panel = self.upcomingPanel
+    if not panel then return end
+    local position = ns.db and ns.db.alertPosition
+    panel:ClearAllPoints()
+    if type(position) == "table" then
+        panel:SetPoint(
+            position.point or "TOPLEFT",
+            UIParent,
+            position.relativePoint or "CENTER",
+            position.x or 0,
+            position.y or 0
+        )
+    else
+        panel:SetPoint("TOPLEFT", self.frame, "BOTTOMLEFT", 0, -ALERT_ATTACH_GAP)
+    end
+end
+
+--- Where the attached alert sits right now, as its own UIParent anchor.
+function TimelineUI:GetAttachedAlertPosition()
+    local panel = self.upcomingPanel
+    local saved = ns.db.alertPosition
+    ns.db.alertPosition = nil
+    self:ApplyAlertPosition()
+    local anchor = { point = "TOPLEFT", relativePoint = "CENTER" }
+    local x, y = self:GetAnchorOffset(false, "alert", anchor)
+    ns.db.alertPosition = saved
+    self:ApplyAlertPosition()
+    anchor.x, anchor.y = floor(x + 0.5), floor(y + 0.5)
+    return anchor, panel
+end
+
+--- Gives a still-attached alert its own saved anchor at its current place, so moving the
+--- timeline no longer drags it along.
+function TimelineUI:DetachAlert()
+    if not ns.db or type(ns.db.alertPosition) == "table" or not self.upcomingPanel then return false end
+    ns.db.alertPosition = (self:GetAttachedAlertPosition())
+    self:ApplyAlertPosition()
+    return true
 end
 
 function TimelineUI:SavePosition()
@@ -768,22 +853,39 @@ function TimelineUI:SavePosition()
     self:UpdateEditHUD()
 end
 
-function TimelineUI:ResetPosition()
-    self:PushEditHistory()
-    ns.db.position = {
-        point = "CENTER",
-        relativePoint = "CENTER",
-        x = 0,
-        y = -180,
-    }
+local function DefaultTimelinePosition()
+    return { point = "CENTER", relativePoint = "CENTER", x = 0, y = -180 }
+end
+
+--- Remote "초기화" resets the selected module. Outside edit mode (settings "위치 초기화",
+--- /drh reset) both go back: timeline to its default, alert back under the timeline.
+function TimelineUI:ResetPosition(id)
+    if not self.editSession then
+        ns.db.position = DefaultTimelinePosition()
+        ns.db.alertPosition = nil
+        self:ApplyPosition()
+        return
+    end
+    id = id or self.editTarget or "timeline"
+    self:PushEditHistory(id)
+    if id == "alert" then
+        ns.db.alertPosition = nil
+        self:ApplyAlertPosition()
+        self:DetachAlert()
+        self:UpdateEditHUD()
+        return
+    end
+    ns.db.position = DefaultTimelinePosition()
     self:ApplyPosition()
 end
 
 ------------------------------------------------------------------------
 -- [STYLE] C12 edit mode: StyleLib 1.4 remote, grid, guides, snap, history.
--- The saved model stays ns.db.position = {point, relativePoint, x, y}.
+-- Saved anchors: ns.db.position (timeline) and ns.db.alertPosition (alert), both
+-- {point, relativePoint, x, y} relative to UIParent.
 ------------------------------------------------------------------------
 local function CopyPosition(position)
+    if type(position) ~= "table" then return false end
     return {
         point = position.point or "CENTER",
         relativePoint = position.relativePoint or "CENTER",
@@ -804,15 +906,33 @@ function TimelineUI:IsEditSessionActive()
     return self.editSession == true
 end
 
-function TimelineUI:PushEditHistory()
-    if not self.editSession or not ns.db or not ns.db.position then return end
+--- Undo entries remember which module moved: { id =, position = copy or false (attached) }.
+function TimelineUI:PushEditHistory(id)
+    if not self.editSession or not ns.db then return end
+    id = id or self.editTarget or "timeline"
     local undo = self.editUndo
-    undo[#undo + 1] = CopyPosition(ns.db.position)
+    undo[#undo + 1] = { id = id, position = CopyPosition(self:GetModulePosition(id)) }
     if #undo > EDIT_HISTORY_LIMIT then table.remove(undo, 1) end
     self.editRedo = {}
 end
 
-function TimelineUI:SetStoredPosition(position)
+function TimelineUI:SetStoredPosition(position, id)
+    id = id or self.editTarget or "timeline"
+    if id == "alert" then
+        if position then
+            ns.db.alertPosition = {
+                point = position.point or "TOPLEFT",
+                relativePoint = position.relativePoint or "CENTER",
+                x = floor((tonumber(position.x) or 0) + 0.5),
+                y = floor((tonumber(position.y) or 0) + 0.5),
+            }
+        else
+            ns.db.alertPosition = nil
+        end
+        self:ApplyAlertPosition()
+        self:UpdateEditHUD()
+        return
+    end
     local stored = ns.db.position
     stored.point = position.point or "CENTER"
     stored.relativePoint = position.relativePoint or "CENTER"
@@ -821,16 +941,33 @@ function TimelineUI:SetStoredPosition(position)
     self:ApplyPosition()
 end
 
+--- Selected module for the remote (nudge, X/Y, reset). Clicking a module also selects it.
+function TimelineUI:SelectEditModule(id)
+    if id ~= "alert" then id = "timeline" end
+    self.editTarget = id
+    if self.upcomingPanel and self.upcomingPanel.moverStyle then
+        self.upcomingPanel.moverStyle:SetSelected(id == "alert")
+    end
+    if self.editRemote and self.editRemote.RefreshFrames and self.editRemote.selectedModule ~= id then
+        self.editRemote.selectedModule = id
+        self.editRemote:RefreshFrames(id)
+    end
+    self:UpdateEditHUD()
+    return true
+end
+
 function TimelineUI:NudgePosition(dx, dy)
     if not self.editSession then return false end
-    local position = ns.db.position
-    self:PushEditHistory()
+    local id = self.editTarget or "timeline"
+    if id == "alert" then self:DetachAlert() end
+    local position = self:GetModulePosition(id)
+    self:PushEditHistory(id)
     self:SetStoredPosition({
         point = position.point,
         relativePoint = position.relativePoint,
         x = (position.x or 0) + (tonumber(dx) or 0),
         y = (position.y or 0) + (tonumber(dy) or 0),
-    })
+    }, id)
     return true
 end
 
@@ -838,14 +975,16 @@ function TimelineUI:SetPositionOffset(x, y)
     if not self.editSession then return false end
     x, y = tonumber(x), tonumber(y)
     if not (x and y) then return false end
-    local position = ns.db.position
-    self:PushEditHistory()
+    local id = self.editTarget or "timeline"
+    if id == "alert" then self:DetachAlert() end
+    local position = self:GetModulePosition(id)
+    self:PushEditHistory(id)
     self:SetStoredPosition({
         point = position.point,
         relativePoint = position.relativePoint,
         x = x,
         y = y,
-    })
+    }, id)
     return true
 end
 
@@ -853,50 +992,68 @@ function TimelineUI:UndoPosition()
     local undo = self.editUndo
     if not self.editSession or not undo or #undo == 0 then return false end
     local previous = table.remove(undo)
-    self.editRedo[#self.editRedo + 1] = CopyPosition(ns.db.position)
-    self:SetStoredPosition(previous)
+    self.editRedo[#self.editRedo + 1] = {
+        id = previous.id, position = CopyPosition(self:GetModulePosition(previous.id)),
+    }
+    self:SetStoredPosition(previous.position, previous.id)
+    self:SelectEditModule(previous.id)
     return true
 end
 
 function TimelineUI:RedoPosition()
     local redo = self.editRedo
     if not self.editSession or not redo or #redo == 0 then return false end
-    local nextPosition = table.remove(redo)
-    self.editUndo[#self.editUndo + 1] = CopyPosition(ns.db.position)
-    self:SetStoredPosition(nextPosition)
+    local nextEntry = table.remove(redo)
+    self.editUndo[#self.editUndo + 1] = {
+        id = nextEntry.id, position = CopyPosition(self:GetModulePosition(nextEntry.id)),
+    }
+    self:SetStoredPosition(nextEntry.position, nextEntry.id)
+    self:SelectEditModule(nextEntry.id)
     return true
 end
 
---- Drag end: inside an edit session the drop is snapped and written back in the saved anchor model.
-function TimelineUI:FinishDrag()
-    local frame = self.frame
+--- Drag end: inside an edit session the drop is snapped and written back in the module's
+--- saved anchor model.
+function TimelineUI:FinishDrag(id)
+    id = id or "timeline"
+    local frame = self:GetModuleFrame(id)
     if not frame then return end
     local wasEditing = frame._editDragging
     frame._editDragging = false
     if self.editGuides then self.editGuides:Hide() end
 
-    if wasEditing and self.editSession and ns.db.position then
-        local x, y = self:GetAnchorOffset(true)
+    if wasEditing and self.editSession then
+        if id == "alert" then
+            -- The live rect is already the dropped place; keep the attached anchor model.
+            local anchor = self:GetModulePosition("alert") or { point = "TOPLEFT", relativePoint = "CENTER" }
+            local x, y = self:GetAnchorOffset(true, "alert", anchor)
+            self:PushEditHistory("alert")
+            self:SetStoredPosition({ point = anchor.point, relativePoint = anchor.relativePoint, x = x, y = y }, "alert")
+            return
+        end
+        local x, y = self:GetAnchorOffset(true, "timeline")
         local position = ns.db.position
-        self:PushEditHistory()
+        self:PushEditHistory("timeline")
         self:SetStoredPosition({
             point = position.point,
             relativePoint = position.relativePoint,
             x = x,
             y = y,
-        })
+        }, "timeline")
         return
     end
-    self:SavePosition()
+    if id == "timeline" then self:SavePosition() end
 end
 
 function TimelineUI:RefreshEditSelection(x, y)
     local remote = self.editRemote
     if not (remote and self.editSession and self.frame) then return end
-    local position = ns.db.position
-    local width, height = self.frame:GetSize()
+    local id = self.editTarget or "timeline"
+    local frame = self:GetModuleFrame(id)
+    local position = self:GetModulePosition(id) or {}
+    local width, height = frame:GetSize()
     remote:SetSelection({
-        name = EDIT_FRAME_NAME,
+        name = EDIT_MODULE_NAMES[id],
         anchor = "UIParent · " .. tostring(position.point or "CENTER"),
         x = x or position.x or 0,
         y = y or position.y or 0,
@@ -904,6 +1061,62 @@ function TimelineUI:RefreshEditSelection(x, y)
         h = height,
     })
     remote:SetUndoState(#(self.editUndo or {}) > 0, #(self.editRedo or {}) > 0)
+end
+
+--- Edit surface for the alert: series mover look, drag + click to select, own HUD.
+function TimelineUI:EnsureAlertMover()
+    local panel = self.upcomingPanel
+    if not panel or panel.mover then return panel ~= nil end
+    local styleLib = self.styleLib
+
+    panel.mover = CreateFrame("Frame", nil, panel)
+    panel.mover:SetAllPoints(panel)
+    panel.mover:SetFrameLevel(panel:GetFrameLevel() + 10)
+    if styleLib.StyleMover then
+        panel.moverStyle = styleLib.StyleMover(panel.mover, ADDON_KEY, { label = ALERT_FRAME_NAME })
+    end
+    if styleLib.CreateMoverHUD then
+        panel.editHUD = styleLib.CreateMoverHUD(panel, ADDON_KEY)
+    end
+    panel.mover:Hide()
+
+    panel:SetMovable(true)
+    panel:SetClampedToScreen(true)
+    panel:RegisterForDrag("LeftButton")
+    panel:SetScript("OnMouseDown", function()
+        if TimelineUI.editSession then TimelineUI:SelectEditModule("alert") end
+    end)
+    panel:SetScript("OnDragStart", function(currentPanel)
+        if not TimelineUI.editSession or InCombatLockdown() then return end
+        TimelineUI:SelectEditModule("alert")
+        TimelineUI:DetachAlert()
+        currentPanel:StartMoving()
+        currentPanel._editDragging = true
+        TimelineUI:UpdateEditHUD()
+    end)
+    panel:SetScript("OnDragStop", function(currentPanel)
+        currentPanel:StopMovingOrSizing()
+        TimelineUI:FinishDrag("alert")
+    end)
+    panel:SetScript("OnUpdate", function(currentPanel)
+        if currentPanel._editDragging then TimelineUI:UpdateEditHUD() end
+    end)
+    return true
+end
+
+--- Edit surfaces on while editing; outside it the alert never catches the mouse.
+function TimelineUI:SetAlertEditable(enabled)
+    local panel = self.upcomingPanel
+    if not panel then return end
+    self:EnsureAlertMover()
+    panel:EnableMouse(enabled == true)
+    panel.mover:SetShown(enabled == true)
+    if panel.moverStyle then panel.moverStyle:SetSelected(enabled and self.editTarget == "alert") end
+    if enabled then
+        panel:Show()
+    elseif not (self.upcomingRows[1] and self.upcomingRows[1]:IsShown()) then
+        panel:Hide()
+    end
 end
 
 function TimelineUI:EnsureEditTools()
@@ -924,6 +1137,14 @@ function TimelineUI:EnsureEditTools()
     self.editRemote = styleLib.CreateEditRemote(ADDON_KEY, {
         title = "편집 모드",
         version = GetAddonVersion(),
+        frames = function()
+            local list = {}
+            for _, id in ipairs(EDIT_MODULES) do
+                list[#list + 1] = { text = EDIT_MODULE_NAMES[id], value = id }
+            end
+            return list
+        end,
+        onSelectFrame = function(value) TimelineUI:SelectEditModule(value) end,
         onNudge = function(dx, dy) TimelineUI:NudgePosition(dx, dy) end,
         onApplyXY = function(x, y) TimelineUI:SetPositionOffset(x, y) end,
         onReset = function() TimelineUI:ResetPosition() end,
@@ -975,12 +1196,18 @@ function TimelineUI:BeginEditSession()
     if self.editSession then return end
     self.editSession = true
     self.editUndo, self.editRedo = {}, {}
+    self.editTarget = "timeline"
 
     -- C12: entering edit mode closes the settings window; leaving reopens it (only if it was open).
     local options = ns.Options
     local optionsFrame = options and options.frame
     self.reopenOptions = optionsFrame and optionsFrame:IsShown() and not optionsFrame._ddslPanelClosing and true or false
     if self.reopenOptions and options.Close then options:Close() end
+
+    -- Split the modules: an alert still riding under the timeline keeps its place but gets
+    -- its own anchor, so each one moves on its own from now on.
+    self:SetAlertEditable(true)
+    self:DetachAlert()
 
     if self:EnsureEditTools() then
         if self.editRemote.SetGridState then
@@ -990,17 +1217,21 @@ function TimelineUI:BeginEditSession()
         self.editRemote:EnableKeyboard(true)
         self.editRemote:Show()
     end
-    self:UpdateEditHUD()
+    self:SelectEditModule("timeline")
 end
 
 function TimelineUI:EndEditSession(reopenOptions)
     if not self.editSession then return end
-    local frame = self.frame
-    if frame and frame._editDragging then
-        frame:StopMovingOrSizing()
-        self:FinishDrag()
+    for _, id in ipairs(EDIT_MODULES) do
+        local moduleFrame = self:GetModuleFrame(id)
+        if moduleFrame and moduleFrame._editDragging then
+            moduleFrame:StopMovingOrSizing()
+            self:FinishDrag(id)
+        end
     end
     self.editSession = false
+    self:SetAlertEditable(false)
+    if self.upcomingPanel and self.upcomingPanel.editHUD then self.upcomingPanel.editHUD:Hide() end
 
     local remote = self.editRemote
     if remote then
@@ -1750,10 +1981,8 @@ function TimelineUI:UpdateUpcomingCooldowns(currentTime)
         row:Hide()
     end
 
-    if #upcoming > 0 then
-        self.upcomingPanel:SetHeight(
-            #upcoming * UPCOMING_ROW_HEIGHT + max(0, #upcoming - 1) * UPCOMING_ROW_GAP
-        )
+    -- Fixed 3-row box (rows fill from the top), so the alert keeps one size as an edit module.
+    if #upcoming > 0 or self.editSession then
         self.upcomingPanel:Show()
     else
         self.upcomingPanel:Hide()
