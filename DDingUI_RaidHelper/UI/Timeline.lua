@@ -1377,6 +1377,40 @@ function TimelineUI:FindPhaseLabel(model, index)
     return nil
 end
 
+-- [STYLE] Use either side of the icon only when the detail fits without covering other icons.
+function TimelineUI:PlaceDetailChip(chip, marker, width, kind)
+    local cooldown = kind == "cooldown"
+    local offset = cooldown and 14 or 20
+    local parent = cooldown and self.cooldownLayer or self.plot
+    local markers = cooldown and self.cooldownMarkers or self.mechanicMarkers
+    local chipWidth = chip:GetWidth()
+    local function Fits(left)
+        local right = left + chipWidth
+        if left < width * FADE_SHARE or right > width * (1 - FADE_SHARE) then return false end
+        for _, other in ipairs(markers) do
+            if other ~= marker and other:IsShown()
+                and left < other.x + other:GetWidth() * 0.5 + 2
+                and right > other.x - other:GetWidth() * 0.5 - 2 then
+                return false
+            end
+        end
+        return true
+    end
+
+    chip:ClearAllPoints()
+    if Fits(marker.x + offset) then
+        chip:SetPoint("TOPLEFT", parent, "TOPLEFT", marker.x + offset, cooldown and -8 or -10)
+    elseif Fits(marker.x - offset - chipWidth) then
+        chip:SetPoint("TOPRIGHT", parent, "TOPLEFT", marker.x - offset, cooldown and -8 or -10)
+    else
+        chip:Hide()
+        return false
+    end
+    chip:SetAlpha(EdgeAlpha(marker.x, width))
+    chip:Show()
+    return true
+end
+
 --- Detail chip for the single nearest upcoming mechanic: countdown + name, then
 --- average damage, players hit and phase. Text is rebuilt only when the mechanic changes.
 function TimelineUI:UpdateMechanicChip(marker, model, width)
@@ -1411,15 +1445,10 @@ function TimelineUI:UpdateMechanicChip(marker, model, width)
     local chipWidth = ceil(max(firstLine, secondLine)) + 12
     chip:SetSize(chipWidth, chip.hasInfo and 35 or 21)
 
-    local x = marker.x
-    chip:ClearAllPoints()
-    if x + 20 + chipWidth > width * (1 - FADE_SHARE) then
-        chip:SetPoint("TOPRIGHT", self.plot, "TOPLEFT", x - 20, -10)
-    else
-        chip:SetPoint("TOPLEFT", self.plot, "TOPLEFT", x + 20, -10)
+    if not self:PlaceDetailChip(chip, marker, width, "mechanic") then
+        marker.countdown:SetText(FormatCountdown(marker.remaining))
+        marker.countdown:Show()
     end
-    chip:SetAlpha(EdgeAlpha(x, width))
-    chip:Show()
 end
 
 function TimelineUI:UpdateCooldownChip(marker, width)
@@ -1435,15 +1464,7 @@ function TimelineUI:UpdateCooldownChip(marker, width)
     local chipWidth = ceil(chip.text:GetStringWidth()) + 12
     chip:SetWidth(chipWidth)
 
-    local x = marker.x
-    chip:ClearAllPoints()
-    if x + 14 + chipWidth > width * (1 - FADE_SHARE) then
-        chip:SetPoint("TOPRIGHT", self.cooldownLayer, "TOPLEFT", x - 14, -8)
-    else
-        chip:SetPoint("TOPLEFT", self.cooldownLayer, "TOPLEFT", x + 14, -8)
-    end
-    chip:SetAlpha(EdgeAlpha(x, width))
-    chip:Show()
+    self:PlaceDetailChip(chip, marker, width, "cooldown")
 end
 
 --- Earliest event still ahead within the given window (seconds).
@@ -1500,6 +1521,27 @@ function TimelineUI:UpdateMechanics(model, currentTime, width)
         self.mechanicMarkers[index]:Hide()
     end
     self:UpdateMechanicChip(nearestMarker, model, width)
+
+    -- [STYLE] Keep phase lines/ribbons, but do not let their labels cover mechanic details.
+    local detail = self.frame.mechanicChip
+    for _, phase in ipairs(self.phaseMarkers) do
+        if phase.chip:IsShown() then
+            local left = phase.chip:GetLeft()
+            local right = left + phase.chip:GetWidth()
+            if detail:IsShown() and left < detail:GetLeft() + detail:GetWidth() + 2
+                and right > detail:GetLeft() - 2 then
+                phase.chip:Hide()
+            else
+                for _, marker in ipairs(self.mechanicMarkers) do
+                    if marker:IsShown() and left < marker:GetLeft() + marker:GetWidth() + 2
+                        and right > marker:GetLeft() - 2 then
+                        phase.chip:Hide()
+                        break
+                    end
+                end
+            end
+        end
+    end
 end
 
 function TimelineUI:UpdateCooldowns(model, currentTime, width)

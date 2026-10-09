@@ -134,13 +134,16 @@ for _, marker in ipairs(UI.mechanicMarkers) do
         if marker ~= nearest then assert(marker.width == 28) end
     end
 end
-assert(nearest and nearest.width == 32 and nearest.glow.shown and not nearest.countdown.shown)
+assert(nearest and nearest.width == 32 and nearest.glow.shown)
 assert(nearest.border[1] == UI.accentLight[1])
 local chip = frame.mechanicChip
-assert(chip.shown and chip.number.text == "3.8" and chip.name.text == "암흑 붕괴")
+assert(chip.shown ~= nearest.countdown.shown, "details or icon countdown must be visible")
+assert(chip.number.text == "3.8" and chip.name.text == "암흑 붕괴")
 assert(chip.info.text:find("52.0M", 1, true) and chip.info.text:find("20명 피격", 1, true))
 assert(chip.info.text:find("P2 구간", 1, true))
-assert(chip.points.TOPLEFT and math.abs(chip.points.TOPLEFT[3] - (nearest.x + 20)) < 1e-6)
+if chip.shown then
+    assert(chip.points.TOPLEFT and math.abs(chip.points.TOPLEFT[3] - (nearest.x + 20)) < 1e-6)
+end
 -- 78 s sits inside the right fade: partly transparent, still counting.
 assert(faded and faded.alpha > 0 and faded.alpha < 1 and faded.countdown.text == "36")
 -- Past mechanics are dimmed; anything left of the bar is hidden, not clamped.
@@ -158,20 +161,27 @@ for _, marker in ipairs(UI.cooldownMarkers) do
 end
 
 -- Near the right end the chip flips to the left of the icon. With a 40 s / 10 s window,
--- 파멸의 메아리 (78 s) at 75.5 is 2.5 s ahead at x = 578 of 680 (fade starts at 598).
+-- 파멸의 메아리 (78 s) at 75.5 is 2.5 s ahead at x = 680 of 800 (fade starts at 704).
+ns.db.timelineWidth = 800
+UI:ApplyDisplaySettings()
 ns.db.windowPast, ns.db.windowFuture = 40, 10
 clock = 75.5
 UI:UpdateView()
 assert(chip.shown and chip.name.text == "파멸의 메아리")
 assert(chip.points.TOPRIGHT and not chip.points.TOPLEFT)
 ns.db.windowPast, ns.db.windowFuture = 12, 38
+ns.db.timelineWidth = 680
+UI:ApplyDisplaySettings()
 
 -- 0% background: surface and shade vanish, ridge/icons stay.
 ns.db.backgroundAlpha = 0
 UI:ApplyDisplaySettings()
 UI:UpdateView()
 assert(frame.barBackground.vertex[4] == 0 and frame.pastShade.color[4] == 0)
-assert(tallest.shown and chip.shown)
+assert(tallest.shown)
+for _, marker in ipairs(UI.mechanicMarkers) do
+    if marker.shown then assert(marker.alpha > 0, "background opacity must not hide icons") end
+end
 
 -- Narrow bar: no chips, no readout; the nearest icon shows its own countdown.
 ns.db.timelineWidth = 300
@@ -184,6 +194,64 @@ for _, marker in ipairs(UI.mechanicMarkers) do
 end
 ns.db.timelineWidth = 680
 UI:ApplyDisplaySettings()
+
+-- Phase labels must not cover mechanic icons or the nearest mechanic's details.
+local sawPhaseLabel = false
+for _, width in ipairs({ 200, 300, 400, 680, 1200 }) do
+    ns.db.timelineWidth = width
+    UI:ApplyDisplaySettings()
+    for _, moment in ipairs({ 42.2, 43.9, 44.1, 75.5, 90.6 }) do
+        clock = moment
+        UI:UpdateView()
+        for _, entry in ipairs({
+            { chip, UI.mechanicMarkers }, { cooldownChip, UI.cooldownMarkers },
+        }) do
+            local detail, markers = entry[1], entry[2]
+            if detail:IsShown() then
+                local left = detail:GetLeft()
+                local right = left + detail:GetWidth()
+                for _, marker in ipairs(markers) do
+                    if marker:IsShown() then
+                        local iconLeft = marker:GetLeft()
+                        assert(right <= iconLeft or left >= iconLeft + marker:GetWidth(),
+                            "detail chip covers an icon at width " .. width)
+                    end
+                end
+            end
+        end
+        if not chip:IsShown() then
+            for _, marker in ipairs(UI.mechanicMarkers) do
+                if marker:IsShown() and marker.nearState then
+                    assert(marker.countdown:IsShown(), "hidden detail must keep the countdown visible")
+                end
+            end
+        end
+        for _, phase in ipairs(UI.phaseMarkers) do
+            if phase.chip:IsShown() then
+                sawPhaseLabel = true
+                local left = phase.chip:GetLeft()
+                local right = left + phase.chip:GetWidth()
+                for _, marker in ipairs(UI.mechanicMarkers) do
+                    if marker:IsShown() then
+                        local iconLeft = marker:GetLeft()
+                        assert(right <= iconLeft or left >= iconLeft + marker:GetWidth(),
+                            "phase label covers a mechanic icon at width " .. width)
+                    end
+                end
+                if chip:IsShown() then
+                    local detailLeft = chip:GetLeft()
+                    assert(right <= detailLeft or left >= detailLeft + chip:GetWidth(),
+                        "phase label covers mechanic details at width " .. width)
+                end
+            end
+        end
+    end
+end
+assert(sawPhaseLabel, "unobstructed phase labels must remain visible")
+ns.db.timelineWidth = 680
+UI:ApplyDisplaySettings()
+clock = 42.2
+UI:UpdateView()
 
 -- End of fight: end text, then the bar fades out and hides after 3 s.
 ns.Engine.running = false
