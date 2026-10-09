@@ -153,7 +153,7 @@ assert(ns.Options.pages.timeline:IsShown())
 assert(ns.Options.timelineScaleSlider.slider:GetValue() == 100)
 assert(ns.Options.backgroundAlphaSlider.slider:GetValue() == 100)
 assert(ns.Options.timelineWidthSlider.slider:GetValue() == 680)
-assert(ns.Options.timelineHeightSlider.slider:GetValue() == 210)
+assert(ns.Options.timelineHeightSlider.slider:GetValue() == 98) -- legacy 210 -> C안 default
 assert(ns.Options.upcomingCooldownCheckbox.checked == true)
 assert(#ns.Options.cooldownCheckboxes[257] >= 10)
 assert(not ns.Options.pages.cooldowns:IsShown())

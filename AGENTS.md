@@ -44,7 +44,8 @@
 - 게임 안에서는 웹 요청을 하지 않으며, BigWigs 보스 바와 페이즈 신호로 현재 전투 타임라인을 재동기화한다.
 - Midnight 12.0+에서는 `COMBAT_LOG_EVENT`와 `COMBAT_LOG_EVENT_UNFILTERED` 등록이 금지되므로 RaidHelper에서 절대 등록하거나 `CombatLogGetCurrentEventInfo()`를 사용하지 않는다. 실시간 정렬은 `ENCOUNTER_START`와 BigWigs 바/페이즈 메시지만 사용한다.
 - BigWigs의 Encounter Timeline 메시지는 전투 중 `text`, `icon`, 남은 시간 등이 secret value일 수 있다. 반드시 `issecretvalue`로 거른 뒤 사용하고, secret 값을 `tostring`·비교·산술·테이블 키로 처리하거나 UI에 직접 전달하지 않는다. 바 추적과 중지·일시정지는 안전한 `eventID`/정적 key를 우선 사용한다.
-- 전투창은 `Libs/DDingUI_StyleLib/`에 내장한 StyleLib의 색상·폰트·텍스처·디자인 토큰을 사용하며, 상단 기믹 / 중앙 피해 파형 / 하단 힐러 쿨기의 3단 타임라인으로 유지한다. 별도 `DDingUI_StyleLib` 애드온을 필수 의존성으로 두지 않는다.
+- 전투창은 `Libs/DDingUI_StyleLib/`에 내장한 StyleLib의 색상·폰트·텍스처·디자인 토큰을 사용한다. 별도 `DDingUI_StyleLib` 애드온을 필수 의존성으로 두지 않는다.
+- 전투창 모양(2026-10-10 사용자 선택, C안 릿지 바): 제목줄 없이 테두리 없는 바 하나(기본 70px) + 아래 힐러 쿨기 레일(28px). 바 양 끝은 너비의 12%씩 `Media/RaidHelper_FadeMask.tga` 마스크로 투명하게 페이드되고(`tools/build_fade_mask.py`로 생성, `UI/Timeline.lua`의 `FADE_SHARE`와 일치), 피해 파형은 바 바닥 능선, 기믹 아이콘은 바 위, 가장 가까운 기믹 1개만 상세 칩을 띄운다. 외곽선은 미리보기/편집 중에만 악센트로 표시한다.
 - 브랜딩은 `Branding/DDingUI_Symbol_Orange.png`의 알파와 형태를 유지해 RaidHelper 보라색(`#D65CFF`) 512×512 RGBA TGA로 변환한 `Media/RaidHelper_Icon.tga`를 사용한다. WoW 미니맵 스킨에서 원판으로 보이지 않도록 완전 투명 픽셀의 RGB도 0으로 만들고 TGA origin은 top-left로 저장한다.
 - `Update_RaidHelper_Data.bat`는 영웅·신화 전 보스를 난이도별 상위 공개 처치 로그 최대 10개로 자동 갱신한다.
 - 신화 공개 처치가 없는 보스는 건너뛰며, 나중에 BAT를 다시 실행하면 새로 공개된 보스를 자동 추가한다. WCL 시간당 한도는 초기화 시각까지 대기 후 자동 재개한다.
@@ -55,7 +56,7 @@
 - 독립 설정 창은 설치된 영웅·신화 모델 수와 최근 생성 시각을 표시하고, 전투 밖에서만 UI 리로드로 데이터 팩을 다시 읽는다.
 - 게임 실행 중 새 애드온 링크를 만든 첫 설치에서는 `/reload`만으로 폴더가 검색되지 않을 수 있으므로 WoW를 완전히 재시작하고 애드온 목록에서 RaidHelper 활성화를 확인한다. StyleLib는 내장되어 있어 별도 활성화가 필요 없다.
 - 마커 툴팁은 승인된 SavedVariables 키 `showTooltips`로 저장하며 기본값은 `false`다. 전투 중 변경은 즉시 반영하지 않고 `PLAYER_REGEN_ENABLED`에서 적용한다.
-- 타임라인 전체 크기·너비·높이·배경 불투명도는 승인된 SavedVariables 키 `timelineScale`(기본 1.0, 0.6~1.6), `timelineWidth`(기본 680, 200~1200), `timelineHeight`(기본 210, 170~420), `backgroundAlpha`(기본 1.0, 0~1)로 저장한다. 배경 값은 글자·아이콘·파형이 아닌 메인·제목바·그래프 배경에만 곱하며, 전투 중 변경은 `PLAYER_REGEN_ENABLED`에서 적용한다.
+- 타임라인 전체 크기·너비·높이·배경 불투명도는 승인된 SavedVariables 키 `timelineScale`(기본 1.0, 0.6~1.6), `timelineWidth`(기본 680, 200~1200), `timelineHeight`(바+레일 전체, 기본 98, 80~160 — 이전 4단 창 값 170 이상은 98로 되돌림), `backgroundAlpha`(기본 1.0, 0~1)로 저장한다. 배경 값은 글자·아이콘·파형이 아닌 바 배경과 지난 구간 음영에만 곱하며(0%면 파형·아이콘만 뜸), 전투 중 변경은 `PLAYER_REGEN_ENABLED`에서 적용한다.
 - 미리보기 편집 모드(2026-10-03, 시리즈 C12): StyleLib 1.4 공용 리모컨·HUD·격자·스냅을 쓴다. 리모컨 위치는 승인된 SavedVariables 키 `editRemotePos = {point, x, y}`에만 저장하며 격자·스냅 상태는 저장하지 않는다. `PLAYER_REGEN_DISABLED`와 `ENCOUNTER_START`에서 미리보기를 종료하고, 진입 시 설정창을 닫고 종료 시 다시 연다.
 - 독립 설정창 크기는 승인된 SavedVariables 키 `optionsScale`(기본 1.0, 0.5~1.5)로 저장한다. 제목줄 닫기 버튼 왼쪽의 StyleLib 공통 "GUI 크기" 컨트롤이 바꾸며, 창의 열기/닫기 모션 기준 배율(`SetBaseScale`)로 적용한다. 전투 타임라인 크기(`timelineScale`)와는 별개다.
 - 힐러 쿨기 표시는 `cooldownVisibility[specID][spellID]`에 저장한다. 주요 힐업·세미 쿨기·외생기·개인/유틸 그룹과 전문화별 체크박스를 제공하며, 신성 사제 후광(120517)을 포함한 세미 쿨기도 수집한다. 전투 중 변경은 즉시 반영하지 않는다.

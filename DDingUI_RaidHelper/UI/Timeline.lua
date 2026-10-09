@@ -11,15 +11,28 @@ local min = math.min
 local sort = table.sort
 local unpack = unpack
 
+-- [STYLE] C안 릿지 바 (2026-10-10): one borderless bar + a cooldown rail, both edges fade out.
+-- timelineHeight is now bar + rail. Values >= LEGACY_HEIGHT_FLOOR come from the old
+-- four-row window (170~420) and fall back to the new default instead of clamping.
 local FRAME_WIDTH = 680
-local FRAME_HEIGHT = 210
+local FRAME_HEIGHT = 98
 local MIN_FRAME_WIDTH = 200
 local MAX_FRAME_WIDTH = 1200
-local MIN_FRAME_HEIGHT = 170
-local MAX_FRAME_HEIGHT = 420
-local FIXED_VERTICAL_SPACE = 122
+local MIN_FRAME_HEIGHT = 80
+local MAX_FRAME_HEIGHT = 160
+local LEGACY_HEIGHT_FLOOR = 170
+local RAIL_HEIGHT = 28
+local FADE_SHARE = 0.12
+local FADE_MASK = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\RaidHelper_FadeMask.tga"
+local RIDGE_TOP_SPACE = 36
+local COMPACT_WIDTH = 400
+local MECHANIC_SIZE = 28
+local MECHANIC_NEAR_SIZE = 32
+local MECHANIC_NEAR_WINDOW = 5
+local COOLDOWN_SIZE = 18
+local COOLDOWN_NEAR_WINDOW = 4
+local PAST_ALPHA = 0.38
 local UPDATE_INTERVAL = 0.05
-local MARKER_SIZE = 22
 local UPCOMING_WINDOW = 12
 local UPCOMING_MAX_ROWS = 3
 local UPCOMING_ROW_HEIGHT = 24
@@ -76,6 +89,29 @@ local function FormatDamage(value)
     return tostring(floor(value + 0.5))
 end
 
+local function FormatCountdown(remaining)
+    if remaining < 10 then
+        return string.format("%.1f", max(0, remaining))
+    end
+    return tostring(ceil(remaining))
+end
+
+local function ColorCode(color)
+    return string.format("|cff%02x%02x%02x",
+        floor(color[1] * 255 + 0.5), floor(color[2] * 255 + 0.5), floor(color[3] * 255 + 0.5))
+end
+
+--- Opacity of something centred at x on a bar of the given width: 0 at both ends,
+--- 1 once it is FADE_SHARE of the width inside. Matches RaidHelper_FadeMask.tga.
+local function EdgeAlpha(x, width)
+    local fade = max(1, width * FADE_SHARE)
+    local edge = min(x, width - x) / fade
+    if edge <= 0 then return 0 end
+    if edge >= 1 then return 1 end
+    return edge * edge * (3 - 2 * edge)
+end
+TimelineUI.EdgeAlpha = EdgeAlpha
+
 local function ResolveIcon(data)
     local icon = data and data.icon
     if not IsSecret(icon) and icon then return icon end
@@ -119,28 +155,86 @@ function TimelineUI:CreateLabel(parent, category, color, layer)
     return label
 end
 
+-- [STYLE] C안: every texture drawn inside the bar shares one stretched fade mask, so the
+-- fade follows the bar width. Returns false when the client cannot mask the region.
+function TimelineUI:MaskRegion(region)
+    local mask = self.fadeMask
+    if not (mask and region and region.AddMaskTexture) then return false end
+    return pcall(region.AddMaskTexture, region, mask) == true
+end
+
+function TimelineUI:StyleChip(chip)
+    local styleLib = self.styleLib
+    local background, border = chip.backgroundColor, chip.borderColor
+    if styleLib and styleLib.MakeRounded then
+        styleLib.MakeRounded(chip, chip.radius, background, border)
+    else
+        ApplyBackdrop(chip, self.flatTexture, background, border)
+    end
+end
+
+--- Small rounded label box used for the nearest-event details and phase labels.
+function TimelineUI:CreateChip(parent, borderColor, borderAlpha, radius, backgroundColor)
+    local chip = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    chip.radius = radius or 4
+    chip.backgroundColor = backgroundColor
+    chip.borderColor = { borderColor[1], borderColor[2], borderColor[3], borderAlpha or 1 }
+    self:StyleChip(chip)
+    chip:SetFrameLevel(parent:GetFrameLevel() + 6)
+    chip:Hide()
+    self.chips[#self.chips + 1] = chip
+    return chip
+end
+
 function TimelineUI:CreateMarker(parent, kind)
     local colors = self.colors
     local marker = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    marker:SetSize(self.markerSize, self.markerSize)
+    local size = kind == "cooldown" and COOLDOWN_SIZE or MECHANIC_SIZE
+    marker:SetSize(size, size)
     marker.kind = kind
     marker.borderColor = kind == "cooldown" and colors.status.success or colors.status.warning
     ApplyBackdrop(marker, self.flatTexture, colors.bg.widget, marker.borderColor)
 
-    marker.spread = marker:CreateTexture(nil, "BACKGROUND")
-    marker.spread:SetPoint("CENTER")
-    marker.spread:SetHeight(4)
-    SetTextureColor(marker.spread, colors.status.success, 0.28)
-    marker.spread:Hide()
+    if kind == "cooldown" then
+        -- Pin from the bar's bottom edge down to the icon, plus the ± timing band behind it.
+        marker.pin = marker:CreateTexture(nil, "BACKGROUND")
+        marker.pin:SetSize(1, 8)
+        marker.pin:SetPoint("BOTTOM", marker, "TOP", 0, 0)
+        SetTextureColor(marker.pin, colors.status.success, 0.9)
+
+        marker.spread = marker:CreateTexture(nil, "BACKGROUND")
+        marker.spread:SetHeight(2)
+        SetTextureColor(marker.spread, colors.status.success, 0.25)
+        marker.spread:Hide()
+    else
+        -- Soft accent halo for the nearest upcoming mechanic: three rounded layers, fainter
+        -- outward, so the overlap falls off like a shadow (≈0.38 / 0.23 / 0.10 alpha bands).
+        marker.glowLayers = {}
+        for layerIndex, spec in ipairs({ { 6, 0.10, 8 }, { 4, 0.14, 6 }, { 2, 0.20, 4 } }) do
+            local inset, alpha, radius = spec[1], spec[2], spec[3]
+            local layer = marker:CreateTexture(nil, "BACKGROUND", nil, -8 + layerIndex)
+            layer:SetPoint("TOPLEFT", marker, "TOPLEFT", -inset, inset)
+            layer:SetPoint("BOTTOMRIGHT", marker, "BOTTOMRIGHT", inset, -inset)
+            if self.styleLib.RoundTexture then
+                self.styleLib.RoundTexture(layer, radius)
+                layer:SetVertexColor(self.accentFrom[1], self.accentFrom[2], self.accentFrom[3], alpha)
+            else
+                SetTextureColor(layer, self.accentFrom, alpha)
+            end
+            layer:Hide()
+            marker.glowLayers[layerIndex] = layer
+        end
+        marker.glow = marker.glowLayers[1]
+
+        marker.countdown = self:CreateLabel(marker, "small", colors.text.highlight)
+        marker.countdown:SetPoint("TOP", marker, "BOTTOM", 0, -1)
+        marker.countdown:SetJustifyH("CENTER")
+    end
 
     marker.icon = marker:CreateTexture(nil, "ARTWORK")
-    marker.icon:SetPoint("TOPLEFT", 2, -2)
-    marker.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    marker.icon:SetPoint("TOPLEFT", 1, -1)
+    marker.icon:SetPoint("BOTTOMRIGHT", -1, 1)
     marker.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-    marker.countdown = self:CreateLabel(marker, "small", colors.text.highlight)
-    marker.countdown:SetPoint("BOTTOM", marker, "TOP", 0, 1)
-    marker.countdown:SetJustifyH("CENTER")
 
     marker:SetScript("OnEnter", function(button)
         local showTooltips = ns.Options and ns.Options:ShouldShowTooltips()
@@ -169,24 +263,36 @@ function TimelineUI:GetDamageLine(index)
     if line or not self.plot.CreateLine then return line end
 
     line = self.plot:CreateLine(nil, "ARTWORK", nil, 2)
-    line:SetThickness(1.6)
+    line:SetThickness(1.5)
+    local light = self.accentLight
+    line:SetColorTexture(light[1], light[2], light[3], 0.9)
+    -- Lines are masked like every other bar texture; if this client refuses, the ridge
+    -- falls back to per-segment edge alpha in UpdateDamage.
+    if not self:MaskRegion(line) then self.lineMaskFailed = true end
     self.damageLines[index] = line
     return line
+end
+
+--- Vertical gradient column under the ridge for one 0.5 s damage cell.
+function TimelineUI:GetDamageColumn(index)
+    local column = self.damageColumns[index]
+    if column then return column end
+
+    column = self.plot:CreateTexture(nil, "ARTWORK", nil, 1)
+    column:SetColorTexture(1, 1, 1, 1)
+    column.topColor = CreateColor(1, 1, 1, 1)
+    self:MaskRegion(column)
+    self.damageColumns[index] = column
+    return column
 end
 
 function TimelineUI:GetGrid(index)
     local grid = self.gridLines[index]
     if grid then return grid end
 
-    grid = {
-        line = self.plot:CreateTexture(nil, "BACKGROUND", nil, 1),
-        label = self:CreateLabel(self.plot, "small", self.colors.text.disabled),
-    }
+    grid = { line = self.plot:CreateTexture(nil, "BORDER", nil, 1) }
     grid.line:SetWidth(1)
-    grid.line:SetPoint("TOP")
-    grid.line:SetPoint("BOTTOM")
-    SetTextureColor(grid.line, self.colors.border.separator)
-    grid.label:SetPoint("TOP", grid.line, "TOP", 0, -2)
+    self:MaskRegion(grid.line)
     self.gridLines[index] = grid
     return grid
 end
@@ -195,15 +301,21 @@ function TimelineUI:GetPhaseMarker(index)
     local marker = self.phaseMarkers[index]
     if marker then return marker end
 
+    local colors = self.colors
     marker = {
-        line = self.plot:CreateTexture(nil, "OVERLAY", nil, 1),
-        label = self:CreateLabel(self.plot, "normal", self.colors.status.warning),
+        ribbon = self.plot:CreateTexture(nil, "ARTWORK", nil, 4),
+        line = self.plot:CreateTexture(nil, "ARTWORK", nil, 3),
+        chip = self:CreateChip(self.mechanicLayer, colors.status.warning, 0.45, 3,
+            { colors.bg.input[1], colors.bg.input[2], colors.bg.input[3], 0.9 }),
     }
-    marker.line:SetWidth(2)
-    marker.line:SetPoint("TOP")
-    marker.line:SetPoint("BOTTOM")
-    SetTextureColor(marker.line, self.colors.status.warning, 0.55)
-    marker.label:SetPoint("BOTTOMLEFT", marker.line, "TOPLEFT", 3, -15)
+    marker.ribbon:SetHeight(2)
+    marker.line:SetWidth(1)
+    SetTextureColor(marker.line, colors.status.warning, 0.45)
+    self:MaskRegion(marker.ribbon)
+    self:MaskRegion(marker.line)
+    marker.label = self:CreateLabel(marker.chip, "small", colors.status.warning)
+    marker.label:SetPoint("CENTER", marker.chip, "CENTER", 0, 0)
+    marker.chip:SetHeight(16)
     self.phaseMarkers[index] = marker
     return marker
 end
@@ -259,111 +371,100 @@ function TimelineUI:CreateFrame()
     frame:RegisterForDrag("LeftButton")
     frame:Hide()
 
-    ApplyBackdrop(frame, self.flatTexture, colors.bg.main, colors.border.default)
+    -- [STYLE] C안: no window surface and no outline in combat. The backdrop only carries
+    -- the accent edit outline while preview/edit is active (UpdateEditHUD).
+    ApplyBackdrop(frame, self.flatTexture, { 0, 0, 0, 0 }, { 0, 0, 0, 0 })
 
     -- [STYLE] C5: series mover HUD (center crosshair + "X Y · W×H" readout below the frame).
     if self.styleLib.CreateMoverHUD then
         frame.editHUD = self.styleLib.CreateMoverHUD(frame, ADDON_KEY)
     end
 
-    frame.header = CreateFrame("Frame", nil, frame)
-    frame.header:SetPoint("TOPLEFT", 1, -1)
-    frame.header:SetPoint("TOPRIGHT", -1, -1)
-    frame.header:SetHeight(34)
-    frame.header.background = frame.header:CreateTexture(nil, "BACKGROUND")
-    frame.header.background:SetAllPoints()
-    SetTextureColor(frame.header.background, colors.bg.titlebar)
+    frame.content = frame
 
-    if self.styleLib.CreateHorizontalGradient then
-        frame.header.accentLine = self.styleLib.CreateHorizontalGradient(
-            frame.header,
-            self.accentFrom,
-            self.accentTo,
-            2,
-            "OVERLAY"
-        )
-        frame.header.accentLine:SetPoint("TOPLEFT")
-        frame.header.accentLine:SetPoint("TOPRIGHT")
+    frame.plot = CreateFrame("Frame", nil, frame)
+    frame.plot:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    frame.plot:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    frame.plot:SetHeight(FRAME_HEIGHT - RAIL_HEIGHT)
+    self.plot = frame.plot
+
+    if frame.plot.CreateMaskTexture then
+        frame.fadeMask = frame.plot:CreateMaskTexture()
+        frame.fadeMask:SetTexture(FADE_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        frame.fadeMask:SetAllPoints(frame.plot)
+        self.fadeMask = frame.fadeMask
     end
 
-    frame.brandIcon = frame.header:CreateTexture(nil, "ARTWORK")
-    frame.brandIcon:SetSize(20, 20)
-    frame.brandIcon:SetPoint("LEFT", 8, -1)
-    frame.brandIcon:SetTexture(BRAND_ICON)
-
-    frame.brand = self:CreateLabel(frame.header, "title", colors.text.highlight)
-    frame.brand:SetPoint("LEFT", frame.brandIcon, "RIGHT", 5, -1)
-    frame.brand:SetWidth(160)
-    frame.brand:SetJustifyH("LEFT")
-    if self.styleLib.CreateAddonTitle then
-        frame.brand:SetText(self.styleLib.CreateAddonTitle("RaidHelper", "RaidHelper"))
-    else
-        frame.brand:SetText("DDingUI RaidHelper")
+    frame.barBackground = frame.plot:CreateTexture(nil, "BACKGROUND", nil, 1)
+    frame.barBackground:SetAllPoints(frame.plot)
+    if self.styleLib.RoundTexture and self.styleLib.Radius then
+        self.styleLib.RoundTexture(frame.barBackground, self.styleLib.Radius.control or 6)
+        frame.barBackground._raidHelperRounded = true
     end
-
-    frame.title = self:CreateLabel(frame.header, "normal", colors.text.normal)
-    frame.title:SetPoint("LEFT", frame.brand, "RIGHT", 7, 0)
-    frame.title:SetPoint("RIGHT", -114, 0)
-    frame.title:SetJustifyH("LEFT")
-
-    frame.phaseText = self:CreateLabel(frame.header, "normal", colors.status.warning)
-    frame.phaseText:SetPoint("RIGHT", -72, 0)
-    frame.phaseText:SetWidth(36)
-    frame.phaseText:SetJustifyH("RIGHT")
-
-    frame.timeText = self:CreateLabel(frame.header, "normal", colors.text.highlight)
-    frame.timeText:SetPoint("RIGHT", -9, 0)
-    frame.timeText:SetWidth(58)
-    frame.timeText:SetJustifyH("RIGHT")
-
-    frame.content = CreateFrame("Frame", nil, frame)
-    frame.content:SetPoint("TOPLEFT", 9, -42)
-    frame.content:SetPoint("BOTTOMRIGHT", -9, 9)
-
-    frame.mechanicLayer = CreateFrame("Frame", nil, frame.content)
-    frame.mechanicLayer:SetPoint("TOPLEFT")
-    frame.mechanicLayer:SetPoint("TOPRIGHT")
-    frame.mechanicLayer:SetHeight(30)
-
-    frame.plot = CreateFrame("Frame", nil, frame.content, "BackdropTemplate")
-    frame.plot:SetPoint("TOPLEFT", frame.mechanicLayer, "BOTTOMLEFT", 0, -3)
-    frame.plot:SetPoint("TOPRIGHT", frame.mechanicLayer, "BOTTOMRIGHT", 0, -3)
-    frame.plot:SetHeight(88)
-    ApplyBackdrop(frame.plot, self.flatTexture, colors.bg.input, colors.border.separator)
-
-    frame.cooldownLayer = CreateFrame("Frame", nil, frame.content)
-    frame.cooldownLayer:SetPoint("TOPLEFT", frame.plot, "BOTTOMLEFT", 0, -5)
-    frame.cooldownLayer:SetPoint("TOPRIGHT", frame.plot, "BOTTOMRIGHT", 0, -5)
-    frame.cooldownLayer:SetHeight(28)
+    self:MaskRegion(frame.barBackground)
 
     frame.pastShade = frame.plot:CreateTexture(nil, "BACKGROUND", nil, 2)
     frame.pastShade:SetPoint("TOPLEFT", frame.plot, "TOPLEFT")
     frame.pastShade:SetPoint("BOTTOMLEFT", frame.plot, "BOTTOMLEFT")
-    SetTextureColor(frame.pastShade, colors.bg.sidebar, 0.42)
+    self:MaskRegion(frame.pastShade)
 
-    frame.baseline = frame.plot:CreateTexture(nil, "BACKGROUND", nil, 3)
-    frame.baseline:SetPoint("BOTTOMLEFT", 0, 5)
-    frame.baseline:SetPoint("BOTTOMRIGHT", 0, 5)
-    frame.baseline:SetHeight(1)
-    SetTextureColor(frame.baseline, colors.border.separator)
+    frame.mechanicLayer = CreateFrame("Frame", nil, frame.plot)
+    frame.mechanicLayer:SetAllPoints(frame.plot)
+    frame.mechanicLayer:SetFrameLevel(frame.plot:GetFrameLevel() + 2)
+    self.mechanicLayer = frame.mechanicLayer
 
-    frame.playhead = frame.content:CreateTexture(nil, "OVERLAY", nil, 7)
-    frame.playhead:SetPoint("TOP", frame.content, "TOP")
-    frame.playhead:SetPoint("BOTTOM", frame.content, "BOTTOM")
+    frame.cooldownLayer = CreateFrame("Frame", nil, frame)
+    frame.cooldownLayer:SetPoint("TOPLEFT", frame.plot, "BOTTOMLEFT", 0, 0)
+    frame.cooldownLayer:SetPoint("TOPRIGHT", frame.plot, "BOTTOMRIGHT", 0, 0)
+    frame.cooldownLayer:SetHeight(RAIL_HEIGHT)
+    frame.cooldownLayer:SetFrameLevel(frame.plot:GetFrameLevel() + 2)
+
+    -- Playhead above the icons; never masked so it stays visible at any window split.
+    frame.overlay = CreateFrame("Frame", nil, frame)
+    frame.overlay:SetAllPoints(frame)
+    frame.overlay:SetFrameLevel(frame.plot:GetFrameLevel() + 5)
+    frame.playheadGlow = frame.overlay:CreateTexture(nil, "OVERLAY", nil, 6)
+    frame.playheadGlow:SetWidth(6)
+    SetTextureColor(frame.playheadGlow, self.accentFrom, 0.35)
+    frame.playhead = frame.overlay:CreateTexture(nil, "OVERLAY", nil, 7)
     frame.playhead:SetWidth(2)
-    SetTextureColor(frame.playhead, colors.status.error, 0.92)
+    SetTextureColor(frame.playhead, self.accentLight, 1)
 
-    frame.noDataText = self:CreateLabel(frame.plot, "normal", colors.text.dim)
-    frame.noDataText:SetPoint("CENTER")
+    frame.noDataText = self:CreateLabel(frame.overlay, "small", colors.text.dim)
+    frame.noDataText:SetPoint("CENTER", frame.plot, "CENTER", 0, 0)
     frame.noDataText:SetText("로그 피해 데이터 없음 · 실시간 기믹만 표시")
     frame.noDataText:Hide()
 
-    frame.syncText = self:CreateLabel(frame, "small", colors.text.disabled)
-    frame.syncText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 9, 2)
-    frame.syncText:SetJustifyH("LEFT")
+    frame.endText = self:CreateLabel(frame.overlay, "small", colors.text.highlight)
+    frame.endText:SetPoint("CENTER", frame.plot, "CENTER", 0, 0)
+    frame.endText:Hide()
+
+    -- The only text outside the bar: elapsed time and phase, above the left fade edge.
+    frame.timeReadout = self:CreateLabel(frame.overlay, "small", colors.text.dim)
+    frame.timeReadout:SetJustifyH("LEFT")
+
+    -- Preview-only hint, above the right fade edge (the upcoming list sits below the rail).
+    frame.syncText = self:CreateLabel(frame.overlay, "small", colors.text.disabled)
+    frame.syncText:SetJustifyH("RIGHT")
+    frame.syncText:Hide()
+
+    frame.mechanicChip = self:CreateChip(frame.mechanicLayer, self.accentFrom, 0.55, 4,
+        { colors.bg.sidebar[1], colors.bg.sidebar[2], colors.bg.sidebar[3], 0.96 })
+    frame.mechanicChip.number = self:CreateLabel(frame.mechanicChip, "title", self.accentLight)
+    frame.mechanicChip.number:SetPoint("TOPLEFT", frame.mechanicChip, "TOPLEFT", 6, -3)
+    frame.mechanicChip.name = self:CreateLabel(frame.mechanicChip, "small", colors.text.highlight)
+    frame.mechanicChip.name:SetPoint("BOTTOMLEFT", frame.mechanicChip.number, "BOTTOMRIGHT", 4, 0)
+    frame.mechanicChip.info = self:CreateLabel(frame.mechanicChip, "small", colors.text.normal)
+    frame.mechanicChip.info:SetPoint("TOPLEFT", frame.mechanicChip.number, "BOTTOMLEFT", 0, -2)
+
+    frame.cooldownChip = self:CreateChip(frame.cooldownLayer, colors.status.success, 0.5, 4,
+        { colors.bg.sidebar[1], colors.bg.sidebar[2], colors.bg.sidebar[3], 0.96 })
+    frame.cooldownChip.text = self:CreateLabel(frame.cooldownChip, "small", colors.text.highlight)
+    frame.cooldownChip.text:SetPoint("LEFT", frame.cooldownChip, "LEFT", 6, 0)
+    frame.cooldownChip:SetHeight(18)
 
     frame.upcomingPanel = CreateFrame("Frame", nil, frame)
-    frame.upcomingPanel:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -4)
+    frame.upcomingPanel:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -6)
     frame.upcomingPanel:SetSize(
         UPCOMING_PANEL_MAX_WIDTH,
         UPCOMING_MAX_ROWS * UPCOMING_ROW_HEIGHT + (UPCOMING_MAX_ROWS - 1) * UPCOMING_ROW_GAP
@@ -388,9 +489,7 @@ function TimelineUI:CreateFrame()
     end)
 
     self.frame = frame
-    self.content = frame.content
-    self.mechanicLayer = frame.mechanicLayer
-    self.plot = frame.plot
+    self.content = frame
     self.cooldownLayer = frame.cooldownLayer
     self.upcomingPanel = frame.upcomingPanel
     self:ApplyDisplaySettings()
@@ -487,9 +586,8 @@ function TimelineUI:UpdateEditHUD()
     frame.editHUD:SetShown(shown)
 
     -- [STYLE] StyleMover is not applied here: this overlay is the live combat window itself,
-    -- so the accent edit border stays on its backdrop and is restored when editing ends.
-    local border = shown and self.accentFrom or self.colors.border.default
-    frame:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+    -- so the accent edit outline lives on its (otherwise invisible) backdrop.
+    self:ApplyEditOutline()
     if shown then
         local x, y = self:GetAnchorOffset(false)
         local width, height = frame:GetSize()
@@ -513,36 +611,56 @@ function TimelineUI:GetTimelineWidth()
     return ClampNumber(ns.db and ns.db.timelineWidth, MIN_FRAME_WIDTH, MAX_FRAME_WIDTH, FRAME_WIDTH)
 end
 
+--- Height of bar + rail. Old four-row values (>= 170) are not clamped to 160: they mean
+--- a different layout, so they read as the new default.
+function TimelineUI.ResolveTimelineHeight(value)
+    value = tonumber(value)
+    if not value or value >= LEGACY_HEIGHT_FLOOR then return FRAME_HEIGHT end
+    return min(MAX_FRAME_HEIGHT, max(MIN_FRAME_HEIGHT, value))
+end
+
 function TimelineUI:GetTimelineHeight()
-    return ClampNumber(ns.db and ns.db.timelineHeight, MIN_FRAME_HEIGHT, MAX_FRAME_HEIGHT, FRAME_HEIGHT)
+    return TimelineUI.ResolveTimelineHeight(ns.db and ns.db.timelineHeight)
 end
 
 function TimelineUI:GetBackgroundAlpha()
     return ClampNumber(ns.db and ns.db.backgroundAlpha, 0, 1, 1.0)
 end
 
+-- [STYLE] C안: "배경 불투명도" scales only the bar surface and the past-time shade.
+-- Ridge, ticks, icons and text keep full opacity, so 0% leaves them floating on screen.
 function TimelineUI:ApplyBackgroundStyle()
     if not self.frame then return false end
 
     local alpha = self:GetBackgroundAlpha()
-    local main = self.colors.bg.main
-    local titlebar = self.colors.bg.titlebar
     local input = self.colors.bg.input
-
-    ApplyBackdrop(self.frame, self.flatTexture, {
-        main[1], main[2], main[3], (main[4] or 1) * alpha,
-    }, self.colors.border.default)
-    ApplyBackdrop(self.plot, self.flatTexture, {
-        input[1], input[2], input[3], (input[4] or 1) * alpha,
-    }, self.colors.border.separator)
-    SetTextureColor(self.frame.header.background, titlebar, (titlebar[4] or 1) * alpha)
-    SetTextureColor(self.frame.pastShade, self.colors.bg.sidebar, 0.42 * alpha)
+    local background = self.frame.barBackground
+    local backgroundAlpha = (input[4] or 1) * alpha
+    if background._raidHelperRounded then
+        background:SetVertexColor(input[1], input[2], input[3], backgroundAlpha)
+    else
+        background:SetColorTexture(input[1], input[2], input[3], backgroundAlpha)
+    end
+    self.frame.pastShade:SetColorTexture(0, 0, 0, 0.35 * alpha)
     for _, row in ipairs(self.upcomingRows or {}) do
         ApplyBackdrop(row, self.flatTexture, {
             input[1], input[2], input[3], (input[4] or 1) * alpha,
         }, self.colors.border.default)
     end
+    self:ApplyEditOutline()
     return true
+end
+
+--- Accent outline only while preview/edit is active; otherwise the frame has no edge at all.
+function TimelineUI:ApplyEditOutline()
+    local frame = self.frame
+    if not frame then return end
+    if self:IsPreviewMode() then
+        local accent = self.accentFrom
+        frame:SetBackdropBorderColor(accent[1], accent[2], accent[3], accent[4] or 1)
+    else
+        frame:SetBackdropBorderColor(0, 0, 0, 0)
+    end
 end
 
 function TimelineUI:ApplyDisplaySettings()
@@ -550,15 +668,30 @@ function TimelineUI:ApplyDisplaySettings()
 
     local width = self:GetTimelineWidth()
     local height = self:GetTimelineHeight()
+    local fade = floor(width * FADE_SHARE + 0.5)
     self.frame:SetSize(width, height)
-    self.plot:SetHeight(max(48, height - FIXED_VERTICAL_SPACE))
+    self.plot:SetHeight(height - RAIL_HEIGHT)
     if self.upcomingPanel then
         self.upcomingPanel:SetWidth(min(UPCOMING_PANEL_MAX_WIDTH, max(200, floor(width * 0.58))))
     end
-    local compactHeader = width < 400
-    if self.frame.brand then self.frame.brand:SetShown(not compactHeader) end
-    if self.frame.title then self.frame.title:SetShown(not compactHeader) end
-    if self.frame.phaseText then self.frame.phaseText:SetShown(not compactHeader) end
+
+    self.compact = width < COMPACT_WIDTH
+    local timeReadout = self.frame.timeReadout
+    if timeReadout then
+        timeReadout:ClearAllPoints()
+        timeReadout:SetPoint("BOTTOMLEFT", self.plot, "TOPLEFT", fade, 3)
+        timeReadout:SetShown(not self.compact)
+    end
+    local syncText = self.frame.syncText
+    if syncText then
+        syncText:ClearAllPoints()
+        syncText:SetPoint("BOTTOMRIGHT", self.plot, "TOPRIGHT", -fade, 3)
+    end
+    if self.compact then
+        if self.frame.mechanicChip then self.frame.mechanicChip:Hide() end
+        if self.frame.cooldownChip then self.frame.cooldownChip:Hide() end
+    end
+
     self.frame:SetScale(self:GetTimelineScale())
     self:ApplyBackgroundStyle()
     self:UpdateEditHUD()
@@ -571,7 +704,7 @@ function TimelineUI:RefreshMedia()
     self.titleFontSize = styleLib.GetFontSize and styleLib:GetFontSize("title") or styleLib.Font.title
     self.normalFontSize = styleLib.GetFontSize and styleLib:GetFontSize("normal") or styleLib.Font.normal
     self.smallFontSize = styleLib.GetFontSize and styleLib:GetFontSize("small") or styleLib.Font.small
-    self.flatTexture = styleLib.GetTexture and styleLib:GetTexture("flat") or "Interface\\Buttons\\WHITE8x8"
+    self.flatTexture = styleLib.GetTexture and styleLib:GetTexture("flat") or "Interface\Buttons\WHITE8x8"
 
     for _, label in ipairs(self.fontStrings or {}) do
         local category = label._raidHelperFontCategory
@@ -587,7 +720,12 @@ function TimelineUI:RefreshMedia()
     for _, pool in ipairs({ self.mechanicMarkers or {}, self.cooldownMarkers or {} }) do
         for _, marker in ipairs(pool) do
             ApplyBackdrop(marker, self.flatTexture, self.colors.bg.widget, marker.borderColor)
+            marker.nearState = nil
         end
+    end
+    for _, chip in ipairs(self.chips or {}) do
+        self:StyleChip(chip)
+        chip.contentKey = nil
     end
 end
 
@@ -965,10 +1103,14 @@ function TimelineUI:Initialize()
     self.normalFontSize = styleLib.GetFontSize and styleLib:GetFontSize("normal") or styleLib.Font.normal
     self.smallFontSize = styleLib.GetFontSize and styleLib:GetFontSize("small") or styleLib.Font.small
     self.flatTexture = styleLib.GetTexture and styleLib:GetTexture("flat") or "Interface\\Buttons\\WHITE8x8"
-    self.accentFrom, self.accentTo = styleLib.GetAccent("RaidHelper")
-    self.markerSize = self.tokens.ROW_H or MARKER_SIZE
+    self.accentFrom, self.accentTo, self.accentLight, self.accentDark = styleLib.GetAccent("RaidHelper")
+    self.accentLight = self.accentLight or self.accentFrom
+    self.accentDark = self.accentDark or self.accentTo
+    self.ridgeBottomColor = CreateColor(self.accentDark[1], self.accentDark[2], self.accentDark[3], 0.12)
     self.updateInterval = self.tokens.ANIM_FPS_LIMIT or UPDATE_INTERVAL
+    self.chips = {}
     self.damageLines = {}
+    self.damageColumns = {}
     self.gridLines = {}
     self.phaseMarkers = {}
     self.mechanicMarkers = {}
@@ -1000,51 +1142,100 @@ function TimelineUI:UpdateGrid(currentTime, width)
     local visible = 0
     local tick = firstTick
 
+    -- [STYLE] C안: unlabelled ticks rising from the bar floor; 10 s ticks are taller.
     while tick <= finalTick do
         visible = visible + 1
         local grid = self:GetGrid(visible)
-        local x = self:MapTimeToX(tick, currentTime, width)
+        local major = tick % 10 == 0
+        if grid.major ~= major then
+            grid.major = major
+            grid.line:SetHeight(major and 7 or 4)
+            grid.line:SetColorTexture(1, 1, 1, major and 0.28 or 0.18)
+        end
         grid.line:ClearAllPoints()
-        grid.line:SetPoint("TOP", self.plot, "TOPLEFT", x, 0)
-        grid.line:SetPoint("BOTTOM", self.plot, "BOTTOMLEFT", x, 0)
-        grid.label:SetText(FormatTime(tick))
+        grid.line:SetPoint("BOTTOM", self.plot, "BOTTOMLEFT", self:MapTimeToX(tick, currentTime, width), 0)
         grid.line:Show()
-        grid.label:Show()
         tick = tick + 5
     end
 
     for index = visible + 1, #self.gridLines do
         self.gridLines[index].line:Hide()
-        self.gridLines[index].label:Hide()
     end
 end
 
-function TimelineUI:UpdatePhases(model, currentTime, width)
-    local past = max(1, ns.db.windowPast or 12)
-    local future = max(1, ns.db.windowFuture or 38)
-    local rangeStart = currentTime - past
-    local rangeEnd = currentTime + future
+local function PhaseLabel(phase, fallbackIndex)
+    return phase.label or ("P" .. tostring(phase.index or fallbackIndex or 1))
+end
+
+function TimelineUI:UpdatePhases(model, currentTime, width, activePhase)
+    local phases = model.phases or {}
+    local colors = self.colors
     local visible = 0
 
-    for _, phase in ipairs(model.phases or {}) do
-        local phaseTime = phase.t or 0
-        if phaseTime >= rangeStart and phaseTime <= rangeEnd then
+    for index, phase in ipairs(phases) do
+        local startX = self:MapTimeToX(phase.t or 0, currentTime, width)
+        local nextPhase = phases[index + 1]
+        local endX = nextPhase and self:MapTimeToX(nextPhase.t or 0, currentTime, width) or (width + 1)
+        local left, right = max(0, startX), min(width, endX)
+        if right > left then
             visible = visible + 1
             local marker = self:GetPhaseMarker(visible)
-            local x = self:MapTimeToX(phaseTime, currentTime, width)
-            marker.line:ClearAllPoints()
-            marker.line:SetPoint("TOP", self.plot, "TOPLEFT", x, 0)
-            marker.line:SetPoint("BOTTOM", self.plot, "BOTTOMLEFT", x, 0)
-            marker.label:SetText(phase.label or ("P" .. tostring(phase.index or visible)))
-            marker.line:Show()
-            marker.label:Show()
+            local active = phase == activePhase
+            if marker.active ~= active then
+                marker.active = active
+                if active then
+                    SetTextureColor(marker.ribbon, self.accentFrom, 1)
+                else
+                    SetTextureColor(marker.ribbon, colors.status.warning, 0.5)
+                end
+            end
+            marker.ribbon:ClearAllPoints()
+            marker.ribbon:SetPoint("TOPLEFT", self.plot, "TOPLEFT", left, 0)
+            marker.ribbon:SetWidth(right - left)
+            marker.ribbon:Show()
+
+            local edge = (startX >= 0 and startX <= width) and EdgeAlpha(startX, width) or 0
+            if edge > 0 then
+                marker.line:ClearAllPoints()
+                marker.line:SetPoint("TOP", self.plot, "TOPLEFT", startX, 0)
+                marker.line:SetPoint("BOTTOM", self.plot, "BOTTOMLEFT", startX, 0)
+                marker.line:Show()
+                marker.label:SetText(PhaseLabel(phase, index))
+                marker.chip:SetWidth(ceil(marker.label:GetStringWidth()) + 8)
+                marker.chip:ClearAllPoints()
+                marker.chip:SetPoint("TOP", self.plot, "TOPLEFT", startX, -4)
+                marker.chip:SetAlpha(edge)
+                marker.chip:Show()
+            else
+                marker.line:Hide()
+                marker.chip:Hide()
+            end
         end
     end
 
     for index = visible + 1, #self.phaseMarkers do
-        self.phaseMarkers[index].line:Hide()
-        self.phaseMarkers[index].label:Hide()
+        local marker = self.phaseMarkers[index]
+        marker.ribbon:Hide()
+        marker.line:Hide()
+        marker.chip:Hide()
     end
+end
+
+function TimelineUI:SetColumnRatio(column, ratio)
+    if column.ratio and abs(column.ratio - ratio) < 0.01 then return end
+    column.ratio = ratio
+    local from, dark = self.accentFrom, self.accentDark
+    local red = dark[1] + (from[1] - dark[1]) * ratio
+    local green = dark[2] + (from[2] - dark[2]) * ratio
+    local blue = dark[3] + (from[3] - dark[3]) * ratio
+    local alpha = 0.12 + 0.58 * ratio
+    if column.topColor.SetRGBA then
+        column.topColor:SetRGBA(red, green, blue, alpha)
+    else
+        column.topColor = CreateColor(red, green, blue, alpha)
+    end
+    -- VERTICAL gradients run bottom -> top: dark 12% at the floor, accent 70% at full height.
+    column:SetGradient("VERTICAL", self.ridgeBottomColor, column.topColor)
 end
 
 function TimelineUI:UpdateDamage(model, currentTime, width, height)
@@ -1058,6 +1249,9 @@ function TimelineUI:UpdateDamage(model, currentTime, width, height)
     local rangeEnd = currentTime + future + interval
     local firstIndex = max(1, floor(rangeStart / interval) + 1)
     local finalIndex = min(#values - 1, ceil(rangeEnd / interval) + 1)
+    -- [STYLE] C안: the ridge lies on the bar floor and stays below the icon row.
+    local amplitude = max(8, height - RIDGE_TOP_SPACE)
+    local light = self.accentLight
     local visible = 0
 
     for index = firstIndex, finalIndex do
@@ -1065,22 +1259,32 @@ function TimelineUI:UpdateDamage(model, currentTime, width, height)
         local secondValue = values[index + 1]
         if firstValue and secondValue then
             visible = visible + 1
+            local firstX = self:MapTimeToX((index - 1) * interval, currentTime, width)
+            local secondX = self:MapTimeToX(index * interval, currentTime, width)
+            local firstRatio = min(1, max(0, firstValue / maximum))
+            local secondRatio = min(1, max(0, secondValue / maximum))
+
+            local column = self:GetDamageColumn(visible)
+            local ratio = (firstRatio + secondRatio) * 0.5
+            local columnHeight = ratio * amplitude
+            if columnHeight < 0.5 then
+                column:Hide()
+            else
+                column:ClearAllPoints()
+                column:SetPoint("BOTTOMLEFT", self.plot, "BOTTOMLEFT", firstX, 1)
+                column:SetSize(max(0.5, secondX - firstX + 0.5), columnHeight)
+                self:SetColumnRatio(column, ratio)
+                column:Show()
+            end
+
             local line = self:GetDamageLine(visible)
             if line then
-                local firstTime = (index - 1) * interval
-                local secondTime = index * interval
-                local firstRatio = min(1, max(0, firstValue / maximum))
-                local secondRatio = min(1, max(0, secondValue / maximum))
-                local ratio = max(firstRatio, secondRatio)
-                local color = self.accentFrom
-                if ratio >= 0.74 then
-                    color = self.colors.status.error
-                elseif ratio < 0.32 then
-                    color = self.colors.text.dim
+                line:SetStartPoint("BOTTOMLEFT", self.plot, firstX, 1 + firstRatio * amplitude)
+                line:SetEndPoint("BOTTOMLEFT", self.plot, secondX, 1 + secondRatio * amplitude)
+                if self.lineMaskFailed then
+                    local edge = EdgeAlpha((firstX + secondX) * 0.5, width)
+                    line:SetColorTexture(light[1], light[2], light[3], 0.9 * edge)
                 end
-                line:SetColorTexture(color[1], color[2], color[3], 0.94)
-                line:SetStartPoint("BOTTOMLEFT", self.plot, self:MapTimeToX(firstTime, currentTime, width), 5 + firstRatio * (height - 11))
-                line:SetEndPoint("BOTTOMLEFT", self.plot, self:MapTimeToX(secondTime, currentTime, width), 5 + secondRatio * (height - 11))
                 line:Show()
             end
         end
@@ -1089,34 +1293,170 @@ function TimelineUI:UpdateDamage(model, currentTime, width, height)
     for index = visible + 1, #self.damageLines do
         self.damageLines[index]:Hide()
     end
+    for index = visible + 1, #self.damageColumns do
+        self.damageColumns[index]:Hide()
+    end
     self.frame.noDataText:SetShown(#values == 0)
 end
 
-function TimelineUI:ConfigureMarker(marker, data, currentTime, width, kind)
+--- Places one icon. Nothing is clamped into the bar: icons slide out through the edge fade.
+--- Returns false when the icon is fully faded out and therefore hidden.
+function TimelineUI:ConfigureMarker(marker, data, currentTime, width, kind, near)
     local x = self:MapTimeToX(data.t or 0, currentTime, width)
-    local halfMarker = (self.markerSize or MARKER_SIZE) * 0.5
-    local markerMinX = min(width, halfMarker)
-    local markerMaxX = max(markerMinX, width - halfMarker)
-    local markerX = min(markerMaxX, max(markerMinX, x))
-    marker:ClearAllPoints()
-    marker:SetPoint("CENTER", marker:GetParent(), "LEFT", markerX, kind == "cooldown" and 0 or -2)
-    marker.icon:SetTexture(ResolveIcon(data))
-    marker.data = data
-    marker.countdown:SetText(tostring(ceil((data.t or 0) - currentTime)))
+    local edge = EdgeAlpha(x, width)
+    if edge <= 0 then
+        marker:Hide()
+        return false
+    end
 
-    if kind == "cooldown" and type(data.spread) == "number" and data.spread > 0 then
-        local secondsWidth = width / (max(1, ns.db.windowPast or 12) + max(1, ns.db.windowFuture or 38))
-        local desiredWidth = max(self.markerSize, data.spread * 2 * secondsWidth)
-        local spreadLeft = max(0, markerX - desiredWidth * 0.5)
-        local spreadRight = min(width, markerX + desiredWidth * 0.5)
-        marker.spread:ClearAllPoints()
-        marker.spread:SetPoint("CENTER", marker:GetParent(), "LEFT", (spreadLeft + spreadRight) * 0.5, 0)
-        marker.spread:SetWidth(max(1, spreadRight - spreadLeft))
-        marker.spread:Show()
+    local remaining = (data.t or 0) - currentTime
+    local past = remaining < 0
+    marker.data = data
+    marker.x = x
+    marker.remaining = remaining
+    marker.icon:SetTexture(ResolveIcon(data))
+    if marker.icon.SetDesaturated then marker.icon:SetDesaturated(past) end
+    marker:SetAlpha((past and PAST_ALPHA or 1) * edge)
+    marker:ClearAllPoints()
+
+    if kind == "cooldown" then
+        marker:SetPoint("TOP", marker:GetParent(), "TOPLEFT", x, -8)
+        if type(data.spread) == "number" and data.spread > 0 then
+            local secondsWidth = width / (max(1, ns.db.windowPast or 12) + max(1, ns.db.windowFuture or 38))
+            local desiredWidth = max(COOLDOWN_SIZE, data.spread * 2 * secondsWidth)
+            local spreadLeft = max(0, x - desiredWidth * 0.5)
+            local spreadRight = min(width, x + desiredWidth * 0.5)
+            if spreadRight > spreadLeft then
+                marker.spread:ClearAllPoints()
+                marker.spread:SetPoint("CENTER", marker:GetParent(), "TOPLEFT", (spreadLeft + spreadRight) * 0.5, -4)
+                marker.spread:SetWidth(spreadRight - spreadLeft)
+                marker.spread:Show()
+            else
+                marker.spread:Hide()
+            end
+        else
+            marker.spread:Hide()
+        end
     else
-        marker.spread:Hide()
+        near = near == true and not past
+        local size = near and MECHANIC_NEAR_SIZE or MECHANIC_SIZE
+        marker:SetSize(size, size)
+        marker:SetPoint("TOP", marker:GetParent(), "TOPLEFT", x, near and -8 or -10)
+        if marker.nearState ~= near then
+            marker.nearState = near
+            local border = near and self.accentLight or marker.borderColor
+            marker:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+            for _, layer in ipairs(marker.glowLayers or {}) do layer:SetShown(near) end
+        end
+        -- The nearest mechanic shows its countdown in the detail chip (unless the bar is too narrow).
+        local showCountdown = not past and (not near or self.compact)
+        if showCountdown then
+            marker.countdown:SetText(FormatCountdown(remaining))
+            marker.countdown:Show()
+        else
+            marker.countdown:Hide()
+        end
     end
     marker:Show()
+    return true
+end
+
+local function NumberField(value)
+    if type(value) ~= "number" or (type(issecretvalue) == "function" and issecretvalue(value)) then
+        return nil
+    end
+    return value
+end
+
+function TimelineUI:FindPhaseLabel(model, index)
+    index = NumberField(index)
+    if not index then return nil end
+    for position, phase in ipairs(model and model.phases or {}) do
+        if phase.index == index then return PhaseLabel(phase, position) end
+    end
+    return nil
+end
+
+--- Detail chip for the single nearest upcoming mechanic: countdown + name, then
+--- average damage, players hit and phase. Text is rebuilt only when the mechanic changes.
+function TimelineUI:UpdateMechanicChip(marker, model, width)
+    local chip = self.frame.mechanicChip
+    if not chip then return end
+    if self.compact or not marker then
+        chip:Hide()
+        chip.data = nil
+        return
+    end
+
+    local data = marker.data
+    if chip.data ~= data or not chip.contentKey then
+        chip.data = data
+        chip.contentKey = true
+        chip.name:SetText(ResolveLabel(data))
+        local parts = {}
+        local damage = NumberField(data.avgDamage)
+        if damage then parts[#parts + 1] = ColorCode(self.colors.status.warning) .. FormatDamage(damage) .. "|r" end
+        local players = NumberField(data.affectedPlayers)
+        if players then parts[#parts + 1] = tostring(floor(players + 0.5)) .. "명 피격" end
+        local phaseLabel = self:FindPhaseLabel(model, data.phase)
+        if phaseLabel then parts[#parts + 1] = phaseLabel .. " 구간" end
+        chip.info:SetText(table.concat(parts, " · "))
+        chip.info:SetShown(#parts > 0)
+        chip.hasInfo = #parts > 0
+    end
+    chip.number:SetText(FormatCountdown(marker.remaining))
+
+    local firstLine = chip.number:GetStringWidth() + 4 + chip.name:GetStringWidth()
+    local secondLine = chip.hasInfo and chip.info:GetStringWidth() or 0
+    local chipWidth = ceil(max(firstLine, secondLine)) + 12
+    chip:SetSize(chipWidth, chip.hasInfo and 35 or 21)
+
+    local x = marker.x
+    chip:ClearAllPoints()
+    if x + 20 + chipWidth > width * (1 - FADE_SHARE) then
+        chip:SetPoint("TOPRIGHT", self.plot, "TOPLEFT", x - 20, -10)
+    else
+        chip:SetPoint("TOPLEFT", self.plot, "TOPLEFT", x + 20, -10)
+    end
+    chip:SetAlpha(EdgeAlpha(x, width))
+    chip:Show()
+end
+
+function TimelineUI:UpdateCooldownChip(marker, width)
+    local chip = self.frame.cooldownChip
+    if not chip then return end
+    if self.compact or not marker then
+        chip:Hide()
+        return
+    end
+
+    chip.text:SetText(ResolveLabel(marker.data) .. " "
+        .. ColorCode(self.colors.status.success) .. FormatCountdown(marker.remaining) .. "s|r")
+    local chipWidth = ceil(chip.text:GetStringWidth()) + 12
+    chip:SetWidth(chipWidth)
+
+    local x = marker.x
+    chip:ClearAllPoints()
+    if x + 14 + chipWidth > width * (1 - FADE_SHARE) then
+        chip:SetPoint("TOPRIGHT", self.cooldownLayer, "TOPLEFT", x - 14, -8)
+    else
+        chip:SetPoint("TOPLEFT", self.cooldownLayer, "TOPLEFT", x + 14, -8)
+    end
+    chip:SetAlpha(EdgeAlpha(x, width))
+    chip:Show()
+end
+
+--- Earliest event still ahead within the given window (seconds).
+local function NearestUpcoming(nearest, data, currentTime, window)
+    local remaining = (data.t or 0) - currentTime
+    if remaining > 0 and remaining <= window and (not nearest or (data.t or 0) < (nearest.t or 0)) then
+        return data
+    end
+    return nearest
+end
+
+local function IsDrawnLiveMechanic(liveMechanic)
+    return not liveMechanic.matched or liveMechanic.matched.syncOnly
 end
 
 function TimelineUI:UpdateMechanics(model, currentTime, width)
@@ -1124,30 +1464,42 @@ function TimelineUI:UpdateMechanics(model, currentTime, width)
     local future = max(1, ns.db.windowFuture or 38)
     local rangeStart = currentTime - past
     local rangeEnd = currentTime + future
+    local liveMechanics = ns.Engine:GetLiveMechanics()
     local visible = 0
+    local nearest
 
     for _, mechanic in ipairs(model.mechanics or {}) do
-        local eventTime = mechanic.t or 0
-        if eventTime >= rangeStart and eventTime <= rangeEnd then
-            visible = visible + 1
-            local marker = self:GetMarker(self.mechanicMarkers, visible, self.mechanicLayer, "mechanic")
-            self:ConfigureMarker(marker, mechanic, currentTime, width, "mechanic")
+        nearest = NearestUpcoming(nearest, mechanic, currentTime, MECHANIC_NEAR_WINDOW)
+    end
+    for _, liveMechanic in pairs(liveMechanics) do
+        if IsDrawnLiveMechanic(liveMechanic) then
+            nearest = NearestUpcoming(nearest, liveMechanic, currentTime, MECHANIC_NEAR_WINDOW)
         end
     end
 
-    for _, liveMechanic in pairs(ns.Engine:GetLiveMechanics()) do
-        local eventTime = liveMechanic.t or 0
-        if (not liveMechanic.matched or liveMechanic.matched.syncOnly)
-            and eventTime >= rangeStart and eventTime <= rangeEnd then
-            visible = visible + 1
-            local marker = self:GetMarker(self.mechanicMarkers, visible, self.mechanicLayer, "mechanic")
-            self:ConfigureMarker(marker, liveMechanic, currentTime, width, "mechanic")
+    local nearestMarker
+    local function Place(data)
+        local eventTime = data.t or 0
+        if eventTime < rangeStart or eventTime > rangeEnd then return end
+        visible = visible + 1
+        local marker = self:GetMarker(self.mechanicMarkers, visible, self.mechanicLayer, "mechanic")
+        if self:ConfigureMarker(marker, data, currentTime, width, "mechanic", data == nearest)
+            and data == nearest then
+            nearestMarker = marker
         end
+    end
+
+    for _, mechanic in ipairs(model.mechanics or {}) do
+        Place(mechanic)
+    end
+    for _, liveMechanic in pairs(liveMechanics) do
+        if IsDrawnLiveMechanic(liveMechanic) then Place(liveMechanic) end
     end
 
     for index = visible + 1, #self.mechanicMarkers do
         self.mechanicMarkers[index]:Hide()
     end
+    self:UpdateMechanicChip(nearestMarker, model, width)
 end
 
 function TimelineUI:UpdateCooldowns(model, currentTime, width)
@@ -1155,20 +1507,30 @@ function TimelineUI:UpdateCooldowns(model, currentTime, width)
     local future = max(1, ns.db.windowFuture or 38)
     local rangeStart = currentTime - past
     local rangeEnd = currentTime + future
+    local cooldowns = ns.Engine:GetCooldowns()
     local visible = 0
+    local nearest, nearestMarker
 
-    for _, cooldown in ipairs(ns.Engine:GetCooldowns()) do
+    for _, cooldown in ipairs(cooldowns) do
+        nearest = NearestUpcoming(nearest, cooldown, currentTime, COOLDOWN_NEAR_WINDOW)
+    end
+
+    for _, cooldown in ipairs(cooldowns) do
         local eventTime = cooldown.t or 0
         if eventTime >= rangeStart and eventTime <= rangeEnd then
             visible = visible + 1
             local marker = self:GetMarker(self.cooldownMarkers, visible, self.cooldownLayer, "cooldown")
-            self:ConfigureMarker(marker, cooldown, currentTime, width, "cooldown")
+            if self:ConfigureMarker(marker, cooldown, currentTime, width, "cooldown")
+                and cooldown == nearest then
+                nearestMarker = marker
+            end
         end
     end
 
     for index = visible + 1, #self.cooldownMarkers do
         self.cooldownMarkers[index]:Hide()
     end
+    self:UpdateCooldownChip(nearestMarker, width)
 end
 
 function TimelineUI:CollectUpcomingCooldowns(currentTime, window, maximumRows)
@@ -1271,6 +1633,7 @@ function TimelineUI:UpdateView()
     local model = ns.Engine:GetModel()
     if not model then return end
 
+    local frame = self.frame
     local currentTime = ns.Engine:GetTimelineTime()
     local width = max(1, self.plot:GetWidth())
     local height = max(1, self.plot:GetHeight())
@@ -1279,30 +1642,24 @@ function TimelineUI:UpdateView()
     local playheadX = (past / (past + future)) * width
     local phase = ns.Engine:GetPhaseAt(currentTime)
 
-    local encounterTitle = ns.Engine.encounterName or model.name or "Unknown Encounter"
-    self.frame.title:SetText(encounterTitle .. (ns.Engine.difficultyName and (" · " .. ns.Engine.difficultyName) or ""))
-    self.frame.timeText:SetText(FormatTime(currentTime))
-    self.frame.phaseText:SetText(phase and (phase.label or ("P" .. tostring(phase.index or 1))) or "")
-    self.frame.playhead:ClearAllPoints()
-    self.frame.playhead:SetPoint("TOP", self.content, "TOPLEFT", playheadX, 0)
-    self.frame.playhead:SetPoint("BOTTOM", self.content, "BOTTOMLEFT", playheadX, 0)
-    self.frame.pastShade:SetWidth(playheadX)
+    -- Playhead runs 4 px past the bar on both sides, with a soft accent halo behind it.
+    for _, texture in ipairs({ frame.playheadGlow, frame.playhead }) do
+        texture:ClearAllPoints()
+        texture:SetPoint("TOP", self.plot, "TOPLEFT", playheadX, 4)
+        texture:SetPoint("BOTTOM", self.plot, "BOTTOMLEFT", playheadX, -4)
+    end
+    frame.pastShade:SetWidth(max(0.5, playheadX))
 
-    local lastSync = ns.Engine.lastSync
-    if lastSync then
-        self.frame.syncText:SetText("SYNC · " .. tostring(lastSync.source) .. (ns.Engine.playerSpecName and (" · " .. ns.Engine.playerSpecName) or ""))
-    elseif self:IsPreviewMode() then
-        self.frame.syncText:SetText("PREVIEW · 드래그·방향키로 위치 조정 · Esc로 종료")
-    elseif model.dataStatus == "demo" then
-        self.frame.syncText:SetText("PREVIEW · 상위 로그 10개 집계 형식" .. (ns.Engine.playerSpecName and (" · " .. ns.Engine.playerSpecName) or ""))
-    elseif model.dataStatus == "missing" then
-        self.frame.syncText:SetText("LIVE · 로그 데이터 팩 대기" .. (ns.Engine.playerSpecName and (" · " .. ns.Engine.playerSpecName) or ""))
+    frame.timeReadout:SetText(FormatTime(currentTime) .. (phase and (" · " .. PhaseLabel(phase)) or ""))
+    if self:IsPreviewMode() and not self.compact then
+        frame.syncText:SetText("PREVIEW · 드래그·방향키로 위치 조정 · Esc로 종료")
+        frame.syncText:Show()
     else
-        self.frame.syncText:SetText("LIVE" .. (ns.Engine.playerSpecName and (" · " .. ns.Engine.playerSpecName) or ""))
+        frame.syncText:Hide()
     end
 
     self:UpdateGrid(currentTime, width)
-    self:UpdatePhases(model, currentTime, width)
+    self:UpdatePhases(model, currentTime, width, phase)
     self:UpdateDamage(model, currentTime, width, height)
     self:UpdateMechanics(model, currentTime, width)
     self:UpdateCooldowns(model, currentTime, width)
@@ -1320,6 +1677,52 @@ function TimelineUI:OnUpdate(elapsed)
     self:UpdateView()
 end
 
+--- 0.25 s fade-in on START; any pending end-of-fight fade-out is cancelled.
+function TimelineUI:ShowAnimated()
+    local frame = self.frame
+    self.stopToken = (self.stopToken or 0) + 1
+    frame.endText:Hide()
+    local styleLib = self.styleLib
+    if styleLib.FadeIn and frame.CreateAnimationGroup then
+        styleLib.FadeIn(frame, 0.25, 0, 1)
+    else
+        frame:SetAlpha(1)
+        frame:Show()
+    end
+end
+
+--- End text fades in, then after 3 s the whole bar fades out over 0.4 s and hides.
+function TimelineUI:FinishAnimated(success)
+    local frame = self.frame
+    local styleLib = self.styleLib
+    local token = (self.stopToken or 0) + 1
+    self.stopToken = token
+
+    frame.noDataText:Hide()
+    frame.endText:SetText(success and "전투 종료 · 처치" or "전투 종료")
+    if styleLib.FadeIn and frame.endText.CreateAnimationGroup then
+        styleLib.FadeIn(frame.endText, 0.2, 0, 1)
+    else
+        frame.endText:SetAlpha(1)
+        frame.endText:Show()
+    end
+
+    C_Timer.After(3, function()
+        if TimelineUI.stopToken ~= token or ns.Engine:IsRunning() then return end
+        local function Finish()
+            if TimelineUI.stopToken ~= token or ns.Engine:IsRunning() then return end
+            frame:Hide()
+            frame:SetAlpha(1)
+            frame.endText:Hide()
+        end
+        if styleLib.FadeOut and frame.CreateAnimationGroup then
+            styleLib.FadeOut(frame, 0.4, nil, 0, false, Finish)
+        else
+            Finish()
+        end
+    end)
+end
+
 function TimelineUI:OnEngineEvent(event, ...)
     if not self.initialized then return end
 
@@ -1330,7 +1733,7 @@ function TimelineUI:OnEngineEvent(event, ...)
         self.editMode = isPreview
         if not isPreview then self:EndEditSession(false) end
         self:RefreshPreviewControl()
-        self.frame:Show()
+        self:ShowAnimated()
         self:UpdateEditHUD()
         self:UpdateView()
     elseif event == "STOP" then
@@ -1342,12 +1745,7 @@ function TimelineUI:OnEngineEvent(event, ...)
         end
         self:EndEditSession(false)
         local success = ...
-        self.frame.syncText:SetText(success and "전투 종료 · 처치" or "전투 종료")
-        C_Timer.After(3, function()
-            if not ns.Engine:IsRunning() then
-                TimelineUI.frame:Hide()
-            end
-        end)
+        self:FinishAnimated(success)
     elseif event == "LOOP" or event == "SYNC" or event == "SPECIALIZATION" then
         self:UpdateView()
     end

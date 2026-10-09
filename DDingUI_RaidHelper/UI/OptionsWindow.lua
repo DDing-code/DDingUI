@@ -998,7 +998,7 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
         14,
         SMALL_TEXT,
         "화면 표시",
-        "전체 배율과 실제 프레임 크기, 배경 불투명도를 각각 조절할 수 있습니다."
+        "전체 배율과 바 너비·높이를 조절합니다. 배경 불투명도는 바 배경에만 적용되며 0%면 파형과 아이콘만 화면에 뜹니다."
     )
 
     local timelineScaleSlider = styleLib.CreateSlider(
@@ -1062,9 +1062,9 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
         displayCard,
         ADDON_KEY,
         "높이 (px)",
-        170,
-        420,
-        10,
+        80,
+        160,
+        2,
         self:GetRequestedTimelineHeight(),
         {
             width = 240,

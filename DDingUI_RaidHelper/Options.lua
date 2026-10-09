@@ -9,8 +9,12 @@ local MIN_TIMELINE_SCALE = 0.6
 local MAX_TIMELINE_SCALE = 1.6
 local MIN_TIMELINE_WIDTH = 200
 local MAX_TIMELINE_WIDTH = 1200
-local MIN_TIMELINE_HEIGHT = 170
-local MAX_TIMELINE_HEIGHT = 420
+-- [STYLE] C안 (2026-10-10): height = bar + cooldown rail. Saved values from the old
+-- four-row window (170~420) read as the new default rather than being clamped.
+local MIN_TIMELINE_HEIGHT = 80
+local MAX_TIMELINE_HEIGHT = 160
+local DEFAULT_TIMELINE_HEIGHT = 98
+local LEGACY_TIMELINE_HEIGHT_FLOOR = 170
 local MIN_OPTIONS_SCALE = 0.5 -- [STYLE] title-bar "GUI 크기" range (StyleLib 1.2 default)
 local MAX_OPTIONS_SCALE = 1.5
 
@@ -18,6 +22,12 @@ local function ClampNumber(value, minimum, maximum, fallback)
     value = tonumber(value)
     if not value then return fallback end
     return math.min(maximum, math.max(minimum, value))
+end
+
+local function ResolveTimelineHeight(value)
+    value = tonumber(value)
+    if not value or value >= LEGACY_TIMELINE_HEIGHT_FLOOR then return DEFAULT_TIMELINE_HEIGHT end
+    return ClampNumber(value, MIN_TIMELINE_HEIGHT, MAX_TIMELINE_HEIGHT, DEFAULT_TIMELINE_HEIGHT)
 end
 
 local function IsInCombat()
@@ -101,12 +111,7 @@ function Options:GetRequestedTimelineHeight()
     if self.pendingTimelineHeight ~= nil then
         return self.pendingTimelineHeight
     end
-    return ClampNumber(
-        ns.db and ns.db.timelineHeight,
-        MIN_TIMELINE_HEIGHT,
-        MAX_TIMELINE_HEIGHT,
-        210
-    )
+    return ResolveTimelineHeight(ns.db and ns.db.timelineHeight)
 end
 
 -- [STYLE] Settings-window scale only; the combat timeline keeps timelineScale.
@@ -377,12 +382,7 @@ end
 function Options:ApplyTimelineHeight(value)
     if not ns.db then return false end
 
-    ns.db.timelineHeight = ClampNumber(
-        value,
-        MIN_TIMELINE_HEIGHT,
-        MAX_TIMELINE_HEIGHT,
-        210
-    )
+    ns.db.timelineHeight = ResolveTimelineHeight(value)
     if ns.TimelineUI and ns.TimelineUI.ApplyDisplaySettings then
         ns.TimelineUI:ApplyDisplaySettings()
     end
@@ -391,7 +391,7 @@ function Options:ApplyTimelineHeight(value)
 end
 
 function Options:SetTimelineHeight(value)
-    value = ClampNumber(value, MIN_TIMELINE_HEIGHT, MAX_TIMELINE_HEIGHT, 210)
+    value = ResolveTimelineHeight(value)
     if IsInCombat() then
         self.pendingTimelineHeight = value
         self:RefreshDisplayControls()
@@ -689,7 +689,7 @@ function Options:CreateTimelinePage(parent, styleLib, fontPath, titleSize, norma
         "높이 (px)",
         MIN_TIMELINE_HEIGHT,
         MAX_TIMELINE_HEIGHT,
-        10,
+        2,
         self:GetRequestedTimelineHeight(),
         {
             width = 252,

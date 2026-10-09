@@ -12,7 +12,7 @@ local DEFAULTS = {
     windowFuture = 38,
     timelineScale = 1.0,
     timelineWidth = 680,
-    timelineHeight = 210,
+    timelineHeight = 98, -- [STYLE] C안: bar + cooldown rail (80~160)
     backgroundAlpha = 1.0,
     optionsScale = 1.0, -- [STYLE] settings-window "GUI 크기"
     cooldownVisibility = {},
@@ -65,6 +65,12 @@ function ns:Initialize()
     DDingUI_RaidHelperDB = DDingUI_RaidHelperDB or {}
     CopyDefaults(DDingUI_RaidHelperDB, DEFAULTS)
     self.db = DDingUI_RaidHelperDB
+    -- [STYLE] C안 (2026-10-10): heights >= 170 belong to the old four-row window; same key,
+    -- new meaning (bar + rail), so they return to the new default instead of clamping to 160.
+    local savedHeight = tonumber(self.db.timelineHeight)
+    if not savedHeight or savedHeight >= 170 then
+        self.db.timelineHeight = DEFAULTS.timelineHeight
+    end
 
     local styleLib = self:GetStyleLib()
     if styleLib and styleLib.RegisterAddon and styleLib.Colors then
