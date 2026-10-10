@@ -15,23 +15,24 @@ spec.loader.exec_module(voice)
 
 class CountdownVoiceTests(unittest.TestCase):
     def test_shipped_numbers_fit_the_one_second_countdown(self):
-        for number in (3, 2, 1):
-            path = ADDON_ROOT / f"Media/Sounds/Countdown_{number}.ogg"
-            info = json.loads(subprocess.check_output([
-                "ffprobe", "-v", "error", "-show_entries",
-                "format=duration:stream=codec_name,sample_rate,channels", "-of", "json", str(path),
-            ]))
-            stream = info["streams"][0]
-            self.assertEqual((stream["codec_name"], stream["sample_rate"], stream["channels"]),
-                             ("vorbis", "48000", 2))
-            self.assertGreaterEqual(float(info["format"]["duration"]), 0.4)
-            self.assertLess(float(info["format"]["duration"]), 0.9)
-            loudness, peak = voice.audio_levels(path)
-            self.assertGreater(loudness, -60)
-            self.assertLessEqual(peak, -1)
+        for prefix in voice.PACK_PREFIX.values():
+            for number in (3, 2, 1):
+                path = ADDON_ROOT / f"Media/Sounds/{prefix}_{number}.ogg"
+                info = json.loads(subprocess.check_output([
+                    "ffprobe", "-v", "error", "-show_entries",
+                    "format=duration:stream=codec_name,sample_rate,channels", "-of", "json", str(path),
+                ]))
+                stream = info["streams"][0]
+                self.assertEqual((stream["codec_name"], stream["sample_rate"], stream["channels"]),
+                                 ("vorbis", "48000", 2))
+                self.assertGreaterEqual(float(info["format"]["duration"]), 0.4)
+                self.assertLess(float(info["format"]["duration"]), 0.9)
+                loudness, peak = voice.audio_levels(path)
+                self.assertGreater(loudness, -60)
+                self.assertLessEqual(peak, -1)
 
     def test_failed_second_synthesis_preserves_the_installed_set(self):
-        def synthesize(text, target):
+        def synthesize(text, target, pack="ja"):
             if text == voice.WORDS[2]:
                 raise OSError("Synthesis service unavailable")
             voice.ffmpeg("-i", str(ADDON_ROOT / "Media/Sounds/Countdown_3.ogg"), str(target))

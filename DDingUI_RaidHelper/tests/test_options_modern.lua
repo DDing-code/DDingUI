@@ -302,6 +302,8 @@ local ns = {
         GetSummary = function() return "현재 전문화의 수집 데이터가 없습니다." end,
     },
     TimelineUI = {
+        COUNTDOWN_SOUNDS = { ja = true, ko = true, en = true, alarm = true },
+        GetCountdownVoicePack = function(self) return self.ns.db.countdownVoicePack or "ja" end,
         previewMode = false,
         IsPreviewMode = function(self) return self.previewMode == true end,
         TogglePreviewMode = function(self)
@@ -360,6 +362,21 @@ assert(not ns.Options.countdownVoiceCheckbox:GetChecked())
 assert(ns.Options:SetCountdownVoiceEnabled(true) and ns.db.countdownVoice == true)
 assert(ns.Options.countdownVoiceCheckbox:GetChecked())
 assert(#ns.Options.cooldownCheckboxes[257] >= 10)
+local voiceDropdown = ns.Options.countdownVoiceDropdown
+assert(voiceDropdown and #voiceDropdown.items == 4 and voiceDropdown:GetValue() == "ja")
+for _, pack in ipairs({ "ko", "en", "alarm", "ja" }) do
+    local token = ns.TimelineUI.countdownPreviewToken or 0
+    voiceDropdown:Choose(pack)
+    assert(ns.db.countdownVoicePack == pack and voiceDropdown:GetValue() == pack)
+    assert(ns.TimelineUI.countdownPreviewToken == token + 1)
+end
+assert(not ns.Options:SetCountdownVoicePack("missing") and ns.db.countdownVoicePack == "ja")
+local voiceOn = ns.db.countdownVoice
+InCombatLockdown = function() return true end
+voiceDropdown:Choose("en")
+assert(ns.db.countdownVoicePack == "en" and ns.db.countdownVoice == voiceOn)
+voiceDropdown:Choose("ja")
+InCombatLockdown = function() return false end
 assert(ns.Options.panel.workspace.primaryRows[1].icon.texture:find("RaidTimeline.tga", 1, true))
 assert(ns.Options.panel.workspace.primaryRows[2].icon.texture:find("HealerPlan.tga", 1, true))
 assert(ns.Options.panel.workspace.primaryRows[3].icon.texture:find("LogData.tga", 1, true))

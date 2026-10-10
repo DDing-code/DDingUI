@@ -5,3 +5,9 @@ VOICEVOX terms: https://voicevox.hiroshiba.jp/term/
 Character terms: https://nekotukarb.wixsite.com/nekonohako/利用規約
 
 Retain this credit when distributing these voice files.
+
+Korean countdown (Countdown_KO_*): Microsoft Edge ko-KR-SunHiNeural
+English countdown (Countdown_EN_*): Microsoft Edge en-US-JennyNeural
+Speech client: https://github.com/rany2/edge-tts
+Alarm countdown (Countdown_Alarm_*): original ascending 660 / 880 / 1100 Hz tones,
+generated with ffmpeg; no sampled third-party audio.

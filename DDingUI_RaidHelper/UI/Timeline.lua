@@ -43,7 +43,13 @@ local ALERT_FLASH_TIME = 0.4
 local ALERT_EXIT_START = -0.45
 local ALERT_EXIT_END = -0.75
 local COUNTDOWN_VOICE_SLACK = 0.6
-local COUNTDOWN_SOUND = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\Sounds\\Countdown_%d.ogg"
+local COUNTDOWN_SOUNDS = {
+    ja = "Countdown_%d.ogg",
+    ko = "Countdown_KO_%d.ogg",
+    en = "Countdown_EN_%d.ogg",
+    alarm = "Countdown_Alarm_%d.ogg",
+}
+TimelineUI.COUNTDOWN_SOUNDS = COUNTDOWN_SOUNDS
 local UPCOMING_PANEL_MAX_WIDTH = 320
 local ALERT_STYLE_SPEC = {
     iconSize = { default = 26, min = 16, max = 48 },
@@ -2228,6 +2234,11 @@ function TimelineUI:ShouldPlayCountdownVoice()
     return not ns.db or ns.db.countdownVoice ~= false
 end
 
+function TimelineUI:GetCountdownVoicePack()
+    local pack = ns.db and ns.db.countdownVoicePack
+    return type(pack) == "string" and COUNTDOWN_SOUNDS[pack] and pack or "ja"
+end
+
 function TimelineUI:PlayCountdownVoice(number)
     if type(PlaySoundFile) ~= "function" then return false end
     -- [STYLE] A resync can advance two counts before the previous sound finishes.
@@ -2235,7 +2246,8 @@ function TimelineUI:PlayCountdownVoice(number)
         StopSound(self.countdownSoundHandle)
     end
     -- "Master" so the count is heard even when game sound effects are muted (as NSRT does).
-    local played, handle = PlaySoundFile(COUNTDOWN_SOUND:format(number), "Master")
+    local filename = COUNTDOWN_SOUNDS[self:GetCountdownVoicePack()]:format(number)
+    local played, handle = PlaySoundFile("Interface\\AddOns\\DDingUI_RaidHelper\\Media\\Sounds\\" .. filename, "Master")
     self.countdownSoundHandle = played and handle or nil
     return played and true or false
 end

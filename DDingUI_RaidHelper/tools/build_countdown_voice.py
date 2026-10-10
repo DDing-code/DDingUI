@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""Build RaidHelper's Japanese countdown voice (さん · に · いち).
+"""Build RaidHelper's Japanese/Korean/English/alarm countdown sounds.
 
 Source: VOICEVOX:猫使ビィ (ノーマル, speaker 58), using the same public synthesis
-service as the referenced Japanese voice pack. Requires network access and ffmpeg.
+service as the referenced Japanese voice pack. Korean/English use Microsoft Edge
+SunHi/Jenny neural TTS (edge-tts); alarms use ffmpeg sine tones. Speech builds
+require network access; all packs require ffmpeg.
 48 kHz stereo OGG Vorbis; target -8 LUFS with peak headroom taking priority.
 No pitch shift or compression. Retain Media/Sounds/CREDITS.txt when distributing.
 
     python tools/build_countdown_voice.py
+    python tools/build_countdown_voice.py --pack en
 """
 
+import argparse
+import asyncio
 import json
 import math
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlencode
@@ -23,6 +29,13 @@ OUTPUT_DIR = ADDON_ROOT / "Media" / "Sounds"
 BASE_URL = "https://voice.acuah.info"
 SPEAKER = 58
 WORDS = {3: "さん！", 2: "に！", 1: "いち！"}
+PACK_WORDS = {
+    "ja": WORDS,
+    "ko": {3: "셋!", 2: "둘!", 1: "하나!"},
+    "en": {3: "Three!", 2: "Two!", 1: "One!"},
+    "alarm": {3: "660", 2: "880", 1: "1100"},
+}
+PACK_PREFIX = {"ja": "Countdown", "ko": "Countdown_KO", "en": "Countdown_EN", "alarm": "Countdown_Alarm"}
 PREPARE = (
     "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.02,"
     "areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05,areverse,"
@@ -32,7 +45,22 @@ TARGET_LUFS = -8.0
 PEAK_CEILING = -2.0
 
 
-def synthesize(text: str, target: Path) -> None:
+def synthesize(text: str, target: Path, pack: str = "ja") -> None:
+    if pack == "alarm":
+        ffmpeg("-f", "lavfi", "-i", f"sine=frequency={text}:duration=0.22:sample_rate=48000",
+               "-af", "tremolo=f=14:d=0.35,afade=t=out:st=0.16:d=0.06", str(target))
+        return
+    if pack in ("ko", "en"):
+        import edge_tts
+
+        async def save():
+            voice = "ko-KR-SunHiNeural" if pack == "ko" else "en-US-JennyNeural"
+            await edge_tts.Communicate(text, voice, rate="+15%").save(str(target))
+
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        asyncio.run(save())
+        return
     params = urlencode({"text": text, "speaker": SPEAKER})
     with urlopen(Request(f"{BASE_URL}/audio_query?{params}", method="POST"), timeout=60) as response:
         query = json.load(response)
@@ -59,17 +87,18 @@ def audio_levels(path: Path) -> tuple[float, float]:
     return loudness, peak
 
 
-def main() -> None:
+def main(pack: str = "ja") -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=OUTPUT_DIR) as scratch:
-        for number, text in WORDS.items():
-            raw = Path(scratch) / f"raw_{number}.wav"
+        for number, text in PACK_WORDS[pack].items():
+            raw = Path(scratch) / f"raw_{number}{'.mp3' if pack in ('ko', 'en') else '.wav'}"
             prepared = Path(scratch) / f"prepared_{number}.wav"
-            synthesize(text, raw)
+            synthesize(text, raw, pack)
             ffmpeg("-i", str(raw), "-af", PREPARE, "-ac", "2", str(prepared))
             loudness, peak = audio_levels(prepared)
-            gain = min(TARGET_LUFS - loudness, PEAK_CEILING - peak)
-            output = Path(scratch) / f"Countdown_{number}.ogg"
+            target_lufs = -12.0 if pack == "alarm" else TARGET_LUFS
+            gain = min(target_lufs - loudness, PEAK_CEILING - peak)
+            output = Path(scratch) / f"{PACK_PREFIX[pack]}_{number}.ogg"
             ffmpeg("-i", str(prepared), "-af", f"volume={gain:.2f}dB",
                    "-c:a", "libvorbis", "-q:a", "6", str(output))
             loudness, peak = audio_levels(output)
@@ -77,12 +106,14 @@ def main() -> None:
             info = json.loads(subprocess.check_output(
                 ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(output)]))
             assert 0.4 <= float(info["format"]["duration"]) < 0.9, "Countdown must finish before the next number"
-            print(f"Prepared Countdown_{number}.ogg ({loudness:.1f} LUFS, {peak:.1f} dBTP)")
+            print(f"Prepared {output.name} ({loudness:.1f} LUFS, {peak:.1f} dBTP)")
         # Keep the installed set intact if any synthesis or validation fails.
-        for number in WORDS:
-            output = Path(scratch) / f"Countdown_{number}.ogg"
+        for number in PACK_WORDS[pack]:
+            output = Path(scratch) / f"{PACK_PREFIX[pack]}_{number}.ogg"
             output.replace(OUTPUT_DIR / output.name)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pack", choices=tuple(PACK_WORDS), default="ja")
+    main(parser.parse_args().pack)

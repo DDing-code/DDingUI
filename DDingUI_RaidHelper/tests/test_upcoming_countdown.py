@@ -138,7 +138,7 @@ assert(UI.upcomingRows[1].shade.gradient[2][4] == 0)
 '''
 
 
-def run(extra=""):
+def run(extra="", with_options=False):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.globals().Measure = lambda text, size: len(re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)) * size * 0.65
     lua.execute(MOCK.read_text(encoding="utf-8"))
@@ -153,8 +153,12 @@ def run(extra=""):
         source = (ADDON_ROOT / relative).read_text(encoding="utf-8-sig")
         lua.execute("local source, ns = ...; assert(loadstring(source))('DDingUI_RaidHelper', ns)", source, ns)
     lua.execute(SCENARIO, ns)
+    if with_options:
+        source = (ADDON_ROOT / "Options.lua").read_text(encoding="utf-8-sig")
+        lua.execute("local source, ns = ...; assert(loadstring(source))('DDingUI_RaidHelper', ns)", source, ns)
     if extra:
         lua.execute(extra, ns)
+    return lua, ns
 
 
 def test_upcoming_alert_counts_down_with_voice():
@@ -207,11 +211,64 @@ assert(table.concat(calls, ",") == "3,2,3,3,2,1", "old preview callbacks must be
 
 
 def test_countdown_voice_files_ship_with_the_addon():
-    for number in (1, 2, 3):
-        path = ADDON_ROOT / "Media" / "Sounds" / f"Countdown_{number}.ogg"
-        data = path.read_bytes()
-        assert data[:4] == b"OggS" and b"vorbis" in data[:200], path
-        assert 4000 < len(data) < 60000, path
+    for prefix in ("Countdown", "Countdown_KO", "Countdown_EN", "Countdown_Alarm"):
+        for number in (1, 2, 3):
+            path = ADDON_ROOT / "Media" / "Sounds" / f"{prefix}_{number}.ogg"
+            data = path.read_bytes()
+            assert data[:4] == b"OggS" and b"vorbis" in data[:200], path
+            assert 4000 < len(data) < 60000, path
+
+
+def test_four_countdown_packs_route_live_counts_and_cancel_old_preview():
+    run(r'''
+local ns = ...
+local UI, paths, callbacks = ns.TimelineUI, {}, {}
+PlaySoundFile = function(path, channel)
+    assert(channel == "Master")
+    paths[#paths + 1] = path
+    return true
+end
+C_Timer.After = function(_, callback) callbacks[#callbacks + 1] = callback end
+for _, pack in ipairs({ "ja", "ko", "en", "alarm" }) do
+    assert(ns.Options:SetCountdownVoicePack(pack))
+    UI:ResetCountdownVoice()
+    local data = {}
+    for _, seconds in ipairs({ 2.9, 1.9, 0.9 }) do
+        UI:UpdateCountdownVoice({{data = data, remaining = seconds}})
+    end
+    for number = 3, 1, -1 do
+        local path = paths[#paths - 3 + (4 - number)]
+        assert(path:find(UI.COUNTDOWN_SOUNDS[pack]:format(number), 1, true), path)
+    end
+end
+for _, invalid in ipairs({ "unknown", false, 123, {} }) do
+    ns.db.countdownVoicePack = invalid
+    assert(UI:GetCountdownVoicePack() == "ja", "invalid saved pack uses existing Japanese")
+end
+ns.db.countdownVoicePack = nil
+assert(UI:GetCountdownVoicePack() == "ja", "old settings retain Japanese")
+UI:PreviewCountdownVoice()
+local played = #paths
+local spoken = UI.countdownSpoken
+assert(ns.Options:SetCountdownVoicePack("ko"))
+assert(UI.countdownSpoken == spoken, "changing packs must not replay spoken live numbers")
+for _, callback in ipairs(callbacks) do callback() end
+assert(#paths == played, "old preview must not switch language halfway")
+callbacks = {}
+UI:PreviewCountdownVoice()
+for _, callback in ipairs(callbacks) do callback() end
+assert(paths[#paths]:find("Countdown_KO_1.ogg", 1, true))
+ns.db.countdownVoice = false
+assert(ns.Options:SetCountdownVoicePack("alarm") and ns.db.countdownVoice == false,
+    "selection preserves an existing disabled countdown")
+played = #paths
+UI:UpdateCountdownVoice({{data = {}, remaining = 2.9}})
+assert(#paths == played, "existing off setting still works")
+ns.db.countdownVoice = true
+UI.previewMode = true
+UI:UpdateCountdownVoice({{data = {}, remaining = 2.9}})
+assert(#paths == played, "demo remains silent for all packs")
+''', with_options=True)
 
 
 if __name__ == "__main__":

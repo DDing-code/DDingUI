@@ -1234,7 +1234,7 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
     local controls, kinds = {}, {}
 
     -- Show / voice ----------------------------------------------------------------------
-    local showCard = CreateRowCard(page, colors, 174)
+    local showCard = CreateRowCard(page, colors, 226)
     CreateInfoRow(
         showCard,
         fontPath,
@@ -1259,8 +1259,8 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
         showCard,
         fontPath,
         colors,
-        "음성 카운트",
-        "곧 사용할 쿨기가 3초 남으면 일본어 '산·니·이치'로 셉니다. 전투 중에도 바로 적용됩니다.",
+        "카운트 소리",
+        "3초 전부터 선택한 소리로 셉니다. 전투 중에도 바로 적용됩니다.",
         -105
     )
     voiceDescription:SetPoint("RIGHT", showCard, "RIGHT", -176, 0)
@@ -1276,6 +1276,19 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
         end
     end, { width = 84, height = 24 })
     voicePreviewButton:SetPoint("RIGHT", countdownVoiceSwitch, "LEFT", -12, 0)
+    local countdownVoiceDropdown = styleLib.CreateDropdown(showCard, ADDON_KEY, "카운트 종류", {
+        { text = "일본어 카운트", value = "ja" },
+        { text = "한국어 카운트", value = "ko" },
+        { text = "영어 카운트", value = "en" },
+        { text = "경보 카운트", value = "alarm" },
+    }, ns.TimelineUI:GetCountdownVoicePack(), {
+        width = 172,
+        onChange = function(value)
+            if Options.syncingCheckbox then return end
+            Options:SetCountdownVoicePack(value)
+        end,
+    })
+    countdownVoiceDropdown:SetPoint("TOPLEFT", showCard, "TOPLEFT", 20, -177)
 
     -- Live sample: tall enough for three lines at the largest sizes (3 x 52 + 2 x 16 = 188).
     local sampleCard = CreateRowCard(page, colors, 280, accent)
@@ -1400,6 +1413,7 @@ function Options:CreateModernAlertPage(parent, styleLib, fontPath, colors)
 
     self.upcomingCooldownCheckbox = upcomingCooldownSwitch
     self.countdownVoiceCheckbox = countdownVoiceSwitch
+    self.countdownVoiceDropdown = countdownVoiceDropdown
     self.voicePreviewButton = voicePreviewButton
     self.alertResetButton = resetButton
     self.alertControls = controls

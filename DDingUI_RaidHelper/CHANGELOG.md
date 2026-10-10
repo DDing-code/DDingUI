@@ -1,5 +1,15 @@
 # DDingUI RaidHelper Changelog
 
+## 미공개
+
+### 한국어
+
+- 리마인더에 한국어·영어·경보 카운트를 내장하고 기존 일본어와 함께 4종을 선택하도록 추가했습니다. 기존 일본어와 카운트 켜기/끄기 설정은 유지되며 전투 중 선택과 미리 듣기에 바로 적용됩니다.
+
+### English
+
+- Bundled Korean, English and alarm countdowns alongside the existing Japanese pack. Reminder settings now offer four choices, applied immediately to live counts and sound previews while preserving existing Japanese and on/off settings.
+
 ## 2.1.1
 
 2026-10-10

@@ -142,6 +142,9 @@ function Options:RefreshCheckbox()
     if self.countdownVoiceCheckbox then
         self.countdownVoiceCheckbox:SetChecked(self:ShouldPlayCountdownVoice())
     end
+    if self.countdownVoiceDropdown then
+        self.countdownVoiceDropdown:SetValue(ns.TimelineUI:GetCountdownVoicePack())
+    end
     self.syncingCheckbox = false
 end
 
@@ -373,6 +376,15 @@ function Options:SetCountdownVoiceEnabled(enabled)
     ns.db.countdownVoice = enabled == true
     self:RefreshCheckbox()
     ns:Print(enabled and "리마인더 음성 카운트를 켰습니다." or "리마인더 음성 카운트를 껐습니다.")
+    return true
+end
+
+function Options:SetCountdownVoicePack(pack)
+    if not ns.db or type(pack) ~= "string" or not ns.TimelineUI.COUNTDOWN_SOUNDS[pack] then return false end
+    ns.db.countdownVoicePack = pack
+    -- [STYLE] Cancel queued preview numbers so a sample never mixes two packs.
+    ns.TimelineUI.countdownPreviewToken = (ns.TimelineUI.countdownPreviewToken or 0) + 1
+    self:RefreshCheckbox()
     return true
 end
 
