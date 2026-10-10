@@ -26,11 +26,11 @@ local KNOWN_VOIDCORE_CURRENCIES = {
 }
 
 -- Match the reward source, not the player's location; prompts can arrive after leaving.
-local DIRECT_PASS_OPTIONS = {
-    [268969] = "autoPassDelves", -- Season 1 Delver's Trove
-    [279284] = "autoPassDelves", -- Season 2 Delver's Trove
-    [269768] = "autoPassPrey", -- Season 1 Prey
-    [280131] = "autoPassPrey", -- Season 2 Prey
+local DIRECT_PASS_SOURCES = {
+    [268969] = true, -- Season 1 Delver's Trove
+    [279284] = true, -- Season 2 Delver's Trove
+    [269768] = true, -- Season 1 Prey
+    [280131] = true, -- Season 2 Prey
 }
 
 -- Midnight Season 2 bonus-roll source items. The prompt still works for unknown future sources.
@@ -1034,14 +1034,16 @@ end
 
 function VoidcoreHelper:TryAutoDecline(spellID, prompt)
     if not spellID or not prompt or not DeclineSpellConfirmationPrompt then return false end
-    local directOption = DIRECT_PASS_OPTIONS[prompt.sourceItemID]
-    if directOption then
-        local db = self:GetDB()
-        if not db.guardNonTargets or db[directOption] == false then return false end
+    -- [REFACTOR] Reward context survives leaving the instance; entry consent only gates BIS rules.
+    local context = prompt.itemContext
+    if DIRECT_PASS_SOURCES[prompt.sourceItemID]
+        or (context and context ~= RAID_HEROIC_CONTEXT and context ~= RAID_MYTHIC_CONTEXT
+            and context ~= MYTHIC_KEYSTONE_CONTEXT) then
         DeclineSpellConfirmationPrompt(spellID)
         self:HideAdvisor()
         return true
     end
+    if not context then return false end
     if not self:IsGuardActive() then return false end
 
     local _, sourceKind = GetSourceName(prompt.sourceItemID)
@@ -1087,7 +1089,7 @@ function VoidcoreHelper:RenderPrompt(prompt)
     local statusText
     local statusColor
     if not eligible then
-        if DIRECT_PASS_OPTIONS[prompt.sourceItemID] then
+        if DIRECT_PASS_SOURCES[prompt.sourceItemID] then
             statusText = T("VCH_STATUS_SIDE_CONTENT", "Delve / Prey reward")
         elseif resolvedKind == "dungeon" then
             statusText = string.format(T("VCH_STATUS_LOW_KEY", "Not recommended: below +%d"), MIN_KEYSTONE_LEVEL)
@@ -1191,6 +1193,9 @@ local function GetCurrentInstance()
     end
     name = SafeString(name) or T("VCH_UNKNOWN_INSTANCE", "Current instance")
     difficultyID = SafeNumber(difficultyID) or 0
+    -- [REFACTOR] Show entry consent only in Heroic/Mythic raids (including Mythic Flex) or keystones.
+    if (instanceType == "raid" and difficultyID ~= 15 and difficultyID ~= 16 and difficultyID ~= 233)
+        or (instanceType == "party" and difficultyID ~= 8) then return nil end
     instanceID = SafeNumber(instanceID) or name
     local displayName = SafeString(difficultyName)
     displayName = displayName and displayName ~= "" and (name .. " - " .. displayName) or name
@@ -1305,7 +1310,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
             local prompt = {
                 currencyID = currencyID,
                 sourceItemID = sourceItemID,
-                itemContext = SafeNumber(itemContext) or 0,
+                itemContext = SafeNumber(itemContext),
                 keyLevel = SafeNumber(keyLevel) or 0,
             }
             if self:TryAutoDecline(spellID, prompt) then return end

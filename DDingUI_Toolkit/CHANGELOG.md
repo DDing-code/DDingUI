@@ -1,5 +1,15 @@
 # DDingUI Toolkit Changelog
 
+## 미공개
+
+### 한국어
+
+- **공허핵 도우미:** 영웅·신화 공격대와 쐐기 밖의 공허핵 보상은 BIS·진입 확인·개별 구렁/사냥 설정과 관계없이 자동 포기합니다. 진입 확인창은 영웅·신화 공격대와 쐐기에서만 표시합니다. 해당 콘텐츠의 기존 BIS 판정과 쐐기 10단 조건, 일반 전리품은 유지합니다.
+
+### English
+
+- **Voidcore Helper:** Automatically declines Voidcore rewards outside Heroic/Mythic raids and Mythic Keystones regardless of BIS, entry consent or individual Delve/Prey settings. Entry confirmation appears only in Heroic/Mythic raids and Keystones. Existing BIS checks, the Keystone +10 threshold and ordinary loot are unchanged.
+
 ## 2.2.1
 
 Release date: 2026-10-06
