@@ -1741,7 +1741,7 @@ function Options:Initialize()
     local colors = styleLib.Colors
     RoundLib = styleLib -- [STYLE] rounded helpers for the workspace and page cards
     local fontPath = styleLib.GetFont and styleLib:GetFont("primary") or styleLib.Font.path
-    local version = "2.1.0"
+    local version = "2.1.1"
     if C_AddOns and C_AddOns.GetAddOnMetadata then
         version = C_AddOns.GetAddOnMetadata(ns.addonName, "Version") or version
     elseif type(GetAddOnMetadata) == "function" then
