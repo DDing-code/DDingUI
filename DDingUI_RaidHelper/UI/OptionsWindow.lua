@@ -421,17 +421,17 @@ local function CreateWorkspace(styleLib, fontPath, colors, version)
             set = function(value) Options:SetOptionsScale(value) end,
             target = frame,
         },
-        -- [STYLE] C12: shared "편집 모드"/"편집 중" title-bar button toggles preview/edit.
+        -- [STYLE] C12: shared "편집 모드"/"편집 중" title-bar button only toggles positioning.
         editMode = {
             onClick = function()
-                if ns.TimelineUI and ns.TimelineUI.TogglePreviewMode then
-                    ns.TimelineUI:TogglePreviewMode()
+                if ns.TimelineUI and ns.TimelineUI.ToggleEditMode then
+                    ns.TimelineUI:ToggleEditMode()
                 end
                 Options:RefreshPreviewButton()
             end,
             isActive = function()
-                return ns.TimelineUI and ns.TimelineUI.IsPreviewMode
-                    and ns.TimelineUI:IsPreviewMode() or false
+                return ns.TimelineUI and ns.TimelineUI.IsEditSessionActive
+                    and ns.TimelineUI:IsEditSessionActive() or false
             end,
         },
     })
@@ -943,7 +943,7 @@ local function CreateInfoRow(card, fontPath, colors, title, description, y)
 end
 
 function Options:RefreshPreviewButton()
-    -- [STYLE] C12: keep the title-bar edit button ("편집 모드"/"편집 중") in step with preview.
+    -- [STYLE] C12: keep the title-bar edit button ("편집 모드"/"편집 중") in step with positioning.
     local editButton = self.panel and self.panel.titleBar and self.panel.titleBar.editButton
     if editButton and editButton.Refresh then editButton:Refresh() end
 
@@ -953,6 +953,7 @@ function Options:RefreshPreviewButton()
     local active = ns.TimelineUI
         and ns.TimelineUI.IsPreviewMode
         and ns.TimelineUI:IsPreviewMode()
+        and not ns.TimelineUI:IsEditSessionActive()
     local text = active and "미리보기 종료" or "미리보기"
     if button.label and button.label.SetText then
         button.label:SetText(text)
@@ -973,7 +974,7 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
         14,
         SMALL_TEXT,
         "미리보기",
-        "타임라인을 반복 재생하며 드래그로 위치를 조정합니다. 다시 누르면 종료합니다.",
+        "견본 전투로 타임라인과 리마인더를 재생합니다. 위치 조정은 제목줄의 편집 모드를 사용합니다.",
         nil,
         302
     )
@@ -1770,6 +1771,12 @@ function Options:Initialize()
         data = self:CreateModernDataPage(panel.contentChild, styleLib, fontPath, colors),
     }
 
+    panel.frame:HookScript("OnHide", function()
+        local ui = ns.TimelineUI
+        if ui and ui:IsPreviewMode() and not ui:IsEditSessionActive() then
+            ui:SetPreviewMode(false, { noReopen = true })
+        end
+    end)
     panel.frame:SetScript("OnShow", function()
         Options:RefreshAll()
         SyncPageRows(Options.pages[Options.activePage or "timeline"])

@@ -1,6 +1,6 @@
 local addonName = "DDingUI_RaidHelper"
 local toggledOptions = 0
-local toggledPreviewMode = 0
+local toggledEditMode = 0
 local registeredName
 local registeredDB
 local dataObject
@@ -18,8 +18,8 @@ local ns = {
         end,
     },
     TimelineUI = {
-        TogglePreviewMode = function()
-            toggledPreviewMode = toggledPreviewMode + 1
+        ToggleEditMode = function()
+            toggledEditMode = toggledEditMode + 1
         end,
     },
 }
@@ -67,7 +67,7 @@ assert(dataObject.iconCoords == nil, "RaidHelper must use Toolkit-compatible Lib
 dataObject.OnClick(nil, "LeftButton")
 dataObject.OnClick(nil, "RightButton")
 assert(toggledOptions == 1)
-assert(toggledPreviewMode == 1)
+assert(toggledEditMode == 1)
 
 assert(ns.MinimapButton:SetShown(false))
 assert(ns.db.minimap.hide == true)

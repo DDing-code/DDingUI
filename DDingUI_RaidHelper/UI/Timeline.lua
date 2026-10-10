@@ -773,13 +773,15 @@ function TimelineUI:CreateFrame()
         if TimelineUI.editSession then TimelineUI:SelectEditModule("timeline") end
     end)
     frame:SetScript("OnDragStart", function(currentFrame)
-        if (ns.db.locked and not TimelineUI:IsPreviewMode()) or InCombatLockdown() then return end
+        if (TimelineUI:IsPreviewMode() and not TimelineUI:IsEditSessionActive())
+            or (ns.db.locked and not TimelineUI:IsEditSessionActive()) or InCombatLockdown() then return end
         if TimelineUI.editSession then TimelineUI:SelectEditModule("timeline") end
         currentFrame:StartMoving()
-        currentFrame._editDragging = TimelineUI:IsPreviewMode()
+        currentFrame._editDragging = TimelineUI:IsEditSessionActive()
         TimelineUI:UpdateEditHUD()
     end)
     frame:SetScript("OnDragStop", function(currentFrame)
+        if TimelineUI:IsPreviewMode() and not TimelineUI:IsEditSessionActive() then return end
         currentFrame:StopMovingOrSizing()
         TimelineUI:FinishDrag()
     end)
@@ -911,7 +913,7 @@ function TimelineUI:UpdateEditHUD()
     local frame = self.frame
     if not frame or not frame.editHUD then return false end
 
-    local shown = self:IsPreviewMode()
+    local shown = self:IsEditSessionActive()
     local target = self.editTarget or "timeline"
     frame.editHUD:SetShown(shown and target == "timeline")
     local alertHUD = self.upcomingPanel and self.upcomingPanel.editHUD
@@ -1000,11 +1002,11 @@ function TimelineUI:ApplyBackgroundStyle()
     return true
 end
 
---- Accent outline only while preview/edit is active; otherwise the frame has no edge at all.
+--- Accent outline only while editing; otherwise the frame has no edge at all.
 function TimelineUI:ApplyEditOutline()
     local frame = self.frame
     if not frame then return end
-    if self:IsPreviewMode() then
+    if self:IsEditSessionActive() then
         -- Full accent when the timeline is the selected edit module, dimmed otherwise.
         local accent = self.accentFrom
         local selected = not self.editSession or (self.editTarget or "timeline") == "timeline"
@@ -1437,7 +1439,7 @@ function TimelineUI:EnsureEditTools()
         onReset = function() TimelineUI:ResetPosition() end,
         onUndo = function() TimelineUI:UndoPosition() end,
         onRedo = function() TimelineUI:RedoPosition() end,
-        onDone = function() TimelineUI:SetPreviewMode(false) end,
+        onDone = function() TimelineUI:SetEditMode(false) end,
         grid = {
             enabled = self.editGridEnabled,
             spacing = self.editGridSpacing,
@@ -1549,15 +1551,22 @@ function TimelineUI:IsPreviewMode()
 end
 
 function TimelineUI:RefreshPreviewControl()
+    -- [STYLE] Watch the actual UI above settings, without enabling drag or edit overlays.
+    if self.frame and self.frame.EnableMouse then
+        local watching = self:IsPreviewMode() and not self.editMode
+        self.frame:EnableMouse(not watching)
+        self.frame:SetFrameStrata(watching and "FULLSCREEN_DIALOG" or "MEDIUM")
+    end
     if ns.Options and ns.Options.RefreshPreviewButton then
         ns.Options:RefreshPreviewButton()
     end
 end
 
---- opts.noReopen: leave the settings window closed (combat / encounter start).
+--- opts.editMode enables positioning; opts.noReopen keeps settings closed on combat start.
 function TimelineUI:SetPreviewMode(enabled, opts)
     enabled = enabled == true
-    if enabled == self:IsPreviewMode() then
+    local editing = enabled and opts and opts.editMode == true or false
+    if enabled == self:IsPreviewMode() and editing == (self.editMode == true) then
         self:RefreshPreviewControl()
         return true
     end
@@ -1578,23 +1587,25 @@ function TimelineUI:SetPreviewMode(enabled, opts)
             return false
         end
 
+        if not editing then self:EndEditSession(true) end
         self.previewMode = true
-        -- Compatibility for saved integrations and older slash-command paths.
-        self.editMode = true
+        self.editMode = editing
         ns.Engine:StartModel(model, {
             demo = true,
             loop = true,
             previewMode = true,
-            editMode = true,
+            editMode = editing,
         })
         if self.frame then self.frame:Show() end
-        self:BeginEditSession()
+        if editing then self:BeginEditSession() end
         self:UpdateEditHUD()
         self:RefreshPreviewControl()
-        ns:Print("미리보기: 드래그·방향키·편집 리모컨으로 위치를 조정합니다. Esc 또는 완료로 종료합니다.")
+        ns:Print(editing and "편집 모드: 드래그·방향키·편집 리모컨으로 위치를 조정합니다. Esc 또는 완료로 종료합니다."
+            or "미리보기: 견본 전투를 반복 재생합니다. 미리보기 종료 버튼으로 닫습니다.")
         return true
     end
 
+    local wasEditing = self.editMode == true
     self.previewMode = false
     self.editMode = false
     self:EndEditSession(not (opts and opts.noReopen))
@@ -1605,7 +1616,7 @@ function TimelineUI:SetPreviewMode(enabled, opts)
     self:UpdateEditHUD()
     if self.frame then self.frame:Hide() end
     self:RefreshPreviewControl()
-    ns:Print("미리보기를 종료하고 위치를 저장했습니다.")
+    ns:Print(wasEditing and "편집 모드를 종료하고 위치를 저장했습니다." or "미리보기를 종료했습니다.")
     return true
 end
 
@@ -1613,13 +1624,13 @@ function TimelineUI:TogglePreviewMode()
     return self:SetPreviewMode(not self:IsPreviewMode())
 end
 
--- Backward-compatible API aliases. Preview now includes position editing.
+-- [STYLE] Editing still uses the demo, but only this entry point opens the C12 remote.
 function TimelineUI:SetEditMode(enabled)
-    return self:SetPreviewMode(enabled)
+    return self:SetPreviewMode(enabled, { editMode = enabled == true })
 end
 
 function TimelineUI:ToggleEditMode()
-    return self:TogglePreviewMode()
+    return self:SetEditMode(not self:IsEditSessionActive())
 end
 
 function TimelineUI:Initialize()
@@ -2391,7 +2402,9 @@ function TimelineUI:UpdateView()
 
     frame.timeReadout:SetText(FormatTime(currentTime) .. (phase and (" · " .. PhaseLabel(phase)) or ""))
     if self:IsPreviewMode() and not self.compact then
-        frame.syncText:SetText("PREVIEW · 드래그·방향키로 위치 조정 · Esc로 종료")
+        frame.syncText:SetText(self:IsEditSessionActive()
+            and "편집 중 · 드래그·방향키로 위치 조정 · Esc로 종료"
+            or "미리보기 · 견본 전투 재생 중")
         frame.syncText:Show()
     else
         frame.syncText:Hide()
@@ -2473,8 +2486,8 @@ function TimelineUI:OnEngineEvent(event, ...)
         local engineOptions = ns.Engine.options or {}
         local isPreview = engineOptions.previewMode == true or engineOptions.editMode == true
         self.previewMode = isPreview
-        self.editMode = isPreview
-        if not isPreview then self:EndEditSession(false) end
+        self.editMode = engineOptions.editMode == true
+        if not self.editMode then self:EndEditSession(false) end
         self:ResetCountdownVoice()
         self:ResetUpcomingMotion()
         self:RefreshPreviewControl()
@@ -2483,13 +2496,14 @@ function TimelineUI:OnEngineEvent(event, ...)
         self:UpdateView()
     elseif event == "STOP" then
         self:ResetUpcomingMotion()
-        if self:IsPreviewMode() then
-            self.previewMode = false
-            self.editMode = false
-            self:RefreshPreviewControl()
-            self:UpdateEditHUD()
-        end
+        local options = ns.Engine.options or {}
+        local wasPreview = self:IsPreviewMode() or options.previewMode or options.editMode
+        self.previewMode = false
+        self.editMode = false
         self:EndEditSession(false)
+        self:RefreshPreviewControl()
+        self:UpdateEditHUD()
+        if wasPreview then self.frame:Hide(); return end
         local success = ...
         self:FinishAnimated(success)
     elseif event == "LOOP" or event == "SYNC" or event == "SPECIALIZATION" then

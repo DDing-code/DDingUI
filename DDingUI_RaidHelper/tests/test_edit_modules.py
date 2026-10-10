@@ -50,7 +50,7 @@ assert(ax == fx and ay + ah == fy - 6, "attached 6 px under the timeline")
 assert(not alert.mouse, "outside edit mode the alert never catches the mouse")
 
 -- Entering edit mode detaches it in place: own UIParent anchor, same spot on screen.
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 local saved = db.alertPosition
 assert(saved and saved.point == "TOPLEFT" and saved.relativePoint == "CENTER")
 assert(alert.points.TOPLEFT[1] == UIParent)
@@ -112,7 +112,7 @@ assert(rx == nx and ry + rh == ny - 6 and db.position.x == -1)
 assert(db.alertPosition and db.alertPosition.point == "TOPLEFT", "still its own module")
 
 -- Leaving edit mode: no mouse, no mover, hidden while there is nothing to show.
-assert(UI:SetPreviewMode(false))
+assert(UI:SetEditMode(false))
 assert(not alert.mouse and not alert.mover:IsShown() and not alert:IsShown())
 assert(not alert.editHUD:IsShown())
 
@@ -153,7 +153,7 @@ def test_edit_labels_do_not_cover_the_other_module_or_alert_rows():
     run(r'''
 local ns = ...
 local UI = ns.TimelineUI
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 local function Overlaps(a, b)
     local ax, ay, aw, ah = a:Rect()
     local bx, by, bw, bh = b:Rect()

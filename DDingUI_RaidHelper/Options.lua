@@ -816,7 +816,7 @@ function Options:CreateTimelinePage(parent, styleLib, fontPath, titleSize, norma
         fontPath,
         normalSize,
         colors.text.normal,
-        "좌클릭으로 이 설정 창을 열고 닫습니다. 우클릭은 미리보기와 위치 조정을 함께 켜거나 끕니다. 버튼을 드래그하면 위치가 저장됩니다.",
+        "좌클릭으로 이 설정 창을 열고 닫습니다. 우클릭은 위치 편집 모드를 켜거나 끕니다. 버튼을 드래그하면 위치가 저장됩니다.",
         CONTENT_WIDTH
     )
     usage:SetPoint("TOPLEFT", usageHeader, "BOTTOMLEFT", 0, -8)
@@ -1116,6 +1116,12 @@ function Options:Initialize()
         onSelect = function(key) Options:SelectPage(key) end,
     })
 
+    frame:HookScript("OnHide", function()
+        local ui = ns.TimelineUI
+        if ui and ui:IsPreviewMode() and not ui:IsEditSessionActive() then
+            ui:SetPreviewMode(false, { noReopen = true })
+        end
+    end)
     frame:SetScript("OnShow", function()
         Options:RefreshAll()
     end)

@@ -6,11 +6,13 @@
 
 - "곧 사용 알림"의 이름을 "리마인더"로 바꿨습니다(편집 모듈·설정 페이지·안내 문구). 저장 데이터는 그대로입니다.
 - 리마인더에 등장·퇴장·줄 이동, 3초 강조와 시간 선, 숫자 팝, ‘지금’ 반짝임을 적용했습니다. 기존 ‘3초 강조 효과’ 설정을 ‘모션’으로 바꿔 전체 효과를 제어하며 저장값은 유지합니다.
+- 미리보기와 위치 편집을 분리했습니다. 미리보기는 설정 창을 유지하며 실제 전투 UI로 견본을 반복 재생하고, 리모컨·격자·이동 표시와 위치 저장은 편집 모드에서만 사용합니다.
 
 ### English
 
 - Renamed the "upcoming cooldown alert" to "Reminder" in the edit module, settings page and messages. Saved data is unchanged.
 - Added reminder entrance, exit and row transitions, a three-second highlight and time line, number pops and a flash at the scheduled time. The existing highlight toggle now controls all motion and retains its saved value.
+- Separated the demo preview from position editing. Preview keeps settings open and loops the actual combat UI; the remote, grid, position overlays and position saving are limited to edit mode.
 
 ## 2.1.0
 

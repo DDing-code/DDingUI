@@ -8,7 +8,8 @@ local function Trim(value)
 end
 
 function Commands:ShowHelp()
-    ns:Print("/drh preview - 미리보기와 위치 조정 켜기/끄기")
+    ns:Print("/drh preview - 견본 전투 미리보기 켜기/끄기")
+    ns:Print("/drh edit - 위치 편집 모드 켜기/끄기")
     ns:Print("/drh stop - 미리보기 또는 전투 타임라인 종료")
     ns:Print("/drh reset - 프레임 위치 초기화")
     ns:Print("/drh lock - 프레임 이동 잠금 전환")
@@ -32,7 +33,7 @@ function Commands:Handle(message)
         ns.TimelineUI:ResetPosition()
         ns:Print("프레임 위치를 초기화했습니다.")
     elseif command == "edit" or command == "move" or command == "unlock" then
-        ns.TimelineUI:TogglePreviewMode()
+        ns.TimelineUI:ToggleEditMode()
     elseif command == "lock" then
         ns.db.locked = not ns.db.locked
         ns:Print(ns.db.locked and "프레임 이동을 잠갔습니다." or "프레임 이동 잠금을 해제했습니다.")

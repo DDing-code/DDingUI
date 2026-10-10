@@ -117,7 +117,7 @@ assert(frame.editHUD.box.points.TOPRIGHT[2] == "BOTTOMRIGHT", "C5: readout sits 
 -- Entering preview closes the settings window and opens the remote, grid and HUD.
 ns.Options.frame = CreateFrame("Frame", nil, UIParent)
 ns.Options.frame:Show()
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 assert(UI:IsPreviewMode() and UI:IsEditSessionActive())
 assert(not ns.Options.frame:IsShown(), "settings window closes on entry")
 local remote = UI.editRemote
@@ -200,7 +200,7 @@ assert(not UI.editGrid:IsShown(), "grid fades out and hides")
 assert(frame.border[1] ~= accent[1] or frame.border[3] ~= accent[3], "edit border restored")
 
 -- The remote reopens at the saved position (same remote, no duplicate).
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 assert(UI.editRemote == remote and remote:IsShown())
 
 -- Combat start ends edit mode without reopening the settings window.
@@ -212,18 +212,18 @@ assert(not remote:IsShown() and not remote.keyboard, "combat exit hides the remo
 
 -- Entering is blocked in combat.
 combat = true
-assert(not UI:SetPreviewMode(true))
+assert(not UI:SetEditMode(true))
 assert(not UI:IsPreviewMode())
 combat = false
 
 -- With the settings window closed, leaving does not open it.
 ns.Options.frame:Hide()
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 remote.buttons["완료"]:Fire("OnClick", "LeftButton")
 assert(not UI:IsPreviewMode() and opened == 1 and not ns.Options.frame:IsShown())
 
 -- The remote title-bar X ends edit mode through onDone (C12).
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 remote.titleBar.closeBtn:Fire("OnClick", "LeftButton")
 assert(not UI:IsPreviewMode() and not UI:IsEditSessionActive())
 
@@ -231,18 +231,18 @@ assert(not UI:IsPreviewMode() and not UI:IsEditSessionActive())
 local SL = ns:GetStyleLib()
 local host = CreateFrame("Frame", nil, UIParent); host:SetSize(1080, 700)
 local bar = SL.CreateTitleBar(host, "RaidHelper", "DDingUI RaidHelper", "1", {
-    editMode = { onClick = function() UI:TogglePreviewMode() end, isActive = function() return UI:IsPreviewMode() end },
+    editMode = { onClick = function() UI:ToggleEditMode() end, isActive = function() return UI:IsEditSessionActive() end },
 })
 assert(bar.editButton and bar.editButton.label:GetText() == "편집 모드")
 bar.editButton:Fire("OnClick", "LeftButton")
 assert(UI:IsPreviewMode()); bar.editButton:Refresh()
 assert(bar.editButton.label:GetText() == "편집 중")
-assert(UI:SetPreviewMode(false)); bar.editButton:Refresh()
+assert(UI:SetEditMode(false)); bar.editButton:Refresh()
 assert(bar.editButton.label:GetText() == "편집 모드")
 
 -- ENCOUNTER_START keeps ending preview (and does not reopen the settings window).
 ns.Options.frame:Show()
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 events:Fire("OnEvent", "ENCOUNTER_START", 1, "Boss", 16, 20)
 assert(not UI:IsPreviewMode() and ns.Engine.encounterStarted and opened == 1)
 '''

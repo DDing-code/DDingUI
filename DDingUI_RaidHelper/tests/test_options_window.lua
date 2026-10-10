@@ -20,6 +20,7 @@ local objectMethods = {
     SetText = function(self, value) self.text = value end,
     SetDisabledState = function(self, value) self.disabled = value end,
     SetScript = function(self, event, handler) self.scripts[event] = handler end,
+    HookScript = function(self, event, handler) self.scripts[event] = handler end,
     SetShown = function(self, shown) self.shown = shown end,
     Show = function(self) self.shown = true end,
     Hide = function(self) self.shown = false end,

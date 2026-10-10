@@ -23,8 +23,8 @@ function MinimapButton:Initialize()
         label = "DDingUI RaidHelper",
         OnClick = function(_, mouseButton)
             if mouseButton == "RightButton" then
-                if ns.TimelineUI and ns.TimelineUI.TogglePreviewMode then
-                    ns.TimelineUI:TogglePreviewMode()
+                if ns.TimelineUI and ns.TimelineUI.ToggleEditMode then
+                    ns.TimelineUI:ToggleEditMode()
                 end
             elseif mouseButton == "LeftButton" and ns.Options then
                 ns.Options:Toggle()
@@ -38,7 +38,7 @@ function MinimapButton:Initialize()
                 or "DDingUI RaidHelper"
             tooltip:SetText(title)
             tooltip:AddLine("|cffffffff좌클릭|r  설정 창 열기/닫기", 0.7, 0.7, 0.7)
-            tooltip:AddLine("|cffffffff우클릭|r  미리보기 · 위치 조정", 0.7, 0.7, 0.7)
+            tooltip:AddLine("|cffffffff우클릭|r  편집 모드 · 위치 조정", 0.7, 0.7, 0.7)
             tooltip:AddLine("|cffffffff드래그|r  버튼 위치 이동", 0.7, 0.7, 0.7)
         end,
     })

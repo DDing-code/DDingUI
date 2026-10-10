@@ -211,13 +211,13 @@ assert(ns.TimelineUI:ConfigureMarker(marker, { t = 50, icon = 12345 }, 12, 100, 
 assert(ns.TimelineUI:SetPreviewMode(true))
 assert(ns.TimelineUI:IsPreviewMode())
 assert(ns.Engine.options.demo and ns.Engine.options.loop)
-assert(ns.Engine.options.previewMode and ns.Engine.options.editMode)
+assert(ns.Engine.options.previewMode and not ns.Engine.options.editMode)
 assert(frame.shown == true and previewStarts == 1)
 assert(ns.TimelineUI:TogglePreviewMode())
 assert(not ns.TimelineUI:IsPreviewMode())
 assert(frame.shown == false and previewStops == 1)
 
--- The old edit-mode API remains a compatibility alias for the one preview mode.
+-- Editing is separate from the watch-only preview, while still using the demo engine.
 assert(ns.TimelineUI:SetEditMode(true))
 assert(ns.TimelineUI:IsPreviewMode())
 assert(ns.TimelineUI:ToggleEditMode())

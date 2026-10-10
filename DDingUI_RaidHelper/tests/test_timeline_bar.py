@@ -266,13 +266,13 @@ ns.Engine.running = true
 UI:OnEngineEvent("START", model)
 assert(frame.shown and not frame.endText.shown)
 
--- Preview/edit shows the accent outline and the hint; leaving removes both.
+-- Only editing shows the accent outline and positioning hint.
 ns.Engine.running = false
-assert(UI:SetPreviewMode(true))
+assert(UI:SetEditMode(true))
 assert(frame.border[4] == 1 and frame.border[1] == UI.accentFrom[1])
 UI:UpdateView()
-assert(frame.syncText.shown and frame.syncText.text:find("PREVIEW", 1, true))
-assert(UI:SetPreviewMode(false))
+assert(frame.syncText.shown and frame.syncText.text:find("편집 중", 1, true))
+assert(UI:SetEditMode(false))
 assert(frame.border[4] == 0)
 '''
 

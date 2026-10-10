@@ -308,6 +308,13 @@ local ns = {
             self.previewMode = not self.previewMode
             return true
         end,
+        IsEditSessionActive = function(self) return self.editMode == true end,
+        ToggleEditMode = function(self)
+            self.editMode = not self.editMode
+            self.previewMode = self.editMode
+            return true
+        end,
+        SetPreviewMode = function(self, enabled) self.previewMode = enabled end,
         ResetPosition = Noop,
         -- "곧 사용 알림" style: the page reads/writes through these.
         ALERT_STYLE_SPEC = {
@@ -369,18 +376,28 @@ assert(ns.Options.previewButton.label:GetText() == "미리보기")
 ns.Options.previewButton.callback()
 assert(ns.TimelineUI:IsPreviewMode())
 assert(ns.Options.previewButton.label:GetText() == "미리보기 종료")
+assert(ns.Options.panel.titleBar.editButton.label:GetText() == "편집 모드", "watching is not editing")
 ns.Options.previewButton.callback()
 assert(not ns.TimelineUI:IsPreviewMode())
 assert(ns.Options.previewButton.label:GetText() == "미리보기")
 
--- C12: shared title-bar edit button toggles preview and follows its state.
+-- The title-bar editor and the watch button have separate active states.
 local titleEdit = ns.Options.panel.titleBar.editButton
 assert(titleEdit and titleEdit.label:GetText() == "편집 모드")
 titleEdit.click()
-assert(ns.TimelineUI:IsPreviewMode() and titleEdit.label:GetText() == "편집 중")
-assert(ns.Options.previewButton.label:GetText() == "미리보기 종료")
+assert(ns.TimelineUI:IsEditSessionActive() and titleEdit.label:GetText() == "편집 중")
+assert(ns.Options.previewButton.label:GetText() == "미리보기")
 titleEdit.click()
 assert(not ns.TimelineUI:IsPreviewMode() and titleEdit.label:GetText() == "편집 모드")
+
+-- Closing settings stops only the watch preview; closing for editing must keep the editor.
+ns.Options.previewButton.callback()
+ns.Options.frame.scripts.OnHide()
+assert(not ns.TimelineUI:IsPreviewMode())
+titleEdit.click()
+ns.Options.frame.scripts.OnHide()
+assert(ns.TimelineUI:IsEditSessionActive())
+titleEdit.click()
 
 ns.Options:SelectPage("cooldowns")
 assert(ns.Options.activePage == "cooldowns")
