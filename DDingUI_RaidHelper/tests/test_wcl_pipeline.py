@@ -11,6 +11,7 @@ sys.path.insert(0, str(TOOLS))
 from wcl_pipeline import (  # noqa: E402
     DPS_COOLDOWNS_BY_SPEC,
     DPS_SPECS,
+    _icon_path,
     _mapped_damage_curve,
     _optimize_cooldown_schedule,
     _phase_time_mapper,
@@ -25,6 +26,16 @@ from wcl_pipeline import (  # noqa: E402
 
 
 class WCLPipelineTests(unittest.TestCase):
+    def test_wcl_icon_filenames_are_exported_as_wow_textures(self):
+        for file_id in (8026697, 8026696, 8026698):
+            self.assertEqual(_icon_path(f"{file_id}.jpg"), file_id)
+            self.assertEqual(_icon_path(str(file_id)), file_id)
+        self.assertEqual(_icon_path("spell_nature_tranquility.jpg"),
+                         r"Interface\Icons\spell_nature_tranquility")
+        self.assertEqual(_icon_path(r"Interface\Icons\spell_nature_tranquility"),
+                         r"Interface\Icons\spell_nature_tranquility")
+        self.assertIsNone(_icon_path(None))
+
     def test_dps_rankings_generate_profile_and_timeline_without_identity(self):
         self.assertEqual(len(DPS_SPECS), 27)
         self.assertEqual({spec["spec_id"] for spec in DPS_SPECS}, set(DPS_COOLDOWNS_BY_SPEC))

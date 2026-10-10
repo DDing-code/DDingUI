@@ -277,7 +277,7 @@ assert(frame.border[4] == 0)
 '''
 
 
-def run():
+def run(extra=""):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.globals().Measure = lambda text, size: len(re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)) * size * 0.65
     lua.execute(MOCK.read_text(encoding="utf-8"))
@@ -291,10 +291,57 @@ def run():
         source = (ADDON_ROOT / relative).read_text(encoding="utf-8-sig")
         lua.execute("local source, ns = ...; assert(loadstring(source))('DDingUI_RaidHelper', ns)", source, ns)
     lua.execute(SCENARIO, ns)
+    if extra:
+        lua.execute(extra, ns)
 
 
 def test_combat_bar_renders_the_c_layout():
     run()
+
+
+def test_only_selected_mechanics_are_drawn_when_bigwigs_adds_bars():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+local major = { t = 46, label = "주요 기믹", icon = 12345 }
+local later = { t = 64, label = "다음 주요 기믹", icon = 12346 }
+local anchor = { t = 43, label = "동기화 전용", syncOnly = true }
+local live = {
+    major = { t = 46, matched = major },
+    anchor = { t = 43, matched = anchor },
+    unknown = { t = 44, label = "미선정 BigWigs 바" },
+}
+ns.Engine.GetLiveMechanics = function() return live end
+UI:UpdateMechanics({ mechanics = { major, later } }, 42.2, 680)
+local visible = 0
+for _, marker in ipairs(UI.mechanicMarkers) do
+    if marker:IsShown() then
+        visible = visible + 1
+        assert(marker.data == major or marker.data == later, "unselected bars must stay hidden")
+        if marker.data == major then assert(marker.nearState, "hidden bars must not steal the detail chip") end
+    end
+end
+assert(visible == 2, "selected mechanics must be shown once each")
+assert(live.anchor.matched == anchor and live.unknown, "bar tracking stays available for synchronization")
+UI:UpdateMechanics({ mechanics = {} }, 42.2, 680)
+for _, marker in ipairs(UI.mechanicMarkers) do assert(not marker:IsShown()) end
+''')
+
+
+def test_wcl_ascendance_icons_use_numeric_file_ids_on_the_rail_and_reminder():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+local marker = UI:GetMarker(UI.cooldownMarkers, 1, UI.cooldownLayer, "cooldown")
+local row = UI:CreateUpcomingRow(1)
+for _, spell in ipairs({ {114050, 8026697}, {114051, 8026696}, {114052, 8026698} }) do
+    local data = { t = 46, spellID = spell[1], icon = "Interface\\Icons\\" .. spell[2] .. ".jpg" }
+    assert(UI:ConfigureMarker(marker, data, 42.2, 680, "cooldown"))
+    assert(marker.icon.texture == spell[2], "WCL's numeric jpg name is a FileDataID, not an icon path")
+    UI:FillUpcomingRow(row, data, 3.8, 100, UI:GetAlertStyle())
+    assert(row.icon.texture == spell[2], "reminder must use the same new Ascendance icon")
+end
+''')
 
 
 if __name__ == "__main__":

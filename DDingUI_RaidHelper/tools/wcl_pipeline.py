@@ -318,11 +318,14 @@ def _ability_index(master_data: dict[str, Any]) -> dict[int, dict[str, Any]]:
     return result
 
 
-def _icon_path(icon: Any) -> str | None:
+def _icon_path(icon: Any) -> int | str | None:
     if not icon:
         return None
-    value = str(icon)
-    if value.isdigit() or value.startswith("Interface\\"):
+    # WCL serves web jpg names; WoW needs a numeric FileDataID or an extensionless path.
+    value = str(icon).removesuffix(".jpg")
+    if value.isdigit():
+        return int(value)
+    if value.startswith("Interface\\"):
         return value
     return "Interface\\Icons\\" + value
 

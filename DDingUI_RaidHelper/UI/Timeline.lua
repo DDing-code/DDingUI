@@ -138,7 +138,14 @@ TimelineUI.EdgeAlpha = EdgeAlpha
 
 local function ResolveIcon(data)
     local icon = data and data.icon
-    if not IsSecret(icon) and icon then return icon end
+    if not IsSecret(icon) and icon then
+        -- [REFACTOR] Existing WCL packs wrap FileDataIDs in web-image paths.
+        if type(icon) == "string" then
+            icon = icon:gsub("%.jpg$", "")
+            icon = tonumber(icon:match("^Interface\\Icons\\(%d+)$")) or tonumber(icon) or icon
+        end
+        return icon
+    end
 
     local spellID = data and data.spellID
     if IsSecret(spellID) then spellID = nil end
@@ -2025,26 +2032,17 @@ local function NearestUpcoming(nearest, data, currentTime, window)
     return nearest
 end
 
-local function IsDrawnLiveMechanic(liveMechanic)
-    return not liveMechanic.matched or liveMechanic.matched.syncOnly
-end
-
 function TimelineUI:UpdateMechanics(model, currentTime, width)
     local past = max(1, ns.db.windowPast or 12)
     local future = max(1, ns.db.windowFuture or 38)
     local rangeStart = currentTime - past
     local rangeEnd = currentTime + future
-    local liveMechanics = ns.Engine:GetLiveMechanics()
     local visible = 0
     local nearest
 
+    -- [REFACTOR] BigWigs bars also track hidden sync anchors; only selected mechanics are drawn.
     for _, mechanic in ipairs(model.mechanics or {}) do
         nearest = NearestUpcoming(nearest, mechanic, currentTime, MECHANIC_NEAR_WINDOW)
-    end
-    for _, liveMechanic in pairs(liveMechanics) do
-        if IsDrawnLiveMechanic(liveMechanic) then
-            nearest = NearestUpcoming(nearest, liveMechanic, currentTime, MECHANIC_NEAR_WINDOW)
-        end
     end
 
     local nearestMarker
@@ -2062,10 +2060,6 @@ function TimelineUI:UpdateMechanics(model, currentTime, width)
     for _, mechanic in ipairs(model.mechanics or {}) do
         Place(mechanic)
     end
-    for _, liveMechanic in pairs(liveMechanics) do
-        if IsDrawnLiveMechanic(liveMechanic) then Place(liveMechanic) end
-    end
-
     for index = visible + 1, #self.mechanicMarkers do
         self.mechanicMarkers[index]:Hide()
     end
