@@ -1980,7 +1980,11 @@ function TimelineUI:ConfigureMarker(marker, data, currentTime, width, kind, near
         local size = (self.mechanicSize or MECHANIC_SIZE)
             + (highlight and (MECHANIC_NEAR_SIZE - MECHANIC_SIZE) or 0)
         marker:SetSize(size, size)
-        marker:SetPoint("TOP", marker:GetParent(), "TOPLEFT", x, highlight and -8 or -10)
+        marker.countdown:SetText(FormatCountdown(remaining))
+        -- [STYLE] Small bars must fit the measured countdown, including the nearest-icon growth.
+        local below = style.showCountdown and (ceil(marker.countdown:GetHeight()) + 2) or 0
+        local top = min(highlight and 8 or 10, max(0, marker:GetParent():GetHeight() - size - below))
+        marker:SetPoint("TOP", marker:GetParent(), "TOPLEFT", x, -top)
         if marker.nearState ~= near or marker.highlighted ~= highlight then
             marker.nearState, marker.highlighted = near, highlight
             local border = highlight and self.accentLight or marker.borderColor
@@ -1992,7 +1996,6 @@ function TimelineUI:ConfigureMarker(marker, data, currentTime, width, kind, near
         local showCountdown = style.showCountdown and not past
             and (not near or self.compact or not style.showMechanicDetail)
         if showCountdown then
-            marker.countdown:SetText(FormatCountdown(remaining))
             marker.countdown:Show()
         else
             marker.countdown:Hide()
@@ -2026,6 +2029,7 @@ function TimelineUI:PlaceDetailChip(chip, marker, width, kind)
     local offset = marker:GetWidth() * 0.5 + (cooldown and 5 or 4)
     local top = cooldown and -(8 + floor((marker:GetHeight() - chip:GetHeight()) * 0.5 + 0.5)) or -10
     local parent = cooldown and self.cooldownLayer or self.plot
+    top = max(top, chip:GetHeight() - parent:GetHeight())
     local markers = cooldown and self.cooldownMarkers or self.mechanicMarkers
     local chipWidth = chip:GetWidth()
     local function Fits(left)

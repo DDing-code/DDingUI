@@ -173,6 +173,39 @@ def test_timeline_detail_options_drive_the_bar():
     run(SCENARIO)
 
 
+def test_small_bar_keeps_countdowns_and_detail_chips_inside_their_rows():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+local model = ns.Registry:GetByKey("demo")
+ns.Engine.GetTimelineTime = function() return 42.2 end
+ns.Engine.model, ns.Engine.running = model, true
+UI:OnEngineEvent("START", model)
+
+local function Inside(region, parent)
+    if not region:IsShown() then return end
+    assert(region:GetBottom() >= parent:GetBottom() - 0.01, "text spills into the next row")
+    assert(region:GetTop() <= parent:GetTop() + 0.01, "text spills above its row")
+end
+for _, height in ipairs({ 80, 98 }) do
+    for _, width in ipairs({ 300, 680 }) do
+        for _, size in ipairs({ 12, 32 }) do
+            for _, detail in ipairs({ true, false }) do
+                ns.db.timelineHeight, ns.db.timelineWidth = height, width
+                ns.db.timelineStyle = { mechanicSize = 40, cooldownSize = size, showMechanicDetail = detail }
+                UI:ApplyTimelineStyle()
+                for _, marker in ipairs(UI.mechanicMarkers) do
+                    if marker:IsShown() then Inside(marker.countdown, UI.plot) end
+                end
+                Inside(UI.frame.mechanicChip, UI.plot)
+                Inside(UI.frame.cooldownChip, UI.cooldownLayer)
+            end
+        end
+    end
+end
+''')
+
+
 if __name__ == "__main__":
     run(SCENARIO)
     print("PASS: RaidHelper timeline detail options")
