@@ -1016,6 +1016,9 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
         local rowCount = math.ceil(#sections / columnCount)
         bodyTop = yOff - (rowCount * 32 + (rowCount - 1) * gap) - 12
         for index, tab in ipairs(tabs) do
+            -- [STYLE] A pending entrance must not restore the old column positions after reflow.
+            if Lib.StopMotion then Lib.StopMotion(tab, "staggerIn") end
+            tab:SetAlpha(1)
             tab:SetWidth(tabWidth)
             tab:SetPoint("TOPLEFT", container, "TOPLEFT",
                 pad + ((index - 1) % columnCount) * (tabWidth + gap),

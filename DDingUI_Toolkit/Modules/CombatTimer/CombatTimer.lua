@@ -111,8 +111,10 @@ function CombatTimer:UpdateFrameStyle()
     -- 폰트 업데이트
     local font = self.db.font or SL_FONT
     local size = self.db.fontSize or 26
+    local decimalSize = tonumber(self.db.decimalFontSize) or 0
+    decimalSize = decimalSize > 0 and math.min(48, decimalSize) or size * 0.5
     timerFrame.mainText:SetFont(font, size, "OUTLINE")
-    timerFrame.msText:SetFont(font, size * 0.5, "OUTLINE")
+    timerFrame.msText:SetFont(font, decimalSize, "OUTLINE") -- [STYLE] Independent fractional font size.
 
     -- 색상
     local r = self.db.textColor[1] or 1
@@ -157,7 +159,8 @@ function CombatTimer:UpdateTextAlignment()
     local mainWidth = timerFrame.mainText:GetStringWidth()
     local msWidth = self.db.showMilliseconds and timerFrame.msText:GetStringWidth() or 0
     local totalWidth = mainWidth + msWidth
-    local height = timerFrame.mainText:GetStringHeight()
+    local height = math.max(timerFrame.mainText:GetStringHeight(),
+        self.db.showMilliseconds and timerFrame.msText:GetStringHeight() + 8 or 0)
 
     if totalWidth <= 0 then totalWidth = 80 end
     if height <= 0 then height = 30 end
@@ -181,7 +184,7 @@ function CombatTimer:UpdateTextAlignment()
         end
     else  -- CENTER
         if self.db.showMilliseconds then
-            timerFrame.mainText:SetPoint("RIGHT", timerFrame, "CENTER", 0, 0)
+            timerFrame.mainText:SetPoint("RIGHT", timerFrame, "CENTER", (mainWidth - msWidth) * 0.5, 0)
             timerFrame.msText:SetPoint("LEFT", timerFrame.mainText, "RIGHT", 0, -4)
         else
             timerFrame.mainText:SetPoint("CENTER", timerFrame, "CENTER", 0, 0)

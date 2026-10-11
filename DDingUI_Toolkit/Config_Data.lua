@@ -1086,7 +1086,8 @@ function ns:InitConfigTree()
             -- 폰트 설정
             { type = "header", label = L["APPEARANCE"] },
             { type = "font",   key = "profile.CombatTimer.font",     label = L["FONT"] },
-            { type = "slider", key = "profile.CombatTimer.fontSize",  label = L["FONT_SIZE"],       min = 12, max = 48, step = 1 },
+            { type = "slider", key = "profile.CombatTimer.fontSize",  label = L["FONT_SIZE"],       min = 12, max = 48, step = 1, onChange = RefreshCombatTimer },
+            { type = "slider", key = "profile.CombatTimer.decimalFontSize", label = L["COMBATTIMER_DECIMAL_FONT_SIZE"], min = 0, max = 48, step = 1, onChange = RefreshCombatTimer },
             { type = "color",  key = "profile.CombatTimer.textColor", visible = function() return not ns.db.profile.CombatTimer.colorByTime end, label = L["TEXT_COLOR"],       hasAlpha = true },
             { type = "slider", key = "profile.CombatTimer.scale",     label = L["SCALE"],           min = 0.5, max = 2.0, step = 0.1 },
             { type = "slider", key = "profile.CombatTimer.bgAlpha",   label = L["BACKGROUND_ALPHA"],min = 0, max = 1, step = 0.05 },

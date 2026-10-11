@@ -315,6 +315,11 @@ def test_death_font_paths_and_default_sound_keep_explicit_silence():
 
 def test_section_tabs_fit_labels_and_reflow_without_losing_selection():
     lua = toolkit_runtime()
+    lua.execute('''
+        function methods:GetNumPoints()
+            local n=0; for _ in pairs(self.points) do n=n+1 end; return n
+        end
+    ''')
     source = (ROOT / "Config_UI.lua").read_text(encoding="utf-8-sig")
     tabs = source[source.index("local function CreateSectionTab("):source.index("local function RenderSettingsPanel(")]
     renderer = source[source.index("local function RenderSectionedPanel("):source.index("local function RenderPanel(")]
@@ -344,12 +349,17 @@ def test_section_tabs_fit_labels_and_reflow_without_losing_selection():
             sections={}
             for i,label in ipairs(labels) do sections[i]={id=tostring(i),label=label,settings={}} end
             local c=CreateFrame("Frame",nil,UIParent)
-            c:SetSize(710,400); c:SetPoint("CENTER")
+            c:SetSize(1,400); c:SetPoint("CENTER") -- scroll child width is unresolved on first show
             RenderSectionedPanel(c,{},"review")
+            Lib.StaggerIn(c._sectionTabs, {step=0.03,offset=4})
+            c:SetWidth(710); c:Fire("OnSizeChanged",710,c:GetHeight())
+            Advance(1)
             c._sectionTabs[5]:Fire("OnClick")
             local allocated=#objects
             for _,width in ipairs({456,710,456}) do
+                Lib.StaggerIn(c._sectionTabs, {step=0.03,offset=4})
                 c:SetWidth(width); c:Fire("OnSizeChanged",width,c:GetHeight())
+                Advance(1)
                 local left,_,w=c:Rect()
                 local lowest
                 for i,tab in ipairs(c._sectionTabs) do

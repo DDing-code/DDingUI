@@ -299,6 +299,7 @@ ns.defaults = {
         CombatTimer = {
             showMilliseconds = true,
             decimalPlaces = 2,
+            decimalFontSize = 0, -- [STYLE] 0 preserves the previous half-size fraction.
             showBackground = false,
             colorByTime = false,
             locked = false,
