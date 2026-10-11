@@ -2132,7 +2132,8 @@ function TimelineUI:UpdateMechanics(model, currentTime, width)
     local rangeEnd = currentTime + future
     local visible = 0
     local nearest
-    local mechanics = self:GetTimelineStyle().showMechanics and model.mechanics or {}
+    local mechanics = self:GetTimelineStyle().showMechanics
+        and (model._displayMechanics or model.mechanics) or {}
 
     -- [REFACTOR] BigWigs bars also track hidden sync anchors; only selected mechanics are drawn.
     for _, mechanic in ipairs(mechanics) do

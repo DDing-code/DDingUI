@@ -328,6 +328,44 @@ for _, marker in ipairs(UI.mechanicMarkers) do assert(not marker:IsShown()) end
 ''')
 
 
+def test_continuous_damage_ticks_draw_once_without_losing_casts_or_sync():
+    run(r'''
+local ns = ...
+local UI = ns.TimelineUI
+local model = { duration = 120, mechanics = {}, syncAnchors = {} }
+for t = 1, 33, 2 do
+    model.mechanics[#model.mechanics + 1] = {
+        t = t, phase = 1, spellID = 1294976, label = "연속 피해", icon = 136128,
+    }
+end
+local major = { t = 14, phase = 1, spellID = 1308122, icon = 136048 }
+local cast1 = { t = 18, phase = 1, spellID = 800001, bigWigsKey = 800001, syncT = 18, icon = 136048 }
+local cast2 = { t = 20, phase = 1, spellID = 800001, bigWigsKey = 800001, syncT = 20, icon = 136048 }
+local phaseStart = { t = 34, phase = 2, spellID = 1294976, icon = 136128 }
+local nextStart = { t = 61, phase = 2, spellID = 1294976, icon = 136128 }
+for _, mechanic in ipairs({ major, cast1, cast2, phaseStart, nextStart }) do
+    model.mechanics[#model.mechanics + 1] = mechanic
+end
+assert(ns.Registry:Register("repeating-ticks", model))
+UI:UpdateMechanics(model, 8, 680)
+local shown = {}
+for _, marker in ipairs(UI.mechanicMarkers) do
+    if marker:IsShown() then shown[#shown + 1] = marker.data end
+end
+assert(#shown == 5, "17 ticks must become one icon; other mechanics, separate casts and phases stay")
+assert(shown[1].t == 1 and shown[2] == major and shown[3] == cast1 and shown[4] == cast2 and shown[5] == phaseStart)
+assert(#model.mechanics == 22, "display filtering must preserve every damage and sync record")
+local matched = ns.Registry:FindMechanic(model, {1294976}, 31)
+assert(matched and matched.t == 31, "a hidden tick must remain available for synchronization")
+UI:UpdateMechanics(model, 28, 680)
+for _, marker in ipairs(UI.mechanicMarkers) do
+    if marker:IsShown() and marker.data.spellID == 1294976 then
+        assert(marker.data == phaseStart or marker.data == nextStart, "hidden ticks must not reappear as the window scrolls")
+    end
+end
+''')
+
+
 def test_wcl_ascendance_icons_use_numeric_file_ids_on_the_rail_and_reminder():
     run(r'''
 local ns = ...

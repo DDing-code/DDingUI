@@ -4,6 +4,7 @@ local Registry = {}
 ns.Registry = Registry
 
 local models = {}
+local MECHANIC_TICK_GAP = 3
 
 local function IsSecret(value)
     return ns.IsSecret and ns:IsSecret(value) or false
@@ -42,6 +43,23 @@ local function IndexModel(model)
     for _, cooldowns in pairs(model.cooldownsBySpec) do
         table.sort(cooldowns, SortByTime)
     end
+
+    -- [REFACTOR] Collapse a continuous damage train once, before the visible window moves.
+    -- shortcut: infer <=3s ticks; use explicit periodic flags when packs include them.
+    local displayMechanics, previousBySpell = {}, {}
+    for _, mechanic in ipairs(model.mechanics) do
+        local previous = mechanic.spellID and previousBySpell[mechanic.spellID]
+        local newCast = previous and mechanic.bigWigsKey
+            and mechanic.bigWigsKey == previous.bigWigsKey
+            and mechanic.syncT and previous.syncT
+            and math.abs(mechanic.syncT - previous.syncT) > 0.85
+        if not previous or previous.phase ~= mechanic.phase
+            or (mechanic.t or 0) - (previous.t or 0) > MECHANIC_TICK_GAP or newCast then
+            displayMechanics[#displayMechanics + 1] = mechanic
+        end
+        if mechanic.spellID then previousBySpell[mechanic.spellID] = mechanic end
+    end
+    model._displayMechanics = displayMechanics
 
     local index = {}
     for _, mechanic in ipairs(model.mechanics) do
