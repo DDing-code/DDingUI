@@ -60,8 +60,8 @@ local CATEGORY_DEFS = {
 local PAGE_META = {
     timeline = {
         label = "타임라인",
-        short = "크기·불투명도·툴팁",
-        desc = "전투 중 표시되는 피해 파형과 기믹·전문화 쿨기 마커의 크기와 표시 방식을 설정합니다.",
+        short = "크기·아이콘·표시 요소",
+        desc = "전투 중 표시되는 피해 파형과 기믹·전문화 쿨기 아이콘의 크기, 표시 구간, 요소별 표시 여부를 설정합니다.",
         category = "display",
     },
     alert = {
@@ -962,6 +962,46 @@ function Options:RefreshPreviewButton()
     end
 end
 
+-- [STYLE] Timeline "표시 요소" switches (2026-10-11 사용자 요청), two per row: mechanic-side
+-- elements on the left, cooldown-side and bar-wide elements on the right.
+local ELEMENT_GRID_TOP = 72
+local ELEMENT_ROW_HEIGHT = 46
+local ELEMENT_ROW_STEP = 52
+local TIMELINE_ELEMENTS = {
+    { key = "showMechanics", label = "기믹 아이콘", desc = "바 위의 보스 기믹" },
+    { key = "showCooldowns", label = "쿨기 아이콘", desc = "바 아래 힐러 쿨기" },
+    { key = "showCountdown", label = "기믹 남은 초", desc = "아이콘 아래 숫자" },
+    { key = "showCooldownDetail", label = "쿨기 이름", desc = "가까운 쿨기 하나" },
+    { key = "showMechanicDetail", label = "기믹 상세", desc = "이름·피해·피격 인원" },
+    { key = "showSpread", label = "쿨기 오차 범위", desc = "사용 시점 오차 띠" },
+    { key = "highlightNear", label = "가까운 기믹 강조", desc = "5초 안이면 키움" },
+    { key = "showDamage", label = "피해 파형", desc = "평균 피해 능선" },
+    { key = "showPhases", label = "페이즈 표시", desc = "구간 띠·경계선·이름" },
+    { key = "showGrid", label = "시간 눈금", desc = "5초·10초 눈금" },
+    { key = "showTimeReadout", label = "전투 시간", desc = "경과 시간·페이즈" },
+}
+
+function Options:RefreshTimelineStyleControls()
+    local controls = self.timelineStyleControls
+    if not controls then return end
+    local style = self:GetRequestedTimelineStyle()
+    local kinds = self.timelineStyleControlKinds or {}
+    self.syncingTimelineStyleControls = true
+    for key, control in pairs(controls) do
+        if kinds[key] == "slider" then
+            control.slider:SetValue(style[key])
+        else
+            control:SetChecked(style[key] == true, true)
+        end
+    end
+    self.syncingTimelineStyleControls = false
+end
+
+local function ChangeTimelineStyle(key, value)
+    if Options.syncingTimelineStyleControls then return end
+    Options:SetTimelineStyleValue(key, value)
+end
+
 function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
     local accent = styleLib.GetAccent(ADDON_KEY)
     local page = CreateModernPage(parent, 640)
@@ -1084,6 +1124,112 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
     timelineHeightSlider:SetPoint("TOPLEFT", displayCard, "TOP", 16, -150)
     timelineHeightSlider:SetPoint("RIGHT", displayCard, "RIGHT", -20, 0)
 
+    -- [STYLE] Timeline detail options (2026-10-11 사용자 요청): icon sizes, shown range and one
+    -- switch per bar element. The page's "미리보기" plays the real bar, so it is the live sample.
+    local spec = ns.TimelineUI and ns.TimelineUI.TIMELINE_STYLE_SPEC or {}
+    local style = self:GetRequestedTimelineStyle()
+    local controls, kinds = {}, {}
+
+    local function AddStyleSlider(card, key, label, y, leftColumn)
+        local range = spec[key] or {}
+        local slider = styleLib.CreateSlider(card, ADDON_KEY, label, range.min or 0, range.max or 100,
+            1, style[key] or range.default or 0, {
+                width = 240,
+                onChange = function(value) ChangeTimelineStyle(key, value) end,
+            })
+        if leftColumn then
+            slider:SetPoint("TOPLEFT", card, "TOPLEFT", 20, y)
+            slider:SetPoint("RIGHT", card, "CENTER", -16, 0)
+        else
+            slider:SetPoint("TOPLEFT", card, "TOP", 16, y)
+            slider:SetPoint("RIGHT", card, "RIGHT", -20, 0)
+        end
+        controls[key] = slider
+        kinds[key] = "slider"
+        return slider
+    end
+
+    local iconCard = CreateRowCard(page, colors, 154)
+    AddCardHeader(
+        iconCard,
+        fontPath,
+        colors,
+        14,
+        SMALL_TEXT,
+        "아이콘",
+        "기믹·쿨기 아이콘 크기입니다. 기믹 아이콘은 바 높이 안에서만 커집니다.",
+        nil,
+        150
+    )
+    local styleResetButton
+    styleResetButton = styleLib.CreateButton(iconCard, ADDON_KEY, "기본값으로", function()
+        if Options:ResetTimelineStyle() and styleLib.AppliedFeedback then -- [STYLE]
+            styleLib.AppliedFeedback(styleResetButton, styleResetButton.label, { text = "되돌림" })
+        end
+    end, { width = 112, height = 28 })
+    styleResetButton:SetPoint("TOPRIGHT", iconCard, "TOPRIGHT", -20, -20)
+    AddStyleSlider(iconCard, "mechanicSize", "기믹 아이콘 크기 (px)", -72, true)
+    AddStyleSlider(iconCard, "cooldownSize", "쿨기 아이콘 크기 (px)", -72, false)
+
+    local rangeCard = CreateRowCard(page, colors, 232)
+    AddCardHeader(
+        rangeCard,
+        fontPath,
+        colors,
+        14,
+        SMALL_TEXT,
+        "표시 구간",
+        "지금을 기준으로 바에 담을 시간과 지나간 아이콘의 진하기를 정합니다. 0%면 지나간 아이콘을 숨깁니다."
+    )
+    AddStyleSlider(rangeCard, "windowPast", "지난 시간 (초)", -72, true)
+    AddStyleSlider(rangeCard, "windowFuture", "앞으로 표시할 시간 (초)", -72, false)
+    AddStyleSlider(rangeCard, "pastAlpha", "지난 아이콘 불투명도 (%)", -150, true)
+
+    local elementRows = math.ceil(#TIMELINE_ELEMENTS / 2)
+    local elementCard = CreateRowCard(page, colors, ELEMENT_GRID_TOP + elementRows * ELEMENT_ROW_STEP + 10)
+    AddCardHeader(
+        elementCard,
+        fontPath,
+        colors,
+        14,
+        SMALL_TEXT,
+        "표시 요소",
+        "타임라인에 그릴 요소를 하나씩 켜고 끕니다. 아이콘을 꺼도 리마인더는 그대로 알려 줍니다."
+    )
+    for index, element in ipairs(TIMELINE_ELEMENTS) do
+        local key = element.key
+        local row = CreateFrame("Frame", nil, elementCard, "BackdropTemplate")
+        row:SetHeight(ELEMENT_ROW_HEIGHT)
+        ApplyBackdrop(row, colors.bg.widget, colors.border.separator, nil, nil, GetRadius("row"))
+        local top = -(ELEMENT_GRID_TOP + math.floor((index - 1) / 2) * ELEMENT_ROW_STEP)
+        if index % 2 == 1 then
+            row:SetPoint("TOPLEFT", elementCard, "TOPLEFT", 16, top)
+            row:SetPoint("RIGHT", elementCard, "CENTER", -8, 0)
+        else
+            row:SetPoint("TOPLEFT", elementCard, "TOP", 8, top)
+            row:SetPoint("RIGHT", elementCard, "RIGHT", -16, 0)
+        end
+
+        local label = MakeFont(row, fontPath, 13, colors.text.highlight, element.label)
+        label:SetPoint("TOPLEFT", row, "TOPLEFT", 12, -8)
+        label:SetPoint("RIGHT", row, "RIGHT", -58, 0)
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        local description = MakeFont(row, fontPath, SMALL_TEXT, colors.text.dim, element.desc)
+        description:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -4)
+        description:SetPoint("RIGHT", row, "RIGHT", -58, 0)
+        description:SetJustifyH("LEFT")
+        description:SetWordWrap(false)
+
+        local switch = CreateSwitch(row, styleLib, colors, function(value)
+            ChangeTimelineStyle(key, value == true)
+        end)
+        switch:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+        switch:SetChecked(style[key] == true, true)
+        controls[key] = switch
+        kinds[key] = "switch"
+    end
+
     local behaviorCard = CreateRowCard(page, colors, 92)
     CreateInfoRow(
         behaviorCard,
@@ -1121,6 +1267,12 @@ function Options:CreateModernTimelinePage(parent, styleLib, fontPath, colors)
     self.timelineWidthSlider = timelineWidthSlider
     self.timelineHeightSlider = timelineHeightSlider
     self.previewButton = previewButton
+    self.timelineStyleControls = controls
+    self.timelineStyleControlKinds = kinds
+    self.timelineStyleResetButton = styleResetButton
+    -- [STYLE] Scroll through every card, including the element switches and the notes below.
+    page.contentHeight = page.rowCursor - PAGE_ROW_GAP
+    page:SetHeight(page.contentHeight)
     return page
 end
 

@@ -5,10 +5,12 @@
 ### 한국어
 
 - 리마인더에 한국어·영어·경보 카운트를 내장하고 기존 일본어와 함께 4종을 선택하도록 추가했습니다. 기존 일본어와 카운트 켜기/끄기 설정은 유지되며 전투 중 선택과 미리 듣기에 바로 적용됩니다.
+- 타임라인 세부 설정을 추가했습니다. 기믹 아이콘 크기(16~40)·쿨기 아이콘 크기(12~32), 지난 시간(2~30초)·앞으로 표시할 시간(10~90초), 지난 아이콘 불투명도(0%면 숨김)를 조절하고, 기믹 아이콘·쿨기 아이콘·기믹 남은 초·기믹 상세·쿨기 이름·쿨기 오차 범위·가까운 기믹 강조·피해 파형·페이즈 표시·시간 눈금·전투 시간을 하나씩 켜고 끌 수 있습니다. 기본값은 지금 모양 그대로이며 “기본값으로”로 되돌립니다. 쿨기 아이콘을 꺼도 리마인더는 계속 알려 줍니다.
 
 ### English
 
 - Bundled Korean, English and alarm countdowns alongside the existing Japanese pack. Reminder settings now offer four choices, applied immediately to live counts and sound previews while preserving existing Japanese and on/off settings.
+- Added timeline detail settings: mechanic icon size (16–40), cooldown icon size (12–32), past (2–30 s) and upcoming (10–90 s) time range, and past-icon opacity (0% hides them), plus individual switches for mechanic icons, cooldown icons, mechanic countdowns, mechanic details, cooldown names, cooldown timing bands, the nearest-mechanic highlight, the damage ridge, phase markers, time ticks and the fight timer. Defaults keep the current look and a reset button restores them. Reminders keep working when cooldown icons are hidden.
 
 ## 2.1.1
 

@@ -32,7 +32,6 @@ local MECHANIC_NEAR_SIZE = 32
 local MECHANIC_NEAR_WINDOW = 5
 local COOLDOWN_SIZE = 18
 local COOLDOWN_NEAR_WINDOW = 4
-local PAST_ALPHA = 0.38
 local UPDATE_INTERVAL = 0.05
 -- [STYLE] "곧 사용" countdown: the number pops and a voice counts 셋 · 둘 · 하나.
 local COUNTDOWN_FROM = 3
@@ -66,6 +65,28 @@ local ALERT_STYLE_SPEC = {
     pop = { default = true },
 }
 TimelineUI.ALERT_STYLE_SPEC = ALERT_STYLE_SPEC
+-- [STYLE] Timeline detail options (2026-10-11 사용자 요청): icon sizes, shown time range,
+-- past-icon opacity (%) and one switch per bar element. Saved in ns.db.timelineStyle; `root`
+-- entries are the older top-level keys. Defaults reproduce the fixed C안 bar.
+local TIMELINE_STYLE_SPEC = {
+    mechanicSize = { default = MECHANIC_SIZE, min = 16, max = 40 },
+    cooldownSize = { default = COOLDOWN_SIZE, min = 12, max = 32 },
+    pastAlpha = { default = 38, min = 0, max = 100 },
+    windowPast = { default = 12, min = 2, max = 30, root = true },
+    windowFuture = { default = 38, min = 10, max = 90, root = true },
+    showMechanics = { default = true },
+    showCooldowns = { default = true },
+    showCountdown = { default = true },
+    showMechanicDetail = { default = true },
+    showCooldownDetail = { default = true },
+    showSpread = { default = true },
+    highlightNear = { default = true },
+    showDamage = { default = true },
+    showPhases = { default = true },
+    showGrid = { default = true },
+    showTimeReadout = { default = true },
+}
+TimelineUI.TIMELINE_STYLE_SPEC = TIMELINE_STYLE_SPEC
 local FALLBACK_ICON = 134400
 local BRAND_ICON = "Interface\\AddOns\\DDingUI_RaidHelper\\Media\\RaidHelper_Icon.tga"
 local ADDON_KEY = "RaidHelper"
@@ -232,7 +253,8 @@ end
 function TimelineUI:CreateMarker(parent, kind)
     local colors = self.colors
     local marker = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    local size = kind == "cooldown" and COOLDOWN_SIZE or MECHANIC_SIZE
+    local size = kind == "cooldown" and self:GetTimelineStyle().cooldownSize
+        or self.mechanicSize or MECHANIC_SIZE
     marker:SetSize(size, size)
     marker.kind = kind
     marker.borderColor = kind == "cooldown" and colors.status.success or colors.status.warning
@@ -368,25 +390,48 @@ end
 -- [STYLE] "곧 사용" alert layout options (2026-10-10 사용자 요청): icon/text sizes, alignment,
 -- growth direction, spacing, rows, width, lead time, element toggles. Saved in ns.db.alertStyle;
 -- anything missing or invalid falls back to ALERT_STYLE_SPEC defaults.
+local function ResolveStyleValue(spec, value)
+    if spec.choices then
+        return spec.choices[value] and value or spec.default
+    elseif spec.min then
+        value = tonumber(value)
+        return value and floor(min(spec.max, max(spec.min, value)) + 0.5) or spec.default
+    elseif value == nil then
+        return spec.default
+    end
+    return value == true
+end
+
 local function ResolveAlertStyle(saved)
     saved = type(saved) == "table" and saved or {}
     local style = {}
     for key, spec in pairs(ALERT_STYLE_SPEC) do
-        local value = saved[key]
-        if spec.choices then
-            style[key] = spec.choices[value] and value or spec.default
-        elseif spec.min then
-            value = tonumber(value)
-            style[key] = value and floor(min(spec.max, max(spec.min, value)) + 0.5) or spec.default
-        elseif value == nil then
-            style[key] = spec.default
-        else
-            style[key] = value == true
-        end
+        style[key] = ResolveStyleValue(spec, saved[key])
     end
     return style
 end
 TimelineUI.ResolveAlertStyle = ResolveAlertStyle
+
+--- Timeline detail options from the saved variables table (see TIMELINE_STYLE_SPEC).
+local function ResolveTimelineStyle(db)
+    db = type(db) == "table" and db or {}
+    local saved = type(db.timelineStyle) == "table" and db.timelineStyle or {}
+    local style = {}
+    for key, spec in pairs(TIMELINE_STYLE_SPEC) do
+        local value = saved[key]
+        if spec.root then value = db[key] end
+        style[key] = ResolveStyleValue(spec, value)
+    end
+    return style
+end
+TimelineUI.ResolveTimelineStyle = ResolveTimelineStyle
+
+function TimelineUI:GetTimelineStyle()
+    if not self.timelineStyleCache then
+        self.timelineStyleCache = ResolveTimelineStyle(ns.db)
+    end
+    return self.timelineStyleCache
+end
 
 function TimelineUI:GetAlertStyle()
     if not self.alertStyleCache then
@@ -1035,8 +1080,20 @@ function TimelineUI:ApplyDisplaySettings()
     local width = self:GetTimelineWidth()
     local height = self:GetTimelineHeight()
     local fade = floor(width * FADE_SHARE + 0.5)
+    -- [STYLE] The rail follows the cooldown icon; the bar keeps what is left of the height, and
+    -- the mechanic icon never outgrows that bar: 10 px above it, then its countdown (14 px) or,
+    -- without the number, just the nearest-highlight growth.
+    self.timelineStyleCache = nil
+    local style = self:GetTimelineStyle()
+    local rail = style.cooldownSize + RAIL_HEIGHT - COOLDOWN_SIZE
+    local barHeight = height - rail
+    self.mechanicSize = min(style.mechanicSize,
+        max(TIMELINE_STYLE_SPEC.mechanicSize.min, barHeight - (style.showCountdown and 24 or 12)))
+    self.ridgeTopSpace = style.showMechanics
+        and (self.mechanicSize + RIDGE_TOP_SPACE - MECHANIC_SIZE) or 20
     self.frame:SetSize(width, height)
-    self.plot:SetHeight(height - RAIL_HEIGHT)
+    self.plot:SetHeight(barHeight)
+    self.cooldownLayer:SetHeight(rail)
     -- [STYLE] The alert is its own module now: its size comes from the alert style options.
     self:ApplyAlertStyle()
 
@@ -1045,7 +1102,7 @@ function TimelineUI:ApplyDisplaySettings()
     if timeReadout then
         timeReadout:ClearAllPoints()
         timeReadout:SetPoint("BOTTOMLEFT", self.plot, "TOPLEFT", fade, 3)
-        timeReadout:SetShown(not self.compact)
+        timeReadout:SetShown(not self.compact and style.showTimeReadout)
     end
     local syncText = self.frame.syncText
     if syncText then
@@ -1061,6 +1118,17 @@ function TimelineUI:ApplyDisplaySettings()
     self:ApplyBackgroundStyle()
     self:UpdateEditHUD()
     return true
+end
+
+--- Re-reads ns.db.timelineStyle (and the window keys) and redraws a running bar at once.
+function TimelineUI:ApplyTimelineStyle()
+    if not self.frame then return false end
+    for _, marker in ipairs(self.mechanicMarkers or {}) do
+        marker.nearState = nil
+    end
+    self:ApplyDisplaySettings()
+    if ns.Engine and ns.Engine.IsRunning and ns.Engine:IsRunning() then self:UpdateView() end
+    return self:GetTimelineStyle()
 end
 
 function TimelineUI:RefreshMedia()
@@ -1705,7 +1773,8 @@ function TimelineUI:UpdateGrid(currentTime, width)
     local tick = firstTick
 
     -- [STYLE] C안: unlabelled ticks rising from the bar floor; 10 s ticks are taller.
-    while tick <= finalTick do
+    local showGrid = self:GetTimelineStyle().showGrid
+    while showGrid and tick <= finalTick do
         visible = visible + 1
         local grid = self:GetGrid(visible)
         local major = tick % 10 == 0
@@ -1730,7 +1799,7 @@ local function PhaseLabel(phase, fallbackIndex)
 end
 
 function TimelineUI:UpdatePhases(model, currentTime, width, activePhase)
-    local phases = model.phases or {}
+    local phases = self:GetTimelineStyle().showPhases and model.phases or {}
     local colors = self.colors
     local visible = 0
 
@@ -1801,8 +1870,9 @@ function TimelineUI:SetColumnRatio(column, ratio)
 end
 
 function TimelineUI:UpdateDamage(model, currentTime, width, height)
+    local showDamage = self:GetTimelineStyle().showDamage
     local damage = model.damage or {}
-    local values = damage.values or {}
+    local values = showDamage and damage.values or {}
     local interval = damage.interval or 0.5
     local maximum = max(1, damage.max or 1)
     local past = max(1, ns.db.windowPast or 12)
@@ -1812,7 +1882,7 @@ function TimelineUI:UpdateDamage(model, currentTime, width, height)
     local firstIndex = max(1, floor(rangeStart / interval) + 1)
     local finalIndex = min(#values - 1, ceil(rangeEnd / interval) + 1)
     -- [STYLE] C안: the ridge lies on the bar floor and stays below the icon row.
-    local amplitude = max(8, height - RIDGE_TOP_SPACE)
+    local amplitude = max(8, height - (self.ridgeTopSpace or RIDGE_TOP_SPACE))
     local light = self.accentLight
     local visible = 0
 
@@ -1858,34 +1928,38 @@ function TimelineUI:UpdateDamage(model, currentTime, width, height)
     for index = visible + 1, #self.damageColumns do
         self.damageColumns[index]:Hide()
     end
-    self.frame.noDataText:SetShown(#values == 0)
+    self.frame.noDataText:SetShown(showDamage and #values == 0)
 end
 
 --- Places one icon. Nothing is clamped into the bar: icons slide out through the edge fade.
 --- Returns false when the icon is fully faded out and therefore hidden.
 function TimelineUI:ConfigureMarker(marker, data, currentTime, width, kind, near)
+    local style = self:GetTimelineStyle()
     local x = self:MapTimeToX(data.t or 0, currentTime, width)
     local edge = EdgeAlpha(x, width)
-    if edge <= 0 then
+    local remaining = (data.t or 0) - currentTime
+    local past = remaining < 0
+    local pastAlpha = style.pastAlpha / 100
+    if edge <= 0 or (past and pastAlpha <= 0) then
         marker:Hide()
         return false
     end
 
-    local remaining = (data.t or 0) - currentTime
-    local past = remaining < 0
     marker.data = data
     marker.x = x
     marker.remaining = remaining
     marker.icon:SetTexture(ResolveIcon(data))
     if marker.icon.SetDesaturated then marker.icon:SetDesaturated(past) end
-    marker:SetAlpha((past and PAST_ALPHA or 1) * edge)
+    marker:SetAlpha((past and pastAlpha or 1) * edge)
     marker:ClearAllPoints()
 
     if kind == "cooldown" then
+        local size = style.cooldownSize
+        marker:SetSize(size, size)
         marker:SetPoint("TOP", marker:GetParent(), "TOPLEFT", x, -8)
-        if type(data.spread) == "number" and data.spread > 0 then
+        if style.showSpread and type(data.spread) == "number" and data.spread > 0 then
             local secondsWidth = width / (max(1, ns.db.windowPast or 12) + max(1, ns.db.windowFuture or 38))
-            local desiredWidth = max(COOLDOWN_SIZE, data.spread * 2 * secondsWidth)
+            local desiredWidth = max(size, data.spread * 2 * secondsWidth)
             local spreadLeft = max(0, x - desiredWidth * 0.5)
             local spreadRight = min(width, x + desiredWidth * 0.5)
             if spreadRight > spreadLeft then
@@ -1901,17 +1975,22 @@ function TimelineUI:ConfigureMarker(marker, data, currentTime, width, kind, near
         end
     else
         near = near == true and not past
-        local size = near and MECHANIC_NEAR_SIZE or MECHANIC_SIZE
+        -- "가까운 기믹 강조" off: the nearest one keeps its detail chip but not the size and halo.
+        local highlight = near and style.highlightNear
+        local size = (self.mechanicSize or MECHANIC_SIZE)
+            + (highlight and (MECHANIC_NEAR_SIZE - MECHANIC_SIZE) or 0)
         marker:SetSize(size, size)
-        marker:SetPoint("TOP", marker:GetParent(), "TOPLEFT", x, near and -8 or -10)
-        if marker.nearState ~= near then
-            marker.nearState = near
-            local border = near and self.accentLight or marker.borderColor
+        marker:SetPoint("TOP", marker:GetParent(), "TOPLEFT", x, highlight and -8 or -10)
+        if marker.nearState ~= near or marker.highlighted ~= highlight then
+            marker.nearState, marker.highlighted = near, highlight
+            local border = highlight and self.accentLight or marker.borderColor
             marker:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
-            for _, layer in ipairs(marker.glowLayers or {}) do layer:SetShown(near) end
+            for _, layer in ipairs(marker.glowLayers or {}) do layer:SetShown(highlight) end
         end
-        -- The nearest mechanic shows its countdown in the detail chip (unless the bar is too narrow).
-        local showCountdown = not past and (not near or self.compact)
+        -- The nearest mechanic shows its countdown in the detail chip (unless the chip is off
+        -- or the bar is too narrow).
+        local showCountdown = style.showCountdown and not past
+            and (not near or self.compact or not style.showMechanicDetail)
         if showCountdown then
             marker.countdown:SetText(FormatCountdown(remaining))
             marker.countdown:Show()
@@ -1942,7 +2021,10 @@ end
 -- [STYLE] Use either side of the icon only when the detail fits without covering other icons.
 function TimelineUI:PlaceDetailChip(chip, marker, width, kind)
     local cooldown = kind == "cooldown"
-    local offset = cooldown and 14 or 20
+    -- Beside the icon whatever its size (18 px rail icon -> 14, 32 px nearest mechanic -> 20);
+    -- the rail chip stays centred on its icon.
+    local offset = marker:GetWidth() * 0.5 + (cooldown and 5 or 4)
+    local top = cooldown and -(8 + floor((marker:GetHeight() - chip:GetHeight()) * 0.5 + 0.5)) or -10
     local parent = cooldown and self.cooldownLayer or self.plot
     local markers = cooldown and self.cooldownMarkers or self.mechanicMarkers
     local chipWidth = chip:GetWidth()
@@ -1961,9 +2043,9 @@ function TimelineUI:PlaceDetailChip(chip, marker, width, kind)
 
     chip:ClearAllPoints()
     if Fits(marker.x + offset) then
-        chip:SetPoint("TOPLEFT", parent, "TOPLEFT", marker.x + offset, cooldown and -8 or -10)
+        chip:SetPoint("TOPLEFT", parent, "TOPLEFT", marker.x + offset, top)
     elseif Fits(marker.x - offset - chipWidth) then
-        chip:SetPoint("TOPRIGHT", parent, "TOPLEFT", marker.x - offset, cooldown and -8 or -10)
+        chip:SetPoint("TOPRIGHT", parent, "TOPLEFT", marker.x - offset, top)
     else
         chip:Hide()
         return false
@@ -1978,7 +2060,8 @@ end
 function TimelineUI:UpdateMechanicChip(marker, model, width)
     local chip = self.frame.mechanicChip
     if not chip then return end
-    if self.compact or not marker then
+    local style = self:GetTimelineStyle()
+    if self.compact or not marker or not style.showMechanicDetail then
         chip:Hide()
         chip.data = nil
         return
@@ -2007,7 +2090,7 @@ function TimelineUI:UpdateMechanicChip(marker, model, width)
     local chipWidth = ceil(max(firstLine, secondLine)) + 12
     chip:SetSize(chipWidth, chip.hasInfo and 35 or 21)
 
-    if not self:PlaceDetailChip(chip, marker, width, "mechanic") then
+    if not self:PlaceDetailChip(chip, marker, width, "mechanic") and style.showCountdown then
         marker.countdown:SetText(FormatCountdown(marker.remaining))
         marker.countdown:Show()
     end
@@ -2016,7 +2099,7 @@ end
 function TimelineUI:UpdateCooldownChip(marker, width)
     local chip = self.frame.cooldownChip
     if not chip then return end
-    if self.compact or not marker then
+    if self.compact or not marker or not self:GetTimelineStyle().showCooldownDetail then
         chip:Hide()
         return
     end
@@ -2045,9 +2128,10 @@ function TimelineUI:UpdateMechanics(model, currentTime, width)
     local rangeEnd = currentTime + future
     local visible = 0
     local nearest
+    local mechanics = self:GetTimelineStyle().showMechanics and model.mechanics or {}
 
     -- [REFACTOR] BigWigs bars also track hidden sync anchors; only selected mechanics are drawn.
-    for _, mechanic in ipairs(model.mechanics or {}) do
+    for _, mechanic in ipairs(mechanics) do
         nearest = NearestUpcoming(nearest, mechanic, currentTime, MECHANIC_NEAR_WINDOW)
     end
 
@@ -2063,7 +2147,7 @@ function TimelineUI:UpdateMechanics(model, currentTime, width)
         end
     end
 
-    for _, mechanic in ipairs(model.mechanics or {}) do
+    for _, mechanic in ipairs(mechanics) do
         Place(mechanic)
     end
     for index = visible + 1, #self.mechanicMarkers do
@@ -2098,7 +2182,7 @@ function TimelineUI:UpdateCooldowns(model, currentTime, width)
     local future = max(1, ns.db.windowFuture or 38)
     local rangeStart = currentTime - past
     local rangeEnd = currentTime + future
-    local cooldowns = ns.Engine:GetCooldowns()
+    local cooldowns = self:GetTimelineStyle().showCooldowns and ns.Engine:GetCooldowns() or {}
     local visible = 0
     local nearest, nearestMarker
 

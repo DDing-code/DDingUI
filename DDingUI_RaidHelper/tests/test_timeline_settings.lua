@@ -86,6 +86,7 @@ frame.syncText = NewLabel()
 ns.TimelineUI.frame = frame
 ns.TimelineUI.plot = NewBackdrop()
 ns.TimelineUI.plot.SetHeight = function(self, value) self.height = value end
+ns.TimelineUI.cooldownLayer = { SetHeight = function(self, value) self.height = value end }
 ns.TimelineUI.flatTexture = "flat"
 ns.TimelineUI.accentFrom = { 0.84, 0.36, 1.0, 1.0 }
 ns.TimelineUI.colors = {
@@ -106,7 +107,7 @@ ns.TimelineUI.colors = {
 assert(ns.TimelineUI:ApplyDisplaySettings())
 assert(frame.scale == 1.25)
 assert(frame.width == 820 and frame.height == 98)
-assert(ns.TimelineUI.plot.height == 70)
+assert(ns.TimelineUI.plot.height == 70 and ns.TimelineUI.cooldownLayer.height == 28)
 -- Background opacity scales only the bar surface and the past shade; no outline outside edit.
 assert(math.abs(frame.barBackground.vertex[4] - 0.32) < 0.0001)
 assert(math.abs(frame.pastShade.color[4] - 0.14) < 0.0001)
@@ -145,6 +146,49 @@ assert(ns.TimelineUI:ApplyDisplaySettings())
 assert(frame.width == 200)
 assert(ns.TimelineUI.compact == true and frame.timeReadout.shown == false)
 
+-- [STYLE] Timeline detail options (2026-10-11): the rail follows the cooldown icon, the bar keeps
+-- the rest of the height, and a mechanic icon never outgrows that bar. Broken values clamp.
+local resolveStyle = ns.TimelineUI.ResolveTimelineStyle
+local defaults = resolveStyle(nil)
+assert(defaults.mechanicSize == 28 and defaults.cooldownSize == 18 and defaults.pastAlpha == 38)
+assert(defaults.windowPast == 12 and defaults.windowFuture == 38)
+for _, key in ipairs({ "showMechanics", "showCooldowns", "showCountdown", "showMechanicDetail",
+    "showCooldownDetail", "showSpread", "highlightNear", "showDamage", "showPhases", "showGrid",
+    "showTimeReadout" }) do
+    assert(defaults[key] == true, key)
+end
+local broken = resolveStyle({ windowPast = 999, windowFuture = "x",
+    timelineStyle = { mechanicSize = 3, cooldownSize = 500, pastAlpha = -4, showGrid = "yes" } })
+assert(broken.mechanicSize == 16 and broken.cooldownSize == 32 and broken.pastAlpha == 0)
+assert(broken.windowPast == 30 and broken.windowFuture == 38 and broken.showGrid == false)
+
+ns.db.timelineWidth = 680
+ns.db.timelineHeight = 98
+ns.db.timelineStyle = { cooldownSize = 32, mechanicSize = 40 }
+assert(ns.TimelineUI:ApplyTimelineStyle())
+assert(frame.height == 98 and ns.TimelineUI.cooldownLayer.height == 42 and ns.TimelineUI.plot.height == 56)
+assert(ns.TimelineUI.mechanicSize == 32, "icon + its countdown must stay inside a 56 px bar")
+ns.db.timelineStyle.showCountdown = false
+assert(ns.TimelineUI:ApplyTimelineStyle())
+assert(ns.TimelineUI.mechanicSize == 40, "without the number only the highlight growth needs room")
+ns.db.timelineHeight = 80
+assert(ns.TimelineUI:ApplyTimelineStyle())
+assert(ns.TimelineUI.plot.height == 38 and ns.TimelineUI.mechanicSize == 26, "icon shrinks to the bar")
+ns.db.timelineStyle = { mechanicSize = 40 }
+ns.db.timelineHeight = 98
+assert(ns.TimelineUI:ApplyTimelineStyle())
+assert(ns.TimelineUI.plot.height == 70 and ns.TimelineUI.mechanicSize == 40, "largest icon fits the default bar")
+ns.db.timelineStyle = {}
+ns.db.timelineHeight = 80
+assert(ns.TimelineUI:ApplyTimelineStyle())
+assert(ns.TimelineUI.plot.height == 52 and ns.TimelineUI.mechanicSize == 28, "defaults unchanged at the smallest height")
+ns.db.timelineStyle = { showTimeReadout = false }
+assert(ns.TimelineUI:ApplyTimelineStyle())
+assert(frame.timeReadout.shown == false and ns.TimelineUI.cooldownLayer.height == 28)
+ns.db.timelineStyle = {}
+ns.db.timelineWidth = 100
+assert(ns.TimelineUI:ApplyTimelineStyle())
+
 ns.db.windowPast = 12
 ns.db.windowFuture = 38
 local lane = {}
@@ -162,6 +206,7 @@ local function NewMarker()
         ClearAllPoints = function(self) self.point = nil end,
         SetPoint = function(self, _, _, _, x) self.point = x end,
         GetParent = function(self) return self.parent end,
+        SetSize = function(self, width, height) self.width, self.height = width, height end,
         SetAlpha = function(self, value) self.alpha = value end,
         Show = function(self) self.shown = true end,
         Hide = function(self) self.shown = false end,
@@ -185,6 +230,18 @@ assert(ns.TimelineUI:ConfigureMarker(marker, { t = 30, icon = 12345 }, 12, 100, 
 assert(marker.alpha == 1 and marker.spread.shown == false and marker.remaining == 18)
 assert(ns.TimelineUI:ConfigureMarker(marker, { t = 10, icon = 12345 }, 12, 100, "cooldown"))
 assert(math.abs(marker.alpha - 0.38) < 0.0001)
+assert(marker.width == 18)
+-- Past-icon opacity is a setting; 0% hides past icons, and the ± band has its own switch.
+ns.db.timelineStyle = { pastAlpha = 70, cooldownSize = 24, showSpread = false }
+ns.TimelineUI:ApplyTimelineStyle()
+assert(ns.TimelineUI:ConfigureMarker(marker, { t = 10, icon = 12345, spread = 20 }, 12, 100, "cooldown"))
+assert(math.abs(marker.alpha - 0.7) < 0.0001 and marker.width == 24 and marker.spread.shown == false)
+ns.db.timelineStyle = { pastAlpha = 0 }
+ns.TimelineUI:ApplyTimelineStyle()
+assert(ns.TimelineUI:ConfigureMarker(marker, { t = 10, icon = 12345 }, 12, 100, "cooldown") == false)
+assert(ns.TimelineUI:ConfigureMarker(marker, { t = 30, icon = 12345 }, 12, 100, "cooldown"))
+ns.db.timelineStyle = {}
+ns.TimelineUI:ApplyTimelineStyle()
 
 ns.Engine.cooldowns = {
     { t = 22, spellID = 4 },

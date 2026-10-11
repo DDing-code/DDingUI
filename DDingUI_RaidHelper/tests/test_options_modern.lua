@@ -334,6 +334,31 @@ local ns = {
             for key, value in pairs(saved) do self.style[key] = value end
         end,
         CreateAlertSample = function(self) self.sample = NewObject(); return self.sample end,
+        -- Timeline detail options: the page reads the spec and writes through Options.
+        TIMELINE_STYLE_SPEC = {
+            mechanicSize = { default = 28, min = 16, max = 40 },
+            cooldownSize = { default = 18, min = 12, max = 32 },
+            pastAlpha = { default = 38, min = 0, max = 100 },
+            windowPast = { default = 12, min = 2, max = 30, root = true },
+            windowFuture = { default = 38, min = 10, max = 90, root = true },
+            showMechanics = { default = true }, showCooldowns = { default = true },
+            showCountdown = { default = true }, showMechanicDetail = { default = true },
+            showCooldownDetail = { default = true }, showSpread = { default = true },
+            highlightNear = { default = true }, showDamage = { default = true },
+            showPhases = { default = true }, showGrid = { default = true },
+            showTimeReadout = { default = true },
+        },
+        GetTimelineStyle = function(self)
+            local style, saved = {}, self.ns.db.timelineStyle or {}
+            for key, spec in pairs(self.TIMELINE_STYLE_SPEC) do
+                local value = saved[key]
+                if spec.root then value = self.ns.db[key] end
+                if value == nil then value = spec.default end
+                style[key] = value
+            end
+            return style
+        end,
+        ApplyTimelineStyle = function(self) self.timelineApplied = (self.timelineApplied or 0) + 1 end,
     },
 }
 
@@ -540,5 +565,45 @@ assert(ns.db.alertStyle.width == 600, "fitting the sample must not shrink the li
 ns.Options.alertSampleArea:SetWidth(720)
 ns.Options.alertSampleArea.scripts.OnSizeChanged()
 assert(ns.Options.alertSample.scale == 1, "resizing the options window restores sample size")
+
+-- [STYLE] Timeline detail options (2026-10-11): icon sizes, shown range, element switches, reset.
+local timelinePage = ns.Options.pages.timeline
+assert(timelinePage.contentHeight == timelinePage.rowCursor - 16, "scroll range must reach every timeline option")
+local timelineControls = ns.Options.timelineStyleControls
+local timelineKeys = 0
+for key in pairs(ns.TimelineUI.TIMELINE_STYLE_SPEC) do
+    assert(timelineControls[key], "missing timeline control: " .. key)
+    timelineKeys = timelineKeys + 1
+end
+assert(timelineKeys == 16)
+assert(timelineControls.mechanicSize.slider:GetValue() == 28 and timelineControls.showGrid:GetChecked())
+timelineControls.mechanicSize.slider:SetValue(36)
+timelineControls.windowFuture.slider:SetValue(60)
+timelineControls.showGrid:SetChecked(false)
+assert(ns.db.timelineStyle.mechanicSize == 36 and ns.db.timelineStyle.showGrid == false)
+assert(ns.db.windowFuture == 60 and ns.db.timelineStyle.windowFuture == nil, "range keeps its older key")
+assert(ns.TimelineUI.timelineApplied == 3)
+
+-- In combat the change waits (the controls keep showing the request), then applies afterwards.
+InCombatLockdown = function() return true end
+timelineControls.cooldownSize.slider:SetValue(30)
+timelineControls.showPhases:SetChecked(false)
+assert(ns.db.timelineStyle.cooldownSize == nil and ns.db.timelineStyle.showPhases == nil)
+assert(ns.TimelineUI.timelineApplied == 3)
+ns.Options:RefreshTimelineStyleControls()
+assert(timelineControls.cooldownSize.slider:GetValue() == 30 and not timelineControls.showPhases:GetChecked())
+assert(not ns.Options:ResetTimelineStyle(), "reset is blocked in combat")
+InCombatLockdown = function() return false end
+assert(ns.Options:ApplyPendingSettings())
+assert(ns.db.timelineStyle.cooldownSize == 30 and ns.db.timelineStyle.showPhases == false)
+assert(ns.Options.pendingTimelineStyle == nil)
+
+local timelineAppliedBefore = ns.TimelineUI.timelineApplied
+assert(ns.Options:ResetTimelineStyle())
+assert(next(ns.db.timelineStyle) == nil and ns.db.windowFuture == 38 and ns.db.windowPast == 12)
+assert(timelineControls.mechanicSize.slider:GetValue() == 28 and timelineControls.showGrid:GetChecked())
+assert(next(ns.db.timelineStyle) == nil, "syncing the controls does not write values back")
+assert(ns.TimelineUI.timelineApplied == timelineAppliedBefore + 1)
+assert(not ns.Options:SetTimelineStyleValue("unknown", 1))
 
 print("RaidHelper modern three-column options window test OK")

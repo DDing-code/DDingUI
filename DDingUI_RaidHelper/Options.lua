@@ -266,6 +266,7 @@ function Options:RefreshAll()
     self:RefreshDataSummary()
     self:RefreshCooldownControls()
     if self.RefreshAlertControls then self:RefreshAlertControls() end
+    if self.RefreshTimelineStyleControls then self:RefreshTimelineStyleControls() end
     if self.RefreshPreviewButton then self:RefreshPreviewButton() end
 end
 
@@ -367,6 +368,68 @@ function Options:ResetAlertStyle()
     end
     if self.RefreshAlertControls then self:RefreshAlertControls() end
     ns:Print("리마인더 모양을 기본값으로 되돌렸습니다.")
+    return true
+end
+
+-- [STYLE] Timeline detail options (2026-10-11 사용자 요청): icon sizes, shown range, past-icon
+-- opacity and element switches in ns.db.timelineStyle (range keys stay at windowPast/Future).
+-- Same combat rule as the other timeline display settings: changes wait for combat to end.
+local function GetTimelineStyleSpec(key)
+    local spec = ns.TimelineUI and ns.TimelineUI.TIMELINE_STYLE_SPEC
+    return spec and spec[key] or nil
+end
+
+function Options:GetRequestedTimelineStyle()
+    local style = {}
+    if ns.TimelineUI and ns.TimelineUI.GetTimelineStyle then
+        for key, value in pairs(ns.TimelineUI:GetTimelineStyle()) do style[key] = value end
+    end
+    for key, value in pairs(self.pendingTimelineStyle or {}) do style[key] = value end
+    return style
+end
+
+function Options:ApplyTimelineStyleValue(key, value)
+    local spec = GetTimelineStyleSpec(key)
+    if not ns.db or not spec then return false end
+    if spec.root then
+        ns.db[key] = value
+    else
+        if type(ns.db.timelineStyle) ~= "table" then ns.db.timelineStyle = {} end
+        ns.db.timelineStyle[key] = value
+    end
+    if ns.TimelineUI.ApplyTimelineStyle then ns.TimelineUI:ApplyTimelineStyle() end
+    return true
+end
+
+function Options:SetTimelineStyleValue(key, value)
+    if not GetTimelineStyleSpec(key) then return false end
+    if IsInCombat() then
+        self.pendingTimelineStyle = self.pendingTimelineStyle or {}
+        self.pendingTimelineStyle[key] = value
+        return false, "deferred"
+    end
+
+    if self.pendingTimelineStyle then self.pendingTimelineStyle[key] = nil end
+    return self:ApplyTimelineStyleValue(key, value)
+end
+
+function Options:ResetTimelineStyle()
+    if not ns.db then return false end
+    if IsInCombat() then
+        ns:Print("타임라인 세부 설정은 전투가 끝난 뒤 되돌릴 수 있습니다.")
+        return false
+    end
+
+    self.pendingTimelineStyle = nil
+    ns.db.timelineStyle = {}
+    for key, spec in pairs(ns.TimelineUI and ns.TimelineUI.TIMELINE_STYLE_SPEC or {}) do
+        if spec.root then ns.db[key] = spec.default end
+    end
+    if ns.TimelineUI and ns.TimelineUI.ApplyTimelineStyle then
+        ns.TimelineUI:ApplyTimelineStyle()
+    end
+    if self.RefreshTimelineStyleControls then self:RefreshTimelineStyleControls() end
+    ns:Print("타임라인 세부 설정을 기본값으로 되돌렸습니다.")
     return true
 end
 
@@ -586,6 +649,15 @@ function Options:ApplyPendingSettings()
         self.pendingBackgroundAlpha = nil
         self:ApplyBackgroundAlpha(value)
         applied = true
+    end
+    if self.pendingTimelineStyle then
+        local pending = self.pendingTimelineStyle
+        self.pendingTimelineStyle = nil
+        for key, value in pairs(pending) do
+            self:ApplyTimelineStyleValue(key, value)
+            applied = true
+        end
+        if self.RefreshTimelineStyleControls then self:RefreshTimelineStyleControls() end
     end
     if self.pendingCooldownVisibility then
         local pending = self.pendingCooldownVisibility
