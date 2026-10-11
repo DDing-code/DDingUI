@@ -13,8 +13,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
-from test_series_editmode import load_bundle
+sys.path.insert(0, str(ROOT / "DDingUI_Toolkit/tests"))
+from ui_runtime import load_bundle
 
 MOVERS_STUBS = r'''
 local M = getmetatable(UIParent).__index

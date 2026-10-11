@@ -9,8 +9,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SUPER = ROOT.parent
-sys.path.insert(0, str(SUPER / "DDingUI_FX/tests"))
-from test_fx import runtime  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+from ui_runtime import runtime  # noqa: E402
 
 STYLELIB = ("Core.lua", "Colors.lua", "Gradient.lua", "Motion.lua", "Widgets.lua", "EditMode.lua")
 
