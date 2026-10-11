@@ -311,3 +311,64 @@ def test_death_font_paths_and_default_sound_keep_explicit_silence():
         ns.db.profile.DeathAlert.font="NamedFont"
         ns.DeathAlert:UpdateVisuals(); assert(f.text.font=="Fonts/named.ttf")
     ''')
+
+
+def test_section_tabs_fit_labels_and_reflow_without_losing_selection():
+    lua = toolkit_runtime()
+    source = (ROOT / "Config_UI.lua").read_text(encoding="utf-8-sig")
+    tabs = source[source.index("local function CreateSectionTab("):source.index("local function RenderSettingsPanel(")]
+    renderer = source[source.index("local function RenderSectionedPanel("):source.index("local function RenderPanel(")]
+    lua.execute('''
+        local Lib=LibStub("DDingUI-StyleLib-1.0")
+        local C,F=Lib.Colors,Lib.Font
+        local ADDON_KEY="MJToolkit"
+        local S={contentPad=14}
+        local panelSectionState={}
+        local function LT(_,fallback) return fallback end
+        local function u(t) return unpack(t) end
+        local function BuildPanelSections() return sections end
+        local function CreateDetailPreview() end
+        local function MakeTextFrame(parent,text)
+            local f=CreateFrame("Frame",nil,parent); f:SetHeight(20)
+            f.text=f:CreateFontString(); f.text:SetText(text)
+            return f
+        end
+        local function RenderSettingsPanel(body)
+            body._contentHeight=140; body:SetHeight(140)
+        end
+    ''' + tabs + renderer + '''
+        for _,labels in ipairs({
+            {"추적 공생기", "표시 설정", "외형", "사운드 설정", "외부 지원기 · 소리 설정", "이동 지원기 · 소리 설정", "추적 공생기 · 소리 설정"},
+            {"Tracked cooldowns", "Display", "Appearance", "Sound", "Support effects · Sound settings", "Mobility effects · Sound settings", "Tracked cooldowns · Sound settings"}
+        }) do
+            sections={}
+            for i,label in ipairs(labels) do sections[i]={id=tostring(i),label=label,settings={}} end
+            local c=CreateFrame("Frame",nil,UIParent)
+            c:SetSize(710,400); c:SetPoint("CENTER")
+            RenderSectionedPanel(c,{},"review")
+            c._sectionTabs[5]:Fire("OnClick")
+            local allocated=#objects
+            for _,width in ipairs({456,710,456}) do
+                c:SetWidth(width); c:Fire("OnSizeChanged",width,c:GetHeight())
+                local left,_,w=c:Rect()
+                local lowest
+                for i,tab in ipairs(c._sectionTabs) do
+                    local x,y,tw,th=tab:Rect()
+                    assert(x>=left+14 and x+tw<=left+w-14, "tab outside detail pane")
+                    assert(tab.label:GetStringWidth()<=tw-20, "tab name truncated")
+                    lowest=math.min(lowest or y,y)
+                    for j=1,i-1 do
+                        local bx,by,bw,bh=c._sectionTabs[j]:Rect()
+                        assert(x+tw<=bx or bx+bw<=x or y+th<=by or by+bh<=y, "tabs overlap")
+                    end
+                end
+                assert(c._sectionTabs[5].selected and c._sectionBodies[5]:IsShown())
+                local _,y,_,h=c._sectionBodies[5]:Rect()
+                assert(y+h<=lowest-12, "content overlaps tabs")
+                assert(#objects==allocated, "resizing must reuse controls")
+            end
+            sections={sections[1]}
+            RenderSectionedPanel(c,{},"review")
+            assert(not c:GetScript("OnSizeChanged"), "old tab layout must not run on a single section")
+        end
+    ''')

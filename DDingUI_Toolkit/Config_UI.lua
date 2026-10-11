@@ -889,6 +889,7 @@ local function RenderSettingsPanel(container, panelDef)
 end
 
 local function RenderSectionedPanel(container, panelDef, panelKey)
+    container:SetScript("OnSizeChanged", nil)
     local usesWorkspaceHeader = settingsPanel and settingsPanel.workspace and panelDef.moduleEnableKey
     local sections = BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
     if #sections < 2 then
@@ -936,15 +937,20 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
     sectionTitle:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
     yOff = yOff - 24
 
-    local availableWidth = math.max((container:GetWidth() or 720) - pad * 2, 480)
-    local columnCount = math.min(#sections, 4)
-    if #sections == 5 then columnCount = 3 end
     local gap = 6
-    local tabWidth = math.floor((availableWidth - (columnCount - 1) * gap) / columnCount)
-    local rowCount = math.ceil(#sections / columnCount)
-    local tabAreaHeight = rowCount * 32 + (rowCount - 1) * gap
     local tabs = {}
     local bodies = {}
+
+    -- [STYLE] Long tab names must fit the actual detail pane, including narrow windows.
+    local measure = container._sectionLabelMeasure or container:CreateFontString(nil, "OVERLAY")
+    container._sectionLabelMeasure = measure
+    measure:SetFont(F.path, F.small, "")
+    measure:Hide()
+    local minTabWidth = 1
+    for _, section in ipairs(sections) do
+        measure:SetText(section.label)
+        minTabWidth = math.max(minTabWidth, math.ceil(measure:GetStringWidth()) + 20)
+    end
 
     local selectedId = panelSectionState[panelKey]
     local selectedIndex = 1
@@ -955,7 +961,7 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
         end
     end
 
-    local bodyTop = yOff - tabAreaHeight - 12
+    local bodyTop = yOff
     local function EnsureSectionBody(index)
         if bodies[index] then return bodies[index] end
         local body = CreateFrame("Frame", nil, container)
@@ -990,25 +996,39 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
 
     for index, section in ipairs(sections) do
         local sectionIndex = index
-        local row = math.floor((index - 1) / columnCount)
-        local column = (index - 1) % columnCount
         local tab = CreateSectionTab(container, section.label, function()
             ActivateSection(sectionIndex)
         end)
-        tab:SetWidth(tabWidth)
-        tab:SetPoint(
-            "TOPLEFT",
-            container,
-            "TOPLEFT",
-            pad + column * (tabWidth + gap),
-            yOff - row * (32 + gap)
-        )
         tabs[index] = tab
     end
 
     container._sectionTabs = tabs
     container._sectionBodies = bodies
-    ActivateSection(selectedIndex)
+    local lastWidth
+    local function LayoutSections(_, width)
+        if width == lastWidth then return end
+        lastWidth = width
+        local availableWidth = math.max(width - pad * 2, 1)
+        local maxColumns = #sections == 5 and 3 or 4
+        local columnCount = math.max(1, math.min(#sections, maxColumns,
+            math.floor((availableWidth + gap) / (minTabWidth + gap))))
+        local tabWidth = math.floor((availableWidth - (columnCount - 1) * gap) / columnCount)
+        local rowCount = math.ceil(#sections / columnCount)
+        bodyTop = yOff - (rowCount * 32 + (rowCount - 1) * gap) - 12
+        for index, tab in ipairs(tabs) do
+            tab:SetWidth(tabWidth)
+            tab:SetPoint("TOPLEFT", container, "TOPLEFT",
+                pad + ((index - 1) % columnCount) * (tabWidth + gap),
+                yOff - math.floor((index - 1) / columnCount) * (32 + gap))
+        end
+        for _, body in pairs(bodies) do
+            body:SetPoint("TOPLEFT", container, "TOPLEFT", 0, bodyTop)
+            body:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, bodyTop)
+        end
+        ActivateSection(selectedIndex)
+    end
+    container:SetScript("OnSizeChanged", LayoutSections)
+    LayoutSections(container, container:GetWidth())
 
     if panelDef.moduleEnableKey then
         CreateModuleOverlay(container, 0)
