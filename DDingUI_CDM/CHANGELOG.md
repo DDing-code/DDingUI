@@ -2,6 +2,46 @@
 
 ---
 
+## v2.2.2
+
+_Release date: 2026-10-11_
+_Scope: Changes after the v2.2.1 release commit 1c3bc2b through this release._
+
+### English Patch Notes
+
+- **Keybind Text:** Restored keybind controls under CDM Bars → Essential/Utility → Text. Toggle the text and adjust its font, size, color, anchor and offsets while retaining existing settings.
+- **Sound Registration:** Fixed the LibSharedMedia error caused by registering the built-in no-sound choice with an empty file path. The no-sound choice and existing alert-sound selections remain available.
+
+### Korean Patch Notes
+
+- **단축키 표시:** CDM 바 → 핵심 능력·보조 능력 → 텍스트에 단축키 설정을 복구했습니다. 기존 설정을 유지하며 표시 여부, 글꼴·크기·색상·기준점·위치를 조절할 수 있습니다.
+- **소리 등록 오류:** 기본 제공되는 ‘소리 없음’을 빈 파일 경로로 다시 등록해 발생하던 LibSharedMedia 오류를 수정했습니다. ‘소리 없음’과 기존 알림음 선택은 유지됩니다.
+
+## v2.2.1
+
+_Release date: 2026-10-06_
+_Scope: Changes after the v2.2.0 release commit 9325e68 through this release._
+
+### English Patch Notes
+
+- **Potion Priority:** Added Liquid Luster and Fleeting Liquid Luster, including both ranks, bag counts, quality preference and the 30-second active-effect display. The stat-potion window now fits all three potion types and their variants.
+- **Edit Mode:** Added the shared edit remote with frame selection, X/Y entry, keyboard nudging, undo/redo, grid and snapping controls. The title bar opens edit mode, and `/dcm edit` is available. Footer buttons are centered and shrink when space is limited; leaving edit mode returns to the settings window when it was open.
+- **Layout Dashboard:** The overview copies the live screen layout, shows displayed and hidden counts, and offers screen previews for trackers that are not currently shown. Preview placement, buff cropping and visibility follow the same display rules as the actual trackers.
+- **Attached Bars:** Resource, cast and tracked-aura bars follow the icon-row width of their anchor group. Empty groups retain the last populated row width, and deferred combat updates apply together.
+- **Cast Bars:** Updated supported channel tick timing and modifiers, reduced repeated texture updates, and made the test cast repeat without resetting the bar between cycles.
+- **Totem Tracking:** Uses the current duration object to determine whether a totem is active, preventing a hidden cooldown frame from leaving an inactive totem visible.
+- **Settings Windows:** Settings and potion windows can be moved partly off screen while keeping a visible area available for dragging.
+
+### Korean Patch Notes
+
+- **물약 우선순위:** 액화 광택제와 덧없는 액화 광택제를 두 등급 모두 추가했습니다. 보유 수량, 품질 우선순위와 30초 사용 효과 표시를 지원하며, 스탯 물약 창에 세 종류와 모든 등급이 들어가도록 조정했습니다.
+- **편집 모드:** 프레임 선택, X/Y 입력, 키보드 이동, 실행 취소·다시 실행, 격자·스냅을 제공하는 공통 리모컨을 추가했습니다. 제목줄에서 편집 모드를 열 수 있고 `/dcm edit`도 지원합니다. 하단 버튼은 가운데 정렬되며 공간이 좁으면 너비를 줄입니다. 설정창에서 진입했다면 종료 후 설정창으로 돌아갑니다.
+- **배치 대시보드:** 실제 화면 배치를 복사하고 표시·숨김 수량을 안내합니다. 현재 보이지 않는 추적기는 화면 미리보기를 켤 수 있으며, 미리보기의 위치·강화효과 아이콘 잘라내기·표시는 실제 추적기와 같은 규칙을 따릅니다.
+- **연결된 막대:** 자원·시전·추적 오라 막대가 기준 그룹의 아이콘 한 줄 너비를 따릅니다. 빈 그룹은 마지막으로 아이콘이 있던 줄 너비를 유지하며, 전투 중 미룬 크기 변경은 함께 적용됩니다.
+- **시전바:** 지원하는 정신 집중 주문의 틱 간격과 보정값을 갱신하고 반복적인 텍스처 변경을 줄였습니다. 테스트 시전은 반복 사이에 막대를 초기화하지 않고 이어집니다.
+- **토템 추적:** 현재 지속시간 객체로 토템의 활성 상태를 판단하여, 숨겨진 쿨다운 프레임 때문에 비활성 토템이 남는 문제를 수정했습니다.
+- **설정창 이동:** 설정창과 물약 창을 화면 밖으로 일부 이동할 수 있으며, 다시 드래그할 수 있는 영역은 남겨 둡니다.
+
 ## v2.2.0
 
 _Release date: 2026-09-30_

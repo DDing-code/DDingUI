@@ -304,10 +304,17 @@ local function RoundFrame(frame, radius)
         local r, g, b, a = frame:GetBackdropColor()
         if r then bg = { r, g, b, a } end
     end
-    if frame.GetBackdropBorderColor then
+    -- [STYLE] 원래 backdrop에 테두리(edgeFile)가 있을 때만 테두리색을 옮긴다.
+    -- 채움만 있는 backdrop은 기본 테두리색(흰색)을 돌려주므로 그대로 옮기면 흰 윤곽선이 생긴다.
+    -- BackdropTemplateMixin:GetBackdrop() fills a missing edgeFile with "" (old API output), and
+    -- GetBackdropBorderColor() then reads the untinted (white) edge regions: only a real edgeFile counts.
+    local info = frame.GetBackdrop and frame:GetBackdrop()
+    local hasEdge = info and type(info.edgeFile) == "string" and info.edgeFile ~= ""
+    if frame.GetBackdropBorderColor and hasEdge then
         local r, g, b, a = frame:GetBackdropBorderColor()
         if r then border = { r, g, b, a } end
     end
+    border = border or { 0, 0, 0, 0 }
     SL.MakeRounded(frame, radius, bg, border)
     return frame
 end
@@ -2084,15 +2091,18 @@ end
 
 function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     local compact = parent._compactOptionsLayout == true
+    -- [STYLE] 한 줄 배치(이름 | 트랙 | 값)가 기본. 폭을 아는 좁은 패널(<300)에서만 두 줄
+    local parentW = parent.GetWidth and parent:GetWidth() or 0
+    local stacked = compact and parentW > 0 and parentW < 300
     local SPEC = SLIDER_SPEC -- [STYLE] StyleLib 1.2 slider spec
     local frame = CreateFrame("Frame", nil, parent)
-    frame:SetHeight(compact and 54 or 34) -- [STYLE] 28px hit area + 24px value box
+    frame:SetHeight(stacked and 54 or 34) -- [STYLE] 28px hit area + 24px value box
     frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -yOffset)
     frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
 
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     StyleFontString(label)
-    if compact then
+    if stacked then
         label:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
     else
         label:SetPoint("LEFT", frame, "LEFT", 0, 0)
@@ -2109,7 +2119,7 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     local valueEditBox = CreateFrame("EditBox", nil, frame, "BackdropTemplate")
     valueEditBox:SetHeight(SPEC.valueHeight) -- [STYLE]
     valueEditBox:SetWidth(SPEC.valueWidth)
-    if compact then
+    if stacked then
         valueEditBox:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
         label:SetPoint("TOPRIGHT", valueEditBox, "TOPLEFT", -8, -2)
     end
@@ -2143,10 +2153,26 @@ function Widgets.CreateRange(parent, option, yOffset, optionsTable)
     local slider = CreateFrame("Slider", nil, frame, "OptionsSliderTemplate")
     slider:SetOrientation("HORIZONTAL")
     slider:SetHeight(SPEC.hitHeight) -- [STYLE]
-    if compact then
+    if stacked then
         -- narrow inspector: track fills the panel width under the label
         slider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 0)
         slider:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 0)
+    elseif compact then
+        -- [STYLE] 넓은 인스펙터도 한 줄: 이름 | 트랙(최대 180) | 값. 값 칸은 오른쪽 끝에 고정
+        valueEditBox:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+        slider:SetPoint("RIGHT", valueEditBox, "LEFT", -12, 0)
+        label:ClearAllPoints()
+        label:SetPoint("LEFT", frame, "LEFT", 0, 0)
+        label:SetPoint("RIGHT", slider, "LEFT", -12, 0)
+        label:SetWordWrap(false)
+        local function FitTrack(w)
+            w = w or frame:GetWidth() or 0
+            -- 이름 칸은 최소 96px 남기고, 트랙은 180px 이하로
+            local room = w - SPEC.valueWidth - 12 - 12 - 96
+            slider:SetWidth(math.max(60, math.min(SPEC.trackWidth, room > 0 and room or SPEC.trackWidth)))
+        end
+        FitTrack()
+        frame:SetScript("OnSizeChanged", function(_, w) FitTrack(w) end)
     else
         -- [STYLE] fixed 180px track (no full-row stretch): label | min | track | max | value
         slider:SetPoint("LEFT", label, "RIGHT", 45, 0)

@@ -884,7 +884,7 @@ function DDingUI:OnEnable()
             end,
             OnCancel = function()
                 -- 마이그레이션 건너뛰기: profileVersion만 설정
-                DDingUI.db.profile.profileVersion = DDingUI.VERSION or "2.2.0"
+                DDingUI.db.profile.profileVersion = DDingUI.VERSION or "2.2.2"
                 DDingUI:Print("|cffaaaaaaa마이그레이션을 건너뛰었습니다. 설정 > 프로필에서 수동으로 변경할 수 있습니다.|r")
             end,
         }
@@ -942,7 +942,13 @@ do
 end
 
 
-function DDingUI:OpenConfig()
+function DDingUI:OpenConfig(input)
+    -- [REFACTOR] C12: `/dcm edit` = 편집 모드 토글 (기존 /ddmove·/dduimove 별칭 유지)
+    if type(input) == "string" and input:match("^%s*edit%s*$") then
+        if self.Movers and self.Movers.ToggleConfigMode then self.Movers:ToggleConfigMode() end
+        return
+    end
+
     local loadedOptionsNow = false
 
     -- [LoD] DDingUI_Options 최초 로드

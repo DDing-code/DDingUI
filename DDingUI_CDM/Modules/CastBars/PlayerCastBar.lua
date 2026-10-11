@@ -106,19 +106,8 @@ function CastBars:GetCastBar()
     bar:SetHeight(DDingUI:Scale(height))
     local initSelfPoint = cfg.selfPoint or "CENTER" -- [FIX: selfPoint support]
     bar:SetPoint(initSelfPoint, anchor, anchorPoint, DDingUI:Scale(cfg.offsetX or 0), DDingUI:Scale(cfg.offsetY or 18))
-    -- Use pixel-snapped width from the anchor (but NOT from UIParent or huge frames)
-    local initWidth
-    local effectiveW, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
-    if effectiveW and effectiveW > 0 and effectiveW < 1000 and anchor ~= UIParent then
-        if needsBorderComp then
-            local bComp = DDingUI:Scale(1)
-            initWidth = PixelSnap(effectiveW - 2 * bComp)
-        else
-            initWidth = PixelSnap(effectiveW)
-        end
-    else
-        initWidth = 200
-    end
+    -- [REFACTOR] 자동 너비 공통 해석. 시전 바 테두리는 CastBars.CreateBorder의 ScaleBorder(1)이다.
+    local initWidth = DDingUI:ResolveAutoWidth(anchor, 1, { owner = bar })
     bar:SetWidth(initWidth)
 
     CreateBorder(bar)
@@ -196,44 +185,53 @@ function CastBars:UpdateCastBarLayout()
     -- Mover 모드 중에는 위치/크기 재설정 건너뛰기 (드래그와 충돌 방지)
     local selfPoint = cfg.selfPoint or "CENTER" -- [FIX: selfPoint support]
     if not (DDingUI.Movers and DDingUI.Movers.ConfigMode) then
-        bar:ClearAllPoints()
-        bar:SetPoint(selfPoint, anchor, anchorPoint, desiredX, desiredY)
-        bar:SetHeight(DDingUI:Scale(height))
+        -- [REFACTOR] 위치·높이·폭은 값이 실제로 바뀔 때만 적용한다 (시전 시작·앵커 알림마다 다시 걸면 막대가 깜빡임)
+        local curPoint, curRel, curRelPoint, curX, curY = bar:GetPoint(1)
+        if bar:GetNumPoints() ~= 1 or curPoint ~= selfPoint or curRel ~= anchor or curRelPoint ~= anchorPoint
+            or curX ~= desiredX or curY ~= desiredY then
+            bar:ClearAllPoints()
+            bar:SetPoint(selfPoint, anchor, anchorPoint, desiredX, desiredY)
+        end
+        local scaledHeight = DDingUI:Scale(height)
+        if bar._ddLastHeight ~= scaledHeight or math.abs((bar:GetHeight() or 0) - scaledHeight) > 0.01 then
+            bar:SetHeight(scaledHeight)
+        end
+        bar._ddLastHeight = scaledHeight
 
         local width = cfg.width or 0
         if width <= 0 then
-            -- Auto width: get from viewer or anchor content width
-            local effectiveW, needsBorderComp = DDingUI:GetEffectiveAnchorWidth(anchor)
-            if effectiveW and effectiveW > 0 and effectiveW < 1000 and anchor ~= UIParent then
-                if needsBorderComp then
-                    local bComp = DDingUI:Scale(1)
-                    width = PixelSnap(effectiveW - 2 * bComp)
-                else
-                    width = PixelSnap(effectiveW)
-                end
-            else
-                width = 200
-            end
-            if width <= 0 then
-                width = 200
-            end
+            -- [REFACTOR] 자동 너비 공통 해석: 고정 상한(1000) 제거, 테두리 보정은 실제 테두리
+            -- ScaleBorder(1)(예전 Scale(1)), 실패 시 이 막대의 마지막 정상 자동 폭
+            width = DDingUI:ResolveAutoWidth(anchor, 1, { owner = bar })
         else
             width = DDingUI:Scale(width)
         end
 
-        bar:SetWidth(width)
+        -- 알림은 적용한 폭이 달라졌을 때만 (GetWidth 부동소수 차이로 매번 알리지 않게 마지막 적용 값과 비교)
+        local widthChanged = bar._ddLastWidth ~= width
+        if widthChanged or math.abs((bar:GetWidth() or 0) - width) > 0.01 then
+            bar:SetWidth(width)
+        end
+        bar._ddLastWidth = width
+        if widthChanged then DDingUI:NotifyAnchorWidthChanged("castBar") end
     end
 
-    if bar.border then
+    local showIcon = cfg.showIcon ~= false
+    -- [REFACTOR] 테두리·아이콘·상태 막대·배경의 앵커는 구성이 바뀔 때만 다시 건다
+    local borderOffset = DDingUI:Scale(1)
+    local innerLayoutKey = (showIcon and "icon" or "noicon") .. ":" .. tostring(borderOffset)
+        .. ":" .. tostring(bar._ddLastHeight)
+    local innerLayoutChanged = bar._ddInnerLayoutKey ~= innerLayoutKey
+    bar._ddInnerLayoutKey = innerLayoutKey
+
+    if bar.border and innerLayoutChanged then
         bar.border:ClearAllPoints()
-        local borderOffset = DDingUI:Scale(1)
         bar.border:SetPoint("TOPLEFT", bar, -borderOffset, borderOffset)
         bar.border:SetPoint("BOTTOMRIGHT", bar, borderOffset, -borderOffset)
     end
 
-    local showIcon = cfg.showIcon ~= false
-
     -- Icon: left side
+    if innerLayoutChanged then
     bar.icon:ClearAllPoints()
     if showIcon then
         bar.icon:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
@@ -256,18 +254,22 @@ function CastBars:UpdateCastBarLayout()
 
     bar.bg:ClearAllPoints()
     bar.bg:SetAllPoints(bar.status)
+    end -- innerLayoutChanged
 
     -- Update background color
     local bgColor = cfg.bgColor or { 0.1, 0.1, 0.1, 1 }
     bar.bg:SetColorTexture(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 1)
 
     -- Use GetTexture helper: if cfg.texture is set, use it; otherwise use global texture
+    -- [REFACTOR] 같은 텍스처를 다시 걸지 않는다 (SetStatusBarTexture 재적용이 채움 텍스처를 깜빡이게 함)
     local tex = DDingUI:GetTexture(cfg.texture)
-    bar.status:SetStatusBarTexture(tex)
-
-    local sbTex = bar.status:GetStatusBarTexture()
-    if sbTex then
-        sbTex:SetDrawLayer("BACKGROUND")
+    if bar.status._ddStatusTexture ~= tex or not bar.status:GetStatusBarTexture() then
+        bar.status:SetStatusBarTexture(tex)
+        bar.status._ddStatusTexture = tex
+        local sbTex = bar.status:GetStatusBarTexture()
+        if sbTex then
+            sbTex:SetDrawLayer("BACKGROUND")
+        end
     end
 
     -- Color
@@ -709,3 +711,18 @@ DDingUI.OnPlayerSpellcastChannelStart = function(self, unit, castGUID, spellID, 
 DDingUI.OnPlayerSpellcastChannelUpdate = function(self, unit, castGUID, spellID, castBarID) return CastBars:OnPlayerSpellcastChannelUpdate(unit, castGUID, spellID, castBarID) end
 
 
+-- [REFACTOR] 자동 너비 시전 바는 앵커(그룹 아이콘 줄, 주 자원 바 등) 폭이 바뀌면 바로 다시 맞춘다.
+-- 기본 시전 바 표시 전환을 함께 하므로 전투 중에는 건너뛰고, 전투 종료 시 그룹 렌더러의 알림으로 맞춘다.
+if DDingUI.RegisterAnchorWidthListener then
+    DDingUI:RegisterAnchorWidthListener(function(keys)
+        -- [REFACTOR] 시전 바 자신의 폭 알림만 온 경우는 다시 맞출 필요가 없다 (연쇄 재배치 방지)
+        if type(keys) == "table" and keys.castBar then
+            local others = false
+            for key in pairs(keys) do if key ~= "castBar" then others = true; break end end
+            if not others then return end
+        end
+        local cfg = DDingUI.db and DDingUI.db.profile and DDingUI.db.profile.castBar
+        if not (DDingUI.castBar and cfg and (cfg.width or 0) <= 0) or InCombatLockdown() then return end
+        CastBars:UpdateCastBarLayout()
+    end, 30)
+end

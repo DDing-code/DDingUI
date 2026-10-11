@@ -2806,28 +2806,6 @@ local function AssignedGridApplyTexCoord(texture, settings, kind)
     end
 end
 
-function DDingUI:GetDashboardBuffPreview(groupName)
-    -- Reuse assignment/catalog resolution; inactive auras may not own a frame yet.
-    local rows = CollectCDMRowsForGroup(groupName, nil, nil, false, true)
-    local icons = {}
-    local iconMap = self.CDMHookEngine and self.CDMHookEngine:GetIconMap() or {}
-    for _, row in ipairs(rows) do
-        local source = row.entry and iconMap[row.entry.cooldownID]
-        local ok, suppressed = pcall(function()
-            if source and source.IsForbidden and source:IsForbidden() then return true end
-            return source and (source._ddingHidden or source._ddSuppressed)
-        end)
-        if row.isBuffSpell and row.entry and ok and not (issecretvalue and issecretvalue(suppressed)) and not suppressed then
-            icons[#icons + 1] = ResolveCDMEntryIconTexture(row.entry, row.spellName, row.entry and row.entry.icon)
-        end
-    end
-    local settings = AssignedGridPreviewSettings(groupName)
-    local layout = AssignedGridBuildLayout(settings, #icons, groupName)
-    layout.icons, layout.settings = icons, settings
-    layout.ApplyTexCoord = AssignedGridApplyTexCoord
-    return layout
-end
-
 local function AssignedGridSetEdges(edges, r, g, b, a, thickness)
     if not edges then return end
     thickness = math.max(1, AssignedGridPixelSnap(thickness or 1))
@@ -7701,7 +7679,19 @@ local WORKSPACE_TEXT_SECTIONS = {
         "durationHeader", "enableDurationText", "durationTextFont", "durationTextSize",
         "durationTextColor", "durationTextAnchor", "durationTextOffsetX", "durationTextOffsetY",
     },
+    keybind = {
+        "showKeybinds", "keybindHeader", "keybindFont", "keybindFontSize", "keybindFontColor",
+        "keybindAnchor", "keybindOffsetX", "keybindOffsetY",
+    },
 }
+
+-- [REFACTOR] Keybind settings keep their existing Essential/Utility profile keys.
+function DDingUI:GetGroupKeybindViewer(groupName)
+    local viewerKey = GROUP_VIEWER_MAP[groupName]
+    if viewerKey == "EssentialCooldownViewer" or viewerKey == "UtilityCooldownViewer" then
+        return viewerKey
+    end
+end
 
 local function CloneWorkspaceOption(option, order)
     if type(option) ~= "table" then return nil end
@@ -7773,6 +7763,23 @@ function DDingUI:BuildGroupWorkspaceOptionPage(groupName, category, section)
     end
 
     if category == "text" then
+        -- [REFACTOR] Restore the existing viewer controls in the group workspace.
+        if section == "keybind" then
+            local viewerKey = self:GetGroupKeybindViewer(groupName)
+            local vo = viewerKey and ns.CreateSingleViewerOptions
+                and ns.CreateSingleViewerOptions(viewerKey, GROUP_DISPLAY_NAMES[groupName], 1)
+            local args = {}
+            CopyWorkspaceOptionList(args, vo and vo.args, WORKSPACE_TEXT_SECTIONS.keybind)
+            local function KeybindsDisabled()
+                return not args.showKeybinds or not args.showKeybinds.get()
+            end
+            for _, key in ipairs(WORKSPACE_TEXT_SECTIONS.keybind) do
+                if args[key] and key ~= "showKeybinds" and key ~= "keybindHeader" then
+                    args[key].disabled = KeybindsDisabled
+                end
+            end
+            return BuildWorkspacePage(L["Show Keybind Text"], args)
+        end
         local textArgs = BuildCustomTextArgs(groupName)
         local args = {}
         CopyWorkspaceOptionList(

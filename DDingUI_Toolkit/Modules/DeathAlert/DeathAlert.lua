@@ -71,13 +71,15 @@ end
 
 local function PlayDeathSound(key, channel, eventKey, priority, immediate)
     local soundFile = ResolveSoundFile(key)
-    if not soundFile then return false end
+    local soundKit = (key == nil or key == "") and ((SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959) or nil
+    if not soundFile and not soundKit then return false end
 
     if ns.RequestSound then
         return ns:RequestSound({
             source = "DeathAlert",
             key = eventKey or "death",
             soundFile = soundFile,
+            soundKit = soundKit,
             channel = channel or "Master",
             priority = priority or 75,
             dedupeWindow = 0,
@@ -85,7 +87,9 @@ local function PlayDeathSound(key, channel, eventKey, priority, immediate)
         })
     end
 
-    local played, willPlay = pcall(PlaySoundFile, soundFile, channel or "Master")
+    local played, willPlay
+    if soundFile then played, willPlay = pcall(PlaySoundFile, soundFile, channel or "Master")
+    else played, willPlay = pcall(PlaySound, soundKit, channel or "Master") end
     return played and willPlay ~= false
 end
 
@@ -243,7 +247,10 @@ function DeathAlert:UpdateVisuals()
     local db = ns.db.profile.DeathAlert
     if not db then return end
 
-    local font = LSM and LSM:Fetch("font", db.font or "2002") or (SL and SL.Font.path) or "Fonts\\2002.TTF"
+    local font = db.font
+    if not font or not font:find("[\\/]") then
+        font = LSM and LSM:Fetch("font", font or "2002", true) or (SL and SL.Font.path) or "Fonts\\2002.TTF"
+    end
     msgFrame.text:SetFont(font, db.fontSize or 24, "OUTLINE")
 
     local pos = db.position
@@ -255,22 +262,9 @@ function DeathAlert:UpdateVisuals()
         msgFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 100)
     end
 
-    if db.locked == false then
-        msgFrame:EnableMouse(true)
-        if not msgFrame.bg then
-            msgFrame.bg = msgFrame:CreateTexture(nil, "BACKGROUND")
-            msgFrame.bg:SetAllPoints()
-            msgFrame.bg:SetColorTexture(0, 1, 0, 0.3)
-        end
-        msgFrame.bg:Show()
-        msgFrame.text:SetText(L["DEATHALERT_TITLE"] .. " " .. L["POSITION_LOCKED"] .. " 해제됨")
-        msgFrame:SetAlpha(1)
-        msgFrame:Show()
-    else
-        msgFrame:EnableMouse(false)
-        if msgFrame.bg then msgFrame.bg:Hide() end
-        msgFrame:Hide()
-    end
+    msgFrame:EnableMouse(false)
+    if msgFrame.bg then msgFrame.bg:Hide() end
+    msgFrame:Hide()
 end
 
 ------------------------------------------------------
@@ -339,7 +333,7 @@ function DeathAlert:ShowMessage(text, role, name, isTest)
         end
 
         -- 일반 사운드
-        if not playedRoleSound and HasSoundSelection(db.soundFile) then
+        if not playedRoleSound and db.soundFile ~= "None" then
             PlayDeathSound(db.soundFile, db.soundChannel, "group-death", 75, isTest)
         end
     end

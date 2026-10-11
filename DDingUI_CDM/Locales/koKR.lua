@@ -874,6 +874,10 @@ L["Trinket Buff Slot 2"] = "장신구 2 강화효과"
 -- Buff Tracker WeakAuras-style Panel
 
 -- Movers / NudgeFrame
+-- [REFACTOR] 편집 모드 리모컨 (StyleLib CreateEditRemote)
+L["Edit Mode"] = "편집 모드"
+L["Anchor"] = "연결"
+L["Anchor legend"] = "좌클릭 앵커점 · 우클릭 기준점"
 L["Select Frame"] = "프레임 선택"
 L["Show Grid"] = "그리드 표시"
 L["Enable Snap"] = "스냅 활성화"

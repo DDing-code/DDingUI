@@ -1032,6 +1032,8 @@ end
 
 local function PlayConfiguredSound(soundKey)
     if not soundKey or soundKey == "none" or not LSM then return end
+    -- [REFACTOR] forced dashboard preview states must not play icon sounds
+    if DDingUI.IsLayoutPreviewForced and DDingUI:IsLayoutPreviewForced() then return end
     local path = LSM:Fetch("sound", soundKey, true)
     if path then
         PlaySoundFile(path, "Master")

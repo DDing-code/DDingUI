@@ -23,9 +23,9 @@ local toRemove = {}
 function CursorTrail:OnInitialize()
     self.db = ns.db.profile.CursorTrail
 
-    -- 기존 DB 마이그레이션: 노란색/흰색 텍스처 → 회색 원 (색상 정확도 + 원형)
+    -- 기존 DB 마이그레이션: 노란색 텍스처 → 회색 원 (색상 정확도 + 원형)
     if self.db.texture == "Interface\\COMMON\\Indicator-Yellow"
-    or self.db.texture == "Interface\\Buttons\\WHITE8x8" then
+    then
         self.db.texture = "Interface\\COMMON\\Indicator-Gray"
     end
 end
@@ -35,7 +35,7 @@ function CursorTrail:OnEnable()
     self:CreateTrailFrame()
     self:CreateElementPool()
 
-    if self.db.enabled and trailFrame then
+    if trailFrame then
         -- 커서 위치 초기화 (갑작스러운 트레일 점프 방지)
         local cursorX, cursorY = GetCursorPosition()
         local scale = UIParent:GetEffectiveScale()
@@ -72,7 +72,6 @@ end
 -- 비활성화
 function CursorTrail:OnDisable()
     isRunning = false
-    self.db.enabled = false
 
     -- OnUpdate 먼저 중지
     if trailFrame then
@@ -135,7 +134,7 @@ end
 
 -- OnUpdate 핸들러
 function CursorTrail:OnUpdate(elapsed)
-    if not self.db.enabled then return end
+    if not isRunning then return end
 
     -- 설정창이 열려있을 때는 새 트레일 생성 안함 (잔상 방지)
     if ns.ConfigUI and ns.ConfigUI:IsShown() then
@@ -362,37 +361,9 @@ end
 
 -- 트레일 토글
 function CursorTrail:Toggle()
-    self.db.enabled = not self.db.enabled
-    if self.db.enabled then
-        if trailFrame then
-            -- 커서 위치 초기화 (갑작스러운 트레일 점프 방지)
-            local cursorX, cursorY = GetCursorPosition()
-            local scale = UIParent:GetEffectiveScale()
-            lastX, lastY = cursorX / scale, cursorY / scale
-
-            trailFrame:Show()
-            trailFrame:SetScript("OnUpdate", function(_, elapsed)
-                self:OnUpdate(elapsed)
-            end)
-            isRunning = true
-        end
-    else
-        isRunning = false
-
-        -- OnUpdate 먼저 중지
-        if trailFrame then
-            trailFrame:SetScript("OnUpdate", nil)
-        end
-
-        -- 모든 요소 제거
-        self:ClearAllElements()
-
-        -- 프레임 숨기기
-        if trailFrame then
-            trailFrame:Hide()
-        end
-    end
-    return self.db.enabled
+    local enabled = not ns.db.profile.modules.CursorTrail
+    DDingToolKit:ToggleModule("CursorTrail", enabled)
+    return enabled
 end
 
 -- 모듈 등록

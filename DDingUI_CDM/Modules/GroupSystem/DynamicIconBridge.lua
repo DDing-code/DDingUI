@@ -597,6 +597,7 @@ function DynamicIconBridge:GetActiveIconsForGroup(sourceGroupKey, groupSettings,
     -- [FIX] 편집모드에서는 모든 아이콘 반환 (비활성 강화효과도 표시)
     local isEditMode = (DDingUI.Movers and DDingUI.Movers.ConfigMode)
         or (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive())
+        or (DDingUI.IsLayoutPreviewForced and DDingUI:IsLayoutPreviewForced()) -- [REFACTOR] dashboard preview
 
     -- 활성 아이콘 필터링
     local result = {}
@@ -1258,11 +1259,17 @@ end
 -- ============================================================
 
 function DynamicIconBridge:IsActive()
-    return initialized and layoutSuppressed
+    return layoutSuppressed
 end
 
 function DynamicIconBridge:SuppressCustomIconsLayout()
     layoutSuppressed = true
+    local ci = GetCustomIcons()
+    if ci and ci.GetGroupFrames then
+        for _, container in pairs(ci:GetGroupFrames() or {}) do
+            container:Hide()
+        end
+    end
 end
 
 function DynamicIconBridge:RestoreCustomIconsLayout()

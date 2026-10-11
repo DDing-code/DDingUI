@@ -29,7 +29,6 @@ ns.defaults = {
             PartyTracker = true,
             DeathAlert = true,
             DeathReleaseGuard = true,
-            MythicPlusHelper = true,
             GoldSplit = true,
             DurabilityCheck = true,
 
@@ -299,6 +298,8 @@ ns.defaults = {
         -- CombatTimer 설정
         CombatTimer = {
             showMilliseconds = true,
+            decimalPlaces = 2,
+            decimalFontSize = 0, -- [STYLE] 0 preserves the previous half-size fraction.
             showBackground = false,
             colorByTime = false,
             locked = false,
@@ -513,13 +514,6 @@ ns.defaults = {
             },
         },
 
-        -- MythicPlusHelper 설정
-        MythicPlusHelper = {
-            enabled = true,
-            showTeleports = true,
-            showScore = true,
-            scale = 1.0,
-        },
 
         -- GoldSplit (쌀숭이) 설정
         GoldSplit = {

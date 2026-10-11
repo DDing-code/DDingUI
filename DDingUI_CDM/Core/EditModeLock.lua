@@ -83,7 +83,7 @@ end
 local lockNoticeShown = false
 local function ShowLockNotice()
     if not lockNoticeShown then
-        DDingUI:Print("재사용 대기시간 뷰어는 DDingUI 편집모드(/dcm)로 관리됩니다.")
+        DDingUI:Print("재사용 대기시간 뷰어는 DDingUI 편집 모드(/dcm edit 또는 /ddmove)로 관리됩니다.")
         lockNoticeShown = true
     end
 end

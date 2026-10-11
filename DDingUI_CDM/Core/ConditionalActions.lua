@@ -634,7 +634,8 @@ local function ExecuteActions(actions, shouldFire, group, trackedBuffs)
 
         -- ─── 사운드 재생 ───
         elseif action.type == "play_sound" then
-            if shouldFire then
+            -- [REFACTOR] no condition sounds while the dashboard forces the layout preview
+            if shouldFire and not (DDingUI.IsLayoutPreviewForced and DDingUI:IsLayoutPreviewForced()) then
                 local now = GetTime()
                 local cooldown = action.cooldown or 3
                 if not group._lastSoundTime or (now - group._lastSoundTime) >= cooldown then

@@ -3,7 +3,7 @@
 ## Notes: Modular utility addon (Talent Background, LFG Alert, etc.)
 ## Notes-koKR: 모듈형 유틸리티 애드온 (특성창 배경, 파티 신청 알림 등)
 ## Author: DDing
-## Version: 2.2.0
+## Version: 2.2.2
 ## IconTexture: Interface\AddOns\DDingUI_Toolkit\logo
 ## SavedVariables: DDingUIToolkitDB
 ## OptionalDeps: DDingUI_Controller, DDingUI_StyleLib, BigWigs
@@ -41,6 +41,7 @@ Libs\DDingUI_StyleLib\DragSorter.lua
 Libs\DDingUI_StyleLib\DualRow.lua
 # StyleLib Widgets
 Libs\DDingUI_StyleLib\Widgets.lua
+Libs\DDingUI_StyleLib\EditMode.lua
 Libs\DDingUI_StyleLib\ProceduralGlow.lua
 
 # Localization
@@ -56,6 +57,7 @@ Media\SoundManager.lua
 Core\Database.lua
 Core\Profiles.lua
 Core\Core.lua
+Core\CombatSession.lua
 Core\SlashCommands.lua
 Core\MinimapButton.lua
 Core\Movers.lua
@@ -72,6 +74,7 @@ UI\NewModulePopup.lua
 # UI
 UI\Themes.lua
 UI\Templates.lua
+UI\ReadyStatus.lua
 
 # Modules - TalentBG
 Modules\TalentBG\Presets.lua
@@ -102,9 +105,6 @@ Modules\ItemLevel\ItemLevel.lua
 Modules\Notepad\Notepad.lua
 
 
-# Modules - MythicPlusHelper
-Modules\MythicPlusHelper\MythicPlusHelper.lua
-Modules\MythicPlusHelper\AffixProbe.lua
 
 # Modules - GoldSplit
 Modules\GoldSplit\GoldSplit.lua

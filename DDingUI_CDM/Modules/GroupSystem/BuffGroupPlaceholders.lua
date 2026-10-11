@@ -259,7 +259,10 @@ end
 
 function Placeholders:BuildPlacements(groupName, settings, activeTokens)
     local state = groups[groupName]
-    if not settings or not HasForcedInactiveBuff() then
+    -- [REFACTOR] dashboard layout preview: every configured inactive buff gets its placeholder
+    -- (with its own inactive style), like "always show" does in game.
+    local forced = DDingUI.IsLayoutPreviewForced and DDingUI:IsLayoutPreviewForced()
+    if not settings or not (forced or HasForcedInactiveBuff()) then
         if state then
             for _, frame in pairs(state) do
                 frame._ddLayoutVisible = false
@@ -283,6 +286,7 @@ function Placeholders:BuildPlacements(groupName, settings, activeTokens)
 
     for _, token in ipairs(tokens) do
         local visible, desaturated, inactiveAlpha = ResolveInactiveDisplay(token)
+        if forced then visible = true end
         local frame = state[token]
         if visible and not frame then
             local texture = ResolveSpellTexture(token, GetSpellNameFromToken(token))
@@ -298,10 +302,13 @@ function Placeholders:BuildPlacements(groupName, settings, activeTokens)
             end
         elseif visible and frame then
             frame._ddLayoutVisible = true
+            -- [REFACTOR] dashboard forced layout: show the buff as it looks while active
+            -- (no gray, active alpha, active crop). Edit mode / always-show keep the inactive style.
             placements[#placements + 1] = {
                 isPlaceholder = true,
-                inactiveGray = desaturated,
-                inactiveAlpha = inactiveAlpha,
+                inactiveGray = (not forced) and desaturated or false,
+                inactiveAlpha = (not forced) and inactiveAlpha or nil,
+                activeLook = forced or nil,
                 icon = frame,
                 sourceVisible = true,
                 _ddOrderToken = token,

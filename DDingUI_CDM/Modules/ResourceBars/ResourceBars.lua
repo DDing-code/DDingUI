@@ -43,19 +43,12 @@ function ResourceBars.IsInGracePeriod()
     return GetTime() < gracePeriodUntil
 end
 
--- 바의 마지막 너비를 자동너비 폴백용으로 저장
-local function SaveBarFallbackWidth(bar)
-    if not bar then return end
-    if bar._lastWidth and bar._lastWidth > 0 then
-        bar._graceFallbackWidth = bar._lastWidth
-    end
-end
+-- [REFACTOR] 자동 너비 폴백은 DDingUI:ResolveAutoWidth가 막대별 마지막 "정상" 자동 폭으로 관리한다.
+-- 예전 _graceFallbackWidth는 폴백 200까지 기억해 앵커가 돌아와도 200에 붙잡혔다.
 
 -- Invalidate cached position/size values (force recalculation)
 local function InvalidateBarCaches()
     if DDingUI.powerBar then
-        -- 자동너비 폴백용 마지막 너비 저장
-        SaveBarFallbackWidth(DDingUI.powerBar)
         DDingUI.powerBar._lastAnchor = nil
         DDingUI.powerBar._lastAnchorPoint = nil
         DDingUI.powerBar._lastOffsetX = nil
@@ -68,7 +61,6 @@ local function InvalidateBarCaches()
         DDingUI.powerBar._anchorRetryCount = 0
     end
     if DDingUI.secondaryPowerBar then
-        SaveBarFallbackWidth(DDingUI.secondaryPowerBar)
         DDingUI.secondaryPowerBar._lastAnchor = nil
         DDingUI.secondaryPowerBar._lastAnchorPoint = nil
         DDingUI.secondaryPowerBar._lastOffsetX = nil
@@ -80,6 +72,14 @@ local function InvalidateBarCaches()
         DDingUI.secondaryPowerBar._anchorRetryScheduled = nil
         DDingUI.secondaryPowerBar._anchorRetryCount = 0
     end
+end
+
+-- [REFACTOR] 앵커 폭이 바뀌면(그룹 아이콘 줄, 다른 막대) 주 자원·보조 자원 바를 바로 다시 맞춘다.
+if DDingUI.RegisterAnchorWidthListener then
+    DDingUI:RegisterAnchorWidthListener(function()
+        if ResourceBars.UpdatePowerBar then ResourceBars:UpdatePowerBar() end
+        if ResourceBars.UpdateSecondaryPowerBar then ResourceBars:UpdateSecondaryPowerBar() end
+    end, 10)
 end
 
 -- Get functions from sub-modules
@@ -244,12 +244,9 @@ local function HookViewerOnShow()
             if not IsHooked(viewer, "resourceBarWatching") then
                 SetHooked(viewer, "resourceBarWatching")
                 viewer:HookScript("OnShow", function()
-                    -- Multiple delayed updates to ensure bar shows after viewer stabilizes
+                    -- [REFACTOR] 뷰어가 다시 보이면 한 번 갱신한다. 이후 아이콘 줄 폭이 정해지면
+                    -- 그룹 렌더러의 NotifyAnchorWidthChanged가 다시 부르므로 0.3초 재시도는 없앴다.
                     C_Timer.After(0.1, function()
-                        ResourceBars:UpdatePowerBar()
-                        ResourceBars:UpdateSecondaryPowerBar()
-                    end)
-                    C_Timer.After(0.3, function()
                         ResourceBars:UpdatePowerBar()
                         ResourceBars:UpdateSecondaryPowerBar()
                     end)

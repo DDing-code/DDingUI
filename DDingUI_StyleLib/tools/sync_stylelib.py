@@ -51,7 +51,7 @@ PRIVATE = {
     "DDingUI_FX": {
         "major": "DDingUI-FX-StyleLib-1.0",
         "files": {"Core.lua", "Colors.lua", "Gradient.lua", "Motion.lua",
-                  "Widgets.lua", "DesignTokens.lua"},
+                  "Widgets.lua", "DesignTokens.lua", "EditMode.lua"},
         "core": [
             ("-- 하위 호환: 글로벌 참조 유지\nDDingUI_StyleLib = lib",
              "-- 하위 호환: 글로벌 참조 유지\nlocal DDingUI_StyleLib = lib"),

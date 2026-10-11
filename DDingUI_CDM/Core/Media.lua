@@ -7,7 +7,7 @@ local LSM = LibStub("LibSharedMedia-3.0")
 LSM:Register("font","Expressway", [[Interface\AddOns\DDingUI_CDM\Fonts\Expressway.TTF]])
 
 -- Register sounds (WoW built-in sounds for buff tracking)
-LSM:Register("sound", "None", [[]])
+-- [REFACTOR] LSM이 제공하는 None을 사용한다. 빈 경로 재등록은 최신 파일 검증에서 실패한다.
 LSM:Register("sound", "Alarm Clock Warning 1", [[Sound\Interface\AlarmClockWarning1.ogg]])
 LSM:Register("sound", "Alarm Clock Warning 2", [[Sound\Interface\AlarmClockWarning2.ogg]])
 LSM:Register("sound", "Alarm Clock Warning 3", [[Sound\Interface\AlarmClockWarning3.ogg]])

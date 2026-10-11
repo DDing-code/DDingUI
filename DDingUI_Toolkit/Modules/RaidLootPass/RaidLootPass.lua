@@ -297,6 +297,7 @@ function RaidLootPass:OnInitialize()
 end
 
 function RaidLootPass:OnEnable()
+    self.active = true
     self:RegisterEvents()
     C_Timer.After(1, function()
         self:EvaluateInstance()
@@ -304,6 +305,7 @@ function RaidLootPass:OnEnable()
 end
 
 function RaidLootPass:OnDisable()
+    self.active = false
     if eventFrame then
         eventFrame:UnregisterAllEvents()
     end
@@ -351,7 +353,7 @@ function RaidLootPass:RegisterEvents()
 end
 
 function RaidLootPass:ApplySettings()
-    if self.db.enabled then
+    if self.active then
         self:EvaluateInstance()
     else
         ns.UI:HideConfirmation(CONFIRMATION_KEY)
@@ -364,7 +366,7 @@ function RaidLootPass:ApplySettings()
 end
 
 function RaidLootPass:EvaluateInstance()
-    if not self.db.enabled then
+    if not self.active then
         return
     end
 
@@ -444,7 +446,7 @@ function RaidLootPass:DeclineInstance(key)
 end
 
 function RaidLootPass:ShouldAutoPass()
-    if not self.db.enabled or not currentInstanceKey or IsRaidLeader() then
+    if not self.active or not currentInstanceKey or IsRaidLeader() then
         return false
     end
     return instanceDecisions[currentInstanceKey] == true

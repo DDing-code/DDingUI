@@ -111,6 +111,9 @@ local function SetValue(setting, value)
     ns:SetDBValue(setting.key, value)
     if setting.onChange then setting.onChange(value) end
     QueueDetailPreviewRefresh()
+    if setting.refreshPanel then
+        C_Timer.After(0, function() if activePanel then ConfigUI:RefreshCurrentPanel() end end)
+    end
     if setting.reloadRequired then
         StaticPopup_Show("DDINGTOOLKIT_RELOAD_CONFIRM")
     end
@@ -194,7 +197,6 @@ local function CreateSoundWidget(parent, setting)
             {
                 inputWidth = 230,
                 maxLetters = 256,
-                tooltip = L and L["SOUND_CUSTOM_PATH_HELP"] or "Enter the path relative to the WoW _retail_ folder.\nExample: Interface\\abc.ogg",
                 onChange = function(value)
                     ns:SetDBValue(customKey, value)
                     if setting.customPathOnChange and setting.onChange then
@@ -468,7 +470,7 @@ local function CreateDetailPreview(parent, panelKey)
     if not ModuleSupportsPreview(panelKey) then return nil end
 
     local preview = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    preview:SetHeight(76)
+    preview:SetHeight(52)
     preview:SetBackdrop({
         bgFile = SOLID,
         edgeFile = SOLID,
@@ -496,16 +498,8 @@ local function CreateDetailPreview(parent, panelKey)
     local title = preview:CreateFontString(nil, "OVERLAY")
     title:SetFont(F.path, F.normal, "")
     title:SetTextColor(u(C.text.highlight))
-    title:SetPoint("TOPLEFT", preview, "TOPLEFT", 16, -14)
+    title:SetPoint("LEFT", preview, "LEFT", 16, 0)
     title:SetText(LT("DETAIL_PREVIEW_TITLE", "Live preview"))
-
-    local desc = preview:CreateFontString(nil, "OVERLAY")
-    desc:SetFont(F.path, F.small, "")
-    desc:SetTextColor(u(C.text.dim))
-    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -7)
-    desc:SetPoint("RIGHT", preview, "RIGHT", -170, 0)
-    desc:SetJustifyH("LEFT")
-    desc:SetText(LT("DETAIL_PREVIEW_DESC", "Show the real element while adjusting its settings."))
 
     local previewButton
     previewButton = Widgets.CreateButton(preview, ADDON_KEY,
@@ -568,9 +562,10 @@ local function BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
     end
 
     for index = #sections, 1, -1 do
-        if #sections[index].settings == 0 then
-            table.remove(sections, index)
-        end
+        local settings = sections[index].settings
+        while settings[1] and settings[1].type == "separator" do table.remove(settings, 1) end
+        while settings[#settings] and settings[#settings].type == "separator" do table.remove(settings) end
+        if #settings == 0 then table.remove(sections, index) end
     end
     return sections
 end
@@ -737,11 +732,6 @@ local function RenderSettingsPanel(container, panelDef)
                 tooltip = s.desc,
                 onChange = function(value)
                     SetValue(s, value)
-                    if s.refreshPanel then
-                        C_Timer.After(0, function()
-                            if activePanel then ConfigUI:RefreshCurrentPanel() end
-                        end)
-                    end
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -757,9 +747,7 @@ local function RenderSettingsPanel(container, panelDef)
                 searchable = s.searchable,
                 tooltip = s.desc,
                 onChange = function(value)
-                    ns:SetDBValue(s.key, value)
-                    if s.onChange then s.onChange(value) end
-                    QueueDetailPreviewRefresh()
+                    SetValue(s, value)
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -901,6 +889,7 @@ local function RenderSettingsPanel(container, panelDef)
 end
 
 local function RenderSectionedPanel(container, panelDef, panelKey)
+    container:SetScript("OnSizeChanged", nil)
     local usesWorkspaceHeader = settingsPanel and settingsPanel.workspace and panelDef.moduleEnableKey
     local sections = BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
     if #sections < 2 then
@@ -948,15 +937,20 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
     sectionTitle:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
     yOff = yOff - 24
 
-    local availableWidth = math.max((container:GetWidth() or 720) - pad * 2, 480)
-    local columnCount = math.min(#sections, 4)
-    if #sections == 5 then columnCount = 3 end
     local gap = 6
-    local tabWidth = math.floor((availableWidth - (columnCount - 1) * gap) / columnCount)
-    local rowCount = math.ceil(#sections / columnCount)
-    local tabAreaHeight = rowCount * 32 + (rowCount - 1) * gap
     local tabs = {}
     local bodies = {}
+
+    -- [STYLE] Long tab names must fit the actual detail pane, including narrow windows.
+    local measure = container._sectionLabelMeasure or container:CreateFontString(nil, "OVERLAY")
+    container._sectionLabelMeasure = measure
+    measure:SetFont(F.path, F.small, "")
+    measure:Hide()
+    local minTabWidth = 1
+    for _, section in ipairs(sections) do
+        measure:SetText(section.label)
+        minTabWidth = math.max(minTabWidth, math.ceil(measure:GetStringWidth()) + 20)
+    end
 
     local selectedId = panelSectionState[panelKey]
     local selectedIndex = 1
@@ -967,7 +961,7 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
         end
     end
 
-    local bodyTop = yOff - tabAreaHeight - 12
+    local bodyTop = yOff
     local function EnsureSectionBody(index)
         if bodies[index] then return bodies[index] end
         local body = CreateFrame("Frame", nil, container)
@@ -1002,25 +996,42 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
 
     for index, section in ipairs(sections) do
         local sectionIndex = index
-        local row = math.floor((index - 1) / columnCount)
-        local column = (index - 1) % columnCount
         local tab = CreateSectionTab(container, section.label, function()
             ActivateSection(sectionIndex)
         end)
-        tab:SetWidth(tabWidth)
-        tab:SetPoint(
-            "TOPLEFT",
-            container,
-            "TOPLEFT",
-            pad + column * (tabWidth + gap),
-            yOff - row * (32 + gap)
-        )
         tabs[index] = tab
     end
 
     container._sectionTabs = tabs
     container._sectionBodies = bodies
-    ActivateSection(selectedIndex)
+    local lastWidth
+    local function LayoutSections(_, width)
+        if width == lastWidth then return end
+        lastWidth = width
+        local availableWidth = math.max(width - pad * 2, 1)
+        local maxColumns = #sections == 5 and 3 or 4
+        local columnCount = math.max(1, math.min(#sections, maxColumns,
+            math.floor((availableWidth + gap) / (minTabWidth + gap))))
+        local tabWidth = math.floor((availableWidth - (columnCount - 1) * gap) / columnCount)
+        local rowCount = math.ceil(#sections / columnCount)
+        bodyTop = yOff - (rowCount * 32 + (rowCount - 1) * gap) - 12
+        for index, tab in ipairs(tabs) do
+            -- [STYLE] A pending entrance must not restore the old column positions after reflow.
+            if Lib.StopMotion then Lib.StopMotion(tab, "staggerIn") end
+            tab:SetAlpha(1)
+            tab:SetWidth(tabWidth)
+            tab:SetPoint("TOPLEFT", container, "TOPLEFT",
+                pad + ((index - 1) % columnCount) * (tabWidth + gap),
+                yOff - math.floor((index - 1) / columnCount) * (32 + gap))
+        end
+        for _, body in pairs(bodies) do
+            body:SetPoint("TOPLEFT", container, "TOPLEFT", 0, bodyTop)
+            body:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, bodyTop)
+        end
+        ActivateSection(selectedIndex)
+    end
+    container:SetScript("OnSizeChanged", LayoutSections)
+    LayoutSections(container, container:GetWidth())
 
     if panelDef.moduleEnableKey then
         CreateModuleOverlay(container, 0)
@@ -1250,7 +1261,7 @@ local fullMenuData = nil  -- 트리 필터링용 원본 저장
 
 -- 검색 가능한 위젯 타입
 local SEARCHABLE_TYPES = {
-            toggle = true, slider = true, dropdown = true, input = true,
+    toggle = true, slider = true, dropdown = true, input = true,
     sound = true, font = true, statusbar = true,
     color = true, button = true, separator = true,
 }
@@ -1275,7 +1286,8 @@ local function BuildSearchIndex()
     buildMenuLookup(tree.menu)
 
     for key, panelDef in pairs(tree.panels) do
-        local panelTitle = menuLookup[key] or panelDef.title or key
+        local targetKey = settingsPanel and settingsPanel.workspace and key == "general" and "profile" or key
+        local panelTitle = menuLookup[targetKey] or tree.panels[targetKey].title or targetKey
         local settings = panelDef.settings
         if settings then
             for _, s in ipairs(settings) do
@@ -1283,7 +1295,7 @@ local function BuildSearchIndex()
                     index[#index + 1] = {
                         name = s.label,
                         nameLower = s.label:lower(),
-                        panelKey = key,
+                        panelKey = targetKey,
                         panelTitle = panelTitle,
                         type = s.type,
                     }
@@ -1580,10 +1592,24 @@ function ConfigUI:Initialize()
     end
 
     -- 메인 패널
-    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0" -- [12.0.1] GetAddOnMetadata 폴백 제거
+    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.2" -- [12.0.1] GetAddOnMetadata 폴백 제거
+
+    -- [STYLE] C12: the title bar owns the series "편집 모드" button (StyleLib CreateTitleBar opts.editMode).
+    -- Movers closes this window on entry and reopens it when edit mode ends.
+    local editModeOpts = {
+        onClick = function()
+            if ns.ToolkitMovers and ns.ToolkitMovers.ToggleConfigMode then
+                ns.ToolkitMovers:ToggleConfigMode()
+            end
+        end,
+        isActive = function()
+            return ns.ToolkitMovers and ns.ToolkitMovers.IsActive and ns.ToolkitMovers:IsActive() or false
+        end,
+    }
 
     if ns.ToolkitWorkspace and ns.ToolkitWorkspace.Create then
         settingsPanel = ns.ToolkitWorkspace:Create("DDingUI Toolkit", version, {
+            editMode = editModeOpts,
             width = 1180,
             height = 720,
             minWidth = 930,
@@ -1603,6 +1629,7 @@ function ConfigUI:Initialize()
     else
         settingsPanel = Lib.CreateSettingsPanel(ADDON_KEY, "DDingUI Toolkit", version, {
             width = 920, height = 620, menuWidth = 200,
+            editMode = editModeOpts, -- [STYLE] C12 shared title-bar button
         })
     end
     EnableRightClickMouselook(settingsPanel.frame)
@@ -1629,38 +1656,20 @@ function ConfigUI:Initialize()
 
     -- 검색 박스 (타이틀바 우측, 닫기 버튼 좌측)
     local searchBox = Widgets.CreateSearchBox(settingsPanel.titleBar, 200)
-    local searchAnchor = settingsPanel.titleBar.scaleControl or settingsPanel.titleBar.closeBtn -- [STYLE] GUI scale sits left of close
+    -- [STYLE] right to left: close · 편집 모드 · GUI 크기 · search
+    local titleBar = settingsPanel.titleBar
+    local searchAnchor = titleBar.scaleControl or titleBar.editButton or titleBar.closeBtn
     searchBox:SetPoint("RIGHT", searchAnchor, "LEFT", -10, 0)
     settingsPanel.searchBox = searchBox
 
-    local editModeButton = Widgets.CreateButton(
-        settingsPanel.titleBar,
-        ADDON_KEY,
-        LT("EDIT_MODE", "Edit Mode"),
-        function()
-            settingsPanel.frame:Hide()
-            C_Timer.After(0, function()
-                if ns.ToolkitMovers and ns.ToolkitMovers.ToggleConfigMode then
-                    ns.ToolkitMovers:ToggleConfigMode()
-                end
-            end)
-        end,
-        {
-            width = 104,
-            height = 24,
-            tooltip = LT("EDIT_MODE_DESC", "Move and align Toolkit frames."),
-        }
-    )
-    editModeButton:SetPoint("RIGHT", searchBox, "LEFT", -8, 0)
+    local editModeButton = titleBar.editButton -- both panel paths pass opts.editMode
     settingsPanel.editModeButton = editModeButton
 
-    local function RefreshEditModeButton(active)
-        if not editModeButton or not editModeButton.label then return end
-        editModeButton.label:SetText(active and LT("EDIT_MODE_ACTIVE", "Editing") or LT("EDIT_MODE", "Edit Mode"))
-        editModeButton:SetAlpha(active and 1 or 0.92)
+    local function RefreshEditModeButton()
+        if editModeButton and editModeButton.Refresh then editModeButton:Refresh() end
     end
     if ns.ToolkitMovers and ns.ToolkitMovers.RegisterStateCallback then
-        ns.ToolkitMovers:RegisterStateCallback(RefreshEditModeButton)
+        ns.ToolkitMovers:RegisterStateCallback(RefreshEditModeButton) -- edit mode entry/exit
     end
 
     -- 검색 박스 연결: 트리 필터 + 콘텐츠 검색
@@ -1686,7 +1695,7 @@ function ConfigUI:Initialize()
     -- OnShow → 활성 패널 표시
     settingsPanel.frame:HookScript("OnShow", function()
         local key = treeMenu:GetSelected() or (settingsPanel.workspace and "overview" or "general")
-        RefreshEditModeButton(ns.ToolkitMovers and ns.ToolkitMovers:IsActive())
+        RefreshEditModeButton()
         ShowPanel(key)
     end)
     settingsPanel.frame:HookScript("OnHide", function()
@@ -1717,7 +1726,7 @@ end
 ------------------------------------------------------
 function ConfigUI:Show()
     if ns.ToolkitMovers and ns.ToolkitMovers.IsActive and ns.ToolkitMovers:IsActive() then
-        ns.ToolkitMovers:ToggleConfigMode()
+        ns.ToolkitMovers:ToggleConfigMode({ reopenConfig = false }) -- this call opens the window itself
     end
     local p = self:Initialize()
     if p then

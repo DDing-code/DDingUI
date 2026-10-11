@@ -84,7 +84,7 @@ function TotemTracker:UpdateFrame(frame, iconData, suppressLayoutRefresh, author
     if GetTotemDuration then
         durationObject = GetTotemDuration(slot)
         FeedDurationObject(frame.cooldownProbe, durationObject)
-        observedActive = frame.cooldownProbe and frame.cooldownProbe:IsShown() and true or false
+        observedActive = durationObject ~= nil
     elseif GetTotemInfo and frame.cooldownProbe then
         observedActive = FeedLegacyDuration(frame, slot)
     end

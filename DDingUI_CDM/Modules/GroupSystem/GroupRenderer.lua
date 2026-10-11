@@ -40,6 +40,10 @@ regenFrame:SetScript("OnEvent", function()
                 frame._pendingLayoutW = nil
                 frame._pendingLayoutH = nil
             end
+            -- [REFACTOR] 미뤄 둔 아이콘 줄 폭을 컨테이너 크기와 같은 시점에 적용하고 막대에 알림
+            if frame._pendingIconRowWidth and GroupRenderer.CommitIconRowWidth then
+                GroupRenderer.CommitIconRowWidth(frame, frame._pendingIconRowViewer, frame._pendingIconRowWidth)
+            end
             if frame._pendingProxySync then
                 local proxy = frame._pendingProxySync
                 local finalW = frame._pendingProxyW
@@ -1103,6 +1107,11 @@ local ITEM_EFFECT_IDS = {
     [241289] = 1236994,
     [245902] = 1236994,
     [245903] = 1236994,
+    -- [12.0.1] Liquid Luster item/effect matching follows the other stat potions.
+    [271887] = 1295132,
+    [271886] = 1295132,
+    [274764] = 1295132,
+    [274763] = 1295132,
     [241300] = 1234770,
     [241301] = 1234770,
     [245917] = 1234770,
@@ -2337,6 +2346,44 @@ local function ComputePhantomShiftY(finalH, snappedH, secondary, phantomSecondar
     return (finalH - snappedH) / 2
 end
 
+-- [REFACTOR] 아이콘이 한 번도 없던 그룹의 아이콘 줄 기준 폭: phantom과 같은 한 줄
+-- (rowLimit, 0이면 9칸). 세로 배치는 한 열 폭.
+local function ComputeIconRowBasis(viewerSettings, viewerName)
+    local iconW = ComputeIconDimensions(viewerSettings)
+    local spacing = ComputeSpacing(viewerSettings)
+    local limit = viewerSettings.rowLimit or 0
+    if limit <= 0 then limit = 9 end
+    local _, _, _, layoutType = ResolveDirections(viewerName, viewerSettings, 2)
+    if layoutType == "VERTICAL" then return math_max(PixelSnap(iconW), 1) end
+    return math_max(PixelSnap(limit * iconW + (limit - 1) * spacing), 1)
+end
+
+-- [REFACTOR] __cdmIconWidth = "아이콘 줄 폭"만. 쓰는 곳은 그룹 렌더러뿐이다.
+-- 이름 있는 컨테이너의 SetSize가 전투 종료로 미뤄질 때는 줄 폭도 같이 미뤄서
+-- 붙은 막대와 앵커가 함께 움직이게 한다. 값이 실제로 바뀌면 붙은 막대에 알린다.
+local function CommitIconRowWidth(frame, viewerName, rowWidth)
+    if not frame or type(rowWidth) ~= "number" or rowWidth <= 0 then return end
+    if InCombatLockdown() and frame.GetName and frame:GetName() then
+        frame._pendingIconRowWidth = rowWidth
+        frame._pendingIconRowViewer = viewerName
+        return
+    end
+    frame._pendingIconRowWidth = nil
+    frame._pendingIconRowViewer = nil
+    local changed = frame.__cdmIconWidth ~= rowWidth
+    frame.__cdmIconWidth = rowWidth
+    -- 원본 뷰어에도 미러링 (뷰어 이름으로 붙은 경우 대비)
+    local viewerFrame = viewerName and _G[viewerName]
+    if viewerFrame then
+        viewerFrame.__cdmIconWidth = rowWidth
+    end
+    if changed and DDingUI.NotifyAnchorWidthChanged then
+        DDingUI:NotifyAnchorWidthChanged(frame._groupName or viewerName or "group")
+    end
+end
+GroupRenderer.CommitIconRowWidth = CommitIconRowWidth
+GroupRenderer.ComputeIconRowBasis = ComputeIconRowBasis
+
 -- gs.groups[name] → LayoutGroup 입력 변환 (UpdateGroup·지연 재배치·옵션 미리보기 공용)
 function GroupRenderer.BuildLayoutSettings(groupSettings, groupOffsets)
     groupSettings = groupSettings or {}
@@ -2937,7 +2984,11 @@ function GroupRenderer:UpdateGroup(groupName, iconList, groupSettings, allowSett
                 icon:SetScale(1)
                 icon:SetSize(baseIconW, baseIconH)
                 local placeholderBridge = DDingUI.DynamicIconBridge
-                if placeholderBridge and placeholderBridge.ApplyTexCoordCrop then
+                local skinCrop = DDingUI.IconViewers and DDingUI.IconViewers.ComputeIconTexCoord
+                if entry.activeLook and skinCrop and icon.icon then
+                    -- [REFACTOR] dashboard forced layout: same crop as the active CDM buff (SkinIcon)
+                    icon.icon:SetTexCoord(skinCrop(groupSettings))
+                elseif placeholderBridge and placeholderBridge.ApplyTexCoordCrop then
                     placeholderBridge.ApplyTexCoordCrop(icon.icon, groupSettings.zoom or 0.08, groupSettings.aspectRatioCrop or 1.0)
                 end
                 if placeholders then
@@ -3343,7 +3394,10 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
         end
         frame._lastLayoutW = phantomW
         frame._lastLayoutH = phantomH
-        frame.__cdmIconWidth = phantomW
+        -- [REFACTOR] 빈 그룹: 컨테이너/phantom 폭이 아니라 마지막으로 비어 있지 않던 아이콘 줄 폭을 유지.
+        -- 한 번도 아이콘이 없었다면 phantom 기준 한 줄 폭.
+        CommitIconRowWidth(frame, viewerName,
+            frame._ddLastIconRowWidth or ComputeIconRowBasis(viewerSettings, viewerName))
         local auraEngine = DDingUI.CustomIconAuraEngine
         if auraEngine and frame._groupName then auraEngine:MarkAnchor(frame._groupName) end
         return
@@ -3481,12 +3535,9 @@ function GroupRenderer:LayoutGroup(frame, viewerSettings, viewerName)
     end
 
     -- [REPARENT] __cdmIconWidth 동기화 (BuffTrackerBar, ResourceBars 등이 참조)
-    frame.__cdmIconWidth = snappedW
-    -- [FIX] 원본 뷰어에도 미러링 — 리소스바가 뷰어에서 직접 읽으므로
-    local viewerFrame = viewerName and _G[viewerName]
-    if viewerFrame then
-        viewerFrame.__cdmIconWidth = snappedW
-    end
+    -- [REFACTOR] 아이콘 줄 폭만 기록, 전투 중에는 컨테이너 SetSize와 함께 전투 종료로 미룸
+    frame._ddLastIconRowWidth = snappedW
+    CommitIconRowWidth(frame, viewerName, snappedW)
 
     -- [REPARENT] groupOffsets: 파티/레이드 상태별 아이콘 위치 보정
     -- ViewerLayout.GetGroupOffset 동일 로직

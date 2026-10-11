@@ -61,7 +61,7 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
     assert 'VoidcoreHelper = false' in database
     for option in ("autoPassDelves", "autoPassPrey"):
         assert f'{option} = true' in database
-        assert f'profile.VoidcoreHelper.{option}' in config
+        assert f'profile.VoidcoreHelper.{option}' not in config
     assert 'tree.panels["voidcorehelper"]' in config
     party = workspace.split('key = "party"', 1)[1].split('key = "alerts"', 1)[0]
     utility = workspace.split('key = "utility"', 1)[1].split('key = "classfeatures"', 1)[0]
@@ -80,7 +80,7 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
         assert all(f'L["{key}"]' in locale for key in keys)
 
 
-def test_side_content_auto_pass_respects_toggles_and_preserves_bis_guards():
+def test_outside_content_auto_pass_bypasses_consent_and_preserves_bis_guards():
     from lupa.lua51 import LuaRuntime
 
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -139,26 +139,30 @@ def test_side_content_auto_pass_respects_toggles_and_preserves_bis_guards():
         prompt(279284, 1)
         prompt(280131, 1)
 
-        -- Explicit opt-outs must not fall through into the generic ineligible pass.
+        -- Outside rewards always pass, including with old per-content opt-outs saved.
         db.entryPrompt, mod.sessionGuard = false, true
         db.autoPassDelves, db.autoPassPrey = false, true
-        prompt(279284, 0)
-        prompt(268969, 0)
+        prompt(279284, 1)
+        prompt(268969, 1)
         prompt(280131, 1)
         db.autoPassDelves, db.autoPassPrey = true, false
         prompt(279284, 1)
-        prompt(269768, 0)
-        prompt(280131, 0)
+        prompt(269768, 1)
+        prompt(280131, 1)
         db.autoPassPrey, db.guardNonTargets = true, false
-        prompt(279284, 0)
-        prompt(280131, 0)
+        prompt(279284, 1)
+        prompt(280131, 1)
+        for _, context in ipairs({ 0, 1, 2, 3, 4, 7, 8, 23 }) do
+            prompt(999999, 1, context)
+        end
         db.guardNonTargets, db.entryPrompt, mod.sessionGuard = true, true, nil
 
         prompt(279284, 0, 0, 0, 999) -- Ordinary loot is not a Voidcore offer.
         prompt(secret, 0)
         prompt(279284, 0, 0, 0, secret)
         prompt(280131, 0, 0, 0, 3513, secret)
-        prompt(999999, 0) -- No location-based guessing for unknown sources.
+        prompt(999999, 1) -- A public non-target context needs no location guess.
+        prompt(999999, 0, secret) -- An unknown protected context is not grounds to decline.
 
         -- Raid/dungeon offers retain instance consent and existing BIS handling.
         db.bisBySpec["257"] = {}
@@ -180,6 +184,84 @@ def test_side_content_auto_pass_respects_toggles_and_preserves_bis_guards():
         mod:OnEnable()
         DeclineSpellConfirmationPrompt = nil
         prompt(279284, 0)
+    ''')
+
+
+def test_entry_confirmation_only_runs_in_heroic_mythic_raids_and_keystones():
+    from lupa.lua51 import LuaRuntime
+
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(r'''
+        ns = { DDingToolKit = { RegisterModule = function() end },
+            db = { profile = { VoidcoreHelper = { guardNonTargets = true, entryPrompt = true } } },
+            UI = {} }
+        confirmations, shown = 0, false
+        function ns.UI:HideConfirmation() shown = false end
+        function ns.UI:ShowConfirmation(_, options)
+            confirmations, shown, confirmation = confirmations + 1, true, options
+        end
+        function LibStub() return {} end
+        eventFrame = {}
+        function eventFrame:RegisterEvent() end
+        function eventFrame:SetScript(_, callback) self.onEvent = callback end
+        function CreateFrame() return eventFrame end
+        C_Timer = { After = function(_, callback) callback() end }
+        kind, difficulty, instanceID = "none", 0, 100
+        function IsInInstance() return kind ~= "none", kind end
+        function GetInstanceInfo() return "Instance", kind, difficulty, "Mode", 0, 0, false, instanceID end
+        secret = {}
+        function issecretvalue(value) return value == secret end
+    ''')
+    lua.execute(
+        (ROOT / "Modules/VoidcoreHelper/VoidcoreHelper.lua").read_text(encoding="utf-8-sig"),
+        "DDingUI_Toolkit", lua.globals().ns,
+    )
+    lua.execute(r'''
+        local mod = ns.VoidcoreHelper
+        mod:OnEnable()
+        assert(confirmations == 0 and not shown)
+        for _, data in ipairs({
+            { "raid", 14 }, { "raid", 17 }, { "raid", 24 },
+            { "party", 1 }, { "party", 2 }, { "party", 23 }, { "party", 24 },
+            { "scenario", 208 }, { "pvp", 30 }, { "arena", 4 }, { "none", 0 },
+        }) do
+            kind, difficulty = data[1], data[2]
+            eventFrame.onEvent(eventFrame, "ZONE_CHANGED_NEW_AREA")
+            assert(confirmations == 0 and not shown and mod.currentInstanceKey == nil)
+            mod:ApplySettings()
+            assert(confirmations == 0 and not shown, "settings must not reopen outside confirmation")
+        end
+        for index, data in ipairs({ { "raid", 15 }, { "raid", 16 }, { "raid", 233 }, { "party", 8 } }) do
+            kind, difficulty, instanceID = data[1], data[2], 100 + index
+            local before = confirmations
+            eventFrame.onEvent(eventFrame, "PLAYER_ENTERING_WORLD")
+            assert(confirmations == before + 1 and shown)
+            confirmation.onAccept()
+            assert(mod:IsGuardActive())
+            confirmation.onCancel()
+            assert(not mod:IsGuardActive())
+            eventFrame.onEvent(eventFrame, "CHALLENGE_MODE_START")
+            assert(confirmations == before + 1, "same instance must not ask again")
+        end
+        local before = confirmations
+        -- Entering a normal dungeon clears a pending prompt; starting its keystone asks once.
+        kind, difficulty = "party", 23
+        eventFrame.onEvent(eventFrame, "ZONE_CHANGED_NEW_AREA")
+        assert(not shown and mod.currentInstanceKey == nil and mod.sessionGuard == nil)
+        difficulty = 8
+        eventFrame.onEvent(eventFrame, "CHALLENGE_MODE_START")
+        assert(confirmations == before + 1 and shown)
+        kind, difficulty = "raid", secret
+        eventFrame.onEvent(eventFrame, "ZONE_CHANGED_NEW_AREA")
+        assert(confirmations == before + 1 and not shown)
+        kind, difficulty, instanceID = "raid", 15, 200
+        mod:GetDB().entryPrompt = false
+        mod:ApplySettings()
+        eventFrame.onEvent(eventFrame, "PLAYER_ENTERING_WORLD")
+        assert(confirmations == before + 1 and not shown and mod:IsGuardActive())
+        mod:OnDisable()
+        eventFrame.onEvent(eventFrame, "ZONE_CHANGED_NEW_AREA")
+        assert(confirmations == before + 1 and not shown)
     ''')
 
 

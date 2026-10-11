@@ -110,14 +110,6 @@ local function CreateDisplayFrame(unit, globalName, positionKey)
     frame.text:SetJustifyH("CENTER")
     frame.text:SetWordWrap(false)
 
-    frame:SetScript("OnDragStart", function(self)
-        if not RangeDisplay.db or RangeDisplay.db.locked then return end
-        self:StartMoving()
-    end)
-    frame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        SaveFramePosition(self)
-    end)
 
     if ns.EnableRightClickMouselook then
         ns:EnableRightClickMouselook(frame)
@@ -218,7 +210,7 @@ function RangeDisplay:ApplySettings()
         frame.text:SetFont(font, fontSize, outline)
         frame.bg:SetVertexColor(0.015, 0.02, 0.035, bgAlpha)
         frame.accent:SetShown(self.db.showAccentLine ~= false)
-        frame:EnableMouse(not self.db.locked)
+        frame:EnableMouse(false)
         frame:RegisterForDrag("LeftButton")
         frame._colorKey = nil
     end

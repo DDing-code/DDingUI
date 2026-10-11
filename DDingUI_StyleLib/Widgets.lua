@@ -1249,9 +1249,24 @@ function Lib.CreateTitleBar(parent, addonName, title, version, opts)
     bar.titleText  = titleText
     bar.verText    = verText
     bar.closeBtn   = closeBtn
+    -- [STYLE] C12: 시리즈 공통 "편집 모드" 버튼. opts.editMode = { onClick = fn, isActive = fn }
+    -- 닫기(와 GUI 크기) 왼쪽에 놓이고, isActive()가 참이면 "편집 중"으로 바뀐다.
+    if opts.editMode and opts.editMode.onClick then
+        local em = opts.editMode
+        local editBtn = Lib.CreateButton(bar, addonName, "편집 모드", function() em.onClick() end,
+            { width = 76, height = 22 })
+        editBtn:SetPoint("RIGHT", closeBtn, "LEFT", -8, 0)
+        function editBtn:Refresh()
+            local active = em.isActive and em.isActive() or false
+            if self.label then self.label:SetText(active and "편집 중" or "편집 모드") end
+        end
+        editBtn:Refresh()
+        bar.editButton = editBtn
+    end
     if opts.scale then
         bar.scaleControl = Lib.CreateTitleScaleControl(bar, addonName, opts.scale)
-        bar.scaleControl:SetPoint("RIGHT", closeBtn, "LEFT", -8, 0)
+        -- 순서(오른쪽→왼쪽): 닫기 · 편집 모드 · GUI 크기
+        bar.scaleControl:SetPoint("RIGHT", bar.editButton or closeBtn, "LEFT", -8, 0)
     end
     return bar
 end
@@ -1634,13 +1649,40 @@ function Lib.CreateTreeMenu(parent, addonName, menuData, opts)
 end
 
 ------------------------------------------------------
+-- AllowOffscreen -- [STYLE]
+------------------------------------------------------
+Lib.OffscreenKeep = 64 -- 화면 안에 항상 남기는 폭/높이(px)
+
+--- 설정창을 화면 가장자리 밖으로 걸쳐 둘 수 있게 한다.
+--- 좌우·아래로는 keep 픽셀만 남기고 밀어낼 수 있고, 위쪽(제목줄)은 화면 안에 남아
+--- 언제든 다시 잡아 끌 수 있다. 창 크기가 바뀌면 범위를 다시 계산한다.
+--- @param frame Frame
+--- @param keep number|nil 화면 안에 남길 픽셀 (기본 Lib.OffscreenKeep)
+function Lib.AllowOffscreen(frame, keep)
+    if not frame or not frame.SetClampRectInsets then return end
+    frame._ddslOffscreenKeep = keep or frame._ddslOffscreenKeep or Lib.OffscreenKeep
+    local function apply(self)
+        local k = self._ddslOffscreenKeep or Lib.OffscreenKeep
+        local x = math.max(0, (self:GetWidth() or 0) - k)
+        local y = math.max(0, (self:GetHeight() or 0) - k)
+        self:SetClampRectInsets(x, -x, 0, y)
+    end
+    frame:SetClampedToScreen(true)
+    apply(frame)
+    if not frame._ddslOffscreenHooked then
+        frame._ddslOffscreenHooked = true
+        frame:HookScript("OnSizeChanged", apply)
+    end
+end
+
+------------------------------------------------------
 -- CreateSettingsPanel
 ------------------------------------------------------
 --- Full settings panel skeleton: titlebar + tree + scrollable content.
 --- @param addonName string
 --- @param title string
 --- @param version string
---- @param opts table|nil { width, height, minWidth, minHeight, menuWidth }
+--- @param opts table|nil { width, height, minWidth, minHeight, menuWidth, scale, editMode }
 --- @return table { frame, titleBar, treeFrame, contentScroll, contentChild }
 function Lib.CreateSettingsPanel(addonName, title, version, opts)
     opts = opts or {}
@@ -1711,7 +1753,7 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
 
     -- draggable
     frame:SetMovable(true)
-    frame:SetClampedToScreen(true)
+    Lib.AllowOffscreen(frame) -- [STYLE] 가장자리 밖으로 걸쳐 둘 수 있게
 
     -- resizable
     frame:SetResizable(true)
@@ -1748,7 +1790,8 @@ function Lib.CreateSettingsPanel(addonName, title, version, opts)
     end
 
     -- title bar (handles drag)
-    local titleBar = Lib.CreateTitleBar(frame, addonName, title, version, { scale = opts.scale }) -- [STYLE]
+    local titleBar = Lib.CreateTitleBar(frame, addonName, title, version,
+        { scale = opts.scale, editMode = opts.editMode }) -- [STYLE] C12 편집 모드 버튼도 전달
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
     titleBar:SetScript("OnDragStart", function() frame:StartMoving() end)

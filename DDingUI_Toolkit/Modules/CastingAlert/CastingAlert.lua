@@ -555,6 +555,7 @@ local function GetCurrentCastInfo(unit)
     end
 
     local targetName = GetTargetName(unit)
+    local targetsPlayer = GetTargetsPlayer(unit)
     local important = IsSpellImportant(spellID)
     local notInterruptible
     if isChannel then
@@ -576,8 +577,8 @@ local function GetCurrentCastInfo(unit)
         targetName = targetName,
         hasTargetNamePlain = HasValue(targetName),
         targetClassColor = GetTargetClassColor(unit),
-        targetsPlayerNamePlain = false,
-        targetsPlayerSecret = GetTargetsPlayer(unit),
+        targetsPlayerNamePlain = not IsSecretValue(targetsPlayer) and targetsPlayer == true,
+        targetsPlayerSecret = targetsPlayer,
         importantSecret = important,
         levelScore = GetUnitLevelScore(unit),
         raidTargetIndex = GetRaidTargetIndex(unit),
@@ -651,12 +652,14 @@ function CastingAlert:OnInitialize()
 end
 
 function CastingAlert:OnEnable()
+    self.active = true
     self:ApplyDefaults()
     self:RegisterSpecFrame()
     self:RefreshEnabledState()
 end
 
 function CastingAlert:OnDisable()
+    self.active = false
     if ns.CancelManagedSoundsBySource then ns:CancelManagedSoundsBySource("CastingAlert") end
     self:Stop()
     if self._specFrame then
@@ -678,7 +681,7 @@ function CastingAlert:RegisterSpecFrame()
 end
 
 function CastingAlert:ShouldRun()
-    if not self.db or not self.db.enabled then
+    if not self.db or not self.active then
         return false
     end
 
@@ -1684,10 +1687,10 @@ function CastingAlert:EnterPreview()
 
     if iconAnchorFrame then
         iconAnchorFrame:SetScale(NumberValue(self.db.scale, 1, 0.3, 3))
-        iconAnchorFrame:EnableMouse(true)
         if ns.EnableRightClickMouselook then
             ns:EnableRightClickMouselook(iconAnchorFrame)
         end
+        iconAnchorFrame:EnableMouse(false)
         iconAnchorFrame:Show()
     end
 

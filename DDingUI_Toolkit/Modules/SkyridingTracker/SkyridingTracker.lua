@@ -240,7 +240,7 @@ function SkyridingTracker:CreateHUD()
                 self._currentAlpha = self._currentAlpha + (diff > 0 and speed or -speed)
             end
             f:SetAlpha(self._currentAlpha)
-            f:EnableMouse(self._currentAlpha > 0.1 and not self.db.locked)
+            f:EnableMouse(self._editPreview == true)
         end
 
         if self._currentAlpha <= 0 then return end

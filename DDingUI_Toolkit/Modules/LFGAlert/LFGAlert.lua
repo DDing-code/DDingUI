@@ -157,6 +157,7 @@ function LFGAlert:CreateAlertFrame()
 end
 
 function LFGAlert:GetAlertPosition()
+    if self.db and type(self.db.position) == "table" then return self.db.position end
     local position = self.db and self.db.alertPosition or "TOP"
     if position == "CENTER" then
         return { point = "CENTER", relativePoint = "CENTER", x = 0, y = 100 }

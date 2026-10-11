@@ -11,7 +11,7 @@ _G.DDingToolKit = DDingToolKit
 ns.DDingToolKit = DDingToolKit
 
 -- 버전 정보 (TOC와 동기화)
-DDingToolKit.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.0"
+DDingToolKit.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.2"
 local SL = _G.DDingUI_StyleLib -- [STYLE]
 local CHAT_PREFIX = (SL and SL.GetChatPrefix) and SL.GetChatPrefix("MJToolkit", "Toolkit") or "|cffffffffDDing|r|cffffa300UI|r |cff33bfe6Toolkit|r|cff888888:|r " -- [STYLE]
 

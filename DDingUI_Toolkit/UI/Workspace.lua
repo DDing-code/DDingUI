@@ -69,7 +69,6 @@ local CATEGORY_DEFS = {
             "raidpreparation",
             "raidpartytooltip",
             "partytracker",
-            "mythicplus",
             "goldsplit",
             "raidbreaktimer",
         },
@@ -514,7 +513,7 @@ function Workspace:Create(title, version, opts)
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetResizeBounds(opts.minWidth or 930, opts.minHeight or 580)
-    frame:SetClampedToScreen(true)
+    if Lib.AllowOffscreen then Lib.AllowOffscreen(frame) else frame:SetClampedToScreen(true) end -- [STYLE] 화면 밖으로 걸쳐 두기
     -- [STYLE] Round the window before CreateTitleBar so the bar drops its square fill and accent line.
     if ROUNDED then
         Lib.MakeRounded(frame, RADIUS.window or 14, C.bg.main, C.border.default)
@@ -556,6 +555,10 @@ function Workspace:Create(title, version, opts)
                 end,
             },
         }
+    end
+    if opts.editMode then -- [STYLE] C12: shared title-bar "편집 모드"/"편집 중" button (StyleLib 1.4)
+        titleBarOpts = titleBarOpts or {}
+        titleBarOpts.editMode = opts.editMode
     end
     local titleBar = Lib.CreateTitleBar(frame, ADDON_KEY, title, version, titleBarOpts) -- [STYLE]
     titleBar:SetHeight(TOP_HEIGHT)

@@ -72,7 +72,7 @@ end
 
 local function ShouldProtect()
     local settings = GetSettings()
-    if not settings or settings.enabled == false then
+    if not moduleEnabled or not settings then
         return false
     end
     if not UnitIsDead("player") or UnitIsGhost("player") then

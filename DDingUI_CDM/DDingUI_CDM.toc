@@ -2,7 +2,7 @@
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffe6731fCooldownManager|r
 ## Notes: Lightweight Resource Bar & Cooldown Manager
 ## Author: DDing
-## Version: 2.2.0
+## Version: 2.2.2
 ## SavedVariables: DDingUIDB
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, DDingUI_Controller, DDingUI
 ## IconTexture: Interface\AddOns\DDingUI_CDM\Media\logo.tga
@@ -31,6 +31,7 @@ Libs\DDingUI_StyleLib\CascadingMenu.lua
 Libs\DDingUI_StyleLib\DragSorter.lua
 Libs\DDingUI_StyleLib\DualRow.lua
 Libs\DDingUI_StyleLib\Widgets.lua
+Libs\DDingUI_StyleLib\EditMode.lua
 Libs\DDingUI_StyleLib\ProceduralGlow.lua
 
 # Media & utility libraries

@@ -91,26 +91,54 @@ function Preview.Clear(host)
     end
 end
 
+-- [REFACTOR] Apply a non-secret display property only when it differs from the target's current
+-- value. Re-setting the same texture / fill style / layer makes WoW rebuild the region, which shows
+-- as a flicker when it happens every copy.
+local function Sync(source, target, getter, setter)
+    local want = Values(source, getter)
+    if not want or want.n == 0 or want[1] == nil then return false end
+    local have = Values(target, getter)
+    if have and have.n == want.n then
+        local same = true
+        for index = 1, want.n do
+            if have[index] ~= want[index] then same = false; break end
+        end
+        if same then return true end
+    end
+    return pcall(target[setter], target, unpack(want, 1, want.n))
+end
+
+-- [REFACTOR] Anchor a copy region only when its placement really changes.
+local function Place(region, relativeTo, x, y, width, height)
+    if region._ddX == x and region._ddY == y and region._ddW == width and region._ddH == height
+        and region._ddRel == relativeTo then
+        return
+    end
+    region:ClearAllPoints()
+    region:SetPoint("BOTTOMLEFT", relativeTo, "BOTTOMLEFT", x, y)
+    region:SetSize(width, height)
+    region._ddX, region._ddY, region._ddW, region._ddH, region._ddRel = x, y, width, height, relativeTo
+end
+
 function Preview.Paint(host, sources, bounds, scale, color)
     local used, seen = {}, {}
+    host._liveBounds, host._liveScale = bounds, scale -- [REFACTOR] per-frame SyncLive geometry
     local partial, painted = false, 0
     local baseLevel = host:GetFrameLevel() + 1
     local rootLevel = sources[1] and Read(sources[1], "GetFrameLevel") or 0
 
-    local function Draw(source, kind, level)
-        local rect = Preview.Rect(source)
-        if not rect then
-            if Read(source, "GetWidth") ~= 0 and Read(source, "GetHeight") ~= 0 then partial = true end
-            return
-        end
-        used[kind] = (used[kind] or 0) + 1
-        local cell = Acquire(host, kind, used[kind])
-        cell:Hide()
-        cell:ClearAllPoints()
-        cell:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT",
-            (rect.left - bounds.left) * scale, (rect.bottom - bounds.bottom) * scale)
-        cell:SetSize(rect.width * scale, rect.height * scale)
-        cell:SetFrameLevel(baseLevel + math.max(0, math.min(16, level - rootLevel)))
+    -- Fills one pooled cell from its source. Returns true when the cell should be shown.
+    -- [REFACTOR] The cell is never hidden first and nothing is reset: a cell that was already
+    -- showing keeps its texture until a property really differs (no blank / default frame).
+    local function Fill(cell, source, kind, level, rect)
+        Place(cell, host, (rect.left - bounds.left) * scale, (rect.bottom - bounds.bottom) * scale,
+            rect.width * scale, rect.height * scale)
+        local frameLevel = baseLevel + math.max(0, math.min(16, level - rootLevel))
+        if cell:GetFrameLevel() ~= frameLevel then cell:SetFrameLevel(frameLevel) end
+        -- [REFACTOR] remember the source so SyncLive can follow values every frame;
+        -- textures on a StatusBar (e.g. the cast spark) move with the fill, so track their rect too.
+        cell._liveSource = source
+        cell._trackRect = kind == "Texture" and Read(Read(source, "GetParent"), "GetObjectType") == "StatusBar" or nil
         if not Copy(source, cell, "GetEffectiveAlpha", "SetAlpha", true)
             and not Copy(source, cell, "GetAlpha", "SetAlpha", true) then
             partial = true; return
@@ -118,8 +146,16 @@ function Preview.Paint(host, sources, bounds, scale, color)
         local visual = cell.visual
         if kind == "Texture" then
             local texture, atlas = Read(source, "GetTexture"), Read(source, "GetAtlas")
-            if atlas and atlas ~= "" then visual:SetAtlas(atlas)
-            elseif texture then visual:SetTexture(texture)
+            if atlas and atlas ~= "" then
+                if visual._ddAtlas ~= atlas then
+                    visual:SetAtlas(atlas)
+                    visual._ddAtlas, visual._ddTexture = atlas, nil
+                end
+            elseif texture then
+                if visual._ddTexture ~= texture then
+                    visual:SetTexture(texture)
+                    visual._ddTexture, visual._ddAtlas = texture, nil
+                end
             else partial = true; return end
             -- Unlike IsDesaturated, the numeric getter permits forwarding protected CDM desaturation.
             if not Copy(source, visual, "GetTexCoord", "SetTexCoord", true)
@@ -127,40 +163,57 @@ function Preview.Paint(host, sources, bounds, scale, color)
                 or not Copy(source, visual, "GetDesaturation", "SetDesaturation", true) then
                 partial = true; return
             end
-            Copy(source, visual, "GetBlendMode", "SetBlendMode")
-            Copy(source, visual, "GetDrawLayer", "SetDrawLayer")
+            Sync(source, visual, "GetBlendMode", "SetBlendMode")
+            Sync(source, visual, "GetDrawLayer", "SetDrawLayer")
+            -- Masks are re-attached only when the set of mask textures changes.
             local masks = Read(source, "GetNumMaskTextures") or 0
-            cell.masks = cell.masks or {}
-            for _, mask in ipairs(cell.activeMasks or {}) do visual:RemoveMaskTexture(mask) end
-            cell.activeMasks = {}
+            local found, keys = {}, {}
             for index = 1, masks do
                 local maskSource = Read(source, "GetMaskTexture", index)
                 local maskRect = Preview.Rect(maskSource)
                 local maskTexture = Read(maskSource, "GetTexture")
                 if maskRect and maskTexture then
+                    found[#found + 1] = { source = maskSource, rect = maskRect, texture = maskTexture }
+                    keys[#keys + 1] = tostring(maskTexture)
+                else partial = true end
+            end
+            local maskKey = table.concat(keys, "|")
+            cell.masks = cell.masks or {}
+            if cell._ddMaskKey ~= maskKey then
+                for _, mask in ipairs(cell.activeMasks or {}) do visual:RemoveMaskTexture(mask) end
+                cell.activeMasks = {}
+                for index, data in ipairs(found) do
                     local mask = cell.masks[index] or cell:CreateMaskTexture()
                     cell.masks[index] = mask
-                    mask:SetTexture(maskTexture, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-                    mask:ClearAllPoints()
-                    mask:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT",
-                        (maskRect.left - rect.left) * scale, (maskRect.bottom - rect.bottom) * scale)
-                    mask:SetSize(maskRect.width * scale, maskRect.height * scale)
-                    Copy(maskSource, mask, "GetTexCoord", "SetTexCoord", true)
+                    mask:SetTexture(data.texture, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
                     visual:AddMaskTexture(mask)
-                    cell.activeMasks[#cell.activeMasks + 1] = mask
-                else partial = true end
+                    cell.activeMasks[index] = mask
+                end
+                cell._ddMaskKey = maskKey
+            end
+            for index, data in ipairs(found) do
+                local mask = cell.masks[index]
+                Place(mask, cell, (data.rect.left - rect.left) * scale, (data.rect.bottom - rect.bottom) * scale,
+                    data.rect.width * scale, data.rect.height * scale)
+                Copy(data.source, mask, "GetTexCoord", "SetTexCoord", true)
             end
         elseif kind == "StatusBar" then
             local fill = Read(source, "GetStatusBarTexture")
             local texture = Read(fill, "GetTexture")
             if not texture then partial = true; return end
-            cell:SetStatusBarTexture(texture)
-            Copy(source, cell, "GetOrientation", "SetOrientation")
-            Copy(source, cell, "GetReverseFill", "SetReverseFill")
-            Copy(source, cell, "GetFillStyle", "SetFillStyle")
-            Copy(source, cell, "GetRotatesTexture", "SetRotatesTexture")
+            if cell._ddTexture ~= texture then
+                cell:SetStatusBarTexture(texture)
+                cell._ddTexture = texture
+            end
+            Sync(source, cell, "GetOrientation", "SetOrientation")
+            Sync(source, cell, "GetReverseFill", "SetReverseFill")
+            Sync(source, cell, "GetFillStyle", "SetFillStyle")
+            Sync(source, cell, "GetRotatesTexture", "SetRotatesTexture")
             local sl = _G.DDingUI_StyleLib
-            if cell._ddingBarGradientActive and sl and sl.ApplyBarColor then
+            local okGradient, gradient = pcall(function() return source._ddingBarGradientActive end)
+            gradient = okGradient and not Secret(gradient) and gradient == true
+            -- only drop an old gradient when the source no longer uses one (no white/gradient toggling)
+            if not gradient and cell._ddingBarGradientActive and sl and sl.ApplyBarColor then
                 sl.ApplyBarColor(cell, { 1, 1, 1, 1 })
             end
             -- These native setters accept secret values. Never branch on or calculate them.
@@ -169,15 +222,14 @@ function Preview.Paint(host, sources, bounds, scale, color)
                 cell:SetMinMaxValues(source:GetMinMaxValues())
                 if source.GetInterpolatedValue then cell:SetValue(source:GetInterpolatedValue())
                 else cell:SetValue(source:GetValue()) end
-                cell:SetStatusBarColor(source:GetStatusBarColor())
+                if not gradient then cell:SetStatusBarColor(source:GetStatusBarColor()) end
                 if source.GetStatusBarDesaturation and cell.SetStatusBarDesaturation then
                     cell:SetStatusBarDesaturation(source:GetStatusBarDesaturation())
                 end
                 return true
             end)
             if not okState or not copied then partial = true; return end
-            local ok, gradient = pcall(function() return source._ddingBarGradientActive end)
-            if ok and not Secret(gradient) and gradient == true then
+            if gradient then
                 if not color or not sl or not sl.ApplyBarColor then partial = true; return end
                 sl.ApplyBarColor(cell, color)
             end
@@ -187,16 +239,37 @@ function Preview.Paint(host, sources, bounds, scale, color)
             if text == "" then return end
             if not font or not size then partial = true; return end
             local fontScale = (Read(source, "GetEffectiveScale") or 1) / (Read(UIParent, "GetEffectiveScale") or 1)
-            if not visual:SetFont(font, math.max(1, size * fontScale * scale), flags) then
-                partial = true; return
+            local fontSize = math.max(1, size * fontScale * scale)
+            if visual._ddFont ~= font or visual._ddFontSize ~= fontSize or visual._ddFontFlags ~= flags then
+                if not visual:SetFont(font, fontSize, flags) then partial = true; return end
+                visual._ddFont, visual._ddFontSize, visual._ddFontFlags = font, fontSize, flags
             end
             if not Copy(source, visual, "GetText", "SetText", true)
                 or not Copy(source, visual, "GetTextColor", "SetTextColor", true) then
                 partial = true; return
             end
-            Copy(source, visual, "GetJustifyH", "SetJustifyH")
-            Copy(source, visual, "GetJustifyV", "SetJustifyV")
-            Copy(source, visual, "GetDrawLayer", "SetDrawLayer")
+            Sync(source, visual, "GetJustifyH", "SetJustifyH")
+            Sync(source, visual, "GetJustifyV", "SetJustifyV")
+            Sync(source, visual, "GetDrawLayer", "SetDrawLayer")
+            -- [REFACTOR] A text the game shows in full (IsTruncated false, e.g. a single-anchored
+            -- cast name / time) must not get an ellipsis from scaled glyph widths in the copy:
+            -- anchor it on its justified side without a width. Truncated or unknown texts keep the
+            -- source box so the copy truncates like the game.
+            local anchor = "FIT"
+            if Read(source, "IsTruncated") == false then
+                local justify = Read(source, "GetJustifyH")
+                anchor = (justify == "LEFT" or justify == "RIGHT") and justify or "CENTER"
+            end
+            if visual._ddAnchor ~= anchor then
+                visual:ClearAllPoints()
+                if anchor == "FIT" then
+                    visual:SetAllPoints(cell)
+                else
+                    visual:SetPoint(anchor, cell, anchor, 0, 0)
+                    if visual.SetWordWrap then visual:SetWordWrap(false) end
+                end
+                visual._ddAnchor = anchor
+            end
         elseif kind == "Cooldown" then
             local start, duration = Read(source, "GetCooldownTimes")
             if not start or not duration then partial = true; return end
@@ -230,8 +303,23 @@ function Preview.Paint(host, sources, bounds, scale, color)
                 cell._start, cell._duration = start, duration
             end
         end
-        cell:Show()
-        painted = painted + 1
+        return true
+    end
+
+    local function Draw(source, kind, level)
+        local rect = Preview.Rect(source)
+        if not rect then
+            if Read(source, "GetWidth") ~= 0 and Read(source, "GetHeight") ~= 0 then partial = true end
+            return
+        end
+        used[kind] = (used[kind] or 0) + 1
+        local cell = Acquire(host, kind, used[kind])
+        if Fill(cell, source, kind, level, rect) then
+            if not cell:IsShown() then cell:Show() end
+            painted = painted + 1
+        elseif cell:IsShown() then
+            cell:Hide()
+        end
     end
 
     local function Visit(frame, depth)
@@ -312,4 +400,159 @@ function Preview.PaintFit(host, sources, color, padding)
     }
     local painted, partial = Preview.Paint(host, sources, view, scale, color)
     return painted, partial, fit
+end
+
+-- ============================================================
+-- [REFACTOR] Live layout session.
+-- While a dashboard or section preview is open (out of combat), every CDM element is really put on
+-- screen through the runtime's own preview paths, so the previews only ever copy real frames:
+--   * custom aura trackers: runtime preview mode (ResourceBars:EnablePreviewMode)
+--   * cast bar: runtime test cast looping in place (CastBars:ShowTestCastBar(true))
+--   * inactive buffs / custom icons: DDingUI:SetLayoutPreviewForced (same path as edit mode)
+-- Modes that were already on are left untouched on exit. Entering combat ends the session at once
+-- (and shows "display limited"); it comes back after combat if a preview is still open.
+-- Nothing is written to SavedVariables.
+-- ============================================================
+local Session = { owners = {}, active = false }
+local TEST_CAST_TICK = 0.2
+Preview.LiveSession = Session
+
+local function Addon() return ns.Addon end
+
+function Session:IsActive()
+    return self.active
+end
+
+function Session:KeepTestCast()
+    if not self.active or InCombatLockdown() then return end
+    local addon = Addon()
+    local cfg = addon.db and addon.db.profile and addon.db.profile.castBar
+    if not cfg or cfg.enabled == false or not addon.ShowTestCastBar then return end
+    local bar = addon.castBar
+    local testing = addon.IsTestCastActive and addon:IsTestCastActive()
+    -- a real cast in progress wins; the preview then copies it
+    if bar and not testing and Read(bar, "IsShown") == true then return end
+    -- [REFACTOR] the runtime loops its own test cast in place (ShowTestCastBar(true)): no hide,
+    -- no relayout and no texture re-apply at the 15 s mark. This only (re)starts it when none runs,
+    -- e.g. after a real cast ended.
+    if not testing then
+        addon:ShowTestCastBar(true)
+        self.testCastOwned = true
+    end
+end
+
+local function StartSession(self)
+    if self.active or InCombatLockdown() then return self.active end
+    local addon = Addon()
+    self.active = true
+    self.combatBlocked = nil
+    if addon.IsBuffTrackerPreviewEnabled and not addon:IsBuffTrackerPreviewEnabled() and addon.EnableBuffTrackerPreview then
+        addon:EnableBuffTrackerPreview()
+        self.trackerPreviewOwned = true
+    end
+    if addon.SetLayoutPreviewForced and not addon._layoutPreviewForced then
+        addon:SetLayoutPreviewForced(true)
+        self.forcedOwned = true
+    end
+    self:KeepTestCast()
+    self.ticker = C_Timer.NewTicker(TEST_CAST_TICK, function() Session:KeepTestCast() end)
+    return true
+end
+
+local function StopSession(self)
+    if not self.active then return end
+    self.active = false
+    if self.ticker then self.ticker:Cancel(); self.ticker = nil end
+    local addon = Addon()
+    if self.testCastOwned and addon.StopTestCastBar then addon:StopTestCastBar() end
+    if self.trackerPreviewOwned and addon.DisableBuffTrackerPreview then addon:DisableBuffTrackerPreview() end
+    if self.forcedOwned and addon.SetLayoutPreviewForced then addon:SetLayoutPreviewForced(false) end
+    self.testCastOwned, self.trackerPreviewOwned, self.forcedOwned = nil, nil, nil
+end
+
+--- A preview surface opens: turn the live layout on (no-op in combat; it starts after combat).
+function Session:Begin(owner)
+    if owner then self.owners[owner] = true end
+    if InCombatLockdown() then
+        self.combatBlocked = true
+        return false
+    end
+    return StartSession(self)
+end
+
+--- A preview surface closes: restore once the last one is gone.
+function Session:End(owner)
+    if owner then self.owners[owner] = nil else wipe(self.owners) end
+    if next(self.owners) then return end
+    self.combatBlocked = nil
+    StopSession(self)
+end
+
+local sessionEvents = CreateFrame("Frame")
+sessionEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
+sessionEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+sessionEvents:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then
+        if Session.active or next(Session.owners) then
+            StopSession(Session)
+            Session.combatBlocked = true
+        end
+    elseif next(Session.owners) then
+        StartSession(Session)
+    else
+        Session.combatBlocked = nil
+    end
+end)
+
+--- [REFACTOR] Light per-frame follow of an already painted copy: StatusBar min/max/value, texts
+-- and the rect of StatusBar-attached textures (spark). No traversal, no new cells; call it from an
+-- OnUpdate that only runs while the preview is shown. Secret values go straight to the setters.
+-- Static helpers (no per-frame closures or tables). Secret values are only forwarded.
+local function SyncBar(cell, source)
+    if source.IsForbidden and source:IsForbidden() then return false end
+    cell:SetMinMaxValues(source:GetMinMaxValues())
+    if source.GetInterpolatedValue then cell:SetValue(source:GetInterpolatedValue())
+    else cell:SetValue(source:GetValue()) end
+    return true
+end
+
+local function SyncText(visual, source)
+    if source.IsForbidden and source:IsForbidden() then return false end
+    visual:SetText(source:GetText())
+    return true
+end
+
+function Preview.SyncLive(host)
+    local pool = host and host._previewPool
+    if not pool then return 0 end
+    local synced = 0
+    for _, cell in ipairs(pool.StatusBar or {}) do
+        local source = cell._liveSource
+        if source and cell:IsShown() then
+            local ok, done = pcall(SyncBar, cell, source)
+            if ok and done then synced = synced + 1 end
+        end
+    end
+    for _, cell in ipairs(pool.FontString or {}) do
+        local source = cell._liveSource
+        if source and cell:IsShown() then
+            local ok, done = pcall(SyncText, cell.visual, source)
+            if ok and done then synced = synced + 1 end
+        end
+    end
+    local bounds, scale = host._liveBounds, host._liveScale
+    if bounds and scale then
+        for _, cell in ipairs(pool.Texture or {}) do
+            local source = cell._liveSource
+            if source and cell._trackRect and cell:IsShown() then
+                local rect = Preview.Rect(source)
+                if rect then
+                    Place(cell, host, (rect.left - bounds.left) * scale, (rect.bottom - bounds.bottom) * scale,
+                        rect.width * scale, rect.height * scale)
+                    synced = synced + 1
+                end
+            end
+        end
+    end
+    return synced
 end

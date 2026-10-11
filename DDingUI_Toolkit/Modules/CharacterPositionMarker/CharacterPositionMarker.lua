@@ -966,7 +966,7 @@ function CharacterPositionMarker:ShouldShow()
     local db = self.db or EnsureDB()
     if not db then return false end
     if editPreview or testMode then return true end
-    if not db.enabled then return false end
+    if not self.active then return false end
     if not IsCurrentRoleEnabled(db) then return false end
 
     if db.combatOnly ~= false and not IsCombatActive() then
@@ -1032,6 +1032,7 @@ function CharacterPositionMarker:RegisterEvents()
 end
 
 function CharacterPositionMarker:OnEnable()
+    self.active = true
     self.db = EnsureDB()
     self.initialized = true
     self:RegisterEvents()
@@ -1039,6 +1040,7 @@ function CharacterPositionMarker:OnEnable()
 end
 
 function CharacterPositionMarker:OnDisable()
+    self.active = false
     if eventFrame then
         eventFrame:UnregisterAllEvents()
     end

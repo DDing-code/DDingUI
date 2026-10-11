@@ -13,6 +13,7 @@ L["ADDON_LOADED"] = "|cFF00FF00[DDingUI Toolkit]|r 로드 완료. /ddt 로 설�
 L["ENABLED"] = "활성화"
 L["DISABLED"] = "비활성화"
 L["SETTINGS"] = "설정"
+L["APPEARANCE"] = "외형"
 L["POSITION_RESET"] = "위치가 초기화되었습니다."
 L["POSITION_LOCKED"] = "위치 잠금"
 L["SCALE"] = "크기"
@@ -72,7 +73,6 @@ L["TAB_COMBATTIMER"] = "전투 타이머"
 L["TAB_CHARACTERPOSITIONMARKER"] = "캐릭터 위치 마커"
 L["TAB_RANGEDISPLAY"] = "사거리 표시"
 L["TAB_PARTYTRACKER"] = "파티 트래커"
-L["TAB_MYTHICPLUS"] = "쐐기 도우미"
 L["TAB_GOLDSPLIT"] = "계산기"
 L["TAB_DURABILITY"] = "내구도 체크"
 L["TAB_CASTINGALERT"] = "타겟 스펠"
@@ -446,7 +446,6 @@ L["MODULE_COMBATTIMER"] = "CombatTimer - 전투 타이머"
 L["MODULE_CHARACTERPOSITIONMARKER"] = "CharacterPositionMarker - 캐릭터 위치 마커"
 L["MODULE_RANGEDISPLAY"] = "RangeDisplay - 대상/주시 사거리 표시"
 L["MODULE_PARTYTRACKER"] = "파티 상태 - 전투부활/영웅심/힐러마나"
-L["MODULE_MYTHICPLUS"] = "MythicPlusHelper - 던전 텔레포트"
 L["MODULE_GOLDSPLIT"] = "GoldSplit - 분배금 계산기"
 L["MODULE_DURABILITY"] = "DurabilityCheck - 내구도 체크 알림"
 L["MODULE_CASTINGALERT"] = "Target Spell - 타겟 스펠 알림"
@@ -837,11 +836,6 @@ L["PARTYTRACKER_SHOW_TIME"] = "시간 표시"
 -- ==========================================
 -- MythicPlusHelper Module
 -- ==========================================
-L["MYTHICPLUS_TITLE"] = "쐐기 도우미"
-L["MYTHICPLUS_DESC"] = "쐐기 던전에 유용한 도구입니다."
-L["MYTHICPLUS_DEATH_COUNTER"] = "사망 카운터"
-L["MYTHICPLUS_TIMER"] = "타이머"
-L["MYTHICPLUS_ENEMY_FORCES"] = "적 전력"
 
 -- ==========================================
 -- GoldSplit Module
@@ -1092,7 +1086,9 @@ L["NOTEPAD_NO"] = "아니오"
 -- CombatTimer Extended
 -- ==========================================
 L["COMBATTIMER_DISPLAY_SETTINGS"] = "표시 설정"
-L["COMBATTIMER_SHOW_MS"] = "밀리초 표시 (.XX)"
+L["COMBATTIMER_SHOW_MS"] = "밀리초 표시"
+L["COMBATTIMER_DECIMAL_PLACES"] = "소수점 자리수"
+L["COMBATTIMER_DECIMAL_FONT_SIZE"] = "소수 부분 글꼴 크기 (0: 자동)"
 L["COMBATTIMER_SHOW_BG"] = "배경 표시"
 L["COMBATTIMER_COLOR_BY_TIME"] = "시간대별 색상 변경 (30초/60초/120초)"
 L["COMBATTIMER_FONT_SETTINGS"] = "글꼴 설정"
@@ -1140,15 +1136,6 @@ L["PARTYTRACKER_HEALERS_TEXT"] = "• 회복 드루이드\n• 신성/수양 사
 -- ==========================================
 -- MythicPlusHelper Extended
 -- ==========================================
-L["MYTHICPLUS_TITLE_FULL"] = "신화+ 던전 도우미"
-L["MYTHICPLUS_DESC_FULL"] = "신화+ 던전탭에서 던전 아이콘에 이름, 클리어 단수, 점수를 표시하고\n클릭 시 텔레포트를 시전합니다."
-L["MYTHICPLUS_ENABLE_OVERLAY"] = "오버레이 활성화"
-L["MYTHICPLUS_SHOW_TELEPORTS"] = "던전 순간이동 표시"
-L["MYTHICPLUS_SHOW_SCORE"] = "던전 점수 표시"
-L["MYTHICPLUS_TEXT_SIZE"] = "텍스트 크기"
-L["MYTHICPLUS_OPEN_TAB"] = "신화+ 던전탭 열기"
-L["MYTHICPLUS_USAGE_TITLE"] = "사용법"
-L["MYTHICPLUS_USAGE_TEXT"] = "- /ddt tp 명령어로 신화+ 던전탭을 엽니다\n- 던전 아이콘 위에 던전 이름 약어가 표시됩니다\n- 가운데 큰 숫자는 클리어한 최고 단수입니다\n- 아래 숫자는 해당 던전 점수입니다\n- 색상은 점수에 따라 변합니다 (흰색→녹색→파랑→보라→주황)\n- 던전 아이콘 클릭 시 텔레포트가 시전됩니다\n- 텔레포트는 해당 던전을 +20 이상 완료해야 배웁니다"
 
 -- ==========================================
 -- GoldSplit Extended
@@ -1200,7 +1187,6 @@ L["DURABILITY_DISPLAY_CONDITIONS"] = "표시 조건"
 L["DURABILITY_ALERT_SETTINGS"] = "알림 설정"
 
 -- [MythicPlusHelper]
-L["MYTHICPLUS_TITLE"] = "|TInterface\\ICONS\\INV_Relics_Hourglass_02:14:14|t 쐐기돌 도우미"
 L["DURABILITY_SCREEN_SETTINGS"] = "화면 설정"
 L["DURABILITY_BLINK_ENABLED"] = "경고 깜빡임"
 L["DURABILITY_BLINK_PERIOD"] = "깜빡임 주기 (초)"
@@ -1233,7 +1219,6 @@ L["LFGALERT_APPLICANTS_ARRIVED"] = "새로운 신청자가 %d명 도착했습니
 L["GOLDSPLIT_RESET_DONE"] = "분배금이 초기화되었습니다."
 
 -- MythicPlusHelper
-L["MYTHICPLUS_ENABLED_MSG"] = "MythicPlusHelper 활성화됨 (신화+ 던전탭 개선)"
 
 -- PartyTracker
 L["PARTYTRACKER_TEST_END"] = "PartyTracker 테스트 모드 종료"
@@ -1335,16 +1320,13 @@ L["RAIDLOOTPASS_UNKNOWN_INSTANCE"] = "현재 인스턴스"
 L["TAB_VOIDCOREHELPER"] = "공허핵 도우미"
 L["VCH_TITLE"] = "공허핵 도우미"
 L["VCH_DESC"] = "공허핵 추가 전리품 창에서 현재 전리품 전문화의 남은 BIS와 예상 획득 확률을 표시합니다."
-L["VCH_INFO"] = "추가 전리품 판단 정보를 표시하고, 승인한 인스턴스에서는 BIS 조건에 맞지 않는 공허핵 보상을 자동 포기합니다."
+L["VCH_INFO"] = "도우미가 켜져 있으면 영웅·신화 공격대와 쐐기 밖의 공허핵 보상은 설정·확인 없이 자동 포기합니다. 해당 콘텐츠에서는 기존 BIS 자동 포기 설정을 사용합니다."
 L["VCH_CONDITION_INFO"] = "영웅·신화 공격대 또는 10단 이상 쐐기이며, 남은 전리품에 등록한 BIS가 있을 때만 추천합니다. 확률은 남은 아이템의 동일 확률을 가정한 값입니다."
 L["VCH_DISPLAY_HEADER"] = "판단창 설정"
 L["VCH_SHOW_ADVISOR"] = "추가 전리품 판단창 표시"
 L["VCH_SHOW_LOOT_TABLE"] = "남은 전리품 목록 표시"
 L["VCH_GUARD_NON_TARGETS"] = "비-BIS 자동 포기"
-L["VCH_ENTRY_PROMPT"] = "인스턴스 진입 시 자동 포기 확인"
-L["VCH_PASS_DELVES"] = "구렁 자동 포기"
-L["VCH_PASS_PREY"] = "사냥 자동 포기"
-L["VCH_PASS_SIDE_CONTENT_DESC"] = "비-BIS 자동 포기가 켜져 있으면 해당 콘텐츠의 공허핵 보상을 BIS 설정·진입 확인과 관계없이 바로 포기합니다. 일반 전리품에는 적용하지 않습니다."
+L["VCH_ENTRY_PROMPT"] = "영웅·신화 공격대 / 쐐기 진입 시 자동 포기 확인"
 L["VCH_STATUS_SIDE_CONTENT"] = "구렁·사냥 보상"
 L["VCH_BIS_HEADER"] = "BIS 설정"
 L["VCH_BIS_NOTE"] = "전문화를 고른 뒤 던전 또는 공격대 보스의 전리품 표에서 BIS를 체크합니다."
@@ -1414,10 +1396,6 @@ L["SKYRIDINGTRACKER_COLOR_SURGE_DIM"] = "소용돌이 쇄도 (비활성)"
 
 -- MythicPlusHelper tooltips
 
-L["MYTHICPLUS_NO_TELEPORT_INFO"] = "텔레포트 스펠 정보 없음"
-L["MYTHICPLUS_NOT_LEARNED"] = "아직 배우지 않음 (+20 클리어 필요)"
-L["MYTHICPLUS_AVAILABLE"] = "사용 가능"
-L["MYTHICPLUS_WEEKLY_COUNT"] = "이번주 쐐기 횟수: %d"
 
 -- ==========================================
 -- Debug
@@ -1789,3 +1767,27 @@ L["RPT_DEVOTION_AURA"] = "헌신의 오라"
 L["RPT_ATROPHIC_POISON"] = "위축의 독"
 L["RPT_DEMONIC_GATEWAY"] = "악마의 관문"
 L["RPT_DEATH_GRIP"] = "죽음의 손아귀"
+-- [STYLE] Ready-check windows (compact C/E layout)
+L["RAIDPREP_REPORT_SHORT"] = "보고"
+L["RAIDPREP_REFRESH_SHORT"] = "갱신"
+L["RAIDPREP_REPLIES"] = "응답 %d"
+L["RAIDPREP_ICON_HINT"] = "아이콘에 마우스를\n올리면 명단"
+L["RAIDPREP_ALL_OK"] = "전원 준비"
+L["RAIDPREP_UNKNOWN_GROUP"] = "확인 불가"
+L["RAIDPREP_ITEM_OFF"] = "점검 꺼짐"
+L["RCA_PANEL_SHORT"] = "준비 점검"
+L["RCA_TALENT_ROW"] = "특성 · %s"
+L["RCA_NO_ISSUES"] = "이상 없음"
+L["RCA_STATUS_MATCH"] = "일치"
+L["RCA_ROW_RUNE"] = "증강 룬"
+L["RCA_TALENT_CLICK_HINT"] = "클릭하면 특성 창을 엽니다."
+L["RCA_REPORT_NOW_DESC"] = "현재 점검 결과를 파티·공격대 채팅으로 한 번 알립니다."
+
+L["SETTING_ENEMIES_IN_COMBAT"] = "전투 중인 적만 추적"
+L["SETTING_IGNORE_MINOR"] = "하급 몹 제외"
+L["SETTING_SCAN_DELAY"] = "표시 지연 (초)"
+L["SETTING_RANGE_INTERVAL"] = "사거리 검사 간격 (초)"
+L["SETTING_ORDER_FONT_SIZE"] = "순서 숫자 크기"
+L["SETTING_ROSTER_INTERVAL"] = "인원 검사 간격 (초)"
+L["SETTING_STRATA_FULLSCREEN"] = "전체 화면 대화창"
+L["SETTING_DEFAULT_WARNING"] = "기본 경보음"

@@ -2494,42 +2494,30 @@ function DDingUI:CreateConfigFrame()
     searchBox:SetPoint("RIGHT", closeBtn, "LEFT", -10, 0)
 
     -- ============================================
-    -- 편집 모드(이동모드) 토글 버튼 (검색 왼쪽) -- [12.0.1]
-    -- ============================================
-    local editModeBtn = CreateFrame("Button", nil, titleBar, "BackdropTemplate") -- [12.0.1]
-    editModeBtn:SetSize(70, 20) -- [STYLE] room for 12pt label
+    -- 편집 모드 토글 버튼 (검색 왼쪽) -- [12.0.1]
+    -- [STYLE] C12: StyleLib CreateTitleBar의 editMode 버튼과 같은 부품(CreateButton 76×22)·같은 문구("편집 모드"/"편집 중").
+    -- CDM 제목줄은 로고 고리·프로필·검색을 직접 배치하므로 CreateTitleBar 옵션 대신 같은 버튼을 여기서 만든다.
+    -- 설정창 닫기·다시 열기는 Movers(ShowMovers/HideMovers)가 맡는다.
+    local editModeBtn = SL.CreateButton(titleBar, "CDM", L["Edit Mode"] or "편집 모드", function()
+        if DDingUI.Movers and DDingUI.Movers.ToggleConfigMode then
+            DDingUI.Movers:ToggleConfigMode()
+        end
+    end, { width = 76, height = 22 })
     editModeBtn:SetPoint("RIGHT", searchBox, "LEFT", -8, 0)
-    CreateBackdrop(editModeBtn, THEME.bgWidget, THEME.border, nil, RADIUS.control) -- [STYLE]
-
-    local editModeText = editModeBtn:CreateFontString(nil, "OVERLAY") -- [12.0.1]
-    editModeText:SetFont(globalFontPath, 12, "") -- [STYLE]
-    editModeText:SetShadowColor(0, 0, 0, 1)
-    editModeText:SetShadowOffset(1, -1)
-    editModeText:SetPoint("CENTER", 0, 0)
-    editModeText:SetText(L["Edit Mode"] or "Edit Mode")
-    editModeText:SetTextColor(SL.GetColor("dim"))
-
-    editModeBtn:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(SL.GetColor("accent"))
-        editModeText:SetTextColor(SL.GetColor("accent"))
+    function editModeBtn:Refresh()
+        local active = DDingUI.Movers and DDingUI.Movers.ConfigMode or false
+        if self.label then self.label:SetText(active and (L["Editing"] or "편집 중") or (L["Edit Mode"] or "편집 모드")) end
+    end
+    editModeBtn:Refresh()
+    editModeBtn:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -4)
         GameTooltip:SetText(L["Edit Mode"] or "Edit Mode", 1, 1, 1)
         GameTooltip:AddLine(L["Toggle draggable movers for all CDM frames"] or "Toggle draggable movers for all CDM frames", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
-    editModeBtn:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(THEME.border[1], THEME.border[2], THEME.border[3], 1)
-        editModeText:SetTextColor(SL.GetColor("dim"))
-        GameTooltip:Hide()
-    end)
-    editModeBtn:SetScript("OnClick", function()
-        -- 설정 창 닫기 -- [STYLE] gameplay handoff: close at once, no exit motion
-        if frame.HideImmediately then frame:HideImmediately() else frame:Hide() end
-        -- 이동모드 토글
-        if DDingUI.Movers and DDingUI.Movers.ToggleConfigMode then
-            DDingUI.Movers:ToggleConfigMode()
-        end
-    end)
+    editModeBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    frame.editButton = editModeBtn
+    titleBar.editButton = editModeBtn
 
     -- 크기 슬라이더를 편집 버튼 왼쪽에 배치 -- [12.0.1]
     scaleContainer:SetPoint("RIGHT", editModeBtn, "LEFT", -10, 0)

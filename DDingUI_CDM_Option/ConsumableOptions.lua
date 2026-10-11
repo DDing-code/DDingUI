@@ -11,9 +11,11 @@ local families = {
     health = { name = "Silvermoon Health Potion", kind = "health", ids = {241304, 241305} },
     light = { name = "Light's Potential", fleetingName = "Fleeting Light's Potential", kind = "stat", ids = {245898, 245897, 241308, 241309} },
     recklessness = { name = "Potion of Recklessness", fleetingName = "Fleeting Potion of Recklessness", kind = "stat", ids = {245902, 245903, 241288, 241289} },
+    -- [12.0.1] Liquid Luster: fleeting R2/R1, regular R2/R1.
+    luster = { name = "Liquid Luster", fleetingName = "Fleeting Liquid Luster", kind = "stat", ids = {274764, 274763, 271887, 271886} },
     mana = { name = "Lightfused Mana Potion", fleetingName = "Fleeting Lightfused Mana Potion", kind = "mana", ids = {245916, 245917, 241300, 241301} },
 }
-local kinds = { health = {"concentrated", "health"}, stat = {"light", "recklessness"}, mana = {"mana"} }
+local kinds = { health = {"concentrated", "health"}, stat = {"light", "recklessness", "luster"}, mana = {"mana"} }
 local kindNames = { health = "Health Potions", stat = "Stat Potions", mana = "Mana Potions" }
 local items = {}
 for key, family in pairs(families) do
@@ -159,6 +161,14 @@ function Consumables:Show(kind, iconData, onApply)
     local draft = self:CreateDraft(kind, iconData)
     if not draft or type(onApply) ~= "function" then return false end
     local windowName = kind == "mana" and "DDingUI_ManaPotionPriority" or "DDingUI_ConsumablePriority"
+    -- [REFACTOR] Health/stat share a window; reserve rows for either opening order.
+    local familyRows = kind == "mana" and #kinds.mana or math.max(#kinds.health, #kinds.stat)
+    local itemRows = 8
+    for _, keys in ipairs(kind == "mana" and {kinds.mana} or {kinds.health, kinds.stat}) do
+        local count = 0
+        for _, key in ipairs(keys) do count = count + #families[key].ids end
+        itemRows = math.max(itemRows, count)
+    end
     local window = windows[windowName]
     if not window then
         window = CreateFrame("Frame", windowName, UIParent, "BackdropTemplate")
@@ -168,7 +178,7 @@ function Consumables:Show(kind, iconData, onApply)
         -- [FIX] The settings workspace is DIALOG with elevated child frame levels.
         window:SetFrameStrata("FULLSCREEN_DIALOG")
         window:EnableMouse(true)
-        window:SetClampedToScreen(true)
+        if SL and SL.AllowOffscreen then SL.AllowOffscreen(window) else window:SetClampedToScreen(true) end -- [STYLE] 화면 밖으로 걸쳐 두기
         window:SetMovable(true)
         window:RegisterForDrag("LeftButton")
         window:SetScript("OnDragStart", window.StartMoving)
@@ -192,7 +202,7 @@ function Consumables:Show(kind, iconData, onApply)
             and "Choose the mana potion priority. The first potion in your bags is displayed."
             or "Check potion types and use the arrows to set priority. The first potion in your bags is displayed."))
         window.families = {}
-        for index = 1, #kinds[kind] do
+        for index = 1, familyRows do
             local row = {}
             window.families[index] = row
             row.enabled = SL.CreateCheckbox(window, "CDM", "", true, { onChange = function(value)
@@ -241,7 +251,7 @@ function Consumables:Show(kind, iconData, onApply)
         window.preview = label(228, 13)
         window.orderLabel = label(268, 12, "dim") -- [STYLE]
         window.entries = {}
-        for index = 1, 8 do
+        for index = 1, itemRows do
             local row = CreateFrame("Frame", nil, window)
             row:SetSize(600, 26)
             row:SetPoint("TOPLEFT", 20, -(292 + (index - 1) * 28))
@@ -303,12 +313,17 @@ function Consumables:Show(kind, iconData, onApply)
             self.title:SetText(T("Consumables") .. " · " .. T(kindNames[d.kind]))
             for index, key in ipairs(d.order) do
                 local row = self.families[index]
+                row.enabled:Show()
                 row.enabled.label:SetText(index .. ". " .. T(families[key].name))
                 row.enabled:SetChecked(d.enabled[key])
                 row.up:SetDisabledState(index == 1)
                 row.down:SetDisabledState(index == #d.order)
                 row.up:SetShown(#d.order > 1)
                 row.down:SetShown(#d.order > 1)
+            end
+            for index = #d.order + 1, #self.families do
+                local row = self.families[index]
+                row.enabled:Hide(); row.up:Hide(); row.down:Hide()
             end
             self.fleeting:SetShown(d.kind ~= "health")
             self.fleeting:SetChecked(d.fleetingFirst)
@@ -352,7 +367,24 @@ function Consumables:Show(kind, iconData, onApply)
     window.draft, window.onApply = draft, onApply
     window.profile = DDingUI.db.profile
     window.spec = GetSpecialization and GetSpecialization()
-    window:SetScale(math.min(1, UIParent:GetWidth() / 680, UIParent:GetHeight() / 692))
+    -- [REFACTOR] Make room for every variant without overlapping options below it.
+    local familyOffset = math.max(0, #kinds[kind] - 2) * 36
+    local itemCount = 0
+    for _, key in ipairs(kinds[kind]) do itemCount = itemCount + #families[key].ids end
+    local itemOffset = math.max(0, itemCount - 8) * 28
+    window:SetHeight(658 + familyOffset + itemOffset)
+    for _, entry in ipairs({
+        {window.fleeting, 20, 164}, {window.rank, 330, 164},
+        {window.rules, 20, 193}, {window.preview, 20, 228}, {window.orderLabel, 20, 268},
+        {window.empty, 20, 528 + itemOffset}, {window.countMode, 330, 526 + itemOffset},
+        {window.quality, 20, 558 + itemOffset}, {window.status, 20, 585 + itemOffset},
+    }) do
+        entry[1]:SetPoint("TOPLEFT", entry[2], -(entry[3] + familyOffset))
+    end
+    for index, row in ipairs(window.entries) do
+        row:SetPoint("TOPLEFT", 20, -(292 + familyOffset + (index - 1) * 28))
+    end
+    window:SetScale(math.min(1, UIParent:GetWidth() / 680, UIParent:GetHeight() / (window:GetHeight() + 34)))
     for _, event in ipairs({"BAG_UPDATE_DELAYED", "ITEM_DATA_LOAD_RESULT", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED"}) do window:RegisterEvent(event) end
     window:Refresh()
     window:Show()

@@ -765,7 +765,8 @@ function Controls.CreateColor(parent, addonKey, labelText, default, opts)
             r = oldR,
             g = oldG,
             b = oldB,
-            opacity = 1 - oldA,
+            -- [REFACTOR] Retail은 알파를 그대로 받고, 구형 슬라이더만 반전한다.
+            opacity = ColorPickerFrame.GetColorAlpha and oldA or (1 - oldA),
             hasOpacity = opts.hasAlpha == true,
             swatchFunc = function()
                 local nextR, nextG, nextB = ColorPickerFrame:GetColorRGB()

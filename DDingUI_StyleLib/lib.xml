@@ -16,5 +16,6 @@
     <Script file="DragSorter.lua"/>
     <Script file="DualRow.lua"/>
     <Script file="Widgets.lua"/>
+    <Script file="EditMode.lua"/>
     <Script file="ProceduralGlow.lua"/>
 </Ui>

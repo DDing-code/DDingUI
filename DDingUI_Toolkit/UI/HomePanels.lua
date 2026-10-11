@@ -277,12 +277,6 @@ local function CreateProfileCodeDialog()
     closeIcon:SetPoint("TOPRIGHT", dialog, "TOPRIGHT", -2, -2)
     closeIcon:SetScript("OnClick", function() overlay:Hide() end)
 
-    local description = MakeText(dialog, F.small, C.text.dim, "")
-    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -7)
-    description:SetPoint("RIGHT", dialog, "RIGHT", -42, 0)
-    description:SetJustifyV("TOP")
-    description:SetWordWrap(true)
-
     local nameRow = CreateFrame("Frame", nil, dialog)
     nameRow:SetPoint("TOPLEFT", dialog, "TOPLEFT", 20, -82)
     nameRow:SetPoint("TOPRIGHT", dialog, "TOPRIGHT", -20, -82)
@@ -445,13 +439,11 @@ local function CreateProfileCodeDialog()
 
         if mode == "export" then
             title:SetText(LT("PROFILE_CODE_EXPORT_TITLE", "Export profile code"))
-            description:SetText(LT("PROFILE_CODE_EXPORT_DESC", "Copy this code to save or share the current profile. Saved memo text is excluded."))
             nameRow:Hide()
             codeBox:SetPoint("TOP", dialog, "TOP", 0, -82)
             primary.label:SetText(LT("PROFILE_CODE_SELECT_ALL", "Select all"))
         else
             title:SetText(LT("PROFILE_CODE_IMPORT_TITLE", "Import profile code"))
-            description:SetText(LT("PROFILE_CODE_IMPORT_DESC", "Paste a Toolkit code below. It will be added as a new profile; leave the name empty to use the code's profile name."))
             nameRow:Show()
             codeBox:SetPoint("TOP", dialog, "TOP", 0, -122)
             primary.label:SetText(LT("PROFILE_CODE_IMPORT_ACTION", "Import"))
@@ -580,17 +572,6 @@ function HomePanels:RenderProfile(container)
     y = y - 90
 
     y = AddSection(container, LT("PROFILE_CODE_SECTION", "Profile code"), y)
-    local codeDescription = MakeText(
-        container,
-        F.small,
-        C.text.dim,
-        LT("PROFILE_CODE_SECTION_DESC", "Save the current settings as a shareable code or add a code as a new profile. Saved memo text is excluded.")
-    )
-    codeDescription:SetPoint("TOPLEFT", container, "TOPLEFT", 18, y - 8)
-    codeDescription:SetPoint("RIGHT", container, "RIGHT", -18, 0)
-    codeDescription:SetJustifyV("TOP")
-    codeDescription:SetWordWrap(true)
-
     local exportCode = Controls.CreateButton(container, ADDON_KEY, LT("PROFILE_CODE_EXPORT", "Export code"), function()
         local code, reason = ns:ExportToolkitProfileCode()
         if not code then
@@ -599,13 +580,13 @@ function HomePanels:RenderProfile(container)
         end
         CreateProfileCodeDialog():Open("export", code)
     end, { width = 176 })
-    exportCode:SetPoint("TOPLEFT", container, "TOPLEFT", 18, y - 48)
+    exportCode:SetPoint("TOPLEFT", container, "TOPLEFT", 18, y - 8)
 
     local importCode = Controls.CreateButton(container, ADDON_KEY, LT("PROFILE_CODE_IMPORT", "Import code"), function()
         CreateProfileCodeDialog():Open("import")
     end, { width = 176 })
     importCode:SetPoint("LEFT", exportCode, "RIGHT", 10, 0)
-    y = y - 92
+    y = y - 52
 
     y = AddSection(container, LT("PROFILE_GENERAL_SETTINGS", "Shared controls"), y)
     local minimap = Controls.CreateCheckbox(

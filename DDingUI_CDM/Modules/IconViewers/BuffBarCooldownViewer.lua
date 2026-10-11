@@ -274,15 +274,11 @@ local function ComputeBarWidth(settings, viewer, iconTotal, spacing, barBorder)
     barBorder = barBorder or 0
 
     if width <= 0 then
-        local anchorWidth
-        if anchor and anchor.GetWidth then
-            local ok, w = pcall(anchor.GetWidth, anchor)
-            if ok then
-                local avd = IconViewers._viewerData and IconViewers._viewerData[anchor]
-                anchorWidth = (avd and avd.iconWidth) or w
-            end
-        end
-        width = PixelSnap(anchorWidth or (viewer and viewer:GetWidth()) or 200)
+        -- [REFACTOR] 자동 너비 공통 해석: 그룹이면 컨테이너 폭이 아니라 아이콘 줄 폭을 쓴다.
+        -- 막대 테두리는 막대 안쪽에 그려지므로 바깥 테두리 보정은 0이다.
+        -- 마지막 정상 폭은 블리자드 뷰어가 아닌 애드온 상태 테이블에 둔다(taint 방지).
+        local owner = viewer and GetFrameState(viewer) or nil
+        width = DDingUI:ResolveAutoWidth(anchor, 0, { owner = owner })
         width = math.max(1, width - iconTotal - spacing)
     else
         width = PixelSnap(DDingUI:Scale(width))
@@ -1333,6 +1329,17 @@ function BuffBar:Initialize()
             end)
         end
     end
+end
+
+-- [REFACTOR] 자동 너비 강화효과 막대: 앵커 폭 변경 알림을 받으면 캐시된 배치 키를 지우고 다시 배치한다.
+if DDingUI.RegisterAnchorWidthListener then
+    DDingUI:RegisterAnchorWidthListener(function()
+        local settings = GetSettings()
+        local viewer = _G["BuffBarCooldownViewer"]
+        if not viewer or not settings or settings.enabled == false or (settings.width or 0) > 0 then return end
+        ResetViewerLayoutState(viewer)
+        QueueBuffBarLayout()
+    end, 50)
 end
 
 -- Convenience export for external calls

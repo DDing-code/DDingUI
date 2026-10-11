@@ -25,13 +25,26 @@ local BUILD_NUMBER = tonumber((select(4, GetBuildInfo()))) or 0
 local IS_MIDNIGHT_OR_LATER = BUILD_NUMBER >= 120000
 
 local CHANNEL_TICK_DATA = {
-    [356995] = { ticks = 4, modSpell = 1219723, modTicks = 5 }, -- Disintegrate / Azure Celerity
+    [356995] = { intervalCount = 3, modSpell = 1219723, modIntervalCount = 4 }, -- Disintegrate / Azure Celerity
     [15407]  = { ticks = 6 }, -- Mind Flay
-    [5143]   = { ticks = 5 }, -- Arcane Missiles
+    [48045]  = { ticks = 6 }, -- Mind Sear
+    [64843]  = { ticks = 4 }, -- Divine Hymn
+    [5143]   = { missiles = 5, addMissiles = { [236628] = 2, [1296581] = 1 } }, -- Arcane Missiles
+    [12051]  = { ticks = 6 }, -- Evocation
+    [205021] = { ticks = 5 }, -- Ray of Frost
+    [740]    = { ticks = 4 }, -- Tranquility
+    [257044] = { missiles = 7, addMissiles = { [459794] = 3 } }, -- Rapid Fire
     [198013] = { tickInterval = 0.2 }, -- Eye Beam
     [473728] = { tickInterval = 0.2 }, -- Void Ray
     [212084] = { ticks = 10 }, -- Fel Devastation
     [198590] = { ticks = 5 }, -- Drain Soul
+    [755]    = { ticks = 5 }, -- Health Funnel
+    [234153] = { ticks = 5 }, -- Drain Life
+    [206931] = { ticks = 3 }, -- Blooddrinker
+    [113656] = { ticks = 4 }, -- Fists of Fury
+    [115175] = { ticks = 12 }, -- Soothing Mist
+    [443028] = { ticks = 4 }, -- Celestial Conduit
+    [291944] = { ticks = 6 }, -- Regeneratin
     [47757]  = { ticks = 3 }, -- Penance
     [47758]  = { ticks = 3 }, -- Penance
     [373129] = { ticks = 3 }, -- Dark Reprimand
@@ -148,39 +161,110 @@ CastBars.FormatCastTime = FormatCastTime
 local stagePercentages = {}
 
 local function PlayerKnowsSpell(spellID)
+    if issecretvalue and issecretvalue(spellID) then return false end
     if not spellID then return false end
 
     if IsPlayerSpell then
         local ok, known = pcall(IsPlayerSpell, spellID)
-        if ok and known then
-            return true
-        end
+        return ok and not (issecretvalue and issecretvalue(known)) and known or false
     end
-
-    if C_SpellBook and C_SpellBook.IsSpellKnown then
-        local ok, known = pcall(C_SpellBook.IsSpellKnown, spellID)
-        if ok and known then
-            return true
-        end
-    end
-
     return false
 end
 
-local function GetChannelTickCount(spellID, duration)
-    local tickData = spellID and CHANNEL_TICK_DATA[spellID]
-    if not tickData then return 0 end
-
-    if tickData.tickInterval then
-        if not duration or duration <= 0 then return 0 end
-        return math_floor(duration / tickData.tickInterval)
+local function IsSetBonusSpellActive(spellID)
+    if not (C_Item and C_Item.GetSetBonusesForSpecializationByItemID and GetInventoryItemID) then return false end
+    local spec = GetSpecialization and GetSpecialization()
+    if issecretvalue and issecretvalue(spec) then return false end
+    if not spec then return false end
+    local specID = GetSpecializationInfo and GetSpecializationInfo(spec)
+    if issecretvalue and issecretvalue(specID) then return false end
+    if not specID then return false end
+    local matches = 0
+    for slot = 1, 19 do
+        local itemID = GetInventoryItemID("player", slot)
+        if not (issecretvalue and issecretvalue(itemID)) and itemID then
+            local ok, bonuses = pcall(C_Item.GetSetBonusesForSpecializationByItemID, specID, itemID)
+            if ok and not (issecretvalue and issecretvalue(bonuses)) and type(bonuses) == "table" then
+                for _, id in ipairs(bonuses) do
+                    if not (issecretvalue and issecretvalue(id)) and id == spellID then
+                        matches = matches + 1
+                        break
+                    end
+                end
+            end
+        end
     end
+    return matches >= 2
+end
 
-    if tickData.modSpell and tickData.modTicks and PlayerKnowsSpell(tickData.modSpell) then
-        return tickData.modTicks
+local function HasTickModifier(spellID)
+    if PlayerKnowsSpell(spellID) then return true end
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
+        if ok and not (issecretvalue and issecretvalue(aura)) and aura ~= nil then return true end
     end
+    return IsSetBonusSpellActive(spellID)
+end
 
-    return tickData.ticks or 0
+local function GetChannelTickPositions(bar, spellID, tickData, duration)
+    local positions = {}
+    if tickData.intervalCount or tickData.missiles then
+        local castID = bar.castBarID
+        if issecretvalue and issecretvalue(castID) then castID = nil end
+        local sameCast
+        if castID and bar._tickCastID then
+            sameCast = castID == bar._tickCastID
+        else
+            sameCast = bar._tickSpellID == spellID and bar._tickStart
+                and math_abs(bar.startTime - bar._tickStart) < 0.5
+        end
+        if not sameCast then
+            local carry = 0
+            local prevInterval = bar._tickPrevInterval
+            if bar._tickPrevSpell == spellID and bar._tickPrevEnd and prevInterval and prevInterval > 0
+                and bar.startTime < bar._tickPrevEnd - 0.01 then
+                carry = math.fmod(bar._tickPrevEnd - bar.startTime, prevInterval)
+                if carry < 0.01 or (tickData.missiles and carry > prevInterval - 0.05) then carry = 0 end
+            end
+            bar._tickCarry = carry
+            bar._tickCastID = castID
+            bar._tickStart = bar.startTime
+            bar._tickSpellID = spellID
+        end
+        local count = tickData.intervalCount or tickData.missiles
+        if tickData.modSpell and PlayerKnowsSpell(tickData.modSpell) then
+            count = tickData.modIntervalCount or count
+        end
+        if tickData.addMissiles then
+            for id, extra in pairs(tickData.addMissiles) do
+                if HasTickModifier(id) then count = count + extra end
+            end
+        end
+        local segments = tickData.missiles and count - 1 or count
+        local carry = bar._tickCarry or 0
+        local interval = (duration - carry) / segments
+        if interval <= 0.01 then carry = 0; interval = duration / segments end
+        if carry > 0 then
+            local t = carry
+            while t < duration - interval * 0.05 and #positions < 12 do
+                positions[#positions + 1] = t / duration
+                t = t + interval
+            end
+        end
+        if #positions == 0 and tickData.intervalCount then
+            for i = 1, math_min(count - 1, 12) do positions[i] = i / count end
+        elseif #positions == 0 then
+            for i = 1, math_min(count - 2, 12) do positions[i] = i / (count - 1) end
+        end
+        bar._tickPrevEnd = bar.endTime
+        bar._tickPrevInterval = interval
+        bar._tickPrevSpell = spellID
+    else
+        local count = tickData.ticks or math_floor(duration / tickData.tickInterval)
+        if tickData.modSpell and PlayerKnowsSpell(tickData.modSpell) then count = tickData.modTicks or count end
+        for i = 1, count - 1 do positions[i] = i / count end
+    end
+    return positions
 end
 
 function CastBars:HideChannelTicks(bar)
@@ -204,6 +288,10 @@ function CastBars:UpdateChannelTicks(bar)
     end
 
     local spellID = bar.spellID
+    if issecretvalue and issecretvalue(spellID) then
+        self:HideChannelTicks(bar)
+        return
+    end
     local tickData = spellID and CHANNEL_TICK_DATA[spellID]
     local showTickMarks = cfg.showChannelTickMarks ~= false
     local showLastTick = cfg.showChannelLastTick == true
@@ -225,9 +313,20 @@ function CastBars:UpdateChannelTicks(bar)
         return
     end
 
-    local duration = (bar.endTime or 0) - (bar.startTime or 0)
-    local numTicks = GetChannelTickCount(spellID, duration)
-    if numTicks < 2 then
+    local startTime, endTime = bar.startTime, bar.endTime
+    if (issecretvalue and (issecretvalue(startTime) or issecretvalue(endTime)))
+        or not startTime or not endTime then
+        self:HideChannelTicks(bar)
+        return
+    end
+    local duration = endTime - startTime
+    if duration <= 0 then
+        self:HideChannelTicks(bar)
+        return
+    end
+    local positions = GetChannelTickPositions(bar, spellID, tickData, duration)
+    local count = #positions
+    if count == 0 then
         self:HideChannelTicks(bar)
         return
     end
@@ -248,8 +347,8 @@ function CastBars:UpdateChannelTicks(bar)
     local tickColor = cfg.channelTickColor or { 1, 1, 1, 0.7 }
     local lastTickColor = cfg.channelLastTickColor or { 1, 0.82, 0, 0.95 }
 
-    for i = 1, numTicks - 1 do
-        local isLastTick = (i == numTicks - 1)
+    for i = 1, count do
+        local isLastTick = (i == count)
         if not showTickMarks and not (isLastTick and showLastTick) then
             if bar.channelTicks[i] then
                 bar.channelTicks[i]:Hide()
@@ -261,7 +360,7 @@ function CastBars:UpdateChannelTicks(bar)
                 bar.channelTicks[i] = tick
             end
 
-            local snappedOffset = math_floor(barWidth * (numTicks - i) / numTicks * effectiveScale + 0.5) / effectiveScale
+            local snappedOffset = math_floor(barWidth * (1 - positions[i]) * effectiveScale + 0.5) / effectiveScale
             if isLastTick and showLastTick then
                 tick:SetColorTexture(lastTickColor[1] or 1, lastTickColor[2] or 0.82, lastTickColor[3] or 0, lastTickColor[4] or 0.95)
                 tick:SetSize(highlightWidth, snappedHeight)
@@ -277,12 +376,12 @@ function CastBars:UpdateChannelTicks(bar)
     end
 
     for index, tick in pairs(bar.channelTicks) do
-        if index >= numTicks and tick then
+        if index > count and tick then
             tick:Hide()
         end
     end
 
-    bar.numChannelTicks = numTicks
+    bar.numChannelTicks = count + 1
 end
 
 -- CastBar OnUpdate function
@@ -290,6 +389,14 @@ local function CastBar_OnUpdate(frame, elapsed)
     if not frame.startTime or not frame.endTime then return end
 
     local now = GetTime()
+    -- [REFACTOR] 옵션 미리보기용 반복 테스트 시전: 끝에 닿으면 숨기거나 레이아웃을 다시 하지 않고
+    -- 시간만 이어 붙여 처음부터 다시 흐른다 (숨김→다시 표시 사이의 한 프레임 깜빡임 방지)
+    if now >= frame.endTime and frame._ddTestCastLoop and type(frame.castGUID) == "string"
+        and frame.castGUID:sub(1, 5) == "test_" then
+        local length = frame.endTime - frame.startTime
+        frame.startTime = now
+        frame.endTime = now + ((length and length > 0) and length or 15)
+    end
     if now >= frame.endTime then
         frame.castGUID  = nil
         frame.castBarID = nil
@@ -843,7 +950,9 @@ local function CastBar_OnUpdate(frame, elapsed)
         end
     end
 
-    if CastBars.UpdateChannelTicks then
+    -- [REFACTOR] Channel start/update and layout changes redraw ticks; retry here only if geometry was not ready yet.
+    if frame.isChannel and not frame.isEmpowered and (not frame.numChannelTicks or frame.numChannelTicks == 0)
+        and CastBars.UpdateChannelTicks then
         CastBars:UpdateChannelTicks(frame)
     end
 
@@ -947,7 +1056,7 @@ function CastBars:RefreshAll()
 end
 
 -- Test functions for showing fake casts
-function CastBars:ShowTestCastBar()
+function CastBars:ShowTestCastBar(loop) -- [REFACTOR] loop: 끝나면 제자리에서 다시 시작 (옵션 미리보기)
     if not self.GetCastBar then return end
     
     local bar = self:GetCastBar()
@@ -962,6 +1071,7 @@ function CastBars:ShowTestCastBar()
     bar.endTime = now + 15
     bar.isChannel = false
     bar.castGUID = "test_" .. now
+    bar._ddTestCastLoop = loop and true or nil
     bar.isEmpowered = false
     bar.numStages = nil
     
@@ -983,6 +1093,25 @@ function CastBars:ShowTestCastBar()
 end
 
 -- Expose test functions to main addon
-DDingUI.ShowTestCastBar = function(self) return CastBars:ShowTestCastBar() end
+DDingUI.ShowTestCastBar = function(self, loop) return CastBars:ShowTestCastBar(loop) end
+
+-- [REFACTOR] End a test cast early (dashboard preview closed / combat). Real casts are left alone.
+function CastBars:IsTestCastActive()
+    local bar = DDingUI.castBar
+    local guid = bar and bar.castGUID
+    return type(guid) == "string" and guid:sub(1, 5) == "test_" and bar:IsShown() or false
+end
+
+function CastBars:StopTestCastBar()
+    local bar = DDingUI.castBar
+    if bar then bar._ddTestCastLoop = nil end
+    if not self:IsTestCastActive() then return false end
+    bar.endTime = GetTime()
+    CastBar_OnUpdate(bar, 0)
+    return true
+end
+
+DDingUI.StopTestCastBar = function(self) return CastBars:StopTestCastBar() end
+DDingUI.IsTestCastActive = function(self) return CastBars:IsTestCastActive() end
 
 

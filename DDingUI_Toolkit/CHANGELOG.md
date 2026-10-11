@@ -1,5 +1,55 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.2
+
+Release date: 2026-10-11
+Scope: Changes after the 2.2.1 release commit fb92f37 through this release.
+
+### 한국어
+
+- **설정 정리:** 안내문·설명 툴팁·빈 탭·중복 사용 스위치를 제거했습니다. 관련 소리 설정과 작은 탭을 묶고, 표현 방식에 따라 효과가 있는 옵션만 표시합니다. 모듈 머리줄의 활성화 스위치 하나로 동작합니다.
+- **좁은 설정창:** 긴 세부 탭 이름이 잘리지 않도록 창 너비와 글자 길이에 맞춰 줄을 나눕니다. 창 크기를 바꿔도 선택한 탭을 유지하며 다시 배치합니다.
+- **설정창 열기:** 등장 모션 중 세부 탭이 세로로 쌓여 다른 영역과 겹치던 문제를 수정했습니다.
+- **전투 타이머:** 소수 부분 글꼴 크기를 따로 조절할 수 있습니다. 0은 기존 자동 크기입니다. 색상 선택 시 글자 불투명도가 반대로 저장되던 문제를 수정하고 색상 변경을 즉시 반영합니다. 이미 투명해진 기존 설정은 글자 불투명도를 100%로 한 번 복구해 주세요.
+- **준비 확인:** 도핑·장비 상태를 전용 아이콘과 남은 시간으로 표시하고 개인 준비창과 공격대 응답 요약을 간결하게 정리했습니다. 공격대 창에는 미준비·응답 대기 이름을 따로 표시하며, 모두 준비되면 자동으로 열린 창은 닫힙니다.
+- **편집 모드:** 위치 슬라이더·잠금·위치 초기화 버튼을 공용 편집 모드로 통일했습니다. 파티 신청 알림의 위치 저장을 고치고 우편 알림 두 디자인도 편집 대상에 추가했습니다. 기존 배치는 유지합니다.
+- **설정 적용:** 파티 트래커의 기본 활성화와 분리 마나바·블러드 아이콘의 즉시 변경, 아이템 레벨 기본값 복원, 사망 알림 글꼴, 커서 정사각형 텍스처 보존, 메모장 버튼 갱신을 수정했습니다. 사망·내구도 알림은 소리를 따로 고르지 않아도 기본 경보음을 재생합니다. 기존 표시 지연·추적 조건·판정 주기·글꼴·표시 레이어 설정을 화면에 추가했습니다. 타겟 스펠 소리는 대상 판정이 공개 값일 때만 재생하며 비밀값은 사용하지 않습니다.
+- **쐐기돌 도우미:** 모듈과 하위 어픽스 진단, 전용 메뉴·명령어·로드 참조를 삭제했습니다.
+
+- **공허핵 도우미:** 영웅·신화 공격대와 쐐기 밖의 공허핵 보상은 BIS·진입 확인·개별 구렁/사냥 설정과 관계없이 자동 포기합니다. 진입 확인창은 영웅·신화 공격대와 쐐기에서만 표시합니다. 해당 콘텐츠의 기존 BIS 판정과 쐐기 10단 조건, 일반 전리품은 유지합니다.
+
+### English
+
+- **Settings:** Removed explanatory copy, help tooltips, empty tabs and duplicate enable switches. Related sound controls and small sections are grouped together, and controls are hidden when the selected design cannot use them. The module-header switch is the sole enable control.
+- **Narrow settings windows:** Section tabs wrap to fit their labels and the available width. Resizing preserves the selected tab and updates the layout without recreating controls.
+- **Opening settings:** Fixed section tabs stacking vertically and overlapping other areas during the opening animation.
+- **Combat Timer:** Added a separate fractional-seconds font size; 0 retains automatic sizing. Fixed inverted text opacity when choosing colors and applied color changes immediately. If an existing timer is already transparent, set its text opacity to 100% once to restore it.
+- **Ready checks:** Added dedicated consumable/equipment icons and remaining time, with compact personal checks and raid response summaries. Raid windows list not-ready and pending players separately; automatically opened windows close when all readiness checks pass.
+- **Edit mode:** Moved position, lock and position-reset controls into the shared editor. Fixed saving Party Application Alert positions and added both Mail Alert designs while preserving existing placement.
+- **Setting updates:** Fixed Party Tracker activation and live updates for separate mana bars and the Bloodlust icon, Item Level reset, Death Alert font selection, square cursor-texture persistence and Notepad button refresh. Death and durability alerts now use a default warning sound when no sound is selected. Exposed existing delay, tracking conditions, polling, font and frame-layer settings. Target Spell sounds use only public target checks; secret values are never branched on.
+- **Keystone Helper:** Removed the module, its affix diagnostics, dedicated menu, commands and load references.
+
+- **Voidcore Helper:** Automatically declines Voidcore rewards outside Heroic/Mythic raids and Mythic Keystones regardless of BIS, entry consent or individual Delve/Prey settings. Entry confirmation appears only in Heroic/Mythic raids and Keystones. Existing BIS checks, the Keystone +10 threshold and ordinary loot are unchanged.
+
+## 2.2.1
+
+Release date: 2026-10-06
+Scope: Changes after the 2.2.0 release commit 2a90459 through this release.
+
+### English Patch Notes
+
+- **Edit Mode:** Added the shared edit remote with frame selection, X/Y entry, keyboard nudging, undo/redo, grid and snapping controls. Open it from the settings title bar or `/ddt edit`. Footer buttons are centered and shrink when space is limited; entering combat exits edit mode, and a normal exit returns to the settings window when it was open.
+- **Combat Timer:** Added one- or two-digit fractional seconds. The combat timer and combat-state alerts use the same combat start/end state, and the final timer value stops at the end of combat rather than including the end-confirmation delay.
+- **Party Tracker Commands:** Removed `/pt`, `/partytracker`, `/ddt party` and `/ddt tracker`. Party tracking, its settings and its edit-mode frames remain available.
+- **Settings Window:** The window can be moved partly off screen while keeping a visible area available for dragging. The title-bar edit button shows whether edit mode is active.
+
+### Korean Patch Notes
+
+- **편집 모드:** 프레임 선택, X/Y 입력, 키보드 이동, 실행 취소·다시 실행, 격자·스냅을 제공하는 공통 리모컨을 추가했습니다. 설정창 제목줄이나 `/ddt edit`로 열 수 있습니다. 하단 버튼은 가운데 정렬되며 공간이 좁으면 너비를 줄입니다. 전투에 들어가면 종료되며, 설정창에서 진입했다면 일반 종료 후 설정창으로 돌아갑니다.
+- **전투 타이머:** 소수점 한 자리·두 자리 표시를 추가했습니다. 전투 타이머와 전투 상태 알림이 같은 시작·종료 기준을 사용하며, 최종 시간에 전투 종료 확인을 위한 대기 시간이 더해지지 않도록 조정했습니다.
+- **파티트래커 명령어:** `/pt`, `/partytracker`, `/ddt party`, `/ddt tracker`를 제거했습니다. 파티 추적 기능과 설정, 편집 모드 프레임은 유지합니다.
+- **설정창:** 화면 밖으로 일부 이동할 수 있으며, 다시 드래그할 수 있는 영역은 남겨 둡니다. 제목줄의 편집 버튼에서 현재 편집 상태를 확인할 수 있습니다.
+
 ## 2.2.0
 
 Release date: 2026-09-30

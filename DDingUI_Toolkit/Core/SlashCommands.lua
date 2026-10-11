@@ -80,28 +80,6 @@ local function SlashHandler(msg)
             DDingToolKit:OpenConfig("Notepad")
         end
 
-    elseif command == "tp" or command == "teleport" then
-        -- 던전 텔레포트 (신화+ 탭 열기)
-        local mythicPlusHelper = ns.MythicPlusHelper
-        if mythicPlusHelper and mythicPlusHelper.Toggle then
-            mythicPlusHelper:Toggle()
-        else
-            -- PVE 프레임 직접 열기
-            PVEFrame_ToggleFrame("ChallengesFrame")
-        end
-
-    elseif command == "affix" then
-        ns.AffixProbe:Command(arg)
-
-    elseif command == "party" or command == "tracker" then
-        -- 파티 트래커 테스트 모드
-        local partyTracker = ns.PartyTracker
-        if partyTracker and partyTracker.TestMode then
-            partyTracker:TestMode()
-        else
-            DDingToolKit:OpenConfig("PartyTracker")
-        end
-
     elseif command == "enable" then
         -- 모듈 활성화
         if arg and arg ~= "" then
@@ -151,7 +129,7 @@ local function SlashHandler(msg)
         }
         StaticPopup_Show("DDINGTOOLKIT_RESET_CONFIRM")
 
-    elseif command == "move" or command == "unlock" then
+    elseif command == "move" or command == "unlock" or command == "edit" then -- [STYLE] C12: "edit" alias
         -- 편집 모드 (Movers) 토글
         if ns.ToolkitMovers then
             ns.ToolkitMovers:ToggleConfigMode()
@@ -172,13 +150,10 @@ local function SlashHandler(msg)
         print("  /ddt trail toggle - Toggle cursor trail")
         print("  /ddt ilvl - Open ItemLevel settings")
         print("  /ddt notepad - Open Notepad")
-        print("  /ddt tp - Open M+ Teleport window")
-        print("  /ddt affix - Affix signal diagnostic commands")
-        print("  /ddt party - Toggle PartyTracker test mode")
         print("  /ddt enable <module> - Enable module")
         print("  /ddt disable <module> - Disable module")
         print("  /ddt list - List all modules")
-        print("  /ddt move - 편집 모드 토글 (프레임 위치 조정)")
+        print("  /ddt edit (move, unlock) - 편집 모드 토글 (프레임 위치 조정)")
         print("  /ddt reset - Reset all settings")
     end
 end
